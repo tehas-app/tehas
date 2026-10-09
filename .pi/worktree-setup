@@ -1,0 +1,6 @@
+#!/bin/sh
+# pi-rukas worktree provisioning. Invoked as `sh .pi/worktree-setup` with the
+# new worktree as cwd, no arguments and no environment.
+#
+# This repository needs nothing installed: the gates run from tracked files.
+exit 0

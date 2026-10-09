@@ -1,0 +1,386 @@
+#!/usr/bin/env bash
+# Build the Protolab: a page for every ticket at the prototype stage, with the
+# files attached to the ticket beside it. Written to $TEHAS_HOME/protolab,
+# which the Protolab container serves on port 8081 (edge/protolab.compose.yaml).
+#
+# A ticket is at the prototype stage while it is open and labelled
+# tehas:prototype. Its page has the title, a link to the issue on GitHub and
+# the attached files: images and videos shown as they are, HTML files shown in
+# a frame, and the style sheets, scripts and data an HTML file refers to beside
+# them. Everything is static. Nothing here runs a prototype.
+#
+#   which files     Only links to GitHub's own attachment storage, in the issue
+#                   text and its comments, written by an owner, member or
+#                   collaborator of the repository. Nothing else is fetched.
+#   which types     png jpg gif webp svg avif, mp4 webm mov, html htm, and
+#                   css js mjs json txt. An archive is not unpacked.
+#   how much        10 megabytes a ticket, counted in the order the files were
+#                   attached, and at most 40 files. What does not fit is left
+#                   out and the page says so.
+#   when it goes    The page and its files are removed when the ticket is
+#                   closed or loses the label. GitHub keeps the originals.
+#
+# A ticket whose issue has not changed since the last run is left alone, so a
+# run with nothing new makes one GitHub call. Deterministic, no model.
+#
+# It also writes $TEHAS_HOME/live/protolab.json, the list the dashboard links
+# from. TEHAS_PROTOLAB_URL in instance.env is the address people reach the
+# Protolab at, when that is not port 8081 of the dashboard's own host.
+#
+# Usage: tehas-protolab     (one line per ticket built or removed; exit 0 even
+#                            when GitHub is down, what is there is then left in
+#                            place; exit 78 when the instance settings are
+#                            invalid; exit 1 when it cannot write)
+set -uo pipefail
+umask 022
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/config.sh
+. "$here/../lib/config.sh"
+tehas_load || exit 78
+tehas_require TEHAS_REPO
+repo=$TEHAS_REPO
+label=tehas:prototype
+limit=$((10 * 1024 * 1024))
+max_files=40
+site=$TEHAS_HOME/protolab
+live=$TEHAS_HOME/live
+work=$site/.work
+# A changed generator rebuilds every page.
+gen=$(cksum <"${BASH_SOURCE[0]}" | tr ' ' '-')
+
+mkdir -p "$site" "$live" || exit 1
+rm -rf "$work"
+mkdir -p "$work" || exit 1
+trap 'rm -rf "$work"' EXIT
+
+token=${GH_TOKEN:-}
+[ -n "$token" ] || token=$(gh auth token 2>/dev/null) || token=""
+
+# --- The attachment links of one ticket --------------------------------------
+# Input: $t the ticket, $c its comments. Only text by people of the repository
+# counts; links by anyone else are counted, not fetched.
+# shellcheck disable=SC2016  # a jq program: the variables are jq's
+find_refs='
+  def links: [scan("https://(?:github\\.com/user-attachments/(?:assets|files)/|github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(?:assets|files)/[0-9]+/|user-images\\.githubusercontent\\.com/)[A-Za-z0-9._~%/?&=+-]+")];
+  def uniq: reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end);
+  def ours: IN("OWNER", "MEMBER", "COLLABORATOR");
+  ([{who: $t.association, text: $t.body}]
+    + [$c[] | {who: .author_association, text: (.body // "")}]) as $texts
+  | {refs: ([$texts[] | select(.who | ours) | .text | links[]] | uniq),
+     outside: ([$texts[] | select(.who | ours | not) | .text | links[]] | uniq | length)}'
+
+# --- The pages ---------------------------------------------------------------
+# One program for both: $mode "ticket" reads one ticket, "index" a list of them.
+# Every value from GitHub goes through @html; file names are already reduced to
+# letters, digits, dot, dash and underscore.
+# shellcheck disable=SC2016  # a jq program: the variables are jq's
+render='
+  def h: tostring | @html;
+  def size: if . >= 1048576 then "\(((. / 104857.6) | round) / 10) MB"
+            elif . >= 1024 then "\((. / 1024) | round) KB"
+            else "\(.) B" end;
+  def day: (try (fromdateiso8601 | strftime("%d %b %Y") | ascii_upcase) catch "-");
+  def plural($one; $many): "\(.) \(if . == 1 then $one else $many end)";
+  def issue: if (.url // "" | startswith("https://github.com/")) then .url else null end;
+  # Ten blocks, one for each started tenth of the limit in use.
+  def meter: ((.bytes * 10 / $limit) | ceil) as $on
+    | "<span class=\"lab-meter\" aria-hidden=\"true\">"
+      + ([range(10) | if . < $on then "<i class=\"on\"></i>" else "<i></i>" end] | join(""))
+      + "</span>";
+
+  def top($title; $menu):
+    "<!doctype html>\n<html lang=\"en\">\n<head>\n"
+    + "  <meta charset=\"utf-8\">\n"
+    + "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+    + "  <meta name=\"robots\" content=\"noindex, nofollow\">\n"
+    + "  <meta name=\"theme-color\" content=\"#694\">\n"
+    + "  <title>\($title | h) - Protolab</title>\n"
+    + "  <link rel=\"icon\" type=\"image/svg+xml\" href=\"/fun/favicon.svg\">\n"
+    + "  <link rel=\"preload\" href=\"/fun/TopazPlus_a1200_v1.0.ttf\" as=\"font\" type=\"font/ttf\" crossorigin>\n"
+    + "  <link rel=\"stylesheet\" href=\"/fun/game-view.css\">\n"
+    + "  <link rel=\"stylesheet\" href=\"/fun/protolab.css\">\n"
+    + "</head>\n<body id=\"top\">\n"
+    + "  <a class=\"skip\" href=\"#page\">Skip to the page</a>\n"
+    + "  <header class=\"topbar topbar-short\">\n"
+    + "    <a class=\"brand\" href=\"/\" aria-label=\"Protolab, every prototype\">\n"
+    + "      <img src=\"/fun/factory.svg\" width=\"80\" height=\"50\" alt=\"\">\n"
+    + "      <span>PROTOLAB</span>\n"
+    + "    </a>\n"
+    + "    <nav class=\"menu\" aria-label=\"Site\">\n"
+    + "      <a href=\"/\">ALL PROTOTYPES</a>\n" + $menu
+    + "    </nav>\n"
+    + "  </header>\n"
+    + "  <main class=\"lab-stage\" id=\"page\">\n";
+
+  def bottom:
+    "  </main>\n"
+    + "  <footer class=\"footer\">\n"
+    + "    <p class=\"footer-note\">The Protolab holds tickets at the prototype stage: open issues labelled tehas:prototype. The files are copies of what is attached to the issue, at most \($limit | size) a ticket. This view is read-only; a page goes when its ticket is closed or loses the label.</p>\n"
+    + "    <div class=\"ascii\"><pre role=\"img\" aria-label=\"Tehas ASCII art logo\">"
+    + ("       __________________________.____    _________    ______\n"
+       + "       \\___     ___/  __    /    |    \\ _/    _    \\ _/   __/__\n"
+       + "__ __/\\ _/       \\_   \\____/__   _     \\__   _/     \\\\______   \\_ /\\___ ___ _\n"
+       + "       \\____     /____      /___|      //___\\       /      ____/\n"
+       + " - --------l____/----l_____/----l_____/------\\_____/_______/-----sQ!-- -- -" | h)
+    + "</pre></div>\n"
+    + "    <p class=\"credit\">ASCII ART: <a href=\"https://demozoo.org/sceners/26586/\" target=\"_blank\" rel=\"noopener noreferrer\">SQUAREPUSHER / TEHDAS</a>. PIXEL TYPE: <a href=\"https://github.com/rewtnull/amigafonts\" target=\"_blank\" rel=\"noopener noreferrer\">TOPAZPLUS A1200</a>, TRUETYPE VERSION BY DMG OF TRUESCHOOL AND DIVINE STYLERS. TOPAZ IS COPYRIGHT AMIGAINC.</p>\n"
+    + "  </footer>\n</body>\n</html>";
+
+  def caption($kind; $src; $open):
+    "<figcaption><span class=\"asset-name\">\(.name | h)</span>"
+    + "<span class=\"asset-fact\">\($kind), \(.bytes | size | ascii_upcase)</span>"
+    + "<a href=\"\($src)\" target=\"_blank\" rel=\"noopener noreferrer\" aria-label=\"Open \(.name | h) by itself\">\($open)</a></figcaption>";
+
+  def asset:
+    ("files/" + (.name | @uri)) as $src
+    | if .kind == "image" then
+        "        <figure class=\"asset\"><a class=\"asset-view\" href=\"\($src)\"><img src=\"\($src)\" alt=\"Image \(.name | h), attached to the ticket\" loading=\"lazy\"></a>"
+        + caption("IMAGE"; $src; "OPEN") + "</figure>\n"
+      elif .kind == "video" then
+        "        <figure class=\"asset\"><div class=\"asset-view\"><video src=\"\($src)\" controls preload=\"metadata\" aria-label=\"Video \(.name | h), attached to the ticket\"></video></div>"
+        + caption("VIDEO"; $src; "OPEN") + "</figure>\n"
+      else
+        "        <figure class=\"asset asset-app\"><div class=\"asset-view\"><iframe src=\"\($src)\" title=\"HTML prototype \(.name | h)\" sandbox=\"allow-scripts allow-forms allow-modals allow-pointer-lock\" loading=\"lazy\"></iframe></div>"
+        + caption("HTML"; $src; "OPEN FULL SIZE") + "</figure>\n"
+      end;
+
+  def part:
+    ("files/" + (.name | @uri)) as $src
+    | "          <li><span>\(.name | h)</span><span class=\"asset-fact\">\(.bytes | size | ascii_upcase)</span>"
+      + "<a href=\"\($src)\" target=\"_blank\" rel=\"noopener noreferrer\">OPEN</a></li>\n";
+
+  def ticket:
+    issue as $issue
+    | ([.files[] | select(.kind != "part")]) as $shown
+    | ([.files[] | select(.kind == "part")]) as $parts
+    | top("#\(.number) \(.title)";
+          if $issue then "      <a class=\"repo\" href=\"\($issue | h)\" target=\"_blank\" rel=\"noopener noreferrer\">TICKET ON GITHUB</a>\n" else "" end)
+    + "    <section class=\"lab-ticket\" aria-labelledby=\"ticket-title\">\n"
+    + "      <p class=\"lab-box-head\"><span>PROTOTYPE</span><b>#\(.number)</b></p>\n"
+    + "      <div class=\"lab-ticket-body\">\n"
+    + "        <h1 id=\"ticket-title\">\(.title | h)</h1>\n"
+    + "        <dl class=\"lab-facts\">\n"
+    + "          <div><dt>OPENED BY</dt><dd>\(.author // "-" | h)</dd></div>\n"
+    + "          <div><dt>CHANGED</dt><dd>\(.updatedAt | day)</dd></div>\n"
+    + "        </dl>\n"
+    + (if $issue then "        <p><a class=\"button button-primary\" href=\"\($issue | h)\" target=\"_blank\" rel=\"noopener noreferrer\">OPEN THE TICKET ON GITHUB</a></p>\n" else "" end)
+    + "      </div>\n"
+    + "    </section>\n"
+    + "    <section class=\"lab-box\" id=\"assets\" aria-labelledby=\"assets-title\">\n"
+    + "      <div class=\"lab-box-head\"><h2 id=\"assets-title\">ASSETS</h2>"
+    + "<p>\(.files | length | plural("FILE"; "FILES")), \(.bytes | size | ascii_upcase) OF \($limit | size | ascii_upcase) \(meter)</p></div>\n"
+    + "      <div class=\"lab-box-body\">\n"
+    + (if (.files | length) == 0 then
+        "        <p class=\"lab-note\">No image, video or HTML file is attached to this ticket. Attach one to the issue on GitHub and it is here within a few minutes.</p>\n"
+       else "" end)
+    + ($shown | map(asset) | join(""))
+    + (if ($parts | length) > 0 then
+        "        <div class=\"lab-list\"><h3>FILES THE HTML USES</h3>\n        <ul>\n" + ($parts | map(part) | join("")) + "        </ul></div>\n"
+       else "" end)
+    + (if (.skipped | length) > 0 or .outside > 0 then
+        "        <div class=\"lab-list\"><h3>LEFT OUT</h3>\n        <ul>\n"
+        + (.skipped | map("          <li><span>\(.name | h)</span><span class=\"asset-fact\">\(.reason | h)</span></li>\n") | join(""))
+        + (if .outside > 0 then "          <li><span>\(.outside | plural("link"; "links")) from outside the repository</span><span class=\"asset-fact\">Only files attached by an owner, member or collaborator are taken.</span></li>\n" else "" end)
+        + "        </ul></div>\n"
+       else "" end)
+    + "      </div>\n"
+    + "    </section>\n"
+    + bottom;
+
+  def row:
+    "          <li><a class=\"row\" href=\"/\(.number)/\"><b>#\(.number)</b><span class=\"row-title\">\(.title | h)</span>"
+    + "<span class=\"row-stage\">\(if (.files | length) == 0 then "NO FILES" else "\(.files | length | plural("FILE"; "FILES")), \(.bytes | size | ascii_upcase)" end)</span></a></li>\n";
+
+  def front:
+    top("Prototypes"; "")
+    + "    <section class=\"lab\" aria-labelledby=\"lab-title\">\n"
+    + "      <div class=\"lab-head\"><h1 id=\"lab-title\">PROTOLAB</h1><p>\(length | plural("PROTOTYPE"; "PROTOTYPES"))</p></div>\n"
+    + "      <div class=\"lab-body\">\n"
+    + "        <ul class=\"rows\">\n"
+    + (if length == 0 then "          <li class=\"rows-note\">Nothing in the lab. Label an open ticket tehas:prototype to put it here.</li>\n"
+       else (map(row) | join("")) end)
+    + "        </ul>\n"
+    + "        <figure class=\"lab-scene\">\n"
+    + "          <img src=\"/fun/scene-lab.svg\" width=\"400\" height=\"280\" alt=\"Through an office window: one colleague has an idea, a second sketches it in a notebook, and a third reads it and passes it on.\">\n"
+    + "          <figcaption>Each ticket has a page with its title, a link to the issue and the images, videos and HTML files attached to it.</figcaption>\n"
+    + "        </figure>\n"
+    + "      </div>\n"
+    + "    </section>\n"
+    + bottom;
+
+  if $mode == "ticket" then ticket else front end'
+
+# --- One file ----------------------------------------------------------------
+# kind_of <extension>: how the page shows a file of that type; fails for a type
+# the lab does not host.
+kind_of() {
+  case "$1" in
+    png | jpg | jpeg | gif | webp | svg | avif) echo image ;;
+    mp4 | webm | mov) echo video ;;
+    html | htm) echo app ;;
+    css | js | mjs | json | txt) echo part ;;
+    *) return 1 ;;
+  esac
+}
+# ext_of <content type>: an image or video pasted into an issue has no name, so
+# its type is the one GitHub's storage answers with.
+ext_of() {
+  case "${1%%;*}" in
+    image/png) echo png ;;
+    image/jpeg) echo jpg ;;
+    image/gif) echo gif ;;
+    image/webp) echo webp ;;
+    image/svg+xml) echo svg ;;
+    image/avif) echo avif ;;
+    video/mp4) echo mp4 ;;
+    video/webm) echo webm ;;
+    video/quicktime) echo mov ;;
+    *) return 1 ;;
+  esac
+}
+# fetch <address> <file> <most bytes>: download, print the content type. The
+# token goes to github.com only, and on standard input, not the command line;
+# curl does not pass it on when GitHub redirects to its storage.
+fetch() {
+  local args=(-sSfL --proto '=https' --proto-redir '=https' --max-redirs 3 --max-time 120
+    --max-filesize "$3" -o "$2" -w '%{content_type}')
+  case "$1" in
+    https://github.com/*)
+      if [ -n "$token" ]; then
+        curl "${args[@]}" -H @- "$1" <<<"Authorization: Bearer $token"
+        return
+      fi
+      ;;
+  esac
+  curl "${args[@]}" "$1" </dev/null
+}
+
+# --- One ticket --------------------------------------------------------------
+# build <number> <ticket JSON> <stamp>: make $work/<number> and put it in place.
+# Returns 1 when the ticket could not be read; what is there is then kept.
+build() {
+  local n=$1 ticket=$2 stamp=$3 dir=$work/$1 comments='[]' found ref name ext kind type size rc
+  local used=0 count=0 unnamed=0 retry=0 left named i
+  mkdir -p "$dir/files" || return 1
+  : >"$dir/.files"
+  : >"$dir/.skipped"
+  skip() { jq -n -c --arg name "$1" --arg reason "$2" '{name: $name, reason: $reason}' >>"$dir/.skipped"; }
+
+  if [ "$(jq -r '.comments // 0' <<<"$ticket")" != 0 ]; then
+    comments=$(gh api "repos/$repo/issues/$n/comments?per_page=100" 2>/dev/null) || return 1
+    jq -e 'type == "array"' <<<"$comments" >/dev/null 2>&1 || return 1
+  fi
+  found=$(jq -n -c --argjson t "$ticket" --argjson c "$comments" "$find_refs") || return 1
+
+  while IFS= read -r ref; do
+    [ -n "$ref" ] || continue
+    name=${ref##*/}
+    name=$(printf '%s' "${name%%\?*}" | tr -c 'A-Za-z0-9._-' '-' | sed 's/^[.-]*//' | cut -c1-80)
+    [ -n "$name" ] || name="file"
+    case "$ref" in
+      https://github.com/user-attachments/assets/* | https://github.com/*/assets/*) named=0 ;;
+      *) named=1 ;;
+    esac
+    if [ "$named" = 1 ]; then
+      ext=""
+      case "$name" in *.*) ext=${name##*.} ;; esac
+      ext=${ext,,}
+      kind=$(kind_of "$ext") || { skip "$name" "Not a type the lab hosts."; continue; }
+    fi
+    if [ "$count" -ge "$max_files" ]; then skip "$name" "More than $max_files files."; continue; fi
+    left=$((limit - used))
+    if [ "$left" -le 0 ]; then skip "$name" "Over the 10 MB limit of a ticket."; continue; fi
+
+    rm -f "$dir/.part"
+    type=$(fetch "$ref" "$dir/.part" "$left")
+    rc=$?
+    case "$rc" in
+      0) ;;
+      63) skip "$name" "Over the 10 MB limit of a ticket."; continue ;;
+      22) skip "$name" "GitHub did not hand it out."; continue ;;
+      *) skip "$name" "Could not be fetched. The lab tries again."; retry=1; continue ;;
+    esac
+    size=$(stat -c %s "$dir/.part" 2>/dev/null) || size=0
+    if [ "$size" = 0 ]; then skip "$name" "Empty."; continue; fi
+    if [ "$size" -gt "$left" ]; then skip "$name" "Over the 10 MB limit of a ticket."; continue; fi
+    if [ "$named" = 0 ]; then
+      ext=$(ext_of "$type") || { skip "$name" "Not a type the lab hosts."; continue; }
+      kind=$(kind_of "$ext")
+      unnamed=$((unnamed + 1))
+      name=$kind-$unnamed.$ext
+    fi
+    # Two attachments may carry one name.
+    i=2
+    while [ -e "$dir/files/$name" ]; do
+      name=$i-${name#[0-9]-}
+      i=$((i + 1))
+    done
+    mv "$dir/.part" "$dir/files/$name" || return 1
+    chmod 644 "$dir/files/$name"
+    used=$((used + size))
+    count=$((count + 1))
+    jq -n -c --arg name "$name" --arg kind "$kind" --argjson bytes "$size" \
+      '{name: $name, kind: $kind, bytes: $bytes}' >>"$dir/.files"
+  done < <(jq -r '.refs[]' <<<"$found")
+
+  jq -n --argjson t "$ticket" --argjson found "$found" --slurpfile files "$dir/.files" \
+    --slurpfile skipped "$dir/.skipped" '
+    ($t | {number, title, url, author, updatedAt})
+    + {files: $files, skipped: $skipped, outside: $found.outside, bytes: ($files | map(.bytes) | add // 0)}' \
+    >"$dir/.meta.json" || return 1
+  jq -r --arg mode ticket --argjson limit "$limit" "$render" "$dir/.meta.json" >"$dir/index.html" || return 1
+  rm -f "$dir/.part" "$dir/.files" "$dir/.skipped"
+  # Without a stamp the next run builds the ticket again.
+  [ "$retry" = 1 ] || printf '%s\n' "$stamp" >"$dir/.stamp"
+
+  rm -rf "$site/.old"
+  if [ -d "$site/$n" ]; then mv "$site/$n" "$site/.old" || return 1; fi
+  mv "$dir" "$site/$n" || return 1
+  rm -rf "$site/.old"
+  echo "#$n: $(jq -r '"\(.files | length) files, \(.bytes) bytes, \(.skipped | length) left out"' "$site/$n/.meta.json")"
+}
+
+# --- Every ticket at the prototype stage -------------------------------------
+# The first hundred; a failed or odd answer leaves everything as it is.
+issues=$(gh api "repos/$repo/issues?state=open&labels=$label&per_page=100" 2>/dev/null) || exit 0
+tickets=$(jq -c '
+  if type != "array" then error("not a list") else . end
+  | map(select(.pull_request == null and (.number | type) == "number" and (.title | type) == "string")
+        | {number, title: .title[0:180], url: .html_url, author: .user.login,
+           association: .author_association, updatedAt: .updated_at, comments, body: (.body // "")})
+  | sort_by(-.number) | .[]' <<<"$issues" 2>/dev/null) || exit 0
+
+keep=" "
+while IFS= read -r ticket; do
+  [ -n "$ticket" ] || continue
+  n=$(jq -r .number <<<"$ticket")
+  keep="$keep$n "
+  stamp="$gen $(jq -r .updatedAt <<<"$ticket")"
+  if [ -f "$site/$n/.stamp" ] && [ "$(cat "$site/$n/.stamp")" = "$stamp" ]; then continue; fi
+  build "$n" "$ticket" "$stamp" || echo "#$n: could not be read, left as it was"
+done <<<"$tickets"
+
+for dir in "$site"/*/; do
+  [ -d "$dir" ] || continue
+  n=$(basename "$dir")
+  case "$n" in *[!0-9]* | "") continue ;; esac
+  case "$keep" in *" $n "*) continue ;; esac
+  rm -rf "$dir" && echo "#$n: no longer at the prototype stage, removed"
+done
+
+# --- The list: the lab's front page and the dashboard's file -----------------
+metas=()
+for f in "$site"/*/.meta.json; do
+  [ -f "$f" ] && metas+=("$f")
+done
+all=$(jq -s -c 'sort_by(-.number)' "${metas[@]}" </dev/null) || exit 1
+jq -r --arg mode index --argjson limit "$limit" "$render" <<<"$all" >"$site/index.html.new" || exit 1
+mv "$site/index.html.new" "$site/index.html" || exit 1
+jq -n --argjson all "$all" --arg now "$(date -u +%FT%TZ)" --arg url "${TEHAS_PROTOLAB_URL:-}" \
+  --argjson limit "$limit" '
+  {generatedAt: $now, url: $url, limitBytes: $limit,
+   tickets: ($all | map({number, title, url, files: (.files | length), bytes}))}' \
+  >"$live/protolab.json.new" || exit 1
+mv "$live/protolab.json.new" "$live/protolab.json" || exit 1
+exit 0

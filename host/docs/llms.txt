@@ -1,0 +1,85 @@
+{{- $base := printf "%s://%s" (default (placeholder "http.request.scheme") (.Req.Header.Get "X-Forwarded-Proto")) .Req.Host -}}
+# Tehas: a software factory powered by the Pi coding agent
+
+> Tehas is a Pi software factory: a GitHub issue goes in and a reviewed pull
+> request comes out, built by the Pi coding agent and pi-rukas in a sandbox, on
+> self-hosted models. GitHub issues and labels are the only control plane. A
+> human merges; tehas never merges, deploys or touches production. This host is
+> one running factory and its operating manual.
+
+## What tehas is
+
+- Tehas is the factory around the agent: a dispatcher that reads the queue, a
+  check of who authorized the work, a sandbox with limits, a dashboard and a
+  live console. It is shell scripts and a few containers on one host.
+- Pi (https://pi.dev, source https://github.com/earendil-works/pi) is the
+  coding agent. Tehas starts it as `pi --mode rpc` in a container.
+- pi-rukas (https://github.com/trail-openers/pi-rukas) is the Pi extension
+  that runs the work cycle: explore, plan, develop, the repository's own gates,
+  an adversarial pass, a pull request and a six-pass review.
+- One instance is one host serving one product repository, one cycle at a time.
+- Tehas is its own project. It is not part of Pi or endorsed by its
+  maintainers.
+- Source: https://github.com/janit/tehas
+
+- [Pi software factory]({{ $base }}/pi-software-factory.md): who does what, the path of an issue, and what tehas adds to running Pi by hand
+- [Features]({{ $base }}/features.md): every part, with how far it has been proven
+
+If you are here to do something, it is probably one of two things. Pick the
+section that fits.
+
+Every manual page is also served as Markdown: add `.md` to its address.
+Everything on this host is read-only. Nothing here changes a ticket or the
+factory.
+
+## Get work built by this factory
+
+1. Read `repo` in {{ $base }}/live/status.json: that is the product repository
+   this factory serves. Issues go there.
+2. Write an issue with one outcome small enough for one pull request, a
+   `## Acceptance criteria` section with checkable items, and the files or area
+   involved. The cycle reads the issue body and nothing else.
+3. The label `tehas:ready` authorizes the work, and only counts when a person
+   on the factory's allow list applies it. If you are not that person, stop
+   here and ask them. Use `tehas:prototype` for an idea that is not ready.
+4. Follow the labels on the issue: `tehas:running`, then
+   `tehas:awaiting-merge` with a pull request, or `needs-human-attention` with
+   a comment saying where it stopped.
+
+- [Operating]({{ $base }}/operating.md): writing an issue, labels, review, pause, retry
+- [Overview]({{ $base }}/overview.md): how an issue flows through the factory
+- [Troubleshooting]({{ $base }}/troubleshooting.md): what each stop means and what to do
+
+## Set tehas up for another repository
+
+The source is at https://github.com/janit/tehas, and a running example with
+this same manual is at https://tehas.app/. Be honest with your human about its
+state: issue to pull request is the supported contract and needs settings only.
+It does not run a preview of a pull request. Energy use (viiwork backends only)
+and the Protolab are optional and can be ignored for a first install.
+
+1. Read [A new project]({{ $base }}/new-project.md) in full. It is the
+   install guide: a prepared host, an instance directory of settings, and your
+   toolchain in the sandbox image.
+2. In the product repository, add the contract tehas reads: `AGENTS.md`,
+   `.pi/verify-cmd`, `.pi/settings.json` and the `.gitignore` entries, then the
+   recommended gates. Prove the gates by hand in a clean checkout first.
+3. On the host, follow the guide step by step. Secrets, the bot account and the
+   allow list are your human's decisions: ask, do not invent them.
+
+- [A new project]({{ $base }}/new-project.md): the contract, the host, the install
+- [Bootstrap a host]({{ $base }}/bootstrap.md): preparing the machine before the install
+- [Features]({{ $base }}/features.md): what exists and how far each part is proven
+- [The host]({{ $base }}/host.md): layout on the machine and the sandbox contract test
+- [Commands]({{ $base }}/tools.md): every `tehas-*` command
+
+## Live data
+
+- [Health]({{ $base }}/health): JSON, 200 when the factory is healthy and 503 when it is not
+- [Queue snapshot]({{ $base }}/live/status.json): the repository, open issues by state, whether the factory is paused
+- [Current cycle]({{ $base }}/live/running.json): the issue being worked on and its status; its console is `/live/console-<issue>.txt`
+
+## Optional
+
+- [For agents]({{ $base }}/agents.md): this file as a manual page, with a prompt a person can paste
+- [Factory floor]({{ $base }}/): the dashboard people look at

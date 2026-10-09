@@ -1,0 +1,46 @@
+# The Protolab: a page for every ticket at the prototype stage and the files
+# attached to it, as tehas-protolab wrote them. Static files only, plain HTTP,
+# bound to the instance's TEHAS_HOST_ADDR in protolab.compose.yaml.
+#
+# It is a server of its own, on a port of its own, because a prototype is
+# somebody's HTML and script: it must not share an origin with the dashboard.
+{
+    auto_https off
+    admin off
+}
+:8081 {
+    root * /srv/protolab
+    header X-Robots-Tag "noindex, nofollow"
+    header X-Content-Type-Options "nosniff"
+    header Referrer-Policy "no-referrer"
+    # The pages are rebuilt in place; a browser asks again every time.
+    header Cache-Control "no-cache"
+    route {
+        # What tehas-protolab keeps for itself: stamps, lists, work in progress.
+        @kept path */.*
+        respond @kept 404
+        # The typeface, the style sheets and the sprites, shared with the
+        # dashboard. Its page and its scripts stay there.
+        @look path /fun/*.css /fun/*.ttf /fun/*.svg
+        handle @look {
+            uri strip_prefix /fun
+            root * /srv/fun
+            file_server
+        }
+        # A ticket's files, served as they are. The sandbox gives each one an
+        # origin of its own with nothing in it: no storage, no cookies, no way
+        # to read this server's other pages as itself. Scripts may run.
+        @files path_regexp ^/[0-9]+/files/.
+        handle @files {
+            header Content-Security-Policy "sandbox allow-scripts allow-forms allow-modals allow-pointer-lock"
+            # A sandboxed page asks for its own scripts and data as a stranger.
+            header Access-Control-Allow-Origin "*"
+            file_server
+        }
+        # The pages tehas-protolab wrote: no script, nothing from elsewhere.
+        handle {
+            header Content-Security-Policy "default-src 'none'; style-src 'self'; img-src 'self' data:; media-src 'self'; font-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'"
+            file_server
+        }
+    }
+}

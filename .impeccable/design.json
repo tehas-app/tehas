@@ -1,0 +1,206 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-08T18:00:00Z",
+  "title": "Design System: Tehas game view",
+  "extensions": {
+    "colorMeta": {
+      "brass": {
+        "role": "primary",
+        "displayName": "Brass"
+      },
+      "verdigris": {
+        "role": "secondary",
+        "displayName": "Verdigris"
+      },
+      "rust": {
+        "role": "secondary",
+        "displayName": "Rust"
+      },
+      "moss": {
+        "role": "neutral",
+        "displayName": "Moss"
+      },
+      "moss-shade": {
+        "role": "neutral",
+        "displayName": "Moss Shade"
+      },
+      "steel": {
+        "role": "neutral",
+        "displayName": "Steel"
+      },
+      "bone": {
+        "role": "neutral",
+        "displayName": "Bone"
+      },
+      "bone-shade": {
+        "role": "neutral",
+        "displayName": "Bone Shade"
+      },
+      "brass-light": {
+        "role": "neutral",
+        "displayName": "Brass Light"
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink"
+      },
+      "outline": {
+        "role": "neutral",
+        "displayName": "Outline"
+      },
+      "slate": {
+        "role": "neutral",
+        "displayName": "Slate"
+      },
+      "hairline": {
+        "role": "neutral",
+        "displayName": "Hairline"
+      },
+      "crt-black": {
+        "role": "neutral",
+        "displayName": "CRT Black"
+      },
+      "crt-amber": {
+        "role": "neutral",
+        "displayName": "CRT Amber"
+      },
+      "crt-dim": {
+        "role": "neutral",
+        "displayName": "CRT Dim"
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Page title, station names, counts, panel titles, the work order number."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Everything else. Capitals for labels and buttons, sentence case for ticket titles."
+      }
+    },
+    "shadows": [
+      {
+        "name": "card",
+        "value": "4px 4px 0 #333",
+        "purpose": "Buttons and the gate."
+      },
+      {
+        "name": "sign",
+        "value": "8px 8px 0 #6a6",
+        "purpose": "Signs and panels standing on grass."
+      },
+      {
+        "name": "ring",
+        "value": "0 0 0 4px #ea3",
+        "purpose": "The station whose tickets the board is showing."
+      }
+    ],
+    "motion": [],
+    "breakpoints": [
+      {
+        "name": "single-column",
+        "value": "1279px"
+      },
+      {
+        "name": "narrow",
+        "value": "899px"
+      },
+      {
+        "name": "phone",
+        "value": "699px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one action colour: the next thing to press.",
+      "html": "<button class=\"ds-btn-primary\">PLAY</button>",
+      "css": ".ds-btn-primary { min-height: 48px; padding: 0 16px; background: #ea3; color: #222; border: 4px solid #111; border-radius: 0; box-shadow: 4px 4px 0 #333; font: 16px/24px Topaz, 'Courier New', monospace; cursor: pointer; } .ds-btn-primary:hover { background: #fc6; } .ds-btn-primary:active { transform: translate(4px, 4px); box-shadow: none; } .ds-btn-primary:focus-visible { outline: 4px solid #222; outline-offset: 4px; }"
+    },
+    {
+      "name": "Button",
+      "kind": "button",
+      "refersTo": "button",
+      "description": "Supporting actions.",
+      "html": "<button class=\"ds-btn\">USE SAMPLE</button>",
+      "css": ".ds-btn { min-height: 48px; padding: 0 16px; background: #eec; color: #222; border: 4px solid #111; border-radius: 0; box-shadow: 4px 4px 0 #333; font: 16px/24px Topaz, 'Courier New', monospace; cursor: pointer; } .ds-btn:hover { background: #ccd; } .ds-btn:active { transform: translate(4px, 4px); box-shadow: none; } .ds-btn:focus-visible { outline: 4px solid #222; outline-offset: 4px; }"
+    },
+    {
+      "name": "Issue Row",
+      "kind": "custom",
+      "refersTo": "issue-row",
+      "description": "One ticket on the board: number, title, stage.",
+      "html": "<button class=\"ds-row\"><b>#9023</b><span>Try a compact factory health map</span><i>BUILDING</i></button>",
+      "css": ".ds-row { display: grid; grid-template-columns: 72px 1fr auto; gap: 16px; width: 100%; min-height: 48px; padding: 12px 16px; text-align: left; background: #eec; color: #222; border: 0; border-bottom: 1px solid #aab; font: 16px/24px Topaz, 'Courier New', monospace; cursor: pointer; } .ds-row b { font-weight: 400; color: #712; } .ds-row i { font-style: normal; color: #445; } .ds-row:hover { background: #ccd; } .ds-row:focus-visible { outline: 4px solid #222; outline-offset: -4px; }"
+    },
+    {
+      "name": "Search Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Filters the issue board.",
+      "html": "<input class=\"ds-input\" placeholder=\"NUMBER, WORD OR LABEL\">",
+      "css": ".ds-input { height: 48px; padding: 0 12px; background: #eec; color: #222; border: 4px solid #111; border-radius: 0; font: 16px/24px Topaz, 'Courier New', monospace; } .ds-input::placeholder { color: #445; } .ds-input:focus-visible { outline: 4px solid #222; outline-offset: 4px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Factory Floor",
+    "overview": "The page is a field with signboards standing on it, drawn as a 16-bit game would draw them. The pipeline is four stations in a row, read left to right: in line, building, review, shipped. The first screen is the whole status: four stations side by side, six doors beneath them, and the work order monitor on the right. Form follows Super Mario Bros. 3; colour follows The Chaos Engine, in 32 twelve-bit Amiga colours.",
+    "keyCharacteristics": [
+      "A mossy field with bone-faced signs: muted, metallic, never candy-bright.",
+      "Four stations in pipeline order. Position in the row is the status.",
+      "Square corners everywhere. Radius is zero.",
+      "4px near-black outlines on anything that is an object in the world.",
+      "Hard offset shadows with no blur.",
+      "One typeface, Topaz, at two sizes."
+    ],
+    "rules": [
+      {
+        "name": "The Flat Fill Rule",
+        "body": "Every fill is one solid colour. Gradients are prohibited, including on backgrounds and inside sprites.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Outline Rule",
+        "body": "Outlines are Outline and text is Ink. Nothing is outlined in a colour.",
+        "section": "colors"
+      },
+      {
+        "name": "The Position Rule",
+        "body": "Which station a ticket stands at says what state it is in. Colour never carries status by itself.",
+        "section": "colors"
+      },
+      {
+        "name": "The Two Sizes Rule",
+        "body": "Text is 16px or 32px, whole multiples of the face's native 8px grid. No other sizes, no clamp(), no letter-spacing, no bold and no italics.",
+        "section": "typography"
+      },
+      {
+        "name": "The No Blur Rule",
+        "body": "Every shadow has a blur radius of zero. If a shadow is soft, it is wrong.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do draw every new sprite and scene at the Super Mario Bros. 3 level of detail: flat fills, a dark outline, at most one highlight and one shade.",
+      "Do keep corners square and shadows hard (blur 0).",
+      "Do keep sizes and positions on the 8px grid, and show sprites at whole multiples of their native size.",
+      "Do make each object stand for something real in the pipeline.",
+      "Do say in the header whether the data is sample or real.",
+      "Do keep the Tehdas ASCII logo and its credit in the footer."
+    ],
+    "donts": [
+      "Don't add gamified productivity: no points, streaks, badges, leaderboards or confetti that score people or their work.",
+      "Don't drift toward the dark navy SaaS dashboard with stat tiles and cyan accents.",
+      "Don't let demoscene styling, other than the typeface, spread beyond the footer.",
+      "Don't add detail beyond the SMB3 level: gradients, soft shadows, smooth shading or high-resolution illustration mixed into pixel scenes.",
+      "Don't use border-radius, filter: blur, backdrop-filter, gradient text or a coloured stripe down one side of a box.",
+      "Don't invent progress: no fake commands, random verdicts or motion that implies work is happening.",
+      "Don't set text at any size other than 16px and 32px.",
+      "Don't let copy cheer. No exclamation marks."
+    ]
+  }
+}

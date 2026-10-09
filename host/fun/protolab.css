@@ -1,0 +1,102 @@
+/* The Protolab's own pages, as bin/tehas-protolab writes them: the list of
+   prototypes and one page a ticket, with the ticket's files in a box. Loaded
+   after game-view.css, which brings the typeface, the colours, the header
+   band, the rows and the footer. See DESIGN.md, "Protolab Page". */
+
+/* Two links fit beside the wordmark at every width but a phone's. */
+@media (min-width: 700px) and (max-width: 1279px) {
+  :root { --header: 80px; }
+  .topbar-short .menu { order: 0; flex-basis: auto; margin-left: auto; }
+}
+
+.lab-stage { max-width: 1488px; margin: 0 auto; padding: 32px 24px 0; }
+
+/* The list. The panel is the dashboard's; here it opens the page. */
+.lab-stage .lab { margin-top: 0; }
+.lab-stage a.row { text-decoration: none; }
+
+/* A ticket: a Bone sign with a Steel head, as on the board. */
+.lab-ticket, .lab-box { border: 4px solid var(--outline); box-shadow: var(--shadow-sign); }
+.lab-ticket { background: var(--bone); }
+.lab-box-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px 24px;
+  padding: 12px 16px;
+  background: var(--steel);
+  border-bottom: 4px solid var(--outline);
+}
+.lab-ticket .lab-box-head { font-size: 32px; line-height: 32px; }
+.lab-ticket .lab-box-head b { font-weight: 400; color: var(--rust); }
+.lab-ticket-body { display: grid; gap: 16px; justify-items: start; padding: 24px 16px; }
+.lab-ticket-body h1 { max-width: 40ch; overflow-wrap: anywhere; }
+.lab-facts { display: flex; flex-wrap: wrap; gap: 0 32px; }
+.lab-facts div { display: flex; gap: 16px; }
+.lab-facts dt { color: var(--slate); }
+.lab-facts dd { overflow-wrap: anywhere; }
+
+/* The box: everything attached to the ticket, on a Bone Shade ground. */
+.lab-box { margin-top: 40px; background: var(--bone-shade); scroll-margin-top: calc(var(--header) + 16px); }
+.lab-box-head p { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.lab-meter { display: inline-flex; gap: 4px; }
+.lab-meter i { width: 8px; height: 16px; background: var(--bone); box-shadow: 0 0 0 1px var(--slate) inset; }
+.lab-meter i.on { background: var(--slate); }
+.lab-box-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 448px), 1fr));
+  align-items: start;
+  gap: 24px;
+  padding: 24px;
+}
+.lab-note { grid-column: 1 / -1; max-width: 65ch; }
+
+/* One file in its frame: the picture on CRT Black, a Bone plate under it. */
+.asset { min-width: 0; margin: 0; background: var(--bone); border: 4px solid var(--outline); box-shadow: var(--shadow-card); }
+.asset-view { display: grid; place-items: center; background: var(--crt-black); border-bottom: 4px solid var(--outline); }
+.asset-view img, .asset-view video { display: block; max-width: 100%; height: auto; max-height: 560px; }
+.asset-view:focus-visible { outline-offset: -8px; outline-color: var(--crt-amber); }
+/* A prototype is a page: it gets the row to itself and a page's white ground. */
+.asset-app { grid-column: 1 / -1; }
+.asset-app iframe { display: block; width: 100%; height: 560px; border: 0; background: #fff; }
+.asset figcaption, .lab-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0 16px;
+  min-height: 48px;
+  padding: 0 0 0 16px;
+}
+.asset-name, .lab-list li span:first-child { padding: 12px 0; overflow-wrap: anywhere; }
+.asset-fact { color: var(--slate); }
+.asset figcaption a, .lab-list a {
+  display: grid;
+  place-items: center;
+  align-self: stretch;
+  min-width: 72px;
+  padding: 0 16px;
+  color: var(--verdigris);
+  text-underline-offset: 4px;
+}
+.asset figcaption a:hover, .lab-list a:hover { background: var(--steel); color: var(--ink); }
+.asset figcaption a:focus-visible, .lab-list a:focus-visible { outline-offset: -4px; }
+
+/* What is not a picture: the files an HTML page uses, and what was left out. */
+.lab-list { grid-column: 1 / -1; background: var(--bone); border: 4px solid var(--outline); }
+.lab-list h3 { padding: 8px 16px; background: var(--steel); border-bottom: 4px solid var(--outline); }
+.lab-list li { border-bottom: 1px solid var(--hairline); }
+.lab-list li:last-child { border-bottom: 0; }
+/* A reason is a sentence and has no link after it. */
+.lab-list li > .asset-fact:last-child { grid-column: 2 / -1; padding: 12px 16px 12px 0; text-align: right; }
+
+@media (max-width: 699px) {
+  .lab-stage { padding: 24px 16px 0; }
+  .lab-ticket-body h1 { font-size: 16px; line-height: 24px; }
+  .lab-box-body { gap: 16px; padding: 16px; }
+  .asset-app iframe { height: 480px; }
+  .asset figcaption, .lab-list li { grid-template-columns: minmax(0, 1fr) auto; }
+  .asset-name, .lab-list li span:first-child { grid-column: 1 / -1; padding-bottom: 0; }
+  .asset-fact { padding: 12px 0; }
+  .lab-list li > .asset-fact:last-child { grid-column: 1 / -1; padding: 0 16px 12px 0; text-align: left; }
+}

@@ -1,0 +1,27 @@
+# The docs server: the operating manual, the dashboard and the health file on
+# port 8080. Part of every install.
+#
+# TEHAS_HOST_ADDR is the address it binds to, from the instance settings
+# (source env.sh before running docker compose). Without it the server stays on
+# the loopback address, reachable from the host only. TEHAS_INDEXING=1 lets
+# search engines index the pages; without it every page says noindex.
+# TEHAS_ANALYTICS_SRC and TEHAS_ANALYTICS_SITE put a visitor analytics script
+# in every page; without them there is none.
+name: tehas-docs
+services:
+  docs:
+    image: caddy:2.8.4
+    environment:
+      TEHAS_INDEXING: "${TEHAS_INDEXING:-0}"
+      TEHAS_ANALYTICS_SRC: "${TEHAS_ANALYTICS_SRC:-}"
+      TEHAS_ANALYTICS_SITE: "${TEHAS_ANALYTICS_SITE:-}"
+      TEHAS_ANALYTICS_COOKIE: "${TEHAS_ANALYTICS_COOKIE:-0}"
+    volumes:
+      - "./docs.Caddyfile:/etc/caddy/Caddyfile:ro"
+      - "../docs:/srv/docs:ro"
+      - "../live:/srv/live:ro"
+      - "../fun:/srv/fun:ro"
+    ports:
+      - "${TEHAS_HOST_ADDR:-127.0.0.1}:8080:8080"
+    restart: unless-stopped
+    mem_limit: 128m

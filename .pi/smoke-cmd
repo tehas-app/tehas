@@ -1,0 +1,3 @@
+# Product smoke for pi-rukas: tehas installs into a scratch home from the
+# example instance, and the dispatcher takes an issue against a stub GitHub.
+bash test/install_test.sh && bash test/dispatch_test.sh

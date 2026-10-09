@@ -1,0 +1,7 @@
+[Unit]
+Description=Tehas: build the Protolab pages from the tickets at the prototype stage
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehas-protolab >> %h/tehas/logs/protolab.log 2>&1"
+TimeoutStartSec=30min

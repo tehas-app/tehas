@@ -1,0 +1,9 @@
+[Unit]
+Description=Tehas: refresh the Protolab every five minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitInactiveSec=5min
+
+[Install]
+WantedBy=timers.target

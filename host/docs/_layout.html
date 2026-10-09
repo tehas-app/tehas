@@ -1,0 +1,120 @@
+{{- /* One layout for every page. Caddy rewrites each request here and this
+       template renders <path>.md from the same directory. */ -}}
+{{- $path := trimSuffix "/" (trimPrefix "/" .OriginalReq.URL.Path) -}}
+{{- if eq $path "" }}{{ $path = "dashboard" }}{{ end -}}
+{{- $file := printf "/%s.md" $path -}}
+{{- /* A page is Markdown, or a raw HTML fragment (<path>.frag) for the
+       dashboard, which needs its own markup and script. */ -}}
+{{- $frag := printf "/%s.frag" $path -}}
+{{- $isFrag := fileExists $frag -}}
+{{- if and (not $isFrag) (not (fileExists $file)) }}{{ httpError 404 }}{{ end -}}
+{{- $title := "Dashboard" -}}
+{{- $description := "The queue and the running cycle of a tehas software factory, as plain lists." -}}
+{{- $body := "" -}}
+{{- if $isFrag -}}
+{{- $body = readFile $frag -}}
+{{- else -}}
+{{- $doc := splitFrontMatter (readFile $file) -}}
+{{- $title = $doc.Meta.title -}}
+{{- $description = default "The operating manual of tehas, a software factory powered by the Pi coding agent: GitHub issues in, reviewed pull requests out." $doc.Meta.description -}}
+{{- $body = markdown $doc.Body | replace "<table>" "<div class=\"tablewrap\"><table>" | replace "</table>" "</table></div>" -}}
+{{- end -}}
+{{- /* The public address of this host, for the absolute links that share
+       previews need. Behind a TLS proxy the scheme is the forwarded one. */ -}}
+{{- $base := printf "%s://%s" (default (placeholder "http.request.scheme") (.Req.Header.Get "X-Forwarded-Proto")) .Req.Host | html -}}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    {{- if ne (env "TEHAS_INDEXING") "1" }}
+    <meta name="robots" content="noindex, nofollow">
+    {{- end }}
+    <link rel="alternate" type="text/plain" href="/llms.txt" title="For agents: llms.txt">
+    <title>{{ $title }} - Tehas</title>
+    <meta name="description" content="{{ $description }}">
+    <link rel="canonical" href="{{ $base }}/{{ $path }}">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Tehas">
+    <meta property="og:title" content="{{ $title }} - Tehas">
+    <meta property="og:description" content="{{ $description }}">
+    <meta property="og:url" content="{{ $base }}/{{ $path }}">
+    <meta property="og:image" content="{{ $base }}/fun/share.png">
+    <meta property="og:image:type" content="image/png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="A pixel art factory with a wind turbine beside the word TEHAS">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="theme-color" content="#694">
+    <link rel="icon" type="image/svg+xml" href="/fun/favicon.svg">
+    <link rel="preload" href="/fun/TopazPlus_a1200_v1.0.ttf" as="font" type="font/ttf" crossorigin>
+    <link rel="stylesheet" href="/fun/game-view.css">
+    <link rel="stylesheet" href="/fun/manual.css">
+    {{- /* Visitor analytics, only on an instance that names a script and a site. */}}
+    {{- if and (env "TEHAS_ANALYTICS_SRC") (env "TEHAS_ANALYTICS_SITE") }}
+    <script async src="{{ env "TEHAS_ANALYTICS_SRC" }}" data-site="{{ env "TEHAS_ANALYTICS_SITE" }}"{{ if eq (env "TEHAS_ANALYTICS_COOKIE") "1" }} data-cookie="true"{{ end }}></script>
+    {{- end }}
+  </head>
+  <body id="top">
+    <a class="skip" href="#page">Skip to the page</a>
+
+    <header class="topbar topbar-short">
+      <a class="brand" href="/" aria-label="Tehas factory floor">
+        <img src="/fun/factory.svg" width="100" height="50" alt="">
+        <span>TEHAS</span>
+      </a>
+      <nav class="menu" aria-label="Site">
+        <a href="/">FACTORY FLOOR</a>
+        <a href="/dashboard">DASHBOARD</a>
+        <a href="/overview">MANUAL</a>
+        <a class="repo" href="https://github.com/janit/tehas" target="_blank" rel="noopener noreferrer">GITHUB</a>
+      </nav>
+    </header>
+
+    <div class="manual">
+      <nav class="contents" aria-label="Manual">
+        <h2>MANUAL</h2>
+        <a href="/dashboard" {{ if eq $path "dashboard" }} aria-current="page"
+          {{ end }}>PLAIN DASHBOARD</a>
+        <a href="/overview" {{ if eq $path "overview" }} aria-current="page"
+          {{ end }}>OVERVIEW</a>
+        <a href="/pi-software-factory" {{ if eq $path "pi-software-factory" }} aria-current="page"
+          {{ end }}>PI SOFTWARE FACTORY</a>
+        <a href="/features" {{ if eq $path "features" }} aria-current="page"
+          {{ end }}>FEATURES</a>
+        <a href="/operating" {{ if eq $path "operating" }} aria-current="page"
+          {{ end }}>OPERATING</a>
+        <a href="/tools" {{ if eq $path "tools" }} aria-current="page"
+          {{ end }}>COMMANDS</a>
+        <a href="/host" {{ if eq $path "host" }} aria-current="page"
+          {{ end }}>THE HOST</a>
+        <a href="/troubleshooting" {{ if eq $path "troubleshooting" }} aria-current="page"
+          {{ end }}>TROUBLESHOOTING</a>
+        <a href="/new-project" {{ if eq $path "new-project" }} aria-current="page"
+          {{ end }}>A NEW PROJECT</a>
+        <a href="/bootstrap" {{ if eq $path "bootstrap" }} aria-current="page"
+          {{ end }}>BOOTSTRAP</a>
+        <a href="/agents" {{ if eq $path "agents" }} aria-current="page"
+          {{ end }}>FOR AGENTS</a>
+      </nav>
+      <main class="page" id="page">
+{{ $body }}
+      </main>
+    </div>
+
+    <footer class="footer">
+      <p class="footer-links">
+        <a href="/">FACTORY FLOOR</a>
+        <a href="/agents">AGENTS</a>
+        <a href="/llms.txt">LLMS.TXT</a>
+      </p>
+    <div class="ascii"><pre role="img" aria-label="Tehas ASCII art logo">       __________________________.____    _________    ______
+       \___     ___/  __    /    |    \ _/    _    \ _/   __/__
+__ __/\ _/       \_   \____/__   _     \__   _/     \\______   \_ /\___ ___ _
+       \____     /____      /___|      //___\       /      ____/
+ - --------l____/----l_____/----l_____/------\_____/_______/-----sQ!-- -- -</pre></div>
+    <p class="credit">POWERED BY <a href="https://github.com/earendil-works/pi" target="_blank" rel="noopener noreferrer">PI</a> + <a href="https://github.com/trail-openers/pi-rukas" target="_blank" rel="noopener noreferrer">PI-RUKAS</a> 🥧</p>
+    <p class="credit">ASCII ART: <a href="https://demozoo.org/sceners/26586/" target="_blank" rel="noopener noreferrer">SQUAREPUSHER / TEHDAS</a>. PIXEL TYPE: <a href="https://github.com/rewtnull/amigafonts" target="_blank" rel="noopener noreferrer">TOPAZPLUS A1200</a>, TRUETYPE VERSION BY DMG OF TRUESCHOOL AND DIVINE STYLERS. TOPAZ IS COPYRIGHT AMIGAINC.</p>
+    </footer>
+  </body>
+</html>

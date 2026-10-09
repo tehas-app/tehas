@@ -1,0 +1,11 @@
+{{- /* The front page and the manual, one entry for each page in this
+       directory. Only for an instance that lets search engines in. */ -}}
+{{- if ne (env "TEHAS_INDEXING") "1" }}{{ httpError 404 }}{{ end -}}
+{{- $base := printf "%s://%s" (default (placeholder "http.request.scheme") (.Req.Header.Get "X-Forwarded-Proto")) .Req.Host | html -}}
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>{{ $base }}/</loc></url>
+{{- range listFiles "/" }}{{ if hasSuffix ".md" . }}
+  <url><loc>{{ $base }}/{{ trimSuffix ".md" . }}</loc></url>
+{{- end }}{{ end }}
+</urlset>

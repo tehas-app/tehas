@@ -1,0 +1,34 @@
+{
+  "view": "node-a",
+  "mesh": "secured",
+  "members": [
+    { "node": "node-b", "addr": "192.0.2.12", "role": "node", "state": "alive", "status": {
+        "node": "node-b", "node_id": "viiwork-00000000000000b2", "ver": "v2.9.0", "addr": "192.0.2.12", "api_port": 8086,
+        "host_mem_total_mb": 253212, "host_mem_used_mb": 52624,
+        "gpus": [{ "index": 0, "vendor": "nvidia", "util": 100, "vram_used_mb": 31890, "vram_total_mb": 32607, "power_w": 734.4 }],
+        "models": [
+          { "name": "model-large", "engine": "strata", "slots": 1, "busy": 1, "queued": 2, "ctx": 262144, "backends": [] },
+          { "name": "model-small", "engine": "llamacpp", "slots": 4, "busy": 1, "queued": 0, "ctx": 16384, "backends": [] }
+        ],
+        "power": { "watts": 734.4, "available": true, "source": "nvidia-smi" },
+        "energy_kwh_24h": 1.4449, "energy_kwh_30d": 55.0826,
+        "cost": { "available": false } } },
+    { "node": "node-a", "addr": "192.0.2.11", "role": "node", "state": "alive", "status": {
+        "node": "node-a", "node_id": "viiwork-00000000000000a1", "ver": "v2.9.0", "addr": "192.0.2.11", "api_port": 8086,
+        "host_mem_total_mb": 64198, "host_mem_used_mb": 10023,
+        "models": [
+          { "name": "model-small", "engine": "llamacpp", "slots": 2, "busy": 1, "queued": 0, "ctx": 16384, "backends": [] },
+          { "name": "model-parked", "engine": "llamacpp", "slots": 0, "busy": 0, "queued": 0, "ctx": 4096, "backends": [] }
+        ],
+        "power": { "watts": 456, "available": true, "source": "dcmi" },
+        "energy_kwh_24h": 12.7937, "energy_kwh_30d": 393.041,
+        "cost": { "available": false } } },
+    { "node": "node-c", "addr": "192.0.2.13", "role": "node", "state": "alive", "status": {
+        "node": "node-c", "node_id": "viiwork-00000000000000c3", "ver": "v2.9.0", "addr": "192.0.2.13", "api_port": 8086,
+        "host_mem_total_mb": 15800, "host_mem_used_mb": 3100,
+        "models": [],
+        "power": { "watts": 0, "available": false },
+        "cost": { "available": false } } },
+    { "node": "node-d", "addr": "192.0.2.14", "role": "node", "state": "left", "status": null }
+  ]
+}

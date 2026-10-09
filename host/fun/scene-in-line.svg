@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="130" viewBox="0 0 240 130" shape-rendering="crispEdges">
+<style>
+  .forklift{animation:forklift-route 32s steps(28,end) infinite}
+  .pallet{animation:unload 32s steps(8,end) infinite}
+  .lift{animation:fork-lift 32s steps(4,end) infinite}
+  .warehouse-door{animation:door-light 32s steps(1,end) infinite}
+  @keyframes forklift-route{0%,1%{transform:translateX(-130px)}8%,18%{transform:translateX(50px)}27%,100%{transform:translateX(-130px)}}
+  @keyframes fork-lift{0%,8%,19%,100%{transform:translateY(0)}10%,17%{transform:translateY(-11px)}}
+  @keyframes unload{0%,11%{opacity:1;transform:translateX(0)}16%,16.9%{opacity:1;transform:translateX(32px)}17%,100%{opacity:0;transform:translateX(32px)}}
+  @keyframes door-light{0%,7%,17%,100%{fill:#333}8%,16.9%{fill:#4a9}}
+  @media(prefers-reduced-motion:reduce){.forklift,.pallet,.lift,.warehouse-door{animation:none}.forklift{transform:translateX(50px)}.pallet{opacity:1}}
+</style>
+<rect width="240" height="130" fill="#ccd"/>
+<rect y="98" width="240" height="32" fill="#8a5"/>
+<rect y="113" width="240" height="17" fill="#694"/>
+<rect x="145" y="27" width="89" height="81" fill="#333"/>
+<rect x="151" y="34" width="77" height="67" fill="#c53"/>
+<rect x="141" y="22" width="96" height="12" fill="#445"/>
+<rect class="warehouse-door" x="166" y="49" width="49" height="52" fill="#333"/>
+<rect x="174" y="58" width="33" height="35" fill="#222"/>
+<rect x="141" y="101" width="96" height="8" fill="#333"/>
+<rect x="180" y="17" width="16" height="5" fill="#fc6"/>
+<g class="forklift">
+  <rect x="9" y="79" width="76" height="22" fill="#222"/>
+  <rect x="15" y="83" width="64" height="14" fill="#fc6"/>
+  <rect x="31" y="65" width="30" height="18" fill="#333"/>
+  <rect x="36" y="69" width="20" height="11" fill="#7cb"/>
+  <rect x="30" y="61" width="5" height="25" fill="#333"/>
+  <rect x="15" y="99" width="17" height="14" fill="#222"/>
+  <rect x="66" y="99" width="17" height="14" fill="#222"/>
+  <rect x="20" y="103" width="7" height="6" fill="#7cb"/>
+  <rect x="71" y="103" width="7" height="6" fill="#7cb"/>
+  <rect x="84" y="66" width="6" height="39" fill="#222"/>
+  <g class="lift">
+  <rect x="87" y="99" width="45" height="6" fill="#222"/>
+  <g class="pallet">
+    <rect x="96" y="91" width="34" height="8" fill="#532"/>
+    <rect x="99" y="69" width="28" height="22" fill="#c53"/>
+    <rect x="103" y="73" width="20" height="15" fill="#fc6"/>
+    <rect x="111" y="70" width="5" height="21" fill="#fc6"/>
+    <rect x="101" y="99" width="5" height="5" fill="#532"/>
+    <rect x="120" y="99" width="5" height="5" fill="#532"/>
+  </g>
+  </g>
+</g>
+<rect x="5" y="119" width="230" height="5" fill="#4a9"/>
+</svg>

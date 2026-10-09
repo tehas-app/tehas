@@ -1,0 +1,95 @@
+/* Energy use: what the model mesh draws and which models it serves.
+   See DESIGN.md, "Energy Use". Drawn by energy-view.js. */
+
+.energy {
+  grid-area: energy;
+  margin-top: 72px;
+  scroll-margin-top: calc(var(--header) + 16px);
+  background: var(--bone-shade);
+  border: 4px solid var(--outline);
+  box-shadow: var(--shadow-sign);
+}
+.energy-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px 24px;
+  padding: 12px 16px;
+  background: var(--steel);
+  border-bottom: 4px solid var(--outline);
+}
+.energy-scope { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.energy-state { padding: 0 8px; background: var(--bone-shade); border: 4px solid var(--outline); }
+.energy-state[data-state="live"] { background: var(--brass); }
+.energy-body { padding: 16px; }
+
+.energy-total { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; }
+.energy-total b { font: inherit; font-size: 32px; line-height: 32px; }
+.energy-month { margin-left: auto; }
+
+.energy-screen {
+  margin-top: 16px;
+  padding: 16px;
+  overflow-x: auto;
+  background: var(--crt-black);
+  border: 4px solid var(--outline);
+  color: var(--crt-dim);
+}
+.energy-chart { display: grid; grid-template-columns: 64px 480px; gap: 8px; width: max-content; margin: 0 auto; }
+.energy-scale { display: flex; flex-direction: column; justify-content: space-between; height: 136px; text-align: right; line-height: 16px; white-space: nowrap; }
+#energy-canvas { display: block; width: 480px; height: 136px; image-rendering: pixelated; }
+.energy-times { grid-column: 2; display: flex; justify-content: space-between; }
+
+.energy-table { width: 100%; margin-top: 24px; border-collapse: collapse; }
+.energy-table th, .energy-table td { padding: 8px 16px 8px 0; font-weight: 400; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+.energy-table th:last-child, .energy-table td:last-child { padding-right: 0; }
+.energy-table thead th { color: var(--slate); }
+.energy-table tbody tr { border-top: 1px solid var(--hairline); }
+.energy-table .num { text-align: right; white-space: nowrap; }
+.energy-table .col-ram { white-space: nowrap; }
+.energy-table .col-swatch { width: 40px; }
+.energy-swatch { display: block; width: 24px; height: 24px; border: 4px solid var(--outline); image-rendering: pixelated; }
+.energy-gauge { display: inline-flex; gap: 2px; margin-right: 8px; vertical-align: -2px; }
+.energy-gauge i { width: 6px; height: 16px; background: var(--bone); }
+.energy-gauge .is-used { background: var(--slate); }
+
+/* The live meter: a door among the doors, there only while the mesh reports.
+   On wide screens it stands under the fourth station, two doors tall; below
+   that it lies across the foot of the doors. */
+.door.meter { flex-direction: column; justify-content: center; align-items: stretch; gap: 4px; grid-column: 1 / -1; animation-delay: 540ms; }
+.meter-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; white-space: nowrap; }
+.meter-gauge { display: flex; gap: 4px; margin-bottom: 4px; }
+.meter-gauge i { flex: 1; height: 12px; background: var(--bone); border: 2px solid var(--outline); }
+.meter-gauge .is-used { background: var(--brass); }
+@media (min-width: 1280px) {
+  .doors:has(.meter:not([hidden])) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .door.meter { grid-column: 4; grid-row: 1 / span 2; }
+}
+
+/* Wide: the screen and the models side by side, the machines beneath. */
+@media (min-width: 1280px) {
+  .energy-body {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    grid-template-areas: "total total" "screen models" "hosts hosts";
+    column-gap: 24px;
+    align-items: start;
+  }
+  .energy-total { grid-area: total; }
+  .energy-screen { grid-area: screen; }
+  .energy-hosts { grid-area: hosts; }
+  #energy-models { grid-area: models; margin-top: 16px; }
+  .energy-body:has(#energy-models[hidden]) { grid-template-areas: "total total" "screen screen" "hosts hosts"; }
+}
+
+@media (max-width: 1279px) {
+  .energy { grid-area: energy; margin-top: 40px; }
+  .energy-table .col-source, .energy-table .col-month { display: none; }
+}
+
+@media (max-width: 699px) {
+  .energy-screen { padding: 8px; }
+  .energy-chart { margin: 0; }
+  .energy-table .col-ram, .energy-table .col-hosts { display: none; }
+}

@@ -1,0 +1,93 @@
+# Tehas operating manual. Plain HTTP, private network only (bound to the
+# instance's TEHAS_HOST_ADDR in docs.compose.yaml). Renders the installed docs/*.md
+# through one layout template; there is no build step.
+{
+    auto_https off
+    admin off
+}
+:8080 {
+    root * /srv/docs
+    # Search engines stay out unless the instance sets TEHAS_INDEXING=1. The
+    # pages and robots.txt read the same setting. The live data and the
+    # Markdown copies of the pages are never indexed.
+    @unlisted expression `"{$TEHAS_INDEXING:0}" != "1"`
+    header @unlisted X-Robots-Tag "noindex, nofollow"
+    @data path /live/* /health /healthz *.md
+    header @data X-Robots-Tag "noindex"
+    # route keeps this order: the 404 has to see the path before the rewrite.
+    route {
+        # Dashboard data: the queue snapshot and the running cycle's console.
+        # Plain files written by the dispatcher; the page polls them, the
+        # console with Range requests so it only fetches what is new.
+        handle_path /live/* {
+            root * /srv/live
+            header Cache-Control "no-store"
+            file_server
+        }
+        # Factory health for monitors, at /health and /healthz: the file
+        # tehas-health writes. 200 normally; 503 with the same body while
+        # tehas-health keeps the marker live/health.down in place.
+        @health path /health /healthz
+        @health_down {
+            path /health /healthz
+            file {
+                root /srv/live
+                try_files /health.down
+            }
+        }
+        handle @health_down {
+            root * /srv/live
+            rewrite * /health.json
+            header Content-Type "application/health+json"
+            header Cache-Control "no-store"
+            file_server {
+                status 503
+            }
+        }
+        handle @health {
+            root * /srv/live
+            rewrite * /health.json
+            header Content-Type "application/health+json"
+            header Cache-Control "no-store"
+            file_server
+        }
+        # The front page is the game view: a static page, outside the layout.
+        # Its assets stay under /fun/. The plain dashboard is at /dashboard.
+        redir /fun /
+        redir /fun/ /
+        @front path /
+        handle @front {
+            root * /srv/fun
+            rewrite * /index.html
+            # A template only for the absolute address in its share tags.
+            templates
+            file_server
+        }
+        handle_path /fun/* {
+            root * /srv/fun
+            file_server
+        }
+        # For agents: the entry point. A template, so its links are absolute
+        # from the request and no host name is kept in the file. robots.txt and
+        # the sitemap are for the same reason, and to follow TEHAS_INDEXING.
+        @llms path /llms.txt /robots.txt /sitemap.xml
+        handle @llms {
+            templates {
+                mime text/plain text/xml
+            }
+            file_server
+        }
+        # The manual pages as Markdown, which llms.txt links to.
+        @markdown path_regexp ^/[a-z0-9-]+\.md$
+        handle @markdown {
+            header Content-Type "text/markdown; charset=utf-8"
+            file_server
+        }
+        # Never hand out the fragments, the backups or the layout as files.
+        @source path *.md *.frag *.prev /_layout.html
+        respond @source 404
+        rewrite * /_layout.html
+        templates
+        file_server
+    }
+}

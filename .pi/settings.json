@@ -1,0 +1,4 @@
+{
+  "defaultProvider": "fleet",
+  "defaultModel": "qwen3.8-flash-next"
+}

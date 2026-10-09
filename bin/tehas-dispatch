@@ -1,0 +1,263 @@
+#!/usr/bin/env bash
+# The tehas dispatcher: one poll of the GitHub issue queue.
+#
+# Deterministic, no model. It picks at most one open issue labelled
+# tehas:ready, runs a pi-rukas /work cycle for it with tehas-work, and
+# reports the outcome back on the issue (and the token usage on the PR).
+# A systemd timer runs it every two minutes; a cycle in progress simply makes
+# the following polls wait.
+#
+# Usage:
+#   tehas-dispatch               one poll
+#   tehas-dispatch --dry-run     say what a poll would do, change nothing
+#   tehas-dispatch --init-labels create the tehas labels in the repository
+#   tehas-dispatch -h|--help     print this text and exit 0
+#
+# Exit: 0 the poll ran, or there was nothing to do; 64 an argument this command
+# does not know, which starts no poll; 78 instance settings are missing or
+# malformed; 1 a call to GitHub failed or its answer could not be read.
+#
+# Rules, in order:
+#   1. Label tehas:pause on the control issue stops all dispatch.
+#   2. No new cycle while TEHAS_MAX_AWAITING tehas PRs wait for a human.
+#   3. An issue is eligible only if its tehas:ready label was applied by an
+#      account in TEHAS_ALLOWED_LABELERS. The bot is never in that list.
+#   4. tehas:urgent first, then the lowest issue number. One at a time.
+#
+# Instance settings (lib/config.sh; defaults in brackets):
+#   TEHAS_REPO              owner/name of the product repository, required
+#   TEHAS_CONTROL_ISSUE     issue that carries tehas:pause, required
+#   TEHAS_ALLOWED_LABELERS  space-separated logins, required
+#   TEHAS_MAX_AWAITING      open tehas:awaiting-merge issues allowed [3]
+#   TEHAS_WORK_REPO         checkout cycles run in [$TEHAS_HOME/repos/<name>]
+#   TEHAS_BRANCH            branch work lands on [the checkout's origin/HEAD]
+# From the environment, for tests: TEHAS_WORK_CMD, TEHAS_STATUS_CMD.
+set -uo pipefail
+
+# The usage is this file's own header comment: every line from the second to the
+# first one that is not a comment, with the leading "# " removed. So the text
+# cannot drift from the code; unlike a fixed line range it needs no number kept
+# in step with the header.
+show_usage() {
+  sed -n '2,/^[^#]/p' "$0" | sed -n '/^#/s/^# \{0,1\}//p'
+}
+
+unknown_argument() {
+  printf 'tehas-dispatch: unknown argument: %s\n' "$1" >&2
+  show_usage >&2
+  exit 64
+}
+
+# Arguments are read before the instance settings, so --help answers on a host
+# with no instance yet, and an argument this command does not know reaches
+# neither gh nor $TEHAS_HOME. Before this check a poll ignored anything it did
+# not recognise: a typo such as --dryrun ran a real poll and could start a cycle.
+mode=poll
+if [ "$#" -gt 0 ]; then
+  case "$1" in
+    -h | --help) mode=help ;;
+    --dry-run) mode=dry ;;
+    --init-labels) mode=labels ;;
+    # An empty argument is an argument too: it is not a poll.
+    *) unknown_argument "$1" ;;
+  esac
+fi
+# At most one argument. A second is refused, never combined with the first, so
+# --dry-run --init-labels cannot be read as two intents at once.
+if [ "$#" -gt 1 ]; then
+  unknown_argument "$2"
+fi
+if [ "$mode" = help ]; then
+  show_usage
+  exit 0
+fi
+dry=0
+[ "$mode" = dry ] && dry=1
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/config.sh
+. "$here/../lib/config.sh"
+tehas_load || exit 78
+
+log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*"; }
+
+if [ "$mode" = labels ]; then
+  tehas_require TEHAS_REPO
+  repo=$TEHAS_REPO
+  mk() { gh label create "$1" --repo "$repo" --color "$2" --description "$3" --force >/dev/null && echo "label $1"; }
+  mk tehas:ready 0e8a16 "Tehas: eligible for dispatch (apply by hand to authorize a cycle)"
+  mk tehas:urgent d93f0b "Tehas: dispatch before other ready issues"
+  mk tehas:running 1d76db "Tehas: a /work cycle owns this issue"
+  mk tehas:awaiting-merge fbca04 "Tehas: PR open and reviewed, waiting for a human"
+  mk tehas:pause 000000 "Tehas: on the control issue, stops all dispatch"
+  mk needs-human-attention b60205 "Cycle parked; the handoff comment says what to do"
+  exit 0
+fi
+
+tehas_require TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS \
+  PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
+repo=$TEHAS_REPO
+control=$TEHAS_CONTROL_ISSUE
+allowed=" $TEHAS_ALLOWED_LABELERS "
+max_awaiting=$TEHAS_MAX_AWAITING
+checkout=$TEHAS_WORK_REPO
+work=${TEHAS_WORK_CMD:-tehas-work}
+status_cmd=${TEHAS_STATUS_CMD:-tehas-status}
+# Known before anything is touched: a cycle must never start from a guess,
+# nor in a checkout of another repository.
+tehas_checkout || exit 78
+branch=$(tehas_branch) || exit 78
+
+mkdir -p "$TEHAS_HOME/state" "$TEHAS_HOME/logs"
+exec 8>"$TEHAS_HOME/state/dispatch.lock"
+flock -n 8 || { [ "$dry" = 1 ] && log "another dispatch holds the lock (a cycle is running)"; exit 0; }
+
+# gh_json <gh arguments>: the answer in $json. A failed call ends the poll:
+# no rule below may be decided on an answer that never came. Always call it as
+# a plain command, never in a pipe or $( ), where its exit would be lost.
+json=""
+gh_json() { json=$(gh "$@" 2>/dev/null) || { log "ERROR: gh $1 $2 failed"; exit 1; }; }
+
+[ "$dry" = 0 ] && "$status_cmd"
+
+# The repository must still answer to its configured name. After a rename
+# GitHub redirects some calls and answers others with an empty list, so the
+# queue would look empty for ever with no error.
+gh_json repo view "$repo" --json nameWithOwner
+actual=$(jq -r '.nameWithOwner // ""' <<<"$json") || actual=""
+if [ "${actual,,}" != "${repo,,}" ]; then
+  log "ERROR: $repo is now ${actual:-unknown} on GitHub: set TEHAS_REPO in $TEHAS_INSTANCE_DIR/instance.env and the checkout's origin"
+  exit 1
+fi
+
+# 1. Pause switch.
+gh_json issue view "$control" --repo "$repo" --json labels
+paused=$(jq -r '.labels | any(.name == "tehas:pause")' <<<"$json") || { log "ERROR: unreadable answer for issue #$control"; exit 1; }
+if [ "$paused" != false ]; then
+  [ "$dry" = 1 ] && log "paused: issue #$control carries tehas:pause"
+  exit 0
+fi
+
+# 2. Do not pile up unreviewed work.
+gh_json issue list --repo "$repo" --state open --label tehas:awaiting-merge --limit 100 --json number
+awaiting=$(jq length <<<"$json") || { log "ERROR: unreadable list of issues awaiting merge"; exit 1; }
+if [ "$awaiting" -ge "$max_awaiting" ]; then
+  [ "$dry" = 1 ] && log "holding: $awaiting issues await merge (limit $max_awaiting)"
+  exit 0
+fi
+
+# 3. and 4. Candidates: urgent first, then by number.
+gh_json issue list --repo "$repo" --state open --label tehas:ready --limit 100 --json number,labels
+candidates=$(jq -r '[.[] | (.labels | map(.name)) as $l
+          | select(($l | index("tehas:running") | not) and ($l | index("tehas:awaiting-merge") | not)
+                   and ($l | index("needs-human-attention") | not))
+          | {number, urgent: ($l | index("tehas:urgent") != null)}]
+         | sort_by([(.urgent | not), .number]) | .[].number' <<<"$json") ||
+  { log "ERROR: unreadable list of ready issues"; exit 1; }
+
+# Do not burn an issue on a mesh that cannot answer: every agent would fail
+# and the issue would park. Leave it queued and look again next poll.
+if [ -n "$candidates" ]; then
+  mesh=$(jq -r --arg p "$PI_ENSEMBLE_SUBAGENT_PROVIDER" '.providers[$p].baseUrl // ""' "$HOME/.pi/agent/models.json" 2>/dev/null)
+  model=$PI_ENSEMBLE_SUBAGENT_MODEL
+  if [ -n "$mesh" ] && [ -n "$model" ] &&
+    ! curl -fsS -m 10 "$mesh/models" 2>/dev/null | jq -e --arg m "$model" '.data | any(.id == $m)' >/dev/null 2>&1; then
+    log "holding: the mesh at $mesh does not offer $model right now"
+    exit 0
+  fi
+fi
+
+issue=""
+for n in $candidates; do
+  # Who applied tehas:ready most recently?
+  gh_json api "repos/$repo/issues/$n/events" --paginate
+  who=$(jq -rs 'add // [] | map(select(.event == "labeled" and .label.name == "tehas:ready")) | last | .actor.login // ""' <<<"$json") ||
+    { log "ERROR: unreadable label events of #$n"; exit 1; }
+  # No name is nobody: a deleted account or a missing event never matches.
+  case "${who:+$allowed}" in
+    *" $who "*) issue=$n; break ;;
+    *) log "skip #$n: tehas:ready was applied by '${who:-unknown}', not an allowed account" ;;
+  esac
+done
+
+if [ -z "$issue" ]; then
+  [ "$dry" = 1 ] && log "nothing to do"
+  exit 0
+fi
+if [ "$dry" = 1 ]; then
+  log "would run a cycle for #$issue (labelled by $who)"
+  exit 0
+fi
+
+comment() { gh issue comment "$issue" --repo "$repo" --body "$1" >/dev/null 2>&1 || log "WARN: comment on #$issue failed"; }
+relabel() { gh issue edit "$issue" --repo "$repo" "$@" >/dev/null 2>&1 || log "WARN: label change on #$issue failed: $*"; }
+
+log "start #$issue (labelled by $who)"
+relabel --add-label tehas:running --remove-label tehas:ready
+comment "Tehas cycle started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC (authorized by @$who's \`tehas:ready\` label). This issue is owned by the cycle until \`tehas:running\` is removed."
+
+# Cycles start from the product's default branch; keep the checkout current. A
+# cycle that parks while integrating can leave the checkout on its feature
+# branch, so put it back first. Only when it is clean: never discard someone's
+# changes.
+if [ -z "$(git -C "$checkout" status --porcelain --untracked-files=no)" ]; then
+  git -C "$checkout" checkout -q "$branch" || log "WARN: could not switch $checkout to $branch"
+else
+  log "WARN: $checkout has uncommitted changes, leaving its branch alone"
+fi
+if ! git -C "$checkout" fetch -q origin || ! git -C "$checkout" merge -q --ff-only "origin/$branch"; then
+  log "WARN: could not fast-forward $checkout"
+fi
+
+started=$(date +%s)
+# A relabelled issue gets a fresh cycle, not the parked state of the last one.
+restart=""
+[ -f "$checkout/.pi/work-state/$issue.json" ] && restart=--restart
+"$work" "$issue" $restart >>"$TEHAS_HOME/logs/dispatch-work-$issue.log" 2>&1 &
+wpid=$!
+# Keep the dashboard's queue current while the cycle runs.
+ticks=0
+while kill -0 "$wpid" 2>/dev/null; do
+  [ $((ticks % 12)) = 0 ] && "$status_cmd"
+  ticks=$((ticks + 1))
+  sleep 10
+done
+wait "$wpid"
+rc=$?
+mins=$((($(date +%s) - started) / 60))
+
+state=$checkout/.pi/work-state/$issue.json
+status=$(jq -r '.pipelineState.status // "unknown"' "$state" 2>/dev/null || echo unknown)
+step=$(jq -r '.pipelineState.currentStep // "-"' "$state" 2>/dev/null || echo -)
+branch=$(jq -r '.pipelineState.branchName // ""' "$state" 2>/dev/null || echo "")
+usage=$(jq -r '
+  [.eventLog[] | select(.usage) | {role: (.role // "driver"), u: .usage}] as $e
+  | if ($e | length) == 0 then "" else
+      (["| Role | Dispatches | Turns | Input | Output | Cache read |", "|---|---|---|---|---|---|"]
+       + ($e | group_by(.role) | map("| \(.[0].role) | \(length) | \(map(.u.turns) | add) | \(map(.u.input) | add) | \(map(.u.output) | add) | \(map(.u.cacheRead) | add) |"))
+       + ["| **total** | \($e | length) | \($e | map(.u.turns) | add) | \($e | map(.u.input) | add) | \($e | map(.u.output) | add) | \($e | map(.u.cacheRead) | add) |"])
+      | join("\n") end' "$state" 2>/dev/null || echo "")
+
+pr=""
+if [ -n "$branch" ]; then
+  pr=$(gh pr list --repo "$repo" --head "$branch" --state open --json url --jq '.[0].url // ""' 2>/dev/null || echo "")
+fi
+
+summary="status \`$status\`, last step \`$step\`, $mins min"
+if [ "$rc" = 0 ] && [ "$status" = merged ]; then
+  relabel --remove-label tehas:running
+  comment "Tehas cycle finished: $summary. The change was merged."
+elif [ "$rc" = 0 ] && [ -n "$pr" ]; then
+  relabel --remove-label tehas:running --add-label tehas:awaiting-merge
+  comment "Tehas cycle finished: $summary. Pull request waiting for a human: $pr"
+  gh pr comment "$pr" --body "Tehas cycle for #$issue: $summary.
+
+${usage:-No token usage was recorded for this cycle.}" >/dev/null 2>&1 || log "WARN: comment on $pr failed"
+else
+  relabel --remove-label tehas:running --add-label needs-human-attention
+  comment "Tehas cycle stopped without a pull request: $summary (runner exit $rc). Read the handoff comment if there is one; the run log is \`~/tehas/logs/dispatch-work-$issue.log\` on \`$(hostname)\`. To retry, remove \`needs-human-attention\` and apply \`tehas:ready\` again.
+
+${usage}"
+fi
+log "done #$issue rc=$rc status=$status step=$step minutes=$mins pr=${pr:-none}"
+"$status_cmd"

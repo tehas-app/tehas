@@ -1,0 +1,134 @@
+/* The manual and the plain dashboard in the game view's style: its header and
+   footer around one Bone text block. Loaded after game-view.css, which brings
+   the typeface, the colours, the header band and the footer. See DESIGN.md,
+   "Manual Page". */
+
+/* Four links fit beside the wordmark until the page is phone sized. */
+@media (min-width: 700px) and (max-width: 1279px) {
+  :root { --header: 80px; }
+  .topbar-short .menu { order: 0; flex-basis: auto; margin-left: auto; }
+}
+
+.manual {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  align-items: start;
+  gap: 24px;
+  max-width: 1488px;
+  margin: 0 auto;
+  padding: 32px 24px 0;
+}
+
+.contents {
+  position: sticky;
+  top: calc(var(--header) + 24px);
+  background: var(--bone-shade);
+  border: 4px solid var(--outline);
+  box-shadow: var(--shadow-card);
+}
+.contents h2 {
+  padding: 8px 16px;
+  font-size: 16px;
+  line-height: 24px;
+  background: var(--steel);
+  border-bottom: 4px solid var(--outline);
+}
+.contents a { display: block; padding: 8px 16px; text-decoration: none; }
+.contents a:hover { background: var(--steel); }
+.contents a[aria-current="page"] { background: var(--brass); }
+
+.page {
+  min-width: 0;
+  padding: 0 32px 40px;
+  background: var(--bone);
+  border: 4px solid var(--outline);
+  box-shadow: var(--shadow-sign);
+}
+
+/* The title is the panel's head, as on the console and the energy panel. */
+.page h1 {
+  margin: 0 -32px 32px;
+  padding: 16px 32px;
+  background: var(--steel);
+  border-bottom: 4px solid var(--outline);
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+.page h2 {
+  margin: 48px 0 16px;
+  padding-bottom: 8px;
+  border-bottom: 4px solid var(--outline);
+  scroll-margin-top: calc(var(--header) + 16px);
+}
+.page h3 {
+  margin: 32px 0 8px;
+  padding-left: 16px;
+  border-left: 8px solid var(--brass);
+  text-transform: uppercase;
+  scroll-margin-top: calc(var(--header) + 16px);
+}
+.page p, .page li, .page blockquote { max-width: 80ch; }
+.page p, .page ul, .page ol, .page pre, .page blockquote, .page .tablewrap { margin: 16px 0 0; }
+.page ul, .page ol { padding-left: 24px; }
+.page ul { list-style: square; }
+.page ol { list-style: decimal; }
+.page li { margin-top: 8px; }
+.page li > ul, .page li > ol { margin-top: 0; }
+.page a { text-underline-offset: 4px; }
+.page a:hover { background: var(--brass); }
+/* Topaz has one weight and no italic: emphasis is colour and a rule. */
+.page strong { font-weight: 400; color: var(--rust); }
+.page em { font-style: normal; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 4px; }
+.page code { padding: 0 4px; background: var(--bone-shade); font: inherit; overflow-wrap: anywhere; }
+.page pre {
+  padding: 16px;
+  overflow-x: auto;
+  background: var(--crt-black);
+  border: 4px solid var(--outline);
+  color: var(--crt-amber);
+  font: inherit;
+}
+.page pre code { padding: 0; background: none; overflow-wrap: normal; }
+.page blockquote { padding-left: 16px; border-left: 8px solid var(--steel); color: var(--slate); }
+.page hr { margin: 32px 0 0; border: 0; border-top: 4px solid var(--outline); }
+.page img { max-width: 100%; height: auto; }
+
+.page .tablewrap { overflow-x: auto; }
+.page table { border-collapse: collapse; }
+.page th, .page td { padding: 8px 16px 8px 0; font-weight: 400; text-align: left; vertical-align: top; }
+.page th:last-child, .page td:last-child { padding-right: 0; }
+.page thead th { color: var(--slate); text-transform: uppercase; }
+.page tbody tr { border-top: 1px solid var(--hairline); }
+
+.footer-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 24px; max-width: 1440px; margin: 0 auto; }
+.footer-links a { text-underline-offset: 4px; }
+
+/* The plain dashboard (dashboard.frag). */
+.dash-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.pill { padding: 0 8px; background: var(--bone-shade); border: 4px solid var(--outline); text-transform: uppercase; }
+.pill.run { background: var(--go); }
+.pill.pause { background: var(--brass); }
+.muted, .page .when, .page .num, .page .empty, .page .n { color: var(--slate); }
+.now { margin-top: 24px; padding: 16px; background: var(--bone-shade); border: 4px solid var(--outline); }
+.page .now h2 { margin: 0; padding: 0; border: 0; overflow-wrap: anywhere; }
+.now .step { margin-top: 8px; color: var(--slate); }
+.page #console { height: 400px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(288px, 1fr)); gap: 0 32px; }
+.page .cols h2 { margin-top: 32px; font-size: 16px; line-height: 24px; text-transform: uppercase; }
+.page .num { margin-right: 8px; }
+.page ul.issues { padding: 0; list-style: none; }
+.page ul.issues li { max-width: none; margin: 0; padding: 8px 0; border-top: 1px solid var(--hairline); overflow-wrap: anywhere; }
+.page ul.issues li:first-child { border-top: 0; }
+.page .when { white-space: nowrap; }
+
+@media (max-width: 899px) {
+  .manual { grid-template-columns: minmax(0, 1fr); }
+  .contents { position: static; display: flex; flex-wrap: wrap; box-shadow: none; }
+  .contents h2 { flex-basis: 100%; }
+}
+
+@media (max-width: 699px) {
+  .manual { padding: 24px 16px 0; }
+  .page { padding: 0 16px 24px; }
+  .page h1 { margin: 0 -16px 24px; padding: 16px; }
+}

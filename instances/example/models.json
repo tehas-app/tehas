@@ -1,0 +1,31 @@
+{
+  "providers": {
+    "local": {
+      "api": "openai-completions",
+      "baseUrl": "http://models.example:8080/v1",
+      "apiKey": "unused",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false
+      },
+      "models": [
+        {
+          "id": "example-model",
+          "name": "Example model",
+          "reasoning": false,
+          "input": [
+            "text"
+          ],
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "contextWindow": 131072,
+          "maxTokens": 16384
+        }
+      ]
+    }
+  }
+}

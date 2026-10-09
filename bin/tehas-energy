@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+# Write the dashboard's energy file: $TEHAS_HOME/live/energy.json.
+#
+# One sample of what the model mesh draws, for the Energy use section of
+# the game view. It works only when the model backend is a viiwork mesh: it
+# asks the mesh for its cluster snapshot (GET /v1/cluster) and keeps only the
+# machines that are alive and serve a model the factory uses, and only those
+# models: a machine that serves other models is not the factory's draw. Per
+# machine, the draw now, the kWh of the last 24 hours and 30 days and host RAM;
+# per model, the slots and how many are busy; and the mesh's draw over the last
+# 30 minutes, one sample per 15 seconds. Each sample also carries, per machine,
+# the mesh's running count of tokens for the factory's models, where the mesh
+# reports one: the live meter shows its rate. Addresses, node ids and GPUs are
+# not copied. Deterministic, no model, one HTTP call.
+#
+# The mesh is the one the factory's model provider points at (models.json),
+# unless TEHAS_ENERGY_URL names a cluster URL. TEHAS_ENERGY=off removes the
+# file, and with it the section.
+#
+#   the mesh answers with a cluster snapshot   the file is rewritten
+#   no answer, a timeout, a server error       the file is left as it is
+#   (5xx) or a busy answer (408, 429)
+#   any other answer                           the file is removed: not viiwork
+#
+# Usage: tehas-energy               one sample
+#        tehas-energy --every       one sample at every 15-second mark, for ever
+#
+# Prints nothing; exit 0 unless the file cannot be written.
+set -uo pipefail
+
+: "${TEHAS_HOME:=$HOME/tehas}"
+period=15
+window=1800
+live=$TEHAS_HOME/live
+file=$live/energy.json
+
+case "${1:-}" in
+  "") ;;
+  --every)
+    while :; do
+      "$0" || true
+      sleep $((period - $(date +%s) % period))
+    done ;;
+  *) echo "usage: tehas-energy [--every]" >&2; exit 64 ;;
+esac
+
+mkdir -p "$live"
+if [ "${TEHAS_ENERGY:-}" = off ]; then
+  rm -f "$file"
+  exit 0
+fi
+
+url=${TEHAS_ENERGY_URL:-}
+if [ -z "$url" ]; then
+  base=$(jq -r --arg p "${PI_ENSEMBLE_SUBAGENT_PROVIDER:-fleet}" '.providers[$p].baseUrl // ""' \
+    "${TEHAS_MODELS_FILE:-$HOME/.pi/agent/models.json}" 2>/dev/null) || base=""
+  if [ -z "$base" ]; then
+    rm -f "$file"
+    exit 0
+  fi
+  base=${base%/}
+  url=${base%/v1}/v1/cluster
+fi
+
+# The body, then the HTTP status on a line of its own.
+answer=$(curl -sS -m 5 -w '\n%{http_code}' "$url" 2>/dev/null) || exit 0
+code=${answer##*$'\n'}
+body=${answer%$'\n'*}
+case "$code" in 5* | 408 | 429) exit 0 ;; esac
+if [ "$code" != 200 ] ||
+  ! printf '%s' "$body" | jq -e 'type == "object" and (.members | type == "array")' >/dev/null 2>&1; then
+  rm -f "$file"
+  exit 0
+fi
+
+# Exactly one value: an object with a samples array, or null.
+prev=$(jq -c 'if type == "object" and (.samples | type == "array") then {samples} else null end' \
+  "$file" 2>/dev/null | head -n1)
+[ -n "$prev" ] || prev=null
+now=${TEHAS_ENERGY_NOW:-$(date +%s)}
+
+printf '%s' "$body" | jq --argjson prev "$prev" --argjson now "$now" \
+  --argjson period "$period" --argjson window "$window" '
+  def r2: (. * 100 | round) / 100;
+  def positive: if type == "number" and . > 0 then r2 else null end;
+  def total(f): map(f | select(. != null)) | if length == 0 then null else add | r2 end;
+  def slot: . / $period | floor;
+  def num: if type == "number" then . else 0 end;
+  ([env | to_entries[]
+    | select(.key | test("^PI_ENSEMBLE_(SUBAGENT_MODEL|MODEL_[A-Z0-9_]+)$"))
+    | .value | select(length > 0)] | unique) as $factory
+  | [.members[] | select(type == "object")
+     | select(.state == "alive" and (.status | type == "object") and (.node | type == "string"))]
+    | sort_by(.node) as $alive
+  | ($alive | map(.status as $s
+      | ($s.power | if type == "object" then . else {} end) as $p
+      | ($p.available == true and ($p.watts | type == "number") and $p.watts >= 0) as $reads
+      | {
+      name: .node,
+      source: (if $reads and ($p.source | type == "string") then $p.source else null end),
+      watts: (if $reads then ($p.watts | round) else null end),
+      kWh24h: ($s.energy_kwh_24h | positive),
+      kWh30d: ($s.energy_kwh_30d | positive),
+      ramUsedMb: (if ($s.host_mem_used_mb | type) == "number" then $s.host_mem_used_mb else null end),
+      ramTotalMb: (if ($s.host_mem_total_mb | type) == "number" then $s.host_mem_total_mb else null end),
+      serves: ([$s.models[]? | select(type == "object" and (.slots | num) > 0) | .name] | any(.[]; IN($factory[])))
+    }) | map(select(.serves) | del(.serves))) as $hosts
+  | ([$alive[] | .node as $n | .status.models[]?
+      | select(type == "object")
+      | {name, host: $n, slots: (.slots | num), busy: (.busy | num), queued: (.queued | num)}]
+     | group_by(.name)
+     | map({
+         name: .[0].name,
+         hosts: (map(select(.slots > 0) | .host) | unique),
+         slots: (map(.slots) | add),
+         busy: (map(.busy) | add),
+         queued: (map(.queued) | add)
+       })
+     | map(select(.slots > 0 and (.name | IN($factory[]))))) as $models
+  | ($alive | map({key: .node, value: ([.status.models[]?
+        | select(type == "object") | select(.name | IN($factory[]))
+        | .tokens_total | select(type == "number" and . >= 0)]
+        | if length == 0 then null else add | floor end)})
+     | map(select(.value != null)) | from_entries) as $tokens
+  | ({t: $now, w: ($hosts | map(select(.watts != null) | {key: .name, value: .watts}) | from_entries)}
+     + (if ($tokens | length) > 0 then {k: $tokens} else {} end)) as $sample
+  | {
+      generatedAt: ($now | todate),
+      source: "viiwork",
+      periodSeconds: $period,
+      factoryModels: $factory,
+      totals: {
+        watts: ($hosts | total(.watts)),
+        kWh24h: ($hosts | total(.kWh24h)),
+        kWh30d: ($hosts | total(.kWh30d)),
+        hosts: ($hosts | length),
+        reporting: ($hosts | map(select(.watts != null)) | length),
+        energyHosts: ($hosts | map(select(.kWh24h != null)) | length)
+      },
+      hosts: $hosts,
+      models: $models,
+      samples: ([($prev.samples // [])[]
+                 | select(type == "object")
+                 | select((.t | type == "number") and (.w | type == "object"))
+                 | select(.t > $now - $window and .t <= $now and (.t | slot) != ($now | slot))]
+                + [$sample] | sort_by(.t))
+    }' >"$file.new" 2>/dev/null || { rm -f "$file.new"; exit 1; }
+mv "$file.new" "$file"
+exit 0

@@ -1,0 +1,218 @@
+#!/usr/bin/env bash
+# Tests for lib/config.sh: how instance settings are found, loaded, defaulted
+# and validated.
+# shellcheck disable=SC2016  # snippets are expanded by the shell under test
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh"
+
+load='. "$T_ROOT/lib/config.sh"; tehas_load'
+
+t_case "a minimal instance loads and derives the checkout path"
+t_instance "${T_MINIMAL[@]}"
+t_run "$load && echo \"\$TEHAS_WORK_REPO|\$TEHAS_HOST_ADDR|\$TEHAS_CONCURRENCY\""
+t_eq "$t_rc" 0
+t_eq "$t_out" "$T/home/tehas/repos/widget|127.0.0.1|1"
+
+t_case "settings are exported to child processes"
+t_run "$load && bash -c 'echo \$TEHAS_REPO \$PI_ENSEMBLE_SUBAGENT_MODEL \$PI_ENSEMBLE_MAX_WORKSTREAMS'"
+t_eq "$t_out" "acme/widget test-model 1"
+
+t_case "the sandbox safety switches are always on"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_NO_DOCKER_SOCKET=0 PI_ENSEMBLE_NO_SSH=
+t_run "$load && echo \"\$PI_ENSEMBLE_NO_DOCKER_SOCKET \$PI_ENSEMBLE_NO_SSH\""
+t_eq "$t_out" "1 1"
+
+t_case "instance.env beats the environment"
+t_instance "${T_MINIMAL[@]}"
+T_ENV=(TEHAS_REPO=other/thing)
+t_run "$load && echo \"\$TEHAS_REPO\""
+t_eq "$t_out" "acme/widget"
+
+t_case "a setting only in the environment is not used"
+t_instance TEHAS_CONTROL_ISSUE=1
+T_ENV=(TEHAS_REPO=other/thing TEHAS_INDEXING=1 PI_ENSEMBLE_DEBUG=1)
+t_run "$load && echo \"[\${TEHAS_REPO:-}] [\$TEHAS_INDEXING] [\${PI_ENSEMBLE_DEBUG:-}]\""
+t_eq "$t_out" "[] [0] []"
+
+t_case "the test hooks survive from the environment"
+t_instance "${T_MINIMAL[@]}"
+T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status)
+t_run "$load && echo \"\$TEHAS_WORK_CMD \$TEHAS_STATUS_CMD\""
+t_eq "$t_out" "fake-work fake-status"
+T_ENV=()
+
+t_case "a missing instance.env returns 78 and names the directory"
+rm -f "$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "tehas: no instance.env in $T/instance"
+
+t_case "a failed load does not end the shell that sourced it"
+t_run "$load; echo still-here"
+t_contains "$t_out" "still-here"
+
+t_case "the instance-dir pointer file is honoured"
+t_instance "${T_MINIMAL[@]}"
+mkdir -p "$T/home/.config/tehas"
+echo "$T/instance" >"$T/home/.config/tehas/instance-dir"
+saved=$TEHAS_INSTANCE_DIR
+unset TEHAS_INSTANCE_DIR
+t_run "$load && echo \"\$TEHAS_REPO \$TEHAS_INSTANCE_DIR\""
+t_eq "$t_out" "acme/widget $T/instance"
+rm -f "$T/home/.config/tehas/instance-dir"
+
+t_case "without a pointer the default directory is ~/.config/tehas"
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "no instance.env in $T/home/.config/tehas"
+export TEHAS_INSTANCE_DIR=$saved
+
+t_case "tehas_require names an unset setting and exits 78"
+t_instance TEHAS_CONTROL_ISSUE=1
+t_run "$load && tehas_require TEHAS_CONTROL_ISSUE TEHAS_REPO; echo not-reached"
+t_eq "$t_rc" 78
+t_contains "$t_out" "tehas: TEHAS_REPO is not set (see $T/instance/instance.env)"
+t_lacks "$t_out" "not-reached"
+
+t_case "tehas_require rejects an empty setting"
+t_instance "${T_MINIMAL[@]}" TEHAS_ALLOWED_LABELERS=
+t_run "$load && tehas_require TEHAS_ALLOWED_LABELERS"
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_ALLOWED_LABELERS is not set"
+
+for bad in "TEHAS_REPO=widget" "TEHAS_REPO=a/b/c" "TEHAS_CONTROL_ISSUE=abc" "TEHAS_CONTROL_ISSUE=0" \
+  "TEHAS_ALLOWED_LABELERS=alice;rm" "TEHAS_ALLOWED_LABELERS=alice  bob" "TEHAS_ALLOWED_LABELERS=alice " \
+  "TEHAS_ALLOWED_LABELERS= alice" "PI_ENSEMBLE_SUBAGENT_MODEL=two words"; do
+  t_case "tehas_require rejects $bad"
+  # Written quoted so a space or semicolon reaches the variable intact.
+  printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load && tehas_require ${bad%%=*}"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "tehas: ${bad%%=*} is not valid"
+done
+
+for bad in "TEHAS_WORK_MEMORY=lots" "TEHAS_WORK_CPUS=many" \
+  "TEHAS_CONCURRENCY=0" "TEHAS_MAX_AWAITING=-1" "TEHAS_WORK_TIMEOUT=soon" "TEHAS_HOST_ADDR=not an address" \
+  "TEHAS_BRANCH=two words" "TEHAS_INDEXING=yes" "TEHAS_ANALYTICS_SRC=http://plain.example/ea.js" \
+  "TEHAS_ANALYTICS_SRC=https://a.example/x.js\" onload=\"x" "TEHAS_ANALYTICS_SITE=two words" \
+  "TEHAS_ANALYTICS_COOKIE=yes" "TEHAS_PROTOLAB_URL=https://lab.example/" "TEHAS_PROTOLAB_URL=lab.example"; do
+  t_case "loading rejects $bad"
+  printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  t_contains "$t_out" "tehas: ${bad%%=*} is not valid"
+done
+
+t_case "analytics is off unless the instance names a script and a site"
+printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_ANALYTICS_SRC][\$TEHAS_ANALYTICS_SITE][\$TEHAS_ANALYTICS_COOKIE]\""
+t_eq "$t_out" "[][][0]"
+
+t_case "analytics settings are loaded as written"
+printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ANALYTICS_SRC=https://stats.example/ea.js" "TEHAS_ANALYTICS_SITE=widget" \
+  "TEHAS_ANALYTICS_COOKIE=1" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_ANALYTICS_SRC][\$TEHAS_ANALYTICS_SITE][\$TEHAS_ANALYTICS_COOKIE]\""
+t_eq "$t_out" "[https://stats.example/ea.js][widget][1]"
+
+t_case "an analytics script without a site is refused"
+printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ANALYTICS_SRC=https://stats.example/ea.js" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "TEHAS_ANALYTICS_SITE is not set"
+
+t_case "several labellers separated by single spaces are accepted"
+printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ALLOWED_LABELERS='alice bob-2 carol'" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && tehas_require TEHAS_ALLOWED_LABELERS && echo \"[\$TEHAS_ALLOWED_LABELERS]\""
+t_eq "$t_out" "[alice bob-2 carol]"
+
+t_case "more CPUs than the host has are rejected"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_CPUS=100000
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "TEHAS_WORK_CPUS is not valid"
+
+t_case "more memory than the host has is rejected"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_MEMORY=100000g
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "TEHAS_WORK_MEMORY is not valid"
+
+t_case "default limits leave room for the host"
+t_instance "${T_MINIMAL[@]}"
+t_run "$load && echo \"\$TEHAS_WORK_CPUS \$TEHAS_WORK_MEMORY\""
+cpus=$(nproc)
+want_cpus=$((cpus > 1 ? cpus - 1 : 1))
+want_mem=$(awk '/^MemTotal:/ {print int($2 / 2048) "m"}' /proc/meminfo)
+t_eq "$t_out" "$want_cpus $want_mem"
+
+t_case "explicit limits within the host are kept"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_CPUS=1 TEHAS_WORK_MEMORY=512m
+t_run "$load && echo \"\$TEHAS_WORK_CPUS \$TEHAS_WORK_MEMORY\""
+t_eq "$t_out" "1 512m"
+
+for asked in TEHAS_PREVIEWS=1 TEHAS_CLONES=1; do
+  t_case "an instance that asks for $asked is refused"
+  t_instance "${T_MINIMAL[@]}" "$asked"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  t_contains "$t_out" "tehas: ${asked%%=*} is set and this version of tehas has no previews or database clones"
+done
+
+t_case "previews and clones written as off still load"
+t_instance "${T_MINIMAL[@]}" TEHAS_PREVIEWS=0 TEHAS_CLONES=0
+t_run "$load; echo rc=\$?"
+t_eq "$t_out" "rc=0"
+
+t_case "an explicit host address is kept"
+t_instance "${T_MINIMAL[@]}" TEHAS_HOST_ADDR=192.0.2.7
+t_run "$load && echo \"\$TEHAS_HOST_ADDR\""
+t_eq "$t_out" "192.0.2.7"
+
+t_case "the worked example takes its private addresses from a file on the host"
+TEHAS_INSTANCE_DIR=$T_ROOT/instances/tehas-tehas
+t_run "$load && echo \"[\$TEHAS_HOST_ADDR] [\$PI_ENSEMBLE_HOST_ALIASES]\""
+t_eq "$t_out" "[127.0.0.1] []"
+mkdir -p "$T/home/.config/tehas"
+printf '%s\n' "TEHAS_HOST_ADDR=192.0.2.7" "PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.8" >"$T/home/.config/tehas/private.env"
+t_run "$load && echo \"[\$TEHAS_HOST_ADDR] [\$PI_ENSEMBLE_HOST_ALIASES]\""
+t_eq "$t_out" "[192.0.2.7] [models:192.0.2.8]"
+rm -rf "$T/home/.config"
+
+t_case "loading needs neither git nor the network nor a checkout"
+t_instance "${T_MINIMAL[@]}"
+mkdir -p "$T/nogit"
+for tool in bash awk nproc id head cat tr env; do ln -sf "$(command -v "$tool")" "$T/nogit/$tool"; done
+t_out=$(cd "$T" && env -i PATH="$T/nogit" HOME="$T/home" TEHAS_HOME="$T/home/tehas" T_ROOT="$T_ROOT" \
+  TEHAS_INSTANCE_DIR="$TEHAS_INSTANCE_DIR" bash -c "$load && echo loaded" 2>&1)
+t_eq "$t_out" "loaded"
+
+t_case "loading writes nothing"
+before=$(find "$T/home" "$T/instance" | sort)
+t_run "$load"
+after=$(find "$T/home" "$T/instance" | sort)
+t_eq "$after" "$before"
+
+# --- tehas_branch -----------------------------------------------------------
+git init -q -b main "$T/upstream"
+git -C "$T/upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m first
+git clone -q "$T/upstream" "$T/home/tehas/repos/widget"
+
+t_case "tehas_branch reads the default branch from origin/HEAD"
+t_instance "${T_MINIMAL[@]}"
+t_run "$load && tehas_branch"
+t_eq "$t_rc" 0
+t_eq "$t_out" "main"
+
+t_case "TEHAS_BRANCH wins over the checkout"
+t_instance "${T_MINIMAL[@]}" TEHAS_BRANCH=release
+t_run "$load && tehas_branch"
+t_eq "$t_out" "release"
+
+t_case "a checkout without origin/HEAD fails with both remedies"
+t_instance "${T_MINIMAL[@]}"
+git -C "$T/home/tehas/repos/widget" remote set-head origin -d
+t_run "$load && b=\$(tehas_branch); echo \"rc=\$? b=[\$b]\""
+t_contains "$t_out" "rc=78 b=[]"
+t_contains "$t_out" "TEHAS_BRANCH"
+t_contains "$t_out" "install.sh"
+
+t_done

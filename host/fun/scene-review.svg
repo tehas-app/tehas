@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="130" viewBox="0 0 240 130" shape-rendering="crispEdges">
+<style>
+  .bike-carry{animation:bike-route 32s steps(28,end) infinite}
+  .reviewer{animation:inspect-bike 32s steps(28,end) infinite}
+  .checking-hands{animation:hand-check 32s steps(3,end) infinite}
+  .carry-hands{animation:carry-grip 32s steps(1,end) infinite}
+  .thumbs-up{animation:thumb-up 32s steps(1,end) infinite}
+  .approval{animation:pass-stamp 32s steps(1,end) infinite}
+  @keyframes bike-route{0%,50%{transform:translate(-260px,0)}54%,70%{transform:translate(0,0)}75%,100%{transform:translate(230px,-8px)}}
+  @keyframes inspect-bike{0%,51%{transform:translateX(-100px)}56%{transform:translateX(60px)}59%,70%{transform:translateX(85px)}75%,100%{transform:translateX(315px)}}
+  @keyframes hand-check{0%,55%,67%,100%{transform:translateY(0);opacity:0}56%,59%,63%,66%{transform:translateY(-5px);opacity:1}60%,62%{transform:translateY(4px);opacity:1}}
+  @keyframes carry-grip{0%,69%,75%,100%{opacity:0}70%,74.9%{opacity:1}}
+  @keyframes thumb-up{0%,66%,70%,100%{opacity:0}67%,69.9%{opacity:1}}
+  @keyframes pass-stamp{0%,67%,71%,100%{opacity:0}68%,70.9%{opacity:1}}
+  @media(prefers-reduced-motion:reduce){.bike-carry,.reviewer,.checking-hands,.carry-hands,.thumbs-up,.approval{animation:none}.bike-carry{transform:translate(0,0)}.reviewer{transform:translateX(85px)}.checking-hands,.approval{opacity:1}.carry-hands,.thumbs-up{opacity:0}}
+</style>
+<rect width="240" height="130" fill="#ccd"/>
+<rect y="100" width="240" height="30" fill="#8a5"/>
+<rect x="119" y="96" width="105" height="9" fill="#333"/>
+<rect x="130" y="105" width="8" height="20" fill="#333"/>
+<rect x="210" y="105" width="8" height="20" fill="#333"/>
+<g class="bike-carry"><g transform="translate(121 21) scale(.75)">
+  <g class="wheels"><g fill="#222"><rect x="10" y="72" width="26" height="5"/><rect x="10" y="95" width="26" height="5"/><rect x="6" y="77" width="5" height="18"/><rect x="35" y="77" width="5" height="18"/><rect x="83" y="72" width="26" height="5"/><rect x="83" y="95" width="26" height="5"/><rect x="79" y="77" width="5" height="18"/><rect x="108" y="77" width="5" height="18"/></g><rect x="20" y="82" width="7" height="7" fill="#fc6"/><rect x="93" y="82" width="7" height="7" fill="#fc6"/></g>
+  <g class="frame" fill="#c53"><polygon points="23,85 48,54 55,57 31,88"/><polygon points="49,56 55,56 72,84 65,88"/><rect x="25" y="83" width="49" height="5"/><rect x="50" y="54" width="24" height="5"/><polygon points="74,56 80,55 96,85 89,88"/><rect x="70" y="83" width="26" height="5"/></g>
+  <g class="controls" fill="#222"><rect x="49" y="45" width="5" height="12"/><rect x="41" y="43" width="23" height="5"/><polygon points="75,56 81,55 90,34 84,34"/><rect x="85" y="32" width="22" height="5"/></g>
+  <g class="finishing"><rect x="4" y="66" width="39" height="6" fill="#222"/><rect x="1" y="72" width="6" height="14" fill="#222"/><rect x="40" y="72" width="6" height="14" fill="#222"/><rect x="8" y="68" width="31" height="4" fill="#fc6"/><rect x="5" y="74" width="4" height="8" fill="#fc6"/><rect x="38" y="74" width="4" height="8" fill="#fc6"/><rect x="56" y="81" width="14" height="9" fill="#fc6"/><rect x="60" y="84" width="6" height="3" fill="#222"/></g>
+</g></g>
+<g class="reviewer">
+  <rect x="25" y="34" width="33" height="32" fill="#fc6"/>
+  <rect x="23" y="30" width="37" height="10" fill="#fc6"/>
+  <rect x="29" y="24" width="25" height="8" fill="#fc6"/>
+  <rect x="49" y="46" width="6" height="6" fill="#222"/>
+  <rect x="27" y="67" width="33" height="39" fill="#4a9"/>
+  <rect x="31" y="72" width="25" height="10" fill="#7cb"/>
+  <rect x="29" y="105" width="11" height="20" fill="#222"/>
+  <rect x="49" y="105" width="11" height="20" fill="#222"/>
+  <g class="checking-hands">
+    <rect x="59" y="72" width="23" height="8" fill="#fc6"/>
+    <rect x="80" y="69" width="11" height="13" fill="#fc6"/>
+    <rect x="59" y="88" width="16" height="8" fill="#fc6"/>
+    <rect x="73" y="85" width="11" height="13" fill="#fc6"/>
+  </g>
+  <g class="carry-hands">
+    <rect x="59" y="74" width="26" height="9" fill="#fc6"/>
+    <rect x="83" y="69" width="12" height="16" fill="#fc6"/>
+    <rect x="59" y="88" width="19" height="9" fill="#fc6"/>
+    <rect x="76" y="84" width="12" height="15" fill="#fc6"/>
+  </g>
+  <g class="thumbs-up">
+    <rect x="59" y="67" width="12" height="26" fill="#4a9"/>
+    <rect x="66" y="48" width="9" height="23" fill="#fc6"/>
+    <rect x="73" y="44" width="7" height="14" fill="#fc6"/>
+  </g>
+</g>
+<g class="approval"><rect x="168" y="17" width="54" height="28" fill="#222"/><rect x="173" y="22" width="44" height="18" fill="#7cb"/><path d="M180 30l5 5 10-10" fill="none" stroke="#222" stroke-width="5" stroke-linejoin="miter"/></g>
+<rect y="125" width="240" height="5" fill="#694"/>
+</svg>

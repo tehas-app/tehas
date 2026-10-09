@@ -1,0 +1,12 @@
+{{- $base := printf "%s://%s" (default (placeholder "http.request.scheme") (.Req.Header.Get "X-Forwarded-Proto")) .Req.Host -}}
+User-agent: *
+{{- if eq (env "TEHAS_INDEXING") "1" }}
+Disallow: /live/
+Disallow: /health
+
+Sitemap: {{ $base }}/sitemap.xml
+
+# For agents: {{ $base }}/llms.txt
+{{- else }}
+Disallow: /
+{{- end }}

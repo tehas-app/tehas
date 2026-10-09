@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# Write the factory's health file: $TEHAS_HOME/live/health.json, served by the
+# docs server as /health (and /healthz).
+#
+# It reads only what the factory already writes under live/: status.json (the
+# queue snapshot from tehas-status) and running.json (the current or last cycle
+# from tehas-work). No network, no model. tehas-status runs it on exit, so it is
+# refreshed at every poll and every two minutes during a cycle.
+#
+# The file follows the health check response format (draft-inadarei-api-health-check):
+#   status "pass"  the factory is taking work
+#   status "warn"  it is paused (tehas:pause on the control issue)
+#   status "fail"  the last cycle ended as anything but merged or handoff, or
+#                  there is no queue snapshot yet
+# On "fail" it also creates live/health.down, which makes the docs server answer
+# 503 with the same body; otherwise it removes that file.
+#
+# A stopped dispatcher cannot report itself: the file just stops changing. A
+# monitor should treat a "time" older than about ten minutes as down.
+#
+# Usage: tehas-health        (prints nothing; exit 0 unless the file cannot be written)
+set -uo pipefail
+
+: "${TEHAS_HOME:=$HOME/tehas}"
+live=$TEHAS_HOME/live
+mkdir -p "$live"
+
+status_file=$live/status.json
+running_file=$live/running.json
+queue=null
+cycle=null
+[ -s "$status_file" ] && queue=$(jq -c . "$status_file" 2>/dev/null || echo null)
+[ -s "$running_file" ] && cycle=$(jq -c . "$running_file" 2>/dev/null || echo null)
+
+jq -n --argjson queue "$queue" --argjson cycle "$cycle" --arg now "$(date -u +%FT%TZ)" '
+  def iso: if type == "number" then todate else null end;
+  ($cycle != null and ($cycle.running | not)
+     and (($cycle.status // "") | IN("merged", "handoff") | not)) as $failed
+  | (if $queue == null then "fail"
+     elif $failed then "fail"
+     elif $queue.paused then "warn"
+     else "pass" end) as $status
+  | {
+      status: $status,
+      time: $now,
+      output: (if $queue == null then "No queue snapshot yet: the dispatcher has not written one."
+               elif $failed then "The last cycle failed: #\($cycle.issue) ended as \($cycle.status)."
+               elif $queue.paused then "The factory is paused."
+               elif $cycle != null and $cycle.running then "Working on #\($cycle.issue)."
+               else "Idle, taking work." end),
+      checks: {
+        queue: (if $queue == null then null else {
+          time: $queue.generatedAt,
+          paused: ($queue.paused // false),
+          inLine: ($queue.queued | length),
+          building: ($queue.running | length),
+          review: ($queue.awaiting | length),
+          stopped: ($queue.stopped | length)
+        } end),
+        cycle: (if $cycle == null then null else {
+          issue: $cycle.issue,
+          running: ($cycle.running // false),
+          status: $cycle.status,
+          step: $cycle.step,
+          startedAt: ($cycle.startedAt | iso),
+          time: ($cycle.updatedAt | iso)
+        } end)
+      }
+    }' >"$live/health.json.new" 2>/dev/null || exit 1
+mv "$live/health.json.new" "$live/health.json"
+
+if [ "$(jq -r .status "$live/health.json")" = fail ]; then
+  : >"$live/health.down"
+else
+  rm -f "$live/health.down"
+fi
+exit 0

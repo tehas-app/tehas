@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="130" viewBox="0 0 240 130" shape-rendering="crispEdges">
+<style>
+  .ship{animation:voyage 32s steps(25,end) infinite}
+  .truck-one{animation:load-one 32s steps(14,end) infinite}
+  .truck-two{animation:load-two 32s steps(14,end) infinite}
+  .wave{animation:wave 32s steps(3,end) infinite}
+  @keyframes voyage{0%,85%,93%,100%{transform:translateX(0)}89%,90%{transform:translateX(185px)}}
+  @keyframes load-one{0%,74%{transform:translateX(-160px);opacity:0}75%{transform:translateX(-160px);opacity:1}80%,89%{transform:translateX(0);opacity:1}90%,100%{transform:translateX(0);opacity:0}}
+  @keyframes load-two{0%,78%{transform:translateX(-185px);opacity:0}79%{transform:translateX(-185px);opacity:1}84%,89%{transform:translateX(0);opacity:1}90%,100%{transform:translateX(0);opacity:0}}
+  @keyframes wave{0%,74%,85%,94%,100%{transform:translateX(0)}80%,90%{transform:translateX(8px)}}
+  @media(prefers-reduced-motion:reduce){.ship,.truck-one,.truck-two,.wave{animation:none}}
+</style>
+<rect width="240" height="130" fill="#ccd"/>
+<rect x="8" y="19" width="51" height="48" fill="#c53" stroke="#333" stroke-width="6"/>
+<rect x="17" y="33" width="12" height="13" fill="#7cb"/><rect x="37" y="33" width="12" height="13" fill="#7cb"/>
+<rect y="82" width="240" height="48" fill="#7cb"/>
+<rect x="0" y="68" width="90" height="12" fill="#8a5"/>
+<rect x="0" y="77" width="96" height="8" fill="#333"/>
+<rect x="12" y="84" width="10" height="22" fill="#333"/>
+<rect x="70" y="84" width="10" height="22" fill="#333"/>
+<g class="ship">
+  <rect x="96" y="78" width="137" height="9" fill="#222"/>
+  <path d="M91 87h147l-17 26H110z" fill="#445" stroke="#222" stroke-width="5"/>
+  <rect x="207" y="55" width="25" height="23" fill="#fc6" stroke="#333" stroke-width="5"/>
+  <rect x="213" y="61" width="10" height="8" fill="#7cb"/>
+  <rect x="118" y="72" width="8" height="7" fill="#eec"/>
+  <g class="truck-one">
+    <rect x="124" y="61" width="26" height="15" fill="#fc6" stroke="#222" stroke-width="4"/>
+    <rect x="150" y="66" width="13" height="10" fill="#c53" stroke="#222" stroke-width="4"/>
+    <rect x="129" y="76" width="7" height="7" fill="#222"/><rect x="152" y="76" width="7" height="7" fill="#222"/>
+  </g>
+  <g class="truck-two">
+    <rect x="167" y="61" width="22" height="15" fill="#7cb" stroke="#222" stroke-width="4"/>
+    <rect x="188" y="66" width="12" height="10" fill="#fc6" stroke="#222" stroke-width="4"/>
+    <rect x="171" y="76" width="7" height="7" fill="#222"/><rect x="190" y="76" width="7" height="7" fill="#222"/>
+  </g>
+</g>
+<g class="wave" fill="#7cb"><rect x="10" y="104" width="42" height="5"/><rect x="77" y="117" width="36" height="5"/><rect x="178" y="119" width="51" height="5"/></g>
+</svg>

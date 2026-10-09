@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="280" viewBox="0 0 400 280" shape-rendering="crispEdges" role="img" aria-labelledby="title desc">
+<title id="title">Tehas idea notebook office scene</title>
+<desc id="desc">Seen through an office window: one colleague has an idea, a second sketches it in a notebook, and a third reads it and passes it on.</desc>
+<style>
+  /* One 20s loop in sprite steps: idea, sketch, hand over, read, set down. */
+  .idea-bulb{animation:idea-pop 20s steps(1,end) infinite}
+  .thinker-head{animation:thinker-bob 20s steps(1,end) infinite}
+  .propeller{transform-origin:105px 74px;animation:propeller-spin 20s steps(32,end) infinite}
+  .writing-book{animation:writing-book 20s steps(1,end) infinite}
+  .writing-hand{animation:write-note 20s steps(5,end) infinite}
+  .note-one{animation:note-one 20s steps(1,end) infinite}
+  .note-two{animation:note-two 20s steps(1,end) infinite}
+  .note-three{animation:note-three 20s steps(1,end) infinite}
+  .handoff-book{animation:book-pass 20s steps(12,end) infinite}
+  .reader-eyes{animation:read-lines 20s steps(1,end) infinite}
+  .page-flip{animation:page-flip 20s steps(1,end) infinite}
+  .blink-a{animation:blink-a 20s steps(1,end) infinite}
+  .blink-b{animation:blink-b 20s steps(1,end) infinite}
+  .blink-c{animation:blink-c 20s steps(1,end) infinite}
+  .clouds{animation:cloud-drift 40s steps(20,end) infinite alternate}
+  @keyframes idea-pop{0%,4%{opacity:0;transform:translateY(6px)}5%{opacity:1;transform:translateY(0)}9%{opacity:0;transform:translateY(0)}10%{opacity:1;transform:translateY(0)}12%{opacity:0;transform:translateY(0)}13%,21%{opacity:1;transform:translateY(0)}22%,100%{opacity:0;transform:translateY(6px)}}
+  @keyframes thinker-bob{0%,4%{transform:translateY(0)}5%,21%{transform:translateY(-3px)}22%,100%{transform:translateY(0)}}
+  @keyframes propeller-spin{0%,23%{transform:rotate(0deg)}56%,100%{transform:rotate(1440deg)}}
+  @keyframes writing-book{0%,23%{opacity:0}24%,55%{opacity:1}56%,100%{opacity:0}}
+  @keyframes write-note{0%,23%{transform:translate(0,0);opacity:0}24%,28%{transform:translate(0,0);opacity:1}32%,36%{transform:translate(8px,3px);opacity:1}40%,44%{transform:translate(0,7px);opacity:1}48%,54%{transform:translate(9px,10px);opacity:1}55%,100%{transform:translate(0,0);opacity:0}}
+  @keyframes note-one{0%,33%{opacity:0}34%,55%{opacity:1}56%,100%{opacity:0}}
+  @keyframes note-two{0%,41%{opacity:0}42%,55%{opacity:1}56%,100%{opacity:0}}
+  @keyframes note-three{0%,49%{opacity:0}50%,55%{opacity:1}56%,100%{opacity:0}}
+  @keyframes book-pass{0%,55%{opacity:0;transform:translate(0,0)}56%{opacity:1;transform:translate(0,0)}67%,89%{opacity:1;transform:translate(115px,0)}96%,99%{opacity:1;transform:translate(115px,9px)}100%{opacity:0;transform:translate(115px,9px)}}
+  @keyframes read-lines{0%,67%{transform:translate(0,0)}68%{transform:translate(-2px,2px)}72%{transform:translate(0,2px)}76%{transform:translate(-2px,2px)}80%{transform:translate(0,2px)}84%{transform:translate(-2px,2px)}88%{transform:translate(0,2px)}90%,100%{transform:translate(0,0)}}
+  @keyframes page-flip{0%,73%{opacity:0}74%{opacity:1}75%,81%{opacity:0}82%{opacity:1}83%,100%{opacity:0}}
+  @keyframes blink-a{0%,1%{opacity:0}2%{opacity:1}3%,46%{opacity:0}47%{opacity:1}48%,80%{opacity:0}81%{opacity:1}82%,100%{opacity:0}}
+  @keyframes blink-b{0%,13%{opacity:0}14%{opacity:1}15%,61%{opacity:0}62%{opacity:1}63%,92%{opacity:0}93%{opacity:1}94%,100%{opacity:0}}
+  @keyframes blink-c{0%,8%{opacity:0}9%{opacity:1}10%,37%{opacity:0}38%{opacity:1}39%,57%{opacity:0}58%{opacity:1}59%,100%{opacity:0}}
+  @keyframes cloud-drift{from{transform:translateX(0)}to{transform:translateX(40px)}}
+  @media(prefers-reduced-motion:reduce){.idea-bulb,.thinker-head,.propeller,.writing-book,.writing-hand,.note-one,.note-two,.note-three,.handoff-book,.reader-eyes,.page-flip,.blink-a,.blink-b,.blink-c,.clouds{animation:none}.idea-bulb,.writing-book,.writing-hand,.note-one,.note-two,.note-three{opacity:1}.handoff-book,.page-flip,.blink-a,.blink-b,.blink-c{opacity:0}}
+</style>
+<!-- Office wall, window, and a view into the day outside. -->
+<rect width="400" height="280" fill="#ccd"/>
+<rect x="0" y="0" width="400" height="16" fill="#eee"/>
+<rect x="17" y="14" width="366" height="108" fill="#222"/>
+<rect x="24" y="21" width="352" height="94" fill="#7cb"/>
+<rect x="24" y="84" width="352" height="31" fill="#ccd"/>
+<rect x="39" y="70" width="41" height="45" fill="#889"/><rect x="87" y="61" width="28" height="54" fill="#667"/><rect x="312" y="72" width="37" height="43" fill="#667"/><rect x="354" y="65" width="22" height="50" fill="#889"/><rect x="46" y="78" width="6" height="6" fill="#fc6"/><rect x="62" y="90" width="6" height="6" fill="#fc6"/><rect x="94" y="70" width="6" height="6" fill="#fc6"/><rect x="322" y="82" width="6" height="6" fill="#fc6"/><rect x="334" y="96" width="6" height="6" fill="#fc6"/>
+<g class="clouds"><rect x="40" y="34" width="38" height="9" fill="#eee"/><rect x="49" y="27" width="22" height="8" fill="#eee"/><rect x="266" y="40" width="34" height="8" fill="#eee"/><rect x="274" y="33" width="18" height="8" fill="#eee"/></g>
+<rect x="197" y="21" width="7" height="94" fill="#333"/><rect x="24" y="112" width="352" height="7" fill="#4a9"/>
+<rect y="238" width="400" height="42" fill="#aab"/><rect y="265" width="400" height="15" fill="#7cb"/>
+<!-- Three colleagues at one shared desk. -->
+<g aria-label="Asian androgynous colleague at the center">
+ <rect x="239" y="159" width="52" height="59" fill="#c53"/><rect x="250" y="161" width="29" height="11" fill="#dca"/>
+ <g class="thinker-head"><rect x="245" y="116" width="39" height="43" fill="#b97"/><rect x="242" y="109" width="44" height="16" fill="#222"/><rect x="242" y="120" width="7" height="14" fill="#222"/>
+ <rect x="252" y="138" width="6" height="3" fill="#222"/><rect x="271" y="138" width="6" height="3" fill="#222"/><rect x="257" y="150" width="11" height="3" fill="#975"/><g class="blink-a" fill="#b97"><rect x="252" y="137" width="6" height="3"/><rect x="271" y="137" width="6" height="3"/></g></g>
+ <rect x="226" y="178" width="15" height="17" fill="#c53"/><rect x="224" y="191" width="15" height="9" fill="#b97"/>
+</g>
+<g aria-label="White woman in a suit at the right">
+ <rect x="333" y="156" width="49" height="63" fill="#222"/><polygon points="351,157 363,157 359,189 355,189" fill="#eec"/><rect x="355" y="164" width="5" height="22" fill="#ea3"/>
+ <rect x="340" y="114" width="32" height="42" fill="#dca"/><rect x="336" y="108" width="38" height="16" fill="#222"/><rect x="369" y="120" width="9" height="31" fill="#222"/>
+ <g class="reader-eyes"><rect x="347" y="135" width="5" height="4" fill="#222"/><rect x="360" y="135" width="5" height="4" fill="#222"/></g><g class="blink-c" fill="#dca"><rect x="345" y="133" width="9" height="8"/><rect x="358" y="133" width="9" height="8"/></g><rect x="351" y="149" width="11" height="3" fill="#a32"/>
+ <rect x="313" y="179" width="22" height="10" fill="#222"/><rect x="306" y="179" width="9" height="10" fill="#dca"/>
+ <rect x="380" y="180" width="12" height="11" fill="#222"/><rect x="388" y="180" width="8" height="11" fill="#dca"/>
+</g>
+<g class="idea-bulb" aria-label="Idea light bulb above the center colleague"><rect x="249" y="60" width="33" height="10" fill="#fc6"/><rect x="243" y="69" width="45" height="26" fill="#fc6"/><rect x="250" y="95" width="31" height="7" fill="#ea3"/><rect x="256" y="102" width="19" height="5" fill="#222"/><rect x="262" y="49" width="7" height="8" fill="#222"/><rect x="234" y="74" width="6" height="6" fill="#222"/><rect x="291" y="74" width="6" height="6" fill="#222"/></g>
+<g aria-label="Black male propeller-head inventor at the left">
+ <rect x="67" y="157" width="67" height="61" fill="#4a9"/><rect x="80" y="169" width="39" height="10" fill="#7cb"/>
+ <rect x="79" y="107" width="49" height="51" fill="#753"/>
+ <rect x="76" y="99" width="55" height="19" fill="#222"/><rect x="82" y="92" width="43" height="9" fill="#222"/>
+ <rect x="80" y="101" width="48" height="15" fill="#c53"/><rect x="86" y="95" width="34" height="8" fill="#c53"/><rect x="79" y="102" width="7" height="14" fill="#fc6"/><rect x="113" y="96" width="14" height="20" fill="#4a9"/>
+ <rect x="74" y="114" width="63" height="8" fill="#276"/><rect x="126" y="118" width="16" height="5" fill="#4a9"/>
+ <rect x="113" y="138" width="5" height="5" fill="#eee"/><rect class="blink-b" x="113" y="138" width="5" height="5" fill="#753"/><rect x="87" y="151" width="25" height="4" fill="#b97"/>
+ <rect x="100" y="78" width="9" height="15" fill="#ea3"/>
+ <g class="propeller"><rect x="72" y="69" width="64" height="10" fill="#667"/><rect x="76" y="71" width="56" height="6" fill="#4a9"/><rect x="102" y="62" width="6" height="24" fill="#4a9"/><rect x="103" y="65" width="4" height="18" fill="#7cb"/><rect x="100" y="70" width="10" height="9" fill="#ea3"/></g>
+ <rect x="126" y="175" width="33" height="11" fill="#753"/>
+ <g class="writing-book"><rect x="151" y="183" width="87" height="38" fill="#222"/><rect x="157" y="186" width="37" height="30" fill="#eec"/><rect x="198" y="186" width="35" height="30" fill="#eee"/><rect x="194" y="186" width="5" height="30" fill="#b97"/><g class="note-one" fill="#4a9"><rect x="204" y="191" width="22" height="3"/></g><g class="note-two" fill="#4a9"><rect x="204" y="200" width="25" height="3"/></g><g class="note-three" fill="#c53"><rect x="204" y="209" width="18" height="3"/></g></g>
+ <g class="writing-hand"><rect x="155" y="174" width="21" height="12" fill="#753"/><polygon points="176,180 181,176 204,201 200,205" fill="#222"/><polygon points="181,179 183,178 201,199 199,201" fill="#fc6"/></g>
+</g>
+<rect x="302" y="211" width="42" height="8" fill="#222"/><rect x="304" y="213" width="38" height="4" fill="#ea3"/>
+<g class="handoff-book"><rect x="191" y="178" width="34" height="25" fill="#222"/><rect x="196" y="181" width="24" height="17" fill="#fc6"/><rect x="200" y="185" width="16" height="3" fill="#276"/><rect x="200" y="191" width="12" height="3" fill="#276"/></g>
+<rect class="page-flip" x="319" y="181" width="12" height="17" fill="#eee"/>
+<!-- The window frame sits in front of the office scene. -->
+<rect x="0" y="0" width="400" height="8" fill="#4a9"/><rect x="0" y="0" width="8" height="280" fill="#4a9"/><rect x="392" y="0" width="8" height="280" fill="#4a9"/>
+<rect x="7" y="223" width="386" height="12" fill="#445"/>
+<rect x="17" y="218" width="366" height="11" fill="#fc6"/><rect x="28" y="229" width="14" height="29" fill="#445"/><rect x="357" y="229" width="14" height="29" fill="#445"/>
+</svg>

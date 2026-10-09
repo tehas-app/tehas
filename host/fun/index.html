@@ -1,0 +1,306 @@
+{{- /* The public address of this page, for the absolute links that share
+       previews need. Behind a TLS proxy the scheme is the forwarded one. */ -}}
+{{- $base := printf "%s://%s" (default (placeholder "http.request.scheme") (.Req.Header.Get "X-Forwarded-Proto")) .Req.Host | html -}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {{- if ne (env "TEHAS_INDEXING") "1" }}
+  <meta name="robots" content="noindex, nofollow">
+  {{- end }}
+  <meta name="theme-color" content="#694">
+  <link rel="alternate" type="text/plain" href="/llms.txt" title="For agents: llms.txt">
+  <title>Tehas: a software factory powered by the Pi coding agent</title>
+  <meta name="description" content="Tehas is a software factory powered by the Pi coding agent and pi-rukas. GitHub issues go in, reviewed pull requests come out, built in a sandbox on self-hosted models. This is its factory floor, live.">
+  <link rel="canonical" href="{{ $base }}/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Tehas">
+  <meta property="og:title" content="Tehas: a software factory powered by the Pi coding agent">
+  <meta property="og:description" content="Tehas is a software factory powered by the Pi coding agent and pi-rukas. GitHub issues go in, reviewed pull requests come out, built in a sandbox on self-hosted models. This is its factory floor, live.">
+  <meta property="og:url" content="{{ $base }}/">
+  <meta property="og:image" content="{{ $base }}/fun/share.png">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="A pixel art factory with a wind turbine beside the word TEHAS">
+  <meta name="twitter:card" content="summary_large_image">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Tehas",
+    "alternateName": "Tehas, a Pi software factory",
+    "url": "{{ $base }}/",
+    "description": "A software factory powered by the Pi coding agent and pi-rukas. A GitHub issue goes in and a reviewed pull request comes out, built in a sandbox on self-hosted models. A person merges.",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Linux",
+    "softwareRequirements": "Pi coding agent, pi-rukas, Docker, an OpenAI-compatible model endpoint",
+    "softwareHelp": "{{ $base }}/pi-software-factory",
+    "sameAs": "https://github.com/janit/tehas",
+    "keywords": "Pi software factory, Pi coding agent, pi-rukas, software factory, coding agents, self-hosted models, GitHub issues"
+  }
+  </script>
+  <link rel="icon" type="image/svg+xml" href="/fun/favicon.svg">
+  <link rel="preload" href="/fun/TopazPlus_a1200_v1.0.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="stylesheet" href="/fun/game-view.css">
+  <link rel="stylesheet" href="/fun/energy-view.css">
+  {{- /* Visitor analytics, only on an instance that names a script and a site. */}}
+  {{- if and (env "TEHAS_ANALYTICS_SRC") (env "TEHAS_ANALYTICS_SITE") }}
+  <script async src="{{ env "TEHAS_ANALYTICS_SRC" }}" data-site="{{ env "TEHAS_ANALYTICS_SITE" }}"{{ if eq (env "TEHAS_ANALYTICS_COOKIE") "1" }} data-cookie="true"{{ end }}></script>
+  {{- end }}
+</head>
+<body id="top">
+  <a class="skip" href="#board">Skip to the issue board</a>
+
+  <header class="topbar">
+    <a class="brand" href="#top" aria-label="Tehas factory floor, top of page">
+      <img src="/fun/factory.svg" width="100" height="50" alt="">
+      <span>TEHAS</span>
+    </a>
+    <p class="source" id="source" role="status">NO DATA</p>
+    <nav class="menu" aria-label="Sections">
+      <a href="#top">FACTORY FLOOR</a>
+      <a href="#board" data-filter="open">ISSUE BOARD</a>
+      <a href="#lab">PROTOLAB</a>
+      <a href="#console">PRODUCTION CONSOLE</a>
+      <a href="#energy" id="menu-energy" hidden>ENERGY USE</a>
+      <a href="#break-room">BREAKROOM</a>
+      <a href="/overview">MANUAL</a>
+      <a href="/agents">AGENTS</a>
+      <a class="repo" href="https://github.com/janit/tehas" target="_blank" rel="noopener noreferrer">GITHUB</a>
+    </nav>
+    <p class="gate" id="gate" data-state="none" role="status">CHECKING</p>
+  </header>
+
+  <main class="stage">
+    <section class="floor" aria-labelledby="floor-title">
+      <div class="floor-head">
+        <h1 id="floor-title">TEHAS: A PI SOFTWARE FACTORY</h1>
+        <p class="floor-intro">The floor of a software factory powered by the <a href="https://pi.dev" target="_blank" rel="noopener noreferrer">Pi coding agent</a> and <a href="https://github.com/trail-openers/pi-rukas" target="_blank" rel="noopener noreferrer">pi-rukas</a>. GitHub issues go in and reviewed pull requests come out, built in a sandbox on self-hosted models. A person merges. <a href="/pi-software-factory">HOW IT WORKS</a></p>
+        <p id="floor-summary">Waiting for ticket data.</p>
+      </div>
+
+      <div class="line">
+
+        <ol class="stations">
+          <li class="station" data-stage="ready">
+            <div class="sign">
+              <img class="scene" src="/fun/scene-in-line.svg" width="240" height="130" alt="A forklift brings a pallet into the warehouse.">
+              <h2><span>IN LINE</span><b id="count-ready">--</b></h2>
+              <p class="slot-label">NEXT UP</p>
+              <div class="slot" id="slot-ready"></div>
+              <button class="see-all" type="button" data-filter="ready" hidden></button>
+            </div>
+          </li>
+          <li class="station" data-stage="running">
+            <div class="sign">
+              <img class="scene" src="/fun/scene-building.svg" width="240" height="130" alt="A bicycle is assembled on the line.">
+              <h2><span>BUILDING</span><b id="count-running">--</b></h2>
+              <p class="slot-label">IN WORK</p>
+              <div class="slot" id="slot-running"></div>
+              <button class="see-all" type="button" data-filter="running" hidden></button>
+            </div>
+          </li>
+          <li class="station" data-stage="review">
+            <div class="sign">
+              <img class="scene" src="/fun/scene-review.svg" width="240" height="130" alt="A reviewer inspects the finished bicycle.">
+              <h2><span>REVIEW</span><b id="count-review">--</b></h2>
+              <p class="slot-label">NEEDS REVIEW</p>
+              <div class="slot" id="slot-review"></div>
+              <button class="see-all" type="button" data-filter="review" hidden></button>
+            </div>
+          </li>
+          <li class="station" data-stage="shipped">
+            <div class="sign">
+              <img class="scene" src="/fun/scene-shipped.svg" width="240" height="130" alt="A ship leaves the dock with the cargo.">
+              <h2><span>SHIPPED</span><b id="count-shipped">--</b></h2>
+              <p class="slot-label">LATEST</p>
+              <div class="slot" id="slot-shipped"></div>
+              <button class="see-all" type="button" data-filter="shipped" hidden></button>
+            </div>
+          </li>
+        </ol>
+
+      </div>
+
+    </section>
+
+    <nav class="doors" aria-label="On this page">
+      <a class="door" href="#board" data-filter="open"><span><b>ISSUE BOARD</b><small>ALL OPEN TICKETS</small></span><i id="door-open">--</i></a>
+      <a class="door" id="door-stopped-link" href="#board" data-filter="stopped"><span><b>STOPPED</b><small id="door-stopped-note">NEEDS A HUMAN</small></span><i id="door-stopped">--</i></a>
+      <a class="door" href="#board" data-filter="backlog"><span><b>NOT ON THE LINE</b><small id="door-backlog-note">OPEN, NOT QUEUED</small></span><i id="door-backlog">--</i></a>
+      <a class="door" href="#break-room"><span><b>BREAKROOM</b><small>BUZZWORD BUSTER</small></span></a>
+      <a class="door" href="#lab"><span><b>PROTOLAB</b><small>PROTOTYPE STAGE</small></span><i id="door-lab">--</i></a>
+      <a class="door" id="door-console-link" href="#console"><span><b>PRODUCTION CONSOLE</b><small id="door-console">CHECKING</small></span></a>
+      <a class="door meter" id="door-meter" href="#energy" aria-label="Live meter. Opens Energy use." hidden>
+        <span class="meter-row"><b>POWER</b><span><i id="meter-watts">--</i> W</span></span>
+        <span class="meter-gauge" id="meter-watts-gauge" aria-hidden="true"></span>
+        <span class="meter-row" id="meter-tokens-row"><b>TOKENS</b><span><i id="meter-tokens">--</i> /MIN</span></span>
+        <span class="meter-gauge" id="meter-tokens-gauge" aria-hidden="true"></span>
+      </a>
+    </nav>
+
+    <div class="desk">
+    <aside class="monitor-wrap" aria-label="Selected ticket">
+      <div class="monitor" id="work-order" aria-labelledby="order-heading" aria-live="polite">
+        <h2 class="monitor-title" id="order-heading">WORK ORDER<span class="monitor-led" aria-hidden="true"></span></h2>
+        <div class="screen">
+          <p class="order-number" id="order-number">----</p>
+          <p class="order-title" id="order-title">No ticket selected.</p>
+          <dl class="order-facts">
+            <div><dt>STAGE</dt><dd id="order-stage">-</dd></div>
+            <div><dt>LABELS</dt><dd id="order-labels">-</dd></div>
+            <div><dt>CREATED</dt><dd id="order-created">-</dd></div>
+            <div><dt>CHANGED</dt><dd id="order-changed">-</dd></div>
+            <div><dt>TOKENS</dt><dd id="order-tokens">-</dd></div>
+            <div><dt>TIME</dt><dd id="order-time">-</dd></div>
+            <div><dt>ENERGY</dt><dd id="order-energy">-</dd></div>
+          </dl>
+          <p class="order-foot"><span class="order-link" id="order-link"></span><span class="cursor" aria-hidden="true"></span></p>
+        </div>
+        <span class="monitor-base" aria-hidden="true"></span>
+      </div>
+    </aside>
+
+    <section class="board-wrap" aria-label="Tickets">
+      <div class="board" id="board" aria-labelledby="board-title" tabindex="-1">
+        <div class="board-head">
+          <h2 id="board-title">ISSUE BOARD</h2>
+          <p id="board-count" role="status"></p>
+          <a class="board-all" id="board-all" target="_blank" rel="noopener noreferrer" hidden>ALL ISSUES IN THE TRACKER</a>
+        </div>
+        <div class="board-tools">
+          <label>SEARCH
+            <input id="board-search" type="search" autocomplete="off" spellcheck="false" placeholder="NUMBER, WORD OR LABEL">
+          </label>
+          <label>STAGE
+            <select id="board-filter">
+              <option value="open">ALL OPEN</option>
+              <option value="ready">IN LINE</option>
+              <option value="running">BUILDING</option>
+              <option value="review">REVIEW</option>
+              <option value="stopped">STOPPED</option>
+              <option value="backlog">NOT ON THE LINE</option>
+              <option value="shipped">SHIPPED</option>
+            </select>
+          </label>
+          <button class="button" id="board-clear" type="button" hidden>CLEAR</button>
+        </div>
+        <ul class="rows" id="board-rows"></ul>
+      </div>
+    </section>
+
+    <section class="lab" id="lab" aria-labelledby="lab-title">
+      <div class="lab-head">
+        <h2 id="lab-title">PROTOLAB</h2>
+        <p id="lab-count" role="status"></p>
+      </div>
+      <div class="lab-body">
+        <ul class="rows" id="lab-rows"></ul>
+        <figure class="lab-scene">
+          <img src="/fun/scene-lab.svg" width="400" height="280" loading="lazy" alt="Through an office window: one colleague has an idea, a second sketches it in a notebook, and a third reads it and passes it on.">
+          <figcaption>The Protolab holds tickets at the prototype stage: those labelled tehas:prototype. Each has a page there with the images, videos and static HTML files attached to it. A ticket joins the line when it is labelled tehas:ready.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="console" id="console" aria-labelledby="console-title">
+      <div class="console-head">
+        <h2 id="console-title">PRODUCTION CONSOLE</h2>
+        <p class="console-state" id="console-state" role="status">CHECKING</p>
+      </div>
+      <div class="console-body">
+        <p class="console-cycle" id="console-cycle">Looking for a running cycle.</p>
+        <p class="console-step" id="console-step"></p>
+        <pre id="console-out" tabindex="0" aria-label="Console of the running cycle"></pre>
+        <div class="console-bar">
+          <label><input type="checkbox" id="console-follow" checked> FOLLOW THE OUTPUT</label>
+          <span id="console-note"></span>
+        </div>
+      </div>
+    </section>
+    </div>
+
+    <section class="energy" id="energy" aria-labelledby="energy-title" hidden>
+      <div class="energy-head">
+        <h2 id="energy-title">ENERGY USE</h2>
+        <p class="energy-scope"><span id="energy-scope"></span> <span class="energy-state" id="energy-state" role="status">CHECKING</span></p>
+      </div>
+      <div class="energy-body">
+        <p class="energy-total">
+          <span><b id="energy-watts">--</b> W</span>
+          <span><b id="energy-kwh24">--</b> KWH (24H)</span>
+          <span>SERVING THE FACTORY</span>
+          <span class="energy-month"><b id="energy-kwh30">--</b> KWH (30D)</span>
+        </p>
+        <div class="energy-screen">
+          <div class="energy-chart">
+            <ol class="energy-scale" aria-hidden="true"><li id="energy-top"></li><li id="energy-half"></li><li>0</li></ol>
+            <canvas id="energy-canvas" width="480" height="136" role="img" aria-label="Power of the machines serving the factory"></canvas>
+            <p class="energy-times" aria-hidden="true"><span id="energy-from"></span><span id="energy-to"></span></p>
+          </div>
+        </div>
+        <table class="energy-table energy-hosts" aria-label="Machines serving the factory">
+          <thead><tr><th class="col-swatch"></th><th scope="col">HOST</th><th scope="col" class="col-source">SOURCE</th><th scope="col" class="num">NOW</th><th scope="col" class="num">24H</th><th scope="col" class="num col-month">30D</th><th scope="col" class="col-ram">RAM</th></tr></thead>
+          <tbody id="energy-rows"></tbody>
+        </table>
+        <table class="energy-table" id="energy-models" aria-label="Models the factory uses">
+          <thead><tr><th class="col-swatch"></th><th scope="col">MODEL</th><th scope="col" class="col-hosts">HOSTS</th><th scope="col" class="num">BUSY</th><th scope="col" class="num">QUEUED</th></tr></thead>
+          <tbody id="energy-model-rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="break-room" id="break-room" aria-labelledby="break-title">
+      <div class="break-head">
+        <h2 id="break-title">BREAKROOM</h2>
+        <p>Optional. The score changes nothing on the line.</p>
+      </div>
+      <div class="cabinet">
+        <canvas id="brick-canvas" width="480" height="272" aria-label="Buzzword Buster. Steer the paddle with the arrow keys or a pointer."></canvas>
+        <div class="cabinet-side">
+          <h3>BUZZWORD BUSTER</h3>
+          <p class="cabinet-help">Bricks are the commonest words in the ticket titles, shuffled every round. Arrow keys or pointer to steer. P to pause.</p>
+          <dl class="readout">
+            <div><dt>SCORE</dt><dd id="brick-score">000</dd></div>
+            <div><dt>TIME</dt><dd id="brick-time">45</dd></div>
+            <div><dt>BALLS</dt><dd id="brick-lives">3</dd></div>
+          </dl>
+          <p class="cabinet-word" id="brick-word">NO WORD HIT YET</p>
+          <p class="cabinet-message" id="brick-message" role="status">Load ticket data to play.</p>
+          <button class="button button-primary" id="brick-play" type="button" disabled>PLAY</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <section class="data-dock" id="data" aria-labelledby="data-title">
+      <div>
+        <h2 id="data-title">TICKET DATA</h2>
+        <p id="data-status" role="status">No ticket data loaded.</p>
+      </div>
+      <div class="data-actions">
+        <button class="button" id="data-live" type="button">USE LIVE QUEUE</button>
+        <button class="button" id="data-sample" type="button">USE SAMPLE</button>
+        <label class="button button-primary file-button">LOAD JSON EXPORT
+          <input id="data-file" type="file" accept=".json,application/json">
+        </label>
+      </div>
+    </section>
+    <p class="footer-note">This view is read-only. Nothing here changes a ticket or the factory. A ticket's energy is an estimate: <span id="energy-basis">time spent at an assumed draw</span>. Energy use is what the model servers report, within about 15%. The <a href="/dashboard">plain dashboard</a> has the same queue as lists. Agents start at the <a href="/agents">agents page</a> or <a href="/llms.txt">/llms.txt</a>.</p>
+    <div class="ascii"><pre role="img" aria-label="Tehas ASCII art logo">       __________________________.____    _________    ______
+       \___     ___/  __    /    |    \ _/    _    \ _/   __/__
+__ __/\ _/       \_   \____/__   _     \__   _/     \\______   \_ /\___ ___ _
+       \____     /____      /___|      //___\       /      ____/
+ - --------l____/----l_____/----l_____/------\_____/_______/-----sQ!-- -- -</pre></div>
+    <p class="credit">POWERED BY <a href="https://github.com/earendil-works/pi" target="_blank" rel="noopener noreferrer">PI</a> + <a href="https://github.com/trail-openers/pi-rukas" target="_blank" rel="noopener noreferrer">PI-RUKAS</a> 🥧</p>
+    <p class="credit">ASCII ART: <a href="https://demozoo.org/sceners/26586/" target="_blank" rel="noopener noreferrer">SQUAREPUSHER / TEHDAS</a>. PIXEL TYPE: <a href="https://github.com/rewtnull/amigafonts" target="_blank" rel="noopener noreferrer">TOPAZPLUS A1200</a>, TRUETYPE VERSION BY DMG OF TRUESCHOOL AND DIVINE STYLERS. TOPAZ IS COPYRIGHT AMIGAINC.</p>
+  </footer>
+
+  <script src="/fun/sample-issues.js"></script>
+  <script src="/fun/game-view.js"></script>
+  <script type="module" src="/fun/energy-view.js"></script>
+</body>
+</html>

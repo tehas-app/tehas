@@ -1,0 +1,11 @@
+# State pi-rukas keeps in the product checkout during a cycle.
+.pi/work-state/
+.pi/permissions.json
+.pi/decisions.json
+# Worktrees of parked or running cycles.
+.worktrees/
+# Local tool state of people working on this repository.
+.claude/
+.serena/
+# Scratch directories pi-rukas makes in the product checkout during a cycle.
+/tmp/

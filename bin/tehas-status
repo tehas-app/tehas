@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Write the dashboard's data file: $TEHAS_HOME/live/status.json.
+#
+# One snapshot of the queue as GitHub sees it (which issues are in line, being
+# worked on, waiting for a human, stopped, completed).
+# Deterministic, no model, two GitHub calls. The dispatcher runs it at every
+# poll and every two minutes while a cycle is running.
+#
+# Usage: tehas-status          (prints nothing; exit 0 even when GitHub is down,
+#                                 the previous file is then left in place;
+#                                 exit 78 when the instance settings are invalid)
+set -uo pipefail
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/config.sh
+. "$here/../lib/config.sh"
+tehas_load || exit 78
+tehas_require TEHAS_REPO TEHAS_CONTROL_ISSUE
+repo=$TEHAS_REPO
+control=$TEHAS_CONTROL_ISSUE
+live=$TEHAS_HOME/live
+mkdir -p "$live"
+# Whatever happens below, refresh the health file from what is on disk.
+trap '"$TEHAS_HOME/bin/tehas-health" 2>/dev/null || true' EXIT
+
+issues=$(gh issue list --repo "$repo" --state all --limit 200 \
+  --search 'label:"tehas:ready","tehas:running","tehas:awaiting-merge","needs-human-attention" sort:updated-desc' \
+  --json number,title,url,state,labels,updatedAt,closedAt 2>/dev/null) || exit 0
+paused=$(gh issue view "$control" --repo "$repo" --json labels \
+  --jq '.labels | any(.name == "tehas:pause")' 2>/dev/null || echo false)
+
+jq -n --argjson issues "$issues" --argjson paused "$paused" \
+  --arg repo "$repo" --arg now "$(date -u +%FT%TZ)" '
+  def has($l): (.labels | map(.name) | index($l)) != null;
+  def slim: {number, title, url, updatedAt, closedAt};
+  def listurl($q): "https://github.com/\($repo)/issues?q=" + ($q | @uri);
+  ($issues | map(select(.state == "OPEN"))) as $open
+  | {
+      generatedAt: $now, repo: $repo, paused: $paused,
+      running: ($open | map(select(has("tehas:running")) | slim)),
+      queued: ($open | map(select(has("tehas:ready") and (has("tehas:running") | not)) | slim) | sort_by(.number)),
+      awaiting: ($open | map(select(has("tehas:awaiting-merge")) | slim)),
+      stopped: ($open | map(select(has("needs-human-attention")) | slim)),
+      completed: ($issues | map(select(.state == "CLOSED" and has("tehas:awaiting-merge")) | slim)
+                  | sort_by(.closedAt) | reverse),
+      links: {
+        queued: listurl("is:issue is:open label:tehas:ready"),
+        awaiting: listurl("is:issue is:open label:tehas:awaiting-merge"),
+        stopped: listurl("is:issue is:open label:needs-human-attention"),
+        completed: listurl("is:issue is:closed label:tehas:awaiting-merge"),
+        all: "https://github.com/\($repo)/issues"
+      }
+    }' >"$live/status.json.new" 2>/dev/null && mv "$live/status.json.new" "$live/status.json"
+exit 0

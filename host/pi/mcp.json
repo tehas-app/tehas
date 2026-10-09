@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "codebase_memory": {
+      "command": "codebase-memory-mcp",
+      "args": [],
+      "exposure": "direct"
+    }
+  },
+  "autoEnableCodemode": false
+}
