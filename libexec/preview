@@ -161,7 +161,7 @@ gb() { awk -v kb="$1" 'BEGIN { printf "%.1f GB", kb / 1048576 }'; }
 # line and edited in place. Said once per commit and state, so a full disk is
 # not a comment every five minutes. A call that fails is tried at the next run.
 comment() {
-  local n=$1 sha state reason key text body id
+  local n=$1 sha state reason key text body id pages
   sha=$(field "$n" sha)
   state=$(field "$n" state)
   reason=$(field "$n" reason)
@@ -179,12 +179,19 @@ It is rebuilt when the branch changes and removed when this pull request is clos
   # Only a comment of this account: anyone can write the marker.
   [ -n "$me" ] || me=$(gh api user 2>/dev/null | jq -r '.login // empty' 2>/dev/null) || me=""
   [ -n "$me" ] || return 0
+  # Every page: on a pull request with more than a hundred comments the bot's
+  # own may be on a later one. --slurp gives the pages as one array of arrays.
+  # Anything else, no answer at all included, is not a list to trust: then
+  # nothing is written, where an empty list would mean a new comment.
+  pages=$(gh api --paginate --slurp "repos/$repo/issues/$n/comments?per_page=100" 2>/dev/null) || return 0
   # shellcheck disable=SC2016  # a jq program: the variables are jq's
-  id=$(gh api "repos/$repo/issues/$n/comments?per_page=100" 2>/dev/null |
-    jq -r --arg me "$me" --arg marker "$marker" '
-      [.[] | select(.user.login == $me and ((.body // "") | startswith($marker)))][0].id // empty' 2>/dev/null) ||
-    return 0
-  if [ -n "$id" ]; then
+  id=$(jq -r --arg me "$me" --arg marker "$marker" '
+    if type == "array" and all(.[]; type == "array" and all(.[]; type == "object")) then . else error("not pages") end
+    | [.[][] | select(.user.login == $me and ((.body // "") | startswith($marker)))][0].id // "none"' \
+    <<<"$pages" 2>/dev/null) || return 0
+  # jq says nothing and exits 0 on no input at all.
+  [ -n "$id" ] || return 0
+  if [ "$id" != none ]; then
     gh api -X PATCH "repos/$repo/issues/comments/$id" -f body="$body" >/dev/null 2>&1 || return 0
   else
     gh api -X POST "repos/$repo/issues/$n/comments" -f body="$body" >/dev/null 2>&1 || return 0

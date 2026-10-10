@@ -30,6 +30,19 @@ case "$1 $2" in
     [ -f "$T/fx/pull-$n.json" ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
     [ ! -f "$T/fx/pull-$n.rc" ] || { echo "gh: API rate limit exceeded (HTTP 403)" >&2; exit 1; }
     cat "$T/fx/pull-$n.json" ;;
+  # The comments of a pull request. Asked for with --paginate --slurp, gh gives
+  # an array of pages: fx/comments.json is the first page and
+  # fx/comments-2.json the second. Asked for without, it gives the first page
+  # alone, as GitHub does. fx/comments-odd is an answer of exit 0 that is
+  # neither, and fx/comments-fail a call that fails.
+  "api --paginate")
+    [ "$3" = --slurp ] || exit 1
+    case "$4" in "repos/acme/widget/issues/"*"/comments?per_page=100") ;; *) exit 1 ;; esac
+    [ ! -e "$T/fx/comments-fail" ] || { echo "gh: Server Error (HTTP 502)" >&2; exit 1; }
+    [ ! -e "$T/fx/comments-odd" ] || { cat "$T/fx/comments-odd"; exit 0; }
+    pages=()
+    for f in "$T/fx/comments.json" "$T/fx/comments-2.json"; do [ ! -f "$f" ] || pages+=("$f"); done
+    if [ "${#pages[@]}" = 0 ]; then echo "[[]]"; else jq -s . "${pages[@]}"; fi ;;
   "api repos/acme/widget/issues/"*) cat "$T/fx/comments.json" 2>/dev/null || echo "[]" ;;
   "api -X")
     # One line a write, whatever text the comment has in it.
@@ -623,6 +636,48 @@ t_eq "$(writes | wc -l)" 2
 t_contains "$(writes | tail -n 1)" "api -X PATCH repos/acme/widget/issues/comments/501"
 t_contains "$(writes | tail -n 1)" "${a2:0:7}"
 
+t_case "the bot's comment is found on the second page of a long pull request"
+reset
+jq -n '[range(1; 101) | {id: ., user: {login: "someone"}, body: "talk \(.)"}]' >"$fx/comments.json"
+jq -n '[{id: 201, user: {login: "someone"}, body: "more"},
+        {id: 777, user: {login: "factory-bot"}, body: "<!-- tehas-preview -->\nold"}]' >"$fx/comments-2.json"
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+t_run "$preview"
+t_eq "$(writes | wc -l)" 1
+t_contains "$(writes)" "api -X PATCH repos/acme/widget/issues/comments/777"
+t_lacks "$(writes)" "api -X POST"
+t_eq "$(t_calls gh | grep -c -x -F 'api --paginate --slurp repos/acme/widget/issues/12/comments?per_page=100')" 1
+
+for odd in '{"message":"Server Error"}' '[{"id":777,"user":{"login":"factory-bot"},"body":"<!-- tehas-preview -->"}]' '[[],{"message":"x"}]' '[["x"]]' ''; do
+  t_case "an answer about the comments of '${odd:0:24}' writes nothing, and the next run asks again"
+  reset
+  a=$(commit feature)
+  pulls "$(pull 12 "$a")"
+  printf '%s' "$odd" >"$fx/comments-odd"
+  t_run "$preview"
+  t_eq "$t_rc" 0
+  t_eq "$(state_of 12)" "serving"
+  t_eq "$(writes)" ""
+  t_eq "$(count "$root/12" .commented)" 0
+done
+rm -f "$fx/comments-odd"
+t_run "$preview"
+t_eq "$(writes | wc -l)" 1
+t_contains "$(writes)" "api -X POST repos/acme/widget/issues/12/comments"
+
+t_case "a listing of the comments that fails writes nothing, and the next run asks again"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+: >"$fx/comments-fail"
+t_run "$preview"
+t_eq "$(writes)" ""
+t_eq "$(count "$root/12" .commented)" 0
+rm -f "$fx/comments-fail"
+t_run "$preview"
+t_eq "$(writes | wc -l)" 1
+
 t_case "a stranger's comment that starts with the marker is not edited"
 reset
 jq -n '[{id: 900, user: {login: "stranger"}, body: "<!-- tehas-preview -->\nmine"}]' >"$fx/comments.json"
@@ -973,7 +1028,7 @@ pulls "$(pull 12 "$a")"
 t_stub gh 'case "$1 $2" in
   "api user") echo "{\"login\":\"factory-bot\"}" ;;
   "api repos/acme/widget/pulls?"*) cat "$T/fx/pulls.json" ;;
-  "api repos/acme/widget/issues/"*) echo "[]" ;;
+  "api --paginate") echo "[[]]" ;;
   "api -X") exit 1 ;;
 esac'
 t_run "$preview"

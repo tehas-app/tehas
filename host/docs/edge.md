@@ -303,7 +303,4 @@ Pushing there needs write access. A pull request from a fork never gets one.
   there. A checkout whose address carries a credential would have that
   credential written to a second file. Keep credentials in a credential
   helper, not in the address.
-- The newest 100 open pull requests are looked at, and the first 100 comments
-  of a pull request are read to find the bot's own. When more than 100
-  comments come before it, the bot's comment is not found, and a new one is
-  written at every change instead of the old one being edited.
+- The newest 100 open pull requests are looked at.

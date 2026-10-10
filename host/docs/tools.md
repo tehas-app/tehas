@@ -482,8 +482,9 @@ edited in place: the address when the preview serves, or "Unable to create a
 preview" with the reason for `build-failed` and `no-space`. It is said once
 for each commit and state, so a full disk is not a comment every five
 minutes. The other states are on the dashboard only. To find its comment the
-command reads the first 100 comments of the pull request and takes the one
-its own account wrote. A call that fails is tried again at the next run.
+command reads every comment of the pull request and takes the one its own
+account wrote. A call that fails, or an answer that is not a list of
+comments, writes nothing and is tried again at the next run.
 
 **The sweep**, every three hours, is the second check that nothing of a merged
 or closed pull request stays on the host. It does not work from GitHub's list
