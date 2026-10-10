@@ -103,6 +103,44 @@ stream is kept in `~/tehas/logs/work-<issue>-<time>.jsonl`. The limits are
 The bot's git identity is the tehas user's global `user.name` and `user.email`
 on the host.
 
+## tehas-index
+
+Builds the code index that a cycle's agents search, or refreshes it.
+
+```
+tehas-index
+```
+
+pi-rukas tells its agents to find code with the `codebase_memory` tools. They
+answer from an index, and nothing builds one on its own: interactive pi-rukas
+does it in `/start`, which a headless cycle never runs. Without an index every
+such search fails and the agents fall back to reading files.
+
+The index is kept under the path of the tree it was made from, in the cache
+volume every cycle mounts. So the command runs the indexer in the sandbox
+image, over a clone mounted at the path a cycle works in. The clone is made at
+the tip the product checkout last fetched and is removed afterwards. The
+cycle's workspace is not touched.
+
+| Exit | Meaning                                                |
+| ---- | ------------------------------------------------------ |
+| 0    | The index was built                                    |
+| 1    | The sandbox image is missing, or the indexer failed    |
+| 3    | A cycle is running; nothing was done                   |
+| 64   | Called with an argument                                |
+| 78   | The instance settings are invalid; nothing was done    |
+
+The container gets the clone, read-only, and the cache volume: no network, no
+token and none of the settings. It runs under the cycle's CPU and memory
+limits. The indexer's answer is kept in `~/tehas/logs/index-<time>.log`, and
+`~/tehas/state/index.json` records the commit that was indexed.
+
+`install.sh` runs it once, the first time it finds the sandbox image and the
+product checkout and no index. After that the index is as fresh as the last
+run: a cycle works on a newer tree than the one indexed until someone runs
+`tehas-index` again. While it runs it holds the dispatcher's lock, so no cycle
+starts in the middle.
+
 ## tehas-status and tehas-console.ts
 
 Feed the [factory floor](/) and the [plain dashboard](/dashboard). `tehas-status` writes the queue snapshot to
@@ -238,6 +276,11 @@ cd ~/tehas/platform
 
 Exit 0 when done or nothing to report, 1 when `--check` found something or a
 step failed, 78 when the instance settings are invalid (nothing was changed).
+
+A real run also builds the code index with [tehas-index](#tehas-index), once:
+when there is none yet and both the sandbox image and the product checkout are
+there. Otherwise it prints the command as a follow-up. An indexing that fails
+is a warning and does not fail the install.
 
 ## bootstrap.sh
 

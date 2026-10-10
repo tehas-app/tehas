@@ -15,9 +15,12 @@
 # follow-up steps are printed when their inputs changed. A replaced file is
 # kept next to the new one as <name>.prev.
 #
-# One thing it does besides copying, on a real run only: the product checkout's
-# origin/HEAD is refreshed, so the commands know the default branch without
-# asking the network.
+# Two things it does besides copying, on a real run only. The product
+# checkout's origin/HEAD is refreshed, so the commands know the default branch
+# without asking the network. And the code index a cycle's agents search is
+# built with tehas-index, once: when there is no index yet and both the
+# sandbox image and the product checkout are there. Until then the step is
+# printed as a follow-up. A failed indexing does not fail the install.
 #
 # Exit: 0 done or nothing to report, 1 --check found something or a step
 # failed, 78 the instance settings are invalid (nothing was changed).
@@ -117,7 +120,7 @@ files=(
   "pi/mcp.json|$agent/mcp.json|644"
   "$instance/models.json|$agent/models.json|644"
 )
-for f in tehas-console.ts tehas-dispatch tehas-energy tehas-health tehas-protolab tehas-status tehas-work tehas-test; do
+for f in tehas-console.ts tehas-dispatch tehas-energy tehas-health tehas-index tehas-protolab tehas-status tehas-work tehas-test; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
 # Pi's own settings: the instance may bring its own (default provider and
@@ -228,8 +231,19 @@ if [ -z "${TEHAS_BRANCH:-}" ] && [ -d "$TEHAS_WORK_REPO/.git" ]; then
     echo "WARN: could not read the default branch of $TEHAS_WORK_REPO from its remote; set TEHAS_BRANCH if the commands ask for it"
 fi
 
+# The code index, once. Called last, so its line follows the image build's.
+first_index() {
+  [ -f "$TEHAS_HOME/state/index.json" ] && return 0
+  if [ -d "$TEHAS_WORK_REPO/.git" ] && docker image inspect "$PI_ENSEMBLE_IMAGE" >/dev/null 2>&1; then
+    "$TEHAS_HOME/bin/tehas-index" && return 0
+    echo "WARN: the code index was not built"
+  fi
+  echo "next: $TEHAS_HOME/bin/tehas-index   (needs the sandbox image and the product checkout)"
+}
+
 if [ "${#changed[@]}" = 0 ]; then
   echo "tehas is up to date"
+  first_index
   exit 0
 fi
 list=" ${changed[*]} "
@@ -241,4 +255,5 @@ case "$list" in *" sandbox/"* | *" versions.env "*) echo "next: $TEHAS_HOME/sand
 # The compose file takes the bind address from the environment env.sh sets.
 case "$list" in *" edge/docs."*) echo "next: . $TEHAS_HOME/env.sh && docker compose -f $TEHAS_HOME/edge/docs.compose.yaml up -d" ;; esac
 case "$list" in *" edge/protolab."*) echo "next: . $TEHAS_HOME/env.sh && docker compose -f $TEHAS_HOME/edge/protolab.compose.yaml up -d --force-recreate" ;; esac
+first_index
 exit 0
