@@ -37,6 +37,8 @@ in the platform repository has every one with a comment.
 | `TEHAS_CONCURRENCY`             | `4`                                      | Workstreams side by side inside one cycle                       |
 | `TEHAS_MAX_AWAITING`            | `3`                                      | Open `tehas:awaiting-merge` issues allowed before holding       |
 | `TEHAS_WORK_TIMEOUT`            | `21600`                                  | Seconds before a cycle is given up                              |
+| `TEHAS_PLAN_MAX_TURNS`          | `20`                                     | Turns a planning session may take before it is ended            |
+| `TEHAS_PLAN_TIMEOUT`            | `3600`                                   | Seconds before one planning turn is given up                    |
 | `PI_ENSEMBLE_HOST_ALIASES`      | empty                                    | `name:address` pairs the sandbox must resolve, comma separated  |
 | `PI_ENSEMBLE_IMAGE`             | `tehas/pi-rukas:uid<uid>`                | The sandbox image                                               |
 
@@ -72,6 +74,20 @@ fast-forwards it, then refreshes the code index with
 `tehas-work` then clones the cycle's workspace from the checkout. An index
 that cannot be refreshed is a warning in the log; the cycle still runs.
 
+The labels `tehas:plan`, `tehas:planning` and `tehas:question` exist in a
+repository only after `tehas-dispatch --init-labels` has been run for the
+version that uses them. After pulling a version that adds a label, run it
+again on the host. It only creates or updates labels, so running it twice is
+safe. Without it the labels are not there to apply, and a stopped cycle cannot get
+its question label.
+
+Beside the queue, a poll also reads two kinds of answer. A box ticked by an
+allowed account in the bot's comment on a stopped cycle can start a fresh
+cycle, and a reply or a ticked box on a planning question runs the next turn of
+that session. See [Operating](/operating). The dispatcher stops with exit 78 if
+the bot's own login is in `TEHAS_ALLOWED_LABELERS`. A planning turn's runner
+output is in `~/tehas/logs/dispatch-plan-<issue>.log`.
+
 An issue is taken only when an allowed account applied `tehas:ready` and
 nobody else has changed its title or body since. A cycle starts only once the
 issue is marked `tehas:running`; if that label change fails, the poll stops.
@@ -105,6 +121,35 @@ stream is kept in `~/tehas/logs/work-<issue>-<time>.jsonl`. The limits are
 
 The bot's git identity is the tehas user's global `user.name` and `user.email`
 on the host.
+
+## tehas-plan
+
+Runs one turn of a planning session, headless, in the sandbox image. The
+dispatcher calls it. By hand it is useful to see what a turn does.
+
+```
+tehas-plan 12 --out /tmp/turn.json --brief brief.md
+tehas-plan 12 --out /tmp/turn.json --session <id> --answer answer.md
+```
+
+The first form starts a session from a file with the issue's title and body.
+The second reopens the session and sends the file's content as the operator's
+answer. A turn ends when the agent has settled, so it ends when the agent has
+asked. On exit 0 the `--out` file holds the session id, the agent's last
+message and the question it asked, if any.
+
+| Exit | Meaning                                                              |
+| ---- | -------------------------------------------------------------------- |
+| 0    | The turn settled and said or asked something                         |
+| 2    | The turn did not settle, timed out, or said and asked nothing        |
+| 64   | A usage error, no bot token or no git identity; nothing ran          |
+| 78   | The instance settings are invalid; nothing ran                       |
+
+The container gets the same mounts and variables as a work cycle's, from
+`lib/sandbox.sh`: the bot token, and no Docker socket, SSH keys or
+`~/.config/tehas`. The agent files issues with the token. The RPC stream is
+kept in `~/tehas/logs/plan-<issue>-<time>.jsonl`. The limit is
+`TEHAS_PLAN_TIMEOUT`, and the session record is `~/tehas/state/plan-<issue>.json`.
 
 ## tehas-index
 

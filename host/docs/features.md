@@ -33,6 +33,8 @@ a day.
 | Review backpressure                     | No new cycle while 3 issues await merge                                                                                                     | Built, not yet reached                                                                  |
 | Model endpoint check                    | The queue is held, not burned, while the model endpoint does not list the configured model                                                  | Built after a real failure; the hold path itself is untested                            |
 | Retry                                   | Removing `needs-human-attention` and re-applying `tehas:ready` starts a fresh cycle                                                         | Verified                                                                                |
+| Planning on an issue                    | `tehas:plan` from an allowlisted account starts a planning session. Each turn ends in a comment; a ticked box or a reply from an allowlisted account continues it | Tested, not yet seen on a host                                                          |
+| Retry by a tick                         | The comment of a cycle that stopped has two boxes. `Retry from a clean start`, ticked by an allowlisted account on a parked issue, starts a fresh cycle | Tested, not yet seen on a host                                                          |
 | Reporting                               | Start and outcome comments on the issue; token usage per agent role on the pull request                                                     | Issue comments verified; the pull request comment awaits the first cycle that opens one |
 
 ## The work cycle

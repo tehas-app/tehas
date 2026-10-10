@@ -117,6 +117,9 @@ number.
 | `tehas:running`         | A cycle owns it                   | Leave the issue and its branch alone     |
 | `tehas:awaiting-merge`  | Pull request is open and reviewed | Review and merge                         |
 | `needs-human-attention` | The cycle stopped                 | Read the comment; see below              |
+| `tehas:plan`            | A planning session is asked for   | Wait for the first comment               |
+| `tehas:planning`        | A planning turn is running        | Wait                                     |
+| `tehas:question`        | The factory asked something       | Tick a box or reply; see below           |
 
 When the cycle starts and when it ends, the bot comments on the issue. The token
 usage per agent role is posted on the pull request.
@@ -145,19 +148,80 @@ Tehas does not notice a rejected pull request yet.
 status, the last step and the log file on the host. pi-rukas usually adds its own
 handoff comment with the reason and numbered options.
 
-To try again after fixing the cause (often: make the issue clearer):
+To try again after fixing the cause (often: make the issue clearer), tick
+`Retry from a clean start` in the bot's comment. Tick `Leave it parked` to
+take the question away and keep the issue as it is. The old way still works:
+remove `needs-human-attention` and apply `tehas:ready` again. When the bot
+could not post the boxes, its comment says so and gives the old way.
 
-1. remove `needs-human-attention`,
-2. apply `tehas:ready` again.
+A tick counts only from an allowed labeller, and only while the issue is
+parked: it carries `needs-human-attention` and neither `tehas:running` nor
+`tehas:awaiting-merge`. It is used once. When the cycle starts, the bot unticks
+the box, so the same tick cannot start a second cycle. A box ticked by anyone
+else, or more than one box, is unticked and the bot says so in a comment.
+A paused factory, or one with `TEHAS_MAX_AWAITING` pull requests waiting,
+holds the retry back as it holds any cycle.
 
 The next cycle starts in a fresh workspace, with `--restart`. Branches and
 commits the earlier attempt pushed are kept on GitHub; what it left only on the
 host is gone.
 
+A tick approves the issue's text as it is at that moment, as the label does.
 The label approves the text it was applied to. If someone other than an
 allowed labeller changes the title or the body afterwards, the issue is
 skipped and the dispatcher's log says who changed it. Read the new text, then
 remove `tehas:ready` and apply it again.
+
+## Planning on an issue
+
+A planning session is a conversation with a planning agent that ends in filed
+issues. It runs on the issue, so you can steer it from a phone. Nothing in it
+builds code: a planning turn opens no pull request, and the awaiting-merge
+limit does not hold it back.
+
+1. Write an issue that says what you want planned.
+2. Apply `tehas:plan`. As with `tehas:ready`, only a label applied by an
+   allowed account counts, and it approves the text as it was when you
+   applied it.
+3. The bot comments that the session has started. Each turn of the agent ends
+   in a comment with what it found. When it needs a decision, the comment
+   ends in a question with one checkbox per choice, a last box `End this
+   planning session`, and the label `tehas:question` is on the issue.
+4. Answer by ticking one box, or by replying in a comment when none of the
+   boxes fits. If you do both, the reply counts. The next poll, within two
+   minutes, continues the session with your answer, and the issue carries
+   `tehas:planning` while the turn runs.
+5. The agent files the issues it plans with the bot's token. To finish, tick
+   `End this planning session`. Filed issues are never started on their own:
+   apply `tehas:ready` to the ones you want built.
+
+Only answers from allowed labellers count. A box ticked by anyone else, or
+more than one box, is unticked and the bot says so. A reply counts only if its
+author is an allowed account and, when it was edited, its last editor is too.
+Replies from others are ignored. Only the newest question the bot posted counts;
+an older comment with boxes does nothing.
+
+What the agent writes is posted on the issue. On a public repository that is
+public. Secrets and private network addresses are masked, as on the dashboard,
+and the mask catches accidents only. Do not put anything in the issue that
+should not be public.
+
+While a question waits, the factory works on other issues. A session ends
+when you tick the last box, when an answer arrives after
+`TEHAS_PLAN_MAX_TURNS` turns (20 unless the instance says otherwise) have
+run, or when the issue is closed or loses `tehas:question`. The first two
+remove the factory's labels from the issue, `needs-human-attention` included,
+and say so in one comment. To plan again, apply `tehas:plan` again.
+
+If a turn does not finish, for example because the host restarted, the bot says
+so in a comment that names the log, and the issue gets `needs-human-attention`
+next to `tehas:question`. Reply to run the turn again with your reply as the
+next message. If the first turn does not finish, there is no session to
+continue: the bot says so, the issue gets `needs-human-attention`, and you apply `tehas:plan` again.
+
+The bot account is never one of the allowed labellers. If it is listed in
+`TEHAS_ALLOWED_LABELERS`, the dispatcher stops with an error rather than let
+the bot approve its own questions.
 
 ## Pause and resume
 

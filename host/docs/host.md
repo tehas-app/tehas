@@ -19,6 +19,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | ------------------------------------ | ----------------------------------------------------------------------- |
 | `~/tehas/env.sh`                     | Environment for every tehas process; sourced from `~/.bashrc`           |
 | `~/tehas/lib/config.sh`              | Loads and checks the instance settings; sourced by every command        |
+| `~/tehas/lib/sandbox.sh`, `questions.sh`, `planning.sh` | The sandbox container setup shared by `tehas-work` and `tehas-plan`, and the question and planning steps of the dispatcher |
 | `~/tehas/bin/`                       | The tehas commands, plus `gh`                                           |
 | `~/tehas/platform`                   | Checkout of this repository; `install.sh` runs from it                  |
 | `~/tehas/repos/tehas`                | The product checkout, on the default branch. Cycles are cloned from it; no container is given it |
@@ -82,6 +83,11 @@ cd ~/tehas/platform && git pull
 ./install.sh --check     # change nothing, report four results
 ./install.sh             # copy changed files into place, keep <name>.prev
 ```
+
+A version that adds labels needs `tehas-dispatch --init-labels` run again after
+the install. The labels `tehas:plan`, `tehas:planning` and `tehas:question`,
+for planning on an issue and the retry tick, are not in a repository until it
+has been.
 
 `--check` prints one line each for the instance settings, the host's tools,
 the installed files and the tests:
