@@ -54,6 +54,7 @@ files="./.config/systemd/user/tehas-dispatch.service
 ./tehas/libexec/console
 ./tehas/libexec/console.stamp
 ./tehas/libexec/dev
+./tehas/libexec/dev-login
 ./tehas/libexec/dispatch
 ./tehas/libexec/energy
 ./tehas/libexec/health

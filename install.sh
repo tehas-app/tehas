@@ -158,7 +158,7 @@ files=(
 for f in tehas tehasbot; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
-for f in dev dispatch energy health index labels protolab status summary update work; do
+for f in dev dev-login dispatch energy health index labels protolab status summary update work; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
 # Pi's own settings: the instance may bring its own (default provider and

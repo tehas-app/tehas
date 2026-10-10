@@ -7,6 +7,9 @@
 #                                     group and lingering for <user>
 #   ./bootstrap.sh user               the rest, as the tehas user, under that
 #                                     user's home; ends with pi-rukas's installer
+#   sudo ./bootstrap.sh dev <user> [<login>...]
+#                                     let other accounts on the host start a
+#                                     session with "tehas dev", run as <user>
 #   ./bootstrap.sh check              change nothing; one line per tool with
 #                                     the version found and the one expected
 #
@@ -58,6 +61,59 @@ do_root() {
   loginctl enable-linger "$user"
   systemctl enable --now docker >/dev/null
   echo "bootstrap: root part done. $user must log in again for the docker group to apply."
+}
+
+# --- dev ----------------------------------------------------------------------
+# Let other accounts on the host type "tehas dev". Three things, all small:
+#   - the group tehas, and the named logins in it
+#   - one sudo rule: the group may run <user>'s libexec/dev-login as <user>,
+#     and nothing else. That script decides the clone from the account sudo
+#     was asked by and starts the session.
+#   - /usr/local/bin/tehas for everyone, and /etc/tehas/manager naming <user>
+# A member of the group gets a session that holds the bot's token, as <user>
+# does. It gets no Docker access and no shell as <user>. Run it again to add a
+# login or after an update of the platform; "gpasswd -d <login> tehas" takes
+# one out.
+do_dev() {
+  local user=${1:-} login home rule tmp
+  local etc=${BOOTSTRAP_ETC:-/etc} bin=${BOOTSTRAP_BIN:-/usr/local/bin}
+  [ -n "$user" ] || { echo "usage: sudo ./bootstrap.sh dev <user> [<login>...]" >&2; exit 64; }
+  shift
+  [ "$(id -u)" = 0 ] || die "the dev part must run as root: sudo ./bootstrap.sh dev $user $*"
+  # Everything is checked before anything is changed. The names go into a
+  # sudo rule, so only plain ones are taken.
+  for login in "$user" "$@"; do
+    [[ $login =~ ^[a-z_][a-z0-9_-]*$ ]] || die "not a plain account name: $login"
+    id "$login" >/dev/null 2>&1 || die "no such user: $login"
+  done
+  for login in "$@"; do
+    [ "$login" != "$user" ] || die "$user is the tehas user and has the whole command already"
+  done
+  home=$(getent passwd "$user" | cut -d: -f6)
+  [[ $home =~ ^/[A-Za-z0-9_./-]+$ ]] || die "the home directory of $user is not a plain path: ${home:-(none)}"
+  for login in sudo visudo; do
+    command -v "$login" >/dev/null 2>&1 || die "$login is missing"
+  done
+  rule=$home/tehas/libexec/dev-login
+  tmp=$(mktemp)
+  cat >"$tmp" <<RULE
+# Written by bootstrap.sh dev. Members of the group tehas may start a session
+# of "tehas dev" as $user: this one script, and nothing else.
+Defaults!$rule env_keep += "COLORTERM"
+%tehas ALL=($user) NOPASSWD: $rule
+RULE
+  visudo -cf "$tmp" >/dev/null 2>&1 || { rm -f "$tmp"; die "visudo does not accept the rule; nothing was changed"; }
+
+  getent group tehas >/dev/null 2>&1 || groupadd tehas
+  for login in "$@"; do usermod -aG tehas "$login"; done
+  install -d -m 755 "$etc/tehas" "$etc/sudoers.d"
+  printf '%s\n' "$user" >"$etc/tehas/manager"
+  chmod 644 "$etc/tehas/manager"
+  install -m 440 "$tmp" "$etc/sudoers.d/tehas-dev"
+  rm -f "$tmp"
+  install -m 755 "$root/host/login/tehas" "$bin/tehas"
+  echo "bootstrap: dev part done. Members of the group tehas can type: tehas dev"
+  [ "$#" = 0 ] || echo "bootstrap: $* must log in again for the group to apply."
 }
 
 # --- shared -------------------------------------------------------------------
@@ -247,9 +303,10 @@ do_user() {
 case "${1:-}" in
   root) do_root "${2:-}" ;;
   user) do_user ;;
+  dev) shift; do_dev "$@" ;;
   check) do_check ;;
   *)
-    sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
     exit 64
     ;;
 esac

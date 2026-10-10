@@ -31,6 +31,7 @@ sudo ./bootstrap.sh root boss     # 1. as root, naming the tehas user
 # log out and in again, so the docker group applies
 ./bootstrap.sh user               # 2. as the tehas user
 ./bootstrap.sh check              # 3. one line per tool
+sudo ./bootstrap.sh dev boss alice   # optional: let the account alice type "tehas dev"
 ```
 
 If the platform repository is private, the clone needs the deploy key from the
@@ -44,6 +45,18 @@ tools needs. Adds the user to the `docker` group, enables lingering for it (so
 the dispatcher timer runs without a login) and enables the Docker service.
 
 System packages are not pinned. You get what the distribution offers.
+
+### Optional: `dev <user> [<login>...]`
+
+Lets other accounts on the host start a session with `tehas dev`, each under
+its own name. Run it after tehas is installed, and again to add an account or
+after an update of the platform.
+
+It makes the group `tehas` and puts the named accounts in it, writes one
+`sudo` rule for that group, and installs `/usr/local/bin/tehas` for everyone.
+The rule is checked with `visudo` before it is installed, and nothing is
+changed if an account does not exist. It does not put anyone in the `docker`
+group. What a member can and cannot do is on [The host](/host).
 
 ### 2. `user`
 
