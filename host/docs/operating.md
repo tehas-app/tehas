@@ -158,7 +158,7 @@ from the earlier attempt are kept.
 ## Pause and resume
 
 Apply **`tehas:pause`** to the control issue, the one `TEHAS_CONTROL_ISSUE`
-names (in the example, issue 5). No new cycle starts while it is there. A cycle
+names (in the example, issue 1). No new cycle starts while it is there. A cycle
 already running finishes. Remove the label to resume.
 
 ## Limits that hold work back
