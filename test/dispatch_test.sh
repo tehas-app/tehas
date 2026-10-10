@@ -49,10 +49,14 @@ t_stub fake-status
 # The dispatcher waits for a cycle in steps of ten seconds. No case here needs
 # the time to pass, so the wait returns at once.
 t_stub sleep
-# Writes a recorded outcome where the dispatcher asked for it.
+# Writes a recorded outcome where the dispatcher asked for it. A failing turn
+# leaves what the file plan-fails holds, if anything.
 t_stub fake-plan 'out=""
 while [ "$#" -gt 0 ]; do [ "$1" = --out ] && out=$2; shift; done
-[ ! -e "$T/fx/plan-fails" ] || exit 2
+if [ -e "$T/fx/plan-fails" ]; then
+  [ ! -s "$T/fx/plan-fails" ] || cp "$T/fx/plan-fails" "$out"
+  exit 2
+fi
 cp "$T/fx/plan-result.json" "$out"'
 # Notes what the checkout was at and whether the cycle had already started.
 t_stub fake-index 'git -C "$T/home/tehas/repos/widget" rev-parse HEAD >"$T/calls/index.head"
@@ -1036,6 +1040,34 @@ to_plan
 : >"$fx/plan-fails"
 t_run "$dispatch"
 t_contains "$(t_calls gh)" "--remove-label tehas:planning --add-label needs-human-attention"
+t_contains "$(t_calls gh)" "could not start"
+t_eq "$([ -e "$record" ] && echo kept)" ""
+
+t_case "a first turn that fails after its session came into being keeps the session"
+to_plan
+echo '{"session":"abc-123"}' >"$fx/plan-fails"
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "This planning turn did not finish: it exited with status 2."
+t_contains "$(t_calls gh)" "Reply in a comment to run the turn again"
+t_lacks "$(t_calls gh)" "could not start"
+t_contains "$(t_calls gh)" "--remove-label tehas:planning --add-label tehas:question --add-label needs-human-attention"
+t_eq "$(jq -c . "$record")" '{"session":"abc-123","turns":1,"options":[],"pending":false,"failed":true,"running":false,"comment":4002}'
+
+t_case "and a reply runs the turn again in that session"
+rm -f "$T"/calls/* "$fx/plan-fails"
+echo '[{"number":7,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}]' >"$fx/asking.json"
+echo '[]' >"$fx/plans.json"
+jq -n '{data: {repository: {issue: {comments: {nodes: [
+  {databaseId: 4002, author: {login: "tehas-bot"}, createdAt: "2026-01-01T00:00:00Z", lastEditedAt: null, editor: null,
+   body: "This planning turn did not finish.\n\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->"},
+  {databaseId: 4003, author: {login: "alice"}, body: "go on", createdAt: "2026-01-01T02:00:00Z"}]}}}}}' >"$fx/comments-7.json"
+t_run "$dispatch"
+t_contains "$(plan_calls)" "7 --out $record.out --session abc-123 --answer $record.answer"
+
+t_case "a session id that is not a string in a failed turn's file is no session"
+to_plan
+echo '{"session":{"a":1}}' >"$fx/plan-fails"
+t_run "$dispatch"
 t_contains "$(t_calls gh)" "could not start"
 t_eq "$([ -e "$record" ] && echo kept)" ""
 

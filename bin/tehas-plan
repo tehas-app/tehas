@@ -17,9 +17,14 @@
 # On exit 0 the --out file holds
 #   {"session": "<id>", "text": "<the agent's last message>",
 #    "question": null | {"question": "...", "options": [{"label", "description"}]}}
+# On exit 2 it holds only {"session": "<id>"} when the session is known: the
+# one the turn was given, or the one Pi named after the prompt. The caller can
+# then run the turn again in that session. When no session is known, nothing
+# is written.
 #
 # Exit status: 0 the turn settled and said or asked something,
-#              2 it did not settle, timed out, or said and asked nothing,
+#              2 it did not settle, timed out, said and asked nothing, or its
+#                session or outcome could not be written down,
 #             64 a usage error, no bot token or no git identity; nothing ran,
 #             78 the instance settings are invalid; nothing ran.
 #
@@ -97,6 +102,9 @@ fi
 sandbox_pi "$name" "$log" "${args[@]}"
 started=$(date +%s)
 jq -cn --arg m "$message" '{id: "plan", type: "prompt", message: $m}' >&3
+# Asked for now and again at the end: a first turn that runs for an hour and
+# then fails must still leave the session it made, so a reply can continue it.
+printf '%s\n' '{"id":"state","type":"get_state"}' >&3
 echo "tehas-plan: issue $issue turn started, log $log"
 
 trap 'exec 3>&- 2>/dev/null; docker stop -t 10 "$name" 2>/dev/null' TERM INT
@@ -134,14 +142,27 @@ if kill -0 "$sb_pid" 2>/dev/null; then
 fi
 wait "$sb_pid" 2>/dev/null
 
-if [ "$timed_out" = 1 ] || ! settled; then
-  echo "tehas-plan: issue=$issue the turn did not settle, see $log"
-  exit 2
-fi
-
 # The stream as JSON values; a line that is not JSON is skipped.
 events() { jq -c -R 'fromjson? | select(type == "object")' "$log" 2>/dev/null; }
 sid=$(events | jq -rs 'map(select(.type == "response" and .command == "get_state")) | last | .data.sessionId // ""')
+[ -n "$sid" ] || sid=$session
+
+# give_up <what happened>: the turn failed. The session, when it is known, is
+# all that is left for the caller.
+give_up() {
+  echo "tehas-plan: issue=$issue $1, see $log"
+  if [ -n "$sid" ]; then
+    if ! jq -n --arg session "$sid" '{session: $session}' >"$out.new" || ! mv "$out.new" "$out"; then
+      echo "tehas-plan: could not write $out" >&2
+    fi
+  fi
+  exit 2
+}
+
+if [ "$timed_out" = 1 ] || ! settled; then
+  give_up "the turn did not settle"
+fi
+
 text=$(events | jq -rs 'map(select(.type == "response" and .command == "get_last_assistant_text")) | last | .data.text // ""')
 question=$(events | jq -cs 'map(select(.type == "tool_execution_end" and .toolName == "question"
                                    and .result.details.deferred == true)) | last
@@ -149,16 +170,13 @@ question=$(events | jq -cs 'map(select(.type == "tool_execution_end" and .toolNa
       {question: (.result.details.question // ""),
        options: [.result.details.optionDetails[]? | {label: (.label // ""), description: (.description // "")}]}
     end')
-[ -n "$sid" ] || sid=$session
 [ -n "$question" ] || question=null
 
 if [ -z "$sid" ]; then
-  echo "tehas-plan: issue=$issue the session id is unknown, see $log"
-  exit 2
+  give_up "the session id is unknown"
 fi
 if [ -z "$text" ] && [ "$question" = null ]; then
-  echo "tehas-plan: issue=$issue the turn said and asked nothing, see $log"
-  exit 2
+  give_up "the turn said and asked nothing"
 fi
 
 if ! jq -n --arg session "$sid" --arg text "$text" --argjson question "$question" \

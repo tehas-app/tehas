@@ -31,7 +31,9 @@
 #   plan_turn <issue> first|next <file>
 #                                  run one turn and post its outcome
 #   plan_finish <issue> <rc> <turns before> <session before>
-#                                  record how a turn went and post it
+#                                  record how a turn went and post it; a failed
+#                                  first turn takes its session from the
+#                                  outcome file, if the runner left one there
 #   plan_recover <issue>           finish a turn that was cut off
 #   plan_post <issue>              post the outcome kept in the record
 #   plan_end <issue> <text>        end the session and say why; returns 1,
@@ -106,7 +108,7 @@ plan_post() {
 }
 
 plan_finish() {
-  local n=$1 rc=$2 turns=$(($3 + 1)) sid=$4 st out why
+  local n=$1 rc=$2 turns=$(($3 + 1)) sid=$4 st out why ok
   st=$(plan_state "$n")
   out=$st.out
   if [ "$rc" = interrupted ]; then
@@ -116,6 +118,16 @@ plan_finish() {
   fi
 
   if [ "$rc" = 0 ] && jq -e '(.session // "") != ""' "$out" >/dev/null 2>&1; then
+    ok=1
+  else
+    ok=0
+    # A first turn that failed may still have made its session: the runner
+    # then leaves the id, and nothing else, where the outcome would be.
+    if [ -z "$sid" ]; then
+      sid=$(jq -r '.session | if type == "string" then . else "" end' "$out" 2>/dev/null) || sid=""
+    fi
+  fi
+  if [ "$ok" = 1 ]; then
     jq -c --argjson turns "$turns" \
       '{session, turns: $turns, options: [.question.options[]?.label], pending: true, failed: false, running: false}' "$out" >"$st.new" &&
       mv "$st.new" "$st"

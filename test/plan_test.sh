@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for bin/tehas-plan: one turn of a planning session. A stub docker
-# records its arguments, keeps the first line it is sent and answers with a
-# recorded event stream, so no model runs.
+# records its arguments, keeps the first two lines it is sent and answers with
+# a recorded event stream, so no model runs.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh"
@@ -18,7 +18,12 @@ git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-
 git clone -q "$upstream" "$checkout"
 
 t_stub docker 'printf "%s\n" "$@" >"$T/calls/docker.args.$$"
-case " $* " in *" --mode "*) head -n 1 >"$T/calls/docker.stdin"; cat "$T/fx/turn.jsonl" 2>/dev/null ;; esac'
+case " $* " in *" --mode "*)
+  IFS= read -r line; printf "%s\n" "$line" >"$T/calls/docker.stdin"
+  # The second line may never come: do not wait for it for ever.
+  IFS= read -r -t 5 line; printf "%s\n" "$line" >"$T/calls/docker.stdin2"
+  cat "$T/fx/turn.jsonl" 2>/dev/null ;;
+esac'
 printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitconfig"
 
 turn_args() { grep -l -x -e '--mode' "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
@@ -71,6 +76,9 @@ t_eq "$(git -C "$ws" status --porcelain)" ""
 t_contains "$(jq -r .message "$T/calls/docker.stdin")" "/plan the work described in the file .tehas/brief.md"
 t_contains "$(jq -r .message "$T/calls/docker.stdin")" "issue #7"
 t_eq "$(jq -r .type "$T/calls/docker.stdin")" "prompt"
+
+t_case "the session is asked for right after the prompt, so a turn that fails late still has it"
+t_eq "$(jq -c . "$T/calls/docker.stdin2")" '{"id":"state","type":"get_state"}'
 
 t_case "a first turn starts a new session"
 t_eq "$(tail_of)" "$image pi --mode rpc --approve "
@@ -147,18 +155,41 @@ t_eq "$t_rc" 0
 t_eq "$(jq -r .text "$T/out.json")" ""
 t_eq "$(jq -r .question.question "$T/out.json")" "Adopt my resolutions?"
 
-t_case "a turn that never settled is a failure and writes no outcome"
+t_case "a turn that never settled is a failure and leaves only its session"
 reset
 grep -v agent_settled "$fx/turn.jsonl" >"$fx/turn.new" && mv "$fx/turn.new" "$fx/turn.jsonl"
 t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
 t_eq "$t_rc" 2
+t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123"}'
+
+t_case "a first turn that never settled and never named its session writes nothing"
+reset
+grep -v -e agent_settled -e get_state "$fx/turn.jsonl" >"$fx/turn.new" && mv "$fx/turn.new" "$fx/turn.jsonl"
+t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+t_eq "$t_rc" 2
 t_eq "$([ -e "$T/out.json" ] && echo written)" ""
+
+t_case "a settled first turn whose session is unknown is a failure and writes nothing"
+reset
+grep -v get_state "$fx/turn.jsonl" >"$fx/turn.new" && mv "$fx/turn.new" "$fx/turn.jsonl"
+t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+t_eq "$t_rc" 2
+t_contains "$t_out" "the session id is unknown"
+t_eq "$([ -e "$T/out.json" ] && echo written)" ""
+
+t_case "a later turn that never settled leaves the session it was given"
+reset
+grep -v -e agent_settled -e get_state "$fx/turn.jsonl" >"$fx/turn.new" && mv "$fx/turn.new" "$fx/turn.jsonl"
+t_run "$plan 7 --out $T/out.json --session abc-123 --answer $T/brief.md"
+t_eq "$t_rc" 2
+t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123"}'
 
 t_case "a run that started again after settling has not settled"
 reset
 echo '{"type":"agent_start"}' >>"$fx/turn.jsonl"
 t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
 t_eq "$t_rc" 2
+t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123"}'
 
 t_case "a turn with neither a message nor a question is a failure"
 reset
@@ -167,6 +198,8 @@ printf '%s\n' '{"type":"agent_start"}' '{"type":"agent_settled"}' \
   '{"type":"response","command":"get_last_assistant_text","success":true,"data":{"text":null}}' >"$fx/turn.jsonl"
 t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
 t_eq "$t_rc" 2
+t_contains "$t_out" "said and asked nothing"
+t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123"}'
 
 t_case "a line that is not JSON in the stream is skipped, not fatal"
 reset
