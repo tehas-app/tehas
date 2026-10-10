@@ -159,3 +159,37 @@ fn a_console_file_that_cannot_be_written_ends_it_with_1() {
         .unwrap();
     assert_eq!(run.status.code(), Some(1));
 }
+
+// The disk the console file is on is the one its complaints go to.
+#[test]
+fn the_exit_status_holds_when_stderr_cannot_be_written() {
+    let dir = scratch("full");
+    let out = dir.join("no-such-directory/console.txt");
+    let run = |args: &[&str]| {
+        let full = fs::File::options().write(true).open("/dev/full").unwrap();
+        let mut console = Command::new(CONSOLE);
+        console.args(args).stderr(full).status().unwrap().code()
+    };
+    assert_eq!(run(&[]), Some(2));
+    let out = out.to_str().unwrap();
+    assert_eq!(
+        run(&["--rpc", "a", "--runs", "b", "--since", "1", "--out", out]),
+        Some(1)
+    );
+}
+
+#[test]
+fn an_argument_that_is_not_text_is_a_usage_error() {
+    use std::os::unix::ffi::OsStrExt;
+    let odd = std::ffi::OsStr::from_bytes(b"c\xff.txt");
+    let run = Command::new(CONSOLE)
+        .args(["--rpc", "a", "--runs", "b", "--since", "1", "--out"])
+        .arg(odd)
+        .output()
+        .unwrap();
+    assert_eq!(run.status.code(), Some(2));
+    assert_eq!(
+        String::from_utf8_lossy(&run.stderr),
+        "console: an argument is not UTF-8\n"
+    );
+}

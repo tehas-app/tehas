@@ -41,7 +41,11 @@ struct Args {
 }
 
 fn args() -> Result<Args, String> {
-    let given: Vec<String> = std::env::args().skip(1).collect();
+    let given: Vec<String> = std::env::args_os()
+        .skip(1)
+        .map(|a| a.into_string())
+        .collect::<Result<_, _>>()
+        .map_err(|_| "console: an argument is not UTF-8")?;
     let value = |name: &str| -> Result<String, String> {
         let flag = format!("--{name}");
         given
@@ -123,25 +127,31 @@ fn run(args: &Args, stop: &AtomicBool) -> io::Result<()> {
     )
 }
 
+// To stderr, and no matter if it cannot be written: with a full disk it
+// cannot, and the exit status must still be the one this file promises.
+fn complain(message: &str) {
+    let _ = writeln!(io::stderr(), "{message}");
+}
+
 fn main() -> ExitCode {
     let args = match args() {
         Ok(args) => args,
         Err(message) => {
-            eprintln!("{message}");
+            complain(&message);
             return ExitCode::from(2);
         }
     };
     let stop = Arc::new(AtomicBool::new(false));
     for signal in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT] {
         if let Err(e) = signal_hook::flag::register(signal, Arc::clone(&stop)) {
-            eprintln!("console: cannot listen for signal {signal}: {e}");
+            complain(&format!("console: cannot listen for signal {signal}: {e}"));
             return ExitCode::FAILURE;
         }
     }
     match run(&args, &stop) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("console: {}: {e}", args.out);
+            complain(&format!("console: {}: {e}", args.out));
             ExitCode::FAILURE
         }
     }
