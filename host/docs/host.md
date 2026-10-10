@@ -150,7 +150,8 @@ not the one that was installed. The first build fetches its crates from the
 network and takes a minute. `--check` compares the checksums and builds
 nothing, so a console replaced on the host shows up as drift like any other
 file. A console that does not build stops the install before it has changed
-anything. The Deno
+anything, and so does a host without `cargo`. The build is given no
+environment variable whose name holds TOKEN, SECRET, PASSWORD or API_KEY. The Deno
 script it replaces, `~/tehas/libexec/console.ts`, is removed the way the old
 commands below are.
 

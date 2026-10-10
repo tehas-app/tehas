@@ -229,14 +229,22 @@ if [ ! -x "$console_to" ] || [ "$(cat "$console_to.stamp" 2>/dev/null)" != "$con
     # The target directory is named, so the program is where this looks for
     # it whatever cargo's own configuration says, and the old one is removed
     # first, so what is installed is what this build made. The build scripts
-    # of the crates run here: they are not given the bot's token.
+    # of the crates run here: they are given no variable that is named like a
+    # secret, the bot's token among them.
     target=${CARGO_TARGET_DIR:-$root/console/target}
     built=$target/release/console
     rm -f "$built"
-    if ! out=$(env -u GH_TOKEN cargo build --release --locked --quiet \
-      --manifest-path "$root/console/Cargo.toml" --target-dir "$target" 2>&1) || [ ! -f "$built" ]; then
+    hidden=()
+    while IFS= read -r name; do hidden+=(-u "$name"); done < <(compgen -e | grep -E 'TOKEN|SECRET|PASSWORD|API_KEY')
+    out=$(env "${hidden[@]}" cargo build --release --locked --quiet \
+      --manifest-path "$root/console/Cargo.toml" --target-dir "$target" 2>&1) && rc=0 || rc=$?
+    if [ "$rc" != 0 ] || [ ! -f "$built" ]; then
       printf '%s\n' "$out" | tail -n 20 >&2
-      echo "tehas: the console did not build (cargo build --release --locked in $root/console); nothing was installed" >&2
+      if [ "$rc" = 127 ]; then
+        echo "tehas: cargo is not installed, so the console cannot be built (bootstrap.sh installs it); nothing was installed" >&2
+      else
+        echo "tehas: the console did not build (cargo build --release --locked in $root/console); nothing was installed" >&2
+      fi
       exit 1
     fi
     put "$built|$console_to|755"
