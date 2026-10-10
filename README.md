@@ -1,3 +1,12 @@
+```
+       __________________________.____    _________    ______
+       \___     ___/  __    /    |    \ _/    _    \ _/   __/__
+__ __/\ _/       \_   \____/__   _     \__   _/     \\______   \_ /\___ ___ _
+       \____     /____      /___|      //___\       /      ____/
+ - --------l____/----l_____/----l_____/------\_____/_______/-----sQ!-- -- -
+ 
+```
+
 # Tehas
 
 Tehas is a software factory powered by the [Pi coding agent](https://pi.dev).
@@ -85,7 +94,7 @@ Agents can start from [`host/docs/llms.txt`](host/docs/llms.txt).
 
 ## State of the project
 
-Tehas is new. One instance runs it, the one that works on this repository, and
+Tehas is experimental. One instance runs it, the one that works on this repository, and
 nothing has run for long. Its first unattended cycle took 61 minutes and about
 8.5 million tokens for a 172-line change. The
 [features page](host/docs/features.md) says for each part whether it was seen

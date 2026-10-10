@@ -1,4 +1,8 @@
-{{- $base := printf "%s://%s" (default (placeholder "http.request.scheme") (.Req.Header.Get "X-Forwarded-Proto")) .Req.Host -}}
+{{- /* The address is built from request headers and printed as text. Refuse
+       anything that is not a plain scheme and host name. */ -}}
+{{- $proto := default (placeholder "http.request.scheme") (.Req.Header.Get "X-Forwarded-Proto") -}}
+{{- if or (not (has $proto (list "http" "https"))) (not (regexMatch "^[A-Za-z0-9.-]+(:[0-9]+)?$" .Req.Host)) }}{{ httpError 400 }}{{ end -}}
+{{- $base := printf "%s://%s" $proto .Req.Host -}}
 # Tehas: a software factory powered by the Pi coding agent
 
 > Tehas is a Pi software factory: a GitHub issue goes in and a reviewed pull

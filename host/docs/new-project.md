@@ -79,7 +79,7 @@ The platform checkout is this repository at `~/tehas/platform`, where you ran
 git clone <the product repository> ~/tehas/repos/<name>
 ```
 
-The product checkout is where cycles work. The platform checkout is where
+The product checkout is what cycles are cloned from. The platform checkout is where
 `install.sh` runs from. Keep them apart even when, as in the example, they are
 the same repository: the factory then changes only when a person pulls the
 platform checkout and installs.

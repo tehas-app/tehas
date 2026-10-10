@@ -1,0 +1,28 @@
+# The gate, run on every pull request and on main: the lint, shellcheck and
+# the shell tests. It makes scripts/verify.sh something a ruleset can require.
+name: verify
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: shellcheck at the pinned version
+        run: |
+          . host/versions.env
+          curl -fsSL -o /tmp/shellcheck.tar.xz \
+            "https://github.com/koalaman/shellcheck/releases/download/v$SHELLCHECK_VERSION/shellcheck-v$SHELLCHECK_VERSION.linux.x86_64.tar.xz"
+          echo "$SHELLCHECK_SHA256  /tmp/shellcheck.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/shellcheck.tar.xz -C /tmp
+          sudo install -m 755 "/tmp/shellcheck-v$SHELLCHECK_VERSION/shellcheck" /usr/local/bin/shellcheck
+          shellcheck --version
+      - name: scripts/verify.sh
+        run: scripts/verify.sh

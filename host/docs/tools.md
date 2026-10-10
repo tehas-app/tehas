@@ -30,11 +30,11 @@ in the platform repository has every one with a comment.
 | `TEHAS_ANALYTICS_SRC`, `_SITE`  | empty                                    | Optional. The https address of a visitor analytics script and the site name it reports under. Both set: every page loads it |
 | `TEHAS_ANALYTICS_COOKIE`        | `0`                                      | `1` adds `data-cookie="true"` to that script tag                |
 | `TEHAS_PROTOLAB_URL`            | port 8081 of the dashboard's host        | Address people reach the Protolab at, when it is published elsewhere, as `https://lab.example`. The dashboard links to it |
-| `TEHAS_WORK_REPO`               | `~/tehas/repos/<name>`                   | The product checkout cycles run in. Must be a clone of `TEHAS_REPO` |
+| `TEHAS_WORK_REPO`               | `~/tehas/repos/<name>`                   | The product checkout cycles are cloned from. Must be a clone of `TEHAS_REPO`. The cycle itself works in `~/tehas/work/<name>`, which is not a setting |
 | `TEHAS_BRANCH`                  | the checkout's `origin/HEAD`             | Branch cycles start from and pull requests target               |
 | `TEHAS_WORK_CPUS`               | the host's CPUs minus one, at least 1    | `docker --cpus` of a cycle's container                          |
 | `TEHAS_WORK_MEMORY`             | half the host's memory                   | `docker --memory` of a cycle's container                        |
-| `TEHAS_CONCURRENCY`             | `1`                                      | Workstreams side by side inside one cycle                       |
+| `TEHAS_CONCURRENCY`             | `4`                                      | Workstreams side by side inside one cycle                       |
 | `TEHAS_MAX_AWAITING`            | `3`                                      | Open `tehas:awaiting-merge` issues allowed before holding       |
 | `TEHAS_WORK_TIMEOUT`            | `21600`                                  | Seconds before a cycle is given up                              |
 | `PI_ENSEMBLE_HOST_ALIASES`      | empty                                    | `name:address` pairs the sandbox must resolve, comma separated  |
@@ -67,7 +67,11 @@ merge, who applied `tehas:ready`, then urgent first and lowest number. Log:
 cycle's runner output: `~/tehas/logs/dispatch-work-<issue>.log`.
 
 Before a cycle it puts the product checkout on the default branch and
-fast-forwards it.
+fast-forwards it. `tehas-work` then clones the cycle's workspace from it.
+
+An issue is taken only when an allowed account applied `tehas:ready` and
+nobody else has changed its title or body since. A cycle starts only once the
+issue is marked `tehas:running`; if that label change fails, the poll stops.
 
 ## tehas-work
 
@@ -105,7 +109,9 @@ Feed the [factory floor](/) and the [plain dashboard](/dashboard). `tehas-status
 `~/tehas/live/status.json`; the dispatcher runs it at every poll and every two
 minutes during a cycle. `tehas-console.ts` is started by `tehas-work` and
 follows the cycle's agents into `~/tehas/live/console-<issue>.txt`, masking
-tokens and passwords. Neither needs running by hand.
+tokens, passwords and private network addresses. The mask catches accidents;
+it cannot stop an agent that sets out to print a secret another way, so treat
+the console of a published dashboard as public. Neither needs running by hand.
 
 ## tehas-health
 
@@ -211,7 +217,7 @@ factory floor says so.
 
 A product names its gates in `.pi/verify-cmd`, `.pi/verify-cmd-full` and
 `.pi/smoke-cmd`: the first line that is not empty or a comment is the command.
-Run them by hand from the root of the product checkout. For the example
+Run them by hand from the root of a clone of the product. For the example
 product:
 
 ```
@@ -387,5 +393,8 @@ need bash, git, jq and shellcheck only: no sandbox image, no product checkout
 and no network. Exit 0 when every check passed, 1 when one failed, 2 when
 nothing could be checked.
 
-`scripts/check-generic.sh` is the lint that keeps product and host names out of
-platform files. `scripts/verify.sh` runs it and `bin/tehas-test` together.
+`scripts/check-generic.sh` is the lint that keeps private network addresses out
+of every file, and product and host names out of platform files. The names
+come from `scripts/check-generic.names`, a list each working machine keeps for
+itself: git ignores it and it is read as data. `scripts/verify.sh` runs the
+lint and `bin/tehas-test` together.

@@ -160,12 +160,16 @@ tehas_load() {
   # Derived and optional settings.
   if [ -n "${TEHAS_REPO:-}" ]; then
     export TEHAS_WORK_REPO=${TEHAS_WORK_REPO:-$TEHAS_HOME/repos/${TEHAS_REPO##*/}}
+    # Where a cycle works: a fresh clone that tehas-work makes for each cycle,
+    # and the only tree the cycle's container can write. Not a setting: the
+    # directory is removed before every cycle.
+    export TEHAS_WORK_DIR=$TEHAS_HOME/work/${TEHAS_REPO##*/}
   fi
   v=$(_tehas_host_cpus)
   export TEHAS_WORK_CPUS=${TEHAS_WORK_CPUS:-$((v > 1 ? v - 1 : 1))}
   half=$(($(_tehas_host_mem_mb) / 2))
   export TEHAS_WORK_MEMORY=${TEHAS_WORK_MEMORY:-${half}m}
-  export TEHAS_CONCURRENCY=${TEHAS_CONCURRENCY:-1}
+  export TEHAS_CONCURRENCY=${TEHAS_CONCURRENCY:-4}
   export TEHAS_INDEXING=${TEHAS_INDEXING:-0}
   # Visitor analytics on the dashboard and the manual. Off unless the instance
   # names a script and a site.

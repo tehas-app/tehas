@@ -17,7 +17,8 @@
 #             78 the instance settings are invalid; no cycle was started.
 #
 # Instance settings (lib/config.sh; defaults in brackets):
-#   TEHAS_WORK_REPO     checkout the cycle runs in [$TEHAS_HOME/repos/<name>]
+#   TEHAS_WORK_REPO     the product checkout a cycle is cloned from
+#                       [$TEHAS_HOME/repos/<name>]
 #   TEHAS_WORK_TIMEOUT  seconds before giving up [21600]
 #   TEHAS_WORK_CPUS     docker --cpus for the cycle: a time quota, not pinning
 #                       [the host's CPUs minus one]
@@ -26,8 +27,15 @@
 #
 # What the container is given is deliberate and pinned by test/work_test.sh:
 # the bot token (pi-rukas pushes and opens the pull request from inside), the
-# PI_ENSEMBLE_* settings, the bot's git identity, the product checkout and
+# PI_ENSEMBLE_* settings, the bot's git identity, the cycle's workspace and
 # Pi's state directories. Not the Docker socket, SSH keys or ~/.config/tehas.
+#
+# The workspace is $TEHAS_HOME/work/<name>, a fresh clone made here for every
+# cycle. The container never sees the product checkout: an agent can write
+# anything into the tree it works in, hooks and git configuration included,
+# and the host runs git in the product checkout. So the host runs git only in
+# a tree no container has touched, and reads from the workspace afterwards
+# nothing but the cycle's state file, as data.
 set -uo pipefail
 
 issue=${1:-}
@@ -42,7 +50,9 @@ tehas_load || exit 78
 tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
 # Docker would create a missing mount source as a root-owned directory.
 tehas_checkout || exit 78
-repo=$TEHAS_WORK_REPO
+branch=$(tehas_branch) || exit 78
+src=$TEHAS_WORK_REPO
+repo=$TEHAS_WORK_DIR
 image=$PI_ENSEMBLE_IMAGE
 limit=$TEHAS_WORK_TIMEOUT
 state=$repo/.pi/work-state/$issue.json
@@ -81,6 +91,31 @@ envs+=(-e GIT_CONFIG_COUNT=4
 while IFS='=' read -r var _; do
   case "$var" in PI_ENSEMBLE_IMAGE | PI_ENSEMBLE_HOST_ALIASES) ;; PI_ENSEMBLE_*) envs+=(-e "$var") ;; esac
 done < <(env)
+
+# A fresh workspace for this cycle, at the tip the product checkout last
+# fetched for the branch. What an earlier cycle left behind goes with the old
+# one. Only a directory this command made is ever removed.
+base=$(git -C "$src" rev-parse -q --verify "refs/remotes/origin/$branch^{commit}") ||
+  { echo "tehas-work: $src has no origin/$branch, not starting a cycle" >&2; exit 78; }
+url=$(git -C "$src" config --get remote.origin.url)
+works=$(dirname "$repo")
+if [ -e "$works" ] && [ ! -f "$works/.tehas-workspaces" ]; then
+  echo "tehas-work: $works exists and was not made by tehas, not touching it" >&2
+  exit 78
+fi
+workspace() {
+  mkdir -p "$works" && : >"$works/.tehas-workspaces" && rm -rf "$repo" &&
+    git init -q -b "$branch" "$repo" &&
+    git -C "$repo" remote add origin "$url" &&
+    git -C "$repo" fetch -q --no-tags "$src" '+refs/remotes/origin/*:refs/remotes/origin/*' &&
+    git -C "$repo" symbolic-ref refs/remotes/origin/HEAD "refs/remotes/origin/$branch" &&
+    git -C "$repo" checkout -q -B "$branch" "$base" &&
+    git -C "$repo" branch -q --set-upstream-to="origin/$branch" "$branch"
+}
+if ! workspace; then
+  echo "tehas-work: could not make the workspace $repo, not starting a cycle" >&2
+  exit 78
+fi
 
 # Before spending an hour of model time: can the sandbox push at all? A dry
 # run needs the same credentials a real push does and creates nothing.
@@ -125,7 +160,10 @@ deno run -A "$TEHAS_HOME/bin/tehas-console.ts" --rpc "$log" \
 cpid=$!
 now_file() { # running? status step
   local text
-  text=$(tail -c 60000 "$log" 2>/dev/null | grep -o '"statusText":"[^"]*"' | tail -n 1 | cut -d'"' -f4)
+  # The line is the agent's own words and the file is served by the dashboard:
+  # private addresses are masked, as tehas-console.ts does for the console.
+  text=$(tail -c 60000 "$log" 2>/dev/null | grep -o '"statusText":"[^"]*"' | tail -n 1 | cut -d'"' -f4 |
+    sed -E 's/(^|[^0-9.])(10\.[0-9]{1,3}|192\.168|172\.(1[6-9]|2[0-9]|3[01])|169\.254|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7]))\.[0-9]{1,3}\.[0-9]{1,3}/\1[private address]/g')
   jq -n --argjson issue "$issue" --argjson running "$1" --arg status "$2" --arg step "$3" \
     --arg text "$text" --argjson startedAt "$started" --argjson at "$(date +%s)" \
     '{issue: $issue, running: $running, status: $status, step: $step, statusText: $text,

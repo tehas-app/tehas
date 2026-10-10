@@ -150,10 +150,14 @@ To try again after fixing the cause (often: make the issue clearer):
 1. remove `needs-human-attention`,
 2. apply `tehas:ready` again.
 
-The next cycle starts from the state the last one saved in
-`.pi/work-state/<issue>.json`. If it halts at once complaining about that state,
-start clean on the host with `tehas-work <issue> --restart`; branches and commits
-from the earlier attempt are kept.
+The next cycle starts in a fresh workspace, with `--restart`. Branches and
+commits the earlier attempt pushed are kept on GitHub; what it left only on the
+host is gone.
+
+The label approves the text it was applied to. If someone other than an
+allowed labeller changes the title or the body afterwards, the issue is
+skipped and the dispatcher's log says who changed it. Read the new text, then
+remove `tehas:ready` and apply it again.
 
 ## Pause and resume
 
@@ -164,8 +168,8 @@ already running finishes. Remove the label to resume.
 ## Limits that hold work back
 
 - One cycle at a time.
-- Inside a cycle, `TEHAS_CONCURRENCY` workstreams side by side: 1 by default,
-  more if the model backends can take it. See [The host](/host).
+- Inside a cycle, `TEHAS_CONCURRENCY` workstreams side by side: 4 by default,
+  fewer if the model backends cannot take it. See [The host](/host).
 - No new cycle while 3 issues carry `tehas:awaiting-merge`
   (`TEHAS_MAX_AWAITING`). Unreviewed pull requests are the queue you control.
 - A self-hosted model endpoint has few real slots per model, so a cycle takes
@@ -179,3 +183,31 @@ Skips the queue, the labels and the comments:
 tehas-work 123            # exit 0: merged or parked, 1: aborted, 2: died or timed out
 tehas-work 123 --restart
 ```
+
+It does not take the dispatcher's lock, so a poll can start a queue cycle while
+yours runs. Apply `tehas:pause` first, or check that nothing is ready.
+
+## Watching a running cycle
+
+A cycle cannot be attached to or made interactive. It is pi-rukas run headless:
+Pi in RPC mode with no terminal, given the one prompt `/work <issue>` and set to
+approve its own steps. There is no prompt to type at and nothing waits for an
+answer.
+
+What you can do is watch it, on the [factory floor](/) or on the host:
+
+```
+tail -f ~/tehas/live/console-123.txt     # the console the dashboard shows
+tail -f ~/tehas/logs/work-123-*.jsonl    # the raw RPC stream
+docker exec -it tehas-work-123 bash      # a shell in the cycle's container
+```
+
+The shell is beside the session, not in it, and it is in the workspace the
+agents are working in: what you change there changes the cycle. Do not use
+`docker attach`. It shows the raw stream, not a Pi interface, and an interrupt
+typed there is passed to Pi and ends the cycle.
+
+To steer a cycle, let it park or stop it, make the issue clearer and apply
+`tehas:ready` again. To work with pi-rukas interactively, apply `tehas:pause`
+and run it through its own wrapper in a clone of your own. That is outside the
+queue: no labels, no bot comments.

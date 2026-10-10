@@ -100,6 +100,7 @@ control=$TEHAS_CONTROL_ISSUE
 allowed=" $TEHAS_ALLOWED_LABELERS "
 max_awaiting=$TEHAS_MAX_AWAITING
 checkout=$TEHAS_WORK_REPO
+workdir=$TEHAS_WORK_DIR
 work=${TEHAS_WORK_CMD:-tehas-work}
 status_cmd=${TEHAS_STATUS_CMD:-tehas-status}
 # Known before anything is touched: a cycle must never start from a guess,
@@ -168,15 +169,50 @@ fi
 
 issue=""
 for n in $candidates; do
-  # Who applied tehas:ready most recently?
-  gh_json api "repos/$repo/issues/$n/events" --paginate
-  who=$(jq -rs 'add // [] | map(select(.event == "labeled" and .label.name == "tehas:ready")) | last | .actor.login // ""' <<<"$json") ||
+  # Who applied tehas:ready most recently, and when?
+  gh_json api "repos/$repo/issues/$n/events?per_page=100" --paginate
+  events=$json
+  ready=$(jq -rs 'add // [] | map(select(.event == "labeled" and .label.name == "tehas:ready")) | last
+                  | "\(.actor.login // "") \(.created_at // "")"' <<<"$events") ||
     { log "ERROR: unreadable label events of #$n"; exit 1; }
+  who=${ready%% *}
+  at=${ready#* }
   # No name is nobody: a deleted account or a missing event never matches.
   case "${who:+$allowed}" in
-    *" $who "*) issue=$n; break ;;
-    *) log "skip #$n: tehas:ready was applied by '${who:-unknown}', not an allowed account" ;;
+    *" $who "*) ;;
+    *)
+      log "skip #$n: tehas:ready was applied by '${who:-unknown}', not an allowed account"
+      continue
+      ;;
   esac
+  # The label approves the text that was there when it was applied. A title or
+  # body changed afterwards by anyone else has not been approved by anybody:
+  # the issue waits until an allowed account applies the label again.
+  renamed=$(jq -rs --arg at "$at" 'add // [] | map(select(.event == "renamed" and ($at == "" or .created_at > $at)))
+                  | map(.actor.login // "") | join(" ")' <<<"$events") ||
+    { log "ERROR: unreadable label events of #$n"; exit 1; }
+  # shellcheck disable=SC2016  # $owner, $name and $number are GraphQL variables
+  gh_json api graphql -F owner="${repo%%/*}" -F name="${repo##*/}" -F number="$n" \
+    -f query='query($owner: String!, $name: String!, $number: Int!) {
+      repository(owner: $owner, name: $name) { issue(number: $number) { lastEditedAt editor { login } } } }'
+  edited=$(jq -r '.data.repository.issue | "\(.editor.login // "") \(.lastEditedAt // "")"' <<<"$json") ||
+    { log "ERROR: unreadable edit record of #$n"; exit 1; }
+  editors=$renamed
+  edited_at=${edited#* }
+  if [ -n "$edited_at" ] && { [ -z "$at" ] || [[ $edited_at > $at ]]; }; then
+    editors="$editors ${edited%% *}"
+    [ -n "${edited%% *}" ] || editors="$editors unknown"
+  fi
+  stale=""
+  for e in $editors; do
+    case "$allowed" in *" $e "*) ;; *) stale=$e ;; esac
+  done
+  if [ -n "$stale" ]; then
+    log "skip #$n: its text was changed by '$stale' after $who applied tehas:ready; apply the label again to approve it"
+    continue
+  fi
+  issue=$n
+  break
 done
 
 if [ -z "$issue" ]; then
@@ -192,13 +228,19 @@ comment() { gh issue comment "$issue" --repo "$repo" --body "$1" >/dev/null 2>&1
 relabel() { gh issue edit "$issue" --repo "$repo" "$@" >/dev/null 2>&1 || log "WARN: label change on #$issue failed: $*"; }
 
 log "start #$issue (labelled by $who)"
-relabel --add-label tehas:running --remove-label tehas:ready
+# The cycle runs only once the issue is marked as taken. If the label cannot
+# be changed, tehas:ready would stay and every later poll would start the
+# same issue again.
+if ! gh issue edit "$issue" --repo "$repo" --add-label tehas:running --remove-label tehas:ready >/dev/null 2>&1; then
+  log "ERROR: could not mark #$issue as running, not starting a cycle"
+  exit 1
+fi
 comment "Tehas cycle started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC (authorized by @$who's \`tehas:ready\` label). This issue is owned by the cycle until \`tehas:running\` is removed."
 
-# Cycles start from the product's default branch; keep the checkout current. A
-# cycle that parks while integrating can leave the checkout on its feature
-# branch, so put it back first. Only when it is clean: never discard someone's
-# changes.
+# Cycles start from the product's default branch; keep the checkout current.
+# tehas-work clones the cycle's workspace from it. No container is ever given
+# this checkout, so running git here runs nothing an agent wrote. Put it back
+# on the branch only when it is clean: never discard someone's changes.
 if [ -z "$(git -C "$checkout" status --porcelain --untracked-files=no)" ]; then
   git -C "$checkout" checkout -q "$branch" || log "WARN: could not switch $checkout to $branch"
 else
@@ -209,9 +251,13 @@ if ! git -C "$checkout" fetch -q origin || ! git -C "$checkout" merge -q --ff-on
 fi
 
 started=$(date +%s)
-# A relabelled issue gets a fresh cycle, not the parked state of the last one.
+# A relabelled issue gets a fresh cycle, not whatever the last one parked.
+# The workspace is new every time, so the record of an earlier cycle is kept
+# here, on the host.
 restart=""
-[ -f "$checkout/.pi/work-state/$issue.json" ] && restart=--restart
+mkdir -p "$TEHAS_HOME/state/cycles"
+[ -e "$TEHAS_HOME/state/cycles/$issue" ] && restart=--restart
+: >"$TEHAS_HOME/state/cycles/$issue"
 "$work" "$issue" $restart >>"$TEHAS_HOME/logs/dispatch-work-$issue.log" 2>&1 &
 wpid=$!
 # Keep the dashboard's queue current while the cycle runs.
@@ -225,7 +271,8 @@ wait "$wpid"
 rc=$?
 mins=$((($(date +%s) - started) / 60))
 
-state=$checkout/.pi/work-state/$issue.json
+# The one thing read back from the tree the container wrote, and only as data.
+state=$workdir/.pi/work-state/$issue.json
 status=$(jq -r '.pipelineState.status // "unknown"' "$state" 2>/dev/null || echo unknown)
 step=$(jq -r '.pipelineState.currentStep // "-"' "$state" 2>/dev/null || echo -)
 branch=$(jq -r '.pipelineState.branchName // ""' "$state" 2>/dev/null || echo "")
@@ -239,7 +286,9 @@ usage=$(jq -r '
 
 pr=""
 if [ -n "$branch" ]; then
-  pr=$(gh pr list --repo "$repo" --head "$branch" --state open --json url --jq '.[0].url // ""' 2>/dev/null || echo "")
+  # The branch name comes from a file the cycle wrote. Only a pull request the
+  # bot itself opened counts, so it cannot point at somebody else's.
+  pr=$(gh pr list --repo "$repo" --head "$branch" --author "@me" --state open --json url --jq '.[0].url // ""' 2>/dev/null || echo "")
 fi
 
 summary="status \`$status\`, last step \`$step\`, $mins min"
