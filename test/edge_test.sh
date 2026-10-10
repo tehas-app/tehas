@@ -100,4 +100,10 @@ t_eq "$(jq -r '[.queued, .awaiting, .stopped, .completed, .running] | map(type) 
 t_eq "$(jq -r '.links | keys | join(",")' "$T_ROOT/preview/live/status.json")" "all,awaiting,completed,queued,stopped"
 t_eq "$(jq -r '[(.previews | type), (.disk | type)] | join(",")' "$T_ROOT/preview/live/previews.json")" "array,object"
 
+t_case "the dashboard's Previews heading takes the one rule of the lists above it"
+css=$T_ROOT/host/fun/manual.css
+t_eq "$(grep -c -F '.page .cols h2, .page #previews h2 {' "$css")" 1
+t_eq "$(grep -c -F '#previews h2' "$css")" 1
+t_eq "$(grep -c -F '<section id="previews" hidden>' "$T_ROOT/host/docs/dashboard.frag")" 1
+
 t_done
