@@ -293,6 +293,11 @@ The fork has two kinds of branch:
 - `tehas` is what a host runs: an upstream commit plus the fixes upstream has
   not merged yet. `PI_RUKAS_COMMIT` in `versions.env` is a commit on it.
 
+Today `tehas` is an upstream commit with nothing added, so the base in
+`sandbox/Dockerfile` is still upstream's published image for that commit. The
+fork has not published an image yet. Its workflows have to be switched on once,
+on the fork's Actions tab, before the first fix can go through step 3.
+
 When a problem in pi-rukas comes up:
 
 1. Open an issue upstream that describes it. Say there that a fix is being
