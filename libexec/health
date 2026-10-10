@@ -9,7 +9,9 @@
 #
 # The file follows the health check response format (draft-inadarei-api-health-check):
 #   status "pass"  the factory is taking work
-#   status "warn"  it is paused (tehas:pause on the control issue)
+#   status "warn"  it is paused (tehas:pause on the control issue), or the host
+#                  is too low on disk to build previews (live/previews.json,
+#                  from tehasbot preview)
 #   status "fail"  the last cycle ended as anything but merged or handoff, or
 #                  there is no queue snapshot yet
 # On "fail" it also creates live/health.down, which makes the docs server answer
@@ -32,13 +34,24 @@ cycle=null
 [ -s "$status_file" ] && queue=$(jq -c . "$status_file" 2>/dev/null || echo null)
 [ -s "$running_file" ] && cycle=$(jq -c . "$running_file" 2>/dev/null || echo null)
 
-jq -n --argjson queue "$queue" --argjson cycle "$cycle" --arg now "$(date -u +%FT%TZ)" '
+# The free space of the host, as tehasbot preview measured it. A host without
+# previews has no such file, and a figure that is no longer written is not
+# believed after half an hour.
+previews_file=$live/previews.json
+disk=null
+[ -s "$previews_file" ] && disk=$(jq -c '
+  select((.disk | type) == "object" and (now - (.generatedAt | fromdateiso8601)) < 1800)
+  | .disk + {time: .generatedAt}' "$previews_file" 2>/dev/null)
+[ -n "$disk" ] || disk=null
+
+jq -n --argjson queue "$queue" --argjson cycle "$cycle" --argjson disk "$disk" --arg now "$(date -u +%FT%TZ)" '
   def iso: if type == "number" then todate else null end;
   ($cycle != null and ($cycle.running | not)
      and (($cycle.status // "") | IN("merged", "handoff") | not)) as $failed
   | (if $queue == null then "fail"
      elif $failed then "fail"
      elif $queue.paused then "warn"
+     elif $disk != null and $disk.low then "warn"
      else "pass" end) as $status
   | {
       status: $status,
@@ -46,6 +59,7 @@ jq -n --argjson queue "$queue" --argjson cycle "$cycle" --arg now "$(date -u +%F
       output: (if $queue == null then "No queue snapshot yet: the dispatcher has not written one."
                elif $failed then "The last cycle failed: #\($cycle.issue) ended as \($cycle.status)."
                elif $queue.paused then "The factory is paused."
+               elif $disk != null and $disk.low then "The host is low on disk: previews are not being built."
                elif $cycle != null and $cycle.running then "Working on #\($cycle.issue)."
                else "Idle, taking work." end),
       checks: {
@@ -64,7 +78,8 @@ jq -n --argjson queue "$queue" --argjson cycle "$cycle" --arg now "$(date -u +%F
           step: $cycle.step,
           startedAt: ($cycle.startedAt | iso),
           time: ($cycle.updatedAt | iso)
-        } end)
+        } end),
+        disk: (if $disk == null then null else ($disk | {time, freeBytes, minFreeBytes, low}) end)
       }
     }' >"$live/health.json.new" 2>/dev/null || exit 1
 mv "$live/health.json.new" "$live/health.json"

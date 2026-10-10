@@ -303,12 +303,15 @@ serves the file at `/health` and `/healthz` as `application/health+json`.
 | `status` | Meaning                                                                                  | HTTP |
 | -------- | ---------------------------------------------------------------------------------------- | ---- |
 | `pass`   | Taking work, idle or in a cycle                                                          | 200  |
-| `warn`   | Paused (`tehas:pause` on the control issue)                                              | 200  |
+| `warn`   | Paused (`tehas:pause` on the control issue), or too low on disk to build previews        | 200  |
 | `fail`   | The last cycle ended as anything but `merged` or `handoff`, or there is no queue snapshot | 503  |
 
 `output` says the same in a sentence. `checks.queue` has the snapshot time and
 the counts in line, building, in review and stopped; `checks.cycle` has the
-issue, status, step and times of the current or last cycle.
+issue, status, step and times of the current or last cycle. `checks.disk` has
+the free and the required bytes and `low`, as `tehasbot preview` last wrote
+them to `live/previews.json`. It is `null` on a host without previews, and when
+that figure is more than half an hour old.
 
 A stopped dispatcher cannot report itself: the file simply stops changing and
 the endpoint keeps answering with the last state. A monitor should also treat

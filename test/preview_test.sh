@@ -406,4 +406,50 @@ jq -n --arg sha "$a" '{number: 12, sha: $sha, state: "building", reason: "", tim
 t_run "$preview"
 t_eq "$(state_of 12)" "serving"
 
+t_case "under the floor nothing is built, and the state says how much is free"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+echo 1048576 >"$fx/free" # 1 GB
+t_run "$preview"
+t_eq "$(builds)" 0
+t_eq "$(state_of 12)" "no-space"
+t_contains "$(jq -r .reason "$root/12/state.json")" "1.0 GB is free and 5.0 GB is needed"
+t_eq "$(jq -c '.disk' "$live/previews.json")" '{"freeBytes":1073741824,"minFreeBytes":5368709120,"low":true}'
+
+t_case "with room again the same commit is built"
+rm -f "$fx/free"
+t_run "$preview"
+t_eq "$(state_of 12)" "serving"
+t_eq "$(jq -r '.disk.low' "$live/previews.json")" "false"
+
+t_case "a preview already serving stays up under the floor"
+echo 1048576 >"$fx/free"
+t_run "$preview"
+t_eq "$(state_of 12)" "serving"
+t_eq "$(cat "$fx/docker/container-12")" "$a"
+
+t_case "removal still runs under the floor"
+pulls
+t_run "$preview"
+t_eq "$(count "$fx/docker" container-12)" 0
+t_eq "$(count "$root" 12)" 0
+
+t_case "space that cannot be read builds nothing, and says so"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+: >"$fx/df-fails"
+t_run "$preview"
+t_eq "$(builds)" 0
+t_eq "$(state_of 12)" "no-space"
+t_contains "$(jq -r .reason "$root/12/state.json")" "could not be read"
+t_eq "$(jq -c '.disk.freeBytes, .disk.low' "$live/previews.json" | tr '\n' ' ')" "null true "
+
+t_case "the figures are written with nothing to build"
+reset
+pulls
+t_run "$preview"
+t_eq "$(jq -r '.disk.freeBytes' "$live/previews.json")" "42949672960"
+
 t_done

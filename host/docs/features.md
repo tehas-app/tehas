@@ -60,7 +60,7 @@ a day.
 | Production console         | The running cycle's console in the game view, read from the same `/live/` files as the dashboard                                       | Tested with fake files   |
 | Energy use                 | Optional. In the game view, only when the model backend is a [viiwork](https://github.com/janit/viiwork) mesh and `tehas-energy.service` is enabled: draw now, kWh for 24 hours and 30 days, a 30-minute chart, the machines serving the factory and its models, and a live meter among the doors with the draw now and tokens a minute | Tested with fake files   |
 | Protolab                   | A page for every open issue labelled `tehas:prototype`, on port 8081: title, link to the issue, and the attached images, videos and static HTML files, 10 MB a ticket. Served by a container of its own; HTML runs sandboxed. Listed in the game view | Covered by the shell tests; run by hand against real attachments, not yet on a host |
-| Health endpoint            | `/health` and `/healthz` on port 8080: pass, warn (paused) or fail (last cycle failed, answered with 503)                              | Tested with fake files   |
+| Health endpoint            | `/health` and `/healthz` on port 8080: pass, warn (paused, or low on disk for previews) or fail (last cycle failed, answered with 503)                              | Tested with fake files   |
 | Operating manual           | This site, Markdown rendered by the docs server with no build step                                                                     | Verified                 |
 
 ## Host management

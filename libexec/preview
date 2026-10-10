@@ -17,6 +17,10 @@
 #   when it goes    At the next run after the pull request is merged or
 #                   closed: the container, the image, the fetched ref and
 #                   the state.
+#   a full disk     Under TEHAS_PREVIEW_MIN_FREE of free space nothing is
+#                   built. What serves stays, and removal still runs. The
+#                   figures are in previews.json at every run, and tehasbot
+#                   health reads them.
 #
 # Each pull request has a state in $TEHAS_HOME/preview/<number>/state.json:
 # serving, building, no-recipe, build-failed, no-space or over-limit. The list
@@ -108,9 +112,19 @@ purge() { # <number>: everything of one pull request
 }
 
 # --- Free space --------------------------------------------------------------
-# free_kb: the free kilobytes of the host. Task 6 measures; until then there
-# is always room.
-free_kb() { echo $((min_kb * 8)); }
+# free_kb: the free kilobytes of the host, the smaller of the file system of
+# $TEHAS_HOME and the one Docker keeps its images on. Fails when the first
+# cannot be read: no figure is not the same as plenty.
+free_kb() {
+  local a b dir
+  a=$(df -Pk "$TEHAS_HOME" 2>/dev/null | awk 'NR == 2 {print $4}')
+  [[ $a =~ ^[0-9]+$ ]] || return 1
+  dir=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null)
+  b=$(df -Pk "${dir:-/var/lib/docker}" 2>/dev/null | awk 'NR == 2 {print $4}')
+  [[ $b =~ ^[0-9]+$ ]] || b=$a
+  echo $((a < b ? a : b))
+}
+gb() { awk -v kb="$1" 'BEGIN { printf "%.1f GB", kb / 1048576 }'; }
 
 # --- The comment on the pull request -----------------------------------------
 # comment <number>: Task 7 writes it.
@@ -287,8 +301,14 @@ run() {
   write_list
 }
 
-# no_space <number> <commit>: Task 6 writes the reason.
-no_space() { mark "$1" "$2" no-space "The host is low on disk."; }
+# no_space <number> <commit>: nothing is built, and the reason has the figures.
+no_space() {
+  if [ -n "$free" ]; then
+    mark "$1" "$2" no-space "The host is low on disk: $(gb "$free") is free and $(gb "$min_kb") is needed."
+  else
+    mark "$1" "$2" no-space "The free space of the host could not be read."
+  fi
+}
 
 # --- The three hour check ----------------------------------------------------
 # Task 8 writes it.
