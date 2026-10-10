@@ -32,12 +32,17 @@
 # PI_ENSEMBLE_* settings, the bot's git identity, the cycle's workspace and
 # Pi's state directories. Not the Docker socket, SSH keys or ~/.config/tehas.
 #
-# The workspace is $TEHAS_HOME/work/<name>, a fresh clone made here for every
-# cycle. The container never sees the product checkout: an agent can write
-# anything into the tree it works in, hooks and git configuration included,
-# and the host runs git in the product checkout. So the host runs git only in
-# a tree no container has touched, and reads from the workspace afterwards
-# nothing but the cycle's state file, as data.
+# The workspace is $TEHAS_HOME/work/<name>-<issue>, a fresh clone made here for
+# every cycle. Every cycle has its workspace at the same path inside its
+# container, $TEHAS_HOME/work/<name>: the code index is kept under that path,
+# so one index serves all cycles. The container never sees the product
+# checkout: an agent can write anything into the tree it works in, hooks and
+# git configuration included, and the host runs git in the product checkout.
+# So the host runs git only in a tree no container has touched, and reads from
+# the workspace afterwards nothing but the cycle's state file, as data.
+#
+# The agents' transcripts go to ~/.pi/agent/ensemble-runs/issue-<issue>, so a
+# cycle sees its own and the console shows no other cycle's agents.
 set -uo pipefail
 
 issue=${1:-}
@@ -56,13 +61,16 @@ tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDE
 tehas_checkout || exit 78
 branch=$(tehas_branch) || exit 78
 src=$TEHAS_WORK_REPO
+# The workspace inside the container, and the directory on the host behind it.
 repo=$TEHAS_WORK_DIR
+tree=$TEHAS_WORK_DIR-$issue
 image=$PI_ENSEMBLE_IMAGE
 limit=$TEHAS_WORK_TIMEOUT
-state=$repo/.pi/work-state/$issue.json
+state=$tree/.pi/work-state/$issue.json
 log=$TEHAS_HOME/logs/work-$issue-$(date -u +%y%m%d-%H%M%S).jsonl
 name=tehas-work-$issue
 agent=$HOME/.pi/agent
+runs=$agent/ensemble-runs/issue-$issue
 
 [ -n "${GH_TOKEN:-}" ] || { echo "tehas work: GH_TOKEN is not set (source ~/tehas/env.sh)" >&2; exit 64; }
 mkdir -p "$TEHAS_HOME/logs"
@@ -74,29 +82,30 @@ bot_email=$(git config --global user.email || true)
 [ -n "$bot_name" ] && [ -n "$bot_email" ] ||
   { echo "tehas work: git user.name and user.email are not set for $(id -un)" >&2; exit 64; }
 mapfile -d '' -t envs < <(tehas_sandbox_env "$repo" "$bot_name" "$bot_email")
-mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$repo")
+mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$repo" "$tree" "$runs")
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
 [ "${#envs[@]}" -gt 0 ] && [ "${#mounts[@]}" -gt 0 ] ||
   { echo "tehas work: could not prepare the sandbox, not starting a cycle" >&2; exit 78; }
 
 # A fresh workspace for this cycle, at the tip the product checkout last
-# fetched for the branch. What an earlier cycle left behind goes with the old
-# one. Only a directory this command made is ever removed.
-works=$(dirname "$repo")
+# fetched for the branch. What an earlier cycle of this issue left behind goes
+# with the old one. Only a directory this command made is ever removed, and
+# never another issue's.
+works=$(dirname "$tree")
 if [ -e "$works" ] && [ ! -f "$works/.tehas-workspaces" ]; then
   echo "tehas work: $works exists and was not made by tehas, not touching it" >&2
   exit 78
 fi
-if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces" && rm -rf "$repo" &&
-  tehas_sandbox_clone "$src" "$repo" "$branch"; }; then
-  echo "tehas work: could not make the workspace $repo, not starting a cycle" >&2
+if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces" && rm -rf "$tree" &&
+  tehas_sandbox_clone "$src" "$tree" "$branch"; }; then
+  echo "tehas work: could not make the workspace $tree, not starting a cycle" >&2
   exit 78
 fi
 
 # Before spending an hour of model time: can the sandbox push at all? A dry
 # run needs the same credentials a real push does and creates nothing.
 if ! docker run --rm --user "$(id -u):$(id -g)" -e HOME=/home/vscode "${envs[@]}" \
-  -w "$repo" -v "$repo:$repo" --entrypoint git "$image" \
+  -w "$repo" -v "$tree:$repo" --entrypoint git "$image" \
   push --dry-run origin HEAD:refs/heads/tehas-preflight >"$log.preflight" 2>&1; then
   echo "tehas work: the sandbox cannot push to origin, not starting a cycle:"
   tail -n 3 "$log.preflight" | sed 's/^/    /'
@@ -128,7 +137,7 @@ console=$live/console-$issue.txt
 # and this says why the dashboard shows none.
 [ -x "$here/console" ] || echo "tehas work: no console at $here/console, so the dashboard shows none; run install.sh"
 "$here/console" --rpc "$log" \
-  --runs "$agent/ensemble-runs" --out "$console" --since "$((started - 5))" >/dev/null 2>"$log.console" &
+  --runs "$runs" --out "$console" --since "$((started - 5))" >/dev/null 2>"$log.console" &
 cpid=$!
 now_file() { # running? status step
   local text

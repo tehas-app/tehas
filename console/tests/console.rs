@@ -227,7 +227,7 @@ fn work_calls_the_console_by_the_arguments_it_takes() {
     let work = fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../libexec/work")).unwrap();
     for call in [
         "\"$here/console\" --rpc \"$log\"",
-        "--runs \"$agent/ensemble-runs\" --out \"$console\" --since \"$((started - 5))\"",
+        "--runs \"$runs\" --out \"$console\" --since \"$((started - 5))\"",
         "\"$here/console\" --mask",
     ] {
         assert!(work.contains(call), "libexec/work does not hold: {call}");

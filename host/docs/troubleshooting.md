@@ -13,8 +13,8 @@ description: "What each stop in a tehas cycle means, and what to do about it."
 | What did the dispatcher decide?  | `tehas dispatch --dry-run`, `~/tehas/logs/dispatch.log`                 |
 | What did a cycle's runner print? | `~/tehas/logs/dispatch-work-<issue>.log`                                |
 | What did Pi and the driver say?  | `~/tehas/logs/work-<issue>-<time>.jsonl` and `.jsonl.err`               |
-| Where is the cycle now?          | `jq .pipelineState ~/tehas/work/tehas/.pi/work-state/<issue>.json`. The workspace is the last cycle's state source. |
-| What did one agent do?           | Transcripts under `~/.pi/agent/ensemble-runs/<date>/`                   |
+| Where is the cycle now?          | `jq .pipelineState ~/tehas/work/tehas-<issue>/.pi/work-state/<issue>.json`. The workspace of a cycle that left a pull request is removed; one that stopped is kept. |
+| What did one agent do?           | Transcripts under `~/.pi/agent/ensemble-runs/issue-<issue>/<date>/`     |
 | Is a cycle running?              | `systemctl --user status 'tehas-cycle@*'`, or `docker ps --filter name=tehas-work` |
 
 The driver's notices, one per line:

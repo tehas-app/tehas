@@ -42,7 +42,8 @@ tehas_require TEHAS_REPO
 log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*"; }
 
 repo=$TEHAS_REPO
-workdir=$TEHAS_WORK_DIR
+# The cycle's workspace on the host; tehas work makes it under this name.
+workdir=$TEHAS_WORK_DIR-$issue
 work=${TEHAS_WORK_CMD:-$here/work}
 status_cmd=${TEHAS_STATUS_CMD:-$here/status}
 cycles=$TEHAS_HOME/state/cycles
@@ -56,6 +57,11 @@ flock -w 5 9 || { log "a cycle for #$issue is already running"; exit 3; }
 
 comment() { gh issue comment "$issue" --repo "$repo" --body "$1" >/dev/null 2>&1 || log "WARN: comment on #$issue failed"; }
 relabel() { gh issue edit "$issue" --repo "$repo" "$@" >/dev/null 2>&1 || log "WARN: label change on #$issue failed: $*"; }
+# A workspace is kept only while a person may want to read it. Only a
+# directory under one that tehas work marked is removed, as tehas work does.
+tidy() {
+  if [ -f "$(dirname "$workdir")/.tehas-workspaces" ]; then rm -rf "$workdir"; fi
+}
 
 started=$(date +%s)
 # A relabelled issue gets a fresh cycle, not whatever the last one parked.
@@ -104,12 +110,14 @@ summary="status \`$status\`, last step \`$step\`, $mins min"
 if [ "$rc" = 0 ] && [ "$status" = merged ]; then
   relabel --remove-label tehas:running
   comment "Tehas cycle finished: $summary. The change was merged."
+  tidy
 elif [ "$rc" = 0 ] && [ -n "$pr" ]; then
   relabel --remove-label tehas:running --add-label tehas:awaiting-merge
   comment "Tehas cycle finished: $summary. Pull request waiting for a human: $pr"
   gh pr comment "$pr" --body "Tehas cycle for #$issue: $summary.
 
 ${usage:-No token usage was recorded for this cycle.}" >/dev/null 2>&1 || log "WARN: comment on $pr failed"
+  tidy
 else
   relabel --remove-label tehas:running --add-label needs-human-attention
   comment "Tehas cycle stopped without a pull request: $summary (runner exit $rc). Read the handoff comment if there is one; the run log is \`~/tehas/logs/dispatch-work-$issue.log\` on \`$(hostname)\`. To retry, remove \`needs-human-attention\` and apply \`tehas:ready\` again.

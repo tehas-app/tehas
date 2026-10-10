@@ -9,7 +9,7 @@ cycle="$T_ROOT/libexec/cycle"
 fx=$T/fx
 mkdir -p "$fx"
 checkout=$T/home/tehas/repos/widget
-workdir=$T/home/tehas/work/widget
+workdir=$T/home/tehas/work/widget-7
 state=$T/home/tehas/state/cycles
 
 t_stub gh '
@@ -21,7 +21,7 @@ t_stub fake-work '[ ! -e "$T/fx/work.sh" ] || . "$T/fx/work.sh"'
 t_stub fake-status
 
 reset() {
-  rm -rf "$T"/calls/* "${fx:?}"/* "$state" "$workdir" "$T/home/tehas/logs"
+  rm -rf "$T"/calls/* "${fx:?}"/* "$state" "$workdir" "$T/home/tehas/work" "$T/home/tehas/logs"
   T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status)
   t_instance "${T_MINIMAL[@]}"
 }
@@ -120,6 +120,44 @@ echo '{"pipelineState":{"status":"merged","currentStep":"done","branchName":"fea
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
 rm -rf "$checkout"
+
+t_case "the workspace of a cycle that left a pull request is removed"
+reset
+ended handoff commit-pr feature/x
+: >"$T/home/tehas/work/.tehas-workspaces"
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$cycle 7"
+t_eq "$(find "$workdir" -maxdepth 0 2>/dev/null | wc -l)" 0
+
+t_case "so is the workspace of a merged cycle"
+reset
+ended merged "done" feature/x
+: >"$T/home/tehas/work/.tehas-workspaces"
+t_run "$cycle 7"
+t_eq "$(find "$workdir" -maxdepth 0 2>/dev/null | wc -l)" 0
+
+t_case "the workspace of a cycle that stopped is kept for a person to read"
+reset
+ended aborted develop feature/x
+: >"$T/home/tehas/work/.tehas-workspaces"
+t_run "$cycle 7"
+t_eq "$(find "$workdir" -maxdepth 0 | wc -l)" 1
+
+t_case "a directory tehas work did not mark is never removed"
+reset
+ended merged "done" feature/x
+rm -f "$T/home/tehas/work/.tehas-workspaces"
+t_run "$cycle 7"
+t_eq "$(find "$workdir" -maxdepth 0 | wc -l)" 1
+
+t_case "another issue's workspace is left alone"
+reset
+ended merged "done" feature/x
+: >"$T/home/tehas/work/.tehas-workspaces"
+mkdir -p "$T/home/tehas/work/widget-9"
+t_run "$cycle 7"
+t_eq "$(find "$T/home/tehas/work/widget-9" -maxdepth 0 | wc -l)" 1
+rm -rf "$T/home/tehas/work"
 
 t_case "a second cycle for the same issue runs nothing, exit 3"
 reset
