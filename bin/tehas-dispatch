@@ -31,7 +31,8 @@
 #   TEHAS_MAX_AWAITING      open tehas:awaiting-merge issues allowed [3]
 #   TEHAS_WORK_REPO         checkout cycles run in [$TEHAS_HOME/repos/<name>]
 #   TEHAS_BRANCH            branch work lands on [the checkout's origin/HEAD]
-# From the environment, for tests: TEHAS_WORK_CMD, TEHAS_STATUS_CMD.
+# From the environment, for tests: TEHAS_WORK_CMD, TEHAS_STATUS_CMD,
+# TEHAS_INDEX_CMD.
 set -uo pipefail
 
 # The usage is this file's own header comment: every line from the second to the
@@ -104,6 +105,7 @@ checkout=$TEHAS_WORK_REPO
 workdir=$TEHAS_WORK_DIR
 work=${TEHAS_WORK_CMD:-tehas-work}
 status_cmd=${TEHAS_STATUS_CMD:-tehas-status}
+index_cmd=${TEHAS_INDEX_CMD:-tehas-index}
 # Known before anything is touched: a cycle must never start from a guess,
 # nor in a checkout of another repository.
 tehas_checkout || exit 78
@@ -250,6 +252,11 @@ fi
 if ! git -C "$checkout" fetch -q origin || ! git -C "$checkout" merge -q --ff-only "origin/$branch"; then
   log "WARN: could not fast-forward $checkout"
 fi
+
+# The agents search an index of the tree the cycle is about to be cloned from.
+# A cycle without a fresh index still works, so a failure here is a warning.
+"$index_cmd" --before-cycle >>"$TEHAS_HOME/logs/dispatch-work-$issue.log" 2>&1 ||
+  log "WARN: the code index was not refreshed, see $TEHAS_HOME/logs/dispatch-work-$issue.log"
 
 started=$(date +%s)
 # A relabelled issue gets a fresh cycle, not whatever the last one parked.

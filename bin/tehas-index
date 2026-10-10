@@ -12,22 +12,32 @@
 # the tip the product checkout last fetched, mounted read-only and removed
 # afterwards. The cycle's workspace itself is not touched.
 #
-# The index is as fresh as its last run. A cycle works on a newer tree than
-# the one indexed until this runs again.
+# The index is as fresh as its last run. The dispatcher runs this before each
+# cycle, so a cycle starts with an index of the tree it is cloned from. What
+# the cycle changes after that is not in it.
 #
-# Usage: tehas-index
+# Usage: tehas-index                  build the index
+#        tehas-index --before-cycle   what tehas-dispatch runs: the caller
+#                                     holds the dispatcher's lock, and nothing
+#                                     is done when the index is already at the
+#                                     branch's tip
 #
-# Exit status: 0 the index was built,
+# Exit status: 0 the index was built, or was already current,
 #              1 the sandbox image is missing or the indexer failed,
 #              3 a cycle is running; nothing was done.
-#             64 called with an argument.
+#             64 an argument this command does not know.
 #             78 the instance settings are invalid; nothing was done.
 #
 # What the container is given is pinned by test/index_test.sh: the clone,
 # read-only, and the cache volume. No network, no token, no settings.
 set -uo pipefail
 
-[ "$#" = 0 ] || { echo "usage: tehas-index" >&2; exit 64; }
+cycle=0
+case "$#:${1:-}" in
+  0:) ;;
+  1:--before-cycle) cycle=1 ;;
+  *) echo "usage: tehas-index [--before-cycle]" >&2; exit 64 ;;
+esac
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/config.sh
@@ -46,10 +56,16 @@ base=$(git -C "$src" rev-parse -q --verify "refs/remotes/origin/$branch^{commit}
   { echo "tehas-index: $src has no origin/$branch, nothing was indexed" >&2; exit 78; }
 
 # The dispatcher holds this lock for the whole of a cycle. Holding it here
-# keeps a cycle from starting while its index is being written.
+# keeps a cycle from starting while its index is being written. Called by the
+# dispatcher, the lock is already held, and by the caller.
 mkdir -p "$TEHAS_HOME/state" "$TEHAS_HOME/logs" "$TEHAS_HOME/tmp"
-exec 8>"$TEHAS_HOME/state/dispatch.lock"
-flock -n 8 || { echo "tehas-index: a cycle is running, nothing was indexed; run it again afterwards" >&2; exit 3; }
+if [ "$cycle" = 0 ]; then
+  exec 8>"$TEHAS_HOME/state/dispatch.lock"
+  flock -n 8 || { echo "tehas-index: a cycle is running, nothing was indexed; run it again afterwards" >&2; exit 3; }
+elif [ "$(jq -r '.commit // empty' "$marker" 2>/dev/null)" = "$base" ]; then
+  echo "tehas-index: ${TEHAS_REPO##*/} is already indexed at ${base:0:12}"
+  exit 0
+fi
 
 if ! docker image inspect "$image" >/dev/null 2>&1; then
   echo "tehas-index: no sandbox image $image, nothing was indexed; build it with $TEHAS_HOME/sandbox/build.sh" >&2
