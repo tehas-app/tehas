@@ -267,11 +267,15 @@ Feed the [factory floor](/) and the [plain dashboard](/dashboard). `tehasbot sta
 `~/tehas/live/status.json`; the dispatcher runs it at every poll and every two
 minutes during a cycle. `~/tehas/libexec/console` is started by the work
 script and follows the cycle's agents into `~/tehas/live/console-<issue>.txt`, masking
-tokens, passwords and private network addresses. The mask catches accidents;
+tokens, passwords and private network addresses, and writing no control
+character but the line break and the tab. The mask catches accidents;
 it cannot stop an agent that sets out to print a secret another way, so treat
-the console of a published dashboard as public. Neither needs running by hand.
+the console of a published dashboard as public. A log line of over 1 MiB is
+left out, and the console says how many were. Neither needs running by hand.
 What the console itself complains about goes to `~/tehas/logs/work-<issue>-<time>.jsonl.console`,
 and the work script says so when the console is missing or ends with an error.
+The work script's own status line in `~/tehas/live/running.json` goes through
+the same mask (`console --mask`); without a console it is left empty.
 
 The snapshot also carries the words of the breakroom game, Buzzword Buster.
 They are counted over the titles and labels of every issue of the repository,
@@ -393,8 +397,8 @@ Run them by hand from the root of a clone of the product. For the example
 product:
 
 ```
-scripts/verify.sh          # fast: the lint, shellcheck, the shell tests
-scripts/verify.sh --full   # plus the console's tests (cargo) and the front page's (node)
+scripts/verify.sh          # fast: the lint, shellcheck, the shell tests, the console's tests where cargo is
+scripts/verify.sh --full   # plus the console's format and lints (rustfmt, clippy) and the front page's tests (node)
 ```
 
 ## tehas update

@@ -5,59 +5,54 @@
 //! not a wall: an agent that means to can print a secret in a form no pattern
 //! knows.
 
-use regex::Regex;
+use regex::{Captures, Regex};
 use std::sync::LazyLock;
 
 fn regex(pattern: &str) -> Regex {
     Regex::new(pattern).expect("a pattern of the mask is not a regular expression")
 }
 
+// A word begins where JavaScript's \b says it does, by ASCII letters only:
+// the patterns came from a script, and a token that follows a letter such as
+// "ä" is still a token.
 static GITHUB_TOKEN: LazyLock<Regex> =
     LazyLock::new(|| regex(r"(?-u:\b)(gh[pousr]_|github_pat_)[A-Za-z0-9_]{16,}"));
 static POSTGRES_PASSWORD: LazyLock<Regex> =
     LazyLock::new(|| regex(r"(postgres(?:ql)?://[^:/\s]+:)[^@\s]+@"));
-static SECRET_ASSIGNMENT: LazyLock<Regex> = LazyLock::new(|| {
-    regex(r"(?-u:\b)([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY)[A-Z0-9_]*=)\S+")
-});
-// The private IPv4 ranges, the tailnet range and link-local. What stands
-// before and after a match is checked in private_addresses.
-static PRIVATE_ADDRESS: LazyLock<Regex> = LazyLock::new(|| {
+static SECRET_ASSIGNMENT: LazyLock<Regex> =
+    LazyLock::new(|| regex(r"(?-u:\b)([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY)[A-Z0-9_]*=)\S+"));
+// The private IPv4 ranges, the tailnet range and link-local, and the IPv6
+// unique local range. The groups at either end take what would make the
+// address part of something longer, see private_address.
+static PRIVATE_IPV4: LazyLock<Regex> = LazyLock::new(|| {
     regex(
-        r"(?:10\.[0-9]{1,3}|192\.168|172\.(?:1[6-9]|2[0-9]|3[01])|169\.254|100\.(?:6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7]))\.[0-9]{1,3}\.[0-9]{1,3}",
+        r"([0-9.])?(?:10\.[0-9]{1,3}|192\.168|172\.(?:1[6-9]|2[0-9]|3[01])|169\.254|100\.(?:6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7]))\.[0-9]{1,3}\.[0-9]{1,3}([0-9])?",
     )
 });
+static PRIVATE_IPV6: LazyLock<Regex> =
+    LazyLock::new(|| regex(r"(?i)([0-9a-f:])?f[cd][0-9a-f]{2}(?::[0-9a-f]{0,4}){2,}"));
 static TAILNET_NAME: LazyLock<Regex> =
     LazyLock::new(|| regex(r"(?-u:\b)[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.ts\.net(?-u:\b)"));
 
 /// A private network address: an agent can read the container's hosts file,
 /// and a connection error names the address it failed to reach. An address
 /// counts only when it does not continue a longer number, so a version such
-/// as 1.10.2.3 is left alone.
-fn private_addresses(s: &str) -> String {
-    let bytes = s.as_bytes();
-    let mut out = String::with_capacity(s.len());
-    let mut copied = 0;
-    for m in PRIVATE_ADDRESS.find_iter(s) {
-        let before = m.start().checked_sub(1).map(|i| bytes[i]);
-        let after = bytes.get(m.end()).copied();
-        if before.is_some_and(|b| b.is_ascii_digit() || b == b'.')
-            || after.is_some_and(|b| b.is_ascii_digit())
-        {
-            continue;
-        }
-        out.push_str(&s[copied..m.start()]);
-        out.push_str("[private address]");
-        copied = m.end();
+/// as 1.10.2.3 is left alone: a match that took a neighbour into one of its
+/// groups is written back as it was.
+fn private_address(found: &Captures) -> String {
+    if found.iter().skip(1).any(|group| group.is_some()) {
+        found[0].to_string()
+    } else {
+        "[private address]".to_string()
     }
-    out.push_str(&s[copied..]);
-    out
 }
 
 pub fn mask(s: &str) -> String {
     let s = GITHUB_TOKEN.replace_all(s, "${1}***");
     let s = POSTGRES_PASSWORD.replace_all(&s, "${1}***@");
     let s = SECRET_ASSIGNMENT.replace_all(&s, "${1}***");
-    let s = private_addresses(&s);
+    let s = PRIVATE_IPV4.replace_all(&s, private_address);
+    let s = PRIVATE_IPV6.replace_all(&s, private_address);
     TAILNET_NAME.replace_all(&s, "[private name]").into_owned()
 }
 
@@ -107,7 +102,10 @@ mod tests {
     #[test]
     fn masks_key_value_secrets_for_token_like_names() {
         assert_eq!(mask("FOO_TOKEN=abcdef123456"), "FOO_TOKEN=***");
-        assert_eq!(mask("DATABASE_PASSWORD=hunter2 x"), "DATABASE_PASSWORD=*** x");
+        assert_eq!(
+            mask("DATABASE_PASSWORD=hunter2 x"),
+            "DATABASE_PASSWORD=*** x"
+        );
         assert_eq!(mask("GH_TOKEN=ghp_whatever"), "GH_TOKEN=***");
         assert_eq!(mask("CF_API_KEY=s3cr3t"), "CF_API_KEY=***");
     }
@@ -146,14 +144,58 @@ mod tests {
         );
         assert_eq!(mask(&ip([169, 254, 1, 1])), "[private address]");
         assert_eq!(
-            mask(&format!("{}:8086", ["node", "tail1234", "ts", "net"].join("."))),
+            mask(&format!(
+                "{}:8086",
+                ["node", "tail1234", "ts", "net"].join(".")
+            )),
             "[private name]:8086"
         );
     }
 
     #[test]
+    fn masks_unique_local_ipv6_addresses() {
+        let address = ["fd7a", "115c", "a1e0", "", "1"].join(":");
+        assert_eq!(
+            mask(&format!("at [{address}]:80")),
+            "at [[private address]]:80"
+        );
+        assert_eq!(mask(&address.to_uppercase()), "[private address]");
+        // Not the end of a longer run of hexadecimal, and not a time.
+        for s in [
+            format!("0{address}"),
+            format!("a:{address}"),
+            ["fd12", "30"].join(":"),
+        ] {
+            assert_eq!(mask(&s), s);
+        }
+    }
+
+    #[test]
+    fn an_address_beside_another_or_inside_a_number_is_judged_alone() {
+        let (a, b) = (ip([10, 0, 0, 1]), ip([10, 0, 0, 2]));
+        assert_eq!(
+            mask(&format!("{a} {b}")),
+            "[private address] [private address]"
+        );
+        assert_eq!(
+            mask(&format!("{a}:{b}")),
+            "[private address]:[private address]"
+        );
+        for s in [format!("1.{a}"), format!("5{a}"), format!(".{a}")] {
+            assert_eq!(mask(&s), s);
+        }
+        assert_eq!(mask(&format!("{a}.{b}")), format!("[private address].{b}"));
+        assert_eq!(mask(&format!("ä{a}ä")), "ä[private address]ä");
+    }
+
+    #[test]
     fn masks_every_address_on_a_line() {
-        let line = format!("{} then {},{}", ip([10, 0, 0, 1]), ip([10, 0, 0, 2]), ip([192, 168, 0, 3]));
+        let line = format!(
+            "{} then {},{}",
+            ip([10, 0, 0, 1]),
+            ip([10, 0, 0, 2]),
+            ip([192, 168, 0, 3])
+        );
         assert_eq!(
             mask(&line),
             "[private address] then [private address],[private address]"

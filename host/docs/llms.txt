@@ -15,7 +15,8 @@
 
 - Tehas is the factory around the agent: a dispatcher that reads the queue, a
   check of who authorized the work, a sandbox with limits, a dashboard and a
-  live console. It is shell scripts and a few containers on one host.
+  live console. It is shell scripts, one small Rust program (the console) and
+  a few containers on one host.
 - Pi (https://pi.dev, source https://github.com/earendil-works/pi) is the
   coding agent. Tehas starts it as `pi --mode rpc` in a container.
 - pi-rukas (https://github.com/trail-openers/pi-rukas) is the Pi extension

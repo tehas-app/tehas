@@ -12,8 +12,13 @@
 //! Output is plain text. Tokens, database passwords and private network
 //! addresses are masked, see mask.rs.
 //!
-//! Exit: 0 stopped by a signal, 1 the console file cannot be written,
-//! 2 usage.
+//!   console --mask
+//!
+//! The mask alone: standard input to standard output, for libexec/work's own
+//! line on the dashboard, so that the mask is written in one place.
+//!
+//! Exit: 0 stopped by a signal or masked, 1 the console file or standard
+//! output cannot be written, 2 usage.
 
 mod mask;
 mod render;
@@ -21,7 +26,7 @@ mod tail;
 
 use render::Entry;
 use std::fs::{File, OpenOptions};
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -41,7 +46,11 @@ struct Args {
 }
 
 fn args() -> Result<Args, String> {
-    let given: Vec<String> = std::env::args().skip(1).collect();
+    let given: Vec<String> = std::env::args_os()
+        .skip(1)
+        .map(|a| a.into_string())
+        .collect::<Result<_, _>>()
+        .map_err(|_| "console: an argument is not UTF-8")?;
     let value = |name: &str| -> Result<String, String> {
         let flag = format!("--{name}");
         given
@@ -57,19 +66,35 @@ fn args() -> Result<Args, String> {
         .parse()
         .ok()
         .and_then(|seconds| UNIX_EPOCH.checked_add(Duration::from_secs(seconds)))
-        .ok_or(format!("console: --since is not a time in seconds: {since}"))?;
-    Ok(Args { rpc: value("rpc")?, runs: value("runs")?, out: value("out")?, since })
+        .ok_or(format!(
+            "console: --since is not a time in seconds: {since}"
+        ))?;
+    Ok(Args {
+        rpc: value("rpc")?,
+        runs: value("runs")?,
+        out: value("out")?,
+        since,
+    })
 }
 
 fn write(out: &mut File, entry: &Entry) -> io::Result<()> {
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs() % 86400);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() % 86400);
     out.write_all(render::format(entry, now as u32).as_bytes())
 }
 
 fn run(args: &Args, stop: &AtomicBool) -> io::Result<()> {
-    let mut out = OpenOptions::new().create(true).append(true).mode(0o644).open(&args.out)?;
+    let mut out = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o644)
+        .open(&args.out)?;
     let mut follower = tail::Follower::default();
-    write(&mut out, &Entry::new("tehas", "console attached, waiting for the cycle", None))?;
+    write(
+        &mut out,
+        &Entry::new("tehas", "console attached, waiting for the cycle", None),
+    )?;
     loop {
         // Read before the lines are: a stop that arrives during a pass is
         // followed by one more pass, so the last lines are not lost.
@@ -79,13 +104,18 @@ fn run(args: &Args, stop: &AtomicBool) -> io::Result<()> {
                 write(&mut out, &entry)?;
             }
         }
-        for path in follower.transcripts(&args.runs, args.since) {
-            let role = tail::role(&path);
-            for line in follower.new_lines(&path) {
+        for transcript in follower.transcripts(&args.runs, args.since) {
+            let role = tail::role(&transcript.path);
+            for line in follower.transcript_lines(&transcript) {
                 for entry in render::transcript_line(&role, &line) {
                     write(&mut out, &entry)?;
                 }
             }
+        }
+        let skipped = follower.take_skipped();
+        if skipped > 0 {
+            let said = format!("log lines over 1 MiB left out: {skipped}");
+            write(&mut out, &Entry::new("tehas", said, None))?;
         }
         if stopping {
             break;
@@ -96,28 +126,53 @@ fn run(args: &Args, stop: &AtomicBool) -> io::Result<()> {
             waited += TICK;
         }
     }
-    write(&mut out, &Entry::new("tehas", "cycle ended, console detached", None))
+    write(
+        &mut out,
+        &Entry::new("tehas", "cycle ended, console detached", None),
+    )
+}
+
+// To stderr, and no matter if it cannot be written: with a full disk it
+// cannot, and the exit status must still be the one this file promises.
+fn complain(message: &str) {
+    let _ = writeln!(io::stderr(), "{message}");
+}
+
+fn mask_stdin() -> io::Result<()> {
+    let mut given = Vec::new();
+    io::stdin().read_to_end(&mut given)?;
+    let masked = mask::mask(&String::from_utf8_lossy(&given));
+    io::stdout().write_all(masked.as_bytes())
 }
 
 fn main() -> ExitCode {
+    if std::env::args_os().skip(1).eq(["--mask"]) {
+        return match mask_stdin() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                complain(&format!("console: --mask: {e}"));
+                ExitCode::FAILURE
+            }
+        };
+    }
     let args = match args() {
         Ok(args) => args,
         Err(message) => {
-            eprintln!("{message}");
+            complain(&message);
             return ExitCode::from(2);
         }
     };
     let stop = Arc::new(AtomicBool::new(false));
     for signal in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT] {
         if let Err(e) = signal_hook::flag::register(signal, Arc::clone(&stop)) {
-            eprintln!("console: cannot listen for signal {signal}: {e}");
+            complain(&format!("console: cannot listen for signal {signal}: {e}"));
             return ExitCode::FAILURE;
         }
     }
     match run(&args, &stop) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("console: {}: {e}", args.out);
+            complain(&format!("console: {}: {e}", args.out));
             ExitCode::FAILURE
         }
     }

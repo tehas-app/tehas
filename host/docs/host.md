@@ -141,6 +141,11 @@ a copied unit file is not in effect until systemd has reloaded it, and that relo
 belongs to the step that restarts the units. A file edited directly on the host
 shows up as drift in `--check`.
 
+One file is written, not copied: `version.txt`, beside the pages in
+`~/tehas/docs` and `~/tehas/fun`. It holds the newest tag of the checkout and
+the commit it was at when `install.sh` last ran, as `v0.1.1+11b669d`, and the
+footer of every page shows it. `--check` does not look at it.
+
 One installed file is compiled, not copied: the console of a running cycle, a
 Rust program in `console/`. A real run builds it with `cargo` in the checkout
 and installs it as `~/tehas/libexec/console`. Beside it, `console.stamp`
@@ -150,7 +155,8 @@ not the one that was installed. The first build fetches its crates from the
 network and takes a minute. `--check` compares the checksums and builds
 nothing, so a console replaced on the host shows up as drift like any other
 file. A console that does not build stops the install before it has changed
-anything. The Deno
+anything, and so does a host without `cargo`. The build is given no
+environment variable whose name holds TOKEN, SECRET, PASSWORD or API_KEY. The Deno
 script it replaces, `~/tehas/libexec/console.ts`, is removed the way the old
 commands below are.
 

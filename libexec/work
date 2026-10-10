@@ -131,9 +131,10 @@ cpid=$!
 now_file() { # running? status step
   local text
   # The line is the agent's own words and the file is served by the dashboard:
-  # private addresses are masked, as the console does for its own file.
+  # it goes through the console's mask, and without a console it is not
+  # published at all.
   text=$(tail -c 60000 "$log" 2>/dev/null | grep -o '"statusText":"[^"]*"' | tail -n 1 | cut -d'"' -f4 |
-    sed -E 's/(^|[^0-9.])(10\.[0-9]{1,3}|192\.168|172\.(1[6-9]|2[0-9]|3[01])|169\.254|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7]))\.[0-9]{1,3}\.[0-9]{1,3}/\1[private address]/g')
+    "$here/console" --mask 2>/dev/null)
   jq -n --argjson issue "$issue" --argjson running "$1" --arg status "$2" --arg step "$3" \
     --arg text "$text" --argjson startedAt "$started" --argjson at "$(date +%s)" \
     '{issue: $issue, running: $running, status: $status, step: $step, statusText: $text,
