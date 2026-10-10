@@ -326,10 +326,34 @@ t_instance "${T_MINIMAL[@]}" TEHAS_PREVIEWS=1 TEHAS_DOMAIN=example.org TEHAS_PRE
 a=$(commit one)
 b=$(commit two)
 c=$(commit three)
+pulls "$(pull 22 "$b")" "$(pull 21 "$a")"
+t_run "$preview"
+t_eq "$(state_of 22) $(state_of 21)" "serving serving"
+t_eq "$(cat "$fx/docker/container-21")" "$a"
+# A newer one is opened: the oldest falls over the limit, and what ran of it stops.
 pulls "$(pull 23 "$c")" "$(pull 22 "$b")" "$(pull 21 "$a")"
 t_run "$preview"
 t_eq "$(state_of 23) $(state_of 22) $(state_of 21)" "serving serving over-limit"
 t_eq "$(count "$fx/docker" container-21)" 0
+t_eq "$(count "$fx/docker" image-21)" 0
+t_contains "$(t_calls docker)" "rm -f tehas-preview-21"
+t_eq "$(jq -r '.previews[] | select(.number == 21) | .address' "$live/previews.json")" "null"
+
+t_case "a pull request that is over the limit is stopped once, not at every run"
+began=$(jq -r .time "$root/21/state.json")
+rm -f "$T"/calls/docker*
+t_run "$preview"
+t_run "$preview"
+t_eq "$(state_of 21)" "over-limit"
+t_eq "$(t_calls docker | grep -c -e 'rm -f tehas-preview-21' -e 'image rm -f tehas-preview:21')" 0
+t_eq "$(jq -r .time "$root/21/state.json")" "$began"
+t_lacks "$t_out" "#21"
+# A new commit of it is a new state, and what is there of the number goes again.
+a4=$(commit one)
+pulls "$(pull 23 "$c")" "$(pull 22 "$b")" "$(pull 21 "$a4")"
+t_run "$preview"
+t_eq "$(jq -r '"\(.state) \(.sha)"' "$root/21/state.json")" "over-limit $a4"
+t_eq "$(t_calls docker | grep -c 'rm -f tehas-preview-21')" 1
 
 t_case "a merged pull request is removed: container, image, ref and directory"
 pulls "$(pull 23 "$c")"
@@ -358,10 +382,23 @@ t_case "Docker down builds and removes nothing, and says so"
 reset
 a=$(commit feature)
 pulls "$(pull 12 "$a")"
+t_run "$preview"
+t_eq "$(state_of 12)" "serving"
+# The pull request is closed and another opened while Docker is away.
+b=$(commit other)
+pulls "$(pull 13 "$b")"
 : >"$fx/docker-down"
+rm -f "$T"/calls/*
 t_run "$preview"
 t_eq "$t_rc" 0
-t_contains "$t_out" "Docker does not answer"
+t_contains "$t_out" "Docker does not answer; nothing was built or removed"
+t_eq "$(state_of 12)" "serving"
+t_eq "$(cat "$fx/docker/container-12")" "$a"
+t_eq "$(count "$fx/docker" image-12)" 1
+t_eq "$(count "$root" 13)" 0
+t_eq "$(t_calls docker | grep -c -v '^info ')" 0
+t_eq "$(t_calls gh)" ""
+t_eq "$(jq -r '.previews[0] | "\(.number) \(.state)"' "$live/previews.json")" "12 serving"
 
 t_case "an empty answer from GitHub removes nothing"
 reset
@@ -517,12 +554,14 @@ t_run "$preview"
 t_eq "$t_rc" 0
 t_contains "$t_out" "the network tehas-previews is not internal and isolated from the host; nothing was built"
 t_eq "$(builds) $(runs)" "0 0"
+t_eq "$(t_calls gh)" ""
 rm -f "$fx/net-internal"
 : >"$fx/net-inspect-fails"
 rm -f "$T"/calls/docker*
 t_run "$preview"
 t_contains "$t_out" "is not internal and isolated from the host; nothing was built"
 t_eq "$(builds) $(runs)" "0 0"
+t_eq "$(t_calls gh)" ""
 
 t_case "a network that is internal and gives the host an address gets nothing built"
 reset
@@ -548,6 +587,55 @@ t_run "$preview"
 t_eq "$(t_calls docker | grep '^network create')" \
   "network create --internal -o com.docker.network.bridge.gateway_mode_ipv4=isolated tehas-previews"
 t_eq "$(state_of 12)" "serving"
+
+t_case "a pull request that got a new title has it in its state, and the state began when it did"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+t_run "$preview"
+jq '.time = "2026-01-01T00:00:00Z"' "$root/12/state.json" >"$fx/x" && mv "$fx/x" "$root/12/state.json"
+pulls "$(pull 12 "$a" | jq -c '.title = "A better name"')"
+rm -f "$T"/calls/docker* "$T/calls/gh-writes"
+t_run "$preview"
+t_eq "$(jq -r '"\(.state) \(.title) \(.time) \(.sha)"' "$root/12/state.json")" "serving A better name 2026-01-01T00:00:00Z $a"
+t_eq "$(jq -r '.previews[0].title' "$live/previews.json")" "A better name"
+t_eq "$(builds) $(runs)" "0 0"
+t_eq "$(cat "$T/calls/gh-writes" 2>/dev/null)" ""
+t_lacks "$t_out" "#12"
+
+t_case "a new title reaches a state that is not serving too, and nothing is built for it"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+: >"$fx/build-fails"
+t_run "$preview"
+rm -f "$fx/build-fails"
+before=$(jq -c 'del(.title)' "$root/12/state.json")
+pulls "$(pull 12 "$a" | jq -c '.title = "A better name"')"
+rm -f "$T"/calls/docker*
+t_run "$preview"
+t_eq "$(jq -r '"\(.state) \(.title)"' "$root/12/state.json")" "build-failed A better name"
+t_eq "$(jq -c 'del(.title)' "$root/12/state.json")" "$before"
+t_eq "$(builds)" 0
+# A state that cannot be read is not a reason to stop: the commit is built.
+echo "not json" >"$root/12/state.json"
+t_run "$preview"
+t_eq "$t_rc" 0
+t_eq "$(jq -r '"\(.state) \(.title)"' "$root/12/state.json")" "serving A better name"
+
+t_case "what git says of an archive that fails is in the pull request's own log"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+real_git=$(command -v git)
+t_stub git "case \" \$* \" in *\" archive \"*) echo 'fatal: the archive broke' >&2; exit 128 ;; esac
+exec '$real_git' \"\$@\""
+t_run "$preview"
+rm -f "$T/bin/git"
+t_eq "$(state_of 12)" "build-failed"
+t_contains "$(cat "$T/home/tehas/logs/preview-12.log")" "fatal: the archive broke"
+t_lacks "$t_out" "fatal: the archive broke"
+t_eq "$(runs)" 0
 
 t_case "a pull request number that is not a whole number is never built"
 reset

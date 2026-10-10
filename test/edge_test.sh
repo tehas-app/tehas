@@ -100,6 +100,26 @@ t_eq "$(jq -r '[.queued, .awaiting, .stopped, .completed, .running] | map(type) 
 t_eq "$(jq -r '.links | keys | join(",")' "$T_ROOT/preview/live/status.json")" "all,awaiting,completed,queued,stopped"
 t_eq "$(jq -r '[(.previews | type), (.disk | type)] | join(",")' "$T_ROOT/preview/live/previews.json")" "array,object"
 
+# The sample files stand where a host has what tehas work and tehasbot health
+# write. Their keys are pinned to those two, so a change there is seen here.
+t_case "the preview's sample running.json has the keys tehas work writes, but for the console"
+written=$(sed -n "/'{issue: \$issue/,/}'/p" "$T_ROOT/libexec/work" | grep -oE '\b[A-Za-z]+: ' | tr -d ': ' | LC_ALL=C sort | tr '\n' ' ')
+t_eq "$written" "console issue running startedAt status statusText step updatedAt "
+# A preview has no console file to show, so the sample names none.
+t_eq "$(jq -r 'keys_unsorted | join(" ")' "$T_ROOT/preview/live/running.json" | tr ' ' '\n' | LC_ALL=C sort | tr '\n' ' ')" \
+  "${written#console }"
+
+t_case "the preview's sample health.json has the keys tehasbot health writes from the samples beside it"
+sample=$T/home/sample
+mkdir -p "$sample/live"
+cp "$T_ROOT/preview/live/status.json" "$T_ROOT/preview/live/running.json" "$sample/live/"
+t_run "TEHAS_HOME='$sample' '$T_ROOT/libexec/health'; echo rc=\$?"
+t_eq "$t_out" "rc=0"
+shape='[paths | map(tostring) | join(".")] | sort | join(" ")'
+t_eq "$(jq -r "$shape" "$T_ROOT/preview/live/health.json")" "$(jq -r "$shape" "$sample/live/health.json")"
+t_eq "$(jq -c '[.status, .checks.queue.inLine, .checks.queue.review, .checks.cycle.status]' "$T_ROOT/preview/live/health.json")" \
+  "$(jq -c '[.status, .checks.queue.inLine, .checks.queue.review, .checks.cycle.status]' "$sample/live/health.json")"
+
 t_case "the dashboard's Previews heading takes the one rule of the lists above it"
 css=$T_ROOT/host/fun/manual.css
 t_eq "$(grep -c -F '.page .cols h2, .page #previews h2 {' "$css")" 1

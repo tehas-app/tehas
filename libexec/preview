@@ -120,6 +120,19 @@ mark() {
      title: ($pull[0].title // ""), url: ($pull[0].url // null)}' || return 1
   echo "#$n: $state${reason:+ ($reason)}"
 }
+# retitle <number>: a pull request that got a new title has it in its state,
+# whatever the state is. Nothing else of the state changes: no state began, so
+# "time" stays and no line is written. A state that cannot be read is left
+# for mark.
+retitle() {
+  local n=$1 pull=$root/$1/pull.json
+  [ -f "$root/$n/state.json" ] || return 0
+  [ "$(field "$n" title)" != "$(jq -r '.title // ""' "$pull" 2>/dev/null)" ] || return 0
+  # shellcheck disable=SC2016  # a jq program: the variables are jq's
+  edge_put "$root/$n/state.json" jq --slurpfile pull "$pull" \
+    '. + {title: ($pull[0].title // ""), url: ($pull[0].url // null)}' "$root/$n/state.json" 2>/dev/null
+  return 0
+}
 
 # --- Docker ------------------------------------------------------------------
 serving() { # <number> <commit>: is a container of that commit running?
@@ -152,6 +165,16 @@ free_kb() {
   b=$(df -Pk "${dir:-/var/lib/docker}" 2>/dev/null | awk 'NR == 2 {print $4}')
   [[ $b =~ ^[0-9]+$ ]] || b=$a
   echo $((a < b ? a : b))
+}
+# measure: set "free" and "low" for this run. Space that cannot be read is
+# low: nothing is built on a guess.
+measure() {
+  if free=$(free_kb); then
+    [ "$free" -ge "$min_kb" ] || low=true
+  else
+    free=""
+    low=true
+  fi
 }
 gb() { awk -v kb="$1" 'BEGIN { printf "%.1f GB", kb / 1048576 }'; }
 
@@ -242,7 +265,8 @@ build() {
   fi
   mark "$n" "$sha" building
   old=$(docker image inspect --format '{{.Id}}' "tehas-preview:$n" 2>/dev/null) || old=""
-  if ! git -C "$bare" archive "$sha" 9>&- | timeout "$build_limit" docker build --quiet \
+  # git's own complaint goes to this pull request's log, as the build's does.
+  if ! git -C "$bare" archive "$sha" 2>>"$log" 9>&- | timeout "$build_limit" docker build --quiet \
     -f "$recipe" -t "tehas-preview:$n" \
     --label "tehas.preview=$n" --label "tehas.sha=$sha" --label "tehas.repo=$repo" - >>"$log" 2>&1 9>&-; then
     mark "$n" "$sha" build-failed "The build failed or ran over $((build_limit / 60)) minutes. Its output is in logs/preview-$n.log on the host."
@@ -317,12 +341,7 @@ run() {
     return 0
   fi
 
-  if free=$(free_kb); then
-    [ "$free" -ge "$min_kb" ] || low=true
-  else
-    free=""
-    low=true
-  fi
+  measure
 
   pulls=$(gh api "repos/$repo/pulls?state=open&sort=created&direction=desc&per_page=100" 2>/dev/null) ||
     { write_list; return 0; }
@@ -354,9 +373,14 @@ run() {
     open="$open$n "
     mkdir -p "$root/$n" || return 1
     edge_put "$root/$n/pull.json" jq -c '{title, url}' <<<"$pr" || return 1
+    retitle "$n"
     i=$((i + 1))
     if [ "$i" -gt "$TEHAS_PREVIEW_MAX" ]; then
-      stop "$n"
+      # Stopped when it falls over the limit, not at every run after that: a
+      # state that says so for this commit means it was done.
+      if [ "$(field "$n" sha)" != "$sha" ] || [ "$(field "$n" state)" != over-limit ]; then
+        stop "$n"
+      fi
       mark "$n" "$sha" over-limit "More than $TEHAS_PREVIEW_MAX pull requests are open."
       continue
     fi
@@ -537,12 +561,7 @@ sweep() {
   # shellcheck disable=SC2016  # a jq program: the variables are jq's
   edge_put "$root/sweep.json" jq -n --arg now "$(date -u +%FT%TZ)" --argjson removed "$removed" \
     '{time: $now, removed: $removed}' || return 1
-  if free=$(free_kb); then
-    [ "$free" -ge "$min_kb" ] || low=true
-  else
-    free=""
-    low=true
-  fi
+  measure
   write_list
 }
 

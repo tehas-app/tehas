@@ -29,16 +29,19 @@
 # in ~/tehas/bin and the console script in ~/tehas/libexec, unless a cycle is
 # running that still uses them.
 #
-# Three things it does besides copying, on a real run only. The product
+# Four things it does besides copying, on a real run only. The product
 # checkout's origin/HEAD is refreshed, so the commands know the default branch
 # without asking the network. The code index a cycle's agents search is built
 # with `tehas index`, once: when there is no index yet and both the sandbox
 # image and the product checkout are there. A failed indexing does not fail the
-# install. And each follow-up a copied file calls for is recorded in
-# $TEHAS_HOME/state/update-pending before that file is put. This script's
-# report of what changed is one-shot: the next run compares again and finds the
-# file matching. So a run that dies partway would otherwise leave the files it
-# did copy with no follow-up owed.
+# install. The Docker network of the previews, tehas-previews, is made where
+# Docker is installed and the network is not there: internal, and with no
+# address for the host on it. One that is there and is not both is left, and
+# the run says that it has to be remade. And each follow-up a copied file
+# calls for is recorded in $TEHAS_HOME/state/update-pending before that file is
+# put. This script's report of what changed is one-shot: the next run compares
+# again and finds the file matching. So a run that dies partway would otherwise
+# leave the files it did copy with no follow-up owed.
 #
 # The follow-ups are named by id (units, sandbox, docs, edge) in
 # lib/update-steps.sh, which is the one place that names them. This script
@@ -339,6 +342,10 @@ fi
 
 # --- 5. After a real run ------------------------------------------------------
 # The servers mount live/ and protolab/: they have to be there, and ours.
+# preview/ is no mount: `tehasbot preview` keeps each pull request's state and
+# its clone of the product there, and makes it itself as well. It is made here
+# with the others so that every directory tehas writes to is there after an
+# install, whether previews are on or not.
 mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state" "$TEHAS_HOME/tmp" "$TEHAS_HOME/live" "$TEHAS_HOME/protolab" \
   "$TEHAS_HOME/preview"
 

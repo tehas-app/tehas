@@ -242,6 +242,18 @@ t_run "$status"
 t_eq "$(jq -r '.status' "$live/health.json")" "pass"
 t_eq "$(jq -c '.checks.disk' "$live/health.json")" "null"
 
+for bad in 'not json' '{"generatedAt":"yesterday","disk":{"low":true}}' '{"disk":{"low":true}}' '[]' '{"generatedAt":7,"disk":"full"}'; do
+  t_case "health: a previews.json of '$bad' gives no disk check and no warning"
+  reset
+  mkdir -p "$live"
+  printf '%s\n' "$bad" >"$live/previews.json"
+  t_run "$status"
+  t_eq "$(jq -r '.status' "$live/health.json")" "pass"
+  t_eq "$(jq -c '.checks.disk' "$live/health.json")" "null"
+  t_lacks "$(jq -r '.output' "$live/health.json")" "disk"
+  t_eq "$(find "$live" -name health.down | wc -l)" 0
+done
+
 t_case "health: a failed cycle still wins over low disk"
 reset
 disk true
