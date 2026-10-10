@@ -73,6 +73,10 @@ when a person pulls and runs `install.sh` there.
   allows. No `unsafe`.
 - Prose in comments, the manual and commit messages: plain and direct, short
   sentences, no em dashes, no hype.
+- Replies, handoffs and pull request text: simple and to the point. No
+  stories, no walls of jargon.
+- Code comments: terse. Before you write one, ask whether the code already
+  says it. If it does, leave the comment out.
 - The manual in `host/docs/` describes what is true on a host today. When you
   change behaviour, change the page that describes it in the same commit.
   `host/docs/features.md` says how far each feature is proven; do not mark
