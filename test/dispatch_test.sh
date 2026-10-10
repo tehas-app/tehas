@@ -15,19 +15,27 @@ workdir=$T/home/tehas/work/widget
 t_stub gh '
 case "$1 $2" in
   "repo view") cat "$T/fx/repo.json" || exit 1 ;;
-  "issue view") cat "$T/fx/control.json" || exit 1 ;;
+  "issue view") cat "$T/fx/issue-$3.json" 2>/dev/null || cat "$T/fx/control.json" || exit 1 ;;
   "issue list")
     case "$*" in
       *awaiting-merge*) cat "$T/fx/awaiting.json" || exit 1 ;;
       *tehas:ready*) cat "$T/fx/ready.json" || exit 1 ;;
+      *tehas:question*) cat "$T/fx/asking.json" || exit 1 ;;
+      *tehas:plan*) cat "$T/fx/plans.json" || exit 1 ;;
       *) echo "[]" ;;
     esac ;;
+  "api user") cat "$T/fx/user.json" || exit 1 ;;
+  "api -X") [ ! -e "$T/fx/patch-fails" ] || exit 1 ;;
+  "api repos/acme/widget/issues/"*"/comments") [ ! -e "$T/fx/post-fails" ] || exit 1; echo 4002 ;;
   "api repos/acme/widget/issues/"*)
     n=${2#repos/acme/widget/issues/}
     cat "$T/fx/events-${n%/events*}.json" || exit 1 ;;
   "api graphql")
     n=$(printf "%s\n" "$@" | sed -n "s/^number=//p")
-    cat "$T/fx/edit-$n.json" 2>/dev/null || cat "$T/fx/edit.json" || exit 1 ;;
+    case "$*" in
+      *"comments(last"*) cat "$T/fx/comments-$n.json" || exit 1 ;;
+      *) cat "$T/fx/edit-$n.json" 2>/dev/null || cat "$T/fx/edit.json" || exit 1 ;;
+    esac ;;
   "issue edit") [ ! -e "$T/fx/edit-fails" ] || exit 1 ;;
   "pr list") cat "$T/fx/pr.txt" 2>/dev/null ;;
 esac'
@@ -39,8 +47,11 @@ t_stub fake-index 'git -C "$T/home/tehas/repos/widget" rev-parse HEAD >"$T/calls
 [ ! -e "$T/fx/index-fails" ] || exit 1'
 
 reset() {
-  rm -f "$T"/calls/* "$fx"/edit-*
-  rm -rf "$T/home/tehas/state/cycles"
+  rm -f "$T"/calls/* "$fx"/edit-* "$fx"/comments-* "$fx"/issue-* "$fx"/post-fails "$fx"/patch-fails
+  rm -rf "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-*
+  echo '[]' >"$fx/asking.json"
+  echo '[]' >"$fx/plans.json"
+  echo '{"login":"tehas-bot"}' >"$fx/user.json"
   echo '{"data":{"repository":{"issue":{"lastEditedAt":null,"editor":null}}}}' >"$fx/edit.json"
   echo '{"nameWithOwner":"acme/widget"}' >"$fx/repo.json"
   echo '{"labels":[]}' >"$fx/control.json"
@@ -49,6 +60,24 @@ reset() {
   echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
   T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index)
   t_instance "${T_MINIMAL[@]}"
+}
+
+# The comments of an issue: the bot's question, who edited it last, and
+# whatever was written after it.
+comments() { # <issue> <question body> <editor or ""> [later comments as JSON]
+  jq -n --arg body "$2" --arg ed "$3" --argjson after "${4:-[]}" '{data: {repository: {issue: {comments: {nodes: ([
+    {databaseId: 4001, author: {login: "tehas-bot"}, body: $body, createdAt: "2026-01-01T00:00:00Z",
+     lastEditedAt: (if $ed == "" then null else "2026-01-01T01:00:00Z" end),
+     editor: (if $ed == "" then null else {login: $ed} end)}] + $after)}}}}}' >"$fx/comments-$1.json"
+}
+park_body() { # <retry box> <leave box>
+  printf 'Tehas cycle stopped.\n\n- [%s] Retry from a clean start\n- [%s] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n' "$1" "$2"
+}
+# Issue 7 is parked with a question and nothing else is queued.
+parked() {
+  reset
+  echo '[]' >"$fx/ready.json"
+  echo '[{"number":7}]' >"$fx/asking.json"
 }
 
 # A product repository whose default branch is main, and the instance's clone.
@@ -510,5 +539,144 @@ t_contains "$t_out" "would run a cycle for #7"
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_contains "$(t_calls fake-work)" "7"
+
+t_case "a cycle that stops asks what to do next, with boxes"
+reset
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention --add-label tehas:question"
+t_contains "$(t_calls gh)" "api repos/acme/widget/issues/7/comments"
+t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+t_contains "$(t_calls gh)" "<!-- tehas:question kind=park issue=7 turn=1 -->"
+
+t_case "when the question cannot be posted the old comment is used and no question label is left"
+reset
+: >"$fx/post-fails"
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "issue comment 7"
+t_contains "$(t_calls gh)" "To retry, remove"
+t_contains "$(t_calls gh)" "--remove-label tehas:question"
+
+t_case "an unanswered question starts nothing"
+parked
+comments 7 "$(park_body ' ' ' ')" ""
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-work)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+
+t_case "a retry ticked by an allowed account starts a fresh cycle"
+parked
+comments 7 "$(park_body x ' ')" alice
+mkdir -p "$T/home/tehas/state/cycles" && : >"$T/home/tehas/state/cycles/7"
+t_run "$dispatch"
+t_eq "$(t_calls fake-work)" "7 --restart"
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label needs-human-attention --remove-label tehas:question"
+t_contains "$(t_calls gh)" "authorized by @alice's retry tick"
+
+t_case "a dry run says what the tick would do and changes nothing"
+parked
+comments 7 "$(park_body x ' ')" alice
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would run a cycle for #7 (retry ticked by alice)"
+t_eq "$(t_calls fake-work)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+
+t_case "a retry ticked by the bot or a stranger starts nothing and is undone"
+for other in tehas-bot mallory ""; do
+  parked
+  comments 7 "$(park_body x ' ')" "$other"
+  t_run "$dispatch"
+  t_eq "$(t_calls fake-work)" ""
+  t_contains "$(t_calls gh)" "api -X PATCH repos/acme/widget/issues/comments/4001"
+  t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+  t_contains "$(t_calls gh)" "may not answer for this factory"
+done
+
+t_case "when a refused tick cannot be undone, the note is not repeated every poll"
+parked
+comments 7 "$(park_body x ' ')" mallory
+: >"$fx/patch-fails"
+t_run "$dispatch"
+t_eq "$(t_calls fake-work)" ""
+t_contains "$(t_calls gh)" "api -X PATCH"
+t_lacks "$(t_calls gh)" "may not answer for this factory"
+t_contains "$t_out" "could not untick the question on #7"
+
+t_case "both boxes ticked is no choice: nothing starts, the boxes are emptied, one note"
+parked
+comments 7 "$(park_body x x)" alice
+t_run "$dispatch"
+t_eq "$(t_calls fake-work)" ""
+t_contains "$(t_calls gh)" "api -X PATCH"
+t_contains "$(t_calls gh)" "Tick one"
+
+t_case "leave it parked takes the question away and keeps the issue parked"
+parked
+comments 7 "$(park_body ' ' x)" alice
+t_run "$dispatch"
+t_eq "$(t_calls fake-work)" ""
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:question"
+t_lacks "$(t_calls gh)" "needs-human-attention"
+
+t_case "a comment from an allowed account on a parked issue is discussion, not an answer"
+parked
+comments 7 "$(park_body ' ' ' ')" "" '[{"databaseId":4003,"author":{"login":"alice"},"body":"retry please","createdAt":"2026-01-01T02:00:00Z"}]'
+t_run "$dispatch"
+t_eq "$(t_calls fake-work)" ""
+
+t_case "and it does not hide a tick made after it"
+parked
+comments 7 "$(park_body x ' ')" alice '[{"databaseId":4003,"author":{"login":"alice"},"body":"hm","createdAt":"2026-01-01T00:30:00Z"}]'
+t_run "$dispatch"
+t_eq "$(t_calls fake-work)" "7"
+
+t_case "a retry does not approve text that somebody else changed after the tick"
+parked
+comments 7 "$(park_body x ' ')" alice
+echo '{"data":{"repository":{"issue":{"lastEditedAt":"2026-01-01T03:00:00Z","editor":{"login":"mallory"}}}}}' >"$fx/edit-7.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-work)" ""
+t_contains "$t_out" "its text was changed by 'mallory' after alice ticked retry; untick the box and tick it again to approve it"
+
+t_case "a retry waits while too many pull requests await a merge"
+parked
+comments 7 "$(park_body x ' ')" alice
+echo '[{"number":1},{"number":2},{"number":3}]' >"$fx/awaiting.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-work)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+
+t_case "the pause label stops a retry too"
+parked
+comments 7 "$(park_body x ' ')" alice
+echo '{"labels":[{"name":"tehas:pause"}]}' >"$fx/control.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-work)" ""
+
+t_case "a marker in somebody else's comment is not a question"
+parked
+jq -n --arg b "$(park_body x ' ')" '{data: {repository: {issue: {comments: {nodes: [
+  {databaseId: 9, author: {login: "mallory"}, body: $b, createdAt: "t", lastEditedAt: "t", editor: {login: "alice"}}]}}}}}' >"$fx/comments-7.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-work)" ""
+
+t_case "when the comments cannot be read nothing is decided"
+parked
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_eq "$(t_calls fake-work)" ""
+
+t_case "a question on one issue does not hold up a ready issue behind it"
+reset
+echo '[{"number":5}]' >"$fx/asking.json"
+jq -n --arg b "$(park_body ' ' ' ')" '{data: {repository: {issue: {comments: {nodes: [
+  {databaseId: 9, author: {login: "tehas-bot"}, body: $b, createdAt: "t", lastEditedAt: null, editor: null}]}}}}}' >"$fx/comments-5.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-work)" "7"
+
+t_case "--init-labels creates the question label"
+reset
+t_run "$dispatch --init-labels"
+t_contains "$(t_calls gh)" "label create tehas:question"
 
 t_done
