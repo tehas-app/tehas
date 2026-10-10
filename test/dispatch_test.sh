@@ -1234,6 +1234,57 @@ t_contains "$(plan_calls)" "7 --out"
 t_lacks "$(plan_calls)" "8 --out"
 t_eq "$(t_calls fake-work)" ""
 
+# One issue is in one flow at a time.
+t_case "tehas:ready on an issue with an open planning session starts no cycle"
+planning
+comments 7 "$(plan_body ' ' ' ' ' ')" ""
+echo '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"tehas:question"}]}]' >"$fx/ready.json"
+before=$(cat "$record")
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-work)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_contains "$t_out" "skip #7: a planning session is open on it; end it first"
+t_eq "$(cat "$record")" "$before"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "skip #7: a planning session is open on it; end it first"
+t_lacks "$t_out" "would run a cycle"
+
+t_case "tehas:ready on an issue whose planning turn is marked as running starts no cycle"
+reset
+echo '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"tehas:planning"}]}]' >"$fx/ready.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-work)" ""
+t_contains "$t_out" "skip #7: a planning session is open on it; end it first"
+
+t_case "an issue with a planning session does not hold up the ready issue behind it"
+planning
+comments 7 "$(plan_body ' ' ' ' ' ')" ""
+echo '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"tehas:question"}]},{"number":8,"labels":[{"name":"tehas:ready"}]}]' >"$fx/ready.json"
+cp "$fx/events-7.json" "$fx/events-8.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-work)" "8"
+rm -f "$fx/events-8.json"
+
+t_case "a parked issue retried by its labels starts a cycle, and its old question goes"
+parked
+comments 7 "$(park_body ' ' ' ')" ""
+echo '[{"number":7,"labels":[{"name":"tehas:question"}]}]' >"$fx/asking.json"
+echo '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"tehas:question"}]}]' >"$fx/ready.json"
+mkdir -p "$workdir/.pi/work-state"
+echo '{"pipelineState":{"status":"handoff","currentStep":"commit-pr","branchName":"feature/x"}}' >"$workdir/.pi/work-state/7.json"
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$dispatch"
+t_eq "$(t_calls fake-work)" "7"
+t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready --remove-label tehas:question')" 1
+t_eq "$([ -e "$park_id" ] && echo kept)" ""
+rm -rf "$workdir" "$fx/pr.txt"
+
+t_case "the question label is only taken off an issue that carries it"
+reset
+t_run "$dispatch"
+t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready')" 1
+
 t_case "--init-labels creates the planning labels"
 reset
 t_run "$dispatch --init-labels"
