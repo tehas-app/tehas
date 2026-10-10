@@ -523,6 +523,103 @@ t_run "$preview"
 t_eq "$(writes | wc -l)" 1
 t_contains "$(writes)" "Unable to create a preview"
 
+# left <number> <commit>: what a run that never came back would leave.
+left() {
+  mkdir -p "$root/$1" "$fx/docker"
+  jq -n --argjson n "$1" --arg sha "$2" '{number: $n, sha: $sha, state: "serving", reason: "", time: "x"}' >"$root/$1/state.json"
+  echo "$2" >"$fx/docker/container-$1"
+  echo "sha256:img$1" >"$fx/docker/image-$1"
+}
+
+t_case "sweep: a merged pull request's leftovers are removed, an open one's are kept"
+reset
+a=$(commit one)
+b=$(commit two)
+pulls "$(pull 31 "$a")" "$(pull 32 "$b")"
+t_run "$preview"
+jq '.state = "closed" | .merged = true' "$fx/pull-31.json" >"$fx/x" && mv "$fx/x" "$fx/pull-31.json"
+t_run "$preview --sweep"
+t_eq "$t_rc" 0
+t_eq "$(count "$fx/docker" '*-31')" 0
+t_eq "$(count "$root" 31)" 0
+t_eq "$(cat "$fx/docker/container-32")" "$b"
+t_contains "$t_out" "#31: swept, the pull request is closed"
+t_eq "$(jq -r '.removed' "$root/sweep.json")" 1
+t_eq "$(jq -r '.lastSweep.removed' "$live/previews.json")" 1
+
+t_case "sweep: a pull request GitHub does not know is removed"
+reset
+left 40 0000000000000000000000000000000000000040
+t_run "$preview --sweep"
+t_eq "$(count "$fx/docker" '*-40')" 0
+t_contains "$t_out" "#40: swept, there is no such pull request"
+
+t_case "sweep: no answer keeps everything"
+reset
+left 41 0000000000000000000000000000000000000041
+: >"$fx/gh-down"
+t_run "$preview --sweep"
+t_eq "$t_rc" 0
+t_eq "$(count "$fx/docker" '*-41')" 2
+t_contains "$t_out" "#41: no answer from GitHub, kept"
+
+t_case "sweep: an answer that is neither open, closed nor 404 keeps everything"
+reset
+left 42 0000000000000000000000000000000000000042
+echo '{}' >"$fx/pull-42.json"
+: >"$fx/pull-42.rc"
+t_run "$preview --sweep"
+t_eq "$(count "$fx/docker" '*-42')" 2
+
+t_case "sweep: an empty answer with exit 0 is no answer, and keeps everything"
+reset
+left 46 0000000000000000000000000000000000000046
+: >"$fx/pull-46.json"
+t_run "$preview --sweep"
+t_eq "$t_rc" 0
+t_eq "$(count "$fx/docker" '*-46')" 2
+t_eq "$(count "$root" 46)" 1
+t_contains "$t_out" "#46: no answer from GitHub, kept"
+
+t_case "sweep: a pull request that moved to a fork is removed"
+reset
+a=$(commit one)
+pull 43 "$a" stranger/widget >/dev/null
+left 43 "$a"
+t_run "$preview --sweep"
+t_eq "$(count "$fx/docker" '*-43')" 0
+
+t_case "sweep: an image with no container and no directory is removed"
+reset
+mkdir -p "$fx/docker"
+echo "sha256:img44" >"$fx/docker/image-44"
+t_run "$preview --sweep"
+t_eq "$(count "$fx/docker" image-44)" 0
+
+t_case "sweep: a container of another repository, and one with no number, are removed by id"
+reset
+printf '%s\n' "cforeign 7 other/thing" "cbroken x acme/widget" >"$fx/extra-containers"
+t_run "$preview --sweep"
+t_contains "$(t_calls docker)" "rm -f cforeign"
+t_contains "$(t_calls docker)" "rm -f cbroken"
+t_eq "$(t_calls gh | grep -c 'pulls/7')" 0
+
+t_case "sweep: an untagged image left by a rebuild is removed"
+reset
+echo "sha256:dangling <none>:<none>" >"$fx/extra-images"
+t_run "$preview --sweep"
+t_contains "$(t_calls docker)" "image rm sha256:dangling"
+
+t_case "sweep: nothing to remove writes a zero and no line about removing"
+reset
+a=$(commit one)
+pulls "$(pull 45 "$a")"
+t_run "$preview"
+t_run "$preview --sweep"
+t_eq "$(jq -r '.removed' "$root/sweep.json")" 0
+t_lacks "$t_out" "swept"
+t_eq "$(cat "$fx/docker/container-45")" "$a"
+
 t_case "a comment GitHub did not take is tried again at the next run"
 reset
 a=$(commit feature)

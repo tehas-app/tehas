@@ -33,6 +33,13 @@
 # Usage: tehasbot preview            bring the previews in step with the pull requests
 #        tehasbot preview --sweep    the three hour check of what is left on the host
 #
+# The sweep is the second check that nothing of a merged or closed pull
+# request stays on the host. It works from the containers, images, fetched
+# refs and directories it finds, not from GitHub's list, and asks about each
+# pull request by itself. It waits for a run to end and a run does not start
+# while it works. A line "swept" in the log is something the five minute run
+# missed.
+#
 # Exit: 0 done, or GitHub or Docker did not answer and what runs was left
 #       running; 1 it cannot write under $TEHAS_HOME; 64 a wrong argument;
 #       78 the instance settings are invalid or TEHAS_PREVIEWS is not 1.
@@ -76,7 +83,7 @@ free=""
 low=false
 me=""
 
-mkdir -p "$root" "$live" "$logs" || exit 1
+mkdir -p "$root" "$live" "$logs" "$TEHAS_HOME/tmp" || exit 1
 # The sweep waits for a run to end; a run does not wait for anything.
 if [ "$mode" = sweep ]; then
   edge_lock preview 1800 || { echo "the lock was not free in 30 minutes, nothing was swept"; exit 0; }
@@ -349,14 +356,94 @@ no_space() {
 }
 
 # --- The three hour check ----------------------------------------------------
-# Task 8 writes it.
+# The five minute run removes what GitHub's list of open pull requests no
+# longer has. This does not trust that list or that run. It starts from what
+# is on the host, asks GitHub about each pull request by itself, and removes
+# what is merged, closed, not there or not ours. An answer that is not clear
+# keeps everything: a sweep never removes on a failed call.
 sweep() {
-  echo "usage: tehasbot preview" >&2
-  return 64
+  local removed=0 numbers n id tag owner answer err verdict
+  if ! docker info --format '{{.DockerRootDir}}' >/dev/null 2>&1; then
+    echo "Docker does not answer; nothing was swept"
+    return 0
+  fi
+
+  # Containers that carry the label and are no pull request of this repository.
+  # shellcheck disable=SC2016  # a Docker template: {{.Label ...}} is Docker's, not the shell's
+  while read -r id n owner; do
+    [ -n "$id" ] || continue
+    if [[ $n =~ ^[1-9][0-9]*$ ]] && [ "$owner" = "$repo" ]; then continue; fi
+    docker rm -f "$id" >/dev/null 2>&1
+    echo "container $id: swept, it belongs to no pull request of $repo"
+    removed=$((removed + 1))
+  done < <(docker ps -a --filter label=tehas.preview \
+    --format '{{.ID}} {{.Label "tehas.preview"}} {{.Label "tehas.repo"}}' 2>/dev/null)
+
+  # Images: one that is not tagged for a number is what a rebuild left, and
+  # one of another repository is not ours. Docker refuses to remove an image a
+  # container runs, which is the wanted answer.
+  # shellcheck disable=SC2016  # a Docker template: {{index ...}} is Docker's, not the shell's
+  while read -r id tag; do
+    [ -n "$id" ] || continue
+    owner=$(docker image inspect --format '{{index .Config.Labels "tehas.repo"}}' "$id" 2>/dev/null)
+    if [[ $tag =~ ^tehas-preview:[1-9][0-9]*$ ]] && { [ -z "$owner" ] || [ "$owner" = "$repo" ]; }; then continue; fi
+    if docker image rm "$id" >/dev/null 2>&1; then
+      echo "image $id: swept, it belongs to no preview"
+      removed=$((removed + 1))
+    fi
+  done < <(docker image ls --filter label=tehas.preview --format '{{.ID}} {{.Repository}}:{{.Tag}}' 2>/dev/null)
+
+  # shellcheck disable=SC2016  # a Docker template: {{.Label ...}} is Docker's, not the shell's
+  numbers=$({
+    edge_numbers "$root"
+    docker ps -a --filter label=tehas.preview \
+      --format '{{.ID}} {{.Label "tehas.preview"}} {{.Label "tehas.repo"}}' 2>/dev/null |
+      awk -v repo="$repo" '$3 == repo {print $2}'
+    docker image ls --filter label=tehas.preview --format '{{.ID}} {{.Repository}}:{{.Tag}}' 2>/dev/null |
+      sed -n 's/^[^ ]* tehas-preview:\([0-9]*\)$/\1/p'
+    [ ! -d "$bare" ] || git -C "$bare" for-each-ref --format='%(refname)' refs/preview 2>/dev/null | sed 's|.*/||'
+  } | grep -E '^[1-9][0-9]*$' | sort -un)
+
+  err=$(mktemp "$TEHAS_HOME/tmp/preview-sweep.XXXXXX" 2>/dev/null) || err=/dev/null
+  while IFS= read -r n; do
+    [ -n "$n" ] || continue
+    verdict=keep
+    if answer=$(gh api "repos/$repo/pulls/$n" 2>"$err"); then
+      # shellcheck disable=SC2016  # a jq program: $repo is jq's variable
+      verdict=$(jq -r --arg repo "$repo" '
+        if (.state | type) != "string" then "unclear"
+        elif .state != "open" then "closed"
+        elif ((.head.repo.full_name // "") | ascii_downcase) != ($repo | ascii_downcase) then "elsewhere"
+        else "keep" end' <<<"$answer" 2>/dev/null) || verdict=unclear
+    elif grep -q 'HTTP 404' "$err" 2>/dev/null; then
+      verdict=gone
+    else
+      verdict=unclear
+    fi
+    case "$verdict" in
+      keep) ;;
+      closed) purge "$n"; echo "#$n: swept, the pull request is closed"; removed=$((removed + 1)) ;;
+      gone) purge "$n"; echo "#$n: swept, there is no such pull request"; removed=$((removed + 1)) ;;
+      elsewhere) purge "$n"; echo "#$n: swept, its branch is not in $repo"; removed=$((removed + 1)) ;;
+      *) echo "#$n: no answer from GitHub, kept" ;;
+    esac
+  done <<<"$numbers"
+  [ "$err" = /dev/null ] || rm -f "$err"
+
+  # shellcheck disable=SC2016  # a jq program: the variables are jq's
+  edge_put "$root/sweep.json" jq -n --arg now "$(date -u +%FT%TZ)" --argjson removed "$removed" \
+    '{time: $now, removed: $removed}' || return 1
+  if free=$(free_kb); then
+    [ "$free" -ge "$min_kb" ] || low=true
+  else
+    free=""
+    low=true
+  fi
+  write_list
 }
 
 case "$mode" in
   run) run || exit 1 ;;
-  sweep) sweep; exit $? ;;
+  sweep) sweep || exit 1 ;;
 esac
 exit 0

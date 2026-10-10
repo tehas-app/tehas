@@ -11,7 +11,7 @@
 t_case "the changed sources ask for the steps, systemd first"
 t_eq "$(tehas_steps_for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env \
   edge/docs.compose.yaml edge/router.compose.yaml libexec/dispatch)" \
-  "units tehas-dispatch.timer tehas-energy.service tehas-preview.timer tehas-protolab.timer
+  "units tehas-dispatch.timer tehas-energy.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer
 sandbox
 docs --force-recreate
 edge --force-recreate"
@@ -106,6 +106,9 @@ a-step-newer-than-this"
 
 t_case "the units step names the preview timer"
 t_contains "$(tehas_units)" "tehas-preview.timer"
+
+t_case "the units step names the preview sweep timer"
+t_contains "$(tehas_units)" "tehas-preview-sweep.timer"
 
 t_case "the units step names units install.sh actually installs"
 missing=""

@@ -36,6 +36,8 @@ fresh() {
 files="./.config/systemd/user/tehas-dispatch.service
 ./.config/systemd/user/tehas-dispatch.timer
 ./.config/systemd/user/tehas-energy.service
+./.config/systemd/user/tehas-preview-sweep.service
+./.config/systemd/user/tehas-preview-sweep.timer
 ./.config/systemd/user/tehas-preview.service
 ./.config/systemd/user/tehas-preview.timer
 ./.config/systemd/user/tehas-protolab.service
@@ -83,7 +85,7 @@ sorted() { printf '%s\n' "$@" | LC_ALL=C sort; }
 next_steps() {
   tehas_steps_for systemd/tehas-dispatch.service systemd/tehas-dispatch.timer \
     systemd/tehas-energy.service systemd/tehas-preview.service \
-    systemd/tehas-preview.timer systemd/tehas-protolab.service systemd/tehas-protolab.timer sandbox/Dockerfile sandbox/build.sh versions.env \
+    systemd/tehas-preview.timer systemd/tehas-preview-sweep.service systemd/tehas-preview-sweep.timer systemd/tehas-protolab.service systemd/tehas-protolab.timer sandbox/Dockerfile sandbox/build.sh versions.env \
     edge/docs.Caddyfile edge/docs.compose.yaml edge/router.Caddyfile \
     edge/router.compose.yaml
 }
@@ -367,7 +369,7 @@ t_contains "$t_out" "removed: $th/bin/tehas-dispatch"
 t_contains "$t_out" "removed: $th/bin/tehas-test"
 # A running sampler is the old file calling itself. The units step restarts it,
 # so the step is asked for and owed although no unit file changed.
-t_contains "$t_out" "next: units tehas-dispatch.timer tehas-energy.service tehas-preview.timer tehas-protolab.timer"
+t_contains "$t_out" "next: units tehas-dispatch.timer tehas-energy.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer"
 t_contains "$(cat "$th/state/update-pending")" "units tehas-dispatch.timer tehas-energy.service"
 # systemd reloaded before the files its old units name were removed.
 t_eq "$(t_calls systemctl)" "--user daemon-reload"
@@ -538,7 +540,7 @@ instance
 t_stub systemctl 'echo "Failed to connect to bus: No such file or directory" >&2; exit 1'
 t_run "$install"
 t_eq "$t_rc" 0
-t_contains "$t_out" "next: units tehas-dispatch.timer tehas-energy.service tehas-preview.timer tehas-protolab.timer"
+t_contains "$t_out" "next: units tehas-dispatch.timer tehas-energy.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer"
 t_eq "$(t_calls systemctl)" ""
 t_contains "$(cat "$th/state/update-pending")" "units tehas-dispatch.timer"
 
@@ -560,7 +562,7 @@ t_run "$part/install.sh"
 t_eq "$t_rc" 1
 t_contains "$t_out" "is missing from this checkout"
 t_lacks "$t_out" "next: "
-t_eq "$(cat "$th/state/update-pending")" "units tehas-dispatch.timer tehas-energy.service tehas-preview.timer tehas-protolab.timer
+t_eq "$(cat "$th/state/update-pending")" "units tehas-dispatch.timer tehas-energy.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer
 sandbox
 docs --force-recreate
 edge --force-recreate"

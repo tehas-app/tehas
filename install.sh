@@ -154,6 +154,8 @@ files=(
   "systemd/tehas-protolab.timer|$units/tehas-protolab.timer|644"
   "systemd/tehas-preview.service|$units/tehas-preview.service|644"
   "systemd/tehas-preview.timer|$units/tehas-preview.timer|644"
+  "systemd/tehas-preview-sweep.service|$units/tehas-preview-sweep.service|644"
+  "systemd/tehas-preview-sweep.timer|$units/tehas-preview-sweep.timer|644"
   "pi/mcp.json|$agent/mcp.json|644"
   "$instance/models.json|$agent/models.json|644"
 )
