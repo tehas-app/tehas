@@ -68,11 +68,13 @@ stamp of the cycle's log file:
 
 | File | What it is |
 | --- | --- |
-| `cycle.json` | Issue number, start, seconds, final status and step, exit status, the pull request if one was opened, the labels the issue was left with |
-| `stream.jsonl` | The RPC stream condensed with `jq`: streaming deltas dropped, any string over 2000 characters cut. Tool calls, errors, notices and final messages stay |
+| `cycle.json` | Issue number, start, seconds, final status and step, exit status, the pull request if one was opened, the name of the cycle's log in `logs/` |
+| `stream.jsonl` | The RPC stream condensed with `jq`: `message_update` events dropped, a status line repeated in a row kept once, any string over 2000 characters cut. Tool calls, errors, notices and whole messages stay |
 | `console.txt` | The console text the dashboard showed |
 | `err.txt`, `preflight.txt` | The cycle's error stream and preflight output |
-| `raw` | A hard link to the cycle's log in `logs/`. Not mounted into the analyst's container |
+
+The whole log stays where it is, in `logs/`, and is read from there if a
+finding names the cycle. The analyst is never given it.
 
 The record is built in a temporary directory beside `window/` and renamed
 into it, so the analysis never sees half a record. `window/` is made again if
@@ -88,21 +90,26 @@ the status it would have had. Collecting never fails a cycle.
 `tehasbot improve`, started by `tehas-improve.timer` three hours after the
 last run ended. One run at a time, under `state/improve.lock`.
 
-1. **Sweep.** Remove what is over seven days old (see Cleaning up).
-2. **Take the window.** Rename `window/` to `run-<stamp>/`. Records of an
-   earlier run that failed are moved in beside the new ones. No records: write
-   a log line and exit 0 without calling the model or GitHub.
+1. **Sweep.** Remove what is over seven days old (see Cleaning up). A run
+   directory left by a run that was killed gives its records back to the
+   window and is removed.
+2. **Look.** No records in the window: write a log line and exit 0 without
+   calling the model or GitHub.
 3. **Fetch the stack.** `gh issue list` on `TEHAS_IMPROVE_REPO`: every open
    issue and the issues closed in the last 30 days, number, title, state,
-   labels and body, written to `run-<stamp>/in/issues.json`. If this fails the
-   run stops here and the records wait for the next one.
-4. **Analyse.** Start the analyst (below). It writes
+   labels and body. If this fails the run stops here, exit 1, and the window
+   is as it was. If 10 open issues already carry `tehas:improvement`, the run
+   stops here too, exit 0, and the records wait.
+4. **Take the window.** Rename `window/` to `run-<stamp>/in/cycles/` and put
+   the stack beside it as `in/issues.json`.
+5. **Analyse.** Start the analyst (below). It writes
    `run-<stamp>/out/findings.json`.
-5. **Check.** Validate the findings and drop duplicates (below).
-6. **File.** For each finding left, upload the logs of the cycles it names,
-   then `gh issue create` with the label `tehas:improvement`.
-7. **Clean up.** Remove `run-<stamp>/`.
-8. Append one line to `logs/improve.log`: time, cycles read, findings
+6. **Check.** Validate the findings and drop duplicates (below).
+7. **File.** For each finding left, upload the logs of the cycles it names,
+   then `gh issue create` with the label `tehas:improvement`. The run makes
+   the label first if the repository does not have it.
+8. **Clean up.** Remove `run-<stamp>/`.
+9. Append one line to `logs/improve.log`: time, cycles read, findings
    returned, dropped as duplicates, filed, and the issue numbers.
 
 Exit: 0 the run finished, with or without findings; 1 the analyst or GitHub
@@ -111,13 +118,13 @@ failed and the records were kept; 64 an argument; 78 the settings are invalid.
 ## The analyst
 
 One container from the sandbox image, running Pi with the prompt in
-`host/pi/improve-prompt.md`. pi-rukas is not loaded.
+`lib/improve-prompt.md`. pi-rukas is not loaded.
 
 | It is given | It is not given |
 | --- | --- |
-| `run-<stamp>/in/`, read-only: the records and `issues.json` | The bot token, or any other credential |
-| `run-<stamp>/out/`, writable | A product checkout or workspace |
-| The model endpoint and the instance's default model | The Docker socket, SSH keys, `~/.config/tehas`, the raw logs |
+| `run-<stamp>/in/`, read-only, at `/improve/in`: the records and `issues.json` | The bot token, or any other credential |
+| `run-<stamp>/out/`, writable, at `/improve/out` | A product checkout or workspace |
+| Pi's `models.json`, read-only, and the model and provider the instance names for subagents | The Docker socket, SSH keys, `~/.config/tehas`, the raw logs |
 | One CPU, 2 GiB and a time limit of 30 minutes | Pi's state directories from the cycles |
 
 This is a new container, not a wider one for a cycle: this change does not
@@ -133,15 +140,18 @@ is none.
 Pi is started for one prompt and nothing else:
 
 ```
-pi -p --no-session --no-extensions --no-mcp --no-skills \
-   --no-prompt-templates --no-context-files --tools read,grep,find,ls,write
+pi -p --no-session --no-extensions --no-skills --no-prompt-templates \
+   --no-context-files --tools read,grep,find,ls,write
 ```
 
-These flags are in Pi 1.1.0. The image pins 1.0.4. The first step of the plan
-runs this line in the image, with no network but the model endpoint, and
-confirms that pi-rukas is not loaded and that no tool beyond the list
-answers. If the pinned version cannot do it, this spec is revised before
-anything is built.
+No tool in that list runs a command or opens a connection, so the analyst
+cannot send what it reads anywhere. `mcp.json` is not mounted, so no MCP
+server is configured.
+
+These flags are in Pi 1.0.0 and 1.1.0; the image pins 1.0.4. Before the loop
+is switched on anywhere, the line is run in the built image on a host and the
+transcript is read: pi-rukas must not be loaded, and no tool beyond the list
+may answer. `host/docs/features.md` says not proven until then.
 
 ### `findings.json`
 
@@ -164,7 +174,9 @@ does not depend on one: the model that reads the text can do nothing but
 write one file, and a script with no judgement decides what happens to it.
 
 - The analyst has no token, no repository and nowhere to write but `out/`.
-- `findings.json` is checked with `jq` against the shape above. Wrong types, a
+- `findings.json` must be a plain file of at most 1 MB, not a link: a link
+  would have the host read a file of the analyst's choosing. It is then
+  checked with `jq` against the shape above. Wrong types, a
   category off the list, a cycle that is not in this run, a length over the
   limit or a control character: the finding is dropped. A file that is not
   that shape at all: nothing is filed and the run exits 1.
@@ -176,7 +188,7 @@ write one file, and a script with no judgement decides what happens to it.
   category, the model's text, the evidence inside a code fence, the links to
   the logs, and a line that says the issue was filed by the improvement loop
   and by which model. In the model's text every `@` that would mention an
-  account is broken, and HTML comments are removed.
+  account is broken, and an HTML comment is shown as text, not hidden.
 - The label is fixed. The script never applies `tehas:ready`, and the bot is
   not an allowed labeller, so the dispatcher would ignore it if it did. A
   person reads the issue before a cycle can work on it, and the dispatcher
@@ -225,9 +237,9 @@ not be uploaded.
 ## Cleaning up
 
 - A run that finishes removes its `run-<stamp>/`, whether or not it filed
-  anything. The hard links go with it. Nothing of a cycle is kept in tmp after
-  it has been analysed.
-- A run that fails keeps its records. The next run takes them with its own.
+  anything. Nothing of a cycle is kept in tmp after it has been analysed.
+- A run that fails gives its records back to the window and removes its
+  directory. The next run reads them with its own.
 - Every run starts with a sweep. Under `$TEHAS_HOME/tmp/improve/`, any record
   or run directory over seven days old is removed, analysed or not. Under
   `$TEHAS_HOME/logs/`, the files of a cycle (`work-*`, `dispatch-work-*`,
@@ -245,8 +257,7 @@ the feature off keeps every log, as today.
 and appends to `logs/improve.log`. `tehas-improve.timer` has `OnBootSec=10min`
 and `OnUnitInactiveSec=3h`. `install.sh` installs both and enables the timer
 only when `TEHAS_IMPROVE_REPO` is set, as it does for the other optional
-units. `tehasbot` gains the `improve` command. `libexec/labels` creates
-`tehas:improvement`. `lib/update-steps.sh` names the timer among the units
+units. `tehasbot` gains the `improve` command. `lib/update-steps.sh` names the timer among the units
 `tehas update` restarts.
 
 ## Tests
@@ -266,7 +277,9 @@ units. `tehasbot` gains the `improve` command. `libexec/labels` creates
 - A `duplicate_of`, a matching open title and a repeat within the run are each
   dropped.
 - The caps of 3 per run and 10 open hold.
-- A mention and an HTML comment in the model's text do not reach the body.
+- A mention in the model's text does not reach the body, and an HTML comment
+  reaches it as text.
+- A `findings.json` that is a link, or over 1 MB, files nothing.
 - A log over the limit is uploaded in numbered pieces that join back to the
   original; a log with a token shape is not uploaded.
 - A finished run leaves no run directory; a failed one keeps its records; the
@@ -274,8 +287,8 @@ units. `tehasbot` gains the `improve` command. `libexec/labels` creates
 
 `test/work_test.sh` keeps passing unchanged in what it pins, and
 `test/cycle_test.sh` gains the cases for the record. `test/cli_test.sh`,
-`test/config_test.sh`, `test/install_test.sh`, `test/labels_test.sh` and
-`test/steps_test.sh` each gain the case for their part.
+`test/config_test.sh`, `test/install_test.sh` and `test/steps_test.sh` each
+gain the case for their part.
 
 ## Documentation
 
