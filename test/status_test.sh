@@ -13,15 +13,17 @@ live=$T/home/tehas/live
 
 t_stub gh '
 [ ! -e "$T/gh-down" ] || exit 1
-case "$1 $2" in
-  "issue list") cat "$T/issues.json" ;;
-  "issue view") cat "$T/paused" ;;
+case "$*" in
+  "issue list"*--search*) cat "$T/issues.json" ;;
+  "issue list"*) [ ! -e "$T/all-down" ] || exit 1; cat "$T/all.json" ;;
+  "issue view"*) cat "$T/paused" ;;
 esac'
 issue() { # number label state
   printf '{"number":%s,"title":"t","url":"u","state":"%s","labels":[{"name":"%s"}],"updatedAt":"2026-01-01T00:00:00Z","closedAt":null}' "$1" "${3:-OPEN}" "$2"
 }
 reset() {
-  rm -rf "$T"/calls/* "$T/gh-down" "$live"
+  rm -rf "$T"/calls/* "$T/gh-down" "$T/all-down" "$live"
+  echo "[]" >"$T/all.json"
   T_ENV=()
   t_instance "${T_MINIMAL[@]}"
   echo "[$(issue 3 tehas:ready),$(issue 4 tehas:ready),$(issue 5 tehas:awaiting-merge),$(issue 6 needs-human-attention)]" >"$T/issues.json"
@@ -42,7 +44,47 @@ t_eq "$(jq -r '.queued | length' "$live/status.json")" 2
 t_eq "$(jq -r .status "$live/health.json")" pass
 t_eq "$(jq -r .checks.queue.review "$live/health.json")" 1
 
+t_case "the breakroom's words are counted over every issue, labelled for the factory or not"
+reset
+cat >"$T/all.json" <<'EOF2'
+[{"title": "Dashboard shows the Queue", "labels": [{"name": "tehas:ready"}]},
+ {"title": "A side-project: migrate the dashboard to v2", "labels": [{"name": "sidework"}, {"name": "Help Wanted"}]},
+ {"title": "queue, QUEUE; dashboard!", "labels": []},
+ {"title": null}, 7]
+EOF2
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '.buzzwords[:2]' "$live/status.json")" '[{"word":"dashboard","count":3},{"word":"queue","count":3}]'
+# Whole words in lower case, a hyphen kept, two letters too few; no title and
+# no issue number is published with them.
+t_eq "$(jq -r '[.buzzwords[].word] | sort | join(" ")' "$live/status.json")" \
+  "dashboard help migrate queue ready shows side-project sidework tehas the wanted"
+t_eq "$(jq -r '.buzzwords[] | select(.word == "sidework") | .count' "$live/status.json")" 1
+t_contains "$(t_calls gh)" "issue list --repo acme/widget --state all --limit 1000 --json title,labels"
+t_eq "$(jq -r '.queued | length' "$live/status.json")" 2
+
+t_case "at most a hundred words are published, the most used first"
+reset
+jq -n '[range(150) | {title: ("word\(.) " * (150 - .)), labels: []}]' >"$T/all.json"
+t_run "$status"
+t_eq "$(jq -r '.buzzwords | length' "$live/status.json")" 100
+t_eq "$(jq -c '.buzzwords[0]' "$live/status.json")" '{"word":"word0","count":150}'
+
+t_case "without the list of every issue the snapshot is written with no words"
+reset
+: >"$T/all-down"
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$(jq -r '.queued | length' "$live/status.json")" 2
+t_eq "$(jq -r 'has("buzzwords")' "$live/status.json")" false
+echo '{"message": "not a list"}' >"$T/all.json"
+rm "$T/all-down"
+t_run "$status"
+t_eq "$(jq -r '[(.queued | length), has("buzzwords")] | join(" ")' "$live/status.json")" "2 false"
+
 t_case "with GitHub down the old snapshot stays and health is still refreshed"
+reset
+t_run "$status"
 before=$(cksum <"$live/status.json")
 rm "$live/health.json"
 : >"$T/gh-down"

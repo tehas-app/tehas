@@ -79,7 +79,7 @@ when a person pulls and runs `install.sh` there.
 
 ```
 scripts/verify.sh          # fast gate: lint, shellcheck, shell tests
-scripts/verify.sh --full   # plus the console's tests (cargo) and the energy view's (node)
+scripts/verify.sh --full   # plus the console's tests (cargo) and the front page's (node)
 ```
 
 Both print one line per step and exit non-zero on failure. Run the fast gate
