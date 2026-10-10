@@ -3,7 +3,7 @@
 # what the current or last cycle is doing.
 #
 # It reads one file, $TEHAS_HOME/live/health.json, which the dispatcher
-# refreshes at every poll and every two minutes during a cycle. No network, no
+# refreshes at every poll and at the end of every cycle. No network, no
 # model, no instance settings, and it writes nothing. What it prints is as old
 # as that file, and the first line says how old.
 #

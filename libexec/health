@@ -5,7 +5,7 @@
 # It reads only what the factory already writes under live/: status.json (the
 # queue snapshot from tehasbot status) and running.json (the current or last cycle
 # from tehas work). No network, no model. tehasbot status runs it on exit, so it is
-# refreshed at every poll and every two minutes during a cycle.
+# refreshed at every poll and at the end of every cycle.
 #
 # The file follows the health check response format (draft-inadarei-api-health-check):
 #   status "pass"  the factory is taking work

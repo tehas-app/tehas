@@ -72,7 +72,7 @@ script as `tehasbot dispatch`.
 
 ```
 tehas dispatch --dry-run       # report the decision, change nothing
-tehas dispatch                 # run at most one cycle, then return
+tehas dispatch                 # start at most one cycle, then return
 tehas dispatch --help          # print the usage of the command, call nothing
 ```
 
@@ -87,12 +87,15 @@ merge, who applied `tehas:ready`, then urgent first and lowest number. Log:
 `~/tehas/logs/dispatch.log` when run by systemd, the terminal otherwise. Each
 cycle's runner output: `~/tehas/logs/dispatch-work-<issue>.log`.
 
-Before a cycle it puts the product checkout on the default branch and
-fast-forwards it, then refreshes the code index with
+When it has an issue to start, it puts the product checkout on the default
+branch and fast-forwards it, then refreshes the code index with
 [tehas index](#tehas-index) when the branch has moved since the last indexing.
-The work script then clones the cycle's workspace from the checkout. An index
-that cannot be refreshed is a warning in the log; the cycle still runs. The
-dispatcher runs the index, work and status scripts from its own directory,
+An index that cannot be refreshed is a warning in the log; the cycle still
+runs. It then marks the issue `tehas:running` and starts
+`tehas-cycle@<issue>.service`, which runs [tehasbot cycle](#tehasbot-cycle).
+It does not wait for the cycle. If the unit does not come up within 30
+seconds, the issue gets `needs-human-attention` and the poll ends with exit 1.
+The dispatcher runs the index and status scripts from its own directory,
 `~/tehas/libexec`, not by a name on `PATH`.
 
 An issue is taken only when an allowed account applied `tehas:ready` and
@@ -183,6 +186,10 @@ image, over a clone mounted at the path a cycle works in. The clone is made at
 the tip the product checkout last fetched and is removed afterwards. The
 cycle's workspace is not touched.
 
+It refuses, with exit 3, while a cycle is running or while a poll or another
+index run holds the dispatcher's lock. The index is only ever written when
+nothing is reading it.
+
 | Exit | Meaning                                                |
 | ---- | ------------------------------------------------------ |
 | 0    | The index was built, or was already current            |
@@ -252,21 +259,46 @@ look when a timer or service has to be run once by hand.
 
 ```
 tehasbot dispatch             # one poll; what tehas-dispatch.timer runs
+tehasbot cycle <issue>        # one cycle and its report; what tehas-cycle@<issue>.service runs
 tehasbot status               # write the queue snapshot
 tehasbot health               # write the health file
 tehasbot energy [--every]     # sample the model mesh; what tehas-energy.service runs
 tehasbot protolab             # build the Protolab; what tehas-protolab.timer runs
 ```
 
-The names of the units did not change with the commands: they are still
-`tehas-dispatch.timer`, `tehas-energy.service` and `tehas-protolab.timer`, and
-a cycle's container is still `tehas-work-<issue>`.
+The units are `tehas-dispatch.timer`, `tehas-energy.service`,
+`tehas-protolab.timer` and one `tehas-cycle@<issue>.service` per running
+cycle. A cycle's container is `tehas-work-<issue>`.
+
+## tehasbot cycle
+
+One cycle for one issue, and its report. The dispatcher starts it as a unit;
+it is not typed in daily use.
+
+```
+systemctl --user status 'tehas-cycle@*'    # the cycles that are running
+systemctl --user stop tehas-cycle@12       # end the cycle for issue 12
+```
+
+It runs [tehas work](#tehas-work) for the issue, reads the cycle's state file
+from the workspace, finds the pull request the bot opened, and relabels and
+comments: merged, `tehas:awaiting-merge`, or `needs-human-attention`. A
+stopped unit stops the container and is reported as a cycle that ended without
+a pull request. It checks no authorisation: the dispatcher did that before it
+started the unit.
+
+| Exit | Meaning                                              |
+| ---- | ---------------------------------------------------- |
+| 0    | The cycle ran and was reported, whatever its outcome |
+| 3    | A cycle for this issue is already running            |
+| 64   | The argument is not an issue number                  |
+| 78   | The instance settings are invalid                    |
 
 ## tehasbot status and the console
 
 Feed the [factory floor](/) and the [plain dashboard](/dashboard). `tehasbot status` writes the queue snapshot to
-`~/tehas/live/status.json`; the dispatcher runs it at every poll and every two
-minutes during a cycle. `~/tehas/libexec/console` is started by the work
+`~/tehas/live/status.json`; the dispatcher runs it at every poll, and a cycle when it ends.
+`~/tehas/libexec/console` is started by the work
 script and follows the cycle's agents into `~/tehas/live/console-<issue>.txt`, masking
 tokens, passwords and private network addresses, and writing no control
 character but the line break and the tab. An agent of a workstream is named
@@ -298,7 +330,7 @@ curl -i http://tehas-tehas:8080/health
 
 Writes the factory's health from what is already on disk: the queue snapshot
 and the current or last cycle. The status script runs it on exit, so it is
-refreshed at every poll and every two minutes during a cycle. The docs server
+refreshed at every poll and at the end of every cycle. The docs server
 serves the file at `/health` and `/healthz` as `application/health+json`.
 `tehas status` prints the same file for a person.
 

@@ -78,16 +78,33 @@ t_eq "$(runs)" 0
 t_eq "$(find "$marker" 2>/dev/null | wc -l)" 0
 T_ENV=()
 
-t_case "while a cycle holds the dispatch lock nothing is indexed"
+t_case "while the dispatcher's lock is held nothing is indexed"
 reset
 mkdir -p "$T/home/tehas/state"
 exec 9>"$T/home/tehas/state/dispatch.lock"
 flock -n 9
 t_run "$index"
 t_eq "$t_rc" 3
-t_contains "$t_out" "a cycle is running"
+t_contains "$t_out" "the dispatcher's lock is held"
 t_eq "$(t_calls docker)" ""
 exec 9>&-
+
+t_case "while a cycle holds its lock nothing is indexed, and the issue is named"
+reset
+mkdir -p "$T/home/tehas/state/cycles"
+exec 9>"$T/home/tehas/state/cycles/12.lock"
+flock -n 9
+t_run "$index"
+t_eq "$t_rc" 3
+t_contains "$t_out" "a cycle is running (issue 12)"
+t_eq "$(t_calls docker)" ""
+exec 9>&-
+
+t_case "the lock file of a cycle that ended holds nothing back"
+reset
+t_run "$index"
+t_eq "$t_rc" 0
+rm -rf "$T/home/tehas/state/cycles"
 
 t_case "the index is built in the sandbox image, at the path a cycle works in"
 reset

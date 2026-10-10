@@ -15,7 +15,7 @@ description: "What each stop in a tehas cycle means, and what to do about it."
 | What did Pi and the driver say?  | `~/tehas/logs/work-<issue>-<time>.jsonl` and `.jsonl.err`               |
 | Where is the cycle now?          | `jq .pipelineState ~/tehas/work/tehas/.pi/work-state/<issue>.json`. The workspace is the last cycle's state source. |
 | What did one agent do?           | Transcripts under `~/.pi/agent/ensemble-runs/<date>/`                   |
-| Is a cycle running?              | `docker ps --filter name=tehas-work`                                    |
+| Is a cycle running?              | `systemctl --user status 'tehas-cycle@*'`, or `docker ps --filter name=tehas-work` |
 
 The driver's notices, one per line:
 

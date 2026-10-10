@@ -127,7 +127,7 @@ a poll by hand on the host:
 ```
 tehas status                 # taking work? the queue, the current or last cycle
 tehas dispatch --dry-run     # what would it do?
-tehas dispatch               # do it (returns when the cycle ends)
+tehas dispatch               # do it (returns once the cycle is started)
 ```
 
 `tehas` is the one command to type on the host; `tehas help` lists what it

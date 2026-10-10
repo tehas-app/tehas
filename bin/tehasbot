@@ -4,6 +4,7 @@
 #
 # Usage:
 #   tehasbot dispatch             one poll of the issue queue (the timer)
+#   tehasbot cycle <issue>        one cycle and its report (tehas-cycle@<issue>.service)
 #   tehasbot status               write the queue snapshot, live/status.json
 #   tehasbot health               write the health file, live/health.json
 #   tehasbot energy [--every]     sample the model mesh's power (the service)
@@ -30,7 +31,7 @@ case "${1-help}" in
     usage
     exit 0
     ;;
-  dispatch | status | health | energy | protolab)
+  dispatch | cycle | status | health | energy | protolab)
     file=$libexec/$1
     shift
     exec "$file" "$@"
