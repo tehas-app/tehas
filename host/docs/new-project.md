@@ -99,7 +99,7 @@ The example's whole `instance.env`:
 
 ```
 TEHAS_REPO=janit/tehas
-TEHAS_CONTROL_ISSUE=5
+TEHAS_CONTROL_ISSUE=1
 TEHAS_ALLOWED_LABELERS="janit"
 
 PI_ENSEMBLE_SUBAGENT_MODEL=qwen3.8-flash-next
