@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for install.sh: what it installs, that an invalid instance changes
-# nothing, and that drift is reported and repaired. Docker and systemctl are
-# stubs.
+# nothing, and that drift is reported and repaired. Docker, systemctl and
+# cargo are stubs.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh"
@@ -17,6 +17,7 @@ T_ENV=(T_IN_TEST=1)
 
 t_stub docker
 t_stub systemctl
+t_stub_cargo
 
 # An instance directory with settings and a model list that matches them.
 instance() {
@@ -50,7 +51,8 @@ files="./.config/systemd/user/tehas-dispatch.service
 ./tehas/lib/config.sh
 ./tehas/lib/sandbox.sh
 ./tehas/lib/update-steps.sh
-./tehas/libexec/console.ts
+./tehas/libexec/console
+./tehas/libexec/console.stamp
 ./tehas/libexec/dev
 ./tehas/libexec/dispatch
 ./tehas/libexec/energy
@@ -146,6 +148,83 @@ t_run "$install"
 t_contains "$t_out" "installed: $th/libexec/dispatch"
 t_eq "$(cmp -s "$th/libexec/dispatch" "$T_ROOT/libexec/dispatch" && echo same)" "same"
 t_contains "$(cat "$th/libexec/dispatch.prev")" "# edited on the host"
+
+t_case "the console is built once, from the lock file, and installed as a program"
+t_eq "$(t_calls cargo)" "build --release --locked --quiet --manifest-path $T_ROOT/console/Cargo.toml --target-dir $T/target"
+t_eq "$(stat -c %a "$th/libexec/console")" 755
+t_eq "$(cat "$th/libexec/console")" "a console built from source"
+
+t_case "a console built from other source is drift, and --check builds nothing"
+sed -i 's/^[0-9a-f]*/0000/' "$th/libexec/console.stamp"
+rm -f "$T/calls/cargo"
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "Installed:    DRIFT (1 files)"
+t_contains "$t_out" "differs: $th/libexec/console"
+t_eq "$(t_calls cargo)" ""
+
+t_case "a real run builds it again"
+T_ENV=(T_IN_TEST=1 CONSOLE_BUILD="new source")
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "installed: $th/libexec/console"
+t_eq "$(cat "$th/libexec/console")" "a console built from new source"
+t_eq "$(cat "$th/libexec/console.prev")" "a console built from source"
+t_eq "$(t_calls cargo | wc -l)" 1
+t_run "$install --check"
+t_contains "$t_out" "Installed:    OK"
+
+t_case "a console changed on the host is drift though its stamp is as it was"
+echo "# another program" >"$th/libexec/console"
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "differs: $th/libexec/console"
+t_run "$install"
+t_contains "$t_out" "installed: $th/libexec/console"
+t_eq "$(cat "$th/libexec/console")" "a console built from new source"
+t_eq "$(cat "$th/libexec/console.prev")" "# another program"
+t_run "$install --check"
+t_contains "$t_out" "Installed:    OK"
+T_ENV=(T_IN_TEST=1)
+
+t_case "the build is not given the bot's token"
+fresh
+instance
+t_stub cargo 'env >"$T/cargo.env"
+mkdir -p "$CARGO_TARGET_DIR/release" && echo built >"$CARGO_TARGET_DIR/release/console"'
+T_ENV=(T_IN_TEST=1 GH_TOKEN=test-token)
+t_run "$install"
+t_eq "$t_rc" 0
+t_lacks "$(cat "$T/cargo.env")" "test-token"
+t_stub_cargo
+T_ENV=(T_IN_TEST=1)
+
+for failure in CARGO_RC=101 NO_CONSOLE=1; do
+  t_case "a console that does not build installs nothing and exits 1 ($failure)"
+  fresh
+  instance
+  # What an earlier build left is not taken for this one's.
+  mkdir -p "$T/target/release"
+  echo "an earlier build" >"$T/target/release/console"
+  T_ENV=(T_IN_TEST=1 "$failure")
+  t_run "$install"
+  t_eq "$t_rc" 1
+  t_contains "$t_out" "the console did not build"
+  t_eq "$(find "$home" -type f | wc -l)" 0
+done
+T_ENV=(T_IN_TEST=1)
+
+t_case "a checkout without the console's source installs nothing and exits 1"
+fresh
+instance
+bare=$T/bare
+rm -rf "$bare"
+mkdir -p "$bare"
+cp -R "$T_ROOT/install.sh" "$T_ROOT/lib" "$T_ROOT/host" "$T_ROOT/bin" "$T_ROOT/libexec" "$bare/"
+t_run "$bare/install.sh"
+t_eq "$t_rc" 1
+t_contains "$t_out" "$bare/console is missing from this checkout"
+t_eq "$(find "$home" -type f | wc -l)" 0
 
 t_case "an instance with a missing setting installs nothing and exits 78"
 fresh
@@ -259,6 +338,17 @@ t_eq "$(t_calls systemctl)" "--user daemon-reload"
 t_eq "$(cd "$th/bin" && find . -type f | LC_ALL=C sort | tr '\n' ' ')" "./gh ./tehas ./tehasbot "
 t_run "$install"
 t_contains "$t_out" "tehas is up to date"
+
+t_case "the console script of before it was compiled goes the same way"
+echo "// old" >"$th/libexec/console.ts"
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "stale: $th/libexec/console.ts"
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "removed: $th/libexec/console.ts"
+t_eq "$([ -e "$th/libexec/console.ts" ] || echo gone)" "gone"
+t_eq "$([ -x "$th/libexec/console" ] && echo there)" "there"
 
 t_case "while a cycle runs they stay, and the install says to come back"
 old_layout
@@ -408,6 +498,7 @@ part=$T/partial
 rm -rf "$part"
 mkdir -p "$part"
 cp -R "$T_ROOT/install.sh" "$T_ROOT/lib" "$T_ROOT/host" "$T_ROOT/bin" "$part/"
+t_console_source "$part"
 chmod +x "$part/install.sh"
 rm "$part/host/pi/mcp.json"
 t_run "$part/install.sh"

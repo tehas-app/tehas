@@ -120,7 +120,7 @@ t_eq "$(ran)" ""
 
 t_case "what only the units run is not a tehas command"
 reset
-for name in health energy protolab summary console.ts ../bin/tehasbot; do
+for name in health energy protolab summary console ../bin/tehasbot; do
   t_run "$tehas $name"
   t_eq "$t_rc" 64
 done

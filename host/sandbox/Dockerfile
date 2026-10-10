@@ -4,8 +4,9 @@
 #   - the in-container user remapped to the tehas user's id (upstream hardcodes
 #     vscode = UID 1000; with another id on the host, bind-mounted host
 #     directories are not writable),
-#   - deno and shellcheck, which gates commonly run (.pi/verify-cmd,
-#     .pi/smoke-cmd),
+#   - shellcheck, which gates commonly run (.pi/verify-cmd, .pi/smoke-cmd),
+#   - cargo's registry given to that user (the upstream image has Rust, and
+#     a registry only root can write, so a gate could not fetch a crate),
 #   - Playwright's Chromium with its system libraries and fonts, for a
 #     product's browser checks.
 #
@@ -17,8 +18,6 @@
 FROM ghcr.io/trail-openers/pi-rukas@sha256:8888d0b1d1bdd769bd823d939939a7b3f83180b9bbc25a485e8d118ef082dd9d
 
 ARG TEHAS_UID=1000
-ARG DENO_VERSION
-ARG DENO_SHA256
 ARG SHELLCHECK_VERSION
 ARG SHELLCHECK_SHA256
 ARG PLAYWRIGHT_VERSION=1.55.1
@@ -30,11 +29,9 @@ RUN if [ "$TEHAS_UID" != 1000 ]; then \
       && find / -xdev \( -user 1000 -o -group 1000 \) -exec chown -h vscode:vscode {} + ; \
     fi
 
-RUN curl -fsSL "https://dl.deno.land/release/v${DENO_VERSION}/deno-x86_64-unknown-linux-gnu.zip" -o /tmp/deno.zip \
- && echo "${DENO_SHA256}  /tmp/deno.zip" | sha256sum -c - \
- && unzip -q /tmp/deno.zip -d /usr/local/bin \
- && rm /tmp/deno.zip \
- && deno --version
+# What a gate fetches stays in its own container and goes with it: a registry
+# kept between cycles would be code one cycle leaves for the next one's gate.
+RUN mkdir -p /usr/local/cargo/registry && chown -R vscode:vscode /usr/local/cargo/registry
 
 RUN curl -fsSL "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" -o /tmp/shellcheck.tar.xz \
  && echo "${SHELLCHECK_SHA256}  /tmp/shellcheck.tar.xz" | sha256sum -c - \

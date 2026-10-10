@@ -15,8 +15,8 @@
 #
 # Supported: Ubuntu 26.04 on x86_64. It stops elsewhere.
 #
-# What `user` owns and will replace: Node, gh, Deno and Bun from release
-# archives; Pi, ctx7 and parallel-cli through npm; Rust, vipune and oo;
+# What `user` owns and will replace: Node, gh and Bun from release archives;
+# Pi, ctx7 and parallel-cli through npm; Rust, vipune and oo;
 # codebase-memory-mcp; the pi-rukas clone. System packages are not pinned:
 # `root` installs what the distribution offers and `check` only requires them
 # to be present.
@@ -65,7 +65,7 @@ home_paths() {
   : "${TEHAS_HOME:=$HOME/tehas}"
   export TEHAS_HOME
   export NPM_CONFIG_PREFIX=$HOME/.local CARGO_HOME=$HOME/.cargo RUSTUP_HOME=$HOME/.rustup
-  export PATH="$TEHAS_HOME/bin:$TEHAS_HOME/tools/node/bin:$HOME/.local/bin:$HOME/.bun/bin:$HOME/.deno/bin:$HOME/.cargo/bin:$PATH"
+  export PATH="$TEHAS_HOME/bin:$TEHAS_HOME/tools/node/bin:$HOME/.local/bin:$HOME/.bun/bin:$HOME/.cargo/bin:$PATH"
 }
 
 # First x.y.z in a command's output, or nothing.
@@ -73,7 +73,6 @@ version_of() { "$@" 2>/dev/null | grep -o -E '[0-9]+\.[0-9]+\.[0-9]+' | head -n 
 
 found_node() { version_of node --version; }
 found_gh() { version_of gh --version; }
-found_deno() { version_of deno --version; }
 found_bun() { version_of bun --version; }
 found_pi() { version_of pi --version; }
 found_ctx7() { version_of ctx7 --version; }
@@ -102,7 +101,6 @@ do_check() {
   done <<EOF
 node found_node $NODE_VERSION
 gh found_gh $GH_VERSION
-deno found_deno $DENO_VERSION
 bun found_bun $BUN_VERSION
 pi found_pi $PI_VERSION
 ctx7 found_ctx7 $CTX7_VERSION
@@ -175,11 +173,6 @@ install_gh() {
   tar -xzf "$dl/gh.tar.gz" -C "$dl"
   install -m 755 "$dl/gh_${GH_VERSION}_linux_amd64/bin/gh" "$TEHAS_HOME/bin/gh"
 }
-install_deno() {
-  fetch "https://dl.deno.land/release/v$DENO_VERSION/deno-x86_64-unknown-linux-gnu.zip" "$DENO_SHA256" "$dl/deno.zip"
-  mkdir -p "$HOME/.deno/bin"
-  unzip -qo "$dl/deno.zip" -d "$HOME/.deno/bin"
-}
 install_bun() {
   fetch "https://github.com/oven-sh/bun/releases/download/bun-v$BUN_VERSION/bun-linux-x64.zip" "$BUN_SHA256" "$dl/bun.zip"
   unzip -qo "$dl/bun.zip" -d "$dl"
@@ -239,7 +232,6 @@ do_user() {
   mkdir -p "$TEHAS_HOME/bin" "$TEHAS_HOME/tools" "$TEHAS_HOME/repos" "$dl" "$HOME/.local/bin"
   step node found_node "$NODE_VERSION" install_node
   step gh found_gh "$GH_VERSION" install_gh
-  step deno found_deno "$DENO_VERSION" install_deno
   step bun found_bun "$BUN_VERSION" install_bun
   step pi found_pi "$PI_VERSION" install_pi
   step ctx7 found_ctx7 "$CTX7_VERSION" install_ctx7

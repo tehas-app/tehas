@@ -5,7 +5,15 @@
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh"
 
-work="$T_ROOT/libexec/work"
+# The script as a host has it: beside the console, a compiled program that a
+# checkout does not hold. A stub stands in for it, and it is not on PATH.
+tree=$T/tree
+mkdir -p "$tree/libexec"
+ln -s "$T_ROOT/lib" "$tree/lib"
+ln -s "$T_ROOT/libexec/work" "$tree/libexec/work"
+t_stub console
+mv "$T/bin/console" "$tree/libexec/console"
+work="$tree/libexec/work"
 checkout=$T/home/tehas/repos/widget
 ws=$T/home/tehas/work/widget
 # The product repository, and the host's checkout of it.
@@ -16,7 +24,6 @@ git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-
 git clone -q "$upstream" "$checkout"
 
 t_stub docker 'printf "%s\n" "$@" >"$T/calls/docker.args.$$"'
-t_stub deno
 printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitconfig"
 
 # The arguments of the docker call that starts the cycle.
@@ -71,8 +78,29 @@ t_case "the image and the working directory come from the settings"
 t_contains "$(cycle_args | tr '\n' ' ')" "tehas/pi-rukas:uid$(id -u) pi --mode rpc --approve"
 t_eq "$(after -w)" "$ws"
 
-t_case "the console is the script beside this one, not a name on PATH"
-t_contains "$(t_calls deno)" "run -A $T_ROOT/libexec/console.ts --rpc"
+t_case "the console is the program beside this one, given the cycle's log, the transcripts and its file"
+t_contains "$(t_calls console)" "--rpc $T/home/tehas/logs/work-7-"
+t_contains "$(t_calls console)" ".jsonl --runs $T/home/.pi/agent/ensemble-runs --out $T/home/tehas/live/console-7.txt --since "
+
+t_case "a console that fails is named with its exit status and where it wrote why"
+t_lacks "$t_out" "the console ended"
+printf '#!/usr/bin/env bash\necho "cannot write" >&2\nexit 1\n' >"$tree/libexec/console"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "tehas work: the console ended with 1, see $T/home/tehas/logs/work-7-"
+t_eq "$(cat "$T"/home/tehas/logs/work-7-*.jsonl.console | sort -u)" "cannot write"
+
+t_case "without a console the cycle still runs, and says there is none"
+mv "$tree/libexec/console" "$T/console.kept"
+rm -f "$T"/calls/docker*
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "tehas work: no console at $tree/libexec/console"
+t_lacks "$t_out" "the console ended"
+t_contains "$(cycle_args | tr '\n' ' ')" "pi --mode rpc --approve"
+t_stub console
+mv "$T/bin/console" "$tree/libexec/console"
+t_run "$work 7"
 
 t_case "the cycle works in a fresh clone at the branch's tip, with the product's origin"
 t_eq "$(git -C "$ws" rev-parse HEAD)" "$(git -C "$upstream" rev-parse main)"

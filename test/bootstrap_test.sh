@@ -21,7 +21,6 @@ T_ENV=(BOOTSTRAP_OS_RELEASE="$T/os-ubuntu" PATH="$T_PATH")
 all_present() {
   t_stub node "echo v$NODE_VERSION"
   t_stub gh "echo 'gh version $GH_VERSION (2026-07-31)'"
-  t_stub deno "echo 'deno $DENO_VERSION (stable)'"
   t_stub bun "echo $BUN_VERSION"
   t_stub pi "echo $PI_VERSION"
   t_stub ctx7 "echo $CTX7_VERSION"
@@ -55,12 +54,12 @@ t_run "$bootstrap check"
 t_eq "$(find "$T/home" | sort)" "$before"
 
 t_case "check reports a tool at another version and exits 1"
-t_stub deno 'echo "deno 2.0.0 (stable)"'
+t_stub gh 'echo "gh version 2.0.0 (2022-01-01)"'
 t_run "$bootstrap check"
 t_eq "$t_rc" 1
-t_contains "$(grep '^deno ' <<<"$t_out")" "2.0.0"
-t_contains "$(grep '^deno ' <<<"$t_out")" "$DENO_VERSION"
-t_contains "$(grep '^deno ' <<<"$t_out")" "DIFFERS"
+t_contains "$(grep '^gh ' <<<"$t_out")" "2.0.0"
+t_contains "$(grep '^gh ' <<<"$t_out")" "$GH_VERSION"
+t_contains "$(grep '^gh ' <<<"$t_out")" "DIFFERS"
 
 t_case "check reports a missing tool and exits 1"
 all_present

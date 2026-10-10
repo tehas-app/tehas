@@ -5,12 +5,11 @@
 # <instance dir>/instance.env, loaded at the end through lib/config.sh.
 export TEHAS_HOME="${TEHAS_HOME:-$HOME/tehas}"
 export BUN_INSTALL="$HOME/.bun"
-export DENO_INSTALL="$HOME/.deno"
 export CARGO_HOME="$HOME/.cargo"
 export RUSTUP_HOME="$HOME/.rustup"
 export NPM_CONFIG_PREFIX="$HOME/.local"
 export TMPDIR="$TEHAS_HOME/tmp"
-export PATH="$TEHAS_HOME/bin:$TEHAS_HOME/tools/node/bin:$HOME/.local/bin:$BUN_INSTALL/bin:$DENO_INSTALL/bin:$CARGO_HOME/bin:$PATH"
+export PATH="$TEHAS_HOME/bin:$TEHAS_HOME/tools/node/bin:$HOME/.local/bin:$BUN_INSTALL/bin:$CARGO_HOME/bin:$PATH"
 # Bot credentials (GH_TOKEN). File is chmod 600 and stays outside the tehas tree.
 # shellcheck disable=SC1091
 if [ -r "$HOME/.config/tehas/env" ]; then set -a; . "$HOME/.config/tehas/env"; set +a; fi

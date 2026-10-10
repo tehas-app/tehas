@@ -265,11 +265,13 @@ a cycle's container is still `tehas-work-<issue>`.
 
 Feed the [factory floor](/) and the [plain dashboard](/dashboard). `tehasbot status` writes the queue snapshot to
 `~/tehas/live/status.json`; the dispatcher runs it at every poll and every two
-minutes during a cycle. `~/tehas/libexec/console.ts` is started by the work
+minutes during a cycle. `~/tehas/libexec/console` is started by the work
 script and follows the cycle's agents into `~/tehas/live/console-<issue>.txt`, masking
 tokens, passwords and private network addresses. The mask catches accidents;
 it cannot stop an agent that sets out to print a secret another way, so treat
 the console of a published dashboard as public. Neither needs running by hand.
+What the console itself complains about goes to `~/tehas/logs/work-<issue>-<time>.jsonl.console`,
+and the work script says so when the console is missing or ends with an error.
 
 ## tehasbot health
 
@@ -382,7 +384,7 @@ product:
 
 ```
 scripts/verify.sh          # fast: the lint, shellcheck, the shell tests
-scripts/verify.sh --full   # plus deno lint over the TypeScript
+scripts/verify.sh --full   # plus the console's tests (cargo) and the energy view's (node)
 ```
 
 ## tehas update

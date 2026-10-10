@@ -22,7 +22,7 @@ for f in "$root"/bin/* "$root"/libexec/* "$root"/lib/*.sh "$root"/scripts/*.sh "
   "$root/install.sh" "$root/bootstrap.sh" "$root/host/env.sh" "$root/host/sandbox/build.sh"; do
   [ -f "$f" ] || continue
   # publish-lib.sh is a vendored copy, checked where it is kept.
-  case "$f" in *.ts | */scripts/publish-lib.sh) continue ;; esac
+  case "$f" in */scripts/publish-lib.sh) continue ;; esac
   files+=("$f")
 done
 if ! command -v shellcheck >/dev/null 2>&1; then

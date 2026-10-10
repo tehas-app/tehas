@@ -3,7 +3,7 @@
 // libexec/energy). See DESIGN.md, "Energy Use".
 //
 // layout() turns the file into what is drawn and has no side effects, so it is
-// tested without a browser (test/energy_view_test.ts). The rest of the module
+// tested without a browser (test/energy_view_test.mjs). The rest of the module
 // fetches and draws, and runs only where there is a document.
 
 export const SLOTS = 120;

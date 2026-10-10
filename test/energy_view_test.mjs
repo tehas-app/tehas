@@ -1,15 +1,15 @@
 // Tests layout() of the Energy use section: the pure step from
 // live/energy.json to what is drawn.
 //
-//   deno test -A --no-config test/energy_view_test.ts
-import { assertEquals } from "jsr:@std/assert@^1.0.19";
+//   node --test test/energy_view_test.mjs
+import assert from "node:assert/strict";
+import { test } from "node:test";
 import { BANDS, countFrames, HEIGHT, layout, rateText, SLOTS } from "../host/fun/energy-view.js";
 
 const T = 1791526545; // a multiple of 15
 const NOW = T * 1000 + 5000; // five seconds after the file was written
 
-// deno-lint-ignore no-explicit-any
-function file(over: Record<string, unknown> = {}): any {
+function file(over = {}) {
   return {
     generatedAt: new Date(T * 1000).toISOString(),
     source: "viiwork",
@@ -34,102 +34,102 @@ function file(over: Record<string, unknown> = {}): any {
   };
 }
 
-Deno.test("the headline and the rows of a fresh file", () => {
+test("the headline and the rows of a fresh file", () => {
   const v = layout(file(), NOW);
-  assertEquals(v.state, "live");
-  assertEquals(v.scope, "2/3 HOSTS");
-  assertEquals([v.watts, v.kwh24, v.kwh30], ["1190", "14.2", "448.1"]);
-  assertEquals(v.rows, [
+  assert.deepEqual(v.state, "live");
+  assert.deepEqual(v.scope, "2/3 HOSTS");
+  assert.deepEqual([v.watts, v.kwh24, v.kwh30], ["1190", "14.2", "448.1"]);
+  assert.deepEqual(v.rows, [
     { name: "node-a", band: 0, source: "DCMI", now: "456 W", day: "12.8 KWH", month: "393.0 KWH", ram: { filled: 2, percent: 16 } },
     { name: "node-b", band: 1, source: "NVIDIA-SMI", now: "734 W", day: "1.4 KWH", month: "55.1 KWH", ram: { filled: 3, percent: 21 } },
     // No reading: no band and dashes, never a zero.
     { name: "node-c", band: null, source: "-", now: "-", day: "-", month: "-", ram: { filled: 2, percent: 20 } },
   ]);
-  assertEquals(v.models, [
+  assert.deepEqual(v.models, [
     { name: "model-large", hosts: "node-b", busy: "1/1", queued: "2" },
     { name: "model-small", hosts: "node-a, node-b", busy: "2/6", queued: "0" },
   ]);
 });
 
-Deno.test("a column's place comes from its time, and a missed slot is empty", () => {
+test("a column's place comes from its time, and a missed slot is empty", () => {
   const v = layout(file(), NOW);
-  assertEquals(v.columns.length, SLOTS);
-  assertEquals(v.scaleTop, 1500);
-  assertEquals([v.from, v.to], [T - 119 * 15, T]);
+  assert.deepEqual(v.columns.length, SLOTS);
+  assert.deepEqual(v.scaleTop, 1500);
+  assert.deepEqual([v.from, v.to], [T - 119 * 15, T]);
   // 136 pixels stand for 1500 W. Bands tile: one ends where the next begins.
-  assertEquals(v.columns[119], [{ band: 0, from: 0, to: 41 }, { band: 1, from: 41, to: 108 }]);
-  assertEquals(v.columns[118], [{ band: 0, from: 0, to: 45 }]);
-  assertEquals(v.columns[117], null);
-  assertEquals(v.columns[116], [{ band: 0, from: 0, to: 45 }, { band: 1, from: 45, to: 68 }]);
-  assertEquals(v.columns.filter(Boolean).length, 3);
+  assert.deepEqual(v.columns[119], [{ band: 0, from: 0, to: 41 }, { band: 1, from: 41, to: 108 }]);
+  assert.deepEqual(v.columns[118], [{ band: 0, from: 0, to: 45 }]);
+  assert.deepEqual(v.columns[117], null);
+  assert.deepEqual(v.columns[116], [{ band: 0, from: 0, to: 45 }, { band: 1, from: 45, to: 68 }]);
+  assert.deepEqual(v.columns.filter(Boolean).length, 3);
 });
 
-Deno.test("the scale is the next 500 W above the largest total, at least 500", () => {
-  const top = (w: number) => layout(file({ samples: [{ t: T, w: { "node-a": w } }] }), NOW).scaleTop;
-  assertEquals([top(0), top(499), top(500), top(501), top(3650)], [500, 500, 500, 1000, 4000]);
-  assertEquals(layout(file({ samples: [] }), NOW).scaleTop, 500);
+test("the scale is the next 500 W above the largest total, at least 500", () => {
+  const top = (w) => layout(file({ samples: [{ t: T, w: { "node-a": w } }] }), NOW).scaleTop;
+  assert.deepEqual([top(0), top(499), top(500), top(501), top(3650)], [500, 500, 500, 1000, 4000]);
+  assert.deepEqual(layout(file({ samples: [] }), NOW).scaleTop, 500);
   const full = layout(file({ samples: [{ t: T, w: { "node-a": 500 } }] }), NOW);
-  assertEquals(full.columns[119], [{ band: 0, from: 0, to: HEIGHT }]);
+  assert.deepEqual(full.columns[119], [{ band: 0, from: 0, to: HEIGHT }]);
 });
 
-Deno.test("samples outside the window are not drawn", () => {
+test("samples outside the window are not drawn", () => {
   const v = layout(file({ samples: [{ t: T - 120 * 15, w: { "node-a": 9000 } }, { t: T + 15, w: { "node-a": 9000 } }, { t: T - 119 * 15, w: { "node-a": 100 } }] }), NOW);
-  assertEquals(v.columns.filter(Boolean).length, 1);
-  assertEquals(v.columns[0], [{ band: 0, from: 0, to: 27 }]);
-  assertEquals(v.scaleTop, 500);
+  assert.deepEqual(v.columns.filter(Boolean).length, 1);
+  assert.deepEqual(v.columns[0], [{ band: 0, from: 0, to: 27 }]);
+  assert.deepEqual(v.scaleTop, 500);
 });
 
-Deno.test("a file older than 45 seconds is stale: no present figures, the rest kept", () => {
-  assertEquals(layout(file(), T * 1000 + 45000).state, "live");
+test("a file older than 45 seconds is stale: no present figures, the rest kept", () => {
+  assert.deepEqual(layout(file(), T * 1000 + 45000).state, "live");
   const v = layout(file(), T * 1000 + 46000);
-  assertEquals(v.state, "stale");
-  assertEquals([v.watts, v.kwh24, v.kwh30], ["--", "14.2", "448.1"]);
-  assertEquals(v.rows.map((r) => r.now), ["-", "-", "-"]);
-  assertEquals(v.rows[0].day, "12.8 KWH");
-  assertEquals(v.rows[0].ram, { filled: 2, percent: 16 });
-  assertEquals(v.models.map((m) => [m.busy, m.queued]), [["-", "-"], ["-", "-"]]);
-  assertEquals(v.columns.filter(Boolean).length, 3);
+  assert.deepEqual(v.state, "stale");
+  assert.deepEqual([v.watts, v.kwh24, v.kwh30], ["--", "14.2", "448.1"]);
+  assert.deepEqual(v.rows.map((r) => r.now), ["-", "-", "-"]);
+  assert.deepEqual(v.rows[0].day, "12.8 KWH");
+  assert.deepEqual(v.rows[0].ram, { filled: 2, percent: 16 });
+  assert.deepEqual(v.models.map((m) => [m.busy, m.queued]), [["-", "-"], ["-", "-"]]);
+  assert.deepEqual(v.columns.filter(Boolean).length, 3);
   // A file with no usable time is stale too.
-  assertEquals(layout(file({ generatedAt: "soon" }), NOW).state, "stale");
+  assert.deepEqual(layout(file({ generatedAt: "soon" }), NOW).state, "stale");
 });
 
-Deno.test("fewer hosts with kWh than with power is said in the head", () => {
+test("fewer hosts with kWh than with power is said in the head", () => {
   const v = layout(file({ totals: { watts: 1190, kWh24h: 12.79, kWh30d: null, hosts: 3, reporting: 2, energyHosts: 1 } }), NOW);
-  assertEquals(v.scope, "2/3 HOSTS, KWH FROM 1");
-  assertEquals(v.kwh30, "--");
+  assert.deepEqual(v.scope, "2/3 HOSTS, KWH FROM 1");
+  assert.deepEqual(v.kwh30, "--");
 });
 
-Deno.test("bands follow the rows, and the ninth is the first colour again", () => {
+test("bands follow the rows, and the ninth is the first colour again", () => {
   const hosts = Array.from({ length: 10 }, (_, i) => ({ name: `node-${i}`, watts: 10 }));
   const w = Object.fromEntries(hosts.map((h) => [h.name, 10]));
   const v = layout(file({ hosts, samples: [{ t: T, w }] }), NOW);
-  assertEquals(v.rows.map((r) => r.band), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
-  assertEquals(v.columns[119]!.map((p: { band: number }) => p.band), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
-  assertEquals(BANDS.length, 8);
+  assert.deepEqual(v.rows.map((r) => r.band), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  assert.deepEqual(v.columns[119].map((p) => p.band), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  assert.deepEqual(BANDS.length, 8);
   // Every band colour is a 12-bit colour (the Twelve Bit Rule).
-  for (const c of BANDS) assertEquals(/^#[0-9a-f]{3}$/.test(c), true);
+  for (const c of BANDS) assert.deepEqual(/^#[0-9a-f]{3}$/.test(c), true);
 });
 
-Deno.test("a machine that has left keeps its band in the window, above the rest", () => {
+test("a machine that has left keeps its band in the window, above the rest", () => {
   const v = layout(file({ samples: [{ t: T - 15, w: { "node-a": 100, "node-z": 200, "node-gone": 100 } }, { t: T, w: { "node-a": 100 } }] }), NOW);
   // Rows are node-a, node-b, node-c (bands 0 to 2); then node-gone, node-z.
-  assertEquals(v.columns[118], [{ band: 0, from: 0, to: 27 }, { band: 3, from: 27, to: 54 }, { band: 4, from: 54, to: 109 }]);
-  assertEquals(v.rows.length, 3);
+  assert.deepEqual(v.columns[118], [{ band: 0, from: 0, to: 27 }, { band: 3, from: 27, to: 54 }, { band: 4, from: 54, to: 109 }]);
+  assert.deepEqual(v.rows.length, 3);
 });
 
-Deno.test("a long name is cut for the row only: its draw keeps its band", () => {
+test("a long name is cut for the row only: its draw keeps its band", () => {
   const long = "n".repeat(70);
   const v = layout(file({ hosts: [{ name: long, watts: 100 }], samples: [{ t: T, w: { [long]: 100 } }] }), NOW);
-  assertEquals(v.rows.map((r) => [r.name.length, r.band]), [[64, 0]]);
-  assertEquals(v.columns[119]!.map((p: { band: number }) => p.band), [0]);
+  assert.deepEqual(v.rows.map((r) => [r.name.length, r.band]), [[64, 0]]);
+  assert.deepEqual(v.columns[119].map((p) => p.band), [0]);
 });
 
-Deno.test("the meter: the draw against the scale, and no token line without counts", () => {
+test("the meter: the draw against the scale, and no token line without counts", () => {
   // 1190 W of a 1500 W scale is eight blocks of ten.
-  assertEquals(layout(file(), NOW).meter, { watts: "1190", wattsNow: 1190, wattsFilled: 8, tokens: null, tokensNow: null, tokensFilled: 0 });
+  assert.deepEqual(layout(file(), NOW).meter, { watts: "1190", wattsNow: 1190, wattsFilled: 8, tokens: null, tokensNow: null, tokensFilled: 0 });
 });
 
-Deno.test("the meter: tokens are a rate over the last minute, full at the busiest minute", () => {
+test("the meter: tokens are a rate over the last minute, full at the busiest minute", () => {
   const w = { "node-a": 456 };
   const samples = [
     { t: T - 300, w, k: { "node-a": 1000 } },
@@ -142,41 +142,41 @@ Deno.test("the meter: tokens are a rate over the last minute, full at the busies
   ];
   // The last minute: 100 + 200 + 0 + 400 = 700 tokens.
   const v = layout(file({ samples }), NOW);
-  assertEquals([v.meter.tokens, v.meter.tokensFilled], ["700", 1]);
+  assert.deepEqual([v.meter.tokens, v.meter.tokensFilled], ["700", 1]);
   // A counter that went down has started again: what it shows now is new.
   samples[6] = { t: T, w, k: { "node-a": 400, "node-b": 250 } };
-  assertEquals(layout(file({ samples }), NOW).meter.tokens, "800");
+  assert.deepEqual(layout(file({ samples }), NOW).meter.tokens, "800");
   // From ten thousand on, in thousands.
   samples[6] = { t: T, w, k: { "node-a": 4200 + 23400, "node-b": 150 } };
   const busy = layout(file({ samples }), NOW).meter;
-  assertEquals([busy.tokens, busy.tokensNow, busy.tokensFilled], ["24K", 23700, 10]);
+  assert.deepEqual([busy.tokens, busy.tokensNow, busy.tokensFilled], ["24K", 23700, 10]);
 });
 
-Deno.test("the meter: a changed reading counts to the new one in stepped frames", () => {
-  assertEquals(countFrames(0, 1190), [149, 298, 446, 595, 744, 893, 1041, 1190]);
-  assertEquals(countFrames(1190, 400, 4), [993, 795, 598, 400]);
-  assertEquals(countFrames(8, 3), [7, 7, 6, 6, 5, 4, 4, 3]);
-  assertEquals(countFrames(9000, 12000, 3).map(rateText), ["10K", "11K", "12K"]);
+test("the meter: a changed reading counts to the new one in stepped frames", () => {
+  assert.deepEqual(countFrames(0, 1190), [149, 298, 446, 595, 744, 893, 1041, 1190]);
+  assert.deepEqual(countFrames(1190, 400, 4), [993, 795, 598, 400]);
+  assert.deepEqual(countFrames(8, 3), [7, 7, 6, 6, 5, 4, 4, 3]);
+  assert.deepEqual(countFrames(9000, 12000, 3).map(rateText), ["10K", "11K", "12K"]);
 });
 
-Deno.test("the meter: no rate from one sample, a missed slot or a stale file", () => {
+test("the meter: no rate from one sample, a missed slot or a stale file", () => {
   const w = { "node-a": 456 };
   const pair = [{ t: T - 15, w, k: { "node-a": 10 } }, { t: T, w, k: { "node-a": 70 } }];
-  assertEquals(layout(file({ samples: pair }), NOW).meter.tokens, "240");
-  assertEquals(layout(file({ samples: [pair[1]] }), NOW).meter.tokens, "--");
+  assert.deepEqual(layout(file({ samples: pair }), NOW).meter.tokens, "240");
+  assert.deepEqual(layout(file({ samples: [pair[1]] }), NOW).meter.tokens, "--");
   // The newest sample is not this slot's: the rate would be an old one.
-  assertEquals(layout(file({ samples: [{ ...pair[0], t: T - 30 }, { ...pair[1], t: T - 15 }] }), NOW).meter.tokens, "--");
+  assert.deepEqual(layout(file({ samples: [{ ...pair[0], t: T - 30 }, { ...pair[1], t: T - 15 }] }), NOW).meter.tokens, "--");
   const stale = layout(file({ samples: pair }), NOW + 60000).meter;
-  assertEquals(stale, { watts: "--", wattsNow: null, wattsFilled: 0, tokens: "--", tokensNow: null, tokensFilled: 0 });
+  assert.deepEqual(stale, { watts: "--", wattsNow: null, wattsFilled: 0, tokens: "--", tokensNow: null, tokensFilled: 0 });
   // Counts that are no numbers are no counts.
   const odd = [{ t: T - 15, w, k: { "node-a": "ten", toString: 5 } }, { t: T, w, k: { "node-a": -1, toString: 9 } }, { t: T, w, k: 7 }];
-  assertEquals(layout(file({ samples: odd.slice(0, 2) }), NOW).meter.tokens, "16");
+  assert.deepEqual(layout(file({ samples: odd.slice(0, 2) }), NOW).meter.tokens, "16");
 });
 
-Deno.test("odd input does not break the page", () => {
+test("odd input does not break the page", () => {
   for (const bad of [null, 7, "x", [], {}, { hosts: "many", samples: 3, totals: [], models: {} }]) {
     const v = layout(bad, NOW);
-    assertEquals([v.state, v.scope, v.watts, v.rows.length, v.models.length, v.scaleTop], ["stale", "0/0 HOSTS", "--", 0, 0, 500]);
+    assert.deepEqual([v.state, v.scope, v.watts, v.rows.length, v.models.length, v.scaleTop], ["stale", "0/0 HOSTS", "--", 0, 0, 500]);
   }
   const v = layout(file({
     hosts: [null, { name: "" }, { name: "node-a", watts: -5, kWh24h: "12", ramUsedMb: 99, ramTotalMb: 0, source: 7 }, { name: "x".repeat(200), watts: Infinity, ramUsedMb: 900, ramTotalMb: 100 }],
@@ -184,12 +184,12 @@ Deno.test("odd input does not break the page", () => {
     samples: [null, { t: T, w: { "node-a": -5, constructor: 5, "node-b": "9", toString: 300 } }, { t: "now", w: {} }, { t: T - 15 }],
     totals: { watts: NaN, reporting: -1 },
   }), NOW);
-  assertEquals(v.rows.map((r) => [r.name.length, r.band, r.source, r.now, r.day, r.ram]), [
+  assert.deepEqual(v.rows.map((r) => [r.name.length, r.band, r.source, r.now, r.day, r.ram]), [
     [6, null, "-", "-", "-", null],
     [64, null, "-", "-", "-", { filled: 10, percent: 100 }],
   ]);
-  assertEquals(v.models, [{ name: "model-odd", hosts: "-", busy: "-", queued: "-" }]);
+  assert.deepEqual(v.models, [{ name: "model-odd", hosts: "-", busy: "-", queued: "-" }]);
   // Only own, numeric, non-negative readings are stacked: "constructor" and "toString" here are departed hosts' names.
-  assertEquals(v.columns[119]!.length, 2);
-  assertEquals(v.watts, "--");
+  assert.deepEqual(v.columns[119].length, 2);
+  assert.deepEqual(v.watts, "--");
 });

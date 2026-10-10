@@ -1,0 +1,16 @@
+# The console of a running cycle: libexec/work starts it, install.sh builds
+# it and installs the binary as ~/tehas/libexec/console.
+[package]
+name = "console"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+libc = "0.2"
+regex = "1"
+serde_json = "1"
+signal-hook = "0.3"
+
+[profile.release]
+strip = true

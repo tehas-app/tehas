@@ -176,6 +176,8 @@ real_platform() {
   bound_calls
   mkdir -p "$checkout"
   cp -R "$T_ROOT/install.sh" "$T_ROOT/bin" "$T_ROOT/libexec" "$T_ROOT/lib" "$T_ROOT/host" "$checkout/"
+  t_console_source "$checkout"
+  t_stub_cargo
   chmod +x "$checkout/install.sh"
   git init -q --initial-branch=main "$checkout"
   git -C "$checkout" config user.name test
