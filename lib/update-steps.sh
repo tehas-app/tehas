@@ -53,7 +53,7 @@
 # named here is not restarted, because restarting it would run the job off
 # schedule; its changed definition reaches it when the units step asks systemd to
 # reload.
-tehas_units() { printf '%s\n' tehas-dispatch.timer tehas-energy.service tehas-protolab.timer; }
+tehas_units() { printf '%s\n' tehas-dispatch.timer tehas-energy.service tehas-preview.timer tehas-protolab.timer; }
 
 tehas_step_ids() { printf '%s\n' units sandbox docs edge; }
 

@@ -1,0 +1,282 @@
+#!/usr/bin/env bash
+# Keep a running preview of every open pull request: a container that serves
+# the product as that pull request has it, reached through the edge router as
+# uat-<number>.<TEHAS_DOMAIN> (edge/router.Caddyfile).
+#
+#   which ones      Open pull requests whose head branch is in the product
+#                   repository itself. Pushing there needs write access. A
+#                   pull request from a fork is never built.
+#   what it is      The image that preview/Dockerfile of that commit builds,
+#                   answering HTTP on port 8080. A commit without that file
+#                   has no preview.
+#   what it gets    Nothing of the host: no mount, no variable, no port, no
+#                   token, a read-only root, and a network on which only the
+#                   router is. The build gets the commit as an archive on
+#                   standard input and nothing else.
+#   how many        The newest TEHAS_PREVIEW_MAX. The rest say "over-limit".
+#   when it goes    At the next run after the pull request is merged or
+#                   closed: the container, the image, the fetched ref and
+#                   the state.
+#
+# Each pull request has a state in $TEHAS_HOME/preview/<number>/state.json:
+# serving, building, no-recipe, build-failed, no-space or over-limit. The list
+# for the dashboard is $TEHAS_HOME/live/previews.json. A build's output is in
+# $TEHAS_HOME/logs/preview-<number>.log. Deterministic, no model.
+#
+# Usage: tehasbot preview            bring the previews in step with the pull requests
+#        tehasbot preview --sweep    the three hour check of what is left on the host
+#
+# Exit: 0 done, or GitHub or Docker did not answer and what runs was left
+#       running; 1 it cannot write under $TEHAS_HOME; 64 a wrong argument;
+#       78 the instance settings are invalid or TEHAS_PREVIEWS is not 1.
+set -uo pipefail
+umask 022
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/config.sh
+. "$here/../lib/config.sh"
+# shellcheck source=lib/edge.sh
+. "$here/../lib/edge.sh"
+
+mode=run
+case "${1:-}" in
+  "") ;;
+  --sweep) mode=sweep ;;
+  *)
+    echo "usage: tehasbot preview [--sweep]" >&2
+    exit 64
+    ;;
+esac
+
+tehas_load || exit 78
+tehas_require TEHAS_REPO
+if [ "$TEHAS_PREVIEWS" != 1 ]; then
+  tehas_err "TEHAS_PREVIEWS is not 1: this instance has no previews"
+  exit 78
+fi
+
+repo=$TEHAS_REPO
+root=$TEHAS_HOME/preview
+bare=$root/repo.git
+live=$TEHAS_HOME/live
+logs=$TEHAS_HOME/logs
+net=tehas-previews
+recipe=preview/Dockerfile
+build_limit=900
+min_kb=$((TEHAS_PREVIEW_MIN_FREE_MB * 1024))
+free=""
+low=false
+
+mkdir -p "$root" "$live" "$logs" || exit 1
+# The sweep waits for a run to end; a run does not wait for anything.
+if [ "$mode" = sweep ]; then
+  edge_lock preview 1800 || { echo "the lock was not free in 30 minutes, nothing was swept"; exit 0; }
+else
+  edge_lock preview || { echo "another tehasbot preview is running"; exit 0; }
+fi
+
+# --- The state of one pull request -------------------------------------------
+field() { jq -r --arg k "$2" '.[$k] // ""' "$root/$1/state.json" 2>/dev/null; }
+# mark <number> <commit> <state> [reason]: written only when it differs, so
+# "time" is when the state began.
+mark() {
+  local n=$1 sha=$2 state=$3 reason=${4:-} pull=$root/$1/pull.json
+  if [ "$(field "$n" sha)" = "$sha" ] && [ "$(field "$n" state)" = "$state" ]; then return 0; fi
+  mkdir -p "$root/$n" || return 1
+  [ -f "$pull" ] || echo '{}' >"$pull"
+  # shellcheck disable=SC2016  # a jq program: the variables are jq's
+  edge_put "$root/$n/state.json" jq -n --argjson n "$n" --arg sha "$sha" --arg state "$state" \
+    --arg reason "$reason" --arg now "$(date -u +%FT%TZ)" --slurpfile pull "$pull" '
+    {number: $n, sha: $sha, state: $state, reason: $reason, time: $now,
+     title: ($pull[0].title // ""), url: ($pull[0].url // null)}' || return 1
+  echo "#$n: $state${reason:+ ($reason)}"
+}
+
+# --- Docker ------------------------------------------------------------------
+serving() { # <number> <commit>: is a container of that commit running?
+  [ -n "$(docker ps --quiet --filter "name=^tehas-preview-$1\$" --filter "label=tehas.sha=$2" 2>/dev/null)" ]
+}
+stop() { # <number>: the container and the image
+  docker rm -f "tehas-preview-$1" >/dev/null 2>&1
+  docker image rm -f "tehas-preview:$1" >/dev/null 2>&1
+  return 0
+}
+purge() { # <number>: everything of one pull request
+  stop "$1"
+  git -C "$bare" update-ref -d "refs/preview/$1" 2>/dev/null
+  rm -rf "${root:?}/$1" "$logs/preview-$1.log"
+}
+
+# --- Free space --------------------------------------------------------------
+# free_kb: the free kilobytes of the host. Task 6 measures; until then there
+# is always room.
+free_kb() { echo $((min_kb * 8)); }
+
+# --- The comment on the pull request -----------------------------------------
+# comment <number>: Task 7 writes it.
+comment() { return 0; }
+
+# --- One build ---------------------------------------------------------------
+# build <number>: fetch the pull request's head, build its recipe, replace the
+# container. The commit is the one fetched, which is the one built.
+build() {
+  local n=$1 sha log=$logs/preview-$1.log old
+  if [ ! -d "$bare" ]; then
+    git init -q --bare "$bare" || return 1
+    # The product checkout knows the address and how to sign in to it.
+    git -C "$bare" remote add origin \
+      "$(git -C "${TEHAS_WORK_REPO:-/nonexistent}" config --get remote.origin.url 2>/dev/null ||
+        echo "https://github.com/$repo.git")" || return 1
+  fi
+  : >"$log"
+  if ! git -C "$bare" fetch --quiet --no-tags origin "+refs/pull/$n/head:refs/preview/$n" >>"$log" 2>&1; then
+    mark "$n" "$2" build-failed "The commit could not be fetched."
+    return 1
+  fi
+  sha=$(git -C "$bare" rev-parse --verify --quiet "refs/preview/$n^{commit}") || return 1
+  if ! git -C "$bare" cat-file -e "$sha:$recipe" 2>/dev/null; then
+    stop "$n"
+    mark "$n" "$sha" no-recipe "The commit has no $recipe."
+    return 0
+  fi
+  mark "$n" "$sha" building
+  old=$(docker image inspect --format '{{.Id}}' "tehas-preview:$n" 2>/dev/null) || old=""
+  if ! git -C "$bare" archive "$sha" | timeout "$build_limit" docker build --quiet \
+    -f "$recipe" -t "tehas-preview:$n" \
+    --label "tehas.preview=$n" --label "tehas.sha=$sha" --label "tehas.repo=$repo" - >>"$log" 2>&1; then
+    mark "$n" "$sha" build-failed "The build failed or ran over $((build_limit / 60)) minutes. Its output is in logs/preview-$n.log on the host."
+    return 1
+  fi
+  # The same name cannot run twice, so the old container goes first. It is a
+  # few seconds of the router's 404.
+  docker rm -f "tehas-preview-$n" >/dev/null 2>&1
+  if ! docker run --detach --name "tehas-preview-$n" --network "$net" \
+    --read-only --tmpfs /tmp --tmpfs /config --tmpfs /data \
+    --cap-drop ALL --cap-add NET_BIND_SERVICE --security-opt no-new-privileges:true \
+    --memory 256m --cpus 1 --pids-limit 128 --restart unless-stopped \
+    --label "tehas.preview=$n" --label "tehas.sha=$sha" --label "tehas.repo=$repo" \
+    "tehas-preview:$n" >>"$log" 2>&1; then
+    mark "$n" "$sha" build-failed "The container did not start. See logs/preview-$n.log on the host."
+    return 1
+  fi
+  if [ -n "$old" ] && [ "$old" != "$(docker image inspect --format '{{.Id}}' "tehas-preview:$n" 2>/dev/null)" ]; then
+    docker image rm "$old" >/dev/null 2>&1
+  fi
+  mark "$n" "$sha" serving
+}
+
+# --- The list for the dashboard ----------------------------------------------
+write_list() {
+  local files=() f sweep=$root/sweep.json
+  for f in "$root"/*/state.json; do
+    [ -f "$f" ] && files+=("$f")
+  done
+  [ -f "$sweep" ] || sweep=/dev/null
+  # shellcheck disable=SC2016  # a jq program: the variables are jq's
+  edge_put "$live/previews.json" jq -s --arg now "$(date -u +%FT%TZ)" --arg domain "$TEHAS_DOMAIN" \
+    --arg free "$free" --argjson min "$min_kb" --argjson low "$low" --slurpfile sweep "$sweep" '
+    {generatedAt: $now,
+     disk: {freeBytes: (if $free == "" then null else ($free | tonumber) * 1024 end),
+            minFreeBytes: ($min * 1024), low: $low},
+     lastSweep: ($sweep[0] // null),
+     previews: (sort_by(-.number) | map(. + {address:
+       (if .state == "serving" then "https://uat-\(.number).\($domain)/" else null end)}))}' \
+    "${files[@]}" </dev/null
+}
+
+# --- The five minute run -----------------------------------------------------
+run() {
+  local pulls ours pr n sha i=0 open=" " wanted=() elsewhere have item
+  if ! docker info --format '{{.DockerRootDir}}' >/dev/null 2>&1; then
+    echo "Docker does not answer; nothing was built or removed"
+    return 0
+  fi
+  docker network inspect "$net" >/dev/null 2>&1 || docker network create --internal "$net" >/dev/null 2>&1
+
+  if free=$(free_kb); then
+    [ "$free" -ge "$min_kb" ] || low=true
+  else
+    free=""
+    low=true
+  fi
+
+  pulls=$(gh api "repos/$repo/pulls?state=open&sort=created&direction=desc&per_page=100" 2>/dev/null) ||
+    { write_list; return 0; }
+  # Ours: a number, a commit id, and a head in this repository and no other.
+  ours=$(jq -c --arg repo "$repo" '
+    if type != "array" then error("not a list") else . end
+    | map(select((.number | type) == "number" and .number > 0
+                 and ((.head.sha // "") | test("^[0-9a-f]{40}$"))
+                 and ((.head.repo.full_name // "") | ascii_downcase) == ($repo | ascii_downcase))
+          | {number, sha: .head.sha, title: ((.title // "") | .[0:180]), url: (.html_url // null)})
+    | .[]' <<<"$pulls" 2>/dev/null) || { write_list; return 0; }
+  elsewhere=$(jq --arg repo "$repo" '
+    [.[] | select(((.head.repo.full_name // "") | ascii_downcase) != ($repo | ascii_downcase))] | length' \
+    <<<"$pulls" 2>/dev/null) || elsewhere=0
+  if [ "$elsewhere" = 1 ]; then
+    echo "1 pull request from elsewhere, not built"
+  elif [ "$elsewhere" != 0 ]; then
+    echo "$elsewhere pull requests from elsewhere, not built"
+  fi
+
+  while IFS= read -r pr; do
+    [ -n "$pr" ] || continue
+    n=$(jq -r .number <<<"$pr")
+    sha=$(jq -r .sha <<<"$pr")
+    open="$open$n "
+    mkdir -p "$root/$n" || return 1
+    edge_put "$root/$n/pull.json" jq -c '{title, url}' <<<"$pr" || return 1
+    i=$((i + 1))
+    if [ "$i" -gt "$TEHAS_PREVIEW_MAX" ]; then
+      stop "$n"
+      mark "$n" "$sha" over-limit "More than $TEHAS_PREVIEW_MAX pull requests are open."
+      continue
+    fi
+    wanted+=("$n $sha")
+  done <<<"$ours"
+
+  # What is on the host and no longer open: by directory and by container.
+  have=$({
+    edge_numbers "$root"
+    docker ps -a --filter label=tehas.preview \
+      --format '{{.ID}} {{.Label "tehas.preview"}} {{.Label "tehas.repo"}}' 2>/dev/null | awk '{print $2}'
+  } | grep -E '^[1-9][0-9]*$' | sort -un)
+  while IFS= read -r n; do
+    [ -n "$n" ] || continue
+    case "$open" in *" $n "*) continue ;; esac
+    purge "$n"
+    echo "#$n: pull request no longer open, removed"
+  done <<<"$have"
+
+  for item in "${wanted[@]+"${wanted[@]}"}"; do
+    n=${item%% *}
+    sha=${item#* }
+    if serving "$n" "$sha"; then
+      mark "$n" "$sha" serving
+    elif [ "$(field "$n" sha)" = "$sha" ] && case "$(field "$n" state)" in build-failed | no-recipe) true ;; *) false ;; esac; then
+      : # that commit was tried; a new one is tried again
+    elif [ "$low" = true ]; then
+      no_space "$n" "$sha"
+    else
+      build "$n" "$sha"
+    fi
+    comment "$n"
+  done
+  write_list
+}
+
+# no_space <number> <commit>: Task 6 writes the reason.
+no_space() { mark "$1" "$2" no-space "The host is low on disk."; }
+
+# --- The three hour check ----------------------------------------------------
+# Task 8 writes it.
+sweep() {
+  echo "usage: tehasbot preview" >&2
+  return 64
+}
+
+case "$mode" in
+  run) run || exit 1 ;;
+  sweep) sweep; exit $? ;;
+esac
+exit 0
