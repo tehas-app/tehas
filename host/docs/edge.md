@@ -89,10 +89,10 @@ As root there:
 
 ```
 mkdir -p /etc/caddy/certs
+chmod 700 /etc/caddy/certs
 nano /etc/caddy/certs/origin.pem     # the Origin Certificate, with its BEGIN and END lines
 nano /etc/caddy/certs/origin.key     # the Private Key, the same
 chown -R caddy:caddy /etc/caddy/certs
-chmod 700 /etc/caddy/certs
 chmod 644 /etc/caddy/certs/origin.pem
 chmod 600 /etc/caddy/certs/origin.key
 ```
@@ -138,6 +138,8 @@ passed on as it is, which is what the router picks by.
 
 ### 5. Validate, then reload
 
+As root on the proxy's machine, as in step 2:
+
 ```
 caddy validate --config /etc/caddy/Caddyfile && systemctl reload caddy
 ```
@@ -173,6 +175,16 @@ In the instance's `instance.env`:
 TEHAS_DOMAIN=tehas.app
 TEHAS_PREVIEWS=1
 ```
+
+Where the file is depends on the instance directory:
+
+- Inside the platform checkout, as for tehas-tehas, whose settings are
+  `instances/tehas-tehas/` in the repository: commit the two lines to the
+  repository. They arrive on the host with `tehas update` in step 8. Do not
+  edit the file on the host. `tehas update` changes nothing while the
+  checkout has local changes: it stops with exit 1 and
+  `has local changes; nothing was changed`.
+- Anywhere else: edit the file in place on the host.
 
 `TEHAS_PREVIEW_MAX` and `TEHAS_PREVIEW_MIN_FREE` have defaults; see
 [Commands](/tools). `TEHAS_PREVIEWS=1` without a domain stops every command
@@ -233,7 +245,7 @@ is done:
 - the dashboard lists it under Previews,
 - `tail ~/tehas/logs/preview.log` has a line `#<pr>: serving`.
 
-Merge or close it, and within five minutes the log has
+Merge or close it, and at the next run the log has
 `#<pr>: pull request no longer open, removed`, and the name answers 404.
 
 When a preview is not there, the dashboard says why. The pull request's
@@ -267,6 +279,11 @@ Pushing there needs write access. A pull request from a fork never gets one.
   this is accepted today.
 - The origin certificate is trusted by Cloudflare only. A browser sent
   straight to the proxy's machine for these names is warned.
+- Not checked: the origin certificate covers `tehas.app` too, so Caddy on the
+  proxy may serve it for the dashboard's own names in place of the
+  certificate it got for them. Behind Cloudflare nothing changes.
+  `journalctl -u caddy | grep 'skipping automatic certificate management'` on
+  the proxy shows whether it does.
 - Under `TEHAS_PREVIEW_MIN_FREE` of free disk no preview is built. Docker's
   build cache is not pruned by tehas.
 - A full disk does not stop a cycle. Only previews hold back.

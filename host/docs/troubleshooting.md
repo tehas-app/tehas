@@ -252,10 +252,11 @@ state says which of two things happened:
 - The build failed or ran over 15 minutes. The same commit is not built
   again. Push a new commit and that one is tried. A preview of the earlier
   commit keeps serving meanwhile.
-- The container did not start. That can be the host and not the commit, so
-  it is tried again at each of the next three runs, and then no more for that
-  commit. The usual cause that stays is an image that writes outside `/tmp`,
-  `/config` and `/data`, or one that does not start without a variable.
+- The container did not start: Docker could not create or start it, such as
+  an image whose command is not in it. That can also be the host and not the
+  commit, so it is tried again at each of the next three runs, and then no
+  more for that commit. A container that starts and then stops is not this
+  case: see the `serving` state that answers 404, below.
 
 To have the same commit built again, remove the state and let the next run
 find the pull request anew: `rm -r ~/tehas/preview/<pr>`.
@@ -267,7 +268,7 @@ says `warn`.
 ```
 df -h ~/tehas
 docker system df
-docker image prune      # removes images nothing uses
+docker image prune      # removes images with no tag that nothing uses
 ```
 
 The next run builds. tehas does not prune Docker's build cache;
@@ -277,7 +278,8 @@ slower.
 **`over-limit`.** More than `TEHAS_PREVIEW_MAX` pull requests are open, and
 the newest ones win. Close one, or raise the setting in `instance.env`.
 
-**No state, and the log says `the commit could not be fetched`.** The bare
+**No new state, and the log says `the commit could not be fetched`.** A pull
+request that had a state keeps it, and a new one has none. The bare
 clone `~/tehas/preview/repo.git` could not fetch from the product's origin.
 It is tried again at every run. The git message is in
 `~/tehas/logs/preview-<pr>.log`. Check that `git -C ~/tehas/preview/repo.git
@@ -301,17 +303,23 @@ docker network create --internal tehas-previews
 Check `docker info` as the tehas user.
 
 **The state is `serving` and the name answers 404** with "No preview is
-running at this address". The router did not reach the container. Is it
-running, and is the router on the previews' network?
+running at this address". `serving` means the container was started, not that
+it answers. The router did not reach it.
 
 ```
-docker ps --filter name=tehas-preview-<pr>
-docker network inspect tehas-previews --format '{{range .Containers}}{{.Name}} {{end}}'
+docker ps -a --filter name=tehas-preview-<pr>
 docker logs tehas-preview-<pr>
+docker network inspect tehas-previews --format '{{range .Containers}}{{.Name}} {{end}}'
 ```
 
-The second line has to name the router and the preview. An image that does
-not answer on port 8080 gives the same 404.
+- The first line says `Restarting`, or an age of seconds that never grows:
+  the process starts and stops, and Docker starts it again. The state stays
+  `serving` and the pull request keeps its comment with the address while
+  that goes on. The second line says why. The usual causes are an image that
+  writes outside `/tmp`, `/config` and `/data`, and one that does not start
+  without a variable. Fix the recipe and push; the new commit is built.
+- The container is up: the image does not answer on port 8080, or the third
+  line does not name both the router and the preview.
 
 **502 from outside.** The proxy in front of the host got no answer from port
 8081: the edge router is not running, or it is bound to another address than

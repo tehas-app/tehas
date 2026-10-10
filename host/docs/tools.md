@@ -431,8 +431,9 @@ are enabled. Both write to `~/tehas/logs/preview.log`.
 2. It measures the free space: the smaller of the file system of `~/tehas`
    and the one Docker keeps its images on.
 3. It asks GitHub for the open pull requests, the newest 100. No answer, an
-   empty answer, or one that is not a list ends the run: nothing is built and
-   nothing is removed.
+   answer with nothing in it, or one that is not a list ends the run: nothing
+   is built and nothing is removed. A list with no pull request in it is an
+   answer, and every preview is then removed.
 4. A pull request whose head is in another repository is counted in the log
    and never built. Of the rest, the newest `TEHAS_PREVIEW_MAX` get a
    preview.
@@ -450,7 +451,7 @@ Each pull request has a state, in `~/tehas/preview/<pr>/state.json`:
 
 | State | Meaning | Tried again |
 | --- | --- | --- |
-| `serving` | A container of that commit runs | Not needed |
+| `serving` | A container of that commit was started. It is not asked whether it answers | Not needed |
 | `building` | The build is under way | |
 | `no-recipe` | The commit has no `preview/Dockerfile`. A preview of an earlier commit is removed | At a new commit |
 | `build-failed` | The build failed or ran over 15 minutes: a preview of an earlier commit keeps serving. Or the container did not start | A failed build: at a new commit, not for the same one. A container that did not start: at each of the next three runs, then at a new commit |

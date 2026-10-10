@@ -278,7 +278,7 @@ recipe by hand, from the product's checkout:
 
 ```
 git archive HEAD | docker build -f preview/Dockerfile -t tehas-preview:local -
-docker run --rm -p 127.0.0.1:8080:8080 --read-only --tmpfs /tmp --tmpfs /config --tmpfs /data \
+docker run --rm -p 127.0.0.1:18080:8080 --read-only --tmpfs /tmp --tmpfs /config --tmpfs /data \
   --cap-drop ALL --cap-add NET_BIND_SERVICE --security-opt no-new-privileges:true \
   --memory 256m --cpus 1 --pids-limit 128 tehas-preview:local
 ```
