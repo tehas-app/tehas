@@ -37,6 +37,7 @@ files="./.config/systemd/user/tehas-dispatch.service
 ./.pi/agent/models.json
 ./.pi/agent/settings.json
 ./tehas/bin/tehas-console.ts
+./tehas/bin/tehas-dev
 ./tehas/bin/tehas-dispatch
 ./tehas/bin/tehas-energy
 ./tehas/bin/tehas-health

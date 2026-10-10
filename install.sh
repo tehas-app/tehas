@@ -118,7 +118,7 @@ files=(
   "pi/mcp.json|$agent/mcp.json|644"
   "$instance/models.json|$agent/models.json|644"
 )
-for f in tehas-console.ts tehas-dispatch tehas-energy tehas-health tehas-protolab tehas-status tehas-work tehas-test; do
+for f in tehas-console.ts tehas-dev tehas-dispatch tehas-energy tehas-health tehas-protolab tehas-status tehas-work tehas-test; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
 # Pi's own settings: the instance may bring its own (default provider and

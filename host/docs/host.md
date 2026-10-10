@@ -19,10 +19,12 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | ------------------------------------ | ----------------------------------------------------------------------- |
 | `~/tehas/env.sh`                     | Environment for every tehas process; sourced from `~/.bashrc`           |
 | `~/tehas/lib/config.sh`              | Loads and checks the instance settings; sourced by every command        |
+| `~/tehas/lib/sandbox.sh`             | What a sandbox container is given; sourced by `tehas-work` and `tehas-dev` |
 | `~/tehas/bin/`                       | The tehas commands, plus `gh`                                           |
 | `~/tehas/platform`                   | Checkout of this repository; `install.sh` runs from it                  |
 | `~/tehas/repos/tehas`                | The product checkout, on the default branch. Cycles are cloned from it; no container is given it |
 | `~/tehas/work/tehas`                 | The cycle's workspace: a fresh clone made for each cycle, removed before the next |
+| `~/tehas/dev/<name>`                 | A person's clone for working by hand, made and used by `tehas-dev`, never removed. `<name>.author` next to it holds whose name its commits carry |
 | `~/tehas/repos/pi-rukas`             | pi-rukas, pinned to a commit                                            |
 | `~/tehas/docs/`, `~/tehas/fun/`      | This site's pages and the front page, installed from `host/`            |
 | `~/tehas/sandbox/`, `versions.env`   | Sandbox image definition, build script, and the pinned tool versions    |
@@ -265,6 +267,23 @@ Two recommendations follow from that table:
 `test/work_test.sh` in the platform repository pins what the container is
 given: the mounts, the variables and every other option of both `docker run`
 calls.
+
+### A session by hand
+
+`tehas-dev` starts the same container for a person, and the table above holds
+for it with these differences:
+
+| Question                    | Answer                                                                                                             |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Who can start one           | Anyone who can log in as the tehas user. That account already holds the bot token and is root-equivalent           |
+| The tree it works in        | `~/tehas/dev/<name>`, kept between sessions, where a cycle gets a fresh clone                                       |
+| git identity                | The stored author of that clone, else the bot's. A label: it is not checked against anything                       |
+| What else enters            | A terminal, and `TERM` and `COLORTERM` from the shell. Nothing else of the host environment, and not `~/.config/gh` |
+| What the host runs from the clone | Nothing. The host runs git there once, to make it, and never again                                           |
+
+`test/dev_test.sh` pins the session's `docker run` the same way. Both commands
+take the mounts and variables from `lib/sandbox.sh`, so they cannot differ by
+accident.
 
 A host that ran cycles before the workspace existed gave its containers the
 product checkout itself. Replace that checkout once with a fresh clone, so

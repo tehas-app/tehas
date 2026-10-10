@@ -103,6 +103,41 @@ stream is kept in `~/tehas/logs/work-<issue>-<time>.jsonl`. The limits are
 The bot's git identity is the tehas user's global `user.name` and `user.email`
 on the host.
 
+## tehas-dev
+
+An interactive Pi session with pi-rukas, in the sandbox image, in a clone of
+the product that is kept. For working by hand; see
+[Operating](/operating).
+
+```
+tehas-dev [<name>] [--author "Name <email>"] [-- <pi arguments>]
+tehas-dev --help
+```
+
+`<name>` names the clone, `~/tehas/dev/<name>`: letters, digits, `_` and `-`,
+`main` when left out. It is made on first use from the product checkout and
+never reset or removed. `--author` is stored in `~/tehas/dev/<name>.author` and
+becomes git's name and email in every session of that clone; without one the
+bot's are used. What follows `--` is passed to `pi`.
+
+| Exit | Meaning                                                                                   |
+| ---- | ----------------------------------------------------------------------------------------- |
+| any  | The session's own exit status, as Docker reports it                                       |
+| 64   | A wrong argument, a malformed author, no bot token or no git identity; no container       |
+| 78   | The instance settings are invalid, or the clone's directory is not a clone; no container  |
+
+Arguments are checked before the settings are read, so `--help` works on a
+host with no instance and a mistyped argument makes no clone.
+
+The container is the one `tehas-work` starts, with a terminal: the same image,
+limits, mounts, token and settings. It is named `tehas-dev-<name>`, so a clone
+has one session at a time. The command does not take the dispatcher's lock and
+writes nothing under `~/tehas/live`. It needs a terminal; Docker refuses to
+start it without one.
+
+After the clone is made the host runs no git command in it, because agents
+have written there since.
+
 ## tehas-status and tehas-console.ts
 
 Feed the [factory floor](/) and the [plain dashboard](/dashboard). `tehas-status` writes the queue snapshot to
