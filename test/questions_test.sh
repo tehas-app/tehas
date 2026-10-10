@@ -68,6 +68,21 @@ clean=$(printf 'key ghp_abcdefghijklmnopqrstu and GH_TOKEN=abc at %s:80 on %s\np
 t_eq "$clean" "key ghp_*** and GH_TOKEN=*** at [private address]:80 on [private name]
 postgres://u:***@${zw}db/x"
 
+t_case "IPv6 unique-local addresses are masked, as the console does"
+# Built here, like the others, so the name lint stays green.
+v6="$(printf fd)7a:115c:a1e0::1"
+v6u=${v6^^}
+v6c="$(printf fc)00:1::2"
+t_eq "$(printf 'at [%s]:80\n' "$v6" | q_clean)" "at [[private address]]:80"
+t_eq "$(printf '%s\n' "$v6u" | q_clean)" "[private address]"
+t_eq "$(printf 'from %s, then %s.\n' "$v6" "$v6c" | q_clean)" "from [private address], then [private address]."
+t_eq "$(printf '%s\n' "$v6" | q_clean)" "[private address]"
+
+t_case "look-alikes of IPv6 unique-local addresses are left alone"
+for s in "0$v6" "a:$v6" "fd12:30" "2001:db8::1" "fdisk and fdatasync" "feed:beef:cafe::1"; do
+  t_eq "$(printf '%s\n' "$s" | q_clean)" "$s"
+done
+
 t_case "a public address is left alone"
 t_eq "$(echo 'see 192.0.2.7 and 8.8.8.8' | q_clean)" 'see 192.0.2.7 and 8.8.8.8'
 

@@ -15,7 +15,7 @@
 # <kind> is plan (a planning turn) or park (a cycle that stopped).
 
 # What an agent wrote goes to a public issue. Tokens, database passwords,
-# private IPv4 addresses and tailnet names are masked: a copy in sed of the
+# private IPv4 and IPv6 unique-local addresses and tailnet names are masked: a copy in sed of the
 # console's rules for those (console/src/mask.rs), so this file needs no
 # program beside it. Three more things are taken out because the comment is
 # parsed again later or read by people: a comment marker, a task-list box, and
@@ -29,6 +29,7 @@ q_clean() {
     -e 's#(postgres(ql)?://[^:[:space:]/]+:)[^@[:space:]]+@#\1***@#g' \
     -e 's/(^|[^A-Z0-9_])([A-Z0-9_]*(TOKEN|SECRET|PASSWORD|API_KEY)[A-Z0-9_]*=)[^[:space:]]+/\1\2***/g' \
     -e 's/(^|[^0-9.])(10\.[0-9]{1,3}|192\.168|172\.(1[6-9]|2[0-9]|3[01])|169\.254|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7]))\.[0-9]{1,3}\.[0-9]{1,3}/\1[private address]/g' \
+    -e 's/(^|[^0-9A-Fa-f:])[fF][cCdD][0-9A-Fa-f]{2}(:[0-9A-Fa-f]{0,4}){2,}/\1[private address]/g' \
     -e 's/[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.ts\.net/[private name]/g' \
     -e 's/<!--/<\\!--/g' \
     -e 's/^([[:space:]]*[-*+][[:space:]]+)\[([ xX])\]/\1\\[\2]/' \
