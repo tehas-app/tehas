@@ -1135,6 +1135,14 @@ t_run "$dispatch"
 t_contains "$(t_calls gh)" "could not start"
 t_eq "$([ -e "$record" ] && echo kept)" ""
 
+t_case "the record lists the options that were posted, so a box and its option keep the same place"
+to_plan
+jq -n '{session: "abc-123", text: "Many ways.", question: {question: "Which?", options: [range(30) | {label: "Way \(.)", description: ""}]}}' >"$fx/plan-result.json"
+t_run "$dispatch"
+t_eq "$(jq -c '[(.options | length), .options[0], .options[19]]' "$record")" '[20,"Way 0","Way 19"]'
+t_eq "$(t_calls gh | grep -c '^- \[ \] Way ')" 20
+t_contains "$(t_calls gh)" "Options left out: 10."
+
 t_case "a ticked option goes to the session as the next message"
 planning
 comments 7 "$(plan_body ' ' x ' ')" alice

@@ -3,7 +3,8 @@
 # text out: nothing here calls GitHub, so every function can be tested with a
 # string. Sourced by bin/tehas-dispatch.
 #
-#   q_clean                          stdin to stdout: an agent's words, safe to post
+#   q_clean [max characters]         stdin to stdout: an agent's words, safe to
+#                                    post, cut at the limit [60000]
 #   q_render <kind> <issue> <turn> <result.json>
 #                                    the body of a question comment
 #   q_answer <bot> <allowed logins> [comment id]
@@ -20,7 +21,7 @@
 # go first: the web interface turns a lone one into a line end, and the escaping
 # below only looks at line starts, so a lone one would start an unescaped box.
 q_clean() {
-  local zw=$'\xe2\x80\x8b'
+  local zw=$'\xe2\x80\x8b' max=${1:-60000}
   tr -d '\r' | sed -E \
     -e 's/(^|[^A-Za-z0-9_])(gh[pousr]_|github_pat_)[A-Za-z0-9_]{16,}/\1\2***/g' \
     -e 's#(postgres(ql)?://[^:[:space:]/]+:)[^@[:space:]]+@#\1***@#g' \
@@ -30,21 +31,34 @@ q_clean() {
     -e 's/<!--/<\\!--/g' \
     -e 's/^([[:space:]]*[-*+][[:space:]]+)\[([ xX])\]/\1\\[\2]/' \
     -e "s/@([A-Za-z0-9])/@$zw\\1/g" |
-    jq -Rrs '.[0:60000] | sub("\n+$"; "")'
+    jq -Rrs --argjson max "$max" '.[0:$max] | sub("\n+$"; "")'
 }
+
+# GitHub refuses a comment of more than 65 536 characters, and a question that
+# cannot be posted would be tried again on every poll for ever. So each part
+# has a limit of its own and the whole always fits: the message 40 000, the
+# question 4 000, and at most Q_MAX_OPTIONS options of 300 for the label and
+# 600 for the description. That is under 63 000 with the fixed lines. The
+# record of a planning session lists the same first Q_MAX_OPTIONS options, so
+# a ticked box and its option keep the same place.
+Q_MAX_OPTIONS=20
 
 q_render() {
   local kind=$1 issue=$2 turn=$3 file=$4 n i label desc
-  jq -r '.text // ""' "$file" | q_clean || return 1
+  jq -r '.text // ""' "$file" | q_clean 40000 || return 1
   if [ "$(jq -r '.question != null' "$file")" = true ]; then
     printf '\n'
-    jq -r '.question.question // ""' "$file" | q_clean
+    jq -r '.question.question // ""' "$file" | q_clean 4000
   fi
   printf '\n'
   n=$(jq '(.question.options // []) | length' "$file") || return 1
+  if [ "$n" -gt "$Q_MAX_OPTIONS" ]; then
+    printf 'Options left out: %s. A reply can name another choice.\n\n' "$((n - Q_MAX_OPTIONS))"
+    n=$Q_MAX_OPTIONS
+  fi
   for ((i = 0; i < n; i++)); do
-    label=$(jq -r --argjson i "$i" '.question.options[$i].label // "" | gsub("[\r\n]+"; " ")' "$file" | q_clean)
-    desc=$(jq -r --argjson i "$i" '.question.options[$i].description // "" | gsub("[\r\n]+"; " ")' "$file" | q_clean)
+    label=$(jq -r --argjson i "$i" '.question.options[$i].label // "" | gsub("[\r\n]+"; " ")' "$file" | q_clean 300)
+    desc=$(jq -r --argjson i "$i" '.question.options[$i].description // "" | gsub("[\r\n]+"; " ")' "$file" | q_clean 600)
     printf -- '- [ ] %s\n' "$label"
     [ -z "$desc" ] || printf '  %s\n' "$desc"
   done

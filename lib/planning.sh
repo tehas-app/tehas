@@ -1,14 +1,14 @@
 # shellcheck shell=bash
 # The steps of a planning session. Sourced by bin/tehas-dispatch, and written
 # for it: these functions use the dispatcher's own helpers (log, say,
-# post_question, refresh_checkout, wait_for) and its variables (repo, plan_cmd,
-# who, posted).
+# post_question, refresh_checkout, wait_for), its variables (repo, plan_cmd,
+# who, posted) and Q_MAX_OPTIONS of lib/questions.sh.
 #
 # A session is a Pi session that lives across polls. Its record is
 # $TEHAS_HOME/state/plan-<issue>.json:
 #   session   the Pi session id, to reopen it
 #   turns     how many turns have run
-#   options   the labels of the choices in the open question, in order
+#   options   the labels of the choices posted in the open question, in order
 #   pending   true while a turn's outcome has not been posted yet
 #   failed    true when the last turn did not finish
 #   running   true while a turn is in flight
@@ -128,8 +128,9 @@ plan_finish() {
     fi
   fi
   if [ "$ok" = 1 ]; then
-    jq -c --argjson turns "$turns" \
-      '{session, turns: $turns, options: [.question.options[]?.label], pending: true, failed: false, running: false}' "$out" >"$st.new" &&
+    # The options on record are the ones q_render posts, in the same order.
+    jq -c --argjson turns "$turns" --argjson max "${Q_MAX_OPTIONS:?}" \
+      '{session, turns: $turns, options: [(.question.options // [])[0:$max][]?.label], pending: true, failed: false, running: false}' "$out" >"$st.new" &&
       mv "$st.new" "$st"
   elif [ -n "$sid" ]; then
     # The session exists, so a reply can run the turn again.

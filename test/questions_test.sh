@@ -77,6 +77,36 @@ t_eq "$(echo 'ask @alice, mail a@b.c' | q_clean)" "ask @${zw}alice, mail a@${zw}
 t_case "a very long message is cut"
 t_eq "$(head -c 70000 /dev/zero | tr '\0' 'a' | q_clean | wc -c)" 60001
 
+t_case "the cut is where the caller asks for it"
+t_eq "$(head -c 70000 /dev/zero | tr '\0' 'a' | q_clean 300 | wc -c)" 301
+
+# GitHub refuses a comment over 65 536 characters, and a comment that cannot
+# be posted is tried again on every poll for ever.
+t_case "a question with far too much in it still fits in a comment"
+jq -n '("m" * 70000) as $m | ("q" * 10000) as $q | ("l" * 1000) as $l | ("d" * 2000) as $d
+  | {text: $m, question: {question: $q, options: [range(30) | {label: "\(.) \($l)", description: $d}]}}' >"$T/big.json"
+body=$(q_render plan 7 4 "$T/big.json")
+t_eq "$([ "$(printf '%s' "$body" | wc -c)" -lt 65000 ] && echo fits)" fits
+t_eq "$(printf '%s\n' "$body" | grep -c '^- \[ \] ')" 21
+t_eq "$(printf '%s\n' "$body" | grep -c -x 'Options left out: 10. A reply can name another choice.')" 1
+t_eq "$(printf '%s\n' "$body" | tail -n 1)" '<!-- tehas:question kind=plan issue=7 turn=4 -->'
+t_eq "$(printf '%s\n' "$body" | grep -c '^- \[ \] End this planning session$')" 1
+
+t_case "each part has its own limit: message, question, label, description"
+t_eq "$(printf '%s\n' "$body" | grep -E -x 'm+' | wc -c)" 40001
+t_eq "$(printf '%s\n' "$body" | grep -E -x 'q+' | wc -c)" 4001
+t_eq "$(printf '%s\n' "$body" | grep -m 1 '^- \[ \] 0 ' | wc -c)" 307
+t_eq "$(printf '%s\n' "$body" | grep -m 1 -E -x '  d+' | wc -c)" 603
+
+t_case "the options kept are the first twenty, in order"
+t_eq "$(printf '%s\n' "$body" | sed -n 's/^- \[ \] \([0-9]*\) l.*/\1/p' | tr '\n' ' ')" "$(seq -s ' ' 0 19) "
+
+t_case "twenty options are all kept and nothing is said to be left out"
+jq '.question.options |= .[0:20]' "$T/big.json" >"$T/twenty.json"
+body=$(q_render plan 7 4 "$T/twenty.json")
+t_eq "$(printf '%s\n' "$body" | grep -c '^- \[ \] ')" 21
+t_lacks "$body" "left out"
+
 # The issue's comments as GraphQL answers them: a stranger's comment that
 # copies the marker, then the bot's question, then whatever came later.
 ask() { # <question body> <editor or ""> [later comments as JSON]
