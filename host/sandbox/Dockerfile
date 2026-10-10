@@ -5,8 +5,8 @@
 #     vscode = UID 1000; with another id on the host, bind-mounted host
 #     directories are not writable),
 #   - shellcheck, which gates commonly run (.pi/verify-cmd, .pi/smoke-cmd),
-#   - a place of the cycle's own for the crates cargo fetches (the upstream
-#     image has Rust, and a registry only root can write),
+#   - cargo's registry given to that user (the upstream image has Rust, and
+#     a registry only root can write, so a gate could not fetch a crate),
 #   - Playwright's Chromium with its system libraries and fonts, for a
 #     product's browser checks.
 #
@@ -29,6 +29,10 @@ RUN if [ "$TEHAS_UID" != 1000 ]; then \
       && find / -xdev \( -user 1000 -o -group 1000 \) -exec chown -h vscode:vscode {} + ; \
     fi
 
+# What a gate fetches stays in its own container and goes with it: a registry
+# kept between cycles would be code one cycle leaves for the next one's gate.
+RUN mkdir -p /usr/local/cargo/registry && chown -R vscode:vscode /usr/local/cargo/registry
+
 RUN curl -fsSL "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" -o /tmp/shellcheck.tar.xz \
  && echo "${SHELLCHECK_SHA256}  /tmp/shellcheck.tar.xz" | sha256sum -c - \
  && tar -xJf /tmp/shellcheck.tar.xz -C /tmp \
@@ -41,7 +45,3 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 RUN npx --yes "playwright@${PLAYWRIGHT_VERSION}" install --with-deps chromium \
  && chmod -R a+rX /opt/ms-playwright \
  && rm -rf /var/lib/apt/lists/* /root/.npm
-
-# Set last, so nothing above installs into it. The cache directory is a volume
-# every cycle mounts, so a gate that builds Rust fetches a crate once.
-ENV CARGO_HOME=/home/vscode/.cache/cargo

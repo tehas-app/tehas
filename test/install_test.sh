@@ -13,10 +13,7 @@
 install="$T_ROOT/install.sh"
 home=$T/home
 th=$home/tehas
-# What every run here is given: no dependency check and no tests inside a
-# test, and a scratch place for the console's build.
-base=(T_IN_TEST=1 CARGO_TARGET_DIR="$T/target")
-T_ENV=("${base[@]}")
+T_ENV=(T_IN_TEST=1)
 
 t_stub docker
 t_stub systemctl
@@ -153,44 +150,81 @@ t_eq "$(cmp -s "$th/libexec/dispatch" "$T_ROOT/libexec/dispatch" && echo same)" 
 t_contains "$(cat "$th/libexec/dispatch.prev")" "# edited on the host"
 
 t_case "the console is built once, from the lock file, and installed as a program"
-t_eq "$(t_calls cargo)" "build --release --locked --quiet --manifest-path $T_ROOT/console/Cargo.toml"
+t_eq "$(t_calls cargo)" "build --release --locked --quiet --manifest-path $T_ROOT/console/Cargo.toml --target-dir $T/target"
 t_eq "$(stat -c %a "$th/libexec/console")" 755
 t_eq "$(cat "$th/libexec/console")" "a console built from source"
 
 t_case "a console built from other source is drift, and --check builds nothing"
-echo "the checksum of other source" >"$th/libexec/console.stamp"
-echo "# the console of before" >"$th/libexec/console"
+sed -i 's/^[0-9a-f]*/0000/' "$th/libexec/console.stamp"
 rm -f "$T/calls/cargo"
 t_run "$install --check"
 t_eq "$t_rc" 1
 t_contains "$t_out" "Installed:    DRIFT (1 files)"
 t_contains "$t_out" "differs: $th/libexec/console"
 t_eq "$(t_calls cargo)" ""
-t_eq "$(find "$T/target" -newer "$th/libexec/console" | wc -l)" 0
 
-t_case "a real run builds it again and keeps the old one as .prev"
-T_ENV=("${base[@]}" CONSOLE_BUILD="new source")
+t_case "a real run builds it again"
+T_ENV=(T_IN_TEST=1 CONSOLE_BUILD="new source")
 t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "installed: $th/libexec/console"
 t_eq "$(cat "$th/libexec/console")" "a console built from new source"
-t_eq "$(cat "$th/libexec/console.prev")" "# the console of before"
+t_eq "$(cat "$th/libexec/console.prev")" "a console built from source"
 t_eq "$(t_calls cargo | wc -l)" 1
 t_run "$install --check"
 t_contains "$t_out" "Installed:    OK"
-T_ENV=("${base[@]}")
 
-t_case "a console that does not build installs nothing and exits 1"
+t_case "a console changed on the host is drift though its stamp is as it was"
+echo "# another program" >"$th/libexec/console"
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "differs: $th/libexec/console"
+t_run "$install"
+t_contains "$t_out" "installed: $th/libexec/console"
+t_eq "$(cat "$th/libexec/console")" "a console built from new source"
+t_eq "$(cat "$th/libexec/console.prev")" "# another program"
+t_run "$install --check"
+t_contains "$t_out" "Installed:    OK"
+T_ENV=(T_IN_TEST=1)
+
+t_case "the build is not given the bot's token"
 fresh
 instance
-T_ENV=("${base[@]}" CARGO_RC=101)
+t_stub cargo 'env >"$T/cargo.env"
+mkdir -p "$CARGO_TARGET_DIR/release" && echo built >"$CARGO_TARGET_DIR/release/console"'
+T_ENV=(T_IN_TEST=1 GH_TOKEN=test-token)
 t_run "$install"
+t_eq "$t_rc" 0
+t_lacks "$(cat "$T/cargo.env")" "test-token"
+t_stub_cargo
+T_ENV=(T_IN_TEST=1)
+
+for failure in CARGO_RC=101 NO_CONSOLE=1; do
+  t_case "a console that does not build installs nothing and exits 1 ($failure)"
+  fresh
+  instance
+  # What an earlier build left is not taken for this one's.
+  mkdir -p "$T/target/release"
+  echo "an earlier build" >"$T/target/release/console"
+  T_ENV=(T_IN_TEST=1 "$failure")
+  t_run "$install"
+  t_eq "$t_rc" 1
+  t_contains "$t_out" "the console did not build"
+  t_eq "$(find "$home" -type f | wc -l)" 0
+done
+T_ENV=(T_IN_TEST=1)
+
+t_case "a checkout without the console's source installs nothing and exits 1"
+fresh
+instance
+bare=$T/bare
+rm -rf "$bare"
+mkdir -p "$bare"
+cp -R "$T_ROOT/install.sh" "$T_ROOT/lib" "$T_ROOT/host" "$T_ROOT/bin" "$T_ROOT/libexec" "$bare/"
+t_run "$bare/install.sh"
 t_eq "$t_rc" 1
-t_contains "$t_out" "error: could not compile console"
-t_contains "$t_out" "the console did not build"
-t_contains "$t_out" "nothing was installed"
+t_contains "$t_out" "$bare/console is missing from this checkout"
 t_eq "$(find "$home" -type f | wc -l)" 0
-T_ENV=("${base[@]}")
 
 t_case "an instance with a missing setting installs nothing and exits 78"
 fresh
@@ -395,20 +429,20 @@ t_eq "$(index_runs)" 0
 
 t_case "an install without the sandbox image names the indexing step"
 product
-T_ENV=("${base[@]}" IMAGE_RC=1)
+T_ENV=(T_IN_TEST=1 IMAGE_RC=1)
 t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "later: $th/bin/tehas index"
 t_eq "$(index_runs)" 0
 
 t_case "--check builds no index"
-T_ENV=("${base[@]}")
+T_ENV=(T_IN_TEST=1)
 t_run "$install --check"
 t_eq "$(index_runs)" 0
 t_eq "$(find "$th/state/index.json" 2>/dev/null | wc -l)" 0
 
 t_case "a failed indexing is a warning, and the install still succeeds"
-T_ENV=("${base[@]}" RUN_RC=1)
+T_ENV=(T_IN_TEST=1 RUN_RC=1)
 t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "WARN: the code index was not built"
@@ -416,7 +450,7 @@ t_contains "$t_out" "later: $th/bin/tehas index"
 
 t_case "with the image and the checkout, the install builds the index"
 rm -f "$T"/calls/*
-T_ENV=("${base[@]}")
+T_ENV=(T_IN_TEST=1)
 t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "tehas index: widget indexed"

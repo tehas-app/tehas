@@ -870,8 +870,7 @@ protolab --force-recreate"
 t_case "the real install.sh through tehas update runs its follow-ups in its order"
 instance_models
 real_platform
-# install.sh skips bootstrap and the tests inside a test, and its cargo is a stub.
-T_ENV=(T_IN_TEST=1 CARGO_TARGET_DIR="$T/target")
+T_ENV=(T_IN_TEST=1)   # install.sh skips bootstrap and the tests inside a test
 t_run "$update"
 t_eq "$t_rc" 0
 t_contains "$t_out" "installed: $th/libexec/update"
@@ -896,7 +895,7 @@ instance_models
 real_platform
 t_stub systemctl 'if [ "$2" = daemon-reload ]; then echo "Failed to connect to bus: No such file or directory" >&2; exit 1; fi
 if [ "$2" = is-active ]; then echo active; fi'
-T_ENV=(T_IN_TEST=1 CARGO_TARGET_DIR="$T/target")
+T_ENV=(T_IN_TEST=1)
 t_run "$update"
 t_eq "$t_rc" 1
 t_contains "$t_out" "systemd: systemctl --user daemon-reload did not run; the changed unit files are not in effect, no unit was restarted, and the step is not done"

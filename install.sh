@@ -13,11 +13,13 @@
 #
 # It copies files, and compiles one: the console of a running cycle is a Rust
 # program in console/. A real run builds it with cargo in this checkout
-# (console/target, which git ignores) and installs it as libexec/console, with
-# the checksum of its source beside it as console.stamp. It is built again
-# only when that source has changed, and the first build fetches its crates
-# from the network. --check compares the checksum and builds nothing. A
-# console that does not build stops a real run before it changes anything.
+# (console/target, which git ignores) and installs it as libexec/console.
+# Beside it, console.stamp holds two checksums: of the source it was built
+# from and of the program itself. It is built again only when the source has
+# changed or the program is not the one that was installed, and the first
+# build fetches its crates from the network. --check compares the checksums
+# and builds nothing. A console that does not build stops a real run before
+# it changes anything.
 #
 # It does not start the dispatcher or the docs server, rebuild the sandbox image or touch secrets (~/.config/tehas/env); the
 # follow-up steps are printed when their inputs changed. A replaced file is
@@ -211,26 +213,34 @@ record_step() { # one source path from the file table
 
 # --- 3. Install ---------------------------------------------------------------
 # The console first: a build that fails must leave the host as it was. What is
-# installed is judged by the source it was built from, not by building again.
+# installed is judged without building: by the checksum of every file the
+# build reads, and by the checksum of the program that was installed.
 console_to=$TEHAS_HOME/libexec/console
-console_stamp=$( (cd "$root/console" && LC_ALL=C && cat Cargo.toml Cargo.lock src/*.rs | sha256sum | cut -d' ' -f1) 2>/dev/null) ||
-  { echo "tehas: $root/console is missing from this checkout" >&2; exit 1; }
-if [ ! -x "$console_to" ] || [ "$(cat "$console_to.stamp" 2>/dev/null)" != "$console_stamp" ]; then
-  changed+=("libexec/console")
+[ -d "$root/console" ] || { echo "tehas: $root/console is missing from this checkout" >&2; exit 1; }
+console_source=$(cd "$root/console" && find . -type f ! -path './target/*' ! -path './tests/*' -print0 |
+  LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1) ||
+  { echo "tehas: could not read the console's source in $root/console" >&2; exit 1; }
+console_sum() { sha256sum <"$1" | cut -d' ' -f1; }
+if [ ! -x "$console_to" ] || [ "$(cat "$console_to.stamp" 2>/dev/null)" != "$console_source $(console_sum "$console_to")" ]; then
   if [ "$check" = 1 ]; then
+    changed+=("libexec/console")
     if [ -f "$console_to" ]; then note "differs: $console_to"; else note "missing: $console_to"; fi
   else
-    built=${CARGO_TARGET_DIR:-$root/console/target}/release/console
-    if ! out=$(cargo build --release --locked --quiet --manifest-path "$root/console/Cargo.toml" 2>&1) || [ ! -f "$built" ]; then
+    # The target directory is named, so the program is where this looks for
+    # it whatever cargo's own configuration says, and the old one is removed
+    # first, so what is installed is what this build made. The build scripts
+    # of the crates run here: they are not given the bot's token.
+    target=${CARGO_TARGET_DIR:-$root/console/target}
+    built=$target/release/console
+    rm -f "$built"
+    if ! out=$(env -u GH_TOKEN cargo build --release --locked --quiet \
+      --manifest-path "$root/console/Cargo.toml" --target-dir "$target" 2>&1) || [ ! -f "$built" ]; then
       printf '%s\n' "$out" | tail -n 20 >&2
       echo "tehas: the console did not build (cargo build --release --locked in $root/console); nothing was installed" >&2
       exit 1
     fi
-    mkdir -p "$TEHAS_HOME/libexec"
-    [ -f "$console_to" ] && cp -p "$console_to" "$console_to.prev"
-    install -m 755 "$built" "$console_to"
-    echo "$console_stamp" >"$console_to.stamp"
-    echo "installed: $console_to"
+    put "$built|$console_to|755"
+    echo "$console_source $(console_sum "$console_to")" >"$console_to.stamp"
   fi
 fi
 
