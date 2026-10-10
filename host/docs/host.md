@@ -304,11 +304,11 @@ The number is digits only and does not start with a zero. Another `uat-` or
 configuration is a fixed file and holds no domain: nothing writes it when a
 preview comes or goes. It is on two Docker networks: one of its own for the
 published port, and `tehas-previews`, an internal one that the previews are
-on and the host has no address on. `install.sh` makes that network, with an
-option that needs Docker 27.1 or later. Where the network is there already
-and is not internal and isolated from the host, `install.sh` leaves it and
-says that it has to be remade. [Troubleshooting](/troubleshooting) has the
-lines.
+on and the host has no address on. `install.sh` makes that network when
+Docker is 27.1 or later, and says so when it is not: an older Docker would
+make one that gives the host an address. Where the network is there already
+and does not keep the host out, `install.sh` leaves it and says why and that
+it has to be remade. [Troubleshooting](/troubleshooting) has the lines.
 
 Every unit and both containers are started by the operator. `tehas update`
 restarts a unit that is already active and recreates a container that already

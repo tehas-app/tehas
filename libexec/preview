@@ -80,9 +80,6 @@ bare=$root/repo.git
 live=$TEHAS_HOME/live
 logs=$TEHAS_HOME/logs
 net=tehas-previews
-# The option that leaves the host without an address on the network. Docker
-# 27.1 or later, and only on an internal network.
-gateway=com.docker.network.bridge.gateway_mode_ipv4
 recipe=preview/Dockerfile
 build_limit=900
 # The seconds between a container's start and the question whether it still
@@ -325,19 +322,21 @@ write_list() {
 
 # --- The five minute run -----------------------------------------------------
 run() {
-  local pulls ours pr n sha i=0 open=" " wanted=() elsewhere have item
+  local pulls ours pr n sha i=0 open=" " wanted=() elsewhere have item fault
   if ! docker info --format '{{.DockerRootDir}}' >/dev/null 2>&1; then
     echo "Docker does not answer; nothing was built or removed"
     return 0
   fi
-  docker network inspect "$net" >/dev/null 2>&1 ||
-    docker network create --internal -o "$gateway=isolated" "$net" >/dev/null 2>&1
-  # A network that is not internal would give a preview the internet and the
-  # model host. One that is internal and no more still gives it the host: every
-  # service the host listens on at all addresses answers at the bridge's
-  # gateway address. Nothing is built on either.
-  if [ "$(docker network inspect --format "{{.Internal}} {{index .Options \"$gateway\"}}" "$net" 2>/dev/null)" != "true isolated" ]; then
-    echo "the network $net is not internal and isolated from the host; nothing was built"
+  # A preview runs the pull request's own code. Nothing is built unless the
+  # network keeps it from the host: see edge_net_fault for what that takes. An
+  # old Docker is not asked to make the network, because it would make one
+  # that looks right and is not.
+  if fault=$(edge_docker_fault); then
+    docker network inspect "$net" >/dev/null 2>&1 || edge_net_create "$net"
+    fault=$(edge_net_fault "$net")
+  fi
+  if [ -n "$fault" ]; then
+    echo "the network $net does not keep the host out ($fault); nothing was built"
     return 0
   fi
 

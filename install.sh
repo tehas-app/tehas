@@ -35,9 +35,9 @@
 # with `tehas index`, once: when there is no index yet and both the sandbox
 # image and the product checkout are there. A failed indexing does not fail the
 # install. The Docker network of the previews, tehas-previews, is made where
-# Docker is installed and the network is not there: internal, and with no
-# address for the host on it. One that is there and is not both is left, and
-# the run says that it has to be remade. And each follow-up a copied file
+# Docker is installed, is 27.1 or later, and the network is not there. One
+# that is there and does not keep the host out is left, and the run says that
+# it has to be remade. And each follow-up a copied file
 # calls for is recorded in $TEHAS_HOME/state/update-pending before that file is
 # put. This script's report of what changed is one-shot: the next run compares
 # again and finds the file matching. So a run that dies partway would otherwise
@@ -69,6 +69,8 @@ check=0
 . "$root/lib/config.sh"
 # shellcheck source=lib/update-steps.sh
 . "$root/lib/update-steps.sh"
+# shellcheck source=lib/edge.sh
+. "$root/lib/edge.sh"
 
 # --- 1. Instance settings ---------------------------------------------------
 # Every finding is one line. Any finding stops a real run before it changes
@@ -349,22 +351,31 @@ fi
 mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state" "$TEHAS_HOME/tmp" "$TEHAS_HOME/live" "$TEHAS_HOME/protolab" \
   "$TEHAS_HOME/preview"
 
-# The previews' network: internal, and with no address for the host on it, so
-# a preview reaches the router and the other previews and nothing else. On a
-# network that is only internal a container still reaches every service the
-# host listens on at all addresses, through the bridge's gateway address. The
+# The previews' network keeps a preview from the host: it reaches the router
+# and the other previews and nothing else. What that takes is in lib/edge.sh,
+# and `tehasbot preview` decides by the same functions before every run. The
 # router's compose file names the network as external and `tehasbot preview`
 # puts containers on it, so it is made here, whichever of the two starts first.
-# A host with no Docker yet gets it from `tehasbot preview`. One that is there
-# and is not as it has to be is not removed here: containers may be on it.
+# A host with no Docker yet gets it from `tehasbot preview`. A Docker older
+# than 27.1 is not asked: it would make a network that looks right and gives
+# the host an address. A network that is there and does not keep the host out
+# is not removed here: containers may be on it.
 if command -v docker >/dev/null 2>&1; then
-  if previews_net=$(docker network inspect \
-    --format '{{.Internal}} {{index .Options "com.docker.network.bridge.gateway_mode_ipv4"}}' tehas-previews 2>/dev/null); then
-    [ "$previews_net" = "true isolated" ] ||
-      note "The network tehas-previews is not internal and isolated from the host. It has to be remade before a preview is built; the manual's troubleshooting page says how."
+  if ! previews_fault=$(edge_docker_fault); then
+    note "The network tehas-previews was not made or checked: $previews_fault. No preview is built until Docker is 27.1 or later."
   else
-    docker network create --internal -o com.docker.network.bridge.gateway_mode_ipv4=isolated tehas-previews >/dev/null 2>&1 ||
-      note "The network tehas-previews could not be made; the edge router will not start without it."
+    previews_rc=0
+    previews_fault=$(edge_net_fault tehas-previews) || previews_rc=$?
+    case "$previews_rc" in
+      0) ;;
+      2)
+        edge_net_create tehas-previews ||
+          note "The network tehas-previews could not be made; the edge router will not start without it."
+        ;;
+      *)
+        note "The network tehas-previews does not keep the host out ($previews_fault). It has to be remade before a preview is built; the manual's troubleshooting page says how."
+        ;;
+    esac
   fi
 fi
 

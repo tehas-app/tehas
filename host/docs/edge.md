@@ -266,11 +266,30 @@ has no address. An internal network alone keeps a container from the internet
 and from the host's other addresses, but the container still reaches every
 service the host listens on at all addresses, its SSH server for one, through
 the gateway address of the network's bridge. So the network is made with the
-option `com.docker.network.bridge.gateway_mode_ipv4=isolated`, which needs
-Docker 27.1 or later. `tehasbot preview` checks both at the start of every
-run. If the network is not internal and isolated, the run stops before it
-builds or removes anything, and the log says
-`the network tehas-previews is not internal and isolated from the host; nothing was built`.
+option `com.docker.network.bridge.gateway_mode_ipv4=isolated`, and without
+IPv6, because the option is about IPv4 only: on a network with IPv6 the host
+has an address of that kind on the bridge, and a container reaches the host
+through it.
+
+`tehasbot preview` does not take the network's name for it. At the start of
+every run it checks what keeps the host out, and if one thing is missing the
+run stops before it builds or removes anything. The log then says
+`the network tehas-previews does not keep the host out (<reason>); nothing was built`,
+with one of these reasons:
+
+| Reason | What it means |
+| --- | --- |
+| `Docker <version> is older than 27.1` | Docker knows the option from 27.1 on. An older one takes an option it does not know, shows it when asked, and gives the host an address all the same. So the version is checked, not the option alone |
+| `Docker's version could not be read` | `docker version --format '{{.Server.Version}}'` gave nothing that reads as a version |
+| `it could not be read` | `docker network inspect tehas-previews` failed |
+| `it is not internal` | The network was made without `--internal`: a preview would reach the internet and the model host |
+| `its driver is not bridge` | The option means nothing to another driver |
+| `it has IPv6` | The host has an IPv6 address on the bridge |
+| `it is not isolated from the host` | The network was made without the option: the host has an IPv4 address on the bridge |
+
+`install.sh` checks the same things by the same code. It does not ask a
+Docker older than 27.1 to make the network, and it leaves a network that is
+there and fails a check, and says so.
 
 Only a pull request whose branch is in the product repository gets one.
 Pushing there needs write access. A pull request from a fork never gets one.
@@ -283,8 +302,11 @@ Pushing there needs write access. A pull request from a fork never gets one.
   with network access. That is why forks are left out.
 - Previews are not kept from each other: one can call another on port 8080
   by its container's name. A preview holds nothing but its own image.
-- The host needs Docker 27.1 or later. An older Docker cannot make the
-  previews' network, and no preview is built.
+- The host needs Docker 27.1 or later. An older Docker would make a network
+  that looks right and does not keep the host out, so it is not asked to, and
+  no preview is built on it.
+- The checks are of how the network was made, not of what a container on it
+  can reach. Nothing tries to reach the host from inside.
 - `uat-<pr>.tehas.app` and `tehas.app` are one site to a browser. A preview's
   script can set a cookie for the domain. Nothing on the dashboard logs in, so
   this is accepted today.

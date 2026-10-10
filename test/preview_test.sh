@@ -62,9 +62,16 @@ after() { local want=$1; shift; while [ $# -gt 1 ]; do [ "$1" = "$want" ] && { e
 [ ! -e "$T/fx/docker-down" ] || exit 1
 case "$1" in
   info) echo /var/lib/docker ;;
+  version)
+    # The version of the server: fx/docker-version, or one that is new enough.
+    case "$*" in *"--format {{.Server.Version}}"*)
+      [ ! -e "$T/fx/version-fails" ] || exit 1
+      cat "$T/fx/docker-version" 2>/dev/null || echo 29.1.3 ;;
+    esac ;;
   network)
-    # net-missing: no such network until it is created. net-internal and
-    # net-gateway are what an inspect says of it, each only when it is asked.
+    # net-missing: no such network until it is created. net-internal,
+    # net-driver, net-ipv6 and net-gateway are what an inspect says of it,
+    # each only when it is asked.
     [ "$2" != create ] || { rm -f "$T/fx/net-missing"; exit 0; }
     [ "$2" = inspect ] || exit 0
     [ ! -e "$T/fx/net-missing" ] || exit 1
@@ -72,9 +79,11 @@ case "$1" in
       *--format*)
         [ ! -e "$T/fx/net-inspect-fails" ] || exit 1
         out=""
-        case "$*" in *"{{.Internal}}"*) out=$(cat "$T/fx/net-internal" 2>/dev/null || echo true) ;; esac
+        case "$*" in *"{{.Internal}}"*) out="$out$(cat "$T/fx/net-internal" 2>/dev/null || echo true) " ;; esac
+        case "$*" in *"{{.Driver}}"*) out="$out$(cat "$T/fx/net-driver" 2>/dev/null || echo bridge) " ;; esac
+        case "$*" in *"{{.EnableIPv6}}"*) out="$out$(cat "$T/fx/net-ipv6" 2>/dev/null || echo false) " ;; esac
         case "$*" in *"{{index .Options \"com.docker.network.bridge.gateway_mode_ipv4\"}}"*)
-          out="$out $(cat "$T/fx/net-gateway" 2>/dev/null || echo isolated)" ;;
+          out="$out$(cat "$T/fx/net-gateway" 2>/dev/null || echo isolated)" ;;
         esac
         echo "$out" ;;
     esac ;;
@@ -545,38 +554,70 @@ t_run "$preview"
 t_eq "$(jq -r .reason "$root/12/state.json")" "The container did not start. See logs/preview-12.log on the host."
 t_eq "$(t_calls docker | grep -c '^inspect \|^logs ')" 0
 
+# unsafe <fixture> <content> <reason>: with that one thing wrong, nothing is
+# built or run, GitHub is not asked, and the line names what is wrong.
+unsafe() {
+  reset
+  a=$(commit feature)
+  pulls "$(pull 12 "$a")"
+  printf '%s\n' "$2" >"$fx/$1"
+  t_run "$preview"
+  t_eq "$t_rc" 0
+  t_contains "$t_out" "the network tehas-previews does not keep the host out ($3); nothing was built"
+  t_eq "$(builds) $(runs)" "0 0"
+  t_eq "$(t_calls gh)" ""
+  t_eq "$(state_of 12)" ""
+  t_eq "$(t_calls docker | grep -c '^network create')" 0
+}
+
 t_case "a network that is not internal gets nothing built"
-reset
-a=$(commit feature)
-pulls "$(pull 12 "$a")"
-echo false >"$fx/net-internal"
-t_run "$preview"
-t_eq "$t_rc" 0
-t_contains "$t_out" "the network tehas-previews is not internal and isolated from the host; nothing was built"
-t_eq "$(builds) $(runs)" "0 0"
-t_eq "$(t_calls gh)" ""
-rm -f "$fx/net-internal"
-: >"$fx/net-inspect-fails"
-rm -f "$T"/calls/docker*
-t_run "$preview"
-t_contains "$t_out" "is not internal and isolated from the host; nothing was built"
-t_eq "$(builds) $(runs)" "0 0"
-t_eq "$(t_calls gh)" ""
+unsafe net-internal false "it is not internal"
+
+t_case "a network that cannot be read gets nothing built"
+unsafe net-inspect-fails "" "it could not be read"
 
 t_case "a network that is internal and gives the host an address gets nothing built"
+unsafe net-gateway "" "it is not isolated from the host"
+unsafe net-gateway nat "it is not isolated from the host"
+
+t_case "a network with IPv6 gets nothing built: the host has an address of that kind on it"
+unsafe net-ipv6 true "it has IPv6"
+unsafe net-ipv6 "" "it has IPv6"
+
+t_case "a network of another driver gets nothing built, whatever option it echoes"
+unsafe net-driver ipvlan "its driver is not bridge"
+
+for old in 26.1.4 27.0.3 27.0 19.03.15; do
+  t_case "Docker $old takes the option and ignores it: nothing is built"
+  unsafe docker-version "$old" "Docker $old is older than 27.1"
+done
+
+for odd in "" "latest" "27" "27.x.1" 'v29.1.3' '29.1.3; id'; do
+  t_case "a Docker version of '$odd' is not one: nothing is built"
+  unsafe docker-version "$odd" "Docker's version could not be read"
+done
+t_case "a Docker that does not say its version gets nothing built"
+unsafe version-fails "" "Docker's version could not be read"
+
+for new in 27.1.0 27.10.0 28.0.1 29.1.3 100.0 27.1.0-rc1; do
+  t_case "Docker $new is new enough"
+  reset
+  a=$(commit feature)
+  pulls "$(pull 12 "$a")"
+  echo "$new" >"$fx/docker-version"
+  t_run "$preview"
+  t_eq "$(state_of 12)" "serving"
+done
+
+t_case "an old Docker is not asked to make the network"
 reset
 a=$(commit feature)
 pulls "$(pull 12 "$a")"
-: >"$fx/net-gateway"
+: >"$fx/net-missing"
+echo 26.1.4 >"$fx/docker-version"
 t_run "$preview"
-t_eq "$t_rc" 0
-t_contains "$t_out" "the network tehas-previews is not internal and isolated from the host; nothing was built"
-t_eq "$(builds) $(runs)" "0 0"
-t_eq "$(state_of 12)" ""
-echo nat >"$fx/net-gateway"
-t_run "$preview"
-t_contains "$t_out" "is not internal and isolated from the host; nothing was built"
-t_eq "$(builds) $(runs)" "0 0"
+t_contains "$t_out" "(Docker 26.1.4 is older than 27.1); nothing was built"
+t_eq "$(t_calls docker | grep -c '^network create')" 0
 
 t_case "a host without the network gets it, internal and with no address for the host"
 reset
@@ -585,7 +626,7 @@ pulls "$(pull 12 "$a")"
 : >"$fx/net-missing"
 t_run "$preview"
 t_eq "$(t_calls docker | grep '^network create')" \
-  "network create --internal -o com.docker.network.bridge.gateway_mode_ipv4=isolated tehas-previews"
+  "network create --internal --ipv6=false -o com.docker.network.bridge.gateway_mode_ipv4=isolated tehas-previews"
 t_eq "$(state_of 12)" "serving"
 
 t_case "a pull request that got a new title has it in its state, and the state began when it did"

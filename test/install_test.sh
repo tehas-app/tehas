@@ -16,8 +16,9 @@ th=$home/tehas
 T_ENV=(T_IN_TEST=1)
 
 # The previews' network as install.sh wants to find it, and how it asks.
-net_good='case "$1 $2" in "network inspect") echo "true isolated" ;; esac'
-net_inspect='network inspect --format {{.Internal}} {{index .Options "com.docker.network.bridge.gateway_mode_ipv4"}} tehas-previews'
+net_good='case "$1 $2" in "version --format") echo 29.1.3 ;; "network inspect") echo "true bridge false isolated" ;; esac'
+net_inspect='version --format {{.Server.Version}}
+network inspect --format {{.Internal}} {{.Driver}} {{.EnableIPv6}} {{index .Options "com.docker.network.bridge.gateway_mode_ipv4"}} tehas-previews'
 t_stub docker "$net_good"
 t_stub systemctl
 t_stub_cargo
@@ -113,12 +114,13 @@ t_eq "$([ -d "$th/preview" ] && echo there)" "there"
 t_case "a host without the previews' network gets it, internal and with no address for the host"
 fresh
 instance
-t_stub docker 'case "$1 $2" in "network inspect") exit 1 ;; esac'
+t_stub docker 'case "$1 $2" in "version --format") echo 29.1.3 ;; "network inspect") exit 1 ;; esac'
 t_run "$install"
 t_eq "$t_rc" 0
 t_eq "$(t_calls docker)" "$net_inspect
-network create --internal -o com.docker.network.bridge.gateway_mode_ipv4=isolated tehas-previews"
-t_stub docker 'case "$1 $2" in "network inspect"|"network create") exit 1 ;; esac'
+network create --internal --ipv6=false -o com.docker.network.bridge.gateway_mode_ipv4=isolated tehas-previews"
+t_lacks "$t_out" "tehas-previews"
+t_stub docker 'case "$1 $2" in "version --format") echo 29.1.3 ;; "network inspect"|"network create") exit 1 ;; esac'
 fresh
 instance
 t_run "$install"
@@ -126,17 +128,46 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "The network tehas-previews could not be made"
 t_stub docker "$net_good"
 
-t_case "a network that gives the host an address is left, and the run says it has to be remade"
-for answer in "true " "true nat" "false isolated"; do
+t_case "a network that does not keep the host out is left, and the run says why and that it has to be remade"
+while IFS='|' read -r answer reason; do
   fresh
   instance
-  t_stub docker "case \"\$1 \$2\" in \"network inspect\") echo \"$answer\" ;; esac"
+  t_stub docker "case \"\$1 \$2\" in \"version --format\") echo 27.1.0 ;; \"network inspect\") echo \"$answer\" ;; esac"
   t_run "$install"
   t_eq "$t_rc" 0
   t_eq "$(t_calls docker)" "$net_inspect"
-  t_contains "$t_out" "The network tehas-previews is not internal and isolated from the host. It has to be remade"
+  t_contains "$t_out" "The network tehas-previews does not keep the host out ($reason). It has to be remade"
   t_contains "$t_out" "troubleshooting"
-done
+done <<'CASES'
+true bridge false |it is not isolated from the host
+true bridge false nat|it is not isolated from the host
+false bridge false isolated|it is not internal
+true bridge true isolated|it has IPv6
+true ipvlan false isolated|its driver is not bridge
+CASES
+t_stub docker "$net_good"
+
+t_case "a Docker older than 27.1 is not asked for the network, and the run says why"
+while IFS='|' read -r version reason; do
+  fresh
+  instance
+  t_stub docker "case \"\$1 \$2\" in \"version --format\") echo \"$version\" ;; \"network inspect\") exit 1 ;; esac"
+  t_run "$install"
+  t_eq "$t_rc" 0
+  t_eq "$(t_calls docker)" "version --format {{.Server.Version}}"
+  t_contains "$t_out" "The network tehas-previews was not made or checked: $reason."
+done <<'CASES'
+26.1.4|Docker 26.1.4 is older than 27.1
+27.0.3|Docker 27.0.3 is older than 27.1
+|Docker's version could not be read
+CASES
+t_stub docker 'exit 1'
+fresh
+instance
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "The network tehas-previews was not made or checked: Docker's version could not be read."
+t_eq "$(t_calls docker | grep -c '^network')" 0
 t_stub docker "$net_good"
 
 t_case "--check makes no network"
@@ -489,7 +520,8 @@ product() {
 }
 index_runs() { t_calls docker | grep -c -e '^run .*index_repository' || true; }
 t_stub docker 'case "$1" in
-  network) echo "true isolated" ;;
+  version) echo 29.1.3 ;;
+  network) echo "true bridge false isolated" ;;
   image) exit "${IMAGE_RC:-0}" ;;
   run) [ "${RUN_RC:-0}" = 0 ] || exit "$RUN_RC"; echo "{\"status\":\"indexed\",\"nodes\":1,\"edges\":2}" ;;
 esac'

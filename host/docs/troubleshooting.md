@@ -226,10 +226,12 @@ router by hand: `docker compose -p tehas-protolab down`, then
 `. ~/tehas/env.sh && docker compose -f ~/tehas/edge/router.compose.yaml up -d`.
 
 The router also needs the network `tehas-previews`, which `install.sh` makes. If
-compose says the network is not found, make it. It needs Docker 27.1 or later:
+compose says the network is not found, make it. `install.sh` does not make it
+on a Docker older than 27.1, and says so; check `docker version` first, and
+update Docker before making it by hand:
 
 ```
-docker network create --internal -o com.docker.network.bridge.gateway_mode_ipv4=isolated tehas-previews
+docker network create --internal --ipv6=false -o com.docker.network.bridge.gateway_mode_ipv4=isolated tehas-previews
 ```
 
 ## A preview is not there
@@ -295,26 +297,36 @@ It is tried again at every run. The git message is in
 `~/tehas/logs/preview-<pr>.log`. Check that `git -C ~/tehas/preview/repo.git
 ls-remote origin` answers.
 
-**The log says `the network tehas-previews is not internal and isolated from
-the host; nothing was built`.** `install.sh` says the same as `The network
-tehas-previews is not internal and isolated from the host`. The Docker network
-was made by hand, or by an install from before the option existed, without
-`--internal` or without the option that gives the host no address on it.
-Without the first a preview could reach the internet and the model host.
-Without the second it could reach every service the host listens on at all
-addresses. So no run does anything until it is put right. Take the router and
-the previews off it, remove it and make it again:
+**The log says `the network tehas-previews does not keep the host out
+(<reason>); nothing was built`.** A preview runs the pull request's own code,
+so no run does anything on a network from which it could reach the host.
+`install.sh` says the same as `The network tehas-previews does not keep the
+host out (<reason>)`. The reason says what to do:
+
+- `Docker <version> is older than 27.1`, or `Docker's version could not be
+  read`: update Docker. A Docker before 27.1 takes the option that keeps the
+  host out and ignores it, so a network it made looks right and is not, and
+  remaking it there does not help. `install.sh` says this as `The network
+  tehas-previews was not made or checked`. After the update, remake the
+  network with the lines below, since the old Docker may have made it.
+- `it could not be read`: `docker network inspect tehas-previews` failed.
+  Check `docker info` as the tehas user.
+- `it is not internal`, `its driver is not bridge`, `it has IPv6`, or `it is
+  not isolated from the host`: the network was made by hand, or by an install
+  from before these were checked. Without `--internal` a preview could reach
+  the internet and the model host. With IPv6, or without the option, it could
+  reach every service the host listens on at all addresses. Take the router
+  and the previews off it, remove it and make it again:
 
 ```
 docker compose -f ~/tehas/edge/router.compose.yaml down
 docker ps -aq --filter label=tehas.preview | xargs -r docker rm -f
 docker network rm tehas-previews
-docker network create --internal -o com.docker.network.bridge.gateway_mode_ipv4=isolated tehas-previews
+docker network create --internal --ipv6=false -o com.docker.network.bridge.gateway_mode_ipv4=isolated tehas-previews
 . ~/tehas/env.sh && docker compose -f ~/tehas/edge/router.compose.yaml up -d
 ```
 
-The next run builds the previews again. If the `create` line is refused, the
-host's Docker is older than 27.1: `docker version`.
+The next run builds the previews again.
 
 **The log says `Docker does not answer`.** Nothing was built or removed.
 Check `docker info` as the tehas user.

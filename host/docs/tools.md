@@ -424,11 +424,13 @@ are enabled. Both write to `~/tehas/logs/preview.log`.
 
 **A run**, every five minutes:
 
-1. It asks Docker whether it answers, and makes the network `tehas-previews`
-   if it is not there: internal, and with no address for the host on it. If
-   the network is not both, the run stops here and the log says `the network
-   tehas-previews is not internal and isolated from the host; nothing was
-   built`.
+1. It asks Docker whether it answers and for its version, and makes the
+   network `tehas-previews` if it is not there. Then it checks what keeps a
+   preview from the host: Docker is 27.1 or later, and the network is
+   internal, a bridge, without IPv6 and made with the option that gives the
+   host no address on it. If one is missing, the run stops here and the log
+   says `the network tehas-previews does not keep the host out (<reason>);
+   nothing was built`. [Previews](/edge) lists the reasons.
 2. It measures the free space: the smaller of the file system of `~/tehas`
    and the one Docker keeps its images on.
 3. It asks GitHub for the open pull requests, the newest 100. No answer, an
