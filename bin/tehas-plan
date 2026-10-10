@@ -1,0 +1,169 @@
+#!/usr/bin/env bash
+# Run one turn of a pi-rukas planning session headless, in the sandbox image.
+#
+# A planning session is a conversation with the project manager agent that
+# ends in filed issues. It asks its operator questions on the way. Nobody is
+# at a terminal here, so a turn ends when the agent has asked: this command
+# writes what the agent said and asked to a file and stops. The dispatcher
+# posts it on the issue and, when an answer has come, runs the next turn in
+# the same Pi session.
+#
+# Usage:
+#   tehas-plan <issue-number> --out <file> --brief <file>
+#       First turn. <file> holds the approved title and body of the issue.
+#   tehas-plan <issue-number> --out <file> --session <id> --answer <file>
+#       A later turn. <file> holds the operator's answer.
+#
+# On exit 0 the --out file holds
+#   {"session": "<id>", "text": "<the agent's last message>",
+#    "question": null | {"question": "...", "options": [{"label", "description"}]}}
+#
+# Exit status: 0 the turn settled and said or asked something,
+#              2 it did not settle, timed out, or said and asked nothing,
+#             64 a usage error, no bot token or no git identity; nothing ran,
+#             78 the instance settings are invalid; nothing ran.
+#
+# Instance settings (lib/config.sh; defaults in brackets):
+#   TEHAS_PLAN_TIMEOUT  seconds before a turn is given up [3600]
+#   and those of tehas-work for the checkout and the container's limits.
+#
+# The container is given exactly what a work cycle's container is given: see
+# lib/sandbox.sh. That is pinned by test/plan_test.sh.
+set -uo pipefail
+
+usage() {
+  echo "usage: tehas-plan <issue-number> --out <file> (--brief <file> | --session <id> --answer <file>)" >&2
+  exit 64
+}
+
+issue=${1:-}
+case "$issue" in '' | *[!0-9]*) usage ;; esac
+shift
+out=""
+brief=""
+answer=""
+session=""
+while [ "$#" -gt 0 ]; do
+  [ "$#" -ge 2 ] || usage
+  case "$1" in
+    --out) out=$2 ;;
+    --brief) brief=$2 ;;
+    --answer) answer=$2 ;;
+    --session) session=$2 ;;
+    *) usage ;;
+  esac
+  shift 2
+done
+[ -n "$out" ] || usage
+if [ -n "$brief" ]; then
+  [ -z "$session$answer" ] && [ -r "$brief" ] || usage
+else
+  [ -n "$session" ] && [ -n "$answer" ] && [ -r "$answer" ] || usage
+fi
+# The id ends up on a command line: letters, digits and dashes only.
+case "$session" in *[!A-Za-z0-9-]*) usage ;; esac
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/config.sh
+. "$here/../lib/config.sh"
+tehas_load || exit 78
+tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
+# Docker would create a missing mount source as a root-owned directory.
+tehas_checkout || exit 78
+branch=$(tehas_branch) || exit 78
+# shellcheck source=lib/sandbox.sh
+. "$here/../lib/sandbox.sh"
+limit=$TEHAS_PLAN_TIMEOUT
+log=$TEHAS_HOME/logs/plan-$issue-$(date -u +%y%m%d-%H%M%S).jsonl
+name=tehas-plan-$issue
+sandbox_prepare tehas-plan "$branch"
+
+args=()
+if [ -n "$brief" ]; then
+  # The agent plans from the text that was approved, so it is handed over as a
+  # file and not fetched again from the tracker, where it may have changed.
+  # One line as the prompt: /plan quotes its argument inside a sentence.
+  if ! { mkdir -p "$sb_repo/.tehas" "$sb_repo/.git/info" && cp "$brief" "$sb_repo/.tehas/brief.md" &&
+    echo ".tehas/" >>"$sb_repo/.git/info/exclude"; }; then
+    echo "tehas-plan: could not put the brief into $sb_repo" >&2
+    exit 78
+  fi
+  message="/plan the work described in the file .tehas/brief.md, which holds the approved text of issue #$issue. Read the file first. When you need a decision from the operator, call the question tool or ask in your message, then end your turn: the answer arrives as the next message."
+else
+  message=$(cat "$answer")
+  args=(--session "$session")
+fi
+
+sandbox_pi "$name" "$log" "${args[@]}"
+started=$(date +%s)
+jq -cn --arg m "$message" '{id: "plan", type: "prompt", message: $m}' >&3
+echo "tehas-plan: issue $issue turn started, log $log"
+
+trap 'exec 3>&- 2>/dev/null; docker stop -t 10 "$name" 2>/dev/null' TERM INT
+
+# Settled: the last start or settle event in the stream is a settle. A run can
+# start again after it settled (a background job reported back), so the state
+# has to hold for a while before the turn is taken as over.
+settled() {
+  [ "$(grep -o -E '"type":"(agent_start|agent_settled)"' "$log" 2>/dev/null | tail -n 1)" = '"type":"agent_settled"' ]
+}
+quiet=0
+timed_out=0
+while kill -0 "$sb_pid" 2>/dev/null; do
+  sleep 1
+  if settled; then quiet=$((quiet + 1)); else quiet=0; fi
+  [ "$quiet" -ge 20 ] && break
+  if [ $(($(date +%s) - started)) -ge "$limit" ]; then
+    echo "tehas-plan: time limit of ${limit}s passed"
+    timed_out=1
+    break
+  fi
+done
+
+if kill -0 "$sb_pid" 2>/dev/null; then
+  if [ "$timed_out" = 0 ]; then
+    printf '%s\n' '{"id":"state","type":"get_state"}' '{"id":"text","type":"get_last_assistant_text"}' >&3
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+      grep -q '"command":"get_last_assistant_text"' "$log" 2>/dev/null && break
+      sleep 1
+    done
+  fi
+  exec 3>&-
+  sleep 2
+  docker stop -t 20 "$name" >/dev/null 2>&1
+fi
+wait "$sb_pid" 2>/dev/null
+
+if [ "$timed_out" = 1 ] || ! settled; then
+  echo "tehas-plan: issue=$issue the turn did not settle, see $log"
+  exit 2
+fi
+
+# The stream as JSON values; a line that is not JSON is skipped.
+events() { jq -c -R 'fromjson? | select(type == "object")' "$log" 2>/dev/null; }
+sid=$(events | jq -rs 'map(select(.type == "response" and .command == "get_state")) | last | .data.sessionId // ""')
+text=$(events | jq -rs 'map(select(.type == "response" and .command == "get_last_assistant_text")) | last | .data.text // ""')
+question=$(events | jq -cs 'map(select(.type == "tool_execution_end" and .toolName == "question"
+                                   and .result.details.deferred == true)) | last
+  | if . == null then null else
+      {question: (.result.details.question // ""),
+       options: [.result.details.optionDetails[]? | {label: (.label // ""), description: (.description // "")}]}
+    end')
+[ -n "$sid" ] || sid=$session
+[ -n "$question" ] || question=null
+
+if [ -z "$sid" ]; then
+  echo "tehas-plan: issue=$issue the session id is unknown, see $log"
+  exit 2
+fi
+if [ -z "$text" ] && [ "$question" = null ]; then
+  echo "tehas-plan: issue=$issue the turn said and asked nothing, see $log"
+  exit 2
+fi
+
+if ! jq -n --arg session "$sid" --arg text "$text" --argjson question "$question" \
+  '{session: $session, text: $text, question: $question}' >"$out.new" || ! mv "$out.new" "$out"; then
+  echo "tehas-plan: could not write $out" >&2
+  exit 2
+fi
+echo "tehas-plan: issue=$issue session=$sid asked=$([ "$question" = null ] && echo no || echo yes) seconds=$(($(date +%s) - started))"
