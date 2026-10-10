@@ -55,8 +55,9 @@ fn args() -> Result<Args, String> {
     let since = value("since")?;
     let since = since
         .parse()
-        .map(|seconds| UNIX_EPOCH + Duration::from_secs(seconds))
-        .map_err(|_| format!("console: --since is not a time in seconds: {since}"))?;
+        .ok()
+        .and_then(|seconds| UNIX_EPOCH.checked_add(Duration::from_secs(seconds)))
+        .ok_or(format!("console: --since is not a time in seconds: {since}"))?;
     Ok(Args { rpc: value("rpc")?, runs: value("runs")?, out: value("out")?, since })
 }
 

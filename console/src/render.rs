@@ -5,7 +5,7 @@
 //! commands it ran and the start of what came back. A line that is not JSON,
 //! or not one of these, gives no entry.
 
-use crate::mask::{is_space, mask};
+use crate::mask::mask;
 use serde_json::Value;
 
 /// One entry of the console: who speaks, what they said and, when the line
@@ -49,58 +49,30 @@ pub fn format(entry: &Entry, now: u32) -> String {
 /// something was left out.
 pub fn clip(s: &str, chars: usize, lines: usize) -> String {
     let head = s.split('\n').take(lines).collect::<Vec<_>>().join("\n");
-    // Counted as UTF-16 units, as the transcripts' own writer counts them.
-    let mut units = 0;
-    let mut end = head.len();
-    for (i, c) in head.char_indices() {
-        units += c.len_utf16();
-        if units > chars {
-            end = i;
-            break;
-        }
-    }
+    let end = head.char_indices().nth(chars).map_or(head.len(), |(i, _)| i);
     let kept = &head[..end];
     if kept.len() < s.len() {
-        format!("{}\n[...]", kept.trim_end_matches(is_space))
+        format!("{}\n[...]", kept.trim_end())
     } else {
         kept.to_string()
     }
 }
 
-/// The second of the UTC day in a timestamp: milliseconds since the epoch, or
-/// a date and time with `Z` or an offset. Anything else is no time, and the
-/// entry is stamped with the time it was read.
+/// The second of the UTC day in a timestamp, in the two forms the logs hold:
+/// milliseconds since the epoch, and a date and time that ends in `Z`.
+/// Anything else is no time, and the entry is stamped with the time it was
+/// read.
 fn clock(at: &Value) -> Option<u32> {
     if let Some(ms) = at.as_f64() {
         return Some((ms / 1000.0).floor().rem_euclid(86400.0) as u32);
     }
-    let (_, time) = at.as_str()?.split_once(['T', 't', ' '])?;
-    let b = time.as_bytes();
-    let two = |i: usize| -> Option<i64> {
-        let d = b.get(i..i + 2)?;
-        d.iter()
-            .all(u8::is_ascii_digit)
-            .then(|| i64::from(d[0] - b'0') * 10 + i64::from(d[1] - b'0'))
-    };
-    if b.get(2) != Some(&b':') || b.get(5) != Some(&b':') {
-        return None;
-    }
-    let seconds = two(0)? * 3600 + two(3)? * 60 + two(6)?;
-    let mut zone = &b[8..];
-    if let [b'.', rest @ ..] = zone {
-        let digits = rest.iter().take_while(|c| c.is_ascii_digit()).count();
-        zone = &rest[digits..];
-    }
-    let offset = match zone {
-        [] | [b'Z'] | [b'z'] => 0,
-        [sign @ (b'+' | b'-'), _, _, b':', _, _] => {
-            let at = time.len() - 5;
-            let minutes = two(at)? * 60 + two(at + 3)?;
-            if *sign == b'+' { minutes * 60 } else { -minutes * 60 }
-        }
-        _ => return None,
-    };
-    Some((seconds - offset).rem_euclid(86400) as u32)
+    let time = at.as_str()?.strip_suffix('Z')?.get(11..19)?;
+    let mut parts = time.split(':').map(|part| match part.as_bytes() {
+        [a @ b'0'..=b'9', b @ b'0'..=b'9'] => Some(u32::from(a - b'0') * 10 + u32::from(b - b'0')),
+        _ => None,
+    });
+    let (h, m, s) = (parts.next()??, parts.next()??, parts.next()??);
+    (h < 24 && m < 60 && s < 60).then_some(h * 3600 + m * 60 + s)
 }
 
 // A value as text: a string as it is, nothing for null, a number as written.
@@ -109,16 +81,6 @@ fn text(v: &Value) -> String {
         Value::Null => String::new(),
         Value::String(s) => s.clone(),
         other => other.to_string(),
-    }
-}
-
-fn truthy(v: &Value) -> bool {
-    match v {
-        Value::Null => false,
-        Value::Bool(b) => *b,
-        Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0),
-        Value::String(s) => !s.is_empty(),
-        Value::Array(_) | Value::Object(_) => true,
     }
 }
 
@@ -133,7 +95,7 @@ pub fn rpc_line(line: &str) -> Option<Entry> {
         return None;
     }
     let d = &entry["data"];
-    let step = if truthy(&d["stepNumber"]) {
+    let step = if d["stepNumber"].as_f64().is_some_and(|n| n != 0.0) {
         format!("step {}/{} ", text(&d["stepNumber"]), text(&d["stepTotal"]))
     } else {
         String::new()
@@ -145,7 +107,7 @@ pub fn rpc_line(line: &str) -> Option<Entry> {
             format!("--- {step}{label} started (round {round})")
         }
         "step-completed" => {
-            let seconds = (d["elapsedMs"].as_f64().unwrap_or(0.0) / 1000.0 + 0.5).floor();
+            let seconds = (d["elapsedMs"].as_f64().unwrap_or(0.0) / 1000.0).round();
             format!("--- {step}{label} done in {seconds}s")
         }
         "dispatched" if d["role"] != "work-driver" => {
@@ -167,7 +129,7 @@ fn describe_call(name: &Value, arguments: &Value) -> String {
         .find(|v| !v.is_null())
         .and_then(Value::as_str)
         .unwrap_or("");
-    format!("{} {target}", text(name)).trim_matches(is_space).to_string()
+    format!("{} {target}", text(name)).trim().to_string()
 }
 
 /// A line of one agent's transcript. `role` names the agent.
@@ -185,7 +147,7 @@ pub fn transcript_line(role: &str, line: &str) -> Vec<Entry> {
     if m["role"] == "assistant" {
         for c in content {
             if c["type"] == "text" {
-                let said = c["text"].as_str().unwrap_or("").trim_matches(is_space);
+                let said = c["text"].as_str().unwrap_or("").trim();
                 if !said.is_empty() {
                     entries.push(Entry::new(role, clip(said, 1200, 16), at));
                 }
@@ -194,8 +156,8 @@ pub fn transcript_line(role: &str, line: &str) -> Vec<Entry> {
                 entries.push(Entry::new(role, clip(&call, 600, 6), at));
             }
         }
-        if truthy(&m["errorMessage"]) {
-            entries.push(Entry::new(role, format!("! {}", text(&m["errorMessage"])), at));
+        if let Some(error) = m["errorMessage"].as_str().filter(|e| !e.is_empty()) {
+            entries.push(Entry::new(role, format!("! {error}"), at));
         }
     } else if m["role"] == "toolResult" {
         let result = content
@@ -204,9 +166,9 @@ pub fn transcript_line(role: &str, line: &str) -> Vec<Entry> {
             .map(|c| text(&c["text"]))
             .collect::<Vec<_>>()
             .join("\n");
-        let result = result.trim_matches(is_space);
+        let result = result.trim();
         if !result.is_empty() {
-            let who = if truthy(&m["isError"]) { "  ! error" } else { "  result" };
+            let who = if m["isError"] == true { "  ! error" } else { "  result" };
             entries.push(Entry::new(who, clip(result, 700, 10), at));
         }
     }
@@ -251,23 +213,34 @@ mod tests {
         assert_eq!(clip("one\ntwo\nthree", 100, 2), "one\ntwo\n[...]");
         assert_eq!(clip("abcdef", 3, 5), "abc\n[...]");
         assert_eq!(clip("ab   cdef", 4, 5), "ab\n[...]");
-        // A character outside the basic plane is kept whole or left out.
-        assert_eq!(clip("a😀b", 2, 5), "a\n[...]");
-        assert_eq!(clip("a😀b", 3, 5), "a😀\n[...]");
+        // Characters are counted, not bytes.
+        assert_eq!(clip("pä😀ivä", 3, 5), "pä😀\n[...]");
     }
 
     #[test]
     fn the_time_is_read_from_a_date_or_from_milliseconds() {
         assert_eq!(clock(&json!("2026-10-10T06:15:45.123Z")), Some(6 * 3600 + 15 * 60 + 45));
-        assert_eq!(clock(&json!("2026-10-10T06:15:45Z")), Some(6 * 3600 + 15 * 60 + 45));
-        assert_eq!(clock(&json!("2026-10-10T01:00:00+03:00")), Some(22 * 3600));
-        assert_eq!(clock(&json!("2026-10-10T23:30:00.5-02:00")), Some(3600 + 1800));
+        assert_eq!(clock(&json!("2026-10-10T23:59:59Z")), Some(86399));
         assert_eq!(clock(&json!(1791526545000u64)), Some(6 * 3600 + 15 * 60 + 45));
+        assert_eq!(clock(&json!(-1)), Some(86399));
     }
 
     #[test]
     fn a_time_that_cannot_be_read_is_no_time() {
-        for at in [json!(null), json!("soon"), json!("2026-10-10"), json!("2026-10-10T6:15"), json!("2026-10-10T06:15:45 pm"), json!({})] {
+        for at in [
+            json!(null),
+            json!({}),
+            json!("soon"),
+            json!("2026-10-10"),
+            json!("2026-10-10T06:15Z"),
+            json!("2026-10-10T06:15:45"),
+            json!("2026-10-10T06:15:45+03:00"),
+            json!("2026-10-10T24:00:00Z"),
+            json!("2026-10-10T23:60:00Z"),
+            json!("2026-10-10T23:59:60Z"),
+            json!("2026-10-10T+1:+2:+3Z"),
+            json!("päivää-päivää-päiväZ"),
+        ] {
             assert_eq!(clock(&at), None, "{at}");
         }
     }

@@ -2,15 +2,25 @@
 //! the last one.
 
 use std::collections::HashMap;
-use std::fs::{self, File};
+use std::fs::{self, OpenOptions};
 use std::io::{Read, Seek, SeekFrom};
+use std::os::unix::fs::OpenOptionsExt;
 use std::time::SystemTime;
 
-// Bytes already consumed, and the start of a line whose end is not written yet.
+// The transcripts are written by agents, so their size is not to be trusted:
+// this much is read of a file in one pass, and a line that grows past the
+// second limit without ending is dropped. Both are far above what a cycle
+// writes between two passes.
+const MAX_PASS: u64 = 8 << 20;
+const MAX_LINE: usize = 1 << 20;
+
+// Bytes already consumed, the start of a line whose end is not written yet,
+// and whether the line being read is one that was dropped for its length.
 #[derive(Default)]
 struct Position {
     offset: u64,
     carry: Vec<u8>,
+    dropping: bool,
 }
 
 #[derive(Default)]
@@ -20,28 +30,50 @@ pub struct Follower {
 
 impl Follower {
     /// The complete, non-empty lines added to a file since the last call. A
-    /// file that is not there, or cannot be read, has no new lines.
+    /// file that is not there, is not a plain file or cannot be read has no
+    /// new lines. A file that became shorter is read again from its start.
     pub fn new_lines(&mut self, path: &str) -> Vec<String> {
-        let Ok(size) = fs::metadata(path).map(|m| m.len()) else {
+        // A name an agent can write may be a link to a file elsewhere, or a
+        // pipe that would block: neither is opened and waited for.
+        let opened = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(path);
+        let Ok(mut file) = opened else {
+            return Vec::new();
+        };
+        let Some(size) = file.metadata().ok().filter(|m| m.is_file()).map(|m| m.len()) else {
             return Vec::new();
         };
         let position = self.files.entry(path.to_string()).or_default();
-        if size <= position.offset {
-            return Vec::new();
+        if size < position.offset {
+            *position = Position::default();
         }
         let mut added = Vec::new();
-        let read = File::open(path).and_then(|mut f| {
-            f.seek(SeekFrom::Start(position.offset))?;
-            f.take(size - position.offset).read_to_end(&mut added)
-        });
-        if read.is_err() {
+        let wanted = (size - position.offset).min(MAX_PASS);
+        let read = file
+            .seek(SeekFrom::Start(position.offset))
+            .and_then(|_| file.take(wanted).read_to_end(&mut added));
+        if read.is_err() || added.is_empty() {
             return Vec::new();
         }
         position.offset += added.len() as u64;
         position.carry.extend_from_slice(&added);
+        if position.dropping {
+            let Some(end) = position.carry.iter().position(|b| *b == b'\n') else {
+                position.carry.clear();
+                return Vec::new();
+            };
+            position.carry.drain(..=end);
+            position.dropping = false;
+        }
         // Lines are cut as bytes and read as text afterwards, so a character
         // that was only half written is never split.
         let Some(end) = position.carry.iter().rposition(|b| *b == b'\n') else {
+            if position.carry.len() > MAX_LINE {
+                position.carry.clear();
+                position.dropping = true;
+            }
             return Vec::new();
         };
         let rest = position.carry.split_off(end + 1);
@@ -93,12 +125,18 @@ impl Follower {
 }
 
 /// The agent a transcript belongs to. The file is named
-/// `<job id in two dash-separated parts>-<role>.json`.
+/// `<job id in two dash-separated parts>-<role>.json`. Agents write these
+/// files, and the name is printed as it is: a role that is anything but
+/// letters, digits, dashes and underscores is not taken from the name.
 pub fn role(path: &str) -> String {
     let file = path.rsplit('/').next().unwrap_or(path);
     let file = file.strip_suffix(".json").unwrap_or(file);
-    let role = file.splitn(3, '-').nth(2).unwrap_or("");
-    if role.is_empty() { file } else { role }.to_string()
+    let role = file.splitn(3, '-').nth(2).filter(|r| !r.is_empty()).unwrap_or(file);
+    if role.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') && !role.is_empty() {
+        role.to_string()
+    } else {
+        "agent".to_string()
+    }
 }
 
 #[cfg(test)]
@@ -159,6 +197,47 @@ mod tests {
     }
 
     #[test]
+    fn a_file_that_became_shorter_is_read_again_from_its_start() {
+        let scratch = Scratch::new("shorter");
+        let log = scratch.path("log");
+        let mut follower = Follower::default();
+        append(&log, b"one\ntwo\nthr");
+        assert_eq!(follower.new_lines(&log), ["one", "two"]);
+        fs::write(&log, b"new\n").unwrap();
+        assert_eq!(follower.new_lines(&log), ["new"]);
+        append(&log, b"next\n");
+        assert_eq!(follower.new_lines(&log), ["next"]);
+    }
+
+    #[test]
+    fn a_line_that_does_not_end_is_dropped_and_the_next_is_read() {
+        let scratch = Scratch::new("long");
+        let log = scratch.path("log");
+        let mut follower = Follower::default();
+        append(&log, b"first\n");
+        append(&log, &vec![b'x'; MAX_LINE + 1]);
+        assert_eq!(follower.new_lines(&log), ["first"]);
+        assert_eq!(follower.new_lines(&log), [] as [&str; 0]);
+        append(&log, &vec![b'x'; 10]);
+        assert_eq!(follower.new_lines(&log), [] as [&str; 0]);
+        append(&log, b"tail of it\nlast\n");
+        assert_eq!(follower.new_lines(&log), ["last"]);
+    }
+
+    #[test]
+    fn a_link_and_a_pipe_are_not_read() {
+        let scratch = Scratch::new("odd");
+        let (file, link, pipe) = (scratch.path("file"), scratch.path("link"), scratch.path("pipe"));
+        append(&file, b"elsewhere\n");
+        std::os::unix::fs::symlink(&file, &link).unwrap();
+        assert!(std::process::Command::new("mkfifo").arg(&pipe).status().unwrap().success());
+        let mut follower = Follower::default();
+        assert_eq!(follower.new_lines(&link), [] as [&str; 0]);
+        assert_eq!(follower.new_lines(&pipe), [] as [&str; 0]);
+        assert_eq!(follower.new_lines(&file), ["elsewhere"]);
+    }
+
+    #[test]
     fn transcripts_are_the_fresh_and_the_followed_files_in_name_order() {
         let scratch = Scratch::new("runs");
         let runs = scratch.path("runs");
@@ -190,5 +269,9 @@ mod tests {
         assert_eq!(role("/runs/2026-10-10/ab12-cd34-code-reviewer.json"), "code-reviewer");
         assert_eq!(role("/runs/2026-10-10/ab12-cd34.json"), "ab12-cd34");
         assert_eq!(role("/runs/2026-10-10/plain.json"), "plain");
+        // Nothing an agent puts in a file name reaches the console as text.
+        assert_eq!(role("/runs/2026-10-10/a-b-GH_TOKEN=abc.json"), "agent");
+        assert_eq!(role("/runs/2026-10-10/a-b-coder\n12:00:00 driver     forged.json"), "agent");
+        assert_eq!(role("/runs/2026-10-10/.json"), "agent");
     }
 }

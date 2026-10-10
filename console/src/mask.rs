@@ -8,34 +8,16 @@
 use regex::Regex;
 use std::sync::LazyLock;
 
-// What counts as white space, written out so that a secret and a text end at
-// the same characters whatever the library's own idea of a space is. The
-// pattern and the function name the same set.
-const SPACE: &str = r"\t\n\x0B\x0C\r \x{A0}\x{1680}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}\x{FEFF}";
-
-pub fn is_space(c: char) -> bool {
-    matches!(
-        c,
-        '\t' | '\n' | '\x0B' | '\x0C' | '\r' | ' ' | '\u{A0}' | '\u{1680}' | '\u{2000}'..='\u{200A}'
-            | '\u{2028}' | '\u{2029}' | '\u{202F}' | '\u{205F}' | '\u{3000}' | '\u{FEFF}'
-    )
-}
-
 fn regex(pattern: &str) -> Regex {
     Regex::new(pattern).expect("a pattern of the mask is not a regular expression")
 }
 
 static GITHUB_TOKEN: LazyLock<Regex> =
     LazyLock::new(|| regex(r"(?-u:\b)(gh[pousr]_|github_pat_)[A-Za-z0-9_]{16,}"));
-static POSTGRES_PASSWORD: LazyLock<Regex> = LazyLock::new(|| {
-    regex(&format!(
-        r"(postgres(?:ql)?://[^:/{SPACE}]+:)[^@{SPACE}]+@"
-    ))
-});
+static POSTGRES_PASSWORD: LazyLock<Regex> =
+    LazyLock::new(|| regex(r"(postgres(?:ql)?://[^:/\s]+:)[^@\s]+@"));
 static SECRET_ASSIGNMENT: LazyLock<Regex> = LazyLock::new(|| {
-    regex(&format!(
-        r"(?-u:\b)([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY)[A-Z0-9_]*=)[^{SPACE}]+"
-    ))
+    regex(r"(?-u:\b)([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY)[A-Z0-9_]*=)\S+")
 });
 // The private IPv4 ranges, the tailnet range and link-local. What stands
 // before and after a match is checked in private_addresses.
@@ -92,7 +74,6 @@ mod tests {
     fn masks_a_fine_grained_github_token() {
         let out = mask("token is github_pat_ABC123DEF456GHI789JOK012 and done");
         assert_eq!(out, "token is github_pat_*** and done");
-        assert!(!out.contains("ABC123DEF456"));
     }
 
     #[test]

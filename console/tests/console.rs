@@ -9,8 +9,9 @@ use std::time::{Duration, Instant};
 
 const CONSOLE: &str = env!("CARGO_BIN_EXE_console");
 
+// A directory of this test, under cargo's own place for test files.
 fn scratch(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("tehas-console-it-{}-{name}", std::process::id()));
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(name);
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     dir
@@ -78,7 +79,6 @@ fn a_cycle_becomes_a_console_file_and_a_stop_reads_the_last_lines() {
             "tehas      cycle ended, console detached",
         ]
     );
-    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -90,8 +90,10 @@ fn a_missing_argument_is_a_usage_error() {
     let no_out = run(&["--since", "1", "--rpc", "a", "--runs", "b"]);
     assert_eq!(no_out.status.code(), Some(2));
     assert_eq!(String::from_utf8_lossy(&no_out.stderr), "console: --out is required\n");
-    let bad = run(&["--since", "soon", "--rpc", "a", "--runs", "b", "--out", "c"]);
-    assert_eq!(bad.status.code(), Some(2));
+    for since in ["soon", "-5", "1.5", "18446744073709551615"] {
+        let bad = run(&["--since", since, "--rpc", "a", "--runs", "b", "--out", "c"]);
+        assert_eq!(bad.status.code(), Some(2), "{since}");
+    }
 }
 
 #[test]
@@ -103,5 +105,4 @@ fn a_console_file_that_cannot_be_written_ends_it_with_1() {
         .output()
         .unwrap();
     assert_eq!(run.status.code(), Some(1));
-    let _ = fs::remove_dir_all(&dir);
 }
