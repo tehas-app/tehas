@@ -369,6 +369,10 @@ It removes only on a clear answer, so read what it printed:
   token cannot see the repository. Check `gh auth status`.
 - `#<pr>: no answer from GitHub, kept`: the call about that pull request
   failed or was unclear. The next sweep asks again.
+- `#<pr>: a container could not be removed, tried again at the next sweep`:
+  Docker refused to remove a container of that pull request, so its image
+  and state were left too. `docker ps -a --filter label=tehas.preview=<pr>`
+  shows it; remove it by hand with `docker rm -f`.
 - `the lock was not free in 30 minutes, nothing was swept`: a run was
   building all that time.
 

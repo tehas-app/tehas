@@ -504,10 +504,15 @@ while it works.
   clear `closed`, a 404, or an open pull request whose head is outside the
   repository. Every container that carries the pull request's label is then
   removed by its id, with the image, the fetched commit, the state and the
-  build log. Any other answer keeps everything: `#<pr>: no answer from
+  build log. When Docker did not remove one of them, the rest stays as well,
+  and the log says `#<pr>: a container could not be removed, tried again at
+  the next sweep`. Any other answer keeps everything: `#<pr>: no answer from
   GitHub, kept`.
-- For a pull request that is open and ours, a container of its number with
-  another name than `tehas-preview-<pr>` is removed.
+- For a pull request that is open and ours, a container of its number that
+  has a name, none of which is `tehas-preview-<pr>`, is removed.
+- A container is removed by the id Docker listed it with. A line of the
+  listing whose id is not one is left alone: `an id that is not one,
+  skipped`.
 
 A line with `swept` in the log is something the five minute run missed. The
 time of the last sweep and how many things it removed are `lastSweep` in
