@@ -226,14 +226,16 @@
   // The Protolab's own list, /live/protolab.json, written by tehasbot protolab: every
   // ticket at the prototype stage and how much is attached to it. The live queue
   // does not carry prototypes, so with the live queue the lab is filled from this.
-  // The lab is another server: at the address the file names, or else at port
-  // 8081 of this host when the page came over plain HTTP.
+  // The lab is another server. A ticket is at the address the file gives it
+  // when the host has a domain for the edge; otherwise under the address the
+  // file names, or else at port 8081 of this host when the page came over
+  // plain HTTP.
   const lab = { tickets: null, base: null, signature: "" };
 
   function hostedRowFor(item) {
     const li = el("li", "has-link");
     const row = el("a", "row");
-    row.href = `${lab.base}/${item.number}/`;
+    row.href = item.address || `${lab.base}/${item.number}/`;
     row.target = "_blank";
     row.rel = "noopener";
     row.setAttribute("aria-label", `Ticket ${item.number} in the Protolab: ${item.title}`);
@@ -261,6 +263,7 @@
     const ok = s && typeof s === "object" && Array.isArray(s.tickets);
     const tickets = !ok ? null : s.tickets.filter((t) => t && Number.isSafeInteger(t.number) && t.number > 0 && typeof t.title === "string")
       .map((t) => ({ number: t.number, title: t.title.slice(0, 180), files: Number.isSafeInteger(t.files) ? t.files : 0,
+        address: typeof t.address === "string" && /^https:\/\/lab-[0-9]+\.[a-z0-9.-]+\/$/.test(t.address) ? t.address : null,
         url: typeof t.url === "string" && t.url.startsWith("https://github.com/") ? t.url : null }));
     const base = !ok ? null : /^https?:\/\/[A-Za-z0-9.-]+(:[0-9]+)?$/.test(s.url) ? s.url
       : location.protocol === "http:" ? `http://${location.hostname}:8081` : null;

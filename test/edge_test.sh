@@ -91,12 +91,13 @@ t_contains "$(grep -c ':8080' "$T_ROOT/host/edge/docs.Caddyfile")" 1
 t_eq "$(grep -c -i -E '^(RUN|ADD|ARG|VOLUME)' "$recipe")" 0
 
 t_case "the preview's sample data is what the dashboard reads"
-for f in status running health; do
+for f in status running health previews; do
   t_run "jq -e . '$T_ROOT/preview/live/$f.json' >/dev/null; echo rc=\$?"
   t_eq "$t_out" "rc=0"
 done
 t_eq "$(jq -r '[.queued, .awaiting, .stopped, .completed, .running] | map(type) | unique | join(",")' \
   "$T_ROOT/preview/live/status.json")" "array"
 t_eq "$(jq -r '.links | keys | join(",")' "$T_ROOT/preview/live/status.json")" "all,awaiting,completed,queued,stopped"
+t_eq "$(jq -r '[(.previews | type), (.disk | type)] | join(",")' "$T_ROOT/preview/live/previews.json")" "array,object"
 
 t_done
