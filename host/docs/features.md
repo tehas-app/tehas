@@ -46,7 +46,7 @@ a day.
 | Human merge             | Nothing merges on its own                                                                                                                | By configuration (no merge grant in `AGENTS.md`)                                   |
 | Self-hosted models only | One model for every role, set in the instance's `instance.env`                                                                           | Verified                                                                           |
 | Work by hand            | `tehas-dev` gives a person an interactive pi-rukas session on the host: the cycle's sandbox with a terminal, a clone that is kept, and the person's name on the commits. The push and the pull request are still the bot's | Covered by the shell tests, not yet seen on a host |
-| Concurrency knob        | `TEHAS_CONCURRENCY` sets how many workstreams a cycle runs side by side; 1 by default, raise it when the model backends have capacity    | Setting reaches the sandbox; its effect on a cycle is not yet observed             |
+| Concurrency knob        | `TEHAS_CONCURRENCY` sets how many workstreams a cycle runs side by side; 4 by default, lower it when the model backends have few slots    | Setting reaches the sandbox; its effect on a cycle is not yet observed             |
 
 ## Visibility
 
