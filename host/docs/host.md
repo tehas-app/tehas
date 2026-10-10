@@ -19,7 +19,8 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | ------------------------------------ | ----------------------------------------------------------------------- |
 | `~/tehas/env.sh`                     | Environment for every tehas process; sourced from `~/.bashrc`           |
 | `~/tehas/lib/config.sh`              | Loads and checks the instance settings; sourced by every command        |
-| `~/tehas/bin/`                       | The tehas commands, plus `gh`                                           |
+| `~/tehas/bin/`                       | The two commands on `PATH`: `tehas` for a person, `tehasbot` for the units. Plus `gh` |
+| `~/tehas/libexec/`                   | The scripts behind the two commands, one for each thing they do. Not on `PATH` |
 | `~/tehas/platform`                   | Checkout of this repository; `install.sh` runs from it                  |
 | `~/tehas/repos/tehas`                | The product checkout, on the default branch. Cycles are cloned from it; no container is given it |
 | `~/tehas/work/tehas`                 | The cycle's workspace: a fresh clone made for each cycle, removed before the next |
@@ -27,9 +28,9 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/docs/`, `~/tehas/fun/`      | This site's pages and the front page, installed from `host/`            |
 | `~/tehas/sandbox/`, `versions.env`   | Sandbox image definition, build script, and the pinned tool versions    |
 | `~/tehas/edge/`                      | The docs server (`docs.compose.yaml`) and the Protolab server (`protolab.compose.yaml`) |
-| `~/tehas/protolab/`                  | The Protolab's pages and the files of each prototype, written by `tehas-protolab` |
+| `~/tehas/protolab/`                  | The Protolab's pages and the files of each prototype, written by `tehasbot protolab` |
 | `~/tehas/logs/`, `state/`, `live/`, `tmp/` | Logs, lock and status files, dashboard data, scratch              |
-| Docker volume `pi-ensemble-cache`    | Caches of the sandbox, among them the code index `tehas-index` builds   |
+| Docker volume `pi-ensemble-cache`    | Caches of the sandbox, among them the code index `tehas index` builds   |
 | `~/.pi/agent/`                       | Pi user configuration (models, MCP servers)                             |
 | `~/.config/tehas/`                   | Secrets and the `instance-dir` pointer. Never in git                    |
 
@@ -90,7 +91,7 @@ the installed files and the tests:
 Instance:     /home/boss/tehas/platform/instances/tehas-tehas OK
 Dependencies: OK
 Installed:    DRIFT (1 files)
-  differs: /home/boss/tehas/bin/tehas-dispatch
+  differs: /home/boss/tehas/libexec/dispatch
 Tests:        OK
 ```
 
@@ -98,6 +99,14 @@ Tests:        OK
 invalid. It prints the follow-up command when the sandbox image, the docs
 server or a systemd unit changed, and restarts nothing itself. A file edited directly on
 the host shows up as drift in `--check`.
+
+Before there was a `tehas` command, `~/tehas/bin` held one file for each
+command (`tehas-dispatch`, `tehas-work` and so on). `install.sh` removes those
+and `--check` lists them as stale. A cycle that was running before the install
+still calls them by name, so while one runs they are left in place and the
+install prints `next: ./install.sh again when the running cycle has ended`. If
+the energy sampler was running, it also prints the restart that moves it to the
+new file.
 
 One thing it does besides copying, on a real run only: the product checkout's
 `origin/HEAD` is refreshed, so the commands know the default branch without
@@ -246,7 +255,7 @@ Both are outside the repository and the tehas tree.
 | Host paths mounted                     | The cycle's workspace, `~/.vipune`, Pi's `ensemble-runs` and `sessions` (read-write); `models.json`, `mcp.json` (read-only); two caches |
 | Not reachable from the container       | The Docker socket, SSH keys, `~/.config/tehas`, the platform checkout, the product checkout, the instance directory                     |
 | What the host runs from the workspace  | Nothing. The host runs git only in the product checkout, which no container has written. It reads the cycle's state file from the workspace as data |
-| The indexing container                 | `tehas-index` runs the indexer, not an agent: a clone of the product read-only, the cache volume, no network, no token                  |
+| The indexing container                 | `tehas index` runs the indexer, not an agent: a clone of the product read-only, the cache volume, no network, no token                  |
 | The network                            | Not restricted. The container reaches GitHub, the model endpoint and whatever else the host can route to                                |
 | Merging                                | The token could merge where the repository lets it. Nothing does, because `AGENTS.md` forbids it and the dispatcher never merges        |
 

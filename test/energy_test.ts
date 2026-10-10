@@ -1,4 +1,4 @@
-// Tests bin/tehas-energy, the sampler behind the Energy use section,
+// Tests libexec/energy, the sampler behind the Energy use section,
 // against a local server that plays the mesh.
 //
 //   deno test -A --no-config test/energy_test.ts
@@ -29,7 +29,7 @@ async function home() {
 }
 
 async function sample(dir: string, env: Record<string, string>, args: string[] = []) {
-  const out = await new Deno.Command(`${root}bin/tehas-energy`, {
+  const out = await new Deno.Command(`${root}libexec/energy`, {
     args,
     env: { PATH: Deno.env.get("PATH") ?? "", HOME: dir, TEHAS_HOME: dir, ...env },
     clearEnv: true,

@@ -1,6 +1,6 @@
-// Tests the masking regexes used by bin/tehas-console.ts.
+// Tests the masking regexes used by libexec/console.ts.
 //
-// tehas-console.ts runs a read-loop at the top level, so it cannot be
+// console.ts runs a read-loop at the top level, so it cannot be
 // imported from a test. The mask() logic is duplicated here; the two must
 // stay in sync (they are the only place in the repo that masks secrets for
 // the dashboard console).

@@ -23,7 +23,7 @@ if [ -r "$TEHAS_HOME/lib/config.sh" ]; then
   . "$TEHAS_HOME/lib/config.sh"
   tehas_load || true
 fi
-# Energy use on the dashboard: tehas-energy samples the model mesh when it
+# Energy use on the dashboard: tehasbot energy samples the model mesh when it
 # is a viiwork mesh, and the section appears by itself. TEHAS_ENERGY=off removes
 # it (the file tells every visitor the machines' names, their draw and their
 # models). TEHAS_ENERGY_URL names the cluster URL when it is not the model

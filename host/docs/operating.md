@@ -106,7 +106,7 @@ in the last minute. The tokens are the mesh's count for those models, so other
 users of the same models are in it.
 With any other backend the section and the meter are simply not there, and
 nothing else changes. To turn them off on a viiwork mesh, see
-[tehas-energy](/tools).
+[the energy sampler](/tools).
 
 The dispatcher takes one issue at a time, urgent first, then the lowest issue
 number.
@@ -121,12 +121,17 @@ number.
 When the cycle starts and when it ends, the bot comments on the issue. The token
 usage per agent role is posted on the pull request.
 
-A timer polls every two minutes. To see or force a poll by hand on the host:
+A timer polls every two minutes. To see the factory's state, or to see or force
+a poll by hand on the host:
 
 ```
-tehas-dispatch --dry-run     # what would it do?
-tehas-dispatch               # do it (returns when the cycle ends)
+tehas status                 # taking work? the queue, the current or last cycle
+tehas dispatch --dry-run     # what would it do?
+tehas dispatch               # do it (returns when the cycle ends)
 ```
+
+`tehas` is the one command to type on the host; `tehas help` lists what it
+does. See [Commands](/tools).
 
 ## 4. Review and merge
 
@@ -180,8 +185,8 @@ already running finishes. Remove the label to resume.
 Skips the queue, the labels and the comments:
 
 ```
-tehas-work 123            # exit 0: merged or parked, 1: aborted, 2: died or timed out
-tehas-work 123 --restart
+tehas work 123            # exit 0: merged or parked, 1: aborted, 2: died or timed out
+tehas work 123 --restart
 ```
 
 It does not take the dispatcher's lock, so a poll can start a queue cycle while

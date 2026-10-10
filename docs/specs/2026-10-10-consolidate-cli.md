@@ -87,13 +87,17 @@ old files from `~/tehas/bin`. A cycle that began before the install was started
 by the old dispatcher, which still calls `tehas-status`, `tehas-index` and
 `tehas-work` by name. So while the dispatcher's lock is held the old files are
 left in place and the install prints the step to run later. `--check` reports
-them as stale.
+them as stale. A running energy sampler is the old file calling itself every
+15 seconds, so when that file is removed the install prints the restart.
+
+`tehas labels` exits 1 when a label could not be made. `--init-labels` exited
+0 whatever GitHub answered.
 
 ## Gate files
 
-Three files that a work cycle may not edit change here, by a person's hand:
-`scripts/verify.sh` (the two paths it runs), `AGENTS.md` (the map of the
-repository and the path in rule 4), and nothing under `.pi/`.
+Two files that a work cycle may not edit change here, by a person's hand:
+`scripts/verify.sh` (the two paths it runs) and `AGENTS.md` (the map of the
+repository and the path in rule 4). Nothing under `.pi/` changes.
 
 ## Later
 
@@ -105,7 +109,15 @@ with one line each in `bin/tehas`.
 
 1. `scripts/test.sh` replaces `bin/tehas-test`; it also checks `libexec/`.
 2. Move the scripts to `libexec/`, add `bin/tehas` and `bin/tehasbot`, point
-   the units and `install.sh` at them, retire the old files on a host. Tests
-   and the manual in the same commit.
-3. `tehas labels` as its own script.
-4. `tehas status`.
+   the units and `install.sh` at them, retire the old files on a host, split
+   out `libexec/labels` and add `libexec/summary`. Tests and the manual in the
+   same commit, because the two commands name every script from the start.
+
+## Not done here
+
+- The comments in `host/edge/*.Caddyfile` and `protolab.compose.yaml` still
+  say `tehas-health` and `tehas-protolab`. Changing them would make
+  `install.sh` ask every host to recreate its two containers for a comment.
+  They go with the next real change to those files.
+- Nothing was installed on a host. The tests and a scratch install are the
+  evidence; `host/docs/features.md` says so.

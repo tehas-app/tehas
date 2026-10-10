@@ -130,7 +130,7 @@ git -C ~/tehas/platform config core.sshCommand \
 Add `deploy_key.pub` to the repository's deploy keys without write access.
 
 **The bot's git identity.** `git config --global user.name` and `user.email`
-for the tehas user. `tehas-work` refuses to start a cycle without them.
+for the tehas user. `tehas work` refuses to start a cycle without them.
 
 ## What is proven
 

@@ -9,7 +9,7 @@
     return e;
   };
 
-  // Stages follow the labels tehas itself puts on issues (see bin/tehas-status).
+  // Stages follow the labels tehas itself puts on issues (see libexec/status).
   const STAGES = {
     ready: "IN LINE",
     running: "BUILDING",
@@ -219,7 +219,7 @@
     return li;
   }
 
-  // The Protolab's own list, /live/protolab.json, written by tehas-protolab: every
+  // The Protolab's own list, /live/protolab.json, written by tehasbot protolab: every
   // ticket at the prototype stage and how much is attached to it. The live queue
   // does not carry prototypes, so with the live queue the lab is filled from this.
   // The lab is another server: at the address the file names, or else at port
