@@ -16,6 +16,8 @@ description: "What each stop in a tehas cycle means, and what to do about it."
 | Where is the cycle now?          | `jq .pipelineState ~/tehas/work/tehas/.pi/work-state/<issue>.json`. The workspace is the last cycle's state source. |
 | What did one agent do?           | Transcripts under `~/.pi/agent/ensemble-runs/<date>/`                   |
 | Is a cycle running?              | `docker ps --filter name=tehas-work`                                    |
+| What did the previews do?        | `~/tehas/logs/preview.log`, and `~/tehas/logs/preview-<pr>.log` for one build |
+| What state is a preview in?      | `jq . ~/tehas/preview/<pr>/state.json`, or "Previews" on the [dashboard](/dashboard) |
 
 The driver's notices, one per line:
 
@@ -226,6 +228,125 @@ router by hand: `docker compose -p tehas-protolab down`, then
 The router also needs the network `tehas-previews`, which `install.sh` makes. If
 compose says the network is not found, run `docker network create --internal
 tehas-previews`.
+
+## A preview is not there
+
+The dashboard lists the open pull requests that have a state under
+"Previews", with the address or the reason. The same is in
+`~/tehas/preview/<pr>/state.json`, and what the runs did is in
+`~/tehas/logs/preview.log`. Look for the state first.
+
+**Nothing is listed at all.** The section is missing when the host has no
+`~/tehas/live/previews.json`. Either `TEHAS_PREVIEWS` is not `1`, or the timer
+was never enabled: `systemctl --user list-timers tehas-preview.timer`. An
+update does not enable it. See [Previews](/edge). A pull request from a fork
+is never listed and never built; the log counts it as `from elsewhere`.
+
+**`no-recipe`.** The pull request's commit has no `preview/Dockerfile`. Add
+the file to the branch; the next commit is tried. See
+[A new project](/new-project).
+
+**`build-failed`.** Read `~/tehas/logs/preview-<pr>.log`. The reason in the
+state says which of two things happened:
+
+- The build failed or ran over 15 minutes. The same commit is not built
+  again. Push a new commit and that one is tried. A preview of the earlier
+  commit keeps serving meanwhile.
+- The container did not start. That can be the host and not the commit, so
+  it is tried again at each of the next three runs, and then no more for that
+  commit. The usual cause that stays is an image that writes outside `/tmp`,
+  `/config` and `/data`, or one that does not start without a variable.
+
+To have the same commit built again, remove the state and let the next run
+find the pull request anew: `rm -r ~/tehas/preview/<pr>`.
+
+**`no-space`.** Less than `TEHAS_PREVIEW_MIN_FREE` is free on the file system
+of `~/tehas` or on Docker's. Nothing is built, what serves stays, and `/health`
+says `warn`.
+
+```
+df -h ~/tehas
+docker system df
+docker image prune      # removes images nothing uses
+```
+
+The next run builds. tehas does not prune Docker's build cache;
+`docker builder prune` does, and the next build of the sandbox image is then
+slower.
+
+**`over-limit`.** More than `TEHAS_PREVIEW_MAX` pull requests are open, and
+the newest ones win. Close one, or raise the setting in `instance.env`.
+
+**No state, and the log says `the commit could not be fetched`.** The bare
+clone `~/tehas/preview/repo.git` could not fetch from the product's origin.
+It is tried again at every run. The git message is in
+`~/tehas/logs/preview-<pr>.log`. Check that `git -C ~/tehas/preview/repo.git
+ls-remote origin` answers.
+
+**The log says `the network tehas-previews is not internal; nothing was
+built`.** The Docker network was made by hand without `--internal`. A preview
+on it could reach the internet and the model host, so no run does anything
+until it is put right. Take the router and the previews off it, remove it and
+make it again:
+
+```
+docker compose -f ~/tehas/edge/router.compose.yaml down
+docker ps -aq --filter label=tehas.preview | xargs -r docker rm -f
+docker network rm tehas-previews
+docker network create --internal tehas-previews
+. ~/tehas/env.sh && docker compose -f ~/tehas/edge/router.compose.yaml up -d
+```
+
+**The log says `Docker does not answer`.** Nothing was built or removed.
+Check `docker info` as the tehas user.
+
+**The state is `serving` and the name answers 404** with "No preview is
+running at this address". The router did not reach the container. Is it
+running, and is the router on the previews' network?
+
+```
+docker ps --filter name=tehas-preview-<pr>
+docker network inspect tehas-previews --format '{{range .Containers}}{{.Name}} {{end}}'
+docker logs tehas-preview-<pr>
+```
+
+The second line has to name the router and the preview. An image that does
+not answer on port 8080 gives the same 404.
+
+**502 from outside.** The proxy in front of the host got no answer from port
+8081: the edge router is not running, or it is bound to another address than
+the proxy sends to. See "The edge router does not start" above.
+
+**521 or 525 from outside.** The proxy or its certificate. The table in
+[Previews](/edge) says which.
+
+**No comment on the pull request.** The comment is written for `serving`,
+`build-failed` and `no-space` only, once for each commit and state. It needs
+the bot's token to answer `gh api user`. A call that failed is tried again at
+the next run.
+
+## A preview is still there after its pull request closed
+
+The five minute run removes it at its next turn, if GitHub answered with a
+list. The sweep is the second check, every three hours. Its lines in
+`~/tehas/logs/preview.log` have the word `swept`, and the time of the last
+one is `jq .lastSweep ~/tehas/live/previews.json`. Run it by hand:
+
+```
+tehasbot preview --sweep
+```
+
+It removes only on a clear answer, so read what it printed:
+
+- `GitHub does not show <repo>; nothing was swept by its word`: the bot's
+  token cannot see the repository. Check `gh auth status`.
+- `#<pr>: no answer from GitHub, kept`: the call about that pull request
+  failed or was unclear. The next sweep asks again.
+- `the lock was not free in 30 minutes, nothing was swept`: a run was
+  building all that time.
+
+If neither timer runs, nothing is removed:
+`systemctl --user list-timers 'tehas-preview*'`.
 
 ## This site shows an old page
 

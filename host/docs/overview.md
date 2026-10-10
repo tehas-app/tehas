@@ -32,6 +32,7 @@ The examples on this site come from the instance that works on tehas itself:
 | Platform checkout | `~/tehas/platform`, pulled with a read-only deploy key |
 | Settings         | `instances/tehas-tehas/` in the platform checkout       |
 | Dashboard        | <http://tehas-tehas:8080> on the private network, published as <https://tehas.app> |
+| Previews         | `https://uat-<pr>.tehas.app`, one for each open pull request. See [Previews](/edge) |
 | Control issue    | 1                                                       |
 
 ## How an issue flows
@@ -70,6 +71,7 @@ the factory works the same without it.
 | Energy use           | Only when the model endpoint is a [viiwork](https://github.com/janit/viiwork) mesh, and `tehas-energy.service` is enabled | The section and the meter are not on the factory floor |
 | [viiwork](https://github.com/janit/viiwork) | A flexible meshed inference platform for both home and enterprise grade hardware. One possible model backend, the one the example instance uses. tehas does not require it | Use any other OpenAI-compatible endpoint               |
 | Protolab             | Only if you label issues `tehas:prototype`. The dispatcher never acts on that label              | The Protolab is empty                                  |
+| Previews             | `TEHAS_PREVIEWS=1` with `TEHAS_DOMAIN`, and a `preview/Dockerfile` in the product. See [Previews](/edge) | A pull request is read on GitHub only          |
 | Search indexing      | `TEHAS_INDEXING=1`, for an instance published on the internet                                    | Every page says noindex                                |
 | Visitor analytics    | `TEHAS_ANALYTICS_SRC` and `TEHAS_ANALYTICS_SITE`, for an instance that wants to count visits     | No script is loaded                                    |
 | Factory floor        | The game view on the front page. The [plain dashboard](/dashboard) shows the same queue          | Use `/dashboard`                                       |
@@ -86,6 +88,8 @@ the factory works the same without it.
 - [Operating tehas](/operating): submit work, pause, retry, merge.
 - [Commands](/tools): every script and what it prints.
 - [The host](/host): layout, settings, models, the sandbox image, installing.
+- [Previews](/edge): a running preview of every pull request, and how the
+  names were published on the internet.
 - [Bootstrap a host](/bootstrap): preparing a fresh machine.
 - [A new project](/new-project): installing tehas for another repository.
 - [Troubleshooting](/troubleshooting): when a cycle parks or a tool fails.

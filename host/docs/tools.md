@@ -45,7 +45,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_ALLOWED_LABELERS`        | required                                 | Logins whose `tehas:ready` counts, space separated              |
 | `PI_ENSEMBLE_SUBAGENT_MODEL`    | required                                 | Model for every subagent role                                   |
 | `PI_ENSEMBLE_SUBAGENT_PROVIDER` | required                                 | Its provider, as named in `models.json`                         |
-| `TEHAS_HOST_ADDR`               | `127.0.0.1`                              | Address the docs server and the Protolab bind to                |
+| `TEHAS_HOST_ADDR`               | `127.0.0.1`                              | Address the docs server and the edge router bind to             |
 | `TEHAS_INDEXING`                | `0`                                      | `1` lets search engines index the dashboard and the manual      |
 | `TEHAS_ANALYTICS_SRC`, `_SITE`  | empty                                    | Optional. The https address of a visitor analytics script and the site name it reports under. Both set: every page loads it |
 | `TEHAS_ANALYTICS_COOKIE`        | `0`                                      | `1` adds `data-cookie="true"` to that script tag                |
@@ -259,11 +259,14 @@ tehasbot status               # write the queue snapshot
 tehasbot health               # write the health file
 tehasbot energy [--every]     # sample the model mesh; what tehas-energy.service runs
 tehasbot protolab             # build the Protolab; what tehas-protolab.timer runs
+tehasbot preview              # keep the previews; what tehas-preview.timer runs
+tehasbot preview --sweep      # the second check; what tehas-preview-sweep.timer runs
 ```
 
 The names of the units did not change with the commands: they are still
 `tehas-dispatch.timer`, `tehas-energy.service` and `tehas-protolab.timer`, and
-a cycle's container is still `tehas-work-<issue>`.
+a cycle's container is still `tehas-work-<issue>`. The previews' units are
+`tehas-preview.timer` and `tehas-preview-sweep.timer`.
 
 ## tehasbot status and the console
 
@@ -373,9 +376,16 @@ systemctl --user enable --now tehas-protolab.timer
 Builds the Protolab in `~/tehas/protolab`: a page for every open issue
 labelled `tehas:prototype`, with the files attached to it, and the list
 `~/tehas/live/protolab.json` that the dashboard links from. The timer runs it
-every five minutes; the log is `~/tehas/logs/protolab.log`. The container
-serves the directory on port 8081 and does nothing else: it reads its mounts,
-has a read-only root and no way to write to the host.
+every five minutes; the log is `~/tehas/logs/protolab.log`.
+
+The container is the edge router, on port 8081. It answers for the Protolab
+and for the [previews](#tehasbot-preview), and picks by the name it is asked
+for: `lab-<issue>.` is that ticket's page, `uat-<pr>.` is the preview of that
+pull request, and any other name is the Protolab by path, the list at `/` and
+a ticket at `/<issue>/`. It reads its mounts, has a read-only root and no way
+to write to the host. With `TEHAS_DOMAIN` set, the list links each ticket at
+`lab-<issue>.<domain>`, so every ticket is an origin of its own to a browser.
+[The host](/host) has the table of what it answers.
 
 It fetches only links to GitHub's attachment storage, in text written by an
 owner, member or collaborator of the repository, and only the types listed
@@ -391,6 +401,121 @@ own, never a path under the dashboard's, and set `TEHAS_PROTOLAB_URL`.
 
 Without the timer and the container there is no Protolab, and the panel on the
 factory floor says so.
+
+## tehasbot preview
+
+```
+tehasbot preview            # one run; a line per preview that changed
+tehasbot preview --sweep    # the second check of what is left on the host
+systemctl --user enable --now tehas-preview.timer tehas-preview-sweep.timer
+tail ~/tehas/logs/preview.log
+```
+
+Keeps a running preview of every open pull request whose head branch is in
+the product repository: a container `tehas-preview-<pr>` that the edge router
+answers with at `uat-<pr>.<domain>`. Deterministic, no model. It needs
+`TEHAS_PREVIEWS=1` and `TEHAS_DOMAIN`. Setting it up, and what a preview can
+and cannot reach, is on [Previews](/edge).
+
+The two timers are enabled by the operator, with the line above. `tehas update`
+restarts only a unit that is already active, so on a host that was installed
+before previews existed the timers are installed and do not run until they
+are enabled. Both write to `~/tehas/logs/preview.log`.
+
+**A run**, every five minutes:
+
+1. It asks Docker whether it answers, and makes the network `tehas-previews`
+   if it is not there. If that network is not internal, the run stops here
+   and the log says `the network tehas-previews is not internal; nothing was
+   built`.
+2. It measures the free space: the smaller of the file system of `~/tehas`
+   and the one Docker keeps its images on.
+3. It asks GitHub for the open pull requests, the newest 100. No answer, an
+   empty answer, or one that is not a list ends the run: nothing is built and
+   nothing is removed.
+4. A pull request whose head is in another repository is counted in the log
+   and never built. Of the rest, the newest `TEHAS_PREVIEW_MAX` get a
+   preview.
+5. What is on the host for a pull request that is no longer open is removed:
+   the container, the image, the fetched commit, the state and the build log.
+   The log says `#<pr>: pull request no longer open, removed`.
+6. Each pull request that is due is fetched and built. The commit is fetched
+   into the bare clone `~/tehas/preview/repo.git`, and its
+   `preview/Dockerfile` is built with the commit as the context, in at most
+   15 minutes. The new container replaces the old one.
+7. The pull request is told, and `~/tehas/live/previews.json` is written for
+   the dashboard and for [tehasbot health](#tehasbot-health).
+
+Each pull request has a state, in `~/tehas/preview/<pr>/state.json`:
+
+| State | Meaning | Tried again |
+| --- | --- | --- |
+| `serving` | A container of that commit runs | Not needed |
+| `building` | The build is under way | |
+| `no-recipe` | The commit has no `preview/Dockerfile`. A preview of an earlier commit is removed | At a new commit |
+| `build-failed` | The build failed or ran over 15 minutes: a preview of an earlier commit keeps serving. Or the container did not start | A failed build: at a new commit, not for the same one. A container that did not start: at each of the next three runs, then at a new commit |
+| `no-space` | Less than `TEHAS_PREVIEW_MIN_FREE` is free, or the free space could not be read. What serves stays, and removal still runs | At every run, until there is space |
+| `over-limit` | More than `TEHAS_PREVIEW_MAX` pull requests are open and this is not one of the newest. A preview it had is removed | At every run |
+
+A commit that could not be fetched gets no new state. The log says
+`#<pr>: the commit could not be fetched, tried again at the next run`, and it
+is. A new commit is always tried.
+
+A build's output is in `~/tehas/logs/preview-<pr>.log`, written anew at each
+build.
+
+**What a preview's container is given.** Nothing of the host: no mount, no
+variable, no published port, no token. A read-only root with `/tmp`, `/config`
+and `/data` in memory, every capability dropped but the one to bind a port,
+256 MB, one CPU, 128 processes, and the network `tehas-previews` only.
+`test/preview_test.sh` pins these arguments.
+
+**The comment.** The pull request gets one comment, by the bot's own account,
+edited in place: the address when the preview serves, or "Unable to create a
+preview" with the reason for `build-failed` and `no-space`. It is said once
+for each commit and state, so a full disk is not a comment every five
+minutes. The other states are on the dashboard only. To find its comment the
+command reads the first 100 comments of the pull request and takes the one
+its own account wrote. A call that fails is tried again at the next run.
+
+**The sweep**, every three hours, is the second check that nothing of a merged
+or closed pull request stays on the host. It does not work from GitHub's list
+of open pull requests. It starts from what it finds on the host: containers
+and images with the label `tehas.preview`, fetched commits and state
+directories. It waits up to 30 minutes for a run to end, and no run starts
+while it works.
+
+- A container with the label that belongs to no pull request of this
+  repository is removed, and so is an image with the label that is not tagged
+  `tehas-preview:<pr>` or is another repository's. Docker refuses to remove
+  an image that a container runs.
+- It then asks GitHub for the repository itself. If GitHub does not show it,
+  nothing more is removed, and the log says `GitHub does not show <repo>;
+  nothing was swept by its word`. A token that lost its access gets a 404 for
+  every pull request, and that must not remove every preview.
+- It asks about each pull request by itself. Only three answers remove: a
+  clear `closed`, a 404, or an open pull request whose head is outside the
+  repository. Every container that carries the pull request's label is then
+  removed by its id, with the image, the fetched commit, the state and the
+  build log. Any other answer keeps everything: `#<pr>: no answer from
+  GitHub, kept`.
+- For a pull request that is open and ours, a container of its number with
+  another name than `tehas-preview-<pr>` is removed.
+
+A line with `swept` in the log is something the five minute run missed. The
+time of the last sweep and how many things it removed are `lastSweep` in
+`~/tehas/live/previews.json`.
+
+| Exit | Meaning |
+| ---- | ------- |
+| 0    | Done. Also when GitHub or Docker did not answer and what runs was left running, and when another run holds the lock |
+| 1    | It cannot write under `~/tehas` |
+| 64   | A wrong argument |
+| 78   | The instance settings are invalid, or `TEHAS_PREVIEWS` is not `1` |
+
+The [plain dashboard](/dashboard) lists the previews under "Previews", each
+with its address or the reason there is none. A host without previews has no
+`previews.json` and no such section.
 
 ## The gates (run by the cycle, usable by hand)
 
@@ -446,7 +571,7 @@ which ones each id accepts and which of them it requires:
 | `units <unit>...`           | a unit file changed                  | systemd reloaded its unit files, and the unit is active: restarted, never enabled |
 | `sandbox`                   | `sandbox/` or `versions.env` changed | always                                                            |
 | `docs --force-recreate`     | `edge/docs.*` changed                | its container is running: recreated with that flag                 |
-| `edge --force-recreate`     | `edge/router.*` changed              | its container is running: recreated with that flag                 |
+| `edge --force-recreate`     | `edge/router.*` changed              | its container is running: recreated with that flag. Or the Protolab's server of before it runs, the compose project `tehas-protolab`: that one is taken down and the router is started |
 
 Both containers are recreated rather than just brought up, because what changed is
 the Caddyfile they mount and Caddy reads its config when the process starts:
