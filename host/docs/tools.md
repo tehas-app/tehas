@@ -279,7 +279,9 @@ the newest thousand, not only the ones the factory was given: work going on
 beside the factory shows up there. The file holds the hundred most used words
 with their counts, and no title or issue number. On a published dashboard
 those words are public too. If GitHub does not answer that call, the snapshot
-is written without them and the game counts the tickets on the line.
+is written without them and the game counts the tickets on the line. A round
+shows at most twelve of the forty most used words, picked by chance, so the
+wall is another one every time.
 
 ## tehasbot health
 
@@ -392,7 +394,7 @@ product:
 
 ```
 scripts/verify.sh          # fast: the lint, shellcheck, the shell tests
-scripts/verify.sh --full   # plus the console's tests (cargo) and the energy view's (node)
+scripts/verify.sh --full   # plus the console's tests (cargo) and the front page's (node)
 ```
 
 ## tehas update

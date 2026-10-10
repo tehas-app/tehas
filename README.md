@@ -110,7 +110,7 @@ one repository from one host.
 
 ```
 scripts/verify.sh          # lint, shellcheck, the shell tests
-scripts/verify.sh --full   # plus the console's tests (cargo) and the energy view's (node)
+scripts/verify.sh --full   # plus the console's tests (cargo) and the front page's (node)
 ```
 
 The tests need bash, git, jq and shellcheck. They use no network and no sandbox

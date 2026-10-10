@@ -94,7 +94,7 @@
       }
     }
     return [...counts].map(([word, count]) => ({ word, count }))
-      .sort((a, b) => b.count - a.count || a.word.localeCompare(b.word)).slice(0, 25);
+      .sort((a, b) => b.count - a.count || a.word.localeCompare(b.word)).slice(0, 40);
   }
 
   // "live" is true while the tickets come from the factory's own queue snapshot.
@@ -681,8 +681,6 @@
   const canvas = $("brick-canvas");
   const ctx = canvas.getContext("2d");
   const W = canvas.width, H = canvas.height;
-  const BRICK_W = 84, BRICK_H = 24;
-  const brickColors = ["#fc6", "#ea3", "#7cb", "#7cb", "#ccd"];
   const game = { mode: "ready", score: 0, lives: 3, time: 45, paddleX: W / 2, paddleW: 72, x: W / 2, y: H - 40, vx: 145, vy: -175, bricks: [] };
   let last = performance.now(), leftHeld = false, rightHeld = false;
   let debris = [], paddleFlash = 0;
@@ -699,13 +697,9 @@
 
   function resetGame() {
     Object.assign(game, { mode: "ready", score: 0, lives: 3, time: 45, paddleX: W / 2, x: W / 2, y: H - 40, vx: 145, vy: -175 });
-    // A new order every round, so the wall reads as a different sentence each time.
-    const wall = words.slice();
-    for (let i = wall.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [wall[i], wall[j]] = [wall[j], wall[i]];
-    }
-    game.bricks = wall.map((word, i) => ({ x: 16 + (i % 5) * 92, y: 24 + Math.floor(i / 5) * 28, alive: true, color: brickColors[Math.floor(i / 5)], word }));
+    // A new wall every round: other words, other shapes, other places, and
+    // never more blocks than the wall has room for (brick-wall.js).
+    game.bricks = window.TEHAS_BRICK_WALL.build(words).map((block) => ({ ...block, alive: true }));
     $("brick-word").textContent = "NO WORD HIT YET";
     gameUi(words.length ? "45 seconds, 3 balls." : "Load ticket data to play.");
   }
@@ -737,14 +731,21 @@
       game.vx = 165 * (game.x - game.paddleX) / half + Math.sign(game.vx) * 55;
     }
     for (const b of game.bricks) {
-      if (!b.alive || game.x + 4 <= b.x || game.x - 4 >= b.x + BRICK_W || game.y + 4 <= b.y || game.y - 4 >= b.y + BRICK_H) continue;
+      // A block is hit where any of its rectangles is, and goes whole.
+      const hit = b.alive && b.rects.find((r) => game.x + 4 > r.x && game.x - 4 < r.x + r.w && game.y + 4 > r.y && game.y - 4 < r.y + r.h);
+      if (!hit) continue;
       b.alive = false;
       if (!calm.matches) {
+        const row = b.rects[0];
         for (let i = 0; i < 6; i++) {
-          debris.push({ x: b.x + 8 + i * 12, y: b.y + BRICK_H / 2, vx: (i - 2.5) * 28, vy: -60 - (i % 3) * 30, life: 0.4, color: b.color });
+          debris.push({ x: row.x + 8 + i * (row.w - 16) / 5, y: row.y + row.h / 2, vx: (i - 2.5) * 28, vy: -60 - (i % 3) * 30, life: 0.4, color: b.color });
         }
       }
-      game.vy *= -1;
+      // The ball turns back the way it came in: off a side when it is less
+      // deep in the block sideways than up or down, as it is in a notch.
+      const deepX = Math.min(game.x + 4 - hit.x, hit.x + hit.w - (game.x - 4));
+      const deepY = Math.min(game.y + 4 - hit.y, hit.y + hit.h - (game.y - 4));
+      if (deepX < deepY) game.vx *= -1; else game.vy *= -1;
       game.score += 10;
       $("brick-word").textContent = `${b.word.word.toUpperCase()}: ${b.word.count} MENTIONS${state.sample ? " IN THE SAMPLE" : ""}`;
       break;
@@ -768,12 +769,13 @@
     ctx.textBaseline = "middle";
     for (const b of game.bricks) {
       if (!b.alive) continue;
+      // Every shadow first, so no part of a block lies in its own shade.
       ctx.fillStyle = "#111";
-      ctx.fillRect(b.x + 4, b.y + 4, BRICK_W, BRICK_H);
+      for (const r of b.rects) ctx.fillRect(r.x + 4, r.y + 4, r.w, r.h);
       ctx.fillStyle = b.color;
-      ctx.fillRect(b.x, b.y, BRICK_W, BRICK_H);
+      for (const r of b.rects) ctx.fillRect(r.x, r.y, r.w, r.h);
       ctx.fillStyle = "#144";
-      ctx.fillText(b.word.word.toUpperCase(), b.x + BRICK_W / 2, b.y + BRICK_H / 2 + 1);
+      ctx.fillText(b.word.word.toUpperCase(), b.rects[0].x + b.rects[0].w / 2, b.rects[0].y + b.rects[0].h / 2 + 1);
     }
     const left = Math.round(game.paddleX - game.paddleW / 2);
     ctx.fillStyle = "#111";

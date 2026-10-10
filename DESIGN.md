@@ -381,6 +381,12 @@ panels. Inside it a CRT Black cabinet: the 480 by 272 canvas scaled to fill
 the width, beside a bone panel with the readout and one play button. On a
 narrow screen the bone panel goes below the canvas.
 
+The wall is built of blocks on a grid of 32 by 24 pixel cells, each block a
+row of cells with its word on it, most with a cell or two grown above or
+below, like the pieces of a falling-block game. A round takes at most twelve
+words and half the cells, picked and laid out afresh, so the wall is never
+full. Blocks that touch differ in colour.
+
 ## 6. Do's and Don'ts
 
 ### Do:

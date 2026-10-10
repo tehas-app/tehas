@@ -4,7 +4,7 @@
 #   scripts/verify.sh          the lint for product and host names, shellcheck,
 #                              and every shell test
 #   scripts/verify.sh --full   the above, plus the tests of the console (cargo)
-#                              and of the energy view (node)
+#                              and of the front page (node)
 #
 # Needs bash, git, jq and shellcheck; --full also needs cargo and node. No
 # network, no sandbox image, no product checkout: except that cargo fetches the
@@ -43,6 +43,6 @@ with() { # tool name command...: a step that needs a tool
 }
 if [ "${1:-}" = "--full" ]; then
   with cargo "the console's tests" cargo test --locked --quiet --manifest-path console/Cargo.toml
-  with node "the energy view's tests" node --test test/energy_view_test.mjs
+  with node "the front page's tests" node --test test/energy_view_test.mjs test/brick_wall_test.mjs
 fi
 exit "$failed"
