@@ -121,6 +121,11 @@ number.
 When the cycle starts and when it ends, the bot comments on the issue. The token
 usage per agent role is posted on the pull request.
 
+The console on the [factory floor](/) and on the [plain dashboard](/dashboard)
+shows one cycle at a time. When several are running, or one is running and an
+earlier one can still be read, a row of tabs above it names each by its issue
+number.
+
 A timer polls every two minutes. To see the factory's state, or to see or force
 a poll by hand on the host:
 

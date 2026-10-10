@@ -337,6 +337,13 @@ cycle's output, followed as it grows. A tag in the panel head says LIVE (Brass),
 ENDED or NO CONSOLE, and its door says the same in words. It and the Factory
 Energy panel are the only live parts of the page, and both are labelled as such.
 
+When more than one cycle can be shown, a row of tabs stands above the screen:
+one per running cycle, named by its issue number, and one for the cycle that
+finished last, marked ENDED. A tab is a Bone button with the 4px outline; the
+selected one is Brass. The tag in the panel head describes the selected cycle.
+The door and the lamp say LIVE while any cycle runs. The plain dashboard has
+the same row.
+
 ### Energy Use
 A Bone Shade panel in the console's style, shown only when the model backend
 reports power: a Steel head with the count of hosts reporting and a tag that
