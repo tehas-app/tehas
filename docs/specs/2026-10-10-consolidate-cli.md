@@ -120,9 +120,5 @@ with one line each in `bin/tehas`.
 
 ## Not done here
 
-- The comments in `host/edge/*.Caddyfile` and `protolab.compose.yaml` still
-  say `tehas-health` and `tehas-protolab`. Changing them would make
-  `install.sh` ask every host to recreate its two containers for a comment.
-  They go with the next real change to those files.
 - Nothing was installed on a host. The tests and a scratch install are the
   evidence; `host/docs/features.md` says so.
