@@ -13,6 +13,7 @@ function file(over = {}) {
   return {
     generatedAt: new Date(T * 1000).toISOString(),
     source: "viiwork",
+    sourceUrl: "https://github.com/janit/viiwork",
     periodSeconds: 15,
     factoryModels: ["model-large"],
     totals: { watts: 1190, kWh24h: 14.23, kWh30d: 448.12, hosts: 3, reporting: 2, energyHosts: 2 },
@@ -22,8 +23,8 @@ function file(over = {}) {
       { name: "node-c", source: null, watts: null, kWh24h: null, kWh30d: null, ramUsedMb: 3100, ramTotalMb: 15800 },
     ],
     models: [
-      { name: "model-large", hosts: ["node-b"], slots: 1, busy: 1, queued: 2 },
-      { name: "model-small", hosts: ["node-a", "node-b"], slots: 6, busy: 2, queued: 0 },
+      { name: "model-large", hosts: ["node-b"], engines: [{ version: "2.9.0", engine: "strata" }], slots: 1, busy: 1, queued: 2 },
+      { name: "model-small", hosts: ["node-a", "node-b"], engines: [{ version: "2.9.0", engine: "llamacpp" }], slots: 6, busy: 2, queued: 0 },
     ],
     samples: [
       { t: T - 45, w: { "node-a": 500, "node-b": 250 } },
@@ -46,8 +47,8 @@ test("the headline and the rows of a fresh file", () => {
     { name: "node-c", band: null, source: "-", now: "-", day: "-", month: "-", ram: { filled: 2, percent: 20 } },
   ]);
   assert.deepEqual(v.models, [
-    { name: "model-large", hosts: "node-b", busy: "1/1", queued: "2" },
-    { name: "model-small", hosts: "node-a, node-b", busy: "2/6", queued: "0" },
+    { name: "model-large", hosts: "node-b", engines: "viiwork 2.9.0 (strata)", busy: "1/1", queued: "2" },
+    { name: "model-small", hosts: "node-a, node-b", engines: "viiwork 2.9.0 (llamacpp)", busy: "2/6", queued: "0" },
   ]);
 });
 
@@ -173,6 +174,69 @@ test("the meter: no rate from one sample, a missed slot or a stale file", () => 
   assert.deepEqual(layout(file({ samples: odd.slice(0, 2) }), NOW).meter.tokens, "16");
 });
 
+// The ENGINES cell of a model whose entry carries these engines.
+const enginesCell = (engines, over = {}) =>
+  layout(file({ models: [{ name: "model-large", hosts: ["node-b"], slots: 1, busy: 1, queued: 0, ...(engines === undefined ? {} : { engines }) }], ...over }), NOW).models[0].engines;
+
+test("the engines of a model: the mesh, its version and the engine", () => {
+  assert.deepEqual(enginesCell([{ version: "2.9.0", engine: "strata" }]), "viiwork 2.9.0 (strata)");
+  // A mesh in the middle of an upgrade, or two engines: joined as the hosts are.
+  assert.deepEqual(
+    enginesCell([{ version: "2.10.0", engine: "llamacpp" }, { version: "2.9.0", engine: "vllm" }]),
+    "viiwork 2.10.0 (llamacpp), viiwork 2.9.0 (vllm)",
+  );
+  assert.deepEqual(enginesCell([{ version: null, engine: "strata" }]), "viiwork (strata)");
+  assert.deepEqual(enginesCell([{ version: "2.9.0", engine: null }]), "viiwork 2.9.0");
+});
+
+test("the engine's name for people and its own version, where the mesh reports them", () => {
+  const cell = (e) => enginesCell([{ version: "2.9.2", engine: "llamacpp", ...e }]);
+  assert.deepEqual(cell({ engineName: "llama.cpp", engineVersion: "b11371" }), "viiwork 2.9.2 (llama.cpp b11371)");
+  // An engine that reports no version of its own.
+  assert.deepEqual(cell({ engineName: "Strata", engineVersion: null }), "viiwork 2.9.2 (Strata)");
+  // No name: the id, as from a mesh that sends none.
+  assert.deepEqual(cell({ engineName: null, engineVersion: "b11371" }), "viiwork 2.9.2 (llamacpp b11371)");
+  assert.deepEqual(cell({ engineName: "", engineVersion: 7 }), "viiwork 2.9.2 (llamacpp)");
+  assert.deepEqual(enginesCell([{ version: null, engine: null, engineName: "vLLM", engineVersion: "0.31.0" }]), "viiwork (vLLM 0.31.0)");
+  // Its own version alone names no engine.
+  assert.deepEqual(enginesCell([{ version: null, engine: null, engineName: null, engineVersion: "b1" }]), "-");
+  assert.deepEqual(enginesCell([{ version: "2.9.2", engine: null, engineVersion: "b1" }]), "viiwork 2.9.2");
+  // A mesh in the middle of an upgrade: the old machines send the id only.
+  assert.deepEqual(
+    enginesCell([{ version: "2.9.0", engine: "llamacpp" }, { version: "2.9.2", engine: "llamacpp", engineName: "llama.cpp", engineVersion: "b11371" }]),
+    "viiwork 2.9.0 (llamacpp), viiwork 2.9.2 (llama.cpp b11371)",
+  );
+});
+
+test("no engines is a dash: an empty array, and a file from the old sampler", () => {
+  assert.deepEqual(enginesCell([]), "-");
+  assert.deepEqual(enginesCell(undefined), "-");
+  // Elements that say nothing, or are no engines at all.
+  assert.deepEqual(enginesCell([{ version: null, engine: null }, null, 7, "strata", { version: 2, engine: ["x"] }]), "-");
+  assert.deepEqual(enginesCell("strata"), "-");
+});
+
+test("the name of the mesh is the file's, not the page's", () => {
+  assert.deepEqual(enginesCell([{ version: "1.0", engine: "strata" }], { source: "othermesh" }), "othermesh 1.0 (strata)");
+  for (const source of [undefined, "", 7]) {
+    assert.deepEqual(enginesCell([{ version: "1.0", engine: "strata" }], { source }), "1.0 (strata)");
+  }
+  // The engine is shown as the mesh reports it, cut like any other name.
+  assert.deepEqual(enginesCell([{ version: "1.0", engine: "<b>" + "x".repeat(100) }]), `viiwork 1.0 (<b>${"x".repeat(61)})`);
+});
+
+test("the data source line: a link only for an https address", () => {
+  const source = (over) => layout(file(over), NOW).source;
+  assert.deepEqual(source({}), { name: "viiwork", url: "https://github.com/janit/viiwork" });
+  for (const sourceUrl of [undefined, null, 7, "", "http://example.org/", "javascript:alert(1)", " https://example.org/", "HTTPS://example.org/"]) {
+    assert.deepEqual(source({ sourceUrl }), { name: "viiwork", url: null });
+  }
+  for (const name of [undefined, null, "", 7, {}]) assert.deepEqual(source({ source: name }), null);
+  assert.deepEqual(layout(null, NOW).source, null);
+  // Stale figures still came from somewhere.
+  assert.deepEqual(layout(file(), NOW + 60000).source, { name: "viiwork", url: "https://github.com/janit/viiwork" });
+});
+
 test("odd input does not break the page", () => {
   for (const bad of [null, 7, "x", [], {}, { hosts: "many", samples: 3, totals: [], models: {} }]) {
     const v = layout(bad, NOW);
@@ -188,7 +252,7 @@ test("odd input does not break the page", () => {
     [6, null, "-", "-", "-", null],
     [64, null, "-", "-", "-", { filled: 10, percent: 100 }],
   ]);
-  assert.deepEqual(v.models, [{ name: "model-odd", hosts: "-", busy: "-", queued: "-" }]);
+  assert.deepEqual(v.models, [{ name: "model-odd", hosts: "-", engines: "-", busy: "-", queued: "-" }]);
   // Only own, numeric, non-negative readings are stacked: "constructor" and "toString" here are departed hosts' names.
   assert.deepEqual(v.columns[119].length, 2);
   assert.deepEqual(v.watts, "--");

@@ -357,6 +357,10 @@ the stage under the monitor's column.
 - **Tables:** 1px Hairline between rows, figures right-aligned, a missing
   figure a dash. Only machines serving the factory and the models it uses are
   listed, so no row carries a mark. RAM is ten blocks, Slate for each started tenth in use.
+  A model's engines follow its hosts, and leave the table with them on narrow
+  screens.
+- **Data source:** one line of small print at the foot of the panel, Slate
+  with the name an Ink link, as in the page's footer.
 - **Stillness:** nothing here animates and no figure flashes. The figures
   change every 15 seconds, and motion that often would say nothing.
 

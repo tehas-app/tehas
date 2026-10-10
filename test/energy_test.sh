@@ -52,13 +52,15 @@ t_eq "$t_rc" 0
 t_eq "$t_out" ""
 t_json .generatedAt '"2026-10-09T06:15:45Z"'
 t_json '[.source, .periodSeconds, .factoryModels]' '["viiwork", 15, ["model-large"]]'
+t_json .sourceUrl '"https://github.com/janit/viiwork"'
 # Only the alive members that serve a factory model: node-a serves another
 # model, node-c serves none and node-d has left. The totals are theirs alone.
 t_json .totals '{"watts": 734, "kWh24h": 1.44, "kWh30d": 55.08, "hosts": 1, "reporting": 1, "energyHosts": 1}'
 t_json .hosts '[{"name": "node-b", "source": "nvidia-smi", "watts": 734, "kWh24h": 1.44, "kWh30d": 55.08,
   "ramUsedMb": 52624, "ramTotalMb": 253212}]'
 # Only the factory's models, though node-b serves model-small as well.
-t_json .models '[{"name": "model-large", "hosts": ["node-b"], "slots": 1, "busy": 1, "queued": 2}]'
+t_json .models '[{"name": "model-large", "hosts": ["node-b"],
+  "engines": [{"version": "2.9.0", "engine": "strata", "engineName": null, "engineVersion": null}], "slots": 1, "busy": 1, "queued": 2}]'
 t_json .samples "[{\"t\": $NOW, \"w\": {\"node-b\": 734}}]"
 
 t_case "a sample carries each machine's token count for the factory's models"
@@ -76,11 +78,104 @@ t_json .samples "[{\"t\": $NOW, \"w\": {\"node-b\": 734}, \"k\": {\"node-b\": 62
 sample 15 PI_ENSEMBLE_SUBAGENT_MODEL=model-large
 t_json '[.samples[].k]' '[{"node-b": 620263}, {"node-b": 620263}]'
 
+# What serves a model: the mesh's version and the engine, per distinct pair.
+both=(PI_ENSEMBLE_SUBAGENT_MODEL=model-large PI_ENSEMBLE_MODEL_REVIEWER=model-small)
+# engines <jq filter over the fixture> <model> <expected array>
+engines() {
+  fresh
+  jq "$1" "$fixture" >"$T/engines.json"
+  mesh 200 "@$T/engines.json"
+  sample 0 "${both[@]}"
+  t_eq "$t_rc" 0
+  t_json ".models[] | select(.name == \"$2\") | .engines" "$3"
+}
+member() { printf '(.members[] | select(.node == "%s") | .status)' "$1"; }
+
+t_case "two machines with the same version and engine are one element"
+engines . model-small '[{"version": "2.9.0", "engine": "llamacpp", "engineName": null, "engineVersion": null}]'
+t_json '.models[] | select(.name == "model-large") | .engines' '[{"version": "2.9.0", "engine": "strata", "engineName": null, "engineVersion": null}]'
+
+t_case "a mesh in the middle of an upgrade gives one element per version, sorted"
+want='[{"version": "2.10.0", "engine": "llamacpp", "engineName": null, "engineVersion": null}, {"version": "2.9.0", "engine": "llamacpp", "engineName": null, "engineVersion": null}]'
+engines "$(member node-a).ver = \"v2.10.0\"" model-small "$want"
+# The same file whatever order the mesh lists its members in.
+engines "$(member node-a).ver = \"v2.10.0\" | .members |= reverse" model-small "$want"
+
+t_case "a model served by two engines gives one element per engine"
+engines "$(member node-a).models[0].engine = \"vllm\"" model-small \
+  '[{"version": "2.9.0", "engine": "llamacpp", "engineName": null, "engineVersion": null}, {"version": "2.9.0", "engine": "vllm", "engineName": null, "engineVersion": null}]'
+
+t_case "a version that is missing or no text is null"
+engines "del($(member node-b).ver)" model-large '[{"version": null, "engine": "strata", "engineName": null, "engineVersion": null}]'
+engines "$(member node-b).ver = 29" model-large '[{"version": null, "engine": "strata", "engineName": null, "engineVersion": null}]'
+engines "$(member node-b).ver = {\"m\": \"LEAKMARK\"}" model-large '[{"version": null, "engine": "strata", "engineName": null, "engineVersion": null}]'
+t_lacks "$(cat "$file")" LEAKMARK
+
+t_case "an engine that is missing, empty or no text is null"
+engines "del($(member node-b).models[0].engine)" model-large '[{"version": "2.9.0", "engine": null, "engineName": null, "engineVersion": null}]'
+engines "$(member node-b).models[0].engine = \"\"" model-large '[{"version": "2.9.0", "engine": null, "engineName": null, "engineVersion": null}]'
+engines "$(member node-b).models[0].engine = [\"LEAKMARK\"]" model-large '[{"version": "2.9.0", "engine": null, "engineName": null, "engineVersion": null}]'
+t_lacks "$(cat "$file")" LEAKMARK
+
+# From viiwork v2.9.2 a machine also names the engine for people and says
+# which version of it runs. node-a is older here and sends neither.
+new="$(member node-b).ver = \"v2.9.2\"
+  | $(member node-b).models[0] += {\"engine_name\": \"Strata\"}
+  | $(member node-b).models[1] += {\"engine_name\": \"llama.cpp\", \"engine_version\": \"b11371\"}"
+
+t_case "the engine's name and its own version are copied where the mesh reports them"
+engines "$new" model-small '[
+  {"version": "2.9.0", "engine": "llamacpp", "engineName": null, "engineVersion": null},
+  {"version": "2.9.2", "engine": "llamacpp", "engineName": "llama.cpp", "engineVersion": "b11371"}]'
+# An engine that reports no version of its own.
+t_json '.models[] | select(.name == "model-large") | .engines' \
+  '[{"version": "2.9.2", "engine": "strata", "engineName": "Strata", "engineVersion": null}]'
+
+t_case "an engine name that is empty or no text is null"
+for odd in '""' 7 '["LEAKMARK"]'; do
+  engines "$new | $(member node-b).models[0].engine_name = $odd" model-large \
+    '[{"version": "2.9.2", "engine": "strata", "engineName": null, "engineVersion": null}]'
+  t_lacks "$(cat "$file")" LEAKMARK
+done
+
+t_case "an engine version that is not a plain version is null"
+# The file can be on the internet: a path, a host name or a long text is not
+# copied, whatever the mesh sends.
+long=$(printf 'b%.0s' {1..41})
+for odd in '""' 7 '{"m": "LEAKMARK"}' '"b1 /opt/LEAKMARK"' '"LEAKMARK@host"' "\"$long\""; do
+  engines "$new | $(member node-b).models[0].engine_version = $odd" model-large \
+    '[{"version": "2.9.2", "engine": "strata", "engineName": "Strata", "engineVersion": null}]'
+  t_lacks "$(cat "$file")" LEAKMARK
+done
+engines "$new | $(member node-b).models[0].engine_version = \"0.31.0+cu12_x-1\"" model-large \
+  '[{"version": "2.9.2", "engine": "strata", "engineName": "Strata", "engineVersion": "0.31.0+cu12_x-1"}]'
+
+t_case "a machine that reports neither adds no element"
+engines "del($(member node-b).ver) | del($(member node-b).models[0].engine)" model-large '[]'
+# Its own version alone says nothing about what serves the model.
+engines "del($(member node-b).ver) | del($(member node-b).models[0].engine)
+  | $(member node-b).models[0].engine_version = \"b1\"" model-large '[]'
+# The name alone does.
+engines "del($(member node-b).ver) | del($(member node-b).models[0].engine)
+  | $(member node-b).models[0].engine_name = \"Strata\"" model-large \
+  '[{"version": null, "engine": null, "engineName": "Strata", "engineVersion": null}]'
+
+t_case "a machine with no slots for the model adds nothing"
+engines "$(member node-c) |= (.ver = \"v3.0.0\"
+  | .models = [{\"name\": \"model-small\", \"engine\": \"vllm\", \"slots\": 0}])" \
+  model-small '[{"version": "2.9.0", "engine": "llamacpp", "engineName": null, "engineVersion": null}]'
+t_json '.models[] | select(.name == "model-small") | .hosts' '["node-a", "node-b"]'
+
 t_case "the file holds no address, node id or GPU"
 fresh
 sample 0
 text=$(cat "$file")
 for secret in "192.0.2." viiwork-0000 vram v2.9.0 llamacpp; do t_lacks "$text" "$secret"; done
+# With the factory's models named, the version and the engines are published;
+# the rest still is not.
+sample 0 "${both[@]}"
+text=$(cat "$file")
+for secret in "192.0.2." viiwork-0000 vram api_port; do t_lacks "$text" "$secret"; done
 
 t_case "one sample per slot, and none older than 30 minutes"
 fresh

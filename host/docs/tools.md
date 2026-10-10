@@ -330,9 +330,9 @@ systemctl --user enable --now tehas-energy.service
 ```
 
 Asks the model mesh for its cluster snapshot and keeps what the Energy use
-section shows: per machine the draw, kWh and RAM; per model the slots and how
-many are busy; and the last 30 minutes of draw, with the mesh's running count
-of tokens for the factory's models where it reports one. Only machines that are alive
+section shows: per machine the draw, kWh and RAM; per model the slots, how
+many are busy and what serves it; and the last 30 minutes of draw, with the
+mesh's running count of tokens for the factory's models where it reports one. Only machines that are alive
 and serve a model the factory uses are kept, and only those models. The
 factory's models are the ones named by `PI_ENSEMBLE_SUBAGENT_MODEL` and
 `PI_ENSEMBLE_MODEL_*`; with none set, the file has no machines. It works only against a viiwork
@@ -347,7 +347,42 @@ mesh, which it recognises by the answer.
 The mesh is the one the factory's model provider points at. Set
 `TEHAS_ENERGY_URL` in `~/.config/tehas/env` to ask another cluster URL, and
 `TEHAS_ENERGY=off` to remove the file. The file is readable by anyone who can
-open the dashboard and names the machines, their draw and their models.
+open the dashboard and names the machines, their draw and their models. It
+also holds the version of the mesh software and, for each model, the name and
+the version of the engine behind it. Addresses, node ids and GPUs are not in it.
+
+Each entry of `models` carries an `engines` array: one element per distinct
+set of values among the machines that serve the model, sorted.
+
+```json
+{ "name": "model-small", "hosts": ["node-a", "node-b"],
+  "engines": [{ "version": "2.9.2", "engine": "llamacpp",
+                "engineName": "llama.cpp", "engineVersion": "b11371" }],
+  "slots": 6, "busy": 2, "queued": 0 }
+```
+
+| Field           | What it is                                                              |
+| --------------- | ----------------------------------------------------------------------- |
+| `version`       | The mesh's version on that machine, without its leading `v`             |
+| `engine`        | The mesh's own id for the engine                                        |
+| `engineName`    | The engine's name for people. Reported from viiwork v2.9.2              |
+| `engineVersion` | The engine's own version on that machine. Reported from viiwork v2.9.2, and not by every engine |
+
+A value the machine does not report is `null`. `engineVersion` is also `null`
+when it is not a plain version: only letters, digits and `. + _ -`, at most 40
+characters, are copied. An element with no mesh version and no engine is left
+out. A mesh in the middle of an upgrade, or a model served by two engines,
+gives more than one element.
+
+The model table shows them in its `ENGINES` column: the engine's name, or its
+id where the mesh gives no name, then its version where there is one. So
+`viiwork 2.9.2 (llama.cpp b11371)` from a machine on v2.9.2 and
+`viiwork 2.9.0 (llamacpp)` from an older one. A model with no element shows a
+dash.
+
+The file's `source` and `sourceUrl` name the mesh software and its project. The
+section ends with a line that says so, `DATA SOURCE: viiwork`. The name is a
+link when `sourceUrl` is an `https://` address.
 
 The service reads its settings when it starts: run
 `systemctl --user restart tehas-energy.service` after changing either one.
