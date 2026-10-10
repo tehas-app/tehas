@@ -46,11 +46,17 @@ The dispatcher fails the same way under systemd; the line is then in
 
 ## Nothing happens after I label an issue
 
-Run `tehas dispatch --dry-run` and read the one line it prints.
+Run `tehas dispatch --dry-run` and read what it prints.
 
-- `paused`: the control issue carries `tehas:pause`.
-- `holding: N issues await merge`: review and merge, or raise
+- `paused: issue #N carries tehas:pause`: the control issue holds the pause
+  label. Remove it to resume.
+- `holding: N cycles are running (limit N)`: every slot is taken. Wait for a
+  cycle to end, or raise `TEHAS_TICKET_CONCURRENCY`.
+- `holding: N issues await merge (limit N)`: review and merge, or raise
   `TEHAS_MAX_AWAITING`.
+- `holding: N issues await merge and M cycles are running (limit N)`: running
+  cycles count towards `TEHAS_MAX_AWAITING` with the issues that await merge.
+  Wait, or raise the limit.
 - `skip #N: tehas:ready was applied by ...`: the label came from an account that
   is not allowed. Remove it and apply it yourself.
 - `holding: the mesh at ... does not offer ...`: the model endpoint is down or
@@ -58,7 +64,12 @@ Run `tehas dispatch --dry-run` and read the one line it prints.
   soon as the endpoint answers. See "The model endpoint does not answer" below.
 - `nothing to do`: the issue is closed, or still carries `tehas:running`,
   `tehas:awaiting-merge` or `needs-human-attention`.
-- `another dispatch holds the lock`: a cycle is running.
+- `N cycles running, room for M more`, then `would run a cycle for #N ...`:
+  the issues the next poll starts. In the log you may also see `the code index
+  stays as it is: a cycle is running on #N`. That is no reason an issue waits.
+- `another poll, or tehas index, holds the dispatcher's lock`: a poll or an
+  index run is under way. Try again in a minute. A running cycle does not hold
+  this lock.
 - `ERROR: gh ... failed`: a GitHub call did not answer, or the control issue
   does not exist. The poll ends there on purpose: the pause switch, the limit
   and the labeller check are never decided on an answer that did not come.

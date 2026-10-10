@@ -96,7 +96,8 @@ An index that cannot be refreshed is a warning in the log; the cycle still
 runs. It then marks each issue `tehas:running` and starts
 `tehas-cycle@<issue>.service`, which runs [tehasbot cycle](#tehasbot-cycle).
 It does not wait for the cycle. If the unit does not come up within 30
-seconds, the issue gets `needs-human-attention` and the poll ends with exit 1.
+seconds, the issue gets `needs-human-attention`, the poll goes on to the
+remaining issues, and it ends with exit 1.
 The dispatcher runs the index and status scripts from its own directory,
 `~/tehas/libexec`, not by a name on `PATH`.
 
