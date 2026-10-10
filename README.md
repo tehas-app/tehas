@@ -123,6 +123,8 @@ crates the first time. The rules for changes are in [`AGENTS.md`](AGENTS.md).
 | `libexec/` | The scripts behind them, all bash. Installed to `~/tehas/libexec` |
 | `console/` | The console of a running cycle, a Rust program. `install.sh` builds it and installs it as `~/tehas/libexec/console` |
 | `lib/config.sh` | Loads and checks the instance settings |
+| `lib/cycles.sh` | Which cycles are running, from the lock each one holds |
+| `lib/live.sh` | The live view of the cycles, put together from a file per cycle |
 | `lib/sandbox.sh` | What a sandbox container is given, for a cycle and for a session by hand |
 | `lib/update-steps.sh` | The follow-up steps of an install, which `install.sh` asks for and `tehas update` runs |
 | `host/` | Everything else that is installed: units, the docs server, the sandbox image, the manual |

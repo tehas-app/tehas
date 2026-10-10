@@ -31,10 +31,14 @@ case "$1 $2" in
   "pr list") cat "$T/fx/pr.txt" 2>/dev/null ;;
 esac'
 # Stands in for systemctl --user start tehas-cycle@<issue>.service. A real
-# cycle says it holds its lock by writing the .taken file.
-t_stub fake-start '[ ! -e "$T/fx/start-fails" ] || exit 1
+# cycle says it holds its lock by writing the .taken file. This one fails or
+# stays silent when a case asks it to.
+default_start() {
+  t_stub fake-start '[ ! -e "$T/fx/start-fails" ] || exit 1
 [ ! -e "/proc/$$/fd/8" ] || : >"$T/calls/start.fd8"
 [ -e "$T/fx/start-silent" ] || : >"$TEHAS_HOME/state/cycles/$1.taken"'
+}
+default_start
 t_stub fake-status
 # Notes what the checkout was at and whether a cycle had already started.
 t_stub fake-index 'git -C "$T/home/tehas/repos/widget" rev-parse HEAD >"$T/calls/index.head"
@@ -400,14 +404,42 @@ t_eq "$(t_calls fake-start)" "7"
 t_contains "$(t_calls gh)" "Tehas cycle started on"
 t_contains "$(t_calls gh)" "authorized by @alice"
 
-t_case "the poll does not wait for the cycle: its lock is free afterwards"
-t_eq "$(flock -n "$T/home/tehas/state/dispatch.lock" echo free)" "free"
-
 t_case "the poll's lock is not passed on to the cycle it starts"
 t_eq "$(find "$T/calls/start.fd8" 2>/dev/null | wc -l)" 0
 
 t_case "the status is refreshed before the poll and after the start"
 t_eq "$(t_calls fake-status | wc -l)" 2
+
+t_case "for one issue: the running label, then the start comment, then the start"
+reset
+# fake-order notes what the gh calls held when the start was asked for.
+t_stub fake-order 'grep -q -e "--add-label tehas:running" "$T/calls/gh" && : >"$T/calls/order.label"
+grep -q "^issue comment $1 " "$T/calls/gh" && : >"$T/calls/order.comment"
+: >"$TEHAS_HOME/state/cycles/$1.taken"'
+T_ENV=(TEHAS_CYCLE_START_CMD=fake-order TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index)
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(find "$T/calls/order.label" "$T/calls/order.comment" 2>/dev/null | wc -l)" 2
+label_at=$(grep -n -e "--add-label tehas:running" "$T/calls/gh" | head -n 1 | cut -d: -f1)
+comment_at=$(grep -n "^issue comment 7 " "$T/calls/gh" | head -n 1 | cut -d: -f1)
+t_eq "$([ "$label_at" -lt "$comment_at" ] && echo before)" "before"
+
+t_case "the poll does not wait for the cycle: it returns while the cycle lives, with its own lock free"
+reset
+# The cycle outlives the poll and holds its own lock. It must not hold the
+# poll's, so the next poll can run. Its output is detached from the test's pipe.
+t_stub fake-live '( exec 9>"$TEHAS_HOME/state/cycles/$1.lock"; flock -n 9; exec sleep 8 ) >/dev/null 2>&1 &
+echo $! >"$T/live.pid"
+: >"$TEHAS_HOME/state/cycles/$1.taken"'
+T_ENV=(TEHAS_CYCLE_START_CMD=fake-live TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index)
+t_run "$dispatch"
+alive=no
+kill -0 "$(cat "$T/live.pid")" 2>/dev/null && alive=yes
+free=$(flock -n "$T/home/tehas/state/dispatch.lock" echo free)
+kill "$(cat "$T/live.pid")" 2>/dev/null
+t_eq "$t_rc" 0
+t_eq "$alive" yes
+t_eq "$free" free
 
 t_case "while a cycle is running nothing is started"
 reset
@@ -483,7 +515,7 @@ t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 "
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready"
 t_contains "$(t_calls gh)" "issue edit 8 --repo acme/widget --add-label tehas:running --remove-label tehas:ready"
 
-t_case "the checkout is fast-forwarded and the index refreshed once, before the first start"
+t_case "the index is refreshed once, before the first start"
 t_eq "$(t_calls fake-index)" "--before-cycle"
 t_eq "$(find "$T/calls/index.late" 2>/dev/null | wc -l)" 0
 
@@ -577,9 +609,7 @@ t_eq "$t_rc" 1
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention"
 t_lacks "$(t_calls gh)" "issue edit 8 --repo acme/widget --remove-label"
 t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 "
-t_stub fake-start '[ ! -e "$T/fx/start-fails" ] || exit 1
-[ ! -e "/proc/$$/fd/8" ] || : >"$T/calls/start.fd8"
-[ -e "$T/fx/start-silent" ] || : >"$TEHAS_HOME/state/cycles/$1.taken"'
+default_start
 
 t_case "a dry run names every issue it would start and how much room there is"
 reset
