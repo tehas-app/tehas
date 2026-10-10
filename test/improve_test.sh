@@ -146,4 +146,352 @@ echo "the ghp_ prefix and sk-short are words here" >>"$fx/log"
 lib 'tehas_improve_secret "$T/fx/log"'
 t_eq "$t_rc" 1
 
+# --- A run -------------------------------------------------------------------
+improve="$T_ROOT/libexec/improve"
+
+# docker leaves $T/fx/findings.json where the analyst would write, and keeps
+# its arguments one to a line. $T/fx/docker.rc is an exit status to fail with.
+t_stub docker '
+printf "%s\n" "$@" >"$T/calls/docker-args"
+out=""
+for a in "$@"; do case "$a" in *:/improve/out) out=${a%:/improve/out} ;; esac; done
+[ -f "$T/fx/docker.rc" ] && exit "$(cat "$T/fx/docker.rc")"
+if [ -L "$T/fx/findings.json" ]; then cp -P "$T/fx/findings.json" "$out/findings.json"
+elif [ -f "$T/fx/findings.json" ]; then cp "$T/fx/findings.json" "$out/findings.json"; fi
+exit 0'
+
+# gh answers from fixtures. A file $T/fx/gh-<what>.rc makes that call fail.
+t_stub gh '
+case "$1 $2" in
+  "issue list")
+    [ -f "$T/fx/gh-list.rc" ] && exit 1
+    case " $* " in *" --state closed "*) cat "$T/fx/closed.json" ;; *) cat "$T/fx/open.json" ;; esac ;;
+  "issue create")
+    n=$(($(cat "$T/fx/next" 2>/dev/null || echo 100) + 1))
+    echo "$n" >"$T/fx/next"
+    [ -f "$T/fx/gh-create.rc" ] && [ "$n" -ge "$(cat "$T/fx/gh-create.rc")" ] && exit 1
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --body-file) cp "$2" "$T/calls/body-$n" ;;
+        --title) printf "%s\n" "$2" >>"$T/calls/titles" ;;
+      esac
+      shift
+    done
+    echo "https://github.com/acme/factory/issues/$n" ;;
+  "release view") [ -f "$T/fx/release" ]; exit $? ;;
+  "release create") [ -f "$T/fx/gh-release.rc" ] && exit 1; : >"$T/fx/release" ;;
+  "release upload")
+    [ -f "$T/fx/gh-release.rc" ] && exit 1
+    for a in "$@"; do case "$a" in *.gz) basename "$a" >>"$T/calls/assets" ;; esac; done ;;
+esac'
+
+record() { # <record>: a record in the window and the cycle's log in logs/
+  mkdir -p "$base/window/$1"
+  echo '{"issue":7}' >"$base/window/$1/cycle.json"
+  echo '{"type":"agent_end"}' >"$home/logs/work-$1.jsonl"
+}
+finding() { # <title> [<jq object to merge in>]
+  local more=${2:-}
+  [ -n "$more" ] || more='{}'
+  jq -n -c --arg t "$1" --arg rec "$REC" --argjson more "$more" '
+    {title: $t, category: "cycle", body: "The gate ran twice.", evidence: "gate: ok",
+     cycles: [$rec], duplicate_of: null} + $more'
+}
+findings() { printf '%s\n' "$@" | jq -s '{findings: .}' >"$fx/findings.json"; }
+stack() { # <number> <title> [<state>] [<label>]
+  jq -n -c --argjson n "$1" --arg t "$2" --arg s "${3:-OPEN}" --arg l "${4:-}" '
+    {number: $n, title: $t, state: $s, body: "", labels: (if $l == "" then [] else [{name: $l}] end)}'
+}
+ready() { # a window with one record and one good finding
+  reset
+  record "$REC"
+  findings "$(finding "The gate runs twice in one cycle")"
+}
+titles() { cat "$T/calls/titles" 2>/dev/null || true; }
+
+t_case "with the loop off the command says so and calls nothing"
+reset
+t_instance "${T_MINIMAL[@]}"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_contains "$t_out" "is off"
+t_eq "$(t_calls gh)$(t_calls docker)" ""
+[ ! -e "$base" ] || t_bad "$base was made"
+
+t_case "a malformed repository exits 78 before any call"
+reset
+record "$REC"
+t_instance "${T_MINIMAL[@]}" "TEHAS_IMPROVE_REPO='not a repo'"
+t_run "$improve"
+t_eq "$t_rc" 78
+t_eq "$(t_calls gh)$(t_calls docker)" ""
+
+t_case "an argument is refused"
+reset
+t_run "$improve now"
+t_eq "$t_rc" 64
+
+t_case "an empty window calls neither docker nor gh"
+reset
+t_run "$improve"
+t_eq "$t_rc" 0
+t_contains "$t_out" "cycles=0"
+t_eq "$(t_calls gh)$(t_calls docker)" ""
+
+t_case "a run files a finding and leaves nothing behind"
+ready
+t_run "$improve"
+t_eq "$t_rc" 0
+t_contains "$t_out" "cycles=1 findings=1 invalid=0 duplicates=0 of=none over=0 filed=1 issues=#101"
+t_eq "$(titles)" "The gate runs twice in one cycle"
+t_contains "$(t_calls gh)" "--label tehas:improvement"
+t_lacks "$(t_calls gh)" "tehas:ready"
+t_eq "$(find "$base" -mindepth 1 ! -name window | wc -l)" 0
+
+t_case "the analyst's container is given exactly this"
+args=$(cat "$T/calls/docker-args")
+run_dir=$(printf '%s\n' "$args" | sed -n 's|:/improve/in:ro$||p')
+t_eq "$(printf '%s\n' "$args" | grep -x -A1 -- '-v' | grep -v -x -e '-v' -e '--')" \
+  "$run_dir:/improve/in:ro
+${run_dir%/in}/out:/improve/out
+$T/home/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro"
+t_eq "$(printf '%s\n' "$args" | grep -x -A1 -- '-e' | grep -v -x -e '-e' -e '--')" "HOME=/home/vscode"
+t_eq "$(printf '%s\n' "$args" | grep -x -A1 -- '--cpus' | tail -n 1)" 1
+t_eq "$(printf '%s\n' "$args" | grep -x -A1 -- '--memory' | tail -n 1)" 2g
+t_eq "$(printf '%s\n' "$args" | grep -x -A1 -- '--tools' | tail -n 1)" "read,grep,find,ls,write"
+for flag in -p --no-session --no-extensions --no-skills --no-prompt-templates --no-context-files; do
+  printf '%s\n' "$args" | grep -q -x -- "$flag" || t_bad "pi was not given $flag"
+done
+t_eq "$(printf '%s\n' "$args" | grep -x -A1 -- '--model' | tail -n 1)" test-model
+t_eq "$(printf '%s\n' "$args" | grep -x -A1 -- '--provider' | tail -n 1)" test-provider
+t_lacks "$args" docker.sock
+t_lacks "$args" GH_TOKEN
+t_lacks "$args" .ssh
+t_lacks "$args" "$home/logs"
+
+t_case "the issue body is the script's, with the evidence fenced and the log linked"
+body=$(cat "$T/calls/body-101")
+t_contains "$body" "improvement loop"
+t_contains "$body" "test-model"
+t_contains "$body" "**Category:** cycle"
+t_contains "$body" "The gate ran twice."
+t_contains "$body" '````text'
+t_contains "$body" "https://github.com/acme/factory/releases/download/tehas-improve-logs/ticket-$REC.log.gz"
+t_eq "$(cat "$T/calls/assets")" "ticket-$REC.log.gz"
+
+t_case "GitHub does not give the stack: nothing runs and the window is as it was"
+ready
+: >"$fx/gh-list.rc"
+t_run "$improve"
+t_eq "$t_rc" 1
+t_eq "$(t_calls docker)" ""
+[ -f "$base/window/$REC/cycle.json" ] || t_bad "the record is gone"
+
+t_case "ten open improvement issues: the run waits and the records stay"
+ready
+for i in $(seq 1 10); do stack "$i" "Finding $i" OPEN tehas:improvement; done | jq -s . >"$fx/open.json"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_contains "$t_out" "waiting"
+t_eq "$(t_calls docker)" ""
+[ -f "$base/window/$REC/cycle.json" ] || t_bad "the record is gone"
+
+t_case "eight open improvement issues leave room for two"
+ready
+for i in $(seq 1 8); do stack "$i" "Finding $i" OPEN tehas:improvement; done | jq -s . >"$fx/open.json"
+findings "$(finding One)" "$(finding Two)" "$(finding Three)"
+t_run "$improve"
+t_eq "$(titles | wc -l)" 2
+t_contains "$t_out" "over=1"
+
+t_case "at most three issues a run"
+ready
+findings "$(finding One)" "$(finding Two)" "$(finding Three)" "$(finding Four)"
+t_run "$improve"
+t_eq "$(titles | wc -l)" 3
+t_contains "$t_out" "filed=3"
+
+t_case "the analyst fails: exit 1 and the records go back to the window"
+ready
+echo 3 >"$fx/docker.rc"
+t_run "$improve"
+t_eq "$t_rc" 1
+t_contains "$t_out" "failed"
+[ -f "$base/window/$REC/cycle.json" ] || t_bad "the record is gone"
+t_eq "$(find "$base" -maxdepth 1 -name 'run-*' | wc -l)" 0
+t_eq "$(titles)" ""
+
+t_case "no findings file files nothing"
+ready
+rm "$fx/findings.json"
+t_run "$improve"
+t_eq "$t_rc" 1
+t_eq "$(titles)" ""
+
+t_case "a findings file that is a link is not read"
+ready
+finding "From a file of the analyst's choosing" | jq -s '{findings: .}' >"$fx/elsewhere.json"
+rm "$fx/findings.json"
+ln -s "$fx/elsewhere.json" "$fx/findings.json"
+t_run "$improve"
+t_eq "$t_rc" 1
+t_eq "$(titles)" ""
+
+t_case "a findings file over 1 MB is not read"
+ready
+{
+  printf '{"findings":[],"pad":"'
+  head -c 1100000 /dev/zero | tr '\0' a
+  printf '"}'
+} >"$fx/findings.json"
+t_run "$improve"
+t_eq "$t_rc" 1
+t_eq "$(titles)" ""
+
+t_case "a file that is not the shape asked for files nothing"
+ready
+echo '["a list, not an object"]' >"$fx/findings.json"
+t_run "$improve"
+t_eq "$t_rc" 1
+t_eq "$(titles)" ""
+[ -f "$base/window/$REC/cycle.json" ] || t_bad "the record is gone"
+
+t_case "findings of the wrong shape are dropped one by one"
+ready
+findings "$(finding Good)" \
+  "$(finding "$(printf 't%.0s' $(seq 1 101))")" \
+  "$(finding "Two
+lines")" \
+  "$(finding BadCategory '{"category":"product"}')" \
+  "$(finding LongBody "$(jq -n -c --arg b "$(printf 'b%.0s' $(seq 1 6001))" '{body:$b}')")" \
+  "$(finding UnknownCycle '{"cycles":["9-000000-000000"]}')" \
+  "$(finding NoCycles '{"cycles":[]}')" \
+  "$(finding BadDuplicate '{"duplicate_of":999}')" \
+  '"a string"'
+t_run "$improve"
+t_eq "$t_rc" 0
+t_eq "$(titles)" "Good"
+t_contains "$t_out" "findings=9 invalid=8"
+
+t_case "a finding the model names a duplicate of is dropped"
+ready
+stack 4 "Pause and resume" | jq -s . >"$fx/open.json"
+findings "$(finding "A pause switch on the host" '{"duplicate_of":4}')"
+t_run "$improve"
+t_eq "$(titles)" ""
+t_contains "$t_out" "duplicates=1 of=#4"
+
+t_case "a title that matches an open issue is dropped, whatever the model says"
+ready
+stack 4 "the gate runs twice, in one cycle!" | jq -s . >"$fx/open.json"
+t_run "$improve"
+t_eq "$(titles)" ""
+t_contains "$t_out" "duplicates=1"
+
+t_case "a title that matches a closed issue is filed"
+ready
+stack 4 "The gate runs twice in one cycle" CLOSED | jq -s . >"$fx/closed.json"
+t_run "$improve"
+t_eq "$(titles)" "The gate runs twice in one cycle"
+
+t_case "the same title twice in one run is filed once"
+ready
+findings "$(finding "The gate runs twice")" "$(finding "the gate runs twice.")"
+t_run "$improve"
+t_eq "$(titles)" "The gate runs twice"
+
+t_case "a mention does not reach the body and a comment reaches it as text"
+ready
+findings "$(finding Mention '{"body":"Ask @alice. <!-- hidden --> And ```fence```.","evidence":"a ``` b"}')"
+t_run "$improve"
+body=$(cat "$T/calls/body-101")
+t_lacks "$body" "@alice"
+t_lacks "$body" "<!--"
+t_contains "$body" "&lt;!-- hidden"
+t_lacks "$body" 'a ``` b'
+
+t_case "a log with the shape of a token is not uploaded and the issue says so"
+ready
+echo "ghp_$(printf 'a%.0s' $(seq 1 36))" >>"$home/logs/work-$REC.jsonl"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/assets" 2>/dev/null)" ""
+t_contains "$(cat "$T/calls/body-101")" "shaped like a token"
+t_contains "$t_out" "secret-shape=$REC"
+
+t_case "a log that is gone: the issue is filed and says so"
+ready
+rm "$home/logs/work-$REC.jsonl"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_contains "$(cat "$T/calls/body-101")" "no longer on the host"
+
+t_case "no permission to make a release: the issue is filed without the log"
+ready
+: >"$fx/gh-release.rc"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_contains "$(cat "$T/calls/body-101")" "could not be uploaded"
+
+t_case "a cycle named by two findings is uploaded once"
+ready
+findings "$(finding One)" "$(finding Two)"
+t_run "$improve"
+t_eq "$(wc -l <"$T/calls/assets")" 1
+
+t_case "GitHub refuses the second issue: exit 1 and the records are kept"
+ready
+findings "$(finding One)" "$(finding Two)"
+echo 102 >"$fx/gh-create.rc"
+t_run "$improve"
+t_eq "$t_rc" 1
+t_eq "$(titles)" "One"
+[ -f "$base/window/$REC/cycle.json" ] || t_bad "the record is gone"
+
+t_case "a run directory left by a killed run gives its records back"
+reset
+findings "$(finding "The gate runs twice in one cycle")"
+mkdir -p "$base/run-261010-000000/in/cycles/$REC" "$base/run-261010-000000/out"
+echo '{"issue":7}' >"$base/run-261010-000000/in/cycles/$REC/cycle.json"
+echo '{"type":"agent_end"}' >"$home/logs/work-$REC.jsonl"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_contains "$t_out" "cycles=1"
+t_eq "$(titles)" "The gate runs twice in one cycle"
+t_eq "$(find "$base" -maxdepth 1 -name 'run-*' | wc -l)" 0
+
+t_case "a directory in the window that is not a record is removed, not read"
+ready
+mkdir -p "$base/window/..odd name"
+t_run "$improve"
+t_contains "$t_out" "cycles=1"
+
+t_case "the sweep removes what is over seven days old and nothing newer"
+reset
+record 3-261001-000000
+touch -d '8 days ago' "$base/window/3-261001-000000" "$home/logs/work-3-261001-000000.jsonl"
+for f in work-3-261001-000000.jsonl.err dispatch-work-3.log index-261001-000000.log dispatch.log improve.log; do
+  touch -d '8 days ago' "$home/logs/$f"
+done
+touch -d '6 days ago' "$home/logs/work-4-261004-000000.jsonl"
+mkdir -p "$base/.new.old" && touch -d '8 days ago' "$base/.new.old"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_contains "$t_out" "cycles=0"
+t_eq "$(find "$home/logs" -type f -printf '%f\n' | sort | tr '\n' ' ')" "dispatch.log improve.log work-4-261004-000000.jsonl "
+t_eq "$(find "$base" -mindepth 1 ! -name window | wc -l)" 0
+
+t_case "a second run while one is going does nothing"
+ready
+mkdir -p "$home/state"
+before=$t_failed
+(
+  flock -n 9 || exit 1
+  t_run "$improve"
+  t_eq "$t_rc" 0
+  t_contains "$t_out" "another run"
+  t_eq "$(t_calls docker)" ""
+  [ "$t_failed" = "$before" ]
+) 9>"$home/state/improve.lock" || t_bad "the run did not stand back"
+
 t_done

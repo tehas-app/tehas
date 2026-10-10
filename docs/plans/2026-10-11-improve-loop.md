@@ -518,7 +518,7 @@ t_case "a run files a finding and leaves nothing behind"
 ready
 t_run "$improve"
 t_eq "$t_rc" 0
-t_contains "$t_out" "cycles=1 findings=1 invalid=0 duplicates=0 filed=1 issues=#101"
+t_contains "$t_out" "cycles=1 findings=1 invalid=0 duplicates=0 of=none over=0 filed=1 issues=#101"
 t_eq "$(titles)" "The gate runs twice in one cycle"
 t_contains "$(t_calls gh)" "--label tehas:improvement"
 t_lacks "$(t_calls gh)" "tehas:ready"
@@ -754,19 +754,20 @@ mkdir -p "$base/.new.old" && touch -d '8 days ago' "$base/.new.old"
 t_run "$improve"
 t_eq "$t_rc" 0
 t_contains "$t_out" "cycles=0"
-t_eq "$(ls "$home/logs" | sort | tr '\n' ' ')" "dispatch.log improve.log work-4-261004-000000.jsonl "
+t_eq "$(find "$home/logs" -type f -printf '%f\n' | sort | tr '\n' ' ')" "dispatch.log improve.log work-4-261004-000000.jsonl "
 t_eq "$(find "$base" -mindepth 1 ! -name window | wc -l)" 0
 
 t_case "a second run while one is going does nothing"
 ready
 mkdir -p "$home/state"
+before=$t_failed
 (
   flock -n 9 || exit 1
   t_run "$improve"
   t_eq "$t_rc" 0
   t_contains "$t_out" "another run"
   t_eq "$(t_calls docker)" ""
-  [ "$t_failed" = 0 ]
+  [ "$t_failed" = "$before" ]
 ) 9>"$home/state/improve.lock" || t_bad "the run did not stand back"
 
 t_done
@@ -1088,10 +1089,10 @@ upload() { # <record>
 # cannot close.
 # shellcheck disable=SC2016  # a jq program: the variables are jq's
 body='
-  def defuse: gsub("@(?=[A-Za-z0-9])"; "@​") | gsub("<!--"; "&lt;!--");
+  def defuse: gsub("@(?=[A-Za-z0-9])"; "@\u200b") | gsub("<!--"; "&lt;!--");
   "_Filed by the tehas improvement loop, read by the model `\($model)`. It is a proposal: nothing works on it until a person labels it._",
   "", "**Category:** \(.category)", "", (.body | defuse), "",
-  "**Evidence**", "", "````text", (.evidence | gsub("`{3,}"; "'''")), "````", "",
+  "**Evidence**", "", "````text", (.evidence | gsub("`{3,}"; "\u0027\u0027\u0027")), "````", "",
   "**Cycles:** \(.cycles | unique | join(", "))", "", "**Whole logs**", "", ($links | rtrimstr("\n"))'
 
 filed=()
