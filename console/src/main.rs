@@ -103,6 +103,11 @@ fn run(args: &Args, stop: &AtomicBool) -> io::Result<()> {
                 }
             }
         }
+        let skipped = follower.take_skipped();
+        if skipped > 0 {
+            let said = format!("log lines over 1 MiB left out: {skipped}");
+            write(&mut out, &Entry::new("tehas", said, None))?;
+        }
         if stopping {
             break;
         }

@@ -95,6 +95,9 @@ fn a_cycle_becomes_a_console_file_and_a_stop_reads_the_last_lines() {
     log.extend_from_slice(
         b"{\"type\":\"extension_ui_request\",\"method\":\"notify\",\"message\":\"handoff\"}\n",
     );
+    // A line too long to be one: left out, and said.
+    log.extend_from_slice(&vec![b'x'; (1 << 20) + 1]);
+    log.push(b'\n');
     fs::write(&rpc, log).unwrap();
     let killed = Command::new("kill")
         .args(["-TERM", &console.id().to_string()])
@@ -110,6 +113,7 @@ fn a_cycle_becomes_a_console_file_and_a_stop_reads_the_last_lines() {
             "driver     cycle started",
             "coder      $ echo GH_TOKEN=***",
             "driver     handoff",
+            "tehas      log lines over 1 MiB left out: 1",
             "tehas      cycle ended, console detached",
         ]
     );

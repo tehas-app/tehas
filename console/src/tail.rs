@@ -8,14 +8,14 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::time::SystemTime;
 
 // The transcripts are written by agents, so their size is not to be trusted:
-// this much is read of a file in one pass, and a line that grows past the
-// second limit without ending is dropped. Both are far above what a cycle
-// writes between two passes.
+// this much is read of a file in one pass, and a line longer than the second
+// limit is left out. Both are far above what a cycle writes between two
+// passes.
 const MAX_PASS: u64 = 8 << 20;
 const MAX_LINE: usize = 1 << 20;
 
 // Bytes already consumed, the start of a line whose end is not written yet,
-// and whether the line being read is one that was dropped for its length.
+// and whether the line being read is one that was left out for its length.
 #[derive(Default)]
 struct Position {
     offset: u64,
@@ -26,12 +26,14 @@ struct Position {
 #[derive(Default)]
 pub struct Follower {
     files: HashMap<String, Position>,
+    skipped: usize,
 }
 
 impl Follower {
     /// The complete, non-empty lines added to a file since the last call. A
     /// file that is not there, is not a plain file or cannot be read has no
-    /// new lines. A file that became shorter is read again from its start.
+    /// new lines. A file that became shorter is read again from its start. A
+    /// line longer than the limit is left out and counted.
     pub fn new_lines(&mut self, path: &str) -> Vec<String> {
         // A name an agent can write may be a link to a file elsewhere, or a
         // pipe that would block: neither is opened and waited for.
@@ -66,7 +68,7 @@ impl Follower {
         position.carry.extend_from_slice(&added);
         if position.dropping {
             let Some(end) = position.carry.iter().position(|b| *b == b'\n') else {
-                position.carry.clear();
+                position.carry = Vec::new();
                 return Vec::new();
             };
             position.carry.drain(..=end);
@@ -74,20 +76,31 @@ impl Follower {
         }
         // Lines are cut as bytes and read as text afterwards, so a character
         // that was only half written is never split.
-        let Some(end) = position.carry.iter().rposition(|b| *b == b'\n') else {
-            if position.carry.len() > MAX_LINE {
-                position.carry.clear();
-                position.dropping = true;
-            }
-            return Vec::new();
-        };
-        let rest = position.carry.split_off(end + 1);
+        let newline = position.carry.iter().rposition(|b| *b == b'\n');
+        let mut rest = position.carry.split_off(newline.map_or(0, |end| end + 1));
+        // What is kept until the next pass is never more than a line may be,
+        // however many files an agent writes. A new Vec gives the memory
+        // back, which clearing this one would not.
+        if rest.len() > MAX_LINE {
+            rest = Vec::new();
+            position.dropping = true;
+            self.skipped += 1;
+        }
         let complete = std::mem::replace(&mut position.carry, rest);
-        complete
-            .split(|b| *b == b'\n')
-            .filter(|line| !line.is_empty())
-            .map(|line| String::from_utf8_lossy(line).into_owned())
-            .collect()
+        let mut lines = Vec::new();
+        for line in complete.split(|b| *b == b'\n') {
+            if line.len() > MAX_LINE {
+                self.skipped += 1;
+            } else if !line.is_empty() {
+                lines.push(String::from_utf8_lossy(line).into_owned());
+            }
+        }
+        lines
+    }
+
+    /// How many lines were left out for their length since the last call.
+    pub fn take_skipped(&mut self) -> usize {
+        std::mem::take(&mut self.skipped)
     }
 
     /// Every agent transcript of this cycle, in name order: the `.json` files
@@ -236,18 +249,47 @@ mod tests {
     }
 
     #[test]
-    fn a_line_that_does_not_end_is_dropped_and_the_next_is_read() {
+    fn a_line_that_does_not_end_is_left_out_and_the_next_is_read() {
         let scratch = Scratch::new("long");
+        let log = scratch.path("log");
+        let mut follower = Follower::default();
+        append(&log, b"first\n");
+        assert_eq!(follower.new_lines(&log), ["first"]);
+        append(&log, &vec![b'x'; MAX_LINE + 1]);
+        assert_eq!(follower.new_lines(&log), [] as [&str; 0]);
+        assert_eq!(follower.take_skipped(), 1);
+        append(&log, &[b'x'; 10]);
+        assert_eq!(follower.new_lines(&log), [] as [&str; 0]);
+        append(&log, b"tail of it\nlast\n");
+        assert_eq!(follower.new_lines(&log), ["last"]);
+        assert_eq!(follower.take_skipped(), 0);
+    }
+
+    #[test]
+    fn what_follows_the_last_line_of_a_pass_is_held_to_the_same_limit() {
+        let scratch = Scratch::new("rest");
         let log = scratch.path("log");
         let mut follower = Follower::default();
         append(&log, b"first\n");
         append(&log, &vec![b'x'; MAX_LINE + 1]);
         assert_eq!(follower.new_lines(&log), ["first"]);
-        assert_eq!(follower.new_lines(&log), [] as [&str; 0]);
-        append(&log, &vec![b'x'; 10]);
-        assert_eq!(follower.new_lines(&log), [] as [&str; 0]);
+        assert_eq!(follower.files[&log].carry.capacity(), 0);
+        assert_eq!(follower.take_skipped(), 1);
         append(&log, b"tail of it\nlast\n");
         assert_eq!(follower.new_lines(&log), ["last"]);
+    }
+
+    #[test]
+    fn a_whole_line_over_the_limit_is_left_out_and_counted() {
+        let scratch = Scratch::new("whole");
+        let log = scratch.path("log");
+        let mut follower = Follower::default();
+        append(&log, b"one\n");
+        append(&log, &vec![b'x'; MAX_LINE + 1]);
+        append(&log, b"\ntwo\n");
+        assert_eq!(follower.new_lines(&log), ["one", "two"]);
+        assert_eq!(follower.take_skipped(), 1);
+        assert_eq!(follower.take_skipped(), 0);
     }
 
     #[test]
