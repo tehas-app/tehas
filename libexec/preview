@@ -83,10 +83,12 @@ net=tehas-previews
 recipe=preview/Dockerfile
 build_limit=900
 # The seconds between a container's start and the question whether it still
-# runs. Not an instance setting: it is read from the environment only so the
-# tests do not wait.
+# runs. TEHAS_PREVIEW_SETTLE is there for the tests, so that they do not wait.
+# It is not documented as a setting, but a line in instance.env reaches it all
+# the same, through env.sh. So it can only shorten the wait: a whole number
+# below the default is taken, and anything else is the default.
 settle=5
-case "$settle_asked" in "" | *[!0-9]*) ;; *) settle=$settle_asked ;; esac
+if [[ $settle_asked =~ ^[0-4]$ ]]; then settle=$settle_asked; fi
 marker='<!-- tehas-preview -->'
 min_kb=$((TEHAS_PREVIEW_MIN_FREE_MB * 1024))
 free=""
@@ -251,7 +253,9 @@ build() {
   sha=$(git -C "$bare" rev-parse --verify --quiet "refs/preview/$n^{commit}") || return 1
   # The retry marker is "<commit> <failed starts so far>". It is read here and
   # cleared whatever this build turns out to be, so no path keeps a stale one.
-  if read -r mark_sha mark_n <"$retry" 2>/dev/null && [ "$mark_sha" = "$sha" ]; then
+  # The file is looked for first: bash reports a redirection from a file that
+  # is not there by itself, into the run's log, at nearly every build.
+  if [ -f "$retry" ] && read -r mark_sha mark_n <"$retry" && [ "$mark_sha" = "$sha" ]; then
     case "$mark_n" in [0-9]) tries=$mark_n ;; esac
   fi
   rm -f "$retry"
@@ -375,9 +379,11 @@ run() {
     retitle "$n"
     i=$((i + 1))
     if [ "$i" -gt "$TEHAS_PREVIEW_MAX" ]; then
-      # Stopped when it falls over the limit, not at every run after that: a
-      # state that says so for this commit means it was done.
-      if [ "$(field "$n" sha)" != "$sha" ] || [ "$(field "$n" state)" != over-limit ]; then
+      # Stopped when it falls over the limit, not at every run after that:
+      # the state says so for this commit and Docker lists no container of
+      # the name. A stop that failed leaves one listed, and is tried again.
+      if [ "$(field "$n" sha)" != "$sha" ] || [ "$(field "$n" state)" != over-limit ] ||
+        [ -n "$(docker ps -a --quiet --filter "name=^tehas-preview-$n\$" 2>/dev/null)" ]; then
         stop "$n"
       fi
       mark "$n" "$sha" over-limit "More than $TEHAS_PREVIEW_MAX pull requests are open."

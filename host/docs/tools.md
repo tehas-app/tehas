@@ -449,7 +449,8 @@ are enabled. Both write to `~/tehas/logs/preview.log`.
    15 minutes. The new container replaces the old one. Five seconds after
    its start Docker is asked whether it still runs and was never restarted.
    One that is not is removed, with its last lines in the build log, and the
-   state is `build-failed`.
+   state is `build-failed`. The old container went before the new one was
+   started, so nothing serves for that pull request until a commit starts.
 7. The pull request is told, and `~/tehas/live/previews.json` is written for
    the dashboard and for [tehasbot health](#tehasbot-health).
 
@@ -460,7 +461,7 @@ Each pull request has a state, in `~/tehas/preview/<pr>/state.json`:
 | `serving` | A container of that commit was started and was still running five seconds later, without a restart. It is not asked whether it answers | Not needed |
 | `building` | The build is under way | |
 | `no-recipe` | The commit has no `preview/Dockerfile`. A preview of an earlier commit is removed | At a new commit |
-| `build-failed` | The build failed or ran over 15 minutes: a preview of an earlier commit keeps serving. Or the container did not start, or it started and stopped within five seconds and was removed | A failed build: at a new commit, not for the same one. A container that did not start or did not stay up: at each of the next three runs, then at a new commit |
+| `build-failed` | The build failed or ran over 15 minutes: a preview of an earlier commit keeps serving. Or the container did not start, or it started and stopped within five seconds and was removed: for these two nothing serves for that pull request, not the earlier commit either, until a commit starts | A failed build: at a new commit, not for the same one. A container that did not start or did not stay up: at each of the next three runs, then at a new commit |
 | `no-space` | Less than `TEHAS_PREVIEW_MIN_FREE` is free, or the free space could not be read. What serves stays, and removal still runs | At every run, until there is space |
 | `over-limit` | More than `TEHAS_PREVIEW_MAX` pull requests are open and this is not one of the newest. A preview it had is removed | At every run |
 

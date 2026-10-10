@@ -270,6 +270,11 @@ state says which of three things happened:
   runs, then no more for that commit. Fix the recipe and push; the new commit
   is built.
 
+For a container that did not start or that stopped, nothing serves for that
+pull request, not the preview of the earlier commit either: the old container
+is removed before the new one is started. The name answers 404 until a commit
+starts. Only a failed build leaves the earlier preview serving.
+
 To have the same commit built again, remove the state and let the next run
 find the pull request anew: `rm -r ~/tehas/preview/<pr>`.
 

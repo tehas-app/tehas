@@ -119,7 +119,11 @@ case "$1" in
       *--quiet*)
         n=$(printf "%s" "$*" | sed -n "s/.*name=\^tehas-preview-\([0-9]*\)\\$.*/\1/p")
         sha=$(printf "%s" "$*" | sed -n "s/.*label=tehas\.sha=\([0-9a-f]*\).*/\1/p")
-        [ -f "$d/container-$n" ] && [ "$(cat "$d/container-$n")" = "$sha" ] && echo cid ;;
+        # With no commit asked for, any container of that name is listed.
+        case "$*" in
+          *label=tehas.sha=*) [ -f "$d/container-$n" ] && [ "$(cat "$d/container-$n")" = "$sha" ] && echo cid ;;
+          *) [ -f "$d/container-$n" ] && echo cid ;;
+        esac ;;
       *)
         for f in "$d"/container-*; do
           [ -f "$f" ] || continue
@@ -225,6 +229,7 @@ t_eq "$t_rc" 0
 t_eq "$(state_of 12)" "serving"
 t_eq "$(tr '\n' ' ' <"$T/calls/docker.run.12")" "run --detach --name tehas-preview-12 --network tehas-previews --read-only --tmpfs /tmp --tmpfs /config --tmpfs /data --cap-drop ALL --cap-add NET_BIND_SERVICE --security-opt no-new-privileges:true --memory 256m --cpus 1 --pids-limit 128 --restart unless-stopped --label tehas.preview=12 --label tehas.sha=$a --label tehas.repo=acme/widget tehas-preview:12 "
 t_contains "$t_out" "#12: serving"
+t_lacks "$t_out" "No such file"
 
 t_case "the container is given nothing of the host"
 args=$(cat "$T/calls/docker.run.12")
@@ -262,6 +267,7 @@ t_run "$preview"
 t_eq "$(cat "$fx/docker/container-12")" "$a2"
 t_contains "$(t_calls docker)" "rm -f tehas-preview-12"
 t_contains "$(t_calls docker)" "image rm $old"
+t_lacks "$t_out" "No such file"
 
 t_case "the label is the commit that was fetched, when the branch moved after GitHub answered"
 reset
@@ -363,6 +369,25 @@ pulls "$(pull 23 "$c")" "$(pull 22 "$b")" "$(pull 21 "$a4")"
 t_run "$preview"
 t_eq "$(jq -r '"\(.state) \(.sha)"' "$root/21/state.json")" "over-limit $a4"
 t_eq "$(t_calls docker | grep -c 'rm -f tehas-preview-21')" 1
+
+t_case "a pull request over the limit whose container did not go is stopped again"
+echo tehas-preview-22 >"$fx/rm-fails"
+d=$(commit four)
+pulls "$(pull 24 "$d")" "$(pull 23 "$c")" "$(pull 22 "$b")" "$(pull 21 "$a4")"
+t_run "$preview"
+t_eq "$(state_of 22)" "over-limit"
+t_eq "$(cat "$fx/docker/container-22")" "$b"
+rm -f "$fx/rm-fails" "$T"/calls/docker*
+t_run "$preview"
+t_eq "$(state_of 22)" "over-limit"
+t_eq "$(t_calls docker | grep -c -x 'rm -f tehas-preview-22')" 1
+t_eq "$(count "$fx/docker" container-22)" 0
+rm -f "$T"/calls/docker*
+t_run "$preview"
+t_eq "$(t_calls docker | grep -c 'rm -f tehas-preview-22')" 0
+pulls "$(pull 23 "$c")" "$(pull 22 "$b")" "$(pull 21 "$a4")"
+t_run "$preview"
+t_eq "$(state_of 23) $(state_of 22) $(state_of 21)" "serving serving over-limit"
 
 t_case "a merged pull request is removed: container, image, ref and directory"
 pulls "$(pull 23 "$c")"
@@ -494,6 +519,29 @@ pulls "$(pull 12 "$a")"
 t_run "$preview"
 t_eq "$(t_calls sleep)" "5"
 t_eq "$(state_of 12)" "serving"
+
+# The variable can shorten the wait and nothing else.
+while IFS='|' read -r asked waited; do
+  t_case "a wait of '$asked' asked for is a wait of $waited"
+  reset
+  T_ENV=(GH_TOKEN=sekret-token "TEHAS_PREVIEW_SETTLE=$asked")
+  a=$(commit feature)
+  pulls "$(pull 12 "$a")"
+  t_run "$preview"
+  t_eq "$(t_calls sleep)" "$waited"
+  t_eq "$(state_of 12)" "serving"
+done <<'CASES'
+60|5
+6|5
+5|5
+4|4
+0|0
+00|5
+-1|5
+0.5|5
+soon|5
+|5
+CASES
 
 for answer in "false 0" "true 2" ""; do
   t_case "a container that says '$answer' after its start is not called serving"
