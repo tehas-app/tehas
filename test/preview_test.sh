@@ -452,4 +452,88 @@ pulls
 t_run "$preview"
 t_eq "$(jq -r '.disk.freeBytes' "$live/previews.json")" "42949672960"
 
+writes() { cat "$T/calls/gh-writes" 2>/dev/null || true; }
+
+t_case "a serving preview is said once, with its address"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+t_run "$preview"
+t_eq "$(writes | wc -l)" 1
+t_contains "$(writes)" "api -X POST repos/acme/widget/issues/12/comments"
+t_contains "$(writes)" "<!-- tehas-preview -->"
+t_contains "$(writes)" "https://uat-12.example.org/"
+t_contains "$(writes)" "${a:0:7}"
+t_run "$preview"
+t_eq "$(writes | wc -l)" 1
+
+t_case "a new commit edits the bot's own comment"
+jq -n '[{id: 501, user: {login: "factory-bot"}, body: "<!-- tehas-preview -->\nold"}]' >"$fx/comments.json"
+a2=$(commit feature)
+pulls "$(pull 12 "$a2")"
+t_run "$preview"
+t_eq "$(writes | wc -l)" 2
+t_contains "$(writes | tail -n 1)" "api -X PATCH repos/acme/widget/issues/comments/501"
+t_contains "$(writes | tail -n 1)" "${a2:0:7}"
+
+t_case "a stranger's comment that starts with the marker is not edited"
+reset
+jq -n '[{id: 900, user: {login: "stranger"}, body: "<!-- tehas-preview -->\nmine"}]' >"$fx/comments.json"
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+t_run "$preview"
+t_lacks "$(writes)" "comments/900"
+t_contains "$(writes)" "api -X POST repos/acme/widget/issues/12/comments"
+
+t_case "unable to create, for a full disk: said once, with the figures"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+echo 1048576 >"$fx/free"
+t_run "$preview"
+t_run "$preview"
+t_eq "$(writes | wc -l)" 1
+t_contains "$(writes)" "Unable to create a preview"
+t_contains "$(writes)" "1.0 GB is free and 5.0 GB is needed"
+
+t_case "unable to create, for a failed build"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+: >"$fx/build-fails"
+t_run "$preview"
+t_contains "$(writes)" "Unable to create a preview"
+t_contains "$(writes)" "The build failed"
+
+t_case "no recipe and over the limit are not commented"
+reset
+a=$(commit feature none)
+pulls "$(pull 12 "$a")"
+t_run "$preview"
+t_eq "$(writes)" ""
+
+t_case "a container that never starts is said once, not at every retry"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+: >"$fx/run-fails"
+t_run "$preview"
+t_run "$preview"
+t_run "$preview"
+t_eq "$(writes | wc -l)" 1
+t_contains "$(writes)" "Unable to create a preview"
+
+t_case "a comment GitHub did not take is tried again at the next run"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+t_stub gh 'case "$1 $2" in
+  "api user") echo "{\"login\":\"factory-bot\"}" ;;
+  "api repos/acme/widget/pulls?"*) cat "$T/fx/pulls.json" ;;
+  "api repos/acme/widget/issues/"*) echo "[]" ;;
+  "api -X") exit 1 ;;
+esac'
+t_run "$preview"
+t_eq "$(count "$root/12" .commented)" 0
+
 t_done

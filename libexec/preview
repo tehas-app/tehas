@@ -17,6 +17,9 @@
 #   when it goes    At the next run after the pull request is merged or
 #                   closed: the container, the image, the fetched ref and
 #                   the state.
+#   what it says    One comment on the pull request, by the bot, edited in
+#                   place: the address, or "Unable to create a preview" with
+#                   the reason, for a failed build and for a full disk.
 #   a full disk     Under TEHAS_PREVIEW_MIN_FREE of free space nothing is
 #                   built. What serves stays, and removal still runs. The
 #                   figures are in previews.json at every run, and tehasbot
@@ -67,9 +70,11 @@ logs=$TEHAS_HOME/logs
 net=tehas-previews
 recipe=preview/Dockerfile
 build_limit=900
+marker='<!-- tehas-preview -->'
 min_kb=$((TEHAS_PREVIEW_MIN_FREE_MB * 1024))
 free=""
 low=false
+me=""
 
 mkdir -p "$root" "$live" "$logs" || exit 1
 # The sweep waits for a run to end; a run does not wait for anything.
@@ -127,8 +132,41 @@ free_kb() {
 gb() { awk -v kb="$1" 'BEGIN { printf "%.1f GB", kb / 1048576 }'; }
 
 # --- The comment on the pull request -----------------------------------------
-# comment <number>: Task 7 writes it.
-comment() { return 0; }
+# comment <number>: say where the preview is, or that it could not be created
+# and why. One comment per pull request, the bot's own, found by its first
+# line and edited in place. Said once per commit and state, so a full disk is
+# not a comment every five minutes. A call that fails is tried at the next run.
+comment() {
+  local n=$1 sha state reason key text body id
+  sha=$(field "$n" sha)
+  state=$(field "$n" state)
+  reason=$(field "$n" reason)
+  key="$sha $state"
+  [ "$(cat "$root/$n/.commented" 2>/dev/null)" != "$key" ] || return 0
+  case "$state" in
+    serving) text="Preview of \`${sha:0:7}\`: https://$(tehas_edge_name uat "$n")/" ;;
+    build-failed | no-space) text="Unable to create a preview of \`${sha:0:7}\`. $reason" ;;
+    *) return 0 ;;
+  esac
+  body="$marker
+$text
+
+It is rebuilt when the branch changes and removed when this pull request is closed."
+  # Only a comment of this account: anyone can write the marker.
+  [ -n "$me" ] || me=$(gh api user 2>/dev/null | jq -r '.login // empty' 2>/dev/null) || me=""
+  [ -n "$me" ] || return 0
+  # shellcheck disable=SC2016  # a jq program: the variables are jq's
+  id=$(gh api "repos/$repo/issues/$n/comments?per_page=100" 2>/dev/null |
+    jq -r --arg me "$me" --arg marker "$marker" '
+      [.[] | select(.user.login == $me and ((.body // "") | startswith($marker)))][0].id // empty' 2>/dev/null) ||
+    return 0
+  if [ -n "$id" ]; then
+    gh api -X PATCH "repos/$repo/issues/comments/$id" -f body="$body" >/dev/null 2>&1 || return 0
+  else
+    gh api -X POST "repos/$repo/issues/$n/comments" -f body="$body" >/dev/null 2>&1 || return 0
+  fi
+  printf '%s\n' "$key" >"$root/$n/.commented"
+}
 
 # --- One build ---------------------------------------------------------------
 # build <number>: fetch the pull request's head, build its recipe, replace the
