@@ -1,7 +1,7 @@
 // Turn a running /work cycle into one readable, append-only console file
 // for the dashboard.
 //
-//   deno run -A tehas-console.ts --rpc <work-N.jsonl> --runs <ensemble-runs dir>
+//   deno run -A console.ts --rpc <work-N.jsonl> --runs <ensemble-runs dir>
 //     --out <console.txt> --since <epoch seconds>
 //
 // Follows two sources until it is killed:
@@ -18,7 +18,7 @@
 const arg = (name: string): string => {
   const i = Deno.args.indexOf(`--${name}`);
   if (i < 0 || !Deno.args[i + 1]) {
-    console.error(`tehas-console: --${name} is required`);
+    console.error(`console.ts: --${name} is required`);
     Deno.exit(2);
   }
   return Deno.args[i + 1];

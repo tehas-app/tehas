@@ -30,8 +30,8 @@
             file_server
         }
         # Factory health for monitors, at /health and /healthz: the file
-        # tehas-health writes. 200 normally; 503 with the same body while
-        # tehas-health keeps the marker live/health.down in place.
+        # `tehasbot health` writes. 200 normally; 503 with the same body while
+        # `tehasbot health` keeps the marker live/health.down in place.
         @health path /health /healthz
         @health_down {
             path /health /healthz

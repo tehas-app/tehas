@@ -92,7 +92,7 @@ compute on the issue.
 Watch it on the [factory floor](/) or the [plain dashboard](/dashboard): the queue, the issue being worked on with its
 console streaming live, and what is waiting for you.
 
-Optional, and only when the model backend is a viiwork mesh with
+Optional, and only when the model backend is a [viiwork](https://github.com/janit/viiwork) mesh with
 `tehas-energy.service` enabled: the factory floor also has a section
 **Energy use**: what the machines serving the factory draw now, their kWh over
 24 hours and 30 days, the last 30 minutes as a chart, and the factory's models
@@ -106,7 +106,7 @@ in the last minute. The tokens are the mesh's count for those models, so other
 users of the same models are in it.
 With any other backend the section and the meter are simply not there, and
 nothing else changes. To turn them off on a viiwork mesh, see
-[tehas-energy](/tools).
+[the energy sampler](/tools).
 
 The dispatcher takes one issue at a time, urgent first, then the lowest issue
 number.
@@ -121,12 +121,17 @@ number.
 When the cycle starts and when it ends, the bot comments on the issue. The token
 usage per agent role is posted on the pull request.
 
-A timer polls every two minutes. To see or force a poll by hand on the host:
+A timer polls every two minutes. To see the factory's state, or to see or force
+a poll by hand on the host:
 
 ```
-tehas-dispatch --dry-run     # what would it do?
-tehas-dispatch               # do it (returns when the cycle ends)
+tehas status                 # taking work? the queue, the current or last cycle
+tehas dispatch --dry-run     # what would it do?
+tehas dispatch               # do it (returns when the cycle ends)
 ```
+
+`tehas` is the one command to type on the host; `tehas help` lists what it
+does. See [Commands](/tools).
 
 ## 4. Review and merge
 
@@ -180,8 +185,8 @@ already running finishes. Remove the label to resume.
 Skips the queue, the labels and the comments:
 
 ```
-tehas-work 123            # exit 0: merged or parked, 1: aborted, 2: died or timed out
-tehas-work 123 --restart
+tehas work 123            # exit 0: merged or parked, 1: aborted, 2: died or timed out
+tehas work 123 --restart
 ```
 
 It does not take the dispatcher's lock, so a poll can start a queue cycle while
@@ -217,9 +222,9 @@ The host that runs the factory is also a place to work yourself. Log in as the
 tehas user and start a session:
 
 ```
-tehas-dev alice --author "Alice Example <alice@example.com>"   # the first time
-tehas-dev alice                                                # from then on
-tehas-dev alice -- -r                                          # resume an earlier session
+tehas dev alice --author "Alice Example <alice@example.com>"   # the first time
+tehas dev alice                                                # from then on
+tehas dev alice -- -r                                          # resume an earlier session
 ```
 
 That is an interactive Pi with pi-rukas, in the sandbox, on the factory's

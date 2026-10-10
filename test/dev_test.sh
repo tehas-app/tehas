@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Tests for bin/tehas-dev: the clone a manual session works in, whose name its
+# Tests for libexec/dev: the clone a manual session works in, whose name its
 # commits carry, and what its container is given. A stub docker records its
 # arguments, one per line, and exits at once, so no session runs.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh"
 
-dev="$T_ROOT/bin/tehas-dev"
+dev="$T_ROOT/libexec/dev"
 checkout=$T/home/tehas/repos/widget
 devs=$T/home/tehas/dev
 clone=$devs/main
@@ -45,7 +45,7 @@ t_case "--help prints the usage with no instance and starts nothing"
 T_ENV=()
 t_run "$dev --help"
 t_eq "$t_rc" 0
-t_contains "$t_out" "Usage: tehas-dev"
+t_contains "$t_out" "Usage: tehas dev"
 t_eq "$(containers)" 0
 
 t_case "an unknown argument starts no container and makes no clone"

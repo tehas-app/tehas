@@ -15,9 +15,15 @@
 # follow-up steps are printed when their inputs changed. A replaced file is
 # kept next to the new one as <name>.prev.
 #
-# One thing it does besides copying, on a real run only: the product checkout's
-# origin/HEAD is refreshed, so the commands know the default branch without
-# asking the network.
+# It also removes the commands of an earlier layout from ~/tehas/bin, one file
+# for each command there, unless a cycle is running that still uses them.
+#
+# Two things it does besides copying, on a real run only. The product
+# checkout's origin/HEAD is refreshed, so the commands know the default branch
+# without asking the network. And the code index a cycle's agents search is
+# built with `tehas index`, once: when there is no index yet and both the
+# sandbox image and the product checkout are there. Until then the step is
+# printed as a follow-up. A failed indexing does not fail the install.
 #
 # Exit: 0 done or nothing to report, 1 --check found something or a step
 # failed, 78 the instance settings are invalid (nothing was changed).
@@ -95,7 +101,7 @@ instance=$TEHAS_INSTANCE_DIR
 
 # --- 2. What belongs to this instance ---------------------------------------
 # One line per file: source|destination|mode. A source starting with / is taken
-# as is; anything else is under host/, except bin/ and lib/ at the top.
+# as is; anything else is under host/, except bin/, libexec/ and lib/ at the top.
 agent=$HOME/.pi/agent
 units=$HOME/.config/systemd/user
 
@@ -118,9 +124,14 @@ files=(
   "pi/mcp.json|$agent/mcp.json|644"
   "$instance/models.json|$agent/models.json|644"
 )
-for f in tehas-console.ts tehas-dev tehas-dispatch tehas-energy tehas-health tehas-protolab tehas-status tehas-work tehas-test; do
+# The two commands on PATH, and the scripts behind them.
+for f in tehas tehasbot; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
+for f in dev dispatch energy health index labels protolab status summary work; do
+  files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
+done
+files+=("libexec/console.ts|$TEHAS_HOME/libexec/console.ts|644")
 # Pi's own settings: the instance may bring its own (default provider and
 # model for interactive use on the host), otherwise the generic ones.
 if [ -r "$instance/settings.json" ]; then
@@ -136,7 +147,7 @@ note() { if [ "$check" = 1 ]; then report+=("$1"); else echo "$1"; fi; }
 source_of() {
   case "$1" in
     /*) printf '%s\n' "$1" ;;
-    bin/* | lib/*) printf '%s\n' "$root/$1" ;;
+    bin/* | libexec/* | lib/*) printf '%s\n' "$root/$1" ;;
     *) printf '%s\n' "$host/$1" ;;
   esac
 }
@@ -180,6 +191,17 @@ sync_dir() { # name: host/<name>/* -> $TEHAS_HOME/<name>/
 sync_dir docs
 sync_dir fun
 
+# The commands of before bin/tehas, one file each in bin/. Found here, removed
+# in step 5 once systemd has the new units.
+old=()
+for f in tehas-console.ts tehas-dispatch tehas-energy tehas-health tehas-index tehas-protolab tehas-status tehas-test tehas-work; do
+  to=$TEHAS_HOME/bin/$f
+  [ -e "$to" ] || continue
+  old+=("$to")
+  changed+=("bin/$f")
+  [ "$check" = 0 ] || note "stale: $to"
+done
+
 # --- 4. Report (--check) -----------------------------------------------------
 if [ "$check" = 1 ]; then
   rc=0
@@ -209,7 +231,7 @@ if [ "$check" = 1 ]; then
 
   if [ -n "${T_IN_TEST:-}" ]; then
     echo "Tests:        not checked (running inside the tests)"
-  elif out=$("$root/bin/tehas-test" 2>&1); then
+  elif out=$("$root/scripts/test.sh" 2>&1); then
     echo "Tests:        OK"
   else
     echo "Tests:        FAILED"
@@ -229,8 +251,19 @@ if [ -z "${TEHAS_BRANCH:-}" ] && [ -d "$TEHAS_WORK_REPO/.git" ]; then
     echo "WARN: could not read the default branch of $TEHAS_WORK_REPO from its remote; set TEHAS_BRANCH if the commands ask for it"
 fi
 
+# The code index, once. Called last, so its line follows the image build's.
+first_index() {
+  [ -f "$TEHAS_HOME/state/index.json" ] && return 0
+  if [ -d "$TEHAS_WORK_REPO/.git" ] && docker image inspect "$PI_ENSEMBLE_IMAGE" >/dev/null 2>&1; then
+    "$TEHAS_HOME/bin/tehas" index && return 0
+    echo "WARN: the code index was not built"
+  fi
+  echo "next: $TEHAS_HOME/bin/tehas index   (needs the sandbox image and the product checkout)"
+}
+
 if [ "${#changed[@]}" = 0 ]; then
   echo "tehas is up to date"
+  first_index
   exit 0
 fi
 list=" ${changed[*]} "
@@ -238,8 +271,34 @@ case "$list" in *" systemd/"*)
   systemctl --user daemon-reload || true
   echo "next: systemctl --user enable --now tehas-dispatch.timer tehas-energy.service tehas-protolab.timer" ;;
 esac
+
+# The old commands go while this holds the dispatcher's lock. A cycle that
+# began before this install was started by the old dispatcher, which calls
+# them by name until it ends: it holds the lock, so they stay and the step is
+# printed instead. A poll that starts meanwhile finds the lock taken and ends
+# before it has run anything. A file that cannot be removed fails the install.
+retire_later=0
+if [ "${#old[@]}" -gt 0 ]; then
+  exec 9>>"$TEHAS_HOME/state/dispatch.lock"
+  if flock -n 9; then
+    for to in "${old[@]}"; do
+      rm -f "$to" "$to.prev"
+      echo "removed: $to"
+    done
+  else
+    retire_later=1
+  fi
+  exec 9>&-
+fi
 case "$list" in *" sandbox/"* | *" versions.env "*) echo "next: $TEHAS_HOME/sandbox/build.sh" ;; esac
 # The compose file takes the bind address from the environment env.sh sets.
 case "$list" in *" edge/docs."*) echo "next: . $TEHAS_HOME/env.sh && docker compose -f $TEHAS_HOME/edge/docs.compose.yaml up -d" ;; esac
 case "$list" in *" edge/protolab."*) echo "next: . $TEHAS_HOME/env.sh && docker compose -f $TEHAS_HOME/edge/protolab.compose.yaml up -d --force-recreate" ;; esac
+# A running sampler is the old file calling itself; only a restart moves it on.
+case "$list" in *" bin/tehas-energy "*)
+  [ "$retire_later" = 1 ] || echo "next: systemctl --user try-restart tehas-energy.service" ;;
+esac
+[ "$retire_later" = 0 ] ||
+  echo "next: ./install.sh again when the running cycle has ended   (the dispatcher's lock is held, so the old commands in $TEHAS_HOME/bin were left)"
+first_index
 exit 0

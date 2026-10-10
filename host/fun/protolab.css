@@ -1,4 +1,4 @@
-/* The Protolab's own pages, as bin/tehas-protolab writes them: the list of
+/* The Protolab's own pages, as libexec/protolab writes them: the list of
    prototypes and one page a ticket, with the ticket's files in a box. Loaded
    after game-view.css, which brings the typeface, the colours, the header
    band, the rows and the footer. See DESIGN.md, "Protolab Page". */

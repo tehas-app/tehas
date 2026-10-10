@@ -19,18 +19,20 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | ------------------------------------ | ----------------------------------------------------------------------- |
 | `~/tehas/env.sh`                     | Environment for every tehas process; sourced from `~/.bashrc`           |
 | `~/tehas/lib/config.sh`              | Loads and checks the instance settings; sourced by every command        |
-| `~/tehas/lib/sandbox.sh`             | What a sandbox container is given; sourced by `tehas-work` and `tehas-dev` |
-| `~/tehas/bin/`                       | The tehas commands, plus `gh`                                           |
+| `~/tehas/lib/sandbox.sh`             | What a sandbox container is given; sourced by the work and dev scripts  |
+| `~/tehas/bin/`                       | The two commands on `PATH`: `tehas` for a person, `tehasbot` for the units. Plus `gh` |
+| `~/tehas/libexec/`                   | The scripts behind the two commands, one for each thing they do. Not on `PATH` |
 | `~/tehas/platform`                   | Checkout of this repository; `install.sh` runs from it                  |
 | `~/tehas/repos/tehas`                | The product checkout, on the default branch. Cycles are cloned from it; no container is given it |
 | `~/tehas/work/tehas`                 | The cycle's workspace: a fresh clone made for each cycle, removed before the next |
-| `~/tehas/dev/<name>`                 | A person's clone for working by hand, made and used by `tehas-dev`, never removed. `<name>.author` next to it holds whose name its commits carry |
+| `~/tehas/dev/<name>`                 | A person's clone for working by hand, made and used by `tehas dev`, never removed. `<name>.author` next to it holds whose name its commits carry |
 | `~/tehas/repos/pi-rukas`             | pi-rukas, pinned to a commit                                            |
 | `~/tehas/docs/`, `~/tehas/fun/`      | This site's pages and the front page, installed from `host/`            |
 | `~/tehas/sandbox/`, `versions.env`   | Sandbox image definition, build script, and the pinned tool versions    |
 | `~/tehas/edge/`                      | The docs server (`docs.compose.yaml`) and the Protolab server (`protolab.compose.yaml`) |
-| `~/tehas/protolab/`                  | The Protolab's pages and the files of each prototype, written by `tehas-protolab` |
+| `~/tehas/protolab/`                  | The Protolab's pages and the files of each prototype, written by `tehasbot protolab` |
 | `~/tehas/logs/`, `state/`, `live/`, `tmp/` | Logs, lock and status files, dashboard data, scratch              |
+| Docker volume `pi-ensemble-cache`    | Caches of the sandbox, among them the code index `tehas index` builds   |
 | `~/.pi/agent/`                       | Pi user configuration (models, MCP servers)                             |
 | `~/.config/tehas/`                   | Secrets and the `instance-dir` pointer. Never in git                    |
 
@@ -91,7 +93,7 @@ the installed files and the tests:
 Instance:     /home/boss/tehas/platform/instances/tehas-tehas OK
 Dependencies: OK
 Installed:    DRIFT (1 files)
-  differs: /home/boss/tehas/bin/tehas-dispatch
+  differs: /home/boss/tehas/libexec/dispatch
 Tests:        OK
 ```
 
@@ -99,6 +101,16 @@ Tests:        OK
 invalid. It prints the follow-up command when the sandbox image, the docs
 server or a systemd unit changed, and restarts nothing itself. A file edited directly on
 the host shows up as drift in `--check`.
+
+Before there was a `tehas` command, `~/tehas/bin` held one file for each
+command (`tehas-dispatch`, `tehas-work` and so on). `install.sh` removes those
+and `--check` lists them as stale. A cycle that was running before the install
+still calls them by name. So the install removes them only while it holds the
+dispatcher's lock itself. When a cycle or a poll holds it, they are left in
+place and the install prints `next: ./install.sh again when the running cycle
+has ended`. If the energy sampler was running, it also prints the restart that
+moves it to the new file. An old command that cannot be removed fails the
+install.
 
 One thing it does besides copying, on a real run only: the product checkout's
 `origin/HEAD` is refreshed, so the commands know the default branch without
@@ -209,7 +221,7 @@ rm -rf "$T"
 | ----------- | ---------------------------------------------------------- | ------------------------------------------------------ |
 | This site   | `docker compose -f ~/tehas/edge/docs.compose.yaml up -d`   | `curl -i http://tehas-tehas:8080/health`               |
 | Dispatcher  | systemd user timer `tehas-dispatch.timer`, every 2 minutes | `tail ~/tehas/logs/dispatch.log`                       |
-| Energy use sampler, optional | systemd user service `tehas-energy.service`, every 15 s. Enable it only when the model backend is a viiwork mesh | `jq .generatedAt ~/tehas/live/energy.json` |
+| Energy use sampler, optional | systemd user service `tehas-energy.service`, every 15 s. Enable it only when the model backend is a [viiwork](https://github.com/janit/viiwork) mesh | `jq .generatedAt ~/tehas/live/energy.json` |
 | Protolab pages | systemd user timer `tehas-protolab.timer`, every 5 minutes | `tail ~/tehas/logs/protolab.log` |
 | Protolab server | `docker compose -f ~/tehas/edge/protolab.compose.yaml up -d` | `curl -i http://tehas-tehas:8081/` |
 
@@ -250,6 +262,7 @@ Both are outside the repository and the tehas tree.
 | Host paths mounted                     | The cycle's workspace, `~/.vipune`, Pi's `ensemble-runs` and `sessions` (read-write); `models.json`, `mcp.json` (read-only); two caches |
 | Not reachable from the container       | The Docker socket, SSH keys, `~/.config/tehas`, the platform checkout, the product checkout, the instance directory                     |
 | What the host runs from the workspace  | Nothing. The host runs git only in the product checkout, which no container has written. It reads the cycle's state file from the workspace as data |
+| The indexing container                 | `tehas index` runs the indexer, not an agent: a clone of the product read-only, the cache volume, no network, no token                  |
 | The network                            | Not restricted. The container reaches GitHub, the model endpoint and whatever else the host can route to                                |
 | Merging                                | The token could merge where the repository lets it. Nothing does, because `AGENTS.md` forbids it and the dispatcher never merges        |
 
@@ -273,7 +286,7 @@ calls.
 
 ### A session by hand
 
-`tehas-dev` starts the same container for a person, and the table above holds
+`tehas dev` starts the same container for a person, and the table above holds
 for it with these differences:
 
 | Question                    | Answer                                                                                                             |

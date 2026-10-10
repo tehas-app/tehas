@@ -3,15 +3,15 @@
 # in the sandbox image, in a clone of the product that is kept between
 # sessions, on the factory's models. Outside the queue: no labels, no comments.
 #
-# Usage: tehas-dev [<name>] [--author "Name <email>"] [-- <pi arguments>]
-#        tehas-dev --help
+# Usage: tehas dev [<name>] [--author "Name <email>"] [-- <pi arguments>]
+#        tehas dev --help
 #
 #   <name>     names the clone, $TEHAS_HOME/dev/<name>: letters, digits, _ and
 #              -. Without it the name is "main". The clone is made on first
 #              use, from the product checkout, and never removed or reset.
 #   --author   whose name the commits of this clone carry. Stored next to the
 #              clone and used from then on. Without one, the bot's.
-#   --         what follows is passed to pi, for example: tehas-dev -- -r
+#   --         what follows is passed to pi, for example: tehas dev -- -r
 #
 # Exit status: the session's own, as docker reports it, or
 #             64 a wrong argument, a malformed author, no bot token or no git
@@ -20,7 +20,7 @@
 #                exists and is not a clone; no container was started.
 #
 # The container is a cycle's container with a terminal: the same image, limits,
-# mounts and variables as tehas-work gives, assembled by lib/sandbox.sh and
+# mounts and variables as a cycle is given, assembled by lib/sandbox.sh and
 # pinned by test/dev_test.sh. It differs in the tree it works in, in git's
 # identity, and in TERM and COLORTERM. Not the Docker socket, SSH keys,
 # ~/.config/tehas or the rest of the host environment.
@@ -37,12 +37,12 @@
 # same name. It needs a terminal; docker refuses to start without one.
 set -uo pipefail
 
-# The usage is this file's own header comment, as in tehas-dispatch.
+# The usage is this file's own header comment.
 show_usage() {
   sed -n '2,/^[^#]/p' "$0" | sed -n '/^#/s/^# \{0,1\}//p'
 }
 refuse() {
-  printf 'tehas-dev: %s\n' "$1" >&2
+  printf 'tehas dev: %s\n' "$1" >&2
   show_usage >&2
   exit 64
 }
@@ -103,14 +103,14 @@ devs=$TEHAS_HOME/dev
 tree=$devs/$name
 stored=$devs/$name.author
 
-[ -n "${GH_TOKEN:-}" ] || { echo "tehas-dev: GH_TOKEN is not set (source ~/tehas/env.sh)" >&2; exit 64; }
+[ -n "${GH_TOKEN:-}" ] || { echo "tehas dev: GH_TOKEN is not set (source ~/tehas/env.sh)" >&2; exit 64; }
 
 # Whose name the commits carry: the author given now, else the stored one,
 # else the bot's, which is the tehas user's own git identity.
 if [ -z "$author" ] && [ -e "$stored" ]; then
   IFS= read -r author <"$stored" || true
   author_ok "$author" ||
-    { echo "tehas-dev: $stored does not hold \"Name <email>\"; give --author again" >&2; exit 64; }
+    { echo "tehas dev: $stored does not hold \"Name <email>\"; give --author again" >&2; exit 64; }
 fi
 if [ -n "$author" ]; then
   git_name=${author% <*}
@@ -121,7 +121,7 @@ else
   git_name=$(git config --global user.name || true)
   git_email=$(git config --global user.email || true)
   [ -n "$git_name" ] && [ -n "$git_email" ] ||
-    { echo "tehas-dev: git user.name and user.email are not set for $(id -un), and $name has no --author" >&2; exit 64; }
+    { echo "tehas dev: git user.name and user.email are not set for $(id -un), and $name has no --author" >&2; exit 64; }
   who="the bot, $git_name <$git_email>. Give --author \"Name <email>\" once to use your own"
 fi
 
@@ -130,7 +130,7 @@ fi
 fresh=0
 if [ ! -d "$tree/.git" ]; then
   if [ -e "$tree" ] && { [ ! -d "$tree" ] || [ -n "$(ls -A "$tree" 2>/dev/null)" ]; }; then
-    echo "tehas-dev: $tree exists and is not a clone, not touching it" >&2
+    echo "tehas dev: $tree exists and is not a clone, not touching it" >&2
     exit 78
   fi
   fresh=1
@@ -138,7 +138,7 @@ fi
 
 mkdir -p "$devs" || exit 78
 if [ -n "$author" ]; then
-  printf '%s\n' "$author" >"$stored" || { echo "tehas-dev: cannot write $stored" >&2; exit 78; }
+  printf '%s\n' "$author" >"$stored" || { echo "tehas dev: cannot write $stored" >&2; exit 78; }
 fi
 if [ "$fresh" = 1 ]; then
   # Made beside its place and moved there whole. A clone that stopped halfway
@@ -149,22 +149,22 @@ if [ "$fresh" = 1 ]; then
   if ! { tehas_sandbox_clone "$TEHAS_WORK_REPO" "$making" "$branch" &&
     { [ ! -d "$tree" ] || rmdir "$tree"; } && mv "$making" "$tree"; }; then
     rm -rf "$making"
-    echo "tehas-dev: could not make the clone $tree, not starting a session" >&2
+    echo "tehas dev: could not make the clone $tree, not starting a session" >&2
     exit 78
   fi
-  echo "tehas-dev: made $tree at the tip of $branch the product checkout last fetched"
+  echo "tehas dev: made $tree at the tip of $branch the product checkout last fetched"
 fi
 
 mapfile -d '' -t envs < <(tehas_sandbox_env "$tree" "$git_name" "$git_email")
 mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$tree")
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
 [ "${#envs[@]}" -gt 0 ] && [ "${#mounts[@]}" -gt 0 ] ||
-  { echo "tehas-dev: could not prepare the sandbox, not starting a session" >&2; exit 78; }
+  { echo "tehas dev: could not prepare the sandbox, not starting a session" >&2; exit 78; }
 
-echo "tehas-dev: $tree, commits as $who"
+echo "tehas dev: $tree, commits as $who"
 running=$(jq -r 'select(.running == true) | .issue' "$TEHAS_HOME/live/running.json" 2>/dev/null) || running=""
 [ -z "$running" ] ||
-  echo "tehas-dev: a cycle is running on issue $running; the session shares the model endpoint with it"
+  echo "tehas dev: a cycle is running on issue $running; the session shares the model endpoint with it"
 
 # TERM and COLORTERM by name: Pi draws a terminal interface, and docker's own
 # default describes a plainer terminal than most people sit at.

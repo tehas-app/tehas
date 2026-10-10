@@ -23,7 +23,7 @@
 # Rules:
 #   - instance.env is authoritative. Settings of the same name in the
 #     environment are dropped; only TEHAS_HOME, TEHAS_INSTANCE_DIR and the test
-#     hooks TEHAS_WORK_CMD and TEHAS_STATUS_CMD are kept.
+#     hooks TEHAS_WORK_CMD, TEHAS_STATUS_CMD and TEHAS_INDEX_CMD are kept.
 #   - Loading runs no git command, makes no network call and writes nothing.
 #   - Nothing falls back to a project: a setting with no generic default stays
 #     unset until tehas_require asks for it.
@@ -133,7 +133,7 @@ tehas_load() {
 
   for v in $(compgen -v); do
     case "$v" in
-      TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD) ;;
+      TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_INDEX_CMD) ;;
       TEHAS_* | PI_ENSEMBLE_*) unset "$v" ;;
     esac
   done
@@ -156,7 +156,7 @@ tehas_load() {
   # Derived and optional settings.
   if [ -n "${TEHAS_REPO:-}" ]; then
     export TEHAS_WORK_REPO=${TEHAS_WORK_REPO:-$TEHAS_HOME/repos/${TEHAS_REPO##*/}}
-    # Where a cycle works: a fresh clone that tehas-work makes for each cycle,
+    # Where a cycle works: a fresh clone that tehas work makes for each cycle,
     # and the only tree the cycle's container can write. Not a setting: the
     # directory is removed before every cycle.
     export TEHAS_WORK_DIR=$TEHAS_HOME/work/${TEHAS_REPO##*/}

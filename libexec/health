@@ -3,8 +3,8 @@
 # docs server as /health (and /healthz).
 #
 # It reads only what the factory already writes under live/: status.json (the
-# queue snapshot from tehas-status) and running.json (the current or last cycle
-# from tehas-work). No network, no model. tehas-status runs it on exit, so it is
+# queue snapshot from tehasbot status) and running.json (the current or last cycle
+# from tehas work). No network, no model. tehasbot status runs it on exit, so it is
 # refreshed at every poll and every two minutes during a cycle.
 #
 # The file follows the health check response format (draft-inadarei-api-health-check):
@@ -18,7 +18,7 @@
 # A stopped dispatcher cannot report itself: the file just stops changing. A
 # monitor should treat a "time" older than about ten minutes as down.
 #
-# Usage: tehas-health        (prints nothing; exit 0 unless the file cannot be written)
+# Usage: tehasbot health        (prints nothing; exit 0 unless the file cannot be written)
 set -uo pipefail
 
 : "${TEHAS_HOME:=$HOME/tehas}"

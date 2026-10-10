@@ -28,10 +28,10 @@ step() { # name command...
 }
 
 step "no product or host names in platform files" scripts/check-generic.sh
-step "shellcheck and the shell tests" bin/tehas-test
+step "shellcheck and the shell tests" scripts/test.sh
 if [ "${1:-}" = "--full" ]; then
   if command -v deno >/dev/null 2>&1; then
-    step "deno lint" deno lint --no-config bin/tehas-console.ts test/mask_test.ts
+    step "deno lint" deno lint --no-config libexec/console.ts test/mask_test.ts
   else
     echo "FAIL  deno lint (deno is not installed)"
     failed=1
