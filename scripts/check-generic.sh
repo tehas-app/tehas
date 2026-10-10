@@ -73,7 +73,12 @@ while IFS= read -r path; do
   if out=$(grep -n -a -i -E "$addresses" "$path"); then report "$path" "$out"; fi
   [ -n "$names" ] || continue
   excluded "$path" && continue
-  if out=$(grep -n -I -i -E "$names" "$path"); then report "$path" "$out"; fi
+  if out=$(grep -n -I -i -E "$names" "$path"); then
+    report "$path" "$out"
+  else
+    rc=$?
+    [ "$rc" -le 1 ] || { echo "check-generic: invalid name expression in scripts/check-generic.names" >&2; exit 1; }
+  fi
 done < <(git ls-files --cached --others --exclude-standard)
 
 if [ "$hits" -gt 0 ]; then
