@@ -20,10 +20,12 @@
 #   TEHAS_WORK_REPO     the product checkout a cycle is cloned from
 #                       [$TEHAS_HOME/repos/<name>]
 #   TEHAS_WORK_TIMEOUT  seconds before giving up [21600]
-#   TEHAS_WORK_CPUS     docker --cpus for the cycle: a time quota, not pinning
-#                       [the host's CPUs minus one]
-#   TEHAS_WORK_MEMORY   docker --memory for the cycle, a hard limit
+#   TEHAS_WORK_CPUS     docker --cpus for all cycles together: a time quota,
+#                       not pinning [the host's CPUs minus one]
+#   TEHAS_WORK_MEMORY   docker --memory for all cycles together, a hard limit
 #                       [half the host's memory]
+#   TEHAS_TICKET_CONCURRENCY  cycles side by side; this one gets the two
+#                       limits above divided by it [1]
 #
 # What the container is given is deliberate and pinned by test/work_test.sh:
 # the bot token (pi-rukas pushes and opens the pull request from inside), the
@@ -107,7 +109,7 @@ exec 3<>"$fifo"
 rm "$fifo"
 
 docker run --rm -i --name "$name" \
-  --cpus "$TEHAS_WORK_CPUS" --memory "$TEHAS_WORK_MEMORY" \
+  --cpus "$TEHAS_CYCLE_CPUS" --memory "$TEHAS_CYCLE_MEMORY" \
   -w "$repo" "${mounts[@]}" \
   "${envs[@]}" "${hosts[@]}" \
   "$image" pi --mode rpc --approve <&3 >"$log" 2>"$log.err" &

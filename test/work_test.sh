@@ -210,6 +210,16 @@ t_stub console
 mv "$T/bin/console" "$tree/libexec/console"
 t_stub docker 'printf "%s\n" "$@" >"$T/calls/docker.args.$$"'
 
+t_case "with two tickets side by side a cycle gets half the budget"
+rm -f "$T"/calls/*
+t_stub nproc 'echo 8'
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=2 TEHAS_WORK_CPUS=2 TEHAS_WORK_MEMORY=512m
+t_run "$work 7"
+t_eq "$(after --cpus)" "1.00"
+t_eq "$(after --memory)" "256m"
+rm -f "$T/bin/nproc"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_CPUS=1 TEHAS_WORK_MEMORY=512m PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+
 t_case "a checkout of another repository starts no container"
 rm -f "$T"/calls/*
 git -C "$checkout" remote set-url origin https://github.com/acme/other.git
