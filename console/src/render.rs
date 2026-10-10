@@ -28,30 +28,33 @@ impl Entry {
 }
 
 /// The entry as it is written: masked, the time and the speaker on the first
-/// line, further lines indented under the text.
+/// line, further lines indented under the text. The text is an agent's and
+/// the file is also read in terminals: of the control characters only the
+/// line break and the tab are kept, so no escape sequence gets through.
 pub fn format(entry: &Entry, now: u32) -> String {
     let t = entry.at.unwrap_or(now);
-    let masked = mask(&entry.text).replace('\r', "");
-    let mut out = String::new();
-    for (i, line) in masked.split('\n').enumerate() {
-        if i == 0 {
-            out.push_str(&format!(
-                "{:02}:{:02}:{:02} {:<10} {line}\n",
-                t / 3600,
-                t / 60 % 60,
-                t % 60,
-                entry.who
-            ));
-        } else {
-            out.push_str(&format!("{:20}{line}\n", ""));
-        }
+    let shown: String = mask(&entry.text)
+        .chars()
+        .filter(|c| *c != '\r')
+        .map(|c| match c {
+            '\n' | '\t' => c,
+            c if c.is_control() => char::REPLACEMENT_CHARACTER,
+            c => c,
+        })
+        .collect();
+    let mut lines = shown.split('\n');
+    let first = lines.next().unwrap_or_default();
+    let (h, m, s) = (t / 3600, t / 60 % 60, t % 60);
+    let mut out = format!("{h:02}:{m:02}:{s:02} {:<10} {first}\n", entry.who);
+    for line in lines {
+        out.push_str(&format!("{:20}{line}\n", ""));
     }
     out
 }
 
 /// The first `lines` lines and `chars` characters of a text, marked when
 /// something was left out.
-pub fn clip(s: &str, chars: usize, lines: usize) -> String {
+fn clip(s: &str, chars: usize, lines: usize) -> String {
     let head = s.split('\n').take(lines).collect::<Vec<_>>().join("\n");
     let end = head
         .char_indices()
@@ -63,6 +66,13 @@ pub fn clip(s: &str, chars: usize, lines: usize) -> String {
     } else {
         kept.to_string()
     }
+}
+
+// The start of a text as an entry holds it. Masked before it is cut: a
+// secret cut in two is too short for the mask to know, and its first half
+// would be written.
+fn start(s: &str, chars: usize, lines: usize) -> String {
+    clip(&mask(s), chars, lines)
 }
 
 /// The second of the UTC day in a timestamp, in the two forms the logs hold:
@@ -95,7 +105,11 @@ fn text(v: &Value) -> String {
 pub fn rpc_line(line: &str) -> Option<Entry> {
     let r: Value = serde_json::from_str(line).ok()?;
     if r["type"] == "extension_ui_request" && r["method"] == "notify" {
-        return Some(Entry::new("driver", text(&r["message"]), None));
+        return Some(Entry::new(
+            "driver",
+            start(&text(&r["message"]), 1200, 16),
+            None,
+        ));
     }
     let entry = &r["entry"];
     if r["type"] != "entry_appended" || entry["customType"] != "ensemble:lifecycle" {
@@ -164,15 +178,15 @@ pub fn transcript_line(role: &str, line: &str) -> Vec<Entry> {
             if c["type"] == "text" {
                 let said = c["text"].as_str().unwrap_or("").trim();
                 if !said.is_empty() {
-                    entries.push(Entry::new(role, clip(said, 1200, 16), at));
+                    entries.push(Entry::new(role, start(said, 1200, 16), at));
                 }
             } else if c["type"] == "toolCall" {
                 let call = describe_call(&c["name"], &c["arguments"]);
-                entries.push(Entry::new(role, clip(&call, 600, 6), at));
+                entries.push(Entry::new(role, start(&call, 600, 6), at));
             }
         }
         if let Some(error) = m["errorMessage"].as_str().filter(|e| !e.is_empty()) {
-            entries.push(Entry::new(role, format!("! {error}"), at));
+            entries.push(Entry::new(role, format!("! {}", start(error, 600, 6)), at));
         }
     } else if m["role"] == "toolResult" {
         let result = content
@@ -188,7 +202,7 @@ pub fn transcript_line(role: &str, line: &str) -> Vec<Entry> {
             } else {
                 "  result"
             };
-            entries.push(Entry::new(who, clip(result, 700, 10), at));
+            entries.push(Entry::new(who, start(result, 700, 10), at));
         }
     }
     entries
@@ -220,6 +234,53 @@ mod tests {
     fn what_is_written_is_masked() {
         let e = Entry::new("coder", "GH_TOKEN=abc123 set", None);
         assert_eq!(format(&e, 0), "00:00:00 coder      GH_TOKEN=*** set\n");
+    }
+
+    #[test]
+    fn control_characters_do_not_reach_the_file() {
+        let e = Entry::new("coder", "a\u{1b}[2Jb\u{7}c\td\u{9b}e\u{7f}", None);
+        assert_eq!(
+            format(&e, 0),
+            "00:00:00 coder      a\u{fffd}[2Jb\u{fffd}c\td\u{fffd}e\u{fffd}\n"
+        );
+    }
+
+    #[test]
+    fn a_secret_where_a_text_is_cut_is_masked_whole() {
+        let token = format!("ghp_{}", "A".repeat(36));
+        let said = |m: Value| -> String {
+            let entries = transcript_line("coder", &message(m));
+            entries.into_iter().map(|e| e.text).collect()
+        };
+        for (role, before) in [("assistant", 1195), ("toolResult", 695)] {
+            let text = format!("{} {token}", "x".repeat(before));
+            let out = said(json!({"role": role, "content": [{"type": "text", "text": text}]}));
+            assert!(
+                out.contains(" ghp_") && !out.contains("ghp_A"),
+                "{role}: {out}"
+            );
+        }
+        let command = format!("{} {token}", "x".repeat(593));
+        let call = json!({"type": "toolCall", "name": "bash", "arguments": {"command": command}});
+        let out = said(json!({"role": "assistant", "content": [call]}));
+        assert!(out.contains(" ghp_") && !out.contains("ghp_A"), "{out}");
+    }
+
+    #[test]
+    fn a_long_notice_and_a_long_error_are_cut() {
+        let long = "word ".repeat(1000);
+        let notice = json!({"type": "extension_ui_request", "method": "notify", "message": long});
+        let text = rpc_line(&notice.to_string()).unwrap().text;
+        assert!(
+            text.chars().count() < 1300 && text.ends_with("[...]"),
+            "{text}"
+        );
+        let error = message(json!({"role": "assistant", "content": [], "errorMessage": long}));
+        let text = &transcript_line("coder", &error)[0].text;
+        assert!(
+            text.chars().count() < 700 && text.ends_with("[...]"),
+            "{text}"
+        );
     }
 
     #[test]
