@@ -15,10 +15,12 @@
 # What an agent wrote goes to a public issue. Secrets and private addresses
 # are masked by the rules of bin/tehas-console.ts. Three more things are taken
 # out because the comment is parsed again later or read by people: a comment
-# marker, a task-list box, and an @ that would notify somebody.
+# marker, a task-list box, and an @ that would notify somebody. Carriage returns
+# go first: the web interface turns a lone one into a line end, and the escaping
+# below only looks at line starts, so a lone one would start an unescaped box.
 q_clean() {
   local zw=$'\xe2\x80\x8b'
-  sed -E \
+  tr -d '\r' | sed -E \
     -e 's/(^|[^A-Za-z0-9_])(gh[pousr]_|github_pat_)[A-Za-z0-9_]{16,}/\1\2***/g' \
     -e 's#(postgres(ql)?://[^:[:space:]/]+:)[^@[:space:]]+@#\1***@#g' \
     -e 's/(^|[^A-Z0-9_])([A-Z0-9_]*(TOKEN|SECRET|PASSWORD|API_KEY)[A-Z0-9_]*=)[^[:space:]]+/\1\2***/g' \

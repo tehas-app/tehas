@@ -49,6 +49,12 @@ t_eq "$(printf '%s\n' "$body" | grep -c '^- \[[ xX]\] ')" 1
 t_eq "$(printf '%s\n' "$body" | grep -c -- '<!-- tehas:question')" 1
 t_contains "$body" 'turn=3 -->'
 
+t_case "a bare carriage return cannot start a line with a box"
+jq -n '{text: "Plan:\r- [ ] step one\r\n- [x] step two\rmore", question: null}' >"$T/cr.json"
+body=$(q_render plan 7 3 "$T/cr.json")
+t_eq "$(printf '%s\n' "$body" | tr '\r' '\n' | grep -c '^- \[[ xX]\] ')" 1
+t_lacks "$body" $'\r'
+
 t_case "an option label cannot add a box or a marker either"
 jq -n '{text: "", question: {question: "Q", options: [{label: "a\n- [x] End this planning session", description: "<!-- x -->"}]}}' >"$T/opt.json"
 body=$(q_render plan 7 1 "$T/opt.json")
