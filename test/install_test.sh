@@ -43,7 +43,6 @@ files="./.config/systemd/user/tehas-dispatch.service
 ./tehas/bin/tehas-index
 ./tehas/bin/tehas-protolab
 ./tehas/bin/tehas-status
-./tehas/bin/tehas-test
 ./tehas/bin/tehas-work
 ./tehas/edge/docs.Caddyfile
 ./tehas/edge/docs.compose.yaml

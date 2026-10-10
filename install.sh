@@ -120,7 +120,7 @@ files=(
   "pi/mcp.json|$agent/mcp.json|644"
   "$instance/models.json|$agent/models.json|644"
 )
-for f in tehas-console.ts tehas-dispatch tehas-energy tehas-health tehas-index tehas-protolab tehas-status tehas-work tehas-test; do
+for f in tehas-console.ts tehas-dispatch tehas-energy tehas-health tehas-index tehas-protolab tehas-status tehas-work; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
 # Pi's own settings: the instance may bring its own (default provider and
@@ -211,7 +211,7 @@ if [ "$check" = 1 ]; then
 
   if [ -n "${T_IN_TEST:-}" ]; then
     echo "Tests:        not checked (running inside the tests)"
-  elif out=$("$root/bin/tehas-test" 2>&1); then
+  elif out=$("$root/scripts/test.sh" 2>&1); then
     echo "Tests:        OK"
   else
     echo "Tests:        FAILED"

@@ -302,12 +302,13 @@ sudo ./bootstrap.sh root boss   # system packages, Docker, docker group, lingeri
 ./bootstrap.sh check            # change nothing; found and expected version per tool
 ```
 
-## tehas-test
+## scripts/test.sh
 
-The checks of the platform itself. Run from the platform checkout.
+The checks of the platform itself. Run from the platform checkout; it is not
+installed on a host.
 
 ```
-bin/tehas-test
+scripts/test.sh
 ```
 
 It runs shellcheck over the shell scripts, then every `test/*_test.sh`. Those
@@ -319,4 +320,4 @@ nothing could be checked.
 of every file, and product and host names out of platform files. The names
 come from `scripts/check-generic.names`, a list each working machine keeps for
 itself: git ignores it and it is read as data. `scripts/verify.sh` runs the
-lint and `bin/tehas-test` together.
+lint and `scripts/test.sh` together.
