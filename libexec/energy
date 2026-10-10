@@ -8,15 +8,18 @@
 # models: a machine that serves other models is not the factory's draw. Per
 # machine, the draw now, the kWh of the last 24 hours and 30 days and host RAM;
 # per model, the slots, how many are busy and what serves it: the version of
-# the mesh software and the engine behind the model, as the mesh names it; and
-# the mesh's draw over the last 30 minutes, one sample per 15 seconds. Each
+# the mesh software and the engine behind the model, by the mesh's id for it
+# and, from a mesh that says so (viiwork v2.9.2), by its name for people and
+# the engine's own version; and the mesh's draw over the last 30 minutes, one sample per 15 seconds. Each
 # sample also carries, per machine, the mesh's running count of tokens for the
 # factory's models, where the mesh reports one: the live meter shows its rate.
 # The file names the mesh software and where its project lives.
 #
 # The dashboard can be on the internet, and so can this file. The version of
-# the mesh software and the engine names are in it. Addresses, node ids and
-# GPUs are not copied. Deterministic, no model, one HTTP call.
+# the mesh software, the engine names and the engines' versions are in it. An
+# engine version is copied only when it is a plain version: letters, digits
+# and . + _ -, at most 40 characters. Addresses, node ids and GPUs are not
+# copied. Deterministic, no model, one HTTP call.
 #
 # The mesh is the one the factory's model provider points at (models.json),
 # unless TEHAS_ENERGY_URL names a cluster URL. TEHAS_ENERGY=off removes the
@@ -92,6 +95,8 @@ printf '%s' "$body" | jq --argjson prev "$prev" --argjson now "$now" \
   def slot: . / $period | floor;
   def num: if type == "number" then . else 0 end;
   def text: if type == "string" and length > 0 then . else null end;
+  # What an engine prints after its number can be a path or a host name.
+  def plain: text | if . != null and test("^[A-Za-z0-9.+_-]{1,40}$") then . else null end;
   ([env | to_entries[]
     | select(.key | test("^PI_ENSEMBLE_(SUBAGENT_MODEL|MODEL_[A-Z0-9_]+)$"))
     | .value | select(length > 0)] | unique) as $factory
@@ -116,15 +121,17 @@ printf '%s' "$body" | jq --argjson prev "$prev" --argjson now "$now" \
       | .status.models[]?
       | select(type == "object")
       | {name, host: $n, version: $ver, engine: (.engine | text),
+         engineName: (.engine_name | text), engineVersion: (.engine_version | plain),
          slots: (.slots | num), busy: (.busy | num), queued: (.queued | num)}]
      | group_by(.name)
      | map({
          name: .[0].name,
          hosts: (map(select(.slots > 0) | .host) | unique),
-         # One element per distinct pair, sorted: a mesh in the middle of an
-         # upgrade, or a model on two engines, has more than one.
-         engines: (map(select(.slots > 0) | {version, engine}
-                       | select(.version != null or .engine != null)) | unique),
+         # One element per distinct set of values, sorted: a mesh in the
+         # middle of an upgrade, or a model on two engines, has more than one.
+         # An engine version alone names nothing and is left out.
+         engines: (map(select(.slots > 0) | {version, engine, engineName, engineVersion}
+                       | select(.version != null or .engine != null or .engineName != null)) | unique),
          slots: (map(.slots) | add),
          busy: (map(.busy) | add),
          queued: (map(.queued) | add)

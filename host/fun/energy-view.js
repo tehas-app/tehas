@@ -19,14 +19,16 @@ export const BANDS = ["#ea3", "#4a9", "#c53", "#7cb", "#ccd", "#b97", "#694", "#
 const list = (v) => (Array.isArray(v) ? v : []);
 const amount = (v) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null);
 const name = (v) => (typeof v === "string" ? v.slice(0, 64) : "");
-// What serves a model: the mesh, its version and the engine, for each pair the
-// sampler found. The engine is the mesh's own id: a table of display names
-// here would go stale when the mesh gains an engine.
+// What serves a model: the mesh, its version and the engine, for each set the
+// sampler found. The engine goes by the name the mesh gives it for people, or
+// by the mesh's id where it gives none, and then its own version. No table of
+// display names here: it would go stale when the mesh gains an engine.
 function engines(v, mesh) {
   const each = list(v).filter((e) => e && typeof e === "object").map((e) => {
-    const version = name(e.version), engine = name(e.engine);
+    const version = name(e.version), engine = name(e.engineName) || name(e.engine);
     if (!version && !engine) return "";
-    return [mesh, version, engine && `(${engine})`].filter(Boolean).join(" ");
+    const served = engine && `(${[engine, name(e.engineVersion)].filter(Boolean).join(" ")})`;
+    return [mesh, version, served].filter(Boolean).join(" ");
   });
   return each.filter(Boolean).join(", ") || "-";
 }

@@ -189,6 +189,25 @@ test("the engines of a model: the mesh, its version and the engine", () => {
   assert.deepEqual(enginesCell([{ version: "2.9.0", engine: null }]), "viiwork 2.9.0");
 });
 
+test("the engine's name for people and its own version, where the mesh reports them", () => {
+  const cell = (e) => enginesCell([{ version: "2.9.2", engine: "llamacpp", ...e }]);
+  assert.deepEqual(cell({ engineName: "llama.cpp", engineVersion: "b11371" }), "viiwork 2.9.2 (llama.cpp b11371)");
+  // An engine that reports no version of its own.
+  assert.deepEqual(cell({ engineName: "Strata", engineVersion: null }), "viiwork 2.9.2 (Strata)");
+  // No name: the id, as from a mesh that sends none.
+  assert.deepEqual(cell({ engineName: null, engineVersion: "b11371" }), "viiwork 2.9.2 (llamacpp b11371)");
+  assert.deepEqual(cell({ engineName: "", engineVersion: 7 }), "viiwork 2.9.2 (llamacpp)");
+  assert.deepEqual(enginesCell([{ version: null, engine: null, engineName: "vLLM", engineVersion: "0.31.0" }]), "viiwork (vLLM 0.31.0)");
+  // Its own version alone names no engine.
+  assert.deepEqual(enginesCell([{ version: null, engine: null, engineName: null, engineVersion: "b1" }]), "-");
+  assert.deepEqual(enginesCell([{ version: "2.9.2", engine: null, engineVersion: "b1" }]), "viiwork 2.9.2");
+  // A mesh in the middle of an upgrade: the old machines send the id only.
+  assert.deepEqual(
+    enginesCell([{ version: "2.9.0", engine: "llamacpp" }, { version: "2.9.2", engine: "llamacpp", engineName: "llama.cpp", engineVersion: "b11371" }]),
+    "viiwork 2.9.0 (llamacpp), viiwork 2.9.2 (llama.cpp b11371)",
+  );
+});
+
 test("no engines is a dash: an empty array, and a file from the old sampler", () => {
   assert.deepEqual(enginesCell([]), "-");
   assert.deepEqual(enginesCell(undefined), "-");
