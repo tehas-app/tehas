@@ -42,7 +42,7 @@ t_stub fake-index 'git -C "$T/home/tehas/repos/widget" rev-parse HEAD >"$T/calls
 [ ! -e "$T/fx/index-fails" ] || exit 1'
 
 reset() {
-  rm -f "$T"/calls/* "$fx"/edit-* "$fx"/start-*
+  rm -f "$T"/calls/* "$fx"/edit-* "$fx"/start-* "$fx"/events-*
   rm -rf "$T/home/tehas/state/cycles"
   echo '{"data":{"repository":{"issue":{"lastEditedAt":null,"editor":null}}}}' >"$fx/edit.json"
   echo '{"nameWithOwner":"acme/widget"}' >"$fx/repo.json"
@@ -66,6 +66,19 @@ release() {
   local fd
   for fd in "${held[@]}"; do exec {fd}>&-; done
   held=()
+}
+
+# An instance that works on <n> issues side by side. The host's CPU count is
+# read with nproc; a stub gives every test machine room for the split.
+t_stub nproc 'echo 8'
+slots() { t_instance "${T_MINIMAL[@]}" "TEHAS_TICKET_CONCURRENCY=$1" "TEHAS_WORK_CPUS=$1" "${@:2}"; }
+ready() { # issue... : the queue, each labelled by alice; "8!" is urgent
+  local n list=""
+  for n in "$@"; do
+    list="$list,{\"number\":${n%!},\"labels\":[{\"name\":\"tehas:ready\"}$([ "$n" = "${n%!}" ] || echo ',{"name":"tehas:urgent"}')]}"
+    cp "$fx/events-7.json" "$fx/events-${n%!}.json" 2>/dev/null || true
+  done
+  echo "[${list#,}]" >"$fx/ready.json"
 }
 
 # A product repository whose default branch is main, and the instance's clone.
@@ -403,7 +416,7 @@ t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit"
 t_run "$dispatch --dry-run"
-t_contains "$t_out" "holding: a cycle is running on #9"
+t_contains "$t_out" "holding: 1 cycles are running (limit 1)"
 release
 
 t_case "the lock file of a cycle that ended holds nothing back"
@@ -445,6 +458,126 @@ t_run "$dispatch"
 t_eq "$t_rc" 0
 t_lacks "$(t_calls gh)" "needs-human-attention"
 t_lacks "$t_out" "did not start"
+
+t_case "two slots: two issues are started in one poll, in order"
+reset
+slots 2
+ready 7 8
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 "
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready"
+t_contains "$(t_calls gh)" "issue edit 8 --repo acme/widget --add-label tehas:running --remove-label tehas:ready"
+
+t_case "the checkout is fast-forwarded and the index refreshed once, before the first start"
+t_eq "$(t_calls fake-index)" "--before-cycle"
+t_eq "$(find "$T/calls/index.late" 2>/dev/null | wc -l)" 0
+
+t_case "one slot by default: the second issue waits"
+reset
+ready 7 8
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+
+t_case "an urgent issue is started first"
+reset
+slots 2
+ready 7 8! 9
+t_run "$dispatch"
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "8 7 "
+
+t_case "a running cycle takes a slot"
+reset
+slots 2
+ready 7 8
+hold 9
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+release
+
+t_case "with every slot taken nothing is started, and no issue is looked at"
+reset
+slots 2
+ready 7 8
+hold 9
+hold 10
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue list"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "holding: 2 cycles are running (limit 2)"
+release
+
+t_case "the index is not refreshed under a running cycle"
+reset
+slots 2
+ready 7
+hold 9
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(t_calls fake-index)" ""
+t_contains "$t_out" "the code index stays as it is: a cycle is running"
+release
+
+t_case "running cycles count towards the cap on unreviewed work"
+reset
+slots 3 TEHAS_MAX_AWAITING=3
+ready 7 8
+echo '[{"number":5}]' >"$fx/awaiting.json"
+hold 9
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+release
+
+t_case "at the cap nothing is started, whatever slots are free"
+reset
+slots 3 TEHAS_MAX_AWAITING=2
+ready 7 8
+echo '[{"number":5}]' >"$fx/awaiting.json"
+hold 9
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "holding: 1 issues await merge and 1 cycles are running (limit 2)"
+release
+
+t_case "an issue that is not approved does not use a slot"
+reset
+slots 2
+ready 7 8 9
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"mallory"}}]' >"$fx/events-7.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "8 9 "
+t_lacks "$(t_calls gh)" "issue edit 7 "
+
+t_case "a cycle that does not start does not stop the next one, and the poll ends with 1"
+reset
+slots 2
+ready 7 8
+# fake-start fails for issue 7 only.
+t_stub fake-start '[ "$1" != 7 ] || exit 1
+: >"$TEHAS_HOME/state/cycles/$1.taken"'
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention"
+t_lacks "$(t_calls gh)" "issue edit 8 --repo acme/widget --remove-label"
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 "
+t_stub fake-start '[ ! -e "$T/fx/start-fails" ] || exit 1
+[ ! -e "/proc/$$/fd/8" ] || : >"$T/calls/start.fd8"
+[ -e "$T/fx/start-silent" ] || : >"$TEHAS_HOME/state/cycles/$1.taken"'
+
+t_case "a dry run names every issue it would start and how much room there is"
+reset
+slots 3
+ready 7 8
+hold 9
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "1 cycles running, room for 2 more"
+t_contains "$t_out" "would run a cycle for #7 (labelled by alice)"
+t_contains "$t_out" "would run a cycle for #8 (labelled by alice)"
+t_eq "$(t_calls fake-start)" ""
+release
 
 # Arguments. A poll starts only from an argument this command knows, and the
 # check runs before the instance settings are read.

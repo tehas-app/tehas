@@ -72,7 +72,7 @@ short, and [Operating](/operating) covers the day-to-day.
 
 | Running Pi yourself                          | With tehas                                                                                                    |
 | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| You start a session and stay with it         | Issues wait in GitHub and are picked up one at a time, urgent ones first                                      |
+| You start a session and stay with it         | Issues wait in GitHub and are picked up as slots come free, urgent ones first                                 |
 | Whoever has the terminal decides what runs   | Only a label from an account on the allow list starts work                                                    |
 | The agent runs with your files and your keys | It runs in a container with CPU and memory limits and one bot token: no Docker socket, no SSH keys            |
 | You decide when it is done                   | The repository's own gates decide, and the cycle halts if its patch touches `.pi/`, `.github/` or `AGENTS.md` |
@@ -117,7 +117,7 @@ anything here.
 ### Can one factory serve several repositories?
 
 Not yet. An instance is one host, one product repository and one cycle at a
-time.
+time by default.
 
 ### Where does the name come from?
 

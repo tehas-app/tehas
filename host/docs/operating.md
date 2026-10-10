@@ -108,8 +108,7 @@ With any other backend the section and the meter are simply not there, and
 nothing else changes. To turn them off on a viiwork mesh, see
 [the energy sampler](/tools).
 
-The dispatcher takes one issue at a time, urgent first, then the lowest issue
-number.
+The dispatcher takes issues urgent first, then by the lowest issue number: one at a time unless the host is set to work on more (see [The host](/host)). A running cycle is never stopped to make room for an urgent one.
 
 | Label on the issue      | Meaning                           | Your move                                |
 | ----------------------- | --------------------------------- | ---------------------------------------- |
@@ -177,11 +176,11 @@ already running finishes. Remove the label to resume.
 
 ## Limits that hold work back
 
-- One cycle at a time.
+- `TEHAS_TICKET_CONCURRENCY` cycles at a time: 1 by default.
 - Inside a cycle, `TEHAS_CONCURRENCY` workstreams side by side: 4 by default,
   fewer if the model backends cannot take it. See [The host](/host).
-- No new cycle while 3 issues carry `tehas:awaiting-merge`
-  (`TEHAS_MAX_AWAITING`). Unreviewed pull requests are the queue you control.
+- No new cycle while 3 issues carry `tehas:awaiting-merge` or are being worked
+  on (`TEHAS_MAX_AWAITING`). Unreviewed pull requests are the queue you control.
 - A self-hosted model endpoint has few real slots per model, so a cycle takes
   a while; the six-pass review is the slowest part.
 

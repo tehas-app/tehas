@@ -56,7 +56,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_WORK_MEMORY`             | half the host's memory                   | `docker --memory` for all cycles together                       |
 | `TEHAS_CONCURRENCY`             | `4`                                      | Workstreams side by side inside one cycle                       |
 | `TEHAS_TICKET_CONCURRENCY`      | `1`                                      | Cycles side by side. Each cycle's container gets the two limits above divided by this; a share below one CPU is refused |
-| `TEHAS_MAX_AWAITING`            | `3`                                      | Open `tehas:awaiting-merge` issues allowed before holding       |
+| `TEHAS_MAX_AWAITING`            | `3`                                      | Open `tehas:awaiting-merge` issues, plus running cycles, allowed before holding |
 | `TEHAS_WORK_TIMEOUT`            | `21600`                                  | Seconds before a cycle is given up                              |
 | `PI_ENSEMBLE_HOST_ALIASES`      | empty                                    | `name:address` pairs the sandbox must resolve, comma separated  |
 | `PI_ENSEMBLE_IMAGE`             | `tehas/pi-rukas:uid<uid>`                | The sandbox image                                               |
@@ -72,7 +72,7 @@ script as `tehasbot dispatch`.
 
 ```
 tehas dispatch --dry-run       # report the decision, change nothing
-tehas dispatch                 # start at most one cycle, then return
+tehas dispatch                 # start the cycles there is room for, then return
 tehas dispatch --help          # print the usage of the command, call nothing
 ```
 
@@ -82,16 +82,18 @@ than one, is refused: exit 64 with `tehas dispatch: unknown argument: <argument>
 and the usage on standard error, before the instance settings are read. A mistyped
 `--dryrun` therefore starts no poll and changes nothing.
 
-Order of rules: pause label on the control issue, the cap on issues awaiting
-merge, who applied `tehas:ready`, then urgent first and lowest number. Log:
+Order of rules: pause label on the control issue, the free slots
+(`TEHAS_TICKET_CONCURRENCY` less the running cycles), the cap on issues awaiting
+merge or being worked on, who applied `tehas:ready`, then urgent first and
+lowest number. Log:
 `~/tehas/logs/dispatch.log` when run by systemd, the terminal otherwise. Each
 cycle's runner output: `~/tehas/logs/dispatch-work-<issue>.log`.
 
 When it has an issue to start, it puts the product checkout on the default
-branch and fast-forwards it, then refreshes the code index with
+branch and fast-forwards it, then, if no cycle is running, refreshes the code index with
 [tehas index](#tehas-index) when the branch has moved since the last indexing.
 An index that cannot be refreshed is a warning in the log; the cycle still
-runs. It then marks the issue `tehas:running` and starts
+runs. It then marks each issue `tehas:running` and starts
 `tehas-cycle@<issue>.service`, which runs [tehasbot cycle](#tehasbot-cycle).
 It does not wait for the cycle. If the unit does not come up within 30
 seconds, the issue gets `needs-human-attention` and the poll ends with exit 1.

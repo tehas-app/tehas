@@ -22,7 +22,7 @@
 - pi-rukas (https://github.com/trail-openers/pi-rukas) is the Pi extension
   that runs the work cycle: explore, plan, develop, the repository's own gates,
   an adversarial pass, a pull request and a six-pass review.
-- One instance is one host serving one product repository, one cycle at a time.
+- One instance is one host serving one product repository, one cycle at a time by default and more if set.
 - Tehas is its own project. It is not part of Pi or endorsed by its
   maintainers.
 - viiwork (https://github.com/janit/viiwork) is a flexible meshed inference
