@@ -168,8 +168,9 @@ must be listed too. The example's, with one provider and one model:
 ```
 
 `gb1` is the model host's name on the private network. The endpoint takes no
-key, so `apiKey` is a placeholder. The example's endpoint happens to be a
-viiwork mesh. That is not required: any OpenAI-compatible endpoint that serves
+key, so `apiKey` is a placeholder. The example's endpoint is a
+[viiwork](https://github.com/janit/viiwork) mesh: a flexible meshed inference platform for both home and enterprise grade hardware.
+That is not required: any OpenAI-compatible endpoint that serves
 your model works, and only the optional Energy use section depends on viiwork.
 
 Everything else has a default. The limits of a cycle's container default to the
@@ -234,7 +235,7 @@ systemctl --user enable --now tehas-dispatch.timer
 ```
 
 `install.sh` also names `tehas-energy.service` in its follow-up line. That
-service is optional: enable it only when your model endpoint is a viiwork mesh,
+service is optional: enable it only when your model endpoint is a [viiwork](https://github.com/janit/viiwork) mesh,
 as the example's `fleet` provider is. With any other endpoint leave it
 disabled. See [the energy sampler](/tools).
 

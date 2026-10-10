@@ -24,6 +24,10 @@
 - One instance is one host serving one product repository, one cycle at a time.
 - Tehas is its own project. It is not part of Pi or endorsed by its
   maintainers.
+- viiwork (https://github.com/janit/viiwork) is a flexible meshed inference platform for bot
+   home and enterprise grade hardware. It is the model
+  backend of the example instance. Tehas does not require it: any
+  OpenAI-compatible endpoint works.
 - Source: https://github.com/janit/tehas
 
 - [Pi software factory]({{ $base }}/pi-software-factory.md): who does what, the path of an issue, and what tehas adds to running Pi by hand

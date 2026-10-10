@@ -44,7 +44,9 @@ cycle.
 
 - A Linux host with Docker. `bootstrap.sh` supports Ubuntu 26.04 on x86_64.
 - An OpenAI-compatible model endpoint the host can reach. It has to serve two
-  requests at once.
+  requests at once. [viiwork](https://github.com/janit/viiwork) is one that fits:
+  a flexible meshed inference platform for both home and enterprise grade hardware.
+  The example instance uses it. Any other OpenAI-compatible endpoint works too.
 - A GitHub bot account that can push to the product repository.
 - In the product repository: `AGENTS.md`, `.pi/verify-cmd` and
   `.pi/settings.json`. The ones in this repository are a working example.

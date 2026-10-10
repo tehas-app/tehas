@@ -165,7 +165,7 @@ tehas_load() {
   export TEHAS_WORK_CPUS=${TEHAS_WORK_CPUS:-$((v > 1 ? v - 1 : 1))}
   half=$(($(_tehas_host_mem_mb) / 2))
   export TEHAS_WORK_MEMORY=${TEHAS_WORK_MEMORY:-${half}m}
-  export TEHAS_CONCURRENCY=${TEHAS_CONCURRENCY:-1}
+  export TEHAS_CONCURRENCY=${TEHAS_CONCURRENCY:-4}
   export TEHAS_INDEXING=${TEHAS_INDEXING:-0}
   # Visitor analytics on the dashboard and the manual. Off unless the instance
   # names a script and a site.

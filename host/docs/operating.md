@@ -92,7 +92,7 @@ compute on the issue.
 Watch it on the [factory floor](/) or the [plain dashboard](/dashboard): the queue, the issue being worked on with its
 console streaming live, and what is waiting for you.
 
-Optional, and only when the model backend is a viiwork mesh with
+Optional, and only when the model backend is a [viiwork](https://github.com/janit/viiwork) mesh with
 `tehas-energy.service` enabled: the factory floor also has a section
 **Energy use**: what the machines serving the factory draw now, their kWh over
 24 hours and 30 days, the last 30 minutes as a chart, and the factory's models
@@ -173,8 +173,8 @@ already running finishes. Remove the label to resume.
 ## Limits that hold work back
 
 - One cycle at a time.
-- Inside a cycle, `TEHAS_CONCURRENCY` workstreams side by side: 1 by default,
-  more if the model backends can take it. See [The host](/host).
+- Inside a cycle, `TEHAS_CONCURRENCY` workstreams side by side: 4 by default,
+  fewer if the model backends cannot take it. See [The host](/host).
 - No new cycle while 3 issues carry `tehas:awaiting-merge`
   (`TEHAS_MAX_AWAITING`). Unreviewed pull requests are the queue you control.
 - A self-hosted model endpoint has few real slots per model, so a cycle takes

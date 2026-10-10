@@ -154,20 +154,23 @@ host's CPUs minus one and half its memory, which on the example host is 7 CPUs
 and about 7.5 GB. A value above what the host has is rejected.
 
 `TEHAS_CONCURRENCY` sets how many workstreams one cycle may run side by side,
-inside that one container. It defaults to 1.
+inside that one container. It defaults to 4.
 
 A workstream is one developer agent and its review loop in their own worktree.
 pi-rukas plans up to that many per issue and folds anything beyond the limit
 into the last one, so no work is dropped at a low setting; it is done in
-sequence by fewer agents.
+sequence by fewer agents. An issue whose parts touch the same files is planned
+as one workstream whatever the limit.
 
-Raise it when the model backends have slots to spare: every extra workstream is
-at least one more model call in flight for most of the cycle. Check what the
-endpoint can take before going up, and go back down if cycles start timing out.
+It is a limit inside one cycle, not across cycles: the dispatcher still runs
+one cycle at a time. The workstreams share the cycle's CPU and memory limits,
+and every one of them is at least one more model call in flight for most of
+the cycle. Lower it when the model backends have few slots, when the host is
+small, or if cycles start timing out.
 
 ```
 # in the instance's instance.env, then pull and ./install.sh on the host
-TEHAS_CONCURRENCY=3
+TEHAS_CONCURRENCY=1
 ```
 
 It is read when a cycle starts; a running cycle keeps the value it began with.
@@ -216,7 +219,7 @@ rm -rf "$T"
 | ----------- | ---------------------------------------------------------- | ------------------------------------------------------ |
 | This site   | `docker compose -f ~/tehas/edge/docs.compose.yaml up -d`   | `curl -i http://tehas-tehas:8080/health`               |
 | Dispatcher  | systemd user timer `tehas-dispatch.timer`, every 2 minutes | `tail ~/tehas/logs/dispatch.log`                       |
-| Energy use sampler, optional | systemd user service `tehas-energy.service`, every 15 s. Enable it only when the model backend is a viiwork mesh | `jq .generatedAt ~/tehas/live/energy.json` |
+| Energy use sampler, optional | systemd user service `tehas-energy.service`, every 15 s. Enable it only when the model backend is a [viiwork](https://github.com/janit/viiwork) mesh | `jq .generatedAt ~/tehas/live/energy.json` |
 | Protolab pages | systemd user timer `tehas-protolab.timer`, every 5 minutes | `tail ~/tehas/logs/protolab.log` |
 | Protolab server | `docker compose -f ~/tehas/edge/protolab.compose.yaml up -d` | `curl -i http://tehas-tehas:8081/` |
 
