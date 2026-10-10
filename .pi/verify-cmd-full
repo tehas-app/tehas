@@ -1,3 +1,4 @@
 # Full gate for pi-rukas (ci step); stands in for CI until one exists.
-# The fast gate plus deno lint over the TypeScript.
+# The fast gate plus the console's format and lints (rustfmt, clippy) and the
+# tests of the front page (node).
 bash scripts/verify.sh --full

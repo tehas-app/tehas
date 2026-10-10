@@ -84,6 +84,23 @@ t_run "$load && tehas_require TEHAS_ALLOWED_LABELERS"
 t_eq "$t_rc" 78
 t_contains "$t_out" "TEHAS_ALLOWED_LABELERS is not set"
 
+t_case "the instance settings every command requires are one list"
+t_instance "${T_MINIMAL[@]}"
+t_run "$load && tehas_require_instance_settings && echo ok"
+t_eq "$t_rc" 0
+t_contains "$t_out" "ok"
+
+for missing in TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS \
+  PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER; do
+  t_case "tehas_require_instance_settings stops an instance without $missing"
+  t_instance "${T_MINIMAL[@]}"
+  grep -v "^$missing=" "$TEHAS_INSTANCE_DIR/instance.env" >"$T/instance.env"
+  mv "$T/instance.env" "$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load && tehas_require_instance_settings; echo not-reached"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "$missing is not set"
+done
+
 for bad in "TEHAS_REPO=widget" "TEHAS_REPO=a/b/c" "TEHAS_CONTROL_ISSUE=abc" "TEHAS_CONTROL_ISSUE=0" \
   "TEHAS_ALLOWED_LABELERS=alice;rm" "TEHAS_ALLOWED_LABELERS=alice  bob" "TEHAS_ALLOWED_LABELERS=alice " \
   "TEHAS_ALLOWED_LABELERS= alice" "PI_ENSEMBLE_SUBAGENT_MODEL=two words"; do

@@ -3,6 +3,6 @@ Description=Tehas: one poll of the issue queue, runs at most one /work cycle
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehas-dispatch >> %h/tehas/logs/dispatch.log 2>&1"
+ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot dispatch >> %h/tehas/logs/dispatch.log 2>&1"
 # A cycle can take hours; the next poll waits for it.
 TimeoutStartSec=infinity

@@ -12,7 +12,9 @@ tehas works on it, and the result comes back as a pull request and comments on
 that issue. A human merges. Tehas never deploys and never touches production.
 
 All inference runs on self-hosted models, on an OpenAI-compatible endpoint the
-operator names. This site is the operating manual of one instance.
+operator names. The example instance uses [viiwork](https://github.com/janit/viiwork),
+a flexible meshed inference platform for both home and enterprise grade hardware.
+This site is the operating manual of one instance.
 
 ## One instance, one product
 
@@ -54,7 +56,7 @@ saying where it stopped.
 | Where          | Role                                                                                                                  |
 | -------------- | --------------------------------------------------------------------------------------------------------------------- |
 | The host       | Tehas: dispatcher, sandboxed agents, the gates, this site. One Unix user, everything under `~/tehas`.                 |
-| Model endpoint | All model inference. The host needs no GPU; it reaches the endpoint over a private network.                           |
+| Model endpoint | All model inference. The host needs no GPU; it reaches the endpoint over a private network. In the example it is a [viiwork](https://github.com/janit/viiwork) mesh. |
 | GitHub         | The queue, the state (labels) and the results (pull requests and comments).                                           |
 
 ## What is optional
@@ -66,7 +68,7 @@ the factory works the same without it.
 | Part                 | When it applies                                                                                  | Without it                                             |
 | -------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------ |
 | Energy use           | Only when the model endpoint is a [viiwork](https://github.com/janit/viiwork) mesh, and `tehas-energy.service` is enabled | The section and the meter are not on the factory floor |
-| viiwork              | One possible model backend, the one the example instance uses. tehas does not require it         | Use any other OpenAI-compatible endpoint               |
+| [viiwork](https://github.com/janit/viiwork) | A flexible meshed inference platform for both home and enterprise grade hardware. One possible model backend, the one the example instance uses. tehas does not require it | Use any other OpenAI-compatible endpoint               |
 | Protolab             | Only if you label issues `tehas:prototype`. The dispatcher never acts on that label              | The Protolab is empty                                  |
 | Search indexing      | `TEHAS_INDEXING=1`, for an instance published on the internet                                    | Every page says noindex                                |
 | Visitor analytics    | `TEHAS_ANALYTICS_SRC` and `TEHAS_ANALYTICS_SITE`, for an instance that wants to count visits     | No script is loaded                                    |

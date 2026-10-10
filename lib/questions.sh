@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # Questions the factory asks on an issue, and the answers it accepts. Text in,
 # text out: nothing here calls GitHub, so every function can be tested with a
-# string. Sourced by bin/tehas-dispatch.
+# string. Sourced by libexec/dispatch.
 #
 #   q_clean [max characters]         stdin to stdout: an agent's words, safe to
 #                                    post, cut at the limit [60000]
@@ -14,12 +14,14 @@
 #
 # <kind> is plan (a planning turn) or park (a cycle that stopped).
 
-# What an agent wrote goes to a public issue. Secrets and private addresses
-# are masked by the rules of bin/tehas-console.ts. Three more things are taken
-# out because the comment is parsed again later or read by people: a comment
-# marker, a task-list box, and an @ that would notify somebody. Carriage returns
-# go first: the web interface turns a lone one into a line end, and the escaping
-# below only looks at line starts, so a lone one would start an unescaped box.
+# What an agent wrote goes to a public issue. Tokens, database passwords,
+# private IPv4 addresses and tailnet names are masked: a copy in sed of the
+# console's rules for those (console/src/mask.rs), so this file needs no
+# program beside it. Three more things are taken out because the comment is
+# parsed again later or read by people: a comment marker, a task-list box, and
+# an @ that would notify somebody. Carriage returns go first: the web interface
+# turns a lone one into a line end, and the escaping below only looks at line
+# starts, so a lone one would start an unescaped box.
 q_clean() {
   local zw=$'\xe2\x80\x8b' max=${1:-60000}
   tr -d '\r' | sed -E \

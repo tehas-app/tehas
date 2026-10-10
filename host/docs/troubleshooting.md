@@ -9,7 +9,8 @@ description: "What each stop in a tehas cycle means, and what to do about it."
 
 | Question                         | Place                                                                   |
 | -------------------------------- | ----------------------------------------------------------------------- |
-| What did the dispatcher decide?  | `tehas-dispatch --dry-run`, `~/tehas/logs/dispatch.log`                 |
+| Is the factory taking work?      | `tehas status`                                                          |
+| What did the dispatcher decide?  | `tehas dispatch --dry-run`, `~/tehas/logs/dispatch.log`                 |
 | What did a cycle's runner print? | `~/tehas/logs/dispatch-work-<issue>.log`                                |
 | What did Pi and the driver say?  | `~/tehas/logs/work-<issue>-<time>.jsonl` and `.jsonl.err`               |
 | Where is the cycle now?          | `jq .pipelineState ~/tehas/work/tehas/.pi/work-state/<issue>.json`. The workspace is the last cycle's state source. |
@@ -45,7 +46,7 @@ The dispatcher fails the same way under systemd; the line is then in
 
 ## Nothing happens after I label an issue
 
-Run `tehas-dispatch --dry-run` and read the one line it prints.
+Run `tehas dispatch --dry-run` and read the one line it prints.
 
 - `paused`: the control issue carries `tehas:pause`.
 - `holding: N issues await merge`: review and merge, or raise
@@ -145,13 +146,13 @@ worktrees hold commits. So look for why the push failed.
 The first two real cycles died this way: git in the sandbox had no credential
 helper and every push ended in
 `could not read Username for
-'https://github.com'`. `tehas-work` now passes the
+'https://github.com'`. `tehas work` now passes the
 helper and the bot's identity, and checks with a dry-run push before starting.
 
 Check the push by hand:
 
 ```
-tehas-work <issue>      # exits 3 at once, with git's message, if it cannot push
+tehas work <issue>      # exits 3 at once, with git's message, if it cannot push
 ```
 
 The work of a parked cycle is not lost. Its commits are in
@@ -177,7 +178,7 @@ A cycle that died leaves `status: running` behind. Confirm with
 `docker ps --filter name=tehas-work`, then start clean:
 
 ```
-tehas-work <issue> --restart
+tehas work <issue> --restart
 ```
 
 Copy the state file first if you want to know why it died; `--restart`
@@ -195,12 +196,32 @@ scripts/verify.sh --full
 
 Fix the default branch first; every cycle will fail the same way until then.
 
+## install.sh --check says `Follow-ups: NOT DONE`
+
+A follow-up that was asked for has not run. The lines are in
+`~/tehas/state/update-pending`: what `install.sh` recorded as it copied files, and
+what `tehas update` has not finished. Run `tehas update`: it runs the steps in the
+order `lib/update-steps.sh` lists them and clears the record. If it names a step
+line in a `WARN:` instead, the checkout asks for a step this installed
+`tehas update` does not know - pull and run it again, since `install.sh` installs
+the commands before the follow-ups run.
+
+The lines are step lines, not shell text: `docs` on its own is not one, because
+that renewal needs its `--force-recreate` flag. A line `lib/update-steps.sh` does
+not accept is named in a `WARN:`, is not run, and stays in the record.
+
+A record this account cannot open - written by another account, or with a mode
+that blocks reading - stops the update with exit 1 rather than read as "nothing
+owed": it holds steps, and writing over it would lose them. Make it readable
+again, or delete it once you have run those steps yourself.
+
 ## This site shows an old page
 
 The pages are installed copies in `~/tehas/docs`. After a change is merged:
 
 ```
-cd ~/tehas/platform && git pull && ./install.sh
+tehas update      # pull the platform checkout, install, renew what already runs
 ```
 
-No restart is needed; each request reads the page from disk.
+No restart is needed; each request reads the page from disk. If the host has no
+platform checkout yet, run `./install.sh` from wherever the repository is kept.

@@ -2,17 +2,16 @@
 # The tehas dispatcher: one poll of the GitHub issue queue.
 #
 # Deterministic, no model. It picks at most one open issue labelled
-# tehas:ready, runs a pi-rukas /work cycle for it with tehas-work, and
+# tehas:ready, runs a pi-rukas /work cycle for it with tehas work, and
 # reports the outcome back on the issue (and the token usage on the PR). The
 # poll also runs one turn of a planning session, when an answer is waiting.
 # A systemd timer runs it every two minutes; a cycle in progress simply makes
 # the following polls wait.
 #
 # Usage:
-#   tehas-dispatch               one poll
-#   tehas-dispatch --dry-run     say what a poll would do, change nothing
-#   tehas-dispatch --init-labels create the tehas labels in the repository
-#   tehas-dispatch -h|--help     print this text and exit 0
+#   tehas dispatch               one poll
+#   tehas dispatch --dry-run     say what a poll would do, change nothing
+#   tehas dispatch -h|--help     print this text and exit 0
 #
 # Exit: 0 the poll ran, or there was nothing to do; 64 an argument this command
 # does not know, which starts no poll; 78 instance settings are missing or
@@ -57,7 +56,7 @@ show_usage() {
 }
 
 unknown_argument() {
-  printf 'tehas-dispatch: unknown argument: %s\n' "$1" >&2
+  printf 'tehas dispatch: unknown argument: %s\n' "$1" >&2
   show_usage >&2
   exit 64
 }
@@ -71,13 +70,12 @@ if [ "$#" -gt 0 ]; then
   case "$1" in
     -h | --help) mode=help ;;
     --dry-run) mode=dry ;;
-    --init-labels) mode=labels ;;
     # An empty argument is an argument too: it is not a poll.
     *) unknown_argument "$1" ;;
   esac
 fi
 # At most one argument. A second is refused, never combined with the first, so
-# --dry-run --init-labels cannot be read as two intents at once.
+# --dry-run --help cannot be read as two intents at once.
 if [ "$#" -gt 1 ]; then
   unknown_argument "$2"
 fi
@@ -97,34 +95,17 @@ tehas_load || exit 78
 
 log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*"; }
 
-if [ "$mode" = labels ]; then
-  tehas_require TEHAS_REPO
-  repo=$TEHAS_REPO
-  mk() { gh label create "$1" --repo "$repo" --color "$2" --description "$3" --force >/dev/null && echo "label $1"; }
-  mk tehas:ready 0e8a16 "Tehas: eligible for dispatch (apply by hand to authorize a cycle)"
-  mk tehas:urgent d93f0b "Tehas: dispatch before other ready issues"
-  mk tehas:running 1d76db "Tehas: a /work cycle owns this issue"
-  mk tehas:awaiting-merge fbca04 "Tehas: PR open and reviewed, waiting for a human"
-  mk tehas:pause 000000 "Tehas: on the control issue, stops all dispatch"
-  mk needs-human-attention b60205 "Cycle parked; the handoff comment says what to do"
-  mk tehas:question 5319e7 "Tehas: a question on this issue waits for an answer"
-  mk tehas:plan 0e8a16 "Tehas: start a planning session on this issue (apply by hand)"
-  mk tehas:planning 1d76db "Tehas: a planning turn is running for this issue"
-  exit 0
-fi
-
-tehas_require TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS \
-  PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
+tehas_require_instance_settings
 repo=$TEHAS_REPO
 control=$TEHAS_CONTROL_ISSUE
 allowed=" $TEHAS_ALLOWED_LABELERS "
 max_awaiting=$TEHAS_MAX_AWAITING
 checkout=$TEHAS_WORK_REPO
 workdir=$TEHAS_WORK_DIR
-work=${TEHAS_WORK_CMD:-tehas-work}
-status_cmd=${TEHAS_STATUS_CMD:-tehas-status}
-index_cmd=${TEHAS_INDEX_CMD:-tehas-index}
-plan_cmd=${TEHAS_PLAN_CMD:-tehas-plan}
+work=${TEHAS_WORK_CMD:-$here/work}
+status_cmd=${TEHAS_STATUS_CMD:-$here/status}
+index_cmd=${TEHAS_INDEX_CMD:-$here/index}
+plan_cmd=${TEHAS_PLAN_CMD:-$here/plan}
 # Known before anything is touched: a cycle must never start from a guess,
 # nor in a checkout of another repository.
 tehas_checkout || exit 78
@@ -251,7 +232,7 @@ unchanged_since() {
 }
 
 # Cycles start from the product's default branch; keep the checkout current.
-# tehas-work clones the cycle's workspace from it. No container is ever given
+# tehas work clones the cycle's workspace from it. No container is ever given
 # this checkout, so running git here runs nothing an agent wrote. Put it back
 # on the branch only when it is clean: never discard someone's changes.
 refresh_checkout() {
@@ -374,7 +355,7 @@ ${usage}" '{text: $text, question: null}' >"$TEHAS_HOME/state/park-$issue.json"
       if ! gh issue edit "$issue" --repo "$repo" --add-label tehas:question >/dev/null 2>&1; then
         log "WARN: label change on #$issue failed: --add-label tehas:question"
         rm -f "$(park_id "$issue")"
-        comment "The boxes above cannot be used: the label \`tehas:question\` could not be added (run \`tehas-dispatch --init-labels\` on the host). To retry, remove \`needs-human-attention\` and apply \`tehas:ready\` again."
+        comment "The boxes above cannot be used: the label \`tehas:question\` could not be added (run \`tehas labels\` on the host). To retry, remove \`needs-human-attention\` and apply \`tehas:ready\` again."
       fi
     else
       # Without the boxes there is nothing to tick: say the old way.

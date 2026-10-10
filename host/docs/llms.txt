@@ -15,7 +15,8 @@
 
 - Tehas is the factory around the agent: a dispatcher that reads the queue, a
   check of who authorized the work, a sandbox with limits, a dashboard and a
-  live console. It is shell scripts and a few containers on one host.
+  live console. It is shell scripts, one small Rust program (the console) and
+  a few containers on one host.
 - Pi (https://pi.dev, source https://github.com/earendil-works/pi) is the
   coding agent. Tehas starts it as `pi --mode rpc` in a container.
 - pi-rukas (https://github.com/trail-openers/pi-rukas) is the Pi extension
@@ -24,6 +25,10 @@
 - One instance is one host serving one product repository, one cycle at a time.
 - Tehas is its own project. It is not part of Pi or endorsed by its
   maintainers.
+- viiwork (https://github.com/janit/viiwork) is a flexible meshed inference
+  platform for both home and enterprise grade hardware. It is the model
+  backend of the example instance. Tehas does not require it: any
+  OpenAI-compatible endpoint works.
 - Source: https://github.com/janit/tehas
 
 - [Pi software factory]({{ $base }}/pi-software-factory.md): who does what, the path of an issue, and what tehas adds to running Pi by hand
@@ -75,7 +80,7 @@ and the Protolab are optional and can be ignored for a first install.
 - [Bootstrap a host]({{ $base }}/bootstrap.md): preparing the machine before the install
 - [Features]({{ $base }}/features.md): what exists and how far each part is proven
 - [The host]({{ $base }}/host.md): layout on the machine and the sandbox contract test
-- [Commands]({{ $base }}/tools.md): every `tehas-*` command
+- [Commands]({{ $base }}/tools.md): `tehas`, `tehasbot` and what each of their commands does
 
 ## Live data
 

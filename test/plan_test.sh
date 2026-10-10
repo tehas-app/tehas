@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Tests for bin/tehas-plan: one turn of a planning session. A stub docker
+# Tests for libexec/plan: one turn of a planning session. A stub docker
 # records its arguments, keeps the first two lines it is sent and answers with
 # a recorded event stream, so no model runs.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh"
 
-plan="$T_ROOT/bin/tehas-plan"
+plan="$T_ROOT/libexec/plan"
 fx=$T/fx
 mkdir -p "$fx"
 checkout=$T/home/tehas/repos/widget
@@ -25,7 +25,7 @@ case " $* " in *" --mode "*)
   # A case that needs a container that lives for a while writes its part here.
   if [ -e "$T/fx/live" ]; then . "$T/fx/live"; else cat "$T/fx/turn.jsonl" 2>/dev/null; fi ;;
 esac'
-# tehas-plan looks at the log once a second. Here a look costs no time, so a
+# The command looks at the log once a second. Here a look costs no time, so a
 # container that lives for a second is looked at many times.
 t_stub sleep
 printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitconfig"
@@ -34,6 +34,21 @@ turn_args() { grep -l -x -e '--mode' "$T"/calls/docker.args.* 2>/dev/null | head
 after() { turn_args | awk -v flag="$1" 'prev == flag { print } { prev = $0 }'; }
 image="tehas/pi-rukas:uid$(id -u)"
 tail_of() { turn_args | sed -n "/^$(printf '%s' "$image" | sed 's/[\/.]/\\&/g')\$/,\$p" | tr '\n' ' '; }
+# Every option that is not one this command is known to pass, up to the image
+# name, read the way docker reads them. See test/work_test.sh.
+unknown_options() { # <image> <options that take a value> <options that take none>
+  awk -v image="$1" -v valued=" $2 " -v plain=" $3 " '
+    NR == 1 { next } # "run"
+    skip { skip = 0; next }
+    $0 == image { exit }
+    index(valued, " " $0 " ") { skip = 1; next }
+    index(plain, " " $0 " ") { next }
+    /^--add-host=[A-Za-z0-9.-]+:[0-9a-fA-F.:]+$/ { next }
+    { print }'
+}
+# What docker is given before the image, one argument per line, without the
+# container's name.
+options() { awk -v image="$image" '$0 == image { exit } prev == "--name" { $0 = "<name>" } { print; prev = $0 }'; }
 
 # A turn that asked a question with the tool, then settled.
 asked() {
@@ -119,6 +134,11 @@ PI_ENSEMBLE_SUBAGENT_PROVIDER
 PI_ENSEMBLE_WORKSPACE_ROOT"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
 
+t_case "the planning container gets no option beyond the documented ones"
+t_eq "$(turn_args | unknown_options "$image" "--name --cpus --memory -w -v -e" "--rm -i")" ""
+t_eq "$(after --name)" "tehas-plan-7"
+t_eq "$(after -w)" "$ws"
+
 t_case "nothing that controls the host is reachable, and only one container ran"
 args=$(cat "$T"/calls/docker.args.*)
 t_lacks "$args" "docker.sock"
@@ -128,6 +148,25 @@ t_lacks "$args" "--privileged"
 t_lacks "$args" "test-token"
 t_lacks "$args" "$checkout"
 t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 1
+
+t_case "the limits and the host aliases are a cycle's, from the settings"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_CPUS=1 TEHAS_WORK_MEMORY=512m PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(after --cpus)" "1"
+t_eq "$(after --memory)" "512m"
+t_contains "$(turn_args)" "--add-host=models:192.0.2.9"
+t_eq "$(turn_args | unknown_options "$image" "--name --cpus --memory -w -v -e" "--rm -i")" ""
+
+t_case "docker is given what tehas work gives a cycle's container: only the name and what pi is told differ"
+turn_args | options >"$T/plan.options"
+rm -f "$T"/calls/*
+t_run "$T_ROOT/libexec/work 7"
+turn_args | options >"$T/work.options"
+t_eq "$([ -s "$T/work.options" ] && echo recorded)" recorded
+t_eq "$(cat "$T/plan.options")" "$(cat "$T/work.options")"
+t_eq "$(tail_of)" "$image pi --mode rpc --approve "
 
 t_case "a later turn reopens the session and sends the answer as it was written"
 reset

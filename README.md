@@ -9,10 +9,11 @@ __ __/\ _/       \_   \____/__   _     \__   _/     \\______   \_ /\___ ___ _
 
 # Tehas
 
+And if you're wondering... tehas is Estonian for factory :)
+
 Tehas is a software factory powered by the [Pi coding agent](https://pi.dev).
 You write a GitHub issue and label it. Agents on your own model server work on
 it in a sandbox, and a pull request comes back for you to review and merge.
-"Tehas" is Estonian for factory.
 
 Pi does the coding, with the
 [pi-rukas](https://github.com/trail-openers/pi-rukas) extension running the
@@ -44,7 +45,9 @@ cycle.
 
 - A Linux host with Docker. `bootstrap.sh` supports Ubuntu 26.04 on x86_64.
 - An OpenAI-compatible model endpoint the host can reach. It has to serve two
-  requests at once.
+  requests at once. [viiwork](https://github.com/janit/viiwork) is one that fits:
+  a flexible meshed inference platform for both home and enterprise grade hardware.
+  The example instance uses it. Any other OpenAI-compatible endpoint works too.
 - A GitHub bot account that can push to the product repository.
 - In the product repository: `AGENTS.md`, `.pi/verify-cmd` and
   `.pi/settings.json`. The ones in this repository are a working example.
@@ -87,7 +90,7 @@ The manual is in [`host/docs/`](host/docs/). Every instance serves it on port
 | [A new project](host/docs/new-project.md) | Installing tehas for your repository |
 | [Bootstrap a host](host/docs/bootstrap.md) | Preparing a fresh machine |
 | [The host](host/docs/host.md) | Files on the machine, settings, the sandbox image |
-| [Commands](host/docs/tools.md) | Every `tehas-*` command |
+| [Commands](host/docs/tools.md) | `tehas`, `tehasbot` and what each of their commands does |
 | [Troubleshooting](host/docs/troubleshooting.md) | What each kind of stop means |
 
 Agents can start from [`host/docs/llms.txt`](host/docs/llms.txt).
@@ -106,17 +109,22 @@ one repository from one host.
 ## Working on tehas
 
 ```
-scripts/verify.sh          # lint, shellcheck, the shell tests
-scripts/verify.sh --full   # plus deno lint
+scripts/verify.sh          # lint, shellcheck, the shell tests, the console's tests where cargo is
+scripts/verify.sh --full   # plus the console's format and lints (rustfmt, clippy) and the front page's tests (node)
 ```
 
 The tests need bash, git, jq and shellcheck. They use no network and no sandbox
-image. The rules for changes are in [`AGENTS.md`](AGENTS.md).
+image. The full gate also needs cargo and node, and cargo fetches the console's
+crates the first time. The rules for changes are in [`AGENTS.md`](AGENTS.md).
 
 | Path | What it is |
 | --- | --- |
-| `bin/` | The commands, installed to `~/tehas/bin` |
+| `bin/` | The two commands: `tehas` for a person, `tehasbot` for the units. Installed to `~/tehas/bin` |
+| `libexec/` | The scripts behind them, all bash. Installed to `~/tehas/libexec` |
+| `console/` | The console of a running cycle, a Rust program. `install.sh` builds it and installs it as `~/tehas/libexec/console` |
 | `lib/config.sh` | Loads and checks the instance settings |
+| `lib/sandbox.sh` | What a sandbox container is given, for a cycle and for a session by hand |
+| `lib/update-steps.sh` | The follow-up steps of an install, which `install.sh` asks for and `tehas update` runs |
 | `host/` | Everything else that is installed: units, the docs server, the sandbox image, the manual |
 | `install.sh`, `bootstrap.sh` | Install tehas on a host, and prepare a host's tools |
 | `instances/` | `example/` to copy, and `tehas-tehas/`, the settings of the example instance |

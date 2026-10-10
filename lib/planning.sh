@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# The steps of a planning session. Sourced by bin/tehas-dispatch, and written
+# The steps of a planning session. Sourced by libexec/dispatch, and written
 # for it: these functions use the dispatcher's own helpers (log, say,
 # post_question, refresh_checkout, wait_for), its variables (repo, plan_cmd,
 # who, posted) and Q_MAX_OPTIONS of lib/questions.sh.

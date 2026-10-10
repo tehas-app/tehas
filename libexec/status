@@ -2,11 +2,18 @@
 # Write the dashboard's data file: $TEHAS_HOME/live/status.json.
 #
 # One snapshot of the queue as GitHub sees it (which issues are in line, being
-# worked on, waiting for a human, stopped, completed).
-# Deterministic, no model, two GitHub calls. The dispatcher runs it at every
+# worked on, waiting for a human, stopped, completed), and the words of the
+# breakroom game.
+# Deterministic, no model, three GitHub calls. The dispatcher runs it at every
 # poll and every two minutes while a cycle is running.
 #
-# Usage: tehas-status          (prints nothing; exit 0 even when GitHub is down,
+# The words are counted over the titles and labels of every issue of the
+# repository, the newest thousand, whether the factory was ever given it or
+# not. Only the hundred most used words and their counts are written: no
+# title and no issue number. Without an answer to that call the snapshot is
+# written with no words, and the page counts the tickets it does list.
+#
+# Usage: tehasbot status          (prints nothing; exit 0 even when GitHub is down,
 #                                 the previous file is then left in place;
 #                                 exit 78 when the instance settings are invalid)
 set -uo pipefail
@@ -21,15 +28,17 @@ control=$TEHAS_CONTROL_ISSUE
 live=$TEHAS_HOME/live
 mkdir -p "$live"
 # Whatever happens below, refresh the health file from what is on disk.
-trap '"$TEHAS_HOME/bin/tehas-health" 2>/dev/null || true' EXIT
+trap '"$here/health" 2>/dev/null || true' EXIT
 
 issues=$(gh issue list --repo "$repo" --state all --limit 200 \
   --search 'label:"tehas:ready","tehas:running","tehas:awaiting-merge","needs-human-attention" sort:updated-desc' \
   --json number,title,url,state,labels,updatedAt,closedAt 2>/dev/null) || exit 0
+everything=$(gh issue list --repo "$repo" --state all --limit 1000 --json title,labels 2>/dev/null) || everything=null
+jq -e 'type == "array"' <<<"$everything" >/dev/null 2>&1 || everything=null
 paused=$(gh issue view "$control" --repo "$repo" --json labels \
   --jq '.labels | any(.name == "tehas:pause")' 2>/dev/null || echo false)
 
-jq -n --argjson issues "$issues" --argjson paused "$paused" \
+jq -n --argjson issues "$issues" --argjson paused "$paused" --argjson everything "$everything" \
   --arg repo "$repo" --arg now "$(date -u +%FT%TZ)" '
   def has($l): (.labels | map(.name) | index($l)) != null;
   def slim: {number, title, url, updatedAt, closedAt};
@@ -50,5 +59,12 @@ jq -n --argjson issues "$issues" --argjson paused "$paused" \
         completed: listurl("is:issue is:closed label:tehas:awaiting-merge"),
         all: "https://github.com/\($repo)/issues"
       }
-    }' >"$live/status.json.new" 2>/dev/null && mv "$live/status.json.new" "$live/status.json"
+    }
+  + (if $everything == null then {} else {
+      buzzwords: ([$everything[] | objects
+                   | ([.title | strings] + [.labels[]?.name? | strings] | join(" ") | ascii_downcase)
+                   | scan("[a-z][a-z0-9-]{2,}")]
+                  | group_by(.) | map({word: .[0], count: length})
+                  | sort_by(-.count, .word) | .[:100])
+    } end)' >"$live/status.json.new" 2>/dev/null && mv "$live/status.json.new" "$live/status.json"
 exit 0

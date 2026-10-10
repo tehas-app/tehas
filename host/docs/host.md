@@ -19,18 +19,21 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | ------------------------------------ | ----------------------------------------------------------------------- |
 | `~/tehas/env.sh`                     | Environment for every tehas process; sourced from `~/.bashrc`           |
 | `~/tehas/lib/config.sh`              | Loads and checks the instance settings; sourced by every command        |
-| `~/tehas/lib/sandbox.sh`, `questions.sh`, `planning.sh` | The sandbox container setup shared by `tehas-work` and `tehas-plan`, and the question and planning steps of the dispatcher |
-| `~/tehas/bin/`                       | The tehas commands, plus `gh`                                           |
-| `~/tehas/platform`                   | Checkout of this repository; `install.sh` runs from it                  |
+| `~/tehas/lib/sandbox.sh`             | What a sandbox container is given; sourced by the work, plan and dev scripts |
+| `~/tehas/lib/questions.sh`, `planning.sh` | The question and planning steps of the dispatcher                  |
+| `~/tehas/bin/`                       | The two commands on `PATH`: `tehas` for a person, `tehasbot` for the units. Plus `gh` |
+| `~/tehas/libexec/`                   | The scripts behind the two commands, one for each thing they do. Not on `PATH` |
+| `~/tehas/platform`                   | Checkout of this repository; `install.sh` runs from it and `tehas update` pulls it |
 | `~/tehas/repos/tehas`                | The product checkout, on the default branch. Cycles are cloned from it; no container is given it |
 | `~/tehas/work/tehas`                 | The cycle's workspace: a fresh clone made for each cycle, removed before the next |
+| `~/tehas/dev/<name>`                 | A person's clone for working by hand, made and used by `tehas dev`, never removed. `<name>.author` next to it holds whose name its commits carry |
 | `~/tehas/repos/pi-rukas`             | pi-rukas, pinned to a commit                                            |
 | `~/tehas/docs/`, `~/tehas/fun/`      | This site's pages and the front page, installed from `host/`            |
 | `~/tehas/sandbox/`, `versions.env`   | Sandbox image definition, build script, and the pinned tool versions    |
 | `~/tehas/edge/`                      | The docs server (`docs.compose.yaml`) and the Protolab server (`protolab.compose.yaml`) |
-| `~/tehas/protolab/`                  | The Protolab's pages and the files of each prototype, written by `tehas-protolab` |
+| `~/tehas/protolab/`                  | The Protolab's pages and the files of each prototype, written by `tehasbot protolab` |
 | `~/tehas/logs/`, `state/`, `live/`, `tmp/` | Logs, state, dashboard data, scratch. `state/` holds the dispatch lock, status files, the record of each planning session (`plan-<issue>.json`) and the id of each parked cycle's question (`park-<issue>.id`). No container is given it |
-| Docker volume `pi-ensemble-cache`    | Caches of the sandbox, among them the code index `tehas-index` builds   |
+| Docker volume `pi-ensemble-cache`    | Caches of the sandbox, among them the code index `tehas index` builds   |
 | `~/.pi/agent/`                       | Pi user configuration (models, MCP servers)                             |
 | `~/.config/tehas/`                   | Secrets and the `instance-dir` pointer. Never in git                    |
 
@@ -79,31 +82,102 @@ The platform repository is the source. Change it there, merge, then on the
 host:
 
 ```
+tehas update --check     # report what would change; changes no file of the
+                         # checkout or of the host (origin/ refs do move)
+tehas update             # pull, install, run the follow-ups that apply
+```
+
+`tehas update` is the three steps that took hand work before: fast-forward
+`~/tehas/platform` from its remote, run `install.sh`, then run each follow-up it
+asks for by name (`units`, `sandbox`, `docs`, `protolab`: see [Commands](/tools)).
+One line per step, and it stops at the first failure. It checks the instance
+settings against the required list in `lib/config.sh`, the same one install.sh
+checks, before it calls git. It changes nothing when the checkout has local
+changes or cannot be fast-forwarded, and it never enables a unit or starts a
+container the host was not already running: a changed unit is reloaded and
+restarted when it was active, and a docs or Protolab container is recreated when
+it is up - Caddy reads its config when the process starts, so a changed Caddyfile
+needs the container brought back up. Asking Docker or systemd whether one runs and
+getting no answer stops the update; only a real answer counts, not an exit status
+on its own, and a systemd that did not reload the unit files stops the run rather
+than report a changed unit as applied. A step that fails leaves the ones before it
+applied, and what is still owed is kept in `~/tehas/state/` (`update-pending`)
+until it has run, so the next update finishes it instead of calling the host
+current.
+
+The steps are still there on their own. `install.sh` is what puts tehas on a host
+the first time, before `tehas update` exists there:
+
+```
 cd ~/tehas/platform && git pull
-./install.sh --check     # change nothing, report four results
+./install.sh --check     # change nothing, report five results
 ./install.sh             # copy changed files into place, keep <name>.prev
 ```
 
-A version that adds labels needs `tehas-dispatch --init-labels` run again after
-the install. The labels `tehas:plan`, `tehas:planning` and `tehas:question`,
-for planning on an issue and the retry tick, are not in a repository until it
-has been.
+A version that adds labels needs `tehas labels` run again after the install.
+The labels `tehas:plan`, `tehas:planning` and `tehas:question`, for planning on
+an issue and the retry tick, are not in a repository until it has been.
 
-`--check` prints one line each for the instance settings, the host's tools,
-the installed files and the tests:
+`--check` prints one line each for the instance settings, the host's tools, the
+installed files, the follow-ups an earlier run left undone, and the tests:
 
 ```
 Instance:     /home/boss/tehas/platform/instances/tehas-tehas OK
 Dependencies: OK
 Installed:    DRIFT (1 files)
-  differs: /home/boss/tehas/bin/tehas-dispatch
+  differs: /home/boss/tehas/libexec/dispatch
+Follow-ups:   NOT DONE (2 from an earlier run, see /home/boss/tehas/state/update-pending)
 Tests:        OK
 ```
 
+The `Follow-ups:` line appears only while `~/tehas/state/update-pending` still
+holds steps that were asked for and never ran - a host with none owed prints four
+lines - and while it does, `--check` exits 1, because a host with files matching
+and a step unapplied is not current. Running `tehas update` runs them and clears
+the record ([Troubleshooting](/troubleshooting) has the case in full).
+
 `install.sh` validates the settings first and installs nothing if they are
-invalid. It prints the follow-up command when the sandbox image, the docs
-server or a systemd unit changed, and restarts nothing itself. A file edited directly on
-the host shows up as drift in `--check`.
+invalid. It prints one `next:` line per follow-up its changed files call for, and
+restarts nothing itself; `tehas update` is what runs them, and it records each of
+them as owed while it copies the file that calls for it - which is why a run that
+dies partway does not leave the host looking current. It asks systemd for nothing,
+but for the one case below:
+a copied unit file is not in effect until systemd has reloaded it, and that reload
+belongs to the step that restarts the units. A file edited directly on the host
+shows up as drift in `--check`.
+
+One file is written, not copied: `version.txt`, beside the pages in
+`~/tehas/docs` and `~/tehas/fun`. It holds the newest tag of the checkout and
+the commit it was at when `install.sh` last ran, as `v0.1.1+11b669d`, and the
+footer of every page shows it. `--check` does not look at it.
+
+One installed file is compiled, not copied: the console of a running cycle, a
+Rust program in `console/`. A real run builds it with `cargo` in the checkout
+and installs it as `~/tehas/libexec/console`. Beside it, `console.stamp`
+holds two checksums: of the source it was built from and of the program. It
+is built again only when the source has changed or the program on the host is
+not the one that was installed. The first build fetches its crates from the
+network and takes a minute. `--check` compares the checksums and builds
+nothing, so a console replaced on the host shows up as drift like any other
+file. A console that does not build stops the install before it has changed
+anything, and so does a host without `cargo`. The build is given no
+environment variable whose name holds TOKEN, SECRET, PASSWORD or API_KEY. The Deno
+script it replaces, `~/tehas/libexec/console.ts`, is removed the way the old
+commands below are.
+
+Before there was a `tehas` command, `~/tehas/bin` held one file for each
+command (`tehas-dispatch`, `tehas-work` and so on). `install.sh` removes those
+and `--check` lists them as stale. A cycle that was running before the install
+still calls them by name. So the install removes them only while it holds the
+dispatcher's lock itself. When a cycle or a poll holds it, they are left in
+place and the install prints `later: ./install.sh again when the running cycle
+has ended`. The units systemd holds name them too, so this is the one case
+where the install asks systemd to reload, and it leaves the files and prints a
+`later:` line when the reload did not happen. A `later:` line is for a person
+and is not a step: `tehas update` prints it and finds the files again on its
+next run. Removing the old energy sampler asks for the `units` step, which
+restarts a running one from the new file. An old command that cannot be
+removed fails the install.
 
 One thing it does besides copying, on a real run only: the product checkout's
 `origin/HEAD` is refreshed, so the commands know the default branch without
@@ -179,8 +253,9 @@ Two things it does not change:
 ## Sandbox image
 
 `tehas/pi-rukas:uid<uid>`: the upstream pi-rukas image plus the in-container
-user remapped to the tehas user's id, deno, shellcheck, and Playwright's
-Chromium with fonts. The base is pinned by digest in `sandbox/Dockerfile`, the
+user remapped to the tehas user's id, shellcheck, and Playwright's
+Chromium with fonts. cargo's registry belongs to that user, so a gate that
+builds Rust can fetch its crates; they go with the container. The base is pinned by digest in `sandbox/Dockerfile`, the
 tools by version in `versions.env`. A product whose gates need another
 toolchain adds it to the Dockerfile.
 
@@ -214,7 +289,7 @@ rm -rf "$T"
 | ----------- | ---------------------------------------------------------- | ------------------------------------------------------ |
 | This site   | `docker compose -f ~/tehas/edge/docs.compose.yaml up -d`   | `curl -i http://tehas-tehas:8080/health`               |
 | Dispatcher  | systemd user timer `tehas-dispatch.timer`, every 2 minutes | `tail ~/tehas/logs/dispatch.log`                       |
-| Energy use sampler, optional | systemd user service `tehas-energy.service`, every 15 s. Enable it only when the model backend is a viiwork mesh | `jq .generatedAt ~/tehas/live/energy.json` |
+| Energy use sampler, optional | systemd user service `tehas-energy.service`, every 15 s. Enable it only when the model backend is a [viiwork](https://github.com/janit/viiwork) mesh | `jq .generatedAt ~/tehas/live/energy.json` |
 | Protolab pages | systemd user timer `tehas-protolab.timer`, every 5 minutes | `tail ~/tehas/logs/protolab.log` |
 | Protolab server | `docker compose -f ~/tehas/edge/protolab.compose.yaml up -d` | `curl -i http://tehas-tehas:8081/` |
 
@@ -260,7 +335,7 @@ Both are outside the repository and the tehas tree.
 | Host paths mounted                     | The cycle's workspace, `~/.vipune`, Pi's `ensemble-runs` and `sessions` (read-write); `models.json`, `mcp.json` (read-only); two caches |
 | Not reachable from the container       | The Docker socket, SSH keys, `~/.config/tehas`, the platform checkout, the product checkout, the instance directory                     |
 | What the host runs from the workspace  | Nothing. The host runs git only in the product checkout, which no container has written. It reads the cycle's state file from the workspace as data |
-| The indexing container                 | `tehas-index` runs the indexer, not an agent: a clone of the product read-only, the cache volume, no network, no token                  |
+| The indexing container                 | `tehas index` runs the indexer, not an agent: a clone of the product read-only, the cache volume, no network, no token                  |
 | The network                            | Not restricted. The container reaches GitHub, the model endpoint and whatever else the host can route to                                |
 | Merging                                | The token could merge where the repository lets it. Nothing does, because `AGENTS.md` forbids it and the dispatcher never merges        |
 
@@ -281,6 +356,23 @@ Two recommendations follow from that table:
 `test/work_test.sh` in the platform repository pins what the container is
 given: the mounts, the variables and every other option of both `docker run`
 calls.
+
+### A session by hand
+
+`tehas dev` starts the same container for a person, and the table above holds
+for it with these differences:
+
+| Question                    | Answer                                                                                                             |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Who can start one           | Anyone who can log in as the tehas user. That account already holds the bot token and is root-equivalent           |
+| The tree it works in        | `~/tehas/dev/<name>`, kept between sessions, where a cycle gets a fresh clone                                       |
+| git identity                | The stored author of that clone, else the bot's. A label: it is not checked against anything                       |
+| What else enters            | A terminal, and `TERM` and `COLORTERM` from the shell. Nothing else of the host environment, and not `~/.config/gh` |
+| What the host runs from the clone | Nothing. The host runs git there once, to make it, and never again                                           |
+
+`test/dev_test.sh` pins the session's `docker run` the same way. Both commands
+take the mounts and variables from `lib/sandbox.sh`, so they cannot differ by
+accident.
 
 A host that ran cycles before the workspace existed gave its containers the
 product checkout itself. Replace that checkout once with a fresh clone, so

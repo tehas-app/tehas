@@ -357,6 +357,10 @@ the stage under the monitor's column.
 - **Tables:** 1px Hairline between rows, figures right-aligned, a missing
   figure a dash. Only machines serving the factory and the models it uses are
   listed, so no row carries a mark. RAM is ten blocks, Slate for each started tenth in use.
+  A model's engines follow its hosts, and leave the table with them on narrow
+  screens.
+- **Data source:** one line of small print at the foot of the panel, Slate
+  with the name an Ink link, as in the page's footer.
 - **Stillness:** nothing here animates and no figure flashes. The figures
   change every 15 seconds, and motion that often would say nothing.
 
@@ -380,6 +384,12 @@ A full-width panel on a Bone Shade ground with a Steel head, like the other
 panels. Inside it a CRT Black cabinet: the 480 by 272 canvas scaled to fill
 the width, beside a bone panel with the readout and one play button. On a
 narrow screen the bone panel goes below the canvas.
+
+The wall is built of blocks on a grid of 32 by 24 pixel cells, each block a
+row of cells with its word on it, most with a cell or two grown above or
+below, like the pieces of a falling-block game. A round takes at most twelve
+words and half the cells, picked and laid out afresh, so the wall is never
+full. Blocks that touch differ in colour.
 
 ## 6. Do's and Don'ts
 

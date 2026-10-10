@@ -1,108 +1,88 @@
 # shellcheck shell=bash
-# shellcheck disable=SC2034  # the sb_* variables are read by the commands that source this file
-# What a pi-rukas container is given, in one place. Sourced by bin/tehas-work
-# and bin/tehas-plan after lib/config.sh has loaded the instance.
+# What a sandbox container is given, and the tree it works in. Sourced by the
+# three commands that start one: tehas work (a cycle), tehas plan (a planning
+# turn) and tehas dev (a manual session). It is in one place so they cannot
+# drift apart; test/work_test.sh, test/plan_test.sh and test/dev_test.sh pin
+# the result option by option.
 #
-#   sandbox_prepare <command name> <branch>
-#       Check the bot token and git identity, build the variables and make a
-#       fresh workspace at the branch's tip. Sets sb_repo, sb_image, sb_agent,
-#       sb_envs and sb_hosts. Exits 64 without a token or an identity, 78 when
-#       the workspace cannot be made.
-#   sandbox_pi <container name> <log file> [pi argument...]
-#       Start `pi --mode rpc --approve` in the image, in the background. Its
-#       stdin is file descriptor 3, its output goes to the log. Sets sb_pid.
+#   tehas_sandbox_env <tree> <name> <email>   the -e options
+#   tehas_sandbox_mounts <tree>               the -v options
+#   tehas_sandbox_hosts                       the --add-host options
+#   tehas_sandbox_clone <src> <tree> <branch> make <tree>, a clone of <src>
 #
-# The list of mounts and variables is deliberate and pinned by
-# test/work_test.sh and test/plan_test.sh: the bot token (pi-rukas pushes and
-# files issues from inside), the PI_ENSEMBLE_* settings, the bot's git
-# identity, the workspace and Pi's state directories. Not the Docker socket,
-# SSH keys or ~/.config/tehas. A change here is a security change.
+# The first three print docker options separated by NUL bytes. Read them with
+#   mapfile -d '' -t envs < <(tehas_sandbox_env "$tree" "$name" "$email")
 #
-# The workspace is $TEHAS_WORK_DIR, a fresh clone for every run. The container
-# never sees the product checkout: an agent can write anything into the tree
-# it works in, hooks and git configuration included, and the host runs git in
-# the product checkout.
+# Source lib/config.sh and call tehas_load first: the settings are read from
+# the environment it leaves.
+#
+# Not given to any container, and not a setting: the Docker socket, SSH keys,
+# ~/.config/tehas, the product checkout, the rest of the host environment.
 
-sandbox_prepare() {
-  local cmd=$1 branch=$2 src=$TEHAS_WORK_REPO bot_name bot_email base url works p var
-  local -a pairs
-  sb_repo=$TEHAS_WORK_DIR
-  sb_image=$PI_ENSEMBLE_IMAGE
-  sb_agent=$HOME/.pi/agent
-
-  [ -n "${GH_TOKEN:-}" ] || { echo "$cmd: GH_TOKEN is not set (source ~/tehas/env.sh)" >&2; exit 64; }
-  mkdir -p "$TEHAS_HOME/logs" "$sb_agent/ensemble-runs" "$sb_agent/sessions" "$HOME/.vipune"
-
-  sb_hosts=()
-  IFS=',' read -ra pairs <<<"${PI_ENSEMBLE_HOST_ALIASES:-}"
-  for p in "${pairs[@]}"; do [ -n "$p" ] && sb_hosts+=(--add-host="$p"); done
-
-  # The same mounts as the pi-rukas wrapper, minus the Docker socket, SSH keys
-  # and image directories. Only the bot token and PI_ENSEMBLE_* settings are
-  # passed in, not the whole host environment.
-  sb_envs=(-e GH_TOKEN -e PI_ENSEMBLE_SANDBOX_MODE=1 -e "PI_ENSEMBLE_WORKSPACE_ROOT=$sb_repo")
-
-  # git inside the sandbox has no configuration of its own: no credential helper
-  # and no identity. Without the helper the driver commits but cannot push, and
-  # the cycle parks after all the work is done. Hand git the bot's token through
-  # gh (which reads GH_TOKEN) and the bot's identity, as environment-level
-  # config: it outranks any file, reaches every agent process, and writes
-  # nothing into the checkout.
-  bot_name=$(git config --global user.name || true)
-  bot_email=$(git config --global user.email || true)
-  [ -n "$bot_name" ] && [ -n "$bot_email" ] ||
-    { echo "$cmd: git user.name and user.email are not set for $(id -un)" >&2; exit 64; }
-  sb_envs+=(-e GIT_CONFIG_COUNT=4
+# The same variables as the pi-rukas wrapper sets, without the host's whole
+# environment: the bot token by name, the PI_ENSEMBLE_* settings, and git's
+# configuration.
+#
+# git inside the sandbox has no configuration of its own: no credential helper
+# and no identity. Without the helper the driver commits but cannot push, and
+# a cycle parks after all the work is done. Hand git the bot's token through
+# gh (which reads GH_TOKEN) and an identity, as environment-level config: it
+# outranks any file, reaches every agent process, and writes nothing into the
+# tree.
+tehas_sandbox_env() { # <tree> <git name> <git email>
+  local tree=$1 name=$2 email=$3 var
+  local envs=(-e GH_TOKEN -e PI_ENSEMBLE_SANDBOX_MODE=1 -e "PI_ENSEMBLE_WORKSPACE_ROOT=$tree")
+  envs+=(-e GIT_CONFIG_COUNT=4
     -e "GIT_CONFIG_KEY_0=credential.https://github.com.helper" -e "GIT_CONFIG_VALUE_0="
     -e "GIT_CONFIG_KEY_1=credential.https://github.com.helper" -e "GIT_CONFIG_VALUE_1=!gh auth git-credential"
-    -e "GIT_CONFIG_KEY_2=user.name" -e "GIT_CONFIG_VALUE_2=$bot_name"
-    -e "GIT_CONFIG_KEY_3=user.email" -e "GIT_CONFIG_VALUE_3=$bot_email"
+    -e "GIT_CONFIG_KEY_2=user.name" -e "GIT_CONFIG_VALUE_2=$name"
+    -e "GIT_CONFIG_KEY_3=user.email" -e "GIT_CONFIG_VALUE_3=$email"
     -e GIT_TERMINAL_PROMPT=0)
   while IFS='=' read -r var _; do
-    case "$var" in PI_ENSEMBLE_IMAGE | PI_ENSEMBLE_HOST_ALIASES) ;; PI_ENSEMBLE_*) sb_envs+=(-e "$var") ;; esac
+    case "$var" in PI_ENSEMBLE_IMAGE | PI_ENSEMBLE_HOST_ALIASES) ;; PI_ENSEMBLE_*) envs+=(-e "$var") ;; esac
   done < <(env)
-
-  # A fresh workspace, at the tip the product checkout last fetched for the
-  # branch. What an earlier run left behind goes with the old one. Only a
-  # directory this command made is ever removed.
-  base=$(git -C "$src" rev-parse -q --verify "refs/remotes/origin/$branch^{commit}") ||
-    { echo "$cmd: $src has no origin/$branch, not starting" >&2; exit 78; }
-  url=$(git -C "$src" config --get remote.origin.url)
-  works=$(dirname "$sb_repo")
-  if [ -e "$works" ] && [ ! -f "$works/.tehas-workspaces" ]; then
-    echo "$cmd: $works exists and was not made by tehas, not touching it" >&2
-    exit 78
-  fi
-  if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces" && rm -rf "$sb_repo" &&
-    git init -q -b "$branch" "$sb_repo" &&
-    git -C "$sb_repo" remote add origin "$url" &&
-    git -C "$sb_repo" fetch -q --no-tags "$src" '+refs/remotes/origin/*:refs/remotes/origin/*' &&
-    git -C "$sb_repo" symbolic-ref refs/remotes/origin/HEAD "refs/remotes/origin/$branch" &&
-    git -C "$sb_repo" checkout -q -B "$branch" "$base" &&
-    git -C "$sb_repo" branch -q --set-upstream-to="origin/$branch" "$branch"; }; then
-    echo "$cmd: could not make the workspace $sb_repo, not starting" >&2
-    exit 78
-  fi
+  printf '%s\0' "${envs[@]}"
 }
 
-sandbox_pi() {
-  local name=$1 log=$2 fifo
-  shift 2
-  fifo=$(mktemp -u)
-  mkfifo "$fifo"
-  exec 3<>"$fifo"
-  rm "$fifo"
-  docker run --rm -i --name "$name" \
-    --cpus "$TEHAS_WORK_CPUS" --memory "$TEHAS_WORK_MEMORY" \
-    -w "$sb_repo" -v "$sb_repo:$sb_repo" \
+# The same mounts as the pi-rukas wrapper, minus the Docker socket, SSH keys,
+# gh's configuration and image directories. The directories are made first:
+# Docker would create a missing mount source as a root-owned directory.
+tehas_sandbox_mounts() { # <tree>
+  local tree=$1 agent=$HOME/.pi/agent
+  mkdir -p "$agent/ensemble-runs" "$agent/sessions" "$HOME/.vipune" || return 1
+  printf '%s\0' -v "$tree:$tree" \
     -v "$HOME/.vipune:/home/vscode/.vipune" \
-    -v "$sb_agent/ensemble-runs:/home/vscode/.pi/agent/ensemble-runs" \
-    -v "$sb_agent/sessions:/home/vscode/.pi/agent/sessions" \
-    -v "$sb_agent/models.json:/home/vscode/.pi/agent/models.json:ro" \
-    -v "$sb_agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro" \
+    -v "$agent/ensemble-runs:/home/vscode/.pi/agent/ensemble-runs" \
+    -v "$agent/sessions:/home/vscode/.pi/agent/sessions" \
+    -v "$agent/models.json:/home/vscode/.pi/agent/models.json:ro" \
+    -v "$agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro" \
     -v pi-ensemble-cache:/home/vscode/.cache \
-    -v pi-ensemble-bun-cache:/home/vscode/.bun \
-    "${sb_envs[@]}" "${sb_hosts[@]}" \
-    "$sb_image" pi --mode rpc --approve "$@" <&3 >"$log" 2>"$log.err" &
-  sb_pid=$!
+    -v pi-ensemble-bun-cache:/home/vscode/.bun
+}
+
+# Names the sandbox cannot resolve by itself, from PI_ENSEMBLE_HOST_ALIASES.
+tehas_sandbox_hosts() {
+  local pairs=() p
+  IFS=',' read -ra pairs <<<"${PI_ENSEMBLE_HOST_ALIASES:-}"
+  for p in "${pairs[@]}"; do
+    if [ -n "$p" ]; then printf '%s\0' "--add-host=$p"; fi
+  done
+}
+
+# Make <tree>: a clone at the tip the product checkout <src> last fetched for
+# <branch>, with the product's address as origin. Nothing is fetched from the
+# network. The host runs git in <tree> here and only here: once a container
+# has written a tree, anything in it, hooks and git configuration included,
+# may be an agent's. The caller decides whether <tree> may be made.
+tehas_sandbox_clone() { # <src> <tree> <branch>
+  local src=$1 tree=$2 branch=$3 base url
+  base=$(git -C "$src" rev-parse -q --verify "refs/remotes/origin/$branch^{commit}") ||
+    { tehas_err "$src has no origin/$branch"; return 1; }
+  url=$(git -C "$src" config --get remote.origin.url) || return 1
+  git init -q -b "$branch" "$tree" &&
+    git -C "$tree" remote add origin "$url" &&
+    git -C "$tree" fetch -q --no-tags "$src" '+refs/remotes/origin/*:refs/remotes/origin/*' &&
+    git -C "$tree" symbolic-ref refs/remotes/origin/HEAD "refs/remotes/origin/$branch" &&
+    git -C "$tree" checkout -q -B "$branch" "$base" &&
+    git -C "$tree" branch -q --set-upstream-to="origin/$branch" "$branch"
 }

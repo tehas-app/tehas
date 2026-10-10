@@ -9,9 +9,9 @@
 # the same Pi session.
 #
 # Usage:
-#   tehas-plan <issue-number> --out <file> --brief <file>
+#   tehas plan <issue-number> --out <file> --brief <file>
 #       First turn. <file> holds the approved title and body of the issue.
-#   tehas-plan <issue-number> --out <file> --session <id> --answer <file>
+#   tehas plan <issue-number> --out <file> --session <id> --answer <file>
 #       A later turn. <file> holds the operator's answer.
 #
 # On exit 0 the --out file holds
@@ -30,14 +30,18 @@
 #
 # Instance settings (lib/config.sh; defaults in brackets):
 #   TEHAS_PLAN_TIMEOUT  seconds before a turn is given up [3600]
-#   and those of tehas-work for the checkout and the container's limits.
+#   and those of tehas work for the checkout and the container's limits.
 #
-# The container is given exactly what a work cycle's container is given: see
-# lib/sandbox.sh. That is pinned by test/plan_test.sh.
+# The container is given exactly what a cycle's container is given: the same
+# image, limits, mounts and variables, assembled by lib/sandbox.sh and pinned
+# by test/plan_test.sh. It differs in its name and in what pi is told. Not the
+# Docker socket, SSH keys or ~/.config/tehas. The workspace is the cycle's,
+# $TEHAS_HOME/work/<name>, made fresh for every turn: the dispatcher runs one
+# turn or one cycle at a time.
 set -uo pipefail
 
 usage() {
-  echo "usage: tehas-plan <issue-number> --out <file> (--brief <file> | --session <id> --answer <file>)" >&2
+  echo "usage: tehas plan <issue-number> --out <file> (--brief <file> | --session <id> --answer <file>)" >&2
   exit 64
 }
 
@@ -71,26 +75,56 @@ case "$session" in *[!A-Za-z0-9-]*) usage ;; esac
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/config.sh
 . "$here/../lib/config.sh"
+# shellcheck source=lib/sandbox.sh
+. "$here/../lib/sandbox.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
 # Docker would create a missing mount source as a root-owned directory.
 tehas_checkout || exit 78
 branch=$(tehas_branch) || exit 78
-# shellcheck source=lib/sandbox.sh
-. "$here/../lib/sandbox.sh"
+src=$TEHAS_WORK_REPO
+repo=$TEHAS_WORK_DIR
+image=$PI_ENSEMBLE_IMAGE
 limit=$TEHAS_PLAN_TIMEOUT
 log=$TEHAS_HOME/logs/plan-$issue-$(date -u +%y%m%d-%H%M%S).jsonl
 name=tehas-plan-$issue
-sandbox_prepare tehas-plan "$branch"
+
+[ -n "${GH_TOKEN:-}" ] || { echo "tehas plan: GH_TOKEN is not set (source ~/tehas/env.sh)" >&2; exit 64; }
+mkdir -p "$TEHAS_HOME/logs"
+
+# The bot's identity is the tehas user's own. What the container is given is
+# assembled in lib/sandbox.sh, by the calls tehas work makes.
+bot_name=$(git config --global user.name || true)
+bot_email=$(git config --global user.email || true)
+[ -n "$bot_name" ] && [ -n "$bot_email" ] ||
+  { echo "tehas plan: git user.name and user.email are not set for $(id -un)" >&2; exit 64; }
+mapfile -d '' -t envs < <(tehas_sandbox_env "$repo" "$bot_name" "$bot_email")
+mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$repo")
+mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
+[ "${#envs[@]}" -gt 0 ] && [ "${#mounts[@]}" -gt 0 ] ||
+  { echo "tehas plan: could not prepare the sandbox, not starting a turn" >&2; exit 78; }
+
+# A fresh workspace for this turn, as a cycle gets one. Only a directory tehas
+# made is ever removed.
+works=$(dirname "$repo")
+if [ -e "$works" ] && [ ! -f "$works/.tehas-workspaces" ]; then
+  echo "tehas plan: $works exists and was not made by tehas, not touching it" >&2
+  exit 78
+fi
+if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces" && rm -rf "$repo" &&
+  tehas_sandbox_clone "$src" "$repo" "$branch"; }; then
+  echo "tehas plan: could not make the workspace $repo, not starting a turn" >&2
+  exit 78
+fi
 
 args=()
 if [ -n "$brief" ]; then
   # The agent plans from the text that was approved, so it is handed over as a
   # file and not fetched again from the tracker, where it may have changed.
   # One line as the prompt: /plan quotes its argument inside a sentence.
-  if ! { mkdir -p "$sb_repo/.tehas" "$sb_repo/.git/info" && cp "$brief" "$sb_repo/.tehas/brief.md" &&
-    echo ".tehas/" >>"$sb_repo/.git/info/exclude"; }; then
-    echo "tehas-plan: could not put the brief into $sb_repo" >&2
+  if ! { mkdir -p "$repo/.tehas" "$repo/.git/info" && cp "$brief" "$repo/.tehas/brief.md" &&
+    echo ".tehas/" >>"$repo/.git/info/exclude"; }; then
+    echo "tehas plan: could not put the brief into $repo" >&2
     exit 78
   fi
   message="/plan the work described in the file .tehas/brief.md, which holds the approved text of issue #$issue. Read the file first. When you need a decision from the operator, call the question tool or ask in your message, then end your turn: the answer arrives as the next message."
@@ -99,13 +133,24 @@ else
   args=(--session "$session")
 fi
 
-sandbox_pi "$name" "$log" "${args[@]}"
+fifo=$(mktemp -u)
+mkfifo "$fifo"
+exec 3<>"$fifo"
+rm "$fifo"
+
+docker run --rm -i --name "$name" \
+  --cpus "$TEHAS_WORK_CPUS" --memory "$TEHAS_WORK_MEMORY" \
+  -w "$repo" "${mounts[@]}" \
+  "${envs[@]}" "${hosts[@]}" \
+  "$image" pi --mode rpc --approve "${args[@]}" <&3 >"$log" 2>"$log.err" &
+pid=$!
+
 started=$(date +%s)
 jq -cn --arg m "$message" '{id: "plan", type: "prompt", message: $m}' >&3
 # Asked for now and again at the end: a first turn that runs for an hour and
 # then fails must still leave the session it made, so a reply can continue it.
 printf '%s\n' '{"id":"state","type":"get_state"}' >&3
-echo "tehas-plan: issue $issue turn started, log $log"
+echo "tehas plan: issue $issue turn started, log $log"
 
 trap 'exec 3>&- 2>/dev/null; docker stop -t 10 "$name" 2>/dev/null' TERM INT
 
@@ -140,19 +185,19 @@ scan() {
 settled() { [ "$last" = '"type":"agent_settled"' ]; }
 quiet=0
 timed_out=0
-while kill -0 "$sb_pid" 2>/dev/null; do
+while kill -0 "$pid" 2>/dev/null; do
   sleep 1
   scan
   if settled; then quiet=$((quiet + 1)); else quiet=0; fi
   [ "$quiet" -ge 20 ] && break
   if [ $(($(date +%s) - started)) -ge "$limit" ]; then
-    echo "tehas-plan: time limit of ${limit}s passed"
+    echo "tehas plan: time limit of ${limit}s passed"
     timed_out=1
     break
   fi
 done
 
-if kill -0 "$sb_pid" 2>/dev/null; then
+if kill -0 "$pid" 2>/dev/null; then
   if [ "$timed_out" = 0 ]; then
     printf '%s\n' '{"id":"state","type":"get_state"}' '{"id":"text","type":"get_last_assistant_text"}' >&3
     # The answer comes after everything read so far.
@@ -165,7 +210,7 @@ if kill -0 "$sb_pid" 2>/dev/null; then
   sleep 2
   docker stop -t 20 "$name" >/dev/null 2>&1
 fi
-wait "$sb_pid" 2>/dev/null
+wait "$pid" 2>/dev/null
 scan all
 
 # pick <text>: the lines of the log that hold the text, as JSON values. The
@@ -178,10 +223,10 @@ sid=$(pick '"command":"get_state"' | jq -rs 'map(select(.type == "response" and 
 # give_up <what happened>: the turn failed. The session, when it is known, is
 # all that is left for the caller.
 give_up() {
-  echo "tehas-plan: issue=$issue $1, see $log"
+  echo "tehas plan: issue=$issue $1, see $log"
   if [ -n "$sid" ]; then
     if ! jq -n --arg session "$sid" '{session: $session}' >"$out.new" || ! mv "$out.new" "$out"; then
-      echo "tehas-plan: could not write $out" >&2
+      echo "tehas plan: could not write $out" >&2
     fi
   fi
   exit 2
@@ -209,7 +254,7 @@ fi
 
 if ! jq -n --arg session "$sid" --arg text "$text" --argjson question "$question" \
   '{session: $session, text: $text, question: $question}' >"$out.new" || ! mv "$out.new" "$out"; then
-  echo "tehas-plan: could not write $out" >&2
+  echo "tehas plan: could not write $out" >&2
   exit 2
 fi
-echo "tehas-plan: issue=$issue session=$sid asked=$([ "$question" = null ] && echo no || echo yes) seconds=$(($(date +%s) - started))"
+echo "tehas plan: issue=$issue session=$sid asked=$([ "$question" = null ] && echo no || echo yes) seconds=$(($(date +%s) - started))"

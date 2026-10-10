@@ -17,8 +17,6 @@ stamp=$(date -u +%y%m%d-%H%M)
 
 docker build \
   --build-arg TEHAS_UID="$(id -u)" \
-  --build-arg DENO_VERSION="$DENO_VERSION" \
-  --build-arg DENO_SHA256="$DENO_SHA256" \
   --build-arg SHELLCHECK_VERSION="$SHELLCHECK_VERSION" \
   --build-arg SHELLCHECK_SHA256="$SHELLCHECK_SHA256" \
   -t "$image:$stamp" "$here"

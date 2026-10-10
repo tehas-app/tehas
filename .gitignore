@@ -11,3 +11,5 @@
 /tmp/
 # The private list of names for scripts/check-generic.sh. Never committed.
 /scripts/check-generic.names
+# The console's build: install.sh compiles it here.
+/console/target/

@@ -17,6 +17,8 @@ checkouts and tehas itself come after it, on the [new project page](/new-project
 - A private network to reach the dashboard on, and outbound HTTPS to GitHub,
   the package and release hosts.
 - An OpenAI-compatible model endpoint it can reach.
+  [viiwork](https://github.com/janit/viiwork) is one, and the one the example
+  instance uses.
 - Disk for the sandbox image, about 10 GB once built, plus the product's own
   needs. The example host has 8 CPUs, 15 GB of memory and 58 GB of disk.
 
@@ -51,7 +53,6 @@ Installs under the user's home, each tool in its own place:
 | --------------------------------- | -------------------------------------- | ----------------------------- |
 | Node and npm                      | `~/tehas/tools/node`                   | Release archive, checksum     |
 | `gh`                              | `~/tehas/bin/gh`                       | Release archive, checksum     |
-| Deno                              | `~/.deno/bin`                          | Release archive, checksum     |
 | Bun                               | `~/.bun/bin`                           | Release archive, checksum     |
 | Pi, `ctx7`, `parallel-cli`        | `~/.local` (npm prefix)                | npm, exact versions           |
 | Rust, then `vipune` and `oo`      | `~/.rustup`, `~/.cargo`                | rustup, then `cargo install`  |
@@ -62,7 +63,11 @@ Every release archive is checked against a SHA-256 in `versions.env` before it
 is unpacked. The last step runs pi-rukas's own installer, which links its
 extension and skills into `~/.pi/agent/` and pulls its sandbox base image.
 
-Compiling `vipune` and `oo` takes a few minutes. The rest is quick.
+Compiling `vipune` and `oo` takes a few minutes. The rest is quick. Rust is
+also what `install.sh` builds the cycle console with.
+
+Deno is no longer installed. A host set up before that still has `~/.deno`;
+nothing uses it and `bootstrap.sh` does not remove it.
 
 ### 3. `check`
 
@@ -130,7 +135,7 @@ git -C ~/tehas/platform config core.sshCommand \
 Add `deploy_key.pub` to the repository's deploy keys without write access.
 
 **The bot's git identity.** `git config --global user.name` and `user.email`
-for the tehas user. `tehas-work` refuses to start a cycle without them.
+for the tehas user. `tehas work` refuses to start a cycle without them.
 
 ## What is proven
 

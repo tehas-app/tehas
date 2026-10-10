@@ -27,7 +27,7 @@
 # from. TEHAS_PROTOLAB_URL in instance.env is the address people reach the
 # Protolab at, when that is not port 8081 of the dashboard's own host.
 #
-# Usage: tehas-protolab     (one line per ticket built or removed; exit 0 even
+# Usage: tehasbot protolab     (one line per ticket built or removed; exit 0 even
 #                            when GitHub is down, what is there is then left in
 #                            place; exit 78 when the instance settings are
 #                            invalid; exit 1 when it cannot write)

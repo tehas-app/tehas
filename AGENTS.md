@@ -16,7 +16,9 @@ when a person pulls and runs `install.sh` there.
 
 | Path | What it is |
 | --- | --- |
-| `bin/` | The commands, bash and one Deno script. Installed to `~/tehas/bin` |
+| `bin/` | The two commands: `tehas` for a person, `tehasbot` for the units. Installed to `~/tehas/bin` |
+| `libexec/` | The scripts behind them, all bash. Installed to `~/tehas/libexec` |
+| `console/` | The console of a running cycle, a Rust program. `install.sh` builds it and installs it as `~/tehas/libexec/console` |
 | `lib/config.sh` | Loads and validates instance settings. Every command sources it |
 | `host/` | Everything else that is installed: units, the docs server, the sandbox image, the manual in `host/docs/` |
 | `install.sh`, `bootstrap.sh` | Install tehas on a host; prepare a host's dependencies |
@@ -38,7 +40,7 @@ when a person pulls and runs `install.sh` there.
    command, makes no network call and writes nothing, and `tehas_load` never
    exits, because login shells source it.
 4. **Do not widen what a cycle's container is given.** The mounts and
-   environment variables of `bin/tehas-work` are pinned by `test/work_test.sh`.
+   environment variables of `libexec/work` are pinned by `test/work_test.sh`.
    No Docker socket, no SSH keys, nothing from `~/.config/tehas`. A change here
    is a security change: say so in the pull request and do not relax the test
    to make it pass.
@@ -47,7 +49,9 @@ when a person pulls and runs `install.sh` there.
    with a check that the label is present.
 6. **Tests first.** Every behaviour change comes with a case in `test/`. Tests
    need bash, git, jq and shellcheck only: no network, no sandbox image, no
-   product checkout. Stub the outside world with `t_stub`.
+   product checkout. Stub the outside world with `t_stub`. The console's tests
+   are Rust, beside its source in `console/`, and run in the gate wherever
+   `cargo` is installed.
 7. **Do not edit your own gates.** `.pi/`, `AGENTS.md`, `scripts/verify.sh` and
    `scripts/check-generic.sh` are changed by people, not by a work cycle. If a
    gate is wrong, say so in your handoff.
@@ -65,8 +69,14 @@ when a person pulls and runs `install.sh` there.
 - Bash: `set -uo pipefail` (or `-euo` where the script already has it), two
   spaces, `shellcheck -x` clean with no blanket disables. A header comment says
   what the command does, its usage and its exit statuses. Comments explain why.
+- Rust: as `cargo fmt` leaves it, and `cargo clippy` clean with no blanket
+  allows. No `unsafe`.
 - Prose in comments, the manual and commit messages: plain and direct, short
   sentences, no em dashes, no hype.
+- Replies, handoffs and pull request text: simple and to the point. No
+  stories, no walls of jargon.
+- Code comments: terse. Before you write one, ask whether the code already
+  says it. If it does, leave the comment out.
 - The manual in `host/docs/` describes what is true on a host today. When you
   change behaviour, change the page that describes it in the same commit.
   `host/docs/features.md` says how far each feature is proven; do not mark
@@ -75,8 +85,8 @@ when a person pulls and runs `install.sh` there.
 ## Verify
 
 ```
-scripts/verify.sh          # fast gate: lint, shellcheck, shell tests
-scripts/verify.sh --full   # plus deno lint
+scripts/verify.sh          # fast gate: lint, shellcheck, shell tests, the console's tests where cargo is
+scripts/verify.sh --full   # plus the console's format and lints (rustfmt, clippy) and the front page's tests (node)
 ```
 
 Both print one line per step and exit non-zero on failure. Run the fast gate
