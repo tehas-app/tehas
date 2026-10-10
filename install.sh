@@ -263,7 +263,7 @@ sync_dir() { # name: host/<name>/* -> $TEHAS_HOME/<name>/
   [ -d "$TEHAS_HOME/$name" ] || return 0
   for to in "$TEHAS_HOME/$name"/*; do
     [ -e "$to" ] || continue
-    case "$to" in *.prev) continue ;; esac
+    case "$to" in *.prev | */version.txt) continue ;; esac
     [ -e "$host/$name/$(basename "$to")" ] && continue
     changed+=("$name/$(basename "$to")")
     if [ "$check" = 1 ]; then note "stale: $to"; else rm -f "$to" "$to.prev" && echo "removed: $to"; fi
@@ -271,6 +271,30 @@ sync_dir() { # name: host/<name>/* -> $TEHAS_HOME/<name>/
 }
 sync_dir docs
 sync_dir fun
+
+# The version in the footer of every page: the newest tag this checkout holds
+# and the commit it is at, in a file beside the pages, which read it. Only a
+# checkout that is a git repository of its own has one. It is no part of
+# --check: a host is as current as its files are.
+checkout_version() {
+  local tag hash
+  [ -z "$(git -C "$root" rev-parse --show-prefix 2>/dev/null || echo none)" ] || return 0
+  hash=$(git -C "$root" rev-parse --short=7 HEAD 2>/dev/null) || return 0
+  tag=$(git -C "$root" describe --tags --abbrev=0 2>/dev/null) || tag=""
+  printf '%s\n' "${tag:+$tag+}$hash" | tr -cd 'A-Za-z0-9._+\n-'
+}
+if [ "$check" != 1 ]; then
+  version=$(checkout_version)
+  for dir in docs fun; do
+    to=$TEHAS_HOME/$dir/version.txt
+    if [ -z "$version" ]; then
+      rm -f "$to"
+    elif [ "$(cat "$to" 2>/dev/null)" != "$version" ]; then
+      echo "$version" >"$to"
+      echo "version: $version in $to"
+    fi
+  done
+fi
 
 # The commands of before bin/tehas, one file each in bin/, and the console of
 # before it was a compiled program. Found here, removed in step 5 once systemd

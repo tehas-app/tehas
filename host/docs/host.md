@@ -141,6 +141,11 @@ a copied unit file is not in effect until systemd has reloaded it, and that relo
 belongs to the step that restarts the units. A file edited directly on the host
 shows up as drift in `--check`.
 
+One file is written, not copied: `version.txt`, beside the pages in
+`~/tehas/docs` and `~/tehas/fun`. It holds the newest tag of the checkout and
+the commit it was at when `install.sh` last ran, as `v0.1.1+11b669d`, and the
+footer of every page shows it. `--check` does not look at it.
+
 One installed file is compiled, not copied: the console of a running cycle, a
 Rust program in `console/`. A real run builds it with `cargo` in the checkout
 and installs it as `~/tehas/libexec/console`. Beside it, `console.stamp`

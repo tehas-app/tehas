@@ -99,8 +99,8 @@ t_eq "$(t_calls systemctl)" ""
 t_eq "$(t_calls docker)" ""
 
 t_case "the manual and the front page are installed"
-t_eq "$(cd "$th/docs" && find . -type f | wc -l)" "$(find "$T_ROOT/host/docs" -type f | wc -l)"
-t_eq "$(cd "$th/fun" && find . -type f | wc -l)" "$(find "$T_ROOT/host/fun" -type f | wc -l)"
+t_eq "$(cd "$th/docs" && find . -type f ! -name version.txt | wc -l)" "$(find "$T_ROOT/host/docs" -type f | wc -l)"
+t_eq "$(cd "$th/fun" && find . -type f ! -name version.txt | wc -l)" "$(find "$T_ROOT/host/fun" -type f | wc -l)"
 
 t_case "the instance's model list is what Pi gets"
 t_eq "$(cat "$home/.pi/agent/models.json")" "$(cat "$TEHAS_INSTANCE_DIR/models.json")"
@@ -225,6 +225,38 @@ t_contains "$t_out" "cargo is not installed"
 t_lacks "$t_out" "the console did not build"
 t_eq "$(find "$home" -type f | wc -l)" 0
 T_ENV=(T_IN_TEST=1)
+
+t_case "the footers are given the checkout's newest tag and its commit"
+fresh
+instance
+tagged=$T/tagged
+rm -rf "$tagged"
+mkdir -p "$tagged"
+cp -R "$T_ROOT/install.sh" "$T_ROOT/lib" "$T_ROOT/host" "$T_ROOT/bin" "$T_ROOT/libexec" "$tagged/"
+t_console_source "$tagged"
+t_run "$tagged/install.sh"
+t_eq "$t_rc" 0
+# Not a repository of its own: no version, and the pages show none.
+t_eq "$(find "$th/docs" "$th/fun" -name version.txt | wc -l)" 0
+commit() { git -C "$tagged" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m "$1"; }
+git init -q -b main "$tagged"
+commit first
+t_run "$tagged/install.sh"
+t_eq "$(cat "$th/docs/version.txt")" "$(git -C "$tagged" rev-parse --short=7 HEAD)"
+git -C "$tagged" tag v9.8.7
+commit second
+t_run "$tagged/install.sh"
+t_eq "$t_rc" 0
+t_eq "$(cat "$th/docs/version.txt")" "v9.8.7+$(git -C "$tagged" rev-parse --short=7 HEAD)"
+t_eq "$(cat "$th/fun/version.txt")" "$(cat "$th/docs/version.txt")"
+t_contains "$t_out" "version: v9.8.7+"
+# The file is the host's own: not stale, and no drift.
+t_run "$tagged/install.sh --check"
+t_contains "$t_out" "Installed:    OK"
+t_lacks "$t_out" "version.txt"
+for page in "$T_ROOT/host/docs/_layout.html" "$T_ROOT/host/fun/index.html"; do
+  t_contains "$(cat "$page")" 'readFile "/version.txt"'
+done
 
 t_case "a checkout without the console's source installs nothing and exits 1"
 fresh
