@@ -362,27 +362,26 @@ no_space() {
 # what is merged, closed, not there or not ours. An answer that is not clear
 # keeps everything: a sweep never removes on a failed call.
 sweep() {
-  local removed=0 numbers n id tag owner answer err verdict
+  local removed=0 numbers n id tag owner name answer err verdict info listing
+  local fmt='{{.ID}} {{.Label "tehas.preview"}} {{.Label "tehas.repo"}} {{.Names}}'
   if ! docker info --format '{{.DockerRootDir}}' >/dev/null 2>&1; then
     echo "Docker does not answer; nothing was swept"
     return 0
   fi
 
   # Containers that carry the label and are no pull request of this repository.
-  # shellcheck disable=SC2016  # a Docker template: {{.Label ...}} is Docker's, not the shell's
-  while read -r id n owner; do
+  while read -r id n owner name; do
     [ -n "$id" ] || continue
     if [[ $n =~ ^[1-9][0-9]*$ ]] && [ "$owner" = "$repo" ]; then continue; fi
-    docker rm -f "$id" >/dev/null 2>&1
-    echo "container $id: swept, it belongs to no pull request of $repo"
-    removed=$((removed + 1))
-  done < <(docker ps -a --filter label=tehas.preview \
-    --format '{{.ID}} {{.Label "tehas.preview"}} {{.Label "tehas.repo"}}' 2>/dev/null)
+    if docker rm -f "$id" >/dev/null 2>&1; then
+      echo "container $id: swept, it belongs to no pull request of $repo"
+      removed=$((removed + 1))
+    fi
+  done < <(docker ps -a --filter label=tehas.preview --format "$fmt" 2>/dev/null)
 
   # Images: one that is not tagged for a number is what a rebuild left, and
   # one of another repository is not ours. Docker refuses to remove an image a
   # container runs, which is the wanted answer.
-  # shellcheck disable=SC2016  # a Docker template: {{index ...}} is Docker's, not the shell's
   while read -r id tag; do
     [ -n "$id" ] || continue
     owner=$(docker image inspect --format '{{index .Config.Labels "tehas.repo"}}' "$id" 2>/dev/null)
@@ -393,38 +392,77 @@ sweep() {
     fi
   done < <(docker image ls --filter label=tehas.preview --format '{{.ID}} {{.Repository}}:{{.Tag}}' 2>/dev/null)
 
-  # shellcheck disable=SC2016  # a Docker template: {{.Label ...}} is Docker's, not the shell's
   numbers=$({
     edge_numbers "$root"
-    docker ps -a --filter label=tehas.preview \
-      --format '{{.ID}} {{.Label "tehas.preview"}} {{.Label "tehas.repo"}}' 2>/dev/null |
+    docker ps -a --filter label=tehas.preview --format "$fmt" 2>/dev/null |
       awk -v repo="$repo" '$3 == repo {print $2}'
     docker image ls --filter label=tehas.preview --format '{{.ID}} {{.Repository}}:{{.Tag}}' 2>/dev/null |
       sed -n 's/^[^ ]* tehas-preview:\([0-9]*\)$/\1/p'
     [ ! -d "$bare" ] || git -C "$bare" for-each-ref --format='%(refname)' refs/preview 2>/dev/null | sed 's|.*/||'
   } | grep -E '^[1-9][0-9]*$' | sort -un)
 
+  # A 404 means "no such pull request" only when GitHub shows the repository
+  # at all: a token that lost access gets a 404 for every pull request, and
+  # that must not remove every preview.
+  # shellcheck disable=SC2016  # a jq program: $repo is jq's variable
+  if ! info=$(gh api "repos/$repo" 2>/dev/null) ||
+    ! jq -e --arg repo "$repo" '(.full_name | type) == "string" and (.full_name | ascii_downcase) == ($repo | ascii_downcase)' \
+      <<<"$info" >/dev/null 2>&1; then
+    echo "GitHub does not show $repo; nothing was swept by its word"
+    numbers=""
+  fi
+
   err=$(mktemp "$TEHAS_HOME/tmp/preview-sweep.XXXXXX" 2>/dev/null) || err=/dev/null
   while IFS= read -r n; do
     [ -n "$n" ] || continue
     verdict=keep
     if answer=$(gh api "repos/$repo/pulls/$n" 2>"$err"); then
-      # shellcheck disable=SC2016  # a jq program: $repo is jq's variable
-      verdict=$(jq -r --arg repo "$repo" '
-        if (.state | type) != "string" then "unclear"
-        elif .state != "open" then "closed"
-        elif ((.head.repo.full_name // "") | ascii_downcase) != ($repo | ascii_downcase) then "elsewhere"
-        else "keep" end' <<<"$answer" 2>/dev/null) || verdict=unclear
+      # Only "closed" is closed. An open pull request is ours with a head in
+      # this repository and elsewhere with any other head, a deleted fork
+      # (a null repo) included. Anything else, or an answer about another
+      # number, is unclear.
+      # shellcheck disable=SC2016  # a jq program: $repo and $n are jq's variables
+      verdict=$(jq -r --arg repo "$repo" --argjson n "$n" '
+        if (.state | type) != "string" or (.number | type) != "number" or .number != $n then "unclear"
+        elif .state == "closed" then "closed"
+        elif .state != "open" then "unclear"
+        elif (.head | type) != "object" then "unclear"
+        elif ((.head.repo.full_name // "") | ascii_downcase) == ($repo | ascii_downcase) then "keep"
+        elif .head.repo == null or ((.head.repo.full_name | type) == "string") then "elsewhere"
+        else "unclear" end' <<<"$answer" 2>/dev/null) || verdict=unclear
     elif grep -q 'HTTP 404' "$err" 2>/dev/null; then
       verdict=gone
     else
       verdict=unclear
     fi
+    # Containers of the number are listed again here: a purge removes the
+    # name tehas-preview-<n> only, and a labelled container of any other name
+    # would stay for ever and be swept again at every check.
+    listing=$(docker ps -a --filter label=tehas.preview --format "$fmt" 2>/dev/null |
+      awk -v n="$n" -v repo="$repo" '$2 == n && $3 == repo {print $1, $4}')
     case "$verdict" in
-      keep) ;;
-      closed) purge "$n"; echo "#$n: swept, the pull request is closed"; removed=$((removed + 1)) ;;
-      gone) purge "$n"; echo "#$n: swept, there is no such pull request"; removed=$((removed + 1)) ;;
-      elsewhere) purge "$n"; echo "#$n: swept, its branch is not in $repo"; removed=$((removed + 1)) ;;
+      keep)
+        while read -r id name; do
+          [ -n "$id" ] && [ "$name" != "tehas-preview-$n" ] || continue
+          if docker rm -f "$id" >/dev/null 2>&1; then
+            echo "container $id: swept, a second container of #$n"
+            removed=$((removed + 1))
+          fi
+        done <<<"$listing"
+        ;;
+      closed | gone | elsewhere)
+        while read -r id name; do
+          [ -n "$id" ] || continue
+          docker rm -f "$id" >/dev/null 2>&1
+        done <<<"$listing"
+        purge "$n"
+        removed=$((removed + 1))
+        case "$verdict" in
+          closed) echo "#$n: swept, the pull request is closed" ;;
+          gone) echo "#$n: swept, there is no such pull request" ;;
+          *) echo "#$n: swept, its branch is not in $repo" ;;
+        esac
+        ;;
       *) echo "#$n: no answer from GitHub, kept" ;;
     esac
   done <<<"$numbers"

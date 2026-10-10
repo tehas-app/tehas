@@ -13,6 +13,12 @@ upstream=$T/upstream
 
 # gh answers from fixture files. A file <name>.rc is an exit status.
 t_stub gh '
+# The repository itself: gh-down models the pull request calls failing, repo-fails
+# the repository check failing (a token that lost access gets a 404 for everything).
+if [ "$1 $2" = "api repos/acme/widget" ]; then
+  [ ! -e "$T/fx/repo-fails" ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
+  echo "{\"full_name\":\"Acme/Widget\"}"; exit 0
+fi
 [ ! -e "$T/fx/gh-down" ] || { echo "gh: connection refused" >&2; exit 1; }
 case "$1 $2" in
   "api user") echo "{\"login\":\"factory-bot\"}" ;;
@@ -52,7 +58,14 @@ case "$1" in
     printf "%s\n" "$@" >"$T/calls/docker.run.${name#tehas-preview-}"
     printf "%s\n" "$@" | sed -n "s/^tehas\.sha=//p" >"$d/container-${name#tehas-preview-}"
     echo cid ;;
-  rm) for a in "$@"; do case "$a" in tehas-preview-*) rm -f "$d/container-${a#tehas-preview-}" ;; esac; done ;;
+  rm)
+    for a in "$@"; do
+      case "$a" in
+        tehas-preview-*) rm -f "$d/container-${a#tehas-preview-}" ;;
+        c[0-9]*) rm -f "$d/container-${a#c}"; [ ! -f "$T/fx/extra-containers" ] || sed -i "/^$a /d" "$T/fx/extra-containers" ;;
+        c*) [ ! -f "$T/fx/extra-containers" ] || sed -i "/^$a /d" "$T/fx/extra-containers" ;;
+      esac
+    done ;;
   ps)
     case "$*" in
       *--quiet*)
@@ -62,7 +75,7 @@ case "$1" in
       *)
         for f in "$d"/container-*; do
           [ -f "$f" ] || continue
-          n=${f##*/container-}; echo "c$n $n acme/widget"
+          n=${f##*/container-}; echo "c$n $n acme/widget tehas-preview-$n"
         done
         cat "$T/fx/extra-containers" 2>/dev/null ;;
     esac ;;
@@ -563,7 +576,7 @@ t_eq "$t_rc" 0
 t_eq "$(count "$fx/docker" '*-41')" 2
 t_contains "$t_out" "#41: no answer from GitHub, kept"
 
-t_case "sweep: an answer that is neither open, closed nor 404 keeps everything"
+t_case "sweep: an answer that is a failure (HTTP 403) keeps everything"
 reset
 left 42 0000000000000000000000000000000000000042
 echo '{}' >"$fx/pull-42.json"
@@ -598,7 +611,7 @@ t_eq "$(count "$fx/docker" image-44)" 0
 
 t_case "sweep: a container of another repository, and one with no number, are removed by id"
 reset
-printf '%s\n' "cforeign 7 other/thing" "cbroken x acme/widget" >"$fx/extra-containers"
+printf '%s\n' "cforeign 7 other/thing foreign" "cbroken x acme/widget broken" >"$fx/extra-containers"
 t_run "$preview --sweep"
 t_contains "$(t_calls docker)" "rm -f cforeign"
 t_contains "$(t_calls docker)" "rm -f cbroken"
@@ -619,6 +632,81 @@ t_run "$preview --sweep"
 t_eq "$(jq -r '.removed' "$root/sweep.json")" 0
 t_lacks "$t_out" "swept"
 t_eq "$(cat "$fx/docker/container-45")" "$a"
+
+# unclear <number> <body>: a leftover of that number, and an answer of exit 0 with that body.
+unclear() {
+  left "$1" "00000000000000000000000000000000000000$1"
+  printf '%s\n' "$2" >"$fx/pull-$1.json"
+  t_run "$preview --sweep"
+  t_eq "$(count "$fx/docker" "*-$1")" 2
+  t_eq "$(count "$root" "$1")" 1
+  t_contains "$t_out" "#$1: no answer from GitHub, kept"
+}
+
+t_case "sweep: an answer of {} keeps everything"
+reset
+unclear 47 '{}'
+
+t_case "sweep: a state that is neither open nor closed keeps everything"
+reset
+unclear 48 '{"number":48,"state":"weird","head":{"repo":{"full_name":"acme/widget"}}}'
+
+t_case "sweep: an open answer with no head keeps everything"
+reset
+unclear 49 '{"number":49,"state":"open"}'
+
+t_case "sweep: an answer about another pull request keeps everything"
+reset
+unclear 50 '{"number":51,"state":"closed"}'
+
+t_case "sweep: a state that is not text keeps everything"
+reset
+unclear 53 '{"number":53,"state":true}'
+
+t_case "sweep: an open pull request whose fork was deleted is removed"
+reset
+left 54 0000000000000000000000000000000000000054
+echo '{"number":54,"state":"open","head":{"sha":"x","repo":null}}' >"$fx/pull-54.json"
+t_run "$preview --sweep"
+t_eq "$(count "$fx/docker" '*-54')" 0
+t_contains "$t_out" "#54: swept, its branch is not in acme/widget"
+
+t_case "sweep: a container under another name goes with its closed pull request, once"
+reset
+a=$(commit one)
+pull 63 "$a" >/dev/null
+jq '.state = "closed"' "$fx/pull-63.json" >"$fx/x" && mv "$fx/x" "$fx/pull-63.json"
+echo "cdebug 63 acme/widget cdebug" >"$fx/extra-containers"
+t_run "$preview --sweep"
+t_contains "$(t_calls docker)" "rm -f cdebug"
+t_contains "$t_out" "#63: swept, the pull request is closed"
+t_run "$preview --sweep"
+t_lacks "$t_out" "swept"
+t_eq "$(jq -r '.removed' "$root/sweep.json")" 0
+
+t_case "sweep: a second container of an open pull request is removed by id, the serving one stays"
+reset
+a=$(commit one)
+pulls "$(pull 64 "$a")"
+t_run "$preview"
+echo "cextra 64 acme/widget cextra" >"$fx/extra-containers"
+t_run "$preview --sweep"
+t_contains "$(t_calls docker)" "rm -f cextra"
+t_contains "$t_out" "container cextra: swept, a second container of #64"
+t_eq "$(cat "$fx/docker/container-64")" "$a"
+t_eq "$(jq -r '.removed' "$root/sweep.json")" 1
+
+t_case "sweep: a repository GitHub does not show keeps every pull request, and the label passes still run"
+reset
+left 52 0000000000000000000000000000000000000052
+echo "cforeign 7 other/thing foreign" >"$fx/extra-containers"
+: >"$fx/repo-fails"
+t_run "$preview --sweep"
+t_eq "$t_rc" 0
+t_eq "$(count "$fx/docker" '*-52')" 2
+t_contains "$t_out" "GitHub does not show acme/widget; nothing was swept by its word"
+t_contains "$(t_calls docker)" "rm -f cforeign"
+t_eq "$(jq -r '.removed' "$root/sweep.json")" 1
 
 t_case "a comment GitHub did not take is tried again at the next run"
 reset
