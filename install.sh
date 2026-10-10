@@ -8,8 +8,8 @@
 #                           installed files and tests, each on its own line
 #
 # What is installed: the commands and units (issue to pull request), the
-# sandbox files, the docs server, the Protolab and the manual, plus the
-# instance's own models.json and, if it has one, settings.json.
+# sandbox files, the docs server, the edge router, the Protolab and the manual,
+# plus the instance's own models.json and, if it has one, settings.json.
 #
 # It copies files, and compiles one: the console of a running cycle is a Rust
 # program in console/. A real run builds it with cargo in this checkout
@@ -40,7 +40,7 @@
 # file matching. So a run that dies partway would otherwise leave the files it
 # did copy with no follow-up owed.
 #
-# The follow-ups are named by id (units, sandbox, docs, protolab) in
+# The follow-ups are named by id (units, sandbox, docs, edge) in
 # lib/update-steps.sh, which is the one place that names them. This script
 # prints them as "next: <step>" and records them; `tehas update` runs them and
 # clears the record. Only a step is printed as "next:". Something for a person
@@ -145,8 +145,8 @@ files=(
   "sandbox/build.sh|$TEHAS_HOME/sandbox/build.sh|755"
   "edge/docs.Caddyfile|$TEHAS_HOME/edge/docs.Caddyfile|644"
   "edge/docs.compose.yaml|$TEHAS_HOME/edge/docs.compose.yaml|644"
-  "edge/protolab.Caddyfile|$TEHAS_HOME/edge/protolab.Caddyfile|644"
-  "edge/protolab.compose.yaml|$TEHAS_HOME/edge/protolab.compose.yaml|644"
+  "edge/router.Caddyfile|$TEHAS_HOME/edge/router.Caddyfile|644"
+  "edge/router.compose.yaml|$TEHAS_HOME/edge/router.compose.yaml|644"
   "systemd/tehas-dispatch.service|$units/tehas-dispatch.service|644"
   "systemd/tehas-dispatch.timer|$units/tehas-dispatch.timer|644"
   "systemd/tehas-energy.service|$units/tehas-energy.service|644"
@@ -266,11 +266,12 @@ sync_dir docs
 sync_dir fun
 
 # The commands of before bin/tehas, one file each in bin/, and the console of
-# before it was a compiled program. Found here, removed in step 5 once systemd
-# has the new units.
+# before it was a compiled program. And the Protolab's server files of before the
+# edge router. Found here, removed in step 5 once systemd has the new units.
 old=()
 for f in bin/tehas-console.ts bin/tehas-dispatch bin/tehas-energy bin/tehas-health bin/tehas-index \
-  bin/tehas-protolab bin/tehas-status bin/tehas-test bin/tehas-work libexec/console.ts; do
+  bin/tehas-protolab bin/tehas-status bin/tehas-test bin/tehas-work libexec/console.ts \
+  edge/protolab.Caddyfile edge/protolab.compose.yaml; do
   to=$TEHAS_HOME/$f
   [ -e "$to" ] || continue
   old+=("$to")
@@ -334,7 +335,18 @@ fi
 
 # --- 5. After a real run ------------------------------------------------------
 # The servers mount live/ and protolab/: they have to be there, and ours.
-mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state" "$TEHAS_HOME/tmp" "$TEHAS_HOME/live" "$TEHAS_HOME/protolab"
+mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state" "$TEHAS_HOME/tmp" "$TEHAS_HOME/live" "$TEHAS_HOME/protolab" \
+  "$TEHAS_HOME/preview"
+
+# The previews' network: internal, so a preview reaches nothing. The router's
+# compose file names it as external and `tehasbot preview` puts containers on
+# it, so it is made here, whichever of the two starts first. A host with no
+# Docker yet gets it from `tehasbot preview`.
+if command -v docker >/dev/null 2>&1; then
+  docker network inspect tehas-previews >/dev/null 2>&1 ||
+    docker network create --internal tehas-previews >/dev/null 2>&1 ||
+    note "The network tehas-previews could not be made; the edge router will not start without it."
+fi
 
 # The one place the default branch is looked up over the network.
 if [ -z "${TEHAS_BRANCH:-}" ] && [ -d "$TEHAS_WORK_REPO/.git" ]; then

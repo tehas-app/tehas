@@ -364,7 +364,7 @@ leave the service disabled, or set `TEHAS_ENERGY=off`.
 ```
 tehasbot protolab       # one pass; a line per ticket built or removed
 systemctl --user enable --now tehas-protolab.timer
-. ~/tehas/env.sh && docker compose -f ~/tehas/edge/protolab.compose.yaml up -d
+. ~/tehas/env.sh && docker compose -f ~/tehas/edge/router.compose.yaml up -d
 ```
 
 Builds the Protolab in `~/tehas/protolab`: a page for every open issue
@@ -443,9 +443,9 @@ which ones each id accepts and which of them it requires:
 | `units <unit>...`           | a unit file changed                  | systemd reloaded its unit files, and the unit is active: restarted, never enabled |
 | `sandbox`                   | `sandbox/` or `versions.env` changed | always                                                            |
 | `docs --force-recreate`     | `edge/docs.*` changed                | its container is running: recreated with that flag                 |
-| `protolab --force-recreate` | `edge/protolab.*` changed            | its container is running: recreated with that flag                 |
+| `edge --force-recreate`     | `edge/router.*` changed              | its container is running: recreated with that flag                 |
 
-Both servers are recreated rather than just brought up, because what changed is
+Both containers are recreated rather than just brought up, because what changed is
 the Caddyfile they mount and Caddy reads its config when the process starts:
 `docker compose up -d` alone leaves a running container with an unchanged service
 definition serving the config it loaded at its start.

@@ -1,0 +1,100 @@
+# The edge router: one server for everything tehas publishes by name. Plain
+# HTTP, bound to the instance's TEHAS_HOST_ADDR in router.compose.yaml; the
+# proxy in front of the host carries the certificate.
+#
+# It picks by the first label of the Host header, so no domain is written here:
+#   uat-<number>.   the preview of that pull request, a container named
+#                   tehas-preview-<number> that `tehasbot preview` runs
+#   lab-<number>.   that ticket's page in the Protolab and its files, as
+#                   `tehasbot protolab` wrote them
+#   anything else   the Protolab by path: the list at /, a ticket at /<number>/
+#
+# This file is fixed. Nothing writes it when a preview comes or goes: Docker's
+# own name lookup finds the container, and a name it does not find is a 404.
+#
+# It is a server of its own, apart from the dashboard, because a prototype and
+# a preview are somebody's HTML and script.
+{
+    auto_https off
+    admin off
+}
+:8081 {
+    header X-Robots-Tag "noindex, nofollow"
+    header X-Content-Type-Options "nosniff"
+
+    @preview header_regexp preview Host ^uat-([1-9][0-9]{0,8})\.
+    @ticket header_regexp ticket Host ^lab-([1-9][0-9]{0,8})\.
+    # A uat- or lab- name that is neither of the above: no number, or one
+    # that starts with a zero.
+    @odd header_regexp odd Host ^(uat|lab)-
+    @look path /fun/*.css /fun/*.ttf /fun/*.svg
+    @kept path */.*
+    @hostfiles path /files/*
+    @pathfiles path_regexp ^/[0-9]+/files/.
+
+    route {
+        # A preview answers for itself. What it says about indexing and
+        # sniffing is dropped: this server has already said it.
+        handle @preview {
+            reverse_proxy tehas-preview-{re.preview.1}:8080 {
+                header_down -X-Robots-Tag
+                header_down -X-Content-Type-Options
+            }
+        }
+
+        # From here on, the Protolab.
+        header Referrer-Policy "no-referrer"
+        # The pages are rebuilt in place; a browser asks again every time.
+        header Cache-Control "no-cache"
+        # What `tehasbot protolab` keeps for itself: stamps, lists, work in progress.
+        respond @kept 404
+        # The typeface, the style sheets and the sprites, shared with the
+        # dashboard. Its page and its scripts stay there.
+        handle @look {
+            uri strip_prefix /fun
+            root * /srv/fun
+            file_server
+        }
+        # One ticket under a name of its own, so one prototype's script is a
+        # stranger to another's.
+        handle @ticket {
+            root * /srv/protolab/{re.ticket.1}
+            # A ticket's files, served as they are. The sandbox gives each one
+            # an origin with nothing in it. Scripts may run.
+            handle @hostfiles {
+                header Content-Security-Policy "sandbox allow-scripts allow-forms allow-modals allow-pointer-lock"
+                # A sandboxed page asks for its own scripts and data as a stranger.
+                header Access-Control-Allow-Origin "*"
+                file_server
+            }
+            # The page `tehasbot protolab` wrote: no script, nothing from elsewhere.
+            handle {
+                header Content-Security-Policy "default-src 'none'; style-src 'self'; img-src 'self' data:; media-src 'self'; font-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'"
+                file_server
+            }
+        }
+        handle @odd {
+            respond "No such address." 404
+        }
+        # The Protolab by path: its list, and every ticket for a host that has
+        # no domain for the edge.
+        handle {
+            root * /srv/protolab
+            handle @pathfiles {
+                header Content-Security-Policy "sandbox allow-scripts allow-forms allow-modals allow-pointer-lock"
+                header Access-Control-Allow-Origin "*"
+                file_server
+            }
+            handle {
+                header Content-Security-Policy "default-src 'none'; style-src 'self'; img-src 'self' data:; media-src 'self'; font-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'"
+                file_server
+            }
+        }
+    }
+    handle_errors {
+        # No container of that name, or one that does not answer.
+        @nopreview expression `{err.status_code} in [502, 503, 504]`
+        respond @nopreview "No preview is running at this address. One is built within five minutes of a push to a pull request, and removed when the pull request is closed." 404
+        respond "{err.status_code} {err.status_text}" {err.status_code}
+    }
+}

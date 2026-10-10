@@ -29,7 +29,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/repos/pi-rukas`             | pi-rukas, pinned to a commit                                            |
 | `~/tehas/docs/`, `~/tehas/fun/`      | This site's pages and the front page, installed from `host/`            |
 | `~/tehas/sandbox/`, `versions.env`   | Sandbox image definition, build script, and the pinned tool versions    |
-| `~/tehas/edge/`                      | The docs server (`docs.compose.yaml`) and the Protolab server (`protolab.compose.yaml`) |
+| `~/tehas/edge/`                      | The docs server (`docs.compose.yaml`) and the edge router (`router.compose.yaml`) |
 | `~/tehas/protolab/`                  | The Protolab's pages and the files of each prototype, written by `tehasbot protolab` |
 | `~/tehas/logs/`, `state/`, `live/`, `tmp/` | Logs, lock and status files, dashboard data, scratch              |
 | Docker volume `pi-ensemble-cache`    | Caches of the sandbox, among them the code index `tehas index` builds   |
@@ -88,13 +88,13 @@ tehas update             # pull, install, run the follow-ups that apply
 
 `tehas update` is the three steps that took hand work before: fast-forward
 `~/tehas/platform` from its remote, run `install.sh`, then run each follow-up it
-asks for by name (`units`, `sandbox`, `docs`, `protolab`: see [Commands](/tools)).
+asks for by name (`units`, `sandbox`, `docs`, `edge`: see [Commands](/tools)).
 One line per step, and it stops at the first failure. It checks the instance
 settings against the required list in `lib/config.sh`, the same one install.sh
 checks, before it calls git. It changes nothing when the checkout has local
 changes or cannot be fast-forwarded, and it never enables a unit or starts a
 container the host was not already running: a changed unit is reloaded and
-restarted when it was active, and a docs or Protolab container is recreated when
+restarted when it was active, and a docs or edge router container is recreated when
 it is up - Caddy reads its config when the process starts, so a changed Caddyfile
 needs the container brought back up. Asking Docker or systemd whether one runs and
 getting no answer stops the update; only a real answer counts, not an exit status
@@ -280,7 +280,7 @@ rm -rf "$T"
 | Dispatcher  | systemd user timer `tehas-dispatch.timer`, every 2 minutes | `tail ~/tehas/logs/dispatch.log`                       |
 | Energy use sampler, optional | systemd user service `tehas-energy.service`, every 15 s. Enable it only when the model backend is a [viiwork](https://github.com/janit/viiwork) mesh | `jq .generatedAt ~/tehas/live/energy.json` |
 | Protolab pages | systemd user timer `tehas-protolab.timer`, every 5 minutes | `tail ~/tehas/logs/protolab.log` |
-| Protolab server | `docker compose -f ~/tehas/edge/protolab.compose.yaml up -d` | `curl -i http://tehas-tehas:8081/` |
+| Edge router | `docker compose -f ~/tehas/edge/router.compose.yaml up -d` | `curl -i http://tehas-tehas:8081/` |
 
 The docs server binds to `TEHAS_HOST_ADDR`, port 8080. Without the setting it
 stays on `127.0.0.1`. `docker compose` reads the address from the environment,

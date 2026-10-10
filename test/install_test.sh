@@ -45,8 +45,8 @@ files="./.config/systemd/user/tehas-dispatch.service
 ./tehas/bin/tehasbot
 ./tehas/edge/docs.Caddyfile
 ./tehas/edge/docs.compose.yaml
-./tehas/edge/protolab.Caddyfile
-./tehas/edge/protolab.compose.yaml
+./tehas/edge/router.Caddyfile
+./tehas/edge/router.compose.yaml
 ./tehas/env.sh
 ./tehas/lib/config.sh
 ./tehas/lib/edge.sh
@@ -81,8 +81,8 @@ next_steps() {
   tehas_steps_for systemd/tehas-dispatch.service systemd/tehas-dispatch.timer \
     systemd/tehas-energy.service systemd/tehas-protolab.service \
     systemd/tehas-protolab.timer sandbox/Dockerfile sandbox/build.sh versions.env \
-    edge/docs.Caddyfile edge/docs.compose.yaml edge/protolab.Caddyfile \
-    edge/protolab.compose.yaml
+    edge/docs.Caddyfile edge/docs.compose.yaml edge/router.Caddyfile \
+    edge/router.compose.yaml
 }
 
 t_case "a fresh install: exactly these files"
@@ -97,6 +97,32 @@ t_eq "$(cat "$th/state/update-pending")" "$(next_steps)"
 # install.sh asks systemd for nothing: a copied unit file is not in effect until
 # the step that restarts the units has reloaded it.
 t_eq "$(t_calls systemctl)" ""
+# It makes the previews' network where there is none, and asks nothing else.
+t_eq "$(t_calls docker)" "network inspect tehas-previews"
+t_eq "$([ -d "$th/preview" ] && echo there)" "there"
+
+t_case "a host without the previews' network gets it, internal"
+fresh
+instance
+t_stub docker 'case "$1 $2" in "network inspect") exit 1 ;; esac'
+t_run "$install"
+t_eq "$t_rc" 0
+t_eq "$(t_calls docker)" "network inspect tehas-previews
+network create --internal tehas-previews"
+t_stub docker 'case "$1 $2" in "network inspect"|"network create") exit 1 ;; esac'
+fresh
+instance
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "The network tehas-previews could not be made"
+t_stub docker
+
+t_case "--check makes no network"
+fresh
+instance
+t_run "$install"
+rm -f "$T/calls/docker"
+t_run "$install --check"
 t_eq "$(t_calls docker)" ""
 
 t_case "the manual and the front page are installed"
@@ -114,7 +140,7 @@ for unit in "$home"/.config/systemd/user/*; do
     [ -e "$ref" ] || missing="$missing $ref"
   done < <(grep -o '%h/tehas/[A-Za-z0-9_./-]*' "$unit" | sed "s|%h|$home|")
 done
-for file in docs.compose.yaml protolab.compose.yaml; do
+for file in docs.compose.yaml router.compose.yaml; do
   for ref in $(grep -o '"\.\.\?/[A-Za-z0-9_./-]*:' "$th/edge/$file" | tr -d '":'); do
     [ -e "$th/edge/$ref" ] || missing="$missing $ref"
   done
@@ -515,7 +541,7 @@ t_lacks "$t_out" "next: "
 t_eq "$(cat "$th/state/update-pending")" "units tehas-dispatch.timer tehas-energy.service tehas-protolab.timer
 sandbox
 docs --force-recreate
-protolab --force-recreate"
+edge --force-recreate"
 
 t_case "the follow-ups it prints are the ids lib/update-steps.sh defines"
 fresh
@@ -524,7 +550,7 @@ t_stub systemctl
 t_run "$install"
 t_eq "$t_rc" 0
 t_eq "$(printf '%s\n' "$t_out" | sed -n 's/^next: //p')" \
-  "$(tehas_steps_for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env edge/docs.compose.yaml edge/protolab.compose.yaml)"
+  "$(tehas_steps_for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env edge/docs.compose.yaml edge/router.compose.yaml)"
 # Steps, not shell text for a person to paste.
 t_lacks "$t_out" "docker compose -f"
 t_lacks "$t_out" "systemctl --user enable"

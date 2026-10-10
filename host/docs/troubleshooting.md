@@ -215,6 +215,17 @@ that blocks reading - stops the update with exit 1 rather than read as "nothing
 owed": it holds steps, and writing over it would lose them. Make it readable
 again, or delete it once you have run those steps yourself.
 
+## The edge router does not start
+
+A host that ran the Protolab's server under its old name has a container of
+the project `tehas-protolab` holding port 8081. Remove it once, then start the
+router: `docker compose -p tehas-protolab down`, then
+`. ~/tehas/env.sh && docker compose -f ~/tehas/edge/router.compose.yaml up -d`.
+
+The router also needs the network `tehas-previews`, which `install.sh` makes. If
+compose says the network is not found, run `docker network create --internal
+tehas-previews`.
+
 ## This site shows an old page
 
 The pages are installed copies in `~/tehas/docs`. After a change is merged:

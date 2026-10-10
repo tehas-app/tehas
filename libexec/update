@@ -10,7 +10,7 @@
 # not already running. A changed unit is restarted only when it was active, and a
 # compose server is recreated only where its container is already up - recreated,
 # because what changes is the config file it mounts and it reads that when its
-# process starts. An instance with no Protolab server does not get one from an
+# process starts. An instance with no edge router does not get one from an
 # update.
 #
 # The follow-ups are named by id, never by command text. install.sh prints
@@ -18,7 +18,7 @@
 # same lines in $TEHAS_HOME/state/update-pending as it copies each file. This
 # command runs only the ids lib/update-steps.sh defines, each as its own command
 # with the arguments written on that line - and the arguments are part of the
-# step: a docs or protolab line without the --force-recreate those steps need is
+# step: a docs or edge line without the --force-recreate those steps need is
 # refused, because the weaker renewal would leave a running container serving the
 # config it loaded at its start and still be counted as done. An id that file does
 # not define is not run and is said out loud: a step this command cannot perform
@@ -400,7 +400,7 @@ fi
 # A compose server is renewed only where it already runs: an update keeps a
 # service the host is using current, it does not add one to the host. Whether it
 # runs is asked of Docker with one plain ps on the project name the compose file
-# pins (name: tehas-docs, name: tehas-protolab); the shell tests assert those
+# pins (name: tehas-docs, name: tehas-edge); the shell tests assert those
 # names are still in the files. docker compose is for the renewal only.
 # The arguments are the ones written on install.sh's line, checked before use.
 compose_up() { # name project file [argument...]
@@ -544,7 +544,7 @@ run_step() { # step line
     units) restart_units "${argv[@]:1}" ;;
     sandbox) build_sandbox ;;
     docs) compose_up docs tehas-docs "$TEHAS_HOME/edge/docs.compose.yaml" "${argv[@]:1}" ;;
-    protolab) compose_up protolab tehas-protolab "$TEHAS_HOME/edge/protolab.compose.yaml" "${argv[@]:1}" ;;
+    edge | protolab) compose_up edge tehas-edge "$TEHAS_HOME/edge/router.compose.yaml" "${argv[@]:1}" ;;
     *)
       echo "WARN: no step this command knows for: $1" >&2
       return 1
