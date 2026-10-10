@@ -111,7 +111,7 @@ tehas work <issue> [--restart]
 ```
 
 It starts `pi --mode rpc --approve` in a container, sends `/work <issue>` and
-waits until `.pi/work-state/<issue>.json` in the checkout leaves `running`.
+waits until `.pi/work-state/<issue>.json` in the workspace `~/tehas/work/<name>-<issue>` leaves `running`.
 
 | Exit | Meaning                                                          |
 | ---- | ---------------------------------------------------------------- |
@@ -282,7 +282,9 @@ systemctl --user stop tehas-cycle@12       # end the cycle for issue 12
 
 It runs [tehas work](#tehas-work) for the issue, reads the cycle's state file
 from the workspace, finds the pull request the bot opened, and relabels and
-comments: merged, `tehas:awaiting-merge`, or `needs-human-attention`. A
+comments: merged, `tehas:awaiting-merge`, or `needs-human-attention`. It
+then removes the workspace of a cycle that merged or left a pull request, and
+keeps the workspace of one that stopped. A
 stopped unit stops the container and is reported as a cycle that ended without
 a pull request. It checks no authorisation: the dispatcher did that before it
 started the unit.

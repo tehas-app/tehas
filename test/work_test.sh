@@ -55,12 +55,14 @@ unknown_options() { # <image> <options that take a value> <options that take non
 t_case "a work directory tehas did not make is left alone"
 t_instance "${T_MINIMAL[@]}"
 T_ENV=(GH_TOKEN=test-token)
-mkdir -p "$T/home/tehas/work/widget"
+mkdir -p "$T/home/tehas/work/widget" "$T/home/tehas/work/widget-7"
 echo keep >"$T/home/tehas/work/widget/notes.txt"
+echo keep >"$T/home/tehas/work/widget-7/notes.txt"
 t_run "$work 7"
 t_eq "$t_rc" 78
 t_contains "$t_out" "was not made by tehas"
 t_eq "$(cat "$T/home/tehas/work/widget/notes.txt")" keep
+t_eq "$(cat "$T/home/tehas/work/widget-7/notes.txt")" keep
 t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
 rm -rf "$T/home/tehas/work"
 
