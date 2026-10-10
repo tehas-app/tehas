@@ -82,6 +82,26 @@ t_case "the console is the program beside this one, given the cycle's log, the t
 t_contains "$(t_calls console)" "--rpc $T/home/tehas/logs/work-7-"
 t_contains "$(t_calls console)" ".jsonl --runs $T/home/.pi/agent/ensemble-runs --out $T/home/tehas/live/console-7.txt --since "
 
+t_case "a console that fails is named with its exit status and where it wrote why"
+t_lacks "$t_out" "the console ended"
+printf '#!/usr/bin/env bash\necho "cannot write" >&2\nexit 1\n' >"$tree/libexec/console"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "tehas work: the console ended with 1, see $T/home/tehas/logs/work-7-"
+t_eq "$(cat "$T"/home/tehas/logs/work-7-*.jsonl.console | sort -u)" "cannot write"
+
+t_case "without a console the cycle still runs, and says there is none"
+mv "$tree/libexec/console" "$T/console.kept"
+rm -f "$T"/calls/docker*
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "tehas work: no console at $tree/libexec/console"
+t_lacks "$t_out" "the console ended"
+t_contains "$(cycle_args | tr '\n' ' ')" "pi --mode rpc --approve"
+t_stub console
+mv "$T/bin/console" "$tree/libexec/console"
+t_run "$work 7"
+
 t_case "the cycle works in a fresh clone at the branch's tip, with the product's origin"
 t_eq "$(git -C "$ws" rev-parse HEAD)" "$(git -C "$upstream" rev-parse main)"
 t_eq "$(git -C "$ws" branch --show-current)" main

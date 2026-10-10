@@ -270,6 +270,8 @@ script and follows the cycle's agents into `~/tehas/live/console-<issue>.txt`, m
 tokens, passwords and private network addresses. The mask catches accidents;
 it cannot stop an agent that sets out to print a secret another way, so treat
 the console of a published dashboard as public. Neither needs running by hand.
+What the console itself complains about goes to `~/tehas/logs/work-<issue>-<time>.jsonl.console`,
+and the work script says so when the console is missing or ends with an error.
 
 ## tehasbot health
 

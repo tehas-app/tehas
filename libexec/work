@@ -122,8 +122,11 @@ live=$TEHAS_HOME/live
 mkdir -p "$live"
 console=$live/console-$issue.txt
 : >"$console"
+# The cycle does not depend on it: without a console it runs all the same,
+# and this says why the dashboard shows none.
+[ -x "$here/console" ] || echo "tehas work: no console at $here/console, so the dashboard shows none; run install.sh"
 "$here/console" --rpc "$log" \
-  --runs "$agent/ensemble-runs" --out "$console" --since "$((started - 5))" >/dev/null 2>&1 &
+  --runs "$agent/ensemble-runs" --out "$console" --since "$((started - 5))" >/dev/null 2>"$log.console" &
 cpid=$!
 now_file() { # running? status step
   local text
@@ -169,6 +172,8 @@ wait "$pid" 2>/dev/null
 sleep 3 # let the console catch the last transcript lines
 kill -TERM "$cpid" 2>/dev/null
 wait "$cpid" 2>/dev/null
+crc=$?
+[ "$crc" = 0 ] || [ ! -x "$here/console" ] || echo "tehas work: the console ended with $crc, see $log.console"
 
 step=$(jq -r '.pipelineState.currentStep // "-"' "$state" 2>/dev/null || echo -)
 now_file false "$status" "$step"
