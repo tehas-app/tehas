@@ -3,7 +3,8 @@
 #
 # Deterministic, no model. It picks at most one open issue labelled
 # tehas:ready, runs a pi-rukas /work cycle for it with tehas-work, and
-# reports the outcome back on the issue (and the token usage on the PR).
+# reports the outcome back on the issue (and the token usage on the PR). The
+# poll also runs one turn of a planning session, when an answer is waiting.
 # A systemd timer runs it every two minutes; a cycle in progress simply makes
 # the following polls wait.
 #
@@ -24,9 +25,13 @@
 #      answer: on a parked cycle, "Retry from a clean start" starts a fresh
 #      cycle. The awaiting-merge limit holds that back too. The tick counts
 #      only on a parked issue, and it is unticked when it is used.
-#   4. An issue is eligible only if its tehas:ready label was applied by an
+#   4. A reply or a ticked option on a planning question runs the next turn
+#      of that session. An issue whose tehas:plan label was applied by an
+#      allowed account starts a session. Neither waits for the awaiting-merge
+#      limit: a planning turn opens no pull request.
+#   5. An issue is eligible only if its tehas:ready label was applied by an
 #      account in TEHAS_ALLOWED_LABELERS. The bot is never in that list.
-#   5. tehas:urgent first, then the lowest issue number. One at a time.
+#   6. tehas:urgent first, then the lowest issue number. One at a time.
 #
 # Instance settings (lib/config.sh; defaults in brackets):
 #   TEHAS_REPO              owner/name of the product repository, required
@@ -35,8 +40,9 @@
 #   TEHAS_MAX_AWAITING      open tehas:awaiting-merge issues allowed [3]
 #   TEHAS_WORK_REPO         checkout cycles run in [$TEHAS_HOME/repos/<name>]
 #   TEHAS_BRANCH            branch work lands on [the checkout's origin/HEAD]
+#   TEHAS_PLAN_MAX_TURNS    turns a planning session may take [20]
 # From the environment, for tests: TEHAS_WORK_CMD, TEHAS_STATUS_CMD,
-# TEHAS_INDEX_CMD.
+# TEHAS_INDEX_CMD, TEHAS_PLAN_CMD.
 set -uo pipefail
 
 # The usage is this file's own header comment: every line from the second to the
@@ -99,6 +105,8 @@ if [ "$mode" = labels ]; then
   mk tehas:pause 000000 "Tehas: on the control issue, stops all dispatch"
   mk needs-human-attention b60205 "Cycle parked; the handoff comment says what to do"
   mk tehas:question 5319e7 "Tehas: a question on this issue waits for an answer"
+  mk tehas:plan 0e8a16 "Tehas: start a planning session on this issue (apply by hand)"
+  mk tehas:planning 1d76db "Tehas: a planning turn is running for this issue"
   exit 0
 fi
 
@@ -113,6 +121,7 @@ workdir=$TEHAS_WORK_DIR
 work=${TEHAS_WORK_CMD:-tehas-work}
 status_cmd=${TEHAS_STATUS_CMD:-tehas-status}
 index_cmd=${TEHAS_INDEX_CMD:-tehas-index}
+plan_cmd=${TEHAS_PLAN_CMD:-tehas-plan}
 # Known before anything is touched: a cycle must never start from a guess,
 # nor in a checkout of another repository.
 tehas_checkout || exit 78
@@ -147,6 +156,8 @@ post_question() {
   posted=$(gh api "repos/$repo/issues/$2/comments" -f body="$body" --jq .id 2>/dev/null) || return 1
   [ -n "$posted" ]
 }
+# shellcheck source=lib/planning.sh
+. "$here/../lib/planning.sh"
 
 # Do not burn an issue on a mesh that cannot answer: every agent would fail
 # and the issue would park. Leave it queued and look again next poll.
@@ -372,9 +383,39 @@ held=0
 # 3. Questions that wait for an answer. An answer is a box ticked in the
 # bot's question comment, or for a planning session a reply after it, and it
 # counts only from an allowed account.
+# A planning turn whose outcome could not be posted is posted first: its
+# session is waiting on a comment nobody has seen.
+fresh=" "
+for st in "$TEHAS_HOME"/state/plan-*.json; do
+  [ -f "$st" ] || continue
+  [ "$(jq -r '.pending // false' "$st" 2>/dev/null)" = true ] || continue
+  n=${st##*/plan-}
+  n=${n%.json}
+  if [ "$dry" = 1 ]; then
+    log "would post the waiting planning turn of #$n"
+  else
+    plan_post "$n" || true
+  fi
+  # Its question label is newer than the list read below.
+  fresh="$fresh$n "
+done
+
 gh_json issue list --repo "$repo" --state open --label tehas:question --limit 100 --json number,labels
 asking_json=$json
 asking=$(jq -r 'map(.number) | sort | .[]' <<<"$asking_json") || { log "ERROR: unreadable list of issues with a question"; exit 1; }
+# A session whose issue was closed, or whose question label was taken off by
+# hand, is over. Its record goes without a comment.
+for st in "$TEHAS_HOME"/state/plan-*.json; do
+  [ -f "$st" ] || continue
+  [ "$(jq -r '.pending // false' "$st" 2>/dev/null)" = true ] && continue
+  n=${st##*/plan-}
+  n=${n%.json}
+  case "$fresh" in *" $n "*) continue ;; esac
+  case " ${asking//$'\n'/ } " in
+    *" $n "*) ;;
+    *) [ "$dry" = 1 ] || rm -f "$st" "$st.out" "$st.answer" "$st.brief" ;;
+  esac
+done
 bot=""
 for n in $asking; do
   if [ -z "$bot" ]; then
@@ -459,7 +500,81 @@ for n in $asking; do
       run_cycle "$n" "$by" "retry ticked" "retry tick" --remove-label needs-human-attention --remove-label tehas:question
       exit 0
       ;;
+    plan)
+      # A reply says more than a box, so it wins when both are there.
+      reply=$(jq -r '.reply.text // ""' <<<"$ans")
+      if [ -n "$reply" ]; then
+        by=$(jq -r .reply.by <<<"$ans")
+      elif [ "$tick" != one ]; then
+        continue
+      fi
+      st=$(plan_state "$n")
+      if [ ! -f "$st" ]; then
+        [ "$dry" = 1 ] || plan_end "$n" "The record of this planning session is gone from the host, so it cannot continue. Apply \`tehas:plan\` to start a new one."
+        continue
+      fi
+      # Only the question the session is waiting on counts: an older or stray
+      # bot question must not run a turn.
+      if [ "$(jq -r '.comment // ""' "$st" 2>/dev/null)" != "$(jq -r .comment <<<"$ans")" ]; then
+        log "skip #$n: the question answered is not the one this session is waiting on"
+        continue
+      fi
+      if [ -n "$reply" ]; then
+        text="The operator replied on the issue:
+
+$reply"
+      else
+        idx=$(jq -r .tick.index <<<"$ans")
+        # The last box is always the way out.
+        if [ "$idx" = "$(($(jq -r .boxes <<<"$ans") - 1))" ]; then
+          [ "$dry" = 1 ] || plan_end "$n" "Planning session ended by $by."
+          continue
+        fi
+        choice=$(jq -r --argjson i "$idx" '.options[$i] // ""' "$st" 2>/dev/null) || choice=""
+        if [ -z "$choice" ]; then
+          log "skip #$n: the ticked box matches no option on record"
+          continue
+        fi
+        text="The operator chose: $choice"
+      fi
+      mesh_ok || exit 0
+      if [ "$dry" = 1 ]; then
+        log "would run a planning turn for #$n (answer from $by)"
+        exit 0
+      fi
+      printf '%s\n' "$text" >"$st.answer"
+      log "planning #$n continues (answer from $by)"
+      plan_turn "$n" next "$st.answer"
+      "$status_cmd"
+      exit 0
+      ;;
   esac
+done
+
+# 4. New planning sessions. The label approves the text, as tehas:ready does,
+# so the text is read before the approval is checked: an edit made in between
+# is then seen by the check.
+gh_json issue list --repo "$repo" --state open --label tehas:plan --limit 100 --json number,labels
+plans=$(jq -r '[.[] | (.labels | map(.name)) as $l
+        | select((["tehas:planning", "tehas:question", "tehas:running"] - $l | length) == 3) | .number]
+        | sort | .[]' <<<"$json") || { log "ERROR: unreadable list of issues to plan"; exit 1; }
+for n in $plans; do
+  gh_json issue view "$n" --repo "$repo" --json title,body
+  brief=$json
+  approval "$n" tehas:plan || continue
+  mesh_ok || exit 0
+  if [ "$dry" = 1 ]; then
+    log "would start a planning session for #$n (labelled by $who)"
+    exit 0
+  fi
+  st=$(plan_state "$n")
+  rm -f "$st" "$st.out" "$st.answer"
+  jq -r '"# \(.title // "")\n\n\(.body // "")"' <<<"$brief" >"$st.brief" ||
+    { log "ERROR: unreadable text of #$n"; exit 1; }
+  log "start planning #$n (labelled by $who)"
+  plan_turn "$n" first "$st.brief"
+  "$status_cmd"
+  exit 0
 done
 
 if [ "$held" = 1 ]; then
@@ -467,7 +582,7 @@ if [ "$held" = 1 ]; then
   exit 0
 fi
 
-# 4. and 5. Candidates: urgent first, then by number.
+# 5. and 6. Candidates: urgent first, then by number.
 gh_json issue list --repo "$repo" --state open --label tehas:ready --limit 100 --json number,labels
 candidates=$(jq -r '[.[] | (.labels | map(.name)) as $l
           | select(($l | index("tehas:running") | not) and ($l | index("tehas:awaiting-merge") | not)

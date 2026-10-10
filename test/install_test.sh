@@ -41,6 +41,7 @@ files="./.config/systemd/user/tehas-dispatch.service
 ./tehas/bin/tehas-energy
 ./tehas/bin/tehas-health
 ./tehas/bin/tehas-index
+./tehas/bin/tehas-plan
 ./tehas/bin/tehas-protolab
 ./tehas/bin/tehas-status
 ./tehas/bin/tehas-test
@@ -51,6 +52,7 @@ files="./.config/systemd/user/tehas-dispatch.service
 ./tehas/edge/protolab.compose.yaml
 ./tehas/env.sh
 ./tehas/lib/config.sh
+./tehas/lib/planning.sh
 ./tehas/lib/questions.sh
 ./tehas/lib/sandbox.sh
 ./tehas/sandbox/Dockerfile

@@ -105,6 +105,7 @@ units=$HOME/.config/systemd/user
 files=(
   "env.sh|$TEHAS_HOME/env.sh|644"
   "lib/config.sh|$TEHAS_HOME/lib/config.sh|644"
+  "lib/planning.sh|$TEHAS_HOME/lib/planning.sh|644"
   "lib/sandbox.sh|$TEHAS_HOME/lib/sandbox.sh|644"
   "lib/questions.sh|$TEHAS_HOME/lib/questions.sh|644"
   "versions.env|$TEHAS_HOME/versions.env|644"
@@ -122,7 +123,7 @@ files=(
   "pi/mcp.json|$agent/mcp.json|644"
   "$instance/models.json|$agent/models.json|644"
 )
-for f in tehas-console.ts tehas-dispatch tehas-energy tehas-health tehas-index tehas-protolab tehas-status tehas-work tehas-test; do
+for f in tehas-console.ts tehas-dispatch tehas-energy tehas-health tehas-index tehas-plan tehas-protolab tehas-status tehas-work tehas-test; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
 # Pi's own settings: the instance may bring its own (default provider and

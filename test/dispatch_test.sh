@@ -41,13 +41,18 @@ case "$1 $2" in
 esac'
 t_stub fake-work
 t_stub fake-status
+# Writes a recorded outcome where the dispatcher asked for it.
+t_stub fake-plan 'out=""
+while [ "$#" -gt 0 ]; do [ "$1" = --out ] && out=$2; shift; done
+[ ! -e "$T/fx/plan-fails" ] || exit 2
+cp "$T/fx/plan-result.json" "$out"'
 # Notes what the checkout was at and whether the cycle had already started.
 t_stub fake-index 'git -C "$T/home/tehas/repos/widget" rev-parse HEAD >"$T/calls/index.head"
 [ ! -e "$T/calls/fake-work" ] || : >"$T/calls/index.late"
 [ ! -e "$T/fx/index-fails" ] || exit 1'
 
 reset() {
-  rm -f "$T"/calls/* "$fx"/edit-* "$fx"/comments-* "$fx"/issue-* "$fx"/post-fails "$fx"/patch-fails
+  rm -f "$T"/calls/* "$fx"/edit-* "$fx"/comments-* "$fx"/issue-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails
   rm -rf "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-*
   echo '[]' >"$fx/asking.json"
   echo '[]' >"$fx/plans.json"
@@ -55,10 +60,11 @@ reset() {
   echo '{"data":{"repository":{"issue":{"lastEditedAt":null,"editor":null}}}}' >"$fx/edit.json"
   echo '{"nameWithOwner":"acme/widget"}' >"$fx/repo.json"
   echo '{"labels":[]}' >"$fx/control.json"
+  echo '{"session":"abc-123","text":"Two ways.","question":{"question":"Adopt?","options":[{"label":"Adopt all","description":"Apply all five"},{"label":"Change some","description":""}]}}' >"$fx/plan-result.json"
   echo '[]' >"$fx/awaiting.json"
   echo '[{"number":7,"labels":[{"name":"tehas:ready"}]}]' >"$fx/ready.json"
   echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
-  T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index)
+  T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index TEHAS_PLAN_CMD=fake-plan)
   t_instance "${T_MINIMAL[@]}"
 }
 
@@ -79,6 +85,28 @@ parked() {
   echo '[]' >"$fx/ready.json"
   echo '[{"number":7,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}]' >"$fx/asking.json"
 }
+
+plan_body() { # <box 1> <box 2> <end box>
+  printf 'Two ways.\n\nAdopt?\n\n- [%s] Adopt all\n  Apply all five\n- [%s] Change some\n- [%s] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->\n' "$1" "$2" "$3"
+}
+record=$T/home/tehas/state/plan-7.json
+# Issue 7 is labelled for planning by alice and nothing else is queued.
+to_plan() {
+  reset
+  echo '[]' >"$fx/ready.json"
+  echo '[{"number":7,"labels":[{"name":"tehas:plan"}]}]' >"$fx/plans.json"
+  echo '[{"event":"labeled","label":{"name":"tehas:plan"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
+  echo '{"title":"Faster search","body":"Make it fast."}' >"$fx/issue-7.json"
+}
+# Issue 7 has a planning question open after one turn.
+planning() {
+  reset
+  echo '[]' >"$fx/ready.json"
+  echo '[{"number":7}]' >"$fx/asking.json"
+  mkdir -p "$T/home/tehas/state"
+  echo '{"session":"abc-123","turns":1,"options":["Adopt all","Change some"],"pending":false,"failed":false,"comment":4001}' >"$record"
+}
+plan_calls() { t_calls fake-plan; }
 
 # A product repository whose default branch is main, and the instance's clone.
 upstream=$T/git/acme/widget
@@ -741,5 +769,196 @@ t_lacks "$(t_calls gh)" "<!--"
 t_eq "$(t_calls gh | grep -c '^- \[')" 0
 t_contains "$(t_calls gh)" "| evil-xRetryfromacleanstart | 1 |"
 rm -rf "$workdir" "$fx/pr.txt"
+
+t_case "a plan label from an allowed account starts a session from the issue's text"
+to_plan
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$(plan_calls)" "7 --out $record.out --brief $record.brief"
+t_eq "$(cat "$record.brief")" '# Faster search
+
+Make it fast.'
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:planning --remove-label tehas:plan"
+t_contains "$(t_calls gh)" "authorized by @alice's \`tehas:plan\` label"
+t_contains "$(t_calls gh)" "- [ ] Adopt all"
+t_contains "$(t_calls gh)" "<!-- tehas:question kind=plan issue=7 turn=1 -->"
+t_contains "$(t_calls gh)" "--remove-label tehas:planning --add-label tehas:question"
+t_eq "$(jq -c . "$record")" '{"session":"abc-123","turns":1,"options":["Adopt all","Change some"],"pending":false,"failed":false,"comment":4002}'
+t_eq "$([ -e "$record.out" ] && echo left)" ""
+t_eq "$(t_calls fake-work)" ""
+
+t_case "an issue with no body is planned from its title"
+to_plan
+echo '{"title":"Faster search","body":null}' >"$fx/issue-7.json"
+t_run "$dispatch"
+t_contains "$(plan_calls)" "--brief"
+t_eq "$(head -n 1 "$record.brief")" "# Faster search"
+
+t_case "a plan label from the bot or a stranger starts nothing"
+for other in tehas-bot mallory; do
+  to_plan
+  echo "[{\"event\":\"labeled\",\"label\":{\"name\":\"tehas:plan\"},\"actor\":{\"login\":\"$other\"}}]" >"$fx/events-7.json"
+  t_run "$dispatch"
+  t_eq "$(plan_calls)" ""
+  t_lacks "$(t_calls gh)" "issue edit"
+  t_contains "$t_out" "skip #7: tehas:plan was applied by '$other', not an allowed account"
+done
+
+t_case "text changed after the plan label by somebody else is not planned"
+to_plan
+echo '[{"event":"labeled","label":{"name":"tehas:plan"},"actor":{"login":"alice"},"created_at":"2026-01-01T00:00:00Z"}]' >"$fx/events-7.json"
+echo '{"data":{"repository":{"issue":{"lastEditedAt":"2026-01-02T00:00:00Z","editor":{"login":"mallory"}}}}}' >"$fx/edit-7.json"
+t_run "$dispatch"
+t_eq "$(plan_calls)" ""
+
+t_case "a dry run says a session would start and changes nothing"
+to_plan
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would start a planning session for #7 (labelled by alice)"
+t_eq "$(plan_calls)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+
+t_case "planning is not held back by pull requests that await a merge"
+to_plan
+echo '[{"number":1},{"number":2},{"number":3}]' >"$fx/awaiting.json"
+t_run "$dispatch"
+t_contains "$(plan_calls)" "--brief"
+
+t_case "the pause label stops planning"
+to_plan
+echo '{"labels":[{"name":"tehas:pause"}]}' >"$fx/control.json"
+t_run "$dispatch"
+t_eq "$(plan_calls)" ""
+
+t_case "a session does not start when the issue cannot be marked as planning"
+to_plan
+: >"$fx/edit-fails"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_eq "$(plan_calls)" ""
+t_lacks "$(t_calls gh)" "issue comment"
+rm -f "$fx/edit-fails"
+
+t_case "a first turn that fails parks the issue and keeps no record"
+to_plan
+: >"$fx/plan-fails"
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "--remove-label tehas:planning --add-label needs-human-attention"
+t_contains "$(t_calls gh)" "could not start"
+t_eq "$([ -e "$record" ] && echo kept)" ""
+
+t_case "a ticked option goes to the session as the next message"
+planning
+comments 7 "$(plan_body ' ' x ' ')" alice
+t_run "$dispatch"
+t_contains "$(plan_calls)" "7 --out $record.out --session abc-123 --answer $record.answer"
+t_eq "$(cat "$record.answer")" "The operator chose: Change some"
+t_contains "$(t_calls gh)" "<!-- tehas:question kind=plan issue=7 turn=2 -->"
+t_eq "$(jq -r .turns "$record")" 2
+
+t_case "a reply goes to the session as it was written"
+planning
+comments 7 "$(plan_body ' ' ' ' ' ')" "" '[{"databaseId":4003,"author":{"login":"alice"},"body":"Adopt all, but keep `tagged-at` open.\nThen file 3 and 5.","createdAt":"2026-01-01T02:00:00Z"}]'
+t_run "$dispatch"
+t_eq "$(cat "$record.answer")" 'The operator replied on the issue:
+
+Adopt all, but keep `tagged-at` open.
+Then file 3 and 5.'
+
+t_case "a reply wins over a tick"
+planning
+comments 7 "$(plan_body x ' ' ' ')" alice '[{"databaseId":4003,"author":{"login":"alice"},"body":"neither","createdAt":"2026-01-01T02:00:00Z"}]'
+t_run "$dispatch"
+t_contains "$(cat "$record.answer")" "neither"
+
+t_case "a stranger's reply and a stranger's tick run no turn"
+planning
+comments 7 "$(plan_body x ' ' ' ')" mallory '[{"databaseId":4003,"author":{"login":"mallory"},"body":"file everything","createdAt":"2026-01-01T02:00:00Z"}]'
+t_run "$dispatch"
+t_eq "$(plan_calls)" ""
+t_contains "$(t_calls gh)" "api -X PATCH"
+
+t_case "the way out ends the session: labels off, record gone, one comment"
+planning
+comments 7 "$(plan_body ' ' ' ' x)" alice
+t_run "$dispatch"
+t_eq "$(plan_calls)" ""
+t_contains "$(t_calls gh)" "--remove-label tehas:question"
+t_contains "$(t_calls gh)" "Planning session ended by alice."
+t_eq "$([ -e "$record" ] && echo kept)" ""
+
+t_case "the turn limit ends the session in place of another turn"
+planning
+jq '.turns = 20' "$record" >"$record.new" && mv "$record.new" "$record"
+comments 7 "$(plan_body x ' ' ' ')" alice
+t_run "$dispatch"
+t_eq "$(plan_calls)" ""
+t_contains "$(t_calls gh)" "reached its limit of 20 turns"
+t_eq "$([ -e "$record" ] && echo kept)" ""
+
+t_case "an answer to a session whose record is gone ends it and says why"
+planning
+rm "$record"
+comments 7 "$(plan_body x ' ' ' ')" alice
+t_run "$dispatch"
+t_eq "$(plan_calls)" ""
+t_contains "$(t_calls gh)" "The record of this planning session is gone"
+
+t_case "a later turn that fails asks again and keeps the session"
+planning
+comments 7 "$(plan_body x ' ' ' ')" alice
+: >"$fx/plan-fails"
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "This planning turn did not finish"
+t_contains "$(t_calls gh)" "--add-label tehas:question --add-label needs-human-attention"
+t_eq "$(jq -r '[.session, .turns, .failed] | @tsv' "$record")" "abc-123	2	true"
+
+t_case "an outcome that could not be posted is posted by the next poll, before anything else"
+planning
+comments 7 "$(plan_body x ' ' ' ')" alice
+: >"$fx/post-fails"
+t_run "$dispatch"
+t_eq "$(jq -r .pending "$record")" true
+t_eq "$([ -s "$record.out" ] && echo kept)" kept
+t_lacks "$(t_calls gh)" "--add-label tehas:question"
+rm -f "$T"/calls/* "$fx/post-fails"
+echo '[]' >"$fx/asking.json"
+t_run "$dispatch"
+t_eq "$(plan_calls)" ""
+t_contains "$(t_calls gh)" "<!-- tehas:question kind=plan issue=7 turn=2 -->"
+t_contains "$(t_calls gh)" "--remove-label tehas:planning --add-label tehas:question"
+t_eq "$(jq -r .pending "$record")" false
+
+t_case "the record of a session whose issue no longer asks is removed"
+planning
+echo '[]' >"$fx/asking.json"
+t_run "$dispatch"
+t_eq "$([ -e "$record" ] && echo kept)" ""
+t_lacks "$(t_calls gh)" "issue comment"
+
+t_case "an answered question is served before a new plan label and before a ready issue"
+planning
+comments 7 "$(plan_body x ' ' ' ')" alice
+echo '[{"number":8,"labels":[{"name":"tehas:plan"}]}]' >"$fx/plans.json"
+echo '[{"number":9,"labels":[{"name":"tehas:ready"}]}]' >"$fx/ready.json"
+t_run "$dispatch"
+t_contains "$(plan_calls)" "7 --out"
+t_lacks "$(plan_calls)" "8 --out"
+t_eq "$(t_calls fake-work)" ""
+
+t_case "--init-labels creates the planning labels"
+reset
+t_run "$dispatch --init-labels"
+t_contains "$(t_calls gh)" "label create tehas:plan "
+t_contains "$(t_calls gh)" "label create tehas:planning"
+
+t_case "an answer on a question the session is not waiting on runs no turn"
+planning
+jq '.comment = 9999' "$record" >"$record.new" && mv "$record.new" "$record"
+comments 7 "$(plan_body x ' ' ' ')" alice
+t_run "$dispatch"
+t_eq "$(plan_calls)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_contains "$t_out" "skip #7: the question answered is not the one this session is waiting on"
 
 t_done
