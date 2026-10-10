@@ -30,7 +30,7 @@ The examples on this site come from the instance that works on tehas itself:
 | Platform checkout | `~/tehas/platform`, pulled with a read-only deploy key |
 | Settings         | `instances/tehas-tehas/` in the platform checkout       |
 | Dashboard        | <http://tehas-tehas:8080> on the private network, published as <https://tehas.app> |
-| Control issue    | 5                                                       |
+| Control issue    | 1                                                       |
 
 ## How an issue flows
 

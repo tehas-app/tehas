@@ -2,6 +2,9 @@
        template renders <path>.md from the same directory. */ -}}
 {{- $path := trimSuffix "/" (trimPrefix "/" .OriginalReq.URL.Path) -}}
 {{- if eq $path "" }}{{ $path = "dashboard" }}{{ end -}}
+{{- /* The path is printed into the page below. A page is one flat name, so
+       anything else is not a page: no markup, no dot segments, no encoding. */ -}}
+{{- if not (regexMatch "^[a-z0-9-]+$" $path) }}{{ httpError 404 }}{{ end -}}
 {{- $file := printf "/%s.md" $path -}}
 {{- /* A page is Markdown, or a raw HTML fragment (<path>.frag) for the
        dashboard, which needs its own markup and script. */ -}}

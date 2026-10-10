@@ -1,0 +1,4 @@
+# Every change needs the review of a person named here. The ruleset on main
+# requires review from code owners, so an approval by the bot account, which
+# has write access, is not enough to merge.
+* @janit

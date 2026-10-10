@@ -9,6 +9,7 @@ dispatch="$T_ROOT/bin/tehas-dispatch"
 fx=$T/fx
 mkdir -p "$fx"
 checkout=$T/home/tehas/repos/widget
+workdir=$T/home/tehas/work/widget
 
 # gh answers from fixture files; every call is recorded by t_stub.
 t_stub gh '
@@ -23,14 +24,20 @@ case "$1 $2" in
     esac ;;
   "api repos/acme/widget/issues/"*)
     n=${2#repos/acme/widget/issues/}
-    cat "$T/fx/events-${n%/events}.json" || exit 1 ;;
+    cat "$T/fx/events-${n%/events*}.json" || exit 1 ;;
+  "api graphql")
+    n=$(printf "%s\n" "$@" | sed -n "s/^number=//p")
+    cat "$T/fx/edit-$n.json" 2>/dev/null || cat "$T/fx/edit.json" || exit 1 ;;
+  "issue edit") [ ! -e "$T/fx/edit-fails" ] || exit 1 ;;
   "pr list") cat "$T/fx/pr.txt" 2>/dev/null ;;
 esac'
 t_stub fake-work
 t_stub fake-status
 
 reset() {
-  rm -f "$T"/calls/*
+  rm -f "$T"/calls/* "$fx"/edit-*
+  rm -rf "$T/home/tehas/state/cycles"
+  echo '{"data":{"repository":{"issue":{"lastEditedAt":null,"editor":null}}}}' >"$fx/edit.json"
   echo '{"nameWithOwner":"acme/widget"}' >"$fx/repo.json"
   echo '{"labels":[]}' >"$fx/control.json"
   echo '[]' >"$fx/awaiting.json"
@@ -225,14 +232,117 @@ t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human
 
 t_case "a cycle that ends with a pull request waits for a human and is reported on it"
 reset
-mkdir -p "$checkout/.pi/work-state"
-echo '{"pipelineState":{"status":"handoff","currentStep":"commit-pr","branchName":"feature/x"}}' >"$checkout/.pi/work-state/7.json"
+mkdir -p "$workdir/.pi/work-state"
+echo '{"pipelineState":{"status":"handoff","currentStep":"commit-pr","branchName":"feature/x"}}' >"$workdir/.pi/work-state/7.json"
 echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label tehas:awaiting-merge"
 t_contains "$(t_calls gh)" "pr comment https://github.com/acme/widget/pull/9"
-rm -rf "$checkout/.pi" "$fx/pr.txt"
+t_contains "$(t_calls gh)" "pr list --repo acme/widget --head feature/x --author @me"
+rm -rf "$workdir" "$fx/pr.txt"
+
+t_case "a state file in the product checkout is not the cycle's: the container never writes there"
+reset
+mkdir -p "$checkout/.pi/work-state"
+echo '{"pipelineState":{"status":"merged","currentStep":"done","branchName":"feature/x"}}' >"$checkout/.pi/work-state/7.json"
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
+rm -rf "$checkout/.pi"
+
+t_case "a first cycle starts plainly, a later one for the same issue restarts"
+reset
+t_run "$dispatch"
+t_eq "$(t_calls fake-work)" "7"
+rm -f "$T"/calls/*
+t_run "$dispatch"
+t_eq "$(t_calls fake-work)" "7 --restart"
+
+t_case "a real poll does not start an issue the bot labelled"
+reset
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}},
+       {"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"the-bot"}}]' >"$fx/events-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-work)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "issue comment"
+
+t_case "every page of the label events is read, a hundred at a time"
+t_contains "$(t_calls gh)" "api repos/acme/widget/issues/7/events?per_page=100 --paginate"
+
+t_case "a cycle does not start when the issue cannot be marked as running"
+reset
+: >"$fx/edit-fails"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "could not mark #7 as running"
+t_eq "$(t_calls fake-work)" ""
+rm -f "$fx/edit-fails"
+
+t_case "a body edited by its author after the label was applied is not approved"
+reset
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-01-02T10:00:00Z"}]' >"$fx/events-7.json"
+echo '{"data":{"repository":{"issue":{"lastEditedAt":"2026-01-02T10:05:00Z","editor":{"login":"mallory"}}}}}' >"$fx/edit-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-work)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "skip #7: its text was changed by 'mallory' after alice applied tehas:ready"
+
+t_case "an edit before the label was applied is what the label approved"
+reset
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-01-02T10:00:00Z"}]' >"$fx/events-7.json"
+echo '{"data":{"repository":{"issue":{"lastEditedAt":"2026-01-02T09:59:59Z","editor":{"login":"mallory"}}}}}' >"$fx/edit-7.json"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would run a cycle for #7"
+
+t_case "an edit after the label by an allowed account keeps the approval"
+reset
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-01-02T10:00:00Z"}]' >"$fx/events-7.json"
+echo '{"data":{"repository":{"issue":{"lastEditedAt":"2026-01-02T10:05:00Z","editor":{"login":"alice"}}}}}' >"$fx/edit-7.json"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would run a cycle for #7"
+
+t_case "an edit after the label by nobody known is not approved"
+reset
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-01-02T10:00:00Z"}]' >"$fx/events-7.json"
+echo '{"data":{"repository":{"issue":{"lastEditedAt":"2026-01-02T10:05:00Z","editor":null}}}}' >"$fx/edit-7.json"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "skip #7: its text was changed by 'unknown'"
+
+t_case "a title changed after the label by another account is not approved"
+reset
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-01-02T10:00:00Z"},
+       {"event":"renamed","actor":{"login":"mallory"},"created_at":"2026-01-02T10:01:00Z"}]' >"$fx/events-7.json"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "skip #7: its text was changed by 'mallory'"
+
+t_case "an edited issue does not hold up the one behind it"
+reset
+echo '[{"number":7,"labels":[{"name":"tehas:ready"}]},{"number":8,"labels":[{"name":"tehas:ready"}]}]' >"$fx/ready.json"
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-01-02T10:00:00Z"}]' >"$fx/events-7.json"
+cp "$fx/events-7.json" "$fx/events-8.json"
+echo '{"data":{"repository":{"issue":{"lastEditedAt":"2026-01-02T10:05:00Z","editor":{"login":"mallory"}}}}}' >"$fx/edit-7.json"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would run a cycle for #8"
+rm -f "$fx/events-8.json"
+
+t_case "when the edit record cannot be read the issue is not taken"
+reset
+rm -f "$fx/edit.json"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_eq "$(t_calls fake-work)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+
+t_case "a pause answer that cannot be understood dispatches nothing"
+reset
+echo '{"labels":null}' >"$fx/control.json"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_eq "$(t_calls fake-work)" ""
 
 t_case "TEHAS_BRANCH overrides the checkout's default branch"
 reset

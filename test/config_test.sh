@@ -215,4 +215,10 @@ t_contains "$t_out" "rc=78 b=[]"
 t_contains "$t_out" "TEHAS_BRANCH"
 t_contains "$t_out" "install.sh"
 
+t_case "the cycle's workspace is under the tehas tree and is not a setting"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_DIR=/somewhere/else
+t_run "$load && echo \"\$TEHAS_WORK_DIR\""
+t_eq "$t_rc" 0
+t_eq "$t_out" "$T/home/tehas/work/widget"
+
 t_done
