@@ -1,4 +1,4 @@
-# The Protolab server: the pages and files tehas-protolab writes to
+# The Protolab server: the pages and files `tehasbot protolab` writes to
 # ../protolab, on port 8081. Part of every install; it does not need the docs
 # server, and it is started only where the Protolab is wanted.
 #

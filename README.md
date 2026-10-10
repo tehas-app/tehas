@@ -44,7 +44,9 @@ cycle.
 
 - A Linux host with Docker. `bootstrap.sh` supports Ubuntu 26.04 on x86_64.
 - An OpenAI-compatible model endpoint the host can reach. It has to serve two
-  requests at once.
+  requests at once. [viiwork](https://github.com/janit/viiwork) is one that fits:
+  a flexible meshed inference platform for both home and enterprise grade hardware.
+  The example instance uses it. Any other OpenAI-compatible endpoint works too.
 - A GitHub bot account that can push to the product repository.
 - In the product repository: `AGENTS.md`, `.pi/verify-cmd` and
   `.pi/settings.json`. The ones in this repository are a working example.
@@ -87,7 +89,7 @@ The manual is in [`host/docs/`](host/docs/). Every instance serves it on port
 | [A new project](host/docs/new-project.md) | Installing tehas for your repository |
 | [Bootstrap a host](host/docs/bootstrap.md) | Preparing a fresh machine |
 | [The host](host/docs/host.md) | Files on the machine, settings, the sandbox image |
-| [Commands](host/docs/tools.md) | Every `tehas-*` command |
+| [Commands](host/docs/tools.md) | `tehas`, `tehasbot` and what each of their commands does |
 | [Troubleshooting](host/docs/troubleshooting.md) | What each kind of stop means |
 
 Agents can start from [`host/docs/llms.txt`](host/docs/llms.txt).
@@ -115,8 +117,10 @@ image. The rules for changes are in [`AGENTS.md`](AGENTS.md).
 
 | Path | What it is |
 | --- | --- |
-| `bin/` | The commands, installed to `~/tehas/bin` |
+| `bin/` | The two commands: `tehas` for a person, `tehasbot` for the units. Installed to `~/tehas/bin` |
+| `libexec/` | The scripts behind them, bash and one Deno script. Installed to `~/tehas/libexec` |
 | `lib/config.sh` | Loads and checks the instance settings |
+| `lib/sandbox.sh` | What a sandbox container is given, for a cycle and for a session by hand |
 | `host/` | Everything else that is installed: units, the docs server, the sandbox image, the manual |
 | `install.sh`, `bootstrap.sh` | Install tehas on a host, and prepare a host's tools |
 | `instances/` | `example/` to copy, and `tehas-tehas/`, the settings of the example instance |

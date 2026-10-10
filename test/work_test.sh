@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Tests for bin/tehas-work: what the cycle's container is given. A stub docker
+# Tests for libexec/work: what the cycle's container is given. A stub docker
 # records its arguments, one per line, and exits at once, so no cycle runs.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh"
 
-work="$T_ROOT/bin/tehas-work"
+work="$T_ROOT/libexec/work"
 checkout=$T/home/tehas/repos/widget
 ws=$T/home/tehas/work/widget
 # The product repository, and the host's checkout of it.
@@ -70,6 +70,9 @@ t_eq "$(after --memory)" "512m"
 t_case "the image and the working directory come from the settings"
 t_contains "$(cycle_args | tr '\n' ' ')" "tehas/pi-rukas:uid$(id -u) pi --mode rpc --approve"
 t_eq "$(after -w)" "$ws"
+
+t_case "the console is the script beside this one, not a name on PATH"
+t_contains "$(t_calls deno)" "run -A $T_ROOT/libexec/console.ts --rpc"
 
 t_case "the cycle works in a fresh clone at the branch's tip, with the product's origin"
 t_eq "$(git -C "$ws" rev-parse HEAD)" "$(git -C "$upstream" rev-parse main)"

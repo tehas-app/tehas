@@ -92,7 +92,7 @@ compute on the issue.
 Watch it on the [factory floor](/) or the [plain dashboard](/dashboard): the queue, the issue being worked on with its
 console streaming live, and what is waiting for you.
 
-Optional, and only when the model backend is a viiwork mesh with
+Optional, and only when the model backend is a [viiwork](https://github.com/janit/viiwork) mesh with
 `tehas-energy.service` enabled: the factory floor also has a section
 **Energy use**: what the machines serving the factory draw now, their kWh over
 24 hours and 30 days, the last 30 minutes as a chart, and the factory's models
@@ -106,7 +106,7 @@ in the last minute. The tokens are the mesh's count for those models, so other
 users of the same models are in it.
 With any other backend the section and the meter are simply not there, and
 nothing else changes. To turn them off on a viiwork mesh, see
-[tehas-energy](/tools).
+[the energy sampler](/tools).
 
 The dispatcher takes one issue at a time, urgent first, then the lowest issue
 number.
@@ -121,12 +121,17 @@ number.
 When the cycle starts and when it ends, the bot comments on the issue. The token
 usage per agent role is posted on the pull request.
 
-A timer polls every two minutes. To see or force a poll by hand on the host:
+A timer polls every two minutes. To see the factory's state, or to see or force
+a poll by hand on the host:
 
 ```
-tehas-dispatch --dry-run     # what would it do?
-tehas-dispatch               # do it (returns when the cycle ends)
+tehas status                 # taking work? the queue, the current or last cycle
+tehas dispatch --dry-run     # what would it do?
+tehas dispatch               # do it (returns when the cycle ends)
 ```
+
+`tehas` is the one command to type on the host; `tehas help` lists what it
+does. See [Commands](/tools).
 
 ## 4. Review and merge
 
@@ -180,8 +185,8 @@ already running finishes. Remove the label to resume.
 Skips the queue, the labels and the comments:
 
 ```
-tehas-work 123            # exit 0: merged or parked, 1: aborted, 2: died or timed out
-tehas-work 123 --restart
+tehas work 123            # exit 0: merged or parked, 1: aborted, 2: died or timed out
+tehas work 123 --restart
 ```
 
 It does not take the dispatcher's lock, so a poll can start a queue cycle while
@@ -208,6 +213,45 @@ agents are working in: what you change there changes the cycle. Do not use
 typed there is passed to Pi and ends the cycle.
 
 To steer a cycle, let it park or stop it, make the issue clearer and apply
-`tehas:ready` again. To work with pi-rukas interactively, apply `tehas:pause`
-and run it through its own wrapper in a clone of your own. That is outside the
-queue: no labels, no bot comments.
+`tehas:ready` again. To work with pi-rukas interactively, start a session of
+your own, as below.
+
+## Work by hand on the host
+
+The host that runs the factory is also a place to work yourself. Log in as the
+tehas user and start a session:
+
+```
+tehas dev alice --author "Alice Example <alice@example.com>"   # the first time
+tehas dev alice                                                # from then on
+tehas dev alice -- -r                                          # resume an earlier session
+```
+
+That is an interactive Pi with pi-rukas, in the sandbox, on the factory's
+models. There is nothing to configure: the image, the models, the limits and
+the bot's token are the factory's own.
+
+- **Where you work.** `~/tehas/dev/alice`, a clone made the first time from
+  the product checkout, at the tip it last fetched. It is yours and it stays:
+  tehas never resets or removes it. Pull inside the session if it is behind.
+  Another name is another clone; with no name it is `main`.
+- **Whose name is on the commits.** The author you gave, stored in
+  `~/tehas/dev/alice.author`. Every commit of the session carries it, yours
+  and the agents'. Without one the commits carry the bot's name, and the
+  command says so when it starts.
+- **Who pushes.** The bot. The push and the pull request go through its token,
+  so GitHub shows the bot as the author of the pull request and your name on
+  the commits. The author is a label, not a login: anyone on the account can
+  give any name. A rule that needs a review from somebody other than the pull
+  request's author looks at the bot, so read the commit authors before you
+  approve.
+- **The factory beside you.** Nothing is paused. A session and a cycle share
+  the model endpoint, and the command tells you when a cycle is running. Apply
+  `tehas:pause` first if you want the models to yourself. The energy section
+  and the token meter count a session, because they measure the models; the
+  factory floor does not show it.
+- **Outside the queue.** No labels and no bot comments. The dispatcher does
+  not know the session exists.
+
+One session per clone at a time. What the session's container is given is on
+[The host](/host).

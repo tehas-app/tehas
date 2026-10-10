@@ -2,16 +2,15 @@
 # The tehas dispatcher: one poll of the GitHub issue queue.
 #
 # Deterministic, no model. It picks at most one open issue labelled
-# tehas:ready, runs a pi-rukas /work cycle for it with tehas-work, and
+# tehas:ready, runs a pi-rukas /work cycle for it with tehas work, and
 # reports the outcome back on the issue (and the token usage on the PR).
 # A systemd timer runs it every two minutes; a cycle in progress simply makes
 # the following polls wait.
 #
 # Usage:
-#   tehas-dispatch               one poll
-#   tehas-dispatch --dry-run     say what a poll would do, change nothing
-#   tehas-dispatch --init-labels create the tehas labels in the repository
-#   tehas-dispatch -h|--help     print this text and exit 0
+#   tehas dispatch               one poll
+#   tehas dispatch --dry-run     say what a poll would do, change nothing
+#   tehas dispatch -h|--help     print this text and exit 0
 #
 # Exit: 0 the poll ran, or there was nothing to do; 64 an argument this command
 # does not know, which starts no poll; 78 instance settings are missing or
@@ -44,7 +43,7 @@ show_usage() {
 }
 
 unknown_argument() {
-  printf 'tehas-dispatch: unknown argument: %s\n' "$1" >&2
+  printf 'tehas dispatch: unknown argument: %s\n' "$1" >&2
   show_usage >&2
   exit 64
 }
@@ -58,13 +57,12 @@ if [ "$#" -gt 0 ]; then
   case "$1" in
     -h | --help) mode=help ;;
     --dry-run) mode=dry ;;
-    --init-labels) mode=labels ;;
     # An empty argument is an argument too: it is not a poll.
     *) unknown_argument "$1" ;;
   esac
 fi
 # At most one argument. A second is refused, never combined with the first, so
-# --dry-run --init-labels cannot be read as two intents at once.
+# --dry-run --help cannot be read as two intents at once.
 if [ "$#" -gt 1 ]; then
   unknown_argument "$2"
 fi
@@ -82,19 +80,6 @@ tehas_load || exit 78
 
 log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*"; }
 
-if [ "$mode" = labels ]; then
-  tehas_require TEHAS_REPO
-  repo=$TEHAS_REPO
-  mk() { gh label create "$1" --repo "$repo" --color "$2" --description "$3" --force >/dev/null && echo "label $1"; }
-  mk tehas:ready 0e8a16 "Tehas: eligible for dispatch (apply by hand to authorize a cycle)"
-  mk tehas:urgent d93f0b "Tehas: dispatch before other ready issues"
-  mk tehas:running 1d76db "Tehas: a /work cycle owns this issue"
-  mk tehas:awaiting-merge fbca04 "Tehas: PR open and reviewed, waiting for a human"
-  mk tehas:pause 000000 "Tehas: on the control issue, stops all dispatch"
-  mk needs-human-attention b60205 "Cycle parked; the handoff comment says what to do"
-  exit 0
-fi
-
 tehas_require TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS \
   PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
 repo=$TEHAS_REPO
@@ -103,9 +88,9 @@ allowed=" $TEHAS_ALLOWED_LABELERS "
 max_awaiting=$TEHAS_MAX_AWAITING
 checkout=$TEHAS_WORK_REPO
 workdir=$TEHAS_WORK_DIR
-work=${TEHAS_WORK_CMD:-tehas-work}
-status_cmd=${TEHAS_STATUS_CMD:-tehas-status}
-index_cmd=${TEHAS_INDEX_CMD:-tehas-index}
+work=${TEHAS_WORK_CMD:-$here/work}
+status_cmd=${TEHAS_STATUS_CMD:-$here/status}
+index_cmd=${TEHAS_INDEX_CMD:-$here/index}
 # Known before anything is touched: a cycle must never start from a guess,
 # nor in a checkout of another repository.
 tehas_checkout || exit 78
@@ -241,7 +226,7 @@ fi
 comment "Tehas cycle started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC (authorized by @$who's \`tehas:ready\` label). This issue is owned by the cycle until \`tehas:running\` is removed."
 
 # Cycles start from the product's default branch; keep the checkout current.
-# tehas-work clones the cycle's workspace from it. No container is ever given
+# tehas work clones the cycle's workspace from it. No container is ever given
 # this checkout, so running git here runs nothing an agent wrote. Put it back
 # on the branch only when it is clean: never discard someone's changes.
 if [ -z "$(git -C "$checkout" status --porcelain --untracked-files=no)" ]; then

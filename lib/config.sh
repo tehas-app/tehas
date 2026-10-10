@@ -156,7 +156,7 @@ tehas_load() {
   # Derived and optional settings.
   if [ -n "${TEHAS_REPO:-}" ]; then
     export TEHAS_WORK_REPO=${TEHAS_WORK_REPO:-$TEHAS_HOME/repos/${TEHAS_REPO##*/}}
-    # Where a cycle works: a fresh clone that tehas-work makes for each cycle,
+    # Where a cycle works: a fresh clone that tehas work makes for each cycle,
     # and the only tree the cycle's container can write. Not a setting: the
     # directory is removed before every cycle.
     export TEHAS_WORK_DIR=$TEHAS_HOME/work/${TEHAS_REPO##*/}

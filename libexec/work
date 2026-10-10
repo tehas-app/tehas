@@ -6,7 +6,7 @@
 # starts `pi --mode rpc` in the sandbox, sends "/work <issue>" as one RPC
 # prompt, then watches the cycle's state file until it leaves "running".
 #
-# Usage: tehas-work <issue-number> [--restart]
+# Usage: tehas work <issue-number> [--restart]
 #
 # Exit status: 0 the cycle ended as merged or handoff (parked for a human),
 #              1 it ended as aborted,
@@ -39,13 +39,15 @@
 set -uo pipefail
 
 issue=${1:-}
-case "$issue" in '' | *[!0-9]*) echo "usage: tehas-work <issue-number> [--restart]" >&2; exit 64 ;; esac
+case "$issue" in '' | *[!0-9]*) echo "usage: tehas work <issue-number> [--restart]" >&2; exit 64 ;; esac
 flags=""
 [ "${2:-}" = "--restart" ] && flags=" --restart"
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/config.sh
 . "$here/../lib/config.sh"
+# shellcheck source=lib/sandbox.sh
+. "$here/../lib/sandbox.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
 # Docker would create a missing mount source as a root-owned directory.
@@ -60,60 +62,32 @@ log=$TEHAS_HOME/logs/work-$issue-$(date -u +%y%m%d-%H%M%S).jsonl
 name=tehas-work-$issue
 agent=$HOME/.pi/agent
 
-[ -n "${GH_TOKEN:-}" ] || { echo "tehas-work: GH_TOKEN is not set (source ~/tehas/env.sh)" >&2; exit 64; }
-mkdir -p "$TEHAS_HOME/logs" "$agent/ensemble-runs" "$agent/sessions" "$HOME/.vipune"
+[ -n "${GH_TOKEN:-}" ] || { echo "tehas work: GH_TOKEN is not set (source ~/tehas/env.sh)" >&2; exit 64; }
+mkdir -p "$TEHAS_HOME/logs"
 
-hosts=()
-IFS=',' read -ra pairs <<<"${PI_ENSEMBLE_HOST_ALIASES:-}"
-for p in "${pairs[@]}"; do [ -n "$p" ] && hosts+=(--add-host="$p"); done
-
-# The same mounts as the pi-rukas wrapper, minus the Docker socket, SSH keys
-# and image directories. Only the bot token and PI_ENSEMBLE_* settings are
-# passed in, not the whole host environment.
-envs=(-e GH_TOKEN -e PI_ENSEMBLE_SANDBOX_MODE=1 -e "PI_ENSEMBLE_WORKSPACE_ROOT=$repo")
-
-# git inside the sandbox has no configuration of its own: no credential helper
-# and no identity. Without the helper the driver commits but cannot push, and
-# the cycle parks after all the work is done. Hand git the bot's token through
-# gh (which reads GH_TOKEN) and the bot's identity, as environment-level
-# config: it outranks any file, reaches every agent process, and writes
-# nothing into the checkout.
+# The bot's identity is the tehas user's own. What the container is given is
+# assembled in lib/sandbox.sh, which tehas dev uses too.
 bot_name=$(git config --global user.name || true)
 bot_email=$(git config --global user.email || true)
 [ -n "$bot_name" ] && [ -n "$bot_email" ] ||
-  { echo "tehas-work: git user.name and user.email are not set for $(id -un)" >&2; exit 64; }
-envs+=(-e GIT_CONFIG_COUNT=4
-  -e "GIT_CONFIG_KEY_0=credential.https://github.com.helper" -e "GIT_CONFIG_VALUE_0="
-  -e "GIT_CONFIG_KEY_1=credential.https://github.com.helper" -e "GIT_CONFIG_VALUE_1=!gh auth git-credential"
-  -e "GIT_CONFIG_KEY_2=user.name" -e "GIT_CONFIG_VALUE_2=$bot_name"
-  -e "GIT_CONFIG_KEY_3=user.email" -e "GIT_CONFIG_VALUE_3=$bot_email"
-  -e GIT_TERMINAL_PROMPT=0)
-while IFS='=' read -r var _; do
-  case "$var" in PI_ENSEMBLE_IMAGE | PI_ENSEMBLE_HOST_ALIASES) ;; PI_ENSEMBLE_*) envs+=(-e "$var") ;; esac
-done < <(env)
+  { echo "tehas work: git user.name and user.email are not set for $(id -un)" >&2; exit 64; }
+mapfile -d '' -t envs < <(tehas_sandbox_env "$repo" "$bot_name" "$bot_email")
+mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$repo")
+mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
+[ "${#envs[@]}" -gt 0 ] && [ "${#mounts[@]}" -gt 0 ] ||
+  { echo "tehas work: could not prepare the sandbox, not starting a cycle" >&2; exit 78; }
 
 # A fresh workspace for this cycle, at the tip the product checkout last
 # fetched for the branch. What an earlier cycle left behind goes with the old
 # one. Only a directory this command made is ever removed.
-base=$(git -C "$src" rev-parse -q --verify "refs/remotes/origin/$branch^{commit}") ||
-  { echo "tehas-work: $src has no origin/$branch, not starting a cycle" >&2; exit 78; }
-url=$(git -C "$src" config --get remote.origin.url)
 works=$(dirname "$repo")
 if [ -e "$works" ] && [ ! -f "$works/.tehas-workspaces" ]; then
-  echo "tehas-work: $works exists and was not made by tehas, not touching it" >&2
+  echo "tehas work: $works exists and was not made by tehas, not touching it" >&2
   exit 78
 fi
-workspace() {
-  mkdir -p "$works" && : >"$works/.tehas-workspaces" && rm -rf "$repo" &&
-    git init -q -b "$branch" "$repo" &&
-    git -C "$repo" remote add origin "$url" &&
-    git -C "$repo" fetch -q --no-tags "$src" '+refs/remotes/origin/*:refs/remotes/origin/*' &&
-    git -C "$repo" symbolic-ref refs/remotes/origin/HEAD "refs/remotes/origin/$branch" &&
-    git -C "$repo" checkout -q -B "$branch" "$base" &&
-    git -C "$repo" branch -q --set-upstream-to="origin/$branch" "$branch"
-}
-if ! workspace; then
-  echo "tehas-work: could not make the workspace $repo, not starting a cycle" >&2
+if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces" && rm -rf "$repo" &&
+  tehas_sandbox_clone "$src" "$repo" "$branch"; }; then
+  echo "tehas work: could not make the workspace $repo, not starting a cycle" >&2
   exit 78
 fi
 
@@ -122,7 +96,7 @@ fi
 if ! docker run --rm --user "$(id -u):$(id -g)" -e HOME=/home/vscode "${envs[@]}" \
   -w "$repo" -v "$repo:$repo" --entrypoint git "$image" \
   push --dry-run origin HEAD:refs/heads/tehas-preflight >"$log.preflight" 2>&1; then
-  echo "tehas-work: the sandbox cannot push to origin, not starting a cycle:"
+  echo "tehas work: the sandbox cannot push to origin, not starting a cycle:"
   tail -n 3 "$log.preflight" | sed 's/^/    /'
   exit 3
 fi
@@ -134,34 +108,27 @@ rm "$fifo"
 
 docker run --rm -i --name "$name" \
   --cpus "$TEHAS_WORK_CPUS" --memory "$TEHAS_WORK_MEMORY" \
-  -w "$repo" -v "$repo:$repo" \
-  -v "$HOME/.vipune:/home/vscode/.vipune" \
-  -v "$agent/ensemble-runs:/home/vscode/.pi/agent/ensemble-runs" \
-  -v "$agent/sessions:/home/vscode/.pi/agent/sessions" \
-  -v "$agent/models.json:/home/vscode/.pi/agent/models.json:ro" \
-  -v "$agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro" \
-  -v pi-ensemble-cache:/home/vscode/.cache \
-  -v pi-ensemble-bun-cache:/home/vscode/.bun \
+  -w "$repo" "${mounts[@]}" \
   "${envs[@]}" "${hosts[@]}" \
   "$image" pi --mode rpc --approve <&3 >"$log" 2>"$log.err" &
 pid=$!
 
 started=$(date +%s)
 printf '{"id":"work","type":"prompt","message":"/work %s%s"}\n' "$issue" "$flags" >&3
-echo "tehas-work: issue $issue started, log $log"
+echo "tehas work: issue $issue started, log $log"
 
 # For the dashboard: a readable console of this cycle and a small "now" file.
 live=$TEHAS_HOME/live
 mkdir -p "$live"
 console=$live/console-$issue.txt
 : >"$console"
-deno run -A "$TEHAS_HOME/bin/tehas-console.ts" --rpc "$log" \
+deno run -A "$here/console.ts" --rpc "$log" \
   --runs "$agent/ensemble-runs" --out "$console" --since "$((started - 5))" >/dev/null 2>&1 &
 cpid=$!
 now_file() { # running? status step
   local text
   # The line is the agent's own words and the file is served by the dashboard:
-  # private addresses are masked, as tehas-console.ts does for the console.
+  # private addresses are masked, as console.ts does for the console.
   text=$(tail -c 60000 "$log" 2>/dev/null | grep -o '"statusText":"[^"]*"' | tail -n 1 | cut -d'"' -f4 |
     sed -E 's/(^|[^0-9.])(10\.[0-9]{1,3}|192\.168|172\.(1[6-9]|2[0-9]|3[01])|169\.254|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7]))\.[0-9]{1,3}\.[0-9]{1,3}/\1[private address]/g')
   jq -n --argjson issue "$issue" --argjson running "$1" --arg status "$2" --arg step "$3" \
@@ -186,7 +153,7 @@ while kill -0 "$pid" 2>/dev/null; do
     [ "$status" != running ] && break
   fi
   if [ $(($(date +%s) - started)) -ge "$limit" ]; then
-    echo "tehas-work: time limit of ${limit}s passed"
+    echo "tehas work: time limit of ${limit}s passed"
     break
   fi
 done
@@ -206,7 +173,7 @@ wait "$cpid" 2>/dev/null
 step=$(jq -r '.pipelineState.currentStep // "-"' "$state" 2>/dev/null || echo -)
 now_file false "$status" "$step"
 notices=$(jq -r 'select(.type=="extension_ui_request" and .method=="notify") | .message' "$log" 2>/dev/null | tail -n 5)
-echo "tehas-work: issue=$issue status=$status step=$step state_written=$seen seconds=$(($(date +%s) - started))"
+echo "tehas work: issue=$issue status=$status step=$step state_written=$seen seconds=$(($(date +%s) - started))"
 [ -n "$notices" ] && printf '%s\n' "$notices" | sed 's/^/    /'
 
 case "$status" in
