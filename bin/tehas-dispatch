@@ -121,6 +121,194 @@ flock -n 8 || { [ "$dry" = 1 ] && log "another dispatch holds the lock (a cycle 
 json=""
 gh_json() { json=$(gh "$@" 2>/dev/null) || { log "ERROR: gh $1 $2 failed"; exit 1; }; }
 
+# say <issue> <text>, label <issue> <gh issue edit options...>: comment on an
+# issue and change its labels. A failure is a warning in the log, not the end
+# of the poll.
+say() { gh issue comment "$1" --repo "$repo" --body "$2" >/dev/null 2>&1 || log "WARN: comment on #$1 failed"; }
+label() {
+  local n=$1
+  shift
+  gh issue edit "$n" --repo "$repo" "$@" >/dev/null 2>&1 || log "WARN: label change on #$n failed: $*"
+}
+
+# Do not burn an issue on a mesh that cannot answer: every agent would fail
+# and the issue would park. Leave it queued and look again next poll.
+mesh_ok() {
+  local mesh model=$PI_ENSEMBLE_SUBAGENT_MODEL
+  mesh=$(jq -r --arg p "$PI_ENSEMBLE_SUBAGENT_PROVIDER" '.providers[$p].baseUrl // ""' "$HOME/.pi/agent/models.json" 2>/dev/null)
+  if [ -n "$mesh" ] && [ -n "$model" ] &&
+    ! curl -fsS -m 10 "$mesh/models" 2>/dev/null | jq -e --arg m "$model" '.data | any(.id == $m)' >/dev/null 2>&1; then
+    log "holding: the mesh at $mesh does not offer $model right now"
+    return 1
+  fi
+}
+
+# approval <issue> <label>: who applied the label most recently, and when, in
+# $who and $at; the issue's events in $events. Returns 1, with the reason
+# logged, unless that was an allowed account and the text is still what it
+# approved. A failed call to GitHub ends the poll.
+events=""
+who=""
+at=""
+approval() {
+  local n=$1 name=$2 ready
+  # Who applied the label most recently, and when?
+  gh_json api "repos/$repo/issues/$n/events?per_page=100" --paginate
+  events=$json
+  ready=$(jq -rs --arg l "$name" 'add // [] | map(select(.event == "labeled" and .label.name == $l)) | last
+                  | "\(.actor.login // "") \(.created_at // "")"' <<<"$events") ||
+    { log "ERROR: unreadable label events of #$n"; exit 1; }
+  who=${ready%% *}
+  at=${ready#* }
+  # No name is nobody: a deleted account or a missing event never matches.
+  case "${who:+$allowed}" in
+    *" $who "*) ;;
+    *)
+      log "skip #$n: $name was applied by '${who:-unknown}', not an allowed account"
+      return 1
+      ;;
+  esac
+  unchanged_since "$n" "$at" "$who applied $name"
+}
+
+# unchanged_since <issue> <time> <what happened then> [how to approve again]
+# Needs $events. An approval covers the text that was there when it was given.
+# A title or body changed afterwards by anyone else has not been approved by
+# anybody: the issue waits until an allowed account approves it again. Returns
+# 1, with the reason logged, if that happened.
+unchanged_since() {
+  local n=$1 since=$2 what=$3 again=${4:-apply the label again} renamed edited editors edited_at stale e
+  renamed=$(jq -rs --arg at "$since" 'add // [] | map(select(.event == "renamed" and ($at == "" or .created_at > $at)))
+                  | map(.actor.login // "") | join(" ")' <<<"$events") ||
+    { log "ERROR: unreadable label events of #$n"; exit 1; }
+  # shellcheck disable=SC2016  # $owner, $name and $number are GraphQL variables
+  gh_json api graphql -F owner="${repo%%/*}" -F name="${repo##*/}" -F number="$n" \
+    -f query='query($owner: String!, $name: String!, $number: Int!) {
+      repository(owner: $owner, name: $name) { issue(number: $number) { lastEditedAt editor { login } } } }'
+  edited=$(jq -r '.data.repository.issue | "\(.editor.login // "") \(.lastEditedAt // "")"' <<<"$json") ||
+    { log "ERROR: unreadable edit record of #$n"; exit 1; }
+  editors=$renamed
+  edited_at=${edited#* }
+  if [ -n "$edited_at" ] && { [ -z "$since" ] || [[ $edited_at > $since ]]; }; then
+    editors="$editors ${edited%% *}"
+    [ -n "${edited%% *}" ] || editors="$editors unknown"
+  fi
+  stale=""
+  for e in $editors; do
+    case "$allowed" in *" $e "*) ;; *) stale=$e ;; esac
+  done
+  if [ -n "$stale" ]; then
+    log "skip #$n: its text was changed by '$stale' after $what; $again to approve it"
+    return 1
+  fi
+}
+
+# Cycles start from the product's default branch; keep the checkout current.
+# tehas-work clones the cycle's workspace from it. No container is ever given
+# this checkout, so running git here runs nothing an agent wrote. Put it back
+# on the branch only when it is clean: never discard someone's changes.
+refresh_checkout() {
+  if [ -z "$(git -C "$checkout" status --porcelain --untracked-files=no)" ]; then
+    git -C "$checkout" checkout -q "$branch" || log "WARN: could not switch $checkout to $branch"
+  else
+    log "WARN: $checkout has uncommitted changes, leaving its branch alone"
+  fi
+  if ! git -C "$checkout" fetch -q origin || ! git -C "$checkout" merge -q --ff-only "origin/$branch"; then
+    log "WARN: could not fast-forward $checkout"
+  fi
+}
+
+# wait_for <pid>: wait for a background run and return its exit status. Keep
+# the dashboard's queue current while it runs.
+wait_for() {
+  local pid=$1 ticks=0
+  while kill -0 "$pid" 2>/dev/null; do
+    [ $((ticks % 12)) = 0 ] && "$status_cmd"
+    ticks=$((ticks + 1))
+    sleep 10
+  done
+  wait "$pid"
+}
+
+# run_cycle <issue> <who> <verb> <authorised by> <gh issue edit options...>
+# One /work cycle, from marking the issue as taken to reporting the outcome.
+# The options take the issue out of the queue it came from.
+run_cycle() {
+  local issue=$1 who=$2 verb=$3 how=$4 started restart rc mins state status step cbranch usage pr summary
+  shift 4
+  comment() { say "$issue" "$1"; }
+  relabel() { label "$issue" "$@"; }
+
+  log "start #$issue ($verb by $who)"
+  # The cycle runs only once the issue is marked as taken. If the label cannot
+  # be changed, the issue would stay in its queue and every later poll would
+  # start the same issue again.
+  if ! gh issue edit "$issue" --repo "$repo" --add-label tehas:running "$@" >/dev/null 2>&1; then
+    log "ERROR: could not mark #$issue as running, not starting a cycle"
+    exit 1
+  fi
+  comment "Tehas cycle started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC (authorized by @$who's $how). This issue is owned by the cycle until \`tehas:running\` is removed."
+
+  refresh_checkout
+
+  # The agents search an index of the tree the cycle is about to be cloned from.
+  # A cycle without a fresh index still works, so a failure here is a warning.
+  "$index_cmd" --before-cycle >>"$TEHAS_HOME/logs/dispatch-work-$issue.log" 2>&1 ||
+    log "WARN: the code index was not refreshed, see $TEHAS_HOME/logs/dispatch-work-$issue.log"
+
+  started=$(date +%s)
+  # A relabelled issue gets a fresh cycle, not whatever the last one parked.
+  # The workspace is new every time, so the record of an earlier cycle is kept
+  # here, on the host.
+  restart=""
+  mkdir -p "$TEHAS_HOME/state/cycles"
+  [ -e "$TEHAS_HOME/state/cycles/$issue" ] && restart=--restart
+  : >"$TEHAS_HOME/state/cycles/$issue"
+  "$work" "$issue" $restart >>"$TEHAS_HOME/logs/dispatch-work-$issue.log" 2>&1 &
+  wait_for $!
+  rc=$?
+  mins=$((($(date +%s) - started) / 60))
+
+  # The one thing read back from the tree the container wrote, and only as data.
+  state=$workdir/.pi/work-state/$issue.json
+  status=$(jq -r '.pipelineState.status // "unknown"' "$state" 2>/dev/null || echo unknown)
+  step=$(jq -r '.pipelineState.currentStep // "-"' "$state" 2>/dev/null || echo -)
+  cbranch=$(jq -r '.pipelineState.branchName // ""' "$state" 2>/dev/null || echo "")
+  usage=$(jq -r '
+    [.eventLog[] | select(.usage) | {role: (.role // "driver"), u: .usage}] as $e
+    | if ($e | length) == 0 then "" else
+        (["| Role | Dispatches | Turns | Input | Output | Cache read |", "|---|---|---|---|---|---|"]
+         + ($e | group_by(.role) | map("| \(.[0].role) | \(length) | \(map(.u.turns) | add) | \(map(.u.input) | add) | \(map(.u.output) | add) | \(map(.u.cacheRead) | add) |"))
+         + ["| **total** | \($e | length) | \($e | map(.u.turns) | add) | \($e | map(.u.input) | add) | \($e | map(.u.output) | add) | \($e | map(.u.cacheRead) | add) |"])
+        | join("\n") end' "$state" 2>/dev/null || echo "")
+
+  pr=""
+  if [ -n "$cbranch" ]; then
+    # The branch name comes from a file the cycle wrote. Only a pull request the
+    # bot itself opened counts, so it cannot point at somebody else's.
+    pr=$(gh pr list --repo "$repo" --head "$cbranch" --author "@me" --state open --json url --jq '.[0].url // ""' 2>/dev/null || echo "")
+  fi
+
+  summary="status \`$status\`, last step \`$step\`, $mins min"
+  if [ "$rc" = 0 ] && [ "$status" = merged ]; then
+    relabel --remove-label tehas:running
+    comment "Tehas cycle finished: $summary. The change was merged."
+  elif [ "$rc" = 0 ] && [ -n "$pr" ]; then
+    relabel --remove-label tehas:running --add-label tehas:awaiting-merge
+    comment "Tehas cycle finished: $summary. Pull request waiting for a human: $pr"
+    gh pr comment "$pr" --body "Tehas cycle for #$issue: $summary.
+
+${usage:-No token usage was recorded for this cycle.}" >/dev/null 2>&1 || log "WARN: comment on $pr failed"
+  else
+    relabel --remove-label tehas:running --add-label needs-human-attention
+    comment "Tehas cycle stopped without a pull request: $summary (runner exit $rc). Read the handoff comment if there is one; the run log is \`~/tehas/logs/dispatch-work-$issue.log\` on \`$(hostname)\`. To retry, remove \`needs-human-attention\` and apply \`tehas:ready\` again.
+
+${usage}"
+  fi
+  log "done #$issue rc=$rc status=$status step=$step minutes=$mins pr=${pr:-none}"
+  "$status_cmd"
+}
+
 [ "$dry" = 0 ] && "$status_cmd"
 
 # The repository must still answer to its configured name. After a rename
@@ -158,62 +346,14 @@ candidates=$(jq -r '[.[] | (.labels | map(.name)) as $l
          | sort_by([(.urgent | not), .number]) | .[].number' <<<"$json") ||
   { log "ERROR: unreadable list of ready issues"; exit 1; }
 
-# Do not burn an issue on a mesh that cannot answer: every agent would fail
-# and the issue would park. Leave it queued and look again next poll.
+
 if [ -n "$candidates" ]; then
-  mesh=$(jq -r --arg p "$PI_ENSEMBLE_SUBAGENT_PROVIDER" '.providers[$p].baseUrl // ""' "$HOME/.pi/agent/models.json" 2>/dev/null)
-  model=$PI_ENSEMBLE_SUBAGENT_MODEL
-  if [ -n "$mesh" ] && [ -n "$model" ] &&
-    ! curl -fsS -m 10 "$mesh/models" 2>/dev/null | jq -e --arg m "$model" '.data | any(.id == $m)' >/dev/null 2>&1; then
-    log "holding: the mesh at $mesh does not offer $model right now"
-    exit 0
-  fi
+  mesh_ok || exit 0
 fi
 
 issue=""
 for n in $candidates; do
-  # Who applied tehas:ready most recently, and when?
-  gh_json api "repos/$repo/issues/$n/events?per_page=100" --paginate
-  events=$json
-  ready=$(jq -rs 'add // [] | map(select(.event == "labeled" and .label.name == "tehas:ready")) | last
-                  | "\(.actor.login // "") \(.created_at // "")"' <<<"$events") ||
-    { log "ERROR: unreadable label events of #$n"; exit 1; }
-  who=${ready%% *}
-  at=${ready#* }
-  # No name is nobody: a deleted account or a missing event never matches.
-  case "${who:+$allowed}" in
-    *" $who "*) ;;
-    *)
-      log "skip #$n: tehas:ready was applied by '${who:-unknown}', not an allowed account"
-      continue
-      ;;
-  esac
-  # The label approves the text that was there when it was applied. A title or
-  # body changed afterwards by anyone else has not been approved by anybody:
-  # the issue waits until an allowed account applies the label again.
-  renamed=$(jq -rs --arg at "$at" 'add // [] | map(select(.event == "renamed" and ($at == "" or .created_at > $at)))
-                  | map(.actor.login // "") | join(" ")' <<<"$events") ||
-    { log "ERROR: unreadable label events of #$n"; exit 1; }
-  # shellcheck disable=SC2016  # $owner, $name and $number are GraphQL variables
-  gh_json api graphql -F owner="${repo%%/*}" -F name="${repo##*/}" -F number="$n" \
-    -f query='query($owner: String!, $name: String!, $number: Int!) {
-      repository(owner: $owner, name: $name) { issue(number: $number) { lastEditedAt editor { login } } } }'
-  edited=$(jq -r '.data.repository.issue | "\(.editor.login // "") \(.lastEditedAt // "")"' <<<"$json") ||
-    { log "ERROR: unreadable edit record of #$n"; exit 1; }
-  editors=$renamed
-  edited_at=${edited#* }
-  if [ -n "$edited_at" ] && { [ -z "$at" ] || [[ $edited_at > $at ]]; }; then
-    editors="$editors ${edited%% *}"
-    [ -n "${edited%% *}" ] || editors="$editors unknown"
-  fi
-  stale=""
-  for e in $editors; do
-    case "$allowed" in *" $e "*) ;; *) stale=$e ;; esac
-  done
-  if [ -n "$stale" ]; then
-    log "skip #$n: its text was changed by '$stale' after $who applied tehas:ready; apply the label again to approve it"
-    continue
-  fi
+  approval "$n" tehas:ready || continue
   issue=$n
   break
 done
@@ -227,93 +367,4 @@ if [ "$dry" = 1 ]; then
   exit 0
 fi
 
-comment() { gh issue comment "$issue" --repo "$repo" --body "$1" >/dev/null 2>&1 || log "WARN: comment on #$issue failed"; }
-relabel() { gh issue edit "$issue" --repo "$repo" "$@" >/dev/null 2>&1 || log "WARN: label change on #$issue failed: $*"; }
-
-log "start #$issue (labelled by $who)"
-# The cycle runs only once the issue is marked as taken. If the label cannot
-# be changed, tehas:ready would stay and every later poll would start the
-# same issue again.
-if ! gh issue edit "$issue" --repo "$repo" --add-label tehas:running --remove-label tehas:ready >/dev/null 2>&1; then
-  log "ERROR: could not mark #$issue as running, not starting a cycle"
-  exit 1
-fi
-comment "Tehas cycle started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC (authorized by @$who's \`tehas:ready\` label). This issue is owned by the cycle until \`tehas:running\` is removed."
-
-# Cycles start from the product's default branch; keep the checkout current.
-# tehas-work clones the cycle's workspace from it. No container is ever given
-# this checkout, so running git here runs nothing an agent wrote. Put it back
-# on the branch only when it is clean: never discard someone's changes.
-if [ -z "$(git -C "$checkout" status --porcelain --untracked-files=no)" ]; then
-  git -C "$checkout" checkout -q "$branch" || log "WARN: could not switch $checkout to $branch"
-else
-  log "WARN: $checkout has uncommitted changes, leaving its branch alone"
-fi
-if ! git -C "$checkout" fetch -q origin || ! git -C "$checkout" merge -q --ff-only "origin/$branch"; then
-  log "WARN: could not fast-forward $checkout"
-fi
-
-# The agents search an index of the tree the cycle is about to be cloned from.
-# A cycle without a fresh index still works, so a failure here is a warning.
-"$index_cmd" --before-cycle >>"$TEHAS_HOME/logs/dispatch-work-$issue.log" 2>&1 ||
-  log "WARN: the code index was not refreshed, see $TEHAS_HOME/logs/dispatch-work-$issue.log"
-
-started=$(date +%s)
-# A relabelled issue gets a fresh cycle, not whatever the last one parked.
-# The workspace is new every time, so the record of an earlier cycle is kept
-# here, on the host.
-restart=""
-mkdir -p "$TEHAS_HOME/state/cycles"
-[ -e "$TEHAS_HOME/state/cycles/$issue" ] && restart=--restart
-: >"$TEHAS_HOME/state/cycles/$issue"
-"$work" "$issue" $restart >>"$TEHAS_HOME/logs/dispatch-work-$issue.log" 2>&1 &
-wpid=$!
-# Keep the dashboard's queue current while the cycle runs.
-ticks=0
-while kill -0 "$wpid" 2>/dev/null; do
-  [ $((ticks % 12)) = 0 ] && "$status_cmd"
-  ticks=$((ticks + 1))
-  sleep 10
-done
-wait "$wpid"
-rc=$?
-mins=$((($(date +%s) - started) / 60))
-
-# The one thing read back from the tree the container wrote, and only as data.
-state=$workdir/.pi/work-state/$issue.json
-status=$(jq -r '.pipelineState.status // "unknown"' "$state" 2>/dev/null || echo unknown)
-step=$(jq -r '.pipelineState.currentStep // "-"' "$state" 2>/dev/null || echo -)
-branch=$(jq -r '.pipelineState.branchName // ""' "$state" 2>/dev/null || echo "")
-usage=$(jq -r '
-  [.eventLog[] | select(.usage) | {role: (.role // "driver"), u: .usage}] as $e
-  | if ($e | length) == 0 then "" else
-      (["| Role | Dispatches | Turns | Input | Output | Cache read |", "|---|---|---|---|---|---|"]
-       + ($e | group_by(.role) | map("| \(.[0].role) | \(length) | \(map(.u.turns) | add) | \(map(.u.input) | add) | \(map(.u.output) | add) | \(map(.u.cacheRead) | add) |"))
-       + ["| **total** | \($e | length) | \($e | map(.u.turns) | add) | \($e | map(.u.input) | add) | \($e | map(.u.output) | add) | \($e | map(.u.cacheRead) | add) |"])
-      | join("\n") end' "$state" 2>/dev/null || echo "")
-
-pr=""
-if [ -n "$branch" ]; then
-  # The branch name comes from a file the cycle wrote. Only a pull request the
-  # bot itself opened counts, so it cannot point at somebody else's.
-  pr=$(gh pr list --repo "$repo" --head "$branch" --author "@me" --state open --json url --jq '.[0].url // ""' 2>/dev/null || echo "")
-fi
-
-summary="status \`$status\`, last step \`$step\`, $mins min"
-if [ "$rc" = 0 ] && [ "$status" = merged ]; then
-  relabel --remove-label tehas:running
-  comment "Tehas cycle finished: $summary. The change was merged."
-elif [ "$rc" = 0 ] && [ -n "$pr" ]; then
-  relabel --remove-label tehas:running --add-label tehas:awaiting-merge
-  comment "Tehas cycle finished: $summary. Pull request waiting for a human: $pr"
-  gh pr comment "$pr" --body "Tehas cycle for #$issue: $summary.
-
-${usage:-No token usage was recorded for this cycle.}" >/dev/null 2>&1 || log "WARN: comment on $pr failed"
-else
-  relabel --remove-label tehas:running --add-label needs-human-attention
-  comment "Tehas cycle stopped without a pull request: $summary (runner exit $rc). Read the handoff comment if there is one; the run log is \`~/tehas/logs/dispatch-work-$issue.log\` on \`$(hostname)\`. To retry, remove \`needs-human-attention\` and apply \`tehas:ready\` again.
-
-${usage}"
-fi
-log "done #$issue rc=$rc status=$status step=$step minutes=$mins pr=${pr:-none}"
-"$status_cmd"
+run_cycle "$issue" "$who" labelled "\`tehas:ready\` label" --remove-label tehas:ready
