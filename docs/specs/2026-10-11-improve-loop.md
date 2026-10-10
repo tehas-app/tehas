@@ -1,6 +1,7 @@
 # Spec: the improvement loop, a factory that files issues about its own work
 
-**Status**: Proposed 2026-10-11. Not implemented.
+**Status**: Proposed 2026-10-11. Not implemented. Built after ticket
+concurrency (`2026-10-10-ticket-concurrency.md`) has merged.
 
 ## Purpose
 
@@ -18,6 +19,22 @@ call.
 
 A filed issue is a proposal. It carries no `tehas:ready` label. A person
 reads it and decides whether the factory works on it.
+
+## Built on ticket concurrency
+
+This is built on `main` once ticket concurrency has merged, and is written
+against that layout, not today's. What it takes from it:
+
+| From ticket concurrency | What the loop does with it |
+| --- | --- |
+| `libexec/cycle` runs one cycle and reports it | The record is written there, after the report, so it holds the pull request and the labels the cycle ended with |
+| Cycles end side by side, each in `tehas-cycle@<issue>.service` | A record per cycle, renamed into the window in one step |
+| A runs directory per issue | The console text in a record holds that issue's agents only |
+| `state/cycles/<issue>.lock` says a cycle is running | The loop reads no lock and takes none of them. A cycle still running has no record yet and is read in a later window |
+| CPU and memory are shared out between cycles | The analyst is not a cycle and takes no slot. It gets one CPU and 2 GiB, outside the shares |
+
+At `TEHAS_TICKET_CONCURRENCY=1` the loop behaves the same: one record at a
+time.
 
 ## What was decided, and what was not chosen
 
@@ -44,25 +61,27 @@ operator wants reports about the factory.
 
 ## Collecting
 
-When a cycle ends, `libexec/work` writes a record of it to
+When a cycle has ended and been reported, `libexec/cycle` writes a record of
+it to
 `$TEHAS_HOME/tmp/improve/window/<issue>-<stamp>/`, where `<stamp>` is the
 stamp of the cycle's log file:
 
 | File | What it is |
 | --- | --- |
-| `cycle.json` | Issue number, start, seconds, final status and step, exit status |
+| `cycle.json` | Issue number, start, seconds, final status and step, exit status, the pull request if one was opened, the labels the issue was left with |
 | `stream.jsonl` | The RPC stream condensed with `jq`: streaming deltas dropped, any string over 2000 characters cut. Tool calls, errors, notices and final messages stay |
 | `console.txt` | The console text the dashboard showed |
 | `err.txt`, `preflight.txt` | The cycle's error stream and preflight output |
 | `raw` | A hard link to the cycle's log in `logs/`. Not mounted into the analyst's container |
 
 The record is built in a temporary directory beside `window/` and renamed
-into it, so the analysis never sees half a record. One directory per cycle:
+into it, so the analysis never sees half a record. `window/` is made again if
+a run has just taken it. One directory per cycle:
 cycles that end at the same moment do not collide, whatever
 `TEHAS_TICKET_CONCURRENCY` is.
 
-A cycle that cannot write its record says so in its log and ends with the
-status it would have had. Collecting never fails a cycle.
+A cycle that cannot write its record says so in `dispatch.log` and ends with
+the status it would have had. Collecting never fails a cycle.
 
 ## The run
 
@@ -99,10 +118,10 @@ One container from the sandbox image, running Pi with the prompt in
 | `run-<stamp>/in/`, read-only: the records and `issues.json` | The bot token, or any other credential |
 | `run-<stamp>/out/`, writable | A product checkout or workspace |
 | The model endpoint and the instance's default model | The Docker socket, SSH keys, `~/.config/tehas`, the raw logs |
-| A share of CPU and memory, and a time limit of 30 minutes | Pi's state directories from the cycles |
+| One CPU, 2 GiB and a time limit of 30 minutes | Pi's state directories from the cycles |
 
-This is a new container, not a wider one for a cycle: `libexec/work` is not
-changed in what it mounts. `test/improve_test.sh` pins the list above the way
+This is a new container, not a wider one for a cycle: this change does not
+touch what `libexec/work` mounts. `test/improve_test.sh` pins the list above the way
 `test/work_test.sh` pins a cycle's.
 
 The prompt asks for findings about the factory and about pi-rukas, not about
@@ -111,9 +130,18 @@ names the cycles it comes from. For each finding the model reads
 `issues.json` and either names the issue that already covers it or says there
 is none.
 
-How Pi is started without its extensions has not been checked. It is the
-first step of the plan. If Pi in the image cannot run without pi-rukas, this
-spec is revised before anything is built.
+Pi is started for one prompt and nothing else:
+
+```
+pi -p --no-session --no-extensions --no-mcp --no-skills \
+   --no-prompt-templates --no-context-files --tools read,grep,find,ls,write
+```
+
+These flags are in Pi 1.1.0. The image pins 1.0.4. The first step of the plan
+runs this line in the image, with no network but the model endpoint, and
+confirms that pi-rukas is not loaded and that no tool beyond the list
+answers. If the pinned version cannot do it, this spec is revised before
+anything is built.
 
 ### `findings.json`
 
@@ -229,6 +257,8 @@ units. `tehasbot` gains the `improve` command. `libexec/labels` creates
 - A malformed setting exits 78 before any call.
 - A cycle's end writes a complete record, and a failure to write one does not
   change the cycle's exit status.
+- Two cycles that end at once leave two whole records, and a record written
+  while a run takes the window lands in the next window.
 - An empty window calls neither `docker` nor `gh`.
 - The analyst's mounts and environment are exactly the list in this spec.
 - Findings of the wrong shape, over length, with a bad category or an unknown
@@ -242,7 +272,8 @@ units. `tehasbot` gains the `improve` command. `libexec/labels` creates
 - A finished run leaves no run directory; a failed one keeps its records; the
   sweep removes what is over seven days old and nothing newer.
 
-`test/work_test.sh` keeps passing unchanged in what it pins. `test/cli_test.sh`,
+`test/work_test.sh` keeps passing unchanged in what it pins, and
+`test/cycle_test.sh` gains the cases for the record. `test/cli_test.sh`,
 `test/config_test.sh`, `test/install_test.sh`, `test/labels_test.sh` and
 `test/steps_test.sh` each gain the case for their part.
 
