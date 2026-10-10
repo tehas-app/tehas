@@ -70,20 +70,27 @@ started=$(date +%s)
 restart=""
 [ -e "$cycles/$issue" ] && restart=--restart
 : >"$cycles/$issue"
+# The trap is set before the runner starts, so no signal falls between.
+wpid=""
+stopped=0
+trap 'stopped=1; [ -z "$wpid" ] || kill -TERM "$wpid" 2>/dev/null' TERM INT
 "$work" "$issue" ${restart:+"$restart"} >>"$TEHAS_HOME/logs/dispatch-work-$issue.log" 2>&1 &
 wpid=$!
-stopped=0
-trap 'stopped=1; kill -TERM "$wpid" 2>/dev/null' TERM INT
+[ "$stopped" = 0 ] || kill -TERM "$wpid" 2>/dev/null
 wait "$wpid"
 rc=$?
 # A signal ends the wait early, with a status that is not the runner's. The
-# runner is still stopping its container: wait again for its own status.
+# runner is still stopping its container: wait again for its own status. A
+# wait that answers 127 found the runner already reaped, so rc stands.
 while [ "$stopped" = 1 ]; do
   stopped=0
   wait "$wpid"
-  rc=$?
+  r=$?
+  [ "$r" = 127 ] || rc=$r
 done
-trap - TERM INT
+# The report is made even if a stop arrives now: leaving tehas:running on the
+# issue would park it for good.
+trap '' TERM INT
 mins=$((($(date +%s) - started) / 60))
 
 # The one thing read back from the tree the container wrote, and only as data.

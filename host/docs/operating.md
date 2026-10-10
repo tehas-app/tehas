@@ -132,7 +132,12 @@ a poll by hand on the host:
 tehas status                 # taking work? the queue, the current or last cycle
 tehas dispatch --dry-run     # what would it do?
 tehas dispatch               # do it (returns once the cycle is started)
+systemctl --user status 'tehas-cycle@*'   # which cycles are running
+systemctl --user stop tehas-cycle@12      # stop the cycle for issue 12
 ```
+
+A stop ends the container. The issue gets `needs-human-attention`, and the
+console shows the cycle as interrupted.
 
 `tehas` is the one command to type on the host; `tehas help` lists what it
 does. See [Commands](/tools).

@@ -155,14 +155,17 @@ now_file() { # running? status step
     >"$live/cycles/$issue.json.new" 2>/dev/null && mv "$live/cycles/$issue.json.new" "$live/cycles/$issue.json"
   tehas_live_assemble
 }
+# Set before the first live file, so a file that says running has the trap.
+# A stop ends the loop and is recorded as interrupted, not as running.
+interrupted=0
+trap 'interrupted=1; kill "$cpid" 2>/dev/null; exec 3>&- 2>/dev/null; docker stop -t 10 "$name" 2>/dev/null; now_file false interrupted "killed by signal (TERM/INT)"' TERM INT
 now_file true running starting
-
-trap 'kill "$cpid" 2>/dev/null; exec 3>&- 2>/dev/null; docker stop -t 10 "$name" 2>/dev/null; now_file false interrupted "killed by signal (TERM/INT)"' TERM INT
 
 status=running
 seen=0
-while kill -0 "$pid" 2>/dev/null; do
+while [ "$interrupted" = 0 ] && kill -0 "$pid" 2>/dev/null; do
   sleep 10
+  [ "$interrupted" = 0 ] || break
   now_file true "$status" "$(jq -r '.pipelineState.currentStep // "starting"' "$state" 2>/dev/null || echo starting)"
   # Ignore a state file left over from an earlier cycle.
   if [ -f "$state" ] && [ "$(stat -c %Y "$state")" -ge "$started" ]; then
@@ -176,7 +179,8 @@ while kill -0 "$pid" 2>/dev/null; do
   fi
 done
 
-if kill -0 "$pid" 2>/dev/null; then
+[ "$interrupted" = 0 ] || status=interrupted
+if [ "$interrupted" = 0 ] && kill -0 "$pid" 2>/dev/null; then
   # Give the driver a moment to post its handoff, then end the session.
   [ "$status" != running ] && sleep 20
   exec 3>&-

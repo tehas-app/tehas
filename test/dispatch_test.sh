@@ -442,6 +442,19 @@ t_run "$dispatch"
 t_eq "$t_rc" 1
 t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
 
+t_case "a cycle that holds its lock but wrote no marker in time is taken as started"
+reset
+# The holder keeps the cycle's lock for a few seconds with its output detached,
+# so the stub returns at once and the test's pipe is not held open.
+t_stub fake-late '( exec 9>"$TEHAS_HOME/state/cycles/$1.lock"; flock -n 9; exec sleep 5 ) >/dev/null 2>&1 &
+echo $! >"$T/late.pid"'
+T_ENV=(TEHAS_CYCLE_START_CMD=fake-late TEHAS_CYCLE_START_WAIT=1 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index)
+t_run "$dispatch"
+kill "$(cat "$T/late.pid")" 2>/dev/null
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN: the cycle for #7 holds its lock but did not say so in 1s; taking it as started"
+t_lacks "$(t_calls gh)" "needs-human-attention"
+
 t_case "a start marker left by an earlier cycle does not count"
 reset
 : >"$fx/start-silent"
@@ -699,22 +712,54 @@ t_contains "$(t_calls fake-start)" "7"
 
 # Outside the tests nothing names the scripts: the dispatcher runs the ones in
 # its own directory, whatever PATH holds, and starts a cycle through systemd.
+bare_tree() {
+  T_ENV=()
+  tree=$T/tree
+  rm -rf "$tree"
+  mkdir -p "$tree/libexec" "$tree/lib"
+  cp "$dispatch" "$tree/libexec/dispatch"
+  cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/cycles.sh" "$tree/lib/"
+  for name in status index; do cp "$T/bin/fake-$name" "$tree/libexec/$name"; done
+  for name in tehas tehasbot tehas-work tehas-status tehas-index; do t_stub "$name"; done
+}
+
 t_case "without the test seams it runs the scripts beside it and starts the unit"
 reset
-T_ENV=()
-tree=$T/tree
-mkdir -p "$tree/libexec" "$tree/lib"
-cp "$dispatch" "$tree/libexec/dispatch"
-cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/cycles.sh" "$tree/lib/"
-for name in status index; do cp "$T/bin/fake-$name" "$tree/libexec/$name"; done
-t_stub systemctl 'n=${3#tehas-cycle@}
-: >"$TEHAS_HOME/state/cycles/${n%.service}.taken"'
-for name in tehas tehasbot tehas-work tehas-status tehas-index; do t_stub "$name"; done
+bare_tree
+t_stub systemctl 'case "$2" in
+  show) echo loaded ;;
+  start) n=${3#tehas-cycle@}
+    : >"$TEHAS_HOME/state/cycles/${n%.service}.taken" ;;
+esac'
 t_run "$tree/libexec/dispatch"
 t_eq "$t_rc" 0
-t_eq "$(t_calls systemctl)" "--user start tehas-cycle@7.service"
+t_eq "$(t_calls systemctl)" "--user show -p LoadState --value tehas-cycle@7.service
+--user start tehas-cycle@7.service"
 t_contains "$(t_calls fake-index)" "--before-cycle"
 t_eq "$(t_calls fake-status | wc -l)" 2
 for name in tehas tehasbot tehas-work tehas-status tehas-index; do t_eq "$(t_calls "$name")" ""; done
+
+t_case "a unit systemd cannot load changes no label and starts nothing, exit 1"
+reset
+bare_tree
+t_stub systemctl 'case "$2" in show) echo not-found ;; esac'
+t_run "$tree/libexec/dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: systemd cannot load tehas-cycle@.service (LoadState: not-found): run install.sh and its units step, and run tehas dispatch as the tehas user's own session"
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "issue comment"
+t_lacks "$(t_calls systemctl)" "start"
+t_eq "$(t_calls fake-index)" ""
+
+t_case "a systemd that gives no answer changes no label and starts nothing, exit 1"
+reset
+bare_tree
+t_stub systemctl 'case "$2" in show) exit 1 ;; esac'
+t_run "$tree/libexec/dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: systemd cannot load tehas-cycle@.service (LoadState: no answer): run install.sh"
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "issue comment"
+t_lacks "$(t_calls systemctl)" "start"
 
 t_done

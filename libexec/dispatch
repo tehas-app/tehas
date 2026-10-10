@@ -14,8 +14,9 @@
 #
 # Exit: 0 the poll ran, or there was nothing to do; 64 an argument this command
 # does not know, which starts no poll; 78 instance settings are missing or
-# malformed; 1 a call to GitHub failed or its answer could not be read, or a
-# cycle could not be started.
+# malformed; 1 a call to GitHub failed or its answer could not be read, systemd
+# cannot load the cycle unit (before any label changes), or a cycle could not be
+# started.
 #
 # Rules, in order:
 #   1. Label tehas:pause on the control issue stops all dispatch.
@@ -242,6 +243,16 @@ if [ "$dry" = 1 ]; then
   exit 0
 fi
 
+# Without systemd's answer every picked issue would be marked running and then
+# parked, at every poll. A shell without the user's bus gets none.
+if [ -z "${TEHAS_CYCLE_START_CMD:-}" ]; then
+  loadstate=$(systemctl --user show -p LoadState --value "tehas-cycle@${picked[0]}.service" 2>/dev/null) || loadstate=""
+  if [ "$loadstate" != loaded ]; then
+    log "ERROR: systemd cannot load tehas-cycle@.service (LoadState: ${loadstate:-no answer}): run install.sh and its units step, and run tehas dispatch as the tehas user's own session"
+    exit 1
+  fi
+fi
+
 comment() { gh issue comment "$1" --repo "$repo" --body "$2" >/dev/null 2>&1 || log "WARN: comment on #$1 failed"; }
 
 # start_cycle <issue>: 0 once the cycle says it holds its lock, by writing
@@ -259,6 +270,11 @@ start_cycle() {
     [ -e "$taken" ] && return 0
     sleep 0.5
   done
+  # A loaded host, or a unit still active from before, can start a cycle late.
+  if tehas_cycle_running "$n"; then
+    log "WARN: the cycle for #$n holds its lock but did not say so in ${start_wait}s; taking it as started"
+    return 0
+  fi
   return 1
 }
 

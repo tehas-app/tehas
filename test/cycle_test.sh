@@ -15,6 +15,7 @@ state=$T/home/tehas/state/cycles
 t_stub gh '
 case "$1 $2" in
   "pr list") cat "$T/fx/pr.txt" 2>/dev/null ;;
+  "issue edit") [ ! -e "$T/fx/edit-slow" ] || { : >"$T/calls/edit.started"; sleep 1; } ;;
 esac'
 # What the runner does is a file a case writes; without one it ends at once.
 t_stub fake-work '[ ! -e "$T/fx/work.sh" ] || . "$T/fx/work.sh"'
@@ -197,6 +198,17 @@ t_contains "$t_out" "rc=0"
 t_eq "$(find "$T/calls/work.term" | wc -l)" 1
 t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
 t_contains "$(t_calls gh)" "(runner exit 2)"
+
+t_case "a stop that arrives while the report is made does not cut the report short"
+reset
+: >"$fx/edit-slow"
+# The first relabel takes a second and says when it starts. The wait is bounded.
+t_run "$cycle 7 & pid=\$!
+for _ in \$(seq 100); do [ -e \"\$T/calls/edit.started\" ] && break; sleep 0.1; done
+kill -TERM \$pid; wait \$pid; echo rc=\$?"
+t_contains "$t_out" "rc=0"
+t_contains "$(t_calls gh)" "issue edit 7"
+t_contains "$(t_calls gh)" "issue comment 7"
 
 # Outside the tests nothing names the two scripts: the cycle runs the ones in
 # its own directory, whatever PATH holds.

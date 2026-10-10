@@ -67,6 +67,10 @@ Run `tehas dispatch --dry-run` and read what it prints.
 - `N cycles running, room for M more`, then `would run a cycle for #N ...`:
   the issues the next poll starts. In the log you may also see `the code index
   stays as it is: a cycle is running on #N`. That is no reason an issue waits.
+- `ERROR: systemd cannot load tehas-cycle@.service (LoadState: ...)`: the poll
+  cannot start units, so it changed no label. Run `install.sh` on the host so
+  its units step installs the cycle unit. Run `tehas dispatch` in the tehas
+  user's own session, not in a `sudo -iu` shell, which has no user bus.
 - `another poll, or tehas index, holds the dispatcher's lock`: a poll or an
   index run is under way. Try again in a minute. A running cycle does not hold
   this lock.

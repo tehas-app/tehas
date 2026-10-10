@@ -266,6 +266,25 @@ t_run "$work 7"
 t_eq "$(jq -c '[(.cycles | length), .last.issue]' "$live/running.json")" "[0,7]"
 rm -rf "$live/cycles"
 
+t_case "a cycle that is stopped is recorded as interrupted"
+# The cycle's call stays alive until docker stop is called, as a container does.
+t_stub docker 'printf "%s\n" "$@" >"$T/calls/docker.args.$$"
+case " $* " in
+  *" --mode "*) sleep 60 >/dev/null 2>&1 & echo $! >"$T/sleeper.pid"; wait ;;
+  " stop "*) kill "$(cat "$T/sleeper.pid")" 2>/dev/null ;;
+esac'
+rm -f "$live/cycles/7.json" "$T/sleeper.pid"
+# Every wait is bounded. The live file says running only after the trap is set.
+t_run "$work 7 >\"\$T/work.out\" 2>&1 & pid=\$!
+for _ in \$(seq 100); do [ \"\$(jq -r .running \"$live/cycles/7.json\" 2>/dev/null)\" = true ] && break; sleep 0.1; done
+kill -TERM \$pid; wait \$pid; echo rc=\$?"
+kill "$(cat "$T/sleeper.pid" 2>/dev/null)" 2>/dev/null
+t_contains "$t_out" "rc=2"
+t_contains "$(t_calls docker)" "stop -t 10 tehas-work-7"
+t_eq "$(jq -c '[.running, .status]' "$live/cycles/7.json")" '[false,"interrupted"]'
+t_stub docker 'printf "%s\n" "$@" >"$T/calls/docker.args.$$"'
+rm -rf "$live/cycles"
+
 t_case "with two tickets side by side a cycle gets half the budget"
 rm -f "$T"/calls/*
 t_stub nproc 'echo 8'
