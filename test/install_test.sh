@@ -268,15 +268,21 @@ echo '{"defaultProvider":"test-provider","defaultModel":"session-model"}' >"$th/
 t_run "$install"
 t_eq "$t_rc" 0
 
-for asked in TEHAS_PREVIEWS=1 TEHAS_CLONES=1; do
-  t_case "an instance that asks for $asked installs nothing and exits 78"
-  fresh
-  instance "$asked"
-  t_run "$install"
-  t_eq "$t_rc" 78
-  t_contains "$t_out" "${asked%%=*} is set and this version of tehas has no previews or database clones"
-  t_eq "$(find "$home" -type f | wc -l)" 0
-done
+t_case "an instance that asks for database clones installs nothing and exits 78"
+fresh
+instance TEHAS_CLONES=1
+t_run "$install"
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_CLONES is set and this version of tehas has no database clones"
+t_eq "$(find "$home" -type f | wc -l)" 0
+
+t_case "an instance that asks for previews without a domain installs nothing and exits 78"
+fresh
+instance TEHAS_PREVIEWS=1
+t_run "$install"
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_PREVIEWS is 1 and TEHAS_DOMAIN is not set"
+t_eq "$(find "$home" -type f | wc -l)" 0
 
 t_case "settings anyone can write are a finding"
 instance
