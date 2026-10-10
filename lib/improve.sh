@@ -73,3 +73,45 @@ tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr>]
     return 1
   fi
 }
+
+# Logs should hold no secret. This is for the day one does: a log that matches
+# is not uploaded.
+tehas_improve_secret() { # <file>
+  grep -E -q -e 'gh[pousr]_[A-Za-z0-9]{36,}' -e 'github_pat_[A-Za-z0-9_]{22,}' \
+    -e 'sk-[A-Za-z0-9_-]{20,}' -e 'xox[abprs]-[A-Za-z0-9-]{10,}' -e 'AKIA[0-9A-Z]{16}' \
+    -e '-----BEGIN [A-Z ]*PRIVATE KEY-----' "$1"
+}
+
+# Pieces are split at line boundaries and compressed one by one, so each opens
+# on its own. The number of pieces doubles until every piece fits.
+tehas_improve_pack() { # <file> <dir> <name> <limit>
+  local file=$1 dir=$2 name=$3 limit=$4 n lines parts i f big
+  mkdir -p "$dir" || return 1
+  gzip -9 -c "$file" >"$dir/$name.gz" || return 1
+  n=$(stat -c %s "$dir/$name.gz")
+  [ "$n" -gt "$limit" ] || return 0
+  rm -f "$dir/$name.gz"
+  n=$((n / limit + 1))
+  lines=$(wc -l <"$file")
+  parts=$dir/.parts
+  while [ "$lines" -ge 2 ]; do
+    [ "$n" -le "$lines" ] || n=$lines
+    rm -rf "$parts" "$dir/$name".*.gz
+    mkdir -p "$parts" || return 1
+    split -n "l/$n" -a 5 -d "$file" "$parts/p." || break
+    i=0
+    big=0
+    for f in "$parts"/p.*; do
+      [ -s "$f" ] || continue
+      i=$((i + 1))
+      gzip -9 -c "$f" >"$dir/$name.$i.gz" || big=1
+      [ "$(stat -c %s "$dir/$name.$i.gz")" -le "$limit" ] || big=1
+    done
+    rm -rf "$parts"
+    [ "$big" = 1 ] || return 0
+    [ "$n" -lt "$lines" ] || break
+    n=$((n * 2))
+  done
+  rm -rf "$parts" "$dir/$name".*.gz
+  return 1
+}
