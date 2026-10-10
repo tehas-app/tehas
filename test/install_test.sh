@@ -43,6 +43,7 @@ files="./.config/systemd/user/tehas-dispatch.service
 ./tehas/bin/tehas-protolab
 ./tehas/bin/tehas-status
 ./tehas/bin/tehas-test
+./tehas/bin/tehas-update
 ./tehas/bin/tehas-work
 ./tehas/edge/docs.Caddyfile
 ./tehas/edge/docs.compose.yaml
@@ -64,6 +65,8 @@ instance
 t_run "$install"
 t_eq "$t_rc" 0
 t_eq "$(core_files)" "$(sorted "$files")"
+# The stub daemon-reload answered cleanly, so nothing is said about it.
+t_lacks "$t_out" "not in effect"
 
 t_case "the manual and the front page are installed"
 t_eq "$(cd "$th/docs" && find . -type f | wc -l)" "$(find "$T_ROOT/host/docs" -type f | wc -l)"
@@ -199,5 +202,26 @@ for name in example tehas-tehas; do
   t_lacks "$t_out" "INVALID"
   t_contains "$t_out" "Instance:     $T_ROOT/instances/$name OK"
 done
+
+t_case "a failed daemon-reload is reported, not swallowed"
+fresh
+instance
+t_stub systemctl 'if [ "$2" = daemon-reload ]; then echo "Failed to connect to bus: No such file or directory" >&2; exit 1; fi'
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "systemctl --user daemon-reload failed; the changed unit files are not in effect"
+t_contains "$t_out" "next: systemctl --user enable --now tehas-dispatch.timer"
+
+t_case "a daemon-reload that prints an error and exits 0 is not taken as done"
+fresh
+instance
+# The shape of a systemctl wrapper on a host with no systemd: it complains and
+# still answers 0, which is not a reload.
+t_stub systemctl 'if [ "$2" = daemon-reload ]; then echo "systemd is not running in this container"; fi'
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "systemctl --user daemon-reload gave no answer; the changed unit files are not in effect"
+t_contains "$t_out" "systemd is not running in this container"
+t_contains "$t_out" "next: systemctl --user enable --now tehas-dispatch.timer"
 
 t_done

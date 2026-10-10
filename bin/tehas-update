@@ -1,0 +1,295 @@
+#!/usr/bin/env bash
+# Bring this host up to date with the platform repository in one step.
+#
+# The three things an update takes today - fast-forward the platform checkout,
+# run install.sh, then run each follow-up it asks for - in order, one line per
+# step, stopping at the first failure. It changes nothing when the checkout has
+# local changes or cannot be fast-forwarded.
+#
+# What it does not do: enable or start a systemd unit or a container that is
+# not already running. A changed unit is restarted only when it was active, and
+# a compose server is brought up only when its container is already up. An
+# instance with no Protolab server does not get one from an update. A follow-up
+# this command does not recognise is printed for a person and not run: what the
+# installer asks for is read as text, never executed as a shell command.
+#
+# Whether a service runs is a question put to Docker or to systemd, and only
+# their answer means anything - never their exit status on its own. systemd is
+# asked without --quiet so it names the state, and an answer that is not one of
+# its state words is not read as "inactive". When the question cannot be asked
+# - no daemon, no compose plugin, no user bus, a systemctl wrapper that prints
+# an error and exits 0 - this command stops with exit 1 rather than report the
+# service as absent: on a host that does run it, a failed query read as "not
+# running" would leave the changed file unapplied and the update green.
+#
+# The platform checkout is $TEHAS_HOME/platform, where the manual says a host
+# keeps it. It has to be a git checkout - a clone, a worktree or a submodule -
+# with an install.sh; without one this command stops rather than guess at
+# another directory.
+#
+# Usage:
+#   tehas-update             pull, install, run the follow-ups that apply
+#   tehas-update --check     report what would change and change no file of the
+#                            checkout or of the host. It does contact the remote,
+#                            so the remote-tracking refs under origin/ are brought
+#                            to what the remote has - origin/<branch> moves, and a
+#                            branch the remote deleted stops being reported. It
+#                            runs install.sh --check, which runs the tests.
+#                            Nothing is merged, installed, built or started, and
+#                            it exits 1 when there is something to update.
+#   tehas-update -h|--help   print this text and exit 0
+#
+# Exit: 0 updated, or already up to date,
+#       1 the checkout has local changes, is not on a branch, cannot be
+#         fast-forwarded, a step failed, or --check found something to update.
+#         A status of install.sh that this command does not know (126 when its
+#         exec bit is gone, say) is reported as 1 with its number named.
+#         Steps run in the order install.sh prints them, so a step that fails
+#         after another one leaves that one applied, and after install.sh copied
+#         files leaves those copies in place; install.sh keeps each replaced file
+#         as <name>.prev.
+#       64 more than one argument, or an argument this command does not know
+#       78 the instance settings are missing or malformed, or there is no
+#         platform checkout
+set -uo pipefail
+
+show_usage() {
+  sed -n '2,/^[^#]/p' "$0" | sed -n '/^#/s/^# \{0,1\}//p'
+}
+unknown_argument() {
+  printf 'tehas-update: unknown argument: %s\n' "$1" >&2
+  show_usage >&2
+  exit 64
+}
+
+# Arguments first, as in tehas-dispatch: --help answers on a host with no
+# instance settings yet, and an argument this command does not know reaches
+# neither git nor Docker.
+mode=update
+pending=0
+for arg in "$@"; do
+  case "$arg" in
+    --check) mode=check ;;
+    -h | --help) mode=help ;;
+    *) unknown_argument "$arg" ;;
+  esac
+done
+if [ "$#" -gt 1 ]; then
+  printf 'tehas-update: takes at most one argument, got %s\n' "$*" >&2
+  show_usage >&2
+  exit 64
+fi
+if [ "$mode" = help ]; then show_usage; exit 0; fi
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/config.sh
+. "$here/../lib/config.sh"
+tehas_load || exit 78
+# tehas_load checks only the settings it can give a default. The ones with no
+# default are checked here, in the same list install.sh checks, so an instance
+# with a required line still commented out stops before the checkout moves -
+# not after install.sh has already installed from the new code.
+tehas_require TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS \
+  PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
+
+checkout=$TEHAS_HOME/platform
+# .git is a directory in a clone and a file in a worktree or a submodule.
+if [ ! -e "$checkout/.git" ] || [ ! -f "$checkout/install.sh" ]; then
+  echo "tehas-update: no platform checkout at $checkout. Clone the platform repository there, or run ./install.sh from wherever you keep it." >&2
+  exit 78
+fi
+
+# --- 1. The checkout ---------------------------------------------------------
+# A branch, and nothing uncommitted: an update that carried on past either one
+# would merge into a tree somebody is editing.
+branch=$(git -C "$checkout" symbolic-ref --quiet --short HEAD 2>/dev/null) || branch=""
+if [ -z "$branch" ]; then
+  echo "checkout: $checkout is not on a branch (detached HEAD); nothing was changed" >&2
+  exit 1
+fi
+
+# A clone records the remote's default branch in refs/remotes/origin/HEAD. A
+# checkout left on another branch updates and installs that branch, which is
+# usually not what a person means, so it is said out loud before anything runs.
+default=$(git -C "$checkout" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null) || default=""
+default=${default#origin/}
+if [ -n "$default" ] && [ "$default" != "$branch" ]; then
+  printf 'checkout: %s is on branch %s; the default branch of origin is %s. This update uses %s.\n' \
+    "$checkout" "$branch" "$default" "$branch" >&2
+fi
+
+# stdout only: a git warning is not a changed path, and git's own error text
+# reaches the operator on stderr either way.
+changes=$(git -C "$checkout" status --porcelain) || {
+  echo "checkout: git status failed in $checkout; nothing was changed" >&2
+  exit 1
+}
+if [ -n "$changes" ]; then
+  printf 'checkout: %s has local changes; nothing was changed\n' "$checkout" >&2
+  printf '%s\n' "$changes" | sed 's/^/  /' >&2
+  exit 1
+fi
+
+if ! out=$(git -C "$checkout" fetch --prune origin 2>&1); then
+  printf 'checkout: could not fetch from origin; nothing was changed\n' >&2
+  [ -n "$out" ] && printf '%s\n' "$out" | sed 's/^/  /' >&2
+  exit 1
+fi
+
+remote_sha=$(git -C "$checkout" rev-parse --quiet --verify --short "refs/remotes/origin/$branch" 2>/dev/null) || remote_sha=""
+if [ -z "$remote_sha" ]; then
+  echo "checkout: origin has no branch $branch in $checkout; nothing was changed" >&2
+  exit 1
+fi
+head_sha=$(git -C "$checkout" rev-parse --short HEAD)
+
+if [ "$head_sha" = "$remote_sha" ]; then
+  echo "checkout: $branch is up to date at $head_sha"
+else
+  # Fast-forward only. Local commits of its own, or a branch that was rewritten
+  # on the remote, are a question for a person, not for an update.
+  if ! git -C "$checkout" merge-base --is-ancestor HEAD "refs/remotes/origin/$branch" 2>/dev/null; then
+    printf 'checkout: %s cannot fast-forward to origin/%s (%s); nothing was changed\n' \
+      "$checkout" "$branch" "$remote_sha" >&2
+    echo "  the checkout has commits of its own, or origin/$branch was rewritten. Reconcile it by hand." >&2
+    exit 1
+  fi
+  behind=$(git -C "$checkout" rev-list --count "HEAD..refs/remotes/origin/$branch")
+  if [ "$mode" = check ]; then
+    echo "checkout: would fast-forward $head_sha -> $remote_sha ($behind commits)"
+    pending=1
+  elif ! out=$(git -C "$checkout" merge --ff-only "refs/remotes/origin/$branch" 2>&1); then
+    printf 'checkout: the fast-forward failed; nothing was installed\n' >&2
+    [ -n "$out" ] && printf '%s\n' "$out" | sed 's/^/  /' >&2
+    exit 1
+  else
+    echo "checkout: fast-forwarded $head_sha -> $remote_sha ($behind commits)"
+  fi
+fi
+
+# --- 2. install.sh -----------------------------------------------------------
+# Its own output is printed as it is: install.sh validates the instance again,
+# names every file it copies, and prints the follow-ups below as "next:" lines.
+run=("$checkout/install.sh")
+[ "$mode" = check ] && run+=(--check)
+out=$("${run[@]}" 2>&1)
+rc=$?
+[ -n "$out" ] && printf '%s\n' "$out"
+if [ "$rc" != 0 ]; then
+  echo "install: install.sh exited $rc; no follow-up was run" >&2
+  # Pass on the statuses install.sh documents. Anything else is a step that
+  # failed, whatever number it came back with: bash answers 126 or 127 when the
+  # file lost its exec bit, and this command documents 0, 1, 64 and 78.
+  case "$rc" in 1 | 78) exit "$rc" ;; *) exit 1 ;; esac
+fi
+
+# --- 3. The follow-ups -------------------------------------------------------
+# --check changes no file, so it starts no build, unit or container either. It
+# is done, and its answer is whether anything was waiting: the checkout, or what
+# install.sh --check reported.
+if [ "$mode" = check ]; then exit "$pending"; fi
+
+# A compose server is renewed only where it already runs: an update keeps a
+# service the host is using current, it does not add one to the host. ps lists
+# the project's running containers, so an empty answer means it is not up. The
+# extra arguments are what install.sh asks for on that server's line.
+compose_up() { # name file [argument...]
+  local name=$1 file=$2 running
+  shift 2
+  if [ ! -f "$file" ]; then
+    echo "$name: $file is not installed, left alone" >&2
+    exit 1
+  fi
+  # A project that is down answers 0 and prints nothing; a query that fails
+  # (no daemon, no compose plugin, a file that does not parse) is not an answer
+  # of "down", and this command cannot tell "not running" from it.
+  if ! running=$(docker compose -f "$file" ps --quiet 2>&1); then
+    echo "$name: docker compose ps failed; nothing else was run" >&2
+    [ -n "$running" ] && printf '%s\n' "$running" | sed 's/^/  /' >&2
+    exit 1
+  fi
+  if [ -z "$running" ]; then
+    echo "$name: not running on this host, left alone"
+    return 0
+  fi
+  echo "$name: updating the container"
+  local out rc
+  out=$(docker compose -f "$file" up -d "$@" 2>&1)
+  rc=$?
+  [ -n "$out" ] && printf '%s\n' "$out"
+  if [ "$rc" != 0 ]; then
+    echo "$name: docker compose exited $rc" >&2
+    exit 1
+  fi
+}
+
+# install.sh asks for these with enable --now. This command never enables a
+# unit: it restarts the ones that were already active, which is what a changed
+# unit file needs, and leaves the rest as the operator left them. daemon-reload
+# already happened inside install.sh.
+restart_units() { # unit names install.sh asked for
+  local unit answer active=() out rc
+  for unit in "$@"; do
+    # Ask without --quiet so there is an answer to read, and read only these:
+    # active restarts the unit, inactive or failed leaves it alone. Any other
+    # answer - no user bus, a systemd that is still loading, a systemctl wrapper
+    # on a host with no systemd printing "systemd is not running" while it exits
+    # 0 - says nothing about this unit, so nothing is restarted and the run
+    # stops. Exit status alone would read that last one as active.
+    answer=$(systemctl --user is-active "$unit" 2>&1)
+    case "$answer" in
+      active) active+=("$unit") ;;
+      inactive | failed) ;;
+      *)
+        echo "systemd: systemctl is-active gave no answer for $unit; no unit was restarted" >&2
+        [ -n "$answer" ] && printf '%s\n' "$answer" | sed 's/^/  /' >&2
+        exit 1
+        ;;
+    esac
+  done
+  if [ "${#active[@]}" = 0 ]; then
+    echo "systemd: none of them runs on this host, left alone"
+    return 0
+  fi
+  echo "systemd: restarted ${active[*]}"
+  out=$(systemctl --user restart "${active[@]}" 2>&1)
+  rc=$?
+  if [ "$rc" != 0 ]; then
+    echo "systemd: systemctl exited $rc" >&2
+    [ -n "$out" ] && printf '%s\n' "$out" | sed 's/^/  /' >&2
+    exit 1
+  fi
+}
+
+# install.sh prints one line per step whose input changed. Each is matched
+# against the steps this command knows and run as its own command, in the order
+# install.sh printed them; anything it does not recognise stays a "next:" line
+# for a person to read. A step that fails stops the run where it stands, with
+# the earlier steps already applied.
+followups=()
+while IFS= read -r line; do followups+=("$line"); done < <(printf '%s\n' "$out" | sed -n 's/^next: //p')
+for step in "${followups[@]}"; do
+  case "$step" in
+    *sandbox/build.sh*)
+      if [ ! -x "$TEHAS_HOME/sandbox/build.sh" ]; then
+        echo "sandbox: $TEHAS_HOME/sandbox/build.sh is not installed" >&2
+        exit 1
+      fi
+      echo "sandbox: building the image"
+      out=$("$TEHAS_HOME/sandbox/build.sh" 2>&1)
+      rc=$?
+      [ -n "$out" ] && printf '%s\n' "$out"
+      if [ "$rc" != 0 ]; then echo "sandbox: the build exited $rc" >&2; exit 1; fi ;;
+    *edge/docs.compose.yaml*) compose_up docs "$TEHAS_HOME/edge/docs.compose.yaml" ;;
+    *edge/protolab.compose.yaml*) compose_up protolab "$TEHAS_HOME/edge/protolab.compose.yaml" --force-recreate ;;
+    "systemctl --user enable --now "*)
+      # Split the names install.sh listed into an array: no word splitting or
+      # pathname expansion on text that came from its output.
+      units=()
+      read -r -a units <<<"${step#systemctl --user enable --now }"
+      if [ "${#units[@]}" = 0 ]; then echo "next: $step"; else restart_units "${units[@]}"; fi ;;
+    *) echo "next: $step" ;;
+  esac
+done
+
+exit 0

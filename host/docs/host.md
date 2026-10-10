@@ -20,7 +20,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/env.sh`                     | Environment for every tehas process; sourced from `~/.bashrc`           |
 | `~/tehas/lib/config.sh`              | Loads and checks the instance settings; sourced by every command        |
 | `~/tehas/bin/`                       | The tehas commands, plus `gh`                                           |
-| `~/tehas/platform`                   | Checkout of this repository; `install.sh` runs from it                  |
+| `~/tehas/platform`                   | Checkout of this repository; `install.sh` runs from it and `tehas-update` pulls it |
 | `~/tehas/repos/tehas`                     | The product checkout cycles run in, on the default branch               |
 | `~/tehas/repos/pi-rukas`             | pi-rukas, pinned to a commit                                            |
 | `~/tehas/docs/`, `~/tehas/fun/`      | This site's pages and the front page, installed from `host/`            |
@@ -76,6 +76,25 @@ The platform repository is the source. Change it there, merge, then on the
 host:
 
 ```
+tehas-update --check     # report what would change; change no file
+tehas-update             # pull, install, run the follow-ups that apply
+```
+
+`tehas-update` is the three steps that took hand work before: fast-forward
+`~/tehas/platform` from its remote, run `install.sh`, then run each `next:` line
+it prints. One line per step, and it stops at the first failure. It checks the
+instance settings against the same required list install.sh checks, before it
+calls git. It changes nothing when the checkout has local changes or cannot be
+fast-forwarded, and it never enables a unit or starts a container the host was
+not already running: a changed unit is restarted when it was active, and a docs
+or Protolab container is renewed when it is up. Asking Docker or systemd whether
+one runs and getting no answer stops the update; only a real answer counts, not
+an exit status on its own. See [Commands](/tools).
+
+The steps are still there on their own. `install.sh` is what puts tehas on a host
+the first time, before `tehas-update` exists there:
+
+```
 cd ~/tehas/platform && git pull
 ./install.sh --check     # change nothing, report four results
 ./install.sh             # copy changed files into place, keep <name>.prev
@@ -93,9 +112,12 @@ Tests:        OK
 ```
 
 `install.sh` validates the settings first and installs nothing if they are
-invalid. It prints the follow-up command when the sandbox image, the docs
-server or a systemd unit changed, and restarts nothing itself. A file edited directly on
-the host shows up as drift in `--check`.
+invalid. It prints the follow-up command when the sandbox image, the docs server
+or a systemd unit changed, and restarts nothing itself; `tehas-update` is what
+runs those lines. When a unit file changed it also asks systemd to reload its
+unit files, and says so out loud when that reload gave no clean answer, because
+the copied files are then not in effect. A file edited directly on the host shows
+up as drift in `--check`.
 
 One thing it does besides copying, on a real run only: the product checkout's
 `origin/HEAD` is refreshed, so the commands know the default branch without

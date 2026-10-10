@@ -219,6 +219,64 @@ scripts/verify.sh          # fast: the lint, shellcheck, the shell tests
 scripts/verify.sh --full   # plus deno lint over the TypeScript
 ```
 
+## tehas-update
+
+Bring this host up to date with the platform repository in one command.
+
+```
+tehas-update             # pull, install, run the follow-ups that apply
+tehas-update --check     # report what would change; change no file
+tehas-update --help      # print the usage of the command, touch nothing
+```
+
+It runs, in order and one line per step: a `git fetch` and a fast-forward of
+the platform checkout (`$TEHAS_HOME/platform`, in the example
+`~/tehas/platform`), then `install.sh`, then the follow-ups install.sh asks for.
+It takes at most one argument; anything else is refused with exit 64 before the
+settings are read. The settings are checked next against the same required list
+install.sh checks, so an instance with a required line still commented out
+stops with 78 before git runs. The checkout must be on a branch and have nothing
+uncommitted, and only a fast-forward is done: local commits of its own, or a
+branch that was rewritten on the remote, are left for a person. When the
+checkout sits on a branch that is not the remote's default, it says so and
+updates the branch it is on.
+
+The follow-ups are the ones install.sh prints as `next:` lines, and this command
+runs them as its own steps rather than as shell text:
+
+| Follow-up              | When it runs                                              |
+| ---------------------- | --------------------------------------------------------- |
+| sandbox image build    | `sandbox/` or `versions.env` changed                       |
+| docs server            | `edge/docs.*` changed **and** its container is running     |
+| Protolab server        | `edge/protolab.*` changed **and** its container is running |
+| systemd unit           | a unit file changed and the unit was active: it is restarted, never enabled |
+
+A service the host does not run is left alone, so an update adds nothing to it.
+Whether one runs is asked of Docker and of systemd, and only their answer counts
+as an answer, never their exit status on its own. `is-active` is asked without
+`--quiet` so that systemd names the state, and only its own state words are read:
+`active` means the unit is restarted, `inactive` or `failed` means it is left
+alone. An answer that is neither - no user bus, or a `systemctl` wrapper that
+prints an error and still exits 0 - stops the update with exit 1 instead of
+reporting the service as absent.
+
+The follow-ups run in the order install.sh printed them, so a step that fails
+leaves the ones before it applied: containers renewed and units restarted, the
+sandbox build not done. A follow-up this command does not recognise stays a
+`next:` line for a person to read. `--check` contacts the remote with
+`git fetch --prune`, so the remote-tracking refs under `origin/` match what the
+remote has, including branches the remote deleted; no file of the checkout or of
+the host changes. It runs `install.sh --check`, which reports the checkout, the
+installed files and the tests; it merges nothing, installs nothing, builds
+nothing and starts nothing, and exits 1 when there is something to update.
+
+| Exit | Meaning                                                                       |
+| ---- | ----------------------------------------------------------------------------- |
+| 0    | Updated, or already up to date                                                 |
+| 1    | The checkout has local changes, is not on a branch, cannot fast-forward, a step failed, a container or unit gave no answer, a status of `install.sh` this command does not know (named in the message), or `--check` found something to update |
+| 64   | More than one argument, or an argument this command does not know              |
+| 78   | The instance settings are missing or malformed, or there is no platform checkout |
+
 ## install.sh
 
 Installs tehas on the host from the platform checkout, for the instance the

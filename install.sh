@@ -15,9 +15,11 @@
 # follow-up steps are printed when their inputs changed. A replaced file is
 # kept next to the new one as <name>.prev.
 #
-# One thing it does besides copying, on a real run only: the product checkout's
+# Two things it does besides copying, on a real run only: the product checkout's
 # origin/HEAD is refreshed, so the commands know the default branch without
-# asking the network.
+# asking the network; and when a unit file changed, systemd is asked to reload
+# its unit files - only silence next to exit 0 means it did, and anything else
+# is said out loud, because the copied files are not in effect until it has.
 #
 # Exit: 0 done or nothing to report, 1 --check found something or a step
 # failed, 78 the instance settings are invalid (nothing was changed).
@@ -117,7 +119,7 @@ files=(
   "pi/mcp.json|$agent/mcp.json|644"
   "$instance/models.json|$agent/models.json|644"
 )
-for f in tehas-console.ts tehas-dispatch tehas-energy tehas-health tehas-protolab tehas-status tehas-work tehas-test; do
+for f in tehas-console.ts tehas-dispatch tehas-energy tehas-health tehas-protolab tehas-status tehas-update tehas-work tehas-test; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
 # Pi's own settings: the instance may bring its own (default provider and
@@ -234,7 +236,17 @@ if [ "${#changed[@]}" = 0 ]; then
 fi
 list=" ${changed[*]} "
 case "$list" in *" systemd/"*)
-  systemctl --user daemon-reload || true
+  # A reload that did not happen is said out loud: without it the new unit
+  # files are not in effect, and the next line below asks for a restart of the
+  # old ones. Only silence next to exit 0 means it happened - a systemctl
+  # wrapper on a host with no systemd prints an error and still exits 0.
+  if ! reload=$(systemctl --user daemon-reload 2>&1); then
+    echo "tehas: systemctl --user daemon-reload failed; the changed unit files are not in effect" >&2
+    [ -n "$reload" ] && printf '%s\n' "$reload" | sed 's/^/  /' >&2
+  elif [ -n "$reload" ]; then
+    echo "tehas: systemctl --user daemon-reload gave no answer; the changed unit files are not in effect" >&2
+    printf '%s\n' "$reload" | sed 's/^/  /' >&2
+  fi
   echo "next: systemctl --user enable --now tehas-dispatch.timer tehas-energy.service tehas-protolab.timer" ;;
 esac
 case "$list" in *" sandbox/"* | *" versions.env "*) echo "next: $TEHAS_HOME/sandbox/build.sh" ;; esac

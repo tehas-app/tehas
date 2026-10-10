@@ -200,7 +200,8 @@ Fix the default branch first; every cycle will fail the same way until then.
 The pages are installed copies in `~/tehas/docs`. After a change is merged:
 
 ```
-cd ~/tehas/platform && git pull && ./install.sh
+tehas-update      # pull the platform checkout, install, renew what already runs
 ```
 
-No restart is needed; each request reads the page from disk.
+No restart is needed; each request reads the page from disk. If the host has no
+platform checkout yet, run `./install.sh` from wherever the repository is kept.
