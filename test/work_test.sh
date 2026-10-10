@@ -7,8 +7,13 @@
 
 work="$T_ROOT/bin/tehas-work"
 checkout=$T/home/tehas/repos/widget
-git init -q "$checkout"
-git -C "$checkout" remote add origin https://github.com/acme/widget.git
+ws=$T/home/tehas/work/widget
+# The product repository, and the host's checkout of it.
+upstream=$T/git/acme/widget
+mkdir -p "$upstream"
+git init -q -b main "$upstream"
+git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m first
+git clone -q "$upstream" "$checkout"
 
 t_stub docker 'printf "%s\n" "$@" >"$T/calls/docker.args.$$"'
 t_stub deno
@@ -16,8 +21,37 @@ printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitco
 
 # The arguments of the docker call that starts the cycle.
 cycle_args() { grep -l -x -e '--mode' "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
+# The arguments of the docker call that checks the push before the cycle.
+preflight_args() { grep -l -x -e '--entrypoint' "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
 # Values that follow a flag, e.g. every -v or every -e.
 after() { cycle_args | awk -v flag="$1" 'prev == flag { print } { prev = $0 }'; }
+# Every option of a docker call that is not one this command is known to
+# pass, up to the image name. Options are read the way docker reads them: the
+# ones that take a value consume the next argument. A mount or a variable
+# spelled another way (--volume, --mount, --env, -eNAME), or any other option
+# (--network, --cap-add, --user 0:0), shows up here.
+unknown_options() { # <image> <options that take a value> <options that take none>
+  awk -v image="$1" -v valued=" $2 " -v plain=" $3 " '
+    NR == 1 { next } # "run"
+    skip { skip = 0; next }
+    $0 == image { exit }
+    index(valued, " " $0 " ") { skip = 1; next }
+    index(plain, " " $0 " ") { next }
+    /^--add-host=[A-Za-z0-9.-]+:[0-9a-fA-F.:]+$/ { next }
+    { print }'
+}
+
+t_case "a work directory tehas did not make is left alone"
+t_instance "${T_MINIMAL[@]}"
+T_ENV=(GH_TOKEN=test-token)
+mkdir -p "$T/home/tehas/work/widget"
+echo keep >"$T/home/tehas/work/widget/notes.txt"
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_contains "$t_out" "was not made by tehas"
+t_eq "$(cat "$T/home/tehas/work/widget/notes.txt")" keep
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+rm -rf "$T/home/tehas/work"
 
 t_case "an invalid instance starts no container"
 t_instance TEHAS_CONTROL_ISSUE=1
@@ -35,10 +69,19 @@ t_eq "$(after --memory)" "512m"
 
 t_case "the image and the working directory come from the settings"
 t_contains "$(cycle_args | tr '\n' ' ')" "tehas/pi-rukas:uid$(id -u) pi --mode rpc --approve"
-t_eq "$(after -w)" "$checkout"
+t_eq "$(after -w)" "$ws"
+
+t_case "the cycle works in a fresh clone at the branch's tip, with the product's origin"
+t_eq "$(git -C "$ws" rev-parse HEAD)" "$(git -C "$upstream" rev-parse main)"
+t_eq "$(git -C "$ws" branch --show-current)" main
+t_eq "$(git -C "$ws" config --get remote.origin.url)" "$(git -C "$checkout" config --get remote.origin.url)"
+t_eq "$(git -C "$ws" symbolic-ref --short refs/remotes/origin/HEAD)" origin/main
+
+t_case "the product checkout is not mounted anywhere"
+t_lacks "$(cat "$T"/calls/docker.args.*)" "$checkout"
 
 t_case "exactly the documented paths are mounted"
-want="$checkout:$checkout
+want="$ws:$ws
 $T/home/.pi/agent/ensemble-runs:/home/vscode/.pi/agent/ensemble-runs
 $T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
 $T/home/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro
@@ -69,6 +112,18 @@ PI_ENSEMBLE_SUBAGENT_PROVIDER
 PI_ENSEMBLE_WORKSPACE_ROOT"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
 
+t_case "the cycle's container gets no option beyond the documented ones"
+image="tehas/pi-rukas:uid$(id -u)"
+t_eq "$(cycle_args | unknown_options "$image" "--name --cpus --memory -w -v -e" "--rm -i")" ""
+t_eq "$(cycle_args | sed -n "/^$(printf '%s' "$image" | sed 's/[\/.]/\\&/g')\$/,\$p" | tr '\n' ' ')" "$image pi --mode rpc --approve "
+
+t_case "the push check's container gets the workspace and the same variables, no more"
+t_eq "$(preflight_args | unknown_options "$image" "--user -e -w -v --entrypoint" "--rm")" ""
+t_eq "$(preflight_args | awk 'prev == "-v" { print } { prev = $0 }')" "$ws:$ws"
+t_eq "$(preflight_args | awk 'prev == "-e" { print } { prev = $0 }' | sed 's/=.*//' | LC_ALL=C sort)" \
+  "$(printf '%s\n' "$want" HOME | LC_ALL=C sort)"
+t_eq "$(preflight_args | awk 'prev == "--user" { print } { prev = $0 }')" "$(id -u):$(id -g)"
+
 t_case "the token is passed by name, never written into the arguments"
 t_lacks "$(cycle_args)" "test-token"
 
@@ -82,6 +137,41 @@ t_lacks "$args" "--privileged"
 
 t_case "host aliases become --add-host entries"
 t_contains "$(cycle_args)" "--add-host=models:192.0.2.9"
+
+t_case "what an earlier cycle left in the workspace is gone, and the host runs none of it"
+# Everything an agent could leave to be run later: a hook, git configuration
+# that names a program, an untracked file, another issue's state file.
+mkdir -p "$ws/.git/hooks" "$ws/.pi/work-state"
+printf '#!/bin/sh\ntouch "%s"\n' "$T/ran-hook" >"$ws/.git/hooks/post-checkout"
+cp "$ws/.git/hooks/post-checkout" "$ws/.git/hooks/reference-transaction"
+chmod +x "$ws/.git/hooks/post-checkout" "$ws/.git/hooks/reference-transaction"
+git -C "$ws" config core.fsmonitor "touch $T/ran-fsmonitor; false"
+git -C "$ws" config core.sshCommand "touch $T/ran-ssh"
+echo left >"$ws/left-over.txt"
+echo '{"pipelineState":{"status":"merged"}}' >"$ws/.pi/work-state/9.json"
+rm -f "$T"/calls/*
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(find "$T" -maxdepth 1 -name 'ran-*' | wc -l)" 0
+t_eq "$(find "$ws/left-over.txt" "$ws/.pi" "$ws/.git/hooks/post-checkout" 2>/dev/null | wc -l)" 0
+t_eq "$(git -C "$ws" config --get core.fsmonitor || echo unset)" unset
+t_eq "$(git -C "$ws" rev-parse HEAD)" "$(git -C "$upstream" rev-parse main)"
+
+t_case "a commit the cycle made on its own branch does not reach the next cycle"
+git -C "$ws" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m planted
+t_run "$work 7"
+t_eq "$(git -C "$ws" rev-parse HEAD)" "$(git -C "$upstream" rev-parse main)"
+t_eq "$(git -C "$checkout" rev-parse main)" "$(git -C "$upstream" rev-parse main)"
+
+t_case "a private address in the cycle's status line is not published"
+t_stub docker 'printf "%s\n" "$@" >"$T/calls/docker.args.$$"
+case " $* " in *" --mode "*) echo "{\"statusText\":\"step 3 models at $ADDR:8086 and 192.0.2.7\"}" ;; esac'
+# Built here, not written out: this file is linted too.
+T_ENV=(GH_TOKEN=test-token "ADDR=10.$((10 + 10)).30.40")
+t_run "$work 7"
+t_eq "$(jq -r .statusText "$T/home/tehas/live/running.json")" "step 3 models at [private address]:8086 and 192.0.2.7"
+t_stub docker 'printf "%s\n" "$@" >"$T/calls/docker.args.$$"'
+T_ENV=(GH_TOKEN=test-token)
 
 t_case "a checkout of another repository starts no container"
 rm -f "$T"/calls/*

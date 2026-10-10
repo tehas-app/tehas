@@ -12,7 +12,7 @@ description: "What each stop in a tehas cycle means, and what to do about it."
 | What did the dispatcher decide?  | `tehas-dispatch --dry-run`, `~/tehas/logs/dispatch.log`                 |
 | What did a cycle's runner print? | `~/tehas/logs/dispatch-work-<issue>.log`                                |
 | What did Pi and the driver say?  | `~/tehas/logs/work-<issue>-<time>.jsonl` and `.jsonl.err`               |
-| Where is the cycle now?          | `jq .pipelineState ~/tehas/repos/tehas/.pi/work-state/<issue>.json`          |
+| Where is the cycle now?          | `jq .pipelineState ~/tehas/work/tehas/.pi/work-state/<issue>.json`. The workspace is the last cycle's only |
 | What did one agent do?           | Transcripts under `~/.pi/agent/ensemble-runs/<date>/`                   |
 | Is a cycle running?              | `docker ps --filter name=tehas-work`                                    |
 

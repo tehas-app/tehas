@@ -15,6 +15,16 @@ function mask(s: string): string {
     .replace(
       /\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY)[A-Z0-9_]*=)\S+/g,
       "$1***",
+    )
+    // A private network address: an agent can read the container's hosts
+    // file, and a connection error names the address it failed to reach.
+    .replace(
+      /(?<![\d.])(?:10\.\d{1,3}|192\.168|172\.(?:1[6-9]|2\d|3[01])|169\.254|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7]))\.\d{1,3}\.\d{1,3}(?![\d])/g,
+      "[private address]",
+    )
+    .replace(
+      /\b[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.ts\.net\b/g,
+      "[private name]",
     );
 }
 
@@ -58,4 +68,37 @@ Deno.test("mashes KEY=VALUE secrets for token-like names", () => {
 Deno.test("leaves ordinary text untouched", () => {
   const plain = "no secrets here, just a postgres://user@host:5432/db url";
   assertEquals(mask(plain), plain);
+});
+
+// Built here, not written out: scripts/check-generic.sh reads this file too.
+const ip = (...parts: number[]) => parts.join(".");
+
+Deno.test("masks private network addresses", () => {
+  assertEquals(
+    mask(`models ${ip(10, 1, 2, 3)} ok`),
+    "models [private address] ok",
+  );
+  assertEquals(mask(`${ip(192, 168, 1, 10)}:8086`), "[private address]:8086");
+  assertEquals(mask(`at ${ip(172, 16, 0, 5)}.`), "at [private address].");
+  assertEquals(mask(ip(172, 31, 255, 1)), "[private address]");
+  assertEquals(mask(`host_${ip(100, 100, 2, 3)}`), "host_[private address]");
+  assertEquals(mask(ip(169, 254, 1, 1)), "[private address]");
+  assertEquals(
+    mask(["node", "tail1234", "ts", "net"].join(".") + ":8086"),
+    "[private name]:8086",
+  );
+});
+
+Deno.test("leaves public and documentation addresses and versions alone", () => {
+  for (
+    const s of [
+      "192.0.2.7",
+      "8.8.8.8",
+      "172.32.0.1",
+      "100.128.0.1",
+      "version 1.10.2.3",
+      "210.1.2.3",
+      "127.0.0.1",
+    ]
+  ) assertEquals(mask(s), s);
 });
