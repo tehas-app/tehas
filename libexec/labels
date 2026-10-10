@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Create the tehas labels in the product repository, or bring their colours
+# and descriptions back to these. A setup step: run once for a new product.
+#
+# Usage: tehas labels          one line per label
+#
+# Exit: 0 every label is there; 1 a label could not be made; 64 an argument,
+# this command takes none; 78 the instance settings are missing or malformed.
+#
+# Instance settings (lib/config.sh): TEHAS_REPO, required. Nothing else, so it
+# runs before the rest of an instance is filled in.
+set -uo pipefail
+
+[ "$#" = 0 ] || { echo "usage: tehas labels" >&2; exit 64; }
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/config.sh
+. "$here/../lib/config.sh"
+tehas_load || exit 78
+tehas_require TEHAS_REPO
+repo=$TEHAS_REPO
+
+failed=0
+mk() {
+  if gh label create "$1" --repo "$repo" --color "$2" --description "$3" --force >/dev/null; then
+    echo "label $1"
+  else
+    echo "tehas labels: could not make $1" >&2
+    failed=1
+  fi
+}
+mk tehas:ready 0e8a16 "Tehas: eligible for dispatch (apply by hand to authorize a cycle)"
+mk tehas:urgent d93f0b "Tehas: dispatch before other ready issues"
+mk tehas:running 1d76db "Tehas: a /work cycle owns this issue"
+mk tehas:awaiting-merge fbca04 "Tehas: PR open and reviewed, waiting for a human"
+mk tehas:pause 000000 "Tehas: on the control issue, stops all dispatch"
+mk needs-human-attention b60205 "Cycle parked; the handoff comment says what to do"
+exit "$failed"

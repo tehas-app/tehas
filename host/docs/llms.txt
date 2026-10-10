@@ -75,7 +75,7 @@ and the Protolab are optional and can be ignored for a first install.
 - [Bootstrap a host]({{ $base }}/bootstrap.md): preparing the machine before the install
 - [Features]({{ $base }}/features.md): what exists and how far each part is proven
 - [The host]({{ $base }}/host.md): layout on the machine and the sandbox contract test
-- [Commands]({{ $base }}/tools.md): every `tehas-*` command
+- [Commands]({{ $base }}/tools.md): `tehas`, `tehasbot` and what each of their commands does
 
 ## Live data
 

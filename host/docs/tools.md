@@ -7,11 +7,29 @@ description: "Every tehas command and what it does."
 
 On the host as the tehas user (in the example, `boss` on `tehas-tehas`).
 Interactive shells get the environment from `~/tehas/env.sh`; a non-interactive
-`ssh boss@tehas-tehas '<command>'` must source it first. The scripts live in
-`~/tehas/bin`, installed from `bin/` in the platform repository.
+`ssh boss@tehas-tehas '<command>'` must source it first.
 
-Every command loads the instance settings first and stops with exit 78 and one
-line if a setting it needs is missing or malformed. See [The host](/host).
+There are two commands on `PATH`, both in `~/tehas/bin`:
+
+```
+tehas dispatch [--dry-run]       # one poll of the issue queue, by hand
+tehas work <issue> [--restart]   # one cycle for an issue, by hand
+tehas index                      # build the code index the agents search
+tehas labels                     # create the tehas labels in the repository
+tehas status                     # print the state of the factory
+tehas help [command]             # this list, or the text of one command
+```
+
+`tehas` is the one a person types. [`tehasbot`](#tehasbot) is what the timers
+and services run. Each of their commands is a script in `~/tehas/libexec`,
+installed from `libexec/` in the platform repository; the two commands only
+choose a script and run it, and exit with its status. A command neither of
+them knows is exit 64 with the list on standard error. `tehas <command> --help`
+prints the same text as `tehas help <command>`.
+
+Every script that needs the instance settings loads them first and stops with
+exit 78 and one line if a setting it needs is missing or malformed. See
+[The host](/host).
 
 ## Instance settings
 
@@ -44,20 +62,20 @@ The example instance sets the five required ones, `TEHAS_HOST_ADDR`,
 `PI_ENSEMBLE_HOST_ALIASES`, and, because it is public, `TEHAS_INDEXING` and the
 analytics settings. It leaves the rest at the defaults.
 
-## tehas-dispatch
+## tehas dispatch
 
-One poll of the issue queue. Deterministic, no model.
+One poll of the issue queue. Deterministic, no model. The timer runs the same
+script as `tehasbot dispatch`.
 
 ```
-tehas-dispatch --dry-run       # report the decision, change nothing
-tehas-dispatch                 # run at most one cycle, then return
-tehas-dispatch --init-labels   # create the tehas labels in the repository
-tehas-dispatch --help          # print the usage of the command, call nothing
+tehas dispatch --dry-run       # report the decision, change nothing
+tehas dispatch                 # run at most one cycle, then return
+tehas dispatch --help          # print the usage of the command, call nothing
 ```
 
 `--help` (or `-h`) prints the header comment of the command and exits 0; it
 works even on a host with no instance settings yet. Any other argument, or more
-than one, is refused: exit 64 with `tehas-dispatch: unknown argument: <argument>`
+than one, is refused: exit 64 with `tehas dispatch: unknown argument: <argument>`
 and the usage on standard error, before the instance settings are read. A mistyped
 `--dryrun` therefore starts no poll and changes nothing.
 
@@ -68,20 +86,22 @@ cycle's runner output: `~/tehas/logs/dispatch-work-<issue>.log`.
 
 Before a cycle it puts the product checkout on the default branch and
 fast-forwards it, then refreshes the code index with
-[tehas-index](#tehas-index) when the branch has moved since the last indexing.
-`tehas-work` then clones the cycle's workspace from the checkout. An index
-that cannot be refreshed is a warning in the log; the cycle still runs.
+[tehas index](#tehas-index) when the branch has moved since the last indexing.
+The work script then clones the cycle's workspace from the checkout. An index
+that cannot be refreshed is a warning in the log; the cycle still runs. The
+dispatcher runs the index, work and status scripts from its own directory,
+`~/tehas/libexec`, not by a name on `PATH`.
 
 An issue is taken only when an allowed account applied `tehas:ready` and
 nobody else has changed its title or body since. A cycle starts only once the
 issue is marked `tehas:running`; if that label change fails, the poll stops.
 
-## tehas-work
+## tehas work
 
 One pi-rukas `/work` cycle, headless, in the sandbox image.
 
 ```
-tehas-work <issue> [--restart]
+tehas work <issue> [--restart]
 ```
 
 It starts `pi --mode rpc --approve` in a container, sends `/work <issue>` and
@@ -106,13 +126,12 @@ stream is kept in `~/tehas/logs/work-<issue>-<time>.jsonl`. The limits are
 The bot's git identity is the tehas user's global `user.name` and `user.email`
 on the host.
 
-## tehas-index
+## tehas index
 
 Builds the code index that a cycle's agents search, or refreshes it.
 
 ```
-tehas-index                  # build the index
-tehas-index --before-cycle   # what tehas-dispatch runs
+tehas index                  # build the index
 ```
 
 pi-rukas tells its agents to find code with the `codebase_memory` tools. They
@@ -140,7 +159,7 @@ limits. The indexer's answer is kept in `~/tehas/logs/index-<time>.log`, and
 `~/tehas/state/index.json` records the commit that was indexed.
 
 `install.sh` runs it once, the first time it finds the sandbox image and the
-product checkout and no index. After that the dispatcher runs it with
+product checkout and no index. After that the dispatcher runs the script with
 `--before-cycle` ahead of every cycle: the lock is the dispatcher's own then,
 and nothing is done when the recorded commit is already the branch's tip. So a
 cycle starts with an index of the tree it is cloned from. What the cycle
@@ -148,29 +167,85 @@ changes afterwards, in its workspace or its worktrees, is not in the index.
 
 Run by hand it always rebuilds, and it holds the dispatcher's lock while it
 does, so no cycle starts in the middle. A cycle started by hand with
-`tehas-work` refreshes nothing.
+`tehas work` refreshes nothing.
 
-## tehas-status and tehas-console.ts
+## tehas labels
 
-Feed the [factory floor](/) and the [plain dashboard](/dashboard). `tehas-status` writes the queue snapshot to
+```
+tehas labels        # one line per label
+```
+
+Creates the six labels tehas uses in the product repository: `tehas:ready`,
+`tehas:urgent`, `tehas:running`, `tehas:awaiting-merge`, `tehas:pause` and
+`needs-human-attention`. Run it once for a new product. Run again, it puts
+their colours and descriptions back. It needs `TEHAS_REPO` and no other
+setting. Exit 0 when every label is there, 1 when one could not be made, 64 on
+any argument, 78 when the repository is not set.
+
+## tehas status
+
+```
+tehas status
+```
+
+```
+factory   pass: Idle, taking work. (40 s ago)
+queue     2 in line, 0 building, 1 in review, 0 stopped
+cycle     #12 handoff at step review, 3 min ago
+```
+
+Prints the state of the factory from the [health file](#tehasbot-health): is
+it taking work, what is in the queue, and the current or last cycle. It reads
+that one file and nothing else: no GitHub call, no instance settings, and it
+writes nothing. So it is as fresh as the dispatcher's last poll, and the first
+line says how old that is.
+
+A stopped dispatcher cannot report itself: its file just stops changing. A
+file older than ten minutes is therefore not believed. The first line then
+starts `factory   stale:` and asks whether the timer is running.
+
+Exit 0 on `pass` and `warn`. Exit 1 on `fail`, on a stale file, or when there
+is no health file yet. Exit 64 on any argument.
+
+## tehasbot
+
+What the units run. Nothing here is needed in daily use; it is the place to
+look when a timer or service has to be run once by hand.
+
+```
+tehasbot dispatch             # one poll; what tehas-dispatch.timer runs
+tehasbot status               # write the queue snapshot
+tehasbot health               # write the health file
+tehasbot energy [--every]     # sample the model mesh; what tehas-energy.service runs
+tehasbot protolab             # build the Protolab; what tehas-protolab.timer runs
+```
+
+The names of the units did not change with the commands: they are still
+`tehas-dispatch.timer`, `tehas-energy.service` and `tehas-protolab.timer`, and
+a cycle's container is still `tehas-work-<issue>`.
+
+## tehasbot status and the console
+
+Feed the [factory floor](/) and the [plain dashboard](/dashboard). `tehasbot status` writes the queue snapshot to
 `~/tehas/live/status.json`; the dispatcher runs it at every poll and every two
-minutes during a cycle. `tehas-console.ts` is started by `tehas-work` and
-follows the cycle's agents into `~/tehas/live/console-<issue>.txt`, masking
+minutes during a cycle. `~/tehas/libexec/console.ts` is started by the work
+script and follows the cycle's agents into `~/tehas/live/console-<issue>.txt`, masking
 tokens, passwords and private network addresses. The mask catches accidents;
 it cannot stop an agent that sets out to print a secret another way, so treat
 the console of a published dashboard as public. Neither needs running by hand.
 
-## tehas-health
+## tehasbot health
 
 ```
-tehas-health        # prints nothing; refreshes ~/tehas/live/health.json
+tehasbot health     # prints nothing; refreshes ~/tehas/live/health.json
 curl -i http://tehas-tehas:8080/health
 ```
 
 Writes the factory's health from what is already on disk: the queue snapshot
-and the current or last cycle. `tehas-status` runs it on exit, so it is
+and the current or last cycle. The status script runs it on exit, so it is
 refreshed at every poll and every two minutes during a cycle. The docs server
 serves the file at `/health` and `/healthz` as `application/health+json`.
+`tehas status` prints the same file for a person.
 
 | `status` | Meaning                                                                                  | HTTP |
 | -------- | ---------------------------------------------------------------------------------------- | ---- |
@@ -186,7 +261,7 @@ A stopped dispatcher cannot report itself: the file simply stops changing and
 the endpoint keeps answering with the last state. A monitor should also treat
 a `time` older than about ten minutes as down.
 
-## tehas-energy
+## tehasbot energy
 
 Optional. It feeds the Energy use section of the factory floor and nothing
 else: no command reads its file, and a factory without it dispatches and works
@@ -195,8 +270,8 @@ command and its unit are installed on every instance, but the service runs
 only if you enable it.
 
 ```
-tehas-energy            # one sample; prints nothing; writes ~/tehas/live/energy.json
-tehas-energy --every    # one sample at every 15-second mark; what the service runs
+tehasbot energy            # one sample; prints nothing; writes ~/tehas/live/energy.json
+tehasbot energy --every    # one sample at every 15-second mark; what the service runs
 systemctl --user enable --now tehas-energy.service
 ```
 
@@ -230,10 +305,10 @@ Against a backend that is not viiwork the service still asks
 `<provider>/v1/cluster` every 15 seconds and writes nothing. On such a host
 leave the service disabled, or set `TEHAS_ENERGY=off`.
 
-## tehas-protolab
+## tehasbot protolab
 
 ```
-tehas-protolab          # one pass; a line per ticket built or removed
+tehasbot protolab       # one pass; a line per ticket built or removed
 systemctl --user enable --now tehas-protolab.timer
 . ~/tehas/env.sh && docker compose -f ~/tehas/edge/protolab.compose.yaml up -d
 ```
@@ -286,10 +361,13 @@ cd ~/tehas/platform
 Exit 0 when done or nothing to report, 1 when `--check` found something or a
 step failed, 78 when the instance settings are invalid (nothing was changed).
 
-A real run also builds the code index with [tehas-index](#tehas-index), once:
+A real run also builds the code index with [tehas index](#tehas-index), once:
 when there is none yet and both the sandbox image and the product checkout are
 there. Otherwise it prints the command as a follow-up. An indexing that fails
 is a warning and does not fail the install.
+
+It also removes the commands of the earlier layout from `~/tehas/bin`, unless a
+cycle is running that still uses them. See [The host](/host).
 
 ## bootstrap.sh
 
@@ -302,12 +380,13 @@ sudo ./bootstrap.sh root boss   # system packages, Docker, docker group, lingeri
 ./bootstrap.sh check            # change nothing; found and expected version per tool
 ```
 
-## tehas-test
+## scripts/test.sh
 
-The checks of the platform itself. Run from the platform checkout.
+The checks of the platform itself. Run from the platform checkout; it is not
+installed on a host.
 
 ```
-bin/tehas-test
+scripts/test.sh
 ```
 
 It runs shellcheck over the shell scripts, then every `test/*_test.sh`. Those
@@ -319,4 +398,4 @@ nothing could be checked.
 of every file, and product and host names out of platform files. The names
 come from `scripts/check-generic.names`, a list each working machine keeps for
 itself: git ignores it and it is read as data. `scripts/verify.sh` runs the
-lint and `bin/tehas-test` together.
+lint and `scripts/test.sh` together.

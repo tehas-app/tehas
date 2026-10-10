@@ -1,6 +1,6 @@
 // The Energy use section of the game view: what the model mesh draws and
 // which models it serves, read from /live/energy.json (written by
-// bin/tehas-energy). See DESIGN.md, "Energy Use".
+// libexec/energy). See DESIGN.md, "Energy Use".
 //
 // layout() turns the file into what is drawn and has no side effects, so it is
 // tested without a browser (test/energy_view_test.ts). The rest of the module

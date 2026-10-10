@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Tests for bin/tehas-index: what the indexing container is given, which tree
+# Tests for libexec/index: what the indexing container is given, which tree
 # it reads, and that nothing is started when it should not be. A stub docker
 # records its arguments, one per line, and answers as the indexer would.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh"
 
-index="$T_ROOT/bin/tehas-index"
+index="$T_ROOT/libexec/index"
 checkout=$T/home/tehas/repos/widget
 ws=$T/home/tehas/work/widget
 marker=$T/home/tehas/state/index.json

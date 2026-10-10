@@ -22,8 +22,8 @@
 #   (5xx) or a busy answer (408, 429)
 #   any other answer                           the file is removed: not viiwork
 #
-# Usage: tehas-energy               one sample
-#        tehas-energy --every       one sample at every 15-second mark, for ever
+# Usage: tehasbot energy               one sample
+#        tehasbot energy --every       one sample at every 15-second mark, for ever
 #
 # Prints nothing; exit 0 unless the file cannot be written.
 set -uo pipefail
@@ -41,7 +41,7 @@ case "${1:-}" in
       "$0" || true
       sleep $((period - $(date +%s) % period))
     done ;;
-  *) echo "usage: tehas-energy [--every]" >&2; exit 64 ;;
+  *) echo "usage: tehasbot energy [--every]" >&2; exit 64 ;;
 esac
 
 mkdir -p "$live"

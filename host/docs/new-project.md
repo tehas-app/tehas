@@ -200,12 +200,12 @@ pi-rukas image and remaps the user id. Add whatever your gates need. Then:
 
 ```
 ~/tehas/sandbox/build.sh
-tehas-index
+tehas index
 ```
 
-`tehas-index` builds the code index the agents search, which needs the image.
+`tehas index` builds the code index the agents search, which needs the image.
 A later `install.sh` would do it too, as long as there is no index yet. See
-[tehas-index](/tools).
+[tehas index](/tools).
 
 ### 7. Prove the gates in the sandbox
 
@@ -228,15 +228,15 @@ rm -rf "$T"
 
 ```
 docker compose -f ~/tehas/edge/docs.compose.yaml up -d   # this site and the dashboard
-tehas-dispatch --init-labels
-tehas-dispatch --dry-run
+tehas labels
+tehas dispatch --dry-run
 systemctl --user enable --now tehas-dispatch.timer
 ```
 
 `install.sh` also names `tehas-energy.service` in its follow-up line. That
 service is optional: enable it only when your model endpoint is a viiwork mesh,
 as the example's `fleet` provider is. With any other endpoint leave it
-disabled. See [tehas-energy](/tools).
+disabled. See [the energy sampler](/tools).
 
 Then label one small, well-specified issue with `tehas:ready` and watch it on
 the dashboard. [Operating tehas](/operating) takes it from there.

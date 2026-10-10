@@ -6,7 +6,7 @@
 # Deterministic, no model, two GitHub calls. The dispatcher runs it at every
 # poll and every two minutes while a cycle is running.
 #
-# Usage: tehas-status          (prints nothing; exit 0 even when GitHub is down,
+# Usage: tehasbot status          (prints nothing; exit 0 even when GitHub is down,
 #                                 the previous file is then left in place;
 #                                 exit 78 when the instance settings are invalid)
 set -uo pipefail
@@ -21,7 +21,7 @@ control=$TEHAS_CONTROL_ISSUE
 live=$TEHAS_HOME/live
 mkdir -p "$live"
 # Whatever happens below, refresh the health file from what is on disk.
-trap '"$TEHAS_HOME/bin/tehas-health" 2>/dev/null || true' EXIT
+trap '"$here/health" 2>/dev/null || true' EXIT
 
 issues=$(gh issue list --repo "$repo" --state all --limit 200 \
   --search 'label:"tehas:ready","tehas:running","tehas:awaiting-merge","needs-human-attention" sort:updated-desc' \

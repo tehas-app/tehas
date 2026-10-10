@@ -87,7 +87,7 @@ The manual is in [`host/docs/`](host/docs/). Every instance serves it on port
 | [A new project](host/docs/new-project.md) | Installing tehas for your repository |
 | [Bootstrap a host](host/docs/bootstrap.md) | Preparing a fresh machine |
 | [The host](host/docs/host.md) | Files on the machine, settings, the sandbox image |
-| [Commands](host/docs/tools.md) | Every `tehas-*` command |
+| [Commands](host/docs/tools.md) | `tehas`, `tehasbot` and what each of their commands does |
 | [Troubleshooting](host/docs/troubleshooting.md) | What each kind of stop means |
 
 Agents can start from [`host/docs/llms.txt`](host/docs/llms.txt).
@@ -115,7 +115,8 @@ image. The rules for changes are in [`AGENTS.md`](AGENTS.md).
 
 | Path | What it is |
 | --- | --- |
-| `bin/` | The commands, installed to `~/tehas/bin` |
+| `bin/` | The two commands: `tehas` for a person, `tehasbot` for the units. Installed to `~/tehas/bin` |
+| `libexec/` | The scripts behind them, bash and one Deno script. Installed to `~/tehas/libexec` |
 | `lib/config.sh` | Loads and checks the instance settings |
 | `host/` | Everything else that is installed: units, the docs server, the sandbox image, the manual |
 | `install.sh`, `bootstrap.sh` | Install tehas on a host, and prepare a host's tools |

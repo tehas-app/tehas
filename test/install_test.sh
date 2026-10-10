@@ -36,21 +36,24 @@ files="./.config/systemd/user/tehas-dispatch.service
 ./.pi/agent/mcp.json
 ./.pi/agent/models.json
 ./.pi/agent/settings.json
-./tehas/bin/tehas-console.ts
-./tehas/bin/tehas-dispatch
-./tehas/bin/tehas-energy
-./tehas/bin/tehas-health
-./tehas/bin/tehas-index
-./tehas/bin/tehas-protolab
-./tehas/bin/tehas-status
-./tehas/bin/tehas-test
-./tehas/bin/tehas-work
+./tehas/bin/tehas
+./tehas/bin/tehasbot
 ./tehas/edge/docs.Caddyfile
 ./tehas/edge/docs.compose.yaml
 ./tehas/edge/protolab.Caddyfile
 ./tehas/edge/protolab.compose.yaml
 ./tehas/env.sh
 ./tehas/lib/config.sh
+./tehas/libexec/console.ts
+./tehas/libexec/dispatch
+./tehas/libexec/energy
+./tehas/libexec/health
+./tehas/libexec/index
+./tehas/libexec/labels
+./tehas/libexec/protolab
+./tehas/libexec/status
+./tehas/libexec/summary
+./tehas/libexec/work
 ./tehas/sandbox/Dockerfile
 ./tehas/sandbox/build.sh
 ./tehas/versions.env"
@@ -100,19 +103,19 @@ t_contains "$t_out" "Installed:    OK"
 t_contains "$t_out" "Tests:        not checked (running inside the tests)"
 
 t_case "--check reports drift, changes nothing and exits 1"
-echo "# edited on the host" >>"$th/bin/tehas-dispatch"
+echo "# edited on the host" >>"$th/libexec/dispatch"
 before=$(installed_files | xargs -I{} sh -c "cd '$home' && cksum '{}'")
 t_run "$install --check"
 t_eq "$t_rc" 1
 t_contains "$t_out" "Installed:    DRIFT (1 files)"
-t_contains "$t_out" "differs: $th/bin/tehas-dispatch"
+t_contains "$t_out" "differs: $th/libexec/dispatch"
 t_eq "$(installed_files | xargs -I{} sh -c "cd '$home' && cksum '{}'")" "$before"
 
 t_case "a real run repairs drift and keeps the old file as .prev"
 t_run "$install"
-t_contains "$t_out" "installed: $th/bin/tehas-dispatch"
-t_eq "$(cmp -s "$th/bin/tehas-dispatch" "$T_ROOT/bin/tehas-dispatch" && echo same)" "same"
-t_contains "$(cat "$th/bin/tehas-dispatch.prev")" "# edited on the host"
+t_contains "$t_out" "installed: $th/libexec/dispatch"
+t_eq "$(cmp -s "$th/libexec/dispatch" "$T_ROOT/libexec/dispatch" && echo same)" "same"
+t_contains "$(cat "$th/libexec/dispatch.prev")" "# edited on the host"
 
 t_case "an instance with a missing setting installs nothing and exits 78"
 fresh
@@ -192,6 +195,71 @@ echo '{"defaultProvider":"test-provider"}' >"$TEHAS_INSTANCE_DIR/settings.json"
 t_run "$install"
 t_eq "$(cat "$home/.pi/agent/settings.json")" '{"defaultProvider":"test-provider"}'
 
+# Before bin/tehas there was one file for each command in ~/tehas/bin.
+old_layout() {
+  for f in tehas-console.ts tehas-dispatch tehas-energy tehas-health tehas-index tehas-protolab \
+    tehas-status tehas-test tehas-work; do echo "# old" >"$th/bin/$f"; done
+  echo "# older" >"$th/bin/tehas-dispatch.prev"
+}
+
+t_case "--check names the commands of the earlier layout and removes nothing"
+fresh
+instance
+t_run "$install"
+old_layout
+echo "# a tool bootstrap.sh put there" >"$th/bin/gh"
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "Installed:    DRIFT (9 files)"
+t_eq "$(printf '%s\n' "$t_out" | grep -c "stale: $th/bin/tehas-")" 9
+t_contains "$t_out" "stale: $th/bin/tehas-dispatch"
+t_eq "$([ -e "$th/bin/tehas-dispatch" ] && echo there)" "there"
+
+t_case "a real run removes them, and nothing else in bin"
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "removed: $th/bin/tehas-dispatch"
+t_contains "$t_out" "removed: $th/bin/tehas-test"
+t_contains "$t_out" "next: systemctl --user try-restart tehas-energy.service"
+t_eq "$(cd "$th/bin" && find . -type f | LC_ALL=C sort | tr '\n' ' ')" "./gh ./tehas ./tehasbot "
+t_run "$install"
+t_contains "$t_out" "tehas is up to date"
+
+t_case "while a cycle runs they stay, and the install says to come back"
+old_layout
+mkdir -p "$th/state"
+lock=$th/state/dispatch.lock
+bash -c 'exec 8>"$1"; flock 8; exec sleep 60' _ "$lock" &
+holder=$!
+for _ in $(seq 50); do flock -n "$lock" true || break; sleep 0.1; done
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "next: ./install.sh again when the running cycle has ended"
+t_lacks "$t_out" "removed: $th/bin/tehas-dispatch"
+t_lacks "$t_out" "try-restart"
+t_eq "$([ -e "$th/bin/tehas-status" ] && echo there)" "there"
+kill "$holder" 2>/dev/null
+wait "$holder" 2>/dev/null
+t_run "$install"
+t_contains "$t_out" "removed: $th/bin/tehas-status"
+t_eq "$([ -e "$th/bin/tehas-status" ] || echo gone)" "gone"
+t_eq "$(flock -n "$lock" true && echo free)" "free"
+
+t_case "an old command that cannot be removed fails the install"
+old_layout
+chmod a-w "$th/bin"
+t_run "$install"
+chmod u+w "$th/bin"
+if [ "$(id -u)" = 0 ]; then
+  t_eq "$t_rc" 0 # root removes it anyway
+else
+  t_eq "$([ "$t_rc" != 0 ] && echo failed)" "failed"
+  t_lacks "$t_out" "try-restart"
+  t_eq "$([ -e "$th/bin/tehas-energy" ] && echo there)" "there"
+fi
+t_run "$install"
+t_eq "$t_rc" 0
+
 # The code index: built by the first real run that finds both the sandbox
 # image and the product checkout, and never by --check.
 product() {
@@ -213,7 +281,7 @@ fresh
 instance
 t_run "$install"
 t_eq "$t_rc" 0
-t_contains "$t_out" "next: $th/bin/tehas-index"
+t_contains "$t_out" "next: $th/bin/tehas index"
 t_eq "$(index_runs)" 0
 
 t_case "an install without the sandbox image names the indexing step"
@@ -221,7 +289,7 @@ product
 T_ENV=(T_IN_TEST=1 IMAGE_RC=1)
 t_run "$install"
 t_eq "$t_rc" 0
-t_contains "$t_out" "next: $th/bin/tehas-index"
+t_contains "$t_out" "next: $th/bin/tehas index"
 t_eq "$(index_runs)" 0
 
 t_case "--check builds no index"
@@ -235,15 +303,15 @@ T_ENV=(T_IN_TEST=1 RUN_RC=1)
 t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "WARN: the code index was not built"
-t_contains "$t_out" "next: $th/bin/tehas-index"
+t_contains "$t_out" "next: $th/bin/tehas index"
 
 t_case "with the image and the checkout, the install builds the index"
 rm -f "$T"/calls/*
 T_ENV=(T_IN_TEST=1)
 t_run "$install"
 t_eq "$t_rc" 0
-t_contains "$t_out" "tehas-index: widget indexed"
-t_lacks "$t_out" "next: $th/bin/tehas-index"
+t_contains "$t_out" "tehas index: widget indexed"
+t_lacks "$t_out" "next: $th/bin/tehas index"
 t_eq "$(index_runs)" 1
 t_eq "$(jq -r .nodes "$th/state/index.json")" 1
 
