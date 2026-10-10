@@ -67,7 +67,10 @@ merge, who applied `tehas:ready`, then urgent first and lowest number. Log:
 cycle's runner output: `~/tehas/logs/dispatch-work-<issue>.log`.
 
 Before a cycle it puts the product checkout on the default branch and
-fast-forwards it. `tehas-work` then clones the cycle's workspace from it.
+fast-forwards it, then refreshes the code index with
+[tehas-index](#tehas-index) when the branch has moved since the last indexing.
+`tehas-work` then clones the cycle's workspace from the checkout. An index
+that cannot be refreshed is a warning in the log; the cycle still runs.
 
 An issue is taken only when an allowed account applied `tehas:ready` and
 nobody else has changed its title or body since. A cycle starts only once the
@@ -102,6 +105,50 @@ stream is kept in `~/tehas/logs/work-<issue>-<time>.jsonl`. The limits are
 
 The bot's git identity is the tehas user's global `user.name` and `user.email`
 on the host.
+
+## tehas-index
+
+Builds the code index that a cycle's agents search, or refreshes it.
+
+```
+tehas-index                  # build the index
+tehas-index --before-cycle   # what tehas-dispatch runs
+```
+
+pi-rukas tells its agents to find code with the `codebase_memory` tools. They
+answer from an index, and nothing builds one on its own: interactive pi-rukas
+does it in `/start`, which a headless cycle never runs. Without an index every
+such search fails and the agents fall back to reading files.
+
+The index is kept under the path of the tree it was made from, in the cache
+volume every cycle mounts. So the command runs the indexer in the sandbox
+image, over a clone mounted at the path a cycle works in. The clone is made at
+the tip the product checkout last fetched and is removed afterwards. The
+cycle's workspace is not touched.
+
+| Exit | Meaning                                                |
+| ---- | ------------------------------------------------------ |
+| 0    | The index was built, or was already current            |
+| 1    | The sandbox image is missing, or the indexer failed    |
+| 3    | A cycle is running; nothing was done                   |
+| 64   | An argument this command does not know                 |
+| 78   | The instance settings are invalid; nothing was done    |
+
+The container gets the clone, read-only, and the cache volume: no network, no
+token and none of the settings. It runs under the cycle's CPU and memory
+limits. The indexer's answer is kept in `~/tehas/logs/index-<time>.log`, and
+`~/tehas/state/index.json` records the commit that was indexed.
+
+`install.sh` runs it once, the first time it finds the sandbox image and the
+product checkout and no index. After that the dispatcher runs it with
+`--before-cycle` ahead of every cycle: the lock is the dispatcher's own then,
+and nothing is done when the recorded commit is already the branch's tip. So a
+cycle starts with an index of the tree it is cloned from. What the cycle
+changes afterwards, in its workspace or its worktrees, is not in the index.
+
+Run by hand it always rebuilds, and it holds the dispatcher's lock while it
+does, so no cycle starts in the middle. A cycle started by hand with
+`tehas-work` refreshes nothing.
 
 ## tehas-status and tehas-console.ts
 
@@ -238,6 +285,11 @@ cd ~/tehas/platform
 
 Exit 0 when done or nothing to report, 1 when `--check` found something or a
 step failed, 78 when the instance settings are invalid (nothing was changed).
+
+A real run also builds the code index with [tehas-index](#tehas-index), once:
+when there is none yet and both the sandbox image and the product checkout are
+there. Otherwise it prints the command as a follow-up. An indexing that fails
+is a warning and does not fail the install.
 
 ## bootstrap.sh
 

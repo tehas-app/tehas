@@ -46,6 +46,7 @@ a day.
 | Human merge             | Nothing merges on its own                                                                                                                | By configuration (no merge grant in `AGENTS.md`)                                   |
 | Self-hosted models only | One model for every role, set in the instance's `instance.env`                                                                           | Verified                                                                           |
 | Concurrency knob        | `TEHAS_CONCURRENCY` sets how many workstreams a cycle runs side by side; 4 by default, lower it when the model backends have few slots    | Setting reaches the sandbox; its effect on a cycle is not yet observed             |
+| Code index              | `tehas-index` builds the index behind the agents' code search, in the sandbox image; `install.sh` runs it once and the dispatcher refreshes it before a cycle when the branch has moved | Covered by the shell tests; run against the upstream image on a development machine, not yet on a tehas host |
 
 ## Visibility
 

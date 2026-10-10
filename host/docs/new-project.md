@@ -200,7 +200,12 @@ pi-rukas image and remaps the user id. Add whatever your gates need. Then:
 
 ```
 ~/tehas/sandbox/build.sh
+tehas-index
 ```
+
+`tehas-index` builds the code index the agents search, which needs the image.
+A later `install.sh` would do it too, as long as there is no index yet. See
+[tehas-index](/tools).
 
 ### 7. Prove the gates in the sandbox
 
