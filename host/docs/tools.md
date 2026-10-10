@@ -79,12 +79,17 @@ repository only after `tehas-dispatch --init-labels` has been run for the
 version that uses them. After pulling a version that adds a label, run it
 again on the host. It only creates or updates labels, so running it twice is
 safe. Without it the labels are not there to apply, and a stopped cycle cannot get
-its question label.
+its question label. The bot then says in a second comment that the boxes
+cannot be used.
 
 Beside the queue, a poll also reads two kinds of answer. A box ticked by an
 allowed account in the bot's comment on a stopped cycle can start a fresh
 cycle, and a reply or a ticked box on a planning question runs the next turn of
-that session. See [Operating](/operating). The dispatcher stops with exit 78 if
+that session. A comment is a question only if the host has its id on record:
+in `~/tehas/state/plan-<issue>.json` for a planning session, in
+`~/tehas/state/park-<issue>.id` for a stopped cycle. Only the last 100
+comments of an issue are read; a question further back than that is skipped
+with a line in the log. See [Operating](/operating). The dispatcher stops with exit 78 if
 the bot's own login is in `TEHAS_ALLOWED_LABELERS`. It checks this when it
 reads a question, so the error shows once a question is open. A planning turn's
 runner output is in `~/tehas/logs/dispatch-plan-<issue>.log`.
@@ -137,7 +142,9 @@ The first form starts a session from a file with the issue's title and body.
 The second reopens the session and sends the file's content as the operator's
 answer. A turn ends when the agent has settled, so it ends when the agent has
 asked. On exit 0 the `--out` file holds the session id, the agent's last
-message and the question it asked, if any.
+message and the question it asked, if any. On exit 2 it holds the session id
+alone when that is known, so the dispatcher can run the turn again in the
+same session, and it is not written when no session is known.
 
 | Exit | Meaning                                                              |
 | ---- | -------------------------------------------------------------------- |

@@ -151,16 +151,30 @@ handoff comment with the reason and numbered options.
 To try again after fixing the cause (often: make the issue clearer), tick
 `Retry from a clean start` in the bot's comment. Tick `Leave it parked` to
 take the question away and keep the issue as it is. The old way still works:
-remove `needs-human-attention` and apply `tehas:ready` again. When the bot
-could not post the boxes, its comment says so and gives the old way.
+remove `needs-human-attention` and apply `tehas:ready` again. A cycle started
+that way takes `tehas:question` off the issue, and the old boxes no longer do
+anything.
+
+When the bot cannot post the boxes, it posts a plain comment that gives the
+old way. When the boxes are posted and the label `tehas:question` cannot be
+added, a second comment says that the boxes cannot be used, tells you to run
+`tehas-dispatch --init-labels` on the host, and gives the old way.
 
 A tick counts only from an allowed labeller, and only while the issue is
 parked: it carries `needs-human-attention` and neither `tehas:running` nor
 `tehas:awaiting-merge`. It is used once. When the cycle starts, the bot unticks
 the box, so the same tick cannot start a second cycle. A box ticked by anyone
 else, or more than one box, is unticked and the bot says so in a comment.
+A retry ticked on an issue that is not parked is unticked too, and the bot
+says that nothing was started.
 A paused factory, or one with `TEHAS_MAX_AWAITING` pull requests waiting,
 holds the retry back as it holds any cycle.
+
+The host keeps the id of the question it posted when the cycle stopped. A
+tick counts only in that comment; a box in any other comment does nothing.
+On an issue for which the host has no question on record, a box ticked in a
+comment of the bot that looks like a question is unticked, and the bot says
+that the question is not one the factory is waiting on and gives the old way.
 
 The next cycle starts in a fresh workspace, with `--restart`. Branches and
 commits the earlier attempt pushed are kept on GitHub; what it left only on the
@@ -175,9 +189,14 @@ and apply it again; for a retry tick, untick the box and tick it again.
 ## Planning on an issue
 
 A planning session is a conversation with a planning agent that ends in filed
-issues. It runs on the issue, so you can steer it from a phone. Nothing in it
-builds code: a planning turn opens no pull request, and the awaiting-merge
-limit does not hold it back.
+issues. It runs on the issue, so you can steer it from a phone. The agent is
+not asked to build code, and the awaiting-merge limit does not hold a planning
+turn back. Its container has the same access as a work cycle's, token
+included, so treat `tehas:plan` as you treat `tehas:ready`.
+
+An issue is in one flow at a time. Applying `tehas:ready` to an issue with an
+open planning session starts nothing until the session is ended. The
+dispatcher's log says so.
 
 1. Write an issue that says what you want planned.
 2. Apply `tehas:plan`. As with `tehas:ready`, only a label applied by an
@@ -186,7 +205,9 @@ limit does not hold it back.
 3. The bot comments that the session has started. Each turn of the agent ends
    in a comment with what it found. When it needs a decision, the comment
    ends in a question with one checkbox per choice, a last box `End this
-   planning session`, and the label `tehas:question` is on the issue. The
+   planning session`, and the label `tehas:question` is on the issue. When
+   the agent offers more than 20 choices, the first 20 get a box and a line
+   says how many were left out; reply to name another one. The
    last box and the label come after every turn, whether or not the agent
    asked something, and a reply or the last box works either way.
 4. Answer by ticking one box, or by replying in a comment when none of the
@@ -205,8 +226,9 @@ limit does not hold it back.
 Only answers from allowed labellers count. A box ticked by anyone else, or
 more than one box, is unticked and the bot says so. A reply counts only if its
 author is an allowed account and, when it was edited, its last editor is too.
-Replies from others are ignored. Only the newest question the bot posted counts;
-an older comment with boxes does nothing.
+Replies from others are ignored. Only the question the session is waiting on
+counts, which is the one whose id the host has on record. Any other comment
+with boxes, older or newer, does nothing.
 
 What the agent writes in the bot's comments is posted on the issue. On a
 public repository that is public. Secrets and private network addresses are
@@ -214,10 +236,10 @@ masked there, as on the dashboard, and the mask catches accidents only. The
 issues the agent files are written directly and are not masked: they are
 public as written. Do not put anything in the issue that should not be public.
 
-If you tick a box and nothing happens, the labels may be missing from the
-repository. The bot finds its questions by `tehas:question`, so without that
-label the boxes are posted and ticking them does nothing. Run
-`tehas-dispatch --init-labels` on the host, as described in
+If you tick a box in a planning question and nothing happens, the labels may
+be missing from the repository. The bot finds its questions by
+`tehas:question`, so without that label the boxes are posted and ticking them
+does nothing. Run `tehas-dispatch --init-labels` on the host, as described in
 [Commands](/tools).
 
 While a question waits, the factory works on other issues. A session ends
@@ -230,9 +252,11 @@ and say so in one comment. To plan again, apply `tehas:plan` again.
 If a turn does not finish, for example because the host restarted, the bot says
 so in a comment that names the log, and the issue gets `needs-human-attention`
 next to `tehas:question`. Reply to run the turn again with your reply as the
-next message. If the first turn does not finish, there is no session to
-continue: the bot says so, the issue gets `needs-human-attention`, and you
-apply `tehas:plan` again.
+next message. That holds for a first turn too, when it failed after its
+session had come into being, for example by running out of time. If a first
+turn fails before that, or is cut off by a restart of the host, there is no
+session to continue: the bot says so, the issue gets `needs-human-attention`,
+and you apply `tehas:plan` again.
 
 The bot account is never one of the allowed labellers. If it is listed in
 `TEHAS_ALLOWED_LABELERS`, the dispatcher stops with an error rather than let
