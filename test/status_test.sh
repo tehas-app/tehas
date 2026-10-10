@@ -259,4 +259,17 @@ t_run "$summary --json"
 t_eq "$t_rc" 64
 t_contains "$t_out" "usage: tehas status"
 
+t_case "a lost cycle counts from when it was found, not from its last heartbeat"
+reset
+mkdir -p "$live/cycles"
+printf '{"issue":9,"running":true,"status":"running","step":"develop","startedAt":%s,"updatedAt":%s}\n' \
+  "$(($(date +%s) - 900))" "$(($(date +%s) - 300))" >"$live/cycles/9.json"
+printf '{"issue":12,"running":false,"status":"merged","step":"review","startedAt":%s,"updatedAt":%s}\n' \
+  "$(($(date +%s) - 600))" "$(($(date +%s) - 200))" >"$live/cycles/12.json"
+t_run "$status; $summary"
+t_eq "$t_rc" 1
+t_contains "$t_out" "The last cycle failed: #9 ended as lost."
+t_eq "$(jq -c '[.last.issue, .last.status]' "$live/running.json")" '[9,"lost"]'
+t_eq "$(find "$live/cycles" -name '*.json' -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" "9.json "
+
 t_done

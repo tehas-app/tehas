@@ -16,31 +16,51 @@
 # corrects it. Needs TEHAS_HOME.
 
 tehas_live_assemble() {
-  local live=$TEHAS_HOME/live f files=() now keep tmp
+  local live=$TEHAS_HOME/live f files=() now marker tmp issues i
   now=$(date +%s)
   for f in "$live"/cycles/*.json; do
     [ -e "$f" ] || continue
     # A cycle writes every ten seconds. Two minutes of silence is a cycle
     # that died without saying so; it must not stay on the page as running.
+    # It ended when it was found, so it counts from now, not from its last
+    # heartbeat. The temporary name is not the one tehas work uses.
     if jq -e --argjson now "$now" '.running == true and ((.updatedAt // 0) < $now - 120)' "$f" >/dev/null 2>&1; then
-      if jq -c '.running = false | .status = "lost"' "$f" >"$f.new" 2>/dev/null; then mv "$f.new" "$f"; fi
+      if jq -c --argjson now "$now" '.running = false | .status = "lost" | .updatedAt = $now' "$f" >"$f.lost.$$" 2>/dev/null; then
+        mv "$f.lost.$$" "$f"
+      else
+        rm -f "$f.lost.$$"
+      fi
     fi
     files+=("$f")
   done
   # Nothing written in this shape yet: leave what an earlier version wrote.
   [ "${#files[@]}" -gt 0 ] || return 0
+  # A file newer than the marker was written after the files were read, so
+  # the view says nothing about it and it is not pruned.
+  marker=$live/running.json.mark.$$
   tmp=$live/running.json.$$
-  if ! jq -c -s '{cycles: (map(select(.running == true)) | sort_by(.startedAt, .issue)),
-                   last: (map(select(.running != true)) | sort_by(.updatedAt) | last)}' "${files[@]}" >"$tmp" 2>/dev/null; then
-    rm -f "$tmp"
+  : >"$marker"
+  if ! jq -c -s '
+      (map(select(.running == true)) | sort_by(.startedAt, .issue)) as $cycles
+      | (map(select(.running != true)) | sort_by(.updatedAt) | last) as $last
+      | {view: {cycles: $cycles, last: $last},
+         prune: (map(select(.running != true and .issue != $last.issue) | .issue))}' \
+      "${files[@]}" >"$tmp" 2>/dev/null; then
+    rm -f "$tmp" "$marker"
     return 1
   fi
-  mv "$tmp" "$live/running.json" || return 1
+  issues=$(jq -r '.prune[]' "$tmp" 2>/dev/null)
+  if ! jq -c .view "$tmp" >"$tmp.view" 2>/dev/null || ! mv "$tmp.view" "$live/running.json"; then
+    rm -f "$tmp" "$tmp.view" "$marker"
+    return 1
+  fi
   # Only the last finished cycle is shown, so only its file is kept.
-  keep=$(jq -r '.last.issue // empty' "$live/running.json" 2>/dev/null)
-  for f in "${files[@]}"; do
-    [ "${f##*/}" = "$keep.json" ] && continue
-    if jq -e '.running != true' "$f" >/dev/null 2>&1; then rm -f "$f"; fi
+  for i in $issues; do
+    f=$live/cycles/$i.json
+    [ -e "$f" ] || continue
+    [ "$f" -nt "$marker" ] && continue
+    rm -f "$f"
   done
+  rm -f "$tmp" "$marker"
   return 0
 }
