@@ -342,6 +342,37 @@ rm -f "$fx/run-fails"
 t_run "$preview"
 t_eq "$(state_of 12)" "serving"
 
+t_case "a recipe-less commit after a failed start leaves nothing to retry"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+: >"$fx/run-fails"
+t_run "$preview"
+rm -f "$fx/run-fails"
+a2=$(commit feature none)
+pulls "$(pull 12 "$a2")"
+t_run "$preview"
+t_eq "$(state_of 12)" "no-recipe"
+t_eq "$(count "$root/12" '.retry')" 0
+rm -f "$T"/calls/docker*
+t_run "$preview"
+t_eq "$(builds) $(runs)" "0 0"
+t_lacks "$(t_calls docker)" "rm -f tehas-preview-12"
+
+t_case "a container that never starts is tried three more times, then left until a new commit"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+: >"$fx/run-fails"
+for _ in 1 2 3 4 5; do t_run "$preview"; done
+t_eq "$(t_calls docker | grep -c '^build ')" 4
+t_eq "$(state_of 12)" "build-failed"
+rm -f "$fx/run-fails"
+a2=$(commit feature)
+pulls "$(pull 12 "$a2")"
+t_run "$preview"
+t_eq "$(state_of 12)" "serving"
+
 t_case "a network that is not internal gets nothing built"
 reset
 a=$(commit feature)

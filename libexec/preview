@@ -120,7 +120,7 @@ comment() { return 0; }
 # build <number>: fetch the pull request's head, build its recipe, replace the
 # container. The commit is the one fetched, which is the one built.
 build() {
-  local n=$1 sha log=$logs/preview-$1.log old
+  local n=$1 sha log=$logs/preview-$1.log old retry=$root/$1/.retry tries=0 mark_sha mark_n
   if [ ! -d "$bare" ]; then
     git init -q --bare "$bare" || return 1
     # The product checkout knows the address and how to sign in to it.
@@ -137,15 +137,20 @@ build() {
     return 1
   fi
   sha=$(git -C "$bare" rev-parse --verify --quiet "refs/preview/$n^{commit}") || return 1
+  # The retry marker is "<commit> <failed starts so far>". It is read here and
+  # cleared whatever this build turns out to be, so no path keeps a stale one.
+  if read -r mark_sha mark_n <"$retry" 2>/dev/null && [ "$mark_sha" = "$sha" ]; then
+    case "$mark_n" in [0-9]) tries=$mark_n ;; esac
+  fi
+  rm -f "$retry"
   if ! git -C "$bare" cat-file -e "$sha:$recipe" 2>/dev/null; then
     stop "$n"
     mark "$n" "$sha" no-recipe "The commit has no $recipe."
     return 0
   fi
-  rm -f "$root/$n/.retry"
   mark "$n" "$sha" building
   old=$(docker image inspect --format '{{.Id}}' "tehas-preview:$n" 2>/dev/null) || old=""
-  if ! git -C "$bare" archive "$sha" | timeout "$build_limit" docker build --quiet \
+  if ! git -C "$bare" archive "$sha" 9>&- | timeout "$build_limit" docker build --quiet \
     -f "$recipe" -t "tehas-preview:$n" \
     --label "tehas.preview=$n" --label "tehas.sha=$sha" --label "tehas.repo=$repo" - >>"$log" 2>&1 9>&-; then
     mark "$n" "$sha" build-failed "The build failed or ran over $((build_limit / 60)) minutes. Its output is in logs/preview-$n.log on the host."
@@ -160,8 +165,9 @@ build() {
     --memory 256m --cpus 1 --pids-limit 128 --restart unless-stopped \
     --label "tehas.preview=$n" --label "tehas.sha=$sha" --label "tehas.repo=$repo" \
     "tehas-preview:$n" >>"$log" 2>&1 9>&-; then
-    # The host may have hiccuped, not the commit: the next run tries again.
-    : >"$root/$n/.retry"
+    # The host may have hiccuped, not the commit: the next runs try again. Three
+    # tries ride out a hiccup, and a recipe that cannot start does not loop.
+    [ "$tries" -ge 3 ] || echo "$sha $((tries + 1))" >"$retry"
     mark "$n" "$sha" build-failed "The container did not start. See logs/preview-$n.log on the host."
     return 1
   fi
