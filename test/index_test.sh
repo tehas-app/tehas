@@ -55,9 +55,11 @@ t_eq "$(t_calls docker)" ""
 
 t_case "an argument is a usage error"
 t_instance "${T_MINIMAL[@]}"
-t_run "$index now"
-t_eq "$t_rc" 64
-t_eq "$(t_calls docker)" ""
+for bad in now "--before-cycle now" --force; do
+  t_run "$index $bad"
+  t_eq "$t_rc" 64
+  t_eq "$(t_calls docker)" ""
+done
 
 t_case "a checkout of another repository starts no container"
 git -C "$checkout" remote set-url origin https://github.com/acme/other.git
@@ -142,6 +144,26 @@ t_eq "$t_rc" 0
 t_eq "$(cat "$T/calls/indexed.head")" "$(git -C "$upstream" rev-parse main)"
 t_eq "$(jq -r .commit "$marker")" "$(git -C "$upstream" rev-parse main)"
 [ "$(git -C "$checkout" rev-parse HEAD)" != "$(git -C "$upstream" rev-parse main)" ] || t_bad "the checkout's own tree moved"
+
+t_case "before a cycle, an index already at the branch's tip is left alone"
+reset
+t_run "$index --before-cycle"
+t_eq "$t_rc" 0
+t_contains "$t_out" "already indexed"
+t_eq "$(t_calls docker)" ""
+
+t_case "before a cycle, a branch that moved is indexed while the caller holds the lock"
+commit third
+git -C "$checkout" fetch -q
+exec 9>"$T/home/tehas/state/dispatch.lock"
+flock -n 9
+t_run "$index --before-cycle"
+t_eq "$t_rc" 0
+t_eq "$(runs)" 1
+t_eq "$(jq -r .commit "$marker")" "$(git -C "$upstream" rev-parse main)"
+t_run "$index"
+t_eq "$t_rc" 3
+exec 9>&-
 
 t_case "a failed indexer exits 1 and leaves the record as it was"
 reset

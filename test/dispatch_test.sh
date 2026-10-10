@@ -33,6 +33,10 @@ case "$1 $2" in
 esac'
 t_stub fake-work
 t_stub fake-status
+# Notes what the checkout was at and whether the cycle had already started.
+t_stub fake-index 'git -C "$T/home/tehas/repos/widget" rev-parse HEAD >"$T/calls/index.head"
+[ ! -e "$T/calls/fake-work" ] || : >"$T/calls/index.late"
+[ ! -e "$T/fx/index-fails" ] || exit 1'
 
 reset() {
   rm -f "$T"/calls/* "$fx"/edit-*
@@ -43,7 +47,7 @@ reset() {
   echo '[]' >"$fx/awaiting.json"
   echo '[{"number":7,"labels":[{"name":"tehas:ready"}]}]' >"$fx/ready.json"
   echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
-  T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status)
+  T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index)
   t_instance "${T_MINIMAL[@]}"
 }
 
@@ -227,6 +231,11 @@ t_lacks "$t_out" "WARN"
 t_eq "$(t_calls fake-work)" "7"
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready"
 
+t_case "the code index is refreshed after the fetch and before the cycle"
+t_eq "$(t_calls fake-index)" "--before-cycle"
+t_eq "$(cat "$T/calls/index.head")" "$(git -C "$upstream" rev-parse main)"
+t_eq "$(find "$T/calls/index.late" 2>/dev/null | wc -l)" 0
+
 t_case "a cycle that ends without a pull request is handed to a human"
 t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
 
@@ -249,6 +258,20 @@ echo '{"pipelineState":{"status":"merged","currentStep":"done","branchName":"fea
 t_run "$dispatch"
 t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
 rm -rf "$checkout/.pi"
+
+t_case "an index that cannot be refreshed is a warning, and the cycle still runs"
+reset
+: >"$fx/index-fails"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN: the code index was not refreshed"
+t_eq "$(t_calls fake-work)" "7"
+rm "$fx/index-fails"
+
+t_case "a dry run refreshes no index"
+reset
+t_run "$dispatch --dry-run"
+t_eq "$(t_calls fake-index)" ""
 
 t_case "a first cycle starts plainly, a later one for the same issue restarts"
 reset
