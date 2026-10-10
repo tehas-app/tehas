@@ -112,13 +112,37 @@ trap 'exec 3>&- 2>/dev/null; docker stop -t 10 "$name" 2>/dev/null' TERM INT
 # Settled: the last start or settle event in the stream is a settle. A run can
 # start again after it settled (a background job reported back), so the state
 # has to hold for a while before the turn is taken as over.
-settled() {
-  [ "$(grep -o -E '"type":"(agent_start|agent_settled)"' "$log" 2>/dev/null | tail -n 1)" = '"type":"agent_settled"' ]
+#
+# The log can grow large over an hour, so it is never read again from the top:
+# scan reads what was appended since the last call and keeps the last start or
+# settle event it has seen. While the container runs, the last line may be
+# half written; only whole lines are taken, the rest waits for the next call.
+# `scan all` takes everything, for when nothing more will be written.
+last=""
+offset=0
+scan() {
+  local lines seen
+  if [ "${1:-}" = all ]; then
+    lines=$(tail -c "+$((offset + 1))" "$log" 2>/dev/null | grep -a -c '') || true
+  else
+    lines=$(tail -c "+$((offset + 1))" "$log" 2>/dev/null | wc -l) || true
+  fi
+  # Some wc pad their count with spaces.
+  lines=${lines//[[:space:]]/}
+  case "$lines" in '' | 0 | *[!0-9]*) return 0 ;; esac
+  # The log only grows, so the first $lines lines from the offset are the same
+  # in both readings.
+  seen=$(tail -c "+$((offset + 1))" "$log" 2>/dev/null | head -n "$lines" |
+    grep -a -o -E '"type":"(agent_start|agent_settled)"' | tail -n 1) || true
+  [ -z "$seen" ] || last=$seen
+  offset=$((offset + $(tail -c "+$((offset + 1))" "$log" 2>/dev/null | head -n "$lines" | wc -c)))
 }
+settled() { [ "$last" = '"type":"agent_settled"' ]; }
 quiet=0
 timed_out=0
 while kill -0 "$sb_pid" 2>/dev/null; do
   sleep 1
+  scan
   if settled; then quiet=$((quiet + 1)); else quiet=0; fi
   [ "$quiet" -ge 20 ] && break
   if [ $(($(date +%s) - started)) -ge "$limit" ]; then
@@ -131,8 +155,9 @@ done
 if kill -0 "$sb_pid" 2>/dev/null; then
   if [ "$timed_out" = 0 ]; then
     printf '%s\n' '{"id":"state","type":"get_state"}' '{"id":"text","type":"get_last_assistant_text"}' >&3
+    # The answer comes after everything read so far.
     for _ in 1 2 3 4 5 6 7 8 9 10; do
-      grep -q '"command":"get_last_assistant_text"' "$log" 2>/dev/null && break
+      [ "$(tail -c "+$((offset + 1))" "$log" 2>/dev/null | grep -a -c -F '"command":"get_last_assistant_text"')" = 0 ] || break
       sleep 1
     done
   fi
@@ -141,10 +166,13 @@ if kill -0 "$sb_pid" 2>/dev/null; then
   docker stop -t 20 "$name" >/dev/null 2>&1
 fi
 wait "$sb_pid" 2>/dev/null
+scan all
 
-# The stream as JSON values; a line that is not JSON is skipped.
-events() { jq -c -R 'fromjson? | select(type == "object")' "$log" 2>/dev/null; }
-sid=$(events | jq -rs 'map(select(.type == "response" and .command == "get_state")) | last | .data.sessionId // ""')
+# pick <text>: the lines of the log that hold the text, as JSON values. The
+# few lines wanted are found by what they say before anything parses them, so
+# no step loads the whole log. A line that is not JSON is skipped.
+pick() { grep -a -F -e "$1" "$log" 2>/dev/null | jq -c -R 'fromjson? | select(type == "object")' 2>/dev/null; }
+sid=$(pick '"command":"get_state"' | jq -rs 'map(select(.type == "response" and .command == "get_state")) | last | .data.sessionId // ""')
 [ -n "$sid" ] || sid=$session
 
 # give_up <what happened>: the turn failed. The session, when it is known, is
@@ -163,8 +191,8 @@ if [ "$timed_out" = 1 ] || ! settled; then
   give_up "the turn did not settle"
 fi
 
-text=$(events | jq -rs 'map(select(.type == "response" and .command == "get_last_assistant_text")) | last | .data.text // ""')
-question=$(events | jq -cs 'map(select(.type == "tool_execution_end" and .toolName == "question"
+text=$(pick '"command":"get_last_assistant_text"' | jq -rs 'map(select(.type == "response" and .command == "get_last_assistant_text")) | last | .data.text // ""')
+question=$(pick '"toolName":"question"' | jq -cs 'map(select(.type == "tool_execution_end" and .toolName == "question"
                                    and .result.details.deferred == true)) | last
   | if . == null then null else
       {question: (.result.details.question // ""),

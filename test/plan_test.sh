@@ -22,8 +22,12 @@ case " $* " in *" --mode "*)
   IFS= read -r line; printf "%s\n" "$line" >"$T/calls/docker.stdin"
   # The second line may never come: do not wait for it for ever.
   IFS= read -r -t 5 line; printf "%s\n" "$line" >"$T/calls/docker.stdin2"
-  cat "$T/fx/turn.jsonl" 2>/dev/null ;;
+  # A case that needs a container that lives for a while writes its part here.
+  if [ -e "$T/fx/live" ]; then . "$T/fx/live"; else cat "$T/fx/turn.jsonl" 2>/dev/null; fi ;;
 esac'
+# tehas-plan looks at the log once a second. Here a look costs no time, so a
+# container that lives for a second is looked at many times.
+t_stub sleep
 printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitconfig"
 
 turn_args() { grep -l -x -e '--mode' "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
@@ -42,7 +46,7 @@ asked() {
 EOF
 }
 reset() {
-  rm -f "$T"/calls/* "$T/out.json"
+  rm -f "$T"/calls/* "$T/out.json" "$fx/live"
   asked
   t_instance "${T_MINIMAL[@]}"
   T_ENV=(GH_TOKEN=test-token)
@@ -207,6 +211,83 @@ sed -i '2i not json at all' "$fx/turn.jsonl"
 t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
 t_eq "$t_rc" 0
 t_eq "$(jq -r .session "$T/out.json")" "abc-123"
+
+t_case "a very long log gives the same outcome"
+reset
+{
+  for ((i = 0; i < 20000; i++)); do printf '{"type":"message_update","delta":"word %s"}\n' "$i"; done
+  cat "$fx/turn.jsonl"
+} >"$fx/turn.new" && mv "$fx/turn.new" "$fx/turn.jsonl"
+t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[.session, .text, .question.question, (.question.options | length)]' "$T/out.json")" '["abc-123","Two ways.\nPick one.","Adopt my resolutions?",2]'
+
+t_case "a start buried in a very long log after the settle still means not settled"
+reset
+{
+  cat "$fx/turn.jsonl"
+  echo '{"type":"agent_start"}'
+  for ((i = 0; i < 20000; i++)); do printf '{"type":"message_update","delta":"word %s"}\n' "$i"; done
+} >"$fx/turn.new" && mv "$fx/turn.new" "$fx/turn.jsonl"
+t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+t_eq "$t_rc" 2
+
+t_case "a last line with no line end is still read"
+reset
+grep -v get_last_assistant_text "$fx/turn.jsonl" >"$fx/turn.new" && mv "$fx/turn.new" "$fx/turn.jsonl"
+printf '%s' '{"id":"text","type":"response","command":"get_last_assistant_text","success":true,"data":{"text":"Cut short"}}' >>"$fx/turn.jsonl"
+t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .text "$T/out.json")" "Cut short"
+reset
+grep -v -e agent_settled -e '"response"' "$fx/turn.jsonl" >"$fx/turn.new" && mv "$fx/turn.new" "$fx/turn.jsonl"
+printf '%s' '{"type":"agent_settled"}' >>"$fx/turn.jsonl"
+t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+t_contains "$t_out" "the session id is unknown"
+
+# A container that stays alive: it writes its events over time, one of them
+# in two halves, and answers what it is asked once the turn is taken as over.
+# The stub sleep above is not used for its pauses.
+live() { # <what the container does after its first events>
+  cat >"$fx/live" <<EOF
+nap=\$(command -pv sleep)
+echo '{"id":"state","type":"response","command":"get_state","success":true,"data":{"sessionId":"abc-123"}}'
+echo '{"type":"agent_start"}'
+"\$nap" 0.4
+$1
+EOF
+}
+
+t_case "a turn is followed while the container runs, and asked for its outcome once it is quiet"
+reset
+# If the turn is never taken as over, the time limit ends it and the stub
+# stops waiting: the case fails, it does not hang.
+t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=20
+live 'printf "%s" "{\"type\":\"agent_set"
+"$nap" 0.4
+echo "tled\"}"
+while IFS= read -r -t 30 ask; do
+  printf "%s\n" "$ask" >>"$T/calls/docker.asked"
+  case "$ask" in
+    *get_state*) echo "{\"type\":\"response\",\"command\":\"get_state\",\"success\":true,\"data\":{\"sessionId\":\"abc-123\"}}" ;;
+    *get_last_assistant_text*) echo "{\"type\":\"response\",\"command\":\"get_last_assistant_text\",\"success\":true,\"data\":{\"text\":\"Done live.\"}}"; exit 0 ;;
+  esac
+done'
+t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123","text":"Done live.","question":null}'
+t_eq "$(jq -r .type "$T/calls/docker.asked" | tr '\n' ' ')" "get_state get_last_assistant_text "
+t_eq "$([ "$(wc -l <"$T/calls/sleep")" -ge 20 ] && echo looked)" looked
+
+t_case "a first turn that runs out of time is stopped and leaves its session"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=1
+live '"$nap" 3'
+t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+t_eq "$t_rc" 2
+t_contains "$t_out" "time limit of 1s passed"
+t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123"}'
+t_eq "$(grep -l -x stop "$T"/calls/docker.args.* | wc -l)" 1
 
 t_case "a missing token starts no container"
 reset
