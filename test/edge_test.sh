@@ -80,4 +80,23 @@ if command -v caddy >/dev/null 2>&1; then
   t_eq "$t_rc" 0
 fi
 
+recipe=$T_ROOT/preview/Dockerfile
+
+t_case "the preview of this repository serves the manual on 8080 and takes nothing from a host"
+t_contains "$(cat "$recipe")" "COPY host/edge/docs.Caddyfile /etc/caddy/Caddyfile"
+t_contains "$(cat "$recipe")" "COPY host/docs /srv/docs"
+t_contains "$(cat "$recipe")" "COPY host/fun /srv/fun"
+t_contains "$(cat "$recipe")" "COPY preview/live /srv/live"
+t_contains "$(grep -c ':8080' "$T_ROOT/host/edge/docs.Caddyfile")" 1
+t_eq "$(grep -c -i -E '^(RUN|ADD|ARG|VOLUME)' "$recipe")" 0
+
+t_case "the preview's sample data is what the dashboard reads"
+for f in status running health; do
+  t_run "jq -e . '$T_ROOT/preview/live/$f.json' >/dev/null; echo rc=\$?"
+  t_eq "$t_out" "rc=0"
+done
+t_eq "$(jq -r '[.queued, .awaiting, .stopped, .completed, .running] | map(type) | unique | join(",")' \
+  "$T_ROOT/preview/live/status.json")" "array"
+t_eq "$(jq -r '.links | keys | join(",")' "$T_ROOT/preview/live/status.json")" "all,awaiting,completed,queued,stopped"
+
 t_done
