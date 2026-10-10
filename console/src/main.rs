@@ -25,6 +25,7 @@ mod render;
 mod tail;
 
 use render::Entry;
+use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
@@ -91,6 +92,7 @@ fn run(args: &Args, stop: &AtomicBool) -> io::Result<()> {
         .mode(0o644)
         .open(&args.out)?;
     let mut follower = tail::Follower::default();
+    let mut workstreams: HashMap<String, String> = HashMap::new();
     write(
         &mut out,
         &Entry::new("tehas", "console attached, waiting for the cycle", None),
@@ -107,7 +109,16 @@ fn run(args: &Args, stop: &AtomicBool) -> io::Result<()> {
         for transcript in follower.transcripts(&args.runs, args.since) {
             let role = tail::role(&transcript.path);
             for line in follower.transcript_lines(&transcript) {
-                for entry in render::transcript_line(&role, &line) {
+                if let Some(workstream) = render::workstream(&line) {
+                    workstreams.insert(transcript.path.clone(), workstream);
+                }
+                // Parallel agents of one role are told apart as the driver
+                // names them when it starts them.
+                let who = match workstreams.get(&transcript.path) {
+                    Some(workstream) => format!("{role}[{workstream}]"),
+                    None => role.clone(),
+                };
+                for entry in render::transcript_line(&who, &line) {
                     write(&mut out, &entry)?;
                 }
             }

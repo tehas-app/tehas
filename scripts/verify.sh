@@ -63,6 +63,6 @@ if [ "${1:-}" = "--full" ]; then
   else
     echo "skip  the console's lints (clippy is not installed)"
   fi
-  with node "the front page's tests" node --test test/energy_view_test.mjs test/brick_wall_test.mjs
+  with node "the front page's tests" node --test test/*_test.mjs
 fi
 exit "$failed"

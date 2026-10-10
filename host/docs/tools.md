@@ -330,7 +330,8 @@ Feed the [factory floor](/) and the [plain dashboard](/dashboard). `tehasbot sta
 minutes during a cycle. `~/tehas/libexec/console` is started by the work
 script and follows the cycle's agents into `~/tehas/live/console-<issue>.txt`, masking
 tokens, passwords and private network addresses, and writing no control
-character but the line break and the tab. The mask catches accidents;
+character but the line break and the tab. An agent of a workstream is named
+with it, as in `developer[task-a]`. The mask catches accidents;
 it cannot stop an agent that sets out to print a secret another way, so treat
 the console of a published dashboard as public. A log line of over 1 MiB is
 left out, and the console says how many were. Neither needs running by hand.
