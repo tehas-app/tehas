@@ -55,6 +55,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/config.sh"
 # shellcheck source=lib/sandbox.sh
 . "$here/../lib/sandbox.sh"
+# shellcheck source=lib/live.sh
+. "$here/../lib/live.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
 # Docker would create a missing mount source as a root-owned directory.
@@ -128,9 +130,9 @@ started=$(date +%s)
 printf '{"id":"work","type":"prompt","message":"/work %s%s"}\n' "$issue" "$flags" >&3
 echo "tehas work: issue $issue started, log $log"
 
-# For the dashboard: a readable console of this cycle and a small "now" file.
+# For the dashboard: a readable console of this cycle and its own "now" file.
 live=$TEHAS_HOME/live
-mkdir -p "$live"
+mkdir -p "$live/cycles"
 console=$live/console-$issue.txt
 : >"$console"
 # The cycle does not depend on it: without a console it runs all the same,
@@ -150,7 +152,8 @@ now_file() { # running? status step
     --arg text "$text" --argjson startedAt "$started" --argjson at "$(date +%s)" \
     '{issue: $issue, running: $running, status: $status, step: $step, statusText: $text,
       startedAt: $startedAt, updatedAt: $at, console: "console-\($issue).txt"}' \
-    >"$live/running.json.new" 2>/dev/null && mv "$live/running.json.new" "$live/running.json"
+    >"$live/cycles/$issue.json.new" 2>/dev/null && mv "$live/cycles/$issue.json.new" "$live/cycles/$issue.json"
+  tehas_live_assemble
 }
 now_file true running starting
 

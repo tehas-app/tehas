@@ -310,7 +310,7 @@ the console of a published dashboard as public. A log line of over 1 MiB is
 left out, and the console says how many were. Neither needs running by hand.
 What the console itself complains about goes to `~/tehas/logs/work-<issue>-<time>.jsonl.console`,
 and the work script says so when the console is missing or ends with an error.
-The work script's own status line in `~/tehas/live/running.json` goes through
+The work script's own status line, in `~/tehas/live/cycles/<issue>.json` and from there in `~/tehas/live/running.json`, goes through
 the same mask (`console --mask`); without a console it is left empty.
 
 The snapshot also carries the words of the breakroom game, Buzzword Buster.
@@ -330,8 +330,8 @@ tehasbot health     # prints nothing; refreshes ~/tehas/live/health.json
 curl -i http://tehas-tehas:8080/health
 ```
 
-Writes the factory's health from what is already on disk: the queue snapshot
-and the current or last cycle. The status script runs it on exit, so it is
+Writes the factory's health from what is already on disk: the queue snapshot,
+the running cycles and the last one that finished. The status script runs it on exit, so it is
 refreshed at every poll and at the end of every cycle. The docs server
 serves the file at `/health` and `/healthz` as `application/health+json`.
 `tehas status` prints the same file for a person.
@@ -343,8 +343,13 @@ serves the file at `/health` and `/healthz` as `application/health+json`.
 | `fail`   | The last cycle ended as anything but `merged` or `handoff`, or there is no queue snapshot | 503  |
 
 `output` says the same in a sentence. `checks.queue` has the snapshot time and
-the counts in line, building, in review and stopped; `checks.cycle` has the
-issue, status, step and times of the current or last cycle.
+the counts in line, building, in review and stopped. `checks.cycles` has the
+issue, status, step and times of every running cycle; `checks.cycle` is the
+first of them, or the cycle that finished last when none is running.
+
+`fail` is about the cycle that finished most recently, whatever is running
+beside it. A cycle that has written nothing for two minutes is recorded as
+ended with the status `lost`, which is a failure.
 
 A stopped dispatcher cannot report itself: the file simply stops changing and
 the endpoint keeps answering with the last state. A monitor should also treat

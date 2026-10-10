@@ -227,15 +227,44 @@ case " $* " in *" --mode "*) echo "{\"statusText\":\"step 3 of the cycle\"}" ;; 
 t_stub console 'if [ "$1" = --mask ]; then sed "s/cycle/[masked]/"; fi'
 mv "$T/bin/console" "$tree/libexec/console"
 t_run "$work 7"
-t_eq "$(jq -r .statusText "$T/home/tehas/live/running.json")" "step 3 of the [masked]"
+t_eq "$(jq -r .last.statusText "$T/home/tehas/live/running.json")" "step 3 of the [masked]"
 
 t_case "without a console the status line is not published"
 mv "$tree/libexec/console" "$T/console.kept"
 t_run "$work 7"
-t_eq "$(jq -r '.statusText, .status' "$T/home/tehas/live/running.json" | tr '\n' ,)" ",running,"
+t_eq "$(jq -r '.last.statusText, .last.status' "$T/home/tehas/live/running.json" | tr '\n' ,)" ",running,"
 t_stub console
 mv "$T/bin/console" "$tree/libexec/console"
 t_stub docker 'printf "%s\n" "$@" >"$T/calls/docker.args.$$"'
+
+live=$T/home/tehas/live
+other() { # issue running status updatedAt: the live file of another cycle
+  printf '{"issue":%s,"running":%s,"status":"%s","step":"develop","statusText":"","startedAt":%s,"updatedAt":%s,"console":"console-%s.txt"}\n' \
+    "$1" "$2" "$3" "$(($4 - 60))" "$4" "$1" >"$live/cycles/$1.json"
+}
+
+t_case "the cycle writes a live file of its own, and the view has it as the last one"
+t_run "$work 7"
+t_eq "$(jq -c '[.issue, .running, .console]' "$live/cycles/7.json")" '[7,false,"console-7.txt"]'
+t_eq "$(jq -c '[(.cycles | length), .last.issue]' "$live/running.json")" "[0,7]"
+
+t_case "another cycle that is running is in the view beside it"
+other 9 true running "$(date +%s)"
+t_run "$work 7"
+t_eq "$(jq -c '[.cycles[].issue, .last.issue]' "$live/running.json")" "[9,7]"
+t_eq "$(jq -r .cycles[0].console "$live/running.json")" "console-9.txt"
+
+t_case "a finished cycle that is not the last one leaves the view and the disk"
+other 5 false handoff 1000
+t_run "$work 7"
+t_eq "$(find "$live/cycles" -name '*.json' -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" "7.json 9.json "
+t_eq "$(jq -r .last.issue "$live/running.json")" 7
+
+t_case "a cycle that has written nothing for two minutes is no longer shown as running"
+other 9 true running "$(($(date +%s) - 300))"
+t_run "$work 7"
+t_eq "$(jq -c '[(.cycles | length), .last.issue]' "$live/running.json")" "[0,7]"
+rm -rf "$live/cycles"
 
 t_case "with two tickets side by side a cycle gets half the budget"
 rm -f "$T"/calls/*

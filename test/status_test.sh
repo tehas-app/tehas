@@ -29,10 +29,17 @@ reset() {
   echo "[$(issue 3 tehas:ready),$(issue 4 tehas:ready),$(issue 5 tehas:awaiting-merge),$(issue 6 needs-human-attention)]" >"$T/issues.json"
   echo false >"$T/paused"
 }
-cycle() { # running status step
+one() { # issue running status step: one cycle as the work script writes it
+  printf '{"issue":%s,"running":%s,"status":"%s","step":"%s","startedAt":%s,"updatedAt":%s}' \
+    "$1" "$2" "$3" "$4" "$(($(date +%s) - 600))" "$(($(date +%s) - 180))"
+}
+cycle() { # running status step: issue 12, running or the last one
   mkdir -p "$live"
-  printf '{"issue":12,"running":%s,"status":"%s","step":"%s","startedAt":%s,"updatedAt":%s}\n' \
-    "$1" "$2" "$3" "$(($(date +%s) - 600))" "$(($(date +%s) - 180))" >"$live/running.json"
+  if [ "$1" = true ]; then
+    printf '{"cycles":[%s],"last":null}\n' "$(one 12 "$@")" >"$live/running.json"
+  else
+    printf '{"cycles":[],"last":%s}\n' "$(one 12 "$@")" >"$live/running.json"
+  fi
 }
 
 t_case "status writes the snapshot and the health file, without a command on PATH"
@@ -141,6 +148,51 @@ t_run "$status; $summary"
 t_eq "$t_rc" 1
 t_contains "$t_out" "factory   fail: The last cycle failed: #12 ended as aborted."
 t_contains "$t_out" "cycle     #12 aborted at step develop"
+
+t_case "summary: two running cycles are both named, each on a line"
+reset
+mkdir -p "$live"
+printf '{"cycles":[%s,%s],"last":null}\n' "$(one 12 true running develop)" "$(one 14 true running plan)" >"$live/running.json"
+t_run "$status && $summary"
+t_eq "$t_rc" 0
+t_contains "$t_out" "factory   pass: Working on #12, #14."
+t_contains "$t_out" "cycle     #12 running, step develop"
+t_contains "$t_out" "cycle     #14 running, step plan"
+t_eq "$(jq -c '[.checks.cycle.issue, (.checks.cycles | map(.issue))]' "$live/health.json")" "[12,[12,14]]"
+
+t_case "summary: the last cycle failed, whatever is running beside it"
+reset
+mkdir -p "$live"
+printf '{"cycles":[%s],"last":%s}\n' "$(one 14 true running plan)" "$(one 12 false aborted develop)" >"$live/running.json"
+t_run "$status; $summary"
+t_eq "$t_rc" 1
+t_contains "$t_out" "factory   fail: The last cycle failed: #12 ended as aborted."
+
+t_case "health reads the one object an earlier version wrote: a running cycle"
+reset
+mkdir -p "$live"
+one 12 true running develop >"$live/running.json"
+t_run "$status && $summary"
+t_eq "$t_rc" 0
+t_contains "$t_out" "factory   pass: Working on #12."
+
+t_case "health reads the one object an earlier version wrote: a failed cycle stays failed"
+reset
+mkdir -p "$live"
+one 12 false aborted develop >"$live/running.json"
+t_run "$status; $summary"
+t_eq "$t_rc" 1
+t_contains "$t_out" "The last cycle failed: #12 ended as aborted."
+
+t_case "a cycle that stopped writing is lost, and the factory says so"
+reset
+mkdir -p "$live/cycles"
+printf '{"issue":9,"running":true,"status":"running","step":"develop","startedAt":%s,"updatedAt":%s}\n' \
+  "$(($(date +%s) - 900))" "$(($(date +%s) - 300))" >"$live/cycles/9.json"
+t_run "$status; $summary"
+t_eq "$t_rc" 1
+t_contains "$t_out" "The last cycle failed: #9 ended as lost."
+t_eq "$(jq -c '[(.cycles | length), .last.status]' "$live/running.json")" '[0,"lost"]'
 
 t_case "summary: a health file older than ten minutes is not believed, exit 1"
 reset

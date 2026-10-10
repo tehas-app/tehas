@@ -267,12 +267,25 @@ t_eq "$(containers)" 0
 
 t_case "a running cycle is announced, and the session starts"
 mkdir -p "$T/home/tehas/live"
-echo '{"issue":12,"running":true}' >"$T/home/tehas/live/running.json"
+echo '{"cycles":[{"issue":12,"running":true}],"last":null}' >"$T/home/tehas/live/running.json"
 again
 t_run "$dev"
 t_eq "$t_rc" 0
-t_contains "$t_out" "issue 12"
+t_contains "$t_out" "a cycle is running on issue 12"
 t_eq "$(containers)" 1
+echo '{"cycles":[],"last":{"issue":12,"running":false}}' >"$T/home/tehas/live/running.json"
+t_run "$dev"
+t_lacks "$t_out" "issue 12"
+
+t_case "several running cycles are all named"
+echo '{"cycles":[{"issue":12,"running":true},{"issue":14,"running":true}],"last":null}' >"$T/home/tehas/live/running.json"
+t_run "$dev"
+t_contains "$t_out" "cycles are running on issues 12, 14"
+
+t_case "the one object an earlier version wrote is still read"
+echo '{"issue":12,"running":true}' >"$T/home/tehas/live/running.json"
+t_run "$dev"
+t_contains "$t_out" "a cycle is running on issue 12"
 echo '{"issue":12,"running":false}' >"$T/home/tehas/live/running.json"
 t_run "$dev"
 t_lacks "$t_out" "issue 12"

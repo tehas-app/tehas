@@ -3,8 +3,8 @@
 # docs server as /health (and /healthz).
 #
 # It reads only what the factory already writes under live/: status.json (the
-# queue snapshot from tehasbot status) and running.json (the current or last cycle
-# from tehas work). No network, no model. tehasbot status runs it on exit, so it is
+# queue snapshot from tehasbot status) and running.json (the running cycles
+# and the last one, from tehas work). No network, no model. tehasbot status runs it on exit, so it is
 # refreshed at every poll and at the end of every cycle.
 #
 # The file follows the health check response format (draft-inadarei-api-health-check):
@@ -24,18 +24,33 @@ set -uo pipefail
 : "${TEHAS_HOME:=$HOME/tehas}"
 live=$TEHAS_HOME/live
 mkdir -p "$live"
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/live.sh
+. "$here/../lib/live.sh"
+# A cycle that died without a word stops being shown as running here.
+tehas_live_assemble 2>/dev/null || true
 
 status_file=$live/status.json
 running_file=$live/running.json
 queue=null
-cycle=null
+view=null
 [ -s "$status_file" ] && queue=$(jq -c . "$status_file" 2>/dev/null || echo null)
-[ -s "$running_file" ] && cycle=$(jq -c . "$running_file" 2>/dev/null || echo null)
+[ -s "$running_file" ] && view=$(jq -c . "$running_file" 2>/dev/null || echo null)
 
-jq -n --argjson queue "$queue" --argjson cycle "$cycle" --arg now "$(date -u +%FT%TZ)" '
+jq -n --argjson queue "$queue" --argjson view "$view" --arg now "$(date -u +%FT%TZ)" '
   def iso: if type == "number" then todate else null end;
-  ($cycle != null and ($cycle.running | not)
-     and (($cycle.status // "") | IN("merged", "handoff") | not)) as $failed
+  def brief: {
+    issue, running: (.running // false), status, step,
+    startedAt: (.startedAt | iso), time: (.updatedAt | iso)
+  };
+  # The view tehas work writes, or the one object an earlier version wrote.
+  (if ($view | type) != "object" then {cycles: [], last: null}
+   elif ($view | has("cycles")) then $view
+   elif $view.running == true then {cycles: [$view], last: null}
+   else {cycles: [], last: $view} end) as $v
+  | ($v.cycles // []) as $running
+  | $v.last as $last
+  | ($last != null and (($last.status // "") | IN("merged", "handoff") | not)) as $failed
   | (if $queue == null then "fail"
      elif $failed then "fail"
      elif $queue.paused then "warn"
@@ -44,9 +59,9 @@ jq -n --argjson queue "$queue" --argjson cycle "$cycle" --arg now "$(date -u +%F
       status: $status,
       time: $now,
       output: (if $queue == null then "No queue snapshot yet: the dispatcher has not written one."
-               elif $failed then "The last cycle failed: #\($cycle.issue) ended as \($cycle.status)."
+               elif $failed then "The last cycle failed: #\($last.issue) ended as \($last.status)."
                elif $queue.paused then "The factory is paused."
-               elif $cycle != null and $cycle.running then "Working on #\($cycle.issue)."
+               elif ($running | length) > 0 then "Working on \($running | map("#\(.issue)") | join(", "))."
                else "Idle, taking work." end),
       checks: {
         queue: (if $queue == null then null else {
@@ -57,14 +72,8 @@ jq -n --argjson queue "$queue" --argjson cycle "$cycle" --arg now "$(date -u +%F
           review: ($queue.awaiting | length),
           stopped: ($queue.stopped | length)
         } end),
-        cycle: (if $cycle == null then null else {
-          issue: $cycle.issue,
-          running: ($cycle.running // false),
-          status: $cycle.status,
-          step: $cycle.step,
-          startedAt: ($cycle.startedAt | iso),
-          time: ($cycle.updatedAt | iso)
-        } end)
+        cycle: (($running[0] // $last) | if . == null then null else brief end),
+        cycles: ($running | map(brief))
       }
     }' >"$live/health.json.new" 2>/dev/null || exit 1
 mv "$live/health.json.new" "$live/health.json"

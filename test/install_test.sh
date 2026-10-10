@@ -51,6 +51,7 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/env.sh
 ./tehas/lib/config.sh
 ./tehas/lib/cycles.sh
+./tehas/lib/live.sh
 ./tehas/lib/sandbox.sh
 ./tehas/lib/update-steps.sh
 ./tehas/libexec/console
