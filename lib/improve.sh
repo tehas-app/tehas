@@ -78,7 +78,7 @@ tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr>]
 # is not uploaded.
 tehas_improve_secret() { # <file>
   grep -E -q -e 'gh[pousr]_[A-Za-z0-9]{36,}' -e 'github_pat_[A-Za-z0-9_]{22,}' \
-    -e 'sk-[A-Za-z0-9_-]{20,}' -e 'xox[abprs]-[A-Za-z0-9-]{10,}' -e 'AKIA[0-9A-Z]{16}' \
+    -e '(^|[^A-Za-z0-9])sk-[A-Za-z0-9_-]{20,}' -e 'xox[abprs]-[A-Za-z0-9-]{10,}' -e 'AKIA[0-9A-Z]{16}' \
     -e '-----BEGIN [A-Z ]*PRIVATE KEY-----' "$1"
 }
 

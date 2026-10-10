@@ -1190,3 +1190,20 @@ Expected: every line `ok`, exit 0. If `install_test.sh` or `generic_test.sh` obj
 git add host/systemd/tehas-improve.service host/systemd/tehas-improve.timer
 git commit -m "Units for the improvement loop, every three hours"
 ```
+
+---
+
+## After the review
+
+The code blocks above are as planned. The review of the whole branch found
+three things, each fixed with a test that failed first. The files hold the
+fixes; the blocks above do not.
+
+- A cycle that ended while the issue stack was fetched had its record taken
+  and removed, and a finding on it dropped. The records are now listed again
+  once the window is taken.
+- The token shape `sk-` matched inside ordinary words such as `task-` and
+  `disk-`. It now needs a boundary before it.
+- A container left by a killed run blocked every later run by its name. It is
+  removed before the analyst starts, and `timeout` kills a run that ignores
+  its first signal.

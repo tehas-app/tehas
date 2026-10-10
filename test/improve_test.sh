@@ -138,11 +138,18 @@ t_eq "$t_rc" 0
 echo "-----BEGIN OPENSSH PRIVATE KEY-----" >"$fx/log"
 lib 'tehas_improve_secret "$T/fx/log"'
 t_eq "$t_rc" 0
+echo "{\"apiKey\":\"sk-$(printf 'b%.0s' $(seq 1 24))\"}" >"$fx/log"
+lib 'tehas_improve_secret "$T/fx/log"'
+t_eq "$t_rc" 0
 
 t_case "an ordinary log is not taken for a secret"
 reset
 big_log "$fx/log"
-echo "the ghp_ prefix and sk-short are words here" >>"$fx/log"
+{
+  echo "the ghp_ prefix and sk-short are words here"
+  echo "check disk-usage-of-the-container-first"
+  echo '{"branch":"task-1234-add-the-login-page"}'
+} >>"$fx/log"
 lib 'tehas_improve_secret "$T/fx/log"'
 t_eq "$t_rc" 1
 
@@ -160,11 +167,21 @@ if [ -L "$T/fx/findings.json" ]; then cp -P "$T/fx/findings.json" "$out/findings
 elif [ -f "$T/fx/findings.json" ]; then cp "$T/fx/findings.json" "$out/findings.json"; fi
 exit 0'
 
+# timeout runs the command at once and keeps what it was asked.
+t_stub timeout '[ "$1" = -k ] && shift 2
+shift
+exec "$@"'
+
 # gh answers from fixtures. A file $T/fx/gh-<what>.rc makes that call fail.
 t_stub gh '
 case "$1 $2" in
   "issue list")
     [ -f "$T/fx/gh-list.rc" ] && exit 1
+    # A cycle that ends while the stack is fetched.
+    if [ -f "$T/fx/late" ]; then
+      mkdir -p "$T/home/tehas/tmp/improve/window/$(cat "$T/fx/late")"
+      echo "{}" >"$T/home/tehas/tmp/improve/window/$(cat "$T/fx/late")/cycle.json"
+    fi
     case " $* " in *" --state closed "*) cat "$T/fx/closed.json" ;; *) cat "$T/fx/open.json" ;; esac ;;
   "issue create")
     n=$(($(cat "$T/fx/next" 2>/dev/null || echo 100) + 1))
@@ -465,6 +482,22 @@ ready
 mkdir -p "$base/window/..odd name"
 t_run "$improve"
 t_contains "$t_out" "cycles=1"
+
+t_case "a cycle that ends while the stack is fetched is read in this run, not lost"
+ready
+echo 8-261010-200150 >"$fx/late"
+echo '{"type":"agent_end"}' >"$home/logs/work-8-261010-200150.jsonl"
+findings "$(finding "The late cycle parked" '{"cycles":["8-261010-200150"]}')"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_contains "$t_out" "cycles=2 findings=1 invalid=0"
+t_eq "$(titles)" "The late cycle parked"
+
+t_case "a container left by a killed run is removed before the analyst starts"
+ready
+t_run "$improve"
+t_eq "$(t_calls docker | head -n 1)" "rm -f tehas-improve"
+t_contains "$(t_calls timeout | head -n 1)" "-k 60 1800 docker run"
 
 t_case "the sweep removes what is over seven days old and nothing newer"
 reset

@@ -94,13 +94,19 @@ find "$logs" -maxdepth 1 -type f \( -name 'work-*' -o -name 'dispatch-work-*' -o
   -mmin "+$old" -delete
 
 # --- Look --------------------------------------------------------------------
+# The records in a directory, by name. Anything else there is removed.
 recs=()
-for d in "$window"/*/; do
-  [ -d "$d" ] || continue
-  d=${d%/}
-  r=$(basename "$d")
-  if [[ $r =~ ^[0-9]+-[0-9]{6}-[0-9]{6}$ ]]; then recs+=("$r"); else rm -rf "$d"; fi
-done
+look() { # <directory>
+  local d r
+  recs=()
+  for d in "$1"/*/; do
+    [ -d "$d" ] || continue
+    d=${d%/}
+    r=$(basename "$d")
+    if [[ $r =~ ^[0-9]+-[0-9]{6}-[0-9]{6}$ ]]; then recs+=("$r"); else rm -rf "$d"; fi
+  done
+}
+look "$window"
 [ "${#recs[@]}" -gt 0 ] || { say "cycles=0, nothing to read"; exit 0; }
 
 # --- The issue stack ---------------------------------------------------------
@@ -132,6 +138,8 @@ if ! { mkdir -p "$run/in" "$run/out" && mv "$window" "$run/in/cycles" && mv "$st
   say "cycles=${#recs[@]} failed: could not take the window"
   exit 1
 fi
+# A cycle may have ended while the stack was fetched: its record came along.
+look "$run/in/cycles"
 fail() {
   give_back "$run"
   say "cycles=${#recs[@]} failed: $*"
@@ -139,8 +147,10 @@ fail() {
 }
 
 # --- The analyst -------------------------------------------------------------
+# A run that was killed leaves its container running under this name.
+docker rm -f tehas-improve >/dev/null 2>&1 || true
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
-timeout 1800 docker run --rm --name tehas-improve --cpus 1 --memory 2g \
+timeout -k 60 1800 docker run --rm --name tehas-improve --cpus 1 --memory 2g \
   -e HOME=/home/vscode -w /improve \
   -v "$run/in:/improve/in:ro" -v "$run/out:/improve/out" \
   -v "$HOME/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro" \
