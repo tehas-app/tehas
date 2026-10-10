@@ -1,6 +1,6 @@
 # Spec: ticket concurrency, several issues worked on at once
 
-**Status**: Proposed 2026-10-10. Not implemented.
+**Status**: Agreed 2026-10-10. Implemented in the same pull request.
 
 ## Purpose
 
@@ -242,7 +242,8 @@ running. No new lock is needed.
 - The file of a finished cycle that is not `last` is removed when the view is
   assembled.
 - `libexec/health` applies its rule to `last`: the factory fails when the
-  cycle that finished most recently failed. `health.json` keeps its format
+  cycle that finished most recently failed, until a cycle starts after it.
+  `health.json` keeps its format
   and gains `checks.cycles`, the running cycles. `tehas status` prints a line
   for each.
 - `tehas dev` names every running issue.

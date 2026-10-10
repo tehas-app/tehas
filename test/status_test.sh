@@ -29,9 +29,9 @@ reset() {
   echo "[$(issue 3 tehas:ready),$(issue 4 tehas:ready),$(issue 5 tehas:awaiting-merge),$(issue 6 needs-human-attention)]" >"$T/issues.json"
   echo false >"$T/paused"
 }
-one() { # issue running status step: one cycle as the work script writes it
+one() { # issue running status step [started [updated]]: one cycle as the work script writes it; times are seconds ago
   printf '{"issue":%s,"running":%s,"status":"%s","step":"%s","startedAt":%s,"updatedAt":%s}' \
-    "$1" "$2" "$3" "$4" "$(($(date +%s) - 600))" "$(($(date +%s) - 180))"
+    "$1" "$2" "$3" "$4" "$(($(date +%s) - ${5:-600}))" "$(($(date +%s) - ${6:-180}))"
 }
 cycle() { # running status step: issue 12, running or the last one
   mkdir -p "$live"
@@ -160,13 +160,21 @@ t_contains "$t_out" "cycle     #12 running, step develop"
 t_contains "$t_out" "cycle     #14 running, step plan"
 t_eq "$(jq -c '[.checks.cycle.issue, (.checks.cycles | map(.issue))]' "$live/health.json")" "[12,[12,14]]"
 
-t_case "summary: the last cycle failed, whatever is running beside it"
+t_case "summary: the last cycle failed and the cycle beside it started earlier: still failed"
 reset
 mkdir -p "$live"
-printf '{"cycles":[%s],"last":%s}\n' "$(one 14 true running plan)" "$(one 12 false aborted develop)" >"$live/running.json"
+printf '{"cycles":[%s],"last":%s}\n' "$(one 14 true running plan 600 5)" "$(one 12 false aborted develop 700 180)" >"$live/running.json"
 t_run "$status; $summary"
 t_eq "$t_rc" 1
 t_contains "$t_out" "factory   fail: The last cycle failed: #12 ended as aborted."
+
+t_case "summary: a cycle that started after the last one failed clears the failure"
+reset
+mkdir -p "$live"
+printf '{"cycles":[%s],"last":%s}\n' "$(one 14 true running plan 60 5)" "$(one 12 false aborted develop 700 180)" >"$live/running.json"
+t_run "$status; $summary"
+t_eq "$t_rc" 0
+t_contains "$t_out" "factory   pass: Working on #14."
 
 t_case "health reads the one object an earlier version wrote: a running cycle"
 reset

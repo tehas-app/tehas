@@ -10,8 +10,8 @@
 # The file follows the health check response format (draft-inadarei-api-health-check):
 #   status "pass"  the factory is taking work
 #   status "warn"  it is paused (tehas:pause on the control issue)
-#   status "fail"  the last cycle ended as anything but merged or handoff, or
-#                  there is no queue snapshot yet
+#   status "fail"  the last cycle ended as anything but merged or handoff and
+#                  no cycle has started since, or there is no queue snapshot yet
 # On "fail" it also creates live/health.down, which makes the docs server answer
 # 503 with the same body; otherwise it removes that file.
 #
@@ -50,7 +50,8 @@ jq -n --argjson queue "$queue" --argjson view "$view" --arg now "$(date -u +%FT%
    else {cycles: [], last: $view} end) as $v
   | ($v.cycles // []) as $running
   | $v.last as $last
-  | ($last != null and (($last.status // "") | IN("merged", "handoff") | not)) as $failed
+  | ($last != null and (($last.status // "") | IN("merged", "handoff") | not)
+     and ($running | map(select((.startedAt // 0) >= ($last.updatedAt // 0))) | length) == 0) as $failed
   | (if $queue == null then "fail"
      elif $failed then "fail"
      elif $queue.paused then "warn"

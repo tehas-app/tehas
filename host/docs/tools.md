@@ -343,16 +343,17 @@ serves the file at `/health` and `/healthz` as `application/health+json`.
 | -------- | ---------------------------------------------------------------------------------------- | ---- |
 | `pass`   | Taking work, idle or in a cycle                                                          | 200  |
 | `warn`   | Paused (`tehas:pause` on the control issue)                                              | 200  |
-| `fail`   | The last cycle ended as anything but `merged` or `handoff`, or there is no queue snapshot | 503  |
+| `fail`   | The last cycle ended as anything but `merged` or `handoff` and no cycle has started since, or there is no queue snapshot | 503  |
 
 `output` says the same in a sentence. `checks.queue` has the snapshot time and
 the counts in line, building, in review and stopped. `checks.cycles` has the
 issue, status, step and times of every running cycle; `checks.cycle` is the
 first of them, or the cycle that finished last when none is running.
 
-`fail` is about the cycle that finished most recently, whatever is running
-beside it. A cycle that has written nothing for two minutes is recorded as
-ended with the status `lost`, which is a failure.
+`fail` is about the cycle that finished most recently. It lasts until a cycle
+starts after that one ended. A cycle that was already running when the other
+one failed does not clear it. A cycle that has written nothing for two
+minutes is recorded as ended with the status `lost`, which is a failure.
 
 A stopped dispatcher cannot report itself: the file simply stops changing and
 the endpoint keeps answering with the last state. A monitor should also treat

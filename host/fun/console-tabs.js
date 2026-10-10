@@ -37,7 +37,9 @@
     const tabs = running.map((cycle) => ({ issue: cycle.issue, running: true, cycle }));
     if (last && !running.some((c) => c.issue === last.issue)) tabs.push({ issue: last.issue, running: false, cycle: last });
     const shown = tabs.find((t) => t.issue === selected) || tabs[0] || null;
-    const failure = last && !FINE.includes(String(last.status))
+    // A cycle that started after the last one ended clears the failure.
+    const retried = last && running.some((c) => (c.startedAt || 0) >= (last.updatedAt || 0));
+    const failure = last && !retried && !FINE.includes(String(last.status))
       ? { issue: last.issue, status: String(last.status).slice(0, 40) } : null;
     return { tabs, shown, running: running.length, failure };
   }

@@ -12,7 +12,7 @@ const cycle = (issue, over = {}) => ({
   issue, running: true, status: "running", step: "develop", statusText: "",
   startedAt: 1000, updatedAt: 2000, console: `console-${issue}.txt`, ...over,
 });
-const ended = (issue, status = "handoff") => cycle(issue, { running: false, status });
+const ended = (issue, status = "handoff", over = {}) => cycle(issue, { running: false, status, ...over });
 const issues = (v) => v.tabs.map((t) => t.issue);
 
 test("no file, or nothing in it, is no tab and nothing shown", () => {
@@ -75,8 +75,11 @@ test("the same issue listed twice is one tab", () => {
   assert.deepEqual(issues(view({ cycles: [cycle(12), cycle(12)], last: null }, null)), [12]);
 });
 
-test("a last cycle that ended badly is the failure, whatever is running", () => {
-  assert.deepEqual(view({ cycles: [cycle(12)], last: ended(7, "aborted") }, null).failure, { issue: 7, status: "aborted" });
+test("a last cycle that ended badly is the failure until a cycle starts after it", () => {
+  const bad = ended(7, "aborted", { updatedAt: 3000 });
+  assert.deepEqual(view({ cycles: [cycle(12, { startedAt: 2500 })], last: bad }, null).failure, { issue: 7, status: "aborted" });
+  assert.equal(view({ cycles: [cycle(12, { startedAt: 3000 })], last: bad }, null).failure, null);
+  assert.equal(view({ cycles: [cycle(12, { startedAt: 3500 })], last: bad }, null).failure, null);
   assert.deepEqual(view({ cycles: [], last: ended(7, "lost") }, null).failure, { issue: 7, status: "lost" });
   assert.equal(view({ cycles: [], last: ended(7, "merged") }, null).failure, null);
   assert.equal(view({ cycles: [], last: ended(7, "handoff") }, null).failure, null);
