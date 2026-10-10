@@ -46,6 +46,9 @@ case "$1 $2" in
 esac'
 t_stub fake-work
 t_stub fake-status
+# The dispatcher waits for a cycle in steps of ten seconds. No case here needs
+# the time to pass, so the wait returns at once.
+t_stub sleep
 # Writes a recorded outcome where the dispatcher asked for it.
 t_stub fake-plan 'out=""
 while [ "$#" -gt 0 ]; do [ "$1" = --out ] && out=$2; shift; done
