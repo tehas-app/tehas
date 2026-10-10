@@ -75,7 +75,6 @@ Each block below is labelled with the file it belongs to and `create` or `append
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh"
 
-improve="$T_ROOT/libexec/improve"
 home=$T/home/tehas
 base=$home/tmp/improve
 fx=$T/fx
@@ -424,6 +423,8 @@ git commit -m "A whole log is packed in pieces of at most a limit, and a token s
 
 ```bash
 # --- A run -------------------------------------------------------------------
+improve="$T_ROOT/libexec/improve"
+
 # docker leaves $T/fx/findings.json where the analyst would write, and keeps
 # its arguments one to a line. $T/fx/docker.rc is an exit status to fail with.
 t_stub docker '
