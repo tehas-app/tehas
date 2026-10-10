@@ -15,12 +15,17 @@
     @data path /live/* /health /healthz *.md
     header @data X-Robots-Tag "noindex"
     # route keeps this order: the 404 has to see the path before the rewrite.
+    # No page here is meant to be read as another type than the one it is sent as.
+    header X-Content-Type-Options "nosniff"
     route {
         # Dashboard data: the queue snapshot and the running cycle's console.
         # Plain files written by the dispatcher; the page polls them, the
         # console with Range requests so it only fetches what is new.
         handle_path /live/* {
             root * /srv/live
+            # Only the finished files: not a half-written one, not a dotfile.
+            @unfinished path *.new /.*
+            respond @unfinished 404
             header Cache-Control "no-store"
             file_server
         }
@@ -65,6 +70,9 @@
         }
         handle_path /fun/* {
             root * /srv/fun
+            # install.sh keeps the previous copy of a replaced file beside it.
+            @backup path *.prev
+            respond @backup 404
             file_server
         }
         # For agents: the entry point. A template, so its links are absolute
