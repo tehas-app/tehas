@@ -168,8 +168,8 @@ already running finishes. Remove the label to resume.
 ## Limits that hold work back
 
 - One cycle at a time.
-- Inside a cycle, `TEHAS_CONCURRENCY` workstreams side by side: 1 by default,
-  more if the model backends can take it. See [The host](/host).
+- Inside a cycle, `TEHAS_CONCURRENCY` workstreams side by side: 4 by default,
+  fewer if the model backends cannot take it. See [The host](/host).
 - No new cycle while 3 issues carry `tehas:awaiting-merge`
   (`TEHAS_MAX_AWAITING`). Unreviewed pull requests are the queue you control.
 - A self-hosted model endpoint has few real slots per model, so a cycle takes

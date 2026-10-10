@@ -45,7 +45,7 @@ a day.
 | Protected gates         | pi-rukas halts a cycle whose patch touches `.pi/`, `.github/` or `AGENTS.md`                                                             | pi-rukas feature, not exercised here                                               |
 | Human merge             | Nothing merges on its own                                                                                                                | By configuration (no merge grant in `AGENTS.md`)                                   |
 | Self-hosted models only | One model for every role, set in the instance's `instance.env`                                                                           | Verified                                                                           |
-| Concurrency knob        | `TEHAS_CONCURRENCY` sets how many workstreams a cycle runs side by side; 1 by default, raise it when the model backends have capacity    | Setting reaches the sandbox; its effect on a cycle is not yet observed             |
+| Concurrency knob        | `TEHAS_CONCURRENCY` sets how many workstreams a cycle runs side by side; 4 by default, lower it when the model backends have few slots    | Setting reaches the sandbox; its effect on a cycle is not yet observed             |
 
 ## Visibility
 
