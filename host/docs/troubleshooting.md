@@ -196,12 +196,32 @@ scripts/verify.sh --full
 
 Fix the default branch first; every cycle will fail the same way until then.
 
+## install.sh --check says `Follow-ups: NOT DONE`
+
+A follow-up that was asked for has not run. The lines are in
+`~/tehas/state/update-pending`: what `install.sh` recorded as it copied files, and
+what `tehas update` has not finished. Run `tehas update`: it runs the steps in the
+order `lib/update-steps.sh` lists them and clears the record. If it names a step
+line in a `WARN:` instead, the checkout asks for a step this installed
+`tehas update` does not know - pull and run it again, since `install.sh` installs
+the commands before the follow-ups run.
+
+The lines are step lines, not shell text: `docs` on its own is not one, because
+that renewal needs its `--force-recreate` flag. A line `lib/update-steps.sh` does
+not accept is named in a `WARN:`, is not run, and stays in the record.
+
+A record this account cannot open - written by another account, or with a mode
+that blocks reading - stops the update with exit 1 rather than read as "nothing
+owed": it holds steps, and writing over it would lose them. Make it readable
+again, or delete it once you have run those steps yourself.
+
 ## This site shows an old page
 
 The pages are installed copies in `~/tehas/docs`. After a change is merged:
 
 ```
-cd ~/tehas/platform && git pull && ./install.sh
+tehas update      # pull the platform checkout, install, renew what already runs
 ```
 
-No restart is needed; each request reads the page from disk.
+No restart is needed; each request reads the page from disk. If the host has no
+platform checkout yet, run `./install.sh` from wherever the repository is kept.

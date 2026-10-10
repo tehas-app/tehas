@@ -68,6 +68,7 @@ a day.
 | Feature                  | Detail                                                                                                           | Status                                               |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
 | Configuration from git   | `./install.sh` copies this repository's files into place and keeps the previous version; `--check` reports drift | Verified                                             |
+| Host update in one step  | `tehas update` fast-forwards the platform checkout, runs `install.sh`, then its follow-ups; nothing new is added, and a step that did not run stays owed until it has | Covered by the shell tests; not yet run on a host    |
 | Instance settings        | Everything that differs between instances is in one directory; no script names a product or a host               | Covered by the shell tests                           |
 | Host bootstrap           | `bootstrap.sh` installs every tool at a pinned version and checks the result                                     | Check and a second run verified; a run from scratch is not |
 | Read-only source         | The host clones this repository with a read-only deploy key; the bot has no access to it                         | Verified                                             |

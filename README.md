@@ -121,6 +121,7 @@ image. The rules for changes are in [`AGENTS.md`](AGENTS.md).
 | `libexec/` | The scripts behind them, bash and one Deno script. Installed to `~/tehas/libexec` |
 | `lib/config.sh` | Loads and checks the instance settings |
 | `lib/sandbox.sh` | What a sandbox container is given, for a cycle and for a session by hand |
+| `lib/update-steps.sh` | The follow-up steps of an install, which `install.sh` asks for and `tehas update` runs |
 | `host/` | Everything else that is installed: units, the docs server, the sandbox image, the manual |
 | `install.sh`, `bootstrap.sh` | Install tehas on a host, and prepare a host's tools |
 | `instances/` | `example/` to copy, and `tehas-tehas/`, the settings of the example instance |

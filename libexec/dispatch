@@ -80,8 +80,7 @@ tehas_load || exit 78
 
 log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*"; }
 
-tehas_require TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS \
-  PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
+tehas_require_instance_settings
 repo=$TEHAS_REPO
 control=$TEHAS_CONTROL_ISSUE
 allowed=" $TEHAS_ALLOWED_LABELERS "

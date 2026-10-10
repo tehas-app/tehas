@@ -22,7 +22,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/lib/sandbox.sh`             | What a sandbox container is given; sourced by the work and dev scripts  |
 | `~/tehas/bin/`                       | The two commands on `PATH`: `tehas` for a person, `tehasbot` for the units. Plus `gh` |
 | `~/tehas/libexec/`                   | The scripts behind the two commands, one for each thing they do. Not on `PATH` |
-| `~/tehas/platform`                   | Checkout of this repository; `install.sh` runs from it                  |
+| `~/tehas/platform`                   | Checkout of this repository; `install.sh` runs from it and `tehas update` pulls it |
 | `~/tehas/repos/tehas`                | The product checkout, on the default branch. Cycles are cloned from it; no container is given it |
 | `~/tehas/work/tehas`                 | The cycle's workspace: a fresh clone made for each cycle, removed before the next |
 | `~/tehas/dev/<name>`                 | A person's clone for working by hand, made and used by `tehas dev`, never removed. `<name>.author` next to it holds whose name its commits carry |
@@ -81,36 +81,79 @@ The platform repository is the source. Change it there, merge, then on the
 host:
 
 ```
+tehas update --check     # report what would change; changes no file of the
+                         # checkout or of the host (origin/ refs do move)
+tehas update             # pull, install, run the follow-ups that apply
+```
+
+`tehas update` is the three steps that took hand work before: fast-forward
+`~/tehas/platform` from its remote, run `install.sh`, then run each follow-up it
+asks for by name (`units`, `sandbox`, `docs`, `protolab`: see [Commands](/tools)).
+One line per step, and it stops at the first failure. It checks the instance
+settings against the required list in `lib/config.sh`, the same one install.sh
+checks, before it calls git. It changes nothing when the checkout has local
+changes or cannot be fast-forwarded, and it never enables a unit or starts a
+container the host was not already running: a changed unit is reloaded and
+restarted when it was active, and a docs or Protolab container is recreated when
+it is up - Caddy reads its config when the process starts, so a changed Caddyfile
+needs the container brought back up. Asking Docker or systemd whether one runs and
+getting no answer stops the update; only a real answer counts, not an exit status
+on its own, and a systemd that did not reload the unit files stops the run rather
+than report a changed unit as applied. A step that fails leaves the ones before it
+applied, and what is still owed is kept in `~/tehas/state/` (`update-pending`)
+until it has run, so the next update finishes it instead of calling the host
+current.
+
+The steps are still there on their own. `install.sh` is what puts tehas on a host
+the first time, before `tehas update` exists there:
+
+```
 cd ~/tehas/platform && git pull
-./install.sh --check     # change nothing, report four results
+./install.sh --check     # change nothing, report five results
 ./install.sh             # copy changed files into place, keep <name>.prev
 ```
 
-`--check` prints one line each for the instance settings, the host's tools,
-the installed files and the tests:
+`--check` prints one line each for the instance settings, the host's tools, the
+installed files, the follow-ups an earlier run left undone, and the tests:
 
 ```
 Instance:     /home/boss/tehas/platform/instances/tehas-tehas OK
 Dependencies: OK
 Installed:    DRIFT (1 files)
   differs: /home/boss/tehas/libexec/dispatch
+Follow-ups:   NOT DONE (2 from an earlier run, see /home/boss/tehas/state/update-pending)
 Tests:        OK
 ```
 
+The `Follow-ups:` line appears only while `~/tehas/state/update-pending` still
+holds steps that were asked for and never ran - a host with none owed prints four
+lines - and while it does, `--check` exits 1, because a host with files matching
+and a step unapplied is not current. Running `tehas update` runs them and clears
+the record ([Troubleshooting](/troubleshooting) has the case in full).
+
 `install.sh` validates the settings first and installs nothing if they are
-invalid. It prints the follow-up command when the sandbox image, the docs
-server or a systemd unit changed, and restarts nothing itself. A file edited directly on
-the host shows up as drift in `--check`.
+invalid. It prints one `next:` line per follow-up its changed files call for, and
+restarts nothing itself; `tehas update` is what runs them, and it records each of
+them as owed while it copies the file that calls for it - which is why a run that
+dies partway does not leave the host looking current. It asks systemd for nothing,
+but for the one case below:
+a copied unit file is not in effect until systemd has reloaded it, and that reload
+belongs to the step that restarts the units. A file edited directly on the host
+shows up as drift in `--check`.
 
 Before there was a `tehas` command, `~/tehas/bin` held one file for each
 command (`tehas-dispatch`, `tehas-work` and so on). `install.sh` removes those
 and `--check` lists them as stale. A cycle that was running before the install
 still calls them by name. So the install removes them only while it holds the
 dispatcher's lock itself. When a cycle or a poll holds it, they are left in
-place and the install prints `next: ./install.sh again when the running cycle
-has ended`. If the energy sampler was running, it also prints the restart that
-moves it to the new file. An old command that cannot be removed fails the
-install.
+place and the install prints `later: ./install.sh again when the running cycle
+has ended`. The units systemd holds name them too, so this is the one case
+where the install asks systemd to reload, and it leaves the files and prints a
+`later:` line when the reload did not happen. A `later:` line is for a person
+and is not a step: `tehas update` prints it and finds the files again on its
+next run. Removing the old energy sampler asks for the `units` step, which
+restarts a running one from the new file. An old command that cannot be
+removed fails the install.
 
 One thing it does besides copying, on a real run only: the product checkout's
 `origin/HEAD` is refreshed, so the commands know the default branch without

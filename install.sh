@@ -18,12 +18,29 @@
 # It also removes the commands of an earlier layout from ~/tehas/bin, one file
 # for each command there, unless a cycle is running that still uses them.
 #
-# Two things it does besides copying, on a real run only. The product
+# Three things it does besides copying, on a real run only. The product
 # checkout's origin/HEAD is refreshed, so the commands know the default branch
-# without asking the network. And the code index a cycle's agents search is
-# built with `tehas index`, once: when there is no index yet and both the
-# sandbox image and the product checkout are there. Until then the step is
-# printed as a follow-up. A failed indexing does not fail the install.
+# without asking the network. The code index a cycle's agents search is built
+# with `tehas index`, once: when there is no index yet and both the sandbox
+# image and the product checkout are there. A failed indexing does not fail the
+# install. And each follow-up a copied file calls for is recorded in
+# $TEHAS_HOME/state/update-pending before that file is put. This script's
+# report of what changed is one-shot: the next run compares again and finds the
+# file matching. So a run that dies partway would otherwise leave the files it
+# did copy with no follow-up owed.
+#
+# The follow-ups are named by id (units, sandbox, docs, protolab) in
+# lib/update-steps.sh, which is the one place that names them. This script
+# prints them as "next: <step>" and records them; `tehas update` runs them and
+# clears the record. Only a step is printed as "next:". Something for a person
+# to do later that is no step is printed as "later:".
+#
+# It asks systemd for nothing, with one exception. A copied unit file is not in
+# effect until systemd has reloaded it, and that reload belongs to the step
+# that restarts the units, so no command can report a changed unit as applied
+# when it was not. The exception is the earlier layout: its commands are
+# removed only after systemd has reloaded, because the units it still holds
+# name them.
 #
 # Exit: 0 done or nothing to report, 1 --check found something or a step
 # failed, 78 the instance settings are invalid (nothing was changed).
@@ -36,6 +53,8 @@ check=0
 
 # shellcheck source=lib/config.sh
 . "$root/lib/config.sh"
+# shellcheck source=lib/update-steps.sh
+. "$root/lib/update-steps.sh"
 
 # --- 1. Instance settings ---------------------------------------------------
 # Every finding is one line. Any finding stops a real run before it changes
@@ -44,8 +63,7 @@ instance_findings() {
   local dir file models product_model mode owner group
   tehas_load 2>&1 || return 0
   dir=$TEHAS_INSTANCE_DIR
-  (tehas_require TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS \
-    PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER 2>&1) || return 0
+  (tehas_require_instance_settings 2>&1) || return 0
   models=$dir/models.json
   if [ ! -r "$models" ]; then
     echo "tehas: no models.json in $dir"
@@ -108,6 +126,7 @@ units=$HOME/.config/systemd/user
 files=(
   "env.sh|$TEHAS_HOME/env.sh|644"
   "lib/config.sh|$TEHAS_HOME/lib/config.sh|644"
+  "lib/update-steps.sh|$TEHAS_HOME/lib/update-steps.sh|644"
   "lib/sandbox.sh|$TEHAS_HOME/lib/sandbox.sh|644"
   "versions.env|$TEHAS_HOME/versions.env|644"
   "sandbox/Dockerfile|$TEHAS_HOME/sandbox/Dockerfile|644"
@@ -128,7 +147,7 @@ files=(
 for f in tehas tehasbot; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
-for f in dev dispatch energy health index labels protolab status summary work; do
+for f in dev dispatch energy health index labels protolab status summary update work; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
 files+=("libexec/console.ts|$TEHAS_HOME/libexec/console.ts|644")
@@ -164,10 +183,22 @@ put() {
     if [ -f "$to" ]; then note "differs: $to"; else note "missing: $to"; fi
     return 0
   fi
+  # Owed before it is copied, not after: a copy that fails halfway leaves behind
+  # a record of what the copies so far asked for. tehas update finishes the
+  # record and clears it; install.sh --check reports it while any of it is left.
+  record_step "$src"
   mkdir -p "$(dirname "$to")"
   [ -f "$to" ] && cp -p "$to" "$to.prev"
   install -m "$mode" "$from" "$to"
   echo "installed: $to"
+}
+
+# The step this source calls for, added to the record of steps owed. One call per
+# copied file, so the record is never behind what the host has already been given.
+record_step() { # one source path from the file table
+  local step steps=()
+  while IFS= read -r step; do steps+=("$step"); done < <(tehas_steps_for "$1")
+  if [ "${#steps[@]}" != 0 ]; then tehas_record_steps "${steps[@]}" || exit 1; fi
 }
 
 # --- 3. Install ---------------------------------------------------------------
@@ -199,7 +230,9 @@ for f in tehas-console.ts tehas-dispatch tehas-energy tehas-health tehas-index t
   [ -e "$to" ] || continue
   old+=("$to")
   changed+=("bin/$f")
-  [ "$check" = 0 ] || note "stale: $to"
+  # A running sampler is the old file calling itself; only a restart moves it
+  # on, and the units step is what restarts it.
+  if [ "$check" = 1 ]; then note "stale: $to"; else record_step "bin/$f"; fi
 done
 
 # --- 4. Report (--check) -----------------------------------------------------
@@ -226,6 +259,19 @@ if [ "$check" = 1 ]; then
   else
     echo "Installed:    DRIFT (${#changed[@]} files)"
     printf '%s\n' "${report[@]}" | sed 's/^/  /'
+    rc=1
+  fi
+
+  # A follow-up an earlier tehas update was asked for and never finished is
+  # still owed. Files matching is not enough to call a host current. A record
+  # this account cannot open is not an answer of "nothing owed" either: it holds
+  # steps, and this cannot say how many.
+  owed=$(tehas_pending_file)
+  if ! owed_lines=$(tehas_read_steps); then
+    echo "Follow-ups:   NOT DONE (the record $owed cannot be read)"
+    rc=1
+  elif [ -n "$owed_lines" ]; then
+    echo "Follow-ups:   NOT DONE ($(printf '%s\n' "$owed_lines" | wc -l) from an earlier run, see $owed)"
     rc=1
   fi
 
@@ -258,7 +304,7 @@ first_index() {
     "$TEHAS_HOME/bin/tehas" index && return 0
     echo "WARN: the code index was not built"
   fi
-  echo "next: $TEHAS_HOME/bin/tehas index   (needs the sandbox image and the product checkout)"
+  echo "later: $TEHAS_HOME/bin/tehas index   (needs the sandbox image and the product checkout)"
 }
 
 if [ "${#changed[@]}" = 0 ]; then
@@ -266,39 +312,39 @@ if [ "${#changed[@]}" = 0 ]; then
   first_index
   exit 0
 fi
-list=" ${changed[*]} "
-case "$list" in *" systemd/"*)
-  systemctl --user daemon-reload || true
-  echo "next: systemctl --user enable --now tehas-dispatch.timer tehas-energy.service tehas-protolab.timer" ;;
-esac
+# The follow-ups, by the ids lib/update-steps.sh defines: one line per step these
+# changed files call for, in the order they run. They are already in the record of
+# steps owed, recorded file by file above, and `tehas update` is what runs them:
+# it reloads the unit files before restarting any unit, and a step that cannot be
+# performed leaves the run red and the step owed. A person who ran install.sh by
+# hand reads the same lines, and the record stays until `tehas update` clears it.
+while IFS= read -r step; do echo "next: $step"; done < <(tehas_steps_for "${changed[@]}")
 
 # The old commands go while this holds the dispatcher's lock. A cycle that
 # began before this install was started by the old dispatcher, which calls
-# them by name until it ends: it holds the lock, so they stay and the step is
-# printed instead. A poll that starts meanwhile finds the lock taken and ends
-# before it has run anything. A file that cannot be removed fails the install.
-retire_later=0
+# them by name until it ends: it holds the lock, so they stay. A poll that
+# starts meanwhile finds the lock taken and ends before it has run anything.
+# The units systemd holds name them too, so systemd reloads first, and only
+# silence next to exit 0 says it did. Either way the files are left and a
+# later run of this script removes them: they are still there to be found, so
+# nothing is recorded. A file that cannot be removed fails the install.
+retire_later=""
 if [ "${#old[@]}" -gt 0 ]; then
-  exec 9>>"$TEHAS_HOME/state/dispatch.lock"
-  if flock -n 9; then
-    for to in "${old[@]}"; do
-      rm -f "$to" "$to.prev"
-      echo "removed: $to"
-    done
+  if ! out=$(systemctl --user daemon-reload 2>&1) || [ -n "$out" ]; then
+    retire_later="once systemctl --user daemon-reload works   (systemd still holds the units that name the old commands in $TEHAS_HOME/bin, so they were left)"
   else
-    retire_later=1
+    exec 9>>"$TEHAS_HOME/state/dispatch.lock"
+    if flock -n 9; then
+      for to in "${old[@]}"; do
+        rm -f "$to" "$to.prev"
+        echo "removed: $to"
+      done
+    else
+      retire_later="when the running cycle has ended   (the dispatcher's lock is held, so the old commands in $TEHAS_HOME/bin were left)"
+    fi
+    exec 9>&-
   fi
-  exec 9>&-
 fi
-case "$list" in *" sandbox/"* | *" versions.env "*) echo "next: $TEHAS_HOME/sandbox/build.sh" ;; esac
-# The compose file takes the bind address from the environment env.sh sets.
-case "$list" in *" edge/docs."*) echo "next: . $TEHAS_HOME/env.sh && docker compose -f $TEHAS_HOME/edge/docs.compose.yaml up -d" ;; esac
-case "$list" in *" edge/protolab."*) echo "next: . $TEHAS_HOME/env.sh && docker compose -f $TEHAS_HOME/edge/protolab.compose.yaml up -d --force-recreate" ;; esac
-# A running sampler is the old file calling itself; only a restart moves it on.
-case "$list" in *" bin/tehas-energy "*)
-  [ "$retire_later" = 1 ] || echo "next: systemctl --user try-restart tehas-energy.service" ;;
-esac
-[ "$retire_later" = 0 ] ||
-  echo "next: ./install.sh again when the running cycle has ended   (the dispatcher's lock is held, so the old commands in $TEHAS_HOME/bin were left)"
+[ -z "$retire_later" ] || echo "later: ./install.sh again $retire_later"
 first_index
 exit 0

@@ -16,6 +16,7 @@ tehas dispatch [--dry-run]       # one poll of the issue queue, by hand
 tehas work <issue> [--restart]   # one cycle for an issue, by hand
 tehas dev [<name>]               # an interactive session on the host, by hand
 tehas index                      # build the code index the agents search
+tehas update [--check]           # bring this host up to date with the platform
 tehas labels                     # create the tehas labels in the repository
 tehas status                     # print the state of the factory
 tehas help [command]             # this list, or the text of one command
@@ -384,6 +385,126 @@ scripts/verify.sh          # fast: the lint, shellcheck, the shell tests
 scripts/verify.sh --full   # plus deno lint over the TypeScript
 ```
 
+## tehas update
+
+Bring this host up to date with the platform repository in one command.
+
+```
+tehas update             # pull, install, run the follow-ups that apply
+tehas update --check     # report what would change; changes no file of the
+                         # checkout or of the host (origin/ refs do move)
+tehas update --help      # print the usage of the command, touch nothing
+```
+
+It runs, in order and one line per step: a `git fetch` and a fast-forward of
+the platform checkout (`$TEHAS_HOME/platform`, in the example
+`~/tehas/platform`), then `install.sh`, then the follow-ups install.sh asks for.
+It takes at most one argument; anything else is refused with exit 64 before the
+settings are read. The settings are checked next against the required list in
+`lib/config.sh` (`tehas_require_instance_settings`), the same one install.sh and
+the dispatcher check, so an instance with a required line still commented out
+stops with 78 before git runs. After a fast-forward it checks them again with
+the library that came with the code it pulled: a change that adds a required
+setting stops with 78 before install.sh runs, rather than after the platform
+tree moved. The checkout must be on a branch and have nothing uncommitted, and
+only a fast-forward is done: local commits of its own, or a branch that was
+rewritten on the remote, are left for a person. When the checkout sits on a
+branch that is not the remote's default, it says so and updates the branch it is
+on.
+
+That pre-check covers the required settings only. The rest of the instance
+contract - `models.json` readable, valid JSON, listing the models the settings
+name, and the settings directory writable by nobody else - is install.sh's, and
+install.sh answers it with 78 before it copies a file.
+
+The follow-ups are steps named by id in `lib/update-steps.sh`, which install.sh
+prints as `next: <step line>` and this command runs as its own steps rather than
+as shell text. The arguments belong to the step, and `lib/update-steps.sh` says
+which ones each id accepts and which of them it requires:
+
+| Step                        | install.sh asks for it when         | tehas update runs it when                                        |
+| --------------------------- | ------------------------------------ | ----------------------------------------------------------------- |
+| `units <unit>...`           | a unit file changed                  | systemd reloaded its unit files, and the unit is active: restarted, never enabled |
+| `sandbox`                   | `sandbox/` or `versions.env` changed | always                                                            |
+| `docs --force-recreate`     | `edge/docs.*` changed                | its container is running: recreated with that flag                 |
+| `protolab --force-recreate` | `edge/protolab.*` changed            | its container is running: recreated with that flag                 |
+
+Both servers are recreated rather than just brought up, because what changed is
+the Caddyfile they mount and Caddy reads its config when the process starts:
+`docker compose up -d` alone leaves a running container with an unchanged service
+definition serving the config it loaded at its start.
+
+A service the host does not run is left alone, so an update adds nothing to it.
+Whether one runs is asked of Docker and of systemd, and only their answer counts
+as an answer, never their exit status on its own. The `units` step asks systemd to
+reload its unit files before it restarts anything - a unit file copied onto the
+host is not in effect until that has happened - and only silence next to exit 0
+means the reload did: a reload that failed, or answered with text, stops the step
+and leaves it owed rather than report a changed unit as applied. `is-active` is
+asked without `--quiet` so that systemd names the state, and only its own state
+words are read: any state of the active family (`active`, `activating`,
+`reloading`, `refreshing`, `maintenance`, `deactivating`) restarts the unit,
+`inactive`, `failed` and `unknown` (systemd has no such unit on this host) leave it
+alone. An answer that is none of those - no user bus, or a `systemctl` wrapper that
+prints an error and still exits 0 - stops the update with exit 1 instead of
+reporting the service as absent. Liveness is asked of Docker with `docker ps
+--filter label=com.docker.compose.project=...`, which needs the project name each
+compose file pins.
+
+A step line whose id or arguments are not ones `lib/update-steps.sh` defines is
+not run: it is named in a `WARN:`, stays in the record of steps owed, and the
+command exits 1, so a producer and a consumer that have drifted apart cannot both
+stay green while a step nobody performed is treated as done. The units on a step
+line are checked as unit names and against the units this version of tehas
+installs - `tehas_units` - so a step line cannot name some other unit of the host's
+for an update to restart. A compose line that leaves out its flag is refused for
+the same reason: `docker compose up -d` without `--force-recreate` is the weaker
+action, and running it would renew nothing while the step was counted as done.
+
+The record itself is read before anything runs, and a record this account cannot
+open stops the update with exit 1 rather than reading as "nothing is owed":
+steps somebody else recorded would otherwise be replaced with what this run
+happened to know. Each rewrite of the record goes through a temporary file moved
+over it, so a run that died mid-write leaves the old record rather than half of a
+new one.
+
+**Steps owed.** install.sh records each follow-up as it copies the file that calls
+for it, in `$TEHAS_HOME/state/update-pending`, and `tehas update` takes a line off
+the record only once it has run. That record is what makes an update complete: a
+run that stops partway, or an install.sh that died with half its files copied,
+leaves the rest owed instead of losing it with install.sh's one-shot report of
+what changed - the next run compares again and finds those files matching.
+`install.sh --check` reports the record as `Follow-ups: NOT DONE` and exits 1
+while any of it is left, including a step line no version of tehas here knows.
+Steps run in the order `lib/update-steps.sh` lists them - systemd first - whatever
+order the lines were recorded in, so a step owed from an earlier run does not jump
+ahead of this run's unit reload. A hand-run install.sh leaves the same record
+behind; running `tehas update` finishes it, and repeating a renewal that has
+already happened is harmless. A hand-run install.sh prints its own report only for
+what its files changed: when they all match it says `tehas is up to date` even with
+steps still in the record, so `install.sh --check`, or `tehas update --check`, is
+what names them. There is no command that marks a follow-up done by hand; running
+`tehas update` runs it again and clears it.
+
+Every call outside the command has a limit, and hitting it fails saying how long:
+120s for the fetch, 1800s for install.sh (copies, dependency check, tests, and its
+one call to a remote), 180s for Docker, 60s for systemctl, 1800s for the sandbox
+build.
+
+`--check` contacts the remote with `git fetch --prune`, so the remote-tracking
+refs under `origin/` match what the remote has, including branches the remote
+deleted; no file of the checkout or of the host changes. It runs `install.sh
+--check`, which reports the checkout, the installed files, any follow-up an
+earlier run left undone, and the tests; it merges nothing, installs nothing,
+builds nothing and starts nothing, and exits 1 when there is something to update.
+
+| Exit | Meaning                                                                       |
+| ---- | ----------------------------------------------------------------------------- |
+| 0    | Updated, or already up to date                                                 |
+| 1    | The checkout has local changes, is not on a branch, cannot fast-forward, has no commit yet, a step failed or ran out of its limit, `install.sh` ran out of its limit or gave no answer, a follow-up install.sh asked for is one this command does not know, systemd did not reload the unit files, a container or unit gave no answer, the record of steps owed exists but cannot be read, a status of `install.sh` this command does not know (named in the message), or `--check` found something to update (a checkout behind, or steps left over from an earlier run) |
+| 64   | More than one argument, or an argument this command does not know              |
+| 78   | The instance settings are missing or malformed, or there is no platform checkout |
+
 ## install.sh
 
 Installs tehas on the host from the platform checkout, for the instance the
@@ -391,17 +512,29 @@ host points at. See [The host](/host).
 
 ```
 cd ~/tehas/platform
-./install.sh --check     # change nothing; Instance, Dependencies, Installed, Tests
+./install.sh --check     # change nothing; Instance, Dependencies, Installed, Follow-ups, Tests
 ./install.sh
 ```
 
 Exit 0 when done or nothing to report, 1 when `--check` found something or a
 step failed, 78 when the instance settings are invalid (nothing was changed).
 
+After a real run it prints one `next: <step>` line per follow-up its changed
+files call for - the ids `lib/update-steps.sh` defines - and starts nothing
+itself; `tehas update` is what runs them. Each of those steps is also recorded in
+`$TEHAS_HOME/state/update-pending` as the file that calls for it is copied, so a
+run that dies partway still leaves its copies owed, and `--check` adds a
+`Follow-ups: NOT DONE` line, and exits 1, while any of them is left. It asks
+systemd for nothing, but to reload before it removes the earlier layout: a copied unit file is not in effect until systemd has reloaded
+it, and that reload belongs to the `units` step, which cannot report a changed unit
+as applied when the reload did not happen.
+
 A real run also builds the code index with [tehas index](#tehas-index), once:
 when there is none yet and both the sandbox image and the product checkout are
-there. Otherwise it prints the command as a follow-up. An indexing that fails
-is a warning and does not fail the install.
+there. Otherwise it prints the command on a `later:` line, which is for a
+person and is not a step of `tehas update`; the dispatcher builds the index
+before a cycle in any case. An indexing that fails is a warning and does not
+fail the install.
 
 It also removes the commands of the earlier layout from `~/tehas/bin`, unless a
 cycle is running that still uses them. See [The host](/host).
