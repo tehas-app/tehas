@@ -342,14 +342,23 @@ fi
 mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state" "$TEHAS_HOME/tmp" "$TEHAS_HOME/live" "$TEHAS_HOME/protolab" \
   "$TEHAS_HOME/preview"
 
-# The previews' network: internal, so a preview reaches nothing. The router's
-# compose file names it as external and `tehasbot preview` puts containers on
-# it, so it is made here, whichever of the two starts first. A host with no
-# Docker yet gets it from `tehasbot preview`.
+# The previews' network: internal, and with no address for the host on it, so
+# a preview reaches the router and the other previews and nothing else. On a
+# network that is only internal a container still reaches every service the
+# host listens on at all addresses, through the bridge's gateway address. The
+# router's compose file names the network as external and `tehasbot preview`
+# puts containers on it, so it is made here, whichever of the two starts first.
+# A host with no Docker yet gets it from `tehasbot preview`. One that is there
+# and is not as it has to be is not removed here: containers may be on it.
 if command -v docker >/dev/null 2>&1; then
-  docker network inspect tehas-previews >/dev/null 2>&1 ||
-    docker network create --internal tehas-previews >/dev/null 2>&1 ||
-    note "The network tehas-previews could not be made; the edge router will not start without it."
+  if previews_net=$(docker network inspect \
+    --format '{{.Internal}} {{index .Options "com.docker.network.bridge.gateway_mode_ipv4"}}' tehas-previews 2>/dev/null); then
+    [ "$previews_net" = "true isolated" ] ||
+      note "The network tehas-previews is not internal and isolated from the host. It has to be remade before a preview is built; the manual's troubleshooting page says how."
+  else
+    docker network create --internal -o com.docker.network.bridge.gateway_mode_ipv4=isolated tehas-previews >/dev/null 2>&1 ||
+      note "The network tehas-previews could not be made; the edge router will not start without it."
+  fi
 fi
 
 # The one place the default branch is looked up over the network.

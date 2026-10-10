@@ -15,7 +15,10 @@ home=$T/home
 th=$home/tehas
 T_ENV=(T_IN_TEST=1)
 
-t_stub docker
+# The previews' network as install.sh wants to find it, and how it asks.
+net_good='case "$1 $2" in "network inspect") echo "true isolated" ;; esac'
+net_inspect='network inspect --format {{.Internal}} {{index .Options "com.docker.network.bridge.gateway_mode_ipv4"}} tehas-previews'
+t_stub docker "$net_good"
 t_stub systemctl
 t_stub_cargo
 
@@ -103,24 +106,38 @@ t_eq "$(cat "$th/state/update-pending")" "$(next_steps)"
 # the step that restarts the units has reloaded it.
 t_eq "$(t_calls systemctl)" ""
 # It makes the previews' network where there is none, and asks nothing else.
-t_eq "$(t_calls docker)" "network inspect tehas-previews"
+t_eq "$(t_calls docker)" "$net_inspect"
+t_lacks "$t_out" "tehas-previews"
 t_eq "$([ -d "$th/preview" ] && echo there)" "there"
 
-t_case "a host without the previews' network gets it, internal"
+t_case "a host without the previews' network gets it, internal and with no address for the host"
 fresh
 instance
 t_stub docker 'case "$1 $2" in "network inspect") exit 1 ;; esac'
 t_run "$install"
 t_eq "$t_rc" 0
-t_eq "$(t_calls docker)" "network inspect tehas-previews
-network create --internal tehas-previews"
+t_eq "$(t_calls docker)" "$net_inspect
+network create --internal -o com.docker.network.bridge.gateway_mode_ipv4=isolated tehas-previews"
 t_stub docker 'case "$1 $2" in "network inspect"|"network create") exit 1 ;; esac'
 fresh
 instance
 t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "The network tehas-previews could not be made"
-t_stub docker
+t_stub docker "$net_good"
+
+t_case "a network that gives the host an address is left, and the run says it has to be remade"
+for answer in "true " "true nat" "false isolated"; do
+  fresh
+  instance
+  t_stub docker "case \"\$1 \$2\" in \"network inspect\") echo \"$answer\" ;; esac"
+  t_run "$install"
+  t_eq "$t_rc" 0
+  t_eq "$(t_calls docker)" "$net_inspect"
+  t_contains "$t_out" "The network tehas-previews is not internal and isolated from the host. It has to be remade"
+  t_contains "$t_out" "troubleshooting"
+done
+t_stub docker "$net_good"
 
 t_case "--check makes no network"
 fresh
@@ -472,6 +489,7 @@ product() {
 }
 index_runs() { t_calls docker | grep -c -e '^run .*index_repository' || true; }
 t_stub docker 'case "$1" in
+  network) echo "true isolated" ;;
   image) exit "${IMAGE_RC:-0}" ;;
   run) [ "${RUN_RC:-0}" = 0 ] || exit "$RUN_RC"; echo "{\"status\":\"indexed\",\"nodes\":1,\"edges\":2}" ;;
 esac'
@@ -519,7 +537,7 @@ t_case "a later install leaves the index alone"
 t_run "$install"
 t_contains "$t_out" "tehas is up to date"
 t_eq "$(index_runs)" 1
-t_stub docker
+t_stub docker "$net_good"
 
 for name in example tehas-tehas; do
   t_case "the shipped instance '$name' is valid"

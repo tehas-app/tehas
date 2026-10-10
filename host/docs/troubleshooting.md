@@ -226,8 +226,11 @@ router by hand: `docker compose -p tehas-protolab down`, then
 `. ~/tehas/env.sh && docker compose -f ~/tehas/edge/router.compose.yaml up -d`.
 
 The router also needs the network `tehas-previews`, which `install.sh` makes. If
-compose says the network is not found, run `docker network create --internal
-tehas-previews`.
+compose says the network is not found, make it. It needs Docker 27.1 or later:
+
+```
+docker network create --internal -o com.docker.network.bridge.gateway_mode_ipv4=isolated tehas-previews
+```
 
 ## A preview is not there
 
@@ -285,19 +288,26 @@ It is tried again at every run. The git message is in
 `~/tehas/logs/preview-<pr>.log`. Check that `git -C ~/tehas/preview/repo.git
 ls-remote origin` answers.
 
-**The log says `the network tehas-previews is not internal; nothing was
-built`.** The Docker network was made by hand without `--internal`. A preview
-on it could reach the internet and the model host, so no run does anything
-until it is put right. Take the router and the previews off it, remove it and
-make it again:
+**The log says `the network tehas-previews is not internal and isolated from
+the host; nothing was built`.** `install.sh` says the same as `The network
+tehas-previews is not internal and isolated from the host`. The Docker network
+was made by hand, or by an install from before the option existed, without
+`--internal` or without the option that gives the host no address on it.
+Without the first a preview could reach the internet and the model host.
+Without the second it could reach every service the host listens on at all
+addresses. So no run does anything until it is put right. Take the router and
+the previews off it, remove it and make it again:
 
 ```
 docker compose -f ~/tehas/edge/router.compose.yaml down
 docker ps -aq --filter label=tehas.preview | xargs -r docker rm -f
 docker network rm tehas-previews
-docker network create --internal tehas-previews
+docker network create --internal -o com.docker.network.bridge.gateway_mode_ipv4=isolated tehas-previews
 . ~/tehas/env.sh && docker compose -f ~/tehas/edge/router.compose.yaml up -d
 ```
+
+The next run builds the previews again. If the `create` line is refused, the
+host's Docker is older than 27.1: `docker version`.
 
 **The log says `Docker does not answer`.** Nothing was built or removed.
 Check `docker info` as the tehas user.

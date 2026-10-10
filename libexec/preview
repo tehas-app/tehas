@@ -10,9 +10,10 @@
 #                   answering HTTP on port 8080. A commit without that file
 #                   has no preview.
 #   what it gets    Nothing of the host: no mount, no variable, no port, no
-#                   token, a read-only root, and a network on which only the
-#                   router is. The build gets the commit as an archive on
-#                   standard input and nothing else.
+#                   token, a read-only root, and a network that has the
+#                   router and the other previews on it and nothing else:
+#                   not the internet and not the host. The build gets the
+#                   commit as an archive on standard input and nothing else.
 #   how many        The newest TEHAS_PREVIEW_MAX. The rest say "over-limit".
 #   when it goes    At the next run after the pull request is merged or
 #                   closed: the container, the image, the fetched ref and
@@ -75,6 +76,9 @@ bare=$root/repo.git
 live=$TEHAS_HOME/live
 logs=$TEHAS_HOME/logs
 net=tehas-previews
+# The option that leaves the host without an address on the network. Docker
+# 27.1 or later, and only on an internal network.
+gateway=com.docker.network.bridge.gateway_mode_ipv4
 recipe=preview/Dockerfile
 build_limit=900
 marker='<!-- tehas-preview -->'
@@ -262,11 +266,14 @@ run() {
     echo "Docker does not answer; nothing was built or removed"
     return 0
   fi
-  docker network inspect "$net" >/dev/null 2>&1 || docker network create --internal "$net" >/dev/null 2>&1
+  docker network inspect "$net" >/dev/null 2>&1 ||
+    docker network create --internal -o "$gateway=isolated" "$net" >/dev/null 2>&1
   # A network that is not internal would give a preview the internet and the
-  # model host. Nothing is built on one.
-  if [ "$(docker network inspect --format '{{.Internal}}' "$net" 2>/dev/null)" != true ]; then
-    echo "the network $net is not internal; nothing was built"
+  # model host. One that is internal and no more still gives it the host: every
+  # service the host listens on at all addresses answers at the bridge's
+  # gateway address. Nothing is built on either.
+  if [ "$(docker network inspect --format "{{.Internal}} {{index .Options \"$gateway\"}}" "$net" 2>/dev/null)" != "true isolated" ]; then
+    echo "the network $net is not internal and isolated from the host; nothing was built"
     return 0
   fi
 

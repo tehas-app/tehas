@@ -44,9 +44,20 @@ after() { local want=$1; shift; while [ $# -gt 1 ]; do [ "$1" = "$want" ] && { e
 case "$1" in
   info) echo /var/lib/docker ;;
   network)
+    # net-missing: no such network until it is created. net-internal and
+    # net-gateway are what an inspect says of it, each only when it is asked.
+    [ "$2" != create ] || { rm -f "$T/fx/net-missing"; exit 0; }
     [ "$2" = inspect ] || exit 0
+    [ ! -e "$T/fx/net-missing" ] || exit 1
     case "$*" in
-      *--format*) [ ! -e "$T/fx/net-inspect-fails" ] || exit 1; cat "$T/fx/net-internal" 2>/dev/null || echo true ;;
+      *--format*)
+        [ ! -e "$T/fx/net-inspect-fails" ] || exit 1
+        out=""
+        case "$*" in *"{{.Internal}}"*) out=$(cat "$T/fx/net-internal" 2>/dev/null || echo true) ;; esac
+        case "$*" in *"{{index .Options \"com.docker.network.bridge.gateway_mode_ipv4\"}}"*)
+          out="$out $(cat "$T/fx/net-gateway" 2>/dev/null || echo isolated)" ;;
+        esac
+        echo "$out" ;;
     esac ;;
   build)
     cat >"$d/context.tar"
@@ -393,14 +404,39 @@ pulls "$(pull 12 "$a")"
 echo false >"$fx/net-internal"
 t_run "$preview"
 t_eq "$t_rc" 0
-t_contains "$t_out" "the network tehas-previews is not internal; nothing was built"
+t_contains "$t_out" "the network tehas-previews is not internal and isolated from the host; nothing was built"
 t_eq "$(builds) $(runs)" "0 0"
 rm -f "$fx/net-internal"
 : >"$fx/net-inspect-fails"
 rm -f "$T"/calls/docker*
 t_run "$preview"
-t_contains "$t_out" "is not internal; nothing was built"
+t_contains "$t_out" "is not internal and isolated from the host; nothing was built"
 t_eq "$(builds) $(runs)" "0 0"
+
+t_case "a network that is internal and gives the host an address gets nothing built"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+: >"$fx/net-gateway"
+t_run "$preview"
+t_eq "$t_rc" 0
+t_contains "$t_out" "the network tehas-previews is not internal and isolated from the host; nothing was built"
+t_eq "$(builds) $(runs)" "0 0"
+t_eq "$(state_of 12)" ""
+echo nat >"$fx/net-gateway"
+t_run "$preview"
+t_contains "$t_out" "is not internal and isolated from the host; nothing was built"
+t_eq "$(builds) $(runs)" "0 0"
+
+t_case "a host without the network gets it, internal and with no address for the host"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+: >"$fx/net-missing"
+t_run "$preview"
+t_eq "$(t_calls docker | grep '^network create')" \
+  "network create --internal -o com.docker.network.bridge.gateway_mode_ipv4=isolated tehas-previews"
+t_eq "$(state_of 12)" "serving"
 
 t_case "a pull request number that is not a whole number is never built"
 reset

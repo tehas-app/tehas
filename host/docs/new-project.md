@@ -267,8 +267,8 @@ domain need. The product's part is one file:
 - It runs with a read-only root. Only `/tmp`, `/config` and `/data` can be
   written, and they are in memory and empty at every start.
 - It must need no network and no variable. A preview is given no setting and
-  no token, and it reaches nothing: no database, no API, not the internet.
-  What it shows has to be in the image.
+  no token, and it reaches nothing but the other previews: no database, no
+  API, not the internet, not the host. What it shows has to be in the image.
 - It gets 256 MB of memory, one CPU and 128 processes.
 - The build has 15 minutes and does have the network.
 
@@ -285,7 +285,7 @@ docker run --rm -p 127.0.0.1:18080:8080 --read-only --tmpfs /tmp --tmpfs /config
 
 That is what `tehasbot preview` does, but for the port: a real preview has
 none published and is reached through the edge router, on a network that
-leads nowhere else.
+has the other previews on it and leads nowhere else.
 
 ## What is not there yet
 

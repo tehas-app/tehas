@@ -425,8 +425,9 @@ are enabled. Both write to `~/tehas/logs/preview.log`.
 **A run**, every five minutes:
 
 1. It asks Docker whether it answers, and makes the network `tehas-previews`
-   if it is not there. If that network is not internal, the run stops here
-   and the log says `the network tehas-previews is not internal; nothing was
+   if it is not there: internal, and with no address for the host on it. If
+   the network is not both, the run stops here and the log says `the network
+   tehas-previews is not internal and isolated from the host; nothing was
    built`.
 2. It measures the free space: the smaller of the file system of `~/tehas`
    and the one Docker keeps its images on.
@@ -468,7 +469,9 @@ build.
 **What a preview's container is given.** Nothing of the host: no mount, no
 variable, no published port, no token. A read-only root with `/tmp`, `/config`
 and `/data` in memory, every capability dropped but the one to bind a port,
-256 MB, one CPU, 128 processes, and the network `tehas-previews` only.
+256 MB, one CPU, 128 processes, and the network `tehas-previews` only. That
+network has the router and the other previews on it, and neither the internet
+nor the host.
 `test/preview_test.sh` pins these arguments.
 
 **The comment.** The pull request gets one comment, by the bot's own account,

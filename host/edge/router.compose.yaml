@@ -8,10 +8,11 @@
 # start without.
 #
 # It is on two networks. Its own carries the published port. tehas-previews is
-# internal: the previews are on it and on nothing else, so the router reaches
-# them and they reach nobody. That network is made outside this file, by
-# install.sh and by `tehasbot preview`, because both sides need it whichever
-# starts first.
+# internal, and the host has no address on it: the previews are on it and on
+# nothing else, so the router reaches them and they reach each other and
+# nobody else, not the internet and not the host. That network is made outside
+# this file, by install.sh and by `tehasbot preview`, because both sides need
+# it whichever starts first.
 #
 # TEHAS_HOST_ADDR is the address it binds to, from the instance settings
 # (source env.sh before running docker compose). Without it the server stays on

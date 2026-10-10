@@ -257,13 +257,20 @@ comment says so for a failed build and for a full disk. See
 A preview runs the pull request's own files on the factory's host. It is
 given nothing of the host: no directory, no setting, no token, no port, a
 read-only root, 256 MB and one CPU. It is on a Docker network with the router
-and the other previews and nothing else, so it cannot reach the internet, the
-model host or the dashboard.
+and the other previews and nothing else. It cannot reach the internet, the
+model host, the dashboard or the host itself. Previews can reach each other,
+by the names of their containers.
 
-That network, `tehas-previews`, has to be an internal one. `tehasbot preview`
-checks it at the start of every run. If it is not internal the run stops
-before it builds or removes anything, and the log says
-`the network tehas-previews is not internal; nothing was built`.
+That network, `tehas-previews`, has to be an internal one on which the host
+has no address. An internal network alone keeps a container from the internet
+and from the host's other addresses, but the container still reaches every
+service the host listens on at all addresses, its SSH server for one, through
+the gateway address of the network's bridge. So the network is made with the
+option `com.docker.network.bridge.gateway_mode_ipv4=isolated`, which needs
+Docker 27.1 or later. `tehasbot preview` checks both at the start of every
+run. If the network is not internal and isolated, the run stops before it
+builds or removes anything, and the log says
+`the network tehas-previews is not internal and isolated from the host; nothing was built`.
 
 Only a pull request whose branch is in the product repository gets one.
 Pushing there needs write access. A pull request from a fork never gets one.
@@ -274,6 +281,10 @@ Pushing there needs write access. A pull request from a fork never gets one.
   is on the internet at the next run, with nobody looking at it first.
 - The build runs the pull request's `preview/Dockerfile` on the host's Docker,
   with network access. That is why forks are left out.
+- Previews are not kept from each other: one can call another on port 8080
+  by its container's name. A preview holds nothing but its own image.
+- The host needs Docker 27.1 or later. An older Docker cannot make the
+  previews' network, and no preview is built.
 - `uat-<pr>.tehas.app` and `tehas.app` are one site to a browser. A preview's
   script can set a cookie for the domain. Nothing on the dashboard logs in, so
   this is accepted today.
