@@ -193,3 +193,43 @@ fn an_argument_that_is_not_text_is_a_usage_error() {
         "console: an argument is not UTF-8\n"
     );
 }
+
+#[test]
+fn the_mask_alone_is_standard_input_to_standard_output() {
+    use std::io::Write;
+    let mut console = Command::new(CONSOLE)
+        .arg("--mask")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    // Built here, not written out: this file is linted too.
+    let address = [10, 20, 30, 40].map(|part| part.to_string()).join(".");
+    let line = format!("step 3 models at {address}:8086 and 192.0.2.7, GH_TOKEN=abc\n");
+    console
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(line.as_bytes())
+        .unwrap();
+    let run = console.wait_with_output().unwrap();
+    assert_eq!(run.status.code(), Some(0));
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "step 3 models at [private address]:8086 and 192.0.2.7, GH_TOKEN=***\n"
+    );
+}
+
+// libexec/work is tested with a stub for the console, and the console with
+// arguments written here: this holds the two to each other.
+#[test]
+fn work_calls_the_console_by_the_arguments_it_takes() {
+    let work = fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../libexec/work")).unwrap();
+    for call in [
+        "\"$here/console\" --rpc \"$log\"",
+        "--runs \"$agent/ensemble-runs\" --out \"$console\" --since \"$((started - 5))\"",
+        "\"$here/console\" --mask",
+    ] {
+        assert!(work.contains(call), "libexec/work does not hold: {call}");
+    }
+}

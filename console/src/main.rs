@@ -12,8 +12,13 @@
 //! Output is plain text. Tokens, database passwords and private network
 //! addresses are masked, see mask.rs.
 //!
-//! Exit: 0 stopped by a signal, 1 the console file cannot be written,
-//! 2 usage.
+//!   console --mask
+//!
+//! The mask alone: standard input to standard output, for libexec/work's own
+//! line on the dashboard, so that the mask is written in one place.
+//!
+//! Exit: 0 stopped by a signal or masked, 1 the console file or standard
+//! output cannot be written, 2 usage.
 
 mod mask;
 mod render;
@@ -21,7 +26,7 @@ mod tail;
 
 use render::Entry;
 use std::fs::{File, OpenOptions};
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -133,7 +138,23 @@ fn complain(message: &str) {
     let _ = writeln!(io::stderr(), "{message}");
 }
 
+fn mask_stdin() -> io::Result<()> {
+    let mut given = Vec::new();
+    io::stdin().read_to_end(&mut given)?;
+    let masked = mask::mask(&String::from_utf8_lossy(&given));
+    io::stdout().write_all(masked.as_bytes())
+}
+
 fn main() -> ExitCode {
+    if std::env::args_os().skip(1).eq(["--mask"]) {
+        return match mask_stdin() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                complain(&format!("console: --mask: {e}"));
+                ExitCode::FAILURE
+            }
+        };
+    }
     let args = match args() {
         Ok(args) => args,
         Err(message) => {
