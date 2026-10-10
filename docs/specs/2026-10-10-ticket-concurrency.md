@@ -43,6 +43,7 @@ switch, who applied the label, urgent first, the cap on work awaiting merge.
 | The workspace | One per issue on the host, mounted at the same path inside every container | A different path per container: the code index is keyed by the path, so every cycle would need an index of its own |
 | Transcripts | A runs directory per issue | Telling them apart by time, as today: two cycles would show each other's agents |
 | The index while cycles run | Refreshed only when no cycle is running | Refreshed before every cycle: it would be rewritten under a cycle that is reading it |
+| Seeing several cycles | The console has a tab per cycle, on the factory floor and on the plain dashboard | One console that follows the newest cycle: the others could not be read at all |
 
 ## The setting
 
@@ -96,16 +97,20 @@ no longer runs a cycle. One poll:
      issue is not started and the poll ends with exit 1, as today,
    - post the start comment,
    - start `tehas-cycle@<issue>.service`,
-   - wait up to 30 seconds until that cycle's lock is held. If it is not, the
-     issue gets `needs-human-attention` in place of `tehas:running` and a
-     comment that says the cycle did not start.
+   - wait up to 30 seconds until that cycle has taken its lock. The cycle
+     says so by writing `state/cycles/<issue>.taken`; a look at the lock alone
+     would miss a cycle that ended within the wait. If the unit cannot be
+     started or the file does not appear, the issue gets
+     `needs-human-attention` in place of `tehas:running` and a comment that
+     says the cycle did not start. The poll goes on to the next issue and ends
+     with exit 1.
 
 `--dry-run` says how many cycles are running, how many it would start and for
 which issues, and changes nothing.
 
 The unit is started with `systemctl --user start`. `TEHAS_CYCLE_START_CMD`
-replaces that command, from the environment and for tests only, as
-`TEHAS_WORK_CMD` does for `tehas work`.
+replaces that command and `TEHAS_CYCLE_START_WAIT` the 30 seconds, from the
+environment and for tests only, as `TEHAS_WORK_CMD` does for `tehas work`.
 
 A running cycle is never stopped to make room. An urgent issue takes the next
 free slot.
@@ -124,7 +129,8 @@ gains the subcommand. It is the second half of today's `libexec/dispatch`,
 with the same behaviour:
 
 1. Take `state/cycles/<issue>.lock`, waiting up to 5 seconds. If it is still
-   held, a cycle for this issue is running: exit 3.
+   held, a cycle for this issue is running: exit 3. Then write
+   `state/cycles/<issue>.taken`.
 2. Decide on `--restart` from `state/cycles/<issue>`, as today.
 3. Run `tehas work <issue>`, with its output in
    `logs/dispatch-work-<issue>.log`.
@@ -204,12 +210,15 @@ This is accepted, not proven for several cycles.
 
 ## The index
 
-- `tehas index` takes a new `state/index.lock` while it writes.
-- Run by hand, it refuses while any cycle lock is held, with today's message
-  and exit 3.
-- The poll refreshes the index only when no cycle is running. Otherwise it
-  logs that the index stays at the commit it has. The dispatcher already
-  treats an index that is not fresh as a warning.
+The index is written only while `state/dispatch.lock` is held and no cycle is
+running. No new lock is needed.
+
+- `tehas index` by hand takes `state/dispatch.lock` for its whole run, as
+  today, so no poll starts a cycle under it. It then refuses, with exit 3, if
+  any cycle lock is held. The dispatcher's lock alone no longer says that.
+- The poll, which holds the lock, refreshes the index only when no cycle is
+  running. Otherwise it logs that the index stays at the commit it has. The
+  dispatcher already treats an index that is not fresh as a warning.
 - On a host that is never idle the index falls behind the branch. The log
   line is how a person sees it.
 
@@ -224,15 +233,43 @@ This is accepted, not proven for several cycles.
   {"cycles": [<each running cycle>], "last": <the cycle that finished most recently, or null>}
   ```
 
-- `tehas work` assembles it each time it writes its own file. Two cycles
-  writing at once can leave it one tick old. The next tick, ten seconds later,
-  corrects it.
+- `tehas work` assembles it each time it writes its own file, and
+  `tehasbot health` before it reads it. Two cycles writing at once can leave
+  it one tick old. The next tick, ten seconds later, corrects it.
+- A cycle that has not written its file for two minutes has died without
+  saying so. It is recorded as ended with the status `lost`, so it does not
+  stay on the page as running.
 - The file of a finished cycle that is not `last` is removed when the view is
   assembled.
 - `libexec/health` applies its rule to `last`: the factory fails when the
-  cycle that finished most recently failed. `health.json` keeps its format.
-- The dashboard shows a line per running cycle and the console of the selected
-  one. The game view reads `last`. `tehas dev` names every running issue.
+  cycle that finished most recently failed. `health.json` keeps its format
+  and gains `checks.cycles`, the running cycles. `tehas status` prints a line
+  for each.
+- `tehas dev` names every running issue.
+- Every reader also accepts the old shape, one object, which is what a host
+  has on disk between an upgrade and its next cycle.
+
+### The console's tabs
+
+The console is shown in two places: the production console on the factory
+floor and the console of the plain dashboard. Both get the same row of tabs
+above the screen.
+
+- A tab for each running cycle, in the order they started, named by its issue
+  number. One more for `last`, marked as ended, unless that issue is running
+  again.
+- Selecting a tab shows that cycle's title, step and console. The choice is
+  kept across refreshes for as long as its cycle is listed. Otherwise the
+  first tab is shown.
+- The row is hidden when there is one tab or none, so a host that runs one
+  cycle and has no earlier one looks as it does today.
+- The tabs are buttons in a `tablist`: reachable by keyboard, the arrow keys
+  move between them, and the selected one is marked for assistive technology.
+- The factory floor's door and lamp say LIVE while any cycle runs. The tag in
+  the console's head describes the cycle whose tab is selected.
+- Which tabs there are and which one is shown is worked out by one function
+  with no side effects, in `host/fun/console-tabs.js`, used by both pages and
+  tested without a browser.
 
 ## Failures
 
@@ -265,10 +302,10 @@ Written before the code. Shell tests need bash, git, jq and shellcheck only.
 | `test/dispatch_test.sh` | Nothing started when the slots are full; the awaiting-merge cap counts running cycles; several issues started in order, urgent first; an unauthorised issue does not use a slot; the checkout is fast-forwarded once; the index is refreshed only when no cycle runs; a unit that does not come up; `--dry-run`; the lock is free after the poll |
 | `test/cycle_test.sh`, new | The reporting cases moved from `dispatch_test.sh`: merged, awaiting merge, stopped without a pull request, the usage table; `--restart`; a second cycle for the same issue is exit 3; the workspace is removed or kept |
 | `test/work_test.sh` | Every mount and environment variable, pinned; the workspace and runs directory of the issue; another issue's workspace is not touched; the share passed to Docker; the cycle's own live file and the assembled `running.json` |
-| `test/index_test.sh` | The new lock; refusal while a cycle lock is held |
-| `test/status_test.sh` | `health.json` from the new shape of `running.json` |
-| `test/install_test.sh` | The cycle unit is installed with the dispatch feature |
-| Front page tests | The dashboard with none, one and two running cycles |
+| `test/index_test.sh` | Refusal while a cycle lock is held, and while the dispatcher's lock is |
+| `test/status_test.sh` | `health.json` and `tehas status` from the new shape of `running.json`, with one and two running cycles; the old shape; a lost cycle |
+| `test/install_test.sh`, `test/cli_test.sh` | The cycle unit, `libexec/cycle` and the new libraries are installed; `tehasbot cycle` |
+| `test/console_tabs_test.mjs`, new | The tabs for none, one and two running cycles; the ended one; a selection that is gone; the old shape; values that are not cycles |
 
 Starting a unit is stubbed with `t_stub`, as `gh` and `docker` are.
 
@@ -283,6 +320,7 @@ Changed in the commits that change the behaviour:
 - `host/docs/tools.md`: the setting, `tehasbot cycle`, the note on
   `tehas index`.
 - `host/docs/troubleshooting.md`: where transcripts are.
+- `DESIGN.md`: the tabs of the production console.
 - `host/docs/llms.txt`, `host/docs/pi-software-factory.md`: "one at a time"
   becomes the setting's default.
 - `host/docs/features.md`: a row for ticket concurrency. The default is
@@ -297,9 +335,10 @@ Each passes the gate on its own.
 
 1. The setting and the split of the budget.
 2. `libexec/dispatch` split into the poll and `libexec/cycle`, with the unit
-   and the index lock. The index lock goes here because from this commit on
-   the dispatcher's lock no longer says that a cycle is running. Still one at
-   a time.
+   and the index's check of the cycle locks. That check goes here because
+   from this commit on the dispatcher's lock no longer says that a cycle is
+   running. Still one at a time.
 3. A workspace and a runs directory per issue. The security change.
-4. The live view and the dashboard.
-5. Slots: the poll starts up to `TEHAS_TICKET_CONCURRENCY` cycles.
+4. The live view: a file per cycle, the assembled `running.json`, health.
+5. The console's tabs on both pages.
+6. Slots: the poll starts up to `TEHAS_TICKET_CONCURRENCY` cycles.
