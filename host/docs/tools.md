@@ -156,6 +156,10 @@ on the host.
 Runs one turn of a planning session, headless, in the sandbox image. The
 dispatcher calls it. By hand it is useful to see what a turn does.
 
+Run by hand it removes and remakes the workspace that a running cycle or
+planning turn uses, and it does not take the dispatcher's lock, so do not run
+it while the factory is working.
+
 ```
 tehas plan 12 --out /tmp/turn.json --brief brief.md
 tehas plan 12 --out /tmp/turn.json --session <id> --answer answer.md
@@ -172,7 +176,7 @@ same session, and it is not written when no session is known.
 | Exit | Meaning                                                              |
 | ---- | -------------------------------------------------------------------- |
 | 0    | The turn settled and said or asked something                         |
-| 2    | The turn did not settle, timed out, or said and asked nothing        |
+| 2    | The turn did not settle, timed out, said and asked nothing, or its session or outcome could not be written down |
 | 64   | A usage error, no bot token or no git identity; nothing ran          |
 | 78   | The instance settings are invalid; nothing ran                       |
 
