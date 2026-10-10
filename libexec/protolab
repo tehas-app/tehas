@@ -374,6 +374,7 @@ for f in "$site"/*/.meta.json; do
 done
 all=$(jq -s -c 'sort_by(-.number)' "${metas[@]}" </dev/null) || exit 1
 edge_put "$site/index.html" jq -r --arg mode index --argjson limit "$limit" "$render" <<<"$all" || exit 1
+# shellcheck disable=SC2016  # a jq program: the variables are jq's
 edge_put "$live/protolab.json" jq -n --argjson all "$all" --arg now "$(date -u +%FT%TZ)" \
   --arg url "${TEHAS_PROTOLAB_URL:-}" --argjson limit "$limit" '
   {generatedAt: $now, url: $url, limitBytes: $limit,
