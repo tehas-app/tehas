@@ -42,7 +42,7 @@ unknown() {
 
 case "${1-help}" in
   help | -h | --help)
-    if [ "$#" -le 1 ]; then
+    if [ "$#" -le 1 ] || [ "$2" = help ]; then
       usage_of "$0"
       exit 0
     fi
@@ -56,4 +56,11 @@ esac
 file=$(script "$1")
 [ -n "$file" ] || unknown "$1"
 shift
+# The same text for every command, whether or not its script knows --help.
+case "$#:${1-}" in
+  1:-h | 1:--help)
+    usage_of "$file"
+    exit 0
+    ;;
+esac
 exec "$file" "$@"

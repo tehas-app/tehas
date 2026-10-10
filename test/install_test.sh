@@ -197,7 +197,8 @@ t_eq "$(cat "$home/.pi/agent/settings.json")" '{"defaultProvider":"test-provider
 
 # Before bin/tehas there was one file for each command in ~/tehas/bin.
 old_layout() {
-  for f in tehas-dispatch tehas-status tehas-energy tehas-test; do echo "# old" >"$th/bin/$f"; done
+  for f in tehas-console.ts tehas-dispatch tehas-energy tehas-health tehas-index tehas-protolab \
+    tehas-status tehas-test tehas-work; do echo "# old" >"$th/bin/$f"; done
   echo "# older" >"$th/bin/tehas-dispatch.prev"
 }
 
@@ -209,7 +210,8 @@ old_layout
 echo "# a tool bootstrap.sh put there" >"$th/bin/gh"
 t_run "$install --check"
 t_eq "$t_rc" 1
-t_contains "$t_out" "Installed:    DRIFT (4 files)"
+t_contains "$t_out" "Installed:    DRIFT (9 files)"
+t_eq "$(printf '%s\n' "$t_out" | grep -c "stale: $th/bin/tehas-")" 9
 t_contains "$t_out" "stale: $th/bin/tehas-dispatch"
 t_eq "$([ -e "$th/bin/tehas-dispatch" ] && echo there)" "there"
 
@@ -241,6 +243,22 @@ wait "$holder" 2>/dev/null
 t_run "$install"
 t_contains "$t_out" "removed: $th/bin/tehas-status"
 t_eq "$([ -e "$th/bin/tehas-status" ] || echo gone)" "gone"
+t_eq "$(flock -n "$lock" true && echo free)" "free"
+
+t_case "an old command that cannot be removed fails the install"
+old_layout
+chmod a-w "$th/bin"
+t_run "$install"
+chmod u+w "$th/bin"
+if [ "$(id -u)" = 0 ]; then
+  t_eq "$t_rc" 0 # root removes it anyway
+else
+  t_eq "$([ "$t_rc" != 0 ] && echo failed)" "failed"
+  t_lacks "$t_out" "try-restart"
+  t_eq "$([ -e "$th/bin/tehas-energy" ] && echo there)" "there"
+fi
+t_run "$install"
+t_eq "$t_rc" 0
 
 # The code index: built by the first real run that finds both the sandbox
 # image and the product checkout, and never by --check.

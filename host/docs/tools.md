@@ -24,7 +24,8 @@ tehas help [command]             # this list, or the text of one command
 and services run. Each of their commands is a script in `~/tehas/libexec`,
 installed from `libexec/` in the platform repository; the two commands only
 choose a script and run it, and exit with its status. A command neither of
-them knows is exit 64 with the list on standard error.
+them knows is exit 64 with the list on standard error. `tehas <command> --help`
+prints the same text as `tehas help <command>`.
 
 Every script that needs the instance settings loads them first and stops with
 exit 78 and one line if a setting it needs is missing or malformed. See
@@ -197,8 +198,14 @@ Prints the state of the factory from the [health file](#tehasbot-health): is
 it taking work, what is in the queue, and the current or last cycle. It reads
 that one file and nothing else: no GitHub call, no instance settings, and it
 writes nothing. So it is as fresh as the dispatcher's last poll, and the first
-line says how old that is. Exit 0 on `pass` and `warn`, 1 on `fail` or when
-there is no health file yet, 64 on any argument.
+line says how old that is.
+
+A stopped dispatcher cannot report itself: its file just stops changing. A
+file older than ten minutes is therefore not believed. The first line then
+starts `factory   stale:` and asks whether the timer is running.
+
+Exit 0 on `pass` and `warn`. Exit 1 on `fail`, on a stale file, or when there
+is no health file yet. Exit 64 on any argument.
 
 ## tehasbot
 

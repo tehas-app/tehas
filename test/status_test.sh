@@ -100,6 +100,31 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "factory   fail: The last cycle failed: #12 ended as aborted."
 t_contains "$t_out" "cycle     #12 aborted at step develop"
 
+t_case "summary: a health file older than ten minutes is not believed, exit 1"
+reset
+t_run "$status"
+jq --arg t "$(date -u -d '-3 hours' +%FT%TZ)" '.time = $t' "$live/health.json" >"$live/health.json.old"
+mv "$live/health.json.old" "$live/health.json"
+t_run "$summary"
+t_eq "$t_rc" 1
+t_contains "$t_out" "factory   stale: the dispatcher last reported 3 h ago"
+t_contains "$t_out" "It said pass: Idle, taking work."
+t_contains "$t_out" "queue     2 in line"
+
+t_case "summary: nine minutes old is still believed"
+jq --arg t "$(date -u -d '-9 minutes' +%FT%TZ)" '.time = $t' "$live/health.json" >"$live/health.json.old"
+mv "$live/health.json.old" "$live/health.json"
+t_run "$summary"
+t_eq "$t_rc" 0
+t_contains "$t_out" "factory   pass: Idle, taking work. (9 min ago)"
+
+t_case "summary: a time that cannot be read counts as old"
+jq '.time = "yesterday"' "$live/health.json" >"$live/health.json.old"
+mv "$live/health.json.old" "$live/health.json"
+t_run "$summary"
+t_eq "$t_rc" 1
+t_contains "$t_out" "factory   stale: the dispatcher last reported at an unknown time"
+
 t_case "summary: no snapshot yet is a failure with the reason"
 reset
 t_run "$health; $summary"

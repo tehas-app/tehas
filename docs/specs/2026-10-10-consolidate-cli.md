@@ -85,9 +85,14 @@ by name on `PATH`. The dispatcher keeps `TEHAS_WORK_CMD`, `TEHAS_STATUS_CMD` and
 `install.sh` installs the new files, replaces the units and removes the nine
 old files from `~/tehas/bin`. A cycle that began before the install was started
 by the old dispatcher, which still calls `tehas-status`, `tehas-index` and
-`tehas-work` by name. So while the dispatcher's lock is held the old files are
-left in place and the install prints the step to run later. `--check` reports
-them as stale. A running energy sampler is the old file calling itself every
+`tehas-work` by name. So the install removes the old files only while it holds
+the dispatcher's lock itself, after systemd has the new units. When the lock is
+taken they are left in place and the install prints the step to run later. On
+a host where one cycle follows another that step may have to wait for a gap.
+`--check` reports them as stale.
+
+`tehas status` does not believe a health file older than ten minutes: a
+stopped dispatcher cannot report itself. A running energy sampler is the old file calling itself every
 15 seconds, so when that file is removed the install prints the restart.
 
 `tehas labels` exits 1 when a label could not be made. `--init-labels` exited

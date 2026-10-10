@@ -190,25 +190,15 @@ sync_dir() { # name: host/<name>/* -> $TEHAS_HOME/<name>/
 sync_dir docs
 sync_dir fun
 
-# The commands of before bin/tehas, one file each in bin/. A cycle that began
-# before this install was started by the old dispatcher, which calls them by
-# name until it ends. So they stay while the dispatcher's lock is held, and
-# the step is printed instead.
-retire_later=0
-cycle_running() {
-  [ -e "$TEHAS_HOME/state/dispatch.lock" ] && ! flock -n "$TEHAS_HOME/state/dispatch.lock" true
-}
+# The commands of before bin/tehas, one file each in bin/. Found here, removed
+# in step 5 once systemd has the new units.
+old=()
 for f in tehas-console.ts tehas-dispatch tehas-energy tehas-health tehas-index tehas-protolab tehas-status tehas-test tehas-work; do
   to=$TEHAS_HOME/bin/$f
   [ -e "$to" ] || continue
+  old+=("$to")
   changed+=("bin/$f")
-  if [ "$check" = 1 ]; then
-    note "stale: $to"
-  elif cycle_running; then
-    retire_later=1
-  else
-    rm -f "$to" "$to.prev" && echo "removed: $to"
-  fi
+  [ "$check" = 0 ] || note "stale: $to"
 done
 
 # --- 4. Report (--check) -----------------------------------------------------
@@ -280,6 +270,25 @@ case "$list" in *" systemd/"*)
   systemctl --user daemon-reload || true
   echo "next: systemctl --user enable --now tehas-dispatch.timer tehas-energy.service tehas-protolab.timer" ;;
 esac
+
+# The old commands go while this holds the dispatcher's lock. A cycle that
+# began before this install was started by the old dispatcher, which calls
+# them by name until it ends: it holds the lock, so they stay and the step is
+# printed instead. A poll that starts meanwhile finds the lock taken and ends
+# before it has run anything. A file that cannot be removed fails the install.
+retire_later=0
+if [ "${#old[@]}" -gt 0 ]; then
+  exec 9>>"$TEHAS_HOME/state/dispatch.lock"
+  if flock -n 9; then
+    for to in "${old[@]}"; do
+      rm -f "$to" "$to.prev"
+      echo "removed: $to"
+    done
+  else
+    retire_later=1
+  fi
+  exec 9>&-
+fi
 case "$list" in *" sandbox/"* | *" versions.env "*) echo "next: $TEHAS_HOME/sandbox/build.sh" ;; esac
 # The compose file takes the bind address from the environment env.sh sets.
 case "$list" in *" edge/docs."*) echo "next: . $TEHAS_HOME/env.sh && docker compose -f $TEHAS_HOME/edge/docs.compose.yaml up -d" ;; esac
@@ -289,6 +298,6 @@ case "$list" in *" bin/tehas-energy "*)
   [ "$retire_later" = 1 ] || echo "next: systemctl --user try-restart tehas-energy.service" ;;
 esac
 [ "$retire_later" = 0 ] ||
-  echo "next: ./install.sh again when the running cycle has ended   (it still uses the old commands in $TEHAS_HOME/bin)"
+  echo "next: ./install.sh again when the running cycle has ended   (the dispatcher's lock is held, so the old commands in $TEHAS_HOME/bin were left)"
 first_index
 exit 0

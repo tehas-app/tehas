@@ -103,10 +103,12 @@ the host shows up as drift in `--check`.
 Before there was a `tehas` command, `~/tehas/bin` held one file for each
 command (`tehas-dispatch`, `tehas-work` and so on). `install.sh` removes those
 and `--check` lists them as stale. A cycle that was running before the install
-still calls them by name, so while one runs they are left in place and the
-install prints `next: ./install.sh again when the running cycle has ended`. If
-the energy sampler was running, it also prints the restart that moves it to the
-new file.
+still calls them by name. So the install removes them only while it holds the
+dispatcher's lock itself. When a cycle or a poll holds it, they are left in
+place and the install prints `next: ./install.sh again when the running cycle
+has ended`. If the energy sampler was running, it also prints the restart that
+moves it to the new file. An old command that cannot be removed fails the
+install.
 
 One thing it does besides copying, on a real run only: the product checkout's
 `origin/HEAD` is refreshed, so the commands know the default branch without
