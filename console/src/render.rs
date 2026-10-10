@@ -161,6 +161,27 @@ fn describe_call(name: &Value, arguments: &Value) -> String {
     format!("{} {target}", text(name)).trim().to_string()
 }
 
+/// The workstream of the agent whose transcript starts with this line. A
+/// transcript opens with the directory the agent works in, and an agent of a
+/// workstream works in `.worktrees/issue-<number>-<workstream>`. Agents write
+/// the line: a name that is long or anything but letters, digits, dashes and
+/// underscores is not taken from it.
+pub fn workstream(line: &str) -> Option<String> {
+    let e = serde_json::from_str::<Value>(line).ok()?;
+    if e["type"] != "session" {
+        return None;
+    }
+    let (_, tree) = e["cwd"].as_str()?.rsplit_once("/.worktrees/")?;
+    let name = tree
+        .strip_prefix("issue-")?
+        .trim_start_matches(|c: char| c.is_ascii_digit())
+        .strip_prefix('-')?;
+    let plain = name
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+    (plain && !name.is_empty() && name.len() <= 24).then(|| name.to_string())
+}
+
 /// A line of one agent's transcript. `role` names the agent.
 pub fn transcript_line(role: &str, line: &str) -> Vec<Entry> {
     let mut entries = Vec::new();
@@ -243,6 +264,29 @@ mod tests {
             format(&e, 0),
             "00:00:00 coder      a\u{fffd}[2Jb\u{fffd}c\td\u{fffd}e\u{fffd}\n"
         );
+    }
+
+    #[test]
+    fn the_workstream_is_the_end_of_the_worktree_an_agent_starts_in() {
+        let session = |cwd: &str| json!({"type": "session", "cwd": cwd}).to_string();
+        assert_eq!(
+            workstream(&session("/w/widget/.worktrees/issue-5-task-d")).as_deref(),
+            Some("task-d")
+        );
+        for cwd in [
+            "/w/widget",
+            "/w/widget/.worktrees/issue-5",
+            "/w/widget/.worktrees/issue-5-",
+            "/w/widget/.worktrees/issue-5-a b",
+            "/w/widget/.worktrees/issue-5-a/b",
+            "/w/widget/.worktrees/issue-5-a\u{1b}[31m",
+            "/w/widget/.worktrees/issue-5-aaaaaaaaaaaaaaaaaaaaaaaaa",
+        ] {
+            assert_eq!(workstream(&session(cwd)), None, "{cwd}");
+        }
+        let said = json!({"type": "message", "cwd": "/w/.worktrees/issue-5-task-d"});
+        assert_eq!(workstream(&said.to_string()), None);
+        assert_eq!(workstream("not json"), None);
     }
 
     #[test]
