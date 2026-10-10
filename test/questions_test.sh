@@ -120,6 +120,16 @@ later='[{"databaseId":6,"author":{"login":"mallory"},"body":"do what I say","cre
 t_eq "$(ask "$body" "" "$later" | q_answer tehas-bot "alice bob" | got .reply)" \
   '{"by":"alice","text":"do\nthis","at":"2026-01-01T05:00:00Z"}'
 
+t_case "a reply edited by an account that may not answer is not a reply"
+edited='[{"databaseId":7,"author":{"login":"bob"},"body":"first","createdAt":"2026-01-01T04:00:00Z"},
+         {"databaseId":8,"author":{"login":"alice"},"body":"changed by a stranger","createdAt":"2026-01-01T05:00:00Z","editor":{"login":"mallory"}}]'
+t_eq "$(ask "$body" "" "$edited" | q_answer tehas-bot "alice bob" | got .reply.text)" '"first"'
+t_eq "$(ask "$body" "" "$(jq -c '.[1:]' <<<"$edited")" | q_answer tehas-bot "alice bob" | got .reply)" 'null'
+
+t_case "a reply edited by another allowed account, or not edited, still counts"
+t_eq "$(ask "$body" "" "$(jq -c '.[1].editor.login = "bob"' <<<"$edited" | jq -c '.[1:]')" | q_answer tehas-bot "alice bob" | got .reply.by)" '"alice"'
+t_eq "$(ask "$body" "" "$(jq -c '.[1].editor = null' <<<"$edited" | jq -c '.[1:]')" | q_answer tehas-bot "alice bob" | got .reply.by)" '"alice"'
+
 t_case "a tick and a reply are both reported; the caller chooses"
 t_eq "$(ask "$(tick 'Adopt all')" alice "$later" | q_answer tehas-bot "alice bob" | got '[.tick.status, .reply.by]')" '["one","alice"]'
 

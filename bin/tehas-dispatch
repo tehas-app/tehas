@@ -383,14 +383,30 @@ held=0
 # 3. Questions that wait for an answer. An answer is a box ticked in the
 # bot's question comment, or for a planning session a reply after it, and it
 # counts only from an allowed account.
-# A planning turn whose outcome could not be posted is posted first: its
-# session is waiting on a comment nobody has seen.
+# A planning turn that was running when the last poll ended was cut off, for
+# example by a restart of the host: this poll holds the lock, so nothing runs.
+# It is reported first, as a failed turn.
 fresh=" "
 for st in "$TEHAS_HOME"/state/plan-*.json; do
   [ -f "$st" ] || continue
+  plan_record_number "$st" || continue
+  n=$plan_n
+  [ "$(jq -r '.running // false' "$st" 2>/dev/null)" = true ] || continue
+  if [ "$dry" = 1 ]; then
+    log "would report the cut-off planning turn of #$n"
+  else
+    plan_recover "$n" || true
+  fi
+  fresh="$fresh$n "
+done
+# A planning turn whose outcome could not be posted is posted first: its
+# session is waiting on a comment nobody has seen.
+for st in "$TEHAS_HOME"/state/plan-*.json; do
+  [ -f "$st" ] || continue
+  plan_record_number "$st" || continue
+  n=$plan_n
+  case "$fresh" in *" $n "*) continue ;; esac
   [ "$(jq -r '.pending // false' "$st" 2>/dev/null)" = true ] || continue
-  n=${st##*/plan-}
-  n=${n%.json}
   if [ "$dry" = 1 ]; then
     log "would post the waiting planning turn of #$n"
   else
@@ -407,9 +423,9 @@ asking=$(jq -r 'map(.number) | sort | .[]' <<<"$asking_json") || { log "ERROR: u
 # hand, is over. Its record goes without a comment.
 for st in "$TEHAS_HOME"/state/plan-*.json; do
   [ -f "$st" ] || continue
-  [ "$(jq -r '.pending // false' "$st" 2>/dev/null)" = true ] && continue
-  n=${st##*/plan-}
-  n=${n%.json}
+  plan_record_number "$st" || continue
+  n=$plan_n
+  [ "$(jq -r '(.pending // false) or (.running // false)' "$st" 2>/dev/null)" = true ] && continue
   case "$fresh" in *" $n "*) continue ;; esac
   case " ${asking//$'\n'/ } " in
     *" $n "*) ;;
@@ -422,6 +438,9 @@ for n in $asking; do
     gh_json api user
     bot=$(jq -r '.login // ""' <<<"$json") || bot=""
     [ -n "$bot" ] || { log "ERROR: the bot's own login could not be read"; exit 1; }
+    case "$allowed" in
+      *" $bot "*) log "ERROR: the bot account $bot is in TEHAS_ALLOWED_LABELERS; the bot never authorises work"; exit 78 ;;
+    esac
   fi
   have=" $(jq -r --argjson n "$n" '[.[] | select(.number == $n) | (.labels // [])[].name] | join(" ")' <<<"$asking_json") "
   # shellcheck disable=SC2016  # $owner, $name and $number are GraphQL variables

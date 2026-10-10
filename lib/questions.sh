@@ -62,7 +62,8 @@ q_render() {
 }
 
 # The newest question the bot asked, the boxes ticked in it and the newest
-# reply after it from an allowed account. A marker proves nothing unless the
+# reply after it from an allowed account, last edited by none or by an allowed
+# account. A marker proves nothing unless the
 # bot wrote the comment: anyone can paste one on a public issue.
 q_answer() {
   jq -c --arg bot "$1" --arg allowed "$2" '
@@ -75,7 +76,8 @@ q_answer() {
         | ($q.value.body | split("\n") | map(select(test("^- \\[[ xX]\\] ")) | test("^- \\[[xX]\\]"))) as $boxes
         | ($boxes | to_entries | map(select(.value) | .key)) as $ticks
         | ($q.value.editor.login // "") as $ed
-        | ($c[($q.key + 1):] | map(select((.author.login // "") as $a | $list | index($a))) | last) as $r
+        | ($c[($q.key + 1):] | map(select((.author.login // "") as $a | ($list | index($a))
+                  and ((.editor.login // "") as $e | $e == "" or ($list | index($e))))) | last) as $r
         | {asked: true, comment: $q.value.databaseId, body: $q.value.body, kind: $m.kind,
            turn: ($m.turn | tonumber), boxes: ($boxes | length),
            tick: (if ($ticks | length) == 0 then {status: "none"}

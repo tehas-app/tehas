@@ -36,7 +36,12 @@ case "$1 $2" in
       *"comments(last"*) cat "$T/fx/comments-$n.json" || exit 1 ;;
       *) cat "$T/fx/edit-$n.json" 2>/dev/null || cat "$T/fx/edit.json" || exit 1 ;;
     esac ;;
-  "issue edit") [ ! -e "$T/fx/edit-fails" ] || exit 1 ;;
+  "issue edit")
+    [ ! -e "$T/fx/edit-fails" ] || exit 1
+    # An edit whose arguments contain the text in edit-fails-on fails.
+    if [ -s "$T/fx/edit-fails-on" ]; then
+      case "$*" in *"$(cat "$T/fx/edit-fails-on")"*) exit 1 ;; esac
+    fi ;;
   "pr list") cat "$T/fx/pr.txt" 2>/dev/null ;;
 esac'
 t_stub fake-work
@@ -783,7 +788,7 @@ t_contains "$(t_calls gh)" "authorized by @alice's \`tehas:plan\` label"
 t_contains "$(t_calls gh)" "- [ ] Adopt all"
 t_contains "$(t_calls gh)" "<!-- tehas:question kind=plan issue=7 turn=1 -->"
 t_contains "$(t_calls gh)" "--remove-label tehas:planning --add-label tehas:question"
-t_eq "$(jq -c . "$record")" '{"session":"abc-123","turns":1,"options":["Adopt all","Change some"],"pending":false,"failed":false,"comment":4002}'
+t_eq "$(jq -c . "$record")" '{"session":"abc-123","turns":1,"options":["Adopt all","Change some"],"pending":false,"failed":false,"running":false,"comment":4002}'
 t_eq "$([ -e "$record.out" ] && echo left)" ""
 t_eq "$(t_calls fake-work)" ""
 
@@ -960,5 +965,119 @@ t_run "$dispatch"
 t_eq "$(plan_calls)" ""
 t_lacks "$(t_calls gh)" "issue edit"
 t_contains "$t_out" "skip #7: the question answered is not the one this session is waiting on"
+
+t_case "a question that posted but could not be labelled is not lost"
+planning
+comments 7 "$(plan_body ' ' x ' ')" alice
+printf '%s' '--add-label tehas:question' >"$fx/edit-fails-on"
+t_run "$dispatch"
+t_eq "$(jq -r '[.comment, .pending] | @tsv' "$record")" "4002	true"
+t_eq "$([ -s "$record.out" ] && echo kept)" kept
+rm -f "$T"/calls/* "$fx/edit-fails-on"
+echo '[]' >"$fx/asking.json"
+t_run "$dispatch"
+t_eq "$(t_calls gh | grep -c 'issues/7/comments')" 0
+t_contains "$(t_calls gh)" "--remove-label tehas:planning --add-label tehas:question"
+t_eq "$(jq -r .pending "$record")" false
+t_eq "$([ -e "$record.out" ] && echo left)" ""
+
+t_case "a later turn cut off by a restart is reported and can be answered"
+planning
+echo '[]' >"$fx/asking.json"
+jq '.running = true' "$record" >"$record.new" && mv "$record.new" "$record"
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "This planning turn did not finish: it was cut off"
+t_contains "$(t_calls gh)" "--add-label tehas:question --add-label needs-human-attention"
+t_eq "$(jq -r '[.session, .turns, .failed, .running] | @tsv' "$record")" "abc-123	2	true	false"
+t_eq "$(plan_calls)" ""
+
+t_case "a first turn cut off by a restart ends visibly"
+planning
+echo '[]' >"$fx/asking.json"
+echo '{"session":"","turns":0,"options":[],"pending":false,"failed":false,"running":true}' >"$record"
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "--remove-label tehas:planning --add-label needs-human-attention"
+t_contains "$(t_calls gh)" "could not start"
+t_eq "$([ -e "$record" ] && echo kept)" ""
+
+t_case "a first turn cut off by a restart says nothing while its label change fails"
+planning
+echo '[]' >"$fx/asking.json"
+echo '{"session":"","turns":0,"options":[],"pending":false,"failed":false,"running":true}' >"$record"
+: >"$fx/edit-fails"
+t_run "$dispatch"
+t_lacks "$(t_calls gh)" "issue comment"
+t_eq "$(jq -r .running "$record")" true
+
+t_case "a record of a turn in flight or waiting to be posted is not cleaned up"
+planning
+echo '[]' >"$fx/asking.json"
+jq '.running = true' "$record" >"$record.new" && mv "$record.new" "$record"
+t_run "$dispatch --dry-run"
+t_eq "$([ -e "$record" ] && echo kept)" kept
+planning
+echo '[]' >"$fx/asking.json"
+jq '.pending = true | del(.comment)' "$record" >"$record.new" && mv "$record.new" "$record"
+cp "$fx/plan-result.json" "$record.out"
+: >"$fx/post-fails"
+t_run "$dispatch"
+t_eq "$([ -e "$record" ] && echo kept)" kept
+t_eq "$(jq -r .pending "$record")" true
+
+t_case "the end of a session is said once"
+planning
+comments 7 "$(plan_body ' ' ' ' x)" alice
+printf '%s' '--remove-label needs-human-attention' >"$fx/edit-fails-on"
+t_run "$dispatch"
+t_lacks "$(t_calls gh)" "issue comment"
+t_eq "$([ -e "$record" ] && echo kept)" kept
+rm -f "$T"/calls/* "$fx/edit-fails-on"
+t_run "$dispatch"
+t_eq "$(t_calls gh | grep -c 'Planning session ended by alice.')" 1
+t_contains "$(t_calls gh)" "--remove-label needs-human-attention"
+t_eq "$([ -e "$record" ] && echo kept)" ""
+
+t_case "a session whose record is gone is not announced while its labels cannot be removed"
+planning
+rm "$record"
+comments 7 "$(plan_body x ' ' ' ')" alice
+: >"$fx/edit-fails"
+t_run "$dispatch"
+t_lacks "$(t_calls gh)" "issue comment"
+
+t_case "a dry run reports a cut-off turn and changes nothing"
+planning
+echo '[]' >"$fx/asking.json"
+jq '.running = true' "$record" >"$record.new" && mv "$record.new" "$record"
+before=$(cat "$record")
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would report the cut-off planning turn of #7"
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "issue comment"
+t_lacks "$(t_calls gh)" "api -X"
+t_eq "$(cat "$record")" "$before"
+
+t_case "a file in the state directory that is not a session record is left alone"
+reset
+echo '[]' >"$fx/ready.json"
+mkdir -p "$T/home/tehas/state"
+echo '{"running":true}' >"$T/home/tehas/state/plan-x.json"
+echo 'not json' >"$T/home/tehas/state/plan-9.json"
+t_run "$dispatch"
+t_eq "$([ -e "$T/home/tehas/state/plan-x.json" ] && [ -e "$T/home/tehas/state/plan-9.json" ] && echo kept)" kept
+t_lacks "$(t_calls gh)" "issue comment"
+t_lacks "$(t_calls gh)" "issue edit"
+t_eq "$(grep -c 'planning record of #9 is not readable' <<<"$t_out")" 1
+
+t_case "a bot account in the allowed list stops the poll before any question is read"
+parked
+comments 7 "$(park_body x ' ')" alice
+printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ALLOWED_LABELERS='alice tehas-bot'" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$dispatch"
+t_eq "$t_rc" 78
+t_contains "$t_out" "the bot account tehas-bot is in TEHAS_ALLOWED_LABELERS"
+t_eq "$(t_calls fake-work)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "api -X"
 
 t_done

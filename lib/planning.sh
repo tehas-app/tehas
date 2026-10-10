@@ -1,8 +1,8 @@
 # shellcheck shell=bash
 # The steps of a planning session. Sourced by bin/tehas-dispatch, and written
-# for it: these functions use the dispatcher's own helpers (log, say, label,
-# post_question, refresh_checkout, wait_for) and its variables (repo,
-# plan_cmd, who, posted).
+# for it: these functions use the dispatcher's own helpers (log, say,
+# post_question, refresh_checkout, wait_for) and its variables (repo, plan_cmd,
+# who, posted).
 #
 # A session is a Pi session that lives across polls. Its record is
 # $TEHAS_HOME/state/plan-<issue>.json:
@@ -11,21 +11,62 @@
 #   options   the labels of the choices in the open question, in order
 #   pending   true while a turn's outcome has not been posted yet
 #   failed    true when the last turn did not finish
-#   comment   the id of the open question comment
+#   running   true while a turn is in flight
+#   comment   the id of the open question comment, once it is posted
 # While pending, the outcome is kept next to the record as <record>.out.
 #
+# A turn is written down as running before it starts. The dispatcher holds the
+# one dispatch lock, so a running record found at the start of a poll is a
+# turn that was cut off, for example by a restart of the host. plan_recover
+# turns it into a failed turn that asks again, or ends a first turn that
+# never produced a session.
+#
+# Each change on GitHub is checked, and the record only moves on once it has
+# worked, so a poll that failed halfway is repeated by the next one without
+# posting twice or announcing twice.
+#
 #   plan_state <issue>             print the path of the record
+#   plan_record_number <file>      put the issue of a record file in $plan_n, or
+#                                  return 1 for a file that is not a readable record
 #   plan_turn <issue> first|next <file>
 #                                  run one turn and post its outcome
+#   plan_finish <issue> <rc> <turns before> <session before>
+#                                  record how a turn went and post it
+#   plan_recover <issue>           finish a turn that was cut off
 #   plan_post <issue>              post the outcome kept in the record
-#   plan_end <issue> <text>        end the session and say why
+#   plan_end <issue> <text>        end the session and say why; returns 1,
+#                                  having changed nothing, if the labels stay
 
 plan_state() { printf '%s/state/plan-%s.json\n' "$TEHAS_HOME" "$1"; }
+
+# Files in the state directory that are not a session record are left alone.
+# One warning per poll for an unreadable record.
+plan_bad=" "
+plan_n=""
+plan_record_number() {
+  plan_n=${1##*/plan-}
+  plan_n=${plan_n%.json}
+  case "$plan_n" in '' | *[!0-9]*) return 1 ;; esac
+  if ! jq -e . "$1" >/dev/null 2>&1; then
+    case "$plan_bad" in
+      *" $plan_n "*) ;;
+      *)
+        log "WARN: the planning record of #$plan_n is not readable, leaving it alone"
+        plan_bad="$plan_bad$plan_n "
+        ;;
+    esac
+    return 1
+  fi
+}
 
 plan_end() {
   local n=$1 st
   st=$(plan_state "$n")
-  label "$n" --remove-label tehas:question --remove-label tehas:planning --remove-label tehas:plan
+  if ! gh issue edit "$n" --repo "${repo:?}" --remove-label tehas:question --remove-label tehas:planning \
+    --remove-label tehas:plan --remove-label needs-human-attention >/dev/null 2>&1; then
+    log "WARN: could not take the planning labels off #$n, so its session is not ended yet"
+    return 1
+  fi
   say "$n" "$2"
   rm -f "$st" "$st.out" "$st.answer" "$st.brief"
   log "planning #$n ended"
@@ -35,19 +76,77 @@ plan_post() {
   local n=$1 st turns
   st=$(plan_state "$n")
   turns=$(jq -r '.turns // 0' "$st" 2>/dev/null) || turns=0
-  if ! post_question plan "$n" "$turns" "$st.out"; then
-    log "WARN: the planning turn of #$n could not be posted; the next poll tries again"
+  # Step one: the question. Once its id is on record it is never posted again.
+  if [ -z "$(jq -r '.comment // ""' "$st" 2>/dev/null)" ]; then
+    if ! post_question plan "$n" "$turns" "$st.out"; then
+      log "WARN: the planning turn of #$n could not be posted; the next poll tries again"
+      return 1
+    fi
+    if ! { jq -c --argjson c "${posted:?}" '.comment = $c' "$st" >"$st.new" && mv "$st.new" "$st"; }; then
+      log "WARN: the record of #$n could not be updated after its question was posted"
+      return 1
+    fi
+  fi
+  # Step two: show the question. Retried alone if it fails.
+  if [ "$(jq -r '.failed // false' "$st" 2>/dev/null)" = true ]; then
+    set -- --remove-label tehas:planning --add-label tehas:question --add-label needs-human-attention
+  else
+    set -- --remove-label tehas:planning --add-label tehas:question
+  fi
+  if ! gh issue edit "$n" --repo "${repo:?}" "$@" >/dev/null 2>&1; then
+    log "WARN: the labels of #$n could not be changed after its question was posted; the next poll tries again"
     return 1
   fi
-  if [ "$(jq -r '.failed // false' "$st" 2>/dev/null)" = true ]; then
-    label "$n" --remove-label tehas:planning --add-label tehas:question --add-label needs-human-attention
+  if jq -c '.pending = false' "$st" >"$st.new" && mv "$st.new" "$st"; then
+    rm -f "$st.out"
   else
-    label "$n" --remove-label tehas:planning --add-label tehas:question
+    log "WARN: the record of #$n could not be updated"
+    return 1
   fi
-  if jq -c --argjson c "${posted:?}" '.comment = $c | .pending = false' "$st" >"$st.new"; then
-    mv "$st.new" "$st"
+}
+
+plan_finish() {
+  local n=$1 rc=$2 turns=$(($3 + 1)) sid=$4 st out why
+  st=$(plan_state "$n")
+  out=$st.out
+  if [ "$rc" = interrupted ]; then
+    why="was cut off, for example by a restart of the host"
+  else
+    why="exited with status $rc"
   fi
+
+  if [ "$rc" = 0 ] && jq -e '(.session // "") != ""' "$out" >/dev/null 2>&1; then
+    jq -c --argjson turns "$turns" \
+      '{session, turns: $turns, options: [.question.options[]?.label], pending: true, failed: false, running: false}' "$out" >"$st.new" &&
+      mv "$st.new" "$st"
+  elif [ -n "$sid" ]; then
+    # The session exists, so a reply can run the turn again.
+    jq -cn --arg session "$sid" --argjson turns "$turns" \
+      '{session: $session, turns: $turns, options: [], pending: true, failed: true, running: false}' >"$st.new" && mv "$st.new" "$st"
+    jq -n --arg text "This planning turn did not finish: it $why. The log is \`~/tehas/logs/dispatch-plan-$n.log\` on \`$(hostname)\`. Reply in a comment to run the turn again with your reply as the next message, or end the session and apply \`tehas:plan\` to start a new one." \
+      '{text: $text, question: null}' >"$out"
+  else
+    # No session came into being: there is nothing to continue. The record
+    # stays, still running, until the issue is visibly handed to a person.
+    if ! gh issue edit "$n" --repo "${repo:?}" --remove-label tehas:planning --add-label needs-human-attention >/dev/null 2>&1; then
+      log "WARN: could not hand #$n to a person after a planning turn that left no session; the next poll tries again"
+      return 1
+    fi
+    say "$n" "The planning session could not start (the runner $why). The log is \`~/tehas/logs/dispatch-plan-$n.log\` on \`$(hostname)\`. Apply \`tehas:plan\` again to retry."
+    rm -f "$st" "$out" "$st.answer" "$st.brief"
+    log "done planning #$n turn=$turns rc=$rc, no session"
+    return 0
+  fi
+  plan_post "$n" || true
+  log "done planning #$n turn=$turns rc=$rc"
+}
+
+plan_recover() {
+  local n=$1 st
+  st=$(plan_state "$n")
   rm -f "$st.out"
+  log "planning #$n: a turn was cut off"
+  plan_finish "$n" interrupted "$(jq -r '.turns // 0' "$st" 2>/dev/null)" "$(jq -r '.session // ""' "$st" 2>/dev/null)"
 }
 
 plan_turn() {
@@ -67,6 +166,17 @@ plan_turn() {
     log "ERROR: could not mark #$n as planning, not starting a turn"
     exit 1
   fi
+  # Written down before the turn starts, so that a turn cut off is found. It
+  # has no question comment: the next one is not posted yet.
+  if [ "$mode" = first ]; then
+    echo '{"session":"","turns":0,"options":[],"pending":false,"failed":false,"running":true}' >"$st.new"
+  else
+    jq -c '.running = true | .pending = false | del(.comment)' "$st" >"$st.new"
+  fi
+  if ! mv "$st.new" "$st"; then
+    log "ERROR: could not write the record of #$n, not starting a turn"
+    exit 1
+  fi
   if [ "$mode" = first ]; then
     say "$n" "Tehas planning session started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC (authorized by @${who:?}'s \`tehas:plan\` label). Each turn ends in a comment here. Answer by ticking a box or by replying."
     args=(--brief "$input")
@@ -78,26 +188,5 @@ plan_turn() {
   "${plan_cmd:?}" "$n" --out "$out" "${args[@]}" >>"$TEHAS_HOME/logs/dispatch-plan-$n.log" 2>&1 &
   wait_for $!
   rc=$?
-  turns=$((turns + 1))
-
-  if [ "$rc" = 0 ] && jq -e '(.session // "") != ""' "$out" >/dev/null 2>&1; then
-    jq -c --argjson turns "$turns" \
-      '{session, turns: $turns, options: [.question.options[]?.label], pending: true, failed: false}' "$out" >"$st.new" &&
-      mv "$st.new" "$st"
-  elif [ -n "$sid" ]; then
-    # The session exists, so a reply can run the turn again.
-    jq -cn --arg session "$sid" --argjson turns "$turns" \
-      '{session: $session, turns: $turns, options: [], pending: true, failed: true}' >"$st.new" && mv "$st.new" "$st"
-    jq -n --arg text "This planning turn did not finish (runner exit $rc). The log is \`~/tehas/logs/dispatch-plan-$n.log\` on \`$(hostname)\`. Reply in a comment to run the turn again with your reply as the next message, or end the session and apply \`tehas:plan\` to start a new one." \
-      '{text: $text, question: null}' >"$out"
-  else
-    # No session came into being: there is nothing to continue.
-    label "$n" --remove-label tehas:planning --add-label needs-human-attention
-    say "$n" "The planning session could not start (runner exit $rc). The log is \`~/tehas/logs/dispatch-plan-$n.log\` on \`$(hostname)\`. Apply \`tehas:plan\` again to retry."
-    rm -f "$st" "$out" "$st.brief"
-    log "done planning #$n turn=$turns rc=$rc, no session"
-    return 0
-  fi
-  plan_post "$n" || true
-  log "done planning #$n turn=$turns rc=$rc"
+  plan_finish "$n" "$rc" "$turns" "$sid"
 }
