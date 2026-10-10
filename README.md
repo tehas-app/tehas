@@ -109,8 +109,8 @@ one repository from one host.
 ## Working on tehas
 
 ```
-scripts/verify.sh          # lint, shellcheck, the shell tests
-scripts/verify.sh --full   # plus the console's tests (cargo) and the front page's (node)
+scripts/verify.sh          # lint, shellcheck, the shell tests, the console's tests where cargo is
+scripts/verify.sh --full   # plus the console's format and lints (rustfmt, clippy) and the front page's tests (node)
 ```
 
 The tests need bash, git, jq and shellcheck. They use no network and no sandbox

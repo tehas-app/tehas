@@ -397,8 +397,8 @@ Run them by hand from the root of a clone of the product. For the example
 product:
 
 ```
-scripts/verify.sh          # fast: the lint, shellcheck, the shell tests
-scripts/verify.sh --full   # plus the console's tests (cargo) and the front page's (node)
+scripts/verify.sh          # fast: the lint, shellcheck, the shell tests, the console's tests where cargo is
+scripts/verify.sh --full   # plus the console's format and lints (rustfmt, clippy) and the front page's tests (node)
 ```
 
 ## tehas update
