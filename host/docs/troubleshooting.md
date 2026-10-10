@@ -250,7 +250,7 @@ the file to the branch; the next commit is tried. See
 [A new project](/new-project).
 
 **`build-failed`.** Read `~/tehas/logs/preview-<pr>.log`. The reason in the
-state says which of two things happened:
+state says which of three things happened:
 
 - The build failed or ran over 15 minutes. The same commit is not built
   again. Push a new commit and that one is tried. A preview of the earlier
@@ -258,8 +258,15 @@ state says which of two things happened:
 - The container did not start: Docker could not create or start it, such as
   an image whose command is not in it. That can also be the host and not the
   commit, so it is tried again at each of the next three runs, and then no
-  more for that commit. A container that starts and then stops is not this
-  case: see the `serving` state that answers 404, below.
+  more for that commit.
+- The container started and stopped: five seconds after its start it was not
+  running, or Docker had started it again already. It was removed, and the
+  last 40 lines it wrote are at the end of the log, under `docker logs of
+  tehas-preview-<pr>`. The usual causes are an image that writes outside
+  `/tmp`, `/config` and `/data`, and one that does not start without a
+  variable. It is tried again as the case above is: at each of the next three
+  runs, then no more for that commit. Fix the recipe and push; the new commit
+  is built.
 
 To have the same commit built again, remove the state and let the next run
 find the pull request anew: `rm -r ~/tehas/preview/<pr>`.
@@ -313,8 +320,9 @@ host's Docker is older than 27.1: `docker version`.
 Check `docker info` as the tehas user.
 
 **The state is `serving` and the name answers 404** with "No preview is
-running at this address". `serving` means the container was started, not that
-it answers. The router did not reach it.
+running at this address". `serving` means the container was still running
+five seconds after its start, not that it answers. The router did not reach
+it.
 
 ```
 docker ps -a --filter name=tehas-preview-<pr>
@@ -323,11 +331,12 @@ docker network inspect tehas-previews --format '{{range .Containers}}{{.Name}} {
 ```
 
 - The first line says `Restarting`, or an age of seconds that never grows:
-  the process starts and stops, and Docker starts it again. The state stays
-  `serving` and the pull request keeps its comment with the address while
-  that goes on. The second line says why. The usual causes are an image that
-  writes outside `/tmp`, `/config` and `/data`, and one that does not start
-  without a variable. Fix the recipe and push; the new commit is built.
+  the process stopped later than those five seconds, and Docker starts it
+  again each time, because a preview runs with `--restart unless-stopped`.
+  The state stays `serving` and the pull request keeps its comment with the
+  address while that goes on. The second line says why. Fix the recipe and
+  push; the new commit is built. A process that stops within the five seconds
+  is `build-failed`, above.
 - The container is up: the image does not answer on port 8080, or the third
   line does not name both the router and the preview.
 

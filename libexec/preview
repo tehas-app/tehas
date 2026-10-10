@@ -27,7 +27,8 @@
 #                   health reads them.
 #
 # Each pull request has a state in $TEHAS_HOME/preview/<number>/state.json:
-# serving, building, no-recipe, build-failed, no-space or over-limit. The list
+# serving, building, no-recipe, build-failed, no-space or over-limit. Serving
+# is a container that was still running a few seconds after its start. The list
 # for the dashboard is $TEHAS_HOME/live/previews.json. A build's output is in
 # $TEHAS_HOME/logs/preview-<number>.log. Deterministic, no model.
 #
@@ -63,6 +64,9 @@ case "${1:-}" in
     ;;
 esac
 
+# Taken before the settings are loaded: loading drops every TEHAS_ variable
+# the environment has. See "settle" below.
+settle_asked=${TEHAS_PREVIEW_SETTLE:-}
 tehas_load || exit 78
 tehas_require TEHAS_REPO
 if [ "$TEHAS_PREVIEWS" != 1 ]; then
@@ -81,6 +85,11 @@ net=tehas-previews
 gateway=com.docker.network.bridge.gateway_mode_ipv4
 recipe=preview/Dockerfile
 build_limit=900
+# The seconds between a container's start and the question whether it still
+# runs. Not an instance setting: it is read from the environment only so the
+# tests do not wait.
+settle=5
+case "$settle_asked" in "" | *[!0-9]*) ;; *) settle=$settle_asked ;; esac
 marker='<!-- tehas-preview -->'
 min_kb=$((TEHAS_PREVIEW_MIN_FREE_MB * 1024))
 free=""
@@ -180,6 +189,15 @@ It is rebuilt when the branch changes and removed when this pull request is clos
 }
 
 # --- One build ---------------------------------------------------------------
+# start_failed <number> <commit> <failed starts so far> <reason>: the image was
+# built and no container of it stayed up. The host may have hiccuped, not the
+# commit: the next runs try again. Three tries ride out a hiccup, and a recipe
+# that cannot start does not loop.
+start_failed() {
+  [ "$3" -ge 3 ] || echo "$2 $(($3 + 1))" >"$root/$1/.retry"
+  mark "$1" "$2" build-failed "$4"
+}
+
 # build <number>: fetch the pull request's head, build its recipe, replace the
 # container. The commit is the one fetched, which is the one built.
 build() {
@@ -228,10 +246,21 @@ build() {
     --memory 256m --cpus 1 --pids-limit 128 --restart unless-stopped \
     --label "tehas.preview=$n" --label "tehas.sha=$sha" --label "tehas.repo=$repo" \
     "tehas-preview:$n" >>"$log" 2>&1 9>&-; then
-    # The host may have hiccuped, not the commit: the next runs try again. Three
-    # tries ride out a hiccup, and a recipe that cannot start does not loop.
-    [ "$tries" -ge 3 ] || echo "$sha $((tries + 1))" >"$retry"
-    mark "$n" "$sha" build-failed "The container did not start. See logs/preview-$n.log on the host."
+    start_failed "$n" "$sha" "$tries" "The container did not start. See logs/preview-$n.log on the host."
+    return 1
+  fi
+  # docker run answers once the process is started. One that stops at once,
+  # because it writes outside its three directories or misses a variable, would
+  # be called serving and be started again for ever. So it is asked a moment
+  # later: still running, and never restarted.
+  sleep "$settle"
+  if [ "$(docker inspect --format '{{.State.Running}} {{.RestartCount}}' "tehas-preview-$n" 2>/dev/null 9>&-)" != "true 0" ]; then
+    {
+      echo "docker logs of tehas-preview-$n, which started and stopped:"
+      docker logs --tail 40 "tehas-preview-$n" 9>&-
+    } >>"$log" 2>&1
+    docker rm -f "tehas-preview-$n" >/dev/null 2>&1 9>&-
+    start_failed "$n" "$sha" "$tries" "The container started and stopped. See \"docker logs\" in logs/preview-$n.log on the host."
     return 1
   fi
   if [ -n "$old" ] && [ "$old" != "$(docker image inspect --format '{{.Id}}' "tehas-preview:$n" 2>/dev/null)" ]; then
