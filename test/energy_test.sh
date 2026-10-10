@@ -34,8 +34,14 @@ sample() {
   T_ENV=(TEHAS_ENERGY_URL="$url" TEHAS_ENERGY_NOW="$((NOW + after))" "$@")
   t_run "$energy"
 }
-# t_json <jq filter> <JSON>: what the energy file holds there.
-t_json() { t_eq "$(jq -cS "$1" "$file" 2>&1)" "$(jq -cS . <<<"$2")"; }
+# t_json <jq filter> <JSON>: what the energy file holds there. A filter that
+# fails or an expectation that is not JSON is a failure, not two empty answers.
+t_json() {
+  local got want
+  got=$(jq -cS "$1" "$file" 2>&1) || { t_bad "jq '$1' failed: $got"; return; }
+  want=$(jq -cS . <<<"$2" 2>&1) && [ -n "$want" ] || { t_bad "the expectation is not JSON: $2"; return; }
+  t_eq "$got" "$want"
+}
 asked() { t_calls curl | wc -l; }
 there() { [ -e "$file" ] && echo there || echo gone; }
 
@@ -99,7 +105,7 @@ mkdir -p "$(dirname "$file")"
 printf '%s' '{"samples": [{"t": "soon"}, 7, {"t": 5}' >"$file"
 sample 0
 t_eq "$t_rc" 0
-t_json '.samples | length' 1
+t_json '.samples | [type, length]' '["array", 1]'
 printf '%s' "{\"samples\": [{\"t\": \"soon\"}, 7, {\"t\": $((NOW - 15))}, {\"t\": $((NOW - 30)), \"w\": {}}]}" >"$file"
 sample 0
 t_json '[.samples[].t]' "[$((NOW - 30)), $NOW]"
@@ -108,7 +114,7 @@ for text in '{"samples":5}' $'  \n' '{"samples":[]} {"samples":[]}'; do
   printf '%s' "$text" >"$file"
   sample 0
   t_eq "$t_rc" 0
-  t_json '.samples | length' 1
+  t_json '.samples | [type, length]' '["array", 1]'
 done
 
 t_case "a mesh that does not answer leaves the file as it is"
@@ -202,7 +208,8 @@ mesh 200 '{"members": [{"node": "node-x", "state": "alive", "status": {
 sample 0 PI_ENSEMBLE_SUBAGENT_MODEL=model-large
 t_eq "$t_rc" 0
 t_lacks "$(cat "$file")" LEAKMARK
-t_json '.hosts[0] | [.source, .ramUsedMb, .ramTotalMb, .watts]' '[null, null, null, 100]'
+t_json .hosts '[{"name": "node-x", "source": null, "watts": 100, "kWh24h": null, "kWh30d": null,
+  "ramUsedMb": null, "ramTotalMb": null}]'
 
 t_case "a negative reading is no reading"
 fresh
@@ -211,7 +218,9 @@ mesh 200 '{"members": [{"node": "node-x", "state": "alive", "status": {
   "models": [{"name": "model-large", "slots": 1}]}}]}'
 sample 0 PI_ENSEMBLE_SUBAGENT_MODEL=model-large
 t_eq "$t_rc" 0
-t_json '[.totals.watts, .totals.reporting, .hosts[0].watts, .hosts[0].source]' '[null, 0, null, null]'
+t_json '[.totals.watts, .totals.reporting]' '[null, 0]'
+t_json .hosts '[{"name": "node-x", "source": null, "watts": null, "kWh24h": null, "kWh30d": null,
+  "ramUsedMb": null, "ramTotalMb": null}]'
 t_json .samples "[{\"t\": $NOW, \"w\": {}}]"
 
 t_case "odd models and odd slots do not make a member a factory host; a text power field is no reading"
@@ -223,7 +232,7 @@ mesh 200 '{"members": [
     "models": [{"name": "model-large", "slots": 2, "busy": "x", "queued": {}}]}}]}'
 sample 0 PI_ENSEMBLE_SUBAGENT_MODEL=model-large
 t_eq "$t_rc" 0
-t_json '[.hosts[] | [.name, .watts]]' '[["node-y", null]]'
+t_json '[.hosts[] | [.name, has("watts"), .watts]]' '[["node-y", true, null]]'
 t_json '[.models[] | [.name, .slots, .busy, .queued]]' '[["model-large", 2, 0, 0]]'
 
 t_case "an unknown argument is a usage error"
