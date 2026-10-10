@@ -200,8 +200,8 @@ tehas_load() {
   if [ "$TEHAS_TICKET_CONCURRENCY" = 1 ]; then
     export TEHAS_CYCLE_CPUS=$TEHAS_WORK_CPUS TEHAS_CYCLE_MEMORY=$TEHAS_WORK_MEMORY
   else
-    share=$(awk -v c="$TEHAS_WORK_CPUS" -v n="$TEHAS_TICKET_CONCURRENCY" 'BEGIN { printf "%.2f", int(c * 100 / n) / 100 }')
-    if ! awk -v s="$share" 'BEGIN { exit !(s >= 1) }'; then
+    share=$(LC_ALL=C awk -v c="$TEHAS_WORK_CPUS" -v n="$TEHAS_TICKET_CONCURRENCY" 'BEGIN { printf "%.2f", int(c * 100 / n) / 100 }')
+    if ! LC_ALL=C awk -v s="$share" 'BEGIN { exit !(s >= 1) }'; then
       tehas_err "TEHAS_TICKET_CONCURRENCY=$TEHAS_TICKET_CONCURRENCY leaves each cycle $share CPUs of TEHAS_WORK_CPUS=$TEHAS_WORK_CPUS; a cycle needs at least 1 (see $file)"
       return 78
     fi

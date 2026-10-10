@@ -75,7 +75,7 @@
   // Several cycles can run side by side: console-tabs.js says which there are
   // and which one is shown. running is the shown cycle while it runs.
   const TABS = globalThis.TEHAS_CONSOLE_TABS;
-  let consoleFile = null, offset = 0, running = null, selected = null, lastStatus = null, lastNow = null;
+  let consoleFile = null, offset = 0, tailing = false, running = null, selected = null, lastStatus = null, lastNow = null;
 
   async function refresh() {
     let s, now;
@@ -141,7 +141,9 @@
   }
 
   async function tail() {
-    if (!consoleFile) return;
+    // Two requests for the same offset would both append their answer.
+    if (!consoleFile || tailing) return;
+    tailing = true;
     const file = consoleFile;
     try {
       const r = await fetch("/live/" + file, { headers: { Range: "bytes=" + offset + "-" }, cache: "no-store" });
@@ -166,6 +168,8 @@
       $("console-note").textContent = running ? "live" : "ended";
     } catch {
       $("console-note").textContent = "console unavailable";
+    } finally {
+      tailing = false;
     }
   }
 

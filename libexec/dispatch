@@ -21,21 +21,22 @@
 # Rules, in order:
 #   1. Label tehas:pause on the control issue stops all dispatch.
 #   2. At most TEHAS_TICKET_CONCURRENCY cycles run at once.
-#   3. Running cycles and tehas PRs that wait for a human together stay below
-#      TEHAS_MAX_AWAITING.
+#   3. Running cycles and tehas PRs that wait for a human together do not
+#      exceed TEHAS_MAX_AWAITING.
 #   4. An issue is eligible only if its tehas:ready label was applied by an
 #      account in TEHAS_ALLOWED_LABELERS. The bot is never in that list.
 #   5. tehas:urgent first, then the lowest issue number. A running cycle is
 #      never stopped to make room.
 #
 # Instance settings (lib/config.sh; defaults in brackets):
-#   TEHAS_REPO              owner/name of the product repository, required
-#   TEHAS_CONTROL_ISSUE     issue that carries tehas:pause, required
-#   TEHAS_ALLOWED_LABELERS  space-separated logins, required
-#   TEHAS_MAX_AWAITING      open tehas:awaiting-merge issues allowed [3]
+#   TEHAS_REPO                owner/name of the product repository, required
+#   TEHAS_CONTROL_ISSUE       issue that carries tehas:pause, required
+#   TEHAS_ALLOWED_LABELERS    space-separated logins, required
+#   TEHAS_MAX_AWAITING        open tehas:awaiting-merge issues plus running
+#                             cycles allowed [3]
 #   TEHAS_TICKET_CONCURRENCY  cycles side by side [1]
-#   TEHAS_WORK_REPO         checkout cycles are cloned from [$TEHAS_HOME/repos/<name>]
-#   TEHAS_BRANCH            branch work lands on [the checkout's origin/HEAD]
+#   TEHAS_WORK_REPO           checkout cycles are cloned from [$TEHAS_HOME/repos/<name>]
+#   TEHAS_BRANCH              branch work lands on [the checkout's origin/HEAD]
 # From the environment, for tests: TEHAS_STATUS_CMD, TEHAS_INDEX_CMD,
 # TEHAS_CYCLE_START_CMD (in place of systemctl, called with the issue) and
 # TEHAS_CYCLE_START_WAIT (seconds to wait for a started cycle [30]).
@@ -233,12 +234,14 @@ for n in $candidates; do
   by[$n]=$who
 done
 
+if [ "$dry" = 1 ]; then
+  log "$count cycles running, room for $want more"
+fi
 if [ "${#picked[@]}" = 0 ]; then
   [ "$dry" = 1 ] && log "nothing to do"
   exit 0
 fi
 if [ "$dry" = 1 ]; then
-  log "$count cycles running, room for $want more"
   for n in "${picked[@]}"; do log "would run a cycle for #$n (labelled by ${by[$n]})"; done
   exit 0
 fi

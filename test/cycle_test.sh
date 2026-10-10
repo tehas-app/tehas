@@ -150,6 +150,17 @@ ended merged "done" feature/x
 rm -f "$T/home/tehas/work/.tehas-workspaces"
 t_run "$cycle 7"
 t_eq "$(find "$workdir" -maxdepth 0 | wc -l)" 1
+t_contains "$t_out" "WARN: $T/home/tehas/work is not marked by tehas work, leaving the workspace $workdir"
+
+t_case "a workspace that cannot be removed is said so"
+reset
+ended merged "done" feature/x
+: >"$T/home/tehas/work/.tehas-workspaces"
+chmod a-w "$T/home/tehas/work"
+t_run "$cycle 7"
+chmod u+w "$T/home/tehas/work"
+t_eq "$(find "$workdir" -maxdepth 0 | wc -l)" 1
+t_contains "$t_out" "WARN: could not remove the workspace $workdir"
 
 t_case "another issue's workspace is left alone"
 reset

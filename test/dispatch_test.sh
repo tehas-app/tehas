@@ -101,6 +101,7 @@ reset
 echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"mallory"}}]' >"$fx/events-7.json"
 t_run "$dispatch --dry-run"
 t_contains "$t_out" "skip #7: tehas:ready was applied by 'mallory', not an allowed account"
+t_contains "$t_out" "0 cycles running, room for 1 more"
 t_contains "$t_out" "nothing to do"
 
 t_case "the most recent labelling decides, not an earlier one"

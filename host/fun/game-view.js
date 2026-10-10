@@ -837,7 +837,7 @@
   // fetches what is new. Console text is untrusted and only ever appended as text.
   // Several cycles can run side by side: console-tabs.js says which there are.
   const TABS = globalThis.TEHAS_CONSOLE_TABS;
-  const live = { file: null, offset: 0, running: false, titles: new Map(), now: null, selected: null };
+  const live = { file: null, offset: 0, tailing: false, running: false, titles: new Map(), now: null, selected: null };
   const duration = (secs) => {
     const m = Math.max(0, Math.floor(secs / 60)), h = Math.floor(m / 60);
     return h > 0 ? `${h} h ${m % 60} min` : `${m} min`;
@@ -923,7 +923,9 @@
 
   async function tailConsole() {
     // An ended cycle's console is read once; asking again only earns a 416.
-    if (!live.file || document.hidden || live.idle) return;
+    // Two requests for the same offset would both append their answer.
+    if (!live.file || document.hidden || live.idle || live.tailing) return;
+    live.tailing = true;
     const out = $("console-out"), file = live.file;
     try {
       const r = await fetch("/live/" + file, { headers: { Range: `bytes=${live.offset}-` }, cache: "no-store" });
@@ -949,6 +951,8 @@
       $("console-note").textContent = live.running ? "LIVE" : "ENDED";
     } catch {
       $("console-note").textContent = "CONSOLE UNAVAILABLE";
+    } finally {
+      live.tailing = false;
     }
   }
 

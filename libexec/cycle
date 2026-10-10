@@ -49,8 +49,8 @@ status_cmd=${TEHAS_STATUS_CMD:-$here/status}
 cycles=$TEHAS_HOME/state/cycles
 
 mkdir -p "$cycles" "$TEHAS_HOME/logs"
-# The runner and its container inherit this lock. If this process is killed
-# outright the place stays taken until they are gone too.
+# The runner and the docker client it starts inherit this lock. If this
+# process is killed outright the place stays taken until they are gone too.
 exec 9>"$cycles/$issue.lock"
 flock -w 5 9 || { log "a cycle for #$issue is already running"; exit 3; }
 : >"$cycles/$issue.taken"
@@ -60,7 +60,11 @@ relabel() { gh issue edit "$issue" --repo "$repo" "$@" >/dev/null 2>&1 || log "W
 # A workspace is kept only while a person may want to read it. Only a
 # directory under one that tehas work marked is removed, as tehas work does.
 tidy() {
-  if [ -f "$(dirname "$workdir")/.tehas-workspaces" ]; then rm -rf "$workdir"; fi
+  if [ -f "$(dirname "$workdir")/.tehas-workspaces" ]; then
+    rm -rf "$workdir" || log "WARN: could not remove the workspace $workdir"
+  else
+    log "WARN: $(dirname "$workdir") is not marked by tehas work, leaving the workspace $workdir"
+  fi
 }
 
 started=$(date +%s)

@@ -16,19 +16,21 @@
 # corrects it. Needs TEHAS_HOME.
 
 tehas_live_assemble() {
-  local live=$TEHAS_HOME/live f files=() now marker tmp issues i
+  local live=$TEHAS_HOME/live f files=() now marker tmp view issues i lost
   now=$(date +%s)
   for f in "$live"/cycles/*.json; do
     [ -e "$f" ] || continue
     # A cycle writes every ten seconds. Two minutes of silence is a cycle
     # that died without saying so; it must not stay on the page as running.
     # It ended when it was found, so it counts from now, not from its last
-    # heartbeat. The temporary name is not the one tehas work uses.
+    # heartbeat. The temporary names start with a dot and end in .new: the
+    # docs server hides those, and the glob above does not match them.
     if jq -e --argjson now "$now" '.running == true and ((.updatedAt // 0) < $now - 120)' "$f" >/dev/null 2>&1; then
-      if jq -c --argjson now "$now" '.running = false | .status = "lost" | .updatedAt = $now' "$f" >"$f.lost.$$" 2>/dev/null; then
-        mv "$f.lost.$$" "$f"
+      lost=${f%/*}/.${f##*/}.lost.$$.new
+      if jq -c --argjson now "$now" '.running = false | .status = "lost" | .updatedAt = $now' "$f" >"$lost" 2>/dev/null; then
+        mv "$lost" "$f"
       else
-        rm -f "$f.lost.$$"
+        rm -f "$lost"
       fi
     fi
     files+=("$f")
@@ -37,8 +39,9 @@ tehas_live_assemble() {
   [ "${#files[@]}" -gt 0 ] || return 0
   # A file newer than the marker was written after the files were read, so
   # the view says nothing about it and it is not pruned.
-  marker=$live/running.json.mark.$$
-  tmp=$live/running.json.$$
+  marker=$live/.running.$$.mark.new
+  tmp=$live/.running.$$.new
+  view=$live/.running.$$.view.new
   : >"$marker"
   if ! jq -c -s '
       (map(select(.running == true)) | sort_by(.startedAt, .issue)) as $cycles
@@ -50,8 +53,8 @@ tehas_live_assemble() {
     return 1
   fi
   issues=$(jq -r '.prune[]' "$tmp" 2>/dev/null)
-  if ! jq -c .view "$tmp" >"$tmp.view" 2>/dev/null || ! mv "$tmp.view" "$live/running.json"; then
-    rm -f "$tmp" "$tmp.view" "$marker"
+  if ! jq -c .view "$tmp" >"$view" 2>/dev/null || ! mv "$view" "$live/running.json"; then
+    rm -f "$tmp" "$view" "$marker"
     return 1
   fi
   # Only the last finished cycle is shown, so only its file is kept.
