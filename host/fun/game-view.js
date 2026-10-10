@@ -74,15 +74,19 @@
     const clean = (w) => String(w).toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 10);
     const explicit = raw && Array.isArray(raw.buzzwords) ? raw.buzzwords : [];
     const counts = new Map();
+    const stop = new Set(("the and for with from this that should would could when while into onto your their there about " +
+      "after before also have has had are was were will can not but all any our you its use make add show fix new more " +
+      "each than then them through off under over between across tehas ready running awaiting-merge").split(" "));
     if (explicit.length) {
+      // A list that came with the data: the queue snapshot counts every issue
+      // of the repository, not only the tickets on the line.
       for (const item of explicit) {
-        const word = clean(typeof item === "string" ? item : item && item.word);
-        if (word.length >= 3) counts.set(word, Math.max(1, Number(item && item.count) || 1));
+        const said = String(typeof item === "string" ? item : (item && item.word) || "").toLowerCase();
+        const word = clean(said);
+        if (word.length < 3 || stop.has(said)) continue;
+        counts.set(word, (counts.get(word) || 0) + Math.max(1, Number(item && item.count) || 1));
       }
     } else {
-      const stop = new Set(("the and for with from this that should would could when while into onto your their there about " +
-        "after before also have has had are was were will can not but all any our you its use make add show fix new more " +
-        "each than then them through off under over between across tehas ready running awaiting-merge").split(" "));
       for (const t of tickets) {
         for (const word of (t.title + " " + t.labels.join(" ")).toLowerCase().match(/[a-z][a-z0-9-]{2,}/g) || []) {
           if (!stop.has(word)) counts.set(clean(word), (counts.get(clean(word)) || 0) + 1);
@@ -540,7 +544,7 @@
     };
     for (const key of ["queued", "running", "awaiting", "stopped"]) take(key, false);
     take("completed", true);
-    const data = normalize({ issues: [...byNumber.values()], paused: Boolean(s.paused) });
+    const data = normalize({ issues: [...byNumber.values()], paused: Boolean(s.paused), buzzwords: s.buzzwords });
     data.live = true;
     return data;
   }
@@ -577,6 +581,8 @@
     const all = s.links && typeof s.links.all === "string" && s.links.all.startsWith("https://") ? s.links.all : null;
     queue.all = all;
     const data = fromSnapshot(s);
+    // The words can change while the tickets on the line stay as they were.
+    if (state.live) words = data.words;
     const signature = JSON.stringify([data.paused, data.tickets.map((t) => [t.number, t.title, t.stage, t.updatedAt, t.closedAt])]);
     if (!state.live) {
       queue.signature = signature;
