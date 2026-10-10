@@ -10,6 +10,10 @@
 #                        Returns 78 with one line on stderr when it cannot. It
 #                        never exits, because login shells source it too.
 #   tehas_require NAME.. exit 78 unless each named setting is set and valid.
+#   tehas_require_instance_settings
+#                        exit 78 unless every setting an instance has to set for
+#                        itself is set and valid. One list, so no command that
+#                        checks it before changing anything has its own copy.
 #   tehas_checkout       check the product checkout is a clone of TEHAS_REPO;
 #                        returns 78 if not.
 #   tehas_branch         print the branch work lands on; returns 78 if unknown.
@@ -18,7 +22,7 @@
 #   here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 #   . "$here/../lib/config.sh"
 #   tehas_load || exit 78
-#   tehas_require TEHAS_REPO ...
+#   tehas_require TEHAS_REPO ...   (or tehas_require_instance_settings)
 #
 # Rules:
 #   - instance.env is authoritative. Settings of the same name in the
@@ -205,6 +209,14 @@ tehas_require() {
     [ -n "${!name:-}" ] && [ -n "${!name// /}" ] || { tehas_err "$name is not set (see $file)"; exit 78; }
     reason=$(_tehas_valid "$name" "${!name}") || { tehas_err "$name is not valid: $reason (see $file)"; exit 78; }
   done
+}
+
+# The settings an instance has to set itself, because nothing here can give
+# them a sensible default. install.sh, tehas-dispatch and tehas-update each
+# check this one list before they call GitHub, Docker, git or write a file.
+tehas_require_instance_settings() {
+  tehas_require TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS \
+    PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
 }
 
 # The product checkout must exist and be a clone of TEHAS_REPO: issues are

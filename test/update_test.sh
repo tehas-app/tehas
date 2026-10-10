@@ -1,32 +1,73 @@
 #!/usr/bin/env bash
 # Tests for bin/tehas-update: the checkout steps, what install.sh is asked to
 # do, and which follow-ups an update may run. git runs for real against a bare
-# repository in the scratch directory (no network); install.sh, the sandbox
-# build, docker and systemctl are stubs that record their arguments.
+# repository in the scratch directory (no network); one case runs this
+# repository's real install.sh in the stubbed host, so both sides of the
+# follow-up protocol are checked against its producer. The sandbox build, docker,
+# systemctl and timeout are stubs that record their arguments.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh"
+# The one place the follow-ups are named. Every case that needs install.sh's
+# "next:" lines takes them from here, so the fixture is the text install.sh
+# produces rather than a copy of it someone could keep out of step.
+# shellcheck source=lib/update-steps.sh
+. "$T_ROOT/lib/update-steps.sh"
 
 update="$T_ROOT/bin/tehas-update"
 th=$T/home/tehas
 checkout=$th/platform
+owed_file=$(TEHAS_HOME=$th tehas_pending_file)   # the path, from the one definition
 
-t_stub docker
-# systemctl that answers the question: every unit it is asked about is active.
-# is-active names the state on its own line, and only that word means anything
-# to the command, so a stub that stays silent is one that gave no answer.
-t_stub systemctl 'if [ "$2" = is-active ]; then echo active; fi'
-T_ENV=()
+# The host's normal answers: containers running, every unit active, and a
+# timeout that records what it bounds and then runs the real one. platform()
+# puts them back for each case, because a stub an earlier case installed would
+# otherwise answer this one.
+docker_up() { t_stub docker 'if [ "$1" = ps ]; then printf "c1\n"; fi'; }
+systemctl_active() { t_stub systemctl 'if [ "$2" = is-active ]; then echo active; fi'; }
+real_timeout=$(command -v timeout)
+bound_calls() { t_stub timeout "exec $real_timeout \"\$@\""; }
+
+# docker that answers ps for the docs project only, which is what a host without
+# a Protolab server looks like. The liveness question is `docker ps --quiet
+# --filter label=com.docker.compose.project=<name>`; the renewal is
+# `docker compose -f <file> up -d`, so ps is the first argument and the label the
+# fourth.
+docker_up_docs() { t_stub docker 'if [ "$1" = ps ]; then case "$4" in *tehas-docs) printf "c1\n" ;; esac; fi'; }
+# docker that cannot answer the question at all: no daemon, or a docker with no
+# compose plugin. The command must not read that as "no container is running".
+docker_no_answer() { t_stub docker 'if [ "$1" = ps ]; then echo "could not connect to the Docker daemon" >&2; exit 125; fi'; }
+
+# systemctl that prints an error and still exits 0, which is what the wrapper
+# some containers ship in place of systemd does. Neither an answer of "active"
+# nor one of "inactive": the command has to refuse it.
+systemctl_no_answer() { t_stub systemctl 'if [ "$2" = is-active ]; then echo "systemd is not running in this container"; exit 0; fi'; }
 
 # install.sh as this case wants it answered. It records that it ran, so a case
 # can tell "ran with no arguments" from "never ran". It lives in the fake
 # checkout and is committed with it: an uncommitted stub would read as a local
 # change, which is one of the things the command refuses.
-write_install() { # <what the stub prints>
+write_install() { # <what the stub prints> [<dir to write it in>]
+  local dir=${2:-$checkout}
   printf '#!/usr/bin/env bash\nprintf "install %%s\\n" "%s" >>"%s/install"\n%s\n' \
-    '${*:-}' "$T/calls" "$1" >"$checkout/install.sh"
-  chmod +x "$checkout/install.sh"
+    '${*:-}' "$T/calls" "$1" >"$dir/install.sh"
+  chmod +x "$dir/install.sh"
 }
+
+# The follow-ups install.sh asks for when its units, its sandbox files and both
+# compose servers changed - taken from lib/update-steps.sh, in the order it
+# prints them (systemd first), which is the order an update runs them in.
+next_lines() {
+  tehas_steps_for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env \
+    edge/docs.compose.yaml edge/protolab.compose.yaml
+}
+
+# install.sh asking for every follow-up it knows, as an install stub body.
+ask_all() {
+  printf 'echo "installed: bin/tehas-update"\n'
+  while IFS= read -r step; do printf 'echo "next: %s"\n' "$step"; done < <(next_lines)
+}
+ASK=$(ask_all)
 
 # A platform checkout with a remote beside it, plus the parts of a host an
 # update touches. Arguments: how many commits the remote holds that the
@@ -35,9 +76,15 @@ platform() { # [behind] [install body]
   local n=${1:-0} body=${2-}
   [ -n "$body" ] || body='echo "installed: nothing"'
   rm -rf "$th" "$T/origin" "$T/upstream" "$T/calls"/*
+  systemctl_active
+  docker_up
+  bound_calls
   mkdir -p "$checkout/bin" "$checkout/lib" "$th/sandbox" "$th/edge"
   write_install "$body"
-  : >"$checkout/lib/config.sh"
+  # The libraries the checkout carries are this repository's own: after a
+  # fast-forward, tehas-update re-checks the instance with the settings rules
+  # that came with the code it pulled.
+  cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/update-steps.sh" "$checkout/lib/"
   : >"$checkout/bin/tehas-work"
   git init -q --initial-branch=main "$checkout"
   git -C "$checkout" config user.name test
@@ -70,6 +117,20 @@ push_one() { # <line to append>
   git -C "$T/upstream" push -q origin main
 }
 
+# New install.sh content on the remote, as somebody else's commit: the next run
+# pulls it without wiping the host, so a case can watch what an earlier run owed
+# survive into this one.
+push_install() { # <what the stub prints>
+  rm -rf "$T/upstream"
+  git clone -q "$T/origin" "$T/upstream"
+  git -C "$T/upstream" config user.name other
+  git -C "$T/upstream" config user.email other@example.com
+  write_install "$1" "$T/upstream"
+  git -C "$T/upstream" add -A
+  git -C "$T/upstream" commit -qm "new install.sh"
+  git -C "$T/upstream" push -q origin main
+}
+
 # A branch of its own on the remote, as another person would have pushed it.
 push_branch() { # <branch name>
   rm -rf "$T/upstream"
@@ -83,39 +144,87 @@ push_branch() { # <branch name>
   git -C "$T/upstream" push -q origin "$1"
 }
 
-# Where the checkout stands: branch, its commit, what origin has.
+# Where the checkout stands: branch, its commit, what origin has. Twelve hex
+# chars, which is what the command prints: git's own --short grows with the object
+# count, and a test that compared two of those could disagree for the wrong reason.
 state() {
   printf '%s %s %s\n' \
     "$(git -C "$checkout" symbolic-ref --quiet --short HEAD)" \
-    "$(git -C "$checkout" rev-parse --short HEAD)" \
-    "$(git -C "$checkout" rev-parse --short refs/remotes/origin/main 2>/dev/null || echo none)"
+    "$(git -C "$checkout" rev-parse --short=12 HEAD)" \
+    "$(git -C "$checkout" rev-parse --short=12 refs/remotes/origin/main 2>/dev/null || echo none)"
 }
-head_sha() { git -C "$checkout" rev-parse --short HEAD; }
+head_sha() { git -C "$checkout" rev-parse --short=12 HEAD; }
+owed_steps() { cat "$owed_file" 2>/dev/null || true; }
 
 instance() { t_instance "${T_MINIMAL[@]}"; }
+# An instance install.sh accepts too: it wants the model list beside the settings.
+instance_models() {
+  instance
+  printf '%s\n' '{"providers": {"test-provider": {"models": [{"id": "test-model"}]}}}' \
+    >"$TEHAS_INSTANCE_DIR/models.json"
+}
 
-# docker that answers ps with a running container: for every compose file, or
-# for the docs server only, which is what a host without a Protolab server
-# looks like. The calls are `docker compose -f <file> ps --quiet` and
-# `... up -d`, so the subcommand is the fourth argument and the file the third.
-docker_up() { t_stub docker 'if [ "$4" = ps ]; then printf "c1\n"; fi'; }
-docker_up_docs() { t_stub docker 'if [ "$4" = ps ]; then case "$3" in *docs.compose.yaml ) printf "c1\n" ;; esac; fi'; }
-# docker that cannot answer the question at all: no daemon, or a docker with no
-# compose plugin. The command must not read that as "no container is running".
-docker_no_answer() { t_stub docker 'if [ "$4" = ps ]; then echo "could not connect to the Docker daemon" >&2; exit 125; fi'; }
+# The platform checkout, its remote, and the parts of a host an update touches,
+# with this repository's real install.sh, its libraries and its host/ files in
+# the checkout. A case can then run the seam between the two commands against
+# its producer.
+real_platform() {
+  rm -rf "${T:?}/home" "$T/origin" "$T/upstream" "$T/calls"/*
+  mkdir -p "$T/home"
+  systemctl_active
+  docker_up
+  bound_calls
+  mkdir -p "$checkout"
+  cp -R "$T_ROOT/install.sh" "$T_ROOT/bin" "$T_ROOT/lib" "$T_ROOT/host" "$checkout/"
+  chmod +x "$checkout/install.sh"
+  git init -q --initial-branch=main "$checkout"
+  git -C "$checkout" config user.name test
+  git -C "$checkout" config user.email test@example.com
+  git -C "$checkout" add -A
+  git -C "$checkout" commit -qm first
+  git clone --bare -q "$checkout" "$T/origin"
+  git -C "$checkout" remote add origin "$T/origin"
+  push_one "change 1"
+}
 
-# systemctl that prints an error and still exits 0, which is what the wrapper
-# some containers ship in place of systemd does. Neither an answer of "active"
-# nor one of "inactive": the command has to refuse it.
-systemctl_no_answer() { t_stub systemctl 'if [ "$2" = is-active ]; then echo "systemd is not running in this container"; exit 0; fi'; }
+# The order an update ran the steps it was asked for, read off its own lines.
+step_order() {
+  printf '%s\n' "$t_out" | sed -n 's/^\(systemd: restarted\|sandbox: building\|docs: updating\|protolab: updating\).*/\1/p'
+}
 
-# install.sh asking for every follow-up it knows: the sandbox build, both
-# compose servers, and units to enable and start.
-ASK='echo "installed: bin/tehas-update"
-echo "next: <TH>/sandbox/build.sh"
-echo "next: . <TH>/env.sh && docker compose -f <TH>/edge/docs.compose.yaml up -d"
-echo "next: . <TH>/env.sh && docker compose -f <TH>/edge/protolab.compose.yaml up -d --force-recreate"
-echo "next: systemctl --user enable --now tehas-dispatch.timer tehas-energy.service"'
+# A change on the remote that adds a required setting to lib/config.sh, as some-
+# body else's commit: the run pulls it, and the rules it then has to answer are
+# the ones that came with it.
+push_settings_change() {
+  rm -rf "$T/upstream"
+  git clone -q "$T/origin" "$T/upstream"
+  git -C "$T/upstream" config user.name other
+  git -C "$T/upstream" config user.email other@example.com
+  cat >>"$T/upstream/lib/config.sh" <<'EOF'
+# added by this case: a required setting nothing can give a default for.
+tehas_require_instance_settings() {
+  tehas_require TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS \
+    PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER TEHAS_NEW_SETTING
+}
+EOF
+  git -C "$T/upstream" add -A
+  git -C "$T/upstream" commit -qm "a change that adds a required setting"
+  git -C "$T/upstream" push -q origin main
+}
+
+# A checkout whose lib/config.sh predates the helpers this command calls for its
+# pre-check. It defers to install.sh, which checks the settings itself, rather than
+# reporting the missing function as a settings problem.
+push_old_config() {
+  rm -rf "$T/upstream"
+  git clone -q "$T/origin" "$T/upstream"
+  git -C "$T/upstream" config user.name other
+  git -C "$T/upstream" config user.email other@example.com
+  printf '%s\n' 'tehas_require_instance_settings() { return 0; }' >"$T/upstream/lib/config.sh"
+  git -C "$T/upstream" add -A
+  git -C "$T/upstream" commit -qm "a lib/config.sh that does not define tehas_load"
+  git -C "$T/upstream" push -q origin main
+}
 
 t_case "missing settings stop it before git, install.sh, Docker or systemctl"
 instance
@@ -161,6 +270,8 @@ platform 0
 t_run "$update --check --help"
 t_eq "$t_rc" 64
 t_contains "$t_out" "tehas-update: takes at most one argument, got --check --help"
+# The same mistake answered the same way as in tehas-dispatch: the count is
+# refused before any of the arguments is read as a mode.
 t_eq "$(t_calls install)" ""
 
 t_case "--help prints the usage with no instance and no checkout"
@@ -204,88 +315,205 @@ t_eq "$(t_calls systemctl)" ""
 
 t_case "a fast-forward runs the follow-ups install.sh asked for"
 instance
-platform 1 "${ASK//<TH>/$th}"
-docker_up
+platform 1 "$ASK"
 before=$(head_sha)
 t_run "$update"
 t_eq "$t_rc" 0
 t_contains "$t_out" "checkout: fast-forwarded $before -> $(head_sha) (1 commits)"
 t_contains "$t_out" "installed: bin/tehas-update"
+# In the order install.sh printed them, systemd first. A line install.sh asked
+# for is not echoed back as if it were still work for a person to run.
+t_eq "$(step_order)" "systemd: restarted
+sandbox: building
+docs: updating
+protolab: updating"
+t_lacks "$t_out" "next:"
 t_eq "$(t_calls build)" "build"
-t_eq "$(t_calls docker)" "compose -f $th/edge/docs.compose.yaml ps --quiet
-compose -f $th/edge/docs.compose.yaml up -d
-compose -f $th/edge/protolab.compose.yaml ps --quiet
+t_eq "$(t_calls docker)" "ps --quiet --filter label=com.docker.compose.project=tehas-docs
+compose -f $th/edge/docs.compose.yaml up -d --force-recreate
+ps --quiet --filter label=com.docker.compose.project=tehas-protolab
 compose -f $th/edge/protolab.compose.yaml up -d --force-recreate"
-t_eq "$(t_calls systemctl)" "--user is-active tehas-dispatch.timer
+t_eq "$(t_calls systemctl)" "--user daemon-reload
+--user is-active tehas-dispatch.timer
 --user is-active tehas-energy.service
---user restart tehas-dispatch.timer tehas-energy.service"
+--user is-active tehas-protolab.timer
+--user restart tehas-dispatch.timer tehas-energy.service tehas-protolab.timer"
+# Every call outside the command went through a timeout, install.sh included,
+# and nothing is owed now.
+t_eq "$(t_calls timeout | sed 's/^[0-9]* //')" "git -C $checkout fetch --prune origin
+$checkout/install.sh
+systemctl --user daemon-reload
+systemctl --user is-active tehas-dispatch.timer
+systemctl --user is-active tehas-energy.service
+systemctl --user is-active tehas-protolab.timer
+systemctl --user restart tehas-dispatch.timer tehas-energy.service tehas-protolab.timer
+$th/sandbox/build.sh
+docker ps --quiet --filter label=com.docker.compose.project=tehas-docs
+docker compose -f $th/edge/docs.compose.yaml up -d --force-recreate
+docker ps --quiet --filter label=com.docker.compose.project=tehas-protolab
+docker compose -f $th/edge/protolab.compose.yaml up -d --force-recreate"
+t_eq "$(owed_steps)" ""
 
 t_case "a container that is not running is left alone, a unit that is not active too"
 instance
+platform 1 "$ASK"
 docker_up_docs
 t_stub systemctl 'if [ "$2" = is-active ]; then
   case "$3" in *.timer ) echo active ;; * ) echo inactive; exit 3 ;; esac
 fi'
-platform 1 "${ASK//<TH>/$th}"
 t_run "$update"
 t_eq "$t_rc" 0
 t_contains "$t_out" "docs: updating the container"
 t_contains "$t_out" "protolab: not running on this host, left alone"
-t_eq "$(t_calls docker)" "compose -f $th/edge/docs.compose.yaml ps --quiet
-compose -f $th/edge/docs.compose.yaml up -d
-compose -f $th/edge/protolab.compose.yaml ps --quiet"
-t_eq "$(t_calls systemctl)" "--user is-active tehas-dispatch.timer
+t_eq "$(t_calls docker)" "ps --quiet --filter label=com.docker.compose.project=tehas-docs
+compose -f $th/edge/docs.compose.yaml up -d --force-recreate
+ps --quiet --filter label=com.docker.compose.project=tehas-protolab"
+t_eq "$(t_calls systemctl)" "--user daemon-reload
+--user is-active tehas-dispatch.timer
 --user is-active tehas-energy.service
---user restart tehas-dispatch.timer"
+--user is-active tehas-protolab.timer
+--user restart tehas-dispatch.timer tehas-protolab.timer"
+t_eq "$(owed_steps)" ""
+
+t_case "every state of systemd's active family restarts the unit"
+instance
+platform 1 "$ASK"
+# A unit between crash-loop attempts answers activating; one caught mid-reload
+# answers reloading. Both run on this host, so both have to get the new unit
+# file - and the update has to stay green, because that is a real answer.
+t_stub systemctl 'if [ "$2" = is-active ]; then
+  case "$3" in
+    tehas-dispatch.timer) echo activating ;;
+    tehas-energy.service) echo reloading ;;
+    *) echo active ;;
+  esac
+fi'
+t_run "$update"
+t_eq "$t_rc" 0
+t_contains "$t_out" "systemd: restarted tehas-dispatch.timer tehas-energy.service tehas-protolab.timer"
+t_lacks "$t_out" "no unit was restarted"
+
+t_case "a unit systemd does not know is an answer, and leaves that unit alone"
+instance
+platform 1 "$ASK"
+# The unit file is on the host but systemd has never loaded it: is-active says
+# unknown. That is not a failed query, and it is not a reason to stop.
+t_stub systemctl 'if [ "$2" = is-active ]; then
+  case "$3" in tehas-dispatch.timer ) echo unknown; exit 3 ;; * ) echo active ;; esac
+fi'
+t_run "$update"
+t_eq "$t_rc" 0
+t_contains "$t_out" "systemd: restarted tehas-energy.service tehas-protolab.timer"
+t_lacks "$t_out" "no unit was restarted"
 
 t_case "a docker query that fails stops the update instead of reading as not running"
 instance
+platform 1 "$ASK"
 docker_no_answer
-platform 1 "${ASK//<TH>/$th}"
 t_run "$update"
 t_eq "$t_rc" 1
-t_contains "$t_out" "docs: docker compose ps failed; nothing else was run"
+t_contains "$t_out" "docs: docker ps failed; the step is not done"
 t_contains "$t_out" "could not connect to the Docker daemon"
 t_lacks "$t_out" "not running on this host"
-# install.sh and the sandbox build ran; no container was upped, and the systemd
-# step was never reached.
-t_eq "$(t_calls docker)" "compose -f $th/edge/docs.compose.yaml ps --quiet"
-t_eq "$(t_calls systemctl)" ""
+# install.sh and the steps before docs ran: the units and the sandbox build. The
+# Protolab renewal was never reached, and is owed.
+t_eq "$(t_calls docker)" "ps --quiet --filter label=com.docker.compose.project=tehas-docs"
+t_eq "$(t_calls build)" "build"
+t_contains "$t_out" "systemd: restarted tehas-dispatch.timer"
+t_eq "$(owed_steps)" "docs --force-recreate
+protolab --force-recreate"
 
-t_case "a systemd query that fails stops the update instead of reading as inactive"
+t_case "a systemd query that fails stops the update before any other step"
 instance
-docker_up
+platform 1 "$ASK"
 t_stub systemctl 'if [ "$2" = is-active ]; then echo "Failed to connect to bus: No such file or directory" >&2; exit 1; fi'
-platform 1 "${ASK//<TH>/$th}"
 t_run "$update"
 t_eq "$t_rc" 1
 t_contains "$t_out" "systemd: systemctl is-active gave no answer for tehas-dispatch.timer; no unit was restarted"
 t_contains "$t_out" "Failed to connect to bus"
 t_lacks "$t_out" "none of them runs on this host"
-# The containers were renewed first; no unit was restarted.
-t_eq "$(t_calls docker)" "compose -f $th/edge/docs.compose.yaml ps --quiet
-compose -f $th/edge/docs.compose.yaml up -d
-compose -f $th/edge/protolab.compose.yaml ps --quiet
-compose -f $th/edge/protolab.compose.yaml up -d --force-recreate"
-t_eq "$(t_calls systemctl)" "--user is-active tehas-dispatch.timer"
+# systemd is the step install.sh asks for first, so nothing else ran, and all
+# four steps are still owed.
+t_eq "$(t_calls docker)" ""
+t_eq "$(t_calls build)" ""
+t_eq "$(owed_steps)" "units tehas-dispatch.timer tehas-energy.service tehas-protolab.timer
+sandbox
+docs --force-recreate
+protolab --force-recreate"
 
 t_case "a systemctl that prints an error and exits 0 is not read as active"
 instance
-docker_up
+platform 1 "$ASK"
 systemctl_no_answer
-platform 1 "${ASK//<TH>/$th}"
 t_run "$update"
 t_eq "$t_rc" 1
 t_contains "$t_out" "systemd: systemctl is-active gave no answer for tehas-dispatch.timer; no unit was restarted"
 t_contains "$t_out" "systemd is not running in this container"
 t_lacks "$t_out" "systemd: restarted"
 t_lacks "$t_out" "none of them runs on this host"
-# It was asked once, and the answer stopped the run before a restart.
-t_eq "$(t_calls systemctl)" "--user is-active tehas-dispatch.timer"
+# The reload was asked for first and answered cleanly; the state question was
+# asked once, and its answer stopped the run before any restart.
+t_eq "$(t_calls systemctl)" "--user daemon-reload
+--user is-active tehas-dispatch.timer"
+
+t_case "a call that hits its timeout fails saying so"
+instance
+platform 1 "$ASK"
+# A remote that stops answering: 124 is what timeout answers when a call runs
+# out of its limit.
+t_stub timeout 'echo "timed out"; exit 124'
+before=$(state)
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "could not fetch from origin; nothing was changed"
+t_contains "$t_out" "the fetch gave no answer in 120s"
+t_eq "$(state)" "$before"
+t_eq "$(t_calls install)" ""
+
+t_case "a step that fails is recorded, and the next run finishes it"
+instance
+platform 1 "$ASK"
+docker_no_answer
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "docs: docker ps failed; the step is not done"
+t_contains "$t_out" "2 of 4 follow-up(s) are not done, recorded in $owed_file"
+t_eq "$(owed_steps)" "docs --force-recreate
+protolab --force-recreate"
+
+# The next run: install.sh has nothing new to report - its one-shot list was
+# spent by the run that copied the files - and the containers come up anyway.
+docker_up
+push_install 'echo "tehas is up to date"'
+t_run "$update"
+t_eq "$t_rc" 0
+t_contains "$t_out" "follow-up(s) an earlier run did not finish (see $owed_file)"
+t_contains "$t_out" "next: docs"
+t_contains "$t_out" "docs: updating the container"
+t_contains "$t_out" "protolab: updating the container"
+# The steps that already ran are not run again.
+t_eq "$(t_calls build)" "build"
+t_eq "$(owed_steps)" ""
+
+t_case "--check reports follow-ups an earlier run left undone, and starts none"
+instance
+platform 0 'echo "Instance:     $TEHAS_INSTANCE_DIR OK"
+echo "Installed:    OK"'
+mkdir -p "$th/state"
+printf 'protolab --force-recreate\n' >"$owed_file"
+before=$(head_sha)
+t_run "$update --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "follow-up(s) an earlier run did not finish"
+t_contains "$t_out" "next: protolab --force-recreate"
+t_contains "$t_out" "Installed:    OK"
+t_eq "$(head_sha)" "$before"
+t_eq "$(t_calls docker)" ""
+# Nothing was started and nothing was taken back off the list.
+t_eq "$(owed_steps)" "protolab --force-recreate"
 
 t_case "a checkout on a branch that is not the remote's default says so"
 instance
-docker_up
 platform 0 'echo "installed: nothing"'
 push_branch other
 git -C "$checkout" fetch -q origin
@@ -300,7 +528,7 @@ t_eq "$(t_calls install)" "install "
 
 t_case "a dirty checkout changes nothing and runs no install.sh"
 instance
-platform 0 "${ASK//<TH>/$th}"
+platform 0 "$ASK"
 before=$(state)
 echo "half-finished work" >"$checkout/bin/new-thing"
 t_run "$update"
@@ -313,8 +541,7 @@ t_eq "$(t_calls build)" ""
 
 t_case "a checkout with commits of its own is not fast-forwarded"
 instance
-docker_up
-platform 0 "${ASK//<TH>/$th}"
+platform 0 "$ASK"
 echo local >"$checkout/notes"
 git -C "$checkout" add -A
 git -C "$checkout" commit -qm "local work"
@@ -337,6 +564,17 @@ t_contains "$t_out" "could not fetch from origin; nothing was changed"
 t_eq "$(head_sha)" "$before"
 t_eq "$(t_calls install)" ""
 
+t_case "a checkout on a branch with no commit yet says what is missing"
+instance
+platform 0 'echo "installed: nothing"'
+git -C "$checkout" checkout -q --orphan brand-new
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "on branch brand-new with no commit yet; nothing was changed"
+t_lacks "$t_out" "cannot fast-forward"
+t_eq "$(git -C "$checkout" symbolic-ref --quiet --short HEAD)" "brand-new"
+t_eq "$(t_calls install)" ""
+
 t_case "a detached checkout is refused rather than pulled into"
 instance
 platform 0 'echo "installed: nothing"'
@@ -348,7 +586,6 @@ t_eq "$(t_calls install)" ""
 
 t_case "a failed install stops before the follow-ups"
 instance
-docker_up
 platform 2 'echo "installed: bin/tehas-dispatch"
 echo "tehas: /x is missing from this checkout" >&2
 exit 1'
@@ -364,7 +601,6 @@ t_eq "$(t_calls docker)" ""
 
 t_case "invalid instance settings found by install.sh are passed through as 78"
 instance
-docker_up
 platform 0 'echo "tehas: models.json does not list model x" >&2
 exit 78'
 t_run "$update"
@@ -372,9 +608,30 @@ t_eq "$t_rc" 78
 t_contains "$t_out" "install: install.sh exited 78"
 t_eq "$(t_calls build)" ""
 
+t_case "settings the pulled checkout adds are answered before anything is installed"
+instance
+platform 1 "$ASK"
+push_settings_change
+t_run "$update"
+t_eq "$t_rc" 78
+t_contains "$t_out" "the checkout this update pulled asks for settings this instance does not have"
+t_contains "$t_out" "TEHAS_NEW_SETTING is not set"
+t_eq "$(t_calls install)" ""
+t_eq "$(t_calls build)" ""
+t_eq "$(t_calls docker)" ""
+
+t_case "a checkout whose config.sh predates the settings helpers defers to install.sh"
+instance
+platform 1 'echo "installed: nothing"'
+push_old_config
+t_run "$update"
+t_eq "$t_rc" 0
+t_contains "$t_out" "does not define tehas_load; install.sh will check the settings itself"
+t_lacks "$t_out" "asks for settings this instance does not have"
+t_eq "$(t_calls install)" "install "
+
 t_case "--check reports what would change and leaves the checkout as it was"
 instance
-docker_up
 platform 2 'echo "Instance:     $TEHAS_INSTANCE_DIR OK"
 echo "Installed:    DRIFT (1 files)"
 echo "  differs: '"$th"'/bin/tehas-dispatch"
@@ -385,6 +642,9 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "checkout: would fast-forward"
 t_contains "$t_out" "DRIFT (1 files)"
 t_lacks "$t_out" "installed:"
+# install.sh --check answers 1 when it found drift. That is its report, not a
+# failed step: in check mode nothing was meant to run.
+t_lacks "$t_out" "no follow-up was run"
 # Nothing moved: no merge, no file changed, nothing started.
 t_eq "$(head_sha)" "$before"
 t_eq "$(git -C "$checkout" status --porcelain)" ""
@@ -415,30 +675,74 @@ t_contains "$t_out" "checkout: main is up to date at $(head_sha)"
 t_eq "$(head_sha)" "$before"
 t_eq "$(t_calls install)" "install --check"
 
-t_case "a follow-up this command does not know stays a line for a person"
+t_case "a follow-up that names no step this command knows is said out loud, not run"
 instance
-docker_up
-platform 0 'echo "next: docker compose -f /somewhere/else.compose.yaml up -d"
-echo "next: rm -rf something"'
+platform 0 'echo "next: rm -rf something"
+echo "next: docker compose -f /somewhere/else.compose.yaml up -d"'
 t_run "$update"
-t_eq "$t_rc" 0
+t_eq "$t_rc" 1
+t_contains "$t_out" "WARN: 2 step line(s) name no step this command knows"
 t_contains "$t_out" "next: rm -rf something"
 t_eq "$(t_calls docker)" ""
+t_eq "$(t_calls build)" ""
 
-t_case "a systemd line that names no unit stays a line for a person"
+t_case "a step line whose names are not unit names never reaches systemctl"
 instance
-docker_up
-# The trailing space is the whole line: enable --now with nothing after it.
-platform 0 'echo "next: systemctl --user enable --now "'
+platform 0 'echo "next: units --help tehas-dispatch.timer"'
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "WARN: 1 step line(s) name no step this command knows"
+t_contains "$t_out" "next: units --help tehas-dispatch.timer"
+t_eq "$(t_calls systemctl)" ""
+
+t_case "a units step that names no unit is not run"
+instance
+platform 0 'echo "next: units"'
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "WARN: 1 step line(s) name no step this command knows"
+t_contains "$t_out" "next: units"
+t_eq "$(t_calls systemctl)" ""
+
+t_case "a step asking for an argument it was not given is not run"
+instance
+platform 0 'echo "next: docs restart"'
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "WARN: 1 step line(s) name no step this command knows"
+t_eq "$(t_calls docker)" ""
+
+# The flag is part of the step, not decoration. docker compose up -d without
+# --force-recreate leaves a running container serving the config it loaded at its
+# start - so a bare docs would renew nothing, be counted as done, and leave the run
+# green with a changed Caddyfile unapplied.
+t_case "a compose step without its flag is not run, and stays owed"
+instance
+platform 0 'echo "next: docs"'
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "WARN: 1 step line(s) name no step this command knows"
+t_contains "$t_out" "next: docs"
+t_eq "$(t_calls docker)" ""
+t_eq "$(owed_steps)" "docs"
+
+t_case "install.sh's diagnostics are not read as follow-ups"
+instance
+platform 0 'echo "installed: bin/tehas-dispatch"
+echo "next: sandbox" >&2
+echo "tehas: a step on this host did not run" >&2'
 t_run "$update"
 t_eq "$t_rc" 0
-t_contains "$t_out" "next: systemctl --user enable --now"
-t_eq "$(t_calls systemctl)" ""
+# stderr stays stderr, and is not parsed for steps: no build ran, and no WARN
+# claims install.sh asked for one.
+t_contains "$t_out" "tehas: a step on this host did not run"
+t_contains "$t_out" "next: sandbox"
+t_lacks "$t_out" "WARN:"
+t_eq "$(t_calls build)" ""
+t_eq "$(t_calls docker)" ""
 
 t_case "a status of install.sh this command does not know is reported as 1"
 instance
-docker_up
-# What bash answers when the file lost its exec bit, as a flattened copy does.
 platform 0 'echo "bash: Permission denied" >&2
 exit 126'
 t_run "$update"
@@ -449,24 +753,23 @@ t_eq "$(t_calls docker)" ""
 
 t_case "a compose file that is not installed stops the update"
 instance
-docker_up
-ask='echo "next: <TH>/sandbox/build.sh"
-echo "next: . <TH>/env.sh && docker compose -f <TH>/edge/protolab.compose.yaml up -d --force-recreate"'
-platform 1 "${ask//<TH>/$th}"
+ask='echo "next: sandbox"
+echo "next: protolab --force-recreate"'
+platform 1 "$ask"
 rm "$th/edge/protolab.compose.yaml"
 t_run "$update"
 t_eq "$t_rc" 1
 t_contains "$t_out" "protolab: $th/edge/protolab.compose.yaml is not installed, left alone"
 t_lacks "$t_out" "protolab: updating the container"
 t_eq "$(t_calls docker)" ""
-# Steps run in the order install.sh printed them: the build that came first on
-# that list ran, and the failure stopped the run after it.
+# The steps run in the order lib/update-steps.sh lists them: the build that came
+# before protolab ran, and the failure stopped the run after it.
 t_eq "$(t_calls build)" "build"
+t_eq "$(owed_steps)" "protolab --force-recreate"
 
 t_case "a sandbox build that is not installed stops the update"
 instance
-docker_up
-platform 0 "echo \"next: $th/sandbox/build.sh\""
+platform 0 'echo "next: sandbox"'
 chmod -x "$th/sandbox/build.sh"
 t_run "$update"
 t_eq "$t_rc" 1
@@ -476,7 +779,6 @@ t_eq "$(t_calls docker)" ""
 
 t_case "a branch origin does not have stops before install.sh"
 instance
-docker_up
 platform 0 'echo "installed: nothing"'
 git -C "$checkout" checkout -q -b local-only
 before=$(head_sha)
@@ -486,5 +788,193 @@ t_contains "$t_out" "checkout: origin has no branch local-only in $checkout; not
 t_eq "$(git -C "$checkout" symbolic-ref --quiet --short HEAD)" "local-only"
 t_eq "$(head_sha)" "$before"
 t_eq "$(t_calls install)" ""
+
+# The record is the memory an unfinished run leaves behind, so it is read as what
+# it says or not at all. A file this account cannot open is not an answer of
+# "nothing owed": the next write would replace steps somebody else recorded with
+# what this run happened to know.
+t_case "a follow-up record that cannot be read stops the update before anything runs"
+instance
+platform 1 "$ASK"
+before=$(state)
+mkdir -p "$th/state"
+printf 'sandbox\ndocs --force-recreate\n' >"$owed_file"
+chmod 000 "$owed_file"
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "cannot read the follow-up record $owed_file"
+t_contains "$t_out" "nothing was run"
+# Nothing ran: no merge, no install.sh, no step.
+t_eq "$(state)" "$before"
+t_eq "$(t_calls install)" ""
+t_eq "$(t_calls build)" ""
+t_eq "$(t_calls docker)" ""
+# The steps that were owed are still there.
+chmod 644 "$owed_file"
+t_eq "$(owed_steps)" "sandbox
+docs --force-recreate"
+
+t_case "a record that turned unreadable after install.sh stops the follow-ups"
+instance
+platform 1 'echo "next: sandbox"
+chmod 000 "$TEHAS_HOME/state/update-pending"'
+mkdir -p "$th/state"
+printf 'docs --force-recreate\n' >"$owed_file"
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "cannot be read; no follow-up was run"
+t_eq "$(t_calls build)" ""
+t_eq "$(t_calls docker)" ""
+chmod 644 "$owed_file"
+t_eq "$(owed_steps)" "docs --force-recreate"
+
+t_case "a record that cannot be written stops the run before any step"
+instance
+platform 1 'echo "next: sandbox"'
+mkdir -p "$th/state"
+chmod 500 "$th/state"
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "could not make a temporary file beside $owed_file"
+t_eq "$(t_calls build)" ""
+chmod 755 "$th/state"
+
+t_case "a failed run leaves the record, and nothing else, in state/"
+instance
+platform 1 "$ASK"
+docker_no_answer
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "2 of 4 follow-up(s) are not done"
+# Each rewrite goes through a temporary file moved over the record, so a run that
+# died mid-write leaves the steps already owed there rather than half of a new list
+# - and a run that finished leaves no stray file.
+t_eq "$(ls -A "$th/state")" "update-pending"
+t_eq "$(owed_steps)" "docs --force-recreate
+protolab --force-recreate"
+
+# The seam between the two commands, checked against its producer: this
+# repository's real install.sh, run by tehas-update in the stubbed host.
+t_case "the real install.sh through tehas-update runs its follow-ups in its order"
+instance_models
+real_platform
+T_ENV=(T_IN_TEST=1)   # install.sh skips bootstrap and the tests inside a test
+t_run "$update"
+t_eq "$t_rc" 0
+t_contains "$t_out" "installed: $th/bin/tehas-update"
+t_contains "$t_out" "systemd: restarted tehas-dispatch.timer tehas-energy.service tehas-protolab.timer"
+t_contains "$t_out" "docs: updating the container"
+t_contains "$t_out" "protolab: updating the container"
+# The order install.sh prints is the order an update runs, and nothing is left
+# looking like work for a person.
+t_eq "$(step_order)" "systemd: restarted
+sandbox: building
+docs: updating
+protolab: updating"
+t_lacks "$t_out" "next:"
+t_eq "$(owed_steps)" ""
+T_ENV=()
+
+# The same seam with systemd refusing the reload: the step that restarts the
+# units stops, so the run ends red with everything owed rather than green with
+# unit files systemd never read.
+t_case "changed unit files are not reported as applied when systemd did not reload"
+instance_models
+real_platform
+t_stub systemctl 'if [ "$2" = daemon-reload ]; then echo "Failed to connect to bus: No such file or directory" >&2; exit 1; fi
+if [ "$2" = is-active ]; then echo active; fi'
+T_ENV=(T_IN_TEST=1)
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "systemd: systemctl --user daemon-reload did not run; the changed unit files are not in effect, no unit was restarted, and the step is not done"
+t_contains "$t_out" "Failed to connect to bus"
+t_lacks "$t_out" "systemd: restarted"
+# Nothing after the units step ran, and every step install.sh recorded is owed.
+t_lacks "$t_out" "docs: updating the container"
+t_eq "$(owed_steps)" "$(next_lines)"
+
+# The next run on the same host, with systemd answering: install.sh has nothing
+# new to report - its one-shot list was spent by the run that copied the files -
+# and the steps it recorded then are finished now.
+t_stub systemctl 'if [ "$2" = is-active ]; then echo active; fi'
+t_run "$update"
+t_eq "$t_rc" 0
+t_contains "$t_out" "follow-up(s) an earlier run did not finish (see $owed_file)"
+t_contains "$t_out" "systemd: restarted tehas-dispatch.timer tehas-energy.service tehas-protolab.timer"
+t_contains "$t_out" "docs: updating the container"
+t_eq "$(owed_steps)" ""
+T_ENV=()
+
+t_case "a step line no version here knows stays owed until something knows it"
+# The producer and the consumer of a step can be two versions of tehas: install.sh
+# comes from the checkout it just pulled, this command is the one that was running.
+# The line cannot be dropped, or the host would go green with the step never done.
+instance
+platform 0 'echo "next: renew-dashboard --now"'
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "WARN: 1 step line(s) name no step this command knows"
+t_eq "$(owed_steps)" "renew-dashboard --now"
+# The next run, install.sh reporting nothing new: still not run, still recorded,
+# still red.
+push_install 'echo "tehas is up to date"'
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "WARN: 1 step line(s) name no step this command knows"
+t_contains "$t_out" "next: renew-dashboard --now"
+t_eq "$(owed_steps)" "renew-dashboard --now"
+
+t_case "steps an install.sh that died partway recorded are run by the next one"
+instance
+platform 1 'echo "installed: bin/tehas-dispatch"
+. "$T_ROOT/lib/update-steps.sh"
+tehas_record_steps sandbox "docs --force-recreate"
+echo "tehas: /x is missing from this checkout" >&2
+exit 1'
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "install: install.sh exited 1; no follow-up was run"
+# No report was printed, so nothing ran here - but the record it left behind is
+# what the next run works from.
+t_eq "$(t_calls build)" ""
+t_eq "$(owed_steps)" "sandbox
+docs --force-recreate"
+push_install 'echo "tehas is up to date"'
+t_run "$update"
+t_eq "$t_rc" 0
+t_contains "$t_out" "sandbox: building the image"
+t_contains "$t_out" "docs: updating the container"
+t_eq "$(owed_steps)" ""
+
+t_case "an install.sh that stops answering is stopped at its limit"
+instance
+platform 0 'sleep 3600'
+# Only the install call is answered with a timeout: 1800s is this command's limit
+# for install.sh, the step that copies files, checks dependencies and runs tests.
+t_stub timeout "case \"\$*\" in
+  *install.sh*) echo 'no answer'; exit 124 ;;
+  *) exec $real_timeout \"\$@\" ;;
+esac"
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "install: install.sh gave no answer in 1800s and was stopped"
+t_eq "$(owed_steps)" ""
+
+t_case "a step owed from an earlier run runs where its id says it runs"
+instance
+platform 1 'echo "next: units tehas-dispatch.timer"'
+mkdir -p "$th/state"
+printf 'docs --force-recreate\n' >"$owed_file"
+t_run "$update"
+t_eq "$t_rc" 0
+# systemd first, whatever order the two of them were recorded in.
+t_eq "$(step_order)" "systemd: restarted
+docs: updating"
+t_eq "$(owed_steps)" ""
+
+t_case "the compose files pin the project names the liveness check filters on"
+for pair in "docs.compose.yaml tehas-docs" "protolab.compose.yaml tehas-protolab"; do
+  t_contains "$(cat "$T_ROOT/host/edge/${pair%% *}")" "name: ${pair#* }"
+done
 
 t_done

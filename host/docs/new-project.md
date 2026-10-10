@@ -221,17 +221,25 @@ rm -rf "$T"
 
 ### 8. Start
 
+`install.sh` ends with one `next:` line per follow-up its changed files call for,
+named by id (`units`, `sandbox`, `docs`, `protolab`) rather than as a command, and
+records those steps as owed in `~/tehas/state/update-pending` while it copies. It
+starts nothing itself. On a first start the units are not enabled yet, and no
+update enables them, so:
+
 ```
-docker compose -f ~/tehas/edge/docs.compose.yaml up -d   # this site and the dashboard
+docker compose -f ~/tehas/edge/docs.compose.yaml up -d --force-recreate  # this site and the dashboard
 tehas-dispatch --init-labels
 tehas-dispatch --dry-run
-systemctl --user enable --now tehas-dispatch.timer
+systemctl --user daemon-reload
+systemctl --user enable --now tehas-dispatch.timer tehas-protolab.timer
+tehas-update        # runs the follow-ups install.sh recorded, and clears them
 ```
 
-`install.sh` also names `tehas-energy.service` in its follow-up line. That
-service is optional: enable it only when your model endpoint is a viiwork mesh,
-as the example's `fleet` provider is. With any other endpoint leave it
-disabled. See [tehas-energy](/tools).
+`install.sh` names `tehas-energy.service` in its `units` step too. That service is
+optional: enable it only when your model endpoint is a viiwork mesh, as the
+example's `fleet` provider is. With any other endpoint leave it disabled - an
+update restarts a unit only where it already runs. See [tehas-energy](/tools).
 
 Then label one small, well-specified issue with `tehas:ready` and watch it on
 the dashboard. [Operating tehas](/operating) takes it from there.

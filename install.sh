@@ -17,9 +17,18 @@
 #
 # Two things it does besides copying, on a real run only: the product checkout's
 # origin/HEAD is refreshed, so the commands know the default branch without
-# asking the network; and when a unit file changed, systemd is asked to reload
-# its unit files - only silence next to exit 0 means it did, and anything else
-# is said out loud, because the copied files are not in effect until it has.
+# asking the network; and each follow-up a copied file calls for is recorded in
+# $TEHAS_HOME/state/update-pending before that file is put, because this script's
+# report of what changed is one-shot - the next run compares again and finds the
+# file matching - so a run that dies partway would otherwise leave the files it
+# did copy with no follow-up owed.
+#
+# The follow-ups are named by id (units, sandbox, docs, protolab) in
+# lib/update-steps.sh, which is the one place that names them: this script prints
+# and records them, tehas-update runs them and clears the record. It asks systemd
+# for nothing itself - a copied unit file is not in effect until systemd has
+# reloaded it, and that reload belongs to the step that restarts the units, so no
+# command can report a changed unit as applied when it was not.
 #
 # Exit: 0 done or nothing to report, 1 --check found something or a step
 # failed, 78 the instance settings are invalid (nothing was changed).
@@ -32,6 +41,8 @@ check=0
 
 # shellcheck source=lib/config.sh
 . "$root/lib/config.sh"
+# shellcheck source=lib/update-steps.sh
+. "$root/lib/update-steps.sh"
 
 # --- 1. Instance settings ---------------------------------------------------
 # Every finding is one line. Any finding stops a real run before it changes
@@ -40,8 +51,7 @@ instance_findings() {
   local dir file models product_model mode owner group
   tehas_load 2>&1 || return 0
   dir=$TEHAS_INSTANCE_DIR
-  (tehas_require TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS \
-    PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER 2>&1) || return 0
+  (tehas_require_instance_settings 2>&1) || return 0
   models=$dir/models.json
   if [ ! -r "$models" ]; then
     echo "tehas: no models.json in $dir"
@@ -104,6 +114,7 @@ units=$HOME/.config/systemd/user
 files=(
   "env.sh|$TEHAS_HOME/env.sh|644"
   "lib/config.sh|$TEHAS_HOME/lib/config.sh|644"
+  "lib/update-steps.sh|$TEHAS_HOME/lib/update-steps.sh|644"
   "versions.env|$TEHAS_HOME/versions.env|644"
   "sandbox/Dockerfile|$TEHAS_HOME/sandbox/Dockerfile|644"
   "sandbox/build.sh|$TEHAS_HOME/sandbox/build.sh|755"
@@ -154,10 +165,22 @@ put() {
     if [ -f "$to" ]; then note "differs: $to"; else note "missing: $to"; fi
     return 0
   fi
+  # Owed before it is copied, not after: a copy that fails halfway leaves behind
+  # a record of what the copies so far asked for. tehas-update finishes the
+  # record and clears it; install.sh --check reports it while any of it is left.
+  record_step "$src"
   mkdir -p "$(dirname "$to")"
   [ -f "$to" ] && cp -p "$to" "$to.prev"
   install -m "$mode" "$from" "$to"
   echo "installed: $to"
+}
+
+# The step this source calls for, added to the record of steps owed. One call per
+# copied file, so the record is never behind what the host has already been given.
+record_step() { # one source path from the file table
+  local step steps=()
+  while IFS= read -r step; do steps+=("$step"); done < <(tehas_steps_for "$1")
+  if [ "${#steps[@]}" != 0 ]; then tehas_record_steps "${steps[@]}" || exit 1; fi
 }
 
 # --- 3. Install ---------------------------------------------------------------
@@ -208,6 +231,19 @@ if [ "$check" = 1 ]; then
     rc=1
   fi
 
+  # A follow-up an earlier tehas-update was asked for and never finished is
+  # still owed. Files matching is not enough to call a host current. A record
+  # this account cannot open is not an answer of "nothing owed" either: it holds
+  # steps, and this cannot say how many.
+  owed=$(tehas_pending_file)
+  if ! owed_lines=$(tehas_read_steps); then
+    echo "Follow-ups:   NOT DONE (the record $owed cannot be read)"
+    rc=1
+  elif [ -n "$owed_lines" ]; then
+    echo "Follow-ups:   NOT DONE ($(printf '%s\n' "$owed_lines" | wc -l) from an earlier run, see $owed)"
+    rc=1
+  fi
+
   if [ -n "${T_IN_TEST:-}" ]; then
     echo "Tests:        not checked (running inside the tests)"
   elif out=$("$root/bin/tehas-test" 2>&1); then
@@ -234,23 +270,11 @@ if [ "${#changed[@]}" = 0 ]; then
   echo "tehas is up to date"
   exit 0
 fi
-list=" ${changed[*]} "
-case "$list" in *" systemd/"*)
-  # A reload that did not happen is said out loud: without it the new unit
-  # files are not in effect, and the next line below asks for a restart of the
-  # old ones. Only silence next to exit 0 means it happened - a systemctl
-  # wrapper on a host with no systemd prints an error and still exits 0.
-  if ! reload=$(systemctl --user daemon-reload 2>&1); then
-    echo "tehas: systemctl --user daemon-reload failed; the changed unit files are not in effect" >&2
-    [ -n "$reload" ] && printf '%s\n' "$reload" | sed 's/^/  /' >&2
-  elif [ -n "$reload" ]; then
-    echo "tehas: systemctl --user daemon-reload gave no answer; the changed unit files are not in effect" >&2
-    printf '%s\n' "$reload" | sed 's/^/  /' >&2
-  fi
-  echo "next: systemctl --user enable --now tehas-dispatch.timer tehas-energy.service tehas-protolab.timer" ;;
-esac
-case "$list" in *" sandbox/"* | *" versions.env "*) echo "next: $TEHAS_HOME/sandbox/build.sh" ;; esac
-# The compose file takes the bind address from the environment env.sh sets.
-case "$list" in *" edge/docs."*) echo "next: . $TEHAS_HOME/env.sh && docker compose -f $TEHAS_HOME/edge/docs.compose.yaml up -d" ;; esac
-case "$list" in *" edge/protolab."*) echo "next: . $TEHAS_HOME/env.sh && docker compose -f $TEHAS_HOME/edge/protolab.compose.yaml up -d --force-recreate" ;; esac
+# The follow-ups, by the ids lib/update-steps.sh defines: one line per step these
+# changed files call for, in the order they run. They are already in the record of
+# steps owed - recorded file by file above - and tehas-update is what runs them:
+# it reloads the unit files before restarting any unit, and a step that cannot be
+# performed leaves the run red and the step owed. A person who ran install.sh by
+# hand reads the same lines, and the record stays until tehas-update clears it.
+while IFS= read -r step; do echo "next: $step"; done < <(tehas_steps_for "${changed[@]}")
 exit 0
