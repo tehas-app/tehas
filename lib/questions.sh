@@ -6,7 +6,8 @@
 #   q_clean                          stdin to stdout: an agent's words, safe to post
 #   q_render <kind> <issue> <turn> <result.json>
 #                                    the body of a question comment
-#   q_answer <bot> <allowed logins>  stdin: the issue's comments as GraphQL
+#   q_answer <bot> <allowed logins> [comment id]
+#                                    stdin: the issue's comments as GraphQL
 #                                    answers them; stdout: what was answered
 #   q_untick                         stdin to stdout: a body with every box empty
 #
@@ -61,16 +62,23 @@ q_render() {
   printf '\n<!-- tehas:question kind=%s issue=%s turn=%s -->\n' "$kind" "$issue" "$turn"
 }
 
-# The newest question the bot asked, the boxes ticked in it and the newest
-# reply after it from an allowed account, last edited by none or by an allowed
+# The question the bot asked, the boxes ticked in it and the newest reply
+# after it from an allowed account, last edited by none or by an allowed
 # account. A marker proves nothing unless the
 # bot wrote the comment: anyone can paste one on a public issue.
+#
+# With a comment id the question is that comment and no other. An agent in a
+# container posts as the bot too, so the caller names the comment the host
+# itself has on record. Without an id it is the newest comment of the bot
+# with a marker: good enough to tell a person something, never to start work.
+# The marker's issue number is reported for the caller to compare.
 q_answer() {
-  jq -c --arg bot "$1" --arg allowed "$2" '
+  jq -c --arg bot "$1" --arg allowed "$2" --arg id "${3:-}" '
     ($allowed | split(" ")) as $list
     | (.data.repository.issue.comments.nodes // []) as $c
     | "<!-- tehas:question kind=(?<kind>[a-z]+) issue=(?<issue>[0-9]+) turn=(?<turn>[0-9]+) -->" as $re
-    | ($c | to_entries | map(select((.value.author.login // "") == $bot and (.value.body | test($re)))) | last) as $q
+    | ($c | to_entries | map(select((.value.author.login // "") == $bot and (.value.body | test($re))
+                                    and ($id == "" or (.value.databaseId | tostring) == $id))) | last) as $q
     | if $q == null then {asked: false} else
         ($q.value.body | capture($re)) as $m
         | ($q.value.body | split("\n") | map(select(test("^- \\[[ xX]\\] ")) | test("^- \\[[xX]\\]"))) as $boxes
@@ -79,7 +87,7 @@ q_answer() {
         | ($c[($q.key + 1):] | map(select((.author.login // "") as $a | ($list | index($a))
                   and ((.editor.login // "") as $e | $e == "" or ($list | index($e))))) | last) as $r
         | {asked: true, comment: $q.value.databaseId, body: $q.value.body, kind: $m.kind,
-           turn: ($m.turn | tonumber), boxes: ($boxes | length),
+           issue: ($m.issue | tonumber), turn: ($m.turn | tonumber), boxes: ($boxes | length),
            tick: (if ($ticks | length) == 0 then {status: "none"}
                   elif ($list | index($ed)) == null then {status: "stranger", by: $ed}
                   elif ($ticks | length) > 1 then {status: "many", by: $ed}

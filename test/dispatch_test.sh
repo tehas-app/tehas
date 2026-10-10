@@ -61,7 +61,7 @@ t_stub fake-index 'git -C "$T/home/tehas/repos/widget" rev-parse HEAD >"$T/calls
 
 reset() {
   rm -f "$T"/calls/* "$fx"/edit-* "$fx"/comments-* "$fx"/issue-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails
-  rm -rf "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-*
+  rm -rf "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-* "$T"/home/tehas/state/park-*
   echo '[]' >"$fx/asking.json"
   echo '[]' >"$fx/plans.json"
   echo '{"login":"tehas-bot"}' >"$fx/user.json"
@@ -87,11 +87,15 @@ comments() { # <issue> <question body> <editor or ""> [later comments as JSON]
 park_body() { # <retry box> <leave box>
   printf 'Tehas cycle stopped.\n\n- [%s] Retry from a clean start\n- [%s] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n' "$1" "$2"
 }
-# Issue 7 is parked with a question and nothing else is queued.
+park_id=$T/home/tehas/state/park-7.id
+# Issue 7 is parked with a question the host has on record, and nothing else
+# is queued.
 parked() {
   reset
   echo '[]' >"$fx/ready.json"
   echo '[{"number":7,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}]' >"$fx/asking.json"
+  mkdir -p "$T/home/tehas/state"
+  echo 4001 >"$park_id"
 }
 
 plan_body() { # <box 1> <box 2> <end box>
@@ -586,6 +590,10 @@ t_contains "$(t_calls gh)" "api repos/acme/widget/issues/7/comments"
 t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
 t_contains "$(t_calls gh)" "<!-- tehas:question kind=park issue=7 turn=1 -->"
 
+t_case "the host keeps the id of the park question it posted"
+t_eq "$(cat "$park_id")" 4002
+t_eq "$([ -e "$T/home/tehas/state/park-7.json" ] && echo left)" ""
+
 t_case "when the question cannot be posted the old comment is used and no question label is added"
 reset
 : >"$fx/post-fails"
@@ -594,6 +602,7 @@ t_contains "$(t_calls gh)" "issue comment 7"
 t_contains "$(t_calls gh)" "To retry, remove"
 # The poll itself lists issues by that label, so look at edits only.
 t_lacks "$(t_calls gh | grep '^issue edit')" "tehas:question"
+t_eq "$([ -e "$park_id" ] && echo kept)" ""
 
 t_case "an unanswered question starts nothing"
 parked
@@ -611,6 +620,23 @@ t_run "$dispatch"
 t_eq "$(t_calls fake-work)" "7 --restart"
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label needs-human-attention --remove-label tehas:question"
 t_contains "$(t_calls gh)" "authorized by @alice's retry tick"
+# The question that was answered is used up. The cycle parked again, so the
+# id on record is the new question's.
+t_eq "$(cat "$park_id")" 4002
+
+t_case "after a retry that ends in a pull request no park question is on record"
+parked
+comments 7 "$(park_body x ' ')" alice
+mkdir -p "$workdir/.pi/work-state"
+echo '{"pipelineState":{"status":"handoff","currentStep":"commit-pr","branchName":"feature/x"}}' >"$workdir/.pi/work-state/7.json"
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$dispatch"
+t_eq "$(t_calls fake-work)" "7"
+t_eq "$([ -e "$park_id" ] && echo kept)" ""
+rm -rf "$workdir" "$fx/pr.txt"
+
+t_case "the comments are read a hundred at a time"
+t_contains "$(t_calls gh)" "comments(last: 100)"
 
 t_case "a dry run says what the tick would do and changes nothing"
 parked
@@ -620,6 +646,7 @@ t_contains "$t_out" "would run a cycle for #7 (retry ticked by alice)"
 t_eq "$(t_calls fake-work)" ""
 t_lacks "$(t_calls gh)" "issue edit"
 t_lacks "$(t_calls gh)" "api -X PATCH"
+t_eq "$(cat "$park_id")" 4001
 
 t_case "a retry ticked by the bot or a stranger starts nothing and is undone"
 for other in tehas-bot mallory ""; do
@@ -657,6 +684,23 @@ t_run "$dispatch"
 t_eq "$(t_calls fake-work)" ""
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:question"
 t_lacks "$(t_calls gh)" "needs-human-attention"
+t_eq "$([ -e "$park_id" ] && echo kept)" ""
+
+t_case "leave it parked keeps the question on record while its label cannot be removed"
+parked
+comments 7 "$(park_body ' ' x)" alice
+: >"$fx/edit-fails"
+t_run "$dispatch"
+t_eq "$(cat "$park_id")" 4001
+t_contains "$t_out" "WARN: label change on #7 failed: --remove-label tehas:question"
+rm -f "$fx/edit-fails"
+
+t_case "a dry run of leave it parked changes nothing"
+parked
+comments 7 "$(park_body ' ' x)" alice
+t_run "$dispatch --dry-run"
+t_lacks "$(t_calls gh)" "issue edit"
+t_eq "$(cat "$park_id")" 4001
 
 t_case "a comment from an allowed account on a parked issue is discussion, not an answer"
 parked
@@ -738,6 +782,7 @@ t_run "$dispatch"
 t_eq "$(t_calls fake-work)" ""
 t_lacks "$(t_calls gh)" "issue edit"
 t_contains "$t_out" "ERROR: could not use up the retry tick on #7, not starting a cycle"
+t_eq "$(cat "$park_id")" 4001
 
 t_case "a retry ticked on an issue that is not parked starts nothing"
 for have in "tehas:question" "needs-human-attention tehas:question tehas:running" "needs-human-attention tehas:question tehas:awaiting-merge"; do
@@ -747,9 +792,133 @@ for have in "tehas:question" "needs-human-attention tehas:question tehas:running
   t_run "$dispatch"
   t_eq "$(t_calls fake-work)" ""
   t_lacks "$(t_calls gh)" "issue edit"
-  t_lacks "$(t_calls gh)" "api -X PATCH"
+  # A tick left in place would fire later, when the labels change.
+  t_contains "$(t_calls gh)" "api -X PATCH repos/acme/widget/issues/comments/4001"
+  t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+  t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body Retry was ticked, but this issue is not parked, so nothing was started."
   t_contains "$t_out" "skip #7: a retry was ticked but the issue is not parked"
+  t_eq "$(cat "$park_id")" 4001
 done
+
+t_case "when that tick cannot be undone, nothing is said"
+parked
+comments 7 "$(park_body x ' ')" alice
+echo '[{"number":7,"labels":[{"name":"tehas:question"}]}]' >"$fx/asking.json"
+: >"$fx/patch-fails"
+t_run "$dispatch"
+t_eq "$(t_calls fake-work)" ""
+t_lacks "$(t_calls gh)" "issue comment"
+t_contains "$t_out" "could not untick the question on #7"
+
+t_case "a dry run leaves a retry tick on an issue that is not parked alone"
+parked
+comments 7 "$(park_body x ' ')" alice
+echo '[{"number":7,"labels":[{"name":"tehas:question"}]}]' >"$fx/asking.json"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "skip #7: a retry was ticked but the issue is not parked"
+t_lacks "$(t_calls gh)" "api -X"
+t_lacks "$(t_calls gh)" "issue comment"
+
+# A question is the factory's only if this host has its id on record. The
+# agent in a container holds the bot's token: it can post a comment with a
+# marker and apply labels, but it cannot write the host's state directory.
+unrecorded() { # issue 9, never parked by this host, made to look parked
+  reset
+  echo '[]' >"$fx/ready.json"
+  echo '[{"number":9,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}]' >"$fx/asking.json"
+  cp "$fx/events-7.json" "$fx/events-9.json"
+  comments 9 "$(printf 'Please confirm you have seen this.\n\n- [x] Retry from a clean start\n\n<!-- tehas:question kind=park issue=3 turn=1 -->')" alice
+}
+
+t_case "a bot comment with a park marker that the host has no record of starts nothing"
+unrecorded
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-work)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_contains "$(t_calls gh)" "api -X PATCH repos/acme/widget/issues/comments/4001"
+t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+t_contains "$(t_calls gh)" "issue comment 9 --repo acme/widget --body This question is not one the factory is waiting on. To retry, remove \`needs-human-attention\` and apply \`tehas:ready\` again."
+t_eq "$(find "$T/home/tehas/state" -name 'park-*' | wc -l)" 0
+
+t_case "and when its box cannot be unticked nothing starts and nothing is said"
+unrecorded
+: >"$fx/patch-fails"
+t_run "$dispatch"
+t_eq "$(t_calls fake-work)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "issue comment"
+t_contains "$t_out" "could not untick the question on #9"
+
+t_case "a dry run changes nothing on a question the host has no record of"
+unrecorded
+t_run "$dispatch --dry-run"
+t_lacks "$t_out" "would run a cycle"
+t_lacks "$(t_calls gh)" "api -X"
+t_lacks "$(t_calls gh)" "issue comment"
+t_lacks "$(t_calls gh)" "issue edit"
+
+t_case "an unticked question the host has no record of is left alone"
+unrecorded
+comments 9 "$(park_body ' ' ' ')" ""
+t_run "$dispatch"
+t_lacks "$(t_calls gh)" "api -X"
+t_lacks "$(t_calls gh)" "issue comment"
+
+t_case "a park id of another issue is no record for this one"
+unrecorded
+mkdir -p "$T/home/tehas/state"
+echo 4001 >"$park_id"
+t_run "$dispatch"
+t_eq "$(t_calls fake-work)" ""
+t_contains "$(t_calls gh)" "This question is not one the factory is waiting on."
+
+t_case "a park id file that holds no number is no record"
+for junk in "" "4001 x" "abc"; do
+  parked
+  comments 7 "$(park_body x ' ')" alice
+  printf '%s\n' "$junk" >"$park_id"
+  t_run "$dispatch"
+  t_eq "$(t_calls fake-work)" ""
+  t_contains "$(t_calls gh)" "This question is not one the factory is waiting on."
+done
+
+t_case "a tick in another bot comment than the question on record starts nothing"
+parked
+comments 7 "$(park_body ' ' ' ')" "" "$(jq -nc --arg b "$(park_body x ' ')" '[{databaseId: 4005, author: {login: "tehas-bot"}, body: $b,
+  createdAt: "2026-01-01T02:00:00Z", lastEditedAt: "2026-01-01T03:00:00Z", editor: {login: "alice"}}]')"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-work)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "api -X"
+
+t_case "a question on record whose marker names another issue starts nothing"
+parked
+comments 7 "$(park_body x ' ' | sed 's/issue=7/issue=3/')" alice
+t_run "$dispatch"
+t_eq "$(t_calls fake-work)" ""
+t_contains "$t_out" "skip #7: the question on record does not belong to this issue"
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "api -X"
+t_lacks "$(t_calls gh)" "issue comment"
+
+t_case "a park id that names a planning question starts nothing"
+parked
+comments 7 "$(plan_body x ' ' ' ')" alice
+t_run "$dispatch"
+t_eq "$(t_calls fake-work)" ""
+t_eq "$(plan_calls)" ""
+t_contains "$t_out" "skip #7: the question on record does not belong to this issue"
+t_lacks "$(t_calls gh)" "api -X"
+
+t_case "a question on record that is not among the comments read is said in the log"
+parked
+jq -n '{data: {repository: {issue: {comments: {nodes: [
+  {databaseId: 9, author: {login: "alice"}, body: "hm", createdAt: "t", lastEditedAt: null, editor: null}]}}}}}' >"$fx/comments-7.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-work)" ""
+t_contains "$t_out" "skip #7: its question is not among the last 100 comments"
 
 t_case "retry is the ticked line's text, not its place"
 swapped() { # <leave box> <retry box>
@@ -967,7 +1136,35 @@ comments 7 "$(plan_body x ' ' ' ')" alice
 t_run "$dispatch"
 t_eq "$(plan_calls)" ""
 t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "api -X"
+t_contains "$t_out" "skip #7: its question is not among the last 100 comments"
+
+t_case "an answer to a session whose record names no question runs no turn"
+planning
+jq 'del(.comment)' "$record" >"$record.new" && mv "$record.new" "$record"
+comments 7 "$(plan_body x ' ' ' ')" alice
+t_run "$dispatch"
+t_eq "$(plan_calls)" ""
+t_lacks "$(t_calls gh)" "issue edit"
 t_contains "$t_out" "skip #7: the question answered is not the one this session is waiting on"
+t_eq "$([ -e "$record" ] && echo kept)" kept
+
+t_case "a newer stray bot comment with a plan marker does not lock the session out"
+planning
+comments 7 "$(plan_body ' ' x ' ')" alice "$(jq -nc --arg b "$(plan_body ' ' ' ' ' ' | sed 's/turn=1/turn=5/')" '[{databaseId: 4009, author: {login: "tehas-bot"}, body: $b,
+  createdAt: "2026-01-01T02:00:00Z", lastEditedAt: null, editor: null}]')"
+t_run "$dispatch"
+t_contains "$(plan_calls)" "7 --out $record.out --session abc-123 --answer $record.answer"
+t_eq "$(cat "$record.answer")" "The operator chose: Change some"
+
+t_case "a planning question on record whose marker is a park marker runs no turn and no cycle"
+planning
+echo '[{"number":7,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}]' >"$fx/asking.json"
+comments 7 "$(park_body x ' ')" alice
+t_run "$dispatch"
+t_eq "$(plan_calls)" ""
+t_eq "$(t_calls fake-work)" ""
+t_contains "$t_out" "skip #7: the question on record does not belong to this issue"
 
 t_case "a question that posted but could not be labelled is not lost"
 planning

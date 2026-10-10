@@ -24,7 +24,9 @@
 #   3. A box ticked by an allowed account in the bot's question comment is an
 #      answer: on a parked cycle, "Retry from a clean start" starts a fresh
 #      cycle. The awaiting-merge limit holds that back too. The tick counts
-#      only on a parked issue, and it is unticked when it is used.
+#      only on a parked issue, and it is unticked when it is used. A comment
+#      is a question only if this host has its id on record, in
+#      $TEHAS_HOME/state: the planning record, or park-<issue>.id.
 #   4. A reply or a ticked option on a planning question runs the next turn
 #      of that session. An issue whose tehas:plan label was applied by an
 #      allowed account starts a session. Neither waits for the awaiting-merge
@@ -156,6 +158,22 @@ post_question() {
   posted=$(gh api "repos/$repo/issues/$2/comments" -f body="$body" --jq .id 2>/dev/null) || return 1
   [ -n "$posted" ]
 }
+# untick <issue> <answer> [note]: empty every box of a question comment. With
+# a note, say it on the issue, but only once the untick has worked: if the box
+# stays ticked the next poll sees the same tick, and the note would be posted
+# every poll. Returns 1 when the comment could not be changed.
+untick() {
+  gh api -X PATCH "repos/$repo/issues/comments/$(jq -r .comment <<<"$2")" \
+    -f body="$(jq -r .body <<<"$2" | q_untick)" >/dev/null 2>&1 || return 1
+  [ -z "${3:-}" ] || say "$1" "$3"
+}
+
+# park_id <issue>: print the path of the file that holds the id of the park
+# question this host posted on the issue. An agent in a container holds the
+# bot's token: it can post a comment with a marker, edit the bot's comments
+# and apply labels. It cannot write here, so this file is what makes a comment
+# the factory's own question. One line, the comment's number.
+park_id() { printf '%s/state/park-%s.id\n' "$TEHAS_HOME" "$1"; }
 # shellcheck source=lib/planning.sh
 . "$here/../lib/planning.sh"
 
@@ -275,6 +293,9 @@ run_cycle() {
     log "ERROR: could not mark #$issue as running, not starting a cycle"
     exit 1
   fi
+  # A park question of an earlier cycle is used up by this start, whichever
+  # way it came about. Its boxes must not answer for the new cycle.
+  rm -f "$(park_id "$issue")"
   comment "Tehas cycle started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC (authorized by @$who's $how). This issue is owned by the cycle until \`tehas:running\` is removed."
 
   refresh_checkout
@@ -338,6 +359,10 @@ ${usage:-No token usage was recorded for this cycle.}" >/dev/null 2>&1 || log "W
 
 ${usage}" '{text: $text, question: null}' >"$TEHAS_HOME/state/park-$issue.json"
     if post_question park "$issue" 1 "$TEHAS_HOME/state/park-$issue.json"; then
+      # On record before the label shows it: a tick counts only in the comment
+      # named here. Without the record a tick starts nothing and says so.
+      printf '%s\n' "$posted" >"$(park_id "$issue")" ||
+        log "WARN: could not record the park question of #$issue, its boxes will not work"
       # A separate call: a repository without this label must still get the
       # parking label above.
       relabel --add-label tehas:question
@@ -443,33 +468,59 @@ for n in $asking; do
     esac
   fi
   have=" $(jq -r --argjson n "$n" '[.[] | select(.number == $n) | (.labels // [])[].name] | join(" ")' <<<"$asking_json") "
+  # Which comment is the question is decided here, from this host's own
+  # files, before a comment is read: the planning record's, else the parked
+  # cycle's. Everything on the issue can be written with the bot's token.
+  st=$(plan_state "$n")
+  qid=""
+  qkind=""
+  if [ -f "$st" ]; then
+    qid=$(jq -r '.comment // ""' "$st" 2>/dev/null) || qid=""
+    qkind=plan
+  fi
+  case "$qid" in '' | *[!0-9]*) qid="" ;; esac
+  if [ -z "$qid" ]; then
+    qid=$(cat "$(park_id "$n")" 2>/dev/null) || qid=""
+    qkind=park
+    case "$qid" in
+      '' | *[!0-9]*)
+        qid=""
+        qkind=""
+        ;;
+    esac
+  fi
   # shellcheck disable=SC2016  # $owner, $name and $number are GraphQL variables
   gh_json api graphql -F owner="${repo%%/*}" -F name="${repo##*/}" -F number="$n" \
     -f query='query($owner: String!, $name: String!, $number: Int!) {
       repository(owner: $owner, name: $name) { issue(number: $number) {
-        comments(last: 50) { nodes { databaseId author { login } body createdAt lastEditedAt editor { login } } } } } }'
-  ans=$(q_answer "$bot" "$TEHAS_ALLOWED_LABELERS" <<<"$json") || { log "ERROR: unreadable comments of #$n"; exit 1; }
-  [ "$(jq -r .asked <<<"$ans")" = true ] || continue
+        comments(last: 100) { nodes { databaseId author { login } body createdAt lastEditedAt editor { login } } } } } }'
+  # With nothing on record the newest question of the bot is still read, only
+  # to be able to tell a person that their answer starts nothing.
+  ans=$(q_answer "$bot" "$TEHAS_ALLOWED_LABELERS" "$qid" <<<"$json") || { log "ERROR: unreadable comments of #$n"; exit 1; }
+  if [ "$(jq -r .asked <<<"$ans")" != true ]; then
+    [ -z "$qid" ] || log "skip #$n: its question is not among the last 100 comments"
+    continue
+  fi
   kind=$(jq -r .kind <<<"$ans")
   tick=$(jq -r .tick.status <<<"$ans")
   by=$(jq -r '.tick.by // ""' <<<"$ans")
+  # The marker must agree with where the comment is and with what kind of
+  # question the host has on record.
+  if [ -n "$qid" ] && { [ "$(jq -r .issue <<<"$ans")" != "$n" ] || [ "$kind" != "$qkind" ]; }; then
+    log "skip #$n: the question on record does not belong to this issue"
+    continue
+  fi
 
   # A tick that is no answer is undone, so the boxes show what was accepted.
   if [ "$tick" = stranger ] || [ "$tick" = many ]; then
     log "skip #$n: boxes ticked by '${by:-unknown}' are no answer ($tick)"
     if [ "$dry" = 0 ]; then
-      # The note follows only a successful untick. If the box stays ticked the
-      # next poll sees the same tick, and the note would be posted every poll.
-      if gh api -X PATCH "repos/$repo/issues/comments/$(jq -r .comment <<<"$ans")" \
-        -f body="$(jq -r .body <<<"$ans" | q_untick)" >/dev/null 2>&1; then
-        if [ "$tick" = many ]; then
-          say "$n" "More than one box was ticked, so nothing was chosen. Tick one."
-        else
-          say "$n" "A box was ticked by an account that may not answer for this factory (${by:-unknown}). It was unticked."
-        fi
+      if [ "$tick" = many ]; then
+        note="More than one box was ticked, so nothing was chosen. Tick one."
       else
-        log "WARN: could not untick the question on #$n"
+        note="A box was ticked by an account that may not answer for this factory (${by:-unknown}). It was unticked."
       fi
+      untick "$n" "$ans" "$note" || log "WARN: could not untick the question on #$n"
     fi
     tick=none
   fi
@@ -478,24 +529,46 @@ for n in $asking; do
     park)
       # Only a tick answers a parked cycle: a comment there is discussion.
       [ "$tick" = one ] || continue
+      # Only the question on record can start a cycle. A box in any other
+      # comment is emptied, so that it cannot be taken for an order given.
+      if [ "$qkind" != park ]; then
+        log "skip #$n: a box was ticked in a question this host has no record of"
+        if [ "$dry" = 0 ]; then
+          untick "$n" "$ans" "This question is not one the factory is waiting on. To retry, remove \`needs-human-attention\` and apply \`tehas:ready\` again." ||
+            log "WARN: could not untick the question on #$n"
+        fi
+        continue
+      fi
       # What was ticked is read from its text, not its place in the list.
       qbody=$(jq -r .body <<<"$ans") || qbody=""
       qbody=${qbody//$'\r'/}
       if ! grep -qix -e '- \[x\] Retry from a clean start' <<<"$qbody"; then
-        [ "$dry" = 1 ] || label "$n" --remove-label tehas:question
+        # The record goes only with the label: while the label stays, the
+        # next poll reads the same tick and tries again.
+        if [ "$dry" = 0 ]; then
+          if gh issue edit "$n" --repo "$repo" --remove-label tehas:question >/dev/null 2>&1; then
+            rm -f "$(park_id "$n")"
+          else
+            log "WARN: label change on #$n failed: --remove-label tehas:question"
+          fi
+        fi
         continue
       fi
-      # A retry counts only on an issue that is parked now.
+      # A retry counts only on an issue that is parked now. The tick is undone:
+      # left in place it would start a cycle later, when the labels change.
       case "$have" in
-        *" needs-human-attention "*) ;;
-        *) log "skip #$n: a retry was ticked but the issue is not parked"; continue ;;
+        *" tehas:running "* | *" tehas:awaiting-merge "*) parked=0 ;;
+        *" needs-human-attention "*) parked=1 ;;
+        *) parked=0 ;;
       esac
-      case "$have" in
-        *" tehas:running "* | *" tehas:awaiting-merge "*)
-          log "skip #$n: a retry was ticked but the issue is not parked"
-          continue
-          ;;
-      esac
+      if [ "$parked" = 0 ]; then
+        log "skip #$n: a retry was ticked but the issue is not parked"
+        if [ "$dry" = 0 ]; then
+          untick "$n" "$ans" "Retry was ticked, but this issue is not parked, so nothing was started." ||
+            log "WARN: could not untick the question on #$n"
+        fi
+        continue
+      fi
       # The tick approves the text as it was at that moment, as the label does.
       gh_json api "repos/$repo/issues/$n/events?per_page=100" --paginate
       events=$json
@@ -511,8 +584,7 @@ for n in $asking; do
       fi
       # One tick is one start. Unticking edits the comment as the bot, so the
       # bot becomes its last editor and the tick cannot be read a second time.
-      if ! gh api -X PATCH "repos/$repo/issues/comments/$(jq -r .comment <<<"$ans")" \
-        -f body="$(jq -r .body <<<"$ans" | q_untick)" >/dev/null 2>&1; then
+      if ! untick "$n" "$ans"; then
         log "ERROR: could not use up the retry tick on #$n, not starting a cycle"
         continue
       fi
@@ -527,13 +599,14 @@ for n in $asking; do
       elif [ "$tick" != one ]; then
         continue
       fi
-      st=$(plan_state "$n")
       if [ ! -f "$st" ]; then
         [ "$dry" = 1 ] || plan_end "$n" "The record of this planning session is gone from the host, so it cannot continue. Apply \`tehas:plan\` to start a new one."
         continue
       fi
       # Only the question the session is waiting on counts: an older or stray
-      # bot question must not run a turn.
+      # bot question must not run a turn. With an id on record the comment was
+      # chosen by it and this always holds. It stops the case of a record that
+      # names no question, where the newest question of the bot was read.
       if [ "$(jq -r '.comment // ""' "$st" 2>/dev/null)" != "$(jq -r .comment <<<"$ans")" ]; then
         log "skip #$n: the question answered is not the one this session is waiting on"
         continue

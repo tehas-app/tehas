@@ -93,7 +93,7 @@ got() { jq -c "$1"; }
 
 t_case "an untouched question has no answer"
 t_eq "$(ask "$body" "" | q_answer tehas-bot "alice bob" | got 'del(.body)')" \
-  '{"asked":true,"comment":5,"kind":"plan","turn":2,"boxes":3,"tick":{"status":"none"},"reply":null}'
+  '{"asked":true,"comment":5,"kind":"plan","issue":7,"turn":2,"boxes":3,"tick":{"status":"none"},"reply":null}'
 
 t_case "a box ticked by an allowed account is that option, counted from the top"
 t_eq "$(ask "$(tick 'Change some')" alice | q_answer tehas-bot "alice bob" | got .tick)" \
@@ -142,6 +142,34 @@ t_case "the newest of the bot's questions is the one that counts"
 two=$(ask "$(tick 'Adopt all')" alice | jq --arg b "$(q_render plan 7 3 "$T/prose.json")" \
   '.data.repository.issue.comments.nodes += [{databaseId: 20, author: {login: "tehas-bot"}, body: $b, createdAt: "t", lastEditedAt: null, editor: null}]')
 t_eq "$(q_answer tehas-bot "alice bob" <<<"$two" | got '[.comment, .turn, .tick.status]')" '[20,3,"none"]'
+
+t_case "the marker's issue number is reported, as a number"
+t_eq "$(ask "$(q_render plan 31 2 "$result")" "" | q_answer tehas-bot "alice bob" | got .issue)" 31
+
+# The bot's question 5 ticked by alice, a reply to it, then a newer bot
+# comment with a marker, then one more reply.
+named=$(ask "$(tick 'Adopt all')" alice '[{"databaseId":6,"author":{"login":"bob"},"body":"to the first","createdAt":"2026-01-01T03:00:00Z"}]' |
+  jq --arg b "$(q_render plan 7 3 "$T/prose.json")" '.data.repository.issue.comments.nodes += [
+    {databaseId: 20, author: {login: "tehas-bot"}, body: $b, createdAt: "t", lastEditedAt: null, editor: null},
+    {databaseId: 21, author: {login: "tehas-bot"}, body: "a note without a marker", createdAt: "t", lastEditedAt: null, editor: null},
+    {databaseId: 22, author: {login: "alice"}, body: "to the second", createdAt: "2026-01-01T07:00:00Z"}]')
+
+t_case "with a comment id, that comment is the question and a newer one from the bot is ignored"
+t_eq "$(q_answer tehas-bot "alice bob" 5 <<<"$named" | got '[.comment, .turn, .tick.status, .tick.index]')" '[5,2,"one",0]'
+t_eq "$(q_answer tehas-bot "alice bob" 20 <<<"$named" | got '[.comment, .turn, .tick.status]')" '[20,3,"none"]'
+
+t_case "with a comment id, replies are counted from the named comment on"
+t_eq "$(q_answer tehas-bot "alice bob" 5 <<<"$named" | got .reply.text)" '"to the second"'
+t_eq "$(jq 'del(.data.repository.issue.comments.nodes[-1])' <<<"$named" | q_answer tehas-bot "alice bob" 5 | got .reply.text)" '"to the first"'
+t_eq "$(jq 'del(.data.repository.issue.comments.nodes[-1])' <<<"$named" | q_answer tehas-bot "alice bob" 20 | got .reply)" 'null'
+
+t_case "an empty comment id is no id: the newest question counts"
+t_eq "$(q_answer tehas-bot "alice bob" "" <<<"$named" | got .comment)" 20
+
+t_case "an id that names a stranger's comment, a bot comment without a marker, or nothing is no question"
+for id in 1 21 999 2; do
+  t_eq "$(q_answer tehas-bot "alice bob" "$id" <<<"$named")" '{"asked":false}'
+done
 
 t_case "an issue with no comments has no question"
 t_eq "$(echo '{"data":{"repository":{"issue":{"comments":{"nodes":[]}}}}}' | q_answer tehas-bot alice)" '{"asked":false}'
