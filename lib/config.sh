@@ -23,7 +23,8 @@
 # Rules:
 #   - instance.env is authoritative. Settings of the same name in the
 #     environment are dropped; only TEHAS_HOME, TEHAS_INSTANCE_DIR and the test
-#     hooks TEHAS_WORK_CMD, TEHAS_STATUS_CMD and TEHAS_INDEX_CMD are kept.
+#     hooks TEHAS_WORK_CMD, TEHAS_STATUS_CMD, TEHAS_INDEX_CMD and TEHAS_PLAN_CMD
+#     are kept.
 #   - Loading runs no git command, makes no network call and writes nothing.
 #   - Nothing falls back to a project: a setting with no generic default stays
 #     unset until tehas_require asks for it.
@@ -71,7 +72,7 @@ _tehas_valid() {
     TEHAS_REPO)
       [[ $v =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "expected owner/name"; return 1; }
       ;;
-    TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_WORK_TIMEOUT | TEHAS_CONCURRENCY)
+    TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_WORK_TIMEOUT | TEHAS_CONCURRENCY | TEHAS_PLAN_MAX_TURNS | TEHAS_PLAN_TIMEOUT)
       _tehas_is_count "$v" || { echo "expected a positive whole number"; return 1; }
       ;;
     TEHAS_ALLOWED_LABELERS)
@@ -133,7 +134,7 @@ tehas_load() {
 
   for v in $(compgen -v); do
     case "$v" in
-      TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_INDEX_CMD) ;;
+      TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_INDEX_CMD | TEHAS_PLAN_CMD) ;;
       TEHAS_* | PI_ENSEMBLE_*) unset "$v" ;;
     esac
   done
@@ -175,6 +176,9 @@ tehas_load() {
   export TEHAS_HOST_ADDR=${TEHAS_HOST_ADDR:-127.0.0.1}
   export TEHAS_MAX_AWAITING=${TEHAS_MAX_AWAITING:-3}
   export TEHAS_WORK_TIMEOUT=${TEHAS_WORK_TIMEOUT:-21600}
+  # A planning session: how many turns it may take, and how long one turn may.
+  export TEHAS_PLAN_MAX_TURNS=${TEHAS_PLAN_MAX_TURNS:-20}
+  export TEHAS_PLAN_TIMEOUT=${TEHAS_PLAN_TIMEOUT:-3600}
   export PI_ENSEMBLE_IMAGE=${PI_ENSEMBLE_IMAGE:-tehas/pi-rukas:uid$(id -u)}
   export PI_ENSEMBLE_HOST_ALIASES=${PI_ENSEMBLE_HOST_ALIASES:-}
   # How many workstreams one cycle may run side by side, inside its one
@@ -184,7 +188,7 @@ tehas_load() {
   export PI_ENSEMBLE_NO_DOCKER_SOCKET=1 PI_ENSEMBLE_NO_SSH=1
 
   for v in TEHAS_INDEXING TEHAS_ANALYTICS_COOKIE TEHAS_WORK_CPUS TEHAS_WORK_MEMORY TEHAS_CONCURRENCY \
-    TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT; do
+    TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT; do
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
   for v in TEHAS_BRANCH TEHAS_PROTOLAB_URL; do
