@@ -2,10 +2,11 @@
 //! the last one.
 
 use std::collections::HashMap;
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom};
+use std::os::fd::AsRawFd;
 use std::os::unix::fs::OpenOptionsExt;
-use std::time::SystemTime;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 // The transcripts are written by agents, so their size is not to be trusted:
 // this much is read of a file in one pass, and a line longer than the second
@@ -29,21 +30,41 @@ pub struct Follower {
     skipped: usize,
 }
 
+/// A transcript of this cycle, opened where it was found.
+pub struct Transcript {
+    pub path: String,
+    file: File,
+}
+
+// A name an agent can write may be a link to a file elsewhere: its last part
+// is never followed.
+fn open(path: &str, flags: i32) -> Option<File> {
+    OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | flags)
+        .open(path)
+        .ok()
+}
+
 impl Follower {
     /// The complete, non-empty lines added to a file since the last call. A
     /// file that is not there, is not a plain file or cannot be read has no
     /// new lines. A file that became shorter is read again from its start. A
     /// line longer than the limit is left out and counted.
     pub fn new_lines(&mut self, path: &str) -> Vec<String> {
-        // A name an agent can write may be a link to a file elsewhere, or a
-        // pipe that would block: neither is opened and waited for.
-        let opened = OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-            .open(path);
-        let Ok(mut file) = opened else {
-            return Vec::new();
-        };
+        // Not waited for, should the name be a pipe.
+        match open(path, libc::O_NONBLOCK) {
+            Some(file) => self.read(path, &file),
+            None => Vec::new(),
+        }
+    }
+
+    /// The same of a transcript.
+    pub fn transcript_lines(&mut self, transcript: &Transcript) -> Vec<String> {
+        self.read(&transcript.path, &transcript.file)
+    }
+
+    fn read(&mut self, path: &str, mut file: &File) -> Vec<String> {
         let Some(size) = file
             .metadata()
             .ok()
@@ -107,23 +128,30 @@ impl Follower {
     /// one directory below `runs` that are already followed or were written
     /// at or after `since`. The directory may not exist until the first
     /// agent starts.
-    pub fn transcripts(&self, runs: &str, since: SystemTime) -> Vec<String> {
+    pub fn transcripts(&self, runs: &str, since: SystemTime) -> Vec<Transcript> {
         let mut found = Vec::new();
         let Ok(days) = fs::read_dir(runs) else {
             return found;
         };
+        let oldest = day_before(since);
         for day in days.flatten() {
-            if !day.file_type().is_ok_and(|t| t.is_dir()) {
-                continue;
-            }
-            let Some(dir) = day
-                .file_name()
-                .to_str()
-                .map(|name| format!("{runs}/{name}"))
-            else {
+            let day = day.file_name();
+            let Some(day) = day.to_str() else {
                 continue;
             };
-            let Ok(files) = fs::read_dir(&dir) else {
+            // The directories are named for days and are never cleared away:
+            // one of a day long before the cycle is not read at every pass.
+            if is_day(day) && day < oldest.as_str() {
+                continue;
+            }
+            // The directory is opened once and its files are reached through
+            // that handle, so an agent that swaps it for a link between the
+            // listing and the opening does not send the console elsewhere.
+            let Some(dir) = open(&format!("{runs}/{day}"), libc::O_DIRECTORY) else {
+                continue;
+            };
+            let held = format!("/proc/self/fd/{}", dir.as_raw_fd());
+            let Ok(files) = fs::read_dir(&held) else {
                 continue;
             };
             for file in files.flatten() {
@@ -134,20 +162,50 @@ impl Follower {
                 if !file.file_type().is_ok_and(|t| t.is_file()) {
                     continue;
                 }
-                let path = format!("{dir}/{name}");
+                let path = format!("{runs}/{day}/{name}");
                 let fresh = || {
-                    fs::metadata(&path)
+                    file.metadata()
                         .and_then(|m| m.modified())
                         .is_ok_and(|at| at >= since)
                 };
-                if self.files.contains_key(&path) || fresh() {
-                    found.push(path);
+                if !self.files.contains_key(&path) && !fresh() {
+                    continue;
+                }
+                if let Some(file) = open(&format!("{held}/{name}"), libc::O_NONBLOCK) {
+                    found.push(Transcript { path, file });
                 }
             }
         }
-        found.sort();
+        found.sort_by(|a, b| a.path.cmp(&b.path));
         found
     }
+}
+
+fn is_day(name: &str) -> bool {
+    name.len() == 10
+        && name.bytes().enumerate().all(|(i, b)| match i {
+            4 | 7 => b == b'-',
+            _ => b.is_ascii_digit(),
+        })
+}
+
+// The day before a time, in UTC, as the directories are named: YYYY-MM-DD.
+// A day earlier than the time itself, because the directories are named in
+// the host's own time zone, which is within a day of UTC.
+fn day_before(time: SystemTime) -> String {
+    let seconds = time.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    // Days since the epoch to a date of the civil calendar, from the first
+    // of March of year 0 in eras of 400 years.
+    let days = (seconds / 86400) as i64 - 1 + 719_468;
+    let (era, day_of_era) = (days.div_euclid(146_097), days.rem_euclid(146_097));
+    let year_of_era =
+        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month + 2) / 5 + 1;
+    let month = if month < 10 { month + 3 } else { month - 9 };
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02}")
 }
 
 /// The agent a transcript belongs to. The file is named
@@ -321,10 +379,11 @@ mod tests {
         let scratch = Scratch::new("runs");
         let runs = scratch.path("runs");
         let follower = Follower::default();
-        assert_eq!(
-            follower.transcripts(&runs, SystemTime::UNIX_EPOCH),
-            [] as [&str; 0]
-        );
+        let paths = |follower: &Follower, since| -> Vec<String> {
+            let found = follower.transcripts(&runs, since);
+            found.into_iter().map(|t| t.path).collect()
+        };
+        assert_eq!(paths(&follower, UNIX_EPOCH), [] as [&str; 0]);
         fs::create_dir_all(format!("{runs}/2026-10-10")).unwrap();
         fs::create_dir_all(format!("{runs}/2026-10-09/nested.json")).unwrap();
         for name in [
@@ -341,14 +400,56 @@ mod tests {
             format!("{runs}/2026-10-10/a-1-reviewer.json"),
             format!("{runs}/2026-10-10/b-1-coder.json"),
         ];
-        assert_eq!(follower.transcripts(&runs, SystemTime::UNIX_EPOCH), all);
+        // A day that is a link to a directory elsewhere is not entered.
+        fs::create_dir_all(scratch.path("elsewhere")).unwrap();
+        append(&scratch.path("elsewhere/c-1-coder.json"), b"{}\n");
+        std::os::unix::fs::symlink(scratch.path("elsewhere"), format!("{runs}/2026-10-11"))
+            .unwrap();
+        assert_eq!(paths(&follower, UNIX_EPOCH), all);
 
         // Nothing is as new as a minute from now, except what is followed already.
         let later = SystemTime::now() + Duration::from_secs(60);
-        assert_eq!(follower.transcripts(&runs, later), [] as [&str; 0]);
+        assert_eq!(paths(&follower, later), [] as [&str; 0]);
         let mut follower = follower;
         follower.new_lines(&all[1]);
-        assert_eq!(follower.transcripts(&runs, later), all[1..2]);
+        assert_eq!(paths(&follower, later), all[1..2]);
+        let found = follower.transcripts(&runs, later);
+        append(&all[1], b"more\n");
+        assert_eq!(follower.transcript_lines(&found[0]), ["more"]);
+    }
+
+    #[test]
+    fn a_directory_of_a_day_long_before_the_cycle_is_not_read() {
+        let scratch = Scratch::new("days");
+        let runs = scratch.path("runs");
+        for day in [
+            "2026-10-08",
+            "2026-10-09",
+            "2026-10-10",
+            "2026-10-11",
+            "other",
+        ] {
+            fs::create_dir_all(format!("{runs}/{day}")).unwrap();
+            append(&format!("{runs}/{day}/a-1-coder.json"), b"{}\n");
+        }
+        // Noon of the tenth of October 2026, UTC.
+        let since = UNIX_EPOCH + Duration::from_secs(1_791_633_600);
+        let found = Follower::default().transcripts(&runs, since);
+        let days: Vec<&str> = found
+            .iter()
+            .filter_map(|t| t.path.rsplit('/').nth(1))
+            .collect();
+        assert_eq!(days, ["2026-10-09", "2026-10-10", "2026-10-11", "other"]);
+    }
+
+    #[test]
+    fn the_day_before_a_time_is_a_date() {
+        let at = |seconds| day_before(UNIX_EPOCH + Duration::from_secs(seconds));
+        assert_eq!(at(0), "1969-12-31");
+        assert_eq!(at(86400), "1970-01-01");
+        assert_eq!(at(1_709_251_200), "2024-02-29"); // the first of March 2024
+        assert_eq!(at(1_791_633_600), "2026-10-09");
+        assert_eq!(at(1_798_761_600), "2026-12-31"); // the first of January 2027
     }
 
     #[test]

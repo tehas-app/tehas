@@ -95,9 +95,9 @@ fn run(args: &Args, stop: &AtomicBool) -> io::Result<()> {
                 write(&mut out, &entry)?;
             }
         }
-        for path in follower.transcripts(&args.runs, args.since) {
-            let role = tail::role(&path);
-            for line in follower.new_lines(&path) {
+        for transcript in follower.transcripts(&args.runs, args.since) {
+            let role = tail::role(&transcript.path);
+            for line in follower.transcript_lines(&transcript) {
                 for entry in render::transcript_line(&role, &line) {
                     write(&mut out, &entry)?;
                 }
