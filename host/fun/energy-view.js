@@ -19,6 +19,17 @@ export const BANDS = ["#ea3", "#4a9", "#c53", "#7cb", "#ccd", "#b97", "#694", "#
 const list = (v) => (Array.isArray(v) ? v : []);
 const amount = (v) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null);
 const name = (v) => (typeof v === "string" ? v.slice(0, 64) : "");
+// What serves a model: the mesh, its version and the engine, for each pair the
+// sampler found. The engine is the mesh's own id: a table of display names
+// here would go stale when the mesh gains an engine.
+function engines(v, mesh) {
+  const each = list(v).filter((e) => e && typeof e === "object").map((e) => {
+    const version = name(e.version), engine = name(e.engine);
+    if (!version && !engine) return "";
+    return [mesh, version, engine && `(${engine})`].filter(Boolean).join(" ");
+  });
+  return each.filter(Boolean).join(", ") || "-";
+}
 const kwh = (v) => (amount(v) == null ? null : amount(v).toFixed(1));
 
 // The live meter reads tokens as a rate over the last minute.
@@ -63,6 +74,7 @@ export function layout(data, nowMs) {
   const hosts = list(file.hosts).filter((h) => h && typeof h === "object" && name(h.name));
   const samples = list(file.samples).filter((s) => s && typeof s === "object" && amount(s.t) != null && s.w && typeof s.w === "object");
   const totals = file.totals && typeof file.totals === "object" ? file.totals : {};
+  const mesh = name(file.source);
   const generated = Date.parse(file.generatedAt);
   const stale = !(nowMs - generated <= STALE_AFTER * 1000);
   const endSlot = Math.floor((Number.isFinite(generated) ? generated / 1000 : 0) / PERIOD);
@@ -118,6 +130,8 @@ export function layout(data, nowMs) {
   return {
     meter,
     state: stale ? "stale" : "live",
+    // Where the numbers come from. The name is a link only to an https address.
+    source: mesh ? { name: mesh, url: typeof file.sourceUrl === "string" && file.sourceUrl.startsWith("https://") ? file.sourceUrl : null } : null,
     scope: `${reporting}/${hosts.length} HOSTS` + (energyHosts < reporting ? `, KWH FROM ${energyHosts}` : ""),
     watts,
     kwh24: kwh(totals.kWh24h) ?? "--",
@@ -144,6 +158,7 @@ export function layout(data, nowMs) {
     models: list(file.models).filter((m) => m && typeof m === "object" && name(m.name)).map((m) => ({
       name: name(m.name),
       hosts: list(m.hosts).map(name).filter(Boolean).join(", ") || "-",
+      engines: engines(m.engines, mesh),
       busy: stale || amount(m.busy) == null || amount(m.slots) == null ? "-" : `${m.busy}/${m.slots}`,
       queued: stale || amount(m.queued) == null ? "-" : String(m.queued),
     })),
@@ -302,8 +317,26 @@ if (typeof document !== "undefined") {
       tr.insertCell();
       named(tr, m.name);
       cell(tr, m.hosts, "col-hosts");
+      cell(tr, m.engines, "col-hosts");
       cell(tr, m.busy, "num");
       cell(tr, m.queued, "num");
+    }
+
+    // The name and the address come from the file: text and an attribute,
+    // never markup.
+    const source = $("energy-source");
+    source.hidden = !view.source;
+    source.replaceChildren();
+    if (view.source) {
+      let named = view.source.name;
+      if (view.source.url) {
+        named = document.createElement("a");
+        named.href = view.source.url;
+        named.target = "_blank";
+        named.rel = "noopener noreferrer";
+        named.textContent = view.source.name;
+      }
+      source.append("DATA SOURCE: ", named);
     }
   }
 

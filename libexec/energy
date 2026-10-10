@@ -7,11 +7,16 @@
 # machines that are alive and serve a model the factory uses, and only those
 # models: a machine that serves other models is not the factory's draw. Per
 # machine, the draw now, the kWh of the last 24 hours and 30 days and host RAM;
-# per model, the slots and how many are busy; and the mesh's draw over the last
-# 30 minutes, one sample per 15 seconds. Each sample also carries, per machine,
-# the mesh's running count of tokens for the factory's models, where the mesh
-# reports one: the live meter shows its rate. Addresses, node ids and GPUs are
-# not copied. Deterministic, no model, one HTTP call.
+# per model, the slots, how many are busy and what serves it: the version of
+# the mesh software and the engine behind the model, as the mesh names it; and
+# the mesh's draw over the last 30 minutes, one sample per 15 seconds. Each
+# sample also carries, per machine, the mesh's running count of tokens for the
+# factory's models, where the mesh reports one: the live meter shows its rate.
+# The file names the mesh software and where its project lives.
+#
+# The dashboard can be on the internet, and so can this file. The version of
+# the mesh software and the engine names are in it. Addresses, node ids and
+# GPUs are not copied. Deterministic, no model, one HTTP call.
 #
 # The mesh is the one the factory's model provider points at (models.json),
 # unless TEHAS_ENERGY_URL names a cluster URL. TEHAS_ENERGY=off removes the
@@ -86,6 +91,7 @@ printf '%s' "$body" | jq --argjson prev "$prev" --argjson now "$now" \
   def total(f): map(f | select(. != null)) | if length == 0 then null else add | r2 end;
   def slot: . / $period | floor;
   def num: if type == "number" then . else 0 end;
+  def text: if type == "string" and length > 0 then . else null end;
   ([env | to_entries[]
     | select(.key | test("^PI_ENSEMBLE_(SUBAGENT_MODEL|MODEL_[A-Z0-9_]+)$"))
     | .value | select(length > 0)] | unique) as $factory
@@ -105,13 +111,20 @@ printf '%s' "$body" | jq --argjson prev "$prev" --argjson now "$now" \
       ramTotalMb: (if ($s.host_mem_total_mb | type) == "number" then $s.host_mem_total_mb else null end),
       serves: ([$s.models[]? | select(type == "object" and (.slots | num) > 0) | .name] | any(.[]; IN($factory[])))
     }) | map(select(.serves) | del(.serves))) as $hosts
-  | ([$alive[] | .node as $n | .status.models[]?
+  | ([$alive[] | .node as $n
+      | (.status.ver | text | if . == null then null else ltrimstr("v") | text end) as $ver
+      | .status.models[]?
       | select(type == "object")
-      | {name, host: $n, slots: (.slots | num), busy: (.busy | num), queued: (.queued | num)}]
+      | {name, host: $n, version: $ver, engine: (.engine | text),
+         slots: (.slots | num), busy: (.busy | num), queued: (.queued | num)}]
      | group_by(.name)
      | map({
          name: .[0].name,
          hosts: (map(select(.slots > 0) | .host) | unique),
+         # One element per distinct pair, sorted: a mesh in the middle of an
+         # upgrade, or a model on two engines, has more than one.
+         engines: (map(select(.slots > 0) | {version, engine}
+                       | select(.version != null or .engine != null)) | unique),
          slots: (map(.slots) | add),
          busy: (map(.busy) | add),
          queued: (map(.queued) | add)
@@ -127,6 +140,7 @@ printf '%s' "$body" | jq --argjson prev "$prev" --argjson now "$now" \
   | {
       generatedAt: ($now | todate),
       source: "viiwork",
+      sourceUrl: "https://github.com/janit/viiwork",
       periodSeconds: $period,
       factoryModels: $factory,
       totals: {
