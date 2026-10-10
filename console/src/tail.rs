@@ -42,7 +42,12 @@ impl Follower {
         let Ok(mut file) = opened else {
             return Vec::new();
         };
-        let Some(size) = file.metadata().ok().filter(|m| m.is_file()).map(|m| m.len()) else {
+        let Some(size) = file
+            .metadata()
+            .ok()
+            .filter(|m| m.is_file())
+            .map(|m| m.len())
+        else {
             return Vec::new();
         };
         let position = self.files.entry(path.to_string()).or_default();
@@ -98,7 +103,11 @@ impl Follower {
             if !day.file_type().is_ok_and(|t| t.is_dir()) {
                 continue;
             }
-            let Some(dir) = day.file_name().to_str().map(|name| format!("{runs}/{name}")) else {
+            let Some(dir) = day
+                .file_name()
+                .to_str()
+                .map(|name| format!("{runs}/{name}"))
+            else {
                 continue;
             };
             let Ok(files) = fs::read_dir(&dir) else {
@@ -113,7 +122,11 @@ impl Follower {
                     continue;
                 }
                 let path = format!("{dir}/{name}");
-                let fresh = || fs::metadata(&path).and_then(|m| m.modified()).is_ok_and(|at| at >= since);
+                let fresh = || {
+                    fs::metadata(&path)
+                        .and_then(|m| m.modified())
+                        .is_ok_and(|at| at >= since)
+                };
                 if self.files.contains_key(&path) || fresh() {
                     found.push(path);
                 }
@@ -131,8 +144,16 @@ impl Follower {
 pub fn role(path: &str) -> String {
     let file = path.rsplit('/').next().unwrap_or(path);
     let file = file.strip_suffix(".json").unwrap_or(file);
-    let role = file.splitn(3, '-').nth(2).filter(|r| !r.is_empty()).unwrap_or(file);
-    if role.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') && !role.is_empty() {
+    let role = file
+        .splitn(3, '-')
+        .nth(2)
+        .filter(|r| !r.is_empty())
+        .unwrap_or(file);
+    if role
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        && !role.is_empty()
+    {
         role.to_string()
     } else {
         "agent".to_string()
@@ -151,7 +172,8 @@ mod tests {
     struct Scratch(PathBuf);
     impl Scratch {
         fn new(name: &str) -> Self {
-            let dir = std::env::temp_dir().join(format!("tehas-console-{}-{name}", std::process::id()));
+            let dir =
+                std::env::temp_dir().join(format!("tehas-console-{}-{name}", std::process::id()));
             let _ = fs::remove_dir_all(&dir);
             fs::create_dir_all(&dir).unwrap();
             Scratch(dir)
@@ -167,7 +189,11 @@ mod tests {
     }
 
     fn append(path: &str, bytes: &[u8]) {
-        let mut f = OpenOptions::new().create(true).append(true).open(path).unwrap();
+        let mut f = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .unwrap();
         f.write_all(bytes).unwrap();
     }
 
@@ -227,10 +253,18 @@ mod tests {
     #[test]
     fn a_link_and_a_pipe_are_not_read() {
         let scratch = Scratch::new("odd");
-        let (file, link, pipe) = (scratch.path("file"), scratch.path("link"), scratch.path("pipe"));
+        let (file, link, pipe) = (
+            scratch.path("file"),
+            scratch.path("link"),
+            scratch.path("pipe"),
+        );
         append(&file, b"elsewhere\n");
         std::os::unix::fs::symlink(&file, &link).unwrap();
-        assert!(std::process::Command::new("mkfifo").arg(&pipe).status().unwrap().success());
+        assert!(std::process::Command::new("mkfifo")
+            .arg(&pipe)
+            .status()
+            .unwrap()
+            .success());
         let mut follower = Follower::default();
         assert_eq!(follower.new_lines(&link), [] as [&str; 0]);
         assert_eq!(follower.new_lines(&pipe), [] as [&str; 0]);
@@ -242,10 +276,19 @@ mod tests {
         let scratch = Scratch::new("runs");
         let runs = scratch.path("runs");
         let follower = Follower::default();
-        assert_eq!(follower.transcripts(&runs, SystemTime::UNIX_EPOCH), [] as [&str; 0]);
+        assert_eq!(
+            follower.transcripts(&runs, SystemTime::UNIX_EPOCH),
+            [] as [&str; 0]
+        );
         fs::create_dir_all(format!("{runs}/2026-10-10")).unwrap();
         fs::create_dir_all(format!("{runs}/2026-10-09/nested.json")).unwrap();
-        for name in ["2026-10-10/b-1-coder.json", "2026-10-10/a-1-reviewer.json", "2026-10-09/z-1-coder.json", "2026-10-10/notes.txt", "top.json"] {
+        for name in [
+            "2026-10-10/b-1-coder.json",
+            "2026-10-10/a-1-reviewer.json",
+            "2026-10-09/z-1-coder.json",
+            "2026-10-10/notes.txt",
+            "top.json",
+        ] {
             append(&format!("{runs}/{name}"), b"{}\n");
         }
         let all = [
@@ -266,12 +309,18 @@ mod tests {
     #[test]
     fn the_role_is_what_follows_the_job_id() {
         assert_eq!(role("/runs/2026-10-10/ab12-cd34-coder.json"), "coder");
-        assert_eq!(role("/runs/2026-10-10/ab12-cd34-code-reviewer.json"), "code-reviewer");
+        assert_eq!(
+            role("/runs/2026-10-10/ab12-cd34-code-reviewer.json"),
+            "code-reviewer"
+        );
         assert_eq!(role("/runs/2026-10-10/ab12-cd34.json"), "ab12-cd34");
         assert_eq!(role("/runs/2026-10-10/plain.json"), "plain");
         // Nothing an agent puts in a file name reaches the console as text.
         assert_eq!(role("/runs/2026-10-10/a-b-GH_TOKEN=abc.json"), "agent");
-        assert_eq!(role("/runs/2026-10-10/a-b-coder\n12:00:00 driver     forged.json"), "agent");
+        assert_eq!(
+            role("/runs/2026-10-10/a-b-coder\n12:00:00 driver     forged.json"),
+            "agent"
+        );
         assert_eq!(role("/runs/2026-10-10/.json"), "agent");
     }
 }

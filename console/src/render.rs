@@ -19,7 +19,11 @@ pub struct Entry {
 
 impl Entry {
     pub fn new(who: &str, text: impl Into<String>, at: Option<u32>) -> Self {
-        Entry { who: who.to_string(), text: text.into(), at }
+        Entry {
+            who: who.to_string(),
+            text: text.into(),
+            at,
+        }
     }
 }
 
@@ -49,7 +53,10 @@ pub fn format(entry: &Entry, now: u32) -> String {
 /// something was left out.
 pub fn clip(s: &str, chars: usize, lines: usize) -> String {
     let head = s.split('\n').take(lines).collect::<Vec<_>>().join("\n");
-    let end = head.char_indices().nth(chars).map_or(head.len(), |(i, _)| i);
+    let end = head
+        .char_indices()
+        .nth(chars)
+        .map_or(head.len(), |(i, _)| i);
     let kept = &head[..end];
     if kept.len() < s.len() {
         format!("{}\n[...]", kept.trim_end())
@@ -103,7 +110,11 @@ pub fn rpc_line(line: &str) -> Option<Entry> {
     let label = text(&d["label"]);
     let said = match d["kind"].as_str()? {
         "step-started" => {
-            let round = if d["round"].is_null() { "1".to_string() } else { text(&d["round"]) };
+            let round = if d["round"].is_null() {
+                "1".to_string()
+            } else {
+                text(&d["round"])
+            };
             format!("--- {step}{label} started (round {round})")
         }
         "step-completed" => {
@@ -111,7 +122,11 @@ pub fn rpc_line(line: &str) -> Option<Entry> {
             format!("--- {step}{label} done in {seconds}s")
         }
         "dispatched" if d["role"] != "work-driver" => {
-            let who = if d["label"].is_null() { text(&d["role"]) } else { label };
+            let who = if d["label"].is_null() {
+                text(&d["role"])
+            } else {
+                label
+            };
             format!("agent started: {who}")
         }
         _ => return None,
@@ -168,7 +183,11 @@ pub fn transcript_line(role: &str, line: &str) -> Vec<Entry> {
             .join("\n");
         let result = result.trim();
         if !result.is_empty() {
-            let who = if m["isError"] == true { "  ! error" } else { "  result" };
+            let who = if m["isError"] == true {
+                "  ! error"
+            } else {
+                "  result"
+            };
             entries.push(Entry::new(who, clip(result, 700, 10), at));
         }
     }
@@ -219,9 +238,15 @@ mod tests {
 
     #[test]
     fn the_time_is_read_from_a_date_or_from_milliseconds() {
-        assert_eq!(clock(&json!("2026-10-10T06:15:45.123Z")), Some(6 * 3600 + 15 * 60 + 45));
+        assert_eq!(
+            clock(&json!("2026-10-10T06:15:45.123Z")),
+            Some(6 * 3600 + 15 * 60 + 45)
+        );
         assert_eq!(clock(&json!("2026-10-10T23:59:59Z")), Some(86399));
-        assert_eq!(clock(&json!(1791526545000u64)), Some(6 * 3600 + 15 * 60 + 45));
+        assert_eq!(
+            clock(&json!(1791526545000u64)),
+            Some(6 * 3600 + 15 * 60 + 45)
+        );
         assert_eq!(clock(&json!(-1)), Some(86399));
     }
 
@@ -248,9 +273,15 @@ mod tests {
     #[test]
     fn a_driver_notice_is_an_entry() {
         let line = json!({"type": "extension_ui_request", "method": "notify", "message": "parked"});
-        assert_eq!(rpc_line(&line.to_string()), Some(Entry::new("driver", "parked", None)));
+        assert_eq!(
+            rpc_line(&line.to_string()),
+            Some(Entry::new("driver", "parked", None))
+        );
         let empty = json!({"type": "extension_ui_request", "method": "notify"});
-        assert_eq!(rpc_line(&empty.to_string()), Some(Entry::new("driver", "", None)));
+        assert_eq!(
+            rpc_line(&empty.to_string()),
+            Some(Entry::new("driver", "", None))
+        );
     }
 
     fn lifecycle(data: Value) -> String {
@@ -264,15 +295,22 @@ mod tests {
     fn step_boundaries_and_started_agents_are_entries() {
         let said = |data: Value| rpc_line(&lifecycle(data)).map(|e| (e.text, e.at));
         assert_eq!(
-            said(json!({"kind": "step-started", "stepNumber": 2, "stepTotal": 7, "label": "develop"})),
-            Some(("--- step 2/7 develop started (round 1)".to_string(), Some(7)))
+            said(
+                json!({"kind": "step-started", "stepNumber": 2, "stepTotal": 7, "label": "develop"})
+            ),
+            Some((
+                "--- step 2/7 develop started (round 1)".to_string(),
+                Some(7)
+            ))
         );
         assert_eq!(
             said(json!({"kind": "step-started", "label": "review", "round": 3})),
             Some(("--- review started (round 3)".to_string(), Some(7)))
         );
         assert_eq!(
-            said(json!({"kind": "step-completed", "stepNumber": 2, "stepTotal": 7, "label": "develop", "elapsedMs": 61500})),
+            said(
+                json!({"kind": "step-completed", "stepNumber": 2, "stepTotal": 7, "label": "develop", "elapsedMs": 61500})
+            ),
             Some(("--- step 2/7 develop done in 62s".to_string(), Some(7)))
         );
         assert_eq!(
@@ -287,10 +325,23 @@ mod tests {
 
     #[test]
     fn the_driver_itself_and_other_lines_give_no_entry() {
-        assert_eq!(rpc_line(&lifecycle(json!({"kind": "dispatched", "role": "work-driver"}))), None);
+        assert_eq!(
+            rpc_line(&lifecycle(
+                json!({"kind": "dispatched", "role": "work-driver"})
+            )),
+            None
+        );
         assert_eq!(rpc_line(&lifecycle(json!({"kind": "other"}))), None);
         assert_eq!(rpc_line(&lifecycle(json!(null))), None);
-        for line in ["", "not json", "null", "7", "[]", r#"{"type":"response"}"#, r#"{"type":"entry_appended","entry":null}"#] {
+        for line in [
+            "",
+            "not json",
+            "null",
+            "7",
+            "[]",
+            r#"{"type":"response"}"#,
+            r#"{"type":"entry_appended","entry":null}"#,
+        ] {
             assert_eq!(rpc_line(line), None, "{line}");
         }
     }
@@ -311,18 +362,35 @@ mod tests {
             {"type": "toolCall", "name": "edit", "arguments": {"path": 7, "pattern": "x"}},
             {"type": "toolCall", "name": "todo"},
         ]}));
-        let said: Vec<String> = transcript_line("coder", &line).into_iter().map(|e| e.text).collect();
+        let said: Vec<String> = transcript_line("coder", &line)
+            .into_iter()
+            .map(|e| e.text)
+            .collect();
         assert_eq!(
             said,
-            ["I will run the tests.", "$ scripts/verify.sh", "read README.md", "grep tehas_load", "edit", "todo"]
+            [
+                "I will run the tests.",
+                "$ scripts/verify.sh",
+                "read README.md",
+                "grep tehas_load",
+                "edit",
+                "todo"
+            ]
         );
-        assert!(transcript_line("coder", &line).iter().all(|e| e.who == "coder" && e.at == Some(9)));
+        assert!(transcript_line("coder", &line)
+            .iter()
+            .all(|e| e.who == "coder" && e.at == Some(9)));
     }
 
     #[test]
     fn an_agent_error_is_an_entry() {
-        let line = message(json!({"role": "assistant", "content": [], "errorMessage": "context overflow"}));
-        assert_eq!(transcript_line("coder", &line), [Entry::new("coder", "! context overflow", Some(9))]);
+        let line = message(
+            json!({"role": "assistant", "content": [], "errorMessage": "context overflow"}),
+        );
+        assert_eq!(
+            transcript_line("coder", &line),
+            [Entry::new("coder", "! context overflow", Some(9))]
+        );
     }
 
     #[test]
@@ -330,19 +398,39 @@ mod tests {
         let ok = message(json!({"role": "toolResult", "content": [
             {"type": "text", "text": "ok    lint\n"}, {"type": "image", "data": "..."}, {"type": "text", "text": "ok    tests"},
         ]}));
-        assert_eq!(transcript_line("coder", &ok), [Entry::new("  result", "ok    lint\n\nok    tests", Some(9))]);
-        let failed = message(json!({"role": "toolResult", "isError": true, "content": [{"type": "text", "text": "exit 1"}]}));
-        assert_eq!(transcript_line("coder", &failed), [Entry::new("  ! error", "exit 1", Some(9))]);
-        let long = message(json!({"role": "toolResult", "content": [{"type": "text", "text": "line\n".repeat(30)}]}));
-        assert_eq!(transcript_line("coder", &long)[0].text, format!("{}\n[...]", ["line"; 10].join("\n")));
-        let empty = message(json!({"role": "toolResult", "content": [{"type": "text", "text": " \n"}]}));
+        assert_eq!(
+            transcript_line("coder", &ok),
+            [Entry::new("  result", "ok    lint\n\nok    tests", Some(9))]
+        );
+        let failed = message(
+            json!({"role": "toolResult", "isError": true, "content": [{"type": "text", "text": "exit 1"}]}),
+        );
+        assert_eq!(
+            transcript_line("coder", &failed),
+            [Entry::new("  ! error", "exit 1", Some(9))]
+        );
+        let long = message(
+            json!({"role": "toolResult", "content": [{"type": "text", "text": "line\n".repeat(30)}]}),
+        );
+        assert_eq!(
+            transcript_line("coder", &long)[0].text,
+            format!("{}\n[...]", ["line"; 10].join("\n"))
+        );
+        let empty =
+            message(json!({"role": "toolResult", "content": [{"type": "text", "text": " \n"}]}));
         assert_eq!(transcript_line("coder", &empty), []);
     }
 
     #[test]
     fn lines_that_are_no_message_give_no_entry() {
         for line in [
-            "", "{", "null", "[1]", r#"{"type":"session"}"#, r#"{"type":"message"}"#, r#"{"type":"message","message":"text"}"#,
+            "",
+            "{",
+            "null",
+            "[1]",
+            r#"{"type":"session"}"#,
+            r#"{"type":"message"}"#,
+            r#"{"type":"message","message":"text"}"#,
             r#"{"type":"message","message":{"role":"user","content":[{"type":"text","text":"hi"}]}}"#,
             r#"{"type":"message","message":{"role":"assistant","content":"hi"}}"#,
             r#"{"type":"message","message":{"role":"assistant","content":[null,7,{"type":"text","text":5}]}}"#,

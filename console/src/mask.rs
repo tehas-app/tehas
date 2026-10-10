@@ -16,9 +16,8 @@ static GITHUB_TOKEN: LazyLock<Regex> =
     LazyLock::new(|| regex(r"(?-u:\b)(gh[pousr]_|github_pat_)[A-Za-z0-9_]{16,}"));
 static POSTGRES_PASSWORD: LazyLock<Regex> =
     LazyLock::new(|| regex(r"(postgres(?:ql)?://[^:/\s]+:)[^@\s]+@"));
-static SECRET_ASSIGNMENT: LazyLock<Regex> = LazyLock::new(|| {
-    regex(r"(?-u:\b)([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY)[A-Z0-9_]*=)\S+")
-});
+static SECRET_ASSIGNMENT: LazyLock<Regex> =
+    LazyLock::new(|| regex(r"(?-u:\b)([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY)[A-Z0-9_]*=)\S+"));
 // The private IPv4 ranges, the tailnet range and link-local. What stands
 // before and after a match is checked in private_addresses.
 static PRIVATE_ADDRESS: LazyLock<Regex> = LazyLock::new(|| {
@@ -107,7 +106,10 @@ mod tests {
     #[test]
     fn masks_key_value_secrets_for_token_like_names() {
         assert_eq!(mask("FOO_TOKEN=abcdef123456"), "FOO_TOKEN=***");
-        assert_eq!(mask("DATABASE_PASSWORD=hunter2 x"), "DATABASE_PASSWORD=*** x");
+        assert_eq!(
+            mask("DATABASE_PASSWORD=hunter2 x"),
+            "DATABASE_PASSWORD=*** x"
+        );
         assert_eq!(mask("GH_TOKEN=ghp_whatever"), "GH_TOKEN=***");
         assert_eq!(mask("CF_API_KEY=s3cr3t"), "CF_API_KEY=***");
     }
@@ -146,14 +148,22 @@ mod tests {
         );
         assert_eq!(mask(&ip([169, 254, 1, 1])), "[private address]");
         assert_eq!(
-            mask(&format!("{}:8086", ["node", "tail1234", "ts", "net"].join("."))),
+            mask(&format!(
+                "{}:8086",
+                ["node", "tail1234", "ts", "net"].join(".")
+            )),
             "[private name]:8086"
         );
     }
 
     #[test]
     fn masks_every_address_on_a_line() {
-        let line = format!("{} then {},{}", ip([10, 0, 0, 1]), ip([10, 0, 0, 2]), ip([192, 168, 0, 3]));
+        let line = format!(
+            "{} then {},{}",
+            ip([10, 0, 0, 1]),
+            ip([10, 0, 0, 2]),
+            ip([192, 168, 0, 3])
+        );
         assert_eq!(
             mask(&line),
             "[private address] then [private address],[private address]"

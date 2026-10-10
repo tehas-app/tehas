@@ -57,19 +57,35 @@ fn args() -> Result<Args, String> {
         .parse()
         .ok()
         .and_then(|seconds| UNIX_EPOCH.checked_add(Duration::from_secs(seconds)))
-        .ok_or(format!("console: --since is not a time in seconds: {since}"))?;
-    Ok(Args { rpc: value("rpc")?, runs: value("runs")?, out: value("out")?, since })
+        .ok_or(format!(
+            "console: --since is not a time in seconds: {since}"
+        ))?;
+    Ok(Args {
+        rpc: value("rpc")?,
+        runs: value("runs")?,
+        out: value("out")?,
+        since,
+    })
 }
 
 fn write(out: &mut File, entry: &Entry) -> io::Result<()> {
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs() % 86400);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() % 86400);
     out.write_all(render::format(entry, now as u32).as_bytes())
 }
 
 fn run(args: &Args, stop: &AtomicBool) -> io::Result<()> {
-    let mut out = OpenOptions::new().create(true).append(true).mode(0o644).open(&args.out)?;
+    let mut out = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o644)
+        .open(&args.out)?;
     let mut follower = tail::Follower::default();
-    write(&mut out, &Entry::new("tehas", "console attached, waiting for the cycle", None))?;
+    write(
+        &mut out,
+        &Entry::new("tehas", "console attached, waiting for the cycle", None),
+    )?;
     loop {
         // Read before the lines are: a stop that arrives during a pass is
         // followed by one more pass, so the last lines are not lost.
@@ -96,7 +112,10 @@ fn run(args: &Args, stop: &AtomicBool) -> io::Result<()> {
             waited += TICK;
         }
     }
-    write(&mut out, &Entry::new("tehas", "cycle ended, console detached", None))
+    write(
+        &mut out,
+        &Entry::new("tehas", "cycle ended, console detached", None),
+    )
 }
 
 fn main() -> ExitCode {
