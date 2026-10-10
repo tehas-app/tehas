@@ -17,6 +17,8 @@ checkouts and tehas itself come after it, on the [new project page](/new-project
 - A private network to reach the dashboard on, and outbound HTTPS to GitHub,
   the package and release hosts.
 - An OpenAI-compatible model endpoint it can reach.
+  [viiwork](https://github.com/janit/viiwork) is one, and the one the example
+  instance uses.
 - Disk for the sandbox image, about 10 GB once built, plus the product's own
   needs. The example host has 8 CPUs, 15 GB of memory and 58 GB of disk.
 
@@ -130,7 +132,7 @@ git -C ~/tehas/platform config core.sshCommand \
 Add `deploy_key.pub` to the repository's deploy keys without write access.
 
 **The bot's git identity.** `git config --global user.name` and `user.email`
-for the tehas user. `tehas-work` refuses to start a cycle without them.
+for the tehas user. `tehas work` refuses to start a cycle without them.
 
 ## What is proven
 

@@ -1,5 +1,5 @@
 # The Protolab: a page for every ticket at the prototype stage and the files
-# attached to it, as tehas-protolab wrote them. Static files only, plain HTTP,
+# attached to it, as `tehasbot protolab` wrote them. Static files only, plain HTTP,
 # bound to the instance's TEHAS_HOST_ADDR in protolab.compose.yaml.
 #
 # It is a server of its own, on a port of its own, because a prototype is
@@ -16,7 +16,7 @@
     # The pages are rebuilt in place; a browser asks again every time.
     header Cache-Control "no-cache"
     route {
-        # What tehas-protolab keeps for itself: stamps, lists, work in progress.
+        # What `tehasbot protolab` keeps for itself: stamps, lists, work in progress.
         @kept path */.*
         respond @kept 404
         # The typeface, the style sheets and the sprites, shared with the
@@ -37,7 +37,7 @@
             header Access-Control-Allow-Origin "*"
             file_server
         }
-        # The pages tehas-protolab wrote: no script, nothing from elsewhere.
+        # The pages `tehasbot protolab` wrote: no script, nothing from elsewhere.
         handle {
             header Content-Security-Policy "default-src 'none'; style-src 'self'; img-src 'self' data:; media-src 'self'; font-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'"
             file_server

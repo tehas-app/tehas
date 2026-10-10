@@ -6,7 +6,7 @@
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh"
 # The one place the follow-ups are named: install.sh prints what it defines here,
-# and tehas-update runs the same ids, so a case can pin both sides to it.
+# and tehas update runs the same ids, so a case can pin both sides to it.
 # shellcheck source=lib/update-steps.sh
 . "$T_ROOT/lib/update-steps.sh"
 
@@ -40,22 +40,28 @@ files="./.config/systemd/user/tehas-dispatch.service
 ./.pi/agent/mcp.json
 ./.pi/agent/models.json
 ./.pi/agent/settings.json
-./tehas/bin/tehas-console.ts
-./tehas/bin/tehas-dispatch
-./tehas/bin/tehas-energy
-./tehas/bin/tehas-health
-./tehas/bin/tehas-protolab
-./tehas/bin/tehas-status
-./tehas/bin/tehas-test
-./tehas/bin/tehas-update
-./tehas/bin/tehas-work
+./tehas/bin/tehas
+./tehas/bin/tehasbot
 ./tehas/edge/docs.Caddyfile
 ./tehas/edge/docs.compose.yaml
 ./tehas/edge/protolab.Caddyfile
 ./tehas/edge/protolab.compose.yaml
 ./tehas/env.sh
 ./tehas/lib/config.sh
+./tehas/lib/sandbox.sh
 ./tehas/lib/update-steps.sh
+./tehas/libexec/console.ts
+./tehas/libexec/dev
+./tehas/libexec/dispatch
+./tehas/libexec/energy
+./tehas/libexec/health
+./tehas/libexec/index
+./tehas/libexec/labels
+./tehas/libexec/protolab
+./tehas/libexec/status
+./tehas/libexec/summary
+./tehas/libexec/update
+./tehas/libexec/work
 ./tehas/sandbox/Dockerfile
 ./tehas/sandbox/build.sh
 ./tehas/versions.env"
@@ -117,7 +123,7 @@ t_contains "$t_out" "tehas is up to date"
 
 t_case "--check on a matching install reports four lines and exits 0"
 # The follow-ups of the install above are taken as done, which is what running
-# tehas-update does to the record. A host that still owes one is another case.
+# tehas update does to the record. A host that still owes one is another case.
 rm -f "$th/state/update-pending"
 t_run "$install --check"
 t_eq "$t_rc" 0
@@ -127,19 +133,19 @@ t_contains "$t_out" "Installed:    OK"
 t_contains "$t_out" "Tests:        not checked (running inside the tests)"
 
 t_case "--check reports drift, changes nothing and exits 1"
-echo "# edited on the host" >>"$th/bin/tehas-dispatch"
+echo "# edited on the host" >>"$th/libexec/dispatch"
 before=$(installed_files | xargs -I{} sh -c "cd '$home' && cksum '{}'")
 t_run "$install --check"
 t_eq "$t_rc" 1
 t_contains "$t_out" "Installed:    DRIFT (1 files)"
-t_contains "$t_out" "differs: $th/bin/tehas-dispatch"
+t_contains "$t_out" "differs: $th/libexec/dispatch"
 t_eq "$(installed_files | xargs -I{} sh -c "cd '$home' && cksum '{}'")" "$before"
 
 t_case "a real run repairs drift and keeps the old file as .prev"
 t_run "$install"
-t_contains "$t_out" "installed: $th/bin/tehas-dispatch"
-t_eq "$(cmp -s "$th/bin/tehas-dispatch" "$T_ROOT/bin/tehas-dispatch" && echo same)" "same"
-t_contains "$(cat "$th/bin/tehas-dispatch.prev")" "# edited on the host"
+t_contains "$t_out" "installed: $th/libexec/dispatch"
+t_eq "$(cmp -s "$th/libexec/dispatch" "$T_ROOT/libexec/dispatch" && echo same)" "same"
+t_contains "$(cat "$th/libexec/dispatch.prev")" "# edited on the host"
 
 t_case "an instance with a missing setting installs nothing and exits 78"
 fresh
@@ -219,6 +225,155 @@ echo '{"defaultProvider":"test-provider"}' >"$TEHAS_INSTANCE_DIR/settings.json"
 t_run "$install"
 t_eq "$(cat "$home/.pi/agent/settings.json")" '{"defaultProvider":"test-provider"}'
 
+# Before bin/tehas there was one file for each command in ~/tehas/bin.
+old_layout() {
+  for f in tehas-console.ts tehas-dispatch tehas-energy tehas-health tehas-index tehas-protolab \
+    tehas-status tehas-test tehas-work; do echo "# old" >"$th/bin/$f"; done
+  echo "# older" >"$th/bin/tehas-dispatch.prev"
+}
+
+t_case "--check names the commands of the earlier layout and removes nothing"
+fresh
+instance
+t_run "$install"
+old_layout
+echo "# a tool bootstrap.sh put there" >"$th/bin/gh"
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "Installed:    DRIFT (9 files)"
+t_eq "$(printf '%s\n' "$t_out" | grep -c "stale: $th/bin/tehas-")" 9
+t_contains "$t_out" "stale: $th/bin/tehas-dispatch"
+t_eq "$([ -e "$th/bin/tehas-dispatch" ] && echo there)" "there"
+
+t_case "a real run removes them, and nothing else in bin"
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "removed: $th/bin/tehas-dispatch"
+t_contains "$t_out" "removed: $th/bin/tehas-test"
+# A running sampler is the old file calling itself. The units step restarts it,
+# so the step is asked for and owed although no unit file changed.
+t_contains "$t_out" "next: units tehas-dispatch.timer tehas-energy.service tehas-protolab.timer"
+t_contains "$(cat "$th/state/update-pending")" "units tehas-dispatch.timer tehas-energy.service"
+# systemd reloaded before the files its old units name were removed.
+t_eq "$(t_calls systemctl)" "--user daemon-reload"
+t_eq "$(cd "$th/bin" && find . -type f | LC_ALL=C sort | tr '\n' ' ')" "./gh ./tehas ./tehasbot "
+t_run "$install"
+t_contains "$t_out" "tehas is up to date"
+
+t_case "while a cycle runs they stay, and the install says to come back"
+old_layout
+mkdir -p "$th/state"
+lock=$th/state/dispatch.lock
+bash -c 'exec 8>"$1"; flock 8; exec sleep 60' _ "$lock" &
+holder=$!
+for _ in $(seq 50); do flock -n "$lock" true || break; sleep 0.1; done
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "later: ./install.sh again when the running cycle has ended"
+# Not a step: `tehas update` must not take it for one it does not know.
+t_lacks "$t_out" "next: ./install.sh"
+t_lacks "$t_out" "removed: $th/bin/tehas-dispatch"
+t_eq "$([ -e "$th/bin/tehas-status" ] && echo there)" "there"
+kill "$holder" 2>/dev/null
+wait "$holder" 2>/dev/null
+t_run "$install"
+t_contains "$t_out" "removed: $th/bin/tehas-status"
+t_eq "$([ -e "$th/bin/tehas-status" ] || echo gone)" "gone"
+t_eq "$(flock -n "$lock" true && echo free)" "free"
+
+t_case "they stay while systemd has not reloaded its units"
+old_layout
+rm -f "$T"/calls/systemctl
+t_stub systemctl 'echo "Failed to connect to bus: No such file or directory" >&2; exit 1'
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "later: ./install.sh again once systemctl --user daemon-reload works"
+t_lacks "$t_out" "removed: $th/bin/tehas-dispatch"
+t_eq "$([ -e "$th/bin/tehas-dispatch" ] && echo there)" "there"
+# A wrapper that prints an error and still exits 0 did not reload either.
+t_stub systemctl 'echo "System has not been booted with systemd"'
+t_run "$install"
+t_contains "$t_out" "later: ./install.sh again once systemctl --user daemon-reload works"
+t_eq "$([ -e "$th/bin/tehas-dispatch" ] && echo there)" "there"
+t_stub systemctl
+t_run "$install"
+t_contains "$t_out" "removed: $th/bin/tehas-dispatch"
+
+t_case "an old command that cannot be removed fails the install"
+old_layout
+chmod a-w "$th/bin"
+t_run "$install"
+chmod u+w "$th/bin"
+if [ "$(id -u)" = 0 ]; then
+  t_eq "$t_rc" 0 # root removes it anyway
+else
+  t_eq "$([ "$t_rc" != 0 ] && echo failed)" "failed"
+  t_eq "$([ -e "$th/bin/tehas-energy" ] && echo there)" "there"
+fi
+t_run "$install"
+t_eq "$t_rc" 0
+
+# The code index: built by the first real run that finds both the sandbox
+# image and the product checkout, and never by --check.
+product() {
+  mkdir -p "$T/git/acme"
+  [ -d "$T/git/acme/widget" ] || {
+    git init -q -b main "$T/git/acme/widget"
+    git -C "$T/git/acme/widget" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m first
+  }
+  git clone -q "$T/git/acme/widget" "$th/repos/widget"
+}
+index_runs() { t_calls docker | grep -c -e '^run .*index_repository' || true; }
+t_stub docker 'case "$1" in
+  image) exit "${IMAGE_RC:-0}" ;;
+  run) [ "${RUN_RC:-0}" = 0 ] || exit "$RUN_RC"; echo "{\"status\":\"indexed\",\"nodes\":1,\"edges\":2}" ;;
+esac'
+
+t_case "an install without the product checkout names the indexing step"
+fresh
+instance
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "later: $th/bin/tehas index"
+t_eq "$(index_runs)" 0
+
+t_case "an install without the sandbox image names the indexing step"
+product
+T_ENV=(T_IN_TEST=1 IMAGE_RC=1)
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "later: $th/bin/tehas index"
+t_eq "$(index_runs)" 0
+
+t_case "--check builds no index"
+T_ENV=(T_IN_TEST=1)
+t_run "$install --check"
+t_eq "$(index_runs)" 0
+t_eq "$(find "$th/state/index.json" 2>/dev/null | wc -l)" 0
+
+t_case "a failed indexing is a warning, and the install still succeeds"
+T_ENV=(T_IN_TEST=1 RUN_RC=1)
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN: the code index was not built"
+t_contains "$t_out" "later: $th/bin/tehas index"
+
+t_case "with the image and the checkout, the install builds the index"
+rm -f "$T"/calls/*
+T_ENV=(T_IN_TEST=1)
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "tehas index: widget indexed"
+t_lacks "$t_out" "later: $th/bin/tehas index"
+t_eq "$(index_runs)" 1
+t_eq "$(jq -r .nodes "$th/state/index.json")" 1
+
+t_case "a later install leaves the index alone"
+t_run "$install"
+t_contains "$t_out" "tehas is up to date"
+t_eq "$(index_runs)" 1
+t_stub docker
+
 for name in example tehas-tehas; do
   t_case "the shipped instance '$name' is valid"
   fresh
@@ -247,7 +402,7 @@ fresh
 instance
 # A checkout missing one source: put() stops the run with no follow-up report at
 # all. The files it did copy are on the host, and what they call for was recorded
-# as each of them went - so the next tehas-update still runs those steps, and
+# as each of them went - so the next tehas update still runs those steps, and
 # install.sh --check still says the host is not current.
 part=$T/partial
 rm -rf "$part"

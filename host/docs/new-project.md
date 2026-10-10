@@ -168,8 +168,9 @@ must be listed too. The example's, with one provider and one model:
 ```
 
 `gb1` is the model host's name on the private network. The endpoint takes no
-key, so `apiKey` is a placeholder. The example's endpoint happens to be a
-viiwork mesh. That is not required: any OpenAI-compatible endpoint that serves
+key, so `apiKey` is a placeholder. The example's endpoint is a
+[viiwork](https://github.com/janit/viiwork) mesh: a flexible meshed inference platform for both home and enterprise grade hardware.
+That is not required: any OpenAI-compatible endpoint that serves
 your model works, and only the optional Energy use section depends on viiwork.
 
 Everything else has a default. The limits of a cycle's container default to the
@@ -200,7 +201,12 @@ pi-rukas image and remaps the user id. Add whatever your gates need. Then:
 
 ```
 ~/tehas/sandbox/build.sh
+tehas index
 ```
+
+`tehas index` builds the code index the agents search, which needs the image.
+A later `install.sh` would do it too, as long as there is no index yet. See
+[tehas index](/tools).
 
 ### 7. Prove the gates in the sandbox
 
@@ -229,17 +235,17 @@ update enables them, so:
 
 ```
 docker compose -f ~/tehas/edge/docs.compose.yaml up -d --force-recreate  # this site and the dashboard
-tehas-dispatch --init-labels
-tehas-dispatch --dry-run
+tehas labels
+tehas dispatch --dry-run
 systemctl --user daemon-reload
 systemctl --user enable --now tehas-dispatch.timer tehas-protolab.timer
-tehas-update        # runs the follow-ups install.sh recorded, and clears them
+tehas update        # runs the follow-ups install.sh recorded, and clears them
 ```
 
 `install.sh` names `tehas-energy.service` in its `units` step too. That service is
-optional: enable it only when your model endpoint is a viiwork mesh, as the
-example's `fleet` provider is. With any other endpoint leave it disabled - an
-update restarts a unit only where it already runs. See [tehas-energy](/tools).
+optional: enable it only when your model endpoint is a [viiwork](https://github.com/janit/viiwork) mesh, as the
+example's `fleet` provider is. With any other endpoint leave it disabled: an
+update restarts a unit only where it already runs. See [the energy sampler](/tools).
 
 Then label one small, well-specified issue with `tehas:ready` and watch it on
 the dashboard. [Operating tehas](/operating) takes it from there.

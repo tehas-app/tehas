@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for bin/tehas-update: the checkout steps, what install.sh is asked to
+# Tests for libexec/update: the checkout steps, what install.sh is asked to
 # do, and which follow-ups an update may run. git runs for real against a bare
 # repository in the scratch directory (no network); one case runs this
 # repository's real install.sh in the stubbed host, so both sides of the
@@ -14,7 +14,7 @@
 # shellcheck source=lib/update-steps.sh
 . "$T_ROOT/lib/update-steps.sh"
 
-update="$T_ROOT/bin/tehas-update"
+update="$T_ROOT/libexec/update"
 th=$T/home/tehas
 checkout=$th/platform
 owed_file=$(TEHAS_HOME=$th tehas_pending_file)   # the path, from the one definition
@@ -64,7 +64,7 @@ next_lines() {
 
 # install.sh asking for every follow-up it knows, as an install stub body.
 ask_all() {
-  printf 'echo "installed: bin/tehas-update"\n'
+  printf 'echo "installed: libexec/update"\n'
   while IFS= read -r step; do printf 'echo "next: %s"\n' "$step"; done < <(next_lines)
 }
 ASK=$(ask_all)
@@ -79,13 +79,13 @@ platform() { # [behind] [install body]
   systemctl_active
   docker_up
   bound_calls
-  mkdir -p "$checkout/bin" "$checkout/lib" "$th/sandbox" "$th/edge"
+  mkdir -p "$checkout/libexec" "$checkout/lib" "$th/sandbox" "$th/edge"
   write_install "$body"
   # The libraries the checkout carries are this repository's own: after a
-  # fast-forward, tehas-update re-checks the instance with the settings rules
+  # fast-forward, tehas update re-checks the instance with the settings rules
   # that came with the code it pulled.
   cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/update-steps.sh" "$checkout/lib/"
-  : >"$checkout/bin/tehas-work"
+  : >"$checkout/libexec/work"
   git init -q --initial-branch=main "$checkout"
   git -C "$checkout" config user.name test
   git -C "$checkout" config user.email test@example.com
@@ -175,7 +175,7 @@ real_platform() {
   docker_up
   bound_calls
   mkdir -p "$checkout"
-  cp -R "$T_ROOT/install.sh" "$T_ROOT/bin" "$T_ROOT/lib" "$T_ROOT/host" "$checkout/"
+  cp -R "$T_ROOT/install.sh" "$T_ROOT/bin" "$T_ROOT/libexec" "$T_ROOT/lib" "$T_ROOT/host" "$checkout/"
   chmod +x "$checkout/install.sh"
   git init -q --initial-branch=main "$checkout"
   git -C "$checkout" config user.name test
@@ -261,7 +261,7 @@ instance
 platform 0
 t_run "$update --dryrun"
 t_eq "$t_rc" 64
-t_contains "$t_out" "tehas-update: unknown argument: --dryrun"
+t_contains "$t_out" "tehas update: unknown argument: --dryrun"
 t_eq "$(t_calls install)" ""
 
 t_case "more than one argument is refused, naming what it was given"
@@ -269,8 +269,8 @@ instance
 platform 0
 t_run "$update --check --help"
 t_eq "$t_rc" 64
-t_contains "$t_out" "tehas-update: takes at most one argument, got --check --help"
-# The same mistake answered the same way as in tehas-dispatch: the count is
+t_contains "$t_out" "tehas update: takes at most one argument, got --check --help"
+# The same mistake answered the same way as in the dispatcher: the count is
 # refused before any of the arguments is read as a mode.
 t_eq "$(t_calls install)" ""
 
@@ -278,7 +278,7 @@ t_case "--help prints the usage with no instance and no checkout"
 rm -rf "$T/instance" "$th"
 t_run "$update --help"
 t_eq "$t_rc" 0
-t_contains "$t_out" "tehas-update --check"
+t_contains "$t_out" "tehas update --check"
 
 t_case "no platform checkout: exit 78 saying where it looked"
 instance
@@ -313,6 +313,16 @@ t_eq "$(t_calls build)" ""
 t_eq "$(t_calls docker)" ""
 t_eq "$(t_calls systemctl)" ""
 
+t_case "a later: line of install.sh is printed and is no step"
+instance
+platform 0 'echo "installed: libexec/update"
+echo "later: ./install.sh again when the running cycle has ended"'
+t_run "$update"
+t_eq "$t_rc" 0
+t_contains "$t_out" "later: ./install.sh again when the running cycle has ended"
+t_lacks "$t_out" "WARN"
+t_eq "$(owed_steps)" ""
+
 t_case "a fast-forward runs the follow-ups install.sh asked for"
 instance
 platform 1 "$ASK"
@@ -320,7 +330,7 @@ before=$(head_sha)
 t_run "$update"
 t_eq "$t_rc" 0
 t_contains "$t_out" "checkout: fast-forwarded $before -> $(head_sha) (1 commits)"
-t_contains "$t_out" "installed: bin/tehas-update"
+t_contains "$t_out" "installed: libexec/update"
 # In the order install.sh printed them, systemd first. A line install.sh asked
 # for is not echoed back as if it were still work for a person to run.
 t_eq "$(step_order)" "systemd: restarted
@@ -530,11 +540,11 @@ t_case "a dirty checkout changes nothing and runs no install.sh"
 instance
 platform 0 "$ASK"
 before=$(state)
-echo "half-finished work" >"$checkout/bin/new-thing"
+echo "half-finished work" >"$checkout/libexec/new-thing"
 t_run "$update"
 t_eq "$t_rc" 1
 t_contains "$t_out" "has local changes; nothing was changed"
-t_contains "$t_out" "bin/new-thing"
+t_contains "$t_out" "libexec/new-thing"
 t_eq "$(state)" "$before"
 t_eq "$(t_calls install)" ""
 t_eq "$(t_calls build)" ""
@@ -586,7 +596,7 @@ t_eq "$(t_calls install)" ""
 
 t_case "a failed install stops before the follow-ups"
 instance
-platform 2 'echo "installed: bin/tehas-dispatch"
+platform 2 'echo "installed: libexec/dispatch"
 echo "tehas: /x is missing from this checkout" >&2
 exit 1'
 before=$(head_sha)
@@ -634,7 +644,7 @@ t_case "--check reports what would change and leaves the checkout as it was"
 instance
 platform 2 'echo "Instance:     $TEHAS_INSTANCE_DIR OK"
 echo "Installed:    DRIFT (1 files)"
-echo "  differs: '"$th"'/bin/tehas-dispatch"
+echo "  differs: '"$th"'/libexec/dispatch"
 exit 1'
 before=$(head_sha)
 t_run "$update --check"
@@ -728,7 +738,7 @@ t_eq "$(owed_steps)" "docs"
 
 t_case "install.sh's diagnostics are not read as follow-ups"
 instance
-platform 0 'echo "installed: bin/tehas-dispatch"
+platform 0 'echo "installed: libexec/dispatch"
 echo "next: sandbox" >&2
 echo "tehas: a step on this host did not run" >&2'
 t_run "$update"
@@ -854,14 +864,14 @@ t_eq "$(owed_steps)" "docs --force-recreate
 protolab --force-recreate"
 
 # The seam between the two commands, checked against its producer: this
-# repository's real install.sh, run by tehas-update in the stubbed host.
-t_case "the real install.sh through tehas-update runs its follow-ups in its order"
+# repository's real install.sh, run by tehas update in the stubbed host.
+t_case "the real install.sh through tehas update runs its follow-ups in its order"
 instance_models
 real_platform
 T_ENV=(T_IN_TEST=1)   # install.sh skips bootstrap and the tests inside a test
 t_run "$update"
 t_eq "$t_rc" 0
-t_contains "$t_out" "installed: $th/bin/tehas-update"
+t_contains "$t_out" "installed: $th/libexec/update"
 t_contains "$t_out" "systemd: restarted tehas-dispatch.timer tehas-energy.service tehas-protolab.timer"
 t_contains "$t_out" "docs: updating the container"
 t_contains "$t_out" "protolab: updating the container"
@@ -926,7 +936,7 @@ t_eq "$(owed_steps)" "renew-dashboard --now"
 
 t_case "steps an install.sh that died partway recorded are run by the next one"
 instance
-platform 1 'echo "installed: bin/tehas-dispatch"
+platform 1 'echo "installed: libexec/dispatch"
 . "$T_ROOT/lib/update-steps.sh"
 tehas_record_steps sandbox "docs --force-recreate"
 echo "tehas: /x is missing from this checkout" >&2

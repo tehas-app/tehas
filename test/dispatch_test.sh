@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Tests for bin/tehas-dispatch against a stub gh and a scratch checkout whose
+# Tests for libexec/dispatch against a stub gh and a scratch checkout whose
 # default branch is main.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh"
 
-dispatch="$T_ROOT/bin/tehas-dispatch"
+dispatch="$T_ROOT/libexec/dispatch"
 fx=$T/fx
 mkdir -p "$fx"
 checkout=$T/home/tehas/repos/widget
@@ -33,6 +33,10 @@ case "$1 $2" in
 esac'
 t_stub fake-work
 t_stub fake-status
+# Notes what the checkout was at and whether the cycle had already started.
+t_stub fake-index 'git -C "$T/home/tehas/repos/widget" rev-parse HEAD >"$T/calls/index.head"
+[ ! -e "$T/calls/fake-work" ] || : >"$T/calls/index.late"
+[ ! -e "$T/fx/index-fails" ] || exit 1'
 
 reset() {
   rm -f "$T"/calls/* "$fx"/edit-*
@@ -43,7 +47,7 @@ reset() {
   echo '[]' >"$fx/awaiting.json"
   echo '[{"number":7,"labels":[{"name":"tehas:ready"}]}]' >"$fx/ready.json"
   echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
-  T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status)
+  T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index)
   t_instance "${T_MINIMAL[@]}"
 }
 
@@ -227,6 +231,11 @@ t_lacks "$t_out" "WARN"
 t_eq "$(t_calls fake-work)" "7"
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready"
 
+t_case "the code index is refreshed after the fetch and before the cycle"
+t_eq "$(t_calls fake-index)" "--before-cycle"
+t_eq "$(cat "$T/calls/index.head")" "$(git -C "$upstream" rev-parse main)"
+t_eq "$(find "$T/calls/index.late" 2>/dev/null | wc -l)" 0
+
 t_case "a cycle that ends without a pull request is handed to a human"
 t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
 
@@ -249,6 +258,20 @@ echo '{"pipelineState":{"status":"merged","currentStep":"done","branchName":"fea
 t_run "$dispatch"
 t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
 rm -rf "$checkout/.pi"
+
+t_case "an index that cannot be refreshed is a warning, and the cycle still runs"
+reset
+: >"$fx/index-fails"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN: the code index was not refreshed"
+t_eq "$(t_calls fake-work)" "7"
+rm "$fx/index-fails"
+
+t_case "a dry run refreshes no index"
+reset
+t_run "$dispatch --dry-run"
+t_eq "$(t_calls fake-index)" ""
 
 t_case "a first cycle starts plainly, a later one for the same issue restarts"
 reset
@@ -362,12 +385,12 @@ t_contains "$t_out" "default branch"
 t_lacks "$(t_calls gh)" "issue edit"
 git -C "$checkout" remote set-head origin main
 
-t_case "--init-labels needs only the repository"
+t_case "--init-labels is libexec/labels now: here it is an unknown argument"
 reset
-t_instance TEHAS_REPO=acme/widget
 t_run "$dispatch --init-labels"
-t_eq "$t_rc" 0
-t_contains "$(t_calls gh)" "label create tehas:ready --repo acme/widget"
+t_eq "$t_rc" 64
+t_contains "$t_out" "tehas dispatch: unknown argument: --init-labels"
+t_eq "$(t_calls gh)" ""
 
 # Arguments. A poll starts only from an argument this command knows, and the
 # check runs before the instance settings are read.
@@ -376,8 +399,7 @@ reset
 t_run "$dispatch --help 2>/dev/null"
 t_eq "$t_rc" 0
 t_contains "$t_out" "Usage:"
-t_contains "$t_out" "tehas-dispatch --dry-run"
-t_contains "$t_out" "tehas-dispatch --init-labels"
+t_contains "$t_out" "tehas dispatch --dry-run"
 t_lacks "$t_out" "set -uo pipefail"
 t_eq "$(t_calls gh)" ""
 t_eq "$(t_calls fake-work)" ""
@@ -411,7 +433,7 @@ reset
 rm -rf "$T/home/tehas/state" "$T/home/tehas/logs"
 t_run "$dispatch --dryrun"
 t_eq "$t_rc" 64
-t_contains "$t_out" "tehas-dispatch: unknown argument: --dryrun"
+t_contains "$t_out" "tehas dispatch: unknown argument: --dryrun"
 t_contains "$t_out" "Usage:"
 t_lacks "$t_out" "would run a cycle"
 t_eq "$(t_calls gh)" ""
@@ -425,7 +447,7 @@ t_eq "$t_rc" 64
 t_lacks "$t_out" "unknown argument"
 t_run "$dispatch --dryrun 1>/dev/null"
 t_eq "$t_rc" 64
-t_contains "$t_out" "tehas-dispatch: unknown argument: --dryrun"
+t_contains "$t_out" "tehas dispatch: unknown argument: --dryrun"
 t_contains "$t_out" "Usage:"
 
 t_case "an unknown argument is refused before the instance settings are read"
@@ -443,7 +465,7 @@ reset
 for arg in "-x" "--dry-run=1" "7" "--"; do
   t_run "$dispatch '$arg'"
   t_eq "$t_rc" 64
-  t_contains "$t_out" "tehas-dispatch: unknown argument: $arg"
+  t_contains "$t_out" "tehas dispatch: unknown argument: $arg"
 done
 t_eq "$(t_calls gh)" ""
 
@@ -451,17 +473,17 @@ t_case "an empty argument is an argument, not a poll"
 reset
 t_run "$dispatch ''"
 t_eq "$t_rc" 64
-t_contains "$t_out" "tehas-dispatch: unknown argument:"
+t_contains "$t_out" "tehas dispatch: unknown argument:"
 t_eq "$(t_calls gh)" ""
 t_eq "$(t_calls fake-work)" ""
 
 t_case "two arguments are refused, not combined"
 reset
 rm -rf "$T/home/tehas/state" "$T/home/tehas/logs"
-t_run "$dispatch --dry-run --init-labels"
+t_run "$dispatch --dry-run --help"
 t_eq "$t_rc" 64
-t_contains "$t_out" "tehas-dispatch: unknown argument: --init-labels"
-t_lacks "$t_out" "label create"
+t_contains "$t_out" "tehas dispatch: unknown argument: --help"
+t_lacks "$t_out" "would run a cycle"
 t_eq "$(t_calls gh)" ""
 t_eq "$(find "$T/home/tehas" -maxdepth 1 \( -name state -o -name logs \) | wc -l)" 0
 
@@ -476,7 +498,7 @@ t_case "--help with another argument is still an unknown invocation"
 reset
 t_run "$dispatch --help --dry-run"
 t_eq "$t_rc" 64
-t_contains "$t_out" "tehas-dispatch: unknown argument: --dry-run"
+t_contains "$t_out" "tehas dispatch: unknown argument: --dry-run"
 t_eq "$(t_calls gh)" ""
 
 t_case "no argument and --dry-run still behave as before"
@@ -487,5 +509,23 @@ t_contains "$t_out" "would run a cycle for #7"
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_contains "$(t_calls fake-work)" "7"
+
+# Outside the tests nothing names the three scripts: the dispatcher runs the
+# ones in its own directory, whatever PATH holds.
+t_case "without the test seams it runs the scripts beside it, not names on PATH"
+reset
+T_ENV=()
+tree=$T/tree
+mkdir -p "$tree/libexec" "$tree/lib"
+cp "$dispatch" "$tree/libexec/dispatch"
+cp "$T_ROOT/lib/config.sh" "$tree/lib/config.sh"
+for name in work status index; do cp "$T/bin/fake-$name" "$tree/libexec/$name"; done
+for name in tehas tehasbot tehas-work tehas-status tehas-index; do t_stub "$name"; done
+t_run "$tree/libexec/dispatch"
+t_eq "$t_rc" 0
+t_contains "$(t_calls fake-work)" "7"
+t_contains "$(t_calls fake-index)" "--before-cycle"
+t_eq "$(t_calls fake-status | wc -l)" 3
+for name in tehas tehasbot tehas-work tehas-status tehas-index; do t_eq "$(t_calls "$name")" ""; done
 
 t_done

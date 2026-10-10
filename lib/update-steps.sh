@@ -7,7 +7,7 @@
 # A step line is checked here before anything runs it, so what a step may be
 # asked for - including the arguments it needs - is fixed by this file, not by
 # whoever wrote the line.
-# tehas-update reads those lines and runs each step as its own command with the
+# tehas update reads those lines and runs each step as its own command with the
 # arguments written on that line. Neither side rewrites a step into a command
 # line of its own, so editing what install.sh asks for cannot silently turn a
 # performed step into an unperformed one: the id has to be one this file knows.
@@ -63,7 +63,9 @@ tehas_steps_for() { # changed source paths -> one step per line
   local list=" $* "
   local units
   case "$list" in
-    *" systemd/"*)
+    # bin/tehas-energy is the sampler of the layout before bin/tehas. A running
+    # one is that file calling itself, and it moves on only when restarted.
+    *" systemd/"* | *" bin/tehas-energy "*)
       units=$(tehas_units | tr '\n' ' ')
       echo "units ${units% }"
       ;;
@@ -86,7 +88,7 @@ tehas_steps_for() { # changed source paths -> one step per line
 # The same step lines in the order they run, by id as tehas_step_ids lists them.
 # Lines whose id this file does not know keep their order at the end: nobody runs
 # them, but they stay visible. Sorting here rather than in each command keeps one
-# answer to "what runs first" for install.sh's record and tehas-update's run.
+# answer to "what runs first" for install.sh's record and tehas update's run.
 tehas_sort_steps() { # step lines -> the same lines, ordered
   local id line known
   known=" $(tehas_step_ids | tr '\n' ' ') "
@@ -212,7 +214,7 @@ tehas_write_steps() { # one step line per argument; none means remove the record
 
 # Add these steps to the record of steps owed, keeping it free of duplicates and
 # in the order they run. install.sh calls it before each copy, so a run that
-# dies partway still leaves behind what its copies asked for; tehas-update calls
+# dies partway still leaves behind what its copies asked for; tehas update calls
 # it for the lines it was given and has not run. This writes, and says so when
 # it cannot - including when what is already there cannot be read, because
 # merging into an unreadable record would overwrite it.

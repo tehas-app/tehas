@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# Build the code index that a cycle's agents search, or refresh it.
+#
+# pi-rukas tells its agents to find code with the codebase_memory tools. Those
+# answer from an index that nothing builds on its own: interactive pi-rukas
+# builds it in /start, which a headless cycle never runs. Without an index
+# every search in a cycle fails and the agents fall back to reading files.
+#
+# The index is kept under the path of the tree it was made from, in the cache
+# volume every cycle mounts. So this runs the indexer in the sandbox image,
+# over a clone mounted at the path a cycle works in. The clone is made here at
+# the tip the product checkout last fetched, mounted read-only and removed
+# afterwards. The cycle's workspace itself is not touched.
+#
+# The index is as fresh as its last run. The dispatcher runs this before each
+# cycle, so a cycle starts with an index of the tree it is cloned from. What
+# the cycle changes after that is not in it.
+#
+# Usage: tehas index                  build the index
+#        tehas index --before-cycle   what the dispatcher runs: the caller
+#                                     holds the dispatcher's lock, and nothing
+#                                     is done when the index is already at the
+#                                     branch's tip
+#
+# Exit status: 0 the index was built, or was already current,
+#              1 the sandbox image is missing or the indexer failed,
+#              3 a cycle is running; nothing was done.
+#             64 an argument this command does not know.
+#             78 the instance settings are invalid; nothing was done.
+#
+# What the container is given is pinned by test/index_test.sh: the clone,
+# read-only, and the cache volume. No network, no token, no settings.
+set -uo pipefail
+
+cycle=0
+case "$#:${1:-}" in
+  0:) ;;
+  1:--before-cycle) cycle=1 ;;
+  *) echo "usage: tehas index [--before-cycle]" >&2; exit 64 ;;
+esac
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/config.sh
+. "$here/../lib/config.sh"
+tehas_load || exit 78
+tehas_require TEHAS_REPO
+tehas_checkout || exit 78
+branch=$(tehas_branch) || exit 78
+src=$TEHAS_WORK_REPO
+repo=$TEHAS_WORK_DIR
+image=$PI_ENSEMBLE_IMAGE
+marker=$TEHAS_HOME/state/index.json
+log=$TEHAS_HOME/logs/index-$(date -u +%y%m%d-%H%M%S).log
+
+base=$(git -C "$src" rev-parse -q --verify "refs/remotes/origin/$branch^{commit}") ||
+  { echo "tehas index: $src has no origin/$branch, nothing was indexed" >&2; exit 78; }
+
+# The dispatcher holds this lock for the whole of a cycle. Holding it here
+# keeps a cycle from starting while its index is being written. Called by the
+# dispatcher, the lock is already held, and by the caller.
+mkdir -p "$TEHAS_HOME/state" "$TEHAS_HOME/logs" "$TEHAS_HOME/tmp"
+if [ "$cycle" = 0 ]; then
+  exec 8>"$TEHAS_HOME/state/dispatch.lock"
+  flock -n 8 || { echo "tehas index: a cycle is running, nothing was indexed; run it again afterwards" >&2; exit 3; }
+elif [ "$(jq -r '.commit // empty' "$marker" 2>/dev/null)" = "$base" ]; then
+  echo "tehas index: ${TEHAS_REPO##*/} is already indexed at ${base:0:12}"
+  exit 0
+fi
+
+if ! docker image inspect "$image" >/dev/null 2>&1; then
+  echo "tehas index: no sandbox image $image, nothing was indexed; build it with $TEHAS_HOME/sandbox/build.sh" >&2
+  exit 1
+fi
+
+tree=$(mktemp -d "$TEHAS_HOME/tmp/index.XXXXXX") || exit 1
+trap 'rm -rf "$tree"' EXIT
+if ! { git init -q -b "$branch" "$tree" &&
+  git -C "$tree" fetch -q --no-tags "$src" "+refs/remotes/origin/$branch:refs/remotes/origin/$branch" &&
+  git -C "$tree" checkout -q -B "$branch" "$base"; }; then
+  echo "tehas index: could not clone $src, nothing was indexed" >&2
+  exit 1
+fi
+
+started=$(date +%s)
+docker run --rm --name tehas-index --network none \
+  --cpus "$TEHAS_WORK_CPUS" --memory "$TEHAS_WORK_MEMORY" \
+  --user "$(id -u):$(id -g)" -e HOME=/home/vscode \
+  -w "$repo" -v "$tree:$repo:ro" \
+  -v pi-ensemble-cache:/home/vscode/.cache \
+  --entrypoint codebase-memory-mcp "$image" \
+  cli index_repository --repo-path "$repo" >"$log" 2>"$log.err"
+rc=$?
+
+# The indexer answers with one JSON object. Anything else is a failure.
+answer=$(grep '^{' "$log" | tail -n 1)
+if [ "$rc" != 0 ] || [ "$(jq -r '.status // empty' <<<"$answer" 2>/dev/null)" != indexed ]; then
+  echo "tehas index: the indexer failed (exit $rc), see $log and $log.err" >&2
+  exit 1
+fi
+
+nodes=$(jq -r '.nodes // 0' <<<"$answer")
+edges=$(jq -r '.edges // 0' <<<"$answer")
+jq -n --arg commit "$base" --arg branch "$branch" --argjson nodes "$nodes" --argjson edges "$edges" \
+  --argjson at "$(date +%s)" '{commit: $commit, branch: $branch, nodes: $nodes, edges: $edges, at: $at}' \
+  >"$marker.new" && mv "$marker.new" "$marker"
+echo "tehas index: ${TEHAS_REPO##*/} indexed at ${base:0:12} on $branch, $nodes nodes, $edges edges, $(($(date +%s) - started))s"

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Tests for bin/tehas-protolab against a stub gh and a stub curl: which files
+# Tests for libexec/protolab against a stub gh and a stub curl: which files
 # of a ticket are taken, the 10 MB limit, what the page says, and that a ticket
 # leaves the lab when it is closed or unlabelled.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh"
 
-protolab="$T_ROOT/bin/tehas-protolab"
+protolab="$T_ROOT/libexec/protolab"
 fx=$T/fx
 site=$T/home/tehas/protolab
 live=$T/home/tehas/live

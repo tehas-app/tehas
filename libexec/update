@@ -55,8 +55,8 @@
 # another directory.
 #
 # Usage:
-#   tehas-update             pull, install, run the follow-ups that apply
-#   tehas-update --check     report what would change and change no file of the
+#   tehas update             pull, install, run the follow-ups that apply
+#   tehas update --check     report what would change and change no file of the
 #                            checkout or of the host - including the follow-ups
 #                            an earlier run left undone, which it reports and
 #                            does not run. It does contact the remote, so the
@@ -66,7 +66,7 @@
 #                            runs install.sh --check, which runs the tests.
 #                            Nothing is merged, installed, built or started, and
 #                            it exits 1 when there is something to update.
-#   tehas-update -h|--help   print this text and exit 0
+#   tehas update -h|--help   print this text and exit 0
 #
 # Exit: 0 updated, or already up to date,
 #       1 the checkout has local changes, is not on a branch, cannot be
@@ -103,18 +103,18 @@ show_usage() {
   sed -n '2,/^[^#]/p' "$0" | sed -n '/^#/s/^# \{0,1\}//p'
 }
 unknown_argument() {
-  printf 'tehas-update: unknown argument: %s\n' "$1" >&2
+  printf 'tehas update: unknown argument: %s\n' "$1" >&2
   show_usage >&2
   exit 64
 }
 
-# Arguments first, as in tehas-dispatch: --help answers on a host with no
+# Arguments first, as in the dispatcher: --help answers on a host with no
 # instance settings yet, and an argument this command does not know reaches
 # neither git nor Docker. At most one argument, decided before anything is run.
 mode=update
 pending=0
 if [ "$#" -gt 1 ]; then
-  printf 'tehas-update: takes at most one argument, got %s\n' "$*" >&2
+  printf 'tehas update: takes at most one argument, got %s\n' "$*" >&2
   show_usage >&2
   exit 64
 fi
@@ -134,7 +134,7 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/update-steps.sh"
 tehas_load || exit 78
 # The settings an instance has to set for itself, in the one list lib/config.sh
-# owns: the same list install.sh and tehas-dispatch check. Checking it here is
+# owns: the same list install.sh and the dispatcher check. Checking it here is
 # what stops an instance with a required line still commented out before the
 # checkout moves, not after install.sh has installed from the new code.
 tehas_require_instance_settings
@@ -142,7 +142,7 @@ tehas_require_instance_settings
 checkout=$TEHAS_HOME/platform
 # .git is a directory in a clone and a file in a worktree or a submodule.
 if [ ! -e "$checkout/.git" ] || [ ! -f "$checkout/install.sh" ]; then
-  echo "tehas-update: no platform checkout at $checkout. Clone the platform repository there, or run ./install.sh from wherever you keep it." >&2
+  echo "tehas update: no platform checkout at $checkout. Clone the platform repository there, or run ./install.sh from wherever you keep it." >&2
   exit 78
 fi
 
@@ -311,7 +311,7 @@ run=("$checkout/install.sh")
 scratch=${TMPDIR:-/tmp}
 mkdir -p "$scratch" 2>/dev/null || scratch=/tmp
 err_file=$(mktemp "$scratch/tehas-update.XXXXXX") || {
-  echo "tehas-update: could not make a scratch file to keep install.sh's diagnostics apart" >&2
+  echo "tehas update: could not make a scratch file to keep install.sh's diagnostics apart" >&2
   exit 1
 }
 trap 'rm -f "$err_file"' EXIT
@@ -593,7 +593,7 @@ for step in "${steps[@]}"; do
 done
 
 if [ "${#steps[@]}" != 0 ] && [ "$ran" -lt "${#steps[@]}" ]; then
-  printf 'update: %s of %s follow-up(s) are not done, recorded in %s; tehas-update runs them again\n' \
+  printf 'update: %s of %s follow-up(s) are not done, recorded in %s; tehas update runs them again\n' \
     $((${#steps[@]} - ran)) "${#steps[@]}" "$pending_file" >&2
 fi
 

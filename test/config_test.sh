@@ -41,9 +41,9 @@ t_eq "$t_out" "[] [0] []"
 
 t_case "the test hooks survive from the environment"
 t_instance "${T_MINIMAL[@]}"
-T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status)
-t_run "$load && echo \"\$TEHAS_WORK_CMD \$TEHAS_STATUS_CMD\""
-t_eq "$t_out" "fake-work fake-status"
+T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index)
+t_run "$load && echo \"\$TEHAS_WORK_CMD \$TEHAS_STATUS_CMD \$TEHAS_INDEX_CMD\""
+t_eq "$t_out" "fake-work fake-status fake-index"
 T_ENV=()
 
 t_case "a missing instance.env returns 78 and names the directory"

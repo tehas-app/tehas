@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests for lib/update-steps.sh: the follow-up names install.sh prints and
-# tehas-update runs, the sources that call for each one, what counts as a step
+# tehas update runs, the sources that call for each one, what counts as a step
 # line rather than text, the order the steps run in, and the record of steps owed.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
@@ -10,7 +10,7 @@
 
 t_case "the changed sources ask for the steps, systemd first"
 t_eq "$(tehas_steps_for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env \
-  edge/docs.compose.yaml edge/protolab.compose.yaml bin/tehas-dispatch)" \
+  edge/docs.compose.yaml edge/protolab.compose.yaml libexec/dispatch)" \
   "units tehas-dispatch.timer tehas-energy.service tehas-protolab.timer
 sandbox
 docs --force-recreate
@@ -32,9 +32,11 @@ done
 
 t_case "the versions the sandbox image pins ask for the build"
 t_eq "$(tehas_steps_for versions.env)" "sandbox"
+# The sampler of the layout before bin/tehas: retiring it asks for the restart.
+t_contains "$(tehas_steps_for bin/tehas-energy)" "units tehas-dispatch.timer tehas-energy.service"
 
 t_case "a change that needs no follow-up asks for none"
-t_eq "$(tehas_steps_for bin/tehas-dispatch docs/host.md lib/config.sh)" ""
+t_eq "$(tehas_steps_for libexec/dispatch docs/host.md lib/config.sh)" ""
 
 t_case "every step it asks for is one it defines, and reads back as valid"
 ids=$(tehas_step_ids | tr '\n' ' ')

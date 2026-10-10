@@ -36,7 +36,7 @@ work is Pi.
 | pi-rukas       | A Pi extension that provides `/work`. It runs the cycle, starts child Pi processes by role (explore, developer, adversarial developer, code review) and keeps them in git worktrees. |
 | Tehas          | The factory: the dispatcher that reads the queue, the check of who applied the label, the sandbox with its limits, the settings, the factory floor and the live console.            |
 | GitHub         | The queue, the state and the results. Issues are the work orders, labels are the state machine, and the outcome is a pull request with comments.                                   |
-| Model endpoint | All inference. A self-hosted, OpenAI-compatible endpoint the operator names. The factory host needs no GPU.                                                                         |
+| Model endpoint | All inference. A self-hosted, OpenAI-compatible endpoint the operator names, for example a [viiwork](https://github.com/janit/viiwork) mesh. The factory host needs no GPU. |
 | A person       | Writes the issue, authorizes it with a label, reviews the pull request and merges.                                                                                                  |
 
 [pi-rukas](https://github.com/trail-openers/pi-rukas) and
@@ -102,7 +102,9 @@ request waits for a person.
 ### Which models does it use?
 
 Self-hosted ones, through an OpenAI-compatible endpoint named in the instance
-settings. One model serves every agent role today. A cycle needs a model that
+settings. The example instance serves them with
+[viiwork](https://github.com/janit/viiwork), a flexible meshed inference platform for both home and enterprise grade hardware;
+any other OpenAI-compatible endpoint works too. One model serves every agent role today. A cycle needs a model that
 can hold at least two conversations at once and a context of around 80,000
 tokens; [Features](/features) explains what happens without that.
 

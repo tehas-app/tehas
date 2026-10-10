@@ -16,7 +16,8 @@ when a person pulls and runs `install.sh` there.
 
 | Path | What it is |
 | --- | --- |
-| `bin/` | The commands, bash and one Deno script. Installed to `~/tehas/bin` |
+| `bin/` | The two commands: `tehas` for a person, `tehasbot` for the units. Installed to `~/tehas/bin` |
+| `libexec/` | The scripts behind them, bash and one Deno script. Installed to `~/tehas/libexec` |
 | `lib/config.sh` | Loads and validates instance settings. Every command sources it |
 | `host/` | Everything else that is installed: units, the docs server, the sandbox image, the manual in `host/docs/` |
 | `install.sh`, `bootstrap.sh` | Install tehas on a host; prepare a host's dependencies |
@@ -38,7 +39,7 @@ when a person pulls and runs `install.sh` there.
    command, makes no network call and writes nothing, and `tehas_load` never
    exits, because login shells source it.
 4. **Do not widen what a cycle's container is given.** The mounts and
-   environment variables of `bin/tehas-work` are pinned by `test/work_test.sh`.
+   environment variables of `libexec/work` are pinned by `test/work_test.sh`.
    No Docker socket, no SSH keys, nothing from `~/.config/tehas`. A change here
    is a security change: say so in the pull request and do not relax the test
    to make it pass.

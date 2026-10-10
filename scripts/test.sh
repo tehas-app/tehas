@@ -5,10 +5,10 @@
 #   2. the shell tests in test/*_test.sh
 #
 # Both need bash, git, jq and shellcheck: no sandbox image, no product
-# checkout and no network. Run from a checkout of the platform; an installed
-# copy has no test/ directory and then only runs what it finds.
+# checkout and no network. It belongs to a checkout of the platform and is not
+# installed on a host: there is no test/ directory there.
 #
-# Usage: tehas-test
+# Usage: scripts/test.sh
 #
 # Exit: 0 every check passed, 1 a check failed, 2 nothing could be checked
 set -uo pipefail
@@ -18,7 +18,7 @@ failed=0
 ran=0
 
 files=()
-for f in "$root"/bin/* "$root"/lib/*.sh "$root"/scripts/*.sh "$root"/test/*.sh \
+for f in "$root"/bin/* "$root"/libexec/* "$root"/lib/*.sh "$root"/scripts/*.sh "$root"/test/*.sh \
   "$root/install.sh" "$root/bootstrap.sh" "$root/host/env.sh" "$root/host/sandbox/build.sh"; do
   [ -f "$f" ] || continue
   # publish-lib.sh is a vendored copy, checked where it is kept.
@@ -43,5 +43,5 @@ for t in "$root"/test/*_test.sh; do
   bash "$t" || failed=1
 done
 
-[ "$ran" = 1 ] || { echo "tehas-test: nothing could be checked" >&2; exit 2; }
+[ "$ran" = 1 ] || { echo "test.sh: nothing could be checked" >&2; exit 2; }
 exit "$failed"
