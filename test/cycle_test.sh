@@ -150,8 +150,10 @@ echo 'sleep 30 & s=$!
 trap "kill \$s; : >\"\$T/calls/work.term\"; exit 2" TERM
 : >"$T/calls/work.ready"
 wait "$s"' >"$fx/work.sh"
+# The wait is bounded: a cycle that never starts its runner must fail this
+# case, not hang the gate.
 t_run "$cycle 7 & pid=\$!
-until [ -e \"\$T/calls/work.ready\" ]; do sleep 0.1; done
+for _ in \$(seq 100); do [ -e \"\$T/calls/work.ready\" ] && break; sleep 0.1; done
 kill -TERM \$pid; wait \$pid; echo rc=\$?"
 t_contains "$t_out" "rc=0"
 t_eq "$(find "$T/calls/work.term" | wc -l)" 1
