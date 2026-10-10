@@ -328,8 +328,12 @@ run_cycle() {
   status=${status:-unknown}
   step=${step:--}
   cbranch=$(jq -r '.pipelineState.branchName // ""' "$state" 2>/dev/null || echo "")
+  # The numbers are summed as numbers. Anything else in their place counts as
+  # nothing: a string would be joined up by the sum and posted word for word.
   usage=$(jq -r '
-    [.eventLog[] | select(.usage) | {role: ((.role // "driver" | tostring | gsub("[^A-Za-z0-9_.-]"; "")) as $r | if $r == "" then "driver" else $r end), u: .usage}] as $e
+    def n: tonumber? // 0;
+    [.eventLog[] | select(.usage) | {role: ((.role // "driver" | tostring | gsub("[^A-Za-z0-9_.-]"; "")) as $r | if $r == "" then "driver" else $r end),
+                                     u: (.usage | {turns: (.turns | n), input: (.input | n), output: (.output | n), cacheRead: (.cacheRead | n)})}] as $e
     | if ($e | length) == 0 then "" else
         (["| Role | Dispatches | Turns | Input | Output | Cache read |", "|---|---|---|---|---|---|"]
          + ($e | group_by(.role) | map("| \(.[0].role) | \(length) | \(map(.u.turns) | add) | \(map(.u.input) | add) | \(map(.u.output) | add) | \(map(.u.cacheRead) | add) |"))
