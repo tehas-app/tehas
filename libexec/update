@@ -401,7 +401,8 @@ fi
 # service the host is using current, it does not add one to the host. Whether it
 # runs is asked of Docker with one plain ps on the project name the compose file
 # pins (name: tehas-docs, name: tehas-edge); the shell tests assert those
-# names are still in the files. docker compose is for the renewal only.
+# names are still in the files. The one other project asked about is
+# tehas-protolab, the Protolab server of before the edge router (edge_up). docker compose is for the renewal only.
 # The arguments are the ones written on install.sh's line, checked before use.
 compose_up() { # name project file [argument...]
   local name=$1 project=$2 file=$3 running out rc
@@ -436,6 +437,49 @@ compose_up() { # name project file [argument...]
   fi
   if [ "$rc" != 0 ]; then
     echo "$name: docker compose exited $rc" >&2
+    return 1
+  fi
+  return 0
+}
+
+# The edge router takes over from the Protolab's server of before it. An install
+# that removes edge/protolab.* leaves that server's container running from the
+# files it had open, holding port 8081, so the router could never start and the
+# update would report "not running" and end green. Where the old project runs it
+# is taken down and the router is brought up in its place; anywhere else this is
+# compose_up, which renews the router only where it already runs.
+edge_up() { # argument...
+  local file=$TEHAS_HOME/edge/router.compose.yaml old out rc
+  if [ ! -f "$file" ]; then
+    compose_up edge tehas-edge "$file" "$@"
+    return
+  fi
+  old=$(timeout "$compose_limit" docker ps --quiet \
+    --filter "label=com.docker.compose.project=tehas-protolab" 2>&1)
+  rc=$?
+  if [ "$rc" != 0 ]; then
+    echo "edge: docker ps failed; the step is not done" >&2
+    [ "$rc" = 124 ] && echo "  docker gave no answer in ${compose_limit}s" >&2
+    [ -n "$old" ] && printf '%s\n' "$old" | sed 's/^/  /' >&2
+    return 1
+  fi
+  if [ -z "$old" ]; then
+    compose_up edge tehas-edge "$file" "$@"
+    return
+  fi
+  echo "edge: taking over from the Protolab's server (tehas-protolab)"
+  out=$(timeout "$compose_limit" docker compose -p tehas-protolab down 2>&1)
+  rc=$?
+  [ -n "$out" ] && printf '%s\n' "$out"
+  if [ "$rc" != 0 ]; then
+    echo "edge: docker compose down of tehas-protolab exited $rc; the step is not done" >&2
+    return 1
+  fi
+  out=$(timeout "$compose_limit" docker compose -f "$file" up -d "$@" 2>&1)
+  rc=$?
+  [ -n "$out" ] && printf '%s\n' "$out"
+  if [ "$rc" != 0 ]; then
+    echo "edge: docker compose up exited $rc; the step is not done" >&2
     return 1
   fi
   return 0
@@ -544,7 +588,7 @@ run_step() { # step line
     units) restart_units "${argv[@]:1}" ;;
     sandbox) build_sandbox ;;
     docs) compose_up docs tehas-docs "$TEHAS_HOME/edge/docs.compose.yaml" "${argv[@]:1}" ;;
-    edge | protolab) compose_up edge tehas-edge "$TEHAS_HOME/edge/router.compose.yaml" "${argv[@]:1}" ;;
+    edge | protolab) edge_up "${argv[@]:1}" ;;
     *)
       echo "WARN: no step this command knows for: $1" >&2
       return 1

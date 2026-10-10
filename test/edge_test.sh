@@ -68,6 +68,12 @@ for want in 'name: tehas-edge' 'read_only: true' '- ALL' 'no-new-privileges:true
 done
 t_lacks "$(cat "$compose")" "docker.sock"
 
+t_case "the router keeps its protections"
+t_contains "$(cat "$caddyfile")" 'respond @kept 404'
+t_contains "$(cat "$caddyfile")" '@odd header_regexp odd Host ^(uat|lab)-'
+t_contains "$(cat "$caddyfile")" 'header Content-Security-Policy "sandbox allow-scripts allow-forms allow-modals allow-pointer-lock"'
+t_contains "$(cat "$caddyfile")" "header Content-Security-Policy \"default-src 'none'; style-src 'self'"
+
 t_case "the Caddyfile is valid, where there is a caddy to ask"
 if command -v caddy >/dev/null 2>&1; then
   t_run "caddy validate --adapter caddyfile --config '$caddyfile'"

@@ -218,8 +218,9 @@ again, or delete it once you have run those steps yourself.
 ## The edge router does not start
 
 A host that ran the Protolab's server under its old name has a container of
-the project `tehas-protolab` holding port 8081. Remove it once, then start the
-router: `docker compose -p tehas-protolab down`, then
+the project `tehas-protolab` holding port 8081. `tehas update` takes it down
+and starts the router in its place. If it did not, remove it once and start the
+router by hand: `docker compose -p tehas-protolab down`, then
 `. ~/tehas/env.sh && docker compose -f ~/tehas/edge/router.compose.yaml up -d`.
 
 The router also needs the network `tehas-previews`, which `install.sh` makes. If

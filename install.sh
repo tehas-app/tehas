@@ -388,7 +388,7 @@ while IFS= read -r step; do echo "next: $step"; done < <(tehas_steps_for "${chan
 retire_later=""
 if [ "${#old[@]}" -gt 0 ]; then
   if ! out=$(systemctl --user daemon-reload 2>&1) || [ -n "$out" ]; then
-    retire_later="once systemctl --user daemon-reload works   (systemd still holds the units that name the old commands in $TEHAS_HOME, so they were left)"
+    retire_later="once systemctl --user daemon-reload works   (systemd still holds the units that name the old commands and server files in $TEHAS_HOME, so they were left)"
   else
     exec 9>>"$TEHAS_HOME/state/dispatch.lock"
     if flock -n 9; then
@@ -397,7 +397,7 @@ if [ "${#old[@]}" -gt 0 ]; then
         echo "removed: $to"
       done
     else
-      retire_later="when the running cycle has ended   (the dispatcher's lock is held, so the old commands in $TEHAS_HOME were left)"
+      retire_later="when the running cycle has ended   (the dispatcher's lock is held, so the old commands and server files in $TEHAS_HOME were left)"
     fi
     exec 9>&-
   fi

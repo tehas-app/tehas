@@ -19,6 +19,8 @@ edge --force-recreate"
 t_case "a change to one server asks for that server only"
 t_eq "$(tehas_steps_for edge/docs.Caddyfile)" "docs --force-recreate"
 t_eq "$(tehas_steps_for edge/router.compose.yaml)" "edge --force-recreate"
+# The retired files of the Protolab's server call for the same step, once.
+t_eq "$(tehas_steps_for edge/protolab.Caddyfile edge/protolab.compose.yaml)" "edge --force-recreate"
 
 # Caddy reads its config when the process starts, and a changed file is the only
 # thing these two steps are ever asked for: docker compose leaves a running

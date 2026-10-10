@@ -438,6 +438,25 @@ t_eq "$t_rc" 0
 
 # The code index: built by the first real run that finds both the sandbox
 # image and the product checkout, and never by --check.
+t_case "the Protolab server's files of before the edge router are named, then removed"
+fresh
+instance
+t_run "$install"
+rm -f "$th/state/update-pending"
+echo "# old" >"$th/edge/protolab.Caddyfile"
+echo "# old" >"$th/edge/protolab.compose.yaml"
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "stale: $th/edge/protolab.Caddyfile"
+t_contains "$t_out" "stale: $th/edge/protolab.compose.yaml"
+t_eq "$([ -e "$th/edge/protolab.Caddyfile" ] && echo there)" "there"
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "removed: $th/edge/protolab.Caddyfile"
+t_contains "$t_out" "removed: $th/edge/protolab.compose.yaml"
+t_eq "$([ -e "$th/edge/protolab.compose.yaml" ] && echo there)" ""
+t_eq "$(cat "$th/state/update-pending")" "edge --force-recreate"
+
 product() {
   mkdir -p "$T/git/acme"
   [ -d "$T/git/acme/widget" ] || {

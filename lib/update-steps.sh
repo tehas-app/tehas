@@ -81,7 +81,7 @@ tehas_steps_for() { # changed source paths -> one step per line
     *" edge/docs."*) echo "docs --force-recreate" ;;
   esac
   case "$list" in
-    *" edge/router."*) echo "edge --force-recreate" ;;
+    *" edge/router."* | *" edge/protolab."*) echo "edge --force-recreate" ;;
   esac
   return 0
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the Protolab: a page for every ticket at the prototype stage, with the
 # files attached to the ticket beside it. Written to $TEHAS_HOME/protolab,
-# which the Protolab container serves on port 8081 (edge/protolab.compose.yaml).
+# which the edge router serves on port 8081 (edge/router.compose.yaml).
 #
 # A ticket is at the prototype stage while it is open and labelled
 # tehas:prototype. Its page has the title, a link to the issue on GitHub and

@@ -23,7 +23,8 @@ owed_file=$(TEHAS_HOME=$th tehas_pending_file)   # the path, from the one defini
 # timeout that records what it bounds and then runs the real one. platform()
 # puts them back for each case, because a stub an earlier case installed would
 # otherwise answer this one.
-docker_up() { t_stub docker 'if [ "$1" = ps ]; then printf "c1\n"; fi'; }
+# The old Protolab project is not running here: the edge step asks about it first.
+docker_up() { t_stub docker 'if [ "$1" = ps ]; then case "$4" in *tehas-protolab) ;; *) printf "c1\n" ;; esac; fi'; }
 systemctl_active() { t_stub systemctl 'if [ "$2" = is-active ]; then echo active; fi'; }
 real_timeout=$(command -v timeout)
 bound_calls() { t_stub timeout "exec $real_timeout \"\$@\""; }
@@ -343,6 +344,7 @@ t_lacks "$t_out" "next:"
 t_eq "$(t_calls build)" "build"
 t_eq "$(t_calls docker)" "ps --quiet --filter label=com.docker.compose.project=tehas-docs
 compose -f $th/edge/docs.compose.yaml up -d --force-recreate
+ps --quiet --filter label=com.docker.compose.project=tehas-protolab
 ps --quiet --filter label=com.docker.compose.project=tehas-edge
 compose -f $th/edge/router.compose.yaml up -d --force-recreate"
 t_eq "$(t_calls systemctl)" "--user daemon-reload
@@ -362,6 +364,7 @@ systemctl --user restart tehas-dispatch.timer tehas-energy.service tehas-protola
 $th/sandbox/build.sh
 docker ps --quiet --filter label=com.docker.compose.project=tehas-docs
 docker compose -f $th/edge/docs.compose.yaml up -d --force-recreate
+docker ps --quiet --filter label=com.docker.compose.project=tehas-protolab
 docker ps --quiet --filter label=com.docker.compose.project=tehas-edge
 docker compose -f $th/edge/router.compose.yaml up -d --force-recreate"
 t_eq "$(owed_steps)" ""
@@ -379,6 +382,7 @@ t_contains "$t_out" "docs: updating the container"
 t_contains "$t_out" "edge: not running on this host, left alone"
 t_eq "$(t_calls docker)" "ps --quiet --filter label=com.docker.compose.project=tehas-docs
 compose -f $th/edge/docs.compose.yaml up -d --force-recreate
+ps --quiet --filter label=com.docker.compose.project=tehas-protolab
 ps --quiet --filter label=com.docker.compose.project=tehas-edge"
 t_eq "$(t_calls systemctl)" "--user daemon-reload
 --user is-active tehas-dispatch.timer
@@ -386,6 +390,40 @@ t_eq "$(t_calls systemctl)" "--user daemon-reload
 --user is-active tehas-protolab.timer
 --user restart tehas-dispatch.timer tehas-protolab.timer"
 t_eq "$(owed_steps)" ""
+
+t_case "a running server of the old project is taken over by the edge router"
+instance
+platform 1 "$ASK"
+# Only the old project runs; `down` and `up` succeed.
+t_stub docker 'if [ "$1" = ps ]; then case "$4" in *tehas-protolab) printf "c1\n" ;; esac; fi'
+t_run "$update"
+t_eq "$t_rc" 0
+t_contains "$t_out" "edge: taking over from the Protolab's server (tehas-protolab)"
+t_contains "$(t_calls docker)" "ps --quiet --filter label=com.docker.compose.project=tehas-protolab
+compose -p tehas-protolab down
+compose -f $th/edge/router.compose.yaml up -d --force-recreate"
+t_lacks "$(t_calls docker)" "project=tehas-edge"
+t_lacks "$(owed_steps)" "edge"
+
+t_case "a failed question about the old project leaves the step not done"
+instance
+platform 1 "$ASK"
+t_stub docker 'if [ "$1" = ps ]; then case "$4" in *tehas-protolab) echo "could not connect" >&2; exit 125 ;; *) printf "c1\n" ;; esac; fi'
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "edge: docker ps failed; the step is not done"
+t_lacks "$(t_calls docker)" "down"
+t_contains "$(owed_steps)" "edge --force-recreate"
+
+t_case "an old project that will not come down is not replaced"
+instance
+platform 1 "$ASK"
+t_stub docker 'case "$1" in ps) case "$4" in *tehas-protolab) printf "c1\n" ;; esac ;; compose) [ "$2" = -p ] && { echo "cannot remove" >&2; exit 1; } ;; esac'
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "edge: docker compose down of tehas-protolab exited 1; the step is not done"
+t_lacks "$(t_calls docker)" "router.compose.yaml up"
+t_contains "$(owed_steps)" "edge --force-recreate"
 
 t_case "every state of systemd's active family restarts the unit"
 instance
