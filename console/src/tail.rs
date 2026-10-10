@@ -153,7 +153,8 @@ impl Follower {
 /// The agent a transcript belongs to. The file is named
 /// `<job id in two dash-separated parts>-<role>.json`. Agents write these
 /// files, and the name is printed as it is: a role that is anything but
-/// letters, digits, dashes and underscores is not taken from the name.
+/// letters, digits, dashes and underscores is not taken from the name, and
+/// neither is the name of a speaker that is not an agent.
 pub fn role(path: &str) -> String {
     let file = path.rsplit('/').next().unwrap_or(path);
     let file = file.strip_suffix(".json").unwrap_or(file);
@@ -166,6 +167,8 @@ pub fn role(path: &str) -> String {
         .bytes()
         .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
         && !role.is_empty()
+        && role != "driver"
+        && role != "tehas"
     {
         role.to_string()
     } else {
@@ -364,5 +367,9 @@ mod tests {
             "agent"
         );
         assert_eq!(role("/runs/2026-10-10/.json"), "agent");
+        // An agent does not speak as the driver or as tehas.
+        assert_eq!(role("/runs/2026-10-10/a-b-driver.json"), "agent");
+        assert_eq!(role("/runs/2026-10-10/tehas.json"), "agent");
+        assert_eq!(role("/runs/2026-10-10/a-b-driver-2.json"), "driver-2");
     }
 }
