@@ -604,6 +604,21 @@ t_contains "$(t_calls gh)" "To retry, remove"
 t_lacks "$(t_calls gh | grep '^issue edit')" "tehas:question"
 t_eq "$([ -e "$park_id" ] && echo kept)" ""
 
+t_case "when the question label cannot be added the person is told the boxes do not work"
+reset
+printf '%s' '--add-label tehas:question' >"$fx/edit-fails-on"
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body The boxes above cannot be used: the label \`tehas:question\` could not be added (run \`tehas-dispatch --init-labels\` on the host). To retry, remove \`needs-human-attention\` and apply \`tehas:ready\` again."
+t_contains "$t_out" "WARN: label change on #7 failed: --add-label tehas:question"
+t_eq "$([ -e "$park_id" ] && echo kept)" ""
+rm -f "$fx/edit-fails-on"
+
+t_case "when the question label is added nothing more is said"
+reset
+t_run "$dispatch"
+t_lacks "$(t_calls gh)" "The boxes above cannot be used"
+
 t_case "an unanswered question starts nothing"
 parked
 comments 7 "$(park_body ' ' ' ')" ""

@@ -364,8 +364,13 @@ ${usage}" '{text: $text, question: null}' >"$TEHAS_HOME/state/park-$issue.json"
       printf '%s\n' "$posted" >"$(park_id "$issue")" ||
         log "WARN: could not record the park question of #$issue, its boxes will not work"
       # A separate call: a repository without this label must still get the
-      # parking label above.
-      relabel --add-label tehas:question
+      # parking label above. The poll only reads questions on issues that
+      # carry this label, so without it the boxes do nothing: say so.
+      if ! gh issue edit "$issue" --repo "$repo" --add-label tehas:question >/dev/null 2>&1; then
+        log "WARN: label change on #$issue failed: --add-label tehas:question"
+        rm -f "$(park_id "$issue")"
+        comment "The boxes above cannot be used: the label \`tehas:question\` could not be added (run \`tehas-dispatch --init-labels\` on the host). To retry, remove \`needs-human-attention\` and apply \`tehas:ready\` again."
+      fi
     else
       # Without the boxes there is nothing to tick: say the old way.
       comment "$stopped To retry, remove \`needs-human-attention\` and apply \`tehas:ready\` again.
