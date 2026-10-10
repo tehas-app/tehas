@@ -230,6 +230,22 @@ t_eq "$(after --name)" "tehas-dev-bob"
 t_eq "$(passed GIT_CONFIG_VALUE_2)" "Test Bot"
 t_eq "$(git -C "$devs/bob" rev-parse HEAD)" "$(git -C "$checkout" rev-parse origin/main)"
 
+t_case "a clone that could not be finished is not left to pass for one"
+real_git=$(command -v git)
+t_stub git "case \" \$* \" in *' fetch '*) exit 1 ;; esac; exec $real_git \"\$@\""
+again
+t_run "$dev carol"
+t_eq "$t_rc" 78
+t_contains "$t_out" "could not make the clone"
+t_eq "$(containers)" 0
+t_eq "$(find "$devs" -mindepth 1 -maxdepth 1 -name '*carol*' | wc -l)" 0
+rm -f "$T/bin/git"
+again
+t_run "$dev carol"
+t_eq "$t_rc" 0
+t_eq "$(git -C "$devs/carol" rev-parse HEAD)" "$(git -C "$checkout" rev-parse origin/main)"
+t_eq "$(find "$devs" -mindepth 1 -maxdepth 1 -name '.*' | wc -l)" 0
+
 t_case "the arguments after -- reach pi"
 again
 t_run "$dev main -- -r --model 'a b'"

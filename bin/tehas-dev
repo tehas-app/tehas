@@ -141,7 +141,14 @@ if [ -n "$author" ]; then
   printf '%s\n' "$author" >"$stored" || { echo "tehas-dev: cannot write $stored" >&2; exit 78; }
 fi
 if [ "$fresh" = 1 ]; then
-  if ! tehas_sandbox_clone "$TEHAS_WORK_REPO" "$tree" "$branch"; then
+  # Made beside its place and moved there whole. A clone that stopped halfway
+  # has a .git directory too, and the next run would take it for a finished
+  # one. The name starts with a dot, which no clone's name can.
+  making=$devs/.$name.making
+  rm -rf "$making"
+  if ! { tehas_sandbox_clone "$TEHAS_WORK_REPO" "$making" "$branch" &&
+    { [ ! -d "$tree" ] || rmdir "$tree"; } && mv "$making" "$tree"; }; then
+    rm -rf "$making"
     echo "tehas-dev: could not make the clone $tree, not starting a session" >&2
     exit 78
   fi
