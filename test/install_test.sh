@@ -49,6 +49,7 @@ files="./.config/systemd/user/tehas-dispatch.service
 ./tehas/edge/protolab.compose.yaml
 ./tehas/env.sh
 ./tehas/lib/config.sh
+./tehas/lib/edge.sh
 ./tehas/lib/sandbox.sh
 ./tehas/lib/update-steps.sh
 ./tehas/libexec/console
