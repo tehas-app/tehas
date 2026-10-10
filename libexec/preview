@@ -410,9 +410,13 @@ sweep() {
   fi
 
   # Containers that carry the label and are no pull request of this repository.
+  # GitHub takes a repository's name in any capitals, and so does every
+  # comparison here: the label was written from TEHAS_REPO as it was spelled
+  # that day, and a setting spelled otherwise since must not make every
+  # preview another repository's.
   while read -r id n owner name; do
     [ -n "$id" ] || continue
-    if [[ $n =~ ^[1-9][0-9]*$ ]] && [ "$owner" = "$repo" ]; then continue; fi
+    if [[ $n =~ ^[1-9][0-9]*$ ]] && [ "${owner,,}" = "${repo,,}" ]; then continue; fi
     is_id "$id" || { echo "an id that is not one, skipped"; continue; }
     if docker rm -f "$id" >/dev/null 2>&1; then
       echo "container $id: swept, it belongs to no pull request of $repo"
@@ -426,7 +430,7 @@ sweep() {
   while read -r id tag; do
     [ -n "$id" ] || continue
     owner=$(docker image inspect --format '{{index .Config.Labels "tehas.repo"}}' "$id" 2>/dev/null)
-    if [[ $tag =~ ^tehas-preview:[1-9][0-9]*$ ]] && { [ -z "$owner" ] || [ "$owner" = "$repo" ]; }; then continue; fi
+    if [[ $tag =~ ^tehas-preview:[1-9][0-9]*$ ]] && { [ -z "$owner" ] || [ "${owner,,}" = "${repo,,}" ]; }; then continue; fi
     if docker image rm "$id" >/dev/null 2>&1; then
       echo "image $id: swept, it belongs to no preview"
       removed=$((removed + 1))
@@ -436,7 +440,7 @@ sweep() {
   numbers=$({
     edge_numbers "$root"
     docker ps -a --filter label=tehas.preview --format "$fmt" 2>/dev/null |
-      awk -v repo="$repo" '$3 == repo {print $2}'
+      awk -v repo="$repo" 'tolower($3) == tolower(repo) {print $2}'
     docker image ls --filter label=tehas.preview --format '{{.ID}} {{.Repository}}:{{.Tag}}' 2>/dev/null |
       sed -n 's/^[^ ]* tehas-preview:\([0-9]*\)$/\1/p'
     [ ! -d "$bare" ] || git -C "$bare" for-each-ref --format='%(refname)' refs/preview 2>/dev/null | sed 's|.*/||'
@@ -480,7 +484,7 @@ sweep() {
     # name tehas-preview-<n> only, and a labelled container of any other name
     # would stay for ever and be swept again at every check.
     listing=$(docker ps -a --filter label=tehas.preview --format "$fmt" 2>/dev/null |
-      awk -v n="$n" -v repo="$repo" '$2 == n && $3 == repo {print $1, $4}')
+      awk -v n="$n" -v repo="$repo" '$2 == n && tolower($3) == tolower(repo) {print $1, $4}')
     case "$verdict" in
       keep)
         # A second container is one that has a name and none of its names is

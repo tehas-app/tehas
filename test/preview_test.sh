@@ -41,7 +41,8 @@ esac'
 # commit of a running preview, image-<n> the id of its image. The id of the
 # container of <n> is ab<n>. fx/extra-containers has more lines of a listing,
 # fx/names-<n> is what Docker calls the container of <n> when that is not its
-# one name, and an id in fx/rm-fails is a container Docker does not remove.
+# one name, an id in fx/rm-fails is a container Docker does not remove, and
+# fx/label-repo is how the tehas.repo label of the containers is written.
 t_stub docker '
 d=$T/fx/docker; mkdir -p "$d"
 after() { local want=$1; shift; while [ $# -gt 1 ]; do [ "$1" = "$want" ] && { echo "$2"; return; }; shift; done; }
@@ -102,7 +103,7 @@ case "$1" in
           [ -f "$f" ] || continue
           n=${f##*/container-}; name=tehas-preview-$n
           [ ! -f "$T/fx/names-$n" ] || name=$(cat "$T/fx/names-$n")
-          echo "ab$n $n acme/widget $name"
+          echo "ab$n $n $(cat "$T/fx/label-repo" 2>/dev/null || echo acme/widget) $name"
         done
         cat "$T/fx/extra-containers" 2>/dev/null ;;
     esac ;;
@@ -930,6 +931,40 @@ for body in '[]' '"acme/widget"' '{}' '{"full_name":null}' '{"full_name":"other/
   t_eq "$(t_calls gh | grep -c 'pulls/52')" 0
   t_eq "$(jq -r '.removed' "$root/sweep.json")" 0
 done
+
+t_case "sweep: a label that writes the repository with other capitals is this repository's"
+reset
+a=$(commit one)
+b=$(commit two)
+pulls "$(pull 71 "$a")" "$(pull 72 "$b")"
+t_run "$preview"
+echo "Acme/Widget" >"$fx/label-repo"
+printf '%s\n' "$(cat "$fx/docker/image-71") ACME/widget" "$(cat "$fx/docker/image-72") ACME/widget" >"$fx/image-repos"
+rm -f "$T"/calls/docker*
+t_run "$preview --sweep"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "swept"
+t_eq "$(cat "$fx/docker/container-71") $(cat "$fx/docker/container-72")" "$a $b"
+t_eq "$(count "$fx/docker" 'image-7*')" 2
+t_eq "$(t_calls docker | grep -c '^rm \|^image rm ')" 0
+t_eq "$(jq -r '.removed' "$root/sweep.json")" 0
+# Its pull requests are asked about, so a closed one goes and a second container is seen.
+t_eq "$(t_calls gh | grep -c 'pulls/7[12]$')" 2
+jq '.state = "closed"' "$fx/pull-71.json" >"$fx/x" && mv "$fx/x" "$fx/pull-71.json"
+echo "c0de0a 72 ACME/WIDGET extra" >"$fx/extra-containers"
+t_run "$preview --sweep"
+t_contains "$t_out" "#71: swept, the pull request is closed"
+t_contains "$t_out" "container c0de0a: swept, a second container of #72"
+t_eq "$(count "$fx/docker" '*-71')" 0
+t_eq "$(cat "$fx/docker/container-72")" "$b"
+t_eq "$(jq -r '.removed' "$root/sweep.json")" 2
+
+t_case "sweep: a label of a repository that only starts the same is still another's"
+reset
+left 73 0000000000000000000000000000000000000073
+echo "acme/widget-two" >"$fx/label-repo"
+t_run "$preview --sweep"
+t_contains "$t_out" "container ab73: swept, it belongs to no pull request of acme/widget"
 
 t_case "a comment GitHub did not take is tried again at the next run"
 reset
