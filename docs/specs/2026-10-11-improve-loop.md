@@ -218,7 +218,8 @@ and appends to `logs/improve.log`. `tehas-improve.timer` has `OnBootSec=10min`
 and `OnUnitInactiveSec=3h`. `install.sh` installs both and enables the timer
 only when `TEHAS_IMPROVE_REPO` is set, as it does for the other optional
 units. `tehasbot` gains the `improve` command. `libexec/labels` creates
-`tehas:improvement`.
+`tehas:improvement`. `lib/update-steps.sh` names the timer among the units
+`tehas update` restarts.
 
 ## Tests
 
@@ -241,15 +242,40 @@ units. `tehasbot` gains the `improve` command. `libexec/labels` creates
 - A finished run leaves no run directory; a failed one keeps its records; the
   sweep removes what is over seven days old and nothing newer.
 
-`test/work_test.sh` keeps passing unchanged in what it pins.
+`test/work_test.sh` keeps passing unchanged in what it pins. `test/cli_test.sh`,
+`test/config_test.sh`, `test/install_test.sh`, `test/labels_test.sh` and
+`test/steps_test.sh` each gain the case for their part.
 
-## The manual
+## Documentation
 
-`host/docs/operating.md` gets a section on the loop: what it files, how to
-read `improve.log`, how to turn it off. `host/docs/host.md` gets the unit in
-the table of timers and the release permission. `host/docs/features.md` lists
-the loop as not proven. `instances/example/instance.env` gets the setting,
-commented out.
+The change is not done until every page below says what is true with the
+loop installed. Each is changed in the commit that changes the behaviour it
+describes.
+
+| Where | What it gains |
+| --- | --- |
+| `README.md` | A sentence in how an issue flows: the factory reads its own cycles and files what it finds. The loop in the table of pages, under Operating |
+| `host/docs/overview.md` | A row in "What is optional": the loop, what it needs and what switching it on publishes. A line in "What runs where" |
+| `host/docs/features.md` | A row under "Host management", marked not proven until a run on a host has filed an issue. The sweep of `logs/` under "Known limits" |
+| `host/docs/operating.md` | A section: what the loop files, the `tehas:improvement` label and that it starts nothing, how to read `improve.log`, how to act on a filed issue, how to turn the loop off. The label in the list of labels |
+| `host/docs/host.md` | The timer in the table of units, with its log. `tmp/improve/` and `state/improve.lock` in the table of paths. The release permission in what the bot account needs. That logs older than seven days are removed |
+| `host/docs/tools.md` | `TEHAS_IMPROVE_REPO` in the table of settings. `tehasbot improve` in the list of commands and a section of its own: usage, exit statuses, the caps, what the analyst's container is given. The timer where the units are named |
+| `host/docs/new-project.md` | The setting among the optional ones, and the timer in the `systemctl --user enable` line where the setting is set |
+| `host/docs/troubleshooting.md` | `improve.log` in "Where to look". Two entries: the loop files nothing, and a log was not uploaded |
+| `host/docs/agents.md` | A filed improvement issue is a proposal like any agent's issue: a person labels it |
+| `host/docs/llms.txt` | The loop in the list of optional parts |
+| `instances/example/instance.env` | The setting, commented out, with a comment that says what it publishes |
+| `bin/tehasbot` | `improve` in the header's list of commands and in the usage text |
+| `install.sh` | The loop in the header's list of what is installed |
+| `lib/config.sh` | The setting in the header's list |
+
+`host/docs/sitemap.xml` and `host/docs/bootstrap.md` need nothing: no page is
+added and no dependency is new. `DESIGN.md` needs nothing: the loop has no
+view on the dashboard.
+
+`AGENTS.md` is changed by people. Its table of paths needs nothing. If the
+loop's container should be named beside rule 4, that line is proposed in the
+pull request.
 
 For `tehas-tehas` the setting would be `TEHAS_IMPROVE_REPO=janit/tehas`. That
 line is proposed in the pull request and added by a person.
