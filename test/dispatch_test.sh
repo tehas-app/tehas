@@ -37,6 +37,8 @@ case "$1 $2" in
       *) cat "$T/fx/edit-$n.json" 2>/dev/null || cat "$T/fx/edit.json" || exit 1 ;;
     esac ;;
   "issue edit")
+    # What the host had on record at the moment an issue was marked as planning.
+    case "$*" in *"--add-label tehas:planning"*) cat "$T/home/tehas/state/plan-$3.json" >"$T/calls/record.at-mark" 2>/dev/null ;; esac
     [ ! -e "$T/fx/edit-fails" ] || exit 1
     # An edit whose arguments contain the text in edit-fails-on fails.
     if [ -s "$T/fx/edit-fails-on" ]; then
@@ -51,7 +53,8 @@ t_stub fake-status
 t_stub sleep
 # Writes a recorded outcome where the dispatcher asked for it. A failing turn
 # leaves what the file plan-fails holds, if anything.
-t_stub fake-plan 'out=""
+t_stub fake-plan 'cat "$T/home/tehas/state/plan-$1.json" >"$T/calls/record.at-turn" 2>/dev/null
+out=""
 while [ "$#" -gt 0 ]; do [ "$1" = --out ] && out=$2; shift; done
 if [ -e "$T/fx/plan-fails" ]; then
   [ ! -s "$T/fx/plan-fails" ] || cp "$T/fx/plan-fails" "$out"
@@ -1033,7 +1036,68 @@ t_run "$dispatch"
 t_eq "$t_rc" 1
 t_eq "$(plan_calls)" ""
 t_lacks "$(t_calls gh)" "issue comment"
+t_contains "$t_out" "ERROR: could not mark #7 as planning, not starting a turn"
+t_eq "$([ -e "$record" ] && echo kept)" ""
 rm -f "$fx/edit-fails"
+
+t_case "the turn is on record as running before the issue is marked"
+to_plan
+t_run "$dispatch"
+t_eq "$(jq -c . "$T/calls/record.at-mark")" '{"session":"","turns":0,"options":[],"pending":false,"failed":false,"running":true}'
+
+t_case "a session does not start when its record cannot be written, and the issue is not marked"
+to_plan
+mkdir -p "$record.new"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: could not write the record of #7, not starting a turn"
+t_eq "$(plan_calls)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "issue comment"
+rm -rf "$record.new"
+
+t_case "a later turn that cannot be marked leaves the record as it was, still answerable"
+planning
+comments 7 "$(plan_body ' ' x ' ')" alice
+before=$(cat "$record")
+: >"$fx/edit-fails"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_eq "$(plan_calls)" ""
+t_eq "$(cat "$record")" "$before"
+t_eq "$(jq -r .running "$T/calls/record.at-mark")" true
+rm -f "$T"/calls/* "$fx/edit-fails"
+t_run "$dispatch"
+t_contains "$(plan_calls)" "7 --out $record.out --session abc-123 --answer $record.answer"
+
+t_case "while a later turn runs the record names no question"
+planning
+comments 7 "$(plan_body ' ' x ' ')" alice
+t_run "$dispatch"
+t_eq "$(jq -c . "$T/calls/record.at-turn")" '{"session":"abc-123","turns":1,"options":["Adopt all","Change some"],"pending":false,"failed":false,"running":true}'
+
+t_case "a turn cut off before the issue was marked is reported like any cut-off turn"
+planning
+jq '.running = true | del(.comment)' "$record" >"$record.new" && mv "$record.new" "$record"
+# The mark never happened: the issue still asks, and the old answer is there.
+comments 7 "$(plan_body ' ' x ' ')" alice
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "This planning turn did not finish: it was cut off"
+t_contains "$(t_calls gh)" "--remove-label tehas:planning --add-label tehas:question --add-label needs-human-attention"
+t_eq "$(jq -c . "$record")" '{"session":"abc-123","turns":2,"options":[],"pending":false,"failed":true,"running":false,"comment":4002}'
+t_eq "$(plan_calls)" ""
+
+t_case "a first turn cut off before the issue was marked ends visibly and takes the plan label off"
+to_plan
+mkdir -p "$T/home/tehas/state"
+echo '{"session":"","turns":0,"options":[],"pending":false,"failed":false,"running":true}' >"$record"
+# What GitHub answers once the label is off.
+echo '[]' >"$fx/plans.json"
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:plan --remove-label tehas:planning --add-label needs-human-attention"
+t_contains "$(t_calls gh)" "could not start"
+t_eq "$([ -e "$record" ] && echo kept)" ""
+t_eq "$(plan_calls)" ""
 
 t_case "a first turn that fails parks the issue and keeps no record"
 to_plan

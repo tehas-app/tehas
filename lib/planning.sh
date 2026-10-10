@@ -15,11 +15,11 @@
 #   comment   the id of the open question comment, once it is posted
 # While pending, the outcome is kept next to the record as <record>.out.
 #
-# A turn is written down as running before it starts. The dispatcher holds the
-# one dispatch lock, so a running record found at the start of a poll is a
-# turn that was cut off, for example by a restart of the host. plan_recover
-# turns it into a failed turn that asks again, or ends a first turn that
-# never produced a session.
+# A turn is written down as running before it starts, and before the issue is
+# marked as planning. The dispatcher holds the one dispatch lock, so a running
+# record found at the start of a poll is a turn that was cut off, for example
+# by a restart of the host. plan_recover turns it into a failed turn that asks
+# again, or ends a first turn that never produced a session.
 #
 # Each change on GitHub is checked, and the record only moves on once it has
 # worked, so a poll that failed halfway is repeated by the next one without
@@ -140,7 +140,9 @@ plan_finish() {
   else
     # No session came into being: there is nothing to continue. The record
     # stays, still running, until the issue is visibly handed to a person.
-    if ! gh issue edit "$n" --repo "${repo:?}" --remove-label tehas:planning --add-label needs-human-attention >/dev/null 2>&1; then
+    # A turn cut off before the issue was marked still carries tehas:plan,
+    # which would start a session again with nobody asking for it.
+    if ! gh issue edit "$n" --repo "${repo:?}" --remove-label tehas:plan --remove-label tehas:planning --add-label needs-human-attention >/dev/null 2>&1; then
       log "WARN: could not hand #$n to a person after a planning turn that left no session; the next poll tries again"
       return 1
     fi
@@ -162,7 +164,7 @@ plan_recover() {
 }
 
 plan_turn() {
-  local n=$1 mode=$2 input=$3 st out turns sid rc
+  local n=$1 mode=$2 input=$3 st out turns sid rc was written
   local -a args
   st=$(plan_state "$n")
   out=$st.out
@@ -172,21 +174,35 @@ plan_turn() {
     plan_end "$n" "This planning session reached its limit of $TEHAS_PLAN_MAX_TURNS turns and was ended. Apply \`tehas:plan\` to start a new one."
     return 0
   fi
+  # Written down before the turn starts, and before the issue is marked, so
+  # that a turn cut off at any point is found by the next poll. A mark without
+  # a record would leave an issue that no poll picks up again. The record has
+  # no question comment: the next one is not posted yet, and the one just
+  # answered must not be read a second time.
+  written=1
+  if [ "$mode" = first ]; then
+    was=""
+    echo '{"session":"","turns":0,"options":[],"pending":false,"failed":false,"running":true}' >"$st.new" || written=0
+  else
+    was=$(cat "$st" 2>/dev/null) || was=""
+    jq -c '.running = true | .pending = false | del(.comment)' "$st" >"$st.new" || written=0
+  fi
+  # An empty record would read as a session with no turns and no question.
+  if ! { [ "$written" = 1 ] && [ -s "$st.new" ] && mv "$st.new" "$st"; }; then
+    log "ERROR: could not write the record of #$n, not starting a turn"
+    exit 1
+  fi
   # The turn runs only once the issue is marked as taken, as a cycle does.
   if ! gh issue edit "$n" --repo "${repo:?}" --add-label tehas:planning --remove-label tehas:plan \
     --remove-label tehas:question --remove-label needs-human-attention >/dev/null 2>&1; then
+    # Nothing started: the record goes back to what it was, so a first turn
+    # leaves none and a later one can still be answered.
+    if [ -n "$was" ]; then
+      printf '%s\n' "$was" >"$st" || log "WARN: could not put back the record of #$n"
+    else
+      rm -f "$st"
+    fi
     log "ERROR: could not mark #$n as planning, not starting a turn"
-    exit 1
-  fi
-  # Written down before the turn starts, so that a turn cut off is found. It
-  # has no question comment: the next one is not posted yet.
-  if [ "$mode" = first ]; then
-    echo '{"session":"","turns":0,"options":[],"pending":false,"failed":false,"running":true}' >"$st.new"
-  else
-    jq -c '.running = true | .pending = false | del(.comment)' "$st" >"$st.new"
-  fi
-  if ! mv "$st.new" "$st"; then
-    log "ERROR: could not write the record of #$n, not starting a turn"
     exit 1
   fi
   if [ "$mode" = first ]; then

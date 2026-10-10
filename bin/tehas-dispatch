@@ -450,12 +450,13 @@ gh_json issue list --repo "$repo" --state open --label tehas:question --limit 10
 asking_json=$json
 asking=$(jq -r 'map(.number) | sort | .[]' <<<"$asking_json") || { log "ERROR: unreadable list of issues with a question"; exit 1; }
 # A session whose issue was closed, or whose question label was taken off by
-# hand, is over. Its record goes without a comment.
+# hand, is over. Its record goes without a comment. A record that was running
+# or waiting to be posted when this poll began is in $fresh, whatever became
+# of it above, so it is never taken for a session that is over.
 for st in "$TEHAS_HOME"/state/plan-*.json; do
   [ -f "$st" ] || continue
   plan_record_number "$st" || continue
   n=$plan_n
-  [ "$(jq -r '(.pending // false) or (.running // false)' "$st" 2>/dev/null)" = true ] && continue
   case "$fresh" in *" $n "*) continue ;; esac
   case " ${asking//$'\n'/ } " in
     *" $n "*) ;;
