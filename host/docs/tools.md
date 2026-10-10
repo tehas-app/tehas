@@ -85,8 +85,9 @@ Beside the queue, a poll also reads two kinds of answer. A box ticked by an
 allowed account in the bot's comment on a stopped cycle can start a fresh
 cycle, and a reply or a ticked box on a planning question runs the next turn of
 that session. See [Operating](/operating). The dispatcher stops with exit 78 if
-the bot's own login is in `TEHAS_ALLOWED_LABELERS`. A planning turn's runner
-output is in `~/tehas/logs/dispatch-plan-<issue>.log`.
+the bot's own login is in `TEHAS_ALLOWED_LABELERS`. It checks this when it
+reads a question, so the error shows once a question is open. A planning turn's
+runner output is in `~/tehas/logs/dispatch-plan-<issue>.log`.
 
 An issue is taken only when an allowed account applied `tehas:ready` and
 nobody else has changed its title or body since. A cycle starts only once the
@@ -149,7 +150,8 @@ The container gets the same mounts and variables as a work cycle's, from
 `lib/sandbox.sh`: the bot token, and no Docker socket, SSH keys or
 `~/.config/tehas`. The agent files issues with the token. The RPC stream is
 kept in `~/tehas/logs/plan-<issue>-<time>.jsonl`. The limit is
-`TEHAS_PLAN_TIMEOUT`, and the session record is `~/tehas/state/plan-<issue>.json`.
+`TEHAS_PLAN_TIMEOUT`, and the session record is
+`~/tehas/state/plan-<issue>.json`.
 
 ## tehas-index
 

@@ -119,7 +119,7 @@ number.
 | `needs-human-attention` | The cycle stopped                 | Read the comment; see below              |
 | `tehas:plan`            | A planning session is asked for   | Wait for the first comment               |
 | `tehas:planning`        | A planning turn is running        | Wait                                     |
-| `tehas:question`        | The factory asked something       | Tick a box or reply; see below           |
+| `tehas:question`        | The factory asked something       | Tick a box; in a planning session you may reply instead |
 
 When the cycle starts and when it ends, the bot comments on the issue. The token
 usage per agent role is posted on the pull request.
@@ -166,11 +166,11 @@ The next cycle starts in a fresh workspace, with `--restart`. Branches and
 commits the earlier attempt pushed are kept on GitHub; what it left only on the
 host is gone.
 
-A tick approves the issue's text as it is at that moment, as the label does.
-The label approves the text it was applied to. If someone other than an
-allowed labeller changes the title or the body afterwards, the issue is
-skipped and the dispatcher's log says who changed it. Read the new text, then
-remove `tehas:ready` and apply it again.
+A label or a tick approves the text of the issue as it was at that moment. If
+someone other than an allowed labeller changes the title or the body
+afterwards, the issue is skipped and the dispatcher's log says who changed it.
+Read the new text. Then approve it again: for the label, remove `tehas:ready`
+and apply it again; for a retry tick, untick the box and tick it again.
 
 ## Planning on an issue
 
@@ -186,11 +186,18 @@ limit does not hold it back.
 3. The bot comments that the session has started. Each turn of the agent ends
    in a comment with what it found. When it needs a decision, the comment
    ends in a question with one checkbox per choice, a last box `End this
-   planning session`, and the label `tehas:question` is on the issue.
+   planning session`, and the label `tehas:question` is on the issue. The
+   last box and the label come after every turn, whether or not the agent
+   asked something, and a reply or the last box works either way.
 4. Answer by ticking one box, or by replying in a comment when none of the
-   boxes fits. If you do both, the reply counts. The next poll, within two
-   minutes, continues the session with your answer, and the issue carries
-   `tehas:planning` while the turn runs.
+   boxes fits. If you do both, the reply counts. The next poll that is free
+   continues the session with your answer, and the issue carries
+   `tehas:planning` while the turn runs. A poll takes the dispatch lock, so
+   while a work cycle or another planning turn runs, your answer waits until
+   it ends, which can be hours. A poll also handles one answer or one start
+   and then stops, and it does nothing while the model endpoint does not list
+   the model. A running planning turn holds the queue the same way a cycle
+   does.
 5. The agent files the issues it plans with the bot's token. To finish, tick
    `End this planning session`. Filed issues are never started on their own:
    apply `tehas:ready` to the ones you want built.
@@ -201,10 +208,17 @@ author is an allowed account and, when it was edited, its last editor is too.
 Replies from others are ignored. Only the newest question the bot posted counts;
 an older comment with boxes does nothing.
 
-What the agent writes is posted on the issue. On a public repository that is
-public. Secrets and private network addresses are masked, as on the dashboard,
-and the mask catches accidents only. Do not put anything in the issue that
-should not be public.
+What the agent writes in the bot's comments is posted on the issue. On a
+public repository that is public. Secrets and private network addresses are
+masked there, as on the dashboard, and the mask catches accidents only. The
+issues the agent files are written directly and are not masked: they are
+public as written. Do not put anything in the issue that should not be public.
+
+If you tick a box and nothing happens, the labels may be missing from the
+repository. The bot finds its questions by `tehas:question`, so without that
+label the boxes are posted and ticking them does nothing. Run
+`tehas-dispatch --init-labels` on the host, as described in
+[Commands](/tools).
 
 While a question waits, the factory works on other issues. A session ends
 when you tick the last box, when an answer arrives after
@@ -217,17 +231,21 @@ If a turn does not finish, for example because the host restarted, the bot says
 so in a comment that names the log, and the issue gets `needs-human-attention`
 next to `tehas:question`. Reply to run the turn again with your reply as the
 next message. If the first turn does not finish, there is no session to
-continue: the bot says so, the issue gets `needs-human-attention`, and you apply `tehas:plan` again.
+continue: the bot says so, the issue gets `needs-human-attention`, and you
+apply `tehas:plan` again.
 
 The bot account is never one of the allowed labellers. If it is listed in
 `TEHAS_ALLOWED_LABELERS`, the dispatcher stops with an error rather than let
-the bot approve its own questions.
+the bot approve its own questions. It checks this when it reads a question, so
+the error shows once a question is open.
 
 ## Pause and resume
 
 Apply **`tehas:pause`** to the control issue, the one `TEHAS_CONTROL_ISSUE`
 names (in the example, issue 1). No new cycle starts while it is there. A cycle
-already running finishes. Remove the label to resume.
+already running finishes. The same label also stops planning turns, answers
+to planning questions and retries by a tick, because the poll ends before it
+reaches them. Remove the label to resume.
 
 ## Limits that hold work back
 
