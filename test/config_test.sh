@@ -11,11 +11,16 @@ t_case "a minimal instance loads and derives the checkout path"
 t_instance "${T_MINIMAL[@]}"
 t_run "$load && echo \"\$TEHAS_WORK_REPO|\$TEHAS_HOST_ADDR|\$TEHAS_CONCURRENCY\""
 t_eq "$t_rc" 0
-t_eq "$t_out" "$T/home/tehas/repos/widget|127.0.0.1|1"
+t_eq "$t_out" "$T/home/tehas/repos/widget|127.0.0.1|4"
 
 t_case "settings are exported to child processes"
 t_run "$load && bash -c 'echo \$TEHAS_REPO \$PI_ENSEMBLE_SUBAGENT_MODEL \$PI_ENSEMBLE_MAX_WORKSTREAMS'"
-t_eq "$t_out" "acme/widget test-model 1"
+t_eq "$t_out" "acme/widget test-model 4"
+
+t_case "an instance can lower the workstreams, and pi-rukas is told the same number"
+t_instance "${T_MINIMAL[@]}" TEHAS_CONCURRENCY=1
+t_run "$load && echo \"\$TEHAS_CONCURRENCY \$PI_ENSEMBLE_MAX_WORKSTREAMS\""
+t_eq "$t_out" "1 1"
 
 t_case "the sandbox safety switches are always on"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_NO_DOCKER_SOCKET=0 PI_ENSEMBLE_NO_SSH=
