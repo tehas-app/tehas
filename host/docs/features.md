@@ -10,7 +10,7 @@ agent and [pi-rukas](https://github.com/trail-openers/pi-rukas) on self-hosted
 models. A person writes the issue, applies one label, and later reviews and
 merges. Everything in between is tehas.
 
-It is a set of shell scripts, two small Deno programs and a few containers on
+It is a set of shell scripts, one small Rust program and a few containers on
 one host. There is no server process of its own and no database of its own:
 state lives in GitHub labels, in pi-rukas's state files and in plain files under
 `~/tehas`.
@@ -55,7 +55,7 @@ a day.
 | Feature                    | Detail                                                                                                                                 | Status                   |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
 | Plain dashboard            | At `/dashboard`: in line, being worked on, waiting for review, stopped, completed (10 each, then a link to GitHub)                     | Verified                 |
-| Live console               | The running cycle's agents, the commands they run and the start of each result, streamed to the dashboard; tokens and passwords masked | Verified on a real cycle |
+| Live console               | The running cycle's agents, the commands they run and the start of each result, streamed to the dashboard; tokens and passwords masked | Verified on a real cycle as a Deno script. The Rust program that replaced it is tested, not yet seen on a host |
 | Factory floor (game view)  | The front page: the stages as a 16-bit factory floor with the live queue, a work order monitor, an issue board and a breakroom         | Tested with fake files   |
 | Production console         | The running cycle's console in the game view, read from the same `/live/` files as the dashboard                                       | Tested with fake files   |
 | Energy use                 | Optional. In the game view, only when the model backend is a [viiwork](https://github.com/janit/viiwork) mesh and `tehas-energy.service` is enabled: draw now, kWh for 24 hours and 30 days, a 30-minute chart, the machines serving the factory and its models, and a live meter among the doors with the draw now and tokens a minute | Tested with fake files   |

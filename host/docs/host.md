@@ -141,6 +141,16 @@ a copied unit file is not in effect until systemd has reloaded it, and that relo
 belongs to the step that restarts the units. A file edited directly on the host
 shows up as drift in `--check`.
 
+One installed file is compiled, not copied: the console of a running cycle, a
+Rust program in `console/`. A real run builds it with `cargo` in the checkout
+and installs it as `~/tehas/libexec/console`, with the checksum of its source
+beside it in `console.stamp`. It is built again only when that source has
+changed. The first build fetches its crates from the network and takes a
+minute. `--check` compares the checksum and builds nothing. A console that
+does not build stops the install before it has changed anything. The Deno
+script it replaces, `~/tehas/libexec/console.ts`, is removed the way the old
+commands below are.
+
 Before there was a `tehas` command, `~/tehas/bin` held one file for each
 command (`tehas-dispatch`, `tehas-work` and so on). `install.sh` removes those
 and `--check` lists them as stale. A cycle that was running before the install
@@ -229,8 +239,8 @@ Two things it does not change:
 ## Sandbox image
 
 `tehas/pi-rukas:uid<uid>`: the upstream pi-rukas image plus the in-container
-user remapped to the tehas user's id, deno, shellcheck, and Playwright's
-Chromium with fonts. The base is pinned by digest in `sandbox/Dockerfile`, the
+user remapped to the tehas user's id, shellcheck, and Playwright's
+Chromium with fonts. cargo keeps the crates it fetches in the cache volume. The base is pinned by digest in `sandbox/Dockerfile`, the
 tools by version in `versions.env`. A product whose gates need another
 toolchain adds it to the Dockerfile.
 

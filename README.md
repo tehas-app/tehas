@@ -110,16 +110,18 @@ one repository from one host.
 
 ```
 scripts/verify.sh          # lint, shellcheck, the shell tests
-scripts/verify.sh --full   # plus deno lint
+scripts/verify.sh --full   # plus the console's tests (cargo) and the energy view's (node)
 ```
 
 The tests need bash, git, jq and shellcheck. They use no network and no sandbox
-image. The rules for changes are in [`AGENTS.md`](AGENTS.md).
+image. The full gate also needs cargo and node, and cargo fetches the console's
+crates the first time. The rules for changes are in [`AGENTS.md`](AGENTS.md).
 
 | Path | What it is |
 | --- | --- |
 | `bin/` | The two commands: `tehas` for a person, `tehasbot` for the units. Installed to `~/tehas/bin` |
-| `libexec/` | The scripts behind them, bash and one Deno script. Installed to `~/tehas/libexec` |
+| `libexec/` | The scripts behind them, all bash. Installed to `~/tehas/libexec` |
+| `console/` | The console of a running cycle, a Rust program. `install.sh` builds it and installs it as `~/tehas/libexec/console` |
 | `lib/config.sh` | Loads and checks the instance settings |
 | `lib/sandbox.sh` | What a sandbox container is given, for a cycle and for a session by hand |
 | `lib/update-steps.sh` | The follow-up steps of an install, which `install.sh` asks for and `tehas update` runs |

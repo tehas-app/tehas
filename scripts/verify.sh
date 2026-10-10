@@ -3,10 +3,12 @@
 #
 #   scripts/verify.sh          the lint for product and host names, shellcheck,
 #                              and every shell test
-#   scripts/verify.sh --full   the above, plus deno lint over the TypeScript
+#   scripts/verify.sh --full   the above, plus the tests of the console (cargo)
+#                              and of the energy view (node)
 #
-# Needs bash, git, jq and shellcheck; --full also needs deno. No network, no
-# sandbox image, no product checkout. Prints one line per step.
+# Needs bash, git, jq and shellcheck; --full also needs cargo and node. No
+# network, no sandbox image, no product checkout: except that cargo fetches the
+# console's crates the first time it builds it. Prints one line per step.
 #
 # Exit: 0 everything passed, 1 a step failed.
 set -uo pipefail
@@ -29,12 +31,18 @@ step() { # name command...
 
 step "no product or host names in platform files" scripts/check-generic.sh
 step "shellcheck and the shell tests" scripts/test.sh
-if [ "${1:-}" = "--full" ]; then
-  if command -v deno >/dev/null 2>&1; then
-    step "deno lint" deno lint --no-config libexec/console.ts test/mask_test.ts
+with() { # tool name command...: a step that needs a tool
+  local tool=$1 name=$2
+  shift 2
+  if command -v "$tool" >/dev/null 2>&1; then
+    step "$name" "$@"
   else
-    echo "FAIL  deno lint (deno is not installed)"
+    echo "FAIL  $name ($tool is not installed)"
     failed=1
   fi
+}
+if [ "${1:-}" = "--full" ]; then
+  with cargo "the console's tests" cargo test --locked --quiet --manifest-path console/Cargo.toml
+  with node "the energy view's tests" node --test test/energy_view_test.mjs
 fi
 exit "$failed"

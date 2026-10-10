@@ -1,0 +1,380 @@
+//! From one line of a cycle's logs to the entries of the console.
+//!
+//! Two kinds of line are read: Pi's RPC stream, for driver notices and step
+//! boundaries, and an agent's transcript, for what the agent said, the
+//! commands it ran and the start of what came back. A line that is not JSON,
+//! or not one of these, gives no entry.
+
+use crate::mask::{is_space, mask};
+use serde_json::Value;
+
+/// One entry of the console: who speaks, what they said and, when the line
+/// carried a time, the second of the UTC day it was said.
+#[derive(Debug, PartialEq)]
+pub struct Entry {
+    pub who: String,
+    pub text: String,
+    pub at: Option<u32>,
+}
+
+impl Entry {
+    pub fn new(who: &str, text: impl Into<String>, at: Option<u32>) -> Self {
+        Entry { who: who.to_string(), text: text.into(), at }
+    }
+}
+
+/// The entry as it is written: masked, the time and the speaker on the first
+/// line, further lines indented under the text.
+pub fn format(entry: &Entry, now: u32) -> String {
+    let t = entry.at.unwrap_or(now);
+    let masked = mask(&entry.text).replace('\r', "");
+    let mut out = String::new();
+    for (i, line) in masked.split('\n').enumerate() {
+        if i == 0 {
+            out.push_str(&format!(
+                "{:02}:{:02}:{:02} {:<10} {line}\n",
+                t / 3600,
+                t / 60 % 60,
+                t % 60,
+                entry.who
+            ));
+        } else {
+            out.push_str(&format!("{:20}{line}\n", ""));
+        }
+    }
+    out
+}
+
+/// The first `lines` lines and `chars` characters of a text, marked when
+/// something was left out.
+pub fn clip(s: &str, chars: usize, lines: usize) -> String {
+    let head = s.split('\n').take(lines).collect::<Vec<_>>().join("\n");
+    // Counted as UTF-16 units, as the transcripts' own writer counts them.
+    let mut units = 0;
+    let mut end = head.len();
+    for (i, c) in head.char_indices() {
+        units += c.len_utf16();
+        if units > chars {
+            end = i;
+            break;
+        }
+    }
+    let kept = &head[..end];
+    if kept.len() < s.len() {
+        format!("{}\n[...]", kept.trim_end_matches(is_space))
+    } else {
+        kept.to_string()
+    }
+}
+
+/// The second of the UTC day in a timestamp: milliseconds since the epoch, or
+/// a date and time with `Z` or an offset. Anything else is no time, and the
+/// entry is stamped with the time it was read.
+fn clock(at: &Value) -> Option<u32> {
+    if let Some(ms) = at.as_f64() {
+        return Some((ms / 1000.0).floor().rem_euclid(86400.0) as u32);
+    }
+    let (_, time) = at.as_str()?.split_once(['T', 't', ' '])?;
+    let b = time.as_bytes();
+    let two = |i: usize| -> Option<i64> {
+        let d = b.get(i..i + 2)?;
+        d.iter()
+            .all(u8::is_ascii_digit)
+            .then(|| i64::from(d[0] - b'0') * 10 + i64::from(d[1] - b'0'))
+    };
+    if b.get(2) != Some(&b':') || b.get(5) != Some(&b':') {
+        return None;
+    }
+    let seconds = two(0)? * 3600 + two(3)? * 60 + two(6)?;
+    let mut zone = &b[8..];
+    if let [b'.', rest @ ..] = zone {
+        let digits = rest.iter().take_while(|c| c.is_ascii_digit()).count();
+        zone = &rest[digits..];
+    }
+    let offset = match zone {
+        [] | [b'Z'] | [b'z'] => 0,
+        [sign @ (b'+' | b'-'), _, _, b':', _, _] => {
+            let at = time.len() - 5;
+            let minutes = two(at)? * 60 + two(at + 3)?;
+            if *sign == b'+' { minutes * 60 } else { -minutes * 60 }
+        }
+        _ => return None,
+    };
+    Some((seconds - offset).rem_euclid(86400) as u32)
+}
+
+// A value as text: a string as it is, nothing for null, a number as written.
+fn text(v: &Value) -> String {
+    match v {
+        Value::Null => String::new(),
+        Value::String(s) => s.clone(),
+        other => other.to_string(),
+    }
+}
+
+fn truthy(v: &Value) -> bool {
+    match v {
+        Value::Null => false,
+        Value::Bool(b) => *b,
+        Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0),
+        Value::String(s) => !s.is_empty(),
+        Value::Array(_) | Value::Object(_) => true,
+    }
+}
+
+/// A line of the cycle's RPC stream.
+pub fn rpc_line(line: &str) -> Option<Entry> {
+    let r: Value = serde_json::from_str(line).ok()?;
+    if r["type"] == "extension_ui_request" && r["method"] == "notify" {
+        return Some(Entry::new("driver", text(&r["message"]), None));
+    }
+    let entry = &r["entry"];
+    if r["type"] != "entry_appended" || entry["customType"] != "ensemble:lifecycle" {
+        return None;
+    }
+    let d = &entry["data"];
+    let step = if truthy(&d["stepNumber"]) {
+        format!("step {}/{} ", text(&d["stepNumber"]), text(&d["stepTotal"]))
+    } else {
+        String::new()
+    };
+    let label = text(&d["label"]);
+    let said = match d["kind"].as_str()? {
+        "step-started" => {
+            let round = if d["round"].is_null() { "1".to_string() } else { text(&d["round"]) };
+            format!("--- {step}{label} started (round {round})")
+        }
+        "step-completed" => {
+            let seconds = (d["elapsedMs"].as_f64().unwrap_or(0.0) / 1000.0 + 0.5).floor();
+            format!("--- {step}{label} done in {seconds}s")
+        }
+        "dispatched" if d["role"] != "work-driver" => {
+            let who = if d["label"].is_null() { text(&d["role"]) } else { label };
+            format!("agent started: {who}")
+        }
+        _ => return None,
+    };
+    Some(Entry::new("driver", said, clock(&entry["timestamp"])))
+}
+
+fn describe_call(name: &Value, arguments: &Value) -> String {
+    if name == "bash" {
+        return format!("$ {}", text(&arguments["command"]));
+    }
+    let target = ["path", "file_path", "pattern", "query"]
+        .iter()
+        .map(|key| &arguments[*key])
+        .find(|v| !v.is_null())
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    format!("{} {target}", text(name)).trim_matches(is_space).to_string()
+}
+
+/// A line of one agent's transcript. `role` names the agent.
+pub fn transcript_line(role: &str, line: &str) -> Vec<Entry> {
+    let mut entries = Vec::new();
+    let Ok(e) = serde_json::from_str::<Value>(line) else {
+        return entries;
+    };
+    let m = &e["message"];
+    if e["type"] != "message" || !m.is_object() {
+        return entries;
+    }
+    let at = clock(&e["timestamp"]);
+    let content = m["content"].as_array().map(Vec::as_slice).unwrap_or(&[]);
+    if m["role"] == "assistant" {
+        for c in content {
+            if c["type"] == "text" {
+                let said = c["text"].as_str().unwrap_or("").trim_matches(is_space);
+                if !said.is_empty() {
+                    entries.push(Entry::new(role, clip(said, 1200, 16), at));
+                }
+            } else if c["type"] == "toolCall" {
+                let call = describe_call(&c["name"], &c["arguments"]);
+                entries.push(Entry::new(role, clip(&call, 600, 6), at));
+            }
+        }
+        if truthy(&m["errorMessage"]) {
+            entries.push(Entry::new(role, format!("! {}", text(&m["errorMessage"])), at));
+        }
+    } else if m["role"] == "toolResult" {
+        let result = content
+            .iter()
+            .filter(|c| c["type"] == "text")
+            .map(|c| text(&c["text"]))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let result = result.trim_matches(is_space);
+        if !result.is_empty() {
+            let who = if truthy(&m["isError"]) { "  ! error" } else { "  result" };
+            entries.push(Entry::new(who, clip(result, 700, 10), at));
+        }
+    }
+    entries
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    const NOON: u32 = 12 * 3600;
+
+    #[test]
+    fn an_entry_is_one_line_with_its_time_and_speaker() {
+        let e = Entry::new("driver", "hello", Some(3661));
+        assert_eq!(format(&e, NOON), "01:01:01 driver     hello\n");
+    }
+
+    #[test]
+    fn further_lines_are_indented_under_the_text_and_returns_are_dropped() {
+        let e = Entry::new("  result", "one\r\ntwo", None);
+        assert_eq!(
+            format(&e, NOON),
+            format!("12:00:00   result   one\n{}two\n", " ".repeat(20))
+        );
+    }
+
+    #[test]
+    fn what_is_written_is_masked() {
+        let e = Entry::new("coder", "GH_TOKEN=abc123 set", None);
+        assert_eq!(format(&e, 0), "00:00:00 coder      GH_TOKEN=*** set\n");
+    }
+
+    #[test]
+    fn a_short_text_is_kept_whole() {
+        assert_eq!(clip("one\ntwo", 100, 5), "one\ntwo");
+    }
+
+    #[test]
+    fn a_long_text_is_cut_by_lines_and_by_characters_and_marked() {
+        assert_eq!(clip("one\ntwo\nthree", 100, 2), "one\ntwo\n[...]");
+        assert_eq!(clip("abcdef", 3, 5), "abc\n[...]");
+        assert_eq!(clip("ab   cdef", 4, 5), "ab\n[...]");
+        // A character outside the basic plane is kept whole or left out.
+        assert_eq!(clip("a😀b", 2, 5), "a\n[...]");
+        assert_eq!(clip("a😀b", 3, 5), "a😀\n[...]");
+    }
+
+    #[test]
+    fn the_time_is_read_from_a_date_or_from_milliseconds() {
+        assert_eq!(clock(&json!("2026-10-10T06:15:45.123Z")), Some(6 * 3600 + 15 * 60 + 45));
+        assert_eq!(clock(&json!("2026-10-10T06:15:45Z")), Some(6 * 3600 + 15 * 60 + 45));
+        assert_eq!(clock(&json!("2026-10-10T01:00:00+03:00")), Some(22 * 3600));
+        assert_eq!(clock(&json!("2026-10-10T23:30:00.5-02:00")), Some(3600 + 1800));
+        assert_eq!(clock(&json!(1791526545000u64)), Some(6 * 3600 + 15 * 60 + 45));
+    }
+
+    #[test]
+    fn a_time_that_cannot_be_read_is_no_time() {
+        for at in [json!(null), json!("soon"), json!("2026-10-10"), json!("2026-10-10T6:15"), json!("2026-10-10T06:15:45 pm"), json!({})] {
+            assert_eq!(clock(&at), None, "{at}");
+        }
+    }
+
+    #[test]
+    fn a_driver_notice_is_an_entry() {
+        let line = json!({"type": "extension_ui_request", "method": "notify", "message": "parked"});
+        assert_eq!(rpc_line(&line.to_string()), Some(Entry::new("driver", "parked", None)));
+        let empty = json!({"type": "extension_ui_request", "method": "notify"});
+        assert_eq!(rpc_line(&empty.to_string()), Some(Entry::new("driver", "", None)));
+    }
+
+    fn lifecycle(data: Value) -> String {
+        json!({"type": "entry_appended", "entry": {
+            "customType": "ensemble:lifecycle", "timestamp": "2026-10-10T00:00:07Z", "data": data,
+        }})
+        .to_string()
+    }
+
+    #[test]
+    fn step_boundaries_and_started_agents_are_entries() {
+        let said = |data: Value| rpc_line(&lifecycle(data)).map(|e| (e.text, e.at));
+        assert_eq!(
+            said(json!({"kind": "step-started", "stepNumber": 2, "stepTotal": 7, "label": "develop"})),
+            Some(("--- step 2/7 develop started (round 1)".to_string(), Some(7)))
+        );
+        assert_eq!(
+            said(json!({"kind": "step-started", "label": "review", "round": 3})),
+            Some(("--- review started (round 3)".to_string(), Some(7)))
+        );
+        assert_eq!(
+            said(json!({"kind": "step-completed", "stepNumber": 2, "stepTotal": 7, "label": "develop", "elapsedMs": 61500})),
+            Some(("--- step 2/7 develop done in 62s".to_string(), Some(7)))
+        );
+        assert_eq!(
+            said(json!({"kind": "dispatched", "role": "coder", "label": "coder 1"})),
+            Some(("agent started: coder 1".to_string(), Some(7)))
+        );
+        assert_eq!(
+            said(json!({"kind": "dispatched", "role": "reviewer"})),
+            Some(("agent started: reviewer".to_string(), Some(7)))
+        );
+    }
+
+    #[test]
+    fn the_driver_itself_and_other_lines_give_no_entry() {
+        assert_eq!(rpc_line(&lifecycle(json!({"kind": "dispatched", "role": "work-driver"}))), None);
+        assert_eq!(rpc_line(&lifecycle(json!({"kind": "other"}))), None);
+        assert_eq!(rpc_line(&lifecycle(json!(null))), None);
+        for line in ["", "not json", "null", "7", "[]", r#"{"type":"response"}"#, r#"{"type":"entry_appended","entry":null}"#] {
+            assert_eq!(rpc_line(line), None, "{line}");
+        }
+    }
+
+    fn message(m: Value) -> String {
+        json!({"type": "message", "timestamp": "2026-10-10T00:00:09Z", "message": m}).to_string()
+    }
+
+    #[test]
+    fn what_an_agent_says_and_the_commands_it_runs_are_entries() {
+        let line = message(json!({"role": "assistant", "content": [
+            {"type": "text", "text": "  I will run the tests.\n"},
+            {"type": "thinking", "thinking": "hm"},
+            {"type": "text", "text": "   "},
+            {"type": "toolCall", "name": "bash", "arguments": {"command": "scripts/verify.sh"}},
+            {"type": "toolCall", "name": "read", "arguments": {"path": "README.md"}},
+            {"type": "toolCall", "name": "grep", "arguments": {"pattern": "tehas_load", "path": null}},
+            {"type": "toolCall", "name": "edit", "arguments": {"path": 7, "pattern": "x"}},
+            {"type": "toolCall", "name": "todo"},
+        ]}));
+        let said: Vec<String> = transcript_line("coder", &line).into_iter().map(|e| e.text).collect();
+        assert_eq!(
+            said,
+            ["I will run the tests.", "$ scripts/verify.sh", "read README.md", "grep tehas_load", "edit", "todo"]
+        );
+        assert!(transcript_line("coder", &line).iter().all(|e| e.who == "coder" && e.at == Some(9)));
+    }
+
+    #[test]
+    fn an_agent_error_is_an_entry() {
+        let line = message(json!({"role": "assistant", "content": [], "errorMessage": "context overflow"}));
+        assert_eq!(transcript_line("coder", &line), [Entry::new("coder", "! context overflow", Some(9))]);
+    }
+
+    #[test]
+    fn the_start_of_a_result_is_an_entry() {
+        let ok = message(json!({"role": "toolResult", "content": [
+            {"type": "text", "text": "ok    lint\n"}, {"type": "image", "data": "..."}, {"type": "text", "text": "ok    tests"},
+        ]}));
+        assert_eq!(transcript_line("coder", &ok), [Entry::new("  result", "ok    lint\n\nok    tests", Some(9))]);
+        let failed = message(json!({"role": "toolResult", "isError": true, "content": [{"type": "text", "text": "exit 1"}]}));
+        assert_eq!(transcript_line("coder", &failed), [Entry::new("  ! error", "exit 1", Some(9))]);
+        let long = message(json!({"role": "toolResult", "content": [{"type": "text", "text": "line\n".repeat(30)}]}));
+        assert_eq!(transcript_line("coder", &long)[0].text, format!("{}\n[...]", ["line"; 10].join("\n")));
+        let empty = message(json!({"role": "toolResult", "content": [{"type": "text", "text": " \n"}]}));
+        assert_eq!(transcript_line("coder", &empty), []);
+    }
+
+    #[test]
+    fn lines_that_are_no_message_give_no_entry() {
+        for line in [
+            "", "{", "null", "[1]", r#"{"type":"session"}"#, r#"{"type":"message"}"#, r#"{"type":"message","message":"text"}"#,
+            r#"{"type":"message","message":{"role":"user","content":[{"type":"text","text":"hi"}]}}"#,
+            r#"{"type":"message","message":{"role":"assistant","content":"hi"}}"#,
+            r#"{"type":"message","message":{"role":"assistant","content":[null,7,{"type":"text","text":5}]}}"#,
+        ] {
+            assert_eq!(transcript_line("coder", line), [], "{line}");
+        }
+    }
+}

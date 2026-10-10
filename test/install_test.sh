@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for install.sh: what it installs, that an invalid instance changes
-# nothing, and that drift is reported and repaired. Docker and systemctl are
-# stubs.
+# nothing, and that drift is reported and repaired. Docker, systemctl and
+# cargo are stubs.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh"
@@ -13,10 +13,14 @@
 install="$T_ROOT/install.sh"
 home=$T/home
 th=$home/tehas
-T_ENV=(T_IN_TEST=1)
+# What every run here is given: no dependency check and no tests inside a
+# test, and a scratch place for the console's build.
+base=(T_IN_TEST=1 CARGO_TARGET_DIR="$T/target")
+T_ENV=("${base[@]}")
 
 t_stub docker
 t_stub systemctl
+t_stub_cargo
 
 # An instance directory with settings and a model list that matches them.
 instance() {
@@ -50,7 +54,8 @@ files="./.config/systemd/user/tehas-dispatch.service
 ./tehas/lib/config.sh
 ./tehas/lib/sandbox.sh
 ./tehas/lib/update-steps.sh
-./tehas/libexec/console.ts
+./tehas/libexec/console
+./tehas/libexec/console.stamp
 ./tehas/libexec/dev
 ./tehas/libexec/dispatch
 ./tehas/libexec/energy
@@ -146,6 +151,46 @@ t_run "$install"
 t_contains "$t_out" "installed: $th/libexec/dispatch"
 t_eq "$(cmp -s "$th/libexec/dispatch" "$T_ROOT/libexec/dispatch" && echo same)" "same"
 t_contains "$(cat "$th/libexec/dispatch.prev")" "# edited on the host"
+
+t_case "the console is built once, from the lock file, and installed as a program"
+t_eq "$(t_calls cargo)" "build --release --locked --quiet --manifest-path $T_ROOT/console/Cargo.toml"
+t_eq "$(stat -c %a "$th/libexec/console")" 755
+t_eq "$(cat "$th/libexec/console")" "a console built from source"
+
+t_case "a console built from other source is drift, and --check builds nothing"
+echo "the checksum of other source" >"$th/libexec/console.stamp"
+echo "# the console of before" >"$th/libexec/console"
+rm -f "$T/calls/cargo"
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "Installed:    DRIFT (1 files)"
+t_contains "$t_out" "differs: $th/libexec/console"
+t_eq "$(t_calls cargo)" ""
+t_eq "$(find "$T/target" -newer "$th/libexec/console" | wc -l)" 0
+
+t_case "a real run builds it again and keeps the old one as .prev"
+T_ENV=("${base[@]}" CONSOLE_BUILD="new source")
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "installed: $th/libexec/console"
+t_eq "$(cat "$th/libexec/console")" "a console built from new source"
+t_eq "$(cat "$th/libexec/console.prev")" "# the console of before"
+t_eq "$(t_calls cargo | wc -l)" 1
+t_run "$install --check"
+t_contains "$t_out" "Installed:    OK"
+T_ENV=("${base[@]}")
+
+t_case "a console that does not build installs nothing and exits 1"
+fresh
+instance
+T_ENV=("${base[@]}" CARGO_RC=101)
+t_run "$install"
+t_eq "$t_rc" 1
+t_contains "$t_out" "error: could not compile console"
+t_contains "$t_out" "the console did not build"
+t_contains "$t_out" "nothing was installed"
+t_eq "$(find "$home" -type f | wc -l)" 0
+T_ENV=("${base[@]}")
 
 t_case "an instance with a missing setting installs nothing and exits 78"
 fresh
@@ -260,6 +305,17 @@ t_eq "$(cd "$th/bin" && find . -type f | LC_ALL=C sort | tr '\n' ' ')" "./gh ./t
 t_run "$install"
 t_contains "$t_out" "tehas is up to date"
 
+t_case "the console script of before it was compiled goes the same way"
+echo "// old" >"$th/libexec/console.ts"
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "stale: $th/libexec/console.ts"
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "removed: $th/libexec/console.ts"
+t_eq "$([ -e "$th/libexec/console.ts" ] || echo gone)" "gone"
+t_eq "$([ -x "$th/libexec/console" ] && echo there)" "there"
+
 t_case "while a cycle runs they stay, and the install says to come back"
 old_layout
 mkdir -p "$th/state"
@@ -339,20 +395,20 @@ t_eq "$(index_runs)" 0
 
 t_case "an install without the sandbox image names the indexing step"
 product
-T_ENV=(T_IN_TEST=1 IMAGE_RC=1)
+T_ENV=("${base[@]}" IMAGE_RC=1)
 t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "later: $th/bin/tehas index"
 t_eq "$(index_runs)" 0
 
 t_case "--check builds no index"
-T_ENV=(T_IN_TEST=1)
+T_ENV=("${base[@]}")
 t_run "$install --check"
 t_eq "$(index_runs)" 0
 t_eq "$(find "$th/state/index.json" 2>/dev/null | wc -l)" 0
 
 t_case "a failed indexing is a warning, and the install still succeeds"
-T_ENV=(T_IN_TEST=1 RUN_RC=1)
+T_ENV=("${base[@]}" RUN_RC=1)
 t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "WARN: the code index was not built"
@@ -360,7 +416,7 @@ t_contains "$t_out" "later: $th/bin/tehas index"
 
 t_case "with the image and the checkout, the install builds the index"
 rm -f "$T"/calls/*
-T_ENV=(T_IN_TEST=1)
+T_ENV=("${base[@]}")
 t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "tehas index: widget indexed"
@@ -408,6 +464,7 @@ part=$T/partial
 rm -rf "$part"
 mkdir -p "$part"
 cp -R "$T_ROOT/install.sh" "$T_ROOT/lib" "$T_ROOT/host" "$T_ROOT/bin" "$part/"
+t_console_source "$part"
 chmod +x "$part/install.sh"
 rm "$part/host/pi/mcp.json"
 t_run "$part/install.sh"

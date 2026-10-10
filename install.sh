@@ -11,12 +11,21 @@
 # sandbox files, the docs server, the Protolab and the manual, plus the
 # instance's own models.json and, if it has one, settings.json.
 #
-# It copies files. It does not start the dispatcher or the docs server, rebuild the sandbox image or touch secrets (~/.config/tehas/env); the
+# It copies files, and compiles one: the console of a running cycle is a Rust
+# program in console/. A real run builds it with cargo in this checkout
+# (console/target, which git ignores) and installs it as libexec/console, with
+# the checksum of its source beside it as console.stamp. It is built again
+# only when that source has changed, and the first build fetches its crates
+# from the network. --check compares the checksum and builds nothing. A
+# console that does not build stops a real run before it changes anything.
+#
+# It does not start the dispatcher or the docs server, rebuild the sandbox image or touch secrets (~/.config/tehas/env); the
 # follow-up steps are printed when their inputs changed. A replaced file is
 # kept next to the new one as <name>.prev.
 #
-# It also removes the commands of an earlier layout from ~/tehas/bin, one file
-# for each command there, unless a cycle is running that still uses them.
+# It also removes the commands of an earlier layout, one file for each command
+# in ~/tehas/bin and the console script in ~/tehas/libexec, unless a cycle is
+# running that still uses them.
 #
 # Three things it does besides copying, on a real run only. The product
 # checkout's origin/HEAD is refreshed, so the commands know the default branch
@@ -150,7 +159,6 @@ done
 for f in dev dispatch energy health index labels protolab status summary update work; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
-files+=("libexec/console.ts|$TEHAS_HOME/libexec/console.ts|644")
 # Pi's own settings: the instance may bring its own (default provider and
 # model for interactive use on the host), otherwise the generic ones.
 if [ -r "$instance/settings.json" ]; then
@@ -202,6 +210,30 @@ record_step() { # one source path from the file table
 }
 
 # --- 3. Install ---------------------------------------------------------------
+# The console first: a build that fails must leave the host as it was. What is
+# installed is judged by the source it was built from, not by building again.
+console_to=$TEHAS_HOME/libexec/console
+console_stamp=$( (cd "$root/console" && LC_ALL=C && cat Cargo.toml Cargo.lock src/*.rs | sha256sum | cut -d' ' -f1) 2>/dev/null) ||
+  { echo "tehas: $root/console is missing from this checkout" >&2; exit 1; }
+if [ ! -x "$console_to" ] || [ "$(cat "$console_to.stamp" 2>/dev/null)" != "$console_stamp" ]; then
+  changed+=("libexec/console")
+  if [ "$check" = 1 ]; then
+    if [ -f "$console_to" ]; then note "differs: $console_to"; else note "missing: $console_to"; fi
+  else
+    built=${CARGO_TARGET_DIR:-$root/console/target}/release/console
+    if ! out=$(cargo build --release --locked --quiet --manifest-path "$root/console/Cargo.toml" 2>&1) || [ ! -f "$built" ]; then
+      printf '%s\n' "$out" | tail -n 20 >&2
+      echo "tehas: the console did not build (cargo build --release --locked in $root/console); nothing was installed" >&2
+      exit 1
+    fi
+    mkdir -p "$TEHAS_HOME/libexec"
+    [ -f "$console_to" ] && cp -p "$console_to" "$console_to.prev"
+    install -m 755 "$built" "$console_to"
+    echo "$console_stamp" >"$console_to.stamp"
+    echo "installed: $console_to"
+  fi
+fi
+
 for e in "${files[@]}"; do put "$e"; done
 
 # The operating manual and the front page are directories; pages come and go.
@@ -222,17 +254,19 @@ sync_dir() { # name: host/<name>/* -> $TEHAS_HOME/<name>/
 sync_dir docs
 sync_dir fun
 
-# The commands of before bin/tehas, one file each in bin/. Found here, removed
-# in step 5 once systemd has the new units.
+# The commands of before bin/tehas, one file each in bin/, and the console of
+# before it was a compiled program. Found here, removed in step 5 once systemd
+# has the new units.
 old=()
-for f in tehas-console.ts tehas-dispatch tehas-energy tehas-health tehas-index tehas-protolab tehas-status tehas-test tehas-work; do
-  to=$TEHAS_HOME/bin/$f
+for f in bin/tehas-console.ts bin/tehas-dispatch bin/tehas-energy bin/tehas-health bin/tehas-index \
+  bin/tehas-protolab bin/tehas-status bin/tehas-test bin/tehas-work libexec/console.ts; do
+  to=$TEHAS_HOME/$f
   [ -e "$to" ] || continue
   old+=("$to")
-  changed+=("bin/$f")
+  changed+=("$f")
   # A running sampler is the old file calling itself; only a restart moves it
   # on, and the units step is what restarts it.
-  if [ "$check" = 1 ]; then note "stale: $to"; else record_step "bin/$f"; fi
+  if [ "$check" = 1 ]; then note "stale: $to"; else record_step "$f"; fi
 done
 
 # --- 4. Report (--check) -----------------------------------------------------
@@ -331,7 +365,7 @@ while IFS= read -r step; do echo "next: $step"; done < <(tehas_steps_for "${chan
 retire_later=""
 if [ "${#old[@]}" -gt 0 ]; then
   if ! out=$(systemctl --user daemon-reload 2>&1) || [ -n "$out" ]; then
-    retire_later="once systemctl --user daemon-reload works   (systemd still holds the units that name the old commands in $TEHAS_HOME/bin, so they were left)"
+    retire_later="once systemctl --user daemon-reload works   (systemd still holds the units that name the old commands in $TEHAS_HOME, so they were left)"
   else
     exec 9>>"$TEHAS_HOME/state/dispatch.lock"
     if flock -n 9; then
@@ -340,7 +374,7 @@ if [ "${#old[@]}" -gt 0 ]; then
         echo "removed: $to"
       done
     else
-      retire_later="when the running cycle has ended   (the dispatcher's lock is held, so the old commands in $TEHAS_HOME/bin were left)"
+      retire_later="when the running cycle has ended   (the dispatcher's lock is held, so the old commands in $TEHAS_HOME were left)"
     fi
     exec 9>&-
   fi

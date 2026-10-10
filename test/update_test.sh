@@ -176,6 +176,8 @@ real_platform() {
   bound_calls
   mkdir -p "$checkout"
   cp -R "$T_ROOT/install.sh" "$T_ROOT/bin" "$T_ROOT/libexec" "$T_ROOT/lib" "$T_ROOT/host" "$checkout/"
+  t_console_source "$checkout"
+  t_stub_cargo
   chmod +x "$checkout/install.sh"
   git init -q --initial-branch=main "$checkout"
   git -C "$checkout" config user.name test
@@ -868,7 +870,8 @@ protolab --force-recreate"
 t_case "the real install.sh through tehas update runs its follow-ups in its order"
 instance_models
 real_platform
-T_ENV=(T_IN_TEST=1)   # install.sh skips bootstrap and the tests inside a test
+# install.sh skips bootstrap and the tests inside a test, and its cargo is a stub.
+T_ENV=(T_IN_TEST=1 CARGO_TARGET_DIR="$T/target")
 t_run "$update"
 t_eq "$t_rc" 0
 t_contains "$t_out" "installed: $th/libexec/update"
@@ -893,7 +896,7 @@ instance_models
 real_platform
 t_stub systemctl 'if [ "$2" = daemon-reload ]; then echo "Failed to connect to bus: No such file or directory" >&2; exit 1; fi
 if [ "$2" = is-active ]; then echo active; fi'
-T_ENV=(T_IN_TEST=1)
+T_ENV=(T_IN_TEST=1 CARGO_TARGET_DIR="$T/target")
 t_run "$update"
 t_eq "$t_rc" 1
 t_contains "$t_out" "systemd: systemctl --user daemon-reload did not run; the changed unit files are not in effect, no unit was restarted, and the step is not done"

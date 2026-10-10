@@ -17,7 +17,8 @@ when a person pulls and runs `install.sh` there.
 | Path | What it is |
 | --- | --- |
 | `bin/` | The two commands: `tehas` for a person, `tehasbot` for the units. Installed to `~/tehas/bin` |
-| `libexec/` | The scripts behind them, bash and one Deno script. Installed to `~/tehas/libexec` |
+| `libexec/` | The scripts behind them, all bash. Installed to `~/tehas/libexec` |
+| `console/` | The console of a running cycle, a Rust program. `install.sh` builds it and installs it as `~/tehas/libexec/console` |
 | `lib/config.sh` | Loads and validates instance settings. Every command sources it |
 | `host/` | Everything else that is installed: units, the docs server, the sandbox image, the manual in `host/docs/` |
 | `install.sh`, `bootstrap.sh` | Install tehas on a host; prepare a host's dependencies |
@@ -48,7 +49,8 @@ when a person pulls and runs `install.sh` there.
    with a check that the label is present.
 6. **Tests first.** Every behaviour change comes with a case in `test/`. Tests
    need bash, git, jq and shellcheck only: no network, no sandbox image, no
-   product checkout. Stub the outside world with `t_stub`.
+   product checkout. Stub the outside world with `t_stub`. The console's tests
+   are Rust, beside its source in `console/`, and run in the full gate.
 7. **Do not edit your own gates.** `.pi/`, `AGENTS.md`, `scripts/verify.sh` and
    `scripts/check-generic.sh` are changed by people, not by a work cycle. If a
    gate is wrong, say so in your handoff.
@@ -77,7 +79,7 @@ when a person pulls and runs `install.sh` there.
 
 ```
 scripts/verify.sh          # fast gate: lint, shellcheck, shell tests
-scripts/verify.sh --full   # plus deno lint
+scripts/verify.sh --full   # plus the console's tests (cargo) and the energy view's (node)
 ```
 
 Both print one line per step and exit non-zero on failure. Run the fast gate
