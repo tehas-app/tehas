@@ -296,7 +296,7 @@ run_cycle() {
   step=${step:--}
   cbranch=$(jq -r '.pipelineState.branchName // ""' "$state" 2>/dev/null || echo "")
   usage=$(jq -r '
-    [.eventLog[] | select(.usage) | {role: (.role // "driver"), u: .usage}] as $e
+    [.eventLog[] | select(.usage) | {role: ((.role // "driver" | tostring | gsub("[^A-Za-z0-9_.-]"; "")) as $r | if $r == "" then "driver" else $r end), u: .usage}] as $e
     | if ($e | length) == 0 then "" else
         (["| Role | Dispatches | Turns | Input | Output | Cache read |", "|---|---|---|---|---|---|"]
          + ($e | group_by(.role) | map("| \(.[0].role) | \(length) | \(map(.u.turns) | add) | \(map(.u.input) | add) | \(map(.u.output) | add) | \(map(.u.cacheRead) | add) |"))
@@ -419,7 +419,9 @@ for n in $asking; do
       # Only a tick answers a parked cycle: a comment there is discussion.
       [ "$tick" = one ] || continue
       # What was ticked is read from its text, not its place in the list.
-      if ! jq -r .body <<<"$ans" | tr -d '\r' | grep -qix -e '- \[x\] Retry from a clean start'; then
+      qbody=$(jq -r .body <<<"$ans") || qbody=""
+      qbody=${qbody//$'\r'/}
+      if ! grep -qix -e '- \[x\] Retry from a clean start' <<<"$qbody"; then
         [ "$dry" = 1 ] || label "$n" --remove-label tehas:question
         continue
       fi
