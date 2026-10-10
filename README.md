@@ -117,6 +117,7 @@ image. The rules for changes are in [`AGENTS.md`](AGENTS.md).
 | --- | --- |
 | `bin/` | The commands, installed to `~/tehas/bin` |
 | `lib/config.sh` | Loads and checks the instance settings |
+| `lib/sandbox.sh` | What a sandbox container is given, for a cycle and for a session by hand |
 | `host/` | Everything else that is installed: units, the docs server, the sandbox image, the manual |
 | `install.sh`, `bootstrap.sh` | Install tehas on a host, and prepare a host's tools |
 | `instances/` | `example/` to copy, and `tehas-tehas/`, the settings of the example instance |

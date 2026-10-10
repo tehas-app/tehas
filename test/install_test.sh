@@ -50,6 +50,7 @@ files="./.config/systemd/user/tehas-dispatch.service
 ./tehas/edge/protolab.compose.yaml
 ./tehas/env.sh
 ./tehas/lib/config.sh
+./tehas/lib/sandbox.sh
 ./tehas/sandbox/Dockerfile
 ./tehas/sandbox/build.sh
 ./tehas/versions.env"
