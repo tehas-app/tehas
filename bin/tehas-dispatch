@@ -22,7 +22,8 @@
 #   2. No new cycle while TEHAS_MAX_AWAITING tehas PRs wait for a human.
 #   3. A box ticked by an allowed account in the bot's question comment is an
 #      answer: on a parked cycle, "Retry from a clean start" starts a fresh
-#      cycle. The awaiting-merge limit holds that back too.
+#      cycle. The awaiting-merge limit holds that back too. The tick counts
+#      only on a parked issue, and it is unticked when it is used.
 #   4. An issue is eligible only if its tehas:ready label was applied by an
 #      account in TEHAS_ALLOWED_LABELERS. The bot is never in that list.
 #   5. tehas:urgent first, then the lowest issue number. One at a time.
@@ -287,8 +288,12 @@ run_cycle() {
 
   # The one thing read back from the tree the container wrote, and only as data.
   state=$workdir/.pi/work-state/$issue.json
-  status=$(jq -r '.pipelineState.status // "unknown"' "$state" 2>/dev/null || echo unknown)
-  step=$(jq -r '.pipelineState.currentStep // "-"' "$state" 2>/dev/null || echo -)
+  # The file is written inside the container, and what the bot posts from it is
+  # trusted later, so only plain characters are kept.
+  status=$(jq -r '.pipelineState.status // "unknown"' "$state" 2>/dev/null | tr -cd 'A-Za-z0-9_.-')
+  step=$(jq -r '.pipelineState.currentStep // "-"' "$state" 2>/dev/null | tr -cd 'A-Za-z0-9_.-')
+  status=${status:-unknown}
+  step=${step:--}
   cbranch=$(jq -r '.pipelineState.branchName // ""' "$state" 2>/dev/null || echo "")
   usage=$(jq -r '
     [.eventLog[] | select(.usage) | {role: (.role // "driver"), u: .usage}] as $e
@@ -316,15 +321,17 @@ run_cycle() {
 
 ${usage:-No token usage was recorded for this cycle.}" >/dev/null 2>&1 || log "WARN: comment on $pr failed"
   else
-    relabel --remove-label tehas:running --add-label needs-human-attention --add-label tehas:question
+    relabel --remove-label tehas:running --add-label needs-human-attention
     stopped="Tehas cycle stopped without a pull request: $summary (runner exit $rc). Read the handoff comment if there is one; the run log is \`~/tehas/logs/dispatch-work-$issue.log\` on \`$(hostname)\`."
     jq -n --arg text "$stopped
 
 ${usage}" '{text: $text, question: null}' >"$TEHAS_HOME/state/park-$issue.json"
-    if ! post_question park "$issue" 1 "$TEHAS_HOME/state/park-$issue.json"; then
-      # Without the boxes there is nothing to tick: say the old way and do not
-      # leave a question label that no comment answers to.
-      relabel --remove-label tehas:question
+    if post_question park "$issue" 1 "$TEHAS_HOME/state/park-$issue.json"; then
+      # A separate call: a repository without this label must still get the
+      # parking label above.
+      relabel --add-label tehas:question
+    else
+      # Without the boxes there is nothing to tick: say the old way.
       comment "$stopped To retry, remove \`needs-human-attention\` and apply \`tehas:ready\` again.
 
 ${usage}"
@@ -365,8 +372,9 @@ held=0
 # 3. Questions that wait for an answer. An answer is a box ticked in the
 # bot's question comment, or for a planning session a reply after it, and it
 # counts only from an allowed account.
-gh_json issue list --repo "$repo" --state open --label tehas:question --limit 100 --json number
-asking=$(jq -r 'map(.number) | sort | .[]' <<<"$json") || { log "ERROR: unreadable list of issues with a question"; exit 1; }
+gh_json issue list --repo "$repo" --state open --label tehas:question --limit 100 --json number,labels
+asking_json=$json
+asking=$(jq -r 'map(.number) | sort | .[]' <<<"$asking_json") || { log "ERROR: unreadable list of issues with a question"; exit 1; }
 bot=""
 for n in $asking; do
   if [ -z "$bot" ]; then
@@ -374,6 +382,7 @@ for n in $asking; do
     bot=$(jq -r '.login // ""' <<<"$json") || bot=""
     [ -n "$bot" ] || { log "ERROR: the bot's own login could not be read"; exit 1; }
   fi
+  have=" $(jq -r --argjson n "$n" '[.[] | select(.number == $n) | (.labels // [])[].name] | join(" ")' <<<"$asking_json") "
   # shellcheck disable=SC2016  # $owner, $name and $number are GraphQL variables
   gh_json api graphql -F owner="${repo%%/*}" -F name="${repo##*/}" -F number="$n" \
     -f query='query($owner: String!, $name: String!, $number: Int!) {
@@ -409,10 +418,22 @@ for n in $asking; do
     park)
       # Only a tick answers a parked cycle: a comment there is discussion.
       [ "$tick" = one ] || continue
-      if [ "$(jq -r .tick.index <<<"$ans")" != 0 ]; then
+      # What was ticked is read from its text, not its place in the list.
+      if ! jq -r .body <<<"$ans" | tr -d '\r' | grep -qix -e '- \[x\] Retry from a clean start'; then
         [ "$dry" = 1 ] || label "$n" --remove-label tehas:question
         continue
       fi
+      # A retry counts only on an issue that is parked now.
+      case "$have" in
+        *" needs-human-attention "*) ;;
+        *) log "skip #$n: a retry was ticked but the issue is not parked"; continue ;;
+      esac
+      case "$have" in
+        *" tehas:running "* | *" tehas:awaiting-merge "*)
+          log "skip #$n: a retry was ticked but the issue is not parked"
+          continue
+          ;;
+      esac
       # The tick approves the text as it was at that moment, as the label does.
       gh_json api "repos/$repo/issues/$n/events?per_page=100" --paginate
       events=$json
@@ -425,6 +446,13 @@ for n in $asking; do
       if [ "$dry" = 1 ]; then
         log "would run a cycle for #$n (retry ticked by $by)"
         exit 0
+      fi
+      # One tick is one start. Unticking edits the comment as the bot, so the
+      # bot becomes its last editor and the tick cannot be read a second time.
+      if ! gh api -X PATCH "repos/$repo/issues/comments/$(jq -r .comment <<<"$ans")" \
+        -f body="$(jq -r .body <<<"$ans" | q_untick)" >/dev/null 2>&1; then
+        log "ERROR: could not use up the retry tick on #$n, not starting a cycle"
+        continue
       fi
       run_cycle "$n" "$by" "retry ticked" "retry tick" --remove-label needs-human-attention --remove-label tehas:question
       exit 0

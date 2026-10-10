@@ -77,7 +77,7 @@ park_body() { # <retry box> <leave box>
 parked() {
   reset
   echo '[]' >"$fx/ready.json"
-  echo '[{"number":7}]' >"$fx/asking.json"
+  echo '[{"number":7,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}]' >"$fx/asking.json"
 }
 
 # A product repository whose default branch is main, and the instance's clone.
@@ -543,18 +543,21 @@ t_contains "$(t_calls fake-work)" "7"
 t_case "a cycle that stops asks what to do next, with boxes"
 reset
 t_run "$dispatch"
-t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention --add-label tehas:question"
+t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:question"
+t_eq "$(t_calls gh | grep '^issue edit' | grep -c 'needs-human-attention.*tehas:question\|tehas:question.*needs-human-attention')" 0
 t_contains "$(t_calls gh)" "api repos/acme/widget/issues/7/comments"
 t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
 t_contains "$(t_calls gh)" "<!-- tehas:question kind=park issue=7 turn=1 -->"
 
-t_case "when the question cannot be posted the old comment is used and no question label is left"
+t_case "when the question cannot be posted the old comment is used and no question label is added"
 reset
 : >"$fx/post-fails"
 t_run "$dispatch"
 t_contains "$(t_calls gh)" "issue comment 7"
 t_contains "$(t_calls gh)" "To retry, remove"
-t_contains "$(t_calls gh)" "--remove-label tehas:question"
+# The poll itself lists issues by that label, so look at edits only.
+t_lacks "$(t_calls gh | grep '^issue edit')" "tehas:question"
 
 t_case "an unanswered question starts nothing"
 parked
@@ -580,6 +583,7 @@ t_run "$dispatch --dry-run"
 t_contains "$t_out" "would run a cycle for #7 (retry ticked by alice)"
 t_eq "$(t_calls fake-work)" ""
 t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "api -X PATCH"
 
 t_case "a retry ticked by the bot or a stranger starts nothing and is undone"
 for other in tehas-bot mallory ""; do
@@ -678,5 +682,61 @@ t_case "--init-labels creates the question label"
 reset
 t_run "$dispatch --init-labels"
 t_contains "$(t_calls gh)" "label create tehas:question"
+
+t_case "a retry tick is used up before the cycle starts"
+parked
+comments 7 "$(park_body x ' ')" alice
+t_run "$dispatch"
+t_eq "$(t_calls fake-work)" "7"
+t_contains "$(t_calls gh)" "api -X PATCH repos/acme/widget/issues/comments/4001"
+t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+patch_line=$(t_calls gh | grep -n 'api -X PATCH' | head -1 | cut -d: -f1)
+start_line=$(t_calls gh | grep -n -e '--add-label tehas:running' | head -1 | cut -d: -f1)
+t_eq "$([ -n "$patch_line" ] && [ -n "$start_line" ] && [ "$patch_line" -lt "$start_line" ] && echo before)" before
+
+t_case "when the tick cannot be used up no cycle starts"
+parked
+comments 7 "$(park_body x ' ')" alice
+: >"$fx/patch-fails"
+t_run "$dispatch"
+t_eq "$(t_calls fake-work)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_contains "$t_out" "ERROR: could not use up the retry tick on #7, not starting a cycle"
+
+t_case "a retry ticked on an issue that is not parked starts nothing"
+for have in "tehas:question" "needs-human-attention tehas:question tehas:running" "needs-human-attention tehas:question tehas:awaiting-merge"; do
+  parked
+  comments 7 "$(park_body x ' ')" alice
+  jq -n --arg l "$have" '[{number: 7, labels: ($l | split(" ") | map({name: .}))}]' >"$fx/asking.json"
+  t_run "$dispatch"
+  t_eq "$(t_calls fake-work)" ""
+  t_lacks "$(t_calls gh)" "issue edit"
+  t_lacks "$(t_calls gh)" "api -X PATCH"
+  t_contains "$t_out" "skip #7: a retry was ticked but the issue is not parked"
+done
+
+t_case "retry is the ticked line's text, not its place"
+swapped() { # <leave box> <retry box>
+  printf 'Tehas cycle stopped.\n\n- [%s] Leave it parked\n- [%s] Retry from a clean start\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n' "$1" "$2"
+}
+parked
+comments 7 "$(swapped x ' ')" alice
+t_run "$dispatch"
+t_eq "$(t_calls fake-work)" ""
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:question"
+parked
+comments 7 "$(swapped ' ' x)" alice
+t_run "$dispatch"
+t_eq "$(t_calls fake-work)" "7"
+
+t_case "a status with a marker in it does not reach a comment"
+reset
+mkdir -p "$workdir/.pi/work-state"
+jq -n '{pipelineState: {status: "parked\n<!-- tehas:question kind=park issue=7 turn=1 -->", currentStep: "a\nb"}}' >"$workdir/.pi/work-state/7.json"
+t_run "$dispatch"
+# Only the question's own marker may be in what was posted.
+t_eq "$(t_calls gh | grep -c -e '<!--')" 1
+t_contains "$(t_calls gh)" "last step"
+rm -rf "$workdir"
 
 t_done
