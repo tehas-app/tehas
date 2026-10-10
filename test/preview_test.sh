@@ -37,7 +37,11 @@ after() { local want=$1; shift; while [ $# -gt 1 ]; do [ "$1" = "$want" ] && { e
 [ ! -e "$T/fx/docker-down" ] || exit 1
 case "$1" in
   info) echo /var/lib/docker ;;
-  network) exit 0 ;;
+  network)
+    [ "$2" = inspect ] || exit 0
+    case "$*" in
+      *--format*) [ ! -e "$T/fx/net-inspect-fails" ] || exit 1; cat "$T/fx/net-internal" 2>/dev/null || echo true ;;
+    esac ;;
   build)
     cat >"$d/context.tar"
     [ ! -e "$T/fx/build-fails" ] || { echo "step 2 failed" ; exit 1; }
@@ -301,6 +305,66 @@ pulls "$(pull 12 "$a")"
 t_run "$preview"
 t_eq "$t_rc" 0
 t_contains "$t_out" "Docker does not answer"
+
+t_case "an empty answer from GitHub removes nothing"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+t_run "$preview"
+: >"$fx/pulls.json"
+t_run "$preview"
+t_eq "$t_rc" 0
+t_eq "$(state_of 12)" "serving"
+t_eq "$(cat "$fx/docker/container-12")" "$a"
+t_lacks "$t_out" "removed"
+
+t_case "a fetch that fails writes no state and is tried again"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+mv "$upstream" "$upstream.away"
+t_run "$preview"
+t_contains "$t_out" "#12: the commit could not be fetched, tried again at the next run"
+t_eq "$(state_of 12)" ""
+mv "$upstream.away" "$upstream"
+t_run "$preview"
+t_eq "$(state_of 12)" "serving"
+
+t_case "a container that did not start is marked, and tried again at the next run"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+: >"$fx/run-fails"
+t_run "$preview"
+t_eq "$(state_of 12)" "build-failed"
+t_contains "$(jq -r .reason "$root/12/state.json")" "container did not start"
+rm -f "$fx/run-fails"
+t_run "$preview"
+t_eq "$(state_of 12)" "serving"
+
+t_case "a network that is not internal gets nothing built"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+echo false >"$fx/net-internal"
+t_run "$preview"
+t_eq "$t_rc" 0
+t_contains "$t_out" "the network tehas-previews is not internal; nothing was built"
+t_eq "$(builds) $(runs)" "0 0"
+rm -f "$fx/net-internal"
+: >"$fx/net-inspect-fails"
+rm -f "$T"/calls/docker*
+t_run "$preview"
+t_contains "$t_out" "is not internal; nothing was built"
+t_eq "$(builds) $(runs)" "0 0"
+
+t_case "a pull request number that is not a whole number is never built"
+reset
+a=$(commit feature)
+pulls "{\"number\":12.5,\"title\":\"x\",\"html_url\":\"u\",\"head\":{\"sha\":\"$a\",\"repo\":{\"full_name\":\"acme/widget\"}}}"
+t_run "$preview"
+t_eq "$(builds)" 0
+t_eq "$(count "$root" '12*')" 0
 
 t_case "a run that died while building is built again"
 reset

@@ -129,8 +129,11 @@ build() {
         echo "https://github.com/$repo.git")" || return 1
   fi
   : >"$log"
-  if ! git -C "$bare" fetch --quiet --no-tags origin "+refs/pull/$n/head:refs/preview/$n" >>"$log" 2>&1; then
-    mark "$n" "$2" build-failed "The commit could not be fetched."
+  # 9>&- on every command that can outlive the run: a descriptor 9 they inherit
+  # would hold the lock after the run has ended (a detached gc, a daemon).
+  if ! git -C "$bare" fetch --quiet --no-tags origin "+refs/pull/$n/head:refs/preview/$n" >>"$log" 2>&1 9>&-; then
+    # No state: a fetch that failed says nothing about the commit.
+    echo "#$n: the commit could not be fetched, tried again at the next run"
     return 1
   fi
   sha=$(git -C "$bare" rev-parse --verify --quiet "refs/preview/$n^{commit}") || return 1
@@ -139,11 +142,12 @@ build() {
     mark "$n" "$sha" no-recipe "The commit has no $recipe."
     return 0
   fi
+  rm -f "$root/$n/.retry"
   mark "$n" "$sha" building
   old=$(docker image inspect --format '{{.Id}}' "tehas-preview:$n" 2>/dev/null) || old=""
   if ! git -C "$bare" archive "$sha" | timeout "$build_limit" docker build --quiet \
     -f "$recipe" -t "tehas-preview:$n" \
-    --label "tehas.preview=$n" --label "tehas.sha=$sha" --label "tehas.repo=$repo" - >>"$log" 2>&1; then
+    --label "tehas.preview=$n" --label "tehas.sha=$sha" --label "tehas.repo=$repo" - >>"$log" 2>&1 9>&-; then
     mark "$n" "$sha" build-failed "The build failed or ran over $((build_limit / 60)) minutes. Its output is in logs/preview-$n.log on the host."
     return 1
   fi
@@ -155,7 +159,9 @@ build() {
     --cap-drop ALL --cap-add NET_BIND_SERVICE --security-opt no-new-privileges:true \
     --memory 256m --cpus 1 --pids-limit 128 --restart unless-stopped \
     --label "tehas.preview=$n" --label "tehas.sha=$sha" --label "tehas.repo=$repo" \
-    "tehas-preview:$n" >>"$log" 2>&1; then
+    "tehas-preview:$n" >>"$log" 2>&1 9>&-; then
+    # The host may have hiccuped, not the commit: the next run tries again.
+    : >"$root/$n/.retry"
     mark "$n" "$sha" build-failed "The container did not start. See logs/preview-$n.log on the host."
     return 1
   fi
@@ -192,6 +198,12 @@ run() {
     return 0
   fi
   docker network inspect "$net" >/dev/null 2>&1 || docker network create --internal "$net" >/dev/null 2>&1
+  # A network that is not internal would give a preview the internet and the
+  # model host. Nothing is built on one.
+  if [ "$(docker network inspect --format '{{.Internal}}' "$net" 2>/dev/null)" != true ]; then
+    echo "the network $net is not internal; nothing was built"
+    return 0
+  fi
 
   if free=$(free_kb); then
     [ "$free" -ge "$min_kb" ] || low=true
@@ -202,10 +214,14 @@ run() {
 
   pulls=$(gh api "repos/$repo/pulls?state=open&sort=created&direction=desc&per_page=100" 2>/dev/null) ||
     { write_list; return 0; }
+  # An empty answer with exit 0 is no answer: jq would run its program on no
+  # input and say nothing, and every preview would look closed.
+  jq -e 'type == "array"' <<<"$pulls" >/dev/null 2>&1 || { write_list; return 0; }
   # Ours: a number, a commit id, and a head in this repository and no other.
   ours=$(jq -c --arg repo "$repo" '
     if type != "array" then error("not a list") else . end
-    | map(select((.number | type) == "number" and .number > 0
+    | map(select((.number | type) == "number"
+                 and (.number | tostring | test("^[1-9][0-9]{0,8}$"))
                  and ((.head.sha // "") | test("^[0-9a-f]{40}$"))
                  and ((.head.repo.full_name // "") | ascii_downcase) == ($repo | ascii_downcase))
           | {number, sha: .head.sha, title: ((.title // "") | .[0:180]), url: (.html_url // null)})
@@ -253,7 +269,7 @@ run() {
     sha=${item#* }
     if serving "$n" "$sha"; then
       mark "$n" "$sha" serving
-    elif [ "$(field "$n" sha)" = "$sha" ] && case "$(field "$n" state)" in build-failed | no-recipe) true ;; *) false ;; esac; then
+    elif [ "$(field "$n" sha)" = "$sha" ] && case "$(field "$n" state)" in build-failed | no-recipe) [ ! -e "$root/$n/.retry" ] ;; *) false ;; esac; then
       : # that commit was tried; a new one is tried again
     elif [ "$low" = true ]; then
       no_space "$n" "$sha"
