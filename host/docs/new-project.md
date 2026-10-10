@@ -196,7 +196,7 @@ settings installs nothing and exits 78.
 
 ### 6. The sandbox image
 
-`sandbox/Dockerfile` adds deno, shellcheck and Playwright's Chromium to the
+`sandbox/Dockerfile` adds shellcheck and Playwright's Chromium to the
 pi-rukas image and remaps the user id. Add whatever your gates need. Then:
 
 ```

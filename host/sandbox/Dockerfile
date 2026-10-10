@@ -4,8 +4,9 @@
 #   - the in-container user remapped to the tehas user's id (upstream hardcodes
 #     vscode = UID 1000; with another id on the host, bind-mounted host
 #     directories are not writable),
-#   - deno and shellcheck, which gates commonly run (.pi/verify-cmd,
-#     .pi/smoke-cmd),
+#   - shellcheck, which gates commonly run (.pi/verify-cmd, .pi/smoke-cmd),
+#   - a place of the cycle's own for the crates cargo fetches (the upstream
+#     image has Rust, and a registry only root can write),
 #   - Playwright's Chromium with its system libraries and fonts, for a
 #     product's browser checks.
 #
@@ -17,8 +18,6 @@
 FROM ghcr.io/trail-openers/pi-rukas@sha256:8888d0b1d1bdd769bd823d939939a7b3f83180b9bbc25a485e8d118ef082dd9d
 
 ARG TEHAS_UID=1000
-ARG DENO_VERSION
-ARG DENO_SHA256
 ARG SHELLCHECK_VERSION
 ARG SHELLCHECK_SHA256
 ARG PLAYWRIGHT_VERSION=1.55.1
@@ -29,12 +28,6 @@ RUN if [ "$TEHAS_UID" != 1000 ]; then \
       usermod -u "$TEHAS_UID" vscode && groupmod -g "$TEHAS_UID" vscode \
       && find / -xdev \( -user 1000 -o -group 1000 \) -exec chown -h vscode:vscode {} + ; \
     fi
-
-RUN curl -fsSL "https://dl.deno.land/release/v${DENO_VERSION}/deno-x86_64-unknown-linux-gnu.zip" -o /tmp/deno.zip \
- && echo "${DENO_SHA256}  /tmp/deno.zip" | sha256sum -c - \
- && unzip -q /tmp/deno.zip -d /usr/local/bin \
- && rm /tmp/deno.zip \
- && deno --version
 
 RUN curl -fsSL "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" -o /tmp/shellcheck.tar.xz \
  && echo "${SHELLCHECK_SHA256}  /tmp/shellcheck.tar.xz" | sha256sum -c - \
@@ -48,3 +41,7 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 RUN npx --yes "playwright@${PLAYWRIGHT_VERSION}" install --with-deps chromium \
  && chmod -R a+rX /opt/ms-playwright \
  && rm -rf /var/lib/apt/lists/* /root/.npm
+
+# Set last, so nothing above installs into it. The cache directory is a volume
+# every cycle mounts, so a gate that builds Rust fetches a crate once.
+ENV CARGO_HOME=/home/vscode/.cache/cargo

@@ -53,7 +53,6 @@ Installs under the user's home, each tool in its own place:
 | --------------------------------- | -------------------------------------- | ----------------------------- |
 | Node and npm                      | `~/tehas/tools/node`                   | Release archive, checksum     |
 | `gh`                              | `~/tehas/bin/gh`                       | Release archive, checksum     |
-| Deno                              | `~/.deno/bin`                          | Release archive, checksum     |
 | Bun                               | `~/.bun/bin`                           | Release archive, checksum     |
 | Pi, `ctx7`, `parallel-cli`        | `~/.local` (npm prefix)                | npm, exact versions           |
 | Rust, then `vipune` and `oo`      | `~/.rustup`, `~/.cargo`                | rustup, then `cargo install`  |
@@ -64,7 +63,11 @@ Every release archive is checked against a SHA-256 in `versions.env` before it
 is unpacked. The last step runs pi-rukas's own installer, which links its
 extension and skills into `~/.pi/agent/` and pulls its sandbox base image.
 
-Compiling `vipune` and `oo` takes a few minutes. The rest is quick.
+Compiling `vipune` and `oo` takes a few minutes. The rest is quick. Rust is
+also what `install.sh` builds the cycle console with.
+
+Deno is no longer installed. A host set up before that still has `~/.deno`;
+nothing uses it and `bootstrap.sh` does not remove it.
 
 ### 3. `check`
 
