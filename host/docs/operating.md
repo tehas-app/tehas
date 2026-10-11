@@ -108,7 +108,7 @@ With any other backend the section and the meter are simply not there, and
 nothing else changes. To turn them off on a viiwork mesh, see
 [the energy sampler](/tools).
 
-The dispatcher takes issues urgent first, then by the lowest issue number: one at a time unless the host is set to work on more (see [The host](/host)). A running cycle is never stopped to make room for an urgent one.
+The dispatcher takes issues urgent first, then by the lowest issue number: as many at a time as the host's ceiling and the slice's room allow (see [Limits that hold work back](#limits-that-hold-work-back)). A running cycle is never stopped to make room for an urgent one.
 
 | Label on the issue      | Meaning                           | Your move                                |
 | ----------------------- | --------------------------------- | ---------------------------------------- |
@@ -139,7 +139,7 @@ A timer polls every two minutes. To see the factory's state, or to see or force
 a poll by hand on the host:
 
 ```
-tehas status                 # taking work? the queue, the current or last cycle
+tehas status                 # taking work? the queue, the current or last cycle, the slice's room
 tehas dispatch --dry-run     # what would it do?
 tehas dispatch               # do it (returns once the cycle is started)
 systemctl --user status 'tehas-cycle@*'   # which cycles are running
@@ -307,7 +307,21 @@ reaches them. Remove the label to resume.
 
 ## Limits that hold work back
 
-- `TEHAS_TICKET_CONCURRENCY` cycles at a time: 1 by default.
+- At most `TEHAS_TICKET_CONCURRENCY` cycles at a time. It is a ceiling, not
+  a promise: the dispatcher starts fewer when the slice has no room.
+- Room in `tehas.slice`, the systemd slice every sandbox container runs in.
+  A cycle starts only while the slice's memory limit, less what every
+  container in it is promised or uses, leaves one more `TEHAS_CYCLE_RESERVE`
+  (2g by default). A container counts at its reserve or at what it uses,
+  whichever is more, so a dev session, a planning turn and the indexer take
+  room like a cycle does. A cycle that has started and has no container yet
+  counts at one reserve. File cache and other memory the kernel can take back
+  do not count.
+- No new cycle while the whole slice stalls on memory: `full avg60` of its
+  memory pressure above 10.
+- No cycle and no planning turn while the slice is missing, has no limit, or
+  Docker cannot place containers in it. `tehas status` then says `warn`. See
+  [Troubleshooting](/troubleshooting).
 - Inside a cycle, `TEHAS_CONCURRENCY` workstreams side by side: 4 by default,
   fewer if the model backends cannot take it. See [The host](/host).
 - No new cycle while `TEHAS_MAX_AWAITING` issues carry `tehas:awaiting-merge`
@@ -316,6 +330,12 @@ reaches them. Remove the label to resume.
   requests are the queue you control.
 - A self-hosted model endpoint has few real slots per model, so a cycle takes
   a while; the six-pass review is the slowest part.
+
+The review cap, the room and the pressure hold back cycles only. Planning
+turns still run. `tehas status` shows the room in its `slice` line, as the
+dispatcher's last poll read it, and `tehas dispatch --dry-run` reads it
+afresh. A hold is written to `~/tehas/logs/dispatch.log` once, when its reason
+changes, and `released: cycles may start again` once when it ends.
 
 ## The improvement loop
 

@@ -75,10 +75,38 @@ cp "$T/fx/plan-result.json" "$out"'
 t_stub fake-index 'git -C "$T/home/tehas/repos/widget" rev-parse HEAD >"$T/calls/index.head"
 [ ! -e "$T/calls/fake-start" ] || : >"$T/calls/index.late"
 [ ! -e "$T/fx/index-fails" ] || exit 1'
+# The slice as systemd and Docker describe it, from fixture files. Its use is
+# the scratch cgroup tree of test/lib.sh.
+t_stub systemctl 'case "$1 $2" in
+  "show tehas.slice")
+    [ ! -e "$T/fx/slice-hangs" ] || exec sleep 20
+    cat "$T/fx/slice.show" ;;
+esac'
+t_stub docker 'case "$1" in info) cat "$T/fx/docker.info" ;; esac'
+gib=1073741824
+slice_env=TEHAS_CGROUP_ROOT=$T_CGROUP
+slice_show() { # <MemoryMax> [<ActiveState>]: a slice loaded from its file
+  printf '%s\n' "FragmentPath=/etc/systemd/system/tehas.slice" "ActiveState=${2:-active}" "MemoryMax=$1" >"$fx/slice.show"
+}
+# A host where the root step was never run: the slice is only a name.
+no_slice() { printf '%s\n' "FragmentPath=" "ActiveState=inactive" "MemoryMax=infinity" >"$fx/slice.show"; }
+# A container in the slice that is no cycle of this poll, a dev session say.
+other() { slice_child "$(slice_id d)" "$1" 0 $((2 * gib)); } # <bytes in use>
+# The container of a running cycle: its cid file and its place in the slice.
+cid() { # <issue> <hex digit> <bytes in use>
+  slice_id "$2" >"$T/home/tehas/state/cycles/$1.cid"
+  slice_child "$(slice_id "$2")" "$3" 0 $((2 * gib))
+}
+dispatch_json=$T/home/tehas/live/dispatch.json
 
 reset() {
-  rm -f "$T"/calls/* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/issue-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails
-  rm -rf "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-* "$T"/home/tehas/state/park-*
+  rm -f "$T"/calls/* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/issue-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/slice-*
+  rm -rf "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-* "$T"/home/tehas/state/park-* "$T/home/tehas/live"
+  # A slice of 20 GiB with nothing in it: room for ten cycles of the default
+  # reserve, so the slots and the review cap decide unless a case says more.
+  slice_show $((20 * gib))
+  echo "systemd 2" >"$fx/docker.info"
+  slice_state 0.00
   echo '[]' >"$fx/asking.json"
   echo '[]' >"$fx/plans.json"
   echo '{"login":"tehas-bot"}' >"$fx/user.json"
@@ -90,8 +118,8 @@ reset() {
   echo '[]' >"$fx/marked.json"
   echo '[{"number":7,"labels":[{"name":"tehas:ready"}]}]' >"$fx/ready.json"
   echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
-  T_ENV=(TEHAS_CYCLE_START_CMD=fake-start TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index TEHAS_PLAN_CMD=fake-plan)
-  t_instance "${T_MINIMAL[@]}"
+  T_ENV=(TEHAS_CYCLE_START_CMD=fake-start TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index TEHAS_PLAN_CMD=fake-plan "$slice_env")
+  t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
 }
 # A cycle that is running: its lock, held by this shell until release.
 held=()
@@ -108,10 +136,10 @@ release() {
   held=()
 }
 
-# An instance that works on <n> issues side by side. The host's CPU count is
-# read with nproc; a stub gives every test machine room for the split.
+# An instance that works on at most <n> issues side by side. The host's CPU
+# count is read with nproc; a stub makes every test machine the same.
 t_stub nproc 'echo 8'
-slots() { t_instance "${T_MINIMAL[@]}" "TEHAS_TICKET_CONCURRENCY=$1" "TEHAS_WORK_CPUS=$1" "${@:2}"; }
+slots() { t_instance "${T_MINIMAL[@]}" "TEHAS_TICKET_CONCURRENCY=$1" "${@:2}"; }
 ready() { # issue... : the queue, each labelled by alice; "8!" is urgent
   local n list=""
   for n in "$@"; do
@@ -496,7 +524,7 @@ reset
 t_stub fake-order 'grep -q -e "--add-label tehas:running" "$T/calls/gh" && : >"$T/calls/order.label"
 grep -q "^issue comment $1 " "$T/calls/gh" && : >"$T/calls/order.comment"
 : >"$TEHAS_HOME/state/cycles/$1.taken"'
-T_ENV=(TEHAS_CYCLE_START_CMD=fake-order TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index)
+T_ENV=(TEHAS_CYCLE_START_CMD=fake-order TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index "$slice_env")
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(find "$T/calls/order.label" "$T/calls/order.comment" 2>/dev/null | wc -l)" 2
@@ -511,7 +539,7 @@ reset
 t_stub fake-live '( exec 9>"$TEHAS_HOME/state/cycles/$1.lock"; flock -n 9; exec sleep 8 ) >/dev/null 2>&1 &
 echo $! >"$T/live.pid"
 : >"$TEHAS_HOME/state/cycles/$1.taken"'
-T_ENV=(TEHAS_CYCLE_START_CMD=fake-live TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index)
+T_ENV=(TEHAS_CYCLE_START_CMD=fake-live TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index "$slice_env")
 t_run "$dispatch"
 alive=no
 kill -0 "$(cat "$T/live.pid")" 2>/dev/null && alive=yes
@@ -671,7 +699,7 @@ reset
 # so the stub returns at once and the test's pipe is not held open.
 t_stub fake-late '( exec 9>"$TEHAS_HOME/state/cycles/$1.lock"; flock -n 9; exec sleep 5 ) >/dev/null 2>&1 &
 echo $! >"$T/late.pid"'
-T_ENV=(TEHAS_CYCLE_START_CMD=fake-late TEHAS_CYCLE_START_WAIT=1 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index)
+T_ENV=(TEHAS_CYCLE_START_CMD=fake-late TEHAS_CYCLE_START_WAIT=1 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index "$slice_env")
 t_run "$dispatch"
 kill "$(cat "$T/late.pid")" 2>/dev/null
 t_eq "$t_rc" 0
@@ -709,7 +737,7 @@ t_case "the index is refreshed once, before the first start"
 t_eq "$(t_calls fake-index)" "--before-cycle"
 t_eq "$(find "$T/calls/index.late" 2>/dev/null | wc -l)" 0
 
-t_case "one slot by default: the second issue waits"
+t_case "a ceiling of one: the second issue waits"
 reset
 ready 7 8
 t_run "$dispatch"
@@ -1831,15 +1859,335 @@ t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit"
 t_lacks "$(t_calls gh)" "api -X"
 
+# Admission by the slice. Every sandbox container runs in tehas.slice; a
+# cycle starts only while the slice has one more reserve of room. reset gives
+# a slice of 20 GiB and the default reserve of 2g.
+t_case "no room: nothing starts, no label is edited, the tick stays, exit 0, the dry run names the room"
+parked
+comments 7 "$(park_body x ' ')" alice
+ready 8
+other $((19 * gib + gib / 2))
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "api -X PATCH"
+t_lacks "$(t_calls gh)" "issue comment"
+t_eq "$(cat "$park_id")" 4001
+t_contains "$t_out" "holding: tehas.slice has no room for another cycle (19.5 GiB of 20.0 GiB promised, each cycle is given 2g)"
+t_run "$dispatch --dry-run"
+t_eq "$t_rc" 0
+t_contains "$t_out" "holding: tehas.slice has no room for another cycle (19.5 GiB of 20.0 GiB promised, each cycle is given 2g)"
+
+t_case "a cold start is limited by the reserve: with room for two, two of four start"
+reset
+slots 4
+ready 7 8 9 10
+other $((15 * gib + gib / 2))
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "0 cycles running, room for 2 more"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 "
+t_lacks "$(t_calls gh)" "issue edit 9 "
+
+t_case "running cycles with no container yet count one reserve each"
+reset
+slots 4
+ready 7 8
+other $((13 * gib))
+hold 9
+hold 10
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "2 cycles running, room for 1 more"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+release
+
+t_case "a running cycle's container counts at its floor or its use, whichever is more"
+reset
+slots 6
+ready 7 8 9
+other $((10 * gib))
+hold 9
+hold 10
+# One young cycle under its floor and one grown past it: 2 and 5 GiB.
+cid 9 a $((gib / 2))
+cid 10 b $((5 * gib))
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "2 cycles running, room for 1 more"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+release
+
+t_case "another container's memory lowers the room while cycles are young"
+reset
+slots 6
+ready 7 8 9 10
+slice_show $((12 * gib))
+hold 12
+cid 12 a $((gib / 10))
+# A dev session at 3 GiB is not hidden inside the cycle's floor: 2 and 3 GiB
+# are promised, and three more reserves fit in the 7 GiB that are left.
+other $((3 * gib))
+t_run "$dispatch"
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 "
+release
+
+t_case "reclaimable slab and file cache do not lower the room"
+reset
+slots 6
+ready 7 8 9 10 11 12
+slice_show $((12 * gib))
+SLICE_FILE=$((8 * gib)) slice_child "$(slice_id d)" "$gib" $((6 * gib)) $((2 * gib))
+t_run "$dispatch"
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 10 11 "
+
+t_case "full pressure holds, some pressure does not"
+reset
+slice_state 12.00
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_contains "$t_out" "holding: tehas.slice is under memory pressure (full avg60 12.00)"
+reset
+slice_state 0.00 55.00
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$t_out" "holding:"
+
+t_case "an unreadable probe holds"
+reset
+rm "$T_CGROUP/tehas.slice/memory.pressure"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_contains "$t_out" "holding: the slice's use could not be read"
+reset
+other "$gib"
+echo "anon many" >"$T_CGROUP/tehas.slice/docker-$(slice_id d).scope/memory.stat"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "holding: the slice's use could not be read"
+t_lacks "$t_out" "would run a cycle"
+
+t_case "a missing cgroup directory under running cycles holds"
+reset
+slots 2
+slice_show $((20 * gib)) inactive
+rm -rf "$T_CGROUP/tehas.slice"
+hold 9
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "holding: the slice's use could not be read"
+release
+# With nothing running and the slice not active, no directory is an empty slice.
+reset
+slice_show $((20 * gib)) inactive
+rm -rf "$T_CGROUP/tehas.slice"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+
+t_case "no slice: the hold is logged in a real poll and nothing is labelled"
+reset
+no_slice
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "holding: no slice file on this host (sudo ./bootstrap.sh slice)"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "issue comment"
+t_lacks "$(t_calls gh)" "awaiting-merge"
+t_lacks "$(t_calls gh)" "tehas:ready"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "holding: no slice file on this host (sudo ./bootstrap.sh slice)"
+t_lacks "$t_out" "would run a cycle"
+
+t_case "a cgroupfs driver holds the same way"
+reset
+echo "cgroupfs 2" >"$fx/docker.info"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "holding: Docker runs containers with the cgroupfs cgroup driver on cgroup v2, tehas needs systemd on v2"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+
+t_case "no slice: a ticked retry is left as it is"
+parked
+comments 7 "$(park_body x ' ')" alice
+no_slice
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "api -X PATCH"
+t_eq "$(cat "$park_id")" 4001
+
+t_case "no slice: a waiting planning answer is left as it is, no label is edited, no comment"
+planning
+comments 7 "$(plan_body ' ' x ' ')" alice
+no_slice
+before=$(cat "$record")
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(plan_calls)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "issue comment"
+t_lacks "$(t_calls gh)" "api -X"
+t_lacks "$(t_calls gh)" "/comments -f"
+t_eq "$(cat "$record")" "$before"
+t_eq "$([ -e "$record.answer" ] && echo written)" ""
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "holding: no slice file on this host"
+t_lacks "$t_out" "would run a planning turn"
+# The same answer runs its turn once the slice is there.
+slice_show $((20 * gib))
+t_run "$dispatch"
+t_contains "$(plan_calls)" "--session abc-123"
+
+t_case "no slice: the way out of a planning session still ends it"
+planning
+comments 7 "$(plan_body ' ' ' ' x)" alice
+no_slice
+t_run "$dispatch"
+t_eq "$(plan_calls)" ""
+t_contains "$(t_calls gh)" "Planning session ended by alice."
+t_eq "$([ -e "$record" ] && echo kept)" ""
+
+t_case "no slice: a plan label starts no session and keeps its label"
+to_plan
+no_slice
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(plan_calls)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "issue comment"
+t_eq "$([ -e "$record" ] || [ -e "$record.brief" ] && echo written)" ""
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "holding: no slice file on this host"
+t_lacks "$t_out" "would start a planning session"
+
+t_case "no room still does not hold planning"
+to_plan
+other $((19 * gib + gib / 2))
+t_run "$dispatch"
+t_contains "$(plan_calls)" "--brief"
+planning
+comments 7 "$(plan_body ' ' x ' ')" alice
+slice_state 12.00
+t_run "$dispatch"
+t_contains "$(plan_calls)" "--session abc-123"
+
+t_case "the orphan sweep still runs"
+reset
+no_slice
+echo '[{"number":9}]' >"$fx/marked.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "issue edit 9 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention"
+t_eq "$(t_calls fake-start)" ""
+
+t_case "a real poll logs a hold once, then released once, and writes live/dispatch.json"
+reset
+echo '[]' >"$fx/ready.json"
+other $((19 * gib + gib / 2))
+t_run "$dispatch --dry-run"
+t_eq "$([ -e "$dispatch_json" ] && echo written)" ""
+t_run "$dispatch"
+t_eq "$(grep -c 'holding: tehas.slice has no room' <<<"$t_out")" 1
+# The status is written once more when a hold begins or ends, for tehas status.
+t_eq "$(t_calls fake-status | wc -l)" 2
+t_eq "$(jq -c '[.why, .count, .room, .committed, .max, .reserve]' "$dispatch_json")" \
+  "[\"room\",0,0,$((19 * gib + gib / 2)),$((20 * gib)),\"2g\"]"
+t_eq "$(jq -r .hold "$dispatch_json")" "holding: tehas.slice has no room for another cycle (19.5 GiB of 20.0 GiB promised, each cycle is given 2g)"
+t_eq "$(jq -r '.time | fromdateiso8601 | (now - .) < 60' "$dispatch_json")" true
+t_eq "$(find "$T/home/tehas/live" -name 'dispatch.json.*' | wc -l)" 0
+rm -f "$T/calls/fake-status"
+t_run "$dispatch"
+t_lacks "$t_out" "holding:"
+t_eq "$(t_calls fake-status | wc -l)" 1
+other "$gib"
+t_run "$dispatch"
+t_eq "$(grep -c 'released: cycles may start again' <<<"$t_out")" 1
+t_eq "$(t_calls fake-status | wc -l)" 3
+t_lacks "$t_out" "holding:"
+t_eq "$(jq -c '[.why, .hold, .room, .committed]' "$dispatch_json")" "[\"\",\"\",9,$((2 * gib))]"
+t_run "$dispatch"
+t_lacks "$t_out" "released"
+
+t_case "a poll with room and no hold before it logs nothing about the slice"
+reset
+t_run "$dispatch"
+t_lacks "$t_out" "holding:"
+t_lacks "$t_out" "released"
+t_eq "$(jq -c '[.why, .count, .room]' "$dispatch_json")" '["",0,10]'
+
+t_case "a hold whose numbers change between polls is logged once"
+reset
+other $((19 * gib + gib / 2))
+t_run "$dispatch"
+t_contains "$t_out" "holding: tehas.slice has no room"
+other $((19 * gib + gib * 3 / 4))
+t_run "$dispatch"
+t_lacks "$t_out" "holding:"
+t_eq "$(jq -r .committed "$dispatch_json")" "$((19 * gib + gib * 3 / 4))"
+
+t_case "a hold whose reason changes is logged again"
+slice_state 12.00
+other $((19 * gib + gib / 2))
+t_run "$dispatch"
+t_contains "$t_out" "holding: tehas.slice is under memory pressure"
+t_eq "$(jq -r .why "$dispatch_json")" pressure
+no_slice
+t_run "$dispatch"
+t_contains "$t_out" "holding: no slice file on this host"
+t_eq "$(jq -c '[.why, .room, .committed, .max]' "$dispatch_json")" '["slice",0,0,0]'
+
+t_case "a full set of slots is a hold like any other: logged once, then released"
+reset
+hold 9
+t_run "$dispatch"
+t_eq "$(grep -c 'holding: 1 cycles are running (limit 1)' <<<"$t_out")" 1
+t_eq "$(jq -c '[.why, .count]' "$dispatch_json")" '["count",1]'
+t_run "$dispatch"
+t_lacks "$t_out" "holding:"
+release
+t_run "$dispatch"
+t_contains "$t_out" "released: cycles may start again"
+t_eq "$(t_calls fake-start)" "7"
+
+t_case "a dispatch.json that cannot be read does not stop the poll"
+reset
+mkdir -p "$T/home/tehas/live"
+echo '{"time":' >"$dispatch_json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(jq -r .why "$dispatch_json")" ""
+
+t_case "a slice probe that hangs holds within fifteen seconds"
+reset
+: >"$fx/slice-hangs"
+began=$SECONDS
+t_run "$dispatch"
+t_eq "$([ $((SECONDS - began)) -le 15 ] && echo in time)" "in time"
+t_eq "$t_rc" 0
+t_contains "$t_out" "holding: systemctl gave no answer"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+
 # Outside the tests nothing names the scripts: the dispatcher runs the ones in
 # its own directory, whatever PATH holds, and starts a cycle through systemd.
 bare_tree() {
-  T_ENV=()
+  # The cgroup root is the one seam left: the slice's use cannot be read from
+  # the machine the tests run on.
+  T_ENV=("$slice_env")
   tree=$T/tree
   rm -rf "$tree"
   mkdir -p "$tree/libexec" "$tree/lib"
   cp "$dispatch" "$tree/libexec/dispatch"
-  cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/cycles.sh" "$T_ROOT/lib/questions.sh" "$T_ROOT/lib/planning.sh" "$tree/lib/"
+  cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/cycles.sh" "$T_ROOT/lib/questions.sh" "$T_ROOT/lib/planning.sh" "$T_ROOT/lib/slice.sh" "$tree/lib/"
   for name in status index plan; do cp "$T/bin/fake-$name" "$tree/libexec/$name"; done
   for name in tehas tehasbot tehas-work tehas-status tehas-index tehas-plan; do t_stub "$name"; done
 }
@@ -1847,15 +2195,18 @@ bare_tree() {
 t_case "without the test seams it runs the scripts beside it and starts the unit"
 reset
 bare_tree
-t_stub systemctl 'case "$2" in
-  show) echo loaded ;;
-  start) n=${3#tehas-cycle@}
+t_stub systemctl 'case "$1 $2" in
+  "show tehas.slice") cat "$T/fx/slice.show" ;;
+  "--user show") echo loaded ;;
+  "--user start") n=${3#tehas-cycle@}
     : >"$TEHAS_HOME/state/cycles/${n%.service}.taken" ;;
 esac'
 t_run "$tree/libexec/dispatch"
 t_eq "$t_rc" 0
-t_eq "$(t_calls systemctl)" "--user show -p LoadState --value tehas-cycle@7.service
+t_eq "$(t_calls systemctl)" "show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax
+--user show -p LoadState --value tehas-cycle@7.service
 --user start tehas-cycle@7.service"
+t_eq "$(t_calls docker)" "info --format {{.CgroupDriver}} {{.CgroupVersion}}"
 t_contains "$(t_calls fake-index)" "--before-cycle"
 t_eq "$(t_calls fake-status | wc -l)" 2
 for name in tehas tehasbot tehas-work tehas-status tehas-index tehas-plan; do t_eq "$(t_calls "$name")" ""; done
@@ -1871,7 +2222,10 @@ for name in tehas tehasbot tehas-plan; do t_eq "$(t_calls "$name")" ""; done
 t_case "a unit systemd cannot load changes no label and starts nothing, exit 1"
 reset
 bare_tree
-t_stub systemctl 'case "$2" in show) echo not-found ;; esac'
+t_stub systemctl 'case "$1 $2" in
+  "show tehas.slice") cat "$T/fx/slice.show" ;;
+  "--user show") echo not-found ;;
+esac'
 t_run "$tree/libexec/dispatch"
 t_eq "$t_rc" 1
 t_contains "$t_out" "ERROR: systemd cannot load tehas-cycle@.service (LoadState: not-found): run install.sh and its units step, and run tehas dispatch as the tehas user's own session"
@@ -1883,7 +2237,10 @@ t_eq "$(t_calls fake-index)" ""
 t_case "a systemd that gives no answer changes no label and starts nothing, exit 1"
 reset
 bare_tree
-t_stub systemctl 'case "$2" in show) exit 1 ;; esac'
+t_stub systemctl 'case "$1 $2" in
+  "show tehas.slice") cat "$T/fx/slice.show" ;;
+  "--user show") exit 1 ;;
+esac'
 t_run "$tree/libexec/dispatch"
 t_eq "$t_rc" 1
 t_contains "$t_out" "ERROR: systemd cannot load tehas-cycle@.service (LoadState: no answer): run install.sh"
