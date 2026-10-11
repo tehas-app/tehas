@@ -89,15 +89,16 @@ slice_file=$root/host/slice/tehas.slice
 slice_to=${BOOTSTRAP_ETC:-/etc}/systemd/system/tehas.slice
 
 # The slice as systemd has it: sets slice_path and slice_max. True when it is
-# loaded from a file and has a memory limit. A slice systemd made up for a name
-# in use has neither.
+# loaded from a file, has a memory limit, and the file has not changed since
+# systemd read it. A slice systemd made up for a name in use has no file and
+# no limit; a unit left over from an older file still has both.
 slice_loaded() {
   local out
   slice_path="" slice_max=""
-  out=$(systemctl show tehas.slice -p FragmentPath -p MemoryMax 2>/dev/null) || return 1
+  out=$(systemctl show tehas.slice -p FragmentPath -p MemoryMax -p NeedDaemonReload 2>/dev/null) || return 1
   slice_path=$(sed -n 's/^FragmentPath=//p' <<<"$out")
   slice_max=$(sed -n 's/^MemoryMax=//p' <<<"$out")
-  [ -n "$slice_path" ] && [[ $slice_max =~ ^[0-9]+$ ]]
+  [ -n "$slice_path" ] && [[ $slice_max =~ ^[0-9]+$ ]] && [ "$(sed -n 's/^NeedDaemonReload=//p' <<<"$out")" = no ]
 }
 
 # Returns 0 in place, 3 when Docker cannot put a container in a slice (nothing

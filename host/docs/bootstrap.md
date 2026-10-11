@@ -86,9 +86,12 @@ What it does, in order:
    driver on cgroup v2 is refused and nothing is written. The fix is
    `"exec-opts": ["native.cgroupdriver=systemd"]` in `/etc/docker/daemon.json`
    and a restart of Docker.
-3. If the file under `/etc` equals the shipped one and systemd has the slice
-   loaded from a file with a memory limit, it prints
-   `bootstrap: slice part already in place` and changes nothing.
+3. If the file under `/etc` equals the shipped one, systemd has the slice
+   loaded from a file with a memory limit, and systemd does not report the
+   file as changed since it read it (`NeedDaemonReload=no`), it prints
+   `bootstrap: slice part already in place` and changes nothing. A reload
+   that failed after an update leaves the old limit in force beside an equal
+   file; that is not in place, and the step goes on to reload.
 4. Otherwise it writes the file, runs `systemctl daemon-reload` and
    `systemctl start tehas.slice`, and stops with exit 1 if the slice has no
    memory limit after that.
