@@ -35,9 +35,14 @@
 # The container is given exactly what a cycle's container is given: the same
 # image, limits, mounts and variables, assembled by lib/sandbox.sh and pinned
 # by test/plan_test.sh. It differs in its name and in what pi is told. Not the
-# Docker socket, SSH keys or ~/.config/tehas. The workspace is the cycle's,
-# $TEHAS_HOME/work/<name>, made fresh for every turn: the dispatcher runs one
-# turn or one cycle at a time.
+# Docker socket, SSH keys or ~/.config/tehas. The limits are one cycle's share,
+# since cycles may be running beside the turn.
+#
+# The workspace is $TEHAS_HOME/work/<name>-plan-<issue>, a fresh clone made for
+# every turn and removed when the turn is over. Inside the container it is at
+# the path every cycle has its own, $TEHAS_HOME/work/<name>. The transcripts go
+# to ~/.pi/agent/ensemble-runs/plan-<issue>, so a turn and a cycle see nothing
+# of each other.
 set -uo pipefail
 
 usage() {
@@ -83,11 +88,14 @@ tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDE
 tehas_checkout || exit 78
 branch=$(tehas_branch) || exit 78
 src=$TEHAS_WORK_REPO
+# The workspace inside the container, and the directory on the host behind it.
 repo=$TEHAS_WORK_DIR
+tree=$TEHAS_WORK_DIR-plan-$issue
 image=$PI_ENSEMBLE_IMAGE
 limit=$TEHAS_PLAN_TIMEOUT
 log=$TEHAS_HOME/logs/plan-$issue-$(date -u +%y%m%d-%H%M%S).jsonl
 name=tehas-plan-$issue
+runs=$HOME/.pi/agent/ensemble-runs/plan-$issue
 
 [ -n "${GH_TOKEN:-}" ] || { echo "tehas plan: GH_TOKEN is not set (source ~/tehas/env.sh)" >&2; exit 64; }
 mkdir -p "$TEHAS_HOME/logs"
@@ -99,21 +107,21 @@ bot_email=$(git config --global user.email || true)
 [ -n "$bot_name" ] && [ -n "$bot_email" ] ||
   { echo "tehas plan: git user.name and user.email are not set for $(id -un)" >&2; exit 64; }
 mapfile -d '' -t envs < <(tehas_sandbox_env "$repo" "$bot_name" "$bot_email")
-mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$repo")
+mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$repo" "$tree" "$runs")
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
 [ "${#envs[@]}" -gt 0 ] && [ "${#mounts[@]}" -gt 0 ] ||
   { echo "tehas plan: could not prepare the sandbox, not starting a turn" >&2; exit 78; }
 
 # A fresh workspace for this turn, as a cycle gets one. Only a directory tehas
 # made is ever removed.
-works=$(dirname "$repo")
+works=$(dirname "$tree")
 if [ -e "$works" ] && [ ! -f "$works/.tehas-workspaces" ]; then
   echo "tehas plan: $works exists and was not made by tehas, not touching it" >&2
   exit 78
 fi
-if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces" && rm -rf "$repo" &&
-  tehas_sandbox_clone "$src" "$repo" "$branch"; }; then
-  echo "tehas plan: could not make the workspace $repo, not starting a turn" >&2
+if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces" && rm -rf "$tree" &&
+  tehas_sandbox_clone "$src" "$tree" "$branch"; }; then
+  echo "tehas plan: could not make the workspace $tree, not starting a turn" >&2
   exit 78
 fi
 
@@ -122,9 +130,9 @@ if [ -n "$brief" ]; then
   # The agent plans from the text that was approved, so it is handed over as a
   # file and not fetched again from the tracker, where it may have changed.
   # One line as the prompt: /plan quotes its argument inside a sentence.
-  if ! { mkdir -p "$repo/.tehas" "$repo/.git/info" && cp "$brief" "$repo/.tehas/brief.md" &&
-    echo ".tehas/" >>"$repo/.git/info/exclude"; }; then
-    echo "tehas plan: could not put the brief into $repo" >&2
+  if ! { mkdir -p "$tree/.tehas" "$tree/.git/info" && cp "$brief" "$tree/.tehas/brief.md" &&
+    echo ".tehas/" >>"$tree/.git/info/exclude"; }; then
+    echo "tehas plan: could not put the brief into $tree" >&2
     exit 78
   fi
   message="/plan the work described in the file .tehas/brief.md, which holds the approved text of issue #$issue. Read the file first. When you need a decision from the operator, call the question tool or ask in your message, then end your turn: the answer arrives as the next message."
@@ -139,7 +147,7 @@ exec 3<>"$fifo"
 rm "$fifo"
 
 docker run --rm -i --name "$name" \
-  --cpus "$TEHAS_WORK_CPUS" --memory "$TEHAS_WORK_MEMORY" \
+  --cpus "$TEHAS_CYCLE_CPUS" --memory "$TEHAS_CYCLE_MEMORY" \
   -w "$repo" "${mounts[@]}" \
   "${envs[@]}" "${hosts[@]}" \
   "$image" pi --mode rpc --approve "${args[@]}" <&3 >"$log" 2>"$log.err" &
@@ -212,6 +220,9 @@ if kill -0 "$pid" 2>/dev/null; then
 fi
 wait "$pid" 2>/dev/null
 scan all
+# The turn's outcome is read from the log. Nothing in the workspace is needed
+# again: the next turn gets a new one.
+rm -rf "$tree" || echo "tehas plan: could not remove the workspace $tree" >&2
 
 # pick <text>: the lines of the log that hold the text, as JSON values. The
 # few lines wanted are found by what they say before anything parses them, so

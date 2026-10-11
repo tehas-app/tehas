@@ -28,8 +28,8 @@ on this repository.
 
 1. You label an issue `tehas:ready`. The label counts only when an account on
    the instance's allow list applied it.
-2. A dispatcher polls the queue every two minutes and starts one cycle at a
-   time.
+2. A dispatcher polls the queue every two minutes and starts a cycle for each
+   issue there is room for: one at a time by default.
 3. The cycle runs in a container with CPU and memory limits. It gets the bot's
    GitHub token and the product checkout. It does not get the Docker socket or
    any SSH key.
@@ -90,6 +90,7 @@ The manual is in [`host/docs/`](host/docs/). Every instance serves it on port
 | [A new project](host/docs/new-project.md) | Installing tehas for your repository |
 | [Bootstrap a host](host/docs/bootstrap.md) | Preparing a fresh machine |
 | [The host](host/docs/host.md) | Files on the machine, settings, the sandbox image |
+| [Previews](host/docs/edge.md) | A preview of every pull request, and how the names were published |
 | [Commands](host/docs/tools.md) | `tehas`, `tehasbot` and what each of their commands does |
 | [Troubleshooting](host/docs/troubleshooting.md) | What each kind of stop means |
 
@@ -103,8 +104,9 @@ nothing has run for long. Its first unattended cycle took 61 minutes and about
 [features page](host/docs/features.md) says for each part whether it was seen
 working on a host, covered by tests only, or not built.
 
-Two things it does not do: run a preview of a pull request, and serve more than
-one repository from one host.
+A running preview of every pull request is built and covered by the tests. It
+has not run on a host yet. One thing tehas does not do: serve more than one
+repository from one host.
 
 ## Working on tehas
 
@@ -123,9 +125,12 @@ crates the first time. The rules for changes are in [`AGENTS.md`](AGENTS.md).
 | `libexec/` | The scripts behind them, all bash. Installed to `~/tehas/libexec` |
 | `console/` | The console of a running cycle, a Rust program. `install.sh` builds it and installs it as `~/tehas/libexec/console` |
 | `lib/config.sh` | Loads and checks the instance settings |
+| `lib/cycles.sh` | Which cycles are running, from the lock each one holds, and where a parked cycle's question is on record |
+| `lib/live.sh` | The live view of the cycles, put together from a file per cycle |
 | `lib/sandbox.sh` | What a sandbox container is given, for a cycle and for a session by hand |
 | `lib/update-steps.sh` | The follow-up steps of an install, which `install.sh` asks for and `tehas update` runs |
 | `host/` | Everything else that is installed: units, the docs server, the sandbox image, the manual |
+| `preview/` | What `tehasbot preview` builds for a pull request of this repository |
 | `install.sh`, `bootstrap.sh` | Install tehas on a host, and prepare a host's tools |
 | `instances/` | `example/` to copy, and `tehas-tehas/`, the settings of the example instance |
 | `test/` | Shell tests, one file per unit |

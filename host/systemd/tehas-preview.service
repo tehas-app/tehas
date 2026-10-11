@@ -1,0 +1,7 @@
+[Unit]
+Description=Tehas: keep the previews of the open pull requests in step
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot preview >> %h/tehas/logs/preview.log 2>&1"
+TimeoutStartSec=90min

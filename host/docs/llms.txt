@@ -22,7 +22,7 @@
 - pi-rukas (https://github.com/trail-openers/pi-rukas) is the Pi extension
   that runs the work cycle: explore, plan, develop, the repository's own gates,
   an adversarial pass, a pull request and a six-pass review.
-- One instance is one host serving one product repository, one cycle at a time.
+- One instance is one host serving one product repository, one cycle at a time by default and more if set.
 - Tehas is its own project. It is not part of Pi or endorsed by its
   maintainers.
 - viiwork (https://github.com/janit/viiwork) is a flexible meshed inference
@@ -64,8 +64,9 @@ factory.
 The source is at https://github.com/janit/tehas, and a running example with
 this same manual is at https://tehas.app/. Be honest with your human about its
 state: issue to pull request is the supported contract and needs settings only.
-It does not run a preview of a pull request. Energy use (viiwork backends only)
-and the Protolab are optional and can be ignored for a first install.
+A running preview of every pull request is built and covered by tests, and has
+not yet run on a host. Previews, energy use (viiwork backends only) and the
+Protolab are optional and can be ignored for a first install.
 
 1. Read [A new project]({{ $base }}/new-project.md) in full. It is the
    install guide: a prepared host, an instance directory of settings, and your
@@ -80,13 +81,14 @@ and the Protolab are optional and can be ignored for a first install.
 - [Bootstrap a host]({{ $base }}/bootstrap.md): preparing the machine before the install
 - [Features]({{ $base }}/features.md): what exists and how far each part is proven
 - [The host]({{ $base }}/host.md): layout on the machine and the sandbox contract test
+- [Previews and the Protolab on the internet]({{ $base }}/edge.md): a preview of every pull request, and how the names were published
 - [Commands]({{ $base }}/tools.md): `tehas`, `tehasbot` and what each of their commands does
 
 ## Live data
 
 - [Health]({{ $base }}/health): JSON, 200 when the factory is healthy and 503 when it is not
 - [Queue snapshot]({{ $base }}/live/status.json): the repository, open issues by state, whether the factory is paused
-- [Current cycle]({{ $base }}/live/running.json): the issue being worked on and its status; its console is `/live/console-<issue>.txt`
+- [Cycles]({{ $base }}/live/running.json): the issues being worked on and the cycle that finished last, each with its status; a cycle's console is `/live/console-<issue>.txt`
 
 ## Optional
 

@@ -108,8 +108,7 @@ With any other backend the section and the meter are simply not there, and
 nothing else changes. To turn them off on a viiwork mesh, see
 [the energy sampler](/tools).
 
-The dispatcher takes one issue at a time, urgent first, then the lowest issue
-number.
+The dispatcher takes issues urgent first, then by the lowest issue number: one at a time unless the host is set to work on more (see [The host](/host)). A running cycle is never stopped to make room for an urgent one.
 
 | Label on the issue      | Meaning                           | Your move                                |
 | ----------------------- | --------------------------------- | ---------------------------------------- |
@@ -124,14 +123,24 @@ number.
 When the cycle starts and when it ends, the bot comments on the issue. The token
 usage per agent role is posted on the pull request.
 
+The console on the [factory floor](/) and on the [plain dashboard](/dashboard)
+shows one cycle at a time. When several are running, or one is running and an
+earlier one can still be read, a row of tabs above it names each by its issue
+number.
+
 A timer polls every two minutes. To see the factory's state, or to see or force
 a poll by hand on the host:
 
 ```
 tehas status                 # taking work? the queue, the current or last cycle
 tehas dispatch --dry-run     # what would it do?
-tehas dispatch               # do it (returns when the cycle ends)
+tehas dispatch               # do it (returns once the cycle is started)
+systemctl --user status 'tehas-cycle@*'   # which cycles are running
+systemctl --user stop tehas-cycle@12      # stop the cycle for issue 12
 ```
+
+A stop ends the container. The issue gets `needs-human-attention`, and the
+console shows the cycle as interrupted.
 
 `tehas` is the one command to type on the host; `tehas help` lists what it
 does. See [Commands](/tools).
@@ -172,8 +181,9 @@ the box, so the same tick cannot start a second cycle. A box ticked by anyone
 else, or more than one box, is unticked and the bot says so in a comment.
 A retry ticked on an issue that is not parked is unticked too, and the bot
 says that nothing was started.
-A paused factory, or one with `TEHAS_MAX_AWAITING` pull requests waiting,
-holds the retry back as it holds any cycle.
+A paused factory, one with every slot taken, or one at the cap of
+`TEHAS_MAX_AWAITING`, holds the retry back as it holds any cycle. The tick
+stays and is used when there is room.
 
 The host keeps the id of the question it posted when the cycle stopped. A
 tick counts only in that comment; a box in any other comment does nothing.
@@ -218,12 +228,12 @@ dispatcher's log says so.
 4. Answer by ticking one box, or by replying in a comment when none of the
    boxes fits. If you do both, the reply counts. The next poll that is free
    continues the session with your answer, and the issue carries
-   `tehas:planning` while the turn runs. A poll takes the dispatch lock, so
-   while a work cycle or another planning turn runs, your answer waits until
-   it ends, which can be hours. A poll also handles one answer or one start
-   and then stops, and it does nothing while the model endpoint does not list
-   the model. A running planning turn holds the queue the same way a cycle
-   does.
+   `tehas:planning` while the turn runs. A poll waits for a planning turn,
+   so while another planning turn runs, your answer waits until it ends,
+   which can be an hour, and no new cycle starts either. A running work
+   cycle does not hold an answer back. A poll also handles one answer or one
+   planning start and then stops, and it does nothing while the model
+   endpoint does not list the model.
 5. The agent files the issues it plans with the bot's token. To finish, tick
    `End this planning session`. Filed issues are never started on their own:
    apply `tehas:ready` to the ones you want built.
@@ -278,11 +288,11 @@ reaches them. Remove the label to resume.
 
 ## Limits that hold work back
 
-- One cycle at a time.
+- `TEHAS_TICKET_CONCURRENCY` cycles at a time: 1 by default.
 - Inside a cycle, `TEHAS_CONCURRENCY` workstreams side by side: 4 by default,
   fewer if the model backends cannot take it. See [The host](/host).
-- No new cycle while 3 issues carry `tehas:awaiting-merge`
-  (`TEHAS_MAX_AWAITING`). Unreviewed pull requests are the queue you control.
+- No new cycle while 3 issues carry `tehas:awaiting-merge` or are being worked
+  on (`TEHAS_MAX_AWAITING`). Unreviewed pull requests are the queue you control.
 - A self-hosted model endpoint has few real slots per model, so a cycle takes
   a while; the six-pass review is the slowest part.
 
@@ -324,31 +334,37 @@ your own, as below.
 
 ## Work by hand on the host
 
-The host that runs the factory is also a place to work yourself. Log in as the
-tehas user and start a session:
+The host that runs the factory is also a place to work yourself. Log in with
+your own account and start a session:
 
 ```
-tehas dev alice --author "Alice Example <alice@example.com>"   # the first time
-tehas dev alice                                                # from then on
-tehas dev alice -- -r                                          # resume an earlier session
+ssh alice@tehas-tehas
+tehas dev              # a session in your clone, under your name
+tehas dev -- -r        # resume an earlier session
 ```
 
 That is an interactive Pi with pi-rukas, in the sandbox, on the factory's
-models. There is nothing to configure: the image, the models, the limits and
-the bot's token are the factory's own.
+models. There is nothing to configure in your account: the image, the models,
+the limits and the bot's token are the factory's own, and your name comes from
+your own git configuration. An administrator lets an account in once, with
+`sudo ./bootstrap.sh dev`; see [Bootstrap a host](/bootstrap).
 
-- **Where you work.** `~/tehas/dev/alice`, a clone made the first time from
-  the product checkout, at the tip it last fetched. It is yours and it stays:
-  tehas never resets or removes it. Pull inside the session if it is behind.
-  Another name is another clone; with no name it is `main`.
-- **Whose name is on the commits.** The author you gave, stored in
-  `~/tehas/dev/alice.author`. Every commit of the session carries it, yours
-  and the agents'. Without one the commits carry the bot's name, and the
-  command says so when it starts.
+- **Where you work.** A clone named after your login, made the first time
+  from the product checkout, at the tip it last fetched. It is yours and it
+  stays: tehas never resets or removes it. Pull inside the session if it is
+  behind. It is in the tehas user's home, `~/tehas/dev/alice` there, so you
+  reach it through a session and not from your own shell.
+- **Whose name is on the commits.** `user.name` and `user.email` of your own
+  account, read from your git configuration every time you start. Every
+  commit of the session carries them, yours and the agents'. Nothing else of
+  your configuration is used: no aliases, no signing key, no credentials.
+- **Who runs it.** The session runs as the tehas user, through `sudo`. You get
+  the session and nothing else of that account: no shell, no Docker, none of
+  the other `tehas` commands.
 - **Who pushes.** The bot. The push and the pull request go through its token,
   so GitHub shows the bot as the author of the pull request and your name on
-  the commits. The author is a label, not a login: anyone on the account can
-  give any name. A rule that needs a review from somebody other than the pull
+  the commits. The author is a label, not a proof: it is whatever your git
+  configuration says. A rule that needs a review from somebody other than the pull
   request's author looks at the bot, so read the commit authors before you
   approve.
 - **The factory beside you.** Nothing is paused. A session and a cycle share
@@ -361,3 +377,15 @@ the bot's token are the factory's own.
 
 One session per clone at a time. What the session's container is given is on
 [The host](/host).
+
+Logged in as the tehas user itself, the same command takes a name for the
+clone and an author, because that account is shared and has no name of its
+own to offer:
+
+```
+tehas dev alice --author "Alice Example <alice@example.com>"   # the first time
+tehas dev alice                                                # from then on
+```
+
+Without an author the commits carry the bot's name, and the command says so
+when it starts.

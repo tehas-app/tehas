@@ -27,8 +27,8 @@
 # Rules:
 #   - instance.env is authoritative. Settings of the same name in the
 #     environment are dropped; only TEHAS_HOME, TEHAS_INSTANCE_DIR and the test
-#     hooks TEHAS_WORK_CMD, TEHAS_STATUS_CMD, TEHAS_INDEX_CMD and TEHAS_PLAN_CMD
-#     are kept.
+#     hooks TEHAS_WORK_CMD, TEHAS_STATUS_CMD, TEHAS_INDEX_CMD, TEHAS_PLAN_CMD,
+#     TEHAS_CYCLE_START_CMD and TEHAS_CYCLE_START_WAIT are kept.
 #   - Loading runs no git command, makes no network call and writes nothing.
 #   - Nothing falls back to a project: a setting with no generic default stays
 #     unset until tehas_require asks for it.
@@ -76,7 +76,8 @@ _tehas_valid() {
     TEHAS_REPO)
       [[ $v =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "expected owner/name"; return 1; }
       ;;
-    TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_WORK_TIMEOUT | TEHAS_CONCURRENCY | TEHAS_PLAN_MAX_TURNS | TEHAS_PLAN_TIMEOUT)
+    TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_WORK_TIMEOUT | TEHAS_CONCURRENCY | TEHAS_TICKET_CONCURRENCY | \
+      TEHAS_PLAN_MAX_TURNS | TEHAS_PLAN_TIMEOUT)
       _tehas_is_count "$v" || { echo "expected a positive whole number"; return 1; }
       ;;
     TEHAS_ALLOWED_LABELERS)
@@ -121,6 +122,23 @@ _tehas_valid() {
       [[ $v =~ ^https?://[A-Za-z0-9.-]+(:[0-9]+)?$ ]] ||
         { echo "expected an address such as https://lab.example, with no path and no slash at the end"; return 1; }
       ;;
+    TEHAS_DOMAIN)
+      # A name is made by putting uat-<n>. or lab-<n>. in front of it.
+      [[ $v =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]] ||
+        { echo "expected a domain such as example.org, in lower case, with no scheme and no path"; return 1; }
+      ;;
+    TEHAS_PREVIEWS)
+      [[ $v =~ ^[01]$ ]] || { echo "expected 0 or 1"; return 1; }
+      ;;
+    TEHAS_PREVIEW_MAX)
+      [[ $v =~ ^[1-9][0-9]?$ ]] || { echo "expected a number from 1 to 99"; return 1; }
+      ;;
+    TEHAS_PREVIEW_MIN_FREE)
+      if ! mb=$(_tehas_mem_mb "$v") || [ "$mb" -le 0 ]; then
+        echo "expected a size such as 512m or 5g"
+        return 1
+      fi
+      ;;
     PI_ENSEMBLE_SUBAGENT_MODEL | PI_ENSEMBLE_SUBAGENT_PROVIDER | TEHAS_BRANCH)
       [[ $v =~ ^[^[:space:]]+$ ]] || { echo "expected one word"; return 1; }
       ;;
@@ -129,7 +147,7 @@ _tehas_valid() {
 }
 
 tehas_load() {
-  local dir file v reason half
+  local dir file v reason half share
   : "${TEHAS_HOME:=$HOME/tehas}"
   export TEHAS_HOME
   dir=$(tehas_instance_dir)
@@ -138,7 +156,8 @@ tehas_load() {
 
   for v in $(compgen -v); do
     case "$v" in
-      TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_INDEX_CMD | TEHAS_PLAN_CMD) ;;
+      TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_INDEX_CMD | TEHAS_PLAN_CMD | \
+        TEHAS_CYCLE_START_CMD | TEHAS_CYCLE_START_WAIT) ;;
       TEHAS_* | PI_ENSEMBLE_*) unset "$v" ;;
     esac
   done
@@ -149,21 +168,19 @@ tehas_load() {
   . "$file" || { set +a; tehas_err "$file could not be read as shell"; return 78; }
   set +a
 
-  # Previews and database clones are not part of this version. An instance that
-  # still asks for them is refused, not run without them.
-  for v in TEHAS_PREVIEWS TEHAS_CLONES; do
-    if [ "${!v:-0}" != 0 ]; then
-      tehas_err "$v is set and this version of tehas has no previews or database clones (see $file)"
-      return 78
-    fi
-  done
+  # Database clones are not part of this version. An instance that still asks
+  # for them is refused, not run without them.
+  if [ "${TEHAS_CLONES:-0}" != 0 ]; then
+    tehas_err "TEHAS_CLONES is set and this version of tehas has no database clones (see $file)"
+    return 78
+  fi
 
   # Derived and optional settings.
   if [ -n "${TEHAS_REPO:-}" ]; then
     export TEHAS_WORK_REPO=${TEHAS_WORK_REPO:-$TEHAS_HOME/repos/${TEHAS_REPO##*/}}
-    # Where a cycle works: a fresh clone that tehas work makes for each cycle,
-    # and the only tree the cycle's container can write. Not a setting: the
-    # directory is removed before every cycle.
+    # Where a cycle works, as its container sees it. On the host the tree is
+    # $TEHAS_WORK_DIR-<issue>, a fresh clone that tehas work makes for each
+    # cycle and the only tree that cycle's container can write. Not a setting.
     export TEHAS_WORK_DIR=$TEHAS_HOME/work/${TEHAS_REPO##*/}
   fi
   v=$(_tehas_host_cpus)
@@ -171,6 +188,8 @@ tehas_load() {
   half=$(($(_tehas_host_mem_mb) / 2))
   export TEHAS_WORK_MEMORY=${TEHAS_WORK_MEMORY:-${half}m}
   export TEHAS_CONCURRENCY=${TEHAS_CONCURRENCY:-4}
+  # How many issues are worked on side by side, each in a cycle of its own.
+  export TEHAS_TICKET_CONCURRENCY=${TEHAS_TICKET_CONCURRENCY:-1}
   export TEHAS_INDEXING=${TEHAS_INDEXING:-0}
   # Visitor analytics on the dashboard and the manual. Off unless the instance
   # names a script and a site.
@@ -183,6 +202,12 @@ tehas_load() {
   # A planning session: how many turns it may take, and how long one turn may.
   export TEHAS_PLAN_MAX_TURNS=${TEHAS_PLAN_MAX_TURNS:-20}
   export TEHAS_PLAN_TIMEOUT=${TEHAS_PLAN_TIMEOUT:-3600}
+  # Previews of pull requests and the names of the edge. Off, and no names,
+  # unless the instance says so.
+  export TEHAS_DOMAIN=${TEHAS_DOMAIN:-}
+  export TEHAS_PREVIEWS=${TEHAS_PREVIEWS:-0}
+  export TEHAS_PREVIEW_MAX=${TEHAS_PREVIEW_MAX:-5}
+  export TEHAS_PREVIEW_MIN_FREE=${TEHAS_PREVIEW_MIN_FREE:-5g}
   export PI_ENSEMBLE_IMAGE=${PI_ENSEMBLE_IMAGE:-tehas/pi-rukas:uid$(id -u)}
   export PI_ENSEMBLE_HOST_ALIASES=${PI_ENSEMBLE_HOST_ALIASES:-}
   # How many workstreams one cycle may run side by side, inside its one
@@ -192,10 +217,29 @@ tehas_load() {
   export PI_ENSEMBLE_NO_DOCKER_SOCKET=1 PI_ENSEMBLE_NO_SSH=1
 
   for v in TEHAS_INDEXING TEHAS_ANALYTICS_COOKIE TEHAS_WORK_CPUS TEHAS_WORK_MEMORY TEHAS_CONCURRENCY \
-    TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT; do
+    TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
+    TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE; do
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
-  for v in TEHAS_BRANCH TEHAS_PROTOLAB_URL; do
+  # What one cycle's container gets: the budget divided between the tickets.
+  # One ticket at a time gets the budget as written.
+  if [ "$TEHAS_TICKET_CONCURRENCY" = 1 ]; then
+    export TEHAS_CYCLE_CPUS=$TEHAS_WORK_CPUS TEHAS_CYCLE_MEMORY=$TEHAS_WORK_MEMORY
+  else
+    share=$(LC_ALL=C awk -v c="$TEHAS_WORK_CPUS" -v n="$TEHAS_TICKET_CONCURRENCY" 'BEGIN { printf "%.2f", int(c * 100 / n) / 100 }')
+    if ! LC_ALL=C awk -v s="$share" 'BEGIN { exit !(s >= 1) }'; then
+      tehas_err "TEHAS_TICKET_CONCURRENCY=$TEHAS_TICKET_CONCURRENCY leaves each cycle $share CPUs of TEHAS_WORK_CPUS=$TEHAS_WORK_CPUS; a cycle needs at least 1 (see $file)"
+      return 78
+    fi
+    export TEHAS_CYCLE_CPUS=$share
+    share=$(($(_tehas_mem_mb "$TEHAS_WORK_MEMORY") / TEHAS_TICKET_CONCURRENCY))
+    if [ "$share" -lt 6 ]; then
+      tehas_err "TEHAS_TICKET_CONCURRENCY=$TEHAS_TICKET_CONCURRENCY leaves each cycle ${share}m of TEHAS_WORK_MEMORY=$TEHAS_WORK_MEMORY; Docker needs at least 6m (see $file)"
+      return 78
+    fi
+    export TEHAS_CYCLE_MEMORY=${share}m
+  fi
+  for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL; do
     [ -n "${!v:-}" ] || continue
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
@@ -207,6 +251,15 @@ tehas_load() {
     tehas_err "TEHAS_ANALYTICS_SITE is not set and TEHAS_ANALYTICS_SRC is (see $file)"
     return 78
   fi
+  if [ "$TEHAS_PREVIEWS" = 1 ] && [ -z "$TEHAS_DOMAIN" ]; then
+    tehas_err "TEHAS_PREVIEWS is 1 and TEHAS_DOMAIN is not set: a preview has no address without it (see $file)"
+    return 78
+  fi
+  export TEHAS_PREVIEW_MIN_FREE_MB
+  TEHAS_PREVIEW_MIN_FREE_MB=$(_tehas_mem_mb "$TEHAS_PREVIEW_MIN_FREE")
+  if [ -n "$TEHAS_DOMAIN" ] && [ -z "${TEHAS_PROTOLAB_URL:-}" ]; then
+    export TEHAS_PROTOLAB_URL=https://lab.$TEHAS_DOMAIN
+  fi
   return 0
 }
 
@@ -217,6 +270,20 @@ tehas_require() {
     [ -n "${!name:-}" ] && [ -n "${!name// /}" ] || { tehas_err "$name is not set (see $file)"; exit 78; }
     reason=$(_tehas_valid "$name" "${!name}") || { tehas_err "$name is not valid: $reason (see $file)"; exit 78; }
   done
+}
+
+# tehas_edge_name <kind> <number>: the host name of a preview (uat) or of a
+# Protolab ticket (lab) under TEHAS_DOMAIN. It is the one definition of such a
+# name. The jq programs of libexec/protolab and libexec/preview put the same
+# name together themselves, because jq cannot call a shell function, and
+# test/protolab_test.sh and test/preview_test.sh pin that theirs is this one.
+# Fails without a domain, for another kind, and for anything but a number of
+# one to nine digits that does not start with a zero.
+tehas_edge_name() {
+  [ -n "${TEHAS_DOMAIN:-}" ] || return 1
+  case "${1:-}" in uat | lab) ;; *) return 1 ;; esac
+  [[ ${2:-} =~ ^[1-9][0-9]{0,8}$ ]] || return 1
+  printf '%s-%s.%s\n' "$1" "$2" "$TEHAS_DOMAIN"
 }
 
 # The settings an instance has to set itself, because nothing here can give

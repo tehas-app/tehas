@@ -5,7 +5,7 @@
 # worked on, waiting for a human, stopped, completed), and the words of the
 # breakroom game.
 # Deterministic, no model, three GitHub calls. The dispatcher runs it at every
-# poll and every two minutes while a cycle is running.
+# poll, and a cycle when it ends.
 #
 # The words are counted over the titles and labels of every issue of the
 # repository, the newest thousand, whether the factory was ever given it or

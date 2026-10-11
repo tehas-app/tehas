@@ -117,6 +117,25 @@ t_contains "$t_out" "installing ctx7 $CTX7_VERSION (replacing 0.0.1)"
 t_contains "$(t_calls npm)" "ctx7@$CTX7_VERSION"
 t_contains "$t_out" "ctx7 is 0.0.1 after installing, expected $CTX7_VERSION"
 
+t_case "an existing pi-rukas clone is fetched from the repository in versions.env"
+all_present
+t_stub git 'case "$*" in *rev-parse*) echo 0000000000000000000000000000000000000000 ;; *) echo "git version 2.53.0" ;; esac'
+mkdir -p "$T/home/tehas/repos/pi-rukas/.git"
+printf '#!/bin/sh\n' >"$T/home/tehas/repos/pi-rukas/install.sh"
+chmod +x "$T/home/tehas/repos/pi-rukas/install.sh"
+rm -f "$T"/calls/*
+t_run "$bootstrap user"
+t_contains "$(t_calls git)" "remote set-url origin $PI_RUKAS_REPO"
+
+t_case "pi-rukas's installer is not given the sandbox image's name"
+# It would pull that name, fail, and build upstream's image over the tag.
+printf '#!/bin/sh\necho "image=${PI_ENSEMBLE_IMAGE-unset}" >"$T/installer-env"\n' >"$T/home/tehas/repos/pi-rukas/install.sh"
+T_ENV+=(PI_ENSEMBLE_IMAGE=tehas/pi-rukas:uid1000)
+t_run "$bootstrap user"
+T_ENV=(BOOTSTRAP_OS_RELEASE="$T/os-ubuntu" PATH="$T_PATH")
+t_eq "$(cat "$T/installer-env")" "image=unset"
+rm -rf "$T/home/tehas/repos/pi-rukas"
+
 t_case "a download that does not match its checksum is refused"
 all_present
 t_stub gh 'echo "gh version 1.0.0"'
@@ -148,6 +167,90 @@ t_case "root refuses to run without root"
 t_run "$bootstrap root someone"
 t_eq "$t_rc" 1
 t_contains "$t_out" "must run as root"
+
+# --- dev: let other accounts start a session ---------------------------------
+# Stubs for everything that would change the system. The files go to scratch
+# directories through the same two hooks the real paths have.
+etc=$T/etc
+ubin=$T/usr-local-bin
+mkdir -p "$etc/sudoers.d" "$ubin" "$T/boss"
+dev_stubs() { # <uid the caller has>
+  t_stub id "case \"\$*\" in -u) echo $1 ;; boss | alice | bob) ;; *) exit 1 ;; esac"
+  t_stub getent 'case "$*" in "passwd boss") echo "boss:x:1001:1001::$T/boss:/bin/bash" ;; "group tehas") [ -e "$T/group-made" ] ;; *) exit 2 ;; esac'
+  t_stub groupadd ': >"$T/group-made"'
+  t_stub usermod
+  t_stub visudo 'case "$1" in -cf) grep -q "^%tehas " "$2" ;; *) exit 1 ;; esac'
+  t_stub sudo
+}
+dev_stubs 0
+T_ENV=(BOOTSTRAP_ETC="$etc" BOOTSTRAP_BIN="$ubin" PATH="$T_PATH")
+rule=$etc/sudoers.d/tehas-dev
+written() { find "$etc" "$ubin" -type f | wc -l; }
+
+t_case "dev lets the group run one script as the tehas user, and nothing else"
+rm -f "$T"/calls/*
+t_run "$bootstrap dev boss alice bob"
+t_eq "$t_rc" 0
+t_eq "$(grep -v -e '^#' -e '^Defaults' "$rule")" "%tehas ALL=(boss) NOPASSWD: $T/boss/tehas/libexec/dev-login"
+t_eq "$(grep -c '' "$rule")" "$(grep -c -e '^#' -e '^Defaults!' -e '^%tehas ' "$rule")"
+t_eq "$(grep '^Defaults' "$rule")" "Defaults!$T/boss/tehas/libexec/dev-login env_keep += \"COLORTERM\""
+t_eq "$(stat -c %a "$rule")" 440
+t_lacks "$(cat "$rule")" "ALL=(ALL"
+t_lacks "$(cat "$rule")" "(root)"
+
+t_case "dev names the tehas user for the command, and installs the command for everyone"
+t_eq "$(cat "$etc/tehas/manager")" boss
+t_eq "$(cmp -s "$ubin/tehas" "$T_ROOT/host/login/tehas" && echo same)" same
+t_eq "$(stat -c %a "$ubin/tehas")" 755
+
+t_case "dev makes the group once and adds the accounts named"
+t_eq "$(t_calls groupadd)" "tehas"
+t_eq "$(t_calls usermod)" "-aG tehas alice
+-aG tehas bob"
+rm -f "$T"/calls/*
+t_run "$bootstrap dev boss"
+t_eq "$t_rc" 0
+t_eq "$(t_calls groupadd)" ""
+t_eq "$(t_calls usermod)" ""
+
+t_case "dev never puts an account in the docker group"
+t_lacks "$(t_calls usermod)" "docker"
+
+fresh_dev() { rm -rf "$etc" "$ubin" "$T"/calls/* "$T/group-made"; mkdir -p "$etc/sudoers.d" "$ubin"; }
+
+t_case "dev changes nothing when an account does not exist"
+fresh_dev
+t_run "$bootstrap dev boss alice mallory"
+t_eq "$t_rc" 1
+t_contains "$t_out" "no such user: mallory"
+t_eq "$(written)" 0
+t_eq "$(t_calls usermod)$(t_calls groupadd)" ""
+
+t_case "dev refuses the tehas user as one of the accounts, and names that are not plain"
+for args in "boss boss" "boss 'a b'" "'bo ss'" "boss ALL" ""; do
+  t_run "$bootstrap dev $args"
+  [ "$t_rc" != 0 ] || t_bad "accepted: $args"
+done
+t_eq "$(written)" 0
+t_eq "$(t_calls usermod)$(t_calls groupadd)" ""
+
+t_case "dev installs no rule that visudo does not accept"
+t_stub visudo 'exit 1'
+t_run "$bootstrap dev boss alice"
+t_eq "$t_rc" 1
+t_contains "$t_out" "visudo"
+t_eq "$([ -e "$rule" ] && echo there)" ""
+t_eq "$([ -e "$ubin/tehas" ] && echo there)" ""
+t_eq "$(t_calls usermod)" ""
+
+t_case "dev refuses to run without root"
+dev_stubs 1000
+t_run "$bootstrap dev boss alice"
+t_eq "$t_rc" 1
+t_contains "$t_out" "must run as root"
+t_eq "$(written)" 0
+rm -f "$T/bin/id" "$T/bin/getent" "$T/bin/sudo" "$T/bin/visudo" "$T/bin/usermod" "$T/bin/groupadd"
+T_ENV=(BOOTSTRAP_OS_RELEASE="$T/os-ubuntu" PATH="$T_PATH")
 
 t_case "no arguments prints the usage"
 t_run "$bootstrap"

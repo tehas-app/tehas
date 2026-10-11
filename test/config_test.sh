@@ -41,9 +41,10 @@ t_eq "$t_out" "[] [0] []"
 
 t_case "the test hooks survive from the environment"
 t_instance "${T_MINIMAL[@]}"
-T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index)
-t_run "$load && echo \"\$TEHAS_WORK_CMD \$TEHAS_STATUS_CMD \$TEHAS_INDEX_CMD\""
-t_eq "$t_out" "fake-work fake-status fake-index"
+T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index
+  TEHAS_CYCLE_START_CMD=fake-start TEHAS_CYCLE_START_WAIT=2)
+t_run "$load && echo \"\$TEHAS_WORK_CMD \$TEHAS_STATUS_CMD \$TEHAS_INDEX_CMD \$TEHAS_CYCLE_START_CMD \$TEHAS_CYCLE_START_WAIT\""
+t_eq "$t_out" "fake-work fake-status fake-index fake-start 2"
 T_ENV=()
 
 t_case "a missing instance.env returns 78 and names the directory"
@@ -113,11 +114,14 @@ for bad in "TEHAS_REPO=widget" "TEHAS_REPO=a/b/c" "TEHAS_CONTROL_ISSUE=abc" "TEH
 done
 
 for bad in "TEHAS_WORK_MEMORY=lots" "TEHAS_WORK_CPUS=many" \
-  "TEHAS_CONCURRENCY=0" "TEHAS_MAX_AWAITING=-1" "TEHAS_WORK_TIMEOUT=soon" "TEHAS_HOST_ADDR=not an address" \
+  "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=two" "TEHAS_MAX_AWAITING=-1" "TEHAS_WORK_TIMEOUT=soon" "TEHAS_HOST_ADDR=not an address" \
   "TEHAS_BRANCH=two words" "TEHAS_INDEXING=yes" "TEHAS_ANALYTICS_SRC=http://plain.example/ea.js" \
   "TEHAS_ANALYTICS_SRC=https://a.example/x.js\" onload=\"x" "TEHAS_ANALYTICS_SITE=two words" \
   "TEHAS_ANALYTICS_COOKIE=yes" "TEHAS_PROTOLAB_URL=https://lab.example/" "TEHAS_PROTOLAB_URL=lab.example" \
-  "TEHAS_PLAN_MAX_TURNS=0" "TEHAS_PLAN_TIMEOUT=1h"; do
+  "TEHAS_PLAN_MAX_TURNS=0" "TEHAS_PLAN_TIMEOUT=1h" \
+  "TEHAS_DOMAIN=https://example.org" "TEHAS_DOMAIN=example.org/" "TEHAS_DOMAIN=Example.org" \
+  "TEHAS_DOMAIN=localhost" "TEHAS_DOMAIN=-a.example.org" "TEHAS_PREVIEWS=yes" \
+  "TEHAS_PREVIEW_MAX=0" "TEHAS_PREVIEW_MAX=100" "TEHAS_PREVIEW_MIN_FREE=lots"; do
   t_case "loading rejects $bad"
   printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
   t_run "$load; echo rc=\$?"
@@ -172,18 +176,55 @@ t_instance "${T_MINIMAL[@]}" TEHAS_WORK_CPUS=1 TEHAS_WORK_MEMORY=512m
 t_run "$load && echo \"\$TEHAS_WORK_CPUS \$TEHAS_WORK_MEMORY\""
 t_eq "$t_out" "1 512m"
 
-for asked in TEHAS_PREVIEWS=1 TEHAS_CLONES=1; do
-  t_case "an instance that asks for $asked is refused"
-  t_instance "${T_MINIMAL[@]}" "$asked"
-  t_run "$load; echo rc=\$?"
-  t_contains "$t_out" "rc=78"
-  t_contains "$t_out" "tehas: ${asked%%=*} is set and this version of tehas has no previews or database clones"
-done
+t_case "an instance that asks for database clones is refused"
+t_instance "${T_MINIMAL[@]}" TEHAS_CLONES=1
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "tehas: TEHAS_CLONES is set and this version of tehas has no database clones"
 
 t_case "previews and clones written as off still load"
 t_instance "${T_MINIMAL[@]}" TEHAS_PREVIEWS=0 TEHAS_CLONES=0
 t_run "$load; echo rc=\$?"
 t_eq "$t_out" "rc=0"
+
+t_case "previews without a domain are refused"
+t_instance "${T_MINIMAL[@]}" TEHAS_PREVIEWS=1
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "tehas: TEHAS_PREVIEWS is 1 and TEHAS_DOMAIN is not set"
+
+t_case "previews with a domain load, with the defaults"
+t_instance "${T_MINIMAL[@]}" TEHAS_PREVIEWS=1 TEHAS_DOMAIN=example.org
+t_run "$load && echo \"\$TEHAS_PREVIEWS \$TEHAS_PREVIEW_MAX \$TEHAS_PREVIEW_MIN_FREE \$TEHAS_PREVIEW_MIN_FREE_MB\""
+t_eq "$t_out" "1 5 5g 5120"
+
+t_case "without a domain there are no previews and no derived address"
+t_instance "${T_MINIMAL[@]}"
+t_run "$load && echo \"[\$TEHAS_DOMAIN] \$TEHAS_PREVIEWS [\${TEHAS_PROTOLAB_URL:-}]\""
+t_eq "$t_out" "[] 0 []"
+
+t_case "a domain gives the Protolab its address, and a written one is kept"
+t_instance "${T_MINIMAL[@]}" TEHAS_DOMAIN=example.org
+t_run "$load && echo \"\$TEHAS_PROTOLAB_URL\""
+t_eq "$t_out" "https://lab.example.org"
+t_instance "${T_MINIMAL[@]}" TEHAS_DOMAIN=example.org TEHAS_PROTOLAB_URL=https://proto.example.net
+t_run "$load && echo \"\$TEHAS_PROTOLAB_URL\""
+t_eq "$t_out" "https://proto.example.net"
+
+t_case "tehas_edge_name makes a name from the domain, and nothing else"
+t_instance "${T_MINIMAL[@]}" TEHAS_DOMAIN=example.org
+t_run "$load && tehas_edge_name uat 12 && tehas_edge_name lab 7 && tehas_edge_name uat 999999999"
+t_eq "$t_out" "uat-12.example.org
+lab-7.example.org
+uat-999999999.example.org"
+# A number is one to nine digits and does not start with a zero.
+for bad in "www 1" "uat 0" "uat 01" "uat x" "uat" "lab 1x" "lab -1" "uat 1234567890" "lab 1000000000" "uat 12345678901234567890"; do
+  t_run "$load; tehas_edge_name $bad; echo rc=\$?"
+  t_eq "$t_out" "rc=1"
+done
+t_instance "${T_MINIMAL[@]}"
+t_run "$load; tehas_edge_name uat 12; echo rc=\$?"
+t_eq "$t_out" "rc=1"
 
 t_case "an explicit host address is kept"
 t_instance "${T_MINIMAL[@]}" TEHAS_HOST_ADDR=192.0.2.7
@@ -260,5 +301,44 @@ T_ENV=(TEHAS_PLAN_CMD=fake-plan TEHAS_PLAN_MAX_TURNS=99)
 t_run '. "$T_ROOT/lib/config.sh"; tehas_load; echo "$TEHAS_PLAN_CMD $TEHAS_PLAN_MAX_TURNS"'
 t_eq "$t_out" "fake-plan 20"
 T_ENV=()
+
+# The host's CPU count is read with nproc; a stub makes the split the same on
+# every machine. The memory values are far below what any test host has.
+t_case "one ticket at a time by default, and the cycle gets the budget as written"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_CPUS=1 TEHAS_WORK_MEMORY=512m
+t_run "$load && echo \"\$TEHAS_TICKET_CONCURRENCY \$TEHAS_CYCLE_CPUS \$TEHAS_CYCLE_MEMORY\""
+t_eq "$t_rc" 0
+t_eq "$t_out" "1 1 512m"
+
+t_stub nproc 'echo 8'
+t_case "the budget is divided between the tickets, rounded down"
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=3 TEHAS_WORK_CPUS=4 TEHAS_WORK_MEMORY=512m
+t_run "$load && echo \"\$TEHAS_TICKET_CONCURRENCY \$TEHAS_CYCLE_CPUS \$TEHAS_CYCLE_MEMORY\""
+t_eq "$t_rc" 0
+t_eq "$t_out" "3 1.33 170m"
+
+t_case "a memory budget in gigabytes is divided in MiB"
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=2 TEHAS_WORK_CPUS=2 TEHAS_WORK_MEMORY=1g
+t_run "$load && echo \"\$TEHAS_CYCLE_CPUS \$TEHAS_CYCLE_MEMORY\""
+t_eq "$t_out" "1.00 512m"
+
+t_case "the shares are exported, and one in the environment is not used"
+T_ENV=(TEHAS_CYCLE_CPUS=64 TEHAS_CYCLE_MEMORY=64g)
+t_run "$load && bash -c 'echo \$TEHAS_CYCLE_CPUS \$TEHAS_CYCLE_MEMORY'"
+t_eq "$t_out" "1.00 512m"
+T_ENV=()
+
+t_case "a share below one CPU is refused, and both settings are named"
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=3 TEHAS_WORK_CPUS=2 TEHAS_WORK_MEMORY=512m
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "TEHAS_TICKET_CONCURRENCY=3 leaves each cycle 0.66 CPUs of TEHAS_WORK_CPUS=2"
+
+t_case "a memory share Docker would refuse is refused here"
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=2 TEHAS_WORK_CPUS=2 TEHAS_WORK_MEMORY=10m
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "TEHAS_TICKET_CONCURRENCY=2 leaves each cycle 5m of TEHAS_WORK_MEMORY=10m"
+rm -f "$T/bin/nproc"
 
 t_done

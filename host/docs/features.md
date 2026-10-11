@@ -29,9 +29,9 @@ a day.
 | Authorization by label                  | A cycle starts only if `tehas:ready` was applied by an allowlisted account, and the text has not been changed by anyone else since. A label applied by the bot or anyone else is ignored and logged. `tehas:plan` is checked the same way before a planning session starts. A ticked box or a reply counts only from an allowlisted account, and only on the question whose comment id the host has on record | The labeller check is verified. The rule about changed text, the check of `tehas:plan` and the checks of a tick and a reply are tested, not yet seen on a host |
 | Polling                                 | A systemd user timer runs one poll two minutes after the previous one ended. A poll is a few GitHub calls and no model call                 | Verified                                                                                |
 | Two commands                            | `tehas` is what a person types (`dispatch`, `work`, `index`, `labels`, `status`); `tehasbot` is what the units run. The scripts behind them are in `~/tehas/libexec`. `install.sh` removes the one-file-per-command layout that came before | Covered by the shell tests; not yet installed on a host |
-| One cycle at a time                     | Urgent first (`tehas:urgent`), then lowest issue number                                                                                     | Verified                                                                                |
+| Ticket concurrency                      | `TEHAS_TICKET_CONCURRENCY` cycles side by side, 1 by default, each in its own unit, container and workspace. Urgent first (`tehas:urgent`), then lowest issue number | One at a time: verified before the dispatcher was split into a poll and a cycle unit; the split is covered by the shell tests, not yet seen on a host. Above 1: not yet observed |
 | Pause switch                            | `tehas:pause` on the control issue stops new cycles; a running one finishes                                                                 | Verified                                                                                |
-| Review backpressure                     | No new cycle while 3 issues await merge                                                                                                     | Built, not yet reached                                                                  |
+| Review backpressure                     | No new cycle while 3 issues await merge or are being worked on                                                                              | Built, not yet reached                                                                  |
 | Model endpoint check                    | The queue is held, not burned, while the model endpoint does not list the configured model                                                  | Built after a real failure; the hold path itself is untested                            |
 | Retry                                   | Removing `needs-human-attention` and re-applying `tehas:ready` starts a fresh cycle                                                         | Verified                                                                                |
 | Planning on an issue                    | `tehas:plan` from an allowlisted account starts a planning session. Each turn ends in a comment; a ticked box or a reply from an allowlisted account continues it | Tested, not yet seen on a host                                                          |
@@ -49,8 +49,9 @@ a day.
 | Human merge             | Nothing merges on its own                                                                                                                | By configuration (no merge grant in `AGENTS.md`)                                   |
 | Self-hosted models only | One model for every role, set in the instance's `instance.env`                                                                           | Verified                                                                           |
 | Work by hand            | `tehas dev` gives a person an interactive pi-rukas session on the host: the cycle's sandbox with a terminal, a clone that is kept, and the person's name on the commits. The push and the pull request are still the bot's | Covered by the shell tests, not yet seen on a host |
+| Work by hand, own account | An account in the group `tehas` types `tehas dev` and gets its session in a clone named after it, with the name and email of its own git configuration on the commits. One `sudo` rule, written by `bootstrap.sh dev`, runs it as the tehas user | Covered by the shell tests, not yet seen on a host |
 | Concurrency knob        | `TEHAS_CONCURRENCY` sets how many workstreams a cycle runs side by side; 4 by default, lower it when the model backends have few slots    | Setting reaches the sandbox; its effect on a cycle is not yet observed             |
-| Code index              | `tehas index` builds the index behind the agents' code search, in the sandbox image; `install.sh` runs it once and the dispatcher refreshes it before a cycle when the branch has moved | Covered by the shell tests; run against the upstream image on a development machine, not yet on a tehas host |
+| Code index              | `tehas index` builds the index behind the agents' code search, in the sandbox image; `install.sh` runs it once and the dispatcher refreshes it before a cycle when the branch has moved and no cycle is running | Covered by the shell tests; run against the upstream image on a development machine, not yet on a tehas host |
 
 ## Visibility
 
@@ -60,9 +61,11 @@ a day.
 | Live console               | The running cycle's agents, the commands they run and the start of each result, streamed to the dashboard; tokens and passwords masked | Verified on a real cycle as a Deno script. The Rust program that replaced it is tested, not yet seen on a host |
 | Factory floor (game view)  | The front page: the stages as a 16-bit factory floor with the live queue, a work order monitor, an issue board and a breakroom         | Tested with fake files   |
 | Production console         | The running cycle's console in the game view, read from the same `/live/` files as the dashboard                                       | Tested with fake files   |
-| Energy use                 | Optional. In the game view, only when the model backend is a [viiwork](https://github.com/janit/viiwork) mesh and `tehas-energy.service` is enabled: draw now, kWh for 24 hours and 30 days, a 30-minute chart, the machines serving the factory, its models with the mesh version and engine that serve each, a line naming the data source, and a live meter among the doors with the draw now and tokens a minute | Tested with fake files   |
-| Protolab                   | A page for every open issue labelled `tehas:prototype`, on port 8081: title, link to the issue, and the attached images, videos and static HTML files, 10 MB a ticket. Served by a container of its own; HTML runs sandboxed. Listed in the game view | Covered by the shell tests; run by hand against real attachments, not yet on a host |
-| Health endpoint            | `/health` and `/healthz` on port 8080: pass, warn (paused) or fail (last cycle failed, answered with 503)                              | Tested with fake files   |
+| Console tabs               | A tab per running cycle and one for the cycle that finished last, on the factory floor and the plain dashboard                         | Tested without a browser; the factory floor seen with fake files, the plain dashboard not; not yet seen on a host |
+| Energy use                 | Optional. In the game view, only when the model backend is a [viiwork](https://github.com/janit/viiwork) mesh and `tehas-energy.service` is enabled: draw now, kWh for 24 hours and 30 days, a 30-minute chart, the machines serving the factory and its models, and a live meter among the doors with the draw now and tokens a minute | Tested with fake files   |
+| Protolab                   | A page for every open issue labelled `tehas:prototype`, on port 8081: title, link to the issue, and the attached images, videos and static HTML files, 10 MB a ticket. Served by a container of its own; HTML runs sandboxed. Listed in the game view. With `TEHAS_DOMAIN`, each ticket also at `lab-<issue>.<domain>` | Covered by the shell tests; run by hand against real attachments, not yet on a host |
+| Previews                   | A running copy of the product for every open pull request whose branch is in the repository and that an owner, member or collaborator opened, at `uat-<pr>.<domain>`: built from the commit's `preview/Dockerfile`, locked down, removed when the pull request is merged or closed, with a second check every three hours. No build on a full disk; the pull request, the dashboard and `/health` say so. See [Previews](/edge) | Covered by the shell tests. The router's routes were run in Caddy 2.8.4 with a container on an internal network, and the preview image of this repository was built and run with a preview's options, both on a development machine. The domain, the certificate and the proxy were set up and checked from outside, 2026-10-10. `tehasbot preview` has not run on a host, against GitHub or Docker |
+| Health endpoint            | `/health` and `/healthz` on port 8080: pass, warn (paused, or low on disk for previews) or fail (last cycle failed, answered with 503) | Tested with fake files   |
 | Operating manual           | This site, Markdown rendered by the docs server with no build step                                                                     | Verified                 |
 
 ## Host management
@@ -126,15 +129,19 @@ repository's contract files were on a work branch when the instance was set up.
 - Electricity price scheduling. `tehas:urgent` only changes ordering today.
 - Model evaluation; every role uses the same model by decision, not by
   measurement.
-- Watching tehas itself: a stuck cycle, a failed refresh, a full disk.
+- Watching tehas itself: a stuck cycle, a failed refresh. A full disk is seen
+  where previews are on, and stops previews only.
 - More than one project per host. See [A new project](/new-project).
-- A running preview of each pull request, and a private database copy per
-  cycle. tehas stops at the pull request.
+- A private database copy per cycle or per preview.
 
 ## Known limits
 
-- One host, one project, one cycle at a time.
+- One host, one project. Cycles that run side by side do not know of each other: two issues that touch the same files give conflicting pull requests.
 - The cycle's container holds the bot's token, so agent code can do what that
   token can. Give each instance its own bot account. See [The host](/host).
 - A pull request closed without merging leaves `tehas:awaiting-merge` on its
   issue until someone removes it.
+- A preview is public, and it is built from a pull request nobody has reviewed
+  yet. Only a branch in the product repository gets one, and only when an
+  owner, member or collaborator opened the pull request. See
+  [Previews](/edge).

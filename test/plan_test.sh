@@ -11,14 +11,21 @@ fx=$T/fx
 mkdir -p "$fx"
 checkout=$T/home/tehas/repos/widget
 ws=$T/home/tehas/work/widget
+# The directory on the host behind it, for issue 7.
+tree=$ws-plan-7
 upstream=$T/git/acme/widget
 mkdir -p "$upstream"
 git init -q -b main "$upstream"
 git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m first
 git clone -q "$upstream" "$checkout"
 
+# The turn's workspace is gone when the turn is over, so the container notes
+# what it was handed there.
 t_stub docker 'printf "%s\n" "$@" >"$T/calls/docker.args.$$"
 case " $* " in *" --mode "*)
+  ws=$T/home/tehas/work/widget-plan-7
+  cat "$ws/.tehas/brief.md" >"$T/calls/brief.seen" 2>/dev/null
+  git -C "$ws" status --porcelain >"$T/calls/tree.status" 2>&1
   IFS= read -r line; printf "%s\n" "$line" >"$T/calls/docker.stdin"
   # The second line may never come: do not wait for it for ever.
   IFS= read -r -t 5 line; printf "%s\n" "$line" >"$T/calls/docker.stdin2"
@@ -90,8 +97,12 @@ t_eq "$(jq -r .question.question "$T/out.json")" "Adopt my resolutions?"
 t_eq "$(jq -c '.question.options' "$T/out.json")" '[{"label":"Adopt all","description":"Apply all five"},{"label":"Change some","description":""}]'
 
 t_case "the approved text is in the workspace as a file git ignores, and the prompt points at it"
-t_eq "$(cat "$ws/.tehas/brief.md")" "$(cat "$T/brief.md")"
-t_eq "$(git -C "$ws" status --porcelain)" ""
+t_eq "$(cat "$T/calls/brief.seen")" "$(cat "$T/brief.md")"
+t_eq "$(cat "$T/calls/tree.status")" ""
+
+t_case "the workspace is the turn's own, and it is gone when the turn is over"
+t_eq "$([ -e "$tree" ] && echo left)" ""
+t_eq "$([ -e "$ws" ] && echo made)" ""
 t_contains "$(jq -r .message "$T/calls/docker.stdin")" "/plan the work described in the file .tehas/brief.md"
 t_contains "$(jq -r .message "$T/calls/docker.stdin")" "issue #7"
 t_eq "$(jq -r .type "$T/calls/docker.stdin")" "prompt"
@@ -103,8 +114,8 @@ t_case "a first turn starts a new session"
 t_eq "$(tail_of)" "$image pi --mode rpc --approve "
 
 t_case "the planning container gets the mounts of a work cycle, no more"
-want="$ws:$ws
-$T/home/.pi/agent/ensemble-runs:/home/vscode/.pi/agent/ensemble-runs
+want="$tree:$ws
+$T/home/.pi/agent/ensemble-runs/plan-7:/home/vscode/.pi/agent/ensemble-runs
 $T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
 $T/home/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro
 $T/home/.pi/agent/sessions:/home/vscode/.pi/agent/sessions
@@ -159,8 +170,10 @@ t_eq "$(after --memory)" "512m"
 t_contains "$(turn_args)" "--add-host=models:192.0.2.9"
 t_eq "$(turn_args | unknown_options "$image" "--name --cpus --memory -w -v -e" "--rm -i")" ""
 
-t_case "docker is given what tehas work gives a cycle's container: only the name and what pi is told differ"
-turn_args | options >"$T/plan.options"
+# A turn has a workspace and a transcripts directory of its own on the host.
+# They are mounted at the paths a cycle's are.
+t_case "docker is given what tehas work gives a cycle's container: only the name, the two directories of its own and what pi is told differ"
+turn_args | options | sed -e "s|^$tree:|$ws-7:|" -e 's|/ensemble-runs/plan-7:|/ensemble-runs/issue-7:|' >"$T/plan.options"
 rm -f "$T"/calls/*
 t_run "$T_ROOT/libexec/work 7"
 turn_args | options >"$T/work.options"

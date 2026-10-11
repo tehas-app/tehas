@@ -1,0 +1,21 @@
+{
+  "generatedAt": "2026-10-10T12:00:00Z",
+  "repo": "example/preview",
+  "paused": false,
+  "running": [],
+  "queued": [
+    {"number": 2, "title": "Sample: a ticket in line", "url": "https://github.com/", "updatedAt": "2026-10-10T11:00:00Z", "closedAt": null}
+  ],
+  "awaiting": [
+    {"number": 1, "title": "Sample: a pull request waiting for review", "url": "https://github.com/", "updatedAt": "2026-10-10T10:00:00Z", "closedAt": null}
+  ],
+  "stopped": [],
+  "completed": [],
+  "links": {
+    "queued": "https://github.com/",
+    "awaiting": "https://github.com/",
+    "stopped": "https://github.com/",
+    "completed": "https://github.com/",
+    "all": "https://github.com/"
+  }
+}

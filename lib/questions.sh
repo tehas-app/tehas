@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # Questions the factory asks on an issue, and the answers it accepts. Text in,
 # text out: nothing here calls GitHub, so every function can be tested with a
-# string. Sourced by libexec/dispatch.
+# string. Sourced by libexec/dispatch and libexec/cycle.
 #
 #   q_clean [max characters]         stdin to stdout: an agent's words, safe to
 #                                    post, cut at the limit [60000]

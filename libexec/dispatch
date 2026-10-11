@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # The tehas dispatcher: one poll of the GitHub issue queue.
 #
-# Deterministic, no model. It picks at most one open issue labelled
-# tehas:ready, runs a pi-rukas /work cycle for it with tehas work, and
-# reports the outcome back on the issue (and the token usage on the PR). The
-# poll also runs one turn of a planning session, when an answer is waiting.
-# A systemd timer runs it every two minutes; a cycle in progress simply makes
-# the following polls wait.
+# Deterministic, no model. It picks the open issues labelled tehas:ready that
+# there is room for, marks each tehas:running and starts its cycle as
+# tehas-cycle@<issue>.service. It does not wait for a cycle: tehasbot cycle
+# runs it and reports the outcome. The poll also runs one turn of a planning
+# session, when an answer is waiting, and it does wait for that turn. A systemd
+# timer runs a poll every two minutes, whatever the cycles are doing; a
+# planning turn in progress makes the following polls wait.
 #
 # Usage:
 #   tehas dispatch               one poll
@@ -15,36 +16,45 @@
 #
 # Exit: 0 the poll ran, or there was nothing to do; 64 an argument this command
 # does not know, which starts no poll; 78 instance settings are missing or
-# malformed; 1 a call to GitHub failed or its answer could not be read.
+# malformed; 1 a call to GitHub failed or its answer could not be read, systemd
+# cannot load the cycle unit (before any label changes), or a cycle could not be
+# started.
 #
 # Rules, in order:
 #   1. Label tehas:pause on the control issue stops all dispatch.
-#   2. No new cycle while TEHAS_MAX_AWAITING tehas PRs wait for a human.
-#   3. A box ticked by an allowed account in the bot's question comment is an
+#   2. At most TEHAS_TICKET_CONCURRENCY cycles run at once.
+#   3. Running cycles and tehas PRs that wait for a human together do not
+#      exceed TEHAS_MAX_AWAITING.
+#   4. A box ticked by an allowed account in the bot's question comment is an
 #      answer: on a parked cycle, "Retry from a clean start" starts a fresh
-#      cycle. The awaiting-merge limit holds that back too. The tick counts
-#      only on a parked issue, and it is unticked when it is used. A comment
-#      is a question only if this host has its id on record, in
-#      $TEHAS_HOME/state: the planning record, or park-<issue>.id.
-#   4. A reply or a ticked option on a planning question runs the next turn
+#      cycle. Rules 2 and 3 hold that back too. The tick counts only on a
+#      parked issue, and it is unticked when it is used. A comment is a
+#      question only if this host has its id on record, in $TEHAS_HOME/state:
+#      the planning record, or park-<issue>.id.
+#   5. A reply or a ticked option on a planning question runs the next turn
 #      of that session. An issue whose tehas:plan label was applied by an
-#      allowed account starts a session. Neither waits for the awaiting-merge
-#      limit: a planning turn opens no pull request.
-#   5. An issue is eligible only if its tehas:ready label was applied by an
+#      allowed account starts a session. Neither waits for rules 2 and 3: a
+#      planning turn opens no pull request.
+#   6. An issue is eligible only if its tehas:ready label was applied by an
 #      account in TEHAS_ALLOWED_LABELERS. The bot is never in that list. An
 #      issue with an open planning session is not eligible until it is ended.
-#   6. tehas:urgent first, then the lowest issue number. One at a time.
+#   7. tehas:urgent first, then the lowest issue number. A running cycle is
+#      never stopped to make room.
 #
 # Instance settings (lib/config.sh; defaults in brackets):
-#   TEHAS_REPO              owner/name of the product repository, required
-#   TEHAS_CONTROL_ISSUE     issue that carries tehas:pause, required
-#   TEHAS_ALLOWED_LABELERS  space-separated logins, required
-#   TEHAS_MAX_AWAITING      open tehas:awaiting-merge issues allowed [3]
-#   TEHAS_WORK_REPO         checkout cycles run in [$TEHAS_HOME/repos/<name>]
-#   TEHAS_BRANCH            branch work lands on [the checkout's origin/HEAD]
-#   TEHAS_PLAN_MAX_TURNS    turns a planning session may take [20]
-# From the environment, for tests: TEHAS_WORK_CMD, TEHAS_STATUS_CMD,
-# TEHAS_INDEX_CMD, TEHAS_PLAN_CMD.
+#   TEHAS_REPO                owner/name of the product repository, required
+#   TEHAS_CONTROL_ISSUE       issue that carries tehas:pause, required
+#   TEHAS_ALLOWED_LABELERS    space-separated logins, required
+#   TEHAS_MAX_AWAITING        open tehas:awaiting-merge issues plus running
+#                             cycles allowed [3]
+#   TEHAS_TICKET_CONCURRENCY  cycles side by side [1]
+#   TEHAS_WORK_REPO           checkout cycles are cloned from [$TEHAS_HOME/repos/<name>]
+#   TEHAS_BRANCH              branch work lands on [the checkout's origin/HEAD]
+#   TEHAS_PLAN_MAX_TURNS      turns a planning session may take [20]
+# From the environment, for tests: TEHAS_STATUS_CMD, TEHAS_INDEX_CMD,
+# TEHAS_PLAN_CMD, TEHAS_CYCLE_START_CMD (in place of systemctl, called with
+# the issue) and TEHAS_CYCLE_START_WAIT (seconds to wait for a started cycle
+# [30]).
 set -uo pipefail
 
 # The usage is this file's own header comment: every line from the second to the
@@ -89,6 +99,8 @@ dry=0
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/config.sh
 . "$here/../lib/config.sh"
+# shellcheck source=lib/cycles.sh
+. "$here/../lib/cycles.sh"
 tehas_load || exit 78
 # shellcheck source=lib/questions.sh
 . "$here/../lib/questions.sh"
@@ -101,19 +113,19 @@ control=$TEHAS_CONTROL_ISSUE
 allowed=" $TEHAS_ALLOWED_LABELERS "
 max_awaiting=$TEHAS_MAX_AWAITING
 checkout=$TEHAS_WORK_REPO
-workdir=$TEHAS_WORK_DIR
-work=${TEHAS_WORK_CMD:-$here/work}
 status_cmd=${TEHAS_STATUS_CMD:-$here/status}
 index_cmd=${TEHAS_INDEX_CMD:-$here/index}
 plan_cmd=${TEHAS_PLAN_CMD:-$here/plan}
+start_wait=${TEHAS_CYCLE_START_WAIT:-30}
 # Known before anything is touched: a cycle must never start from a guess,
 # nor in a checkout of another repository.
 tehas_checkout || exit 78
 branch=$(tehas_branch) || exit 78
 
-mkdir -p "$TEHAS_HOME/state" "$TEHAS_HOME/logs"
+mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/logs"
+# Held for the poll only. A cycle holds the lock of its own issue.
 exec 8>"$TEHAS_HOME/state/dispatch.lock"
-flock -n 8 || { [ "$dry" = 1 ] && log "another dispatch holds the lock (a cycle is running)"; exit 0; }
+flock -n 8 || { [ "$dry" = 1 ] && log "another poll, or tehas index, holds the dispatcher's lock"; exit 0; }
 
 # gh_json <gh arguments>: the answer in $json. A failed call ends the poll:
 # no rule below may be decided on an answer that never came. Always call it as
@@ -121,15 +133,9 @@ flock -n 8 || { [ "$dry" = 1 ] && log "another dispatch holds the lock (a cycle 
 json=""
 gh_json() { json=$(gh "$@" 2>/dev/null) || { log "ERROR: gh $1 $2 failed"; exit 1; }; }
 
-# say <issue> <text>, label <issue> <gh issue edit options...>: comment on an
-# issue and change its labels. A failure is a warning in the log, not the end
-# of the poll.
+# say <issue> <text>: comment on an issue. A failure is a warning in the log,
+# not the end of the poll.
 say() { gh issue comment "$1" --repo "$repo" --body "$2" >/dev/null 2>&1 || log "WARN: comment on #$1 failed"; }
-label() {
-  local n=$1
-  shift
-  gh issue edit "$n" --repo "$repo" "$@" >/dev/null 2>&1 || log "WARN: label change on #$n failed: $*"
-}
 
 # post_question <kind> <issue> <turn> <result.json>: post a question comment.
 # Its id is left in $posted. Returns 1 when it could not be posted.
@@ -150,12 +156,6 @@ untick() {
   [ -z "${3:-}" ] || say "$1" "$3"
 }
 
-# park_id <issue>: print the path of the file that holds the id of the park
-# question this host posted on the issue. An agent in a container holds the
-# bot's token: it can post a comment with a marker, edit the bot's comments
-# and apply labels. It cannot write here, so this file is what makes a comment
-# the factory's own question. One line, the comment's number.
-park_id() { printf '%s/state/park-%s.id\n' "$TEHAS_HOME" "$1"; }
 # shellcheck source=lib/planning.sh
 . "$here/../lib/planning.sh"
 
@@ -258,115 +258,91 @@ wait_for() {
   wait "$pid"
 }
 
-# run_cycle <issue> <who> <verb> <authorised by> <gh issue edit options...>
-# One /work cycle, from marking the issue as taken to reporting the outcome.
-# The options take the issue out of the queue it came from.
-run_cycle() {
-  local issue=$1 who=$2 verb=$3 how=$4 started restart rc mins state status step cbranch usage pr summary stopped
-  shift 4
-  comment() { say "$issue" "$1"; }
-  relabel() { label "$issue" "$@"; }
+# What a poll will start, and on whose word: the issues in $picked and, for
+# each, who authorised it, the word for how in the log and in the comment, and
+# the gh issue edit options that take it out of the queue it came from.
+picked=()
+declare -A starter=() verb=() how=() drop=()
 
-  log "start #$issue ($verb by $who)"
-  # The cycle runs only once the issue is marked as taken. If the label cannot
-  # be changed, the issue would stay in its queue and every later poll would
-  # start the same issue again.
-  if ! gh issue edit "$issue" --repo "$repo" --add-label tehas:running "$@" >/dev/null 2>&1; then
-    log "ERROR: could not mark #$issue as running, not starting a cycle"
-    exit 1
+# Without systemd's answer every picked issue would be marked running and then
+# parked, at every poll. A shell without the user's bus gets none.
+# units_ok <issue>: returns 1, with the reason logged. Call it before any
+# label changes.
+units_ok() {
+  local loadstate
+  [ -z "${TEHAS_CYCLE_START_CMD:-}" ] || return 0
+  loadstate=$(systemctl --user show -p LoadState --value "tehas-cycle@$1.service" 2>/dev/null) || loadstate=""
+  if [ "$loadstate" != loaded ]; then
+    log "ERROR: systemd cannot load tehas-cycle@.service (LoadState: ${loadstate:-no answer}): run install.sh and its units step, and run tehas dispatch as the tehas user's own session"
+    return 1
   fi
-  # A park question of an earlier cycle is used up by this start, whichever
-  # way it came about. Its boxes must not answer for the new cycle.
-  rm -f "$(park_id "$issue")"
-  comment "Tehas cycle started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC (authorized by @$who's $how). This issue is owned by the cycle until \`tehas:running\` is removed."
+}
 
+# start_cycle <issue>: 0 once the cycle says it holds its lock, by writing
+# the .taken file. Looking at the lock would miss a cycle that ended within
+# the wait. The poll's own lock is not passed on: a cycle outlives the poll.
+start_cycle() {
+  local n=$1 taken=$TEHAS_HOME/state/cycles/$1.taken i
+  rm -f "$taken"
+  if [ -n "${TEHAS_CYCLE_START_CMD:-}" ]; then
+    "$TEHAS_CYCLE_START_CMD" "$n" 8>&- || return 1
+  else
+    systemctl --user start "tehas-cycle@$n.service" 8>&- || return 1
+  fi
+  for ((i = 0; i < start_wait * 2; i++)); do
+    [ -e "$taken" ] && return 0
+    sleep 0.5
+  done
+  # A loaded host, or a unit still active from before, can start a cycle late.
+  if tehas_cycle_running "$n"; then
+    log "WARN: the cycle for #$n holds its lock but did not say so in ${start_wait}s; taking it as started"
+    return 0
+  fi
+  return 1
+}
+
+# start_cycles: start a cycle for every issue in $picked. Returns 1 if one did
+# not start.
+start_cycles() {
+  local n index_log failed=0
+  local -a out
   refresh_checkout
 
   # The agents search an index of the tree the cycle is about to be cloned from.
-  # A cycle without a fresh index still works, so a failure here is a warning.
-  "$index_cmd" --before-cycle >>"$TEHAS_HOME/logs/dispatch-work-$issue.log" 2>&1 ||
-    log "WARN: the code index was not refreshed, see $TEHAS_HOME/logs/dispatch-work-$issue.log"
-
-  started=$(date +%s)
-  # A relabelled issue gets a fresh cycle, not whatever the last one parked.
-  # The workspace is new every time, so the record of an earlier cycle is kept
-  # here, on the host.
-  restart=""
-  mkdir -p "$TEHAS_HOME/state/cycles"
-  [ -e "$TEHAS_HOME/state/cycles/$issue" ] && restart=--restart
-  : >"$TEHAS_HOME/state/cycles/$issue"
-  "$work" "$issue" $restart >>"$TEHAS_HOME/logs/dispatch-work-$issue.log" 2>&1 &
-  wait_for $!
-  rc=$?
-  mins=$((($(date +%s) - started) / 60))
-
-  # The one thing read back from the tree the container wrote, and only as data.
-  state=$workdir/.pi/work-state/$issue.json
-  # The file is written inside the container, and what the bot posts from it is
-  # trusted later, so only plain characters are kept.
-  status=$(jq -r '.pipelineState.status // "unknown"' "$state" 2>/dev/null | tr -cd 'A-Za-z0-9_.-')
-  step=$(jq -r '.pipelineState.currentStep // "-"' "$state" 2>/dev/null | tr -cd 'A-Za-z0-9_.-')
-  status=${status:-unknown}
-  step=${step:--}
-  cbranch=$(jq -r '.pipelineState.branchName // ""' "$state" 2>/dev/null || echo "")
-  # The numbers are summed as numbers. Anything else in their place counts as
-  # nothing: a string would be joined up by the sum and posted word for word.
-  usage=$(jq -r '
-    def n: tonumber? // 0;
-    [.eventLog[] | select(.usage) | {role: ((.role // "driver" | tostring | gsub("[^A-Za-z0-9_.-]"; "")) as $r | if $r == "" then "driver" else $r end),
-                                     u: (.usage | {turns: (.turns | n), input: (.input | n), output: (.output | n), cacheRead: (.cacheRead | n)})}] as $e
-    | if ($e | length) == 0 then "" else
-        (["| Role | Dispatches | Turns | Input | Output | Cache read |", "|---|---|---|---|---|---|"]
-         + ($e | group_by(.role) | map("| \(.[0].role) | \(length) | \(map(.u.turns) | add) | \(map(.u.input) | add) | \(map(.u.output) | add) | \(map(.u.cacheRead) | add) |"))
-         + ["| **total** | \($e | length) | \($e | map(.u.turns) | add) | \($e | map(.u.input) | add) | \($e | map(.u.output) | add) | \($e | map(.u.cacheRead) | add) |"])
-        | join("\n") end' "$state" 2>/dev/null || echo "")
-
-  pr=""
-  if [ -n "$cbranch" ]; then
-    # The branch name comes from a file the cycle wrote. Only a pull request the
-    # bot itself opened counts, so it cannot point at somebody else's.
-    pr=$(gh pr list --repo "$repo" --head "$cbranch" --author "@me" --state open --json url --jq '.[0].url // ""' 2>/dev/null || echo "")
-  fi
-
-  summary="status \`$status\`, last step \`$step\`, $mins min"
-  if [ "$rc" = 0 ] && [ "$status" = merged ]; then
-    relabel --remove-label tehas:running
-    comment "Tehas cycle finished: $summary. The change was merged."
-  elif [ "$rc" = 0 ] && [ -n "$pr" ]; then
-    relabel --remove-label tehas:running --add-label tehas:awaiting-merge
-    comment "Tehas cycle finished: $summary. Pull request waiting for a human: $pr"
-    gh pr comment "$pr" --body "Tehas cycle for #$issue: $summary.
-
-${usage:-No token usage was recorded for this cycle.}" >/dev/null 2>&1 || log "WARN: comment on $pr failed"
+  # It is written only while no cycle reads it. A cycle without a fresh index
+  # still works, so a failure here is a warning.
+  if [ "$count" = 0 ]; then
+    index_log=$TEHAS_HOME/logs/dispatch-work-${picked[0]}.log
+    "$index_cmd" --before-cycle >>"$index_log" 2>&1 ||
+      log "WARN: the code index was not refreshed, see $index_log"
   else
-    relabel --remove-label tehas:running --add-label needs-human-attention
-    stopped="Tehas cycle stopped without a pull request: $summary (runner exit $rc). Read the handoff comment if there is one; the run log is \`~/tehas/logs/dispatch-work-$issue.log\` on \`$(hostname)\`."
-    jq -n --arg text "$stopped
-
-${usage}" '{text: $text, question: null}' >"$TEHAS_HOME/state/park-$issue.json"
-    if post_question park "$issue" 1 "$TEHAS_HOME/state/park-$issue.json"; then
-      # On record before the label shows it: a tick counts only in the comment
-      # named here. Without the record a tick starts nothing and says so.
-      printf '%s\n' "$posted" >"$(park_id "$issue")" ||
-        log "WARN: could not record the park question of #$issue, its boxes will not work"
-      # A separate call: a repository without this label must still get the
-      # parking label above. The poll only reads questions on issues that
-      # carry this label, so without it the boxes do nothing: say so.
-      if ! gh issue edit "$issue" --repo "$repo" --add-label tehas:question >/dev/null 2>&1; then
-        log "WARN: label change on #$issue failed: --add-label tehas:question"
-        rm -f "$(park_id "$issue")"
-        comment "The boxes above cannot be used: the label \`tehas:question\` could not be added (run \`tehas labels\` on the host). To retry, remove \`needs-human-attention\` and apply \`tehas:ready\` again."
-      fi
-    else
-      # Without the boxes there is nothing to tick: say the old way.
-      comment "$stopped To retry, remove \`needs-human-attention\` and apply \`tehas:ready\` again.
-
-${usage}"
-    fi
-    rm -f "$TEHAS_HOME/state/park-$issue.json"
+    log "the code index stays as it is: a cycle is running on #${running// /, #}"
   fi
-  log "done #$issue rc=$rc status=$status step=$step minutes=$mins pr=${pr:-none}"
+
+  for n in "${picked[@]}"; do
+    log "start #$n (${verb[$n]} by ${starter[$n]})"
+    read -ra out <<<"${drop[$n]}"
+    # The cycle starts only once the issue is marked as taken. If the label
+    # cannot be changed, the issue would stay in its queue and every later
+    # poll would start the same issue again.
+    if ! gh issue edit "$n" --repo "$repo" --add-label tehas:running "${out[@]}" >/dev/null 2>&1; then
+      log "ERROR: could not mark #$n as running, not starting a cycle"
+      exit 1
+    fi
+    # A park question of an earlier cycle is used up by this start, whichever
+    # way it came about. Its boxes must not answer for the new cycle.
+    rm -f "$(park_id "$n")"
+    say "$n" "Tehas cycle started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC (authorized by @${starter[$n]}'s ${how[$n]}). This issue is owned by the cycle until \`tehas:running\` is removed."
+    if ! start_cycle "$n"; then
+      log "ERROR: the cycle for #$n did not start"
+      gh issue edit "$n" --repo "$repo" --remove-label tehas:running --add-label needs-human-attention >/dev/null 2>&1 ||
+        log "WARN: label change on #$n failed"
+      say "$n" "Tehas could not start the cycle for this issue on \`$(hostname)\`: \`tehas-cycle@$n.service\` did not come up. See \`journalctl --user -u tehas-cycle@$n\` and \`~/tehas/logs/dispatch.log\` there. To retry, remove \`needs-human-attention\` and apply \`tehas:ready\` again."
+      failed=1
+    fi
+  done
   "$status_cmd"
+  return "$failed"
 }
 
 [ "$dry" = 0 ] && "$status_cmd"
@@ -389,14 +365,35 @@ if [ "$paused" != false ]; then
   exit 0
 fi
 
-# 2. Do not pile up unreviewed work. This holds back new cycles only; a
-# question is still read while it holds.
-gh_json issue list --repo "$repo" --state open --label tehas:awaiting-merge --limit 100 --json number
-awaiting=$(jq length <<<"$json") || { log "ERROR: unreadable list of issues awaiting merge"; exit 1; }
-held=0
-[ "$awaiting" -ge "$max_awaiting" ] && held=1
+# 2. The slots. A cycle that died holds no lock and is not counted.
+running=$(tehas_cycles_running | tr '\n' ' ')
+running=${running% }
+count=$(wc -w <<<"$running")
+count=$((count))
+free=$((TEHAS_TICKET_CONCURRENCY - count))
 
-# 3. Questions that wait for an answer. An answer is a box ticked in the
+# 3. Do not pile up unreviewed work. A running cycle is a pull request on its
+# way, so it counts: otherwise the slots could overshoot the cap. Rules 2 and
+# 3 hold back new cycles only; a question is still read while they hold, and
+# $hold says why.
+hold=""
+want=0
+if [ "$free" -le 0 ]; then
+  hold="holding: $count cycles are running (limit $TEHAS_TICKET_CONCURRENCY)"
+else
+  gh_json issue list --repo "$repo" --state open --label tehas:awaiting-merge --limit 100 --json number
+  awaiting=$(jq length <<<"$json") || { log "ERROR: unreadable list of issues awaiting merge"; exit 1; }
+  room=$((max_awaiting - awaiting - count))
+  if [ "$room" -gt 0 ]; then
+    want=$((free < room ? free : room))
+  elif [ "$count" = 0 ]; then
+    hold="holding: $awaiting issues await merge (limit $max_awaiting)"
+  else
+    hold="holding: $awaiting issues await merge and $count cycles are running (limit $max_awaiting)"
+  fi
+fi
+
+# 4. Questions that wait for an answer. An answer is a box ticked in the
 # bot's question comment, or for a planning session a reply after it, and it
 # counts only from an allowed account.
 # A planning turn that was running when the last poll ended was cut off, for
@@ -565,8 +562,8 @@ for n in $asking; do
       gh_json api "repos/$repo/issues/$n/events?per_page=100" --paginate
       events=$json
       unchanged_since "$n" "$(jq -r .tick.at <<<"$ans")" "$by ticked retry" "untick the box and tick it again" || continue
-      if [ "$held" = 1 ]; then
-        [ "$dry" = 1 ] && log "holding: $awaiting issues await merge (limit $max_awaiting)"
+      if [ -n "$hold" ]; then
+        [ "$dry" = 1 ] && log "$hold"
         continue
       fi
       mesh_ok || exit 0
@@ -574,14 +571,22 @@ for n in $asking; do
         log "would run a cycle for #$n (retry ticked by $by)"
         exit 0
       fi
+      # Asked before the tick is used up: a tick must not be spent on a start
+      # that cannot happen.
+      units_ok "$n" || exit 1
       # One tick is one start. Unticking edits the comment as the bot, so the
       # bot becomes its last editor and the tick cannot be read a second time.
       if ! untick "$n" "$ans"; then
         log "ERROR: could not use up the retry tick on #$n, not starting a cycle"
         continue
       fi
-      run_cycle "$n" "$by" "retry ticked" "retry tick" --remove-label needs-human-attention --remove-label tehas:question
-      exit 0
+      picked=("$n")
+      starter[$n]=$by
+      verb[$n]="retry ticked"
+      how[$n]="retry tick"
+      drop[$n]="--remove-label needs-human-attention --remove-label tehas:question"
+      start_cycles
+      exit
       ;;
     plan)
       # A reply says more than a box, so it wins when both are there.
@@ -635,7 +640,7 @@ $reply"
   esac
 done
 
-# 4. New planning sessions. The label approves the text, as tehas:ready does,
+# 5. New planning sessions. The label approves the text, as tehas:ready does,
 # so the text is read before the approval is checked: an edit made in between
 # is then seen by the check.
 gh_json issue list --repo "$repo" --state open --label tehas:plan --limit 100 --json number,labels
@@ -661,12 +666,12 @@ for n in $plans; do
   exit 0
 done
 
-if [ "$held" = 1 ]; then
-  [ "$dry" = 1 ] && log "holding: $awaiting issues await merge (limit $max_awaiting)"
+if [ -n "$hold" ]; then
+  [ "$dry" = 1 ] && log "$hold"
   exit 0
 fi
 
-# 5. and 6. Candidates: urgent first, then by number.
+# 6. and 7. Candidates: urgent first, then by number.
 gh_json issue list --repo "$repo" --state open --label tehas:ready --limit 100 --json number,labels
 ready_json=$json
 candidates=$(jq -r '[.[] | (.labels | map(.name)) as $l
@@ -680,9 +685,8 @@ if [ -n "$candidates" ]; then
   mesh_ok || exit 0
 fi
 
-issue=""
-have=""
 for n in $candidates; do
+  [ "${#picked[@]}" -lt "$want" ] || break
   have=" $(jq -r --argjson n "$n" '[.[] | select(.number == $n) | (.labels // [])[].name] | join(" ")' <<<"$ready_json") "
   # One issue is in one flow at a time. A cycle's park question would hide the
   # session's question, and the session would then end with nobody told. The
@@ -693,22 +697,29 @@ for n in $candidates; do
     continue
   fi
   approval "$n" tehas:ready || continue
-  issue=$n
-  break
+  picked+=("$n")
+  starter[$n]=$who
+  verb[$n]=labelled
+  how[$n]="\`tehas:ready\` label"
+  drop[$n]="--remove-label tehas:ready"
+  # A parked issue retried by its labels still carries the label of its old
+  # question. It goes with the start. Only then: gh refuses to remove a label
+  # the repository does not have.
+  [[ $have == *" tehas:question "* ]] && drop[$n]+=" --remove-label tehas:question"
 done
 
-if [ -z "$issue" ]; then
+if [ "$dry" = 1 ]; then
+  log "$count cycles running, room for $want more"
+fi
+if [ "${#picked[@]}" = 0 ]; then
   [ "$dry" = 1 ] && log "nothing to do"
   exit 0
 fi
 if [ "$dry" = 1 ]; then
-  log "would run a cycle for #$issue (labelled by $who)"
+  for n in "${picked[@]}"; do log "would run a cycle for #$n (labelled by ${starter[$n]})"; done
   exit 0
 fi
 
-# A parked issue retried by its labels still carries the label of its old
-# question. It goes with the start. Only then: gh refuses to remove a label
-# the repository does not have.
-old_question=()
-[[ $have == *" tehas:question "* ]] && old_question=(--remove-label tehas:question)
-run_cycle "$issue" "$who" labelled "\`tehas:ready\` label" --remove-label tehas:ready "${old_question[@]}"
+units_ok "${picked[0]}" || exit 1
+start_cycles
+exit

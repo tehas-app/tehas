@@ -20,18 +20,19 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/env.sh`                     | Environment for every tehas process; sourced from `~/.bashrc`           |
 | `~/tehas/lib/config.sh`              | Loads and checks the instance settings; sourced by every command        |
 | `~/tehas/lib/sandbox.sh`             | What a sandbox container is given; sourced by the work, plan and dev scripts |
-| `~/tehas/lib/questions.sh`, `planning.sh` | The question and planning steps of the dispatcher                  |
+| `~/tehas/lib/questions.sh`, `planning.sh` | The question and planning steps of the dispatcher. A cycle's report uses the first too |
 | `~/tehas/bin/`                       | The two commands on `PATH`: `tehas` for a person, `tehasbot` for the units. Plus `gh` |
 | `~/tehas/libexec/`                   | The scripts behind the two commands, one for each thing they do. Not on `PATH` |
 | `~/tehas/platform`                   | Checkout of this repository; `install.sh` runs from it and `tehas update` pulls it |
 | `~/tehas/repos/tehas`                | The product checkout, on the default branch. Cycles are cloned from it; no container is given it |
-| `~/tehas/work/tehas`                 | The cycle's workspace: a fresh clone made for each cycle, removed before the next |
-| `~/tehas/dev/<name>`                 | A person's clone for working by hand, made and used by `tehas dev`, never removed. `<name>.author` next to it holds whose name its commits carry |
+| `~/tehas/work/tehas-<issue>`         | The cycle's workspace: a fresh clone made for each cycle. Removed after a cycle that merged or left a pull request, otherwise kept until that issue's next cycle. `~/tehas/work/tehas` is only its path inside the container |
+| `~/tehas/dev/<name>`                 | A person's clone for working by hand, named after their account, made and used by `tehas dev`, never removed. `<name>.author` next to it holds whose name its commits carry |
 | `~/tehas/repos/pi-rukas`             | pi-rukas, pinned to a commit                                            |
 | `~/tehas/docs/`, `~/tehas/fun/`      | This site's pages and the front page, installed from `host/`            |
 | `~/tehas/sandbox/`, `versions.env`   | Sandbox image definition, build script, and the pinned tool versions    |
-| `~/tehas/edge/`                      | The docs server (`docs.compose.yaml`) and the Protolab server (`protolab.compose.yaml`) |
+| `~/tehas/edge/`                      | The docs server (`docs.compose.yaml`) and the edge router (`router.compose.yaml`) |
 | `~/tehas/protolab/`                  | The Protolab's pages and the files of each prototype, written by `tehasbot protolab` |
+| `~/tehas/preview/`                   | The state of each preview, and a bare clone the pull requests' commits are fetched into, written by `tehasbot preview` |
 | `~/tehas/logs/`, `state/`, `live/`, `tmp/` | Logs, state, dashboard data, scratch. `state/` holds the dispatch lock, status files, the record of each planning session (`plan-<issue>.json`) and the id of each parked cycle's question (`park-<issue>.id`). No container is given it |
 | Docker volume `pi-ensemble-cache`    | Caches of the sandbox, among them the code index `tehas index` builds   |
 | `~/.pi/agent/`                       | Pi user configuration (models, MCP servers)                             |
@@ -89,13 +90,13 @@ tehas update             # pull, install, run the follow-ups that apply
 
 `tehas update` is the three steps that took hand work before: fast-forward
 `~/tehas/platform` from its remote, run `install.sh`, then run each follow-up it
-asks for by name (`units`, `sandbox`, `docs`, `protolab`: see [Commands](/tools)).
+asks for by name (`units`, `sandbox`, `docs`, `edge`: see [Commands](/tools)).
 One line per step, and it stops at the first failure. It checks the instance
 settings against the required list in `lib/config.sh`, the same one install.sh
 checks, before it calls git. It changes nothing when the checkout has local
 changes or cannot be fast-forwarded, and it never enables a unit or starts a
 container the host was not already running: a changed unit is reloaded and
-restarted when it was active, and a docs or Protolab container is recreated when
+restarted when it was active, and a docs or edge router container is recreated when
 it is up - Caddy reads its config when the process starts, so a changed Caddyfile
 needs the container brought back up. Asking Docker or systemd whether one runs and
 getting no answer stops the update; only a real answer counts, not an exit status
@@ -216,11 +217,17 @@ sandbox. Give the sandbox its address with `PI_ENSEMBLE_HOST_ALIASES`
 
 ## Limits and concurrency
 
-`TEHAS_WORK_CPUS` and `TEHAS_WORK_MEMORY` bound the one container a cycle runs
-in. CPUs is a time quota (`docker --cpus`), not pinning. Memory is a hard limit
-(`docker --memory`); a process that exceeds it is killed. The defaults are the
-host's CPUs minus one and half its memory, which on the example host is 7 CPUs
-and about 7.5 GB. A value above what the host has is rejected.
+`TEHAS_WORK_CPUS` and `TEHAS_WORK_MEMORY` bound all the cycles of a host
+together. CPUs is a time quota (`docker --cpus`), not pinning. Memory is a hard
+limit (`docker --memory`); a process that exceeds it is killed. The defaults are
+the host's CPUs minus one and half its memory, which on the example host is 7
+CPUs and about 7.5 GB. A value above what the host has is rejected.
+
+`TEHAS_TICKET_CONCURRENCY` sets how many issues are worked on side by side,
+each in a cycle, a container and a workspace of its own. It defaults to 1. Each
+container gets the two limits above divided by it, whether or not the other
+slots are in use. A share below one CPU is rejected, so the setting cannot
+exceed the CPUs given.
 
 `TEHAS_CONCURRENCY` sets how many workstreams one cycle may run side by side,
 inside that one container. It defaults to 4.
@@ -231,11 +238,12 @@ into the last one, so no work is dropped at a low setting; it is done in
 sequence by fewer agents. An issue whose parts touch the same files is planned
 as one workstream whatever the limit.
 
-It is a limit inside one cycle, not across cycles: the dispatcher still runs
-one cycle at a time. The workstreams share the cycle's CPU and memory limits,
-and every one of them is at least one more model call in flight for most of
-the cycle. Lower it when the model backends have few slots, when the host is
-small, or if cycles start timing out.
+It is a limit inside one cycle. With `TEHAS_TICKET_CONCURRENCY` above 1, up to
+that many cycles run at once and each has its own `TEHAS_CONCURRENCY`
+workstreams, so the two multiply: 2 tickets and 4 workstreams are up to 8
+developer agents calling the model backends. Nothing checks that against what
+the backends can serve. Lower either one when the backends have few slots, when
+the host is small, or if cycles start timing out.
 
 ```
 # in the instance's instance.env, then pull and ./install.sh on the host
@@ -247,8 +255,16 @@ Two things it does not change:
 
 - the six review passes on the finished pull request still run together
   (pi-rukas's `PI_ENSEMBLE_SPAWN_CAP`, default 64, is the ceiling there),
-- one issue is worked on at a time. Running several issues at once is not
-  supported: cycles share one checkout.
+- how many issues are worked on at once. That is `TEHAS_TICKET_CONCURRENCY`.
+
+Cycles that run side by side know nothing of each other:
+
+- Two issues that touch the same files give two pull requests that conflict.
+  Label such issues one after the other.
+- The code index is refreshed only when no cycle is running. On a host that
+  is never idle it falls behind the branch; the dispatcher's log says so each
+  time.
+- `~/.vipune`, Pi's `sessions` and the two caches are shared between cycles.
 
 ## Sandbox image
 
@@ -266,8 +282,10 @@ toolchain adds it to the Dockerfile.
 Each build is also tagged with its date, so
 `docker tag tehas/pi-rukas:<date> tehas/pi-rukas:uid$(id -u)` rolls back.
 
-To upgrade pi-rukas: pull the new upstream image, put its digest in the `FROM`
-line, rebuild, and run the contract test before any cycle uses it. The contract
+To upgrade pi-rukas: put the new image's digest in the `FROM` line and its
+commit in `versions.env`, rebuild, and run the contract test before any cycle
+uses it. Where the image comes from is described under
+[pi-rukas comes from a fork](#pi-rukas-comes-from-a-fork). The contract
 test proves the product's gates run inside the image, as the unprivileged user,
 with nothing mounted but a clone:
 
@@ -283,6 +301,46 @@ docker run --rm --cpus 4 --memory 4g --user "$(id -u):$(id -g)" \
 rm -rf "$T"
 ```
 
+## pi-rukas comes from a fork
+
+tehas takes pi-rukas from a [fork](https://github.com/janit/pi-rukas) of
+[upstream](https://github.com/trail-openers/pi-rukas), so a fix reaches the
+factory when it is ready here, not when upstream releases it. The fork is
+never the last stop: every change in it is also offered upstream.
+
+The fork has two kinds of branch:
+
+- `main` follows upstream's `main`. Nothing is committed to it directly.
+- `tehas` is what a host runs: an upstream commit plus the fixes upstream has
+  not merged yet. `PI_RUKAS_COMMIT` in `versions.env` is a commit on it.
+
+Today `tehas` is an upstream commit with nothing added, so the base in
+`sandbox/Dockerfile` is still upstream's published image for that commit. The
+fork has not published an image yet. Its workflows have to be switched on once,
+on the fork's Actions tab, before the first fix can go through step 3.
+
+When a problem in pi-rukas comes up:
+
+1. Open an issue upstream that describes it. Say there that a fix is being
+   tried in the fork.
+2. Write the fix in the fork, on a branch from upstream's `main`, with
+   pi-rukas's own tests. Open a pull request upstream from that branch.
+3. Put the same change on `tehas` and build the fork's image from it: run the
+   `publish-image` workflow on the `tehas` branch. It publishes
+   `ghcr.io/janit/pi-rukas:sha-<commit>`.
+4. In this repository, in one pull request, set `PI_RUKAS_COMMIT` to that
+   commit and the `FROM` line of `sandbox/Dockerfile` to that image's digest.
+   The two always name the same commit, or the host and the sandbox run
+   different code.
+5. On the host: pull, run `./bootstrap.sh user`, rebuild the sandbox image,
+   run the contract test above, then let one cycle run before trusting it.
+6. When upstream merges the fix, move `tehas` to an upstream commit that has
+   it and drop the fork's copy. Repeat steps 3 to 5.
+
+Keep `tehas` close to upstream. A change that upstream turns down is either
+reworked until they take it or removed from `tehas`; it does not stay as a
+permanent difference.
+
 ## Services
 
 | Service     | How it runs                                                | Check                                                  |
@@ -291,11 +349,44 @@ rm -rf "$T"
 | Dispatcher  | systemd user timer `tehas-dispatch.timer`, every 2 minutes | `tail ~/tehas/logs/dispatch.log`                       |
 | Energy use sampler, optional | systemd user service `tehas-energy.service`, every 15 s. Enable it only when the model backend is a [viiwork](https://github.com/janit/viiwork) mesh | `jq .generatedAt ~/tehas/live/energy.json` |
 | Protolab pages | systemd user timer `tehas-protolab.timer`, every 5 minutes | `tail ~/tehas/logs/protolab.log` |
-| Protolab server | `docker compose -f ~/tehas/edge/protolab.compose.yaml up -d` | `curl -i http://tehas-tehas:8081/` |
+| Edge router | `docker compose -f ~/tehas/edge/router.compose.yaml up -d` | `curl -i http://tehas-tehas:8081/` |
+| Previews | systemd user timer `tehas-preview.timer`, every 5 minutes | `tail ~/tehas/logs/preview.log`, `jq . ~/tehas/live/previews.json` |
+| Preview sweep | systemd user timer `tehas-preview-sweep.timer`, every 3 hours | `jq .lastSweep ~/tehas/live/previews.json` |
+| One preview | a container `tehas-preview-<pr>` | `docker ps --filter label=tehas.preview` |
 
 The docs server binds to `TEHAS_HOST_ADDR`, port 8080. Without the setting it
 stays on `127.0.0.1`. `docker compose` reads the address from the environment,
 so run it from a shell that has sourced `~/tehas/env.sh`.
+
+The edge router binds to the same address, port 8081, and picks by the first
+label of the name it is asked for:
+
+| Name asked for | Answer |
+| --- | --- |
+| `uat-<pr>.` and anything after it | The preview of that pull request, the container `tehas-preview-<pr>`. With no such container, a 404 that says no preview is running |
+| `lab-<issue>.` and anything after it | That ticket's page in the Protolab, from `~/tehas/protolab/<issue>/` |
+| Any other name | The Protolab by path: the list at `/`, a ticket at `/<issue>/` |
+
+The number is one to nine digits and does not start with a zero. Another `uat-` or
+`lab-` name is a 404. Every answer of the router says `noindex`. Its
+configuration is a fixed file and holds no domain: nothing writes it when a
+preview comes or goes. It is on two Docker networks: one of its own for the
+published port, and `tehas-previews`, an internal one that the previews are
+on and the host has no address on. `install.sh` makes that network when
+Docker is 27.1 or later, and says so when it is not: an older Docker does
+not know the option that keeps the host out, and what it would make was not
+tried. Where the network is there already
+and does not keep the host out, `install.sh` leaves it and says why and that
+it has to be remade. [Troubleshooting](/troubleshooting) has the lines.
+
+Every unit and both containers are started by the operator. `tehas update`
+restarts a unit that is already active and recreates a container that already
+runs, and adds nothing. So a host installed before previews existed has the
+units `tehas-preview.timer` and `tehas-preview-sweep.timer` installed and not
+running until they are enabled. The one exception is a host that runs the
+Protolab's server under its old compose project, `tehas-protolab`: an update
+takes that container down and starts the edge router in its place.
+[Previews](/edge) has the steps.
 
 Search engines are told to stay out: every page carries `noindex` and
 `/robots.txt` disallows everything. `TEHAS_INDEXING=1` in `instance.env` turns
@@ -332,7 +423,7 @@ Both are outside the repository and the tehas tree.
 | Where an agent's conversation is kept  | In Pi's `sessions` directory. Every later container can read and write it                                                               |
 | Does the token enter the cycle         | Yes, as `GH_TOKEN`. pi-rukas pushes the branch and opens the pull request from inside. Agent code can do anything the token can         |
 | What else enters the container         | `PI_ENSEMBLE_*` settings, the bot's git name and email, the host aliases. Not the rest of the host environment                          |
-| Host paths mounted                     | The cycle's workspace, `~/.vipune`, Pi's `ensemble-runs` and `sessions` (read-write); `models.json`, `mcp.json` (read-only); two caches |
+| Host paths mounted                     | The cycle's own workspace, `~/tehas/work/<name>-<issue>`, at the same path in every container; its own transcripts, `~/.pi/agent/ensemble-runs/issue-<issue>`; `~/.vipune` and Pi's `sessions` (read-write); `models.json`, `mcp.json` (read-only); two caches |
 | Not reachable from the container       | The Docker socket, SSH keys, `~/.config/tehas`, the platform checkout, the product checkout, the instance directory                     |
 | What the host runs from the workspace  | Nothing. The host runs git only in the product checkout, which no container has written. It reads the cycle's state file from the workspace as data |
 | The indexing container                 | `tehas index` runs the indexer, not an agent: a clone of the product read-only, the cache volume, no network, no token                  |
@@ -364,7 +455,7 @@ for it with these differences:
 
 | Question                    | Answer                                                                                                             |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Who can start one           | Anyone who can log in as the tehas user. That account already holds the bot token and is root-equivalent           |
+| Who can start one           | The tehas user, and the accounts in the group `tehas`, through one `sudo` rule. See below                           |
 | The tree it works in        | `~/tehas/dev/<name>`, kept between sessions, where a cycle gets a fresh clone                                       |
 | git identity                | The stored author of that clone, else the bot's. A label: it is not checked against anything                       |
 | What else enters            | A terminal, and `TERM` and `COLORTERM` from the shell. Nothing else of the host environment, and not `~/.config/gh` |
@@ -373,6 +464,31 @@ for it with these differences:
 `test/dev_test.sh` pins the session's `docker run` the same way. Both commands
 take the mounts and variables from `lib/sandbox.sh`, so they cannot differ by
 accident.
+
+### Other accounts
+
+`sudo ./bootstrap.sh dev boss alice` lets the account `alice` start a session.
+It puts three things on the host, outside any home:
+
+| Path                         | Content                                                                                   |
+| ---------------------------- | ----------------------------------------------------------------------------------------- |
+| `/etc/sudoers.d/tehas-dev`   | The group `tehas` may run `~boss/tehas/libexec/dev-login` as `boss`, without a password. Nothing else |
+| `/etc/tehas/manager`         | One line: the tehas user's name                                                           |
+| `/usr/local/bin/tehas`       | The command those accounts type. It holds no setting and no secret                        |
+
+What a member of the group gets, and does not:
+
+| Question                         | Answer                                                                                                    |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| The bot token                    | Yes, inside the session, as in any session. A member can push to the product and open pull requests as the bot. Add an account only if you would give it that |
+| Docker, or a shell as the tehas user | No. The rule names one script, and the account is not put in the `docker` group                       |
+| Which clone                      | The one named after the account. `sudo` sets that name; the caller cannot. Nobody enters another account's clone |
+| The author                       | What the account's git configuration says. Not checked against anything                                   |
+| The arguments                    | An author, checked for its shape, and arguments for `pi`, which run inside the container                  |
+| The environment                  | `sudo` clears it. `dev-login` loads the tehas user's own, as the timers do. `TERM` and `COLORTERM` are kept |
+
+`gpasswd -d alice tehas` takes an account out. `test/login_test.sh` and
+`test/bootstrap_test.sh` hold the rule and the two scripts to this.
 
 A host that ran cycles before the workspace existed gave its containers the
 product checkout itself. Replace that checkout once with a fresh clone, so
