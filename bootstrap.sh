@@ -4,14 +4,18 @@
 # version is skipped, one at another version is replaced.
 #
 #   sudo ./bootstrap.sh root <user>   system packages, Docker, the docker
-#                                     group and lingering for <user>
+#                                     group and lingering for <user>, and the
+#                                     slice
+#   sudo ./bootstrap.sh slice         the systemd slice the sandbox containers
+#                                     run in, /etc/systemd/system/tehas.slice
 #   ./bootstrap.sh user               the rest, as the tehas user, under that
 #                                     user's home; ends with pi-rukas's installer
 #   sudo ./bootstrap.sh dev <user> [<login>...]
 #                                     let other accounts on the host start a
 #                                     session with "tehas dev", run as <user>
 #   ./bootstrap.sh check              change nothing; one line per tool with
-#                                     the version found and the one expected
+#                                     the version found and the one expected,
+#                                     and one for the slice
 #
 # It does not create credentials, clone the product or install tehas itself:
 # see the manual's bootstrap page for the steps around it.
@@ -25,7 +29,7 @@
 # to be present.
 #
 # Exit: 0 done, or check found everything; 1 something failed or check found
-# a tool missing or at another version; 64 usage.
+# a tool missing or at another version; 64 usage, or slice not run as root.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")" && pwd)
@@ -49,7 +53,7 @@ supported() {
 
 # --- root ---------------------------------------------------------------------
 do_root() {
-  local user=${1:-}
+  local user=${1:-} rc
   [ -n "$user" ] || { echo "usage: sudo ./bootstrap.sh root <user>" >&2; exit 64; }
   [ "$(id -u)" = 0 ] || die "the root part must run as root: sudo ./bootstrap.sh root $user"
   id "$user" >/dev/null 2>&1 || die "no such user: $user"
@@ -60,7 +64,77 @@ do_root() {
   usermod -aG docker "$user"
   loginctl enable-linger "$user"
   systemctl enable --now docker >/dev/null
+  # A Docker that is not on the systemd driver yet does not fail this part.
+  rc=0
+  slice_install || rc=$?
+  case "$rc" in
+    0) ;;
+    3) echo "bootstrap: run sudo ./bootstrap.sh slice once Docker uses the systemd driver" ;;
+    *) exit 1 ;;
+  esac
   echo "bootstrap: root part done. $user must log in again for the docker group to apply."
+}
+
+# --- slice --------------------------------------------------------------------
+# One system unit, host/slice/tehas.slice, copied to /etc/systemd/system. Root
+# is needed for exactly this: rootful Docker places containers under PID 1, so
+# a slice of the tehas user cannot hold them. It reads nothing from the
+# instance, the user's home or the network.
+slice_file=$root/host/slice/tehas.slice
+slice_to=${BOOTSTRAP_ETC:-/etc}/systemd/system/tehas.slice
+
+# The slice as systemd has it: sets slice_path and slice_max. True when it is
+# loaded from a file and has a memory limit. A slice systemd made up for a name
+# in use has neither.
+slice_loaded() {
+  local out
+  slice_path="" slice_max=""
+  out=$(systemctl show tehas.slice -p FragmentPath -p MemoryMax 2>/dev/null) || return 1
+  slice_path=$(sed -n 's/^FragmentPath=//p' <<<"$out")
+  slice_max=$(sed -n 's/^MemoryMax=//p' <<<"$out")
+  [ -n "$slice_path" ] && [[ $slice_max =~ ^[0-9]+$ ]]
+}
+
+# Returns 0 in place, 3 when Docker cannot put a container in a slice (nothing
+# was written), 1 when a step failed. Every step is checked by hand: do_root
+# calls this where set -e does not reach.
+slice_install() {
+  local answer driver version oomd
+  [ -f "$slice_file" ] || { echo "bootstrap: $slice_file is missing from this checkout" >&2; return 1; }
+  answer=$(docker info --format '{{.CgroupDriver}} {{.CgroupVersion}}' 2>/dev/null) || answer=""
+  if [ "$answer" != "systemd 2" ]; then
+    read -r driver version _ <<<"$answer" || true
+    if [ -z "$driver" ] || [ -z "$version" ]; then
+      echo "bootstrap: Docker gave no answer about its cgroup driver; the slice was not written" >&2
+    else
+      echo "bootstrap: Docker runs containers with the $driver cgroup driver on cgroup v$version, tehas needs systemd on v2." \
+        "Set \"exec-opts\": [\"native.cgroupdriver=systemd\"] in /etc/docker/daemon.json and restart Docker; the slice was not written" >&2
+    fi
+    return 3
+  fi
+  # An equal file is not enough: it is in force only once systemd has read it.
+  if [ -f "$slice_to" ] && cmp -s "$slice_file" "$slice_to" && slice_loaded; then
+    echo "bootstrap: slice part already in place"
+    return 0
+  fi
+  install -D -m 644 "$slice_file" "$slice_to" ||
+    { echo "bootstrap: could not write $slice_to" >&2; return 1; }
+  systemctl daemon-reload || { echo "bootstrap: systemctl daemon-reload failed" >&2; return 1; }
+  systemctl start tehas.slice || { echo "bootstrap: systemctl start tehas.slice failed" >&2; return 1; }
+  slice_loaded || {
+    echo "bootstrap: tehas.slice has no memory limit after it was started (FragmentPath=${slice_path:-none}, MemoryMax=${slice_max:-none})" >&2
+    return 1
+  }
+  # Information only: tehas neither uses nor needs systemd-oomd.
+  oomd=inactive
+  [ "$(systemctl is-active systemd-oomd 2>/dev/null || true)" != active ] || oomd=active
+  echo "bootstrap: slice part done. tehas.slice is loaded from $slice_path, MemoryMax $slice_max bytes. systemd-oomd: $oomd"
+}
+
+do_slice() {
+  [ "$#" = 0 ] || { echo "usage: sudo ./bootstrap.sh slice" >&2; exit 64; }
+  [ "$(id -u)" = 0 ] || { echo "bootstrap: the slice part must run as root: sudo ./bootstrap.sh slice" >&2; exit 64; }
+  slice_install || exit 1
 }
 
 # --- dev ----------------------------------------------------------------------
@@ -191,6 +265,14 @@ EOF
   check "docker without sudo" docker info
   lingering() { [ "$(loginctl show-user "$(id -un)" -p Linger --value)" = yes ]; }
   check "lingering" lingering
+  # Root's to install, so it is reported and does not fail the check.
+  if [ ! -f "$slice_to" ]; then
+    echo "tehas.slice: missing (sudo ./bootstrap.sh slice)"
+  elif cmp -s "$slice_file" "$slice_to"; then
+    echo "tehas.slice: in place"
+  else
+    echo "tehas.slice: differs (sudo ./bootstrap.sh slice)"
+  fi
   return "$rc"
 }
 
@@ -306,11 +388,12 @@ do_user() {
 
 case "${1:-}" in
   root) do_root "${2:-}" ;;
+  slice) shift; do_slice "$@" ;;
   user) do_user ;;
   dev) shift; do_dev "$@" ;;
   check) do_check ;;
   *)
-    sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
     exit 64
     ;;
 esac

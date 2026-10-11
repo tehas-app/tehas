@@ -966,7 +966,7 @@ host points at. See [The host](/host).
 
 ```
 cd ~/tehas/platform
-./install.sh --check     # change nothing; Instance, Dependencies, Installed, Follow-ups, Tests
+./install.sh --check     # change nothing; Instance, Dependencies, Slice, Installed, Follow-ups, Tests
 ./install.sh
 ```
 

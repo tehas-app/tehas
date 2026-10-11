@@ -1,0 +1,10 @@
+# Installed by "sudo ./bootstrap.sh slice". Every sandbox container tehas
+# starts runs in this slice. The limit is a share of the host's memory, so the
+# file is the same on every host and is never edited by hand. Another limit
+# goes in tehas.slice.d/override.conf, which tehas reads but never writes.
+[Unit]
+Description=The containers tehas starts, together
+
+[Slice]
+MemoryMax=75%
+CPUWeight=100

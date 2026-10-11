@@ -117,7 +117,7 @@ the first time, before `tehas update` exists there:
 
 ```
 cd ~/tehas/platform && git pull
-./install.sh --check     # change nothing, report five results
+./install.sh --check     # change nothing, report six results
 ./install.sh             # copy changed files into place, keep <name>.prev
 ```
 
@@ -126,11 +126,13 @@ The labels `tehas:plan`, `tehas:planning` and `tehas:question`, for planning on
 an issue and the retry tick, are not in a repository until it has been.
 
 `--check` prints one line each for the instance settings, the host's tools, the
-installed files, the follow-ups an earlier run left undone, and the tests:
+slice, the installed files, the follow-ups an earlier run left undone, and the
+tests:
 
 ```
 Instance:     /home/boss/tehas/platform/instances/tehas-tehas OK
 Dependencies: OK
+Slice:        MISSING (sudo ./bootstrap.sh slice)
 Installed:    DRIFT (1 files)
   differs: /home/boss/tehas/libexec/dispatch
 Follow-ups:   NOT DONE (2 from an earlier run, see /home/boss/tehas/state/update-pending)
@@ -138,10 +140,16 @@ Tests:        OK
 ```
 
 The `Follow-ups:` line appears only while `~/tehas/state/update-pending` still
-holds steps that were asked for and never ran - a host with none owed prints four
+holds steps that were asked for and never ran - a host with none owed prints five
 lines - and while it does, `--check` exits 1, because a host with files matching
 and a step unapplied is not current. Running `tehas update` runs them and clears
 the record ([Troubleshooting](/troubleshooting) has the case in full).
+
+The `Slice:` line compares `/etc/systemd/system/tehas.slice` with
+`host/slice/tehas.slice` in the checkout: `OK`, `MISSING` or `DIFFERS`. It is
+information and does not change the exit status, because nothing needs the
+slice yet. A real run prints a `note:` line for the last two and installs no
+slice: that is root's step, [`sudo ./bootstrap.sh slice`](/bootstrap#slice).
 
 `install.sh` validates the settings first and installs nothing if they are
 invalid. It prints one `next:` line per follow-up its changed files call for, and
@@ -271,6 +279,50 @@ Cycles that run side by side know nothing of each other:
   is never idle it falls behind the branch; the dispatcher's log says so each
   time.
 - `~/.vipune`, Pi's `sessions` and the two caches are shared between cycles.
+
+### The slice
+
+`tehas.slice` is one systemd slice for every sandbox container tehas starts.
+Root installs it once with [`sudo ./bootstrap.sh slice`](/bootstrap#slice),
+from `host/slice/tehas.slice` to `/etc/systemd/system/tehas.slice`.
+
+Today it is only installed. No container is started in it, and the limits
+above are the ones in force. It comes first so that the root step is done on a
+host before a version of tehas that needs it.
+
+Its one limit is `MemoryMax=75%`: everything in the slice together may use
+three quarters of the host's memory. It is a share, not a number, so the file
+is the same on every host and no setting describes the machine. The other
+quarter is for the host: Docker itself, the edge router, the previews, image
+builds and the tehas user's own units. `CPUWeight=100` is systemd's default,
+written out, so the slice competes for CPU with the rest of the system on
+equal terms. There is no CPU quota on it.
+
+What the file leaves out, on purpose:
+
+- No `MemoryHigh`. Over that limit the kernel slows every process in the slice
+  and kills nothing, so a full slice would stall. At `MemoryMax` the kernel
+  frees file cache and then kills the largest process in the slice.
+- No `MemoryLow`. When the whole host is short of memory, the host wins.
+- No `ManagedOOM` lines. tehas neither uses nor needs systemd-oomd. Where
+  Ubuntu's systemd-oomd package is installed, it ships a setting that lets
+  oomd kill a user's own service manager under pressure, the tehas user's
+  among them. That is the package's doing, not this slice's.
+
+To read what is in force:
+
+```
+systemctl show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax -p CPUWeight
+```
+
+`FragmentPath` is the file it was loaded from and `MemoryMax` is a number of
+bytes. A slice with an empty `FragmentPath` and `MemoryMax=infinity` is one
+systemd made up for a name in use: the root step has not been run. An inactive
+slice still answers from its file.
+
+Another limit for one host goes in
+`/etc/systemd/system/tehas.slice.d/override.conf`, by root, followed by
+`systemctl daemon-reload`. tehas never writes that file.
 
 ## Sandbox image
 

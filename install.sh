@@ -5,7 +5,8 @@
 #
 #   ./install.sh            copy changed files into place
 #   ./install.sh --check    change nothing; report settings, dependencies,
-#                           installed files and tests, each on its own line
+#                           the slice, installed files and tests, each on its
+#                           own line
 #
 # What is installed: the commands and units (issue to pull request), the
 # sandbox files, the docs server, the edge router, the Protolab, the
@@ -48,6 +49,12 @@
 # prints them as "next: <step>" and records them; `tehas update` runs them and
 # clears the record. Only a step is printed as "next:". Something for a person
 # to do later that is no step is printed as "later:".
+#
+# It does not install the slice the sandbox containers are to run in: that is
+# one system unit, and root's (sudo ./bootstrap.sh slice). It compares the
+# file in this checkout, host/slice/tehas.slice, with the one under /etc and
+# says what it found: a "Slice:" line in --check, a "note:" in a real run when
+# the file is missing or differs. That changes no exit status.
 #
 # It asks systemd for nothing, with one exception. A copied unit file is not in
 # effect until systemd has reloaded it, and that reload belongs to the step
@@ -331,6 +338,21 @@ for f in bin/tehas-console.ts bin/tehas-dispatch bin/tehas-energy bin/tehas-heal
   if [ "$check" = 1 ]; then note "stale: $to"; else record_step "$f"; fi
 done
 
+# The slice file on the host against the one in this checkout. Nothing here
+# reads the instance or asks systemd.
+slice_to=${BOOTSTRAP_ETC:-/etc}/systemd/system/tehas.slice
+slice_state() {
+  if [ -n "${T_IN_TEST:-}" ] && [ -z "${BOOTSTRAP_ETC:-}" ]; then
+    echo "not checked"
+  elif [ ! -f "$slice_to" ]; then
+    echo MISSING
+  elif cmp -s "$host/slice/tehas.slice" "$slice_to"; then
+    echo OK
+  else
+    echo DIFFERS
+  fi
+}
+
 # --- 4. Report (--check) -----------------------------------------------------
 if [ "$check" = 1 ]; then
   rc=0
@@ -349,6 +371,14 @@ if [ "$check" = 1 ]; then
   else
     echo "Dependencies: not checked (no bootstrap.sh in this checkout)"
   fi
+
+  # Information only: no command needs the slice yet, so it sets no status.
+  case "$(slice_state)" in
+    OK) echo "Slice:        OK" ;;
+    MISSING) echo "Slice:        MISSING (sudo ./bootstrap.sh slice)" ;;
+    DIFFERS) echo "Slice:        DIFFERS (sudo ./bootstrap.sh slice)" ;;
+    *) echo "Slice:        not checked (running inside the tests)" ;;
+  esac
 
   if [ "${#changed[@]}" = 0 ]; then
     echo "Installed:    OK"
@@ -422,6 +452,11 @@ if command -v docker >/dev/null 2>&1; then
     esac
   fi
 fi
+
+case "$(slice_state)" in
+  MISSING) echo "note: $slice_to is missing (sudo ./bootstrap.sh slice)" ;;
+  DIFFERS) echo "note: $slice_to differs from host/slice/tehas.slice in this checkout (sudo ./bootstrap.sh slice)" ;;
+esac
 
 # The one place the default branch is looked up over the network.
 if [ -z "${TEHAS_BRANCH:-}" ] && [ -d "$TEHAS_WORK_REPO/.git" ]; then

@@ -217,16 +217,59 @@ t_case "a second run changes nothing"
 t_run "$install"
 t_contains "$t_out" "tehas is up to date"
 
-t_case "--check on a matching install reports four lines and exits 0"
+t_case "--check on a matching install reports five lines and exits 0"
 # The follow-ups of the install above are taken as done, which is what running
 # tehas update does to the record. A host that still owes one is another case.
 rm -f "$th/state/update-pending"
 t_run "$install --check"
 t_eq "$t_rc" 0
-t_contains "$t_out" "Instance:     $T/instance OK"
-t_contains "$t_out" "Dependencies: not checked (running inside the tests)"
-t_contains "$t_out" "Installed:    OK"
-t_contains "$t_out" "Tests:        not checked (running inside the tests)"
+t_eq "$t_out" "Instance:     $T/instance OK
+Dependencies: not checked (running inside the tests)
+Slice:        not checked (running inside the tests)
+Installed:    OK
+Tests:        not checked (running inside the tests)"
+
+# The slice is root's to install (sudo ./bootstrap.sh slice). install.sh only
+# compares the checkout's file with the one under /etc and says what it found.
+# Nothing needs the slice yet, so the line changes no exit status.
+t_case "--check names a missing slice and what installs it, and still exits 0"
+mkdir -p "$T/etc/systemd/system"
+T_ENV=(T_IN_TEST=1 BOOTSTRAP_ETC="$T/etc")
+t_run "$install --check"
+t_eq "$t_rc" 0
+t_contains "$t_out" "Slice:        MISSING (sudo ./bootstrap.sh slice)"
+
+t_case "--check says OK for the slice file this checkout ships"
+cp "$T_ROOT/host/slice/tehas.slice" "$T/etc/systemd/system/tehas.slice"
+t_run "$install --check"
+t_eq "$t_rc" 0
+t_contains "$t_out" "Slice:        OK"
+
+t_case "--check names a slice file that differs, and still exits 0"
+echo "MemoryMax=10%" >>"$T/etc/systemd/system/tehas.slice"
+t_run "$install --check"
+t_eq "$t_rc" 0
+t_contains "$t_out" "Slice:        DIFFERS (sudo ./bootstrap.sh slice)"
+
+t_case "a real run notes a slice that differs or is missing, and installs no slice"
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "note: $T/etc/systemd/system/tehas.slice differs from host/slice/tehas.slice in this checkout (sudo ./bootstrap.sh slice)"
+rm "$T/etc/systemd/system/tehas.slice"
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "note: $T/etc/systemd/system/tehas.slice is missing (sudo ./bootstrap.sh slice)"
+t_eq "$(find "$T/etc" -type f | wc -l)" 0
+t_eq "$(installed_files | grep -c slice)" 0
+
+t_case "a real run says nothing of a slice that is in place"
+cp "$T_ROOT/host/slice/tehas.slice" "$T/etc/systemd/system/tehas.slice"
+t_run "$install"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "note:"
+t_lacks "$t_out" "slice"
+rm -rf "${T:?}/etc"
+T_ENV=(T_IN_TEST=1)
 
 t_case "--check reports drift, changes nothing and exits 1"
 echo "# edited on the host" >>"$th/libexec/dispatch"
