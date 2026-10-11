@@ -836,21 +836,24 @@
 
   // The production console. Unlike the tickets above, this is live: it reads the
   // files the dispatcher writes under /live/, the same ones the plain dashboard
-  // reads, and tails the running cycle's console with Range requests so it only
+  // reads, and tails the selected cycle's console with Range requests so it only
   // fetches what is new. Console text is untrusted and only ever appended as text.
-  const live = { file: null, offset: 0, running: false, titles: new Map() };
+  // Several cycles can run side by side: console-tabs.js says which there are.
+  const TABS = globalThis.TEHAS_CONSOLE_TABS;
+  const live = { file: null, offset: 0, tailing: false, running: false, titles: new Map(), now: null, selected: null };
   const duration = (secs) => {
     const m = Math.max(0, Math.floor(secs / 60)), h = Math.floor(m / 60);
     return h > 0 ? `${h} h ${m % 60} min` : `${m} min`;
   };
 
-  function consoleState(state, text, doorText) {
+  // The tag describes the cycle that is shown. The door, the monitor's lamp
+  // and the console tag's blink say whether any cycle is running at all.
+  function consoleState(state, text, doorText, working) {
     $("console-state").dataset.state = state;
     $("console-state").textContent = text;
     $("door-console").textContent = doorText;
-    $("door-console-link").classList.toggle("is-alert", state === "live");
-    // The monitor's lamp and the console tag blink only while a cycle really runs.
-    document.body.dataset.factory = state;
+    $("door-console-link").classList.toggle("is-alert", working);
+    document.body.dataset.factory = working ? "live" : state;
   }
 
   async function refreshConsole() {
@@ -859,15 +862,38 @@
     try {
       const r = await fetch("/live/running.json", { cache: "no-store" });
       if (r.ok) now = await r.json();
-    } catch { /* unreachable: handled below */ }
+    } catch { /* unreachable: handled in showConsole */ }
+    live.now = now;
+    if (TABS.view(now, null).tabs.length) {
+      try {
+        const r = await fetch("/live/status.json", { cache: "no-store" });
+        if (r.ok) {
+          const s = await r.json();
+          for (const key of ["running", "queued", "stopped", "awaiting", "completed"]) {
+            for (const t of Array.isArray(s[key]) ? s[key] : []) live.titles.set(Number(t.number), String(t.title || ""));
+          }
+        }
+      } catch { /* titles are a nicety */ }
+    }
+    showConsole();
+  }
+
+  function selectConsole(issue) {
+    live.selected = issue;
+    showConsole();
+  }
+
+  function showConsole() {
+    const v = TABS.view(live.now, live.selected);
     const before = failure && failure.issue + failure.status;
-    failure = now && Number.isSafeInteger(Number(now.issue)) && !now.running && !["merged", "handoff"].includes(String(now.status))
-      ? { issue: Number(now.issue), status: String(now.status).slice(0, 40) } : null;
+    failure = v.failure;
     if ((failure && failure.issue + failure.status) !== before) renderFloor();
-    if (!now || !Number.isSafeInteger(Number(now.issue))) {
+    TABS.render($("console-tabs"), v, selectConsole);
+    const tab = v.shown;
+    if (!tab) {
       live.file = null;
       live.running = false;
-      consoleState("off", "NO CONSOLE", "NOTHING TO SHOW");
+      consoleState("off", "NO CONSOLE", "NOTHING TO SHOW", false);
       $("console-cycle").textContent = "No cycle to show.";
       $("console-step").textContent = "Either no cycle has run yet, or this page cannot reach the factory's live files.";
       $("console-out").textContent = "";
@@ -875,27 +901,19 @@
       $("console-note").textContent = "";
       return;
     }
-    try {
-      const r = await fetch("/live/status.json", { cache: "no-store" });
-      if (r.ok) {
-        const s = await r.json();
-        for (const key of ["running", "queued", "stopped", "awaiting", "completed"]) {
-          for (const t of Array.isArray(s[key]) ? s[key] : []) live.titles.set(Number(t.number), String(t.title || ""));
-        }
-      }
-    } catch { /* titles are a nicety */ }
-
-    live.running = Boolean(now.running);
+    const now = tab.cycle;
+    live.running = tab.running;
     if (live.running) live.idle = false;
-    const title = live.titles.get(Number(now.issue));
+    const title = live.titles.get(now.issue);
     $("console-cycle").textContent = (live.running ? "Working on #" : "Last cycle: #") + now.issue + (title ? "  " + title : "");
     const elapsed = (live.running ? Date.now() / 1000 : Number(now.updatedAt)) - Number(now.startedAt);
     $("console-step").textContent = live.running
       ? `${now.statusText || "step " + now.step} (${duration(elapsed)} so far)`
       : `Ended as ${now.status} at step ${now.step} after ${duration(elapsed)}.`;
-    consoleState(live.running ? "live" : "ended", live.running ? "LIVE" : "ENDED", live.running ? `WORKING ON #${now.issue}` : "IDLE");
+    const door = v.running === 0 ? "IDLE" : v.running === 1 ? `WORKING ON #${v.tabs[0].issue}` : `WORKING ON ${v.running} ISSUES`;
+    consoleState(live.running ? "live" : "ended", live.running ? "LIVE" : "ENDED", door, v.running > 0);
 
-    const file = typeof now.console === "string" && /^[\w.-]+$/.test(now.console) ? now.console : null;
+    const file = TABS.consoleFile(now);
     if (file !== live.file) {
       live.file = file;
       live.offset = 0;
@@ -908,12 +926,17 @@
 
   async function tailConsole() {
     // An ended cycle's console is read once; asking again only earns a 416.
-    if (!live.file || document.hidden || live.idle) return;
-    const out = $("console-out");
+    // Two requests for the same offset would both append their answer.
+    if (!live.file || document.hidden || live.idle || live.tailing) return;
+    live.tailing = true;
+    const out = $("console-out"), file = live.file;
     try {
-      const r = await fetch("/live/" + live.file, { headers: { Range: `bytes=${live.offset}-` }, cache: "no-store" });
+      const r = await fetch("/live/" + file, { headers: { Range: `bytes=${live.offset}-` }, cache: "no-store" });
+      // A tab was chosen while this request was out: its answer is for the old one.
+      if (file !== live.file) return;
       if (r.status === 206 || (r.status === 200 && live.offset === 0)) {
         const bytes = new Uint8Array(await r.arrayBuffer());
+        if (file !== live.file) return;
         if (bytes.length) {
           live.offset += bytes.length;
           out.append(new TextDecoder().decode(bytes));
@@ -931,12 +954,15 @@
       $("console-note").textContent = live.running ? "LIVE" : "ENDED";
     } catch {
       $("console-note").textContent = "CONSOLE UNAVAILABLE";
+    } finally {
+      live.tailing = false;
     }
   }
 
   $("console-follow").addEventListener("change", (event) => {
     if (event.target.checked) $("console-out").scrollTop = $("console-out").scrollHeight;
   });
+  TABS.keys($("console-tabs"), selectConsole);
   refreshConsole();
   setInterval(refreshConsole, 10000);
   setInterval(tailConsole, 2000);

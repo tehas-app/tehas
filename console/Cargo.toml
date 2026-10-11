@@ -4,6 +4,8 @@
 name = "console"
 version = "0.1.0"
 edition = "2021"
+# The oldest compiler that knows what the source uses (LazyLock).
+rust-version = "1.80"
 publish = false
 
 [dependencies]

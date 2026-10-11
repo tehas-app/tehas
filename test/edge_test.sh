@@ -102,11 +102,13 @@ t_eq "$(jq -r '[(.previews | type), (.disk | type)] | join(",")' "$T_ROOT/previe
 
 # The sample files stand where a host has what tehas work and tehasbot health
 # write. Their keys are pinned to those two, so a change there is seen here.
-t_case "the preview's sample running.json has the keys tehas work writes, but for the console"
+t_case "the preview's sample running.json is the live view, and its cycle has the keys tehas work writes, but for the console"
 written=$(sed -n "/'{issue: \$issue/,/}'/p" "$T_ROOT/libexec/work" | grep -oE '\b[A-Za-z]+: ' | tr -d ': ' | LC_ALL=C sort | tr '\n' ' ')
 t_eq "$written" "console issue running startedAt status statusText step updatedAt "
+# The view of lib/live.sh: no cycle runs in a preview, and one finished last.
+t_eq "$(jq -c '[keys, .cycles]' "$T_ROOT/preview/live/running.json")" '[["cycles","last"],[]]'
 # A preview has no console file to show, so the sample names none.
-t_eq "$(jq -r 'keys_unsorted | join(" ")' "$T_ROOT/preview/live/running.json" | tr ' ' '\n' | LC_ALL=C sort | tr '\n' ' ')" \
+t_eq "$(jq -r '.last | keys_unsorted | join(" ")' "$T_ROOT/preview/live/running.json" | tr ' ' '\n' | LC_ALL=C sort | tr '\n' ' ')" \
   "${written#console }"
 
 t_case "the preview's sample health.json has the keys tehasbot health writes from the samples beside it"

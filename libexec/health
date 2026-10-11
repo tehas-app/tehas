@@ -3,17 +3,17 @@
 # docs server as /health (and /healthz).
 #
 # It reads only what the factory already writes under live/: status.json (the
-# queue snapshot from tehasbot status) and running.json (the current or last cycle
-# from tehas work). No network, no model. tehasbot status runs it on exit, so it is
-# refreshed at every poll and every two minutes during a cycle.
+# queue snapshot from tehasbot status) and running.json (the running cycles
+# and the last one, from tehas work). No network, no model. tehasbot status runs it on exit, so it is
+# refreshed at every poll and at the end of every cycle.
 #
 # The file follows the health check response format (draft-inadarei-api-health-check):
 #   status "pass"  the factory is taking work
 #   status "warn"  it is paused (tehas:pause on the control issue), or the host
 #                  is too low on disk to build previews, or its free space
 #                  could not be read (live/previews.json, from tehasbot preview)
-#   status "fail"  the last cycle ended as anything but merged or handoff, or
-#                  there is no queue snapshot yet
+#   status "fail"  the last cycle ended as anything but merged or handoff and
+#                  no cycle has started since, or there is no queue snapshot yet
 # On "fail" it also creates live/health.down, which makes the docs server answer
 # 503 with the same body; otherwise it removes that file.
 #
@@ -26,13 +26,18 @@ set -uo pipefail
 : "${TEHAS_HOME:=$HOME/tehas}"
 live=$TEHAS_HOME/live
 mkdir -p "$live"
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/live.sh
+. "$here/../lib/live.sh"
+# A cycle that died without a word stops being shown as running here.
+tehas_live_assemble 2>/dev/null || true
 
 status_file=$live/status.json
 running_file=$live/running.json
 queue=null
-cycle=null
+view=null
 [ -s "$status_file" ] && queue=$(jq -c . "$status_file" 2>/dev/null || echo null)
-[ -s "$running_file" ] && cycle=$(jq -c . "$running_file" 2>/dev/null || echo null)
+[ -s "$running_file" ] && view=$(jq -c . "$running_file" 2>/dev/null || echo null)
 
 # The free space of the host, as tehasbot preview measured it. A host without
 # previews has no such file, and a figure that is no longer written is not
@@ -44,10 +49,21 @@ disk=null
   | .disk + {time: .generatedAt}' "$previews_file" 2>/dev/null)
 [ -n "$disk" ] || disk=null
 
-jq -n --argjson queue "$queue" --argjson cycle "$cycle" --argjson disk "$disk" --arg now "$(date -u +%FT%TZ)" '
+jq -n --argjson queue "$queue" --argjson view "$view" --argjson disk "$disk" --arg now "$(date -u +%FT%TZ)" '
   def iso: if type == "number" then todate else null end;
-  ($cycle != null and ($cycle.running | not)
-     and (($cycle.status // "") | IN("merged", "handoff") | not)) as $failed
+  def brief: {
+    issue, running: (.running // false), status, step,
+    startedAt: (.startedAt | iso), time: (.updatedAt | iso)
+  };
+  # The view tehas work writes, or the one object an earlier version wrote.
+  (if ($view | type) != "object" then {cycles: [], last: null}
+   elif ($view | has("cycles")) then $view
+   elif $view.running == true then {cycles: [$view], last: null}
+   else {cycles: [], last: $view} end) as $v
+  | ($v.cycles // []) as $running
+  | $v.last as $last
+  | ($last != null and (($last.status // "") | IN("merged", "handoff") | not)
+     and ($running | map(select((.startedAt // 0) >= ($last.updatedAt // 0))) | length) == 0) as $failed
   | (if $queue == null then "fail"
      elif $failed then "fail"
      elif $queue.paused then "warn"
@@ -57,12 +73,12 @@ jq -n --argjson queue "$queue" --argjson cycle "$cycle" --argjson disk "$disk" -
       status: $status,
       time: $now,
       output: (if $queue == null then "No queue snapshot yet: the dispatcher has not written one."
-               elif $failed then "The last cycle failed: #\($cycle.issue) ended as \($cycle.status)."
+               elif $failed then "The last cycle failed: #\($last.issue) ended as \($last.status)."
                elif $queue.paused then "The factory is paused."
                elif $disk != null and $disk.low then
                  (if $disk.freeBytes == null then "The host\u0027s free disk space could not be read: previews are not being built."
                   else "The host is low on disk: previews are not being built." end)
-               elif $cycle != null and $cycle.running then "Working on #\($cycle.issue)."
+               elif ($running | length) > 0 then "Working on \($running | map("#\(.issue)") | join(", "))."
                else "Idle, taking work." end),
       checks: {
         queue: (if $queue == null then null else {
@@ -73,14 +89,8 @@ jq -n --argjson queue "$queue" --argjson cycle "$cycle" --argjson disk "$disk" -
           review: ($queue.awaiting | length),
           stopped: ($queue.stopped | length)
         } end),
-        cycle: (if $cycle == null then null else {
-          issue: $cycle.issue,
-          running: ($cycle.running // false),
-          status: $cycle.status,
-          step: $cycle.step,
-          startedAt: ($cycle.startedAt | iso),
-          time: ($cycle.updatedAt | iso)
-        } end),
+        cycle: (($running[0] // $last) | if . == null then null else brief end),
+        cycles: ($running | map(brief)),
         disk: (if $disk == null then null else ($disk | {time, freeBytes, minFreeBytes, low}) end)
       }
     }' >"$live/health.json.new" 2>/dev/null || exit 1

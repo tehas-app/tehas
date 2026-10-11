@@ -211,6 +211,8 @@ install_cbm() {
 install_rukas() {
   local dir=$TEHAS_HOME/repos/pi-rukas
   if [ -d "$dir/.git" ]; then
+    # A clone made before the repository changed still points at the old one.
+    git -C "$dir" remote set-url origin "$PI_RUKAS_REPO"
     git -C "$dir" fetch -q origin
   else
     mkdir -p "$TEHAS_HOME/repos"

@@ -50,7 +50,8 @@ when a person pulls and runs `install.sh` there.
 6. **Tests first.** Every behaviour change comes with a case in `test/`. Tests
    need bash, git, jq and shellcheck only: no network, no sandbox image, no
    product checkout. Stub the outside world with `t_stub`. The console's tests
-   are Rust, beside its source in `console/`, and run in the full gate.
+   are Rust, beside its source in `console/`, and run in the gate wherever
+   `cargo` is installed.
 7. **Do not edit your own gates.** `.pi/`, `AGENTS.md`, `scripts/verify.sh` and
    `scripts/check-generic.sh` are changed by people, not by a work cycle. If a
    gate is wrong, say so in your handoff.
@@ -68,8 +69,14 @@ when a person pulls and runs `install.sh` there.
 - Bash: `set -uo pipefail` (or `-euo` where the script already has it), two
   spaces, `shellcheck -x` clean with no blanket disables. A header comment says
   what the command does, its usage and its exit statuses. Comments explain why.
+- Rust: as `cargo fmt` leaves it, and `cargo clippy` clean with no blanket
+  allows. No `unsafe`.
 - Prose in comments, the manual and commit messages: plain and direct, short
   sentences, no em dashes, no hype.
+- Replies, handoffs and pull request text: simple and to the point. No
+  stories, no walls of jargon.
+- Code comments: terse. Before you write one, ask whether the code already
+  says it. If it does, leave the comment out.
 - The manual in `host/docs/` describes what is true on a host today. When you
   change behaviour, change the page that describes it in the same commit.
   `host/docs/features.md` says how far each feature is proven; do not mark
@@ -78,8 +85,8 @@ when a person pulls and runs `install.sh` there.
 ## Verify
 
 ```
-scripts/verify.sh          # fast gate: lint, shellcheck, shell tests
-scripts/verify.sh --full   # plus the console's tests (cargo) and the front page's (node)
+scripts/verify.sh          # fast gate: lint, shellcheck, shell tests, the console's tests where cargo is
+scripts/verify.sh --full   # plus the console's format and lints (rustfmt, clippy) and the front page's tests (node)
 ```
 
 Both print one line per step and exit non-zero on failure. Run the fast gate

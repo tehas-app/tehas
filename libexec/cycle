@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+# One tehas cycle for one issue, and its report.
+#
+# Deterministic, no model. It runs tehas work for the issue and reports the
+# outcome on the issue (and the token usage on the pull request). The
+# dispatcher starts it as tehas-cycle@<issue>.service, after it has checked who
+# labelled the issue and marked it tehas:running. This command checks no
+# authorisation, as tehas work checks none: run by hand it runs a cycle for
+# any issue.
+#
+# Usage:
+#   tehasbot cycle <issue>
+#
+# Exit: 0 the cycle ran and was reported, whatever its outcome; 3 a cycle for
+# this issue is already running; 64 the argument is not an issue number; 78
+# instance settings are missing or malformed.
+#
+# It holds state/cycles/<issue>.lock for as long as it runs. The dispatcher
+# counts the held locks, so a cycle that dies frees its place. Once it holds
+# the lock it writes state/cycles/<issue>.taken, which is what the dispatcher
+# waits for.
+#
+# A TERM or INT is passed on to tehas work, which stops the container. The
+# cycle is then reported like any other that stopped without a pull request.
+#
+# Instance settings (lib/config.sh): TEHAS_REPO.
+# From the environment, for tests: TEHAS_WORK_CMD, TEHAS_STATUS_CMD.
+set -uo pipefail
+
+issue=${1:-}
+if [ "$#" != 1 ] || ! [[ $issue =~ ^[1-9][0-9]*$ ]]; then
+  echo "usage: tehasbot cycle <issue>" >&2
+  exit 64
+fi
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/config.sh
+. "$here/../lib/config.sh"
+tehas_load || exit 78
+tehas_require TEHAS_REPO
+
+log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*"; }
+
+repo=$TEHAS_REPO
+# The cycle's workspace on the host; tehas work makes it under this name.
+workdir=$TEHAS_WORK_DIR-$issue
+work=${TEHAS_WORK_CMD:-$here/work}
+status_cmd=${TEHAS_STATUS_CMD:-$here/status}
+cycles=$TEHAS_HOME/state/cycles
+
+mkdir -p "$cycles" "$TEHAS_HOME/logs"
+# The runner and the docker client it starts inherit this lock. If this
+# process is killed outright the place stays taken until they are gone too.
+exec 9>"$cycles/$issue.lock"
+flock -w 5 9 || { log "a cycle for #$issue is already running"; exit 3; }
+: >"$cycles/$issue.taken"
+
+comment() { gh issue comment "$issue" --repo "$repo" --body "$1" >/dev/null 2>&1 || log "WARN: comment on #$issue failed"; }
+relabel() { gh issue edit "$issue" --repo "$repo" "$@" >/dev/null 2>&1 || log "WARN: label change on #$issue failed: $*"; }
+# A workspace is kept only while a person may want to read it. Only a
+# directory under one that tehas work marked is removed, as tehas work does.
+tidy() {
+  if [ -f "$(dirname "$workdir")/.tehas-workspaces" ]; then
+    rm -rf "$workdir" || log "WARN: could not remove the workspace $workdir"
+  else
+    log "WARN: $(dirname "$workdir") is not marked by tehas work, leaving the workspace $workdir"
+  fi
+}
+
+started=$(date +%s)
+# A relabelled issue gets a fresh cycle, not whatever the last one parked.
+# The workspace is new every time, so the record of an earlier cycle is kept
+# here, on the host.
+restart=""
+[ -e "$cycles/$issue" ] && restart=--restart
+: >"$cycles/$issue"
+# The trap is set before the runner starts, so no signal falls between.
+wpid=""
+stopped=0
+trap 'stopped=1; [ -z "$wpid" ] || kill -TERM "$wpid" 2>/dev/null' TERM INT
+"$work" "$issue" ${restart:+"$restart"} >>"$TEHAS_HOME/logs/dispatch-work-$issue.log" 2>&1 &
+wpid=$!
+[ "$stopped" = 0 ] || kill -TERM "$wpid" 2>/dev/null
+wait "$wpid"
+rc=$?
+# A signal ends the wait early, with a status that is not the runner's. The
+# runner is still stopping its container: wait again for its own status. A
+# wait that answers 127 found the runner already reaped, so rc stands.
+while [ "$stopped" = 1 ]; do
+  stopped=0
+  wait "$wpid"
+  r=$?
+  [ "$r" = 127 ] || rc=$r
+done
+# The report is made even if a stop arrives now: leaving tehas:running on the
+# issue would park it for good.
+trap '' TERM INT
+mins=$((($(date +%s) - started) / 60))
+
+# The one thing read back from the tree the container wrote, and only as data.
+state=$workdir/.pi/work-state/$issue.json
+status=$(jq -r '.pipelineState.status // "unknown"' "$state" 2>/dev/null || echo unknown)
+step=$(jq -r '.pipelineState.currentStep // "-"' "$state" 2>/dev/null || echo -)
+branch=$(jq -r '.pipelineState.branchName // ""' "$state" 2>/dev/null || echo "")
+usage=$(jq -r '
+  [.eventLog[] | select(.usage) | {role: (.role // "driver"), u: .usage}] as $e
+  | if ($e | length) == 0 then "" else
+      (["| Role | Dispatches | Turns | Input | Output | Cache read |", "|---|---|---|---|---|---|"]
+       + ($e | group_by(.role) | map("| \(.[0].role) | \(length) | \(map(.u.turns) | add) | \(map(.u.input) | add) | \(map(.u.output) | add) | \(map(.u.cacheRead) | add) |"))
+       + ["| **total** | \($e | length) | \($e | map(.u.turns) | add) | \($e | map(.u.input) | add) | \($e | map(.u.output) | add) | \($e | map(.u.cacheRead) | add) |"])
+      | join("\n") end' "$state" 2>/dev/null || echo "")
+
+pr=""
+if [ -n "$branch" ]; then
+  # The branch name comes from a file the cycle wrote. Only a pull request the
+  # bot itself opened counts, so it cannot point at somebody else's.
+  pr=$(gh pr list --repo "$repo" --head "$branch" --author "@me" --state open --json url --jq '.[0].url // ""' 2>/dev/null || echo "")
+fi
+
+summary="status \`$status\`, last step \`$step\`, $mins min"
+if [ "$rc" = 0 ] && [ "$status" = merged ]; then
+  relabel --remove-label tehas:running
+  comment "Tehas cycle finished: $summary. The change was merged."
+  tidy
+elif [ "$rc" = 0 ] && [ -n "$pr" ]; then
+  relabel --remove-label tehas:running --add-label tehas:awaiting-merge
+  comment "Tehas cycle finished: $summary. Pull request waiting for a human: $pr"
+  gh pr comment "$pr" --body "Tehas cycle for #$issue: $summary.
+
+${usage:-No token usage was recorded for this cycle.}" >/dev/null 2>&1 || log "WARN: comment on $pr failed"
+  tidy
+else
+  relabel --remove-label tehas:running --add-label needs-human-attention
+  comment "Tehas cycle stopped without a pull request: $summary (runner exit $rc). Read the handoff comment if there is one; the run log is \`~/tehas/logs/dispatch-work-$issue.log\` on \`$(hostname)\`. To retry, remove \`needs-human-attention\` and apply \`tehas:ready\` again.
+
+${usage}"
+fi
+log "done #$issue rc=$rc status=$status step=$step minutes=$mins pr=${pr:-none}"
+"$status_cmd"
+exit 0

@@ -119,7 +119,9 @@ t_eq "$missing" ""
 
 # The other direction: a unit added to install.sh's file table has to be covered
 # by the units step too. A oneshot service is not restarted itself - that would
-# run its job off schedule - but its timer is, and the reload reaches it.
+# run its job off schedule - but its timer is, and the reload reaches it. A
+# template (tehas-cycle@.service) has no instance of its own to restart, and
+# restarting a running cycle would end it: the reload is all it needs.
 t_case "a unit file install.sh installs cannot be left out of the units step"
 units_installed=$(tehas_units | tr '\n' ' ')
 missing=""
@@ -127,6 +129,7 @@ found=0
 while IFS= read -r entry; do
   found=$((found + 1))
   unit=${entry#systemd/}
+  case "$unit" in *@.*) continue ;; esac
   case " $units_installed " in
     *" $unit "*) continue ;;
   esac

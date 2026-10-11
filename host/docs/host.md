@@ -24,7 +24,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/libexec/`                   | The scripts behind the two commands, one for each thing they do. Not on `PATH` |
 | `~/tehas/platform`                   | Checkout of this repository; `install.sh` runs from it and `tehas update` pulls it |
 | `~/tehas/repos/tehas`                | The product checkout, on the default branch. Cycles are cloned from it; no container is given it |
-| `~/tehas/work/tehas`                 | The cycle's workspace: a fresh clone made for each cycle, removed before the next |
+| `~/tehas/work/tehas-<issue>`         | The cycle's workspace: a fresh clone made for each cycle. Removed after a cycle that merged or left a pull request, otherwise kept until that issue's next cycle. `~/tehas/work/tehas` is only its path inside the container |
 | `~/tehas/dev/<name>`                 | A person's clone for working by hand, made and used by `tehas dev`, never removed. `<name>.author` next to it holds whose name its commits carry |
 | `~/tehas/repos/pi-rukas`             | pi-rukas, pinned to a commit                                            |
 | `~/tehas/docs/`, `~/tehas/fun/`      | This site's pages and the front page, installed from `host/`            |
@@ -142,6 +142,11 @@ a copied unit file is not in effect until systemd has reloaded it, and that relo
 belongs to the step that restarts the units. A file edited directly on the host
 shows up as drift in `--check`.
 
+One file is written, not copied: `version.txt`, beside the pages in
+`~/tehas/docs` and `~/tehas/fun`. It holds the newest tag of the checkout and
+the commit it was at when `install.sh` last ran, as `v0.1.1+11b669d`, and the
+footer of every page shows it. `--check` does not look at it.
+
 One installed file is compiled, not copied: the console of a running cycle, a
 Rust program in `console/`. A real run builds it with `cargo` in the checkout
 and installs it as `~/tehas/libexec/console`. Beside it, `console.stamp`
@@ -151,7 +156,8 @@ not the one that was installed. The first build fetches its crates from the
 network and takes a minute. `--check` compares the checksums and builds
 nothing, so a console replaced on the host shows up as drift like any other
 file. A console that does not build stops the install before it has changed
-anything. The Deno
+anything, and so does a host without `cargo`. The build is given no
+environment variable whose name holds TOKEN, SECRET, PASSWORD or API_KEY. The Deno
 script it replaces, `~/tehas/libexec/console.ts`, is removed the way the old
 commands below are.
 
@@ -206,11 +212,17 @@ sandbox. Give the sandbox its address with `PI_ENSEMBLE_HOST_ALIASES`
 
 ## Limits and concurrency
 
-`TEHAS_WORK_CPUS` and `TEHAS_WORK_MEMORY` bound the one container a cycle runs
-in. CPUs is a time quota (`docker --cpus`), not pinning. Memory is a hard limit
-(`docker --memory`); a process that exceeds it is killed. The defaults are the
-host's CPUs minus one and half its memory, which on the example host is 7 CPUs
-and about 7.5 GB. A value above what the host has is rejected.
+`TEHAS_WORK_CPUS` and `TEHAS_WORK_MEMORY` bound all the cycles of a host
+together. CPUs is a time quota (`docker --cpus`), not pinning. Memory is a hard
+limit (`docker --memory`); a process that exceeds it is killed. The defaults are
+the host's CPUs minus one and half its memory, which on the example host is 7
+CPUs and about 7.5 GB. A value above what the host has is rejected.
+
+`TEHAS_TICKET_CONCURRENCY` sets how many issues are worked on side by side,
+each in a cycle, a container and a workspace of its own. It defaults to 1. Each
+container gets the two limits above divided by it, whether or not the other
+slots are in use. A share below one CPU is rejected, so the setting cannot
+exceed the CPUs given.
 
 `TEHAS_CONCURRENCY` sets how many workstreams one cycle may run side by side,
 inside that one container. It defaults to 4.
@@ -221,11 +233,12 @@ into the last one, so no work is dropped at a low setting; it is done in
 sequence by fewer agents. An issue whose parts touch the same files is planned
 as one workstream whatever the limit.
 
-It is a limit inside one cycle, not across cycles: the dispatcher still runs
-one cycle at a time. The workstreams share the cycle's CPU and memory limits,
-and every one of them is at least one more model call in flight for most of
-the cycle. Lower it when the model backends have few slots, when the host is
-small, or if cycles start timing out.
+It is a limit inside one cycle. With `TEHAS_TICKET_CONCURRENCY` above 1, up to
+that many cycles run at once and each has its own `TEHAS_CONCURRENCY`
+workstreams, so the two multiply: 2 tickets and 4 workstreams are up to 8
+developer agents calling the model backends. Nothing checks that against what
+the backends can serve. Lower either one when the backends have few slots, when
+the host is small, or if cycles start timing out.
 
 ```
 # in the instance's instance.env, then pull and ./install.sh on the host
@@ -237,8 +250,16 @@ Two things it does not change:
 
 - the six review passes on the finished pull request still run together
   (pi-rukas's `PI_ENSEMBLE_SPAWN_CAP`, default 64, is the ceiling there),
-- one issue is worked on at a time. Running several issues at once is not
-  supported: cycles share one checkout.
+- how many issues are worked on at once. That is `TEHAS_TICKET_CONCURRENCY`.
+
+Cycles that run side by side know nothing of each other:
+
+- Two issues that touch the same files give two pull requests that conflict.
+  Label such issues one after the other.
+- The code index is refreshed only when no cycle is running. On a host that
+  is never idle it falls behind the branch; the dispatcher's log says so each
+  time.
+- `~/.vipune`, Pi's `sessions` and the two caches are shared between cycles.
 
 ## Sandbox image
 
@@ -256,8 +277,10 @@ toolchain adds it to the Dockerfile.
 Each build is also tagged with its date, so
 `docker tag tehas/pi-rukas:<date> tehas/pi-rukas:uid$(id -u)` rolls back.
 
-To upgrade pi-rukas: pull the new upstream image, put its digest in the `FROM`
-line, rebuild, and run the contract test before any cycle uses it. The contract
+To upgrade pi-rukas: put the new image's digest in the `FROM` line and its
+commit in `versions.env`, rebuild, and run the contract test before any cycle
+uses it. Where the image comes from is described under
+[pi-rukas comes from a fork](#pi-rukas-comes-from-a-fork). The contract
 test proves the product's gates run inside the image, as the unprivileged user,
 with nothing mounted but a clone:
 
@@ -272,6 +295,46 @@ docker run --rm --cpus 4 --memory 4g --user "$(id -u):$(id -g)" \
     sh -c "$(grep -v -e "^#" -e "^$" .pi/smoke-cmd | head -n 1)"'
 rm -rf "$T"
 ```
+
+## pi-rukas comes from a fork
+
+tehas takes pi-rukas from a [fork](https://github.com/janit/pi-rukas) of
+[upstream](https://github.com/trail-openers/pi-rukas), so a fix reaches the
+factory when it is ready here, not when upstream releases it. The fork is
+never the last stop: every change in it is also offered upstream.
+
+The fork has two kinds of branch:
+
+- `main` follows upstream's `main`. Nothing is committed to it directly.
+- `tehas` is what a host runs: an upstream commit plus the fixes upstream has
+  not merged yet. `PI_RUKAS_COMMIT` in `versions.env` is a commit on it.
+
+Today `tehas` is an upstream commit with nothing added, so the base in
+`sandbox/Dockerfile` is still upstream's published image for that commit. The
+fork has not published an image yet. Its workflows have to be switched on once,
+on the fork's Actions tab, before the first fix can go through step 3.
+
+When a problem in pi-rukas comes up:
+
+1. Open an issue upstream that describes it. Say there that a fix is being
+   tried in the fork.
+2. Write the fix in the fork, on a branch from upstream's `main`, with
+   pi-rukas's own tests. Open a pull request upstream from that branch.
+3. Put the same change on `tehas` and build the fork's image from it: run the
+   `publish-image` workflow on the `tehas` branch. It publishes
+   `ghcr.io/janit/pi-rukas:sha-<commit>`.
+4. In this repository, in one pull request, set `PI_RUKAS_COMMIT` to that
+   commit and the `FROM` line of `sandbox/Dockerfile` to that image's digest.
+   The two always name the same commit, or the host and the sandbox run
+   different code.
+5. On the host: pull, run `./bootstrap.sh user`, rebuild the sandbox image,
+   run the contract test above, then let one cycle run before trusting it.
+6. When upstream merges the fix, move `tehas` to an upstream commit that has
+   it and drop the fork's copy. Repeat steps 3 to 5.
+
+Keep `tehas` close to upstream. A change that upstream turns down is either
+reworked until they take it or removed from `tehas`; it does not stay as a
+permanent difference.
 
 ## Services
 
@@ -350,7 +413,7 @@ Both are outside the repository and the tehas tree.
 | What the label approves                | The title and body as they were when it was applied. An issue whose text was changed afterwards by any other account is skipped until the label is applied again |
 | Does the token enter the cycle         | Yes, as `GH_TOKEN`. pi-rukas pushes the branch and opens the pull request from inside. Agent code can do anything the token can         |
 | What else enters the container         | `PI_ENSEMBLE_*` settings, the bot's git name and email, the host aliases. Not the rest of the host environment                          |
-| Host paths mounted                     | The cycle's workspace, `~/.vipune`, Pi's `ensemble-runs` and `sessions` (read-write); `models.json`, `mcp.json` (read-only); two caches |
+| Host paths mounted                     | The cycle's own workspace, `~/tehas/work/<name>-<issue>`, at the same path in every container; its own transcripts, `~/.pi/agent/ensemble-runs/issue-<issue>`; `~/.vipune` and Pi's `sessions` (read-write); `models.json`, `mcp.json` (read-only); two caches |
 | Not reachable from the container       | The Docker socket, SSH keys, `~/.config/tehas`, the platform checkout, the product checkout, the instance directory                     |
 | What the host runs from the workspace  | Nothing. The host runs git only in the product checkout, which no container has written. It reads the cycle's state file from the workspace as data |
 | The indexing container                 | `tehas index` runs the indexer, not an agent: a clone of the product read-only, the cache volume, no network, no token                  |

@@ -142,6 +142,8 @@ units=$HOME/.config/systemd/user
 files=(
   "env.sh|$TEHAS_HOME/env.sh|644"
   "lib/config.sh|$TEHAS_HOME/lib/config.sh|644"
+  "lib/cycles.sh|$TEHAS_HOME/lib/cycles.sh|644"
+  "lib/live.sh|$TEHAS_HOME/lib/live.sh|644"
   "lib/update-steps.sh|$TEHAS_HOME/lib/update-steps.sh|644"
   "lib/edge.sh|$TEHAS_HOME/lib/edge.sh|644"
   "lib/sandbox.sh|$TEHAS_HOME/lib/sandbox.sh|644"
@@ -152,6 +154,7 @@ files=(
   "edge/docs.compose.yaml|$TEHAS_HOME/edge/docs.compose.yaml|644"
   "edge/router.Caddyfile|$TEHAS_HOME/edge/router.Caddyfile|644"
   "edge/router.compose.yaml|$TEHAS_HOME/edge/router.compose.yaml|644"
+  "systemd/tehas-cycle@.service|$units/tehas-cycle@.service|644"
   "systemd/tehas-dispatch.service|$units/tehas-dispatch.service|644"
   "systemd/tehas-dispatch.timer|$units/tehas-dispatch.timer|644"
   "systemd/tehas-energy.service|$units/tehas-energy.service|644"
@@ -168,7 +171,7 @@ files=(
 for f in tehas tehasbot; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
-for f in dev dispatch energy health index labels preview protolab status summary update work; do
+for f in cycle dev dispatch energy health index labels preview protolab status summary update work; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
 # Pi's own settings: the instance may bring its own (default provider and
@@ -239,14 +242,22 @@ if [ ! -x "$console_to" ] || [ "$(cat "$console_to.stamp" 2>/dev/null)" != "$con
     # The target directory is named, so the program is where this looks for
     # it whatever cargo's own configuration says, and the old one is removed
     # first, so what is installed is what this build made. The build scripts
-    # of the crates run here: they are not given the bot's token.
+    # of the crates run here: they are given no variable that is named like a
+    # secret, the bot's token among them.
     target=${CARGO_TARGET_DIR:-$root/console/target}
     built=$target/release/console
     rm -f "$built"
-    if ! out=$(env -u GH_TOKEN cargo build --release --locked --quiet \
-      --manifest-path "$root/console/Cargo.toml" --target-dir "$target" 2>&1) || [ ! -f "$built" ]; then
+    hidden=()
+    while IFS= read -r name; do hidden+=(-u "$name"); done < <(compgen -e | grep -E 'TOKEN|SECRET|PASSWORD|API_KEY')
+    out=$(env "${hidden[@]}" cargo build --release --locked --quiet \
+      --manifest-path "$root/console/Cargo.toml" --target-dir "$target" 2>&1) && rc=0 || rc=$?
+    if [ "$rc" != 0 ] || [ ! -f "$built" ]; then
       printf '%s\n' "$out" | tail -n 20 >&2
-      echo "tehas: the console did not build (cargo build --release --locked in $root/console); nothing was installed" >&2
+      if [ "$rc" = 127 ]; then
+        echo "tehas: cargo is not installed, so the console cannot be built (bootstrap.sh installs it); nothing was installed" >&2
+      else
+        echo "tehas: the console did not build (cargo build --release --locked in $root/console); nothing was installed" >&2
+      fi
       exit 1
     fi
     put "$built|$console_to|755"
@@ -265,7 +276,7 @@ sync_dir() { # name: host/<name>/* -> $TEHAS_HOME/<name>/
   [ -d "$TEHAS_HOME/$name" ] || return 0
   for to in "$TEHAS_HOME/$name"/*; do
     [ -e "$to" ] || continue
-    case "$to" in *.prev) continue ;; esac
+    case "$to" in *.prev | */version.txt) continue ;; esac
     [ -e "$host/$name/$(basename "$to")" ] && continue
     changed+=("$name/$(basename "$to")")
     if [ "$check" = 1 ]; then note "stale: $to"; else rm -f "$to" "$to.prev" && echo "removed: $to"; fi
@@ -273,6 +284,30 @@ sync_dir() { # name: host/<name>/* -> $TEHAS_HOME/<name>/
 }
 sync_dir docs
 sync_dir fun
+
+# The version in the footer of every page: the newest tag this checkout holds
+# and the commit it is at, in a file beside the pages, which read it. Only a
+# checkout that is a git repository of its own has one. It is no part of
+# --check: a host is as current as its files are.
+checkout_version() {
+  local tag hash
+  [ -z "$(git -C "$root" rev-parse --show-prefix 2>/dev/null || echo none)" ] || return 0
+  hash=$(git -C "$root" rev-parse --short=7 HEAD 2>/dev/null) || return 0
+  tag=$(git -C "$root" describe --tags --abbrev=0 2>/dev/null) || tag=""
+  printf '%s\n' "${tag:+$tag+}$hash" | tr -cd 'A-Za-z0-9._+\n-'
+}
+if [ "$check" != 1 ]; then
+  version=$(checkout_version)
+  for dir in docs fun; do
+    to=$TEHAS_HOME/$dir/version.txt
+    if [ -z "$version" ]; then
+      rm -f "$to"
+    elif [ "$(cat "$to" 2>/dev/null)" != "$version" ]; then
+      echo "$version" >"$to"
+      echo "version: $version in $to"
+    fi
+  done
+fi
 
 # The commands of before bin/tehas, one file each in bin/, and the console of
 # before it was a compiled program. And the Protolab's server files of before the

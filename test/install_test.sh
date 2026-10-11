@@ -37,7 +37,8 @@ fresh() {
   mkdir -p "$home"
 }
 
-files="./.config/systemd/user/tehas-dispatch.service
+files="./.config/systemd/user/tehas-cycle@.service
+./.config/systemd/user/tehas-dispatch.service
 ./.config/systemd/user/tehas-dispatch.timer
 ./.config/systemd/user/tehas-energy.service
 ./.config/systemd/user/tehas-preview-sweep.service
@@ -57,11 +58,14 @@ files="./.config/systemd/user/tehas-dispatch.service
 ./tehas/edge/router.compose.yaml
 ./tehas/env.sh
 ./tehas/lib/config.sh
+./tehas/lib/cycles.sh
 ./tehas/lib/edge.sh
+./tehas/lib/live.sh
 ./tehas/lib/sandbox.sh
 ./tehas/lib/update-steps.sh
 ./tehas/libexec/console
 ./tehas/libexec/console.stamp
+./tehas/libexec/cycle
 ./tehas/libexec/dev
 ./tehas/libexec/dispatch
 ./tehas/libexec/energy
@@ -87,7 +91,7 @@ sorted() { printf '%s\n' "$@" | LC_ALL=C sort; }
 # The follow-ups a fresh install of this repository asks for, taken from the one
 # place that names them and the sources a fresh host has none of.
 next_steps() {
-  tehas_steps_for systemd/tehas-dispatch.service systemd/tehas-dispatch.timer \
+  tehas_steps_for systemd/tehas-cycle@.service systemd/tehas-dispatch.service systemd/tehas-dispatch.timer \
     systemd/tehas-energy.service systemd/tehas-preview.service \
     systemd/tehas-preview.timer systemd/tehas-preview-sweep.service systemd/tehas-preview-sweep.timer systemd/tehas-protolab.service systemd/tehas-protolab.timer sandbox/Dockerfile sandbox/build.sh versions.env \
     edge/docs.Caddyfile edge/docs.compose.yaml edge/router.Caddyfile \
@@ -179,8 +183,8 @@ t_run "$install --check"
 t_eq "$(t_calls docker)" ""
 
 t_case "the manual and the front page are installed"
-t_eq "$(cd "$th/docs" && find . -type f | wc -l)" "$(find "$T_ROOT/host/docs" -type f | wc -l)"
-t_eq "$(cd "$th/fun" && find . -type f | wc -l)" "$(find "$T_ROOT/host/fun" -type f | wc -l)"
+t_eq "$(cd "$th/docs" && find . -type f ! -name version.txt | wc -l)" "$(find "$T_ROOT/host/docs" -type f | wc -l)"
+t_eq "$(cd "$th/fun" && find . -type f ! -name version.txt | wc -l)" "$(find "$T_ROOT/host/fun" -type f | wc -l)"
 
 t_case "the instance's model list is what Pi gets"
 t_eq "$(cat "$home/.pi/agent/models.json")" "$(cat "$TEHAS_INSTANCE_DIR/models.json")"
@@ -267,15 +271,16 @@ t_run "$install --check"
 t_contains "$t_out" "Installed:    OK"
 T_ENV=(T_IN_TEST=1)
 
-t_case "the build is not given the bot's token"
+t_case "the build is given no variable named like a secret"
 fresh
 instance
 t_stub cargo 'env >"$T/cargo.env"
 mkdir -p "$CARGO_TARGET_DIR/release" && echo built >"$CARGO_TARGET_DIR/release/console"'
-T_ENV=(T_IN_TEST=1 GH_TOKEN=test-token)
+T_ENV=(T_IN_TEST=1 GH_TOKEN=hidden-token DEPLOY_SECRET=hidden-secret DB_PASSWORD=hidden-word SOME_API_KEY=hidden-key PLAIN=kept)
 t_run "$install"
 t_eq "$t_rc" 0
-t_lacks "$(cat "$T/cargo.env")" "test-token"
+t_lacks "$(cat "$T/cargo.env")" "hidden-"
+t_contains "$(cat "$T/cargo.env")" "PLAIN=kept"
 t_stub_cargo
 T_ENV=(T_IN_TEST=1)
 
@@ -293,6 +298,49 @@ for failure in CARGO_RC=101 NO_CONSOLE=1; do
   t_eq "$(find "$home" -type f | wc -l)" 0
 done
 T_ENV=(T_IN_TEST=1)
+
+t_case "a host without cargo is told so, and nothing is installed"
+fresh
+instance
+T_ENV=(T_IN_TEST=1 CARGO_RC=127)
+t_run "$install"
+t_eq "$t_rc" 1
+t_contains "$t_out" "cargo is not installed"
+t_lacks "$t_out" "the console did not build"
+t_eq "$(find "$home" -type f | wc -l)" 0
+T_ENV=(T_IN_TEST=1)
+
+t_case "the footers are given the checkout's newest tag and its commit"
+fresh
+instance
+tagged=$T/tagged
+rm -rf "$tagged"
+mkdir -p "$tagged"
+cp -R "$T_ROOT/install.sh" "$T_ROOT/lib" "$T_ROOT/host" "$T_ROOT/bin" "$T_ROOT/libexec" "$tagged/"
+t_console_source "$tagged"
+t_run "$tagged/install.sh"
+t_eq "$t_rc" 0
+# Not a repository of its own: no version, and the pages show none.
+t_eq "$(find "$th/docs" "$th/fun" -name version.txt | wc -l)" 0
+commit() { git -C "$tagged" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m "$1"; }
+git init -q -b main "$tagged"
+commit first
+t_run "$tagged/install.sh"
+t_eq "$(cat "$th/docs/version.txt")" "$(git -C "$tagged" rev-parse --short=7 HEAD)"
+git -C "$tagged" tag v9.8.7
+commit second
+t_run "$tagged/install.sh"
+t_eq "$t_rc" 0
+t_eq "$(cat "$th/docs/version.txt")" "v9.8.7+$(git -C "$tagged" rev-parse --short=7 HEAD)"
+t_eq "$(cat "$th/fun/version.txt")" "$(cat "$th/docs/version.txt")"
+t_contains "$t_out" "version: v9.8.7+"
+# The file is the host's own: not stale, and no drift.
+t_run "$tagged/install.sh --check"
+t_contains "$t_out" "Installed:    OK"
+t_lacks "$t_out" "version.txt"
+for page in "$T_ROOT/host/docs/_layout.html" "$T_ROOT/host/fun/index.html"; do
+  t_contains "$(cat "$page")" 'readFile "/version.txt"'
+done
 
 t_case "a checkout without the console's source installs nothing and exits 1"
 fresh

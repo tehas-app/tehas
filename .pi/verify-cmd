@@ -1,3 +1,4 @@
 # Fast gate for pi-rukas (develop and commit-pr steps). The first command line runs.
-# The lint for product and host names, shellcheck, and every shell test.
+# The lint for product and host names, shellcheck, every shell test and, where
+# cargo is installed, the console's tests.
 bash scripts/verify.sh

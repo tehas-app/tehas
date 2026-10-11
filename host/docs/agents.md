@@ -33,7 +33,7 @@ to look at is the public dashboard at <https://tehas.app/>.
 | `/<page>.md`                            | Any manual page as Markdown, for example `/new-project.md`     |
 | `/health`                               | Factory health as JSON; 503 when unhealthy                     |
 | `/live/status.json`                     | The queue snapshot: repository, issues by state, paused or not, and the most used words of all its issues |
-| `/live/running.json`                    | The current or last cycle                                      |
+| `/live/running.json`                    | The running cycles and the one that finished last              |
 | `/live/console-<issue>.txt`             | That cycle's console, with tokens and passwords masked         |
 
 All of it is read-only. Work is submitted and authorized in GitHub, as

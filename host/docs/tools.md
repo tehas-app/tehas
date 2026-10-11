@@ -54,12 +54,13 @@ in the platform repository has every one with a comment.
 | `TEHAS_PREVIEWS`                | `0`                                      | `1` builds a preview of every open pull request whose branch is in the product repository and that an owner, member or collaborator opened. Needs `TEHAS_DOMAIN` |
 | `TEHAS_PREVIEW_MAX`             | `5`                                      | How many previews run at once. The newest pull requests win |
 | `TEHAS_PREVIEW_MIN_FREE`        | `5g`                                     | Free disk space below which no preview is built |
-| `TEHAS_WORK_REPO`               | `~/tehas/repos/<name>`                   | The product checkout cycles are cloned from. Must be a clone of `TEHAS_REPO`. The cycle itself works in `~/tehas/work/<name>`, which is not a setting |
+| `TEHAS_WORK_REPO`               | `~/tehas/repos/<name>`                   | The product checkout cycles are cloned from. Must be a clone of `TEHAS_REPO`. A cycle works in `~/tehas/work/<name>-<issue>`, which is not a setting |
 | `TEHAS_BRANCH`                  | the checkout's `origin/HEAD`             | Branch cycles start from and pull requests target               |
-| `TEHAS_WORK_CPUS`               | the host's CPUs minus one, at least 1    | `docker --cpus` of a cycle's container                          |
-| `TEHAS_WORK_MEMORY`             | half the host's memory                   | `docker --memory` of a cycle's container                        |
+| `TEHAS_WORK_CPUS`               | the host's CPUs minus one, at least 1    | `docker --cpus` for all cycles together                         |
+| `TEHAS_WORK_MEMORY`             | half the host's memory                   | `docker --memory` for all cycles together                       |
 | `TEHAS_CONCURRENCY`             | `4`                                      | Workstreams side by side inside one cycle                       |
-| `TEHAS_MAX_AWAITING`            | `3`                                      | Open `tehas:awaiting-merge` issues allowed before holding       |
+| `TEHAS_TICKET_CONCURRENCY`      | `1`                                      | Cycles side by side. Each cycle's container gets the two limits above divided by this; a share below one CPU is refused |
+| `TEHAS_MAX_AWAITING`            | `3`                                      | Open `tehas:awaiting-merge` issues, plus running cycles, allowed before holding |
 | `TEHAS_WORK_TIMEOUT`            | `21600`                                  | Seconds before a cycle is given up                              |
 | `PI_ENSEMBLE_HOST_ALIASES`      | empty                                    | `name:address` pairs the sandbox must resolve, comma separated  |
 | `PI_ENSEMBLE_IMAGE`             | `tehas/pi-rukas:uid<uid>`                | The sandbox image                                               |
@@ -75,7 +76,7 @@ script as `tehasbot dispatch`.
 
 ```
 tehas dispatch --dry-run       # report the decision, change nothing
-tehas dispatch                 # run at most one cycle, then return
+tehas dispatch                 # start the cycles there is room for, then return
 tehas dispatch --help          # print the usage of the command, call nothing
 ```
 
@@ -85,17 +86,23 @@ than one, is refused: exit 64 with `tehas dispatch: unknown argument: <argument>
 and the usage on standard error, before the instance settings are read. A mistyped
 `--dryrun` therefore starts no poll and changes nothing.
 
-Order of rules: pause label on the control issue, the cap on issues awaiting
-merge, who applied `tehas:ready`, then urgent first and lowest number. Log:
+Order of rules: pause label on the control issue, the free slots
+(`TEHAS_TICKET_CONCURRENCY` less the running cycles), the cap on issues awaiting
+merge or being worked on, who applied `tehas:ready`, then urgent first and
+lowest number. Log:
 `~/tehas/logs/dispatch.log` when run by systemd, the terminal otherwise. Each
 cycle's runner output: `~/tehas/logs/dispatch-work-<issue>.log`.
 
-Before a cycle it puts the product checkout on the default branch and
-fast-forwards it, then refreshes the code index with
+When it has an issue to start, it puts the product checkout on the default
+branch and fast-forwards it, then, if no cycle is running, refreshes the code index with
 [tehas index](#tehas-index) when the branch has moved since the last indexing.
-The work script then clones the cycle's workspace from the checkout. An index
-that cannot be refreshed is a warning in the log; the cycle still runs. The
-dispatcher runs the index, work and status scripts from its own directory,
+An index that cannot be refreshed is a warning in the log; the cycle still
+runs. It then marks each issue `tehas:running` and starts
+`tehas-cycle@<issue>.service`, which runs [tehasbot cycle](#tehasbot-cycle).
+It does not wait for the cycle. If the unit does not come up within 30
+seconds, the issue gets `needs-human-attention`, the poll goes on to the
+remaining issues, and it ends with exit 1.
+The dispatcher runs the index and status scripts from its own directory,
 `~/tehas/libexec`, not by a name on `PATH`.
 
 An issue is taken only when an allowed account applied `tehas:ready` and
@@ -111,7 +118,7 @@ tehas work <issue> [--restart]
 ```
 
 It starts `pi --mode rpc --approve` in a container, sends `/work <issue>` and
-waits until `.pi/work-state/<issue>.json` in the checkout leaves `running`.
+waits until `.pi/work-state/<issue>.json` in the workspace `~/tehas/work/<name>-<issue>` leaves `running`.
 
 | Exit | Meaning                                                          |
 | ---- | ---------------------------------------------------------------- |
@@ -186,6 +193,10 @@ image, over a clone mounted at the path a cycle works in. The clone is made at
 the tip the product checkout last fetched and is removed afterwards. The
 cycle's workspace is not touched.
 
+It refuses, with exit 3, while a cycle is running or while a poll or another
+index run holds the dispatcher's lock. The index is only ever written when
+nothing is reading it.
+
 | Exit | Meaning                                                |
 | ---- | ------------------------------------------------------ |
 | 0    | The index was built, or was already current            |
@@ -255,6 +266,7 @@ look when a timer or service has to be run once by hand.
 
 ```
 tehasbot dispatch             # one poll; what tehas-dispatch.timer runs
+tehasbot cycle <issue>        # one cycle and its report; what tehas-cycle@<issue>.service runs
 tehasbot status               # write the queue snapshot
 tehasbot health               # write the health file
 tehasbot energy [--every]     # sample the model mesh; what tehas-energy.service runs
@@ -263,22 +275,53 @@ tehasbot preview              # keep the previews; what tehas-preview.timer runs
 tehasbot preview --sweep      # the second check; what tehas-preview-sweep.timer runs
 ```
 
-The names of the units did not change with the commands: they are still
-`tehas-dispatch.timer`, `tehas-energy.service` and `tehas-protolab.timer`, and
-a cycle's container is still `tehas-work-<issue>`. The previews' units are
-`tehas-preview.timer` and `tehas-preview-sweep.timer`.
+The units are `tehas-dispatch.timer`, `tehas-energy.service`,
+`tehas-protolab.timer`, the previews' `tehas-preview.timer` and
+`tehas-preview-sweep.timer`, and one `tehas-cycle@<issue>.service` per running
+cycle. A cycle's container is `tehas-work-<issue>`.
+
+## tehasbot cycle
+
+One cycle for one issue, and its report. The dispatcher starts it as a unit;
+it is not typed in daily use.
+
+```
+systemctl --user status 'tehas-cycle@*'    # the cycles that are running
+systemctl --user stop tehas-cycle@12       # end the cycle for issue 12
+```
+
+It runs [tehas work](#tehas-work) for the issue, reads the cycle's state file
+from the workspace, finds the pull request the bot opened, and relabels and
+comments: merged, `tehas:awaiting-merge`, or `needs-human-attention`. It
+then removes the workspace of a cycle that merged or left a pull request, and
+keeps the workspace of one that stopped. A
+stopped unit stops the container and is reported as a cycle that ended without
+a pull request. It checks no authorisation: the dispatcher did that before it
+started the unit.
+
+| Exit | Meaning                                              |
+| ---- | ---------------------------------------------------- |
+| 0    | The cycle ran and was reported, whatever its outcome |
+| 3    | A cycle for this issue is already running            |
+| 64   | The argument is not an issue number                  |
+| 78   | The instance settings are invalid                    |
 
 ## tehasbot status and the console
 
 Feed the [factory floor](/) and the [plain dashboard](/dashboard). `tehasbot status` writes the queue snapshot to
-`~/tehas/live/status.json`; the dispatcher runs it at every poll and every two
-minutes during a cycle. `~/tehas/libexec/console` is started by the work
+`~/tehas/live/status.json`; the dispatcher runs it at every poll, and a cycle when it ends.
+`~/tehas/libexec/console` is started by the work
 script and follows the cycle's agents into `~/tehas/live/console-<issue>.txt`, masking
-tokens, passwords and private network addresses. The mask catches accidents;
+tokens, passwords and private network addresses, and writing no control
+character but the line break and the tab. An agent of a workstream is named
+with it, as in `developer[task-a]`. The mask catches accidents;
 it cannot stop an agent that sets out to print a secret another way, so treat
-the console of a published dashboard as public. Neither needs running by hand.
+the console of a published dashboard as public. A log line of over 1 MiB is
+left out, and the console says how many were. Neither needs running by hand.
 What the console itself complains about goes to `~/tehas/logs/work-<issue>-<time>.jsonl.console`,
 and the work script says so when the console is missing or ends with an error.
+The work script's own status line, in `~/tehas/live/cycles/<issue>.json` and from there in `~/tehas/live/running.json`, goes through
+the same mask (`console --mask`); without a console it is left empty.
 
 The snapshot also carries the words of the breakroom game, Buzzword Buster.
 They are counted over the titles and labels of every issue of the repository,
@@ -297,9 +340,9 @@ tehasbot health     # prints nothing; refreshes ~/tehas/live/health.json
 curl -i http://tehas-tehas:8080/health
 ```
 
-Writes the factory's health from what is already on disk: the queue snapshot
-and the current or last cycle. The status script runs it on exit, so it is
-refreshed at every poll and every two minutes during a cycle. The docs server
+Writes the factory's health from what is already on disk: the queue snapshot,
+the running cycles and the last one that finished. The status script runs it on exit, so it is
+refreshed at every poll and at the end of every cycle. The docs server
 serves the file at `/health` and `/healthz` as `application/health+json`.
 `tehas status` prints the same file for a person.
 
@@ -307,17 +350,24 @@ serves the file at `/health` and `/healthz` as `application/health+json`.
 | -------- | ---------------------------------------------------------------------------------------- | ---- |
 | `pass`   | Taking work, idle or in a cycle                                                          | 200  |
 | `warn`   | Paused (`tehas:pause` on the control issue), or too low on disk to build previews, or the free space could not be read | 200  |
-| `fail`   | The last cycle ended as anything but `merged` or `handoff`, or there is no queue snapshot | 503  |
+| `fail`   | The last cycle ended as anything but `merged` or `handoff` and no cycle has started since, or there is no queue snapshot | 503  |
 
 `output` says the same in a sentence. `checks.queue` has the snapshot time and
-the counts in line, building, in review and stopped; `checks.cycle` has the
-issue, status, step and times of the current or last cycle. `checks.disk` has
-the free and the required bytes and `low`, as `tehasbot preview` last wrote
-them to `live/previews.json`. It is `null` on a host without previews, and when
-that figure is more than half an hour old. When `low` is true, `output` is
-"The host is low on disk: previews are not being built." with a figure, and
-"The host's free disk space could not be read: previews are not being built."
-when `freeBytes` is `null`.
+the counts in line, building, in review and stopped. `checks.cycles` has the
+issue, status, step and times of every running cycle; `checks.cycle` is the
+first of them, or the cycle that finished last when none is running.
+
+`fail` is about the cycle that finished most recently. It lasts until a cycle
+starts after that one ended. A cycle that was already running when the other
+one failed does not clear it. A cycle that has written nothing for two
+minutes is recorded as ended with the status `lost`, which is a failure.
+
+`checks.disk` has the free and the required bytes and `low`, as `tehasbot
+preview` last wrote them to `live/previews.json`. It is `null` on a host
+without previews, and when that figure is more than half an hour old. When
+`low` is true, `output` is "The host is low on disk: previews are not being
+built." with a figure, and "The host's free disk space could not be read:
+previews are not being built." when `freeBytes` is `null`.
 
 A stopped dispatcher cannot report itself: the file simply stops changing and
 the endpoint keeps answering with the last state. A monitor should also treat
@@ -339,9 +389,9 @@ systemctl --user enable --now tehas-energy.service
 ```
 
 Asks the model mesh for its cluster snapshot and keeps what the Energy use
-section shows: per machine the draw, kWh and RAM; per model the slots and how
-many are busy; and the last 30 minutes of draw, with the mesh's running count
-of tokens for the factory's models where it reports one. Only machines that are alive
+section shows: per machine the draw, kWh and RAM; per model the slots, how
+many are busy and what serves it; and the last 30 minutes of draw, with the
+mesh's running count of tokens for the factory's models where it reports one. Only machines that are alive
 and serve a model the factory uses are kept, and only those models. The
 factory's models are the ones named by `PI_ENSEMBLE_SUBAGENT_MODEL` and
 `PI_ENSEMBLE_MODEL_*`; with none set, the file has no machines. It works only against a viiwork
@@ -356,7 +406,42 @@ mesh, which it recognises by the answer.
 The mesh is the one the factory's model provider points at. Set
 `TEHAS_ENERGY_URL` in `~/.config/tehas/env` to ask another cluster URL, and
 `TEHAS_ENERGY=off` to remove the file. The file is readable by anyone who can
-open the dashboard and names the machines, their draw and their models.
+open the dashboard and names the machines, their draw and their models. It
+also holds the version of the mesh software and, for each model, the name and
+the version of the engine behind it. Addresses, node ids and GPUs are not in it.
+
+Each entry of `models` carries an `engines` array: one element per distinct
+set of values among the machines that serve the model, sorted.
+
+```json
+{ "name": "model-small", "hosts": ["node-a", "node-b"],
+  "engines": [{ "version": "2.9.2", "engine": "llamacpp",
+                "engineName": "llama.cpp", "engineVersion": "b11371" }],
+  "slots": 6, "busy": 2, "queued": 0 }
+```
+
+| Field           | What it is                                                              |
+| --------------- | ----------------------------------------------------------------------- |
+| `version`       | The mesh's version on that machine, without its leading `v`             |
+| `engine`        | The mesh's own id for the engine                                        |
+| `engineName`    | The engine's name for people. Reported from viiwork v2.9.2              |
+| `engineVersion` | The engine's own version on that machine. Reported from viiwork v2.9.2, and not by every engine |
+
+A value the machine does not report is `null`. `engineVersion` is also `null`
+when it is not a plain version: only letters, digits and `. + _ -`, at most 40
+characters, are copied. An element with no mesh version and no engine is left
+out. A mesh in the middle of an upgrade, or a model served by two engines,
+gives more than one element.
+
+The model table shows them in its `ENGINES` column: the engine's name, or its
+id where the mesh gives no name, then its version where there is one. So
+`viiwork 2.9.2 (llama.cpp b11371)` from a machine on v2.9.2 and
+`viiwork 2.9.0 (llamacpp)` from an older one. A model with no element shows a
+dash.
+
+The file's `source` and `sourceUrl` name the mesh software and its project. The
+section ends with a line that says so, `DATA SOURCE: viiwork`. The name is a
+link when `sourceUrl` is an `https://` address.
 
 The service reads its settings when it starts: run
 `systemctl --user restart tehas-energy.service` after changing either one.
@@ -577,8 +662,8 @@ Run them by hand from the root of a clone of the product. For the example
 product:
 
 ```
-scripts/verify.sh          # fast: the lint, shellcheck, the shell tests
-scripts/verify.sh --full   # plus the console's tests (cargo) and the front page's (node)
+scripts/verify.sh          # fast: the lint, shellcheck, the shell tests, the console's tests where cargo is
+scripts/verify.sh --full   # plus the console's format and lints (rustfmt, clippy) and the front page's tests (node)
 ```
 
 ## tehas update
