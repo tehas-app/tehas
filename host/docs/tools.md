@@ -400,8 +400,16 @@ then removes the workspace of a cycle that merged or left a pull request, and
 keeps the workspace of one that stopped. A retry moves a stopped workspace to
 `<name>-<issue>.before-retry`, which is removed and kept by the same rule. A
 stopped unit stops the container and is reported as a cycle that ended without
-a pull request. It checks no authorisation: the dispatcher did that before it
-started the unit.
+a pull request. A hangup is taken as a stop too. It checks no authorisation:
+the dispatcher did that before it started the unit.
+
+`tehas:awaiting-merge` is given only to a run that ended as `handoff` and has
+an open pull request of the bot. Any other end with a pull request open gets
+`needs-human-attention`, and the comment names the pull request. The label
+change that ends a cycle is tried three times, five seconds apart. If GitHub
+still refuses it, the log says `WARN: label change on #N failed` and the issue
+stays `tehas:running` until the next poll of [tehas dispatch](#tehas-dispatch)
+finds it.
 
 | Exit | Meaning                                              |
 | ---- | ---------------------------------------------------- |

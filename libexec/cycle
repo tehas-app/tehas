@@ -20,8 +20,13 @@
 # the lock it writes state/cycles/<issue>.taken, which is what the dispatcher
 # waits for.
 #
-# A TERM or INT is passed on to tehas work, which stops the container. The
+# A TERM, INT or HUP is passed on to tehas work, which stops the container. The
 # cycle is then reported like any other that stopped without a pull request.
+#
+# Only a run that ended as handoff with an open pull request is reported as
+# waiting for a merge. The label change that ends a cycle is tried three
+# times. If GitHub still refuses it, or the cycle is killed outright, the
+# issue stays marked tehas:running and the dispatcher's next poll finds it.
 #
 # A cycle that stopped without a pull request asks what to do next, in a
 # comment with boxes. The id of that comment goes on record in
@@ -32,7 +37,8 @@
 # the cycle's record for it at the end, in tmp/improve/window (lib/improve.sh).
 #
 # Instance settings (lib/config.sh): TEHAS_REPO, TEHAS_IMPROVE_REPO.
-# From the environment, for tests: TEHAS_WORK_CMD, TEHAS_STATUS_CMD.
+# From the environment, for tests: TEHAS_WORK_CMD, TEHAS_STATUS_CMD and
+# TEHAS_CYCLE_RETRY_WAIT (seconds between two tries of a label change [5]).
 set -uo pipefail
 
 issue=${1:-}
@@ -70,7 +76,15 @@ flock -w 5 9 || { log "a cycle for #$issue is already running"; exit 3; }
 : >"$cycles/$issue.taken"
 
 comment() { gh issue comment "$issue" --repo "$repo" --body "$1" >/dev/null 2>&1 || log "WARN: comment on #$issue failed"; }
-relabel() { gh issue edit "$issue" --repo "$repo" "$@" >/dev/null 2>&1 || log "WARN: label change on #$issue failed: $*"; }
+retry_wait=${TEHAS_CYCLE_RETRY_WAIT:-5}
+relabel() {
+  local try
+  for try in 1 2 3; do
+    gh issue edit "$issue" --repo "$repo" "$@" >/dev/null 2>&1 && return 0
+    [ "$try" = 3 ] || sleep "$retry_wait"
+  done
+  log "WARN: label change on #$issue failed: $*"
+}
 # post_question <result.json>: post the park question. Its id is left in
 # $posted. Returns 1 when it could not be posted.
 posted=""
@@ -101,7 +115,7 @@ restart=""
 # The trap is set before the runner starts, so no signal falls between.
 wpid=""
 stopped=0
-trap 'stopped=1; [ -z "$wpid" ] || kill -TERM "$wpid" 2>/dev/null' TERM INT
+trap 'stopped=1; [ -z "$wpid" ] || kill -TERM "$wpid" 2>/dev/null' TERM INT HUP
 "$work" "$issue" ${restart:+"$restart"} >>"$TEHAS_HOME/logs/dispatch-work-$issue.log" 2>&1 &
 wpid=$!
 [ "$stopped" = 0 ] || kill -TERM "$wpid" 2>/dev/null
@@ -118,7 +132,7 @@ while [ "$stopped" = 1 ]; do
 done
 # The report is made even if a stop arrives now: leaving tehas:running on the
 # issue would park it for good.
-trap '' TERM INT
+trap '' TERM INT HUP
 mins=$((($(date +%s) - started) / 60))
 
 # The one thing read back from the tree the container wrote, and only as data.
@@ -154,7 +168,7 @@ if [ "$rc" = 0 ] && [ "$status" = merged ]; then
   relabel --remove-label tehas:running
   comment "Tehas cycle finished: $summary. The change was merged."
   tidy
-elif [ "$rc" = 0 ] && [ -n "$pr" ]; then
+elif [ "$rc" = 0 ] && [ "$status" = handoff ] && [ -n "$pr" ]; then
   relabel --remove-label tehas:running --add-label tehas:awaiting-merge
   comment "Tehas cycle finished: $summary. Pull request waiting for a human: $pr"
   gh pr comment "$pr" --body "Tehas cycle for #$issue: $summary.
@@ -163,7 +177,7 @@ ${usage:-No token usage was recorded for this cycle.}" >/dev/null 2>&1 || log "W
   tidy
 else
   relabel --remove-label tehas:running --add-label needs-human-attention
-  parked="Tehas cycle stopped without a pull request: $summary (runner exit $rc). Read the handoff comment if there is one; the run log is \`~/tehas/logs/dispatch-work-$issue.log\` on \`$(hostname)\`."
+  parked="Tehas cycle stopped without a pull request: $summary (runner exit $rc). Read the handoff comment if there is one; the run log is \`~/tehas/logs/dispatch-work-$issue.log\` on \`$(hostname)\`.${pr:+ Its branch has an open pull request: $pr}"
   jq -n --arg text "$parked
 
 ${usage}" '{text: $text, question: null}' >"$TEHAS_HOME/state/park-$issue.json"
