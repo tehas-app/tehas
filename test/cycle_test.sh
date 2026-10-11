@@ -15,7 +15,13 @@ park_id=$T/home/tehas/state/park-7.id
 
 t_stub gh '
 case "$1 $2" in
-  "pr list") cat "$T/fx/pr.txt" 2>/dev/null ;;
+  "pr list")
+    # The first lists fail, as many as pr-fails-times says.
+    if [ -s "$T/fx/pr-fails-times" ]; then
+      left=$(cat "$T/fx/pr-fails-times")
+      if [ "$left" -gt 0 ]; then echo $((left - 1)) >"$T/fx/pr-fails-times"; exit 1; fi
+    fi
+    cat "$T/fx/pr.txt" 2>/dev/null ;;
   "issue edit") [ ! -e "$T/fx/edit-slow" ] || { : >"$T/calls/edit.started"; sleep 1; }
     # The first edits fail, as many as edit-fails-times says.
     if [ -s "$T/fx/edit-fails-times" ]; then
@@ -298,6 +304,47 @@ for st in failed aborted unknown running; do
   t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
   t_contains "$(t_calls gh)" "Its branch has an open pull request: https://github.com/acme/widget/pull/9"
 done
+
+t_case "a list of pull requests that GitHub refuses once is asked for again"
+reset
+ended handoff commit-pr feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+echo 1 >"$fx/pr-fails-times"
+t_run "$cycle 7"
+t_eq "$(t_calls gh | grep -c -e '^pr list ')" 2
+t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label tehas:awaiting-merge"
+
+t_case "after three refusals the cycle is reported as stopped, and the log says why"
+reset
+ended handoff commit-pr feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+echo 3 >"$fx/pr-fails-times"
+t_run "$cycle 7"
+t_eq "$(t_calls gh | grep -c -e '^pr list ')" 3
+t_contains "$t_out" "WARN: the pull requests of feature/x could not be read"
+t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
+
+t_case "when the label cannot be changed the comment says so"
+reset
+ended handoff commit-pr feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+echo "--remove-label tehas:running" >"$fx/edit-fails-on"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "Pull request waiting for a human: https://github.com/acme/widget/pull/9 The label of this issue could not be changed"
+
+t_case "and a comment after a label change that worked does not"
+reset
+ended handoff commit-pr feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "could not be changed"
+
+t_case "the question label is tried three times"
+reset
+printf '%s' '--add-label tehas:question' >"$fx/edit-fails-on"
+t_run "$cycle 7"
+t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label tehas:question')" 3
+t_contains "$(t_calls gh)" "The boxes above cannot be used"
 
 t_case "with the improvement loop on, a cycle that ended leaves its record"
 reset

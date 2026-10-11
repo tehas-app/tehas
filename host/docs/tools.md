@@ -410,8 +410,10 @@ the dispatcher did that before it started the unit.
 `tehas:awaiting-merge` is given only to a run that ended as `handoff` and has
 an open pull request of the bot. Any other end with a pull request open gets
 `needs-human-attention`, and the comment names the pull request. The label
-change that ends a cycle is tried three times, five seconds apart. If GitHub
-still refuses it, the log says `WARN: label change on #N failed` and the issue
+change that ends a cycle is tried three times, five seconds apart, and so is
+the search for the pull request. If GitHub still refuses the label change, the
+log says `WARN: label change on #N failed`, the cycle's comment says that the
+label could not be changed, and the issue
 stays `tehas:running` until the next poll of [tehas dispatch](#tehas-dispatch)
 finds it.
 
