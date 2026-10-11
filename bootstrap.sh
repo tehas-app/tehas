@@ -10,6 +10,11 @@
 #   sudo ./bootstrap.sh dev <user> [<login>...]
 #                                     let other accounts on the host start a
 #                                     session with "tehas dev", run as <user>
+#   sudo ./bootstrap.sh pool [<memory> [<cpus>]]
+#                                     one limit around all cycles, so they
+#                                     share TEHAS_WORK_MEMORY and
+#                                     TEHAS_WORK_CPUS: give the same values
+#                                     [half the memory, the CPUs minus one]
 #   ./bootstrap.sh check              change nothing; one line per tool with
 #                                     the version found and the one expected
 #
@@ -114,6 +119,46 @@ RULE
   install -m 755 "$root/host/login/tehas" "$bin/tehas"
   echo "bootstrap: dev part done. Members of the group tehas can type: tehas dev"
   [ "$#" = 0 ] || echo "bootstrap: $* must log in again for the group to apply."
+}
+
+# --- pool ---------------------------------------------------------------------
+# One limit around the containers of all cycles: a systemd slice. "tehas work"
+# starts a cycle in it only while its limits are TEHAS_WORK_MEMORY and
+# TEHAS_WORK_CPUS, so after either setting changes, run this again.
+do_pool() {
+  local memory=${1:-} cpus=${2:-} mb host n
+  local etc=${BOOTSTRAP_ETC:-/etc}
+  [ "$(id -u)" = 0 ] || die "the pool part must run as root: sudo ./bootstrap.sh pool $*"
+  # shellcheck source=lib/config.sh
+  . "$root/lib/config.sh"
+  host=$(_tehas_host_mem_mb)
+  mb=$(_tehas_mem_mb "${memory:-$((host / 2))m}") || die "not an amount of memory: $memory (examples: 512m, 8g)"
+  # Docker refuses a container below 6m.
+  [ "$mb" -ge 6 ] || die "$memory is too little memory for a cycle"
+  [ "$mb" -le "$host" ] || die "this host has $host MiB of memory"
+  n=$(_tehas_host_cpus)
+  cpus=${cpus:-$((n > 1 ? n - 1 : 1))}
+  if ! [[ $cpus =~ ^[0-9]+(\.[0-9]+)?$ ]] || ! LC_ALL=C awk -v c="$cpus" 'BEGIN { exit !(c >= 1) }'; then
+    die "not a number of CPUs of at least 1: $cpus"
+  fi
+  LC_ALL=C awk -v c="$cpus" -v max="$n" 'BEGIN { exit !(c <= max) }' || die "this host has $n CPUs"
+  [ "$(docker info --format '{{.CgroupDriver}}' 2>/dev/null)" = systemd ] ||
+    die "Docker does not use the systemd cgroup driver here, so a slice would limit nothing; nothing was changed"
+  install -d -m 755 "$etc/systemd/system"
+  cat >"$etc/systemd/system/tehas-cycles.slice" <<UNIT
+# Written by bootstrap.sh pool. The containers of all tehas cycles together
+# may use this much memory and CPU time.
+[Unit]
+Description=The containers of tehas cycles, together
+
+[Slice]
+MemoryMax=${mb}M
+CPUQuota=$(LC_ALL=C awk -v c="$cpus" 'BEGIN { printf "%d", int(c * 100 + 0.5) }')%
+UNIT
+  chmod 644 "$etc/systemd/system/tehas-cycles.slice"
+  systemctl daemon-reload
+  systemctl start tehas-cycles.slice
+  echo "bootstrap: pool part done. Cycles share ${mb}m of memory and $cpus CPUs where TEHAS_WORK_MEMORY and TEHAS_WORK_CPUS say the same."
 }
 
 # --- shared -------------------------------------------------------------------
@@ -308,9 +353,10 @@ case "${1:-}" in
   root) do_root "${2:-}" ;;
   user) do_user ;;
   dev) shift; do_dev "$@" ;;
+  pool) shift; do_pool "$@" ;;
   check) do_check ;;
   *)
-    sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
     exit 64
     ;;
 esac

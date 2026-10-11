@@ -32,6 +32,7 @@ sudo ./bootstrap.sh root boss     # 1. as root, naming the tehas user
 ./bootstrap.sh user               # 2. as the tehas user
 ./bootstrap.sh check              # 3. one line per tool
 sudo ./bootstrap.sh dev boss alice   # optional: let the account alice type "tehas dev"
+sudo ./bootstrap.sh pool 14g 11      # optional: cycles share TEHAS_WORK_MEMORY and TEHAS_WORK_CPUS, see Limits and concurrency in the host page
 ```
 
 If the platform repository is private, the clone needs the deploy key from the
