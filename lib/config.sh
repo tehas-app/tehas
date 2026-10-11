@@ -102,8 +102,11 @@ _tehas_valid() {
       [[ $v =~ ^[A-Za-z0-9._-]+$ ]] || { echo "expected one word of letters, digits, dots and dashes"; return 1; }
       ;;
     TEHAS_CYCLE_RESERVE)
-      # Docker refuses a memory value under 6m.
-      if ! mb=$(_tehas_mem_mb "$v" 2>/dev/null) || [ "$mb" -lt 6 ]; then
+      # The shape lib/slice.sh reads at every start: no leading zero, at most
+      # twelve digits of bytes or nine with a unit. Docker refuses a memory
+      # value under 6m.
+      if ! [[ $v =~ ^([1-9][0-9]{0,11}[bB]?|[1-9][0-9]{0,8}[kmgKMG])$ ]] ||
+        ! mb=$(_tehas_mem_mb "$v" 2>/dev/null) || [ "$mb" -lt 6 ]; then
         echo "expected a size of at least 6m, such as 512m or 2g"
         return 1
       fi

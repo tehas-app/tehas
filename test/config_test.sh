@@ -376,7 +376,9 @@ t_run "$load && echo \"\$TEHAS_CYCLE_RESERVE\""
 t_eq "$t_out" "2g"
 T_ENV=()
 
-for bad in lots 2gb 0 5m 6000k -1g 1.5g; do
+# 02g and 1000000000g are sizes to Docker but not to lib/slice.sh, which reads
+# the reserve at every start: what loads must be what the slice library reads.
+for bad in lots 2gb 0 5m 6000k -1g 1.5g 02g 1000000000g; do
   t_case "a reserve that is not a size, or under 6m, is refused: $bad"
   t_instance "${T_MINIMAL[@]}" "TEHAS_CYCLE_RESERVE=$bad"
   t_run "$load; echo rc=\$?"
