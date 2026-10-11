@@ -23,6 +23,12 @@
   <section><h2>Completed <span class="n" id="n-completed"></span></h2><ul class="issues" id="completed"></ul></section>
 </div>
 
+<section id="previews" hidden>
+  <h2>Previews <span class="n" id="n-previews"></span></h2>
+  <p class="muted" id="previews-note"></p>
+  <ul class="issues" id="preview-list"></ul>
+</section>
+
 <script src="/fun/console-tabs.js"></script>
 <script>
 (() => {
@@ -72,12 +78,68 @@
     }
   }
 
+  // Previews of pull requests: /live/previews.json, written by tehasbot
+  // preview. A host without previews has no such file and the section stays
+  // hidden. Titles are untrusted text and the address is checked before it
+  // becomes a link.
+  const PREVIEW_STATES = {
+    building: "building",
+    "no-recipe": "no preview/Dockerfile in the commit",
+    "build-failed": "unable to create: the build failed",
+    "no-space": "unable to create: the host is low on disk",
+    "over-limit": "over the limit of previews",
+  };
+  async function refreshPreviews() {
+    let p = null;
+    try {
+      const r = await fetch("/live/previews.json", { cache: "no-store" });
+      if (r.ok) p = await r.json();
+    } catch { /* no previews on this host */ }
+    const section = $("previews");
+    if (!p || !Array.isArray(p.previews)) { section.hidden = true; return; }
+    section.hidden = false;
+    $("n-previews").textContent = p.previews.length ? "(" + p.previews.length + ")" : "";
+    // When the list was written: a run that cannot build still writes it,
+    // so an old time means the runs have stopped.
+    const note = [];
+    if (p.disk && p.disk.low) {
+      note.push(p.disk.freeBytes === null
+        ? "The host's free disk space could not be read: previews are not being built."
+        : "The host is low on disk: previews are not being built.");
+    }
+    if (typeof p.generatedAt === "string" && !Number.isNaN(Date.parse(p.generatedAt))) {
+      note.push("List written " + ago(p.generatedAt) + ".");
+    }
+    $("previews-note").textContent = note.join(" ");
+    const ul = $("preview-list");
+    ul.replaceChildren();
+    if (!p.previews.length) { ul.append(el("li", "empty", "No pull request is open.")); return; }
+    for (const it of p.previews) {
+      if (!it || !Number.isSafeInteger(it.number)) continue;
+      const li = el("li");
+      const title = typeof it.title === "string" && it.title ? it.title : "pull request " + it.number;
+      li.append(el("span", "num", "#" + it.number));
+      if (it.state === "serving" && typeof it.address === "string"
+          && /^https:\/\/uat-[1-9][0-9]{0,8}\.[a-z0-9.-]+\/$/.test(it.address)) {
+        const a = el("a", null, title);
+        a.href = it.address;
+        a.target = "_blank";
+        a.rel = "noopener";
+        li.append(a);
+      } else {
+        li.append(el("span", null, title), " ", el("span", "when", PREVIEW_STATES[it.state] || "not serving"));
+      }
+      ul.append(li);
+    }
+  }
+
   // Several cycles can run side by side: console-tabs.js says which there are
   // and which one is shown. running is the shown cycle while it runs.
   const TABS = globalThis.TEHAS_CONSOLE_TABS;
   let consoleFile = null, offset = 0, tailing = false, running = null, selected = null, lastStatus = null, lastNow = null;
 
   async function refresh() {
+    refreshPreviews();
     let s, now;
     try {
       s = await (await fetch("/live/status.json", { cache: "no-store" })).json();

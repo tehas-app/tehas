@@ -8,8 +8,8 @@
 #                           installed files and tests, each on its own line
 #
 # What is installed: the commands and units (issue to pull request), the
-# sandbox files, the docs server, the Protolab and the manual, plus the
-# instance's own models.json and, if it has one, settings.json.
+# sandbox files, the docs server, the edge router, the Protolab and the manual,
+# plus the instance's own models.json and, if it has one, settings.json.
 #
 # It copies files, and compiles one: the console of a running cycle is a Rust
 # program in console/. A real run builds it with cargo in this checkout
@@ -29,18 +29,21 @@
 # in ~/tehas/bin and the console script in ~/tehas/libexec, unless a cycle is
 # running that still uses them.
 #
-# Three things it does besides copying, on a real run only. The product
+# Four things it does besides copying, on a real run only. The product
 # checkout's origin/HEAD is refreshed, so the commands know the default branch
 # without asking the network. The code index a cycle's agents search is built
 # with `tehas index`, once: when there is no index yet and both the sandbox
 # image and the product checkout are there. A failed indexing does not fail the
-# install. And each follow-up a copied file calls for is recorded in
-# $TEHAS_HOME/state/update-pending before that file is put. This script's
-# report of what changed is one-shot: the next run compares again and finds the
-# file matching. So a run that dies partway would otherwise leave the files it
-# did copy with no follow-up owed.
+# install. The Docker network of the previews, tehas-previews, is made where
+# Docker is installed, is 27.1 or later, and the network is not there. One
+# that is there and does not keep the host out is left, and the run says that
+# it has to be remade. And each follow-up a copied file
+# calls for is recorded in $TEHAS_HOME/state/update-pending before that file is
+# put. This script's report of what changed is one-shot: the next run compares
+# again and finds the file matching. So a run that dies partway would otherwise
+# leave the files it did copy with no follow-up owed.
 #
-# The follow-ups are named by id (units, sandbox, docs, protolab) in
+# The follow-ups are named by id (units, sandbox, docs, edge) in
 # lib/update-steps.sh, which is the one place that names them. This script
 # prints them as "next: <step>" and records them; `tehas update` runs them and
 # clears the record. Only a step is printed as "next:". Something for a person
@@ -66,6 +69,8 @@ check=0
 . "$root/lib/config.sh"
 # shellcheck source=lib/update-steps.sh
 . "$root/lib/update-steps.sh"
+# shellcheck source=lib/edge.sh
+. "$root/lib/edge.sh"
 
 # --- 1. Instance settings ---------------------------------------------------
 # Every finding is one line. Any finding stops a real run before it changes
@@ -140,20 +145,25 @@ files=(
   "lib/cycles.sh|$TEHAS_HOME/lib/cycles.sh|644"
   "lib/live.sh|$TEHAS_HOME/lib/live.sh|644"
   "lib/update-steps.sh|$TEHAS_HOME/lib/update-steps.sh|644"
+  "lib/edge.sh|$TEHAS_HOME/lib/edge.sh|644"
   "lib/sandbox.sh|$TEHAS_HOME/lib/sandbox.sh|644"
   "versions.env|$TEHAS_HOME/versions.env|644"
   "sandbox/Dockerfile|$TEHAS_HOME/sandbox/Dockerfile|644"
   "sandbox/build.sh|$TEHAS_HOME/sandbox/build.sh|755"
   "edge/docs.Caddyfile|$TEHAS_HOME/edge/docs.Caddyfile|644"
   "edge/docs.compose.yaml|$TEHAS_HOME/edge/docs.compose.yaml|644"
-  "edge/protolab.Caddyfile|$TEHAS_HOME/edge/protolab.Caddyfile|644"
-  "edge/protolab.compose.yaml|$TEHAS_HOME/edge/protolab.compose.yaml|644"
+  "edge/router.Caddyfile|$TEHAS_HOME/edge/router.Caddyfile|644"
+  "edge/router.compose.yaml|$TEHAS_HOME/edge/router.compose.yaml|644"
   "systemd/tehas-cycle@.service|$units/tehas-cycle@.service|644"
   "systemd/tehas-dispatch.service|$units/tehas-dispatch.service|644"
   "systemd/tehas-dispatch.timer|$units/tehas-dispatch.timer|644"
   "systemd/tehas-energy.service|$units/tehas-energy.service|644"
   "systemd/tehas-protolab.service|$units/tehas-protolab.service|644"
   "systemd/tehas-protolab.timer|$units/tehas-protolab.timer|644"
+  "systemd/tehas-preview.service|$units/tehas-preview.service|644"
+  "systemd/tehas-preview.timer|$units/tehas-preview.timer|644"
+  "systemd/tehas-preview-sweep.service|$units/tehas-preview-sweep.service|644"
+  "systemd/tehas-preview-sweep.timer|$units/tehas-preview-sweep.timer|644"
   "pi/mcp.json|$agent/mcp.json|644"
   "$instance/models.json|$agent/models.json|644"
 )
@@ -161,7 +171,7 @@ files=(
 for f in tehas tehasbot; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
-for f in cycle dev dev-login dispatch energy health index labels protolab status summary update work; do
+for f in cycle dev dev-login dispatch energy health index labels preview protolab status summary update work; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
 # Pi's own settings: the instance may bring its own (default provider and
@@ -300,11 +310,12 @@ if [ "$check" != 1 ]; then
 fi
 
 # The commands of before bin/tehas, one file each in bin/, and the console of
-# before it was a compiled program. Found here, removed in step 5 once systemd
-# has the new units.
+# before it was a compiled program. And the Protolab's server files of before the
+# edge router. Found here, removed in step 5 once systemd has the new units.
 old=()
 for f in bin/tehas-console.ts bin/tehas-dispatch bin/tehas-energy bin/tehas-health bin/tehas-index \
-  bin/tehas-protolab bin/tehas-status bin/tehas-test bin/tehas-work libexec/console.ts; do
+  bin/tehas-protolab bin/tehas-status bin/tehas-test bin/tehas-work libexec/console.ts \
+  edge/protolab.Caddyfile edge/protolab.compose.yaml; do
   to=$TEHAS_HOME/$f
   [ -e "$to" ] || continue
   old+=("$to")
@@ -368,7 +379,43 @@ fi
 
 # --- 5. After a real run ------------------------------------------------------
 # The servers mount live/ and protolab/: they have to be there, and ours.
-mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state" "$TEHAS_HOME/tmp" "$TEHAS_HOME/live" "$TEHAS_HOME/protolab"
+# preview/ is no mount: `tehasbot preview` keeps each pull request's state and
+# its clone of the product there, and makes it itself as well. It is made here
+# with the others so that every directory tehas writes to is there after an
+# install, whether previews are on or not.
+mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state" "$TEHAS_HOME/tmp" "$TEHAS_HOME/live" "$TEHAS_HOME/protolab" \
+  "$TEHAS_HOME/preview"
+
+# The previews' network keeps a preview from the host: it reaches the router
+# and the other previews and nothing else. What that takes is in lib/edge.sh,
+# and `tehasbot preview` decides by the same functions before every run. The
+# router's compose file names the network as external and `tehasbot preview`
+# puts containers on it, so it is made here, whichever of the two starts first.
+# A host with no Docker yet gets it from `tehasbot preview`. A Docker older
+# than 27.1 is not asked: it does not know the option that keeps the host out.
+# The bridge driver of Docker 29.1.3 was seen to accept an option it does not
+# know, so an older one may make a network that looks right and gives the
+# host an address. That was not tried, and with the version checked it does
+# not have to be. A network that is there and does not keep the host out
+# is not removed here: containers may be on it.
+if command -v docker >/dev/null 2>&1; then
+  if ! previews_fault=$(edge_docker_fault); then
+    note "The network tehas-previews was not made or checked: $previews_fault. No preview is built until Docker is 27.1 or later."
+  else
+    previews_rc=0
+    previews_fault=$(edge_net_fault tehas-previews) || previews_rc=$?
+    case "$previews_rc" in
+      0) ;;
+      2)
+        edge_net_create tehas-previews ||
+          note "The network tehas-previews could not be made; the edge router will not start without it."
+        ;;
+      *)
+        note "The network tehas-previews does not keep the host out ($previews_fault). It has to be remade before a preview is built; the manual's troubleshooting page says how."
+        ;;
+    esac
+  fi
+fi
 
 # The one place the default branch is looked up over the network.
 if [ -z "${TEHAS_BRANCH:-}" ] && [ -d "$TEHAS_WORK_REPO/.git" ]; then
@@ -410,7 +457,7 @@ while IFS= read -r step; do echo "next: $step"; done < <(tehas_steps_for "${chan
 retire_later=""
 if [ "${#old[@]}" -gt 0 ]; then
   if ! out=$(systemctl --user daemon-reload 2>&1) || [ -n "$out" ]; then
-    retire_later="once systemctl --user daemon-reload works   (systemd still holds the units that name the old commands in $TEHAS_HOME, so they were left)"
+    retire_later="once systemctl --user daemon-reload works   (systemd still holds the units that name the old commands and server files in $TEHAS_HOME, so they were left)"
   else
     exec 9>>"$TEHAS_HOME/state/dispatch.lock"
     if flock -n 9; then
@@ -419,7 +466,7 @@ if [ "${#old[@]}" -gt 0 ]; then
         echo "removed: $to"
       done
     else
-      retire_later="when the running cycle has ended   (the dispatcher's lock is held, so the old commands in $TEHAS_HOME were left)"
+      retire_later="when the running cycle has ended   (the dispatcher's lock is held, so the old commands and server files in $TEHAS_HOME were left)"
     fi
     exec 9>&-
   fi

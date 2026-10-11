@@ -123,12 +123,15 @@
 }
 .page .console-tabs button[aria-selected="true"] { background: var(--brass); }
 .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(288px, 1fr)); gap: 0 32px; }
-.page .cols h2 { margin-top: 32px; font-size: 16px; line-height: 24px; text-transform: uppercase; }
+.page .cols h2, .page #previews h2 { margin-top: 32px; font-size: 16px; line-height: 24px; text-transform: uppercase; }
 .page .num { margin-right: 8px; }
 .page ul.issues { padding: 0; list-style: none; }
 .page ul.issues li { max-width: none; margin: 0; padding: 8px 0; border-top: 1px solid var(--hairline); overflow-wrap: anywhere; }
 .page ul.issues li:first-child { border-top: 0; }
 .page .when { white-space: nowrap; }
+/* A preview that is not serving has no link: its title is plain text, and the
+   reason after it needs a mark to stand apart as a link's "when" does. */
+.page #previews .when::before { content: "- "; }
 
 @media (max-width: 899px) {
   .manual { grid-template-columns: minmax(0, 1fr); }

@@ -90,6 +90,7 @@ The manual is in [`host/docs/`](host/docs/). Every instance serves it on port
 | [A new project](host/docs/new-project.md) | Installing tehas for your repository |
 | [Bootstrap a host](host/docs/bootstrap.md) | Preparing a fresh machine |
 | [The host](host/docs/host.md) | Files on the machine, settings, the sandbox image |
+| [Previews](host/docs/edge.md) | A preview of every pull request, and how the names were published |
 | [Commands](host/docs/tools.md) | `tehas`, `tehasbot` and what each of their commands does |
 | [Troubleshooting](host/docs/troubleshooting.md) | What each kind of stop means |
 
@@ -103,8 +104,9 @@ nothing has run for long. Its first unattended cycle took 61 minutes and about
 [features page](host/docs/features.md) says for each part whether it was seen
 working on a host, covered by tests only, or not built.
 
-Two things it does not do: run a preview of a pull request, and serve more than
-one repository from one host.
+A running preview of every pull request is built and covered by the tests. It
+has not run on a host yet. One thing tehas does not do: serve more than one
+repository from one host.
 
 ## Working on tehas
 
@@ -128,6 +130,7 @@ crates the first time. The rules for changes are in [`AGENTS.md`](AGENTS.md).
 | `lib/sandbox.sh` | What a sandbox container is given, for a cycle and for a session by hand |
 | `lib/update-steps.sh` | The follow-up steps of an install, which `install.sh` asks for and `tehas update` runs |
 | `host/` | Everything else that is installed: units, the docs server, the sandbox image, the manual |
+| `preview/` | What `tehasbot preview` builds for a pull request of this repository |
 | `install.sh`, `bootstrap.sh` | Install tehas on a host, and prepare a host's tools |
 | `instances/` | `example/` to copy, and `tehas-tehas/`, the settings of the example instance |
 | `test/` | Shell tests, one file per unit |

@@ -29,8 +29,9 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/repos/pi-rukas`             | pi-rukas, pinned to a commit                                            |
 | `~/tehas/docs/`, `~/tehas/fun/`      | This site's pages and the front page, installed from `host/`            |
 | `~/tehas/sandbox/`, `versions.env`   | Sandbox image definition, build script, and the pinned tool versions    |
-| `~/tehas/edge/`                      | The docs server (`docs.compose.yaml`) and the Protolab server (`protolab.compose.yaml`) |
+| `~/tehas/edge/`                      | The docs server (`docs.compose.yaml`) and the edge router (`router.compose.yaml`) |
 | `~/tehas/protolab/`                  | The Protolab's pages and the files of each prototype, written by `tehasbot protolab` |
+| `~/tehas/preview/`                   | The state of each preview, and a bare clone the pull requests' commits are fetched into, written by `tehasbot preview` |
 | `~/tehas/logs/`, `state/`, `live/`, `tmp/` | Logs, lock and status files, dashboard data, scratch              |
 | Docker volume `pi-ensemble-cache`    | Caches of the sandbox, among them the code index `tehas index` builds   |
 | `~/.pi/agent/`                       | Pi user configuration (models, MCP servers)                             |
@@ -88,13 +89,13 @@ tehas update             # pull, install, run the follow-ups that apply
 
 `tehas update` is the three steps that took hand work before: fast-forward
 `~/tehas/platform` from its remote, run `install.sh`, then run each follow-up it
-asks for by name (`units`, `sandbox`, `docs`, `protolab`: see [Commands](/tools)).
+asks for by name (`units`, `sandbox`, `docs`, `edge`: see [Commands](/tools)).
 One line per step, and it stops at the first failure. It checks the instance
 settings against the required list in `lib/config.sh`, the same one install.sh
 checks, before it calls git. It changes nothing when the checkout has local
 changes or cannot be fast-forwarded, and it never enables a unit or starts a
 container the host was not already running: a changed unit is reloaded and
-restarted when it was active, and a docs or Protolab container is recreated when
+restarted when it was active, and a docs or edge router container is recreated when
 it is up - Caddy reads its config when the process starts, so a changed Caddyfile
 needs the container brought back up. Asking Docker or systemd whether one runs and
 getting no answer stops the update; only a real answer counts, not an exit status
@@ -343,11 +344,44 @@ permanent difference.
 | Dispatcher  | systemd user timer `tehas-dispatch.timer`, every 2 minutes | `tail ~/tehas/logs/dispatch.log`                       |
 | Energy use sampler, optional | systemd user service `tehas-energy.service`, every 15 s. Enable it only when the model backend is a [viiwork](https://github.com/janit/viiwork) mesh | `jq .generatedAt ~/tehas/live/energy.json` |
 | Protolab pages | systemd user timer `tehas-protolab.timer`, every 5 minutes | `tail ~/tehas/logs/protolab.log` |
-| Protolab server | `docker compose -f ~/tehas/edge/protolab.compose.yaml up -d` | `curl -i http://tehas-tehas:8081/` |
+| Edge router | `docker compose -f ~/tehas/edge/router.compose.yaml up -d` | `curl -i http://tehas-tehas:8081/` |
+| Previews | systemd user timer `tehas-preview.timer`, every 5 minutes | `tail ~/tehas/logs/preview.log`, `jq . ~/tehas/live/previews.json` |
+| Preview sweep | systemd user timer `tehas-preview-sweep.timer`, every 3 hours | `jq .lastSweep ~/tehas/live/previews.json` |
+| One preview | a container `tehas-preview-<pr>` | `docker ps --filter label=tehas.preview` |
 
 The docs server binds to `TEHAS_HOST_ADDR`, port 8080. Without the setting it
 stays on `127.0.0.1`. `docker compose` reads the address from the environment,
 so run it from a shell that has sourced `~/tehas/env.sh`.
+
+The edge router binds to the same address, port 8081, and picks by the first
+label of the name it is asked for:
+
+| Name asked for | Answer |
+| --- | --- |
+| `uat-<pr>.` and anything after it | The preview of that pull request, the container `tehas-preview-<pr>`. With no such container, a 404 that says no preview is running |
+| `lab-<issue>.` and anything after it | That ticket's page in the Protolab, from `~/tehas/protolab/<issue>/` |
+| Any other name | The Protolab by path: the list at `/`, a ticket at `/<issue>/` |
+
+The number is one to nine digits and does not start with a zero. Another `uat-` or
+`lab-` name is a 404. Every answer of the router says `noindex`. Its
+configuration is a fixed file and holds no domain: nothing writes it when a
+preview comes or goes. It is on two Docker networks: one of its own for the
+published port, and `tehas-previews`, an internal one that the previews are
+on and the host has no address on. `install.sh` makes that network when
+Docker is 27.1 or later, and says so when it is not: an older Docker does
+not know the option that keeps the host out, and what it would make was not
+tried. Where the network is there already
+and does not keep the host out, `install.sh` leaves it and says why and that
+it has to be remade. [Troubleshooting](/troubleshooting) has the lines.
+
+Every unit and both containers are started by the operator. `tehas update`
+restarts a unit that is already active and recreates a container that already
+runs, and adds nothing. So a host installed before previews existed has the
+units `tehas-preview.timer` and `tehas-preview-sweep.timer` installed and not
+running until they are enabled. The one exception is a host that runs the
+Protolab's server under its old compose project, `tehas-protolab`: an update
+takes that container down and starts the edge router in its place.
+[Previews](/edge) has the steps.
 
 Search engines are told to stay out: every page carries `noindex` and
 `/robots.txt` disallows everything. `TEHAS_INDEXING=1` in `instance.env` turns

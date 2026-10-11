@@ -267,6 +267,83 @@ t_run "$summary --json"
 t_eq "$t_rc" 64
 t_contains "$t_out" "usage: tehas status"
 
+disk() { # low [age in seconds]
+  mkdir -p "$live"
+  jq -n --argjson low "$1" --arg at "$(date -u -d "@$(($(date +%s) - ${2:-60}))" +%FT%TZ)" \
+    '{generatedAt: $at, disk: {freeBytes: 1073741824, minFreeBytes: 5368709120, low: $low}, previews: []}' \
+    >"$live/previews.json"
+}
+
+t_case "health: a host with no previews has no disk check"
+reset
+t_run "$status"
+t_eq "$(jq -c '.checks.disk' "$live/health.json")" "null"
+
+t_case "health: low disk is a warning, with the figures"
+reset
+disk true
+t_run "$status"
+t_eq "$(jq -r '.status' "$live/health.json")" "warn"
+t_contains "$(jq -r '.output' "$live/health.json")" "low on disk: previews are not being built"
+t_eq "$(jq -c '.checks.disk | {freeBytes, minFreeBytes, low}' "$live/health.json")" \
+  '{"freeBytes":1073741824,"minFreeBytes":5368709120,"low":true}'
+t_eq "$(find "$live" -name health.down | wc -l)" 0
+
+t_case "health: free space that could not be read is a warning that says so"
+reset
+disk true
+jq '.disk.freeBytes = null' "$live/previews.json" >"$live/x" && mv "$live/x" "$live/previews.json"
+t_run "$status"
+t_eq "$(jq -r '.status' "$live/health.json")" "warn"
+t_eq "$(jq -r '.output' "$live/health.json")" "The host's free disk space could not be read: previews are not being built."
+t_eq "$(jq -c '.checks.disk | {freeBytes, minFreeBytes, low}' "$live/health.json")" \
+  '{"freeBytes":null,"minFreeBytes":5368709120,"low":true}'
+
+t_case "health: a figure with low disk keeps the sentence about low disk"
+reset
+disk true
+t_run "$status"
+t_eq "$(jq -r '.output' "$live/health.json")" "The host is low on disk: previews are not being built."
+
+t_case "health: no figure and not low is not a warning"
+reset
+disk false
+jq '.disk.freeBytes = null' "$live/previews.json" >"$live/x" && mv "$live/x" "$live/previews.json"
+t_run "$status"
+t_eq "$(jq -r '.status' "$live/health.json")" "pass"
+
+t_case "health: enough disk passes"
+reset
+disk false
+t_run "$status"
+t_eq "$(jq -r '.status' "$live/health.json")" "pass"
+
+t_case "health: a figure older than half an hour is not believed"
+reset
+disk true 3600
+t_run "$status"
+t_eq "$(jq -r '.status' "$live/health.json")" "pass"
+t_eq "$(jq -c '.checks.disk' "$live/health.json")" "null"
+
+for bad in 'not json' '{"generatedAt":"yesterday","disk":{"low":true}}' '{"disk":{"low":true}}' '[]' '{"generatedAt":7,"disk":"full"}'; do
+  t_case "health: a previews.json of '$bad' gives no disk check and no warning"
+  reset
+  mkdir -p "$live"
+  printf '%s\n' "$bad" >"$live/previews.json"
+  t_run "$status"
+  t_eq "$(jq -r '.status' "$live/health.json")" "pass"
+  t_eq "$(jq -c '.checks.disk' "$live/health.json")" "null"
+  t_lacks "$(jq -r '.output' "$live/health.json")" "disk"
+  t_eq "$(find "$live" -name health.down | wc -l)" 0
+done
+
+t_case "health: a failed cycle still wins over low disk"
+reset
+disk true
+cycle false died verify
+t_run "$status"
+t_eq "$(jq -r '.status' "$live/health.json")" "fail"
+
 t_case "a lost cycle counts from when it was found, not from its last heartbeat"
 reset
 mkdir -p "$live/cycles"
