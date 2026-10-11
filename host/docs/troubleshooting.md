@@ -67,6 +67,9 @@ Run `tehas dispatch --dry-run` and read what it prints.
   soon as the endpoint answers. See "The model endpoint does not answer" below.
 - `nothing to do`: the issue is closed, or still carries `tehas:running`,
   `tehas:awaiting-merge` or `needs-human-attention`.
+- `park #N: it is marked tehas:running and no cycle holds its lock`: the cycle
+  of that issue ended without a report, or never started. The issue now carries
+  `needs-human-attention`. Read `~/tehas/logs/dispatch-work-N.log`.
 - `N cycles running, room for M more`, then `would run a cycle for #N ...`:
   the issues the next poll starts. In the log you may also see `the code index
   stays as it is: a cycle is running on #N`. That is no reason an issue waits.

@@ -175,6 +175,13 @@ old way. When the boxes are posted and the label `tehas:question` cannot be
 added, a second comment says that the boxes cannot be used, tells you to run
 `tehas labels` on the host, and gives the old way.
 
+A cycle that was killed outright cannot report, for example when the host
+lost power. The next poll finds its issue: open, marked `tehas:running`, and
+no cycle on the host behind it. It takes `tehas:running` off, adds
+`needs-human-attention` and says so in a plain comment without boxes. Look for
+a pull request the cycle may have opened, then retry the old way. The poll
+starts nothing for it by itself.
+
 A tick counts only from an allowed labeller, and only while the issue is
 parked: it carries `needs-human-attention` and neither `tehas:running` nor
 `tehas:awaiting-merge`. It is used once. When the cycle starts, the bot unticks

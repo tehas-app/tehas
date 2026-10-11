@@ -19,6 +19,7 @@ case "$1 $2" in
     case "$*" in
       *awaiting-merge*) cat "$T/fx/awaiting.json" || exit 1 ;;
       *tehas:ready*) cat "$T/fx/ready.json" || exit 1 ;;
+      *tehas:running*) cat "$T/fx/marked.json" || exit 1 ;;
       *tehas:question*) cat "$T/fx/asking.json" || exit 1 ;;
       *tehas:plan*) cat "$T/fx/plans.json" || exit 1 ;;
       *) echo "[]" ;;
@@ -86,6 +87,7 @@ reset() {
   echo '{"labels":[]}' >"$fx/control.json"
   echo '{"session":"abc-123","text":"Two ways.","question":{"question":"Adopt?","options":[{"label":"Adopt all","description":"Apply all five"},{"label":"Change some","description":""}]}}' >"$fx/plan-result.json"
   echo '[]' >"$fx/awaiting.json"
+  echo '[]' >"$fx/marked.json"
   echo '[{"number":7,"labels":[{"name":"tehas:ready"}]}]' >"$fx/ready.json"
   echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
   T_ENV=(TEHAS_CYCLE_START_CMD=fake-start TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index TEHAS_PLAN_CMD=fake-plan)
@@ -529,6 +531,92 @@ t_lacks "$(t_calls gh)" "issue edit"
 t_run "$dispatch --dry-run"
 t_contains "$t_out" "holding: 1 cycles are running (limit 1)"
 release
+
+t_case "an issue marked as running with no cycle behind it is handed to a human"
+reset
+echo '[{"number":9}]' >"$fx/marked.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "park #9: it is marked tehas:running and no cycle holds its lock"
+t_contains "$(t_calls gh)" "issue edit 9 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention"
+t_contains "$(t_calls gh)" "issue comment 9 --repo acme/widget --body Tehas found this issue marked \`tehas:running\` with no cycle behind it"
+t_contains "$(t_calls gh)" "logs/dispatch-work-9.log"
+t_contains "$(t_calls gh)" "apply \`tehas:ready\` again"
+
+t_case "and the poll goes on to the queue, and starts nothing for that issue"
+t_eq "$(t_calls fake-start)" "7"
+
+t_case "a lock file nobody holds does not make it a running cycle"
+reset
+echo '[{"number":9}]' >"$fx/marked.json"
+mkdir -p "$T/home/tehas/state/cycles"
+: >"$T/home/tehas/state/cycles/9.lock"
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "issue edit 9 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention"
+
+t_case "an issue whose cycle holds its lock is left alone"
+reset
+slots 2
+echo '[{"number":9}]' >"$fx/marked.json"
+hold 9
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_lacks "$(t_calls gh)" "issue edit 9"
+t_lacks "$(t_calls gh)" "issue comment 9"
+t_eq "$(t_calls fake-start)" "7"
+release
+
+t_case "it is found while the slots are full too"
+reset
+echo '[{"number":8},{"number":9}]' >"$fx/marked.json"
+hold 8
+t_run "$dispatch"
+t_lacks "$(t_calls gh)" "issue edit 8"
+t_contains "$(t_calls gh)" "issue edit 9 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention"
+t_eq "$(t_calls fake-start)" ""
+release
+
+t_case "when its label cannot be changed nothing is said on it, and the poll goes on"
+reset
+echo '[{"number":9}]' >"$fx/marked.json"
+echo "issue edit 9" >"$fx/edit-fails-on"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN: label change on #9 failed"
+t_lacks "$(t_calls gh)" "issue comment 9"
+t_eq "$(t_calls fake-start)" "7"
+
+t_case "a dry run says so and changes nothing"
+reset
+echo '[{"number":9}]' >"$fx/marked.json"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would park #9: it is marked tehas:running and no cycle holds its lock"
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "issue comment"
+
+t_case "a paused factory leaves it"
+reset
+echo '[{"number":9}]' >"$fx/marked.json"
+echo '{"labels":[{"name":"tehas:pause"}]}' >"$fx/control.json"
+t_run "$dispatch"
+t_lacks "$(t_calls gh)" "issue edit"
+
+t_case "when the issues marked as running cannot be read nothing is dispatched"
+reset
+rm -f "$fx/marked.json"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: gh issue list failed"
+t_lacks "$(t_calls gh)" "issue edit"
+t_eq "$(t_calls fake-start)" ""
+
+t_case "an answer that is no list of issues dispatches nothing"
+reset
+echo '{"oops":1}' >"$fx/marked.json"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: unreadable list of issues marked as running"
+t_eq "$(t_calls fake-start)" ""
 
 t_case "the lock file of a cycle that ended holds nothing back"
 reset

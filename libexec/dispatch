@@ -23,6 +23,8 @@
 # Rules, in order:
 #   1. Label tehas:pause on the control issue stops all dispatch.
 #   2. At most TEHAS_TICKET_CONCURRENCY cycles run at once.
+#      An open issue marked tehas:running whose cycle holds no lock on this
+#      host is handed to a human. Nothing is started for it.
 #   3. Running cycles and tehas PRs that wait for a human together do not
 #      exceed TEHAS_MAX_AWAITING.
 #   4. A box ticked by an allowed account in the bot's question comment is an
@@ -371,6 +373,26 @@ running=${running% }
 count=$(wc -w <<<"$running")
 count=$((count))
 free=$((TEHAS_TICKET_CONCURRENCY - count))
+
+# A cycle that was killed, or whose last label change GitHub refused, leaves
+# its issue marked as running. No rule below would look at it again. The
+# comment follows the label change only: while the change fails, the next poll
+# finds the issue again and must not say the same once more.
+gh_json issue list --repo "$repo" --state open --label tehas:running --limit 100 --json number
+marked=$(jq -r 'map(.number) | sort | .[]' <<<"$json") || { log "ERROR: unreadable list of issues marked as running"; exit 1; }
+for n in $marked; do
+  ! tehas_cycle_running "$n" || continue
+  if [ "$dry" = 1 ]; then
+    log "would park #$n: it is marked tehas:running and no cycle holds its lock"
+    continue
+  fi
+  log "park #$n: it is marked tehas:running and no cycle holds its lock"
+  if gh issue edit "$n" --repo "$repo" --remove-label tehas:running --add-label needs-human-attention >/dev/null 2>&1; then
+    say "$n" "Tehas found this issue marked \`tehas:running\` with no cycle behind it on \`$(hostname)\`: the cycle ended without a report, or never started. Look for a pull request it may have opened. The run log is \`~/tehas/logs/dispatch-work-$n.log\` there. To retry, remove \`needs-human-attention\` and apply \`tehas:ready\` again."
+  else
+    log "WARN: label change on #$n failed"
+  fi
+done
 
 # 3. Do not pile up unreviewed work. A running cycle is a pull request on its
 # way, so it counts: otherwise the slots could overshoot the cap. Rules 2 and

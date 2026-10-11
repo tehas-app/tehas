@@ -131,6 +131,15 @@ the bot's own login is in `TEHAS_ALLOWED_LABELERS`. It checks this when it
 reads a question, so the error shows once a question is open. A planning turn's
 runner output is in `~/tehas/logs/dispatch-plan-<issue>.log`.
 
+A poll also reads the open issues marked `tehas:running`. One whose cycle
+does not hold its lock on this host, `~/tehas/state/cycles/<issue>.lock`, gets
+`needs-human-attention` in place of `tehas:running` and a comment that says
+where the run log is. The log line is `park #N: it is marked tehas:running and
+no cycle holds its lock`. If the label change fails nothing is said on the
+issue and the next poll tries again. A paused factory leaves such an issue as
+it is. Run the dispatcher only on the host that runs the cycles: on any other
+host no cycle holds a lock.
+
 An issue is taken only when an allowed account applied `tehas:ready` and
 nobody else has changed its title or body since. A cycle starts only once the
 issue is marked `tehas:running`; if that label change fails, the poll stops.
