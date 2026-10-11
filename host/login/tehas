@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# tehas, for an account on the factory host that is not the tehas user: start
+# a session of your own, under your own name.
+#
+# Usage:
+#   tehas dev [-- <pi arguments>]   an interactive Pi session with pi-rukas, in
+#                                   the sandbox, in a clone of the product kept
+#                                   for you, on the factory's models
+#   tehas help                      this text
+#
+# There is nothing to set up in your account. The clone is named after your
+# login, and its commits carry user.name and user.email from your own git
+# configuration, read each time. What follows -- is passed to pi, for
+# example: tehas dev -- -r
+#
+# The session runs as the tehas user, through sudo, which lets the members of
+# the group tehas run that one thing. This command reads who the tehas user
+# is, reads your git identity and asks sudo; it holds no setting and no
+# secret. Everything else tehas does is the tehas user's to run.
+#
+# Exit: the session's own status; 64 a wrong argument or no git identity;
+#       78 this host was not set up for it (sudo ./bootstrap.sh dev).
+set -uo pipefail
+
+usage() {
+  sed -n '2,/^[^#]/p' "$0" | sed -n '/^#/s/^# \{0,1\}//p'
+}
+
+etc=${TEHAS_ETC:-/etc}
+manager=""
+home=""
+if [ -r "$etc/tehas/manager" ]; then
+  IFS= read -r manager <"$etc/tehas/manager" || true
+fi
+if [ -n "$manager" ]; then
+  home=$(getent passwd "$manager" 2>/dev/null | cut -d: -f6) || home=""
+fi
+
+# The tehas user has the whole command, first on its own PATH. Reaching this
+# one from that account means the environment was not loaded; pass it on.
+if [ -n "$home" ] && [ "$(id -un)" = "$manager" ]; then
+  exec "$home/tehas/bin/tehas" "$@"
+fi
+
+case "${1-help}" in
+  help | -h | --help)
+    usage
+    exit 0
+    ;;
+  dev) shift ;;
+  *)
+    printf 'tehas: from this account there is only "tehas dev"; "%s" is for %s to run\n' \
+      "$1" "${manager:-the tehas user}" >&2
+    exit 64
+    ;;
+esac
+
+pi_args=()
+if [ "$#" -gt 0 ]; then
+  case "$1" in
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      pi_args=("$@")
+      ;;
+    *)
+      printf 'tehas dev: unknown argument: %s\n' "$1" >&2
+      usage >&2
+      exit 64
+      ;;
+  esac
+fi
+
+[ -n "$home" ] || {
+  echo "tehas dev: this host is not set up for sessions from other accounts: sudo ./bootstrap.sh dev <tehas user> $(id -un)" >&2
+  exit 78
+}
+
+# From the account's own configuration, not from a repository the shell
+# happens to stand in.
+name=$(git -C / config --get user.name 2>/dev/null) || name=""
+email=$(git -C / config --get user.email 2>/dev/null) || email=""
+[ -n "$name" ] && [ -n "$email" ] || {
+  echo "tehas dev: your commits need a name. Set it once:" >&2
+  echo "  git config --global user.name \"Your Name\"" >&2
+  echo "  git config --global user.email you@example.com" >&2
+  exit 64
+}
+
+exec sudo -H -u "$manager" -- "$home/tehas/libexec/dev-login" "$name <$email>" -- "${pi_args[@]}"

@@ -58,6 +58,7 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/libexec/console.stamp
 ./tehas/libexec/cycle
 ./tehas/libexec/dev
+./tehas/libexec/dev-login
 ./tehas/libexec/dispatch
 ./tehas/libexec/energy
 ./tehas/libexec/health

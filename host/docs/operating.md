@@ -227,31 +227,37 @@ your own, as below.
 
 ## Work by hand on the host
 
-The host that runs the factory is also a place to work yourself. Log in as the
-tehas user and start a session:
+The host that runs the factory is also a place to work yourself. Log in with
+your own account and start a session:
 
 ```
-tehas dev alice --author "Alice Example <alice@example.com>"   # the first time
-tehas dev alice                                                # from then on
-tehas dev alice -- -r                                          # resume an earlier session
+ssh alice@tehas-tehas
+tehas dev              # a session in your clone, under your name
+tehas dev -- -r        # resume an earlier session
 ```
 
 That is an interactive Pi with pi-rukas, in the sandbox, on the factory's
-models. There is nothing to configure: the image, the models, the limits and
-the bot's token are the factory's own.
+models. There is nothing to configure in your account: the image, the models,
+the limits and the bot's token are the factory's own, and your name comes from
+your own git configuration. An administrator lets an account in once, with
+`sudo ./bootstrap.sh dev`; see [Bootstrap a host](/bootstrap).
 
-- **Where you work.** `~/tehas/dev/alice`, a clone made the first time from
-  the product checkout, at the tip it last fetched. It is yours and it stays:
-  tehas never resets or removes it. Pull inside the session if it is behind.
-  Another name is another clone; with no name it is `main`.
-- **Whose name is on the commits.** The author you gave, stored in
-  `~/tehas/dev/alice.author`. Every commit of the session carries it, yours
-  and the agents'. Without one the commits carry the bot's name, and the
-  command says so when it starts.
+- **Where you work.** A clone named after your login, made the first time
+  from the product checkout, at the tip it last fetched. It is yours and it
+  stays: tehas never resets or removes it. Pull inside the session if it is
+  behind. It is in the tehas user's home, `~/tehas/dev/alice` there, so you
+  reach it through a session and not from your own shell.
+- **Whose name is on the commits.** `user.name` and `user.email` of your own
+  account, read from your git configuration every time you start. Every
+  commit of the session carries them, yours and the agents'. Nothing else of
+  your configuration is used: no aliases, no signing key, no credentials.
+- **Who runs it.** The session runs as the tehas user, through `sudo`. You get
+  the session and nothing else of that account: no shell, no Docker, none of
+  the other `tehas` commands.
 - **Who pushes.** The bot. The push and the pull request go through its token,
   so GitHub shows the bot as the author of the pull request and your name on
-  the commits. The author is a label, not a login: anyone on the account can
-  give any name. A rule that needs a review from somebody other than the pull
+  the commits. The author is a label, not a proof: it is whatever your git
+  configuration says. A rule that needs a review from somebody other than the pull
   request's author looks at the bot, so read the commit authors before you
   approve.
 - **The factory beside you.** Nothing is paused. A session and a cycle share
@@ -264,3 +270,15 @@ the bot's token are the factory's own.
 
 One session per clone at a time. What the session's container is given is on
 [The host](/host).
+
+Logged in as the tehas user itself, the same command takes a name for the
+clone and an author, because that account is shared and has no name of its
+own to offer:
+
+```
+tehas dev alice --author "Alice Example <alice@example.com>"   # the first time
+tehas dev alice                                                # from then on
+```
+
+Without an author the commits carry the bot's name, and the command says so
+when it starts.
