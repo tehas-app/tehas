@@ -4,8 +4,11 @@
 # uat-<number>.<TEHAS_DOMAIN> (edge/router.Caddyfile).
 #
 #   which ones      Open pull requests whose head branch is in the product
-#                   repository itself. Pushing there needs write access. A
-#                   pull request from a fork is never built.
+#                   repository itself, opened by an owner, member or
+#                   collaborator of the repository. A pull request from a
+#                   fork is never built. Nor is one by anyone else: on a
+#                   public repository anyone can open a pull request between
+#                   two branches it already has.
 #   what it is      The image that preview/Dockerfile of that commit builds,
 #                   answering HTTP on port 8080. A commit without that file
 #                   has no preview.
@@ -368,7 +371,7 @@ write_list() {
 
 # --- The five minute run -----------------------------------------------------
 run() {
-  local pulls ours pr n sha i=0 open=" " wanted=() elsewhere have item fault
+  local pulls ours pr n sha i=0 open=" " wanted=() elsewhere outside have item fault
   if ! docker info --format '{{.DockerRootDir}}' >/dev/null 2>&1; then
     echo "Docker does not answer; nothing was built or removed"
     return 0
@@ -393,13 +396,21 @@ run() {
   # An empty answer with exit 0 is no answer: jq would run its program on no
   # input and say nothing, and every preview would look closed.
   jq -e 'type == "array"' <<<"$pulls" >/dev/null 2>&1 || { write_list; return 0; }
-  # Ours: a number, a commit id, and a head in this repository and no other.
-  ours=$(jq -c --arg repo "$repo" '
+  # Ours: a number, a commit id, a head in this repository and no other, and
+  # opened by people of the repository: an owner, member or collaborator, as
+  # for the Protolab's attachments. The head alone is not enough. On a public
+  # repository anyone can open a pull request between two branches that are
+  # already there, and a handful of those would take every preview.
+  # shellcheck disable=SC2016  # a jq program: the variables are jq's
+  local parts='
+    def ours: IN("OWNER", "MEMBER", "COLLABORATOR");
+    def numbered: (.number | type) == "number" and (.number | tostring | test("^[1-9][0-9]{0,8}$"));
+    def committed: (.head.sha // "") | test("^[0-9a-f]{40}$");
+    def here: ((.head.repo.full_name // "") | ascii_downcase) == ($repo | ascii_downcase);
+    def by_us: .author_association | ours;'
+  ours=$(jq -c --arg repo "$repo" "$parts"'
     if type != "array" then error("not a list") else . end
-    | map(select((.number | type) == "number"
-                 and (.number | tostring | test("^[1-9][0-9]{0,8}$"))
-                 and ((.head.sha // "") | test("^[0-9a-f]{40}$"))
-                 and ((.head.repo.full_name // "") | ascii_downcase) == ($repo | ascii_downcase))
+    | map(select(numbered and committed and here and by_us)
           | {number, sha: .head.sha, title: ((.title // "") | .[0:180]), url: (.html_url // null)})
     | .[]' <<<"$pulls" 2>/dev/null) || { write_list; return 0; }
   elsewhere=$(jq --arg repo "$repo" '
@@ -409,6 +420,14 @@ run() {
     echo "1 pull request from elsewhere, not built"
   elif [ "$elsewhere" != 0 ]; then
     echo "$elsewhere pull requests from elsewhere, not built"
+  fi
+  # Those that would have been built but for who opened them.
+  outside=$(jq --arg repo "$repo" "$parts"'
+    [.[] | select(numbered and committed and here and (by_us | not))] | length' <<<"$pulls" 2>/dev/null) || outside=0
+  if [ "$outside" = 1 ]; then
+    echo "1 pull request opened by someone outside the repository, not built"
+  elif [ "$outside" != 0 ]; then
+    echo "$outside pull requests opened by someone outside the repository, not built"
   fi
 
   while IFS= read -r pr; do
@@ -477,7 +496,7 @@ no_space() {
 # The five minute run removes what GitHub's list of open pull requests no
 # longer has. This does not trust that list or that run. It starts from what
 # is on the host, asks GitHub about each pull request by itself, and removes
-# what is merged, closed, not there or not ours. An answer that is not clear
+# what is merged, closed, not there, not ours or not opened by one of ours. An answer that is not clear
 # keeps everything: a sweep never removes on a failed call.
 sweep() {
   local removed=0 numbers n id tag owner name answer err verdict info listing stuck
@@ -540,17 +559,22 @@ sweep() {
     [ -n "$n" ] || continue
     verdict=keep
     if answer=$(gh api "repos/$repo/pulls/$n" 2>"$err"); then
-      # Only "closed" is closed. An open pull request is ours with a head in
-      # this repository and elsewhere with any other head, a deleted fork
-      # (a null repo) included. Anything else, or an answer about another
-      # number, is unclear.
+      # Only "closed" is closed. An open pull request is elsewhere with a
+      # head that is not in this repository, a deleted fork (a null repo)
+      # included. With a head here it is ours when an owner, member or
+      # collaborator opened it and outside when the answer names anyone
+      # else. Anything else, an answer that does not say who opened it or
+      # one about another number included, is unclear.
       # shellcheck disable=SC2016  # a jq program: $repo and $n are jq's variables
       verdict=$(jq -r --arg repo "$repo" --argjson n "$n" '
         if (.state | type) != "string" or (.number | type) != "number" or .number != $n then "unclear"
         elif .state == "closed" then "closed"
         elif .state != "open" then "unclear"
         elif (.head | type) != "object" then "unclear"
-        elif ((.head.repo.full_name // "") | ascii_downcase) == ($repo | ascii_downcase) then "keep"
+        elif ((.head.repo.full_name // "") | ascii_downcase) == ($repo | ascii_downcase) then
+          (if (.author_association | type) != "string" then "unclear"
+           elif (.author_association | IN("OWNER", "MEMBER", "COLLABORATOR")) then "keep"
+           else "outside" end)
         elif .head.repo == null or ((.head.repo.full_name | type) == "string") then "elsewhere"
         else "unclear" end' <<<"$answer" 2>/dev/null) || verdict=unclear
     elif grep -q 'HTTP 404' "$err" 2>/dev/null; then
@@ -579,7 +603,7 @@ sweep() {
           fi
         done <<<"$listing"
         ;;
-      closed | gone | elsewhere)
+      closed | gone | elsewhere | outside)
         stuck=false
         while read -r id name; do
           [ -n "$id" ] || continue
@@ -597,6 +621,7 @@ sweep() {
         case "$verdict" in
           closed) echo "#$n: swept, the pull request is closed" ;;
           gone) echo "#$n: swept, there is no such pull request" ;;
+          outside) echo "#$n: swept, it was not opened by someone of $repo" ;;
           *) echo "#$n: swept, its branch is not in $repo" ;;
         esac
         ;;

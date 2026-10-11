@@ -254,7 +254,8 @@ the dashboard. [Operating tehas](/operating) takes it from there.
 
 Optional. With `TEHAS_PREVIEWS=1` and `TEHAS_DOMAIN` in `instance.env`, tehas
 keeps a running copy of the product for every open pull request whose branch
-is in the product repository. [Previews](/edge) has what the host and the
+is in the product repository and that an owner, member or collaborator of
+the repository opened. [Previews](/edge) has what the host and the
 domain need. The product's part is one file:
 
 - The product adds `preview/Dockerfile`. A repository without it gets no

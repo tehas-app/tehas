@@ -245,7 +245,10 @@ The dashboard lists the open pull requests that have a state under
 `~/tehas/live/previews.json`. Either `TEHAS_PREVIEWS` is not `1`, or the timer
 was never enabled: `systemctl --user list-timers tehas-preview.timer`. An
 update does not enable it. See [Previews](/edge). A pull request from a fork
-is never listed and never built; the log counts it as `from elsewhere`.
+is never listed and never built; the log counts it as `from elsewhere`. Nor
+is one that someone who is not an owner, member or collaborator of the
+repository opened, even between two of its own branches; the log counts it
+as `opened by someone outside the repository`.
 
 **`no-recipe`.** The pull request's commit has no `preview/Dockerfile`. Add
 the file to the branch; the next commit is tried. See

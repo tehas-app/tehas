@@ -51,7 +51,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_ANALYTICS_COOKIE`        | `0`                                      | `1` adds `data-cookie="true"` to that script tag                |
 | `TEHAS_PROTOLAB_URL`            | `https://lab.<domain>`, or port 8081     | Address people reach the Protolab at, when it is published elsewhere, as `https://lab.example`. The dashboard links to it. Without it: `https://lab.<domain>` when `TEHAS_DOMAIN` is set, else port 8081 of the dashboard's host |
 | `TEHAS_DOMAIN`                  | none                                     | The domain the edge's names are made under, as `tehas.app`: `uat-<pr>.` for a preview, `lab-<issue>.` for a ticket of the Protolab, `lab.` for its list |
-| `TEHAS_PREVIEWS`                | `0`                                      | `1` builds a preview of every open pull request whose branch is in the product repository. Needs `TEHAS_DOMAIN` |
+| `TEHAS_PREVIEWS`                | `0`                                      | `1` builds a preview of every open pull request whose branch is in the product repository and that an owner, member or collaborator opened. Needs `TEHAS_DOMAIN` |
 | `TEHAS_PREVIEW_MAX`             | `5`                                      | How many previews run at once. The newest pull requests win |
 | `TEHAS_PREVIEW_MIN_FREE`        | `5g`                                     | Free disk space below which no preview is built |
 | `TEHAS_WORK_REPO`               | `~/tehas/repos/<name>`                   | The product checkout cycles are cloned from. Must be a clone of `TEHAS_REPO`. The cycle itself works in `~/tehas/work/<name>`, which is not a setting |
@@ -412,7 +412,8 @@ tail ~/tehas/logs/preview.log
 ```
 
 Keeps a running preview of every open pull request whose head branch is in
-the product repository: a container `tehas-preview-<pr>` that the edge router
+the product repository and that was opened by an owner, member or
+collaborator of it: a container `tehas-preview-<pr>` that the edge router
 answers with at `uat-<pr>.<domain>`. Deterministic, no model. It needs
 `TEHAS_PREVIEWS=1` and `TEHAS_DOMAIN`. Setting it up, and what a preview can
 and cannot reach, is on [Previews](/edge).
@@ -438,8 +439,12 @@ are enabled. Both write to `~/tehas/logs/preview.log`.
    is built and nothing is removed. A list with no pull request in it is an
    answer, and every preview is then removed.
 4. A pull request whose head is in another repository is counted in the log
-   and never built. Of the rest, the newest `TEHAS_PREVIEW_MAX` get a
-   preview.
+   and never built: `<k> pull requests from elsewhere, not built`. Nor is
+   one whose head is in the repository and that was opened by anyone but an
+   owner, member or collaborator of it: `<k> pull requests opened by someone
+   outside the repository, not built`. On a public repository anyone can
+   open a pull request between two branches that are already there. Of the
+   rest, the newest `TEHAS_PREVIEW_MAX` get a preview.
 5. What is on the host for a pull request that is no longer open is removed:
    the container, the image, the fetched commit, the state and the build log.
    The log says `#<pr>: pull request no longer open, removed`.
@@ -513,9 +518,12 @@ while it works.
   nothing more is removed, and the log says `GitHub does not show <repo>;
   nothing was swept by its word`. A token that lost its access gets a 404 for
   every pull request, and that must not remove every preview.
-- It asks about each pull request by itself. Only three answers remove: a
-  clear `closed`, a 404, or an open pull request whose head is outside the
-  repository. Every container that carries the pull request's label is then
+- It asks about each pull request by itself. Only four answers remove: a
+  clear `closed`, a 404, an open pull request whose head is outside the
+  repository, or an open one that the answer says was opened by someone who
+  is not an owner, member or collaborator (`#<pr>: swept, it was not opened
+  by someone of <repo>`). An open one whose answer does not say who opened
+  it is kept. Every container that carries the pull request's label is then
   removed by its id, with the image, the fetched commit, the state and the
   build log. When Docker did not remove one of them, the rest stays as well,
   and the log says `#<pr>: a container could not be removed, tried again at

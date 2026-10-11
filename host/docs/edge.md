@@ -294,15 +294,24 @@ with one of these reasons:
 Docker older than 27.1 to make the network, and it leaves a network that is
 there and fails a check, and says so.
 
-Only a pull request whose branch is in the product repository gets one.
-Pushing there needs write access. A pull request from a fork never gets one.
+Only a pull request whose branch is in the product repository gets one, and
+only when an owner, member or collaborator of the repository opened it.
+Pushing a branch there needs write access, and a pull request from a fork
+never gets a preview. Opening a pull request needs no access: on a public
+repository anyone can open one between two branches that are already there.
+Such a pull request is not built and takes no place from the others.
 
 ## Limits
 
-- A preview is public. A pull request opened from a branch of the repository
-  is on the internet at the next run, with nobody looking at it first.
+- A preview is public. A pull request that an owner, member or collaborator
+  opens from a branch of the repository is on the internet at the next run,
+  with nobody looking at it first.
 - The build runs the pull request's `preview/Dockerfile` on the host's Docker,
-  with network access. That is why forks are left out.
+  with network access. That is why forks are left out, and pull requests
+  opened by anyone outside the repository.
+- Who opened a pull request is what GitHub says in `author_association`. A
+  member of the organisation whose membership is private may be shown as
+  less than a member to the bot's token. That was not tried.
 - A preview's output is capped at two files of 10 MB by options of Docker's
   `json-file` and `local` log drivers. A host whose Docker logs through
   another driver was not tried.

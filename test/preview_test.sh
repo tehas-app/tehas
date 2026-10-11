@@ -180,13 +180,16 @@ commit() {
   git -C "$upstream" -c user.name=t -c user.email=t@example.org commit -q -m "$1"
   git -C "$upstream" rev-parse HEAD
 }
-# pull <number> <commit> [head repository]: an open pull request, and what
-# GitHub serves as its head.
+# pull <number> <commit> [head repository] [author association]: an open pull
+# request, and what GitHub serves as its head. It is opened by a member of the
+# repository where nothing else is said. An empty repository is a head
+# repository that is gone, and an empty association is an answer without one.
 pull() {
   git -C "$upstream" update-ref "refs/pull/$1/head" "$2"
-  jq -n -c --argjson n "$1" --arg sha "$2" --arg repo "${3-acme/widget}" '
+  jq -n -c --argjson n "$1" --arg sha "$2" --arg repo "${3-acme/widget}" --arg who "${4-MEMBER}" '
     {number: $n, title: "Change \($n)", html_url: "https://github.com/acme/widget/pull/\($n)", state: "open",
-     head: {sha: $sha, repo: (if $repo == "" then null else {full_name: $repo} end)}}' | tee "$fx/pull-$1.json"
+     head: {sha: $sha, repo: (if $repo == "" then null else {full_name: $repo} end)}}
+    + (if $who == "" then {} else {author_association: $who} end)' | tee "$fx/pull-$1.json"
 }
 pulls() { printf '%s\n' "$@" | jq -s . >"$fx/pulls.json"; }
 reset() {
@@ -430,9 +433,70 @@ pulls "$(pull 14 "$a" "")"
 t_run "$preview"
 t_eq "$(builds)" 0
 
+# Anyone can open a pull request between two branches a public repository
+# already has. Its head is in the repository, and it is not built.
+for who in NONE CONTRIBUTOR FIRST_TIME_CONTRIBUTOR FIRST_TIMER MANNEQUIN member Owner ""; do
+  t_case "a pull request opened by '$who' between branches of the repository is never built"
+  reset
+  a=$(commit feature)
+  pulls "$(pull 16 "$a" acme/widget "$who")"
+  t_run "$preview"
+  t_eq "$t_rc" 0
+  t_eq "$(builds)" 0
+  t_eq "$(runs)" 0
+  t_eq "$(count "$root" 16)" 0
+  t_contains "$t_out" "1 pull request opened by someone outside the repository, not built"
+  t_lacks "$t_out" "from elsewhere"
+  t_eq "$(writes)" ""
+done
+
+t_case "an author association that is not text is never built"
+reset
+a=$(commit feature)
+pulls "$(pull 16 "$a" | jq -c '.author_association = ["OWNER"]')" "$(pull 17 "$a" | jq -c '.author_association = true')"
+t_run "$preview"
+t_eq "$(builds)" 0
+t_contains "$t_out" "2 pull requests opened by someone outside the repository, not built"
+
+for who in OWNER MEMBER COLLABORATOR; do
+  t_case "a pull request opened by '$who' is built"
+  reset
+  a=$(commit feature)
+  pulls "$(pull 16 "$a" acme/widget "$who")"
+  t_run "$preview"
+  t_eq "$(state_of 16)" "serving"
+  t_lacks "$t_out" "outside the repository"
+done
+
+t_case "pull requests by people outside the repository take no place from the others"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_PREVIEWS=1 TEHAS_DOMAIN=example.org TEHAS_PREVIEW_MAX=2
+a=$(commit one)
+b=$(commit two)
+pulls "$(pull 29 "$a" acme/widget NONE)" "$(pull 28 "$a" acme/widget NONE)" "$(pull 27 "$b" acme/widget CONTRIBUTOR)" \
+  "$(pull 26 "$a" stranger/widget NONE)" "$(pull 22 "$b")" "$(pull 21 "$a" acme/widget COLLABORATOR)"
+t_run "$preview"
+t_eq "$(state_of 22) $(state_of 21)" "serving serving"
+t_eq "$(runs)" 2
+t_eq "$(count "$root" '2[6-9]')" 0
+# A fork is counted as a fork, whoever opened it, and the rest in a line of their own.
+t_contains "$t_out" "1 pull request from elsewhere, not built"
+t_contains "$t_out" "3 pull requests opened by someone outside the repository, not built"
+
+t_case "a preview whose pull request turns out to be an outsider's is removed at the next run"
+reset
+a=$(commit feature)
+pulls "$(pull 16 "$a")"
+t_run "$preview"
+t_eq "$(state_of 16)" "serving"
+pulls "$(pull 16 "$a" acme/widget NONE)"
+t_run "$preview"
+t_eq "$(count "$fx/docker" '*-16')" 0
+t_eq "$(count "$root" 16)" 0
+
 t_case "a head that is not a commit id is never built"
 reset
-pulls '{"number":15,"title":"x","html_url":"u","head":{"sha":"main; id","repo":{"full_name":"acme/widget"}}}'
+pulls '{"number":15,"title":"x","html_url":"u","author_association":"MEMBER","head":{"sha":"main; id","repo":{"full_name":"acme/widget"}}}'
 t_run "$preview"
 t_eq "$(builds)" 0
 
@@ -830,7 +894,7 @@ t_eq "$(runs)" 0
 t_case "a pull request number that is not a whole number is never built"
 reset
 a=$(commit feature)
-pulls "{\"number\":12.5,\"title\":\"x\",\"html_url\":\"u\",\"head\":{\"sha\":\"$a\",\"repo\":{\"full_name\":\"acme/widget\"}}}"
+pulls "{\"number\":12.5,\"title\":\"x\",\"html_url\":\"u\",\"author_association\":\"MEMBER\",\"head\":{\"sha\":\"$a\",\"repo\":{\"full_name\":\"acme/widget\"}}}"
 t_run "$preview"
 t_eq "$(builds)" 0
 t_eq "$(count "$root" '12*')" 0
@@ -1066,6 +1130,59 @@ pull 43 "$a" stranger/widget >/dev/null
 left 43 "$a"
 t_run "$preview --sweep"
 t_eq "$(count "$fx/docker" '*-43')" 0
+
+t_case "sweep: an open pull request opened by someone outside the repository is removed"
+reset
+a=$(commit one)
+for who in NONE CONTRIBUTOR FIRST_TIME_CONTRIBUTOR member; do
+  pull 43 "$a" acme/widget "$who" >/dev/null
+  left 43 "$a"
+  t_run "$preview --sweep"
+  t_eq "$t_rc" 0
+  t_eq "$(count "$fx/docker" '*-43')" 0
+  t_eq "$(count "$root" 43)" 0
+  t_contains "$t_out" "#43: swept, it was not opened by someone of acme/widget"
+  t_eq "$(jq -r '.removed' "$root/sweep.json")" 1
+done
+
+t_case "sweep: an open pull request of the repository's own people is kept"
+reset
+a=$(commit one)
+for who in OWNER MEMBER COLLABORATOR; do
+  pull 43 "$a" acme/widget "$who" >/dev/null
+  left 43 "$a"
+  t_run "$preview --sweep"
+  t_eq "$(count "$fx/docker" '*-43')" 2
+  t_eq "$(count "$root" 43)" 1
+  t_lacks "$t_out" "#43"
+done
+
+t_case "sweep: an open answer that does not say who opened it keeps everything"
+reset
+a=$(commit one)
+pull 43 "$a" acme/widget "" >/dev/null
+left 43 "$a"
+t_run "$preview --sweep"
+t_eq "$(count "$fx/docker" '*-43')" 2
+t_eq "$(count "$root" 43)" 1
+t_contains "$t_out" "#43: no answer from GitHub, kept"
+for odd in null 7 '["NONE"]' '{"x":"NONE"}'; do
+  jq -c --argjson who "$odd" '.author_association = $who' "$fx/pull-43.json" >"$fx/x" && mv "$fx/x" "$fx/pull-43.json"
+  t_run "$preview --sweep"
+  t_eq "$(count "$fx/docker" '*-43')" 2
+  t_contains "$t_out" "#43: no answer from GitHub, kept"
+done
+
+t_case "sweep: a fork is a fork, whoever opened it and whether or not the answer says who"
+reset
+a=$(commit one)
+for who in MEMBER NONE ""; do
+  pull 43 "$a" stranger/widget "$who" >/dev/null
+  left 43 "$a"
+  t_run "$preview --sweep"
+  t_eq "$(count "$fx/docker" '*-43')" 0
+  t_contains "$t_out" "#43: swept, its branch is not in acme/widget"
+done
 
 t_case "sweep: an image with no container and no directory is removed"
 reset
