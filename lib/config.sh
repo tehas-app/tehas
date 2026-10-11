@@ -28,7 +28,8 @@
 #   - instance.env is authoritative. Settings of the same name in the
 #     environment are dropped; only TEHAS_HOME, TEHAS_INSTANCE_DIR and the test
 #     hooks TEHAS_WORK_CMD, TEHAS_STATUS_CMD, TEHAS_INDEX_CMD, TEHAS_PLAN_CMD,
-#     TEHAS_CYCLE_START_CMD and TEHAS_CYCLE_START_WAIT are kept.
+#     TEHAS_CYCLE_START_CMD, TEHAS_CYCLE_START_WAIT and TEHAS_CGROUP_ROOT are
+#     kept.
 #   - Loading runs no git command, makes no network call and writes nothing.
 #   - TEHAS_IMPROVE_REPO switches the improvement loop on. Unset is valid and
 #     means there is none.
@@ -116,6 +117,13 @@ _tehas_valid() {
       fi
       [ "$mb" -le "$(_tehas_host_mem_mb)" ] || { echo "this host has $(_tehas_host_mem_mb) MiB of memory"; return 1; }
       ;;
+    TEHAS_CYCLE_RESERVE)
+      # Docker refuses a memory value under 6m.
+      if ! mb=$(_tehas_mem_mb "$v" 2>/dev/null) || [ "$mb" -lt 6 ]; then
+        echo "expected a size of at least 6m, such as 512m or 2g"
+        return 1
+      fi
+      ;;
     TEHAS_HOST_ADDR)
       [[ $v =~ ^[A-Za-z0-9.:-]+$ ]] || { echo "expected an address or host name"; return 1; }
       ;;
@@ -159,7 +167,7 @@ tehas_load() {
   for v in $(compgen -v); do
     case "$v" in
       TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_INDEX_CMD | TEHAS_PLAN_CMD | \
-        TEHAS_CYCLE_START_CMD | TEHAS_CYCLE_START_WAIT) ;;
+        TEHAS_CYCLE_START_CMD | TEHAS_CYCLE_START_WAIT | TEHAS_CGROUP_ROOT) ;;
       TEHAS_* | PI_ENSEMBLE_*) unset "$v" ;;
     esac
   done
@@ -192,6 +200,10 @@ tehas_load() {
   export TEHAS_CONCURRENCY=${TEHAS_CONCURRENCY:-4}
   # How many issues are worked on side by side, each in a cycle of its own.
   export TEHAS_TICKET_CONCURRENCY=${TEHAS_TICKET_CONCURRENCY:-1}
+  # The memory one container is given as its floor, and what the dispatcher
+  # counts for a container when it asks whether another fits. Whether it fits
+  # this host is lib/slice.sh's question, asked when a container is started.
+  export TEHAS_CYCLE_RESERVE=${TEHAS_CYCLE_RESERVE:-2g}
   export TEHAS_INDEXING=${TEHAS_INDEXING:-0}
   # Visitor analytics on the dashboard and the manual. Off unless the instance
   # names a script and a site.
@@ -228,7 +240,7 @@ tehas_load() {
 
   for v in TEHAS_INDEXING TEHAS_ANALYTICS_COOKIE TEHAS_WORK_CPUS TEHAS_WORK_MEMORY TEHAS_CONCURRENCY \
     TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
-    TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE; do
+    TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_RESERVE; do
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
   # What one cycle's container gets: the budget divided between the tickets.

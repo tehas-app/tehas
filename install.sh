@@ -156,6 +156,7 @@ files=(
   "lib/update-steps.sh|$TEHAS_HOME/lib/update-steps.sh|644"
   "lib/edge.sh|$TEHAS_HOME/lib/edge.sh|644"
   "lib/sandbox.sh|$TEHAS_HOME/lib/sandbox.sh|644"
+  "lib/slice.sh|$TEHAS_HOME/lib/slice.sh|644"
   "lib/questions.sh|$TEHAS_HOME/lib/questions.sh|644"
   "lib/planning.sh|$TEHAS_HOME/lib/planning.sh|644"
   "versions.env|$TEHAS_HOME/versions.env|644"

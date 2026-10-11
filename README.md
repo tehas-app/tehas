@@ -149,6 +149,7 @@ crates the first time. The rules for changes are in [`AGENTS.md`](AGENTS.md).
 | `lib/cycles.sh` | Which cycles are running, from the lock each one holds, and where a parked cycle's question is on record |
 | `lib/live.sh` | The live view of the cycles, put together from a file per cycle |
 | `lib/sandbox.sh` | What a sandbox container is given, for a cycle and for a session by hand |
+| `lib/slice.sh` | Reads `tehas.slice`: whether it is usable, the limits of a container, the room left |
 | `lib/update-steps.sh` | The follow-up steps of an install, which `install.sh` asks for and `tehas update` runs |
 | `host/` | Everything else that is installed: units, the docs server, the sandbox image, the manual |
 | `preview/` | What `tehasbot preview` builds for a pull request of this repository |

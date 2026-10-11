@@ -68,6 +68,7 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/lib/planning.sh
 ./tehas/lib/questions.sh
 ./tehas/lib/sandbox.sh
+./tehas/lib/slice.sh
 ./tehas/lib/update-steps.sh
 ./tehas/libexec/console
 ./tehas/libexec/console.stamp
@@ -260,14 +261,14 @@ t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "note: $T/etc/systemd/system/tehas.slice is missing (sudo ./bootstrap.sh slice)"
 t_eq "$(find "$T/etc" -type f | wc -l)" 0
-t_eq "$(installed_files | grep -c slice)" 0
+t_eq "$(installed_files | grep -c tehas.slice)" 0
 
 t_case "a real run says nothing of a slice that is in place"
 cp "$T_ROOT/host/slice/tehas.slice" "$T/etc/systemd/system/tehas.slice"
 t_run "$install"
 t_eq "$t_rc" 0
 t_lacks "$t_out" "note:"
-t_lacks "$t_out" "slice"
+t_lacks "$t_out" "tehas.slice"
 rm -rf "${T:?}/etc"
 T_ENV=(T_IN_TEST=1)
 

@@ -369,4 +369,44 @@ t_contains "$t_out" "rc=78"
 t_contains "$t_out" "TEHAS_TICKET_CONCURRENCY=2 leaves each cycle 5m of TEHAS_WORK_MEMORY=10m"
 rm -f "$T/bin/nproc"
 
+t_case "the reserve defaults to 2g"
+t_instance "${T_MINIMAL[@]}"
+t_run "$load && bash -c 'echo \$TEHAS_CYCLE_RESERVE'"
+t_eq "$t_rc" 0
+t_eq "$t_out" "2g"
+
+t_case "a reserve the instance sets is kept as written, and one in the environment is not used"
+t_instance "${T_MINIMAL[@]}" TEHAS_CYCLE_RESERVE=768m
+T_ENV=(TEHAS_CYCLE_RESERVE=64g)
+t_run "$load && echo \"\$TEHAS_CYCLE_RESERVE\""
+t_eq "$t_out" "768m"
+t_instance "${T_MINIMAL[@]}"
+t_run "$load && echo \"\$TEHAS_CYCLE_RESERVE\""
+t_eq "$t_out" "2g"
+T_ENV=()
+
+for bad in lots 2gb 0 5m 6000k -1g 1.5g; do
+  t_case "a reserve that is not a size, or under 6m, is refused: $bad"
+  t_instance "${T_MINIMAL[@]}" "TEHAS_CYCLE_RESERVE=$bad"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  t_contains "$t_out" "tehas: TEHAS_CYCLE_RESERVE is not valid: expected a size of at least 6m, such as 512m or 2g"
+done
+
+t_case "a reserve of 6m is the smallest that loads"
+t_instance "${T_MINIMAL[@]}" TEHAS_CYCLE_RESERVE=6m
+t_run "$load && echo \"\$TEHAS_CYCLE_RESERVE\""
+t_eq "$t_out" "6m"
+
+t_case "TEHAS_CGROUP_ROOT in the environment is kept"
+t_instance "${T_MINIMAL[@]}"
+T_ENV=(TEHAS_CGROUP_ROOT=/somewhere/cgroup)
+t_run "$load && echo \"\$TEHAS_CGROUP_ROOT\""
+t_eq "$t_out" "/somewhere/cgroup"
+T_ENV=()
+
+t_case "loading sets no cgroup root of its own"
+t_run "$load && echo \"[\${TEHAS_CGROUP_ROOT:-}]\""
+t_eq "$t_out" "[]"
+
 t_done
