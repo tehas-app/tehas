@@ -414,11 +414,16 @@ panels. Inside it a CRT Black cabinet: the 480 by 272 canvas scaled to fill
 the width, beside a bone panel with the readout and one play button. On a
 narrow screen the bone panel goes below the canvas.
 
-The wall is built of blocks on a grid of 32 by 24 pixel cells, each block a
-row of cells with its word on it, most with a cell or two grown above or
-below, like the pieces of a falling-block game. A round takes at most twelve
-words and half the cells, picked and laid out afresh, so the wall is never
-full. Blocks that touch differ in colour.
+The wall is a grid of 28 by 28 pixel cells, sixteen columns by six rows, one
+letter in each. A word is written on tetrominoes: one of the seven pieces for
+its first four letters, another for the next four, a third for nine or ten. The
+pieces of a word touch one another and share a colour; pieces of words that
+touch differ in colour. With words enough for the wall a round picks the ones
+whose pieces fill it exactly, so it is a packed rectangle with no holes, hanging
+from the top of the canvas, and never bigger than those twenty-four pieces
+however many words there are; with a small pool every word goes on the wall and
+its lower edge may be uneven. A hit takes the one piece it touched, and a word
+scores when its last piece goes.
 
 ## 6. Do's and Don'ts
 
