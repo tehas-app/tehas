@@ -33,7 +33,8 @@
 # Pi's state directories. Not the Docker socket, SSH keys or ~/.config/tehas.
 #
 # The workspace is $TEHAS_HOME/work/<name>-<issue>, a fresh clone made here for
-# every cycle. Every cycle has its workspace at the same path inside its
+# every cycle. What a stopped cycle of the same issue left there is kept
+# beside it as <name>-<issue>.before-retry. Every cycle has its workspace at the same path inside its
 # container, $TEHAS_HOME/work/<name>: the code index is kept under that path,
 # so one index serves all cycles. The container never sees the product
 # checkout: an agent can write anything into the tree it works in, hooks and
@@ -90,15 +91,22 @@ mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
   { echo "tehas work: could not prepare the sandbox, not starting a cycle" >&2; exit 78; }
 
 # A fresh workspace for this cycle, at the tip the product checkout last
-# fetched for the branch. What an earlier cycle of this issue left behind goes
-# with the old one. Only a directory this command made is ever removed, and
-# never another issue's.
+# fetched for the branch. A workspace is still here only when this issue's last
+# cycle stopped without a pull request, and what it holds may exist nowhere
+# else: commits that were never pushed. It is moved aside, not removed, and
+# replaces the one moved aside before it. No container is given it and the
+# host runs nothing in it. Only a directory this command made is ever moved or
+# removed, and never another issue's.
 works=$(dirname "$tree")
 if [ -e "$works" ] && [ ! -f "$works/.tehas-workspaces" ]; then
   echo "tehas work: $works exists and was not made by tehas, not touching it" >&2
   exit 78
 fi
-if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces" && rm -rf "$tree" &&
+aside() {
+  [ -e "$tree" ] || return 0
+  rm -rf "$tree.before-retry" && mv "$tree" "$tree.before-retry"
+}
+if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces" && aside &&
   tehas_sandbox_clone "$src" "$tree" "$branch"; }; then
   echo "tehas work: could not make the workspace $tree, not starting a cycle" >&2
   exit 78

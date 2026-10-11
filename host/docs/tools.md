@@ -317,7 +317,8 @@ It runs [tehas work](#tehas-work) for the issue, reads the cycle's state file
 from the workspace, finds the pull request the bot opened, and relabels and
 comments: merged, `tehas:awaiting-merge`, or `needs-human-attention`. It
 then removes the workspace of a cycle that merged or left a pull request, and
-keeps the workspace of one that stopped. A
+keeps the workspace of one that stopped. A retry moves a stopped workspace to
+`<name>-<issue>.before-retry`, which is removed and kept by the same rule. A
 stopped unit stops the container and is reported as a cycle that ended without
 a pull request. It checks no authorisation: the dispatcher did that before it
 started the unit.

@@ -165,8 +165,12 @@ To try again after fixing the cause (often: make the issue clearer):
 2. apply `tehas:ready` again.
 
 The next cycle starts in a fresh workspace, with `--restart`. Branches and
-commits the earlier attempt pushed are kept on GitHub; what it left only on the
-host is gone.
+commits the earlier attempt pushed are kept on GitHub. What it left only on the
+host, such as commits on worktrees that were never pushed, is moved to
+`~/tehas/work/tehas-<issue>.before-retry` and stays there until a cycle of that
+issue merges or leaves a pull request. Only the latest stopped attempt is kept:
+a second retry replaces it. Recover what you need from a stopped cycle before
+you retry twice.
 
 The label approves the text it was applied to. If someone other than an
 allowed labeller changes the title or the body afterwards, the issue is

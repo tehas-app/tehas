@@ -57,11 +57,12 @@ flock -w 5 9 || { log "a cycle for #$issue is already running"; exit 3; }
 
 comment() { gh issue comment "$issue" --repo "$repo" --body "$1" >/dev/null 2>&1 || log "WARN: comment on #$issue failed"; }
 relabel() { gh issue edit "$issue" --repo "$repo" "$@" >/dev/null 2>&1 || log "WARN: label change on #$issue failed: $*"; }
-# A workspace is kept only while a person may want to read it. Only a
-# directory under one that tehas work marked is removed, as tehas work does.
+# A workspace is kept only while a person may want to read it, and so is the
+# one tehas work moved aside when this issue was retried. Only a directory
+# under one that tehas work marked is removed, as tehas work does.
 tidy() {
   if [ -f "$(dirname "$workdir")/.tehas-workspaces" ]; then
-    rm -rf "$workdir" || log "WARN: could not remove the workspace $workdir"
+    rm -rf "$workdir" "$workdir.before-retry" || log "WARN: could not remove the workspace $workdir"
   else
     log "WARN: $(dirname "$workdir") is not marked by tehas work, leaving the workspace $workdir"
   fi
