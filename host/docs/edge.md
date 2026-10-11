@@ -286,7 +286,7 @@ with one of these reasons:
 
 | Reason | What it means |
 | --- | --- |
-| `Docker <version> is older than 27.1` | Docker knows the option from 27.1 on. An older one takes an option it does not know, shows it when asked, and gives the host an address all the same. So the version is checked, not the option alone |
+| `Docker <version> is older than 27.1` | Docker knows the option from 27.1 on. The bridge driver of Docker 29.1.3 was seen to accept an option it does not know and to show it when asked. So an older Docker may take this one, show it, and give the host an address all the same. That was not tried on an older Docker. The version is checked, not the option alone, so that it does not matter |
 | `Docker's version could not be read` | `docker version --format '{{.Server.Version}}'` gave nothing that reads as a version |
 | `it could not be read` | `docker network inspect tehas-previews` failed |
 | `it is not internal` | The network was made without `--internal`: a preview would reach the internet and the model host |
@@ -325,9 +325,14 @@ Such a pull request is not built and takes no place from the others.
   declared elsewhere did.
 - Previews are not kept from each other: one can call another on port 8080
   by its container's name. A preview holds nothing but its own image.
-- The host needs Docker 27.1 or later. An older Docker would make a network
-  that looks right and does not keep the host out, so it is not asked to, and
-  no preview is built on it.
+- The host needs Docker 27.1 or later. An older Docker does not know the
+  option that keeps the host out. Whether it would make a network that looks
+  right and is not was not tried: it is not asked to make one, and no preview
+  is built on it.
+- A recipe can start `FROM` any image in the host's local store, or from a
+  registry the tehas user is signed in to. What it builds is public, so what
+  is in such an image can be served to anyone.
+- A build has no CPU, memory or disk limit for its 15 minutes.
 - The checks are of how the network was made, not of what a container on it
   can reach. Nothing tries to reach the host from inside.
 - `uat-<pr>.tehas.app` and `tehas.app` are one site to a browser. A preview's

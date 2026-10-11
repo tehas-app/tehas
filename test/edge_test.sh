@@ -129,4 +129,9 @@ t_eq "$(grep -c -F '<section id="previews" hidden>' "$T_ROOT/host/docs/dashboard
 t_case "the dashboard says when the list of previews was written"
 t_eq "$(grep -c -F 'note.push("List written " + ago(p.generatedAt) + ".");' "$T_ROOT/host/docs/dashboard.frag")" 1
 
+t_case "the pages take an address only with a number of one to nine digits and no leading zero"
+t_eq "$(grep -c -F '/^https:\/\/uat-[1-9][0-9]{0,8}\.[a-z0-9.-]+\/$/.test(it.address)' "$T_ROOT/host/docs/dashboard.frag")" 1
+t_eq "$(grep -c -F '/^https:\/\/lab-[1-9][0-9]{0,8}\.[a-z0-9.-]+\/$/.test(t.address)' "$T_ROOT/host/fun/game-view.js")" 1
+t_eq "$(grep -c -e 'uat-\[0-9\]+' -e 'lab-\[0-9\]+' "$T_ROOT/host/docs/dashboard.frag" "$T_ROOT/host/fun/game-view.js" | grep -c -v ':0$')" 0
+
 t_done

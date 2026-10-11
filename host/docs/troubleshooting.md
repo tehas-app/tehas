@@ -327,9 +327,11 @@ so no run does anything on a network from which it could reach the host.
 host out (<reason>)`. The reason says what to do:
 
 - `Docker <version> is older than 27.1`, or `Docker's version could not be
-  read`: update Docker. A Docker before 27.1 takes the option that keeps the
-  host out and ignores it, so a network it made looks right and is not, and
-  remaking it there does not help. `install.sh` says this as `The network
+  read`: update Docker. A Docker before 27.1 does not know the option that
+  keeps the host out. Docker 29.1.3 was seen to accept an option it does not
+  know, so a network an older one made may look right and not be. That was
+  not tried on an older Docker, and remaking the network there does not help
+  either way. `install.sh` says this as `The network
   tehas-previews was not made or checked`. After the update, remake the
   network with the lines below, since the old Docker may have made it.
 - `it could not be read`: `docker network inspect tehas-previews` failed.

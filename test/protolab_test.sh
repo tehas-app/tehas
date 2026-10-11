@@ -267,6 +267,11 @@ t_contains "$(cat "$site/index.html")" 'href="https://lab-7.example.org/"'
 t_lacks "$(cat "$site/index.html")" 'href="/7/"'
 t_contains "$(cat "$site/7/index.html")" '<a href="https://lab.example.org/">ALL PROTOTYPES</a>'
 t_eq "$(jq -r '.tickets[0].address' "$live/protolab.json")" "https://lab-7.example.org/"
+# The jq programs put the name together themselves, because jq cannot call a
+# shell function. It is the name tehas_edge_name makes.
+t_run '. "$T_ROOT/lib/config.sh"; tehas_load && tehas_edge_name lab 7'
+t_eq "$(jq -r '.tickets[0].address' "$live/protolab.json")" "https://$t_out/"
+t_contains "$(cat "$site/index.html")" "href=\"https://$t_out/\""
 t_eq "$(jq -r '.url' "$live/protolab.json")" "https://lab.example.org"
 
 t_case "a domain that changes rebuilds a ticket that did not"

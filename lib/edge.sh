@@ -65,8 +65,10 @@ edge_numbers() {
 # without IPv6 (the option is about IPv4 only, and with IPv6 the host has an
 # address of that kind on the bridge), and made with gateway_mode_ipv4
 # "isolated" (the host has no IPv4 address on the bridge) by a Docker that
-# knows that option. Docker before 27.1 does not: it takes the option, shows it
-# when asked, and gives the host an address all the same.
+# knows that option. Docker before 27.1 does not know it. What is known: the
+# bridge driver of Docker 29.1.3 was seen to accept an option it does not know
+# and to show it when asked. That an older Docker takes this one and ignores
+# it was not tried. The version is checked so that it does not matter.
 edge_net_option=com.docker.network.bridge.gateway_mode_ipv4
 
 # edge_docker_fault: prints why and returns 1 when the Docker server is older

@@ -299,14 +299,15 @@ label of the name it is asked for:
 | `lab-<issue>.` and anything after it | That ticket's page in the Protolab, from `~/tehas/protolab/<issue>/` |
 | Any other name | The Protolab by path: the list at `/`, a ticket at `/<issue>/` |
 
-The number is digits only and does not start with a zero. Another `uat-` or
+The number is one to nine digits and does not start with a zero. Another `uat-` or
 `lab-` name is a 404. Every answer of the router says `noindex`. Its
 configuration is a fixed file and holds no domain: nothing writes it when a
 preview comes or goes. It is on two Docker networks: one of its own for the
 published port, and `tehas-previews`, an internal one that the previews are
 on and the host has no address on. `install.sh` makes that network when
-Docker is 27.1 or later, and says so when it is not: an older Docker would
-make one that gives the host an address. Where the network is there already
+Docker is 27.1 or later, and says so when it is not: an older Docker does
+not know the option that keeps the host out, and what it would make was not
+tried. Where the network is there already
 and does not keep the host out, `install.sh` leaves it and says why and that
 it has to be remade. [Troubleshooting](/troubleshooting) has the lines.
 

@@ -357,8 +357,11 @@ mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state" "$TEHAS_HOME/tmp" "$TEHAS_HOME/l
 # router's compose file names the network as external and `tehasbot preview`
 # puts containers on it, so it is made here, whichever of the two starts first.
 # A host with no Docker yet gets it from `tehasbot preview`. A Docker older
-# than 27.1 is not asked: it would make a network that looks right and gives
-# the host an address. A network that is there and does not keep the host out
+# than 27.1 is not asked: it does not know the option that keeps the host out.
+# The bridge driver of Docker 29.1.3 was seen to accept an option it does not
+# know, so an older one may make a network that looks right and gives the
+# host an address. That was not tried, and with the version checked it does
+# not have to be. A network that is there and does not keep the host out
 # is not removed here: containers may be on it.
 if command -v docker >/dev/null 2>&1; then
   if ! previews_fault=$(edge_docker_fault); then

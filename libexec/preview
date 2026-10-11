@@ -90,6 +90,9 @@ bare=$root/repo.git
 live=$TEHAS_HOME/live
 logs=$TEHAS_HOME/logs
 net=tehas-previews
+# A pull request's number, wherever one is matched here: one to nine digits,
+# no zero in front. tehas_edge_name and the jq program of the run have the same.
+number='^[1-9][0-9]{0,8}$'
 recipe=preview/Dockerfile
 build_limit=900
 # The seconds between a container's start and the question whether it still
@@ -400,8 +403,8 @@ run() {
   measure
   # A preview runs the pull request's own code. Nothing is built unless the
   # network keeps it from the host: see edge_net_fault for what that takes. An
-  # old Docker is not asked to make the network, because it would make one
-  # that looks right and is not.
+  # old Docker is not asked to make the network: it does not know the option
+  # that keeps the host out, and what it makes of it was not tried.
   if fault=$(edge_docker_fault); then
     docker network inspect "$net" >/dev/null 2>&1 || edge_net_create "$net"
     fault=$(edge_net_fault "$net")
@@ -476,11 +479,14 @@ run() {
   done <<<"$ours"
 
   # What is on the host and no longer open: by directory and by container.
+  # Only a container whose label names this repository gives a number, in any
+  # capitals, as in the sweep: another's is not this run's to speak of.
   have=$({
     edge_numbers "$root"
     docker ps -a --filter label=tehas.preview \
-      --format '{{.ID}} {{.Label "tehas.preview"}} {{.Label "tehas.repo"}}' 2>/dev/null | awk '{print $2}'
-  } | grep -E '^[1-9][0-9]*$' | sort -un)
+      --format '{{.ID}} {{.Label "tehas.preview"}} {{.Label "tehas.repo"}}' 2>/dev/null |
+      awk -v repo="$repo" 'tolower($3) == tolower(repo) {print $2}'
+  } | grep -E "$number" | sort -un)
   while IFS= read -r n; do
     [ -n "$n" ] || continue
     case "$open" in *" $n "*) continue ;; esac
@@ -535,7 +541,7 @@ sweep() {
   # preview another repository's.
   while read -r id n owner name; do
     [ -n "$id" ] || continue
-    if [[ $n =~ ^[1-9][0-9]*$ ]] && [ "${owner,,}" = "${repo,,}" ]; then continue; fi
+    if [[ $n =~ $number ]] && [ "${owner,,}" = "${repo,,}" ]; then continue; fi
     is_id "$id" || { echo "an id that is not one, skipped"; continue; }
     if docker rm -f -v "$id" >/dev/null 2>&1; then
       echo "container $id: swept, it belongs to no pull request of $repo"
@@ -549,7 +555,7 @@ sweep() {
   while read -r id tag; do
     [ -n "$id" ] || continue
     owner=$(docker image inspect --format '{{index .Config.Labels "tehas.repo"}}' "$id" 2>/dev/null)
-    if [[ $tag =~ ^tehas-preview:[1-9][0-9]*$ ]] && { [ -z "$owner" ] || [ "${owner,,}" = "${repo,,}" ]; }; then continue; fi
+    if [[ $tag =~ ^tehas-preview:[1-9][0-9]{0,8}$ ]] && { [ -z "$owner" ] || [ "${owner,,}" = "${repo,,}" ]; }; then continue; fi
     if docker image rm "$id" >/dev/null 2>&1; then
       echo "image $id: swept, it belongs to no preview"
       removed=$((removed + 1))
@@ -563,7 +569,7 @@ sweep() {
     docker image ls --filter label=tehas.preview --format '{{.ID}} {{.Repository}}:{{.Tag}}' 2>/dev/null |
       sed -n 's/^[^ ]* tehas-preview:\([0-9]*\)$/\1/p'
     [ ! -d "$bare" ] || git -C "$bare" for-each-ref --format='%(refname)' refs/preview 2>/dev/null | sed 's|.*/||'
-  } | grep -E '^[1-9][0-9]*$' | sort -un)
+  } | grep -E "$number" | sort -un)
 
   # A 404 means "no such pull request" only when GitHub shows the repository
   # at all: a token that lost access gets a 404 for every pull request, and

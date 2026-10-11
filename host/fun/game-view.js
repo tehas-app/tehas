@@ -263,7 +263,7 @@
     const ok = s && typeof s === "object" && Array.isArray(s.tickets);
     const tickets = !ok ? null : s.tickets.filter((t) => t && Number.isSafeInteger(t.number) && t.number > 0 && typeof t.title === "string")
       .map((t) => ({ number: t.number, title: t.title.slice(0, 180), files: Number.isSafeInteger(t.files) ? t.files : 0,
-        address: typeof t.address === "string" && /^https:\/\/lab-[0-9]+\.[a-z0-9.-]+\/$/.test(t.address) ? t.address : null,
+        address: typeof t.address === "string" && /^https:\/\/lab-[1-9][0-9]{0,8}\.[a-z0-9.-]+\/$/.test(t.address) ? t.address : null,
         url: typeof t.url === "string" && t.url.startsWith("https://github.com/") ? t.url : null }));
     const base = !ok ? null : /^https?:\/\/[A-Za-z0-9.-]+(:[0-9]+)?$/.test(s.url) ? s.url
       : location.protocol === "http:" ? `http://${location.hostname}:8081` : null;

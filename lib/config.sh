@@ -246,13 +246,16 @@ tehas_require() {
 }
 
 # tehas_edge_name <kind> <number>: the host name of a preview (uat) or of a
-# Protolab ticket (lab) under TEHAS_DOMAIN. Nothing else puts such a name
-# together. Fails without a domain, for another kind, and for anything but a
-# number that starts with 1 to 9.
+# Protolab ticket (lab) under TEHAS_DOMAIN. It is the one definition of such a
+# name. The jq programs of libexec/protolab and libexec/preview put the same
+# name together themselves, because jq cannot call a shell function, and
+# test/protolab_test.sh and test/preview_test.sh pin that theirs is this one.
+# Fails without a domain, for another kind, and for anything but a number of
+# one to nine digits that does not start with a zero.
 tehas_edge_name() {
   [ -n "${TEHAS_DOMAIN:-}" ] || return 1
   case "${1:-}" in uat | lab) ;; *) return 1 ;; esac
-  [[ ${2:-} =~ ^[1-9][0-9]*$ ]] || return 1
+  [[ ${2:-} =~ ^[1-9][0-9]{0,8}$ ]] || return 1
   printf '%s-%s.%s\n' "$1" "$2" "$TEHAS_DOMAIN"
 }
 

@@ -266,6 +266,13 @@ t_case "the list for the dashboard has the address"
 t_eq "$(jq -r '.previews[0] | "\(.number) \(.state) \(.address) \(.title)"' "$live/previews.json")" \
   "12 serving https://uat-12.example.org/ Change 12"
 
+t_case "the address in the list is the name tehas_edge_name makes"
+# jq cannot call a shell function, so write_list puts the name together itself.
+t_run '. "$T_ROOT/lib/config.sh"; tehas_load && tehas_edge_name uat 12'
+t_eq "$t_out" "uat-12.example.org"
+t_eq "$(jq -r '.previews[0].address' "$live/previews.json")" "https://$t_out/"
+t_contains "$(writes)" "https://$t_out/"
+
 t_case "an unchanged commit builds nothing"
 rm -f "$T"/calls/docker*
 t_run "$preview"
@@ -567,6 +574,24 @@ t_eq "$(git -C "$root/repo.git" for-each-ref refs/preview | wc -l)" 1
 t_contains "$t_out" "#22: pull request no longer open, removed"
 t_eq "$(jq -r '[.previews[].number] | join(" ")' "$live/previews.json")" "23"
 
+t_case "the run removes by the numbers of this repository's containers only"
+printf '%s\n' "c0de0c 77 other/thing foreign" "c0de0d 78 ACME/Widget ours" "c0de0e 1234567890 acme/widget big" \
+  "c0de0f 079 acme/widget zero" >"$fx/extra-containers"
+rm -f "$T"/calls/docker*
+t_run "$preview"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "#77"
+t_lacks "$(t_calls docker)" "tehas-preview-77"
+t_lacks "$(t_calls docker)" "tehas-preview:77"
+t_contains "$t_out" "#78: pull request no longer open, removed"
+t_contains "$(t_calls docker)" "rm -f -v tehas-preview-78"
+# A number of ten digits, or with a zero in front, is not a pull request's.
+t_lacks "$t_out" "#1234567890"
+t_lacks "$t_out" "#079"
+t_lacks "$t_out" "#79"
+t_eq "$(state_of 23)" "serving"
+rm -f "$fx/extra-containers"
+
 t_case "GitHub down removes nothing"
 : >"$fx/gh-down"
 t_run "$preview"
@@ -805,7 +830,7 @@ t_case "a network of another driver gets nothing built, whatever option it echoe
 unsafe net-driver ipvlan "its driver is not bridge"
 
 for old in 26.1.4 27.0.3 27.0 19.03.15; do
-  t_case "Docker $old takes the option and ignores it: nothing is built"
+  t_case "Docker $old does not know the option that keeps the host out: nothing is built"
   unsafe docker-version "$old" "Docker $old is older than 27.1"
 done
 
@@ -1328,6 +1353,21 @@ t_run "$preview --sweep"
 t_contains "$(t_calls docker)" "rm -f -v c0de01"
 t_contains "$(t_calls docker)" "rm -f -v c0de02"
 t_eq "$(t_calls gh | grep -c 'pulls/7')" 0
+
+t_case "sweep: a label whose number is not one to nine digits belongs to no pull request"
+reset
+printf '%s\n' "c0de0b 1234567890 acme/widget big" "c0de0c 012 acme/widget zero" "c0de0d 999999999 acme/widget fine" >"$fx/extra-containers"
+mkdir -p "$fx/docker"
+echo "sha256:big tehas-preview:1234567890" >"$fx/extra-images"
+t_run "$preview --sweep"
+t_eq "$t_rc" 0
+t_contains "$t_out" "container c0de0b: swept, it belongs to no pull request of acme/widget"
+t_contains "$t_out" "container c0de0c: swept, it belongs to no pull request of acme/widget"
+t_contains "$t_out" "image sha256:big: swept, it belongs to no preview"
+t_eq "$(t_calls gh | grep -c -e 'pulls/1234567890' -e 'pulls/012' -e 'pulls/12$')" 0
+# Nine digits is a number: GitHub is asked, and it knows no such pull request.
+t_eq "$(t_calls gh | grep -c 'pulls/999999999$')" 1
+t_contains "$t_out" "#999999999: swept, there is no such pull request"
 
 t_case "sweep: a line whose id is not one is skipped, and nothing is removed by it"
 reset
