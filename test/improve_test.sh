@@ -16,9 +16,18 @@ reset() {
   mkdir -p "$fx" "$home/logs" "$home/live"
   echo '[]' >"$fx/open.json"
   echo '[]' >"$fx/closed.json"
-  T_ENV=()
+  T_ENV=("TEHAS_CGROUP_ROOT=$T_CGROUP")
+  slice_good
   t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
 }
+# A host with the root step done: the slice loaded from its file with 8 GiB,
+# Docker on the systemd driver and cgroup v2, and nothing in the slice.
+slice_good() {
+  printf '%s\n' FragmentPath=/etc/systemd/system/tehas.slice ActiveState=active MemoryMax=8589934592 >"$T/slice.show"
+  echo "systemd 2" >"$T/docker.info"
+  slice_state 0.00
+}
+t_stub systemctl 'cat "$T/slice.show"'
 # lib <snippet>: run it with the settings and the loop's library loaded.
 lib() { t_run '. "$T_ROOT/lib/config.sh"; . "$T_ROOT/lib/improve.sh"; tehas_load || exit 78; '"$1"; }
 
@@ -43,8 +52,8 @@ cycle_log
 lib "tehas_improve_record 7 $started 0 handoff review https://github.com/acme/widget/pull/9"
 t_eq "$t_rc" 0
 r=$base/window/$REC
-t_eq "$(jq -c '[.issue, .status, .step, .rc, .pr, .log]' "$r/cycle.json")" \
-  "[7,\"handoff\",\"review\",0,\"https://github.com/acme/widget/pull/9\",\"work-$REC.jsonl\"]"
+t_eq "$(jq -c '[.issue, .status, .step, .rc, .pr, .log, .oomKills]' "$r/cycle.json")" \
+  "[7,\"handoff\",\"review\",0,\"https://github.com/acme/widget/pull/9\",\"work-$REC.jsonl\",0]"
 t_eq "$(cat "$r/console.txt")" "console text"
 t_eq "$(cat "$r/err.txt")" "a warning"
 t_eq "$(cat "$r/preflight.txt")" "preflight ok"
@@ -59,6 +68,22 @@ reset
 cycle_log
 lib "tehas_improve_record 7 $started 1 aborted handoff"
 t_eq "$(jq -c .pr "$base/window/$REC/cycle.json")" null
+
+t_case "the seventh argument is the processes killed for memory, oomKills in the record"
+reset
+cycle_log
+lib "tehas_improve_record 7 $started 137 killed develop '' 3"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[.status, .rc, .pr, .oomKills]' "$base/window/$REC/cycle.json")" '["killed",137,null,3]'
+
+t_case "a seventh argument that is not a number counts as nothing"
+for bad in "3; rm -rf /" "x" "-1" "1e3" "99999999999999999999"; do
+  reset
+  cycle_log
+  lib "tehas_improve_record 7 $started 2 running develop '' '$bad'"
+  t_eq "$t_rc" 0
+  t_eq "$(jq -c .oomKills "$base/window/$REC/cycle.json")" 0
+done
 
 t_case "with the loop off nothing is written"
 reset
@@ -152,6 +177,7 @@ improve="$T_ROOT/libexec/improve"
 # docker leaves $T/fx/findings.json where the analyst would write, and keeps
 # its arguments one to a line. $T/fx/docker.rc is an exit status to fail with.
 t_stub docker '
+if [ "$1" = info ]; then cat "$T/docker.info"; exit; fi
 printf "%s\n" "$@" >"$T/calls/docker-args"
 out=""
 for a in "$@"; do case "$a" in *:/improve/out) out=${a%:/improve/out} ;; esac; done
@@ -266,8 +292,12 @@ t_eq "$(printf '%s\n' "$args" | grep -x -A1 -- '-v' | grep -v -x -e '-v' -e '--'
 ${run_dir%/in}/out:/improve/out
 $T/home/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro"
 t_eq "$(printf '%s\n' "$args" | grep -x -A1 -- '-e' | grep -v -x -e '-e' -e '--')" "HOME=/home/vscode"
+t_eq "$(printf '%s\n' "$args" | grep -x -A1 -- '--cgroup-parent' | tail -n 1)" tehas.slice
 t_eq "$(printf '%s\n' "$args" | grep -x -A1 -- '--cpus' | tail -n 1)" 1
 t_eq "$(printf '%s\n' "$args" | grep -x -A1 -- '--memory' | tail -n 1)" 2g
+t_eq "$(printf '%s\n' "$args" | grep -x -A1 -- '--memory-swap' | tail -n 1)" 2g
+t_eq "$(printf '%s\n' "$args" | grep -x -A1 -- '--pids-limit' | tail -n 1)" 1024
+t_eq "$(printf '%s\n' "$args" | grep -x -A1 -- '--cpu-shares' | tail -n 1)" 1024
 t_eq "$(printf '%s\n' "$args" | grep -x -A1 -- '--tools' | tail -n 1)" "read,grep,find,ls,write"
 for flag in -p --no-session --no-extensions --no-skills --no-prompt-templates --no-context-files; do
   printf '%s\n' "$args" | grep -q -x -- "$flag" || t_bad "pi was not given $flag"
@@ -279,6 +309,26 @@ t_lacks "$args" GH_TOKEN
 t_lacks "$args" .ssh
 t_lacks "$args" "$home/logs"
 
+t_case "the analyst's container gets no option beyond these, and its limits are its own"
+# Every option up to the image that is not one this command is known to pass,
+# read the way docker reads them. See test/work_test.sh.
+t_eq "$(printf '%s\n' "$args" | awk -v image="tehas/pi-rukas:uid$(id -u)" \
+  -v valued=" --name --cgroup-parent --cpus --memory --memory-swap --pids-limit --cpu-shares -e -w -v " -v plain=" --rm " '
+    NR == 1 { next } # "run"
+    skip { skip = 0; next }
+    $0 == image { found = 1; exit }
+    index(valued, " " $0 " ") { skip = 1; next }
+    index(plain, " " $0 " ") { next }
+    { print }
+    END { if (!found) print "no image" }')" ""
+# A batch job: a quota of one CPU and 2g whatever the reserve is, and no floor.
+t_lacks "$args" "--memory-reservation"
+t_lacks "$args" "--cidfile"
+
+t_case "the slice is read once: one systemctl call, one docker info"
+t_eq "$(t_calls systemctl)" "show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax"
+t_eq "$(t_calls docker | grep -c '^info ')" 1
+
 t_case "the issue body is the script's, with the evidence fenced and the log linked"
 body=$(cat "$T/calls/body-101")
 t_contains "$body" "improvement loop"
@@ -289,12 +339,51 @@ t_contains "$body" '````text'
 t_contains "$body" "https://github.com/acme/factory/releases/download/tehas-improve-logs/ticket-$REC.log.gz"
 t_eq "$(cat "$T/calls/assets")" "ticket-$REC.log.gz"
 
+# refused: 78, no GitHub call, no container, and the record still in the window.
+refused() {
+  t_eq "$t_rc" 78
+  t_eq "$(t_calls gh)$(t_calls docker | grep -v '^info ')" ""
+  [ -f "$base/window/$REC/cycle.json" ] || t_bad "the record is gone"
+  t_eq "$(find "$base" -mindepth 1 -maxdepth 1 ! -name window | wc -l)" 0
+}
+
+t_case "refuses with 78 without the slice, before any docker run"
+ready
+printf '%s\n' FragmentPath= ActiveState=inactive MemoryMax=infinity >"$T/slice.show"
+t_run "$improve"
+refused
+t_contains "$t_out" "tehas improve: no slice file on this host (sudo ./bootstrap.sh slice)"
+
+t_case "a cgroupfs driver, cgroup v1 and a silent docker are refused the same way"
+for answer in "cgroupfs 2" "systemd 1" ""; do
+  ready
+  echo "$answer" >"$T/docker.info"
+  t_run "$improve"
+  refused
+  t_contains "$t_out" "tehas improve: "
+  t_contains "$t_out" "ocker"
+done
+
+t_case "a slice with no limit is refused"
+ready
+printf '%s\n' FragmentPath=/etc/systemd/system/tehas.slice ActiveState=active MemoryMax=infinity >"$T/slice.show"
+t_run "$improve"
+refused
+t_contains "$t_out" "tehas improve: tehas.slice has no memory limit"
+
+t_case "with nothing to read the slice is not asked about"
+reset
+printf '%s\n' FragmentPath= ActiveState=inactive MemoryMax=infinity >"$T/slice.show"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_eq "$(t_calls systemctl)$(t_calls docker)" ""
+
 t_case "GitHub does not give the stack: nothing runs and the window is as it was"
 ready
 : >"$fx/gh-list.rc"
 t_run "$improve"
 t_eq "$t_rc" 1
-t_eq "$(t_calls docker)" ""
+t_eq "$(t_calls docker | grep -v '^info ')" ""
 [ -f "$base/window/$REC/cycle.json" ] || t_bad "the record is gone"
 
 t_case "ten open improvement issues: the run waits and the records stay"
@@ -303,7 +392,7 @@ for i in $(seq 1 10); do stack "$i" "Finding $i" OPEN tehas:improvement; done | 
 t_run "$improve"
 t_eq "$t_rc" 0
 t_contains "$t_out" "waiting"
-t_eq "$(t_calls docker)" ""
+t_eq "$(t_calls docker | grep -v '^info ')" ""
 [ -f "$base/window/$REC/cycle.json" ] || t_bad "the record is gone"
 
 t_case "eight open improvement issues leave room for two"
@@ -501,8 +590,8 @@ t_eq "$(titles)" "The late cycle parked"
 t_case "a container left by a killed run is removed before the analyst starts"
 ready
 t_run "$improve"
-t_eq "$(t_calls docker | head -n 1)" "rm -f tehas-improve"
-t_contains "$(t_calls timeout | head -n 1)" "-k 60 1800 docker run"
+t_eq "$(t_calls docker | grep -v '^info ' | head -n 1)" "rm -f tehas-improve"
+t_contains "$(t_calls timeout | grep -v ' systemctl \| docker info ' | head -n 1)" "-k 60 1800 docker run"
 
 t_case "the sweep removes what is over seven days old and nothing newer"
 reset

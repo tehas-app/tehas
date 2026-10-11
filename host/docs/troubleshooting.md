@@ -10,6 +10,7 @@ description: "What each stop in a tehas cycle means, and what to do about it."
 | Question                         | Place                                                                   |
 | -------------------------------- | ----------------------------------------------------------------------- |
 | Is the factory taking work?      | `tehas status`                                                          |
+| Is there room for another cycle? | The `slice` line of `tehas status`; `~/tehas/live/dispatch.json`        |
 | What did the dispatcher decide?  | `tehas dispatch --dry-run`, `~/tehas/logs/dispatch.log`                 |
 | What did a cycle's runner print? | `~/tehas/logs/dispatch-work-<issue>.log`                                |
 | What did Pi and the driver say?  | `~/tehas/logs/work-<issue>-<time>.jsonl` and `.jsonl.err`               |
@@ -53,8 +54,24 @@ Run `tehas dispatch --dry-run` and read what it prints.
 
 - `paused: issue #N carries tehas:pause`: the control issue holds the pause
   label. Remove it to resume.
-- `holding: N cycles are running (limit N)`: every slot is taken. Wait for a
-  cycle to end, or raise `TEHAS_TICKET_CONCURRENCY`.
+- `holding: N cycles are running (limit N)`: the ceiling is reached. Wait for
+  a cycle to end, or raise `TEHAS_TICKET_CONCURRENCY`.
+- `holding: tehas.slice has no room for another cycle (X GiB of Y GiB promised,
+  each cycle is given R)`: the containers in the slice are promised, or use,
+  so much that one more reserve does not fit. Every container counts: cycles,
+  dev sessions, planning turns, the indexer. Wait for one to end. If one
+  container holds far more than its reserve, that is the one to look at:
+  `systemd-cgtop /tehas.slice` shows them. A lower `TEHAS_CYCLE_RESERVE` fits
+  more cycles and promises each one less.
+- `holding: tehas.slice is under memory pressure (full avg60 N)`: every
+  process in the slice waited for memory for more than a tenth of the last
+  minute. Cycles start again when it falls to 10 or under.
+- `holding: the slice's use could not be read`: a file under
+  `/sys/fs/cgroup/tehas.slice` is missing or unreadable. See "The dispatcher
+  holds on the slice" below.
+- Any other `holding:` line that names the slice, Docker, `systemctl` or
+  `TEHAS_CYCLE_RESERVE`: the slice cannot be used. See "The dispatcher holds
+  on the slice" below.
 - `holding: N issues await merge (limit N)`: review and merge, or raise
   `TEHAS_MAX_AWAITING`.
 - `holding: N issues await merge and M cycles are running (limit N)`: running
@@ -124,6 +141,34 @@ tail ~/tehas/logs/dispatch.log
 `systemctl --user enable --now tehas-dispatch.timer` turns it on;
 `systemctl --user disable --now tehas-dispatch.timer` turns polling off without
 touching a running cycle.
+
+## The dispatcher holds on the slice
+
+`tehas status` says `warn` and its `slice` line starts with `holding:`. No
+cycle and no planning turn starts, no label changes and nothing is said on an
+issue. The queue is kept and is taken up when the hold ends. The line is in
+`~/tehas/logs/dispatch.log` once, not at every poll.
+
+| The line says | What to do |
+| --- | --- |
+| `no slice file on this host (sudo ./bootstrap.sh slice)` | Root has not installed the slice. Run that command once. See [Bootstrap a host](/bootstrap#slice). |
+| `tehas.slice has no memory limit (sudo ./bootstrap.sh slice)` | The unit systemd has loaded is not the installed file. The same command reloads it. |
+| `Docker runs containers with the ... cgroup driver on cgroup v..., tehas needs systemd on v2` | Set `"exec-opts": ["native.cgroupdriver=systemd"]` in `/etc/docker/daemon.json` and restart Docker. A host on cgroup v1 cannot run tehas. |
+| `systemctl gave no answer`, `docker gave no answer` | The command failed or was silent for ten seconds. Run `systemctl show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax` and `docker info` by hand. |
+| `... cgroup.controllers does not list cpu, memory and pids` | The host's cgroup tree lacks a controller. Read `/sys/fs/cgroup/cgroup.controllers`. |
+| `TEHAS_CYCLE_RESERVE=... is more than a container may use here` | The reserve is above a quarter of the slice's limit. Set a lower `TEHAS_CYCLE_RESERVE` in `instance.env`. The line names the host size the reserve needs. |
+| `the slice's use could not be read` | Read `/sys/fs/cgroup/tehas.slice/memory.pressure` and the `memory.stat` and `memory.low` of each `docker-*.scope` under it as the tehas user. A kernel with pressure accounting off has no `memory.pressure`. If the directory is missing while cycles run, look at `systemctl status tehas.slice`. |
+
+The `slice` line reads `unknown: no poll has reported in 10 min` when no poll
+got as far as reading the slice in that time. That is so while the factory
+is paused, while a planning turn takes longer than that, and when the timer
+is not running. `tehas dispatch --dry-run` reads the slice afresh and prints
+the same hold.
+
+A hold, and its end, reach `tehas status` in the poll that finds them. The
+numbers of a `room for N cycles` line can be one poll older than the age the
+line gives for the health file: the health file is written at the start of a
+poll, after a start, and when the reason for a hold changes.
 
 ## The cycle parked (`needs-human-attention`)
 

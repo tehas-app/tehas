@@ -3,7 +3,8 @@
 # three commands that start one: tehas work (a cycle), tehas plan (a planning
 # turn) and tehas dev (a manual session). It is in one place so they cannot
 # drift apart; test/work_test.sh, test/plan_test.sh and test/dev_test.sh pin
-# the result option by option.
+# the result option by option. The container's limits and the slice it runs
+# in are not made here: they come from lib/slice.sh.
 #
 #   tehas_sandbox_env <tree> <name> <email>   the -e options
 #   tehas_sandbox_mounts <tree> [<host tree> [<runs dir>]]

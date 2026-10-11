@@ -27,12 +27,12 @@ checkouts and tehas itself come after it, on the [new project page](/new-project
 ```
 git clone <the platform repository> ~/tehas/platform
 cd ~/tehas/platform
-sudo ./bootstrap.sh root boss     # 1. as root, naming the tehas user
+sudo ./bootstrap.sh root boss     # 1. as root, naming the tehas user; ends with the slice
 # log out and in again, so the docker group applies
 ./bootstrap.sh user               # 2. as the tehas user
-./bootstrap.sh check              # 3. one line per tool
+./bootstrap.sh check              # 3. one line per tool, and one for the slice
+sudo ./bootstrap.sh slice         # only if step 1 could not install the slice, or it changed
 sudo ./bootstrap.sh dev boss alice   # optional: let the account alice type "tehas dev"
-sudo ./bootstrap.sh pool 14g 11      # optional: cycles share TEHAS_WORK_MEMORY and TEHAS_WORK_CPUS, see Limits and concurrency in the host page
 ```
 
 If the platform repository is private, the clone needs the deploy key from the
@@ -46,6 +46,64 @@ tools needs. Adds the user to the `docker` group, enables lingering for it (so
 the dispatcher timer runs without a login) and enables the Docker service.
 
 System packages are not pinned. You get what the distribution offers.
+
+It ends with the `slice` step below. If Docker does not use the systemd cgroup
+driver yet, that step writes nothing, `root` still finishes, and it says to run
+`sudo ./bootstrap.sh slice` once Docker does.
+
+### `slice`
+
+```
+sudo ./bootstrap.sh slice
+```
+
+Installs one systemd unit, `/etc/systemd/system/tehas.slice`, from
+`host/slice/tehas.slice` in the checkout, reloads systemd and starts the slice.
+It takes no arguments and reads nothing from the instance, the user's home or
+the network. The file is the same on every host:
+
+```
+[Slice]
+MemoryMax=75%
+CPUWeight=100
+```
+
+The slice is where every sandbox container runs, under one memory limit of
+three quarters of the host's memory. Without it no container starts and the
+dispatcher holds. [The host](/host#the-slice) says what it is for.
+
+Root is needed for exactly this: writing one system unit and reloading the
+system manager. Docker places containers under the system manager, so a slice
+of the tehas user cannot hold them. The step adds no sudo rule, no package and
+no Docker setting.
+
+What it does, in order:
+
+1. It stops with exit 64 if it is not root or was given an argument.
+2. It asks Docker for its cgroup driver and version. Anything but the systemd
+   driver on cgroup v2 is refused and nothing is written. The fix is
+   `"exec-opts": ["native.cgroupdriver=systemd"]` in `/etc/docker/daemon.json`
+   and a restart of Docker.
+3. If the file under `/etc` equals the shipped one, systemd has the slice
+   loaded from a file with a memory limit, and systemd does not report the
+   file as changed since it read it (`NeedDaemonReload=no`), it prints
+   `bootstrap: slice part already in place` and changes nothing. A reload
+   that failed after an update leaves the old limit in force beside an equal
+   file; that is not in place, and the step goes on to reload.
+4. Otherwise it writes the file, runs `systemctl daemon-reload` and
+   `systemctl start tehas.slice`, and stops with exit 1 if the slice has no
+   memory limit after that.
+5. It prints one line with the file systemd loaded, the limit in bytes, and
+   whether `systemd-oomd` is active. That last part is information: tehas
+   neither uses nor needs systemd-oomd, and the step does not touch it.
+
+Run it again when an update of tehas changes the shipped file.
+`./install.sh --check` says when: its `Slice:` line reads `DIFFERS`.
+`tehas update` cannot do it, because it runs as the tehas user.
+
+Another limit for one host goes in
+`/etc/systemd/system/tehas.slice.d/override.conf`, written by root. The step
+never writes or removes that file.
 
 ### Optional: `dev <user> [<login>...]`
 
@@ -95,6 +153,10 @@ Changes nothing. Prints each tool with the version found and the one expected,
 then the system tools, Docker without sudo, and lingering. Exit 1 if anything
 is missing or at another version. `./install.sh --check` runs it as its
 `Dependencies` line.
+
+The last line is the slice: `tehas.slice: in place`, `missing` or `differs`,
+by comparing the file under `/etc/systemd/system` with the one in the checkout.
+It does not change the exit status.
 
 ## Running it again
 
@@ -163,3 +225,5 @@ for the tehas user. `tehas work` refuses to start a cycle without them.
 `bootstrap.sh` was written from a hand install of the example host. On that
 host `check` passes and a second `user` run changes nothing. A run from scratch on a
 fresh machine has not been done. Expect to fix something the first time.
+
+The `slice` step is tested, not yet seen on a host.

@@ -112,11 +112,12 @@ t_case "summary: an idle factory in three lines, exit 0"
 reset
 t_run "$status && $summary"
 t_eq "$t_rc" 0
-t_eq "$(printf '%s\n' "$t_out" | wc -l)" 3
+t_eq "$(printf '%s\n' "$t_out" | wc -l)" 4
 t_contains "$t_out" "factory   pass: Idle, taking work. ("
 t_contains "$t_out" "s ago)"
 t_contains "$t_out" "queue     2 in line, 0 building, 1 in review, 1 stopped"
 t_contains "$t_out" "cycle     none yet"
+t_contains "$t_out" "slice     unknown: no poll has reported in 10 min"
 
 t_case "summary: a running cycle"
 reset
@@ -343,6 +344,110 @@ disk true
 cycle false died verify
 t_run "$status"
 t_eq "$(jq -r '.status' "$live/health.json")" "fail"
+
+# What the dispatcher's last poll wrote about the slice, as libexec/dispatch
+# writes live/dispatch.json. 4 GiB of 20 GiB are promised.
+poll() { # <why> <hold> [<age in seconds>]
+  mkdir -p "$live"
+  jq -n --arg why "$1" --arg hold "$2" --arg at "$(date -u -d "@$(($(date +%s) - ${3:-40}))" +%FT%TZ)" \
+    '{time: $at, why: $why, hold: $hold, count: 1, room: 8, committed: 4294967296, max: 21474836480, reserve: "2g"}' \
+    >"$live/dispatch.json"
+}
+
+t_case "health carries checks.slice from live/dispatch.json"
+reset
+poll "" ""
+t_run "$status"
+t_eq "$(jq -r .status "$live/health.json")" pass
+t_eq "$(jq -c '.checks.slice | del(.time)' "$live/health.json")" \
+  '{"why":"","hold":"","count":1,"room":8,"committed":4294967296,"max":21474836480,"reserve":"2g"}'
+t_eq "$(jq -r .checks.slice.time "$live/health.json")" "$(jq -r .time "$live/dispatch.json")"
+
+for why in slice unreadable; do
+  t_case "health: a hold for '$why' is a warning with the hold as output"
+  reset
+  poll "$why" "holding: no slice file on this host (sudo ./bootstrap.sh slice)"
+  t_run "$status; $summary"
+  t_eq "$t_rc" 0
+  t_eq "$(jq -r .status "$live/health.json")" warn
+  t_eq "$(jq -r .output "$live/health.json")" "holding: no slice file on this host (sudo ./bootstrap.sh slice)"
+  t_eq "$(find "$live" -name health.down | wc -l)" 0
+  t_contains "$t_out" "factory   warn: holding: no slice file on this host (sudo ./bootstrap.sh slice)"
+  t_contains "$t_out" "slice     holding: no slice file on this host (sudo ./bootstrap.sh slice) (4"
+done
+
+for why in count awaiting pressure room; do
+  t_case "health: a hold for '$why' is not a warning, and tehas status still says it"
+  reset
+  poll "$why" "holding: the reason"
+  t_run "$status && $summary"
+  t_eq "$t_rc" 0
+  t_eq "$(jq -r .status "$live/health.json")" pass
+  t_contains "$t_out" "factory   pass: Idle, taking work."
+  t_contains "$t_out" "slice     holding: the reason (4"
+done
+
+t_case "health: a paused factory and a failed cycle are said before a slice hold"
+reset
+poll slice "holding: no slice file on this host (sudo ./bootstrap.sh slice)"
+echo true >"$T/paused"
+t_run "$status"
+t_eq "$(jq -r .output "$live/health.json")" "The factory is paused."
+echo false >"$T/paused"
+cycle false aborted develop
+t_run "$status"
+t_eq "$(jq -r .status "$live/health.json")" fail
+
+t_case "health: a dispatch.json older than ten minutes gives no slice check and no warning"
+reset
+poll slice "holding: no slice file on this host (sudo ./bootstrap.sh slice)" 660
+t_run "$status && $summary"
+t_eq "$t_rc" 0
+t_eq "$(jq -c .checks.slice "$live/health.json")" null
+t_eq "$(jq -r .status "$live/health.json")" pass
+t_contains "$t_out" "slice     unknown: no poll has reported in 10 min"
+
+for bad in '{"time":' 'not json' '[]' '{"why":"slice","hold":"x"}' '{"time":"yesterday","why":"slice","hold":"x"}' \
+  '{"time":7,"why":"slice"}' "{} {}"; do
+  t_case "health: a dispatch.json of '$bad' does not break the health write"
+  reset
+  mkdir -p "$live"
+  printf '%s\n' "$bad" >"$live/dispatch.json"
+  t_run "$status && $summary"
+  t_eq "$t_rc" 0
+  t_eq "$(jq -r .status "$live/health.json")" pass
+  t_eq "$(jq -c .checks.slice "$live/health.json")" null
+  t_contains "$t_out" "slice     unknown"
+done
+
+t_case "summary: the slice line says the room, what is promised, the reserve and its age"
+reset
+poll "" ""
+t_run "$status && $summary"
+t_eq "$t_rc" 0
+t_eq "$(printf '%s\n' "$t_out" | wc -l)" 4
+t_contains "$t_out" "slice     room for 8 cycles (4 GiB of 20 GiB promised, reserve 2g, 4"
+t_contains "$(printf '%s\n' "$t_out" | tail -n 1)" " s ago)"
+poll "" "" 300
+jq '.committed = 4831838208' "$live/dispatch.json" >"$live/x" && mv "$live/x" "$live/dispatch.json"
+t_run "$status && $summary"
+t_contains "$t_out" "slice     room for 8 cycles (4.5 GiB of 20 GiB promised, reserve 2g, 5 min ago)"
+
+t_case "summary: a health file written before the slice was known says unknown"
+reset
+t_run "$status"
+jq 'del(.checks.slice)' "$live/health.json" >"$live/x" && mv "$live/x" "$live/health.json"
+t_run "$summary"
+t_eq "$t_rc" 0
+t_contains "$t_out" "slice     unknown: no poll has reported in 10 min"
+
+t_case "health and summary read files only: no systemctl, no docker"
+reset
+t_stub systemctl
+t_stub docker
+poll room "holding: the reason"
+t_run "$status && $summary"
+t_eq "$(t_calls systemctl)$(t_calls docker)" ""
 
 t_case "a lost cycle counts from when it was found, not from its last heartbeat"
 reset

@@ -22,7 +22,7 @@
 - pi-rukas (https://github.com/trail-openers/pi-rukas) is the Pi extension
   that runs the work cycle: explore, plan, develop, the repository's own gates,
   an adversarial pass, a pull request and a six-pass review.
-- One instance is one host serving one product repository, one cycle at a time by default and more if set.
+- One instance is one host serving one product repository, with as many cycles side by side as `TEHAS_TICKET_CONCURRENCY` (the host's CPUs minus one by default) and the slice's room allow.
 - The same host takes work by hand: a person with an account there types
   `tehas dev` and gets an interactive Pi session with pi-rukas in the cycle's
   sandbox, on the factory's models, with their own name on the commits.

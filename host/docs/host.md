@@ -20,6 +20,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/env.sh`                     | Environment for every tehas process; sourced from `~/.bashrc`           |
 | `~/tehas/lib/config.sh`              | Loads and checks the instance settings; sourced by every command        |
 | `~/tehas/lib/sandbox.sh`             | What a sandbox container is given; sourced by the work, plan and dev scripts |
+| `~/tehas/lib/slice.sh`               | Reads the slice: whether it is usable, a container's limits, the room left. Every command that starts a sandbox container reads it |
 | `~/tehas/lib/questions.sh`, `planning.sh` | The question and planning steps of the dispatcher. A cycle's report uses the first too |
 | `~/tehas/bin/`                       | The two commands on `PATH`: `tehas` for a person, `tehasbot` for the units. Plus `gh` |
 | `~/tehas/libexec/`                   | The scripts behind the two commands, one for each thing they do. Not on `PATH` |
@@ -117,7 +118,7 @@ the first time, before `tehas update` exists there:
 
 ```
 cd ~/tehas/platform && git pull
-./install.sh --check     # change nothing, report up to six results
+./install.sh --check     # change nothing, report up to seven results
 ./install.sh             # copy changed files into place, keep <name>.prev
 ```
 
@@ -126,14 +127,15 @@ The labels `tehas:plan`, `tehas:planning` and `tehas:question`, for planning on
 an issue and the retry tick, are not in a repository until it has been.
 
 `--check` prints one line each for the instance settings, the host's tools, the
-installed files, the command the other accounts type where root installed one,
-the follow-ups an earlier run left undone, and the tests. Two of the six appear
-only where there is something to say, and the sample below is a host with a
-follow-up owed and no root-installed copy:
+slice, the installed files, the command the other accounts type where root
+installed one, the follow-ups an earlier run left undone, and the tests. Two of
+the seven appear only where there is something to say, and the sample below is a
+host with a follow-up owed and no root-installed copy:
 
 ```
 Instance:     /home/boss/tehas/platform/instances/tehas-tehas OK
 Dependencies: OK
+Slice:        MISSING (sudo ./bootstrap.sh slice)
 Installed:    DRIFT (1 files)
   differs: /home/boss/tehas/libexec/dispatch
 Follow-ups:   NOT DONE (2 from an earlier run, see /home/boss/tehas/state/update-pending)
@@ -155,6 +157,14 @@ copy, and exits 1; a real install prints the same finding as a `later:` line.
 `sudo` for nothing, so the difference is reported rather than repaired. A host
 where `bootstrap.sh dev` never ran says nothing about it. See
 [Other accounts](#other-accounts).
+
+The `Slice:` line compares `/etc/systemd/system/tehas.slice` with
+`host/slice/tehas.slice` in the checkout: `OK`, `MISSING` or `DIFFERS`. The
+last two make `--check` exit 1, and so `tehas update --check` stays red, until
+root has run [`sudo ./bootstrap.sh slice`](/bootstrap#slice): every sandbox
+container runs in the slice and none starts without it. A real run prints a
+`note:` line for the last two, installs everything else and installs no slice,
+which is root's step.
 
 `install.sh` validates the settings first and installs nothing if they are
 invalid. It prints one `next:` line per follow-up its changed files call for, and
@@ -236,32 +246,92 @@ sandbox. Give the sandbox its address with `PI_ENSEMBLE_HOST_ALIASES`
 
 ## Limits and concurrency
 
-`TEHAS_WORK_CPUS` and `TEHAS_WORK_MEMORY` bound all the cycles of a host
-together. CPUs is a time quota (`docker --cpus`), not pinning. Memory is a hard
-limit (`docker --memory`); a process that exceeds it is killed. The defaults are
-the host's CPUs minus one and half its memory, which on the example host is 7
-CPUs and about 7.5 GB. A value above what the host has is rejected.
+Every sandbox container tehas starts runs in one systemd slice,
+[`tehas.slice`](#the-slice): a cycle, a planning turn, a `tehas dev` session,
+the indexer and the improvement loop's analyst. The slice's `MemoryMax` bounds
+them all together. No setting describes the machine.
 
-`TEHAS_TICKET_CONCURRENCY` sets how many issues are worked on side by side,
-each in a cycle, a container and a workspace of its own. It defaults to 1. Each
-container gets the two limits above divided by it, whether or not the other
-slots are in use. A share below one CPU is rejected, so the setting cannot
-exceed the CPUs given.
+A cycle, a planning turn, a dev session and the indexer each get the same six
+limits, twelve words on the `docker run` line:
 
-The limits do not have to be divided. `sudo ./bootstrap.sh pool 14g 11`, with
-the values of `TEHAS_WORK_MEMORY` and `TEHAS_WORK_CPUS`, writes one limit
-around the containers of all cycles: the systemd slice `tehas-cycles.slice`. A
-cycle then starts in that slice and may use both budgets whole, so it uses
-what the others leave, and all of them together stay inside. Cycles that want
-more CPU time than there is get equal parts of it. When they pass the memory
-limit together, the kernel kills a process in one of them, most often the
-largest. Without values the step takes half the host's memory and its CPUs
-minus one, which are the defaults of the two settings.
+| Option | Value | What it does |
+| --- | --- | --- |
+| `--cgroup-parent` | `tehas.slice` | Puts the container in the slice |
+| `--memory` | a quarter of the slice's `MemoryMax` | A hard ceiling. At it the kernel kills the largest process in the container. Four containers have to run away to fill the slice on their own |
+| `--memory-swap` | the same value | No swap for the container |
+| `--memory-reservation` | `TEHAS_CYCLE_RESERVE`, `2g` unless set | The container's floor. When the slice is full the kernel frees memory above the floors first |
+| `--pids-limit` | `4096` | The most processes and threads in the container |
+| `--cpu-shares` | `1024` | A CPU weight, the same on every container |
 
-`tehas work` uses the slice only while its limits are exactly the two settings
-and Docker uses the systemd cgroup driver. Otherwise each cycle keeps its
-share, and the cycle's log says so. After either setting changes, run the step
-again with the new values.
+There is no CPU quota. One container alone may use every CPU; several busy
+ones share them by weight, about equally. The weight is also what makes the
+kernel share CPU inside the slice at all, so every container carries it.
+
+The floor is a priority when the slice frees memory, not a guarantee against
+the whole host: when the host itself runs short, the host comes first. With
+the default reserve the host needs about 11 GiB of memory, because the reserve
+may not be more than a container's ceiling. A smaller host sets
+`TEHAS_CYCLE_RESERVE` lower.
+
+The analyst is a batch job with limits of its own: the slice, one CPU
+(`--cpus 1`), `--memory 2g`, the same for `--memory-swap`, `--pids-limit 1024`
+and the same CPU weight. The check that the sandbox can push, which `tehas
+work` runs for a few seconds before a cycle, is not in the slice and has no
+limits. Previews, image builds and the edge router are outside the slice too.
+
+Nothing starts outside the slice. `tehas work`, `tehas plan`, `tehas dev`,
+`tehas index` and `tehasbot improve` ask once whether the slice is usable:
+the slice is loaded from its file and has a `MemoryMax`, Docker uses the
+systemd cgroup driver on cgroup v2, the `cpu`, `memory` and `pids` controllers
+are there, and the reserve fits under the ceiling. If not, the command stops
+with exit 78 and one line that says what is missing, before it clones
+anything, calls GitHub or starts a container:
+
+```
+tehas work: no slice file on this host (sudo ./bootstrap.sh slice)
+```
+
+A cycle's container has its id written to `~/tehas/state/cycles/<issue>.cid`
+while it runs. That is how the cycle's container is told from the others in
+the slice.
+
+`tehas dev` prints how many more cycles the slice has room for before it
+starts its session. The session's memory counts in the slice like any other
+container's, so a session that uses a lot leaves room for fewer cycles.
+
+#### A container that is killed
+
+Memory is the one thing a container is killed for. A container that grows
+reaches its own ceiling first, and the kernel kills the largest process in it.
+When several grow and the slice reaches `MemoryMax`, the kernel frees file
+cache, the floors last, and then kills the largest process in the slice. If
+the process killed is a build step, the cycle goes on with a failed step. If
+it is Pi itself, the container ends with status 137.
+
+`tehas work` reads the container's own count of such kills while the cycle
+runs. A count above 0 is in its output and in the comment that reports the
+cycle:
+
+```
+tehas work: 2 processes in this cycle's container were killed for memory
+```
+
+A container that ends with 137 while the cycle was still running is reported
+as `killed`: `tehas work` exits 137, and the issue is parked with
+`needs-human-attention` and status `killed` in the comment. That is a
+container that ran out of memory, or one that was stopped from outside, for
+example with `docker kill`. It is not `killed` when `tehas work` stopped the
+container itself, at the time limit or on a signal, nor when the cycle's state
+already said how it ended. The record for the improvement loop carries the
+count as `oomKills`.
+
+`TEHAS_TICKET_CONCURRENCY` sets the most issues worked on side by side, each
+in a cycle, a container and a workspace of its own. It defaults to the host's
+CPUs minus one, at least 1, and a value above the host's CPUs is accepted. It
+is a ceiling: the dispatcher starts fewer while the slice has no room. A
+container's limits do not depend on it. There is no CPU or memory budget to
+set; an instance that still sets `TEHAS_WORK_CPUS` or `TEHAS_WORK_MEMORY` is
+refused with 78 and one line naming the slice file.
 
 `TEHAS_CONCURRENCY` sets how many workstreams one cycle may run side by side,
 inside that one container. It defaults to 4.
@@ -300,6 +370,49 @@ Cycles that run side by side know nothing of each other:
   time.
 - `~/.vipune`, Pi's `sessions` and the two caches are shared between cycles.
 
+### The slice
+
+`tehas.slice` is one systemd slice for every sandbox container tehas starts.
+Root installs it once with [`sudo ./bootstrap.sh slice`](/bootstrap#slice),
+from `host/slice/tehas.slice` to `/etc/systemd/system/tehas.slice`.
+
+Every sandbox container is started in it, with the limits above. Without it
+no container starts.
+
+Its one limit is `MemoryMax=75%`: everything in the slice together may use
+three quarters of the host's memory. It is a share, not a number, so the file
+is the same on every host and no setting describes the machine. The other
+quarter is for the host: Docker itself, the edge router, the previews, image
+builds and the tehas user's own units. `CPUWeight=100` is systemd's default,
+written out, so the slice competes for CPU with the rest of the system on
+equal terms. There is no CPU quota on it.
+
+What the file leaves out, on purpose:
+
+- No `MemoryHigh`. Over that limit the kernel slows every process in the slice
+  and kills nothing, so a full slice would stall. At `MemoryMax` the kernel
+  frees file cache and then kills the largest process in the slice.
+- No `MemoryLow`. When the whole host is short of memory, the host wins.
+- No `ManagedOOM` lines. tehas neither uses nor needs systemd-oomd. Where
+  Ubuntu's systemd-oomd package is installed, it ships a setting that lets
+  oomd kill a user's own service manager under pressure, the tehas user's
+  among them. That is the package's doing, not this slice's.
+
+To read what is in force:
+
+```
+systemctl show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax -p CPUWeight
+```
+
+`FragmentPath` is the file it was loaded from and `MemoryMax` is a number of
+bytes. A slice with an empty `FragmentPath` and `MemoryMax=infinity` is one
+systemd made up for a name in use: the root step has not been run. An inactive
+slice still answers from its file.
+
+Another limit for one host goes in
+`/etc/systemd/system/tehas.slice.d/override.conf`, by root, followed by
+`systemctl daemon-reload`. tehas never writes that file.
+
 ## Sandbox image
 
 `tehas/pi-rukas:uid<uid>`: the upstream pi-rukas image plus the in-container
@@ -326,7 +439,7 @@ with nothing mounted but a clone:
 ```
 T=~/tehas/tmp/contract-test
 git clone -q ~/tehas/repos/tehas "$T"
-docker run --rm --cpus 4 --memory 4g --user "$(id -u):$(id -g)" \
+docker run --rm --cgroup-parent tehas.slice --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)" \
   -e HOME=/home/vscode -v "$T:$T" -w "$T" --entrypoint bash \
   "$PI_ENSEMBLE_IMAGE" -c '
     sh .pi/worktree-setup &&
@@ -334,6 +447,9 @@ docker run --rm --cpus 4 --memory 4g --user "$(id -u):$(id -g)" \
     sh -c "$(grep -v -e "^#" -e "^$" .pi/smoke-cmd | head -n 1)"'
 rm -rf "$T"
 ```
+
+The container runs in the slice like the factory's own, so the dispatcher
+counts its memory while it is there.
 
 ## pi-rukas comes from a fork
 

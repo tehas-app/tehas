@@ -113,8 +113,7 @@ for bad in "TEHAS_REPO=widget" "TEHAS_REPO=a/b/c" "TEHAS_CONTROL_ISSUE=abc" "TEH
   t_contains "$t_out" "tehas: ${bad%%=*} is not valid"
 done
 
-for bad in "TEHAS_WORK_MEMORY=lots" "TEHAS_WORK_CPUS=many" \
-  "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=two" "TEHAS_MAX_AWAITING=-1" "TEHAS_WORK_TIMEOUT=soon" "TEHAS_HOST_ADDR=not an address" \
+for bad in "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=two" "TEHAS_MAX_AWAITING=-1" "TEHAS_WORK_TIMEOUT=soon" "TEHAS_HOST_ADDR=not an address" \
   "TEHAS_BRANCH=two words" "TEHAS_INDEXING=yes" "TEHAS_ANALYTICS_SRC=http://plain.example/ea.js" \
   "TEHAS_ANALYTICS_SRC=https://a.example/x.js\" onload=\"x" "TEHAS_ANALYTICS_SITE=two words" \
   "TEHAS_ANALYTICS_COOKIE=yes" "TEHAS_PROTOLAB_URL=https://lab.example/" "TEHAS_PROTOLAB_URL=lab.example" \
@@ -160,30 +159,40 @@ printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ALLOWED_LABELERS='alice bob-2 carol'" >"$
 t_run "$load && tehas_require TEHAS_ALLOWED_LABELERS && echo \"[\$TEHAS_ALLOWED_LABELERS]\""
 t_eq "$t_out" "[alice bob-2 carol]"
 
-t_case "more CPUs than the host has are rejected"
-t_instance "${T_MINIMAL[@]}" TEHAS_WORK_CPUS=100000
+# The budget of an earlier version. The limit around the containers is now the
+# slice on the host, so an instance that still sets a budget is refused, not
+# run with a limit it did not ask for.
+t_case "TEHAS_WORK_CPUS set is refused and names the slice file"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_CPUS=3
 t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
-t_contains "$t_out" "TEHAS_WORK_CPUS is not valid"
+t_contains "$t_out" "tehas: TEHAS_WORK_CPUS is set and this version of tehas has no CPU budget to set: the limit around all containers is /etc/systemd/system/tehas.slice (see $T/instance/instance.env)"
+t_eq "$(grep -c '^tehas:' <<<"$t_out")" 1
 
-t_case "more memory than the host has is rejected"
-t_instance "${T_MINIMAL[@]}" TEHAS_WORK_MEMORY=100000g
+t_case "TEHAS_WORK_MEMORY set is refused and names the slice file"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_MEMORY=8g
 t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
-t_contains "$t_out" "TEHAS_WORK_MEMORY is not valid"
+t_contains "$t_out" "tehas: TEHAS_WORK_MEMORY is set and this version of tehas has no memory budget to set: the limit around all containers is /etc/systemd/system/tehas.slice (see $T/instance/instance.env)"
+t_eq "$(grep -c '^tehas:' <<<"$t_out")" 1
 
-t_case "default limits leave room for the host"
+t_case "a budget set to nothing is still a budget line, and is refused"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_MEMORY=
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "TEHAS_WORK_MEMORY is set"
+
+t_case "TEHAS_CYCLE_CPUS and TEHAS_CYCLE_MEMORY are not exported"
 t_instance "${T_MINIMAL[@]}"
-t_run "$load && echo \"\$TEHAS_WORK_CPUS \$TEHAS_WORK_MEMORY\""
-cpus=$(nproc)
-want_cpus=$((cpus > 1 ? cpus - 1 : 1))
-want_mem=$(awk '/^MemTotal:/ {print int($2 / 2048) "m"}' /proc/meminfo)
-t_eq "$t_out" "$want_cpus $want_mem"
+T_ENV=(TEHAS_CYCLE_CPUS=64 TEHAS_CYCLE_MEMORY=64g)
+t_run "$load && echo \"[\${TEHAS_CYCLE_CPUS:-}][\${TEHAS_CYCLE_MEMORY:-}]\" && bash -c 'echo \"[\${TEHAS_CYCLE_CPUS:-}][\${TEHAS_CYCLE_MEMORY:-}]\"'"
+t_eq "$t_out" "[][]
+[][]"
+T_ENV=()
 
-t_case "explicit limits within the host are kept"
-t_instance "${T_MINIMAL[@]}" TEHAS_WORK_CPUS=1 TEHAS_WORK_MEMORY=512m
-t_run "$load && echo \"\$TEHAS_WORK_CPUS \$TEHAS_WORK_MEMORY\""
-t_eq "$t_out" "1 512m"
+t_case "_tehas_host_mem_mb is not defined"
+t_run "$load; declare -F _tehas_host_mem_mb; echo rc=\$?"
+t_eq "$t_out" "rc=1"
 
 t_case "an instance that asks for database clones is refused"
 t_instance "${T_MINIMAL[@]}" TEHAS_CLONES=1
@@ -311,26 +320,36 @@ t_run '. "$T_ROOT/lib/config.sh"; tehas_load; echo "$TEHAS_PLAN_CMD $TEHAS_PLAN_
 t_eq "$t_out" "fake-plan 20"
 T_ENV=()
 
-# The host's CPU count is read with nproc; a stub makes the split the same on
-# every machine. The memory values are far below what any test host has.
-t_case "one ticket at a time by default, and the cycle gets the budget as written"
-t_instance "${T_MINIMAL[@]}" TEHAS_WORK_CPUS=1 TEHAS_WORK_MEMORY=512m
-t_run "$load && echo \"\$TEHAS_TICKET_CONCURRENCY \$TEHAS_CYCLE_CPUS \$TEHAS_CYCLE_MEMORY\""
-t_eq "$t_rc" 0
-t_eq "$t_out" "1 1 512m"
-
-t_case "the review cap leaves room for one cycle and two pull requests by default"
-t_run "$load && echo \"\$TEHAS_MAX_AWAITING\""
-t_eq "$t_out" "3"
-
+# The host's CPU count is read with nproc; a stub makes the default the same
+# on every machine.
 t_stub nproc 'echo 8'
+t_case "the ticket ceiling defaults to the host's CPUs minus one"
+t_instance "${T_MINIMAL[@]}"
+t_run "$load && echo \"\$TEHAS_TICKET_CONCURRENCY\""
+t_eq "$t_rc" 0
+t_eq "$t_out" "7"
+t_stub nproc 'echo 1'
+t_run "$load && echo \"\$TEHAS_TICKET_CONCURRENCY\""
+t_eq "$t_out" "1"
+t_stub nproc 'echo 8'
+
+t_case "the review cap leaves room for every cycle and two pull requests by default"
+t_run "$load && echo \"\$TEHAS_MAX_AWAITING\""
+t_eq "$t_out" "9"
+
+t_case "a ceiling above the host's CPUs is accepted"
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=20
+t_run "$load && echo \"\$TEHAS_TICKET_CONCURRENCY \$TEHAS_MAX_AWAITING\""
+t_eq "$t_rc" 0
+t_eq "$t_out" "20 22"
+
 t_case "the review cap's default follows the cycles side by side"
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=4 TEHAS_WORK_CPUS=4 TEHAS_WORK_MEMORY=512m
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=4
 t_run "$load && echo \"\$TEHAS_MAX_AWAITING\""
 t_eq "$t_out" "6"
 
 t_case "a review cap that is set is kept"
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=4 TEHAS_WORK_CPUS=4 TEHAS_WORK_MEMORY=512m TEHAS_MAX_AWAITING=3
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=4 TEHAS_MAX_AWAITING=3
 t_run "$load && echo \"\$TEHAS_MAX_AWAITING\""
 t_eq "$t_out" "3"
 
@@ -339,34 +358,48 @@ t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=two
 t_run "$load"
 t_eq "$t_rc" 78
 t_contains "$t_out" "TEHAS_TICKET_CONCURRENCY is not valid"
-t_case "the budget is divided between the tickets, rounded down"
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=3 TEHAS_WORK_CPUS=4 TEHAS_WORK_MEMORY=512m
-t_run "$load && echo \"\$TEHAS_TICKET_CONCURRENCY \$TEHAS_CYCLE_CPUS \$TEHAS_CYCLE_MEMORY\""
+rm -f "$T/bin/nproc"
+
+t_case "the reserve defaults to 2g"
+t_instance "${T_MINIMAL[@]}"
+t_run "$load && bash -c 'echo \$TEHAS_CYCLE_RESERVE'"
 t_eq "$t_rc" 0
-t_eq "$t_out" "3 1.33 170m"
+t_eq "$t_out" "2g"
 
-t_case "a memory budget in gigabytes is divided in MiB"
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=2 TEHAS_WORK_CPUS=2 TEHAS_WORK_MEMORY=1g
-t_run "$load && echo \"\$TEHAS_CYCLE_CPUS \$TEHAS_CYCLE_MEMORY\""
-t_eq "$t_out" "1.00 512m"
-
-t_case "the shares are exported, and one in the environment is not used"
-T_ENV=(TEHAS_CYCLE_CPUS=64 TEHAS_CYCLE_MEMORY=64g)
-t_run "$load && bash -c 'echo \$TEHAS_CYCLE_CPUS \$TEHAS_CYCLE_MEMORY'"
-t_eq "$t_out" "1.00 512m"
+t_case "a reserve the instance sets is kept as written, and one in the environment is not used"
+t_instance "${T_MINIMAL[@]}" TEHAS_CYCLE_RESERVE=768m
+T_ENV=(TEHAS_CYCLE_RESERVE=64g)
+t_run "$load && echo \"\$TEHAS_CYCLE_RESERVE\""
+t_eq "$t_out" "768m"
+t_instance "${T_MINIMAL[@]}"
+t_run "$load && echo \"\$TEHAS_CYCLE_RESERVE\""
+t_eq "$t_out" "2g"
 T_ENV=()
 
-t_case "a share below one CPU is refused, and both settings are named"
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=3 TEHAS_WORK_CPUS=2 TEHAS_WORK_MEMORY=512m
-t_run "$load; echo rc=\$?"
-t_contains "$t_out" "rc=78"
-t_contains "$t_out" "TEHAS_TICKET_CONCURRENCY=3 leaves each cycle 0.66 CPUs of TEHAS_WORK_CPUS=2"
+# 02g and 1000000000g are sizes to Docker but not to lib/slice.sh, which reads
+# the reserve at every start: what loads must be what the slice library reads.
+for bad in lots 2gb 0 5m 6000k -1g 1.5g 02g 1000000000g; do
+  t_case "a reserve that is not a size, or under 6m, is refused: $bad"
+  t_instance "${T_MINIMAL[@]}" "TEHAS_CYCLE_RESERVE=$bad"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  t_contains "$t_out" "tehas: TEHAS_CYCLE_RESERVE is not valid: expected a size of at least 6m, such as 512m or 2g"
+done
 
-t_case "a memory share Docker would refuse is refused here"
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=2 TEHAS_WORK_CPUS=2 TEHAS_WORK_MEMORY=10m
-t_run "$load; echo rc=\$?"
-t_contains "$t_out" "rc=78"
-t_contains "$t_out" "TEHAS_TICKET_CONCURRENCY=2 leaves each cycle 5m of TEHAS_WORK_MEMORY=10m"
-rm -f "$T/bin/nproc"
+t_case "a reserve of 6m is the smallest that loads"
+t_instance "${T_MINIMAL[@]}" TEHAS_CYCLE_RESERVE=6m
+t_run "$load && echo \"\$TEHAS_CYCLE_RESERVE\""
+t_eq "$t_out" "6m"
+
+t_case "TEHAS_CGROUP_ROOT in the environment is kept"
+t_instance "${T_MINIMAL[@]}"
+T_ENV=(TEHAS_CGROUP_ROOT=/somewhere/cgroup)
+t_run "$load && echo \"\$TEHAS_CGROUP_ROOT\""
+t_eq "$t_out" "/somewhere/cgroup"
+T_ENV=()
+
+t_case "loading sets no cgroup root of its own"
+t_run "$load && echo \"[\${TEHAS_CGROUP_ROOT:-}]\""
+t_eq "$t_out" "[]"
 
 t_done

@@ -29,7 +29,8 @@ And if you're wondering... tehas is Estonian for factory :)
 1. You label an issue `tehas:ready`. The label counts only when an account on
    the instance's allow list applied it.
 2. A dispatcher polls the queue every two minutes and starts a cycle for each
-   issue there is room for: one at a time by default.
+   issue there is room for: at most the host's CPUs minus one by default,
+   fewer while `tehas.slice` has no room.
 3. The cycle runs in a container with CPU and memory limits. It gets the bot's
    GitHub token and the product checkout. It does not get the Docker socket or
    any SSH key.
@@ -149,6 +150,7 @@ crates the first time. The rules for changes are in [`AGENTS.md`](AGENTS.md).
 | `lib/cycles.sh` | Which cycles are running, from the lock each one holds, and where a parked cycle's question is on record |
 | `lib/live.sh` | The live view of the cycles, put together from a file per cycle |
 | `lib/sandbox.sh` | What a sandbox container is given, for a cycle and for a session by hand |
+| `lib/slice.sh` | Reads `tehas.slice`: whether it is usable, the limits of a container, the room left |
 | `lib/update-steps.sh` | The follow-up steps of an install, which `install.sh` asks for and `tehas update` runs |
 | `host/` | Everything else that is installed: units, the docs server, the sandbox image, the manual |
 | `preview/` | What `tehasbot preview` builds for a pull request of this repository |
