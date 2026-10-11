@@ -10,6 +10,7 @@
 #   tehasbot energy [--every]     sample the model mesh's power (the service)
 #   tehasbot protolab             build the Protolab pages (the timer)
 #   tehasbot preview [--sweep]    keep the previews of pull requests (the timers)
+#   tehasbot improve              one run of the improvement loop (the timer)
 #   tehasbot help                 this text
 #
 # Each command is a script in ../libexec, and this only chooses one and runs
@@ -32,7 +33,7 @@ case "${1-help}" in
     usage
     exit 0
     ;;
-  dispatch | cycle | status | health | energy | protolab | preview)
+  dispatch | cycle | status | health | energy | protolab | preview | improve)
     file=$libexec/$1
     shift
     exec "$file" "$@"

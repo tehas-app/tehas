@@ -8,8 +8,8 @@
 #                           installed files and tests, each on its own line
 #
 # What is installed: the commands and units (issue to pull request), the
-# sandbox files, the docs server, the edge router, the Protolab and the manual,
-# plus the instance's own models.json and, if it has one, settings.json.
+# sandbox files, the docs server, the edge router, the Protolab, the
+# improvement loop and the manual, plus the instance's own models.json and, if it has one, settings.json.
 #
 # It copies files, and compiles one: the console of a running cycle is a Rust
 # program in console/. A real run builds it with cargo in this checkout
@@ -143,6 +143,8 @@ files=(
   "env.sh|$TEHAS_HOME/env.sh|644"
   "lib/config.sh|$TEHAS_HOME/lib/config.sh|644"
   "lib/cycles.sh|$TEHAS_HOME/lib/cycles.sh|644"
+  "lib/improve.sh|$TEHAS_HOME/lib/improve.sh|644"
+  "lib/improve-prompt.md|$TEHAS_HOME/lib/improve-prompt.md|644"
   "lib/live.sh|$TEHAS_HOME/lib/live.sh|644"
   "lib/update-steps.sh|$TEHAS_HOME/lib/update-steps.sh|644"
   "lib/edge.sh|$TEHAS_HOME/lib/edge.sh|644"
@@ -160,6 +162,8 @@ files=(
   "systemd/tehas-dispatch.service|$units/tehas-dispatch.service|644"
   "systemd/tehas-dispatch.timer|$units/tehas-dispatch.timer|644"
   "systemd/tehas-energy.service|$units/tehas-energy.service|644"
+  "systemd/tehas-improve.service|$units/tehas-improve.service|644"
+  "systemd/tehas-improve.timer|$units/tehas-improve.timer|644"
   "systemd/tehas-protolab.service|$units/tehas-protolab.service|644"
   "systemd/tehas-protolab.timer|$units/tehas-protolab.timer|644"
   "systemd/tehas-preview.service|$units/tehas-preview.service|644"
@@ -173,7 +177,7 @@ files=(
 for f in tehas tehasbot; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
-for f in cycle dev dev-login dispatch energy health index labels plan preview protolab status summary update work; do
+for f in cycle dev dev-login dispatch energy health improve index labels plan preview protolab status summary update work; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
 # Pi's own settings: the instance may bring its own (default provider and

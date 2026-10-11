@@ -29,7 +29,7 @@ t_stub fake-work '[ ! -e "$T/fx/work.sh" ] || . "$T/fx/work.sh"'
 t_stub fake-status
 
 reset() {
-  rm -rf "$T"/calls/* "${fx:?}"/* "$state" "$workdir" "$T/home/tehas/work" "$T/home/tehas/logs" \
+  rm -rf "$T"/calls/* "${fx:?}"/* "$state" "$workdir" "$T/home/tehas/work" "$T/home/tehas/logs" "$T/home/tehas/tmp" \
     "$T"/home/tehas/state/park-*
   T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status)
   t_instance "${T_MINIMAL[@]}"
@@ -230,6 +230,45 @@ t_contains "$(t_calls gh)" "issue edit 7"
 t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:question"
 
+t_case "with the improvement loop on, a cycle that ended leaves its record"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+ended handoff commit-pr feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+echo 'echo "{\"type\":\"agent_start\"}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; exit 0' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+rec=$T/home/tehas/tmp/improve/window/7-261011-120000
+t_eq "$(jq -c '[.issue, .status, .step, .rc, .pr, .log]' "$rec/cycle.json")" \
+  '[7,"handoff","commit-pr",0,"https://github.com/acme/widget/pull/9","work-7-261011-120000.jsonl"]'
+t_eq "$(cat "$rec/stream.jsonl")" '{"type":"agent_start"}'
+t_eq "$(t_calls fake-status | wc -l)" 1
+
+t_case "the record names the runner's exit when there is no pull request"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$(jq -c '[.status, .rc, .pr]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" '["unknown",2,null]'
+
+t_case "with the loop off a cycle leaves no record"
+reset
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(find "$T/home/tehas/tmp" 2>/dev/null | wc -l)" 0
+
+t_case "a record that cannot be written changes nothing about the cycle's report"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_contains "$t_out" "improve: no log of issue 7"
+t_contains "$t_out" "done #7 rc=0 status=unknown"
+t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
+t_eq "$(t_calls fake-status | wc -l)" 1
+t_eq "$(find "$T/home/tehas/tmp/improve/window" -mindepth 1 2>/dev/null | wc -l)" 0
+
 # Outside the tests nothing names the two scripts: the cycle runs the ones in
 # its own directory, whatever PATH holds.
 t_case "without the test seams it runs the scripts beside it, not names on PATH"
@@ -238,7 +277,7 @@ T_ENV=()
 tree=$T/tree
 mkdir -p "$tree/libexec" "$tree/lib"
 cp "$cycle" "$tree/libexec/cycle"
-cp "$T_ROOT/lib/config.sh" "$tree/lib/config.sh"
+cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/improve.sh" "$tree/lib/"
 for name in work status; do cp "$T/bin/fake-$name" "$tree/libexec/$name"; done
 for name in tehas tehasbot tehas-work tehas-status; do t_stub "$name"; done
 t_run "$tree/libexec/cycle 7"

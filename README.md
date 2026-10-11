@@ -37,6 +37,10 @@ on this repository.
    own gates and reviews the result.
 5. The bot opens a pull request and comments on the issue. A person merges it.
 
+An instance can also read its own work. With the improvement loop switched
+on, a model reads the cycles that ended, every three hours, and files what
+could be better as issues for a person to judge.
+
 Tehas has no database. Its state is the labels on GitHub and plain files on the
 host. A dashboard on port 8080 shows the queue and the console of the running
 cycle.
@@ -86,7 +90,7 @@ The manual is in [`host/docs/`](host/docs/). Every instance serves it on port
 | --- | --- |
 | [Overview](host/docs/overview.md) | How an issue moves through the factory |
 | [Features](host/docs/features.md) | Every part, and how far each has been tested |
-| [Operating](host/docs/operating.md) | Writing an issue, the labels, pausing, retrying |
+| [Operating](host/docs/operating.md) | Writing an issue, the labels, pausing, retrying, the improvement loop |
 | [A new project](host/docs/new-project.md) | Installing tehas for your repository |
 | [Bootstrap a host](host/docs/bootstrap.md) | Preparing a fresh machine |
 | [The host](host/docs/host.md) | Files on the machine, settings, the sandbox image |

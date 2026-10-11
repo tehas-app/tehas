@@ -28,7 +28,10 @@
 # state/park-<issue>.id: the dispatcher takes a tick only in the comment named
 # there.
 #
-# Instance settings (lib/config.sh): TEHAS_REPO.
+# Where the instance has an improvement loop (TEHAS_IMPROVE_REPO), it leaves
+# the cycle's record for it at the end, in tmp/improve/window (lib/improve.sh).
+#
+# Instance settings (lib/config.sh): TEHAS_REPO, TEHAS_IMPROVE_REPO.
 # From the environment, for tests: TEHAS_WORK_CMD, TEHAS_STATUS_CMD.
 set -uo pipefail
 
@@ -43,6 +46,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/config.sh"
 # shellcheck source=lib/cycles.sh
 . "$here/../lib/cycles.sh"
+# shellcheck source=lib/improve.sh
+. "$here/../lib/improve.sh"
 tehas_load || exit 78
 # shellcheck source=lib/questions.sh
 . "$here/../lib/questions.sh"
@@ -183,5 +188,8 @@ ${usage}"
   rm -f "$TEHAS_HOME/state/park-$issue.json"
 fi
 log "done #$issue rc=$rc status=$status step=$step minutes=$mins pr=${pr:-none}"
+# For the improvement loop, where the instance has one. The cycle is reported
+# by now, and a record that cannot be written is the loop's loss only.
+tehas_improve_record "$issue" "$started" "$rc" "$status" "$step" "$pr" || log "WARN: no record of #$issue for the improvement loop"
 "$status_cmd"
 exit 0
