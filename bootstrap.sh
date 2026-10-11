@@ -10,6 +10,10 @@
 #   sudo ./bootstrap.sh dev <user> [<login>...]
 #                                     let other accounts on the host start a
 #                                     session with "tehas dev", run as <user>
+#   sudo ./bootstrap.sh pool [<memory>]
+#                                     one memory limit around all cycles, so
+#                                     they share TEHAS_WORK_MEMORY: give the
+#                                     same value [half the host's memory]
 #   ./bootstrap.sh check              change nothing; one line per tool with
 #                                     the version found and the one expected
 #
@@ -114,6 +118,39 @@ RULE
   install -m 755 "$root/host/login/tehas" "$bin/tehas"
   echo "bootstrap: dev part done. Members of the group tehas can type: tehas dev"
   [ "$#" = 0 ] || echo "bootstrap: $* must log in again for the group to apply."
+}
+
+# --- pool ---------------------------------------------------------------------
+# One memory limit around the containers of all cycles: a systemd slice.
+# "tehas work" starts a cycle in it only while its limit is TEHAS_WORK_MEMORY,
+# so after that setting changes, run this again with the new value.
+do_pool() {
+  local memory=${1:-} mb host
+  local etc=${BOOTSTRAP_ETC:-/etc}
+  [ "$(id -u)" = 0 ] || die "the pool part must run as root: sudo ./bootstrap.sh pool $memory"
+  # shellcheck source=lib/config.sh
+  . "$root/lib/config.sh"
+  host=$(_tehas_host_mem_mb)
+  mb=$(_tehas_mem_mb "${memory:-$((host / 2))m}") || die "not an amount of memory: $memory (examples: 512m, 8g)"
+  # Docker refuses a container below 6m.
+  [ "$mb" -ge 6 ] || die "$memory is too little memory for a cycle"
+  [ "$mb" -le "$host" ] || die "this host has $host MiB of memory"
+  [ "$(docker info --format '{{.CgroupDriver}}' 2>/dev/null)" = systemd ] ||
+    die "Docker does not use the systemd cgroup driver here, so a slice would limit nothing; nothing was changed"
+  install -d -m 755 "$etc/systemd/system"
+  cat >"$etc/systemd/system/tehas-cycles.slice" <<UNIT
+# Written by bootstrap.sh pool. The containers of all tehas cycles together
+# may use this much memory.
+[Unit]
+Description=The containers of tehas cycles, together
+
+[Slice]
+MemoryMax=${mb}M
+UNIT
+  chmod 644 "$etc/systemd/system/tehas-cycles.slice"
+  systemctl daemon-reload
+  systemctl start tehas-cycles.slice
+  echo "bootstrap: pool part done. Cycles share ${mb}m of memory where TEHAS_WORK_MEMORY is ${mb}m."
 }
 
 # --- shared -------------------------------------------------------------------
@@ -308,9 +345,10 @@ case "${1:-}" in
   root) do_root "${2:-}" ;;
   user) do_user ;;
   dev) shift; do_dev "$@" ;;
+  pool) do_pool "${2:-}" ;;
   check) do_check ;;
   *)
-    sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
     exit 64
     ;;
 esac

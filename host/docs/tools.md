@@ -59,7 +59,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_WORK_REPO`               | `~/tehas/repos/<name>`                   | The product checkout cycles are cloned from. Must be a clone of `TEHAS_REPO`. A cycle works in `~/tehas/work/<name>-<issue>`, which is not a setting |
 | `TEHAS_BRANCH`                  | the checkout's `origin/HEAD`             | Branch cycles start from and pull requests target               |
 | `TEHAS_WORK_CPUS`               | the host's CPUs minus one, at least 1    | `docker --cpus` for all cycles together                         |
-| `TEHAS_WORK_MEMORY`             | half the host's memory                   | `docker --memory` for all cycles together                       |
+| `TEHAS_WORK_MEMORY`             | half the host's memory                   | Memory for all cycles together: divided, or shared after `bootstrap.sh pool` |
 | `TEHAS_CONCURRENCY`             | `4`                                      | Workstreams side by side inside one cycle                       |
 | `TEHAS_TICKET_CONCURRENCY`      | `1`                                      | Cycles side by side. Each cycle's container gets the two limits above divided by this; a share below one CPU is refused |
 | `TEHAS_MAX_AWAITING`            | `3`                                      | Open `tehas:awaiting-merge` issues, plus running cycles, allowed before holding |

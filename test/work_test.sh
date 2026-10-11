@@ -28,6 +28,8 @@ git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-
 git clone -q "$upstream" "$checkout"
 
 t_stub docker 'printf "%s\n" "$@" >"$T/calls/docker.args.$$"'
+# A host without one memory limit around all cycles, until a case sets one.
+t_stub systemctl 'echo infinity'
 printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitconfig"
 
 # The arguments of the docker call that starts the cycle.
@@ -319,6 +321,48 @@ t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=2 TEHAS_WORK_CPUS=2 TEHAS_
 t_run "$work 7"
 t_eq "$(after --cpus)" "1.00"
 t_eq "$(after --memory)" "256m"
+t_eq "$(after --cgroup-parent)" ""
+t_contains "$t_out" "no memory limit around all cycles on this host, this cycle gets 256m of its own"
+
+t_case "inside one memory limit around all cycles, a cycle may use the whole budget"
+rm -f "$T"/calls/*
+image="tehas/pi-rukas:uid$(id -u)"
+shared_docker='printf "%s\n" "$@" >"$T/calls/docker.args.$$"; [ "$1" != info ] || echo systemd'
+t_stub docker "$shared_docker"
+t_stub systemctl '[ "$*" = "show tehas-cycles.slice -p MemoryMax --value" ] && echo 536870912'
+t_run "$work 7"
+t_eq "$(after --cpus)" "1.00"
+t_eq "$(after --memory)" "512m"
+t_eq "$(after --cgroup-parent)" "tehas-cycles.slice"
+t_eq "$(cycle_args | unknown_options "$image" "--name --cpus --memory --cgroup-parent -w -v -e" "--rm -i")" ""
+t_lacks "$t_out" "of its own"
+t_eq "$(preflight_args | grep -c -x -e --cgroup-parent)" 0
+
+t_case "a limit around all cycles that is not the budget is not used"
+rm -f "$T"/calls/*
+t_stub systemctl 'echo 1073741824'
+t_run "$work 7"
+t_eq "$(after --memory)" "256m"
+t_eq "$(after --cgroup-parent)" ""
+t_contains "$t_out" "sudo ./bootstrap.sh pool 512m"
+
+t_case "a limit around all cycles is not used where Docker does not place containers by systemd"
+rm -f "$T"/calls/*
+t_stub systemctl 'echo 536870912'
+t_stub docker 'printf "%s\n" "$@" >"$T/calls/docker.args.$$"; [ "$1" != info ] || echo cgroupfs'
+t_run "$work 7"
+t_eq "$(after --memory)" "256m"
+t_eq "$(after --cgroup-parent)" ""
+
+t_case "a single cycle inside the limit around all cycles keeps the budget"
+rm -f "$T"/calls/*
+t_stub docker "$shared_docker"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_CPUS=1 TEHAS_WORK_MEMORY=512m
+t_run "$work 7"
+t_eq "$(after --memory)" "512m"
+t_eq "$(after --cgroup-parent)" "tehas-cycles.slice"
+t_stub docker 'printf "%s\n" "$@" >"$T/calls/docker.args.$$"'
+t_stub systemctl 'echo infinity'
 rm -f "$T/bin/nproc"
 t_instance "${T_MINIMAL[@]}" TEHAS_WORK_CPUS=1 TEHAS_WORK_MEMORY=512m PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 

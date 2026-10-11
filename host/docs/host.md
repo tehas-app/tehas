@@ -235,6 +235,19 @@ container gets the two limits above divided by it, whether or not the other
 slots are in use. A share below one CPU is rejected, so the setting cannot
 exceed the CPUs given.
 
+Memory does not have to be divided. `sudo ./bootstrap.sh pool 14g`, with the
+value of `TEHAS_WORK_MEMORY`, writes one limit around the containers of all
+cycles: the systemd slice `tehas-cycles.slice`. A cycle then starts in that
+slice and may use the whole budget, so it uses what the others leave, and all
+of them together stay inside it. When they pass it together, the kernel kills
+a process in one of them, most often the largest. Without a value the step
+takes half the host's memory, which is the default of the setting.
+
+`tehas work` uses the slice only while its limit is exactly
+`TEHAS_WORK_MEMORY` and Docker uses the systemd cgroup driver. Otherwise each
+cycle keeps its share, and the cycle's log says so. After the setting changes,
+run the step again with the new value. CPUs are divided either way.
+
 `TEHAS_CONCURRENCY` sets how many workstreams one cycle may run side by side,
 inside that one container. It defaults to 4.
 
