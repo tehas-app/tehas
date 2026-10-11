@@ -202,7 +202,12 @@ tehas_load() {
   # no loop: nothing is recorded of a cycle and tehasbot improve does nothing.
   export TEHAS_IMPROVE_REPO=${TEHAS_IMPROVE_REPO:-}
   export TEHAS_HOST_ADDR=${TEHAS_HOST_ADDR:-127.0.0.1}
-  export TEHAS_MAX_AWAITING=${TEHAS_MAX_AWAITING:-3}
+  # Room for every cycle and two pull requests that wait for a review. A fixed
+  # number would leave slots that can never be used. A concurrency that is not
+  # a number is refused below.
+  v=3
+  ! _tehas_is_count "$TEHAS_TICKET_CONCURRENCY" || v=$((TEHAS_TICKET_CONCURRENCY + 2))
+  export TEHAS_MAX_AWAITING=${TEHAS_MAX_AWAITING:-$v}
   export TEHAS_WORK_TIMEOUT=${TEHAS_WORK_TIMEOUT:-21600}
   # A planning session: how many turns it may take, and how long one turn may.
   export TEHAS_PLAN_MAX_TURNS=${TEHAS_PLAN_MAX_TURNS:-20}

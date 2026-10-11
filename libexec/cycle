@@ -20,8 +20,13 @@
 # the lock it writes state/cycles/<issue>.taken, which is what the dispatcher
 # waits for.
 #
-# A TERM or INT is passed on to tehas work, which stops the container. The
+# A TERM, INT or HUP is passed on to tehas work, which stops the container. The
 # cycle is then reported like any other that stopped without a pull request.
+#
+# Only a run that ended as handoff with an open pull request is reported as
+# waiting for a merge. The label change that ends a cycle is tried three
+# times, and so is the question about the pull request. If GitHub still refuses it, or the cycle is killed outright, the
+# issue stays marked tehas:running and the dispatcher's next poll finds it.
 #
 # A cycle that stopped without a pull request asks what to do next, in a
 # comment with boxes. The id of that comment goes on record in
@@ -32,7 +37,8 @@
 # the cycle's record for it at the end, in tmp/improve/window (lib/improve.sh).
 #
 # Instance settings (lib/config.sh): TEHAS_REPO, TEHAS_IMPROVE_REPO.
-# From the environment, for tests: TEHAS_WORK_CMD, TEHAS_STATUS_CMD.
+# From the environment, for tests: TEHAS_WORK_CMD, TEHAS_STATUS_CMD and
+# TEHAS_CYCLE_RETRY_WAIT (seconds between two tries of a label change [5]).
 set -uo pipefail
 
 issue=${1:-}
@@ -70,7 +76,16 @@ flock -w 5 9 || { log "a cycle for #$issue is already running"; exit 3; }
 : >"$cycles/$issue.taken"
 
 comment() { gh issue comment "$issue" --repo "$repo" --body "$1" >/dev/null 2>&1 || log "WARN: comment on #$issue failed"; }
-relabel() { gh issue edit "$issue" --repo "$repo" "$@" >/dev/null 2>&1 || log "WARN: label change on #$issue failed: $*"; }
+retry_wait=${TEHAS_CYCLE_RETRY_WAIT:-5}
+relabel() {
+  local try
+  for try in 1 2 3; do
+    gh issue edit "$issue" --repo "$repo" "$@" >/dev/null 2>&1 && return 0
+    [ "$try" = 3 ] || sleep "$retry_wait"
+  done
+  log "WARN: label change on #$issue failed: $*"
+  return 1
+}
 # post_question <result.json>: post the park question. Its id is left in
 # $posted. Returns 1 when it could not be posted.
 posted=""
@@ -101,7 +116,7 @@ restart=""
 # The trap is set before the runner starts, so no signal falls between.
 wpid=""
 stopped=0
-trap 'stopped=1; [ -z "$wpid" ] || kill -TERM "$wpid" 2>/dev/null' TERM INT
+trap 'stopped=1; [ -z "$wpid" ] || kill -TERM "$wpid" 2>/dev/null' TERM INT HUP
 "$work" "$issue" ${restart:+"$restart"} >>"$TEHAS_HOME/logs/dispatch-work-$issue.log" 2>&1 &
 wpid=$!
 [ "$stopped" = 0 ] || kill -TERM "$wpid" 2>/dev/null
@@ -118,7 +133,7 @@ while [ "$stopped" = 1 ]; do
 done
 # The report is made even if a stop arrives now: leaving tehas:running on the
 # issue would park it for good.
-trap '' TERM INT
+trap '' TERM INT HUP
 mins=$((($(date +%s) - started) / 60))
 
 # The one thing read back from the tree the container wrote, and only as data.
@@ -146,24 +161,37 @@ pr=""
 if [ -n "$branch" ]; then
   # The branch name comes from a file the cycle wrote. Only a pull request the
   # bot itself opened counts, so it cannot point at somebody else's.
-  pr=$(gh pr list --repo "$repo" --head "$branch" --author "@me" --state open --json url --jq '.[0].url // ""' 2>/dev/null || echo "")
+  # Without an answer a handoff would be taken for a cycle that left nothing.
+  for try in 1 2 3; do
+    if pr=$(gh pr list --repo "$repo" --head "$branch" --author "@me" --state open --json url --jq '.[0].url // ""' 2>/dev/null); then
+      break
+    fi
+    pr=""
+    if [ "$try" = 3 ]; then
+      log "WARN: the pull requests of $(tr -cd 'A-Za-z0-9_./-' <<<"$branch") could not be read"
+    else
+      sleep "$retry_wait"
+    fi
+  done
 fi
+# Said in the comment when the label stayed: the issue then reads as running.
+stuck=" The label of this issue could not be changed. The next poll of the dispatcher hands it to a human."
 
 summary="status \`$status\`, last step \`$step\`, $mins min"
 if [ "$rc" = 0 ] && [ "$status" = merged ]; then
-  relabel --remove-label tehas:running
-  comment "Tehas cycle finished: $summary. The change was merged."
+  relabel --remove-label tehas:running && stuck=""
+  comment "Tehas cycle finished: $summary. The change was merged.$stuck"
   tidy
-elif [ "$rc" = 0 ] && [ -n "$pr" ]; then
-  relabel --remove-label tehas:running --add-label tehas:awaiting-merge
-  comment "Tehas cycle finished: $summary. Pull request waiting for a human: $pr"
+elif [ "$rc" = 0 ] && [ "$status" = handoff ] && [ -n "$pr" ]; then
+  relabel --remove-label tehas:running --add-label tehas:awaiting-merge && stuck=""
+  comment "Tehas cycle finished: $summary. Pull request waiting for a human: $pr$stuck"
   gh pr comment "$pr" --body "Tehas cycle for #$issue: $summary.
 
 ${usage:-No token usage was recorded for this cycle.}" >/dev/null 2>&1 || log "WARN: comment on $pr failed"
   tidy
 else
-  relabel --remove-label tehas:running --add-label needs-human-attention
-  parked="Tehas cycle stopped without a pull request: $summary (runner exit $rc). Read the handoff comment if there is one; the run log is \`~/tehas/logs/dispatch-work-$issue.log\` on \`$(hostname)\`."
+  relabel --remove-label tehas:running --add-label needs-human-attention && stuck=""
+  parked="Tehas cycle stopped without a pull request: $summary (runner exit $rc). Read the handoff comment if there is one; the run log is \`~/tehas/logs/dispatch-work-$issue.log\` on \`$(hostname)\`.${pr:+ Its branch has an open pull request: $pr}$stuck"
   jq -n --arg text "$parked
 
 ${usage}" '{text: $text, question: null}' >"$TEHAS_HOME/state/park-$issue.json"
@@ -175,14 +203,13 @@ ${usage}" '{text: $text, question: null}' >"$TEHAS_HOME/state/park-$issue.json"
     # A separate call: a repository without this label must still get the
     # parking label above. The poll only reads questions on issues that
     # carry this label, so without it the boxes do nothing: say so.
-    if ! gh issue edit "$issue" --repo "$repo" --add-label tehas:question >/dev/null 2>&1; then
-      log "WARN: label change on #$issue failed: --add-label tehas:question"
+    if ! relabel --add-label tehas:question; then
       rm -f "$(park_id "$issue")"
-      comment "The boxes above cannot be used: the label \`tehas:question\` could not be added (run \`tehas labels\` on the host). To retry, remove \`needs-human-attention\` and apply \`tehas:ready\` again."
+      comment "The boxes above cannot be used: the label \`tehas:question\` could not be added (run \`tehas labels\` on the host). To retry, apply \`tehas:ready\`."
     fi
   else
     # Without the boxes there is nothing to tick: say the old way.
-    comment "$parked To retry, remove \`needs-human-attention\` and apply \`tehas:ready\` again.
+    comment "$parked To retry, apply \`tehas:ready\`.
 
 ${usage}"
   fi

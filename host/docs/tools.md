@@ -63,7 +63,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_WORK_MEMORY`             | half the host's memory                   | `docker --memory` for all cycles together                       |
 | `TEHAS_CONCURRENCY`             | `4`                                      | Workstreams side by side inside one cycle                       |
 | `TEHAS_TICKET_CONCURRENCY`      | `1`                                      | Cycles side by side. Each cycle's container gets the two limits above divided by this; a share below one CPU is refused |
-| `TEHAS_MAX_AWAITING`            | `3`                                      | Open `tehas:awaiting-merge` issues, plus running cycles, allowed before holding |
+| `TEHAS_MAX_AWAITING`            | `TEHAS_TICKET_CONCURRENCY` plus 2        | Open `tehas:awaiting-merge` issues, plus running cycles, allowed before holding |
 | `TEHAS_WORK_TIMEOUT`            | `21600`                                  | Seconds before a cycle is given up                              |
 | `TEHAS_PLAN_MAX_TURNS`          | `20`                                     | Turns a planning session may take before it is ended            |
 | `TEHAS_PLAN_TIMEOUT`            | `3600`                                   | Seconds before one planning turn is given up                    |
@@ -132,8 +132,21 @@ the bot's own login is in `TEHAS_ALLOWED_LABELERS`. It checks this when it
 reads a question, so the error shows once a question is open. A planning turn's
 runner output is in `~/tehas/logs/dispatch-plan-<issue>.log`.
 
+A poll also reads the open issues marked `tehas:running`. One whose cycle
+does not hold its lock on this host, `~/tehas/state/cycles/<issue>.lock`, gets
+`needs-human-attention` in place of `tehas:running` and a comment that says
+where the run log is. The log line is `park #N: it is marked tehas:running and
+no cycle holds its lock`. If the label change fails nothing is said on the
+issue and the next poll tries again. A closed issue in that state only loses
+`tehas:running`. A paused factory leaves such an issue as it is. Run the dispatcher only on the host that runs the cycles: on any other
+host no cycle holds a lock.
+
 An issue is taken only when an allowed account applied `tehas:ready` and
-nobody else has changed its title or body since. A cycle starts only once the
+nobody else has changed its title or body since. No other label holds it
+back: `needs-human-attention`, `tehas:awaiting-merge` and `tehas:question` are
+taken off as the cycle starts. While the issue's own cycle is alive the log
+says `wait #N: its cycle is still running`, and the issue is taken once that
+cycle has ended. Every list of issues is read up to 1000. A cycle starts only once the
 issue is marked `tehas:running`; if that label change fails, the poll stops.
 
 ## tehas work
@@ -257,6 +270,12 @@ to run `~/tehas/libexec/dev-login` as the tehas user, which is the one thing
 the group's `sudo` rule allows. `dev-login` takes the clone's name from the
 account `sudo` was asked by, loads the tehas user's environment and starts the
 session above. Any other command typed there is refused with exit 64.
+
+It is a copy of `host/login/tehas`, and only root installs it, so an update of
+the platform can leave those accounts typing an older command. No tehas command
+replaces it: `install.sh --check` reports the difference as `Login: NOT CURRENT`
+and a real install prints `later: sudo ./bootstrap.sh dev boss`. Run that command
+again after an update that changed `host/login/tehas`.
 
 | Exit | Meaning                                                                                   |
 | ---- | ----------------------------------------------------------------------------------------- |
@@ -436,8 +455,18 @@ then removes the workspace of a cycle that merged or left a pull request, and
 keeps the workspace of one that stopped. A retry moves a stopped workspace to
 `<name>-<issue>.before-retry`, which is removed and kept by the same rule. A
 stopped unit stops the container and is reported as a cycle that ended without
-a pull request. It checks no authorisation: the dispatcher did that before it
-started the unit.
+a pull request. A hangup is taken as a stop too. It checks no authorisation:
+the dispatcher did that before it started the unit.
+
+`tehas:awaiting-merge` is given only to a run that ended as `handoff` and has
+an open pull request of the bot. Any other end with a pull request open gets
+`needs-human-attention`, and the comment names the pull request. The label
+change that ends a cycle is tried three times, five seconds apart, and so is
+the search for the pull request. If GitHub still refuses the label change, the
+log says `WARN: label change on #N failed`, the cycle's comment says that the
+label could not be changed, and the issue
+stays `tehas:running` until the next poll of [tehas dispatch](#tehas-dispatch)
+finds it.
 
 | Exit | Meaning                                              |
 | ---- | ---------------------------------------------------- |
@@ -470,8 +499,10 @@ beside the factory shows up there. The file holds the hundred most used words
 with their counts, and no title or issue number. On a published dashboard
 those words are public too. If GitHub does not answer that call, the snapshot
 is written without them and the game counts the tickets on the line. A round
-shows at most twelve of the forty most used words, picked by chance, so the
-wall is another one every time.
+shows at most twelve of the forty most used words, picked by chance, and writes
+them on up to twenty-four tetrominoes: a wall no wider than sixteen cells and no
+taller than six, its cells solid from the top down with no holes in them, so it
+is another one every time.
 
 ## tehasbot health
 
@@ -972,10 +1003,15 @@ deleted; no file of the checkout or of the host changes. It runs `install.sh
 earlier run left undone, and the tests; it merges nothing, installs nothing,
 builds nothing and starts nothing, and exits 1 when there is something to update.
 
+What `install.sh` prints passes through as it printed it, apart from the `next:`
+lines this command runs itself. That includes a `Login: NOT CURRENT` report for
+`/usr/local/bin/tehas`, the command the other accounts type: root's to install,
+so it is named as a line rather than run as a step.
+
 | Exit | Meaning                                                                       |
 | ---- | ----------------------------------------------------------------------------- |
 | 0    | Updated, or already up to date                                                 |
-| 1    | The checkout has local changes, is not on a branch, cannot fast-forward, has no commit yet, a step failed or ran out of its limit, `install.sh` ran out of its limit or gave no answer, a follow-up install.sh asked for is one this command does not know, systemd did not reload the unit files, a container or unit gave no answer, the record of steps owed exists but cannot be read, a status of `install.sh` this command does not know (named in the message), or `--check` found something to update (a checkout behind, or steps left over from an earlier run) |
+| 1    | The checkout has local changes, is not on a branch, cannot fast-forward, has no commit yet, a step failed or ran out of its limit, `install.sh` ran out of its limit or gave no answer, a follow-up install.sh asked for is one this command does not know, systemd did not reload the unit files, a container or unit gave no answer, the record of steps owed exists but cannot be read, a status of `install.sh` this command does not know (named in the message), or `--check` found something to update (a checkout behind, steps left over from an earlier run, or a host's `/usr/local/bin/tehas` that is not the checkout's) |
 | 64   | More than one argument, or an argument this command does not know              |
 | 78   | The instance settings are missing or malformed, or there is no platform checkout |
 
@@ -986,7 +1022,7 @@ host points at. See [The host](/host).
 
 ```
 cd ~/tehas/platform
-./install.sh --check     # change nothing; Instance, Dependencies, Installed, Follow-ups, Tests
+./install.sh --check     # change nothing; Instance, Dependencies, Installed, Login, Follow-ups, Tests
 ./install.sh
 ```
 
@@ -1012,6 +1048,18 @@ fail the install.
 
 It also removes the commands of the earlier layout from `~/tehas/bin`, unless a
 cycle is running that still uses them. See [The host](/host).
+
+One file it reports and never touches: `/usr/local/bin/tehas`, the command an
+account that is not the tehas user types, which `sudo ./bootstrap.sh dev` puts
+there as root from `host/login/tehas`. Where that setup is in place, its marker
+`/etc/tehas/manager` names the tehas user, and a copy of the command that is not
+this checkout's makes `--check` add a `Login: NOT CURRENT` line naming the command
+that installs it (`sudo ~/tehas/platform/bootstrap.sh dev boss`) and exit 1. A
+real run prints the same finding on a `later:` line. It is never a `next:` step,
+because no tehas command runs as root, and nothing is recorded as owed. The name
+in that command is the marker's; a marker holding something other than an account
+name leaves `<tehas user>` for the person to fill in. A host where
+`bootstrap.sh dev` never ran reports nothing. See [The host](/host).
 
 ## bootstrap.sh
 

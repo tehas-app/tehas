@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Tests for install.sh: what it installs, that an invalid instance changes
-# nothing, and that drift is reported and repaired. Docker, systemctl and
-# cargo are stubs.
+# nothing, that drift is reported and repaired, and that a stale copy of the
+# command root installed for the other accounts is reported and left alone.
+# Docker, systemctl, sudo and cargo are stubs.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh"
@@ -13,7 +14,13 @@
 install="$T_ROOT/install.sh"
 home=$T/home
 th=$home/tehas
-T_ENV=(T_IN_TEST=1)
+# bootstrap.sh dev writes two files outside any home, and install.sh reads them to
+# know whether this host lets other accounts start a session. Pointed at scratch
+# in every run here, so no test reads or writes the real /etc or /usr/local/bin.
+dev_etc=$T/etc
+dev_bin=$T/usr-local-bin
+t_env() { T_ENV=(BOOTSTRAP_ETC="$dev_etc" BOOTSTRAP_BIN="$dev_bin" T_IN_TEST=1 "$@"); }
+t_env
 
 # The previews' network as install.sh wants to find it, and how it asks.
 net_good='case "$1 $2" in "version --format") echo 29.1.3 ;; "network inspect") echo "true bridge false isolated" ;; esac'
@@ -261,7 +268,7 @@ t_contains "$t_out" "differs: $th/libexec/console"
 t_eq "$(t_calls cargo)" ""
 
 t_case "a real run builds it again"
-T_ENV=(T_IN_TEST=1 CONSOLE_BUILD="new source")
+t_env CONSOLE_BUILD="new source"
 t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "installed: $th/libexec/console"
@@ -282,20 +289,20 @@ t_eq "$(cat "$th/libexec/console")" "a console built from new source"
 t_eq "$(cat "$th/libexec/console.prev")" "# another program"
 t_run "$install --check"
 t_contains "$t_out" "Installed:    OK"
-T_ENV=(T_IN_TEST=1)
+t_env
 
 t_case "the build is given no variable named like a secret"
 fresh
 instance
 t_stub cargo 'env >"$T/cargo.env"
 mkdir -p "$CARGO_TARGET_DIR/release" && echo built >"$CARGO_TARGET_DIR/release/console"'
-T_ENV=(T_IN_TEST=1 GH_TOKEN=hidden-token DEPLOY_SECRET=hidden-secret DB_PASSWORD=hidden-word SOME_API_KEY=hidden-key PLAIN=kept)
+t_env GH_TOKEN=hidden-token DEPLOY_SECRET=hidden-secret DB_PASSWORD=hidden-word SOME_API_KEY=hidden-key PLAIN=kept
 t_run "$install"
 t_eq "$t_rc" 0
 t_lacks "$(cat "$T/cargo.env")" "hidden-"
 t_contains "$(cat "$T/cargo.env")" "PLAIN=kept"
 t_stub_cargo
-T_ENV=(T_IN_TEST=1)
+t_env
 
 for failure in CARGO_RC=101 NO_CONSOLE=1; do
   t_case "a console that does not build installs nothing and exits 1 ($failure)"
@@ -304,24 +311,24 @@ for failure in CARGO_RC=101 NO_CONSOLE=1; do
   # What an earlier build left is not taken for this one's.
   mkdir -p "$T/target/release"
   echo "an earlier build" >"$T/target/release/console"
-  T_ENV=(T_IN_TEST=1 "$failure")
+  t_env "$failure"
   t_run "$install"
   t_eq "$t_rc" 1
   t_contains "$t_out" "the console did not build"
   t_eq "$(find "$home" -type f | wc -l)" 0
 done
-T_ENV=(T_IN_TEST=1)
+t_env
 
 t_case "a host without cargo is told so, and nothing is installed"
 fresh
 instance
-T_ENV=(T_IN_TEST=1 CARGO_RC=127)
+t_env CARGO_RC=127
 t_run "$install"
 t_eq "$t_rc" 1
 t_contains "$t_out" "cargo is not installed"
 t_lacks "$t_out" "the console did not build"
 t_eq "$(find "$home" -type f | wc -l)" 0
-T_ENV=(T_IN_TEST=1)
+t_env
 
 t_case "the footers are given the checkout's newest tag and its commit"
 fresh
@@ -597,20 +604,20 @@ t_eq "$(index_runs)" 0
 
 t_case "an install without the sandbox image names the indexing step"
 product
-T_ENV=(T_IN_TEST=1 IMAGE_RC=1)
+t_env IMAGE_RC=1
 t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "later: $th/bin/tehas index"
 t_eq "$(index_runs)" 0
 
 t_case "--check builds no index"
-T_ENV=(T_IN_TEST=1)
+t_env
 t_run "$install --check"
 t_eq "$(index_runs)" 0
 t_eq "$(find "$th/state/index.json" 2>/dev/null | wc -l)" 0
 
 t_case "a failed indexing is a warning, and the install still succeeds"
-T_ENV=(T_IN_TEST=1 RUN_RC=1)
+t_env RUN_RC=1
 t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "WARN: the code index was not built"
@@ -618,7 +625,7 @@ t_contains "$t_out" "later: $th/bin/tehas index"
 
 t_case "with the image and the checkout, the install builds the index"
 rm -f "$T"/calls/*
-T_ENV=(T_IN_TEST=1)
+t_env
 t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "tehas index: widget indexed"
@@ -734,5 +741,93 @@ t_contains "$t_out" "cannot read the follow-up record"
 # It stopped rather than replace what was owed with the steps it was copying.
 chmod 644 "$th/state/update-pending"
 t_eq "$(cat "$th/state/update-pending")" "sandbox"
+
+# --- the command root installed for the accounts that are not the tehas user ---
+# bootstrap.sh dev copies host/login/tehas to /usr/local/bin/tehas and leaves
+# /etc/tehas/manager naming the tehas user. install.sh cannot replace a root's
+# file: it reports the difference and names the command that does.
+login_dev() { # what bootstrap.sh dev left: the marker and the command
+  mkdir -p "$dev_etc/tehas" "$dev_bin"
+  echo boss >"$dev_etc/tehas/manager"
+  install -m 755 "$T_ROOT/host/login/tehas" "$dev_bin/tehas"
+}
+login_state() { cksum "$dev_bin/tehas"; }
+t_stub sudo
+
+t_case "a host that never ran bootstrap.sh dev reports nothing about it"
+fresh
+instance
+t_run "$install"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "Login:"
+t_lacks "$t_out" "bootstrap.sh dev"
+rm -f "$th/state/update-pending"
+t_run "$install --check"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "Login:"
+t_eq "$(t_calls sudo)" ""
+
+t_case "install.sh puts nothing there on its own"
+t_eq "$([ -e "$dev_bin" ] && echo there)" ""
+t_eq "$([ -e "$dev_etc/tehas/manager" ] && echo there)" ""
+
+t_case "a host where it matches this checkout reports nothing"
+fresh
+instance
+login_dev
+t_run "$install"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "Login:"
+t_lacks "$t_out" "bootstrap.sh dev"
+rm -f "$th/state/update-pending"
+t_run "$install --check"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "Login:"
+
+t_case "--check names a stale copy and the command that replaces it, and exits 1"
+echo "# the copy an earlier bootstrap.sh dev installed" >>"$dev_bin/tehas"
+before=$(login_state)
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "Login:        NOT CURRENT"
+t_contains "$t_out" "differs: $dev_bin/tehas"
+t_contains "$t_out" "sudo $T_ROOT/bootstrap.sh dev boss"
+# Not drift install.sh can repair, so it is not counted as drift.
+t_contains "$t_out" "Installed:    OK"
+t_eq "$(login_state)" "$before"
+t_eq "$(t_calls sudo)" ""
+
+t_case "a real install names the command, writes nothing there and records no step"
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "later: sudo $T_ROOT/bootstrap.sh dev boss"
+# Not a step of tehas update: nothing was recorded as owed.
+t_eq "$(cat "$th/state/update-pending" 2>/dev/null)" ""
+t_eq "$(login_state)" "$before"
+t_eq "$(t_calls sudo)" ""
+# The next --check still says it, because nothing here cleared it.
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "Login:        NOT CURRENT"
+
+t_case "the command names the tehas user the marker holds"
+echo someone >"$dev_etc/tehas/manager"
+t_run "$install --check"
+t_contains "$t_out" "sudo $T_ROOT/bootstrap.sh dev someone"
+echo boss >"$dev_etc/tehas/manager"
+
+t_case "a marker that does not hold a plain account name is not carried into the line"
+echo 'boss; rm -rf /' >"$dev_etc/tehas/manager"
+t_run "$install --check"
+t_contains "$t_out" "sudo $T_ROOT/bootstrap.sh dev <tehas user>"
+t_lacks "$t_out" "rm -rf"
+echo boss >"$dev_etc/tehas/manager"
+
+t_case "the marker there and the command gone is named as missing"
+rm -f "$dev_bin/tehas"
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "missing: $dev_bin/tehas"
+t_contains "$t_out" "sudo $T_ROOT/bootstrap.sh dev boss"
 
 t_done
