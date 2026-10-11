@@ -629,6 +629,7 @@ t_contains "$t_out" "tehas is up to date"
 t_eq "$(index_runs)" 1
 t_stub docker "$net_good"
 
+t_stub nproc 'echo 12'
 for name in example tehas-tehas; do
   t_case "the shipped instance '$name' is valid"
   fresh
@@ -637,6 +638,7 @@ for name in example tehas-tehas; do
   t_lacks "$t_out" "INVALID"
   t_contains "$t_out" "Instance:     $T_ROOT/instances/$name OK"
 done
+rm -f "$T/bin/nproc"
 
 t_case "a changed unit file asks for the units step, whatever systemd answers"
 fresh
