@@ -150,6 +150,8 @@ files=(
   "lib/edge.sh|$TEHAS_HOME/lib/edge.sh|644"
   "lib/sandbox.sh|$TEHAS_HOME/lib/sandbox.sh|644"
   "lib/questions.sh|$TEHAS_HOME/lib/questions.sh|644"
+  "lib/status.sh|$TEHAS_HOME/lib/status.sh|644"
+  "lib/top.sh|$TEHAS_HOME/lib/top.sh|644"
   "lib/planning.sh|$TEHAS_HOME/lib/planning.sh|644"
   "versions.env|$TEHAS_HOME/versions.env|644"
   "sandbox/Dockerfile|$TEHAS_HOME/sandbox/Dockerfile|644"
@@ -177,7 +179,7 @@ files=(
 for f in tehas tehasbot; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
-for f in cycle dev dev-login dispatch energy health improve index labels plan preview protolab status summary update work; do
+for f in cycle dev dev-login dispatch energy health improve index labels plan preview protolab status summary top update work; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
 # Pi's own settings: the instance may bring its own (default provider and

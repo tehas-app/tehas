@@ -68,6 +68,8 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/lib/planning.sh
 ./tehas/lib/questions.sh
 ./tehas/lib/sandbox.sh
+./tehas/lib/status.sh
+./tehas/lib/top.sh
 ./tehas/lib/update-steps.sh
 ./tehas/libexec/console
 ./tehas/libexec/console.stamp
@@ -85,6 +87,7 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/libexec/protolab
 ./tehas/libexec/status
 ./tehas/libexec/summary
+./tehas/libexec/top
 ./tehas/libexec/update
 ./tehas/libexec/work
 ./tehas/sandbox/Dockerfile

@@ -11,6 +11,9 @@
 # a file older than ten minutes is not believed, whatever it says: the first
 # line then reads "stale" and the exit status is 1.
 #
+# The lines themselves come from lib/status.sh, which `tehas top` uses for the
+# same two sections of its frame.
+#
 # Usage: tehas status
 #
 #   factory   pass: Idle, taking work. (40 s ago)
@@ -25,32 +28,27 @@ set -uo pipefail
 [ "$#" = 0 ] || { echo "usage: tehas status" >&2; exit 64; }
 
 : "${TEHAS_HOME:=$HOME/tehas}"
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/status.sh
+. "$here/../lib/status.sh"
 file=$TEHAS_HOME/live/health.json
 
-if ! jq -e '.status | type == "string"' "$file" >/dev/null 2>&1; then
+if ! tehas_health_readable "$file"; then
   echo "tehas status: no health file at $file yet: the dispatcher has not run" >&2
   exit 1
 fi
 
 now=$(date +%s)
-# Seconds since the file was written; a time that cannot be read counts as old.
-written=$(jq -r '.time | try fromdateiso8601 catch 0' "$file" 2>/dev/null) || written=0
 stale=false
-[ $((now - written)) -le 600 ] || stale=true
+tehas_health_stale "$file" "$now" || stale=true
 
-jq -r --argjson now "$now" --argjson stale "$stale" '
-  def ago: ($now - .) | if . < 0 then 0 else . end
-    | if . < 120 then "\(.) s ago" elif . < 7200 then "\(. / 60 | floor) min ago" else "\(. / 3600 | floor) h ago" end;
-  def age: (try (fromdateiso8601 | ago) catch "at an unknown time");
-  (if $stale then "factory   stale: the dispatcher last reported \(.time | age), is its timer running? It said \(.status): \(.output // "")"
-   else "factory   \(.status): \(.output // "") (\(.time | age))" end),
-  (.checks.queue // null | if . == null then "queue     no snapshot yet"
-   else "queue     \(.inLine) in line, \(.building) building, \(.review) in review, \(.stopped) stopped"
-        + (if .paused then ", paused" else "" end) end),
-  ((if ((.checks.cycles // []) | length) > 1 then .checks.cycles[] else (.checks.cycle // null) end)
-   | if . == null then "cycle     none yet"
-     elif .running then "cycle     #\(.issue) running, step \(.step // "-"), started \(.startedAt // "" | age)"
-     else "cycle     #\(.issue) \(.status // "unknown") at step \(.step // "-"), \(.time // "" | age)" end)
-' "$file" || exit 1
+health=$(jq -c . "$file" 2>/dev/null) || { echo "tehas status: $file is not JSON" >&2; exit 1; }
+tehas_state_lines "$health" "$now" "$stale" || exit 1
+
+# The current or last cycle. Two cycles at once are two lines, as the health
+# file lists them.
+while IFS= read -r cycle; do
+  tehas_cycle_line "$cycle" "$now" || exit 1
+done < <(jq -c 'if ((.checks.cycles // []) | length) > 1 then .checks.cycles[] else (.checks.cycle // null) end' "$file")
 
 [ "$stale" = false ] && [ "$(jq -r .status "$file")" != fail ]

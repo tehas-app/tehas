@@ -20,6 +20,7 @@ tehas index                      # build the code index the agents search
 tehas update [--check]           # bring this host up to date with the platform
 tehas labels                     # create the tehas labels in the repository
 tehas status                     # print the state of the factory
+tehas top [--once|--json]        # one screen of what the factory is doing
 tehas help [command]             # this list, or the text of one command
 ```
 
@@ -348,6 +349,50 @@ starts `factory   stale:` and asks whether the timer is running.
 
 Exit 0 on `pass` and `warn`. Exit 1 on `fail`, on a stale file, or when there
 is no health file yet. Exit 64 on any argument.
+
+## tehas top
+
+```
+tehas top                # one screen, redrawn every 2 seconds
+tehas top --once         # one frame as plain text
+tehas top --json         # the snapshot a frame is drawn from
+tehas top --every 10     # redraw every 10 seconds
+```
+
+One screen for a person, in the manner of `top`: is the factory taking work,
+what is in the queue and which issues are behind the counts, what the cycles are
+doing, which units run, what the model mesh draws, and the tail of a cycle's
+console. It draws again every 2 seconds unless `--every` says otherwise; `q` or
+Ctrl-C ends it and leaves the terminal as it was. Without a terminal on standard
+output, and with `--once`, it prints one frame as plain text: no escape codes.
+
+It reads what the factory already writes under `~/tehas/live/` - the [health
+file](#tehasbot-health), the queue snapshot, the cycles, the energy sample and
+the console of a cycle - and asks `systemctl --user` about its units. No GitHub
+call, no model call, no Docker call, no instance settings, and nothing is
+written. What it shows is as old as those files, and every section that has an
+age prints it. A file older than ten minutes is not believed, the same rule
+`tehas status` uses.
+
+The frame is drawn from one snapshot and from nothing else. `--json` prints that
+snapshot: `generatedAt` and one key per section (`factory`, `queue`, `cycle`,
+`units`, `energy`, `console`). A section whose source is missing, unreadable or
+too old to believe is `null`; the frame says so in one line and draws the rest.
+The factory line and the queue counts are the ones `tehas status` prints: both
+commands take them from `lib/status.sh`, so they cannot drift apart. A section
+added to the snapshot appears in `--json` without anything else changing.
+
+A frame follows the width and height of the terminal, also after a resize. Long
+lines are cut; nothing wraps and nothing scrolls. When the terminal is short,
+console lines are dropped first, then unit rows, then queue rows. Text that came
+out of a file has its control characters removed before it reaches the terminal.
+`COLUMNS` and `LINES` say what the size is when the terminal cannot be asked.
+
+Exit 0 when a frame was drawn or a snapshot printed, whatever the factory says:
+a `fail` or a stale health file is shown here, not returned - that is what
+`tehas status` is for. Exit 1 when there is no `~/tehas/live/` directory at all.
+Exit 64 on an unknown argument, or on a `--every` that is not a whole number
+from 1 to 64.
 
 ## tehasbot
 
