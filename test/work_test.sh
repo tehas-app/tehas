@@ -413,6 +413,17 @@ t_run "$work 7"
 t_eq "$t_rc" 1
 t_lacks "$t_out" "was killed"
 
+t_case "a state that says killed is the container's word, not a kill: exit 2 and no kill line"
+# The kill is what this command saw of the container, never what the state
+# file says: the agent in the container writes that file.
+fresh
+container "$hold; says killed; $gone"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "status=killed"
+t_lacks "$t_out" "was killed"
+t_contains "$(t_calls docker)" "stop -t 20 tehas-work-7"
+
 t_case "our own stop at the time limit is not reported as killed"
 fresh
 t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=1

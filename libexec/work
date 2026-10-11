@@ -215,8 +215,10 @@ oom_look() {
 
 status=running
 seen=0
-# Set when this command stops the container itself.
+# Set when this command stops the container itself, and when the container
+# was killed while the cycle was running.
 stopped=0
+killed=0
 while [ "$interrupted" = 0 ] && kill -0 "$pid" 2>/dev/null; do
   sleep 10
   [ "$interrupted" = 0 ] || break
@@ -257,6 +259,7 @@ if [ "$rc" = 137 ] && [ "$status" = running ] && [ "$interrupted" = 0 ] && [ "$s
   fi
   if [ "$status" = running ]; then
     status=killed
+    killed=1
     echo "tehas work: the container was killed (137) while the cycle was running: out of memory, or stopped from outside"
   fi
 fi
@@ -276,9 +279,11 @@ notices=$(jq -r 'select(.type=="extension_ui_request" and .method=="notify") | .
 echo "tehas work: issue=$issue status=$status step=$step state_written=$seen seconds=$(($(date +%s) - started))"
 [ -n "$notices" ] && printf '%s\n' "$notices" | sed 's/^/    /'
 
+# The kill is what this command saw of the container. The state file is the
+# agent's, so its words decide the other exits only.
+[ "$killed" = 0 ] || exit 137
 case "$status" in
   merged | handoff) exit 0 ;;
   aborted) exit 1 ;;
-  killed) exit 137 ;;
   *) exit 2 ;;
 esac
