@@ -4,7 +4,6 @@
 # libexec/improve and by the script that ends a cycle.
 #
 #   tehas_improve_on       is the loop switched on for this instance?
-#   tehas_improve_valid    return 78 unless TEHAS_IMPROVE_REPO is owner/name
 #   tehas_improve_dir      print where records wait
 #   tehas_improve_record <issue> <started> <rc> <status> <step> [<pr>]
 #                          write the record of a cycle that has ended
@@ -21,12 +20,6 @@
 # run never sees half of one and cycles that end together do not collide.
 
 tehas_improve_on() { [ -n "${TEHAS_IMPROVE_REPO:-}" ]; }
-
-tehas_improve_valid() {
-  [[ ${TEHAS_IMPROVE_REPO:-} =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] && return 0
-  tehas_err "TEHAS_IMPROVE_REPO is not valid: expected owner/name (see ${TEHAS_INSTANCE_DIR:-?}/instance.env)"
-  return 78
-}
 
 tehas_improve_dir() { printf '%s\n' "$TEHAS_HOME/tmp/improve"; }
 

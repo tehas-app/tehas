@@ -117,13 +117,22 @@ for bad in "TEHAS_WORK_MEMORY=lots" "TEHAS_WORK_CPUS=many" \
   "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=two" "TEHAS_MAX_AWAITING=-1" "TEHAS_WORK_TIMEOUT=soon" "TEHAS_HOST_ADDR=not an address" \
   "TEHAS_BRANCH=two words" "TEHAS_INDEXING=yes" "TEHAS_ANALYTICS_SRC=http://plain.example/ea.js" \
   "TEHAS_ANALYTICS_SRC=https://a.example/x.js\" onload=\"x" "TEHAS_ANALYTICS_SITE=two words" \
-  "TEHAS_ANALYTICS_COOKIE=yes" "TEHAS_PROTOLAB_URL=https://lab.example/" "TEHAS_PROTOLAB_URL=lab.example"; do
+  "TEHAS_ANALYTICS_COOKIE=yes" "TEHAS_PROTOLAB_URL=https://lab.example/" "TEHAS_PROTOLAB_URL=lab.example" \
+  "TEHAS_IMPROVE_REPO=not a repo" "TEHAS_IMPROVE_REPO=acme" "TEHAS_IMPROVE_REPO=acme/factory/more"; do
   t_case "loading rejects $bad"
   printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
   t_run "$load; echo rc=\$?"
   t_contains "$t_out" "rc=78"
   t_contains "$t_out" "tehas: ${bad%%=*} is not valid"
 done
+
+t_case "the improvement loop is off unless the instance names a repository"
+printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_IMPROVE_REPO]\""
+t_eq "$t_out" "[]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_IMPROVE_REPO]\""
+t_eq "$t_out" "[acme/factory]"
 
 t_case "analytics is off unless the instance names a script and a site"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"

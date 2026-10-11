@@ -47,7 +47,6 @@ if ! tehas_improve_on; then
   echo "tehas improve: TEHAS_IMPROVE_REPO is not set, the improvement loop is off"
   exit 0
 fi
-tehas_improve_valid || exit 78
 tehas_require PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
 
 repo=$TEHAS_IMPROVE_REPO

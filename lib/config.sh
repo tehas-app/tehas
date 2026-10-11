@@ -73,7 +73,7 @@ _tehas_is_count() { case "$1" in '' | *[!0-9]* | 0*) return 1 ;; esac; }
 _tehas_valid() {
   local name=$1 v=$2 mb
   case "$name" in
-    TEHAS_REPO)
+    TEHAS_REPO | TEHAS_IMPROVE_REPO)
       [[ $v =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "expected owner/name"; return 1; }
       ;;
     TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_WORK_TIMEOUT | TEHAS_CONCURRENCY | TEHAS_TICKET_CONCURRENCY)
@@ -180,6 +180,9 @@ tehas_load() {
   export TEHAS_ANALYTICS_SRC=${TEHAS_ANALYTICS_SRC:-}
   export TEHAS_ANALYTICS_SITE=${TEHAS_ANALYTICS_SITE:-}
   export TEHAS_ANALYTICS_COOKIE=${TEHAS_ANALYTICS_COOKIE:-0}
+  # The repository the improvement loop files its findings in. Unset, there is
+  # no loop: nothing is recorded of a cycle and tehasbot improve does nothing.
+  export TEHAS_IMPROVE_REPO=${TEHAS_IMPROVE_REPO:-}
   export TEHAS_HOST_ADDR=${TEHAS_HOST_ADDR:-127.0.0.1}
   export TEHAS_MAX_AWAITING=${TEHAS_MAX_AWAITING:-3}
   export TEHAS_WORK_TIMEOUT=${TEHAS_WORK_TIMEOUT:-21600}
@@ -217,7 +220,7 @@ tehas_load() {
     [ -n "${!v:-}" ] || continue
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
-  for v in TEHAS_ANALYTICS_SRC TEHAS_ANALYTICS_SITE; do
+  for v in TEHAS_ANALYTICS_SRC TEHAS_ANALYTICS_SITE TEHAS_IMPROVE_REPO; do
     [ -n "${!v}" ] || continue
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done

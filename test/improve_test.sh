@@ -90,13 +90,6 @@ lib "tehas_improve_record 7 $started 0 handoff review & tehas_improve_record 8 $
 t_eq "$(find "$base/window" -name cycle.json | wc -l)" 2
 t_eq "$(find "$base" -maxdepth 1 -name '.new.*' | wc -l)" 0
 
-t_case "a malformed repository name is refused"
-reset
-t_instance "${T_MINIMAL[@]}" "TEHAS_IMPROVE_REPO='not a repo'"
-lib "tehas_improve_valid"
-t_eq "$t_rc" 78
-t_contains "$t_out" "TEHAS_IMPROVE_REPO"
-
 # --- Packing a whole log -----------------------------------------------------
 # 300 lines that compress badly, so a small limit forces pieces.
 big_log() { for i in $(seq 1 300); do printf '%s\n' "$i" | sha256sum; done >"$1"; }
