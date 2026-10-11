@@ -97,8 +97,14 @@
     if (!p || !Array.isArray(p.previews)) { section.hidden = true; return; }
     section.hidden = false;
     $("n-previews").textContent = p.previews.length ? "(" + p.previews.length + ")" : "";
-    $("previews-note").textContent = p.disk && p.disk.low
-      ? "The host is low on disk: previews are not being built." : "";
+    // When the list was written: a run that cannot build still writes it,
+    // so an old time means the runs have stopped.
+    const note = [];
+    if (p.disk && p.disk.low) note.push("The host is low on disk: previews are not being built.");
+    if (typeof p.generatedAt === "string" && !Number.isNaN(Date.parse(p.generatedAt))) {
+      note.push("List written " + ago(p.generatedAt) + ".");
+    }
+    $("previews-note").textContent = note.join(" ");
     const ul = $("preview-list");
     ul.replaceChildren();
     if (!p.previews.length) { ul.append(el("li", "empty", "No pull request is open.")); return; }

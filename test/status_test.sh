@@ -229,6 +229,29 @@ t_eq "$(jq -c '.checks.disk | {freeBytes, minFreeBytes, low}' "$live/health.json
   '{"freeBytes":1073741824,"minFreeBytes":5368709120,"low":true}'
 t_eq "$(find "$live" -name health.down | wc -l)" 0
 
+t_case "health: free space that could not be read is a warning that says so"
+reset
+disk true
+jq '.disk.freeBytes = null' "$live/previews.json" >"$live/x" && mv "$live/x" "$live/previews.json"
+t_run "$status"
+t_eq "$(jq -r '.status' "$live/health.json")" "warn"
+t_eq "$(jq -r '.output' "$live/health.json")" "The host's free disk space could not be read: previews are not being built."
+t_eq "$(jq -c '.checks.disk | {freeBytes, minFreeBytes, low}' "$live/health.json")" \
+  '{"freeBytes":null,"minFreeBytes":5368709120,"low":true}'
+
+t_case "health: a figure with low disk keeps the sentence about low disk"
+reset
+disk true
+t_run "$status"
+t_eq "$(jq -r '.output' "$live/health.json")" "The host is low on disk: previews are not being built."
+
+t_case "health: no figure and not low is not a warning"
+reset
+disk false
+jq '.disk.freeBytes = null' "$live/previews.json" >"$live/x" && mv "$live/x" "$live/previews.json"
+t_run "$status"
+t_eq "$(jq -r '.status' "$live/health.json")" "pass"
+
 t_case "health: enough disk passes"
 reset
 disk false

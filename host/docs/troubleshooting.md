@@ -346,7 +346,8 @@ docker network create --internal --ipv6=false -o com.docker.network.bridge.gatew
 
 The next run builds the previews again.
 
-**The log says `Docker does not answer`.** Nothing was built or removed.
+**The log says `Docker does not answer`.** Nothing was built or removed. The
+list for the dashboard is still written, without a figure for the free space.
 Check `docker info` as the tehas user.
 
 **The state is `serving` and the name answers 404** with "No preview is
@@ -378,9 +379,17 @@ the proxy sends to. See "The edge router does not start" above.
 [Previews](/edge) says which.
 
 **No comment on the pull request.** The comment is written for `serving`,
-`build-failed` and `no-space` only, once for each commit and state. It needs
-the bot's token to answer `gh api user`. A call that failed is tried again at
-the next run.
+`build-failed` and `no-space` only, once for each commit and state. For
+`over-limit` and `no-recipe` a comment that is already there is edited to say
+there is no preview, and none is made. It needs the bot's token to answer
+`gh api user`: when it does not, the log says `#<pr>: no comment, the account
+of the token could not be read`. Check `gh auth status` as the tehas user. A
+call that failed is tried again at the next run.
+
+**The dashboard's "List written" time is old.** Every run writes the list,
+also one that builds nothing. An old time means no run came by:
+`systemctl --user list-timers tehas-preview.timer`, and
+`tail ~/tehas/logs/preview.log`.
 
 ## A preview is still there after its pull request closed
 

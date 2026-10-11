@@ -306,7 +306,7 @@ serves the file at `/health` and `/healthz` as `application/health+json`.
 | `status` | Meaning                                                                                  | HTTP |
 | -------- | ---------------------------------------------------------------------------------------- | ---- |
 | `pass`   | Taking work, idle or in a cycle                                                          | 200  |
-| `warn`   | Paused (`tehas:pause` on the control issue), or too low on disk to build previews        | 200  |
+| `warn`   | Paused (`tehas:pause` on the control issue), or too low on disk to build previews, or the free space could not be read | 200  |
 | `fail`   | The last cycle ended as anything but `merged` or `handoff`, or there is no queue snapshot | 503  |
 
 `output` says the same in a sentence. `checks.queue` has the snapshot time and
@@ -314,7 +314,10 @@ the counts in line, building, in review and stopped; `checks.cycle` has the
 issue, status, step and times of the current or last cycle. `checks.disk` has
 the free and the required bytes and `low`, as `tehasbot preview` last wrote
 them to `live/previews.json`. It is `null` on a host without previews, and when
-that figure is more than half an hour old.
+that figure is more than half an hour old. When `low` is true, `output` is
+"The host is low on disk: previews are not being built." with a figure, and
+"The host's free disk space could not be read: previews are not being built."
+when `freeBytes` is `null`.
 
 A stopped dispatcher cannot report itself: the file simply stops changing and
 the endpoint keeps answering with the last state. A monitor should also treat
@@ -431,9 +434,14 @@ are enabled. Both write to `~/tehas/logs/preview.log`.
    internal, a bridge, without IPv6 and made with the option that gives the
    host no address on it. If one is missing, the run stops here and the log
    says `the network tehas-previews does not keep the host out (<reason>);
-   nothing was built`. [Previews](/edge) lists the reasons.
+   nothing was built`. [Previews](/edge) lists the reasons. A run that stops
+   here still writes `~/tehas/live/previews.json`, with the free space. So
+   does one that stops because Docker does not answer, with no figure for the
+   free space. The time in that file is therefore the time of the last run,
+   whatever the run could do.
 2. It measures the free space: the smaller of the file system of `~/tehas`
-   and the one Docker keeps its images on.
+   and the one Docker keeps its images on. This is done once Docker has
+   answered, before the network is checked.
 3. It asks GitHub for the open pull requests, the newest 100. No answer, an
    answer with nothing in it, or one that is not a list ends the run: nothing
    is built and nothing is removed. A list with no pull request in it is an
@@ -498,7 +506,13 @@ with `docker rm -f -v`, which takes a volume Docker made for it along.
 edited in place: the address when the preview serves, or "Unable to create a
 preview" with the reason for `build-failed` and `no-space`. It is said once
 for each commit and state, so a full disk is not a comment every five
-minutes. The other states are on the dashboard only. To find its comment the
+minutes. For `over-limit` and `no-recipe` a pull request gets no comment.
+One that has a comment from an earlier state has it edited to "There is no
+preview" with the reason, so that it does not go on giving an address that
+answers 404. `building` is on the dashboard only. When the account of the
+token cannot be read (`gh api user`), nothing is written and the log says
+`#<pr>: no comment, the account of the token could not be read`, at each run
+until it can. To find its comment the
 command reads every comment of the pull request and takes the one its own
 account wrote. A call that fails, or an answer that is not a list of
 comments, writes nothing and is tried again at the next run.
@@ -547,8 +561,10 @@ time of the last sweep and how many things it removed are `lastSweep` in
 | 78   | The instance settings are invalid, or `TEHAS_PREVIEWS` is not `1` |
 
 The [plain dashboard](/dashboard) lists the previews under "Previews", each
-with its address or the reason there is none. A host without previews has no
-`previews.json` and no such section.
+with its address or the reason there is none, and says when the list was
+written. A time that is more than a few minutes old means the runs have
+stopped: see the timer. A host without previews has no `previews.json` and no
+such section.
 
 ## The gates (run by the cycle, usable by hand)
 

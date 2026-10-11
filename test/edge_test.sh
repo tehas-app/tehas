@@ -126,4 +126,7 @@ t_eq "$(grep -c -F '.page .cols h2, .page #previews h2 {' "$css")" 1
 t_eq "$(grep -c -F '#previews h2' "$css")" 1
 t_eq "$(grep -c -F '<section id="previews" hidden>' "$T_ROOT/host/docs/dashboard.frag")" 1
 
+t_case "the dashboard says when the list of previews was written"
+t_eq "$(grep -c -F 'note.push("List written " + ago(p.generatedAt) + ".");' "$T_ROOT/host/docs/dashboard.frag")" 1
+
 t_done

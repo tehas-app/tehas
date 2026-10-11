@@ -249,7 +249,9 @@ Merge or close it, and at the next run the log has
 `#<pr>: pull request no longer open, removed`, and the name answers 404.
 
 When a preview is not there, the dashboard says why. The pull request's
-comment says so for a failed build and for a full disk. See
+comment says so for a failed build and for a full disk. A pull request that
+had a preview and falls over the limit, or whose new commit has no recipe,
+has its comment changed to say there is none. See
 [Troubleshooting](/troubleshooting).
 
 ## What a preview is given, and what it is not

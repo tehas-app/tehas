@@ -23,7 +23,11 @@ if [ "$1 $2" = "api repos/acme/widget" ]; then
 fi
 [ ! -e "$T/fx/gh-down" ] || { echo "gh: connection refused" >&2; exit 1; }
 case "$1 $2" in
-  "api user") echo "{\"login\":\"factory-bot\"}" ;;
+  # The account of the token: fx/user-fails is a call that fails, and
+  # fx/user-body an answer of exit 0 that says something else.
+  "api user")
+    [ ! -e "$T/fx/user-fails" ] || { echo "gh: Bad credentials (HTTP 401)" >&2; exit 1; }
+    cat "$T/fx/user-body" 2>/dev/null || echo "{\"login\":\"factory-bot\"}" ;;
   "api repos/acme/widget/pulls?"*) cat "$T/fx/pulls.json" 2>/dev/null || exit 1 ;;
   "api repos/acme/widget/pulls/"*)
     n=${2#repos/acme/widget/pulls/}
@@ -1047,12 +1051,138 @@ t_run "$preview"
 t_contains "$(writes)" "Unable to create a preview"
 t_contains "$(writes)" "The build failed"
 
-t_case "no recipe and over the limit are not commented"
+t_case "no recipe and over the limit are not commented on a pull request that has no comment"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_PREVIEWS=1 TEHAS_DOMAIN=example.org TEHAS_PREVIEW_MAX=1
+a=$(commit feature none)
+b=$(commit other)
+pulls "$(pull 13 "$b")" "$(pull 12 "$a")"
+t_run "$preview"
+t_eq "$(state_of 13) $(state_of 12)" "serving over-limit"
+t_eq "$(writes | grep -c 'issues/12/')" 0
+pulls "$(pull 12 "$a")"
+t_run "$preview"
+t_eq "$(state_of 12)" "no-recipe"
+t_eq "$(writes | grep -c -e 'issues/12/' -e PATCH)" 0
+# Asked once for the commit and state, not at every run.
+rm -f "$T"/calls/gh
+t_run "$preview"
+t_eq "$(t_calls gh | grep -c 'issues/12/comments')" 0
+
+t_case "a serving preview that goes over the limit has its comment say there is none"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_PREVIEWS=1 TEHAS_DOMAIN=example.org TEHAS_PREVIEW_MAX=1
+a=$(commit one)
+b=$(commit two)
+pulls "$(pull 12 "$a")"
+t_run "$preview"
+t_contains "$(writes)" "api -X POST repos/acme/widget/issues/12/comments"
+t_contains "$(writes)" "https://uat-12.example.org/"
+jq -n '[{id: 501, user: {login: "factory-bot"}, body: "<!-- tehas-preview -->\nPreview"}]' >"$fx/comments.json"
+rm -f "$T/calls/gh-writes"
+pulls "$(pull 13 "$b")" "$(pull 12 "$a")"
+t_run "$preview"
+t_eq "$(state_of 12)" "over-limit"
+# The stub has one list of comments for every pull request, so the comment of
+# #13, which now serves, is an edit of the same one. The line about #12 is told
+# by its commit.
+t_eq "$(writes | grep -c "${a:0:7}")" 1
+said=$(writes | grep "${a:0:7}")
+t_contains "$said" "api -X PATCH repos/acme/widget/issues/comments/501"
+t_contains "$said" "<!-- tehas-preview -->"
+t_contains "$said" "There is no preview of \`${a:0:7}\`. More than 1 pull requests are open."
+t_lacks "$said" "https://uat-12.example.org/"
+t_lacks "$said" "Unable to create"
+t_eq "$(writes | grep -c 'POST repos/acme/widget/issues/12/')" 0
+# Once, not at every run.
+rm -f "$T/calls/gh-writes"
+t_run "$preview"
+t_eq "$(writes)" ""
+
+t_case "a serving preview whose new commit has no recipe has its comment say there is none"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+t_run "$preview"
+jq -n '[{id: 501, user: {login: "factory-bot"}, body: "<!-- tehas-preview -->\nPreview"}]' >"$fx/comments.json"
+rm -f "$T/calls/gh-writes"
+a2=$(commit feature none)
+pulls "$(pull 12 "$a2")"
+t_run "$preview"
+t_eq "$(state_of 12)" "no-recipe"
+t_eq "$(writes | wc -l)" 1
+t_contains "$(writes)" "api -X PATCH repos/acme/widget/issues/comments/501"
+t_contains "$(writes)" "There is no preview of \`${a2:0:7}\`. The commit has no preview/Dockerfile."
+t_lacks "$(writes)" "https://uat-12.example.org/"
+
+t_case "a stranger's comment with the marker is not edited when a preview goes"
 reset
 a=$(commit feature none)
 pulls "$(pull 12 "$a")"
+jq -n '[{id: 900, user: {login: "stranger"}, body: "<!-- tehas-preview -->\nmine"}]' >"$fx/comments.json"
 t_run "$preview"
 t_eq "$(writes)" ""
+
+t_case "an edit that GitHub did not answer about is tried again, for a preview that is gone"
+reset
+a=$(commit feature none)
+pulls "$(pull 12 "$a")"
+: >"$fx/comments-fail"
+t_run "$preview"
+t_eq "$(count "$root/12" .commented)" 0
+rm -f "$fx/comments-fail"
+jq -n '[{id: 501, user: {login: "factory-bot"}, body: "<!-- tehas-preview -->\nPreview"}]' >"$fx/comments.json"
+t_run "$preview"
+t_contains "$(writes)" "api -X PATCH repos/acme/widget/issues/comments/501"
+
+for how in user-fails 'user-body {}' 'user-body {"login":null}' 'user-body ' 'user-body not json'; do
+  t_case "an account that cannot be read ($how) is said, and no comment is written"
+  reset
+  a=$(commit feature)
+  pulls "$(pull 12 "$a")"
+  printf '%s\n' "${how#* }" >"$fx/${how%% *}"
+  t_run "$preview"
+  t_eq "$t_rc" 0
+  t_eq "$(state_of 12)" "serving"
+  t_eq "$(printf '%s\n' "$t_out" | grep -c -x '#12: no comment, the account of the token could not be read')" 1
+  t_eq "$(writes)" ""
+  t_eq "$(count "$root/12" .commented)" 0
+done
+rm -f "$fx/user-body"
+t_run "$preview"
+t_lacks "$t_out" "no comment"
+t_eq "$(writes | wc -l)" 1
+
+# stopped <fixture>: a serving preview, a list written long ago, and a run that
+# stops at that fixture.
+stopped() {
+  reset
+  a=$(commit feature)
+  pulls "$(pull 12 "$a")"
+  t_run "$preview"
+  jq '.generatedAt = "2026-01-01T00:00:00Z" | .disk.freeBytes = 1' "$live/previews.json" >"$fx/x" && mv "$fx/x" "$live/previews.json"
+  : >"$fx/$1"
+  echo 2097152 >"$fx/free" # 2 GB
+  t_run "$preview"
+  t_eq "$t_rc" 0
+  t_eq "$(jq -r '.generatedAt | test("^2026-01-01") | not' "$live/previews.json")" "true"
+  t_eq "$(jq -r '(now - (.generatedAt | fromdateiso8601)) < 120' "$live/previews.json")" "true"
+  t_eq "$(jq -r '.previews[0] | "\(.number) \(.state) \(.address)"' "$live/previews.json")" "12 serving https://uat-12.example.org/"
+  t_eq "$(cat "$fx/docker/container-12")" "$a"
+}
+
+t_case "a run that stops at a network that is not safe still writes the list, with the free space"
+stopped net-internal
+echo false >"$fx/net-internal"
+t_run "$preview"
+t_contains "$t_out" "(it is not internal); nothing was built"
+t_eq "$(jq -c '.disk' "$live/previews.json")" '{"freeBytes":2147483648,"minFreeBytes":5368709120,"low":true}'
+t_eq "$(t_calls gh | grep -c 'pulls')" 1
+
+t_case "a run that stops because Docker does not answer still writes the list, with no figure"
+stopped docker-down
+t_contains "$t_out" "Docker does not answer; nothing was built or removed"
+t_eq "$(jq -c '.disk' "$live/previews.json")" '{"freeBytes":null,"minFreeBytes":5368709120,"low":false}'
 
 t_case "a container that never starts is said once, not at every retry"
 reset

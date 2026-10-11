@@ -27,7 +27,10 @@
 #                   the state.
 #   what it says    One comment on the pull request, by the bot, edited in
 #                   place: the address, or "Unable to create a preview" with
-#                   the reason, for a failed build and for a full disk.
+#                   the reason, for a failed build and for a full disk. A
+#                   pull request that falls over the limit or loses its
+#                   recipe has that comment say there is no preview. It gets
+#                   no comment if it had none.
 #   a full disk     Under TEHAS_PREVIEW_MIN_FREE of free space nothing is
 #                   built. What serves stays, and removal still runs. The
 #                   figures are in previews.json at every run, and tehasbot
@@ -191,8 +194,11 @@ gb() { awk -v kb="$1" 'BEGIN { printf "%.1f GB", kb / 1048576 }'; }
 # and why. One comment per pull request, the bot's own, found by its first
 # line and edited in place. Said once per commit and state, so a full disk is
 # not a comment every five minutes. A call that fails is tried at the next run.
+# Over the limit and without a recipe there is nothing to do about here, so a
+# pull request gets no comment for those. One that has a comment has it
+# edited: it would otherwise go on giving an address that answers 404.
 comment() {
-  local n=$1 sha state reason key text body id pages
+  local n=$1 sha state reason key text body id pages create=true
   sha=$(field "$n" sha)
   state=$(field "$n" state)
   reason=$(field "$n" reason)
@@ -201,15 +207,25 @@ comment() {
   case "$state" in
     serving) text="Preview of \`${sha:0:7}\`: https://$(tehas_edge_name uat "$n")/" ;;
     build-failed | no-space) text="Unable to create a preview of \`${sha:0:7}\`. $reason" ;;
+    over-limit | no-recipe)
+      text="There is no preview of \`${sha:0:7}\`. $reason"
+      create=false
+      ;;
     *) return 0 ;;
   esac
   body="$marker
-$text
+$text"
+  [ "$create" = false ] || body="$body
 
 It is rebuilt when the branch changes and removed when this pull request is closed."
-  # Only a comment of this account: anyone can write the marker.
+  # Only a comment of this account: anyone can write the marker. Without the
+  # account's name no comment can be told from a stranger's, and the run says
+  # so: a token that cannot answer would otherwise be a silence.
   [ -n "$me" ] || me=$(gh api user 2>/dev/null | jq -r '.login // empty' 2>/dev/null) || me=""
-  [ -n "$me" ] || return 0
+  if [ -z "$me" ]; then
+    echo "#$n: no comment, the account of the token could not be read"
+    return 0
+  fi
   # Every page: on a pull request with more than a hundred comments the bot's
   # own may be on a later one. --slurp gives the pages as one array of arrays.
   # Anything else, no answer at all included, is not a list to trust: then
@@ -224,7 +240,7 @@ It is rebuilt when the branch changes and removed when this pull request is clos
   [ -n "$id" ] || return 0
   if [ "$id" != none ]; then
     gh api -X PATCH "repos/$repo/issues/comments/$id" -f body="$body" >/dev/null 2>&1 || return 0
-  else
+  elif [ "$create" = true ]; then
     gh api -X POST "repos/$repo/issues/$n/comments" -f body="$body" >/dev/null 2>&1 || return 0
   fi
   printf '%s\n' "$key" >"$root/$n/.commented"
@@ -372,10 +388,16 @@ write_list() {
 # --- The five minute run -----------------------------------------------------
 run() {
   local pulls ours pr n sha i=0 open=" " wanted=() elsewhere outside have item fault
+  # A run that stops here or at the network still writes the list. Its time
+  # is what the dashboard shows and what tehasbot health goes by, and a list
+  # that stopped changing would look like a timer that stopped. Without
+  # Docker the free space is not measured, and the list has no figure.
   if ! docker info --format '{{.DockerRootDir}}' >/dev/null 2>&1; then
     echo "Docker does not answer; nothing was built or removed"
+    write_list
     return 0
   fi
+  measure
   # A preview runs the pull request's own code. Nothing is built unless the
   # network keeps it from the host: see edge_net_fault for what that takes. An
   # old Docker is not asked to make the network, because it would make one
@@ -386,10 +408,9 @@ run() {
   fi
   if [ -n "$fault" ]; then
     echo "the network $net does not keep the host out ($fault); nothing was built"
+    write_list
     return 0
   fi
-
-  measure
 
   pulls=$(gh api "repos/$repo/pulls?state=open&sort=created&direction=desc&per_page=100" 2>/dev/null) ||
     { write_list; return 0; }
@@ -448,6 +469,7 @@ run() {
         stop "$n"
       fi
       mark "$n" "$sha" over-limit "More than $TEHAS_PREVIEW_MAX pull requests are open."
+      comment "$n"
       continue
     fi
     wanted+=("$n $sha")
