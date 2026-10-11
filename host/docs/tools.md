@@ -14,6 +14,7 @@ There are two commands on `PATH`, both in `~/tehas/bin`:
 ```
 tehas dispatch [--dry-run]       # one poll of the issue queue, by hand
 tehas work <issue> [--restart]   # one cycle for an issue, by hand
+tehas plan <issue> ...           # one turn of a planning session, by hand
 tehas dev [<name>]               # an interactive session on the host, by hand
 tehas index                      # build the code index the agents search
 tehas update [--check]           # bring this host up to date with the platform
@@ -63,6 +64,8 @@ in the platform repository has every one with a comment.
 | `TEHAS_TICKET_CONCURRENCY`      | `1`                                      | Cycles side by side. Each cycle's container gets the two limits above divided by this; a share below one CPU is refused |
 | `TEHAS_MAX_AWAITING`            | `3`                                      | Open `tehas:awaiting-merge` issues, plus running cycles, allowed before holding |
 | `TEHAS_WORK_TIMEOUT`            | `21600`                                  | Seconds before a cycle is given up                              |
+| `TEHAS_PLAN_MAX_TURNS`          | `20`                                     | Turns a planning session may take before it is ended            |
+| `TEHAS_PLAN_TIMEOUT`            | `3600`                                   | Seconds before one planning turn is given up                    |
 | `PI_ENSEMBLE_HOST_ALIASES`      | empty                                    | `name:address` pairs the sandbox must resolve, comma separated  |
 | `PI_ENSEMBLE_IMAGE`             | `tehas/pi-rukas:uid<uid>`                | The sandbox image                                               |
 
@@ -103,8 +106,30 @@ runs. It then marks each issue `tehas:running` and starts
 It does not wait for the cycle. If the unit does not come up within 30
 seconds, the issue gets `needs-human-attention`, the poll goes on to the
 remaining issues, and it ends with exit 1.
-The dispatcher runs the index and status scripts from its own directory,
+The dispatcher runs the index, plan and status scripts from its own directory,
 `~/tehas/libexec`, not by a name on `PATH`.
+
+The labels `tehas:plan`, `tehas:planning` and `tehas:question` exist in a
+repository only after [tehas labels](#tehas-labels) has been run for the
+version that uses them. After pulling a version that adds a label, run it
+again on the host. It only creates or updates labels, so running it twice is
+safe. Without it the labels are not there to apply, and a stopped cycle cannot get
+its question label. The bot then says in a second comment that the boxes
+cannot be used.
+
+Beside the queue, a poll also reads two kinds of answer. A box ticked by an
+allowed account in the bot's comment on a stopped cycle can start a fresh
+cycle, and a reply or a ticked box on a planning question runs the next turn of
+that session. A retry waits for a free slot and for the cap, as any cycle does.
+A planning turn waits for neither. The poll waits for a planning turn to end,
+so no cycle starts while one runs; cycles that are already running go on. A comment is a question only if the host has its id on record:
+in `~/tehas/state/plan-<issue>.json` for a planning session, in
+`~/tehas/state/park-<issue>.id` for a stopped cycle. Only the last 100
+comments of an issue are read; a question further back than that is skipped
+with a line in the log. See [Operating](/operating). The dispatcher stops with exit 78 if
+the bot's own login is in `TEHAS_ALLOWED_LABELERS`. It checks this when it
+reads a question, so the error shows once a question is open. A planning turn's
+runner output is in `~/tehas/logs/dispatch-plan-<issue>.log`.
 
 An issue is taken only when an allowed account applied `tehas:ready` and
 nobody else has changed its title or body since. A cycle starts only once the
@@ -139,6 +164,46 @@ stream is kept in `~/tehas/logs/work-<issue>-<time>.jsonl`. The limits are
 
 The bot's git identity is the tehas user's global `user.name` and `user.email`
 on the host.
+
+## tehas plan
+
+Runs one turn of a planning session, headless, in the sandbox image. The
+dispatcher calls it. By hand it is useful to see what a turn does.
+
+Run by hand it removes and remakes the workspace that a planning turn of the
+same issue uses, and it does not take the dispatcher's lock, so do not run it
+for an issue whose session the factory is working on.
+
+```
+tehas plan 12 --out /tmp/turn.json --brief brief.md
+tehas plan 12 --out /tmp/turn.json --session <id> --answer answer.md
+```
+
+The first form starts a session from a file with the issue's title and body.
+The second reopens the session and sends the file's content as the operator's
+answer. A turn ends when the agent has settled, so it ends when the agent has
+asked. On exit 0 the `--out` file holds the session id, the agent's last
+message and the question it asked, if any. On exit 2 it holds the session id
+alone when that is known, so the dispatcher can run the turn again in the
+same session, and it is not written when no session is known.
+
+| Exit | Meaning                                                              |
+| ---- | -------------------------------------------------------------------- |
+| 0    | The turn settled and said or asked something                         |
+| 2    | The turn did not settle, timed out, said and asked nothing, or its session or outcome could not be written down |
+| 64   | A usage error, no bot token or no git identity; nothing ran          |
+| 78   | The instance settings are invalid; nothing ran                       |
+
+The container is the one `tehas work` starts, under the name
+`tehas-plan-<issue>`: the same image, one cycle's share of the limits, the
+same mounts, token and settings, from `lib/sandbox.sh`, and no Docker socket,
+SSH keys or `~/.config/tehas`. It works in a workspace of its own,
+`~/tehas/work/<name>-plan-<issue>`, made fresh for the turn and removed after
+it, and its transcripts go to `~/.pi/agent/ensemble-runs/plan-<issue>`. There is no dry-run push
+before a turn. The agent files issues with the token. The RPC stream is
+kept in `~/tehas/logs/plan-<issue>-<time>.jsonl`. The limit is
+`TEHAS_PLAN_TIMEOUT`, and the session record is
+`~/tehas/state/plan-<issue>.json`.
 
 ## tehas dev
 
@@ -251,10 +316,11 @@ does, so no cycle starts in the middle. A cycle started by hand with
 tehas labels        # one line per label
 ```
 
-Creates the six labels tehas uses in the product repository: `tehas:ready`,
-`tehas:urgent`, `tehas:running`, `tehas:awaiting-merge`, `tehas:pause` and
-`needs-human-attention`. Run it once for a new product. Run again, it puts
-their colours and descriptions back. It needs `TEHAS_REPO` and no other
+Creates the nine labels tehas uses in the product repository: `tehas:ready`,
+`tehas:urgent`, `tehas:running`, `tehas:awaiting-merge`, `tehas:pause`,
+`needs-human-attention`, `tehas:question`, `tehas:plan` and `tehas:planning`.
+Run it once for a new product, and again after pulling a version that adds a
+label. Run again, it puts their colours and descriptions back. It needs `TEHAS_REPO` and no other
 setting. Exit 0 when every label is there, 1 when one could not be made, 64 on
 any argument, 78 when the repository is not set.
 
@@ -317,7 +383,10 @@ systemctl --user stop tehas-cycle@12       # end the cycle for issue 12
 
 It runs [tehas work](#tehas-work) for the issue, reads the cycle's state file
 from the workspace, finds the pull request the bot opened, and relabels and
-comments: merged, `tehas:awaiting-merge`, or `needs-human-attention`. It
+comments: merged, `tehas:awaiting-merge`, or `needs-human-attention`. A cycle
+that stopped gets its comment with two boxes and the label `tehas:question`,
+and the comment's id goes into `~/tehas/state/park-<issue>.id`, which is what
+lets the dispatcher take a tick there. It
 then removes the workspace of a cycle that merged or left a pull request, and
 keeps the workspace of one that stopped. A retry moves a stopped workspace to
 `<name>-<issue>.before-retry`, which is removed and kept by the same rule. A

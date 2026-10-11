@@ -1,5 +1,6 @@
 # shellcheck shell=bash
-# Which cycles are running. Sourced by the dispatcher and by tehas index.
+# Which cycles are running, and where a parked cycle's question is on record.
+# Sourced by the dispatcher, by tehasbot cycle and by tehas index.
 #
 # tehasbot cycle holds $TEHAS_HOME/state/cycles/<issue>.lock for as long as it
 # lives. A lock nobody holds is a cycle that ended, however it ended, so a
@@ -7,6 +8,8 @@
 #
 #   tehas_cycle_running <issue>   0 if that issue's cycle holds its lock
 #   tehas_cycles_running          the issues with a running cycle, one per line
+#   park_id <issue>               the path of the file that holds the id of
+#                                 the park question this host posted
 #
 # Needs TEHAS_HOME. Reads only: it takes each lock for an instant and lets go.
 
@@ -25,3 +28,9 @@ tehas_cycles_running() {
   done
   return 0
 }
+
+# An agent in a container holds the bot's token: it can post a comment with a
+# marker, edit the bot's comments and apply labels. It cannot write here, so
+# this file is what makes a comment the factory's own question. One line, the
+# comment's number. tehasbot cycle writes it, the dispatcher reads it.
+park_id() { printf '%s/state/park-%s.id\n' "$TEHAS_HOME" "$1"; }

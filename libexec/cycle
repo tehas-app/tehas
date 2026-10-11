@@ -23,6 +23,11 @@
 # A TERM or INT is passed on to tehas work, which stops the container. The
 # cycle is then reported like any other that stopped without a pull request.
 #
+# A cycle that stopped without a pull request asks what to do next, in a
+# comment with boxes. The id of that comment goes on record in
+# state/park-<issue>.id: the dispatcher takes a tick only in the comment named
+# there.
+#
 # Where the instance has an improvement loop (TEHAS_IMPROVE_REPO), it leaves
 # the cycle's record for it at the end, in tmp/improve/window (lib/improve.sh).
 #
@@ -39,9 +44,13 @@ fi
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/config.sh
 . "$here/../lib/config.sh"
+# shellcheck source=lib/cycles.sh
+. "$here/../lib/cycles.sh"
 # shellcheck source=lib/improve.sh
 . "$here/../lib/improve.sh"
 tehas_load || exit 78
+# shellcheck source=lib/questions.sh
+. "$here/../lib/questions.sh"
 tehas_require TEHAS_REPO
 
 log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*"; }
@@ -62,6 +71,15 @@ flock -w 5 9 || { log "a cycle for #$issue is already running"; exit 3; }
 
 comment() { gh issue comment "$issue" --repo "$repo" --body "$1" >/dev/null 2>&1 || log "WARN: comment on #$issue failed"; }
 relabel() { gh issue edit "$issue" --repo "$repo" "$@" >/dev/null 2>&1 || log "WARN: label change on #$issue failed: $*"; }
+# post_question <result.json>: post the park question. Its id is left in
+# $posted. Returns 1 when it could not be posted.
+posted=""
+post_question() {
+  local body
+  body=$(q_render park "$issue" 1 "$1") || return 1
+  posted=$(gh api "repos/$repo/issues/$issue/comments" -f body="$body" --jq .id 2>/dev/null) || return 1
+  [ -n "$posted" ]
+}
 # A workspace is kept only while a person may want to read it, and so is the
 # one tehas work moved aside when this issue was retried. Only a directory
 # under one that tehas work marked is removed, as tehas work does.
@@ -105,11 +123,19 @@ mins=$((($(date +%s) - started) / 60))
 
 # The one thing read back from the tree the container wrote, and only as data.
 state=$workdir/.pi/work-state/$issue.json
-status=$(jq -r '.pipelineState.status // "unknown"' "$state" 2>/dev/null || echo unknown)
-step=$(jq -r '.pipelineState.currentStep // "-"' "$state" 2>/dev/null || echo -)
+# The file is written inside the container, and what the bot posts from it is
+# trusted later, so only plain characters are kept.
+status=$(jq -r '.pipelineState.status // "unknown"' "$state" 2>/dev/null | tr -cd 'A-Za-z0-9_.-')
+step=$(jq -r '.pipelineState.currentStep // "-"' "$state" 2>/dev/null | tr -cd 'A-Za-z0-9_.-')
+status=${status:-unknown}
+step=${step:--}
 branch=$(jq -r '.pipelineState.branchName // ""' "$state" 2>/dev/null || echo "")
+# The numbers are summed as numbers. Anything else in their place counts as
+# nothing: a string would be joined up by the sum and posted word for word.
 usage=$(jq -r '
-  [.eventLog[] | select(.usage) | {role: (.role // "driver"), u: .usage}] as $e
+  def n: tonumber? // 0;
+  [.eventLog[] | select(.usage) | {role: ((.role // "driver" | tostring | gsub("[^A-Za-z0-9_.-]"; "")) as $r | if $r == "" then "driver" else $r end),
+                                   u: (.usage | {turns: (.turns | n), input: (.input | n), output: (.output | n), cacheRead: (.cacheRead | n)})}] as $e
   | if ($e | length) == 0 then "" else
       (["| Role | Dispatches | Turns | Input | Output | Cache read |", "|---|---|---|---|---|---|"]
        + ($e | group_by(.role) | map("| \(.[0].role) | \(length) | \(map(.u.turns) | add) | \(map(.u.input) | add) | \(map(.u.output) | add) | \(map(.u.cacheRead) | add) |"))
@@ -137,9 +163,30 @@ ${usage:-No token usage was recorded for this cycle.}" >/dev/null 2>&1 || log "W
   tidy
 else
   relabel --remove-label tehas:running --add-label needs-human-attention
-  comment "Tehas cycle stopped without a pull request: $summary (runner exit $rc). Read the handoff comment if there is one; the run log is \`~/tehas/logs/dispatch-work-$issue.log\` on \`$(hostname)\`. To retry, remove \`needs-human-attention\` and apply \`tehas:ready\` again.
+  parked="Tehas cycle stopped without a pull request: $summary (runner exit $rc). Read the handoff comment if there is one; the run log is \`~/tehas/logs/dispatch-work-$issue.log\` on \`$(hostname)\`."
+  jq -n --arg text "$parked
+
+${usage}" '{text: $text, question: null}' >"$TEHAS_HOME/state/park-$issue.json"
+  if post_question "$TEHAS_HOME/state/park-$issue.json"; then
+    # On record before the label shows it: a tick counts only in the comment
+    # named here. Without the record a tick starts nothing and says so.
+    printf '%s\n' "$posted" >"$(park_id "$issue")" ||
+      log "WARN: could not record the park question of #$issue, its boxes will not work"
+    # A separate call: a repository without this label must still get the
+    # parking label above. The poll only reads questions on issues that
+    # carry this label, so without it the boxes do nothing: say so.
+    if ! gh issue edit "$issue" --repo "$repo" --add-label tehas:question >/dev/null 2>&1; then
+      log "WARN: label change on #$issue failed: --add-label tehas:question"
+      rm -f "$(park_id "$issue")"
+      comment "The boxes above cannot be used: the label \`tehas:question\` could not be added (run \`tehas labels\` on the host). To retry, remove \`needs-human-attention\` and apply \`tehas:ready\` again."
+    fi
+  else
+    # Without the boxes there is nothing to tick: say the old way.
+    comment "$parked To retry, remove \`needs-human-attention\` and apply \`tehas:ready\` again.
 
 ${usage}"
+  fi
+  rm -f "$TEHAS_HOME/state/park-$issue.json"
 fi
 log "done #$issue rc=$rc status=$status step=$step minutes=$mins pr=${pr:-none}"
 # For the improvement loop, where the instance has one. The cycle is reported

@@ -118,6 +118,7 @@ for bad in "TEHAS_WORK_MEMORY=lots" "TEHAS_WORK_CPUS=many" \
   "TEHAS_BRANCH=two words" "TEHAS_INDEXING=yes" "TEHAS_ANALYTICS_SRC=http://plain.example/ea.js" \
   "TEHAS_ANALYTICS_SRC=https://a.example/x.js\" onload=\"x" "TEHAS_ANALYTICS_SITE=two words" \
   "TEHAS_ANALYTICS_COOKIE=yes" "TEHAS_PROTOLAB_URL=https://lab.example/" "TEHAS_PROTOLAB_URL=lab.example" \
+  "TEHAS_PLAN_MAX_TURNS=0" "TEHAS_PLAN_TIMEOUT=1h" \
   "TEHAS_DOMAIN=https://example.org" "TEHAS_DOMAIN=example.org/" "TEHAS_DOMAIN=Example.org" \
   "TEHAS_DOMAIN=localhost" "TEHAS_DOMAIN=-a.example.org" "TEHAS_PREVIEWS=yes" \
   "TEHAS_PREVIEW_MAX=0" "TEHAS_PREVIEW_MAX=100" "TEHAS_PREVIEW_MIN_FREE=lots" \
@@ -292,6 +293,23 @@ t_instance "${T_MINIMAL[@]}" TEHAS_WORK_DIR=/somewhere/else
 t_run "$load && echo \"\$TEHAS_WORK_DIR\""
 t_eq "$t_rc" 0
 t_eq "$t_out" "$T/home/tehas/work/widget"
+
+t_case "the planning limits have defaults"
+t_instance "${T_MINIMAL[@]}"
+t_run '. "$T_ROOT/lib/config.sh"; tehas_load; echo "$TEHAS_PLAN_MAX_TURNS $TEHAS_PLAN_TIMEOUT"'
+t_eq "$t_out" "20 3600"
+
+t_case "the planning limits can be set in the instance"
+t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_MAX_TURNS=5 TEHAS_PLAN_TIMEOUT=600
+t_run '. "$T_ROOT/lib/config.sh"; tehas_load; echo "$TEHAS_PLAN_MAX_TURNS $TEHAS_PLAN_TIMEOUT"'
+t_eq "$t_out" "5 600"
+
+t_case "the planning test hook is kept from the environment, a setting of that name is not"
+t_instance "${T_MINIMAL[@]}"
+T_ENV=(TEHAS_PLAN_CMD=fake-plan TEHAS_PLAN_MAX_TURNS=99)
+t_run '. "$T_ROOT/lib/config.sh"; tehas_load; echo "$TEHAS_PLAN_CMD $TEHAS_PLAN_MAX_TURNS"'
+t_eq "$t_out" "fake-plan 20"
+T_ENV=()
 
 # The host's CPU count is read with nproc; a stub makes the split the same on
 # every machine. The memory values are far below what any test host has.

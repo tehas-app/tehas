@@ -1,8 +1,9 @@
 # shellcheck shell=bash
 # What a sandbox container is given, and the tree it works in. Sourced by the
-# two commands that start one: tehas work (a cycle) and tehas dev (a manual
-# session). It is in one place so the two cannot drift apart; test/work_test.sh
-# and test/dev_test.sh pin the result option by option.
+# three commands that start one: tehas work (a cycle), tehas plan (a planning
+# turn) and tehas dev (a manual session). It is in one place so they cannot
+# drift apart; test/work_test.sh, test/plan_test.sh and test/dev_test.sh pin
+# the result option by option.
 #
 #   tehas_sandbox_env <tree> <name> <email>   the -e options
 #   tehas_sandbox_mounts <tree> [<host tree> [<runs dir>]]

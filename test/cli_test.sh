@@ -15,7 +15,7 @@ cp "$T_ROOT/bin/tehas" "$T_ROOT/bin/tehasbot" "$tree/bin/"
 # The settings library is there to be read, so that not reading it means something.
 cp "$T_ROOT/lib/config.sh" "$tree/lib/config.sh"
 # One line per call: the name, then each argument after a "|".
-for name in dispatch cycle work dev index update labels summary status health energy protolab preview improve; do
+for name in dispatch cycle work plan dev index update labels summary status health energy protolab preview improve; do
   printf '%s\n' '#!/usr/bin/env bash' "# The text of $name." '#' "# Usage: $name" 'set -u' 'IFS="|"' \
     "printf '%s\\n' \"$name\${*:+|\$*}\" >>\"\$T/calls/libexec\"" 'exit "${RC:-0}"' >"$tree/libexec/$name"
   chmod +x "$tree/libexec/$name"
@@ -43,6 +43,12 @@ t_run "$tehas dev alice --author 'A B <a@b.example>' -- -r && $tehas dev"
 t_eq "$t_rc" 0
 t_eq "$(ran)" "dev|alice|--author|A B <a@b.example>|--|-r
 dev"
+
+t_case "tehas plan passes on the turn's arguments"
+reset
+t_run "$tehas plan 7 --out /tmp/o --session abc-1 --answer /tmp/a"
+t_eq "$t_rc" 0
+t_eq "$(ran)" "plan|7|--out|/tmp/o|--session|abc-1|--answer|/tmp/a"
 
 t_case "tehas update passes on --check"
 reset
@@ -89,7 +95,7 @@ t_eq "$(ran)" ""
 
 t_case "tehas <command> --help and -h print the same text and run nothing"
 reset
-for name in dispatch work dev index update labels status; do
+for name in dispatch work plan dev index update labels status; do
   for flag in --help -h; do
     t_run "$tehas $name $flag 2>/dev/null"
     t_eq "$t_rc" 0
@@ -151,7 +157,7 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "tehasbot energy [--every]"
 t_run "$bot help"
 t_eq "$t_rc" 0
-for name in work dev index update labels summary bogus "''"; do
+for name in work plan dev index update labels summary bogus "''"; do
   t_run "$bot $name 2>/dev/null"
   t_eq "$t_rc" 64
   t_eq "$t_out" ""
@@ -181,7 +187,7 @@ t_eq "$t_rc" 1
 t_case "every command in the usage of tehas has a script that says how to use it"
 reset
 names=$("$T_ROOT/bin/tehas" help | sed -n 's/^  tehas \([a-z]*\).*/\1/p' | grep -v -x help | tr '\n' ' ')
-t_eq "$names" "dispatch work dev index update labels status "
+t_eq "$names" "dispatch work plan dev index update labels status "
 for name in $names; do
   t_run "$T_ROOT/bin/tehas help $name"
   t_eq "$t_rc" 0

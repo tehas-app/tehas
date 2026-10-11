@@ -65,6 +65,8 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/lib/improve-prompt.md
 ./tehas/lib/improve.sh
 ./tehas/lib/live.sh
+./tehas/lib/planning.sh
+./tehas/lib/questions.sh
 ./tehas/lib/sandbox.sh
 ./tehas/lib/update-steps.sh
 ./tehas/libexec/console
@@ -78,6 +80,7 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/libexec/improve
 ./tehas/libexec/index
 ./tehas/libexec/labels
+./tehas/libexec/plan
 ./tehas/libexec/preview
 ./tehas/libexec/protolab
 ./tehas/libexec/status

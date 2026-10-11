@@ -27,7 +27,7 @@
 # Rules:
 #   - instance.env is authoritative. Settings of the same name in the
 #     environment are dropped; only TEHAS_HOME, TEHAS_INSTANCE_DIR and the test
-#     hooks TEHAS_WORK_CMD, TEHAS_STATUS_CMD, TEHAS_INDEX_CMD,
+#     hooks TEHAS_WORK_CMD, TEHAS_STATUS_CMD, TEHAS_INDEX_CMD, TEHAS_PLAN_CMD,
 #     TEHAS_CYCLE_START_CMD and TEHAS_CYCLE_START_WAIT are kept.
 #   - Loading runs no git command, makes no network call and writes nothing.
 #   - TEHAS_IMPROVE_REPO switches the improvement loop on. Unset is valid and
@@ -78,7 +78,8 @@ _tehas_valid() {
     TEHAS_REPO | TEHAS_IMPROVE_REPO)
       [[ $v =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "expected owner/name"; return 1; }
       ;;
-    TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_WORK_TIMEOUT | TEHAS_CONCURRENCY | TEHAS_TICKET_CONCURRENCY)
+    TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_WORK_TIMEOUT | TEHAS_CONCURRENCY | TEHAS_TICKET_CONCURRENCY | \
+      TEHAS_PLAN_MAX_TURNS | TEHAS_PLAN_TIMEOUT)
       _tehas_is_count "$v" || { echo "expected a positive whole number"; return 1; }
       ;;
     TEHAS_ALLOWED_LABELERS)
@@ -157,7 +158,7 @@ tehas_load() {
 
   for v in $(compgen -v); do
     case "$v" in
-      TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_INDEX_CMD | \
+      TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_INDEX_CMD | TEHAS_PLAN_CMD | \
         TEHAS_CYCLE_START_CMD | TEHAS_CYCLE_START_WAIT) ;;
       TEHAS_* | PI_ENSEMBLE_*) unset "$v" ;;
     esac
@@ -203,6 +204,9 @@ tehas_load() {
   export TEHAS_HOST_ADDR=${TEHAS_HOST_ADDR:-127.0.0.1}
   export TEHAS_MAX_AWAITING=${TEHAS_MAX_AWAITING:-3}
   export TEHAS_WORK_TIMEOUT=${TEHAS_WORK_TIMEOUT:-21600}
+  # A planning session: how many turns it may take, and how long one turn may.
+  export TEHAS_PLAN_MAX_TURNS=${TEHAS_PLAN_MAX_TURNS:-20}
+  export TEHAS_PLAN_TIMEOUT=${TEHAS_PLAN_TIMEOUT:-3600}
   # Previews of pull requests and the names of the edge. Off, and no names,
   # unless the instance says so.
   export TEHAS_DOMAIN=${TEHAS_DOMAIN:-}
@@ -218,8 +222,8 @@ tehas_load() {
   export PI_ENSEMBLE_NO_DOCKER_SOCKET=1 PI_ENSEMBLE_NO_SSH=1
 
   for v in TEHAS_INDEXING TEHAS_ANALYTICS_COOKIE TEHAS_WORK_CPUS TEHAS_WORK_MEMORY TEHAS_CONCURRENCY \
-    TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_PREVIEWS TEHAS_PREVIEW_MAX \
-    TEHAS_PREVIEW_MIN_FREE; do
+    TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
+    TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE; do
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
   # What one cycle's container gets: the budget divided between the tickets.

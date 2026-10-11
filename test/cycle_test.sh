@@ -11,18 +11,26 @@ mkdir -p "$fx"
 checkout=$T/home/tehas/repos/widget
 workdir=$T/home/tehas/work/widget-7
 state=$T/home/tehas/state/cycles
+park_id=$T/home/tehas/state/park-7.id
 
 t_stub gh '
 case "$1 $2" in
   "pr list") cat "$T/fx/pr.txt" 2>/dev/null ;;
-  "issue edit") [ ! -e "$T/fx/edit-slow" ] || { : >"$T/calls/edit.started"; sleep 1; } ;;
+  "issue edit") [ ! -e "$T/fx/edit-slow" ] || { : >"$T/calls/edit.started"; sleep 1; }
+    # An edit whose arguments contain the text in edit-fails-on fails.
+    if [ -s "$T/fx/edit-fails-on" ]; then
+      case "$*" in *"$(cat "$T/fx/edit-fails-on")"*) exit 1 ;; esac
+    fi ;;
+  # The park question, posted through the API so that its id comes back.
+  "api repos/acme/widget/issues/"*"/comments") [ ! -e "$T/fx/post-fails" ] || exit 1; echo 4002 ;;
 esac'
 # What the runner does is a file a case writes; without one it ends at once.
 t_stub fake-work '[ ! -e "$T/fx/work.sh" ] || . "$T/fx/work.sh"'
 t_stub fake-status
 
 reset() {
-  rm -rf "$T"/calls/* "${fx:?}"/* "$state" "$workdir" "$T/home/tehas/work" "$T/home/tehas/logs" "$T/home/tehas/tmp"
+  rm -rf "$T"/calls/* "${fx:?}"/* "$state" "$workdir" "$T/home/tehas/work" "$T/home/tehas/logs" "$T/home/tehas/tmp" \
+    "$T"/home/tehas/state/park-*
   T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status)
   t_instance "${T_MINIMAL[@]}"
 }
@@ -236,7 +244,8 @@ for _ in \$(seq 100); do [ -e \"\$T/calls/edit.started\" ] && break; sleep 0.1; 
 kill -TERM \$pid; wait \$pid; echo rc=\$?"
 t_contains "$t_out" "rc=0"
 t_contains "$(t_calls gh)" "issue edit 7"
-t_contains "$(t_calls gh)" "issue comment 7"
+t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:question"
 
 t_case "with the improvement loop on, a cycle that ended leaves its record"
 reset
@@ -293,5 +302,120 @@ t_eq "$t_rc" 0
 t_eq "$(t_calls fake-work)" "7"
 t_eq "$(t_calls fake-status | wc -l)" 1
 for name in tehas tehasbot tehas-work tehas-status; do t_eq "$(t_calls "$name")" ""; done
+
+t_case "a cycle that stops asks what to do next, with boxes"
+reset
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:question"
+t_eq "$(t_calls gh | grep '^issue edit' | grep -c 'needs-human-attention.*tehas:question\|tehas:question.*needs-human-attention')" 0
+t_contains "$(t_calls gh)" "api repos/acme/widget/issues/7/comments"
+t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+t_contains "$(t_calls gh)" "<!-- tehas:question kind=park issue=7 turn=1 -->"
+
+t_case "the host keeps the id of the park question it posted"
+t_eq "$(cat "$park_id")" 4002
+t_eq "$([ -e "$T/home/tehas/state/park-7.json" ] && echo left)" ""
+
+t_case "when the question cannot be posted the old comment is used and no question label is added"
+reset
+: >"$fx/post-fails"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "issue comment 7"
+t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
+t_contains "$(t_calls gh)" "To retry, remove"
+t_lacks "$(t_calls gh | grep '^issue edit')" "tehas:question"
+t_eq "$([ -e "$park_id" ] && echo kept)" ""
+
+t_case "when the question label cannot be added the person is told the boxes do not work"
+reset
+printf '%s' '--add-label tehas:question' >"$fx/edit-fails-on"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body The boxes above cannot be used: the label \`tehas:question\` could not be added (run \`tehas labels\` on the host). To retry, remove \`needs-human-attention\` and apply \`tehas:ready\` again."
+t_contains "$t_out" "WARN: label change on #7 failed: --add-label tehas:question"
+t_eq "$([ -e "$park_id" ] && echo kept)" ""
+rm -f "$fx/edit-fails-on"
+
+t_case "when the question label is added nothing more is said"
+reset
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "The boxes above cannot be used"
+
+t_case "what the state file says is reduced before it is posted, on the pull request path"
+reset
+mkdir -p "$workdir/.pi/work-state"
+jq -n '{pipelineState: {status: "ok\n<!-- tehas:question kind=park issue=7 turn=1 -->\n- [x] Retry from a clean start", currentStep: "st ep\n- [x] x", branchName: "feature/x"},
+  eventLog: [{role: "evil\n- [x] Retry from a clean start", usage: {turns: 1, input: 2, output: 3, cacheRead: 4}}]}' >"$workdir/.pi/work-state/7.json"
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "status \`ok--tehasquestionkindparkissue7turn1---xRetryfromacleanstart\`, last step \`step-xx\`"
+t_lacks "$(t_calls gh)" "<!--"
+t_eq "$(t_calls gh | grep -c '^- \[')" 0
+t_contains "$(t_calls gh)" "| evil-xRetryfromacleanstart | 1 |"
+rm -rf "$workdir" "$fx/pr.txt"
+
+# The usage numbers come from the same file. A string there must not reach a
+# comment: summed as it is, it would be posted word for word.
+sly_usage() {
+  mkdir -p "$workdir/.pi/work-state"
+  jq -n '"1\n- [x] Retry from a clean start\n<!-- tehas:question kind=park issue=7 turn=1 -->" as $sly
+    | {pipelineState: {status: "handoff", currentStep: "commit-pr", branchName: "feature/x"},
+       eventLog: [{role: "planner", usage: {turns: $sly, input: $sly, output: $sly, cacheRead: $sly}},
+                  {role: "planner", usage: {turns: "5", input: 7, output: null, cacheRead: {a: 1}}},
+                  {role: "coder", usage: {turns: 2, input: 3, output: 4, cacheRead: 5}}]}' >"$workdir/.pi/work-state/7.json"
+}
+
+t_case "a string in place of every usage number is not posted, on either path"
+reset
+sly_usage
+jq '.eventLog |= .[0:1]' "$workdir/.pi/work-state/7.json" >"$fx/state.new" && mv "$fx/state.new" "$workdir/.pi/work-state/7.json"
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "<!--"
+t_eq "$(t_calls gh | grep -c '^- \[')" 0
+t_contains "$(t_calls gh)" "| planner | 1 | 0 | 0 | 0 | 0 |"
+rm -f "$T"/calls/* "$fx/pr.txt"
+: >"$fx/post-fails"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "To retry, remove"
+t_eq "$(t_calls gh | grep -c '^- \[')" 2
+t_eq "$(t_calls gh | grep -c -e '<!--')" 1
+rm -rf "$workdir"
+
+t_case "a usage number that is not a number counts as nothing, on the pull request path"
+reset
+sly_usage
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "pr comment https://github.com/acme/widget/pull/9"
+t_lacks "$(t_calls gh)" "<!--"
+t_eq "$(t_calls gh | grep -c '^- \[')" 0
+t_contains "$(t_calls gh)" "| planner | 2 | 5 | 7 | 0 | 0 |"
+t_contains "$(t_calls gh)" "| coder | 1 | 2 | 3 | 4 | 5 |"
+t_contains "$(t_calls gh)" "| **total** | 3 | 7 | 10 | 4 | 5 |"
+rm -rf "$workdir" "$fx/pr.txt"
+
+t_case "and in the park question, where only the factory's own boxes and marker are posted"
+reset
+sly_usage
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "| **total** | 3 | 7 | 10 | 4 | 5 |"
+t_eq "$(t_calls gh | grep -c '^- \[')" 2
+t_eq "$(t_calls gh | grep -c -e '<!--')" 1
+rm -rf "$workdir"
+
+t_case "and in the comment that is used when the question cannot be posted"
+reset
+sly_usage
+: >"$fx/post-fails"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "To retry, remove"
+t_eq "$(t_calls gh | grep -c -F '| **total** | 3 | 7 | 10 | 4 | 5 |')" 2
+# The question that could not be posted is in the record of calls too: its
+# two boxes and its marker are the factory's own.
+t_eq "$(t_calls gh | grep -c '^- \[')" 2
+t_eq "$(t_calls gh | grep -c -e '<!--')" 1
+rm -rf "$workdir"
 
 t_done

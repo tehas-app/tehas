@@ -4,6 +4,7 @@
 # Usage:
 #   tehas dispatch [--dry-run]       one poll of the issue queue, by hand
 #   tehas work <issue> [--restart]   one cycle for an issue, by hand
+#   tehas plan <issue> ...           one turn of a planning session, by hand
 #   tehas dev [<name>]               an interactive session on the host, by hand
 #   tehas index                      build the code index the agents search
 #   tehas update [--check]           bring this host up to date with the platform
@@ -31,7 +32,7 @@ usage_of() {
 # script <command>: the file behind a command, or nothing.
 script() {
   case "$1" in
-    dispatch | work | dev | index | update | labels) echo "$libexec/$1" ;;
+    dispatch | work | plan | dev | index | update | labels) echo "$libexec/$1" ;;
     status) echo "$libexec/summary" ;;
   esac
 }

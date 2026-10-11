@@ -19,7 +19,8 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | ------------------------------------ | ----------------------------------------------------------------------- |
 | `~/tehas/env.sh`                     | Environment for every tehas process; sourced from `~/.bashrc`           |
 | `~/tehas/lib/config.sh`              | Loads and checks the instance settings; sourced by every command        |
-| `~/tehas/lib/sandbox.sh`             | What a sandbox container is given; sourced by the work and dev scripts  |
+| `~/tehas/lib/sandbox.sh`             | What a sandbox container is given; sourced by the work, plan and dev scripts |
+| `~/tehas/lib/questions.sh`, `planning.sh` | The question and planning steps of the dispatcher. A cycle's report uses the first too |
 | `~/tehas/bin/`                       | The two commands on `PATH`: `tehas` for a person, `tehasbot` for the units. Plus `gh` |
 | `~/tehas/libexec/`                   | The scripts behind the two commands, one for each thing they do. Not on `PATH` |
 | `~/tehas/platform`                   | Checkout of this repository; `install.sh` runs from it and `tehas update` pulls it |
@@ -32,7 +33,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/edge/`                      | The docs server (`docs.compose.yaml`) and the edge router (`router.compose.yaml`) |
 | `~/tehas/protolab/`                  | The Protolab's pages and the files of each prototype, written by `tehasbot protolab` |
 | `~/tehas/preview/`                   | The state of each preview, and a bare clone the pull requests' commits are fetched into, written by `tehasbot preview` |
-| `~/tehas/logs/`, `state/`, `live/`, `tmp/` | Logs, lock and status files, dashboard data, scratch              |
+| `~/tehas/logs/`, `state/`, `live/`, `tmp/` | Logs, state, dashboard data, scratch. `state/` holds the dispatch lock, status files, the record of each planning session (`plan-<issue>.json`) and the id of each parked cycle's question (`park-<issue>.id`). No container is given it |
 | `~/tehas/tmp/improve/`, `~/tehas/state/improve.lock` | Where the improvement loop is on: the record of each cycle that ended, until a run has read it, and the lock of a run |
 | Docker volume `pi-ensemble-cache`    | Caches of the sandbox, among them the code index `tehas index` builds   |
 | `~/.pi/agent/`                       | Pi user configuration (models, MCP servers)                             |
@@ -119,6 +120,10 @@ cd ~/tehas/platform && git pull
 ./install.sh --check     # change nothing, report five results
 ./install.sh             # copy changed files into place, keep <name>.prev
 ```
+
+A version that adds labels needs `tehas labels` run again after the install.
+The labels `tehas:plan`, `tehas:planning` and `tehas:question`, for planning on
+an issue and the retry tick, are not in a repository until it has been.
 
 `--check` prints one line each for the instance settings, the host's tools, the
 installed files, the follow-ups an earlier run left undone, and the tests:
@@ -418,6 +423,11 @@ Both are outside the repository and the tehas tree.
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | Who can start a cycle                  | Only an account in `TEHAS_ALLOWED_LABELERS`. The dispatcher checks who most recently applied `tehas:ready`, not just that it is there   |
 | What the label approves                | The title and body as they were when it was applied. An issue whose text was changed afterwards by any other account is skipped until the label is applied again |
+| What else starts a cycle               | The retry box of a parked issue, ticked by one of those accounts. It counts once, and only in the question whose comment id the host has on record for that issue. Like the label, the tick approves the text as it was at that moment |
+| Who can start or continue planning     | The same accounts. A session starts when one of them applied `tehas:plan`. A turn runs on a tick or a reply from one of them to the question the session is waiting on |
+| What a planning container is given     | The same token, the same mounts and the same approve-everything mode as a work cycle's. The agent is asked to plan and file issues. Nothing in the container holds it to that |
+| What an agent can do as the bot        | Post comments, edit the bot's comments and apply labels, with the token. So a comment is the factory's question only if the host has its id on record in `~/tehas/state`, which no container is given, and an answer counts only by who gave it |
+| Where an agent's conversation is kept  | In Pi's `sessions` directory. Every later container can read and write it                                                               |
 | Does the token enter the cycle         | Yes, as `GH_TOKEN`. pi-rukas pushes the branch and opens the pull request from inside. Agent code can do anything the token can         |
 | What else enters the container         | `PI_ENSEMBLE_*` settings, the bot's git name and email, the host aliases. Not the rest of the host environment                          |
 | Host paths mounted                     | The cycle's own workspace, `~/tehas/work/<name>-<issue>`, at the same path in every container; its own transcripts, `~/.pi/agent/ensemble-runs/issue-<issue>`; `~/.vipune` and Pi's `sessions` (read-write); `models.json`, `mcp.json` (read-only); two caches |
