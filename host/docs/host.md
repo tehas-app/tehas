@@ -147,10 +147,12 @@ and a step unapplied is not current. Running `tehas update` runs them and clears
 the record ([Troubleshooting](/troubleshooting) has the case in full).
 
 The `Slice:` line compares `/etc/systemd/system/tehas.slice` with
-`host/slice/tehas.slice` in the checkout: `OK`, `MISSING` or `DIFFERS`. It is
-information and does not change the exit status, because nothing needs the
-slice yet. A real run prints a `note:` line for the last two and installs no
-slice: that is root's step, [`sudo ./bootstrap.sh slice`](/bootstrap#slice).
+`host/slice/tehas.slice` in the checkout: `OK`, `MISSING` or `DIFFERS`. The
+last two make `--check` exit 1, and so `tehas update --check` stays red, until
+root has run [`sudo ./bootstrap.sh slice`](/bootstrap#slice): every sandbox
+container runs in the slice and none starts without it. A real run prints a
+`note:` line for the last two, installs everything else and installs no slice,
+which is root's step.
 
 `install.sh` validates the settings first and installs nothing if they are
 invalid. It prints one `next:` line per follow-up its changed files call for, and

@@ -967,9 +967,12 @@ build.
 `--check` contacts the remote with `git fetch --prune`, so the remote-tracking
 refs under `origin/` match what the remote has, including branches the remote
 deleted; no file of the checkout or of the host changes. It runs `install.sh
---check`, which reports the checkout, the installed files, any follow-up an
-earlier run left undone, and the tests; it merges nothing, installs nothing,
-builds nothing and starts nothing, and exits 1 when there is something to update.
+--check`, which reports the checkout, the slice, the installed files, any
+follow-up an earlier run left undone, and the tests; it merges nothing, installs
+nothing, builds nothing and starts nothing, and exits 1 when there is something
+to update. A host whose `/etc/systemd/system/tehas.slice` is missing or is not
+the file this version ships is something to update, and only root can do it:
+`tehas update --check` stays red until `sudo ./bootstrap.sh slice` has been run.
 
 | Exit | Meaning                                                                       |
 | ---- | ----------------------------------------------------------------------------- |
@@ -991,6 +994,10 @@ cd ~/tehas/platform
 
 Exit 0 when done or nothing to report, 1 when `--check` found something or a
 step failed, 78 when the instance settings are invalid (nothing was changed).
+`Slice: MISSING` and `Slice: DIFFERS` are something found: `--check` exits 1
+until root has run `sudo ./bootstrap.sh slice`, because every sandbox container
+runs in the slice and none starts without it. A real run installs either way and
+prints a `note:` line instead.
 
 After a real run it prints one `next: <step>` line per follow-up its changed
 files call for - the ids `lib/update-steps.sh` defines - and starts nothing

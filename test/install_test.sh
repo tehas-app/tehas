@@ -232,25 +232,28 @@ Tests:        not checked (running inside the tests)"
 
 # The slice is root's to install (sudo ./bootstrap.sh slice). install.sh only
 # compares the checkout's file with the one under /etc and says what it found.
-# Nothing needs the slice yet, so the line changes no exit status.
-t_case "--check names a missing slice and what installs it, and still exits 0"
+# Every container runs in the slice, so a host without it, or with another
+# version of it, has something to do: the check exits 1 until it is done.
+t_case "--check names a missing slice and what installs it, and exits 1"
 mkdir -p "$T/etc/systemd/system"
 T_ENV=(T_IN_TEST=1 BOOTSTRAP_ETC="$T/etc")
 t_run "$install --check"
-t_eq "$t_rc" 0
+t_eq "$t_rc" 1
 t_contains "$t_out" "Slice:        MISSING (sudo ./bootstrap.sh slice)"
+t_contains "$t_out" "Installed:    OK"
 
-t_case "--check says OK for the slice file this checkout ships"
+t_case "--check says OK for the slice file this checkout ships, and exits 0"
 cp "$T_ROOT/host/slice/tehas.slice" "$T/etc/systemd/system/tehas.slice"
 t_run "$install --check"
 t_eq "$t_rc" 0
 t_contains "$t_out" "Slice:        OK"
 
-t_case "--check names a slice file that differs, and still exits 0"
+t_case "--check names a slice file that differs, and exits 1"
 echo "MemoryMax=10%" >>"$T/etc/systemd/system/tehas.slice"
 t_run "$install --check"
-t_eq "$t_rc" 0
+t_eq "$t_rc" 1
 t_contains "$t_out" "Slice:        DIFFERS (sudo ./bootstrap.sh slice)"
+t_contains "$t_out" "Installed:    OK"
 
 t_case "a real run notes a slice that differs or is missing, and installs no slice"
 t_run "$install"

@@ -54,7 +54,8 @@
 # one system unit, and root's (sudo ./bootstrap.sh slice). It compares the
 # file in this checkout, host/slice/tehas.slice, with the one under /etc and
 # says what it found: a "Slice:" line in --check, a "note:" in a real run when
-# the file is missing or differs. That changes no exit status.
+# the file is missing or differs. Every container runs in the slice, so a
+# missing or differing file makes --check exit 1; a real run still installs.
 #
 # It asks systemd for nothing, with one exception. A copied unit file is not in
 # effect until systemd has reloaded it, and that reload belongs to the step
@@ -373,11 +374,13 @@ if [ "$check" = 1 ]; then
     echo "Dependencies: not checked (no bootstrap.sh in this checkout)"
   fi
 
-  # Information only: no command needs the slice yet, so it sets no status.
+  # Every container runs in the slice, so a host without it, or with another
+  # version of it, has something to do. Only root can do it; the check says
+  # so until it is done.
   case "$(slice_state)" in
     OK) echo "Slice:        OK" ;;
-    MISSING) echo "Slice:        MISSING (sudo ./bootstrap.sh slice)" ;;
-    DIFFERS) echo "Slice:        DIFFERS (sudo ./bootstrap.sh slice)" ;;
+    MISSING) echo "Slice:        MISSING (sudo ./bootstrap.sh slice)"; rc=1 ;;
+    DIFFERS) echo "Slice:        DIFFERS (sudo ./bootstrap.sh slice)"; rc=1 ;;
     *) echo "Slice:        not checked (running inside the tests)" ;;
   esac
 
