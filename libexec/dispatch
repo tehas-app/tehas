@@ -24,7 +24,8 @@
 #   1. Label tehas:pause on the control issue stops all dispatch.
 #   2. At most TEHAS_TICKET_CONCURRENCY cycles run at once.
 #      An open issue marked tehas:running whose cycle holds no lock on this
-#      host is handed to a human. Nothing is started for it.
+#      host is handed to a human. Nothing is started for it. A closed one
+#      only loses the mark.
 #   3. Running cycles and tehas PRs that wait for a human together do not
 #      exceed TEHAS_MAX_AWAITING.
 #   4. A box ticked by an allowed account in the bot's question comment is an
@@ -40,6 +41,10 @@
 #   6. An issue is eligible only if its tehas:ready label was applied by an
 #      account in TEHAS_ALLOWED_LABELERS. The bot is never in that list. An
 #      issue with an open planning session is not eligible until it is ended.
+#      Nothing else the issue carries holds it back: the labels of an earlier
+#      outcome go with the start. Every start takes tehas:ready off, so a
+#      label that is there was applied after the last start. While the
+#      issue's own cycle is alive it waits, and starts when that cycle ended.
 #   7. tehas:urgent first, then the lowest issue number. A running cycle is
 #      never stopped to make room.
 #
@@ -339,7 +344,7 @@ start_cycles() {
       log "ERROR: the cycle for #$n did not start"
       gh issue edit "$n" --repo "$repo" --remove-label tehas:running --add-label needs-human-attention >/dev/null 2>&1 ||
         log "WARN: label change on #$n failed"
-      say "$n" "Tehas could not start the cycle for this issue on \`$(hostname)\`: \`tehas-cycle@$n.service\` did not come up. See \`journalctl --user -u tehas-cycle@$n\` and \`~/tehas/logs/dispatch.log\` there. To retry, remove \`needs-human-attention\` and apply \`tehas:ready\` again."
+      say "$n" "Tehas could not start the cycle for this issue on \`$(hostname)\`: \`tehas-cycle@$n.service\` did not come up. See \`journalctl --user -u tehas-cycle@$n\` and \`~/tehas/logs/dispatch.log\` there. To retry, apply \`tehas:ready\`."
       failed=1
     fi
   done
@@ -378,17 +383,28 @@ free=$((TEHAS_TICKET_CONCURRENCY - count))
 # its issue marked as running. No rule below would look at it again. The
 # comment follows the label change only: while the change fails, the next poll
 # finds the issue again and must not say the same once more.
-gh_json issue list --repo "$repo" --state open --label tehas:running --limit 100 --json number
-marked=$(jq -r 'map(.number) | sort | .[]' <<<"$json") || { log "ERROR: unreadable list of issues marked as running"; exit 1; }
+gh_json issue list --repo "$repo" --state all --label tehas:running --limit 1000 --json number,state
+marked_json=$json
+marked=$(jq -r 'map(.number) | sort | .[]' <<<"$marked_json") || { log "ERROR: unreadable list of issues marked as running"; exit 1; }
 for n in $marked; do
   ! tehas_cycle_running "$n" || continue
+  # A closed issue is nobody's to retry: the mark goes and nothing is said.
+  if [ "$(jq -r --argjson n "$n" '.[] | select(.number == $n) | .state // "OPEN"' <<<"$marked_json")" = CLOSED ]; then
+    if [ "$dry" = 1 ]; then
+      log "would clear #$n: it is closed, marked tehas:running, and no cycle holds its lock"
+      continue
+    fi
+    log "clear #$n: it is closed, marked tehas:running, and no cycle holds its lock"
+    gh issue edit "$n" --repo "$repo" --remove-label tehas:running >/dev/null 2>&1 || log "WARN: label change on #$n failed"
+    continue
+  fi
   if [ "$dry" = 1 ]; then
     log "would park #$n: it is marked tehas:running and no cycle holds its lock"
     continue
   fi
   log "park #$n: it is marked tehas:running and no cycle holds its lock"
   if gh issue edit "$n" --repo "$repo" --remove-label tehas:running --add-label needs-human-attention >/dev/null 2>&1; then
-    say "$n" "Tehas found this issue marked \`tehas:running\` with no cycle behind it on \`$(hostname)\`: the cycle ended without a report, or never started. Look for a pull request it may have opened. The run log is \`~/tehas/logs/dispatch-work-$n.log\` there. To retry, remove \`needs-human-attention\` and apply \`tehas:ready\` again."
+    say "$n" "Tehas found this issue marked \`tehas:running\` with no cycle behind it on \`$(hostname)\`: the cycle ended without changing the label, or never started. Look for a pull request it may have opened. The run log is \`~/tehas/logs/dispatch-work-$n.log\` there. To retry, apply \`tehas:ready\`. If it is on the issue already, nothing more is needed."
   else
     log "WARN: label change on #$n failed"
   fi
@@ -403,7 +419,7 @@ want=0
 if [ "$free" -le 0 ]; then
   hold="holding: $count cycles are running (limit $TEHAS_TICKET_CONCURRENCY)"
 else
-  gh_json issue list --repo "$repo" --state open --label tehas:awaiting-merge --limit 100 --json number
+  gh_json issue list --repo "$repo" --state open --label tehas:awaiting-merge --limit 1000 --json number
   awaiting=$(jq length <<<"$json") || { log "ERROR: unreadable list of issues awaiting merge"; exit 1; }
   room=$((max_awaiting - awaiting - count))
   if [ "$room" -gt 0 ]; then
@@ -451,7 +467,7 @@ for st in "$TEHAS_HOME"/state/plan-*.json; do
   fresh="$fresh$n "
 done
 
-gh_json issue list --repo "$repo" --state open --label tehas:question --limit 100 --json number,labels
+gh_json issue list --repo "$repo" --state open --label tehas:question --limit 1000 --json number,labels
 asking_json=$json
 asking=$(jq -r 'map(.number) | sort | .[]' <<<"$asking_json") || { log "ERROR: unreadable list of issues with a question"; exit 1; }
 # A session whose issue was closed, or whose question label was taken off by
@@ -545,7 +561,7 @@ for n in $asking; do
       if [ "$qkind" != park ]; then
         log "skip #$n: a box was ticked in a question this host has no record of"
         if [ "$dry" = 0 ]; then
-          untick "$n" "$ans" "This question is not one the factory is waiting on. To retry, remove \`needs-human-attention\` and apply \`tehas:ready\` again." ||
+          untick "$n" "$ans" "This question is not one the factory is waiting on. To retry, apply \`tehas:ready\`." ||
             log "WARN: could not untick the question on #$n"
         fi
         continue
@@ -607,6 +623,9 @@ for n in $asking; do
       verb[$n]="retry ticked"
       how[$n]="retry tick"
       drop[$n]="--remove-label needs-human-attention --remove-label tehas:question"
+      # A tehas:ready left on the issue would start a second cycle after this
+      # one: one start uses up every request for it.
+      [[ $have == *" tehas:ready "* ]] && drop[$n]+=" --remove-label tehas:ready"
       start_cycles
       exit
       ;;
@@ -665,7 +684,7 @@ done
 # 5. New planning sessions. The label approves the text, as tehas:ready does,
 # so the text is read before the approval is checked: an edit made in between
 # is then seen by the check.
-gh_json issue list --repo "$repo" --state open --label tehas:plan --limit 100 --json number,labels
+gh_json issue list --repo "$repo" --state open --label tehas:plan --limit 1000 --json number,labels
 plans=$(jq -r '[.[] | (.labels | map(.name)) as $l
         | select((["tehas:planning", "tehas:question", "tehas:running"] - $l | length) == 3) | .number]
         | sort | .[]' <<<"$json") || { log "ERROR: unreadable list of issues to plan"; exit 1; }
@@ -694,11 +713,9 @@ if [ -n "$hold" ]; then
 fi
 
 # 6. and 7. Candidates: urgent first, then by number.
-gh_json issue list --repo "$repo" --state open --label tehas:ready --limit 100 --json number,labels
+gh_json issue list --repo "$repo" --state open --label tehas:ready --limit 1000 --json number,labels
 ready_json=$json
 candidates=$(jq -r '[.[] | (.labels | map(.name)) as $l
-          | select(($l | index("tehas:running") | not) and ($l | index("tehas:awaiting-merge") | not)
-                   and ($l | index("needs-human-attention") | not))
           | {number, urgent: ($l | index("tehas:urgent") != null)}]
          | sort_by([(.urgent | not), .number]) | .[].number' <<<"$ready_json") ||
   { log "ERROR: unreadable list of ready issues"; exit 1; }
@@ -718,16 +735,23 @@ for n in $candidates; do
     log "skip #$n: a planning session is open on it; end it first"
     continue
   fi
+  # The label asks for a fresh cycle. It gets one when this one has ended, and
+  # stays on the issue until then. A running cycle is never stopped for it.
+  if tehas_cycle_running "$n"; then
+    log "wait #$n: its cycle is still running"
+    continue
+  fi
   approval "$n" tehas:ready || continue
   picked+=("$n")
   starter[$n]=$who
   verb[$n]=labelled
   how[$n]="\`tehas:ready\` label"
   drop[$n]="--remove-label tehas:ready"
-  # A parked issue retried by its labels still carries the label of its old
-  # question. It goes with the start. Only then: gh refuses to remove a label
-  # the repository does not have.
-  [[ $have == *" tehas:question "* ]] && drop[$n]+=" --remove-label tehas:question"
+  # What an earlier cycle left on the issue goes with the start. Only what
+  # is there: gh refuses to remove a label the repository does not have.
+  for l in needs-human-attention tehas:awaiting-merge tehas:question; do
+    [[ $have == *" $l "* ]] && drop[$n]+=" --remove-label $l"
+  done
 done
 
 if [ "$dry" = 1 ]; then

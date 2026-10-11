@@ -192,11 +192,11 @@ ${usage}" '{text: $text, question: null}' >"$TEHAS_HOME/state/park-$issue.json"
     if ! gh issue edit "$issue" --repo "$repo" --add-label tehas:question >/dev/null 2>&1; then
       log "WARN: label change on #$issue failed: --add-label tehas:question"
       rm -f "$(park_id "$issue")"
-      comment "The boxes above cannot be used: the label \`tehas:question\` could not be added (run \`tehas labels\` on the host). To retry, remove \`needs-human-attention\` and apply \`tehas:ready\` again."
+      comment "The boxes above cannot be used: the label \`tehas:question\` could not be added (run \`tehas labels\` on the host). To retry, apply \`tehas:ready\`."
     fi
   else
     # Without the boxes there is nothing to tick: say the old way.
-    comment "$parked To retry, remove \`needs-human-attention\` and apply \`tehas:ready\` again.
+    comment "$parked To retry, apply \`tehas:ready\`.
 
 ${usage}"
   fi

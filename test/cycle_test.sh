@@ -375,7 +375,7 @@ reset
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "issue comment 7"
 t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
-t_contains "$(t_calls gh)" "To retry, remove"
+t_contains "$(t_calls gh)" "To retry, apply"
 t_lacks "$(t_calls gh | grep '^issue edit')" "tehas:question"
 t_eq "$([ -e "$park_id" ] && echo kept)" ""
 
@@ -384,7 +384,7 @@ reset
 printf '%s' '--add-label tehas:question' >"$fx/edit-fails-on"
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
-t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body The boxes above cannot be used: the label \`tehas:question\` could not be added (run \`tehas labels\` on the host). To retry, remove \`needs-human-attention\` and apply \`tehas:ready\` again."
+t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body The boxes above cannot be used: the label \`tehas:question\` could not be added (run \`tehas labels\` on the host). To retry, apply \`tehas:ready\`."
 t_contains "$t_out" "WARN: label change on #7 failed: --add-label tehas:question"
 t_eq "$([ -e "$park_id" ] && echo kept)" ""
 rm -f "$fx/edit-fails-on"
@@ -445,7 +445,7 @@ t_contains "$(t_calls gh)" "| planner | 1 | 0 | 0 | 0 | 0 |"
 rm -f "$T"/calls/* "$fx/pr.txt"
 : >"$fx/post-fails"
 t_run "$cycle 7"
-t_contains "$(t_calls gh)" "To retry, remove"
+t_contains "$(t_calls gh)" "To retry, apply"
 t_eq "$(t_calls gh | grep -c '^- \[')" 2
 t_eq "$(t_calls gh | grep -c -e '<!--')" 1
 rm -rf "$workdir"
@@ -477,7 +477,7 @@ reset
 sly_usage
 : >"$fx/post-fails"
 t_run "$cycle 7"
-t_contains "$(t_calls gh)" "To retry, remove"
+t_contains "$(t_calls gh)" "To retry, apply"
 t_eq "$(t_calls gh | grep -c -F '| **total** | 3 | 7 | 10 | 4 | 5 |')" 2
 # The question that could not be posted is in the record of calls too: its
 # two boxes and its marker are the factory's own.

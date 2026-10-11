@@ -136,12 +136,16 @@ does not hold its lock on this host, `~/tehas/state/cycles/<issue>.lock`, gets
 `needs-human-attention` in place of `tehas:running` and a comment that says
 where the run log is. The log line is `park #N: it is marked tehas:running and
 no cycle holds its lock`. If the label change fails nothing is said on the
-issue and the next poll tries again. A paused factory leaves such an issue as
-it is. Run the dispatcher only on the host that runs the cycles: on any other
+issue and the next poll tries again. A closed issue in that state only loses
+`tehas:running`. A paused factory leaves such an issue as it is. Run the dispatcher only on the host that runs the cycles: on any other
 host no cycle holds a lock.
 
 An issue is taken only when an allowed account applied `tehas:ready` and
-nobody else has changed its title or body since. A cycle starts only once the
+nobody else has changed its title or body since. No other label holds it
+back: `needs-human-attention`, `tehas:awaiting-merge` and `tehas:question` are
+taken off as the cycle starts. While the issue's own cycle is alive the log
+says `wait #N: its cycle is still running`, and the issue is taken once that
+cycle has ended. Every list of issues is read up to 1000. A cycle starts only once the
 issue is marked `tehas:running`; if that label change fails, the poll stops.
 
 ## tehas work
