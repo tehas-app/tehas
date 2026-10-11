@@ -11,7 +11,7 @@
 t_case "the changed sources ask for the steps, systemd first"
 t_eq "$(tehas_steps_for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env \
   edge/docs.compose.yaml edge/protolab.compose.yaml libexec/dispatch)" \
-  "units tehas-dispatch.timer tehas-energy.service tehas-protolab.timer
+  "units tehas-dispatch.timer tehas-energy.service tehas-protolab.timer tehas-improve.timer
 sandbox
 docs --force-recreate
 protolab --force-recreate"

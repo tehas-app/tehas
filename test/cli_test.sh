@@ -15,7 +15,7 @@ cp "$T_ROOT/bin/tehas" "$T_ROOT/bin/tehasbot" "$tree/bin/"
 # The settings library is there to be read, so that not reading it means something.
 cp "$T_ROOT/lib/config.sh" "$tree/lib/config.sh"
 # One line per call: the name, then each argument after a "|".
-for name in dispatch cycle work dev index update labels summary status health energy protolab; do
+for name in dispatch cycle work dev index update labels summary status health energy protolab improve; do
   printf '%s\n' '#!/usr/bin/env bash' "# The text of $name." '#' "# Usage: $name" 'set -u' 'IFS="|"' \
     "printf '%s\\n' \"$name\${*:+|\$*}\" >>\"\$T/calls/libexec\"" 'exit "${RC:-0}"' >"$tree/libexec/$name"
   chmod +x "$tree/libexec/$name"
@@ -120,7 +120,7 @@ t_eq "$(ran)" ""
 
 t_case "what only the units run is not a tehas command"
 reset
-for name in health energy protolab summary console ../bin/tehasbot; do
+for name in health energy protolab improve summary console ../bin/tehasbot; do
   t_run "$tehas $name"
   t_eq "$t_rc" 64
 done
@@ -128,14 +128,15 @@ t_eq "$(ran)" ""
 
 t_case "tehasbot runs the script of each command with the remaining arguments"
 reset
-t_run "$bot dispatch && $bot cycle 7 && $bot status && $bot health && $bot energy --every && $bot protolab"
+t_run "$bot dispatch && $bot cycle 7 && $bot status && $bot health && $bot energy --every && $bot protolab && $bot improve"
 t_eq "$t_rc" 0
 t_eq "$(ran)" "dispatch
 cycle|7
 status
 health
 energy|--every
-protolab"
+protolab
+improve"
 
 t_case "tehasbot status writes the snapshot; it is not the script that prints"
 reset
@@ -188,7 +189,7 @@ done
 
 t_case "every command in the usage of tehasbot has an executable script"
 names=$("$T_ROOT/bin/tehasbot" help | sed -n 's/^  tehasbot \([a-z]*\).*/\1/p' | grep -v -x help | tr '\n' ' ')
-t_eq "$names" "dispatch cycle status health energy protolab "
+t_eq "$names" "dispatch cycle status health energy protolab improve "
 missing=""
 for name in $names; do
   [ -x "$T_ROOT/libexec/$name" ] || missing="$missing $name"
