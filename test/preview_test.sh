@@ -138,6 +138,11 @@ case "$1" in
       inspect)
         ref=${@: -1}
         case "$*" in
+          # The volumes an image declares: fx/volumes, or none. fx/volumes-fails
+          # is a question Docker does not answer.
+          *"{{json .Config.Volumes}}"*)
+            [ ! -e "$T/fx/volumes-fails" ] || exit 1
+            cat "$T/fx/volumes" 2>/dev/null || echo null ;;
           *tehas.repo*) grep "^$ref " "$T/fx/image-repos" 2>/dev/null | cut -d" " -f2 || true ;;
           *) cat "$d/image-${ref#tehas-preview:}" 2>/dev/null || exit 1 ;;
         esac ;;
@@ -198,6 +203,7 @@ state_of() { jq -r '.state' "$root/$1/state.json" 2>/dev/null; }
 count() { find "$1" -mindepth 1 -maxdepth 1 -name "$2" 2>/dev/null | wc -l; }
 runs() { find "$T/calls" -name 'docker.run.*' | wc -l; }
 builds() { t_calls docker | grep -c '^build ' || true; }
+writes() { cat "$T/calls/gh-writes" 2>/dev/null || true; }
 
 t_case "invalid settings: exit 78 before GitHub or Docker is asked"
 reset
@@ -227,7 +233,7 @@ pulls "$(pull 12 "$a")"
 t_run "$preview"
 t_eq "$t_rc" 0
 t_eq "$(state_of 12)" "serving"
-t_eq "$(tr '\n' ' ' <"$T/calls/docker.run.12")" "run --detach --name tehas-preview-12 --network tehas-previews --read-only --tmpfs /tmp --tmpfs /config --tmpfs /data --cap-drop ALL --cap-add NET_BIND_SERVICE --security-opt no-new-privileges:true --memory 256m --cpus 1 --pids-limit 128 --restart unless-stopped --label tehas.preview=12 --label tehas.sha=$a --label tehas.repo=acme/widget tehas-preview:12 "
+t_eq "$(tr '\n' ' ' <"$T/calls/docker.run.12")" "run --detach --name tehas-preview-12 --network tehas-previews --read-only --tmpfs /tmp --tmpfs /config --tmpfs /data --cap-drop ALL --cap-add NET_BIND_SERVICE --security-opt no-new-privileges:true --memory 256m --cpus 1 --pids-limit 128 --log-opt max-size=10m --log-opt max-file=2 --restart unless-stopped --label tehas.preview=12 --label tehas.sha=$a --label tehas.repo=acme/widget tehas-preview:12 "
 t_contains "$t_out" "#12: serving"
 t_lacks "$t_out" "No such file"
 
@@ -265,7 +271,7 @@ a2=$(commit feature)
 pulls "$(pull 12 "$a2")"
 t_run "$preview"
 t_eq "$(cat "$fx/docker/container-12")" "$a2"
-t_contains "$(t_calls docker)" "rm -f tehas-preview-12"
+t_contains "$(t_calls docker)" "rm -f -v tehas-preview-12"
 t_contains "$(t_calls docker)" "image rm $old"
 t_lacks "$t_out" "No such file"
 
@@ -299,6 +305,101 @@ a3=$(commit feature)
 pulls "$(pull 12 "$a3")"
 t_run "$preview"
 t_eq "$(state_of 12)" "serving"
+
+t_case "a recipe that declares a volume elsewhere is not run, and the old preview keeps serving"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+t_run "$preview"
+a2=$(commit feature)
+pulls "$(pull 12 "$a2")"
+echo '{"/config":{},"/stuff":{}}' >"$fx/volumes"
+rm -f "$T"/calls/docker*
+t_run "$preview"
+t_eq "$t_rc" 0
+t_eq "$(state_of 12)" "build-failed"
+t_eq "$(jq -r .reason "$root/12/state.json")" \
+  "The recipe declares a volume at /stuff. A preview may write to /tmp, /config and /data only."
+t_eq "$(cat "$fx/docker/container-12")" "$a"
+t_eq "$(runs)" 0
+t_eq "$(t_calls docker | grep -c '^rm ')" 0
+# The image that was built goes, and the commit is not tried again.
+t_contains "$(t_calls docker)" "image rm tehas-preview:12"
+t_eq "$(count "$fx/docker" image-12)" 0
+t_eq "$(count "$root/12" '.retry')" 0
+t_contains "$(writes)" "The recipe declares a volume at /stuff."
+rm -f "$T"/calls/docker*
+t_run "$preview"
+t_eq "$(builds)" 0
+
+for odd in '{"/tmp/":{}}' '{"/data/x":{}}' '{"":{}}' '{"/":{}}' '{"/var/lib/docker":{},"/data":{}}'; do
+  t_case "declared volumes of '$odd' are not the three directories: nothing is run"
+  reset
+  a=$(commit feature)
+  pulls "$(pull 12 "$a")"
+  printf '%s\n' "$odd" >"$fx/volumes"
+  t_run "$preview"
+  t_eq "$(state_of 12)" "build-failed"
+  t_contains "$(jq -r .reason "$root/12/state.json")" "The recipe declares a volume at "
+  t_eq "$(runs)" 0
+done
+
+t_case "a volume's path reaches the reason without its control characters, and cut short"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+jq -n -c '{("/a\nb\u001b[31m" + ("x" * 300)): {}}' >"$fx/volumes"
+t_run "$preview"
+t_eq "$(state_of 12)" "build-failed"
+t_eq "$(jq -r .reason "$root/12/state.json")" \
+  "The recipe declares a volume at /ab[31m$(printf 'x%.0s' $(seq 1 73)). A preview may write to /tmp, /config and /data only."
+t_eq "$(printf '%s\n' "$t_out" | grep -c '^#12: build-failed')" 1
+
+for fine in 'null' '{"/config":{},"/data":{}}' '{"/tmp":{}}' '{}'; do
+  t_case "declared volumes of '$fine' are covered by what is in memory: the preview serves"
+  reset
+  a=$(commit feature)
+  pulls "$(pull 12 "$a")"
+  printf '%s\n' "$fine" >"$fx/volumes"
+  t_run "$preview"
+  t_eq "$(state_of 12)" "serving"
+  t_eq "$(runs)" 1
+done
+
+for odd in '' '"/stuff"' '["/stuff"]' 'not json' 'true' 'null null'; do
+  t_case "volumes that read as '$odd' are not read: nothing is run"
+  reset
+  a=$(commit feature)
+  pulls "$(pull 12 "$a")"
+  printf '%s\n' "$odd" >"$fx/volumes"
+  t_run "$preview"
+  t_eq "$(state_of 12)" "build-failed"
+  t_eq "$(jq -r .reason "$root/12/state.json")" "The image's volumes could not be read."
+  t_eq "$(runs)" 0
+  t_eq "$(count "$fx/docker" image-12)" 0
+done
+
+t_case "volumes Docker does not tell are not read: nothing is run"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+: >"$fx/volumes-fails"
+t_run "$preview"
+t_eq "$(state_of 12)" "build-failed"
+t_eq "$(jq -r .reason "$root/12/state.json")" "The image's volumes could not be read."
+t_eq "$(runs)" 0
+
+t_case "the volumes are asked for after the build and before anything is removed or run"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+t_run "$preview"
+a2=$(commit feature)
+pulls "$(pull 12 "$a2")"
+rm -f "$T"/calls/docker*
+t_run "$preview"
+t_eq "$(t_calls docker | grep -n -e '^build ' -e 'Config.Volumes' -e '^rm ' -e '^run ' | sed 's/^[0-9]*:\([a-z]*\) .*/\1/' | tr '\n' ' ')" \
+  "build image rm run "
 
 t_case "a commit without the recipe has no preview, and an older one of it stops"
 reset
@@ -351,7 +452,7 @@ t_run "$preview"
 t_eq "$(state_of 23) $(state_of 22) $(state_of 21)" "serving serving over-limit"
 t_eq "$(count "$fx/docker" container-21)" 0
 t_eq "$(count "$fx/docker" image-21)" 0
-t_contains "$(t_calls docker)" "rm -f tehas-preview-21"
+t_contains "$(t_calls docker)" "rm -f -v tehas-preview-21"
 t_eq "$(jq -r '.previews[] | select(.number == 21) | .address' "$live/previews.json")" "null"
 
 t_case "a pull request that is over the limit is stopped once, not at every run"
@@ -360,7 +461,7 @@ rm -f "$T"/calls/docker*
 t_run "$preview"
 t_run "$preview"
 t_eq "$(state_of 21)" "over-limit"
-t_eq "$(t_calls docker | grep -c -e 'rm -f tehas-preview-21' -e 'image rm -f tehas-preview:21')" 0
+t_eq "$(t_calls docker | grep -c -e 'rm -f -v tehas-preview-21' -e 'image rm -f tehas-preview:21')" 0
 t_eq "$(jq -r .time "$root/21/state.json")" "$began"
 t_lacks "$t_out" "#21"
 # A new commit of it is a new state, and what is there of the number goes again.
@@ -368,7 +469,7 @@ a4=$(commit one)
 pulls "$(pull 23 "$c")" "$(pull 22 "$b")" "$(pull 21 "$a4")"
 t_run "$preview"
 t_eq "$(jq -r '"\(.state) \(.sha)"' "$root/21/state.json")" "over-limit $a4"
-t_eq "$(t_calls docker | grep -c 'rm -f tehas-preview-21')" 1
+t_eq "$(t_calls docker | grep -c 'rm -f -v tehas-preview-21')" 1
 
 t_case "a pull request over the limit whose container did not go is stopped again"
 echo tehas-preview-22 >"$fx/rm-fails"
@@ -380,11 +481,11 @@ t_eq "$(cat "$fx/docker/container-22")" "$b"
 rm -f "$fx/rm-fails" "$T"/calls/docker*
 t_run "$preview"
 t_eq "$(state_of 22)" "over-limit"
-t_eq "$(t_calls docker | grep -c -x 'rm -f tehas-preview-22')" 1
+t_eq "$(t_calls docker | grep -c -x 'rm -f -v tehas-preview-22')" 1
 t_eq "$(count "$fx/docker" container-22)" 0
 rm -f "$T"/calls/docker*
 t_run "$preview"
-t_eq "$(t_calls docker | grep -c 'rm -f tehas-preview-22')" 0
+t_eq "$(t_calls docker | grep -c 'rm -f -v tehas-preview-22')" 0
 pulls "$(pull 23 "$c")" "$(pull 22 "$b")" "$(pull 21 "$a4")"
 t_run "$preview"
 t_eq "$(state_of 23) $(state_of 22) $(state_of 21)" "serving serving over-limit"
@@ -485,7 +586,7 @@ t_eq "$(count "$root/12" '.retry')" 0
 rm -f "$T"/calls/docker*
 t_run "$preview"
 t_eq "$(builds) $(runs)" "0 0"
-t_lacks "$(t_calls docker)" "rm -f tehas-preview-12"
+t_lacks "$(t_calls docker)" "rm -f -v tehas-preview-12"
 
 t_case "a container that never starts is tried three more times, then left until a new commit"
 reset
@@ -556,8 +657,8 @@ for answer in "false 0" "true 2" ""; do
     'The container started and stopped. See "docker logs" in logs/preview-12.log on the host.'
   t_eq "$(count "$fx/docker" container-12)" 0
   # Its last lines are kept before it goes.
-  t_eq "$(t_calls docker | grep -x -e 'logs --tail 40 tehas-preview-12' -e 'rm -f tehas-preview-12' | tail -n 2 | tr '\n' ' ')" \
-    "logs --tail 40 tehas-preview-12 rm -f tehas-preview-12 "
+  t_eq "$(t_calls docker | grep -x -e 'logs --tail 40 tehas-preview-12' -e 'rm -f -v tehas-preview-12' | tail -n 2 | tr '\n' ' ')" \
+    "logs --tail 40 tehas-preview-12 rm -f -v tehas-preview-12 "
   t_contains "$(cat "$T/home/tehas/logs/preview-12.log")" "Read-only file system"
   t_eq "$(jq -r '.previews[0] | "\(.state) \(.address)"' "$live/previews.json")" "build-failed null"
   t_eq "$(cat "$T/calls/gh-writes" | wc -l)" 1
@@ -789,8 +890,6 @@ pulls
 t_run "$preview"
 t_eq "$(jq -r '.disk.freeBytes' "$live/previews.json")" "42949672960"
 
-writes() { cat "$T/calls/gh-writes" 2>/dev/null || true; }
-
 t_case "a serving preview is said once, with its address"
 reset
 a=$(commit feature)
@@ -979,8 +1078,8 @@ t_case "sweep: a container of another repository, and one with no number, are re
 reset
 printf '%s\n' "c0de01 7 other/thing foreign" "c0de02 x acme/widget broken" >"$fx/extra-containers"
 t_run "$preview --sweep"
-t_contains "$(t_calls docker)" "rm -f c0de01"
-t_contains "$(t_calls docker)" "rm -f c0de02"
+t_contains "$(t_calls docker)" "rm -f -v c0de01"
+t_contains "$(t_calls docker)" "rm -f -v c0de02"
 t_eq "$(t_calls gh | grep -c 'pulls/7')" 0
 
 t_case "sweep: a line whose id is not one is skipped, and nothing is removed by it"
@@ -997,7 +1096,7 @@ rm -f "$T"/calls/docker*
 t_run "$preview --sweep"
 t_eq "$t_rc" 0
 t_eq "$(printf '%s\n' "$t_out" | grep -c -x 'an id that is not one, skipped')" 3
-t_eq "$(t_calls docker | grep -c -e '^rm -f --volumes' -e '^rm -f tehas-preview-64' -e '^rm -f C0DE05')" 0
+t_eq "$(t_calls docker | grep -c -e '^rm -f -v --volumes' -e '^rm -f -v tehas-preview-64' -e '^rm -f -v C0DE05')" 0
 t_eq "$(cat "$fx/docker/container-64")" "$a"
 # What is left of #65 is said, and it is not counted as swept.
 t_contains "$t_out" "#65: a container could not be removed, tried again at the next sweep"
@@ -1066,7 +1165,7 @@ pull 63 "$a" >/dev/null
 jq '.state = "closed"' "$fx/pull-63.json" >"$fx/x" && mv "$fx/x" "$fx/pull-63.json"
 echo "c0de03 63 acme/widget debug" >"$fx/extra-containers"
 t_run "$preview --sweep"
-t_contains "$(t_calls docker)" "rm -f c0de03"
+t_contains "$(t_calls docker)" "rm -f -v c0de03"
 t_contains "$t_out" "#63: swept, the pull request is closed"
 t_run "$preview --sweep"
 t_lacks "$t_out" "swept"
@@ -1079,10 +1178,10 @@ pulls "$(pull 64 "$a")"
 t_run "$preview"
 echo "c0de04 64 acme/widget extra" >"$fx/extra-containers"
 t_run "$preview --sweep"
-t_contains "$(t_calls docker)" "rm -f c0de04"
+t_contains "$(t_calls docker)" "rm -f -v c0de04"
 t_contains "$t_out" "container c0de04: swept, a second container of #64"
 t_eq "$(cat "$fx/docker/container-64")" "$a"
-t_lacks "$(t_calls docker)" "rm -f ab64"
+t_lacks "$(t_calls docker)" "rm -f -v ab64"
 t_eq "$(jq -r '.removed' "$root/sweep.json")" 1
 
 t_case "sweep: the serving container is kept when Docker gives it several names"
@@ -1096,7 +1195,7 @@ for names in "tehas-preview-64,proxy/app" "proxy/app,tehas-preview-64" "proxy/a,
   t_eq "$(cat "$fx/docker/container-64" 2>/dev/null)" "$a"
   t_lacks "$t_out" "swept"
 done
-t_lacks "$(t_calls docker)" "rm -f ab64"
+t_lacks "$(t_calls docker)" "rm -f -v ab64"
 t_eq "$(jq -r '.removed' "$root/sweep.json")" 0
 
 t_case "sweep: a container whose name column is empty is kept"
@@ -1104,16 +1203,16 @@ t_case "sweep: a container whose name column is empty is kept"
 echo "c0de06 64 acme/widget " >"$fx/extra-containers"
 t_run "$preview --sweep"
 t_eq "$(cat "$fx/docker/container-64" 2>/dev/null)" "$a"
-t_lacks "$(t_calls docker)" "rm -f ab64"
-t_lacks "$(t_calls docker)" "rm -f c0de06"
+t_lacks "$(t_calls docker)" "rm -f -v ab64"
+t_lacks "$(t_calls docker)" "rm -f -v c0de06"
 t_lacks "$t_out" "swept"
 
 t_case "sweep: a name that only has the serving name inside it is a second container"
 rm -f "$fx/names-64"
 printf '%s\n' "c0de07 64 acme/widget tehas-preview-640" "c0de08 64 acme/widget x,old-tehas-preview-64" >"$fx/extra-containers"
 t_run "$preview --sweep"
-t_contains "$(t_calls docker)" "rm -f c0de07"
-t_contains "$(t_calls docker)" "rm -f c0de08"
+t_contains "$(t_calls docker)" "rm -f -v c0de07"
+t_contains "$(t_calls docker)" "rm -f -v c0de08"
 t_eq "$(cat "$fx/docker/container-64")" "$a"
 
 t_case "sweep: a closed pull request with a container that will not go is not called swept, and is tried again"
@@ -1146,7 +1245,7 @@ t_run "$preview --sweep"
 t_eq "$t_rc" 0
 t_eq "$(count "$fx/docker" '*-52')" 2
 t_contains "$t_out" "GitHub does not show acme/widget; nothing was swept by its word"
-t_contains "$(t_calls docker)" "rm -f c0de01"
+t_contains "$(t_calls docker)" "rm -f -v c0de01"
 t_eq "$(jq -r '.removed' "$root/sweep.json")" 1
 
 # An answer of exit 0 is the repository only when it says so itself.
@@ -1197,6 +1296,40 @@ left 73 0000000000000000000000000000000000000073
 echo "acme/widget-two" >"$fx/label-repo"
 t_run "$preview --sweep"
 t_contains "$t_out" "container ab73: swept, it belongs to no pull request of acme/widget"
+
+t_case "every container is removed with its volumes: a replace, a stop, a purge and a sweep"
+reset
+a=$(commit one)
+b=$(commit two)
+pulls "$(pull 81 "$a")" "$(pull 82 "$b")"
+t_run "$preview"
+a2=$(commit one)
+pulls "$(pull 81 "$a2")" "$(pull 82 "$b")"
+t_run "$preview"
+# 82 is merged: the run purges it.
+pulls "$(pull 81 "$a2")"
+t_run "$preview"
+# 81 stops within its five seconds at a new commit: the settle path.
+a3=$(commit one)
+pulls "$(pull 81 "$a3")"
+echo "false 0" >"$fx/settle"
+t_run "$preview"
+rm -f "$fx/settle"
+# The sweep: a foreign container, a second container of an open pull request,
+# and what a closed one left.
+pulls "$(pull 81 "$a3")"
+t_run "$preview"
+left 83 0000000000000000000000000000000000000083
+pull 83 0000000000000000000000000000000000000083 >/dev/null 2>&1
+jq '.state = "closed"' "$fx/pull-83.json" >"$fx/x" && mv "$fx/x" "$fx/pull-83.json"
+printf '%s\n' "c0de01 7 other/thing foreign" "c0de02 81 acme/widget extra" "c0de03 83 acme/widget debug" >"$fx/extra-containers"
+t_run "$preview --sweep"
+t_contains "$t_out" "#83: swept, the pull request is closed"
+removals=$(t_calls docker | grep '^rm ')
+for of in tehas-preview-81 tehas-preview-82 tehas-preview-83 c0de01 c0de02 c0de03; do
+  t_contains "$removals" "rm -f -v $of"
+done
+t_eq "$(printf '%s\n' "$removals" | grep -c -v '^rm -f -v [0-9a-z-]*$')" 0
 
 t_case "a comment GitHub did not take is tried again at the next run"
 reset

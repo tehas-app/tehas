@@ -446,7 +446,9 @@ are enabled. Both write to `~/tehas/logs/preview.log`.
 6. Each pull request that is due is fetched and built. The commit is fetched
    into the bare clone `~/tehas/preview/repo.git`, and its
    `preview/Dockerfile` is built with the commit as the context, in at most
-   15 minutes. The new container replaces the old one. Five seconds after
+   15 minutes. An image that declares a volume outside `/tmp`, `/config`
+   and `/data` is not run: that is a failed build, and the image is removed.
+   The new container replaces the old one. Five seconds after
    its start Docker is asked whether it still runs and was never restarted.
    One that is not is removed, with its last lines in the build log, and the
    state is `build-failed`. The old container went before the new one was
@@ -461,7 +463,7 @@ Each pull request has a state, in `~/tehas/preview/<pr>/state.json`:
 | `serving` | A container of that commit was started and was still running five seconds later, without a restart. It is not asked whether it answers | Not needed |
 | `building` | The build is under way | |
 | `no-recipe` | The commit has no `preview/Dockerfile`. A preview of an earlier commit is removed | At a new commit |
-| `build-failed` | The build failed or ran over 15 minutes: a preview of an earlier commit keeps serving. Or the container did not start, or it started and stopped within five seconds and was removed: for these two nothing serves for that pull request, not the earlier commit either, until a commit starts | A failed build: at a new commit, not for the same one. A container that did not start or did not stay up: at each of the next three runs, then at a new commit |
+| `build-failed` | The build failed or ran over 15 minutes, or the recipe declares a volume outside `/tmp`, `/config` and `/data`: a preview of an earlier commit keeps serving. Or the container did not start, or it started and stopped within five seconds and was removed: for these two nothing serves for that pull request, not the earlier commit either, until a commit starts | A failed build: at a new commit, not for the same one. A container that did not start or did not stay up: at each of the next three runs, then at a new commit |
 | `no-space` | Less than `TEHAS_PREVIEW_MIN_FREE` is free, or the free space could not be read. What serves stays, and removal still runs | At every run, until there is space |
 | `over-limit` | More than `TEHAS_PREVIEW_MAX` pull requests are open and this is not one of the newest. A preview it had is removed | At every run |
 
@@ -477,8 +479,15 @@ variable, no published port, no token. A read-only root with `/tmp`, `/config`
 and `/data` in memory, every capability dropped but the one to bind a port,
 256 MB, one CPU, 128 processes, and the network `tehas-previews` only. That
 network has the router and the other previews on it, and neither the internet
-nor the host.
+nor the host. What it prints is kept by Docker in at most two files of 10 MB
+(`--log-opt max-size=10m --log-opt max-file=2`).
 `test/preview_test.sh` pins these arguments.
+
+It writes nothing else to the host's disk. A `VOLUME` line in a recipe would
+have Docker make a volume there, which a read-only root does not stop and the
+memory limit does not count. So an image that declares a volume anywhere but
+`/tmp`, `/config` and `/data` is not run, and every container is removed
+with `docker rm -f -v`, which takes a volume Docker made for it along.
 
 **The comment.** The pull request gets one comment, by the bot's own account,
 edited in place: the address when the preview serves, or "Unable to create a

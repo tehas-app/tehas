@@ -256,7 +256,10 @@ comment says so for a failed build and for a full disk. See
 
 A preview runs the pull request's own files on the factory's host. It is
 given nothing of the host: no directory, no setting, no token, no port, a
-read-only root, 256 MB and one CPU. It is on a Docker network with the router
+read-only root, 256 MB and one CPU. It writes to `/tmp`, `/config` and
+`/data`, which are in memory, and nowhere on the host's disk: a recipe that
+declares a volume anywhere else is not run, and what a container prints is
+kept in at most two files of 10 MB. It is on a Docker network with the router
 and the other previews and nothing else. It cannot reach the internet, the
 model host, the dashboard or the host itself. Previews can reach each other,
 by the names of their containers.
@@ -300,6 +303,13 @@ Pushing there needs write access. A pull request from a fork never gets one.
   is on the internet at the next run, with nobody looking at it first.
 - The build runs the pull request's `preview/Dockerfile` on the host's Docker,
   with network access. That is why forks are left out.
+- A preview's output is capped at two files of 10 MB by options of Docker's
+  `json-file` and `local` log drivers. A host whose Docker logs through
+  another driver was not tried.
+- A recipe's volumes are read from the image after the build, and one outside
+  `/tmp`, `/config` and `/data` is refused. That was seen with Docker 29.1.3:
+  a volume declared at one of the three made nothing on the disk, and one
+  declared elsewhere did.
 - Previews are not kept from each other: one can call another on port 8080
   by its container's name. A preview holds nothing but its own image.
 - The host needs Docker 27.1 or later. An older Docker would make a network

@@ -266,6 +266,13 @@ domain need. The product's part is one file:
 - The image must answer HTTP on port 8080.
 - It runs with a read-only root. Only `/tmp`, `/config` and `/data` can be
   written, and they are in memory and empty at every start.
+- It must not declare a volume anywhere else: no `VOLUME` line in the recipe
+  or in the image it starts from, but for those three directories. Docker
+  would make such a volume on the host's disk, where a preview may write
+  nothing. A recipe that has one is not run, and the state is `build-failed`
+  with the path. `docker image inspect --format '{{json .Config.Volumes}}'
+  tehas-preview:local` shows what an image declares.
+- What it prints is kept in at most two files of 10 MB.
 - It must need no network and no variable. A preview is given no setting and
   no token, and it reaches nothing but the other previews: no database, no
   API, not the internet, not the host. What it shows has to be in the image.
@@ -280,7 +287,8 @@ recipe by hand, from the product's checkout:
 git archive HEAD | docker build -f preview/Dockerfile -t tehas-preview:local -
 docker run --rm -p 127.0.0.1:18080:8080 --read-only --tmpfs /tmp --tmpfs /config --tmpfs /data \
   --cap-drop ALL --cap-add NET_BIND_SERVICE --security-opt no-new-privileges:true \
-  --memory 256m --cpus 1 --pids-limit 128 tehas-preview:local
+  --memory 256m --cpus 1 --pids-limit 128 --log-opt max-size=10m --log-opt max-file=2 \
+  tehas-preview:local
 ```
 
 That is what `tehasbot preview` does, but for the port: a real preview has

@@ -252,11 +252,20 @@ the file to the branch; the next commit is tried. See
 [A new project](/new-project).
 
 **`build-failed`.** Read `~/tehas/logs/preview-<pr>.log`. The reason in the
-state says which of three things happened:
+state says which of four things happened:
 
 - The build failed or ran over 15 minutes. The same commit is not built
   again. Push a new commit and that one is tried. A preview of the earlier
   commit keeps serving meanwhile.
+- `The recipe declares a volume at <path>. A preview may write to /tmp,
+  /config and /data only.` The build went through and the image was not
+  run, and it was removed. A `VOLUME` line, in the recipe or in the image it
+  starts from, names a directory other than those three, and Docker would
+  put it on the host's disk. Take the line out, or start from an image
+  without it, and push. `The image's volumes could not be read.` is the same
+  outcome when Docker did not say what the image declares. Both are treated
+  as a failed build: the same commit is not tried again, and a preview of
+  the earlier commit keeps serving.
 - The container did not start: Docker could not create or start it, such as
   an image whose command is not in it. That can also be the host and not the
   commit, so it is tried again at each of the next three runs, and then no
@@ -273,7 +282,8 @@ state says which of three things happened:
 For a container that did not start or that stopped, nothing serves for that
 pull request, not the preview of the earlier commit either: the old container
 is removed before the new one is started. The name answers 404 until a commit
-starts. Only a failed build leaves the earlier preview serving.
+starts. Only a failed build, or a recipe that declares a volume, leaves the
+earlier preview serving.
 
 To have the same commit built again, remove the state and let the next run
 find the pull request anew: `rm -r ~/tehas/preview/<pr>`.
@@ -325,7 +335,7 @@ host out (<reason>)`. The reason says what to do:
 
 ```
 docker compose -f ~/tehas/edge/router.compose.yaml down
-docker ps -aq --filter label=tehas.preview | xargs -r docker rm -f
+docker ps -aq --filter label=tehas.preview | xargs -r docker rm -f -v
 docker network rm tehas-previews
 docker network create --internal --ipv6=false -o com.docker.network.bridge.gateway_mode_ipv4=isolated tehas-previews
 . ~/tehas/env.sh && docker compose -f ~/tehas/edge/router.compose.yaml up -d
@@ -389,7 +399,7 @@ It removes only on a clear answer, so read what it printed:
 - `#<pr>: a container could not be removed, tried again at the next sweep`:
   Docker refused to remove a container of that pull request, so its image
   and state were left too. `docker ps -a --filter label=tehas.preview=<pr>`
-  shows it; remove it by hand with `docker rm -f`.
+  shows it; remove it by hand with `docker rm -f -v`.
 - `the lock was not free in 30 minutes, nothing was swept`: a run was
   building all that time.
 

@@ -14,6 +14,10 @@
 #                   router and the other previews on it and nothing else:
 #                   not the internet and not the host. The build gets the
 #                   commit as an archive on standard input and nothing else.
+#   what it writes  Nothing on the host's disk but its output, which Docker
+#                   keeps to two files of 10 MB. /tmp, /config and /data are
+#                   in memory. A recipe that declares a volume anywhere else
+#                   is not run: Docker would put that volume on the disk.
 #   how many        The newest TEHAS_PREVIEW_MAX. The rest say "over-limit".
 #   when it goes    At the next run after the pull request is merged or
 #                   closed: the container, the image, the fetched ref and
@@ -137,8 +141,10 @@ retitle() {
 serving() { # <number> <commit>: is a container of that commit running?
   [ -n "$(docker ps --quiet --filter "name=^tehas-preview-$1\$" --filter "label=tehas.sha=$2" 2>/dev/null)" ]
 }
+# A container goes with -v: a volume Docker made for it goes too. No preview
+# should have one, see volume_fault, and nothing is left on the disk if one has.
 stop() { # <number>: the container and the image
-  docker rm -f "tehas-preview-$1" >/dev/null 2>&1
+  docker rm -f -v "tehas-preview-$1" >/dev/null 2>&1
   docker image rm -f "tehas-preview:$1" >/dev/null 2>&1
   return 0
 }
@@ -231,10 +237,37 @@ start_failed() {
   mark "$1" "$2" build-failed "$4"
 }
 
+# volume_fault <number>: says nothing and returns 0 when the image built for
+# that pull request declares no volume outside /tmp, /config and /data, which
+# the container has in memory. Otherwise prints why and returns 1. For a path
+# anywhere else Docker makes a volume on the host's disk: it can be written
+# under a read-only root, it is outside the memory limit, and it stays when
+# the container goes. No answer, or one that is not a set of paths, is not a
+# "none".
+volume_fault() {
+  local said found
+  said=$(docker image inspect --format '{{json .Config.Volumes}}' "tehas-preview:$1" 2>/dev/null 9>&-) || said=""
+  # The path is the recipe's own text: it is printed without control
+  # characters and cut short.
+  found=$(jq -r -s '
+    if length != 1 then error("not one answer") else .[0] end
+    | if . == null then "ok"
+      elif type != "object" then error("not volumes")
+      else [keys_unsorted[] | select(IN("/tmp", "/config", "/data") | not)]
+           | if length == 0 then "ok" else "at:" + (.[0] | gsub("[[:cntrl:]]"; "") | .[0:80]) end
+      end' <<<"$said" 2>/dev/null) || found=""
+  case "$found" in
+    ok) return 0 ;;
+    at:*) echo "The recipe declares a volume at ${found#at:}. A preview may write to /tmp, /config and /data only." ;;
+    *) echo "The image's volumes could not be read." ;;
+  esac
+  return 1
+}
+
 # build <number>: fetch the pull request's head, build its recipe, replace the
 # container. The commit is the one fetched, which is the one built.
 build() {
-  local n=$1 sha log=$logs/preview-$1.log old retry=$root/$1/.retry tries=0 mark_sha mark_n
+  local n=$1 sha log=$logs/preview-$1.log old retry=$root/$1/.retry tries=0 mark_sha mark_n fault
   if [ ! -d "$bare" ]; then
     git init -q --bare "$bare" || return 1
     # The product checkout knows the address and how to sign in to it.
@@ -273,13 +306,22 @@ build() {
     mark "$n" "$sha" build-failed "The build failed or ran over $((build_limit / 60)) minutes. Its output is in logs/preview-$n.log on the host."
     return 1
   fi
+  # Asked before the old container goes, so this is a failed build like any
+  # other: the earlier preview keeps serving and the commit is not tried
+  # again. The image is of no use and is removed.
+  if ! fault=$(volume_fault "$n"); then
+    docker image rm "tehas-preview:$n" >/dev/null 2>&1 9>&-
+    mark "$n" "$sha" build-failed "$fault"
+    return 1
+  fi
   # The same name cannot run twice, so the old container goes first. It is a
   # few seconds of the router's 404.
-  docker rm -f "tehas-preview-$n" >/dev/null 2>&1
+  docker rm -f -v "tehas-preview-$n" >/dev/null 2>&1
   if ! docker run --detach --name "tehas-preview-$n" --network "$net" \
     --read-only --tmpfs /tmp --tmpfs /config --tmpfs /data \
     --cap-drop ALL --cap-add NET_BIND_SERVICE --security-opt no-new-privileges:true \
-    --memory 256m --cpus 1 --pids-limit 128 --restart unless-stopped \
+    --memory 256m --cpus 1 --pids-limit 128 --log-opt max-size=10m --log-opt max-file=2 \
+    --restart unless-stopped \
     --label "tehas.preview=$n" --label "tehas.sha=$sha" --label "tehas.repo=$repo" \
     "tehas-preview:$n" >>"$log" 2>&1 9>&-; then
     start_failed "$n" "$sha" "$tries" "The container did not start. See logs/preview-$n.log on the host."
@@ -295,7 +337,7 @@ build() {
       echo "docker logs of tehas-preview-$n, which started and stopped:"
       docker logs --tail 40 "tehas-preview-$n" 9>&-
     } >>"$log" 2>&1
-    docker rm -f "tehas-preview-$n" >/dev/null 2>&1 9>&-
+    docker rm -f -v "tehas-preview-$n" >/dev/null 2>&1 9>&-
     start_failed "$n" "$sha" "$tries" "The container started and stopped. See \"docker logs\" in logs/preview-$n.log on the host."
     return 1
   fi
@@ -454,7 +496,7 @@ sweep() {
     [ -n "$id" ] || continue
     if [[ $n =~ ^[1-9][0-9]*$ ]] && [ "${owner,,}" = "${repo,,}" ]; then continue; fi
     is_id "$id" || { echo "an id that is not one, skipped"; continue; }
-    if docker rm -f "$id" >/dev/null 2>&1; then
+    if docker rm -f -v "$id" >/dev/null 2>&1; then
       echo "container $id: swept, it belongs to no pull request of $repo"
       removed=$((removed + 1))
     fi
@@ -531,7 +573,7 @@ sweep() {
           [ -n "$id" ] || continue
           case ",$name," in ",," | *",tehas-preview-$n,"*) continue ;; esac
           is_id "$id" || { echo "an id that is not one, skipped"; continue; }
-          if docker rm -f "$id" >/dev/null 2>&1; then
+          if docker rm -f -v "$id" >/dev/null 2>&1; then
             echo "container $id: swept, a second container of #$n"
             removed=$((removed + 1))
           fi
@@ -542,7 +584,7 @@ sweep() {
         while read -r id name; do
           [ -n "$id" ] || continue
           is_id "$id" || { echo "an id that is not one, skipped"; stuck=true; continue; }
-          docker rm -f "$id" >/dev/null 2>&1 || stuck=true
+          docker rm -f -v "$id" >/dev/null 2>&1 || stuck=true
         done <<<"$listing"
         # Swept is said and counted when it is true. With a container still
         # there the rest stays too, so the next sweep finds the number again.
