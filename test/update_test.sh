@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Tests for libexec/update: the checkout steps, what install.sh is asked to
 # do, and which follow-ups an update may run. git runs for real against a bare
-# repository in the scratch directory (no network); one case runs this
-# repository's real install.sh in the stubbed host, so both sides of the
-# follow-up protocol are checked against its producer. The sandbox build, docker,
-# systemctl and timeout are stubs that record their arguments.
+# repository in the scratch directory (no network); the cases that run this
+# repository's real install.sh in the stubbed host point the two paths
+# bootstrap.sh dev writes at scratch, so both sides of the follow-up protocol are
+# checked against its producer without reading the host's /etc or /usr/local/bin.
+# The sandbox build, docker, systemctl, sudo and timeout are stubs that record
+# their arguments.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh"
@@ -18,6 +20,14 @@ update="$T_ROOT/libexec/update"
 th=$T/home/tehas
 checkout=$th/platform
 owed_file=$(TEHAS_HOME=$th tehas_pending_file)   # the path, from the one definition
+
+# bootstrap.sh dev writes two files outside any home, and install.sh reads them to
+# know whether this host lets other accounts start a session. Pointed at scratch in
+# every run here, so no test reads or writes the real /etc or /usr/local/bin.
+dev_etc=$T/etc
+dev_bin=$T/usr-local-bin
+# T_IN_TEST: install.sh skips its dependency check and its own test run here.
+T_ENV=(BOOTSTRAP_ETC="$dev_etc" BOOTSTRAP_BIN="$dev_bin" T_IN_TEST=1)
 
 # The host's normal answers: containers running, every unit active, and a
 # timeout that records what it bounds and then runs the real one. platform()
@@ -132,6 +142,18 @@ push_install() { # <what the stub prints>
   git -C "$T/upstream" push -q origin main
 }
 
+# A remote whose checkout no longer has a file, as somebody else's commit: the
+# next run pulls a checkout that cannot answer a question about it.
+push_delete() { # <path to remove>
+  rm -rf "$T/upstream"
+  git clone -q "$T/origin" "$T/upstream"
+  git -C "$T/upstream" config user.name other
+  git -C "$T/upstream" config user.email other@example.com
+  git -C "$T/upstream" rm -q "$1"
+  git -C "$T/upstream" commit -qm "removed $1"
+  git -C "$T/upstream" push -q origin main
+}
+
 # A branch of its own on the remote, as another person would have pushed it.
 push_branch() { # <branch name>
   rm -rf "$T/upstream"
@@ -176,7 +198,8 @@ real_platform() {
   docker_up
   bound_calls
   mkdir -p "$checkout"
-  cp -R "$T_ROOT/install.sh" "$T_ROOT/bin" "$T_ROOT/libexec" "$T_ROOT/lib" "$T_ROOT/host" "$checkout/"
+  cp -R "$T_ROOT/install.sh" "$T_ROOT/bootstrap.sh" "$T_ROOT/bin" "$T_ROOT/libexec" \
+    "$T_ROOT/lib" "$T_ROOT/host" "$checkout/"
   t_console_source "$checkout"
   t_stub_cargo
   chmod +x "$checkout/install.sh"
@@ -189,6 +212,19 @@ real_platform() {
   git -C "$checkout" remote add origin "$T/origin"
   push_one "change 1"
 }
+
+# What `sudo ./bootstrap.sh dev` leaves, in the scratch paths above: the marker
+# naming the tehas user, and the copy of the command the other accounts type.
+# login_age makes that copy not the checkout's, as an update of host/login/tehas
+# would while nobody ran sudo again.
+login_setup() {
+  mkdir -p "$dev_etc/tehas" "$dev_bin"
+  echo boss >"$dev_etc/tehas/manager"
+  install -m 755 "$checkout/host/login/tehas" "$dev_bin/tehas"
+  t_stub sudo
+}
+login_age() { echo "# the copy an earlier bootstrap.sh dev installed" >>"$dev_bin/tehas"; }
+login_state() { cksum "$dev_bin/tehas"; }
 
 # The order an update ran the steps it was asked for, read off its own lines.
 step_order() {
@@ -994,7 +1030,6 @@ edge --force-recreate"
 t_case "the real install.sh through tehas update runs its follow-ups in its order"
 instance_models
 real_platform
-T_ENV=(T_IN_TEST=1)   # install.sh skips bootstrap and the tests inside a test
 t_run "$update"
 t_eq "$t_rc" 0
 t_contains "$t_out" "installed: $th/libexec/update"
@@ -1009,7 +1044,9 @@ docs: updating
 edge: updating"
 t_lacks "$t_out" "next:"
 t_eq "$(owed_steps)" ""
-T_ENV=()
+# Nothing of this host's real /etc or /usr/local/bin was read: the scratch marker
+# is not there, so install.sh says nothing about root's copy.
+t_lacks "$t_out" "Login:"
 
 # The same seam with systemd refusing the reload: the step that restarts the
 # units stops, so the run ends red with everything owed rather than green with
@@ -1019,7 +1056,6 @@ instance_models
 real_platform
 t_stub systemctl 'if [ "$2" = daemon-reload ]; then echo "Failed to connect to bus: No such file or directory" >&2; exit 1; fi
 if [ "$2" = is-active ]; then echo active; fi'
-T_ENV=(T_IN_TEST=1)
 t_run "$update"
 t_eq "$t_rc" 1
 t_contains "$t_out" "systemd: systemctl --user daemon-reload did not run; the changed unit files are not in effect, no unit was restarted, and the step is not done"
@@ -1039,7 +1075,58 @@ t_contains "$t_out" "follow-up(s) an earlier run did not finish (see $owed_file)
 t_contains "$t_out" "systemd: restarted tehas-dispatch.timer tehas-energy.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer"
 t_contains "$t_out" "docs: updating the container"
 t_eq "$(owed_steps)" ""
-T_ENV=()
+
+# The one file of the host install.sh reports and never touches: root's copy of
+# host/login/tehas. Checked here rather than in install_test.sh, because this is
+# the fixture with a checkout of its own that holds the real install.sh.
+t_case "tehas update prints install.sh's later line for a stale login copy and runs nothing for it"
+instance_models
+real_platform
+login_setup
+login_age
+before=$(login_state)
+t_run "$update"
+t_eq "$t_rc" 0
+t_contains "$t_out" "later: sudo $checkout/bootstrap.sh dev boss"
+t_contains "$t_out" "$dev_bin/tehas is not this checkout's host/login/tehas"
+# Not a step: nothing was recorded as owed, no sudo ran, and the copy was not touched.
+t_lacks "$t_out" "next:"
+t_eq "$(owed_steps)" ""
+t_eq "$(t_calls sudo)" ""
+t_eq "$(login_state)" "$before"
+# The next --check still says it, and the line reaches the operator as install.sh
+# printed it: this command filters only the follow-up lines it runs itself.
+t_run "$update --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "Login:        NOT CURRENT"
+t_contains "$t_out" "differs: $dev_bin/tehas"
+t_contains "$t_out" "sudo $checkout/bootstrap.sh dev boss"
+t_eq "$(t_calls sudo)" ""
+t_eq "$(login_state)" "$before"
+
+t_case "a checkout that no longer has the login source says so, not that the host differs"
+instance_models
+real_platform
+login_setup
+login_age
+before=$(login_state)
+push_delete host/login/tehas
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "$checkout/host/login/tehas is missing from this checkout"
+t_contains "$t_out" "no follow-up was run"
+# A comparison that could not be made is no finding about the host's copy: the
+# run says the checkout is missing a file, as it does for one it would install.
+t_lacks "$t_out" "differs: $dev_bin/tehas"
+t_lacks "$t_out" "sudo $checkout/bootstrap.sh dev boss"
+t_eq "$(owed_steps)" ""
+t_eq "$(login_state)" "$before"
+# The next --check says the same, and not that the host's copy differs.
+t_run "$update --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "$checkout/host/login/tehas is missing from this checkout"
+t_lacks "$t_out" "Login:"
+t_lacks "$t_out" "differs: $dev_bin/tehas"
 
 t_case "a step line no version here knows stays owed until something knows it"
 # The producer and the consumer of a step can be two versions of tehas: install.sh

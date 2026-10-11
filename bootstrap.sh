@@ -394,7 +394,7 @@ case "${1:-}" in
   dev) shift; do_dev "$@" ;;
   check) do_check ;;
   *)
-    sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'
     exit 64
     ;;
 esac

@@ -118,7 +118,7 @@ the first time, before `tehas update` exists there:
 
 ```
 cd ~/tehas/platform && git pull
-./install.sh --check     # change nothing, report six results
+./install.sh --check     # change nothing, report up to seven results
 ./install.sh             # copy changed files into place, keep <name>.prev
 ```
 
@@ -127,8 +127,10 @@ The labels `tehas:plan`, `tehas:planning` and `tehas:question`, for planning on
 an issue and the retry tick, are not in a repository until it has been.
 
 `--check` prints one line each for the instance settings, the host's tools, the
-slice, the installed files, the follow-ups an earlier run left undone, and the
-tests:
+slice, the installed files, the command the other accounts type where root
+installed one, the follow-ups an earlier run left undone, and the tests. Two of
+the seven appear only where there is something to say, and the sample below is a
+host with a follow-up owed and no root-installed copy:
 
 ```
 Instance:     /home/boss/tehas/platform/instances/tehas-tehas OK
@@ -141,10 +143,20 @@ Tests:        OK
 ```
 
 The `Follow-ups:` line appears only while `~/tehas/state/update-pending` still
-holds steps that were asked for and never ran - a host with none owed prints five
-lines - and while it does, `--check` exits 1, because a host with files matching
-and a step unapplied is not current. Running `tehas update` runs them and clears
-the record ([Troubleshooting](/troubleshooting) has the case in full).
+holds steps that were asked for and never ran - and while it does, `--check`
+exits 1, because a host with files matching and a step unapplied is not current.
+Running `tehas update` runs them and clears the record
+([Troubleshooting](/troubleshooting) has the case in full).
+
+One file of a host is not tehas's to install. `sudo ./bootstrap.sh dev` puts
+`host/login/tehas` at `/usr/local/bin/tehas` as root, and an update can change
+that source while the copy on the host stays as it was. When the two differ,
+`--check` adds a `Login:` line naming the command that installs this checkout's
+copy, and exits 1; a real install prints the same finding as a `later:` line.
+`install.sh` writes nothing under `/usr/local/bin` or `/etc/tehas` and asks
+`sudo` for nothing, so the difference is reported rather than repaired. A host
+where `bootstrap.sh dev` never ran says nothing about it. See
+[Other accounts](#other-accounts).
 
 The `Slice:` line compares `/etc/systemd/system/tehas.slice` with
 `host/slice/tehas.slice` in the checkout: `OK`, `MISSING` or `DIFFERS`. The
@@ -558,7 +570,7 @@ Both are outside the repository and the tehas tree.
 | What else starts a cycle               | The retry box of a parked issue, ticked by one of those accounts. It counts once, and only in the question whose comment id the host has on record for that issue. Like the label, the tick approves the text as it was at that moment |
 | Who can start or continue planning     | The same accounts. A session starts when one of them applied `tehas:plan`. A turn runs on a tick or a reply from one of them to the question the session is waiting on |
 | What a planning container is given     | The same token, the same mounts and the same approve-everything mode as a work cycle's. The agent is asked to plan and file issues. Nothing in the container holds it to that |
-| What an agent can do as the bot        | Post comments, edit the bot's comments and apply labels, with the token. So a comment is the factory's question only if the host has its id on record in `~/tehas/state`, which no container is given, and an answer counts only by who gave it |
+| What an agent can do as the bot        | Post comments, edit the bot's comments, edit the description of any pull request and apply labels, with the token. So a comment is the factory's question only if the host has its id on record in `~/tehas/state`, which no container is given, and an answer counts only by who gave it |
 | Where an agent's conversation is kept  | In Pi's `sessions` directory. Every later container can read and write it                                                               |
 | Does the token enter the cycle         | Yes, as `GH_TOKEN`. pi-rukas pushes the branch and opens the pull request from inside. Agent code can do anything the token can         |
 | What else enters the container         | `PI_ENSEMBLE_*` settings, the bot's git name and email, the host aliases. Not the rest of the host environment                          |
@@ -633,6 +645,12 @@ What a member of the group gets, and does not:
 
 `gpasswd -d alice tehas` takes an account out. `test/login_test.sh` and
 `test/bootstrap_test.sh` hold the rule and the two scripts to this.
+
+`/usr/local/bin/tehas` is a copy of `host/login/tehas`, so an update of the
+platform can leave the accounts typing an older command. No tehas command runs as
+root, so none replaces it: `install.sh --check` reports it as `Login: NOT CURRENT`
+and a real install prints `later: sudo ./bootstrap.sh dev boss`. Run that command
+again after an update that changed `host/login/tehas`.
 
 A host that ran cycles before the workspace existed gave its containers the
 product checkout itself. Replace that checkout once with a fresh clone, so

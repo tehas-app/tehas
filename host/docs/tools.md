@@ -303,6 +303,12 @@ the group's `sudo` rule allows. `dev-login` takes the clone's name from the
 account `sudo` was asked by, loads the tehas user's environment and starts the
 session above. Any other command typed there is refused with exit 64.
 
+It is a copy of `host/login/tehas`, and only root installs it, so an update of
+the platform can leave those accounts typing an older command. No tehas command
+replaces it: `install.sh --check` reports the difference as `Login: NOT CURRENT`
+and a real install prints `later: sudo ./bootstrap.sh dev boss`. Run that command
+again after an update that changed `host/login/tehas`.
+
 | Exit | Meaning                                                                                   |
 | ---- | ----------------------------------------------------------------------------------------- |
 | any  | The session's own exit status                                                             |
@@ -774,8 +780,9 @@ are enabled. Both write to `~/tehas/logs/preview.log`.
    One that is not is removed, with its last lines in the build log, and the
    state is `build-failed`. The old container went before the new one was
    started, so nothing serves for that pull request until a commit starts.
-7. The pull request is told, and `~/tehas/live/previews.json` is written for
-   the dashboard and for [tehasbot health](#tehasbot-health).
+7. The pull request is told, at the top of its own description, and
+   `~/tehas/live/previews.json` is written for the dashboard and for
+   [tehasbot health](#tehasbot-health).
 
 Each pull request has a state, in `~/tehas/preview/<pr>/state.json`:
 
@@ -810,20 +817,98 @@ memory limit does not count. So an image that declares a volume anywhere but
 `/tmp`, `/config` and `/data` is not run, and every container is removed
 with `docker rm -f -v`, which takes a volume Docker made for it along.
 
-**The comment.** The pull request gets one comment, by the bot's own account,
-edited in place: the address when the preview serves, or "Unable to create a
-preview" with the reason for `build-failed` and `no-space`. It is said once
-for each commit and state, so a full disk is not a comment every five
-minutes. For `over-limit` and `no-recipe` a pull request gets no comment.
-One that has a comment from an earlier state has it edited to "There is no
-preview" with the reason, so that it does not go on giving an address that
-answers 404. `building` is on the dashboard only. When the account of the
-token cannot be read (`gh api user`), nothing is written and the log says
-`#<pr>: no comment, the account of the token could not be read`, at each run
-until it can. To find its comment the
-command reads every comment of the pull request and takes the one its own
-account wrote. A call that fails, or an answer that is not a list of
-comments, writes nothing and is tried again at the next run.
+**The notice in the description.** The preview is said at the top of the pull
+request's own description, between the marker lines `<!-- tehas-preview -->`
+and `<!-- /tehas-preview -->`: the address when the preview serves, or
+"Unable to create a preview" with the reason for `build-failed` and
+`no-space`. It is said once for each commit and state, so a full disk is not an
+edit every five minutes. For `over-limit` and `no-recipe` a pull request whose
+description has no notice gets none. One that has a notice from an earlier
+state has it changed to "There is no preview" with the reason, so that it does
+not go on giving an address that answers 404. `building` is on the dashboard
+only.
+
+**Which block belongs to the bot.** The one at the very top of the
+description: its opening marker as the first line, and the closing marker under
+it. It is the bot's only when everything between those two lines is one of the
+notices this command writes: a line beginning `Preview of \``, `Unable to create
+a preview` or `There is no preview`, and for a preview that was made or
+attempted, the sentence `It is rebuilt when the branch changes and removed when
+this pull request is closed.` after a blank line. A notice is written with a
+blank line under its opening marker, so that it renders as text and not as part
+of the HTML comment, and one is allowed there and nowhere else. All of it or
+none of it. Text
+between marker lines that this command did not write is not written over, and
+neither is a marker line anywhere else in the description: the log says
+`#<pr>: the description has a preview notice that is not this one, left alone`,
+once for each commit and state. Write your own text outside the two marker
+lines. To hand the block back after changing it, remove both marker lines: the
+notice comes at the run that sees the change.
+Everything after the closing marker line of a block of the bot's is kept as
+GitHub gave it, blank lines at the end included.
+
+**What a notice is proof of.** It is proof of what this host decided, read from
+`~/tehas/live/previews.json`, the dashboard and `/health`. Anyone can write the
+marker lines and the sentence under them, and for a pull request this host does
+not build, one from a fork or one opened by someone outside the repository,
+nothing reads the description at all. An address at the top of such a
+description is the author's own text.
+
+**One record for each commit and state.** What was said about a commit and state
+is on record in `~/tehas/preview/<pr>/.notice`, as `<commit> <state> <what>
+[attempts] [time]`: `none`, `said`, `refused`, `failed` with how many writes
+GitHub did not take, or `gaveup`. The time is the one GitHub gives for that pull
+request at the last look. Nothing is written or said twice about a commit and
+state: a full disk is not an edit every five minutes, and the log carries one
+line for each write GitHub did not take, the last of them saying it is left to
+the next commit or state.
+
+The record does not stop the reading. The description is read again whenever
+GitHub gives a later time for the pull request than the one on record, which is
+what editing a description does. A notice a person removes therefore comes back
+at the next run, and so is a block someone wrote at the top in the shape of the
+bot's: ownership of a description is only its text, so it is looked at again
+whenever the text can have changed. A look that finds nothing to do costs one
+read, writes nothing and says nothing. A record with no time on it is looked at
+again too.
+
+A call that
+failed is tried at the next run: `#<pr>: the description could not be read (no
+such pull request (HTTP 404)), tried again at the next run`, with
+`GitHub refused the call (HTTP 403)` when GitHub refuses the token, and
+`#<pr>: the answer about this pull request was not understood ...` when it
+answered with something that is not that pull request's description. Three
+writes GitHub did not take are said once, with the third of them, as
+`#<pr>: the notice was not written three times, left to the next commit or
+state`. A description that already says what
+it should say is not written at all.
+
+The description is asked for at the moment of the edit, with `gh api
+repos/<repo>/pulls/<pr>`, and not from the list of open pull requests the run
+was given minutes ago: an edit made before that read is kept, and so is what
+GitHub says about the pull request itself. One merged or closed in between gets
+nothing written, and the log says `#<pr>: the pull request is no longer open,
+nothing was written`. GitHub takes no condition on a write of a description, so
+an edit made in the moment between the read and the write is not kept, and the
+later write wins: [The host](/host) says an agent in a cycle may edit a
+description with the same token. What the command read is
+written to `~/tehas/preview/<pr>/.description`, mode `0600`, before it writes,
+and the log says `#<pr>: the notice was written`, so a description written over
+is visible on the host and can be copied back from there.
+
+**What one pull request leaves on the host.** Under `~/tehas/preview/<pr>/`:
+`state.json` (the state, above), `pull.json` (its title and address), `.retry`
+(a commit whose container did not start, and how many starts it had), `.notice`
+(what was said about a commit and state) and `.description` (what GitHub had as
+the description before the last write). All of it goes with the pull request,
+at the next run after it is merged or closed.
+
+**What is not removed.** A notice in a description stays when its pull request
+closes: nothing of previews edits the description of a merged or closed pull
+request, so a merged one keeps an address that answers 404 from then on. So does
+a comment written by the version of this command that commented instead (until
+2026-10-11): nothing reads or removes comments now, and those comments are left
+where they are.
 
 **The sweep**, every three hours, is the second check that nothing of a merged
 or closed pull request stays on the host. It does not work from GitHub's list
@@ -1002,10 +1087,15 @@ to update. A host whose `/etc/systemd/system/tehas.slice` is missing or is not
 the file this version ships is something to update, and only root can do it:
 `tehas update --check` stays red until `sudo ./bootstrap.sh slice` has been run.
 
+What `install.sh` prints passes through as it printed it, apart from the `next:`
+lines this command runs itself. That includes a `Login: NOT CURRENT` report for
+`/usr/local/bin/tehas`, the command the other accounts type: root's to install,
+so it is named as a line rather than run as a step.
+
 | Exit | Meaning                                                                       |
 | ---- | ----------------------------------------------------------------------------- |
 | 0    | Updated, or already up to date                                                 |
-| 1    | The checkout has local changes, is not on a branch, cannot fast-forward, has no commit yet, a step failed or ran out of its limit, `install.sh` ran out of its limit or gave no answer, a follow-up install.sh asked for is one this command does not know, systemd did not reload the unit files, a container or unit gave no answer, the record of steps owed exists but cannot be read, a status of `install.sh` this command does not know (named in the message), or `--check` found something to update (a checkout behind, or steps left over from an earlier run) |
+| 1    | The checkout has local changes, is not on a branch, cannot fast-forward, has no commit yet, a step failed or ran out of its limit, `install.sh` ran out of its limit or gave no answer, a follow-up install.sh asked for is one this command does not know, systemd did not reload the unit files, a container or unit gave no answer, the record of steps owed exists but cannot be read, a status of `install.sh` this command does not know (named in the message), or `--check` found something to update (a checkout behind, steps left over from an earlier run, or a host's `/usr/local/bin/tehas` that is not the checkout's) |
 | 64   | More than one argument, or an argument this command does not know              |
 | 78   | The instance settings are missing or malformed, or there is no platform checkout |
 
@@ -1016,7 +1106,7 @@ host points at. See [The host](/host).
 
 ```
 cd ~/tehas/platform
-./install.sh --check     # change nothing; Instance, Dependencies, Slice, Installed, Follow-ups, Tests
+./install.sh --check     # change nothing; Instance, Dependencies, Slice, Installed, Login, Follow-ups, Tests
 ./install.sh
 ```
 
@@ -1046,6 +1136,18 @@ fail the install.
 
 It also removes the commands of the earlier layout from `~/tehas/bin`, unless a
 cycle is running that still uses them. See [The host](/host).
+
+One file it reports and never touches: `/usr/local/bin/tehas`, the command an
+account that is not the tehas user types, which `sudo ./bootstrap.sh dev` puts
+there as root from `host/login/tehas`. Where that setup is in place, its marker
+`/etc/tehas/manager` names the tehas user, and a copy of the command that is not
+this checkout's makes `--check` add a `Login: NOT CURRENT` line naming the command
+that installs it (`sudo ~/tehas/platform/bootstrap.sh dev boss`) and exit 1. A
+real run prints the same finding on a `later:` line. It is never a `next:` step,
+because no tehas command runs as root, and nothing is recorded as owed. The name
+in that command is the marker's; a marker holding something other than an account
+name leaves `<tehas user>` for the person to fill in. A host where
+`bootstrap.sh dev` never ran reports nothing. See [The host](/host).
 
 ## bootstrap.sh
 
