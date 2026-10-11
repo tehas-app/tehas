@@ -250,6 +250,7 @@ t_run "$load && echo \"\$TEHAS_HOST_ADDR\""
 t_eq "$t_out" "192.0.2.7"
 
 t_case "the worked example takes its private addresses from a file on the host"
+t_stub nproc 'echo 12'
 TEHAS_INSTANCE_DIR=$T_ROOT/instances/tehas-tehas
 t_run "$load && echo \"[\$TEHAS_HOST_ADDR] [\$PI_ENSEMBLE_HOST_ALIASES]\""
 t_eq "$t_out" "[127.0.0.1] []"
@@ -258,6 +259,7 @@ printf '%s\n' "TEHAS_HOST_ADDR=192.0.2.7" "PI_ENSEMBLE_HOST_ALIASES=models:192.0
 t_run "$load && echo \"[\$TEHAS_HOST_ADDR] [\$PI_ENSEMBLE_HOST_ALIASES]\""
 t_eq "$t_out" "[192.0.2.7] [models:192.0.2.8]"
 rm -rf "$T/home/.config"
+rm -f "$T/bin/nproc"
 
 t_case "loading needs neither git nor the network nor a checkout"
 t_instance "${T_MINIMAL[@]}"
