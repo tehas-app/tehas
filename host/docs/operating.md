@@ -116,6 +116,12 @@ The dispatcher takes issues urgent first, then by the lowest issue number: one a
 | `tehas:running`         | A cycle owns it                   | Leave the issue and its branch alone     |
 | `tehas:awaiting-merge`  | Pull request is open and reviewed | Review and merge                         |
 | `needs-human-attention` | The cycle stopped                 | Read the comment; see below              |
+
+`tehas:ready` from an allowed labeller starts a fresh cycle whatever else the
+issue carries. The labels of the earlier outcome go when the cycle starts. On
+an issue whose cycle is still running, the label waits: a fresh cycle starts
+when that one has ended. Remove the label before then to withdraw it.
+
 | `tehas:plan`            | A planning session is asked for   | Wait for the first comment               |
 | `tehas:planning`        | A planning turn is running        | Wait                                     |
 | `tehas:question`        | The factory asked something       | Tick a box; in a planning session you may reply instead |
@@ -165,15 +171,23 @@ handoff comment with the reason and numbered options.
 
 To try again after fixing the cause (often: make the issue clearer), tick
 `Retry from a clean start` in the bot's comment. Tick `Leave it parked` to
-take the question away and keep the issue as it is. The old way still works:
-remove `needs-human-attention` and apply `tehas:ready` again. A cycle started
+take the question away and keep the issue as it is. A label works as well: apply `tehas:ready`. `needs-human-attention` does not
+have to be removed first. A cycle started
 that way takes `tehas:question` off the issue, and the old boxes no longer do
 anything.
 
 When the bot cannot post the boxes, it posts a plain comment that gives the
-old way. When the boxes are posted and the label `tehas:question` cannot be
+label to apply. When the boxes are posted and the label `tehas:question` cannot be
 added, a second comment says that the boxes cannot be used, tells you to run
-`tehas labels` on the host, and gives the old way.
+`tehas labels` on the host, and names the label.
+
+A cycle that was killed outright cannot report, for example when the host
+lost power. The next poll finds its issue: open, marked `tehas:running`, and
+no cycle on the host behind it. It takes `tehas:running` off, adds
+`needs-human-attention` and says so in a plain comment without boxes. Look for
+a pull request the cycle may have opened, then apply `tehas:ready` to retry.
+The poll starts nothing for it by itself. A closed issue in that state only
+loses `tehas:running`.
 
 A tick counts only from an allowed labeller, and only while the issue is
 parked: it carries `needs-human-attention` and neither `tehas:running` nor
@@ -190,7 +204,7 @@ The host keeps the id of the question it posted when the cycle stopped. A
 tick counts only in that comment; a box in any other comment does nothing.
 On an issue for which the host has no question on record, a box ticked in a
 comment of the bot that looks like a question is unticked, and the bot says
-that the question is not one the factory is waiting on and gives the old way.
+that the question is not one the factory is waiting on and names the label.
 
 The next cycle starts in a fresh workspace, with `--restart`. Branches and
 commits the earlier attempt pushed are kept on GitHub. What it left only on the

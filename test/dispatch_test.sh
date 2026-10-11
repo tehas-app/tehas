@@ -19,6 +19,7 @@ case "$1 $2" in
     case "$*" in
       *awaiting-merge*) cat "$T/fx/awaiting.json" || exit 1 ;;
       *tehas:ready*) cat "$T/fx/ready.json" || exit 1 ;;
+      *tehas:running*) cat "$T/fx/marked.json" || exit 1 ;;
       *tehas:question*) cat "$T/fx/asking.json" || exit 1 ;;
       *tehas:plan*) cat "$T/fx/plans.json" || exit 1 ;;
       *) echo "[]" ;;
@@ -86,6 +87,7 @@ reset() {
   echo '{"labels":[]}' >"$fx/control.json"
   echo '{"session":"abc-123","text":"Two ways.","question":{"question":"Adopt?","options":[{"label":"Adopt all","description":"Apply all five"},{"label":"Change some","description":""}]}}' >"$fx/plan-result.json"
   echo '[]' >"$fx/awaiting.json"
+  echo '[]' >"$fx/marked.json"
   echo '[{"number":7,"labels":[{"name":"tehas:ready"}]}]' >"$fx/ready.json"
   echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
   T_ENV=(TEHAS_CYCLE_START_CMD=fake-start TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index TEHAS_PLAN_CMD=fake-plan)
@@ -529,6 +531,116 @@ t_lacks "$(t_calls gh)" "issue edit"
 t_run "$dispatch --dry-run"
 t_contains "$t_out" "holding: 1 cycles are running (limit 1)"
 release
+
+t_case "an issue marked as running with no cycle behind it is handed to a human"
+reset
+echo '[{"number":9}]' >"$fx/marked.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "park #9: it is marked tehas:running and no cycle holds its lock"
+t_contains "$(t_calls gh)" "issue edit 9 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention"
+t_contains "$(t_calls gh)" "issue comment 9 --repo acme/widget --body Tehas found this issue marked \`tehas:running\` with no cycle behind it"
+t_contains "$(t_calls gh)" "logs/dispatch-work-9.log"
+t_contains "$(t_calls gh)" "To retry, apply \`tehas:ready\`. If it is on the issue already, nothing more is needed."
+t_lacks "$(t_calls gh)" "remove \`needs-human-attention\`"
+
+t_case "and the poll goes on to the queue, and starts nothing for that issue"
+t_eq "$(t_calls fake-start)" "7"
+
+t_case "a closed issue marked as running with no cycle loses the mark and is not parked"
+reset
+echo '[{"number":9,"state":"CLOSED"}]' >"$fx/marked.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls gh | grep -c -x -e 'issue edit 9 --repo acme/widget --remove-label tehas:running')" 1
+t_lacks "$(t_calls gh)" "issue comment 9"
+t_contains "$t_out" "clear #9: it is closed, marked tehas:running, and no cycle holds its lock"
+
+t_case "a closed issue whose cycle still holds its lock is left alone"
+reset
+slots 2
+echo '[{"number":9,"state":"CLOSED"}]' >"$fx/marked.json"
+hold 9
+t_run "$dispatch"
+t_lacks "$(t_calls gh)" "issue edit 9"
+release
+
+t_case "closed issues are asked for too"
+reset
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "issue list --repo acme/widget --state all --label tehas:running"
+
+t_case "a lock file nobody holds does not make it a running cycle"
+reset
+echo '[{"number":9}]' >"$fx/marked.json"
+mkdir -p "$T/home/tehas/state/cycles"
+: >"$T/home/tehas/state/cycles/9.lock"
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "issue edit 9 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention"
+
+t_case "an issue whose cycle holds its lock is left alone"
+reset
+slots 2
+echo '[{"number":9}]' >"$fx/marked.json"
+hold 9
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_lacks "$(t_calls gh)" "issue edit 9"
+t_lacks "$(t_calls gh)" "issue comment 9"
+t_eq "$(t_calls fake-start)" "7"
+release
+
+t_case "it is found while the slots are full too"
+reset
+echo '[{"number":8},{"number":9}]' >"$fx/marked.json"
+hold 8
+t_run "$dispatch"
+t_lacks "$(t_calls gh)" "issue edit 8"
+t_contains "$(t_calls gh)" "issue edit 9 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention"
+t_eq "$(t_calls fake-start)" ""
+release
+
+t_case "when its label cannot be changed nothing is said on it, and the poll goes on"
+reset
+echo '[{"number":9}]' >"$fx/marked.json"
+echo "issue edit 9" >"$fx/edit-fails-on"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN: label change on #9 failed"
+t_lacks "$(t_calls gh)" "issue comment 9"
+t_eq "$(t_calls fake-start)" "7"
+
+t_case "a dry run says so and changes nothing"
+reset
+echo '[{"number":9}]' >"$fx/marked.json"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would park #9: it is marked tehas:running and no cycle holds its lock"
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "issue comment"
+
+t_case "a paused factory leaves it"
+reset
+echo '[{"number":9}]' >"$fx/marked.json"
+echo '{"labels":[{"name":"tehas:pause"}]}' >"$fx/control.json"
+t_run "$dispatch"
+t_lacks "$(t_calls gh)" "issue edit"
+
+t_case "when the issues marked as running cannot be read nothing is dispatched"
+reset
+rm -f "$fx/marked.json"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: gh issue list failed"
+t_lacks "$(t_calls gh)" "issue edit"
+t_eq "$(t_calls fake-start)" ""
+
+t_case "an answer that is no list of issues dispatches nothing"
+reset
+echo '{"oops":1}' >"$fx/marked.json"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: unreadable list of issues marked as running"
+t_eq "$(t_calls fake-start)" ""
 
 t_case "the lock file of a cycle that ended holds nothing back"
 reset
@@ -1062,7 +1174,7 @@ t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit"
 t_contains "$(t_calls gh)" "api -X PATCH repos/acme/widget/issues/comments/4001"
 t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
-t_contains "$(t_calls gh)" "issue comment 9 --repo acme/widget --body This question is not one the factory is waiting on. To retry, remove \`needs-human-attention\` and apply \`tehas:ready\` again."
+t_contains "$(t_calls gh)" "issue comment 9 --repo acme/widget --body This question is not one the factory is waiting on. To retry, apply \`tehas:ready\`."
 t_eq "$(find "$T/home/tehas/state" -name 'park-*' | wc -l)" 0
 
 t_case "and when its box cannot be unticked nothing starts and nothing is said"
@@ -1477,6 +1589,96 @@ t_case "the question label is only taken off an issue that carries it"
 reset
 t_run "$dispatch"
 t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready')" 1
+
+# tehas:ready from an allowed account starts a cycle whatever else the issue
+# carries. Only a cycle that is alive holds it back.
+has() { # issue label...: the queue is that one issue, labelled ready by alice, carrying the labels too
+  local n=$1 l list='{"name":"tehas:ready"}'
+  shift
+  for l in "$@"; do list="$list,{\"name\":\"$l\"}"; done
+  echo "[{\"number\":$n,\"labels\":[$list]}]" >"$fx/ready.json"
+}
+
+t_case "tehas:ready on a parked issue starts a cycle without needs-human-attention being removed first"
+reset
+has 7 needs-human-attention
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready --remove-label needs-human-attention')" 1
+
+t_case "tehas:ready on an issue that awaits a merge starts a cycle and takes that label off"
+reset
+has 7 tehas:awaiting-merge
+echo '[]' >"$fx/awaiting.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready --remove-label tehas:awaiting-merge')" 1
+
+t_case "every label of an earlier outcome goes with the start"
+reset
+has 7 needs-human-attention tehas:question tehas:awaiting-merge
+t_run "$dispatch"
+t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready --remove-label needs-human-attention --remove-label tehas:awaiting-merge --remove-label tehas:question')" 1
+
+t_case "an issue left marked as running with no cycle is started on tehas:ready"
+reset
+has 7 tehas:running
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready')" 1
+
+t_case "a parked issue labelled by a stranger still starts nothing"
+reset
+has 7 needs-human-attention
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"mallory"}}]' >"$fx/events-7.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_contains "$t_out" "skip #7: tehas:ready was applied by 'mallory', not an allowed account"
+
+t_case "tehas:ready applied while the issue's cycle runs waits, said in the log and not on the issue"
+reset
+slots 2
+has 7 tehas:running
+hold 7
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "issue comment"
+t_contains "$t_out" "wait #7: its cycle is still running"
+
+t_case "and the poll after that cycle ended starts a fresh one"
+release
+has 7 tehas:awaiting-merge
+rm -f "$T"/calls/*
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_contains "$(t_calls gh)" "--add-label tehas:running --remove-label tehas:ready --remove-label tehas:awaiting-merge"
+
+t_case "an issue that waits behind its own cycle does not hold back the next one"
+reset
+slots 2
+ready 7 8
+hold 7
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "8"
+release
+
+t_case "a retry tick takes a tehas:ready that was left on the issue with it"
+parked
+comments 7 "$(park_body x ' ')" alice
+echo '[{"number":7,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"},{"name":"tehas:ready"}]}]' >"$fx/asking.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label tehas:running --remove-label needs-human-attention --remove-label tehas:question --remove-label tehas:ready')" 1
+
+t_case "every list of issues is read to a thousand"
+reset
+t_run "$dispatch"
+t_eq "$(t_calls gh | grep -c -e '^issue list .* --limit 1000 ')" 5
+t_lacks "$(t_calls gh)" "--limit 100 "
 
 t_case "an answer on a question the session is not waiting on runs no turn"
 planning

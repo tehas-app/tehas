@@ -65,8 +65,12 @@ Run `tehas dispatch --dry-run` and read what it prints.
 - `holding: the mesh at ... does not offer ...`: the model endpoint is down or
   does not list the configured model. The issue stays queued and is taken as
   soon as the endpoint answers. See "The model endpoint does not answer" below.
-- `nothing to do`: the issue is closed, or still carries `tehas:running`,
-  `tehas:awaiting-merge` or `needs-human-attention`.
+- `nothing to do`: the issue is closed, or does not carry `tehas:ready`.
+- `wait #N: its cycle is still running`: `tehas:ready` was applied while the
+  issue's cycle runs. A fresh cycle starts when that one has ended.
+- `park #N: it is marked tehas:running and no cycle holds its lock`: the cycle
+  of that issue ended without a report, or never started. The issue now carries
+  `needs-human-attention`. Read `~/tehas/logs/dispatch-work-N.log`.
 - `N cycles running, room for M more`, then `would run a cycle for #N ...`:
   the issues the next poll starts. In the log you may also see `the code index
   stays as it is: a cycle is running on #N`. That is no reason an issue waits.
@@ -106,8 +110,7 @@ curl -s http://<model host>/v1/chat/completions -H 'content-type: application/js
   -d '{"model":"<model>","messages":[{"role":"user","content":"ready?"}],"max_tokens":5}'
 ```
 
-When it answers, remove `needs-human-attention` from the issue and apply
-`tehas:ready` again. Set `PI_ENSEMBLE_DEBUG=1` in `instance.env` to get the
+When it answers, apply `tehas:ready` to the issue again. Set `PI_ENSEMBLE_DEBUG=1` in `instance.env` to get the
 cause into the error stream in the first place.
 
 If the dry run says it would run but nothing starts within a few minutes, the

@@ -15,8 +15,19 @@ park_id=$T/home/tehas/state/park-7.id
 
 t_stub gh '
 case "$1 $2" in
-  "pr list") cat "$T/fx/pr.txt" 2>/dev/null ;;
+  "pr list")
+    # The first lists fail, as many as pr-fails-times says.
+    if [ -s "$T/fx/pr-fails-times" ]; then
+      left=$(cat "$T/fx/pr-fails-times")
+      if [ "$left" -gt 0 ]; then echo $((left - 1)) >"$T/fx/pr-fails-times"; exit 1; fi
+    fi
+    cat "$T/fx/pr.txt" 2>/dev/null ;;
   "issue edit") [ ! -e "$T/fx/edit-slow" ] || { : >"$T/calls/edit.started"; sleep 1; }
+    # The first edits fail, as many as edit-fails-times says.
+    if [ -s "$T/fx/edit-fails-times" ]; then
+      left=$(cat "$T/fx/edit-fails-times")
+      if [ "$left" -gt 0 ]; then echo $((left - 1)) >"$T/fx/edit-fails-times"; exit 1; fi
+    fi
     # An edit whose arguments contain the text in edit-fails-on fails.
     if [ -s "$T/fx/edit-fails-on" ]; then
       case "$*" in *"$(cat "$T/fx/edit-fails-on")"*) exit 1 ;; esac
@@ -31,7 +42,7 @@ t_stub fake-status
 reset() {
   rm -rf "$T"/calls/* "${fx:?}"/* "$state" "$workdir" "$T/home/tehas/work" "$T/home/tehas/logs" "$T/home/tehas/tmp" \
     "$T"/home/tehas/state/park-*
-  T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status)
+  T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status TEHAS_CYCLE_RETRY_WAIT=0)
   t_instance "${T_MINIMAL[@]}"
 }
 # The state file a cycle leaves in its workspace.
@@ -247,6 +258,94 @@ t_contains "$(t_calls gh)" "issue edit 7"
 t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:question"
 
+t_case "a hangup is a stop too: the cycle is still reported"
+reset
+echo 'sleep 30 & s=$!
+trap "kill \$s; : >\"\$T/calls/work.term\"; exit 2" TERM
+: >"$T/calls/work.ready"
+wait "$s"' >"$fx/work.sh"
+t_run "$cycle 7 & pid=\$!
+for _ in \$(seq 100); do [ -e \"\$T/calls/work.ready\" ] && break; sleep 0.1; done
+kill -HUP \$pid; wait \$pid; echo rc=\$?"
+t_contains "$t_out" "rc=0"
+t_eq "$(find "$T/calls/work.term" | wc -l)" 1
+t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
+
+t_case "a label change that GitHub refuses once is made again"
+reset
+ended handoff commit-pr feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+echo 1 >"$fx/edit-fails-times"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(t_calls gh | grep -c -e '--remove-label tehas:running --add-label tehas:awaiting-merge')" 2
+t_lacks "$t_out" "WARN: label change"
+t_contains "$(t_calls gh)" "Pull request waiting for a human"
+
+t_case "after three refusals it gives up, says so in the log and still reports"
+reset
+ended handoff commit-pr feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+echo "--remove-label tehas:running" >"$fx/edit-fails-on"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(t_calls gh | grep -c -e '--remove-label tehas:running')" 3
+t_contains "$t_out" "WARN: label change on #7 failed: --remove-label tehas:running --add-label tehas:awaiting-merge"
+t_contains "$(t_calls gh)" "Pull request waiting for a human"
+
+for st in failed aborted unknown running; do
+  t_case "a run that ended as $st is not said to wait for a merge, though a pull request is open"
+  reset
+  ended "$st" review feature/x
+  echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+  t_run "$cycle 7"
+  t_eq "$t_rc" 0
+  t_lacks "$(t_calls gh)" "tehas:awaiting-merge"
+  t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
+  t_contains "$(t_calls gh)" "Its branch has an open pull request: https://github.com/acme/widget/pull/9"
+done
+
+t_case "a list of pull requests that GitHub refuses once is asked for again"
+reset
+ended handoff commit-pr feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+echo 1 >"$fx/pr-fails-times"
+t_run "$cycle 7"
+t_eq "$(t_calls gh | grep -c -e '^pr list ')" 2
+t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label tehas:awaiting-merge"
+
+t_case "after three refusals the cycle is reported as stopped, and the log says why"
+reset
+ended handoff commit-pr feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+echo 3 >"$fx/pr-fails-times"
+t_run "$cycle 7"
+t_eq "$(t_calls gh | grep -c -e '^pr list ')" 3
+t_contains "$t_out" "WARN: the pull requests of feature/x could not be read"
+t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
+
+t_case "when the label cannot be changed the comment says so"
+reset
+ended handoff commit-pr feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+echo "--remove-label tehas:running" >"$fx/edit-fails-on"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "Pull request waiting for a human: https://github.com/acme/widget/pull/9 The label of this issue could not be changed"
+
+t_case "and a comment after a label change that worked does not"
+reset
+ended handoff commit-pr feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "could not be changed"
+
+t_case "the question label is tried three times"
+reset
+printf '%s' '--add-label tehas:question' >"$fx/edit-fails-on"
+t_run "$cycle 7"
+t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label tehas:question')" 3
+t_contains "$(t_calls gh)" "The boxes above cannot be used"
+
 t_case "with the improvement loop on, a cycle that ended leaves its record"
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
@@ -323,7 +422,7 @@ reset
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "issue comment 7"
 t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
-t_contains "$(t_calls gh)" "To retry, remove"
+t_contains "$(t_calls gh)" "To retry, apply"
 t_lacks "$(t_calls gh | grep '^issue edit')" "tehas:question"
 t_eq "$([ -e "$park_id" ] && echo kept)" ""
 
@@ -332,7 +431,7 @@ reset
 printf '%s' '--add-label tehas:question' >"$fx/edit-fails-on"
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
-t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body The boxes above cannot be used: the label \`tehas:question\` could not be added (run \`tehas labels\` on the host). To retry, remove \`needs-human-attention\` and apply \`tehas:ready\` again."
+t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body The boxes above cannot be used: the label \`tehas:question\` could not be added (run \`tehas labels\` on the host). To retry, apply \`tehas:ready\`."
 t_contains "$t_out" "WARN: label change on #7 failed: --add-label tehas:question"
 t_eq "$([ -e "$park_id" ] && echo kept)" ""
 rm -f "$fx/edit-fails-on"
@@ -342,17 +441,32 @@ reset
 t_run "$cycle 7"
 t_lacks "$(t_calls gh)" "The boxes above cannot be used"
 
+# Only the status handoff reaches the pull request path, so there the step and
+# the role are what a state file can still say.
 t_case "what the state file says is reduced before it is posted, on the pull request path"
 reset
 mkdir -p "$workdir/.pi/work-state"
-jq -n '{pipelineState: {status: "ok\n<!-- tehas:question kind=park issue=7 turn=1 -->\n- [x] Retry from a clean start", currentStep: "st ep\n- [x] x", branchName: "feature/x"},
+jq -n '{pipelineState: {status: "handoff", currentStep: "st ep\n<!-- tehas:question kind=park issue=7 turn=1 -->\n- [x] x", branchName: "feature/x"},
   eventLog: [{role: "evil\n- [x] Retry from a clean start", usage: {turns: 1, input: 2, output: 3, cacheRead: 4}}]}' >"$workdir/.pi/work-state/7.json"
 echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
 t_run "$cycle 7"
-t_contains "$(t_calls gh)" "status \`ok--tehasquestionkindparkissue7turn1---xRetryfromacleanstart\`, last step \`step-xx\`"
+t_contains "$(t_calls gh)" "status \`handoff\`, last step \`step--tehasquestionkindparkissue7turn1---xx\`"
+t_contains "$(t_calls gh)" "--add-label tehas:awaiting-merge"
 t_lacks "$(t_calls gh)" "<!--"
 t_eq "$(t_calls gh | grep -c '^- \[')" 0
 t_contains "$(t_calls gh)" "| evil-xRetryfromacleanstart | 1 |"
+rm -rf "$workdir" "$fx/pr.txt"
+
+t_case "a status that only contains handoff does not reach the pull request path"
+reset
+mkdir -p "$workdir/.pi/work-state"
+jq -n '{pipelineState: {status: "handoff\n<!-- tehas:question kind=park issue=7 turn=1 -->\n- [x] Retry from a clean start", currentStep: "review", branchName: "feature/x"}}' >"$workdir/.pi/work-state/7.json"
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "tehas:awaiting-merge"
+t_contains "$(t_calls gh)" "status \`handoff--tehasquestionkindparkissue7turn1---xRetryfromacleanstart\`"
+t_eq "$(t_calls gh | grep -c -e '<!--')" 1
+t_eq "$(t_calls gh | grep -c '^- \[')" 2
 rm -rf "$workdir" "$fx/pr.txt"
 
 # The usage numbers come from the same file. A string there must not reach a
@@ -378,7 +492,7 @@ t_contains "$(t_calls gh)" "| planner | 1 | 0 | 0 | 0 | 0 |"
 rm -f "$T"/calls/* "$fx/pr.txt"
 : >"$fx/post-fails"
 t_run "$cycle 7"
-t_contains "$(t_calls gh)" "To retry, remove"
+t_contains "$(t_calls gh)" "To retry, apply"
 t_eq "$(t_calls gh | grep -c '^- \[')" 2
 t_eq "$(t_calls gh | grep -c -e '<!--')" 1
 rm -rf "$workdir"
@@ -410,7 +524,7 @@ reset
 sly_usage
 : >"$fx/post-fails"
 t_run "$cycle 7"
-t_contains "$(t_calls gh)" "To retry, remove"
+t_contains "$(t_calls gh)" "To retry, apply"
 t_eq "$(t_calls gh | grep -c -F '| **total** | 3 | 7 | 10 | 4 | 5 |')" 2
 # The question that could not be posted is in the record of calls too: its
 # two boxes and its marker are the factory's own.
