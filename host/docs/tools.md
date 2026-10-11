@@ -90,10 +90,15 @@ than one, is refused: exit 64 with `tehas dispatch: unknown argument: <argument>
 and the usage on standard error, before the instance settings are read. A mistyped
 `--dryrun` therefore starts no poll and changes nothing.
 
-Order of rules: pause label on the control issue, the free slots
-(`TEHAS_TICKET_CONCURRENCY` less the running cycles), the cap on issues awaiting
-merge or being worked on, who applied `tehas:ready`, then urgent first and
-lowest number. Log:
+Order of rules: pause label on the control issue, a usable `tehas.slice`,
+the free slots (`TEHAS_TICKET_CONCURRENCY` less the running cycles), the cap
+on issues awaiting merge or being worked on, the room and the memory pressure
+in the slice, who applied `tehas:ready`, then urgent first and lowest number.
+What holds cycles back is one `holding:` line: at every dry run, and in the
+log once when its reason changes, with `released: cycles may start again`
+when it ends. A real poll also writes it to `~/tehas/live/dispatch.json` with
+the slice's numbers, for [tehas status](#tehas-status). The holds are listed
+under [Troubleshooting](/troubleshooting). Log:
 `~/tehas/logs/dispatch.log` when run by systemd, the terminal otherwise. Each
 cycle's runner output: `~/tehas/logs/dispatch-work-<issue>.log`.
 
@@ -347,10 +352,14 @@ tehas status
 factory   pass: Idle, taking work. (40 s ago)
 queue     2 in line, 0 building, 1 in review, 0 stopped
 cycle     #12 handoff at step review, 3 min ago
+slice     room for 8 cycles (4 GiB of 20 GiB promised, reserve 2g, 40 s ago)
 ```
 
 Prints the state of the factory from the [health file](#tehasbot-health): is
-it taking work, what is in the queue, and the current or last cycle. It reads
+it taking work, what is in the queue, the current or last cycle, and what the
+dispatcher's last poll read of `tehas.slice`. The `slice` line reads
+`holding: ...` when that poll held cycles back, and `unknown: no poll has
+reported in 10 min` when no poll read the slice in that time. It reads
 that one file and nothing else: no GitHub call, no instance settings, and it
 writes nothing. So it is as fresh as the dispatcher's last poll, and the first
 line says how old that is.
@@ -461,7 +470,8 @@ curl -i http://tehas-tehas:8080/health
 ```
 
 Writes the factory's health from what is already on disk: the queue snapshot,
-the running cycles and the last one that finished. The status script runs it on exit, so it is
+the running cycles, the last one that finished and what the dispatcher's
+last poll wrote about the slice. The status script runs it on exit, so it is
 refreshed at every poll and at the end of every cycle. The docs server
 serves the file at `/health` and `/healthz` as `application/health+json`.
 `tehas status` prints the same file for a person.
@@ -469,7 +479,7 @@ serves the file at `/health` and `/healthz` as `application/health+json`.
 | `status` | Meaning                                                                                  | HTTP |
 | -------- | ---------------------------------------------------------------------------------------- | ---- |
 | `pass`   | Taking work, idle or in a cycle                                                          | 200  |
-| `warn`   | Paused (`tehas:pause` on the control issue), or too low on disk to build previews, or the free space could not be read | 200  |
+| `warn`   | Paused (`tehas:pause` on the control issue), or the dispatcher holds everything because the slice is missing or cannot be read, or too low on disk to build previews, or the free space could not be read | 200  |
 | `fail`   | The last cycle ended as anything but `merged` or `handoff` and no cycle has started since, or there is no queue snapshot | 503  |
 
 `output` says the same in a sentence. `checks.queue` has the snapshot time and
@@ -488,6 +498,15 @@ without previews, and when that figure is more than half an hour old. When
 `low` is true, `output` is "The host is low on disk: previews are not being
 built." with a figure, and "The host's free disk space could not be read:
 previews are not being built." when `freeBytes` is `null`.
+
+`checks.slice` is `live/dispatch.json` as the dispatcher's last poll wrote
+it: `time`, `why`, `hold`, `count`, `room`, `committed`, `max` and `reserve`.
+`why` is empty when cycles may start, else one word: `slice`, `count`,
+`awaiting`, `pressure`, `room` or `unreadable`, and `hold` is the line the
+dispatcher logged. `room` is how many more reserves fit in the slice;
+`committed` and `max` are bytes. With `slice` or `unreadable` the status is
+`warn` and `output` is the hold. It is `null` when the file is more than ten
+minutes old. `tehasbot health` calls neither `systemctl` nor `docker`.
 
 A stopped dispatcher cannot report itself: the file simply stops changing and
 the endpoint keeps answering with the last state. A monitor should also treat

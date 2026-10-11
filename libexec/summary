@@ -5,7 +5,8 @@
 # It reads one file, $TEHAS_HOME/live/health.json, which the dispatcher
 # refreshes at every poll and at the end of every cycle. No network, no
 # model, no instance settings, and it writes nothing. What it prints is as old
-# as that file, and the first line says how old.
+# as that file, and the first line says how old. The slice line is what the
+# dispatcher's last poll read of tehas.slice, with that poll's own age.
 #
 # A stopped dispatcher cannot report itself: the file just stops changing. So
 # a file older than ten minutes is not believed, whatever it says: the first
@@ -16,6 +17,11 @@
 #   factory   pass: Idle, taking work. (40 s ago)
 #   queue     2 in line, 0 building, 1 in review, 0 stopped
 #   cycle     #12 handoff at step review, 3 min ago
+#   slice     room for 8 cycles (4 GiB of 20 GiB promised, reserve 2g, 40 s ago)
+#
+# The slice line reads "holding: ..." when the last poll held cycles back,
+# and "unknown: no poll has reported in 10 min" when no poll got as far as
+# reading the slice in that time, as while the factory is paused.
 #
 # Exit: 0 the factory is taking work or is paused (pass, warn); 1 it is not
 # (fail), the file is older than ten minutes, or there is no health file yet;
@@ -42,6 +48,7 @@ jq -r --argjson now "$now" --argjson stale "$stale" '
   def ago: ($now - .) | if . < 0 then 0 else . end
     | if . < 120 then "\(.) s ago" elif . < 7200 then "\(. / 60 | floor) min ago" else "\(. / 3600 | floor) h ago" end;
   def age: (try (fromdateiso8601 | ago) catch "at an unknown time");
+  def gib: (. // 0) / 1073741824 * 10 | round / 10;
   (if $stale then "factory   stale: the dispatcher last reported \(.time | age), is its timer running? It said \(.status): \(.output // "")"
    else "factory   \(.status): \(.output // "") (\(.time | age))" end),
   (.checks.queue // null | if . == null then "queue     no snapshot yet"
@@ -50,7 +57,10 @@ jq -r --argjson now "$now" --argjson stale "$stale" '
   ((if ((.checks.cycles // []) | length) > 1 then .checks.cycles[] else (.checks.cycle // null) end)
    | if . == null then "cycle     none yet"
      elif .running then "cycle     #\(.issue) running, step \(.step // "-"), started \(.startedAt // "" | age)"
-     else "cycle     #\(.issue) \(.status // "unknown") at step \(.step // "-"), \(.time // "" | age)" end)
+     else "cycle     #\(.issue) \(.status // "unknown") at step \(.step // "-"), \(.time // "" | age)" end),
+  (.checks.slice // null | if . == null then "slice     unknown: no poll has reported in 10 min"
+   elif (.why // "") != "" then "slice     \(.hold // "holding") (\(.time | age))"
+   else "slice     room for \(.room // 0) cycles (\(.committed | gib) GiB of \(.max | gib) GiB promised, reserve \(.reserve // "unknown"), \(.time | age))" end)
 ' "$file" || exit 1
 
 [ "$stale" = false ] && [ "$(jq -r .status "$file")" != fail ]
