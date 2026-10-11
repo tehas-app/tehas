@@ -204,6 +204,33 @@ t_eq "$(find "$ws/left-over.txt" "$ws/.pi" "$ws/.git/hooks/post-checkout" 2>/dev
 t_eq "$(git -C "$ws" config --get core.fsmonitor || echo unset)" unset
 t_eq "$(git -C "$ws" rev-parse HEAD)" "$(git -C "$upstream" rev-parse main)"
 
+t_case "what a stopped cycle left is kept beside the new workspace, not deleted"
+t_eq "$(cat "$ws.before-retry/left-over.txt")" left
+t_eq "$(git -C "$ws.before-retry" config --get core.fsmonitor)" "touch $T/ran-fsmonitor; false"
+
+t_case "the kept workspace is given to no container"
+t_lacks "$(cat "$T"/calls/docker.args.*)" "before-retry"
+
+t_case "a second retry keeps the latest stopped workspace only"
+echo second >"$ws/second.txt"
+t_run "$work 7"
+t_eq "$(cat "$ws.before-retry/second.txt")" second
+t_eq "$(find "$ws.before-retry/left-over.txt" 2>/dev/null | wc -l)" 0
+t_eq "$(find "$T/home/tehas/work" -maxdepth 1 -name 'widget-7*' | wc -l)" 2
+t_eq "$(find "$T" -maxdepth 1 -name 'ran-*' | wc -l)" 0
+
+t_case "a kept workspace that cannot be replaced starts no cycle"
+chmod a-w "$ws.before-retry"
+mkdir -p "$ws.before-retry/held" 2>/dev/null
+rm -f "$T"/calls/docker*
+if [ "$(id -u)" != 0 ] && [ -n "$(ls -A "$ws.before-retry")" ]; then
+  t_run "$work 7"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "could not make the workspace $ws, not starting a cycle"
+  t_eq "$(find "$T"/calls -name 'docker*' | wc -l)" 0
+fi
+chmod u+w "$ws.before-retry"
+
 t_case "a commit the cycle made on its own branch does not reach the next cycle"
 git -C "$ws" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m planted
 t_run "$work 7"
