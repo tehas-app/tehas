@@ -100,7 +100,11 @@
     // When the list was written: a run that cannot build still writes it,
     // so an old time means the runs have stopped.
     const note = [];
-    if (p.disk && p.disk.low) note.push("The host is low on disk: previews are not being built.");
+    if (p.disk && p.disk.low) {
+      note.push(p.disk.freeBytes === null
+        ? "The host's free disk space could not be read: previews are not being built."
+        : "The host is low on disk: previews are not being built.");
+    }
     if (typeof p.generatedAt === "string" && !Number.isNaN(Date.parse(p.generatedAt))) {
       note.push("List written " + ago(p.generatedAt) + ".");
     }

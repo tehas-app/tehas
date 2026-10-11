@@ -354,7 +354,8 @@ docker network create --internal --ipv6=false -o com.docker.network.bridge.gatew
 The next run builds the previews again.
 
 **The log says `Docker does not answer`.** Nothing was built or removed. The
-list for the dashboard is still written, without a figure for the free space.
+list for the dashboard is still written, without a figure for the free space,
+and the dashboard and `/health` say the free space could not be read.
 Check `docker info` as the tehas user.
 
 **The state is `serving` and the name answers 404** with "No preview is

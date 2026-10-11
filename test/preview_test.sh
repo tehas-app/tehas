@@ -446,7 +446,7 @@ t_eq "$(builds)" 0
 
 # Anyone can open a pull request between two branches a public repository
 # already has. Its head is in the repository, and it is not built.
-for who in NONE CONTRIBUTOR FIRST_TIME_CONTRIBUTOR FIRST_TIMER MANNEQUIN member Owner ""; do
+for who in NONE CONTRIBUTOR FIRST_TIME_CONTRIBUTOR FIRST_TIMER MANNEQUIN member Owner; do
   t_case "a pull request opened by '$who' between branches of the repository is never built"
   reset
   a=$(commit feature)
@@ -461,13 +461,36 @@ for who in NONE CONTRIBUTOR FIRST_TIME_CONTRIBUTOR FIRST_TIMER MANNEQUIN member 
   t_eq "$(writes)" ""
 done
 
-t_case "an author association that is not text is never built"
+# A list that does not say who opened a pull request is not a clear answer.
+# The sweep keeps on it, and so does the run: nothing is built and nothing
+# that serves is removed.
+for shape in 'del(.author_association)' '.author_association = null' '.author_association = ["OWNER"]' '.author_association = true'; do
+  t_case "a list that does not say who opened a pull request builds and removes nothing ($shape)"
+  reset
+  a=$(commit feature)
+  pulls "$(pull 12 "$a")" "$(pull 16 "$a")"
+  t_run "$preview"
+  t_eq "$(state_of 12) $(state_of 16)" "serving serving"
+  b=$(commit other)
+  pulls "$(pull 17 "$b")" "$(pull 16 "$a" | jq -c "$shape")"
+  rm -f "$T"/calls/*
+  t_run "$preview"
+  t_eq "$t_rc" 0
+  t_contains "$t_out" "the list of open pull requests does not say who opened each; nothing was built or removed"
+  t_eq "$(builds)" 0
+  t_eq "$(t_calls docker | grep -c '^rm ')" 0
+  t_eq "$(state_of 12) $(state_of 16)" "serving serving"
+  t_eq "$(count "$root" 17)" 0
+  t_eq "$(jq -r '(now - (.generatedAt | fromdateiso8601)) < 120' "$live/previews.json")" "true"
+done
+
+t_case "a fork that does not say who opened it stops nothing"
 reset
 a=$(commit feature)
-pulls "$(pull 16 "$a" | jq -c '.author_association = ["OWNER"]')" "$(pull 17 "$a" | jq -c '.author_association = true')"
+pulls "$(pull 12 "$a")" "$(pull 26 "$a" stranger/widget "")"
 t_run "$preview"
-t_eq "$(builds)" 0
-t_contains "$t_out" "2 pull requests opened by someone outside the repository, not built"
+t_eq "$(state_of 12)" "serving"
+t_lacks "$t_out" "does not say who"
 
 for who in OWNER MEMBER COLLABORATOR; do
   t_case "a pull request opened by '$who' is built"
@@ -1204,10 +1227,10 @@ t_contains "$t_out" "(it is not internal); nothing was built"
 t_eq "$(jq -c '.disk' "$live/previews.json")" '{"freeBytes":2147483648,"minFreeBytes":5368709120,"low":true}'
 t_eq "$(t_calls gh | grep -c 'pulls')" 1
 
-t_case "a run that stops because Docker does not answer still writes the list, with no figure"
+t_case "a run that stops because Docker does not answer still writes the list, with no figure and not as healthy"
 stopped docker-down
 t_contains "$t_out" "Docker does not answer; nothing was built or removed"
-t_eq "$(jq -c '.disk' "$live/previews.json")" '{"freeBytes":null,"minFreeBytes":5368709120,"low":false}'
+t_eq "$(jq -c '.disk' "$live/previews.json")" '{"freeBytes":null,"minFreeBytes":5368709120,"low":true}'
 
 t_case "a container that never starts is said once, not at every retry"
 reset

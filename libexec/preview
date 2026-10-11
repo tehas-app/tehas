@@ -394,9 +394,13 @@ run() {
   # A run that stops here or at the network still writes the list. Its time
   # is what the dashboard shows and what tehasbot health goes by, and a list
   # that stopped changing would look like a timer that stopped. Without
-  # Docker the free space is not measured, and the list has no figure.
+  # Docker the free space is not measured: the list has no figure and says
+  # low, as for any space that cannot be read, so that it does not read as a
+  # host where all is well.
   if ! docker info --format '{{.DockerRootDir}}' >/dev/null 2>&1; then
     echo "Docker does not answer; nothing was built or removed"
+    free=""
+    low=true
     write_list
     return 0
   fi
@@ -432,6 +436,16 @@ run() {
     def committed: (.head.sha // "") | test("^[0-9a-f]{40}$");
     def here: ((.head.repo.full_name // "") | ascii_downcase) == ($repo | ascii_downcase);
     def by_us: .author_association | ours;'
+  # A list that does not say who opened one of ours is not a clear answer.
+  # Reading it as "an outsider's" would remove a preview that serves, where
+  # the sweep keeps on the same answer.
+  if ! jq -e --arg repo "$repo" "$parts"'
+      all(.[]; (numbered and committed and here | not) or (.author_association | type) == "string")' \
+      <<<"$pulls" >/dev/null 2>&1; then
+    echo "the list of open pull requests does not say who opened each; nothing was built or removed"
+    write_list
+    return 0
+  fi
   ours=$(jq -c --arg repo "$repo" "$parts"'
     if type != "array" then error("not a list") else . end
     | map(select(numbered and committed and here and by_us)
@@ -524,8 +538,9 @@ no_space() {
 # The five minute run removes what GitHub's list of open pull requests no
 # longer has. This does not trust that list or that run. It starts from what
 # is on the host, asks GitHub about each pull request by itself, and removes
-# what is merged, closed, not there, not ours or not opened by one of ours. An answer that is not clear
-# keeps everything: a sweep never removes on a failed call.
+# what is merged, closed, not there, not ours or not opened by one of ours.
+# An answer that is not clear keeps everything: a sweep never removes on a
+# failed call.
 sweep() {
   local removed=0 numbers n id tag owner name answer err verdict info listing stuck
   local fmt='{{.ID}} {{.Label "tehas.preview"}} {{.Label "tehas.repo"}} {{.Names}}'

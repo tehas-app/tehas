@@ -315,10 +315,16 @@ Such a pull request is not built and takes no place from the others.
   opened by anyone outside the repository.
 - Who opened a pull request is what GitHub says in `author_association`. A
   member of the organisation whose membership is private may be shown as
-  less than a member to the bot's token. That was not tried.
+  less than a member to the bot's token. That was not tried. If it is so,
+  that person's pull requests get no preview and are counted as opened by
+  someone outside the repository. Making the membership public, or adding
+  the person to the repository as a collaborator, is the way round it.
 - A preview's output is capped at two files of 10 MB by options of Docker's
-  `json-file` and `local` log drivers. A host whose Docker logs through
-  another driver was not tried.
+  `json-file` and `local` log drivers, so the host's Docker must log through
+  one of those. `docker info --format '{{.LoggingDriver}}'` says which.
+  Another driver refuses the options: Docker 29.1.3 with `journald` answered
+  `unknown log opt 'max-size'`. No preview would start there, and each would
+  be `build-failed`.
 - A recipe's volumes are read from the image after the build, and one outside
   `/tmp`, `/config` and `/data` is refused. That was seen with Docker 29.1.3:
   a volume declared at one of the three made nothing on the disk, and one

@@ -437,7 +437,7 @@ are enabled. Both write to `~/tehas/logs/preview.log`.
    nothing was built`. [Previews](/edge) lists the reasons. A run that stops
    here still writes `~/tehas/live/previews.json`, with the free space. So
    does one that stops because Docker does not answer, with no figure for the
-   free space. The time in that file is therefore the time of the last run,
+   free space and marked low, so `tehasbot health` warns. The time in that file is therefore the time of the last run,
    whatever the run could do.
 2. It measures the free space: the smaller of the file system of `~/tehas`
    and the one Docker keeps its images on. This is done once Docker has
@@ -445,7 +445,10 @@ are enabled. Both write to `~/tehas/logs/preview.log`.
 3. It asks GitHub for the open pull requests, the newest 100. No answer, an
    answer with nothing in it, or one that is not a list ends the run: nothing
    is built and nothing is removed. A list with no pull request in it is an
-   answer, and every preview is then removed.
+   answer, and every preview is then removed. A list that does not say who
+   opened one of the repository's own pull requests is not a clear answer
+   either: `the list of open pull requests does not say who opened each;
+   nothing was built or removed`.
 4. A pull request whose head is in another repository is counted in the log
    and never built: `<k> pull requests from elsewhere, not built`. Nor is
    one whose head is in the repository and that was opened by anyone but an
