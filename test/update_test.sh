@@ -431,6 +431,72 @@ t_contains "$t_out" "edge: docker compose down of tehas-protolab exited 1; the s
 t_lacks "$(t_calls docker)" "router.compose.yaml up"
 t_contains "$(owed_steps)" "edge --force-recreate"
 
+# The takeover is two commands. One that stopped between them leaves a mark,
+# so the next run does not find nothing running and call the step done.
+t_case "a takeover whose router did not come up is not done, and leaves a mark"
+instance
+platform 1 "$ASK"
+# The old project runs until it is taken down; `up` of the router fails.
+t_stub docker 'case "$1" in
+  ps) case "$4" in *tehas-protolab) [ -e "$T/calls/down" ] || printf "c1\n" ;; esac ;;
+  compose)
+    [ "$2" != -p ] || { : >"$T/calls/down"; exit 0; }
+    case "$*" in *router.compose.yaml*) [ ! -e "$T/up-fails" ] || { echo "port is already allocated" >&2; exit 1; } ;; esac ;;
+esac'
+: >"$T/up-fails"
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "edge: docker compose up exited 1; the step is not done"
+t_contains "$(t_calls docker)" "compose -p tehas-protolab down
+compose -f $th/edge/router.compose.yaml up -d --force-recreate"
+t_eq "$(owed_steps)" "edge --force-recreate"
+t_eq "$(find "$th/state" -name edge-takeover -size 0 | wc -l)" 1
+
+t_case "the next run finishes the takeover with nothing of either project running"
+rm -f "$T"/calls/docker
+push_install 'echo "tehas is up to date"'
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "edge: finishing the takeover from the Protolab's server"
+t_lacks "$t_out" "left alone"
+t_contains "$(t_calls docker)" "compose -f $th/edge/router.compose.yaml up -d --force-recreate"
+t_lacks "$(t_calls docker)" "down"
+t_eq "$(owed_steps)" "edge --force-recreate"
+t_eq "$(find "$th/state" -name edge-takeover | wc -l)" 1
+# And once the router comes up, the mark goes and the step is done.
+rm -f "$T/up-fails" "$T"/calls/docker
+push_install 'echo "tehas is up to date!"'
+t_run "$update"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "left alone"
+t_eq "$(t_calls docker)" "compose -f $th/edge/router.compose.yaml up -d --force-recreate"
+t_eq "$(owed_steps)" ""
+t_eq "$(find "$th/state" -name edge-takeover | wc -l)" 0
+# After that the step is what it was: nothing runs, so nothing is started.
+printf 'edge --force-recreate\n' >"$owed_file"
+rm -f "$T"/calls/docker
+push_install 'echo "tehas is up to date!!"'
+t_run "$update"
+t_eq "$t_rc" 0
+t_contains "$t_out" "edge: not running on this host, left alone"
+t_eq "$(t_calls docker | grep -c '^compose ')" 0
+
+t_case "a takeover that went through leaves no mark"
+instance
+platform 1 "$ASK"
+t_stub docker 'if [ "$1" = ps ]; then case "$4" in *tehas-protolab) printf "c1\n" ;; esac; fi'
+t_run "$update"
+t_eq "$t_rc" 0
+t_eq "$(find "$th/state" -name edge-takeover | wc -l)" 0
+
+t_case "an old project that will not come down leaves no mark"
+instance
+platform 1 "$ASK"
+t_stub docker 'case "$1" in ps) case "$4" in *tehas-protolab) printf "c1\n" ;; esac ;; compose) [ "$2" = -p ] && { echo "cannot remove" >&2; exit 1; } ;; esac'
+t_run "$update"
+t_eq "$t_rc" 1
+t_eq "$(find "$th/state" -name edge-takeover | wc -l)" 0
+
 t_case "every state of systemd's active family restarts the unit"
 instance
 platform 1 "$ASK"

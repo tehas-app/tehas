@@ -448,32 +448,47 @@ compose_up() { # name project file [argument...]
 # update would report "not running" and end green. Where the old project runs it
 # is taken down and the router is brought up in its place; anywhere else this is
 # compose_up, which renews the router only where it already runs.
+#
+# The takeover is two commands, and the first can succeed where the second
+# fails. The next run would then find neither project running, say "left alone"
+# and count the step done, with port 8081 dark. So a taken down project leaves
+# a mark, $TEHAS_HOME/state/edge-takeover. While it is there the router is
+# brought up whatever runs, and it goes only when that worked.
 edge_up() { # argument...
-  local file=$TEHAS_HOME/edge/router.compose.yaml old out rc
+  local file=$TEHAS_HOME/edge/router.compose.yaml mark=$TEHAS_HOME/state/edge-takeover old out rc
   if [ ! -f "$file" ]; then
     compose_up edge tehas-edge "$file" "$@"
     return
   fi
-  old=$(timeout "$compose_limit" docker ps --quiet \
-    --filter "label=com.docker.compose.project=tehas-protolab" 2>&1)
-  rc=$?
-  if [ "$rc" != 0 ]; then
-    echo "edge: docker ps failed; the step is not done" >&2
-    [ "$rc" = 124 ] && echo "  docker gave no answer in ${compose_limit}s" >&2
-    [ -n "$old" ] && printf '%s\n' "$old" | sed 's/^/  /' >&2
-    return 1
-  fi
-  if [ -z "$old" ]; then
-    compose_up edge tehas-edge "$file" "$@"
-    return
-  fi
-  echo "edge: taking over from the Protolab's server (tehas-protolab)"
-  out=$(timeout "$compose_limit" docker compose -p tehas-protolab down 2>&1)
-  rc=$?
-  [ -n "$out" ] && printf '%s\n' "$out"
-  if [ "$rc" != 0 ]; then
-    echo "edge: docker compose down of tehas-protolab exited $rc; the step is not done" >&2
-    return 1
+  if [ -e "$mark" ]; then
+    echo "edge: finishing the takeover from the Protolab's server (tehas-protolab)"
+  else
+    old=$(timeout "$compose_limit" docker ps --quiet \
+      --filter "label=com.docker.compose.project=tehas-protolab" 2>&1)
+    rc=$?
+    if [ "$rc" != 0 ]; then
+      echo "edge: docker ps failed; the step is not done" >&2
+      [ "$rc" = 124 ] && echo "  docker gave no answer in ${compose_limit}s" >&2
+      [ -n "$old" ] && printf '%s\n' "$old" | sed 's/^/  /' >&2
+      return 1
+    fi
+    if [ -z "$old" ]; then
+      compose_up edge tehas-edge "$file" "$@"
+      return
+    fi
+    echo "edge: taking over from the Protolab's server (tehas-protolab)"
+    out=$(timeout "$compose_limit" docker compose -p tehas-protolab down 2>&1)
+    rc=$?
+    [ -n "$out" ] && printf '%s\n' "$out"
+    if [ "$rc" != 0 ]; then
+      echo "edge: docker compose down of tehas-protolab exited $rc; the step is not done" >&2
+      return 1
+    fi
+    # A mark that cannot be written does not stop the takeover: the router is
+    # brought up now all the same, and only a failure of that is then lost.
+    if ! : 2>/dev/null >"$mark"; then
+      echo "edge: $mark could not be written" >&2
+    fi
   fi
   out=$(timeout "$compose_limit" docker compose -f "$file" up -d "$@" 2>&1)
   rc=$?
@@ -482,6 +497,7 @@ edge_up() { # argument...
     echo "edge: docker compose up exited $rc; the step is not done" >&2
     return 1
   fi
+  rm -f "$mark"
   return 0
 }
 

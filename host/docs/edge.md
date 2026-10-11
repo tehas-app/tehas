@@ -209,7 +209,9 @@ installs the router's files and the units and makes the Docker network
 
 - A host that ran the Protolab's server under its old name, the compose
   project `tehas-protolab`, has that container on port 8081. `tehas update`
-  takes it down and starts the router in its place.
+  takes it down and starts the router in its place. If the router did not
+  start, run `tehas update` again once the cause is gone: it remembers the
+  takeover and starts the router. See [Troubleshooting](/troubleshooting).
 - A host that never ran it gets nothing started. The `docker compose` line
   above starts the router. Where the router already runs, the line changes
   nothing.

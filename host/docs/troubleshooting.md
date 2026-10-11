@@ -221,7 +221,12 @@ again, or delete it once you have run those steps yourself.
 
 A host that ran the Protolab's server under its old name has a container of
 the project `tehas-protolab` holding port 8081. `tehas update` takes it down
-and starts the router in its place. If it did not, remove it once and start the
+and starts the router in its place. When the old one came down and the router
+did not start, the update says `edge: docker compose up exited <n>; the step
+is not done`, and leaves an empty file, `~/tehas/state/edge-takeover`. Fix
+what the lines above that message say and run `tehas update` again: while
+that file is there it starts the router whether or not anything runs, and
+says `edge: finishing the takeover`. If it did not, remove it once and start the
 router by hand: `docker compose -p tehas-protolab down`, then
 `. ~/tehas/env.sh && docker compose -f ~/tehas/edge/router.compose.yaml up -d`.
 
