@@ -161,13 +161,19 @@
   function renderFloor() {
     const open = state.tickets.filter((t) => t.stage !== "shipped");
     const n = (stage) => state.tickets.filter((t) => t.stage === stage).length;
-    $("floor-summary").textContent = !state.loaded
+    const summary = $("floor-summary");
+    const text = !state.loaded
       ? "No ticket data loaded. Use the sample or load an export at the foot of the page."
       : (failure ? `Last cycle failed: #${failure.issue} ended as ${failure.status}. ` : "") +
         (state.paused ? "Factory paused. " : "") +
         `${open.length} open: ${n("ready")} in line, ${n("running")} building, ${n("review")} in review, ` +
         `${n("stopped")} stopped` + (state.live ? "." : `, ${n("backlog")} not on the line.`) +
         (state.live && queue.readAt ? ` Queue read ${ago(queue.readAt)}.` : "");
+    // The summary is a line of the head panel, and the panel is part of the
+    // first screen: when its text changes, so does the fold. It asks for one
+    // refit per turn (refitFold), which measures once the render it is in ends.
+    const moved = summary.textContent !== text;
+    summary.textContent = text;
 
     renderGate();
 
@@ -188,6 +194,7 @@
     $("door-backlog-note").textContent = state.live ? "NOT IN THE LIVE QUEUE" : "OPEN, NOT QUEUED";
     $("door-stopped-link").classList.toggle("is-alert", n("stopped") > 0);
     $("door-stopped-note").textContent = n("stopped") ? "NEEDS A HUMAN" : "NOTHING STOPPED";
+    if (moved) refitFold();
   }
 
   // The lab is not a stage. A prototype is a ticket with this label, wherever it stands on the line.
@@ -479,28 +486,45 @@
     renderOrder();
   }
 
-  // On wide screens the first screen (title, stations, doors) is centred in the
-  // window with equal room above and below, and the board starts under the fold.
-  // Offsets are used, not client rects, so the load animation does not skew them.
+  // On wide screens the first screen (the head panel, the stations, the doors)
+  // is centred in the window with equal room above and below, and the board
+  // starts under the fold. Offsets are used, not client rects, so the load
+  // animation does not skew them. The head panel's box is one of the inputs: its
+  // border, its padding and its lines stand above the doors. renderFloor asks
+  // for a refit when that panel changes; so do a resize and the fonts settling.
   const wide = window.matchMedia("(min-width: 1280px)");
   function fitFold() {
+    const fold = globalThis.TEHAS_FOLD_FIT;
+    if (!fold) return; // fold-fit.js did not load: the CSS fallbacks stand
     const style = document.documentElement.style;
-    style.setProperty("--fold-pad", "32px");
-    style.setProperty("--fold-gap", "72px");
+    style.setProperty("--fold-pad", fold.TOP + "px");
+    style.setProperty("--fold-gap", fold.GAP + "px");
     style.removeProperty("--monitor-height");
     if (!wide.matches) return;
     const doors = document.querySelector(".doors");
     const line = document.querySelector(".line");
-    // The monitor, stand included, is as tall as the stations and doors beside it.
-    style.setProperty("--monitor-height", doors.offsetTop + doors.offsetHeight - line.offsetTop - 32 + "px");
-    const bottom = doors.offsetTop + doors.offsetHeight;
-    const spare = window.innerHeight - bottom - 32;
-    const extra = Math.max(0, Math.min(200, Math.floor(spare / 16) * 8));
-    style.setProperty("--fold-pad", 32 + extra + "px");
-    style.setProperty("--fold-gap", Math.max(72, window.innerHeight - (bottom + extra) + 24) + "px");
+    if (!doors || !line) return;
+    style.setProperty("--monitor-height", fold.monitorHeight(line.offsetTop, doors.offsetTop + doors.offsetHeight) + "px");
+    // Read again: the monitor's height feeds the rows the doors stand in. The
+    // height is a floor, so a work order taller than the stand moves the doors
+    // as well, and is measured again at the next refit.
+    const room = fold.fit(window.innerHeight, doors.offsetTop + doors.offsetHeight);
+    style.setProperty("--fold-pad", room.foldPad + "px");
+    style.setProperty("--fold-gap", room.foldGap + "px");
   }
-  window.addEventListener("resize", fitFold);
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitFold);
+  // fitFold reads offsets, which forces layout, and a render that asks for it has
+  // not finished: measured mid-render the numbers come from content that is about
+  // to be replaced. Several renders may ask in one turn, so they get one read,
+  // taken at the end of the turn when every change in it has been made.
+  let foldAsked = false;
+  function refitFold() {
+    if (foldAsked) return;
+    foldAsked = true;
+    queueMicrotask(() => { foldAsked = false; fitFold(); });
+  }
+  window.addEventListener("resize", refitFold);
+  // Centring the first screen is a nicety: a failure here stops nothing else.
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(refitFold, () => {});
 
   function show(data, sourceText, statusText) {
     Object.assign(state, { tickets: data.tickets, paused: data.paused, sample: data.sample, live: Boolean(data.live), loaded: true, filter: "open", query: "", kw: data.kw });
@@ -522,7 +546,6 @@
     renderOrder();
     printOrder();
     resetGame();
-    fitFold();
   }
 
   // The live queue: the snapshot the dispatcher writes to /live/status.json, the
@@ -606,7 +629,6 @@
       renderLab();
       renderOrder();
       if (game.mode === "ready") resetGame();
-      fitFold();
       if (keep && keep.list) {
         const again = keep.list.querySelector(`[data-number="${keep.number}"]`);
         if (again) again.focus({ preventScroll: true });
@@ -983,7 +1005,7 @@
     }
     useSample();
   };
-  renderFloor(); renderBoard(); renderLab(); renderOrder(); resetGame(); fitFold();
+  renderFloor(); renderBoard(); renderLab(); renderOrder(); resetGame();
   if (queue.mode === "manual") fallback();
   else refreshQueue().then((ok) => { if (!ok && !state.loaded) fallback(); });
   setInterval(refreshQueue, 10000);

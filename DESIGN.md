@@ -53,6 +53,12 @@ components:
     rounded: "{rounded.none}"
     padding: "0 16px"
     height: "48px"
+  floor-head:
+    backgroundColor: "{colors.bone}"
+    textColor: "{colors.ink}"
+    typography: "{typography.body}"
+    rounded: "{rounded.none}"
+    padding: "12px 16px"
   station-sign:
     backgroundColor: "{colors.bone}"
     textColor: "{colors.ink}"
@@ -218,9 +224,10 @@ shadow with zero blur, down and to the right. There is no ambient shadow, no
 glow and no blur anywhere.
 
 ### Shadow Vocabulary
-- **Card** (`box-shadow: 4px 4px 0 #333`): buttons and the gate.
-- **Sign** (`box-shadow: 8px 8px 0 #6a6`): signs and panels standing on
-  grass. The shadow is a darker grass.
+- **Card** (`box-shadow: 4px 4px 0 #333`, `--shadow-card`): buttons and the
+  gate. Panels standing on the field take the Sign shadow instead.
+- **Sign** (`box-shadow: 8px 8px 0 #352`, `--shadow-sign`): signs and panels
+  standing on grass. The shadow is a darker grass.
 - **Ring** (`box-shadow: 0 0 0 4px #ea3`): the station whose tickets the
   board is showing, combined with the sign shadow.
 
@@ -236,6 +243,12 @@ soft, it is wrong.
 Objects are chunky and square, like tiles: thick outline, flat face, hard
 shadow. Interactive targets are at least 48px tall.
 
+**The Panel.** One recipe for the panels standing on the field: a Bone face
+(Bone shade for the console and the break room), a 4px Outline border, a Sign
+shadow, the title on a Steel head closed by a 4px Outline rule, and gutters on
+the children rather than on the face. Every stylesheet writes it out per panel,
+so changing it means every panel in the file.
+
 ### Buttons
 - **Shape:** square, 4px Outline border, card shadow, 48px tall.
 - **Primary:** Brass face. **Default:** Bone face.
@@ -247,11 +260,12 @@ shadow. Interactive targets are at least 48px tall.
 - **Text buttons** (a station's "all N" control) are underlined Verdigris.
 
 ### Floor Head
-The panel at the head of the floor, in the board's style: a Bone face with a 4px
-Outline border and a Sign shadow. The title stands on a Steel head closed by a
-4px Outline rule. Under it one line on what the factory is, held to 110ch, and
-one line in Slate that counts the queue (open, and how many stand at each
-station) and says when the factory is paused or the last cycle failed. The room
+The panel at the head of the floor: one of the field's panels, drawn like the
+board, its title on a Steel head closed by a 4px Outline rule. Under it one line on what the factory
+is, held to 110ch, the one prose measure wider than the 65ch cap, and one
+paragraph in Slate that counts the queue (open, and how many stand at each
+station, counting stopped and not on the line) and says when no ticket data is
+loaded, when the factory is paused, or when the last cycle failed. The room
 above the panel belongs to the field, not to its face.
 
 ### Station Sign
