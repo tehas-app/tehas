@@ -241,7 +241,7 @@ Tests:        not checked (running inside the tests)"
 # Nothing needs the slice yet, so the line changes no exit status.
 t_case "--check names a missing slice and what installs it, and still exits 0"
 mkdir -p "$T/etc/systemd/system"
-T_ENV=(T_IN_TEST=1 BOOTSTRAP_ETC="$T/etc")
+T_ENV=(T_IN_TEST=1 T_SLICE=1 BOOTSTRAP_ETC="$T/etc")
 t_run "$install --check"
 t_eq "$t_rc" 0
 t_contains "$t_out" "Slice:        MISSING (sudo ./bootstrap.sh slice)"

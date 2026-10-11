@@ -376,7 +376,7 @@ done
 # reads the instance or asks systemd.
 slice_to=${BOOTSTRAP_ETC:-/etc}/systemd/system/tehas.slice
 slice_state() {
-  if [ -n "${T_IN_TEST:-}" ] && [ -z "${BOOTSTRAP_ETC:-}" ]; then
+  if [ -n "${T_IN_TEST:-}" ] && [ -z "${T_SLICE:-}" ]; then
     echo "not checked"
   elif [ ! -f "$slice_to" ]; then
     echo MISSING
