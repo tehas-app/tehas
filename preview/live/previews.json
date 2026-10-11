@@ -1,0 +1,9 @@
+{
+  "generatedAt": "2026-10-10T12:00:00Z",
+  "disk": {"freeBytes": 31138512896, "minFreeBytes": 5368709120, "low": false},
+  "lastSweep": {"time": "2026-10-10T09:00:00Z", "removed": 0},
+  "previews": [
+    {"number": 12, "sha": "0000000000000000000000000000000000000012", "state": "serving", "reason": "", "time": "2026-10-10T11:55:00Z", "title": "Sample: a pull request with a preview", "url": "https://github.com/", "address": "https://uat-12.example.org/"},
+    {"number": 11, "sha": "0000000000000000000000000000000000000011", "state": "no-space", "reason": "The host is low on disk: 1.0 GB is free and 5.0 GB is needed.", "time": "2026-10-10T11:50:00Z", "title": "Sample: a pull request without one", "url": "https://github.com/", "address": null}
+  ]
+}

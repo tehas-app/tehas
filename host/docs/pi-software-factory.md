@@ -92,7 +92,7 @@ The [plain dashboard](/dashboard) has the same queue as lists.
 
 ### Is this an official Pi project?
 
-No. Tehas uses Pi and pi-rukas as they are published, with Pi pinned by version and pi-rukas by commit.
+No. Tehas uses Pi as it is published, pinned by version. It takes pi-rukas from a [fork](https://github.com/janit/pi-rukas), pinned by commit; the fork's changes are offered upstream.
 
 ### Does tehas write code without anyone checking it?
 

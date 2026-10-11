@@ -36,9 +36,10 @@
 #                     a changed Caddyfile never reaches a container left as it
 #                     was. A bare "docs" is not this step: it would run the
 #                     weaker action and still be marked done.
-#   protolab <flag>   renew the Protolab container, and only where it is
+#   edge <flag>       renew the edge router's container, and only where it is
 #                     running; the one flag accepted is --force-recreate, and it
-#                     is required for the same reason
+#                     is required for the same reason. A line recorded as
+#                     "protolab <flag>" by an earlier version means this step.
 #
 # Rules: an id this file does not define is run by nobody, and it stays in the
 # record so the host keeps reporting it until a command that knows it runs.
@@ -52,9 +53,9 @@
 # named here is not restarted, because restarting it would run the job off
 # schedule; its changed definition reaches it when the units step asks systemd to
 # reload.
-tehas_units() { printf '%s\n' tehas-dispatch.timer tehas-energy.service tehas-protolab.timer tehas-improve.timer; }
+tehas_units() { printf '%s\n' tehas-dispatch.timer tehas-energy.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer; }
 
-tehas_step_ids() { printf '%s\n' units sandbox docs protolab; }
+tehas_step_ids() { printf '%s\n' units sandbox docs edge; }
 
 # The steps these changed sources call for, in the order they run: systemd
 # first, because a unit file is not in effect until it is reloaded and its unit
@@ -80,7 +81,7 @@ tehas_steps_for() { # changed source paths -> one step per line
     *" edge/docs."*) echo "docs --force-recreate" ;;
   esac
   case "$list" in
-    *" edge/protolab."*) echo "protolab --force-recreate" ;;
+    *" edge/router."* | *" edge/protolab."*) echo "edge --force-recreate" ;;
   esac
   return 0
 }
@@ -94,11 +95,11 @@ tehas_sort_steps() { # step lines -> the same lines, ordered
   known=" $(tehas_step_ids | tr '\n' ' ') "
   for id in $known; do
     for line in "$@"; do
-      if [ "${line%% *}" = "$id" ]; then printf '%s\n' "$line"; fi
+      if [ "${line%% *}" = "$id" ] || { [ "$id" = edge ] && [ "${line%% *}" = protolab ]; }; then printf '%s\n' "$line"; fi
     done
   done
   for line in "$@"; do
-    case "$known" in
+    case "$known protolab " in
       *" ${line%% *} "*) ;;
       *) printf '%s\n' "$line" ;;
     esac
@@ -138,7 +139,7 @@ tehas_valid_step() { # <step line>
     sandbox)
       [ "${#argv[@]}" = 1 ] || return 1
       ;;
-    docs | protolab)
+    docs | edge | protolab)
       # Exactly one argument, and it is the flag: --force-recreate, or nothing.
       # Anything else - another option, a docker verb - is not this step. A bare
       # id is refused too, because docker compose up -d without the flag leaves a

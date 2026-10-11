@@ -10,21 +10,23 @@
 
 t_case "the changed sources ask for the steps, systemd first"
 t_eq "$(tehas_steps_for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env \
-  edge/docs.compose.yaml edge/protolab.compose.yaml libexec/dispatch)" \
-  "units tehas-dispatch.timer tehas-energy.service tehas-protolab.timer tehas-improve.timer
+  edge/docs.compose.yaml edge/router.compose.yaml libexec/dispatch)" \
+  "units tehas-dispatch.timer tehas-energy.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer
 sandbox
 docs --force-recreate
-protolab --force-recreate"
+edge --force-recreate"
 
 t_case "a change to one server asks for that server only"
 t_eq "$(tehas_steps_for edge/docs.Caddyfile)" "docs --force-recreate"
-t_eq "$(tehas_steps_for edge/protolab.compose.yaml)" "protolab --force-recreate"
+t_eq "$(tehas_steps_for edge/router.compose.yaml)" "edge --force-recreate"
+# The retired files of the Protolab's server call for the same step, once.
+t_eq "$(tehas_steps_for edge/protolab.Caddyfile edge/protolab.compose.yaml)" "edge --force-recreate"
 
 # Caddy reads its config when the process starts, and a changed file is the only
 # thing these two steps are ever asked for: docker compose leaves a running
 # container with an unchanged service definition exactly as it was. Both servers
 # mount their Caddyfile from the host, so both need the container recreated.
-for file in docs protolab; do
+for file in docs router; do
   t_case "the $file container is renewed by recreating it"
   t_contains "$(tehas_steps_for edge/$file.Caddyfile)" "--force-recreate"
   t_contains "$(cat "$T_ROOT/host/edge/$file.compose.yaml")" "./$file.Caddyfile:"
@@ -48,7 +50,7 @@ while IFS= read -r step; do
   esac
   if ! tehas_valid_step "$step"; then t_bad "a step this file asked for is not one it accepts: $step"; fi
 done < <(tehas_steps_for systemd/tehas-dispatch.service sandbox/build.sh versions.env \
-  edge/docs.compose.yaml edge/protolab.Caddyfile)
+  edge/docs.compose.yaml edge/router.Caddyfile)
 
 t_case "a line that is not a step this file knows is refused"
 # A compose id on its own belongs on this list: docker compose up -d without
@@ -58,9 +60,9 @@ t_case "a line that is not a step this file knows is refused"
 for bad in "" "rm -rf something" "units" "units --help tehas-dispatch.timer" \
   "units dispatch" "units tehas-dispatch.timers" "units ../etc/passwd" \
   "units gnome-shell.service" "units systemd-journald.service" \
-  "docs" "protolab" "docs restart" "docs up -d" "docs --always-recreate" \
+  "docs" "edge" "docs restart" "docs up -d" "docs --always-recreate" \
   "docs --force-recreate up" "docs --force-recreate --force-recreate" \
-  "protolab --always-recreate" "sandbox --now"; do
+  "edge --always-recreate" "sandbox --now"; do
   t_case "refused: [$bad]"
   if tehas_valid_step "$bad"; then t_bad "accepted: $bad"; fi
 done
@@ -80,18 +82,33 @@ tehas_valid_step "units gnome-shell.service" &&
 tehas_valid_step "docs --force-recreate" || t_bad "the flag install.sh asks for was refused"
 tehas_valid_step "docs" && t_bad "a bare docs was accepted, which is the weaker renewal"
 
+t_case "a step recorded under the Protolab's old id is still a step"
+t_run '. "$T_ROOT/lib/update-steps.sh"; tehas_valid_step "protolab --force-recreate"; echo rc=$?'
+t_eq "$t_out" "rc=0"
+t_run '. "$T_ROOT/lib/update-steps.sh"; tehas_valid_step "edge --force-recreate"; echo rc=$?'
+t_eq "$t_out" "rc=0"
+t_eq "$(tehas_sort_steps "protolab --force-recreate" "units tehas-dispatch.timer")" \
+  "units tehas-dispatch.timer
+protolab --force-recreate"
+
 t_case "the steps run in the order this file lists them, whoever wrote the lines"
-t_eq "$(tehas_sort_steps "protolab --force-recreate" "docs --force-recreate" \
+t_eq "$(tehas_sort_steps "edge --force-recreate" "docs --force-recreate" \
   "units tehas-dispatch.timer" "sandbox")" \
   "units tehas-dispatch.timer
 sandbox
 docs --force-recreate
-protolab --force-recreate"
+edge --force-recreate"
 # A line no step knows is not run, but it keeps its place at the end so it stays
 # visible in the record rather than disappearing with the rest of the list.
 t_eq "$(tehas_sort_steps "a-step-newer-than-this" "docs --force-recreate")" \
   "docs --force-recreate
 a-step-newer-than-this"
+
+t_case "the units step names the preview timer"
+t_contains "$(tehas_units)" "tehas-preview.timer"
+
+t_case "the units step names the preview sweep timer"
+t_contains "$(tehas_units)" "tehas-preview-sweep.timer"
 
 t_case "the units step names units install.sh actually installs"
 missing=""

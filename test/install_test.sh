@@ -15,7 +15,11 @@ home=$T/home
 th=$home/tehas
 T_ENV=(T_IN_TEST=1)
 
-t_stub docker
+# The previews' network as install.sh wants to find it, and how it asks.
+net_good='case "$1 $2" in "version --format") echo 29.1.3 ;; "network inspect") echo "true bridge false isolated" ;; esac'
+net_inspect='version --format {{.Server.Version}}
+network inspect --format {{.Internal}} {{.Driver}} {{.EnableIPv6}} {{index .Options "com.docker.network.bridge.gateway_mode_ipv4"}} tehas-previews'
+t_stub docker "$net_good"
 t_stub systemctl
 t_stub_cargo
 
@@ -39,6 +43,10 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./.config/systemd/user/tehas-energy.service
 ./.config/systemd/user/tehas-improve.service
 ./.config/systemd/user/tehas-improve.timer
+./.config/systemd/user/tehas-preview-sweep.service
+./.config/systemd/user/tehas-preview-sweep.timer
+./.config/systemd/user/tehas-preview.service
+./.config/systemd/user/tehas-preview.timer
 ./.config/systemd/user/tehas-protolab.service
 ./.config/systemd/user/tehas-protolab.timer
 ./.pi/agent/mcp.json
@@ -48,11 +56,12 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/bin/tehasbot
 ./tehas/edge/docs.Caddyfile
 ./tehas/edge/docs.compose.yaml
-./tehas/edge/protolab.Caddyfile
-./tehas/edge/protolab.compose.yaml
+./tehas/edge/router.Caddyfile
+./tehas/edge/router.compose.yaml
 ./tehas/env.sh
 ./tehas/lib/config.sh
 ./tehas/lib/cycles.sh
+./tehas/lib/edge.sh
 ./tehas/lib/improve-prompt.md
 ./tehas/lib/improve.sh
 ./tehas/lib/live.sh
@@ -62,12 +71,14 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/libexec/console.stamp
 ./tehas/libexec/cycle
 ./tehas/libexec/dev
+./tehas/libexec/dev-login
 ./tehas/libexec/dispatch
 ./tehas/libexec/energy
 ./tehas/libexec/health
 ./tehas/libexec/improve
 ./tehas/libexec/index
 ./tehas/libexec/labels
+./tehas/libexec/preview
 ./tehas/libexec/protolab
 ./tehas/libexec/status
 ./tehas/libexec/summary
@@ -88,10 +99,10 @@ sorted() { printf '%s\n' "$@" | LC_ALL=C sort; }
 next_steps() {
   tehas_steps_for systemd/tehas-cycle@.service systemd/tehas-dispatch.service systemd/tehas-dispatch.timer \
     systemd/tehas-energy.service systemd/tehas-improve.service systemd/tehas-improve.timer \
-    systemd/tehas-protolab.service \
-    systemd/tehas-protolab.timer sandbox/Dockerfile sandbox/build.sh versions.env \
-    edge/docs.Caddyfile edge/docs.compose.yaml edge/protolab.Caddyfile \
-    edge/protolab.compose.yaml
+    systemd/tehas-preview.service \
+    systemd/tehas-preview.timer systemd/tehas-preview-sweep.service systemd/tehas-preview-sweep.timer systemd/tehas-protolab.service systemd/tehas-protolab.timer sandbox/Dockerfile sandbox/build.sh versions.env \
+    edge/docs.Caddyfile edge/docs.compose.yaml edge/router.Caddyfile \
+    edge/router.compose.yaml
 }
 
 t_case "a fresh install: exactly these files"
@@ -106,6 +117,76 @@ t_eq "$(cat "$th/state/update-pending")" "$(next_steps)"
 # install.sh asks systemd for nothing: a copied unit file is not in effect until
 # the step that restarts the units has reloaded it.
 t_eq "$(t_calls systemctl)" ""
+# It makes the previews' network where there is none, and asks nothing else.
+t_eq "$(t_calls docker)" "$net_inspect"
+t_lacks "$t_out" "tehas-previews"
+t_eq "$([ -d "$th/preview" ] && echo there)" "there"
+
+t_case "a host without the previews' network gets it, internal and with no address for the host"
+fresh
+instance
+t_stub docker 'case "$1 $2" in "version --format") echo 29.1.3 ;; "network inspect") exit 1 ;; esac'
+t_run "$install"
+t_eq "$t_rc" 0
+t_eq "$(t_calls docker)" "$net_inspect
+network create --internal --ipv6=false -o com.docker.network.bridge.gateway_mode_ipv4=isolated tehas-previews"
+t_lacks "$t_out" "tehas-previews"
+t_stub docker 'case "$1 $2" in "version --format") echo 29.1.3 ;; "network inspect"|"network create") exit 1 ;; esac'
+fresh
+instance
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "The network tehas-previews could not be made"
+t_stub docker "$net_good"
+
+t_case "a network that does not keep the host out is left, and the run says why and that it has to be remade"
+while IFS='|' read -r answer reason; do
+  fresh
+  instance
+  t_stub docker "case \"\$1 \$2\" in \"version --format\") echo 27.1.0 ;; \"network inspect\") echo \"$answer\" ;; esac"
+  t_run "$install"
+  t_eq "$t_rc" 0
+  t_eq "$(t_calls docker)" "$net_inspect"
+  t_contains "$t_out" "The network tehas-previews does not keep the host out ($reason). It has to be remade"
+  t_contains "$t_out" "troubleshooting"
+done <<'CASES'
+true bridge false |it is not isolated from the host
+true bridge false nat|it is not isolated from the host
+false bridge false isolated|it is not internal
+true bridge true isolated|it has IPv6
+true ipvlan false isolated|its driver is not bridge
+CASES
+t_stub docker "$net_good"
+
+t_case "a Docker older than 27.1 is not asked for the network, and the run says why"
+while IFS='|' read -r version reason; do
+  fresh
+  instance
+  t_stub docker "case \"\$1 \$2\" in \"version --format\") echo \"$version\" ;; \"network inspect\") exit 1 ;; esac"
+  t_run "$install"
+  t_eq "$t_rc" 0
+  t_eq "$(t_calls docker)" "version --format {{.Server.Version}}"
+  t_contains "$t_out" "The network tehas-previews was not made or checked: $reason."
+done <<'CASES'
+26.1.4|Docker 26.1.4 is older than 27.1
+27.0.3|Docker 27.0.3 is older than 27.1
+|Docker's version could not be read
+CASES
+t_stub docker 'exit 1'
+fresh
+instance
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "The network tehas-previews was not made or checked: Docker's version could not be read."
+t_eq "$(t_calls docker | grep -c '^network')" 0
+t_stub docker "$net_good"
+
+t_case "--check makes no network"
+fresh
+instance
+t_run "$install"
+rm -f "$T/calls/docker"
+t_run "$install --check"
 t_eq "$(t_calls docker)" ""
 
 t_case "the manual and the front page are installed"
@@ -123,7 +204,7 @@ for unit in "$home"/.config/systemd/user/*; do
     [ -e "$ref" ] || missing="$missing $ref"
   done < <(grep -o '%h/tehas/[A-Za-z0-9_./-]*' "$unit" | sed "s|%h|$home|")
 done
-for file in docs.compose.yaml protolab.compose.yaml; do
+for file in docs.compose.yaml router.compose.yaml; do
   for ref in $(grep -o '"\.\.\?/[A-Za-z0-9_./-]*:' "$th/edge/$file" | tr -d '":'); do
     [ -e "$th/edge/$ref" ] || missing="$missing $ref"
   done
@@ -322,15 +403,21 @@ echo '{"defaultProvider":"test-provider","defaultModel":"session-model"}' >"$th/
 t_run "$install"
 t_eq "$t_rc" 0
 
-for asked in TEHAS_PREVIEWS=1 TEHAS_CLONES=1; do
-  t_case "an instance that asks for $asked installs nothing and exits 78"
-  fresh
-  instance "$asked"
-  t_run "$install"
-  t_eq "$t_rc" 78
-  t_contains "$t_out" "${asked%%=*} is set and this version of tehas has no previews or database clones"
-  t_eq "$(find "$home" -type f | wc -l)" 0
-done
+t_case "an instance that asks for database clones installs nothing and exits 78"
+fresh
+instance TEHAS_CLONES=1
+t_run "$install"
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_CLONES is set and this version of tehas has no database clones"
+t_eq "$(find "$home" -type f | wc -l)" 0
+
+t_case "an instance that asks for previews without a domain installs nothing and exits 78"
+fresh
+instance TEHAS_PREVIEWS=1
+t_run "$install"
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_PREVIEWS is 1 and TEHAS_DOMAIN is not set"
+t_eq "$(find "$home" -type f | wc -l)" 0
 
 t_case "settings anyone can write are a finding"
 instance
@@ -385,7 +472,7 @@ t_contains "$t_out" "removed: $th/bin/tehas-dispatch"
 t_contains "$t_out" "removed: $th/bin/tehas-test"
 # A running sampler is the old file calling itself. The units step restarts it,
 # so the step is asked for and owed although no unit file changed.
-t_contains "$t_out" "next: units tehas-dispatch.timer tehas-energy.service tehas-protolab.timer tehas-improve.timer"
+t_contains "$t_out" "next: units tehas-dispatch.timer tehas-energy.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer"
 t_contains "$(cat "$th/state/update-pending")" "units tehas-dispatch.timer tehas-energy.service"
 # systemd reloaded before the files its old units name were removed.
 t_eq "$(t_calls systemctl)" "--user daemon-reload"
@@ -459,6 +546,25 @@ t_eq "$t_rc" 0
 
 # The code index: built by the first real run that finds both the sandbox
 # image and the product checkout, and never by --check.
+t_case "the Protolab server's files of before the edge router are named, then removed"
+fresh
+instance
+t_run "$install"
+rm -f "$th/state/update-pending"
+echo "# old" >"$th/edge/protolab.Caddyfile"
+echo "# old" >"$th/edge/protolab.compose.yaml"
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "stale: $th/edge/protolab.Caddyfile"
+t_contains "$t_out" "stale: $th/edge/protolab.compose.yaml"
+t_eq "$([ -e "$th/edge/protolab.Caddyfile" ] && echo there)" "there"
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "removed: $th/edge/protolab.Caddyfile"
+t_contains "$t_out" "removed: $th/edge/protolab.compose.yaml"
+t_eq "$([ -e "$th/edge/protolab.compose.yaml" ] && echo there)" ""
+t_eq "$(cat "$th/state/update-pending")" "edge --force-recreate"
+
 product() {
   mkdir -p "$T/git/acme"
   [ -d "$T/git/acme/widget" ] || {
@@ -469,6 +575,8 @@ product() {
 }
 index_runs() { t_calls docker | grep -c -e '^run .*index_repository' || true; }
 t_stub docker 'case "$1" in
+  version) echo 29.1.3 ;;
+  network) echo "true bridge false isolated" ;;
   image) exit "${IMAGE_RC:-0}" ;;
   run) [ "${RUN_RC:-0}" = 0 ] || exit "$RUN_RC"; echo "{\"status\":\"indexed\",\"nodes\":1,\"edges\":2}" ;;
 esac'
@@ -516,7 +624,7 @@ t_case "a later install leaves the index alone"
 t_run "$install"
 t_contains "$t_out" "tehas is up to date"
 t_eq "$(index_runs)" 1
-t_stub docker
+t_stub docker "$net_good"
 
 for name in example tehas-tehas; do
   t_case "the shipped instance '$name' is valid"
@@ -537,7 +645,7 @@ instance
 t_stub systemctl 'echo "Failed to connect to bus: No such file or directory" >&2; exit 1'
 t_run "$install"
 t_eq "$t_rc" 0
-t_contains "$t_out" "next: units tehas-dispatch.timer tehas-energy.service tehas-protolab.timer tehas-improve.timer"
+t_contains "$t_out" "next: units tehas-dispatch.timer tehas-energy.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer"
 t_eq "$(t_calls systemctl)" ""
 t_contains "$(cat "$th/state/update-pending")" "units tehas-dispatch.timer"
 
@@ -559,10 +667,10 @@ t_run "$part/install.sh"
 t_eq "$t_rc" 1
 t_contains "$t_out" "is missing from this checkout"
 t_lacks "$t_out" "next: "
-t_eq "$(cat "$th/state/update-pending")" "units tehas-dispatch.timer tehas-energy.service tehas-protolab.timer tehas-improve.timer
+t_eq "$(cat "$th/state/update-pending")" "units tehas-dispatch.timer tehas-energy.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer
 sandbox
 docs --force-recreate
-protolab --force-recreate"
+edge --force-recreate"
 
 t_case "the follow-ups it prints are the ids lib/update-steps.sh defines"
 fresh
@@ -571,7 +679,7 @@ t_stub systemctl
 t_run "$install"
 t_eq "$t_rc" 0
 t_eq "$(printf '%s\n' "$t_out" | sed -n 's/^next: //p')" \
-  "$(tehas_steps_for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env edge/docs.compose.yaml edge/protolab.compose.yaml)"
+  "$(tehas_steps_for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env edge/docs.compose.yaml edge/router.compose.yaml)"
 # Steps, not shell text for a person to paste.
 t_lacks "$t_out" "docker compose -f"
 t_lacks "$t_out" "systemctl --user enable"

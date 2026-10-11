@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Build the Protolab: a page for every ticket at the prototype stage, with the
 # files attached to the ticket beside it. Written to $TEHAS_HOME/protolab,
-# which the Protolab container serves on port 8081 (edge/protolab.compose.yaml).
+# which the edge router serves on port 8081 (edge/router.compose.yaml): by path,
+# and with TEHAS_DOMAIN set, each ticket also under a name of its own,
+# lab-<number>.<domain>.
 #
 # A ticket is at the prototype stage while it is open and labelled
 # tehas:prototype. Its page has the title, a link to the issue on GitHub and
@@ -37,19 +39,26 @@ umask 022
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/config.sh
 . "$here/../lib/config.sh"
+# shellcheck source=lib/edge.sh
+. "$here/../lib/edge.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO
 repo=$TEHAS_REPO
 label=tehas:prototype
 limit=$((10 * 1024 * 1024))
 max_files=40
+# With a domain every ticket has a name of its own and the list is elsewhere.
+domain=${TEHAS_DOMAIN:-}
+home=/
+[ -z "$domain" ] || home=${TEHAS_PROTOLAB_URL}/
 site=$TEHAS_HOME/protolab
 live=$TEHAS_HOME/live
 work=$site/.work
 # A changed generator rebuilds every page.
-gen=$(cksum <"${BASH_SOURCE[0]}" | tr ' ' '-')
+gen="$(cksum <"${BASH_SOURCE[0]}" | tr ' ' '-')-${domain:-path}"
 
 mkdir -p "$site" "$live" || exit 1
+edge_lock protolab || { echo "another tehasbot protolab is running"; exit 0; }
 rm -rf "$work"
 mkdir -p "$work" || exit 1
 trap 'rm -rf "$work"' EXIT
@@ -77,6 +86,8 @@ find_refs='
 # shellcheck disable=SC2016  # a jq program: the variables are jq's
 render='
   def h: tostring | @html;
+  def home: $home | h;
+  def door: if $domain == "" then "/\(.number)/" else "https://lab-\(.number).\($domain)/" end;
   def size: if . >= 1048576 then "\(((. / 104857.6) | round) / 10) MB"
             elif . >= 1024 then "\((. / 1024) | round) KB"
             else "\(.) B" end;
@@ -103,12 +114,12 @@ render='
     + "</head>\n<body id=\"top\">\n"
     + "  <a class=\"skip\" href=\"#page\">Skip to the page</a>\n"
     + "  <header class=\"topbar topbar-short\">\n"
-    + "    <a class=\"brand\" href=\"/\" aria-label=\"Protolab, every prototype\">\n"
+    + "    <a class=\"brand\" href=\"\(home)\" aria-label=\"Protolab, every prototype\">\n"
     + "      <img src=\"/fun/factory.svg\" width=\"80\" height=\"50\" alt=\"\">\n"
     + "      <span>PROTOLAB</span>\n"
     + "    </a>\n"
     + "    <nav class=\"menu\" aria-label=\"Site\">\n"
-    + "      <a href=\"/\">ALL PROTOTYPES</a>\n" + $menu
+    + "      <a href=\"\(home)\">ALL PROTOTYPES</a>\n" + $menu
     + "    </nav>\n"
     + "  </header>\n"
     + "  <main class=\"lab-stage\" id=\"page\">\n";
@@ -189,7 +200,7 @@ render='
     + bottom;
 
   def row:
-    "          <li><a class=\"row\" href=\"/\(.number)/\"><b>#\(.number)</b><span class=\"row-title\">\(.title | h)</span>"
+    "          <li><a class=\"row\" href=\"\(door | h)\"><b>#\(.number)</b><span class=\"row-title\">\(.title | h)</span>"
     + "<span class=\"row-stage\">\(if (.files | length) == 0 then "NO FILES" else "\(.files | length | plural("FILE"; "FILES")), \(.bytes | size | ascii_upcase)" end)</span></a></li>\n";
 
   def front:
@@ -329,15 +340,12 @@ build() {
     ($t | {number, title, url, author, updatedAt})
     + {files: $files, skipped: $skipped, outside: $found.outside, bytes: ($files | map(.bytes) | add // 0)}' \
     >"$dir/.meta.json" || return 1
-  jq -r --arg mode ticket --argjson limit "$limit" "$render" "$dir/.meta.json" >"$dir/index.html" || return 1
+  jq -r --arg mode ticket --arg domain "$domain" --arg home "$home" --argjson limit "$limit" "$render" "$dir/.meta.json" >"$dir/index.html" || return 1
   rm -f "$dir/.part" "$dir/.files" "$dir/.skipped"
   # Without a stamp the next run builds the ticket again.
   [ "$retry" = 1 ] || printf '%s\n' "$stamp" >"$dir/.stamp"
 
-  rm -rf "$site/.old"
-  if [ -d "$site/$n" ]; then mv "$site/$n" "$site/.old" || return 1; fi
-  mv "$dir" "$site/$n" || return 1
-  rm -rf "$site/.old"
+  edge_place "$dir" "$site/$n" || return 1
   echo "#$n: $(jq -r '"\(.files | length) files, \(.bytes) bytes, \(.skipped | length) left out"' "$site/$n/.meta.json")"
 }
 
@@ -361,13 +369,11 @@ while IFS= read -r ticket; do
   build "$n" "$ticket" "$stamp" || echo "#$n: could not be read, left as it was"
 done <<<"$tickets"
 
-for dir in "$site"/*/; do
-  [ -d "$dir" ] || continue
-  n=$(basename "$dir")
-  case "$n" in *[!0-9]* | "") continue ;; esac
+while IFS= read -r n; do
+  [ -n "$n" ] || continue
   case "$keep" in *" $n "*) continue ;; esac
-  rm -rf "$dir" && echo "#$n: no longer at the prototype stage, removed"
-done
+  rm -rf "${site:?}/$n" && echo "#$n: no longer at the prototype stage, removed"
+done < <(edge_numbers "$site")
 
 # --- The list: the lab's front page and the dashboard's file -----------------
 metas=()
@@ -375,12 +381,11 @@ for f in "$site"/*/.meta.json; do
   [ -f "$f" ] && metas+=("$f")
 done
 all=$(jq -s -c 'sort_by(-.number)' "${metas[@]}" </dev/null) || exit 1
-jq -r --arg mode index --argjson limit "$limit" "$render" <<<"$all" >"$site/index.html.new" || exit 1
-mv "$site/index.html.new" "$site/index.html" || exit 1
-jq -n --argjson all "$all" --arg now "$(date -u +%FT%TZ)" --arg url "${TEHAS_PROTOLAB_URL:-}" \
-  --argjson limit "$limit" '
+edge_put "$site/index.html" jq -r --arg mode index --arg domain "$domain" --arg home "$home" --argjson limit "$limit" "$render" <<<"$all" || exit 1
+# shellcheck disable=SC2016  # a jq program: the variables are jq's
+edge_put "$live/protolab.json" jq -n --argjson all "$all" --arg now "$(date -u +%FT%TZ)" \
+  --arg url "${TEHAS_PROTOLAB_URL:-}" --arg domain "$domain" --argjson limit "$limit" '
   {generatedAt: $now, url: $url, limitBytes: $limit,
-   tickets: ($all | map({number, title, url, files: (.files | length), bytes}))}' \
-  >"$live/protolab.json.new" || exit 1
-mv "$live/protolab.json.new" "$live/protolab.json" || exit 1
+   tickets: ($all | map({number, title, url, files: (.files | length), bytes,
+     address: (if $domain == "" then null else "https://lab-\(.number).\($domain)/" end)}))}' || exit 1
 exit 0

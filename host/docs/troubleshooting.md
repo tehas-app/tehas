@@ -17,6 +17,8 @@ description: "What each stop in a tehas cycle means, and what to do about it."
 | What did one agent do?           | Transcripts under `~/.pi/agent/ensemble-runs/issue-<issue>/<date>/`     |
 | What did the improvement loop do? | `~/tehas/logs/improve.log`, one line per run                           |
 | Is a cycle running?              | `systemctl --user status 'tehas-cycle@*'`, or `docker ps --filter name=tehas-work` |
+| What did the previews do?        | `~/tehas/logs/preview.log`, and `~/tehas/logs/preview-<pr>.log` for one build |
+| What state is a preview in?      | `jq . ~/tehas/preview/<pr>/state.json`, or "Previews" on the [dashboard](/dashboard) |
 
 The driver's notices, one per line:
 
@@ -264,6 +266,215 @@ A record this account cannot open - written by another account, or with a mode
 that blocks reading - stops the update with exit 1 rather than read as "nothing
 owed": it holds steps, and writing over it would lose them. Make it readable
 again, or delete it once you have run those steps yourself.
+
+## The edge router does not start
+
+A host that ran the Protolab's server under its old name has a container of
+the project `tehas-protolab` holding port 8081. `tehas update` takes it down
+and starts the router in its place. When the old one came down and the router
+did not start, the update says `edge: docker compose up exited <n>; the step
+is not done`, and leaves an empty file, `~/tehas/state/edge-takeover`. Fix
+what the lines above that message say and run `tehas update` again: while
+that file is there it starts the router whether or not anything runs, and
+says `edge: finishing the takeover`. If it did not, remove it once and start the
+router by hand: `docker compose -p tehas-protolab down`, then
+`. ~/tehas/env.sh && docker compose -f ~/tehas/edge/router.compose.yaml up -d`.
+
+The router also needs the network `tehas-previews`, which `install.sh` makes. If
+compose says the network is not found, make it. `install.sh` does not make it
+on a Docker older than 27.1, and says so; check `docker version` first, and
+update Docker before making it by hand:
+
+```
+docker network create --internal --ipv6=false -o com.docker.network.bridge.gateway_mode_ipv4=isolated tehas-previews
+```
+
+## A preview is not there
+
+The dashboard lists the open pull requests that have a state under
+"Previews", with the address or the reason. The same is in
+`~/tehas/preview/<pr>/state.json`, and what the runs did is in
+`~/tehas/logs/preview.log`. Look for the state first.
+
+**Nothing is listed at all.** The section is missing when the host has no
+`~/tehas/live/previews.json`. Either `TEHAS_PREVIEWS` is not `1`, or the timer
+was never enabled: `systemctl --user list-timers tehas-preview.timer`. An
+update does not enable it. See [Previews](/edge). A pull request from a fork
+is never listed and never built; the log counts it as `from elsewhere`. Nor
+is one that someone who is not an owner, member or collaborator of the
+repository opened, even between two of its own branches; the log counts it
+as `opened by someone outside the repository`.
+
+**`no-recipe`.** The pull request's commit has no `preview/Dockerfile`. Add
+the file to the branch; the next commit is tried. See
+[A new project](/new-project).
+
+**`build-failed`.** Read `~/tehas/logs/preview-<pr>.log`. The reason in the
+state says which of four things happened:
+
+- The build failed or ran over 15 minutes. The same commit is not built
+  again. Push a new commit and that one is tried. A preview of the earlier
+  commit keeps serving meanwhile.
+- `The recipe declares a volume at <path>. A preview may write to /tmp,
+  /config and /data only.` The build went through and the image was not
+  run, and it was removed. A `VOLUME` line, in the recipe or in the image it
+  starts from, names a directory other than those three, and Docker would
+  put it on the host's disk. Take the line out, or start from an image
+  without it, and push. `The image's volumes could not be read.` is the same
+  outcome when Docker did not say what the image declares. Both are treated
+  as a failed build: the same commit is not tried again, and a preview of
+  the earlier commit keeps serving.
+- The container did not start: Docker could not create or start it, such as
+  an image whose command is not in it. That can also be the host and not the
+  commit, so it is tried again at each of the next three runs, and then no
+  more for that commit.
+- The container started and stopped: five seconds after its start it was not
+  running, or Docker had started it again already. It was removed, and the
+  last 40 lines it wrote are at the end of the log, under `docker logs of
+  tehas-preview-<pr>`. The usual causes are an image that writes outside
+  `/tmp`, `/config` and `/data`, and one that does not start without a
+  variable. It is tried again as the case above is: at each of the next three
+  runs, then no more for that commit. Fix the recipe and push; the new commit
+  is built.
+
+For a container that did not start or that stopped, nothing serves for that
+pull request, not the preview of the earlier commit either: the old container
+is removed before the new one is started. The name answers 404 until a commit
+starts. Only a failed build, or a recipe that declares a volume, leaves the
+earlier preview serving.
+
+To have the same commit built again, remove the state and let the next run
+find the pull request anew: `rm -r ~/tehas/preview/<pr>`.
+
+**`no-space`.** Less than `TEHAS_PREVIEW_MIN_FREE` is free on the file system
+of `~/tehas` or on Docker's. Nothing is built, what serves stays, and `/health`
+says `warn`.
+
+```
+df -h ~/tehas
+docker system df
+docker image prune      # removes images with no tag that nothing uses
+```
+
+The next run builds. tehas does not prune Docker's build cache;
+`docker builder prune` does, and the next build of the sandbox image is then
+slower.
+
+**`over-limit`.** More than `TEHAS_PREVIEW_MAX` pull requests are open, and
+the newest ones win. Close one, or raise the setting in `instance.env`.
+
+**No new state, and the log says `the commit could not be fetched`.** A pull
+request that had a state keeps it, and a new one has none. The bare
+clone `~/tehas/preview/repo.git` could not fetch from the product's origin.
+It is tried again at every run. The git message is in
+`~/tehas/logs/preview-<pr>.log`. Check that `git -C ~/tehas/preview/repo.git
+ls-remote origin` answers.
+
+**The log says `the network tehas-previews does not keep the host out
+(<reason>); nothing was built`.** A preview runs the pull request's own code,
+so no run does anything on a network from which it could reach the host.
+`install.sh` says the same as `The network tehas-previews does not keep the
+host out (<reason>)`. The reason says what to do:
+
+- `Docker <version> is older than 27.1`, or `Docker's version could not be
+  read`: update Docker. A Docker before 27.1 does not know the option that
+  keeps the host out. Docker 29.1.3 was seen to accept an option it does not
+  know, so a network an older one made may look right and not be. That was
+  not tried on an older Docker, and remaking the network there does not help
+  either way. `install.sh` says this as `The network
+  tehas-previews was not made or checked`. After the update, remake the
+  network with the lines below, since the old Docker may have made it.
+- `it could not be read`: `docker network inspect tehas-previews` failed.
+  Check `docker info` as the tehas user.
+- `it is not internal`, `its driver is not bridge`, `it has IPv6`, or `it is
+  not isolated from the host`: the network was made by hand, or by an install
+  from before these were checked. Without `--internal` a preview could reach
+  the internet and the model host. With IPv6, or without the option, it could
+  reach every service the host listens on at all addresses. Take the router
+  and the previews off it, remove it and make it again:
+
+```
+docker compose -f ~/tehas/edge/router.compose.yaml down
+docker ps -aq --filter label=tehas.preview | xargs -r docker rm -f -v
+docker network rm tehas-previews
+docker network create --internal --ipv6=false -o com.docker.network.bridge.gateway_mode_ipv4=isolated tehas-previews
+. ~/tehas/env.sh && docker compose -f ~/tehas/edge/router.compose.yaml up -d
+```
+
+The next run builds the previews again.
+
+**The log says `Docker does not answer`.** Nothing was built or removed. The
+list for the dashboard is still written, without a figure for the free space,
+and the dashboard and `/health` say the free space could not be read.
+Check `docker info` as the tehas user.
+
+**The state is `serving` and the name answers 404** with "No preview is
+running at this address". `serving` means the container was still running
+five seconds after its start, not that it answers. The router did not reach
+it.
+
+```
+docker ps -a --filter name=tehas-preview-<pr>
+docker logs tehas-preview-<pr>
+docker network inspect tehas-previews --format '{{range .Containers}}{{.Name}} {{end}}'
+```
+
+- The first line says `Restarting`, or an age of seconds that never grows:
+  the process stopped later than those five seconds, and Docker starts it
+  again each time, because a preview runs with `--restart unless-stopped`.
+  The state stays `serving` and the pull request keeps its comment with the
+  address while that goes on. The second line says why. Fix the recipe and
+  push; the new commit is built. A process that stops within the five seconds
+  is `build-failed`, above.
+- The container is up: the image does not answer on port 8080, or the third
+  line does not name both the router and the preview.
+
+**502 from outside.** The proxy in front of the host got no answer from port
+8081: the edge router is not running, or it is bound to another address than
+the proxy sends to. See "The edge router does not start" above.
+
+**521 or 525 from outside.** The proxy or its certificate. The table in
+[Previews](/edge) says which.
+
+**No comment on the pull request.** The comment is written for `serving`,
+`build-failed` and `no-space` only, once for each commit and state. For
+`over-limit` and `no-recipe` a comment that is already there is edited to say
+there is no preview, and none is made. It needs the bot's token to answer
+`gh api user`: when it does not, the log says `#<pr>: no comment, the account
+of the token could not be read`. Check `gh auth status` as the tehas user. A
+call that failed is tried again at the next run.
+
+**The dashboard's "List written" time is old.** Every run writes the list,
+also one that builds nothing. An old time means no run came by:
+`systemctl --user list-timers tehas-preview.timer`, and
+`tail ~/tehas/logs/preview.log`.
+
+## A preview is still there after its pull request closed
+
+The five minute run removes it at its next turn, if GitHub answered with a
+list. The sweep is the second check, every three hours. Its lines in
+`~/tehas/logs/preview.log` have the word `swept`, and the time of the last
+one is `jq .lastSweep ~/tehas/live/previews.json`. Run it by hand:
+
+```
+tehasbot preview --sweep
+```
+
+It removes only on a clear answer, so read what it printed:
+
+- `GitHub does not show <repo>; nothing was swept by its word`: the bot's
+  token cannot see the repository. Check `gh auth status`.
+- `#<pr>: no answer from GitHub, kept`: the call about that pull request
+  failed or was unclear. The next sweep asks again.
+- `#<pr>: a container could not be removed, tried again at the next sweep`:
+  Docker refused to remove a container of that pull request, so its image
+  and state were left too. `docker ps -a --filter label=tehas.preview=<pr>`
+  shows it; remove it by hand with `docker rm -f -v`.
+- `the lock was not free in 30 minutes, nothing was swept`: a run was
+  building all that time.
+
+If neither timer runs, nothing is removed:
+`systemctl --user list-timers 'tehas-preview*'`.
 
 ## This site shows an old page
 

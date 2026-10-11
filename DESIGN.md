@@ -246,6 +246,14 @@ shadow. Interactive targets are at least 48px tall.
   outline is CRT Amber.
 - **Text buttons** (a station's "all N" control) are underlined Verdigris.
 
+### Floor Head
+The panel at the head of the floor, in the board's style: a Bone face with a 4px
+Outline border and a Sign shadow. The title stands on a Steel head closed by a
+4px Outline rule. Under it one line on what the factory is, held to 110ch, and
+one line in Slate that counts the queue (open, and how many stand at each
+station) and says when the factory is paused or the last cycle failed. The room
+above the panel belongs to the field, not to its face.
+
 ### Station Sign
 A signboard: the station's scene, the name and count in display type, one
 ticket (next up, in work, needs review, latest) with its title held to two

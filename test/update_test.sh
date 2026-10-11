@@ -23,7 +23,8 @@ owed_file=$(TEHAS_HOME=$th tehas_pending_file)   # the path, from the one defini
 # timeout that records what it bounds and then runs the real one. platform()
 # puts them back for each case, because a stub an earlier case installed would
 # otherwise answer this one.
-docker_up() { t_stub docker 'if [ "$1" = ps ]; then printf "c1\n"; fi'; }
+# The old Protolab project is not running here: the edge step asks about it first.
+docker_up() { t_stub docker 'if [ "$1" = ps ]; then case "$4" in *tehas-protolab) ;; *) printf "c1\n" ;; esac; fi'; }
 systemctl_active() { t_stub systemctl 'if [ "$2" = is-active ]; then echo active; fi'; }
 real_timeout=$(command -v timeout)
 bound_calls() { t_stub timeout "exec $real_timeout \"\$@\""; }
@@ -59,7 +60,7 @@ write_install() { # <what the stub prints> [<dir to write it in>]
 # prints them (systemd first), which is the order an update runs them in.
 next_lines() {
   tehas_steps_for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env \
-    edge/docs.compose.yaml edge/protolab.compose.yaml
+    edge/docs.compose.yaml edge/router.compose.yaml
 }
 
 # install.sh asking for every follow-up it knows, as an install stub body.
@@ -99,7 +100,7 @@ platform() { # [behind] [install body]
     "$T/calls" >"$th/sandbox/build.sh"
   chmod +x "$th/sandbox/build.sh"
   : >"$th/edge/docs.compose.yaml"
-  : >"$th/edge/protolab.compose.yaml"
+  : >"$th/edge/router.compose.yaml"
   for i in $(seq 1 "$n"); do
     push_one "change $i"
   done
@@ -191,7 +192,7 @@ real_platform() {
 
 # The order an update ran the steps it was asked for, read off its own lines.
 step_order() {
-  printf '%s\n' "$t_out" | sed -n 's/^\(systemd: restarted\|sandbox: building\|docs: updating\|protolab: updating\).*/\1/p'
+  printf '%s\n' "$t_out" | sed -n 's/^\(systemd: restarted\|sandbox: building\|docs: updating\|edge: updating\).*/\1/p'
 }
 
 # A change on the remote that adds a required setting to lib/config.sh, as some-
@@ -338,19 +339,22 @@ t_contains "$t_out" "installed: libexec/update"
 t_eq "$(step_order)" "systemd: restarted
 sandbox: building
 docs: updating
-protolab: updating"
+edge: updating"
 t_lacks "$t_out" "next:"
 t_eq "$(t_calls build)" "build"
 t_eq "$(t_calls docker)" "ps --quiet --filter label=com.docker.compose.project=tehas-docs
 compose -f $th/edge/docs.compose.yaml up -d --force-recreate
 ps --quiet --filter label=com.docker.compose.project=tehas-protolab
-compose -f $th/edge/protolab.compose.yaml up -d --force-recreate"
+ps --quiet --filter label=com.docker.compose.project=tehas-edge
+compose -f $th/edge/router.compose.yaml up -d --force-recreate"
 t_eq "$(t_calls systemctl)" "--user daemon-reload
 --user is-active tehas-dispatch.timer
 --user is-active tehas-energy.service
+--user is-active tehas-preview.timer
+--user is-active tehas-preview-sweep.timer
 --user is-active tehas-protolab.timer
 --user is-active tehas-improve.timer
---user restart tehas-dispatch.timer tehas-energy.service tehas-protolab.timer tehas-improve.timer"
+--user restart tehas-dispatch.timer tehas-energy.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer"
 # Every call outside the command went through a timeout, install.sh included,
 # and nothing is owed now.
 t_eq "$(t_calls timeout | sed 's/^[0-9]* //')" "git -C $checkout fetch --prune origin
@@ -358,14 +362,17 @@ $checkout/install.sh
 systemctl --user daemon-reload
 systemctl --user is-active tehas-dispatch.timer
 systemctl --user is-active tehas-energy.service
+systemctl --user is-active tehas-preview.timer
+systemctl --user is-active tehas-preview-sweep.timer
 systemctl --user is-active tehas-protolab.timer
 systemctl --user is-active tehas-improve.timer
-systemctl --user restart tehas-dispatch.timer tehas-energy.service tehas-protolab.timer tehas-improve.timer
+systemctl --user restart tehas-dispatch.timer tehas-energy.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer
 $th/sandbox/build.sh
 docker ps --quiet --filter label=com.docker.compose.project=tehas-docs
 docker compose -f $th/edge/docs.compose.yaml up -d --force-recreate
 docker ps --quiet --filter label=com.docker.compose.project=tehas-protolab
-docker compose -f $th/edge/protolab.compose.yaml up -d --force-recreate"
+docker ps --quiet --filter label=com.docker.compose.project=tehas-edge
+docker compose -f $th/edge/router.compose.yaml up -d --force-recreate"
 t_eq "$(owed_steps)" ""
 
 t_case "a container that is not running is left alone, a unit that is not active too"
@@ -378,17 +385,120 @@ fi'
 t_run "$update"
 t_eq "$t_rc" 0
 t_contains "$t_out" "docs: updating the container"
-t_contains "$t_out" "protolab: not running on this host, left alone"
+t_contains "$t_out" "edge: not running on this host, left alone"
 t_eq "$(t_calls docker)" "ps --quiet --filter label=com.docker.compose.project=tehas-docs
 compose -f $th/edge/docs.compose.yaml up -d --force-recreate
-ps --quiet --filter label=com.docker.compose.project=tehas-protolab"
+ps --quiet --filter label=com.docker.compose.project=tehas-protolab
+ps --quiet --filter label=com.docker.compose.project=tehas-edge"
 t_eq "$(t_calls systemctl)" "--user daemon-reload
 --user is-active tehas-dispatch.timer
 --user is-active tehas-energy.service
+--user is-active tehas-preview.timer
+--user is-active tehas-preview-sweep.timer
 --user is-active tehas-protolab.timer
 --user is-active tehas-improve.timer
---user restart tehas-dispatch.timer tehas-protolab.timer tehas-improve.timer"
+--user restart tehas-dispatch.timer tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer"
 t_eq "$(owed_steps)" ""
+
+t_case "a running server of the old project is taken over by the edge router"
+instance
+platform 1 "$ASK"
+# Only the old project runs; `down` and `up` succeed.
+t_stub docker 'if [ "$1" = ps ]; then case "$4" in *tehas-protolab) printf "c1\n" ;; esac; fi'
+t_run "$update"
+t_eq "$t_rc" 0
+t_contains "$t_out" "edge: taking over from the Protolab's server (tehas-protolab)"
+t_contains "$(t_calls docker)" "ps --quiet --filter label=com.docker.compose.project=tehas-protolab
+compose -p tehas-protolab down
+compose -f $th/edge/router.compose.yaml up -d --force-recreate"
+t_lacks "$(t_calls docker)" "project=tehas-edge"
+t_lacks "$(owed_steps)" "edge"
+
+t_case "a failed question about the old project leaves the step not done"
+instance
+platform 1 "$ASK"
+t_stub docker 'if [ "$1" = ps ]; then case "$4" in *tehas-protolab) echo "could not connect" >&2; exit 125 ;; *) printf "c1\n" ;; esac; fi'
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "edge: docker ps failed; the step is not done"
+t_lacks "$(t_calls docker)" "down"
+t_contains "$(owed_steps)" "edge --force-recreate"
+
+t_case "an old project that will not come down is not replaced"
+instance
+platform 1 "$ASK"
+t_stub docker 'case "$1" in ps) case "$4" in *tehas-protolab) printf "c1\n" ;; esac ;; compose) [ "$2" = -p ] && { echo "cannot remove" >&2; exit 1; } ;; esac'
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "edge: docker compose down of tehas-protolab exited 1; the step is not done"
+t_lacks "$(t_calls docker)" "router.compose.yaml up"
+t_contains "$(owed_steps)" "edge --force-recreate"
+
+# The takeover is two commands. One that stopped between them leaves a mark,
+# so the next run does not find nothing running and call the step done.
+t_case "a takeover whose router did not come up is not done, and leaves a mark"
+instance
+platform 1 "$ASK"
+# The old project runs until it is taken down; `up` of the router fails.
+t_stub docker 'case "$1" in
+  ps) case "$4" in *tehas-protolab) [ -e "$T/calls/down" ] || printf "c1\n" ;; esac ;;
+  compose)
+    [ "$2" != -p ] || { : >"$T/calls/down"; exit 0; }
+    case "$*" in *router.compose.yaml*) [ ! -e "$T/up-fails" ] || { echo "port is already allocated" >&2; exit 1; } ;; esac ;;
+esac'
+: >"$T/up-fails"
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "edge: docker compose up exited 1; the step is not done"
+t_contains "$(t_calls docker)" "compose -p tehas-protolab down
+compose -f $th/edge/router.compose.yaml up -d --force-recreate"
+t_eq "$(owed_steps)" "edge --force-recreate"
+t_eq "$(find "$th/state" -name edge-takeover -size 0 | wc -l)" 1
+
+t_case "the next run finishes the takeover with nothing of either project running"
+rm -f "$T"/calls/docker
+push_install 'echo "tehas is up to date"'
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "edge: finishing the takeover from the Protolab's server"
+t_lacks "$t_out" "left alone"
+t_contains "$(t_calls docker)" "compose -f $th/edge/router.compose.yaml up -d --force-recreate"
+t_lacks "$(t_calls docker)" "down"
+t_eq "$(owed_steps)" "edge --force-recreate"
+t_eq "$(find "$th/state" -name edge-takeover | wc -l)" 1
+# And once the router comes up, the mark goes and the step is done.
+rm -f "$T/up-fails" "$T"/calls/docker
+push_install 'echo "tehas is up to date!"'
+t_run "$update"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "left alone"
+t_eq "$(t_calls docker)" "compose -f $th/edge/router.compose.yaml up -d --force-recreate"
+t_eq "$(owed_steps)" ""
+t_eq "$(find "$th/state" -name edge-takeover | wc -l)" 0
+# After that the step is what it was: nothing runs, so nothing is started.
+printf 'edge --force-recreate\n' >"$owed_file"
+rm -f "$T"/calls/docker
+push_install 'echo "tehas is up to date!!"'
+t_run "$update"
+t_eq "$t_rc" 0
+t_contains "$t_out" "edge: not running on this host, left alone"
+t_eq "$(t_calls docker | grep -c '^compose ')" 0
+
+t_case "a takeover that went through leaves no mark"
+instance
+platform 1 "$ASK"
+t_stub docker 'if [ "$1" = ps ]; then case "$4" in *tehas-protolab) printf "c1\n" ;; esac; fi'
+t_run "$update"
+t_eq "$t_rc" 0
+t_eq "$(find "$th/state" -name edge-takeover | wc -l)" 0
+
+t_case "an old project that will not come down leaves no mark"
+instance
+platform 1 "$ASK"
+t_stub docker 'case "$1" in ps) case "$4" in *tehas-protolab) printf "c1\n" ;; esac ;; compose) [ "$2" = -p ] && { echo "cannot remove" >&2; exit 1; } ;; esac'
+t_run "$update"
+t_eq "$t_rc" 1
+t_eq "$(find "$th/state" -name edge-takeover | wc -l)" 0
 
 t_case "every state of systemd's active family restarts the unit"
 instance
@@ -405,7 +515,7 @@ t_stub systemctl 'if [ "$2" = is-active ]; then
 fi'
 t_run "$update"
 t_eq "$t_rc" 0
-t_contains "$t_out" "systemd: restarted tehas-dispatch.timer tehas-energy.service tehas-protolab.timer tehas-improve.timer"
+t_contains "$t_out" "systemd: restarted tehas-dispatch.timer tehas-energy.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer"
 t_lacks "$t_out" "no unit was restarted"
 
 t_case "a unit systemd does not know is an answer, and leaves that unit alone"
@@ -418,7 +528,7 @@ t_stub systemctl 'if [ "$2" = is-active ]; then
 fi'
 t_run "$update"
 t_eq "$t_rc" 0
-t_contains "$t_out" "systemd: restarted tehas-energy.service tehas-protolab.timer tehas-improve.timer"
+t_contains "$t_out" "systemd: restarted tehas-energy.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer"
 t_lacks "$t_out" "no unit was restarted"
 
 t_case "a docker query that fails stops the update instead of reading as not running"
@@ -431,12 +541,12 @@ t_contains "$t_out" "docs: docker ps failed; the step is not done"
 t_contains "$t_out" "could not connect to the Docker daemon"
 t_lacks "$t_out" "not running on this host"
 # install.sh and the steps before docs ran: the units and the sandbox build. The
-# Protolab renewal was never reached, and is owed.
+# edge router renewal was never reached, and is owed.
 t_eq "$(t_calls docker)" "ps --quiet --filter label=com.docker.compose.project=tehas-docs"
 t_eq "$(t_calls build)" "build"
 t_contains "$t_out" "systemd: restarted tehas-dispatch.timer"
 t_eq "$(owed_steps)" "docs --force-recreate
-protolab --force-recreate"
+edge --force-recreate"
 
 t_case "a systemd query that fails stops the update before any other step"
 instance
@@ -451,10 +561,10 @@ t_lacks "$t_out" "none of them runs on this host"
 # four steps are still owed.
 t_eq "$(t_calls docker)" ""
 t_eq "$(t_calls build)" ""
-t_eq "$(owed_steps)" "units tehas-dispatch.timer tehas-energy.service tehas-protolab.timer tehas-improve.timer
+t_eq "$(owed_steps)" "units tehas-dispatch.timer tehas-energy.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer
 sandbox
 docs --force-recreate
-protolab --force-recreate"
+edge --force-recreate"
 
 t_case "a systemctl that prints an error and exits 0 is not read as active"
 instance
@@ -494,7 +604,7 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "docs: docker ps failed; the step is not done"
 t_contains "$t_out" "2 of 4 follow-up(s) are not done, recorded in $owed_file"
 t_eq "$(owed_steps)" "docs --force-recreate
-protolab --force-recreate"
+edge --force-recreate"
 
 # The next run: install.sh has nothing new to report - its one-shot list was
 # spent by the run that copied the files - and the containers come up anyway.
@@ -505,7 +615,7 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "follow-up(s) an earlier run did not finish (see $owed_file)"
 t_contains "$t_out" "next: docs"
 t_contains "$t_out" "docs: updating the container"
-t_contains "$t_out" "protolab: updating the container"
+t_contains "$t_out" "edge: updating the container"
 # The steps that already ran are not run again.
 t_eq "$(t_calls build)" "build"
 t_eq "$(owed_steps)" ""
@@ -515,17 +625,17 @@ instance
 platform 0 'echo "Instance:     $TEHAS_INSTANCE_DIR OK"
 echo "Installed:    OK"'
 mkdir -p "$th/state"
-printf 'protolab --force-recreate\n' >"$owed_file"
+printf 'edge --force-recreate\n' >"$owed_file"
 before=$(head_sha)
 t_run "$update --check"
 t_eq "$t_rc" 1
 t_contains "$t_out" "follow-up(s) an earlier run did not finish"
-t_contains "$t_out" "next: protolab --force-recreate"
+t_contains "$t_out" "next: edge --force-recreate"
 t_contains "$t_out" "Installed:    OK"
 t_eq "$(head_sha)" "$before"
 t_eq "$(t_calls docker)" ""
 # Nothing was started and nothing was taken back off the list.
-t_eq "$(owed_steps)" "protolab --force-recreate"
+t_eq "$(owed_steps)" "edge --force-recreate"
 
 t_case "a checkout on a branch that is not the remote's default says so"
 instance
@@ -766,21 +876,32 @@ t_contains "$t_out" "install: install.sh exited 126; no follow-up was run"
 t_eq "$(t_calls build)" ""
 t_eq "$(t_calls docker)" ""
 
+t_case "a step recorded under the Protolab's old id renews the edge router"
+instance
+platform 1 'echo "installed: nothing"'
+mkdir -p "$th/state"
+printf 'protolab --force-recreate\n' >"$owed_file"
+t_run "$update"
+t_eq "$t_rc" 0
+t_contains "$t_out" "edge: updating the container"
+t_contains "$(t_calls docker)" "compose -f $th/edge/router.compose.yaml up -d --force-recreate"
+t_eq "$(owed_steps)" ""
+
 t_case "a compose file that is not installed stops the update"
 instance
 ask='echo "next: sandbox"
-echo "next: protolab --force-recreate"'
+echo "next: edge --force-recreate"'
 platform 1 "$ask"
-rm "$th/edge/protolab.compose.yaml"
+rm "$th/edge/router.compose.yaml"
 t_run "$update"
 t_eq "$t_rc" 1
-t_contains "$t_out" "protolab: $th/edge/protolab.compose.yaml is not installed, left alone"
-t_lacks "$t_out" "protolab: updating the container"
+t_contains "$t_out" "edge: $th/edge/router.compose.yaml is not installed, left alone"
+t_lacks "$t_out" "edge: updating the container"
 t_eq "$(t_calls docker)" ""
 # The steps run in the order lib/update-steps.sh lists them: the build that came
-# before protolab ran, and the failure stopped the run after it.
+# before the edge router ran, and the failure stopped the run after it.
 t_eq "$(t_calls build)" "build"
-t_eq "$(owed_steps)" "protolab --force-recreate"
+t_eq "$(owed_steps)" "edge --force-recreate"
 
 t_case "a sandbox build that is not installed stops the update"
 instance
@@ -866,7 +987,7 @@ t_contains "$t_out" "2 of 4 follow-up(s) are not done"
 # - and a run that finished leaves no stray file.
 t_eq "$(ls -A "$th/state")" "update-pending"
 t_eq "$(owed_steps)" "docs --force-recreate
-protolab --force-recreate"
+edge --force-recreate"
 
 # The seam between the two commands, checked against its producer: this
 # repository's real install.sh, run by tehas update in the stubbed host.
@@ -877,15 +998,15 @@ T_ENV=(T_IN_TEST=1)   # install.sh skips bootstrap and the tests inside a test
 t_run "$update"
 t_eq "$t_rc" 0
 t_contains "$t_out" "installed: $th/libexec/update"
-t_contains "$t_out" "systemd: restarted tehas-dispatch.timer tehas-energy.service tehas-protolab.timer tehas-improve.timer"
+t_contains "$t_out" "systemd: restarted tehas-dispatch.timer tehas-energy.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer"
 t_contains "$t_out" "docs: updating the container"
-t_contains "$t_out" "protolab: updating the container"
+t_contains "$t_out" "edge: updating the container"
 # The order install.sh prints is the order an update runs, and nothing is left
 # looking like work for a person.
 t_eq "$(step_order)" "systemd: restarted
 sandbox: building
 docs: updating
-protolab: updating"
+edge: updating"
 t_lacks "$t_out" "next:"
 t_eq "$(owed_steps)" ""
 T_ENV=()
@@ -915,7 +1036,7 @@ t_stub systemctl 'if [ "$2" = is-active ]; then echo active; fi'
 t_run "$update"
 t_eq "$t_rc" 0
 t_contains "$t_out" "follow-up(s) an earlier run did not finish (see $owed_file)"
-t_contains "$t_out" "systemd: restarted tehas-dispatch.timer tehas-energy.service tehas-protolab.timer tehas-improve.timer"
+t_contains "$t_out" "systemd: restarted tehas-dispatch.timer tehas-energy.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer"
 t_contains "$t_out" "docs: updating the container"
 t_eq "$(owed_steps)" ""
 T_ENV=()
@@ -988,7 +1109,7 @@ docs: updating"
 t_eq "$(owed_steps)" ""
 
 t_case "the compose files pin the project names the liveness check filters on"
-for pair in "docs.compose.yaml tehas-docs" "protolab.compose.yaml tehas-protolab"; do
+for pair in "docs.compose.yaml tehas-docs" "router.compose.yaml tehas-edge"; do
   t_contains "$(cat "$T_ROOT/host/edge/${pair%% *}")" "name: ${pair#* }"
 done
 

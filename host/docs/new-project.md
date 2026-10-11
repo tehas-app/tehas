@@ -228,7 +228,7 @@ rm -rf "$T"
 ### 8. Start
 
 `install.sh` ends with one `next:` line per follow-up its changed files call for,
-named by id (`units`, `sandbox`, `docs`, `protolab`) rather than as a command, and
+named by id (`units`, `sandbox`, `docs`, `edge`) rather than as a command, and
 records those steps as owed in `~/tehas/state/update-pending` while it copies. It
 starts nothing itself. On a first start the units are not enabled yet, and no
 update enables them, so:
@@ -258,10 +258,55 @@ update restarts a unit only where it already runs. See [the energy sampler](/too
 Then label one small, well-specified issue with `tehas:ready` and watch it on
 the dashboard. [Operating tehas](/operating) takes it from there.
 
+## A preview of every pull request
+
+Optional. With `TEHAS_PREVIEWS=1` and `TEHAS_DOMAIN` in `instance.env`, tehas
+keeps a running copy of the product for every open pull request whose branch
+is in the product repository and that an owner, member or collaborator of
+the repository opened. [Previews](/edge) has what the host and the
+domain need. The product's part is one file:
+
+- The product adds `preview/Dockerfile`. A repository without it gets no
+  previews, and a pull request whose commit does not have it gets none.
+- It is built with the commit as its context: the files of that commit as
+  git has them, and nothing else. The file is read from the pull request's
+  own commit, so a pull request that changes how the product is served is
+  previewed as it will be.
+- The image must answer HTTP on port 8080.
+- It runs with a read-only root. Only `/tmp`, `/config` and `/data` can be
+  written, and they are in memory and empty at every start.
+- It must not declare a volume anywhere else: no `VOLUME` line in the recipe
+  or in the image it starts from, but for those three directories. Docker
+  would make such a volume on the host's disk, where a preview may write
+  nothing. A recipe that has one is not run, and the state is `build-failed`
+  with the path. `docker image inspect --format '{{json .Config.Volumes}}'
+  tehas-preview:local` shows what an image declares.
+- What it prints is kept in at most two files of 10 MB.
+- It must need no network and no variable. A preview is given no setting and
+  no token, and it reaches nothing but the other previews: no database, no
+  API, not the internet, not the host. What it shows has to be in the image.
+- It gets 256 MB of memory, one CPU and 128 processes.
+- The build has 15 minutes and does have the network.
+
+This repository's own `preview/Dockerfile` is the example: the manual and the
+dashboard on sample data, served by the same server a host uses. To try a
+recipe by hand, from the product's checkout:
+
+```
+git archive HEAD | docker build -f preview/Dockerfile -t tehas-preview:local -
+docker run --rm -p 127.0.0.1:18080:8080 --read-only --tmpfs /tmp --tmpfs /config --tmpfs /data \
+  --cap-drop ALL --cap-add NET_BIND_SERVICE --security-opt no-new-privileges:true \
+  --memory 256m --cpus 1 --pids-limit 128 --log-opt max-size=10m --log-opt max-file=2 \
+  tehas-preview:local
+```
+
+That is what `tehasbot preview` does, but for the port: a real preview has
+none published and is reached through the edge router, on a network that
+has the other previews on it and leads nowhere else.
+
 ## What is not there yet
 
-- A running preview of each pull request, and a private database copy per
-  cycle. tehas stops at the pull request.
+- A private database copy per cycle or per preview.
 - More than one project per host. A second project needs its own Unix user, or
   better its own machine.
 - `bootstrap.sh` supports Ubuntu 26.04 on x86_64 only.

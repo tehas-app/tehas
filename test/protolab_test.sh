@@ -250,4 +250,33 @@ t_run "$protolab"
 t_contains "$t_out" "#13: could not be read, left as it was"
 t_eq "$(cd "$site" && find . -type f | LC_ALL=C sort | xargs cksum)" "$before"
 
+t_case "without a domain a ticket is linked by path, as before"
+reset
+issues "$(issue 7 'Map' 'no files')"
+t_run "$protolab"
+t_contains "$(cat "$site/index.html")" 'href="/7/"'
+t_contains "$(cat "$site/7/index.html")" '<a href="/">ALL PROTOTYPES</a>'
+t_eq "$(jq -c '.tickets[0].address' "$live/protolab.json")" "null"
+
+t_case "with a domain a ticket is linked by its own name, and its page links back to the list"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_DOMAIN=example.org
+issues "$(issue 7 'Map' 'no files')"
+t_run "$protolab"
+t_contains "$(cat "$site/index.html")" 'href="https://lab-7.example.org/"'
+t_lacks "$(cat "$site/index.html")" 'href="/7/"'
+t_contains "$(cat "$site/7/index.html")" '<a href="https://lab.example.org/">ALL PROTOTYPES</a>'
+t_eq "$(jq -r '.tickets[0].address' "$live/protolab.json")" "https://lab-7.example.org/"
+# The jq programs put the name together themselves, because jq cannot call a
+# shell function. It is the name tehas_edge_name makes.
+t_run '. "$T_ROOT/lib/config.sh"; tehas_load && tehas_edge_name lab 7'
+t_eq "$(jq -r '.tickets[0].address' "$live/protolab.json")" "https://$t_out/"
+t_contains "$(cat "$site/index.html")" "href=\"https://$t_out/\""
+t_eq "$(jq -r '.url' "$live/protolab.json")" "https://lab.example.org"
+
+t_case "a domain that changes rebuilds a ticket that did not"
+t_instance "${T_MINIMAL[@]}" TEHAS_DOMAIN=example.net
+t_run "$protolab"
+t_contains "$(cat "$site/7/index.html")" 'https://lab.example.net/'
+
 t_done

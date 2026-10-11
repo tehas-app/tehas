@@ -64,8 +64,9 @@ factory.
 The source is at https://github.com/janit/tehas, and a running example with
 this same manual is at https://tehas.app/. Be honest with your human about its
 state: issue to pull request is the supported contract and needs settings only.
-It does not run a preview of a pull request. Energy use (viiwork backends only),
-the Protolab and the improvement loop (the factory files issues about its own
+A running preview of every pull request is built and covered by tests, and has
+not yet run on a host. Previews, energy use (viiwork backends only), the
+Protolab and the improvement loop (the factory files issues about its own
 cycles, labelled `tehas:improvement`, which start nothing) are optional and can
 be ignored for a first install.
 
@@ -82,6 +83,7 @@ be ignored for a first install.
 - [Bootstrap a host]({{ $base }}/bootstrap.md): preparing the machine before the install
 - [Features]({{ $base }}/features.md): what exists and how far each part is proven
 - [The host]({{ $base }}/host.md): layout on the machine and the sandbox contract test
+- [Previews and the Protolab on the internet]({{ $base }}/edge.md): a preview of every pull request, and how the names were published
 - [Commands]({{ $base }}/tools.md): `tehas`, `tehasbot` and what each of their commands does
 
 ## Live data
