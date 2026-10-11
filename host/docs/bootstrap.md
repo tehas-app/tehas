@@ -33,6 +33,7 @@ sudo ./bootstrap.sh root boss     # 1. as root, naming the tehas user; ends with
 ./bootstrap.sh check              # 3. one line per tool, and one for the slice
 sudo ./bootstrap.sh slice         # only if step 1 could not install the slice, or it changed
 sudo ./bootstrap.sh dev boss alice   # optional: let the account alice type "tehas dev"
+sudo ./bootstrap.sh pool 14g 11      # optional: cycles share TEHAS_WORK_MEMORY and TEHAS_WORK_CPUS, see Limits and concurrency in the host page
 ```
 
 If the platform repository is private, the clone needs the deploy key from the
@@ -188,8 +189,9 @@ never in git.
 
 **The bot token.** A token of a GitHub machine account with write access to the
 product repository, in `~/.config/tehas/env` as `GH_TOKEN=...`. What it is used
-for: reading the queue and label events, relabelling and commenting, pushing
-the cycle's branch, opening the pull request.
+for: reading the queue and label events, relabelling and commenting, editing
+the description of a pull request to say where its preview is, pushing the
+cycle's branch, opening the pull request.
 
 - Test it before placing it: `GH_TOKEN=... gh api repos/<owner>/<name>` must
   answer with `push: true`.

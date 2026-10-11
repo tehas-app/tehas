@@ -28,6 +28,8 @@ git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-
 git clone -q "$upstream" "$checkout"
 
 t_stub docker 'printf "%s\n" "$@" >"$T/calls/docker.args.$$"'
+# A host without one memory limit around all cycles, until a case sets one.
+t_stub systemctl 'echo infinity'
 printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitconfig"
 
 # The arguments of the docker call that starts the cycle.
@@ -319,7 +321,63 @@ t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=2 TEHAS_WORK_CPUS=2 TEHAS_
 t_run "$work 7"
 t_eq "$(after --cpus)" "1.00"
 t_eq "$(after --memory)" "256m"
-rm -f "$T/bin/nproc"
+t_eq "$(after --cgroup-parent)" ""
+t_contains "$t_out" "no limit around all cycles on this host, this cycle gets 1.00 CPUs and 256m of its own"
+
+t_case "inside one limit around all cycles, a cycle may use the whole budget"
+rm -f "$T"/calls/*
+image="tehas/pi-rukas:uid$(id -u)"
+shared_docker='printf "%s\n" "$@" >"$T/calls/docker.args.$$"; [ "$1" != info ] || echo systemd'
+t_stub docker "$shared_docker"
+# The slice of the host: 512 MiB and two CPUs, printed as systemd prints them.
+slice_has() { t_stub systemctl "case \"\$*\" in 'show tehas-cycles.slice -p MemoryMax --value') echo $1 ;; 'show tehas-cycles.slice -p CPUQuotaPerSecUSec --value') echo $2 ;; esac"; }
+slice_has 536870912 2s
+t_stub systemd-analyze 'case "$2" in 2s) n=2000000 ;; 1s) n=1000000 ;; *) exit 1 ;; esac; printf "Original: %s\n      us: %s\n   Human: %s\n" "$2" "$n" "$2"'
+t_run "$work 7"
+t_eq "$(after --cpus)" "2"
+t_eq "$(after --memory)" "512m"
+t_eq "$(after --cgroup-parent)" "tehas-cycles.slice"
+t_eq "$(cycle_args | unknown_options "$image" "--name --cpus --memory --cgroup-parent -w -v -e" "--rm -i")" ""
+t_lacks "$t_out" "of its own"
+t_eq "$(preflight_args | grep -c -x -e --cgroup-parent)" 0
+
+t_case "a limit around all cycles that is not the budget is not used"
+rm -f "$T"/calls/*
+slice_has 1073741824 2s
+t_run "$work 7"
+t_eq "$(after --memory)" "256m"
+t_eq "$(after --cgroup-parent)" ""
+t_contains "$t_out" "sudo ./bootstrap.sh pool 512m 2"
+
+t_case "a limit around all cycles with another CPU quota, or none, is not used"
+for quota in 1s infinity; do
+  rm -f "$T"/calls/*
+  slice_has 536870912 "$quota"
+  t_run "$work 7"
+  t_eq "$(after --cpus)" "1.00"
+  t_eq "$(after --cgroup-parent)" ""
+done
+
+t_case "a limit around all cycles is not used where Docker does not place containers by systemd"
+rm -f "$T"/calls/*
+slice_has 536870912 2s
+t_stub docker 'printf "%s\n" "$@" >"$T/calls/docker.args.$$"; [ "$1" != info ] || echo cgroupfs'
+t_run "$work 7"
+t_eq "$(after --memory)" "256m"
+t_eq "$(after --cgroup-parent)" ""
+
+t_case "a single cycle inside the limit around all cycles keeps the budget"
+rm -f "$T"/calls/*
+t_stub docker "$shared_docker"
+slice_has 536870912 1s
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_CPUS=1 TEHAS_WORK_MEMORY=512m
+t_run "$work 7"
+t_eq "$(after --cpus)" "1"
+t_eq "$(after --memory)" "512m"
+t_eq "$(after --cgroup-parent)" "tehas-cycles.slice"
+t_stub docker 'printf "%s\n" "$@" >"$T/calls/docker.args.$$"'
+t_stub systemctl 'echo infinity'
+rm -f "$T/bin/nproc" "$T/bin/systemd-analyze"
 t_instance "${T_MINIMAL[@]}" TEHAS_WORK_CPUS=1 TEHAS_WORK_MEMORY=512m PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 
 t_case "a checkout of another repository starts no container"
