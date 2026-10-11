@@ -311,7 +311,9 @@ reaches them. Remove the label to resume.
 - Inside a cycle, `TEHAS_CONCURRENCY` workstreams side by side: 4 by default,
   fewer if the model backends cannot take it. See [The host](/host).
 - No new cycle while 3 issues carry `tehas:awaiting-merge` or are being worked
-  on (`TEHAS_MAX_AWAITING`). Unreviewed pull requests are the queue you control.
+  on (`TEHAS_MAX_AWAITING`). The default is `TEHAS_TICKET_CONCURRENCY` plus 2,
+  so every slot can be used while two pull requests wait. Unreviewed pull
+  requests are the queue you control.
 - A self-hosted model endpoint has few real slots per model, so a cycle takes
   a while; the six-pass review is the slowest part.
 

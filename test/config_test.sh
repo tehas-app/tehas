@@ -319,7 +319,26 @@ t_run "$load && echo \"\$TEHAS_TICKET_CONCURRENCY \$TEHAS_CYCLE_CPUS \$TEHAS_CYC
 t_eq "$t_rc" 0
 t_eq "$t_out" "1 1 512m"
 
+t_case "the review cap leaves room for one cycle and two pull requests by default"
+t_run "$load && echo \"\$TEHAS_MAX_AWAITING\""
+t_eq "$t_out" "3"
+
 t_stub nproc 'echo 8'
+t_case "the review cap's default follows the cycles side by side"
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=4 TEHAS_WORK_CPUS=4 TEHAS_WORK_MEMORY=512m
+t_run "$load && echo \"\$TEHAS_MAX_AWAITING\""
+t_eq "$t_out" "6"
+
+t_case "a review cap that is set is kept"
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=4 TEHAS_WORK_CPUS=4 TEHAS_WORK_MEMORY=512m TEHAS_MAX_AWAITING=3
+t_run "$load && echo \"\$TEHAS_MAX_AWAITING\""
+t_eq "$t_out" "3"
+
+t_case "a concurrency that is no number is refused, not added to"
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=two
+t_run "$load"
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_TICKET_CONCURRENCY is not valid"
 t_case "the budget is divided between the tickets, rounded down"
 t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=3 TEHAS_WORK_CPUS=4 TEHAS_WORK_MEMORY=512m
 t_run "$load && echo \"\$TEHAS_TICKET_CONCURRENCY \$TEHAS_CYCLE_CPUS \$TEHAS_CYCLE_MEMORY\""

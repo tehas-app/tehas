@@ -53,7 +53,7 @@
 #   TEHAS_CONTROL_ISSUE       issue that carries tehas:pause, required
 #   TEHAS_ALLOWED_LABELERS    space-separated logins, required
 #   TEHAS_MAX_AWAITING        open tehas:awaiting-merge issues plus running
-#                             cycles allowed [3]
+#                             cycles allowed [TEHAS_TICKET_CONCURRENCY + 2]
 #   TEHAS_TICKET_CONCURRENCY  cycles side by side [1]
 #   TEHAS_WORK_REPO           checkout cycles are cloned from [$TEHAS_HOME/repos/<name>]
 #   TEHAS_BRANCH              branch work lands on [the checkout's origin/HEAD]
