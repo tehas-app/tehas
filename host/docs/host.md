@@ -313,9 +313,13 @@ container itself, at the time limit or on a signal, nor when the cycle's state
 already said how it ended. The record for the improvement loop carries the
 count as `oomKills`.
 
-`TEHAS_TICKET_CONCURRENCY` sets how many issues are worked on side by side,
-each in a cycle, a container and a workspace of its own. It defaults to 1. A
-container's limits do not depend on it.
+`TEHAS_TICKET_CONCURRENCY` sets the most issues worked on side by side, each
+in a cycle, a container and a workspace of its own. It defaults to the host's
+CPUs minus one, at least 1, and a value above the host's CPUs is accepted. It
+is a ceiling: the dispatcher starts fewer while the slice has no room. A
+container's limits do not depend on it. There is no CPU or memory budget to
+set; an instance that still sets `TEHAS_WORK_CPUS` or `TEHAS_WORK_MEMORY` is
+refused with 78 and one line naming the slice file.
 
 `TEHAS_CONCURRENCY` sets how many workstreams one cycle may run side by side,
 inside that one container. It defaults to 4.

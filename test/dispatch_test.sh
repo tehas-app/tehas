@@ -743,6 +743,14 @@ ready 7 8
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 
+# nproc is stubbed to 8 above, and reset()'s slice has room for ten.
+t_case "the ceiling defaults to the stubbed host's CPUs minus one: seven issues start"
+reset
+t_instance "${T_MINIMAL[@]}"
+ready 7 8 9 10 11 12 13 14
+t_run "$dispatch"
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 10 11 12 13 "
+
 t_case "an urgent issue is started first"
 reset
 slots 2

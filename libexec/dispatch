@@ -61,7 +61,8 @@
 #   TEHAS_ALLOWED_LABELERS    space-separated logins, required
 #   TEHAS_MAX_AWAITING        open tehas:awaiting-merge issues plus running
 #                             cycles allowed [TEHAS_TICKET_CONCURRENCY + 2]
-#   TEHAS_TICKET_CONCURRENCY  the most cycles side by side [1]
+#   TEHAS_TICKET_CONCURRENCY  the most cycles side by side [the host's CPUs
+#                             minus one]
 #   TEHAS_CYCLE_RESERVE       memory one container is promised, the unit the
 #                             slice's room is counted in [2g]
 #   TEHAS_WORK_REPO           checkout cycles are cloned from [$TEHAS_HOME/repos/<name>]
