@@ -1,0 +1,298 @@
+#!/usr/bin/env bash
+# One run of the improvement loop: read the cycles that ended since the last
+# run, ask a model what could be better, and file one issue per finding that
+# is not already in the issue stack.
+#
+# The findings are about the factory and about pi-rukas, so pi-rukas does not
+# run here: the analyst is plain Pi with one prompt, lib/improve-prompt.md.
+# What it reads holds issue text and model output, which may be written to
+# steer it. So it is given the records read-only and one directory to write
+# to, and nothing else: no token, no repository, no tool that runs a command
+# or opens a connection. This script makes every GitHub call, checks the one
+# file the analyst leaves against a fixed shape, and writes the issue itself.
+# test/improve_test.sh pins what the container is given.
+#
+#   records    $TEHAS_HOME/tmp/improve/window/<issue>-<stamp>, written when a
+#              cycle ends (lib/improve.sh)
+#   filed      at most 3 issues a run, labelled tehas:improvement and nothing
+#              else; none while 10 such issues are open
+#   logs       the whole log of each cycle a finding names, gzipped, as assets
+#              of the release tehas-improve-logs; over 5 MB, in numbered pieces
+#   removed    a run's records when it finishes; anything in tmp/improve and
+#              the per-cycle files in logs/ after seven days
+#
+# Usage: tehasbot improve     (one line per run on standard output)
+#
+# Exit: 0 the run finished, or there was nothing to do, or the loop is off;
+#       1 the analyst or GitHub failed and the records were kept; what a
+#         failed analyst printed is in logs/improve-analyst.log;
+#      64 an argument, this command takes none;
+#      78 the instance settings are invalid.
+#
+# Instance settings: TEHAS_IMPROVE_REPO, the repository issues are filed in.
+# Unset, the loop is off. PI_ENSEMBLE_SUBAGENT_MODEL and
+# PI_ENSEMBLE_SUBAGENT_PROVIDER, the model that reads.
+set -uo pipefail
+
+[ "$#" = 0 ] || { echo "usage: tehasbot improve" >&2; exit 64; }
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/config.sh
+. "$here/../lib/config.sh"
+# shellcheck source=lib/sandbox.sh
+. "$here/../lib/sandbox.sh"
+# shellcheck source=lib/improve.sh
+. "$here/../lib/improve.sh"
+tehas_load || exit 78
+if ! tehas_improve_on; then
+  echo "tehas improve: TEHAS_IMPROVE_REPO is not set, the improvement loop is off"
+  exit 0
+fi
+tehas_require PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
+
+repo=$TEHAS_IMPROVE_REPO
+label=tehas:improvement
+tag=tehas-improve-logs
+max_run=3
+max_open=10
+chunk=$((5 * 1024 * 1024))
+old=$((7 * 24 * 60)) # minutes
+base=$(tehas_improve_dir)
+window=$base/window
+logs=$TEHAS_HOME/logs
+prompt=$here/../lib/improve-prompt.md
+
+say() { printf '%s improve: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
+
+[ -r "$prompt" ] || { say "no prompt at $prompt"; exit 1; }
+mkdir -p "$window" "$TEHAS_HOME/state" "$logs" || exit 1
+exec 9>"$TEHAS_HOME/state/improve.lock"
+flock -n 9 || { say "another run is going, leaving it to that one"; exit 0; }
+
+# The records of a run return to the window; the rest of it goes.
+give_back() { # <run directory>
+  local d
+  mkdir -p "$window"
+  for d in "$1"/in/cycles/*/; do
+    [ -d "$d" ] || continue
+    d=${d%/}
+    rm -rf "${window:?}/$(basename "$d")"
+    mv "$d" "$window/"
+  done
+  rm -rf "$1"
+}
+
+# --- Sweep -------------------------------------------------------------------
+# A run directory here was left by a run that was killed: this one holds the
+# lock. Then whatever is over seven days old goes, analysed or not.
+for d in "$base"/run-*/; do
+  [ -d "$d" ] && give_back "${d%/}"
+done
+find "$window" -mindepth 1 -maxdepth 1 -mmin "+$old" -exec rm -rf {} +
+find "$base" -mindepth 1 -maxdepth 1 -name '.new.*' -mmin "+$old" -exec rm -rf {} +
+find "$logs" -maxdepth 1 -type f \( -name 'work-*' -o -name 'dispatch-work-*' -o -name 'index-*' \) \
+  -mmin "+$old" -delete
+
+# --- Look --------------------------------------------------------------------
+# The records in a directory, by name. Anything else there is removed.
+recs=()
+look() { # <directory>
+  local d r
+  recs=()
+  for d in "$1"/*/; do
+    [ -d "$d" ] || continue
+    d=${d%/}
+    r=$(basename "$d")
+    if [[ $r =~ ^[0-9]+-[0-9]{6}-[0-9]{6}$ ]]; then recs+=("$r"); else rm -rf "$d"; fi
+  done
+}
+look "$window"
+[ "${#recs[@]}" -gt 0 ] || { say "cycles=0, nothing to read"; exit 0; }
+
+# --- The issue stack ---------------------------------------------------------
+stack=$(mktemp "$base/.stack.XXXXXX") || exit 1
+trap 'rm -f "$stack" "$stack.open" "$stack.closed"' EXIT
+fields=number,title,state,labels,body
+since=$(date -u -d '30 days ago' +%Y-%m-%d)
+if ! gh issue list --repo "$repo" --state open --limit 500 --json "$fields" >"$stack.open" ||
+  ! gh issue list --repo "$repo" --state closed --limit 200 --search "closed:>=$since" \
+    --json "$fields" >"$stack.closed" ||
+  ! jq -s 'add | map({number, title, state, labels: [.labels[].name], body: ((.body // "")[0:4000])})' \
+    "$stack.open" "$stack.closed" >"$stack"; then
+  say "cycles=${#recs[@]} failed: GitHub did not give the issue stack, the records wait"
+  exit 1
+fi
+open=$(jq --arg l "$label" '[.[] | select(.state == "OPEN" and (.labels | index($l) != null))] | length' "$stack")
+room=$((max_open - open))
+[ "$room" -lt "$max_run" ] || room=$max_run
+if [ "$room" -le 0 ]; then
+  say "cycles=${#recs[@]} waiting: $open open issues carry $label, the limit is $max_open"
+  exit 0
+fi
+
+# --- Take the window ---------------------------------------------------------
+# From here a cycle that ends writes into a new window, for the next run.
+run=$base/run-$(date -u +%y%m%d-%H%M%S)
+if ! { mkdir -p "$run/in" "$run/out" && mv "$window" "$run/in/cycles" && mv "$stack" "$run/in/issues.json"; }; then
+  [ ! -d "$run" ] || give_back "$run"
+  say "cycles=${#recs[@]} failed: could not take the window"
+  exit 1
+fi
+# A cycle may have ended while the stack was fetched: its record came along.
+look "$run/in/cycles"
+fail() {
+  give_back "$run"
+  say "cycles=${#recs[@]} failed: $*"
+  exit 1
+}
+
+# --- The analyst -------------------------------------------------------------
+# A run that was killed leaves its container running under this name.
+docker rm -f tehas-improve >/dev/null 2>&1 || true
+mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
+timeout -k 60 1800 docker run --rm --name tehas-improve --cpus 1 --memory 2g \
+  -e HOME=/home/vscode -w /improve \
+  -v "$run/in:/improve/in:ro" -v "$run/out:/improve/out" \
+  -v "$HOME/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro" \
+  "${hosts[@]}" "$PI_ENSEMBLE_IMAGE" \
+  pi -p --no-session --no-extensions --no-skills --no-prompt-templates --no-context-files \
+  --tools read,grep,find,ls,write \
+  --provider "$PI_ENSEMBLE_SUBAGENT_PROVIDER" --model "$PI_ENSEMBLE_SUBAGENT_MODEL" \
+  "$(cat "$prompt")" >"$run/analyst.log" 2>&1 </dev/null
+arc=$?
+# What the analyst printed goes with the run. Of a run that failed on it, it
+# is kept, one file that the next such run replaces.
+kept=$logs/improve-analyst.log
+blame() {
+  rm -f "$kept"
+  if cp "$run/analyst.log" "$kept" 2>/dev/null; then
+    fail "$*, its output is in $kept"
+  fi
+  fail "$*"
+}
+[ "$arc" = 0 ] || blame "the analyst ended with $arc"
+
+# --- Check -------------------------------------------------------------------
+# A link would have this script read a file of the analyst's choosing.
+found=$run/out/findings.json
+if [ -L "$found" ] || [ ! -f "$found" ]; then blame "the analyst left no findings.json"; fi
+[ "$(stat -c %s "$found")" -le 1048576 ] || blame "findings.json is over 1 MB"
+
+# One program decides what is filed. A finding that is not the shape asked
+# for is dropped; a file that is not is an error. A title is compared in lower
+# case without punctuation, with the open issues and with the findings before
+# it.
+# shellcheck disable=SC2016  # a jq program: the variables are jq's
+check='
+  def clean($allow): explode | all(.[]; . as $c | ($c >= 32 and $c != 127) or ($allow | index($c) != null));
+  def norm: (ascii_downcase | gsub("[^a-z0-9 ]"; "") | gsub(" +"; " ") | sub("^ "; "") | sub(" $"; "")) as $n
+    | if $n == "" then . else $n end;
+  def valid($numbers):
+    type == "object"
+    and (.title | type == "string" and length >= 1 and length <= 100 and clean([]))
+    and (.category | type == "string" and IN("dispatcher", "cycle", "pi-rukas", "console", "gate", "docs"))
+    and (.body | type == "string" and length >= 1 and length <= 6000 and clean([9, 10, 13]))
+    and (.evidence | type == "string" and length <= 3000 and clean([9, 10, 13]))
+    and (.cycles | type == "array" and length >= 1 and all(.[]; type == "string" and IN($cycles[])))
+    and (.duplicate_of == null or (.duplicate_of | IN($numbers[])));
+  if type == "object" and (.findings | type == "array") then . else error("not the shape asked for") end
+  | $stack[0] as $issues
+  | ($issues | map(select(.state == "OPEN") | .title | norm)) as $open
+  | ($issues | map(.number)) as $numbers
+  | .findings as $all
+  | [$all[] | select(valid($numbers))] as $good
+  | (reduce ($good[] | select(.duplicate_of == null)) as $f ({seen: $open, keep: []};
+      ($f.title | norm) as $t
+      | if (.seen | index($t)) != null then . else {seen: (.seen + [$t]), keep: (.keep + [$f])} end)
+    | .keep) as $keep
+  | {found: ($all | length), invalid: (($all | length) - ($good | length)),
+     duplicates: (($good | length) - ($keep | length)),
+     of: ([$good[] | .duplicate_of | select(. != null) | "#\(.)"] | unique | join(",")),
+     over: ([($keep | length) - $room, 0] | max), file: $keep[0:$room]}'
+cycles=$(printf '%s\n' "${recs[@]}" | jq -R . | jq -s -c .)
+plan=$(jq -c --argjson cycles "$cycles" --argjson room "$room" --slurpfile stack "$run/in/issues.json" \
+  "$check" "$found" 2>/dev/null) || blame "findings.json is not the shape asked for"
+
+# --- File --------------------------------------------------------------------
+notes=()
+release() {
+  gh release view "$tag" --repo "$repo" >/dev/null 2>&1 ||
+    gh release create "$tag" --repo "$repo" --prerelease --title "Cycle logs of the improvement loop" \
+      --notes "The whole logs of the cycles that issues labelled $label refer to." >/dev/null 2>&1
+}
+# Pack and upload the whole log of one cycle, once a run. What the issue says
+# about it is left in up/<record>.links.
+upload() { # <record>
+  local rec=$1 raw=$logs/work-$1.jsonl dir=$run/up/$1 name=ticket-$1.log out=$run/up/$1.links f
+  [ ! -f "$out" ] || return 0
+  mkdir -p "$dir" || return 1
+  if [ ! -f "$raw" ]; then
+    echo "- \`$rec\`: the log is no longer on the host" >"$out"
+    return 0
+  fi
+  cat "$raw" >"$dir/$name"
+  [ ! -f "$raw.err" ] || cat "$raw.err" >>"$dir/$name"
+  if tehas_improve_secret "$dir/$name"; then
+    echo "- \`$rec\`: not uploaded, the log holds something shaped like a token" >"$out"
+    notes+=("secret-shape=$rec")
+    return 0
+  fi
+  if ! tehas_improve_pack "$dir/$name" "$dir/gz" "$name" "$chunk"; then
+    echo "- \`$rec\`: not uploaded, the log could not be packed" >"$out"
+    notes+=("not-packed=$rec")
+    return 0
+  fi
+  if ! release || ! gh release upload "$tag" "$dir"/gz/*.gz --repo "$repo" --clobber >/dev/null 2>&1; then
+    echo "- \`$rec\`: the log could not be uploaded" >"$out"
+    notes+=("not-uploaded=$rec")
+    return 0
+  fi
+  printf '%s\n' "$dir"/gz/*.gz | sort -V | while IFS= read -r f; do
+    f=$(basename "$f")
+    echo "- [$f](https://github.com/$repo/releases/download/$tag/$f)"
+  done >"$out"
+}
+
+# The body is this script's: the model's text goes in with every mention
+# broken and every HTML comment shown, and its evidence inside a fence it
+# cannot close.
+# shellcheck disable=SC2016  # a jq program: the variables are jq's
+body='
+  def defuse: gsub("@(?=[A-Za-z0-9])"; "@\u200b") | gsub("<!--"; "&lt;!--");
+  "_Filed by the tehas improvement loop, read by the model `\($model)`. It is a proposal: nothing works on it until a person labels it._",
+  "", "**Category:** \(.category)", "", (.body | defuse), "",
+  "**Evidence**", "", "````text", (.evidence | gsub("`{3,}"; "\u0027\u0027\u0027")), "````", "",
+  "**Cycles:** \(.cycles | unique | join(", "))", "", "**Whole logs**", "", ($links | rtrimstr("\n"))'
+
+filed=()
+failed=0
+n=$(jq '.file | length' <<<"$plan")
+if [ "$n" -gt 0 ]; then
+  # It fails when the label is there already, which is fine.
+  gh label create "$label" --repo "$repo" --color 5319e7 \
+    --description "Tehas: filed by the improvement loop, a proposal" >/dev/null 2>&1 || true
+fi
+for ((i = 0; i < n; i++)); do
+  f=$(jq -c ".file[$i]" <<<"$plan")
+  links=""
+  while IFS= read -r rec; do
+    upload "$rec" || fail "could not write under $run"
+    links+=$(cat "$run/up/$rec.links")$'\n'
+  done < <(jq -r '.cycles | unique | .[]' <<<"$f")
+  jq -r --arg links "$links" --arg model "$PI_ENSEMBLE_SUBAGENT_MODEL" "$body" <<<"$f" >"$run/body.md"
+  if url=$(gh issue create --repo "$repo" --title "$(jq -r .title <<<"$f")" \
+    --body-file "$run/body.md" --label "$label"); then
+    filed+=("#${url##*/}")
+  else
+    failed=1
+    break
+  fi
+done
+issues=none
+[ "${#filed[@]}" = 0 ] || issues=$(IFS=,; echo "${filed[*]}")
+[ "$failed" = 0 ] || fail "GitHub refused an issue; filed before that: $issues"
+
+# --- Clean up ----------------------------------------------------------------
+rm -rf "$run"
+rm -f "$kept"
+say "cycles=${#recs[@]} $(jq -r '"findings=\(.found) invalid=\(.invalid) duplicates=\(.duplicates) of=\(if .of == "" then "none" else .of end) over=\(.over)"' <<<"$plan") filed=${#filed[@]} issues=$issues${notes[*]:+ ${notes[*]}}"

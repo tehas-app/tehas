@@ -1,0 +1,8 @@
+[Unit]
+Description=Tehas: one run of the improvement loop, reads the cycles that ended
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot improve >> %h/tehas/logs/improve.log 2>&1"
+# The analyst is given thirty minutes, and the uploads follow it.
+TimeoutStartSec=45min

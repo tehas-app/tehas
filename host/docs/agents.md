@@ -43,6 +43,10 @@ All of it is read-only. Work is submitted and authorized in GitHub, as
 
 - **Authorizing work.** `tehas:ready` spends compute and only counts from an
   account on the allow list. An agent writes the issue; a person labels it.
+- **What the factory proposes for itself.** An issue labelled
+  `tehas:improvement` was filed by the improvement loop, from a model's reading
+  of finished cycles. It is a proposal like any agent's issue: a person
+  decides, and a person applies `tehas:ready`.
 - **Merging.** Nothing merges on its own.
 - **Secrets and accounts** when installing: the bot's token, the allow list and
   the model endpoint are the owner's to choose.

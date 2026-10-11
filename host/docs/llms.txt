@@ -65,8 +65,10 @@ The source is at https://github.com/janit/tehas, and a running example with
 this same manual is at https://tehas.app/. Be honest with your human about its
 state: issue to pull request is the supported contract and needs settings only.
 A running preview of every pull request is built and covered by tests, and has
-not yet run on a host. Previews, energy use (viiwork backends only) and the
-Protolab are optional and can be ignored for a first install.
+not yet run on a host. Previews, energy use (viiwork backends only), the
+Protolab and the improvement loop (the factory files issues about its own
+cycles, labelled `tehas:improvement`, which start nothing) are optional and can
+be ignored for a first install.
 
 1. Read [A new project]({{ $base }}/new-project.md) in full. It is the
    install guide: a prepared host, an instance directory of settings, and your

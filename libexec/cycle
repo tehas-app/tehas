@@ -23,7 +23,10 @@
 # A TERM or INT is passed on to tehas work, which stops the container. The
 # cycle is then reported like any other that stopped without a pull request.
 #
-# Instance settings (lib/config.sh): TEHAS_REPO.
+# Where the instance has an improvement loop (TEHAS_IMPROVE_REPO), it leaves
+# the cycle's record for it at the end, in tmp/improve/window (lib/improve.sh).
+#
+# Instance settings (lib/config.sh): TEHAS_REPO, TEHAS_IMPROVE_REPO.
 # From the environment, for tests: TEHAS_WORK_CMD, TEHAS_STATUS_CMD.
 set -uo pipefail
 
@@ -36,6 +39,8 @@ fi
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/config.sh
 . "$here/../lib/config.sh"
+# shellcheck source=lib/improve.sh
+. "$here/../lib/improve.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO
 
@@ -136,5 +141,8 @@ else
 ${usage}"
 fi
 log "done #$issue rc=$rc status=$status step=$step minutes=$mins pr=${pr:-none}"
+# For the improvement loop, where the instance has one. The cycle is reported
+# by now, and a record that cannot be written is the loop's loss only.
+tehas_improve_record "$issue" "$started" "$rc" "$status" "$step" "$pr" || log "WARN: no record of #$issue for the improvement loop"
 "$status_cmd"
 exit 0

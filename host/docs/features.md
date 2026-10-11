@@ -75,6 +75,7 @@ a day.
 | Instance settings        | Everything that differs between instances is in one directory; no script names a product or a host               | Covered by the shell tests                           |
 | Host bootstrap           | `bootstrap.sh` installs every tool at a pinned version and checks the result                                     | Check and a second run verified; a run from scratch is not |
 | Read-only source         | The host clones this repository with a read-only deploy key; the bot has no access to it                         | Verified                                             |
+| Improvement loop         | Optional. Every three hours `tehasbot improve` gives the records of the cycles that ended to a model in a container with no token, and files at most 3 findings a run as issues labelled `tehas:improvement`, each with the whole logs of its cycles | Covered by the shell tests. Not yet run on a host: the analyst has not been started in the sandbox image and no issue has been filed |
 | Pinned sandbox image     | Base by digest, tools by version; each build is also tagged by date for rollback                                 | Verified                                             |
 
 ## The example instance
@@ -137,6 +138,12 @@ repository's contract files were on a work branch when the instance was set up.
 - One host, one project. Cycles that run side by side do not know of each other: two issues that touch the same files give conflicting pull requests.
 - The cycle's container holds the bot's token, so agent code can do what that
   token can. Give each instance its own bot account. See [The host](/host).
+- Logs are removed only where the improvement loop is on: each of its runs
+  deletes the per-cycle files in `~/tehas/logs/` that are older than seven
+  days. Without the loop they stay until a person removes them.
+- The improvement loop's analyst is one more conversation with the model, for
+  up to 30 minutes every three hours. On an endpoint with few slots it can
+  take one a running cycle needs.
 - A pull request closed without merging leaves `tehas:awaiting-merge` on its
   issue until someone removes it.
 - A preview is public, and it is built from a pull request nobody has reviewed

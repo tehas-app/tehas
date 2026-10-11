@@ -116,6 +116,7 @@ The dispatcher takes issues urgent first, then by the lowest issue number: one a
 | `tehas:running`         | A cycle owns it                   | Leave the issue and its branch alone     |
 | `tehas:awaiting-merge`  | Pull request is open and reviewed | Review and merge                         |
 | `needs-human-attention` | The cycle stopped                 | Read the comment; see below              |
+| `tehas:improvement`     | Filed by the improvement loop     | Read it; apply `tehas:ready` if it should be built |
 
 When the cycle starts and when it ends, the bot comments on the issue. The token
 usage per agent role is posted on the pull request.
@@ -188,6 +189,42 @@ already running finishes. Remove the label to resume.
   on (`TEHAS_MAX_AWAITING`). Unreviewed pull requests are the queue you control.
 - A self-hosted model endpoint has few real slots per model, so a cycle takes
   a while; the six-pass review is the slowest part.
+
+## The improvement loop
+
+Optional. It is off unless the instance sets `TEHAS_IMPROVE_REPO` and the timer
+`tehas-improve.timer` is enabled; see [Commands](/tools).
+
+Every three hours a model reads the cycles that ended since the last run and
+says what could be better: in the dispatcher, the cycle, pi-rukas, the
+console, the gates or this manual. A finding that is not already in the issue
+stack is filed as an issue of its own in that repository.
+
+- **The label is `tehas:improvement` and nothing else.** tehas does not act on
+  it, and the loop never applies `tehas:ready`. A filed issue is a proposal a
+  model wrote: read it, correct it, and apply `tehas:ready` yourself if it
+  should be built. Close it if not.
+- **At most 3 issues a run, and none while 10 are open** with the label. Close
+  some or build some and the loop files again.
+- **The whole log is linked.** Each issue links the logs of the cycles it
+  names, gzipped, as assets of the release `tehas-improve-logs` in that
+  repository. In a public repository they are public. A log that holds
+  something shaped like a token is not uploaded, and the issue says so.
+- **One line per run** in `~/tehas/logs/improve.log`:
+
+```
+2026-10-11T09:00:12Z improve: cycles=4 findings=3 invalid=0 duplicates=1 of=#41 over=0 filed=2 issues=#57,#58
+```
+
+`cycles` is how many were read and `findings` what the model gave. `invalid`
+were dropped for not being the shape asked for, `duplicates` were already in
+the stack or given twice (`of` names the issues the model pointed at), and `over` were more
+than the limits allow and are dropped. `filed` and `issues` are what was
+opened.
+
+To turn the loop off, remove `TEHAS_IMPROVE_REPO` from `instance.env`: cycles
+stop leaving records and a run does nothing. Or stop the timer with
+`systemctl --user disable --now tehas-improve.timer`.
 
 ## Run one issue by hand
 
