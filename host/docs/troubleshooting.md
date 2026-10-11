@@ -315,9 +315,12 @@ state says which of four things happened:
 - The build failed or ran over 15 minutes. The same commit is not built
   again. Push a new commit and that one is tried. A preview of the earlier
   commit keeps serving meanwhile.
-- `The recipe declares a volume at <path>. A preview may write to /tmp,
-  /config and /data only.` The build went through and the image was not
-  run, and it was removed. A `VOLUME` line, in the recipe or in the image it
+- `The recipe declares a volume outside /tmp, /config and /data. Its path is
+  in logs/preview-<pr>.log on the host.` The build went through and the image was not
+  run, and it was removed. That log line names the path: `The recipe declares
+  a volume at <path>. A preview may write to /tmp, /config and /data only.`
+  It is text of the recipe's own, so it stays on the host. A `VOLUME` line, in
+  the recipe or in the image it
   starts from, names a directory other than those three, and Docker would
   put it on the host's disk. Take the line out, or start from an image
   without it, and push. `The image's volumes could not be read.` is the same
@@ -439,17 +442,35 @@ the proxy sends to. See "The edge router does not start" above.
 **Nothing in the pull request's description.** The notice is written for
 `serving`, `build-failed` and `no-space` only, once for each commit and state.
 For `over-limit` and `no-recipe` a notice that is already there is changed to
-say there is no preview, and none is made. The description is read from GitHub
-at the moment of the edit, so a failed call, or an answer that is not that pull
-request's, writes nothing and is tried again at the next run. A description
-with a marker line of its own, or a block at its very top whose first line is
-not one of `Preview of`, `Unable to create a preview` or `There is no preview`,
-is left as it is and the log says `#<pr>: the description has a preview notice
-that is not this one, left alone`, once for each commit and state. A write
-GitHub did not take says `#<pr>: the notice was not written, tried again at the
-next run`, and the description GitHub had before the write is in
-`~/tehas/preview/<pr>/.description`. When nothing is written for a pull request
-that should have a notice, check `gh auth status` as the tehas user.
+say there is no preview, and none is made. What was said about a commit and
+state is on record in `~/tehas/preview/<pr>/.notice` and is not said twice, but
+the description is looked at again whenever GitHub gives a later time for the
+pull request than the one on record, so a notice a person removed comes back at
+the next run. The rules are in
+[tehasbot preview](/tools). The log line says which case it is:
+
+- `#<pr>: the description could not be read (no such pull request (HTTP 404)),
+  tried again at the next run`, or with `GitHub refused the call (HTTP 403)`.
+  Check `gh auth status` as the tehas user: a token that lost access, or one
+  that cannot write pull requests, answers that way for every pull request.
+- `#<pr>: the description has a preview notice that is not this one, left
+  alone`. Someone wrote the marker lines, or put text of their own inside a
+  notice. The description is left as it is, once for each commit and state.
+- `#<pr>: the answer about this pull request was not understood`. GitHub
+  answered with something that is not that pull request's description.
+- `#<pr>: the notice was not written, tried again at the next run`, and after
+  three of them `#<pr>: the notice was not written three times, left to the next
+  commit or state`. What GitHub had as the description before the last write is
+  in `~/tehas/preview/<pr>/.description`.
+- `#<pr>: the pull request is no longer open, nothing was written`. It was
+  merged or closed between the list the run was given and the read.
+- `#<pr>: the description was not backed up, the notice was not written, tried
+  again at the next run`. The host could not write
+  `~/tehas/preview/<pr>/.description`, so nothing was sent to GitHub. Check that
+  `~/tehas/preview` belongs to the tehas user and has room.
+
+A comment written by the version of previews that commented instead (until
+2026-10-11) is not edited or removed by anything now.
 
 **The dashboard's "List written" time is old.** Every run writes the list,
 also one that builds nothing. An old time means no run came by:

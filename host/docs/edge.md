@@ -250,7 +250,9 @@ is done:
 
 Merge or close it, and at the next run the log has
 `#<pr>: pull request no longer open, removed`, and the name answers 404. The
-description keeps what it last said.
+description keeps the notice it last said, which is an address that answers 404
+from then on: nothing of previews edits the description of a pull request that
+is no longer open.
 
 When a preview is not there, the dashboard says why. The pull request's
 description says so for a failed build and for a full disk. A pull request that

@@ -745,35 +745,94 @@ with `docker rm -f -v`, which takes a volume Docker made for it along.
 request's own description, between the marker lines `<!-- tehas-preview -->`
 and `<!-- /tehas-preview -->`: the address when the preview serves, or
 "Unable to create a preview" with the reason for `build-failed` and
-`no-space`. It is said once for each commit and state, so a full disk is not
-an edit every five minutes. For `over-limit` and `no-recipe` a pull request
-whose description has no notice gets none. One that has a notice from an
-earlier state has it changed to "There is no preview" with the reason, so that
-it does not go on giving an address that answers 404. `building` is on the
-dashboard only.
+`no-space`. It is said once for each commit and state, so a full disk is not an
+edit every five minutes. For `over-limit` and `no-recipe` a pull request whose
+description has no notice gets none. One that has a notice from an earlier
+state has it changed to "There is no preview" with the reason, so that it does
+not go on giving an address that answers 404. `building` is on the dashboard
+only.
+
+**Which block belongs to the bot.** The one at the very top of the
+description: its opening marker as the first line, and the closing marker under
+it. It is the bot's only when everything between those two lines is one of the
+notices this command writes: a line beginning `Preview of \``, `Unable to create
+a preview` or `There is no preview`, and for a preview that was made or
+attempted, the sentence `It is rebuilt when the branch changes and removed when
+this pull request is closed.` after a blank line. A notice is written with a
+blank line under its opening marker, so that it renders as text and not as part
+of the HTML comment, and one is allowed there and nowhere else. All of it or
+none of it. Text
+between marker lines that this command did not write is not written over, and
+neither is a marker line anywhere else in the description: the log says
+`#<pr>: the description has a preview notice that is not this one, left alone`,
+once for each commit and state. Write your own text outside the two marker
+lines. To hand the block back after changing it, remove both marker lines: the
+notice comes at the run that sees the change.
+Everything after the closing marker line of a block of the bot's is kept as
+GitHub gave it, blank lines at the end included.
+
+**What a notice is proof of.** It is proof of what this host decided, read from
+`~/tehas/live/previews.json`, the dashboard and `/health`. Anyone can write the
+marker lines and the sentence under them, and for a pull request this host does
+not build, one from a fork or one opened by someone outside the repository,
+nothing reads the description at all. An address at the top of such a
+description is the author's own text.
+
+**One record for each commit and state.** What was said about a commit and state
+is on record in `~/tehas/preview/<pr>/.notice`, as `<commit> <state> <what>
+[attempts] [time]`: `none`, `said`, `refused`, `failed` with how many writes
+GitHub did not take, or `gaveup`. The time is the one GitHub gives for that pull
+request at the last look. Nothing is written or said twice about a commit and
+state: a full disk is not an edit every five minutes, and the log carries one
+line for each write GitHub did not take, the last of them saying it is left to
+the next commit or state.
+
+The record does not stop the reading. The description is read again whenever
+GitHub gives a later time for the pull request than the one on record, which is
+what editing a description does. A notice a person removes therefore comes back
+at the next run, and so is a block someone wrote at the top in the shape of the
+bot's: ownership of a description is only its text, so it is looked at again
+whenever the text can have changed. A look that finds nothing to do costs one
+read, writes nothing and says nothing. A record with no time on it is looked at
+again too.
+
+A call that
+failed is tried at the next run: `#<pr>: the description could not be read (no
+such pull request (HTTP 404)), tried again at the next run`, with
+`GitHub refused the call (HTTP 403)` when GitHub refuses the token, and
+`#<pr>: the answer about this pull request was not understood ...` when it
+answered with something that is not that pull request's description. Three
+writes GitHub did not take are said once, with the third of them, as
+`#<pr>: the notice was not written three times, left to the next commit or
+state`. A description that already says what
+it should say is not written at all.
 
 The description is asked for at the moment of the edit, with `gh api
 repos/<repo>/pulls/<pr>`, and not from the list of open pull requests the run
-was given minutes ago: an edit made before that read is kept. GitHub takes no
-condition on a write of a description, so an edit made in the moment between
-the read and the write is not kept, and the later write wins. What the command
-read is written to `~/tehas/preview/<pr>/.description` before it writes, and
-the log says `#<pr>: the notice was written`, so a description written over is
-visible on the host and can be copied back from there.
+was given minutes ago: an edit made before that read is kept, and so is what
+GitHub says about the pull request itself. One merged or closed in between gets
+nothing written, and the log says `#<pr>: the pull request is no longer open,
+nothing was written`. GitHub takes no condition on a write of a description, so
+an edit made in the moment between the read and the write is not kept, and the
+later write wins: [The host](/host) says an agent in a cycle may edit a
+description with the same token. What the command read is
+written to `~/tehas/preview/<pr>/.description`, mode `0600`, before it writes,
+and the log says `#<pr>: the notice was written`, so a description written over
+is visible on the host and can be copied back from there.
 
-Only a notice this command wrote belongs to it: the two marker lines, the
-opening one as the first line of the description, with between them a line
-starting with `Preview of`, `Unable to create a preview` or `There is no
-preview`. Anyone can write the marker lines, so without a line of the bot's own
-between them no block can be told from a stranger's. A marker line anywhere
-else, or a block that is not the bot's, is someone else's text: the description
-is left as it is and the log says `#<pr>: the description has a preview notice
-that is not this one, left alone`, once for each commit and state. The
-description is read again at every run, so one cleared of its marker lines gets
-its notice at the run that sees it. Write your own text outside the two marker
-lines. No call, or an answer that is not that pull request's or does not give
-its description, writes nothing and is tried again at the next run. A
-description that already says what it should say is not written at all.
+**What one pull request leaves on the host.** Under `~/tehas/preview/<pr>/`:
+`state.json` (the state, above), `pull.json` (its title and address), `.retry`
+(a commit whose container did not start, and how many starts it had), `.notice`
+(what was said about a commit and state) and `.description` (what GitHub had as
+the description before the last write). All of it goes with the pull request,
+at the next run after it is merged or closed.
+
+**What is not removed.** A notice in a description stays when its pull request
+closes: nothing of previews edits the description of a merged or closed pull
+request, so a merged one keeps an address that answers 404 from then on. So does
+a comment written by the version of this command that commented instead (until
+2026-10-11): nothing reads or removes comments now, and those comments are left
+where they are.
 
 **The sweep**, every three hours, is the second check that nothing of a merged
 or closed pull request stays on the host. It does not work from GitHub's list

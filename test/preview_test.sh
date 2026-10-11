@@ -34,21 +34,31 @@ case "$1 $2" in
   "api -X")
     # fx/write-fails is a write GitHub does not take. One line a write,
     # whatever text the description has in it. A write of a description is kept
-    # whole as well, and becomes what GitHub answers for that pull request from
-    # then on: fx/desc-<n>.
+    # as the bytes the command sent, and becomes what GitHub answers for that
+    # pull request from then on: fx/desc-<n>.
     [ ! -e "$T/fx/write-fails" ] || exit 1
     printf "%s" "$*" | tr "\n" " " >>"$T/calls/gh-writes"
     echo >>"$T/calls/gh-writes"
     case "$3 $4" in
       "PATCH repos/acme/widget/pulls/"*)
         n=${4#repos/acme/widget/pulls/}
-        # The description is whichever argument carries it, so that a new flag
-        # on the call does not quietly record an empty one.
-        for a in "$@"; do
-          case "$a" in body=*) printf "%s\n" "${a#body=}" >"$T/fx/desc-$n" ;; esac
-        done
-        jq -c --arg b "$(cat "$T/fx/desc-$n")" ".body = \$b" "$T/fx/pull-$n.json" >"$T/fx/x" &&
-          mv "$T/fx/x" "$T/fx/pull-$n.json" ;;
+        # The body is the argument at the place the command puts it: -f and
+        # then body=<text>. Text of a description that begins with body= must
+        # not be taken for the flag.
+        if [ "${5:-}" != -f ]; then
+          echo "gh stub: a write without -f where the command puts it" >&2
+          exit 1
+        fi
+        case "${6:-}" in
+          body=*) printf '%s' "${6#body=}" >"$T/fx/desc-$n" ;;
+          *)
+            echo "gh stub: a write without body=<text> where the command puts it" >&2
+            exit 1 ;;
+        esac
+        jq -c --rawfile b "$T/fx/desc-$n" ".body = \$b" "$T/fx/pull-$n.json" >"$T/fx/x" &&
+          mv "$T/fx/x" "$T/fx/pull-$n.json"
+        # GitHub answers a write with the pull request as it has it then.
+        cat "$T/fx/pull-$n.json" ;;
     esac ;;
 esac'
 
@@ -187,12 +197,14 @@ commit() {
 # repository where nothing else is said. An empty repository is a head
 # repository that is gone, and an empty association is an answer without one.
 # $desc is what GitHub has as its description; an empty one answers as a null,
-# which is what GitHub gives for a pull request with no description.
+# which is what GitHub gives for a pull request with no description. $when is
+# the time GitHub gives for it, which moves when a person edits it.
 pull() {
   git -C "$upstream" update-ref "refs/pull/$1/head" "$2"
   jq -n -c --argjson n "$1" --arg sha "$2" --arg repo "${3-acme/widget}" --arg who "${4-MEMBER}" \
-    --arg d "${desc-What the change does.}" '
+    --arg d "${desc-What the change does.}" --arg t "${when-2026-10-11T09:00:00Z}" '
     {number: $n, title: "Change \($n)", html_url: "https://github.com/acme/widget/pull/\($n)", state: "open",
+     updated_at: $t,
      head: {sha: $sha, repo: (if $repo == "" then null else {full_name: $repo} end)},
      body: (if $d == "" then null else $d end)}
     + (if $who == "" then {} else {author_association: $who} end)' | tee "$fx/pull-$1.json"
@@ -206,18 +218,24 @@ reset() {
   git clone -q "$upstream" "$T/home/tehas/repos/widget"
   T_ENV=(GH_TOKEN=sekret-token TEHAS_PREVIEW_SETTLE=0)
   desc="What the change does."
+  when="2026-10-11T09:00:00Z"
   t_instance "${T_MINIMAL[@]}" TEHAS_PREVIEWS=1 TEHAS_DOMAIN=example.org
 }
+# state_of <number>: the state of that pull request.
 state_of() { jq -r '.state' "$root/$1/state.json" 2>/dev/null; }
 # block <text>: the block a run writes at the top of a description, as GitHub
-# would hold it: the two marker lines with the text between them.
+# would hold it: the two marker lines with the text between them, and a blank
+# line under the opening one so that the text is not part of the HTML comment.
 block() {
-  printf '<!-- tehas-preview -->\n%s\n<!-- /tehas-preview -->\n' "$1"
+  printf '<!-- tehas-preview -->\n\n%s\n<!-- /tehas-preview -->\n' "$1"
 }
-# body_of: the description of the last write, as one line.
-body_of() { tail -n 1 "$T/calls/gh-writes" 2>/dev/null | sed 's/.* -f body=//'; }
-# told <number>: the description GitHub has for that pull request now.
+# told <number>: the description GitHub has for that pull request now, as the
+# bytes the command wrote. A command substitution takes a trailing newline off,
+# so a case that cares about the end of a description looks at $T/fx/desc-<n>
+# itself.
 told() { cat "$T/fx/desc-$1" 2>/dev/null; }
+# bytes <file> <count>: the last bytes of a file, as one line of hex.
+bytes() { tail -c "$2" "$1" | od -An -tx1 | tr -d ' \n'; }
 # count <directory> <name pattern>: how many entries of that name it has.
 count() { find "$1" -mindepth 1 -maxdepth 1 -name "$2" 2>/dev/null | wc -l; }
 runs() { find "$T/calls" -name 'docker.run.*' | wc -l; }
@@ -345,7 +363,7 @@ t_run "$preview"
 t_eq "$t_rc" 0
 t_eq "$(state_of 12)" "build-failed"
 t_eq "$(jq -r .reason "$root/12/state.json")" \
-  "The recipe declares a volume at /stuff. A preview may write to /tmp, /config and /data only."
+  "The recipe declares a volume outside /tmp, /config and /data. Its path is in logs/preview-12.log on the host."
 t_eq "$(cat "$fx/docker/container-12")" "$a"
 t_eq "$(runs)" 0
 t_eq "$(t_calls docker | grep -c '^rm ')" 0
@@ -353,7 +371,12 @@ t_eq "$(t_calls docker | grep -c '^rm ')" 0
 t_contains "$(t_calls docker)" "image rm tehas-preview:12"
 t_eq "$(count "$fx/docker" image-12)" 0
 t_eq "$(count "$root/12" '.retry')" 0
-t_contains "$(writes)" "The recipe declares a volume at /stuff."
+# The path is text of the recipe's own. It stays in this pull request's build
+# log, and never reaches its description, where the bot's own account would be
+# quoting someone else's commit.
+t_contains "$(cat "$T/home/tehas/logs/preview-12.log")" "The recipe declares a volume at /stuff."
+t_lacks "$(writes)" "/stuff"
+t_contains "$(writes)" "The recipe declares a volume outside /tmp, /config and /data"
 rm -f "$T"/calls/docker*
 t_run "$preview"
 t_eq "$(builds)" 0
@@ -366,11 +389,11 @@ for odd in '{"/tmp/":{}}' '{"/data/x":{}}' '{"":{}}' '{"/":{}}' '{"/var/lib/dock
   printf '%s\n' "$odd" >"$fx/volumes"
   t_run "$preview"
   t_eq "$(state_of 12)" "build-failed"
-  t_contains "$(jq -r .reason "$root/12/state.json")" "The recipe declares a volume at "
+  t_contains "$(jq -r .reason "$root/12/state.json")" "The recipe declares a volume outside"
   t_eq "$(runs)" 0
 done
 
-t_case "a volume's path reaches the reason without its control characters, and cut short"
+t_case "a volume's path reaches the build log without its control characters, cut short"
 reset
 a=$(commit feature)
 pulls "$(pull 12 "$a")"
@@ -378,7 +401,11 @@ jq -n -c '{("/a\nb\u001b[31m" + ("x" * 300)): {}}' >"$fx/volumes"
 t_run "$preview"
 t_eq "$(state_of 12)" "build-failed"
 t_eq "$(jq -r .reason "$root/12/state.json")" \
+  "The recipe declares a volume outside /tmp, /config and /data. Its path is in logs/preview-12.log on the host."
+t_eq "$(grep -c 'declares a volume at' "$T/home/tehas/logs/preview-12.log")" 1
+t_contains "$(cat "$T/home/tehas/logs/preview-12.log")" \
   "The recipe declares a volume at /ab[31m$(printf 'x%.0s' $(seq 1 73)). A preview may write to /tmp, /config and /data only."
+t_lacks "$t_out" "$(printf '\033')"
 t_eq "$(printf '%s\n' "$t_out" | grep -c '^#12: build-failed')" 1
 
 for fine in 'null' '{"/config":{},"/data":{}}' '{"/tmp":{}}' '{}'; do
@@ -1025,12 +1052,11 @@ pulls "$(pull 12 "$a")"
 t_run "$preview"
 t_eq "$(writes | wc -l)" 1
 t_contains "$(writes)" "api -X PATCH repos/acme/widget/pulls/12 -f body=<!-- tehas-preview -->"
-t_contains "$(body_of)" "Preview of \`${a:0:7}\`: https://uat-12.example.org/"
-t_contains "$(body_of)" "It is rebuilt when the branch changes and removed when this pull request is closed."
-t_eq "$(told 12 | wc -l)" 7
-t_eq "$(told 12 | sed -n '1p')" "<!-- tehas-preview -->"
-t_eq "$(told 12 | sed -n '5p')" "<!-- /tehas-preview -->"
-t_eq "$(told 12 | sed -n '7p')" "What the change does."
+t_eq "$(told 12)" "$(block "Preview of \`${a:0:7}\`: https://uat-12.example.org/
+
+It is rebuilt when the branch changes and removed when this pull request is closed.")
+
+What the change does."
 t_run "$preview"
 t_eq "$(writes | wc -l)" 1
 
@@ -1040,8 +1066,9 @@ desc=""
 a=$(commit feature)
 pulls "$(pull 12 "$a")"
 t_run "$preview"
-t_eq "$(told 12 | wc -l)" 5
-t_eq "$(told 12 | sed -n '1p;5p' | tr '\n' ' ')" "<!-- tehas-preview --> <!-- /tehas-preview --> "
+t_eq "$(told 12)" "$(block "Preview of \`${a:0:7}\`: https://uat-12.example.org/
+
+It is rebuilt when the branch changes and removed when this pull request is closed.")"
 
 t_case "the rest of the description is kept exactly as GitHub gave it"
 reset
@@ -1053,11 +1080,27 @@ echo "hi"
 a=$(commit feature)
 pulls "$(pull 12 "$a")"
 t_run "$preview"
-t_eq "$(told 12 | tail -n +7)" 'Closes #7.
+t_eq "$(told 12)" "$(block "Preview of \`${a:0:7}\`: https://uat-12.example.org/
 
-```sh
-echo "hi"
-```'
+It is rebuilt when the branch changes and removed when this pull request is closed.")
+
+$desc"
+
+t_case "a description that ends in a blank line keeps it, and so does its copy"
+reset
+desc='Fixes #7.
+
+'
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+t_run "$preview"
+# The last two bytes of what GitHub holds and of the copy kept on the host.
+# A command substitution would have taken them off.
+t_eq "$(bytes "$T/fx/desc-12" 2)" "0a0a"
+t_eq "$(bytes "$root/12/.description" 2)" "0a0a"
+# The copy is of a description that may hold anything its author wrote, so it is
+# readable by the tehas user only.
+t_eq "$(stat -c '%a' "$root/12/.description")" "600"
 
 t_case "a new commit edits the notice in place and asks GitHub for the description it has"
 reset
@@ -1070,10 +1113,12 @@ pulls "$(pull 12 "$a2")"
 t_run "$preview"
 t_eq "$(writes | wc -l)" 2
 t_contains "$(writes | tail -n 1)" "api -X PATCH repos/acme/widget/pulls/12"
-t_contains "$(body_of)" "${a2:0:7}"
-t_lacks "$(body_of)" "${a:0:7}"
-t_eq "$(told 12 | wc -l)" 7
-t_eq "$(told 12 | sed -n '7p')" "What the change does."
+t_lacks "$(told 12)" "${a:0:7}"
+t_eq "$(told 12)" "$(block "Preview of \`${a2:0:7}\`: https://uat-12.example.org/
+
+It is rebuilt when the branch changes and removed when this pull request is closed.")
+
+What the change does."
 # The write is said, and what GitHub had before it is kept on the host.
 t_contains "$t_out" "#12: the notice was written"
 t_contains "$(cat "$root/12/.description")" "${a:0:7}"
@@ -1090,7 +1135,7 @@ pulls "$(pull 12 "$a")"
 t_run "$preview"
 t_eq "$(state_of 12)" "serving"
 t_eq "$(writes)" ""
-t_eq "$(count "$root/12" .noticed)" 1
+t_eq "$(cat "$root/12/.notice")" "$a serving none 0 $when"
 
 # A marker line of someone's own, anywhere but as the notice at the very top,
 # is text this command does not touch.
@@ -1107,19 +1152,21 @@ for odd in $'<!-- tehas-preview -->\nopen with no close' \
   t_eq "$t_rc" 0
   t_eq "$(state_of 12)" "serving"
   t_eq "$(writes)" ""
-  t_eq "$(count "$root/12" .noticed)" 0
   t_contains "$t_out" "#12: the description has a preview notice that is not this one, left alone"
   t_eq "$(printf '%s\n' "$t_out" | grep -c 'left alone')" 1
   t_eq "$(told 12)" ""
-  t_eq "$(count "$root/12" .refused)" 1
-  # Said once for each commit and state, not at every run.
+  t_contains "$(cat "$root/12/.notice")" "$a serving refused"
+  # Said once for each commit and state: the description is not asked about
+  # again, and nothing is written, until one of them changes.
+  rm -f "$T"/calls/gh
   t_run "$preview"
   t_lacks "$t_out" "left alone"
   t_eq "$(writes)" ""
+  t_eq "$(t_calls gh | grep -c 'pulls/12')" 0
 done
 
-# A block of the marker lines at the very top is not this command's unless the
-# line under its opening marker is one of the three this command writes.
+# A block of the marker lines at the very top is not this command's unless
+# everything between them is one of the notices it writes.
 t_case "a block at the very top that this command did not write is left alone"
 reset
 desc='<!-- tehas-preview -->
@@ -1132,17 +1179,208 @@ pulls "$(pull 12 "$a")"
 t_run "$preview"
 t_eq "$(state_of 12)" "serving"
 t_eq "$(writes)" ""
-t_eq "$(count "$root/12" .noticed)" 0
 t_contains "$t_out" "#12: the description has a preview notice that is not this one, left alone"
 t_run "$preview"
 t_eq "$(writes)" ""
-# The same commit and state, with the marker lines gone: the notice is written.
+# What was said about that commit and state stands while GitHub gives the same
+# time for the pull request as it did at the last look: no read, no write, no
+# line.
 desc='Real description here.'
+pulls "$(pull 12 "$a")"
+rm -f "$T"/calls/gh
+t_run "$preview"
+t_eq "$(writes)" ""
+t_eq "$(t_calls gh | grep -c 'pulls/12')" 0
+# With the marker lines gone and a later time from GitHub, the same commit and
+# state do not wait for a new commit: the notice comes at the run that sees the
+# description change.
+desc='Real description here.'
+when="2026-10-11T09:20:00Z"
 pulls "$(pull 12 "$a")"
 t_run "$preview"
 t_eq "$(writes | wc -l)" 1
-t_eq "$(told 12 | sed -n '1p')" "<!-- tehas-preview -->"
-t_eq "$(told 12 | tail -n 1)" "Real description here."
+t_eq "$(told 12)" "$(block "Preview of \`${a:0:7}\`: https://uat-12.example.org/
+
+It is rebuilt when the branch changes and removed when this pull request is closed.")
+
+Real description here."
+t_eq "$(cat "$root/12/.notice")" "$a serving said 0 $when"
+
+# Text between the marker lines that this command did not write is not written
+# over, and the block is not taken as its own: all of it or none of it.
+t_case "text a person put inside the marker lines of a notice is left alone"
+reset
+desc='<!-- tehas-preview -->
+Preview of `deadbeef`: https://uat-12.example.org/
+
+It is rebuilt when the branch changes and removed when this pull request is closed.
+Do not merge before Friday.
+<!-- /tehas-preview -->
+
+Real description here.'
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+t_run "$preview"
+t_eq "$(state_of 12)" "serving"
+t_eq "$(writes)" ""
+t_contains "$t_out" "#12: the description has a preview notice that is not this one, left alone"
+t_eq "$(told 12)" ""
+
+# A closing marker of its own below a notice of ours does not stop the notice:
+# the block at the top is replaced and the rest stays as GitHub gave it.
+t_case "a marker line below a notice of ours keeps its place in the description"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+t_run "$preview"
+desc="$(told 12)
+
+Someone quoted the closing marker: <!-- /tehas-preview -->"
+a2=$(commit feature)
+pulls "$(pull 12 "$a2")"
+t_run "$preview"
+t_eq "$(writes | wc -l)" 2
+t_eq "$(told 12)" "$(block "Preview of \`${a2:0:7}\`: https://uat-12.example.org/
+
+It is rebuilt when the branch changes and removed when this pull request is closed.")
+
+What the change does.
+
+Someone quoted the closing marker: <!-- /tehas-preview -->"
+
+# A notice at the top that mimics this command's is corrected, not kept.
+t_case "a block at the top that gives another address is written over"
+reset
+desc='<!-- tehas-preview -->
+Preview of `deadbeef`: https://not-the-preview.example/
+
+It is rebuilt when the branch changes and removed when this pull request is closed.
+<!-- /tehas-preview -->
+<!-- /tehas-preview -->
+Real description here.'
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+t_run "$preview"
+t_eq "$(writes | wc -l)" 1
+t_contains "$(told 12)" "https://uat-12.example.org/"
+t_lacks "$(told 12)" "not-the-preview"
+
+# Ownership of a description is only its text, so it is looked at again whenever
+# GitHub says the pull request moved. A block written by someone else, in the
+# shape of the bot's, after the bot had spoken is found at the next run: it does
+# not stand until someone pushes.
+t_case "a block someone put at the top after this command spoke is written over at the next run"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+t_run "$preview"
+t_contains "$t_out" "#12: the notice was written"
+desc='<!-- tehas-preview -->
+
+Preview of `deadbeef`: https://not-the-preview.example/
+
+It is rebuilt when the branch changes and removed when this pull request is closed.
+<!-- /tehas-preview -->
+What the change does.'
+when="2026-10-11T09:20:00Z"
+pulls "$(pull 12 "$a")"
+rm -f "$T/calls/gh-writes"
+t_run "$preview"
+t_eq "$(writes | wc -l)" 1
+t_contains "$(writes)" "api -X PATCH repos/acme/widget/pulls/12"
+t_contains "$(told 12)" "https://uat-12.example.org/"
+t_lacks "$(told 12)" "not-the-preview"
+t_lacks "$(told 12)" "deadbeef"
+t_eq "$(told 12 | tail -n 1)" "What the change does."
+t_eq "$(cat "$root/12/.notice")" "$a serving said 0 $when"
+# The record carries the time of that look, so the run after it looks no more.
+rm -f "$T"/calls/gh "$T/calls/gh-writes"
+t_run "$preview"
+t_eq "$(t_calls gh | grep -c 'pulls/12')" 0
+t_eq "$(writes)" ""
+
+t_case "a notice a person removed comes back at the next run"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+t_run "$preview"
+t_eq "$(count "$root/12" .notice)" 1
+desc='What the change does. And a note added later.'
+when="2026-10-11T09:20:00Z"
+pulls "$(pull 12 "$a")"
+rm -f "$T/calls/gh-writes"
+t_run "$preview"
+t_eq "$(writes | wc -l)" 1
+t_eq "$(told 12)" "$(block "Preview of \`${a:0:7}\`: https://uat-12.example.org/
+
+It is rebuilt when the branch changes and removed when this pull request is closed.")
+
+What the change does. And a note added later."
+
+# A pull request moves for a comment or a label as much as for a description.
+# The look that follows costs one read and nothing else: no write, and no line
+# in the log.
+t_case "a pull request that moved with its description unchanged is read once and written not at all"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+t_run "$preview"
+# The description GitHub holds is the one the command wrote: only the pull
+# request moved, for a comment or a label.
+desc="$(told 12)"
+when="2026-10-11T09:20:00Z"
+pulls "$(pull 12 "$a")"
+rm -f "$T"/calls/gh "$T/calls/gh-writes"
+t_run "$preview"
+t_eq "$(t_calls gh | grep -c 'pulls/12')" 1
+t_eq "$(writes)" ""
+t_lacks "$t_out" "notice"
+t_eq "$(cat "$root/12/.notice")" "$a serving none 0 $when"
+rm -f "$T"/calls/gh
+t_run "$preview"
+t_eq "$(t_calls gh | grep -c 'pulls/12')" 0
+
+# A description this command cannot own is looked at again when GitHub says it
+# moved, and still left alone. The line about it is said once for that commit
+# and state, not once for every look.
+t_case "a description still not this command's is looked at again and said about once"
+reset
+desc='<!-- tehas-preview -->
+Security review pending, do not merge.
+<!-- /tehas-preview -->'
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+t_run "$preview"
+t_eq "$(printf '%s\n' "$t_out" | grep -c 'left alone')" 1
+desc='<!-- tehas-preview -->
+Security review pending, do not merge.
+And a line added later.
+<!-- /tehas-preview -->'
+when="2026-10-11T09:20:00Z"
+pulls "$(pull 12 "$a")"
+rm -f "$T"/calls/gh "$T/calls/gh-writes"
+t_run "$preview"
+t_eq "$(t_calls gh | grep -c 'pulls/12')" 1
+t_eq "$(writes)" ""
+t_eq "$(printf '%s\n' "$t_out" | grep -c 'left alone')" 0
+t_contains "$(cat "$root/12/.notice")" "$a serving refused"
+
+# A description that is only the notice, with the newline its closing marker
+# line ends with, already says what it should say: it is not written again, and
+# its last line is not eaten.
+t_case "a description that is only the notice is not written again"
+reset
+a=$(commit feature)
+desc="$(block "Preview of \`${a:0:7}\`: https://uat-12.example.org/
+
+It is rebuilt when the branch changes and removed when this pull request is closed.")
+"
+pulls "$(pull 12 "$a")"
+t_run "$preview"
+t_eq "$t_rc" 0
+t_eq "$(state_of 12)" "serving"
+t_eq "$(writes)" ""
+t_eq "$(cat "$root/12/.notice")" "$a serving none 0 $when"
 
 # A carriage return at the end of a line does not hide a marker line, and does
 # not make a second notice.
@@ -1177,7 +1415,7 @@ a=$(commit feature)
 pulls "$(pull 12 "$a")"
 t_run "$preview"
 t_eq "$(writes | wc -l)" 1
-t_contains "$(body_of)" "Preview of \`${a:0:7}\`: https://uat-12.example.org/"
+t_contains "$(told 12)" "Preview of \`${a:0:7}\`: https://uat-12.example.org/"
 t_eq "$(told 12 | tail -n 1)" "A preview lives at <!-- tehas-preview --> somewhere in here."
 
 for odd in '{}' '{"number":13,"body":"x"}' '{"number":12,"body":7}' '[]' '"acme/widget"' 'not json' ''; do
@@ -1190,8 +1428,8 @@ for odd in '{}' '{"number":13,"body":"x"}' '{"number":12,"body":7}' '[]' '"acme/
   t_eq "$t_rc" 0
   t_eq "$(state_of 12)" "serving"
   t_eq "$(writes)" ""
-  t_eq "$(count "$root/12" .noticed)" 0
-  t_contains "$t_out" "#12: the description could not be read, tried again at the next run"
+  t_eq "$(count "$root/12" .notice)" 0
+  t_contains "$t_out" "#12: the answer about this pull request was not understood"
   pulls "$(pull 12 "$a")"
   rm -f "$T/calls/gh-writes"
   t_run "$preview"
@@ -1208,8 +1446,8 @@ t_run "$preview"
 t_eq "$t_rc" 0
 t_eq "$(state_of 12)" "serving"
 t_eq "$(writes)" ""
-t_eq "$(count "$root/12" .noticed)" 0
-t_contains "$t_out" "#12: the description could not be read, tried again at the next run"
+t_eq "$(count "$root/12" .notice)" 0
+t_contains "$t_out" "#12: the description could not be read (GitHub refused the call (HTTP 403)), tried again at the next run"
 rm -f "$fx/pull-12.rc"
 t_run "$preview"
 t_eq "$(writes | wc -l)" 1
@@ -1223,8 +1461,8 @@ t_run "$preview"
 t_eq "$t_rc" 0
 t_eq "$(state_of 12)" "serving"
 t_eq "$(writes)" ""
-t_eq "$(count "$root/12" .noticed)" 0
-t_contains "$t_out" "#12: the description could not be read, tried again at the next run"
+t_eq "$(count "$root/12" .notice)" 0
+t_contains "$t_out" "#12: the description could not be read (no such pull request (HTTP 404)), tried again at the next run"
 
 t_case "unable to create, for a full disk: said once, with the figures"
 reset
@@ -1286,9 +1524,9 @@ t_contains "$said" "<!-- tehas-preview -->"
 t_contains "$said" "There is no preview of \`${a:0:7}\`. More than 1 pull requests are open."
 t_lacks "$said" "https://uat-12.example.org/"
 t_lacks "$said" "Unable to create"
-t_eq "$(told 12 | wc -l)" 5
-t_eq "$(told 12 | sed -n '2p')" "There is no preview of \`${a:0:7}\`. More than 1 pull requests are open."
-t_eq "$(told 12 | tail -n 1)" "What the change does."
+t_eq "$(told 12)" "$(block "There is no preview of \`${a:0:7}\`. More than 1 pull requests are open.")
+
+What the change does."
 # Once, not at every run.
 rm -f "$T/calls/gh-writes"
 t_run "$preview"
@@ -1309,8 +1547,9 @@ t_eq "$(writes | wc -l)" 1
 t_contains "$(writes)" "api -X PATCH repos/acme/widget/pulls/12"
 t_contains "$(writes)" "There is no preview of \`${a2:0:7}\`. The commit has no preview/Dockerfile."
 t_lacks "$(writes)" "https://uat-12.example.org/"
-t_eq "$(told 12 | sed -n '2p')" "There is no preview of \`${a2:0:7}\`. The commit has no preview/Dockerfile."
-t_eq "$(told 12 | tail -n 1)" "What the change does."
+t_eq "$(told 12)" "$(block "There is no preview of \`${a2:0:7}\`. The commit has no preview/Dockerfile.")
+
+What the change does."
 
 t_case "a preview that goes leaves a description with a marker line of its own alone"
 reset
@@ -1321,7 +1560,7 @@ pulls "$(pull 12 "$a")"
 t_run "$preview"
 t_eq "$(state_of 12)" "no-recipe"
 t_eq "$(writes)" ""
-t_eq "$(count "$root/12" .noticed)" 0
+t_contains "$(cat "$root/12/.notice")" "$a no-recipe refused"
 t_contains "$t_out" "#12: the description has a preview notice that is not this one, left alone"
 
 t_case "a notice GitHub did not take is tried again at the next run"
@@ -1332,13 +1571,48 @@ pulls "$(pull 12 "$a")"
 t_run "$preview"
 t_eq "$(state_of 12)" "serving"
 t_eq "$(writes)" ""
-t_eq "$(count "$root/12" .noticed)" 0
+t_eq "$(cat "$root/12/.notice")" "$a serving failed 1 $when"
 t_contains "$t_out" "#12: the notice was not written, tried again at the next run"
 rm -f "$fx/write-fails"
 rm -f "$T/calls/gh-writes"
 t_run "$preview"
 t_contains "$(writes)" "api -X PATCH repos/acme/widget/pulls/12"
-t_eq "$(count "$root/12" .noticed)" 1
+t_eq "$(cat "$root/12/.notice")" "$a serving said 0 $when"
+
+t_case "three writes GitHub did not take are enough for that commit and state"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+: >"$fx/write-fails"
+t_run "$preview"
+t_run "$preview"
+t_run "$preview"
+t_eq "$(t_calls gh | grep -c 'api -X PATCH repos/acme/widget/pulls/12')" 3
+t_eq "$(cat "$root/12/.notice")" "$a serving gaveup 3 $when"
+# The line about it is said once, with the third write GitHub did not take.
+t_eq "$(printf '%s\n' "$t_out" | grep -c 'the notice was not written three times')" 1
+# Runs after that ask GitHub for the description no more than they write, and
+# say nothing: a stuck pull request does not fill the log every five minutes.
+for _ in 4 5 6; do
+  rm -f "$T"/calls/gh "$T/calls/gh-writes"
+  t_run "$preview"
+  t_eq "$(writes)" ""
+  t_eq "$(t_calls gh | grep -c 'pulls/12')" 0
+  t_eq "$(printf '%s\n' "$t_out" | grep -c 'the notice was not written')" 0
+done
+
+# What GitHub says about the pull request at the moment of the edit counts, not
+# only the list the run was given: one merged in between keeps its description.
+t_case "a pull request merged between the list and the read gets no notice"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+jq '.state = "closed"' "$fx/pull-12.json" >"$fx/x" && mv "$fx/x" "$fx/pull-12.json"
+t_run "$preview"
+t_eq "$(state_of 12)" "serving"
+t_eq "$(writes)" ""
+t_contains "$t_out" "#12: the pull request is no longer open, nothing was written"
+t_eq "$(count "$root/12" .notice)" 1
 
 # stopped <fixture>: a serving preview, a list written long ago, and a run that
 # stops at that fixture.
@@ -1791,6 +2065,6 @@ t_stub gh 'case "$1 $2" in
 esac'
 t_run "$preview"
 t_eq "$(state_of 12)" "serving"
-t_eq "$(count "$root/12" .noticed)" 0
+t_eq "$(count "$root/12" .notice)" 0
 
 t_done
