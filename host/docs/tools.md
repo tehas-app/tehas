@@ -78,7 +78,7 @@ installed once by root with `sudo ./bootstrap.sh slice`; see
 [The host](/host#limits-and-concurrency). An instance that still sets
 `TEHAS_WORK_CPUS` or `TEHAS_WORK_MEMORY`, the budget of an earlier version, is
 refused with 78 and one line at the first command, and `install.sh --check`
-reports `Instance: NOT OK`:
+reports `Instance: <directory> INVALID` with that line under it and exits 78:
 
 ```
 tehas: TEHAS_WORK_MEMORY is set and this version of tehas has no memory budget to set: the limit around all containers is /etc/systemd/system/tehas.slice (see .../instance.env)

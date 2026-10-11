@@ -442,6 +442,14 @@ t_eq "$t_rc" 78
 t_contains "$t_out" "INVALID"
 t_contains "$t_out" "no models.json in"
 
+t_case "--check names a budget setting of an earlier version, and exits 78"
+instance TEHAS_WORK_MEMORY=8g
+t_run "$install --check"
+t_eq "$t_rc" 78
+t_contains "$t_out" "INVALID"
+t_contains "$t_out" "TEHAS_WORK_MEMORY is set and this version of tehas has no memory budget to set"
+t_lacks "$t_out" "NOT OK"
+
 t_case "the product's session model must be listed too"
 instance
 mkdir -p "$th/repos/widget/.pi"
