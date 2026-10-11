@@ -260,10 +260,14 @@ slice=$etc/systemd/system/tehas.slice
 slice_stubs() { # <uid the caller has> [<what docker info answers>] [<systemd-oomd's state>]
   t_stub id "case \"\$*\" in -u) echo $1 ;; boss) ;; *) exit 1 ;; esac"
   t_stub docker "case \"\$1\" in info) echo '${2-systemd 2}' ;; *) echo 'Docker version 29.1.3' ;; esac"
+  # slice-stale: the file on disk is newer than what systemd read, as systemd
+  # reports it, until a daemon-reload.
   t_stub systemctl 'case "$*" in
-  "show tehas.slice -p FragmentPath -p MemoryMax")
+  "show tehas.slice -p FragmentPath -p MemoryMax -p NeedDaemonReload")
     if [ -e "$T/slice-loaded" ]; then printf "MemoryMax=21990232555\nFragmentPath=/etc/systemd/system/tehas.slice\n"
-    else printf "MemoryMax=infinity\nFragmentPath=\n"; fi ;;
+    else printf "MemoryMax=infinity\nFragmentPath=\n"; fi
+    if [ -e "$T/slice-stale" ]; then echo NeedDaemonReload=yes; else echo NeedDaemonReload=no; fi ;;
+  "daemon-reload") rm -f "$T/slice-stale" ;;
   "start tehas.slice") : >"$T/slice-loaded" ;;
   "is-active systemd-oomd") echo '"${3-inactive}"'; [ '"${3-inactive}"' = active ] ;;
 esac'
@@ -296,8 +300,21 @@ before=$(stat -c %Y "$slice")
 t_run "$bootstrap slice"
 t_eq "$t_rc" 0
 t_contains "$t_out" "bootstrap: slice part already in place"
-t_eq "$(t_calls systemctl)" "show tehas.slice -p FragmentPath -p MemoryMax"
+t_eq "$(t_calls systemctl)" "show tehas.slice -p FragmentPath -p MemoryMax -p NeedDaemonReload"
 t_eq "$(stat -c %Y "$slice")" "$before"
+
+t_case "slice run twice with a file systemd has not re-read reloads and starts"
+# An update changed the file and the reload after it failed: the unit is still
+# the old file's, with a limit, so the file alone says nothing.
+rm -f "$T"/calls/*
+: >"$T/slice-stale"
+t_run "$bootstrap slice"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "already in place"
+t_eq "$(t_calls systemctl | grep -v -e '^show ' -e '^is-active ')" "daemon-reload
+start tehas.slice"
+t_contains "$t_out" "bootstrap: slice part done"
+t_eq "$([ -e "$T/slice-stale" ] && echo stale)" ""
 
 t_case "slice run twice with a file but a limitless unit reloads and starts"
 # The file is there but systemd never read it, or holds a slice it made up
