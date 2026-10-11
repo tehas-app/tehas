@@ -10,7 +10,10 @@
 # to, and nothing else: no token, no repository, no tool that runs a command
 # or opens a connection. This script makes every GitHub call, checks the one
 # file the analyst leaves against a fixed shape, and writes the issue itself.
-# test/improve_test.sh pins what the container is given.
+# test/improve_test.sh pins what the container is given. It runs in
+# tehas.slice, as every sandbox container does, with limits of its own: one
+# CPU, 2g of memory and no swap. Without a usable slice a run with records to
+# read stops before it calls GitHub, and the records wait.
 #
 #   records    $TEHAS_HOME/tmp/improve/window/<issue>-<stamp>, written when a
 #              cycle ends (lib/improve.sh)
@@ -27,7 +30,8 @@
 #       1 the analyst or GitHub failed and the records were kept; what a
 #         failed analyst printed is in logs/improve-analyst.log;
 #      64 an argument, this command takes none;
-#      78 the instance settings are invalid.
+#      78 the instance settings are invalid, or there are records to read and
+#         tehas.slice is not usable on this host; the records were kept.
 #
 # Instance settings: TEHAS_IMPROVE_REPO, the repository issues are filed in.
 # Unset, the loop is off. PI_ENSEMBLE_SUBAGENT_MODEL and
@@ -43,6 +47,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/sandbox.sh"
 # shellcheck source=lib/improve.sh
 . "$here/../lib/improve.sh"
+# shellcheck source=lib/slice.sh
+. "$here/../lib/slice.sh"
 tehas_load || exit 78
 if ! tehas_improve_on; then
   echo "tehas improve: TEHAS_IMPROVE_REPO is not set, the improvement loop is off"
@@ -109,6 +115,10 @@ look() { # <directory>
 look "$window"
 [ "${#recs[@]}" -gt 0 ] || { say "cycles=0, nothing to read"; exit 0; }
 
+# The analyst runs in the slice or not at all. Asked before GitHub is, and
+# only now: a run with nothing to read starts no container.
+tehas_slice_ok || { echo "tehas improve: $TEHAS_SLICE_WHY" >&2; exit 78; }
+
 # --- The issue stack ---------------------------------------------------------
 stack=$(mktemp "$base/.stack.XXXXXX") || exit 1
 trap 'rm -f "$stack" "$stack.open" "$stack.closed"' EXIT
@@ -150,7 +160,8 @@ fail() {
 # A run that was killed leaves its container running under this name.
 docker rm -f tehas-improve >/dev/null 2>&1 || true
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
-timeout -k 60 1800 docker run --rm --name tehas-improve --cpus 1 --memory 2g \
+timeout -k 60 1800 docker run --rm --name tehas-improve \
+  --cgroup-parent tehas.slice --cpus 1 --memory 2g --memory-swap 2g --pids-limit 1024 --cpu-shares 1024 \
   -e HOME=/home/vscode -w /improve \
   -v "$run/in:/improve/in:ro" -v "$run/out:/improve/out" \
   -v "$HOME/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro" \

@@ -621,7 +621,12 @@ product() {
   git clone -q "$T/git/acme/widget" "$th/repos/widget"
 }
 index_runs() { t_calls docker | grep -c -e '^run .*index_repository' || true; }
+# tehas index starts nothing without the slice: a host that has it.
+slice_state 0.00
+slice_env="TEHAS_CGROUP_ROOT=$T_CGROUP"
+t_stub systemctl '[ "$1" != show ] || printf "%s\n" FragmentPath=/etc/systemd/system/tehas.slice ActiveState=active MemoryMax=8589934592'
 t_stub docker 'case "$1" in
+  info) echo "systemd 2" ;;
   version) echo 29.1.3 ;;
   network) echo "true bridge false isolated" ;;
   image) exit "${IMAGE_RC:-0}" ;;
@@ -638,7 +643,7 @@ t_eq "$(index_runs)" 0
 
 t_case "an install without the sandbox image names the indexing step"
 product
-T_ENV=(T_IN_TEST=1 IMAGE_RC=1)
+T_ENV=(T_IN_TEST=1 IMAGE_RC=1 "$slice_env")
 t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "later: $th/bin/tehas index"
@@ -651,7 +656,7 @@ t_eq "$(index_runs)" 0
 t_eq "$(find "$th/state/index.json" 2>/dev/null | wc -l)" 0
 
 t_case "a failed indexing is a warning, and the install still succeeds"
-T_ENV=(T_IN_TEST=1 RUN_RC=1)
+T_ENV=(T_IN_TEST=1 RUN_RC=1 "$slice_env")
 t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "WARN: the code index was not built"
@@ -659,7 +664,7 @@ t_contains "$t_out" "later: $th/bin/tehas index"
 
 t_case "with the image and the checkout, the install builds the index"
 rm -f "$T"/calls/*
-T_ENV=(T_IN_TEST=1)
+T_ENV=(T_IN_TEST=1 "$slice_env")
 t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "tehas index: widget indexed"
@@ -672,6 +677,8 @@ t_run "$install"
 t_contains "$t_out" "tehas is up to date"
 t_eq "$(index_runs)" 1
 t_stub docker "$net_good"
+t_stub systemctl
+T_ENV=(T_IN_TEST=1)
 
 for name in example tehas-tehas; do
   t_case "the shipped instance '$name' is valid"

@@ -5,8 +5,11 @@
 #
 #   tehas_improve_on       is the loop switched on for this instance?
 #   tehas_improve_dir      print where records wait
-#   tehas_improve_record <issue> <started> <rc> <status> <step> [<pr>]
-#                          write the record of a cycle that has ended
+#   tehas_improve_record <issue> <started> <rc> <status> <step> [<pr> [<kills>]]
+#                          write the record of a cycle that has ended. <kills>
+#                          is how many processes in its container were killed
+#                          for memory, oomKills in cycle.json; anything but a
+#                          number counts as 0
 #   tehas_improve_secret <file>
 #                          does the file hold something shaped like a token?
 #   tehas_improve_pack <file> <dir> <name> <limit>
@@ -32,9 +35,10 @@ _tehas_improve_condense='
   | if .type == "extension_ui_request" then del(.id) else . end
   | walk(if type == "string" and length > 2000 then .[0:2000] + " [cut]" else . end)'
 
-tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr>]
+tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills>]]
   tehas_improve_on || return 0
-  local issue=$1 started=$2 rc=$3 status=$4 step=$5 pr=${6:-} base raw rec tmp
+  local issue=$1 started=$2 rc=$3 status=$4 step=$5 pr=${6:-} kills=${7:-0} base raw rec tmp
+  [[ $kills =~ ^(0|[1-9][0-9]{0,8})$ ]] || kills=0
   base=$(tehas_improve_dir)
   raw=$(find "$TEHAS_HOME/logs" -maxdepth 1 -type f -name "work-$issue-*.jsonl" \
     -newermt "@$((started - 5))" 2>/dev/null | sort | tail -n 1)
@@ -48,9 +52,10 @@ tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr>]
   tmp=$(mktemp -d "$base/.new.XXXXXX") || return 1
   if ! jq -n --argjson issue "$issue" --argjson started "$started" --argjson rc "$rc" \
     --argjson ended "$(date +%s)" --arg status "$status" --arg step "$step" --arg pr "$pr" \
-    --arg log "$(basename "$raw")" '
+    --arg log "$(basename "$raw")" --argjson kills "$kills" '
       {issue: $issue, started: $started, seconds: ($ended - $started), status: $status,
-       step: $step, rc: $rc, pr: (if $pr == "" then null else $pr end), log: $log}' \
+       step: $step, rc: $rc, pr: (if $pr == "" then null else $pr end), log: $log,
+       oomKills: $kills}' \
     >"$tmp/cycle.json"; then
     rm -rf "$tmp"
     return 1

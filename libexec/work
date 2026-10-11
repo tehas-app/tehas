@@ -14,23 +14,35 @@
 #              3 the sandbox cannot push to the repository; no cycle was started.
 #
 #             64 no bot token or no git identity; no cycle was started.
-#             78 the instance settings are invalid; no cycle was started.
+#             78 the instance settings are invalid, or tehas.slice is not
+#                usable on this host; no cycle was started.
+#            137 the container was killed while the cycle was running: out of
+#                memory, or stopped from outside. Not by this command's own
+#                stop, and not once the cycle's state says how it ended.
 #
 # Instance settings (lib/config.sh; defaults in brackets):
 #   TEHAS_WORK_REPO     the product checkout a cycle is cloned from
 #                       [$TEHAS_HOME/repos/<name>]
 #   TEHAS_WORK_TIMEOUT  seconds before giving up [21600]
-#   TEHAS_WORK_CPUS     docker --cpus for all cycles together: a time quota,
-#                       not pinning [the host's CPUs minus one]
-#   TEHAS_WORK_MEMORY   docker --memory for all cycles together, a hard limit
-#                       [half the host's memory]
-#   TEHAS_TICKET_CONCURRENCY  cycles side by side; this one gets the two
-#                       limits above divided by it [1]
+#   TEHAS_CYCLE_RESERVE the container's memory floor [2g]
 #
 # What the container is given is deliberate and pinned by test/work_test.sh:
 # the bot token (pi-rukas pushes and opens the pull request from inside), the
 # PI_ENSEMBLE_* settings, the bot's git identity, the cycle's workspace and
 # Pi's state directories. Not the Docker socket, SSH keys or ~/.config/tehas.
+#
+# The container runs in tehas.slice, as every sandbox container does, with the
+# limits lib/slice.sh makes: a memory ceiling of a quarter of the slice, no
+# swap, the reserve as its floor, a pids limit and a CPU weight. No CPU quota.
+# Without a usable slice nothing is cloned and nothing starts. The check that
+# the sandbox can push is a container of a few seconds and is not in the slice.
+#
+# Docker writes the container's id to state/cycles/<issue>.cid, which is how
+# the dispatcher tells this cycle's container from the others in the slice.
+# The file is removed at the end. While the cycle runs, this command reads how
+# many processes the kernel killed for memory in the container, from the
+# container's own cgroup. A count above 0 is printed and left in
+# state/cycles/<issue>.oom for tehasbot cycle.
 #
 # The workspace is $TEHAS_HOME/work/<name>-<issue>, a fresh clone made here for
 # every cycle. What a stopped cycle of the same issue left there is kept
@@ -58,11 +70,21 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/sandbox.sh"
 # shellcheck source=lib/live.sh
 . "$here/../lib/live.sh"
+# shellcheck source=lib/slice.sh
+. "$here/../lib/slice.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
 # Docker would create a missing mount source as a root-owned directory.
 tehas_checkout || exit 78
 branch=$(tehas_branch) || exit 78
+# No container starts outside the slice, and none with half its limits.
+TEHAS_SLICE_LIMITS=()
+tehas_slice_ok || { echo "tehas work: $TEHAS_SLICE_WHY" >&2; exit 78; }
+tehas_slice_limits || true
+if [ "${#TEHAS_SLICE_LIMITS[@]}" != 12 ] || [ "${TEHAS_SLICE_LIMITS[1]}" != tehas.slice ]; then
+  echo "tehas work: the container limits could not be made, not starting" >&2
+  exit 78
+fi
 src=$TEHAS_WORK_REPO
 # The workspace inside the container, and the directory on the host behind it.
 repo=$TEHAS_WORK_DIR
@@ -74,9 +96,11 @@ log=$TEHAS_HOME/logs/work-$issue-$(date -u +%y%m%d-%H%M%S).jsonl
 name=tehas-work-$issue
 agent=$HOME/.pi/agent
 runs=$agent/ensemble-runs/issue-$issue
+cid_file=$TEHAS_HOME/state/cycles/$issue.cid
+oom_file=$TEHAS_HOME/state/cycles/$issue.oom
 
 [ -n "${GH_TOKEN:-}" ] || { echo "tehas work: GH_TOKEN is not set (source ~/tehas/env.sh)" >&2; exit 64; }
-mkdir -p "$TEHAS_HOME/logs"
+mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state/cycles"
 
 # The bot's identity is the tehas user's own. What the container is given is
 # assembled in lib/sandbox.sh, which tehas dev uses too.
@@ -127,8 +151,11 @@ mkfifo "$fifo"
 exec 3<>"$fifo"
 rm "$fifo"
 
+# Docker refuses a cid file that is already there. One is left only by a cycle
+# that was killed outright, and so is a count of kills.
+rm -f "$cid_file" "$oom_file"
 docker run --rm -i --name "$name" \
-  --cpus "$TEHAS_CYCLE_CPUS" --memory "$TEHAS_CYCLE_MEMORY" \
+  "${TEHAS_SLICE_LIMITS[@]}" --cidfile "$cid_file" \
   -w "$repo" "${mounts[@]}" \
   "${envs[@]}" "${hosts[@]}" \
   "$image" pi --mode rpc --approve <&3 >"$log" 2>"$log.err" &
@@ -169,11 +196,31 @@ interrupted=0
 trap 'interrupted=1; kill "$cpid" 2>/dev/null; exec 3>&- 2>/dev/null; docker stop -t 10 "$name" 2>/dev/null; now_file false interrupted "killed by signal (TERM/INT)"' TERM INT
 now_file true running starting
 
+# How many processes the kernel has killed for memory in this container, from
+# the container's own cgroup. The last number seen is kept: the cgroup goes
+# with the container.
+ooms=0
+oom_look() {
+  local id="" events key value
+  [ -r "$cid_file" ] || return 0
+  read -r id <"$cid_file" 2>/dev/null || true
+  [[ $id =~ ^[0-9a-f]{64}$ ]] || return 0
+  events=${TEHAS_CGROUP_ROOT:-/sys/fs/cgroup}/tehas.slice/docker-$id.scope/memory.events
+  [ -r "$events" ] || return 0
+  while read -r key value; do
+    if [ "$key" = oom_kill ] && [[ $value =~ ^[0-9]{1,9}$ ]]; then ooms=$value; fi
+  done 2>/dev/null <"$events"
+  return 0
+}
+
 status=running
 seen=0
+# Set when this command stops the container itself.
+stopped=0
 while [ "$interrupted" = 0 ] && kill -0 "$pid" 2>/dev/null; do
   sleep 10
   [ "$interrupted" = 0 ] || break
+  oom_look
   now_file true "$status" "$(jq -r '.pipelineState.currentStep // "starting"' "$state" 2>/dev/null || echo starting)"
   # Ignore a state file left over from an earlier cycle.
   if [ -f "$state" ] && [ "$(stat -c %Y "$state")" -ge "$started" ]; then
@@ -193,9 +240,30 @@ if [ "$interrupted" = 0 ] && kill -0 "$pid" 2>/dev/null; then
   [ "$status" != running ] && sleep 20
   exec 3>&-
   sleep 5
+  oom_look
+  stopped=1
   docker stop -t 20 "$name" >/dev/null 2>&1
 fi
 wait "$pid" 2>/dev/null
+rc=$?
+rm -f "$cid_file"
+# A container that ended with 137 was killed. It is this cycle's end only when
+# nobody here stopped it and the cycle had not said how it ended: the state
+# file has the last word, and the loop may not have read it since it changed.
+if [ "$rc" = 137 ] && [ "$status" = running ] && [ "$interrupted" = 0 ] && [ "$stopped" = 0 ]; then
+  if [ -f "$state" ] && [ "$(stat -c %Y "$state")" -ge "$started" ]; then
+    seen=1
+    status=$(jq -r '.pipelineState.status // "running"' "$state" 2>/dev/null || echo running)
+  fi
+  if [ "$status" = running ]; then
+    status=killed
+    echo "tehas work: the container was killed (137) while the cycle was running: out of memory, or stopped from outside"
+  fi
+fi
+if [ "$ooms" -gt 0 ]; then
+  echo "tehas work: $ooms processes in this cycle's container were killed for memory"
+  echo "$ooms" >"$oom_file" || echo "tehas work: could not write $oom_file" >&2
+fi
 sleep 3 # let the console catch the last transcript lines
 kill -TERM "$cpid" 2>/dev/null
 wait "$cpid" 2>/dev/null
@@ -211,5 +279,6 @@ echo "tehas work: issue=$issue status=$status step=$step state_written=$seen sec
 case "$status" in
   merged | handoff) exit 0 ;;
   aborted) exit 1 ;;
+  killed) exit 137 ;;
   *) exit 2 ;;
 esac

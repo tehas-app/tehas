@@ -22,7 +22,8 @@ git clone -q "$upstream" "$checkout"
 # The stub answers `image inspect` by $IMAGE_RC and `run` by $RUN_RC. For a
 # run it also notes the commit of the tree mounted read-only, which is gone
 # by the time the command returns.
-stub='printf "%s\n" "$@" >"$T/calls/docker.args.$$"
+stub='if [ "$1" = info ]; then cat "$T/docker.info"; exit; fi
+printf "%s\n" "$@" >"$T/calls/docker.args.$$"
 [ "$1" = image ] && exit "${IMAGE_RC:-0}"
 for a in "$@"; do
   case "$a" in *:ro) git -C "${a%%:*}" rev-parse HEAD >"$T/calls/indexed.head"; echo "${a%%:*}" >"$T/calls/indexed.dir" ;; esac
@@ -30,6 +31,18 @@ done
 [ "${RUN_RC:-0}" = 0 ] || exit "$RUN_RC"
 echo "${RUN_OUT:-{\"project\":\"p\",\"status\":\"indexed\",\"nodes\":5,\"edges\":7\}}"'
 t_stub docker "$stub"
+# A host with the root step done: the slice loaded from its file with 8 GiB,
+# so a container's ceiling is 2048m, Docker on the systemd driver and cgroup
+# v2, and nothing in the slice.
+t_stub systemctl 'cat "$T/slice.show"'
+slice_good() {
+  printf '%s\n' FragmentPath=/etc/systemd/system/tehas.slice ActiveState=active MemoryMax=8589934592 >"$T/slice.show"
+  echo "systemd 2" >"$T/docker.info"
+  slice_state 0.00
+}
+slice_good
+limits="--cgroup-parent --memory --memory-swap --memory-reservation --pids-limit --cpu-shares"
+root="TEHAS_CGROUP_ROOT=$T_CGROUP"
 
 run_args() { grep -l -x -e index_repository "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
 after() { run_args | awk -v flag="$1" 'prev == flag { print } { prev = $0 }'; }
@@ -48,6 +61,7 @@ runs() { grep -l -x -e index_repository "$T"/calls/docker.args.* 2>/dev/null | w
 reset() { rm -f "$T"/calls/*; }
 
 t_case "an invalid instance starts no container"
+T_ENV=("$root")
 t_instance TEHAS_CONTROL_ISSUE=1
 t_run "$index"
 t_eq "$t_rc" 78
@@ -70,13 +84,13 @@ t_eq "$(t_calls docker)" ""
 git -C "$checkout" remote set-url origin "$upstream"
 
 t_case "without the sandbox image nothing is indexed and the build is named"
-T_ENV=(IMAGE_RC=1)
+T_ENV=(IMAGE_RC=1 "$root")
 t_run "$index"
 t_eq "$t_rc" 1
 t_contains "$t_out" "sandbox/build.sh"
 t_eq "$(runs)" 0
 t_eq "$(find "$marker" 2>/dev/null | wc -l)" 0
-T_ENV=()
+T_ENV=("$root")
 
 t_case "while the dispatcher's lock is held nothing is indexed"
 reset
@@ -108,7 +122,7 @@ rm -rf "$T/home/tehas/state/cycles"
 
 t_case "the index is built in the sandbox image, at the path a cycle works in"
 reset
-T_ENV=(GH_TOKEN=test-token)
+T_ENV=(GH_TOKEN=test-token "$root")
 t_run "$index"
 t_eq "$t_rc" 0
 t_eq "$(run_args | sed -n "/^$(printf '%s' "$image" | sed 's/[\/.]/\\&/g')\$/,\$p" | tr '\n' ' ')" \
@@ -128,7 +142,7 @@ t_case "the indexing container gets no network, no token and no option beyond th
 t_eq "$(after --network)" none
 t_eq "$(after -e)" "HOME=/home/vscode"
 t_eq "$(after --user)" "$(id -u):$(id -g)"
-t_eq "$(run_args | unknown_options "$image" "--name --network --cpus --memory --user -e -w -v --entrypoint" "--rm")" ""
+t_eq "$(run_args | unknown_options "$image" "--name --network $limits --user -e -w -v --entrypoint" "--rm")" ""
 args=$(cat "$T"/calls/docker.args.*)
 t_lacks "$args" "test-token"
 t_lacks "$args" "GH_TOKEN"
@@ -136,7 +150,7 @@ t_lacks "$args" "docker.sock"
 t_lacks "$args" ".ssh"
 t_lacks "$args" ".config/tehas"
 t_lacks "$args" "$checkout"
-T_ENV=()
+T_ENV=("$root")
 
 t_case "what was indexed is reported and recorded"
 t_contains "$t_out" "5 nodes, 7 edges"
@@ -144,13 +158,91 @@ t_eq "$(jq -r .commit "$marker")" "$(git -C "$upstream" rev-parse main)"
 t_eq "$(jq -r .branch "$marker")" main
 t_eq "$(jq -r '.nodes, .edges' "$marker" | tr '\n' ' ')" "5 7 "
 
-t_case "the limits come from the settings"
+t_case "the indexer gets the slice and a cycle's limits"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_WORK_CPUS=1 TEHAS_WORK_MEMORY=512m
+t_instance "${T_MINIMAL[@]}" TEHAS_CYCLE_RESERVE=1g
 t_run "$index"
-t_eq "$(after --cpus)" 1
-t_eq "$(after --memory)" 512m
+t_eq "$t_rc" 0
+t_eq "$(after --cgroup-parent)" "tehas.slice"
+t_eq "$(after --memory)" "2048m"
+t_eq "$(after --memory-swap)" "2048m"
+t_eq "$(after --memory-reservation)" "1g"
+t_eq "$(after --pids-limit)" "4096"
+t_eq "$(after --cpu-shares)" "1024"
+t_eq "$(after --network)" none
+t_lacks "$(run_args)" "--cpus"
+t_lacks "$(run_args)" "--cidfile"
+t_eq "$(run_args | unknown_options "$image" "--name --network $limits --user -e -w -v --entrypoint" "--rm")" ""
 t_instance "${T_MINIMAL[@]}"
+
+t_case "the slice is read once: one systemctl call, one docker info"
+t_eq "$(t_calls systemctl)" "show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax"
+t_eq "$(t_calls docker | grep -c '^info ')" 1
+
+# --- Without a usable slice ----------------------------------------------------
+# refused: 78, no call to docker but the question about the slice, no clone,
+# and the record as it was.
+kept=$(cat "$marker")
+refused() {
+  t_eq "$t_rc" 78
+  t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+  t_eq "$(t_calls docker | grep -c -v '^info ')" 0
+  t_eq "$(find "$T/home/tehas/tmp" -mindepth 1 2>/dev/null | wc -l)" 0
+  t_eq "$(cat "$marker")" "$kept"
+}
+without() { reset; slice_good; }
+
+t_case "refuses with 78 without the slice, before any docker run"
+without
+printf '%s\n' FragmentPath= ActiveState=inactive MemoryMax=infinity >"$T/slice.show"
+t_run "$index"
+refused
+t_contains "$t_out" "tehas index: no slice file on this host (sudo ./bootstrap.sh slice)"
+
+t_case "a cgroupfs driver, cgroup v1 and a silent docker are refused the same way"
+for answer in "cgroupfs 2" "systemd 1" ""; do
+  without
+  echo "$answer" >"$T/docker.info"
+  t_run "$index"
+  refused
+  t_contains "$t_out" "tehas index: "
+  t_contains "$t_out" "ocker"
+done
+
+t_case "a reserve above the ceiling is refused"
+without
+t_instance "${T_MINIMAL[@]}" TEHAS_CYCLE_RESERVE=3g
+t_run "$index"
+refused
+t_contains "$t_out" "tehas index: TEHAS_CYCLE_RESERVE=3g is more than a container may use here (2048m"
+t_instance "${T_MINIMAL[@]}"
+
+t_case "the twelve words are all present or nothing starts"
+# The command beside a slice library that says yes and hands out a short list,
+# or a list that names another parent.
+short=$T/short
+mkdir -p "$short/libexec" "$short/lib"
+cp "$T_ROOT"/lib/*.sh "$short/lib/"
+ln -s "$index" "$short/libexec/index"
+for words in "--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --pids-limit 4096" \
+  "--cgroup-parent other.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --pids-limit 4096 --cpu-shares 1024" ""; do
+  without
+  printf '%s\n' 'tehas_slice_ok() { return 0; }' "tehas_slice_limits() { TEHAS_SLICE_LIMITS=($words); }" >"$short/lib/slice.sh"
+  t_run "$short/libexec/index"
+  refused
+  t_contains "$t_out" "tehas index: the container limits could not be made, not starting"
+done
+
+t_case "before a cycle, without the slice nothing is indexed either"
+without
+commit unseen
+git -C "$checkout" fetch -q
+printf '%s\n' FragmentPath= ActiveState=inactive MemoryMax=infinity >"$T/slice.show"
+t_run "$index --before-cycle"
+refused
+without
+t_run "$index"
+t_eq "$t_rc" 0
 
 t_case "it indexes what the checkout last fetched, not the checkout's own tree"
 reset
@@ -185,17 +277,17 @@ exec 9>&-
 t_case "a failed indexer exits 1 and leaves the record as it was"
 reset
 before=$(cat "$marker")
-T_ENV=(RUN_RC=1)
+T_ENV=(RUN_RC=1 "$root")
 t_run "$index"
 t_eq "$t_rc" 1
 t_contains "$t_out" "$T/home/tehas/logs/index-"
 t_eq "$(cat "$marker")" "$before"
 
 t_case "an answer that does not say indexed counts as failed"
-T_ENV=('RUN_OUT={"error":"no such path"}')
+T_ENV=('RUN_OUT={"error":"no such path"}' "$root")
 t_run "$index"
 t_eq "$t_rc" 1
 t_eq "$(cat "$marker")" "$before"
-T_ENV=()
+T_ENV=("$root")
 
 t_done

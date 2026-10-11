@@ -367,6 +367,105 @@ echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; exit 2' >"$fx/wo
 t_run "$cycle 7"
 t_eq "$(jq -c '[.status, .rc, .pr]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" '["unknown",2,null]'
 
+t_case "runner exit 137 with no end state is status killed in the comment and the record"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; exit 137' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention"
+t_contains "$(t_calls gh)" 'Tehas cycle stopped without a pull request: status `killed`'
+t_contains "$(t_calls gh)" "(runner exit 137)"
+t_lacks "$(t_calls gh)" "killed for memory"
+t_contains "$t_out" "done #7 rc=137 status=killed"
+t_eq "$(jq -c '[.status, .rc, .pr, .oomKills]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" '["killed",137,null,0]'
+
+t_case "runner exit 137 with a state that still says running is killed too"
+reset
+ended running develop
+echo 'exit 137' >"$fx/work.sh"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" 'status `killed`, last step `develop`'
+t_contains "$(t_calls gh)" "--add-label needs-human-attention"
+
+t_case "runner exit 137 with a state that names an end keeps that status, and is still parked"
+reset
+ended handoff commit-pr feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+echo 'exit 137' >"$fx/work.sh"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" 'status `handoff`'
+t_lacks "$(t_calls gh)" 'status `killed`'
+t_contains "$(t_calls gh)" "--add-label needs-human-attention"
+t_lacks "$(t_calls gh)" "tehas:awaiting-merge"
+
+t_case "another exit with no end state is not called killed"
+reset
+echo 'exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "killed"
+t_contains "$t_out" "status=unknown"
+
+t_case "the oom count file is read as digits, said in the comment, put in the record and removed"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; echo 3 >"$TEHAS_HOME/state/cycles/7.oom"; exit 137' >"$fx/work.sh"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "3 processes were killed for memory in its container."
+t_contains "$t_out" "oom_kills=3"
+t_eq "$(jq -c '[.status, .rc, .oomKills]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" '["killed",137,3]'
+t_eq "$(find "$state/7.oom" 2>/dev/null | wc -l)" 0
+
+t_case "a cycle that left a pull request says the count too"
+reset
+ended handoff commit-pr feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+echo 'echo 2 >"$TEHAS_HOME/state/cycles/7.oom"' >"$fx/work.sh"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "Pull request waiting for a human: https://github.com/acme/widget/pull/9 2 processes were killed for memory in its container."
+t_contains "$(t_calls gh)" "--add-label tehas:awaiting-merge"
+
+t_case "a count file with letters counts as nothing"
+for bad in 'three' '3 processes' '3; reboot' '`id`' '-3' '03' '12345678901234567890' ''; do
+  reset
+  t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+  printf '%s\n' "$bad" >"$fx/oom"
+  echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; cp "$T/fx/oom" "$TEHAS_HOME/state/cycles/7.oom"; exit 2' >"$fx/work.sh"
+  t_run "$cycle 7"
+  t_lacks "$(t_calls gh)" "killed for memory"
+  t_lacks "$(t_calls gh)" "reboot"
+  t_contains "$t_out" "oom_kills=0"
+  t_eq "$(jq -c .oomKills "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" 0
+  t_eq "$(find "$state/7.oom" 2>/dev/null | wc -l)" 0
+done
+
+t_case "a count file that is a link is not read"
+reset
+echo 4 >"$fx/elsewhere"
+echo 'ln -s "$T/fx/elsewhere" "$TEHAS_HOME/state/cycles/7.oom"' >"$fx/work.sh"
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "killed for memory"
+t_eq "$(cat "$fx/elsewhere")" 4
+t_eq "$(find "$state/7.oom" 2>/dev/null | wc -l)" 0
+
+t_case "the appended log is not where the count comes from"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"
+echo "tehas work: 5 processes in this cycle'"'"'s container were killed for memory"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_contains "$(cat "$T/home/tehas/logs/dispatch-work-7.log")" "5 processes"
+t_lacks "$(t_calls gh)" "killed for memory"
+t_eq "$(jq -c .oomKills "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" 0
+
+t_case "a count left by an earlier cycle of the issue is not this cycle's"
+reset
+mkdir -p "$state"
+echo 6 >"$state/7.oom"
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "killed for memory"
+t_contains "$t_out" "oom_kills=0"
+
 t_case "with the loop off a cycle leaves no record"
 reset
 echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"' >"$fx/work.sh"
