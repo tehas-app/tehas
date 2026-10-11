@@ -155,7 +155,7 @@ t_stub docker '
 printf "%s\n" "$@" >"$T/calls/docker-args"
 out=""
 for a in "$@"; do case "$a" in *:/improve/out) out=${a%:/improve/out} ;; esac; done
-[ -f "$T/fx/docker.rc" ] && exit "$(cat "$T/fx/docker.rc")"
+[ -f "$T/fx/docker.rc" ] && { echo "No API key found for test-provider."; echo "See docs/models.md"; exit "$(cat "$T/fx/docker.rc")"; }
 if [ -L "$T/fx/findings.json" ]; then cp -P "$T/fx/findings.json" "$out/findings.json"
 elif [ -f "$T/fx/findings.json" ]; then cp "$T/fx/findings.json" "$out/findings.json"; fi
 exit 0'
@@ -330,6 +330,16 @@ t_contains "$t_out" "failed"
 [ -f "$base/window/$REC/cycle.json" ] || t_bad "the record is gone"
 t_eq "$(find "$base" -maxdepth 1 -name 'run-*' | wc -l)" 0
 t_eq "$(titles)" ""
+
+t_case "what a failed analyst printed is kept, and the line says where"
+t_contains "$t_out" "the analyst ended with 3, its output is in $home/logs/improve-analyst.log"
+t_contains "$(cat "$home/logs/improve-analyst.log")" "No API key found for test-provider."
+
+t_case "a run that works leaves no analyst output behind"
+ready
+t_run "$improve"
+t_eq "$t_rc" 0
+t_eq "$(find "$home/logs" -name 'improve-analyst.log' | wc -l)" 0
 
 t_case "no findings file files nothing"
 ready

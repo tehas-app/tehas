@@ -24,7 +24,8 @@
 # Usage: tehasbot improve     (one line per run on standard output)
 #
 # Exit: 0 the run finished, or there was nothing to do, or the loop is off;
-#       1 the analyst or GitHub failed and the records were kept;
+#       1 the analyst or GitHub failed and the records were kept; what a
+#         failed analyst printed is in logs/improve-analyst.log;
 #      64 an argument, this command takes none;
 #      78 the instance settings are invalid.
 #
@@ -157,14 +158,22 @@ timeout -k 60 1800 docker run --rm --name tehas-improve --cpus 1 --memory 2g \
   pi -p --no-session --no-extensions --no-skills --no-prompt-templates --no-context-files \
   --tools read,grep,find,ls,write \
   --provider "$PI_ENSEMBLE_SUBAGENT_PROVIDER" --model "$PI_ENSEMBLE_SUBAGENT_MODEL" \
-  "$(cat "$prompt")" >"$run/analyst.log" 2>&1 </dev/null ||
-  fail "the analyst ended with $?: $(tail -n 1 "$run/analyst.log" | cut -c1-200)"
+  "$(cat "$prompt")" >"$run/analyst.log" 2>&1 </dev/null
+arc=$?
+# What the analyst printed goes with the run. Of a run that failed on it, it
+# is kept, one file that the next such run replaces.
+kept=$logs/improve-analyst.log
+blame() {
+  cp "$run/analyst.log" "$kept" 2>/dev/null || true
+  fail "$*, its output is in $kept"
+}
+[ "$arc" = 0 ] || blame "the analyst ended with $arc"
 
 # --- Check -------------------------------------------------------------------
 # A link would have this script read a file of the analyst's choosing.
 found=$run/out/findings.json
-if [ -L "$found" ] || [ ! -f "$found" ]; then fail "the analyst left no findings.json"; fi
-[ "$(stat -c %s "$found")" -le 1048576 ] || fail "findings.json is over 1 MB"
+if [ -L "$found" ] || [ ! -f "$found" ]; then blame "the analyst left no findings.json"; fi
+[ "$(stat -c %s "$found")" -le 1048576 ] || blame "findings.json is over 1 MB"
 
 # One program decides what is filed. A finding that is not the shape asked
 # for is dropped; a file that is not is an error. A title is compared in lower
@@ -199,7 +208,7 @@ check='
      over: ([($keep | length) - $room, 0] | max), file: $keep[0:$room]}'
 cycles=$(printf '%s\n' "${recs[@]}" | jq -R . | jq -s -c .)
 plan=$(jq -c --argjson cycles "$cycles" --argjson room "$room" --slurpfile stack "$run/in/issues.json" \
-  "$check" "$found" 2>/dev/null) || fail "findings.json is not the shape asked for"
+  "$check" "$found" 2>/dev/null) || blame "findings.json is not the shape asked for"
 
 # --- File --------------------------------------------------------------------
 notes=()
@@ -282,4 +291,5 @@ issues=none
 
 # --- Clean up ----------------------------------------------------------------
 rm -rf "$run"
+rm -f "$kept"
 say "cycles=${#recs[@]} $(jq -r '"findings=\(.found) invalid=\(.invalid) duplicates=\(.duplicates) of=\(if .of == "" then "none" else .of end) over=\(.over)"' <<<"$plan") filed=${#filed[@]} issues=$issues${notes[*]:+ ${notes[*]}}"

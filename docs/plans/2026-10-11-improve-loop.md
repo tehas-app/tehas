@@ -1207,3 +1207,18 @@ fixes; the blocks above do not.
 - A container left by a killed run blocked every later run by its name. It is
   removed before the analyst starts, and `timeout` kills a run that ignores
   its first signal.
+
+## Part two, done on ticket concurrency
+
+Everything under "Not in this plan" was done on top of the ticket concurrency
+branch, test first: the record at the end of `libexec/cycle`, the setting in
+`lib/config.sh` (`tehas_improve_valid` is gone), `tehasbot improve`, the two
+units, `install.sh`, `lib/update-steps.sh`, the example instance and the
+manual.
+
+One run with Pi 1.0.0 in the upstream sandbox image, against a model that
+followed a script, with two real cycle logs: Pi started with the five tools
+and nothing else, read the records, wrote `findings.json`, and the run checked
+it, packed a log and wrote the issue. It showed one fault, fixed with a test:
+what a failed analyst printed was thrown away with the run. It is now kept in
+`logs/improve-analyst.log`.
