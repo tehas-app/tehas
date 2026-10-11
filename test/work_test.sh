@@ -398,13 +398,31 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "status=handoff"
 t_lacks "$t_out" "was killed"
 t_contains "$(t_calls docker)" "stop -t 20 tehas-work-7"
-# The container is gone before the command looked at the state again.
+# The state turns handoff after the loop read it, and the container is gone
+# before the loop's next look: the command has to read the state once more
+# before it calls the cycle killed. The loop's time check is the one call
+# between its read of the state and its next look, so a date stub makes the
+# window: the first time the loop has read the state's age (the stat stub
+# notes that), date writes the handoff, ends the container and waits until
+# it is gone, then tells the time as the real date does.
 fresh
-container 'says handoff; exit 137'
+container "says running; $hold; $gone"
+t_stub stat '[ "$*" != "-c %Y '"$state_file"'" ] || : >"$T/state.read"
+exec "$(command -pv stat)" "$@"'
+t_stub date 'if [ -e "$T/state.read" ] && [ ! -e "$T/window.done" ]; then
+  : >"$T/window.done"
+  echo "{\"pipelineState\":{\"status\":\"handoff\",\"currentStep\":\"develop\"}}" >"'"$state_file"'"
+  kill "$(cat "$T/sleeper.pid")" 2>/dev/null
+  f=$(grep -l -x -e --mode "$T"/calls/docker.args.*); dpid=${f##*.}
+  for _ in $(seq 100); do kill -0 "$dpid" 2>/dev/null || break; "$(command -pv sleep)" 0.1; done
+fi
+exec "$(command -pv date)" "$@"'
 t_run "$work 7"
+rm -f "$T/bin/stat" "$T/bin/date" "$T/state.read" "$T/window.done"
 t_eq "$t_rc" 0
 t_contains "$t_out" "status=handoff"
 t_lacks "$t_out" "was killed"
+t_lacks "$(t_calls docker)" "stop "
 
 t_case "a 137 after the state says aborted is aborted, exit 1"
 fresh
