@@ -1979,6 +1979,36 @@ echo "anon many" >"$T_CGROUP/tehas.slice/docker-$(slice_id d).scope/memory.stat"
 t_run "$dispatch --dry-run"
 t_contains "$t_out" "holding: the slice's use could not be read"
 t_lacks "$t_out" "would run a cycle"
+# A planning turn is held too: its container would start in a slice nobody
+# can see into, after its label and comment were spent.
+to_plan
+rm "$T_CGROUP/tehas.slice/memory.pressure"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(plan_calls)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "issue comment"
+t_contains "$t_out" "holding: the slice's use could not be read"
+t_eq "$(jq -r .why "$dispatch_json")" unreadable
+planning
+comments 7 "$(plan_body ' ' x ' ')" alice
+rm "$T_CGROUP/tehas.slice/memory.pressure"
+t_run "$dispatch"
+t_eq "$(plan_calls)" ""
+t_lacks "$(t_calls gh)" "/comments -f"
+
+t_case "an unreadable probe is named before a full count"
+# The hold on planning has to be the hold that is logged, so it comes before
+# the count, which holds cycles only.
+to_plan
+hold 9
+rm "$T_CGROUP/tehas.slice/memory.pressure"
+t_run "$dispatch"
+t_eq "$(plan_calls)" ""
+t_contains "$t_out" "holding: the slice's use could not be read"
+t_lacks "$t_out" "cycles are running"
+t_eq "$(jq -r .why "$dispatch_json")" unreadable
+release
 
 t_case "a missing cgroup directory under running cycles holds"
 reset

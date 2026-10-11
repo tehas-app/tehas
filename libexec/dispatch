@@ -195,12 +195,14 @@ mesh_ok() {
   fi
 }
 
-# A planning turn runs in a container in the slice. With no usable slice the
-# turn would fail after its label and comment were spent, so it waits.
-# $slice_hold is set at rule 3, which also logs it: once in a real poll, and
-# a dry run prints it where it ends.
+# A planning turn runs in a container in the slice. With no usable slice, or
+# a slice whose use cannot be read, the turn would start blind after its label
+# and comment were spent, so it waits. $slice_hold and $mem_why are set at
+# rule 3, which also logs the hold: once in a real poll, and a dry run prints
+# it where it ends.
 slice_hold=""
-slice_ok() { [ -z "$slice_hold" ]; }
+mem_why=""
+slice_ok() { [ -z "$slice_hold" ] && [ "$mem_why" != unreadable ]; }
 
 # gib <bytes>: the size for a person, to a tenth of a GiB, rounded down.
 gib() { printf '%d.%d GiB' $(($1 / 1073741824)) $(($1 % 1073741824 * 10 / 1073741824)); }
@@ -466,8 +468,8 @@ done
 # not have. A running cycle is a pull request on its way, so it counts:
 # otherwise the slots could overshoot the cap. Rules 2 and 3 hold back new
 # cycles only; a question is still read while they hold. $hold says why and
-# $why is the one word for it: slice, count, awaiting, pressure, room or
-# unreadable, the first that applies.
+# $why is the one word for it: slice, unreadable, count, awaiting, pressure
+# or room, the first that applies.
 #
 # The slice is read here, after the sweep above, which needs no slice. The
 # room is read whenever the slice is usable, also when the slots are full, so
@@ -475,7 +477,6 @@ done
 room_mem=0
 committed=0
 slice_max=0
-mem_why=""
 if tehas_slice_ok; then
   cid_files=()
   for n in $running; do cid_files+=("$TEHAS_HOME/state/cycles/$n.cid"); done
@@ -498,6 +499,11 @@ want=0
 if [ -n "$slice_hold" ]; then
   why=slice
   hold=$slice_hold
+elif [ "$mem_why" = unreadable ]; then
+  # Before the count: this holds planning turns too, and tehas status warns
+  # on it, whatever the slots say.
+  why=unreadable
+  hold="holding: the slice's use could not be read"
 elif [ "$free" -le 0 ]; then
   why=count
   hold="holding: $count cycles are running (limit $TEHAS_TICKET_CONCURRENCY)"
@@ -517,7 +523,6 @@ else
     case "$why" in
       pressure) hold="holding: tehas.slice is under memory pressure (full avg60 $(tehas_slice_pressure || echo unknown))" ;;
       room) hold="holding: tehas.slice has no room for another cycle ($(gib "$committed") of $(gib "$slice_max") promised, each cycle is given $TEHAS_CYCLE_RESERVE)" ;;
-      *) hold="holding: the slice's use could not be read" ;;
     esac
   else
     want=$((free < room ? free : room))
