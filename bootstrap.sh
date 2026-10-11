@@ -275,7 +275,9 @@ install_rukas() {
     git clone -q "$PI_RUKAS_REPO" "$dir"
   fi
   git -C "$dir" checkout -q "$PI_RUKAS_COMMIT"
-  (cd "$dir" && ./install.sh >"$TEHAS_HOME/tmp/pi-rukas-install.log" 2>&1) ||
+  # A login shell exports PI_ENSEMBLE_IMAGE as the tehas sandbox image. The
+  # installer would pull that name, fail, and build upstream's image over it.
+  (cd "$dir" && env -u PI_ENSEMBLE_IMAGE ./install.sh >"$TEHAS_HOME/tmp/pi-rukas-install.log" 2>&1) ||
     die "pi-rukas's installer failed, see $TEHAS_HOME/tmp/pi-rukas-install.log"
 }
 

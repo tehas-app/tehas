@@ -74,7 +74,8 @@ Installs under the user's home, each tool in its own place:
 
 Every release archive is checked against a SHA-256 in `versions.env` before it
 is unpacked. The last step runs pi-rukas's own installer, which links its
-extension and skills into `~/.pi/agent/` and pulls its sandbox base image.
+extension and skills into `~/.pi/agent/` and pulls its own `latest` image. It is
+run without `PI_ENSEMBLE_IMAGE`, so it never touches the tehas sandbox image.
 
 pi-rukas comes from the repository named in `versions.env`, which is a fork of
 upstream. A clone already on the host is pointed at that repository before it
