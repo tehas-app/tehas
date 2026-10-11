@@ -27,12 +27,12 @@
 #   TEHAS_TICKET_CONCURRENCY  cycles side by side; this one gets the two
 #                       limits above divided by it [1]
 #
-# Memory is not divided where the host has one limit around all cycles: the
-# systemd slice tehas-cycles.slice, written by "bootstrap.sh pool", with
-# MemoryMax at exactly TEHAS_WORK_MEMORY. The container then starts in that
-# slice and may use the whole budget, so a cycle uses what the others leave
-# and all of them together stay inside it. On any other host each cycle keeps
-# its share.
+# The two are not divided where the host has one limit around all cycles: the
+# systemd slice tehas-cycles.slice, written by "bootstrap.sh pool", with its
+# limits at exactly TEHAS_WORK_CPUS and TEHAS_WORK_MEMORY. The container then
+# starts in that slice and may use both budgets whole, so a cycle uses what
+# the others leave and all of them together stay inside. On any other host
+# each cycle keeps its share.
 #
 # What the container is given is deliberate and pinned by test/work_test.sh:
 # the bot token (pi-rukas pushes and opens the pull request from inside), the
@@ -134,16 +134,25 @@ mkfifo "$fifo"
 exec 3<>"$fifo"
 rm "$fifo"
 
-# The slice is used only if its limit is the budget and Docker places
+# The slice is used only if its limits are the two budgets and Docker places
 # containers by systemd. Otherwise the name would be a group without a limit,
-# and every cycle could take the whole budget.
+# and every cycle could take the whole of both.
 slice=tehas-cycles.slice
+pooled() {
+  local cpu
+  [ "$(systemctl show "$slice" -p MemoryMax --value 2>/dev/null)" = "$(($(_tehas_mem_mb "$TEHAS_WORK_MEMORY") * 1048576))" ] || return 1
+  # systemd prints the quota as a time span; its own tool turns that into
+  # microseconds of CPU time per second.
+  cpu=$(systemctl show "$slice" -p CPUQuotaPerSecUSec --value 2>/dev/null)
+  cpu=$(systemd-analyze timespan "$cpu" 2>/dev/null | awk 'NR == 2 { print $NF }')
+  [ "$cpu" = "$(LC_ALL=C awk -v c="$TEHAS_WORK_CPUS" 'BEGIN { printf "%d", int(c * 100 + 0.5) * 10000 }')" ] || return 1
+  [ "$(docker info --format '{{.CgroupDriver}}' 2>/dev/null)" = systemd ]
+}
 limits=(--cpus "$TEHAS_CYCLE_CPUS" --memory "$TEHAS_CYCLE_MEMORY")
-if [ "$(systemctl show "$slice" -p MemoryMax --value 2>/dev/null)" = "$(($(_tehas_mem_mb "$TEHAS_WORK_MEMORY") * 1048576))" ] &&
-  [ "$(docker info --format '{{.CgroupDriver}}' 2>/dev/null)" = systemd ]; then
-  limits=(--cpus "$TEHAS_CYCLE_CPUS" --memory "$TEHAS_WORK_MEMORY" --cgroup-parent "$slice")
+if pooled; then
+  limits=(--cpus "$TEHAS_WORK_CPUS" --memory "$TEHAS_WORK_MEMORY" --cgroup-parent "$slice")
 elif [ "$TEHAS_TICKET_CONCURRENCY" -gt 1 ]; then
-  echo "tehas work: no memory limit around all cycles on this host, this cycle gets $TEHAS_CYCLE_MEMORY of its own (to share: sudo ./bootstrap.sh pool $TEHAS_WORK_MEMORY)"
+  echo "tehas work: no limit around all cycles on this host, this cycle gets $TEHAS_CYCLE_CPUS CPUs and $TEHAS_CYCLE_MEMORY of its own (to share: sudo ./bootstrap.sh pool $TEHAS_WORK_MEMORY $TEHAS_WORK_CPUS)"
 fi
 
 docker run --rm -i --name "$name" \

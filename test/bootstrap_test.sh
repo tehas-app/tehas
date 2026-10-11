@@ -146,30 +146,33 @@ t_contains "$t_out" "checksum mismatch for gh.tar.gz"
 t_eq "$([ -e "$T/home/tehas/bin/gh" ] && echo installed)" ""
 t_stub curl 'echo "curl 8.0.0"'
 
-t_case "pool writes one memory limit around all cycles"
+t_case "pool writes one limit around all cycles"
+t_stub nproc 'echo 8'
 t_stub id 'case "$*" in -u) echo 0 ;; *) exit 1 ;; esac'
 t_stub systemctl
 t_stub docker 'case "$1" in info) echo systemd ;; esac'
 T_ENV+=(BOOTSTRAP_ETC="$T/etc")
-t_run "$bootstrap pool 512m"
+t_run "$bootstrap pool 512m 2.75"
 t_eq "$t_rc" 0
 t_eq "$(grep -v '^#' "$T/etc/systemd/system/tehas-cycles.slice")" "[Unit]
 Description=The containers of tehas cycles, together
 
 [Slice]
-MemoryMax=512M"
+MemoryMax=512M
+CPUQuota=275%"
 t_eq "$(t_calls systemctl)" "daemon-reload
 start tehas-cycles.slice"
 
-t_case "pool without a value takes half the host's memory"
+t_case "pool without values takes half the host's memory and its CPUs minus one"
 half=$(($(awk '/^MemTotal:/ { print int($2 / 1024) }' /proc/meminfo) / 2))
 t_run "$bootstrap pool"
 t_eq "$t_rc" 0
-t_contains "$(cat "$T/etc/systemd/system/tehas-cycles.slice")" "MemoryMax=${half}M"
+t_contains "$(cat "$T/etc/systemd/system/tehas-cycles.slice")" "MemoryMax=${half}M
+CPUQuota=700%"
 
 t_case "pool refuses a value that is no amount of memory, and more than the host has"
 rm -rf "${T:?}/etc" "$T/calls/systemctl"
-for bad in lots 0 4m 100000g; do
+for bad in lots 0 4m 100000g "512m many" "512m 0.5" "512m 9"; do
   t_run "$bootstrap pool $bad"
   t_eq "$t_rc" 1
 done
@@ -189,7 +192,7 @@ t_run "$bootstrap pool 512m"
 t_eq "$t_rc" 1
 t_contains "$t_out" "sudo ./bootstrap.sh pool"
 t_eq "$([ -e "$T/etc" ] && echo written)" ""
-rm -f "$T/bin/id" "$T/bin/systemctl"
+rm -f "$T/bin/id" "$T/bin/systemctl" "$T/bin/nproc"
 t_stub docker 'echo "Docker version 29.1.3"'
 T_ENV=(BOOTSTRAP_OS_RELEASE="$T/os-ubuntu" PATH="$T_PATH")
 
