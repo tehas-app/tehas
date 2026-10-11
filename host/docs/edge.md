@@ -200,7 +200,7 @@ then at `lab-<issue>.tehas.app`, and the Protolab's address becomes
 tehas update
 . ~/tehas/env.sh
 docker compose -f ~/tehas/edge/router.compose.yaml up -d
-curl -i -H 'Host: uat-1.tehas.app' http://tehas-tehas:8081/
+curl -i -H 'Host: uat-1.tehas.app' "http://$TEHAS_HOST_ADDR:8081/"
 ```
 
 `tehas update` pulls the platform checkout and runs `install.sh`, which
