@@ -25,7 +25,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/platform`                   | Checkout of this repository; `install.sh` runs from it and `tehas update` pulls it |
 | `~/tehas/repos/tehas`                | The product checkout, on the default branch. Cycles are cloned from it; no container is given it |
 | `~/tehas/work/tehas-<issue>`         | The cycle's workspace: a fresh clone made for each cycle. Removed after a cycle that merged or left a pull request, otherwise kept until that issue's next cycle. `~/tehas/work/tehas` is only its path inside the container |
-| `~/tehas/dev/<name>`                 | A person's clone for working by hand, made and used by `tehas dev`, never removed. `<name>.author` next to it holds whose name its commits carry |
+| `~/tehas/dev/<name>`                 | A person's clone for working by hand, named after their account, made and used by `tehas dev`, never removed. `<name>.author` next to it holds whose name its commits carry |
 | `~/tehas/repos/pi-rukas`             | pi-rukas, pinned to a commit                                            |
 | `~/tehas/docs/`, `~/tehas/fun/`      | This site's pages and the front page, installed from `host/`            |
 | `~/tehas/sandbox/`, `versions.env`   | Sandbox image definition, build script, and the pinned tool versions    |
@@ -445,7 +445,7 @@ for it with these differences:
 
 | Question                    | Answer                                                                                                             |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Who can start one           | Anyone who can log in as the tehas user. That account already holds the bot token and is root-equivalent           |
+| Who can start one           | The tehas user, and the accounts in the group `tehas`, through one `sudo` rule. See below                           |
 | The tree it works in        | `~/tehas/dev/<name>`, kept between sessions, where a cycle gets a fresh clone                                       |
 | git identity                | The stored author of that clone, else the bot's. A label: it is not checked against anything                       |
 | What else enters            | A terminal, and `TERM` and `COLORTERM` from the shell. Nothing else of the host environment, and not `~/.config/gh` |
@@ -454,6 +454,31 @@ for it with these differences:
 `test/dev_test.sh` pins the session's `docker run` the same way. Both commands
 take the mounts and variables from `lib/sandbox.sh`, so they cannot differ by
 accident.
+
+### Other accounts
+
+`sudo ./bootstrap.sh dev boss alice` lets the account `alice` start a session.
+It puts three things on the host, outside any home:
+
+| Path                         | Content                                                                                   |
+| ---------------------------- | ----------------------------------------------------------------------------------------- |
+| `/etc/sudoers.d/tehas-dev`   | The group `tehas` may run `~boss/tehas/libexec/dev-login` as `boss`, without a password. Nothing else |
+| `/etc/tehas/manager`         | One line: the tehas user's name                                                           |
+| `/usr/local/bin/tehas`       | The command those accounts type. It holds no setting and no secret                        |
+
+What a member of the group gets, and does not:
+
+| Question                         | Answer                                                                                                    |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| The bot token                    | Yes, inside the session, as in any session. A member can push to the product and open pull requests as the bot. Add an account only if you would give it that |
+| Docker, or a shell as the tehas user | No. The rule names one script, and the account is not put in the `docker` group                       |
+| Which clone                      | The one named after the account. `sudo` sets that name; the caller cannot. Nobody enters another account's clone |
+| The author                       | What the account's git configuration says. Not checked against anything                                   |
+| The arguments                    | An author, checked for its shape, and arguments for `pi`, which run inside the container                  |
+| The environment                  | `sudo` clears it. `dev-login` loads the tehas user's own, as the timers do. `TERM` and `COLORTERM` are kept |
+
+`gpasswd -d alice tehas` takes an account out. `test/login_test.sh` and
+`test/bootstrap_test.sh` hold the rule and the two scripts to this.
 
 A host that ran cycles before the workspace existed gave its containers the
 product checkout itself. Replace that checkout once with a fresh clone, so

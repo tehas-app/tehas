@@ -174,6 +174,29 @@ start it without one.
 After the clone is made the host runs no git command in it, because agents
 have written there since.
 
+### From another account
+
+```
+tehas dev [-- <pi arguments>]
+```
+
+An account in the group `tehas` types the same words and gets a session in
+the clone named after its login, with `user.name` and `user.email` from its
+own git configuration as the author. It takes no name and no `--author`.
+
+That `tehas` is another file: `/usr/local/bin/tehas`, installed for everyone by
+`sudo ./bootstrap.sh dev`. It reads the account's git identity and asks `sudo`
+to run `~/tehas/libexec/dev-login` as the tehas user, which is the one thing
+the group's `sudo` rule allows. `dev-login` takes the clone's name from the
+account `sudo` was asked by, loads the tehas user's environment and starts the
+session above. Any other command typed there is refused with exit 64.
+
+| Exit | Meaning                                                                                   |
+| ---- | ----------------------------------------------------------------------------------------- |
+| any  | The session's own exit status                                                             |
+| 64   | A wrong argument, or the account has no `user.name` and `user.email`; nothing was started |
+| 78   | The host was not set up for it: run `sudo ./bootstrap.sh dev`                             |
+
 ## tehas index
 
 Builds the code index that a cycle's agents search, or refreshes it.
