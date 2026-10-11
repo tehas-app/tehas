@@ -8,7 +8,8 @@
 #                           installed files and tests, each on its own line
 #
 # What is installed: the commands and units (issue to pull request), the
-# sandbox files, the docs server, the Protolab and the manual, plus the
+# sandbox files, the docs server, the Protolab, the improvement loop and the
+# manual, plus the
 # instance's own models.json and, if it has one, settings.json.
 #
 # It copies files, and compiles one: the console of a running cycle is a Rust

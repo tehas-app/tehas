@@ -50,6 +50,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_ANALYTICS_SRC`, `_SITE`  | empty                                    | Optional. The https address of a visitor analytics script and the site name it reports under. Both set: every page loads it |
 | `TEHAS_ANALYTICS_COOKIE`        | `0`                                      | `1` adds `data-cookie="true"` to that script tag                |
 | `TEHAS_PROTOLAB_URL`            | port 8081 of the dashboard's host        | Address people reach the Protolab at, when it is published elsewhere, as `https://lab.example`. The dashboard links to it |
+| `TEHAS_IMPROVE_REPO`            | empty                                    | Optional. `owner/name` of the repository the [improvement loop](#tehasbot-improve) files its findings in. Empty: no loop |
 | `TEHAS_WORK_REPO`               | `~/tehas/repos/<name>`                   | The product checkout cycles are cloned from. Must be a clone of `TEHAS_REPO`. A cycle works in `~/tehas/work/<name>-<issue>`, which is not a setting |
 | `TEHAS_BRANCH`                  | the checkout's `origin/HEAD`             | Branch cycles start from and pull requests target               |
 | `TEHAS_WORK_CPUS`               | the host's CPUs minus one, at least 1    | `docker --cpus` for all cycles together                         |
@@ -267,11 +268,12 @@ tehasbot status               # write the queue snapshot
 tehasbot health               # write the health file
 tehasbot energy [--every]     # sample the model mesh; what tehas-energy.service runs
 tehasbot protolab             # build the Protolab; what tehas-protolab.timer runs
+tehasbot improve              # one run of the improvement loop; what tehas-improve.timer runs
 ```
 
 The units are `tehas-dispatch.timer`, `tehas-energy.service`,
-`tehas-protolab.timer` and one `tehas-cycle@<issue>.service` per running
-cycle. A cycle's container is `tehas-work-<issue>`.
+`tehas-protolab.timer`, `tehas-improve.timer` and one
+`tehas-cycle@<issue>.service` per running cycle. A cycle's container is `tehas-work-<issue>`.
 
 ## tehasbot cycle
 
@@ -468,6 +470,58 @@ own, never a path under the dashboard's, and set `TEHAS_PROTOLAB_URL`.
 
 Without the timer and the container there is no Protolab, and the panel on the
 factory floor says so.
+
+## tehasbot improve
+
+```
+tehasbot improve        # one run; one line on standard output
+systemctl --user enable --now tehas-improve.timer
+```
+
+One run of the improvement loop. It is off, and prints that it is, unless
+`TEHAS_IMPROVE_REPO` is set. [Operating](/operating) says what it files and how
+to read its line; the timer runs it every three hours and the log is
+`~/tehas/logs/improve.log`.
+
+When a cycle ends, `tehasbot cycle` leaves a record of it in
+`~/tehas/tmp/improve/window/<issue>-<time>/`: how it ended, the stream without
+its word by word updates, the console and the error output. A run takes the
+records that wait, fetches the open issues and the ones closed in the last 30
+days, and starts the analyst. Then it checks the one file the analyst leaves,
+files what passes and removes the records.
+
+The findings are about tehas and about pi-rukas, so the analyst is plain Pi
+with one prompt (`~/tehas/lib/improve-prompt.md`) and no extension. What it
+reads holds issue text and model output, which can be written to steer it, so:
+
+| The analyst's container gets | It does not get |
+| --- | --- |
+| The records and the issue list, read-only | The bot's token, or any other variable of the host |
+| One empty directory to write `findings.json` in | The product checkout, a workspace, Pi's sessions or transcripts |
+| `models.json`, read-only, and the host aliases | pi-rukas, skills, context files, MCP servers |
+| The tools read, grep, find, ls and write | A tool that runs a command or opens a connection |
+| 1 CPU, 2 GiB, 30 minutes | A share of `TEHAS_WORK_CPUS` or `TEHAS_WORK_MEMORY`: it is outside them |
+
+The host makes every GitHub call. A finding is filed only if it is the shape
+asked for: a title of at most 100 characters, one of six categories, a body, an
+excerpt as evidence, and cycles that were in this run. A title that matches an
+open issue is a duplicate. In the issue the model's text has every mention
+broken and its evidence inside a fence it cannot close. The label is
+`tehas:improvement` and no other.
+
+Limits: 3 issues a run; no run files while 10 open issues carry the label. The
+whole log of each cycle a finding names is gzipped and uploaded to the release
+`tehas-improve-logs`, in pieces of at most 5 MB (`ticket-<issue>-<time>.log.gz`,
+or `.log.1.gz`, `.log.2.gz`). A log that holds something shaped like a token is
+not uploaded.
+
+Exit 0 when the run finished, there was nothing to read, or the loop is off.
+Exit 1 when the analyst or GitHub failed: the records are kept and the next run
+reads them again. Exit 64 on any argument, 78 on invalid settings. A second run
+while one is going leaves it to that one.
+
+Each run also removes the per-cycle files in `~/tehas/logs/` and anything under
+`~/tehas/tmp/improve/` older than seven days, read or not.
 
 ## The gates (run by the cycle, usable by hand)
 

@@ -242,6 +242,14 @@ systemctl --user enable --now tehas-dispatch.timer tehas-protolab.timer
 tehas update        # runs the follow-ups install.sh recorded, and clears them
 ```
 
+`install.sh` names `tehas-improve.timer` too. It belongs to the improvement
+loop, which reads the cycles that ended and files what could be better as
+issues. It is optional: set `TEHAS_IMPROVE_REPO` in `instance.env` to the
+repository those issues go to, give the bot account write access there, and
+enable the timer with `systemctl --user enable --now tehas-improve.timer`.
+The logs of the cycles it files about are published in that repository. See
+[Operating](/operating).
+
 `install.sh` names `tehas-energy.service` in its `units` step too. That service is
 optional: enable it only when your model endpoint is a [viiwork](https://github.com/janit/viiwork) mesh, as the
 example's `fleet` provider is. With any other endpoint leave it disabled: an

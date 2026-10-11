@@ -15,6 +15,7 @@ description: "What each stop in a tehas cycle means, and what to do about it."
 | What did Pi and the driver say?  | `~/tehas/logs/work-<issue>-<time>.jsonl` and `.jsonl.err`               |
 | Where is the cycle now?          | `jq .pipelineState ~/tehas/work/tehas-<issue>/.pi/work-state/<issue>.json`. The workspace of a cycle that left a pull request is removed; one that stopped is kept. |
 | What did one agent do?           | Transcripts under `~/.pi/agent/ensemble-runs/issue-<issue>/<date>/`     |
+| What did the improvement loop do? | `~/tehas/logs/improve.log`, one line per run                           |
 | Is a cycle running?              | `systemctl --user status 'tehas-cycle@*'`, or `docker ps --filter name=tehas-work` |
 
 The driver's notices, one per line:
@@ -210,6 +211,39 @@ scripts/verify.sh --full
 ```
 
 Fix the default branch first; every cycle will fail the same way until then.
+
+## The improvement loop files nothing
+
+Read the last lines of `~/tehas/logs/improve.log`.
+
+| The line says | What it means |
+| --- | --- |
+| Nothing new for hours | The timer is not enabled: `systemctl --user list-timers tehas-improve.timer` |
+| `TEHAS_IMPROVE_REPO is not set` | The loop is off for this instance |
+| `cycles=0, nothing to read` | No cycle has ended since the last run. A cycle that stopped before Pi started leaves no record |
+| `waiting: 10 open issues carry tehas:improvement` | The limit. Close some or build some |
+| `findings=0`, or `duplicates` equal to `findings` | The model found nothing new |
+| `invalid=` above 0 | Findings were dropped for not being the shape asked for |
+| `failed: GitHub did not give the issue stack` | The token or the network. The records wait for the next run |
+| `failed: the analyst ended with ...` | Pi or the model. 124 is the 30 minute limit. The records wait |
+| `failed: GitHub refused an issue` | The bot account cannot write to that repository. Issues filed before the refusal are named; the records wait, so a later run may file the same finding again under another title |
+
+A run that failed kept its records, and every later run reads them again until
+one succeeds or they are seven days old.
+
+## An improvement issue says a log was not uploaded
+
+The issue names the reason, and `improve.log` has it at the end of that run's
+line.
+
+- `secret-shape=<cycle>`: the log holds something shaped like a token, so it
+  was kept on the host. Read `~/tehas/logs/work-<cycle>.jsonl` there, and find
+  out how a secret got into a log.
+- `not-uploaded=<cycle>`: GitHub refused the release or the upload. The bot
+  account needs write access to the repository.
+- `not-packed=<cycle>`: one line of the log is over 5 MB compressed.
+- "the log is no longer on the host": it was removed before the run, by hand
+  or by the seven day sweep.
 
 ## install.sh --check says `Follow-ups: NOT DONE`
 
