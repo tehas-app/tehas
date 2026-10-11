@@ -722,9 +722,9 @@
 
   function resetGame() {
     Object.assign(game, { mode: "ready", score: 0, lives: 3, time: 45, paddleX: W / 2, x: W / 2, y: H - 40, vx: 145, vy: -175 });
-    // A new wall every round: other words, other shapes, other places, and
-    // never more blocks than the wall has room for (brick-wall.js).
-    game.bricks = window.TEHAS_BRICK_WALL.build(words).map((block) => ({ ...block, alive: true }));
+    // A new wall every round: other words, other tetrominoes, other places, and
+    // never more pieces than the wall has room for (brick-wall.js).
+    game.bricks = window.TEHAS_BRICK_WALL.build(words).map((piece) => ({ ...piece, alive: true }));
     $("brick-word").textContent = "NO WORD HIT YET";
     gameUi(words.length ? "45 seconds, 3 balls." : "Load ticket data to play.");
   }
@@ -756,23 +756,25 @@
       game.vx = 165 * (game.x - game.paddleX) / half + Math.sign(game.vx) * 55;
     }
     for (const b of game.bricks) {
-      // A block is hit where any of its rectangles is, and goes whole.
+      // A piece is hit where one of its cells is, and that one piece goes.
       const hit = b.alive && b.rects.find((r) => game.x + 4 > r.x && game.x - 4 < r.x + r.w && game.y + 4 > r.y && game.y - 4 < r.y + r.h);
       if (!hit) continue;
       b.alive = false;
       if (!calm.matches) {
-        const row = b.rects[0];
-        for (let i = 0; i < 6; i++) {
-          debris.push({ x: row.x + 8 + i * (row.w - 16) / 5, y: row.y + row.h / 2, vx: (i - 2.5) * 28, vy: -60 - (i % 3) * 30, life: 0.4, color: b.color });
+        for (let i = 0; i < 4; i++) {
+          debris.push({ x: hit.x + hit.w / 2, y: hit.y + hit.h / 2, vx: (i - 1.5) * 40, vy: -70 - (i % 3) * 30, life: 0.4, color: b.color });
         }
       }
       // The ball turns back the way it came in: off a side when it is less
-      // deep in the block sideways than up or down, as it is in a notch.
+      // deep in the cell sideways than up or down, as it is in a notch.
       const deepX = Math.min(game.x + 4 - hit.x, hit.x + hit.w - (game.x - 4));
       const deepY = Math.min(game.y + 4 - hit.y, hit.y + hit.h - (game.y - 4));
       if (deepX < deepY) game.vx *= -1; else game.vy *= -1;
-      game.score += 10;
-      $("brick-word").textContent = `${b.word.word.toUpperCase()}: ${b.word.count} MENTIONS${state.sample ? " IN THE SAMPLE" : ""}`;
+      // The word scores when its last piece goes, not at the first one.
+      if (game.bricks.every((o) => o.wordKey !== b.wordKey || !o.alive)) {
+        game.score += 10;
+        $("brick-word").textContent = `${b.word.word.toUpperCase()}: ${b.word.count} MENTIONS${state.sample ? " IN THE SAMPLE" : ""}`;
+      }
       break;
     }
     if (game.y > H + 8) {
@@ -794,13 +796,19 @@
     ctx.textBaseline = "middle";
     for (const b of game.bricks) {
       if (!b.alive) continue;
-      // Every shadow first, so no part of a block lies in its own shade.
+      // Every shadow first, so no part of a piece lies in its own shade.
       ctx.fillStyle = "#111";
       for (const r of b.rects) ctx.fillRect(r.x + 4, r.y + 4, r.w, r.h);
       ctx.fillStyle = b.color;
       for (const r of b.rects) ctx.fillRect(r.x, r.y, r.w, r.h);
+      // One letter in each cell it has one. The gap between the cells is drawn
+      // inside a word too, so its pieces can still be told apart.
       ctx.fillStyle = "#144";
-      ctx.fillText(b.word.word.toUpperCase(), b.rects[0].x + b.rects[0].w / 2, b.rects[0].y + b.rects[0].h / 2 + 1);
+      for (const [i, letter] of b.letters.entries()) {
+        if (!letter) continue;
+        const cell = b.rects[i];
+        ctx.fillText(letter.toUpperCase(), cell.x + cell.w / 2, cell.y + cell.h / 2 + 1);
+      }
     }
     const left = Math.round(game.paddleX - game.paddleW / 2);
     ctx.fillStyle = "#111";

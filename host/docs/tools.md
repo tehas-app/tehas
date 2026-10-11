@@ -425,8 +425,10 @@ beside the factory shows up there. The file holds the hundred most used words
 with their counts, and no title or issue number. On a published dashboard
 those words are public too. If GitHub does not answer that call, the snapshot
 is written without them and the game counts the tickets on the line. A round
-shows at most twelve of the forty most used words, picked by chance, so the
-wall is another one every time.
+shows at most twelve of the forty most used words, picked by chance, and writes
+them on up to twenty-four tetrominoes: a wall no wider than sixteen cells and no
+taller than six, its cells solid from the top down with no holes in them, so it
+is another one every time.
 
 ## tehasbot health
 
