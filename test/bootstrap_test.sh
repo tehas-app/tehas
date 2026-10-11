@@ -126,6 +126,14 @@ chmod +x "$T/home/tehas/repos/pi-rukas/install.sh"
 rm -f "$T"/calls/*
 t_run "$bootstrap user"
 t_contains "$(t_calls git)" "remote set-url origin $PI_RUKAS_REPO"
+
+t_case "pi-rukas's installer is not given the sandbox image's name"
+# It would pull that name, fail, and build upstream's image over the tag.
+printf '#!/bin/sh\necho "image=${PI_ENSEMBLE_IMAGE-unset}" >"$T/installer-env"\n' >"$T/home/tehas/repos/pi-rukas/install.sh"
+T_ENV+=(PI_ENSEMBLE_IMAGE=tehas/pi-rukas:uid1000)
+t_run "$bootstrap user"
+T_ENV=(BOOTSTRAP_OS_RELEASE="$T/os-ubuntu" PATH="$T_PATH")
+t_eq "$(cat "$T/installer-env")" "image=unset"
 rm -rf "$T/home/tehas/repos/pi-rukas"
 
 t_case "a download that does not match its checksum is refused"
