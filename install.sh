@@ -5,9 +5,9 @@
 #
 #   ./install.sh            copy changed files into place
 #   ./install.sh --check    change nothing; report settings, dependencies,
-#                           installed files, the command the other accounts
-#                           type when root's copy is stale, and tests, each on
-#                           its own line
+#                           the slice, installed files, the command the other
+#                           accounts type when root's copy is stale, and tests,
+#                           each on its own line
 #
 # What is installed: the commands and units (issue to pull request), the
 # sandbox files, the docs server, the edge router, the Protolab, the
@@ -50,6 +50,13 @@
 # prints them as "next: <step>" and records them; `tehas update` runs them and
 # clears the record. Only a step is printed as "next:". Something for a person
 # to do later that is no step is printed as "later:".
+#
+# It does not install the slice the sandbox containers are to run in: that is
+# one system unit, and root's (sudo ./bootstrap.sh slice). It compares the
+# file in this checkout, host/slice/tehas.slice, with the one under /etc and
+# says what it found: a "Slice:" line in --check, a "note:" in a real run when
+# the file is missing or differs. Every container runs in the slice, so a
+# missing or differing file makes --check exit 1; a real run still installs.
 #
 # One file of a host is not this script's to install: /usr/local/bin/tehas, the
 # command an account that is not the tehas user types, put there by root by
@@ -160,6 +167,7 @@ files=(
   "lib/update-steps.sh|$TEHAS_HOME/lib/update-steps.sh|644"
   "lib/edge.sh|$TEHAS_HOME/lib/edge.sh|644"
   "lib/sandbox.sh|$TEHAS_HOME/lib/sandbox.sh|644"
+  "lib/slice.sh|$TEHAS_HOME/lib/slice.sh|644"
   "lib/questions.sh|$TEHAS_HOME/lib/questions.sh|644"
   "lib/status.sh|$TEHAS_HOME/lib/status.sh|644"
   "lib/top.sh|$TEHAS_HOME/lib/top.sh|644"
@@ -368,6 +376,21 @@ for f in bin/tehas-console.ts bin/tehas-dispatch bin/tehas-energy bin/tehas-heal
   if [ "$check" = 1 ]; then note "stale: $to"; else record_step "$f"; fi
 done
 
+# The slice file on the host against the one in this checkout. Nothing here
+# reads the instance or asks systemd.
+slice_to=${BOOTSTRAP_ETC:-/etc}/systemd/system/tehas.slice
+slice_state() {
+  if [ -n "${T_IN_TEST:-}" ] && [ -z "${T_SLICE:-}" ]; then
+    echo "not checked"
+  elif [ ! -f "$slice_to" ]; then
+    echo MISSING
+  elif cmp -s "$host/slice/tehas.slice" "$slice_to"; then
+    echo OK
+  else
+    echo DIFFERS
+  fi
+}
+
 # --- 4. Report (--check) -----------------------------------------------------
 if [ "$check" = 1 ]; then
   rc=0
@@ -386,6 +409,16 @@ if [ "$check" = 1 ]; then
   else
     echo "Dependencies: not checked (no bootstrap.sh in this checkout)"
   fi
+
+  # Every container runs in the slice, so a host without it, or with another
+  # version of it, has something to do. Only root can do it; the check says
+  # so until it is done.
+  case "$(slice_state)" in
+    OK) echo "Slice:        OK" ;;
+    MISSING) echo "Slice:        MISSING (sudo ./bootstrap.sh slice)"; rc=1 ;;
+    DIFFERS) echo "Slice:        DIFFERS (sudo ./bootstrap.sh slice)"; rc=1 ;;
+    *) echo "Slice:        not checked (running inside the tests)" ;;
+  esac
 
   if [ "${#changed[@]}" = 0 ]; then
     echo "Installed:    OK"
@@ -472,6 +505,11 @@ if command -v docker >/dev/null 2>&1; then
     esac
   fi
 fi
+
+case "$(slice_state)" in
+  MISSING) echo "note: $slice_to is missing (sudo ./bootstrap.sh slice)" ;;
+  DIFFERS) echo "note: $slice_to differs from host/slice/tehas.slice in this checkout (sudo ./bootstrap.sh slice)" ;;
+esac
 
 # The one place the default branch is looked up over the network.
 if [ -z "${TEHAS_BRANCH:-}" ] && [ -d "$TEHAS_WORK_REPO/.git" ]; then

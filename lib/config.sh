@@ -28,7 +28,8 @@
 #   - instance.env is authoritative. Settings of the same name in the
 #     environment are dropped; only TEHAS_HOME, TEHAS_INSTANCE_DIR and the test
 #     hooks TEHAS_WORK_CMD, TEHAS_STATUS_CMD, TEHAS_INDEX_CMD, TEHAS_PLAN_CMD,
-#     TEHAS_CYCLE_START_CMD and TEHAS_CYCLE_START_WAIT are kept.
+#     TEHAS_CYCLE_START_CMD, TEHAS_CYCLE_START_WAIT and TEHAS_CGROUP_ROOT are
+#     kept.
 #   - Loading runs no git command, makes no network call and writes nothing.
 #   - TEHAS_IMPROVE_REPO switches the improvement loop on. Unset is valid and
 #     means there is none.
@@ -50,7 +51,6 @@ tehas_instance_dir() {
 }
 
 _tehas_host_cpus() { nproc 2>/dev/null || echo 1; }
-_tehas_host_mem_mb() { awk '/^MemTotal:/ { print int($2 / 1024) }' /proc/meminfo 2>/dev/null || echo 0; }
 
 # A Docker memory value (512m, 8g, a bare number of bytes) in MiB; fails on
 # anything else.
@@ -101,20 +101,15 @@ _tehas_valid() {
     TEHAS_ANALYTICS_SITE)
       [[ $v =~ ^[A-Za-z0-9._-]+$ ]] || { echo "expected one word of letters, digits, dots and dashes"; return 1; }
       ;;
-    TEHAS_WORK_CPUS)
-      if ! [[ $v =~ ^[0-9]+(\.[0-9]+)?$ ]] || ! awk -v v="$v" 'BEGIN { exit !(v > 0) }'; then
-        echo "expected a number of CPUs above 0"
+    TEHAS_CYCLE_RESERVE)
+      # The shape lib/slice.sh reads at every start: no leading zero, at most
+      # twelve digits of bytes or nine with a unit. Docker refuses a memory
+      # value under 6m.
+      if ! [[ $v =~ ^([1-9][0-9]{0,11}[bB]?|[1-9][0-9]{0,8}[kmgKMG])$ ]] ||
+        ! mb=$(_tehas_mem_mb "$v" 2>/dev/null) || [ "$mb" -lt 6 ]; then
+        echo "expected a size of at least 6m, such as 512m or 2g"
         return 1
       fi
-      awk -v v="$v" -v max="$(_tehas_host_cpus)" 'BEGIN { exit !(v <= max) }' ||
-        { echo "this host has $(_tehas_host_cpus) CPUs"; return 1; }
-      ;;
-    TEHAS_WORK_MEMORY)
-      if ! mb=$(_tehas_mem_mb "$v") || [ "$mb" -le 0 ]; then
-        echo "expected a size such as 512m or 8g"
-        return 1
-      fi
-      [ "$mb" -le "$(_tehas_host_mem_mb)" ] || { echo "this host has $(_tehas_host_mem_mb) MiB of memory"; return 1; }
       ;;
     TEHAS_HOST_ADDR)
       [[ $v =~ ^[A-Za-z0-9.:-]+$ ]] || { echo "expected an address or host name"; return 1; }
@@ -149,7 +144,7 @@ _tehas_valid() {
 }
 
 tehas_load() {
-  local dir file v reason half share
+  local dir file v reason
   : "${TEHAS_HOME:=$HOME/tehas}"
   export TEHAS_HOME
   dir=$(tehas_instance_dir)
@@ -159,7 +154,7 @@ tehas_load() {
   for v in $(compgen -v); do
     case "$v" in
       TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_INDEX_CMD | TEHAS_PLAN_CMD | \
-        TEHAS_CYCLE_START_CMD | TEHAS_CYCLE_START_WAIT) ;;
+        TEHAS_CYCLE_START_CMD | TEHAS_CYCLE_START_WAIT | TEHAS_CGROUP_ROOT) ;;
       TEHAS_* | PI_ENSEMBLE_*) unset "$v" ;;
     esac
   done
@@ -176,6 +171,17 @@ tehas_load() {
     tehas_err "TEHAS_CLONES is set and this version of tehas has no database clones (see $file)"
     return 78
   fi
+  # The budget of an earlier version. The limit around every container is the
+  # slice on the host now, and nothing here divides anything, so a budget line
+  # would be a setting that does nothing. Refused, not ignored.
+  if [ -n "${TEHAS_WORK_CPUS+x}" ]; then
+    tehas_err "TEHAS_WORK_CPUS is set and this version of tehas has no CPU budget to set: the limit around all containers is /etc/systemd/system/tehas.slice (see $file)"
+    return 78
+  fi
+  if [ -n "${TEHAS_WORK_MEMORY+x}" ]; then
+    tehas_err "TEHAS_WORK_MEMORY is set and this version of tehas has no memory budget to set: the limit around all containers is /etc/systemd/system/tehas.slice (see $file)"
+    return 78
+  fi
 
   # Derived and optional settings.
   if [ -n "${TEHAS_REPO:-}" ]; then
@@ -185,13 +191,17 @@ tehas_load() {
     # cycle and the only tree that cycle's container can write. Not a setting.
     export TEHAS_WORK_DIR=$TEHAS_HOME/work/${TEHAS_REPO##*/}
   fi
-  v=$(_tehas_host_cpus)
-  export TEHAS_WORK_CPUS=${TEHAS_WORK_CPUS:-$((v > 1 ? v - 1 : 1))}
-  half=$(($(_tehas_host_mem_mb) / 2))
-  export TEHAS_WORK_MEMORY=${TEHAS_WORK_MEMORY:-${half}m}
   export TEHAS_CONCURRENCY=${TEHAS_CONCURRENCY:-4}
-  # How many issues are worked on side by side, each in a cycle of its own.
-  export TEHAS_TICKET_CONCURRENCY=${TEHAS_TICKET_CONCURRENCY:-1}
+  # The most issues worked on side by side, each in a cycle of its own. A
+  # ceiling: the dispatcher starts fewer while the slice has no room. By
+  # default one per CPU, less one for the host. The only thing read of the
+  # host here.
+  v=$(_tehas_host_cpus)
+  export TEHAS_TICKET_CONCURRENCY=${TEHAS_TICKET_CONCURRENCY:-$((v > 1 ? v - 1 : 1))}
+  # The memory one container is given as its floor, and what the dispatcher
+  # counts for a container when it asks whether another fits. Whether it fits
+  # this host is lib/slice.sh's question, asked when a container is started.
+  export TEHAS_CYCLE_RESERVE=${TEHAS_CYCLE_RESERVE:-2g}
   export TEHAS_INDEXING=${TEHAS_INDEXING:-0}
   # Visitor analytics on the dashboard and the manual. Off unless the instance
   # names a script and a site.
@@ -226,29 +236,10 @@ tehas_load() {
   # Agents get neither the host Docker socket nor SSH keys. Not a setting.
   export PI_ENSEMBLE_NO_DOCKER_SOCKET=1 PI_ENSEMBLE_NO_SSH=1
 
-  for v in TEHAS_INDEXING TEHAS_ANALYTICS_COOKIE TEHAS_WORK_CPUS TEHAS_WORK_MEMORY TEHAS_CONCURRENCY \
-    TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
-    TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE; do
+  for v in TEHAS_INDEXING TEHAS_ANALYTICS_COOKIE TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
+    TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_RESERVE; do
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
-  # What one cycle's container gets: the budget divided between the tickets.
-  # One ticket at a time gets the budget as written.
-  if [ "$TEHAS_TICKET_CONCURRENCY" = 1 ]; then
-    export TEHAS_CYCLE_CPUS=$TEHAS_WORK_CPUS TEHAS_CYCLE_MEMORY=$TEHAS_WORK_MEMORY
-  else
-    share=$(LC_ALL=C awk -v c="$TEHAS_WORK_CPUS" -v n="$TEHAS_TICKET_CONCURRENCY" 'BEGIN { printf "%.2f", int(c * 100 / n) / 100 }')
-    if ! LC_ALL=C awk -v s="$share" 'BEGIN { exit !(s >= 1) }'; then
-      tehas_err "TEHAS_TICKET_CONCURRENCY=$TEHAS_TICKET_CONCURRENCY leaves each cycle $share CPUs of TEHAS_WORK_CPUS=$TEHAS_WORK_CPUS; a cycle needs at least 1 (see $file)"
-      return 78
-    fi
-    export TEHAS_CYCLE_CPUS=$share
-    share=$(($(_tehas_mem_mb "$TEHAS_WORK_MEMORY") / TEHAS_TICKET_CONCURRENCY))
-    if [ "$share" -lt 6 ]; then
-      tehas_err "TEHAS_TICKET_CONCURRENCY=$TEHAS_TICKET_CONCURRENCY leaves each cycle ${share}m of TEHAS_WORK_MEMORY=$TEHAS_WORK_MEMORY; Docker needs at least 6m (see $file)"
-      return 78
-    fi
-    export TEHAS_CYCLE_MEMORY=${share}m
-  fi
   for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL; do
     [ -n "${!v:-}" ] || continue
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }

@@ -252,9 +252,189 @@ t_eq "$(written)" 0
 rm -f "$T/bin/id" "$T/bin/getent" "$T/bin/sudo" "$T/bin/visudo" "$T/bin/usermod" "$T/bin/groupadd"
 T_ENV=(BOOTSTRAP_OS_RELEASE="$T/os-ubuntu" PATH="$T_PATH")
 
+# --- slice: the one system unit every sandbox container runs under -----------
+# systemctl answers as a host does: an unloaded slice has no file and no
+# limit, and it is loaded from the file once it has been started.
+shipped=$T_ROOT/host/slice/tehas.slice
+slice=$etc/systemd/system/tehas.slice
+slice_stubs() { # <uid the caller has> [<what docker info answers>] [<systemd-oomd's state>]
+  t_stub id "case \"\$*\" in -u) echo $1 ;; boss) ;; *) exit 1 ;; esac"
+  t_stub docker "case \"\$1\" in info) echo '${2-systemd 2}' ;; *) echo 'Docker version 29.1.3' ;; esac"
+  # slice-stale: the file on disk is newer than what systemd read, as systemd
+  # reports it, until a daemon-reload.
+  t_stub systemctl 'case "$*" in
+  "show tehas.slice -p FragmentPath -p MemoryMax -p NeedDaemonReload")
+    if [ -e "$T/slice-loaded" ]; then printf "MemoryMax=21990232555\nFragmentPath=/etc/systemd/system/tehas.slice\n"
+    else printf "MemoryMax=infinity\nFragmentPath=\n"; fi
+    if [ -e "$T/slice-stale" ]; then echo NeedDaemonReload=yes; else echo NeedDaemonReload=no; fi ;;
+  "daemon-reload") rm -f "$T/slice-stale" ;;
+  "start tehas.slice") : >"$T/slice-loaded" ;;
+  "is-active systemd-oomd") echo '"${3-inactive}"'; [ '"${3-inactive}"' = active ] ;;
+esac'
+}
+fresh_slice() { rm -rf "$etc" "$T"/calls/* "$T/slice-loaded"; mkdir -p "$etc/systemd/system"; }
+T_ENV=(BOOTSTRAP_ETC="$etc" BOOTSTRAP_OS_RELEASE="$T/os-ubuntu" PATH="$T_PATH")
+
+t_case "slice installs the shipped file, reloads and starts"
+fresh_slice
+slice_stubs 0
+t_run "$bootstrap slice"
+t_eq "$t_rc" 0
+t_eq "$(cmp -s "$slice" "$shipped" && echo same)" same
+t_eq "$(stat -c %a "$slice")" 644
+t_eq "$(t_calls systemctl | grep -v -e '^show ' -e '^is-active ')" "daemon-reload
+start tehas.slice"
+t_contains "$t_out" "bootstrap: slice part done"
+t_contains "$t_out" "21990232555"
+
+t_case "the shipped slice has one memory limit, a CPU weight and nothing else"
+t_eq "$(grep -v -e '^#' -e '^$' "$shipped")" "[Unit]
+Description=The containers tehas starts, together
+[Slice]
+MemoryMax=75%
+CPUWeight=100"
+
+t_case "slice run twice with the unit loaded from the file changes nothing"
+rm -f "$T"/calls/*
+before=$(stat -c %Y "$slice")
+t_run "$bootstrap slice"
+t_eq "$t_rc" 0
+t_contains "$t_out" "bootstrap: slice part already in place"
+t_eq "$(t_calls systemctl)" "show tehas.slice -p FragmentPath -p MemoryMax -p NeedDaemonReload"
+t_eq "$(stat -c %Y "$slice")" "$before"
+
+t_case "slice run twice with a file systemd has not re-read reloads and starts"
+# An update changed the file and the reload after it failed: the unit is still
+# the old file's, with a limit, so the file alone says nothing.
+rm -f "$T"/calls/*
+: >"$T/slice-stale"
+t_run "$bootstrap slice"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "already in place"
+t_eq "$(t_calls systemctl | grep -v -e '^show ' -e '^is-active ')" "daemon-reload
+start tehas.slice"
+t_contains "$t_out" "bootstrap: slice part done"
+t_eq "$([ -e "$T/slice-stale" ] && echo stale)" ""
+
+t_case "slice run twice with a file but a limitless unit reloads and starts"
+# The file is there but systemd never read it, or holds a slice it made up
+# before the file existed.
+rm -f "$T"/calls/* "$T/slice-loaded"
+t_run "$bootstrap slice"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "already in place"
+t_eq "$(t_calls systemctl | grep -v -e '^show ' -e '^is-active ')" "daemon-reload
+start tehas.slice"
+t_contains "$t_out" "bootstrap: slice part done"
+
+t_case "slice stops when the unit has no limit after it was started"
+fresh_slice
+slice_stubs 0
+t_stub systemctl 'case "$1" in show) printf "MemoryMax=infinity\nFragmentPath=\n" ;; esac'
+t_run "$bootstrap slice"
+t_eq "$t_rc" 1
+t_contains "$t_out" "no memory limit"
+t_lacks "$t_out" "slice part done"
+
+t_case "slice with arguments is refused (64)"
+fresh_slice
+slice_stubs 0
+t_run "$bootstrap slice boss"
+t_eq "$t_rc" 64
+t_contains "$t_out" "usage: sudo ./bootstrap.sh slice"
+t_eq "$([ -e "$slice" ] && echo there)" ""
+t_eq "$(t_calls systemctl)" ""
+
+t_case "slice refuses a cgroupfs driver and writes nothing"
+slice_stubs 0 "cgroupfs 2"
+t_run "$bootstrap slice"
+t_eq "$t_rc" 1
+t_contains "$t_out" "cgroupfs cgroup driver on cgroup v2"
+t_contains "$t_out" "/etc/docker/daemon.json"
+t_contains "$t_out" '"exec-opts": ["native.cgroupdriver=systemd"]'
+t_eq "$([ -e "$slice" ] && echo there)" ""
+t_eq "$(t_calls systemctl)" ""
+
+t_case "slice refuses cgroup v1 and writes nothing"
+slice_stubs 0 "systemd 1"
+t_run "$bootstrap slice"
+t_eq "$t_rc" 1
+t_contains "$t_out" "systemd cgroup driver on cgroup v1"
+t_eq "$([ -e "$slice" ] && echo there)" ""
+t_eq "$(t_calls systemctl)" ""
+
+t_case "slice refuses a Docker that does not answer and writes nothing"
+slice_stubs 0
+t_stub docker 'exit 1'
+t_run "$bootstrap slice"
+t_eq "$t_rc" 1
+t_contains "$t_out" "Docker gave no answer"
+t_eq "$([ -e "$slice" ] && echo there)" ""
+t_eq "$(t_calls systemctl)" ""
+
+t_case "slice must run as root"
+slice_stubs 1000
+rm -f "$T"/calls/*
+t_run "$bootstrap slice"
+t_eq "$t_rc" 64
+t_contains "$t_out" "sudo ./bootstrap.sh slice"
+t_eq "$([ -e "$slice" ] && echo there)" ""
+t_eq "$(t_calls systemctl)$(t_calls docker)" ""
+
+t_case "slice says whether systemd-oomd is active and installs either way"
+for oomd in active inactive; do
+  fresh_slice
+  slice_stubs 0 "systemd 2" "$oomd"
+  t_run "$bootstrap slice"
+  t_eq "$t_rc" 0
+  t_contains "$t_out" "systemd-oomd: $oomd"
+  t_eq "$(cmp -s "$slice" "$shipped" && echo same)" same
+done
+t_lacks "$t_out" "systemd-oomd: active"
+
+t_case "root installs the slice too"
+fresh_slice
+slice_stubs 0
+t_stub uname 'echo x86_64'
+for tool in apt-get usermod loginctl; do t_stub "$tool"; done
+t_run "$bootstrap root boss"
+t_eq "$t_rc" 0
+t_eq "$(cmp -s "$slice" "$shipped" && echo same)" same
+t_contains "$(t_calls systemctl)" "start tehas.slice"
+t_contains "$t_out" "bootstrap: slice part done"
+t_contains "$t_out" "bootstrap: root part done"
+
+t_case "root with a cgroupfs driver finishes, writes no slice and says what to run"
+fresh_slice
+slice_stubs 0 "cgroupfs 2"
+t_run "$bootstrap root boss"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$slice" ] && echo there)" ""
+t_contains "$t_out" "run sudo ./bootstrap.sh slice once Docker uses the systemd driver"
+t_contains "$t_out" "bootstrap: root part done"
+rm -f "$T/bin/id" "$T/bin/apt-get" "$T/bin/usermod" "$T/bin/systemctl"
+
+t_case "check reports the slice and does not fail on it"
+all_present
+fresh_slice
+t_run "$bootstrap check"
+t_eq "$t_rc" 0
+t_contains "$t_out" "tehas.slice: missing (sudo ./bootstrap.sh slice)"
+install -m 644 "$shipped" "$slice"
+t_run "$bootstrap check"
+t_eq "$t_rc" 0
+t_contains "$t_out" "tehas.slice: in place"
+echo "MemoryMax=10%" >>"$slice"
+t_run "$bootstrap check"
+t_eq "$t_rc" 0
+t_contains "$t_out" "tehas.slice: differs (sudo ./bootstrap.sh slice)"
+t_eq "$(find "$etc" -type f | wc -l)" 1
+T_ENV=(BOOTSTRAP_OS_RELEASE="$T/os-ubuntu" PATH="$T_PATH")
+
 t_case "no arguments prints the usage"
 t_run "$bootstrap"
 t_eq "$t_rc" 64
 t_contains "$t_out" "bootstrap.sh check"
+t_contains "$t_out" "bootstrap.sh slice"
 
 t_done

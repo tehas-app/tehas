@@ -59,11 +59,10 @@ in the platform repository has every one with a comment.
 | `TEHAS_IMPROVE_REPO`            | empty                                    | Optional. `owner/name` of the repository the [improvement loop](#tehasbot-improve) files its findings in. Empty: no loop |
 | `TEHAS_WORK_REPO`               | `~/tehas/repos/<name>`                   | The product checkout cycles are cloned from. Must be a clone of `TEHAS_REPO`. A cycle works in `~/tehas/work/<name>-<issue>`, which is not a setting |
 | `TEHAS_BRANCH`                  | the checkout's `origin/HEAD`             | Branch cycles start from and pull requests target               |
-| `TEHAS_WORK_CPUS`               | the host's CPUs minus one, at least 1    | `docker --cpus` for all cycles together                         |
-| `TEHAS_WORK_MEMORY`             | half the host's memory                   | `docker --memory` for all cycles together                       |
 | `TEHAS_CONCURRENCY`             | `4`                                      | Workstreams side by side inside one cycle                       |
-| `TEHAS_TICKET_CONCURRENCY`      | `1`                                      | Cycles side by side. Each cycle's container gets the two limits above divided by this; a share below one CPU is refused |
+| `TEHAS_TICKET_CONCURRENCY`      | the host's CPUs minus one, at least 1    | The most cycles side by side. A ceiling, never a divisor: the dispatcher starts fewer while `tehas.slice` has no room. A value above the host's CPUs is accepted. Lower it when the model backends cannot serve `TEHAS_CONCURRENCY` times this many workstreams; nothing measures that |
 | `TEHAS_MAX_AWAITING`            | `TEHAS_TICKET_CONCURRENCY` plus 2        | Open `tehas:awaiting-merge` issues, plus running cycles, allowed before holding |
+| `TEHAS_CYCLE_RESERVE`           | `2g`                                     | Memory one container is given as a floor (`docker --memory-reservation`) and the unit the dispatcher counts room in. A reclaim priority inside `tehas.slice` and the amount admission promises, not a guarantee against the whole host. A Docker size of at least 6m, and at most a quarter of the slice's `MemoryMax`, else the command stops with 78 naming both numbers. With the default the host needs about 11 GiB of memory; a smaller host sets it lower |
 | `TEHAS_WORK_TIMEOUT`            | `21600`                                  | Seconds before a cycle is given up                              |
 | `TEHAS_PLAN_MAX_TURNS`          | `20`                                     | Turns a planning session may take before it is ended            |
 | `TEHAS_PLAN_TIMEOUT`            | `3600`                                   | Seconds before one planning turn is given up                    |
@@ -73,6 +72,22 @@ in the platform repository has every one with a comment.
 The example instance sets the five required ones, `TEHAS_HOST_ADDR`,
 `PI_ENSEMBLE_HOST_ALIASES`, and, because it is public, `TEHAS_INDEXING` and the
 analytics settings. It leaves the rest at the defaults.
+
+There is no CPU or memory budget to set. The limit around every sandbox
+container is one systemd slice on the host, `/etc/systemd/system/tehas.slice`,
+installed once by root with `sudo ./bootstrap.sh slice`; see
+[The host](/host#limits-and-concurrency). An instance that still sets
+`TEHAS_WORK_CPUS` or `TEHAS_WORK_MEMORY`, the budget of an earlier version, is
+refused with 78 and one line at the first command, and `install.sh --check`
+reports `Instance: <directory> INVALID` with that line under it and exits 78:
+
+```
+tehas: TEHAS_WORK_MEMORY is set and this version of tehas has no memory budget to set: the limit around all containers is /etc/systemd/system/tehas.slice (see .../instance.env)
+```
+
+Delete the line. An instance with no `TEHAS_TICKET_CONCURRENCY` line goes from
+one cycle at a time, the default of the earlier version, to the host's CPUs
+minus one; set the line to keep a lower ceiling.
 
 ## tehas dispatch
 
@@ -91,10 +106,15 @@ than one, is refused: exit 64 with `tehas dispatch: unknown argument: <argument>
 and the usage on standard error, before the instance settings are read. A mistyped
 `--dryrun` therefore starts no poll and changes nothing.
 
-Order of rules: pause label on the control issue, the free slots
-(`TEHAS_TICKET_CONCURRENCY` less the running cycles), the cap on issues awaiting
-merge or being worked on, who applied `tehas:ready`, then urgent first and
-lowest number. Log:
+Order of rules: pause label on the control issue, a usable `tehas.slice`,
+the free slots (`TEHAS_TICKET_CONCURRENCY` less the running cycles), the cap
+on issues awaiting merge or being worked on, the room and the memory pressure
+in the slice, who applied `tehas:ready`, then urgent first and lowest number.
+What holds cycles back is one `holding:` line: at every dry run, and in the
+log once when its reason changes, with `released: cycles may start again`
+when it ends. A real poll also writes it to `~/tehas/live/dispatch.json` with
+the slice's numbers, for [tehas status](#tehas-status). The holds are listed
+under [Troubleshooting](/troubleshooting). Log:
 `~/tehas/logs/dispatch.log` when run by systemd, the terminal otherwise. Each
 cycle's runner output: `~/tehas/logs/dispatch-work-<issue>.log`.
 
@@ -167,14 +187,25 @@ waits until `.pi/work-state/<issue>.json` in the workspace `~/tehas/work/<name>-
 | 2    | Pi exited, or the time limit passed, while the cycle was running |
 | 3    | The sandbox cannot push to the repository; no cycle was started  |
 | 64   | No bot token or no git identity; no cycle was started            |
-| 78   | The instance settings are invalid; no cycle was started          |
+| 78   | The instance settings are invalid, or `tehas.slice` is missing, has no memory limit, or cannot be used (the message names `sudo ./bootstrap.sh slice` or the reason); no cycle was started |
+| 137  | The container was killed while the cycle was running: out of memory, or stopped from outside. The cycle is `killed` |
 
-The container gets the bot token and the `PI_ENSEMBLE_*` settings, a CPU and
-memory limit, and no Docker socket or SSH keys. git inside it is given the bot's
-identity and a credential helper that reads the token, through environment-level
-configuration; before a cycle starts, a dry-run push proves that works. The RPC
-stream is kept in `~/tehas/logs/work-<issue>-<time>.jsonl`. The limits are
-`TEHAS_WORK_CPUS`, `TEHAS_WORK_MEMORY` and `TEHAS_WORK_TIMEOUT`.
+The container runs in `tehas.slice` and gets the bot token and the
+`PI_ENSEMBLE_*` settings, a memory ceiling of a quarter of the slice with no
+swap, `TEHAS_CYCLE_RESERVE` as its floor, a pids limit of 4096, a CPU weight
+and no CPU quota, and no Docker socket or SSH keys. git inside it is given the
+bot's identity and a credential helper that reads the token, through
+environment-level configuration; before a cycle starts, a dry-run push proves
+that works. The RPC stream is kept in `~/tehas/logs/work-<issue>-<time>.jsonl`.
+The time limit is `TEHAS_WORK_TIMEOUT`. [The host](/host#limits-and-concurrency)
+has the limits in full.
+
+While the container runs, Docker keeps its id in `~/tehas/state/cycles/<issue>.cid`,
+which is how the dispatcher tells a cycle's container from the others in the
+slice; the file goes with the container. When processes in the container were
+killed for memory, the count is printed and left in
+`~/tehas/state/cycles/<issue>.oom` for `tehasbot cycle`, which says it in the
+issue comment and removes the file.
 
 The bot's git identity is the tehas user's global `user.name` and `user.email`
 on the host.
@@ -206,10 +237,10 @@ same session, and it is not written when no session is known.
 | 0    | The turn settled and said or asked something                         |
 | 2    | The turn did not settle, timed out, said and asked nothing, or its session or outcome could not be written down |
 | 64   | A usage error, no bot token or no git identity; nothing ran          |
-| 78   | The instance settings are invalid; nothing ran                       |
+| 78   | The instance settings are invalid, or `tehas.slice` cannot be used; nothing ran |
 
 The container is the one `tehas work` starts, under the name
-`tehas-plan-<issue>`: the same image, one cycle's share of the limits, the
+`tehas-plan-<issue>`: the same image, the same limits in `tehas.slice`, the
 same mounts, token and settings, from `lib/sandbox.sh`, and no Docker socket,
 SSH keys or `~/.config/tehas`. It works in a workspace of its own,
 `~/tehas/work/<name>-plan-<issue>`, made fresh for the turn and removed after
@@ -240,14 +271,16 @@ bot's are used. What follows `--` is passed to `pi`.
 | ---- | ----------------------------------------------------------------------------------------- |
 | any  | The session's own exit status, as Docker reports it                                       |
 | 64   | A wrong argument, a malformed author, no bot token or no git identity; no container       |
-| 78   | The instance settings are invalid, or the clone's directory is not a clone; no container  |
+| 78   | The instance settings are invalid, the clone's directory is not a clone, or `tehas.slice` cannot be used; no container |
 
 Arguments are checked before the settings are read, so `--help` works on a
 host with no instance and a mistyped argument makes no clone.
 
 The container is the one `tehas work` starts, with a terminal: the same image,
-limits, mounts, token and settings. It is named `tehas-dev-<name>`, so a clone
-has one session at a time. The command does not take the dispatcher's lock and
+the same limits in `tehas.slice`, mounts, token and settings. It is named
+`tehas-dev-<name>`, so a clone has one session at a time. Before it starts, the
+command prints how many more cycles the slice has room for, because the session
+takes room from them. The command does not take the dispatcher's lock and
 writes nothing under `~/tehas/live`. It needs a terminal; Docker refuses to
 start it without one.
 
@@ -312,10 +345,10 @@ nothing is reading it.
 | 1    | The sandbox image is missing, or the indexer failed    |
 | 3    | A cycle is running; nothing was done                   |
 | 64   | An argument this command does not know                 |
-| 78   | The instance settings are invalid; nothing was done    |
+| 78   | The instance settings are invalid, or `tehas.slice` cannot be used; nothing was done |
 
 The container gets the clone, read-only, and the cache volume: no network, no
-token and none of the settings. It runs under the cycle's CPU and memory
+token and none of the settings. It runs in `tehas.slice` with a cycle's
 limits. The indexer's answer is kept in `~/tehas/logs/index-<time>.log`, and
 `~/tehas/state/index.json` records the commit that was indexed.
 
@@ -354,10 +387,14 @@ tehas status
 factory   pass: Idle, taking work. (40 s ago)
 queue     2 in line, 0 building, 1 in review, 0 stopped
 cycle     #12 handoff at step review, 3 min ago
+slice     room for 8 cycles (4 GiB of 20 GiB promised, reserve 2g, 40 s ago)
 ```
 
 Prints the state of the factory from the [health file](#tehasbot-health): is
-it taking work, what is in the queue, and the current or last cycle. It reads
+it taking work, what is in the queue, the current or last cycle, and what the
+dispatcher's last poll read of `tehas.slice`. The `slice` line reads
+`holding: ...` when that poll held cycles back, and `unknown: no poll has
+reported in 10 min` when no poll read the slice in that time. It reads
 that one file and nothing else: no GitHub call, no instance settings, and it
 writes nothing. So it is as fresh as the dispatcher's last poll, and the first
 line says how old that is.
@@ -512,7 +549,8 @@ curl -i http://tehas-tehas:8080/health
 ```
 
 Writes the factory's health from what is already on disk: the queue snapshot,
-the running cycles and the last one that finished. The status script runs it on exit, so it is
+the running cycles, the last one that finished and what the dispatcher's
+last poll wrote about the slice. The status script runs it on exit, so it is
 refreshed at every poll and at the end of every cycle. The docs server
 serves the file at `/health` and `/healthz` as `application/health+json`.
 `tehas status` prints the same file for a person.
@@ -520,7 +558,7 @@ serves the file at `/health` and `/healthz` as `application/health+json`.
 | `status` | Meaning                                                                                  | HTTP |
 | -------- | ---------------------------------------------------------------------------------------- | ---- |
 | `pass`   | Taking work, idle or in a cycle                                                          | 200  |
-| `warn`   | Paused (`tehas:pause` on the control issue), or too low on disk to build previews, or the free space could not be read | 200  |
+| `warn`   | Paused (`tehas:pause` on the control issue), or the dispatcher holds everything because the slice is missing or cannot be read, or too low on disk to build previews, or the free space could not be read | 200  |
 | `fail`   | The last cycle ended as anything but `merged` or `handoff` and no cycle has started since, or there is no queue snapshot | 503  |
 
 `output` says the same in a sentence. `checks.queue` has the snapshot time and
@@ -539,6 +577,15 @@ without previews, and when that figure is more than half an hour old. When
 `low` is true, `output` is "The host is low on disk: previews are not being
 built." with a figure, and "The host's free disk space could not be read:
 previews are not being built." when `freeBytes` is `null`.
+
+`checks.slice` is `live/dispatch.json` as the dispatcher's last poll wrote
+it: `time`, `why`, `hold`, `count`, `room`, `committed`, `max` and `reserve`.
+`why` is empty when cycles may start, else one word: `slice`, `count`,
+`awaiting`, `pressure`, `room` or `unreadable`, and `hold` is the line the
+dispatcher logged. `room` is how many more reserves fit in the slice;
+`committed` and `max` are bytes. With `slice` or `unreadable` the status is
+`warn` and `output` is the hold. It is `null` when the file is more than ten
+minutes old. `tehasbot health` calls neither `systemctl` nor `docker`.
 
 A stopped dispatcher cannot report itself: the file simply stops changing and
 the endpoint keeps answering with the last state. A monitor should also treat
@@ -690,7 +737,7 @@ reads holds issue text and model output, which can be written to steer it, so:
 | One empty directory to write `findings.json` in | The product checkout, a workspace, Pi's sessions or transcripts |
 | `models.json`, read-only, and the host aliases | pi-rukas, skills, context files, MCP servers |
 | The tools read, grep, find, ls and write | A tool that runs a command or opens a connection |
-| 1 CPU, 2 GiB, 30 minutes | A share of `TEHAS_WORK_CPUS` or `TEHAS_WORK_MEMORY`: it is outside them |
+| 1 CPU, 2 GiB, no swap, 1024 processes, 30 minutes, in `tehas.slice` | A cycle's limits: it is a batch job with a quota of its own, counted in the slice's room like any other container |
 
 The host makes every GitHub call. A finding is filed only if it is the shape
 asked for: a title of at most 100 characters, one of six categories, a body, an
@@ -778,8 +825,9 @@ are enabled. Both write to `~/tehas/logs/preview.log`.
    One that is not is removed, with its last lines in the build log, and the
    state is `build-failed`. The old container went before the new one was
    started, so nothing serves for that pull request until a commit starts.
-7. The pull request is told, and `~/tehas/live/previews.json` is written for
-   the dashboard and for [tehasbot health](#tehasbot-health).
+7. The pull request is told, at the top of its own description, and
+   `~/tehas/live/previews.json` is written for the dashboard and for
+   [tehasbot health](#tehasbot-health).
 
 Each pull request has a state, in `~/tehas/preview/<pr>/state.json`:
 
@@ -814,20 +862,98 @@ memory limit does not count. So an image that declares a volume anywhere but
 `/tmp`, `/config` and `/data` is not run, and every container is removed
 with `docker rm -f -v`, which takes a volume Docker made for it along.
 
-**The comment.** The pull request gets one comment, by the bot's own account,
-edited in place: the address when the preview serves, or "Unable to create a
-preview" with the reason for `build-failed` and `no-space`. It is said once
-for each commit and state, so a full disk is not a comment every five
-minutes. For `over-limit` and `no-recipe` a pull request gets no comment.
-One that has a comment from an earlier state has it edited to "There is no
-preview" with the reason, so that it does not go on giving an address that
-answers 404. `building` is on the dashboard only. When the account of the
-token cannot be read (`gh api user`), nothing is written and the log says
-`#<pr>: no comment, the account of the token could not be read`, at each run
-until it can. To find its comment the
-command reads every comment of the pull request and takes the one its own
-account wrote. A call that fails, or an answer that is not a list of
-comments, writes nothing and is tried again at the next run.
+**The notice in the description.** The preview is said at the top of the pull
+request's own description, between the marker lines `<!-- tehas-preview -->`
+and `<!-- /tehas-preview -->`: the address when the preview serves, or
+"Unable to create a preview" with the reason for `build-failed` and
+`no-space`. It is said once for each commit and state, so a full disk is not an
+edit every five minutes. For `over-limit` and `no-recipe` a pull request whose
+description has no notice gets none. One that has a notice from an earlier
+state has it changed to "There is no preview" with the reason, so that it does
+not go on giving an address that answers 404. `building` is on the dashboard
+only.
+
+**Which block belongs to the bot.** The one at the very top of the
+description: its opening marker as the first line, and the closing marker under
+it. It is the bot's only when everything between those two lines is one of the
+notices this command writes: a line beginning `Preview of \``, `Unable to create
+a preview` or `There is no preview`, and for a preview that was made or
+attempted, the sentence `It is rebuilt when the branch changes and removed when
+this pull request is closed.` after a blank line. A notice is written with a
+blank line under its opening marker, so that it renders as text and not as part
+of the HTML comment, and one is allowed there and nowhere else. All of it or
+none of it. Text
+between marker lines that this command did not write is not written over, and
+neither is a marker line anywhere else in the description: the log says
+`#<pr>: the description has a preview notice that is not this one, left alone`,
+once for each commit and state. Write your own text outside the two marker
+lines. To hand the block back after changing it, remove both marker lines: the
+notice comes at the run that sees the change.
+Everything after the closing marker line of a block of the bot's is kept as
+GitHub gave it, blank lines at the end included.
+
+**What a notice is proof of.** It is proof of what this host decided, read from
+`~/tehas/live/previews.json`, the dashboard and `/health`. Anyone can write the
+marker lines and the sentence under them, and for a pull request this host does
+not build, one from a fork or one opened by someone outside the repository,
+nothing reads the description at all. An address at the top of such a
+description is the author's own text.
+
+**One record for each commit and state.** What was said about a commit and state
+is on record in `~/tehas/preview/<pr>/.notice`, as `<commit> <state> <what>
+[attempts] [time]`: `none`, `said`, `refused`, `failed` with how many writes
+GitHub did not take, or `gaveup`. The time is the one GitHub gives for that pull
+request at the last look. Nothing is written or said twice about a commit and
+state: a full disk is not an edit every five minutes, and the log carries one
+line for each write GitHub did not take, the last of them saying it is left to
+the next commit or state.
+
+The record does not stop the reading. The description is read again whenever
+GitHub gives a later time for the pull request than the one on record, which is
+what editing a description does. A notice a person removes therefore comes back
+at the next run, and so is a block someone wrote at the top in the shape of the
+bot's: ownership of a description is only its text, so it is looked at again
+whenever the text can have changed. A look that finds nothing to do costs one
+read, writes nothing and says nothing. A record with no time on it is looked at
+again too.
+
+A call that
+failed is tried at the next run: `#<pr>: the description could not be read (no
+such pull request (HTTP 404)), tried again at the next run`, with
+`GitHub refused the call (HTTP 403)` when GitHub refuses the token, and
+`#<pr>: the answer about this pull request was not understood ...` when it
+answered with something that is not that pull request's description. Three
+writes GitHub did not take are said once, with the third of them, as
+`#<pr>: the notice was not written three times, left to the next commit or
+state`. A description that already says what
+it should say is not written at all.
+
+The description is asked for at the moment of the edit, with `gh api
+repos/<repo>/pulls/<pr>`, and not from the list of open pull requests the run
+was given minutes ago: an edit made before that read is kept, and so is what
+GitHub says about the pull request itself. One merged or closed in between gets
+nothing written, and the log says `#<pr>: the pull request is no longer open,
+nothing was written`. GitHub takes no condition on a write of a description, so
+an edit made in the moment between the read and the write is not kept, and the
+later write wins: [The host](/host) says an agent in a cycle may edit a
+description with the same token. What the command read is
+written to `~/tehas/preview/<pr>/.description`, mode `0600`, before it writes,
+and the log says `#<pr>: the notice was written`, so a description written over
+is visible on the host and can be copied back from there.
+
+**What one pull request leaves on the host.** Under `~/tehas/preview/<pr>/`:
+`state.json` (the state, above), `pull.json` (its title and address), `.retry`
+(a commit whose container did not start, and how many starts it had), `.notice`
+(what was said about a commit and state) and `.description` (what GitHub had as
+the description before the last write). All of it goes with the pull request,
+at the next run after it is merged or closed.
+
+**What is not removed.** A notice in a description stays when its pull request
+closes: nothing of previews edits the description of a merged or closed pull
+request, so a merged one keeps an address that answers 404 from then on. So does
+a comment written by the version of this command that commented instead (until
+2026-10-11): nothing reads or removes comments now, and those comments are left
+where they are.
 
 **The sweep**, every three hours, is the second check that nothing of a merged
 or closed pull request stays on the host. It does not work from GitHub's list
@@ -999,9 +1125,12 @@ build.
 `--check` contacts the remote with `git fetch --prune`, so the remote-tracking
 refs under `origin/` match what the remote has, including branches the remote
 deleted; no file of the checkout or of the host changes. It runs `install.sh
---check`, which reports the checkout, the installed files, any follow-up an
-earlier run left undone, and the tests; it merges nothing, installs nothing,
-builds nothing and starts nothing, and exits 1 when there is something to update.
+--check`, which reports the checkout, the slice, the installed files, any
+follow-up an earlier run left undone, and the tests; it merges nothing, installs
+nothing, builds nothing and starts nothing, and exits 1 when there is something
+to update. A host whose `/etc/systemd/system/tehas.slice` is missing or is not
+the file this version ships is something to update, and only root can do it:
+`tehas update --check` stays red until `sudo ./bootstrap.sh slice` has been run.
 
 What `install.sh` prints passes through as it printed it, apart from the `next:`
 lines this command runs itself. That includes a `Login: NOT CURRENT` report for
@@ -1022,12 +1151,16 @@ host points at. See [The host](/host).
 
 ```
 cd ~/tehas/platform
-./install.sh --check     # change nothing; Instance, Dependencies, Installed, Login, Follow-ups, Tests
+./install.sh --check     # change nothing; Instance, Dependencies, Slice, Installed, Login, Follow-ups, Tests
 ./install.sh
 ```
 
 Exit 0 when done or nothing to report, 1 when `--check` found something or a
 step failed, 78 when the instance settings are invalid (nothing was changed).
+`Slice: MISSING` and `Slice: DIFFERS` are something found: `--check` exits 1
+until root has run `sudo ./bootstrap.sh slice`, because every sandbox container
+runs in the slice and none starts without it. A real run installs either way and
+prints a `note:` line instead.
 
 After a real run it prints one `next: <step>` line per follow-up its changed
 files call for - the ids `lib/update-steps.sh` defines - and starts nothing

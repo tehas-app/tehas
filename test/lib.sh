@@ -10,6 +10,7 @@
 #   t_calls NAME                     what the stub was called with, one call per line
 #   t_stub_cargo                     a cargo that compiles nothing and leaves a console
 #   t_console_source DIR             copy the console's source into a scratch checkout
+#   slice_state / slice_child / slice_id   a scratch cgroup tree for lib/slice.sh
 #   t_done                           print the tally, exit 1 if anything failed
 #
 # Everything lives under $T, a scratch directory removed on exit. HOME and
@@ -77,6 +78,42 @@ t_console_source() {
   mkdir -p "$1/console"
   cp -R "$T_ROOT/console/Cargo.toml" "$T_ROOT/console/Cargo.lock" "$T_ROOT/console/src" "$1/console/"
 }
+
+# A scratch cgroup tree for lib/slice.sh, under $T_CGROUP. A test that uses
+# it puts TEHAS_CGROUP_ROOT=$T_CGROUP in T_ENV and stubs systemctl and docker
+# itself. All sizes are bytes.
+#
+#   slice_state <full avg60> [<some avg60>]
+#       Start again: remove the tree, then write cgroup.controllers with cpu,
+#       memory and pids, and tehas.slice/memory.pressure with the two averages
+#       (some defaults to 0.00). The slice has no child afterwards.
+#   slice_child <id> <anon> <slab_reclaimable> <low> [<oom_kill>]
+#       One container in the slice, the directory tehas.slice/docker-<id>.scope
+#       with memory.stat, memory.low and memory.events. <id> is the container's
+#       id as a cid file holds it, 64 hex characters. <low> is the floor, a
+#       number or "max". <oom_kill> defaults to 0. In memory.stat, kernel is
+#       <slab_reclaimable> plus $SLICE_KERNEL, file is $SLICE_FILE and shmem is
+#       $SLICE_SHMEM; each of the three defaults to 0. Calling it again for the
+#       same id writes the files again.
+#   slice_id <hex digit>
+#       Print a container id: that digit 64 times.
+T_CGROUP=$T/cgroup
+slice_state() {
+  rm -rf "$T_CGROUP"
+  mkdir -p "$T_CGROUP/tehas.slice"
+  echo "cpuset cpu io memory hugetlb pids rdma misc" >"$T_CGROUP/cgroup.controllers"
+  printf '%s\n' "some avg10=0.00 avg60=${2:-0.00} avg300=0.00 total=0" \
+    "full avg10=0.00 avg60=$1 avg300=0.00 total=0" >"$T_CGROUP/tehas.slice/memory.pressure"
+}
+slice_child() {
+  local dir=$T_CGROUP/tehas.slice/docker-$1.scope
+  mkdir -p "$dir"
+  printf '%s\n' "anon $2" "file ${SLICE_FILE:-0}" "kernel $(($3 + ${SLICE_KERNEL:-0}))" "kernel_stack 0" \
+    "shmem ${SLICE_SHMEM:-0}" "slab_reclaimable $3" "slab_unreclaimable 0" >"$dir/memory.stat"
+  printf '%s\n' "$4" >"$dir/memory.low"
+  printf '%s\n' "low 0" "high 0" "max 0" "oom 0" "oom_kill ${5:-0}" "oom_group_kill 0" >"$dir/memory.events"
+}
+slice_id() { printf "$1%.0s" {1..64}; echo; }
 
 # Run a snippet with a known environment: the stubs first on PATH, scratch
 # HOME and TEHAS_HOME, and only the variables named in T_ENV carried over.

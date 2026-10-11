@@ -173,9 +173,12 @@ key, so `apiKey` is a placeholder. The example's endpoint is a
 That is not required: any OpenAI-compatible endpoint that serves
 your model works, and only the optional Energy use section depends on viiwork.
 
-Everything else has a default. The limits of a cycle's container default to the
-host's CPUs minus one and half its memory. All settings are on the
-[commands page](/tools).
+Everything else has a default. No setting describes the machine: every
+sandbox container runs in `tehas.slice`, which step 1 installed and which is
+limited to three quarters of the host's memory. The dispatcher starts a cycle
+only while the slice has room for one more `TEHAS_CYCLE_RESERVE`, 2g by
+default. A host with less than about 11 GiB of memory needs a lower reserve.
+All settings are on the [commands page](/tools).
 
 ### 5. Install
 
@@ -216,7 +219,7 @@ the unprivileged user, with nothing mounted but a clone:
 ```
 T=~/tehas/tmp/contract-test
 git clone -q ~/tehas/repos/<name> "$T"
-docker run --rm --cpus 4 --memory 4g --user "$(id -u):$(id -g)" \
+docker run --rm --cgroup-parent tehas.slice --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)" \
   -e HOME=/home/vscode -v "$T:$T" -w "$T" --entrypoint bash \
   "$PI_ENSEMBLE_IMAGE" -c '
     sh .pi/worktree-setup &&
@@ -224,6 +227,9 @@ docker run --rm --cpus 4 --memory 4g --user "$(id -u):$(id -g)" \
     sh -c "$(grep -v -e "^#" -e "^$" .pi/smoke-cmd | head -n 1)"'
 rm -rf "$T"
 ```
+
+The container runs in the slice like the factory's own, so the dispatcher
+counts its memory while it is there.
 
 ### 8. Start
 

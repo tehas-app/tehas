@@ -11,6 +11,7 @@
 #                                   (a time that cannot be read counts as old)
 #   tehas_state_lines <json> <now> <stale>   the factory line and the queue line
 #   tehas_cycle_line <json> <now>            one cycle, as health.json writes it
+#   tehas_slice_line <health json> <now>     the last poll's slice check
 #
 # <json> is JSON text given as an argument: nothing here opens a file, loads the
 # instance settings or writes anything.
@@ -55,5 +56,16 @@ tehas_cycle_line() { # <cycle json> <now epoch seconds>
     if . == null then "cycle     none yet"
     elif .running then "cycle     #\(.issue) running, step \(.step // "-"), started \(.startedAt // "" | age($now))"
     else "cycle     #\(.issue) \(.status // "unknown") at step \(.step // "-"), \(.time // "" | age($now))" end
+  ' <<<"$1"
+}
+
+# The slice status captured by the dispatcher's last poll.
+tehas_slice_line() { # <health json> <now epoch seconds>
+  jq -r --argjson now "$2" "$tehas_state_defs"'
+    def gib: (. // 0) / 1073741824 * 10 | round / 10;
+    (.checks.slice // null
+     | if . == null then "slice     unknown: no poll has reported in 10 min"
+       elif (.why // "") != "" then "slice     \(.hold // "holding") (\(.time | age($now)))"
+       else "slice     room for \(.room // 0) cycles (\(.committed | gib) GiB of \(.max | gib) GiB promised, reserve \(.reserve // "unknown"), \(.time | age($now)))" end)
   ' <<<"$1"
 }

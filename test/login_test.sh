@@ -106,7 +106,11 @@ mkdir -p "$upstream"
 git init -q -b main "$upstream"
 git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m first
 git clone -q "$upstream" "$checkout"
-t_stub docker 'printf "%s\n" "$@" >"$T/calls/docker.args.$$"'
+# tehas dev starts nothing without the slice: a host that has it.
+t_stub docker 'if [ "$1" = info ]; then echo "systemd 2"; exit; fi
+printf "%s\n" "$@" >"$T/calls/docker.args.$$"'
+t_stub systemctl 'printf "%s\n" FragmentPath=/etc/systemd/system/tehas.slice ActiveState=active MemoryMax=8589934592'
+slice_state 0.00
 printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitconfig"
 session_args() { cat "$T"/calls/docker.args.* 2>/dev/null; }
 containers() { find "$T/calls" -name 'docker.args.*' | wc -l; }
@@ -115,7 +119,7 @@ t_instance "${T_MINIMAL[@]}"
 
 t_case "the session is in the clone named after the account sudo was asked by"
 again
-T_ENV=(GH_TOKEN=test-token SUDO_USER=alice)
+T_ENV=(GH_TOKEN=test-token SUDO_USER=alice "TEHAS_CGROUP_ROOT=$T_CGROUP")
 t_run "$entry 'Alice Example <alice@example.com>' --"
 t_eq "$t_rc" 0
 t_eq "$(containers)" 1
@@ -143,7 +147,7 @@ t_eq "$(containers)" 0
 t_eq "$([ -e "$devs/bob" ] && echo there)" ""
 
 t_case "it is not for running by hand: without sudo's account there is no session"
-T_ENV=(GH_TOKEN=test-token)
+T_ENV=(GH_TOKEN=test-token "TEHAS_CGROUP_ROOT=$T_CGROUP")
 t_run "$entry 'Alice Example <alice@example.com>' --"
 t_eq "$t_rc" 64
 t_contains "$t_out" "tehas dev"
@@ -151,14 +155,14 @@ t_eq "$(containers)" 0
 
 t_case "an account whose name cannot name a clone is refused"
 for login in ../main a.b -x 'a b'; do
-  T_ENV=(GH_TOKEN=test-token "SUDO_USER=$login")
+  T_ENV=(GH_TOKEN=test-token "SUDO_USER=$login" "TEHAS_CGROUP_ROOT=$T_CGROUP")
   t_run "$entry 'Alice Example <alice@example.com>' --"
   t_eq "$t_rc" 64
 done
 t_eq "$(containers)" 0
 
 t_case "it does not depend on the directory sudo was called from"
-T_ENV=(GH_TOKEN=test-token SUDO_USER=alice)
+T_ENV=(GH_TOKEN=test-token SUDO_USER=alice "TEHAS_CGROUP_ROOT=$T_CGROUP")
 mkdir -p "$T/closed"
 t_run "cd $T/closed && chmod 000 . ; $entry 'Alice Example <alice@example.com>' --"
 t_eq "$t_rc" 0

@@ -7,7 +7,8 @@ pi-rukas could be better, and to write your findings to one file.
 
 - `/improve/in/cycles/<issue>-<stamp>/`: one directory per cycle that ended.
   - `cycle.json`: issue number, seconds, final status and step, exit status,
-    the pull request if there is one.
+    the pull request if there is one, and `oomKills`, how many processes in
+    the cycle's container were killed for memory (0 when none).
   - `stream.jsonl`: the cycle's event stream, condensed.
   - `console.txt`: what each agent wrote, as an operator saw it.
   - `err.txt`, `preflight.txt`: the cycle's error stream and preflight output.

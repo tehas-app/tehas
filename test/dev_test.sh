@@ -17,8 +17,22 @@ git init -q -b main "$upstream"
 git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m first
 git clone -q "$upstream" "$checkout"
 
-t_stub docker 'printf "%s\n" "$@" >"$T/calls/docker.args.$$"'
+docker_stub='if [ "$1" = info ]; then cat "$T/docker.info"; exit; fi
+printf "%s\n" "$@" >"$T/calls/docker.args.$$"'
+t_stub docker "$docker_stub"
 printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitconfig"
+# A host with the root step done: the slice loaded from its file with 8 GiB,
+# so a container's ceiling is 2048m, Docker on the systemd driver and cgroup
+# v2, and nothing in the slice.
+t_stub systemctl 'cat "$T/slice.show"'
+slice_good() {
+  printf '%s\n' FragmentPath=/etc/systemd/system/tehas.slice ActiveState=active MemoryMax=8589934592 >"$T/slice.show"
+  echo "systemd 2" >"$T/docker.info"
+  slice_state 0.00
+}
+slice_good
+limits="--cgroup-parent --memory --memory-swap --memory-reservation --pids-limit --cpu-shares"
+root="TEHAS_CGROUP_ROOT=$T_CGROUP"
 
 # The arguments of the docker call that starts the session.
 session_args() { cat "$T"/calls/docker.args.* 2>/dev/null; }
@@ -50,7 +64,7 @@ t_eq "$(containers)" 0
 
 t_case "an unknown argument starts no container and makes no clone"
 t_instance "${T_MINIMAL[@]}"
-T_ENV=(GH_TOKEN=test-token)
+T_ENV=(GH_TOKEN=test-token "$root")
 t_run "$dev --resume"
 t_eq "$t_rc" 64
 t_contains "$t_out" "unknown argument: --resume"
@@ -85,8 +99,8 @@ t_eq "$(containers)" 0
 t_eq "$([ -e "$devs" ] && echo there)" ""
 
 t_case "a missing token starts no container"
-t_instance "${T_MINIMAL[@]}" TEHAS_WORK_CPUS=1 TEHAS_WORK_MEMORY=512m PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
-T_ENV=()
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+T_ENV=("$root")
 t_run "$dev"
 t_eq "$t_rc" 64
 t_contains "$t_out" "GH_TOKEN is not set"
@@ -94,7 +108,7 @@ t_eq "$(containers)" 0
 t_eq "$([ -e "$devs" ] && echo there)" ""
 
 t_case "a checkout of another repository starts no container"
-T_ENV=(GH_TOKEN=test-token TERM=xterm-256color COLORTERM=truecolor SECRET_THING=leak)
+T_ENV=(GH_TOKEN=test-token TERM=xterm-256color COLORTERM=truecolor SECRET_THING=leak "$root")
 git -C "$checkout" remote set-url origin https://github.com/acme/other.git
 t_run "$dev"
 t_eq "$t_rc" 78
@@ -103,6 +117,7 @@ t_eq "$(containers)" 0
 git -C "$checkout" remote set-url origin "$upstream"
 
 t_case "the first run makes the clone at the branch's tip, with the product's origin"
+again
 t_run "$dev"
 t_eq "$t_rc" 0
 t_eq "$(containers)" 1
@@ -116,10 +131,23 @@ t_contains "$t_out" "Test Bot"
 t_eq "$(passed GIT_CONFIG_VALUE_2)" "Test Bot"
 t_eq "$(passed GIT_CONFIG_VALUE_3)" "bot@example.com"
 
-t_case "the session gets the limits, the image and the clone as its directory"
+t_case "the session gets the slice and a cycle's limits, the image and the clone as its directory"
 image="tehas/pi-rukas:uid$(id -u)"
-t_eq "$(after --cpus)" "1"
-t_eq "$(after --memory)" "512m"
+t_eq "$(after --cgroup-parent)" "tehas.slice"
+t_eq "$(after --memory)" "2048m"
+t_eq "$(after --memory-swap)" "2048m"
+t_eq "$(after --memory-reservation)" "2g"
+t_eq "$(after --pids-limit)" "4096"
+t_eq "$(after --cpu-shares)" "1024"
+t_lacks "$(session_args)" "--cpus"
+t_lacks "$(session_args)" "--cidfile"
+
+t_case "the slice is read once: one systemctl call, one docker info"
+t_eq "$(t_calls systemctl)" "show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax"
+t_eq "$(t_calls docker | grep -c '^info ')" 1
+
+t_case "the session is told how much room the slice has before it starts"
+t_contains "$t_out" "tehas dev: tehas.slice has room for 4 more cycles"
 t_eq "$(after -w)" "$clone"
 t_eq "$(after --name)" "tehas-dev-main"
 t_eq "$(session_args | sed -n "/^$(printf '%s' "$image" | sed 's/[\/.]/\\&/g')\$/,\$p" | tr '\n' ' ')" "$image pi "
@@ -160,7 +188,7 @@ t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC
 t_eq "$(passed PI_ENSEMBLE_WORKSPACE_ROOT)" "$clone"
 
 t_case "the session's container gets no option beyond the documented ones"
-t_eq "$(session_args | unknown_options "$image" "--name --cpus --memory -w -v -e" "--rm -it")" ""
+t_eq "$(session_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -it")" ""
 t_contains "$(session_args)" "--add-host=models:192.0.2.9"
 
 t_case "the token and the rest of the environment are not written into the arguments"
@@ -291,12 +319,99 @@ t_run "$dev"
 t_lacks "$t_out" "issue 12"
 
 t_case "the session's exit status is passed on"
-t_stub docker 'exit 7'
+t_stub docker '[ "$1" != info ] || { cat "$T/docker.info"; exit; }
+exit 7'
 t_run "$dev"
 t_eq "$t_rc" 7
+t_stub docker "$docker_stub"
+echo '{"cycles":[],"last":null}' >"$T/home/tehas/live/running.json"
+
+t_case "the room counts what is in the slice: another container at its use, a cycle with no container yet at one reserve"
+again
+slice_child "$(slice_id b)" $((3 * 1073741824)) 0 2147483648
+t_run "$dev"
+t_contains "$t_out" "tehas dev: tehas.slice has room for 2 more cycles"
+mkdir -p "$T/home/tehas/state/cycles"
+exec 9>"$T/home/tehas/state/cycles/12.lock"
+flock -n 9
+t_run "$dev"
+t_contains "$t_out" "tehas dev: tehas.slice has room for 1 more cycles"
+# The cycle's container is in the slice: it is counted once, at its floor.
+slice_id c >"$T/home/tehas/state/cycles/12.cid"
+slice_child "$(slice_id c)" 1000 0 2147483648
+t_run "$dev"
+t_contains "$t_out" "tehas dev: tehas.slice has room for 1 more cycles"
+exec 9>&-
+rm -rf "$T/home/tehas/state/cycles"
+
+t_case "a slice under pressure, or one that cannot be read, has no room and the session still starts"
+again
+slice_good
+slice_state 12.00
+t_run "$dev"
+t_eq "$t_rc" 0
+t_contains "$t_out" "tehas dev: tehas.slice has room for 0 more cycles (it is under memory pressure)"
+slice_good
+rm -f "$T_CGROUP/tehas.slice/memory.pressure"
+t_run "$dev"
+t_contains "$t_out" "tehas dev: tehas.slice has room for 0 more cycles (its use could not be read)"
+t_eq "$(containers)" 2
+slice_good
+
+# --- Without a usable slice ----------------------------------------------------
+# refused: 78, and neither a clone nor a container was made.
+refused() {
+  t_eq "$t_rc" 78
+  t_eq "$(containers)" 0
+  t_lacks "$(t_calls docker)" "run "
+  t_eq "$(find "$devs" -mindepth 1 -maxdepth 1 -name '*zed*' | wc -l)" 0
+}
+without() { again; slice_good; }
+
+t_case "refuses with 78 without the slice, before any docker run"
+without
+printf '%s\n' FragmentPath= ActiveState=inactive MemoryMax=infinity >"$T/slice.show"
+t_run "$dev zed --author 'Zed Example <zed@example.com>'"
+refused
+t_contains "$t_out" "tehas dev: no slice file on this host (sudo ./bootstrap.sh slice)"
+
+t_case "a cgroupfs driver, cgroup v1 and a silent docker are refused the same way"
+for answer in "cgroupfs 2" "systemd 1" ""; do
+  without
+  echo "$answer" >"$T/docker.info"
+  t_run "$dev zed"
+  refused
+  t_contains "$t_out" "tehas dev: "
+  t_contains "$t_out" "ocker"
+done
+
+t_case "a reserve above the ceiling is refused"
+without
+t_instance "${T_MINIMAL[@]}" TEHAS_CYCLE_RESERVE=3g
+t_run "$dev zed"
+refused
+t_contains "$t_out" "tehas dev: TEHAS_CYCLE_RESERVE=3g is more than a container may use here (2048m"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+
+t_case "the twelve words are all present or nothing starts"
+# The command beside a slice library that says yes and hands out a short list,
+# or a list that names another parent.
+short=$T/short
+mkdir -p "$short/libexec" "$short/lib"
+cp "$T_ROOT"/lib/*.sh "$short/lib/"
+ln -s "$dev" "$short/libexec/dev"
+for words in "--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --pids-limit 4096" \
+  "--cgroup-parent other.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --pids-limit 4096 --cpu-shares 1024" ""; do
+  without
+  printf '%s\n' 'tehas_slice_ok() { return 0; }' "tehas_slice_limits() { TEHAS_SLICE_LIMITS=($words); }" \
+    'tehas_slice_room() { echo "4 0 0 0"; }' >"$short/lib/slice.sh"
+  t_run "$short/libexec/dev zed"
+  refused
+  t_contains "$t_out" "tehas dev: the container limits could not be made, not starting"
+done
+without
 
 t_case "no git identity at all starts no container"
-t_stub docker 'printf "%s\n" "$@" >"$T/calls/docker.args.$$"'
 : >"$T/home/.gitconfig"
 again
 t_run "$dev bob"

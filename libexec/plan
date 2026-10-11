@@ -26,17 +26,20 @@
 #              2 it did not settle, timed out, said and asked nothing, or its
 #                session or outcome could not be written down,
 #             64 a usage error, no bot token or no git identity; nothing ran,
-#             78 the instance settings are invalid; nothing ran.
+#             78 the instance settings are invalid, or tehas.slice is not
+#                usable on this host; nothing ran.
 #
 # Instance settings (lib/config.sh; defaults in brackets):
 #   TEHAS_PLAN_TIMEOUT  seconds before a turn is given up [3600]
 #   and those of tehas work for the checkout and the container's limits.
 #
 # The container is given exactly what a cycle's container is given: the same
-# image, limits, mounts and variables, assembled by lib/sandbox.sh and pinned
-# by test/plan_test.sh. It differs in its name and in what pi is told. Not the
-# Docker socket, SSH keys or ~/.config/tehas. The limits are one cycle's share,
-# since cycles may be running beside the turn.
+# image, limits, mounts and variables, assembled by lib/sandbox.sh and
+# lib/slice.sh and pinned by test/plan_test.sh. It differs in its name, in
+# what pi is told, and in having no cid file. Not the Docker socket, SSH keys
+# or ~/.config/tehas. It runs in tehas.slice with a cycle's limits, so the
+# dispatcher counts its memory with the cycles'. Without a usable slice
+# nothing is cloned and nothing starts.
 #
 # The workspace is $TEHAS_HOME/work/<name>-plan-<issue>, a fresh clone made for
 # every turn and removed when the turn is over. Inside the container it is at
@@ -82,11 +85,21 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/config.sh"
 # shellcheck source=lib/sandbox.sh
 . "$here/../lib/sandbox.sh"
+# shellcheck source=lib/slice.sh
+. "$here/../lib/slice.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
 # Docker would create a missing mount source as a root-owned directory.
 tehas_checkout || exit 78
 branch=$(tehas_branch) || exit 78
+# No container starts outside the slice, and none with half its limits.
+TEHAS_SLICE_LIMITS=()
+tehas_slice_ok || { echo "tehas plan: $TEHAS_SLICE_WHY" >&2; exit 78; }
+tehas_slice_limits || true
+if [ "${#TEHAS_SLICE_LIMITS[@]}" != 12 ] || [ "${TEHAS_SLICE_LIMITS[1]}" != tehas.slice ]; then
+  echo "tehas plan: the container limits could not be made, not starting" >&2
+  exit 78
+fi
 src=$TEHAS_WORK_REPO
 # The workspace inside the container, and the directory on the host behind it.
 repo=$TEHAS_WORK_DIR
@@ -147,7 +160,7 @@ exec 3<>"$fifo"
 rm "$fifo"
 
 docker run --rm -i --name "$name" \
-  --cpus "$TEHAS_CYCLE_CPUS" --memory "$TEHAS_CYCLE_MEMORY" \
+  "${TEHAS_SLICE_LIMITS[@]}" \
   -w "$repo" "${mounts[@]}" \
   "${envs[@]}" "${hosts[@]}" \
   "$image" pi --mode rpc --approve "${args[@]}" <&3 >"$log" 2>"$log.err" &

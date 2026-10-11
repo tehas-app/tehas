@@ -77,6 +77,7 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/lib/sandbox.sh
 ./tehas/lib/status.sh
 ./tehas/lib/top.sh
+./tehas/lib/slice.sh
 ./tehas/lib/update-steps.sh
 ./tehas/libexec/console
 ./tehas/libexec/console.stamp
@@ -227,16 +228,62 @@ t_case "a second run changes nothing"
 t_run "$install"
 t_contains "$t_out" "tehas is up to date"
 
-t_case "--check on a matching install reports four lines and exits 0"
+t_case "--check on a matching install reports five lines and exits 0"
 # The follow-ups of the install above are taken as done, which is what running
 # tehas update does to the record. A host that still owes one is another case.
 rm -f "$th/state/update-pending"
 t_run "$install --check"
 t_eq "$t_rc" 0
-t_contains "$t_out" "Instance:     $T/instance OK"
-t_contains "$t_out" "Dependencies: not checked (running inside the tests)"
+t_eq "$t_out" "Instance:     $T/instance OK
+Dependencies: not checked (running inside the tests)
+Slice:        not checked (running inside the tests)
+Installed:    OK
+Tests:        not checked (running inside the tests)"
+
+# The slice is root's to install (sudo ./bootstrap.sh slice). install.sh only
+# compares the checkout's file with the one under /etc and says what it found.
+# Every container runs in the slice, so a host without it, or with another
+# version of it, has something to do: the check exits 1 until it is done.
+t_case "--check names a missing slice and what installs it, and exits 1"
+mkdir -p "$T/etc/systemd/system"
+T_ENV=(T_IN_TEST=1 T_SLICE=1 BOOTSTRAP_ETC="$T/etc")
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "Slice:        MISSING (sudo ./bootstrap.sh slice)"
 t_contains "$t_out" "Installed:    OK"
-t_contains "$t_out" "Tests:        not checked (running inside the tests)"
+
+t_case "--check says OK for the slice file this checkout ships, and exits 0"
+cp "$T_ROOT/host/slice/tehas.slice" "$T/etc/systemd/system/tehas.slice"
+t_run "$install --check"
+t_eq "$t_rc" 0
+t_contains "$t_out" "Slice:        OK"
+
+t_case "--check names a slice file that differs, and exits 1"
+echo "MemoryMax=10%" >>"$T/etc/systemd/system/tehas.slice"
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "Slice:        DIFFERS (sudo ./bootstrap.sh slice)"
+t_contains "$t_out" "Installed:    OK"
+
+t_case "a real run notes a slice that differs or is missing, and installs no slice"
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "note: $T/etc/systemd/system/tehas.slice differs from host/slice/tehas.slice in this checkout (sudo ./bootstrap.sh slice)"
+rm "$T/etc/systemd/system/tehas.slice"
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "note: $T/etc/systemd/system/tehas.slice is missing (sudo ./bootstrap.sh slice)"
+t_eq "$(find "$T/etc" -type f | wc -l)" 0
+t_eq "$(installed_files | grep -c tehas.slice)" 0
+
+t_case "a real run says nothing of a slice that is in place"
+cp "$T_ROOT/host/slice/tehas.slice" "$T/etc/systemd/system/tehas.slice"
+t_run "$install"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "note:"
+t_lacks "$t_out" "tehas.slice"
+rm -rf "${T:?}/etc"
+T_ENV=(T_IN_TEST=1)
 
 t_case "--check reports drift, changes nothing and exits 1"
 echo "# edited on the host" >>"$th/libexec/dispatch"
@@ -404,6 +451,14 @@ t_run "$install --check"
 t_eq "$t_rc" 78
 t_contains "$t_out" "INVALID"
 t_contains "$t_out" "no models.json in"
+
+t_case "--check names a budget setting of an earlier version, and exits 78"
+instance TEHAS_WORK_MEMORY=8g
+t_run "$install --check"
+t_eq "$t_rc" 78
+t_contains "$t_out" "INVALID"
+t_contains "$t_out" "TEHAS_WORK_MEMORY is set and this version of tehas has no memory budget to set"
+t_lacks "$t_out" "NOT OK"
 
 t_case "the product's session model must be listed too"
 instance
@@ -587,7 +642,12 @@ product() {
   git clone -q "$T/git/acme/widget" "$th/repos/widget"
 }
 index_runs() { t_calls docker | grep -c -e '^run .*index_repository' || true; }
+# tehas index starts nothing without the slice: a host that has it.
+slice_state 0.00
+slice_env="TEHAS_CGROUP_ROOT=$T_CGROUP"
+t_stub systemctl '[ "$1" != show ] || printf "%s\n" FragmentPath=/etc/systemd/system/tehas.slice ActiveState=active MemoryMax=8589934592'
 t_stub docker 'case "$1" in
+  info) echo "systemd 2" ;;
   version) echo 29.1.3 ;;
   network) echo "true bridge false isolated" ;;
   image) exit "${IMAGE_RC:-0}" ;;
@@ -604,7 +664,7 @@ t_eq "$(index_runs)" 0
 
 t_case "an install without the sandbox image names the indexing step"
 product
-t_env IMAGE_RC=1
+t_env IMAGE_RC=1 "$slice_env"
 t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "later: $th/bin/tehas index"
@@ -617,7 +677,7 @@ t_eq "$(index_runs)" 0
 t_eq "$(find "$th/state/index.json" 2>/dev/null | wc -l)" 0
 
 t_case "a failed indexing is a warning, and the install still succeeds"
-t_env RUN_RC=1
+t_env RUN_RC=1 "$slice_env"
 t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "WARN: the code index was not built"
@@ -625,7 +685,7 @@ t_contains "$t_out" "later: $th/bin/tehas index"
 
 t_case "with the image and the checkout, the install builds the index"
 rm -f "$T"/calls/*
-t_env
+t_env "$slice_env"
 t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "tehas index: widget indexed"
@@ -638,7 +698,10 @@ t_run "$install"
 t_contains "$t_out" "tehas is up to date"
 t_eq "$(index_runs)" 1
 t_stub docker "$net_good"
+t_stub systemctl
+t_env
 
+t_stub nproc 'echo 12'
 for name in example tehas-tehas; do
   t_case "the shipped instance '$name' is valid"
   fresh
@@ -647,6 +710,7 @@ for name in example tehas-tehas; do
   t_lacks "$t_out" "INVALID"
   t_contains "$t_out" "Instance:     $T_ROOT/instances/$name OK"
 done
+rm -f "$T/bin/nproc"
 
 t_case "a changed unit file asks for the units step, whatever systemd answers"
 fresh
