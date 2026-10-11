@@ -208,19 +208,21 @@ body[data-factory="live"] .console-state::before {
   padding: 0 24px;
 }
 .floor, .desk { display: contents; }
-/* --fold-pad and --fold-gap are set by fitFold() in game-view.js so the first
-   screen sits centred in the window and the board starts below it. The fold
-   offset is a margin, not padding: the panel's own padding belongs to its face. */
-.floor-head { grid-area: head; margin-top: var(--fold-pad, 32px); }
+/* --fold-pad and --fold-gap are set by fitFold() in game-view.js, from the
+   numbers in fold-fit.js, so the first screen sits centred in the window and
+   the board starts below it. The fold offset is a margin, not padding: the
+   panel's own spacing belongs to its face, and the panel's height is part of
+   what fitFold measures. */
+.floor-head { grid-area: head; margin-top: max(0px, var(--fold-pad, 32px)); }
 .line { grid-area: line; }
 .doors { grid-area: doors; }
 .monitor-wrap { grid-area: monitor; }
 .board-wrap { grid-area: board; margin-top: var(--fold-gap, 72px); }
 .break-room { grid-area: break; margin-top: 96px; }
 
-/* The page's own panel, in the board's style: Bone face, Steel head, Sign shadow. */
+/* Drawn like the board so the page's own head reads as an object on the field.
+   Its gutters live on the children, as they do there. */
 .floor-head {
-  padding-bottom: 16px;
   background: var(--bone);
   border: 4px solid var(--outline);
   box-shadow: var(--shadow-sign);
@@ -230,7 +232,7 @@ body[data-factory="live"] .console-state::before {
 /* What the page is, for a first visit: one line of words under the title. */
 .floor-intro { margin: 16px 16px 0; max-width: 110ch; }
 .floor-intro a { text-underline-offset: 4px; }
-#floor-summary { margin: 8px 16px 0; color: var(--slate); }
+#floor-summary { margin: 8px 16px 16px; color: var(--slate); }
 .gate { padding: 0 8px; background: var(--bone); border: 4px solid var(--outline); }
 .gate[data-state="running"] { background: var(--go); }
 .gate[data-state="paused"] { background: var(--brass); }
