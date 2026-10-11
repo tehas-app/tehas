@@ -388,7 +388,8 @@ that stopped gets its comment with two boxes and the label `tehas:question`,
 and the comment's id goes into `~/tehas/state/park-<issue>.id`, which is what
 lets the dispatcher take a tick there. It
 then removes the workspace of a cycle that merged or left a pull request, and
-keeps the workspace of one that stopped. A
+keeps the workspace of one that stopped. A retry moves a stopped workspace to
+`<name>-<issue>.before-retry`, which is removed and kept by the same rule. A
 stopped unit stops the container and is reported as a cycle that ended without
 a pull request. It checks no authorisation: the dispatcher did that before it
 started the unit.

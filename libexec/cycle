@@ -80,11 +80,12 @@ post_question() {
   posted=$(gh api "repos/$repo/issues/$issue/comments" -f body="$body" --jq .id 2>/dev/null) || return 1
   [ -n "$posted" ]
 }
-# A workspace is kept only while a person may want to read it. Only a
-# directory under one that tehas work marked is removed, as tehas work does.
+# A workspace is kept only while a person may want to read it, and so is the
+# one tehas work moved aside when this issue was retried. Only a directory
+# under one that tehas work marked is removed, as tehas work does.
 tidy() {
   if [ -f "$(dirname "$workdir")/.tehas-workspaces" ]; then
-    rm -rf "$workdir" || log "WARN: could not remove the workspace $workdir"
+    rm -rf "$workdir" "$workdir.before-retry" || log "WARN: could not remove the workspace $workdir"
   else
     log "WARN: $(dirname "$workdir") is not marked by tehas work, leaving the workspace $workdir"
   fi

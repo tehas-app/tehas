@@ -138,6 +138,15 @@ echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
 t_run "$cycle 7"
 t_eq "$(find "$workdir" -maxdepth 0 2>/dev/null | wc -l)" 0
 
+t_case "and with it the one kept from an earlier stopped cycle of the issue"
+reset
+ended handoff commit-pr feature/x
+: >"$T/home/tehas/work/.tehas-workspaces"
+mkdir -p "$workdir.before-retry"
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$cycle 7"
+t_eq "$(find "$workdir" "$workdir.before-retry" -maxdepth 0 2>/dev/null | wc -l)" 0
+
 t_case "so is the workspace of a merged cycle"
 reset
 ended merged "done" feature/x
@@ -151,6 +160,14 @@ ended aborted develop feature/x
 : >"$T/home/tehas/work/.tehas-workspaces"
 t_run "$cycle 7"
 t_eq "$(find "$workdir" -maxdepth 0 | wc -l)" 1
+
+t_case "and so is the one kept from the cycle before it"
+reset
+ended aborted develop feature/x
+: >"$T/home/tehas/work/.tehas-workspaces"
+mkdir -p "$workdir.before-retry"
+t_run "$cycle 7"
+t_eq "$(find "$workdir" "$workdir.before-retry" -maxdepth 0 | wc -l)" 2
 
 t_case "a directory tehas work did not mark is never removed"
 reset

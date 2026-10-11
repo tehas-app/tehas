@@ -23,6 +23,9 @@
   that runs the work cycle: explore, plan, develop, the repository's own gates,
   an adversarial pass, a pull request and a six-pass review.
 - One instance is one host serving one product repository, one cycle at a time by default and more if set.
+- The same host takes work by hand: a person with an account there types
+  `tehas dev` and gets an interactive Pi session with pi-rukas in the cycle's
+  sandbox, on the factory's models, with their own name on the commits.
 - Tehas is its own project. It is not part of Pi or endorsed by its
   maintainers.
 - viiwork (https://github.com/janit/viiwork) is a flexible meshed inference
@@ -34,7 +37,7 @@
 - [Pi software factory]({{ $base }}/pi-software-factory.md): who does what, the path of an issue, and what tehas adds to running Pi by hand
 - [Features]({{ $base }}/features.md): every part, with how far it has been proven
 
-If you are here to do something, it is probably one of two things. Pick the
+If you are here to do something, it is probably one of three things. Pick the
 section that fits.
 
 Every manual page is also served as Markdown: add `.md` to its address.
@@ -58,6 +61,19 @@ factory.
 - [Operating]({{ $base }}/operating.md): writing an issue, labels, review, pause, retry
 - [Overview]({{ $base }}/overview.md): how an issue flows through the factory
 - [Troubleshooting]({{ $base }}/troubleshooting.md): what each stop means and what to do
+
+## Work by hand on this host
+
+This is for a person with a login on the factory host, not for a reader of
+this page. They log in with their own account and type `tehas dev`. The session
+runs in the same sandbox as a cycle, in a clone that is kept between sessions.
+Commits carry the name and email of their own git configuration; the push and
+the pull request are the bot's. An account is let in once, as root, with
+`sudo ./bootstrap.sh dev <tehas user> <login>`. Seen working on one host for
+starting a session; a push from a session is not yet seen.
+
+- [Operating]({{ $base }}/operating.md): `tehas dev`, the clone, resuming a session
+- [Commands]({{ $base }}/tools.md): what `tehas dev` accepts from each kind of account
 
 ## Set tehas up for another repository
 
