@@ -117,7 +117,7 @@ the first time, before `tehas update` exists there:
 
 ```
 cd ~/tehas/platform && git pull
-./install.sh --check     # change nothing, report five results
+./install.sh --check     # change nothing, report up to six results
 ./install.sh             # copy changed files into place, keep <name>.prev
 ```
 
@@ -126,7 +126,10 @@ The labels `tehas:plan`, `tehas:planning` and `tehas:question`, for planning on
 an issue and the retry tick, are not in a repository until it has been.
 
 `--check` prints one line each for the instance settings, the host's tools, the
-installed files, the follow-ups an earlier run left undone, and the tests:
+installed files, the command the other accounts type where root installed one,
+the follow-ups an earlier run left undone, and the tests. Two of the six appear
+only where there is something to say, and the sample below is a host with a
+follow-up owed and no root-installed copy:
 
 ```
 Instance:     /home/boss/tehas/platform/instances/tehas-tehas OK
@@ -138,10 +141,20 @@ Tests:        OK
 ```
 
 The `Follow-ups:` line appears only while `~/tehas/state/update-pending` still
-holds steps that were asked for and never ran - a host with none owed prints four
-lines - and while it does, `--check` exits 1, because a host with files matching
-and a step unapplied is not current. Running `tehas update` runs them and clears
-the record ([Troubleshooting](/troubleshooting) has the case in full).
+holds steps that were asked for and never ran - and while it does, `--check`
+exits 1, because a host with files matching and a step unapplied is not current.
+Running `tehas update` runs them and clears the record
+([Troubleshooting](/troubleshooting) has the case in full).
+
+One file of a host is not tehas's to install. `sudo ./bootstrap.sh dev` puts
+`host/login/tehas` at `/usr/local/bin/tehas` as root, and an update can change
+that source while the copy on the host stays as it was. When the two differ,
+`--check` adds a `Login:` line naming the command that installs this checkout's
+copy, and exits 1; a real install prints the same finding as a `later:` line.
+`install.sh` writes nothing under `/usr/local/bin` or `/etc/tehas` and asks
+`sudo` for nothing, so the difference is reported rather than repaired. A host
+where `bootstrap.sh dev` never ran says nothing about it. See
+[Other accounts](#other-accounts).
 
 `install.sh` validates the settings first and installs nothing if they are
 invalid. It prints one `next:` line per follow-up its changed files call for, and
@@ -501,6 +514,12 @@ What a member of the group gets, and does not:
 
 `gpasswd -d alice tehas` takes an account out. `test/login_test.sh` and
 `test/bootstrap_test.sh` hold the rule and the two scripts to this.
+
+`/usr/local/bin/tehas` is a copy of `host/login/tehas`, so an update of the
+platform can leave the accounts typing an older command. No tehas command runs as
+root, so none replaces it: `install.sh --check` reports it as `Login: NOT CURRENT`
+and a real install prints `later: sudo ./bootstrap.sh dev boss`. Run that command
+again after an update that changed `host/login/tehas`.
 
 A host that ran cycles before the workspace existed gave its containers the
 product checkout itself. Replace that checkout once with a fresh clone, so

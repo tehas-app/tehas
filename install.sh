@@ -5,7 +5,9 @@
 #
 #   ./install.sh            copy changed files into place
 #   ./install.sh --check    change nothing; report settings, dependencies,
-#                           installed files and tests, each on its own line
+#                           installed files, the command the other accounts
+#                           type when root's copy is stale, and tests, each on
+#                           its own line
 #
 # What is installed: the commands and units (issue to pull request), the
 # sandbox files, the docs server, the edge router, the Protolab, the
@@ -48,6 +50,15 @@
 # prints them as "next: <step>" and records them; `tehas update` runs them and
 # clears the record. Only a step is printed as "next:". Something for a person
 # to do later that is no step is printed as "later:".
+#
+# One file of a host is not this script's to install: /usr/local/bin/tehas, the
+# command an account that is not the tehas user types, put there by root by
+# `bootstrap.sh dev` from host/login/tehas. This script asks for nothing and
+# installs nothing as root, so a difference between that file and this
+# checkout's is reported, on a line that names the command to run. It is looked
+# for only where that command left its marker (/etc/tehas/manager), through the
+# same two paths it writes to (BOOTSTRAP_ETC, BOOTSTRAP_BIN), so the pair cannot
+# end up looking in different places. A host that never ran it reports nothing.
 #
 # It asks systemd for nothing, with one exception. A copied unit file is not in
 # effect until systemd has reloaded it, and that reload belongs to the step
@@ -230,6 +241,30 @@ record_step() { # one source path from the file table
   if [ "${#steps[@]}" != 0 ]; then tehas_record_steps "${steps[@]}" || exit 1; fi
 }
 
+# --- 2b. The command root installed for the other accounts ------------------
+# host/login/tehas reaches an account that is not the tehas user as
+# /usr/local/bin/tehas, installed by root. Reading the marker bootstrap.sh dev
+# leaves tells whether this host has that setup at all; the file beside it is
+# compared with this checkout's copy. Nothing here writes to either.
+login_bin=${BOOTSTRAP_BIN:-/usr/local/bin}/tehas
+login_manager=${BOOTSTRAP_ETC:-/etc}/tehas/manager
+login_fix=""
+if [ -r "$login_manager" ]; then
+  # The compare and the command it names are both files of this checkout. Said
+  # as a missing checkout, as put() says it: cmp answers 2 for a source that is
+  # not there, and that would read as a difference this host cannot fix.
+  for need in host/login/tehas bootstrap.sh; do
+    [ -f "$root/$need" ] || { echo "tehas: $root/$need is missing from this checkout" >&2; exit 1; }
+  done
+  IFS= read -r login_user <"$login_manager" || true
+  # The name goes into a printed command line, so only the shape bootstrap.sh dev
+  # accepts is used. Anything else is left for the person to fill in.
+  [[ $login_user =~ ^[a-z_][a-z0-9_-]*$ ]] || login_user=""
+  if [ ! -e "$login_bin" ] || ! cmp -s "$host/login/tehas" "$login_bin"; then
+    login_fix="sudo $root/bootstrap.sh dev ${login_user:-<tehas user>}"
+  fi
+fi
+
 # --- 3. Install ---------------------------------------------------------------
 # The console first: a build that fails must leave the host as it was. What is
 # installed is judged without building: by the checksum of every file the
@@ -358,6 +393,19 @@ if [ "$check" = 1 ]; then
     rc=1
   fi
 
+  # The command the other accounts type is root's to install, so it is not part
+  # of the drift above: no run of this script can clear it. It is named apart,
+  # with the command that does clear it.
+  if [ -n "$login_fix" ]; then
+    echo "Login:        NOT CURRENT"
+    if [ -e "$login_bin" ]; then
+      echo "  differs: $login_bin   ($login_fix)"
+    else
+      echo "  missing: $login_bin   ($login_fix)"
+    fi
+    rc=1
+  fi
+
   # A follow-up an earlier tehas update was asked for and never finished is
   # still owed. Files matching is not enough to call a host current. A record
   # this account cannot open is not an answer of "nothing owed" either: it holds
@@ -439,8 +487,18 @@ first_index() {
   echo "later: $TEHAS_HOME/bin/tehas index   (needs the sandbox image and the product checkout)"
 }
 
+# The one file of the host this run cannot bring current, because it belongs to
+# root: said as a later line, naming the command that does it. Not a step - no
+# command runs sudo - so it is never printed as "next:".
+report_login() {
+  if [ -n "$login_fix" ]; then
+    echo "later: $login_fix   ($login_bin is not this checkout's host/login/tehas; only root installs it)"
+  fi
+}
+
 if [ "${#changed[@]}" = 0 ]; then
   echo "tehas is up to date"
+  report_login
   first_index
   exit 0
 fi
@@ -478,5 +536,6 @@ if [ "${#old[@]}" -gt 0 ]; then
   fi
 fi
 [ -z "$retire_later" ] || echo "later: ./install.sh again $retire_later"
+report_login
 first_index
 exit 0

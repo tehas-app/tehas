@@ -270,6 +270,12 @@ the group's `sudo` rule allows. `dev-login` takes the clone's name from the
 account `sudo` was asked by, loads the tehas user's environment and starts the
 session above. Any other command typed there is refused with exit 64.
 
+It is a copy of `host/login/tehas`, and only root installs it, so an update of
+the platform can leave those accounts typing an older command. No tehas command
+replaces it: `install.sh --check` reports the difference as `Login: NOT CURRENT`
+and a real install prints `later: sudo ./bootstrap.sh dev boss`. Run that command
+again after an update that changed `host/login/tehas`.
+
 | Exit | Meaning                                                                                   |
 | ---- | ----------------------------------------------------------------------------------------- |
 | any  | The session's own exit status                                                             |
@@ -952,10 +958,15 @@ deleted; no file of the checkout or of the host changes. It runs `install.sh
 earlier run left undone, and the tests; it merges nothing, installs nothing,
 builds nothing and starts nothing, and exits 1 when there is something to update.
 
+What `install.sh` prints passes through as it printed it, apart from the `next:`
+lines this command runs itself. That includes a `Login: NOT CURRENT` report for
+`/usr/local/bin/tehas`, the command the other accounts type: root's to install,
+so it is named as a line rather than run as a step.
+
 | Exit | Meaning                                                                       |
 | ---- | ----------------------------------------------------------------------------- |
 | 0    | Updated, or already up to date                                                 |
-| 1    | The checkout has local changes, is not on a branch, cannot fast-forward, has no commit yet, a step failed or ran out of its limit, `install.sh` ran out of its limit or gave no answer, a follow-up install.sh asked for is one this command does not know, systemd did not reload the unit files, a container or unit gave no answer, the record of steps owed exists but cannot be read, a status of `install.sh` this command does not know (named in the message), or `--check` found something to update (a checkout behind, or steps left over from an earlier run) |
+| 1    | The checkout has local changes, is not on a branch, cannot fast-forward, has no commit yet, a step failed or ran out of its limit, `install.sh` ran out of its limit or gave no answer, a follow-up install.sh asked for is one this command does not know, systemd did not reload the unit files, a container or unit gave no answer, the record of steps owed exists but cannot be read, a status of `install.sh` this command does not know (named in the message), or `--check` found something to update (a checkout behind, steps left over from an earlier run, or a host's `/usr/local/bin/tehas` that is not the checkout's) |
 | 64   | More than one argument, or an argument this command does not know              |
 | 78   | The instance settings are missing or malformed, or there is no platform checkout |
 
@@ -966,7 +977,7 @@ host points at. See [The host](/host).
 
 ```
 cd ~/tehas/platform
-./install.sh --check     # change nothing; Instance, Dependencies, Installed, Follow-ups, Tests
+./install.sh --check     # change nothing; Instance, Dependencies, Installed, Login, Follow-ups, Tests
 ./install.sh
 ```
 
@@ -992,6 +1003,18 @@ fail the install.
 
 It also removes the commands of the earlier layout from `~/tehas/bin`, unless a
 cycle is running that still uses them. See [The host](/host).
+
+One file it reports and never touches: `/usr/local/bin/tehas`, the command an
+account that is not the tehas user types, which `sudo ./bootstrap.sh dev` puts
+there as root from `host/login/tehas`. Where that setup is in place, its marker
+`/etc/tehas/manager` names the tehas user, and a copy of the command that is not
+this checkout's makes `--check` add a `Login: NOT CURRENT` line naming the command
+that installs it (`sudo ~/tehas/platform/bootstrap.sh dev boss`) and exit 1. A
+real run prints the same finding on a `later:` line. It is never a `next:` step,
+because no tehas command runs as root, and nothing is recorded as owed. The name
+in that command is the marker's; a marker holding something other than an account
+name leaves `<tehas user>` for the person to fill in. A host where
+`bootstrap.sh dev` never ran reports nothing. See [The host](/host).
 
 ## bootstrap.sh
 
