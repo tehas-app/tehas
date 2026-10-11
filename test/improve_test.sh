@@ -337,6 +337,8 @@ t_contains "$(cat "$home/logs/improve-analyst.log")" "No API key found for test-
 
 t_case "a run that works leaves no analyst output behind"
 ready
+mkdir -p "$home/logs"
+echo "from a run that failed" >"$home/logs/improve-analyst.log"
 t_run "$improve"
 t_eq "$t_rc" 0
 t_eq "$(find "$home/logs" -name 'improve-analyst.log' | wc -l)" 0

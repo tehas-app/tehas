@@ -2,8 +2,8 @@
 Description=Tehas: run the improvement loop every three hours
 
 [Timer]
-OnBootSec=10min
-OnUnitInactiveSec=3h
+# By the clock, so that restarting the timer does not start a run.
+OnCalendar=*-*-* 00/3:00:00
 
 [Install]
 WantedBy=timers.target

@@ -164,8 +164,11 @@ arc=$?
 # is kept, one file that the next such run replaces.
 kept=$logs/improve-analyst.log
 blame() {
-  cp "$run/analyst.log" "$kept" 2>/dev/null || true
-  fail "$*, its output is in $kept"
+  rm -f "$kept"
+  if cp "$run/analyst.log" "$kept" 2>/dev/null; then
+    fail "$*, its output is in $kept"
+  fi
+  fail "$*"
 }
 [ "$arc" = 0 ] || blame "the analyst ended with $arc"
 

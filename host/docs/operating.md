@@ -218,7 +218,7 @@ stack is filed as an issue of its own in that repository.
 
 `cycles` is how many were read and `findings` what the model gave. `invalid`
 were dropped for not being the shape asked for, `duplicates` were already in
-the stack (`of` names the issues the model pointed at), and `over` were more
+the stack or given twice (`of` names the issues the model pointed at), and `over` were more
 than the limits allow and are dropped. `filed` and `issues` are what was
 opened.
 

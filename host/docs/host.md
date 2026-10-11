@@ -39,7 +39,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 
 Where the improvement loop is on, each of its runs removes the per-cycle files
 in `~/tehas/logs/` that are older than seven days (`work-*`, `dispatch-work-*`,
-`index-*`), and anything that old under `~/tehas/tmp/improve/`. Nothing else
+`index-*`), and the records that old under `~/tehas/tmp/improve/`. Nothing else
 removes logs.
 
 In the example the platform and the product are the same repository. They are

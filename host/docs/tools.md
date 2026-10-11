@@ -480,14 +480,14 @@ systemctl --user enable --now tehas-improve.timer
 
 One run of the improvement loop. It is off, and prints that it is, unless
 `TEHAS_IMPROVE_REPO` is set. [Operating](/operating) says what it files and how
-to read its line; the timer runs it every three hours and the log is
+to read its line; the timer runs it every three hours, on the hour, and the log is
 `~/tehas/logs/improve.log`.
 
 When a cycle ends, `tehasbot cycle` leaves a record of it in
 `~/tehas/tmp/improve/window/<issue>-<time>/`: how it ended, the stream without
-its word by word updates, the console and the error output. A run takes the
-records that wait, fetches the open issues and the ones closed in the last 30
-days, and starts the analyst. Then it checks the one file the analyst leaves,
+its word by word updates, the console and the error output. A run fetches the
+open issues and the ones closed in the last 30 days, takes the records that
+wait, and starts the analyst. Then it checks the one file the analyst leaves,
 files what passes and removes the records.
 
 The findings are about tehas and about pi-rukas, so the analyst is plain Pi
@@ -515,14 +515,15 @@ whole log of each cycle a finding names is gzipped and uploaded to the release
 or `.log.1.gz`, `.log.2.gz`). A log that holds something shaped like a token is
 not uploaded.
 
-Exit 0 when the run finished, there was nothing to read, or the loop is off.
+Exit 0 when the run finished, there was nothing to read, 10 issues are open
+already, or the loop is off.
 Exit 1 when the analyst or GitHub failed: the records are kept and the next run
 reads them again. What a failed analyst printed is in
 `~/tehas/logs/improve-analyst.log` until a run succeeds. Exit 64 on any argument, 78 on invalid settings. A second run
 while one is going leaves it to that one.
 
-Each run also removes the per-cycle files in `~/tehas/logs/` and anything under
-`~/tehas/tmp/improve/` older than seven days, read or not.
+Each run also removes the per-cycle files in `~/tehas/logs/` and the records
+under `~/tehas/tmp/improve/` older than seven days, read or not.
 
 ## The gates (run by the cycle, usable by hand)
 

@@ -128,7 +128,7 @@ done
 
 t_case "the improvement loop is off unless the instance names a repository"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_IMPROVE_REPO]\""
+t_run "$load && set -u && echo \"[\$TEHAS_IMPROVE_REPO]\""
 t_eq "$t_out" "[]"
 printf '%s\n' "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && echo \"[\$TEHAS_IMPROVE_REPO]\""
