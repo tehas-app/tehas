@@ -704,8 +704,9 @@ are enabled. Both write to `~/tehas/logs/preview.log`.
    One that is not is removed, with its last lines in the build log, and the
    state is `build-failed`. The old container went before the new one was
    started, so nothing serves for that pull request until a commit starts.
-7. The pull request is told, and `~/tehas/live/previews.json` is written for
-   the dashboard and for [tehasbot health](#tehasbot-health).
+7. The pull request is told, at the top of its own description, and
+   `~/tehas/live/previews.json` is written for the dashboard and for
+   [tehasbot health](#tehasbot-health).
 
 Each pull request has a state, in `~/tehas/preview/<pr>/state.json`:
 
@@ -740,20 +741,39 @@ memory limit does not count. So an image that declares a volume anywhere but
 `/tmp`, `/config` and `/data` is not run, and every container is removed
 with `docker rm -f -v`, which takes a volume Docker made for it along.
 
-**The comment.** The pull request gets one comment, by the bot's own account,
-edited in place: the address when the preview serves, or "Unable to create a
-preview" with the reason for `build-failed` and `no-space`. It is said once
-for each commit and state, so a full disk is not a comment every five
-minutes. For `over-limit` and `no-recipe` a pull request gets no comment.
-One that has a comment from an earlier state has it edited to "There is no
-preview" with the reason, so that it does not go on giving an address that
-answers 404. `building` is on the dashboard only. When the account of the
-token cannot be read (`gh api user`), nothing is written and the log says
-`#<pr>: no comment, the account of the token could not be read`, at each run
-until it can. To find its comment the
-command reads every comment of the pull request and takes the one its own
-account wrote. A call that fails, or an answer that is not a list of
-comments, writes nothing and is tried again at the next run.
+**The notice in the description.** The preview is said at the top of the pull
+request's own description, between the marker lines `<!-- tehas-preview -->`
+and `<!-- /tehas-preview -->`: the address when the preview serves, or
+"Unable to create a preview" with the reason for `build-failed` and
+`no-space`. It is said once for each commit and state, so a full disk is not
+an edit every five minutes. For `over-limit` and `no-recipe` a pull request
+whose description has no notice gets none. One that has a notice from an
+earlier state has it changed to "There is no preview" with the reason, so that
+it does not go on giving an address that answers 404. `building` is on the
+dashboard only.
+
+The description is asked for at the moment of the edit, with `gh api
+repos/<repo>/pulls/<pr>`, and not from the list of open pull requests the run
+was given minutes ago: an edit made before that read is kept. GitHub takes no
+condition on a write of a description, so an edit made in the moment between
+the read and the write is not kept, and the later write wins. What the command
+read is written to `~/tehas/preview/<pr>/.description` before it writes, and
+the log says `#<pr>: the notice was written`, so a description written over is
+visible on the host and can be copied back from there.
+
+Only a notice this command wrote belongs to it: the two marker lines, the
+opening one as the first line of the description, with between them a line
+starting with `Preview of`, `Unable to create a preview` or `There is no
+preview`. Anyone can write the marker lines, so without a line of the bot's own
+between them no block can be told from a stranger's. A marker line anywhere
+else, or a block that is not the bot's, is someone else's text: the description
+is left as it is and the log says `#<pr>: the description has a preview notice
+that is not this one, left alone`, once for each commit and state. The
+description is read again at every run, so one cleared of its marker lines gets
+its notice at the run that sees it. Write your own text outside the two marker
+lines. No call, or an answer that is not that pull request's or does not give
+its description, writes nothing and is tried again at the next run. A
+description that already says what it should say is not written at all.
 
 **The sweep**, every three hours, is the second check that nothing of a merged
 or closed pull request stays on the host. It does not work from GitHub's list

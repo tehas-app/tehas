@@ -25,12 +25,14 @@
 #   when it goes    At the next run after the pull request is merged or
 #                   closed: the container, the image, the fetched ref and
 #                   the state.
-#   what it says    One comment on the pull request, by the bot, edited in
-#                   place: the address, or "Unable to create a preview" with
-#                   the reason, for a failed build and for a full disk. A
-#                   pull request that falls over the limit or loses its
-#                   recipe has that comment say there is no preview. It gets
-#                   no comment if it had none.
+#   what it says    A notice at the top of the pull request's own description,
+#                   between two marker lines, edited in place: the address, or
+#                   "Unable to create a preview" with the reason, for a failed
+#                   build and for a full disk. A pull request that falls over
+#                   the limit or loses its recipe has that notice say there is
+#                   no preview. It gets no notice if it had none. A notice it
+#                   cannot tell as its own is left alone, and so is the rest of
+#                   the description.
 #   a full disk     Under TEHAS_PREVIEW_MIN_FREE of free space nothing is
 #                   built. What serves stays, and removal still runs. The
 #                   figures are in previews.json at every run, and tehasbot
@@ -102,11 +104,14 @@ build_limit=900
 # below the default is taken, and anything else is the default.
 settle=5
 if [[ $settle_asked =~ ^[0-4]$ ]]; then settle=$settle_asked; fi
+# The notice in a description is this command's only between these two lines,
+# only when the first of them is the first line of the description, and only
+# when the line under it is one of the three this command writes.
 marker='<!-- tehas-preview -->'
+marker_end='<!-- /tehas-preview -->'
 min_kb=$((TEHAS_PREVIEW_MIN_FREE_MB * 1024))
 free=""
 low=false
-me=""
 
 mkdir -p "$root" "$live" "$logs" "$TEHAS_HOME/tmp" || exit 1
 # The sweep waits for a run to end; a run does not wait for anything.
@@ -192,21 +197,31 @@ measure() {
 }
 gb() { awk -v kb="$1" 'BEGIN { printf "%.1f GB", kb / 1048576 }'; }
 
-# --- The comment on the pull request -----------------------------------------
-# comment <number>: say where the preview is, or that it could not be created
-# and why. One comment per pull request, the bot's own, found by its first
-# line and edited in place. Said once per commit and state, so a full disk is
-# not a comment every five minutes. A call that fails is tried at the next run.
-# Over the limit and without a recipe there is nothing to do about here, so a
-# pull request gets no comment for those. One that has a comment has it
-# edited: it would otherwise go on giving an address that answers 404.
-comment() {
-  local n=$1 sha state reason key text body id pages create=true
+# --- The notice in the pull request's description ----------------------------
+# tell <number>: say where the preview is, or that it could not be created and
+# why, at the top of the pull request's own description, between the marker
+# lines. Said once per commit and state, so a full disk is not an edit every
+# five minutes. A call that fails is tried at the next run. Over the limit and
+# without a recipe there is nothing to say here, so a pull request whose
+# description has no notice gets none for those. One that has a notice has it
+# changed: it would otherwise go on giving an address that answers 404.
+# The description is asked for at the moment of the edit, not from the list the
+# run was given minutes ago, so that a person who changed it before that read
+# is kept. GitHub takes no condition on a write of a description, so an edit
+# made between the read and the write is lost: what was read is kept in
+# $root/<number>/.description and every write is said in the log.
+# Only a notice this command wrote is changed. Anyone can write the marker
+# lines, so a block is this one's only when it opens the description and the
+# line under the opening marker is one of the three this command writes. Any
+# other marker line is someone else's text, and the description is left as
+# GitHub gave it.
+tell() {
+  local n=$1 sha state reason key text block answer said action old new create=true
   sha=$(field "$n" sha)
   state=$(field "$n" state)
   reason=$(field "$n" reason)
   key="$sha $state"
-  [ "$(cat "$root/$n/.commented" 2>/dev/null)" != "$key" ] || return 0
+  [ "$(cat "$root/$n/.noticed" 2>/dev/null)" != "$key" ] || return 0
   case "$state" in
     serving) text="Preview of \`${sha:0:7}\`: https://$(tehas_edge_name uat "$n")/" ;;
     build-failed | no-space) text="Unable to create a preview of \`${sha:0:7}\`. $reason" ;;
@@ -216,37 +231,89 @@ comment() {
       ;;
     *) return 0 ;;
   esac
-  body="$marker
+  block="$marker
 $text"
-  [ "$create" = false ] || body="$body
+  [ "$create" = false ] || block="$block
 
 It is rebuilt when the branch changes and removed when this pull request is closed."
-  # Only a comment of this account: anyone can write the marker. Without the
-  # account's name no comment can be told from a stranger's, and the run says
-  # so: a token that cannot answer would otherwise be a silence.
-  [ -n "$me" ] || me=$(gh api user 2>/dev/null | jq -r '.login // empty' 2>/dev/null) || me=""
-  if [ -z "$me" ]; then
-    echo "#$n: no comment, the account of the token could not be read"
+  block="$block
+$marker_end"
+  # Not an answer, or one about another pull request, or one whose description
+  # is neither text nor null: nothing is written on it, and the next run asks.
+  answer=$(gh api "repos/$repo/pulls/$n" 2>/dev/null) || {
+    echo "#$n: the description could not be read, tried again at the next run"
     return 0
-  fi
-  # Every page: on a pull request with more than a hundred comments the bot's
-  # own may be on a later one. --slurp gives the pages as one array of arrays.
-  # Anything else, no answer at all included, is not a list to trust: then
-  # nothing is written, where an empty list would mean a new comment.
-  pages=$(gh api --paginate --slurp "repos/$repo/issues/$n/comments?per_page=100" 2>/dev/null) || return 0
+  }
   # shellcheck disable=SC2016  # a jq program: the variables are jq's
-  id=$(jq -r --arg me "$me" --arg marker "$marker" '
-    if type == "array" and all(.[]; type == "array" and all(.[]; type == "object")) then . else error("not pages") end
-    | [.[][] | select(.user.login == $me and ((.body // "") | startswith($marker)))][0].id // "none"' \
-    <<<"$pages" 2>/dev/null) || return 0
-  # jq says nothing and exits 0 on no input at all.
-  [ -n "$id" ] || return 0
-  if [ "$id" != none ]; then
-    gh api -X PATCH "repos/$repo/issues/comments/$id" -f body="$body" >/dev/null 2>&1 || return 0
-  elif [ "$create" = true ]; then
-    gh api -X POST "repos/$repo/issues/$n/comments" -f body="$body" >/dev/null 2>&1 || return 0
-  fi
-  printf '%s\n' "$key" >"$root/$n/.commented"
+  said=$(jq -c --argjson n "$n" --arg open "$marker" --arg close "$marker_end" \
+    --arg block "$block" --argjson create "$create" '
+    def body: if has("body") | not then error("no description")
+              elif (.body | type) == "string" then .body
+              elif .body == null then ""
+              else error("no description") end;
+    # A line of a description, without the carriage return a CRLF line ending
+    # leaves. The rest of the description keeps what GitHub gave it.
+    def bare: sub("\r$"; "");
+    def at($lines; $m): [range(0; $lines | length) | select(($lines[.] | bare) == $m)];
+    def splice($i): (.[($i + 1):] | join("\n")) as $rest |
+      if $rest == "" then $block else $block + "\n" + $rest end;
+    # Without a line of ours between the markers no block can be told from one
+    # written by someone else, and text written by someone else is left alone.
+    def ours($line): ($line // "") | bare |
+      startswith("Preview of `") or startswith("Unable to create a preview") or
+      startswith("There is no preview");
+    if (.number | type) != "number" or .number != $n then error("not this pull request") else . end
+    | body as $b
+    | ($b | split("\n")) as $L
+    | at($L; $open) as $oi
+    | at($L; $close) as $ci
+    | if ($oi | length) == 0 and ($ci | length) == 0 then
+        (if $create
+         then {action: "write", old: $b,
+               body: (if $b == "" then $block else $block + "\n\n" + $b end)}
+         else {action: "none", old: $b, body: ""} end)
+      elif ($oi | length) == 1 and $oi[0] == 0 and ($ci | length) == 1 and ours($L[1]) then
+        {action: "write", old: $b, body: ($L | splice($ci[0]))}
+      else {action: "refuse", old: $b, body: ""} end
+    | (if .action == "write" and .body == $b then {action: "same", old: $b, body: ""} else . end)' \
+    <<<"$answer" 2>/dev/null) || {
+    echo "#$n: the description could not be read, tried again at the next run"
+    return 0
+  }
+  # jq runs its program on no input at all and says nothing with exit 0.
+  [ -n "$said" ] || {
+    echo "#$n: the description could not be read, tried again at the next run"
+    return 0
+  }
+  action=$(jq -r '.action // ""' <<<"$said")
+  old=$(jq -r '.old // ""' <<<"$said")
+  new=$(jq -r '.body // ""' <<<"$said")
+  case "$action" in
+    none | same) printf '%s\n' "$key" >"$root/$n/.noticed"; return 0 ;;
+    refuse)
+      # Said once for each commit and state, not at every run. The description
+      # is read again at each run all the same, so that one cleared of its
+      # marker lines gets its notice at the run that sees it.
+      if [ "$(cat "$root/$n/.refused" 2>/dev/null)" != "$key" ]; then
+        printf '%s\n' "$key" >"$root/$n/.refused"
+        echo "#$n: the description has a preview notice that is not this one, left alone"
+      fi
+      return 0 ;;
+    write) ;;
+    *)
+      # Not an action this command's program answers with. Nothing is written.
+      echo "#$n: the description could not be read, tried again at the next run"
+      return 0 ;;
+  esac
+  # What GitHub had as the description before this command changed it. An edit
+  # written over by mistake can be read back from here.
+  printf '%s\n' "$old" >"$root/$n/.description"
+  gh api -X PATCH "repos/$repo/pulls/$n" -f body="$new" >/dev/null 2>&1 || {
+    echo "#$n: the notice was not written, tried again at the next run"
+    return 0
+  }
+  printf '%s\n' "$key" >"$root/$n/.noticed"
+  echo "#$n: the notice was written"
 }
 
 # --- One build ---------------------------------------------------------------
@@ -486,7 +553,7 @@ run() {
         stop "$n"
       fi
       mark "$n" "$sha" over-limit "More than $TEHAS_PREVIEW_MAX pull requests are open."
-      comment "$n"
+      tell "$n"
       continue
     fi
     wanted+=("$n $sha")
@@ -520,7 +587,7 @@ run() {
     else
       build "$n" "$sha"
     fi
-    comment "$n"
+    tell "$n"
   done
   write_list
 }

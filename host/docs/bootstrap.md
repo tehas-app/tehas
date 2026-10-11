@@ -127,8 +127,9 @@ never in git.
 
 **The bot token.** A token of a GitHub machine account with write access to the
 product repository, in `~/.config/tehas/env` as `GH_TOKEN=...`. What it is used
-for: reading the queue and label events, relabelling and commenting, pushing
-the cycle's branch, opening the pull request.
+for: reading the queue and label events, relabelling and commenting, editing
+the description of a pull request to say where its preview is, pushing the
+cycle's branch, opening the pull request.
 
 - Test it before placing it: `GH_TOKEN=... gh api repos/<owner>/<name>` must
   answer with `push: true`.

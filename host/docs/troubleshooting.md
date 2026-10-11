@@ -422,7 +422,7 @@ docker network inspect tehas-previews --format '{{range .Containers}}{{.Name}} {
 - The first line says `Restarting`, or an age of seconds that never grows:
   the process stopped later than those five seconds, and Docker starts it
   again each time, because a preview runs with `--restart unless-stopped`.
-  The state stays `serving` and the pull request keeps its comment with the
+  The state stays `serving` and the pull request keeps its notice with the
   address while that goes on. The second line says why. Fix the recipe and
   push; the new commit is built. A process that stops within the five seconds
   is `build-failed`, above.
@@ -436,13 +436,20 @@ the proxy sends to. See "The edge router does not start" above.
 **521 or 525 from outside.** The proxy or its certificate. The table in
 [Previews](/edge) says which.
 
-**No comment on the pull request.** The comment is written for `serving`,
-`build-failed` and `no-space` only, once for each commit and state. For
-`over-limit` and `no-recipe` a comment that is already there is edited to say
-there is no preview, and none is made. It needs the bot's token to answer
-`gh api user`: when it does not, the log says `#<pr>: no comment, the account
-of the token could not be read`. Check `gh auth status` as the tehas user. A
-call that failed is tried again at the next run.
+**Nothing in the pull request's description.** The notice is written for
+`serving`, `build-failed` and `no-space` only, once for each commit and state.
+For `over-limit` and `no-recipe` a notice that is already there is changed to
+say there is no preview, and none is made. The description is read from GitHub
+at the moment of the edit, so a failed call, or an answer that is not that pull
+request's, writes nothing and is tried again at the next run. A description
+with a marker line of its own, or a block at its very top whose first line is
+not one of `Preview of`, `Unable to create a preview` or `There is no preview`,
+is left as it is and the log says `#<pr>: the description has a preview notice
+that is not this one, left alone`, once for each commit and state. A write
+GitHub did not take says `#<pr>: the notice was not written, tried again at the
+next run`, and the description GitHub had before the write is in
+`~/tehas/preview/<pr>/.description`. When nothing is written for a pull request
+that should have a notice, check `gh auth status` as the tehas user.
 
 **The dashboard's "List written" time is old.** Every run writes the list,
 also one that builds nothing. An old time means no run came by:

@@ -243,17 +243,19 @@ Push a branch to the product repository and open a pull request. At the next
 run, which is at most five minutes away, the preview is built. Once the build
 is done:
 
-- the bot comments on the pull request with `https://uat-<pr>.tehas.app/`,
+- the top of the pull request's own description says
+  `https://uat-<pr>.tehas.app/`,
 - the dashboard lists it under Previews,
 - `tail ~/tehas/logs/preview.log` has a line `#<pr>: serving`.
 
 Merge or close it, and at the next run the log has
-`#<pr>: pull request no longer open, removed`, and the name answers 404.
+`#<pr>: pull request no longer open, removed`, and the name answers 404. The
+description keeps what it last said.
 
 When a preview is not there, the dashboard says why. The pull request's
-comment says so for a failed build and for a full disk. A pull request that
+description says so for a failed build and for a full disk. A pull request that
 had a preview and falls over the limit, or whose new commit has no recipe,
-has its comment changed to say there is none. See
+has its notice changed to say there is none. See
 [Troubleshooting](/troubleshooting).
 
 ## What a preview is given, and what it is not
