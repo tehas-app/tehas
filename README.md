@@ -41,6 +41,23 @@ Tehas has no database. Its state is the labels on GitHub and plain files on the
 host. A dashboard on port 8080 shows the queue and the console of the running
 cycle.
 
+## Work by hand
+
+The same host takes work by hand. A person logs in with their own account and
+types one command:
+
+```
+ssh alice@tehas-tehas
+tehas dev
+```
+
+That is an interactive Pi session with pi-rukas in the cycle's sandbox, on the
+factory's models, in a clone that is kept between sessions. Commits carry the
+name and email of the person's own git configuration. The push and the pull
+request are the bot's. One step as root lets an account in:
+`sudo ./bootstrap.sh dev <tehas user> <login>`.
+[Operating](host/docs/operating.md) has the details.
+
 ## What you need
 
 - A Linux host with Docker. `bootstrap.sh` supports Ubuntu 26.04 on x86_64.

@@ -79,6 +79,11 @@ short, and [Operating](/operating) covers the day-to-day.
 | Output scrolls past in your terminal         | The console streams to the factory floor with tokens and passwords masked, and usage is posted on the pull request |
 | A stalled session waits for you to notice    | A stopped cycle labels the issue and says why; a pause label on the control issue holds the queue             |
 
+Running Pi by hand is still there, on the same host. A person with an account
+on it types `tehas dev` and gets an interactive session with pi-rukas in the
+cycle's sandbox, on the factory's models, with their own name on the commits.
+[Operating](/operating) says how.
+
 ## See it run
 
 The [factory floor](/) shows the stages as stations: in line, building, review
