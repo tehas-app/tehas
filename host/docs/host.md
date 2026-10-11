@@ -261,8 +261,10 @@ toolchain adds it to the Dockerfile.
 Each build is also tagged with its date, so
 `docker tag tehas/pi-rukas:<date> tehas/pi-rukas:uid$(id -u)` rolls back.
 
-To upgrade pi-rukas: pull the new upstream image, put its digest in the `FROM`
-line, rebuild, and run the contract test before any cycle uses it. The contract
+To upgrade pi-rukas: put the new image's digest in the `FROM` line and its
+commit in `versions.env`, rebuild, and run the contract test before any cycle
+uses it. Where the image comes from is described under
+[pi-rukas comes from a fork](#pi-rukas-comes-from-a-fork). The contract
 test proves the product's gates run inside the image, as the unprivileged user,
 with nothing mounted but a clone:
 
@@ -277,6 +279,46 @@ docker run --rm --cpus 4 --memory 4g --user "$(id -u):$(id -g)" \
     sh -c "$(grep -v -e "^#" -e "^$" .pi/smoke-cmd | head -n 1)"'
 rm -rf "$T"
 ```
+
+## pi-rukas comes from a fork
+
+tehas takes pi-rukas from a [fork](https://github.com/janit/pi-rukas) of
+[upstream](https://github.com/trail-openers/pi-rukas), so a fix reaches the
+factory when it is ready here, not when upstream releases it. The fork is
+never the last stop: every change in it is also offered upstream.
+
+The fork has two kinds of branch:
+
+- `main` follows upstream's `main`. Nothing is committed to it directly.
+- `tehas` is what a host runs: an upstream commit plus the fixes upstream has
+  not merged yet. `PI_RUKAS_COMMIT` in `versions.env` is a commit on it.
+
+Today `tehas` is an upstream commit with nothing added, so the base in
+`sandbox/Dockerfile` is still upstream's published image for that commit. The
+fork has not published an image yet. Its workflows have to be switched on once,
+on the fork's Actions tab, before the first fix can go through step 3.
+
+When a problem in pi-rukas comes up:
+
+1. Open an issue upstream that describes it. Say there that a fix is being
+   tried in the fork.
+2. Write the fix in the fork, on a branch from upstream's `main`, with
+   pi-rukas's own tests. Open a pull request upstream from that branch.
+3. Put the same change on `tehas` and build the fork's image from it: run the
+   `publish-image` workflow on the `tehas` branch. It publishes
+   `ghcr.io/janit/pi-rukas:sha-<commit>`.
+4. In this repository, in one pull request, set `PI_RUKAS_COMMIT` to that
+   commit and the `FROM` line of `sandbox/Dockerfile` to that image's digest.
+   The two always name the same commit, or the host and the sandbox run
+   different code.
+5. On the host: pull, run `./bootstrap.sh user`, rebuild the sandbox image,
+   run the contract test above, then let one cycle run before trusting it.
+6. When upstream merges the fix, move `tehas` to an upstream commit that has
+   it and drop the fork's copy. Repeat steps 3 to 5.
+
+Keep `tehas` close to upstream. A change that upstream turns down is either
+reworked until they take it or removed from `tehas`; it does not stay as a
+permanent difference.
 
 ## Services
 
