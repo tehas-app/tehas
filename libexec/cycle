@@ -23,6 +23,14 @@
 # A TERM, INT or HUP is passed on to tehas work, which stops the container. The
 # cycle is then reported like any other that stopped without a pull request.
 #
+# A runner that exits 137 while the cycle's state still says running, or says
+# nothing, had its container killed: the status reported is "killed" and the
+# issue is parked. tehas work leaves in state/cycles/<issue>.oom how many
+# processes in the container were killed for memory. The file is read here as
+# digits and removed, the number is said in the comment when it is above 0,
+# and it goes into the record for the improvement loop. Nothing is read from
+# the runner's output.
+#
 # Only a run that ended as handoff with an open pull request is reported as
 # waiting for a merge. The label change that ends a cycle is tried three
 # times, and so is the question about the pull request. If GitHub still refuses it, or the cycle is killed outright, the
@@ -113,6 +121,9 @@ started=$(date +%s)
 restart=""
 [ -e "$cycles/$issue" ] && restart=--restart
 : >"$cycles/$issue"
+# A count of kills still here is an earlier cycle's, one that was killed
+# outright before it could report.
+rm -f "${cycles:?}/${issue:?}.oom"
 # The trap is set before the runner starts, so no signal falls between.
 wpid=""
 stopped=0
@@ -144,6 +155,22 @@ status=$(jq -r '.pipelineState.status // "unknown"' "$state" 2>/dev/null | tr -c
 step=$(jq -r '.pipelineState.currentStep // "-"' "$state" 2>/dev/null | tr -cd 'A-Za-z0-9_.-')
 status=${status:-unknown}
 step=${step:--}
+# The runner says 137 only for a container that was killed under it. A state
+# that names an end has the last word.
+if [ "$rc" = 137 ]; then
+  case "$status" in running | unknown) status=killed ;; esac
+fi
+# How many processes in the container were killed for memory, as tehas work
+# counted them. One short line of digits, or nothing.
+kills=0
+oom_file=${cycles:?}/${issue:?}.oom
+if [ -f "$oom_file" ] && [ ! -L "$oom_file" ]; then
+  kills=$(head -c 16 "$oom_file" 2>/dev/null | head -n 1)
+  [[ $kills =~ ^(0|[1-9][0-9]{0,8})$ ]] || kills=0
+fi
+rm -f "${cycles:?}/${issue:?}.oom"
+killed=""
+[ "$kills" = 0 ] || killed=" $kills processes were killed for memory in its container."
 branch=$(jq -r '.pipelineState.branchName // ""' "$state" 2>/dev/null || echo "")
 # The numbers are summed as numbers. Anything else in their place counts as
 # nothing: a string would be joined up by the sum and posted word for word.
@@ -180,18 +207,18 @@ stuck=" The label of this issue could not be changed. The next poll of the dispa
 summary="status \`$status\`, last step \`$step\`, $mins min"
 if [ "$rc" = 0 ] && [ "$status" = merged ]; then
   relabel --remove-label tehas:running && stuck=""
-  comment "Tehas cycle finished: $summary. The change was merged.$stuck"
+  comment "Tehas cycle finished: $summary. The change was merged.$killed$stuck"
   tidy
 elif [ "$rc" = 0 ] && [ "$status" = handoff ] && [ -n "$pr" ]; then
   relabel --remove-label tehas:running --add-label tehas:awaiting-merge && stuck=""
-  comment "Tehas cycle finished: $summary. Pull request waiting for a human: $pr$stuck"
+  comment "Tehas cycle finished: $summary. Pull request waiting for a human: $pr$killed$stuck"
   gh pr comment "$pr" --body "Tehas cycle for #$issue: $summary.
 
 ${usage:-No token usage was recorded for this cycle.}" >/dev/null 2>&1 || log "WARN: comment on $pr failed"
   tidy
 else
   relabel --remove-label tehas:running --add-label needs-human-attention && stuck=""
-  parked="Tehas cycle stopped without a pull request: $summary (runner exit $rc). Read the handoff comment if there is one; the run log is \`~/tehas/logs/dispatch-work-$issue.log\` on \`$(hostname)\`.${pr:+ Its branch has an open pull request: $pr}$stuck"
+  parked="Tehas cycle stopped without a pull request: $summary (runner exit $rc). Read the handoff comment if there is one; the run log is \`~/tehas/logs/dispatch-work-$issue.log\` on \`$(hostname)\`.$killed${pr:+ Its branch has an open pull request: $pr}$stuck"
   jq -n --arg text "$parked
 
 ${usage}" '{text: $text, question: null}' >"$TEHAS_HOME/state/park-$issue.json"
@@ -215,9 +242,9 @@ ${usage}"
   fi
   rm -f "$TEHAS_HOME/state/park-$issue.json"
 fi
-log "done #$issue rc=$rc status=$status step=$step minutes=$mins pr=${pr:-none}"
+log "done #$issue rc=$rc status=$status step=$step minutes=$mins pr=${pr:-none} oom_kills=$kills"
 # For the improvement loop, where the instance has one. The cycle is reported
 # by now, and a record that cannot be written is the loop's loss only.
-tehas_improve_record "$issue" "$started" "$rc" "$status" "$step" "$pr" || log "WARN: no record of #$issue for the improvement loop"
+tehas_improve_record "$issue" "$started" "$rc" "$status" "$step" "$pr" "$kills" || log "WARN: no record of #$issue for the improvement loop"
 "$status_cmd"
 exit 0

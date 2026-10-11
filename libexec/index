@@ -28,10 +28,14 @@
 #              3 a cycle is running, or a poll or another index run holds the
 #                dispatcher's lock; nothing was done.
 #             64 an argument this command does not know.
-#             78 the instance settings are invalid; nothing was done.
+#             78 the instance settings are invalid, or tehas.slice is not
+#                usable on this host; nothing was done.
 #
 # What the container is given is pinned by test/index_test.sh: the clone,
-# read-only, and the cache volume. No network, no token, no settings.
+# read-only, and the cache volume. No network, no token, no settings. It runs
+# in tehas.slice with a cycle's limits (lib/slice.sh), so the dispatcher counts
+# its memory with the cycles'. Without a usable slice nothing is cloned and
+# nothing starts.
 set -uo pipefail
 
 cycle=0
@@ -46,6 +50,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/config.sh"
 # shellcheck source=lib/cycles.sh
 . "$here/../lib/cycles.sh"
+# shellcheck source=lib/slice.sh
+. "$here/../lib/slice.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO
 tehas_checkout || exit 78
@@ -75,6 +81,17 @@ elif [ "$(jq -r '.commit // empty' "$marker" 2>/dev/null)" = "$base" ]; then
   exit 0
 fi
 
+# No container starts outside the slice, and none with half its limits. Asked
+# here, not at the top: a run that finds the lock held or the index current
+# has no container to start.
+TEHAS_SLICE_LIMITS=()
+tehas_slice_ok || { echo "tehas index: $TEHAS_SLICE_WHY" >&2; exit 78; }
+tehas_slice_limits || true
+if [ "${#TEHAS_SLICE_LIMITS[@]}" != 12 ] || [ "${TEHAS_SLICE_LIMITS[1]}" != tehas.slice ]; then
+  echo "tehas index: the container limits could not be made, not starting" >&2
+  exit 78
+fi
+
 if ! docker image inspect "$image" >/dev/null 2>&1; then
   echo "tehas index: no sandbox image $image, nothing was indexed; build it with $TEHAS_HOME/sandbox/build.sh" >&2
   exit 1
@@ -91,7 +108,7 @@ fi
 
 started=$(date +%s)
 docker run --rm --name tehas-index --network none \
-  --cpus "$TEHAS_WORK_CPUS" --memory "$TEHAS_WORK_MEMORY" \
+  "${TEHAS_SLICE_LIMITS[@]}" \
   --user "$(id -u):$(id -g)" -e HOME=/home/vscode \
   -w "$repo" -v "$tree:$repo:ro" \
   -v pi-ensemble-cache:/home/vscode/.cache \

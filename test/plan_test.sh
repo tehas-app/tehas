@@ -21,7 +21,8 @@ git clone -q "$upstream" "$checkout"
 
 # The turn's workspace is gone when the turn is over, so the container notes
 # what it was handed there.
-t_stub docker 'printf "%s\n" "$@" >"$T/calls/docker.args.$$"
+t_stub docker 'if [ "$1" = info ]; then cat "$T/docker.info"; exit; fi
+printf "%s\n" "$@" >"$T/calls/docker.args.$$"
 case " $* " in *" --mode "*)
   ws=$T/home/tehas/work/widget-plan-7
   cat "$ws/.tehas/brief.md" >"$T/calls/brief.seen" 2>/dev/null
@@ -36,6 +37,16 @@ esac'
 # container that lives for a second is looked at many times.
 t_stub sleep
 printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitconfig"
+# A host with the root step done: the slice loaded from its file with 8 GiB,
+# so a container's ceiling is 2048m, Docker on the systemd driver and cgroup
+# v2, and nothing in the slice.
+t_stub systemctl 'cat "$T/slice.show"'
+slice_good() {
+  printf '%s\n' FragmentPath=/etc/systemd/system/tehas.slice ActiveState=active MemoryMax=8589934592 >"$T/slice.show"
+  echo "systemd 2" >"$T/docker.info"
+  slice_state 0.00
+}
+limits="--cgroup-parent --memory --memory-swap --memory-reservation --pids-limit --cpu-shares"
 
 turn_args() { grep -l -x -e '--mode' "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
 after() { turn_args | awk -v flag="$1" 'prev == flag { print } { prev = $0 }'; }
@@ -54,8 +65,11 @@ unknown_options() { # <image> <options that take a value> <options that take non
     { print }'
 }
 # What docker is given before the image, one argument per line, without the
-# container's name.
-options() { awk -v image="$image" '$0 == image { exit } prev == "--name" { $0 = "<name>" } { print; prev = $0 }'; }
+# container's name and without the cid file, which only a cycle has.
+options() {
+  awk -v image="$image" '$0 == image { exit } $0 == "--cidfile" { skip = 1; next } skip { skip = 0; next }
+    prev == "--name" { $0 = "<name>" } { print; prev = $0 }'
+}
 
 # A turn that asked a question with the tool, then settled.
 asked() {
@@ -71,7 +85,8 @@ reset() {
   rm -f "$T"/calls/* "$T/out.json" "$fx/live"
   asked
   t_instance "${T_MINIMAL[@]}"
-  T_ENV=(GH_TOKEN=test-token)
+  T_ENV=(GH_TOKEN=test-token "TEHAS_CGROUP_ROOT=$T_CGROUP")
+  slice_good
   printf '# Faster search\n\nMake it fast.\n' >"$T/brief.md"
 }
 
@@ -146,7 +161,7 @@ PI_ENSEMBLE_WORKSPACE_ROOT"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
 
 t_case "the planning container gets no option beyond the documented ones"
-t_eq "$(turn_args | unknown_options "$image" "--name --cpus --memory -w -v -e" "--rm -i")" ""
+t_eq "$(turn_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -i")" ""
 t_eq "$(after --name)" "tehas-plan-7"
 t_eq "$(after -w)" "$ws"
 
@@ -160,24 +175,35 @@ t_lacks "$args" "test-token"
 t_lacks "$args" "$checkout"
 t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 1
 
-t_case "the limits and the host aliases are a cycle's, from the settings"
+t_case "the turn gets the slice and a cycle's limits, and the host aliases from the settings"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_WORK_CPUS=1 TEHAS_WORK_MEMORY=512m PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+t_instance "${T_MINIMAL[@]}" TEHAS_CYCLE_RESERVE=1g PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
 t_eq "$t_rc" 0
-t_eq "$(after --cpus)" "1"
-t_eq "$(after --memory)" "512m"
+t_eq "$(after --cgroup-parent)" "tehas.slice"
+t_eq "$(after --memory)" "2048m"
+t_eq "$(after --memory-swap)" "2048m"
+t_eq "$(after --memory-reservation)" "1g"
+t_eq "$(after --pids-limit)" "4096"
+t_eq "$(after --cpu-shares)" "1024"
+t_lacks "$(turn_args)" "--cpus"
+t_lacks "$(turn_args)" "--cidfile"
 t_contains "$(turn_args)" "--add-host=models:192.0.2.9"
-t_eq "$(turn_args | unknown_options "$image" "--name --cpus --memory -w -v -e" "--rm -i")" ""
+t_eq "$(turn_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -i")" ""
+
+t_case "the slice is read once: one systemctl call, one docker info"
+t_eq "$(t_calls systemctl)" "show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax"
+t_eq "$(t_calls docker | grep -c '^info ')" 1
 
 # A turn has a workspace and a transcripts directory of its own on the host.
 # They are mounted at the paths a cycle's are.
-t_case "docker is given what tehas work gives a cycle's container: only the name, the two directories of its own and what pi is told differ"
+t_case "docker is given what tehas work gives a cycle's container: only the name, the two directories of its own, the cycle's cid file and what pi is told differ"
 turn_args | options | sed -e "s|^$tree:|$ws-7:|" -e 's|/ensemble-runs/plan-7:|/ensemble-runs/issue-7:|' >"$T/plan.options"
 rm -f "$T"/calls/*
 t_run "$T_ROOT/libexec/work 7"
 turn_args | options >"$T/work.options"
 t_eq "$([ -s "$T/work.options" ] && echo recorded)" recorded
+t_contains "$(turn_args)" "--cidfile"
 t_eq "$(cat "$T/plan.options")" "$(cat "$T/work.options")"
 t_eq "$(tail_of)" "$image pi --mode rpc --approve "
 
@@ -341,9 +367,59 @@ t_contains "$t_out" "time limit of 1s passed"
 t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123"}'
 t_eq "$(grep -l -x stop "$T"/calls/docker.args.* | wc -l)" 1
 
+# --- Without a usable slice ----------------------------------------------------
+# refused: 78, and neither a workspace nor a container was made.
+refused() {
+  t_eq "$t_rc" 78
+  t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+  t_lacks "$(t_calls docker)" "run "
+  t_eq "$(find "$T/home/tehas/work" "$T/home/tehas/logs" "$T/out.json" 2>/dev/null | wc -l)" 0
+}
+without() { reset; rm -rf "$T/home/tehas/work" "$T/home/tehas/logs"; }
+
+t_case "refuses with 78 without the slice, before any docker run"
+without
+printf '%s\n' FragmentPath= ActiveState=inactive MemoryMax=infinity >"$T/slice.show"
+t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+refused
+t_contains "$t_out" "tehas plan: no slice file on this host (sudo ./bootstrap.sh slice)"
+
+t_case "a cgroupfs driver, cgroup v1 and a silent docker are refused the same way"
+for answer in "cgroupfs 2" "systemd 1" ""; do
+  without
+  echo "$answer" >"$T/docker.info"
+  t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+  refused
+  t_contains "$t_out" "tehas plan: "
+  t_contains "$t_out" "ocker"
+done
+
+t_case "a reserve above the ceiling is refused"
+without
+t_instance "${T_MINIMAL[@]}" TEHAS_CYCLE_RESERVE=3g
+t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+refused
+t_contains "$t_out" "tehas plan: TEHAS_CYCLE_RESERVE=3g is more than a container may use here (2048m"
+
+t_case "the twelve words are all present or nothing starts"
+# The command beside a slice library that says yes and hands out a short list,
+# or a list that names another parent.
+short=$T/short
+mkdir -p "$short/libexec" "$short/lib"
+cp "$T_ROOT"/lib/*.sh "$short/lib/"
+ln -s "$plan" "$short/libexec/plan"
+for words in "--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --pids-limit 4096" \
+  "--cgroup-parent other.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --pids-limit 4096 --cpu-shares 1024" ""; do
+  without
+  printf '%s\n' 'tehas_slice_ok() { return 0; }' "tehas_slice_limits() { TEHAS_SLICE_LIMITS=($words); }" >"$short/lib/slice.sh"
+  t_run "$short/libexec/plan 7 --out $T/out.json --brief $T/brief.md"
+  refused
+  t_contains "$t_out" "tehas plan: the container limits could not be made, not starting"
+done
+
 t_case "a missing token starts no container"
 reset
-T_ENV=()
+T_ENV=("TEHAS_CGROUP_ROOT=$T_CGROUP")
 t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
 t_eq "$t_rc" 64
 t_contains "$t_out" "GH_TOKEN is not set"

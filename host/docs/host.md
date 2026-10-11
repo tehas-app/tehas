@@ -20,7 +20,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/env.sh`                     | Environment for every tehas process; sourced from `~/.bashrc`           |
 | `~/tehas/lib/config.sh`              | Loads and checks the instance settings; sourced by every command        |
 | `~/tehas/lib/sandbox.sh`             | What a sandbox container is given; sourced by the work, plan and dev scripts |
-| `~/tehas/lib/slice.sh`               | Reads the slice: whether it is usable, a container's limits, the room left. Nothing uses it yet |
+| `~/tehas/lib/slice.sh`               | Reads the slice: whether it is usable, a container's limits, the room left. Every command that starts a sandbox container reads it |
 | `~/tehas/lib/questions.sh`, `planning.sh` | The question and planning steps of the dispatcher. A cycle's report uses the first too |
 | `~/tehas/bin/`                       | The two commands on `PATH`: `tehas` for a person, `tehasbot` for the units. Plus `gh` |
 | `~/tehas/libexec/`                   | The scripts behind the two commands, one for each thing they do. Not on `PATH` |
@@ -232,17 +232,88 @@ sandbox. Give the sandbox its address with `PI_ENSEMBLE_HOST_ALIASES`
 
 ## Limits and concurrency
 
-`TEHAS_WORK_CPUS` and `TEHAS_WORK_MEMORY` bound all the cycles of a host
-together. CPUs is a time quota (`docker --cpus`), not pinning. Memory is a hard
-limit (`docker --memory`); a process that exceeds it is killed. The defaults are
-the host's CPUs minus one and half its memory, which on the example host is 7
-CPUs and about 7.5 GB. A value above what the host has is rejected.
+Every sandbox container tehas starts runs in one systemd slice,
+[`tehas.slice`](#the-slice): a cycle, a planning turn, a `tehas dev` session,
+the indexer and the improvement loop's analyst. The slice's `MemoryMax` bounds
+them all together. No setting describes the machine.
+
+A cycle, a planning turn, a dev session and the indexer each get the same six
+limits, twelve words on the `docker run` line:
+
+| Option | Value | What it does |
+| --- | --- | --- |
+| `--cgroup-parent` | `tehas.slice` | Puts the container in the slice |
+| `--memory` | a quarter of the slice's `MemoryMax` | A hard ceiling. At it the kernel kills the largest process in the container. Four containers have to run away to fill the slice on their own |
+| `--memory-swap` | the same value | No swap for the container |
+| `--memory-reservation` | `TEHAS_CYCLE_RESERVE`, `2g` unless set | The container's floor. When the slice is full the kernel frees memory above the floors first |
+| `--pids-limit` | `4096` | The most processes and threads in the container |
+| `--cpu-shares` | `1024` | A CPU weight, the same on every container |
+
+There is no CPU quota. One container alone may use every CPU; several busy
+ones share them by weight, about equally. The weight is also what makes the
+kernel share CPU inside the slice at all, so every container carries it.
+
+The floor is a priority when the slice frees memory, not a guarantee against
+the whole host: when the host itself runs short, the host comes first. With
+the default reserve the host needs about 11 GiB of memory, because the reserve
+may not be more than a container's ceiling. A smaller host sets
+`TEHAS_CYCLE_RESERVE` lower.
+
+The analyst is a batch job with limits of its own: the slice, one CPU
+(`--cpus 1`), `--memory 2g`, the same for `--memory-swap`, `--pids-limit 1024`
+and the same CPU weight. The check that the sandbox can push, which `tehas
+work` runs for a few seconds before a cycle, is not in the slice and has no
+limits. Previews, image builds and the edge router are outside the slice too.
+
+Nothing starts outside the slice. `tehas work`, `tehas plan`, `tehas dev`,
+`tehas index` and `tehasbot improve` ask once whether the slice is usable:
+the slice is loaded from its file and has a `MemoryMax`, Docker uses the
+systemd cgroup driver on cgroup v2, the `cpu`, `memory` and `pids` controllers
+are there, and the reserve fits under the ceiling. If not, the command stops
+with exit 78 and one line that says what is missing, before it clones
+anything, calls GitHub or starts a container:
+
+```
+tehas work: no slice file on this host (sudo ./bootstrap.sh slice)
+```
+
+A cycle's container has its id written to `~/tehas/state/cycles/<issue>.cid`
+while it runs. That is how the cycle's container is told from the others in
+the slice.
+
+`tehas dev` prints how many more cycles the slice has room for before it
+starts its session. The session's memory counts in the slice like any other
+container's, so a session that uses a lot leaves room for fewer cycles.
+
+#### A container that is killed
+
+Memory is the one thing a container is killed for. A container that grows
+reaches its own ceiling first, and the kernel kills the largest process in it.
+When several grow and the slice reaches `MemoryMax`, the kernel frees file
+cache, the floors last, and then kills the largest process in the slice. If
+the process killed is a build step, the cycle goes on with a failed step. If
+it is Pi itself, the container ends with status 137.
+
+`tehas work` reads the container's own count of such kills while the cycle
+runs. A count above 0 is in its output and in the comment that reports the
+cycle:
+
+```
+tehas work: 2 processes in this cycle's container were killed for memory
+```
+
+A container that ends with 137 while the cycle was still running is reported
+as `killed`: `tehas work` exits 137, and the issue is parked with
+`needs-human-attention` and status `killed` in the comment. That is a
+container that ran out of memory, or one that was stopped from outside, for
+example with `docker kill`. It is not `killed` when `tehas work` stopped the
+container itself, at the time limit or on a signal, nor when the cycle's state
+already said how it ended. The record for the improvement loop carries the
+count as `oomKills`.
 
 `TEHAS_TICKET_CONCURRENCY` sets how many issues are worked on side by side,
-each in a cycle, a container and a workspace of its own. It defaults to 1. Each
-container gets the two limits above divided by it, whether or not the other
-slots are in use. A share below one CPU is rejected, so the setting cannot
-exceed the CPUs given.
+each in a cycle, a container and a workspace of its own. It defaults to 1. A
+container's limits do not depend on it.
 
 `TEHAS_CONCURRENCY` sets how many workstreams one cycle may run side by side,
 inside that one container. It defaults to 4.
@@ -287,9 +358,8 @@ Cycles that run side by side know nothing of each other:
 Root installs it once with [`sudo ./bootstrap.sh slice`](/bootstrap#slice),
 from `host/slice/tehas.slice` to `/etc/systemd/system/tehas.slice`.
 
-Today it is only installed. No container is started in it, and the limits
-above are the ones in force. It comes first so that the root step is done on a
-host before a version of tehas that needs it.
+Every sandbox container is started in it, with the limits above. Without it
+no container starts.
 
 Its one limit is `MemoryMax=75%`: everything in the slice together may use
 three quarters of the host's memory. It is a share, not a number, so the file

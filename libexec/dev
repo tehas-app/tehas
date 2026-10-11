@@ -16,14 +16,23 @@
 # Exit status: the session's own, as docker reports it, or
 #             64 a wrong argument, a malformed author, no bot token or no git
 #                identity; no container was started.
-#             78 the instance settings are invalid, or the clone's directory
-#                exists and is not a clone; no container was started.
+#             78 the instance settings are invalid, tehas.slice is not usable
+#                on this host, or the clone's directory exists and is not a
+#                clone; no container was started.
 #
 # The container is a cycle's container with a terminal: the same image, limits,
 # mounts and variables as a cycle is given, assembled by lib/sandbox.sh and
-# pinned by test/dev_test.sh. It differs in the tree it works in, in git's
-# identity, and in TERM and COLORTERM. Not the Docker socket, SSH keys,
-# ~/.config/tehas or the rest of the host environment.
+# lib/slice.sh and pinned by test/dev_test.sh. It differs in the tree it works
+# in, in git's identity, in TERM and COLORTERM, and in having no cid file. Not
+# the Docker socket, SSH keys, ~/.config/tehas or the rest of the host
+# environment.
+#
+# It runs in tehas.slice with a cycle's limits: a memory ceiling of a quarter
+# of the slice, no swap, the reserve as its floor, a pids limit and a CPU
+# weight. The dispatcher counts its memory with the cycles', so a session can
+# keep a cycle from starting. Before it starts, the command says how many more
+# cycles the slice has room for. Without a usable slice no clone is made and
+# nothing starts.
 #
 # The author is a label, not a login. Anyone on this account can give any
 # name, and the push and the pull request still go through the bot's token.
@@ -33,7 +42,7 @@
 # there again, not even to read it.
 #
 # A session shares the model endpoint with a running cycle and does not hold
-# the queue. One session per clone: docker refuses a second container of the
+# the queue, beyond the room its memory takes in the slice. One session per clone: docker refuses a second container of the
 # same name. It needs a terminal; docker refuses to start without one.
 set -uo pipefail
 
@@ -95,10 +104,22 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/config.sh"
 # shellcheck source=lib/sandbox.sh
 . "$here/../lib/sandbox.sh"
+# shellcheck source=lib/cycles.sh
+. "$here/../lib/cycles.sh"
+# shellcheck source=lib/slice.sh
+. "$here/../lib/slice.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
 tehas_checkout || exit 78
 branch=$(tehas_branch) || exit 78
+# No container starts outside the slice, and none with half its limits.
+TEHAS_SLICE_LIMITS=()
+tehas_slice_ok || { echo "tehas dev: $TEHAS_SLICE_WHY" >&2; exit 78; }
+tehas_slice_limits || true
+if [ "${#TEHAS_SLICE_LIMITS[@]}" != 12 ] || [ "${TEHAS_SLICE_LIMITS[1]}" != tehas.slice ]; then
+  echo "tehas dev: the container limits could not be made, not starting" >&2
+  exit 78
+fi
 devs=$TEHAS_HOME/dev
 tree=$devs/$name
 stored=$devs/$name.author
@@ -171,10 +192,30 @@ case "$running" in
   *) echo "tehas dev: a cycle is running on issue $running; the session shares the model endpoint with it" ;;
 esac
 
+# The room the dispatcher would find now, with the cycles that hold a lock.
+# The session's own memory comes off it once its container runs.
+cids=()
+count=0
+while IFS= read -r n; do
+  [ -n "$n" ] || continue
+  count=$((count + 1))
+  cids+=("$TEHAS_HOME/state/cycles/$n.cid")
+done < <(tehas_cycles_running)
+room=0
+why=""
+read -r room _ _ _ why < <(tehas_slice_room "$count" "${cids[@]}") || true
+[[ $room =~ ^[0-9]+$ ]] || { room=0 why=unreadable; }
+case "$why" in
+  pressure) why=" (it is under memory pressure)" ;;
+  unreadable) why=" (its use could not be read)" ;;
+  *) why="" ;;
+esac
+echo "tehas dev: tehas.slice has room for $room more cycles$why"
+
 # TERM and COLORTERM by name: Pi draws a terminal interface, and docker's own
 # default describes a plainer terminal than most people sit at.
 docker run --rm -it --name "tehas-dev-$name" \
-  --cpus "$TEHAS_WORK_CPUS" --memory "$TEHAS_WORK_MEMORY" \
+  "${TEHAS_SLICE_LIMITS[@]}" \
   -w "$tree" "${mounts[@]}" \
   "${envs[@]}" -e TERM -e COLORTERM "${hosts[@]}" \
   "$PI_ENSEMBLE_IMAGE" pi "${pi_args[@]}"
