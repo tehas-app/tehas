@@ -427,7 +427,7 @@ with nothing mounted but a clone:
 ```
 T=~/tehas/tmp/contract-test
 git clone -q ~/tehas/repos/tehas "$T"
-docker run --rm --cpus 4 --memory 4g --user "$(id -u):$(id -g)" \
+docker run --rm --cgroup-parent tehas.slice --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)" \
   -e HOME=/home/vscode -v "$T:$T" -w "$T" --entrypoint bash \
   "$PI_ENSEMBLE_IMAGE" -c '
     sh .pi/worktree-setup &&
@@ -435,6 +435,9 @@ docker run --rm --cpus 4 --memory 4g --user "$(id -u):$(id -g)" \
     sh -c "$(grep -v -e "^#" -e "^$" .pi/smoke-cmd | head -n 1)"'
 rm -rf "$T"
 ```
+
+The container runs in the slice like the factory's own, so the dispatcher
+counts its memory while it is there.
 
 ## pi-rukas comes from a fork
 

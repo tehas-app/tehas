@@ -29,7 +29,8 @@ And if you're wondering... tehas is Estonian for factory :)
 1. You label an issue `tehas:ready`. The label counts only when an account on
    the instance's allow list applied it.
 2. A dispatcher polls the queue every two minutes and starts a cycle for each
-   issue there is room for: one at a time by default.
+   issue there is room for: at most the host's CPUs minus one by default,
+   fewer while `tehas.slice` has no room.
 3. The cycle runs in a container with CPU and memory limits. It gets the bot's
    GitHub token and the product checkout. It does not get the Docker socket or
    any SSH key.

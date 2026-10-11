@@ -68,10 +68,9 @@ MemoryMax=75%
 CPUWeight=100
 ```
 
-The slice is where the sandbox containers are to run together, under one
-memory limit of three quarters of the host's memory. No container is put in it
-yet, so installing it changes nothing that runs. [The host](/host#the-slice)
-says what it is for.
+The slice is where every sandbox container runs, under one memory limit of
+three quarters of the host's memory. Without it no container starts and the
+dispatcher holds. [The host](/host#the-slice) says what it is for.
 
 Root is needed for exactly this: writing one system unit and reloading the
 system manager. Docker places containers under the system manager, so a slice
