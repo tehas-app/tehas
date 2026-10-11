@@ -15,7 +15,11 @@ t_stub console
 mv "$T/bin/console" "$tree/libexec/console"
 work="$tree/libexec/work"
 checkout=$T/home/tehas/repos/widget
-ws=$T/home/tehas/work/widget
+# The workspace of issue 7 on the host, and the path every cycle has it at
+# inside its container.
+ws=$T/home/tehas/work/widget-7
+inside=$T/home/tehas/work/widget
+runs=$T/home/.pi/agent/ensemble-runs/issue-7
 # The product repository, and the host's checkout of it.
 upstream=$T/git/acme/widget
 mkdir -p "$upstream"
@@ -51,12 +55,14 @@ unknown_options() { # <image> <options that take a value> <options that take non
 t_case "a work directory tehas did not make is left alone"
 t_instance "${T_MINIMAL[@]}"
 T_ENV=(GH_TOKEN=test-token)
-mkdir -p "$T/home/tehas/work/widget"
+mkdir -p "$T/home/tehas/work/widget" "$T/home/tehas/work/widget-7"
 echo keep >"$T/home/tehas/work/widget/notes.txt"
+echo keep >"$T/home/tehas/work/widget-7/notes.txt"
 t_run "$work 7"
 t_eq "$t_rc" 78
 t_contains "$t_out" "was not made by tehas"
 t_eq "$(cat "$T/home/tehas/work/widget/notes.txt")" keep
+t_eq "$(cat "$T/home/tehas/work/widget-7/notes.txt")" keep
 t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
 rm -rf "$T/home/tehas/work"
 
@@ -76,11 +82,11 @@ t_eq "$(after --memory)" "512m"
 
 t_case "the image and the working directory come from the settings"
 t_contains "$(cycle_args | tr '\n' ' ')" "tehas/pi-rukas:uid$(id -u) pi --mode rpc --approve"
-t_eq "$(after -w)" "$ws"
+t_eq "$(after -w)" "$inside"
 
 t_case "the console is the program beside this one, given the cycle's log, the transcripts and its file"
 t_contains "$(t_calls console)" "--rpc $T/home/tehas/logs/work-7-"
-t_contains "$(t_calls console)" ".jsonl --runs $T/home/.pi/agent/ensemble-runs --out $T/home/tehas/live/console-7.txt --since "
+t_contains "$(t_calls console)" ".jsonl --runs $runs --out $T/home/tehas/live/console-7.txt --since "
 
 t_case "a console that fails is named with its exit status and where it wrote why"
 t_lacks "$t_out" "the console ended"
@@ -112,8 +118,8 @@ t_case "the product checkout is not mounted anywhere"
 t_lacks "$(cat "$T"/calls/docker.args.*)" "$checkout"
 
 t_case "exactly the documented paths are mounted"
-want="$ws:$ws
-$T/home/.pi/agent/ensemble-runs:/home/vscode/.pi/agent/ensemble-runs
+want="$ws:$inside
+$runs:/home/vscode/.pi/agent/ensemble-runs
 $T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
 $T/home/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro
 $T/home/.pi/agent/sessions:/home/vscode/.pi/agent/sessions
@@ -121,6 +127,16 @@ $T/home/.vipune:/home/vscode/.vipune
 pi-ensemble-bun-cache:/home/vscode/.bun
 pi-ensemble-cache:/home/vscode/.cache"
 t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
+
+t_case "the agents are told the path inside the container, not the host's"
+t_contains "$(after -e)" "PI_ENSEMBLE_WORKSPACE_ROOT=$inside"
+t_lacks "$(after -e)" "widget-7"
+
+t_case "nothing is made on the host at the path inside the container"
+t_eq "$(find "$inside" -maxdepth 0 2>/dev/null | wc -l)" 0
+
+t_case "the cycle's transcripts directory is its own and is made for it"
+t_eq "$(find "$runs" -maxdepth 0 -type d | wc -l)" 1
 
 t_case "exactly the documented variables are passed in"
 want="GH_TOKEN
@@ -150,7 +166,7 @@ t_eq "$(cycle_args | sed -n "/^$(printf '%s' "$image" | sed 's/[\/.]/\\&/g')\$/,
 
 t_case "the push check's container gets the workspace and the same variables, no more"
 t_eq "$(preflight_args | unknown_options "$image" "--user -e -w -v --entrypoint" "--rm")" ""
-t_eq "$(preflight_args | awk 'prev == "-v" { print } { prev = $0 }')" "$ws:$ws"
+t_eq "$(preflight_args | awk 'prev == "-v" { print } { prev = $0 }')" "$ws:$inside"
 t_eq "$(preflight_args | awk 'prev == "-e" { print } { prev = $0 }' | sed 's/=.*//' | LC_ALL=C sort)" \
   "$(printf '%s\n' "$want" HOME | LC_ALL=C sort)"
 t_eq "$(preflight_args | awk 'prev == "--user" { print } { prev = $0 }')" "$(id -u):$(id -g)"
@@ -194,21 +210,90 @@ t_run "$work 7"
 t_eq "$(git -C "$ws" rev-parse HEAD)" "$(git -C "$upstream" rev-parse main)"
 t_eq "$(git -C "$checkout" rev-parse main)" "$(git -C "$upstream" rev-parse main)"
 
+t_case "another issue's workspace and transcripts are left alone"
+mkdir -p "$T/home/tehas/work/widget-9" "$T/home/.pi/agent/ensemble-runs/issue-9"
+echo keep >"$T/home/tehas/work/widget-9/notes.txt"
+echo keep >"$T/home/.pi/agent/ensemble-runs/issue-9/a-1-coder.json"
+rm -f "$T"/calls/docker*
+t_run "$work 7"
+t_eq "$(cat "$T/home/tehas/work/widget-9/notes.txt")" keep
+t_eq "$(cat "$T/home/.pi/agent/ensemble-runs/issue-9/a-1-coder.json")" keep
+t_lacks "$(cat "$T"/calls/docker.args.*)" "widget-9"
+t_lacks "$(cat "$T"/calls/docker.args.*)" "issue-9"
+
 t_case "the cycle's status line is published as the console's mask leaves it"
 t_stub docker 'printf "%s\n" "$@" >"$T/calls/docker.args.$$"
 case " $* " in *" --mode "*) echo "{\"statusText\":\"step 3 of the cycle\"}" ;; esac'
 t_stub console 'if [ "$1" = --mask ]; then sed "s/cycle/[masked]/"; fi'
 mv "$T/bin/console" "$tree/libexec/console"
 t_run "$work 7"
-t_eq "$(jq -r .statusText "$T/home/tehas/live/running.json")" "step 3 of the [masked]"
+t_eq "$(jq -r .last.statusText "$T/home/tehas/live/running.json")" "step 3 of the [masked]"
 
 t_case "without a console the status line is not published"
 mv "$tree/libexec/console" "$T/console.kept"
 t_run "$work 7"
-t_eq "$(jq -r '.statusText, .status' "$T/home/tehas/live/running.json" | tr '\n' ,)" ",running,"
+t_eq "$(jq -r '.last.statusText, .last.status' "$T/home/tehas/live/running.json" | tr '\n' ,)" ",running,"
 t_stub console
 mv "$T/bin/console" "$tree/libexec/console"
 t_stub docker 'printf "%s\n" "$@" >"$T/calls/docker.args.$$"'
+
+live=$T/home/tehas/live
+other() { # issue running status updatedAt: the live file of another cycle
+  printf '{"issue":%s,"running":%s,"status":"%s","step":"develop","statusText":"","startedAt":%s,"updatedAt":%s,"console":"console-%s.txt"}\n' \
+    "$1" "$2" "$3" "$(($4 - 60))" "$4" "$1" >"$live/cycles/$1.json"
+}
+
+t_case "the cycle writes a live file of its own, and the view has it as the last one"
+t_run "$work 7"
+t_eq "$(jq -c '[.issue, .running, .console]' "$live/cycles/7.json")" '[7,false,"console-7.txt"]'
+t_eq "$(jq -c '[(.cycles | length), .last.issue]' "$live/running.json")" "[0,7]"
+
+t_case "another cycle that is running is in the view beside it"
+other 9 true running "$(date +%s)"
+t_run "$work 7"
+t_eq "$(jq -c '[.cycles[].issue, .last.issue]' "$live/running.json")" "[9,7]"
+t_eq "$(jq -r .cycles[0].console "$live/running.json")" "console-9.txt"
+
+t_case "a finished cycle that is not the last one leaves the view and the disk"
+other 5 false handoff 1000
+t_run "$work 7"
+t_eq "$(find "$live/cycles" -name '*.json' -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" "7.json 9.json "
+t_eq "$(jq -r .last.issue "$live/running.json")" 7
+
+t_case "a cycle that has written nothing for two minutes is no longer shown as running"
+other 9 true running "$(($(date +%s) - 300))"
+t_run "$work 7"
+t_eq "$(jq -c '[(.cycles | length), .last.issue]' "$live/running.json")" "[0,7]"
+rm -rf "$live/cycles"
+
+t_case "a cycle that is stopped is recorded as interrupted"
+# The cycle's call stays alive until docker stop is called, as a container does.
+t_stub docker 'printf "%s\n" "$@" >"$T/calls/docker.args.$$"
+case " $* " in
+  *" --mode "*) sleep 60 >/dev/null 2>&1 & echo $! >"$T/sleeper.pid"; wait ;;
+  " stop "*) kill "$(cat "$T/sleeper.pid")" 2>/dev/null ;;
+esac'
+rm -f "$live/cycles/7.json" "$T/sleeper.pid"
+# Every wait is bounded. The live file says running only after the trap is set.
+t_run "$work 7 >\"\$T/work.out\" 2>&1 & pid=\$!
+for _ in \$(seq 100); do [ \"\$(jq -r .running \"$live/cycles/7.json\" 2>/dev/null)\" = true ] && break; sleep 0.1; done
+kill -TERM \$pid; wait \$pid; echo rc=\$?"
+kill "$(cat "$T/sleeper.pid" 2>/dev/null)" 2>/dev/null
+t_contains "$t_out" "rc=2"
+t_contains "$(t_calls docker)" "stop -t 10 tehas-work-7"
+t_eq "$(jq -c '[.running, .status]' "$live/cycles/7.json")" '[false,"interrupted"]'
+t_stub docker 'printf "%s\n" "$@" >"$T/calls/docker.args.$$"'
+rm -rf "$live/cycles"
+
+t_case "with two tickets side by side a cycle gets half the budget"
+rm -f "$T"/calls/*
+t_stub nproc 'echo 8'
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=2 TEHAS_WORK_CPUS=2 TEHAS_WORK_MEMORY=512m
+t_run "$work 7"
+t_eq "$(after --cpus)" "1.00"
+t_eq "$(after --memory)" "256m"
+rm -f "$T/bin/nproc"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_CPUS=1 TEHAS_WORK_MEMORY=512m PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 
 t_case "a checkout of another repository starts no container"
 rm -f "$T"/calls/*

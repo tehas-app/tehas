@@ -162,9 +162,14 @@ mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
   { echo "tehas dev: could not prepare the sandbox, not starting a session" >&2; exit 78; }
 
 echo "tehas dev: $tree, commits as $who"
-running=$(jq -r 'select(.running == true) | .issue' "$TEHAS_HOME/live/running.json" 2>/dev/null) || running=""
-[ -z "$running" ] ||
-  echo "tehas dev: a cycle is running on issue $running; the session shares the model endpoint with it"
+# The running cycles, from the view or from the one object an earlier version wrote.
+running=$(jq -r '(if has("cycles") then .cycles else [select(.running == true)] end)[] | .issue' \
+  "$TEHAS_HOME/live/running.json" 2>/dev/null | paste -sd, - | sed 's/,/, /g') || running=""
+case "$running" in
+  '') ;;
+  *,*) echo "tehas dev: cycles are running on issues $running; the session shares the model endpoint with them" ;;
+  *) echo "tehas dev: a cycle is running on issue $running; the session shares the model endpoint with it" ;;
+esac
 
 # TERM and COLORTERM by name: Pi draws a terminal interface, and docker's own
 # default describes a plainer terminal than most people sit at.

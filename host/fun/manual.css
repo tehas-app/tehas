@@ -113,6 +113,15 @@
 .page .now h2 { margin: 0; padding: 0; border: 0; overflow-wrap: anywhere; }
 .now .step { margin-top: 8px; color: var(--slate); }
 .page #console { height: 400px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* One tab per cycle, shown when there is more than one to choose from. */
+.page .console-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.page .console-tabs[hidden] { display: none; }
+.page .console-tabs button {
+  min-height: 48px; padding: 0 16px;
+  font: inherit; color: inherit; text-transform: uppercase;
+  background: var(--bone-shade); border: 4px solid var(--outline); cursor: pointer;
+}
+.page .console-tabs button[aria-selected="true"] { background: var(--brass); }
 .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(288px, 1fr)); gap: 0 32px; }
 .page .cols h2 { margin-top: 32px; font-size: 16px; line-height: 24px; text-transform: uppercase; }
 .page .num { margin-right: 8px; }

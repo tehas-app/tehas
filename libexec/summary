@@ -3,7 +3,7 @@
 # what the current or last cycle is doing.
 #
 # It reads one file, $TEHAS_HOME/live/health.json, which the dispatcher
-# refreshes at every poll and every two minutes during a cycle. No network, no
+# refreshes at every poll and at the end of every cycle. No network, no
 # model, no instance settings, and it writes nothing. What it prints is as old
 # as that file, and the first line says how old.
 #
@@ -47,9 +47,10 @@ jq -r --argjson now "$now" --argjson stale "$stale" '
   (.checks.queue // null | if . == null then "queue     no snapshot yet"
    else "queue     \(.inLine) in line, \(.building) building, \(.review) in review, \(.stopped) stopped"
         + (if .paused then ", paused" else "" end) end),
-  (.checks.cycle // null | if . == null then "cycle     none yet"
-   elif .running then "cycle     #\(.issue) running, step \(.step // "-"), started \(.startedAt // "" | age)"
-   else "cycle     #\(.issue) \(.status // "unknown") at step \(.step // "-"), \(.time // "" | age)" end)
+  ((if ((.checks.cycles // []) | length) > 1 then .checks.cycles[] else (.checks.cycle // null) end)
+   | if . == null then "cycle     none yet"
+     elif .running then "cycle     #\(.issue) running, step \(.step // "-"), started \(.startedAt // "" | age)"
+     else "cycle     #\(.issue) \(.status // "unknown") at step \(.step // "-"), \(.time // "" | age)" end)
 ' "$file" || exit 1
 
 [ "$stale" = false ] && [ "$(jq -r .status "$file")" != fail ]

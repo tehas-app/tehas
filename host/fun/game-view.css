@@ -497,6 +497,15 @@ body[data-factory="live"] .console-state::before {
 .console-body { padding: 16px; }
 .console-cycle { overflow-wrap: anywhere; }
 .console-step { min-height: 24px; color: var(--slate); overflow-wrap: anywhere; }
+/* One tab per cycle, shown when there is more than one to choose from. */
+.console-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.console-tabs[hidden] { display: none; }
+.console-tabs button {
+  min-height: 48px; padding: 0 16px;
+  font: inherit; color: inherit; text-transform: uppercase;
+  background: var(--bone); border: 4px solid var(--outline); cursor: pointer;
+}
+.console-tabs button[aria-selected="true"] { background: var(--brass); }
 #console-out {
   height: 400px;
   margin: 8px 0 0;

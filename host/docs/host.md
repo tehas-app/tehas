@@ -24,7 +24,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/libexec/`                   | The scripts behind the two commands, one for each thing they do. Not on `PATH` |
 | `~/tehas/platform`                   | Checkout of this repository; `install.sh` runs from it and `tehas update` pulls it |
 | `~/tehas/repos/tehas`                | The product checkout, on the default branch. Cycles are cloned from it; no container is given it |
-| `~/tehas/work/tehas`                 | The cycle's workspace: a fresh clone made for each cycle, removed before the next |
+| `~/tehas/work/tehas-<issue>`         | The cycle's workspace: a fresh clone made for each cycle. Removed after a cycle that merged or left a pull request, otherwise kept until that issue's next cycle. `~/tehas/work/tehas` is only its path inside the container |
 | `~/tehas/dev/<name>`                 | A person's clone for working by hand, made and used by `tehas dev`, never removed. `<name>.author` next to it holds whose name its commits carry |
 | `~/tehas/repos/pi-rukas`             | pi-rukas, pinned to a commit                                            |
 | `~/tehas/docs/`, `~/tehas/fun/`      | This site's pages and the front page, installed from `host/`            |
@@ -211,11 +211,17 @@ sandbox. Give the sandbox its address with `PI_ENSEMBLE_HOST_ALIASES`
 
 ## Limits and concurrency
 
-`TEHAS_WORK_CPUS` and `TEHAS_WORK_MEMORY` bound the one container a cycle runs
-in. CPUs is a time quota (`docker --cpus`), not pinning. Memory is a hard limit
-(`docker --memory`); a process that exceeds it is killed. The defaults are the
-host's CPUs minus one and half its memory, which on the example host is 7 CPUs
-and about 7.5 GB. A value above what the host has is rejected.
+`TEHAS_WORK_CPUS` and `TEHAS_WORK_MEMORY` bound all the cycles of a host
+together. CPUs is a time quota (`docker --cpus`), not pinning. Memory is a hard
+limit (`docker --memory`); a process that exceeds it is killed. The defaults are
+the host's CPUs minus one and half its memory, which on the example host is 7
+CPUs and about 7.5 GB. A value above what the host has is rejected.
+
+`TEHAS_TICKET_CONCURRENCY` sets how many issues are worked on side by side,
+each in a cycle, a container and a workspace of its own. It defaults to 1. Each
+container gets the two limits above divided by it, whether or not the other
+slots are in use. A share below one CPU is rejected, so the setting cannot
+exceed the CPUs given.
 
 `TEHAS_CONCURRENCY` sets how many workstreams one cycle may run side by side,
 inside that one container. It defaults to 4.
@@ -226,11 +232,12 @@ into the last one, so no work is dropped at a low setting; it is done in
 sequence by fewer agents. An issue whose parts touch the same files is planned
 as one workstream whatever the limit.
 
-It is a limit inside one cycle, not across cycles: the dispatcher still runs
-one cycle at a time. The workstreams share the cycle's CPU and memory limits,
-and every one of them is at least one more model call in flight for most of
-the cycle. Lower it when the model backends have few slots, when the host is
-small, or if cycles start timing out.
+It is a limit inside one cycle. With `TEHAS_TICKET_CONCURRENCY` above 1, up to
+that many cycles run at once and each has its own `TEHAS_CONCURRENCY`
+workstreams, so the two multiply: 2 tickets and 4 workstreams are up to 8
+developer agents calling the model backends. Nothing checks that against what
+the backends can serve. Lower either one when the backends have few slots, when
+the host is small, or if cycles start timing out.
 
 ```
 # in the instance's instance.env, then pull and ./install.sh on the host
@@ -242,8 +249,16 @@ Two things it does not change:
 
 - the six review passes on the finished pull request still run together
   (pi-rukas's `PI_ENSEMBLE_SPAWN_CAP`, default 64, is the ceiling there),
-- one issue is worked on at a time. Running several issues at once is not
-  supported: cycles share one checkout.
+- how many issues are worked on at once. That is `TEHAS_TICKET_CONCURRENCY`.
+
+Cycles that run side by side know nothing of each other:
+
+- Two issues that touch the same files give two pull requests that conflict.
+  Label such issues one after the other.
+- The code index is refreshed only when no cycle is running. On a host that
+  is never idle it falls behind the branch; the dispatcher's log says so each
+  time.
+- `~/.vipune`, Pi's `sessions` and the two caches are shared between cycles.
 
 ## Sandbox image
 
@@ -364,7 +379,7 @@ Both are outside the repository and the tehas tree.
 | What the label approves                | The title and body as they were when it was applied. An issue whose text was changed afterwards by any other account is skipped until the label is applied again |
 | Does the token enter the cycle         | Yes, as `GH_TOKEN`. pi-rukas pushes the branch and opens the pull request from inside. Agent code can do anything the token can         |
 | What else enters the container         | `PI_ENSEMBLE_*` settings, the bot's git name and email, the host aliases. Not the rest of the host environment                          |
-| Host paths mounted                     | The cycle's workspace, `~/.vipune`, Pi's `ensemble-runs` and `sessions` (read-write); `models.json`, `mcp.json` (read-only); two caches |
+| Host paths mounted                     | The cycle's own workspace, `~/tehas/work/<name>-<issue>`, at the same path in every container; its own transcripts, `~/.pi/agent/ensemble-runs/issue-<issue>`; `~/.vipune` and Pi's `sessions` (read-write); `models.json`, `mcp.json` (read-only); two caches |
 | Not reachable from the container       | The Docker socket, SSH keys, `~/.config/tehas`, the platform checkout, the product checkout, the instance directory                     |
 | What the host runs from the workspace  | Nothing. The host runs git only in the product checkout, which no container has written. It reads the cycle's state file from the workspace as data |
 | The indexing container                 | `tehas index` runs the indexer, not an agent: a clone of the product read-only, the cache volume, no network, no token                  |

@@ -41,9 +41,10 @@ t_eq "$t_out" "[] [0] []"
 
 t_case "the test hooks survive from the environment"
 t_instance "${T_MINIMAL[@]}"
-T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index)
-t_run "$load && echo \"\$TEHAS_WORK_CMD \$TEHAS_STATUS_CMD \$TEHAS_INDEX_CMD\""
-t_eq "$t_out" "fake-work fake-status fake-index"
+T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index
+  TEHAS_CYCLE_START_CMD=fake-start TEHAS_CYCLE_START_WAIT=2)
+t_run "$load && echo \"\$TEHAS_WORK_CMD \$TEHAS_STATUS_CMD \$TEHAS_INDEX_CMD \$TEHAS_CYCLE_START_CMD \$TEHAS_CYCLE_START_WAIT\""
+t_eq "$t_out" "fake-work fake-status fake-index fake-start 2"
 T_ENV=()
 
 t_case "a missing instance.env returns 78 and names the directory"
@@ -113,7 +114,7 @@ for bad in "TEHAS_REPO=widget" "TEHAS_REPO=a/b/c" "TEHAS_CONTROL_ISSUE=abc" "TEH
 done
 
 for bad in "TEHAS_WORK_MEMORY=lots" "TEHAS_WORK_CPUS=many" \
-  "TEHAS_CONCURRENCY=0" "TEHAS_MAX_AWAITING=-1" "TEHAS_WORK_TIMEOUT=soon" "TEHAS_HOST_ADDR=not an address" \
+  "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=two" "TEHAS_MAX_AWAITING=-1" "TEHAS_WORK_TIMEOUT=soon" "TEHAS_HOST_ADDR=not an address" \
   "TEHAS_BRANCH=two words" "TEHAS_INDEXING=yes" "TEHAS_ANALYTICS_SRC=http://plain.example/ea.js" \
   "TEHAS_ANALYTICS_SRC=https://a.example/x.js\" onload=\"x" "TEHAS_ANALYTICS_SITE=two words" \
   "TEHAS_ANALYTICS_COOKIE=yes" "TEHAS_PROTOLAB_URL=https://lab.example/" "TEHAS_PROTOLAB_URL=lab.example"; do
@@ -242,5 +243,44 @@ t_instance "${T_MINIMAL[@]}" TEHAS_WORK_DIR=/somewhere/else
 t_run "$load && echo \"\$TEHAS_WORK_DIR\""
 t_eq "$t_rc" 0
 t_eq "$t_out" "$T/home/tehas/work/widget"
+
+# The host's CPU count is read with nproc; a stub makes the split the same on
+# every machine. The memory values are far below what any test host has.
+t_case "one ticket at a time by default, and the cycle gets the budget as written"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_CPUS=1 TEHAS_WORK_MEMORY=512m
+t_run "$load && echo \"\$TEHAS_TICKET_CONCURRENCY \$TEHAS_CYCLE_CPUS \$TEHAS_CYCLE_MEMORY\""
+t_eq "$t_rc" 0
+t_eq "$t_out" "1 1 512m"
+
+t_stub nproc 'echo 8'
+t_case "the budget is divided between the tickets, rounded down"
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=3 TEHAS_WORK_CPUS=4 TEHAS_WORK_MEMORY=512m
+t_run "$load && echo \"\$TEHAS_TICKET_CONCURRENCY \$TEHAS_CYCLE_CPUS \$TEHAS_CYCLE_MEMORY\""
+t_eq "$t_rc" 0
+t_eq "$t_out" "3 1.33 170m"
+
+t_case "a memory budget in gigabytes is divided in MiB"
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=2 TEHAS_WORK_CPUS=2 TEHAS_WORK_MEMORY=1g
+t_run "$load && echo \"\$TEHAS_CYCLE_CPUS \$TEHAS_CYCLE_MEMORY\""
+t_eq "$t_out" "1.00 512m"
+
+t_case "the shares are exported, and one in the environment is not used"
+T_ENV=(TEHAS_CYCLE_CPUS=64 TEHAS_CYCLE_MEMORY=64g)
+t_run "$load && bash -c 'echo \$TEHAS_CYCLE_CPUS \$TEHAS_CYCLE_MEMORY'"
+t_eq "$t_out" "1.00 512m"
+T_ENV=()
+
+t_case "a share below one CPU is refused, and both settings are named"
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=3 TEHAS_WORK_CPUS=2 TEHAS_WORK_MEMORY=512m
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "TEHAS_TICKET_CONCURRENCY=3 leaves each cycle 0.66 CPUs of TEHAS_WORK_CPUS=2"
+
+t_case "a memory share Docker would refuse is refused here"
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=2 TEHAS_WORK_CPUS=2 TEHAS_WORK_MEMORY=10m
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "TEHAS_TICKET_CONCURRENCY=2 leaves each cycle 5m of TEHAS_WORK_MEMORY=10m"
+rm -f "$T/bin/nproc"
 
 t_done

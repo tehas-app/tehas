@@ -33,7 +33,8 @@ fresh() {
   mkdir -p "$home"
 }
 
-files="./.config/systemd/user/tehas-dispatch.service
+files="./.config/systemd/user/tehas-cycle@.service
+./.config/systemd/user/tehas-dispatch.service
 ./.config/systemd/user/tehas-dispatch.timer
 ./.config/systemd/user/tehas-energy.service
 ./.config/systemd/user/tehas-protolab.service
@@ -49,10 +50,13 @@ files="./.config/systemd/user/tehas-dispatch.service
 ./tehas/edge/protolab.compose.yaml
 ./tehas/env.sh
 ./tehas/lib/config.sh
+./tehas/lib/cycles.sh
+./tehas/lib/live.sh
 ./tehas/lib/sandbox.sh
 ./tehas/lib/update-steps.sh
 ./tehas/libexec/console
 ./tehas/libexec/console.stamp
+./tehas/libexec/cycle
 ./tehas/libexec/dev
 ./tehas/libexec/dispatch
 ./tehas/libexec/energy
@@ -77,7 +81,7 @@ sorted() { printf '%s\n' "$@" | LC_ALL=C sort; }
 # The follow-ups a fresh install of this repository asks for, taken from the one
 # place that names them and the sources a fresh host has none of.
 next_steps() {
-  tehas_steps_for systemd/tehas-dispatch.service systemd/tehas-dispatch.timer \
+  tehas_steps_for systemd/tehas-cycle@.service systemd/tehas-dispatch.service systemd/tehas-dispatch.timer \
     systemd/tehas-energy.service systemd/tehas-protolab.service \
     systemd/tehas-protolab.timer sandbox/Dockerfile sandbox/build.sh versions.env \
     edge/docs.Caddyfile edge/docs.compose.yaml edge/protolab.Caddyfile \

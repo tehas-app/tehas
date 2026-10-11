@@ -6,9 +6,10 @@
 </div>
 
 <section class="now" id="now" hidden>
+  <div class="console-tabs" id="tabs" role="tablist" aria-label="Cycles" hidden></div>
   <h2 id="now-title"></h2>
   <div class="step" id="now-step"></div>
-  <pre id="console" aria-label="Console of the running cycle" tabindex="0"></pre>
+  <pre id="console" role="tabpanel" aria-label="Console of the selected cycle" tabindex="0"></pre>
   <div class="console-bar">
     <label><input type="checkbox" id="follow" checked> follow the output</label>
     <span class="muted" id="console-note"></span>
@@ -22,6 +23,7 @@
   <section><h2>Completed <span class="n" id="n-completed"></span></h2><ul class="issues" id="completed"></ul></section>
 </div>
 
+<script src="/fun/console-tabs.js"></script>
 <script>
 (() => {
   const MAX = 10;
@@ -70,7 +72,10 @@
     }
   }
 
-  let consoleFile = null, offset = 0, running = null;
+  // Several cycles can run side by side: console-tabs.js says which there are
+  // and which one is shown. running is the shown cycle while it runs.
+  const TABS = globalThis.TEHAS_CONSOLE_TABS;
+  let consoleFile = null, offset = 0, tailing = false, running = null, selected = null, lastStatus = null, lastNow = null;
 
   async function refresh() {
     let s, now;
@@ -85,11 +90,8 @@
     } catch {
       now = null;
     }
-    running = now && now.running ? now : null;
-    const pill = $("state");
-    if (running) { pill.className = "pill run"; pill.textContent = "working"; }
-    else if (s.paused) { pill.className = "pill pause"; pill.textContent = "paused"; }
-    else { pill.className = "pill idle"; pill.textContent = "idle"; }
+    lastStatus = s;
+    lastNow = now;
     $("fresh").textContent = "queue read " + ago(s.generatedAt);
     $("all").href = s.links.all;
 
@@ -97,33 +99,59 @@
     list("awaiting", s.awaiting, s.links.awaiting, "No pull request is waiting.", "updatedAt");
     list("stopped", s.stopped, s.links.stopped, "Nothing is stopped.", "updatedAt");
     list("completed", s.completed, s.links.completed, "Nothing completed yet.", "closedAt");
+    show();
+  }
 
-    // The running (or last) cycle and its console.
-    const shown = now || null;
-    $("now").hidden = !shown;
-    if (shown) {
-      const issue = [...s.running, ...s.queued, ...s.stopped, ...s.awaiting, ...s.completed]
-        .find((i) => i.number === shown.issue);
-      $("now-title").textContent = (running ? "Working on #" : "Last cycle: #") + shown.issue +
-        (issue ? "  " + issue.title : "");
-      const elapsed = (running ? Date.now() / 1000 : shown.updatedAt) - shown.startedAt;
-      $("now-step").textContent = running
-        ? (shown.statusText || "step " + shown.step) + "   (" + dur(elapsed) + " so far)"
-        : "ended as " + shown.status + " at step " + shown.step + " after " + dur(elapsed);
-      if (shown.console !== consoleFile) {
-        consoleFile = shown.console;
-        offset = 0;
-        $("console").textContent = "";
-      }
+  function select(issue) {
+    selected = issue;
+    show();
+  }
+
+  // The selected cycle, running or the last one, and its console.
+  function show() {
+    const s = lastStatus;
+    if (!s) return;
+    const v = TABS.view(lastNow, selected);
+    const pill = $("state");
+    if (v.running) { pill.className = "pill run"; pill.textContent = v.running > 1 ? "working on " + v.running : "working"; }
+    else if (s.paused) { pill.className = "pill pause"; pill.textContent = "paused"; }
+    else { pill.className = "pill idle"; pill.textContent = "idle"; }
+
+    TABS.render($("tabs"), v, select);
+    const tab = v.shown;
+    running = tab && tab.running ? tab.cycle : null;
+    $("now").hidden = !tab;
+    if (!tab) return;
+    const shown = tab.cycle;
+    const issue = [...s.running, ...s.queued, ...s.stopped, ...s.awaiting, ...s.completed]
+      .find((i) => i.number === shown.issue);
+    $("now-title").textContent = (running ? "Working on #" : "Last cycle: #") + shown.issue +
+      (issue ? "  " + issue.title : "");
+    const elapsed = (running ? Date.now() / 1000 : shown.updatedAt) - shown.startedAt;
+    $("now-step").textContent = running
+      ? (shown.statusText || "step " + shown.step) + "   (" + dur(elapsed) + " so far)"
+      : "ended as " + shown.status + " at step " + shown.step + " after " + dur(elapsed);
+    const file = TABS.consoleFile(shown);
+    if (file !== consoleFile) {
+      consoleFile = file;
+      offset = 0;
+      $("console").textContent = "";
+      tail();
     }
   }
 
   async function tail() {
-    if (!consoleFile) return;
+    // Two requests for the same offset would both append their answer.
+    if (!consoleFile || tailing) return;
+    tailing = true;
+    const file = consoleFile;
     try {
-      const r = await fetch("/live/" + consoleFile, { headers: { Range: "bytes=" + offset + "-" }, cache: "no-store" });
+      const r = await fetch("/live/" + file, { headers: { Range: "bytes=" + offset + "-" }, cache: "no-store" });
+      // A tab was chosen while this request was out: its answer is for the old one.
+      if (file !== consoleFile) return;
       if (r.status === 206 || (r.status === 200 && offset === 0)) {
         const buf = new Uint8Array(await r.arrayBuffer());
+        if (file !== consoleFile) return;
         if (buf.length) {
           offset += buf.length;
           const pre = $("console");
@@ -140,10 +168,13 @@
       $("console-note").textContent = running ? "live" : "ended";
     } catch {
       $("console-note").textContent = "console unavailable";
+    } finally {
+      tailing = false;
     }
   }
 
   refresh();
+  TABS.keys($("tabs"), select);
   setInterval(refresh, 10000);
   setInterval(tail, 2000);
   setTimeout(tail, 600);

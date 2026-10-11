@@ -28,8 +28,8 @@ on this repository.
 
 1. You label an issue `tehas:ready`. The label counts only when an account on
    the instance's allow list applied it.
-2. A dispatcher polls the queue every two minutes and starts one cycle at a
-   time.
+2. A dispatcher polls the queue every two minutes and starts a cycle for each
+   issue there is room for: one at a time by default.
 3. The cycle runs in a container with CPU and memory limits. It gets the bot's
    GitHub token and the product checkout. It does not get the Docker socket or
    any SSH key.
@@ -123,6 +123,8 @@ crates the first time. The rules for changes are in [`AGENTS.md`](AGENTS.md).
 | `libexec/` | The scripts behind them, all bash. Installed to `~/tehas/libexec` |
 | `console/` | The console of a running cycle, a Rust program. `install.sh` builds it and installs it as `~/tehas/libexec/console` |
 | `lib/config.sh` | Loads and checks the instance settings |
+| `lib/cycles.sh` | Which cycles are running, from the lock each one holds |
+| `lib/live.sh` | The live view of the cycles, put together from a file per cycle |
 | `lib/sandbox.sh` | What a sandbox container is given, for a cycle and for a session by hand |
 | `lib/update-steps.sh` | The follow-up steps of an install, which `install.sh` asks for and `tehas update` runs |
 | `host/` | Everything else that is installed: units, the docs server, the sandbox image, the manual |

@@ -5,7 +5,8 @@
 # and test/dev_test.sh pin the result option by option.
 #
 #   tehas_sandbox_env <tree> <name> <email>   the -e options
-#   tehas_sandbox_mounts <tree>               the -v options
+#   tehas_sandbox_mounts <tree> [<host tree> [<runs dir>]]
+#                                             the -v options
 #   tehas_sandbox_hosts                       the --add-host options
 #   tehas_sandbox_clone <src> <tree> <branch> make <tree>, a clone of <src>
 #
@@ -44,14 +45,19 @@ tehas_sandbox_env() { # <tree> <git name> <git email>
 }
 
 # The same mounts as the pi-rukas wrapper, minus the Docker socket, SSH keys,
-# gh's configuration and image directories. The directories are made first:
-# Docker would create a missing mount source as a root-owned directory.
-tehas_sandbox_mounts() { # <tree>
+# gh's configuration and image directories. <tree> is the path inside the
+# container. A cycle names the directory on the host that is mounted there and
+# a transcripts directory of its own, so every cycle works at one path and
+# sees no other cycle's tree or transcripts. A manual session names neither.
+# The directories are made first: Docker would create a missing mount source
+# as a root-owned directory.
+tehas_sandbox_mounts() { # <tree> [<host tree> [<runs dir>]]
   local tree=$1 agent=$HOME/.pi/agent
-  mkdir -p "$agent/ensemble-runs" "$agent/sessions" "$HOME/.vipune" || return 1
-  printf '%s\0' -v "$tree:$tree" \
+  local from=${2:-$1} runs=${3:-$HOME/.pi/agent/ensemble-runs}
+  mkdir -p "$runs" "$agent/sessions" "$HOME/.vipune" || return 1
+  printf '%s\0' -v "$from:$tree" \
     -v "$HOME/.vipune:/home/vscode/.vipune" \
-    -v "$agent/ensemble-runs:/home/vscode/.pi/agent/ensemble-runs" \
+    -v "$runs:/home/vscode/.pi/agent/ensemble-runs" \
     -v "$agent/sessions:/home/vscode/.pi/agent/sessions" \
     -v "$agent/models.json:/home/vscode/.pi/agent/models.json:ro" \
     -v "$agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro" \

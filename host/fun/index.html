@@ -211,9 +211,10 @@
         <p class="console-state" id="console-state" role="status">CHECKING</p>
       </div>
       <div class="console-body">
+        <div class="console-tabs" id="console-tabs" role="tablist" aria-label="Cycles" hidden></div>
         <p class="console-cycle" id="console-cycle">Looking for a running cycle.</p>
         <p class="console-step" id="console-step"></p>
-        <pre id="console-out" tabindex="0" aria-label="Console of the running cycle"></pre>
+        <pre id="console-out" role="tabpanel" tabindex="0" aria-label="Console of the selected cycle"></pre>
         <div class="console-bar">
           <label><input type="checkbox" id="console-follow" checked> FOLLOW THE OUTPUT</label>
           <span id="console-note"></span>
@@ -303,6 +304,7 @@ __ __/\ _/       \_   \____/__   _     \__   _/     \\______   \_ /\___ ___ _
 
   <script src="/fun/sample-issues.js"></script>
   <script src="/fun/brick-wall.js"></script>
+  <script src="/fun/console-tabs.js"></script>
   <script src="/fun/game-view.js"></script>
   <script type="module" src="/fun/energy-view.js"></script>
 </body>

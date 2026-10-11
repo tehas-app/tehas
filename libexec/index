@@ -18,13 +18,15 @@
 #
 # Usage: tehas index                  build the index
 #        tehas index --before-cycle   what the dispatcher runs: the caller
-#                                     holds the dispatcher's lock, and nothing
-#                                     is done when the index is already at the
+#                                     holds the dispatcher's lock and has
+#                                     seen that no cycle runs, and nothing is
+#                                     done when the index is already at the
 #                                     branch's tip
 #
 # Exit status: 0 the index was built, or was already current,
 #              1 the sandbox image is missing or the indexer failed,
-#              3 a cycle is running; nothing was done.
+#              3 a cycle is running, or a poll or another index run holds the
+#                dispatcher's lock; nothing was done.
 #             64 an argument this command does not know.
 #             78 the instance settings are invalid; nothing was done.
 #
@@ -42,6 +44,8 @@ esac
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/config.sh
 . "$here/../lib/config.sh"
+# shellcheck source=lib/cycles.sh
+. "$here/../lib/cycles.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO
 tehas_checkout || exit 78
@@ -55,13 +59,17 @@ log=$TEHAS_HOME/logs/index-$(date -u +%y%m%d-%H%M%S).log
 base=$(git -C "$src" rev-parse -q --verify "refs/remotes/origin/$branch^{commit}") ||
   { echo "tehas index: $src has no origin/$branch, nothing was indexed" >&2; exit 78; }
 
-# The dispatcher holds this lock for the whole of a cycle. Holding it here
-# keeps a cycle from starting while its index is being written. Called by the
-# dispatcher, the lock is already held, and by the caller.
+# The index is written only under the dispatcher's lock and while no cycle is
+# running: a poll holds that lock while it starts cycles, and a cycle reads
+# the index for as long as it lives. Called by the dispatcher, the lock is
+# held by the caller, who has also looked at the cycles.
 mkdir -p "$TEHAS_HOME/state" "$TEHAS_HOME/logs" "$TEHAS_HOME/tmp"
 if [ "$cycle" = 0 ]; then
   exec 8>"$TEHAS_HOME/state/dispatch.lock"
-  flock -n 8 || { echo "tehas index: a cycle is running, nothing was indexed; run it again afterwards" >&2; exit 3; }
+  flock -n 8 || { echo "tehas index: the dispatcher's lock is held by a poll or another index run, nothing was indexed; run it again in a moment" >&2; exit 3; }
+  running=$(tehas_cycles_running | tr '\n' ' ')
+  [ -z "$running" ] ||
+    { echo "tehas index: a cycle is running (issue ${running% }), nothing was indexed; run it again afterwards" >&2; exit 3; }
 elif [ "$(jq -r '.commit // empty' "$marker" 2>/dev/null)" = "$base" ]; then
   echo "tehas index: ${TEHAS_REPO##*/} is already indexed at ${base:0:12}"
   exit 0

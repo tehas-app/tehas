@@ -27,7 +27,8 @@
 # Rules:
 #   - instance.env is authoritative. Settings of the same name in the
 #     environment are dropped; only TEHAS_HOME, TEHAS_INSTANCE_DIR and the test
-#     hooks TEHAS_WORK_CMD, TEHAS_STATUS_CMD and TEHAS_INDEX_CMD are kept.
+#     hooks TEHAS_WORK_CMD, TEHAS_STATUS_CMD, TEHAS_INDEX_CMD,
+#     TEHAS_CYCLE_START_CMD and TEHAS_CYCLE_START_WAIT are kept.
 #   - Loading runs no git command, makes no network call and writes nothing.
 #   - Nothing falls back to a project: a setting with no generic default stays
 #     unset until tehas_require asks for it.
@@ -75,7 +76,7 @@ _tehas_valid() {
     TEHAS_REPO)
       [[ $v =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "expected owner/name"; return 1; }
       ;;
-    TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_WORK_TIMEOUT | TEHAS_CONCURRENCY)
+    TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_WORK_TIMEOUT | TEHAS_CONCURRENCY | TEHAS_TICKET_CONCURRENCY)
       _tehas_is_count "$v" || { echo "expected a positive whole number"; return 1; }
       ;;
     TEHAS_ALLOWED_LABELERS)
@@ -128,7 +129,7 @@ _tehas_valid() {
 }
 
 tehas_load() {
-  local dir file v reason half
+  local dir file v reason half share
   : "${TEHAS_HOME:=$HOME/tehas}"
   export TEHAS_HOME
   dir=$(tehas_instance_dir)
@@ -137,7 +138,8 @@ tehas_load() {
 
   for v in $(compgen -v); do
     case "$v" in
-      TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_INDEX_CMD) ;;
+      TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_INDEX_CMD | \
+        TEHAS_CYCLE_START_CMD | TEHAS_CYCLE_START_WAIT) ;;
       TEHAS_* | PI_ENSEMBLE_*) unset "$v" ;;
     esac
   done
@@ -160,9 +162,9 @@ tehas_load() {
   # Derived and optional settings.
   if [ -n "${TEHAS_REPO:-}" ]; then
     export TEHAS_WORK_REPO=${TEHAS_WORK_REPO:-$TEHAS_HOME/repos/${TEHAS_REPO##*/}}
-    # Where a cycle works: a fresh clone that tehas work makes for each cycle,
-    # and the only tree the cycle's container can write. Not a setting: the
-    # directory is removed before every cycle.
+    # Where a cycle works, as its container sees it. On the host the tree is
+    # $TEHAS_WORK_DIR-<issue>, a fresh clone that tehas work makes for each
+    # cycle and the only tree that cycle's container can write. Not a setting.
     export TEHAS_WORK_DIR=$TEHAS_HOME/work/${TEHAS_REPO##*/}
   fi
   v=$(_tehas_host_cpus)
@@ -170,6 +172,8 @@ tehas_load() {
   half=$(($(_tehas_host_mem_mb) / 2))
   export TEHAS_WORK_MEMORY=${TEHAS_WORK_MEMORY:-${half}m}
   export TEHAS_CONCURRENCY=${TEHAS_CONCURRENCY:-4}
+  # How many issues are worked on side by side, each in a cycle of its own.
+  export TEHAS_TICKET_CONCURRENCY=${TEHAS_TICKET_CONCURRENCY:-1}
   export TEHAS_INDEXING=${TEHAS_INDEXING:-0}
   # Visitor analytics on the dashboard and the manual. Off unless the instance
   # names a script and a site.
@@ -188,9 +192,27 @@ tehas_load() {
   export PI_ENSEMBLE_NO_DOCKER_SOCKET=1 PI_ENSEMBLE_NO_SSH=1
 
   for v in TEHAS_INDEXING TEHAS_ANALYTICS_COOKIE TEHAS_WORK_CPUS TEHAS_WORK_MEMORY TEHAS_CONCURRENCY \
-    TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT; do
+    TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT; do
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
+  # What one cycle's container gets: the budget divided between the tickets.
+  # One ticket at a time gets the budget as written.
+  if [ "$TEHAS_TICKET_CONCURRENCY" = 1 ]; then
+    export TEHAS_CYCLE_CPUS=$TEHAS_WORK_CPUS TEHAS_CYCLE_MEMORY=$TEHAS_WORK_MEMORY
+  else
+    share=$(LC_ALL=C awk -v c="$TEHAS_WORK_CPUS" -v n="$TEHAS_TICKET_CONCURRENCY" 'BEGIN { printf "%.2f", int(c * 100 / n) / 100 }')
+    if ! LC_ALL=C awk -v s="$share" 'BEGIN { exit !(s >= 1) }'; then
+      tehas_err "TEHAS_TICKET_CONCURRENCY=$TEHAS_TICKET_CONCURRENCY leaves each cycle $share CPUs of TEHAS_WORK_CPUS=$TEHAS_WORK_CPUS; a cycle needs at least 1 (see $file)"
+      return 78
+    fi
+    export TEHAS_CYCLE_CPUS=$share
+    share=$(($(_tehas_mem_mb "$TEHAS_WORK_MEMORY") / TEHAS_TICKET_CONCURRENCY))
+    if [ "$share" -lt 6 ]; then
+      tehas_err "TEHAS_TICKET_CONCURRENCY=$TEHAS_TICKET_CONCURRENCY leaves each cycle ${share}m of TEHAS_WORK_MEMORY=$TEHAS_WORK_MEMORY; Docker needs at least 6m (see $file)"
+      return 78
+    fi
+    export TEHAS_CYCLE_MEMORY=${share}m
+  fi
   for v in TEHAS_BRANCH TEHAS_PROTOLAB_URL; do
     [ -n "${!v:-}" ] || continue
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
