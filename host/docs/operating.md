@@ -108,8 +108,7 @@ With any other backend the section and the meter are simply not there, and
 nothing else changes. To turn them off on a viiwork mesh, see
 [the energy sampler](/tools).
 
-The dispatcher takes one issue at a time, urgent first, then the lowest issue
-number.
+The dispatcher takes issues urgent first, then by the lowest issue number: one at a time unless the host is set to work on more (see [The host](/host)). A running cycle is never stopped to make room for an urgent one.
 
 | Label on the issue      | Meaning                           | Your move                                |
 | ----------------------- | --------------------------------- | ---------------------------------------- |
@@ -121,14 +120,24 @@ number.
 When the cycle starts and when it ends, the bot comments on the issue. The token
 usage per agent role is posted on the pull request.
 
+The console on the [factory floor](/) and on the [plain dashboard](/dashboard)
+shows one cycle at a time. When several are running, or one is running and an
+earlier one can still be read, a row of tabs above it names each by its issue
+number.
+
 A timer polls every two minutes. To see the factory's state, or to see or force
 a poll by hand on the host:
 
 ```
 tehas status                 # taking work? the queue, the current or last cycle
 tehas dispatch --dry-run     # what would it do?
-tehas dispatch               # do it (returns when the cycle ends)
+tehas dispatch               # do it (returns once the cycle is started)
+systemctl --user status 'tehas-cycle@*'   # which cycles are running
+systemctl --user stop tehas-cycle@12      # stop the cycle for issue 12
 ```
+
+A stop ends the container. The issue gets `needs-human-attention`, and the
+console shows the cycle as interrupted.
 
 `tehas` is the one command to type on the host; `tehas help` lists what it
 does. See [Commands](/tools).
@@ -172,11 +181,11 @@ already running finishes. Remove the label to resume.
 
 ## Limits that hold work back
 
-- One cycle at a time.
+- `TEHAS_TICKET_CONCURRENCY` cycles at a time: 1 by default.
 - Inside a cycle, `TEHAS_CONCURRENCY` workstreams side by side: 4 by default,
   fewer if the model backends cannot take it. See [The host](/host).
-- No new cycle while 3 issues carry `tehas:awaiting-merge`
-  (`TEHAS_MAX_AWAITING`). Unreviewed pull requests are the queue you control.
+- No new cycle while 3 issues carry `tehas:awaiting-merge` or are being worked
+  on (`TEHAS_MAX_AWAITING`). Unreviewed pull requests are the queue you control.
 - A self-hosted model endpoint has few real slots per model, so a cycle takes
   a while; the six-pass review is the slowest part.
 

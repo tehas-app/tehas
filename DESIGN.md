@@ -246,6 +246,14 @@ shadow. Interactive targets are at least 48px tall.
   outline is CRT Amber.
 - **Text buttons** (a station's "all N" control) are underlined Verdigris.
 
+### Floor Head
+The panel at the head of the floor, in the board's style: a Bone face with a 4px
+Outline border and a Sign shadow. The title stands on a Steel head closed by a
+4px Outline rule. Under it one line on what the factory is, held to 110ch, and
+one line in Slate that counts the queue (open, and how many stand at each
+station) and says when the factory is paused or the last cycle failed. The room
+above the panel belongs to the field, not to its face.
+
 ### Station Sign
 A signboard: the station's scene, the name and count in display type, one
 ticket (next up, in work, needs review, latest) with its title held to two
@@ -336,6 +344,13 @@ A Bone Shade panel holding a CRT Black screen with CRT Amber text: the running
 cycle's output, followed as it grows. A tag in the panel head says LIVE (Brass),
 ENDED or NO CONSOLE, and its door says the same in words. It and the Factory
 Energy panel are the only live parts of the page, and both are labelled as such.
+
+When more than one cycle can be shown, a row of tabs stands above the screen:
+one per running cycle, named by its issue number, and one for the cycle that
+finished last, marked ENDED. A tab is a Bone button with the 4px outline; the
+selected one is Brass. The tag in the panel head describes the selected cycle.
+The door and the lamp say LIVE while any cycle runs. The plain dashboard has
+the same row.
 
 ### Energy Use
 A Bone Shade panel in the console's style, shown only when the model backend

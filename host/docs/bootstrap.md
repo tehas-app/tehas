@@ -76,6 +76,11 @@ Every release archive is checked against a SHA-256 in `versions.env` before it
 is unpacked. The last step runs pi-rukas's own installer, which links its
 extension and skills into `~/.pi/agent/` and pulls its sandbox base image.
 
+pi-rukas comes from the repository named in `versions.env`, which is a fork of
+upstream. A clone already on the host is pointed at that repository before it
+is fetched. [The host](/host#pi-rukas-comes-from-a-fork) says how a fix
+moves through the fork.
+
 Compiling `vipune` and `oo` takes a few minutes. The rest is quick. Rust is
 also what `install.sh` builds the cycle console with.
 

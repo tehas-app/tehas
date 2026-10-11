@@ -117,6 +117,17 @@ t_contains "$t_out" "installing ctx7 $CTX7_VERSION (replacing 0.0.1)"
 t_contains "$(t_calls npm)" "ctx7@$CTX7_VERSION"
 t_contains "$t_out" "ctx7 is 0.0.1 after installing, expected $CTX7_VERSION"
 
+t_case "an existing pi-rukas clone is fetched from the repository in versions.env"
+all_present
+t_stub git 'case "$*" in *rev-parse*) echo 0000000000000000000000000000000000000000 ;; *) echo "git version 2.53.0" ;; esac'
+mkdir -p "$T/home/tehas/repos/pi-rukas/.git"
+printf '#!/bin/sh\n' >"$T/home/tehas/repos/pi-rukas/install.sh"
+chmod +x "$T/home/tehas/repos/pi-rukas/install.sh"
+rm -f "$T"/calls/*
+t_run "$bootstrap user"
+t_contains "$(t_calls git)" "remote set-url origin $PI_RUKAS_REPO"
+rm -rf "$T/home/tehas/repos/pi-rukas"
+
 t_case "a download that does not match its checksum is refused"
 all_present
 t_stub gh 'echo "gh version 1.0.0"'
