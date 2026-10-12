@@ -458,16 +458,12 @@ tehas takes pi-rukas from a [fork](https://github.com/janit/pi-rukas) of
 factory when it is ready here, not when upstream releases it. The fork is
 never the last stop: every change in it is also offered upstream.
 
-The fork has two kinds of branch:
-
-- `main` follows upstream's `main`. Nothing is committed to it directly.
-- `tehas` is what a host runs: an upstream commit plus the fixes upstream has
-  not merged yet. `PI_RUKAS_COMMIT` in `versions.env` is a commit on it.
-
-Today `tehas` is an upstream commit with nothing added, so the base in
-`sandbox/Dockerfile` is still upstream's published image for that commit. The
-fork has not published an image yet. Its workflows have to be switched on once,
-on the fork's Actions tab, before the first fix can go through step 3.
+The fork's `main` is what a host runs: upstream's `main` plus the fixes
+merged in the fork that upstream does not have yet. `PI_RUKAS_COMMIT` in
+`versions.env` is a commit on it, and the base in `sandbox/Dockerfile` is the
+fork's image built from the same commit. A fix is written on a branch of its
+own and reaches `main` through a pull request in the fork. To take in what
+upstream has done, merge upstream's `main` into the fork's.
 
 Problems are tracked in the fork. Where the instance sets
 `TEHAS_IMPROVE_RUKAS_REPO` to it, the [improvement loop](/operating#the-improvement-loop)
@@ -477,11 +473,12 @@ issues whose cycles showed it. No cycle on the product fixes pi-rukas.
 When a problem in pi-rukas comes up:
 
 1. Have an issue in the fork that describes it: the loop's, or one you write.
-2. Write the fix in the fork, on a branch from upstream's `main`, with
-   pi-rukas's own tests.
-3. Put the same change on `tehas` and build the fork's image from it: run the
-   `publish-image` workflow on the `tehas` branch. It publishes
-   `ghcr.io/janit/pi-rukas:sha-<commit>`.
+2. Write the fix in the fork, on a branch from `main`, with pi-rukas's own
+   tests, and merge it into the fork's `main` with a pull request that names
+   the issue.
+3. The merge runs the fork's `publish-image` workflow. It publishes
+   `ghcr.io/janit/pi-rukas:sha-<commit>`, with the first 12 characters of the
+   commit.
 4. In this repository, in one pull request, set `PI_RUKAS_COMMIT` to that
    commit and the `FROM` line of `sandbox/Dockerfile` to that image's digest.
    The two always name the same commit, or the host and the sandbox run
@@ -496,12 +493,12 @@ When a problem in pi-rukas comes up:
    a pull request from the branch of step 2, as
    `gh pr create --repo <upstream> --head <fork owner>:<branch>`. Name the
    fork's issue in full, as `owner/name#12`; a bare number is upstream's.
-7. When upstream merges the fix, move `tehas` to an upstream commit that has
-   it and drop the fork's copy. Repeat steps 3 to 5.
+7. When upstream merges the fix, merge upstream's `main` into the fork's and
+   repeat steps 3 to 5.
 
-Keep `tehas` close to upstream. A change that upstream turns down is either
-reworked until they take it or removed from `tehas`; it does not stay as a
-permanent difference.
+Keep the fork's `main` close to upstream. A change that upstream turns down is
+either reworked until they take it or removed from the fork; it does not stay
+as a permanent difference.
 
 ## Services
 
