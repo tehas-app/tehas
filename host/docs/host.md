@@ -492,8 +492,10 @@ When a problem in pi-rukas comes up:
    issue names. The loop's next run comments on the fork's issue whether the
    problem came back, with the pi-rukas commit that cycle ran. Close the
    fork's issue when it did not.
-6. Offer the fix upstream: an issue there and a pull request from the branch
-   of step 2. This can wait until the fix is proven here.
+6. Only after the fix is verified here, offer it upstream: an issue there and
+   a pull request from the branch of step 2, as
+   `gh pr create --repo <upstream> --head <fork owner>:<branch>`. Name the
+   fork's issue in full, as `owner/name#12`; a bare number is upstream's.
 7. When upstream merges the fix, move `tehas` to an upstream commit that has
    it and drop the fork's copy. Repeat steps 3 to 5.
 
