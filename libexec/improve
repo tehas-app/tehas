@@ -18,7 +18,17 @@
 #   records    $TEHAS_HOME/tmp/improve/window/<issue>-<stamp>, written when a
 #              cycle ends (lib/improve.sh)
 #   filed      at most 3 issues a run, labelled tehas:improvement and nothing
-#              else; none while 10 such issues are open
+#              else; none while 10 such issues are open. A finding of the
+#              category pi-rukas goes to TEHAS_IMPROVE_RUKAS_REPO where that
+#              is set. Both repositories are read for duplicates and counted
+#   issues     each filed issue names the product's issues its cycles worked,
+#              and says what working on it means: a finding about the factory
+#              is built where it is filed, one about pi-rukas is fixed in
+#              pi-rukas and never worked around in another repository
+#   rechecked  when one of those issues is worked on again, the analyst says
+#              whether the problem came back, and that is a comment on the
+#              filed issue with the pi-rukas commit the new cycle ran; at most
+#              10 a run. Nothing is closed or reopened
 #   logs       the whole log of each cycle a finding names, gzipped, as assets
 #              of the release tehas-improve-logs; over 5 MB, in numbered pieces
 #   removed    a run's records when it finishes; anything in tmp/improve and
@@ -34,7 +44,9 @@
 #         tehas.slice is not usable on this host; the records were kept.
 #
 # Instance settings: TEHAS_IMPROVE_REPO, the repository issues are filed in.
-# Unset, the loop is off. PI_ENSEMBLE_SUBAGENT_MODEL and
+# Unset, the loop is off. TEHAS_IMPROVE_RUKAS_REPO, optional, the repository
+# for what only a change in pi-rukas can fix. TEHAS_REPO, the product a cycle
+# worked on. PI_ENSEMBLE_SUBAGENT_MODEL and
 # PI_ENSEMBLE_SUBAGENT_PROVIDER, the model that reads.
 set -uo pipefail
 
@@ -54,13 +66,17 @@ if ! tehas_improve_on; then
   echo "tehas improve: TEHAS_IMPROVE_REPO is not set, the improvement loop is off"
   exit 0
 fi
-tehas_require PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
+tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
 
 repo=$TEHAS_IMPROVE_REPO
+rukas=${TEHAS_IMPROVE_RUKAS_REPO:-$repo}
+repos=("$repo")
+[ "$rukas" = "$repo" ] || repos+=("$rukas")
 label=tehas:improvement
 tag=tehas-improve-logs
 max_run=3
 max_open=10
+max_recheck=10
 chunk=$((5 * 1024 * 1024))
 old=$((7 * 24 * 60)) # minutes
 base=$(tehas_improve_dir)
@@ -121,14 +137,21 @@ tehas_slice_ok || { echo "tehas improve: $TEHAS_SLICE_WHY" >&2; exit 78; }
 
 # --- The issue stack ---------------------------------------------------------
 stack=$(mktemp "$base/.stack.XXXXXX") || exit 1
-trap 'rm -f "$stack" "$stack.open" "$stack.closed"' EXIT
+trap 'rm -f "$stack" "$stack.open" "$stack.closed" "$stack.all"' EXIT
 fields=number,title,state,labels,body
 since=$(date -u -d '30 days ago' +%Y-%m-%d)
-if ! gh issue list --repo "$repo" --state open --limit 500 --json "$fields" >"$stack.open" ||
-  ! gh issue list --repo "$repo" --state closed --limit 200 --search "closed:>=$since" \
-    --json "$fields" >"$stack.closed" ||
-  ! jq -s 'add | map({number, title, state, labels: [.labels[].name], body: ((.body // "")[0:4000])})' \
-    "$stack.open" "$stack.closed" >"$stack"; then
+stack_of() { # <repository>: its open issues and those closed in 30 days
+  gh issue list --repo "$1" --state open --limit 500 --json "$fields" >"$stack.open" &&
+    gh issue list --repo "$1" --state closed --limit 200 --search "closed:>=$since" \
+      --json "$fields" >"$stack.closed" &&
+    jq -s --arg repo "$1" 'add | map({repo: $repo, number, title, state, labels: [.labels[].name],
+      cycles: [(.body // "") | scan("\\*\\*Cycles:\\*\\* ([^\n]*)") | .[0] | split(", ")[]
+        | select(test("^[0-9]+-[0-9]{6}-[0-9]{6}$"))],
+      body: ((.body // "")[0:4000])})' "$stack.open" "$stack.closed"
+}
+got=1
+for r in "${repos[@]}"; do stack_of "$r" || got=0; done >"$stack.all"
+if [ "$got" = 0 ] || ! jq -s add "$stack.all" >"$stack"; then
   say "cycles=${#recs[@]} failed: GitHub did not give the issue stack, the records wait"
   exit 1
 fi
@@ -193,6 +216,10 @@ if [ -L "$found" ] || [ ! -f "$found" ]; then blame "the analyst left no finding
 # for is dropped; a file that is not is an error. A title is compared in lower
 # case without punctuation, with the open issues and with the findings before
 # it.
+#
+# A recheck is taken only for an issue this loop filed, named by a cycle of
+# the same product issue as the new one: the model cannot have a comment put
+# anywhere else.
 # shellcheck disable=SC2016  # a jq program: the variables are jq's
 check='
   def clean($allow): explode | all(.[]; . as $c | ($c >= 32 and $c != 127) or ($allow | index($c) != null));
@@ -206,6 +233,15 @@ check='
     and (.evidence | type == "string" and length <= 3000 and clean([9, 10, 13]))
     and (.cycles | type == "array" and length >= 1 and all(.[]; type == "string" and IN($cycles[])))
     and (.duplicate_of == null or (.duplicate_of | IN($numbers[])));
+  def rechecked($issues):
+    type == "object"
+    and (.repo | type == "string") and (.number | type == "number")
+    and (.cycle | type == "string" and IN($cycles[]))
+    and (.seen | type == "boolean")
+    and (.note | type == "string" and length >= 1 and length <= 1500 and clean([9, 10, 13]))
+    and (. as $u | any($issues[]; .repo == $u.repo and .number == $u.number
+      and (.labels | index($label) != null) and (.cycles | index($u.cycle) == null)
+      and any(.cycles[]; split("-")[0] == ($u.cycle | split("-")[0]))));
   if type == "object" and (.findings | type == "array") then . else error("not the shape asked for") end
   | $stack[0] as $issues
   | ($issues | map(select(.state == "OPEN") | .title | norm)) as $open
@@ -219,9 +255,12 @@ check='
   | {found: ($all | length), invalid: (($all | length) - ($good | length)),
      duplicates: (($good | length) - ($keep | length)),
      of: ([$good[] | .duplicate_of | select(. != null) | "#\(.)"] | unique | join(",")),
-     over: ([($keep | length) - $room, 0] | max), file: $keep[0:$room]}'
+     over: ([($keep | length) - $room, 0] | max), file: $keep[0:$room],
+     recheck: ([(.followups | if type == "array" then .[] else empty end) | select(rechecked($issues))
+       | {repo, number, cycle, seen, note}] | unique_by([.repo, .number, .cycle]) | .[0:$max_recheck])}'
 cycles=$(printf '%s\n' "${recs[@]}" | jq -R . | jq -s -c .)
-plan=$(jq -c --argjson cycles "$cycles" --argjson room "$room" --slurpfile stack "$run/in/issues.json" \
+plan=$(jq -c --argjson cycles "$cycles" --argjson room "$room" --arg label "$label" \
+  --argjson max_recheck "$max_recheck" --slurpfile stack "$run/in/issues.json" \
   "$check" "$found" 2>/dev/null) || blame "findings.json is not the shape asked for"
 
 # --- File --------------------------------------------------------------------
@@ -271,7 +310,8 @@ upload() { # <record>
 body='
   def defuse: gsub("@(?=[A-Za-z0-9])"; "@\u200b") | gsub("<!--"; "&lt;!--");
   "_Filed by the tehas improvement loop, read by the model `\($model)`. It is a proposal: nothing works on it until a person labels it._",
-  "", "**Category:** \(.category)", "", (.body | defuse), "",
+  "", "**Category:** \(.category)", "", "**Working on it:** \($does)", "",
+  "**Issues:** \([.cycles[] | "\($product)#\(split("-")[0])"] | unique | join(", "))", "", (.body | defuse), "",
   "**Evidence**", "", "````text", (.evidence | gsub("`{3,}"; "\u0027\u0027\u0027")), "````", "",
   "**Cycles:** \(.cycles | unique | join(", "))", "", "**Whole logs**", "", ($links | rtrimstr("\n"))'
 
@@ -280,8 +320,10 @@ failed=0
 n=$(jq '.file | length' <<<"$plan")
 if [ "$n" -gt 0 ]; then
   # It fails when the label is there already, which is fine.
-  gh label create "$label" --repo "$repo" --color 5319e7 \
-    --description "Tehas: filed by the improvement loop, a proposal" >/dev/null 2>&1 || true
+  for r in "${repos[@]}"; do
+    gh label create "$label" --repo "$r" --color 5319e7 \
+      --description "Tehas: filed by the improvement loop, a proposal" >/dev/null 2>&1 || true
+  done
 fi
 for ((i = 0; i < n; i++)); do
   f=$(jq -c ".file[$i]" <<<"$plan")
@@ -290,10 +332,21 @@ for ((i = 0; i < n; i++)); do
     upload "$rec" || fail "could not write under $run"
     links+=$(cat "$run/up/$rec.links")$'\n'
   done < <(jq -r '.cycles | unique | .[]' <<<"$f")
-  jq -r --arg links "$links" --arg model "$PI_ENSEMBLE_SUBAGENT_MODEL" "$body" <<<"$f" >"$run/body.md"
-  if url=$(gh issue create --repo "$repo" --title "$(jq -r .title <<<"$f")" \
+  # The body is what a cycle is given as its task, so it says whose fix it is.
+  to=$repo
+  does="This is a problem in the factory. It is fixed in this repository: a cycle builds the fix once a person applies \`tehas:ready\`."
+  if [ "$(jq -r .category <<<"$f")" = pi-rukas ]; then
+    to=$rukas
+    does="This is a problem in pi-rukas. It is fixed here, in pi-rukas, and not worked around in $TEHAS_REPO. Nothing starts until a person applies \`tehas:ready\`. When a host runs the fix and one of the issues below is worked on again, the loop says here whether the problem came back."
+    [ "$to" != "$repo" ] ||
+      does="This is a problem in pi-rukas, and this repository is not pi-rukas. A cycle here cannot fix it and must not work around it: it changes no code, writes down what has to change in pi-rukas, and hands off."
+  fi
+  jq -r --arg links "$links" --arg model "$PI_ENSEMBLE_SUBAGENT_MODEL" --arg product "$TEHAS_REPO" \
+    --arg does "$does" "$body" <<<"$f" >"$run/body.md"
+  if url=$(gh issue create --repo "$to" --title "$(jq -r .title <<<"$f")" \
     --body-file "$run/body.md" --label "$label"); then
-    filed+=("#${url##*/}")
+    # A number alone is an issue of TEHAS_IMPROVE_REPO.
+    if [ "$to" = "$repo" ]; then filed+=("#${url##*/}"); else filed+=("$to#${url##*/}"); fi
   else
     failed=1
     break
@@ -303,7 +356,35 @@ issues=none
 [ "${#filed[@]}" = 0 ] || issues=$(IFS=,; echo "${filed[*]}")
 [ "$failed" = 0 ] || fail "GitHub refused an issue; filed before that: $issues"
 
+# --- Recheck -----------------------------------------------------------------
+# A comment that GitHub refuses is noted and the run goes on: its findings are
+# filed, and a second run would file nothing new and lose the records anyway.
+# shellcheck disable=SC2016  # a jq program: the variables are jq's
+comment='
+  def defuse: gsub("@(?=[A-Za-z0-9])"; "@\u200b") | gsub("<!--"; "&lt;!--");
+  "_The tehas improvement loop, read by the model `\($model)`. A model wrote this: check it against the log._", "",
+  "\($product)#\(.cycle | split("-")[0]) was worked on again: cycle `\(.cycle)`, with pi-rukas at \(if $rukas == "" then "a commit the record does not name" else "`\($rukas)`" end).", "",
+  "**Seen again:** \(if .seen then "yes" else "no" end)", "", (.note | defuse), "",
+  "**Whole log**", "", ($links | rtrimstr("\n"))'
+rechecked=0
+n=$(jq '.recheck | length' <<<"$plan")
+for ((i = 0; i < n; i++)); do
+  f=$(jq -c ".recheck[$i]" <<<"$plan")
+  rec=$(jq -r .cycle <<<"$f")
+  to=$(jq -r '"\(.repo)#\(.number)"' <<<"$f")
+  upload "$rec" || fail "could not write under $run"
+  rukas_at=$(jq -r '.rukas // "" | if type == "string" and test("^[0-9a-f]{7,40}$") then . else "" end' \
+    "$run/in/cycles/$rec/cycle.json" 2>/dev/null) || rukas_at=""
+  jq -r --arg links "$(cat "$run/up/$rec.links")" --arg model "$PI_ENSEMBLE_SUBAGENT_MODEL" \
+    --arg product "$TEHAS_REPO" --arg rukas "$rukas_at" "$comment" <<<"$f" >"$run/body.md"
+  if gh issue comment "${to##*#}" --repo "${to%#*}" --body-file "$run/body.md" >/dev/null 2>&1; then
+    rechecked=$((rechecked + 1))
+  else
+    notes+=("not-commented=$to")
+  fi
+done
+
 # --- Clean up ----------------------------------------------------------------
 rm -rf "$run"
 rm -f "$kept"
-say "cycles=${#recs[@]} $(jq -r '"findings=\(.found) invalid=\(.invalid) duplicates=\(.duplicates) of=\(if .of == "" then "none" else .of end) over=\(.over)"' <<<"$plan") filed=${#filed[@]} issues=$issues${notes[*]:+ ${notes[*]}}"
+say "cycles=${#recs[@]} $(jq -r '"findings=\(.found) invalid=\(.invalid) duplicates=\(.duplicates) of=\(if .of == "" then "none" else .of end) over=\(.over)"' <<<"$plan") filed=${#filed[@]} issues=$issues rechecked=$rechecked${notes[*]:+ ${notes[*]}}"

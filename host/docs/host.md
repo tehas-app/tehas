@@ -469,12 +469,16 @@ Today `tehas` is an upstream commit with nothing added, so the base in
 fork has not published an image yet. Its workflows have to be switched on once,
 on the fork's Actions tab, before the first fix can go through step 3.
 
+Problems are tracked in the fork. Where the instance sets
+`TEHAS_IMPROVE_RUKAS_REPO` to it, the [improvement loop](/operating#the-improvement-loop)
+files what it finds about pi-rukas there, each issue naming the product's
+issues whose cycles showed it. No cycle on the product fixes pi-rukas.
+
 When a problem in pi-rukas comes up:
 
-1. Open an issue upstream that describes it. Say there that a fix is being
-   tried in the fork.
+1. Have an issue in the fork that describes it: the loop's, or one you write.
 2. Write the fix in the fork, on a branch from upstream's `main`, with
-   pi-rukas's own tests. Open a pull request upstream from that branch.
+   pi-rukas's own tests.
 3. Put the same change on `tehas` and build the fork's image from it: run the
    `publish-image` workflow on the `tehas` branch. It publishes
    `ghcr.io/janit/pi-rukas:sha-<commit>`.
@@ -484,7 +488,15 @@ When a problem in pi-rukas comes up:
    different code.
 5. On the host: pull, run `./bootstrap.sh user`, rebuild the sandbox image,
    run the contract test above, then let one cycle run before trusting it.
-6. When upstream merges the fix, move `tehas` to an upstream commit that has
+   To check the fix, apply `tehas:ready` again to a product issue the fork's
+   issue names. The loop's next run comments on the fork's issue whether the
+   problem came back, with the pi-rukas commit that cycle ran. Close the
+   fork's issue when it did not.
+6. Only after the fix is verified here, offer it upstream: an issue there and
+   a pull request from the branch of step 2, as
+   `gh pr create --repo <upstream> --head <fork owner>:<branch>`. Name the
+   fork's issue in full, as `owner/name#12`; a bare number is upstream's.
+7. When upstream merges the fix, move `tehas` to an upstream commit that has
    it and drop the fork's copy. Repeat steps 3 to 5.
 
 Keep `tehas` close to upstream. A change that upstream turns down is either
@@ -584,7 +596,12 @@ Both are outside the repository and the tehas tree.
 
 The improvement loop files with the bot's token, from the host. For it the bot
 account needs write access to the repository `TEHAS_IMPROVE_REPO` names: it
-creates a label, issues, and one release that holds the logs.
+creates a label, issues, comments, and one release that holds the logs. In the
+repository `TEHAS_IMPROVE_RUKAS_REPO` names it creates the label, issues and
+comments.
+The triage role is enough there once someone has created the label
+`tehas:improvement`. Issues must be switched on in that repository: a fork has
+them off until its owner turns them on.
 
 Two recommendations follow from that table:
 
