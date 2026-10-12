@@ -354,8 +354,9 @@ stack is filed as an issue of its own in that repository.
 - **A finding about pi-rukas has a repository of its own** where the instance
   sets `TEHAS_IMPROVE_RUKAS_REPO`. The model gives each finding a category,
   and one of the category `pi-rukas` is filed there, because a cycle on the
-  product cannot fix it. Both repositories are read for duplicates, and the
-  limits below count the two together. How a fix then reaches the host is
+  product cannot fix it. Both repositories are read for duplicates. Each
+  has the limit of 10 open issues to itself, so one that is full does not
+  hold the other back. How a fix then reaches the host is
   under [pi-rukas comes from a fork](/host#pi-rukas-comes-from-a-fork).
 - **Each issue names the product's issues** whose cycles it rests on, as
   `owner/name#7`, so GitHub links the two both ways.
@@ -374,14 +375,17 @@ stack is filed as an issue of its own in that repository.
   was installed with. This is how a fix in the fork is verified: deploy it,
   apply `tehas:ready` to the product issue again, and read the comment. A
   model wrote it, so check it against the log. The loop closes and reopens
-  nothing. At most 10 comments a run, and none in a run that waits because 10
-  issues are open.
+  nothing. At most 10 comments a run, and none in a run that waits because
+  every repository is full.
 - **The label is `tehas:improvement` and nothing else.** tehas does not act on
   it, and the loop never applies `tehas:ready`. A filed issue is a proposal a
   model wrote: read it, correct it, and apply `tehas:ready` yourself if it
   should be built. Close it if not.
-- **At most 3 issues a run, and none while 10 are open** with the label. Close
-  some or build some and the loop files again.
+- **At most 3 issues a run, and none in a repository where 10 are open** with
+  the label, or the number `TEHAS_IMPROVE_MAX_OPEN` gives. The loop reads text
+  anyone may have written into an issue or a log, so the limit is what keeps
+  a steered or a mistaken model from filling the stack while nobody reads. Close some or build some and the loop files there again. A run
+  waits, and reads nothing, only when every repository is full.
 - **The whole log is linked.** Each issue links the logs of the cycles it
   names, gzipped, as assets of the release `tehas-improve-logs` in
   `TEHAS_IMPROVE_REPO`, wherever the issue is filed. In a public repository

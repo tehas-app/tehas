@@ -18,9 +18,11 @@
 #   records    $TEHAS_HOME/tmp/improve/window/<issue>-<stamp>, written when a
 #              cycle ends (lib/improve.sh)
 #   filed      at most 3 issues a run, labelled tehas:improvement and nothing
-#              else; none while 10 such issues are open. A finding of the
-#              category pi-rukas goes to TEHAS_IMPROVE_RUKAS_REPO where that
-#              is set. Both repositories are read for duplicates and counted
+#              else; none in a repository where TEHAS_IMPROVE_MAX_OPEN such
+#              issues are open, 10 unless the instance says otherwise. A
+#              finding of the category pi-rukas goes to
+#              TEHAS_IMPROVE_RUKAS_REPO where that is set. Both repositories
+#              are read for duplicates, and each has that limit to itself
 #   issues     each filed issue names the product's issues its cycles worked,
 #              and says what working on it means: a finding about the factory
 #              is built where it is filed, one about pi-rukas is fixed in
@@ -45,7 +47,8 @@
 #
 # Instance settings: TEHAS_IMPROVE_REPO, the repository issues are filed in.
 # Unset, the loop is off. TEHAS_IMPROVE_RUKAS_REPO, optional, the repository
-# for what only a change in pi-rukas can fix. TEHAS_REPO, the product a cycle
+# for what only a change in pi-rukas can fix. TEHAS_IMPROVE_MAX_OPEN, how many
+# of the loop's issues may be open in one repository. TEHAS_REPO, the product a cycle
 # worked on. PI_ENSEMBLE_SUBAGENT_MODEL and
 # PI_ENSEMBLE_SUBAGENT_PROVIDER, the model that reads.
 set -uo pipefail
@@ -75,7 +78,7 @@ repos=("$repo")
 label=tehas:improvement
 tag=tehas-improve-logs
 max_run=3
-max_open=10
+max_open=$TEHAS_IMPROVE_MAX_OPEN
 max_recheck=10
 chunk=$((5 * 1024 * 1024))
 old=$((7 * 24 * 60)) # minutes
@@ -155,11 +158,14 @@ if [ "$got" = 0 ] || ! jq -s add "$stack.all" >"$stack"; then
   say "cycles=${#recs[@]} failed: GitHub did not give the issue stack, the records wait"
   exit 1
 fi
-open=$(jq --arg l "$label" '[.[] | select(.state == "OPEN" and (.labels | index($l) != null))] | length' "$stack")
-room=$((max_open - open))
-[ "$room" -lt "$max_run" ] || room=$max_run
-if [ "$room" -le 0 ]; then
-  say "cycles=${#recs[@]} waiting: $open open issues carry $label, the limit is $max_open"
+# Each repository has its own limit: one that is full takes no more, and a
+# run waits only when every one is.
+rooms=$(jq -c --arg l "$label" --argjson max "$max_open" '
+  . as $all | [$ARGS.positional[] as $r | {key: $r, value: ([$max - ([$all[]
+    | select(.repo == $r and .state == "OPEN" and (.labels | index($l) != null))] | length), 0] | max)}]
+  | from_entries' "$stack" --args "${repos[@]}")
+if [ "$(jq 'add' <<<"$rooms")" -le 0 ]; then
+  say "cycles=${#recs[@]} waiting: $max_open open issues carry $label in ${repos[*]}, the limit of each"
   exit 0
 fi
 
@@ -252,14 +258,19 @@ check='
       ($f.title | norm) as $t
       | if (.seen | index($t)) != null then . else {seen: (.seen + [$t]), keep: (.keep + [$f])} end)
     | .keep) as $keep
+  | (reduce $keep[] as $f ({room: $rooms, left: $max_run, file: []};
+      (if $f.category == "pi-rukas" then $rukas else $repo end) as $to
+      | if .left > 0 and .room[$to] > 0 then .room[$to] -= 1 | .left -= 1 | .file += [$f] else . end)
+    | .file) as $file
   | {found: ($all | length), invalid: (($all | length) - ($good | length)),
      duplicates: (($good | length) - ($keep | length)),
      of: ([$good[] | .duplicate_of | select(. != null) | "#\(.)"] | unique | join(",")),
-     over: ([($keep | length) - $room, 0] | max), file: $keep[0:$room],
+     over: (($keep | length) - ($file | length)), file: $file,
      recheck: ([(.followups | if type == "array" then .[] else empty end) | select(rechecked($issues))
        | {repo, number, cycle, seen, note}] | unique_by([.repo, .number, .cycle]) | .[0:$max_recheck])}'
 cycles=$(printf '%s\n' "${recs[@]}" | jq -R . | jq -s -c .)
-plan=$(jq -c --argjson cycles "$cycles" --argjson room "$room" --arg label "$label" \
+plan=$(jq -c --argjson cycles "$cycles" --argjson rooms "$rooms" --argjson max_run "$max_run" \
+  --arg repo "$repo" --arg rukas "$rukas" --arg label "$label" \
   --argjson max_recheck "$max_recheck" --slurpfile stack "$run/in/issues.json" \
   "$check" "$found" 2>/dev/null) || blame "findings.json is not the shape asked for"
 

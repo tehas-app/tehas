@@ -277,7 +277,7 @@ Read the last lines of `~/tehas/logs/improve.log`.
 | Nothing new for hours | The timer is not enabled: `systemctl --user list-timers tehas-improve.timer` |
 | `TEHAS_IMPROVE_REPO is not set` | The loop is off for this instance |
 | `cycles=0, nothing to read` | No cycle has ended since the last run. A cycle that stopped before Pi started leaves no record |
-| `waiting: 10 open issues carry tehas:improvement` | The limit. Close some or build some |
+| `waiting: 10 open issues carry tehas:improvement` | Every repository the loop files in is at the limit. Close some or build some, or raise `TEHAS_IMPROVE_MAX_OPEN` |
 | `findings=0`, or `duplicates` equal to `findings` | The model found nothing new |
 | `invalid=` above 0 | Findings were dropped for not being the shape asked for |
 | `failed: GitHub did not give the issue stack` | The token or the network. The records wait for the next run |

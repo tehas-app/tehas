@@ -614,14 +614,65 @@ stack 12 "Safety net loses a file" | jq -s . >"$fx/rukas-open.json"
 t_run "$improve"
 t_eq "$(jq -c 'map([.repo, .number])' "$T/calls/issues.json")" '[["acme/factory",4],["acme/rukas",12]]'
 
-t_case "open improvement issues of both repositories count toward the ten"
+full() { for i in $(seq 1 "$1"); do stack "$i" "$2 $i" OPEN tehas:improvement; done | jq -s .; }
+
+t_case "each repository has the ten to itself: one that is full does not hold the other back"
 ready
 with_rukas
-for i in $(seq 1 6); do stack "$i" "Finding $i" OPEN tehas:improvement; done | jq -s . >"$fx/open.json"
-for i in $(seq 1 4); do stack "$i" "Driver finding $i" OPEN tehas:improvement; done | jq -s . >"$fx/rukas-open.json"
+full 10 Finding >"$fx/open.json"
+findings "$(finding "The gate runs twice")" "$(rukas_finding "The driver drops a path")"
 t_run "$improve"
 t_eq "$t_rc" 0
-t_contains "$t_out" "waiting: 10 open issues"
+t_eq "$(cat "$T/calls/filed-in")" "acme/rukas"
+t_contains "$t_out" "over=1 filed=1 issues=acme/rukas#101"
+
+t_case "the repository for pi-rukas is full: its findings are over, the rest are filed"
+ready
+with_rukas
+full 10 "Driver finding" >"$fx/rukas-open.json"
+findings "$(rukas_finding "The driver drops a path")" "$(finding "The gate runs twice")"
+t_run "$improve"
+t_eq "$(cat "$T/calls/filed-in")" "acme/factory"
+t_contains "$t_out" "over=1 filed=1 issues=#101"
+
+t_case "eight open in the repository for pi-rukas leave room for two there"
+ready
+with_rukas
+full 8 "Driver finding" >"$fx/rukas-open.json"
+findings "$(rukas_finding One)" "$(rukas_finding Two)" "$(rukas_finding Three)"
+t_run "$improve"
+t_eq "$(titles | wc -l)" 2
+t_contains "$t_out" "over=1"
+
+t_case "at most three issues a run, whatever the repositories"
+ready
+with_rukas
+findings "$(finding One)" "$(rukas_finding Two)" "$(finding Three)" "$(rukas_finding Four)"
+t_run "$improve"
+t_eq "$(titles | wc -l)" 3
+t_contains "$t_out" "over=1 filed=3"
+
+t_case "the instance sets the limit: twelve open and a limit of 30 leave room"
+ready
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory TEHAS_IMPROVE_MAX_OPEN=30
+full 12 Finding >"$fx/open.json"
+t_run "$improve"
+t_contains "$t_out" "filed=1"
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory TEHAS_IMPROVE_MAX_OPEN=12
+record "$REC"
+t_run "$improve"
+t_contains "$t_out" "waiting: 12 open issues"
+
+t_case "both repositories full: the run waits and the records stay"
+ready
+with_rukas
+full 10 Finding >"$fx/open.json"
+full 10 "Driver finding" >"$fx/rukas-open.json"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_contains "$t_out" "waiting: 10 open issues carry tehas:improvement in acme/factory acme/rukas"
+t_eq "$(t_calls docker | grep -v '^info ')" ""
+[ -f "$base/window/$REC/cycle.json" ] || t_bad "the record is gone"
 
 t_case "GitHub does not give the stack of the repository for pi-rukas: nothing runs"
 ready
