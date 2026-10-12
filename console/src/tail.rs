@@ -384,26 +384,30 @@ mod tests {
             found.into_iter().map(|t| t.path).collect()
         };
         assert_eq!(paths(&follower, UNIX_EPOCH), [] as [&str; 0]);
-        fs::create_dir_all(format!("{runs}/2026-10-10")).unwrap();
-        fs::create_dir_all(format!("{runs}/2026-10-09/nested.json")).unwrap();
+        // The days are named from the clock: a day long before the time
+        // asked for is not listed, so fixed dates would age out of the test.
+        let day = |ahead: u64| day_before(SystemTime::now() + Duration::from_secs(ahead * 86400));
+        let (yesterday, today, tomorrow) = (day(0), day(1), day(2));
+        fs::create_dir_all(format!("{runs}/{today}")).unwrap();
+        fs::create_dir_all(format!("{runs}/{yesterday}/nested.json")).unwrap();
         for name in [
-            "2026-10-10/b-1-coder.json",
-            "2026-10-10/a-1-reviewer.json",
-            "2026-10-09/z-1-coder.json",
-            "2026-10-10/notes.txt",
-            "top.json",
+            format!("{today}/b-1-coder.json"),
+            format!("{today}/a-1-reviewer.json"),
+            format!("{yesterday}/z-1-coder.json"),
+            format!("{today}/notes.txt"),
+            "top.json".to_string(),
         ] {
             append(&format!("{runs}/{name}"), b"{}\n");
         }
         let all = [
-            format!("{runs}/2026-10-09/z-1-coder.json"),
-            format!("{runs}/2026-10-10/a-1-reviewer.json"),
-            format!("{runs}/2026-10-10/b-1-coder.json"),
+            format!("{runs}/{yesterday}/z-1-coder.json"),
+            format!("{runs}/{today}/a-1-reviewer.json"),
+            format!("{runs}/{today}/b-1-coder.json"),
         ];
         // A day that is a link to a directory elsewhere is not entered.
         fs::create_dir_all(scratch.path("elsewhere")).unwrap();
         append(&scratch.path("elsewhere/c-1-coder.json"), b"{}\n");
-        std::os::unix::fs::symlink(scratch.path("elsewhere"), format!("{runs}/2026-10-11"))
+        std::os::unix::fs::symlink(scratch.path("elsewhere"), format!("{runs}/{tomorrow}"))
             .unwrap();
         assert_eq!(paths(&follower, UNIX_EPOCH), all);
 
