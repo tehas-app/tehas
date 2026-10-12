@@ -2,8 +2,8 @@
 # Write the dashboard's data file: $TEHAS_HOME/live/status.json.
 #
 # One snapshot of the queue as GitHub sees it (which issues are in line, being
-# worked on, waiting for a human, stopped, completed), and the words of the
-# breakroom game.
+# worked on, waiting for a human, stopped, completed), whether the last poll
+# found no resources (live/dispatch.json), and the words of the breakroom game.
 # Deterministic, no model, three GitHub calls. The dispatcher runs it at every
 # poll, and a cycle when it ends.
 #
@@ -38,14 +38,20 @@ jq -e 'type == "array"' <<<"$everything" >/dev/null 2>&1 || everything=null
 paused=$(gh issue view "$control" --repo "$repo" --json labels \
   --jq '.labels | any(.name == "tehas:pause")' 2>/dev/null || echo false)
 
+# The model endpoint as the last poll found it, for the pages. A file older
+# than ten minutes is from a dispatcher that no longer gets that far.
+no_resources=$(jq -s 'length == 1 and (.[0] | type == "object" and .why == "resources"
+  and (now - (.time | fromdateiso8601)) < 600)' "$live/dispatch.json" 2>/dev/null) || no_resources=false
+
 jq -n --argjson issues "$issues" --argjson paused "$paused" --argjson everything "$everything" \
+  --argjson noResources "${no_resources:-false}" \
   --arg repo "$repo" --arg now "$(date -u +%FT%TZ)" '
   def has($l): (.labels | map(.name) | index($l)) != null;
   def slim: {number, title, url, updatedAt, closedAt};
   def listurl($q): "https://github.com/\($repo)/issues?q=" + ($q | @uri);
   ($issues | map(select(.state == "OPEN"))) as $open
   | {
-      generatedAt: $now, repo: $repo, paused: $paused,
+      generatedAt: $now, repo: $repo, paused: $paused, noResources: $noResources,
       running: ($open | map(select(has("tehas:running")) | slim)),
       queued: ($open | map(select(has("tehas:ready") and (has("tehas:running") | not)) | slim) | sort_by(.number)),
       awaiting: ($open | map(select(has("tehas:awaiting-merge")) | slim)),

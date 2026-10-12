@@ -2154,6 +2154,82 @@ t_eq "$(jq -c '[.why, .hold, .room, .committed]' "$dispatch_json")" "[\"\",\"\",
 t_run "$dispatch"
 t_lacks "$t_out" "released"
 
+# The model endpoint, as models.json names it for the provider. The stand-in
+# for curl answers with the file mesh.json, or fails when there is none.
+mesh() { # [<the endpoint's answer>]
+  mkdir -p "$T/home/.pi/agent"
+  echo '{"providers":{"test-provider":{"baseUrl":"http://mesh.test/v1"}}}' >"$T/home/.pi/agent/models.json"
+  rm -f "$fx/mesh.json"
+  [ "$#" = 0 ] || echo "$1" >"$fx/mesh.json"
+}
+t_stub curl 'cat "$T/fx/mesh.json" 2>/dev/null'
+
+t_case "an endpoint that offers the model holds nothing back"
+reset
+mesh '{"data":[{"id":"other"},{"id":"test-model"}]}'
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_contains "$(t_calls curl)" "http://mesh.test/v1/models"
+t_eq "$(jq -r .why "$dispatch_json")" ""
+
+while IFS='|' read -r answer text; do
+  t_case "no resources: $text"
+  reset
+  if [ "$answer" = none ]; then mesh; else mesh "$answer"; fi
+  t_run "$dispatch"
+  t_eq "$t_rc" 0
+  t_eq "$(t_calls fake-start)" ""
+  t_lacks "$(t_calls gh)" "issue edit"
+  t_eq "$(grep -c "holding: no resources: $text" <<<"$t_out")" 1
+  t_eq "$(jq -c '[.why, .hold]' "$dispatch_json")" "[\"resources\",\"holding: no resources: $text\"]"
+  t_lacks "$(cat "$dispatch_json")" "mesh.test"
+done <<'CASES'
+none|the model endpoint does not answer
+not json|the model endpoint offers no models
+{"data":[]}|the model endpoint offers no models
+{"data":[{"id":"other"}]}|the model endpoint does not offer test-model
+CASES
+
+t_case "no resources is logged once, with nothing in line as well, and released when the endpoint is back"
+reset
+echo '[]' >"$fx/ready.json"
+mesh
+t_run "$dispatch"
+t_eq "$(grep -c 'holding: no resources' <<<"$t_out")" 1
+t_eq "$(jq -r .why "$dispatch_json")" resources
+t_run "$dispatch"
+t_lacks "$t_out" "holding:"
+mesh '{"data":[{"id":"test-model"}]}'
+t_run "$dispatch"
+t_eq "$(grep -c 'released: cycles may start again' <<<"$t_out")" 1
+t_eq "$(jq -r .why "$dispatch_json")" ""
+
+t_case "no resources holds a planning session too, and its label stays"
+reset
+mesh
+echo '[]' >"$fx/ready.json"
+echo '[{"number":7,"labels":[{"name":"tehas:plan"}]}]' >"$fx/plans.json"
+echo '[{"event":"labeled","label":{"name":"tehas:plan"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-plan)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+
+t_case "a dry run says no resources and writes nothing"
+reset
+mesh
+t_run "$dispatch --dry-run"
+t_eq "$(grep -c 'holding: no resources: the model endpoint does not answer' <<<"$t_out")" 1
+t_eq "$([ -e "$dispatch_json" ] && echo written)" ""
+t_eq "$(t_calls fake-start)" ""
+
+t_case "a missing slice is said before no resources"
+reset
+mesh
+no_slice
+t_run "$dispatch"
+t_eq "$(jq -r .why "$dispatch_json")" slice
+rm -rf "$T/home/.pi"
+
 t_case "a poll with room and no hold before it logs nothing about the slice"
 reset
 t_run "$dispatch"

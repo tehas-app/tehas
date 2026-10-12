@@ -59,7 +59,7 @@ jq -r --argjson now "$now" --argjson stale "$stale" '
      elif .running then "cycle     #\(.issue) running, step \(.step // "-"), started \(.startedAt // "" | age)"
      else "cycle     #\(.issue) \(.status // "unknown") at step \(.step // "-"), \(.time // "" | age)" end),
   (.checks.slice // null | if . == null then "slice     unknown: no poll has reported in 10 min"
-   elif (.why // "") != "" then "slice     \(.hold // "holding") (\(.time | age))"
+   elif (.why // "") | IN("", "resources") | not then "slice     \(.hold // "holding") (\(.time | age))"
    else "slice     room for \(.room // 0) cycles (\(.committed | gib) GiB of \(.max | gib) GiB promised, reserve \(.reserve // "unknown"), \(.time | age))" end)
 ' "$file" || exit 1
 

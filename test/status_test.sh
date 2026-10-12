@@ -387,6 +387,40 @@ for why in count awaiting pressure room; do
   t_contains "$t_out" "slice     holding: the reason (4"
 done
 
+t_case "health: no resources is a warning, said by the factory line, and the slice keeps its numbers"
+reset
+poll resources "holding: no resources: the model endpoint does not answer"
+t_run "$status; $summary"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .status "$live/health.json")" warn
+t_eq "$(jq -r .output "$live/health.json")" "No resources: the model endpoint does not answer."
+t_eq "$(jq -r .checks.slice.why "$live/health.json")" resources
+t_eq "$([ -e "$live/health.down" ] && echo down)" ""
+t_eq "$(jq -r .noResources "$live/status.json")" true
+t_contains "$t_out" "factory   warn: No resources: the model endpoint does not answer."
+t_contains "$t_out" "slice     room for 8 cycles"
+
+t_case "status: no resources is not said from a poll older than ten minutes, or from any other hold"
+reset
+poll resources "holding: no resources: the model endpoint does not answer" 700
+t_run "$status"
+t_eq "$(jq -r .noResources "$live/status.json")" false
+t_eq "$(jq -r .status "$live/health.json")" pass
+poll room "holding: tehas.slice has no room for another cycle"
+t_run "$status"
+t_eq "$(jq -r .noResources "$live/status.json")" false
+rm -f "$live/dispatch.json"
+t_run "$status"
+t_eq "$(jq -r .noResources "$live/status.json")" false
+
+t_case "health: a paused factory is said before no resources"
+reset
+poll resources "holding: no resources: the model endpoint does not answer"
+echo true >"$T/paused"
+t_run "$status"
+t_eq "$(jq -r .output "$live/health.json")" "The factory is paused."
+echo false >"$T/paused"
+
 t_case "health: a paused factory and a failed cycle are said before a slice hold"
 reset
 poll slice "holding: no slice file on this host (sudo ./bootstrap.sh slice)"
