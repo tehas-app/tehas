@@ -121,7 +121,8 @@ for bad in "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=0" "TEHAS_TICKET_CONC
   "TEHAS_DOMAIN=https://example.org" "TEHAS_DOMAIN=example.org/" "TEHAS_DOMAIN=Example.org" \
   "TEHAS_DOMAIN=localhost" "TEHAS_DOMAIN=-a.example.org" "TEHAS_PREVIEWS=yes" \
   "TEHAS_PREVIEW_MAX=0" "TEHAS_PREVIEW_MAX=100" "TEHAS_PREVIEW_MIN_FREE=lots" \
-  "TEHAS_IMPROVE_REPO=not a repo" "TEHAS_IMPROVE_REPO=acme" "TEHAS_IMPROVE_REPO=acme/factory/more"; do
+  "TEHAS_IMPROVE_REPO=not a repo" "TEHAS_IMPROVE_REPO=acme" "TEHAS_IMPROVE_REPO=acme/factory/more" \
+  "TEHAS_IMPROVE_RUKAS_REPO=not a repo" "TEHAS_IMPROVE_RUKAS_REPO=acme"; do
   t_case "loading rejects $bad"
   printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
   t_run "$load; echo rc=\$?"
@@ -136,6 +137,18 @@ t_eq "$t_out" "[]"
 printf '%s\n' "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && echo \"[\$TEHAS_IMPROVE_REPO]\""
 t_eq "$t_out" "[acme/factory]"
+
+t_case "a repository for pi-rukas findings is optional, and needs the loop's own"
+t_run "$load && set -u && echo \"[\$TEHAS_IMPROVE_RUKAS_REPO]\""
+t_eq "$t_out" "[]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory TEHAS_IMPROVE_RUKAS_REPO=acme/rukas \
+  >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_IMPROVE_RUKAS_REPO]\""
+t_eq "$t_out" "[acme/rukas]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_IMPROVE_RUKAS_REPO=acme/rukas >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "TEHAS_IMPROVE_REPO is not set and TEHAS_IMPROVE_RUKAS_REPO is"
 
 t_case "analytics is off unless the instance names a script and a site"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"

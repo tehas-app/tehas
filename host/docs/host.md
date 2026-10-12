@@ -584,7 +584,11 @@ Both are outside the repository and the tehas tree.
 
 The improvement loop files with the bot's token, from the host. For it the bot
 account needs write access to the repository `TEHAS_IMPROVE_REPO` names: it
-creates a label, issues, and one release that holds the logs.
+creates a label, issues, and one release that holds the logs. In the
+repository `TEHAS_IMPROVE_RUKAS_REPO` names it creates the label and issues.
+The triage role is enough there once someone has created the label
+`tehas:improvement`. Issues must be switched on in that repository: a fork has
+them off until its owner turns them on.
 
 Two recommendations follow from that table:
 

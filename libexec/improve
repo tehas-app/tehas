@@ -18,7 +18,10 @@
 #   records    $TEHAS_HOME/tmp/improve/window/<issue>-<stamp>, written when a
 #              cycle ends (lib/improve.sh)
 #   filed      at most 3 issues a run, labelled tehas:improvement and nothing
-#              else; none while 10 such issues are open
+#              else; none while 10 such issues are open. A finding of the
+#              category pi-rukas goes to TEHAS_IMPROVE_RUKAS_REPO where that
+#              is set. Both repositories are read for duplicates and counted
+#   issues     each filed issue names the product's issues its cycles worked
 #   logs       the whole log of each cycle a finding names, gzipped, as assets
 #              of the release tehas-improve-logs; over 5 MB, in numbered pieces
 #   removed    a run's records when it finishes; anything in tmp/improve and
@@ -34,7 +37,9 @@
 #         tehas.slice is not usable on this host; the records were kept.
 #
 # Instance settings: TEHAS_IMPROVE_REPO, the repository issues are filed in.
-# Unset, the loop is off. PI_ENSEMBLE_SUBAGENT_MODEL and
+# Unset, the loop is off. TEHAS_IMPROVE_RUKAS_REPO, optional, the repository
+# for what only a change in pi-rukas can fix. TEHAS_REPO, the product a cycle
+# worked on. PI_ENSEMBLE_SUBAGENT_MODEL and
 # PI_ENSEMBLE_SUBAGENT_PROVIDER, the model that reads.
 set -uo pipefail
 
@@ -54,9 +59,12 @@ if ! tehas_improve_on; then
   echo "tehas improve: TEHAS_IMPROVE_REPO is not set, the improvement loop is off"
   exit 0
 fi
-tehas_require PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
+tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
 
 repo=$TEHAS_IMPROVE_REPO
+rukas=${TEHAS_IMPROVE_RUKAS_REPO:-$repo}
+repos=("$repo")
+[ "$rukas" = "$repo" ] || repos+=("$rukas")
 label=tehas:improvement
 tag=tehas-improve-logs
 max_run=3
@@ -121,14 +129,19 @@ tehas_slice_ok || { echo "tehas improve: $TEHAS_SLICE_WHY" >&2; exit 78; }
 
 # --- The issue stack ---------------------------------------------------------
 stack=$(mktemp "$base/.stack.XXXXXX") || exit 1
-trap 'rm -f "$stack" "$stack.open" "$stack.closed"' EXIT
+trap 'rm -f "$stack" "$stack.open" "$stack.closed" "$stack.all"' EXIT
 fields=number,title,state,labels,body
 since=$(date -u -d '30 days ago' +%Y-%m-%d)
-if ! gh issue list --repo "$repo" --state open --limit 500 --json "$fields" >"$stack.open" ||
-  ! gh issue list --repo "$repo" --state closed --limit 200 --search "closed:>=$since" \
-    --json "$fields" >"$stack.closed" ||
-  ! jq -s 'add | map({number, title, state, labels: [.labels[].name], body: ((.body // "")[0:4000])})' \
-    "$stack.open" "$stack.closed" >"$stack"; then
+stack_of() { # <repository>: its open issues and those closed in 30 days
+  gh issue list --repo "$1" --state open --limit 500 --json "$fields" >"$stack.open" &&
+    gh issue list --repo "$1" --state closed --limit 200 --search "closed:>=$since" \
+      --json "$fields" >"$stack.closed" &&
+    jq -s --arg repo "$1" 'add | map({repo: $repo, number, title, state, labels: [.labels[].name],
+      body: ((.body // "")[0:4000])})' "$stack.open" "$stack.closed"
+}
+got=1
+for r in "${repos[@]}"; do stack_of "$r" || got=0; done >"$stack.all"
+if [ "$got" = 0 ] || ! jq -s add "$stack.all" >"$stack"; then
   say "cycles=${#recs[@]} failed: GitHub did not give the issue stack, the records wait"
   exit 1
 fi
@@ -271,7 +284,8 @@ upload() { # <record>
 body='
   def defuse: gsub("@(?=[A-Za-z0-9])"; "@\u200b") | gsub("<!--"; "&lt;!--");
   "_Filed by the tehas improvement loop, read by the model `\($model)`. It is a proposal: nothing works on it until a person labels it._",
-  "", "**Category:** \(.category)", "", (.body | defuse), "",
+  "", "**Category:** \(.category)", "",
+  "**Issues:** \([.cycles[] | "\($product)#\(split("-")[0])"] | unique | join(", "))", "", (.body | defuse), "",
   "**Evidence**", "", "````text", (.evidence | gsub("`{3,}"; "\u0027\u0027\u0027")), "````", "",
   "**Cycles:** \(.cycles | unique | join(", "))", "", "**Whole logs**", "", ($links | rtrimstr("\n"))'
 
@@ -280,8 +294,10 @@ failed=0
 n=$(jq '.file | length' <<<"$plan")
 if [ "$n" -gt 0 ]; then
   # It fails when the label is there already, which is fine.
-  gh label create "$label" --repo "$repo" --color 5319e7 \
-    --description "Tehas: filed by the improvement loop, a proposal" >/dev/null 2>&1 || true
+  for r in "${repos[@]}"; do
+    gh label create "$label" --repo "$r" --color 5319e7 \
+      --description "Tehas: filed by the improvement loop, a proposal" >/dev/null 2>&1 || true
+  done
 fi
 for ((i = 0; i < n; i++)); do
   f=$(jq -c ".file[$i]" <<<"$plan")
@@ -290,10 +306,14 @@ for ((i = 0; i < n; i++)); do
     upload "$rec" || fail "could not write under $run"
     links+=$(cat "$run/up/$rec.links")$'\n'
   done < <(jq -r '.cycles | unique | .[]' <<<"$f")
-  jq -r --arg links "$links" --arg model "$PI_ENSEMBLE_SUBAGENT_MODEL" "$body" <<<"$f" >"$run/body.md"
-  if url=$(gh issue create --repo "$repo" --title "$(jq -r .title <<<"$f")" \
+  jq -r --arg links "$links" --arg model "$PI_ENSEMBLE_SUBAGENT_MODEL" --arg product "$TEHAS_REPO" \
+    "$body" <<<"$f" >"$run/body.md"
+  to=$repo
+  [ "$(jq -r .category <<<"$f")" != pi-rukas ] || to=$rukas
+  if url=$(gh issue create --repo "$to" --title "$(jq -r .title <<<"$f")" \
     --body-file "$run/body.md" --label "$label"); then
-    filed+=("#${url##*/}")
+    # A number alone is an issue of TEHAS_IMPROVE_REPO.
+    if [ "$to" = "$repo" ]; then filed+=("#${url##*/}"); else filed+=("$to#${url##*/}"); fi
   else
     failed=1
     break

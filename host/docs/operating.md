@@ -351,6 +351,14 @@ says what could be better: in the dispatcher, the cycle, pi-rukas, the
 console, the gates or this manual. A finding that is not already in the issue
 stack is filed as an issue of its own in that repository.
 
+- **A finding about pi-rukas has a repository of its own** where the instance
+  sets `TEHAS_IMPROVE_RUKAS_REPO`. The model gives each finding a category,
+  and one of the category `pi-rukas` is filed there, because a cycle on the
+  product cannot fix it. Both repositories are read for duplicates, and the
+  limits below count the two together. How a fix then reaches the host is
+  under [pi-rukas comes from a fork](/host#pi-rukas-comes-from-a-fork).
+- **Each issue names the product's issues** whose cycles it rests on, as
+  `owner/name#7`, so GitHub links the two both ways.
 - **The label is `tehas:improvement` and nothing else.** tehas does not act on
   it, and the loop never applies `tehas:ready`. A filed issue is a proposal a
   model wrote: read it, correct it, and apply `tehas:ready` yourself if it
@@ -358,8 +366,9 @@ stack is filed as an issue of its own in that repository.
 - **At most 3 issues a run, and none while 10 are open** with the label. Close
   some or build some and the loop files again.
 - **The whole log is linked.** Each issue links the logs of the cycles it
-  names, gzipped, as assets of the release `tehas-improve-logs` in that
-  repository. In a public repository they are public. A log that holds
+  names, gzipped, as assets of the release `tehas-improve-logs` in
+  `TEHAS_IMPROVE_REPO`, wherever the issue is filed. In a public repository
+  they are public. A log that holds
   something shaped like a token is not uploaded, and the issue says so.
 - **One line per run** in `~/tehas/logs/improve.log`:
 
@@ -371,7 +380,8 @@ stack is filed as an issue of its own in that repository.
 were dropped for not being the shape asked for, `duplicates` were already in
 the stack or given twice (`of` names the issues the model pointed at), and `over` were more
 than the limits allow and are dropped. `filed` and `issues` are what was
-opened.
+opened. An issue in the repository for pi-rukas is written with its
+repository, as `acme/rukas#12`.
 
 To turn the loop off, remove `TEHAS_IMPROVE_REPO` from `instance.env`: cycles
 stop leaving records and a run does nothing. Or stop the timer with
