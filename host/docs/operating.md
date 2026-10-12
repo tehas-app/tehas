@@ -322,6 +322,10 @@ reaches them. Remove the label to resume.
 - No cycle and no planning turn while the slice is missing, has no limit, or
   Docker cannot place containers in it. `tehas status` then says `warn`. See
   [Troubleshooting](/troubleshooting).
+- No cycle, no planning turn and no retry while there are no resources: the
+  model endpoint does not answer, or does not offer the configured model. The
+  dispatcher asks it at every poll. `tehas status` says `warn: No resources`
+  and the dashboard says `no resources` until it is back.
 - Inside a cycle, `TEHAS_CONCURRENCY` workstreams side by side: 4 by default,
   fewer if the model backends cannot take it. See [The host](/host).
 - No new cycle while `TEHAS_MAX_AWAITING` issues carry `tehas:awaiting-merge`

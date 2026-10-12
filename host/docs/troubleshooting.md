@@ -79,9 +79,11 @@ Run `tehas dispatch --dry-run` and read what it prints.
   Wait, or raise the limit.
 - `skip #N: tehas:ready was applied by ...`: the label came from an account that
   is not allowed. Remove it and apply it yourself.
-- `holding: the mesh at ... does not offer ...`: the model endpoint is down or
-  does not list the configured model. The issue stays queued and is taken as
-  soon as the endpoint answers. See "The model endpoint does not answer" below.
+- `holding: no resources: the model endpoint ...`: the model endpoint does not
+  answer, offers no models, or does not offer the configured model. Nothing
+  starts, no cycle, no planning turn and no retry. The issues stay queued and
+  are taken as soon as the endpoint answers. See "The model endpoint does not
+  answer" below.
 - `nothing to do`: the issue is closed, or does not carry `tehas:ready`.
 - `wait #N: its cycle is still running`: `tehas:ready` was applied while the
   issue's cycle runs. A fresh cycle starts when that one has ended.
@@ -231,9 +233,13 @@ commit is on the local branch `feature/issue-<N>-...`.
 curl -s -m 10 "$(jq -r '.providers.fleet.baseUrl' ~/.pi/agent/models.json)/models" | jq -r '.data[].id'
 ```
 
-`fleet` is the provider's name in the example. If the model is missing or the
-call hangs, the cycle will stall and time out. Pause tehas (`tehas:pause` on the
-control issue) until the endpoint is back.
+`fleet` is the provider's name in the example. The dispatcher makes this call
+at every poll. While the call fails, or the answer lists no models or not the
+configured one, it starts nothing: `tehas status` says `warn: No resources`,
+the dashboard says `no resources`, and the dispatcher's log has one line that
+starts with `holding: no resources:`. It logs `released` at the first poll
+that finds the model again. A cycle that was already running when the endpoint
+went away is not stopped: it stalls and times out.
 
 If the call works on the host but agents cannot reach the endpoint, its host
 name does not resolve inside the sandbox: add it to `PI_ENSEMBLE_HOST_ALIASES`.

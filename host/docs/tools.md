@@ -513,7 +513,7 @@ serves the file at `/health` and `/healthz` as `application/health+json`.
 | `status` | Meaning                                                                                  | HTTP |
 | -------- | ---------------------------------------------------------------------------------------- | ---- |
 | `pass`   | Taking work, idle or in a cycle                                                          | 200  |
-| `warn`   | Paused (`tehas:pause` on the control issue), or the dispatcher holds everything because the slice is missing or cannot be read, or too low on disk to build previews, or the free space could not be read | 200  |
+| `warn`   | Paused (`tehas:pause` on the control issue), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read | 200  |
 | `fail`   | The last cycle ended as anything but `merged` or `handoff` and no cycle has started since, or there is no queue snapshot | 503  |
 
 `output` says the same in a sentence. `checks.queue` has the snapshot time and
@@ -535,11 +535,13 @@ previews are not being built." when `freeBytes` is `null`.
 
 `checks.slice` is `live/dispatch.json` as the dispatcher's last poll wrote
 it: `time`, `why`, `hold`, `count`, `room`, `committed`, `max` and `reserve`.
-`why` is empty when cycles may start, else one word: `slice`, `count`,
-`awaiting`, `pressure`, `room` or `unreadable`, and `hold` is the line the
-dispatcher logged. `room` is how many more reserves fit in the slice;
+`why` is empty when cycles may start, else one word: `slice`, `unreadable`,
+`resources`, `count`, `awaiting`, `pressure` or `room`, and `hold` is the line
+the dispatcher logged. `resources` is a model endpoint that does not answer or
+does not offer the configured model. `room` is how many more reserves fit in the slice;
 `committed` and `max` are bytes. With `slice` or `unreadable` the status is
-`warn` and `output` is the hold. It is `null` when the file is more than ten
+`warn` and `output` is the hold. With `resources` the status is `warn` and
+`output` starts with `No resources:`. It is `null` when the file is more than ten
 minutes old. `tehasbot health` calls neither `systemctl` nor `docker`.
 
 A stopped dispatcher cannot report itself: the file simply stops changing and

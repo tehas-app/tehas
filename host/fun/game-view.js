@@ -64,6 +64,7 @@
     return {
       tickets,
       paused: Boolean(raw && raw.paused),
+      noResources: Boolean(raw && raw.noResources),
       kw: raw && Number(raw.assumedKw) > 0 ? Number(raw.assumedKw) : DEFAULT_KW,
       sample: Boolean(raw && raw.sampleData),
       words: collectWords(raw, tickets),
@@ -99,7 +100,7 @@
 
   // "live" is true while the tickets come from the factory's own queue snapshot.
   // That snapshot lists only tickets on the line, so counts it cannot know stay blank.
-  const state = { tickets: [], paused: false, sample: false, live: false, loaded: false, selected: null, filter: "open", query: "", kw: DEFAULT_KW };
+  const state = { tickets: [], paused: false, noResources: false, sample: false, live: false, loaded: false, selected: null, filter: "open", query: "", kw: DEFAULT_KW };
 
   const ago = (iso) => {
     if (!iso) return "";
@@ -121,6 +122,7 @@
     const [stateName, text] = failure ? ["failed", "FACTORY FAILED"]
       : !state.loaded ? ["none", "NO DATA"]
       : state.paused ? ["paused", "FACTORY PAUSED"]
+      : state.noResources ? ["starved", "NO RESOURCES"]
       : ["running", "FACTORY RUNNING!"];
     gate.dataset.state = stateName;
     gate.textContent = text;
@@ -527,7 +529,7 @@
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(refitFold, () => {});
 
   function show(data, sourceText, statusText) {
-    Object.assign(state, { tickets: data.tickets, paused: data.paused, sample: data.sample, live: Boolean(data.live), loaded: true, filter: "open", query: "", kw: data.kw });
+    Object.assign(state, { tickets: data.tickets, paused: data.paused, noResources: data.noResources, sample: data.sample, live: Boolean(data.live), loaded: true, filter: "open", query: "", kw: data.kw });
     $("board-all").hidden = !(state.live && queue.all);
     if (state.live && queue.all) $("board-all").href = queue.all;
     $("energy-basis").textContent = `time spent at an assumed ${state.kw} kW, unless the data carries a measured figure`;
@@ -570,7 +572,7 @@
     };
     for (const key of ["queued", "running", "awaiting", "stopped"]) take(key, false);
     take("completed", true);
-    const data = normalize({ issues: [...byNumber.values()], paused: Boolean(s.paused), buzzwords: s.buzzwords });
+    const data = normalize({ issues: [...byNumber.values()], paused: Boolean(s.paused), noResources: Boolean(s.noResources), buzzwords: s.buzzwords });
     data.live = true;
     return data;
   }
@@ -609,7 +611,7 @@
     const data = fromSnapshot(s);
     // The words can change while the tickets on the line stay as they were.
     if (state.live) words = data.words;
-    const signature = JSON.stringify([data.paused, data.tickets.map((t) => [t.number, t.title, t.stage, t.updatedAt, t.closedAt])]);
+    const signature = JSON.stringify([data.paused, data.noResources, data.tickets.map((t) => [t.number, t.title, t.stage, t.updatedAt, t.closedAt])]);
     if (!state.live) {
       queue.signature = signature;
       show(data, "LIVE QUEUE", "");
@@ -619,6 +621,7 @@
       const keep = focused && focused.dataset.number ? { list: focused.closest("ul, .slot"), number: focused.dataset.number } : null;
       state.tickets = data.tickets;
       state.paused = data.paused;
+      state.noResources = data.noResources;
       words = data.words;
       if (!state.tickets.some((t) => t.number === state.selected)) {
         const first = inStage("running")[0] || inStage("review")[0] || inStage("ready")[0] || state.tickets[0];

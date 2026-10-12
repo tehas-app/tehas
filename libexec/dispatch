@@ -183,16 +183,30 @@ untick() {
 # shellcheck source=lib/planning.sh
 . "$here/../lib/planning.sh"
 
-# Do not burn an issue on a mesh that cannot answer: every agent would fail
-# and the issue would park. Leave it queued and look again next poll.
-mesh_ok() {
-  local mesh model=$PI_ENSEMBLE_SUBAGENT_MODEL
+# Do not burn an issue on a model endpoint that cannot answer: every agent
+# would fail and the issue would park. Leave it queued and look again next
+# poll. mesh_check asks the endpoint once, at rule 3, and leaves the reason in
+# $mesh_hold. The text names no address: tehas status and the health file
+# carry it, and they are served to whoever can read the dashboard.
+mesh_hold=""
+mesh_check() {
+  local mesh model=$PI_ENSEMBLE_SUBAGENT_MODEL list
+  mesh_hold=""
   mesh=$(jq -r --arg p "$PI_ENSEMBLE_SUBAGENT_PROVIDER" '.providers[$p].baseUrl // ""' "$HOME/.pi/agent/models.json" 2>/dev/null)
-  if [ -n "$mesh" ] && [ -n "$model" ] &&
-    ! curl -fsS -m 10 "$mesh/models" 2>/dev/null | jq -e --arg m "$model" '.data | any(.id == $m)' >/dev/null 2>&1; then
-    log "holding: the mesh at $mesh does not offer $model right now"
-    return 1
+  [ -n "$mesh" ] && [ -n "$model" ] || return 0
+  if ! list=$(curl -fsS -m 10 "$mesh/models" 2>/dev/null); then
+    mesh_hold="holding: no resources: the model endpoint does not answer"
+  elif ! jq -e '(.data | type) == "array" and (.data | length) > 0' <<<"$list" >/dev/null 2>&1; then
+    mesh_hold="holding: no resources: the model endpoint offers no models"
+  elif ! jq -e --arg m "$model" '.data | any(.id == $m)' <<<"$list" >/dev/null 2>&1; then
+    mesh_hold="holding: no resources: the model endpoint does not offer $model"
   fi
+}
+# A real poll has logged the hold at rule 3; a dry run says it where it ends.
+mesh_ok() {
+  [ -n "$mesh_hold" ] || return 0
+  [ "$dry" != 1 ] || log "$mesh_hold"
+  return 1
 }
 
 # A planning turn runs in a container in the slice. With no usable slice, or
@@ -468,8 +482,10 @@ done
 # not have. A running cycle is a pull request on its way, so it counts:
 # otherwise the slots could overshoot the cap. Rules 2 and 3 hold back new
 # cycles only; a question is still read while they hold. $hold says why and
-# $why is the one word for it: slice, unreadable, count, awaiting, pressure
-# or room, the first that applies.
+# $why is the one word for it: slice, unreadable, resources, count, awaiting,
+# pressure or room, the first that applies. resources is a model endpoint
+# that does not answer or does not offer the model: it holds planning turns
+# and retries as well.
 #
 # The slice is read here, after the sweep above, which needs no slice. The
 # room is read whenever the slice is usable, also when the slots are full, so
@@ -493,6 +509,7 @@ else
   slice_hold="holding: $TEHAS_SLICE_WHY"
 fi
 
+mesh_check
 hold=""
 why=""
 want=0
@@ -504,6 +521,9 @@ elif [ "$mem_why" = unreadable ]; then
   # on it, whatever the slots say.
   why=unreadable
   hold="holding: the slice's use could not be read"
+elif [ -n "$mesh_hold" ]; then
+  why=resources
+  hold=$mesh_hold
 elif [ "$free" -le 0 ]; then
   why=count
   hold="holding: $count cycles are running (limit $TEHAS_TICKET_CONCURRENCY)"
@@ -822,10 +842,6 @@ candidates=$(jq -r '[.[] | (.labels | map(.name)) as $l
           | {number, urgent: ($l | index("tehas:urgent") != null)}]
          | sort_by([(.urgent | not), .number]) | .[].number' <<<"$ready_json") ||
   { log "ERROR: unreadable list of ready issues"; exit 1; }
-
-if [ -n "$candidates" ]; then
-  mesh_ok || exit 0
-fi
 
 for n in $candidates; do
   [ "${#picked[@]}" -lt "$want" ] || break
