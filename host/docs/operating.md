@@ -359,6 +359,23 @@ stack is filed as an issue of its own in that repository.
   under [pi-rukas comes from a fork](/host#pi-rukas-comes-from-a-fork).
 - **Each issue names the product's issues** whose cycles it rests on, as
   `owner/name#7`, so GitHub links the two both ways.
+- **Each issue says what working on it means**, in the line `Working on it`,
+  because the text of an issue is the task a cycle is given. A finding about
+  the factory is built in the repository it is filed in, once a person applies
+  `tehas:ready`. A finding about pi-rukas is fixed in pi-rukas and waits there
+  for `tehas:ready`; no cycle on the product works around it. Where the
+  instance has no repository for pi-rukas, such a finding is filed with the
+  rest and tells a cycle to change no code and hand off.
+- **An issue worked on again is checked against the filed issue.** When a
+  later cycle of a product issue is read and an issue the loop filed rests on
+  an earlier cycle of it, the model says whether the problem came back. That
+  is a comment on the filed issue, open or closed: `Seen again: yes` or `no`,
+  what the new cycle showed, its whole log, and the pi-rukas commit the host
+  was installed with. This is how a fix in the fork is verified: deploy it,
+  apply `tehas:ready` to the product issue again, and read the comment. A
+  model wrote it, so check it against the log. The loop closes and reopens
+  nothing. At most 10 comments a run, and none in a run that waits because 10
+  issues are open.
 - **The label is `tehas:improvement` and nothing else.** tehas does not act on
   it, and the loop never applies `tehas:ready`. A filed issue is a proposal a
   model wrote: read it, correct it, and apply `tehas:ready` yourself if it
@@ -373,7 +390,7 @@ stack is filed as an issue of its own in that repository.
 - **One line per run** in `~/tehas/logs/improve.log`:
 
 ```
-2026-10-11T09:00:12Z improve: cycles=4 findings=3 invalid=0 duplicates=1 of=#41 over=0 filed=2 issues=#57,#58
+2026-10-11T09:00:12Z improve: cycles=4 findings=3 invalid=0 duplicates=1 of=#41 over=0 filed=2 issues=#57,#58 rechecked=1
 ```
 
 `cycles` is how many were read and `findings` what the model gave. `invalid`
@@ -381,7 +398,9 @@ were dropped for not being the shape asked for, `duplicates` were already in
 the stack or given twice (`of` names the issues the model pointed at), and `over` were more
 than the limits allow and are dropped. `filed` and `issues` are what was
 opened. An issue in the repository for pi-rukas is written with its
-repository, as `acme/rukas#12`.
+repository, as `acme/rukas#12`. `rechecked` is how many comments were posted
+on issues that were worked on again; one GitHub refused follows as
+`not-commented=acme/rukas#12`.
 
 To turn the loop off, remove `TEHAS_IMPROVE_REPO` from `instance.env`: cycles
 stop leaving records and a run does nothing. Or stop the timer with
