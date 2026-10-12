@@ -17,6 +17,16 @@ fn scratch(name: &str) -> PathBuf {
     dir
 }
 
+// A day as the transcript directories are named, from the clock: the console
+// does not list a day long before the cycle, so fixed dates would age out.
+fn day(when: &str) -> String {
+    let out = Command::new("date")
+        .args(["-u", "-d", when, "+%F"])
+        .output()
+        .unwrap();
+    String::from_utf8(out.stdout).unwrap().trim().to_string()
+}
+
 // What the file holds, without the time each line begins with.
 fn said(out: &PathBuf) -> Vec<String> {
     let text = fs::read_to_string(out).unwrap_or_default();
@@ -47,8 +57,9 @@ fn a_cycle_becomes_a_console_file_and_a_stop_reads_the_last_lines() {
     );
     fs::write(&out, "").unwrap();
     // A transcript of an earlier cycle: it must not be replayed.
-    fs::create_dir_all(runs.join("2026-10-09")).unwrap();
-    let old = runs.join("2026-10-09/aa-bb-coder.json");
+    let (yesterday, today) = (day("yesterday"), day("today"));
+    fs::create_dir_all(runs.join(&yesterday)).unwrap();
+    let old = runs.join(&yesterday).join("aa-bb-coder.json");
     fs::write(&old, "{\"type\":\"message\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"old\"}]}}\n").unwrap();
     let hour_ago = std::time::SystemTime::now() - Duration::from_secs(3600);
     fs::File::options()
@@ -82,9 +93,9 @@ fn a_cycle_becomes_a_console_file_and_a_stop_reads_the_last_lines() {
     wait_for(&out, 1);
 
     fs::write(&rpc, "{\"type\":\"extension_ui_request\",\"method\":\"notify\",\"message\":\"cycle started\"}\nnot json\n").unwrap();
-    fs::create_dir_all(runs.join("2026-10-10")).unwrap();
+    fs::create_dir_all(runs.join(&today)).unwrap();
     fs::write(
-        runs.join("2026-10-10/aa-bb-coder.json"),
+        runs.join(&today).join("aa-bb-coder.json"),
         "{\"type\":\"message\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"toolCall\",\"name\":\"bash\",\"arguments\":{\"command\":\"echo GH_TOKEN=abc123\"}}]}}\n",
     )
     .unwrap();
