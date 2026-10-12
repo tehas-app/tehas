@@ -161,7 +161,14 @@ issue and the next poll tries again. A closed issue in that state only loses
 host no cycle holds a lock.
 
 An issue is taken only when an allowed account applied `tehas:ready` and
-nobody else has changed its title or body since. No other label holds it
+nobody else has changed its title or body since. A `tehas:ready` from any other
+account asks for nothing, so it comes off the issue with a comment naming who
+applied it; the log line is `clear #N: tehas:ready off, applied by ...`. A
+`tehas:plan` from such an account comes off the same way. The
+comment follows the label change: when that change fails nothing is said on the
+issue and the next poll tries again. An issue the poll does not read as a
+candidate keeps its labels as they are, which covers one whose own cycle is
+alive and every issue while a hold applies. No other label holds it
 back: `needs-human-attention`, `tehas:awaiting-merge` and `tehas:question` are
 taken off as the cycle starts. While the issue's own cycle is alive the log
 says `wait #N: its cycle is still running`, and the issue is taken once that

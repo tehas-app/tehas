@@ -77,8 +77,13 @@ Run `tehas dispatch --dry-run` and read what it prints.
 - `holding: N issues await merge and M cycles are running (limit N)`: running
   cycles count towards `TEHAS_MAX_AWAITING` with the issues that await merge.
   Wait, or raise the limit.
-- `skip #N: tehas:ready was applied by ...`: the label came from an account that
-  is not allowed. Remove it and apply it yourself.
+- `skip #N: tehas:ready was applied by ...`, then `clear #N: tehas:ready off,
+  applied by ...`: the label came from an account that is not allowed. The
+  dispatcher took it off and said so on the issue. To ask for a cycle, an
+  allowed account applies `tehas:ready`. The same two lines name `tehas:plan`
+  when that label came from such an account. With only the `skip` line, the poll was
+  a dry run or the label change failed (`WARN: label change on #N failed`), and
+  the next poll tries again.
 - `holding: the mesh at ... does not offer ...`: the model endpoint is down or
   does not list the configured model. The issue stays queued and is taken as
   soon as the endpoint answers. See "The model endpoint does not answer" below.

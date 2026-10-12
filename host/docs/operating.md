@@ -84,7 +84,12 @@ compute on the issue.
 
 - Only a label applied by an allowed account counts: the logins in
   `TEHAS_ALLOWED_LABELERS` (in the example, `janit`). A `tehas:ready` applied
-  by the bot or anyone else is ignored and logged.
+  by the bot or anyone else is no one's request for a cycle: the dispatcher
+  takes it off the issue, says in a comment on the issue who applied it, and
+  logs it. An account in `TEHAS_ALLOWED_LABELERS` applies it again to ask for
+  a cycle. GitHub has no permission per label: any account that can write to
+  the repository can apply any label, so the list is enforced here, at the
+  next poll, and not by GitHub.
 - Add **`tehas:urgent`** as well to move it ahead of other ready issues.
 
 ## 3. What happens next
@@ -235,7 +240,8 @@ dispatcher's log says so.
 1. Write an issue that says what you want planned.
 2. Apply `tehas:plan`. As with `tehas:ready`, only a label applied by an
    allowed account counts, and it approves the text as it was when you
-   applied it.
+   applied it. From any other account it is taken off the issue with a
+   comment, as `tehas:ready` is.
 3. The bot comments that the session has started. Each turn of the agent ends
    in a comment with what it found. When it needs a decision, the comment
    ends in a question with one checkbox per choice, a last box `End this
