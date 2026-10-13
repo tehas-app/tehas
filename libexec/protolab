@@ -41,6 +41,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/config.sh"
 # shellcheck source=lib/edge.sh
 . "$here/../lib/edge.sh"
+# shellcheck source=lib/attachments.sh
+. "$here/../lib/attachments.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO
 repo=$TEHAS_REPO
@@ -55,7 +57,7 @@ site=$TEHAS_HOME/protolab
 live=$TEHAS_HOME/live
 work=$site/.work
 # A changed generator rebuilds every page.
-gen="$(cksum <"${BASH_SOURCE[0]}" | tr ' ' '-')-${domain:-path}"
+gen="$(cat "${BASH_SOURCE[0]}" "$here/../lib/attachments.sh" | cksum | tr ' ' '-')-${domain:-path}"
 
 mkdir -p "$site" "$live" || exit 1
 edge_lock protolab || { echo "another tehasbot protolab is running"; exit 0; }
@@ -70,8 +72,7 @@ token=${GH_TOKEN:-}
 # Input: $t the ticket, $c its comments. Only text by people of the repository
 # counts; links by anyone else are counted, not fetched.
 # shellcheck disable=SC2016  # a jq program: the variables are jq's
-find_refs='
-  def links: [scan("https://(?:github\\.com/user-attachments/(?:assets|files)/|github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(?:assets|files)/[0-9]+/|user-images\\.githubusercontent\\.com/)[A-Za-z0-9._~%/?&=+-]+")];
+find_refs=$(tehas_attachment_links)'
   def uniq: reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end);
   def ours: IN("OWNER", "MEMBER", "COLLABORATOR");
   ([{who: $t.association, text: $t.body}]
@@ -222,51 +223,6 @@ render='
 
   if $mode == "ticket" then ticket else front end'
 
-# --- One file ----------------------------------------------------------------
-# kind_of <extension>: how the page shows a file of that type; fails for a type
-# the lab does not host.
-kind_of() {
-  case "$1" in
-    png | jpg | jpeg | gif | webp | svg | avif) echo image ;;
-    mp4 | webm | mov) echo video ;;
-    html | htm) echo app ;;
-    css | js | mjs | json | txt) echo part ;;
-    *) return 1 ;;
-  esac
-}
-# ext_of <content type>: an image or video pasted into an issue has no name, so
-# its type is the one GitHub's storage answers with.
-ext_of() {
-  case "${1%%;*}" in
-    image/png) echo png ;;
-    image/jpeg) echo jpg ;;
-    image/gif) echo gif ;;
-    image/webp) echo webp ;;
-    image/svg+xml) echo svg ;;
-    image/avif) echo avif ;;
-    video/mp4) echo mp4 ;;
-    video/webm) echo webm ;;
-    video/quicktime) echo mov ;;
-    *) return 1 ;;
-  esac
-}
-# fetch <address> <file> <most bytes>: download, print the content type. The
-# token goes to github.com only, and on standard input, not the command line;
-# curl does not pass it on when GitHub redirects to its storage.
-fetch() {
-  local args=(-sSfL --proto '=https' --proto-redir '=https' --max-redirs 3 --max-time 120
-    --max-filesize "$3" -o "$2" -w '%{content_type}')
-  case "$1" in
-    https://github.com/*)
-      if [ -n "$token" ]; then
-        curl "${args[@]}" -H @- "$1" <<<"Authorization: Bearer $token"
-        return
-      fi
-      ;;
-  esac
-  curl "${args[@]}" "$1" </dev/null
-}
-
 # --- One ticket --------------------------------------------------------------
 # build <number> <ticket JSON> <stamp>: make $work/<number> and put it in place.
 # Returns 1 when the ticket could not be read; what is there is then kept.
@@ -297,14 +253,14 @@ build() {
       ext=""
       case "$name" in *.*) ext=${name##*.} ;; esac
       ext=${ext,,}
-      kind=$(kind_of "$ext") || { skip "$name" "Not a type the lab hosts."; continue; }
+      kind=$(tehas_attachment_kind "$ext") || { skip "$name" "Not a type the lab hosts."; continue; }
     fi
     if [ "$count" -ge "$max_files" ]; then skip "$name" "More than $max_files files."; continue; fi
     left=$((limit - used))
     if [ "$left" -le 0 ]; then skip "$name" "Over the 10 MB limit of a ticket."; continue; fi
 
     rm -f "$dir/.part"
-    type=$(fetch "$ref" "$dir/.part" "$left")
+    type=$(tehas_attachment_fetch "$ref" "$dir/.part" "$left" "$token")
     rc=$?
     case "$rc" in
       0) ;;
@@ -316,8 +272,8 @@ build() {
     if [ "$size" = 0 ]; then skip "$name" "Empty."; continue; fi
     if [ "$size" -gt "$left" ]; then skip "$name" "Over the 10 MB limit of a ticket."; continue; fi
     if [ "$named" = 0 ]; then
-      ext=$(ext_of "$type") || { skip "$name" "Not a type the lab hosts."; continue; }
-      kind=$(kind_of "$ext")
+      ext=$(tehas_attachment_ext "$type") || { skip "$name" "Not a type the lab hosts."; continue; }
+      kind=$(tehas_attachment_kind "$ext")
       unnamed=$((unnamed + 1))
       name=$kind-$unnamed.$ext
     fi
