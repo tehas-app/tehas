@@ -211,8 +211,13 @@ t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC
 t_case "the cycle's container gets no option beyond the documented ones"
 image="tehas/pi-rukas:uid$(id -u)"
 t_eq "$(cycle_args | unknown_options "$image" \
-  "--name --cgroup-parent --memory --memory-swap --memory-reservation --pids-limit --cpu-shares --cidfile -w -v -e" "--rm -i")" ""
+  "--name --cgroup-parent --memory --memory-swap --memory-reservation --pids-limit --cpu-shares --cidfile -w -v -e" "--rm -i --init")" ""
 t_eq "$(cycle_args | sed -n "/^$(printf '%s' "$image" | sed 's/[\/.]/\\&/g')\$/,\$p" | tr '\n' ' ')" "$image pi --mode rpc --approve "
+
+# Pi is no init: without one, a process that outlives its parent is never
+# collected and counts against the pids limit until the container ends.
+t_case "the cycle's container has an init"
+t_eq "$(cycle_args | grep -c -x -e --init)" 1
 
 t_case "the push check's container gets the workspace and the same variables, no more"
 t_eq "$(preflight_args | unknown_options "$image" "--user -e -w -v --entrypoint" "--rm")" ""

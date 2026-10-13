@@ -34,6 +34,9 @@
 # The container runs in tehas.slice, as every sandbox container does, with the
 # limits lib/slice.sh makes: a memory ceiling of a quarter of the slice, no
 # swap, the reserve as its floor, a pids limit and a CPU weight. No CPU quota.
+# It has an init (--init): Pi collects only its own children, and a process
+# that outlives its parent would count against the pids limit until the
+# container ends. A pass of the shell tests leaves several hundred.
 # Without a usable slice nothing is cloned and nothing starts. The check that
 # the sandbox can push is a container of a few seconds and is not in the slice.
 #
@@ -154,7 +157,7 @@ rm "$fifo"
 # Docker refuses a cid file that is already there. One is left only by a cycle
 # that was killed outright, and so is a count of kills.
 rm -f "$cid_file" "$oom_file"
-docker run --rm -i --name "$name" \
+docker run --rm -i --init --name "$name" \
   "${TEHAS_SLICE_LIMITS[@]}" --cidfile "$cid_file" \
   -w "$repo" "${mounts[@]}" \
   "${envs[@]}" "${hosts[@]}" \

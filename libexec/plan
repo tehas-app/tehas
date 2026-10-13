@@ -159,7 +159,7 @@ mkfifo "$fifo"
 exec 3<>"$fifo"
 rm "$fifo"
 
-docker run --rm -i --name "$name" \
+docker run --rm -i --init --name "$name" \
   "${TEHAS_SLICE_LIMITS[@]}" \
   -w "$repo" "${mounts[@]}" \
   "${envs[@]}" "${hosts[@]}" \

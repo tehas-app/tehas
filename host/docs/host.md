@@ -263,6 +263,14 @@ limits, twelve words on the `docker run` line:
 | `--pids-limit` | `4096` | The most processes and threads in the container |
 | `--cpu-shares` | `1024` | A CPU weight, the same on every container |
 
+A cycle, a planning turn and a dev session also run with `--init`. Pi is the
+command of the container and collects only its own children. A process that
+outlives its parent, as git's background housekeeping does, is handed to the
+first process of the container, and without an init it is never collected and
+counts against `--pids-limit` until the container ends. One pass of this
+repository's shell tests leaves about 950 that way, so a cycle reached the
+limit at its fifth pass and could start no process after that.
+
 There is no CPU quota. One container alone may use every CPU; several busy
 ones share them by weight, about equally. The weight is also what makes the
 kernel share CPU inside the slice at all, so every container carries it.

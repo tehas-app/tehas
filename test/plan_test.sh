@@ -161,7 +161,8 @@ PI_ENSEMBLE_WORKSPACE_ROOT"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
 
 t_case "the planning container gets no option beyond the documented ones"
-t_eq "$(turn_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -i")" ""
+t_eq "$(turn_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -i --init")" ""
+t_eq "$(turn_args | grep -c -x -e --init)" 1
 t_eq "$(after --name)" "tehas-plan-7"
 t_eq "$(after -w)" "$ws"
 
@@ -189,7 +190,7 @@ t_eq "$(after --cpu-shares)" "1024"
 t_lacks "$(turn_args)" "--cpus"
 t_lacks "$(turn_args)" "--cidfile"
 t_contains "$(turn_args)" "--add-host=models:192.0.2.9"
-t_eq "$(turn_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -i")" ""
+t_eq "$(turn_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -i --init")" ""
 
 t_case "the slice is read once: one systemctl call, one docker info"
 t_eq "$(t_calls systemctl)" "show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax"
