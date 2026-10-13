@@ -61,21 +61,29 @@
    state tag, there only while the mesh reports. It reads as the menu's links
    read and keeps the height of the band: two lines of page type inside a 4px
    border, so it never adds a row.
-   What it costs is width. Every width below is modelled at the font's advance
-   (TopazPlus: 800 of 1600 units per em, 8px a character at page type) for a
-   reading of four characters or fewer: watts to 9999, and a token rate, which
-   energy-view.js writes in thousands from 10000 a minute. The chip is then 80px
-   with the figure alone, 128px with its word, 160px with the token line and
-   226px with both gauges. On the same line the brand takes 196 (80 on phones),
-   the state tag 152, the menu 792 at 1280-1359px and 824 above it, and a
-   data-source tag 128 more whenever one shows: game-view.css hides only the
-   fresh live queue, so sample data, a local export, a stale queue and the tag
-   before the first read are all on that line. The meter is shown where it fits
-   and gives way to the source tag before it pushes the state tag onto a second
-   row, which would break --header. A reading of five characters costs 8px more
-   than the band is sized for; the full figures are always in Energy use.
-   DESIGN.md, "Live Meter", lists the widths. */
-.topbar > .meter {
+
+   What it costs is width, and this is the one place that works it out; DESIGN.md
+   and the manual say what shows where without the arithmetic. The font's
+   advance (TopazPlus: 800 of 1600 units per em, 8px a character at page type)
+   prices a reading of four characters or fewer: watts to 9999, and a token
+   rate, which energy-view.js writes in thousands from 10000 a minute. The chip
+   is then 80 with the figure alone, 128 with its word, 160 with the token line
+   and 226 with both gauges. What else stands on that line, with its padding and
+   gaps, is written out at the head of game-view.css: the brand, the state tag,
+   the menu, and a data-source tag whenever one shows, its width and a gap;
+   game-view.css hides only the fresh live queue, so sample data, a local export,
+   a stale queue and the tag before the first read are all on that line. Below
+   1280px the menu takes a row of its own; above it the line is brand, gap, menu,
+   gap, meter, gap, state tag, and with a source tag one gap and its width more.
+   The room left for the meter is then 56 at 1280px, 164 at 1440px and 374 at
+   1650px, or 20 at 1440px with a source tag. A reading of five characters costs
+   8 more than the model prices; the full figures are always in Energy use.
+
+   Most bounds are chosen cut-offs that leave room to spare: 700, 1440, 1650,
+   520 and 1572. Three are exact fits: 344 is the narrowest line the figure alone
+   needs, and with a source tag on the line the token line stops fitting below
+   732 and the gauges below 798. */
+.topbar-end > .meter {
   flex: none;
   display: grid;
   gap: 2px;
@@ -84,51 +92,44 @@
   border: 4px solid var(--outline);
   text-decoration: none;
 }
-.topbar > .meter:hover { text-decoration: underline; text-underline-offset: 4px; }
+.topbar-end > .meter:hover { text-decoration: underline; text-underline-offset: 4px; }
 .meter-row { display: flex; align-items: baseline; gap: 8px; line-height: 16px; white-space: nowrap; }
 .meter-row b { font: inherit; color: var(--slate); }
 .meter-figure { display: flex; align-items: baseline; gap: 8px; }
-/* The figures were reset by .door i, which no longer reaches them. */
-.meter-figure i { font-style: normal; }
+/* Four characters at page type, so the chip does not change width as a reading
+   counts up. */
+.meter-figure > span { min-width: 32px; }
 .meter-gauge { display: none; gap: 2px; }
 .meter-gauge i { width: 4px; height: 8px; background: var(--bone); }
 .meter-gauge .is-used { background: var(--brass); }
-#meter-tokens-row { display: none; }
+.meter-tokens { display: none; }
 
 @media (min-width: 700px) and (max-width: 1279px), (min-width: 1440px) {
-  #meter-tokens-row { display: flex; }
+  .meter-tokens { display: flex; }
 }
 @media (min-width: 700px) and (max-width: 1279px), (min-width: 1650px) {
   .meter-gauge { display: flex; }
 }
+/* The menu shares the line here and leaves 56 to 164px: less than the two
+   lines of the chip need, so the meter steps out with room to spare. */
 @media (min-width: 1280px) and (max-width: 1439px) {
-  .topbar > .meter { display: none; }
+  .topbar-end > .meter { display: none; }
 }
 
-/* Where the band wraps, game-view.css gives its slack to the state tag, which
-   would leave the meter at the left end of the line. Below 1280px the slack is
-   the meter's instead, and the state tag keeps the gap the band uses. */
-@media (max-width: 1279px) {
-  .topbar > .meter { margin-left: auto; }
-  .topbar:has(> .meter:not([hidden])) > .gate { margin-left: 0; }
-}
-
-/* Where a data-source tag shares the line, it costs 144px of it: its width and
-   one gap. The meter narrows first, and gives way entirely where even the figure
-   alone would push the state tag onto a second row. */
+/* Where a data-source tag shares the line, it costs 144px of it. The meter
+   narrows first, and gives way entirely where even the figure alone would push
+   the state tag onto a second row. */
 @media (min-width: 700px) and (max-width: 797px) {
-  .topbar:has(.source:not([data-kind="live"])) .meter-gauge { display: none; }
+  .topbar:has(> .source:not([data-kind="live"])) .meter-gauge { display: none; }
 }
 @media (min-width: 700px) and (max-width: 731px) {
-  .topbar:has(.source:not([data-kind="live"])) #meter-tokens-row { display: none; }
+  .topbar:has(> .source:not([data-kind="live"])) .meter-tokens { display: none; }
 }
 @media (min-width: 1440px) and (max-width: 1571px) {
-  .topbar:has(.source:not([data-kind="live"])) > .meter { display: none; }
+  .topbar:has(> .source:not([data-kind="live"])) .meter { display: none; }
 }
-/* The meter is out of these two bands, so the slack goes back to the state tag. */
 @media (max-width: 519px) {
-  .topbar:has(.source:not([data-kind="live"])) > .meter { display: none; }
-  .topbar:has(.source:not([data-kind="live"])) > .gate { margin-left: auto; }
+  .topbar:has(> .source:not([data-kind="live"])) .meter { display: none; }
 }
 
 /* Wide: the screen and the models side by side, the machines beneath. */
@@ -164,6 +165,5 @@
 }
 /* Even the figure alone needs 80px of a line that has 79. */
 @media (max-width: 343px) {
-  .topbar > .meter { display: none; }
-  .topbar:has(> .meter:not([hidden])) > .gate { margin-left: auto; }
+  .topbar-end > .meter { display: none; }
 }

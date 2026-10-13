@@ -148,7 +148,18 @@ body[data-factory="live"] .console-state::before {
   body[data-factory="live"] .monitor-led { background: var(--brass-light); }
 }
 
-/* Header band */
+/* Header band
+
+   What one line of it costs, at page type (8px a character; see the font note
+   in energy-view.css). The live meter's fit bands are worked out from these
+   figures, so change them together with test/front_page_test.sh.
+     padding: 24 each side, 8 below 700px
+     gap: 16 between the items on the line, 12 at 1280-1359px
+     brand: 196 (the sprite alone, 80, below 700px)
+     source tag: 128 (twelve characters), only where one shows
+     menu: 792 at 1280-1359px, 824 above it; a row of its own below 1280px
+     state tag: 152 (twelve characters)
+   The meter and the state tag are one group at the right end of the line. */
 
 .topbar {
   position: sticky;
@@ -180,8 +191,12 @@ body[data-factory="live"] .console-state::before {
 /* The fresh live queue is the normal case and needs no tag. */
 .source[data-kind="live"] { display: none; }
 .menu { display: flex; align-items: center; gap: 0 16px; margin-left: auto; }
-/* The factory state tag closes the header, at the far right. */
-.topbar > .gate { flex: none; margin-left: 8px; white-space: nowrap; }
+/* The right end of the band: the live meter (energy-view.css) and the factory
+   state tag, which closes it. The group holds the line's slack below 1280px,
+   where the menu takes a row of its own, so the gap before the state tag does
+   not depend on whether the meter is on the line. */
+.topbar-end { flex: none; display: flex; align-items: center; gap: 0 16px; }
+.topbar-end > .gate { flex: none; margin-left: 8px; white-space: nowrap; }
 .menu a, .repo { padding: 12px 0; text-decoration: none; white-space: nowrap; }
 .menu a:hover, .repo:hover { text-decoration: underline; text-underline-offset: 4px; }
 .repo { text-decoration: underline; text-underline-offset: 4px; }
@@ -624,8 +639,8 @@ body[data-factory="live"] .console-state::before {
 /* Just above the single-column width the header is tight: close the gaps so it
    stays on one row. */
 @media (min-width: 1280px) and (max-width: 1359px) {
-  .topbar, .menu { gap: 0 12px; }
-  .topbar > .gate { margin-left: 0; }
+  .topbar, .menu, .topbar-end { gap: 0 12px; }
+  .topbar-end > .gate { margin-left: 0; }
 }
 
 @media (max-width: 1279px) {
@@ -633,7 +648,8 @@ body[data-factory="live"] .console-state::before {
   .topbar { flex-wrap: wrap; }
   .menu { order: 3; flex-basis: 100%; margin-left: 0; overflow-x: auto; scrollbar-width: none; }
   .menu::-webkit-scrollbar { display: none; }
-  .topbar > .gate { margin-left: auto; }
+  .topbar-end { margin-left: auto; }
+  .topbar-end > .gate { margin-left: 0; }
   .stage {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas: "floor" "doors" "desk" "energy" "break";
@@ -677,7 +693,7 @@ body[data-factory="live"] .console-state::before {
   .stage { padding: 0 16px; }
   :root { --header: 120px; }
   .topbar { padding: 8px 8px 0; gap: 0 8px; }
-  .source, .topbar > .gate { padding: 4px 8px; }
+  .source, .topbar-end > .gate { padding: 4px 8px; }
   .menu { padding: 0 8px; }
   .brand img { width: 80px; height: 40px; }
   .brand span { display: none; }

@@ -298,30 +298,25 @@ with the section. The power gauge is read against the chart's scale, the token
 gauge against the busiest minute of the last half hour. Where the mesh counts no
 tokens the meter shows power alone.
 
-The band's line is short and the meter costs width. The widths are modelled at
-the font's advance (8px a character at page type) for a reading of four
-characters or fewer: watts to 9999, and a token rate, which the page writes in
-thousands from 10000 a minute. The chip is then 80px with the figure alone,
-128px with its word, 160px with the token line and 226px with both gauges. That
-line carries the wordmark (196px, 80 on phones), the meter, the state tag
-(152px) and the data-source tag whenever one shows (128px; only a fresh live
-queue is hidden), and from 1280px up the menu shares it: 792px at 1280-1359px,
-824px above. The room left for the meter is 272px or more from 700 to 1279px,
-where the menu takes a row of its own, 56px at 1280px, 172px at 1440px and 382px
-at 1650px, and on phones 80px at 344px. A source tag takes 144px of it, its
-width and one gap: 128px left at 700px and 28px at 1440px. Below 1280px the
-slack of the line belongs to the meter, so it stands beside the state tag and
-not at the left end.
+The band's line is short and the meter costs width. energy-view.css holds the
+one derivation of it: the font's advance (8px a character at page type), the
+chip's four widths (figure alone, with its word, with the token line, with both
+gauges), and what else stands on that line, which game-view.css writes out. The
+data-source tag is on that line whenever one shows (only a fresh live queue is
+hidden) and takes its width and a gap. Below 1280px the menu takes a row of its
+own and the slack of the line belongs to the group at its right end, so the
+meter stands beside the state tag and not at the left end.
 
 So both lines show from 700 to 1279px and from 1440px, the gauges only where
 they fit too (from 700 to 1279px and from 1650px), the word gives way below
-400px, and the meter is not shown between 1280 and 1439px or below 344px;
+400px, and the meter steps out between 1280 and 1439px or below 344px;
 ENERGY USE in the menu leads to the section there. With a source tag on the line
 the meter narrows earlier (no gauges below 798px, no token line between 700 and
-731px) and is not shown at all below 520px or between 1440 and 1571px: those two
-are where both of its lines fit with room to spare, not the last width where the
-figure alone would. A reading of five characters costs 8px more than the band is
-sized for, and Energy use carries the full figures whatever the width.
+731px) and steps out below 520px or between 1440 and 1571px. Most of those are
+cut-offs chosen with room to spare; the narrowest line the figure alone needs,
+and the last width where the token line and the gauges fit under a source tag,
+are exact fits. A reading of five characters costs 8px more than the model
+prices, and Energy use carries the full figures whatever the width.
 
 ### Monitor
 The selected work order on a cream-cased screen: number in display type, then
@@ -373,8 +368,9 @@ A Steel band that stays at the top of the window: the factory sprite and
 wordmark, the data source tag (Brass for sample data or a stale queue, Bone
 for a loaded export, absent while the page shows the fresh live queue), the
 section menu ending in an underlined link to the project on GitHub, and at its
-right end the factory state tag with the live meter beside it, over a
-Brass stripe. Below 1280px the
+right end the factory state tag with the live meter beside it, over a Brass
+stripe. Only the factory floor wears that band; the manual and Protolab wear a
+short one with the wordmark and the menu, no state tag and no meter. Below 1280px the
 menu takes a second row and scrolls sideways; on phones the wordmark gives way
 to the sprite alone. Everything that sticks or scrolls to an anchor clears the
 header's height.

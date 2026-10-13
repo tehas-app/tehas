@@ -206,26 +206,36 @@ if (typeof document !== "undefined") {
     for (const y of [0, HEIGHT / 2]) for (let x = 0; x < WIDTH; x += 4) ctx.fillRect(x, y, 1, 1);
   }
 
+  // The ten blocks of a gauge, made once and then only lit or darkened.
   function gauge(id, filled) {
-    const blocks = [];
-    for (let i = 0; i < 10; i++) {
-      const block = document.createElement("i");
-      if (i < filled) block.className = "is-used";
-      blocks.push(block);
+    const host = $(id);
+    if (host.childElementCount !== 10) {
+      const blocks = [];
+      for (let i = 0; i < 10; i++) blocks.push(document.createElement("i"));
+      host.replaceChildren(...blocks);
     }
-    $(id).replaceChildren(...blocks);
+    for (let i = 0; i < 10; i++) host.children[i].className = i < filled ? "is-used" : "";
   }
+
+  // A part the stylesheet has hidden at this width is not worth animating: the
+  // figure still gets its final text, but no frames and no gauge work.
+  const onLine = (el) => el.offsetParent !== null;
 
   // One line of the meter: its figure and its gauge. A reading that changed
   // counts up or down to the new one in stepped frames, the gauge with it; the
-  // first reading counts from zero. No reading, or reduced motion: no count.
+  // first reading counts from zero. No reading, no room for it, or reduced
+  // motion: no count.
   const calm = window.matchMedia("(prefers-reduced-motion: reduce)");
   const dials = {};
   function dial(id, text, now, filled, show) {
     const d = dials[id] ??= { now: null, filled: 0, timer: 0 };
-    const set = (t, f) => { $(id).textContent = t; gauge(`${id}-gauge`, f); };
+    const figure = $(id);
+    const set = (t, f) => {
+      figure.textContent = t;
+      if (onLine(figure)) gauge(`${id}-gauge`, f);
+    };
     clearInterval(d.timer);
-    if (now == null || calm.matches || (now === d.now && filled === d.filled)) {
+    if (now == null || calm.matches || !onLine(figure) || (now === d.now && filled === d.filled)) {
       d.now = now;
       d.filled = filled;
       return set(text, filled);
@@ -248,15 +258,18 @@ if (typeof document !== "undefined") {
     dial("meter-watts", meter.watts, meter.wattsNow, meter.wattsFilled, String);
     $("meter-tokens-row").hidden = $("meter-tokens-gauge").hidden = meter.tokens == null;
     dial("meter-tokens", meter.tokens ?? "--", meter.tokensNow, meter.tokensFilled, rateText);
-    $("meter").setAttribute("aria-label",
+    meter.setAttribute("aria-label",
       `Live meter: ${meter.watts === "--" ? "no power reading" : `${meter.watts} watts`}` +
       (meter.tokens == null ? "" : meter.tokens === "--" ? ", no token reading" : `, ${meter.tokens} tokens a minute`) +
       ". Opens Energy use.");
   }
 
   function render() {
-    const section = $("energy"), link = $("menu-energy");
-    section.hidden = link.hidden = $("meter").hidden = !data;
+    const section = $("energy"), link = $("menu-energy"), meter = $("meter");
+    section.hidden = link.hidden = !data;
+    // The header carries the meter. Where its markup is not this page's, the
+    // rest of the section still draws.
+    if (meter) meter.hidden = !data;
     if (!data) return;
     const view = layout(data, serverAt + (performance.now() - localAt));
     // Nothing changed since the last draw: leave the tables and the status tag
@@ -264,7 +277,7 @@ if (typeof document !== "undefined") {
     const json = JSON.stringify(view);
     if (json === drawn) return;
     drawn = json;
-    drawMeter(view.meter);
+    if (meter) drawMeter(meter);
     $("energy-scope").textContent = view.scope;
     const tag = view.state === "live" ? "LIVE" : "STALE";
     if ($("energy-state").textContent !== tag) $("energy-state").textContent = tag;
