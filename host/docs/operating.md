@@ -100,10 +100,16 @@ with their busy slots. The figures are the mesh's own and are good to about
 15%. Only machines that are online and serve a model the factory uses are
 counted; other machines of the mesh and other models are left out. A counted
 machine's draw is all of it, including any other model it serves.
-While the section is there, a live meter stands among the doors on the first
-screen: the draw now, and the tokens the mesh produced for the factory's models
-in the last minute. The tokens are the mesh's count for those models, so other
-users of the same models are in it.
+While the section is there, a live meter tag stands in the header band at its
+right end beside the factory state tag: the draw now, and where the band has
+room the tokens the mesh produced for the factory's models in the last minute.
+The tokens are the mesh's count for those models, so other users of the same
+models are in it. Between 1280 and 1439px the header has no room for the meter,
+and below 344px a phone has none, so there ENERGY USE in its menu is the way to
+the section. The data-source tag shares that line whenever it shows (sample
+data, a local export, a stale queue), and where it leaves too little room
+the meter narrows or steps out: no gauges below 798px, and no meter at all below
+520px or between 1440 and 1571px.
 With any other backend the section and the meter are simply not there, and
 nothing else changes. To turn them off on a viiwork mesh, see
 [the energy sampler](/tools).

@@ -70,6 +70,13 @@
       <a href="/agents">AGENTS</a>
       <a class="repo" href="https://github.com/janit/tehas" target="_blank" rel="noopener noreferrer">GITHUB</a>
     </nav>
+    {{- /* The live meter, drawn by energy-view.js. It is hidden until the model
+           mesh reports, and stands aside between 1280 and 1439px, where the
+           menu already takes the whole line. See energy-view.css. */ -}}
+    <a class="meter" id="meter" href="#energy" aria-label="Live meter. Opens Energy use." hidden>
+      <span class="meter-row"><b>POWER</b><span class="meter-figure"><i id="meter-watts">--</i> W<span class="meter-gauge" id="meter-watts-gauge" aria-hidden="true"></span></span></span>
+      <span class="meter-row" id="meter-tokens-row"><b>TOKENS</b><span class="meter-figure"><i id="meter-tokens">--</i> /MIN<span class="meter-gauge" id="meter-tokens-gauge" aria-hidden="true"></span></span></span>
+    </a>
     <p class="gate" id="gate" data-state="none" role="status">CHECKING</p>
   </header>
 
@@ -133,12 +140,6 @@
       <a class="door" href="#break-room"><span><b>BREAKROOM</b><small>BUZZWORD BUSTER</small></span></a>
       <a class="door" href="#lab"><span><b>PROTOLAB</b><small>PROTOTYPE STAGE</small></span><i id="door-lab">--</i></a>
       <a class="door" id="door-console-link" href="#console"><span><b>PRODUCTION CONSOLE</b><small id="door-console">CHECKING</small></span></a>
-      <a class="door meter" id="door-meter" href="#energy" aria-label="Live meter. Opens Energy use." hidden>
-        <span class="meter-row"><b>POWER</b><span><i id="meter-watts">--</i> W</span></span>
-        <span class="meter-gauge" id="meter-watts-gauge" aria-hidden="true"></span>
-        <span class="meter-row" id="meter-tokens-row"><b>TOKENS</b><span><i id="meter-tokens">--</i> /MIN</span></span>
-        <span class="meter-gauge" id="meter-tokens-gauge" aria-hidden="true"></span>
-      </a>
     </nav>
 
     <div class="desk">

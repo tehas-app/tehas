@@ -289,14 +289,39 @@ status beneath it, and a count in display type where there is one. The stopped
 door turns Brass when anything is stopped. A pressed door moves onto its
 shadow.
 
-While the model mesh reports, a seventh door stands with them: the live meter.
-It shows the draw now in watts and the tokens of the last minute, each in
-display type over a gauge of ten blocks, Brass for the filled ones. The power
-gauge is read against the chart's scale, the token gauge against the busiest
-minute of the last half hour. On wide screens the doors then make four
-columns and the meter stands under the fourth station, two doors tall; below
-that it lies across the foot of the doors. It leads to Energy Use. Where the
-mesh counts no tokens the meter shows power alone.
+### Live Meter
+While the model mesh reports, a Bone tag in the header band, at its right end
+beside the factory state tag: the draw now in watts and the tokens of the last
+minute, each on a line of page type with a gauge of ten blocks beside it, Brass
+for the filled ones. It is a link to Energy use, and it appears and disappears
+with the section. The power gauge is read against the chart's scale, the token
+gauge against the busiest minute of the last half hour. Where the mesh counts no
+tokens the meter shows power alone.
+
+The band's line is short and the meter costs width. The widths are modelled at
+the font's advance (8px a character at page type) for a reading of four
+characters or fewer: watts to 9999, and a token rate, which the page writes in
+thousands from 10000 a minute. The chip is then 80px with the figure alone,
+128px with its word, 160px with the token line and 226px with both gauges. That
+line carries the wordmark (196px, 80 on phones), the meter, the state tag
+(152px) and the data-source tag whenever one shows (128px; only a fresh live
+queue is hidden), and from 1280px up the menu shares it: 792px at 1280-1359px,
+824px above. The room left for the meter is 272px or more from 700 to 1279px,
+where the menu takes a row of its own, 56px at 1280px, 172px at 1440px and 382px
+at 1650px, and on phones 80px at 344px. A source tag takes 144px of it, its
+width and one gap: 128px left at 700px and 28px at 1440px. Below 1280px the
+slack of the line belongs to the meter, so it stands beside the state tag and
+not at the left end.
+
+So both lines show from 700 to 1279px and from 1440px, the gauges only where
+they fit too (from 700 to 1279px and from 1650px), the word gives way below
+400px, and the meter is not shown between 1280 and 1439px or below 344px;
+ENERGY USE in the menu leads to the section there. With a source tag on the line
+the meter narrows earlier (no gauges below 798px, no token line between 700 and
+731px) and is not shown at all below 520px or between 1440 and 1571px: those two
+are where both of its lines fit with room to spare, not the last width where the
+figure alone would. A reading of five characters costs 8px more than the band is
+sized for, and Energy use carries the full figures whatever the width.
 
 ### Monitor
 The selected work order on a cream-cased screen: number in display type, then
@@ -347,7 +372,8 @@ Nothing on these pages moves, and they carry no script.
 A Steel band that stays at the top of the window: the factory sprite and
 wordmark, the data source tag (Brass for sample data or a stale queue, Bone
 for a loaded export, absent while the page shows the fresh live queue), the
-section menu ending in an underlined link to the project on GitHub, over a
+section menu ending in an underlined link to the project on GitHub, and at its
+right end the factory state tag with the live meter beside it, over a
 Brass stripe. Below 1280px the
 menu takes a second row and scrolls sideways; on phones the wordmark gives way
 to the sprite alone. Everything that sticks or scrolls to an anchor clears the
