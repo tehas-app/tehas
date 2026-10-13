@@ -54,6 +54,7 @@ printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitco
 cid=$(slice_id a)
 cid_file=$T/home/tehas/state/cycles/7.cid
 oom_file=$T/home/tehas/state/cycles/7.oom
+forks_file=$T/home/tehas/state/cycles/7.forks
 slice_good() {
   printf '%s\n' FragmentPath=/etc/systemd/system/tehas.slice ActiveState=active MemoryMax=8589934592 >"$T/slice.show"
   echo "systemd 2" >"$T/docker.info"
@@ -484,6 +485,30 @@ t_eq "$t_rc" 2
 t_contains "$t_out" "tehas work: 3 processes in this cycle's container were killed for memory"
 t_eq "$(cat "$oom_file")" 3
 t_eq "$(find "$cid_file" 2>/dev/null | wc -l)" 0
+
+t_case "the starts the pids limit refused are printed and written to the state directory"
+fresh
+slice_good
+slice_child "$cid" 1000 0 max
+slice_child "$(slice_id b)" 1000 0 max
+printf 'max 41\n' >"$T_CGROUP/tehas.slice/docker-$cid.scope/pids.events"
+printf 'max 7\n' >"$T_CGROUP/tehas.slice/docker-$(slice_id b).scope/pids.events"
+container "\"\$nap\" 1; rm -rf '$T_CGROUP/tehas.slice/docker-$cid.scope'; \"\$nap\" 0.5"
+t_run "$work 7"
+t_contains "$t_out" "tehas work: this cycle's container reached its limit of processes, 41 starts were refused"
+t_eq "$(cat "$forks_file")" 41
+t_lacks "$t_out" "killed for memory"
+
+t_case "a container that stayed under the pids limit leaves no count, and one left by an earlier cycle is removed"
+fresh
+slice_good
+echo 9 >"$forks_file"
+slice_child "$cid" 1000 0 max
+printf 'max 0\n' >"$T_CGROUP/tehas.slice/docker-$cid.scope/pids.events"
+container '"$nap" 0.5'
+t_run "$work 7"
+t_lacks "$t_out" "limit of processes"
+t_eq "$(find "$forks_file" 2>/dev/null | wc -l)" 0
 
 t_case "a cid file and a count left by a cycle that was killed outright are not this cycle's"
 fresh

@@ -113,6 +113,21 @@ Run `tehas dispatch --dry-run` and read what it prints.
   the product checkout is missing or is a clone of another repository than
   `TEHAS_REPO`. Nothing is polled until that is put right.
 
+### A cycle stops with `Cannot fork` in its log
+
+The cycle's error stream has `/bin/sh: 1: Cannot fork`, or the RPC log has
+`fork: retry: Resource temporarily unavailable` or `EAGAIN`. The container was
+at its `--pids-limit`. The comment that reports the cycle says how many starts
+were refused, and the kernel log on the host has `fork rejected by pids
+controller` with the container's scope. Nothing the cycle ran after the first
+refusal can be trusted, its gate included, and the handoff is often not posted.
+
+Before v0.7.1 a cycle's container had no init, and every pass of the shell
+tests left several hundred finished processes that were never collected. With
+the init a pass peaks at under twenty. A cycle that still reaches the limit is
+starting processes that stay alive: look at what is running in the container
+(`docker top tehas-work-<issue>`) before raising the limit.
+
 ### A cycle stops in its first step with `provider-severed`
 
 The cycle's error stream (`~/tehas/logs/work-<issue>-*.jsonl.err`) shows retries
