@@ -33,6 +33,12 @@
 # the container's pids limit refused, is read the same way and said in the
 # comment: after the first one the cycle's own commands may not have run.
 #
+# A runner that exits 4 started no cycle: the instance gives a cycle the
+# images its issue links (TEHAS_WORK_IMAGES) and one could not be fetched. The
+# issue is parked and the comment says that, not that a cycle stopped. The
+# images of a cycle that ran are removed here when it is over: only the
+# container read them.
+#
 # Only a run that ended as handoff with an open pull request is reported as
 # waiting for a merge. The label change that ends a cycle is tried three
 # times, and so is the question about the pull request. If GitHub still refuses it, or the cycle is killed outright, the
@@ -148,6 +154,8 @@ done
 # issue would park it for good.
 trap '' TERM INT HUP
 mins=$((($(date +%s) - started) / 60))
+[ ! -f "$(dirname "$workdir")/.tehas-workspaces" ] || rm -rf "$workdir.images" ||
+  log "WARN: could not remove the images $workdir.images"
 
 # The one thing read back from the tree the container wrote, and only as data.
 state=$workdir/.pi/work-state/$issue.json
@@ -229,6 +237,7 @@ ${usage:-No token usage was recorded for this cycle.}" >/dev/null 2>&1 || log "W
 else
   relabel --remove-label tehas:running --add-label needs-human-attention && stuck=""
   parked="Tehas cycle stopped without a pull request: $summary (runner exit $rc). Read the handoff comment if there is one; the run log is \`~/tehas/logs/dispatch-work-$issue.log\` on \`$(hostname)\`.$killed${pr:+ Its branch has an open pull request: $pr}$stuck"
+  [ "$rc" != 4 ] || parked="Tehas started no cycle: an image the issue links could not be fetched, or the issue could not be read for its images (runner exit $rc). The comment before this one names it; the run log is \`~/tehas/logs/dispatch-work-$issue.log\` on \`$(hostname)\`.$stuck"
   jq -n --arg text "$parked
 
 ${usage}" '{text: $text, question: null}' >"$TEHAS_HOME/state/park-$issue.json"

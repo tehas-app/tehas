@@ -12,6 +12,9 @@
 #              1 it ended as aborted,
 #              2 Pi exited or the time limit passed while it was still running.
 #              3 the sandbox cannot push to the repository; no cycle was started.
+#              4 the instance gives a cycle the issue's images and one could
+#                not be fetched, or the issue could not be read for them; no
+#                cycle was started.
 #
 #             64 no bot token or no git identity; no cycle was started.
 #             78 the instance settings are invalid, or tehas.slice is not
@@ -25,11 +28,30 @@
 #                       [$TEHAS_HOME/repos/<name>]
 #   TEHAS_WORK_TIMEOUT  seconds before giving up [21600]
 #   TEHAS_CYCLE_RESERVE the container's memory floor [2g]
+#   TEHAS_WORK_IMAGES   1 gives the cycle the images its issue links [0]
 #
 # What the container is given is deliberate and pinned by test/work_test.sh:
 # the bot token (pi-rukas pushes and opens the pull request from inside), the
 # PI_ENSEMBLE_* settings, the bot's git identity, the cycle's workspace and
 # Pi's state directories. Not the Docker socket, SSH keys or ~/.config/tehas.
+#
+# With TEHAS_WORK_IMAGES=1 it is given two things more: the issue's images,
+# read-only, and PI_ENSEMBLE_EXTRA_IMAGE_DIRS, their path inside the container.
+# The images are fetched here, before anything starts:
+#   which     Links to GitHub's own attachment storage in the issue's text.
+#             Comments are not read: the label that starts a cycle approves the
+#             text, and a comment can arrive after it. Only when the issue was
+#             opened by an owner, member or collaborator.
+#   types     png, jpg, webp and gif, told by the file's first bytes. Not svg:
+#             it is text and can carry instructions.
+#   how much  At most 8 images and 10 megabytes together.
+# They go to $TEHAS_HOME/work/<name>-<issue>.images, beside the workspace and
+# not in it, so a patch cannot commit them, under names made here, with a
+# manifest.json that lists each file, the link it came from, its type and size,
+# and what was left out and why. The directory is remade for every cycle. An
+# image that is left out is said in a comment on the issue. An image that could
+# not be fetched stops the start: a cycle that works without a picture the
+# issue relies on builds the wrong thing.
 #
 # The container runs in tehas.slice, as every sandbox container does, with the
 # limits lib/slice.sh makes: a memory ceiling of a quarter of the slice, no
@@ -76,6 +98,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/live.sh"
 # shellcheck source=lib/slice.sh
 . "$here/../lib/slice.sh"
+# shellcheck source=lib/attachments.sh
+. "$here/../lib/attachments.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
 # Docker would create a missing mount source as a root-owned directory.
@@ -93,6 +117,9 @@ src=$TEHAS_WORK_REPO
 # The workspace inside the container, and the directory on the host behind it.
 repo=$TEHAS_WORK_DIR
 tree=$TEHAS_WORK_DIR-$issue
+# The issue's images on the host, and where the container has them.
+images=$tree.images
+images_inside=$repo.images
 image=$PI_ENSEMBLE_IMAGE
 limit=$TEHAS_WORK_TIMEOUT
 state=$tree/.pi/work-state/$issue.json
@@ -113,6 +140,8 @@ bot_name=$(git config --global user.name || true)
 bot_email=$(git config --global user.email || true)
 [ -n "$bot_name" ] && [ -n "$bot_email" ] ||
   { echo "tehas work: git user.name and user.email are not set for $(id -un)" >&2; exit 64; }
+# The path of the images is this command's to give, not the instance's.
+[ "$TEHAS_WORK_IMAGES" != 1 ] || unset PI_ENSEMBLE_EXTRA_IMAGE_DIRS
 mapfile -d '' -t envs < <(tehas_sandbox_env "$repo" "$bot_name" "$bot_email")
 mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$repo" "$tree" "$runs")
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
@@ -131,6 +160,114 @@ if [ -e "$works" ] && [ ! -f "$works/.tehas-workspaces" ]; then
   echo "tehas work: $works exists and was not made by tehas, not touching it" >&2
   exit 78
 fi
+# The issue's images, where the instance gives a cycle any. Before the
+# workspace: a start that fails here must not move aside what the last cycle
+# left.
+if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces"; }; then
+  echo "tehas work: could not make $works, not starting a cycle" >&2
+  exit 78
+fi
+image_limit=$((10 * 1024 * 1024))
+image_max=8
+image_opts=()
+image_why=""
+# image_type <file>: the type its first bytes say; fails for any other file.
+image_type() {
+  case "$(head -c 12 "$1" | od -An -v -tx1 | tr -d ' \n')" in
+    89504e470d0a1a0a*) echo png ;;
+    ffd8ff*) echo jpg ;;
+    474946383761* | 474946383961*) echo gif ;;
+    52494646????????57454250) echo webp ;;
+    *) return 1 ;;
+  esac
+}
+# take_images: make $images from the issue's text. Returns 1, with the reason
+# in $image_why, when no cycle may start.
+take_images() {
+  local data who ref name ext size rc left used=0 count=0
+  local other="Not a png, jpg, webp or gif image." over="Over the 10 MB limit of an issue."
+  image_why="the directory for the issue's images could not be made"
+  { rm -rf "$images" && mkdir -p "$images"; } || return 1
+  : >"$images/.taken"
+  : >"$images/.left"
+  leave() { jq -n -c --arg link "$1" --arg reason "$2" '{link: $link, reason: $reason}' >>"$images/.left"; }
+  image_why="the issue could not be read for its images"
+  data=$(gh api "repos/$TEHAS_REPO/issues/$issue" 2>/dev/null) || return 1
+  jq -e 'type == "object" and (.body == null or (.body | type) == "string")' <<<"$data" >/dev/null 2>&1 || return 1
+  who=$(jq -r '.author_association // ""' <<<"$data")
+
+  while IFS= read -r ref; do
+    [ -n "$ref" ] || continue
+    case "$who" in
+      OWNER | MEMBER | COLLABORATOR) ;;
+      *) leave "$ref" "The issue was not opened by an owner, member or collaborator."; continue ;;
+    esac
+    # A file attached under its name is not fetched when the name says it is
+    # no image. A pasted one has no name: its bytes say.
+    case "$ref" in
+      https://github.com/user-attachments/assets/* | https://github.com/*/assets/*) ;;
+      *)
+        name=${ref##*/}
+        name=${name%%\?*}
+        ext=""
+        case "$name" in *.*) ext=${name##*.} ;; esac
+        case "${ext,,}" in png | jpg | jpeg | webp | gif) ;; *) leave "$ref" "$other"; continue ;; esac
+        ;;
+    esac
+    if [ "$count" -ge "$image_max" ]; then leave "$ref" "More than $image_max images."; continue; fi
+    left=$((image_limit - used))
+    if [ "$left" -le 0 ]; then leave "$ref" "$over"; continue; fi
+
+    rm -f "$images/.part"
+    tehas_attachment_fetch "$ref" "$images/.part" "$left" "$GH_TOKEN" >/dev/null
+    rc=$?
+    case "$rc" in
+      0) ;;
+      63) leave "$ref" "$over"; continue ;;
+      *) image_why="$ref could not be fetched"; return 1 ;;
+    esac
+    size=$(stat -c %s "$images/.part" 2>/dev/null) || size=0
+    if [ "$size" -gt "$left" ]; then leave "$ref" "$over"; continue; fi
+    ext=$(image_type "$images/.part") || { leave "$ref" "$other"; continue; }
+    count=$((count + 1))
+    used=$((used + size))
+    if ! { mv "$images/.part" "$images/image-$count.$ext" && chmod 644 "$images/image-$count.$ext"; }; then
+      image_why="the issue's images could not be written"
+      return 1
+    fi
+    jq -n -c --arg file "image-$count.$ext" --arg link "$ref" --arg type "image/${ext/jpg/jpeg}" --argjson bytes "$size" \
+      '{file: $file, link: $link, type: $type, bytes: $bytes}' >>"$images/.taken"
+  done < <(jq -r "$(tehas_attachment_links)"'
+    (.body // "") | links | reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end) | .[]' <<<"$data")
+
+  image_why="the issue's images could not be written"
+  jq -n --argjson issue "$issue" --slurpfile images "$images/.taken" --slurpfile left "$images/.left" \
+    '{images: $images, leftOut: $left} + {issue: $issue}' >"$images/manifest.json" || return 1
+  rm -f "$images/.part" "$images/.taken" "$images/.left"
+  { chmod 755 "$images" && chmod 644 "$images/manifest.json"; } || return 1
+  image_why=""
+}
+if [ "$TEHAS_WORK_IMAGES" = 1 ]; then
+  if ! take_images; then
+    rm -rf "$images"
+    echo "tehas work: $image_why, not starting a cycle" >&2
+    gh issue comment "$issue" --repo "$TEHAS_REPO" --body "Tehas started no cycle: $image_why. This instance gives a cycle the images an issue links, and a cycle that works without one of them may build the wrong thing. To retry, apply \`tehas:ready\`." >/dev/null 2>&1 ||
+      echo "tehas work: the comment on #$issue failed" >&2
+    exit 4
+  fi
+  # The links are of the shape lib/attachments.sh takes and the reasons are
+  # written above, so nothing of the issue's own words is posted back.
+  said=$(jq -r 'select((.images | length) + (.leftOut | length) > 0)
+    | "Tehas gave this cycle \(.images | length) \(if (.images | length) == 1 then "image" else "images" end) from the issue text."
+      + (if (.leftOut | length) > 0 then "\n\nLeft out:\n" + (.leftOut | map("- \(.link): \(.reason)") | join("\n")) else "" end)' \
+    "$images/manifest.json" 2>/dev/null)
+  if [ -n "$said" ]; then
+    gh issue comment "$issue" --repo "$TEHAS_REPO" --body "$said" >/dev/null 2>&1 ||
+      echo "tehas work: the comment on #$issue failed" >&2
+  fi
+  image_opts=(-v "$images:$images_inside:ro" -e "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$images_inside")
+fi
+
 aside() {
   [ -e "$tree" ] || return 0
   rm -rf "$tree.before-retry" && mv "$tree" "$tree.before-retry"
@@ -161,7 +298,7 @@ rm "$fifo"
 rm -f "$cid_file" "$oom_file" "$forks_file"
 docker run --rm -i --init --name "$name" \
   "${TEHAS_SLICE_LIMITS[@]}" --cidfile "$cid_file" \
-  -w "$repo" "${mounts[@]}" \
+  -w "$repo" "${mounts[@]}" "${image_opts[@]}" \
   "${envs[@]}" "${hosts[@]}" \
   "$image" pi --mode rpc --approve <&3 >"$log" 2>"$log.err" &
 pid=$!

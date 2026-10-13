@@ -89,7 +89,7 @@ _tehas_valid() {
       [[ $v =~ ^[A-Za-z0-9][A-Za-z0-9-]*(\ [A-Za-z0-9][A-Za-z0-9-]*)*$ ]] ||
         { echo "expected GitHub logins separated by single spaces"; return 1; }
       ;;
-    TEHAS_INDEXING | TEHAS_ANALYTICS_COOKIE)
+    TEHAS_INDEXING | TEHAS_ANALYTICS_COOKIE | TEHAS_WORK_IMAGES)
       case "$v" in 0 | 1) ;; *) echo "expected 0 or 1"; return 1 ;; esac
       ;;
     # Both end up in an HTML attribute of every page, so no quote, space or
@@ -226,6 +226,10 @@ tehas_load() {
   ! _tehas_is_count "$TEHAS_TICKET_CONCURRENCY" || v=$((TEHAS_TICKET_CONCURRENCY + 2))
   export TEHAS_MAX_AWAITING=${TEHAS_MAX_AWAITING:-$v}
   export TEHAS_WORK_TIMEOUT=${TEHAS_WORK_TIMEOUT:-21600}
+  # Whether a cycle is given the images its issue links. Off unless the
+  # instance says so: it is one more thing a container is given, and it needs
+  # a model that reads images.
+  export TEHAS_WORK_IMAGES=${TEHAS_WORK_IMAGES:-0}
   # A planning session: how many turns it may take, and how long one turn may.
   export TEHAS_PLAN_MAX_TURNS=${TEHAS_PLAN_MAX_TURNS:-20}
   export TEHAS_PLAN_TIMEOUT=${TEHAS_PLAN_TIMEOUT:-3600}
@@ -252,7 +256,7 @@ tehas_load() {
   # Agents get neither the host Docker socket nor SSH keys. Not a setting.
   export PI_ENSEMBLE_NO_DOCKER_SOCKET=1 PI_ENSEMBLE_NO_SSH=1
 
-  for v in TEHAS_INDEXING TEHAS_ANALYTICS_COOKIE TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_VERIFY_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
+  for v in TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_ANALYTICS_COOKIE TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_VERIFY_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
     TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_RESERVE; do
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
