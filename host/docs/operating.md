@@ -63,7 +63,15 @@ means:
 - someone applies `tehas:ready`, as in step 2.
 
 Attachments are reference for people today. The cycle reads the issue body and
-nothing else, so anything it must know has to be in the text.
+nothing else, so anything it must know has to be in the text. For a picture
+that means words: name the element by its selector and its visible title, and
+say where in it the thing goes.
+
+An instance can give a cycle the images of its issue, with
+`TEHAS_WORK_IMAGES=1`. [tehas work](/tools#tehas-work) then fetches the images
+the issue text links and hands them to the cycle's container. That is as far
+as it goes today: the pi-rukas this version pins does not show them to a model
+yet, so the rule above holds with the setting on as well.
 
 ## 1. Write an issue tehas can build
 
@@ -325,7 +333,8 @@ reaches them. Remove the label to resume.
 - No cycle, no planning turn and no retry while there are no resources: the
   model endpoint does not answer, or does not offer the configured model. The
   dispatcher asks it at every poll. `tehas status` says `warn: No resources`
-  and the dashboard says `no resources` until it is back.
+  and the dashboard says `no resources` until it is back. With
+  `TEHAS_WORK_IMAGES=1` a model that does not read an image counts the same.
 - Inside a cycle, `TEHAS_CONCURRENCY` workstreams side by side: 4 by default,
   fewer if the model backends cannot take it. See [The host](/host).
 - No new cycle while `TEHAS_MAX_AWAITING` issues carry `tehas:awaiting-merge`

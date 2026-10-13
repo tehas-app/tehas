@@ -65,6 +65,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_MAX_AWAITING`            | `TEHAS_TICKET_CONCURRENCY` plus 2        | Open `tehas:awaiting-merge` issues, plus running cycles, allowed before holding |
 | `TEHAS_CYCLE_RESERVE`           | `2g`                                     | Memory one container is given as a floor (`docker --memory-reservation`) and the unit the dispatcher counts room in. A reclaim priority inside `tehas.slice` and the amount admission promises, not a guarantee against the whole host. A Docker size of at least 6m, and at most a quarter of the slice's `MemoryMax`, else the command stops with 78 naming both numbers. With the default the host needs about 11 GiB of memory; a smaller host sets it lower |
 | `TEHAS_WORK_TIMEOUT`            | `21600`                                  | Seconds before a cycle is given up                              |
+| `TEHAS_WORK_IMAGES`             | `0`                                      | `1` gives a cycle the images its issue text links: see [tehas work](#tehas-work). The model must declare `"image"` in its `input` in `models.json` and answer a request with an image, else the dispatcher holds every cycle |
 | `TEHAS_VERIFY_TIMEOUT`          | `1800`                                   | Seconds one run of the product's gate may take inside a cycle. A gate that takes longer is stopped and the cycle parks. Passed to pi-rukas as `PI_ENSEMBLE_VERIFY_TIMEOUT_MS` and `PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS`; pi-rukas alone allows ten minutes |
 | `TEHAS_PLAN_MAX_TURNS`          | `20`                                     | Turns a planning session may take before it is ended            |
 | `TEHAS_PLAN_TIMEOUT`            | `3600`                                   | Seconds before one planning turn is given up                    |
@@ -188,6 +189,7 @@ waits until `.pi/work-state/<issue>.json` in the workspace `~/tehas/work/<name>-
 | 1    | The cycle ended as `aborted`                                     |
 | 2    | Pi exited, or the time limit passed, while the cycle was running |
 | 3    | The sandbox cannot push to the repository; no cycle was started  |
+| 4    | With `TEHAS_WORK_IMAGES=1`: an image the issue links could not be fetched, or the issue could not be read for its images; no cycle was started |
 | 64   | No bot token or no git identity; no cycle was started            |
 | 78   | The instance settings are invalid, or `tehas.slice` is missing, has no memory limit, or cannot be used (the message names `sudo ./bootstrap.sh slice` or the reason); no cycle was started |
 | 137  | The container was killed while the cycle was running: out of memory, or stopped from outside. The cycle is `killed` |
@@ -212,6 +214,34 @@ limit refused go the same way, through `~/tehas/state/cycles/<issue>.forks`.
 
 The bot's git identity is the tehas user's global `user.name` and `user.email`
 on the host.
+
+With `TEHAS_WORK_IMAGES=1` the container is given two things more: a
+directory with the issue's images, mounted read-only at
+`~/tehas/work/<name>.images`, and `PI_ENSEMBLE_EXTRA_IMAGE_DIRS`, which names
+that path. This widens what a cycle is given, and it is off unless the
+instance sets it. The images are fetched before anything else is made:
+
+- **Which.** Links to GitHub's own attachment storage in the issue text.
+  Comments are not read: `tehas:ready` approves the text, and a comment can
+  arrive after the label. Only when the issue was opened by an owner, member
+  or collaborator of the repository.
+- **Types.** png, jpg, webp and gif, told by the file's first bytes and not by
+  its name. Not svg: it is text and can carry instructions.
+- **How much.** At most 8 images and 10 megabytes together, counted in the
+  order they are linked.
+
+On the host they are in `~/tehas/work/<name>-<issue>.images`, beside the
+workspace and not in it, so no patch can commit them. The files are named
+`image-1.png`, `image-2.jpg` and so on, and `manifest.json` lists each with
+the link it came from, its type and its size, and every link that was left
+out with the reason. The directory is remade for every cycle and removed by
+`tehasbot cycle` when the cycle is over. A comment on the issue says how many
+images the cycle was given and what was left out. An image that could not be
+fetched stops the start with exit 4, and the comment names it: the issue is
+parked, and `tehas:ready` tries again.
+
+The pi-rukas this version pins does not read the manifest yet. Until it does,
+the images are in the container and no model is shown them.
 
 ## tehas plan
 
@@ -448,7 +478,9 @@ that stopped gets its comment with two boxes and the label `tehas:question`,
 and the comment's id goes into `~/tehas/state/park-<issue>.id`, which is what
 lets the dispatcher take a tick there. It
 then removes the workspace of a cycle that merged or left a pull request, and
-keeps the workspace of one that stopped. A retry moves a stopped workspace to
+keeps the workspace of one that stopped. The images `tehas work` fetched for
+the cycle are removed in every case. A runner that started no cycle over an
+image (exit 4) is parked with a comment that says so. A retry moves a stopped workspace to
 `<name>-<issue>.before-retry`, which is removed and kept by the same rule. A
 stopped unit stops the container and is reported as a cycle that ended without
 a pull request. A hangup is taken as a stop too. It checks no authorisation:
