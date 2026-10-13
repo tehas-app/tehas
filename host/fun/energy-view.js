@@ -243,12 +243,12 @@ if (typeof document !== "undefined") {
     d.timer = setInterval(step, COUNT_FRAME_MS);
   }
 
-  // The door among the doors: the draw now and the tokens of the last minute.
+  // The meter on the head panel: the draw now and the tokens of the last minute.
   function drawMeter(meter) {
     dial("meter-watts", meter.watts, meter.wattsNow, meter.wattsFilled, String);
     $("meter-tokens-row").hidden = $("meter-tokens-gauge").hidden = meter.tokens == null;
     dial("meter-tokens", meter.tokens ?? "--", meter.tokensNow, meter.tokensFilled, rateText);
-    $("door-meter").setAttribute("aria-label",
+    $("floor-meter").setAttribute("aria-label",
       `Live meter: ${meter.watts === "--" ? "no power reading" : `${meter.watts} watts`}` +
       (meter.tokens == null ? "" : meter.tokens === "--" ? ", no token reading" : `, ${meter.tokens} tokens a minute`) +
       ". Opens Energy use.");
@@ -256,7 +256,7 @@ if (typeof document !== "undefined") {
 
   function render() {
     const section = $("energy"), link = $("menu-energy");
-    section.hidden = link.hidden = $("door-meter").hidden = !data;
+    section.hidden = link.hidden = $("floor-meter").hidden = !data;
     if (!data) return;
     const view = layout(data, serverAt + (performance.now() - localAt));
     // Nothing changed since the last draw: leave the tables and the status tag
