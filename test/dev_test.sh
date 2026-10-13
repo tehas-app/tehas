@@ -188,7 +188,8 @@ t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC
 t_eq "$(passed PI_ENSEMBLE_WORKSPACE_ROOT)" "$clone"
 
 t_case "the session's container gets no option beyond the documented ones"
-t_eq "$(session_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -it")" ""
+t_eq "$(session_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -it --init")" ""
+t_eq "$(session_args | grep -c -x -e --init)" 1
 t_contains "$(session_args)" "--add-host=models:192.0.2.9"
 
 t_case "the token and the rest of the environment are not written into the arguments"
