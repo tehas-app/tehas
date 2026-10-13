@@ -69,9 +69,10 @@ say where in it the thing goes.
 
 An instance can give a cycle the images of its issue, with
 `TEHAS_WORK_IMAGES=1`. [tehas work](/tools#tehas-work) then fetches the images
-the issue text links and hands them to the cycle's container. That is as far
-as it goes today: the pi-rukas this version pins does not show them to a model
-yet, so the rule above holds with the setting on as well.
+the issue text links, and the first two steps of the cycle, explore and plan,
+are shown them beside the text. The plan puts the placement into words, and
+the later steps read the plan. Images in comments are not read, and no cycle
+has been seen to use a picture yet, so words in the text stay the safe way.
 
 ## 1. Write an issue tehas can build
 
