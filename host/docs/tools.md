@@ -206,7 +206,8 @@ which is how the dispatcher tells a cycle's container from the others in the
 slice; the file goes with the container. When processes in the container were
 killed for memory, the count is printed and left in
 `~/tehas/state/cycles/<issue>.oom` for `tehasbot cycle`, which says it in the
-issue comment and removes the file.
+issue comment and removes the file. The starts of a process that the pids
+limit refused go the same way, through `~/tehas/state/cycles/<issue>.forks`.
 
 The bot's git identity is the tehas user's global `user.name` and `user.email`
 on the host.

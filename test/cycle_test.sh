@@ -425,6 +425,39 @@ t_run "$cycle 7"
 t_contains "$(t_calls gh)" "Pull request waiting for a human: https://github.com/acme/widget/pull/9 2 processes were killed for memory in its container."
 t_contains "$(t_calls gh)" "--add-label tehas:awaiting-merge"
 
+t_case "the refused starts are read as digits, said in the comment and the log, and the file is removed"
+reset
+echo 'echo 41 >"$TEHAS_HOME/state/cycles/7.forks"' >"$fx/work.sh"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "Its container reached its limit of processes and 41 starts of a process were refused: what the cycle ran after that may not have run."
+t_contains "$t_out" "forks_refused=41"
+t_eq "$(find "$state/7.forks" 2>/dev/null | wc -l)" 0
+
+t_case "a count of refused starts that is not digits, or is a link, counts as nothing"
+for bad in 'many' '4; reboot' '-4' '04' ''; do
+  reset
+  printf '%s\n' "$bad" >"$fx/forks"
+  echo 'cp "$T/fx/forks" "$TEHAS_HOME/state/cycles/7.forks"' >"$fx/work.sh"
+  t_run "$cycle 7"
+  t_lacks "$(t_calls gh)" "limit of processes"
+  t_lacks "$(t_calls gh)" "reboot"
+  t_contains "$t_out" "forks_refused=0"
+done
+reset
+echo 4 >"$fx/elsewhere"
+echo 'ln -s "$T/fx/elsewhere" "$TEHAS_HOME/state/cycles/7.forks"' >"$fx/work.sh"
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "limit of processes"
+t_eq "$(find "$state/7.forks" 2>/dev/null | wc -l)" 0
+
+t_case "a count of refused starts left by an earlier cycle of the issue is not this cycle's"
+reset
+mkdir -p "$state"
+echo 6 >"$state/7.forks"
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "limit of processes"
+t_contains "$t_out" "forks_refused=0"
+
 t_case "a count file with letters counts as nothing"
 for bad in 'three' '3 processes' '3; reboot' '`id`' '-3' '03' '12345678901234567890' ''; do
   reset

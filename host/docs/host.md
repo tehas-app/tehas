@@ -324,6 +324,17 @@ cycle:
 tehas work: 2 processes in this cycle's container were killed for memory
 ```
 
+The starts of a process that `--pids-limit` refused are counted the same way,
+from the container's `pids.events`:
+
+```
+tehas work: this cycle's container reached its limit of processes, 41 starts were refused
+```
+
+A cycle whose container is at that limit can run no command, so its gate does
+not run and its handoff may not be posted. The comment that reports the cycle
+says the count, and the dispatcher's `done` line has it as `forks_refused`.
+
 A container that ends with 137 while the cycle was still running is reported
 as `killed`: `tehas work` exits 137, and the issue is parked with
 `needs-human-attention` and status `killed` in the comment. That is a
