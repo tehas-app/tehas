@@ -65,8 +65,9 @@
 #      The commit is the sandbox image's (lib/cycles.sh). tehasbot cycle
 #      writes the commit a cycle ran with beside its lock, and adds that of a
 #      cycle that ended well to state/rukas-proven. While a running cycle has
-#      the image's commit and that file does not name it, nothing more starts; cycles of the commit before still count for rule
-#      2 only. A bad release then costs one cycle, not a slot of each.
+#      the image's commit and that file does not name it, nothing more
+#      starts; cycles of the commit before still count for rule 2 only. A bad
+#      release then costs one cycle, not a slot of each.
 #   7. tehas:urgent first, then the lowest issue number. The urgent label
 #      counts only when its most recent labelling is by an allowed account, as
 #      tehas:ready does: one applied by the bot or anyone else is ignored and
@@ -586,8 +587,8 @@ count=$(wc -w <<<"$running")
 count=$((count))
 free=$((TEHAS_TICKET_CONCURRENCY - count))
 
-# 3a. The pi-rukas this host is installed with, and whether a cycle has
-# ended well on it. Without a commit on record there is nothing to compare.
+# 3a. The pi-rukas a cycle started now runs, and whether a cycle has ended
+# well on it. Without a commit on record there is nothing to compare.
 rukas_now=$(tehas_rukas_commit)
 canary=0
 on_new=0
@@ -635,9 +636,9 @@ done
 # otherwise the slots could overshoot the cap. Rules 2 and 3 hold back new
 # cycles only; a question is still read while they hold. $hold says why and
 # $why is the one word for it: slice, unreadable, resources, count, canary,
-# awaiting, pressure or room, the first that applies. resources is a model endpoint
-# that does not answer or does not offer the model: it holds planning turns
-# and retries as well.
+# awaiting, pressure or room, the first that applies. resources is a model
+# endpoint that does not answer or does not offer the model: it holds
+# planning turns and retries as well.
 #
 # The slice is read here, after the sweep above, which needs no slice. The
 # room is read whenever the slice is usable, also when the slots are full, so
