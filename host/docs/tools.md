@@ -20,6 +20,7 @@ tehas index                      # build the code index the agents search
 tehas update [--check]           # bring this host up to date with the platform
 tehas labels                     # create the tehas labels in the repository
 tehas status                     # print the state of the factory
+tehas top [--once|--json]        # one screen of what the factory is doing
 tehas help [command]             # this list, or the text of one command
 ```
 
@@ -65,7 +66,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_MAX_AWAITING`            | `TEHAS_TICKET_CONCURRENCY` plus 2        | Open `tehas:awaiting-merge` issues, plus running cycles, allowed before holding |
 | `TEHAS_CYCLE_RESERVE`           | `2g`                                     | Memory one container is given as a floor (`docker --memory-reservation`) and the unit the dispatcher counts room in. A reclaim priority inside `tehas.slice` and the amount admission promises, not a guarantee against the whole host. A Docker size of at least 6m, and at most a quarter of the slice's `MemoryMax`, else the command stops with 78 naming both numbers. With the default the host needs about 11 GiB of memory; a smaller host sets it lower |
 | `TEHAS_WORK_TIMEOUT`            | `21600`                                  | Seconds before a cycle is given up                              |
-| `TEHAS_WORK_IMAGES`             | `0`                                      | `1` gives a cycle the images its issue text links: see [tehas work](#tehas-work). The model must declare `"image"` in its `input` in `models.json` and answer a request with an image, else the dispatcher holds every cycle |
+| `TEHAS_WORK_IMAGES`             | `0`                                      | `1` gives a cycle and a planning session the images its issue text links: see [tehas work](#tehas-work) and [tehas plan](#tehas-plan). The model must declare `"image"` in its `input` in `models.json` and answer a request with an image, else the dispatcher holds every cycle |
 | `TEHAS_VERIFY_TIMEOUT`          | `1800`                                   | Seconds one run of the product's gate may take inside a cycle. A gate that takes longer is stopped and the cycle parks. Passed to pi-rukas as `PI_ENSEMBLE_VERIFY_TIMEOUT_MS` and `PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS`; pi-rukas alone allows ten minutes |
 | `TEHAS_PLAN_MAX_TURNS`          | `20`                                     | Turns a planning session may take before it is ended            |
 | `TEHAS_PLAN_TIMEOUT`            | `3600`                                   | Seconds before one planning turn is given up                    |
@@ -112,7 +113,14 @@ and the usage on standard error, before the instance settings are read. A mistyp
 Order of rules: pause label on the control issue, a usable `tehas.slice`,
 the free slots (`TEHAS_TICKET_CONCURRENCY` less the running cycles), the cap
 on issues awaiting merge or being worked on, the room and the memory pressure
-in the slice, who applied `tehas:ready`, then urgent first and lowest number.
+in the slice, who applied `tehas:urgent`, then who applied `tehas:ready`, then
+urgent first and lowest number. A `tehas:urgent` counts only when an allowed
+account applied it most recently: one applied by the bot or anyone else is
+ignored and logged, and the issue keeps its place by number. The urgent check
+runs for every ready issue that carries the label and this poll could still
+start, before the free slots cut the queue; who applied `tehas:ready` is read
+at the decision, when the issue is picked. A poll never asks GitHub the same
+question twice.
 What holds cycles back is one `holding:` line: at every dry run, and in the
 log once when its reason changes, with `released: cycles may start again`
 when it ends. A real poll also writes it to `~/tehas/live/dispatch.json` with
@@ -173,12 +181,21 @@ what a number is once a poll, and only for an issue its labels would otherwise
 take; the skip is said once a poll at most (`skip #N: it is closed, and a
 closed issue is never taken`, or `skip #N: it is a pull request, not an issue
 the factory works on`). An answer that cannot be read ends the poll with exit
-1. No other label holds it back: `needs-human-attention`,
-`tehas:awaiting-merge` and `tehas:question` are taken off as the cycle starts.
-While the issue's own cycle is alive the log says `wait #N: its cycle is still
-running`, and the issue is taken once that cycle has ended. Every list of
-issues is read up to 1000. A cycle starts only once the issue is marked
-`tehas:running`; if that label change fails, the poll stops.
+1.
+
+A `tehas:ready` from any other account asks for nothing, so it comes off the
+issue with a comment naming who
+applied it; the log line is `clear #N: tehas:ready off, applied by ...`. A
+`tehas:plan` from such an account comes off the same way. The
+comment follows the label change: when that change fails nothing is said on the
+issue and the next poll tries again. An issue the poll does not read as a
+candidate keeps its labels as they are, which covers one whose own cycle is
+alive and every issue while a hold applies. No other label holds it
+back: `needs-human-attention`, `tehas:awaiting-merge` and `tehas:question` are
+taken off as the cycle starts. While the issue's own cycle is alive the log
+says `wait #N: its cycle is still running`, and the issue is taken once that
+cycle has ended. Every list of issues is read up to 1000. A cycle starts only once the
+issue is marked `tehas:running`; if that label change fails, the poll stops.
 
 ## tehas work
 
@@ -261,14 +278,33 @@ same issue uses, and it does not take the dispatcher's lock, so do not run it
 for an issue whose session the factory is working on.
 
 ```
-tehas plan 12 --out /tmp/turn.json --brief brief.md
-tehas plan 12 --out /tmp/turn.json --session <id> --answer answer.md
+tehas plan 12 --out /tmp/turn.json --keep /tmp/turn.keep --brief brief.md
+tehas plan 12 --out /tmp/turn.json --keep /tmp/turn.keep --session <id> --answer answer.md
 ```
 
 The first form starts a session from a file with the issue's title and body.
 The second reopens the session and sends the file's content as the operator's
-answer. A turn ends when the agent has settled, so it ends when the agent has
-asked. On exit 0 the `--out` file holds the session id, the agent's last
+answer. A turn ends when the agent has settled and every subagent it sent out
+in the background has reported back, so it ends when the agent has asked. A
+subagent that never reports holds the turn until `TEHAS_PLAN_TIMEOUT`.
+
+`--keep` names a directory the session carries from one turn to the next. The
+first form makes it anew. It holds the commit the first turn's workspace was
+at, pi-rukas's record of the plans the agent showed (its plain `.json` files,
+at most 1 MB each), and with `TEHAS_WORK_IMAGES=1` the issue's images. Every
+later turn's workspace is at that commit and gets that record back, so a plan
+the operator confirms is filed as it was shown. A later turn whose commit is
+missing or gone starts at the tip of the branch and says so, and the agent
+then reviews the plan again before it files it. The dispatcher keeps the
+directory at `~/tehas/state/plan-<issue>.json.keep` and removes it when the
+session ends.
+
+With `TEHAS_WORK_IMAGES=1` the first turn fetches the images the issue links,
+by the rules of `tehas work`, and says on the issue how many it was given.
+Each turn's container gets a copy of them, read-only, at the path a cycle has
+them, with `PI_ENSEMBLE_EXTRA_IMAGE_DIRS`. The copy is
+`~/tehas/work/<name>-plan-<issue>.images`, removed after the turn. An image
+that cannot be fetched starts no session: exit 4, said on the issue. On exit 0 the `--out` file holds the session id, the agent's last
 message and the question it asked, if any. On exit 2 it holds the session id
 alone when that is known, so the dispatcher can run the turn again in the
 same session, and it is not written when no session is known.
@@ -277,6 +313,7 @@ same session, and it is not written when no session is known.
 | ---- | -------------------------------------------------------------------- |
 | 0    | The turn settled and said or asked something                         |
 | 2    | The turn did not settle, timed out, said and asked nothing, or its session or outcome could not be written down |
+| 4    | With `TEHAS_WORK_IMAGES=1`: a first turn where an image the issue links could not be fetched, or the issue could not be read for its images; nothing ran |
 | 64   | A usage error, no bot token or no git identity; nothing ran          |
 | 78   | The instance settings are invalid, or `tehas.slice` cannot be used; nothing ran |
 
@@ -410,8 +447,8 @@ does, so no cycle starts in the middle. A cycle started by hand with
 tehas labels        # one line per label
 ```
 
-Creates the nine labels tehas uses in the product repository: `tehas:ready`,
-`tehas:urgent`, `tehas:running`, `tehas:awaiting-merge`, `tehas:pause`,
+Creates the ten labels tehas uses in the product repository: `tehas:ready`,
+`tehas:urgent`, `tehas:running`, `tehas:awaiting-merge`, `tehas:shipped`, `tehas:pause`,
 `needs-human-attention`, `tehas:question`, `tehas:plan` and `tehas:planning`.
 Run it once for a new product, and again after pulling a version that adds a
 label. Run again, it puts their colours and descriptions back. It needs `TEHAS_REPO` and no other
@@ -446,6 +483,50 @@ starts `factory   stale:` and asks whether the timer is running.
 
 Exit 0 on `pass` and `warn`. Exit 1 on `fail`, on a stale file, or when there
 is no health file yet. Exit 64 on any argument.
+
+## tehas top
+
+```
+tehas top                # one screen, redrawn every 2 seconds
+tehas top --once         # one frame as plain text
+tehas top --json         # the snapshot a frame is drawn from
+tehas top --every 10     # redraw every 10 seconds
+```
+
+One screen for a person, in the manner of `top`: is the factory taking work,
+what is in the queue and which issues are behind the counts, what the cycles are
+doing, which units run, what the model mesh draws, and the tail of a cycle's
+console. It draws again every 2 seconds unless `--every` says otherwise; `q` or
+Ctrl-C ends it and leaves the terminal as it was. Without a terminal on standard
+output, and with `--once`, it prints one frame as plain text: no escape codes.
+
+It reads what the factory already writes under `~/tehas/live/` - the [health
+file](#tehasbot-health), the queue snapshot, the cycles, the energy sample and
+the console of a cycle - and asks `systemctl --user` about its units. No GitHub
+call, no model call, no Docker call, no instance settings, and nothing is
+written. What it shows is as old as those files, and every section that has an
+age prints it. A file older than ten minutes is not believed, the same rule
+`tehas status` uses.
+
+The frame is drawn from one snapshot and from nothing else. `--json` prints that
+snapshot: `generatedAt` and one key per section (`factory`, `queue`, `cycle`,
+`units`, `energy`, `console`). A section whose source is missing, unreadable or
+too old to believe is `null`; the frame says so in one line and draws the rest.
+The factory line and the queue counts are the ones `tehas status` prints: both
+commands take them from `lib/status.sh`, so they cannot drift apart. A section
+added to the snapshot appears in `--json` without anything else changing.
+
+A frame follows the width and height of the terminal, also after a resize. Long
+lines are cut; nothing wraps and nothing scrolls. When the terminal is short,
+console lines are dropped first, then unit rows, then queue rows. Text that came
+out of a file has its control characters removed before it reaches the terminal.
+`COLUMNS` and `LINES` say what the size is when the terminal cannot be asked.
+
+Exit 0 when a frame was drawn or a snapshot printed, whatever the factory says:
+a `fail` or a stale health file is shown here, not returned - that is what
+`tehas status` is for. Exit 1 when there is no `~/tehas/live/` directory at all.
+Exit 64 on an unknown argument, or on a `--every` that is not a whole number
+from 1 to 64.
 
 ## tehasbot
 
@@ -524,6 +605,9 @@ finds it.
 
 Feed the [factory floor](/) and the [plain dashboard](/dashboard). `tehasbot status` writes the queue snapshot to
 `~/tehas/live/status.json`; the dispatcher runs it at every poll, and a cycle when it ends.
+Completed means closed by a merged pull request, whatever labels the issue was
+left with. `tehasbot status` gives each such issue `tehas:shipped`, so GitHub
+lists the same issues; run `tehas labels` once so the label exists.
 `~/tehas/libexec/console` is started by the work
 script and follows the cycle's agents into `~/tehas/live/console-<issue>.txt`, masking
 tokens, passwords and private network addresses, and writing no control
@@ -808,13 +892,21 @@ are enabled. Both write to `~/tehas/logs/preview.log`.
 2. It measures the free space: the smaller of the file system of `~/tehas`
    and the one Docker keeps its images on. This is done once Docker has
    answered, before the network is checked.
-3. It asks GitHub for the open pull requests, the newest 100. No answer, an
-   answer with nothing in it, or one that is not a list ends the run: nothing
+3. It asks GitHub for the open pull requests, all of them, in pages of 100,
+   newest first. It stops when a page is short, which is where GitHub ends.
+   When the tenth page comes back full it asks for one more: an empty answer
+   means the list ended there, so a thousand open pull requests is a list it
+   has read. Anything in that answer means it stopped before the end, and it
+   builds and removes nothing: `the open pull requests are more than 1000: the
+   list was not read, nothing was built or removed`. No answer, an answer with
+   nothing in it, or one that is not a list ends the run the same way: nothing
    is built and nothing is removed. A list with no pull request in it is an
-   answer, and every preview is then removed. A list that does not say who
-   opened one of the repository's own pull requests is not a clear answer
-   either: `the list of open pull requests does not say who opened each;
-   nothing was built or removed`.
+   answer, and every preview is then looked at one by one, as step 5 says. A
+   page that does not say who opened one of the repository's own pull requests
+   is not a clear answer either: `the list of open pull requests does not say
+   who opened each; nothing was built or removed`. Each page is an answer of
+   its own, taken at its own moment, so the list can move while it is read: a
+   pull request that comes back on two pages counts once.
 4. A pull request whose head is in another repository is counted in the log
    and never built: `<k> pull requests from elsewhere, not built`. Nor is
    one whose head is in the repository and that was opened by anyone but an
@@ -822,9 +914,18 @@ are enabled. Both write to `~/tehas/logs/preview.log`.
    outside the repository, not built`. On a public repository anyone can
    open a pull request between two branches that are already there. Of the
    rest, the newest `TEHAS_PREVIEW_MAX` get a preview.
-5. What is on the host for a pull request that is no longer open is removed:
+5. What is on the host for a pull request the list does not have is removed:
    the container, the image, the fetched commit, the state and the build log.
-   The log says `#<pr>: pull request no longer open, removed`.
+   Membership in that list is not enough on its own, because a pull request can
+   fall between two pages and look closed. Before it removes anything the run
+   asks GitHub about that pull request by itself, as `tehasbot preview --sweep`
+   does, and what GitHub answers is what the log says: `#<pr>: pull request no
+   longer open, removed` for one that is closed or not there at all, `#<pr>:
+   its branch is not in <repo>, removed` and `#<pr>: it was not opened by
+   someone of <repo>, removed` for one that is open but not built here. Nothing
+   is removed where GitHub does not answer clearly: `#<pr>: no answer from
+   GitHub, kept`, nor where it says the pull request is open and one of ours:
+   `#<pr>: open though the list did not say so, kept`.
 6. Each pull request that is due is fetched and built. The commit is fetched
    into the bare clone `~/tehas/preview/repo.git`, and its
    `preview/Dockerfile` is built with the commit as the context, in at most
@@ -1009,10 +1110,11 @@ time of the last sweep and how many things it removed are `lastSweep` in
 | 78   | The instance settings are invalid, or `TEHAS_PREVIEWS` is not `1` |
 
 The [plain dashboard](/dashboard) lists the previews under "Previews", each
-with its address or the reason there is none, and says when the list was
-written. A time that is more than a few minutes old means the runs have
-stopped: see the timer. A host without previews has no `previews.json` and no
-such section.
+with its address, or with its state and the reason the run wrote into its state
+file - which is what tells a recipe whose volume was refused from a build that
+failed - and says when the list was written. A time that is more than a few
+minutes old means the runs have stopped: see the timer. A host without previews
+has no `previews.json` and no such section.
 
 ## The gates (run by the cycle, usable by hand)
 
@@ -1068,7 +1170,7 @@ which ones each id accepts and which of them it requires:
 | `units <unit>...`           | a unit file changed                  | systemd reloaded its unit files, and the unit is active: restarted, never enabled |
 | `sandbox`                   | `sandbox/` or `versions.env` changed | always                                                            |
 | `docs --force-recreate`     | `edge/docs.*` changed                | its container is running: recreated with that flag                 |
-| `edge --force-recreate`     | `edge/router.*` changed              | its container is running: recreated with that flag. Or the Protolab's server of before it runs, the compose project `tehas-protolab`: that one is taken down and the router is started. If the old one came down and the router did not start, the step stays owed and `~/tehas/state/edge-takeover` is left: the next `tehas update` starts the router whatever runs, and removes that file when it did |
+| `edge --force-recreate`     | `edge/router.*` changed              | its container is running: recreated with that flag. Or the Protolab's server of before it runs, the compose project `tehas-protolab`: that one is taken down and the router is started. If the old one came down and the router did not start, the step stays owed and `~/tehas/state/edge-takeover` is left, holding the time it was made: the next `tehas update` starts the router whatever runs, and removes that file when it did. A mark of more than a day ago is not acted on - it is said, removed, and the step is what it would have been without it |
 
 Both containers are recreated rather than just brought up, because what changed is
 the Caddyfile they mount and Caddy reads its config when the process starts:

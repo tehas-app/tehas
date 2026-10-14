@@ -489,7 +489,7 @@ t_contains "$t_out" "edge: docker compose up exited 1; the step is not done"
 t_contains "$(t_calls docker)" "compose -p tehas-protolab down
 compose -f $th/edge/router.compose.yaml up -d --force-recreate"
 t_eq "$(owed_steps)" "edge --force-recreate"
-t_eq "$(find "$th/state" -name edge-takeover -size 0 | wc -l)" 1
+t_eq "$(grep -cE '^[0-9]+$' "$th/state/edge-takeover")" 1
 
 t_case "the next run finishes the takeover with nothing of either project running"
 rm -f "$T"/calls/docker
@@ -535,6 +535,56 @@ t_stub docker 'case "$1" in ps) case "$4" in *tehas-protolab) printf "c1\n" ;; e
 t_run "$update"
 t_eq "$t_rc" 1
 t_eq "$(find "$th/state" -name edge-takeover | wc -l)" 0
+
+# The mark is the memory of one half-finished takeover, not a standing order to
+# start the router. A person who stopped it on purpose would otherwise have it
+# started by a mark some run gave up on, weeks later.
+t_case "a mark older than the day it was made is not acted on"
+instance
+platform 0 'echo "tehas is up to date"'
+# Nothing of either project runs: without the mark this step would leave the
+# router alone.
+t_stub docker
+mkdir -p "$th/state"
+printf '%s\n' "$(( $(date -u +%s) - 90000 ))" >"$th/state/edge-takeover"
+printf 'edge --force-recreate\n' >"$owed_file"
+rm -f "$T"/calls/docker
+t_run "$update"
+t_eq "$t_rc" 0
+t_contains "$t_out" "the mark of the takeover is"
+t_contains "$t_out" "edge: not running on this host, left alone"
+t_lacks "$t_out" "finishing the takeover"
+t_eq "$(t_calls docker | grep -c '^compose ')" 0
+t_eq "$(find "$th/state" -name edge-takeover | wc -l)" 0
+t_eq "$(owed_steps)" ""
+
+t_case "a mark of the same day is acted on, and the age comes from the mark"
+instance
+platform 0 'echo "tehas is up to date"'
+mkdir -p "$th/state"
+printf '%s\n' "$(( $(date -u +%s) - 3600 ))" >"$th/state/edge-takeover"
+printf 'edge --force-recreate\n' >"$owed_file"
+rm -f "$T"/calls/docker
+t_run "$update"
+t_eq "$t_rc" 0
+t_contains "$t_out" "edge: finishing the takeover from the Protolab's server"
+t_contains "$(t_calls docker)" "compose -f $th/edge/router.compose.yaml up -d --force-recreate"
+t_eq "$(find "$th/state" -name edge-takeover | wc -l)" 0
+t_eq "$(owed_steps)" ""
+
+t_case "a mark with no time on it is honoured once and gets the time of this run"
+instance
+platform 0 'echo "tehas is up to date"'
+mkdir -p "$th/state"
+: >"$th/state/edge-takeover"
+printf 'edge --force-recreate\n' >"$owed_file"
+t_stub docker 'case "$1" in compose) case "$*" in *router.compose.yaml*) echo "port is already allocated" >&2; exit 1 ;; esac ;; esac'
+rm -f "$T"/calls/docker
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "edge: finishing the takeover from the Protolab's server"
+t_eq "$(owed_steps)" "edge --force-recreate"
+t_eq "$(grep -cE '^[0-9]+$' "$th/state/edge-takeover")" 1
 
 t_case "every state of systemd's active family restarts the unit"
 instance

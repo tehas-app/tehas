@@ -22,8 +22,19 @@ if [ "$1 $2" = "api repos/acme/widget" ]; then
   echo "{\"full_name\":\"Acme/Widget\"}"; exit 0
 fi
 [ ! -e "$T/fx/gh-down" ] || { echo "gh: connection refused" >&2; exit 1; }
+# fx/slow makes a call about one pull request take three seconds of real time,
+# so that a test has a moment to stop the command while it works.
+[ ! -e "$T/fx/slow" ] || /bin/sleep 3
 case "$1 $2" in
-  "api repos/acme/widget/pulls?"*) cat "$T/fx/pulls.json" 2>/dev/null || exit 1 ;;
+  "api repos/acme/widget/pulls?"*)
+    # The run reads the open pull requests in pages. A fixture that names page
+    # 1 answers the paging itself: a page it does not have is where GitHub ends.
+    p=$(printf "%s" "$2" | sed -n "s/.*[&?]page=\([0-9][0-9]*\).*/\1/p")
+    if [ -f "$T/fx/pulls-1.json" ]; then
+      cat "$T/fx/pulls-${p:-1}.json" 2>/dev/null || echo "[]"
+      exit 0
+    fi
+    cat "$T/fx/pulls.json" 2>/dev/null || exit 1 ;;
   # One pull request. fx/pull-<n>.rc is a call that fails, and the answer is
   # what GitHub has as its description, which is where a notice goes.
   "api repos/acme/widget/pulls/"*)
@@ -210,6 +221,34 @@ pull() {
     + (if $who == "" then {} else {author_association: $who} end)' | tee "$fx/pull-$1.json"
 }
 pulls() { printf '%s\n' "$@" | jq -s . >"$fx/pulls.json"; }
+# page_of <count> <first number> <head repository> <author association>: one
+# page of open pull requests as GitHub answers it, one array. The commit ids
+# are not real: such a list is only ever read, never built from.
+page_of() {
+  jq -n -c --argjson n "$1" --argjson first "$2" --arg repo "$3" --arg who "$4" '
+    [range(0; $n) | ($first + .) as $k | {number: $k, title: "Pull \($k)",
+      html_url: "https://github.com/\($repo)/pull/\($k)", state: "open",
+      updated_at: "2026-10-12T09:00:00Z",
+      head: {sha: (("0" * 39) + (($k % 10) | tostring)), repo: {full_name: $repo}},
+      body: "What the change does.", author_association: $who}]'
+}
+# page <number> <array>: that page of the open pull requests. Naming page 1
+# makes the gh stub answer the pages from these files; see its case.
+page() { printf '%s\n' "$2" >"$fx/pulls-$1.json"; }
+# page_with <number> <array> [pull requests...]: that page, with these pull
+# requests at the end of it. A page of a hundred is a page that is full.
+page_with() {
+  local p=$1 base=$2
+  shift 2
+  printf '%s\n' "$@" | jq -c -s --argjson b "$base" '$b + .' >"$fx/pulls-$p.json"
+}
+# close <number>: GitHub answers that pull request as closed, which is what it
+# does when one is merged or closed. The list of open pull requests no longer
+# has it, and what the run asks for when it means to remove something is this
+# answer about the pull request by itself.
+close() {
+  jq -c '.state = "closed"' "$fx/pull-$1.json" >"$fx/x" && mv "$fx/x" "$fx/pull-$1.json"
+}
 reset() {
   rm -rf "$fx" "$T/home/tehas" "$T"/calls/* "$upstream"
   mkdir -p "$fx" "$T/home/tehas/repos"
@@ -241,6 +280,18 @@ count() { find "$1" -mindepth 1 -maxdepth 1 -name "$2" 2>/dev/null | wc -l; }
 runs() { find "$T/calls" -name 'docker.run.*' | wc -l; }
 builds() { t_calls docker | grep -c '^build ' || true; }
 writes() { cat "$T/calls/gh-writes" 2>/dev/null || true; }
+# stub_gh: the gh of the fixtures at the top of this file, for a case that needs
+# it after another case replaced it with its own. It answers the repository, the
+# list of open pull requests and one pull request, and waits three seconds of
+# real time when fx/slow is there.
+stub_gh() {
+  t_stub gh 'if [ "$1 $2" = "api repos/acme/widget" ]; then echo "{\"full_name\":\"Acme/Widget\"}"; exit 0; fi
+[ ! -e "$T/fx/slow" ] || /bin/sleep 3
+case "$1 $2" in
+  "api repos/acme/widget/pulls?"*) cat "$T/fx/pulls.json" ;;
+  "api repos/acme/widget/pulls/"*) cat "$T/fx/pull-${2#repos/acme/widget/pulls/}.json" ;;
+esac'
+}
 
 t_case "invalid settings: exit 78 before GitHub or Docker is asked"
 reset
@@ -541,6 +592,65 @@ for who in OWNER MEMBER COLLABORATOR; do
   t_lacks "$t_out" "outside the repository"
 done
 
+# The list is read in pages of 100. Only the newest page was asked for at
+# first: a hundred newer pull requests from forks push every one of ours off
+# it, and the run then finds none of them open and removes every preview.
+t_case "a run reads every page of open pull requests, not the newest one only"
+reset
+a=$(commit feature)
+pull 12 "$a"
+page 1 "$(page_of 100 101 stranger/widget NONE)"
+jq -s . "$fx/pull-12.json" >"$fx/pulls-2.json"
+t_run "$preview"
+t_eq "$t_rc" 0
+t_eq "$(state_of 12)" "serving"
+t_eq "$(runs)" 1
+t_contains "$t_out" "100 pull requests from elsewhere, not built"
+t_eq "$(t_calls gh | grep -c 'pulls?')" 2
+
+t_case "a list longer than the run reads builds and removes nothing"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+t_run "$preview"
+t_eq "$(state_of 12)" "serving"
+for p in 1 2 3 4 5 6 7 8 9 10; do
+  page "$p" "$(page_of 100 $((1001 + (p - 1) * 100)) stranger/widget NONE)"
+done
+# The tenth page is full, so the run asks for one more to know where the list
+# ends. This one has a pull request in it: the list goes past what was read.
+page 11 "$(page_of 30 2001 stranger/widget NONE)"
+rm -f "$T"/calls/*
+t_run "$preview"
+t_eq "$t_rc" 0
+t_contains "$t_out" "the open pull requests are more than 1000: the list was not read, nothing was built or removed"
+t_eq "$(t_calls gh | grep -c 'pulls?')" 11
+t_eq "$(builds)" 0
+t_eq "$(state_of 12)" "serving"
+t_eq "$(cat "$fx/docker/container-12")" "$a"
+t_lacks "$t_out" "no longer open, removed"
+t_eq "$(jq -r '(now - (.generatedAt | fromdateiso8601)) < 120' "$live/previews.json")" "true"
+
+# A thousand open pull requests is the last list that fits in ten pages. The
+# eleventh answer is empty, which is where GitHub ends: the list was read, and
+# the run goes on with what it read.
+t_case "a thousand open pull requests is a list that was read"
+reset
+a=$(commit feature)
+pull 12 "$a"
+for p in 1 2 3 4 5 6 7 8 9; do
+  page "$p" "$(page_of 100 $((101 + (p - 1) * 100)) stranger/widget NONE)"
+done
+page_with 10 "$(page_of 99 1001 stranger/widget NONE)" "$(pull 12 "$a")"
+rm -f "$T"/calls/*
+t_run "$preview"
+t_eq "$t_rc" 0
+t_eq "$(t_calls gh | grep -c 'pulls?')" 11
+t_lacks "$t_out" "more than 1000"
+t_contains "$t_out" "999 pull requests from elsewhere, not built"
+t_eq "$(state_of 12)" "serving"
+t_eq "$(runs)" 1
+
 t_case "pull requests by people outside the repository take no place from the others"
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_PREVIEWS=1 TEHAS_DOMAIN=example.org TEHAS_PREVIEW_MAX=2
@@ -556,6 +666,62 @@ t_eq "$(count "$root" '2[6-9]')" 0
 t_contains "$t_out" "1 pull request from elsewhere, not built"
 t_contains "$t_out" "3 pull requests opened by someone outside the repository, not built"
 
+# Each page is an answer of its own, taken at its own moment: a pull request
+# can fall between two of them and be in neither. The run asks GitHub about one
+# it means to remove before it removes anything.
+t_case "a pull request that fell between two pages keeps its preview"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+t_run "$preview"
+t_eq "$(state_of 12)" "serving"
+page 1 "$(page_of 100 101 stranger/widget NONE)"
+page 2 "$(page_of 40 201 stranger/widget NONE)"
+rm -f "$T"/calls/*
+t_run "$preview"
+t_eq "$t_rc" 0
+t_contains "$t_out" "#12: open though the list did not say so, kept"
+t_lacks "$t_out" "no longer open, removed"
+t_eq "$(state_of 12)" "serving"
+t_eq "$(cat "$fx/docker/container-12")" "$a"
+t_eq "$(count "$root" 12)" 1
+t_eq "$(count "$fx/docker" '*-12')" 2
+
+t_case "nothing is removed when GitHub does not answer about that pull request"
+reset
+a=$(commit feature)
+b=$(commit other)
+pulls "$(pull 12 "$a")"
+t_run "$preview"
+t_eq "$(state_of 12)" "serving"
+pulls "$(pull 13 "$b")"
+: >"$fx/pull-12.rc"
+rm -f "$T"/calls/*
+t_run "$preview"
+t_eq "$t_rc" 0
+t_contains "$t_out" "#12: no answer from GitHub, kept"
+t_lacks "$t_out" "no longer open, removed"
+t_eq "$(state_of 12)" "serving"
+t_eq "$(cat "$fx/docker/container-12")" "$a"
+t_eq "$(count "$fx/docker" '*-12')" 2
+
+t_case "a pull request that comes back on two pages takes no place from another"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_PREVIEWS=1 TEHAS_DOMAIN=example.org TEHAS_PREVIEW_MAX=2
+a=$(commit one)
+b=$(commit two)
+# The list moves while it is read: #12 is at the end of page 1 and again at the
+# start of page 2. Counted twice it would push #11 over the limit.
+page_with 1 "$(page_of 99 101 stranger/widget NONE)" "$(pull 12 "$a")"
+page_with 2 "[]" "$(pull 12 "$a")" "$(pull 11 "$b")"
+rm -f "$T"/calls/*
+t_run "$preview"
+t_eq "$t_rc" 0
+t_eq "$(state_of 12) $(state_of 11)" "serving serving"
+t_eq "$(runs)" 2
+t_lacks "$t_out" "over-limit"
+t_contains "$t_out" "99 pull requests from elsewhere, not built"
+
 t_case "a preview whose pull request turns out to be an outsider's is removed at the next run"
 reset
 a=$(commit feature)
@@ -564,6 +730,7 @@ t_run "$preview"
 t_eq "$(state_of 16)" "serving"
 pulls "$(pull 16 "$a" acme/widget NONE)"
 t_run "$preview"
+t_contains "$t_out" "#16: it was not opened by someone of acme/widget, removed"
 t_eq "$(count "$fx/docker" '*-16')" 0
 t_eq "$(count "$root" 16)" 0
 
@@ -629,6 +796,9 @@ t_eq "$(state_of 23) $(state_of 22) $(state_of 21)" "serving serving over-limit"
 
 t_case "a merged pull request is removed: container, image, ref and directory"
 pulls "$(pull 23 "$c")"
+close 21
+close 22
+close 24
 t_run "$preview"
 t_eq "$(($(count "$root" 21) + $(count "$root" 22)))" 0
 t_eq "$(count "$fx/docker" '*-22')" 0
@@ -1023,6 +1193,7 @@ t_eq "$(state_of 12)" "serving"
 t_eq "$(cat "$fx/docker/container-12")" "$a"
 
 t_case "removal still runs under the floor"
+close 12
 pulls
 t_run "$preview"
 t_eq "$(count "$fx/docker" container-12)" 0
@@ -2066,5 +2237,46 @@ esac'
 t_run "$preview"
 t_eq "$(state_of 12)" "serving"
 t_eq "$(count "$root/12" .notice)" 0
+
+t_case "the sweep leaves no temporary file of its own behind"
+reset
+stub_gh
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+t_run "$preview"
+t_run "$preview --sweep"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$root/sweep.json" ] && echo yes || echo no)" "yes"
+t_eq "$(find "$T/home/tehas/tmp" -mindepth 1 2>/dev/null | wc -l)" 0
+
+# The sweep's temporary file was removed on the last line of the sweep, which a
+# signal never reaches. The trap removes what this run made. The sweep is stopped
+# while it waits on the call about one pull request: fx/slow makes that call take
+# three seconds, and the file under tmp is what the wait looks for.
+t_case "a sweep that is stopped partway leaves no temporary file either"
+reset
+stub_gh
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+t_run "$preview"
+: >"$fx/slow"
+rm -f "$T"/calls/*
+t_run "$preview --sweep & sweep=\$!
+for _ in \$(seq 100); do
+  ls \"$T/home/tehas/tmp\"/preview-sweep.?????? >/dev/null 2>&1 && break
+  /bin/sleep 0.05
+done
+kill -TERM \"\$sweep\" 2>/dev/null
+wait \"\$sweep\" 2>/dev/null
+printf 'rc=%s\n' \"\$?\""
+rm -f "$fx/slow"
+t_contains "$t_out" "rc=143"
+t_eq "$(count "$root" sweep.json)" 0
+t_eq "$(find "$T/home/tehas/tmp" -mindepth 1 2>/dev/null | wc -l)" 0
+t_eq "$(state_of 12)" "serving"
+
+t_case "the run closes the lock descriptor bash gave it, not a number it guessed"
+t_eq "$(grep -c -F '9>&-' "$T_ROOT/libexec/preview")" 0
+t_contains "$(cat "$T_ROOT/libexec/preview")" '{edge_lock_fd}>&-'
 
 t_done

@@ -146,11 +146,26 @@ release() {
 # count is read with nproc; a stub makes every test machine the same.
 t_stub nproc 'echo 8'
 slots() { t_instance "${T_MINIMAL[@]}" "TEHAS_TICKET_CONCURRENCY=$1" "${@:2}"; }
-ready() { # issue... : the queue, each labelled by alice; "8!" is urgent
-  local n list=""
+# The label events of an issue: tehas:ready by alice, then tehas:urgent by
+# <login>. An empty login stands for a labelling that names nobody.
+urgent_by() { # <issue> <login or "">
+  jq -nc --arg w "$2" '[{event: "labeled", label: {name: "tehas:ready"}, actor: {login: "alice"}},
+    {event: "labeled", label: {name: "tehas:urgent"},
+     actor: (if $w == "" then null else {login: $w} end)}]' >"$fx/events-$1.json"
+}
+
+ready() { # issue... : the queue, each labelled by alice; "8!" is urgent, by alice too
+  local n num labels list=""
   for n in "$@"; do
-    list="$list,{\"number\":${n%!},\"labels\":[{\"name\":\"tehas:ready\"}$([ "$n" = "${n%!}" ] || echo ',{"name":"tehas:urgent"}')]}"
-    cp "$fx/events-7.json" "$fx/events-${n%!}.json" 2>/dev/null || true
+    num=${n%!}
+    labels='{"name":"tehas:ready"}'
+    if [ "$n" = "$num" ]; then
+      cp "$fx/events-7.json" "$fx/events-$num.json" 2>/dev/null || true
+    else
+      labels="$labels,{\"name\":\"tehas:urgent\"}"
+      urgent_by "$num" alice
+    fi
+    list="$list,{\"number\":$num,\"labels\":[$labels]}"
   done
   echo "[${list#,}]" >"$fx/ready.json"
 }
@@ -221,6 +236,51 @@ t_run "$dispatch --dry-run"
 t_contains "$t_out" "skip #7: tehas:ready was applied by 'mallory', not an allowed account"
 t_contains "$t_out" "0 cycles running, room for 1 more"
 t_contains "$t_out" "nothing to do"
+
+# A tehas:ready from an account outside the list is no one's request for a
+# cycle. Left on the issue it reads as queued, so the poll takes it off.
+for other in tehas-bot mallory; do
+  t_case "a tehas:ready applied by $other is taken off the issue and said once"
+  reset
+  echo "[{\"event\":\"labeled\",\"label\":{\"name\":\"tehas:ready\"},\"actor\":{\"login\":\"$other\"}}]" >"$fx/events-7.json"
+  t_run "$dispatch"
+  t_eq "$t_rc" 0
+  t_eq "$(t_calls fake-start)" ""
+  t_contains "$t_out" "skip #7: tehas:ready was applied by '$other', not an allowed account"
+  t_contains "$t_out" "clear #7: tehas:ready off, applied by '$other' who may not authorise work here"
+  t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --remove-label tehas:ready')" 1
+  t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body Tehas took"
+  t_eq "$(t_calls gh | grep -c -e '^issue comment ')" "1"
+done
+
+t_case "a dry run says the label would come off and changes nothing"
+reset
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"tehas-bot"}}]' >"$fx/events-7.json"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would take tehas:ready off #7: it was applied by 'tehas-bot'"
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "issue comment"
+
+t_case "while the label cannot be taken off nothing is said on the issue, and it is said once in the end"
+reset
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"mallory"}}]' >"$fx/events-7.json"
+: >"$fx/edit-fails"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls gh | grep -c -e '^issue comment ')" 0
+t_contains "$t_out" "WARN: label change on #7 failed: --remove-label tehas:ready"
+rm -f "$fx/edit-fails"
+rm -f "$T"/calls/gh
+t_run "$dispatch"
+t_eq "$(t_calls gh | grep -c -e '^issue comment ')" 1
+
+t_case "a stale approval from an allowed account keeps its label on the issue"
+reset
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-01-01T00:00:00Z"}]' >"$fx/events-7.json"
+echo '{"data":{"repository":{"issue":{"lastEditedAt":"2026-01-02T00:00:00Z","editor":{"login":"mallory"}}}}}' >"$fx/edit-7.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit 7"
 
 t_case "the most recent labelling decides, not an earlier one"
 reset
@@ -486,15 +546,16 @@ reset
 t_run "$dispatch --dry-run"
 t_eq "$(t_calls fake-index)" ""
 
-t_case "a real poll does not start an issue the bot labelled"
+t_case "a real poll does not start an issue the bot labelled, and takes that label off"
 reset
 echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}},
        {"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"the-bot"}}]' >"$fx/events-7.json"
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" ""
-t_lacks "$(t_calls gh)" "issue edit"
-t_lacks "$(t_calls gh)" "issue comment"
+t_lacks "$(t_calls gh)" "--add-label tehas:running"
+t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --remove-label tehas:ready')" 1
+t_eq "$(t_calls gh | grep -c -e '^issue comment ')" 1
 
 t_case "every page of the label events is read, a hundred at a time"
 t_contains "$(t_calls gh)" "api repos/acme/widget/issues/7/events?per_page=100 --paginate"
@@ -851,6 +912,139 @@ ready 7 8! 9
 t_run "$dispatch"
 t_eq "$(t_calls fake-start | tr '\n' ' ')" "8 7 "
 
+# The order is what an urgent label buys, so who applied it is checked as the
+# labelling of tehas:ready is.
+t_case "urgent from an allowed account moves an issue ahead of a lower number"
+reset
+slots 2
+ready 3 8!
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "8 3 "
+
+t_case "urgent applied by the bot is ignored, and the poll says so"
+reset
+slots 2
+ready 3 8!
+urgent_by 8 tehas-bot
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "3 8 "
+t_contains "$t_out" "ignore #8: tehas:urgent was applied by 'tehas-bot', not an allowed account"
+
+t_case "urgent applied by an account outside the list is ignored"
+reset
+slots 2
+ready 3 8!
+urgent_by 8 mallory
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "3 8 "
+t_contains "$t_out" "ignore #8: tehas:urgent was applied by 'mallory', not an allowed account"
+
+t_case "an urgent label with no account in its event is ignored"
+reset
+slots 2
+ready 3 8!
+urgent_by 8 ""
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "3 8 "
+t_contains "$t_out" "ignore #8: tehas:urgent was applied by 'unknown', not an allowed account"
+
+t_case "an urgent label with no labelling event is ignored"
+reset
+slots 2
+ready 3 8!
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}}]' >"$fx/events-8.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "3 8 "
+t_contains "$t_out" "ignore #8: tehas:urgent was applied by 'unknown', not an allowed account"
+
+t_case "the most recent urgent labelling decides"
+reset
+slots 2
+ready 3 8!
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}},
+       {"event":"labeled","label":{"name":"tehas:urgent"},"actor":{"login":"mallory"}},
+       {"event":"unlabeled","label":{"name":"tehas:urgent"},"actor":{"login":"mallory"}},
+       {"event":"labeled","label":{"name":"tehas:urgent"},"actor":{"login":"alice"}}]' >"$fx/events-8.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "8 3 "
+
+t_case "an ignored urgent label leaves the issue ready on its own label"
+reset
+slots 2
+ready 3 8!
+urgent_by 8 mallory
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "issue edit 8 --repo acme/widget --add-label tehas:running --remove-label tehas:ready"
+
+t_case "a dry run reports the order a real poll would take"
+reset
+slots 2
+ready 3 8!
+urgent_by 8 mallory
+t_run "$dispatch --dry-run"
+t_eq "$t_rc" 0
+t_contains "$t_out" "ignore #8: tehas:urgent was applied by 'mallory', not an allowed account"
+t_eq "$(printf '%s\n' "$t_out" | sed -n 's/.*would run a cycle for #\([0-9]*\).*/\1/p' | tr '\n' ' ')" "3 8 "
+
+t_case "the urgent labelling of an issue is read once, the ready labelling again at the decision"
+reset
+slots 2
+ready 3 8!
+t_run "$dispatch"
+t_eq "$t_rc" 0
+# Once for the order, once when #8 is picked: no start rests on the read that
+# settled the order.
+t_eq "$(grep -c -e 'api repos/acme/widget/issues/8/events' <<<"$(t_calls gh)")" "2"
+
+t_case "an urgent issue this poll cannot start is not asked about"
+reset
+slots 2
+ready 8!
+hold 8
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(grep -c -e 'api repos/acme/widget/issues/8/events' <<<"$(t_calls gh)")" "0"
+t_contains "$t_out" "wait #8: its cycle is still running"
+release
+
+t_case "urgent order survives an issue number that arrives as text"
+reset
+slots 2
+ready 3 8
+echo '[{"number":3,"labels":[{"name":"tehas:ready"}]},{"number":"8","labels":[{"name":"tehas:ready"},{"name":"tehas:urgent"}]}]' >"$fx/ready.json"
+urgent_by 8 alice
+t_run "$dispatch --dry-run"
+t_eq "$t_rc" 0
+t_eq "$(printf '%s\n' "$t_out" | sed -n 's/.*would run a cycle for #\([0-9]*\).*/\1/p' | tr '\n' ' ')" "8 3 "
+
+t_case "when the urgent label events cannot be read nothing is started and no label changes"
+reset
+slots 2
+ready 3 8!
+rm "$fx/events-8.json"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: gh api repos/acme/widget/issues/8/events?per_page=100 failed"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+
+t_case "label events that are not JSON end the poll, whatever label is being read"
+reset
+slots 2
+ready 3 8!
+echo 'not json' >"$fx/events-8.json"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: unreadable label events of #8"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+
 t_case "a running cycle takes a slot"
 reset
 slots 2
@@ -915,7 +1109,8 @@ ready 7 8 9
 echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"mallory"}}]' >"$fx/events-7.json"
 t_run "$dispatch"
 t_eq "$(t_calls fake-start | tr '\n' ' ')" "8 9 "
-t_lacks "$(t_calls gh)" "issue edit 7 "
+t_lacks "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:running"
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:ready"
 
 t_case "a cycle that does not start does not stop the next one, and the poll ends with 1"
 reset
@@ -1428,7 +1623,7 @@ t_case "a plan label from an allowed account starts a session from the issue's t
 to_plan
 t_run "$dispatch"
 t_eq "$t_rc" 0
-t_contains "$(plan_calls)" "7 --out $record.out --brief $record.brief"
+t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --brief $record.brief"
 t_eq "$(cat "$record.brief")" '# Faster search
 
 Make it fast.'
@@ -1448,15 +1643,24 @@ t_run "$dispatch"
 t_contains "$(plan_calls)" "--brief"
 t_eq "$(head -n 1 "$record.brief")" "# Faster search"
 
-t_case "a plan label from the bot or a stranger starts nothing"
+t_case "a plan label from the bot or a stranger starts nothing and is taken off the issue"
 for other in tehas-bot mallory; do
   to_plan
   echo "[{\"event\":\"labeled\",\"label\":{\"name\":\"tehas:plan\"},\"actor\":{\"login\":\"$other\"}}]" >"$fx/events-7.json"
   t_run "$dispatch"
   t_eq "$(plan_calls)" ""
-  t_lacks "$(t_calls gh)" "issue edit"
   t_contains "$t_out" "skip #7: tehas:plan was applied by '$other', not an allowed account"
+  t_contains "$t_out" "clear #7: tehas:plan off, applied by '$other' who may not authorise work here"
+  t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --remove-label tehas:plan')" 1
+  t_eq "$(t_calls gh | grep -c -e '^issue comment ')" 1
 done
+
+t_case "a dry run leaves a stranger's plan label where it is"
+to_plan
+echo '[{"event":"labeled","label":{"name":"tehas:plan"},"actor":{"login":"mallory"}}]' >"$fx/events-7.json"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would take tehas:plan off #7: it was applied by 'mallory'"
+t_lacks "$(t_calls gh)" "issue edit"
 
 t_case "text changed after the plan label by somebody else is not planned"
 to_plan
@@ -1523,7 +1727,7 @@ t_eq "$(cat "$record")" "$before"
 t_eq "$(jq -r .running "$T/calls/record.at-mark")" true
 rm -f "$T"/calls/* "$fx/edit-fails"
 t_run "$dispatch"
-t_contains "$(plan_calls)" "7 --out $record.out --session abc-123 --answer $record.answer"
+t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --session abc-123 --answer $record.answer"
 
 t_case "while a later turn runs the record names no question"
 planning
@@ -1581,7 +1785,7 @@ jq -n '{data: {repository: {issue: {comments: {nodes: [
    body: "This planning turn did not finish.\n\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->"},
   {databaseId: 4003, author: {login: "alice"}, body: "go on", createdAt: "2026-01-01T02:00:00Z"}]}}}}}' >"$fx/comments-7.json"
 t_run "$dispatch"
-t_contains "$(plan_calls)" "7 --out $record.out --session abc-123 --answer $record.answer"
+t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --session abc-123 --answer $record.answer"
 
 t_case "a session id that is not a string in a failed turn's file is no session"
 to_plan
@@ -1602,7 +1806,7 @@ t_case "a ticked option goes to the session as the next message"
 planning
 comments 7 "$(plan_body ' ' x ' ')" alice
 t_run "$dispatch"
-t_contains "$(plan_calls)" "7 --out $record.out --session abc-123 --answer $record.answer"
+t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --session abc-123 --answer $record.answer"
 t_eq "$(cat "$record.answer")" "The operator chose: Change some"
 t_contains "$(t_calls gh)" "<!-- tehas:question kind=plan issue=7 turn=2 -->"
 t_eq "$(jq -r .turns "$record")" 2
@@ -1643,12 +1847,14 @@ t_contains "$(t_calls gh)" "api -X PATCH"
 
 t_case "the way out ends the session: labels off, record gone, one comment"
 planning
+mkdir -p "$record.keep/images"
 comments 7 "$(plan_body ' ' ' ' x)" alice
 t_run "$dispatch"
 t_eq "$(plan_calls)" ""
 t_contains "$(t_calls gh)" "--remove-label tehas:question"
 t_contains "$(t_calls gh)" "Planning session ended by alice."
 t_eq "$([ -e "$record" ] && echo kept)" ""
+t_eq "$([ -e "$record.keep" ] && echo kept)" ""
 
 t_case "the turn limit ends the session in place of another turn"
 planning
@@ -1794,13 +2000,14 @@ t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready')" 1
 
-t_case "a parked issue labelled by a stranger still starts nothing"
+t_case "a parked issue labelled by a stranger starts nothing and loses that label"
 reset
 has 7 needs-human-attention
 echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"mallory"}}]' >"$fx/events-7.json"
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
-t_lacks "$(t_calls gh)" "issue edit"
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:ready"
+t_lacks "$(t_calls gh)" "--add-label tehas:running"
 t_contains "$t_out" "skip #7: tehas:ready was applied by 'mallory', not an allowed account"
 
 t_case "tehas:ready applied while the issue's cycle runs waits, said in the log and not on the issue"
@@ -1871,7 +2078,7 @@ planning
 comments 7 "$(plan_body ' ' x ' ')" alice "$(jq -nc --arg b "$(plan_body ' ' ' ' ' ' | sed 's/turn=1/turn=5/')" '[{databaseId: 4009, author: {login: "tehas-bot"}, body: $b,
   createdAt: "2026-01-01T02:00:00Z", lastEditedAt: null, editor: null}]')"
 t_run "$dispatch"
-t_contains "$(plan_calls)" "7 --out $record.out --session abc-123 --answer $record.answer"
+t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --session abc-123 --answer $record.answer"
 t_eq "$(cat "$record.answer")" "The operator chose: Change some"
 
 t_case "a planning question on record whose marker is a park marker runs no turn and no cycle"
@@ -2518,7 +2725,7 @@ to_plan
 bare_tree
 t_run "$tree/libexec/dispatch"
 t_eq "$t_rc" 0
-t_contains "$(plan_calls)" "7 --out $record.out --brief $record.brief"
+t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --brief $record.brief"
 for name in tehas tehasbot tehas-plan; do t_eq "$(t_calls "$name")" ""; done
 
 t_case "a unit systemd cannot load changes no label and starts nothing, exit 1"

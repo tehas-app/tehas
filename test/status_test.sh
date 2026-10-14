@@ -17,13 +17,26 @@ case "$*" in
   "issue list"*--search*) cat "$T/issues.json" ;;
   "issue list"*) [ ! -e "$T/all-down" ] || exit 1; cat "$T/all.json" ;;
   "issue view"*) cat "$T/paused" ;;
+  "issue edit"*) [ -z "${GH_EDIT_FAILS:-}" ] || exit 1 ;;
+  "api graphql"*) [ ! -e "$T/shipped-down" ] || exit 1; cat "$T/shipped.json" ;;
 esac'
+closed() { # number closedAt closer [label]: a closed issue as the search for shipped work returns it
+  local label=""
+  [ -z "${4:-}" ] || label="{\"name\":\"$4\"}"
+  printf '{"number":%s,"title":"t","url":"u","updatedAt":"%s","closedAt":"%s","labels":{"nodes":[%s]},"timelineItems":{"nodes":[{"closer":%s}]}}' \
+    "$1" "$2" "$2" "$label" "$3"
+}
+shipped() { # closed issues, as the GraphQL answer
+  local IFS=,
+  printf '{"data":{"search":{"nodes":[%s]}}}' "$*" >"$T/shipped.json"
+}
 issue() { # number label state
   printf '{"number":%s,"title":"t","url":"u","state":"%s","labels":[{"name":"%s"}],"updatedAt":"2026-01-01T00:00:00Z","closedAt":null}' "$1" "${3:-OPEN}" "$2"
 }
 reset() {
-  rm -rf "$T"/calls/* "$T/gh-down" "$T/all-down" "$live"
+  rm -rf "$T"/calls/* "$T/gh-down" "$T/all-down" "$T/shipped-down" "$live"
   echo "[]" >"$T/all.json"
+  shipped
   T_ENV=()
   t_instance "${T_MINIMAL[@]}"
   echo "[$(issue 3 tehas:ready),$(issue 4 tehas:ready),$(issue 5 tehas:awaiting-merge),$(issue 6 needs-human-attention)]" >"$T/issues.json"
@@ -100,6 +113,51 @@ echo '{"message": "not a list"}' >"$T/all.json"
 rm "$T/all-down"
 t_run "$status"
 t_eq "$(jq -r '[(.queued | length), has("buzzwords")] | join(" ")' "$live/status.json")" "2 false"
+
+t_case "completed is the closed issues a merged pull request closed, newest first"
+reset
+shipped "$(closed 20 2026-01-02T00:00:00Z '{"merged":true}')" \
+  "$(closed 21 2026-01-03T00:00:00Z '{"merged":true}' tehas:shipped)" \
+  "$(closed 22 2026-01-04T00:00:00Z '{"merged":false}')" \
+  "$(closed 23 2026-01-05T00:00:00Z null)" \
+  "$(closed 24 2026-01-06T00:00:00Z '{}')"
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[.completed[].number]' "$live/status.json")" "[21,20]"
+t_eq "$(jq -c '.completed[0] | keys' "$live/status.json")" '["closedAt","number","title","updatedAt","url"]'
+t_contains "$(jq -r .links.completed "$live/status.json")" "label%3Atehas%3Ashipped"
+t_contains "$(t_calls gh)" "q=repo:acme/widget is:issue is:closed linked:pr sort:updated-desc"
+
+t_case "a shipped issue without the label is given it, once"
+t_eq "$(t_calls gh | grep -c 'issue edit')" 1
+t_contains "$(t_calls gh)" "issue edit 20 --repo acme/widget --add-label tehas:shipped"
+
+t_case "an issue closed with its label still on is not counted as shipped for the label alone"
+reset
+echo "[$(issue 5 tehas:awaiting-merge CLOSED)]" >"$T/issues.json"
+t_run "$status"
+t_eq "$(jq -c '.completed' "$live/status.json")" "[]"
+
+t_case "a label that cannot be given leaves the snapshot written"
+reset
+shipped "$(closed 20 2026-01-02T00:00:00Z '{"merged":true}')"
+T_ENV=(GH_EDIT_FAILS=1)
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[.completed[].number]' "$live/status.json")" "[20]"
+
+t_case "without the search for shipped work the old snapshot stays"
+reset
+t_run "$status"
+before=$(cksum <"$live/status.json")
+: >"$T/shipped-down"
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$(cksum <"$live/status.json")" "$before"
+echo '{"errors": [{"message": "rate limited"}]}' >"$T/shipped.json"
+rm "$T/shipped-down"
+t_run "$status"
+t_eq "$(cksum <"$live/status.json")" "$before"
 
 t_case "with GitHub down the old snapshot stays and health is still refreshed"
 reset

@@ -47,8 +47,8 @@ repositories.
 
 1. Someone writes an issue with one outcome and a list of acceptance criteria.
 2. An allowed account applies the label `tehas:ready`. That label is the
-   authorization to spend compute. Applied by anyone else, it is ignored and
-   logged.
+   authorization to spend compute. Applied by anyone else it asks for nothing:
+   the dispatcher takes it off the issue, says so in a comment, and logs it.
 3. The dispatcher polls the queue every two minutes, picks the issue and labels
    it `tehas:running`.
 4. Pi starts in the sandbox and pi-rukas runs the cycle: explore, plan, a
@@ -97,7 +97,7 @@ The [plain dashboard](/dashboard) has the same queue as lists.
 
 ### Is this an official Pi project?
 
-No. Tehas uses Pi as it is published, pinned by version. It takes pi-rukas from a [fork](https://github.com/janit/pi-rukas), pinned by commit; the fork's changes are offered upstream.
+No. Tehas uses Pi as it is published, pinned by version. It takes pi-rukas from [upstream](https://github.com/trail-openers/pi-rukas), pinned to the newest release when tehas is released.
 
 ### Does tehas write code without anyone checking it?
 
