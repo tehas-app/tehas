@@ -37,7 +37,9 @@
 # images its issue links (TEHAS_WORK_IMAGES) and one could not be fetched. The
 # issue is parked and the comment says that, not that a cycle stopped. The
 # images of a cycle that ran are removed here when it is over: only the
-# container read them.
+# container read them. So is the cycle's own state directory, the copy of the
+# code index, the memory and the sessions its agents wrote: no later cycle
+# reads them.
 #
 # Only a run that ended as handoff with an open pull request is reported as
 # waiting for a merge. The label change that ends a cycle is tried three
@@ -113,10 +115,13 @@ post_question() {
 }
 # A workspace is kept only while a person may want to read it, and so is the
 # one tehas work moved aside when this issue was retried. Only a directory
-# under one that tehas work marked is removed, as tehas work does.
+# under one that tehas work marked is removed, as tehas work does. The cycle's
+# own state directory is not named here: it went before this, whether or not
+# the workspace was kept.
 tidy() {
   if [ -f "$(dirname "$workdir")/.tehas-workspaces" ]; then
-    rm -rf "$workdir" "$workdir.before-retry" || log "WARN: could not remove the workspace $workdir"
+    rm -rf "$workdir" "$workdir.before-retry" ||
+      log "WARN: could not remove the workspace $workdir"
   else
     log "WARN: $(dirname "$workdir") is not marked by tehas work, leaving the workspace $workdir"
   fi
@@ -156,6 +161,11 @@ trap '' TERM INT HUP
 mins=$((($(date +%s) - started) / 60))
 [ ! -f "$(dirname "$workdir")/.tehas-workspaces" ] || rm -rf "$workdir.images" ||
   log "WARN: could not remove the images $workdir.images"
+# The cycle's own cache, memory and sessions, made by tehas work beside the
+# workspace. A cycle that stopped without a pull request keeps its workspace
+# for a person to read, and not what its agents wrote in their own directories.
+[ ! -f "$(dirname "$workdir")/.tehas-workspaces" ] || rm -rf "$workdir.state" ||
+  log "WARN: could not remove the cycle's state $workdir.state"
 
 # The one thing read back from the tree the container wrote, and only as data.
 state=$workdir/.pi/work-state/$issue.json

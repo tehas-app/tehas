@@ -22,6 +22,9 @@ checkout=$T/home/tehas/repos/widget
 ws=$T/home/tehas/work/widget-7
 inside=$T/home/tehas/work/widget
 runs=$T/home/.pi/agent/ensemble-runs/issue-7
+# The cycle's own state on the host, and the host's directory of the code index.
+state=$ws.state
+hostindex=$T/home/tehas/state/index
 # The product repository, and the host's checkout of it.
 upstream=$T/git/acme/widget
 mkdir -p "$upstream"
@@ -44,6 +47,7 @@ for a in "$@"; do
 done
 case " $* " in
   *" --mode "*) [ ! -e "$T/container.sh" ] || . "$T/container.sh" ;;
+  *" push --dry-run "*) [ "${PUSH_RC:-0}" = 0 ] || { echo "docker: could not read from remote repository" >&2; exit "$PUSH_RC"; } ;;
   " stop "*) kill "$(cat "$T/sleeper.pid" 2>/dev/null)" 2>/dev/null ;;
 esac'
 printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitconfig"
@@ -170,12 +174,11 @@ t_lacks "$(cat "$T"/calls/docker.args.*)" "$checkout"
 t_case "exactly the documented paths are mounted"
 want="$ws:$inside
 $runs:/home/vscode/.pi/agent/ensemble-runs
+$state/cache:/home/vscode/.tehas-cache
+$state/memory:/home/vscode/.vipune
+$state/sessions:/home/vscode/.pi/agent/sessions
 $T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
-$T/home/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro
-$T/home/.pi/agent/sessions:/home/vscode/.pi/agent/sessions
-$T/home/.vipune:/home/vscode/.vipune
-pi-ensemble-bun-cache:/home/vscode/.bun
-pi-ensemble-cache:/home/vscode/.cache"
+$T/home/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro"
 t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
 
 t_case "the agents are told the path inside the container, not the host's"
@@ -187,6 +190,40 @@ t_eq "$(find "$inside" -maxdepth 0 2>/dev/null | wc -l)" 0
 
 t_case "the cycle's transcripts directory is its own and is made for it"
 t_eq "$(find "$runs" -maxdepth 0 -type d | wc -l)" 1
+
+t_case "the cycle's own state is made beside its workspace, and no shared directory is mounted"
+t_eq "$(find "$state" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" "cache memory sessions "
+t_lacks "$(cat "$T"/calls/docker.args.*)" "pi-ensemble"
+t_lacks "$(cat "$T"/calls/docker.args.*)" "$T/home/.pi/agent/sessions"
+t_lacks "$(cat "$T"/calls/docker.args.*)" "$T/home/.vipune"
+
+t_case "the cycle is given a copy of the host's code index, and the agents are told where"
+mkdir -p "$hostindex/logs"
+echo index >"$hostindex/widget.db"
+echo cfg >"$hostindex/_config.db"
+echo log >"$hostindex/logs/index-1.log"
+rm -f "$T"/calls/*
+t_run "$work 7"
+t_eq "$(find "$state/cache" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" "_config.db widget.db "
+t_eq "$(cat "$state/cache/widget.db")" index
+t_eq "$(cat "$hostindex/widget.db")" index
+t_eq "$(after -e | grep '^CBM_CACHE_DIR')" "CBM_CACHE_DIR=/home/vscode/.tehas-cache"
+
+t_case "the copy holds the index and not what an interrupted index run left behind"
+mkdir -p "$hostindex/logs"
+echo left >"$hostindex/widget.db.stage.abc123.tmp.945328.0x200002bc000"
+echo gone >"$hostindex/scratch.tmp"
+rm -f "$T"/calls/*
+t_run "$work 7"
+t_eq "$(find "$state/cache" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" "_config.db widget.db "
+
+t_case "what one cycle wrote in its own state is not what the next cycle of the issue is given"
+echo planted >"$state/memory/note.json"
+echo planted >"$state/cache/widget.db"
+rm -f "$T"/calls/*
+t_run "$work 7"
+t_eq "$(find "$state/memory" -mindepth 1 | wc -l)" 0
+t_eq "$(cat "$state/cache/widget.db")" index
 
 t_case "exactly the documented variables are passed in"
 want="GH_TOKEN
@@ -200,6 +237,7 @@ GIT_CONFIG_VALUE_1
 GIT_CONFIG_VALUE_2
 GIT_CONFIG_VALUE_3
 GIT_TERMINAL_PROMPT
+CBM_CACHE_DIR
 PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS
 PI_ENSEMBLE_MAX_WORKSTREAMS
 PI_ENSEMBLE_NO_DOCKER_SOCKET
@@ -274,7 +312,8 @@ echo second >"$ws/second.txt"
 t_run "$work 7"
 t_eq "$(cat "$ws.before-retry/second.txt")" second
 t_eq "$(find "$ws.before-retry/left-over.txt" 2>/dev/null | wc -l)" 0
-t_eq "$(find "$T/home/tehas/work" -maxdepth 1 -name 'widget-7*' | wc -l)" 2
+t_eq "$(find "$T/home/tehas/work" -maxdepth 1 \( -name widget-7 -o -name 'widget-7.before-retry' \) | wc -l)" 2
+t_eq "$(find "$T/home/tehas/work" -maxdepth 1 -name 'widget-7*' | wc -l)" 3 # the two, and <ws>.state
 t_eq "$(find "$T" -maxdepth 1 -name 'ran-*' | wc -l)" 0
 
 t_case "a kept workspace that cannot be replaced starts no cycle"
@@ -296,12 +335,14 @@ t_eq "$(git -C "$ws" rev-parse HEAD)" "$(git -C "$upstream" rev-parse main)"
 t_eq "$(git -C "$checkout" rev-parse main)" "$(git -C "$upstream" rev-parse main)"
 
 t_case "another issue's workspace and transcripts are left alone"
-mkdir -p "$T/home/tehas/work/widget-9" "$T/home/.pi/agent/ensemble-runs/issue-9"
+mkdir -p "$T/home/tehas/work/widget-9" "$T/home/tehas/work/widget-9.state" "$T/home/.pi/agent/ensemble-runs/issue-9"
 echo keep >"$T/home/tehas/work/widget-9/notes.txt"
+echo keep >"$T/home/tehas/work/widget-9.state/note.json"
 echo keep >"$T/home/.pi/agent/ensemble-runs/issue-9/a-1-coder.json"
 rm -f "$T"/calls/docker*
 t_run "$work 7"
 t_eq "$(cat "$T/home/tehas/work/widget-9/notes.txt")" keep
+t_eq "$(cat "$T/home/tehas/work/widget-9.state/note.json")" keep
 t_eq "$(cat "$T/home/.pi/agent/ensemble-runs/issue-9/a-1-coder.json")" keep
 t_lacks "$(cat "$T"/calls/docker.args.*)" "widget-9"
 t_lacks "$(cat "$T"/calls/docker.args.*)" "issue-9"
@@ -687,12 +728,11 @@ images_on() {
 }
 mounts_off="$ws:$inside
 $runs:/home/vscode/.pi/agent/ensemble-runs
+$state/cache:/home/vscode/.tehas-cache
+$state/memory:/home/vscode/.vipune
+$state/sessions:/home/vscode/.pi/agent/sessions
 $T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
-$T/home/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro
-$T/home/.pi/agent/sessions:/home/vscode/.pi/agent/sessions
-$T/home/.vipune:/home/vscode/.vipune
-pi-ensemble-bun-cache:/home/vscode/.bun
-pi-ensemble-cache:/home/vscode/.cache"
+$T/home/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro"
 manifest() { jq -c "$1" "$imgs/manifest.json" 2>&1; }
 
 t_case "with images off GitHub is not asked, nothing is fetched and no directory is made"
@@ -880,5 +920,19 @@ t_run "$work 7"
 t_eq "$(after -e | grep -c '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" 1
 t_eq "$(after -e | grep '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$inside.images"
 t_lacks "$(cat "$T"/calls/docker.args.*)" "/elsewhere"
+
+t_case "a cycle the push check stopped leaves no copy of the index beside its workspace"
+images_on
+issue_is "Words only."
+rm -rf "$hostindex"
+mkdir -p "$hostindex"
+echo index >"$hostindex/widget.db"
+T_ENV=(PUSH_RC=1 "${env_ok[@]}")
+t_run "$work 7"
+t_eq "$t_rc" 3
+t_contains "$t_out" "cannot push to origin"
+t_eq "$(find "$ws" -maxdepth 0 2>/dev/null | wc -l)" 1
+t_eq "$(find "$state" -maxdepth 0 2>/dev/null | wc -l)" 0
+T_ENV=("${env_ok[@]}")
 
 t_done

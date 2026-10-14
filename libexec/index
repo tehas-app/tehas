@@ -6,22 +6,33 @@
 # builds it in /start, which a headless cycle never runs. Without an index
 # every search in a cycle fails and the agents fall back to reading files.
 #
-# The index is kept under the path of the tree it was made from, in the cache
-# volume every cycle mounts. So this runs the indexer in the sandbox image,
-# over a clone mounted at the path a cycle works in. The clone is made here at
-# the tip the product checkout last fetched, mounted read-only and removed
-# afterwards. The cycle's workspace itself is not touched.
+# The index is kept in the host's own directory, $TEHAS_HOME/state/index, under
+# the name of the tree it was made from. No container is given that directory:
+# tehas work and tehas plan copy it into the cache directory of the container
+# they start, so a cycle reads the host's index and changes only its own copy.
+# This command runs the indexer in the sandbox image, over a clone mounted at
+# the path a cycle works in, so the index it writes is the one a cycle looks
+# for. The clone is made at the tip the product checkout last fetched, mounted
+# read-only and removed afterwards. The cycle's workspace is not touched.
 #
 # The index is as fresh as its last run. The dispatcher runs this before each
 # cycle, so a cycle starts with an index of the tree it is cloned from. What
 # the cycle changes after that is not in it.
 #
+# Called before a cycle, it is done only when the directory holds index data
+# and its record names the branch's tip. The record alone is not enough: on a
+# host upgraded from the version that kept the index in a cache volume, the
+# record names the tip while this directory is empty, and every cycle would be
+# given nothing to search. Only a database counts as index data, and after a
+# run that wrote one the leftovers of earlier runs are removed, so what a cycle
+# is copied stays the size of the index.
+#
 # Usage: tehas index                  build the index
 #        tehas index --before-cycle   what the dispatcher runs: the caller
 #                                     holds the dispatcher's lock and has
 #                                     seen that no cycle runs, and nothing is
-#                                     done when the index is already at the
-#                                     branch's tip
+#                                     done when the index directory already
+#                                     holds the branch's tip
 #
 # Exit status: 0 the index was built, or was already current,
 #              1 the sandbox image is missing or the indexer failed,
@@ -31,11 +42,11 @@
 #             78 the instance settings are invalid, or tehas.slice is not
 #                usable on this host; nothing was done.
 #
-# What the container is given is pinned by test/index_test.sh: the clone,
-# read-only, and the cache volume. No network, no token, no settings. It runs
-# in tehas.slice with a cycle's limits (lib/slice.sh), so the dispatcher counts
-# its memory with the cycles'. Without a usable slice nothing is cloned and
-# nothing starts.
+# What the container is given is pinned by test/index_test.sh: the clone, the
+# host's index directory, which is the only thing it may write, and nothing
+# else. No network, no token, no settings. It runs in tehas.slice with a
+# cycle's limits (lib/slice.sh), so the dispatcher counts its memory with the
+# cycles'. Without a usable slice nothing is cloned and nothing starts.
 set -uo pipefail
 
 cycle=0
@@ -50,6 +61,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/config.sh"
 # shellcheck source=lib/cycles.sh
 . "$here/../lib/cycles.sh"
+# shellcheck source=lib/sandbox.sh
+. "$here/../lib/sandbox.sh"
 # shellcheck source=lib/slice.sh
 . "$here/../lib/slice.sh"
 tehas_load || exit 78
@@ -60,23 +73,61 @@ src=$TEHAS_WORK_REPO
 repo=$TEHAS_WORK_DIR
 image=$PI_ENSEMBLE_IMAGE
 marker=$TEHAS_HOME/state/index.json
+index=$(tehas_index_dir)
 log=$TEHAS_HOME/logs/index-$(date -u +%y%m%d-%H%M%S).log
 
 base=$(git -C "$src" rev-parse -q --verify "refs/remotes/origin/$branch^{commit}") ||
   { echo "tehas index: $src has no origin/$branch, nothing was indexed" >&2; exit 78; }
 
+# Does <dir> hold something a cycle could search? Only a database counts.
+# The indexer's own logs, its configuration and the staging file of a run that
+# was stopped are not something an agent searches.
+has_index_data() { # <dir>
+  local f
+  for f in "$1"/*.db; do
+    [ -e "$f" ] || continue
+    [ "$f" = "$1/_config.db" ] && continue
+    return 0
+  done
+  return 1
+}
+
+# Remove what earlier runs left in <dir>, so the copy a cycle is given stays
+# the size of the index and not of everything the indexer ever wrote. A staging
+# file is how the indexer writes: a run that was stopped leaves one behind,
+# about half the size of the database it was writing, and nothing reads it
+# again. A database named for another tree is what a host keeps after the path
+# it indexes changed. Only a run that wrote its own database removes the others.
+prune_index() { # <dir> <epoch this run started>
+  local dir=$1 started=$2 f fresh=0 left=0
+  for f in "$dir"/*.db; do
+    [ -f "$f" ] && [ "$(stat -c %Y "$f")" -ge "$started" ] && { fresh=1; break; }
+  done
+  for f in "$dir"/*; do
+    [ -f "$f" ] || continue # the indexer's logs are a directory
+    case "$f" in
+      *_config.db) continue ;;
+      *.db)
+        [ "$fresh" = 1 ] && [ "$(stat -c %Y "$f")" -lt "$started" ] || continue
+        ;;
+    esac
+    rm -f "$f" && left=$((left + 1))
+  done
+  [ "$left" = 0 ] || echo "tehas index: removed $left file(s) an earlier run left in $dir"
+}
+
 # The index is written only under the dispatcher's lock and while no cycle is
 # running: a poll holds that lock while it starts cycles, and a cycle reads
 # the index for as long as it lives. Called by the dispatcher, the lock is
 # held by the caller, who has also looked at the cycles.
-mkdir -p "$TEHAS_HOME/state" "$TEHAS_HOME/logs" "$TEHAS_HOME/tmp"
+mkdir -p "$TEHAS_HOME/state" "$TEHAS_HOME/logs" "$TEHAS_HOME/tmp" "$index"
 if [ "$cycle" = 0 ]; then
   exec 8>"$TEHAS_HOME/state/dispatch.lock"
   flock -n 8 || { echo "tehas index: the dispatcher's lock is held by a poll or another index run, nothing was indexed; run it again in a moment" >&2; exit 3; }
   running=$(tehas_cycles_running | tr '\n' ' ')
   [ -z "$running" ] ||
     { echo "tehas index: a cycle is running (issue ${running% }), nothing was indexed; run it again afterwards" >&2; exit 3; }
-elif [ "$(jq -r '.commit // empty' "$marker" 2>/dev/null)" = "$base" ]; then
+elif has_index_data "$index" && [ "$(jq -r '.commit // empty' "$marker" 2>/dev/null)" = "$base" ]; then
   echo "tehas index: ${TEHAS_REPO##*/} is already indexed at ${base:0:12}"
   exit 0
 fi
@@ -110,8 +161,9 @@ started=$(date +%s)
 docker run --rm --name tehas-index --network none \
   "${TEHAS_SLICE_LIMITS[@]}" \
   --user "$(id -u):$(id -g)" -e HOME=/home/vscode \
+  -e "CBM_CACHE_DIR=$(tehas_sandbox_cache_dir)" \
   -w "$repo" -v "$tree:$repo:ro" \
-  -v pi-ensemble-cache:/home/vscode/.cache \
+  -v "$index:$(tehas_sandbox_cache_dir)" \
   --entrypoint codebase-memory-mcp "$image" \
   cli index_repository --repo-path "$repo" >"$log" 2>"$log.err"
 rc=$?
@@ -128,4 +180,7 @@ edges=$(jq -r '.edges // 0' <<<"$answer")
 jq -n --arg commit "$base" --arg branch "$branch" --argjson nodes "$nodes" --argjson edges "$edges" \
   --argjson at "$(date +%s)" '{commit: $commit, branch: $branch, nodes: $nodes, edges: $edges, at: $at}' \
   >"$marker.new" && mv "$marker.new" "$marker"
+# Only a run that wrote its index prunes. A failed one may have left the half
+# written database where a later run can still find it.
+prune_index "$index" "$started"
 echo "tehas index: ${TEHAS_REPO##*/} indexed at ${base:0:12} on $branch, $nodes nodes, $edges edges, $(($(date +%s) - started))s"

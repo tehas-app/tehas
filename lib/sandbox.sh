@@ -1,14 +1,17 @@
 # shellcheck shell=bash
 # What a sandbox container is given, and the tree it works in. Sourced by the
-# three commands that start one: tehas work (a cycle), tehas plan (a planning
-# turn) and tehas dev (a manual session). It is in one place so they cannot
-# drift apart; test/work_test.sh, test/plan_test.sh and test/dev_test.sh pin
-# the result option by option. The container's limits and the slice it runs
-# in are not made here: they come from lib/slice.sh.
+# commands that start one: tehas work (a cycle), tehas plan (a planning turn),
+# tehas dev (a manual session) and tehas index (the indexer). It is in one
+# place so they cannot drift apart; test/work_test.sh, test/plan_test.sh and
+# test/dev_test.sh pin the result option by option. The container's limits and
+# the slice it runs in are not made here: they come from lib/slice.sh.
 #
 #   tehas_sandbox_env <tree> <name> <email>   the -e options
-#   tehas_sandbox_mounts <tree> [<host tree> [<runs dir>]]
+#   tehas_sandbox_mounts <tree> <host> <state> <runs>
 #                                             the -v options
+#   tehas_sandbox_seed <state> [<index dir>]  give <state> the host's code index
+#   tehas_sandbox_cache_dir                   where a container has that copy
+#   tehas_index_dir                           where the host keeps the index
 #   tehas_sandbox_hosts                       the --add-host options
 #   tehas_sandbox_clone <src> <tree> <branch> make <tree>, a clone of <src>
 #
@@ -20,6 +23,18 @@
 #
 # Not given to any container, and not a setting: the Docker socket, SSH keys,
 # ~/.config/tehas, the product checkout, the rest of the host environment.
+
+# Where a container has its own copy of the code index, and the variable that
+# points the indexer and the agents' code search at it. It is a path inside the
+# container, not a setting: no instance names it. The host directory behind it
+# belongs to one container and goes with it, so nothing one container writes
+# there is what a later container reads.
+tehas_sandbox_cache_dir() { printf '%s\n' /home/vscode/.tehas-cache; }
+
+# Where the host keeps the code index it gives to containers: the one directory
+# the indexer writes and every container is given a copy of. No container is
+# given it itself. Derived from TEHAS_HOME, not a setting.
+tehas_index_dir() { printf '%s\n' "$TEHAS_HOME/state/index"; }
 
 # The same variables as the pi-rukas wrapper sets, without the host's whole
 # environment: the bot token by name, the PI_ENSEMBLE_* settings, and git's
@@ -33,7 +48,8 @@
 # tree.
 tehas_sandbox_env() { # <tree> <git name> <git email>
   local tree=$1 name=$2 email=$3 var
-  local envs=(-e GH_TOKEN -e PI_ENSEMBLE_SANDBOX_MODE=1 -e "PI_ENSEMBLE_WORKSPACE_ROOT=$tree")
+  local envs=(-e GH_TOKEN -e PI_ENSEMBLE_SANDBOX_MODE=1 -e "PI_ENSEMBLE_WORKSPACE_ROOT=$tree"
+    -e "CBM_CACHE_DIR=$(tehas_sandbox_cache_dir)")
   envs+=(-e GIT_CONFIG_COUNT=4
     -e "GIT_CONFIG_KEY_0=credential.https://github.com.helper" -e "GIT_CONFIG_VALUE_0="
     -e "GIT_CONFIG_KEY_1=credential.https://github.com.helper" -e "GIT_CONFIG_VALUE_1=!gh auth git-credential"
@@ -46,25 +62,54 @@ tehas_sandbox_env() { # <tree> <git name> <git email>
   printf '%s\0' "${envs[@]}"
 }
 
-# The same mounts as the pi-rukas wrapper, minus the Docker socket, SSH keys,
-# gh's configuration and image directories. <tree> is the path inside the
-# container. A cycle names the directory on the host that is mounted there and
-# a transcripts directory of its own, so every cycle works at one path and
-# sees no other cycle's tree or transcripts. A manual session names neither.
-# The directories are made first: Docker would create a missing mount source
-# as a root-owned directory.
-tehas_sandbox_mounts() { # <tree> [<host tree> [<runs dir>]]
-  local tree=$1 agent=$HOME/.pi/agent
-  local from=${2:-$1} runs=${3:-$HOME/.pi/agent/ensemble-runs}
-  mkdir -p "$runs" "$agent/sessions" "$HOME/.vipune" || return 1
-  printf '%s\0' -v "$from:$tree" \
-    -v "$HOME/.vipune:/home/vscode/.vipune" \
+# What one container is given, and none of what another container wrote.
+# <tree> is the path inside the container and <host> the directory mounted
+# there. <state> is a host directory of this container's own: its copy of the
+# code index, its memory and its sessions go under it. <runs> is the host
+# directory of its transcripts. All four are named by the caller: there is no
+# default that lets one container's writes be another's input. The caller makes
+# <host>; this makes <state> and <runs>, because Docker would create a missing
+# mount source as a root-owned directory.
+#
+# The two cache volumes pi-rukas mounts are not mounted here. What a container
+# writes under its home, caches of packages among them, stays in its own layer
+# and goes when the container is removed.
+tehas_sandbox_mounts() { # <tree> <host> <state> <runs>
+  local tree=$1 host=$2 state=$3 runs=$4 agent=$HOME/.pi/agent cache
+  [ -n "$tree" ] && [ -n "$host" ] && [ -n "$state" ] && [ -n "$runs" ] || return 1
+  cache=$(tehas_sandbox_cache_dir)
+  mkdir -p "$runs" "$state/cache" "$state/memory" "$state/sessions" || return 1
+  printf '%s\0' -v "$host:$tree" \
+    -v "$state/cache:$cache" \
+    -v "$state/memory:/home/vscode/.vipune" \
+    -v "$state/sessions:/home/vscode/.pi/agent/sessions" \
     -v "$runs:/home/vscode/.pi/agent/ensemble-runs" \
-    -v "$agent/sessions:/home/vscode/.pi/agent/sessions" \
     -v "$agent/models.json:/home/vscode/.pi/agent/models.json:ro" \
-    -v "$agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro" \
-    -v pi-ensemble-cache:/home/vscode/.cache \
-    -v pi-ensemble-bun-cache:/home/vscode/.bun
+    -v "$agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro"
+}
+
+# Put the host's code index in <state>/cache, the copy this container is given.
+# The index is one sqlite file per tree that was indexed. Not copied: the
+# indexer's own logs, which a container has no use for, and what a run that
+# was stopped left behind (a staging file about half the size of the index it
+# was writing, read by nothing). Without that the copy would be several times
+# the index and grow with every interrupted run.
+# <index dir> is tehas_index_dir unless another is named. A host that never
+# indexed anything has nothing to give: that is not a failure, and a container
+# then searches by reading files.
+tehas_sandbox_seed() { # <state> [<index dir>]
+  local state=$1 src=${2:-$(tehas_index_dir)} f
+  mkdir -p "$state/cache" || return 1
+  [ -d "$src" ] || return 0
+  for f in "$src"/*; do
+    [ -e "$f" ] || continue
+    case "$f" in */logs | *.db.stage.* | *.tmp) continue ;; esac
+    cp -a "$f" "$state/cache/" || {
+      rm -rf "$state/cache"
+      mkdir -p "$state/cache"
+      return 1
+    }
+  done
 }
 
 # Names the sandbox cannot resolve by itself, from PI_ENSEMBLE_HOST_ALIASES.
@@ -78,9 +123,9 @@ tehas_sandbox_hosts() {
 
 # Make <tree>: a clone at the tip the product checkout <src> last fetched for
 # <branch>, with the product's address as origin. Nothing is fetched from the
-# network. The host runs git in <tree> here and only here: once a container
-# has written a tree, anything in it, hooks and git configuration included,
-# may be an agent's. The caller decides whether <tree> may be made.
+# network. The host runs git in <tree> here and only here: once a container has
+# written a tree, anything in it, hooks and git configuration included, may be
+# an agent's. The caller decides whether <tree> may be made.
 tehas_sandbox_clone() { # <src> <tree> <branch>
   local src=$1 tree=$2 branch=$3 base url
   base=$(git -C "$src" rev-parse -q --verify "refs/remotes/origin/$branch^{commit}") ||

@@ -211,6 +211,19 @@ that works. The RPC stream is kept in `~/tehas/logs/work-<issue>-<time>.jsonl`.
 The time limit is `TEHAS_WORK_TIMEOUT`. [The host](/host#limits-and-concurrency)
 has the limits in full.
 
+Beside the workspace is `~/tehas/work/<name>-<issue>.state`, a directory of
+this cycle's own: `cache` holds its copy of the code index the host built, and
+the agents are told where they have it with `CBM_CACHE_DIR`; `memory` is what
+its agents learn; `sessions` holds Pi's session files. Nothing a cycle writes
+there is what a later cycle of another issue reads. It is made fresh for every
+cycle and removed with the workspace.
+
+What a cycle caches under its home otherwise, package downloads among them,
+lives in its container's own layer and goes when the container is removed. A
+cycle that installs packages fetches them again: for a product whose gates run
+`bun` or `npm install`, that is the download of its dependencies once per
+cycle, minutes on a cold container and nothing afterwards.
+
 While the container runs, Docker keeps its id in `~/tehas/state/cycles/<issue>.cid`,
 which is how the dispatcher tells a cycle's container from the others in the
 slice; the file goes with the container. When processes in the container were
@@ -304,7 +317,9 @@ The container is the one `tehas work` starts, under the name
 same mounts, token and settings, from `lib/sandbox.sh`, and no Docker socket,
 SSH keys or `~/.config/tehas`. It works in a workspace of its own,
 `~/tehas/work/<name>-plan-<issue>`, made fresh for the turn and removed after
-it, and its transcripts go to `~/.pi/agent/ensemble-runs/plan-<issue>`. There is no dry-run push
+it, its cache, memory and sessions go in `<name>-plan-<issue>.state` beside it
+and are removed with it, and its transcripts go to
+`~/.pi/agent/ensemble-runs/plan-<issue>`. There is no dry-run push
 before a turn. The agent files issues with the token. The RPC stream is
 kept in `~/tehas/logs/plan-<issue>-<time>.jsonl`. The limit is
 `TEHAS_PLAN_TIMEOUT`, and the session record is
@@ -346,6 +361,15 @@ start it without one.
 
 After the clone is made the host runs no git command in it, because agents
 have written there since.
+
+The session's own memory, Pi sessions, transcripts and code index are in
+`~/tehas/dev/<name>.state`, beside the clone and kept with it: a person
+resumes their sessions and keeps the index their session built, and no cycle
+shares either. The host's index of the product is not copied there, because it
+is keyed to the path a cycle works at, which is not the path of this clone. A
+session that ran before the state directory existed has its history in
+`~/.pi/agent/sessions`, which no container is given now: the next session
+begins a new history in `<name>.state/sessions`.
 
 ### From another account
 
@@ -389,11 +413,15 @@ answer from an index, and nothing builds one on its own: interactive pi-rukas
 does it in `/start`, which a headless cycle never runs. Without an index every
 such search fails and the agents fall back to reading files.
 
-The index is kept under the path of the tree it was made from, in the cache
-volume every cycle mounts. So the command runs the indexer in the sandbox
-image, over a clone mounted at the path a cycle works in. The clone is made at
-the tip the product checkout last fetched and is removed afterwards. The
-cycle's workspace is not touched.
+The index is kept in `~/tehas/state/index`, the host's own directory, under
+the name of the tree it was made from. No cycle, planning or manual container
+is given that directory.
+`tehas work` and `tehas plan` copy it into the cache directory of the container
+they start, so every cycle reads the host's index and no cycle changes it for
+the others. This command runs the indexer in the sandbox image, over a clone
+mounted at the path a cycle works in, so what it writes is the index a cycle
+looks for. The clone is made at the tip the product checkout last fetched and
+is removed afterwards. The cycle's workspace is not touched.
 
 It refuses, with exit 3, while a cycle is running or while a poll or another
 index run holds the dispatcher's lock. The index is only ever written when
@@ -407,17 +435,31 @@ nothing is reading it.
 | 64   | An argument this command does not know                 |
 | 78   | The instance settings are invalid, or `tehas.slice` cannot be used; nothing was done |
 
-The container gets the clone, read-only, and the cache volume: no network, no
-token and none of the settings. It runs in `tehas.slice` with a cycle's
-limits. The indexer's answer is kept in `~/tehas/logs/index-<time>.log`, and
-`~/tehas/state/index.json` records the commit that was indexed.
+The container gets the clone, read-only, and `~/tehas/state/index`, which is
+the only thing it may write: no network, no token and none of the settings. It
+runs in `tehas.slice` with a cycle's limits. The indexer's answer is kept in
+`~/tehas/logs/index-<time>.log`, and `~/tehas/state/index.json` records the
+commit that was indexed.
+
+A cycle is given a copy, not the directory: the databases and the indexer's own
+configuration, not its logs and not the staging file of an index run that was
+stopped, which is about half again the size of the database it was writing.
+`tehas index` removes what earlier runs left when it writes a new index, so the
+copy does not grow with the number of runs. For this repository that is a few
+megabytes and costs about a second per cycle. A cycle on a host that has never
+run this command gets nothing and works as it did before an index existed: its
+agents search by reading files, which is slower and finds less.
 
 `install.sh` runs it once, the first time it finds the sandbox image and the
 product checkout and no index. After that the dispatcher runs the script with
 `--before-cycle` ahead of every cycle: the lock is the dispatcher's own then,
-and nothing is done when the recorded commit is already the branch's tip. So a
-cycle starts with an index of the tree it is cloned from. What the cycle
-changes afterwards, in its workspace or its worktrees, is not in the index.
+and nothing is done when `~/tehas/state/index` already holds what the record
+says is the branch's tip. An empty directory counts as no index, so a host
+upgraded from the version that kept the index in a cache volume builds it into
+the new one at its next cycle rather than reporting an index that no cycle is
+given. So a cycle starts with an index of the tree it is cloned from. What the
+cycle changes afterwards, in its workspace or its worktrees, is not in the
+index.
 
 Run by hand it always rebuilds, and it holds the dispatcher's lock while it
 does, so no cycle starts in the middle. A cycle started by hand with

@@ -132,6 +132,27 @@ mkdir -p "$workdir.images"
 t_run "$cycle 7"
 t_eq "$(find "$workdir.images" -maxdepth 0 | wc -l)" 1
 
+t_case "the cycle's own state directory is gone when the cycle is over, however it ended"
+for end in "handoff commit-pr" "aborted develop"; do
+  reset
+  # shellcheck disable=SC2086  # two words: a status and a step
+  ended $end feature/x
+  : >"$T/home/tehas/work/.tehas-workspaces"
+  mkdir -p "$workdir.state/cache" "$workdir.state/memory"
+  echo planted >"$workdir.state/memory/note.json"
+  [ -s "$workdir.state/memory/note.json" ] || t_bad "the cycle's state contents were not planted"
+  echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+  t_run "$cycle 7"
+  t_eq "$(find "$workdir.state" -maxdepth 0 2>/dev/null | wc -l)" 0
+done
+
+t_case "a state directory under a directory tehas work did not mark is left alone"
+reset
+ended merged "done" feature/x
+mkdir -p "$workdir.state/cache"
+t_run "$cycle 7"
+t_eq "$(find "$workdir.state" -maxdepth 0 | wc -l)" 1
+
 t_case "a cycle that ends with a pull request waits for a human and is reported on it"
 reset
 ended handoff commit-pr feature/x
