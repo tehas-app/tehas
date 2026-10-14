@@ -52,7 +52,10 @@
 #      outcome go with the start. Every start takes tehas:ready off, so a
 #      label that is there was applied after the last start. While the
 #      issue's own cycle is alive it waits, and starts when that cycle ended.
-#   7. tehas:urgent first, then the lowest issue number. A running cycle is
+#   7. tehas:urgent first, then the lowest issue number. The urgent label
+#      counts only when its most recent labelling is by an allowed account, as
+#      tehas:ready does: one applied by the bot or anyone else is ignored and
+#      logged, and the issue keeps its place by number. A running cycle is
 #      never stopped to make room.
 #
 # Instance settings (lib/config.sh; defaults in brackets):
@@ -262,31 +265,57 @@ report_hold() {
   [ "$why" = "$before" ] || "$status_cmd"
 }
 
+# The label events of an issue, kept for the poll in $events_of: a poll that
+# looks at two labels of one issue reads its events once. A failed call to
+# GitHub ends the poll.
+events=""
+declare -A events_of=()
+issue_events() {
+  local n=$1
+  if [ -n "${events_of[$n]+set}" ]; then
+    events=${events_of[$n]}
+    return 0
+  fi
+  gh_json api "repos/$repo/issues/$n/events?per_page=100" --paginate
+  events=$json
+  events_of[$n]=$events
+}
+
+# label_actor <issue> <label>: the account that applied the label most recently,
+# and when, in $who and $at; both empty when no event applies to that label.
+label_actor() {
+  local n=$1 name=$2 line
+  issue_events "$n"
+  line=$(jq -rs --arg l "$name" 'add // [] | map(select(.event == "labeled" and .label.name == $l)) | last
+                  | "\(.actor.login // "") \(.created_at // "")"' <<<"$events") ||
+    { log "ERROR: unreadable label events of #$n"; exit 1; }
+  who=${line%% *}
+  at=${line#* }
+}
+
+# allowed_account <login>: 0 when the name is one of TEHAS_ALLOWED_LABELERS.
+# No name is nobody: a deleted account or a missing event never matches.
+allowed_account() {
+  case "${1:+$allowed}" in
+    *" $1 "*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+who=""
+at=""
+
 # approval <issue> <label>: who applied the label most recently, and when, in
 # $who and $at; the issue's events in $events. Returns 1, with the reason
 # logged, unless that was an allowed account and the text is still what it
-# approved. A failed call to GitHub ends the poll.
-events=""
-who=""
-at=""
+# approved.
 approval() {
-  local n=$1 name=$2 ready
-  # Who applied the label most recently, and when?
-  gh_json api "repos/$repo/issues/$n/events?per_page=100" --paginate
-  events=$json
-  ready=$(jq -rs --arg l "$name" 'add // [] | map(select(.event == "labeled" and .label.name == $l)) | last
-                  | "\(.actor.login // "") \(.created_at // "")"' <<<"$events") ||
-    { log "ERROR: unreadable label events of #$n"; exit 1; }
-  who=${ready%% *}
-  at=${ready#* }
-  # No name is nobody: a deleted account or a missing event never matches.
-  case "${who:+$allowed}" in
-    *" $who "*) ;;
-    *)
-      log "skip #$n: $name was applied by '${who:-unknown}', not an allowed account"
-      return 1
-      ;;
-  esac
+  local n=$1 name=$2
+  label_actor "$n" "$name"
+  if ! allowed_account "$who"; then
+    log "skip #$n: $name was applied by '${who:-unknown}', not an allowed account"
+    return 1
+  fi
   unchanged_since "$n" "$at" "$who applied $name"
 }
 
@@ -733,8 +762,7 @@ for n in $asking; do
         continue
       fi
       # The tick approves the text as it was at that moment, as the label does.
-      gh_json api "repos/$repo/issues/$n/events?per_page=100" --paginate
-      events=$json
+      issue_events "$n"
       unchanged_since "$n" "$(jq -r .tick.at <<<"$ans")" "$by ticked retry" "untick the box and tick it again" || continue
       if [ -n "$hold" ]; then
         [ "$dry" = 1 ] && log "$hold"
@@ -851,11 +879,28 @@ if [ -n "$hold" ]; then
   exit 0
 fi
 
-# 6. and 7. Candidates: urgent first, then by number.
+# 6. and 7. Candidates: urgent first, then by number. The order is needed
+# before the candidates are cut to the free slots, so whose urgent label counts
+# is settled for every issue that carries one, not only for the ones picked.
 gh_json issue list --repo "$repo" --state open --label tehas:ready --limit 1000 --json number,labels
 ready_json=$json
-candidates=$(jq -r '[.[] | (.labels | map(.name)) as $l
-          | {number, urgent: ($l | index("tehas:urgent") != null)}]
+carrying=$(jq -r '[.[] | select((.labels // []) | any(.name == "tehas:urgent")) | .number] | .[]' <<<"$ready_json") ||
+  { log "ERROR: unreadable list of ready issues"; exit 1; }
+urgent=()
+for n in $carrying; do
+  label_actor "$n" tehas:urgent
+  if allowed_account "$who"; then
+    urgent+=("$n")
+  else
+    log "ignore #$n: tehas:urgent was applied by '${who:-unknown}', not an allowed account"
+  fi
+done
+if [ "${#urgent[@]}" = 0 ]; then
+  urgent_json=[]
+else
+  urgent_json=$(printf '%s\n' "${urgent[@]}" | jq -sc 'map(tonumber)')
+fi
+candidates=$(jq -r --argjson u "$urgent_json" '[.[] | .number as $n | {number: $n, urgent: (($u | index($n)) != null)}]
          | sort_by([(.urgent | not), .number]) | .[].number' <<<"$ready_json") ||
   { log "ERROR: unreadable list of ready issues"; exit 1; }
 
