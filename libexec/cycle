@@ -65,7 +65,9 @@
 # Only a run that ended as handoff with an open pull request is reported as
 # waiting for a merge. The label change that ends a cycle is tried three
 # times, and so is the question about the pull request, and so is the call
-# that asks what the number is. If GitHub still refuses it, or the cycle is
+# that asks what the number is. A pull request that could not be looked up is
+# not taken for none: the issue is parked with a comment that says so and names
+# the branch, which stays in state/cycles/<issue>.branch. If GitHub still refuses it, or the cycle is
 # killed outright, the issue stays marked tehas:running and the dispatcher's
 # next poll finds it.
 #
@@ -202,7 +204,7 @@ restart=""
 : >"$cycles/$issue"
 # A count of kills still here is an earlier cycle's, one that was killed
 # outright before it could report.
-rm -f "${cycles:?}/${issue:?}.oom" "${cycles:?}/${issue:?}.forks" "${cycles:?}/${issue:?}.stalled"
+rm -f "${cycles:?}/${issue:?}.oom" "${cycles:?}/${issue:?}.forks" "${cycles:?}/${issue:?}.stalled" "${cycles:?}/${issue:?}.branch"
 # The trap is set before the runner starts, so no signal falls between.
 wpid=""
 stopped=0
@@ -304,7 +306,9 @@ usage=$(jq -r '
 # feature/issue-<n>-..., or its body closes #<n>. A branch of another issue
 # finds nothing. Without an answer a handoff would be taken for a cycle that
 # left nothing.
+# A list GitHub would not give is not an empty one: $unread says so.
 prs="[]"
+unread=0
 if [ -n "$branch" ]; then
   for try in 1 2 3; do
     if prs=$(gh pr list --repo "$repo" --head "$branch" --author "@me" --state all \
@@ -313,6 +317,7 @@ if [ -n "$branch" ]; then
     fi
     prs="[]"
     if [ "$try" = 3 ]; then
+      unread=1
       log "WARN: the pull requests of $(tr -cd 'A-Za-z0-9_./-' <<<"$branch") could not be read"
     else
       sleep "$retry_wait"
@@ -386,6 +391,12 @@ if [ -n "$merged_pr" ]; then
   status=merged
   pr=$merged_pr
   tidy
+elif [ "$unread" = 1 ]; then
+  # Whether the cycle left a pull request is not known. The branch stays on
+  # record for whoever looks again.
+  printf '%s\n' "$(tr -cd 'A-Za-z0-9_./-' <<<"$branch")" >"$cycles/$issue.branch" ||
+    log "WARN: could not record the branch of #$issue"
+  park "Tehas cycle stopped, and its pull request could not be looked up: GitHub did not list the pull requests of the branch \`$(tr -cd 'A-Za-z0-9_./-' <<<"$branch")\` ($summary, runner exit $rc). Look for one there before you retry. The workspace is kept; $log_where.$killed"
 elif [ "$rc" = 0 ] && [ "$status" = merged ]; then
   # A claim the container wrote. Without the merge to show for it the
   # workspaces are kept: what they hold may exist nowhere else.

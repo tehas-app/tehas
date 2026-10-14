@@ -600,7 +600,7 @@ t_run "$cycle 7"
 t_eq "$(t_calls gh | grep -c -e '^pr list ')" 2
 t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label tehas:awaiting-merge"
 
-t_case "after three refusals the cycle is reported as stopped, and the log says why"
+t_case "after three refusals the cycle is parked as one whose pull request could not be looked up"
 reset
 ended handoff commit-pr feature/x
 echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
@@ -609,6 +609,28 @@ t_run "$cycle 7"
 t_eq "$(t_calls gh | grep -c -e '^pr list ')" 3
 t_contains "$t_out" "WARN: the pull requests of feature/x could not be read"
 t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
+t_contains "$(t_calls gh)" "its pull request could not be looked up: GitHub did not list the pull requests of the branch \`feature/x\`"
+t_lacks "$(t_calls gh)" "stopped without a pull request"
+t_lacks "$(t_calls gh)" "tehas:awaiting-merge"
+
+t_case "the branch whose pull request could not be looked up stays on record"
+t_eq "$(cat "$state/7.branch")" feature/x
+
+t_case "a list that was read leaves no branch on record, and one left by an earlier cycle goes"
+mkdir -p "$state"
+echo feature/old >"$state/7.branch"
+ended handoff commit-pr feature/x
+t_run "$cycle 7"
+t_eq "$(find "$state/7.branch" 2>/dev/null | wc -l)" 0
+t_contains "$(t_calls gh)" "Pull request waiting for a human"
+
+t_case "a branch name the container wrote is reduced before it is recorded"
+reset
+ended handoff commit-pr 'feature/x`;@y$z'
+echo 3 >"$fx/pr-fails-times"
+t_run "$cycle 7"
+t_eq "$(cat "$state/7.branch")" feature/xyz
+t_contains "$(t_calls gh)" "the branch \`feature/xyz\`"
 
 t_case "when the label cannot be changed the comment says so"
 reset

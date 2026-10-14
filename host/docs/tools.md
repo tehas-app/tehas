@@ -690,7 +690,11 @@ The label change that ends a cycle is tried three times, five seconds apart,
 and so is the search for the pull request. If GitHub still refuses the label
 change, the log says `WARN: label change on #N failed`, the cycle's comment
 says that the label could not be changed, and the issue stays `tehas:running`
-until the next poll of [tehas dispatch](#tehas-dispatch) finds it.
+until the next poll of [tehas dispatch](#tehas-dispatch) finds it. A search
+for the pull request that GitHub refuses three times is not taken for a cycle
+that left none: the issue is parked with a comment that says the pull request
+could not be looked up and names the branch, and the branch stays in
+`~/tehas/state/cycles/<issue>.branch` until the issue's next cycle starts.
 
 | Exit | Meaning                                              |
 | ---- | ---------------------------------------------------- |
