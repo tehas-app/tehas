@@ -85,7 +85,9 @@ An instance can give a cycle the images of its issue, with
 the issue text links, and the first two steps of the cycle, explore and plan,
 are shown them beside the text. The images of an issue an allowed account
 labelled are read, whoever opened it; the Protolab's rule is the author's. The plan puts the placement into words, and
-the later steps read the plan. Images in comments are not read, and no cycle
+the later steps read the plan. With `TEHAS_WORK_DESCRIBE=1` the model also
+describes each image in words, into `images.md` beside them; the pi-rukas that
+tehas pins does not read that file yet. Images in comments are not read, and no cycle
 has been seen to use a picture yet, so words in the text stay the safe way.
 
 ## 1. Write an issue tehas can build

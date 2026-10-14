@@ -34,6 +34,7 @@
 #                       before it is stopped as stalled [3600]
 #   TEHAS_CYCLE_RESERVE the container's memory floor [2g]
 #   TEHAS_WORK_IMAGES   1 gives the cycle the images its issue links [0]
+#   TEHAS_WORK_DESCRIBE 1 has the model describe those images first [0]
 # From the environment, for tests: TEHAS_PREFLIGHT_WAIT (seconds the push check
 # may take [300]) and TEHAS_STOP_WAIT (seconds a docker stop may take before
 # the container is killed [60]).
@@ -78,6 +79,12 @@
 # image's pi-rukas reads the images at all: whether it has the file that reads
 # them is asked of the image once per image id, and the answer is left in
 # state/images-read.json for tehasbot health.
+#
+# With TEHAS_WORK_DESCRIBE=1 the model endpoint describes each image in words
+# first (lib/describe.sh), into images.md in the same directory, for the steps
+# that are not shown the pixels. It is in the directory already mounted: no
+# mount and no variable more. A description that fails says so in the file and
+# stops nothing.
 #
 # The container runs in tehas.slice, as every sandbox container does, with the
 # limits lib/slice.sh makes: a memory ceiling of a quarter of the slice, no
@@ -144,6 +151,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/slice.sh"
 # shellcheck source=lib/attachments.sh
 . "$here/../lib/attachments.sh"
+# shellcheck source=lib/describe.sh
+. "$here/../lib/describe.sh"
 # shellcheck source=lib/labels.sh
 . "$here/../lib/labels.sh"
 tehas_load || exit 78
@@ -252,6 +261,9 @@ if [ "$TEHAS_WORK_IMAGES" = 1 ]; then
     gh issue comment "$issue" --repo "$TEHAS_REPO" --body "Tehas started no cycle: $image_why. This instance gives a cycle the images an issue links, and a cycle that works without one of them may build the wrong thing. To retry, apply \`tehas:ready\`." >/dev/null 2>&1 ||
       echo "tehas work: the comment on #$issue failed" >&2
     exit 4
+  fi
+  if [ "$TEHAS_WORK_DESCRIBE" = 1 ] && ! tehas_describe_images "$images"; then
+    echo "tehas work: the descriptions of the images could not be written, the cycle goes on without them" >&2
   fi
   { cp "$images/manifest.json" "$kept.new" && mv "$kept.new" "$kept"; } 2>/dev/null ||
     echo "tehas work: could not keep the manifest as $kept" >&2

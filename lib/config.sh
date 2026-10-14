@@ -89,7 +89,7 @@ _tehas_valid() {
       [[ $v =~ ^[A-Za-z0-9][A-Za-z0-9-]*(\ [A-Za-z0-9][A-Za-z0-9-]*)*$ ]] ||
         { echo "expected GitHub logins separated by single spaces"; return 1; }
       ;;
-    TEHAS_INDEXING | TEHAS_ANALYTICS_COOKIE | TEHAS_WORK_IMAGES)
+    TEHAS_INDEXING | TEHAS_ANALYTICS_COOKIE | TEHAS_WORK_IMAGES | TEHAS_WORK_DESCRIBE)
       case "$v" in 0 | 1) ;; *) echo "expected 0 or 1"; return 1 ;; esac
       ;;
     # Both end up in an HTML attribute of every page, so no quote, space or
@@ -234,6 +234,9 @@ tehas_load() {
   # instance says so: it is one more thing a container is given, and it needs
   # a model that reads images.
   export TEHAS_WORK_IMAGES=${TEHAS_WORK_IMAGES:-0}
+  # Whether the model describes those images in words before a cycle or a
+  # planning session starts. One request per image to the model endpoint.
+  export TEHAS_WORK_DESCRIBE=${TEHAS_WORK_DESCRIBE:-0}
   # A planning session: how many turns it may take, and how long one turn may.
   export TEHAS_PLAN_MAX_TURNS=${TEHAS_PLAN_MAX_TURNS:-20}
   export TEHAS_PLAN_TIMEOUT=${TEHAS_PLAN_TIMEOUT:-3600}
@@ -260,7 +263,7 @@ tehas_load() {
   # Agents get neither the host Docker socket nor SSH keys. Not a setting.
   export PI_ENSEMBLE_NO_DOCKER_SOCKET=1 PI_ENSEMBLE_NO_SSH=1
 
-  for v in TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_ANALYTICS_COOKIE TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
+  for v in TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_WORK_DESCRIBE TEHAS_ANALYTICS_COOKIE TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
     TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_RESERVE; do
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
@@ -278,6 +281,10 @@ tehas_load() {
   fi
   if [ -n "$TEHAS_IMPROVE_RUKAS_REPO" ] && [ -z "$TEHAS_IMPROVE_REPO" ]; then
     tehas_err "TEHAS_IMPROVE_REPO is not set and TEHAS_IMPROVE_RUKAS_REPO is (see $file)"
+    return 78
+  fi
+  if [ "$TEHAS_WORK_DESCRIBE" = 1 ] && [ "$TEHAS_WORK_IMAGES" != 1 ]; then
+    tehas_err "TEHAS_WORK_DESCRIBE is 1 and TEHAS_WORK_IMAGES is not: there are no images to describe (see $file)"
     return 78
   fi
   if [ "$TEHAS_WORK_STALL" -le "$TEHAS_VERIFY_TIMEOUT" ]; then

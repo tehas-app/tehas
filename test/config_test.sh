@@ -100,6 +100,18 @@ t_run "$load && echo \"\$TEHAS_WORK_IMAGES\""
 t_eq "$t_out" "1"
 T_ENV=()
 
+t_case "images are not described unless the instance says so, and only where it gives images"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
+t_run "$load && echo \"\$TEHAS_WORK_DESCRIBE\""
+t_eq "$t_out" "0"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1 TEHAS_WORK_DESCRIBE=1
+t_run "$load && echo \"\$TEHAS_WORK_DESCRIBE\""
+t_eq "$t_out" "1"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_DESCRIBE=1
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "tehas: TEHAS_WORK_DESCRIBE is 1 and TEHAS_WORK_IMAGES is not"
+
 t_case "the test hooks survive from the environment"
 t_instance "${T_MINIMAL[@]}"
 T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index
@@ -175,7 +187,7 @@ for bad in "TEHAS_REPO=widget" "TEHAS_REPO=a/b/c" "TEHAS_CONTROL_ISSUE=abc" "TEH
 done
 
 for bad in "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=two" "TEHAS_MAX_AWAITING=-1" "TEHAS_WORK_TIMEOUT=soon" "TEHAS_WORK_STALL=0" "TEHAS_WORK_STALL=1h" "TEHAS_HOST_ADDR=not an address" \
-  "TEHAS_BRANCH=two words" "TEHAS_INDEXING=yes" "TEHAS_WORK_IMAGES=yes" "TEHAS_WORK_IMAGES=2" "TEHAS_ANALYTICS_SRC=http://plain.example/ea.js" \
+  "TEHAS_BRANCH=two words" "TEHAS_INDEXING=yes" "TEHAS_WORK_IMAGES=yes" "TEHAS_WORK_IMAGES=2" "TEHAS_WORK_DESCRIBE=yes" "TEHAS_ANALYTICS_SRC=http://plain.example/ea.js" \
   "TEHAS_ANALYTICS_SRC=https://a.example/x.js\" onload=\"x" "TEHAS_ANALYTICS_SITE=two words" \
   "TEHAS_ANALYTICS_COOKIE=yes" "TEHAS_PROTOLAB_URL=https://lab.example/" "TEHAS_PROTOLAB_URL=lab.example" \
   "TEHAS_PLAN_MAX_TURNS=0" "TEHAS_PLAN_TIMEOUT=1h" "TEHAS_VERIFY_TIMEOUT=30m" "TEHAS_VERIFY_TIMEOUT=0" \

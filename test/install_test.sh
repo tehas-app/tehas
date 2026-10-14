@@ -69,6 +69,7 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/lib/attachments.sh
 ./tehas/lib/config.sh
 ./tehas/lib/cycles.sh
+./tehas/lib/describe.sh
 ./tehas/lib/edge.sh
 ./tehas/lib/improve-prompt.md
 ./tehas/lib/improve.sh

@@ -604,6 +604,8 @@ done
 key=$(printf %s "$url" | tr -c "A-Za-z0-9" _)
 printf "%s\n" "$url" >>"$T/calls/curl.urls"
 [ -f "$T/fx/net/$key" ] || exit 22
+# A request with no -o is a chat request to the model: the answer is printed.
+[ -n "$out" ] || { cat "$T/fx/net/$key"; exit 0; }
 cp "$T/fx/net/$key" "$out"
 printf application/octet-stream'
 net() { # <address> <printf format>
@@ -661,6 +663,31 @@ for who in alice mallory; do
   t_eq "$t_rc" 0
   t_eq "$who $(jq -c '.images | length' "$T/keep/images/manifest.json")" "$who $([ "$who" = alice ] && echo 1 || echo 0)"
 done
+
+t_case "with descriptions on the first turn writes images.md beside the images, and the turn gets the same mounts and variables"
+images_on
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1 TEHAS_WORK_DESCRIBE=1
+mkdir -p "$T/home/.pi/agent"
+echo '{"providers": {"test-provider": {"baseUrl": "https://models.test/v1"}}}' >"$T/home/.pi/agent/models.json"
+net "$A/1111" '\x89PNG\r\n\x1a\nPNGDATA'
+net https://models.test/v1/chat/completions '{"choices": [{"message": {"content": "A dialog."}}]}'
+issue_is "Look ![shot]($A/1111)"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(cd "$T/keep/images" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" "./image-1.png ./images.md ./manifest.json "
+t_contains "$(cat "$T/keep/images/images.md")" "> A dialog."
+t_eq "$(jq -r .described "$T/keep/images/manifest.json")" images.md
+t_eq "$(after -v | grep -c images)" 1
+t_eq "$(after -v | grep -c -x "$tree.images:$ws.images:ro")" 1
+t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_ENSEMBLE_EXTRA_IMAGE_DIRS | LC_ALL=C sort)"
+t_eq "$(turn_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -i --init")" ""
+
+t_case "a later turn describes nothing again"
+rm -f "$T"/calls/*
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/curl.urls" 2>/dev/null)" ""
+rm -f "$T/home/.pi/agent/models.json"
 
 t_case "with images off nothing is fetched or mounted"
 reset

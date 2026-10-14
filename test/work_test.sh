@@ -850,6 +850,8 @@ key=$(printf %s "$url" | tr -c "A-Za-z0-9" _)
 [ "$header" = 1 ] && { printf "%s " "$url"; cat; } >>"$T/calls/curl-headers"
 [ -f "$T/fx/net/$key.rc" ] && exit "$(cat "$T/fx/net/$key.rc")"
 [ -f "$T/fx/net/$key" ] || exit 22
+# A request with no -o is a chat request to the model: the answer is printed.
+[ -n "$out" ] || { cat "$T/fx/net/$key"; exit 0; }
 [ "$(stat -c %s "$T/fx/net/$key")" -le "$max" ] || exit 63
 cp "$T/fx/net/$key" "$out"
 printf application/octet-stream
@@ -1294,6 +1296,63 @@ t_eq "$t_rc" 2
 t_eq "$(manifest '[(.images | map(.link)), .approval]')" "[[\"$A/1111\"],null]"
 t_contains "$(t_calls gh)" "events"
 rm -f "$record"
+
+# --- The images described ------------------------------------------------------
+chat=https://models.test/v1/chat/completions
+describe_on() {
+  images_on TEHAS_WORK_DESCRIBE=1
+  mkdir -p "$T/home/.pi/agent"
+  echo '{"providers": {"test-provider": {"baseUrl": "https://models.test/v1"}}}' >"$T/home/.pi/agent/models.json"
+}
+
+t_case "a description setting without images starts nothing: exit 78"
+images_on
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_DESCRIBE=1
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_WORK_DESCRIBE is 1 and TEHAS_WORK_IMAGES is not"
+t_eq "$(t_calls gh)$(t_calls curl)$(t_calls docker)" ""
+
+t_case "with descriptions on the directory holds exactly the images, the manifest and images.md"
+describe_on
+net "$A/1111" "$png"
+net "$A/2222" "$jpg"
+net "$chat" '{"choices": [{"message": {"content": "A chart with three bars."}}]}'
+issue_is "![a]($A/1111) ![b]($A/2222)"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(cd "$imgs" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" "./image-1.png ./image-2.jpg ./images.md ./manifest.json "
+t_eq "$(grep -c '^> A chart with three bars.$' "$imgs/images.md")" 2
+t_eq "$(manifest .described)" '"images.md"'
+t_eq "$(jq -r .described "$kept")" images.md
+
+t_case "with descriptions on the container gets the same mounts and variables as with images alone"
+t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$mounts_off" "$imgs:$inside.images:ro" | LC_ALL=C sort)"
+t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_ENSEMBLE_EXTRA_IMAGE_DIRS | LC_ALL=C sort)"
+t_eq "$(cycle_args | unknown_options "$image" \
+  "--name --cgroup-parent --memory --memory-swap --memory-reservation --pids-limit --cpu-shares --cidfile -w -v -e" "--rm -i --init")" ""
+
+t_case "the model is asked once per image, with no token"
+t_eq "$(t_calls curl | grep -c -e "$chat")" 2
+t_lacks "$(grep -e "$chat" "$T/calls/curl-headers")" "Authorization"
+
+t_case "a model that does not answer is said in the file, and the cycle starts"
+describe_on
+net "$A/1111" "$png"
+issue_is "![a]($A/1111)"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$(cat "$imgs/images.md")" "> not described: the request to the model failed (curl 22)"
+t_contains "$(cycle_args | tr '\n' ' ')" "pi --mode rpc --approve"
+
+t_case "with images alone nothing is described"
+images_on
+net "$A/1111" "$png"
+issue_is "![a]($A/1111)"
+t_run "$work 7"
+t_eq "$(find "$imgs/images.md" 2>/dev/null | wc -l)" 0
+t_lacks "$(t_calls curl)" "chat/completions"
+t_eq "$(manifest .described)" null
 
 t_case "a cycle the push check stopped leaves no copy of the index beside its workspace"
 images_on
