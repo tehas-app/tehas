@@ -340,10 +340,20 @@ turn's workspace gets as `.tehas/brief.md`, so a later turn never plans from
 the issue as it is now, the commit the first turn's workspace was
 at, pi-rukas's record of the plans the agent showed (its plain `.json` files,
 at most 1 MB each), and with `TEHAS_WORK_IMAGES=1` the issue's images. Every
-later turn's workspace is at that commit and gets that record back, so a plan
-the operator confirms is filed as it was shown. A later turn whose commit is
-missing or gone starts at the tip of the branch and says so, and the agent
-then reviews the plan again before it files it. The dispatcher keeps the
+later turn's workspace is at that commit and gets that record back. A later
+turn whose commit is missing or gone starts at the tip of the branch and says
+so.
+
+pi-rukas keys that record on `origin/<branch>` after a fetch of its own, and
+on what the agent asks for. In a turn's workspace `origin/<branch>` is the
+session's commit, and the clone has no fetch refspec, so a fetch inside the
+container writes only `FETCH_HEAD` and the key stays put. Pushing works as
+before. The container is given `PI_ENSEMBLE_PLAN_CACHE_TTL_MS=0`, whatever
+the instance sets, so the record does not expire; a pi-rukas without that
+setting expires it after two hours. A plan the operator confirms is filed as
+it was shown only when pi-rukas finds it in the record: otherwise the agent
+drafts it again, and the draft may differ. v0.12.79, the release tehas
+installs, keeps no record at all. The dispatcher keeps the
 directory at `~/tehas/state/plan-<issue>.json.keep` and removes it when the
 session ends.
 

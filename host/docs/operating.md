@@ -310,10 +310,13 @@ dispatcher's log says so.
    endpoint does not list the model.
 5. The agent shows you a plan before it files it, and files it when you
    confirm. Every turn of a session works on the commit the session started
-   on, so the plan you confirm is the plan that is filed, word for word, if
-   you confirm within two hours of seeing it. After that the agent reviews it
-   again before it files. The agent files the issues it plans with the bot's
-   token. To finish, tick
+   on. Whether what is filed is what you saw depends on pi-rukas. The release
+   tehas installs, v0.12.79, keeps no record of the plans it showed, so read
+   the issues it files. A later release keeps one, and a confirmed plan is
+   then filed as it was shown when it is found there: with no time limit
+   from a release that reads `PI_ENSEMBLE_PLAN_CACHE_TTL_MS`, within two
+   hours from one that does not. A plan that is not found is drafted again.
+   The agent files the issues it plans with the bot's token. To finish, tick
    `End this planning session`. Filed issues are never started on their own:
    apply `tehas:ready` to the ones you want built.
 

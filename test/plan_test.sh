@@ -30,6 +30,13 @@ case " $* " in *" --mode "*)
   git -C "$ws" status --porcelain >"$T/calls/tree.status" 2>&1
   git -C "$ws" rev-parse HEAD >"$T/calls/head.seen" 2>&1
   ls -A "$ws/.git/pi-plan-cache" >"$T/calls/cache.seen" 2>/dev/null
+  # What pi-rukas does before it reads its plan cache, and what filing needs.
+  if [ -e "$T/fx/fetch" ]; then
+    git -C "$ws" fetch -q origin --end-of-options main >"$T/calls/fetch.err" 2>&1
+    git -C "$ws" rev-parse refs/remotes/origin/main >"$T/calls/origin.seen" 2>&1
+    git -C "$ws" push -q origin HEAD:refs/heads/plan-push >"$T/calls/push.err" 2>&1
+    echo "$?" >"$T/calls/push.rc"
+  fi
   cat "$ws/.git/pi-plan-cache/"*.json >"$T/calls/cache.read" 2>/dev/null
   # What the agent leaves in the plan cache, when a case says.
   [ ! -e "$T/fx/cache" ] || . "$T/fx/cache"
@@ -88,7 +95,7 @@ asked() {
 EOF
 }
 reset() {
-  rm -rf "$T"/calls/* "$T/out.json" "$fx/live" "$fx/cache" "$T/keep"
+  rm -rf "$T"/calls/* "$T/out.json" "$fx/live" "$fx/cache" "$fx/fetch" "$T/keep"
   asked
   t_instance "${T_MINIMAL[@]}"
   T_ENV=(GH_TOKEN=test-token "TEHAS_CGROUP_ROOT=$T_CGROUP")
@@ -169,12 +176,24 @@ PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS
 PI_ENSEMBLE_MAX_WORKSTREAMS
 PI_ENSEMBLE_NO_DOCKER_SOCKET
 PI_ENSEMBLE_NO_SSH
+PI_ENSEMBLE_PLAN_CACHE_TTL_MS
 PI_ENSEMBLE_SANDBOX_MODE
 PI_ENSEMBLE_SUBAGENT_MODEL
 PI_ENSEMBLE_SUBAGENT_PROVIDER
 PI_ENSEMBLE_VERIFY_TIMEOUT_MS
 PI_ENSEMBLE_WORKSPACE_ROOT"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
+
+t_case "the plan cache never expires, whatever the instance says"
+t_eq "$(after -e | grep '^PI_ENSEMBLE_PLAN_CACHE_TTL_MS')" "PI_ENSEMBLE_PLAN_CACHE_TTL_MS=0"
+reset
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_PLAN_CACHE_TTL_MS=60000
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(after -e | grep -c '^PI_ENSEMBLE_PLAN_CACHE_TTL_MS')" 1
+t_eq "$(after -e | grep '^PI_ENSEMBLE_PLAN_CACHE_TTL_MS')" "PI_ENSEMBLE_PLAN_CACHE_TTL_MS=0"
+reset
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 
 t_case "the planning container gets no option beyond the documented ones"
 t_eq "$(turn_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -i --init")" ""
@@ -217,10 +236,16 @@ t_case "the slice is read once: one systemctl call, one docker info"
 t_eq "$(t_calls systemctl)" "show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax"
 t_eq "$(t_calls docker | grep -c '^info ')" 1
 
+# The options without the one pair a planning turn adds.
+without_expiry() {
+  awk 'held { if ($0 != "PI_ENSEMBLE_PLAN_CACHE_TTL_MS=0") print "-e"; else { held = 0; next } }
+    { held = ($0 == "-e") } !held { print } END { if (held) print "-e" }'
+}
 # A turn has a workspace and a transcripts directory of its own on the host.
 # They are mounted at the paths a cycle's are.
-t_case "docker is given what tehas work gives a cycle's container: only the name, the two directories of its own, the cycle's cid file and what pi is told differ"
-turn_args | options | sed -e "s|^$tree:|$ws-7:|" -e 's|/ensemble-runs/plan-7:|/ensemble-runs/issue-7:|' -e 's|widget-plan-7\.state|widget-7.state|' >"$T/plan.options"
+t_case "docker is given what tehas work gives a cycle's container: only the name, the two directories of its own, the plan cache's expiry, the cycle's cid file and what pi is told differ"
+turn_args | options | without_expiry |
+  sed -e "s|^$tree:|$ws-7:|" -e 's|/ensemble-runs/plan-7:|/ensemble-runs/issue-7:|' -e 's|widget-plan-7\.state|widget-7.state|' >"$T/plan.options"
 rm -f "$T"/calls/*
 t_run "$T_ROOT/libexec/work 7"
 turn_args | options >"$T/work.options"
@@ -571,6 +596,17 @@ t_eq "$(git -C "$checkout" rev-parse origin/main | grep -c -x "$pinned")" 0
 t_eq "$(cat "$T/calls/cache.seen")" "a1.json"
 t_eq "$(cat "$T/calls/cache.read")" '{"spec":"one"}'
 t_eq "$(cat "$T/keep/commit")" "$pinned"
+
+t_case "a fetch inside a later turn leaves origin/main at the session's commit, and a push still works"
+rm -f "$T"/calls/*
+: >"$fx/fetch"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/fetch.err")" ""
+t_eq "$(cat "$T/calls/origin.seen")" "$pinned"
+t_eq "$(cat "$T/calls/push.rc")" 0
+t_eq "$(git -C "$upstream" rev-parse plan-push)" "$pinned"
+rm -f "$fx/fetch"
 
 t_case "a later turn whose commit is gone, or was never noted, starts at the tip and says so"
 for pin in 0123456789abcdef0123456789abcdef01234567 "not a commit"; do

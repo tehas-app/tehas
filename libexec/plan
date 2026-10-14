@@ -20,18 +20,23 @@
 #                   it as .tehas/brief.md, so the agent never needs the issue
 #                   as it is now, which anyone may have edited since.
 #   commit          the commit the first turn's workspace was at. Every later
-#                   turn's workspace is at the same one, so what the agent
-#                   reviewed with the operator is what it files.
+#                   turn's workspace is at the same one, so the agent plans
+#                   against the code it began with.
 #   pi-plan-cache/  pi-rukas's record of the plans it showed (it keeps it in
-#                   the clone's git directory). Confirming a plan in a later
-#                   turn files what was shown, word for word, only when this
-#                   record and the commit are the same as when it was shown.
+#                   the clone's git directory), from a release that has one.
 #                   Only plain .json files are carried, at most 1 MB each.
 #   images/         the issue's images, with TEHAS_WORK_IMAGES=1: fetched on
 #                   the first turn as tehas work fetches a cycle's. Each turn
 #                   is given a copy, $TEHAS_HOME/work/<name>-plan-<issue>.images,
 #                   read-only, with PI_ENSEMBLE_EXTRA_IMAGE_DIRS, and the copy
 #                   is removed with the workspace.
+#
+# A confirm in a later turn files the plan that was shown only when pi-rukas
+# finds it in that record. The record is keyed on origin/<branch>, which this
+# command holds at the session's commit, and on what the agent asks for, and
+# its expiry is turned off with PI_ENSEMBLE_PLAN_CACHE_TTL_MS=0 (a release
+# without the setting expires it after two hours). When the plan is not found
+# the agent drafts it again, and the draft may differ from what was shown.
 #
 # On exit 0 the --out file holds
 #   {"session": "<id>", "text": "<the agent's last message>",
@@ -57,8 +62,8 @@
 # The container is given exactly what a cycle's container is given: the same
 # image, limits, mounts and variables, assembled by lib/sandbox.sh and
 # lib/slice.sh and pinned by test/plan_test.sh, and the issue's images as a
-# cycle gets them. It differs in its name, in what pi is told, and in having
-# no cid file. Not the Docker socket, SSH keys
+# cycle gets them. It differs in its name, in what pi is told, in the plan
+# cache's expiry, and in having no cid file. Not the Docker socket, SSH keys
 # or ~/.config/tehas. It runs in tehas.slice with a cycle's limits, so the
 # dispatcher counts its memory with the cycles'. Without a usable slice
 # nothing is cloned and nothing starts.
@@ -158,6 +163,10 @@ bot_email=$(git config --global user.email || true)
   { echo "tehas plan: git user.name and user.email are not set for $(id -un)" >&2; exit 64; }
 # The path of the images is this command's to give, not the instance's.
 [ "$TEHAS_WORK_IMAGES" != 1 ] || unset PI_ENSEMBLE_EXTRA_IMAGE_DIRS
+# So is the expiry of the plan cache: 0 is none. An operator answers hours
+# later as a rule, and a plan the cache has lost is drafted again.
+unset PI_ENSEMBLE_PLAN_CACHE_TTL_MS
+cache_opts=(-e PI_ENSEMBLE_PLAN_CACHE_TTL_MS=0)
 mapfile -d '' -t envs < <(tehas_sandbox_env "$repo" "$bot_name" "$bot_email")
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
 [ "${#envs[@]}" -gt 0 ] ||
@@ -219,6 +228,11 @@ if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces" && rm -rf "$tree" "$co
   echo "tehas plan: could not make the workspace $tree, not starting a turn" >&2
   exit 78
 fi
+# pi-rukas keys its plan cache on origin/<branch> after a fetch of its own. A
+# fetch with no refspec writes only FETCH_HEAD, so the key stays the commit
+# this command puts there. Pushing does not need the refspec.
+git -C "$tree" config --unset-all remote.origin.fetch ||
+  echo "tehas plan: could not hold origin/$branch in $tree, a confirmed plan may be drafted again"
 # carry <from> <to>: the plain .json files of one plan cache into another.
 carry() {
   local f
@@ -240,8 +254,14 @@ else
   pin=$(cat "$keep/commit" 2>/dev/null) || pin=""
   case "$pin" in
     '' | *[!0-9a-f]*) echo "tehas plan: no commit on record for this session, the turn starts at the tip of $branch" ;;
-    *) git -C "$tree" checkout -q -B "$branch" "$pin" 2>/dev/null ||
-      echo "tehas plan: the session's commit $pin is not in the checkout, the turn starts at the tip of $branch" ;;
+    *)
+      if git -C "$tree" checkout -q -B "$branch" "$pin" 2>/dev/null; then
+        git -C "$tree" update-ref "refs/remotes/origin/$branch" "$pin" ||
+          echo "tehas plan: could not put origin/$branch at $pin, a confirmed plan may be drafted again"
+      else
+        echo "tehas plan: the session's commit $pin is not in the checkout, the turn starts at the tip of $branch"
+      fi
+      ;;
   esac
   [ ! -d "$keep/pi-plan-cache" ] || carry "$keep/pi-plan-cache" "$cache" ||
     echo "tehas plan: could not carry the plan cache into $tree" >&2
@@ -299,7 +319,7 @@ docker rm -f "$name" >/dev/null 2>&1
 docker run --rm -i --init --name "$name" \
   "${TEHAS_SLICE_LIMITS[@]}" \
   -w "$repo" "${mounts[@]}" "${image_opts[@]}" \
-  "${envs[@]}" "${hosts[@]}" \
+  "${envs[@]}" "${cache_opts[@]}" "${hosts[@]}" \
   "$image" pi --mode rpc --approve "${args[@]}" <&3 >"$log" 2>"$log.err" 3<&- 4>&- &
 pid=$!
 exec 3<&-
