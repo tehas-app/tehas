@@ -596,7 +596,10 @@ same `docker compose ... up -d` applies after a change.
 
 ## Secrets and trust
 
-- `~/.config/tehas/env`: the bot's GitHub token (`GH_TOKEN`), mode 600.
+- `~/.config/tehas/env`: the bot's GitHub token (`GH_TOKEN`), mode 600. The
+  energy switches `TEHAS_ENERGY` and `TEHAS_ENERGY_URL` go here too
+  (see `tehasbot energy` in [Commands](/tools)); loading the instance keeps
+  them.
 - `~/.config/tehas/deploy_key`: the read-only deploy key the platform checkout
   is pulled with.
 
