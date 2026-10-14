@@ -332,6 +332,17 @@ t_contains "$t_out" "Installed:    DRIFT (1 files)"
 t_contains "$t_out" "differs: $th/libexec/dispatch"
 t_eq "$(installed_files | xargs -I{} sh -c "cd '$home' && cksum '{}'")" "$before"
 
+t_case "a copy that fails halfway leaves the installed file as it was"
+before=$(cksum <"$th/libexec/dispatch")
+# An install that writes part of the file where it was told to, then fails.
+t_stub install 'head -c 100 "$3" >"$4"; exit 1'
+t_run "$install"
+rm -f "$T/bin/install"
+t_eq "$t_rc" 1
+t_contains "$t_out" "tehas: could not install $th/libexec/dispatch"
+t_eq "$(cksum <"$th/libexec/dispatch")" "$before"
+t_eq "$(find "$th/libexec" -name '*.new' | wc -l)" 0
+
 t_case "a real run repairs drift and keeps the old file as .prev"
 t_run "$install"
 t_contains "$t_out" "installed: $th/libexec/dispatch"

@@ -184,6 +184,11 @@ a copied unit file is not in effect until systemd has reloaded it, and that relo
 belongs to the step that restarts the units. A file edited directly on the host
 shows up as drift in `--check`.
 
+Each file is copied to `<name>.new` beside the installed one and renamed over
+it. A cycle that starts during an install runs the old file or the new one,
+never part of one, and an install that is stopped or fails partway leaves the
+file it was copying as it was.
+
 One file is written, not copied: `version.txt`, beside the pages in
 `~/tehas/docs` and `~/tehas/fun`. It holds the newest tag of the checkout and
 the commit it was at when `install.sh` last ran, as `v0.1.1+11b669d`, and the

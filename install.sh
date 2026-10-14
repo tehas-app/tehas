@@ -25,7 +25,8 @@
 #
 # It does not start the dispatcher or the docs server, rebuild the sandbox image or touch secrets (~/.config/tehas/env); the
 # follow-up steps are printed when their inputs changed. A replaced file is
-# kept next to the new one as <name>.prev.
+# kept next to the new one as <name>.prev. Each file is copied to <name>.new
+# and renamed over the installed one.
 #
 # It also removes the commands of an earlier layout, one file for each command
 # in ~/tehas/bin and the console script in ~/tehas/libexec, unless a cycle is
@@ -262,8 +263,17 @@ put() {
   record_step "$src"
   mkdir -p "$(dirname "$to")"
   [ -f "$to" ] && cp -p "$to" "$to.prev"
-  install -m "$mode" "$from" "$to"
+  # Copied beside it and renamed over it, so a cycle that starts meanwhile finds
+  # the old file or the new one, never a part of one.
+  install -m "$mode" "$from" "$to.new" || { rm -f "$to.new"; echo "tehas: could not install $to" >&2; exit 1; }
+  mv -f "$to.new" "$to"
   echo "installed: $to"
+}
+
+# write_file <path>: stdin into <path>, by the same rename.
+write_file() {
+  cat >"$1.new" || { rm -f "$1.new"; echo "tehas: could not write $1" >&2; exit 1; }
+  mv -f "$1.new" "$1"
 }
 
 # The step this source calls for, added to the record of steps owed. One call per
@@ -335,7 +345,7 @@ if [ ! -x "$console_to" ] || [ "$(cat "$console_to.stamp" 2>/dev/null)" != "$con
       exit 1
     fi
     put "$built|$console_to|755"
-    echo "$console_source $(console_sum "$console_to")" >"$console_to.stamp"
+    echo "$console_source $(console_sum "$console_to")" | write_file "$console_to.stamp"
   fi
 fi
 
@@ -377,7 +387,7 @@ if [ "$check" != 1 ]; then
     if [ -z "$version" ]; then
       rm -f "$to"
     elif [ "$(cat "$to" 2>/dev/null)" != "$version" ]; then
-      echo "$version" >"$to"
+      echo "$version" | write_file "$to"
       echo "version: $version in $to"
     fi
   done
