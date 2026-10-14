@@ -190,6 +190,56 @@ fn more_transcripts_than_the_process_may_open_are_all_shown() {
 }
 
 #[test]
+fn a_removed_console_file_is_made_again() {
+    let dir = scratch("removed");
+    let (rpc, runs, out) = (
+        dir.join("work-9.jsonl"),
+        dir.join("runs"),
+        dir.join("console-9.txt"),
+    );
+    let mut console = Stopped(
+        Command::new(CONSOLE)
+            .args(["--rpc", rpc.to_str().unwrap()])
+            .args(["--runs", runs.to_str().unwrap()])
+            .args(["--out", out.to_str().unwrap(), "--since", "0"])
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    wait_for(&out, 1);
+    fs::remove_file(&out).unwrap();
+    let started = Instant::now();
+    while !out.exists() {
+        assert!(
+            started.elapsed() < Duration::from_secs(20),
+            "not made again"
+        );
+        sleep(Duration::from_millis(50));
+    }
+    fs::write(
+        &rpc,
+        "{\"type\":\"extension_ui_request\",\"method\":\"notify\",\"message\":\"after\"}\n",
+    )
+    .unwrap();
+    wait_for(&out, 1);
+    let killed = Command::new("kill")
+        .args(["-TERM", &console.0.id().to_string()])
+        .status()
+        .unwrap();
+    assert!(killed.success());
+    let started = Instant::now();
+    assert!(console.0.wait().unwrap().success());
+    assert!(started.elapsed() < Duration::from_secs(10));
+    assert_eq!(
+        said(&out),
+        [
+            "driver     after",
+            "tehas      cycle ended, console detached"
+        ]
+    );
+}
+
+#[test]
 fn a_missing_argument_is_a_usage_error() {
     let run = |args: &[&str]| Command::new(CONSOLE).args(args).output().unwrap();
     let none = run(&[]);

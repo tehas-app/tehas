@@ -634,7 +634,8 @@ it cannot stop an agent that sets out to print a secret another way, so treat
 the console of a published dashboard as public. A log line of over 1 MiB is
 left out, and the console says how many were. So is a line not yet ended
 when the files together already hold 16 MiB of such lines, and a transcript
-that is removed is forgotten. Neither needs running by hand.
+that is removed is forgotten. A console file removed while the cycle runs is made
+again by the console at its next pass. Neither needs running by hand.
 What the console itself complains about goes to `~/tehas/logs/work-<issue>-<time>.jsonl.console`,
 and the work script says so when the console is missing or ends with an error.
 The work script's own status line, in `~/tehas/live/cycles/<issue>.json` and from there in `~/tehas/live/running.json`, goes through
