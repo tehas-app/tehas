@@ -10,6 +10,7 @@
 #   tehas update [--check]           bring this host up to date with the platform
 #   tehas labels                     create the tehas labels in the repository
 #   tehas status                     print the state of the factory
+#   tehas top [--once|--json]        one screen of what the factory is doing
 #   tehas help [command]             this text, or the text of one command
 #
 # Each command is a script in ../libexec, and this only chooses one and runs
@@ -32,7 +33,7 @@ usage_of() {
 # script <command>: the file behind a command, or nothing.
 script() {
   case "$1" in
-    dispatch | work | plan | dev | index | update | labels) echo "$libexec/$1" ;;
+    dispatch | work | plan | dev | index | update | labels | top) echo "$libexec/$1" ;;
     status) echo "$libexec/summary" ;;
   esac
 }

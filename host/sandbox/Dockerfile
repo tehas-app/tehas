@@ -15,7 +15,7 @@
 # Build with sandbox/build.sh, which passes the user id and the versions from
 # versions.env. The base is pinned by digest and every tool by version:
 # upgrade on purpose, then rebuild.
-FROM ghcr.io/janit/pi-rukas@sha256:28f2bf34cc801cf8507b685f4345b4cff5ddc1d8b69126aed4b1f8de7b836951
+FROM ghcr.io/trail-openers/pi-rukas:v0.12.79@sha256:bb9c91281187298d238cc793ceb18f8c06cd39284078b9a494c11118c7e97d3f
 
 ARG TEHAS_UID=1000
 ARG SHELLCHECK_VERSION
@@ -45,3 +45,10 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 RUN npx --yes "playwright@${PLAYWRIGHT_VERSION}" install --with-deps chromium \
  && chmod -R a+rX /opt/ms-playwright \
  && rm -rf /var/lib/apt/lists/* /root/.npm
+
+# The pi-rukas commit the base was built from, as versions.env names it. The
+# dispatcher and tehasbot cycle read it from the image, so an image put back
+# for a rollback is known by its own commit. Last, so a new commit rebuilds
+# nothing above it.
+ARG PI_RUKAS_COMMIT=""
+LABEL tehas.rukas=$PI_RUKAS_COMMIT

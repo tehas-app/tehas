@@ -20,6 +20,15 @@ worked out. That work can happen anywhere, with other tools and systems, for
 as long as it takes. tehas does not act on `tehas:prototype`: the dispatcher
 never starts a cycle because of it.
 
+The label counts when an account in `TEHAS_ALLOWED_LABELERS` applied it, which
+is the same rule `tehas:ready` follows. A `tehas:prototype` applied by anyone
+else, the bot included, counts as no label at all: the ticket gets no page, a
+page it had is removed, and the Protolab's log names the issue and the account.
+An account in a cycle holds the bot's token, and the bot can label, so the
+account behind the label is what is checked, not the label itself. The check
+only means something while the bot's own login is outside
+`TEHAS_ALLOWED_LABELERS`, and the Protolab stops with an error when it is not.
+
 The **Protolab** is where tickets at the prototype stage are kept. It is a
 small site of its own, on port 8081 of the host, with a page for every open
 prototype: the title, a link to the issue, and what is attached to the issue.
@@ -44,6 +53,9 @@ The limits:
   under "left out" with the reason.
 - **Static files only.** Nothing is run on the host for a prototype, and an
   archive is not unpacked.
+- **Only a label from an allowed account** puts the ticket here, as said
+  above: the most recent `tehas:prototype` labelling is by an account in
+  `TEHAS_ALLOWED_LABELERS`.
 - **Only files attached by an owner, member or collaborator** of the
   repository are taken. Links by anyone else are counted on the page and not
   fetched.
@@ -51,8 +63,9 @@ The limits:
   and from every other prototype. Scripts work; storage in the browser
   (`localStorage`, cookies) does not.
 
-The page and its files go when the ticket is closed or loses the label. They
-are copies: GitHub keeps what was attached.
+The page and its files go when the ticket is closed, loses the label, or
+carries it from an account the instance does not allow. They are copies: GitHub
+keeps what was attached.
 
 A prototype goes to the factory when it is ready for implementation, which
 means:
@@ -93,10 +106,28 @@ compute on the issue.
 
 - Only a label applied by an allowed account counts: the logins in
   `TEHAS_ALLOWED_LABELERS` (in the example, `janit`). A `tehas:ready` applied
-  by the bot or anyone else is ignored and logged.
+  by the bot or anyone else is no one's request for a cycle: the dispatcher
+  takes it off the issue, says in a comment on the issue who applied it, and
+  logs it. An account in `TEHAS_ALLOWED_LABELERS` applies it again to ask for
+  a cycle. GitHub has no permission per label: any account that can write to
+  the repository can apply any label, so the list is enforced here, at the
+  next poll, and not by GitHub.
 - Add **`tehas:urgent`** as well to move it ahead of other ready issues. It is
   checked like `tehas:ready`: only one applied by an allowed account moves the
-  issue, and one applied by the bot or anyone else is ignored and logged.
+  issue; one applied by the bot or anyone else is ignored and logged.
+
+The factory works on open issues only. A closed issue is never taken, and the
+number of a pull request is never taken, open, merged or closed. A label does
+not change that. Before it marks an issue `tehas:running` the dispatcher asks
+GitHub what the number is, and `tehasbot cycle` asks the same before it changes
+a label or starts a container, whether the poll started it or a person did. An
+issue closed between the poll's list and its start is skipped, with one line in
+the log: `skip #N: it is closed, and a closed issue is never taken`. A cycle
+that came up and then found its issue closed says so in its own log and does
+nothing on the issue; it leaves `tehas:running` behind, and the next poll takes
+that mark off without a word. The queue
+and the dashboard list open issues, so a closed one that still carries a
+factory label is not counted in line or as being worked on.
 
 ## 3. What happens next
 
@@ -128,6 +159,7 @@ The dispatcher takes issues urgent first, then by the lowest issue number: as ma
 | `tehas:ready`           | Queued                            | Wait, or remove the label to withdraw it |
 | `tehas:running`         | A cycle owns it                   | Leave the issue and its branch alone     |
 | `tehas:awaiting-merge`  | Pull request is open and reviewed | Review and merge                         |
+| `tehas:shipped`         | A merged pull request closed it   | Nothing; the bot gives it                |
 | `needs-human-attention` | The cycle stopped                 | Read the comment; see below              |
 
 `tehas:ready` from an allowed labeller starts a fresh cycle whatever else the
@@ -153,6 +185,7 @@ a poll by hand on the host:
 
 ```
 tehas status                 # taking work? the queue, the current or last cycle, the slice's room
+tehas top                    # the same overview, on one screen that redraws itself
 tehas dispatch --dry-run     # what would it do?
 tehas dispatch               # do it (returns once the cycle is started)
 systemctl --user status 'tehas-cycle@*'   # which cycles are running
@@ -189,6 +222,9 @@ have to be removed first. A cycle started
 that way takes `tehas:question` off the issue, and the old boxes no longer do
 anything.
 
+An issue closed since its cycle stopped is not work. Neither the tick nor a new
+`tehas:ready` starts anything on it, and the poll's log says so.
+
 When the bot cannot post the boxes, it posts a plain comment that gives the
 label to apply. When the boxes are posted and the label `tehas:question` cannot be
 added, a second comment says that the boxes cannot be used, tells you to run
@@ -203,8 +239,8 @@ The poll starts nothing for it by itself. A closed issue in that state only
 loses `tehas:running`.
 
 A tick counts only from an allowed labeller, and only while the issue is
-parked: it carries `needs-human-attention` and neither `tehas:running` nor
-`tehas:awaiting-merge`. It is used once. When the cycle starts, the bot unticks
+parked and open: it carries `needs-human-attention` and neither
+`tehas:running` nor `tehas:awaiting-merge`. It is used once. When the cycle starts, the bot unticks
 the box, so the same tick cannot start a second cycle. A box ticked by anyone
 else, or more than one box, is unticked and the bot says so in a comment.
 A retry ticked on an issue that is not parked is unticked too, and the bot
@@ -248,7 +284,8 @@ dispatcher's log says so.
 1. Write an issue that says what you want planned.
 2. Apply `tehas:plan`. As with `tehas:ready`, only a label applied by an
    allowed account counts, and it approves the text as it was when you
-   applied it.
+   applied it. From any other account it is taken off the issue with a
+   comment, as `tehas:ready` is.
 3. The bot comments that the session has started. Each turn of the agent ends
    in a comment with what it found. A turn is over when the agent has stopped
    and every subagent it sent out has reported back, so one turn can take
@@ -282,7 +319,9 @@ more than one box, is unticked and the bot says so. A reply counts only if its
 author is an allowed account and, when it was edited, its last editor is too.
 Replies from others are ignored. Only the question the session is waiting on
 counts, which is the one whose id the host has on record. Any other comment
-with boxes, older or newer, does nothing.
+with boxes, older or newer, does nothing. An answer runs a turn only while
+GitHub says the issue is open: on an issue closed since the turn that asked,
+a box and a reply do nothing.
 
 Where the instance gives a cycle the images an issue links
 (`TEHAS_WORK_IMAGES=1`), a planning session is given them too, by the same
@@ -321,8 +360,10 @@ and you apply `tehas:plan` again.
 
 The bot account is never one of the allowed labellers. If it is listed in
 `TEHAS_ALLOWED_LABELERS`, the dispatcher stops with an error rather than let
-the bot approve its own questions. It checks this when it reads a question, so
-the error shows once a question is open.
+the bot approve its own work: every poll reads its own login first, before it
+reads a label or changes one. The Protolab refuses the same list, with an error
+before it reads, builds or removes a page. A poll or a pass that cannot read
+its own login stops there and does nothing else.
 
 ## Pause and resume
 
@@ -354,6 +395,17 @@ reaches them. Remove the label to resume.
   dispatcher asks it at every poll. `tehas status` says `warn: No resources`
   and the dashboard says `no resources` until it is back. With
   `TEHAS_WORK_IMAGES=1` a model that does not read an image counts the same.
+- One cycle at a time on a pi-rukas that is new on the host: one that no
+  cycle here has ended as `merged`, or as a handoff with a pull request, on.
+  While a cycle runs on it, `tehas status` says `holding: pi-rukas <commit> is
+  new on this host`, and cycles still running on the pi-rukas before it count
+  for the slots only. The first cycle that ends well on it lifts the hold. The
+  commit is the sandbox image's, its label `tehas.rukas`, so an image put back
+  for a [rollback](/host#rolling-back-pi-rukas) is known by its own commit;
+  an image built before the label counts as the commit in
+  `~/tehas/versions.env`. The commits proven are listed in
+  `~/tehas/state/rukas-proven`. A new host, which has proven none, starts the
+  same way.
 - Inside a cycle, `TEHAS_CONCURRENCY` workstreams side by side: 4 by default,
   fewer if the model backends cannot take it. See [The host](/host).
 - No new cycle while `TEHAS_MAX_AWAITING` issues carry `tehas:awaiting-merge`
@@ -363,7 +415,8 @@ reaches them. Remove the label to resume.
 - A self-hosted model endpoint has few real slots per model, so a cycle takes
   a while; the six-pass review is the slowest part.
 
-The review cap, the room and the pressure hold back cycles only. Planning
+The review cap, the new pi-rukas, the room and the pressure hold back cycles
+only. Planning
 turns still run. `tehas status` shows the room in its `slice` line, as the
 dispatcher's last poll read it, and `tehas dispatch --dry-run` reads it
 afresh. A hold is written to `~/tehas/logs/dispatch.log` once, when its reason
@@ -385,14 +438,14 @@ stack is filed as an issue of its own in that repository.
   product cannot fix it. Both repositories are read for duplicates. Each
   has the limit of 10 open issues to itself, so one that is full does not
   hold the other back. How a fix then reaches the host is
-  under [pi-rukas comes from a fork](/host#pi-rukas-comes-from-a-fork).
+  under [pi-rukas comes from upstream](/host#pi-rukas-comes-from-upstream).
 - **Each issue names the product's issues** whose cycles it rests on, as
   `owner/name#7`, so GitHub links the two both ways.
 - **Each issue says what working on it means**, in the line `Working on it`,
   because the text of an issue is the task a cycle is given. A finding about
   the factory is built in the repository it is filed in, once a person applies
-  `tehas:ready`. A finding about pi-rukas is fixed in pi-rukas and waits there
-  for `tehas:ready`; no cycle on the product works around it. Where the
+  `tehas:ready`. A finding about pi-rukas is fixed in pi-rukas; no cycle on the
+  product works around it. Where the
   instance has no repository for pi-rukas, such a finding is filed with the
   rest and tells a cycle to change no code and hand off.
 - **An issue worked on again is checked against the filed issue.** When a
@@ -400,7 +453,7 @@ stack is filed as an issue of its own in that repository.
   an earlier cycle of it, the model says whether the problem came back. That
   is a comment on the filed issue, open or closed: `Seen again: yes` or `no`,
   what the new cycle showed, its whole log, and the pi-rukas commit the host
-  was installed with. This is how a fix in the fork is verified: deploy it,
+  was installed with. This is how a fix in pi-rukas is verified: deploy it,
   apply `tehas:ready` to the product issue again, and read the comment. A
   model wrote it, so check it against the log. The loop closes and reopens
   nothing. At most 10 comments a run, and none in a run that waits because
@@ -461,6 +514,7 @@ What you can do is watch it, on the [factory floor](/) or on the host:
 
 ```
 tail -f ~/tehas/live/console-123.txt     # the console the dashboard shows
+tehas top                                # the same console, with the queue and the cycles
 tail -f ~/tehas/logs/work-123-*.jsonl    # the raw RPC stream
 docker exec -it tehas-work-123 bash      # a shell in the cycle's container
 ```

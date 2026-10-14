@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Tests for libexec/protolab against a stub gh and a stub curl: which files
-# of a ticket are taken, the 10 MB limit, what the page says, and that a ticket
-# leaves the lab when it is closed or unlabelled.
+# Tests for libexec/protolab against a stub gh and a stub curl: which tickets
+# are at the prototype stage and whose label counts, which files of a ticket
+# are taken, the 10 MB limit, what the page says, and that a ticket leaves the
+# lab when it is closed or unlabelled.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh"
@@ -15,10 +16,16 @@ live=$T/home/tehas/live
 t_stub gh '
 case "$1 $2" in
   "auth token") ;;
+  "api user")
+    [ ! -e "$T/fx/user-fails" ] || exit 1
+    cat "$T/fx/user.json" 2>/dev/null || echo "{\"login\":\"tehas-bot\"}" ;;
   "api repos/acme/widget/issues?"*) cat "$T/fx/issues.json" 2>/dev/null || exit 1 ;;
   "api repos/acme/widget/issues/"*)
     n=${2#repos/acme/widget/issues/}
-    cat "$T/fx/comments-${n%%/*}.json" 2>/dev/null || exit 1 ;;
+    case "$n" in
+      */events*) cat "$T/fx/events-${n%%/*}.json" 2>/dev/null || exit 1 ;;
+      *) cat "$T/fx/comments-${n%%/*}.json" 2>/dev/null || exit 1 ;;
+    esac ;;
 esac'
 
 # curl hands out $T/fx/net/<address, with _ for every other character>. A file
@@ -54,12 +61,23 @@ net() {
   printf '%s' "$2" >"$fx/net/$key"
   [ -z "${3:-}" ] || printf '%s' "$3" >"$fx/net/$key.type"
 }
+# labeled <number> <account> [label] [time]: the issue's label events, one
+# page. With no account the event names nobody. Call it after issue, which
+# writes a labelling by the allowed account.
+labeled() {
+  jq -n -c --arg who "${2:-}" --arg l "${3:-tehas:prototype}" --arg at "${4:-2026-10-09T08:00:00Z}" '
+    [{event: "labeled", label: {name: $l}, created_at: $at,
+      actor: (if $who == "" then null else {login: $who} end)}]' >"$fx/events-$1.json"
+}
 # issue <number> <title> <body> [association] [comments] [updated]
+# Every ticket is at the prototype stage at the hand of an allowed account,
+# unless a case writes its own events.
 issue() {
   jq -n -c --argjson n "$1" --arg title "$2" --arg body "$3" --arg who "${4:-OWNER}" \
     --argjson comments "${5:-0}" --arg updated "${6:-2026-10-09T08:00:00Z}" '
     {number: $n, title: $title, body: $body, html_url: "https://github.com/acme/widget/issues/\($n)",
      user: {login: "alice"}, author_association: $who, updated_at: $updated, comments: $comments}'
+  labeled "$1" alice
 }
 issues() { printf '%s\n' "$@" | jq -s . >"$fx/issues.json"; }
 reset() {
@@ -159,6 +177,126 @@ t_eq "$(files_of 8)" ""
 t_eq "$(t_calls curl)" ""
 t_contains "$(cat "$site/8/index.html")" "No image, video or HTML file is attached"
 t_contains "$(cat "$site/8/index.html")" "1 link from outside the repository"
+
+t_case "a ticket whose prototype label came from an account outside the list gets no page"
+reset
+net "$F/91/idea.html" "<p>idea</p>"
+issues "$(issue 20 'Idea the bot labelled' "[idea.html]($F/91/idea.html)")"
+labeled 20 tehas-bot
+t_run "$protolab"
+t_contains "$t_out" "#20: tehas:prototype was applied by 'tehas-bot', not an allowed account"
+t_eq "$([ -e "$site/20" ] && echo there)" ""
+t_eq "$(t_calls curl)" ""
+t_eq "$(jq -c '.tickets | map(.number)' "$live/protolab.json")" "[]"
+
+t_case "a page goes when the label was applied by an account outside the list"
+reset
+issues "$(issue 21 'Kept then taken' 'no files')"
+labeled 21 alice
+t_run "$protolab"
+t_contains "$t_out" "#21: 0 files, 0 bytes, 0 left out"
+issues "$(issue 21 'Kept then taken' 'no files' OWNER 0 2026-10-09T11:00:00Z)"
+labeled 21 mallory
+t_run "$protolab"
+t_contains "$t_out" "#21: tehas:prototype was applied by 'mallory', not an allowed account"
+t_contains "$t_out" "#21: no longer at the prototype stage, removed"
+t_eq "$([ -e "$site/21" ] && echo there)" ""
+
+t_case "the most recent labelling decides, whatever order its events arrive in"
+reset
+issues "$(issue 22 'Taken after a label' '')" "$(issue 23 'Approved after a stranger' '')"
+printf '%s\n' \
+  '[{"event":"labeled","label":{"name":"tehas:prototype"},"actor":{"login":"mallory"},"created_at":"2026-10-02T00:00:00Z"}]' \
+  '[{"event":"labeled","label":{"name":"tehas:prototype"},"actor":{"login":"alice"},"created_at":"2026-10-01T00:00:00Z"}]' \
+  >"$fx/events-22.json"
+printf '%s\n' \
+  '[{"event":"labeled","label":{"name":"tehas:prototype"},"actor":{"login":"alice"},"created_at":"2026-10-02T00:00:00Z"}]' \
+  '[{"event":"labeled","label":{"name":"tehas:prototype"},"actor":{"login":"mallory"},"created_at":"2026-10-01T00:00:00Z"}]' \
+  >"$fx/events-23.json"
+t_run "$protolab"
+t_contains "$t_out" "#22: tehas:prototype was applied by 'mallory', not an allowed account"
+t_contains "$t_out" "#23: 0 files, 0 bytes, 0 left out"
+t_contains "$(t_calls gh)" "api repos/acme/widget/issues/22/events?per_page=100 --paginate"
+t_eq "$(jq -c '.tickets | map(.number)' "$live/protolab.json")" "[23]"
+
+t_case "a labelling that names no account, and one that is not there, are both no approval"
+reset
+issues "$(issue 24 'Anonymous' '')" "$(issue 25 'No events' '')"
+labeled 24 ""
+echo '[]' >"$fx/events-25.json"
+t_run "$protolab"
+t_contains "$t_out" "#24: tehas:prototype was applied by 'unknown', not an allowed account"
+t_contains "$t_out" "#25: tehas:prototype was applied by 'unknown', not an allowed account"
+t_eq "$(cd "$site" && find . -maxdepth 1 -type d ! -name . | LC_ALL=C sort | tr '\n' ' ')" ""
+
+t_case "label events that cannot be read leave the ticket's page as it was"
+reset
+issues "$(issue 26 'Held' 'no files')"
+labeled 26 alice
+t_run "$protolab"
+before=$(cd "$site/26" && find . -type f | LC_ALL=C sort | xargs cksum)
+issues "$(issue 26 'Held' 'no files' OWNER 0 2026-10-09T12:00:00Z)"
+rm -f "$fx/events-26.json"
+t_run "$protolab"
+t_contains "$t_out" "#26: its label events could not be read, nothing built or removed"
+t_eq "$([ -e "$site/26" ] && echo there)" "there"
+t_eq "$(cd "$site/26" && find . -type f | LC_ALL=C sort | xargs cksum)" "$before"
+t_contains "$(cat "$site/index.html")" '<b>#26</b>'
+t_contains "$(jq -c '.tickets | map(.number)' "$live/protolab.json")" "[26]"
+
+t_case "events that are an answer of GitHub rather than a list of events are unreadable ones"
+reset
+issues "$(issue 27 'Held' 'no files')"
+t_run "$protolab"
+before=$(cd "$site/27" && find . -type f | LC_ALL=C sort | xargs cksum)
+issues "$(issue 27 'Held' 'no files' OWNER 0 2026-10-09T13:00:00Z)" "$(issue 28 'Never built' 'no files')"
+echo '{"message":"Bad credentials"}' >"$fx/events-27.json"
+echo '{"event":"labeled","label":{"name":"tehas:prototype"},"actor":{"login":"alice"}}' >"$fx/events-28.json"
+t_run "$protolab"
+t_eq "$t_rc" 0
+t_contains "$t_out" "#27: its label events could not be read, nothing built or removed"
+t_contains "$t_out" "#28: its label events could not be read, nothing built or removed"
+t_eq "$(cd "$site/27" && find . -type f | LC_ALL=C sort | xargs cksum)" "$before"
+t_eq "$([ -e "$site/28" ] && echo there)" ""
+t_eq "$(jq -c '.tickets | map(.number)' "$live/protolab.json")" "[27]"
+
+t_case "an instance that lists the bot's own login publishes nothing"
+reset
+net "$F/93/idea.html" "<p>idea</p>"
+issues "$(issue 30 'Labelled by the bot' "[idea.html]($F/93/idea.html)")"
+printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ALLOWED_LABELERS='alice tehas-bot'" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$protolab"
+t_eq "$t_rc" 78
+t_contains "$t_out" "the bot account tehas-bot is in TEHAS_ALLOWED_LABELERS"
+t_contains "$(t_calls gh)" "api user"
+t_eq "$(cd "$site" && find . -maxdepth 1 -type d ! -name . | LC_ALL=C sort | tr '\n' ' ')" ""
+t_eq "$(t_calls curl)" ""
+
+t_case "a pass that cannot ask GitHub for its own login builds nothing, even where the list names the bot"
+reset
+net "$F/94/idea.html" "<p>idea</p>"
+issues "$(issue 31 'Labelled by an owner' "[idea.html]($F/94/idea.html)")"
+printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ALLOWED_LABELERS='alice tehas-bot'" >"$TEHAS_INSTANCE_DIR/instance.env"
+: >"$fx/user-fails"
+t_run "$protolab"
+t_eq "$t_rc" 0
+t_contains "$t_out" "the bot's own login could not be read, nothing built or removed"
+t_eq "$(t_calls gh)" "api user"
+t_eq "$(cd "$site" && find . -maxdepth 1 -type d ! -name . | LC_ALL=C sort | tr '\n' ' ')" ""
+t_eq "$(t_calls curl)" ""
+
+t_case "an own login GitHub answers without one leaves every page as it was"
+reset
+net "$F/95/idea.html" "<p>idea</p>"
+issues "$(issue 32 'Kept' "[idea.html]($F/95/idea.html)")"
+t_run "$protolab"
+before=$(cd "$site/32" && find . -type f | LC_ALL=C sort | xargs cksum)
+echo '{"message":"Bad credentials"}' >"$fx/user.json"
+t_run "$protolab"
+t_eq "$t_rc" 0
+t_contains "$t_out" "the bot's own login could not be read, nothing built or removed"
+t_eq "$(cd "$site/32" && find . -type f | LC_ALL=C sort | xargs cksum)" "$before"
+t_eq "$(jq -c '.tickets | map(.number)' "$live/protolab.json")" "[32]"
 
 t_case "10 megabytes a ticket: what does not fit is left out, what still fits is taken"
 reset

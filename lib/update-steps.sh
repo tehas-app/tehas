@@ -16,6 +16,8 @@
 #   tehas_steps_for <src>...  the steps these changed sources call for, in the
 #                             order they run, one per line
 #   tehas_sort_steps <line>.. the same step lines in the order they run
+#   tehas_step_id <token>       the id this file defines for that token: the
+#                               Protolab's old name reads as the edge step
 #   tehas_valid_step <line>   0 when a step line names an id this file knows and
 #                             carries the arguments that id requires, and no
 #                             others; 1 otherwise
@@ -86,6 +88,17 @@ tehas_steps_for() { # changed source paths -> one step per line
   return 0
 }
 
+# A step id as this file defines it. The Protolab's server became the edge
+# router, so a line recorded as "protolab <flag>" by an earlier version means
+# the edge step. One function says that, and everything that reads a step line
+# asks it rather than spelling the alias out.
+tehas_step_id() { # <id token> -> the id this file defines for it
+  case "$1" in
+    protolab) printf 'edge\n' ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+
 # The same step lines in the order they run, by id as tehas_step_ids lists them.
 # Lines whose id this file does not know keep their order at the end: nobody runs
 # them, but they stay visible. Sorting here rather than in each command keeps one
@@ -95,12 +108,12 @@ tehas_sort_steps() { # step lines -> the same lines, ordered
   known=" $(tehas_step_ids | tr '\n' ' ') "
   for id in $known; do
     for line in "$@"; do
-      if [ "${line%% *}" = "$id" ] || { [ "$id" = edge ] && [ "${line%% *}" = protolab ]; }; then printf '%s\n' "$line"; fi
+      if [ "$(tehas_step_id "${line%% *}")" = "$id" ]; then printf '%s\n' "$line"; fi
     done
   done
   for line in "$@"; do
-    case "$known protolab " in
-      *" ${line%% *} "*) ;;
+    case "$known" in
+      *" $(tehas_step_id "${line%% *}") "*) ;;
       *) printf '%s\n' "$line" ;;
     esac
   done
@@ -122,7 +135,7 @@ tehas_valid_step() { # <step line>
   local id token argv=()
   read -r -a argv <<<"$1"
   [ "${#argv[@]}" = 0 ] && return 1
-  id=${argv[0]}
+  id=$(tehas_step_id "${argv[0]}")
   case "$id" in
     units)
       [ "${#argv[@]}" -gt 1 ] || return 1
@@ -139,7 +152,7 @@ tehas_valid_step() { # <step line>
     sandbox)
       [ "${#argv[@]}" = 1 ] || return 1
       ;;
-    docs | edge | protolab)
+    docs | edge)
       # Exactly one argument, and it is the flag: --force-recreate, or nothing.
       # Anything else - another option, a docker verb - is not this step. A bare
       # id is refused too, because docker compose up -d without the flag leaves a

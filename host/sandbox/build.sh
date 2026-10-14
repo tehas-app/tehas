@@ -19,6 +19,7 @@ docker build \
   --build-arg TEHAS_UID="$(id -u)" \
   --build-arg SHELLCHECK_VERSION="$SHELLCHECK_VERSION" \
   --build-arg SHELLCHECK_SHA256="$SHELLCHECK_SHA256" \
+  --build-arg PI_RUKAS_COMMIT="$PI_RUKAS_COMMIT" \
   -t "$image:$stamp" "$here"
 docker tag "$image:$stamp" "$image:uid$(id -u)"
-echo "built $image:$stamp, also tagged $image:uid$(id -u)"
+echo "built $image:$stamp with pi-rukas $PI_RUKAS_COMMIT, also tagged $image:uid$(id -u)"

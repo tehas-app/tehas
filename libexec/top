@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# One screen that shows what the factory is doing, and redraws it.
+#
+# It reads what the factory already writes under $TEHAS_HOME/live/ - the health
+# file, the queue snapshot, the cycles, the energy sample and the console of a
+# cycle - and asks systemctl --user about its units. It writes nothing, calls
+# no GitHub, no model and no Docker, and loads no instance settings. What it
+# shows is as old as those files, and every section that has an age prints it.
+#
+# The snapshot and the frame are drawn apart from each other: lib/top.sh builds
+# one JSON object, and the frame comes from that object and nothing else.
+# `--json` prints the snapshot, so a section added to it appears there without
+# anything else changing.
+#
+# Usage: tehas top [--once | --json] [--every <seconds>]
+#
+#   --once    one frame as plain text, no escape codes, then exit
+#   --json    the snapshot as JSON, then exit
+#   --every   seconds between redraws, 1 to 64 (default 2)
+#
+# With a terminal on standard output it draws a frame and draws it again every
+# --every seconds. q or Ctrl-C ends it and leaves the terminal as it was: the
+# cursor shown, the alternate screen left. Without one, or with --once, it
+# prints one frame as plain text. The width and height of the terminal are
+# followed, also after a resize; COLUMNS and LINES say what they are when the
+# terminal cannot be asked. A frame never wraps and never scrolls: long lines
+# are cut, and the console tail takes the rows that are left.
+#
+# Exit: 0 ended by q or a signal, or one frame or one snapshot printed;
+#       1 there is no live directory at all;
+#       64 an unknown argument, or a --every that is not a number from 1 to 64.
+set -uo pipefail
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/top.sh
+. "$here/../lib/top.sh"
+
+mode=live every=2
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --once) mode=once ;;
+    --json) mode=json ;;
+    --every)
+      [ "$#" -ge 2 ] || { echo "tehas top: --every wants a whole number from 1 to 64" >&2; exit 64; }
+      case "$2" in
+        '' | *[!0-9]*) echo "tehas top: --every wants a whole number from 1 to 64" >&2; exit 64 ;;
+      esac
+      [ "$2" -ge 1 ] && [ "$2" -le 64 ] ||
+        { echo "tehas top: --every wants a whole number from 1 to 64" >&2; exit 64; }
+      every=$2
+      shift
+      ;;
+    *) echo "tehas top: unknown argument: $1" >&2; exit 64 ;;
+  esac
+  shift
+done
+
+: "${TEHAS_HOME:=$HOME/tehas}"
+live=$TEHAS_HOME/live
+[ -d "$live" ] || { echo "tehas top: no live directory at $live yet" >&2; exit 1; }
+
+# The size to draw for: COLUMNS and LINES when they are given, the terminal on
+# standard output when it can be asked, and a plain 80 by 24 when neither is.
+size() { # -> "<cols> <rows>", clamped so a frame has something to fit in
+  local cols=${COLUMNS:-} rows=${LINES:-} wh
+  case "$cols" in '' | *[!0-9]*) cols='' ;; esac
+  case "$rows" in '' | *[!0-9]*) rows='' ;; esac
+  if { [ -z "$cols" ] || [ -z "$rows" ]; } && [ -t 1 ]; then
+    wh=$(stty size <&1 2>/dev/null) || wh=''
+    case "$wh" in
+      [0-9]*' '[0-9]*)
+        [ -n "$cols" ] || cols=${wh% *}
+        [ -n "$rows" ] || rows=${wh#* }
+        ;;
+    esac
+  fi
+  case "$cols" in '' | *[!0-9]*) cols=80 ;; esac
+  case "$rows" in '' | *[!0-9]*) rows=24 ;; esac
+  [ "$cols" -ge 20 ] || cols=20
+  [ "$cols" -le 400 ] || cols=400
+  [ "$rows" -ge 6 ] || rows=6
+  [ "$rows" -le 200 ] || rows=200
+  printf '%s %s\n' "$cols" "$rows"
+}
+
+if [ "$mode" = json ]; then
+  read -r _ rows < <(size)
+  tehas_top_snapshot "$rows"
+  exit $?
+fi
+
+read -r cols rows < <(size)
+
+if [ "$mode" = once ] || [ ! -t 1 ]; then
+  snapshot=$(tehas_top_snapshot "$rows") || exit 1
+  tehas_top_frame "$snapshot" "$cols" "$rows"
+  exit $?
+fi
+
+# A live view: alternate screen, no cursor, a frame every --every seconds.
+cleanup() { printf '\033[?25h\033[?1049l'; }
+trap 'exit 0' INT TERM
+trap cleanup EXIT
+printf '\033[?1049h\033[?25l'
+
+while :; do
+  read -r cols rows < <(size)
+  snapshot=$(tehas_top_snapshot "$rows") || { cleanup; exit 1; }
+  frame=$(tehas_top_frame "$snapshot" "$cols" "$rows") || { cleanup; exit 1; }
+  printf '\033[H\033[2J%s\n' "$frame"
+  key=''
+  read -r -t "$every" -n 1 key </dev/tty 2>/dev/null
+  rc=$?
+  [ "$rc" = 0 ] && [ "$key" = q ] && break
+  # No terminal to read from: wait the same time without a key.
+  [ "$rc" = 0 ] || [ "$rc" -ge 128 ] || sleep "$every"
+done
+exit 0
