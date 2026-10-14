@@ -153,6 +153,7 @@ a poll by hand on the host:
 
 ```
 tehas status                 # taking work? the queue, the current or last cycle, the slice's room
+tehas top                    # the same overview, on one screen that redraws itself
 tehas dispatch --dry-run     # what would it do?
 tehas dispatch               # do it (returns once the cycle is started)
 systemctl --user status 'tehas-cycle@*'   # which cycles are running
@@ -461,6 +462,7 @@ What you can do is watch it, on the [factory floor](/) or on the host:
 
 ```
 tail -f ~/tehas/live/console-123.txt     # the console the dashboard shows
+tehas top                                # the same console, with the queue and the cycles
 tail -f ~/tehas/logs/work-123-*.jsonl    # the raw RPC stream
 docker exec -it tehas-work-123 bash      # a shell in the cycle's container
 ```
