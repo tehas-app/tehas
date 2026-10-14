@@ -86,10 +86,11 @@ fn start(s: &str, chars: usize, lines: usize) -> String {
 /// The second of the UTC day in a timestamp, in the two forms the logs hold:
 /// milliseconds since the epoch, and a date and time that ends in `Z`.
 /// Anything else is no time, and the entry is stamped with the time it was
-/// read.
+/// read. Milliseconds count only between 2020 and 2100.
 fn clock(at: &Value) -> Option<u32> {
     if let Some(ms) = at.as_f64() {
-        return Some((ms / 1000.0).floor().rem_euclid(86400.0) as u32);
+        let plausible = (1_577_836_800_000.0..4_102_444_800_000.0).contains(&ms);
+        return plausible.then(|| ((ms / 1000.0).floor() % 86400.0) as u32);
     }
     let time = at.as_str()?.strip_suffix('Z')?.get(11..19)?;
     let mut parts = time.split(':').map(|part| match part.as_bytes() {
@@ -109,6 +110,19 @@ fn text(v: &Value) -> String {
     }
 }
 
+// A name from the lifecycle on one line, cut as other text is.
+fn short(v: &Value) -> String {
+    start(&text(v), 200, 1).replace('\n', " ")
+}
+
+// A count from the lifecycle, when it is a whole number in reason.
+fn count(v: &Value) -> Option<u64> {
+    v.as_u64().filter(|n| (1..=1000).contains(n))
+}
+
+// A week, in milliseconds: no step takes longer.
+const MAX_ELAPSED: u64 = 7 * 86400 * 1000;
+
 /// A line of the cycle's RPC stream.
 pub fn rpc_line(line: &str) -> Option<Entry> {
     let r: Value = serde_json::from_str(line).ok()?;
@@ -124,28 +138,28 @@ pub fn rpc_line(line: &str) -> Option<Entry> {
         return None;
     }
     let d = &entry["data"];
-    let step = if d["stepNumber"].as_f64().is_some_and(|n| n != 0.0) {
-        format!("step {}/{} ", text(&d["stepNumber"]), text(&d["stepTotal"]))
-    } else {
-        String::new()
+    let step = match (count(&d["stepNumber"]), count(&d["stepTotal"])) {
+        (Some(n), Some(total)) => format!("step {n}/{total} "),
+        (Some(n), None) => format!("step {n} "),
+        _ => String::new(),
     };
-    let label = text(&d["label"]);
+    let label = short(&d["label"]);
     let said = match d["kind"].as_str()? {
         "step-started" => {
-            let round = if d["round"].is_null() {
-                "1".to_string()
-            } else {
-                text(&d["round"])
+            let round = match &d["round"] {
+                Value::Null => "1".to_string(),
+                Value::String(_) => short(&d["round"]),
+                other => count(other).map_or("?".to_string(), |n| n.to_string()),
             };
             format!("--- {step}{label} started (round {round})")
         }
-        "step-completed" => {
-            let seconds = (d["elapsedMs"].as_f64().unwrap_or(0.0) / 1000.0).round();
-            format!("--- {step}{label} done in {seconds}s")
-        }
+        "step-completed" => match d["elapsedMs"].as_u64().filter(|ms| *ms <= MAX_ELAPSED) {
+            Some(ms) => format!("--- {step}{label} done in {}s", (ms + 500) / 1000),
+            None => format!("--- {step}{label} done"),
+        },
         "dispatched" if d["role"] != "work-driver" => {
             let who = if d["label"].is_null() {
-                text(&d["role"])
+                short(&d["role"])
             } else {
                 label
             };
@@ -377,7 +391,6 @@ mod tests {
             clock(&json!(1791526545000u64)),
             Some(6 * 3600 + 15 * 60 + 45)
         );
-        assert_eq!(clock(&json!(-1)), Some(86399));
     }
 
     #[test]
@@ -395,6 +408,10 @@ mod tests {
             json!("2026-10-10T23:59:60Z"),
             json!("2026-10-10T+1:+2:+3Z"),
             json!("päivää-päivää-päiväZ"),
+            json!(-1),
+            json!(1e300),
+            json!(1_500_000_000_000u64),
+            json!(5_000_000_000_000u64),
         ] {
             assert_eq!(clock(&at), None, "{at}");
         }
@@ -450,6 +467,38 @@ mod tests {
         assert_eq!(
             said(json!({"kind": "dispatched", "role": "reviewer"})),
             Some(("agent started: reviewer".to_string(), Some(7)))
+        );
+    }
+
+    #[test]
+    fn lifecycle_names_are_cut_and_odd_numbers_left_out() {
+        let said = |data: Value| rpc_line(&lifecycle(data)).unwrap().text;
+        let long = "l".repeat(10_000);
+        let text = said(json!({"kind": "step-started", "label": long}));
+        assert!(
+            text.chars().count() < 260 && text.contains("[...] started"),
+            "{text}"
+        );
+        let text = said(json!({"kind": "dispatched", "role": long}));
+        assert!(
+            text.chars().count() < 240 && text.ends_with("[...]"),
+            "{text}"
+        );
+        assert_eq!(
+            said(json!({"kind": "step-started", "label": "review", "round": {"a": [1, 2]}})),
+            "--- review started (round ?)"
+        );
+        assert_eq!(
+            said(
+                json!({"kind": "step-completed", "stepNumber": 1e300, "stepTotal": 7, "label": "develop", "elapsedMs": 1e300})
+            ),
+            "--- develop done"
+        );
+        assert_eq!(
+            said(
+                json!({"kind": "step-started", "stepNumber": 2, "stepTotal": {}, "label": "develop"})
+            ),
+            "--- step 2 develop started (round 1)"
         );
     }
 
