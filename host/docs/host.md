@@ -451,10 +451,11 @@ toolchain adds it to the Dockerfile.
 Each build is also tagged with its date, so
 `docker tag tehas/pi-rukas:<date> tehas/pi-rukas:uid$(id -u)` rolls back.
 
-To upgrade pi-rukas: put the new image's digest in the `FROM` line and its
-commit in `versions.env`, rebuild, and run the contract test before any cycle
-uses it. Where the image comes from is described under
-[pi-rukas comes from a fork](#pi-rukas-comes-from-a-fork). The contract
+To upgrade pi-rukas: run `scripts/rukas-latest.sh` in a checkout of tehas,
+which puts the newest release's commit in `versions.env` and its image's
+digest in the `FROM` line, then rebuild and run the contract test before any
+cycle uses it. Where pi-rukas comes from is described under
+[pi-rukas comes from upstream](#pi-rukas-comes-from-upstream). The contract
 test proves the product's gates run inside the image, as the unprivileged user,
 with nothing mounted but a clone:
 
@@ -473,54 +474,33 @@ rm -rf "$T"
 The container runs in the slice like the factory's own, so the dispatcher
 counts its memory while it is there.
 
-## pi-rukas comes from a fork
+## pi-rukas comes from upstream
 
-tehas takes pi-rukas from a [fork](https://github.com/janit/pi-rukas) of
-[upstream](https://github.com/trail-openers/pi-rukas), so a fix reaches the
-factory when it is ready here, not when upstream releases it. The fork is
-never the last stop: every change in it is also offered upstream.
+tehas takes pi-rukas from [upstream](https://github.com/trail-openers/pi-rukas),
+pinned to one of its releases. `PI_RUKAS_VERSION` and `PI_RUKAS_COMMIT` in
+`versions.env` name the release and the commit its tag points to, and the base
+in `sandbox/Dockerfile` is the image upstream published for that release. The
+three always name the same release, or the host and the sandbox run different
+code.
 
-The fork's `main` is what a host runs: upstream's `main` plus the fixes
-merged in the fork that upstream does not have yet. `PI_RUKAS_COMMIT` in
-`versions.env` is a commit on it, and the base in `sandbox/Dockerfile` is the
-fork's image built from the same commit. A fix is written on a branch of its
-own and reaches `main` through a pull request in the fork. To take in what
-upstream has done, merge upstream's `main` into the fork's.
+Every release of tehas takes the newest release of pi-rukas. Before tagging:
 
-Problems are tracked in the fork. Where the instance sets
-`TEHAS_IMPROVE_RUKAS_REPO` to it, the [improvement loop](/operating#the-improvement-loop)
-files what it finds about pi-rukas there, each issue naming the product's
-issues whose cycles showed it. No cycle on the product fixes pi-rukas.
-
-When a problem in pi-rukas comes up:
-
-1. Have an issue in the fork that describes it: the loop's, or one you write.
-2. Write the fix in the fork, on a branch from `main`, with pi-rukas's own
-   tests, and merge it into the fork's `main` with a pull request that names
-   the issue.
-3. The merge runs the fork's `publish-image` workflow. It publishes
-   `ghcr.io/janit/pi-rukas:sha-<commit>`, with the first 12 characters of the
-   commit.
-4. In this repository, in one pull request, set `PI_RUKAS_COMMIT` to that
-   commit and the `FROM` line of `sandbox/Dockerfile` to that image's digest.
-   The two always name the same commit, or the host and the sandbox run
-   different code.
-5. On the host: pull, run `./bootstrap.sh user`, rebuild the sandbox image,
+1. Run `scripts/rukas-latest.sh`. It reads upstream's newest release, its
+   commit and its image's digest, and writes all three. With `--check` it
+   only says whether the pin is already the newest, exit 1 when it is not.
+2. When it changed something, open a pull request with the change, merge it,
+   and tag the release from that merge.
+3. On the host: pull, run `./bootstrap.sh user`, rebuild the sandbox image,
    run the contract test above, then let one cycle run before trusting it.
-   To check the fix, apply `tehas:ready` again to a product issue the fork's
-   issue names. The loop's next run comments on the fork's issue whether the
-   problem came back, with the pi-rukas commit that cycle ran. Close the
-   fork's issue when it did not.
-6. Only after the fix is verified here, offer it upstream: an issue there and
-   a pull request from the branch of step 2, as
-   `gh pr create --repo <upstream> --head <fork owner>:<branch>`. Name the
-   fork's issue in full, as `owner/name#12`; a bare number is upstream's.
-7. When upstream merges the fix, merge upstream's `main` into the fork's and
-   repeat steps 3 to 5.
 
-Keep the fork's `main` close to upstream. A change that upstream turns down is
-either reworked until they take it or removed from the fork; it does not stay
-as a permanent difference.
+Where the instance sets `TEHAS_IMPROVE_RUKAS_REPO`, the
+[improvement loop](/operating#the-improvement-loop) files what it finds about
+pi-rukas there, each issue naming the product's issues whose cycles showed it.
+No cycle on the product fixes pi-rukas. A fix is made in pi-rukas and reaches
+a host with the next release of pi-rukas and of tehas. To check it, apply
+`tehas:ready` again to a product issue the filed issue names. The loop's next
+run comments there whether the problem came back, with the pi-rukas commit
+that cycle ran.
 
 ## Services
 
