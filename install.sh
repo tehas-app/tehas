@@ -266,14 +266,14 @@ put() {
   # Copied beside it and renamed over it, so a cycle that starts meanwhile finds
   # the old file or the new one, never a part of one.
   install -m "$mode" "$from" "$to.new" || { rm -f "$to.new"; echo "tehas: could not install $to" >&2; exit 1; }
-  mv -f "$to.new" "$to"
+  mv -f "$to.new" "$to" || { rm -f "$to.new"; echo "tehas: could not install $to" >&2; exit 1; }
   echo "installed: $to"
 }
 
 # write_file <path>: stdin into <path>, by the same rename.
 write_file() {
   cat >"$1.new" || { rm -f "$1.new"; echo "tehas: could not write $1" >&2; exit 1; }
-  mv -f "$1.new" "$1"
+  mv -f "$1.new" "$1" || { rm -f "$1.new"; echo "tehas: could not write $1" >&2; exit 1; }
 }
 
 # The step this source calls for, added to the record of steps owed. One call per
