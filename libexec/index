@@ -15,9 +15,11 @@
 # for. The clone is made at the tip the product checkout last fetched, mounted
 # read-only and removed afterwards. The cycle's workspace is not touched.
 #
-# The index is as fresh as its last run. The dispatcher runs this before each
-# cycle, so a cycle starts with an index of the tree it is cloned from. What
-# the cycle changes after that is not in it.
+# The index is as fresh as its last run. The dispatcher runs this when it
+# starts cycles and none is running, so those cycles start with an index of the
+# tree they are cloned from. A cycle started while another runs gets the index
+# as it is, which falls behind the branch while cycles overlap. What a cycle
+# changes is never in it.
 #
 # Called before a cycle, it is done only when the directory holds index data
 # and its record names the branch's tip. The record alone is not enough: on a

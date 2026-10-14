@@ -487,14 +487,17 @@ agents search by reading files, which is slower and finds less.
 
 `install.sh` runs it once, the first time it finds the sandbox image and the
 product checkout and no index. After that the dispatcher runs the script with
-`--before-cycle` ahead of every cycle: the lock is the dispatcher's own then,
-and nothing is done when `~/tehas/state/index` already holds what the record
-says is the branch's tip. An empty directory counts as no index, so a host
-upgraded from the version that kept the index in a cache volume builds it into
-the new one at its next cycle rather than reporting an index that no cycle is
-given. So a cycle starts with an index of the tree it is cloned from. What the
-cycle changes afterwards, in its workspace or its worktrees, is not in the
-index.
+`--before-cycle` when it starts cycles and no cycle is running: the lock is the
+dispatcher's own then, and nothing is done when `~/tehas/state/index` already
+holds what the record says is the branch's tip. An empty directory counts as
+no index, so a host upgraded from the version that kept the index in a cache
+volume builds it into the new one at its next idle start rather than reporting
+an index that no cycle is given. Cycles started then begin with an index of
+the tree they are cloned from. A cycle started while another runs gets the
+index as it is, and the dispatcher's log says `the code index stays as it is:
+a cycle is running on #<issue>`. On a host that is never idle the index falls
+behind the branch. What a cycle changes, in its workspace or its worktrees, is
+never in the index.
 
 Run by hand it always rebuilds, and it holds the dispatcher's lock while it
 does, so no cycle starts in the middle. A cycle started by hand with
@@ -1362,7 +1365,7 @@ A real run also builds the code index with [tehas index](#tehas-index), once:
 when there is none yet and both the sandbox image and the product checkout are
 there. Otherwise it prints the command on a `later:` line, which is for a
 person and is not a step of `tehas update`; the dispatcher builds the index
-before a cycle in any case. An indexing that fails is a warning and does not
+when it next starts a cycle with none running. An indexing that fails is a warning and does not
 fail the install.
 
 It also removes the commands of the earlier layout from `~/tehas/bin`, unless a
