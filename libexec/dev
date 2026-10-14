@@ -219,6 +219,7 @@ read -r room _ _ _ why note < <(tehas_slice_room "$count" "${cids[@]}") || true
 [[ $room =~ ^[0-9]+$ ]] || { room=0 why=unreadable; }
 case "$why" in
   pressure) why=" (it is under memory pressure)" ;;
+  full) why=" (it holds as many containers as their ceilings fit)" ;;
   unreadable) why=" (its use could not be read${note:+: $note})" ;;
   *) why="" ;;
 esac

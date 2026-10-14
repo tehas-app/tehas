@@ -62,7 +62,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_WORK_REPO`               | `~/tehas/repos/<name>`                   | The product checkout cycles are cloned from. Must be a clone of `TEHAS_REPO`. A cycle works in `~/tehas/work/<name>-<issue>`, which is not a setting |
 | `TEHAS_BRANCH`                  | the checkout's `origin/HEAD`             | Branch cycles start from and pull requests target               |
 | `TEHAS_CONCURRENCY`             | `4`                                      | Workstreams side by side inside one cycle                       |
-| `TEHAS_TICKET_CONCURRENCY`      | the host's CPUs minus one, at least 1    | The most cycles side by side. A ceiling, never a divisor: the dispatcher starts fewer while `tehas.slice` has no room. A value above the host's CPUs is accepted. Lower it when the model backends cannot serve `TEHAS_CONCURRENCY` times this many workstreams; nothing measures that |
+| `TEHAS_TICKET_CONCURRENCY`      | the host's CPUs minus one, at least 1    | The most cycles side by side. A ceiling, never a divisor: the dispatcher starts fewer while `tehas.slice` has no room, and never more than leave four containers in it (see [Limits that hold work back](/operating#limits-that-hold-work-back)). A value above the host's CPUs is accepted. Lower it when the model backends cannot serve `TEHAS_CONCURRENCY` times this many workstreams; nothing measures that |
 | `TEHAS_MAX_AWAITING`            | `TEHAS_TICKET_CONCURRENCY` plus 2        | Open `tehas:awaiting-merge` issues, plus running cycles, allowed before holding |
 | `TEHAS_CYCLE_RESERVE`           | `2g`                                     | Memory one container is given as a floor (`docker --memory-reservation`) and the unit the dispatcher counts room in. A reclaim priority inside `tehas.slice` and the amount admission promises, not a guarantee against the whole host. A Docker size of at least 6m, and at most a quarter of the slice's `MemoryMax`, else the command stops with 78 naming both numbers. With the default the host needs about 11 GiB of memory; a smaller host sets it lower |
 | `TEHAS_WORK_TIMEOUT`            | `21600`                                  | Seconds before a cycle is given up                              |
@@ -113,8 +113,8 @@ and the usage on standard error, before the instance settings are read. A mistyp
 
 Order of rules: pause label on the control issue, a usable `tehas.slice`,
 the free slots (`TEHAS_TICKET_CONCURRENCY` less the running cycles), the cap
-on issues awaiting merge or being worked on, the room and the memory pressure
-in the slice, who applied `tehas:urgent`, then who applied `tehas:ready`, then
+on issues awaiting merge or being worked on, the room, the containers'
+ceilings and the memory pressure in the slice, who applied `tehas:urgent`, then who applied `tehas:ready`, then
 urgent first and lowest number. A `tehas:urgent` counts only when an allowed
 account applied it most recently: one applied by the bot or anyone else is
 ignored and logged, and the issue keeps its place by number. The urgent check
@@ -729,7 +729,7 @@ previews are not being built." when `freeBytes` is `null`.
 `checks.slice` is `live/dispatch.json` as the dispatcher's last poll wrote
 it: `time`, `why`, `hold`, `count`, `room`, `committed`, `max` and `reserve`.
 `why` is empty when cycles may start, else one word: `slice`, `unreadable`,
-`resources`, `count`, `awaiting`, `pressure` or `room`, and `hold` is the line
+`resources`, `count`, `awaiting`, `pressure`, `room` or `full`, and `hold` is the line
 the dispatcher logged; with `unreadable` it names the file and what was
 missing in it. `resources` is a model endpoint that does not answer or
 does not offer the configured model. `room` is how many more reserves fit in the slice;

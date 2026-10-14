@@ -29,13 +29,17 @@
 #                        the second before it starts anything.
 #   tehas_slice_room <count> [<cid file>...]
 #                        after tehas_slice_ok. How many more containers of one
-#                        reserve fit. <count> is the cycles that hold a lock;
+#                        reserve fit, and never more than leave the slice with
+#                        as many containers as their ceilings fit in its max
+#                        (four). <count> is the cycles that hold a lock;
 #                        each cid file is what "docker run --cidfile" wrote for
 #                        one of them. Prints one line:
 #                          <room> <committed> <max> <reserve> [<why>]
 #                        The three in the middle are bytes. <why> is absent
 #                        when there is room, else one word:
 #                          room        the slice is promised to the full
+#                          full        the slice has as many containers as
+#                                      their ceilings fit
 #                          pressure    full avg60 of the slice is above 10
 #                                      and more than half the max is promised
 #                          unreadable  something could not be read; room is 0
@@ -218,13 +222,34 @@ _tehas_slice_charge() { # <scope directory> <reserve in bytes>
   echo $((used > low ? used : low))
 }
 
+# Sets room and why in the caller: the reserves that fit in what is not
+# promised, capped so the containers' ceilings never sum to more than the
+# max. Room by use alone lets in cycles at their small first steps that may
+# each grow to a ceiling later; then the whole slice reclaims and the kernel
+# kills in the biggest. The cap does not depend on TEHAS_TICKET_CONCURRENCY,
+# so a dev session or a planning turn counts against it too.
+_tehas_slice_fit() { # <max> <reserve> <ceiling MiB> <committed> <containers>
+  local slots=$(($1 / ($3 * 1048576)))
+  room=0 why=""
+  [ "$4" -ge "$1" ] || room=$((($1 - $4) / $2))
+  if [ "$room" -le 0 ]; then
+    room=0 why=room
+  elif [ "$5" -ge "$slots" ]; then
+    room=0 why=full
+  elif [ "$room" -gt $((slots - $5)) ]; then
+    room=$((slots - $5))
+  fi
+}
+
 tehas_slice_room() {
   local count=${1:-} root=${TEHAS_CGROUP_ROOT:-/sys/fs/cgroup} max=${TEHAS_SLICE_MAX:-} reserve
   local dir child charge file id names=" " committed=0 scoped=0 room pressure why=""
+  local ceiling=${TEHAS_SLICE_CEILING_MB:-} containers=0
   [ "$#" -eq 0 ] || shift
   reserve=$(_tehas_slice_bytes "${TEHAS_CYCLE_RESERVE:-}") || reserve=0
   _tehas_slice_num "$max" || max=0
-  if [ "$max" = 0 ] || [ "$reserve" = 0 ]; then
+  _tehas_slice_num "$ceiling" || ceiling=0
+  if [ "$max" = 0 ] || [ "$reserve" = 0 ] || [ "$ceiling" = 0 ]; then
     echo "0 0 $max $reserve unreadable the slice was not probed"
     return 0
   fi
@@ -244,10 +269,8 @@ tehas_slice_room() {
       return 0
     fi
     committed=$((count * reserve))
-    room=0
-    [ "$committed" -ge "$max" ] || room=$(((max - committed) / reserve))
-    [ "$room" -gt 0 ] || why=" room"
-    echo "$room $committed $max $reserve$why"
+    _tehas_slice_fit "$max" "$reserve" "$ceiling" "$committed" "$count"
+    echo "$room $committed $max $reserve${why:+ $why}"
     return 0
   fi
 
@@ -260,6 +283,7 @@ tehas_slice_room() {
       return 0
     fi
     committed=$((committed + charge))
+    containers=$((containers + 1))
     names+="${child##*/} "
   done
 
@@ -271,7 +295,10 @@ tehas_slice_room() {
     [[ $id =~ ^[0-9a-f]{64}$ ]] || continue
     case "$names" in *" docker-$id.scope "*) scoped=$((scoped + 1)) ;; esac
   done
-  [ "$count" -le "$scoped" ] || committed=$((committed + (count - scoped) * reserve))
+  if [ "$count" -gt "$scoped" ]; then
+    committed=$((committed + (count - scoped) * reserve))
+    containers=$((containers + count - scoped))
+  fi
 
   # The reason is set in the subshell, so it comes back on the same line.
   pressure=$(tehas_slice_pressure || echo "!$TEHAS_SLICE_WHY")
@@ -279,8 +306,7 @@ tehas_slice_room() {
     echo "0 $committed $max $reserve unreadable ${pressure#!}"
     return 0
   fi
-  room=$(((max - committed) / reserve))
-  [ "$room" -gt 0 ] || { room=0 why=room; }
+  _tehas_slice_fit "$max" "$reserve" "$ceiling" "$committed" "$containers"
   # Above 10 means the whole slice stood still for more than a tenth of the
   # last minute. Compared in hundredths, with no call to awk. A slice's
   # pressure counts every stall in it, also one container's at its own

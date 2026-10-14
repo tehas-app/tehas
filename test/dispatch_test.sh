@@ -901,12 +901,29 @@ t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 
 # nproc is stubbed to 8 above, and reset()'s slice has room for ten.
-t_case "the ceiling defaults to the stubbed host's CPUs minus one: seven issues start"
+t_case "the ceiling defaults to the stubbed host's CPUs minus one: seven"
+reset
+t_instance "${T_MINIMAL[@]}"
+ready 7 8 9 10 11 12 13 14
+for n in 20 21 22 23 24 25 26; do hold "$n"; done
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "holding: 7 cycles are running (limit 7)"
+release
+
+t_case "below the ceiling, no more cycles start than the containers' ceilings fit in the slice"
 reset
 t_instance "${T_MINIMAL[@]}"
 ready 7 8 9 10 11 12 13 14
 t_run "$dispatch"
-t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 10 11 12 13 "
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 10 "
+reset
+t_instance "${T_MINIMAL[@]}"
+for d in a b c d; do slice_child "$(slice_id "$d")" "$gib" 0 0; done
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "holding: tehas.slice holds as many containers as their ceilings fit (4 of 5120m)"
+t_eq "$(jq -c '[.why, .room]' "$dispatch_json")" '["full",0]'
 
 t_case "an urgent issue is started first"
 reset
@@ -2318,11 +2335,11 @@ ready 7 8 9 10
 slice_show $((12 * gib))
 hold 12
 cid 12 a $((gib / 10))
-# A dev session at 3 GiB is not hidden inside the cycle's floor: 2 and 3 GiB
-# are promised, and three more reserves fit in the 7 GiB that are left.
-other $((3 * gib))
+# A container at 7 GiB is not hidden inside the cycle's floor: 2 and 7 GiB
+# are promised, and one more reserve fits in the 3 GiB that are left.
+other $((7 * gib))
 t_run "$dispatch"
-t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 "
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 "
 release
 
 t_case "reclaimable slab and file cache do not lower the room"
@@ -2332,7 +2349,7 @@ ready 7 8 9 10 11 12
 slice_show $((12 * gib))
 SLICE_FILE=$((8 * gib)) slice_child "$(slice_id d)" "$gib" $((6 * gib)) $((2 * gib))
 t_run "$dispatch"
-t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 10 11 "
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 "
 
 t_case "full pressure holds over half the slice promised, some pressure does not"
 reset
@@ -2421,7 +2438,7 @@ hold 9
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 t_lacks "$t_out" "holding:"
-t_eq "$(jq -r '"\(.room) \(.committed)"' "$dispatch_json")" "9 $((2 * gib))"
+t_eq "$(jq -r '"\(.room) \(.committed)"' "$dispatch_json")" "3 $((2 * gib))"
 release
 # With nothing running and the slice not active, no directory is an empty slice.
 reset
@@ -2553,7 +2570,7 @@ t_run "$dispatch"
 t_eq "$(grep -c 'released: cycles may start again' <<<"$t_out")" 1
 t_eq "$(t_calls fake-status | wc -l)" 3
 t_lacks "$t_out" "holding:"
-t_eq "$(jq -c '[.why, .hold, .room, .committed]' "$dispatch_json")" "[\"\",\"\",9,$((2 * gib))]"
+t_eq "$(jq -c '[.why, .hold, .room, .committed]' "$dispatch_json")" "[\"\",\"\",3,$((2 * gib))]"
 t_run "$dispatch"
 t_lacks "$t_out" "released"
 
@@ -2696,7 +2713,7 @@ reset
 t_run "$dispatch"
 t_lacks "$t_out" "holding:"
 t_lacks "$t_out" "released"
-t_eq "$(jq -c '[.why, .count, .room]' "$dispatch_json")" '["",0,10]'
+t_eq "$(jq -c '[.why, .count, .room]' "$dispatch_json")" '["",0,4]'
 
 t_case "a hold whose numbers change between polls is logged once"
 reset

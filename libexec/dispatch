@@ -29,10 +29,11 @@
 #   3. Running cycles and tehas PRs that wait for a human together do not
 #      exceed TEHAS_MAX_AWAITING. And a cycle starts only while tehas.slice,
 #      the systemd slice every sandbox container runs in, has room for one
-#      more TEHAS_CYCLE_RESERVE and is not under full memory pressure. Every
-#      container in the slice counts at its floor or its use, whichever is
-#      more, and a cycle that has no container yet at one reserve. A slice
-#      that is missing, has no limit or cannot be read starts nothing.
+#      more TEHAS_CYCLE_RESERVE, holds fewer containers than their ceilings
+#      fit and is not under full memory pressure. Every container in the
+#      slice counts at its floor or its use, whichever is more, and a cycle
+#      that has no container yet at one reserve. A slice that is missing, has
+#      no limit or cannot be read starts nothing.
 #   4. A box ticked by an allowed account in the bot's question comment is an
 #      answer: on a parked cycle, "Retry from a clean start" starts a fresh
 #      cycle. Rules 2 and 3 hold that back too. The tick counts only on a
@@ -644,7 +645,7 @@ done
 # otherwise the slots could overshoot the cap. Rules 2 and 3 hold back new
 # cycles only; a question is still read while they hold. $hold says why and
 # $why is the one word for it: slice, unreadable, resources, count, canary,
-# awaiting, pressure or room, the first that applies. resources is a model
+# awaiting, pressure, room or full, the first that applies. resources is a model
 # endpoint that does not answer or does not offer the model: it holds
 # planning turns and retries as well.
 #
@@ -663,7 +664,7 @@ if tehas_slice_ok; then
     room_mem=0 committed=0 slice_max=0 mem_why=unreadable mem_note=""
   fi
   case "$mem_why" in
-    pressure | unreadable) room_mem=0 ;;
+    pressure | unreadable | full) room_mem=0 ;;
     *) if [ "$room_mem" = 0 ]; then mem_why=room; else mem_why=""; fi ;;
   esac
 else
@@ -707,6 +708,7 @@ else
     case "$why" in
       pressure) hold="holding: tehas.slice is under memory pressure (full avg60 $(tehas_slice_pressure || echo unknown))" ;;
       room) hold="holding: tehas.slice has no room for another cycle ($(gib "$committed") of $(gib "$slice_max") promised, each cycle is given $TEHAS_CYCLE_RESERVE)" ;;
+      full) hold="holding: tehas.slice holds as many containers as their ceilings fit ($((slice_max / (TEHAS_SLICE_CEILING_MB * 1048576))) of ${TEHAS_SLICE_CEILING_MB}m)" ;;
     esac
   else
     want=$((free < room ? free : room))

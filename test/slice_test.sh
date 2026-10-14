@@ -178,11 +178,11 @@ good
 systemd /etc/systemd/system/tehas.slice inactive "$MAX"
 rm -rf "$T_CGROUP/tehas.slice"
 room 0
-t_eq "$t_out" "10 0 $MAX $((2 * GIB))"
+t_eq "$t_out" "4 0 $MAX $((2 * GIB))"
 
 t_case "an inactive slice with no directory and a cycle between containers promises its reserve"
 room 1
-t_eq "$t_out" "9 $((2 * GIB)) $MAX $((2 * GIB))"
+t_eq "$t_out" "3 $((2 * GIB)) $MAX $((2 * GIB))"
 
 t_case "an inactive slice with no directory and more cycles than fit has no room"
 room 11
@@ -200,10 +200,10 @@ rm -rf "$T_CGROUP/tehas.slice"
 room 0
 t_eq "$t_out" "0 0 $MAX $((2 * GIB)) unreadable tehas.slice is active and $T_CGROUP/tehas.slice is missing"
 
-t_case "an empty slice has room for the max divided by the reserve"
+t_case "an empty slice has room for four, as many as their ceilings fit"
 good
 room 0
-t_eq "$t_out" "10 0 $MAX $((2 * GIB))"
+t_eq "$t_out" "4 0 $MAX $((2 * GIB))"
 
 t_case "two cycles at 500 MiB with a floor of 2 GiB count 2 GiB each"
 good
@@ -212,25 +212,25 @@ slice_child "$b" $((500 * MIB)) 0 $((2 * GIB))
 echo "$a" >"$T/a.cid"
 printf '%s' "$b" >"$T/b.cid"
 room 2 '"$T/a.cid" "$T/b.cid"'
-t_eq "$t_out" "8 $((4 * GIB)) $MAX $((2 * GIB))"
+t_eq "$t_out" "2 $((4 * GIB)) $MAX $((2 * GIB))"
 
 t_case "a child at 3 GiB counts 3 GiB"
 slice_child "$a" $((3 * GIB)) 0 $((2 * GIB))
 room 2 '"$T/a.cid" "$T/b.cid"'
-t_eq "$t_out" "7 $((5 * GIB)) $MAX $((2 * GIB))"
+t_eq "$t_out" "2 $((5 * GIB)) $MAX $((2 * GIB))"
 
 t_case "a container that is no cycle counts too"
 good
 slice_child "$(slice_id c)" $((3 * GIB)) 0 $((2 * GIB))
 room 0
-t_eq "$t_out" "8 $((3 * GIB)) $MAX $((2 * GIB))"
+t_eq "$t_out" "3 $((3 * GIB)) $MAX $((2 * GIB))"
 
 t_case "a floor of max reads as the reserve, and no floor is the use"
 good
 slice_child "$a" $((100 * MIB)) 0 max
 slice_child "$b" $((100 * MIB)) 0 0
 room 0
-t_eq "$t_out" "8 $((2 * GIB + 100 * MIB)) $MAX $((2 * GIB))"
+t_eq "$t_out" "2 $((2 * GIB + 100 * MIB)) $MAX $((2 * GIB))"
 
 t_case "a cid file with no child adds one reserve"
 good
@@ -238,15 +238,15 @@ slice_child "$a" $((500 * MIB)) 0 $((2 * GIB))
 echo "$a" >"$T/a.cid"
 echo "$b" >"$T/b.cid"
 room 2 '"$T/a.cid" "$T/b.cid"'
-t_eq "$t_out" "8 $((4 * GIB)) $MAX $((2 * GIB))"
+t_eq "$t_out" "2 $((4 * GIB)) $MAX $((2 * GIB))"
 
 t_case "a cycle counted by count with no cid file adds one reserve"
 room 3 '"$T/a.cid" "$T/missing.cid"'
-t_eq "$t_out" "7 $((6 * GIB)) $MAX $((2 * GIB))"
+t_eq "$t_out" "1 $((6 * GIB)) $MAX $((2 * GIB))"
 
 t_case "more children than cycles add nothing for the count"
 room 0 '"$T/a.cid"'
-t_eq "$t_out" "9 $((2 * GIB)) $MAX $((2 * GIB))"
+t_eq "$t_out" "3 $((2 * GIB)) $MAX $((2 * GIB))"
 
 t_case "a cid file that is not 64 hex characters is ignored"
 good
@@ -255,25 +255,25 @@ slice_child "short" $((500 * MIB)) 0 $((2 * GIB))
 echo "short" >"$T/a.cid"
 echo "../docker-$a" >"$T/b.cid"
 room 1 '"$T/a.cid" "$T/b.cid"'
-t_eq "$t_out" "7 $((6 * GIB)) $MAX $((2 * GIB))"
+t_eq "$t_out" "1 $((6 * GIB)) $MAX $((2 * GIB))"
 
 t_case "reclaimable slab does not count"
 good
 slice_child "$a" $((3 * GIB)) $((6 * GIB)) $((2 * GIB))
 room 0
-t_eq "$t_out" "8 $((3 * GIB)) $MAX $((2 * GIB))"
+t_eq "$t_out" "3 $((3 * GIB)) $MAX $((2 * GIB))"
 
 t_case "file cache does not count"
 good
 SLICE_FILE=$((9 * GIB)) slice_child "$a" $((3 * GIB)) 0 $((2 * GIB))
 room 0
-t_eq "$t_out" "8 $((3 * GIB)) $MAX $((2 * GIB))"
+t_eq "$t_out" "3 $((3 * GIB)) $MAX $((2 * GIB))"
 
 t_case "shared memory and kernel memory that cannot be reclaimed count"
 good
 SLICE_SHMEM=$GIB SLICE_KERNEL=$GIB slice_child "$a" $((3 * GIB)) $GIB $((2 * GIB))
 room 0
-t_eq "$t_out" "7 $((5 * GIB)) $MAX $((2 * GIB))"
+t_eq "$t_out" "3 $((5 * GIB)) $MAX $((2 * GIB))"
 
 t_case "a full slice has no room and says so"
 good
@@ -285,6 +285,41 @@ t_case "more promised than the max is still room 0"
 room 4
 t_eq "$t_out" "0 $((27 * GIB)) $MAX $((2 * GIB)) room"
 
+t_case "no more containers than their ceilings fit: four, whatever the memory says"
+good
+slice_child "$a" $GIB 0 0
+slice_child "$b" $GIB 0 0
+slice_child "$(slice_id c)" $GIB 0 0
+room 0
+t_eq "$t_out" "1 $((3 * GIB)) $MAX $((2 * GIB))"
+room 1
+t_eq "$t_out" "0 $((5 * GIB)) $MAX $((2 * GIB)) full"
+slice_child "$(slice_id d)" $GIB 0 0
+slice_child "$(slice_id e)" $GIB 0 0
+room 0
+t_eq "$t_out" "0 $((5 * GIB)) $MAX $((2 * GIB)) full"
+
+t_case "a 24 GiB slice also fits four"
+good
+systemd /etc/systemd/system/tehas.slice active $((24 * GIB))
+room 3
+t_eq "$t_out" "1 $((6 * GIB)) $((24 * GIB)) $((2 * GIB))"
+room 4
+t_eq "$t_out" "0 $((8 * GIB)) $((24 * GIB)) $((2 * GIB)) full"
+
+t_case "an inactive slice with no directory is capped the same"
+good
+systemd /etc/systemd/system/tehas.slice inactive "$MAX"
+rm -rf "$T_CGROUP/tehas.slice"
+room 4
+t_eq "$t_out" "0 $((8 * GIB)) $MAX $((2 * GIB)) full"
+
+t_case "no room in memory is said before full"
+good
+slice_child "$a" $((19 * GIB)) 0 0
+room 3
+t_eq "$t_out" "0 $((25 * GIB)) $MAX $((2 * GIB)) room"
+
 t_case "full pressure above 10 holds when more than half the slice is promised"
 good
 slice_state 12.00
@@ -293,33 +328,36 @@ t_eq "$t_out" "0 $((12 * GIB)) $MAX $((2 * GIB)) pressure"
 
 t_case "full pressure of exactly 10 does not hold, a hundredth more does"
 slice_state 10.00
-room 6
-t_eq "$t_out" "4 $((12 * GIB)) $MAX $((2 * GIB))"
+slice_child "$a" $((11 * GIB)) 0 $((2 * GIB))
+room 0
+t_eq "$t_out" "3 $((11 * GIB)) $MAX $((2 * GIB))"
 slice_state 10.01
-room 6
-t_eq "$t_out" "0 $((12 * GIB)) $MAX $((2 * GIB)) pressure"
+slice_child "$a" $((11 * GIB)) 0 $((2 * GIB))
+room 0
+t_eq "$t_out" "0 $((11 * GIB)) $MAX $((2 * GIB)) pressure"
 
 t_case "pressure does not hold while half the slice or less is promised"
 good
 slice_state 12.00
 room 0
-t_eq "$t_out" "10 0 $MAX $((2 * GIB))"
-room 5
-t_eq "$t_out" "5 $((10 * GIB)) $MAX $((2 * GIB))"
+t_eq "$t_out" "4 0 $MAX $((2 * GIB))"
+slice_child "$a" $((10 * GIB)) 0 $((2 * GIB))
+room 0
+t_eq "$t_out" "3 $((10 * GIB)) $MAX $((2 * GIB))"
 
 t_case "one container thrashing at its ceiling holds nothing; near the promise it holds"
 good
 slice_state 12.00
 slice_child "$a" $((5 * GIB)) 0 $((2 * GIB))
 room 0
-t_eq "$t_out" "7 $((5 * GIB)) $MAX $((2 * GIB))"
+t_eq "$t_out" "3 $((5 * GIB)) $MAX $((2 * GIB))"
 room 3
 t_eq "$t_out" "0 $((11 * GIB)) $MAX $((2 * GIB)) pressure"
 
 t_case "some pressure alone does not hold"
 slice_state 0.08 55.00
 room 0
-t_eq "$t_out" "10 0 $MAX $((2 * GIB))"
+t_eq "$t_out" "4 0 $MAX $((2 * GIB))"
 
 t_case "the pressure is printed as the kernel wrote it"
 slice_state 3.41 55.00
@@ -361,7 +399,7 @@ good
 slice_child "$a" $((3 * GIB)) $GIB 0
 printf '%s\n' "anon $((3 * GIB))" "shmem $GIB" "slab_reclaimable $GIB" >"$T_CGROUP/tehas.slice/docker-$a.scope/memory.stat"
 room 0
-t_eq "$t_out" "8 $((4 * GIB)) $MAX $((2 * GIB))"
+t_eq "$t_out" "3 $((4 * GIB)) $MAX $((2 * GIB))"
 
 t_case "a missing memory.low is unreadable, and nothing falls back to memory.current"
 good
@@ -406,6 +444,6 @@ t_case "the room is read by the line the dispatcher uses"
 good
 slice_child "$a" $((500 * MIB)) 0 $((2 * GIB))
 t_run "$pre"'tehas_slice_ok; read -r room committed max reserve why < <(tehas_slice_room 2); echo "[$room] [$committed] [$max] [$reserve] [$why]"'
-t_eq "$t_out" "[7] [$((6 * GIB))] [$MAX] [$((2 * GIB))] []"
+t_eq "$t_out" "[1] [$((6 * GIB))] [$MAX] [$((2 * GIB))] []"
 
 t_done

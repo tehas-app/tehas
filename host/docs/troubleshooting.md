@@ -63,6 +63,10 @@ Run `tehas dispatch --dry-run` and read what it prints.
   container holds far more than its reserve, that is the one to look at:
   `systemd-cgtop /tehas.slice` shows them. A lower `TEHAS_CYCLE_RESERVE` fits
   more cycles and promises each one less.
+- `holding: tehas.slice holds as many containers as their ceilings fit (4 of
+  Nm)`: four containers are in the slice, each may grow to a quarter of it.
+  Every container counts: cycles, dev sessions, planning turns, the indexer.
+  Wait for one to end.
 - `holding: tehas.slice is under memory pressure (full avg60 N)`: every
   process in the slice waited for memory for more than a tenth of the last
   minute, and more than half of the slice is promised. Cycles start again
