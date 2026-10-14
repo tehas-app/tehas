@@ -335,7 +335,9 @@ in the background has reported back, so it ends when the agent has asked. A
 subagent that never reports holds the turn until `TEHAS_PLAN_TIMEOUT`.
 
 `--keep` names a directory the session carries from one turn to the next. The
-first form makes it anew. It holds the commit the first turn's workspace was
+first form makes it anew. It holds the approved title and body, which every
+turn's workspace gets as `.tehas/brief.md`, so a later turn never plans from
+the issue as it is now, the commit the first turn's workspace was
 at, pi-rukas's record of the plans the agent showed (its plain `.json` files,
 at most 1 MB each), and with `TEHAS_WORK_IMAGES=1` the issue's images. Every
 later turn's workspace is at that commit and gets that record back, so a plan

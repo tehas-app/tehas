@@ -16,6 +16,9 @@
 #
 # <dir> is what the session carries from one turn to the next. The first turn
 # makes it anew; the caller removes it when the session ends. It holds:
+#   brief.md        the approved text of the issue. Every turn's workspace has
+#                   it as .tehas/brief.md, so the agent never needs the issue
+#                   as it is now, which anyone may have edited since.
 #   commit          the commit the first turn's workspace was at. Every later
 #                   turn's workspace is at the same one, so what the agent
 #                   reviewed with the operator is what it files.
@@ -174,6 +177,10 @@ if ! mkdir -p "$keep"; then
   echo "tehas plan: could not make $keep, not starting a turn" >&2
   exit 78
 fi
+if [ -n "$brief" ] && ! cp "$brief" "$keep/brief.md"; then
+  echo "tehas plan: could not keep the brief in $keep, not starting a turn" >&2
+  exit 78
+fi
 
 # The issue's images, once per session, from the first turn.
 image_opts=()
@@ -240,16 +247,22 @@ else
     echo "tehas plan: could not carry the plan cache into $tree" >&2
 fi
 
-args=()
-if [ -n "$brief" ]; then
-  # The agent plans from the text that was approved, so it is handed over as a
-  # file and not fetched again from the tracker, where it may have changed.
-  # One line as the prompt: /plan quotes its argument inside a sentence.
-  if ! { mkdir -p "$tree/.tehas" "$tree/.git/info" && cp "$brief" "$tree/.tehas/brief.md" &&
+# The agent plans from the text that was approved, so it is handed over as a
+# file and not fetched again from the tracker, where it may have changed. A
+# later turn gets it too: after a compaction the agent reads it again.
+if [ -f "$keep/brief.md" ]; then
+  if ! { mkdir -p "$tree/.tehas" "$tree/.git/info" && cp "$keep/brief.md" "$tree/.tehas/brief.md" &&
     echo ".tehas/" >>"$tree/.git/info/exclude"; }; then
     echo "tehas plan: could not put the brief into $tree" >&2
     exit 78
   fi
+else
+  echo "tehas plan: no brief on record for this session, the turn has none"
+fi
+
+args=()
+if [ -n "$brief" ]; then
+  # One line as the prompt: /plan quotes its argument inside a sentence.
   message="/plan the work described in the file .tehas/brief.md, which holds the approved text of issue #$issue. Read the file first. When you need a decision from the operator, call the question tool or ask in your message, then end your turn: the answer arrives as the next message."
 else
   message=$(cat "$answer")

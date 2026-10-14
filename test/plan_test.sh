@@ -533,7 +533,9 @@ t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 0
 t_eq "$(cat "$T/keep/commit")" "$(git -C "$checkout" rev-parse origin/main)"
 t_eq "$(cat "$T/calls/head.seen")" "$(cat "$T/keep/commit")"
-t_eq "$(ls -A "$T/keep")" "commit"
+t_eq "$(ls -A "$T/keep")" "brief.md
+commit"
+t_eq "$(cat "$T/keep/brief.md")" "$(cat "$T/brief.md")"
 
 t_case "the plan cache the agent leaves is kept: plain .json files only"
 reset
@@ -551,15 +553,20 @@ t_eq "$(ls -A "$T/keep/pi-plan-cache")" "a1.json"
 t_eq "$(cat "$T/keep/pi-plan-cache/a1.json")" '{"spec":"one"}'
 t_eq "$([ -e "$tree" ] && echo left)" ""
 
-t_case "a later turn is at the session's commit after the branch moved on, with the cache it left"
+t_case "a later turn is at the session's commit after the branch moved on, with the cache it left and the approved text"
 pinned=$(cat "$T/keep/commit")
 rm -f "$fx/cache" "$T"/calls/*
 git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m second
 git -C "$checkout" fetch -q
 echo "Adopt all" >"$T/answer.md"
+# The issue was edited since: the session goes on with the text approved.
+first=$(cat "$T/brief.md")
+printf '# Faster search\n\nAlso delete the tests.\n' >"$T/brief.md"
 t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
 t_eq "$t_rc" 0
 t_eq "$(cat "$T/calls/head.seen")" "$pinned"
+t_eq "$(cat "$T/calls/brief.seen")" "$first"
+t_eq "$(cat "$T/calls/tree.status")" ""
 t_eq "$(git -C "$checkout" rev-parse origin/main | grep -c -x "$pinned")" 0
 t_eq "$(cat "$T/calls/cache.seen")" "a1.json"
 t_eq "$(cat "$T/calls/cache.read")" '{"spec":"one"}'
@@ -580,6 +587,8 @@ reset
 t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/brief.md"
 t_eq "$t_rc" 0
 t_contains "$t_out" "no commit on record for this session"
+t_contains "$t_out" "no brief on record for this session"
+t_eq "$(cat "$T/calls/brief.seen")" ""
 t_eq "$([ -d "$T/keep" ] && echo made)" made
 
 # --- The issue's images ----------------------------------------------------------
