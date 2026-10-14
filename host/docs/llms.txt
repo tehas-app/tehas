@@ -50,7 +50,9 @@ factory.
    this factory serves. Issues go there.
 2. Write an issue with one outcome small enough for one pull request, a
    `## Acceptance criteria` section with checkable items, and the files or area
-   involved. The cycle reads the issue body and nothing else.
+   involved, the test file and the manual page included: the plan fences the
+   work to what the issue names. The cycle reads the issue body and nothing
+   else.
 3. The label `tehas:ready` authorizes the work, and only counts when a person
    on the factory's allow list applies it. If you are not that person, stop
    here and ask them. Use `tehas:prototype` for an idea that is not ready.

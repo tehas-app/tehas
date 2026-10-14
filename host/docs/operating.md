@@ -93,7 +93,13 @@ The cycle reads the issue body and nothing else. Give it:
 
 - one outcome, small enough for one pull request,
 - a `## Acceptance criteria` section with checkable items,
-- the files or area involved, if you know them.
+- the files or area involved, if you know them,
+- the test file and the manual page the change will touch.
+
+Name the tests and the pages even when they seem obvious: the plan fences the
+work to what the issue names, and a cycle that changes a file outside the
+fence parks with `verify-failed:develop` (see
+[Troubleshooting](/troubleshooting)).
 
 Vague issues park at the first step with "underspecified". Text in the issue is
 treated as untrusted input: it cannot change the gates, and the cycle halts if
