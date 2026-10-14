@@ -96,6 +96,7 @@ tehas_image_type() {
   esac
 }
 
+# shellcheck disable=SC2034  # the caller reads what this sets
 tehas_issue_images() { # <issue> <dir>
   local issue=$1 images=$2 data who ref name ext size rc left used=0 count=0
   local limit=$((10 * 1024 * 1024)) max=8
