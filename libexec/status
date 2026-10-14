@@ -13,6 +13,13 @@
 # title and no issue number. Without an answer to that call the snapshot is
 # written with no words, and the page counts the tickets it does list.
 #
+# It also writes live/platform.json: the commit the platform checkout
+# ($TEHAS_HOME/platform) is at and how many commits it is behind origin's
+# default branch, so a host that needs tehas update says so. The checkout is
+# fetched at most once an hour, under a time limit; a fetch that fails is
+# tried again an hour later and changes nothing else. A host with no such
+# checkout has no file.
+#
 # Usage: tehasbot status          (prints nothing; exit 0 even when GitHub is down,
 #                                 the previous file is then left in place;
 #                                 exit 78 when the instance settings are invalid)
@@ -29,6 +36,42 @@ live=$TEHAS_HOME/live
 mkdir -p "$live"
 # Whatever happens below, refresh the health file from what is on disk.
 trap '"$here/health" 2>/dev/null || true' EXIT
+
+fetch_every=3600
+fetch_limit=60
+platform() {
+  local co=$TEHAS_HOME/platform stamp=$TEHAS_HOME/state/platform-fetch last=0 now upstream head behind since fetched=""
+  [ -e "$co/.git" ] || { rm -f "$live/platform.json"; return 0; }
+  now=$(date +%s)
+  read -r last fetched <"$stamp" 2>/dev/null || true
+  [[ $last =~ ^[0-9]+$ ]] || last=0
+  [[ $fetched =~ ^[0-9]+$ ]] || fetched=""
+  if [ $((now - last)) -ge "$fetch_every" ]; then
+    # The attempt is remembered first, so a fetch that hangs or fails is not
+    # tried at every poll.
+    mkdir -p "${stamp%/*}"
+    echo "$now $fetched" >"$stamp"
+    if timeout "$fetch_limit" git -C "$co" fetch -q origin >/dev/null 2>&1 </dev/null; then
+      fetched=$now
+      echo "$now $fetched" >"$stamp"
+    fi
+  fi
+  upstream=$(git -C "$co" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null) ||
+    upstream=origin/$(git -C "$co" symbolic-ref --quiet --short HEAD 2>/dev/null)
+  head=$(git -C "$co" rev-parse --quiet --verify HEAD 2>/dev/null) || head=""
+  behind=$(git -C "$co" rev-list --count "HEAD..$upstream" 2>/dev/null) || behind=""
+  # When the oldest commit main has and this checkout lacks landed there.
+  since=$(git -C "$co" log --first-parent --reverse --format=%ct "HEAD..$upstream" 2>/dev/null | head -n 1)
+  jq -n --arg now "$(date -u +%FT%TZ)" --arg commit "$head" --arg upstream "$upstream" --arg behind "$behind" \
+    --arg since "$since" --arg fetched "$fetched" '
+    def num: if test("^[0-9]+$") then tonumber else null end;
+    {generatedAt: $now, commit: (if $commit == "" then null else $commit end),
+     upstream: $upstream, behind: ($behind | num),
+     behindSince: ($since | num | if . == null then null else todate end),
+     fetchedAt: ($fetched | num | if . == null then null else todate end)}' \
+    >"$live/platform.json.new" 2>/dev/null && mv "$live/platform.json.new" "$live/platform.json"
+}
+platform
 
 issues=$(gh issue list --repo "$repo" --state all --limit 200 \
   --search 'label:"tehas:ready","tehas:running","tehas:awaiting-merge","needs-human-attention" sort:updated-desc' \

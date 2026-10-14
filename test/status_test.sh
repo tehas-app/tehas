@@ -370,6 +370,89 @@ t_run "$health"
 t_eq "$(jq -c '[.[].issue]' "$live/endings.json")" '[12]'
 t_eq "$(jq -c '[.checks.failed[].issue]' "$live/health.json")" '[12]'
 
+# The platform checkout: a clone of a local origin, which a case moves ahead.
+g() { git -c user.name=t -c user.email=t@example.invalid -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
+platform_setup() {
+  rm -rf "$T/origin" "$T/origin.git" "$T/home/tehas/platform" "$T/home/tehas/state/platform-fetch"
+  g init -q "$T/origin"
+  g -C "$T/origin" commit -q --allow-empty -m one
+  g clone -q --bare "$T/origin" "$T/origin.git"
+  g clone -q "$T/origin.git" "$T/home/tehas/platform"
+}
+origin_ahead() { # <commits> <date>
+  local i
+  for ((i = 0; i < $1; i++)); do
+    GIT_COMMITTER_DATE=$2 GIT_AUTHOR_DATE=$2 g -C "$T/origin" commit -q --allow-empty -m "ahead $i"
+  done
+  g -C "$T/origin" push -q "$T/origin.git" main
+}
+
+t_case "platform: an up to date checkout is said, and passes"
+reset
+platform_setup
+t_run "$status && $summary"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .status "$live/health.json")" pass
+t_contains "$t_out" "platform  $(git -C "$T/home/tehas/platform" rev-parse --short=7 HEAD), up to date with origin/main, fetched "
+t_eq "$(jq -r .checks.platform.behind "$live/health.json")" 0
+
+t_case "platform: behind for more than a day is a warning that says how far"
+platform_setup
+origin_ahead 2 "$(date -u -d '-2 days' +%FT%TZ)"
+t_run "$status && $summary"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .status "$live/health.json")" warn
+t_eq "$(jq -r .output "$live/health.json")" "The platform is 2 commits behind origin/main since $(date -u -d '-2 days' +%F): run tehas update."
+t_contains "$t_out" "platform  $(git -C "$T/home/tehas/platform" rev-parse --short=7 HEAD), 2 commits behind origin/main since $(date -u -d '-2 days' +%F)"
+
+t_case "platform: behind for less than a day is said and passes"
+platform_setup
+origin_ahead 1 "$(date -u -d '-2 hours' +%FT%TZ)"
+t_run "$status && $summary"
+t_eq "$(jq -r .status "$live/health.json")" pass
+t_contains "$t_out" "1 commits behind origin/main"
+
+t_case "platform: the checkout is fetched at most once an hour"
+platform_setup
+t_run "$status"
+origin_ahead 1 "$(date -u -d '-2 days' +%FT%TZ)"
+t_run "$status"
+t_eq "$(jq -r .behind "$live/platform.json")" 0
+read -r last _ <"$T/home/tehas/state/platform-fetch"
+echo "$((last - 3601)) $((last - 3601))" >"$T/home/tehas/state/platform-fetch"
+t_run "$status"
+t_eq "$(jq -r .behind "$live/platform.json")" 1
+
+t_case "platform: a fetch that fails is no error, and is not tried again for an hour"
+platform_setup
+mv "$T/origin.git" "$T/origin.gone"
+echo "1 1" >"$T/home/tehas/state/platform-fetch"
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$t_out" ""
+t_eq "$(jq -r .fetchedAt "$live/platform.json")" "1970-01-01T00:00:01Z"
+read -r last _ <"$T/home/tehas/state/platform-fetch"
+t_eq "$(( $(date +%s) - last < 60 ))" 1
+mv "$T/origin.gone" "$T/origin.git"
+
+t_case "platform: with GitHub down the checkout is still read"
+platform_setup
+: >"$T/gh-down"
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .behind "$live/platform.json")" 0
+rm -f "$T/gh-down"
+
+t_case "platform: no checkout, no file and no line"
+reset
+rm -rf "$T/home/tehas/platform"
+mkdir -p "$live"
+echo '{}' >"$live/platform.json"
+t_run "$status && $summary"
+t_eq "$([ -e "$live/platform.json" ] && echo there)" ""
+t_lacks "$t_out" "platform"
+t_eq "$(jq -r .checks.platform "$live/health.json")" null
+
 t_case "summary: a health file older than ten minutes is not believed, exit 1"
 reset
 t_run "$status"

@@ -522,10 +522,12 @@ factory   pass: Idle, taking work. (40 s ago)
 queue     2 in line, 0 building, 1 in review, 0 stopped (40 s ago)
 cycle     #12 handoff at step review, 3 min ago
 slice     room for 2 cycles (4 GiB of 20 GiB promised, reserve 2g, 40 s ago)
+platform  cb6912a, 19 commits behind origin/main since 2026-10-13, fetched 20 min ago
 ```
 
 Prints the state of the factory from the [health file](#tehasbot-health): is
-it taking work, what is in the queue and how old that snapshot is, the current or last cycle, and what the
+it taking work, what is in the queue and how old that snapshot is, how far
+the platform checkout is behind origin (on a host that has one), the current or last cycle, and what the
 dispatcher's last poll read of `tehas.slice`. The `slice` line reads
 `holding: ...` when that poll held cycles back, and `unknown: no poll has
 reported in 10 min` when no poll read the slice in that time. It reads
@@ -664,6 +666,16 @@ Feed the [factory floor](/) and the [plain dashboard](/dashboard). `tehasbot sta
 Completed means closed by a merged pull request, whatever labels the issue was
 left with. `tehasbot status` gives each such issue `tehas:shipped`, so GitHub
 lists the same issues; run `tehas labels` once so the label exists.
+
+`tehasbot status` also writes `~/tehas/live/platform.json`: the commit the
+platform checkout `~/tehas/platform` is at, `upstream` (origin's default
+branch), how many commits it is `behind`, `behindSince` (when the oldest of
+those landed on that branch) and `fetchedAt`. It fetches the checkout at most
+once an hour, with a limit of 60 seconds; the time of the last try is in
+`~/tehas/state/platform-fetch`. A fetch that fails is no error and is tried
+again an hour later. Nothing else in the checkout changes: `tehas update`
+does that. A host with no checkout there has no file.
+
 `~/tehas/libexec/console` is started by the work
 script and follows the cycle's agents into `~/tehas/live/console-<issue>.txt`, masking
 tokens, passwords and private network addresses, and writing no control
@@ -706,7 +718,7 @@ serves the file at `/health` and `/healthz` as `application/health+json`.
 | `status` | Meaning                                                                                  | HTTP |
 | -------- | ---------------------------------------------------------------------------------------- | ---- |
 | `pass`   | Taking work, idle or in a cycle                                                          | 200  |
-| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (`tehas:pause` on the control issue), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read | 200  |
+| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (`tehas:pause` on the control issue), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`) | 200  |
 | `fail`   | The last cycle ended as anything but `merged` or `handoff` and no cycle has started since, or there is no queue snapshot | 503  |
 
 `output` says the same in a sentence. `checks.queue` has the snapshot time and
@@ -720,6 +732,9 @@ one failed does not clear it. A cycle that has written nothing for two
 minutes and whose issue's lock (`state/cycles/<issue>.lock`) nobody holds is
 recorded as ended with the status `lost`, which is a failure. While
 `tehasbot cycle` still holds the lock, the cycle stays running.
+
+`checks.platform` is `live/platform.json`, or `null` on a host without a
+platform checkout.
 
 `checks.failed` lists the cycles among the last ten that ended, newest first,
 that ended as anything but `merged` or `handoff`: `issue`, `status`, `step`,

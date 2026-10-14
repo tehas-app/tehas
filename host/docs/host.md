@@ -99,6 +99,11 @@ tehas update --check     # report what would change; changes no file of the
 tehas update             # pull, install, run the follow-ups that apply
 ```
 
+You do not have to remember to look. `tehas status` has a `platform` line
+that says how many commits the checkout is behind origin's default branch,
+which `tehasbot status` fetches at most once an hour, and `/health` says
+`warn` once it has been behind for more than a day.
+
 `tehas update` is the three steps that took hand work before: fast-forward
 `~/tehas/platform` from its remote, run `install.sh`, then run each follow-up it
 asks for by name (`units`, `sandbox`, `docs`, `edge`: see [Commands](/tools)).
