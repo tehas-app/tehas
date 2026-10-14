@@ -119,6 +119,13 @@ Run `tehas dispatch --dry-run` and read what it prints.
 - `another poll, or tehas index, holds the dispatcher's lock`: a poll or an
   index run is under way. Try again in a minute. A running cycle does not hold
   this lock.
+- `WARN: the dispatcher's lock has been held since <time>, more than Ns: a
+  poll or tehas index hangs, and no poll runs until it ends`: logged once by
+  the first poll that finds the lock held longer than `TEHAS_PLAN_TIMEOUT`
+  plus half an hour. No sweep, start or planning turn runs meanwhile. Look for
+  the hung process with `systemctl --user status tehas-dispatch.service`; the
+  unit stops a poll after 3 hours by itself. `~/tehas/state/dispatch.taken`
+  holds when the lock was taken, in seconds since 1970.
 - `ERROR: gh ... failed`: a GitHub call did not answer, or the control issue
   does not exist. The poll ends there on purpose: the pause switch, the limit
   and the labeller check are never decided on an answer that did not come.

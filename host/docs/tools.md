@@ -70,7 +70,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_WORK_IMAGES`             | `0`                                      | `1` gives a cycle and a planning session the images its issue text links: see [tehas work](#tehas-work) and [tehas plan](#tehas-plan). The model must declare `"image"` in its `input` in `models.json` and answer a request with an image, else the dispatcher holds every cycle |
 | `TEHAS_VERIFY_TIMEOUT`          | `1800`                                   | Seconds one run of the product's gate may take inside a cycle. A gate that takes longer is stopped and the cycle parks. Passed to pi-rukas as `PI_ENSEMBLE_VERIFY_TIMEOUT_MS` and `PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS`; pi-rukas alone allows ten minutes |
 | `TEHAS_PLAN_MAX_TURNS`          | `20`                                     | Turns a planning session may take before it is ended            |
-| `TEHAS_PLAN_TIMEOUT`            | `3600`                                   | Seconds before one planning turn is given up                    |
+| `TEHAS_PLAN_TIMEOUT`            | `3600`                                   | Seconds before one planning turn is given up. At most 7200: [the poll's unit](/host#time-limits) stops a poll after 3 hours |
 | `PI_ENSEMBLE_HOST_ALIASES`      | empty                                    | `name:address` pairs the sandbox must resolve, comma separated  |
 | `PI_ENSEMBLE_IMAGE`             | `tehas/pi-rukas:uid<uid>`                | The sandbox image                                               |
 
@@ -218,10 +218,11 @@ waits until `.pi/work-state/<issue>.json` in the workspace `~/tehas/work/<name>-
 
 It holds the issue's lock, `~/tehas/state/cycles/<issue>.lock`, while it runs.
 Run by hand for an issue whose cycle is running, it refuses before it moves
-anything (exit 5). A container left under the name `tehas-work-<issue>` is
-then no cycle's, and is removed before the new one starts. Under `tehasbot cycle` it is handed that lock, already
+anything (exit 5). Under `tehasbot cycle` it is handed that lock, already
 held, and goes on. While a run by hand holds the lock, the dispatcher counts it
-as the issue's cycle and starts no other for the issue.
+as the issue's cycle and starts no other for the issue. With the lock held, a
+container left under the name `tehas-work-<issue>` is no cycle's: it is
+removed before the new one starts.
 
 | Exit | Meaning                                                          |
 | ---- | ---------------------------------------------------------------- |

@@ -122,8 +122,11 @@ prune_index() { # <dir> <epoch this run started>
 # held by the caller, who has also looked at the cycles.
 mkdir -p "$TEHAS_HOME/state" "$TEHAS_HOME/logs" "$TEHAS_HOME/tmp" "$index"
 if [ "$cycle" = 0 ]; then
-  exec 8>"$TEHAS_HOME/state/dispatch.lock"
+  exec 8>>"$TEHAS_HOME/state/dispatch.lock"
   flock -n 8 || { echo "tehas index: the dispatcher's lock is held by a poll or another index run, nothing was indexed; run it again in a moment" >&2; exit 3; }
+  # When the lock was taken, as a poll records it: a poll that finds it held
+  # for too long says so.
+  date +%s >"$TEHAS_HOME/state/dispatch.taken" || true
   running=$(tehas_cycles_running | tr '\n' ' ')
   [ -z "$running" ] ||
     { echo "tehas index: a cycle is running (issue ${running% }), nothing was indexed; run it again afterwards" >&2; exit 3; }

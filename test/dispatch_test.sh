@@ -70,6 +70,7 @@ t_stub sleep '[ "$1" = 10 ] || PATH=/usr/bin:/bin exec sleep "$@"'
 # Writes a recorded outcome where the dispatcher asked for it. A failing turn
 # leaves what the file plan-fails holds, if anything.
 t_stub fake-plan 'cat "$T/home/tehas/state/plan-$1.json" >"$T/calls/record.at-turn" 2>/dev/null
+[ ! -e "/proc/$$/fd/8" ] || : >"$T/calls/plan.fd8"
 out=""
 while [ "$#" -gt 0 ]; do [ "$1" = --out ] && out=$2; shift; done
 if [ -e "$T/fx/plan-fails" ]; then
@@ -79,6 +80,7 @@ fi
 cp "$T/fx/plan-result.json" "$out"'
 # Notes what the checkout was at and whether a cycle had already started.
 t_stub fake-index 'git -C "$T/home/tehas/repos/widget" rev-parse HEAD >"$T/calls/index.head"
+[ ! -e "/proc/$$/fd/8" ] || : >"$T/calls/index.fd8"
 [ ! -e "$T/calls/fake-start" ] || : >"$T/calls/index.late"
 [ ! -e "$T/fx/index-fails" ] || exit 1'
 # The slice as systemd and Docker describe it, from fixture files. Its use is
@@ -720,6 +722,45 @@ kill "$(cat "$T/live.pid")" 2>/dev/null
 t_eq "$t_rc" 0
 t_eq "$alive" yes
 t_eq "$free" free
+
+t_case "the poll's lock is not handed to the index"
+reset
+t_run "$dispatch"
+t_eq "$(t_calls fake-index)" "--before-cycle"
+t_eq "$(find "$T/calls/index.fd8" 2>/dev/null | wc -l)" 0
+
+t_case "a real poll records when it took the lock"
+t_eq "$(($(date +%s) - $(cat "$T/home/tehas/state/dispatch.taken") < 60))" 1
+
+t_case "a poll that finds the lock held for longer than a turn may take says so once, and exits 0"
+reset
+taken_file=$T/home/tehas/state/dispatch.taken
+rm -f "$T/home/tehas/state/dispatch.stuck"
+echo $(($(date +%s) - 6000)) >"$taken_file"
+exec {lockfd}>>"$T/home/tehas/state/dispatch.lock"
+flock -n "$lockfd"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN: the dispatcher's lock has been held since"
+t_contains "$t_out" "more than 5400s: a poll or tehas index hangs, and no poll runs until it ends"
+t_eq "$(t_calls gh)" ""
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$t_out" ""
+
+t_case "a poll that finds the lock held for a short while says nothing"
+stamp=$(($(date +%s) - 60))
+echo "$stamp" >"$taken_file"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$t_out" ""
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "another poll, or tehas index, holds the dispatcher's lock"
+t_lacks "$t_out" "WARN"
+
+t_case "a poll that finds the lock held does not change when it was taken"
+t_eq "$(cat "$taken_file")" "$stamp"
+exec {lockfd}>&-
 
 t_case "while a cycle is running nothing is started"
 reset
@@ -1744,6 +1785,9 @@ to_plan
 echo '[{"number":1},{"number":2},{"number":3}]' >"$fx/awaiting.json"
 t_run "$dispatch"
 t_contains "$(plan_calls)" "--brief"
+
+t_case "the poll's lock is not handed to a planning turn"
+t_eq "$(find "$T/calls/plan.fd8" 2>/dev/null | wc -l)" 0
 
 t_case "the pause label stops planning"
 to_plan

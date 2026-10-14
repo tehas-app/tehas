@@ -216,7 +216,9 @@ plan_turn() {
   fi
   refresh_checkout
   rm -f "$out"
-  "${plan_cmd:?}" "$n" --out "$out" --keep "$st.keep" "${args[@]}" >>"$TEHAS_HOME/logs/dispatch-plan-$n.log" 2>&1 &
+  # The poll's lock is not passed on: a turn's children that outlive a poll
+  # killed outright must not stop every later poll.
+  "${plan_cmd:?}" "$n" --out "$out" --keep "$st.keep" "${args[@]}" >>"$TEHAS_HOME/logs/dispatch-plan-$n.log" 2>&1 8>&- &
   wait_for $!
   rc=$?
   plan_finish "$n" "$rc" "$turns" "$sid"

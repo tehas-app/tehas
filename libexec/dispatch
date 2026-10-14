@@ -169,9 +169,27 @@ tehas_checkout || exit 78
 branch=$(tehas_branch) || exit 78
 
 mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/logs" "$TEHAS_HOME/live"
-# Held for the poll only. A cycle holds the lock of its own issue.
-exec 8>"$TEHAS_HOME/state/dispatch.lock"
-flock -n 8 || { [ "$dry" = 1 ] && log "another poll, or tehas index, holds the dispatcher's lock"; exit 0; }
+# Held for the poll only. A cycle holds the lock of its own issue. Opened
+# without truncating it: a poll that finds it held changes nothing.
+exec 8>>"$TEHAS_HOME/state/dispatch.lock"
+# When the lock was last taken, and the take a hang was last said for.
+taken=$TEHAS_HOME/state/dispatch.taken
+stuck=$TEHAS_HOME/state/dispatch.stuck
+if ! flock -n 8; then
+  [ "$dry" = 0 ] || log "another poll, or tehas index, holds the dispatcher's lock"
+  # Every later poll stops here while one hangs, so the hang is said, once
+  # for each take of the lock. A poll may take a planning turn's time limit,
+  # and the index and GitHub's calls on top.
+  at=$(head -c 16 "$taken" 2>/dev/null | head -n 1) || at=""
+  bound=$((TEHAS_PLAN_TIMEOUT + 1800))
+  if [[ $at =~ ^[0-9]{1,12}$ ]] && [ $(($(date +%s) - at)) -gt "$bound" ] &&
+    { [ "$dry" = 1 ] || [ "$(head -c 16 "$stuck" 2>/dev/null)" != "$at" ]; }; then
+    log "WARN: the dispatcher's lock has been held since $(date -u -d "@$at" +%FT%TZ), more than ${bound}s: a poll or tehas index hangs, and no poll runs until it ends"
+    [ "$dry" = 1 ] || echo "$at" >"$stuck" || log "WARN: could not write $stuck"
+  fi
+  exit 0
+fi
+date +%s >"$taken" || log "WARN: could not write $taken"
 
 # gh_json <gh arguments>: the answer in $json. A failed call ends the poll:
 # no rule below may be decided on an answer that never came. Always call it as
@@ -526,7 +544,7 @@ start_cycles() {
   # still works, so a failure here is a warning.
   if [ "$count" = 0 ]; then
     index_log=$TEHAS_HOME/logs/dispatch-work-${picked[0]}.log
-    "$index_cmd" --before-cycle >>"$index_log" 2>&1 ||
+    "$index_cmd" --before-cycle >>"$index_log" 2>&1 8>&- ||
       log "WARN: the code index was not refreshed, see $index_log"
   else
     log "the code index stays as it is: a cycle is running on #${running// /, #}"

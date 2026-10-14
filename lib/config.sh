@@ -291,6 +291,12 @@ tehas_load() {
     tehas_err "TEHAS_WORK_TIMEOUT ($TEHAS_WORK_TIMEOUT) is more than 25200: tehas-cycle@.service stops a cycle after 8 hours, and the stop and the report need the hour after the limit (see $file)"
     return 78
   fi
+  # tehas-dispatch.service stops a poll after 3 hours (TimeoutStartSec). A
+  # poll runs one planning turn or refreshes the index, and calls GitHub.
+  if [ "$TEHAS_PLAN_TIMEOUT" -gt 7200 ]; then
+    tehas_err "TEHAS_PLAN_TIMEOUT ($TEHAS_PLAN_TIMEOUT) is more than 7200: tehas-dispatch.service stops a poll after 3 hours, and a poll needs time around its planning turn (see $file)"
+    return 78
+  fi
   if [ "$TEHAS_PREVIEWS" = 1 ] && [ -z "$TEHAS_DOMAIN" ]; then
     tehas_err "TEHAS_PREVIEWS is 1 and TEHAS_DOMAIN is not set: a preview has no address without it (see $file)"
     return 78

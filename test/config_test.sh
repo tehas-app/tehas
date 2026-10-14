@@ -55,6 +55,19 @@ t_instance "${T_MINIMAL[@]}"
 t_case "the cycle unit's limit is the longest time limit accepted plus an hour"
 t_eq "$(sed -n 's/^RuntimeMaxSec=//p' "$T_ROOT/host/systemd/tehas-cycle@.service")" "8h"
 
+t_case "a planning turn's time limit that the poll's unit would cut is refused"
+t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=7201
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "TEHAS_PLAN_TIMEOUT (7201) is more than 7200: tehas-dispatch.service stops a poll after 3 hours"
+t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=7200
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=0"
+t_instance "${T_MINIMAL[@]}"
+
+t_case "the poll's unit has a finite limit, an hour above the longest turn accepted"
+t_eq "$(sed -n 's/^TimeoutStartSec=//p' "$T_ROOT/host/systemd/tehas-dispatch.service")" "3h"
+
 t_case "an instance can lower the workstreams, and pi-rukas is told the same number"
 t_instance "${T_MINIMAL[@]}" TEHAS_CONCURRENCY=1
 t_run "$load && echo \"\$TEHAS_CONCURRENCY \$PI_ENSEMBLE_MAX_WORKSTREAMS\""
