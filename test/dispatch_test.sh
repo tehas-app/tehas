@@ -2162,7 +2162,12 @@ mesh() { # [<the endpoint's answer>]
   rm -f "$fx/mesh.json"
   [ "$#" = 0 ] || echo "$1" >"$fx/mesh.json"
 }
-t_stub curl 'cat "$T/fx/mesh.json" 2>/dev/null'
+# A request with an image is answered when the file reads-images is there; what
+# was sent is kept.
+t_stub curl 'case "$*" in
+  *"/chat/completions") cat >"$T/calls/curl-body"; [ -e "$T/fx/reads-images" ] ;;
+  *) cat "$T/fx/mesh.json" 2>/dev/null ;;
+esac'
 
 t_case "an endpoint that offers the model holds nothing back"
 reset
@@ -2189,6 +2194,59 @@ not json|the model endpoint offers no models
 {"data":[]}|the model endpoint offers no models
 {"data":[{"id":"other"}]}|the model endpoint does not offer test-model
 CASES
+
+# The model as models.json declares it, with the input it takes.
+declares() { # <input list as JSON>
+  jq -n --argjson input "$1" '{providers: {"test-provider": {baseUrl: "http://mesh.test/v1",
+    models: [{id: "other", input: ["text", "image"]}, {id: "test-model", input: $input}]}}}' >"$T/home/.pi/agent/models.json"
+}
+
+t_case "without images for a cycle the model is not asked to read one"
+reset
+mesh '{"data":[{"id":"test-model"}]}'
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$(t_calls curl)" "chat/completions"
+
+t_case "with images for a cycle, a model that declares image input and answers one holds nothing back"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
+mesh '{"data":[{"id":"test-model"}]}'
+declares '["text","image"]'
+: >"$fx/reads-images"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(jq -r .why "$dispatch_json")" ""
+t_contains "$(t_calls curl)" "-m 30 -H Content-Type: application/json -d @- http://mesh.test/v1/chat/completions"
+t_eq "$(jq -c '[.model, .max_tokens, (.messages[0].content | map(.type))]' "$T/calls/curl-body")" '["test-model",1,["text","image_url"]]'
+t_eq "$(jq -r '.messages[0].content[1].image_url.url' "$T/calls/curl-body" | cut -d, -f2 | base64 -d | head -c 8 | od -An -tx1 | tr -d ' \n')" "89504e470d0a1a0a"
+
+t_case "no resources: the model does not declare image input, and it is not asked"
+for input in '["text"]' 'null'; do
+  reset
+  t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
+  mesh '{"data":[{"id":"test-model"}]}'
+  declares "$input"
+  : >"$fx/reads-images"
+  t_run "$dispatch"
+  t_eq "$(t_calls fake-start)" ""
+  t_lacks "$(t_calls gh)" "issue edit"
+  t_eq "$(jq -c '[.why, .hold]' "$dispatch_json")" '["resources","holding: no resources: test-model does not declare image input in models.json, and TEHAS_WORK_IMAGES is 1"]'
+  t_lacks "$(t_calls curl)" "chat/completions"
+done
+
+t_case "no resources: the model declares image input and does not answer an image"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
+mesh '{"data":[{"id":"test-model"}]}'
+declares '["text","image"]'
+rm -f "$fx/reads-images"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_eq "$(jq -c '[.why, .hold]' "$dispatch_json")" '["resources","holding: no resources: test-model does not answer an image, and TEHAS_WORK_IMAGES is 1"]'
+t_lacks "$(cat "$dispatch_json")" "mesh.test"
+rm -f "$fx/reads-images"
 
 t_case "no resources is logged once, with nothing in line as well, and released when the endpoint is back"
 reset

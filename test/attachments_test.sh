@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# Tests for lib/attachments.sh: which links count as attached files, the type
+# table, and where the token goes when a file is fetched. A stub curl records
+# its arguments and what it is given on standard input.
+# shellcheck disable=SC2016  # stub bodies and snippets are expanded when they run
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh"
+
+lib=". $T_ROOT/lib/attachments.sh"
+t_stub curl 'for a in "$@"; do [ "$a" != "@-" ] || { printf "stdin: "; cat; } >>"$T/calls/curl-stdin"; done
+printf image/png
+exit "${CURL_RC:-0}"'
+
+t_case "sourcing it prints nothing and writes nothing"
+before=$(find "$T" | LC_ALL=C sort)
+t_run "$lib"
+t_eq "$t_rc$t_out" "0"
+t_eq "$(find "$T" | LC_ALL=C sort)" "$before"
+
+t_case "only links to GitHub's attachment storage are taken, in the order written"
+text='![a](https://github.com/user-attachments/assets/1111-aa) see https://example.com/x.png
+[b.png](https://github.com/user-attachments/files/21/b.png) <img src="https://github.com/acme/widget/assets/42/cc-dd">
+https://user-images.githubusercontent.com/9/shot.png https://github.com/acme/widget/blob/main/x.png
+http://github.com/user-attachments/assets/plain https://github.com.evil.example/user-attachments/assets/2222'
+t_run "$lib; jq -rn --arg t '$text' \"\$(tehas_attachment_links) \"'\$t | links[]'"
+t_eq "$t_out" "https://github.com/user-attachments/assets/1111-aa
+https://github.com/user-attachments/files/21/b.png
+https://github.com/acme/widget/assets/42/cc-dd
+https://user-images.githubusercontent.com/9/shot.png"
+
+t_case "the kind of a file follows its extension, and an unknown one fails"
+t_run "$lib; for e in png jpg jpeg gif webp svg avif mp4 webm mov html htm css js mjs json txt; do tehas_attachment_kind \$e; done | tr '\n' ' '"
+t_eq "$t_out" "image image image image image image image video video video app app part part part part part "
+t_run "$lib; tehas_attachment_kind zip"
+t_eq "$t_rc$t_out" "1"
+t_run "$lib; tehas_attachment_kind ''"
+t_eq "$t_rc$t_out" "1"
+
+t_case "a content type gives an extension for an image or a video only"
+t_run "$lib; for c in image/png image/jpeg 'image/gif; charset=binary' image/webp image/svg+xml image/avif video/mp4 video/webm video/quicktime; do tehas_attachment_ext \"\$c\"; done | tr '\n' ' '"
+t_eq "$t_out" "png jpg gif webp svg avif mp4 webm mov "
+t_run "$lib; tehas_attachment_ext text/html"
+t_eq "$t_rc$t_out" "1"
+
+t_case "a fetch is https only, limited in size and redirects, and prints the content type"
+t_run "$lib; tehas_attachment_fetch https://github.com/user-attachments/assets/1 $T/out 1234 sekret-token"
+t_eq "$t_rc $t_out" "0 image/png"
+t_eq "$(t_calls curl)" "-sSfL --proto =https --proto-redir =https --max-redirs 3 --max-time 120 --max-filesize 1234 -o $T/out -w %{content_type} -H @- https://github.com/user-attachments/assets/1"
+
+t_case "the token goes to github.com on standard input, never on the command line"
+t_eq "$(cat "$T/calls/curl-stdin")" "stdin: Authorization: Bearer sekret-token"
+t_lacks "$(t_calls curl)" "sekret-token"
+
+t_case "no other host is sent the token, and without one none is sent"
+rm -f "$T"/calls/*
+t_run "$lib; tehas_attachment_fetch https://user-images.githubusercontent.com/9/shot.png $T/out 10 sekret-token
+tehas_attachment_fetch https://github.com/user-attachments/assets/1 $T/out 10
+tehas_attachment_fetch https://github.com/user-attachments/assets/1 $T/out 10 ''"
+t_eq "$(find "$T/calls" -name curl-stdin | wc -l)" 0
+t_lacks "$(t_calls curl)" "-H"
+
+t_case "the exit status is curl's"
+T_ENV=(CURL_RC=63)
+t_run "$lib; tehas_attachment_fetch https://github.com/user-attachments/assets/1 $T/out 10 tok"
+t_eq "$t_rc" 63
+T_ENV=()
+
+t_done

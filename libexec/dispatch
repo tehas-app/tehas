@@ -186,9 +186,13 @@ untick() {
 # Do not burn an issue on a model endpoint that cannot answer: every agent
 # would fail and the issue would park. Leave it queued and look again next
 # poll. mesh_check asks the endpoint once, at rule 3, and leaves the reason in
-# $mesh_hold. The text names no address: tehas status and the health file
+# $mesh_hold. Where the instance gives a cycle images (TEHAS_WORK_IMAGES), the
+# model must also declare image input in models.json and answer a request
+# that carries one. The text names no address: tehas status and the health file
 # carry it, and they are served to whoever can read the dashboard.
 mesh_hold=""
+# A png of one pixel.
+mesh_pixel=iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==
 mesh_check() {
   local mesh model=$PI_ENSEMBLE_SUBAGENT_MODEL list
   mesh_hold=""
@@ -200,6 +204,18 @@ mesh_check() {
     mesh_hold="holding: no resources: the model endpoint offers no models"
   elif ! jq -e --arg m "$model" '.data | any(.id == $m)' <<<"$list" >/dev/null 2>&1; then
     mesh_hold="holding: no resources: the model endpoint does not offer $model"
+  elif [ "$TEHAS_WORK_IMAGES" = 1 ]; then
+    # A cycle that is given images needs a model that reads them. Asked with
+    # one pixel, before an issue is spent on finding out.
+    if ! jq -e --arg p "$PI_ENSEMBLE_SUBAGENT_PROVIDER" --arg m "$model" \
+      '.providers[$p].models // [] | any(.id == $m and ((.input // []) | index("image") != null))' \
+      "$HOME/.pi/agent/models.json" >/dev/null 2>&1; then
+      mesh_hold="holding: no resources: $model does not declare image input in models.json, and TEHAS_WORK_IMAGES is 1"
+    elif ! jq -n -c --arg m "$model" --arg px "$mesh_pixel" '{model: $m, max_tokens: 1, messages: [{role: "user", content: [
+        {type: "text", text: "."}, {type: "image_url", image_url: {url: "data:image/png;base64,\($px)"}}]}]}' |
+      curl -fsS -m 30 -H 'Content-Type: application/json' -d @- "$mesh/chat/completions" >/dev/null 2>&1; then
+      mesh_hold="holding: no resources: $model does not answer an image, and TEHAS_WORK_IMAGES is 1"
+    fi
   fi
 }
 # A real poll has logged the hold at rule 3; a dry run says it where it ends.

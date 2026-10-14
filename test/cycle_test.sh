@@ -104,6 +104,34 @@ t_run "$cycle 7"
 t_eq "$t_rc" 0
 t_contains "$(t_calls gh)" "(runner exit 3)"
 
+t_case "a runner that started no cycle over an image (exit 4) is parked with that reason"
+reset
+echo 'exit 4' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "Tehas started no cycle: an image the issue links could not be fetched, or the issue could not be read for its images (runner exit 4)."
+t_lacks "$(t_calls gh)" "stopped without a pull request"
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention"
+
+t_case "the issue's images are gone when the cycle is over, however it ended"
+for end in "handoff commit-pr" "aborted develop"; do
+  reset
+  # shellcheck disable=SC2086  # two words: a status and a step
+  ended $end feature/x
+  : >"$T/home/tehas/work/.tehas-workspaces"
+  mkdir -p "$workdir.images"
+  echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+  t_run "$cycle 7"
+  t_eq "$(find "$workdir.images" -maxdepth 0 2>/dev/null | wc -l)" 0
+done
+
+t_case "an images directory under a directory tehas work did not mark is left alone"
+reset
+ended merged "done" feature/x
+mkdir -p "$workdir.images"
+t_run "$cycle 7"
+t_eq "$(find "$workdir.images" -maxdepth 0 | wc -l)" 1
+
 t_case "a cycle that ends with a pull request waits for a human and is reported on it"
 reset
 ended handoff commit-pr feature/x
