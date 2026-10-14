@@ -5,7 +5,7 @@
 //! commands it ran and the start of what came back. A line that is not JSON,
 //! or not one of these, gives no entry.
 
-use crate::mask::mask;
+use crate::mask::{is_format, mask};
 use serde_json::Value;
 
 /// One entry of the console: who speaks, what they said and, when the line
@@ -27,25 +27,32 @@ impl Entry {
     }
 }
 
-/// The entry as it is written: masked, the speaker too, the time and the speaker on the first
-/// line, further lines indented under the text. The text is an agent's and
-/// the file is also read in terminals: of the control characters only the
-/// line break and the tab are kept, so no escape sequence gets through.
-pub fn format(entry: &Entry, now: u32) -> String {
-    let t = entry.at.unwrap_or(now);
-    let shown: String = mask(&entry.text)
+/// What is written of a text: masked, and of the control characters only
+/// the line break and the tab. The file is also read in terminals, so no
+/// escape sequence gets through, and in a browser, where a direction
+/// override or a line separator would make the line read as another.
+fn shown(s: &str) -> String {
+    mask(s)
         .chars()
         .filter(|c| *c != '\r')
         .map(|c| match c {
             '\n' | '\t' => c,
-            c if c.is_control() => char::REPLACEMENT_CHARACTER,
+            '\u{2028}' | '\u{2029}' => char::REPLACEMENT_CHARACTER,
+            c if c.is_control() || is_format(c) => char::REPLACEMENT_CHARACTER,
             c => c,
         })
-        .collect();
-    let mut lines = shown.split('\n');
+        .collect()
+}
+
+/// The entry as it is written: the time and the speaker on the first line,
+/// further lines indented under the text.
+pub fn format(entry: &Entry, now: u32) -> String {
+    let t = entry.at.unwrap_or(now);
+    let shown_text = shown(&entry.text);
+    let mut lines = shown_text.split('\n');
     let first = lines.next().unwrap_or_default();
     let (h, m, s) = (t / 3600, t / 60 % 60, t % 60);
-    let who = mask(&entry.who);
+    let who = shown(&entry.who);
     let mut out = format!("{h:02}:{m:02}:{s:02} {who:<10} {first}\n");
     for line in lines {
         out.push_str(&format!("{:20}{line}\n", ""));
@@ -272,6 +279,16 @@ mod tests {
             format(&e, 0),
             "00:00:00 coder      a\u{fffd}[2Jb\u{fffd}c\td\u{fffd}e\u{fffd}\n"
         );
+    }
+
+    #[test]
+    fn direction_overrides_and_line_separators_do_not_reach_the_file() {
+        let e = Entry::new("coder", "a\u{202e}b\u{2028}c\u{200b}d\u{2029}e", None);
+        let out = format(&e, 0);
+        for c in ['\u{202e}', '\u{2028}', '\u{200b}', '\u{2029}'] {
+            assert!(!out.contains(c), "{out:?}");
+        }
+        assert_eq!(out, "00:00:00 coder      ab\u{fffd}cd\u{fffd}e\n");
     }
 
     #[test]
