@@ -292,8 +292,11 @@ images the cycle was given and what was left out. An image that could not be
 fetched stops the start with exit 4, and the comment names it: the issue is
 parked, and `tehas:ready` tries again.
 
-pi-rukas reads the manifest and attaches the images to the explore and plan
-prompts, each listed beside its link. The steps after plan do not see them.
+pi-rukas v0.12.79, the release tehas pins, does not read the manifest: the
+cycle is given the images and the model is not shown them (janit/tehas#123).
+The main branch of upstream pi-rukas reads it and attaches the images to the
+explore and plan prompts, each listed beside its link; no release has that
+yet. The steps after plan do not see them there either.
 
 ## tehas plan
 

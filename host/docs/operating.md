@@ -75,21 +75,46 @@ means:
   prototype built elsewhere,
 - someone applies `tehas:ready`, as in step 2.
 
-Attachments are reference for people today. The cycle reads the issue body and
-nothing else, so anything it must know has to be in the text. For a picture
-that means words: name the element by its selector and its visible title, and
-say where in it the thing goes.
+## Attachments
 
-An instance can give a cycle the images of its issue, with
-`TEHAS_WORK_IMAGES=1`. [tehas work](/tools#tehas-work) then fetches the images
-the issue text links, and the first two steps of the cycle, explore and plan,
-are shown them beside the text. The plan puts the placement into words, and
-the later steps read the plan. Images in comments are not read, and no cycle
-has been seen to use a picture yet, so words in the text stay the safe way.
+What is attached to an issue reaches three parts of tehas, each by its own
+rule. Today a cycle works from words: anything it must know has to be in the
+issue text.
+
+| What                                       | A cycle | A planning session | The Protolab |
+| ------------------------------------------ | ------- | ------------------ | ------------ |
+| The issue's title and body                  | Read | Read, at the start | The title |
+| Comments on the issue                       | Not given | Replies by an allowed account to its question, as answers | Not shown |
+| A png, jpg, webp or gif linked in the body  | Fetched and mounted with `TEHAS_WORK_IMAGES=1`; not shown to the model by the pinned pi-rukas | The same | Shown |
+| The same image linked in a comment          | Not given | Not given | Shown |
+| svg, avif, a video                          | Not given | Not given | Shown |
+| HTML, and the css, js, json and txt it uses | Not given | Not given | Shown in a frame |
+| Any other file, such as a zip or a pdf      | Not given | Not given | Left out |
+
+The rules behind each column:
+
+- **A cycle** is given the issue's title and body. With
+  `TEHAS_WORK_IMAGES=1` [tehas work](/tools#tehas-work) also fetches the
+  images the body links, from an issue opened by an owner, member or
+  collaborator, at most 8 and 10 MB, and mounts them read-only in the cycle's
+  container with a manifest. pi-rukas v0.12.79, the release tehas pins, does
+  not read that manifest, so the model is not shown them (janit/tehas#123).
+  The main branch of upstream pi-rukas shows them to the explore and plan
+  steps and to a planning session; no release has that yet.
+- **A planning session** is given the same images by the same rules, once at
+  its start, and the pinned pi-rukas does not show them to the planning agent
+  either. See [Planning on an issue](#planning-on-an-issue).
+- **The Protolab** shows what is attached to an issue labelled
+  `tehas:prototype` by an allowed account, in the body or in a comment, from
+  an owner, member or collaborator, as said under "Prototypes" above.
+
+So for a picture, write the words: name the element by its selector and its
+visible title, and say where in it the thing goes.
 
 ## 1. Write an issue tehas can build
 
-The cycle reads the issue body and nothing else. Give it:
+The cycle reads the issue's title and body; see [Attachments](#attachments)
+for the rest. Give it:
 
 - one outcome, small enough for one pull request,
 - a `## Acceptance criteria` section with checkable items,
@@ -334,7 +359,7 @@ Where the instance gives a cycle the images an issue links
 rules, once at its start. The bot says how many it was given and which it left
 out. If one cannot be fetched, no session starts and the bot says so. The
 pi-rukas that tehas installs does not show them to the planning agent yet, so
-describe in words what a picture shows.
+describe in words what a picture shows. See [Attachments](#attachments).
 
 What the agent writes in the bot's comments is posted on the issue. On a
 public repository that is public. Secrets and private network addresses are
