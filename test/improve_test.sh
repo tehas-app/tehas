@@ -899,7 +899,7 @@ t_case "a container left by a killed run is removed before the analyst starts"
 ready
 t_run "$improve"
 t_eq "$(t_calls docker | grep -v '^info ' | head -n 1)" "rm -f tehas-improve"
-t_contains "$(t_calls timeout | grep -v ' systemctl \| docker info ' | head -n 1)" "-k 60 1800 docker run"
+t_contains "$(t_calls timeout | grep -v ' systemctl \| docker info ' | head -n 1)" "-k 60 3600 docker run"
 
 t_case "the sweep removes what is over seven days old and nothing newer"
 reset

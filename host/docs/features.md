@@ -156,7 +156,7 @@ repository's contract files were on a work branch when the instance was set up.
   deletes the per-cycle files in `~/tehas/logs/` that are older than seven
   days. Without the loop they stay until a person removes them.
 - The improvement loop's analyst is one more conversation with the model, for
-  up to 30 minutes every three hours. On an endpoint with few slots it can
+  up to 60 minutes every three hours. On an endpoint with few slots it can
   take one a running cycle needs.
 - A pull request closed without merging leaves `tehas:awaiting-merge` on its
   issue until someone removes it.

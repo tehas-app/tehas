@@ -860,7 +860,7 @@ reads holds issue text and model output, which can be written to steer it, so:
 | One empty directory to write `findings.json` in | The product checkout, a workspace, Pi's sessions or transcripts |
 | `models.json`, read-only, and the host aliases | pi-rukas, skills, context files, MCP servers |
 | The tools read, grep, find, ls and write | A tool that runs a command or opens a connection |
-| 1 CPU, 2 GiB, no swap, 1024 processes, 30 minutes, in `tehas.slice` | A cycle's limits: it is a batch job with a quota of its own, counted in the slice's room like any other container |
+| 1 CPU, 2 GiB, no swap, 1024 processes, 60 minutes, in `tehas.slice` | A cycle's limits: it is a batch job with a quota of its own, counted in the slice's room like any other container |
 
 The host makes every GitHub call. A finding is filed only if it is the shape
 asked for: a title of at most 100 characters, one of six categories, a body, an

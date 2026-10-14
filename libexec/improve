@@ -81,6 +81,9 @@ max_run=3
 max_open=$TEHAS_IMPROVE_MAX_OPEN
 max_recheck=10
 chunk=$((5 * 1024 * 1024))
+# The analyst's bound, in seconds. A window of nine cycles took 27 minutes,
+# so 30 cut off half the runs.
+bound=3600
 old=$((7 * 24 * 60)) # minutes
 base=$(tehas_improve_dir)
 window=$base/window
@@ -189,7 +192,7 @@ fail() {
 # A run that was killed leaves its container running under this name.
 docker rm -f tehas-improve >/dev/null 2>&1 || true
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
-timeout -k 60 1800 docker run --rm --name tehas-improve \
+timeout -k 60 "$bound" docker run --rm --name tehas-improve \
   --cgroup-parent tehas.slice --cpus 1 --memory 2g --memory-swap 2g --pids-limit 1024 --cpu-shares 1024 \
   -e HOME=/home/vscode -w /improve \
   -v "$run/in:/improve/in:ro" -v "$run/out:/improve/out" \
