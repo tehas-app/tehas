@@ -140,11 +140,26 @@ release() {
 # count is read with nproc; a stub makes every test machine the same.
 t_stub nproc 'echo 8'
 slots() { t_instance "${T_MINIMAL[@]}" "TEHAS_TICKET_CONCURRENCY=$1" "${@:2}"; }
-ready() { # issue... : the queue, each labelled by alice; "8!" is urgent
-  local n list=""
+# The label events of an issue: tehas:ready by alice, then tehas:urgent by
+# <login>. An empty login stands for a labelling that names nobody.
+urgent_by() { # <issue> <login or "">
+  jq -nc --arg w "$2" '[{event: "labeled", label: {name: "tehas:ready"}, actor: {login: "alice"}},
+    {event: "labeled", label: {name: "tehas:urgent"},
+     actor: (if $w == "" then null else {login: $w} end)}]' >"$fx/events-$1.json"
+}
+
+ready() { # issue... : the queue, each labelled by alice; "8!" is urgent, by alice too
+  local n num labels list=""
   for n in "$@"; do
-    list="$list,{\"number\":${n%!},\"labels\":[{\"name\":\"tehas:ready\"}$([ "$n" = "${n%!}" ] || echo ',{"name":"tehas:urgent"}')]}"
-    cp "$fx/events-7.json" "$fx/events-${n%!}.json" 2>/dev/null || true
+    num=${n%!}
+    labels='{"name":"tehas:ready"}'
+    if [ "$n" = "$num" ]; then
+      cp "$fx/events-7.json" "$fx/events-$num.json" 2>/dev/null || true
+    else
+      labels="$labels,{\"name\":\"tehas:urgent\"}"
+      urgent_by "$num" alice
+    fi
+    list="$list,{\"number\":$num,\"labels\":[$labels]}"
   done
   echo "[${list#,}]" >"$fx/ready.json"
 }
@@ -804,6 +819,139 @@ ready 7 8! 9
 t_run "$dispatch"
 t_eq "$(t_calls fake-start | tr '\n' ' ')" "8 7 "
 
+# The order is what an urgent label buys, so who applied it is checked as the
+# labelling of tehas:ready is.
+t_case "urgent from an allowed account moves an issue ahead of a lower number"
+reset
+slots 2
+ready 3 8!
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "8 3 "
+
+t_case "urgent applied by the bot is ignored, and the poll says so"
+reset
+slots 2
+ready 3 8!
+urgent_by 8 tehas-bot
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "3 8 "
+t_contains "$t_out" "ignore #8: tehas:urgent was applied by 'tehas-bot', not an allowed account"
+
+t_case "urgent applied by an account outside the list is ignored"
+reset
+slots 2
+ready 3 8!
+urgent_by 8 mallory
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "3 8 "
+t_contains "$t_out" "ignore #8: tehas:urgent was applied by 'mallory', not an allowed account"
+
+t_case "an urgent label with no account in its event is ignored"
+reset
+slots 2
+ready 3 8!
+urgent_by 8 ""
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "3 8 "
+t_contains "$t_out" "ignore #8: tehas:urgent was applied by 'unknown', not an allowed account"
+
+t_case "an urgent label with no labelling event is ignored"
+reset
+slots 2
+ready 3 8!
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}}]' >"$fx/events-8.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "3 8 "
+t_contains "$t_out" "ignore #8: tehas:urgent was applied by 'unknown', not an allowed account"
+
+t_case "the most recent urgent labelling decides"
+reset
+slots 2
+ready 3 8!
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}},
+       {"event":"labeled","label":{"name":"tehas:urgent"},"actor":{"login":"mallory"}},
+       {"event":"unlabeled","label":{"name":"tehas:urgent"},"actor":{"login":"mallory"}},
+       {"event":"labeled","label":{"name":"tehas:urgent"},"actor":{"login":"alice"}}]' >"$fx/events-8.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "8 3 "
+
+t_case "an ignored urgent label leaves the issue ready on its own label"
+reset
+slots 2
+ready 3 8!
+urgent_by 8 mallory
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "issue edit 8 --repo acme/widget --add-label tehas:running --remove-label tehas:ready"
+
+t_case "a dry run reports the order a real poll would take"
+reset
+slots 2
+ready 3 8!
+urgent_by 8 mallory
+t_run "$dispatch --dry-run"
+t_eq "$t_rc" 0
+t_contains "$t_out" "ignore #8: tehas:urgent was applied by 'mallory', not an allowed account"
+t_eq "$(printf '%s\n' "$t_out" | sed -n 's/.*would run a cycle for #\([0-9]*\).*/\1/p' | tr '\n' ' ')" "3 8 "
+
+t_case "the urgent labelling of an issue is read once, the ready labelling again at the decision"
+reset
+slots 2
+ready 3 8!
+t_run "$dispatch"
+t_eq "$t_rc" 0
+# Once for the order, once when #8 is picked: no start rests on the read that
+# settled the order.
+t_eq "$(grep -c -e 'api repos/acme/widget/issues/8/events' <<<"$(t_calls gh)")" "2"
+
+t_case "an urgent issue this poll cannot start is not asked about"
+reset
+slots 2
+ready 8!
+hold 8
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(grep -c -e 'api repos/acme/widget/issues/8/events' <<<"$(t_calls gh)")" "0"
+t_contains "$t_out" "wait #8: its cycle is still running"
+release
+
+t_case "urgent order survives an issue number that arrives as text"
+reset
+slots 2
+ready 3 8
+echo '[{"number":3,"labels":[{"name":"tehas:ready"}]},{"number":"8","labels":[{"name":"tehas:ready"},{"name":"tehas:urgent"}]}]' >"$fx/ready.json"
+urgent_by 8 alice
+t_run "$dispatch --dry-run"
+t_eq "$t_rc" 0
+t_eq "$(printf '%s\n' "$t_out" | sed -n 's/.*would run a cycle for #\([0-9]*\).*/\1/p' | tr '\n' ' ')" "8 3 "
+
+t_case "when the urgent label events cannot be read nothing is started and no label changes"
+reset
+slots 2
+ready 3 8!
+rm "$fx/events-8.json"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: gh api repos/acme/widget/issues/8/events?per_page=100 failed"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+
+t_case "label events that are not JSON end the poll, whatever label is being read"
+reset
+slots 2
+ready 3 8!
+echo 'not json' >"$fx/events-8.json"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: unreadable label events of #8"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+
 t_case "a running cycle takes a slot"
 reset
 slots 2
@@ -1357,7 +1505,7 @@ t_case "a plan label from an allowed account starts a session from the issue's t
 to_plan
 t_run "$dispatch"
 t_eq "$t_rc" 0
-t_contains "$(plan_calls)" "7 --out $record.out --brief $record.brief"
+t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --brief $record.brief"
 t_eq "$(cat "$record.brief")" '# Faster search
 
 Make it fast.'
@@ -1461,7 +1609,7 @@ t_eq "$(cat "$record")" "$before"
 t_eq "$(jq -r .running "$T/calls/record.at-mark")" true
 rm -f "$T"/calls/* "$fx/edit-fails"
 t_run "$dispatch"
-t_contains "$(plan_calls)" "7 --out $record.out --session abc-123 --answer $record.answer"
+t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --session abc-123 --answer $record.answer"
 
 t_case "while a later turn runs the record names no question"
 planning
@@ -1519,7 +1667,7 @@ jq -n '{data: {repository: {issue: {comments: {nodes: [
    body: "This planning turn did not finish.\n\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->"},
   {databaseId: 4003, author: {login: "alice"}, body: "go on", createdAt: "2026-01-01T02:00:00Z"}]}}}}}' >"$fx/comments-7.json"
 t_run "$dispatch"
-t_contains "$(plan_calls)" "7 --out $record.out --session abc-123 --answer $record.answer"
+t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --session abc-123 --answer $record.answer"
 
 t_case "a session id that is not a string in a failed turn's file is no session"
 to_plan
@@ -1540,7 +1688,7 @@ t_case "a ticked option goes to the session as the next message"
 planning
 comments 7 "$(plan_body ' ' x ' ')" alice
 t_run "$dispatch"
-t_contains "$(plan_calls)" "7 --out $record.out --session abc-123 --answer $record.answer"
+t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --session abc-123 --answer $record.answer"
 t_eq "$(cat "$record.answer")" "The operator chose: Change some"
 t_contains "$(t_calls gh)" "<!-- tehas:question kind=plan issue=7 turn=2 -->"
 t_eq "$(jq -r .turns "$record")" 2
@@ -1569,12 +1717,14 @@ t_contains "$(t_calls gh)" "api -X PATCH"
 
 t_case "the way out ends the session: labels off, record gone, one comment"
 planning
+mkdir -p "$record.keep/images"
 comments 7 "$(plan_body ' ' ' ' x)" alice
 t_run "$dispatch"
 t_eq "$(plan_calls)" ""
 t_contains "$(t_calls gh)" "--remove-label tehas:question"
 t_contains "$(t_calls gh)" "Planning session ended by alice."
 t_eq "$([ -e "$record" ] && echo kept)" ""
+t_eq "$([ -e "$record.keep" ] && echo kept)" ""
 
 t_case "the turn limit ends the session in place of another turn"
 planning
@@ -1798,7 +1948,7 @@ planning
 comments 7 "$(plan_body ' ' x ' ')" alice "$(jq -nc --arg b "$(plan_body ' ' ' ' ' ' | sed 's/turn=1/turn=5/')" '[{databaseId: 4009, author: {login: "tehas-bot"}, body: $b,
   createdAt: "2026-01-01T02:00:00Z", lastEditedAt: null, editor: null}]')"
 t_run "$dispatch"
-t_contains "$(plan_calls)" "7 --out $record.out --session abc-123 --answer $record.answer"
+t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --session abc-123 --answer $record.answer"
 t_eq "$(cat "$record.answer")" "The operator chose: Change some"
 
 t_case "a planning question on record whose marker is a park marker runs no turn and no cycle"
@@ -2211,6 +2361,140 @@ t_eq "$(jq -c '[.why, .hold, .room, .committed]' "$dispatch_json")" "[\"\",\"\",
 t_run "$dispatch"
 t_lacks "$t_out" "released"
 
+# The model endpoint, as models.json names it for the provider. The stand-in
+# for curl answers with the file mesh.json, or fails when there is none.
+mesh() { # [<the endpoint's answer>]
+  mkdir -p "$T/home/.pi/agent"
+  echo '{"providers":{"test-provider":{"baseUrl":"http://mesh.test/v1"}}}' >"$T/home/.pi/agent/models.json"
+  rm -f "$fx/mesh.json"
+  [ "$#" = 0 ] || echo "$1" >"$fx/mesh.json"
+}
+# A request with an image is answered when the file reads-images is there; what
+# was sent is kept.
+t_stub curl 'case "$*" in
+  *"/chat/completions") cat >"$T/calls/curl-body"; [ -e "$T/fx/reads-images" ] ;;
+  *) cat "$T/fx/mesh.json" 2>/dev/null ;;
+esac'
+
+t_case "an endpoint that offers the model holds nothing back"
+reset
+mesh '{"data":[{"id":"other"},{"id":"test-model"}]}'
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_contains "$(t_calls curl)" "http://mesh.test/v1/models"
+t_eq "$(jq -r .why "$dispatch_json")" ""
+
+while IFS='|' read -r answer text; do
+  t_case "no resources: $text"
+  reset
+  if [ "$answer" = none ]; then mesh; else mesh "$answer"; fi
+  t_run "$dispatch"
+  t_eq "$t_rc" 0
+  t_eq "$(t_calls fake-start)" ""
+  t_lacks "$(t_calls gh)" "issue edit"
+  t_eq "$(grep -c "holding: no resources: $text" <<<"$t_out")" 1
+  t_eq "$(jq -c '[.why, .hold]' "$dispatch_json")" "[\"resources\",\"holding: no resources: $text\"]"
+  t_lacks "$(cat "$dispatch_json")" "mesh.test"
+done <<'CASES'
+none|the model endpoint does not answer
+not json|the model endpoint offers no models
+{"data":[]}|the model endpoint offers no models
+{"data":[{"id":"other"}]}|the model endpoint does not offer test-model
+CASES
+
+# The model as models.json declares it, with the input it takes.
+declares() { # <input list as JSON>
+  jq -n --argjson input "$1" '{providers: {"test-provider": {baseUrl: "http://mesh.test/v1",
+    models: [{id: "other", input: ["text", "image"]}, {id: "test-model", input: $input}]}}}' >"$T/home/.pi/agent/models.json"
+}
+
+t_case "without images for a cycle the model is not asked to read one"
+reset
+mesh '{"data":[{"id":"test-model"}]}'
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$(t_calls curl)" "chat/completions"
+
+t_case "with images for a cycle, a model that declares image input and answers one holds nothing back"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
+mesh '{"data":[{"id":"test-model"}]}'
+declares '["text","image"]'
+: >"$fx/reads-images"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(jq -r .why "$dispatch_json")" ""
+t_contains "$(t_calls curl)" "-m 30 -H Content-Type: application/json -d @- http://mesh.test/v1/chat/completions"
+t_eq "$(jq -c '[.model, .max_tokens, (.messages[0].content | map(.type))]' "$T/calls/curl-body")" '["test-model",1,["text","image_url"]]'
+t_eq "$(jq -r '.messages[0].content[1].image_url.url' "$T/calls/curl-body" | cut -d, -f2 | base64 -d | head -c 8 | od -An -tx1 | tr -d ' \n')" "89504e470d0a1a0a"
+
+t_case "no resources: the model does not declare image input, and it is not asked"
+for input in '["text"]' 'null'; do
+  reset
+  t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
+  mesh '{"data":[{"id":"test-model"}]}'
+  declares "$input"
+  : >"$fx/reads-images"
+  t_run "$dispatch"
+  t_eq "$(t_calls fake-start)" ""
+  t_lacks "$(t_calls gh)" "issue edit"
+  t_eq "$(jq -c '[.why, .hold]' "$dispatch_json")" '["resources","holding: no resources: test-model does not declare image input in models.json, and TEHAS_WORK_IMAGES is 1"]'
+  t_lacks "$(t_calls curl)" "chat/completions"
+done
+
+t_case "no resources: the model declares image input and does not answer an image"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
+mesh '{"data":[{"id":"test-model"}]}'
+declares '["text","image"]'
+rm -f "$fx/reads-images"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_eq "$(jq -c '[.why, .hold]' "$dispatch_json")" '["resources","holding: no resources: test-model does not answer an image, and TEHAS_WORK_IMAGES is 1"]'
+t_lacks "$(cat "$dispatch_json")" "mesh.test"
+rm -f "$fx/reads-images"
+
+t_case "no resources is logged once, with nothing in line as well, and released when the endpoint is back"
+reset
+echo '[]' >"$fx/ready.json"
+mesh
+t_run "$dispatch"
+t_eq "$(grep -c 'holding: no resources' <<<"$t_out")" 1
+t_eq "$(jq -r .why "$dispatch_json")" resources
+t_run "$dispatch"
+t_lacks "$t_out" "holding:"
+mesh '{"data":[{"id":"test-model"}]}'
+t_run "$dispatch"
+t_eq "$(grep -c 'released: cycles may start again' <<<"$t_out")" 1
+t_eq "$(jq -r .why "$dispatch_json")" ""
+
+t_case "no resources holds a planning session too, and its label stays"
+reset
+mesh
+echo '[]' >"$fx/ready.json"
+echo '[{"number":7,"labels":[{"name":"tehas:plan"}]}]' >"$fx/plans.json"
+echo '[{"event":"labeled","label":{"name":"tehas:plan"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-plan)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+
+t_case "a dry run says no resources and writes nothing"
+reset
+mesh
+t_run "$dispatch --dry-run"
+t_eq "$(grep -c 'holding: no resources: the model endpoint does not answer' <<<"$t_out")" 1
+t_eq "$([ -e "$dispatch_json" ] && echo written)" ""
+t_eq "$(t_calls fake-start)" ""
+
+t_case "a missing slice is said before no resources"
+reset
+mesh
+no_slice
+t_run "$dispatch"
+t_eq "$(jq -r .why "$dispatch_json")" slice
+rm -rf "$T/home/.pi"
+
 t_case "a poll with room and no hold before it logs nothing about the slice"
 reset
 t_run "$dispatch"
@@ -2311,7 +2595,7 @@ to_plan
 bare_tree
 t_run "$tree/libexec/dispatch"
 t_eq "$t_rc" 0
-t_contains "$(plan_calls)" "7 --out $record.out --brief $record.brief"
+t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --brief $record.brief"
 for name in tehas tehasbot tehas-plan; do t_eq "$(t_calls "$name")" ""; done
 
 t_case "a unit systemd cannot load changes no label and starts nothing, exit 1"

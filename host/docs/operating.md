@@ -63,7 +63,16 @@ means:
 - someone applies `tehas:ready`, as in step 2.
 
 Attachments are reference for people today. The cycle reads the issue body and
-nothing else, so anything it must know has to be in the text.
+nothing else, so anything it must know has to be in the text. For a picture
+that means words: name the element by its selector and its visible title, and
+say where in it the thing goes.
+
+An instance can give a cycle the images of its issue, with
+`TEHAS_WORK_IMAGES=1`. [tehas work](/tools#tehas-work) then fetches the images
+the issue text links, and the first two steps of the cycle, explore and plan,
+are shown them beside the text. The plan puts the placement into words, and
+the later steps read the plan. Images in comments are not read, and no cycle
+has been seen to use a picture yet, so words in the text stay the safe way.
 
 ## 1. Write an issue tehas can build
 
@@ -90,7 +99,9 @@ compute on the issue.
   a cycle. GitHub has no permission per label: any account that can write to
   the repository can apply any label, so the list is enforced here, at the
   next poll, and not by GitHub.
-- Add **`tehas:urgent`** as well to move it ahead of other ready issues.
+- Add **`tehas:urgent`** as well to move it ahead of other ready issues. It is
+  checked like `tehas:ready`: only one applied by an allowed account moves the
+  issue; one applied by the bot or anyone else is ignored and logged.
 
 ## 3. What happens next
 
@@ -105,15 +116,17 @@ with their busy slots. The figures are the mesh's own and are good to about
 15%. Only machines that are online and serve a model the factory uses are
 counted; other machines of the mesh and other models are left out. A counted
 machine's draw is all of it, including any other model it serves.
-While the section is there, a live meter stands among the doors on the first
-screen: the draw now, and the tokens the mesh produced for the factory's models
-in the last minute. The tokens are the mesh's count for those models, so other
-users of the same models are in it.
+While the section is there, a live meter stands at the right end of the panel
+that opens the first screen, over its title and the lines under it: the draw
+now, and the tokens the mesh produced for the factory's models in the last
+minute. The tokens are the mesh's count for those models, so other users of the
+same models are in it. Below 900px the meter lies across the foot of that panel
+instead. It leads to Energy use.
 With any other backend the section and the meter are simply not there, and
 nothing else changes. To turn them off on a viiwork mesh, see
 [the energy sampler](/tools).
 
-The dispatcher takes issues urgent first, then by the lowest issue number: as many at a time as the host's ceiling and the slice's room allow (see [Limits that hold work back](#limits-that-hold-work-back)). A running cycle is never stopped to make room for an urgent one.
+The dispatcher takes issues urgent first, then by the lowest issue number: as many at a time as the host's ceiling and the slice's room allow (see [Limits that hold work back](#limits-that-hold-work-back)). A running cycle is never stopped to make room for an urgent one. The dashboard lists the queue by issue number, not the order the dispatcher will work it in: whether a `tehas:urgent` moves the queue is decided by who applied the label, not by its being there.
 
 | Label on the issue      | Meaning                           | Your move                                |
 | ----------------------- | --------------------------------- | ---------------------------------------- |
@@ -243,7 +256,9 @@ dispatcher's log says so.
    applied it. From any other account it is taken off the issue with a
    comment, as `tehas:ready` is.
 3. The bot comments that the session has started. Each turn of the agent ends
-   in a comment with what it found. When it needs a decision, the comment
+   in a comment with what it found. A turn is over when the agent has stopped
+   and every subagent it sent out has reported back, so one turn can take
+   many minutes. When it needs a decision, the comment
    ends in a question with one checkbox per choice, a last box `End this
    planning session`, and the label `tehas:question` is on the issue. When
    the agent offers more than 20 choices, the first 20 get a box and a line
@@ -259,7 +274,12 @@ dispatcher's log says so.
    cycle does not hold an answer back. A poll also handles one answer or one
    planning start and then stops, and it does nothing while the model
    endpoint does not list the model.
-5. The agent files the issues it plans with the bot's token. To finish, tick
+5. The agent shows you a plan before it files it, and files it when you
+   confirm. Every turn of a session works on the commit the session started
+   on, so the plan you confirm is the plan that is filed, word for word, if
+   you confirm within two hours of seeing it. After that the agent reviews it
+   again before it files. The agent files the issues it plans with the bot's
+   token. To finish, tick
    `End this planning session`. Filed issues are never started on their own:
    apply `tehas:ready` to the ones you want built.
 
@@ -269,6 +289,13 @@ author is an allowed account and, when it was edited, its last editor is too.
 Replies from others are ignored. Only the question the session is waiting on
 counts, which is the one whose id the host has on record. Any other comment
 with boxes, older or newer, does nothing.
+
+Where the instance gives a cycle the images an issue links
+(`TEHAS_WORK_IMAGES=1`), a planning session is given them too, by the same
+rules, once at its start. The bot says how many it was given and which it left
+out. If one cannot be fetched, no session starts and the bot says so. The
+pi-rukas that tehas installs does not show them to the planning agent yet, so
+describe in words what a picture shows.
 
 What the agent writes in the bot's comments is posted on the issue. On a
 public repository that is public. Secrets and private network addresses are
@@ -328,6 +355,11 @@ reaches them. Remove the label to resume.
 - No cycle and no planning turn while the slice is missing, has no limit, or
   Docker cannot place containers in it. `tehas status` then says `warn`. See
   [Troubleshooting](/troubleshooting).
+- No cycle, no planning turn and no retry while there are no resources: the
+  model endpoint does not answer, or does not offer the configured model. The
+  dispatcher asks it at every poll. `tehas status` says `warn: No resources`
+  and the dashboard says `no resources` until it is back. With
+  `TEHAS_WORK_IMAGES=1` a model that does not read an image counts the same.
 - Inside a cycle, `TEHAS_CONCURRENCY` workstreams side by side: 4 by default,
   fewer if the model backends cannot take it. See [The host](/host).
 - No new cycle while `TEHAS_MAX_AWAITING` issues carry `tehas:awaiting-merge`
@@ -353,27 +385,60 @@ says what could be better: in the dispatcher, the cycle, pi-rukas, the
 console, the gates or this manual. A finding that is not already in the issue
 stack is filed as an issue of its own in that repository.
 
+- **A finding about pi-rukas has a repository of its own** where the instance
+  sets `TEHAS_IMPROVE_RUKAS_REPO`. The model gives each finding a category,
+  and one of the category `pi-rukas` is filed there, because a cycle on the
+  product cannot fix it. Both repositories are read for duplicates. Each
+  has the limit of 10 open issues to itself, so one that is full does not
+  hold the other back. How a fix then reaches the host is
+  under [pi-rukas comes from a fork](/host#pi-rukas-comes-from-a-fork).
+- **Each issue names the product's issues** whose cycles it rests on, as
+  `owner/name#7`, so GitHub links the two both ways.
+- **Each issue says what working on it means**, in the line `Working on it`,
+  because the text of an issue is the task a cycle is given. A finding about
+  the factory is built in the repository it is filed in, once a person applies
+  `tehas:ready`. A finding about pi-rukas is fixed in pi-rukas and waits there
+  for `tehas:ready`; no cycle on the product works around it. Where the
+  instance has no repository for pi-rukas, such a finding is filed with the
+  rest and tells a cycle to change no code and hand off.
+- **An issue worked on again is checked against the filed issue.** When a
+  later cycle of a product issue is read and an issue the loop filed rests on
+  an earlier cycle of it, the model says whether the problem came back. That
+  is a comment on the filed issue, open or closed: `Seen again: yes` or `no`,
+  what the new cycle showed, its whole log, and the pi-rukas commit the host
+  was installed with. This is how a fix in the fork is verified: deploy it,
+  apply `tehas:ready` to the product issue again, and read the comment. A
+  model wrote it, so check it against the log. The loop closes and reopens
+  nothing. At most 10 comments a run, and none in a run that waits because
+  every repository is full.
 - **The label is `tehas:improvement` and nothing else.** tehas does not act on
   it, and the loop never applies `tehas:ready`. A filed issue is a proposal a
   model wrote: read it, correct it, and apply `tehas:ready` yourself if it
   should be built. Close it if not.
-- **At most 3 issues a run, and none while 10 are open** with the label. Close
-  some or build some and the loop files again.
+- **At most 3 issues a run, and none in a repository where 10 are open** with
+  the label, or the number `TEHAS_IMPROVE_MAX_OPEN` gives. The loop reads text
+  anyone may have written into an issue or a log, so the limit is what keeps
+  a steered or a mistaken model from filling the stack while nobody reads. Close some or build some and the loop files there again. A run
+  waits, and reads nothing, only when every repository is full.
 - **The whole log is linked.** Each issue links the logs of the cycles it
-  names, gzipped, as assets of the release `tehas-improve-logs` in that
-  repository. In a public repository they are public. A log that holds
+  names, gzipped, as assets of the release `tehas-improve-logs` in
+  `TEHAS_IMPROVE_REPO`, wherever the issue is filed. In a public repository
+  they are public. A log that holds
   something shaped like a token is not uploaded, and the issue says so.
 - **One line per run** in `~/tehas/logs/improve.log`:
 
 ```
-2026-10-11T09:00:12Z improve: cycles=4 findings=3 invalid=0 duplicates=1 of=#41 over=0 filed=2 issues=#57,#58
+2026-10-11T09:00:12Z improve: cycles=4 findings=3 invalid=0 duplicates=1 of=#41 over=0 filed=2 issues=#57,#58 rechecked=1
 ```
 
 `cycles` is how many were read and `findings` what the model gave. `invalid`
 were dropped for not being the shape asked for, `duplicates` were already in
 the stack or given twice (`of` names the issues the model pointed at), and `over` were more
 than the limits allow and are dropped. `filed` and `issues` are what was
-opened.
+opened. An issue in the repository for pi-rukas is written with its
+repository, as `acme/rukas#12`. `rechecked` is how many comments were posted
+on issues that were worked on again; one GitHub refused follows as
+`not-commented=acme/rukas#12`.
 
 To turn the loop off, remove `TEHAS_IMPROVE_REPO` from `instance.env`: cycles
 stop leaving records and a run does nothing. Or stop the timer with

@@ -32,7 +32,7 @@
 #     kept.
 #   - Loading runs no git command, makes no network call and writes nothing.
 #   - TEHAS_IMPROVE_REPO switches the improvement loop on. Unset is valid and
-#     means there is none.
+#     means there is none. TEHAS_IMPROVE_RUKAS_REPO needs it.
 #   - Nothing falls back to a project: a setting with no generic default stays
 #     unset until tehas_require asks for it.
 
@@ -75,11 +75,11 @@ _tehas_is_count() { case "$1" in '' | *[!0-9]* | 0*) return 1 ;; esac; }
 _tehas_valid() {
   local name=$1 v=$2 mb
   case "$name" in
-    TEHAS_REPO | TEHAS_IMPROVE_REPO)
+    TEHAS_REPO | TEHAS_IMPROVE_REPO | TEHAS_IMPROVE_RUKAS_REPO)
       [[ $v =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "expected owner/name"; return 1; }
       ;;
-    TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_WORK_TIMEOUT | TEHAS_CONCURRENCY | TEHAS_TICKET_CONCURRENCY | \
-      TEHAS_PLAN_MAX_TURNS | TEHAS_PLAN_TIMEOUT)
+    TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_IMPROVE_MAX_OPEN | TEHAS_WORK_TIMEOUT | TEHAS_CONCURRENCY | TEHAS_TICKET_CONCURRENCY | \
+      TEHAS_PLAN_MAX_TURNS | TEHAS_PLAN_TIMEOUT | TEHAS_VERIFY_TIMEOUT)
       _tehas_is_count "$v" || { echo "expected a positive whole number"; return 1; }
       ;;
     TEHAS_ALLOWED_LABELERS)
@@ -89,7 +89,7 @@ _tehas_valid() {
       [[ $v =~ ^[A-Za-z0-9][A-Za-z0-9-]*(\ [A-Za-z0-9][A-Za-z0-9-]*)*$ ]] ||
         { echo "expected GitHub logins separated by single spaces"; return 1; }
       ;;
-    TEHAS_INDEXING | TEHAS_ANALYTICS_COOKIE)
+    TEHAS_INDEXING | TEHAS_ANALYTICS_COOKIE | TEHAS_WORK_IMAGES)
       case "$v" in 0 | 1) ;; *) echo "expected 0 or 1"; return 1 ;; esac
       ;;
     # Both end up in an HTML attribute of every page, so no quote, space or
@@ -211,6 +211,13 @@ tehas_load() {
   # The repository the improvement loop files its findings in. Unset, there is
   # no loop: nothing is recorded of a cycle and tehasbot improve does nothing.
   export TEHAS_IMPROVE_REPO=${TEHAS_IMPROVE_REPO:-}
+  # Where the loop files what only a change in pi-rukas can fix. Unset, those
+  # findings go with the rest.
+  export TEHAS_IMPROVE_RUKAS_REPO=${TEHAS_IMPROVE_RUKAS_REPO:-}
+  # How many of the loop's issues may be open in one repository before it
+  # files no more there. What it files is a model's reading of text anyone
+  # may have written, so nobody reading must not mean an endless stack.
+  export TEHAS_IMPROVE_MAX_OPEN=${TEHAS_IMPROVE_MAX_OPEN:-10}
   export TEHAS_HOST_ADDR=${TEHAS_HOST_ADDR:-127.0.0.1}
   # Room for every cycle and two pull requests that wait for a review. A fixed
   # number would leave slots that can never be used. A concurrency that is not
@@ -219,6 +226,10 @@ tehas_load() {
   ! _tehas_is_count "$TEHAS_TICKET_CONCURRENCY" || v=$((TEHAS_TICKET_CONCURRENCY + 2))
   export TEHAS_MAX_AWAITING=${TEHAS_MAX_AWAITING:-$v}
   export TEHAS_WORK_TIMEOUT=${TEHAS_WORK_TIMEOUT:-21600}
+  # Whether a cycle is given the images its issue links. Off unless the
+  # instance says so: it is one more thing a container is given, and it needs
+  # a model that reads images.
+  export TEHAS_WORK_IMAGES=${TEHAS_WORK_IMAGES:-0}
   # A planning session: how many turns it may take, and how long one turn may.
   export TEHAS_PLAN_MAX_TURNS=${TEHAS_PLAN_MAX_TURNS:-20}
   export TEHAS_PLAN_TIMEOUT=${TEHAS_PLAN_TIMEOUT:-3600}
@@ -233,10 +244,19 @@ tehas_load() {
   # How many workstreams one cycle may run side by side, inside its one
   # container. pi-rukas reads the second name.
   export PI_ENSEMBLE_MAX_WORKSTREAMS=$TEHAS_CONCURRENCY
+  # Seconds one run of the product's gate may take inside a cycle. pi-rukas
+  # reads milliseconds under two names, one for a workstream's gate and one for
+  # the gate on the combined tree, and gives the first ten minutes when it is
+  # told nothing. A gate that is refused below is not passed on.
+  export TEHAS_VERIFY_TIMEOUT=${TEHAS_VERIFY_TIMEOUT:-1800}
+  if _tehas_is_count "$TEHAS_VERIFY_TIMEOUT"; then
+    export PI_ENSEMBLE_VERIFY_TIMEOUT_MS=$((TEHAS_VERIFY_TIMEOUT * 1000))
+    export PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS=$PI_ENSEMBLE_VERIFY_TIMEOUT_MS
+  fi
   # Agents get neither the host Docker socket nor SSH keys. Not a setting.
   export PI_ENSEMBLE_NO_DOCKER_SOCKET=1 PI_ENSEMBLE_NO_SSH=1
 
-  for v in TEHAS_INDEXING TEHAS_ANALYTICS_COOKIE TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
+  for v in TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_ANALYTICS_COOKIE TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_VERIFY_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
     TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_RESERVE; do
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
@@ -244,12 +264,16 @@ tehas_load() {
     [ -n "${!v:-}" ] || continue
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
-  for v in TEHAS_ANALYTICS_SRC TEHAS_ANALYTICS_SITE TEHAS_IMPROVE_REPO; do
+  for v in TEHAS_ANALYTICS_SRC TEHAS_ANALYTICS_SITE TEHAS_IMPROVE_REPO TEHAS_IMPROVE_RUKAS_REPO TEHAS_IMPROVE_MAX_OPEN; do
     [ -n "${!v}" ] || continue
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
   if [ -n "$TEHAS_ANALYTICS_SRC" ] && [ -z "$TEHAS_ANALYTICS_SITE" ]; then
     tehas_err "TEHAS_ANALYTICS_SITE is not set and TEHAS_ANALYTICS_SRC is (see $file)"
+    return 78
+  fi
+  if [ -n "$TEHAS_IMPROVE_RUKAS_REPO" ] && [ -z "$TEHAS_IMPROVE_REPO" ]; then
+    tehas_err "TEHAS_IMPROVE_REPO is not set and TEHAS_IMPROVE_RUKAS_REPO is (see $file)"
     return 78
   fi
   if [ "$TEHAS_PREVIEWS" = 1 ] && [ -z "$TEHAS_DOMAIN" ]; then

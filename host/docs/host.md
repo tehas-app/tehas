@@ -21,12 +21,15 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/lib/config.sh`              | Loads and checks the instance settings; sourced by every command        |
 | `~/tehas/lib/sandbox.sh`             | What a sandbox container is given; sourced by the work, plan and dev scripts |
 | `~/tehas/lib/slice.sh`               | Reads the slice: whether it is usable, a container's limits, the room left. Every command that starts a sandbox container reads it |
+| `~/tehas/lib/attachments.sh`         | Which links of an issue are attached files and how one is fetched. The Protolab and `tehas work` use it |
 | `~/tehas/lib/questions.sh`, `planning.sh` | The question and planning steps of the dispatcher. A cycle's report uses the first too |
 | `~/tehas/bin/`                       | The two commands on `PATH`: `tehas` for a person, `tehasbot` for the units. Plus `gh` |
 | `~/tehas/libexec/`                   | The scripts behind the two commands, one for each thing they do. Not on `PATH` |
 | `~/tehas/platform`                   | Checkout of this repository; `install.sh` runs from it and `tehas update` pulls it |
 | `~/tehas/repos/tehas`                | The product checkout, on the default branch. Cycles are cloned from it; no container is given it |
 | `~/tehas/work/tehas-<issue>`         | The cycle's workspace: a fresh clone made for each cycle. Removed after a cycle that merged or left a pull request, otherwise kept, and moved to `tehas-<issue>.before-retry` when that issue is retried. `~/tehas/work/tehas` is only its path inside the container |
+| `~/tehas/work/tehas-<issue>.images`  | With `TEHAS_WORK_IMAGES=1`, the images of the cycle's issue and their `manifest.json`. Made for each cycle, read-only in its container at `~/tehas/work/tehas.images`, removed when the cycle is over |
+| `~/tehas/work/tehas-plan-<issue>.images` | With `TEHAS_WORK_IMAGES=1`, a copy of a planning session's images for one turn, read-only in its container at `~/tehas/work/tehas.images`, removed after the turn |
 | `~/tehas/dev/<name>`                 | A person's clone for working by hand, named after their account, made and used by `tehas dev`, never removed. `<name>.author` next to it holds whose name its commits carry |
 | `~/tehas/repos/pi-rukas`             | pi-rukas, pinned to a commit                                            |
 | `~/tehas/docs/`, `~/tehas/fun/`      | This site's pages and the front page, installed from `host/`            |
@@ -34,7 +37,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/edge/`                      | The docs server (`docs.compose.yaml`) and the edge router (`router.compose.yaml`) |
 | `~/tehas/protolab/`                  | The Protolab's pages and the files of each prototype, written by `tehasbot protolab` |
 | `~/tehas/preview/`                   | The state of each preview, and a bare clone the pull requests' commits are fetched into, written by `tehasbot preview` |
-| `~/tehas/logs/`, `state/`, `live/`, `tmp/` | Logs, state, dashboard data, scratch. `state/` holds the dispatch lock, status files, the record of each planning session (`plan-<issue>.json`) and the id of each parked cycle's question (`park-<issue>.id`). No container is given it |
+| `~/tehas/logs/`, `state/`, `live/`, `tmp/` | Logs, state, dashboard data, scratch. `state/` holds the dispatch lock, status files, the record of each planning session (`plan-<issue>.json`, with what it carries between turns in `plan-<issue>.json.keep/`) and the id of each parked cycle's question (`park-<issue>.id`). No container is given it |
 | `~/tehas/tmp/improve/`, `~/tehas/state/improve.lock` | Where the improvement loop is on: the record of each cycle that ended, until a run has read it, and the lock of a run |
 | Docker volume `pi-ensemble-cache`    | Caches of the sandbox, among them the code index `tehas index` builds   |
 | `~/.pi/agent/`                       | Pi user configuration (models, MCP servers)                             |
@@ -263,6 +266,14 @@ limits, twelve words on the `docker run` line:
 | `--pids-limit` | `4096` | The most processes and threads in the container |
 | `--cpu-shares` | `1024` | A CPU weight, the same on every container |
 
+A cycle, a planning turn and a dev session also run with `--init`. Pi is the
+command of the container and collects only its own children. A process that
+outlives its parent, as git's background housekeeping does, is handed to the
+first process of the container, and without an init it is never collected and
+counts against `--pids-limit` until the container ends. One pass of this
+repository's shell tests leaves about 950 that way, so a cycle reached the
+limit at its fifth pass and could start no process after that.
+
 There is no CPU quota. One container alone may use every CPU; several busy
 ones share them by weight, about equally. The weight is also what makes the
 kernel share CPU inside the slice at all, so every container carries it.
@@ -315,6 +326,17 @@ cycle:
 ```
 tehas work: 2 processes in this cycle's container were killed for memory
 ```
+
+The starts of a process that `--pids-limit` refused are counted the same way,
+from the container's `pids.events`:
+
+```
+tehas work: this cycle's container reached its limit of processes, 41 starts were refused
+```
+
+A cycle whose container is at that limit can run no command, so its gate does
+not run and its handoff may not be posted. The comment that reports the cycle
+says the count, and the dispatcher's `done` line has it as `forks_refused`.
 
 A container that ends with 137 while the cycle was still running is reported
 as `killed`: `tehas work` exits 137, and the issue is parked with
@@ -458,38 +480,47 @@ tehas takes pi-rukas from a [fork](https://github.com/janit/pi-rukas) of
 factory when it is ready here, not when upstream releases it. The fork is
 never the last stop: every change in it is also offered upstream.
 
-The fork has two kinds of branch:
+The fork's `main` is what a host runs: upstream's `main` plus the fixes
+merged in the fork that upstream does not have yet. `PI_RUKAS_COMMIT` in
+`versions.env` is a commit on it, and the base in `sandbox/Dockerfile` is the
+fork's image built from the same commit. A fix is written on a branch of its
+own and reaches `main` through a pull request in the fork. To take in what
+upstream has done, merge upstream's `main` into the fork's.
 
-- `main` follows upstream's `main`. Nothing is committed to it directly.
-- `tehas` is what a host runs: an upstream commit plus the fixes upstream has
-  not merged yet. `PI_RUKAS_COMMIT` in `versions.env` is a commit on it.
-
-Today `tehas` is an upstream commit with nothing added, so the base in
-`sandbox/Dockerfile` is still upstream's published image for that commit. The
-fork has not published an image yet. Its workflows have to be switched on once,
-on the fork's Actions tab, before the first fix can go through step 3.
+Problems are tracked in the fork. Where the instance sets
+`TEHAS_IMPROVE_RUKAS_REPO` to it, the [improvement loop](/operating#the-improvement-loop)
+files what it finds about pi-rukas there, each issue naming the product's
+issues whose cycles showed it. No cycle on the product fixes pi-rukas.
 
 When a problem in pi-rukas comes up:
 
-1. Open an issue upstream that describes it. Say there that a fix is being
-   tried in the fork.
-2. Write the fix in the fork, on a branch from upstream's `main`, with
-   pi-rukas's own tests. Open a pull request upstream from that branch.
-3. Put the same change on `tehas` and build the fork's image from it: run the
-   `publish-image` workflow on the `tehas` branch. It publishes
-   `ghcr.io/janit/pi-rukas:sha-<commit>`.
+1. Have an issue in the fork that describes it: the loop's, or one you write.
+2. Write the fix in the fork, on a branch from `main`, with pi-rukas's own
+   tests, and merge it into the fork's `main` with a pull request that names
+   the issue.
+3. The merge runs the fork's `publish-image` workflow. It publishes
+   `ghcr.io/janit/pi-rukas:sha-<commit>`, with the first 12 characters of the
+   commit.
 4. In this repository, in one pull request, set `PI_RUKAS_COMMIT` to that
    commit and the `FROM` line of `sandbox/Dockerfile` to that image's digest.
    The two always name the same commit, or the host and the sandbox run
    different code.
 5. On the host: pull, run `./bootstrap.sh user`, rebuild the sandbox image,
    run the contract test above, then let one cycle run before trusting it.
-6. When upstream merges the fix, move `tehas` to an upstream commit that has
-   it and drop the fork's copy. Repeat steps 3 to 5.
+   To check the fix, apply `tehas:ready` again to a product issue the fork's
+   issue names. The loop's next run comments on the fork's issue whether the
+   problem came back, with the pi-rukas commit that cycle ran. Close the
+   fork's issue when it did not.
+6. Only after the fix is verified here, offer it upstream: an issue there and
+   a pull request from the branch of step 2, as
+   `gh pr create --repo <upstream> --head <fork owner>:<branch>`. Name the
+   fork's issue in full, as `owner/name#12`; a bare number is upstream's.
+7. When upstream merges the fix, merge upstream's `main` into the fork's and
+   repeat steps 3 to 5.
 
-Keep `tehas` close to upstream. A change that upstream turns down is either
-reworked until they take it or removed from `tehas`; it does not stay as a
-permanent difference.
+Keep the fork's `main` close to upstream. A change that upstream turns down is
+either reworked until they take it or removed from the fork; it does not stay
+as a permanent difference.
 
 ## Services
 
@@ -584,7 +615,12 @@ Both are outside the repository and the tehas tree.
 
 The improvement loop files with the bot's token, from the host. For it the bot
 account needs write access to the repository `TEHAS_IMPROVE_REPO` names: it
-creates a label, issues, and one release that holds the logs.
+creates a label, issues, comments, and one release that holds the logs. In the
+repository `TEHAS_IMPROVE_RUKAS_REPO` names it creates the label, issues and
+comments.
+The triage role is enough there once someone has created the label
+`tehas:improvement`. Issues must be switched on in that repository: a fork has
+them off until its owner turns them on.
 
 Two recommendations follow from that table:
 

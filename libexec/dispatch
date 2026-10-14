@@ -56,7 +56,10 @@
 #      the poll takes it off and says so once on the issue: left in place it
 #      reads as a request for a cycle to everyone who reads the issue. A
 #      tehas:plan from such an account is taken off the same way.
-#   7. tehas:urgent first, then the lowest issue number. A running cycle is
+#   7. tehas:urgent first, then the lowest issue number. The urgent label
+#      counts only when its most recent labelling is by an allowed account, as
+#      tehas:ready does: one applied by the bot or anyone else is ignored and
+#      logged, and the issue keeps its place by number. A running cycle is
 #      never stopped to make room.
 #
 # Instance settings (lib/config.sh; defaults in brackets):
@@ -187,16 +190,46 @@ untick() {
 # shellcheck source=lib/planning.sh
 . "$here/../lib/planning.sh"
 
-# Do not burn an issue on a mesh that cannot answer: every agent would fail
-# and the issue would park. Leave it queued and look again next poll.
-mesh_ok() {
-  local mesh model=$PI_ENSEMBLE_SUBAGENT_MODEL
+# Do not burn an issue on a model endpoint that cannot answer: every agent
+# would fail and the issue would park. Leave it queued and look again next
+# poll. mesh_check asks the endpoint once, at rule 3, and leaves the reason in
+# $mesh_hold. Where the instance gives a cycle images (TEHAS_WORK_IMAGES), the
+# model must also declare image input in models.json and answer a request
+# that carries one. The text names no address: tehas status and the health file
+# carry it, and they are served to whoever can read the dashboard.
+mesh_hold=""
+# A png of one pixel.
+mesh_pixel=iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==
+mesh_check() {
+  local mesh model=$PI_ENSEMBLE_SUBAGENT_MODEL list
+  mesh_hold=""
   mesh=$(jq -r --arg p "$PI_ENSEMBLE_SUBAGENT_PROVIDER" '.providers[$p].baseUrl // ""' "$HOME/.pi/agent/models.json" 2>/dev/null)
-  if [ -n "$mesh" ] && [ -n "$model" ] &&
-    ! curl -fsS -m 10 "$mesh/models" 2>/dev/null | jq -e --arg m "$model" '.data | any(.id == $m)' >/dev/null 2>&1; then
-    log "holding: the mesh at $mesh does not offer $model right now"
-    return 1
+  [ -n "$mesh" ] && [ -n "$model" ] || return 0
+  if ! list=$(curl -fsS -m 10 "$mesh/models" 2>/dev/null); then
+    mesh_hold="holding: no resources: the model endpoint does not answer"
+  elif ! jq -e '(.data | type) == "array" and (.data | length) > 0' <<<"$list" >/dev/null 2>&1; then
+    mesh_hold="holding: no resources: the model endpoint offers no models"
+  elif ! jq -e --arg m "$model" '.data | any(.id == $m)' <<<"$list" >/dev/null 2>&1; then
+    mesh_hold="holding: no resources: the model endpoint does not offer $model"
+  elif [ "$TEHAS_WORK_IMAGES" = 1 ]; then
+    # A cycle that is given images needs a model that reads them. Asked with
+    # one pixel, before an issue is spent on finding out.
+    if ! jq -e --arg p "$PI_ENSEMBLE_SUBAGENT_PROVIDER" --arg m "$model" \
+      '.providers[$p].models // [] | any(.id == $m and ((.input // []) | index("image") != null))' \
+      "$HOME/.pi/agent/models.json" >/dev/null 2>&1; then
+      mesh_hold="holding: no resources: $model does not declare image input in models.json, and TEHAS_WORK_IMAGES is 1"
+    elif ! jq -n -c --arg m "$model" --arg px "$mesh_pixel" '{model: $m, max_tokens: 1, messages: [{role: "user", content: [
+        {type: "text", text: "."}, {type: "image_url", image_url: {url: "data:image/png;base64,\($px)"}}]}]}' |
+      curl -fsS -m 30 -H 'Content-Type: application/json' -d @- "$mesh/chat/completions" >/dev/null 2>&1; then
+      mesh_hold="holding: no resources: $model does not answer an image, and TEHAS_WORK_IMAGES is 1"
+    fi
   fi
+}
+# A real poll has logged the hold at rule 3; a dry run says it where it ends.
+mesh_ok() {
+  [ -n "$mesh_hold" ] || return 0
+  [ "$dry" != 1 ] || log "$mesh_hold"
+  return 1
 }
 
 # A planning turn runs in a container in the slice. With no usable slice, or
@@ -236,36 +269,76 @@ report_hold() {
   [ "$why" = "$before" ] || "$status_cmd"
 }
 
+# The events of one issue are read when a decision needs them and kept only
+# while that issue is being decided: a poll holds no event payload between
+# issues. Who applied one label of one issue is remembered for the poll in
+# $actor_of, so a poll never asks GitHub the same question twice. An answer is
+# used only by the decision that asked for it, and no label of that issue
+# changes in between. A failed call to GitHub ends the poll.
+events=""
+events_for=""
+declare -A actor_of=()
+
+# issue_events <issue>: the issue's label events, fresh from GitHub, in $events.
+issue_events() {
+  local n=$1
+  gh_json api "repos/$repo/issues/$n/events?per_page=100" --paginate
+  events=$json
+  events_for=$n
+}
+
+who=""
+at=""
+
+# label_actor <issue> <label>: the account that applied the label most recently,
+# and when, in $who and $at; both empty when no event applies to that label.
+label_actor() {
+  local n=$1 name=$2 line
+  if [ -n "${actor_of["$n $name"]+set}" ]; then
+    line=${actor_of["$n $name"]}
+  else
+    issue_events "$n"
+    line=$(jq -rs --arg l "$name" 'add // [] | map(select(.event == "labeled" and .label.name == $l)) | last
+                    | "\(.actor.login // "")\t\(.created_at // "")"' <<<"$events") ||
+      { log "ERROR: unreadable label events of #$n"; exit 1; }
+    actor_of["$n $name"]=$line
+  fi
+  who=${line%%$'\t'*}
+  at=${line#*$'\t'}
+}
+
+# allowed_account <login>: 0 when the name is one of TEHAS_ALLOWED_LABELERS.
+# No name is nobody: a deleted account or a missing event never matches.
+allowed_account() {
+  case "${1:+$allowed}" in
+    *" $1 "*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# deny_label <verb> <issue> <label>: the label came from an account outside the
+# list. $who is the name GitHub gave, empty when its event names nobody.
+deny_label() {
+  log "$1 #$2: $3 was applied by '${who:-unknown}', not an allowed account"
+}
+
 # approval <issue> <label>: who applied the label most recently, and when, in
 # $who and $at; the issue's events in $events. Returns 1, with the reason
 # logged, unless that was an allowed account and the text is still what it
-# approved. A failed call to GitHub ends the poll. $refused is the account
-# whose label was refused for not being allowed, empty for every other refusal
-# and whenever the label does authorise.
-events=""
-who=""
-at=""
+# approved. The read is taken here, at the decision, so a label spent or moved
+# earlier in this poll cannot stand for an approval given now. $refused is the
+# account whose label was refused for not being allowed, empty for every other
+# refusal and whenever the label does authorise.
 refused=""
 approval() {
-  local n=$1 name=$2 ready
+  local n=$1 name=$2
   refused=""
-  # Who applied the label most recently, and when?
-  gh_json api "repos/$repo/issues/$n/events?per_page=100" --paginate
-  events=$json
-  ready=$(jq -rs --arg l "$name" 'add // [] | map(select(.event == "labeled" and .label.name == $l)) | last
-                  | "\(.actor.login // "") \(.created_at // "")"' <<<"$events") ||
-    { log "ERROR: unreadable label events of #$n"; exit 1; }
-  who=${ready%% *}
-  at=${ready#* }
-  # No name is nobody: a deleted account or a missing event never matches.
-  case "${who:+$allowed}" in
-    *" $who "*) ;;
-    *)
-      log "skip #$n: $name was applied by '${who:-unknown}', not an allowed account"
-      refused=${who:-unknown}
-      return 1
-      ;;
-  esac
+  label_actor "$n" "$name"
+  if ! allowed_account "$who"; then
+    deny_label skip "$n" "$name"
+    refused=${who:-unknown}
+    return 1
+  fi
   unchanged_since "$n" "$at" "$who applied $name"
 }
 
@@ -291,12 +364,14 @@ clear_unauthorised() {
 }
 
 # unchanged_since <issue> <time> <what happened then> [how to approve again]
-# Needs $events. An approval covers the text that was there when it was given.
+# Needs the label events of $n in $events; they are read when they are not
+# already at hand. An approval covers the text that was there when it was given.
 # A title or body changed afterwards by anyone else has not been approved by
 # anybody: the issue waits until an allowed account approves it again. Returns
 # 1, with the reason logged, if that happened.
 unchanged_since() {
   local n=$1 since=$2 what=$3 again=${4:-apply the label again} renamed edited editors edited_at stale e
+  [ "$events_for" = "$n" ] || issue_events "$n"
   renamed=$(jq -rs --arg at "$since" 'add // [] | map(select(.event == "renamed" and ($at == "" or .created_at > $at)))
                   | map(.actor.login // "") | join(" ")' <<<"$events") ||
     { log "ERROR: unreadable label events of #$n"; exit 1; }
@@ -314,7 +389,7 @@ unchanged_since() {
   fi
   stale=""
   for e in $editors; do
-    case "$allowed" in *" $e "*) ;; *) stale=$e ;; esac
+    allowed_account "$e" || stale=$e
   done
   if [ -n "$stale" ]; then
     log "skip #$n: its text was changed by '$stale' after $what; $again to approve it"
@@ -498,8 +573,10 @@ done
 # not have. A running cycle is a pull request on its way, so it counts:
 # otherwise the slots could overshoot the cap. Rules 2 and 3 hold back new
 # cycles only; a question is still read while they hold. $hold says why and
-# $why is the one word for it: slice, unreadable, count, awaiting, pressure
-# or room, the first that applies.
+# $why is the one word for it: slice, unreadable, resources, count, awaiting,
+# pressure or room, the first that applies. resources is a model endpoint
+# that does not answer or does not offer the model: it holds planning turns
+# and retries as well.
 #
 # The slice is read here, after the sweep above, which needs no slice. The
 # room is read whenever the slice is usable, also when the slots are full, so
@@ -523,6 +600,7 @@ else
   slice_hold="holding: $TEHAS_SLICE_WHY"
 fi
 
+mesh_check
 hold=""
 why=""
 want=0
@@ -534,6 +612,9 @@ elif [ "$mem_why" = unreadable ]; then
   # on it, whatever the slots say.
   why=unreadable
   hold="holding: the slice's use could not be read"
+elif [ -n "$mesh_hold" ]; then
+  why=resources
+  hold=$mesh_hold
 elif [ "$free" -le 0 ]; then
   why=count
   hold="holding: $count cycles are running (limit $TEHAS_TICKET_CONCURRENCY)"
@@ -611,7 +692,7 @@ for st in "$TEHAS_HOME"/state/plan-*.json; do
   case "$fresh" in *" $n "*) continue ;; esac
   case " ${asking//$'\n'/ } " in
     *" $n "*) ;;
-    *) [ "$dry" = 1 ] || rm -f "$st" "$st.out" "$st.answer" "$st.brief" ;;
+    *) [ "$dry" = 1 ] || rm -rf "$st" "$st.out" "$st.answer" "$st.brief" "$st.keep" ;;
   esac
 done
 bot=""
@@ -620,9 +701,10 @@ for n in $asking; do
     gh_json api user
     bot=$(jq -r '.login // ""' <<<"$json") || bot=""
     [ -n "$bot" ] || { log "ERROR: the bot's own login could not be read"; exit 1; }
-    case "$allowed" in
-      *" $bot "*) log "ERROR: the bot account $bot is in TEHAS_ALLOWED_LABELERS; the bot never authorises work"; exit 78 ;;
-    esac
+    if allowed_account "$bot"; then
+      log "ERROR: the bot account $bot is in TEHAS_ALLOWED_LABELERS; the bot never authorises work"
+      exit 78
+    fi
   fi
   have=" $(jq -r --argjson n "$n" '[.[] | select(.number == $n) | (.labels // [])[].name] | join(" ")' <<<"$asking_json") "
   # Which comment is the question is decided here, from this host's own
@@ -727,8 +809,7 @@ for n in $asking; do
         continue
       fi
       # The tick approves the text as it was at that moment, as the label does.
-      gh_json api "repos/$repo/issues/$n/events?per_page=100" --paginate
-      events=$json
+      issue_events "$n"
       unchanged_since "$n" "$(jq -r .tick.at <<<"$ans")" "$by ticked retry" "untick the box and tick it again" || continue
       if [ -n "$hold" ]; then
         [ "$dry" = 1 ] && log "$hold"
@@ -834,7 +915,7 @@ for n in $plans; do
     exit 0
   fi
   st=$(plan_state "$n")
-  rm -f "$st" "$st.out" "$st.answer"
+  rm -rf "$st" "$st.out" "$st.answer" "$st.keep"
   jq -r '"# \(.title // "")\n\n\(.body // "")"' <<<"$brief" >"$st.brief" ||
     { log "ERROR: unreadable text of #$n"; exit 1; }
   log "start planning #$n (labelled by $who)"
@@ -848,17 +929,37 @@ if [ -n "$hold" ]; then
   exit 0
 fi
 
-# 6. and 7. Candidates: urgent first, then by number.
+# 6. and 7. Candidates: urgent first, then by number. The order is needed
+# before the candidates are cut to the free slots, so whose urgent label counts
+# is settled for every issue that carries one and could still be picked. An
+# issue with an open planning session or a live cycle is out of contention for
+# a reason this poll knows without asking GitHub; it keeps its place by number
+# either way, and the candidate loop says why it starts nothing. A failed
+# events read of any issue asked about here ends the poll. Who applied
+# tehas:ready is read again when the issue is picked, so no start rests on this
+# ordering read.
 gh_json issue list --repo "$repo" --state open --label tehas:ready --limit 1000 --json number,labels
 ready_json=$json
-candidates=$(jq -r '[.[] | (.labels | map(.name)) as $l
-          | {number, urgent: ($l | index("tehas:urgent") != null)}]
+carrying=$(jq -r '.[] | select((.labels // []) | any(.name == "tehas:urgent")) | .number | tonumber? // empty' <<<"$ready_json") ||
+  { log "ERROR: unreadable list of ready issues"; exit 1; }
+urgent=()
+for n in $carrying; do
+  if [ -e "$(plan_state "$n")" ] || tehas_cycle_running "$n"; then
+    continue
+  fi
+  label_actor "$n" tehas:urgent
+  if allowed_account "$who"; then
+    urgent+=("$n")
+  else
+    deny_label ignore "$n" tehas:urgent
+  fi
+done
+urgent_json=$(printf '%s\n' "${urgent[@]}" | jq -sc 'map(tonumber)') ||
+  { log "ERROR: unreadable urgent issue list"; exit 1; }
+candidates=$(jq -r --argjson u "$urgent_json" '(reduce $u[] as $x ({}; .[$x | tostring] = true)) as $set
+         | [.[] | .number as $n | {number: $n, urgent: ($set[($n | tonumber | tostring)] == true)}]
          | sort_by([(.urgent | not), .number]) | .[].number' <<<"$ready_json") ||
   { log "ERROR: unreadable list of ready issues"; exit 1; }
-
-if [ -n "$candidates" ]; then
-  mesh_ok || exit 0
-fi
 
 for n in $candidates; do
   [ "${#picked[@]}" -lt "$want" ] || break

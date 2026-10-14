@@ -57,17 +57,63 @@
 .energy-gauge i { width: 6px; height: 16px; background: var(--bone); }
 .energy-gauge .is-used { background: var(--slate); }
 
-/* The live meter: a door among the doors, there only while the mesh reports.
-   On wide screens it stands under the fourth station, two doors tall; below
-   that it lies across the foot of the doors. */
-.door.meter { flex-direction: column; justify-content: center; align-items: stretch; gap: 4px; grid-column: 1 / -1; animation-delay: 540ms; }
+/* The live meter: mounted on the head panel at its right end, there only while
+   the mesh reports. It costs width, so its column is a number of its own:
+   336px on a wide screen, which is the column above the work order monitor;
+   240px from 900 to 1279px; and below 900px the panel cannot hold the text
+   beside it, so the meter lies across the foot of the panel at its full width.
+   Topaz advances half an em, so its widest line (TOKENS with a five-figure
+   rate) needs 216px, which the panel has even at 360px. */
+
+.floor-meter {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--bone-shade);
+  text-decoration: none;
+}
+.floor-meter:hover { background: var(--bone); }
 .meter-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; white-space: nowrap; }
-.meter-gauge { display: flex; gap: 4px; margin-bottom: 4px; }
+.meter-row b { font: inherit; }
+.meter-row i { font-style: normal; font-size: 32px; line-height: 32px; }
+.meter-gauge { display: flex; gap: 4px; }
 .meter-gauge i { flex: 1; height: 12px; background: var(--bone); border: 2px solid var(--outline); }
 .meter-gauge .is-used { background: var(--brass); }
-@media (min-width: 1280px) {
-  .doors:has(.meter:not([hidden])) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .door.meter { grid-column: 4; grid-row: 1 / span 2; }
+
+/* Side by side: the panel splits into its text and the meter, and the meter
+   stands over the height of the title bar and the lines under it. The split is
+   there only while the meter is: a hidden element would leave an empty column.
+   The left column is minmax(0, 1fr) so its text wraps instead of pushing the
+   meter out of the panel. */
+.floor-head:has(> .floor-meter:not([hidden])) {
+  display: grid;
+  --meter-column: 336px;
+  grid-template-columns: minmax(0, 1fr) var(--meter-column);
+  grid-template-rows: auto auto auto;
+  grid-template-areas: "title meter" "intro meter" "foot meter";
+}
+.floor-head > h1 { grid-area: title; }
+.floor-head > .floor-intro { grid-area: intro; }
+.floor-head > #floor-summary { grid-area: foot; }
+.floor-meter { grid-area: meter; border-left: 4px solid var(--outline); }
+
+@media (max-width: 1279px) {
+  /* The stage is one column here, so the meter no longer lines up with the
+     monitor. It keeps a column wide enough for its widest line. */
+  .floor-head:has(> .floor-meter:not([hidden])) { --meter-column: 240px; }
+}
+
+@media (max-width: 899px) {
+  /* Below the width where a paragraph and the meter stand side by side, the
+     panel is one column again and the meter takes its foot. */
+  .floor-head:has(> .floor-meter:not([hidden])) {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto auto;
+    grid-template-areas: "title" "intro" "foot" "meter";
+  }
+  .floor-meter { border-top: 4px solid var(--outline); border-left: 0; }
 }
 
 /* Wide: the screen and the models side by side, the machines beneath. */

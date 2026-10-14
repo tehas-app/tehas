@@ -235,7 +235,7 @@ body[data-factory="live"] .console-state::before {
 #floor-summary { margin: 8px 16px 16px; color: var(--slate); }
 .gate { padding: 0 8px; background: var(--bone); border: 4px solid var(--outline); }
 .gate[data-state="running"] { background: var(--go); }
-.gate[data-state="paused"] { background: var(--brass); }
+.gate[data-state="paused"], .gate[data-state="starved"] { background: var(--brass); }
 .gate[data-state="failed"] { background: var(--fail); color: var(--bone); }
 
 /* The floor: four stations side by side */

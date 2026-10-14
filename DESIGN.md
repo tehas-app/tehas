@@ -268,6 +268,19 @@ station, counting stopped and not on the line) and says when no ticket data is
 loaded, when the factory is paused, or when the last cycle failed. The room
 above the panel belongs to the field, not to its face.
 
+On the right of the panel stands the live meter, over the height of the Steel
+head and the lines under it, there only while the model mesh reports (see Energy
+Use). It is a Bone Shade band closed off from the text by a 4px Outline rule:
+the draw now in watts and the tokens of the last minute, each in display type
+over a gauge of ten blocks, Brass for the filled ones. The power gauge is read
+against the chart's scale, the token gauge against the busiest minute of the
+last half hour. Where the mesh counts no tokens the meter shows power alone. It
+leads to Energy Use. The meter costs width and is given a column of its own:
+336px on a wide screen, which is the column above the monitor; 240px from 900 to
+1279px; below 900px the panel is one column again and the meter lies across its
+foot at full width. Where the two do not fit side by side it is the meter that
+moves, never the text.
+
 ### Station Sign
 A signboard: the station's scene, the name and count in display type, one
 ticket (next up, in work, needs review, latest) with its title held to two
@@ -287,16 +300,7 @@ else on the page.
 Six Steel tiles in three columns (two on narrow screens): a name, a line of
 status beneath it, and a count in display type where there is one. The stopped
 door turns Brass when anything is stopped. A pressed door moves onto its
-shadow.
-
-While the model mesh reports, a seventh door stands with them: the live meter.
-It shows the draw now in watts and the tokens of the last minute, each in
-display type over a gauge of ten blocks, Brass for the filled ones. The power
-gauge is read against the chart's scale, the token gauge against the busiest
-minute of the last half hour. On wide screens the doors then make four
-columns and the meter stands under the fourth station, two doors tall; below
-that it lies across the foot of the doors. It leads to Energy Use. Where the
-mesh counts no tokens the meter shows power alone.
+shadow. The live meter is not one of the doors: it stands on the head panel.
 
 ### Monitor
 The selected work order on a cream-cased screen: number in display type, then
