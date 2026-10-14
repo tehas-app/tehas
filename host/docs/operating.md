@@ -380,6 +380,17 @@ reaches them. Remove the label to resume.
   dispatcher asks it at every poll. `tehas status` says `warn: No resources`
   and the dashboard says `no resources` until it is back. With
   `TEHAS_WORK_IMAGES=1` a model that does not read an image counts the same.
+- One cycle at a time on a pi-rukas that is new on the host: one that no
+  cycle here has ended as `merged`, or as a handoff with a pull request, on.
+  While a cycle runs on it, `tehas status` says `holding: pi-rukas <commit> is
+  new on this host`, and cycles still running on the pi-rukas before it count
+  for the slots only. The first cycle that ends well on it lifts the hold. The
+  commit is the sandbox image's, its label `tehas.rukas`, so an image put back
+  for a [rollback](/host#rolling-back-pi-rukas) is known by its own commit;
+  an image built before the label counts as the commit in
+  `~/tehas/versions.env`. The commits proven are listed in
+  `~/tehas/state/rukas-proven`. A new host, which has proven none, starts the
+  same way.
 - Inside a cycle, `TEHAS_CONCURRENCY` workstreams side by side: 4 by default,
   fewer if the model backends cannot take it. See [The host](/host).
 - No new cycle while `TEHAS_MAX_AWAITING` issues carry `tehas:awaiting-merge`
@@ -389,7 +400,8 @@ reaches them. Remove the label to resume.
 - A self-hosted model endpoint has few real slots per model, so a cycle takes
   a while; the six-pass review is the slowest part.
 
-The review cap, the room and the pressure hold back cycles only. Planning
+The review cap, the new pi-rukas, the room and the pressure hold back cycles
+only. Planning
 turns still run. `tehas status` shows the room in its `slice` line, as the
 dispatcher's last poll read it, and `tehas dispatch --dry-run` reads it
 afresh. A hold is written to `~/tehas/logs/dispatch.log` once, when its reason

@@ -66,6 +66,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_MAX_AWAITING`            | `TEHAS_TICKET_CONCURRENCY` plus 2        | Open `tehas:awaiting-merge` issues, plus running cycles, allowed before holding |
 | `TEHAS_CYCLE_RESERVE`           | `2g`                                     | Memory one container is given as a floor (`docker --memory-reservation`) and the unit the dispatcher counts room in. A reclaim priority inside `tehas.slice` and the amount admission promises, not a guarantee against the whole host. A Docker size of at least 6m, and at most a quarter of the slice's `MemoryMax`, else the command stops with 78 naming both numbers. With the default the host needs about 11 GiB of memory; a smaller host sets it lower |
 | `TEHAS_WORK_TIMEOUT`            | `21600`                                  | Seconds before a cycle is given up                              |
+| `TEHAS_WORK_STALL`              | `3600`                                   | Seconds a cycle may go without a line added to any of its logs before it is stopped as `stalled`. Must be longer than `TEHAS_VERIFY_TIMEOUT`, because a gate can print nothing while it runs; else the command stops with 78 |
 | `TEHAS_WORK_IMAGES`             | `0`                                      | `1` gives a cycle and a planning session the images its issue text links: see [tehas work](#tehas-work) and [tehas plan](#tehas-plan). The model must declare `"image"` in its `input` in `models.json` and answer a request with an image, else the dispatcher holds every cycle |
 | `TEHAS_VERIFY_TIMEOUT`          | `1800`                                   | Seconds one run of the product's gate may take inside a cycle. A gate that takes longer is stopped and the cycle parks. Passed to pi-rukas as `PI_ENSEMBLE_VERIFY_TIMEOUT_MS` and `PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS`; pi-rukas alone allows ten minutes |
 | `TEHAS_PLAN_MAX_TURNS`          | `20`                                     | Turns a planning session may take before it is ended            |
@@ -212,7 +213,7 @@ waits until `.pi/work-state/<issue>.json` in the workspace `~/tehas/work/<name>-
 | ---- | ---------------------------------------------------------------- |
 | 0    | The cycle ended as `merged` or `handoff` (parked for a human)    |
 | 1    | The cycle ended as `aborted`                                     |
-| 2    | Pi exited, or the time limit passed, while the cycle was running |
+| 2    | Pi exited, the time limit passed, or the cycle stalled, while it was running |
 | 3    | The sandbox cannot push to the repository; no cycle was started  |
 | 4    | With `TEHAS_WORK_IMAGES=1`: an image the issue links could not be fetched, or the issue could not be read for its images; no cycle was started |
 | 64   | No bot token or no git identity; no cycle was started            |
@@ -228,6 +229,17 @@ environment-level configuration; before a cycle starts, a dry-run push proves
 that works. The RPC stream is kept in `~/tehas/logs/work-<issue>-<time>.jsonl`.
 The time limit is `TEHAS_WORK_TIMEOUT`. [The host](/host#limits-and-concurrency)
 has the limits in full.
+
+A cycle that writes nothing does not wait for its time limit. When Pi's RPC
+stream, its error stream and the agents' transcripts under
+`~/.pi/agent/ensemble-runs/issue-<issue>` all stay unchanged for
+`TEHAS_WORK_STALL` seconds, the container is stopped and the cycle is
+`stalled`. A step that hangs on a child process, or a gate that never returns,
+then frees its slot within the hour. The seconds go to
+`~/tehas/state/cycles/<issue>.stalled`, and `tehasbot cycle` says on the issue
+how long nothing moved and at which step, parks it and removes the file. A
+cycle that keeps writing without getting anywhere is not caught by this: it
+runs until its time limit.
 
 While the container runs, Docker keeps its id in `~/tehas/state/cycles/<issue>.cid`,
 which is how the dispatcher tells a cycle's container from the others in the

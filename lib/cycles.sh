@@ -11,8 +11,11 @@
 #   tehas_cycles_running          the issues with a running cycle, one per line
 #   park_id <issue>               the path of the file that holds the id of
 #                                 the park question this host posted
+#   tehas_rukas_commit            the pi-rukas commit a cycle started now runs
+#   tehas_rukas_proven <commit>   0 if a cycle on this host ended well on it
 #
 # Needs TEHAS_HOME. Reads only: it takes each lock for an instant and lets go.
+# tehas_rukas_commit asks Docker about PI_ENSEMBLE_IMAGE.
 
 tehas_cycle_running() {
   local lock=$TEHAS_HOME/state/cycles/$1.lock
@@ -59,3 +62,17 @@ tehas_work_kind() {
   esac
   [ "$tehas_work_why" = open ]
 }
+
+# What a cycle runs is the sandbox image, so its label tehas.rukas says the
+# commit, also for an image put back for a rollback. An image built before the
+# label has the commit versions.env names. Nothing when neither says.
+tehas_rukas_commit() {
+  local c
+  c=$(docker image inspect --format '{{index .Config.Labels "tehas.rukas"}}' "${PI_ENSEMBLE_IMAGE:-}" 2>/dev/null) || c=""
+  [[ $c =~ ^[0-9a-f]{7,40}$ ]] ||
+    c=$(sed -n 's/^PI_RUKAS_COMMIT=\([0-9a-f]\{7,40\}\)$/\1/p' "$TEHAS_HOME/versions.env" 2>/dev/null | head -n 1)
+  printf '%s\n' "$c"
+}
+
+# state/rukas-proven: one commit a line, each one a cycle ended well on.
+tehas_rukas_proven() { [ -n "$1" ] && grep -qxF -e "$1" "$TEHAS_HOME/state/rukas-proven" 2>/dev/null; }

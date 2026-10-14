@@ -60,6 +60,14 @@
 #      the poll takes it off and says so once on the issue: left in place it
 #      reads as a request for a cycle to everyone who reads the issue. A
 #      tehas:plan from such an account is taken off the same way.
+#   3a. A pi-rukas commit that no cycle on this host has ended well on, as
+#      merged or as a handoff with a pull request, runs one cycle at a time.
+#      The commit is the sandbox image's (lib/cycles.sh). tehasbot cycle
+#      writes the commit a cycle ran with beside its lock, and adds that of a
+#      cycle that ended well to state/rukas-proven. While a running cycle has
+#      the image's commit and that file does not name it, nothing more
+#      starts; cycles of the commit before still count for rule 2 only. A bad
+#      release then costs one cycle, not a slot of each.
 #   7. tehas:urgent first, then the lowest issue number. The urgent label
 #      counts only when its most recent labelling is by an allowed account, as
 #      tehas:ready does: one applied by the bot or anyone else is ignored and
@@ -579,6 +587,19 @@ count=$(wc -w <<<"$running")
 count=$((count))
 free=$((TEHAS_TICKET_CONCURRENCY - count))
 
+# 3a. The pi-rukas a cycle started now runs, and whether a cycle has ended
+# well on it. Without a commit on record there is nothing to compare.
+rukas_now=$(tehas_rukas_commit)
+canary=0
+on_new=0
+if [ -n "$rukas_now" ] && ! tehas_rukas_proven "$rukas_now"; then
+  canary=1
+  for n in $running; do
+    [ "$(head -c 64 "$TEHAS_HOME/state/cycles/$n.rukas" 2>/dev/null | head -n 1)" != "$rukas_now" ] ||
+      on_new=$((on_new + 1))
+  done
+fi
+
 # A cycle that was killed, or whose last label change GitHub refused, leaves
 # its issue marked as running. No rule below would look at it again. The
 # comment follows the label change only: while the change fails, the next poll
@@ -614,10 +635,10 @@ done
 # not have. A running cycle is a pull request on its way, so it counts:
 # otherwise the slots could overshoot the cap. Rules 2 and 3 hold back new
 # cycles only; a question is still read while they hold. $hold says why and
-# $why is the one word for it: slice, unreadable, resources, count, awaiting,
-# pressure or room, the first that applies. resources is a model endpoint
-# that does not answer or does not offer the model: it holds planning turns
-# and retries as well.
+# $why is the one word for it: slice, unreadable, resources, count, canary,
+# awaiting, pressure or room, the first that applies. resources is a model
+# endpoint that does not answer or does not offer the model: it holds
+# planning turns and retries as well.
 #
 # The slice is read here, after the sweep above, which needs no slice. The
 # room is read whenever the slice is usable, also when the slots are full, so
@@ -659,6 +680,9 @@ elif [ -n "$mesh_hold" ]; then
 elif [ "$free" -le 0 ]; then
   why=count
   hold="holding: $count cycles are running (limit $TEHAS_TICKET_CONCURRENCY)"
+elif [ "$canary" = 1 ] && [ "$on_new" -gt 0 ]; then
+  why=canary
+  hold="holding: pi-rukas ${rukas_now:0:12} is new on this host, one cycle runs on it until one ends with a pull request"
 else
   gh_json issue list --repo "$repo" --state open --label tehas:awaiting-merge --limit 1000 --json number
   awaiting=$(jq length <<<"$json") || { log "ERROR: unreadable list of issues awaiting merge"; exit 1; }
@@ -679,6 +703,7 @@ else
   else
     want=$((free < room ? free : room))
     [ "$want" -le "$room_mem" ] || want=$room_mem
+    [ "$canary" = 0 ] || [ "$want" -le 1 ] || want=1
   fi
 fi
 [ "$dry" = 1 ] || report_hold

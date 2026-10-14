@@ -488,10 +488,38 @@ Every release of tehas takes the newest release of pi-rukas. Before tagging:
 1. Run `scripts/rukas-latest.sh`. It reads upstream's newest release, its
    commit and its image's digest, and writes all three. With `--check` it
    only says whether the pin is already the newest, exit 1 when it is not.
+   Either way it first reads the release's source, and refuses it with exit 3
+   when something tehas relies on is gone: a `PI_ENSEMBLE_*` setting that a
+   command of tehas passes, or a field of the state file a cycle's end is
+   read from. It names what is missing. Such a release is not pinned until
+   tehas is changed to match it.
 2. When it changed something, open a pull request with the change, merge it,
    and tag the release from that merge.
 3. On the host: pull, run `./bootstrap.sh user`, rebuild the sandbox image,
-   run the contract test above, then let one cycle run before trusting it.
+   and run the contract test above. The dispatcher then runs one cycle at a
+   time on the new pi-rukas until one ends with a pull request: see
+   [Limits that hold work back](/operating#limits-that-hold-work-back).
+
+### Rolling back pi-rukas
+
+Cycles run pi-rukas from the sandbox image, so putting the previous image back
+is the rollback, and it takes effect at the next cycle's start:
+
+```
+docker image ls tehas/pi-rukas            # the builds, tagged by date
+docker tag tehas/pi-rukas:<date> tehas/pi-rukas:uid$(id -u)
+```
+
+Each image carries the pi-rukas commit it was built with, as its label
+`tehas.rukas`, and the dispatcher and the improvement loop read the commit
+from there. A commit that cycles have ended well on before runs at full
+concurrency again at once.
+
+That holds until the next sandbox build, which takes the pin from
+`versions.env`. To keep the rollback, revert the change of the pin in this
+repository and release it: `git revert` the commit that changed
+`PI_RUKAS_COMMIT` and the `FROM` line, merge, tag, and on the host
+`tehas update` and `./bootstrap.sh user`.
 
 Where the instance sets `TEHAS_IMPROVE_RUKAS_REPO`, the
 [improvement loop](/operating#the-improvement-loop) files what it finds about

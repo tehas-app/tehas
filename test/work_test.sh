@@ -462,6 +462,33 @@ t_lacks "$t_out" "was killed"
 t_contains "$(t_calls docker)" "stop -t 20 tehas-work-7"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 
+t_case "a cycle none of whose logs change is stopped as stalled before its time limit"
+fresh
+rm -f "$T/home/tehas/state/cycles/7.stalled"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_STALL=2 TEHAS_VERIFY_TIMEOUT=1
+container "$hold; $gone"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "none of the cycle's logs changed for 2s, stopping it as stalled"
+t_contains "$t_out" "status=stalled"
+t_lacks "$t_out" "time limit"
+t_lacks "$t_out" "was killed"
+t_contains "$(t_calls docker)" "stop -t 20 tehas-work-7"
+t_eq "$(cat "$T/home/tehas/state/cycles/7.stalled")" 2
+t_eq "$(jq -c '[.running, .status]' "$live/cycles/7.json")" '[false,"stalled"]'
+
+t_case "a cycle whose agents keep writing is not stalled"
+fresh
+rm -f "$T/home/tehas/state/cycles/7.stalled"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_STALL=2 TEHAS_VERIFY_TIMEOUT=1 TEHAS_WORK_TIMEOUT=5
+container "( for _ in \$(seq 40); do date >>\"$runs/agent.jsonl\"; \"\$nap\" 0.3; done ) & $hold; $gone"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "time limit of 5s passed"
+t_lacks "$t_out" "stalled"
+t_eq "$(find "$T/home/tehas/state/cycles/7.stalled" 2>/dev/null | wc -l)" 0
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+
 t_case "TERM still gives interrupted"
 fresh
 container "$hold; $gone"

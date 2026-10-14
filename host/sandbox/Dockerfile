@@ -45,3 +45,10 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 RUN npx --yes "playwright@${PLAYWRIGHT_VERSION}" install --with-deps chromium \
  && chmod -R a+rX /opt/ms-playwright \
  && rm -rf /var/lib/apt/lists/* /root/.npm
+
+# The pi-rukas commit the base was built from, as versions.env names it. The
+# dispatcher and tehasbot cycle read it from the image, so an image put back
+# for a rollback is known by its own commit. Last, so a new commit rebuilds
+# nothing above it.
+ARG PI_RUKAS_COMMIT=""
+LABEL tehas.rukas=$PI_RUKAS_COMMIT
