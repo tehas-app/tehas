@@ -70,8 +70,23 @@
 # then only loses tehas:running, and tehasbot status labels it shipped. One a
 # person closed without merging parks the issue without the retry boxes.
 #
-# Only a run that ended as handoff with an open pull request is reported as
-# waiting for a merge. The label change that ends a cycle is tried three
+# Only a run that ended as handoff for the reason "the pull request waits for
+# a person" is reported as waiting for a merge. That reason is the cap of the
+# last cap-hit event in the cycle's state file, and at the pinned pi-rukas it
+# is awaiting-human-merge. A review that ran out of its rounds with findings
+# still open is routed to ci and ends with that same cap, so the cap alone does
+# not say the review reached its end: the hold pi-rukas stamps for it, and the
+# round cap that was routed to ci, are read too, and such a cycle is parked.
+# Any other cap,
+# and a state file that names none, is parked as well, even when a pull request
+# is open: the comment names the cap and links the pull request. tehas never
+# leaves an issue with both tehas:awaiting-merge and needs-human-attention:
+# pi-rukas applies the latter at every handoff, so a waiting-merge cycle takes
+# it off in the same change that adds the former. gh resolves a label name
+# against the labels of the repository, and GitHub ignores the removal of one
+# the issue does not carry, so it is asked for without reading the issue first.
+#
+# The label change that ends a cycle is tried three
 # times, and so is the question about the pull request, and so is the call
 # that asks what the number is. A pull request that could not be looked up is
 # not taken for none: the issue is parked with a comment that says so and names
@@ -86,8 +101,8 @@
 # connection or a 5xx) is said as one, and the park file asks the dispatcher
 # to start the issue again once, unless this cycle was that start.
 #
-# A cycle that stopped without a pull request asks what to do next, in a
-# comment with boxes. The id of that comment goes on record in
+# A cycle that stopped, or handed off for any other reason, asks what to do
+# next, in a comment with boxes. The id of that comment goes on record in
 # state/park-<issue>.id: the dispatcher takes a tick only in the comment named
 # there.
 #
@@ -287,6 +302,18 @@ fi
 # trusted later, so only plain characters are kept.
 status=$(jq -r '.pipelineState.status // "unknown"' "$state" 2>/dev/null | tr -cd 'A-Za-z0-9_.-')
 step=$(jq -r '.pipelineState.currentStep // "-"' "$state" 2>/dev/null | tr -cd 'A-Za-z0-9_.-')
+# The last cap (read below) is not the whole reason. A round cap that still had findings
+# open is routed to ci, and pi-rukas holds the merge for it and stamps the park
+# with awaiting-human-merge anyway. It decides that from the event log
+# (heldByUnresolvedReview) and writes the decision into the state file as
+# pipelineState.mergeHold.unresolvedReviewFindings (work-driver-merged.ts). The
+# stamp is read, and so is the round cap behind it: the stamp is only written
+# where merge authority is on. Either one parks the cycle, and a state file
+# that answers neither is parked too.
+held=$(jq -r '((.pipelineState.mergeHold.unresolvedReviewFindings // false) == true)
+  or ([(.eventLog // [])[]? | objects | select(.kind == "cap-hit" and .cap == "round-cap" and .nextStep == "ci")] | length > 0)
+  | if . then "yes" else "no" end' "$state" 2>/dev/null)
+[[ $held = no ]] || held=yes
 status=${status:-unknown}
 step=${step:--}
 # The runner says 137 only for a container that was killed under it. A state
@@ -484,8 +511,15 @@ elif [ "$rc" = 0 ] && [ "$status" = merged ]; then
   # A claim the container wrote. Without the merge to show for it the
   # workspaces are kept: what they hold may exist nowhere else.
   park "Tehas cycle stopped: its state says \`merged\`, but the bot has no merged pull request for this issue on \`$(tr -cd 'A-Za-z0-9_./-' <<<"${branch:-none}")\` ($summary). Nothing was removed; $log_where.$killed${pr:+ Its branch has an open pull request: $pr}$foreign"
-elif [ "$rc" = 0 ] && [ "$status" = handoff ] && [ -n "$pr" ]; then
-  relabel --remove-label tehas:running --add-label tehas:awaiting-merge && stuck=""
+elif [ "$rc" = 0 ] && [ "$status" = handoff ] && [ -n "$pr" ] && [ "$cap" = awaiting-human-merge ] &&
+  [ "$held" = no ]; then
+  # In the same change, so the issue never carries both. The label is asked
+  # for whether or not the issue has it: gh resolves the name against the
+  # labels of the repository and GitHub ignores the removal of one the issue
+  # does not carry, so a cycle that is waiting for a merge is never parked by
+  # the state of a label read.
+  relabel --remove-label tehas:running --add-label tehas:awaiting-merge \
+    --remove-label needs-human-attention && stuck=""
   comment "Tehas cycle finished: $summary. Pull request waiting for a human: $pr$killed$stuck"
   gh_call pr comment "$pr" --body "Tehas cycle for #$issue: $summary.
 
@@ -503,7 +537,22 @@ elif [ -z "$pr" ] && [ -n "$closed_pr" ] && [ "$rc" != 4 ]; then
   relabel --remove-label tehas:running --add-label needs-human-attention && stuck=""
   comment "Tehas cycle stopped: its pull request $closed_pr was closed without being merged ($summary, runner exit $rc). The workspace is kept; $log_where.$killed$stuck To retry, apply \`tehas:ready\`."
 else
-  parked="Tehas cycle stopped without a pull request: $summary (runner exit $rc). Read the handoff comment if there is one; $log_where.$killed${pr:+ Its branch has an open pull request: $pr}$foreign"
+  # A handoff with a pull request that is not the waiting-merge one is parked
+  # too. The comment says why, and still links the pull request.
+  parked_head="Tehas cycle stopped without a pull request"
+  if [ "$status" = handoff ] && [ -n "$pr" ]; then
+    if [ "$rc" != 0 ]; then
+      why="the runner exited $rc"
+    elif [ "$held" = yes ]; then
+      why="its review ran out of rounds with findings still open"
+    elif [ -n "$cap" ] && [ "$cap" != awaiting-human-merge ]; then
+      why="cap \`$cap\`"
+    else
+      why="its state file names no cap"
+    fi
+    parked_head="Tehas cycle handed off with an open pull request that is not waiting for a merge ($why)"
+  fi
+  parked="$parked_head: $summary (runner exit $rc). Read the handoff comment if there is one; $log_where.$killed${pr:+ Its branch has an open pull request: $pr}$foreign"
   if [ "$rc" = 4 ]; then
     parked="Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit $rc). The comment before this one names it; $log_where."
   elif [ "$provider" = 1 ]; then
@@ -517,7 +566,7 @@ else
   fi
   park "$parked"
 fi
-log "done #$issue rc=$rc status=$status step=$step minutes=$mins pr=${pr:-none} oom_kills=$kills forks_refused=$forks"
+log "done #$issue rc=$rc status=$status step=$step minutes=$mins pr=${pr:-none} cap=${cap:-none} oom_kills=$kills forks_refused=$forks"
 # For the improvement loop, where the instance has one. The cycle is reported
 # by now, and a record that cannot be written is the loop's loss only.
 tehas_improve_record "$issue" "$started" "$rc" "$status" "$step" "$pr" "$kills" "$image_id" "$image_rukas" "$cap" "$reason" || log "WARN: no record of #$issue for the improvement loop"
