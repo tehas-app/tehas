@@ -624,8 +624,10 @@ left with. `tehasbot status` gives each such issue `tehas:shipped`, so GitHub
 lists the same issues; run `tehas labels` once so the label exists.
 `~/tehas/libexec/console` is started by the work
 script and follows the cycle's agents into `~/tehas/live/console-<issue>.txt`, masking
-tokens, passwords and private network addresses, and writing no control
-character but the line break and the tab. An agent of a workstream is named
+tokens, keys, passwords (also in a URL and after `Bearer`) and private network
+addresses, and writing no control character but the line break and the tab.
+Invisible format characters are dropped before the mask looks, so they do
+not hide a token from it. An agent of a workstream is named
 with it, as in `developer[task-a]`. The mask catches accidents;
 it cannot stop an agent that sets out to print a secret another way, so treat
 the console of a published dashboard as public. A log line of over 1 MiB is
