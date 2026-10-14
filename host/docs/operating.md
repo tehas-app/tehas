@@ -318,7 +318,10 @@ dispatcher's log says so.
    hours from one that does not. A plan that is not found is drafted again.
    The agent files the issues it plans with the bot's token. To finish, tick
    `End this planning session`. Filed issues are never started on their own:
-   apply `tehas:ready` to the ones you want built.
+   apply `tehas:ready` to the ones you want built. The agent is told to add
+   and remove no `tehas:*` label and no `needs-human-attention` on any issue.
+   A `tehas:ready` it applies anyway is taken off, as one from any account
+   outside the list is.
 
 Only answers from allowed labellers count. A box ticked by anyone else, or
 more than one box, is unticked and the bot says so. A reply counts only if its

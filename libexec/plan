@@ -283,7 +283,7 @@ fi
 args=()
 if [ -n "$brief" ]; then
   # One line as the prompt: /plan quotes its argument inside a sentence.
-  message="/plan the work described in the file .tehas/brief.md, which holds the approved text of issue #$issue. Read the file first. When you need a decision from the operator, call the question tool or ask in your message, then end your turn: the answer arrives as the next message."
+  message="/plan the work described in the file .tehas/brief.md, which holds the approved text of issue #$issue. Read the file first. When you need a decision from the operator, call the question tool or ask in your message, then end your turn: the answer arrives as the next message. Do not add or remove any tehas:* label or needs-human-attention on any issue: a person labels."
 else
   message=$(cat "$answer")
   args=(--session "$session")

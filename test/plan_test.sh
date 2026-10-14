@@ -135,6 +135,9 @@ t_eq "$([ -e "$ws" ] && echo made)" ""
 t_eq "$([ -e "$state" ] && echo left)" ""
 t_contains "$(jq -r .message "$T/calls/docker.stdin")" "/plan the work described in the file .tehas/brief.md"
 t_contains "$(jq -r .message "$T/calls/docker.stdin")" "issue #7"
+
+t_case "the prompt leaves the labels to a person"
+t_contains "$(jq -r .message "$T/calls/docker.stdin")" "Do not add or remove any tehas:* label or needs-human-attention on any issue: a person labels."
 t_eq "$(jq -r .type "$T/calls/docker.stdin")" "prompt"
 
 t_case "the session is asked for right after the prompt, so a turn that fails late still has it"
