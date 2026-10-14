@@ -391,8 +391,8 @@ stack is filed as an issue of its own in that repository.
 - **Each issue says what working on it means**, in the line `Working on it`,
   because the text of an issue is the task a cycle is given. A finding about
   the factory is built in the repository it is filed in, once a person applies
-  `tehas:ready`. A finding about pi-rukas is fixed in pi-rukas and waits there
-  for `tehas:ready`; no cycle on the product works around it. Where the
+  `tehas:ready`. A finding about pi-rukas is fixed in pi-rukas; no cycle on the
+  product works around it. Where the
   instance has no repository for pi-rukas, such a finding is filed with the
   rest and tells a cycle to change no code and hand off.
 - **An issue worked on again is checked against the filed issue.** When a
