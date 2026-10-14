@@ -721,6 +721,14 @@ minutes and whose issue's lock (`state/cycles/<issue>.lock`) nobody holds is
 recorded as ended with the status `lost`, which is a failure. While
 `tehasbot cycle` still holds the lock, the cycle stays running.
 
+`checks.failed` lists the cycles among the last ten that ended, newest first,
+that ended as anything but `merged` or `handoff`: `issue`, `status`, `step`,
+`startedAt` and `time`. It does not change the status. An abort that a merge
+overtook ten seconds later leaves the status `pass`, and is still in
+`checks.failed` until ten more cycles have ended. A monitor that polls less
+often than cycles end reads it to see every failure. The ten endings are kept
+in `live/endings.json`.
+
 `checks.disk` has the free and the required bytes and `low`, as `tehasbot
 preview` last wrote them to `live/previews.json`. It is `null` on a host
 without previews, and when that figure is more than half an hour old. When

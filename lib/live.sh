@@ -9,6 +9,11 @@
 #   {"cycles": [<each running cycle, oldest first>],
 #    "last": <the cycle that finished most recently, or null>}
 #
+# The files of finished cycles other than the last are removed, so before
+# that each ending is kept in live/endings.json: the last ten, oldest first,
+# each {issue, status, step, startedAt, updatedAt}. tehasbot health reads
+# it, so an ending a later one overtook is still seen.
+#
 #   tehas_live_assemble   write live/running.json; returns 1 if it could not
 #
 # A file that went quiet is lost only when its issue's lock
@@ -20,7 +25,7 @@
 # corrects it. Needs TEHAS_HOME.
 
 tehas_live_assemble() {
-  local live=$TEHAS_HOME/live f files=() now marker tmp view issues i lost lock
+  local live=$TEHAS_HOME/live f files=() now marker tmp view issues i lost lock prev endings
   now=$(date +%s)
   for f in "$live"/cycles/*.json; do
     [ -e "$f" ] || continue
@@ -49,14 +54,25 @@ tehas_live_assemble() {
   marker=$live/.running.$$.mark.new
   tmp=$live/.running.$$.new
   view=$live/.running.$$.view.new
+  endings=$live/.endings.$$.new
+  prev=$(jq -c 'if type == "array" then . else [] end' "$live/endings.json" 2>/dev/null) || prev='[]'
+  [ -n "$prev" ] || prev='[]'
   : >"$marker"
-  if ! jq -c -s '
+  if ! jq -c -s --argjson prev "$prev" '
       (map(select(.running == true)) | sort_by(.startedAt, .issue)) as $cycles
       | (map(select(.running != true)) | sort_by(.updatedAt) | last) as $last
       | {view: {cycles: $cycles, last: $last},
-         prune: (map(select(.running != true and .issue != $last.issue) | .issue))}' \
+         prune: (map(select(.running != true and .issue != $last.issue) | .issue)),
+         endings: ($prev + map(select(.running != true) | {issue, status, step, startedAt, updatedAt})
+                   | unique_by([.issue, .startedAt]) | sort_by(.updatedAt) | .[-10:])}' \
       "${files[@]}" >"$tmp" 2>/dev/null; then
     rm -f "$tmp" "$marker"
+    return 1
+  fi
+  # The endings are written before any file is pruned. A record that
+  # cannot be written leaves the files where they are.
+  if ! jq -c .endings "$tmp" >"$endings" 2>/dev/null || ! mv "$endings" "$live/endings.json"; then
+    rm -f "$tmp" "$endings" "$marker"
     return 1
   fi
   issues=$(jq -r '.prune[]' "$tmp" 2>/dev/null)

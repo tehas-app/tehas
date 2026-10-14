@@ -45,6 +45,13 @@ queue=null
 view=null
 [ -s "$status_file" ] && queue=$(jq -c . "$status_file" 2>/dev/null || echo null)
 [ -s "$running_file" ] && view=$(jq -c . "$running_file" 2>/dev/null || echo null)
+# The last ten endings, which lib/live.sh keeps. The status is still decided
+# by the last one alone: one aborted cycle beside three working ones is a
+# failure until a cycle starts after it. checks.failed lists the failed ones
+# of the ten, so a failure a later success overtook is still there for a
+# monitor that polls less often than cycles end.
+endings=$(jq -c 'if type == "array" then . else [] end' "$live/endings.json" 2>/dev/null) || endings='[]'
+[ -n "$endings" ] || endings='[]'
 
 # The free space of the host, as tehasbot preview measured it. A host without
 # previews has no such file, and a figure that is no longer written is not
@@ -73,7 +80,7 @@ slice=null
 queue_max_age=600
 
 jq -n --argjson queue "$queue" --argjson view "$view" --argjson disk "$disk" --argjson slice "$slice" --arg now "$(date -u +%FT%TZ)" \
-  --argjson queueMaxAge "$queue_max_age" '
+  --argjson queueMaxAge "$queue_max_age" --argjson endings "$endings" '
   def iso: if type == "number" then todate else null end;
   def ago: if . < 120 then "\(.) s" elif . < 7200 then "\(. / 60 | floor) min" else "\(. / 3600 | floor) h" end;
   def brief: {
@@ -131,6 +138,10 @@ jq -n --argjson queue "$queue" --argjson view "$view" --argjson disk "$disk" --a
         } end),
         cycle: (($running[0] // $last) | if . == null then null else brief end),
         cycles: ($running | map(brief)),
+        failed: ($endings + (if $last == null then [] else [$last] end)
+                 | map(objects | select((.status // "") | IN("merged", "handoff") | not))
+                 | unique_by([.issue, .startedAt]) | sort_by(.updatedAt) | reverse
+                 | map({issue, status, step, startedAt: (.startedAt | iso), time: (.updatedAt | iso)})),
         disk: (if $disk == null then null else ($disk | {time, freeBytes, minFreeBytes, low}) end),
         slice: $slice
       }
