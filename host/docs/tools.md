@@ -1234,6 +1234,11 @@ rewritten on the remote, are left for a person. When the checkout sits on a
 branch that is not the remote's default, it says so and updates the branch it is
 on.
 
+While `~/tehas/state/update-hold` exists it changes nothing and exits 1, naming
+the file; `--check` says the hold is there and reports as usual. The file is
+how a host is kept on an older release: see
+[Rolling back tehas](/host#rolling-back-tehas).
+
 That pre-check covers the required settings only. The rest of the instance
 contract - `models.json` readable, valid JSON, listing the models the settings
 name, and the settings directory writable by nobody else - is install.sh's, and

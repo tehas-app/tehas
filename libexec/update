@@ -58,6 +58,10 @@
 # with an install.sh; without one this command stops rather than guess at
 # another directory.
 #
+# While $TEHAS_HOME/state/update-hold exists an update refuses to run, with
+# exit 1, and --check says the hold is there. A person who rolled the platform
+# back makes that file, so the next update does not move it forward again.
+#
 # Usage:
 #   tehas update             pull, install, run the follow-ups that apply
 #   tehas update --check     report what would change and change no file of the
@@ -147,6 +151,15 @@ tehas_load || exit 78
 # what stops an instance with a required line still commented out before the
 # checkout moves, not after install.sh has installed from the new code.
 tehas_require_instance_settings
+
+hold=$TEHAS_HOME/state/update-hold
+if [ -e "$hold" ]; then
+  if [ "$mode" = update ]; then
+    echo "tehas update: $hold exists, the platform is held where it is; nothing was changed. Remove the file to update." >&2
+    exit 1
+  fi
+  echo "tehas update: $hold exists; an update will not move the checkout until it is removed" >&2
+fi
 
 checkout=$TEHAS_HOME/platform
 # .git is a directory in a clone and a file in a worktree or a submodule.

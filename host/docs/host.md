@@ -218,6 +218,38 @@ One thing it does besides copying, on a real run only: the product checkout's
 asking the network. To pin another branch, set `TEHAS_BRANCH`. If the
 repository's default branch changes later, run `install.sh` again.
 
+### Rolling back tehas
+
+`install.sh` keeps one `<name>.prev` beside each file it replaces, and only
+one: a second install that changes the file replaces it. Copying a `.prev`
+back shows as drift, and the next install undoes it. The way back is the
+checkout. Hold it first, or the next `tehas update` fast-forwards it to the
+release you left:
+
+```
+touch ~/tehas/state/update-hold     # tehas update refuses while this exists
+cd ~/tehas/platform
+git log --oneline                   # the release to go back to
+git reset --hard <commit>
+./install.sh
+```
+
+`git checkout <tag>` does not do: `tehas update` refuses a detached checkout.
+While `~/tehas/state/update-hold` exists, `tehas update` exits 1 naming the
+file and changes nothing, and `tehas update --check` says the hold is there.
+So the `next:` lines `install.sh` prints are run by hand:
+
+| Step      | By hand                                                                          |
+| --------- | -------------------------------------------------------------------------------- |
+| `units`   | `systemctl --user daemon-reload`, then `systemctl --user restart` the units named |
+| `sandbox` | `~/tehas/sandbox/build.sh`, or put an older image back by its date tag, as in [Rolling back pi-rukas](#rolling-back-pi-rukas) |
+| `docs`    | `docker compose -f ~/tehas/edge/docs.compose.yaml up -d --force-recreate`         |
+| `edge`    | `docker compose -f ~/tehas/edge/router.compose.yaml up -d --force-recreate`       |
+
+They stay recorded in `~/tehas/state/update-pending`, and `install.sh --check`
+reports them, until a `tehas update` runs them. When a fixed release is out,
+remove the hold and run `tehas update`.
+
 ## Models
 
 Three files name a model and they do different things:

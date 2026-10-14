@@ -750,6 +750,28 @@ t_eq "$(state)" "$before"
 t_eq "$(t_calls install)" ""
 t_eq "$(t_calls build)" ""
 
+t_case "a held platform is not fetched, merged or installed, and the hold is named"
+instance
+platform 1 "$ASK"
+before=$(state)
+mkdir -p "$th/state"
+: >"$th/state/update-hold"
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "$th/state/update-hold exists"
+t_eq "$(state)" "$before"
+t_eq "$(t_calls timeout)" ""
+t_eq "$(t_calls install)" ""
+t_eq "$(t_calls build)" ""
+
+t_case "--check on a held platform says so and still reports"
+t_run "$update --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "an update will not move the checkout until it is removed"
+t_contains "$t_out" "checkout: would fast-forward"
+t_eq "$(state | cut -d' ' -f2)" "$(cut -d' ' -f2 <<<"$before")"
+rm -f "$th/state/update-hold"
+
 t_case "a checkout with commits of its own is not fast-forwarded"
 instance
 platform 0 "$ASK"
