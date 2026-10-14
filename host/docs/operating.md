@@ -385,7 +385,7 @@ stack is filed as an issue of its own in that repository.
   product cannot fix it. Both repositories are read for duplicates. Each
   has the limit of 10 open issues to itself, so one that is full does not
   hold the other back. How a fix then reaches the host is
-  under [pi-rukas comes from a fork](/host#pi-rukas-comes-from-a-fork).
+  under [pi-rukas comes from upstream](/host#pi-rukas-comes-from-upstream).
 - **Each issue names the product's issues** whose cycles it rests on, as
   `owner/name#7`, so GitHub links the two both ways.
 - **Each issue says what working on it means**, in the line `Working on it`,
@@ -400,7 +400,7 @@ stack is filed as an issue of its own in that repository.
   an earlier cycle of it, the model says whether the problem came back. That
   is a comment on the filed issue, open or closed: `Seen again: yes` or `no`,
   what the new cycle showed, its whole log, and the pi-rukas commit the host
-  was installed with. This is how a fix in the fork is verified: deploy it,
+  was installed with. This is how a fix in pi-rukas is verified: deploy it,
   apply `tehas:ready` to the product issue again, and read the comment. A
   model wrote it, so check it against the log. The loop closes and reopens
   nothing. At most 10 comments a run, and none in a run that waits because
