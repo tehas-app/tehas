@@ -453,6 +453,8 @@ docker system df
 docker image prune      # removes images with no tag that nothing uses
 ```
 
+A sandbox build removes date tags beyond its newest three itself.
+
 The next run builds. tehas does not prune Docker's build cache;
 `docker builder prune` does, and the next build of the sandbox image is then
 slower.

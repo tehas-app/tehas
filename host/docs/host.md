@@ -475,6 +475,12 @@ toolchain adds it to the Dockerfile.
 
 Each build is also tagged with its date, so
 `docker tag tehas/pi-rukas:<date> tehas/pi-rukas:uid$(id -u)` rolls back.
+Each image is several gigabytes, with Chromium and Rust in it. After a build
+`build.sh` keeps the newest three date tags, the new one among them, and
+removes older ones. It keeps an older tag whose image a container, running or
+stopped, was made from, or that a `uid` tag names. On a host that builds
+often the images then take about three times the size of one, plus those
+still in use.
 
 To upgrade pi-rukas: run `scripts/rukas-latest.sh` in a checkout of tehas,
 which puts the newest release's commit in `versions.env` and its image's
