@@ -341,8 +341,13 @@ fi
 [ -s "$err_file" ] && cat -- "$err_file" >&2
 if [ "$rc" = 124 ]; then
   warn_unknown
-  printf 'install: install.sh gave no answer in %ss and was stopped; what it had copied is installed, and any follow-up it recorded in %s is still owed.\n' \
-    "$install_limit" "$pending_file" >&2
+  if [ "$mode" = check ]; then
+    printf 'install: install.sh --check gave no answer in %ss and was stopped; it changes nothing, so nothing was installed.\n' \
+      "$install_limit" >&2
+  else
+    printf 'install: install.sh gave no answer in %ss and was stopped; what it had copied is installed, and any follow-up it recorded in %s is still owed.\n' \
+      "$install_limit" "$pending_file" >&2
+  fi
   exit 1
 fi
 if [ "$rc" != 0 ]; then

@@ -1393,7 +1393,9 @@ what names them. There is no command that marks a follow-up done by hand; runnin
 Every call outside the command has a limit, and hitting it fails saying how long:
 120s for the fetch, 1800s for install.sh (copies, dependency check, tests, and its
 one call to a remote), 180s for Docker, 60s for systemctl, 1800s for the sandbox
-build.
+build. An `install.sh --check` stopped at its limit has copied nothing, and the
+line says so. The tests are most of its time; on a busy host run
+`./install.sh --check` by hand to see them through.
 
 `--check` contacts the remote with `git fetch --prune`, so the remote-tracking
 refs under `origin/` match what the remote has, including branches the remote
