@@ -211,6 +211,12 @@ tehas work <issue> [--restart]
 It starts `pi --mode rpc --approve` in a container, sends `/work <issue>` and
 waits until `.pi/work-state/<issue>.json` in the workspace `~/tehas/work/<name>-<issue>` leaves `running`.
 
+It holds the issue's lock, `~/tehas/state/cycles/<issue>.lock`, while it runs.
+Run by hand for an issue whose cycle is running, it refuses before it moves
+anything (exit 5). Under `tehasbot cycle` it is handed that lock, already
+held, and goes on. While a run by hand holds the lock, the dispatcher counts it
+as the issue's cycle and starts no other for the issue.
+
 | Exit | Meaning                                                          |
 | ---- | ---------------------------------------------------------------- |
 | 0    | The cycle ended as `merged` or `handoff` (parked for a human)    |
@@ -218,6 +224,7 @@ waits until `.pi/work-state/<issue>.json` in the workspace `~/tehas/work/<name>-
 | 2    | Pi exited, the time limit passed, or the cycle stalled, while it was running |
 | 3    | The sandbox cannot push to the repository; no cycle was started  |
 | 4    | With `TEHAS_WORK_IMAGES=1`: an image the issue links could not be fetched, or the issue could not be read for its images; no cycle was started |
+| 5    | A cycle for this issue is running already: its lock `~/tehas/state/cycles/<issue>.lock` is held. Nothing was moved and no container started |
 | 64   | No bot token or no git identity; no cycle was started            |
 | 78   | The instance settings are invalid, or `tehas.slice` is missing, has no memory limit, or cannot be used (the message names `sudo ./bootstrap.sh slice` or the reason); no cycle was started |
 | 137  | The container was killed while the cycle was running: out of memory, or stopped from outside. The cycle is `killed` |

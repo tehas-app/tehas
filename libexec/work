@@ -16,6 +16,8 @@
 #              4 the instance gives a cycle the issue's images and one could
 #                not be fetched, or the issue could not be read for them; no
 #                cycle was started.
+#              5 a cycle for this issue is running already; nothing was
+#                touched.
 #
 #             64 no bot token or no git identity; no cycle was started.
 #             78 the instance settings are invalid, or tehas.slice is not
@@ -74,6 +76,10 @@
 # container's own cgroup. A count above 0 is printed and left in
 # state/cycles/<issue>.oom for tehasbot cycle. The starts of a process that the
 # pids limit refused are counted the same way, into state/cycles/<issue>.forks.
+#
+# It holds the issue's lock, state/cycles/<issue>.lock, for as long as it
+# runs, so a run by hand and the unit's cycle never share a workspace. Under
+# tehasbot cycle it inherits that lock as fd 9, already held, and goes on.
 #
 # The workspace is $TEHAS_HOME/work/<name>-<issue>, a fresh clone made here for
 # every cycle. What a stopped cycle of the same issue left there is kept
@@ -157,6 +163,12 @@ stall=$TEHAS_WORK_STALL
 
 [ -n "${GH_TOKEN:-}" ] || { echo "tehas work: GH_TOKEN is not set (source ~/tehas/env.sh)" >&2; exit 64; }
 mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state/cycles"
+# Before anything is moved: a second run would move the running cycle's tree
+# from under it. tehasbot cycle hands its own lock down as fd 9, and taking it
+# again through that fd succeeds.
+lock=$TEHAS_HOME/state/cycles/$issue.lock
+[ /dev/fd/9 -ef "$lock" ] 2>/dev/null || exec 9>"$lock"
+flock -n 9 || { echo "tehas work: a cycle for #$issue is running, not starting another" >&2; exit 5; }
 
 # The bot's identity is the tehas user's own. What the container is given is
 # assembled in lib/sandbox.sh, which tehas dev uses too.

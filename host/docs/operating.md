@@ -501,7 +501,10 @@ tehas work 123 --restart
 ```
 
 It does not take the dispatcher's lock, so a poll can start a queue cycle while
-yours runs. Apply `tehas:pause` first, or check that nothing is ready.
+yours runs. Apply `tehas:pause` first, or check that nothing is ready. It does
+take the issue's own lock: for an issue whose cycle is running it refuses with
+exit 5 and touches nothing, and while yours runs the dispatcher starts no cycle
+for that issue.
 
 ## Watching a running cycle
 

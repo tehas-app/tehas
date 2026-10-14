@@ -334,6 +334,36 @@ t_run "$work 7"
 t_eq "$(git -C "$ws" rev-parse HEAD)" "$(git -C "$upstream" rev-parse main)"
 t_eq "$(git -C "$checkout" rev-parse main)" "$(git -C "$upstream" rev-parse main)"
 
+t_case "a cycle of the same issue that holds its lock is left alone: exit 5, nothing moved, no container"
+lockf=$T/home/tehas/state/cycles/7.lock
+echo mine >"$ws/held.txt"
+rm -f "$T"/calls/docker*
+(exec 9>"$lockf" && flock 9 && exec sleep 30) &
+holder=$!
+for _ in $(seq 50); do flock -n "$lockf" true || break; sleep 0.1; done
+t_run "$work 7"
+kill "$holder" 2>/dev/null
+wait "$holder" 2>/dev/null
+t_eq "$t_rc" 5
+t_contains "$t_out" "tehas work: a cycle for #7 is running, not starting another"
+t_eq "$(cat "$ws/held.txt")" mine
+t_eq "$(find "$ws.before-retry/held.txt" 2>/dev/null | wc -l)" 0
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+t_lacks "$(t_calls docker)" "run "
+
+t_case "under tehasbot cycle the lock it holds is handed down as fd 9, and the cycle starts"
+t_run "exec 9>'$lockf' && flock -n 9 || exit 99; $work 7"
+t_eq "$t_rc" 2
+t_contains "$(cycle_args | tr '\n' ' ')" "pi --mode rpc --approve"
+
+t_case "a run by hand holds the issue's lock while its container runs, and lets go at the end"
+echo "if flock -n '$lockf' true; then echo free; else echo held; fi >\"\$T/lock.seen\"" >"$T/container.sh"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(cat "$T/lock.seen")" held
+t_eq "$(flock -n "$lockf" echo free)" free
+rm -f "$T/container.sh" "$T/lock.seen"
+
 t_case "another issue's workspace and transcripts are left alone"
 mkdir -p "$T/home/tehas/work/widget-9" "$T/home/tehas/work/widget-9.state" "$T/home/.pi/agent/ensemble-runs/issue-9"
 echo keep >"$T/home/tehas/work/widget-9/notes.txt"
