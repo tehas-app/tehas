@@ -65,7 +65,8 @@ Run `tehas dispatch --dry-run` and read what it prints.
   more cycles and promises each one less.
 - `holding: tehas.slice is under memory pressure (full avg60 N)`: every
   process in the slice waited for memory for more than a tenth of the last
-  minute. Cycles start again when it falls to 10 or under.
+  minute, and more than half of the slice is promised. Cycles start again
+  when it falls to 10 or under, or when half or less is promised.
 - `holding: the slice's use could not be read: <file> ...`: a file under
   `/sys/fs/cgroup/tehas.slice` is missing or unreadable; the line names it
   and what was missing in it. See "The dispatcher holds on the slice" below.

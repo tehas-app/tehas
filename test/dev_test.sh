@@ -364,6 +364,7 @@ t_case "a slice under pressure, or one that cannot be read, has no room and the 
 again
 slice_good
 slice_state 12.00
+slice_child "$(slice_id b)" $((5 * 1073741824)) 0 2147483648
 t_run "$dev"
 t_eq "$t_rc" 0
 t_contains "$t_out" "tehas dev: tehas.slice has room for 0 more cycles (it is under memory pressure)"

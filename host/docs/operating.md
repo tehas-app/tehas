@@ -387,7 +387,9 @@ reaches them. Remove the label to resume.
   removed its directory. File cache and other memory the kernel can take back
   do not count.
 - No new cycle while the whole slice stalls on memory: `full avg60` of its
-  memory pressure above 10.
+  memory pressure above 10 while more than half of the slice is promised.
+  Below that the pressure is one container at its own ceiling, which a new
+  container does not make worse, so it holds nothing.
 - No cycle and no planning turn while the slice is missing, has no limit, or
   Docker cannot place containers in it. `tehas status` then says `warn`. See
   [Troubleshooting](/troubleshooting).

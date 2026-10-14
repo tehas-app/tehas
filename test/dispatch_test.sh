@@ -2334,9 +2334,10 @@ SLICE_FILE=$((8 * gib)) slice_child "$(slice_id d)" "$gib" $((6 * gib)) $((2 * g
 t_run "$dispatch"
 t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 10 11 "
 
-t_case "full pressure holds, some pressure does not"
+t_case "full pressure holds over half the slice promised, some pressure does not"
 reset
 slice_state 12.00
+other $((11 * gib))
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" ""
@@ -2344,6 +2345,14 @@ t_lacks "$(t_calls gh)" "issue edit"
 t_contains "$t_out" "holding: tehas.slice is under memory pressure (full avg60 12.00)"
 reset
 slice_state 0.00 55.00
+other $((11 * gib))
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$t_out" "holding:"
+# One container thrashing at its own ceiling in a slice mostly empty.
+reset
+slice_state 12.00
+other $((5 * gib))
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 t_lacks "$t_out" "holding:"

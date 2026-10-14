@@ -285,19 +285,36 @@ t_case "more promised than the max is still room 0"
 room 4
 t_eq "$t_out" "0 $((27 * GIB)) $MAX $((2 * GIB)) room"
 
-t_case "full pressure above 10 holds"
+t_case "full pressure above 10 holds when more than half the slice is promised"
 good
 slice_state 12.00
-room 0
-t_eq "$t_out" "0 0 $MAX $((2 * GIB)) pressure"
+room 6
+t_eq "$t_out" "0 $((12 * GIB)) $MAX $((2 * GIB)) pressure"
 
 t_case "full pressure of exactly 10 does not hold, a hundredth more does"
 slice_state 10.00
+room 6
+t_eq "$t_out" "4 $((12 * GIB)) $MAX $((2 * GIB))"
+slice_state 10.01
+room 6
+t_eq "$t_out" "0 $((12 * GIB)) $MAX $((2 * GIB)) pressure"
+
+t_case "pressure does not hold while half the slice or less is promised"
+good
+slice_state 12.00
 room 0
 t_eq "$t_out" "10 0 $MAX $((2 * GIB))"
-slice_state 10.01
+room 5
+t_eq "$t_out" "5 $((10 * GIB)) $MAX $((2 * GIB))"
+
+t_case "one container thrashing at its ceiling holds nothing; near the promise it holds"
+good
+slice_state 12.00
+slice_child "$a" $((5 * GIB)) 0 $((2 * GIB))
 room 0
-t_eq "$t_out" "0 0 $MAX $((2 * GIB)) pressure"
+t_eq "$t_out" "7 $((5 * GIB)) $MAX $((2 * GIB))"
+room 3
+t_eq "$t_out" "0 $((11 * GIB)) $MAX $((2 * GIB)) pressure"
 
 t_case "some pressure alone does not hold"
 slice_state 0.08 55.00

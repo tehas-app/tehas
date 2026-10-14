@@ -37,6 +37,7 @@
 #                        when there is room, else one word:
 #                          room        the slice is promised to the full
 #                          pressure    full avg60 of the slice is above 10
+#                                      and more than half the max is promised
 #                          unreadable  something could not be read; room is 0
 #                        After unreadable, the rest of the line names the file
 #                        and what was missing in it.
@@ -281,8 +282,12 @@ tehas_slice_room() {
   room=$(((max - committed) / reserve))
   [ "$room" -gt 0 ] || { room=0 why=room; }
   # Above 10 means the whole slice stood still for more than a tenth of the
-  # last minute. Compared in hundredths, with no call to awk.
-  if [[ $pressure =~ ^([0-9]+)(\.([0-9]{1,2}))? ]]; then
+  # last minute. Compared in hundredths, with no call to awk. A slice's
+  # pressure counts every stall in it, also one container's at its own
+  # ceiling, which another container does not change. So it holds only once
+  # more than half the slice is promised: a container's ceiling is at most a
+  # quarter, so no single one gets there by itself.
+  if [ $((committed * 2)) -gt "$max" ] && [[ $pressure =~ ^([0-9]+)(\.([0-9]{1,2}))? ]]; then
     id=${BASH_REMATCH[3]:-0}
     [ "${#id}" = 2 ] || id=${id}0
     if [ $((10#${BASH_REMATCH[1]} * 100 + 10#$id)) -gt 1000 ]; then room=0 why=pressure; fi
