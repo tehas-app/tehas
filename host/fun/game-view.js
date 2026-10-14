@@ -287,7 +287,7 @@
       setCount("door-lab", lab.tickets.length);
       $("lab-count").textContent = `${lab.tickets.length} OPEN`;
       $("lab-rows").replaceChildren(...(lab.tickets.length ? lab.tickets.map(hostedRowFor)
-        : [el("li", "rows-note", `Nothing in the lab. Label an open ticket ${LAB_LABEL} to put it here.`)]));
+        : [el("li", "rows-note", `Nothing in the lab. An allowed account labels an open ticket ${LAB_LABEL} to put it here.`)]));
       return;
     }
     const list = inLab();
@@ -296,7 +296,7 @@
     if (list.length) { $("lab-rows").replaceChildren(...list.map(labRowFor)); return; }
     $("lab-rows").replaceChildren(el("li", "rows-note", !state.loaded ? "No ticket data loaded."
       : state.live ? "The live queue lists only tickets on the line, and this host runs no Protolab. Load an export to see the prototypes."
-      : `Nothing in the lab. Label an open ticket ${LAB_LABEL} to put it here.`));
+      : `Nothing in the lab. An allowed account labels an open ticket ${LAB_LABEL} to put it here.`));
   }
 
   // Work order facts. A dash means the data does not say, or nothing was spent yet.
