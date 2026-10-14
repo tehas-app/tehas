@@ -370,7 +370,7 @@ t_contains "$t_out" "tehas dev: tehas.slice has room for 0 more cycles (it is un
 slice_good
 rm -f "$T_CGROUP/tehas.slice/memory.pressure"
 t_run "$dev"
-t_contains "$t_out" "tehas dev: tehas.slice has room for 0 more cycles (its use could not be read)"
+t_contains "$t_out" "tehas dev: tehas.slice has room for 0 more cycles (its use could not be read: $T_CGROUP/tehas.slice/memory.pressure cannot be read)"
 t_eq "$(containers)" 2
 slice_good
 

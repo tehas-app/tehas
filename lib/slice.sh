@@ -38,11 +38,14 @@
 #                          room        the slice is promised to the full
 #                          pressure    full avg60 of the slice is above 10
 #                          unreadable  something could not be read; room is 0
+#                        After unreadable, the rest of the line names the file
+#                        and what was missing in it.
 #                        Always returns 0 and always prints the first four as
 #                        numbers.
 #   tehas_slice_pressure print "full avg60" of the slice's memory pressure, as
 #                        the kernel writes it (0.00). Returns 1 with nothing
-#                        printed when it cannot be read.
+#                        printed when it cannot be read, and sets
+#                        TEHAS_SLICE_WHY to the file and what was missing.
 #
 # Settings read: TEHAS_CYCLE_RESERVE (lib/config.sh gives it a default and
 # checks it) and TEHAS_CGROUP_ROOT, the tests' seam for /sys/fs/cgroup.
@@ -159,23 +162,36 @@ tehas_slice_limits() {
 
 tehas_slice_pressure() {
   local file=${TEHAS_CGROUP_ROOT:-/sys/fs/cgroup}/tehas.slice/memory.pressure line
-  [ -r "$file" ] || return 1
+  TEHAS_SLICE_WHY=""
+  if [ ! -r "$file" ]; then
+    TEHAS_SLICE_WHY="$file cannot be read"
+    return 1
+  fi
   while IFS= read -r line; do
     if [[ $line =~ ^full\ .*avg60=([0-9]+(\.[0-9]+)?)(\ |$) ]]; then
       printf '%s\n' "${BASH_REMATCH[1]}"
       return 0
     fi
   done <"$file" 2>/dev/null
+  TEHAS_SLICE_WHY="$file has no full avg60"
   return 1
 }
 
 # What one child of the slice is charged with, in bytes: what it holds that
 # cannot be reclaimed, or its floor, whichever is more. File cache and
 # reclaimable slab can be reclaimed, so they are left out. A floor of "max"
-# reads as one reserve. Fails when a file or a number is missing.
+# reads as one reserve. Fails when a file or a number is missing, and then
+# prints the file and the key instead.
+#
+# A kernel older than the "kernel" line (Ubuntu 22.04's 5.15 has none) would
+# otherwise hold every poll for ever. Without it kernel memory is left out:
+# anon and shmem are counted and slab is not subtracted, so the child counts
+# a little low, and its floor still counts in full.
 _tehas_slice_charge() { # <scope directory> <reserve in bytes>
   local dir=$1 reserve=$2 key value anon="" shmem="" kernel="" slab="" low="" used
-  [ -r "$dir/memory.stat" ] && [ -r "$dir/memory.low" ] || return 1
+  for key in memory.stat memory.low; do
+    [ -r "$dir/$key" ] || { echo "$dir/$key cannot be read"; return 1; }
+  done
   while read -r key value; do
     case "$key" in
       anon) anon=$value ;;
@@ -186,9 +202,17 @@ _tehas_slice_charge() { # <scope directory> <reserve in bytes>
   done <"$dir/memory.stat" 2>/dev/null
   read -r low <"$dir/memory.low" 2>/dev/null || true
   [ "$low" != max ] || low=$reserve
-  for value in "$anon" "$shmem" "$kernel" "$slab" "$low"; do
-    _tehas_slice_num "$value" || return 1
+  if [ -z "$kernel" ]; then kernel=0 slab=0; fi
+  for key in anon shmem kernel slab_reclaimable; do
+    case "$key" in
+      anon) value=$anon ;;
+      shmem) value=$shmem ;;
+      kernel) value=$kernel ;;
+      *) value=$slab ;;
+    esac
+    _tehas_slice_num "$value" || { echo "$dir/memory.stat has no number for $key"; return 1; }
   done
+  _tehas_slice_num "$low" || { echo "$dir/memory.low is not a number"; return 1; }
   used=$((anon + shmem + kernel - slab))
   echo $((used > low ? used : low))
 }
@@ -199,8 +223,12 @@ tehas_slice_room() {
   [ "$#" -eq 0 ] || shift
   reserve=$(_tehas_slice_bytes "${TEHAS_CYCLE_RESERVE:-}") || reserve=0
   _tehas_slice_num "$max" || max=0
-  if [ "$max" = 0 ] || [ "$reserve" = 0 ] || ! _tehas_slice_num "$count"; then
-    echo "0 0 $max $reserve unreadable"
+  if [ "$max" = 0 ] || [ "$reserve" = 0 ]; then
+    echo "0 0 $max $reserve unreadable the slice was not probed"
+    return 0
+  fi
+  if ! _tehas_slice_num "$count"; then
+    echo "0 0 $max $reserve unreadable the count of cycles is not a number"
     return 0
   fi
 
@@ -211,7 +239,7 @@ tehas_slice_room() {
     # the end), so each one is promised a reserve and nothing is read. An
     # active slice with no directory is wrong.
     if [ "${TEHAS_SLICE_ACTIVE:-}" = active ]; then
-      echo "0 0 $max $reserve unreadable"
+      echo "0 0 $max $reserve unreadable tehas.slice is active and $dir is missing"
       return 0
     fi
     committed=$((count * reserve))
@@ -227,7 +255,7 @@ tehas_slice_room() {
     if ! charge=$(_tehas_slice_charge "$child" "$reserve"); then
       # A container that ended while it was read is gone, not unreadable.
       [ -d "$child" ] || continue
-      echo "0 0 $max $reserve unreadable"
+      echo "0 0 $max $reserve unreadable $charge"
       return 0
     fi
     committed=$((committed + charge))
@@ -244,8 +272,10 @@ tehas_slice_room() {
   done
   [ "$count" -le "$scoped" ] || committed=$((committed + (count - scoped) * reserve))
 
-  if ! pressure=$(tehas_slice_pressure); then
-    echo "0 $committed $max $reserve unreadable"
+  # The reason is set in the subshell, so it comes back on the same line.
+  pressure=$(tehas_slice_pressure || echo "!$TEHAS_SLICE_WHY")
+  if [[ $pressure == !* ]]; then
+    echo "0 $committed $max $reserve unreadable ${pressure#!}"
     return 0
   fi
   room=$(((max - committed) / reserve))

@@ -253,6 +253,7 @@ mesh_ok() {
 # it where it ends.
 slice_hold=""
 mem_why=""
+mem_note=""
 slice_ok() { [ -z "$slice_hold" ] && [ "$mem_why" != unreadable ]; }
 
 # gib <bytes>: the size for a person, to a tenth of a GiB, rounded down.
@@ -656,10 +657,10 @@ slice_max=0
 if tehas_slice_ok; then
   cid_files=()
   for n in $running; do cid_files+=("$TEHAS_HOME/state/cycles/$n.cid"); done
-  if ! read -r room_mem committed slice_max _ mem_why < <(tehas_slice_room "$count" "${cid_files[@]}") ||
+  if ! read -r room_mem committed slice_max _ mem_why mem_note < <(tehas_slice_room "$count" "${cid_files[@]}") ||
     ! [[ $room_mem =~ ^[0-9]+$ && $committed =~ ^[0-9]+$ && $slice_max =~ ^[0-9]+$ ]]; then
     # An answer that is not the numbers is never read as room.
-    room_mem=0 committed=0 slice_max=0 mem_why=unreadable
+    room_mem=0 committed=0 slice_max=0 mem_why=unreadable mem_note=""
   fi
   case "$mem_why" in
     pressure | unreadable) room_mem=0 ;;
@@ -680,7 +681,7 @@ elif [ "$mem_why" = unreadable ]; then
   # Before the count: this holds planning turns too, and tehas status warns
   # on it, whatever the slots say.
   why=unreadable
-  hold="holding: the slice's use could not be read"
+  hold="holding: the slice's use could not be read${mem_note:+: $mem_note}"
 elif [ -n "$mesh_hold" ]; then
   why=resources
   hold=$mesh_hold

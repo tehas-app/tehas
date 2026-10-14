@@ -2348,19 +2348,20 @@ t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 t_lacks "$t_out" "holding:"
 
-t_case "an unreadable probe holds"
+t_case "an unreadable probe holds and names the file"
 reset
 rm "$T_CGROUP/tehas.slice/memory.pressure"
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit"
-t_contains "$t_out" "holding: the slice's use could not be read"
+t_contains "$t_out" "holding: the slice's use could not be read: $T_CGROUP/tehas.slice/memory.pressure cannot be read"
+t_eq "$(jq -r .hold "$dispatch_json")" "holding: the slice's use could not be read: $T_CGROUP/tehas.slice/memory.pressure cannot be read"
 reset
 other "$gib"
 echo "anon many" >"$T_CGROUP/tehas.slice/docker-$(slice_id d).scope/memory.stat"
 t_run "$dispatch --dry-run"
-t_contains "$t_out" "holding: the slice's use could not be read"
+t_contains "$t_out" "holding: the slice's use could not be read: $T_CGROUP/tehas.slice/docker-$(slice_id d).scope/memory.stat has no number for anon"
 t_lacks "$t_out" "would run a cycle"
 # A planning turn is held too: its container would start in a slice nobody
 # can see into, after its label and comment were spent.

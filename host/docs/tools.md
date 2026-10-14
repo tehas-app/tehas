@@ -730,7 +730,8 @@ previews are not being built." when `freeBytes` is `null`.
 it: `time`, `why`, `hold`, `count`, `room`, `committed`, `max` and `reserve`.
 `why` is empty when cycles may start, else one word: `slice`, `unreadable`,
 `resources`, `count`, `awaiting`, `pressure` or `room`, and `hold` is the line
-the dispatcher logged. `resources` is a model endpoint that does not answer or
+the dispatcher logged; with `unreadable` it names the file and what was
+missing in it. `resources` is a model endpoint that does not answer or
 does not offer the configured model. `room` is how many more reserves fit in the slice;
 `committed` and `max` are bytes. With `slice` or `unreadable` the status is
 `warn` and `output` is the hold. With `resources` the status is `warn` and

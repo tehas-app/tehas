@@ -66,9 +66,9 @@ Run `tehas dispatch --dry-run` and read what it prints.
 - `holding: tehas.slice is under memory pressure (full avg60 N)`: every
   process in the slice waited for memory for more than a tenth of the last
   minute. Cycles start again when it falls to 10 or under.
-- `holding: the slice's use could not be read`: a file under
-  `/sys/fs/cgroup/tehas.slice` is missing or unreadable. See "The dispatcher
-  holds on the slice" below.
+- `holding: the slice's use could not be read: <file> ...`: a file under
+  `/sys/fs/cgroup/tehas.slice` is missing or unreadable; the line names it
+  and what was missing in it. See "The dispatcher holds on the slice" below.
 - Any other `holding:` line that names the slice, Docker, `systemctl` or
   `TEHAS_CYCLE_RESERVE`: the slice cannot be used. See "The dispatcher holds
   on the slice" below.
@@ -193,7 +193,7 @@ issue. The queue is kept and is taken up when the hold ends. The line is in
 | `systemctl gave no answer`, `docker gave no answer` | The command failed or was silent for ten seconds. Run `systemctl show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax` and `docker info` by hand. |
 | `... cgroup.controllers does not list cpu, memory and pids` | The host's cgroup tree lacks a controller. Read `/sys/fs/cgroup/cgroup.controllers`. |
 | `TEHAS_CYCLE_RESERVE=... is more than a container may use here` | The reserve is above a quarter of the slice's limit. Set a lower `TEHAS_CYCLE_RESERVE` in `instance.env`. The line names the host size the reserve needs. |
-| `the slice's use could not be read` | Read `/sys/fs/cgroup/tehas.slice/memory.pressure` and the `memory.stat` and `memory.low` of each `docker-*.scope` under it as the tehas user. A kernel with pressure accounting off has no `memory.pressure`. If the directory is missing while systemd says the slice is active, look at `systemctl status tehas.slice`. A slice that is not active has no directory, and its cycles that have no container yet count at one reserve each. |
+| `the slice's use could not be read: ...` | The rest of the line names the file and what was missing: `.../memory.pressure cannot be read` or `has no full avg60`, `.../memory.stat has no number for anon` (or `shmem`, `slab_reclaimable`), `.../memory.low cannot be read` or `is not a number`. Read that file as the tehas user. A kernel booted with `psi=0` has no `memory.pressure`: remove that option from the kernel command line. A kernel too old for the `kernel` line in `memory.stat` is read without it: kernel memory is then not counted. If the directory is missing while systemd says the slice is active, look at `systemctl status tehas.slice`. A slice that is not active has no directory, and its cycles that have no container yet count at one reserve each. |
 
 The `slice` line reads `unknown: no poll has reported in 10 min` when no poll
 got as far as reading the slice in that time. That is so while the factory

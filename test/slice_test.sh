@@ -192,13 +192,13 @@ t_case "no directory with the slice active and a cycle running is unreadable"
 good
 rm -rf "$T_CGROUP/tehas.slice"
 room 1
-t_eq "$t_out" "0 0 $MAX $((2 * GIB)) unreadable"
+t_eq "$t_out" "0 0 $MAX $((2 * GIB)) unreadable tehas.slice is active and $T_CGROUP/tehas.slice is missing"
 
 t_case "no directory with the slice active is unreadable"
 good
 rm -rf "$T_CGROUP/tehas.slice"
 room 0
-t_eq "$t_out" "0 0 $MAX $((2 * GIB)) unreadable"
+t_eq "$t_out" "0 0 $MAX $((2 * GIB)) unreadable tehas.slice is active and $T_CGROUP/tehas.slice is missing"
 
 t_case "an empty slice has room for the max divided by the reserve"
 good
@@ -315,29 +315,36 @@ good
 slice_child "$a" $((500 * MIB)) 0 $((2 * GIB))
 rm "$T_CGROUP/tehas.slice/memory.pressure"
 room 0
-t_eq "$t_out" "0 $((2 * GIB)) $MAX $((2 * GIB)) unreadable"
-t_run "$pre"'tehas_slice_pressure; echo "rc=$?"'
-t_eq "$t_out" "rc=1"
+t_eq "$t_out" "0 $((2 * GIB)) $MAX $((2 * GIB)) unreadable $T_CGROUP/tehas.slice/memory.pressure cannot be read"
+t_run "$pre"'tehas_slice_pressure; echo "rc=$? why=[$TEHAS_SLICE_WHY]"'
+t_eq "$t_out" "rc=1 why=[$T_CGROUP/tehas.slice/memory.pressure cannot be read]"
 
 t_case "a memory.pressure with no full line is unreadable"
 good
 echo "some avg10=0.00 avg60=0.00 avg300=0.00 total=0" >"$T_CGROUP/tehas.slice/memory.pressure"
 room 0
-t_eq "$t_out" "0 0 $MAX $((2 * GIB)) unreadable"
+t_eq "$t_out" "0 0 $MAX $((2 * GIB)) unreadable $T_CGROUP/tehas.slice/memory.pressure has no full avg60"
 
 t_case "memory.stat unparsable is unreadable"
 good
 slice_child "$a" $((500 * MIB)) 0 $((2 * GIB))
 slice_child "$b" lots 0 $((2 * GIB))
 room 0
-t_eq "$t_out" "0 0 $MAX $((2 * GIB)) unreadable"
+t_eq "$t_out" "0 0 $MAX $((2 * GIB)) unreadable $T_CGROUP/tehas.slice/docker-$b.scope/memory.stat has no number for anon"
 
 t_case "a memory.stat without one of the four numbers is unreadable"
 good
 slice_child "$a" $((500 * MIB)) 0 $((2 * GIB))
 printf '%s\n' "anon 1" "shmem 0" "kernel 0" >"$T_CGROUP/tehas.slice/docker-$a.scope/memory.stat"
 room 0
-t_eq "$t_out" "0 0 $MAX $((2 * GIB)) unreadable"
+t_eq "$t_out" "0 0 $MAX $((2 * GIB)) unreadable $T_CGROUP/tehas.slice/docker-$a.scope/memory.stat has no number for slab_reclaimable"
+
+t_case "a memory.stat with no kernel line counts anon and shmem, not slab"
+good
+slice_child "$a" $((3 * GIB)) $GIB 0
+printf '%s\n' "anon $((3 * GIB))" "shmem $GIB" "slab_reclaimable $GIB" >"$T_CGROUP/tehas.slice/docker-$a.scope/memory.stat"
+room 0
+t_eq "$t_out" "8 $((4 * GIB)) $MAX $((2 * GIB))"
 
 t_case "a missing memory.low is unreadable, and nothing falls back to memory.current"
 good
@@ -345,17 +352,23 @@ slice_child "$a" $((500 * MIB)) 0 $((2 * GIB))
 rm "$T_CGROUP/tehas.slice/docker-$a.scope/memory.low"
 echo 1 >"$T_CGROUP/tehas.slice/docker-$a.scope/memory.current"
 room 0
-t_eq "$t_out" "0 0 $MAX $((2 * GIB)) unreadable"
+t_eq "$t_out" "0 0 $MAX $((2 * GIB)) unreadable $T_CGROUP/tehas.slice/docker-$a.scope/memory.low cannot be read"
+
+t_case "a memory.low that is no number is named"
+good
+slice_child "$a" $((500 * MIB)) 0 lots
+room 0
+t_eq "$t_out" "0 0 $MAX $((2 * GIB)) unreadable $T_CGROUP/tehas.slice/docker-$a.scope/memory.low is not a number"
 
 t_case "a count that is no number is unreadable"
 good
 room many
-t_eq "$t_out" "0 0 $MAX $((2 * GIB)) unreadable"
+t_eq "$t_out" "0 0 $MAX $((2 * GIB)) unreadable the count of cycles is not a number"
 
 t_case "room without a probe is unreadable, with four numbers all the same"
 good
 t_run "$pre"'tehas_slice_room 0'
-t_eq "$t_out" "0 0 0 $((2 * GIB)) unreadable"
+t_eq "$t_out" "0 0 0 $((2 * GIB)) unreadable the slice was not probed"
 
 t_case "room makes no call and writes nothing"
 good
@@ -365,6 +378,12 @@ room 1
 after=$(find "$T_CGROUP" "$T/home" | sort)
 t_eq "$after" "$before"
 t_eq "$(wc -l <"$T/calls/systemctl" | tr -d ' ') $(wc -l <"$T/calls/docker" | tr -d ' ')" "1 1"
+
+t_case "the reason after unreadable is read whole by the line the dispatcher uses"
+good
+rm "$T_CGROUP/tehas.slice/memory.pressure"
+t_run "$pre"'tehas_slice_ok; read -r room committed max reserve why note < <(tehas_slice_room 0); echo "[$room] [$why] [$note]"'
+t_eq "$t_out" "[0] [unreadable] [$T_CGROUP/tehas.slice/memory.pressure cannot be read]"
 
 t_case "the room is read by the line the dispatcher uses"
 good
