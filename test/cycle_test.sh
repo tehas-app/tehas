@@ -701,6 +701,43 @@ t_eq "$(jq -c '[.issue, .status, .step, .rc, .pr, .log]' "$rec/cycle.json")" \
 t_eq "$(cat "$rec/stream.jsonl")" '{"type":"agent_start"}'
 t_eq "$(t_calls fake-status | wc -l)" 1
 
+t_case "the record names the image and the pi-rukas commit tehas work saw as the container started"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+echo "PI_RUKAS_COMMIT=$(printf 'c%.0s' {1..40})" >"$T/home/tehas/versions.env"
+image_id=sha256:$(printf 'e%.0s' {1..64})
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"
+echo "'"$image_id"' 0123456789abcdef0123456789abcdef01234567" >"$TEHAS_HOME/state/cycles/7.image"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$(jq -c '[.image, .rukas]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
+  "[\"$image_id\",\"0123456789abcdef0123456789abcdef01234567\"]"
+t_eq "$(find "$state/7.image" 2>/dev/null | wc -l)" 0
+
+t_case "without that file the record falls back, and one left by an earlier cycle is not this cycle's"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+echo "PI_RUKAS_COMMIT=$(printf 'c%.0s' {1..40})" >"$T/home/tehas/versions.env"
+mkdir -p "$state"
+echo "$image_id 0123456789abcdef0123456789abcdef01234567" >"$state/7.image"
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$(jq -c '[.image, .rukas]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
+  "[null,\"$(printf 'c%.0s' {1..40})\"]"
+
+t_case "an image file that is a link, or does not hold an id, is not read"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+echo "$image_id 0123456789abcdef0123456789abcdef01234567" >"$T/elsewhere"
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"
+ln -sf "$T/elsewhere" "$TEHAS_HOME/state/cycles/7.image"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$(jq -c '.image' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" null
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"
+echo "sha256:short \`x\` 0123456" >"$TEHAS_HOME/state/cycles/7.image"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$(jq -c '[.image, .rukas]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" "[null,\"$(printf 'c%.0s' {1..40})\"]"
+rm -f "$T/home/tehas/versions.env"
+
 t_case "the record names the runner's exit when there is no pull request"
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory

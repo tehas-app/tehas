@@ -944,7 +944,14 @@ to read its line; the timer runs it every three hours, on the hour, and the log 
 
 When a cycle ends, `tehasbot cycle` leaves a record of it in
 `~/tehas/tmp/improve/window/<issue>-<time>/`: how it ended, the stream without
-its word by word updates, the console and the error output. A run fetches the
+its word by word updates, the console and the error output. Its `cycle.json`
+names the image the cycle's container started from (`image`, its id) and the
+pi-rukas commit of that image's label (`rukas`), which `tehas work` reads as
+the container starts and leaves in `~/tehas/state/cycles/<issue>.image`. A
+repin or a rebuild while the cycle runs does not change them. Without that
+file the commit is the one the cycle noted at its start, else the one in
+`versions.env`. A comment on an issue the loop filed, when the issue is worked
+on again, names both. A run fetches the
 open issues and the ones closed in the last 30 days, takes the records that
 wait, and starts the analyst. Then it checks the one file the analyst leaves,
 files what passes and removes the records.

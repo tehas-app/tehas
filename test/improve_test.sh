@@ -91,6 +91,22 @@ lib "tehas_improve_record 7 $started 0 handoff review"
 t_eq "$(jq -r .rukas "$base/window/$REC/cycle.json")" 0123456789abcdef0123456789abcdef01234567
 rm -rf "$home/state/cycles" "$home/versions.env"
 
+t_case "the image and its commit, as the container started, win over both"
+mkdir -p "$home/state/cycles"
+echo fedcba9876543210fedcba9876543210fedcba98 >"$home/state/cycles/7.rukas"
+printf '%s\n' "PI_RUKAS_COMMIT=0123456789abcdef0123456789abcdef01234567" >"$home/versions.env"
+img=sha256:$(printf 'e%.0s' {1..64})
+cycle_log
+lib "tehas_improve_record 7 $started 0 handoff review '' 0 $img aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+t_eq "$(jq -c '[.image, .rukas]' "$base/window/$REC/cycle.json")" "[\"$img\",\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"]"
+cycle_log
+lib "tehas_improve_record 7 $started 0 handoff review '' 0 'sha256:nothex' 'not a commit'"
+t_eq "$(jq -c '[.image, .rukas]' "$base/window/$REC/cycle.json")" '[null,"fedcba9876543210fedcba9876543210fedcba98"]'
+cycle_log
+lib "tehas_improve_record 7 $started 0 handoff review"
+t_eq "$(jq -c '.image' "$base/window/$REC/cycle.json")" null
+rm -rf "$home/state/cycles" "$home/versions.env"
+
 t_case "a cycle without a pull request records null"
 reset
 cycle_log
@@ -735,7 +751,7 @@ t_contains "$t_out" "filed=0 issues=none rechecked=1"
 t_contains "$(t_calls gh)" "issue comment 12 --repo acme/rukas"
 body=$(cat "$T/calls/comment-12")
 t_contains "$body" "acme/widget#7 was worked on again: cycle \`$REC\`"
-t_contains "$body" 'with pi-rukas at `0123456789abcdef0123456789abcdef01234567`'
+t_contains "$body" 'with pi-rukas at `0123456789abcdef0123456789abcdef01234567`.'
 t_contains "$body" "**Seen again:** no"
 t_contains "$body" "safety net committed 3 of 3 paths"
 t_contains "$body" "https://github.com/acme/factory/releases/download/tehas-improve-logs/ticket-$REC.log.gz"
@@ -753,6 +769,14 @@ rechecks "$(recheck '{"repo":"acme/factory","number":4,"seen":true}')"
 t_run "$improve"
 t_contains "$(t_calls gh)" "issue comment 4 --repo acme/factory"
 t_contains "$(cat "$T/calls/comment-4")" "**Seen again:** yes"
+
+t_case "the comment names the image the cycle ran when the record has one"
+again
+img=sha256:$(printf 'e%.0s' {1..64})
+jq -c --arg i "$img" '. + {image: $i}' "$base/window/$REC/cycle.json" >"$fx/c.json"
+mv "$fx/c.json" "$base/window/$REC/cycle.json"
+t_run "$improve"
+t_contains "$(cat "$T/calls/comment-12")" "with pi-rukas at \`0123456789abcdef0123456789abcdef01234567\`, image \`$img\`."
 
 t_case "a record that names no pi-rukas commit: the comment says so"
 again

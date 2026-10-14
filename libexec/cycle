@@ -89,7 +89,9 @@
 # runs one cycle at a time on a commit that file does not name.
 #
 # Where the instance has an improvement loop (TEHAS_IMPROVE_REPO), it leaves
-# the cycle's record for it at the end, in tmp/improve/window (lib/improve.sh).
+# the cycle's record for it at the end, in tmp/improve/window (lib/improve.sh),
+# with the image and the pi-rukas commit tehas work left in
+# state/cycles/<issue>.image.
 #
 # Instance settings (lib/config.sh): TEHAS_REPO, TEHAS_IMPROVE_REPO.
 # From the environment, for tests: TEHAS_WORK_CMD, TEHAS_STATUS_CMD,
@@ -229,7 +231,7 @@ restart=""
 # A count of kills still here is an earlier cycle's, one that was killed
 # outright before it could report.
 rm -f "${cycles:?}/${issue:?}.oom" "${cycles:?}/${issue:?}.forks" "${cycles:?}/${issue:?}.stalled" \
-  "${cycles:?}/${issue:?}.ended" "${cycles:?}/${issue:?}.branch"
+  "${cycles:?}/${issue:?}.ended" "${cycles:?}/${issue:?}.branch" "${cycles:?}/${issue:?}.image"
 # The trap is set before the runner starts, so no signal falls between.
 wpid=""
 stopped=0
@@ -311,6 +313,15 @@ if [ -f "$ended_file" ] && [ ! -L "$ended_file" ]; then
   killed="$killed The Pi session ended during \`$step\`, so tehas stopped the cycle before its time limit."
 fi
 rm -f "$ended_file"
+# The image the container started from, as tehas work saw it, for the record.
+image_id="" image_rukas=""
+image_file=${cycles:?}/${issue:?}.image
+if [ -f "$image_file" ] && [ ! -L "$image_file" ]; then
+  read -r image_id image_rukas _ < <(head -c 200 "$image_file" 2>/dev/null | head -n 1)
+  [[ $image_id =~ ^sha256:[0-9a-f]{64}$ ]] || image_id=""
+  [[ $image_rukas =~ ^[0-9a-f]{7,40}$ ]] || image_rukas=""
+fi
+rm -f "$image_file"
 if [ "$stalled" != 0 ]; then
   case "$status" in running | unknown) status=stalled ;; esac
   killed="$killed None of its logs changed for $((stalled / 60)) min at step \`$step\`, so tehas stopped it before its time limit."
@@ -454,7 +465,7 @@ fi
 log "done #$issue rc=$rc status=$status step=$step minutes=$mins pr=${pr:-none} oom_kills=$kills forks_refused=$forks"
 # For the improvement loop, where the instance has one. The cycle is reported
 # by now, and a record that cannot be written is the loop's loss only.
-tehas_improve_record "$issue" "$started" "$rc" "$status" "$step" "$pr" "$kills" || log "WARN: no record of #$issue for the improvement loop"
+tehas_improve_record "$issue" "$started" "$rc" "$status" "$step" "$pr" "$kills" "$image_id" "$image_rukas" || log "WARN: no record of #$issue for the improvement loop"
 # The next poll refreshes the status. A stopped cycle leaves it to that poll.
 [ "$signalled" = 1 ] || "$status_cmd"
 exit 0
