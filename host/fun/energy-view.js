@@ -4,7 +4,8 @@
 //
 // layout() turns the file into what is drawn and has no side effects, so it is
 // tested without a browser (test/energy_view_test.mjs). The rest of the module
-// fetches and draws, and runs only where there is a document.
+// fetches and draws, and runs only where there is a document; the test runs it
+// there too, against a page of stubs.
 
 export const SLOTS = 120;
 export const PERIOD = 15;
@@ -180,6 +181,13 @@ if (typeof document !== "undefined") {
   const clock = (t) => new Date(t * 1000).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
   let data = null, serverAt = 0, localAt = 0, drawn = "";
 
+  // The elements the view shows or hides, looked up once. A page that does not
+  // have one of them (an old index.html beside a new script, a partial install,
+  // a later rename) has nothing to draw: render() leaves it alone rather than
+  // assigning to what is not there at every refresh.
+  const section = $("energy"), menuLink = $("menu-energy"), floorMeter = $("floor-meter");
+  const whole = Boolean(section && menuLink && floorMeter);
+
   // Names come from the mesh and are untrusted: text only, never markup.
   function cell(row, text, cls) {
     const td = row.insertCell();
@@ -248,15 +256,15 @@ if (typeof document !== "undefined") {
     dial("meter-watts", meter.watts, meter.wattsNow, meter.wattsFilled, String);
     $("meter-tokens-row").hidden = $("meter-tokens-gauge").hidden = meter.tokens == null;
     dial("meter-tokens", meter.tokens ?? "--", meter.tokensNow, meter.tokensFilled, rateText);
-    $("floor-meter").setAttribute("aria-label",
+    floorMeter.setAttribute("aria-label",
       `Live meter: ${meter.watts === "--" ? "no power reading" : `${meter.watts} watts`}` +
       (meter.tokens == null ? "" : meter.tokens === "--" ? ", no token reading" : `, ${meter.tokens} tokens a minute`) +
       ". Opens Energy use.");
   }
 
   function render() {
-    const section = $("energy"), link = $("menu-energy");
-    section.hidden = link.hidden = $("floor-meter").hidden = !data;
+    if (!whole) return;
+    section.hidden = menuLink.hidden = floorMeter.hidden = !data;
     if (!data) return;
     const view = layout(data, serverAt + (performance.now() - localAt));
     // Nothing changed since the last draw: leave the tables and the status tag

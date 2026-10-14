@@ -1,10 +1,11 @@
-// Tests layout() of the Energy use section: the pure step from
-// live/energy.json to what is drawn.
+// Tests the Energy use section: layout(), the pure step from live/energy.json
+// to what is drawn, and the half that fetches and draws, against a page of
+// stubs.
 //
 //   node --test test/energy_view_test.mjs
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { BANDS, countFrames, HEIGHT, layout, rateText, SLOTS } from "../host/fun/energy-view.js";
+import { BANDS, COUNT_FRAME_MS, countFrames, HEIGHT, layout, rateText, SLOTS } from "../host/fun/energy-view.js";
 
 const T = 1791526545; // a multiple of 15
 const NOW = T * 1000 + 5000; // five seconds after the file was written
@@ -256,4 +257,131 @@ test("odd input does not break the page", () => {
   // Only own, numeric, non-negative readings are stacked: "constructor" and "toString" here are departed hosts' names.
   assert.deepEqual(v.columns[119].length, 2);
   assert.deepEqual(v.watts, "--");
+});
+
+// The half that fetches and draws. It runs only where there is a document, so
+// a case gives the module one: a page of stubs holding every element the
+// script names except those listed, a file to read, and timers that are
+// recorded instead of run, so nothing outlives the case. Each page gets a
+// fresh copy of the module (the ?key on the import).
+const VIEW = ["energy", "menu-energy", "floor-meter"];
+
+async function page(missing, key, opt = {}) {
+  const { motion = false, frames = 0 } = opt;
+  const found = new Map(), errors = [];
+  // Fills are counted against the element that asked for the context, so a
+  // fill of a row's swatch cannot answer for a fill of the chart.
+  const drawn = {};
+  // Timers are held rather than run: the refresh timer never fires, and a case
+  // runs the frames of a count itself, one at a time, and reads what each drew.
+  const counting = new Map(), other = new Map();
+  let lastTimer = 0, scheduled = 0;
+  const node = (id) => ({
+    id, hidden: undefined, dataset: {}, textContent: "", className: "",
+    setAttribute() {}, replaceChildren() {}, append() {},
+    insertRow: () => node(`${id}-row`), insertCell: () => node(`${id}-cell`),
+    getContext: () => ({ fillStyle: "", fillRect: () => { drawn[id] = (drawn[id] ?? 0) + 1; } }),
+  });
+  const note = (e) => errors.push(String(e.message ?? e));
+  process.on("unhandledRejection", note);
+  const real = Object.fromEntries(["document", "window", "fetch", "performance", "setInterval", "clearInterval"].map((k) => [k, globalThis[k]]));
+  globalThis.document = {
+    hidden: false,
+    getElementById: (id) => {
+      if (missing.includes(id)) return null;
+      let el = found.get(id);
+      if (!el) found.set(id, (el = node(id)));
+      return el;
+    },
+    addEventListener: () => {},
+    createElement: (tag) => node(tag),
+  };
+  globalThis.window = { matchMedia: () => ({ matches: !motion }) }; // motion: the meter may count
+  globalThis.performance = { now: () => 0 };
+  globalThis.setInterval = (step, ms) => {
+    if (ms === COUNT_FRAME_MS) scheduled++, counting.set(++lastTimer, step);
+    else other.set(++lastTimer, step);
+    return lastTimer;
+  };
+  globalThis.clearInterval = (id) => { counting.delete(id); other.delete(id); };
+  globalThis.fetch = async () => ({
+    status: 200, ok: true, json: async () => file(),
+    headers: { get: () => new Date(T * 1000).toUTCString() },
+  });
+  const watts = () => found.get("meter-watts")?.textContent;
+  try {
+    await import(`../host/fun/energy-view.js?${key}`);
+    // The module does not await its own refresh: let the read and the draw end.
+    for (let i = 0; i < 40; i++) await new Promise((r) => setImmediate(r));
+    const first = watts();
+    const steps = [];
+    // A count that reached its figure clears its own timer: only a live one is
+    // ticked again.
+    for (let i = 0; i < frames; i++) {
+      for (const [id, step] of [...counting]) if (counting.has(id)) step();
+      steps.push(watts());
+    }
+    return { errors, drawn, first, scheduled, steps, hidden: VIEW.map((id) => found.get(id)?.hidden) };
+  } finally {
+    process.off("unhandledRejection", note);
+    for (const [k, v] of Object.entries(real)) globalThis[k] = v;
+  }
+}
+
+// The stub page stands in for process-wide globals, and node runs the cases of
+// a file side by side, so the drawing cases take turns: one page must not be
+// swapped out while another is still fetching or counting.
+let turn = Promise.resolve();
+function drawOn(missing, key, opt) {
+  const run = turn.then(() => page(missing, key, opt));
+  turn = run.catch(() => {});
+  return run;
+}
+
+test("a page with its meter, its section and its link is shown and drawn", async () => {
+  const { errors, drawn, hidden } = await drawOn([], "whole");
+  assert.deepEqual(errors, []);
+  assert.deepEqual(hidden, [false, false, false]); // all three shown: the file has data
+  // The chart drew on its own canvas. A dropped draw, or a canvas the page
+  // does not have, leaves nothing under that id.
+  assert.deepEqual(drawn["energy-canvas"] > 0, true);
+  assert.deepEqual(drawn.canvas, 3); // and one swatch for each of the three hosts
+});
+
+test("a page with no meter throws nothing and draws nothing", async () => {
+  const { errors, drawn, hidden } = await drawOn(["floor-meter"], "no-meter");
+  assert.deepEqual(errors, []);
+  assert.deepEqual(hidden, [undefined, undefined, undefined]); // the page is left as it was written
+  assert.deepEqual(drawn, {}); // not the chart, not a swatch
+});
+
+test("a page with no section throws nothing and draws nothing", async () => {
+  const { errors, drawn, hidden } = await drawOn(["energy"], "no-section");
+  assert.deepEqual(errors, []);
+  assert.deepEqual(hidden, [undefined, undefined, undefined]);
+  assert.deepEqual(drawn, {});
+});
+
+test("a page with no menu link throws nothing and draws nothing", async () => {
+  const { errors, drawn, hidden } = await drawOn(["menu-energy"], "no-link");
+  assert.deepEqual(errors, []);
+  assert.deepEqual(hidden, [undefined, undefined, undefined]);
+  assert.deepEqual(drawn, {});
+});
+
+test("the meter counts to its figure in frames where motion is allowed", async () => {
+  const { errors, first, scheduled, steps } = await drawOn([], "count", { motion: true, frames: 7 });
+  assert.deepEqual(errors, []);
+  assert.deepEqual(scheduled, 1); // the watts line counts; this file has no token rate to count
+  // The first frame is part of the way to 1190 W, not the figure itself, and
+  // the last frame is the figure. Seven more frames finish the eight.
+  assert.deepEqual(first, "149");
+  assert.deepEqual(steps, ["298", "446", "595", "744", "893", "1041", "1190"]);
+});
+
+test("reduced motion draws the figure at once and starts no count", async () => {
+  const { errors, first, scheduled } = await drawOn([], "calm");
+  assert.deepEqual(errors, []);
+  assert.deepEqual(scheduled, 0); // no frames to run
+  assert.deepEqual(first, "1190"); // the figure itself, at once
 });
