@@ -512,7 +512,8 @@ pinned to one of its releases. `PI_RUKAS_VERSION` and `PI_RUKAS_COMMIT` in
 `versions.env` name the release and the commit its tag points to, and the base
 in `sandbox/Dockerfile` is the image upstream published for that release. The
 three always name the same release, or the host and the sandbox run different
-code.
+code. The shell tests check that the `FROM` tag is `PI_RUKAS_VERSION`, and that
+every argument the Dockerfile reads comes from `versions.env`.
 
 Every release of tehas takes the newest release of pi-rukas. Before tagging:
 

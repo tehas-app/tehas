@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Tests for host/sandbox/build.sh: the old date tags it removes after a build.
-# A stub docker keeps the image's tags in $T/images, "<tag> <id>" per line, as
+# Tests for host/sandbox/build.sh: the old date tags it removes after a build,
+# and that what the Dockerfile reads comes from versions.env. A stub docker
+# keeps the image's tags in $T/images, "<tag> <id>" per line, as
 # `docker image ls` lists them, and the containers in $T/containers,
 # "<container id> <image id>" per line.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
@@ -75,5 +76,21 @@ printf '%s\n' "uid$uid sha256:2" "261010-1000 sha256:1" "261011-1000 sha256:2" >
 t_run "$build"
 t_eq "$t_rc" 0
 t_eq "$(removed)" ""
+
+t_case "the Dockerfile's base is the image of PI_RUKAS_VERSION"
+from=$(grep -m 1 '^FROM ' "$T_ROOT/host/sandbox/Dockerfile")
+version=$(sed -n 's/^PI_RUKAS_VERSION=//p' "$T_ROOT/host/versions.env")
+[ -n "$version" ] || t_bad "versions.env has no PI_RUKAS_VERSION"
+from=${from#FROM }
+from=${from%@*}
+t_eq "${from##*:}" "$version"
+
+t_case "every argument the Dockerfile reads is passed from versions.env"
+while read -r arg; do
+  [ "$arg" = TEHAS_UID ] && continue
+  grep -q "^$arg=" "$T_ROOT/host/versions.env" || t_bad "$arg is not in versions.env"
+  grep -qF -- "--build-arg $arg=\"\$$arg\"" "$build" || t_bad "build.sh does not pass $arg"
+done < <(sed -n 's/^ARG \([A-Z0-9_]*\).*/\1/p' "$T_ROOT/host/sandbox/Dockerfile")
+t_eq "$(grep -c '^ARG ' "$T_ROOT/host/sandbox/Dockerfile")" "$(grep -c -- '--build-arg ' "$build")"
 
 t_done
