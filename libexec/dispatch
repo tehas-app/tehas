@@ -24,8 +24,8 @@
 #   1. Label tehas:pause on the control issue stops all dispatch.
 #   2. At most TEHAS_TICKET_CONCURRENCY cycles run at once.
 #      An open issue marked tehas:running whose cycle holds no lock on this
-#      host is handed to a human. Nothing is started for it. A closed one
-#      only loses the mark.
+#      host is handed to a human, once a fresh read shows it still marked.
+#      Nothing is started for it. A closed one only loses the mark.
 #   3. Running cycles and tehas PRs that wait for a human together do not
 #      exceed TEHAS_MAX_AWAITING. And a cycle starts only while tehas.slice,
 #      the systemd slice every sandbox container runs in, has room for one
@@ -658,6 +658,15 @@ for n in $marked; do
     fi
     log "clear #$n: it is closed, marked tehas:running, and no cycle holds its lock"
     gh issue edit "$n" --repo "$repo" --remove-label tehas:running >/dev/null 2>&1 || log "WARN: label change on #$n failed"
+    continue
+  fi
+  # The list was read before this loop. A cycle that ended since has taken
+  # tehas:running off and said how it ended: parking it now would be false.
+  gh_json api "repos/$repo/issues/$n"
+  still=$(jq -r '(.labels // []) | any(.name == "tehas:running")' <<<"$json") ||
+    { log "ERROR: GitHub's answer for #$n could not be read"; exit 1; }
+  if [ "$still" != true ]; then
+    log "skip #$n: tehas:running is gone from it since the list was read"
     continue
   fi
   if [ "$dry" = 1 ]; then

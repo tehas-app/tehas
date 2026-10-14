@@ -170,7 +170,10 @@ A poll also reads the open issues marked `tehas:running`. One whose cycle
 does not hold its lock on this host, `~/tehas/state/cycles/<issue>.lock`, gets
 `needs-human-attention` in place of `tehas:running` and a comment that says
 where the run log is. The log line is `park #N: it is marked tehas:running and
-no cycle holds its lock`. If the label change fails nothing is said on the
+no cycle holds its lock`. The issue is read again first: one whose cycle
+ended while the poll ran has lost `tehas:running` already and is left, with
+the line `skip #N: tehas:running is gone from it since the list was read`. If
+the label change fails nothing is said on the
 issue and the next poll tries again. A closed issue in that state only loses
 `tehas:running`. For either, a container `tehas-work-<issue>` that is still
 there is removed, with the line `removed the container tehas-work-N: no cycle

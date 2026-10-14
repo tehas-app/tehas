@@ -32,9 +32,13 @@ case "$1 $2" in
     case "$n" in
       */*) cat "$T/fx/events-${n%/events*}.json" || exit 1 ;;
       # What the number is: an open issue, unless a case writes the fixture.
+      # It carries tehas:running when the list of marked issues names it.
       *)
         [ ! -e "$T/fx/work-fails" ] || exit 1
-        if [ -e "$T/fx/work-$n.json" ]; then cat "$T/fx/work-$n.json"; else echo "{\"number\":$n,\"state\":\"open\"}"; fi ;;
+        if [ -e "$T/fx/work-$n.json" ]; then cat "$T/fx/work-$n.json"; else
+          jq -c --argjson n "$n" "{number: \$n, state: \"open\", labels: (if any(.[]?; type == \"object\" and .number == \$n)
+            then [{name: \"tehas:running\"}] else [] end)}" "$T/fx/marked.json" 2>/dev/null || echo "{\"number\":$n,\"state\":\"open\"}"
+        fi ;;
     esac ;;
   "api graphql")
     n=$(printf "%s\n" "$@" | sed -n "s/^number=//p")
@@ -795,6 +799,27 @@ t_lacks "$(t_calls gh)" "remove \`needs-human-attention\`"
 
 t_case "and the poll goes on to the queue, and starts nothing for that issue"
 t_eq "$(t_calls fake-start)" "7"
+
+t_case "an issue whose cycle ended after the list was read is not parked"
+reset
+echo '[{"number":9}]' >"$fx/marked.json"
+echo '{"number":9,"state":"open","labels":[{"name":"tehas:awaiting-merge"}]}' >"$fx/work-9.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "skip #9: tehas:running is gone from it since the list was read"
+t_lacks "$(t_calls gh)" "issue edit 9"
+t_lacks "$(t_calls gh)" "issue comment 9"
+t_eq "$(t_calls fake-start)" "7"
+
+t_case "the issue is read again before it is parked, and a failed read ends the poll"
+reset
+echo '[{"number":9}]' >"$fx/marked.json"
+: >"$fx/work-fails"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_lacks "$(t_calls gh)" "issue edit"
+t_eq "$(t_calls fake-start)" ""
+rm -f "$fx/work-fails"
 
 t_case "a closed issue marked as running with no cycle loses the mark and is not parked"
 reset
