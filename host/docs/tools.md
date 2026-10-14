@@ -657,14 +657,27 @@ takes such a cycle as one that came up: the issue keeps `tehas:running`, and
 the next poll clears it in silence.
 
 `tehas:awaiting-merge` is given only to a run that ended as `handoff` and has
-an open pull request of the bot. Any other end with a pull request open gets
-`needs-human-attention`, and the comment names the pull request. The label
-change that ends a cycle is tried three times, five seconds apart, and so is
-the search for the pull request. If GitHub still refuses the label change, the
-log says `WARN: label change on #N failed`, the cycle's comment says that the
-label could not be changed, and the issue
-stays `tehas:running` until the next poll of [tehas dispatch](#tehas-dispatch)
-finds it.
+an open pull request of the bot that names the issue. Any other end with a
+pull request open gets `needs-human-attention`, and the comment names the
+pull request.
+
+The state file is written inside the container, so what it says is checked
+against GitHub. A pull request counts as the cycle's only when the bot opened
+it on the branch the state names and it names the issue: its head is
+`feature/issue-<n>-...`, as pi-rukas names a branch, or its body closes `#<n>`
+(`Fixes #<n>`, `Closes #<n>`). A pull request on that branch that names
+another issue is said in the comment and not taken. A state of `merged` is
+reported as merged only when the bot has a merged pull request for the issue
+on that branch. Without one the issue is parked, the comment says that the
+bot has no merged pull request for the issue, and both workspaces are kept. A
+state file reached through a link, or under a linked `.pi` directory, is not
+read: the status is then `unknown`.
+
+The label change that ends a cycle is tried three times, five seconds apart,
+and so is the search for the pull request. If GitHub still refuses the label
+change, the log says `WARN: label change on #N failed`, the cycle's comment
+says that the label could not be changed, and the issue stays `tehas:running`
+until the next poll of [tehas dispatch](#tehas-dispatch) finds it.
 
 | Exit | Meaning                                              |
 | ---- | ---------------------------------------------------- |

@@ -21,7 +21,17 @@ case "$1 $2" in
       left=$(cat "$T/fx/pr-fails-times")
       if [ "$left" -gt 0 ]; then echo $((left - 1)) >"$T/fx/pr-fails-times"; exit 1; fi
     fi
-    cat "$T/fx/pr.txt" 2>/dev/null ;;
+    # pr.json is the whole answer. pr.txt is the address of one pull request
+    # of the bot on the branch asked for, in the state pr-state says [OPEN],
+    # whose body is pr-body [Fixes #7].
+    if [ -e "$T/fx/pr.json" ]; then cat "$T/fx/pr.json"
+    elif [ -e "$T/fx/pr.txt" ]; then
+      head=$(printf "%s\n" "$@" | sed -n "/^--head$/{n;p;}")
+      jq -n --arg url "$(cat "$T/fx/pr.txt")" --arg head "$head" \
+        --arg state "$(cat "$T/fx/pr-state" 2>/dev/null || echo OPEN)" \
+        --arg body "$(cat "$T/fx/pr-body" 2>/dev/null || echo "Fixes #7")" \
+        "[{url: \$url, state: \$state, body: \$body, headRefName: \$head}]"
+    else echo "[]"; fi ;;
   "issue edit") [ ! -e "$T/fx/edit-slow" ] || { : >"$T/calls/edit.started"; sleep 1; }
     # The first edits fail, as many as edit-fails-times says.
     if [ -s "$T/fx/edit-fails-times" ]; then
@@ -65,6 +75,8 @@ ended() { # status step [branch]
   printf '{"pipelineState":{"status":"%s","currentStep":"%s","branchName":"%s"}}\n' "$1" "$2" "${3:-}" \
     >"$workdir/.pi/work-state/7.json"
 }
+# The bot's pull request on the branch was merged.
+merged_pr() { echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"; echo MERGED >"$fx/pr-state"; }
 
 for bad in "" "abc" "07" "0" "7 8" "7x" "-7"; do
   t_case "'$bad' is not an issue: nothing runs and nothing is written"
@@ -214,6 +226,7 @@ done
 t_case "an images directory under a directory tehas work did not mark is left alone"
 reset
 ended merged "done" feature/x
+merged_pr
 mkdir -p "$workdir.images"
 t_run "$cycle 7"
 t_eq "$(find "$workdir.images" -maxdepth 0 | wc -l)" 1
@@ -263,10 +276,96 @@ t_contains "$(t_calls gh)" "| developer | 2 | 3 | 30 | 10 | 1 |"
 t_case "a merged cycle only loses its running label"
 reset
 ended merged "done" feature/x
+merged_pr
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:running"
 t_lacks "$(t_calls gh)" "--add-label"
-t_contains "$(t_calls gh)" "The change was merged."
+t_contains "$(t_calls gh)" "The change was merged: https://github.com/acme/widget/pull/9"
+
+t_case "a merged state with no merged pull request is a claim: parked, and nothing is removed"
+reset
+ended merged "done" feature/x
+: >"$T/home/tehas/work/.tehas-workspaces"
+mkdir -p "$workdir.before-retry"
+rukas=$(printf 'e%.0s' {1..40})
+echo "PI_RUKAS_COMMIT=$rukas" >"$T/home/tehas/versions.env"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "pr list --repo acme/widget --head feature/x --author @me --state all"
+t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
+t_contains "$(t_calls gh)" 'Tehas cycle stopped: its state says `merged`, but the bot has no merged pull request for this issue on `feature/x`'
+t_lacks "$(t_calls gh)" "The change was merged"
+t_eq "$(find "$workdir" "$workdir.before-retry" -maxdepth 0 | wc -l)" 2
+t_eq "$(find "$T/home/tehas/state/rukas-proven" 2>/dev/null | wc -l)" 0
+t_eq "$(cat "$park_id")" 4002
+rm -f "$T/home/tehas/versions.env"
+
+t_case "a merged state whose branch has only an open pull request is parked, and the comment names it"
+reset
+ended merged "done" feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "--add-label needs-human-attention"
+t_contains "$(t_calls gh)" "Its branch has an open pull request: https://github.com/acme/widget/pull/9"
+t_lacks "$(t_calls gh)" "tehas:awaiting-merge"
+
+t_case "a merged pull request of another issue does not make a merge"
+reset
+ended merged "done" feature/issue-9-other
+merged_pr
+echo "Fixes #9" >"$fx/pr-body"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "--add-label needs-human-attention"
+t_contains "$(t_calls gh)" "has a pull request of the bot that does not name this issue"
+t_lacks "$(t_calls gh)" "The change was merged"
+
+t_case "a handoff whose branch is another issue's pull request is parked, and nothing is posted on it"
+reset
+ended handoff commit-pr feature/issue-9-other
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+echo "Fixes #9 and mentions #7" >"$fx/pr-body"
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "tehas:awaiting-merge"
+t_lacks "$(t_calls gh)" "pr comment"
+t_contains "$(t_calls gh)" "--add-label needs-human-attention"
+t_contains "$(t_calls gh)" "The branch \`feature/issue-9-other\` has a pull request of the bot that does not name this issue"
+t_lacks "$(t_calls gh)" "Its branch has an open pull request"
+
+t_case "a pull request whose head is the issue's branch names it, whatever its body says"
+reset
+ended handoff commit-pr feature/issue-7-the-change
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+echo "No keyword here." >"$fx/pr-body"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label tehas:awaiting-merge"
+
+t_case "a body that closes a longer number does not name this issue"
+reset
+ended handoff commit-pr feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+echo "Closes #70" >"$fx/pr-body"
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "tehas:awaiting-merge"
+
+t_case "a state file that is a link is not read"
+for link in file dir; do
+  reset
+  mkdir -p "$T/elsewhere/work-state" "$workdir"
+  echo '{"pipelineState":{"status":"merged","currentStep":"done","branchName":"feature/x"}}' >"$T/elsewhere/work-state/7.json"
+  if [ "$link" = file ]; then
+    mkdir -p "$workdir/.pi/work-state"
+    ln -s "$T/elsewhere/work-state/7.json" "$workdir/.pi/work-state/7.json"
+  else
+    ln -s "$T/elsewhere" "$workdir/.pi"
+  fi
+  merged_pr
+  t_run "$cycle 7"
+  t_contains "$t_out" "WARN: the state file of #7 is reached through a link, it is not read"
+  t_contains "$(t_calls gh)" 'status `unknown`'
+  t_lacks "$(t_calls gh)" "pr list"
+  t_lacks "$(t_calls gh)" "The change was merged"
+done
+rm -rf "$T/elsewhere"
 
 t_case "a state file in the product checkout is not the cycle's: the container never writes there"
 reset
@@ -296,6 +395,7 @@ t_eq "$(find "$workdir" "$workdir.before-retry" -maxdepth 0 2>/dev/null | wc -l)
 t_case "so is the workspace of a merged cycle"
 reset
 ended merged "done" feature/x
+merged_pr
 : >"$T/home/tehas/work/.tehas-workspaces"
 t_run "$cycle 7"
 t_eq "$(find "$workdir" -maxdepth 0 2>/dev/null | wc -l)" 0
@@ -318,6 +418,7 @@ t_eq "$(find "$workdir" "$workdir.before-retry" -maxdepth 0 | wc -l)" 2
 t_case "a directory tehas work did not mark is never removed"
 reset
 ended merged "done" feature/x
+merged_pr
 rm -f "$T/home/tehas/work/.tehas-workspaces"
 t_run "$cycle 7"
 t_eq "$(find "$workdir" -maxdepth 0 | wc -l)" 1
@@ -326,6 +427,7 @@ t_contains "$t_out" "WARN: $T/home/tehas/work is not marked by tehas work, leavi
 t_case "a workspace that cannot be removed is said so"
 reset
 ended merged "done" feature/x
+merged_pr
 : >"$T/home/tehas/work/.tehas-workspaces"
 chmod a-w "$T/home/tehas/work"
 t_run "$cycle 7"
@@ -336,6 +438,7 @@ t_contains "$t_out" "WARN: could not remove the workspace $workdir"
 t_case "another issue's workspace is left alone"
 reset
 ended merged "done" feature/x
+merged_pr
 : >"$T/home/tehas/work/.tehas-workspaces"
 mkdir -p "$T/home/tehas/work/widget-9"
 t_run "$cycle 7"
@@ -591,7 +694,8 @@ t_case "the pi-rukas a cycle starts with is on record beside its lock, and a mer
 reset
 rukas=$(printf 'c%.0s' {1..40})
 echo "PI_RUKAS_COMMIT=$rukas" >"$T/home/tehas/versions.env"
-ended merged commit-pr
+ended merged commit-pr feature/x
+merged_pr
 t_run "$cycle 7"
 t_eq "$(cat "$state/7.rukas")" "$rukas"
 t_eq "$(cat "$T/home/tehas/state/rukas-proven")" "$rukas"
@@ -611,11 +715,13 @@ mkdir -p "$T/home/tehas/state"
 echo before >"$T/home/tehas/state/rukas-proven"
 image=$(printf 'd%.0s' {1..40})
 echo "$image" >"$fx/image.label"
-ended merged commit-pr
+ended merged commit-pr feature/x
+merged_pr
 t_run "$cycle 7"
 t_eq "$(cat "$state/7.rukas")" "$image"
 t_eq "$(cat "$T/home/tehas/state/rukas-proven" | tr '\n' ' ')" "before $image "
-ended merged commit-pr
+ended merged commit-pr feature/x
+merged_pr
 t_run "$cycle 7"
 t_eq "$(cat "$T/home/tehas/state/rukas-proven" | tr '\n' ' ')" "before $image "
 rm -f "$T/home/tehas/versions.env" "$T/home/tehas/state/rukas-proven"

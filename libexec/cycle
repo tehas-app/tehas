@@ -50,6 +50,13 @@
 # code index, the memory and the sessions its agents wrote: no later cycle
 # reads them.
 #
+# The state file is the container's word. Its "merged" counts only when the
+# bot has a merged pull request for the issue on the cycle's branch; without
+# one the issue is parked and nothing is removed. A pull request counts only
+# when it names this issue: its head is feature/issue-<n>-..., as pi-rukas
+# names a branch, or its body closes #<n>. A state file reached through a link
+# is not read.
+#
 # Only a run that ended as handoff with an open pull request is reported as
 # waiting for a merge. The label change that ends a cycle is tried three
 # times, and so is the question about the pull request, and so is the call
@@ -222,7 +229,13 @@ mins=$((($(date +%s) - started) / 60))
   log "WARN: could not remove the cycle's state $workdir.state"
 
 # The one thing read back from the tree the container wrote, and only as data.
+# Not through a link, as the count files are not: the container could point
+# the host at any file it can read.
 state=$workdir/.pi/work-state/$issue.json
+if [ -L "$workdir/.pi" ] || [ -L "$workdir/.pi/work-state" ] || [ -L "$state" ]; then
+  log "WARN: the state file of #$issue is reached through a link, it is not read"
+  state=/dev/null
+fi
 # The file is written inside the container, and what the bot posts from it is
 # trusted later, so only plain characters are kept.
 status=$(jq -r '.pipelineState.status // "unknown"' "$state" 2>/dev/null | tr -cd 'A-Za-z0-9_.-')
@@ -277,16 +290,22 @@ usage=$(jq -r '
        + ["| **total** | \($e | length) | \($e | map(.u.turns) | add) | \($e | map(.u.input) | add) | \($e | map(.u.output) | add) | \($e | map(.u.cacheRead) | add) |"])
       | join("\n") end' "$state" 2>/dev/null || echo "")
 
-pr=""
+# The pull requests of the bot on the cycle's branch, open and merged. The
+# state file's word "merged" is a claim: it counts only with a merged pull
+# request to show for it. The branch name comes from a file the
+# cycle wrote, so only a pull request the bot opened counts, and only one that
+# names this issue: its head is the issue's branch as pi-rukas names it,
+# feature/issue-<n>-..., or its body closes #<n>. A branch of another issue
+# finds nothing. Without an answer a handoff would be taken for a cycle that
+# left nothing.
+prs="[]"
 if [ -n "$branch" ]; then
-  # The branch name comes from a file the cycle wrote. Only a pull request the
-  # bot itself opened counts, so it cannot point at somebody else's.
-  # Without an answer a handoff would be taken for a cycle that left nothing.
   for try in 1 2 3; do
-    if pr=$(gh pr list --repo "$repo" --head "$branch" --author "@me" --state open --json url --jq '.[0].url // ""' 2>/dev/null); then
+    if prs=$(gh pr list --repo "$repo" --head "$branch" --author "@me" --state all \
+      --json url,state,body,headRefName --limit 20 2>/dev/null) && jq -e 'type == "array"' >/dev/null 2>&1 <<<"$prs"; then
       break
     fi
-    pr=""
+    prs="[]"
     if [ "$try" = 3 ]; then
       log "WARN: the pull requests of $(tr -cd 'A-Za-z0-9_./-' <<<"$branch") could not be read"
     else
@@ -294,27 +313,34 @@ if [ -n "$branch" ]; then
     fi
   done
 fi
+# Whether a pull request names this issue, as jq.
+# shellcheck disable=SC2016  # a jq program
+names_issue='def mine: ((.headRefName // "") | tostring | (. == "feature/issue-\($n)" or startswith("feature/issue-\($n)-")))
+  or ((.body // "") | tostring | test("(?i)\\b(close[sd]?|fix(e[sd])?|resolve[sd]?):?\\s+#\($n)([^0-9]|$)"));'
+# pr_in <OPEN|MERGED|CLOSED>: the address of this issue's pull request in that
+# state, or nothing.
+pr_in() {
+  jq -r --arg n "$issue" --arg st "$1" "$names_issue"'
+    [.[] | select(type == "object" and ((.state // "") | ascii_upcase) == $st) | select(mine)
+     | .url | strings | select(test("^https://[A-Za-z0-9./_-]+$"))] | first // ""' <<<"$prs" 2>/dev/null
+}
+pr=$(pr_in OPEN)
+merged_pr=$(pr_in MERGED)
+# A pull request of the bot on the branch that names another issue is said, not
+# taken.
+foreign=""
+if [ "$(jq --arg n "$issue" "$names_issue"'[.[] | select(type == "object") | select(mine | not)] | length' <<<"$prs" 2>/dev/null)" != 0 ] &&
+  [ "$(jq --arg n "$issue" "$names_issue"'[.[] | select(type == "object") | select(mine)] | length' <<<"$prs" 2>/dev/null)" = 0 ]; then
+  foreign=" The branch \`$(tr -cd 'A-Za-z0-9_./-' <<<"$branch")\` has a pull request of the bot that does not name this issue, so it is not taken as this cycle's."
+fi
 # Said in the comment when the label stayed: the issue then reads as running.
 stuck=" The label of this issue could not be changed. The next poll of the dispatcher hands it to a human."
 
 summary="status \`$status\`, last step \`$step\`, $mins min"
-if [ "$rc" = 0 ] && [ "$status" = merged ]; then
-  relabel --remove-label tehas:running && stuck=""
-  comment "Tehas cycle finished: $summary. The change was merged.$killed$stuck"
-  proven
-  tidy
-elif [ "$rc" = 0 ] && [ "$status" = handoff ] && [ -n "$pr" ]; then
-  relabel --remove-label tehas:running --add-label tehas:awaiting-merge && stuck=""
-  comment "Tehas cycle finished: $summary. Pull request waiting for a human: $pr$killed$stuck"
-  gh pr comment "$pr" --body "Tehas cycle for #$issue: $summary.
-
-${usage:-No token usage was recorded for this cycle.}" >/dev/null 2>&1 || log "WARN: comment on $pr failed"
-  proven
-  tidy
-else
+# park <text>: hand the issue to a human with the retry question.
+park() {
   relabel --remove-label tehas:running --add-label needs-human-attention && stuck=""
-  parked="Tehas cycle stopped without a pull request: $summary (runner exit $rc). Read the handoff comment if there is one; the run log is \`~/tehas/logs/dispatch-work-$issue.log\` on \`$(hostname)\`.$killed${pr:+ Its branch has an open pull request: $pr}$stuck"
-  [ "$rc" != 4 ] || parked="Tehas started no cycle: an image the issue links could not be fetched, or the issue could not be read for its images (runner exit $rc). The comment before this one names it; the run log is \`~/tehas/logs/dispatch-work-$issue.log\` on \`$(hostname)\`.$stuck"
+  local parked="$1$stuck"
   jq -n --arg text "$parked
 
 ${usage}" '{text: $text, question: null}' >"$TEHAS_HOME/state/park-$issue.json"
@@ -337,6 +363,30 @@ ${usage}" '{text: $text, question: null}' >"$TEHAS_HOME/state/park-$issue.json"
 ${usage}"
   fi
   rm -f "$TEHAS_HOME/state/park-$issue.json"
+}
+log_where="the run log is \`~/tehas/logs/dispatch-work-$issue.log\` on \`$(hostname)\`"
+if [ "$rc" = 0 ] && [ "$status" = merged ] && [ -n "$merged_pr" ]; then
+  relabel --remove-label tehas:running && stuck=""
+  comment "Tehas cycle finished: $summary. The change was merged: $merged_pr$killed$stuck"
+  proven
+  pr=$merged_pr
+  tidy
+elif [ "$rc" = 0 ] && [ "$status" = merged ]; then
+  # A claim the container wrote. Without the merge to show for it the
+  # workspaces are kept: what they hold may exist nowhere else.
+  park "Tehas cycle stopped: its state says \`merged\`, but the bot has no merged pull request for this issue on \`$(tr -cd 'A-Za-z0-9_./-' <<<"${branch:-none}")\` ($summary). Nothing was removed; $log_where.$killed${pr:+ Its branch has an open pull request: $pr}$foreign"
+elif [ "$rc" = 0 ] && [ "$status" = handoff ] && [ -n "$pr" ]; then
+  relabel --remove-label tehas:running --add-label tehas:awaiting-merge && stuck=""
+  comment "Tehas cycle finished: $summary. Pull request waiting for a human: $pr$killed$stuck"
+  gh pr comment "$pr" --body "Tehas cycle for #$issue: $summary.
+
+${usage:-No token usage was recorded for this cycle.}" >/dev/null 2>&1 || log "WARN: comment on $pr failed"
+  proven
+  tidy
+else
+  parked="Tehas cycle stopped without a pull request: $summary (runner exit $rc). Read the handoff comment if there is one; $log_where.$killed${pr:+ Its branch has an open pull request: $pr}$foreign"
+  [ "$rc" != 4 ] || parked="Tehas started no cycle: an image the issue links could not be fetched, or the issue could not be read for its images (runner exit $rc). The comment before this one names it; $log_where."
+  park "$parked"
 fi
 log "done #$issue rc=$rc status=$status step=$step minutes=$mins pr=${pr:-none} oom_kills=$kills forks_refused=$forks"
 # For the improvement loop, where the instance has one. The cycle is reported
