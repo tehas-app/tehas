@@ -300,7 +300,8 @@ dispatcher's log says so.
    last box and the label come after every turn, whether or not the agent
    asked something, and a reply or the last box works either way.
 4. Answer by ticking one box, or by replying in a comment when none of the
-   boxes fits. If you do both, the reply counts. The next poll that is free
+   boxes fits. If you do both, the reply counts, and the agent is told
+   which box was ticked as well. The next poll that is free
    continues the session with your answer, and the issue carries
    `tehas:planning` while the turn runs. A poll waits for a planning turn,
    so while another planning turn runs, your answer waits until it ends,

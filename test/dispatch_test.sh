@@ -1944,11 +1944,30 @@ t_eq "$(cat "$record.answer")" 'The operator replied on the issue:
 Adopt all, but keep `tagged-at` open.
 Then file 3 and 5.'
 
-t_case "a reply wins over a tick"
+t_case "a reply wins over a tick, and the answer says what was ticked"
 planning
-comments 7 "$(plan_body x ' ' ' ')" alice '[{"databaseId":4003,"author":{"login":"alice"},"body":"neither","createdAt":"2026-01-01T02:00:00Z"}]'
+printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ALLOWED_LABELERS='alice bob'" >"$TEHAS_INSTANCE_DIR/instance.env"
+comments 7 "$(plan_body x ' ' ' ')" alice '[{"databaseId":4003,"author":{"login":"bob"},"body":"actually, wait","createdAt":"2026-01-01T02:00:00Z"}]'
 t_run "$dispatch"
-t_contains "$(cat "$record.answer")" "neither"
+t_eq "$(cat "$record.answer")" 'The operator replied on the issue:
+
+actually, wait
+
+A box was also ticked, by alice: Adopt all'
+t_contains "$t_out" "planning #7 continues (answer from bob)"
+
+t_case "a reply with the way out ticked runs the turn and says the box was ticked"
+planning
+comments 7 "$(plan_body ' ' ' ' x)" alice '[{"databaseId":4003,"author":{"login":"alice"},"body":"one more thing","createdAt":"2026-01-01T02:00:00Z"}]'
+t_run "$dispatch"
+t_contains "$(plan_calls)" "--answer $record.answer"
+t_contains "$(cat "$record.answer")" "A box was also ticked, by alice: End this planning session"
+
+t_case "a reply alone says nothing of a box"
+planning
+comments 7 "$(plan_body ' ' ' ' ' ')" "" '[{"databaseId":4003,"author":{"login":"alice"},"body":"just this","createdAt":"2026-01-01T02:00:00Z"}]'
+t_run "$dispatch"
+t_lacks "$(cat "$record.answer")" "A box was also ticked"
 
 t_case "an answer on an issue closed since the turn ran runs no turn"
 planning

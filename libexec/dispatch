@@ -942,7 +942,8 @@ for n in $asking; do
       exit "$started"
       ;;
     plan)
-      # A reply says more than a box, so it wins when both are there.
+      # A reply says more than a box, so it wins when both are there, and the
+      # answer says what was ticked.
       reply=$(jq -r '.reply.text // ""' <<<"$ans")
       if [ -n "$reply" ]; then
         by=$(jq -r .reply.by <<<"$ans")
@@ -965,6 +966,19 @@ for n in $asking; do
         text="The operator replied on the issue:
 
 $reply"
+        # The tick is not used, but it is not dropped without a word either.
+        if [ "$tick" = one ]; then
+          idx=$(jq -r .tick.index <<<"$ans")
+          if [ "$idx" = "$(($(jq -r .boxes <<<"$ans") - 1))" ]; then
+            choice="End this planning session"
+          else
+            choice=$(jq -r --argjson i "$idx" '.options[$i] // ""' "$st" 2>/dev/null) || choice=""
+            [ -n "$choice" ] || choice="a box that matches no option on record"
+          fi
+          text="$text
+
+A box was also ticked, by $(jq -r .tick.by <<<"$ans"): $choice"
+        fi
       else
         idx=$(jq -r .tick.index <<<"$ans")
         # The last box is always the way out.
