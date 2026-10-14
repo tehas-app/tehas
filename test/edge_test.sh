@@ -157,7 +157,9 @@ t_eq "$(jq -r '.last | keys_unsorted | join(" ")' "$T_ROOT/preview/live/running.
 t_case "the preview's sample health.json has the keys tehasbot health writes from the samples beside it"
 sample=$T/home/sample
 mkdir -p "$sample/live"
-cp "$T_ROOT/preview/live/status.json" "$T_ROOT/preview/live/running.json" "$sample/live/"
+cp "$T_ROOT/preview/live/running.json" "$sample/live/"
+# The sample health file was written when its snapshot was: a fresh one.
+jq '.generatedAt = (now | todate)' "$T_ROOT/preview/live/status.json" >"$sample/live/status.json"
 t_run "TEHAS_HOME='$sample' '$T_ROOT/libexec/health'; echo rc=\$?"
 t_eq "$t_out" "rc=0"
 shape='[paths | map(tostring) | join(".")] | sort | join(" ")'
