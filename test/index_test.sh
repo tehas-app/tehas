@@ -10,6 +10,9 @@ index="$T_ROOT/libexec/index"
 checkout=$T/home/tehas/repos/widget
 ws=$T/home/tehas/work/widget
 marker=$T/home/tehas/state/index.json
+# Where the host keeps the index, and where the indexer has it.
+indexdir=$T/home/tehas/state/index
+cache=/home/vscode/.tehas-cache
 image="tehas/pi-rukas:uid$(id -u)"
 # The product repository, and the host's checkout of it.
 upstream=$T/git/acme/widget
@@ -21,14 +24,21 @@ git clone -q "$upstream" "$checkout"
 
 # The stub answers `image inspect` by $IMAGE_RC and `run` by $RUN_RC. For a
 # run it also notes the commit of the tree mounted read-only, which is gone
-# by the time the command returns.
+# by the time the command returns. Only a run that succeeded writes a database
+# into the directory it is mounted read-write, under the name of the tree, as
+# the indexer would.
 stub='if [ "$1" = info ]; then cat "$T/docker.info"; exit; fi
 printf "%s\n" "$@" >"$T/calls/docker.args.$$"
 [ "$1" = image ] && exit "${IMAGE_RC:-0}"
+written=""
 for a in "$@"; do
-  case "$a" in *:ro) git -C "${a%%:*}" rev-parse HEAD >"$T/calls/indexed.head"; echo "${a%%:*}" >"$T/calls/indexed.dir" ;; esac
+  case "$a" in
+    *:ro) git -C "${a%%:*}" rev-parse HEAD >"$T/calls/indexed.head"; echo "${a%%:*}" >"$T/calls/indexed.dir" ;;
+    *:/home/vscode/.tehas-cache) written=${a%%:*} ;;
+  esac
 done
 [ "${RUN_RC:-0}" = 0 ] || exit "$RUN_RC"
+echo index >"$written/widget.db"
 echo "${RUN_OUT:-{\"project\":\"p\",\"status\":\"indexed\",\"nodes\":5,\"edges\":7\}}"'
 t_stub docker "$stub"
 # A host with the root step done: the slice loaded from its file with 8 GiB,
@@ -132,7 +142,11 @@ t_eq "$(after --entrypoint)" "codebase-memory-mcp"
 
 t_case "the tree that is indexed is a clone at the branch's tip, read-only"
 t_eq "$(cat "$T/calls/indexed.head")" "$(git -C "$upstream" rev-parse main)"
-t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$(cat "$T/calls/indexed.dir"):$ws:ro" "pi-ensemble-cache:/home/vscode/.cache" | LC_ALL=C sort)"
+t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$(cat "$T/calls/indexed.dir"):$ws:ro" "$indexdir:$cache" | LC_ALL=C sort)"
+
+t_case "the indexer writes the host's own index directory, and nothing else"
+t_eq "$(after -v | grep -c -v ':ro$')" 1
+t_eq "$(after -e | LC_ALL=C sort | tr '\n' ' ')" "CBM_CACHE_DIR=$cache HOME=/home/vscode "
 
 t_case "the clone is gone afterwards and the cycle's workspace was never made"
 t_eq "$(find "$(cat "$T/calls/indexed.dir")" 2>/dev/null | wc -l)" 0
@@ -140,7 +154,6 @@ t_eq "$(find "$T/home/tehas/work" 2>/dev/null | wc -l)" 0
 
 t_case "the indexing container gets no network, no token and no option beyond these"
 t_eq "$(after --network)" none
-t_eq "$(after -e)" "HOME=/home/vscode"
 t_eq "$(after --user)" "$(id -u):$(id -g)"
 t_eq "$(run_args | unknown_options "$image" "--name --network $limits --user -e -w -v --entrypoint" "--rm")" ""
 args=$(cat "$T"/calls/docker.args.*)
@@ -273,6 +286,84 @@ t_eq "$(jq -r .commit "$marker")" "$(git -C "$upstream" rev-parse main)"
 t_run "$index"
 t_eq "$t_rc" 3
 exec 9>&-
+
+t_case "before a cycle, an empty index directory is built again though the record names the tip"
+reset
+rm -rf "$indexdir"
+t_run "$index --before-cycle"
+t_eq "$t_rc" 0
+t_eq "$(runs)" 1
+t_lacks "$t_out" "already indexed"
+t_eq "$(find "$indexdir" -mindepth 1 -maxdepth 1 | wc -l)" 1
+
+t_case "before a cycle, an index directory with only the indexer's logs is built again"
+reset
+rm -rf "$indexdir"
+mkdir -p "$indexdir/logs"
+t_run "$index --before-cycle"
+t_eq "$t_rc" 0
+t_eq "$(runs)" 1
+t_lacks "$t_out" "already indexed"
+
+t_case "before a cycle, leftovers are no index: the config and a staging file are built over"
+reset
+rm -rf "$indexdir"
+mkdir -p "$indexdir/logs"
+echo cfg >"$indexdir/_config.db"
+echo left >"$indexdir/widget.db.stage.abc123.tmp.945328.0x200002bc000"
+t_run "$index --before-cycle"
+t_eq "$t_rc" 0
+t_eq "$(runs)" 1
+t_lacks "$t_out" "already indexed"
+
+t_case "a run removes what an earlier one left in the index directory"
+reset
+rm -rf "$indexdir"
+mkdir -p "$indexdir/logs"
+echo old >"$indexdir/other-tree.db"
+echo left >"$indexdir/widget.db.stage.abc123.tmp.945328.0x200002bc000"
+echo gone >"$indexdir/scratch.tmp"
+touch -d "@$(( $(date +%s) - 120 ))" "$indexdir/other-tree.db"
+echo log >"$indexdir/logs/index-1.log"
+t_run "$index"
+t_eq "$t_rc" 0
+t_eq "$(find "$indexdir" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" \
+  "logs widget.db "
+t_eq "$(cat "$indexdir/widget.db")" index
+t_contains "$t_out" "removed 3 file(s) an earlier run left in $indexdir"
+t_eq "$(find "$indexdir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n')" "logs"
+
+t_case "a database written by this run is never pruned, nor the indexer's own logs"
+reset
+rm -rf "$indexdir"
+# The same name as the one this run writes: pruned only when it predates the run.
+t_run "$index --before-cycle"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "removed "
+t_eq "$(find "$indexdir" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" "widget.db "
+commit prune
+git -C "$checkout" fetch -q
+exec 9>"$T/home/tehas/state/dispatch.lock"
+flock -n 9
+t_run "$index --before-cycle"
+exec 9>&-
+t_eq "$t_rc" 0
+t_lacks "$t_out" "removed "
+t_eq "$(cat "$indexdir/widget.db")" index
+
+t_case "a failed run prunes nothing and leaves the leftovers where they were"
+reset
+rm -rf "$indexdir"
+mkdir -p "$indexdir/logs"
+echo old >"$indexdir/other-tree.db"
+echo left >"$indexdir/widget.db.stage.abc123.tmp.945328.0x200002bc000"
+T_ENV=(RUN_RC=1 "$root")
+t_run "$index"
+t_eq "$t_rc" 1
+t_lacks "$t_out" "removed "
+t_eq "$(find "$indexdir" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" \
+  "logs other-tree.db widget.db.stage.abc123.tmp.945328.0x200002bc000 "
+T_ENV=("$root")
 
 t_case "a failed indexer exits 1 and leaves the record as it was"
 reset

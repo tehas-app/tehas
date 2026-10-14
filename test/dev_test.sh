@@ -10,6 +10,9 @@ dev="$T_ROOT/libexec/dev"
 checkout=$T/home/tehas/repos/widget
 devs=$T/home/tehas/dev
 clone=$devs/main
+# The clone's own state on the host: what this session writes, and nothing a
+# cycle wrote.
+state=$devs/main.state
 # The product repository, and the host's checkout of it.
 upstream=$T/git/acme/widget
 mkdir -p "$upstream"
@@ -154,14 +157,23 @@ t_eq "$(session_args | sed -n "/^$(printf '%s' "$image" | sed 's/[\/.]/\\&/g')\$
 
 t_case "exactly a cycle's mounts, with the clone in place of the workspace"
 want="$clone:$clone
-$T/home/.pi/agent/ensemble-runs:/home/vscode/.pi/agent/ensemble-runs
+$state/runs:/home/vscode/.pi/agent/ensemble-runs
+$state/cache:/home/vscode/.tehas-cache
+$state/memory:/home/vscode/.vipune
+$state/sessions:/home/vscode/.pi/agent/sessions
 $T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
-$T/home/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro
-$T/home/.pi/agent/sessions:/home/vscode/.pi/agent/sessions
-$T/home/.vipune:/home/vscode/.vipune
-pi-ensemble-bun-cache:/home/vscode/.bun
-pi-ensemble-cache:/home/vscode/.cache"
+$T/home/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro"
 t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
+
+t_case "the session's state is its own, made beside the clone and kept between sessions"
+t_eq "$(find "$state" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" "cache memory runs sessions "
+t_lacks "$(after -v)" "pi-ensemble"
+t_lacks "$(after -v)" "$T/home/.pi/agent/sessions"
+t_lacks "$(after -v)" "$T/home/.vipune"
+echo mine >"$state/sessions/one.jsonl"
+again
+t_run "$dev"
+t_eq "$(cat "$state/sessions/one.jsonl")" mine
 
 t_case "exactly a cycle's variables, plus the terminal's two"
 want="COLORTERM
@@ -176,6 +188,7 @@ GIT_CONFIG_VALUE_1
 GIT_CONFIG_VALUE_2
 GIT_CONFIG_VALUE_3
 GIT_TERMINAL_PROMPT
+CBM_CACHE_DIR
 PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS
 PI_ENSEMBLE_MAX_WORKSTREAMS
 PI_ENSEMBLE_NO_DOCKER_SOCKET
