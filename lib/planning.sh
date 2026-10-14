@@ -13,7 +13,9 @@
 #   failed    true when the last turn did not finish
 #   running   true while a turn is in flight
 #   comment   the id of the open question comment, once it is posted
-# While pending, the outcome is kept next to the record as <record>.out.
+# While pending, the outcome is kept next to the record as <record>.out. What
+# the runner carries from one turn to the next is in <record>.keep, and the
+# approved text in <record>.brief; both go with the record.
 #
 # A turn is written down as running before it starts, and before the issue is
 # marked as planning. The dispatcher holds the one dispatch lock, so a running
@@ -70,7 +72,7 @@ plan_end() {
     return 1
   fi
   say "$n" "$2"
-  rm -f "$st" "$st.out" "$st.answer" "$st.brief"
+  rm -rf "$st" "$st.out" "$st.answer" "$st.brief" "$st.keep"
   log "planning #$n ended"
 }
 
@@ -148,7 +150,7 @@ plan_finish() {
       return 1
     fi
     say "$n" "The planning session could not start (the runner $why). The log is \`~/tehas/logs/dispatch-plan-$n.log\` on \`$(hostname)\`. Apply \`tehas:plan\` again to retry."
-    rm -f "$st" "$out" "$st.answer" "$st.brief"
+    rm -rf "$st" "$out" "$st.answer" "$st.brief" "$st.keep"
     log "done planning #$n turn=$turns rc=$rc, no session"
     return 0
   fi
@@ -214,7 +216,7 @@ plan_turn() {
   fi
   refresh_checkout
   rm -f "$out"
-  "${plan_cmd:?}" "$n" --out "$out" "${args[@]}" >>"$TEHAS_HOME/logs/dispatch-plan-$n.log" 2>&1 &
+  "${plan_cmd:?}" "$n" --out "$out" --keep "$st.keep" "${args[@]}" >>"$TEHAS_HOME/logs/dispatch-plan-$n.log" 2>&1 &
   wait_for $!
   rc=$?
   plan_finish "$n" "$rc" "$turns" "$sid"

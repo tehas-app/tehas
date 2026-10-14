@@ -9,10 +9,26 @@
 # the same Pi session.
 #
 # Usage:
-#   tehas plan <issue-number> --out <file> --brief <file>
+#   tehas plan <issue-number> --out <file> --keep <dir> --brief <file>
 #       First turn. <file> holds the approved title and body of the issue.
-#   tehas plan <issue-number> --out <file> --session <id> --answer <file>
+#   tehas plan <issue-number> --out <file> --keep <dir> --session <id> --answer <file>
 #       A later turn. <file> holds the operator's answer.
+#
+# <dir> is what the session carries from one turn to the next. The first turn
+# makes it anew; the caller removes it when the session ends. It holds:
+#   commit          the commit the first turn's workspace was at. Every later
+#                   turn's workspace is at the same one, so what the agent
+#                   reviewed with the operator is what it files.
+#   pi-plan-cache/  pi-rukas's record of the plans it showed (it keeps it in
+#                   the clone's git directory). Confirming a plan in a later
+#                   turn files what was shown, word for word, only when this
+#                   record and the commit are the same as when it was shown.
+#                   Only plain .json files are carried, at most 1 MB each.
+#   images/         the issue's images, with TEHAS_WORK_IMAGES=1: fetched on
+#                   the first turn as tehas work fetches a cycle's. Each turn
+#                   is given a copy, $TEHAS_HOME/work/<name>-plan-<issue>.images,
+#                   read-only, with PI_ENSEMBLE_EXTRA_IMAGE_DIRS, and the copy
+#                   is removed with the workspace.
 #
 # On exit 0 the --out file holds
 #   {"session": "<id>", "text": "<the agent's last message>",
@@ -25,6 +41,8 @@
 # Exit status: 0 the turn settled and said or asked something,
 #              2 it did not settle, timed out, said and asked nothing, or its
 #                session or outcome could not be written down,
+#              4 a first turn the instance gives images, where one could not
+#                be fetched; said on the issue, nothing ran,
 #             64 a usage error, no bot token or no git identity; nothing ran,
 #             78 the instance settings are invalid, or tehas.slice is not
 #                usable on this host; nothing ran.
@@ -35,8 +53,9 @@
 #
 # The container is given exactly what a cycle's container is given: the same
 # image, limits, mounts and variables, assembled by lib/sandbox.sh and
-# lib/slice.sh and pinned by test/plan_test.sh. It differs in its name, in
-# what pi is told, and in having no cid file. Not the Docker socket, SSH keys
+# lib/slice.sh and pinned by test/plan_test.sh, and the issue's images as a
+# cycle gets them. It differs in its name, in what pi is told, and in having
+# no cid file. Not the Docker socket, SSH keys
 # or ~/.config/tehas. It runs in tehas.slice with a cycle's limits, so the
 # dispatcher counts its memory with the cycles'. Without a usable slice
 # nothing is cloned and nothing starts.
@@ -49,7 +68,7 @@
 set -uo pipefail
 
 usage() {
-  echo "usage: tehas plan <issue-number> --out <file> (--brief <file> | --session <id> --answer <file>)" >&2
+  echo "usage: tehas plan <issue-number> --out <file> --keep <dir> (--brief <file> | --session <id> --answer <file>)" >&2
   exit 64
 }
 
@@ -57,6 +76,7 @@ issue=${1:-}
 case "$issue" in '' | *[!0-9]*) usage ;; esac
 shift
 out=""
+keep=""
 brief=""
 answer=""
 session=""
@@ -64,6 +84,7 @@ while [ "$#" -gt 0 ]; do
   [ "$#" -ge 2 ] || usage
   case "$1" in
     --out) out=$2 ;;
+    --keep) keep=$2 ;;
     --brief) brief=$2 ;;
     --answer) answer=$2 ;;
     --session) session=$2 ;;
@@ -71,7 +92,7 @@ while [ "$#" -gt 0 ]; do
   esac
   shift 2
 done
-[ -n "$out" ] || usage
+[ -n "$out" ] && [ -n "$keep" ] || usage
 if [ -n "$brief" ]; then
   [ -z "$session$answer" ] && [ -r "$brief" ] || usage
 else
@@ -87,6 +108,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/sandbox.sh"
 # shellcheck source=lib/slice.sh
 . "$here/../lib/slice.sh"
+# shellcheck source=lib/attachments.sh
+. "$here/../lib/attachments.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
 # Docker would create a missing mount source as a root-owned directory.
@@ -109,6 +132,12 @@ limit=$TEHAS_PLAN_TIMEOUT
 log=$TEHAS_HOME/logs/plan-$issue-$(date -u +%y%m%d-%H%M%S).jsonl
 name=tehas-plan-$issue
 runs=$HOME/.pi/agent/ensemble-runs/plan-$issue
+images=$keep/images
+# What a turn's container is given of them: a copy beside the workspace, so no
+# container sees the state directory.
+images_given=$tree.images
+images_inside=$repo.images
+cache=$tree/.git/pi-plan-cache
 
 [ -n "${GH_TOKEN:-}" ] || { echo "tehas plan: GH_TOKEN is not set (source ~/tehas/env.sh)" >&2; exit 64; }
 mkdir -p "$TEHAS_HOME/logs"
@@ -119,6 +148,8 @@ bot_name=$(git config --global user.name || true)
 bot_email=$(git config --global user.email || true)
 [ -n "$bot_name" ] && [ -n "$bot_email" ] ||
   { echo "tehas plan: git user.name and user.email are not set for $(id -un)" >&2; exit 64; }
+# The path of the images is this command's to give, not the instance's.
+[ "$TEHAS_WORK_IMAGES" != 1 ] || unset PI_ENSEMBLE_EXTRA_IMAGE_DIRS
 mapfile -d '' -t envs < <(tehas_sandbox_env "$repo" "$bot_name" "$bot_email")
 mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$repo" "$tree" "$runs")
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
@@ -132,10 +163,77 @@ if [ -e "$works" ] && [ ! -f "$works/.tehas-workspaces" ]; then
   echo "tehas plan: $works exists and was not made by tehas, not touching it" >&2
   exit 78
 fi
+if [ -n "$brief" ]; then
+  rm -rf "$keep"
+fi
+if ! mkdir -p "$keep"; then
+  echo "tehas plan: could not make $keep, not starting a turn" >&2
+  exit 78
+fi
+
+# The issue's images, once per session, from the first turn.
+image_opts=()
+if [ "$TEHAS_WORK_IMAGES" = 1 ]; then
+  if [ -n "$brief" ]; then
+    if ! tehas_issue_images "$issue" "$images"; then
+      rm -rf "$images"
+      echo "tehas plan: $image_why, not starting a turn" >&2
+      gh issue comment "$issue" --repo "$TEHAS_REPO" --body "Tehas started no planning session: $image_why. This instance gives a session the images an issue links, and a plan made without one of them may be the wrong plan. To retry, apply \`tehas:plan\`." >/dev/null 2>&1 ||
+        echo "tehas plan: the comment on #$issue failed" >&2
+      exit 4
+    fi
+    said=$(tehas_issue_images_said "$images" "planning session")
+    if [ -n "$said" ]; then
+      gh issue comment "$issue" --repo "$TEHAS_REPO" --body "$said" >/dev/null 2>&1 ||
+        echo "tehas plan: the comment on #$issue failed" >&2
+    fi
+  fi
+fi
+
+if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces" && rm -rf "$images_given"; }; then
+  echo "tehas plan: could not make $works, not starting a turn" >&2
+  exit 78
+fi
+# A session that began without them goes on without them.
+if [ "$TEHAS_WORK_IMAGES" = 1 ] && [ -f "$images/manifest.json" ]; then
+  if ! cp -r "$images" "$images_given"; then
+    echo "tehas plan: could not copy the issue's images to $images_given, not starting a turn" >&2
+    exit 78
+  fi
+  image_opts=(-v "$images_given:$images_inside:ro" -e "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$images_inside")
+fi
+
 if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces" && rm -rf "$tree" &&
   tehas_sandbox_clone "$src" "$tree" "$branch"; }; then
   echo "tehas plan: could not make the workspace $tree, not starting a turn" >&2
   exit 78
+fi
+# carry <from> <to>: the plain .json files of one plan cache into another.
+carry() {
+  local f
+  mkdir -p "$2" || return 1
+  for f in "$1"/*.json; do
+    [ -f "$f" ] && [ ! -L "$f" ] || continue
+    [ "$(stat -c %s "$f" 2>/dev/null || echo 0)" -le 1048576 ] || continue
+    cp "$f" "$2/" || return 1
+  done
+}
+if [ -n "$brief" ]; then
+  if ! git -C "$tree" rev-parse HEAD >"$keep/commit"; then
+    echo "tehas plan: could not note the commit of $tree, not starting a turn" >&2
+    exit 78
+  fi
+else
+  # Moving on without the commit or the cache is safe: pi-rukas then reviews
+  # the plan again before it files it.
+  pin=$(cat "$keep/commit" 2>/dev/null) || pin=""
+  case "$pin" in
+    '' | *[!0-9a-f]*) echo "tehas plan: no commit on record for this session, the turn starts at the tip of $branch" ;;
+    *) git -C "$tree" checkout -q -B "$branch" "$pin" 2>/dev/null ||
+      echo "tehas plan: the session's commit $pin is not in the checkout, the turn starts at the tip of $branch" ;;
+  esac
+  [ ! -d "$keep/pi-plan-cache" ] || carry "$keep/pi-plan-cache" "$cache" ||
+    echo "tehas plan: could not carry the plan cache into $tree" >&2
 fi
 
 args=()
@@ -161,7 +259,7 @@ rm "$fifo"
 
 docker run --rm -i --init --name "$name" \
   "${TEHAS_SLICE_LIMITS[@]}" \
-  -w "$repo" "${mounts[@]}" \
+  -w "$repo" "${mounts[@]}" "${image_opts[@]}" \
   "${envs[@]}" "${hosts[@]}" \
   "$image" pi --mode rpc --approve "${args[@]}" <&3 >"$log" 2>"$log.err" &
 pid=$!
@@ -175,9 +273,16 @@ echo "tehas plan: issue $issue turn started, log $log"
 
 trap 'exec 3>&- 2>/dev/null; docker stop -t 10 "$name" 2>/dev/null' TERM INT
 
-# Settled: the last start or settle event in the stream is a settle. A run can
-# start again after it settled (a background job reported back), so the state
-# has to hold for a while before the turn is taken as over.
+# Settled: the last start or settle event in the stream is a settle, and no
+# background job the agent started is still out. The agent ends its turn after
+# it dispatches a subagent, and the subagent's report starts a new run minutes
+# later. A run can also start again soon after it settled, so the state has to
+# hold for a while before the turn is taken as over.
+#
+# A job is out from the tool result that started it (details.async, with a
+# jobId or a batchId) until a user message starting "[ensemble:async]" names
+# it as "(job <id>)" or "(batch <id>)". A job that never reports holds the turn
+# until the time limit.
 #
 # The log can grow large over an hour, so it is never read again from the top:
 # scan reads what was appended since the last call and keeps the last start or
@@ -186,8 +291,9 @@ trap 'exec 3>&- 2>/dev/null; docker stop -t 10 "$name" 2>/dev/null' TERM INT
 # `scan all` takes everything, for when nothing more will be written.
 last=""
 offset=0
+out_jobs=" "
 scan() {
-  local lines seen
+  local lines seen ev
   if [ "${1:-}" = all ]; then
     lines=$(tail -c "+$((offset + 1))" "$log" 2>/dev/null | grep -a -c '') || true
   else
@@ -197,13 +303,30 @@ scan() {
   lines=${lines//[[:space:]]/}
   case "$lines" in '' | 0 | *[!0-9]*) return 0 ;; esac
   # The log only grows, so the first $lines lines from the offset are the same
-  # in both readings.
+  # in every reading.
   seen=$(tail -c "+$((offset + 1))" "$log" 2>/dev/null | head -n "$lines" |
     grep -a -o -E '"type":"(agent_start|agent_settled)"' | tail -n 1) || true
   [ -z "$seen" ] || last=$seen
+  # shellcheck disable=SC2016  # a jq program
+  while IFS= read -r ev; do
+    case "$ev" in
+      +*) out_jobs="$out_jobs${ev#+} " ;;
+      -*) out_jobs=${out_jobs// ${ev#-} / } ;;
+    esac
+  done < <(tail -c "+$((offset + 1))" "$log" 2>/dev/null | head -n "$lines" |
+    grep -a -F -e '"async":true' -e 'ensemble:async' |
+    jq -r -R 'fromjson? | select(type == "object")
+      | if .type == "tool_execution_end" and .result.details.async? == true then
+          (.result.details.jobId // .result.details.batchId // "") | strings
+          | select(test("^[A-Za-z0-9_-]+$")) | "+\(.)"
+        elif .type == "message_end" and .message.role? == "user" then
+          .message.content | (if type == "string" then . elif type == "array" then map(select(.type? == "text") | .text) | join("\n") else "" end)
+          | select(startswith("[ensemble:async]"))
+          | capture("\\((?:job|batch) (?<id>[A-Za-z0-9_-]+)\\)").id | "-\(.)"
+        else empty end' 2>/dev/null)
   offset=$((offset + $(tail -c "+$((offset + 1))" "$log" 2>/dev/null | head -n "$lines" | wc -c)))
 }
-settled() { [ "$last" = '"type":"agent_settled"' ]; }
+settled() { [ "$last" = '"type":"agent_settled"' ] && [ "$out_jobs" = " " ]; }
 quiet=0
 timed_out=0
 while kill -0 "$pid" 2>/dev/null; do
@@ -233,9 +356,15 @@ if kill -0 "$pid" 2>/dev/null; then
 fi
 wait "$pid" 2>/dev/null
 scan all
-# The turn's outcome is read from the log. Nothing in the workspace is needed
-# again: the next turn gets a new one.
-rm -rf "$tree" || echo "tehas plan: could not remove the workspace $tree" >&2
+# The turn's outcome is read from the log. Of the workspace only the plan
+# cache is needed again: the next turn gets a new one.
+if [ -d "$cache" ]; then
+  if ! { rm -rf "$keep/pi-plan-cache.new" && carry "$cache" "$keep/pi-plan-cache.new" &&
+    rm -rf "$keep/pi-plan-cache" && mv "$keep/pi-plan-cache.new" "$keep/pi-plan-cache"; }; then
+    echo "tehas plan: could not keep the plan cache of $tree" >&2
+  fi
+fi
+rm -rf "$tree" "$images_given" || echo "tehas plan: could not remove the workspace $tree" >&2
 
 # pick <text>: the lines of the log that hold the text, as JSON values. The
 # few lines wanted are found by what they say before anything parses them, so

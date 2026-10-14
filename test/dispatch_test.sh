@@ -1310,7 +1310,7 @@ t_case "a plan label from an allowed account starts a session from the issue's t
 to_plan
 t_run "$dispatch"
 t_eq "$t_rc" 0
-t_contains "$(plan_calls)" "7 --out $record.out --brief $record.brief"
+t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --brief $record.brief"
 t_eq "$(cat "$record.brief")" '# Faster search
 
 Make it fast.'
@@ -1405,7 +1405,7 @@ t_eq "$(cat "$record")" "$before"
 t_eq "$(jq -r .running "$T/calls/record.at-mark")" true
 rm -f "$T"/calls/* "$fx/edit-fails"
 t_run "$dispatch"
-t_contains "$(plan_calls)" "7 --out $record.out --session abc-123 --answer $record.answer"
+t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --session abc-123 --answer $record.answer"
 
 t_case "while a later turn runs the record names no question"
 planning
@@ -1463,7 +1463,7 @@ jq -n '{data: {repository: {issue: {comments: {nodes: [
    body: "This planning turn did not finish.\n\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->"},
   {databaseId: 4003, author: {login: "alice"}, body: "go on", createdAt: "2026-01-01T02:00:00Z"}]}}}}}' >"$fx/comments-7.json"
 t_run "$dispatch"
-t_contains "$(plan_calls)" "7 --out $record.out --session abc-123 --answer $record.answer"
+t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --session abc-123 --answer $record.answer"
 
 t_case "a session id that is not a string in a failed turn's file is no session"
 to_plan
@@ -1484,7 +1484,7 @@ t_case "a ticked option goes to the session as the next message"
 planning
 comments 7 "$(plan_body ' ' x ' ')" alice
 t_run "$dispatch"
-t_contains "$(plan_calls)" "7 --out $record.out --session abc-123 --answer $record.answer"
+t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --session abc-123 --answer $record.answer"
 t_eq "$(cat "$record.answer")" "The operator chose: Change some"
 t_contains "$(t_calls gh)" "<!-- tehas:question kind=plan issue=7 turn=2 -->"
 t_eq "$(jq -r .turns "$record")" 2
@@ -1513,12 +1513,14 @@ t_contains "$(t_calls gh)" "api -X PATCH"
 
 t_case "the way out ends the session: labels off, record gone, one comment"
 planning
+mkdir -p "$record.keep/images"
 comments 7 "$(plan_body ' ' ' ' x)" alice
 t_run "$dispatch"
 t_eq "$(plan_calls)" ""
 t_contains "$(t_calls gh)" "--remove-label tehas:question"
 t_contains "$(t_calls gh)" "Planning session ended by alice."
 t_eq "$([ -e "$record" ] && echo kept)" ""
+t_eq "$([ -e "$record.keep" ] && echo kept)" ""
 
 t_case "the turn limit ends the session in place of another turn"
 planning
@@ -1741,7 +1743,7 @@ planning
 comments 7 "$(plan_body ' ' x ' ')" alice "$(jq -nc --arg b "$(plan_body ' ' ' ' ' ' | sed 's/turn=1/turn=5/')" '[{databaseId: 4009, author: {login: "tehas-bot"}, body: $b,
   createdAt: "2026-01-01T02:00:00Z", lastEditedAt: null, editor: null}]')"
 t_run "$dispatch"
-t_contains "$(plan_calls)" "7 --out $record.out --session abc-123 --answer $record.answer"
+t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --session abc-123 --answer $record.answer"
 t_eq "$(cat "$record.answer")" "The operator chose: Change some"
 
 t_case "a planning question on record whose marker is a park marker runs no turn and no cycle"
@@ -2388,7 +2390,7 @@ to_plan
 bare_tree
 t_run "$tree/libexec/dispatch"
 t_eq "$t_rc" 0
-t_contains "$(plan_calls)" "7 --out $record.out --brief $record.brief"
+t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --brief $record.brief"
 for name in tehas tehasbot tehas-plan; do t_eq "$(t_calls "$name")" ""; done
 
 t_case "a unit systemd cannot load changes no label and starts nothing, exit 1"

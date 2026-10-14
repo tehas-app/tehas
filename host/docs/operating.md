@@ -248,7 +248,9 @@ dispatcher's log says so.
    allowed account counts, and it approves the text as it was when you
    applied it.
 3. The bot comments that the session has started. Each turn of the agent ends
-   in a comment with what it found. When it needs a decision, the comment
+   in a comment with what it found. A turn is over when the agent has stopped
+   and every subagent it sent out has reported back, so one turn can take
+   many minutes. When it needs a decision, the comment
    ends in a question with one checkbox per choice, a last box `End this
    planning session`, and the label `tehas:question` is on the issue. When
    the agent offers more than 20 choices, the first 20 get a box and a line
@@ -264,7 +266,12 @@ dispatcher's log says so.
    cycle does not hold an answer back. A poll also handles one answer or one
    planning start and then stops, and it does nothing while the model
    endpoint does not list the model.
-5. The agent files the issues it plans with the bot's token. To finish, tick
+5. The agent shows you a plan before it files it, and files it when you
+   confirm. Every turn of a session works on the commit the session started
+   on, so the plan you confirm is the plan that is filed, word for word, if
+   you confirm within two hours of seeing it. After that the agent reviews it
+   again before it files. The agent files the issues it plans with the bot's
+   token. To finish, tick
    `End this planning session`. Filed issues are never started on their own:
    apply `tehas:ready` to the ones you want built.
 
@@ -274,6 +281,13 @@ author is an allowed account and, when it was edited, its last editor is too.
 Replies from others are ignored. Only the question the session is waiting on
 counts, which is the one whose id the host has on record. Any other comment
 with boxes, older or newer, does nothing.
+
+Where the instance gives a cycle the images an issue links
+(`TEHAS_WORK_IMAGES=1`), a planning session is given them too, by the same
+rules, once at its start. The bot says how many it was given and which it left
+out. If one cannot be fetched, no session starts and the bot says so. The
+pi-rukas that tehas installs does not show them to the planning agent yet, so
+describe in words what a picture shows.
 
 What the agent writes in the bot's comments is posted on the issue. On a
 public repository that is public. Secrets and private network addresses are

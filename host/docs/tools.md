@@ -65,7 +65,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_MAX_AWAITING`            | `TEHAS_TICKET_CONCURRENCY` plus 2        | Open `tehas:awaiting-merge` issues, plus running cycles, allowed before holding |
 | `TEHAS_CYCLE_RESERVE`           | `2g`                                     | Memory one container is given as a floor (`docker --memory-reservation`) and the unit the dispatcher counts room in. A reclaim priority inside `tehas.slice` and the amount admission promises, not a guarantee against the whole host. A Docker size of at least 6m, and at most a quarter of the slice's `MemoryMax`, else the command stops with 78 naming both numbers. With the default the host needs about 11 GiB of memory; a smaller host sets it lower |
 | `TEHAS_WORK_TIMEOUT`            | `21600`                                  | Seconds before a cycle is given up                              |
-| `TEHAS_WORK_IMAGES`             | `0`                                      | `1` gives a cycle the images its issue text links: see [tehas work](#tehas-work). The model must declare `"image"` in its `input` in `models.json` and answer a request with an image, else the dispatcher holds every cycle |
+| `TEHAS_WORK_IMAGES`             | `0`                                      | `1` gives a cycle and a planning session the images its issue text links: see [tehas work](#tehas-work) and [tehas plan](#tehas-plan). The model must declare `"image"` in its `input` in `models.json` and answer a request with an image, else the dispatcher holds every cycle |
 | `TEHAS_VERIFY_TIMEOUT`          | `1800`                                   | Seconds one run of the product's gate may take inside a cycle. A gate that takes longer is stopped and the cycle parks. Passed to pi-rukas as `PI_ENSEMBLE_VERIFY_TIMEOUT_MS` and `PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS`; pi-rukas alone allows ten minutes |
 | `TEHAS_PLAN_MAX_TURNS`          | `20`                                     | Turns a planning session may take before it is ended            |
 | `TEHAS_PLAN_TIMEOUT`            | `3600`                                   | Seconds before one planning turn is given up                    |
@@ -253,14 +253,33 @@ same issue uses, and it does not take the dispatcher's lock, so do not run it
 for an issue whose session the factory is working on.
 
 ```
-tehas plan 12 --out /tmp/turn.json --brief brief.md
-tehas plan 12 --out /tmp/turn.json --session <id> --answer answer.md
+tehas plan 12 --out /tmp/turn.json --keep /tmp/turn.keep --brief brief.md
+tehas plan 12 --out /tmp/turn.json --keep /tmp/turn.keep --session <id> --answer answer.md
 ```
 
 The first form starts a session from a file with the issue's title and body.
 The second reopens the session and sends the file's content as the operator's
-answer. A turn ends when the agent has settled, so it ends when the agent has
-asked. On exit 0 the `--out` file holds the session id, the agent's last
+answer. A turn ends when the agent has settled and every subagent it sent out
+in the background has reported back, so it ends when the agent has asked. A
+subagent that never reports holds the turn until `TEHAS_PLAN_TIMEOUT`.
+
+`--keep` names a directory the session carries from one turn to the next. The
+first form makes it anew. It holds the commit the first turn's workspace was
+at, pi-rukas's record of the plans the agent showed (its plain `.json` files,
+at most 1 MB each), and with `TEHAS_WORK_IMAGES=1` the issue's images. Every
+later turn's workspace is at that commit and gets that record back, so a plan
+the operator confirms is filed as it was shown. A later turn whose commit is
+missing or gone starts at the tip of the branch and says so, and the agent
+then reviews the plan again before it files it. The dispatcher keeps the
+directory at `~/tehas/state/plan-<issue>.json.keep` and removes it when the
+session ends.
+
+With `TEHAS_WORK_IMAGES=1` the first turn fetches the images the issue links,
+by the rules of `tehas work`, and says on the issue how many it was given.
+Each turn's container gets a copy of them, read-only, at the path a cycle has
+them, with `PI_ENSEMBLE_EXTRA_IMAGE_DIRS`. The copy is
+`~/tehas/work/<name>-plan-<issue>.images`, removed after the turn. An image
+that cannot be fetched starts no session: exit 4, said on the issue. On exit 0 the `--out` file holds the session id, the agent's last
 message and the question it asked, if any. On exit 2 it holds the session id
 alone when that is known, so the dispatcher can run the turn again in the
 same session, and it is not written when no session is known.
@@ -269,6 +288,7 @@ same session, and it is not written when no session is known.
 | ---- | -------------------------------------------------------------------- |
 | 0    | The turn settled and said or asked something                         |
 | 2    | The turn did not settle, timed out, said and asked nothing, or its session or outcome could not be written down |
+| 4    | With `TEHAS_WORK_IMAGES=1`: a first turn where an image the issue links could not be fetched, or the issue could not be read for its images; nothing ran |
 | 64   | A usage error, no bot token or no git identity; nothing ran          |
 | 78   | The instance settings are invalid, or `tehas.slice` cannot be used; nothing ran |
 

@@ -29,6 +29,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/repos/tehas`                | The product checkout, on the default branch. Cycles are cloned from it; no container is given it |
 | `~/tehas/work/tehas-<issue>`         | The cycle's workspace: a fresh clone made for each cycle. Removed after a cycle that merged or left a pull request, otherwise kept, and moved to `tehas-<issue>.before-retry` when that issue is retried. `~/tehas/work/tehas` is only its path inside the container |
 | `~/tehas/work/tehas-<issue>.images`  | With `TEHAS_WORK_IMAGES=1`, the images of the cycle's issue and their `manifest.json`. Made for each cycle, read-only in its container at `~/tehas/work/tehas.images`, removed when the cycle is over |
+| `~/tehas/work/tehas-plan-<issue>.images` | With `TEHAS_WORK_IMAGES=1`, a copy of a planning session's images for one turn, read-only in its container at `~/tehas/work/tehas.images`, removed after the turn |
 | `~/tehas/dev/<name>`                 | A person's clone for working by hand, named after their account, made and used by `tehas dev`, never removed. `<name>.author` next to it holds whose name its commits carry |
 | `~/tehas/repos/pi-rukas`             | pi-rukas, pinned to a commit                                            |
 | `~/tehas/docs/`, `~/tehas/fun/`      | This site's pages and the front page, installed from `host/`            |
@@ -36,7 +37,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/edge/`                      | The docs server (`docs.compose.yaml`) and the edge router (`router.compose.yaml`) |
 | `~/tehas/protolab/`                  | The Protolab's pages and the files of each prototype, written by `tehasbot protolab` |
 | `~/tehas/preview/`                   | The state of each preview, and a bare clone the pull requests' commits are fetched into, written by `tehasbot preview` |
-| `~/tehas/logs/`, `state/`, `live/`, `tmp/` | Logs, state, dashboard data, scratch. `state/` holds the dispatch lock, status files, the record of each planning session (`plan-<issue>.json`) and the id of each parked cycle's question (`park-<issue>.id`). No container is given it |
+| `~/tehas/logs/`, `state/`, `live/`, `tmp/` | Logs, state, dashboard data, scratch. `state/` holds the dispatch lock, status files, the record of each planning session (`plan-<issue>.json`, with what it carries between turns in `plan-<issue>.json.keep/`) and the id of each parked cycle's question (`park-<issue>.id`). No container is given it |
 | `~/tehas/tmp/improve/`, `~/tehas/state/improve.lock` | Where the improvement loop is on: the record of each cycle that ended, until a run has read it, and the lock of a run |
 | Docker volume `pi-ensemble-cache`    | Caches of the sandbox, among them the code index `tehas index` builds   |
 | `~/.pi/agent/`                       | Pi user configuration (models, MCP servers)                             |
