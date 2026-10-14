@@ -267,17 +267,20 @@ test("odd input does not break the page", () => {
 const VIEW = ["energy", "menu-energy", "floor-meter"];
 
 async function page(missing, key, opt = {}) {
-  const { motion = false, frames = 0 } = opt;
+  const { motion = false, frames = 0, status = 200, ok = true, unreachable = false } = opt;
   const found = new Map(), errors = [];
   // Fills are counted against the element that asked for the context, so a
   // fill of a row's swatch cannot answer for a fill of the chart.
   const drawn = {};
-  // Timers are held rather than run: the refresh timer never fires, and a case
-  // runs the frames of a count itself, one at a time, and reads what each drew.
-  const counting = new Map(), other = new Map();
-  let lastTimer = 0, scheduled = 0;
+  // Timers are held rather than run: the 15 s read never fires, and a case runs
+  // the frames of a count itself, one at a time, and reads what each drew. A
+  // count that reached its figure clears its own timer, which is recorded too.
+  const timers = new Map();
+  let lastTimer = 0, scheduled = 0, countTimers = 0, cleared = 0, reads = 0;
   const node = (id) => ({
-    id, hidden: undefined, dataset: {}, textContent: "", className: "",
+    // hidden starts false, as it does on a real element, so a write to one the
+    // page has stands against a page that was left alone.
+    id, hidden: false, dataset: {}, textContent: "", className: "",
     setAttribute() {}, replaceChildren() {}, append() {},
     insertRow: () => node(`${id}-row`), insertCell: () => node(`${id}-cell`),
     getContext: () => ({ fillStyle: "", fillRect: () => { drawn[id] = (drawn[id] ?? 0) + 1; } }),
@@ -299,89 +302,114 @@ async function page(missing, key, opt = {}) {
   globalThis.window = { matchMedia: () => ({ matches: !motion }) }; // motion: the meter may count
   globalThis.performance = { now: () => 0 };
   globalThis.setInterval = (step, ms) => {
-    if (ms === COUNT_FRAME_MS) scheduled++, counting.set(++lastTimer, step);
-    else other.set(++lastTimer, step);
+    const count = ms === COUNT_FRAME_MS;
+    scheduled++;
+    if (count) countTimers++;
+    timers.set(++lastTimer, { step, count });
     return lastTimer;
   };
-  globalThis.clearInterval = (id) => { counting.delete(id); other.delete(id); };
-  globalThis.fetch = async () => ({
-    status: 200, ok: true, json: async () => file(),
-    headers: { get: () => new Date(T * 1000).toUTCString() },
-  });
+  globalThis.clearInterval = (id) => {
+    const t = timers.get(id);
+    if (!t) return;
+    timers.delete(id);
+    if (t.count) cleared++;
+  };
+  globalThis.fetch = async () => {
+    reads++;
+    if (unreachable) throw new Error("no route to the host");
+    return {
+      status, ok, json: async () => file(),
+      headers: { get: () => new Date(T * 1000).toUTCString() },
+    };
+  };
   const watts = () => found.get("meter-watts")?.textContent;
+  const held = (count) => [...timers.values()].filter((t) => t.count === count).length;
   try {
     await import(`../host/fun/energy-view.js?${key}`);
-    // The module does not await its own refresh: let the read and the draw end.
+    // The module does not await its own refresh, so the case waits for its
+    // chain (read, json, draw) by turning the loop: 40 is far past the depth of
+    // that chain. A case that ran out of turns would find no read and no draw,
+    // which the reads assertion of every case below rules out.
     for (let i = 0; i < 40; i++) await new Promise((r) => setImmediate(r));
     const first = watts();
     const steps = [];
-    // A count that reached its figure clears its own timer: only a live one is
-    // ticked again.
     for (let i = 0; i < frames; i++) {
-      for (const [id, step] of [...counting]) if (counting.has(id)) step();
+      for (const { step, count } of [...timers.values()]) if (count) step();
       steps.push(watts());
     }
-    return { errors, drawn, first, scheduled, steps, hidden: VIEW.map((id) => found.get(id)?.hidden) };
+    return {
+      errors, drawn, first, steps, reads, scheduled, countTimers, cleared,
+      heldRefresh: held(false), heldCount: held(true),
+      // The three elements the view shows or hides. An element the page does
+      // not have reads "absent", which no element the page has can answer.
+      hidden: VIEW.map((id) => (found.has(id) ? found.get(id).hidden : "absent")),
+    };
   } finally {
     process.off("unhandledRejection", note);
     for (const [k, v] of Object.entries(real)) globalThis[k] = v;
   }
 }
 
-// The stub page stands in for process-wide globals, and node runs the cases of
-// a file side by side, so the drawing cases take turns: one page must not be
-// swapped out while another is still fetching or counting.
-let turn = Promise.resolve();
-function drawOn(missing, key, opt) {
-  const run = turn.then(() => page(missing, key, opt));
-  turn = run.catch(() => {});
-  return run;
+test("a page with its meter, its section and its link is shown and drawn", async () => {
+  const p = await page([], "whole");
+  assert.deepEqual(p.errors, []);
+  assert.equal(p.reads, 1); // the file was read: what follows is a draw, not a wait
+  assert.deepEqual(p.hidden, [false, false, false]); // all three shown: the file has data
+  // The chart drew on its own canvas, and each host row drew its own swatch.
+  assert.deepEqual(Object.keys(p.drawn).sort(), ["canvas", "energy-canvas"]);
+  assert.ok(p.drawn["energy-canvas"] > 0);
+  assert.deepEqual(p.drawn.canvas, 3);
+  // The 15 s read is scheduled and held: a case never fires it.
+  assert.deepEqual([p.scheduled, p.countTimers, p.heldRefresh], [1, 0, 1]);
+});
+
+// A page missing one of the three elements is left as it was written.
+for (const drop of VIEW) {
+  test(`a page with no ${drop} throws nothing and draws nothing`, async () => {
+    const p = await page([drop], `no-${drop}`);
+    assert.deepEqual(p.errors, []);
+    assert.equal(p.reads, 1); // the read happened; the guard stopped the draw
+    assert.equal(p.hidden[VIEW.indexOf(drop)], "absent"); // the element the page lacks
+    assert.deepEqual(p.hidden.filter((v, i) => VIEW[i] !== drop), [false, false]); // the rest untouched
+    assert.deepEqual(p.drawn, {}); // not the chart, not a swatch
+  });
 }
 
-test("a page with its meter, its section and its link is shown and drawn", async () => {
-  const { errors, drawn, hidden } = await drawOn([], "whole");
-  assert.deepEqual(errors, []);
-  assert.deepEqual(hidden, [false, false, false]); // all three shown: the file has data
-  // The chart drew on its own canvas. A dropped draw, or a canvas the page
-  // does not have, leaves nothing under that id.
-  assert.deepEqual(drawn["energy-canvas"] > 0, true);
-  assert.deepEqual(drawn.canvas, 3); // and one swatch for each of the three hosts
-});
-
-test("a page with no meter throws nothing and draws nothing", async () => {
-  const { errors, drawn, hidden } = await drawOn(["floor-meter"], "no-meter");
-  assert.deepEqual(errors, []);
-  assert.deepEqual(hidden, [undefined, undefined, undefined]); // the page is left as it was written
-  assert.deepEqual(drawn, {}); // not the chart, not a swatch
-});
-
-test("a page with no section throws nothing and draws nothing", async () => {
-  const { errors, drawn, hidden } = await drawOn(["energy"], "no-section");
-  assert.deepEqual(errors, []);
-  assert.deepEqual(hidden, [undefined, undefined, undefined]);
-  assert.deepEqual(drawn, {});
-});
-
-test("a page with no menu link throws nothing and draws nothing", async () => {
-  const { errors, drawn, hidden } = await drawOn(["menu-energy"], "no-link");
-  assert.deepEqual(errors, []);
-  assert.deepEqual(hidden, [undefined, undefined, undefined]);
-  assert.deepEqual(drawn, {});
-});
-
 test("the meter counts to its figure in frames where motion is allowed", async () => {
-  const { errors, first, scheduled, steps } = await drawOn([], "count", { motion: true, frames: 7 });
-  assert.deepEqual(errors, []);
-  assert.deepEqual(scheduled, 1); // the watts line counts; this file has no token rate to count
+  const p = await page([], "count", { motion: true, frames: 7 });
+  assert.deepEqual(p.errors, []);
+  assert.equal(p.reads, 1);
+  // The 15 s read and one count: the watts line, because this file has no token
+  // rate to count.
+  assert.deepEqual([p.scheduled, p.countTimers], [2, 1]);
   // The first frame is part of the way to 1190 W, not the figure itself, and
   // the last frame is the figure. Seven more frames finish the eight.
-  assert.deepEqual(first, "149");
-  assert.deepEqual(steps, ["298", "446", "595", "744", "893", "1041", "1190"]);
+  assert.deepEqual(p.first, "149");
+  assert.deepEqual(p.steps, ["298", "446", "595", "744", "893", "1041", "1190"]);
+  // The count that reached its figure cleared its own timer.
+  assert.deepEqual([p.cleared, p.heldCount], [1, 0]);
 });
 
 test("reduced motion draws the figure at once and starts no count", async () => {
-  const { errors, first, scheduled } = await drawOn([], "calm");
-  assert.deepEqual(errors, []);
-  assert.deepEqual(scheduled, 0); // no frames to run
-  assert.deepEqual(first, "1190"); // the figure itself, at once
+  const p = await page([], "calm");
+  assert.deepEqual(p.errors, []);
+  assert.equal(p.reads, 1);
+  assert.deepEqual([p.scheduled, p.countTimers], [1, 0]); // no frames to run
+  assert.deepEqual(p.first, "1190"); // the figure itself, at once
+});
+
+test("a read that fails stays inside the module", async () => {
+  const p = await page([], "unreachable", { unreachable: true });
+  assert.deepEqual(p.errors, []); // nothing escaped the read to the runner
+  assert.equal(p.reads, 1);
+  assert.deepEqual(p.hidden, [true, true, true]); // with no data the meter is hidden
+  assert.deepEqual(p.drawn, {});
+});
+
+test("a file that is gone hides the meter", async () => {
+  const p = await page([], "404", { status: 404, ok: false });
+  assert.deepEqual(p.errors, []);
+  assert.equal(p.reads, 1);
+  assert.deepEqual(p.hidden, [true, true, true]); // the section, the link and the meter
+  assert.deepEqual(p.drawn, {});
 });

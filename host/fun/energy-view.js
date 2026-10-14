@@ -181,12 +181,14 @@ if (typeof document !== "undefined") {
   const clock = (t) => new Date(t * 1000).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
   let data = null, serverAt = 0, localAt = 0, drawn = "";
 
-  // The elements the view shows or hides, looked up once. A page that does not
-  // have one of them (an old index.html beside a new script, a partial install,
-  // a later rename) has nothing to draw: render() leaves it alone rather than
-  // assigning to what is not there at every refresh.
+  // The three elements this view shows or hides together, looked up once. A
+  // page that does not have one of them (an old index.html beside a new script,
+  // a partial install, a later rename) has nothing to show: render() leaves it
+  // alone rather than assigning to what is not there at every refresh. The rest
+  // of the elements are still looked up per draw, so a page missing one of
+  // those keeps the failure this guard is about.
   const section = $("energy"), menuLink = $("menu-energy"), floorMeter = $("floor-meter");
-  const whole = Boolean(section && menuLink && floorMeter);
+  const hasParts = Boolean(section && menuLink && floorMeter);
 
   // Names come from the mesh and are untrusted: text only, never markup.
   function cell(row, text, cls) {
@@ -263,7 +265,7 @@ if (typeof document !== "undefined") {
   }
 
   function render() {
-    if (!whole) return;
+    if (!hasParts) return;
     section.hidden = menuLink.hidden = floorMeter.hidden = !data;
     if (!data) return;
     const view = layout(data, serverAt + (performance.now() - localAt));
