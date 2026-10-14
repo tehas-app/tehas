@@ -57,6 +57,8 @@ in the platform repository has every one with a comment.
 | `TEHAS_PREVIEW_MAX`             | `5`                                      | How many previews run at once. The newest pull requests win |
 | `TEHAS_PREVIEW_MIN_FREE`        | `5g`                                     | Free disk space below which no preview is built |
 | `TEHAS_IMPROVE_REPO`            | empty                                    | Optional. `owner/name` of the repository the [improvement loop](#tehasbot-improve) files its findings in. Empty: no loop |
+| `TEHAS_IMPROVE_RUKAS_REPO`      | empty                                    | Optional. `owner/name` of the repository the loop files in what only a change in pi-rukas can fix. Empty: those findings go to `TEHAS_IMPROVE_REPO` with the rest. Needs `TEHAS_IMPROVE_REPO` |
+| `TEHAS_IMPROVE_MAX_OPEN`        | `10`                                     | How many issues labelled `tehas:improvement` may be open in one repository before the loop files no more there |
 | `TEHAS_WORK_REPO`               | `~/tehas/repos/<name>`                   | The product checkout cycles are cloned from. Must be a clone of `TEHAS_REPO`. A cycle works in `~/tehas/work/<name>-<issue>`, which is not a setting |
 | `TEHAS_BRANCH`                  | the checkout's `origin/HEAD`             | Branch cycles start from and pull requests target               |
 | `TEHAS_CONCURRENCY`             | `4`                                      | Workstreams side by side inside one cycle                       |
@@ -64,6 +66,8 @@ in the platform repository has every one with a comment.
 | `TEHAS_MAX_AWAITING`            | `TEHAS_TICKET_CONCURRENCY` plus 2        | Open `tehas:awaiting-merge` issues, plus running cycles, allowed before holding |
 | `TEHAS_CYCLE_RESERVE`           | `2g`                                     | Memory one container is given as a floor (`docker --memory-reservation`) and the unit the dispatcher counts room in. A reclaim priority inside `tehas.slice` and the amount admission promises, not a guarantee against the whole host. A Docker size of at least 6m, and at most a quarter of the slice's `MemoryMax`, else the command stops with 78 naming both numbers. With the default the host needs about 11 GiB of memory; a smaller host sets it lower |
 | `TEHAS_WORK_TIMEOUT`            | `21600`                                  | Seconds before a cycle is given up                              |
+| `TEHAS_WORK_IMAGES`             | `0`                                      | `1` gives a cycle and a planning session the images its issue text links: see [tehas work](#tehas-work) and [tehas plan](#tehas-plan). The model must declare `"image"` in its `input` in `models.json` and answer a request with an image, else the dispatcher holds every cycle |
+| `TEHAS_VERIFY_TIMEOUT`          | `1800`                                   | Seconds one run of the product's gate may take inside a cycle. A gate that takes longer is stopped and the cycle parks. Passed to pi-rukas as `PI_ENSEMBLE_VERIFY_TIMEOUT_MS` and `PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS`; pi-rukas alone allows ten minutes |
 | `TEHAS_PLAN_MAX_TURNS`          | `20`                                     | Turns a planning session may take before it is ended            |
 | `TEHAS_PLAN_TIMEOUT`            | `3600`                                   | Seconds before one planning turn is given up                    |
 | `PI_ENSEMBLE_HOST_ALIASES`      | empty                                    | `name:address` pairs the sandbox must resolve, comma separated  |
@@ -109,7 +113,14 @@ and the usage on standard error, before the instance settings are read. A mistyp
 Order of rules: pause label on the control issue, a usable `tehas.slice`,
 the free slots (`TEHAS_TICKET_CONCURRENCY` less the running cycles), the cap
 on issues awaiting merge or being worked on, the room and the memory pressure
-in the slice, who applied `tehas:ready`, then urgent first and lowest number.
+in the slice, who applied `tehas:urgent`, then who applied `tehas:ready`, then
+urgent first and lowest number. A `tehas:urgent` counts only when an allowed
+account applied it most recently: one applied by the bot or anyone else is
+ignored and logged, and the issue keeps its place by number. The urgent check
+runs for every ready issue that carries the label and this poll could still
+start, before the free slots cut the queue; who applied `tehas:ready` is read
+at the decision, when the issue is picked. A poll never asks GitHub the same
+question twice.
 What holds cycles back is one `holding:` line: at every dry run, and in the
 log once when its reason changes, with `released: cycles may start again`
 when it ends. A real poll also writes it to `~/tehas/live/dispatch.json` with
@@ -186,6 +197,7 @@ waits until `.pi/work-state/<issue>.json` in the workspace `~/tehas/work/<name>-
 | 1    | The cycle ended as `aborted`                                     |
 | 2    | Pi exited, or the time limit passed, while the cycle was running |
 | 3    | The sandbox cannot push to the repository; no cycle was started  |
+| 4    | With `TEHAS_WORK_IMAGES=1`: an image the issue links could not be fetched, or the issue could not be read for its images; no cycle was started |
 | 64   | No bot token or no git identity; no cycle was started            |
 | 78   | The instance settings are invalid, or `tehas.slice` is missing, has no memory limit, or cannot be used (the message names `sudo ./bootstrap.sh slice` or the reason); no cycle was started |
 | 137  | The container was killed while the cycle was running: out of memory, or stopped from outside. The cycle is `killed` |
@@ -205,10 +217,39 @@ which is how the dispatcher tells a cycle's container from the others in the
 slice; the file goes with the container. When processes in the container were
 killed for memory, the count is printed and left in
 `~/tehas/state/cycles/<issue>.oom` for `tehasbot cycle`, which says it in the
-issue comment and removes the file.
+issue comment and removes the file. The starts of a process that the pids
+limit refused go the same way, through `~/tehas/state/cycles/<issue>.forks`.
 
 The bot's git identity is the tehas user's global `user.name` and `user.email`
 on the host.
+
+With `TEHAS_WORK_IMAGES=1` the container is given two things more: a
+directory with the issue's images, mounted read-only at
+`~/tehas/work/<name>.images`, and `PI_ENSEMBLE_EXTRA_IMAGE_DIRS`, which names
+that path. This widens what a cycle is given, and it is off unless the
+instance sets it. The images are fetched before anything else is made:
+
+- **Which.** Links to GitHub's own attachment storage in the issue text.
+  Comments are not read: `tehas:ready` approves the text, and a comment can
+  arrive after the label. Only when the issue was opened by an owner, member
+  or collaborator of the repository.
+- **Types.** png, jpg, webp and gif, told by the file's first bytes and not by
+  its name. Not svg: it is text and can carry instructions.
+- **How much.** At most 8 images and 10 megabytes together, counted in the
+  order they are linked.
+
+On the host they are in `~/tehas/work/<name>-<issue>.images`, beside the
+workspace and not in it, so no patch can commit them. The files are named
+`image-1.png`, `image-2.jpg` and so on, and `manifest.json` lists each with
+the link it came from, its type and its size, and every link that was left
+out with the reason. The directory is remade for every cycle and removed by
+`tehasbot cycle` when the cycle is over. A comment on the issue says how many
+images the cycle was given and what was left out. An image that could not be
+fetched stops the start with exit 4, and the comment names it: the issue is
+parked, and `tehas:ready` tries again.
+
+pi-rukas reads the manifest and attaches the images to the explore and plan
+prompts, each listed beside its link. The steps after plan do not see them.
 
 ## tehas plan
 
@@ -220,14 +261,33 @@ same issue uses, and it does not take the dispatcher's lock, so do not run it
 for an issue whose session the factory is working on.
 
 ```
-tehas plan 12 --out /tmp/turn.json --brief brief.md
-tehas plan 12 --out /tmp/turn.json --session <id> --answer answer.md
+tehas plan 12 --out /tmp/turn.json --keep /tmp/turn.keep --brief brief.md
+tehas plan 12 --out /tmp/turn.json --keep /tmp/turn.keep --session <id> --answer answer.md
 ```
 
 The first form starts a session from a file with the issue's title and body.
 The second reopens the session and sends the file's content as the operator's
-answer. A turn ends when the agent has settled, so it ends when the agent has
-asked. On exit 0 the `--out` file holds the session id, the agent's last
+answer. A turn ends when the agent has settled and every subagent it sent out
+in the background has reported back, so it ends when the agent has asked. A
+subagent that never reports holds the turn until `TEHAS_PLAN_TIMEOUT`.
+
+`--keep` names a directory the session carries from one turn to the next. The
+first form makes it anew. It holds the commit the first turn's workspace was
+at, pi-rukas's record of the plans the agent showed (its plain `.json` files,
+at most 1 MB each), and with `TEHAS_WORK_IMAGES=1` the issue's images. Every
+later turn's workspace is at that commit and gets that record back, so a plan
+the operator confirms is filed as it was shown. A later turn whose commit is
+missing or gone starts at the tip of the branch and says so, and the agent
+then reviews the plan again before it files it. The dispatcher keeps the
+directory at `~/tehas/state/plan-<issue>.json.keep` and removes it when the
+session ends.
+
+With `TEHAS_WORK_IMAGES=1` the first turn fetches the images the issue links,
+by the rules of `tehas work`, and says on the issue how many it was given.
+Each turn's container gets a copy of them, read-only, at the path a cycle has
+them, with `PI_ENSEMBLE_EXTRA_IMAGE_DIRS`. The copy is
+`~/tehas/work/<name>-plan-<issue>.images`, removed after the turn. An image
+that cannot be fetched starts no session: exit 4, said on the issue. On exit 0 the `--out` file holds the session id, the agent's last
 message and the question it asked, if any. On exit 2 it holds the session id
 alone when that is known, so the dispatcher can run the turn again in the
 same session, and it is not written when no session is known.
@@ -236,6 +296,7 @@ same session, and it is not written when no session is known.
 | ---- | -------------------------------------------------------------------- |
 | 0    | The turn settled and said or asked something                         |
 | 2    | The turn did not settle, timed out, said and asked nothing, or its session or outcome could not be written down |
+| 4    | With `TEHAS_WORK_IMAGES=1`: a first turn where an image the issue links could not be fetched, or the issue could not be read for its images; nothing ran |
 | 64   | A usage error, no bot token or no git identity; nothing ran          |
 | 78   | The instance settings are invalid, or `tehas.slice` cannot be used; nothing ran |
 
@@ -489,7 +550,9 @@ that stopped gets its comment with two boxes and the label `tehas:question`,
 and the comment's id goes into `~/tehas/state/park-<issue>.id`, which is what
 lets the dispatcher take a tick there. It
 then removes the workspace of a cycle that merged or left a pull request, and
-keeps the workspace of one that stopped. A retry moves a stopped workspace to
+keeps the workspace of one that stopped. The images `tehas work` fetched for
+the cycle are removed in every case. A runner that started no cycle over an
+image (exit 4) is parked with a comment that says so. A retry moves a stopped workspace to
 `<name>-<issue>.before-retry`, which is removed and kept by the same rule. A
 stopped unit stops the container and is reported as a cycle that ended without
 a pull request. A hangup is taken as a stop too. It checks no authorisation:
@@ -558,7 +621,7 @@ serves the file at `/health` and `/healthz` as `application/health+json`.
 | `status` | Meaning                                                                                  | HTTP |
 | -------- | ---------------------------------------------------------------------------------------- | ---- |
 | `pass`   | Taking work, idle or in a cycle                                                          | 200  |
-| `warn`   | Paused (`tehas:pause` on the control issue), or the dispatcher holds everything because the slice is missing or cannot be read, or too low on disk to build previews, or the free space could not be read | 200  |
+| `warn`   | Paused (`tehas:pause` on the control issue), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read | 200  |
 | `fail`   | The last cycle ended as anything but `merged` or `handoff` and no cycle has started since, or there is no queue snapshot | 503  |
 
 `output` says the same in a sentence. `checks.queue` has the snapshot time and
@@ -580,11 +643,13 @@ previews are not being built." when `freeBytes` is `null`.
 
 `checks.slice` is `live/dispatch.json` as the dispatcher's last poll wrote
 it: `time`, `why`, `hold`, `count`, `room`, `committed`, `max` and `reserve`.
-`why` is empty when cycles may start, else one word: `slice`, `count`,
-`awaiting`, `pressure`, `room` or `unreadable`, and `hold` is the line the
-dispatcher logged. `room` is how many more reserves fit in the slice;
+`why` is empty when cycles may start, else one word: `slice`, `unreadable`,
+`resources`, `count`, `awaiting`, `pressure` or `room`, and `hold` is the line
+the dispatcher logged. `resources` is a model endpoint that does not answer or
+does not offer the configured model. `room` is how many more reserves fit in the slice;
 `committed` and `max` are bytes. With `slice` or `unreadable` the status is
-`warn` and `output` is the hold. It is `null` when the file is more than ten
+`warn` and `output` is the hold. With `resources` the status is `warn` and
+`output` starts with `No resources:`. It is `null` when the file is more than ten
 minutes old. `tehasbot health` calls neither `systemctl` nor `docker`.
 
 A stopped dispatcher cannot report itself: the file simply stops changing and

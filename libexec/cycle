@@ -29,7 +29,15 @@
 # processes in the container were killed for memory. The file is read here as
 # digits and removed, the number is said in the comment when it is above 0,
 # and it goes into the record for the improvement loop. Nothing is read from
-# the runner's output.
+# the runner's output. state/cycles/<issue>.forks, how many starts of a process
+# the container's pids limit refused, is read the same way and said in the
+# comment: after the first one the cycle's own commands may not have run.
+#
+# A runner that exits 4 started no cycle: the instance gives a cycle the
+# images its issue links (TEHAS_WORK_IMAGES) and one could not be fetched. The
+# issue is parked and the comment says that, not that a cycle stopped. The
+# images of a cycle that ran are removed here when it is over: only the
+# container read them.
 #
 # Only a run that ended as handoff with an open pull request is reported as
 # waiting for a merge. The label change that ends a cycle is tried three
@@ -123,7 +131,7 @@ restart=""
 : >"$cycles/$issue"
 # A count of kills still here is an earlier cycle's, one that was killed
 # outright before it could report.
-rm -f "${cycles:?}/${issue:?}.oom"
+rm -f "${cycles:?}/${issue:?}.oom" "${cycles:?}/${issue:?}.forks"
 # The trap is set before the runner starts, so no signal falls between.
 wpid=""
 stopped=0
@@ -146,6 +154,8 @@ done
 # issue would park it for good.
 trap '' TERM INT HUP
 mins=$((($(date +%s) - started) / 60))
+[ ! -f "$(dirname "$workdir")/.tehas-workspaces" ] || rm -rf "$workdir.images" ||
+  log "WARN: could not remove the images $workdir.images"
 
 # The one thing read back from the tree the container wrote, and only as data.
 state=$workdir/.pi/work-state/$issue.json
@@ -171,6 +181,14 @@ fi
 rm -f "${cycles:?}/${issue:?}.oom"
 killed=""
 [ "$kills" = 0 ] || killed=" $kills processes were killed for memory in its container."
+forks=0
+forks_file=${cycles:?}/${issue:?}.forks
+if [ -f "$forks_file" ] && [ ! -L "$forks_file" ]; then
+  forks=$(head -c 16 "$forks_file" 2>/dev/null | head -n 1)
+  [[ $forks =~ ^(0|[1-9][0-9]{0,8})$ ]] || forks=0
+fi
+rm -f "${cycles:?}/${issue:?}.forks"
+[ "$forks" = 0 ] || killed="$killed Its container reached its limit of processes and $forks starts of a process were refused: what the cycle ran after that may not have run."
 branch=$(jq -r '.pipelineState.branchName // ""' "$state" 2>/dev/null || echo "")
 # The numbers are summed as numbers. Anything else in their place counts as
 # nothing: a string would be joined up by the sum and posted word for word.
@@ -219,6 +237,7 @@ ${usage:-No token usage was recorded for this cycle.}" >/dev/null 2>&1 || log "W
 else
   relabel --remove-label tehas:running --add-label needs-human-attention && stuck=""
   parked="Tehas cycle stopped without a pull request: $summary (runner exit $rc). Read the handoff comment if there is one; the run log is \`~/tehas/logs/dispatch-work-$issue.log\` on \`$(hostname)\`.$killed${pr:+ Its branch has an open pull request: $pr}$stuck"
+  [ "$rc" != 4 ] || parked="Tehas started no cycle: an image the issue links could not be fetched, or the issue could not be read for its images (runner exit $rc). The comment before this one names it; the run log is \`~/tehas/logs/dispatch-work-$issue.log\` on \`$(hostname)\`.$stuck"
   jq -n --arg text "$parked
 
 ${usage}" '{text: $text, question: null}' >"$TEHAS_HOME/state/park-$issue.json"
@@ -242,7 +261,7 @@ ${usage}"
   fi
   rm -f "$TEHAS_HOME/state/park-$issue.json"
 fi
-log "done #$issue rc=$rc status=$status step=$step minutes=$mins pr=${pr:-none} oom_kills=$kills"
+log "done #$issue rc=$rc status=$status step=$step minutes=$mins pr=${pr:-none} oom_kills=$kills forks_refused=$forks"
 # For the improvement loop, where the instance has one. The cycle is reported
 # by now, and a record that cannot be written is the loop's loss only.
 tehas_improve_record "$issue" "$started" "$rc" "$status" "$step" "$pr" "$kills" || log "WARN: no record of #$issue for the improvement loop"

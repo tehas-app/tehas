@@ -66,6 +66,7 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/edge/router.Caddyfile
 ./tehas/edge/router.compose.yaml
 ./tehas/env.sh
+./tehas/lib/attachments.sh
 ./tehas/lib/config.sh
 ./tehas/lib/cycles.sh
 ./tehas/lib/edge.sh

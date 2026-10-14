@@ -65,7 +65,7 @@ tehas_slice_line() { # <health json> <now epoch seconds>
     def gib: (. // 0) / 1073741824 * 10 | round / 10;
     (.checks.slice // null
      | if . == null then "slice     unknown: no poll has reported in 10 min"
-       elif (.why // "") != "" then "slice     \(.hold // "holding") (\(.time | age($now)))"
+       elif (.why // "") | IN("", "resources") | not then "slice     \(.hold // "holding") (\(.time | age($now)))"
        else "slice     room for \(.room // 0) cycles (\(.committed | gib) GiB of \(.max | gib) GiB promised, reserve \(.reserve // "unknown"), \(.time | age($now)))" end)
   ' <<<"$1"
 }

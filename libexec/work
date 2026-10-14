@@ -12,6 +12,9 @@
 #              1 it ended as aborted,
 #              2 Pi exited or the time limit passed while it was still running.
 #              3 the sandbox cannot push to the repository; no cycle was started.
+#              4 the instance gives a cycle the issue's images and one could
+#                not be fetched, or the issue could not be read for them; no
+#                cycle was started.
 #
 #             64 no bot token or no git identity; no cycle was started.
 #             78 the instance settings are invalid, or tehas.slice is not
@@ -25,15 +28,37 @@
 #                       [$TEHAS_HOME/repos/<name>]
 #   TEHAS_WORK_TIMEOUT  seconds before giving up [21600]
 #   TEHAS_CYCLE_RESERVE the container's memory floor [2g]
+#   TEHAS_WORK_IMAGES   1 gives the cycle the images its issue links [0]
 #
 # What the container is given is deliberate and pinned by test/work_test.sh:
 # the bot token (pi-rukas pushes and opens the pull request from inside), the
 # PI_ENSEMBLE_* settings, the bot's git identity, the cycle's workspace and
 # Pi's state directories. Not the Docker socket, SSH keys or ~/.config/tehas.
 #
+# With TEHAS_WORK_IMAGES=1 it is given two things more: the issue's images,
+# read-only, and PI_ENSEMBLE_EXTRA_IMAGE_DIRS, their path inside the container.
+# The images are fetched here, before anything starts:
+#   which     Links to GitHub's own attachment storage in the issue's text.
+#             Comments are not read: the label that starts a cycle approves the
+#             text, and a comment can arrive after it. Only when the issue was
+#             opened by an owner, member or collaborator.
+#   types     png, jpg, webp and gif, told by the file's first bytes. Not svg:
+#             it is text and can carry instructions.
+#   how much  At most 8 images and 10 megabytes together.
+# They go to $TEHAS_HOME/work/<name>-<issue>.images, beside the workspace and
+# not in it, so a patch cannot commit them, under names made here, with a
+# manifest.json that lists each file, the link it came from, its type and size,
+# and what was left out and why. The directory is remade for every cycle. An
+# image that is left out is said in a comment on the issue. An image that could
+# not be fetched stops the start: a cycle that works without a picture the
+# issue relies on builds the wrong thing.
+#
 # The container runs in tehas.slice, as every sandbox container does, with the
 # limits lib/slice.sh makes: a memory ceiling of a quarter of the slice, no
 # swap, the reserve as its floor, a pids limit and a CPU weight. No CPU quota.
+# It has an init (--init): Pi collects only its own children, and a process
+# that outlives its parent would count against the pids limit until the
+# container ends. A pass of the shell tests leaves several hundred.
 # Without a usable slice nothing is cloned and nothing starts. The check that
 # the sandbox can push is a container of a few seconds and is not in the slice.
 #
@@ -42,7 +67,8 @@
 # The file is removed at the end. While the cycle runs, this command reads how
 # many processes the kernel killed for memory in the container, from the
 # container's own cgroup. A count above 0 is printed and left in
-# state/cycles/<issue>.oom for tehasbot cycle.
+# state/cycles/<issue>.oom for tehasbot cycle. The starts of a process that the
+# pids limit refused are counted the same way, into state/cycles/<issue>.forks.
 #
 # The workspace is $TEHAS_HOME/work/<name>-<issue>, a fresh clone made here for
 # every cycle. What a stopped cycle of the same issue left there is kept
@@ -72,6 +98,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/live.sh"
 # shellcheck source=lib/slice.sh
 . "$here/../lib/slice.sh"
+# shellcheck source=lib/attachments.sh
+. "$here/../lib/attachments.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
 # Docker would create a missing mount source as a root-owned directory.
@@ -89,6 +117,9 @@ src=$TEHAS_WORK_REPO
 # The workspace inside the container, and the directory on the host behind it.
 repo=$TEHAS_WORK_DIR
 tree=$TEHAS_WORK_DIR-$issue
+# The issue's images on the host, and where the container has them.
+images=$tree.images
+images_inside=$repo.images
 image=$PI_ENSEMBLE_IMAGE
 limit=$TEHAS_WORK_TIMEOUT
 state=$tree/.pi/work-state/$issue.json
@@ -98,6 +129,7 @@ agent=$HOME/.pi/agent
 runs=$agent/ensemble-runs/issue-$issue
 cid_file=$TEHAS_HOME/state/cycles/$issue.cid
 oom_file=$TEHAS_HOME/state/cycles/$issue.oom
+forks_file=$TEHAS_HOME/state/cycles/$issue.forks
 
 [ -n "${GH_TOKEN:-}" ] || { echo "tehas work: GH_TOKEN is not set (source ~/tehas/env.sh)" >&2; exit 64; }
 mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state/cycles"
@@ -108,6 +140,8 @@ bot_name=$(git config --global user.name || true)
 bot_email=$(git config --global user.email || true)
 [ -n "$bot_name" ] && [ -n "$bot_email" ] ||
   { echo "tehas work: git user.name and user.email are not set for $(id -un)" >&2; exit 64; }
+# The path of the images is this command's to give, not the instance's.
+[ "$TEHAS_WORK_IMAGES" != 1 ] || unset PI_ENSEMBLE_EXTRA_IMAGE_DIRS
 mapfile -d '' -t envs < <(tehas_sandbox_env "$repo" "$bot_name" "$bot_email")
 mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$repo" "$tree" "$runs")
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
@@ -126,6 +160,30 @@ if [ -e "$works" ] && [ ! -f "$works/.tehas-workspaces" ]; then
   echo "tehas work: $works exists and was not made by tehas, not touching it" >&2
   exit 78
 fi
+# The issue's images, where the instance gives a cycle any. Before the
+# workspace: a start that fails here must not move aside what the last cycle
+# left.
+if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces"; }; then
+  echo "tehas work: could not make $works, not starting a cycle" >&2
+  exit 78
+fi
+image_opts=()
+if [ "$TEHAS_WORK_IMAGES" = 1 ]; then
+  if ! tehas_issue_images "$issue" "$images"; then
+    rm -rf "$images"
+    echo "tehas work: $image_why, not starting a cycle" >&2
+    gh issue comment "$issue" --repo "$TEHAS_REPO" --body "Tehas started no cycle: $image_why. This instance gives a cycle the images an issue links, and a cycle that works without one of them may build the wrong thing. To retry, apply \`tehas:ready\`." >/dev/null 2>&1 ||
+      echo "tehas work: the comment on #$issue failed" >&2
+    exit 4
+  fi
+  said=$(tehas_issue_images_said "$images" cycle)
+  if [ -n "$said" ]; then
+    gh issue comment "$issue" --repo "$TEHAS_REPO" --body "$said" >/dev/null 2>&1 ||
+      echo "tehas work: the comment on #$issue failed" >&2
+  fi
+  image_opts=(-v "$images:$images_inside:ro" -e "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$images_inside")
+fi
+
 aside() {
   [ -e "$tree" ] || return 0
   rm -rf "$tree.before-retry" && mv "$tree" "$tree.before-retry"
@@ -153,10 +211,10 @@ rm "$fifo"
 
 # Docker refuses a cid file that is already there. One is left only by a cycle
 # that was killed outright, and so is a count of kills.
-rm -f "$cid_file" "$oom_file"
-docker run --rm -i --name "$name" \
+rm -f "$cid_file" "$oom_file" "$forks_file"
+docker run --rm -i --init --name "$name" \
   "${TEHAS_SLICE_LIMITS[@]}" --cidfile "$cid_file" \
-  -w "$repo" "${mounts[@]}" \
+  -w "$repo" "${mounts[@]}" "${image_opts[@]}" \
   "${envs[@]}" "${hosts[@]}" \
   "$image" pi --mode rpc --approve <&3 >"$log" 2>"$log.err" &
 pid=$!
@@ -196,20 +254,28 @@ interrupted=0
 trap 'interrupted=1; kill "$cpid" 2>/dev/null; exec 3>&- 2>/dev/null; docker stop -t 10 "$name" 2>/dev/null; now_file false interrupted "killed by signal (TERM/INT)"' TERM INT
 now_file true running starting
 
-# How many processes the kernel has killed for memory in this container, from
-# the container's own cgroup. The last number seen is kept: the cgroup goes
-# with the container.
+# How many processes the kernel has killed for memory in this container, and
+# how many starts of a process its pids limit refused, from the container's
+# own cgroup. The last numbers seen are kept: the cgroup goes with the
+# container.
 ooms=0
+forks=0
 oom_look() {
-  local id="" events key value
+  local id="" scope key value
   [ -r "$cid_file" ] || return 0
   read -r id <"$cid_file" 2>/dev/null || true
   [[ $id =~ ^[0-9a-f]{64}$ ]] || return 0
-  events=${TEHAS_CGROUP_ROOT:-/sys/fs/cgroup}/tehas.slice/docker-$id.scope/memory.events
-  [ -r "$events" ] || return 0
-  while read -r key value; do
-    if [ "$key" = oom_kill ] && [[ $value =~ ^[0-9]{1,9}$ ]]; then ooms=$value; fi
-  done 2>/dev/null <"$events"
+  scope=${TEHAS_CGROUP_ROOT:-/sys/fs/cgroup}/tehas.slice/docker-$id.scope
+  if [ -r "$scope/memory.events" ]; then
+    while read -r key value; do
+      if [ "$key" = oom_kill ] && [[ $value =~ ^[0-9]{1,9}$ ]]; then ooms=$value; fi
+    done 2>/dev/null <"$scope/memory.events"
+  fi
+  if [ -r "$scope/pids.events" ]; then
+    while read -r key value; do
+      if [ "$key" = max ] && [[ $value =~ ^[0-9]{1,9}$ ]]; then forks=$value; fi
+    done 2>/dev/null <"$scope/pids.events"
+  fi
   return 0
 }
 
@@ -266,6 +332,10 @@ fi
 if [ "$ooms" -gt 0 ]; then
   echo "tehas work: $ooms processes in this cycle's container were killed for memory"
   echo "$ooms" >"$oom_file" || echo "tehas work: could not write $oom_file" >&2
+fi
+if [ "$forks" -gt 0 ]; then
+  echo "tehas work: this cycle's container reached its limit of processes, $forks starts were refused"
+  echo "$forks" >"$forks_file" || echo "tehas work: could not write $forks_file" >&2
 fi
 sleep 3 # let the console catch the last transcript lines
 kill -TERM "$cpid" 2>/dev/null

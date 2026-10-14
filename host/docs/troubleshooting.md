@@ -79,9 +79,22 @@ Run `tehas dispatch --dry-run` and read what it prints.
   Wait, or raise the limit.
 - `skip #N: tehas:ready was applied by ...`: the label came from an account that
   is not allowed. Remove it and apply it yourself.
-- `holding: the mesh at ... does not offer ...`: the model endpoint is down or
-  does not list the configured model. The issue stays queued and is taken as
-  soon as the endpoint answers. See "The model endpoint does not answer" below.
+- `ignore #N: tehas:urgent was applied by ...`: the label came from an account
+  that is not allowed, so it moves nothing: the issue keeps its place by
+  number. It is said at every poll until someone removes the label.
+- `holding: no resources: the model endpoint ...`: the model endpoint does not
+  answer, offers no models, or does not offer the configured model. Nothing
+  starts, no cycle, no planning turn and no retry. The issues stay queued and
+  are taken as soon as the endpoint answers. See "The model endpoint does not
+  answer" below.
+- `holding: no resources: <model> does not declare image input in models.json,
+  and TEHAS_WORK_IMAGES is 1`: the instance gives a cycle images and its
+  `models.json` does not list `"image"` in the model's `input`. Add it, or set
+  `TEHAS_WORK_IMAGES=0`, and run `install.sh`.
+- `holding: no resources: <model> does not answer an image, and
+  TEHAS_WORK_IMAGES is 1`: the model endpoint refused a request with a
+  one-pixel image, or took more than 30 seconds. The model runs without its
+  vision part, or every slot is busy.
 - `nothing to do`: the issue is closed, or does not carry `tehas:ready`.
 - `wait #N: its cycle is still running`: `tehas:ready` was applied while the
   issue's cycle runs. A fresh cycle starts when that one has ended.
@@ -110,6 +123,21 @@ Run `tehas dispatch --dry-run` and read what it prints.
 - `tehas: ... is a checkout of ..., not of ...` or `no product checkout at ...`:
   the product checkout is missing or is a clone of another repository than
   `TEHAS_REPO`. Nothing is polled until that is put right.
+
+### A cycle stops with `Cannot fork` in its log
+
+The cycle's error stream has `/bin/sh: 1: Cannot fork`, or the RPC log has
+`fork: retry: Resource temporarily unavailable` or `EAGAIN`. The container was
+at its `--pids-limit`. The comment that reports the cycle says how many starts
+were refused, and the kernel log on the host has `fork rejected by pids
+controller` with the container's scope. Nothing the cycle ran after the first
+refusal can be trusted, its gate included, and the handoff is often not posted.
+
+Before v0.7.1 a cycle's container had no init, and every pass of the shell
+tests left several hundred finished processes that were never collected. With
+the init a pass peaks at under twenty. A cycle that still reaches the limit is
+starting processes that stay alive: look at what is running in the container
+(`docker top tehas-work-<issue>`) before raising the limit.
 
 ### A cycle stops in its first step with `provider-severed`
 
@@ -231,9 +259,13 @@ commit is on the local branch `feature/issue-<N>-...`.
 curl -s -m 10 "$(jq -r '.providers.fleet.baseUrl' ~/.pi/agent/models.json)/models" | jq -r '.data[].id'
 ```
 
-`fleet` is the provider's name in the example. If the model is missing or the
-call hangs, the cycle will stall and time out. Pause tehas (`tehas:pause` on the
-control issue) until the endpoint is back.
+`fleet` is the provider's name in the example. The dispatcher makes this call
+at every poll. While the call fails, or the answer lists no models or not the
+configured one, it starts nothing: `tehas status` says `warn: No resources`,
+the dashboard says `no resources`, and the dispatcher's log has one line that
+starts with `holding: no resources:`. It logs `released` at the first poll
+that finds the model again. A cycle that was already running when the endpoint
+went away is not stopped: it stalls and times out.
 
 If the call works on the host but agents cannot reach the endpoint, its host
 name does not resolve inside the sandbox: add it to `PI_ENSEMBLE_HOST_ALIASES`.
@@ -271,7 +303,7 @@ Read the last lines of `~/tehas/logs/improve.log`.
 | Nothing new for hours | The timer is not enabled: `systemctl --user list-timers tehas-improve.timer` |
 | `TEHAS_IMPROVE_REPO is not set` | The loop is off for this instance |
 | `cycles=0, nothing to read` | No cycle has ended since the last run. A cycle that stopped before Pi started leaves no record |
-| `waiting: 10 open issues carry tehas:improvement` | The limit. Close some or build some |
+| `waiting: 10 open issues carry tehas:improvement` | Every repository the loop files in is at the limit. Close some or build some, or raise `TEHAS_IMPROVE_MAX_OPEN` |
 | `findings=0`, or `duplicates` equal to `findings` | The model found nothing new |
 | `invalid=` above 0 | Findings were dropped for not being the shape asked for |
 | `failed: GitHub did not give the issue stack` | The token or the network. The records wait for the next run |

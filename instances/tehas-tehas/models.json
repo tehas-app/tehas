@@ -14,7 +14,8 @@
           "name": "Qwen3.8 Flash Next (fleet)",
           "reasoning": false,
           "input": [
-            "text"
+            "text",
+            "image"
           ],
           "cost": {
             "input": 0,

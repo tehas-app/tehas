@@ -176,19 +176,22 @@ GIT_CONFIG_VALUE_1
 GIT_CONFIG_VALUE_2
 GIT_CONFIG_VALUE_3
 GIT_TERMINAL_PROMPT
+PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS
 PI_ENSEMBLE_MAX_WORKSTREAMS
 PI_ENSEMBLE_NO_DOCKER_SOCKET
 PI_ENSEMBLE_NO_SSH
 PI_ENSEMBLE_SANDBOX_MODE
 PI_ENSEMBLE_SUBAGENT_MODEL
 PI_ENSEMBLE_SUBAGENT_PROVIDER
+PI_ENSEMBLE_VERIFY_TIMEOUT_MS
 PI_ENSEMBLE_WORKSPACE_ROOT
 TERM"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
 t_eq "$(passed PI_ENSEMBLE_WORKSPACE_ROOT)" "$clone"
 
 t_case "the session's container gets no option beyond the documented ones"
-t_eq "$(session_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -it")" ""
+t_eq "$(session_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -it --init")" ""
+t_eq "$(session_args | grep -c -x -e --init)" 1
 t_contains "$(session_args)" "--add-host=models:192.0.2.9"
 
 t_case "the token and the rest of the environment are not written into the arguments"

@@ -17,6 +17,14 @@ t_case "settings are exported to child processes"
 t_run "$load && bash -c 'echo \$TEHAS_REPO \$PI_ENSEMBLE_SUBAGENT_MODEL \$PI_ENSEMBLE_MAX_WORKSTREAMS'"
 t_eq "$t_out" "acme/widget test-model 4"
 
+t_case "a gate gets thirty minutes unless the instance says otherwise, and pi-rukas is told in milliseconds"
+t_run "$load && bash -c 'echo \$TEHAS_VERIFY_TIMEOUT \$PI_ENSEMBLE_VERIFY_TIMEOUT_MS \$PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS'"
+t_eq "$t_out" "1800 1800000 1800000"
+t_instance "${T_MINIMAL[@]}" TEHAS_VERIFY_TIMEOUT=600
+t_run "$load && bash -c 'echo \$TEHAS_VERIFY_TIMEOUT \$PI_ENSEMBLE_VERIFY_TIMEOUT_MS \$PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS'"
+t_eq "$t_out" "600 600000 600000"
+t_instance "${T_MINIMAL[@]}"
+
 t_case "an instance can lower the workstreams, and pi-rukas is told the same number"
 t_instance "${T_MINIMAL[@]}" TEHAS_CONCURRENCY=1
 t_run "$load && echo \"\$TEHAS_CONCURRENCY \$PI_ENSEMBLE_MAX_WORKSTREAMS\""
@@ -38,6 +46,16 @@ t_instance TEHAS_CONTROL_ISSUE=1
 T_ENV=(TEHAS_REPO=other/thing TEHAS_INDEXING=1 PI_ENSEMBLE_DEBUG=1)
 t_run "$load && echo \"[\${TEHAS_REPO:-}] [\$TEHAS_INDEXING] [\${PI_ENSEMBLE_DEBUG:-}]\""
 t_eq "$t_out" "[] [0] []"
+
+t_case "a cycle is given no images unless the instance says so"
+t_instance "${T_MINIMAL[@]}"
+T_ENV=(TEHAS_WORK_IMAGES=1)
+t_run "$load && echo \"\$TEHAS_WORK_IMAGES\""
+t_eq "$t_out" "0"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
+t_run "$load && echo \"\$TEHAS_WORK_IMAGES\""
+t_eq "$t_out" "1"
+T_ENV=()
 
 t_case "the test hooks survive from the environment"
 t_instance "${T_MINIMAL[@]}"
@@ -114,14 +132,16 @@ for bad in "TEHAS_REPO=widget" "TEHAS_REPO=a/b/c" "TEHAS_CONTROL_ISSUE=abc" "TEH
 done
 
 for bad in "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=two" "TEHAS_MAX_AWAITING=-1" "TEHAS_WORK_TIMEOUT=soon" "TEHAS_HOST_ADDR=not an address" \
-  "TEHAS_BRANCH=two words" "TEHAS_INDEXING=yes" "TEHAS_ANALYTICS_SRC=http://plain.example/ea.js" \
+  "TEHAS_BRANCH=two words" "TEHAS_INDEXING=yes" "TEHAS_WORK_IMAGES=yes" "TEHAS_WORK_IMAGES=2" "TEHAS_ANALYTICS_SRC=http://plain.example/ea.js" \
   "TEHAS_ANALYTICS_SRC=https://a.example/x.js\" onload=\"x" "TEHAS_ANALYTICS_SITE=two words" \
   "TEHAS_ANALYTICS_COOKIE=yes" "TEHAS_PROTOLAB_URL=https://lab.example/" "TEHAS_PROTOLAB_URL=lab.example" \
-  "TEHAS_PLAN_MAX_TURNS=0" "TEHAS_PLAN_TIMEOUT=1h" \
+  "TEHAS_PLAN_MAX_TURNS=0" "TEHAS_PLAN_TIMEOUT=1h" "TEHAS_VERIFY_TIMEOUT=30m" "TEHAS_VERIFY_TIMEOUT=0" \
   "TEHAS_DOMAIN=https://example.org" "TEHAS_DOMAIN=example.org/" "TEHAS_DOMAIN=Example.org" \
   "TEHAS_DOMAIN=localhost" "TEHAS_DOMAIN=-a.example.org" "TEHAS_PREVIEWS=yes" \
   "TEHAS_PREVIEW_MAX=0" "TEHAS_PREVIEW_MAX=100" "TEHAS_PREVIEW_MIN_FREE=lots" \
-  "TEHAS_IMPROVE_REPO=not a repo" "TEHAS_IMPROVE_REPO=acme" "TEHAS_IMPROVE_REPO=acme/factory/more"; do
+  "TEHAS_IMPROVE_REPO=not a repo" "TEHAS_IMPROVE_REPO=acme" "TEHAS_IMPROVE_REPO=acme/factory/more" \
+  "TEHAS_IMPROVE_RUKAS_REPO=not a repo" "TEHAS_IMPROVE_RUKAS_REPO=acme" \
+  "TEHAS_IMPROVE_MAX_OPEN=0" "TEHAS_IMPROVE_MAX_OPEN=many"; do
   t_case "loading rejects $bad"
   printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
   t_run "$load; echo rc=\$?"
@@ -136,6 +156,26 @@ t_eq "$t_out" "[]"
 printf '%s\n' "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && echo \"[\$TEHAS_IMPROVE_REPO]\""
 t_eq "$t_out" "[acme/factory]"
+
+t_case "a repository for pi-rukas findings is optional, and needs the loop's own"
+t_run "$load && set -u && echo \"[\$TEHAS_IMPROVE_RUKAS_REPO]\""
+t_eq "$t_out" "[]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory TEHAS_IMPROVE_RUKAS_REPO=acme/rukas \
+  >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_IMPROVE_RUKAS_REPO]\""
+t_eq "$t_out" "[acme/rukas]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_IMPROVE_RUKAS_REPO=acme/rukas >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "TEHAS_IMPROVE_REPO is not set and TEHAS_IMPROVE_RUKAS_REPO is"
+
+t_case "the loop's limit of open issues is 10 unless the instance says otherwise"
+printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_IMPROVE_MAX_OPEN]\""
+t_eq "$t_out" "[10]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_IMPROVE_MAX_OPEN=30 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_IMPROVE_MAX_OPEN]\""
+t_eq "$t_out" "[30]"
 
 t_case "analytics is off unless the instance names a script and a site"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"

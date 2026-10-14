@@ -54,6 +54,7 @@ printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitco
 cid=$(slice_id a)
 cid_file=$T/home/tehas/state/cycles/7.cid
 oom_file=$T/home/tehas/state/cycles/7.oom
+forks_file=$T/home/tehas/state/cycles/7.forks
 slice_good() {
   printf '%s\n' FragmentPath=/etc/systemd/system/tehas.slice ActiveState=active MemoryMax=8589934592 >"$T/slice.show"
   echo "systemd 2" >"$T/docker.info"
@@ -199,20 +200,27 @@ GIT_CONFIG_VALUE_1
 GIT_CONFIG_VALUE_2
 GIT_CONFIG_VALUE_3
 GIT_TERMINAL_PROMPT
+PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS
 PI_ENSEMBLE_MAX_WORKSTREAMS
 PI_ENSEMBLE_NO_DOCKER_SOCKET
 PI_ENSEMBLE_NO_SSH
 PI_ENSEMBLE_SANDBOX_MODE
 PI_ENSEMBLE_SUBAGENT_MODEL
 PI_ENSEMBLE_SUBAGENT_PROVIDER
+PI_ENSEMBLE_VERIFY_TIMEOUT_MS
 PI_ENSEMBLE_WORKSPACE_ROOT"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
 
 t_case "the cycle's container gets no option beyond the documented ones"
 image="tehas/pi-rukas:uid$(id -u)"
 t_eq "$(cycle_args | unknown_options "$image" \
-  "--name --cgroup-parent --memory --memory-swap --memory-reservation --pids-limit --cpu-shares --cidfile -w -v -e" "--rm -i")" ""
+  "--name --cgroup-parent --memory --memory-swap --memory-reservation --pids-limit --cpu-shares --cidfile -w -v -e" "--rm -i --init")" ""
 t_eq "$(cycle_args | sed -n "/^$(printf '%s' "$image" | sed 's/[\/.]/\\&/g')\$/,\$p" | tr '\n' ' ')" "$image pi --mode rpc --approve "
+
+# Pi is no init: without one, a process that outlives its parent is never
+# collected and counts against the pids limit until the container ends.
+t_case "the cycle's container has an init"
+t_eq "$(cycle_args | grep -c -x -e --init)" 1
 
 t_case "the push check's container gets the workspace and the same variables, no more"
 t_eq "$(preflight_args | unknown_options "$image" "--user -e -w -v --entrypoint" "--rm")" ""
@@ -480,6 +488,30 @@ t_contains "$t_out" "tehas work: 3 processes in this cycle's container were kill
 t_eq "$(cat "$oom_file")" 3
 t_eq "$(find "$cid_file" 2>/dev/null | wc -l)" 0
 
+t_case "the starts the pids limit refused are printed and written to the state directory"
+fresh
+slice_good
+slice_child "$cid" 1000 0 max
+slice_child "$(slice_id b)" 1000 0 max
+printf 'max 41\n' >"$T_CGROUP/tehas.slice/docker-$cid.scope/pids.events"
+printf 'max 7\n' >"$T_CGROUP/tehas.slice/docker-$(slice_id b).scope/pids.events"
+container "\"\$nap\" 1; rm -rf '$T_CGROUP/tehas.slice/docker-$cid.scope'; \"\$nap\" 0.5"
+t_run "$work 7"
+t_contains "$t_out" "tehas work: this cycle's container reached its limit of processes, 41 starts were refused"
+t_eq "$(cat "$forks_file")" 41
+t_lacks "$t_out" "killed for memory"
+
+t_case "a container that stayed under the pids limit leaves no count, and one left by an earlier cycle is removed"
+fresh
+slice_good
+echo 9 >"$forks_file"
+slice_child "$cid" 1000 0 max
+printf 'max 0\n' >"$T_CGROUP/tehas.slice/docker-$cid.scope/pids.events"
+container '"$nap" 0.5'
+t_run "$work 7"
+t_lacks "$t_out" "limit of processes"
+t_eq "$(find "$forks_file" 2>/dev/null | wc -l)" 0
+
 t_case "a cid file and a count left by a cycle that was killed outright are not this cycle's"
 fresh
 slice_good
@@ -598,5 +630,255 @@ t_run "$work 7"
 t_eq "$t_rc" 64
 t_contains "$t_out" "GH_TOKEN is not set"
 t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+
+# --- The issue's images ------------------------------------------------------
+# gh answers for the issue from a file. curl hands out $T/fx/net/<address, with
+# _ for every other character>; <name>.rc is an exit status to fail with. What
+# arrives on standard input (the header) is kept.
+fx=$T/fx
+A=https://github.com/user-attachments/assets
+F=https://github.com/user-attachments/files
+imgs=$ws.images
+t_stub gh '
+case "$1 $2" in
+  "api repos/acme/widget/issues/7") cat "$T/fx/issue.json" 2>/dev/null || exit 1 ;;
+  "issue comment") [ ! -e "$T/fx/comment-fails" ] || exit 1 ;;
+esac'
+t_stub curl '
+out="" url="" max=0 header=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) out=$2; shift ;;
+    --max-filesize) max=$2; shift ;;
+    -H) header=1; shift ;;
+    https://*) url=$1 ;;
+  esac
+  shift
+done
+key=$(printf %s "$url" | tr -c "A-Za-z0-9" _)
+[ "$header" = 1 ] && { printf "%s " "$url"; cat; } >>"$T/calls/curl-headers"
+[ -f "$T/fx/net/$key.rc" ] && exit "$(cat "$T/fx/net/$key.rc")"
+[ -f "$T/fx/net/$key" ] || exit 22
+[ "$(stat -c %s "$T/fx/net/$key")" -le "$max" ] || exit 63
+cp "$T/fx/net/$key" "$out"
+printf application/octet-stream
+exit 0'
+# net <address> <printf format>: something GitHub would hand out.
+net() {
+  local key
+  key=$(printf %s "$1" | tr -c 'A-Za-z0-9' _)
+  # shellcheck disable=SC2059  # the format carries the bytes of an image
+  printf "$2" >"$fx/net/$key"
+}
+png='\x89PNG\r\n\x1a\nPNGDATA'
+jpg='\xff\xd8\xff\xe0JPGDATA'
+gif='GIF89aGIFDATA'
+webp='RIFF\x10\x00\x00\x00WEBPVP8 '
+# issue_is <body> [association]
+issue_is() {
+  jq -n --arg body "$1" --arg who "${2:-OWNER}" '{number: 7, body: $body, author_association: $who}' >"$fx/issue.json"
+}
+images_on() {
+  rm -rf "$fx" "$T"/calls/* "$T/home/tehas/work"
+  mkdir -p "$fx/net"
+  slice_good
+  T_ENV=("${env_ok[@]}")
+  t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1 "$@"
+}
+mounts_off="$ws:$inside
+$runs:/home/vscode/.pi/agent/ensemble-runs
+$T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
+$T/home/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro
+$T/home/.pi/agent/sessions:/home/vscode/.pi/agent/sessions
+$T/home/.vipune:/home/vscode/.vipune
+pi-ensemble-bun-cache:/home/vscode/.bun
+pi-ensemble-cache:/home/vscode/.cache"
+manifest() { jq -c "$1" "$imgs/manifest.json" 2>&1; }
+
+t_case "with images off GitHub is not asked, nothing is fetched and no directory is made"
+images_on
+t_instance "${T_MINIMAL[@]}"
+issue_is "![shot]($A/1111)"
+net "$A/1111" "$png"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(t_calls gh)$(t_calls curl)" ""
+t_eq "$(find "$imgs" -maxdepth 0 2>/dev/null | wc -l)" 0
+t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$mounts_off" | LC_ALL=C sort)"
+t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
+
+t_case "a setting that is not 0 or 1 starts nothing and asks nobody"
+images_on
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=yes
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_eq "$(t_calls gh)$(t_calls curl)$(t_calls docker)" ""
+t_eq "$(find "$T/home/tehas/work" 2>/dev/null | wc -l)" 0
+
+t_case "with images on the cycle gets one more mount, read-only, and one more variable"
+images_on
+net "$A/1111" "$png"
+net "$F/21/side.JPG" "$jpg"
+net "$A/2222" '<svg xmlns="http://www.w3.org/2000/svg"/>'
+net "$F/24/drawing.svg" '<svg/>'
+net "$A/3333" "$gif"
+net "https://user-images.githubusercontent.com/9/old.webp" "$webp"
+issue_is "Look: ![shot]($A/1111) and again ![shot]($A/1111)
+[side.JPG]($F/21/side.JPG) [all.zip]($F/23/all.zip) [drawing.svg]($F/24/drawing.svg)
+<img src=\"$A/2222\"> ![anim]($A/3333) https://user-images.githubusercontent.com/9/old.webp
+and https://example.com/not-ours.png"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$mounts_off" "$imgs:$inside.images:ro" | LC_ALL=C sort)"
+t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_ENSEMBLE_EXTRA_IMAGE_DIRS | LC_ALL=C sort)"
+t_eq "$(after -e | grep '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$inside.images"
+t_eq "$(cycle_args | unknown_options "$image" \
+  "--name --cgroup-parent --memory --memory-swap --memory-reservation --pids-limit --cpu-shares --cidfile -w -v -e" "--rm -i --init")" ""
+
+t_case "the push check's container is given no image and not the variable"
+t_eq "$(preflight_args | awk 'prev == "-v" { print } { prev = $0 }')" "$ws:$inside"
+t_eq "$(preflight_args | awk 'prev == "-e" { print } { prev = $0 }' | sed 's/=.*//' | LC_ALL=C sort)" \
+  "$(printf '%s\n' "$want" HOME | LC_ALL=C sort)"
+
+t_case "nothing is made on the host at the images' path inside the container"
+t_eq "$(find "$inside.images" -maxdepth 0 2>/dev/null | wc -l)" 0
+
+t_case "png, jpg, gif and webp are taken in the order written, under names of tehas's own"
+t_eq "$(cd "$imgs" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" \
+  "./image-1.png ./image-2.jpg ./image-3.gif ./image-4.webp ./manifest.json "
+t_eq "$(manifest '.issue')" 7
+t_eq "$(manifest '.images | map([.file, .link, .type, .bytes])')" \
+  "[[\"image-1.png\",\"$A/1111\",\"image/png\",15],[\"image-2.jpg\",\"$F/21/side.JPG\",\"image/jpeg\",11],[\"image-3.gif\",\"$A/3333\",\"image/gif\",13],[\"image-4.webp\",\"https://user-images.githubusercontent.com/9/old.webp\",\"image/webp\",16]]"
+t_eq "$(cmp "$imgs/image-1.png" "$fx/net/$(printf %s "$A/1111" | tr -c 'A-Za-z0-9' _)" && echo same)" same
+
+t_case "another type is left out and said, and one known by its name is not fetched"
+t_eq "$(manifest '.leftOut | map([.link, .reason])')" \
+  "[[\"$F/23/all.zip\",\"Not a png, jpg, webp or gif image.\"],[\"$F/24/drawing.svg\",\"Not a png, jpg, webp or gif image.\"],[\"$A/2222\",\"Not a png, jpg, webp or gif image.\"]]"
+t_lacks "$(t_calls curl)" "all.zip"
+t_lacks "$(t_calls curl)" "drawing.svg"
+t_lacks "$(t_calls curl)" "example.com"
+
+t_case "the token goes to github.com on standard input, never on the command line"
+t_lacks "$(t_calls curl)" "test-token"
+t_contains "$(cat "$T/calls/curl-headers")" "$A/1111 Authorization: Bearer test-token"
+t_lacks "$(cat "$T/calls/curl-headers")" "githubusercontent"
+
+t_case "the issue is told how many images the cycle was given and what was left out"
+t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body Tehas gave this cycle 4 images from the issue text."
+t_contains "$(t_calls gh)" "- $F/23/all.zip: Not a png, jpg, webp or gif image."
+
+t_case "the limit counts all images together: each fetch may take what is left"
+t_eq "$(t_calls curl | grep -o -e '--max-filesize [0-9]*' | tr '\n' ' ')" \
+  "--max-filesize 10485760 --max-filesize 10485745 --max-filesize 10485734 --max-filesize 10485734 --max-filesize 10485721 "
+
+t_case "bytes that are not the image the name says are left out"
+images_on
+net "$F/21/shot.png" '<svg xmlns="http://www.w3.org/2000/svg"><script/></svg>'
+net "$F/22/empty.png" ''
+issue_is "[shot.png]($F/21/shot.png) [empty.png]($F/22/empty.png)"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(manifest '[(.images | length), (.leftOut | map(.reason))]')" '[0,["Not a png, jpg, webp or gif image.","Not a png, jpg, webp or gif image."]]'
+t_eq "$(cd "$imgs" && find . -mindepth 1 | tr '\n' ' ')" "./manifest.json "
+
+t_case "an issue with no image still gets the mount, with an empty list, and no comment"
+images_on
+issue_is "Words only."
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(manifest '[.images, .leftOut]')" '[[],[]]'
+t_contains "$(after -v)" "$imgs:$inside.images:ro"
+t_lacks "$(t_calls gh)" "issue comment"
+
+t_case "an issue by someone outside the repository is given no image, and nothing is fetched"
+images_on
+net "$A/1111" "$png"
+issue_is "![shot]($A/1111)" NONE
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(t_calls curl)" ""
+t_eq "$(manifest '[.images, (.leftOut | map([.link, .reason]))]')" \
+  "[[],[[\"$A/1111\",\"The issue was not opened by an owner, member or collaborator.\"]]]"
+t_contains "$(cycle_args | tr '\n' ' ')" "pi --mode rpc --approve"
+
+t_case "at most eight images: the ninth is left out and not fetched"
+images_on
+body=""
+for i in 1 2 3 4 5 6 7 8 9; do
+  net "$A/000$i" "$png"
+  body="$body ![s]($A/000$i)"
+done
+issue_is "$body"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(manifest '[(.images | length), (.leftOut | map([.link, .reason]))]')" "[8,[[\"$A/0009\",\"More than 8 images.\"]]]"
+t_lacks "$(t_calls curl)" "$A/0009"
+
+t_case "an image over what is left of the limit is left out, and the cycle starts"
+images_on
+net "$A/1111" "$png"
+echo 63 >"$fx/net/$(printf %s "$A/1111" | tr -c 'A-Za-z0-9' _).rc"
+issue_is "![big]($A/1111)"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(manifest '.leftOut | map(.reason)')" '["Over the 10 MB limit of an issue."]'
+t_contains "$(cycle_args | tr '\n' ' ')" "pi --mode rpc --approve"
+
+for rc in 22 6 28; do
+  t_case "an image that cannot be fetched (curl $rc) starts no cycle: exit 4, said on the issue"
+  images_on
+  net "$A/1111" "$png"
+  net "$A/2222" "$png"
+  echo "$rc" >"$fx/net/$(printf %s "$A/2222" | tr -c 'A-Za-z0-9' _).rc"
+  issue_is "![a]($A/1111) ![b]($A/2222)"
+  t_run "$work 7"
+  t_eq "$t_rc" 4
+  t_contains "$t_out" "tehas work: $A/2222 could not be fetched, not starting a cycle"
+  t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+  t_eq "$(find "$imgs" "$ws" -maxdepth 0 2>/dev/null | wc -l)" 0
+  t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body Tehas started no cycle: $A/2222 could not be fetched"
+done
+
+t_case "an issue GitHub does not hand out starts no cycle, and what the last cycle left stays where it is"
+images_on
+mkdir -p "$T/home/tehas/work" "$ws"
+: >"$T/home/tehas/work/.tehas-workspaces"
+echo unpushed >"$ws/kept.txt"
+t_run "$work 7"
+t_eq "$t_rc" 4
+t_eq "$(cat "$ws/kept.txt")" unpushed
+t_eq "$(find "$ws.before-retry" -maxdepth 0 2>/dev/null | wc -l)" 0
+t_contains "$t_out" "tehas work: the issue could not be read for its images, not starting a cycle"
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+echo "not json" >"$fx/issue.json"
+t_run "$work 7"
+t_eq "$t_rc" 4
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+
+t_case "a comment that cannot be posted does not stop the cycle"
+images_on
+net "$A/1111" "$png"
+issue_is "![shot]($A/1111)"
+: >"$fx/comment-fails"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$(cycle_args | tr '\n' ' ')" "pi --mode rpc --approve"
+
+t_case "the images are remade for every cycle: what an earlier one left is gone"
+images_on
+mkdir -p "$T/home/tehas/work" "$imgs"
+: >"$T/home/tehas/work/.tehas-workspaces"
+echo old >"$imgs/image-9.png"
+issue_is "Words only."
+t_run "$work 7"
+t_eq "$(cd "$imgs" && find . -mindepth 1 | tr '\n' ' ')" "./manifest.json "
+
+t_case "a path of the instance's own for the variable is replaced, not added to"
+images_on PI_ENSEMBLE_EXTRA_IMAGE_DIRS=/elsewhere
+issue_is "Words only."
+t_run "$work 7"
+t_eq "$(after -e | grep -c '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" 1
+t_eq "$(after -e | grep '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$inside.images"
+t_lacks "$(cat "$T"/calls/docker.args.*)" "/elsewhere"
 
 t_done

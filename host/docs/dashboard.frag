@@ -177,6 +177,7 @@
     const pill = $("state");
     if (v.running) { pill.className = "pill run"; pill.textContent = v.running > 1 ? "working on " + v.running : "working"; }
     else if (s.paused) { pill.className = "pill pause"; pill.textContent = "paused"; }
+    else if (s.noResources) { pill.className = "pill pause"; pill.textContent = "no resources"; }
     else { pill.className = "pill idle"; pill.textContent = "idle"; }
 
     TABS.render($("tabs"), v, select);

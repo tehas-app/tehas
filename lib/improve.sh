@@ -37,7 +37,7 @@ _tehas_improve_condense='
 
 tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills>]]
   tehas_improve_on || return 0
-  local issue=$1 started=$2 rc=$3 status=$4 step=$5 pr=${6:-} kills=${7:-0} base raw rec tmp
+  local issue=$1 started=$2 rc=$3 status=$4 step=$5 pr=${6:-} kills=${7:-0} base raw rec tmp rukas
   [[ $kills =~ ^(0|[1-9][0-9]{0,8})$ ]] || kills=0
   base=$(tehas_improve_dir)
   raw=$(find "$TEHAS_HOME/logs" -maxdepth 1 -type f -name "work-$issue-*.jsonl" \
@@ -50,12 +50,14 @@ tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills>
   rec=${rec#work-}
   mkdir -p "$base/window" || return 1
   tmp=$(mktemp -d "$base/.new.XXXXXX") || return 1
+  # The pi-rukas this host is installed with: what a fix in it is checked against.
+  rukas=$(sed -n 's/^PI_RUKAS_COMMIT=\([0-9a-f]\{7,40\}\)$/\1/p' "$TEHAS_HOME/versions.env" 2>/dev/null | head -n 1)
   if ! jq -n --argjson issue "$issue" --argjson started "$started" --argjson rc "$rc" \
     --argjson ended "$(date +%s)" --arg status "$status" --arg step "$step" --arg pr "$pr" \
-    --arg log "$(basename "$raw")" --argjson kills "$kills" '
+    --arg log "$(basename "$raw")" --argjson kills "$kills" --arg rukas "$rukas" '
       {issue: $issue, started: $started, seconds: ($ended - $started), status: $status,
        step: $step, rc: $rc, pr: (if $pr == "" then null else $pr end), log: $log,
-       oomKills: $kills}' \
+       oomKills: $kills, rukas: (if $rukas == "" then null else $rukas end)}' \
     >"$tmp/cycle.json"; then
     rm -rf "$tmp"
     return 1

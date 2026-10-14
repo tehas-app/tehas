@@ -16,6 +16,8 @@ reset() {
   mkdir -p "$fx" "$home/logs" "$home/live"
   echo '[]' >"$fx/open.json"
   echo '[]' >"$fx/closed.json"
+  echo '[]' >"$fx/rukas-open.json"
+  echo '[]' >"$fx/rukas-closed.json"
   T_ENV=("TEHAS_CGROUP_ROOT=$T_CGROUP")
   slice_good
   t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
@@ -62,6 +64,19 @@ t_case "the stream is condensed: no deltas, a repeated status once, long strings
 t_eq "$(wc -l <"$r/stream.jsonl")" 2
 t_lacks "$(cat "$r/stream.jsonl")" message_update
 t_eq "$(sed -n 2p "$r/stream.jsonl" | jq '.text | length')" 2006
+
+t_case "the record names the pi-rukas commit the host is installed with"
+t_eq "$(jq -c .rukas "$r/cycle.json")" null
+reset
+cycle_log
+printf '%s\n' "PI_VERSION=1.2.3" "PI_RUKAS_REPO=https://example.org/rukas.git" \
+  "PI_RUKAS_COMMIT=0123456789abcdef0123456789abcdef01234567" >"$home/versions.env"
+lib "tehas_improve_record 7 $started 0 handoff review"
+t_eq "$(jq -r .rukas "$base/window/$REC/cycle.json")" 0123456789abcdef0123456789abcdef01234567
+echo 'PI_RUKAS_COMMIT=$(touch /tmp/x)' >"$home/versions.env"
+cycle_log
+lib "tehas_improve_record 7 $started 0 handoff review"
+t_eq "$(jq -c .rukas "$base/window/$REC/cycle.json")" null
 
 t_case "a cycle without a pull request records null"
 reset
@@ -181,6 +196,7 @@ if [ "$1" = info ]; then cat "$T/docker.info"; exit; fi
 printf "%s\n" "$@" >"$T/calls/docker-args"
 out=""
 for a in "$@"; do case "$a" in *:/improve/out) out=${a%:/improve/out} ;; esac; done
+cp "${out%/out}/in/issues.json" "$T/calls/issues.json" 2>/dev/null
 [ -f "$T/fx/docker.rc" ] && { echo "No API key found for test-provider."; echo "See docs/models.md"; exit "$(cat "$T/fx/docker.rc")"; }
 if [ -L "$T/fx/findings.json" ]; then cp -P "$T/fx/findings.json" "$out/findings.json"
 elif [ -f "$T/fx/findings.json" ]; then cp "$T/fx/findings.json" "$out/findings.json"; fi
@@ -192,16 +208,20 @@ shift
 exec "$@"'
 
 # gh answers from fixtures. A file $T/fx/gh-<what>.rc makes that call fail.
+# acme/rukas has a stack of its own, the rukas-*.json fixtures.
 t_stub gh '
+repo="" prev="" pre=""
+for a in "$@"; do [ "$prev" = --repo ] && repo=$a; prev=$a; done
+[ "$repo" = acme/rukas ] && pre=rukas-
 case "$1 $2" in
   "issue list")
-    [ -f "$T/fx/gh-list.rc" ] && exit 1
+    [ -f "$T/fx/gh-${pre}list.rc" ] && exit 1
     # A cycle that ends while the stack is fetched.
     if [ -f "$T/fx/late" ]; then
       mkdir -p "$T/home/tehas/tmp/improve/window/$(cat "$T/fx/late")"
       echo "{}" >"$T/home/tehas/tmp/improve/window/$(cat "$T/fx/late")/cycle.json"
     fi
-    case " $* " in *" --state closed "*) cat "$T/fx/closed.json" ;; *) cat "$T/fx/open.json" ;; esac ;;
+    case " $* " in *" --state closed "*) cat "$T/fx/${pre}closed.json" ;; *) cat "$T/fx/${pre}open.json" ;; esac ;;
   "issue create")
     n=$(($(cat "$T/fx/next" 2>/dev/null || echo 100) + 1))
     echo "$n" >"$T/fx/next"
@@ -213,7 +233,15 @@ case "$1 $2" in
       esac
       shift
     done
-    echo "https://github.com/acme/factory/issues/$n" ;;
+    echo "$repo" >>"$T/calls/filed-in"
+    echo "https://github.com/$repo/issues/$n" ;;
+  "issue comment")
+    [ -f "$T/fx/gh-comment.rc" ] && exit 1
+    n=$3
+    while [ $# -gt 0 ]; do
+      case "$1" in --body-file) cp "$2" "$T/calls/comment-$n" ;; esac
+      shift
+    done ;;
   "release view") [ -f "$T/fx/release" ]; exit $? ;;
   "release create") [ -f "$T/fx/gh-release.rc" ] && exit 1; : >"$T/fx/release" ;;
   "release upload")
@@ -334,6 +362,8 @@ body=$(cat "$T/calls/body-101")
 t_contains "$body" "improvement loop"
 t_contains "$body" "test-model"
 t_contains "$body" "**Category:** cycle"
+t_contains "$body" "**Issues:** acme/widget#7"
+t_contains "$body" "**Working on it:** This is a problem in the factory. It is fixed in this repository: a cycle builds the fix once a person applies \`tehas:ready\`."
 t_contains "$body" "The gate ran twice."
 t_contains "$body" '````text'
 t_contains "$body" "https://github.com/acme/factory/releases/download/tehas-improve-logs/ticket-$REC.log.gz"
@@ -510,6 +540,271 @@ ready
 findings "$(finding "The gate runs twice")" "$(finding "the gate runs twice.")"
 t_run "$improve"
 t_eq "$(titles)" "The gate runs twice"
+
+# --- A repository for pi-rukas -----------------------------------------------
+with_rukas() { t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory TEHAS_IMPROVE_RUKAS_REPO=acme/rukas; }
+rukas_finding() { finding "$1" '{"category":"pi-rukas"}'; }
+
+t_case "a pi-rukas finding is filed in the repository for pi-rukas, the rest where they were"
+ready
+with_rukas
+findings "$(finding "The gate runs twice")" "$(rukas_finding "The driver drops a path")"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/filed-in")" "acme/factory
+acme/rukas"
+t_contains "$t_out" "filed=2 issues=#101,acme/rukas#102"
+t_eq "$(t_calls gh | grep -c '^label create .*--repo acme/rukas')" 1
+t_eq "$(t_calls gh | grep -c '^label create .*--repo acme/factory')" 1
+
+t_case "each body says what working on it means: built here, or fixed in pi-rukas after a label"
+t_contains "$(cat "$T/calls/body-101")" "a cycle builds the fix once a person applies \`tehas:ready\`"
+body=$(cat "$T/calls/body-102")
+t_contains "$body" "It is fixed here, in pi-rukas, and not worked around in acme/widget."
+t_contains "$body" "Nothing starts until a person applies \`tehas:ready\`."
+t_lacks "$body" "a cycle builds the fix"
+
+t_case "its body names the product's issue, and the log stays in the loop's own repository"
+t_contains "$body" "**Issues:** acme/widget#7"
+t_contains "$body" "https://github.com/acme/factory/releases/download/tehas-improve-logs/ticket-$REC.log.gz"
+t_lacks "$(t_calls gh | grep '^release ')" "acme/rukas"
+
+t_case "a finding on cycles of two issues names both, each once"
+ready
+record 9-261010-210000
+record 9-261010-220000
+findings "$(finding "The gate runs twice" "{\"cycles\":[\"$REC\",\"9-261010-210000\",\"9-261010-220000\"]}")"
+t_run "$improve"
+t_contains "$(cat "$T/calls/body-101")" "**Issues:** acme/widget#7, acme/widget#9"
+
+t_case "without a repository for pi-rukas its findings go with the rest"
+ready
+findings "$(rukas_finding "The driver drops a path")"
+t_run "$improve"
+t_eq "$(cat "$T/calls/filed-in")" "acme/factory"
+t_lacks "$(t_calls gh)" "acme/rukas"
+t_contains "$(cat "$T/calls/body-101")" "A cycle here cannot fix it and must not work around it: it changes no code"
+t_lacks "$(cat "$T/calls/body-101")" "a cycle builds the fix"
+
+t_case "a title open in either repository is not filed again"
+for where in open rukas-open; do
+  ready
+  with_rukas
+  stack 4 "the driver drops a path" | jq -s . >"$fx/$where.json"
+  findings "$(rukas_finding "The driver drops a path")"
+  t_run "$improve"
+  t_eq "$(titles)" ""
+  t_contains "$t_out" "duplicates=1"
+done
+
+t_case "a duplicate may be named in the repository for pi-rukas"
+ready
+with_rukas
+stack 12 "Safety net loses a file" | jq -s . >"$fx/rukas-open.json"
+findings "$(finding "The driver drops a path" '{"category":"pi-rukas","duplicate_of":12}')"
+t_run "$improve"
+t_eq "$(titles)" ""
+t_contains "$t_out" "duplicates=1 of=#12"
+
+t_case "the analyst is told which repository each issue of the stack is in"
+ready
+with_rukas
+stack 4 "Pause and resume" | jq -s . >"$fx/open.json"
+stack 12 "Safety net loses a file" | jq -s . >"$fx/rukas-open.json"
+t_run "$improve"
+t_eq "$(jq -c 'map([.repo, .number])' "$T/calls/issues.json")" '[["acme/factory",4],["acme/rukas",12]]'
+
+full() { for i in $(seq 1 "$1"); do stack "$i" "$2 $i" OPEN tehas:improvement; done | jq -s .; }
+
+t_case "each repository has the ten to itself: one that is full does not hold the other back"
+ready
+with_rukas
+full 10 Finding >"$fx/open.json"
+findings "$(finding "The gate runs twice")" "$(rukas_finding "The driver drops a path")"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/filed-in")" "acme/rukas"
+t_contains "$t_out" "over=1 filed=1 issues=acme/rukas#101"
+
+t_case "the repository for pi-rukas is full: its findings are over, the rest are filed"
+ready
+with_rukas
+full 10 "Driver finding" >"$fx/rukas-open.json"
+findings "$(rukas_finding "The driver drops a path")" "$(finding "The gate runs twice")"
+t_run "$improve"
+t_eq "$(cat "$T/calls/filed-in")" "acme/factory"
+t_contains "$t_out" "over=1 filed=1 issues=#101"
+
+t_case "eight open in the repository for pi-rukas leave room for two there"
+ready
+with_rukas
+full 8 "Driver finding" >"$fx/rukas-open.json"
+findings "$(rukas_finding One)" "$(rukas_finding Two)" "$(rukas_finding Three)"
+t_run "$improve"
+t_eq "$(titles | wc -l)" 2
+t_contains "$t_out" "over=1"
+
+t_case "at most three issues a run, whatever the repositories"
+ready
+with_rukas
+findings "$(finding One)" "$(rukas_finding Two)" "$(finding Three)" "$(rukas_finding Four)"
+t_run "$improve"
+t_eq "$(titles | wc -l)" 3
+t_contains "$t_out" "over=1 filed=3"
+
+t_case "the instance sets the limit: twelve open and a limit of 30 leave room"
+ready
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory TEHAS_IMPROVE_MAX_OPEN=30
+full 12 Finding >"$fx/open.json"
+t_run "$improve"
+t_contains "$t_out" "filed=1"
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory TEHAS_IMPROVE_MAX_OPEN=12
+record "$REC"
+t_run "$improve"
+t_contains "$t_out" "waiting: 12 open issues"
+
+t_case "both repositories full: the run waits and the records stay"
+ready
+with_rukas
+full 10 Finding >"$fx/open.json"
+full 10 "Driver finding" >"$fx/rukas-open.json"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_contains "$t_out" "waiting: 10 open issues carry tehas:improvement in acme/factory acme/rukas"
+t_eq "$(t_calls docker | grep -v '^info ')" ""
+[ -f "$base/window/$REC/cycle.json" ] || t_bad "the record is gone"
+
+t_case "GitHub does not give the stack of the repository for pi-rukas: nothing runs"
+ready
+with_rukas
+: >"$fx/gh-rukas-list.rc"
+t_run "$improve"
+t_eq "$t_rc" 1
+t_eq "$(t_calls docker | grep -v '^info ')" ""
+[ -f "$base/window/$REC/cycle.json" ] || t_bad "the record is gone"
+
+t_case "a malformed repository for pi-rukas exits 78 before any call"
+ready
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory "TEHAS_IMPROVE_RUKAS_REPO='not a repo'"
+t_run "$improve"
+t_eq "$t_rc" 78
+t_eq "$(t_calls gh)$(t_calls docker)" ""
+
+# --- An issue worked on again ------------------------------------------------
+OLD=7-261009-100000
+ticket() { # <number> [<cycles line>] [<label>] [<state>]: an issue the loop filed
+  jq -n -c --argjson n "$1" --arg c "${2-$OLD}" --arg l "${3-tehas:improvement}" --arg s "${4:-OPEN}" '
+    {number: $n, title: "Safety net loses a file", state: $s, labels: (if $l == "" then [] else [{name: $l}] end),
+     body: "The driver drops a path.\n\n**Cycles:** \($c)\n\n**Whole logs**\n"}'
+}
+recheck() { # [<jq object to merge in>]
+  local more=${1:-}
+  [ -n "$more" ] || more='{}'
+  jq -n -c --arg rec "$REC" --argjson more "$more" '
+    {repo: "acme/rukas", number: 12, cycle: $rec, seen: false, note: "safety net committed 3 of 3 paths"} + $more'
+}
+rechecks() { printf '%s\n' "$@" | jq -s '{findings: [], followups: .}' >"$fx/findings.json"; }
+again() { # issue 7 was worked on again, and acme/rukas#12 rests on its earlier cycle
+  ready
+  with_rukas
+  jq -c '. + {rukas: "0123456789abcdef0123456789abcdef01234567"}' "$base/window/$REC/cycle.json" >"$fx/c.json"
+  mv "$fx/c.json" "$base/window/$REC/cycle.json"
+  ticket 12 | jq -s . >"$fx/rukas-open.json"
+  rechecks "$(recheck)"
+}
+commented() { find "$T/calls" -name 'comment-*' | wc -l; }
+
+t_case "an issue worked on again: what the new cycle shows is a comment on the filed issue"
+again
+t_run "$improve"
+t_eq "$t_rc" 0
+t_contains "$t_out" "filed=0 issues=none rechecked=1"
+t_contains "$(t_calls gh)" "issue comment 12 --repo acme/rukas"
+body=$(cat "$T/calls/comment-12")
+t_contains "$body" "acme/widget#7 was worked on again: cycle \`$REC\`"
+t_contains "$body" 'with pi-rukas at `0123456789abcdef0123456789abcdef01234567`'
+t_contains "$body" "**Seen again:** no"
+t_contains "$body" "safety net committed 3 of 3 paths"
+t_contains "$body" "https://github.com/acme/factory/releases/download/tehas-improve-logs/ticket-$REC.log.gz"
+t_lacks "$(t_calls gh)" "issue close"
+t_lacks "$(t_calls gh)" "issue reopen"
+
+t_case "the analyst is given the cycles each filed issue rests on"
+t_eq "$(jq -c '.[] | [.number, .cycles]' "$T/calls/issues.json")" "[12,[\"$OLD\"]]"
+
+t_case "a problem seen again says so, on a closed issue too, in the loop's own repository too"
+again
+echo '[]' >"$fx/rukas-open.json"
+ticket 4 "$OLD, 9-261009-110000" tehas:improvement CLOSED | jq -s . >"$fx/closed.json"
+rechecks "$(recheck '{"repo":"acme/factory","number":4,"seen":true}')"
+t_run "$improve"
+t_contains "$(t_calls gh)" "issue comment 4 --repo acme/factory"
+t_contains "$(cat "$T/calls/comment-4")" "**Seen again:** yes"
+
+t_case "a record that names no pi-rukas commit: the comment says so"
+again
+record "$REC"
+t_run "$improve"
+t_contains "$(cat "$T/calls/comment-12")" "a commit the record does not name"
+
+t_case "no comment on an issue the loop did not file"
+again
+ticket 12 "$OLD" "" | jq -s . >"$fx/rukas-open.json"
+t_run "$improve"
+t_eq "$(commented)" 0
+t_contains "$t_out" "rechecked=0"
+
+t_case "no comment on a filed issue that rests on no cycle of the same product issue"
+for c in "9-261009-100000" "$REC" "77-261009-100000" ""; do
+  again
+  ticket 12 "$c" | jq -s . >"$fx/rukas-open.json"
+  t_run "$improve"
+  t_eq "$(commented)" 0
+done
+
+t_case "rechecks of the wrong shape are dropped one by one"
+again
+rechecks "$(recheck '{"number":13}')" "$(recheck '{"repo":"acme/other"}')" "$(recheck '{"cycle":"7-261011-000000"}')" \
+  "$(recheck '{"seen":"no"}')" "$(recheck '{"note":""}')" "$(recheck "{\"note\":\"$(printf 'x%.0s' $(seq 1 1501))\"}")" \
+  "$(recheck '{"note":"a\u0007b"}')" '"a string"'
+t_run "$improve"
+t_eq "$t_rc" 0
+t_eq "$(commented)" 0
+
+t_case "followups that are not a list are no rechecks, and the findings are still filed"
+again
+jq -n --argjson f "$(finding "The gate runs twice")" '{findings: [$f], followups: "all of them"}' >"$fx/findings.json"
+t_run "$improve"
+t_contains "$t_out" "filed=1 issues=#101 rechecked=0"
+
+t_case "the same recheck twice is one comment"
+again
+rechecks "$(recheck)" "$(recheck '{"note":"again"}')"
+t_run "$improve"
+t_eq "$(t_calls gh | grep -c '^issue comment ')" 1
+
+t_case "at most ten rechecks a run"
+again
+echo '[]' >"$fx/rukas-open.json"
+for i in $(seq 1 12); do ticket "$i" "$OLD" tehas:improvement CLOSED; done | jq -s . >"$fx/rukas-closed.json"
+for i in $(seq 1 12); do recheck "{\"number\":$i}"; done | jq -s '{findings: [], followups: .}' >"$fx/findings.json"
+t_run "$improve"
+t_eq "$(t_calls gh | grep -c '^issue comment ')" 10
+
+t_case "a mention in a recheck does not reach the comment"
+again
+rechecks "$(recheck '{"note":"thanks @alice <!-- hidden -->"}')"
+t_run "$improve"
+t_lacks "$(cat "$T/calls/comment-12")" "@alice"
+t_contains "$(cat "$T/calls/comment-12")" "&lt;!-- hidden"
+
+t_case "GitHub refuses the comment: the run finishes and the line says so"
+again
+: >"$fx/gh-comment.rc"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_contains "$t_out" "rechecked=0 not-commented=acme/rukas#12"
+t_eq "$(find "$base" -mindepth 1 ! -name window | wc -l)" 0
 
 t_case "a mention does not reach the body and a comment reaches it as text"
 ready
