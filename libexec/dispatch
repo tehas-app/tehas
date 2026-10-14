@@ -265,32 +265,42 @@ report_hold() {
   [ "$why" = "$before" ] || "$status_cmd"
 }
 
-# The label events of an issue, kept for the poll in $events_of: a poll that
-# looks at two labels of one issue reads its events once. A failed call to
-# GitHub ends the poll.
+# The events of one issue are read when a decision needs them and kept only
+# while that issue is being decided: a poll holds no event payload between
+# issues. Who applied one label of one issue is remembered for the poll in
+# $actor_of, so a poll never asks GitHub the same question twice. An answer is
+# used only by the decision that asked for it, and no label of that issue
+# changes in between. A failed call to GitHub ends the poll.
 events=""
-declare -A events_of=()
+events_for=""
+declare -A actor_of=()
+
+# issue_events <issue>: the issue's label events, fresh from GitHub, in $events.
 issue_events() {
   local n=$1
-  if [ -n "${events_of[$n]+set}" ]; then
-    events=${events_of[$n]}
-    return 0
-  fi
   gh_json api "repos/$repo/issues/$n/events?per_page=100" --paginate
   events=$json
-  events_of[$n]=$events
+  events_for=$n
 }
+
+who=""
+at=""
 
 # label_actor <issue> <label>: the account that applied the label most recently,
 # and when, in $who and $at; both empty when no event applies to that label.
 label_actor() {
   local n=$1 name=$2 line
-  issue_events "$n"
-  line=$(jq -rs --arg l "$name" 'add // [] | map(select(.event == "labeled" and .label.name == $l)) | last
-                  | "\(.actor.login // "") \(.created_at // "")"' <<<"$events") ||
-    { log "ERROR: unreadable label events of #$n"; exit 1; }
-  who=${line%% *}
-  at=${line#* }
+  if [ -n "${actor_of["$n $name"]+set}" ]; then
+    line=${actor_of["$n $name"]}
+  else
+    issue_events "$n"
+    line=$(jq -rs --arg l "$name" 'add // [] | map(select(.event == "labeled" and .label.name == $l)) | last
+                    | "\(.actor.login // "")\t\(.created_at // "")"' <<<"$events") ||
+      { log "ERROR: unreadable label events of #$n"; exit 1; }
+    actor_of["$n $name"]=$line
+  fi
+  who=${line%%$'\t'*}
+  at=${line#*$'\t'}
 }
 
 # allowed_account <login>: 0 when the name is one of TEHAS_ALLOWED_LABELERS.
@@ -302,30 +312,36 @@ allowed_account() {
   esac
 }
 
-who=""
-at=""
+# deny_label <verb> <issue> <label>: the label came from an account outside the
+# list. $who is the name GitHub gave, empty when its event names nobody.
+deny_label() {
+  log "$1 #$2: $3 was applied by '${who:-unknown}', not an allowed account"
+}
 
 # approval <issue> <label>: who applied the label most recently, and when, in
 # $who and $at; the issue's events in $events. Returns 1, with the reason
 # logged, unless that was an allowed account and the text is still what it
-# approved.
+# approved. The read is taken here, at the decision, so a label spent or moved
+# earlier in this poll cannot stand for an approval given now.
 approval() {
   local n=$1 name=$2
   label_actor "$n" "$name"
   if ! allowed_account "$who"; then
-    log "skip #$n: $name was applied by '${who:-unknown}', not an allowed account"
+    deny_label skip "$n" "$name"
     return 1
   fi
   unchanged_since "$n" "$at" "$who applied $name"
 }
 
 # unchanged_since <issue> <time> <what happened then> [how to approve again]
-# Needs $events. An approval covers the text that was there when it was given.
+# Needs the label events of $n in $events; they are read when they are not
+# already at hand. An approval covers the text that was there when it was given.
 # A title or body changed afterwards by anyone else has not been approved by
 # anybody: the issue waits until an allowed account approves it again. Returns
 # 1, with the reason logged, if that happened.
 unchanged_since() {
   local n=$1 since=$2 what=$3 again=${4:-apply the label again} renamed edited editors edited_at stale e
+  [ "$events_for" = "$n" ] || issue_events "$n"
   renamed=$(jq -rs --arg at "$since" 'add // [] | map(select(.event == "renamed" and ($at == "" or .created_at > $at)))
                   | map(.actor.login // "") | join(" ")' <<<"$events") ||
     { log "ERROR: unreadable label events of #$n"; exit 1; }
@@ -343,7 +359,7 @@ unchanged_since() {
   fi
   stale=""
   for e in $editors; do
-    case "$allowed" in *" $e "*) ;; *) stale=$e ;; esac
+    allowed_account "$e" || stale=$e
   done
   if [ -n "$stale" ]; then
     log "skip #$n: its text was changed by '$stale' after $what; $again to approve it"
@@ -655,9 +671,10 @@ for n in $asking; do
     gh_json api user
     bot=$(jq -r '.login // ""' <<<"$json") || bot=""
     [ -n "$bot" ] || { log "ERROR: the bot's own login could not be read"; exit 1; }
-    case "$allowed" in
-      *" $bot "*) log "ERROR: the bot account $bot is in TEHAS_ALLOWED_LABELERS; the bot never authorises work"; exit 78 ;;
-    esac
+    if allowed_account "$bot"; then
+      log "ERROR: the bot account $bot is in TEHAS_ALLOWED_LABELERS; the bot never authorises work"
+      exit 78
+    fi
   fi
   have=" $(jq -r --argjson n "$n" '[.[] | select(.number == $n) | (.labels // [])[].name] | join(" ")' <<<"$asking_json") "
   # Which comment is the question is decided here, from this host's own
@@ -881,26 +898,33 @@ fi
 
 # 6. and 7. Candidates: urgent first, then by number. The order is needed
 # before the candidates are cut to the free slots, so whose urgent label counts
-# is settled for every issue that carries one, not only for the ones picked.
+# is settled for every issue that carries one and could still be picked. An
+# issue with an open planning session or a live cycle is out of contention for
+# a reason this poll knows without asking GitHub; it keeps its place by number
+# either way, and the candidate loop says why it starts nothing. A failed
+# events read of any issue asked about here ends the poll. Who applied
+# tehas:ready is read again when the issue is picked, so no start rests on this
+# ordering read.
 gh_json issue list --repo "$repo" --state open --label tehas:ready --limit 1000 --json number,labels
 ready_json=$json
-carrying=$(jq -r '[.[] | select((.labels // []) | any(.name == "tehas:urgent")) | .number] | .[]' <<<"$ready_json") ||
+carrying=$(jq -r '.[] | select((.labels // []) | any(.name == "tehas:urgent")) | .number | tonumber? // empty' <<<"$ready_json") ||
   { log "ERROR: unreadable list of ready issues"; exit 1; }
 urgent=()
 for n in $carrying; do
+  if [ -e "$(plan_state "$n")" ] || tehas_cycle_running "$n"; then
+    continue
+  fi
   label_actor "$n" tehas:urgent
   if allowed_account "$who"; then
     urgent+=("$n")
   else
-    log "ignore #$n: tehas:urgent was applied by '${who:-unknown}', not an allowed account"
+    deny_label ignore "$n" tehas:urgent
   fi
 done
-if [ "${#urgent[@]}" = 0 ]; then
-  urgent_json=[]
-else
-  urgent_json=$(printf '%s\n' "${urgent[@]}" | jq -sc 'map(tonumber)')
-fi
-candidates=$(jq -r --argjson u "$urgent_json" '[.[] | .number as $n | {number: $n, urgent: (($u | index($n)) != null)}]
+urgent_json=$(printf '%s\n' "${urgent[@]}" | jq -sc 'map(tonumber)') ||
+  { log "ERROR: unreadable urgent issue list"; exit 1; }
+candidates=$(jq -r --argjson u "$urgent_json" '(reduce $u[] as $x ({}; .[$x | tostring] = true)) as $set
+         | [.[] | .number as $n | {number: $n, urgent: ($set[($n | tonumber | tostring)] == true)}]
          | sort_by([(.urgent | not), .number]) | .[].number' <<<"$ready_json") ||
   { log "ERROR: unreadable list of ready issues"; exit 1; }
 

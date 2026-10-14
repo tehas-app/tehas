@@ -149,14 +149,17 @@ urgent_by() { # <issue> <login or "">
 }
 
 ready() { # issue... : the queue, each labelled by alice; "8!" is urgent, by alice too
-  local n list=""
+  local n num labels list=""
   for n in "$@"; do
-    list="$list,{\"number\":${n%!},\"labels\":[{\"name\":\"tehas:ready\"}$([ "$n" = "${n%!}" ] || echo ',{"name":"tehas:urgent"}')]}"
-    if [ "$n" = "${n%!}" ]; then
-      cp "$fx/events-7.json" "$fx/events-${n%!}.json" 2>/dev/null || true
+    num=${n%!}
+    labels='{"name":"tehas:ready"}'
+    if [ "$n" = "$num" ]; then
+      cp "$fx/events-7.json" "$fx/events-$num.json" 2>/dev/null || true
     else
-      urgent_by "${n%!}" alice
+      labels="$labels,{\"name\":\"tehas:urgent\"}"
+      urgent_by "$num" alice
     fi
+    list="$list,{\"number\":$num,\"labels\":[$labels]}"
   done
   echo "[${list#,}]" >"$fx/ready.json"
 }
@@ -850,13 +853,36 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "ignore #8: tehas:urgent was applied by 'mallory', not an allowed account"
 t_eq "$(printf '%s\n' "$t_out" | sed -n 's/.*would run a cycle for #\([0-9]*\).*/\1/p' | tr '\n' ' ')" "3 8 "
 
-t_case "the events of an issue are read once per poll, not once per label"
+t_case "the urgent labelling of an issue is read once, the ready labelling again at the decision"
 reset
 slots 2
 ready 3 8!
 t_run "$dispatch"
 t_eq "$t_rc" 0
-t_eq "$(grep -c -e 'api repos/acme/widget/issues/8/events' <<<"$(t_calls gh)")" "1"
+# Once for the order, once when #8 is picked: no start rests on the read that
+# settled the order.
+t_eq "$(grep -c -e 'api repos/acme/widget/issues/8/events' <<<"$(t_calls gh)")" "2"
+
+t_case "an urgent issue this poll cannot start is not asked about"
+reset
+slots 2
+ready 8!
+hold 8
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(grep -c -e 'api repos/acme/widget/issues/8/events' <<<"$(t_calls gh)")" "0"
+t_contains "$t_out" "wait #8: its cycle is still running"
+release
+
+t_case "urgent order survives an issue number that arrives as text"
+reset
+slots 2
+ready 3 8
+echo '[{"number":3,"labels":[{"name":"tehas:ready"}]},{"number":"8","labels":[{"name":"tehas:ready"},{"name":"tehas:urgent"}]}]' >"$fx/ready.json"
+urgent_by 8 alice
+t_run "$dispatch --dry-run"
+t_eq "$t_rc" 0
+t_eq "$(printf '%s\n' "$t_out" | sed -n 's/.*would run a cycle for #\([0-9]*\).*/\1/p' | tr '\n' ' ')" "8 3 "
 
 t_case "when the urgent label events cannot be read nothing is started and no label changes"
 reset

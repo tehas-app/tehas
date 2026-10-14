@@ -79,6 +79,9 @@ Run `tehas dispatch --dry-run` and read what it prints.
   Wait, or raise the limit.
 - `skip #N: tehas:ready was applied by ...`: the label came from an account that
   is not allowed. Remove it and apply it yourself.
+- `ignore #N: tehas:urgent was applied by ...`: the label came from an account
+  that is not allowed, so it moves nothing: the issue keeps its place by
+  number. It is said at every poll until someone removes the label.
 - `holding: no resources: the model endpoint ...`: the model endpoint does not
   answer, offers no models, or does not offer the configured model. Nothing
   starts, no cycle, no planning turn and no retry. The issues stay queued and

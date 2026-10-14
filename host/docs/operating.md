@@ -121,7 +121,7 @@ With any other backend the section and the meter are simply not there, and
 nothing else changes. To turn them off on a viiwork mesh, see
 [the energy sampler](/tools).
 
-The dispatcher takes issues urgent first, then by the lowest issue number: as many at a time as the host's ceiling and the slice's room allow (see [Limits that hold work back](#limits-that-hold-work-back)). A running cycle is never stopped to make room for an urgent one. The dashboard lists the queue as GitHub has it, not the order the dispatcher will work it in: whether a `tehas:urgent` moves the queue is decided by who applied the label, not by its being there.
+The dispatcher takes issues urgent first, then by the lowest issue number: as many at a time as the host's ceiling and the slice's room allow (see [Limits that hold work back](#limits-that-hold-work-back)). A running cycle is never stopped to make room for an urgent one. The dashboard lists the queue by issue number, not the order the dispatcher will work it in: whether a `tehas:urgent` moves the queue is decided by who applied the label, not by its being there.
 
 | Label on the issue      | Meaning                           | Your move                                |
 | ----------------------- | --------------------------------- | ---------------------------------------- |
