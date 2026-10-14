@@ -215,6 +215,9 @@ tehas work <issue> [--restart]
 
 It starts `pi --mode rpc --approve` in a container, sends `/work <issue>` and
 waits until `.pi/work-state/<issue>.json` in the workspace `~/tehas/work/<name>-<issue>` leaves `running`.
+It then gives the driver 20 seconds to post its handoff and ends the session
+by closing Pi's input. Only a Pi that has not gone five seconds later is
+stopped with `docker stop`.
 
 It holds the issue's lock, `~/tehas/state/cycles/<issue>.lock`, while it runs.
 Run by hand for an issue whose cycle is running, it refuses before it moves
@@ -371,7 +374,9 @@ and are removed with it, and its transcripts go to
 before a turn. The agent files issues with the token. The RPC stream is
 kept in `~/tehas/logs/plan-<issue>-<time>.jsonl`. The limit is
 `TEHAS_PLAN_TIMEOUT`, and the session record is
-`~/tehas/state/plan-<issue>.json`. A container left under the turn's name, by
+`~/tehas/state/plan-<issue>.json`. Once the outcome is read the session is
+ended by closing Pi's input, and only a Pi that has not gone two seconds later
+is stopped with `docker stop`. A container left under the turn's name, by
 a turn whose client died, is removed before the turn starts.
 
 ## tehas dev

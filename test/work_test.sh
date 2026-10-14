@@ -508,6 +508,30 @@ t_contains "$t_out" "status=handoff"
 t_lacks "$t_out" "was killed"
 t_lacks "$(t_calls docker)" "stop "
 
+t_case "closing the session ends Pi's input: a container that ends on it is not stopped"
+fresh
+container 'says handoff; cat >/dev/null; : >"$T/calls/eof"; exit 0'
+t_run "$work 7"
+t_eq "$t_rc" 0
+t_contains "$t_out" "status=handoff"
+t_eq "$(find "$T/calls/eof" 2>/dev/null | wc -l)" 1
+t_lacks "$(t_calls docker)" "stop "
+
+t_case "the container's input is the fifo's read end only, and the console holds neither end"
+fresh
+container 'ls -l /proc/$$/fd/ >"$T/calls/container.fds" 2>&1; says handoff; cat >/dev/null'
+t_stub console '[ "$1" = --mask ] || ls -l /proc/$$/fd/ >>"$T/calls/console.fds" 2>&1'
+mv "$T/bin/console" "$tree/libexec/console"
+t_run "$work 7"
+t_eq "$t_rc" 0
+fifo_path=$(sed -n 's/.* 0 -> \(.*\)$/\1/p' "$T/calls/container.fds")
+t_contains "$fifo_path" "(deleted)"
+t_eq "$(grep -c -F -e "-> $fifo_path" "$T/calls/container.fds")" 1
+t_contains "$(grep ' 0 -> ' "$T/calls/container.fds")" "lr-x"
+t_eq "$(grep -c -F -e "${fifo_path% (deleted)}" "$T/calls/console.fds")" 0
+t_stub console
+mv "$T/bin/console" "$tree/libexec/console"
+
 t_case "a 137 after the state says aborted is aborted, exit 1"
 fresh
 container 'says aborted; exit 137'

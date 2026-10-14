@@ -265,9 +265,14 @@ mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$repo" "$tree" "$container" "$
 [ "${#mounts[@]}" -gt 0 ] ||
   { echo "tehas plan: could not prepare the sandbox, not starting a turn" >&2; exit 78; }
 
+# Pi's input, as tehas work gives it: the container reads fd 3, the host
+# writes fd 4, so closing fd 4 ends the session.
 fifo=$(mktemp -u)
 mkfifo "$fifo"
-exec 3<>"$fifo"
+exec 5<>"$fifo"
+exec 3<"$fifo"
+exec 4>"$fifo"
+exec 5>&-
 rm "$fifo"
 
 # A container under this name outlived the client that started it. The
@@ -278,17 +283,18 @@ docker run --rm -i --init --name "$name" \
   "${TEHAS_SLICE_LIMITS[@]}" \
   -w "$repo" "${mounts[@]}" "${image_opts[@]}" \
   "${envs[@]}" "${hosts[@]}" \
-  "$image" pi --mode rpc --approve "${args[@]}" <&3 >"$log" 2>"$log.err" &
+  "$image" pi --mode rpc --approve "${args[@]}" <&3 >"$log" 2>"$log.err" 3<&- 4>&- &
 pid=$!
+exec 3<&-
 
 started=$(date +%s)
-jq -cn --arg m "$message" '{id: "plan", type: "prompt", message: $m}' >&3
+jq -cn --arg m "$message" '{id: "plan", type: "prompt", message: $m}' >&4
 # Asked for now and again at the end: a first turn that runs for an hour and
 # then fails must still leave the session it made, so a reply can continue it.
-printf '%s\n' '{"id":"state","type":"get_state"}' >&3
+printf '%s\n' '{"id":"state","type":"get_state"}' >&4
 echo "tehas plan: issue $issue turn started, log $log"
 
-trap 'exec 3>&- 2>/dev/null; docker stop -t 10 "$name" 2>/dev/null' TERM INT
+trap 'exec 4>&- 2>/dev/null; docker stop -t 10 "$name" 2>/dev/null' TERM INT
 
 # Settled: the last start or settle event in the stream is a settle, and no
 # background job the agent started is still out. The agent ends its turn after
@@ -360,16 +366,20 @@ done
 
 if kill -0 "$pid" 2>/dev/null; then
   if [ "$timed_out" = 0 ]; then
-    printf '%s\n' '{"id":"state","type":"get_state"}' '{"id":"text","type":"get_last_assistant_text"}' >&3
+    printf '%s\n' '{"id":"state","type":"get_state"}' '{"id":"text","type":"get_last_assistant_text"}' >&4
     # The answer comes after everything read so far.
     for _ in 1 2 3 4 5 6 7 8 9 10; do
       [ "$(tail -c "+$((offset + 1))" "$log" 2>/dev/null | grep -a -c -F '"command":"get_last_assistant_text"')" = 0 ] || break
       sleep 1
     done
   fi
-  exec 3>&-
-  sleep 2
-  docker stop -t 20 "$name" >/dev/null 2>&1
+  # Pi sees the end of its input. The stop is for a Pi that does not go.
+  exec 4>&-
+  for _ in 1 2 3 4; do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.5
+  done
+  ! kill -0 "$pid" 2>/dev/null || docker stop -t 20 "$name" >/dev/null 2>&1
 fi
 wait "$pid" 2>/dev/null
 scan all

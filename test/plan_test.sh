@@ -379,6 +379,20 @@ t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123","text":"Done live.","quest
 t_eq "$(jq -r .type "$T/calls/docker.asked" | tr '\n' ' ')" "get_state get_last_assistant_text "
 t_eq "$([ "$(wc -l <"$T/calls/sleep")" -ge 20 ] && echo looked)" looked
 
+t_case "once the outcome is read the session is ended by closing Pi's input"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=20
+live 'echo "{\"type\":\"agent_settled\"}"
+while IFS= read -r -t 30 ask; do
+  case "$ask" in
+    *get_last_assistant_text*) echo "{\"type\":\"response\",\"command\":\"get_last_assistant_text\",\"success\":true,\"data\":{\"text\":\"Done.\"}}"; break ;;
+  esac
+done
+timeout 5 cat >/dev/null && : >"$T/calls/eof"'
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(find "$T/calls/eof" 2>/dev/null | wc -l)" 1
+
 t_case "a first turn that runs out of time is stopped and leaves its session"
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=1

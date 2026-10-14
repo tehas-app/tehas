@@ -262,9 +262,17 @@ mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$repo" "$tree" "$container" "$
 [ "${#mounts[@]}" -gt 0 ] ||
   { echo "tehas work: could not prepare the sandbox, not starting a cycle" >&2; exit 78; }
 
+# Pi's input: the container reads the fifo on fd 3, the host writes it on fd
+# 4. A fifo's reader sees the end only when no writer is left, and a
+# read-write descriptor counts as one, so each side gets only its own end and
+# closing fd 4 ends the session. Fd 5 holds both ends for a moment, so that
+# neither open waits for the other side.
 fifo=$(mktemp -u)
 mkfifo "$fifo"
-exec 3<>"$fifo"
+exec 5<>"$fifo"
+exec 3<"$fifo"
+exec 4>"$fifo"
+exec 5>&-
 rm "$fifo"
 
 # Docker refuses a cid file that is already there. One is left only by a cycle
@@ -291,17 +299,18 @@ interrupted=0
 cpid=""
 # The live file says running only once the trap can say interrupted.
 live_on=0
-trap 'interrupted=1; [ -z "$cpid" ] || kill "$cpid" 2>/dev/null; exec 3>&- 2>/dev/null; stop_container 10
+trap 'interrupted=1; [ -z "$cpid" ] || kill "$cpid" 2>/dev/null; exec 4>&- 2>/dev/null; stop_container 10
 [ "$live_on" = 0 ] || now_file false interrupted "killed by signal (TERM/INT)"' TERM INT
 docker run --rm -i --init --name "$name" \
   "${TEHAS_SLICE_LIMITS[@]}" --cidfile "$cid_file" \
   -w "$repo" "${mounts[@]}" "${image_opts[@]}" \
   "${envs[@]}" "${hosts[@]}" \
-  "$image" pi --mode rpc --approve <&3 >"$log" 2>"$log.err" &
+  "$image" pi --mode rpc --approve <&3 >"$log" 2>"$log.err" 3<&- 4>&- &
 pid=$!
+exec 3<&-
 
 started=$(date +%s)
-printf '{"id":"work","type":"prompt","message":"/work %s%s"}\n' "$issue" "$flags" >&3
+printf '{"id":"work","type":"prompt","message":"/work %s%s"}\n' "$issue" "$flags" >&4
 echo "tehas work: issue $issue started, log $log"
 
 # For the dashboard: a readable console of this cycle and its own "now" file.
@@ -313,7 +322,7 @@ console=$live/console-$issue.txt
 # and this says why the dashboard shows none.
 [ -x "$here/console" ] || echo "tehas work: no console at $here/console, so the dashboard shows none; run install.sh"
 "$here/console" --rpc "$log" \
-  --runs "$runs" --out "$console" --since "$((started - 5))" >/dev/null 2>"$log.console" &
+  --runs "$runs" --out "$console" --since "$((started - 5))" >/dev/null 2>"$log.console" 4>&- &
 cpid=$!
 now_file() { # running? status step
   local text
@@ -402,13 +411,20 @@ if [ "$interrupted" = 1 ] && kill -0 "$pid" 2>/dev/null; then
   stop_container 10
 fi
 if [ "$interrupted" = 0 ] && kill -0 "$pid" 2>/dev/null; then
-  # Give the driver a moment to post its handoff, then end the session.
+  # Give the driver a moment to post its handoff, then end the session: Pi
+  # sees the end of its input. The stop is for a Pi that does not go.
   [ "$status" != running ] && sleep 20
-  exec 3>&-
-  sleep 5
   oom_look
   stopped=1
-  stop_container 20
+  exec 4>&-
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.5
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    oom_look
+    stop_container 20
+  fi
 fi
 if [ "$stalled" = 1 ]; then
   status=stalled
