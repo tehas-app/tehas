@@ -629,7 +629,9 @@ character but the line break and the tab. An agent of a workstream is named
 with it, as in `developer[task-a]`. The mask catches accidents;
 it cannot stop an agent that sets out to print a secret another way, so treat
 the console of a published dashboard as public. A log line of over 1 MiB is
-left out, and the console says how many were. Neither needs running by hand.
+left out, and the console says how many were. So is a line not yet ended
+when the files together already hold 16 MiB of such lines, and a transcript
+that is removed is forgotten. Neither needs running by hand.
 What the console itself complains about goes to `~/tehas/logs/work-<issue>-<time>.jsonl.console`,
 and the work script says so when the console is missing or ends with an error.
 The work script's own status line, in `~/tehas/live/cycles/<issue>.json` and from there in `~/tehas/live/running.json`, goes through

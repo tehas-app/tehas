@@ -128,6 +128,11 @@ fn run(args: &Args, stop: &AtomicBool) -> io::Result<()> {
             let said = format!("log lines over 1 MiB left out: {skipped}");
             write(&mut out, &Entry::new("tehas", said, None))?;
         }
+        let unheld = follower.take_unheld();
+        if unheld > 0 {
+            let said = format!("unfinished log lines left out, 16 MiB of them held: {unheld}");
+            write(&mut out, &Entry::new("tehas", said, None))?;
+        }
         if stopping {
             break;
         }
