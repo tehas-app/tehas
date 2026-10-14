@@ -36,7 +36,9 @@
 #   4. A box ticked by an allowed account in the bot's question comment is an
 #      answer: on a parked cycle, "Retry from a clean start" starts a fresh
 #      cycle. Rules 2 and 3 hold that back too. The tick counts only on a
-#      parked issue, and it is unticked when it is used. A comment is a
+#      parked issue that GitHub still says is open, and it is unticked when it
+#      is used. A tick on an issue closed since its cycle stopped starts
+#      nothing. A comment is a
 #      question only if this host has its id on record, in $TEHAS_HOME/state:
 #      the planning record, or park-<issue>.id.
 #   5. A reply or a ticked option on a planning question runs the next turn
@@ -48,9 +50,11 @@
 #   6. An issue is eligible only if its tehas:ready label was applied by an
 #      account in TEHAS_ALLOWED_LABELERS. The bot is never in that list. An
 #      issue with an open planning session is not eligible until it is ended.
-#      Nothing else the issue carries holds it back: the labels of an earlier
-#      outcome go with the start. Every start takes tehas:ready off, so a
-#      label that is there was applied after the last start. While the
+#      It is eligible only while GitHub says the number is an open issue: a
+#      closed issue and a pull request start nothing, whatever label they
+#      carry. Nothing else the issue carries holds it back: the labels of an
+#      earlier outcome go with the start. Every start takes tehas:ready off, so
+#      a label that is there was applied after the last start. While the
 #      issue's own cycle is alive it waits, and starts when that cycle ended.
 #      A tehas:ready from an account outside the list authorises nothing, so
 #      the poll takes it off and says so once on the issue: left in place it
@@ -267,6 +271,43 @@ report_hold() {
   # tehas status reads the health file, which was written when this poll
   # began. A hold that begins or ends is shown now, not a poll later.
   [ "$why" = "$before" ] || "$status_cmd"
+}
+
+# work_ok <issue>: is that number still work the factory takes? It asks GitHub
+# what the number is, because the list this poll read can name an issue that was
+# closed since. A call that fails, or an answer that cannot be read, ends the
+# poll, as every other call here does. A pull request or a closed issue is a
+# skip, logged once a poll at most like any other refusal.
+#
+# One issue can be on more than one of the poll's lists, and a number is asked
+# once a poll: the answer first read stands for the rest of it, and a refusal
+# is said once. Every call site sits after the checks that hold the issue back
+# for other reasons, so the ask is paid only for an issue this poll would
+# otherwise take.
+work_refused=" " answered=" "
+work_ok() {
+  case "$answered" in *" $1 "*) return 0 ;; esac
+  case "$work_refused" in *" $1 "*) return 1 ;; esac
+  gh_json api "repos/$repo/issues/$1"
+  if tehas_work_kind "$json"; then
+    answered="$answered$1 "
+    return 0
+  fi
+  case "$tehas_work_why" in
+    pr | closed)
+      work_refused="$work_refused$1 "
+      if [ "$tehas_work_why" = pr ]; then
+        log "skip #$1: it is a pull request, not an issue the factory works on"
+      else
+        log "skip #$1: it is closed, and a closed issue is never taken"
+      fi
+      ;;
+    *)
+      log "ERROR: GitHub's answer for #$1 could not be read"
+      exit 1
+      ;;
+  esac
+  return 1
 }
 
 # The events of one issue are read when a decision needs them and kept only
@@ -808,6 +849,9 @@ for n in $asking; do
         fi
         continue
       fi
+      # An issue closed since its cycle stopped is not work: the tick starts
+      # nothing, and it stays as it is, as a tick held back by a hold does.
+      work_ok "$n" || continue
       # The tick approves the text as it was at that moment, as the label does.
       issue_events "$n"
       unchanged_since "$n" "$(jq -r .tick.at <<<"$ans")" "$by ticked retry" "untick the box and tick it again" || continue
@@ -878,6 +922,9 @@ $reply"
         fi
         text="The operator chose: $choice"
       fi
+      # An answer on an issue that is no longer work is discussion, not an
+      # order: a closed issue runs no planning turn.
+      work_ok "$n" || continue
       # Checked after the way out above, which runs no turn.
       slice_ok || continue
       mesh_ok || exit 0
@@ -909,6 +956,7 @@ for n in $plans; do
     [ -z "$refused" ] || clear_unauthorised "$n" tehas:plan "$refused"
     continue
   fi
+  work_ok "$n" || continue
   mesh_ok || exit 0
   if [ "$dry" = 1 ]; then
     log "would start a planning session for #$n (labelled by $who)"
@@ -982,6 +1030,9 @@ for n in $candidates; do
     [ -z "$refused" ] || clear_unauthorised "$n" tehas:ready "$refused"
     continue
   fi
+  # Asked after the label approves the issue: an issue no account is allowed
+  # to start costs no call, and the label is not changed until start_cycles.
+  work_ok "$n" || continue
   picked+=("$n")
   starter[$n]=$who
   verb[$n]=labelled

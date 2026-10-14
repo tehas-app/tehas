@@ -103,6 +103,19 @@ compute on the issue.
   checked like `tehas:ready`: only one applied by an allowed account moves the
   issue; one applied by the bot or anyone else is ignored and logged.
 
+The factory works on open issues only. A closed issue is never taken, and the
+number of a pull request is never taken, open, merged or closed. A label does
+not change that. Before it marks an issue `tehas:running` the dispatcher asks
+GitHub what the number is, and `tehasbot cycle` asks the same before it changes
+a label or starts a container, whether the poll started it or a person did. An
+issue closed between the poll's list and its start is skipped, with one line in
+the log: `skip #N: it is closed, and a closed issue is never taken`. A cycle
+that came up and then found its issue closed says so in its own log and does
+nothing on the issue; it leaves `tehas:running` behind, and the next poll takes
+that mark off without a word. The queue
+and the dashboard list open issues, so a closed one that still carries a
+factory label is not counted in line or as being worked on.
+
 ## 3. What happens next
 
 Watch it on the [factory floor](/) or the [plain dashboard](/dashboard): the queue, the issue being worked on with its
@@ -196,6 +209,9 @@ have to be removed first. A cycle started
 that way takes `tehas:question` off the issue, and the old boxes no longer do
 anything.
 
+An issue closed since its cycle stopped is not work. Neither the tick nor a new
+`tehas:ready` starts anything on it, and the poll's log says so.
+
 When the bot cannot post the boxes, it posts a plain comment that gives the
 label to apply. When the boxes are posted and the label `tehas:question` cannot be
 added, a second comment says that the boxes cannot be used, tells you to run
@@ -210,8 +226,8 @@ The poll starts nothing for it by itself. A closed issue in that state only
 loses `tehas:running`.
 
 A tick counts only from an allowed labeller, and only while the issue is
-parked: it carries `needs-human-attention` and neither `tehas:running` nor
-`tehas:awaiting-merge`. It is used once. When the cycle starts, the bot unticks
+parked and open: it carries `needs-human-attention` and neither
+`tehas:running` nor `tehas:awaiting-merge`. It is used once. When the cycle starts, the bot unticks
 the box, so the same tick cannot start a second cycle. A box ticked by anyone
 else, or more than one box, is unticked and the bot says so in a comment.
 A retry ticked on an issue that is not parked is unticked too, and the bot
@@ -290,7 +306,9 @@ more than one box, is unticked and the bot says so. A reply counts only if its
 author is an allowed account and, when it was edited, its last editor is too.
 Replies from others are ignored. Only the question the session is waiting on
 counts, which is the one whose id the host has on record. Any other comment
-with boxes, older or newer, does nothing.
+with boxes, older or newer, does nothing. An answer runs a turn only while
+GitHub says the issue is open: on an issue closed since the turn that asked,
+a box and a reply do nothing.
 
 Where the instance gives a cycle the images an issue links
 (`TEHAS_WORK_IMAGES=1`), a planning session is given them too, by the same

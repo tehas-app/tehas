@@ -173,8 +173,18 @@ issue and the next poll tries again. A closed issue in that state only loses
 host no cycle holds a lock.
 
 An issue is taken only when an allowed account applied `tehas:ready` and
-nobody else has changed its title or body since. A `tehas:ready` from any other
-account asks for nothing, so it comes off the issue with a comment naming who
+nobody else has changed its title or body since, and only while GitHub says the
+number is an open issue. A closed issue and a pull request are never taken,
+whatever label they carry. The poll's lists are of open issues, so what this
+catches is a number that changed since the list was read. The poll asks GitHub
+what a number is once a poll, and only for an issue its labels would otherwise
+take; the skip is said once a poll at most (`skip #N: it is closed, and a
+closed issue is never taken`, or `skip #N: it is a pull request, not an issue
+the factory works on`). An answer that cannot be read ends the poll with exit
+1.
+
+A `tehas:ready` from any other account asks for nothing, so it comes off the
+issue with a comment naming who
 applied it; the log line is `clear #N: tehas:ready off, applied by ...`. A
 `tehas:plan` from such an account comes off the same way. The
 comment follows the label change: when that change fails nothing is said on the
@@ -563,7 +573,15 @@ image (exit 4) is parked with a comment that says so. A retry moves a stopped wo
 `<name>-<issue>.before-retry`, which is removed and kept by the same rule. A
 stopped unit stops the container and is reported as a cycle that ended without
 a pull request. A hangup is taken as a stop too. It checks no authorisation:
-the dispatcher did that before it started the unit.
+the dispatcher did that before it started the unit. It does check the number:
+it writes `state/cycles/<issue>.taken` once it holds its lock, then asks GitHub
+what the number is before a label is changed, a comment is posted or a
+container starts, tried three times like its other calls, and refuses a closed
+issue and a pull request (exit 65) with one line in the log. A number GitHub
+could not answer for at all is refused the same way, with a line that says
+that. Because the marker was written first, the poll that started the unit
+takes such a cycle as one that came up: the issue keeps `tehas:running`, and
+the next poll clears it in silence.
 
 `tehas:awaiting-merge` is given only to a run that ended as `handoff` and has
 an open pull request of the bot. Any other end with a pull request open gets
@@ -580,6 +598,7 @@ finds it.
 | 0    | The cycle ran and was reported, whatever its outcome |
 | 3    | A cycle for this issue is already running            |
 | 64   | The argument is not an issue number                  |
+| 65   | The number is not work the factory takes: a pull request, a closed issue, or an answer GitHub could not give after three tries. Nothing was changed and no container started. The cycle still claimed its place, so a poll that started it does not report a failed start |
 | 78   | The instance settings are invalid                    |
 
 ## tehasbot status and the console
