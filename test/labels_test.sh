@@ -28,6 +28,15 @@ done
 t_case "it creates the question label"
 t_contains "$(t_calls gh)" "label create tehas:question "
 
+# The description is what a person reads on GitHub. A cycle whose review did
+# not reach its end is parked, not labelled awaiting-merge, so no label here
+# may claim that the pull request was reviewed.
+t_case "no label description says the pull request was reviewed"
+reset
+t_run "$labels"
+t_contains "$(t_calls gh)" "label create tehas:awaiting-merge --repo acme/widget --color fbca04 --description Tehas: PR open, only the merge left to a human --force"
+t_lacks "$(t_calls gh)" "reviewed"
+
 t_case "it creates the planning labels"
 t_contains "$(t_calls gh)" "label create tehas:plan "
 t_contains "$(t_calls gh)" "label create tehas:planning "

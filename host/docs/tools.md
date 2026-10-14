@@ -432,8 +432,10 @@ tehas labels        # one line per label
 Creates the nine labels tehas uses in the product repository: `tehas:ready`,
 `tehas:urgent`, `tehas:running`, `tehas:awaiting-merge`, `tehas:pause`,
 `needs-human-attention`, `tehas:question`, `tehas:plan` and `tehas:planning`.
-Run it once for a new product, and again after pulling a version that adds a
-label. Run again, it puts their colours and descriptions back. It needs `TEHAS_REPO` and no other
+Run it once for a new product, and again after pulling a version that adds or
+rewords a label. Run again, it puts their colours and descriptions back: a
+description the platform rewords reaches a host only when a person runs the
+command there. It needs `TEHAS_REPO` and no other
 setting. Exit 0 when every label is there, 1 when one could not be made, 64 on
 any argument, 78 when the repository is not set.
 
@@ -513,11 +515,27 @@ stopped unit stops the container and is reported as a cycle that ended without
 a pull request. A hangup is taken as a stop too. It checks no authorisation:
 the dispatcher did that before it started the unit.
 
-`tehas:awaiting-merge` is given only to a run that ended as `handoff` and has
-an open pull request of the bot. Any other end with a pull request open gets
-`needs-human-attention`, and the comment names the pull request. The label
-change that ends a cycle is tried three times, five seconds apart, and so is
-the search for the pull request. If GitHub still refuses the label change, the
+`tehas:awaiting-merge` is given only to a run that ended as `handoff`, has an
+open pull request of the bot, and stopped for the reason "the pull request
+waits for a person". pi-rukas writes that reason as the `cap` of a `cap-hit`
+event in the cycle's state file, and the waiting one is
+`awaiting-human-merge`: only the merge is left to a human. A review that ran
+out of its rounds with findings still open is routed to its checks and ends
+with that same cap; pi-rukas holds the merge for those findings, and tehas
+parks it too. pi-rukas stamps that hold in the same file, as
+`pipelineState.mergeHold.unresolvedReviewFindings`: the cycle reads the stamp as
+well as the cap, and either one parks. Any other cap, and a state file that
+names none, gets
+`needs-human-attention`, and the comment names the cap and the pull request.
+pi-rukas applies `needs-human-attention` at every handoff, its own waiting park
+included, and on its pull request as well as its issue. The cycle takes that
+label off the issue in the same change that adds `tehas:awaiting-merge`: an
+issue never carries both. It is asked for whether or not the issue has it, as a
+removal GitHub ignores when the label is not there; the cycle reads no labels.
+What pi-rukas put on the pull request stays there: the cycle changes the labels
+of the issue only. The label change that ends a cycle is tried three times,
+five seconds apart, and so is the search for the pull request. If GitHub still
+refuses the label change, the
 log says `WARN: label change on #N failed`, the cycle's comment says that the
 label could not be changed, and the issue
 stays `tehas:running` until the next poll of [tehas dispatch](#tehas-dispatch)

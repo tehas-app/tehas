@@ -127,8 +127,8 @@ The dispatcher takes issues urgent first, then by the lowest issue number: as ma
 | ----------------------- | --------------------------------- | ---------------------------------------- |
 | `tehas:ready`           | Queued                            | Wait, or remove the label to withdraw it |
 | `tehas:running`         | A cycle owns it                   | Leave the issue and its branch alone     |
-| `tehas:awaiting-merge`  | Pull request is open and reviewed | Review and merge                         |
-| `needs-human-attention` | The cycle stopped                 | Read the comment; see below              |
+| `tehas:awaiting-merge`  | Pull request open, only a merge left | Review and merge                      |
+| `needs-human-attention` | The cycle stopped or parked        | Read the comment; see below             |
 
 `tehas:ready` from an allowed labeller starts a fresh cycle whatever else the
 issue carries. The labels of the earlier outcome go when the cycle starts. On
@@ -142,6 +142,19 @@ when that one has ended. Remove the label before then to withdraw it.
 
 When the cycle starts and when it ends, the bot comments on the issue. The token
 usage per agent role is posted on the pull request.
+
+What a handoff leaves on the issue depends on why pi-rukas handed off. A cycle
+that stopped because only the merge is left to a person leaves
+`tehas:awaiting-merge` and nothing else: its six-pass review reached its end,
+and the diff is waiting for your reading. A cycle that handed off for any other
+reason, or for a reason its state file does not name, leaves
+`needs-human-attention` alone, and its comment names the reason and links the
+pull request it left open. A cycle whose review ran out of its rounds with
+findings still open is parked this way too: pi-rukas posts those findings on the
+pull request and does not merge for them. The two labels are never on one issue
+at once: when the cycle reports a waiting merge, it takes off the
+`needs-human-attention` pi-rukas applied at its own park. What pi-rukas put on
+the pull request stays there.
 
 The console on the [factory floor](/) and on the [plain dashboard](/dashboard)
 shows one cycle at a time. When several are running, or one is running and an
@@ -170,7 +183,10 @@ does. See [Commands](/tools).
 The pull request comes from the bot account against the product's default
 branch (in the example, `main`). It has passed the product's fast gate, its
 full gate, its smoke command and pi-rukas's six-pass review, but none of those
-is a human reading the diff. Nothing merges on its own.
+is a human reading the diff. Nothing merges on its own. Only a cycle that
+handed off with nothing left but the merge gets `tehas:awaiting-merge`; one
+whose review did not reach its end is parked, with its pull request named in
+the comment.
 
 After merging, the issue closes and leaves the queue. If you close a pull
 request without merging, remove `tehas:awaiting-merge` from the issue by hand;
@@ -180,7 +196,13 @@ Tehas does not notice a rejected pull request yet.
 
 `needs-human-attention` means the cycle parked. The bot's comment gives the
 status, the last step and the log file on the host. pi-rukas usually adds its own
-handoff comment with the reason and numbered options.
+handoff comment with the reason and numbered options. A cycle that handed off
+with an open pull request, for a reason that is not a merge waiting for a
+person, parks the same way: its comment names the reason pi-rukas stopped on and
+links the pull request, and the branch stays where it is, so read the pull
+request before you retry. Its workspace `~/tehas/work/tehas-<issue>` is kept as
+for any other stopped cycle: the state file and anything the cycle never pushed
+are still on the host.
 
 To try again after fixing the cause (often: make the issue clearer), tick
 `Retry from a clean start` in the bot's comment. Tick `Leave it parked` to
@@ -223,8 +245,8 @@ The next cycle starts in a fresh workspace, with `--restart`. Branches and
 commits the earlier attempt pushed are kept on GitHub. What it left only on the
 host, such as commits on worktrees that were never pushed, is moved to
 `~/tehas/work/tehas-<issue>.before-retry` and stays there until a cycle of that
-issue merges or leaves a pull request. Only the latest stopped attempt is kept:
-a second retry replaces it. Recover what you need from a stopped cycle before
+issue merges or leaves a pull request waiting for a merge. Only the latest
+stopped attempt is kept: a second retry replaces it. Recover what you need from a stopped cycle before
 you retry twice.
 
 A label or a tick approves the text of the issue as it was at that moment. If

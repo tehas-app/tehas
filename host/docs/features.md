@@ -122,9 +122,11 @@ What the five attempts showed, none of it a fault of the instance's setup:
   the faulty code; attempt 5 passed.
 - **The pull request was opened against `main`**, not the branch the cycle
   started from, so its review read the whole difference between the two. The
-  lens review ended incomplete and the issue carries `needs-human-attention`
-  next to `tehas:awaiting-merge`. On an instance whose work branch is the
-  default branch this does not arise.
+  lens review ended incomplete and the issue carried `needs-human-attention`
+  next to `tehas:awaiting-merge`. A cycle whose review did not reach its end is
+  now parked with `needs-human-attention` alone, so the two no longer land on
+  one issue; that is written and tested, not seen on this host. On an instance
+  whose work branch is the default branch this does not arise.
 
 One cycle is one cycle. It used about 8.5 million tokens for a 172-line change.
 
