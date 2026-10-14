@@ -920,15 +920,9 @@ for n in $asking; do
         log "would run a cycle for #$n (retry ticked by $by)"
         exit 0
       fi
-      # Asked before the tick is used up: a tick must not be spent on a start
+      # Asked before anything changes: a tick must not be spent on a start
       # that cannot happen.
       units_ok "$n" || exit 1
-      # One tick is one start. Unticking edits the comment as the bot, so the
-      # bot becomes its last editor and the tick cannot be read a second time.
-      if ! untick "$n" "$ans"; then
-        log "ERROR: could not use up the retry tick on #$n, not starting a cycle"
-        continue
-      fi
       picked=("$n")
       starter[$n]=$by
       verb[$n]="retry ticked"
@@ -937,8 +931,15 @@ for n in $asking; do
       # A tehas:ready left on the issue would start a second cycle after this
       # one: one start uses up every request for it.
       [[ $have == *" tehas:ready "* ]] && drop[$n]+=" --remove-label tehas:ready"
+      # One tick is one start. The issue is marked first: when that fails the
+      # poll ends here and the tick stays, so the next poll tries again. Once
+      # it is marked the start has removed the question from the record, so
+      # the tick can start nothing more. It is unticked then, so the comment
+      # shows it was taken; a failure there is only a warning.
       start_cycles
-      exit
+      started=$?
+      untick "$n" "$ans" || log "WARN: could not untick the retry on #$n; its question is no longer on record, so it starts nothing more"
+      exit "$started"
       ;;
     plan)
       # A reply says more than a box, so it wins when both are there.

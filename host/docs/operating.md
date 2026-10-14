@@ -240,8 +240,11 @@ loses `tehas:running`.
 
 A tick counts only from an allowed labeller, and only while the issue is
 parked and open: it carries `needs-human-attention` and neither
-`tehas:running` nor `tehas:awaiting-merge`. It is used once. When the cycle starts, the bot unticks
-the box, so the same tick cannot start a second cycle. A box ticked by anyone
+`tehas:running` nor `tehas:awaiting-merge`. It is used once. The poll first
+marks the issue `tehas:running`; if GitHub refuses that, the tick stays and
+the next poll tries again. Once the issue is marked the question is no longer
+on record, so the same tick cannot start a second cycle, and the bot unticks
+the box to show it was taken. A box ticked by anyone
 else, or more than one box, is unticked and the bot says so in a comment.
 A retry ticked on an issue that is not parked is unticked too, and the bot
 says that nothing was started.

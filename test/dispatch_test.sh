@@ -1527,26 +1527,43 @@ jq -n --arg b "$(park_body ' ' ' ')" '{data: {repository: {issue: {comments: {no
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 
-t_case "a retry tick is used up before the cycle starts"
+t_case "a retry tick is used up once the issue is marked"
 parked
 comments 7 "$(park_body x ' ')" alice
 t_run "$dispatch"
+t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" "7"
 t_contains "$(t_calls gh)" "api -X PATCH repos/acme/widget/issues/comments/4001"
 t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
 patch_line=$(t_calls gh | grep -n 'api -X PATCH' | head -1 | cut -d: -f1)
 start_line=$(t_calls gh | grep -n -e '--add-label tehas:running' | head -1 | cut -d: -f1)
-t_eq "$([ -n "$patch_line" ] && [ -n "$start_line" ] && [ "$patch_line" -lt "$start_line" ] && echo before)" before
+t_eq "$([ -n "$patch_line" ] && [ -n "$start_line" ] && [ "$start_line" -lt "$patch_line" ] && echo after)" after
 
-t_case "when the tick cannot be used up no cycle starts"
+t_case "when the issue cannot be marked the tick stays, and the next poll starts the retry"
+parked
+comments 7 "$(park_body x ' ')" alice
+printf '%s' '--add-label tehas:running' >"$fx/edit-fails-on"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: could not mark #7 as running, not starting a cycle"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "api -X PATCH"
+t_eq "$(cat "$park_id")" 4001
+rm -f "$fx/edit-fails-on" "$T"/calls/*
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_contains "$(t_calls gh)" "api -X PATCH repos/acme/widget/issues/comments/4001"
+
+t_case "when the tick cannot be undone the cycle still starts, and the tick starts nothing more"
 parked
 comments 7 "$(park_body x ' ')" alice
 : >"$fx/patch-fails"
 t_run "$dispatch"
-t_eq "$(t_calls fake-start)" ""
-t_lacks "$(t_calls gh)" "issue edit"
-t_contains "$t_out" "ERROR: could not use up the retry tick on #7, not starting a cycle"
-t_eq "$(cat "$park_id")" 4001
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_contains "$t_out" "WARN: could not untick the retry on #7; its question is no longer on record, so it starts nothing more"
+t_eq "$([ -e "$park_id" ] && echo kept)" ""
 
 t_case "a retry ticked on an issue that is not parked starts nothing"
 for have in "tehas:question" "needs-human-attention tehas:question tehas:running" "needs-human-attention tehas:question tehas:awaiting-merge"; do
