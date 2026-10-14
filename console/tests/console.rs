@@ -130,6 +130,65 @@ fn a_cycle_becomes_a_console_file_and_a_stop_reads_the_last_lines() {
     );
 }
 
+// A console that a failed test leaves running would hold cargo's output open.
+struct Stopped(std::process::Child);
+impl Drop for Stopped {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+#[test]
+fn more_transcripts_than_the_process_may_open_are_all_shown() {
+    let dir = scratch("many");
+    let (rpc, runs, out) = (
+        dir.join("work-8.jsonl"),
+        dir.join("runs"),
+        dir.join("console-8.txt"),
+    );
+    let today = runs.join(day("today"));
+    fs::create_dir_all(&today).unwrap();
+    let count = 100;
+    for n in 0..count {
+        fs::write(
+            today.join(format!("aa-bb-r{n}.json")),
+            format!("{{\"type\":\"message\",\"message\":{{\"role\":\"assistant\",\"content\":[{{\"type\":\"text\",\"text\":\"hello {n}\"}}]}}}}\n"),
+        )
+        .unwrap();
+    }
+    let since = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        - 5;
+    let mut console = Stopped(
+        Command::new("bash")
+            .args(["-c", "ulimit -n 30 && exec \"$0\" \"$@\"", CONSOLE])
+            .args(["--rpc", rpc.to_str().unwrap()])
+            .args(["--runs", runs.to_str().unwrap()])
+            .args(["--out", out.to_str().unwrap()])
+            .args(["--since", &since.to_string()])
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    wait_for(&out, count + 1);
+    let killed = Command::new("kill")
+        .args(["-TERM", &console.0.id().to_string()])
+        .status()
+        .unwrap();
+    assert!(killed.success());
+    assert!(console.0.wait().unwrap().success());
+    let lines = said(&out);
+    for n in 0..count {
+        assert!(
+            lines.iter().any(|l| l.ends_with(&format!(" hello {n}"))),
+            "{n}: {lines:?}"
+        );
+    }
+}
+
 #[test]
 fn a_missing_argument_is_a_usage_error() {
     let run = |args: &[&str]| Command::new(CONSOLE).args(args).output().unwrap();

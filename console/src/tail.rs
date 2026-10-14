@@ -38,10 +38,11 @@ pub struct Follower {
     unheld: usize,
 }
 
-/// A transcript of this cycle, opened where it was found.
+/// A transcript of this cycle: its directory and its name in it.
 pub struct Transcript {
     pub path: String,
-    file: File,
+    dir: String,
+    name: String,
 }
 
 // A name an agent can write may be a link to a file elsewhere: its last part
@@ -67,9 +68,19 @@ impl Follower {
         }
     }
 
-    /// The same of a transcript.
+    /// The same of a transcript. It is opened only now and closed again, so
+    /// however many there are, they take two descriptors. The directory is
+    /// opened and its file reached through that handle, so an agent that
+    /// swaps the directory for a link does not send the console elsewhere.
     pub fn transcript_lines(&mut self, transcript: &Transcript) -> Vec<String> {
-        self.read(&transcript.path, &transcript.file, true)
+        let Some(dir) = open(&transcript.dir, libc::O_DIRECTORY) else {
+            return Vec::new();
+        };
+        let held = format!("/proc/self/fd/{}/{}", dir.as_raw_fd(), transcript.name);
+        match open(&held, libc::O_NONBLOCK) {
+            Some(file) => self.read(&transcript.path, &file, true),
+            None => Vec::new(),
+        }
     }
 
     fn read(&mut self, path: &str, file: &File, transcript: bool) -> Vec<String> {
@@ -195,10 +206,10 @@ impl Follower {
             if is_day(day) && day < oldest.as_str() {
                 continue;
             }
-            // The directory is opened once and its files are reached through
-            // that handle, so an agent that swaps it for a link between the
-            // listing and the opening does not send the console elsewhere.
-            let Some(dir) = open(&format!("{runs}/{day}"), libc::O_DIRECTORY) else {
+            // Listed through a handle, for the same reason a transcript is
+            // read through one.
+            let dir_path = format!("{runs}/{day}");
+            let Some(dir) = open(&dir_path, libc::O_DIRECTORY) else {
                 continue;
             };
             let held = format!("/proc/self/fd/{}", dir.as_raw_fd());
@@ -222,9 +233,11 @@ impl Follower {
                 if !self.files.contains_key(&path) && !fresh() {
                     continue;
                 }
-                if let Some(file) = open(&format!("{held}/{name}"), libc::O_NONBLOCK) {
-                    found.push(Transcript { path, file });
-                }
+                found.push(Transcript {
+                    path,
+                    dir: dir_path.clone(),
+                    name: name.to_string(),
+                });
             }
         }
         found.sort_by(|a, b| a.path.cmp(&b.path));
