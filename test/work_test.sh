@@ -870,7 +870,7 @@ issue_is() {
   jq -n --arg body "$1" --arg who "${2:-OWNER}" '{number: 7, body: $body, author_association: $who}' >"$fx/issue.json"
 }
 images_on() {
-  rm -rf "$fx" "$T"/calls/* "$T/home/tehas/work"
+  rm -rf "$fx" "$T"/calls/* "$T/home/tehas/work" "$T/home/tehas/state/cycles/7.manifest.json" "$T/home/tehas/state/cycles/7.approved.json"
   mkdir -p "$fx/net"
   slice_good
   T_ENV=("${env_ok[@]}")
@@ -1170,6 +1170,130 @@ t_run "$work 7"
 t_eq "$(after -e | grep -c '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" 1
 t_eq "$(after -e | grep '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$inside.images"
 t_lacks "$(cat "$T"/calls/docker.args.*)" "/elsewhere"
+
+# --- The dispatcher's approval record ---------------------------------------
+record=$T/home/tehas/state/cycles/7.approved.json
+kept=$T/home/tehas/state/cycles/7.manifest.json
+# record_is <by> <body it approved> <link>...: the record of a start.
+record_is() {
+  local by=$1 body=$2
+  shift 2
+  mkdir -p "$(dirname "$record")"
+  jq -n --arg by "$by" --arg sum "$(printf %s "$body" | sha256sum | cut -d' ' -f1)" '{at: "2026-10-14T00:00:00Z", by: $by,
+    how: "label", body_sha256: $sum, links: $ARGS.positional}' --args "$@" >"$record"
+}
+
+t_case "with a record the links are the record's: one the body gained since is not fetched, and no events are read"
+images_on
+net "$A/1111" "$png"
+net "$A/2222" "$jpg"
+issue_is "![a]($A/1111) ![b]($A/2222)" NONE
+record_is alice "![a]($A/1111) ![b]($A/2222)" "$A/1111"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(manifest '.images | map(.link)')" "[\"$A/1111\"]"
+t_lacks "$(t_calls curl)" "$A/2222"
+t_lacks "$(t_calls gh)" "events"
+
+t_case "each image is listed with its sha256, and the manifest names the approval"
+pngsum=$(sha256sum "$fx/net/$(printf %s "$A/1111" | tr -c 'A-Za-z0-9' _)" | cut -d' ' -f1)
+t_eq "$(manifest '.images[0].sha256')" "\"$pngsum\""
+t_eq "$(manifest '.approval')" '{"at":"2026-10-14T00:00:00Z","by":"alice","how":"label"}'
+
+t_case "the comment lists each image with its sha256"
+t_contains "$(t_calls gh)" "- $A/1111: image-1.png, sha256 $pngsum"
+
+t_case "the manifest is kept in the state directory, and a second run of the same approval yields the same one"
+t_eq "$(cmp "$kept" "$imgs/manifest.json" && echo same)" same
+cp "$kept" "$T/kept.first"
+rm -f "$T"/calls/*
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(cmp "$kept" "$T/kept.first" && echo same)" same
+
+t_case "a link that gives other bytes for the same approval starts no cycle: exit 4, said on the issue"
+net "$A/1111" "$gif"
+rm -f "$T"/calls/*
+t_run "$work 7"
+t_eq "$t_rc" 4
+t_contains "$t_out" "tehas work: $A/1111 gave other bytes than when this approval was first fetched, not starting a cycle"
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body Tehas started no cycle: $A/1111 gave other bytes"
+t_eq "$(cmp "$kept" "$T/kept.first" && echo same)" same
+
+t_case "a new approval of the same link is not held to the bytes of the old one"
+images_on 'TEHAS_ALLOWED_LABELERS="alice bob"'
+record_is bob "![a]($A/1111) ![b]($A/2222)" "$A/1111"
+net "$A/1111" "$gif"
+issue_is "![a]($A/1111) ![b]($A/2222)" NONE
+cp "$T/kept.first" "$kept"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(manifest '.images | map(.file)')" '["image-1.gif"]'
+
+t_case "a body changed since the approval starts no cycle: exit 4, said on the issue, nothing fetched"
+images_on
+net "$A/1111" "$png"
+issue_is "![a]($A/1111) and an edit" OWNER
+record_is alice "![a]($A/1111)" "$A/1111"
+t_run "$work 7"
+t_eq "$t_rc" 4
+t_contains "$t_out" "tehas work: the issue's text is not the text that was approved: it changed after the approval, not starting a cycle"
+t_eq "$(t_calls curl)" ""
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+t_contains "$(t_calls gh)" "Tehas started no cycle: the issue's text is not the text that was approved"
+
+t_case "line ends do not count in the hash"
+images_on
+net "$A/1111" "$png"
+issue_is "line one"$'\r\n'"![a]($A/1111)" OWNER
+record_is alice "line one"$'\n'"![a]($A/1111)" "$A/1111"
+t_run "$work 7"
+t_eq "$t_rc" 2
+
+t_case "a record that cannot be read starts no cycle: exit 4"
+images_on
+issue_is "Words only." OWNER
+mkdir -p "$(dirname "$record")"
+echo '{"by": "alice"}' >"$record"
+t_run "$work 7"
+t_eq "$t_rc" 4
+t_contains "$t_out" "the approval record $record could not be read"
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+
+t_case "a link in the record that is not of GitHub's storage is not fetched"
+images_on
+net "$A/1111" "$png"
+issue_is "Words." NONE
+record_is alice "Words." "https://example.com/x.png" "$A/1111"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(manifest '.images | map(.link)')" "[\"$A/1111\"]"
+t_lacks "$(t_calls curl)" "example.com"
+
+t_case "a record by an account no longer allowed approves nothing: an outsider's issue is given no image"
+images_on
+net "$A/1111" "$png"
+issue_is "![a]($A/1111)" NONE
+record_is mallory "![a]($A/1111)" "$A/1111"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(t_calls curl)" ""
+t_eq "$(manifest '.images')" "[]"
+
+t_case "a record that is a link is not read: the issue is read as by hand"
+images_on
+net "$A/1111" "$png"
+issue_is "![a]($A/1111)" NONE
+labelled_by alice
+record_is mallory "other" "$A/2222"
+mv "$record" "$T/elsewhere.json"
+ln -s "$T/elsewhere.json" "$record"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(manifest '[(.images | map(.link)), .approval]')" "[[\"$A/1111\"],null]"
+t_contains "$(t_calls gh)" "events"
+rm -f "$record"
 
 t_case "a cycle the push check stopped leaves no copy of the index beside its workspace"
 images_on

@@ -14,8 +14,8 @@
 #                was still running.
 #              3 the sandbox cannot push to the repository; no cycle was started.
 #              4 the instance gives a cycle the issue's images and one could
-#                not be fetched, or the issue could not be read for them; no
-#                cycle was started.
+#                not be fetched, the issue could not be read for them, or its
+#                text or a file is not what was approved; no cycle was started.
 #              5 a cycle for this issue is running already; nothing was
 #                touched.
 #
@@ -56,17 +56,24 @@
 #   which     Links to GitHub's own attachment storage in the issue's text.
 #             Comments are not read: the label that starts a cycle approves the
 #             text, and a comment can arrive after it. Only when an allowed
-#             account applied the last tehas:ready, or the issue was opened by
-#             an owner, member or collaborator.
+#             account approved the start, or the issue was opened by an owner,
+#             member or collaborator. Where the dispatcher left its approval
+#             record, state/cycles/<issue>.approved.json, the links are the
+#             record's and the approver its own; a body whose hash is not the
+#             record's stops the start. By hand, without a record, the links are
+#             the body's and the approver is who applied the last tehas:ready.
 #   types     png, jpg, webp and gif, told by the file's first bytes. Not svg:
 #             it is text and can carry instructions.
 #   how much  At most 8 images and 10 megabytes together.
 # They go to $TEHAS_HOME/work/<name>-<issue>.images, beside the workspace and
 # not in it, so a patch cannot commit them, under names made here, with a
-# manifest.json that lists each file, the link it came from, its type and size,
-# and what was left out and why. The directory is remade for every cycle. An
-# image that is left out is said in a comment on the issue. An image that could
-# not be fetched stops the start: a cycle that works without a picture the
+# manifest.json that lists each file, the link it came from, its type, size
+# and sha256, the approval, and what was left out and why. The directory is
+# remade for every cycle. The manifest is kept as
+# state/cycles/<issue>.manifest.json, and a later fetch of the same approval
+# whose link gives other bytes stops the start. An image that is left out is
+# said in a comment on the issue, and each one given with its sha256. An image
+# that could not be fetched stops the start: a cycle that works without a picture the
 # issue relies on builds the wrong thing. The comment says whether the sandbox
 # image's pi-rukas reads the images at all: whether it has the file that reads
 # them is asked of the image once per image id, and the answer is left in
@@ -173,6 +180,9 @@ cid_file=$TEHAS_HOME/state/cycles/$issue.cid
 oom_file=$TEHAS_HOME/state/cycles/$issue.oom
 forks_file=$TEHAS_HOME/state/cycles/$issue.forks
 stall_file=$TEHAS_HOME/state/cycles/$issue.stalled
+# What the dispatcher approved, and the manifest of the last fetch, kept.
+record=$TEHAS_HOME/state/cycles/$issue.approved.json
+kept=$TEHAS_HOME/state/cycles/$issue.manifest.json
 stall=$TEHAS_WORK_STALL
 preflight_wait=${TEHAS_PREFLIGHT_WAIT:-300}
 stop_wait=${TEHAS_STOP_WAIT:-60}
@@ -220,23 +230,31 @@ if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces"; }; then
 fi
 image_opts=()
 if [ "$TEHAS_WORK_IMAGES" = 1 ]; then
-  # The label approved the text, links and all. A retry tick needs no rule of
-  # its own: the dispatcher checks the text against the tick, and the label
-  # that first started the issue is still the last one applied.
   approved=""
-  tehas_label_allowed "$issue" tehas:ready
-  case $? in
-    0) approved=approved ;;
-    2) approved=unread ;;
-  esac
+  if [ -f "$record" ] && [ ! -L "$record" ]; then
+    # The dispatcher's record of the start: who approved and which links.
+    from=$record
+    tehas_allowed_labeler "$(jq -r '.by // ""' "$record" 2>/dev/null)" && approved=approved
+  else
+    # By hand. The label approved the text, links and all.
+    from=""
+    tehas_label_allowed "$issue" tehas:ready
+    case $? in
+      0) approved=approved ;;
+      2) approved=unread ;;
+    esac
+  fi
   image_why="the issue's label events could not be read for its images"
-  if [ "$approved" = unread ] || ! tehas_issue_images "$issue" "$images" "$approved"; then
+  if [ "$approved" = unread ] || ! tehas_issue_images "$issue" "$images" "$approved" "$from" ||
+    ! tehas_issue_images_changed "$kept" "$images"; then
     rm -rf "$images"
     echo "tehas work: $image_why, not starting a cycle" >&2
     gh issue comment "$issue" --repo "$TEHAS_REPO" --body "Tehas started no cycle: $image_why. This instance gives a cycle the images an issue links, and a cycle that works without one of them may build the wrong thing. To retry, apply \`tehas:ready\`." >/dev/null 2>&1 ||
       echo "tehas work: the comment on #$issue failed" >&2
     exit 4
   fi
+  { cp "$images/manifest.json" "$kept.new" && mv "$kept.new" "$kept"; } 2>/dev/null ||
+    echo "tehas work: could not keep the manifest as $kept" >&2
   said=$(tehas_issue_images_said "$images" cycle "$(tehas_images_read "$image")")
   if [ -n "$said" ]; then
     gh issue comment "$issue" --repo "$TEHAS_REPO" --body "$said" >/dev/null 2>&1 ||

@@ -45,6 +45,8 @@ case "$1 $2" in
   "issue edit")
     # What the host had on record at the moment an issue was marked as planning.
     case "$*" in *"--add-label tehas:planning"*) cat "$T/home/tehas/state/plan-$3.json" >"$T/calls/record.at-mark" 2>/dev/null ;; esac
+    # And the approval record at the moment an issue was marked as running.
+    case "$*" in *"--add-label tehas:running"*) cat "$T/home/tehas/state/cycles/$3.approved.json" >"$T/calls/approved.at-mark" 2>/dev/null ;; esac
     [ ! -e "$T/fx/edit-fails" ] || exit 1
     # An edit whose arguments contain the text in edit-fails-on fails.
     if [ -s "$T/fx/edit-fails-on" ]; then
@@ -416,6 +418,41 @@ t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls gh | grep -c '^api repos/acme/widget/issues/7$')" 0
 t_eq "$(t_calls fake-start)" ""
+
+approved_file=$T/home/tehas/state/cycles/7.approved.json
+A=https://github.com/user-attachments/assets
+t_case "a start writes the approval record before the label changes: who, when, how, the body's hash and its links"
+reset
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-01-01T00:00:00Z"}]' >"$fx/events-7.json"
+jq -n --arg body "See ![a]($A/1111)"$'\r\n'"and ![b]($A/2222) and again $A/1111, not https://example.com/c.png" \
+  '{data: {repository: {issue: {lastEditedAt: null, editor: null, body: $body}}}}' >"$fx/edit-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+sum=$(printf 'See ![a](%s/1111)\nand ![b](%s/2222) and again %s/1111, not https://example.com/c.png' "$A" "$A" "$A" | sha256sum | cut -d' ' -f1)
+t_eq "$(jq -c . "$T/calls/approved.at-mark" 2>&1)" \
+  "{\"at\":\"2026-01-01T00:00:00Z\",\"by\":\"alice\",\"how\":\"label\",\"body_sha256\":\"$sum\",\"links\":[\"$A/1111\",\"$A/2222\"]}"
+t_eq "$(cmp "$approved_file" "$T/calls/approved.at-mark" && echo same)" same
+
+t_case "an issue with no body is approved with the hash of nothing and no links"
+reset
+t_run "$dispatch"
+t_eq "$(jq -c '[.body_sha256, .links]' "$approved_file")" "[\"$(printf '' | sha256sum | cut -d' ' -f1)\",[]]"
+
+t_case "a dry run writes no record"
+reset
+t_run "$dispatch --dry-run"
+t_eq "$(find "$approved_file" 2>/dev/null | wc -l)" 0
+
+t_case "a record that cannot be written starts nothing and changes no label: exit 1"
+reset
+mkdir -p "$approved_file.new"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: could not write the approval record of #7, not starting a cycle"
+t_lacks "$(t_calls gh)" "issue edit"
+t_eq "$(t_calls fake-start)" ""
+rmdir "$approved_file.new"
 
 # The seam between the two commands. A cycle the poll started can find its
 # issue closed when it asks, and refuse it. It claimed its place before it
@@ -1377,6 +1414,9 @@ t_eq "$(t_calls fake-start)" "7"
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label needs-human-attention --remove-label tehas:question"
 t_contains "$(t_calls gh)" "authorized by @alice's retry tick"
 t_contains "$t_out" "start #7 (retry ticked by alice)"
+
+t_case "a retry tick writes the approval record with the tick's time, before the label changes"
+t_eq "$(jq -c '[.by, .how, .at]' "$T/calls/approved.at-mark" 2>&1)" '["alice","retry-tick","2026-01-01T01:00:00Z"]'
 
 t_case "the question that was answered is used up by the start"
 t_eq "$([ -e "$park_id" ] && echo kept)" ""
@@ -2854,7 +2894,7 @@ bare_tree() {
   rm -rf "$tree"
   mkdir -p "$tree/libexec" "$tree/lib"
   cp "$dispatch" "$tree/libexec/dispatch"
-  cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/cycles.sh" "$T_ROOT/lib/labels.sh" "$T_ROOT/lib/questions.sh" "$T_ROOT/lib/planning.sh" "$T_ROOT/lib/slice.sh" "$tree/lib/"
+  cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/cycles.sh" "$T_ROOT/lib/labels.sh" "$T_ROOT/lib/questions.sh" "$T_ROOT/lib/planning.sh" "$T_ROOT/lib/slice.sh" "$T_ROOT/lib/attachments.sh" "$tree/lib/"
   for name in status index plan; do cp "$T/bin/fake-$name" "$tree/libexec/$name"; done
   for name in tehas tehasbot tehas-work tehas-status tehas-index tehas-plan; do t_stub "$name"; done
 }

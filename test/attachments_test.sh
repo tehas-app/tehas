@@ -105,13 +105,65 @@ t_eq "$(taken)" '[["image-1.png"],[]]'
 t_case "the comment says the images were given only when the sandbox image reads them"
 said=". $T_ROOT/lib/attachments.sh; tehas_issue_images_said $T/images cycle"
 t_run "$said"
-t_eq "$t_out" "Tehas gave this cycle 1 image from the issue text."
+t_eq "$(head -n 1 <<<"$t_out")" "Tehas gave this cycle 1 image from the issue text."
 t_run "$said yes"
-t_eq "$t_out" "Tehas gave this cycle 1 image from the issue text."
+t_eq "$(head -n 1 <<<"$t_out")" "Tehas gave this cycle 1 image from the issue text."
 t_run "$said no"
-t_eq "$t_out" "Tehas fetched 1 image from the issue text for this cycle, but the pi-rukas in the sandbox image does not read them: its agents are not shown them."
+t_eq "$(head -n 1 <<<"$t_out")" "Tehas fetched 1 image from the issue text for this cycle, but the pi-rukas in the sandbox image does not read them: its agents are not shown them."
 t_run "$said unknown"
-t_eq "$t_out" "Tehas gave this cycle 1 image from the issue text. Whether the pi-rukas in the sandbox image reads them could not be checked."
+t_eq "$(head -n 1 <<<"$t_out")" "Tehas gave this cycle 1 image from the issue text. Whether the pi-rukas in the sandbox image reads them could not be checked."
+
+pngsum=$(sha256sum "$T/png" | cut -d' ' -f1)
+t_case "each image is recorded with its sha256, and the comment lists them"
+t_eq "$(jq -r '.images[0].sha256' "$T/images/manifest.json")" "$pngsum"
+t_run "$said"
+t_eq "$t_out" "Tehas gave this cycle 1 image from the issue text.
+
+- https://github.com/user-attachments/assets/1111: image-1.png, sha256 $pngsum"
+
+t_case "without a record the manifest names no approval"
+t_eq "$(jq -c .approval "$T/images/manifest.json")" null
+
+# record <body>: an approval record of that body, with the one link.
+record() {
+  jq -n --arg sum "$(printf %s "$1" | sha256sum | cut -d' ' -f1)" \
+    '{at: "2026-10-14T00:00:00Z", by: "alice", how: "label", body_sha256: $sum, links: ["https://github.com/user-attachments/assets/1111"]}' >"$T/record.json"
+}
+t_case "with a record whose hash is the body's, the record's links are fetched and the approval named"
+outsider NONE
+record "See ![shot](https://github.com/user-attachments/assets/1111)"
+t_run "$images approved $T/record.json"
+t_eq "$t_rc" 0
+t_eq "$(taken)" '[["image-1.png"],[]]'
+t_eq "$(jq -c .approval "$T/images/manifest.json")" '{"at":"2026-10-14T00:00:00Z","by":"alice","how":"label"}'
+
+t_case "with a record of another body nothing is fetched, and the reason says the text changed"
+rm -f "$T"/calls/*
+record "See nothing"
+t_run "$images approved $T/record.json; echo \"\$image_why\""
+t_eq "$t_rc" 0
+t_eq "$t_out" "the issue's text is not the text that was approved: it changed after the approval"
+t_eq "$(t_calls curl)" ""
+
+t_case "the same link of the same approval must give the same bytes"
+record "See ![shot](https://github.com/user-attachments/assets/1111)"
+t_run "$images approved $T/record.json"
+cp "$T/images/manifest.json" "$T/kept.json"
+changed="$lib; tehas_issue_images_changed $T/kept.json $T/images || { echo \"\$image_why\"; exit 1; }"
+t_run "$changed"
+t_eq "$t_rc$t_out" "0"
+jq '.images[0].sha256 = "0000"' "$T/images/manifest.json" >"$T/kept.json"
+t_run "$changed"
+t_eq "$t_rc $t_out" "1 https://github.com/user-attachments/assets/1111 gave other bytes than when this approval was first fetched"
+jq '.images[0].sha256 = "0000" | .approval.at = "2026-10-15T00:00:00Z"' "$T/images/manifest.json" >"$T/kept.json"
+t_run "$changed"
+t_eq "$t_rc$t_out" "0"
+jq '.images[0].sha256 = "0000" | .approval = null' "$T/images/manifest.json" >"$T/kept.json"
+t_run "$changed"
+t_eq "$t_rc$t_out" "0"
+rm -f "$T/kept.json"
+t_run "$changed"
+t_eq "$t_rc$t_out" "0"
 
 # --- Whether the sandbox image reads them ------------------------------------
 t_stub docker 'case "$1 $2" in "image inspect") cat "$T/image.id" ;; *) exit "${READS_RC:-0}" ;; esac'

@@ -94,6 +94,14 @@
 # [30]), TEHAS_CGROUP_ROOT (in place of /sys/fs/cgroup) and TEHAS_FETCH_WAIT
 # (seconds the fetch of the checkout may take [120]).
 #
+# Before a start changes any label, the poll writes what it rests on to
+# $TEHAS_HOME/state/cycles/<issue>.approved.json: {at, by, how, body_sha256,
+# links}. Who approved and when, by the label or a retry tick, a sha256 of the
+# body that approval was checked against (carriage returns dropped), and the
+# links to GitHub's attachment storage in that body. tehas work fetches those
+# links and no others, and only while the body still has that hash. A record
+# that cannot be written starts nothing, exit 1.
+#
 # A real poll that gets as far as rule 3 writes $TEHAS_HOME/live/dispatch.json:
 # what holds cycles back, if anything, and the slice's numbers. tehasbot
 # health copies it for tehas status. A hold is logged once, when its reason
@@ -148,6 +156,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/slice.sh"
 # shellcheck source=lib/labels.sh
 . "$here/../lib/labels.sh"
+# shellcheck source=lib/attachments.sh
+. "$here/../lib/attachments.sh"
 tehas_load || exit 78
 # shellcheck source=lib/questions.sh
 . "$here/../lib/questions.sh"
@@ -431,6 +441,9 @@ clear_unauthorised() {
 # A title or body changed afterwards by anyone else has not been approved by
 # anybody: the issue waits until an allowed account approves it again. Returns
 # 1, with the reason logged, if that happened.
+# The body comes in the same answer as the edit record, so the text kept in
+# $text_of for the approval record is the text this check passed.
+declare -A text_of=()
 unchanged_since() {
   local n=$1 since=$2 what=$3 again=${4:-apply the label again} renamed edited editors edited_at stale e
   [ "$events_for" = "$n" ] || issue_events "$n"
@@ -440,7 +453,8 @@ unchanged_since() {
   # shellcheck disable=SC2016  # $owner, $name and $number are GraphQL variables
   gh_json api graphql -F owner="${repo%%/*}" -F name="${repo##*/}" -F number="$n" \
     -f query='query($owner: String!, $name: String!, $number: Int!) {
-      repository(owner: $owner, name: $name) { issue(number: $number) { lastEditedAt editor { login } } } }'
+      repository(owner: $owner, name: $name) { issue(number: $number) { lastEditedAt editor { login } body } } }'
+  text_of[$n]=$json
   edited=$(jq -r '.data.repository.issue | "\(.editor.login // "") \(.lastEditedAt // "")"' <<<"$json") ||
     { log "ERROR: unreadable edit record of #$n"; exit 1; }
   editors=$renamed
@@ -491,9 +505,22 @@ wait_for() {
 
 # What a poll will start, and on whose word: the issues in $picked and, for
 # each, who authorised it, the word for how in the log and in the comment, and
-# the gh issue edit options that take it out of the queue it came from.
+# the gh issue edit options that take it out of the queue it came from. For
+# the approval record: when it was given and how, in one word.
 picked=()
-declare -A starter=() verb=() how=() drop=()
+declare -A starter=() verb=() how=() drop=() given_at=() given_how=()
+
+# approved_record <issue>: write state/cycles/<issue>.approved.json. Returns 1
+# when it could not be written.
+approved_record() {
+  local n=$1 file=$TEHAS_HOME/state/cycles/$1.approved.json sum
+  [ -n "${text_of[$n]:-}" ] || return 1
+  sum=$(jq '.data.repository.issue // {}' <<<"${text_of[$n]}" | tehas_body_sha256) || return 1
+  jq --arg at "${given_at[$n]}" --arg by "${starter[$n]}" --arg how "${given_how[$n]}" --arg sum "$sum" \
+    "$(tehas_attachment_links)"'{at: $at, by: $by, how: $how, body_sha256: $sum,
+      links: (.data.repository.issue.body // "" | links | reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end))}' \
+    <<<"${text_of[$n]}" >"$file.new" 2>/dev/null && mv "$file.new" "$file"
+}
 
 # Without systemd's answer every picked issue would be marked running and then
 # parked, at every poll. A shell without the user's bus gets none.
@@ -553,6 +580,11 @@ start_cycles() {
   for n in "${picked[@]}"; do
     log "start #$n (${verb[$n]} by ${starter[$n]})"
     read -ra out <<<"${drop[$n]}"
+    if ! approved_record "$n"; then
+      rm -f "$TEHAS_HOME/state/cycles/$n.approved.json.new"
+      log "ERROR: could not write the approval record of #$n, not starting a cycle"
+      exit 1
+    fi
     # The cycle starts only once the issue is marked as taken. If the label
     # cannot be changed, the issue would stay in its queue and every later
     # poll would start the same issue again.
@@ -927,6 +959,8 @@ for n in $asking; do
       starter[$n]=$by
       verb[$n]="retry ticked"
       how[$n]="retry tick"
+      given_at[$n]=$(jq -r .tick.at <<<"$ans")
+      given_how[$n]=retry-tick
       drop[$n]="--remove-label needs-human-attention --remove-label tehas:question"
       # A tehas:ready left on the issue would start a second cycle after this
       # one: one start uses up every request for it.
@@ -1094,6 +1128,8 @@ for n in $candidates; do
   starter[$n]=$who
   verb[$n]=labelled
   how[$n]="\`tehas:ready\` label"
+  given_at[$n]=$at
+  given_how[$n]=label
   drop[$n]="--remove-label tehas:ready"
   # What an earlier cycle left on the issue goes with the start. Only what
   # is there: gh refuses to remove a label the repository does not have.

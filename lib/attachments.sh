@@ -75,7 +75,7 @@ tehas_attachment_fetch() { # <address> <file> <most bytes> [<token>]
 # The images an issue links, for a container that is given them: tehas work
 # and tehas plan. The rules are written in libexec/work's header.
 #
-#   tehas_issue_images <issue> <dir> [approved]
+#   tehas_issue_images <issue> <dir> [approved] [record]
 #                                     remake <dir> from the issue's text, with
 #                                     a manifest.json; uses TEHAS_REPO and
 #                                     GH_TOKEN. Returns 1, with the reason in
@@ -85,7 +85,14 @@ tehas_attachment_fetch() { # <address> <file> <most bytes> [<token>]
 #                                     approved the text with its label: the
 #                                     images are then taken whoever opened the
 #                                     issue. Without it, only when an owner,
-#                                     member or collaborator opened it
+#                                     member or collaborator opened it. With
+#                                     the dispatcher's approval record, the
+#                                     links are the record's, and only while
+#                                     the body has the hash it approved
+#   tehas_issue_images_changed <kept manifest> <dir>
+#                                     returns 1, with the reason in $image_why,
+#                                     when both are of the same approval and a
+#                                     link gave other bytes this time
 #   tehas_issue_images_said <dir> <what> [yes|no|unknown]
 #                                     the comment that says what <what> (a
 #                                     cycle, a planning session) was given;
@@ -112,8 +119,19 @@ tehas_image_type() {
 }
 
 # shellcheck disable=SC2034  # the caller reads what this sets
-tehas_issue_images() { # <issue> <dir> [approved]
-  local issue=$1 images=$2 approved=${3:-} data who ref name ext size rc left used=0 count=0
+# tehas_body_sha256: the sha256 of an issue's body, given the issue as JSON on
+# standard input. Carriage returns are dropped: the dispatcher reads the body
+# from GraphQL and tehas work from REST, and only line ends may differ.
+tehas_body_sha256() {
+  local sum
+  sum=$(jq -j '(.body // "") | gsub("\r"; "")' | sha256sum) || return 1
+  sum=${sum%% *}
+  [[ $sum =~ ^[0-9a-f]{64}$ ]] || return 1
+  echo "$sum"
+}
+
+tehas_issue_images() { # <issue> <dir> [approved] [record]
+  local issue=$1 images=$2 approved=${3:-} record=${4:-} data who ref name ext size rc left sum given=null used=0 count=0
   local limit=$((10 * 1024 * 1024)) max=8
   local other="Not a png, jpg, webp or gif image." over="Over the 10 MB limit of an issue."
   image_why="the directory for the issue's images could not be made"
@@ -125,6 +143,20 @@ tehas_issue_images() { # <issue> <dir> [approved]
   data=$(gh api "repos/$TEHAS_REPO/issues/$issue" 2>/dev/null) || return 1
   jq -e 'type == "object" and (.body == null or (.body | type) == "string")' <<<"$data" >/dev/null 2>&1 || return 1
   who=$(jq -r '.author_association // ""' <<<"$data")
+  # The links as the approval saw them. A body changed since was not approved,
+  # and no record of which links were approved is no ground to fetch any.
+  if [ -n "$record" ]; then
+    image_why="the approval record $record could not be read"
+    jq -e 'type == "object" and (.body_sha256 | type) == "string" and (.links | type) == "array"
+      and (.at | type) == "string" and (.by | type) == "string" and (.how | type) == "string"' "$record" >/dev/null 2>&1 || return 1
+    image_why="the issue's text could not be read for its hash"
+    sum=$(tehas_body_sha256 <<<"$data") || return 1
+    if [ "$sum" != "$(jq -r .body_sha256 "$record")" ]; then
+      image_why="the issue's text is not the text that was approved: it changed after the approval"
+      return 1
+    fi
+    given=$(jq -c '{at, by, how}' "$record") || return 1
+  fi
 
   while IFS= read -r ref; do
     [ -n "$ref" ] || continue
@@ -165,17 +197,36 @@ tehas_issue_images() { # <issue> <dir> [approved]
       image_why="the issue's images could not be written"
       return 1
     fi
+    sum=$(sha256sum "$images/image-$count.$ext") || { image_why="the issue's images could not be read back"; return 1; }
     jq -n -c --arg file "image-$count.$ext" --arg link "$ref" --arg type "image/${ext/jpg/jpeg}" --argjson bytes "$size" \
-      '{file: $file, link: $link, type: $type, bytes: $bytes}' >>"$images/.taken"
-  done < <(jq -r "$(tehas_attachment_links)"'
-    (.body // "") | links | reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end) | .[]' <<<"$data")
+      --arg sum "${sum%% *}" '{file: $file, link: $link, type: $type, bytes: $bytes, sha256: $sum}' >>"$images/.taken"
+  done < <(if [ -n "$record" ]; then
+    # Only links of the shape this file takes, whatever the record holds.
+    jq -r "$(tehas_attachment_links)"'.links[] | strings | select(links == [.])' "$record"
+  else
+    jq -r "$(tehas_attachment_links)"'(.body // "") | links | .[]' <<<"$data"
+  fi | awk '!seen[$0]++')
 
   image_why="the issue's images could not be written"
-  jq -n --argjson issue "$issue" --slurpfile images "$images/.taken" --slurpfile left "$images/.left" \
-    '{images: $images, leftOut: $left} + {issue: $issue}' >"$images/manifest.json" || return 1
+  jq -n --argjson issue "$issue" --argjson given "$given" --slurpfile images "$images/.taken" --slurpfile left "$images/.left" \
+    '{images: $images, leftOut: $left} + {issue: $issue, approval: $given}' >"$images/manifest.json" || return 1
   rm -f "$images/.part" "$images/.taken" "$images/.left"
   { chmod 755 "$images" && chmod 644 "$images/manifest.json"; } || return 1
   image_why=""
+}
+
+# The same link of the same approval must give the same bytes: what was
+# approved is what a retry of it fetches. Without an approval on either side
+# there is nothing to hold them to.
+# shellcheck disable=SC2034  # the caller reads what this sets
+tehas_issue_images_changed() { # <kept manifest> <dir>
+  local link
+  [ -f "$1" ] && [ ! -L "$1" ] || return 0
+  link=$(jq -r --slurpfile new "$2/manifest.json" '
+    select(.approval != null and .approval == $new[0].approval)
+    | [.images[]? | {(.link): .sha256}] | add // {} | . as $old
+    | $new[0].images[] | select($old[.link] != null and $old[.link] != .sha256) | .link' "$1" 2>/dev/null | head -n 1)
+  [ -z "$link" ] || { image_why="$link gave other bytes than when this approval was first fetched"; return 1; }
 }
 
 # The links are of the shape tehas_attachment_links takes and the reasons are
@@ -187,6 +238,7 @@ tehas_issue_images_said() { # <dir> <what> [yes|no|unknown]
     | if $reads == "no" then "Tehas fetched \($n) for this \($what), but the pi-rukas in the sandbox image does not read them: its agents are not shown them."
       elif $reads == "yes" then "Tehas gave this \($what) \($n)."
       else "Tehas gave this \($what) \($n). Whether the pi-rukas in the sandbox image reads them could not be checked." end
+      + (if (.images | length) > 0 then "\n\n" + (.images | map("- \(.link): \(.file), sha256 \(.sha256)") | join("\n")) else "" end)
       + (if (.leftOut | length) > 0 then "\n\nLeft out:\n" + (.leftOut | map("- \(.link): \(.reason)") | join("\n")) else "" end)' \
     "$1/manifest.json" 2>/dev/null
 }

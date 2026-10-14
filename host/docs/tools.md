@@ -205,6 +205,16 @@ says `wait #N: its cycle is still running`, and the issue is taken once that
 cycle has ended. Every list of issues is read up to 1000. A cycle starts only once the
 issue is marked `tehas:running`; if that label change fails, the poll stops.
 
+Before it marks an issue, the poll writes what the start rests on to
+`~/tehas/state/cycles/<issue>.approved.json`: `at` and `by`, when and by whom
+it was approved, `how` (`label` or `retry-tick`), `body_sha256`, the sha256 of
+the body that approval was checked against with carriage returns dropped, and
+`links`, the links to GitHub's attachment storage in that body. The body is
+read in the same call as the record of who last edited it, so it is the text
+the check passed. [tehas work](#tehas-work) fetches those links and no others.
+A record that cannot be written starts nothing: `ERROR: could not write the
+approval record of #N, not starting a cycle`, exit 1, and no label changes.
+
 ## tehas work
 
 One pi-rukas `/work` cycle, headless, in the sandbox image.
@@ -233,7 +243,7 @@ removed before the new one starts.
 | 1    | The cycle ended as `aborted`                                     |
 | 2    | Pi exited, the time limit passed, or the cycle stalled, while it was running |
 | 3    | The sandbox cannot push to the repository; no cycle was started  |
-| 4    | With `TEHAS_WORK_IMAGES=1`: an image the issue links could not be fetched, or the issue could not be read for its images; no cycle was started |
+| 4    | With `TEHAS_WORK_IMAGES=1`: an image the issue links could not be fetched, the issue could not be read for its images, its text is not the text that was approved, or a file is not the one first fetched for the approval; no cycle was started |
 | 5    | A cycle for this issue is running already: its lock `~/tehas/state/cycles/<issue>.lock` is held. Nothing was moved and no container started |
 | 64   | No bot token or no git identity; no cycle was started            |
 | 78   | The instance settings are invalid, or `tehas.slice` is missing, has no memory limit, or cannot be used (the message names `sudo ./bootstrap.sh slice` or the reason); no cycle was started |
@@ -294,10 +304,16 @@ instance sets it. The images are fetched before anything else is made:
 
 - **Which.** Links to GitHub's own attachment storage in the issue text.
   Comments are not read: `tehas:ready` approves the text, and a comment can
-  arrive after the label. Only when an allowed account applied the last
-  `tehas:ready`, which approves the text with its links, or when the issue was
-  opened by an owner, member or collaborator of the repository. The labeller
-  is read from the issue's events; when they cannot be read nothing starts,
+  arrive after the label. Only when an allowed account approved the start,
+  which approves the text with its links, or when the issue was opened by an
+  owner, member or collaborator of the repository. When the dispatcher left
+  its approval record, `~/tehas/state/cycles/<issue>.approved.json`, and it
+  is a file and not a link, the links are the record's and the approver is its
+  `by`. The body is read again and must have the record's hash: a body changed
+  since the approval starts nothing, exit 4, said on the issue. A record that
+  cannot be read stops the start the same way. Without a record, by hand, the
+  links are the body's and the approver is who applied the last `tehas:ready`,
+  read from the issue's events; when they cannot be read nothing starts,
   exit 4.
 - **Types.** png, jpg, webp and gif, told by the file's first bytes and not by
   its name. Not svg: it is text and can carry instructions.
@@ -307,10 +323,15 @@ instance sets it. The images are fetched before anything else is made:
 On the host they are in `~/tehas/work/<name>-<issue>.images`, beside the
 workspace and not in it, so no patch can commit them. The files are named
 `image-1.png`, `image-2.jpg` and so on, and `manifest.json` lists each with
-the link it came from, its type and its size, and every link that was left
-out with the reason. The directory is remade for every cycle and removed by
+the link it came from, its type, its size and its sha256, the approval it was
+fetched for (`at`, `by` and `how` of the record, or null by hand), and every
+link that was left out with the reason. The manifest is kept as
+`~/tehas/state/cycles/<issue>.manifest.json`. When the next fetch is for the
+same approval, a restart of the same cycle, a link that gives other bytes than
+the kept manifest says stops the start with exit 4 and the link named. The directory is remade for every cycle and removed by
 `tehasbot cycle` when the cycle is over. A comment on the issue says how many
-images the cycle was given and what was left out. An image that could not be
+images the cycle was given, each with its link and sha256, and what was left
+out. An image that could not be
 fetched stops the start with exit 4, and the comment names it: the issue is
 parked, and `tehas:ready` tries again.
 
