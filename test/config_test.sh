@@ -25,6 +25,23 @@ t_run "$load && bash -c 'echo \$TEHAS_VERIFY_TIMEOUT \$PI_ENSEMBLE_VERIFY_TIMEOU
 t_eq "$t_out" "600 600000 600000"
 t_instance "${T_MINIMAL[@]}"
 
+t_case "a cycle may go an hour without a line in its logs unless the instance says otherwise"
+t_run "$load && echo \$TEHAS_WORK_STALL"
+t_eq "$t_out" "3600"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_STALL=2400
+t_run "$load && echo \$TEHAS_WORK_STALL"
+t_eq "$t_out" "2400"
+
+t_case "a stall limit that is not longer than a gate's run is refused"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_STALL=1800
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "TEHAS_WORK_STALL (1800) is not longer than TEHAS_VERIFY_TIMEOUT (1800)"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_STALL=1000 TEHAS_VERIFY_TIMEOUT=600
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=0"
+t_instance "${T_MINIMAL[@]}"
+
 t_case "an instance can lower the workstreams, and pi-rukas is told the same number"
 t_instance "${T_MINIMAL[@]}" TEHAS_CONCURRENCY=1
 t_run "$load && echo \"\$TEHAS_CONCURRENCY \$PI_ENSEMBLE_MAX_WORKSTREAMS\""
@@ -131,7 +148,7 @@ for bad in "TEHAS_REPO=widget" "TEHAS_REPO=a/b/c" "TEHAS_CONTROL_ISSUE=abc" "TEH
   t_contains "$t_out" "tehas: ${bad%%=*} is not valid"
 done
 
-for bad in "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=two" "TEHAS_MAX_AWAITING=-1" "TEHAS_WORK_TIMEOUT=soon" "TEHAS_HOST_ADDR=not an address" \
+for bad in "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=two" "TEHAS_MAX_AWAITING=-1" "TEHAS_WORK_TIMEOUT=soon" "TEHAS_WORK_STALL=0" "TEHAS_WORK_STALL=1h" "TEHAS_HOST_ADDR=not an address" \
   "TEHAS_BRANCH=two words" "TEHAS_INDEXING=yes" "TEHAS_WORK_IMAGES=yes" "TEHAS_WORK_IMAGES=2" "TEHAS_ANALYTICS_SRC=http://plain.example/ea.js" \
   "TEHAS_ANALYTICS_SRC=https://a.example/x.js\" onload=\"x" "TEHAS_ANALYTICS_SITE=two words" \
   "TEHAS_ANALYTICS_COOKIE=yes" "TEHAS_PROTOLAB_URL=https://lab.example/" "TEHAS_PROTOLAB_URL=lab.example" \

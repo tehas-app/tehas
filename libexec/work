@@ -10,7 +10,8 @@
 #
 # Exit status: 0 the cycle ended as merged or handoff (parked for a human),
 #              1 it ended as aborted,
-#              2 Pi exited or the time limit passed while it was still running.
+#              2 Pi exited, the time limit passed or the cycle stalled while it
+#                was still running.
 #              3 the sandbox cannot push to the repository; no cycle was started.
 #              4 the instance gives a cycle the issue's images and one could
 #                not be fetched, or the issue could not be read for them; no
@@ -27,6 +28,8 @@
 #   TEHAS_WORK_REPO     the product checkout a cycle is cloned from
 #                       [$TEHAS_HOME/repos/<name>]
 #   TEHAS_WORK_TIMEOUT  seconds before giving up [21600]
+#   TEHAS_WORK_STALL    seconds with no line added to any of the cycle's logs
+#                       before it is stopped as stalled [3600]
 #   TEHAS_CYCLE_RESERVE the container's memory floor [2g]
 #   TEHAS_WORK_IMAGES   1 gives the cycle the images its issue links [0]
 #
@@ -82,6 +85,14 @@
 #
 # The agents' transcripts go to ~/.pi/agent/ensemble-runs/issue-<issue>, so a
 # cycle sees its own and the console shows no other cycle's agents.
+#
+# A cycle that writes nothing is stopped before its time limit. While Pi's
+# stream, its error stream and the agents' transcripts all stay as they are for
+# TEHAS_WORK_STALL seconds, the cycle is taken as stalled: a step that hangs
+# on a child process, or a gate that never returns, does not hold a slot for
+# hours. The status is then "stalled", and state/cycles/<issue>.stalled holds
+# the seconds for tehasbot cycle. The limit is longer than one run of the
+# product's gate may take, which can print nothing.
 set -uo pipefail
 
 issue=${1:-}
@@ -130,6 +141,8 @@ runs=$agent/ensemble-runs/issue-$issue
 cid_file=$TEHAS_HOME/state/cycles/$issue.cid
 oom_file=$TEHAS_HOME/state/cycles/$issue.oom
 forks_file=$TEHAS_HOME/state/cycles/$issue.forks
+stall_file=$TEHAS_HOME/state/cycles/$issue.stalled
+stall=$TEHAS_WORK_STALL
 
 [ -n "${GH_TOKEN:-}" ] || { echo "tehas work: GH_TOKEN is not set (source ~/tehas/env.sh)" >&2; exit 64; }
 mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state/cycles"
@@ -211,7 +224,7 @@ rm "$fifo"
 
 # Docker refuses a cid file that is already there. One is left only by a cycle
 # that was killed outright, and so is a count of kills.
-rm -f "$cid_file" "$oom_file" "$forks_file"
+rm -f "$cid_file" "$oom_file" "$forks_file" "$stall_file"
 docker run --rm -i --init --name "$name" \
   "${TEHAS_SLICE_LIMITS[@]}" --cidfile "$cid_file" \
   -w "$repo" "${mounts[@]}" "${image_opts[@]}" \
@@ -279,8 +292,16 @@ oom_look() {
   return 0
 }
 
+# The newest change to any of the cycle's logs, in whole seconds since the
+# epoch. Transcripts of an earlier cycle are older than this one's start.
+moved() {
+  find "$log" "$log.err" "$runs" -type f -printf '%T@\n' 2>/dev/null | sort -n | tail -n 1 | cut -d. -f1
+}
+
 status=running
 seen=0
+stalled=0
+last=$started
 # Set when this command stops the container itself, and when the container
 # was killed while the cycle was running.
 stopped=0
@@ -300,6 +321,13 @@ while [ "$interrupted" = 0 ] && kill -0 "$pid" 2>/dev/null; do
     echo "tehas work: time limit of ${limit}s passed"
     break
   fi
+  m=$(moved)
+  [[ $m =~ ^[0-9]+$ ]] && [ "$m" -gt "$last" ] && last=$m
+  if [ $(($(date +%s) - last)) -ge "$stall" ]; then
+    echo "tehas work: none of the cycle's logs changed for ${stall}s, stopping it as stalled"
+    stalled=1
+    break
+  fi
 done
 
 [ "$interrupted" = 0 ] || status=interrupted
@@ -311,6 +339,10 @@ if [ "$interrupted" = 0 ] && kill -0 "$pid" 2>/dev/null; then
   oom_look
   stopped=1
   docker stop -t 20 "$name" >/dev/null 2>&1
+fi
+if [ "$stalled" = 1 ]; then
+  status=stalled
+  echo "$stall" >"$stall_file" || echo "tehas work: could not write $stall_file" >&2
 fi
 wait "$pid" 2>/dev/null
 rc=$?

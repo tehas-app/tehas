@@ -37,6 +37,11 @@
 # the container's pids limit refused, is read the same way and said in the
 # comment: after the first one the cycle's own commands may not have run.
 #
+# tehas work stops a cycle none of whose logs changed for TEHAS_WORK_STALL
+# seconds and leaves the seconds in state/cycles/<issue>.stalled. While the
+# state still says running, the status reported is then "stalled", the issue
+# is parked and the comment says how long nothing moved and at which step.
+#
 # A runner that exits 4 started no cycle: the instance gives a cycle the
 # images its issue links (TEHAS_WORK_IMAGES) and one could not be fetched. The
 # issue is parked and the comment says that, not that a cycle stopped. The
@@ -164,7 +169,7 @@ restart=""
 : >"$cycles/$issue"
 # A count of kills still here is an earlier cycle's, one that was killed
 # outright before it could report.
-rm -f "${cycles:?}/${issue:?}.oom" "${cycles:?}/${issue:?}.forks"
+rm -f "${cycles:?}/${issue:?}.oom" "${cycles:?}/${issue:?}.forks" "${cycles:?}/${issue:?}.stalled"
 # The trap is set before the runner starts, so no signal falls between.
 wpid=""
 stopped=0
@@ -221,6 +226,17 @@ if [ -f "$forks_file" ] && [ ! -L "$forks_file" ]; then
   [[ $forks =~ ^(0|[1-9][0-9]{0,8})$ ]] || forks=0
 fi
 rm -f "${cycles:?}/${issue:?}.forks"
+stalled=0
+stall_file=${cycles:?}/${issue:?}.stalled
+if [ -f "$stall_file" ] && [ ! -L "$stall_file" ]; then
+  stalled=$(head -c 16 "$stall_file" 2>/dev/null | head -n 1)
+  [[ $stalled =~ ^(0|[1-9][0-9]{0,8})$ ]] || stalled=0
+fi
+rm -f "$stall_file"
+if [ "$stalled" != 0 ]; then
+  case "$status" in running | unknown) status=stalled ;; esac
+  killed="$killed None of its logs changed for $((stalled / 60)) min at step \`$step\`, so tehas stopped it before its time limit."
+fi
 [ "$forks" = 0 ] || killed="$killed Its container reached its limit of processes and $forks starts of a process were refused: what the cycle ran after that may not have run."
 branch=$(jq -r '.pipelineState.branchName // ""' "$state" 2>/dev/null || echo "")
 # The numbers are summed as numbers. Anything else in their place counts as

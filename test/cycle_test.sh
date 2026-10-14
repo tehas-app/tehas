@@ -527,6 +527,42 @@ t_contains "$t_out" "oom_kills=3"
 t_eq "$(jq -c '[.status, .rc, .oomKills]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" '["killed",137,3]'
 t_eq "$(find "$state/7.oom" 2>/dev/null | wc -l)" 0
 
+t_case "a stalled cycle is reported as stalled with how long nothing moved, parked, and the file removed"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+ended running lens-fix
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; echo 3600 >"$TEHAS_HOME/state/cycles/7.stalled"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_contains "$t_out" "status=stalled"
+t_contains "$(t_calls gh)" "None of its logs changed for 60 min at step \`lens-fix\`"
+t_contains "$(t_calls gh)" "needs-human-attention"
+t_eq "$(jq -c '[.status, .rc]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" '["stalled",2]'
+t_eq "$(find "$state/7.stalled" 2>/dev/null | wc -l)" 0
+
+t_case "a stall file beside a state that names an end leaves the end as it is"
+reset
+ended aborted develop
+echo 'echo 3600 >"$TEHAS_HOME/state/cycles/7.stalled"; exit 1' >"$fx/work.sh"
+t_run "$cycle 7"
+t_contains "$t_out" "status=aborted"
+
+t_case "a stall file that is not digits is ignored"
+reset
+ended running develop
+echo 'echo "60; rm -rf /" >"$TEHAS_HOME/state/cycles/7.stalled"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_contains "$t_out" "status=running"
+t_lacks "$(t_calls gh)" "None of its logs changed"
+
+t_case "a stall file left by an earlier cycle is not this cycle's"
+reset
+ended running develop
+mkdir -p "$state"
+echo 3600 >"$state/7.stalled"
+t_run "$cycle 7"
+t_contains "$t_out" "status=running"
+t_lacks "$(t_calls gh)" "None of its logs changed"
+
 t_case "a cycle that left a pull request says the count too"
 reset
 ended handoff commit-pr feature/x
