@@ -628,6 +628,14 @@ echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice
 t_run "$dispatch --dry-run"
 t_contains "$t_out" "skip #7: its text was changed by 'mallory'"
 
+t_case "a title changed after the label by an account with no login is not approved"
+reset
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-01-02T10:00:00Z"},
+       {"event":"renamed","actor":null,"created_at":"2026-01-02T10:01:00Z"}]' >"$fx/events-7.json"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "skip #7: its text was changed by 'unknown'"
+t_lacks "$t_out" "would run a cycle"
+
 t_case "an edited issue does not hold up the one behind it"
 reset
 echo '[{"number":7,"labels":[{"name":"tehas:ready"}]},{"number":8,"labels":[{"name":"tehas:ready"}]}]' >"$fx/ready.json"

@@ -429,13 +429,14 @@ clear_unauthorised() {
 # Needs the label events of $n in $events; they are read when they are not
 # already at hand. An approval covers the text that was there when it was given.
 # A title or body changed afterwards by anyone else has not been approved by
-# anybody: the issue waits until an allowed account approves it again. Returns
+# anybody: the issue waits until an allowed account approves it again. A change
+# whose account GitHub no longer names, a deleted one, is by 'unknown'. Returns
 # 1, with the reason logged, if that happened.
 unchanged_since() {
   local n=$1 since=$2 what=$3 again=${4:-apply the label again} renamed edited editors edited_at stale e
   [ "$events_for" = "$n" ] || issue_events "$n"
   renamed=$(jq -rs --arg at "$since" 'add // [] | map(select(.event == "renamed" and ($at == "" or .created_at > $at)))
-                  | map(.actor.login // "") | join(" ")' <<<"$events") ||
+                  | map(.actor.login // "" | if . == "" then "unknown" else . end) | join(" ")' <<<"$events") ||
     { log "ERROR: unreadable label events of #$n"; exit 1; }
   # shellcheck disable=SC2016  # $owner, $name and $number are GraphQL variables
   gh_json api graphql -F owner="${repo%%/*}" -F name="${repo##*/}" -F number="$n" \
