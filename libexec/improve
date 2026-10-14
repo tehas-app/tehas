@@ -206,6 +206,8 @@ timeout -k 60 "$bound" docker run --rm --name tehas-improve \
   --provider "$PI_ENSEMBLE_SUBAGENT_PROVIDER" --model "$PI_ENSEMBLE_SUBAGENT_MODEL" \
   "$(cat "$prompt")" >"$run/analyst.log" 2>&1 </dev/null
 arc=$?
+# A client that timeout killed leaves its container working on.
+[ "$arc" = 0 ] || docker rm -f tehas-improve >/dev/null 2>&1 || true
 # What the analyst printed goes with the run. Of a run that failed on it, it
 # is kept under the run's stamp until the sweep, so a person can still read
 # it after later runs.

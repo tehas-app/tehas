@@ -914,6 +914,18 @@ t_run "$improve"
 t_eq "$(t_calls docker | grep -v '^info ' | head -n 1)" "rm -f tehas-improve"
 t_contains "$(t_calls timeout | grep -v ' systemctl \| docker info ' | head -n 1)" "-k 60 3600 docker run"
 
+t_case "an analyst stopped at its bound has its container removed at once"
+ready
+echo 124 >"$fx/docker.rc"
+t_run "$improve"
+t_eq "$t_rc" 1
+t_eq "$(t_calls docker | grep -E '^(run|rm) ' | cut -c1-6 | tr '\n' ' ')" "rm -f  run -- rm -f  "
+
+t_case "an analyst that finished leaves no container to remove"
+ready
+t_run "$improve"
+t_eq "$(t_calls docker | grep -c '^rm -f tehas-improve$')" 1
+
 t_case "the sweep removes what is over seven days old and nothing newer"
 reset
 record 3-261001-000000
