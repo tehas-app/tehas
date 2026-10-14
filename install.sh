@@ -162,6 +162,7 @@ files=(
   "lib/config.sh|$TEHAS_HOME/lib/config.sh|644"
   "lib/attachments.sh|$TEHAS_HOME/lib/attachments.sh|644"
   "lib/cycles.sh|$TEHAS_HOME/lib/cycles.sh|644"
+  "lib/labels.sh|$TEHAS_HOME/lib/labels.sh|644"
   "lib/improve.sh|$TEHAS_HOME/lib/improve.sh|644"
   "lib/improve-prompt.md|$TEHAS_HOME/lib/improve-prompt.md|644"
   "lib/live.sh|$TEHAS_HOME/lib/live.sh|644"

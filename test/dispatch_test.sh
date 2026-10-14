@@ -1048,6 +1048,17 @@ t_contains "$t_out" "ERROR: unreadable label events of #8"
 t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit"
 
+t_case "label events that answer with an object end the poll too"
+reset
+slots 2
+ready 3 8!
+echo '{"message":"Bad credentials"}' >"$fx/events-8.json"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: unreadable label events of #8"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+
 t_case "a running cycle takes a slot"
 reset
 slots 2
@@ -2207,6 +2218,38 @@ t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit"
 t_lacks "$(t_calls gh)" "api -X"
 
+t_case "the bot is refused as an allowed labeller even with no question open"
+reset
+printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ALLOWED_LABELERS='alice tehas-bot'" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$dispatch"
+t_eq "$t_rc" 78
+t_contains "$t_out" "the bot account tehas-bot is in TEHAS_ALLOWED_LABELERS"
+t_contains "$(t_calls gh)" "api user"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+
+t_case "an instance that lists the bot is refused before its slots are swept"
+reset
+echo '[{"number":9}]' >"$fx/marked.json"
+printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ALLOWED_LABELERS='alice tehas-bot'" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$dispatch"
+t_eq "$t_rc" 78
+t_contains "$t_out" "the bot account tehas-bot is in TEHAS_ALLOWED_LABELERS"
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "issue comment"
+t_eq "$(t_calls fake-start)" ""
+
+t_case "an own login that GitHub answers without one ends the poll before anything is written"
+reset
+echo '[{"number":9}]' >"$fx/marked.json"
+echo '{"message":"Bad credentials"}' >"$fx/user.json"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: the bot's own login could not be read"
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "issue comment"
+t_eq "$(t_calls fake-start)" ""
+
 # Admission by the slice. Every sandbox container runs in tehas.slice; a
 # cycle starts only while the slice has one more reserve of room. reset gives
 # a slice of 20 GiB and the default reserve of 2g.
@@ -2699,7 +2742,7 @@ bare_tree() {
   rm -rf "$tree"
   mkdir -p "$tree/libexec" "$tree/lib"
   cp "$dispatch" "$tree/libexec/dispatch"
-  cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/cycles.sh" "$T_ROOT/lib/questions.sh" "$T_ROOT/lib/planning.sh" "$T_ROOT/lib/slice.sh" "$tree/lib/"
+  cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/cycles.sh" "$T_ROOT/lib/labels.sh" "$T_ROOT/lib/questions.sh" "$T_ROOT/lib/planning.sh" "$T_ROOT/lib/slice.sh" "$tree/lib/"
   for name in status index plan; do cp "$T/bin/fake-$name" "$tree/libexec/$name"; done
   for name in tehas tehasbot tehas-work tehas-status tehas-index tehas-plan; do t_stub "$name"; done
 }

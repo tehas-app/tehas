@@ -72,6 +72,7 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/lib/edge.sh
 ./tehas/lib/improve-prompt.md
 ./tehas/lib/improve.sh
+./tehas/lib/labels.sh
 ./tehas/lib/live.sh
 ./tehas/lib/planning.sh
 ./tehas/lib/questions.sh

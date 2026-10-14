@@ -44,7 +44,7 @@ in the platform repository has every one with a comment.
 | ------------------------------- | ---------------------------------------- | --------------------------------------------------------------- |
 | `TEHAS_REPO`                    | required                                 | `owner/name` of the repository whose issues are the queue       |
 | `TEHAS_CONTROL_ISSUE`           | required                                 | Issue that carries `tehas:pause`                                |
-| `TEHAS_ALLOWED_LABELERS`        | required                                 | Logins whose `tehas:ready` counts, space separated              |
+| `TEHAS_ALLOWED_LABELERS`        | required                                 | Logins whose labels count, space separated: `tehas:ready`, `tehas:plan` and `tehas:urgent` for the dispatcher, `tehas:prototype` for the Protolab |
 | `PI_ENSEMBLE_SUBAGENT_MODEL`    | required                                 | Model for every subagent role                                   |
 | `PI_ENSEMBLE_SUBAGENT_PROVIDER` | required                                 | Its provider, as named in `models.json`                         |
 | `TEHAS_HOST_ADDR`               | `127.0.0.1`                              | Address the docs server and the edge router bind to             |
@@ -160,8 +160,10 @@ in `~/tehas/state/plan-<issue>.json` for a planning session, in
 `~/tehas/state/park-<issue>.id` for a stopped cycle. Only the last 100
 comments of an issue are read; a question further back than that is skipped
 with a line in the log. See [Operating](/operating). The dispatcher stops with exit 78 if
-the bot's own login is in `TEHAS_ALLOWED_LABELERS`. It checks this when it
-reads a question, so the error shows once a question is open. A planning turn's
+the bot's own login is in `TEHAS_ALLOWED_LABELERS`, and with exit 1 when GitHub
+answers without one. Every poll reads that login once, before it reads a label
+event or an answer and before it changes a label or comments, so a list naming
+the bot is refused whatever else the poll would have done. A planning turn's
 runner output is in `~/tehas/logs/dispatch-plan-<issue>.log`.
 
 A poll also reads the open issues marked `tehas:running`. One whose cycle
@@ -786,7 +788,8 @@ systemctl --user enable --now tehas-protolab.timer
 ```
 
 Builds the Protolab in `~/tehas/protolab`: a page for every open issue
-labelled `tehas:prototype`, with the files attached to it, and the list
+labelled `tehas:prototype` by an account in `TEHAS_ALLOWED_LABELERS`, with the
+files attached to it, and the list
 `~/tehas/live/protolab.json` that the dashboard links from. The timer runs it
 every five minutes; the log is `~/tehas/logs/protolab.log`.
 
@@ -799,11 +802,25 @@ to write to the host. With `TEHAS_DOMAIN` set, the list links each ticket at
 `lab-<issue>.<domain>`, so every ticket is an origin of its own to a browser.
 [The host](/host) has the table of what it answers.
 
+A ticket is at the prototype stage only while its most recent `tehas:prototype`
+labelling is by an account in `TEHAS_ALLOWED_LABELERS`, read the same way the
+dispatcher reads `tehas:ready`. A label applied by anyone else, the bot
+included, counts as no label at all: the ticket gets no page, a page it had is
+removed, and the log names the issue and the account. Where a ticket's events
+cannot be read the pass builds nothing for that ticket and removes nothing: a
+page it had stays as it was. The pass reads its own login before it reads,
+builds or removes anything of a ticket, and stops with exit 78 when
+`TEHAS_ALLOWED_LABELERS` names it, as the dispatcher does. When GitHub does not
+answer that question, the pass ends there with the same nothing built and
+nothing removed.
+
 It fetches only links to GitHub's attachment storage, in text written by an
 owner, member or collaborator of the repository, and only the types listed
 under [Operating](/operating). A ticket gets 10 megabytes and 40 files. An
-issue that has not changed since the last pass is skipped, so a quiet pass is
-one GitHub call. When GitHub cannot be reached, what is there stays.
+issue that has not changed since the last pass is not built again, so a quiet
+pass fetches no files: one GitHub call for its own account, one for the list,
+and one for every ticket at the stage, its label events. When GitHub cannot be
+reached, what is there stays.
 
 A prototype is somebody's HTML and script. That is why the Protolab is a
 server of its own on another port, and why every attached file is answered

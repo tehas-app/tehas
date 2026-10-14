@@ -5,12 +5,18 @@
 # and with TEHAS_DOMAIN set, each ticket also under a name of its own,
 # lab-<number>.<domain>.
 #
-# A ticket is at the prototype stage while it is open and labelled
-# tehas:prototype. Its page has the title, a link to the issue on GitHub and
-# the attached files: images and videos shown as they are, HTML files shown in
-# a frame, and the style sheets, scripts and data an HTML file refers to beside
-# them. Everything is static. Nothing here runs a prototype.
+# A ticket is at the prototype stage while it is open and carries
+# tehas:prototype applied by an account the instance allows. Its page has the
+# title, a link to the issue on GitHub and the attached files: images and videos
+# shown as they are, HTML files shown in a frame, and the style sheets, scripts
+# and data an HTML file refers to beside them. Everything is static. Nothing
+# here runs a prototype.
 #
+#   which tickets   Open issues whose most recent tehas:prototype labelling is
+#                   by an account in TEHAS_ALLOWED_LABELERS. One applied by
+#                   anyone else, the bot included, counts as no label at all:
+#                   the ticket gets no page, and a page it had is removed. The
+#                   log names the issue and the account.
 #   which files     Only links to GitHub's own attachment storage, in the issue
 #                   text and its comments, written by an owner, member or
 #                   collaborator of the repository. Nothing else is fetched.
@@ -20,10 +26,22 @@
 #                   attached, and at most 40 files. What does not fit is left
 #                   out and the page says so.
 #   when it goes    The page and its files are removed when the ticket is
-#                   closed or loses the label. GitHub keeps the originals.
+#                   closed, loses the label, or carries it from an account the
+#                   instance does not allow. GitHub keeps the originals.
+#
+# Who applied a label is read by lib/labels.sh, the same reading the dispatcher
+# uses for tehas:ready: authorisation is the account, not the label (AGENTS.md
+# rule 5). Where the events of a ticket cannot be read at all, nothing is built
+# and nothing is removed for that ticket; a page it had stays as it was. An
+# instance that lists the bot's own login in TEHAS_ALLOWED_LABELERS is refused:
+# an account in a cycle labels as the bot, so such a list would let an agent
+# choose what this publishes. A pass that cannot read its own login ends there,
+# with nothing built and nothing removed.
 #
 # A ticket whose issue has not changed since the last run is left alone, so a
-# run with nothing new makes one GitHub call. Deterministic, no model.
+# run with nothing new fetches no files: it makes one GitHub call for its own
+# account, one for the list, and one for every ticket at the stage, its label
+# events. Deterministic, no model.
 #
 # It also writes $TEHAS_HOME/live/protolab.json, the list the dashboard links
 # from. TEHAS_PROTOLAB_URL in instance.env is the address people reach the
@@ -43,8 +61,10 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/edge.sh"
 # shellcheck source=lib/attachments.sh
 . "$here/../lib/attachments.sh"
+# shellcheck source=lib/labels.sh
+. "$here/../lib/labels.sh"
 tehas_load || exit 78
-tehas_require TEHAS_REPO
+tehas_require TEHAS_REPO TEHAS_ALLOWED_LABELERS
 repo=$TEHAS_REPO
 label=tehas:prototype
 limit=$((10 * 1024 * 1024))
@@ -57,7 +77,7 @@ site=$TEHAS_HOME/protolab
 live=$TEHAS_HOME/live
 work=$site/.work
 # A changed generator rebuilds every page.
-gen="$(cat "${BASH_SOURCE[0]}" "$here/../lib/attachments.sh" | cksum | tr ' ' '-')-${domain:-path}"
+gen="$(cat "${BASH_SOURCE[0]}" "$here/../lib/attachments.sh" "$here/../lib/labels.sh" | cksum | tr ' ' '-')-${domain:-path}"
 
 mkdir -p "$site" "$live" || exit 1
 edge_lock protolab || { echo "another tehasbot protolab is running"; exit 0; }
@@ -305,6 +325,20 @@ build() {
   echo "#$n: $(jq -r '"\(.files | length) files, \(.bytes) bytes, \(.skipped | length) left out"' "$site/$n/.meta.json")"
 }
 
+# The bot's own login, asked once before anything of a ticket is read, built or
+# removed: whatever a cycle labels, it labels as the bot. A login that cannot be
+# read ends the pass too, because no label below could then be checked against
+# the allowed list. Nothing is built and nothing is removed on either outcome.
+bot=$(gh api user 2>/dev/null | jq -r '.login // empty' 2>/dev/null)
+if [ -z "$bot" ]; then
+  echo "the bot's own login could not be read, nothing built or removed"
+  exit 0
+fi
+if tehas_allowed_labeler "$bot"; then
+  echo "ERROR: the bot account $bot is in TEHAS_ALLOWED_LABELERS; the bot never authorises work"
+  exit 78
+fi
+
 # --- Every ticket at the prototype stage -------------------------------------
 # The first hundred; a failed or odd answer leaves everything as it is.
 issues=$(gh api "repos/$repo/issues?state=open&labels=$label&per_page=100" 2>/dev/null) || exit 0
@@ -319,6 +353,21 @@ keep=" "
 while IFS= read -r ticket; do
   [ -n "$ticket" ] || continue
   n=$(jq -r .number <<<"$ticket")
+  # The label is checked before the ticket is published: who applied it most
+  # recently. An agent in a cycle holds the bot's token, and the bot can label.
+  if ! events=$(gh api "repos/$repo/issues/$n/events?per_page=100" --paginate 2>/dev/null) ||
+    ! line=$(tehas_label_actor "$label" <<<"$events"); then
+    # Events that cannot be read are not a refusal: nothing is built for this
+    # ticket, and the removal loop below keeps it.
+    echo "#$n: its label events could not be read, nothing built or removed"
+    keep="$keep$n "
+    continue
+  fi
+  who=${line%%$'\t'*}
+  if ! tehas_allowed_labeler "$who"; then
+    printf '%s\n' "$(tehas_label_denied "$n" "$label" "$who")"
+    continue
+  fi
   keep="$keep$n "
   stamp="$gen $(jq -r .updatedAt <<<"$ticket")"
   if [ -f "$site/$n/.stamp" ] && [ "$(cat "$site/$n/.stamp")" = "$stamp" ]; then continue; fi
