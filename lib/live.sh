@@ -11,12 +11,16 @@
 #
 #   tehas_live_assemble   write live/running.json; returns 1 if it could not
 #
+# A file that went quiet is lost only when its issue's lock
+# (state/cycles/<issue>.lock, held by tehasbot cycle) is free: a host that
+# stalled for two minutes does not make a running cycle lost.
+#
 # Called by tehas work each time it writes its own file, and by tehasbot
 # health. Two callers at once can leave the view one tick old; the next tick
 # corrects it. Needs TEHAS_HOME.
 
 tehas_live_assemble() {
-  local live=$TEHAS_HOME/live f files=() now marker tmp view issues i lost
+  local live=$TEHAS_HOME/live f files=() now marker tmp view issues i lost lock
   now=$(date +%s)
   for f in "$live"/cycles/*.json; do
     [ -e "$f" ] || continue
@@ -25,7 +29,10 @@ tehas_live_assemble() {
     # It ended when it was found, so it counts from now, not from its last
     # heartbeat. The temporary names start with a dot and end in .new: the
     # docs server hides those, and the glob above does not match them.
-    if jq -e --argjson now "$now" '.running == true and ((.updatedAt // 0) < $now - 120)' "$f" >/dev/null 2>&1; then
+    lock=${f##*/}
+    lock=$TEHAS_HOME/state/cycles/${lock%.json}.lock
+    if jq -e --argjson now "$now" '.running == true and ((.updatedAt // 0) < $now - 120)' "$f" >/dev/null 2>&1 &&
+      ! { [ -e "$lock" ] && ! flock -n "$lock" true; }; then
       lost=${f%/*}/.${f##*/}.lost.$$.new
       if jq -c --argjson now "$now" '.running = false | .status = "lost" | .updatedAt = $now' "$f" >"$lost" 2>/dev/null; then
         mv "$lost" "$f"

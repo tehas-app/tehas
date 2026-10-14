@@ -717,7 +717,9 @@ first of them, or the cycle that finished last when none is running.
 `fail` is about the cycle that finished most recently. It lasts until a cycle
 starts after that one ended. A cycle that was already running when the other
 one failed does not clear it. A cycle that has written nothing for two
-minutes is recorded as ended with the status `lost`, which is a failure.
+minutes and whose issue's lock (`state/cycles/<issue>.lock`) nobody holds is
+recorded as ended with the status `lost`, which is a failure. While
+`tehasbot cycle` still holds the lock, the cycle stays running.
 
 `checks.disk` has the free and the required bytes and `low`, as `tehasbot
 preview` last wrote them to `live/previews.json`. It is `null` on a host

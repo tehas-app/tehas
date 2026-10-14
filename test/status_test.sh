@@ -301,6 +301,22 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "The last cycle failed: #9 ended as lost."
 t_eq "$(jq -c '[(.cycles | length), .last.status]' "$live/running.json")" '[0,"lost"]'
 
+t_case "a cycle that stopped writing while its lock is held stays running; a free lock is lost"
+reset
+mkdir -p "$live/cycles" "$T/home/tehas/state/cycles"
+printf '{"issue":9,"running":true,"status":"running","step":"develop","startedAt":%s,"updatedAt":%s}\n' \
+  "$(($(date +%s) - 900))" "$(($(date +%s) - 300))" >"$live/cycles/9.json"
+exec 8>"$T/home/tehas/state/cycles/9.lock"
+flock -n 8
+t_run "$status; $summary"
+t_eq "$t_rc" 0
+t_contains "$t_out" "factory   pass: Working on #9."
+t_eq "$(jq -r .status "$live/cycles/9.json")" running
+exec 8>&-
+t_run "$status; $summary"
+t_eq "$t_rc" 1
+t_contains "$t_out" "The last cycle failed: #9 ended as lost."
+
 t_case "summary: a health file older than ten minutes is not believed, exit 1"
 reset
 t_run "$status"
