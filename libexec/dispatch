@@ -46,8 +46,9 @@
 #      slice that cannot be used holds them too, before a label or a comment
 #      is spent: a turn's container would not start.
 #   6. An issue is eligible only if its tehas:ready label was applied by an
-#      account in TEHAS_ALLOWED_LABELERS. The bot is never in that list. An
-#      issue with an open planning session is not eligible until it is ended.
+#      account in TEHAS_ALLOWED_LABELERS, which never names the bot: every poll
+#      reads its own login and stops when it is listed. An issue with an open
+#      planning session is not eligible until it is ended.
 #      Nothing else the issue carries holds it back: the labels of an earlier
 #      outcome go with the start. Every start takes tehas:ready off, so a
 #      label that is there was applied after the last start. While the
@@ -128,6 +129,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/cycles.sh"
 # shellcheck source=lib/slice.sh
 . "$here/../lib/slice.sh"
+# shellcheck source=lib/labels.sh
+. "$here/../lib/labels.sh"
 tehas_load || exit 78
 # shellcheck source=lib/questions.sh
 . "$here/../lib/questions.sh"
@@ -137,7 +140,6 @@ log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*"; }
 tehas_require_instance_settings
 repo=$TEHAS_REPO
 control=$TEHAS_CONTROL_ISSUE
-allowed=" $TEHAS_ALLOWED_LABELERS "
 max_awaiting=$TEHAS_MAX_AWAITING
 checkout=$TEHAS_WORK_REPO
 status_cmd=${TEHAS_STATUS_CMD:-$here/status}
@@ -270,7 +272,9 @@ report_hold() {
 # issues. Who applied one label of one issue is remembered for the poll in
 # $actor_of, so a poll never asks GitHub the same question twice. An answer is
 # used only by the decision that asked for it, and no label of that issue
-# changes in between. A failed call to GitHub ends the poll.
+# changes in between. A failed call to GitHub ends the poll. Which account an
+# event names, and whether the instance allows it, is lib/labels.sh: the same
+# reading tehasbot protolab uses for tehas:prototype.
 events=""
 events_for=""
 declare -A actor_of=()
@@ -294,8 +298,7 @@ label_actor() {
     line=${actor_of["$n $name"]}
   else
     issue_events "$n"
-    line=$(jq -rs --arg l "$name" 'add // [] | map(select(.event == "labeled" and .label.name == $l)) | last
-                    | "\(.actor.login // "")\t\(.created_at // "")"' <<<"$events") ||
+    line=$(tehas_label_actor "$name" <<<"$events") ||
       { log "ERROR: unreadable label events of #$n"; exit 1; }
     actor_of["$n $name"]=$line
   fi
@@ -303,19 +306,10 @@ label_actor() {
   at=${line#*$'\t'}
 }
 
-# allowed_account <login>: 0 when the name is one of TEHAS_ALLOWED_LABELERS.
-# No name is nobody: a deleted account or a missing event never matches.
-allowed_account() {
-  case "${1:+$allowed}" in
-    *" $1 "*) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
 # deny_label <verb> <issue> <label>: the label came from an account outside the
 # list. $who is the name GitHub gave, empty when its event names nobody.
 deny_label() {
-  log "$1 #$2: $3 was applied by '${who:-unknown}', not an allowed account"
+  log "$1 $(tehas_label_denied "$2" "$3" "$who")"
 }
 
 # approval <issue> <label>: who applied the label most recently, and when, in
@@ -326,7 +320,7 @@ deny_label() {
 approval() {
   local n=$1 name=$2
   label_actor "$n" "$name"
-  if ! allowed_account "$who"; then
+  if ! tehas_allowed_labeler "$who"; then
     deny_label skip "$n" "$name"
     return 1
   fi
@@ -359,7 +353,7 @@ unchanged_since() {
   fi
   stale=""
   for e in $editors; do
-    allowed_account "$e" || stale=$e
+    tehas_allowed_labeler "$e" || stale=$e
   done
   if [ -n "$stale" ]; then
     log "skip #$n: its text was changed by '$stale' after $what; $again to approve it"
@@ -491,6 +485,19 @@ actual=$(jq -r '.nameWithOwner // ""' <<<"$json") || actual=""
 if [ "${actual,,}" != "${repo,,}" ]; then
   log "ERROR: $repo is now ${actual:-unknown} on GitHub: set TEHAS_REPO in $TEHAS_INSTANCE_DIR/instance.env and the checkout's origin"
   exit 1
+fi
+
+# The bot's own login, read once for every poll before a label is read or
+# changed and before an answer is read. Everything a cycle writes, it writes as
+# the bot: a list that names the bot would let an agent approve its own work by
+# labelling. A login that cannot be read ends the poll for the same reason:
+# nothing below could be checked against the allowed list.
+gh_json api user
+bot=$(jq -r '.login // ""' <<<"$json") || bot=""
+[ -n "$bot" ] || { log "ERROR: the bot's own login could not be read"; exit 1; }
+if tehas_allowed_labeler "$bot"; then
+  log "ERROR: the bot account $bot is in TEHAS_ALLOWED_LABELERS; the bot never authorises work"
+  exit 78
 fi
 
 # 1. Pause switch.
@@ -665,17 +672,7 @@ for st in "$TEHAS_HOME"/state/plan-*.json; do
     *) [ "$dry" = 1 ] || rm -rf "$st" "$st.out" "$st.answer" "$st.brief" "$st.keep" ;;
   esac
 done
-bot=""
 for n in $asking; do
-  if [ -z "$bot" ]; then
-    gh_json api user
-    bot=$(jq -r '.login // ""' <<<"$json") || bot=""
-    [ -n "$bot" ] || { log "ERROR: the bot's own login could not be read"; exit 1; }
-    if allowed_account "$bot"; then
-      log "ERROR: the bot account $bot is in TEHAS_ALLOWED_LABELERS; the bot never authorises work"
-      exit 78
-    fi
-  fi
   have=" $(jq -r --argjson n "$n" '[.[] | select(.number == $n) | (.labels // [])[].name] | join(" ")' <<<"$asking_json") "
   # Which comment is the question is decided here, from this host's own
   # files, before a comment is read: the planning record's, else the parked
@@ -915,7 +912,7 @@ for n in $carrying; do
     continue
   fi
   label_actor "$n" tehas:urgent
-  if allowed_account "$who"; then
+  if tehas_allowed_labeler "$who"; then
     urgent+=("$n")
   else
     deny_label ignore "$n" tehas:urgent

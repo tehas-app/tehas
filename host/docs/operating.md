@@ -20,6 +20,15 @@ worked out. That work can happen anywhere, with other tools and systems, for
 as long as it takes. tehas does not act on `tehas:prototype`: the dispatcher
 never starts a cycle because of it.
 
+The label counts when an account in `TEHAS_ALLOWED_LABELERS` applied it, which
+is the same rule `tehas:ready` follows. A `tehas:prototype` applied by anyone
+else, the bot included, counts as no label at all: the ticket gets no page, a
+page it had is removed, and the Protolab's log names the issue and the account.
+An account in a cycle holds the bot's token, and the bot can label, so the
+account behind the label is what is checked, not the label itself. The check
+only means something while the bot's own login is outside
+`TEHAS_ALLOWED_LABELERS`, and the Protolab stops with an error when it is not.
+
 The **Protolab** is where tickets at the prototype stage are kept. It is a
 small site of its own, on port 8081 of the host, with a page for every open
 prototype: the title, a link to the issue, and what is attached to the issue.
@@ -44,6 +53,9 @@ The limits:
   under "left out" with the reason.
 - **Static files only.** Nothing is run on the host for a prototype, and an
   archive is not unpacked.
+- **Only a label from an allowed account** puts the ticket here, as said
+  above: the most recent `tehas:prototype` labelling is by an account in
+  `TEHAS_ALLOWED_LABELERS`.
 - **Only files attached by an owner, member or collaborator** of the
   repository are taken. Links by anyone else are counted on the page and not
   fetched.
@@ -51,8 +63,9 @@ The limits:
   and from every other prototype. Scripts work; storage in the browser
   (`localStorage`, cookies) does not.
 
-The page and its files go when the ticket is closed or loses the label. They
-are copies: GitHub keeps what was attached.
+The page and its files go when the ticket is closed, loses the label, or
+carries it from an account the instance does not allow. They are copies: GitHub
+keeps what was attached.
 
 A prototype goes to the factory when it is ready for implementation, which
 means:
@@ -321,8 +334,10 @@ and you apply `tehas:plan` again.
 
 The bot account is never one of the allowed labellers. If it is listed in
 `TEHAS_ALLOWED_LABELERS`, the dispatcher stops with an error rather than let
-the bot approve its own questions. It checks this when it reads a question, so
-the error shows once a question is open.
+the bot approve its own work: every poll reads its own login first, before it
+reads a label or changes one. The Protolab refuses the same list, with an error
+before it reads, builds or removes a page. A poll or a pass that cannot read
+its own login stops there and does nothing else.
 
 ## Pause and resume
 
