@@ -31,6 +31,10 @@
 # is owed" for a file this account cannot open would let the next write replace
 # steps somebody else recorded.
 #
+# A step line recorded as "protolab <flag>" by an earlier version is the edge
+# step: lib/update-steps.sh answers that for every reader of a step line, so no
+# command here spells the alias itself.
+#
 # Whether a service runs is a question put to Docker or to systemd, and only
 # their answer means anything - never their exit status on its own. The units step
 # asks systemd to reload its unit files before it restarts anything, because a
@@ -98,6 +102,11 @@ install_limit=1800 # install.sh: the copies, the dependency check and the tests
 compose_limit=180  # docker ps and docker compose up
 systemd_limit=60   # systemctl daemon-reload, is-active and restart
 build_limit=1800   # sandbox image build
+
+# How long the mark of a half-finished takeover stands (see edge_up). Long
+# enough to fix the cause and run the update again, short enough that a mark
+# some earlier run left does not start a router an operator has stopped.
+takeover_mark_age=86400
 
 show_usage() {
   sed -n '2,/^[^#]/p' "$0" | sed -n '/^#/s/^# \{0,1\}//p'
@@ -451,17 +460,39 @@ compose_up() { # name project file [argument...]
 #
 # The takeover is two commands, and the first can succeed where the second
 # fails. The next run would then find neither project running, say "left alone"
-# and count the step done, with port 8081 dark. So a taken down project leaves
-# a mark, $TEHAS_HOME/state/edge-takeover. While it is there the router is
-# brought up whatever runs, and it goes only when that worked.
+# and count the step done, with port 8081 dark. So a taken down project leaves a
+# mark, $TEHAS_HOME/state/edge-takeover, holding the time it was made. While it
+# is fresh the router is brought up whatever runs, and the mark goes only when
+# that worked. An old one is not: an operator who stopped the router on purpose
+# would otherwise have it started again weeks later by a mark of some run they
+# already gave up on. It is said, removed, and the step is what it would have
+# been without it - renew the router only where it already runs.
 edge_up() { # argument...
-  local file=$TEHAS_HOME/edge/router.compose.yaml mark=$TEHAS_HOME/state/edge-takeover old out rc
+  local file=$TEHAS_HOME/edge/router.compose.yaml mark=$TEHAS_HOME/state/edge-takeover old out rc made age
   if [ ! -f "$file" ]; then
     compose_up edge tehas-edge "$file" "$@"
     return
   fi
   if [ -e "$mark" ]; then
-    echo "edge: finishing the takeover from the Protolab's server (tehas-protolab)"
+    made=$(head -n 1 "$mark" 2>/dev/null) || made=""
+    case "$made" in '' | *[!0-9]*) made="" ;; esac
+    age=-1
+    [ -n "$made" ] && age=$(( $(date -u +%s) - made ))
+    if [ "$age" -gt "$takeover_mark_age" ]; then
+      printf 'edge: the mark of the takeover is %s hours old, and was left to you; start the router by hand if you want it\n' \
+        "$((age / 3600))"
+      rm -f "$mark"
+      compose_up edge tehas-edge "$file" "$@"
+      return
+    fi
+    # With no time on it the mark is one an older version wrote: it is honoured
+    # once, and from here on it carries the time of this run.
+    if [ -z "$made" ]; then
+      echo "edge: finishing the takeover from the Protolab's server (tehas-protolab); the mark had no time on it"
+      printf '%s\n' "$(date -u +%s)" >"$mark" 2>/dev/null || true
+    else
+      echo "edge: finishing the takeover from the Protolab's server (tehas-protolab)"
+    fi
   else
     old=$(timeout "$compose_limit" docker ps --quiet \
       --filter "label=com.docker.compose.project=tehas-protolab" 2>&1)
@@ -486,7 +517,7 @@ edge_up() { # argument...
     fi
     # A mark that cannot be written does not stop the takeover: the router is
     # brought up now all the same, and only a failure of that is then lost.
-    if ! : 2>/dev/null >"$mark"; then
+    if ! printf '%s\n' "$(date -u +%s)" >"$mark" 2>/dev/null; then
       echo "edge: $mark could not be written" >&2
     fi
   fi
@@ -599,12 +630,12 @@ build_sandbox() {
 run_step() { # step line
   local argv=() id
   read -r -a argv <<<"$1"
-  id=${argv[0]}
+  id=$(tehas_step_id "${argv[0]}")
   case "$id" in
     units) restart_units "${argv[@]:1}" ;;
     sandbox) build_sandbox ;;
     docs) compose_up docs tehas-docs "$TEHAS_HOME/edge/docs.compose.yaml" "${argv[@]:1}" ;;
-    edge | protolab) edge_up "${argv[@]:1}" ;;
+    edge) edge_up "${argv[@]:1}" ;;
     *)
       echo "WARN: no step this command knows for: $1" >&2
       return 1

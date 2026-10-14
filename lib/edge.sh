@@ -5,7 +5,8 @@
 # tools and flock. The last three ask Docker about the previews' network, and
 # are here so that tehasbot preview and install.sh decide by one rule.
 #
-#   edge_lock <name> [<seconds>]   one run at a time
+#   edge_lock <name> [<seconds>]   one run at a time, on the descriptor bash
+#                                  chose, named in edge_lock_fd
 #   edge_put <file> <command...>   a file that is whole or not there
 #   edge_place <new> <place>       a directory that is whole or the old one
 #   edge_numbers <directory>       the numbered directories in it
@@ -15,10 +16,17 @@
 
 # edge_lock <name> [<seconds to wait>]: take $TEHAS_HOME/state/<name>.lock
 # until this process ends. Returns 1 when another process holds it.
+# The descriptor is the one bash chose, and edge_lock_fd names it: a fixed
+# number is a number every other command here would have to guess at and step
+# on. A command that can outlive the run has to be given {edge_lock_fd}>&-,
+# unquoted: a quoted one is an argument, not a redirection, and the descriptor
+# the child inherited then holds the lock after the run has ended. Only a
+# successful edge_lock sets edge_lock_fd, so a caller that never called one
+# cannot write it (bash: ambiguous redirect).
 edge_lock() {
   mkdir -p "$TEHAS_HOME/state" || return 1
-  exec 9>"$TEHAS_HOME/state/$1.lock" || return 1
-  if [ -n "${2:-}" ]; then flock -w "$2" 9; else flock -n 9; fi
+  exec {edge_lock_fd}>"$TEHAS_HOME/state/$1.lock" || return 1
+  if [ -n "${2:-}" ]; then flock -w "$2" "$edge_lock_fd"; else flock -n "$edge_lock_fd"; fi
 }
 
 # edge_put <file> <command...>: the command's output becomes the file. A
