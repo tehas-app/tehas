@@ -51,6 +51,18 @@ t_eq "$(jq -r '.queued | length' "$live/status.json")" 2
 t_eq "$(jq -r .status "$live/health.json")" pass
 t_eq "$(jq -r .checks.queue.review "$live/health.json")" 1
 
+t_case "a closed issue is not in line, being worked on or stopped, whatever label it carries"
+reset
+echo "[$(issue 3 tehas:ready),$(issue 4 tehas:ready CLOSED),$(issue 5 tehas:awaiting-merge),$(issue 6 needs-human-attention),$(issue 8 tehas:running CLOSED),$(issue 9 needs-human-attention CLOSED),$(issue 10 tehas:question CLOSED)]" >"$T/issues.json"
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$(jq -r '.queued | length' "$live/status.json")" 1
+t_eq "$(jq -r '.running | length' "$live/status.json")" 0
+t_eq "$(jq -r '.stopped | length' "$live/status.json")" 1
+t_eq "$(jq -r '.awaiting | length' "$live/status.json")" 1
+t_eq "$(jq -r '[.queued[].number] | join(",")' "$live/status.json")" "3"
+t_eq "$(jq -r .status "$live/health.json")" pass
+
 t_case "the breakroom's words are counted over every issue, labelled for the factory or not"
 reset
 cat >"$T/all.json" <<'EOF2'

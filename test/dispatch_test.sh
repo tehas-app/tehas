@@ -29,7 +29,13 @@ case "$1 $2" in
   "api repos/acme/widget/issues/"*"/comments") [ ! -e "$T/fx/post-fails" ] || exit 1; echo 4002 ;;
   "api repos/acme/widget/issues/"*)
     n=${2#repos/acme/widget/issues/}
-    cat "$T/fx/events-${n%/events*}.json" || exit 1 ;;
+    case "$n" in
+      */*) cat "$T/fx/events-${n%/events*}.json" || exit 1 ;;
+      # What the number is: an open issue, unless a case writes the fixture.
+      *)
+        [ ! -e "$T/fx/work-fails" ] || exit 1
+        if [ -e "$T/fx/work-$n.json" ]; then cat "$T/fx/work-$n.json"; else echo "{\"number\":$n,\"state\":\"open\"}"; fi ;;
+    esac ;;
   "api graphql")
     n=$(printf "%s\n" "$@" | sed -n "s/^number=//p")
     case "$*" in
@@ -100,7 +106,7 @@ cid() { # <issue> <hex digit> <bytes in use>
 dispatch_json=$T/home/tehas/live/dispatch.json
 
 reset() {
-  rm -f "$T"/calls/* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/issue-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/slice-*
+  rm -f "$T"/calls/* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/issue-* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/slice-*
   rm -rf "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-* "$T"/home/tehas/state/park-* "$T/home/tehas/live"
   # A slice of 20 GiB with nothing in it: room for ten cycles of the default
   # reserve, so the slots and the review cap decide unless a case says more.
@@ -279,6 +285,93 @@ t_run "$dispatch"
 t_eq "$t_rc" 1
 t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit"
+
+# Open issues only. The list a poll read can name an issue that was closed
+# since, and a number can name a pull request: GitHub is asked what it is
+# before a label is changed or a cycle is started.
+t_case "an issue closed after the queue was read starts nothing"
+reset
+echo '{"number":7,"state":"closed"}' >"$fx/work-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "skip #7: it is closed, and a closed issue is never taken"
+t_contains "$(t_calls gh)" "api repos/acme/widget/issues/7"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "skip #7: it is closed, and a closed issue is never taken"
+t_lacks "$t_out" "would run a cycle"
+
+t_case "a pull request is refused, open, merged or closed"
+for answer in '{"number":7,"state":"open","pull_request":{"url":"u"}}' '{"number":7,"state":"closed","pull_request":{"url":"u"}}'; do
+  reset
+  printf '%s' "$answer" >"$fx/work-7.json"
+  t_run "$dispatch --dry-run"
+  t_eq "$t_rc" 0
+  t_contains "$t_out" "skip #7: it is a pull request, not an issue the factory works on"
+  t_lacks "$t_out" "would run a cycle"
+  t_eq "$(t_calls fake-start)" ""
+done
+
+t_case "an answer that cannot be read stops the poll before any label change"
+for answer in '' 'not json' 'null' '[]'; do
+  reset
+  printf '%s' "$answer" >"$fx/work-7.json"
+  t_run "$dispatch"
+  t_eq "$t_rc" 1
+  t_contains "$t_out" "ERROR: GitHub's answer for #7 could not be read"
+  t_eq "$(t_calls fake-start)" ""
+  t_lacks "$(t_calls gh)" "issue edit"
+done
+reset
+: >"$fx/work-fails"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: gh api repos/acme/widget/issues/7 failed"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+
+t_case "a closed issue labelled for planning starts no session"
+to_plan
+echo '{"number":7,"state":"closed"}' >"$fx/work-7.json"
+t_run "$dispatch --dry-run"
+t_eq "$t_rc" 0
+t_contains "$t_out" "skip #7: it is closed, and a closed issue is never taken"
+t_lacks "$t_out" "would start a planning session"
+t_eq "$(t_calls fake-plan)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+
+# The ask is paid where it can change the outcome. An issue the labels already
+# hold back is not asked for, and a number is asked once a poll.
+t_case "an issue no allowed account labelled is not asked for"
+reset
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"mallory"}}]' >"$fx/events-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls gh | grep -c '^api repos/acme/widget/issues/7$')" 0
+t_eq "$(t_calls fake-start)" ""
+
+# The seam between the two commands. A cycle the poll started can find its
+# issue closed when it asks, and refuse it. It claimed its place before it
+# asked, so the poll does not report a start that did happen as one that did
+# not, and the issue keeps only tehas:running, which the next poll clears in
+# silence.
+t_case "a cycle that refused its number leaves nothing a person has to clean up"
+reset
+t_run "$dispatch"
+t_contains "$t_out" "start #7 (labelled by alice)"
+t_lacks "$t_out" "did not start"
+t_lacks "$(t_calls gh)" "could not start the cycle"
+# What GitHub answers for #7 once it is closed.
+echo '[{"number":7,"state":"CLOSED"}]' >"$fx/marked.json"
+echo '{"number":7,"state":"closed"}' >"$fx/work-7.json"
+echo '[]' >"$fx/ready.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "clear #7: it is closed, marked tehas:running, and no cycle holds its lock"
+t_lacks "$t_out" "did not start"
+t_lacks "$(t_calls gh)" "needs-human-attention"
+t_lacks "$(t_calls gh)" "To retry, apply"
 
 t_case "a checkout of another repository stops everything"
 reset
@@ -1191,6 +1284,31 @@ t_contains "$t_out" "skip #7: a retry was ticked but the issue is not parked"
 t_lacks "$(t_calls gh)" "api -X"
 t_lacks "$(t_calls gh)" "issue comment"
 
+t_case "a retry tick on an issue closed since its cycle stopped starts nothing"
+parked
+comments 7 "$(park_body x ' ')" alice
+echo '{"number":7,"state":"closed"}' >"$fx/work-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "skip #7: it is closed, and a closed issue is never taken"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit 7"
+t_lacks "$(t_calls gh)" "api -X PATCH"
+t_eq "$(cat "$park_id")" 4001
+
+t_case "and so does a tehas:ready applied to that closed issue, said once"
+parked
+comments 7 "$(park_body x ' ')" alice
+echo '[{"number":7,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"},{"name":"tehas:ready"}]}]' >"$fx/asking.json"
+ready 7
+echo '{"number":7,"state":"closed"}' >"$fx/work-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(grep -c 'skip #7: it is closed, and a closed issue is never taken' <<<"$t_out")" 1
+t_eq "$(t_calls gh | grep -c '^api repos/acme/widget/issues/7$')" 1
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit 7"
+
 # A question is the factory's only if this host has its id on record. The
 # agent in a container holds the bot's token: it can post a comment with a
 # marker and apply labels, but it cannot write the host's state directory.
@@ -1503,6 +1621,18 @@ planning
 comments 7 "$(plan_body x ' ' ' ')" alice '[{"databaseId":4003,"author":{"login":"alice"},"body":"neither","createdAt":"2026-01-01T02:00:00Z"}]'
 t_run "$dispatch"
 t_contains "$(cat "$record.answer")" "neither"
+
+t_case "an answer on an issue closed since the turn ran runs no turn"
+planning
+comments 7 "$(plan_body ' ' x ' ')" alice
+before=$(cat "$record")
+echo '{"number":7,"state":"closed"}' >"$fx/work-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "skip #7: it is closed, and a closed issue is never taken"
+t_eq "$(plan_calls)" ""
+t_eq "$(cat "$record")" "$before"
+t_lacks "$(t_calls gh)" "issue edit 7"
 
 t_case "a stranger's reply and a stranger's tick run no turn"
 planning
