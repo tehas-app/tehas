@@ -356,8 +356,8 @@ subagent that never reports holds the turn until `TEHAS_PLAN_TIMEOUT`.
 
 `--keep` names a directory the session carries from one turn to the next. The
 first form makes it anew. It holds the commit the first turn's workspace was
-at, pi-rukas's record of the plans the agent showed (its plain `.json` files,
-at most 1 MB each), and with `TEHAS_WORK_IMAGES=1` the issue's images. Every
+at, pi-rukas's record of the plans the agent showed (its plain `.json` files
+and its `.filed` and `.claim` markers, at most 1 MB each), and with `TEHAS_WORK_IMAGES=1` the issue's images. Every
 later turn's workspace is at that commit and gets that record back, so a plan
 the operator confirms is filed as it was shown. A later turn whose commit is
 missing or gone starts at the tip of the branch and says so, and the agent

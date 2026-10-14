@@ -212,11 +212,13 @@ if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces" && rm -rf "$tree" "$co
   echo "tehas plan: could not make the workspace $tree, not starting a turn" >&2
   exit 78
 fi
-# carry <from> <to>: the plain .json files of one plan cache into another.
+# carry <from> <to>: the plain files of one plan cache into another: the
+# .json entries, and the .filed and .claim markers pi-rukas leaves so a later
+# turn does not file the same plan twice.
 carry() {
   local f
   mkdir -p "$2" || return 1
-  for f in "$1"/*.json; do
+  for f in "$1"/*.json "$1"/*.filed "$1"/*.claim; do
     [ -f "$f" ] && [ ! -L "$f" ] || continue
     [ "$(stat -c %s "$f" 2>/dev/null || echo 0)" -le 1048576 ] || continue
     cp "$f" "$2/" || return 1
