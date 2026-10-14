@@ -2757,4 +2757,74 @@ t_lacks "$(t_calls gh)" "issue edit"
 t_lacks "$(t_calls gh)" "issue comment"
 t_lacks "$(t_calls systemctl)" "start"
 
+# --- A pi-rukas that is new on this host -----------------------------------
+new_rukas=$(printf 'a%.0s' {1..40})
+old_rukas=$(printf 'b%.0s' {1..40})
+installed() { echo "PI_RUKAS_COMMIT=$new_rukas" >"$T/home/tehas/versions.env"; }
+proven() { mkdir -p "$T/home/tehas/state"; echo "$1" >"$T/home/tehas/state/rukas-proven"; }
+ran_with() { echo "$2" >"$T/home/tehas/state/cycles/$1.rukas"; } # <issue> <commit>
+not_installed() { rm -f "$T/home/tehas/versions.env" "$T/home/tehas/state/rukas-proven"; }
+
+t_case "a pi-rukas no cycle has ended well on starts one cycle, whatever the slots"
+reset
+slots 4
+installed
+proven "$old_rukas"
+ready 7 8 9
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+not_installed
+
+t_case "with no cycle proven on this host at all, the first start is one cycle too"
+reset
+slots 4
+installed
+ready 7 8 9
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+not_installed
+
+t_case "while a cycle runs on the new pi-rukas nothing more starts, and the hold says why"
+reset
+slots 4
+installed
+proven "$old_rukas"
+ready 7 8
+hold 9
+ran_with 9 "$new_rukas"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_eq "$(jq -r .why "$dispatch_json")" canary
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "holding: pi-rukas aaaaaaaaaaaa is new on this host, one cycle runs on it until one ends with a pull request"
+release
+not_installed
+
+t_case "cycles still running on the pi-rukas before do not hold back the first one on the new"
+reset
+slots 4
+installed
+proven "$old_rukas"
+ready 7 8
+hold 9
+ran_with 9 "$old_rukas"
+hold 10
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+release
+not_installed
+
+t_case "once a cycle has ended well on the installed pi-rukas the slots decide again"
+reset
+slots 4
+installed
+proven "$new_rukas"
+ready 7 8 9
+hold 10
+ran_with 10 "$new_rukas"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 "
+release
+not_installed
+
 t_done

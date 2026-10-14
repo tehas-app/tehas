@@ -563,6 +563,37 @@ t_run "$cycle 7"
 t_contains "$t_out" "status=running"
 t_lacks "$(t_calls gh)" "None of its logs changed"
 
+t_case "the pi-rukas a cycle starts with is on record beside its lock, and a merge proves it"
+reset
+rukas=$(printf 'c%.0s' {1..40})
+echo "PI_RUKAS_COMMIT=$rukas" >"$T/home/tehas/versions.env"
+ended merged commit-pr
+t_run "$cycle 7"
+t_eq "$(cat "$state/7.rukas")" "$rukas"
+t_eq "$(cat "$T/home/tehas/state/rukas-proven")" "$rukas"
+
+t_case "a handoff with a pull request proves the pi-rukas it ran with"
+reset
+echo "PI_RUKAS_COMMIT=$rukas" >"$T/home/tehas/versions.env"
+ended handoff commit-pr feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$cycle 7"
+t_eq "$(cat "$T/home/tehas/state/rukas-proven")" "$rukas"
+
+t_case "a cycle that parks proves nothing, and one proven before stays"
+reset
+echo "PI_RUKAS_COMMIT=$rukas" >"$T/home/tehas/versions.env"
+mkdir -p "$T/home/tehas/state"
+echo before >"$T/home/tehas/state/rukas-proven"
+ended aborted develop
+t_run "$cycle 7"
+t_eq "$(cat "$T/home/tehas/state/rukas-proven")" "before"
+ended handoff commit-pr
+rm -f "$fx/pr.txt"
+t_run "$cycle 7"
+t_eq "$(cat "$T/home/tehas/state/rukas-proven")" "before"
+rm -f "$T/home/tehas/versions.env" "$T/home/tehas/state/rukas-proven"
+
 t_case "a cycle that left a pull request says the count too"
 reset
 ended handoff commit-pr feature/x

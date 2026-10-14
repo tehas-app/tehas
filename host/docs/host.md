@@ -496,7 +496,9 @@ Every release of tehas takes the newest release of pi-rukas. Before tagging:
 2. When it changed something, open a pull request with the change, merge it,
    and tag the release from that merge.
 3. On the host: pull, run `./bootstrap.sh user`, rebuild the sandbox image,
-   run the contract test above, then let one cycle run before trusting it.
+   and run the contract test above. The dispatcher then runs one cycle at a
+   time on the new pi-rukas until one ends with a pull request: see
+   [Limits that hold work back](/operating#limits-that-hold-work-back).
 
 Where the instance sets `TEHAS_IMPROVE_RUKAS_REPO`, the
 [improvement loop](/operating#the-improvement-loop) files what it finds about
