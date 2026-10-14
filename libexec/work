@@ -256,6 +256,19 @@ rm "$fifo"
 # Docker refuses a cid file that is already there. One is left only by a cycle
 # that was killed outright, and so is a count of kills.
 rm -f "$cid_file" "$oom_file" "$forks_file" "$stall_file"
+# A container under this name outlived the client that started it: this
+# command holds the issue's lock, so no cycle owns it. It would work on with
+# the bot's token, and Docker would refuse the name below.
+docker rm -f "$name" >/dev/null 2>&1
+
+# Set before the container starts, so no signal falls between. A stop ends the
+# loop and is recorded as interrupted, not as running.
+interrupted=0
+cpid=""
+# The live file says running only once the trap can say interrupted.
+live_on=0
+trap 'interrupted=1; [ -z "$cpid" ] || kill "$cpid" 2>/dev/null; exec 3>&- 2>/dev/null; docker stop -t 10 "$name" 2>/dev/null
+[ "$live_on" = 0 ] || now_file false interrupted "killed by signal (TERM/INT)"' TERM INT
 docker run --rm -i --init --name "$name" \
   "${TEHAS_SLICE_LIMITS[@]}" --cidfile "$cid_file" \
   -w "$repo" "${mounts[@]}" "${image_opts[@]}" \
@@ -292,10 +305,7 @@ now_file() { # running? status step
     >"$live/cycles/$issue.json.new" 2>/dev/null && mv "$live/cycles/$issue.json.new" "$live/cycles/$issue.json"
   tehas_live_assemble
 }
-# Set before the first live file, so a file that says running has the trap.
-# A stop ends the loop and is recorded as interrupted, not as running.
-interrupted=0
-trap 'interrupted=1; kill "$cpid" 2>/dev/null; exec 3>&- 2>/dev/null; docker stop -t 10 "$name" 2>/dev/null; now_file false interrupted "killed by signal (TERM/INT)"' TERM INT
+live_on=1
 now_file true running starting
 
 # How many processes the kernel has killed for memory in this container, and
@@ -362,6 +372,11 @@ while [ "$interrupted" = 0 ] && kill -0 "$pid" 2>/dev/null; do
 done
 
 [ "$interrupted" = 0 ] || status=interrupted
+# A stop that came while the container was still being made found nothing to
+# stop.
+if [ "$interrupted" = 1 ] && kill -0 "$pid" 2>/dev/null; then
+  docker stop -t 10 "$name" >/dev/null 2>&1
+fi
 if [ "$interrupted" = 0 ] && kill -0 "$pid" 2>/dev/null; then
   # Give the driver a moment to post its handoff, then end the session.
   [ "$status" != running ] && sleep 20

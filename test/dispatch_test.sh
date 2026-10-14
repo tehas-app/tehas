@@ -91,6 +91,7 @@ esac'
 t_stub docker 'case "$1" in
   info) cat "$T/fx/docker.info" ;;
   image) [ -e "$T/fx/image.label" ] || exit 1; cat "$T/fx/image.label" ;;
+  rm) [ ! -e "$T/fx/orphan-$3" ] || echo "$3" ;;
 esac'
 gib=1073741824
 slice_env=TEHAS_CGROUP_ROOT=$T_CGROUP
@@ -109,7 +110,7 @@ cid() { # <issue> <hex digit> <bytes in use>
 dispatch_json=$T/home/tehas/live/dispatch.json
 
 reset() {
-  rm -f "$T"/calls/* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/issue-* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/slice-*
+  rm -f "$T"/calls/* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/issue-* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/slice-* "$fx"/orphan-*
   rm -rf "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-* "$T"/home/tehas/state/park-* "$T/home/tehas/live"
   # A slice of 20 GiB with nothing in it: room for ten cycles of the default
   # reserve, so the slots and the review cap decide unless a case says more.
@@ -802,6 +803,40 @@ t_run "$dispatch --dry-run"
 t_contains "$t_out" "would park #9: it is marked tehas:running and no cycle holds its lock"
 t_lacks "$(t_calls gh)" "issue edit"
 t_lacks "$(t_calls gh)" "issue comment"
+t_lacks "$(t_calls docker)" "rm "
+
+t_case "a container left by a cycle whose lock nobody holds is removed, and that is logged"
+reset
+echo '[{"number":9}]' >"$fx/marked.json"
+: >"$fx/orphan-tehas-work-9"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$(t_calls docker)" "rm -f tehas-work-9"
+t_contains "$t_out" "removed the container tehas-work-9: no cycle holds the lock of #9"
+
+t_case "with no container left the removal says nothing"
+reset
+echo '[{"number":9}]' >"$fx/marked.json"
+t_run "$dispatch"
+t_contains "$(t_calls docker)" "rm -f tehas-work-9"
+t_lacks "$t_out" "removed the container"
+
+t_case "a closed issue's left container goes too"
+reset
+echo '[{"number":9,"state":"CLOSED"}]' >"$fx/marked.json"
+: >"$fx/orphan-tehas-work-9"
+t_run "$dispatch"
+t_contains "$t_out" "removed the container tehas-work-9"
+
+t_case "the container of a cycle that holds its lock is not touched"
+reset
+slots 2
+echo '[{"number":9}]' >"$fx/marked.json"
+: >"$fx/orphan-tehas-work-9"
+hold 9
+t_run "$dispatch"
+t_lacks "$(t_calls docker)" "rm "
+release
 
 t_case "a paused factory leaves it"
 reset
@@ -2129,6 +2164,8 @@ t_contains "$(t_calls gh)" "--add-label tehas:question --add-label needs-human-a
 t_eq "$(jq -r '[.session, .turns, .failed, .running] | @tsv' "$record")" "abc-123	2	true	false"
 t_eq "$(plan_calls)" ""
 
+t_case "the container of a cut-off turn is removed before the turn is reported"
+t_contains "$(t_calls docker)" "rm -f tehas-plan-7"
 t_case "a first turn cut off by a restart ends visibly"
 planning
 echo '[]' >"$fx/asking.json"

@@ -172,7 +172,12 @@ does not hold its lock on this host, `~/tehas/state/cycles/<issue>.lock`, gets
 where the run log is. The log line is `park #N: it is marked tehas:running and
 no cycle holds its lock`. If the label change fails nothing is said on the
 issue and the next poll tries again. A closed issue in that state only loses
-`tehas:running`. A paused factory leaves such an issue as it is. Run the dispatcher only on the host that runs the cycles: on any other
+`tehas:running`. For either, a container `tehas-work-<issue>` that is still
+there is removed, with the line `removed the container tehas-work-N: no cycle
+holds the lock of #N`: its client died, and it would work on with the bot's
+token and hold the name. The container of a planning turn that was cut off,
+`tehas-plan-<issue>`, is removed the same way before the turn is reported. A
+paused factory leaves such an issue as it is. Run the dispatcher only on the host that runs the cycles: on any other
 host no cycle holds a lock.
 
 An issue is taken only when an allowed account applied `tehas:ready` and
@@ -213,7 +218,8 @@ waits until `.pi/work-state/<issue>.json` in the workspace `~/tehas/work/<name>-
 
 It holds the issue's lock, `~/tehas/state/cycles/<issue>.lock`, while it runs.
 Run by hand for an issue whose cycle is running, it refuses before it moves
-anything (exit 5). Under `tehasbot cycle` it is handed that lock, already
+anything (exit 5). A container left under the name `tehas-work-<issue>` is
+then no cycle's, and is removed before the new one starts. Under `tehasbot cycle` it is handed that lock, already
 held, and goes on. While a run by hand holds the lock, the dispatcher counts it
 as the issue's cycle and starts no other for the issue.
 
@@ -362,7 +368,8 @@ and are removed with it, and its transcripts go to
 before a turn. The agent files issues with the token. The RPC stream is
 kept in `~/tehas/logs/plan-<issue>-<time>.jsonl`. The limit is
 `TEHAS_PLAN_TIMEOUT`, and the session record is
-`~/tehas/state/plan-<issue>.json`.
+`~/tehas/state/plan-<issue>.json`. A container left under the turn's name, by
+a turn whose client died, is removed before the turn starts.
 
 ## tehas dev
 

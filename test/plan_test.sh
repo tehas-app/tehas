@@ -190,7 +190,12 @@ t_lacks "$args" ".config/tehas"
 t_lacks "$args" "--privileged"
 t_lacks "$args" "test-token"
 t_lacks "$args" "$checkout"
-t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 1
+t_eq "$(grep -l -x -e run "$T"/calls/docker.args.* | wc -l)" 1
+
+t_case "a container left under the turn's name is removed before the turn starts"
+rm_at=$(t_calls docker | grep -n -x -e 'rm -f tehas-plan-7' | cut -d: -f1 | head -n 1)
+run_at=$(t_calls docker | grep -n -e ' --mode ' | cut -d: -f1 | head -n 1)
+t_eq "$([ -n "$rm_at" ] && [ -n "$run_at" ] && [ "$rm_at" -lt "$run_at" ] && echo before)" before
 
 t_case "the turn gets the slice and a cycle's limits, and the host aliases from the settings"
 reset

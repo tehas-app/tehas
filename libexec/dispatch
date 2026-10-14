@@ -607,15 +607,26 @@ if [ -n "$rukas_now" ] && ! tehas_rukas_proven "$rukas_now"; then
   done
 fi
 
+# reap <container> <why>: remove a container whose command is gone. Its
+# client died, so nothing else stops it: it would work on with the bot's
+# token, count in the slice, and the next start under its name would fail.
+reap() {
+  local gone
+  gone=$(docker rm -f "$1" 2>/dev/null) || gone=""
+  [ -z "$gone" ] || log "removed the container $1: $2"
+}
+
 # A cycle that was killed, or whose last label change GitHub refused, leaves
 # its issue marked as running. No rule below would look at it again. The
 # comment follows the label change only: while the change fails, the next poll
-# finds the issue again and must not say the same once more.
+# finds the issue again and must not say the same once more. A container of
+# that issue is left only by a cycle whose client died, and goes.
 gh_json issue list --repo "$repo" --state all --label tehas:running --limit 1000 --json number,state
 marked_json=$json
 marked=$(jq -r 'map(.number) | sort | .[]' <<<"$marked_json") || { log "ERROR: unreadable list of issues marked as running"; exit 1; }
 for n in $marked; do
   ! tehas_cycle_running "$n" || continue
+  [ "$dry" = 1 ] || reap "tehas-work-$n" "no cycle holds the lock of #$n"
   # A closed issue is nobody's to retry: the mark goes and nothing is said.
   if [ "$(jq -r --argjson n "$n" '.[] | select(.number == $n) | .state // "OPEN"' <<<"$marked_json")" = CLOSED ]; then
     if [ "$dry" = 1 ]; then
@@ -730,6 +741,7 @@ for st in "$TEHAS_HOME"/state/plan-*.json; do
   if [ "$dry" = 1 ]; then
     log "would report the cut-off planning turn of #$n"
   else
+    reap "tehas-plan-$n" "the planning turn of #$n was cut off"
     plan_recover "$n" || true
   fi
   fresh="$fresh$n "

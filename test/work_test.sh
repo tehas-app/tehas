@@ -572,6 +572,20 @@ t_lacks "$(cat "$T/work.out")" "was killed"
 t_contains "$(cat "$T/work.out")" "status=interrupted"
 t_eq "$(jq -c '[.running, .status]' "$live/cycles/7.json")" '[false,"interrupted"]'
 
+t_case "a TERM as soon as the container starts is caught: interrupted, and the container stopped"
+fresh
+container "\"\$nap\" 60 >/dev/null 2>&1 & echo \$! >\"\$T/sleeper.pid\"; kill -TERM \$PPID; $gone"
+t_run "$work 7"
+kill "$(cat "$T/sleeper.pid" 2>/dev/null)" 2>/dev/null
+t_eq "$t_rc" 2
+t_contains "$t_out" "status=interrupted"
+t_contains "$(t_calls docker)" "stop -t 10 tehas-work-7"
+
+t_case "a container left under the issue's name is removed before the cycle's starts"
+rm_at=$(t_calls docker | grep -n -x -e 'rm -f tehas-work-7' | cut -d: -f1 | head -n 1)
+run_at=$(t_calls docker | grep -n -e ' --mode ' | cut -d: -f1 | head -n 1)
+t_eq "$([ -n "$rm_at" ] && [ -n "$run_at" ] && [ "$rm_at" -lt "$run_at" ] && echo before)" before
+
 t_case "the container's oom_kill count is printed and written to the state directory, and is not read from the slice"
 fresh
 slice_good

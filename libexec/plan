@@ -270,6 +270,10 @@ mkfifo "$fifo"
 exec 3<>"$fifo"
 rm "$fifo"
 
+# A container under this name outlived the client that started it. The
+# dispatcher runs one turn at a time, so it is no turn's: left, it idles for
+# ever and Docker would refuse the name.
+docker rm -f "$name" >/dev/null 2>&1
 docker run --rm -i --init --name "$name" \
   "${TEHAS_SLICE_LIMITS[@]}" \
   -w "$repo" "${mounts[@]}" "${image_opts[@]}" \
