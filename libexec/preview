@@ -22,9 +22,14 @@
 #                   in memory. A recipe that declares a volume anywhere else
 #                   is not run: Docker would put that volume on the disk.
 #   how many        The newest TEHAS_PREVIEW_MAX. The rest say "over-limit".
+#                   All the open pull requests are read, in pages of 100; a
+#                   run that cannot finish reading them builds and removes
+#                   nothing.
 #   when it goes    At the next run after the pull request is merged or
 #                   closed: the container, the image, the fetched ref and
-#                   the state.
+#                   the state. Nothing is removed before GitHub is asked about
+#                   that pull request by itself: a list read in pages is not
+#                   one answer taken at one moment.
 #   what it says    A notice at the top of the pull request's own description,
 #                   between two marker lines, edited in place: the address, or
 #                   "Unable to create a preview" with the reason, for a failed
@@ -101,6 +106,13 @@ net=tehas-previews
 number='^[1-9][0-9]{0,8}$'
 recipe=preview/Dockerfile
 build_limit=900
+# The open pull requests are read in pages, newest first, and 100 is what
+# GitHub answers with at most. Beyond pull_pages of them the run has not read
+# the list, and it does not remove anything on a list it has not read. When
+# page pull_pages comes back full one more answer says whether the list ends
+# there, so that a list of exactly pull_pages * pull_page_size is read.
+pull_page_size=100
+pull_pages=10
 # The seconds between a container's start and the question whether it still
 # runs. TEHAS_PREVIEW_SETTLE is there for the tests, so that they do not wait.
 # It is not documented as a setting, but a line in instance.env reaches it all
@@ -126,6 +138,25 @@ free=""
 low=false
 
 mkdir -p "$root" "$live" "$logs" "$TEHAS_HOME/tmp" || exit 1
+# scratch <prefix>: a temporary file under $TEHAS_HOME/tmp, named
+# preview-<prefix>.<six characters>; scratch_file names it. Every file made here
+# is remembered, and the trap below removes them all, whatever ends this run - a
+# signal included, because bash runs the EXIT trap when a signal ends it. Without
+# it a run that was stopped leaves a file the next run does not know about. A
+# caller that can do without one takes /dev/null instead. scratch is not called
+# in a command substitution: the file has to be remembered by this shell.
+scratch_files=()
+scratch_file=""
+scratch() {
+  local f
+  if ! f=$(mktemp "$TEHAS_HOME/tmp/preview-$1.XXXXXX" 2>/dev/null); then
+    scratch_file=""
+    return 1
+  fi
+  scratch_files+=("$f")
+  scratch_file=$f
+}
+trap 'for f in "${scratch_files[@]+"${scratch_files[@]}"}"; do rm -f "$f"; done' EXIT
 # The sweep waits for a run to end; a run does not wait for anything.
 if [ "$mode" = sweep ]; then
   edge_lock preview 1800 || { echo "the lock was not free in 30 minutes, nothing was swept"; exit 0; }
@@ -273,7 +304,7 @@ why_failed() {
 Said=""
 notice_plan() {
   local n=$1 block=$2 create=$3 answer err reason
-  err=$(mktemp "$TEHAS_HOME/tmp/preview-tell.XXXXXX" 2>/dev/null) || err=/dev/null
+  if scratch tell; then err=$scratch_file; else err=/dev/null; fi
   if ! answer=$(gh api "repos/$repo/pulls/$n" --jq '{number, body, state, updated_at}' 2>"$err"); then
     reason=$(why_failed "$err")
     [ "$err" = /dev/null ] || rm -f "$err"
@@ -541,7 +572,7 @@ start_failed() {
 # else's commit.
 volume_fault() {
   local said found
-  said=$(docker image inspect --format '{{json .Config.Volumes}}' "tehas-preview:$1" 2>/dev/null 9>&-) || said=""
+  said=$(docker image inspect --format '{{json .Config.Volumes}}' "tehas-preview:$1" 2>/dev/null {edge_lock_fd}>&-) || said=""
   # The path is the recipe's own text: it is printed without control
   # characters and cut short.
   found=$(jq -r -s '
@@ -574,9 +605,10 @@ build() {
         echo "https://github.com/$repo.git")" || return 1
   fi
   : >"$log"
-  # 9>&- on every command that can outlive the run: a descriptor 9 they inherit
-  # would hold the lock after the run has ended (a detached gc, a daemon).
-  if ! git -C "$bare" fetch --quiet --no-tags origin "+refs/pull/$n/head:refs/preview/$n" >>"$log" 2>&1 9>&-; then
+  # Close the lock's descriptor on every command that can outlive the run: a
+  # descriptor they inherit would hold the lock after the run has ended (a
+  # detached gc, a daemon).
+  if ! git -C "$bare" fetch --quiet --no-tags origin "+refs/pull/$n/head:refs/preview/$n" >>"$log" 2>&1 {edge_lock_fd}>&-; then
     # No state: a fetch that failed says nothing about the commit.
     echo "#$n: the commit could not be fetched, tried again at the next run"
     return 1
@@ -598,9 +630,9 @@ build() {
   mark "$n" "$sha" building
   old=$(docker image inspect --format '{{.Id}}' "tehas-preview:$n" 2>/dev/null) || old=""
   # git's own complaint goes to this pull request's log, as the build's does.
-  if ! git -C "$bare" archive "$sha" 2>>"$log" 9>&- | timeout "$build_limit" docker build --quiet \
+  if ! git -C "$bare" archive "$sha" 2>>"$log" {edge_lock_fd}>&- | timeout "$build_limit" docker build --quiet \
     -f "$recipe" -t "tehas-preview:$n" \
-    --label "tehas.preview=$n" --label "tehas.sha=$sha" --label "tehas.repo=$repo" - >>"$log" 2>&1 9>&-; then
+    --label "tehas.preview=$n" --label "tehas.sha=$sha" --label "tehas.repo=$repo" - >>"$log" 2>&1 {edge_lock_fd}>&-; then
     mark "$n" "$sha" build-failed "The build failed or ran over $((build_limit / 60)) minutes. Its output is in logs/preview-$n.log on the host."
     return 1
   fi
@@ -608,7 +640,7 @@ build() {
   # other: the earlier preview keeps serving and the commit is not tried
   # again. The image is of no use and is removed.
   if ! fault=$(volume_fault "$n" "$log"); then
-    docker image rm "tehas-preview:$n" >/dev/null 2>&1 9>&-
+    docker image rm "tehas-preview:$n" >/dev/null 2>&1 {edge_lock_fd}>&-
     mark "$n" "$sha" build-failed "$fault"
     return 1
   fi
@@ -621,7 +653,7 @@ build() {
     --memory 256m --cpus 1 --pids-limit 128 --log-opt max-size=10m --log-opt max-file=2 \
     --restart unless-stopped \
     --label "tehas.preview=$n" --label "tehas.sha=$sha" --label "tehas.repo=$repo" \
-    "tehas-preview:$n" >>"$log" 2>&1 9>&-; then
+    "tehas-preview:$n" >>"$log" 2>&1 {edge_lock_fd}>&-; then
     start_failed "$n" "$sha" "$tries" "The container did not start. See logs/preview-$n.log on the host."
     return 1
   fi
@@ -630,12 +662,12 @@ build() {
   # be called serving and be started again for ever. So it is asked a moment
   # later: still running, and never restarted.
   sleep "$settle"
-  if [ "$(docker inspect --format '{{.State.Running}} {{.RestartCount}}' "tehas-preview-$n" 2>/dev/null 9>&-)" != "true 0" ]; then
+  if [ "$(docker inspect --format '{{.State.Running}} {{.RestartCount}}' "tehas-preview-$n" 2>/dev/null {edge_lock_fd}>&-)" != "true 0" ]; then
     {
       echo "docker logs of tehas-preview-$n, which started and stopped:"
-      docker logs --tail 40 "tehas-preview-$n" 9>&-
+      docker logs --tail 40 "tehas-preview-$n" {edge_lock_fd}>&-
     } >>"$log" 2>&1
-    docker rm -f -v "tehas-preview-$n" >/dev/null 2>&1 9>&-
+    docker rm -f -v "tehas-preview-$n" >/dev/null 2>&1 {edge_lock_fd}>&-
     start_failed "$n" "$sha" "$tries" "The container started and stopped. See \"docker logs\" in logs/preview-$n.log on the host."
     return 1
   fi
@@ -664,9 +696,48 @@ write_list() {
     "${files[@]}" </dev/null
 }
 
+# pull_verdict <number> <file for the error of a call that failed>: what GitHub
+# says about one pull request, read as the sweep reads it. keep is an open pull
+# request of this repository opened by one of ours; closed, gone, elsewhere and
+# outside are each a reason to remove what is on the host for it; unclear is an
+# answer that must not be acted on. The caller has already checked that $1 is a
+# number, which is what lets it go in the jq program as one.
+pull_verdict() { # <number> <file>
+  local n=$1 err=$2 answer verdict
+  if answer=$(gh api "repos/$repo/pulls/$n" 2>"$err"); then
+    # Only "closed" is closed. An open pull request is elsewhere with a head
+    # that is not in this repository, a deleted fork (a null repo) included.
+    # With a head here it is ours when an owner, member or collaborator opened
+    # it and outside when the answer names anyone else. Anything else, an
+    # answer that does not say who opened it or one about another number
+    # included, is unclear.
+    # shellcheck disable=SC2016  # a jq program: $repo and $n are jq's variables
+    verdict=$(jq -r --arg repo "$repo" --argjson n "$n" '
+      if (.state | type) != "string" or (.number | type) != "number" or .number != $n then "unclear"
+      elif .state == "closed" then "closed"
+      elif .state != "open" then "unclear"
+      elif (.head | type) != "object" then "unclear"
+      elif ((.head.repo.full_name // "") | ascii_downcase) == ($repo | ascii_downcase) then
+        (if (.author_association | type) != "string" then "unclear"
+         elif (.author_association | IN("OWNER", "MEMBER", "COLLABORATOR")) then "keep"
+         else "outside" end)
+      elif .head.repo == null or ((.head.repo.full_name | type) == "string") then "elsewhere"
+      else "unclear" end' <<<"$answer" 2>/dev/null) || verdict=unclear
+  elif grep -q 'HTTP 404' "$err" 2>/dev/null; then
+    # No such pull request. The sweep checks that GitHub shows the repository
+    # at all before it reads a 404 this way; a caller that got an answer from
+    # repos/<repo>/pulls a moment ago has that evidence already.
+    verdict=gone
+  else
+    verdict=unclear
+  fi
+  echo "${verdict:-unclear}"
+}
+
 # --- The five minute run -----------------------------------------------------
 run() {
-  local pulls ours pr n sha seen i=0 open=" " wanted=() elsewhere outside have item fault
+  local page pr n sha seen i=0 open=" " wanted=() elsewhere=0 outside=0 have item fault
+  local pages count ours_file probe err verdict
   # A run that stops here or at the network still writes the list. Its time
   # is what the dashboard shows and what tehasbot health goes by, and a list
   # that stopped changing would look like a timer that stopped. Without
@@ -695,11 +766,22 @@ run() {
     return 0
   fi
 
-  pulls=$(gh api "repos/$repo/pulls?state=open&sort=created&direction=desc&per_page=100" 2>/dev/null) ||
-    { write_list; return 0; }
-  # An empty answer with exit 0 is no answer: jq would run its program on no
-  # input and say nothing, and every preview would look closed.
-  jq -e 'type == "array"' <<<"$pulls" >/dev/null 2>&1 || { write_list; return 0; }
+  # All the open pull requests, in pages of 100, newest first. Only the newest
+  # page was asked for at first, which is a limit with teeth: a hundred newer
+  # pull requests from forks or from outsiders push every one of ours off that
+  # page, and the run then finds none of them open and removes every preview
+  # that serves until they close. The pages are read until one is short, which
+  # is where GitHub ends. Past pull_pages of them the list was not read, and a
+  # run does not build or remove on a list it did not read. Each page is an
+  # answer of its own, taken at its own moment: what is done with the merged
+  # list below takes that into account.
+  if ! scratch ours; then
+    echo "no scratch file for the list of open pull requests; nothing was built or removed"
+    write_list
+    return 0
+  fi
+  ours_file=$scratch_file
+  : >"$ours_file" || { write_list; return 0; }
   # Ours: a number, a commit id, a head in this repository and no other, and
   # opened by people of the repository: an owner, member or collaborator, as
   # for the Protolab's attachments. The head alone is not enough. On a public
@@ -712,33 +794,62 @@ run() {
     def committed: (.head.sha // "") | test("^[0-9a-f]{40}$");
     def here: ((.head.repo.full_name // "") | ascii_downcase) == ($repo | ascii_downcase);
     def by_us: .author_association | ours;'
-  # A list that does not say who opened one of ours is not a clear answer.
-  # Reading it as "an outsider's" would remove a preview that serves, where
-  # the sweep keeps on the same answer.
-  if ! jq -e --arg repo "$repo" "$parts"'
-      all(.[]; (numbered and committed and here | not) or (.author_association | type) == "string")' \
-      <<<"$pulls" >/dev/null 2>&1; then
-    echo "the list of open pull requests does not say who opened each; nothing was built or removed"
-    write_list
-    return 0
-  fi
-  ours=$(jq -c --arg repo "$repo" "$parts"'
-    if type != "array" then error("not a list") else . end
-    | map(select(numbered and committed and here and by_us)
-          | {number, sha: .head.sha, title: ((.title // "") | .[0:180]), url: (.html_url // null),
-             seen: (.updated_at | if type == "string" then . else "" end)})
-    | .[]' <<<"$pulls" 2>/dev/null) || { write_list; return 0; }
-  elsewhere=$(jq --arg repo "$repo" '
-    [.[] | select(((.head.repo.full_name // "") | ascii_downcase) != ($repo | ascii_downcase))] | length' \
-    <<<"$pulls" 2>/dev/null) || elsewhere=0
+  pages=0
+  while :; do
+    page=$(gh api "repos/$repo/pulls?state=open&sort=created&direction=desc&per_page=$pull_page_size&page=$((pages + 1))" 2>/dev/null) ||
+      { write_list; return 0; }
+    # An empty answer with exit 0 is no answer: jq would run its program on no
+    # input and say nothing, and every preview would look closed.
+    jq -e 'type == "array"' <<<"$page" >/dev/null 2>&1 || { write_list; return 0; }
+    count=$(jq 'length' <<<"$page") || { write_list; return 0; }
+    # A page that does not say who opened one of ours is not a clear answer.
+    # Reading it as "an outsider's" would remove a preview that serves, where
+    # the sweep keeps on the same answer.
+    if ! jq -e --arg repo "$repo" "$parts"'
+        all(.[]; (numbered and committed and here | not) or (.author_association | type) == "string")' \
+        <<<"$page" >/dev/null 2>&1; then
+      echo "the list of open pull requests does not say who opened each; nothing was built or removed"
+      write_list
+      return 0
+    fi
+    jq -c --arg repo "$repo" "$parts"'
+      if type != "array" then error("not a list") else . end
+      | map(select(numbered and committed and here and by_us)
+            | {number, sha: .head.sha, title: ((.title // "") | .[0:180]), url: (.html_url // null),
+               seen: (.updated_at | if type == "string" then . else "" end)})
+      | .[]' <<<"$page" >>"$ours_file" 2>/dev/null || { write_list; return 0; }
+    # Those whose head is elsewhere, and those that would have been built but
+    # for who opened them.
+    elsewhere=$((elsewhere + $(jq --arg repo "$repo" '
+      [.[] | select(((.head.repo.full_name // "") | ascii_downcase) != ($repo | ascii_downcase))] | length' \
+      <<<"$page" 2>/dev/null || echo 0)))
+    outside=$((outside + $(jq --arg repo "$repo" "$parts"'
+      [.[] | select(numbered and committed and here and (by_us | not))] | length' \
+      <<<"$page" 2>/dev/null || echo 0)))
+    pages=$((pages + 1))
+    [ "$count" -lt "$pull_page_size" ] && break
+    if [ "$pages" -ge "$pull_pages" ]; then
+      # The last page this run may ask for came back full, so the list may end
+      # there or go past it. One more answer tells them apart: an empty one
+      # means every open pull request was read, and a thousand of them is a
+      # list that was read.
+      probe=$(gh api "repos/$repo/pulls?state=open&sort=created&direction=desc&per_page=$pull_page_size&page=$((pages + 1))" 2>/dev/null) ||
+        { write_list; return 0; }
+      jq -e 'type == "array"' <<<"$probe" >/dev/null 2>&1 || { write_list; return 0; }
+      count=$(jq 'length' <<<"$probe") || { write_list; return 0; }
+      if [ "$count" != 0 ]; then
+        echo "the open pull requests are more than $((pull_pages * pull_page_size)): the list was not read, nothing was built or removed"
+        write_list
+        return 0
+      fi
+      break
+    fi
+  done
   if [ "$elsewhere" = 1 ]; then
     echo "1 pull request from elsewhere, not built"
   elif [ "$elsewhere" != 0 ]; then
     echo "$elsewhere pull requests from elsewhere, not built"
   fi
-  # Those that would have been built but for who opened them.
-  outside=$(jq --arg repo "$repo" "$parts"'
-    [.[] | select(numbered and committed and here and (by_us | not))] | length' <<<"$pulls" 2>/dev/null) || outside=0
   if [ "$outside" = 1 ]; then
     echo "1 pull request opened by someone outside the repository, not built"
   elif [ "$outside" != 0 ]; then
@@ -748,6 +859,10 @@ run() {
   while IFS= read -r pr; do
     [ -n "$pr" ] || continue
     n=$(jq -r .number <<<"$pr")
+    # The pages are asked for one at a time, and the list moves between them:
+    # a pull request opened while they are read comes back on two of them. It
+    # counts once, so that it does not take a preview from another.
+    case "$open" in *" $n "*) continue ;; esac
     sha=$(jq -r .sha <<<"$pr")
     seen=$(jq -r '.seen // ""' <<<"$pr")
     open="$open$n "
@@ -768,7 +883,7 @@ run() {
       continue
     fi
     wanted+=("$n $sha")
-  done <<<"$ours"
+  done <"$ours_file"
 
   # What is on the host and no longer open: by directory and by container.
   # Only a container whose label names this repository gives a number, in any
@@ -779,11 +894,32 @@ run() {
       --format '{{.ID}} {{.Label "tehas.preview"}} {{.Label "tehas.repo"}}' 2>/dev/null |
       awk -v repo="$repo" 'tolower($3) == tolower(repo) {print $2}'
   } | grep -E "$number" | sort -un)
+  # Membership in that list is not enough to remove something. The pages are
+  # asked for one at a time: when the list moves while they are read a pull
+  # request can fall between two of them and be in neither, and one that is
+  # open would then look closed. So the run asks about each number it means to
+  # remove, as the sweep does, and keeps what GitHub says is open of ours.
+  if scratch remove; then err=$scratch_file; else err=/dev/null; fi
   while IFS= read -r n; do
     [ -n "$n" ] || continue
     case "$open" in *" $n "*) continue ;; esac
-    purge "$n"
-    echo "#$n: pull request no longer open, removed"
+    verdict=$(pull_verdict "$n" "$err")
+    case "$verdict" in
+      closed | gone)
+        purge "$n"
+        echo "#$n: pull request no longer open, removed"
+        ;;
+      elsewhere)
+        purge "$n"
+        echo "#$n: its branch is not in $repo, removed"
+        ;;
+      outside)
+        purge "$n"
+        echo "#$n: it was not opened by someone of $repo, removed"
+        ;;
+      keep) echo "#$n: open though the list did not say so, kept" ;;
+      *) echo "#$n: no answer from GitHub, kept" ;;
+    esac
   done <<<"$have"
 
   for item in "${wanted[@]+"${wanted[@]}"}"; do
@@ -820,7 +956,7 @@ no_space() {
 # An answer that is not clear keeps everything: a sweep never removes on a
 # failed call.
 sweep() {
-  local removed=0 numbers n id tag owner name answer err verdict info listing stuck
+  local removed=0 numbers n id tag owner name err verdict info listing stuck
   local fmt='{{.ID}} {{.Label "tehas.preview"}} {{.Label "tehas.repo"}} {{.Names}}'
   if ! docker info --format '{{.DockerRootDir}}' >/dev/null 2>&1; then
     echo "Docker does not answer; nothing was swept"
@@ -875,34 +1011,10 @@ sweep() {
     numbers=""
   fi
 
-  err=$(mktemp "$TEHAS_HOME/tmp/preview-sweep.XXXXXX" 2>/dev/null) || err=/dev/null
+  if scratch sweep; then err=$scratch_file; else err=/dev/null; fi
   while IFS= read -r n; do
     [ -n "$n" ] || continue
-    verdict=keep
-    if answer=$(gh api "repos/$repo/pulls/$n" 2>"$err"); then
-      # Only "closed" is closed. An open pull request is elsewhere with a
-      # head that is not in this repository, a deleted fork (a null repo)
-      # included. With a head here it is ours when an owner, member or
-      # collaborator opened it and outside when the answer names anyone
-      # else. Anything else, an answer that does not say who opened it or
-      # one about another number included, is unclear.
-      # shellcheck disable=SC2016  # a jq program: $repo and $n are jq's variables
-      verdict=$(jq -r --arg repo "$repo" --argjson n "$n" '
-        if (.state | type) != "string" or (.number | type) != "number" or .number != $n then "unclear"
-        elif .state == "closed" then "closed"
-        elif .state != "open" then "unclear"
-        elif (.head | type) != "object" then "unclear"
-        elif ((.head.repo.full_name // "") | ascii_downcase) == ($repo | ascii_downcase) then
-          (if (.author_association | type) != "string" then "unclear"
-           elif (.author_association | IN("OWNER", "MEMBER", "COLLABORATOR")) then "keep"
-           else "outside" end)
-        elif .head.repo == null or ((.head.repo.full_name | type) == "string") then "elsewhere"
-        else "unclear" end' <<<"$answer" 2>/dev/null) || verdict=unclear
-    elif grep -q 'HTTP 404' "$err" 2>/dev/null; then
-      verdict=gone
-    else
-      verdict=unclear
-    fi
+    verdict=$(pull_verdict "$n" "$err")
     # Containers of the number are listed again here: a purge removes the
     # name tehas-preview-<n> only, and a labelled container of any other name
     # would stay for ever and be swept again at every check.

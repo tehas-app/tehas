@@ -91,6 +91,26 @@ t_eq "$(tehas_sort_steps "protolab --force-recreate" "units tehas-dispatch.timer
   "units tehas-dispatch.timer
 protolab --force-recreate"
 
+# The alias is said once. Everything that reads a step line asks this file what
+# id a token means, so it cannot drift into a place that knows one spelling and
+# not the other.
+t_case "one function says that a protolab line means the edge step"
+t_run '. "$T_ROOT/lib/update-steps.sh"; tehas_step_id protolab; tehas_step_id edge; tehas_step_id docs; tehas_step_id a-step-newer-than-this'
+t_eq "$t_out" "edge
+edge
+docs
+a-step-newer-than-this"
+# Read through that function, the alias carries the rules of the id it stands
+# for: a bare protolab is the weaker renewal, and is refused like a bare edge.
+t_run '. "$T_ROOT/lib/update-steps.sh"; tehas_valid_step "protolab"; echo rc=$?'
+t_eq "$t_out" "rc=1"
+t_eq "$(tehas_sort_steps "protolab --force-recreate" "sandbox" "docs --force-recreate")" \
+  "sandbox
+docs --force-recreate
+protolab --force-recreate"
+t_eq "$(grep -c -E '^[[:space:]]*protolab\)' "$T_ROOT/lib/update-steps.sh")" 1
+t_eq "$(grep -c -F 'edge | protolab' "$T_ROOT/libexec/update")" 0
+
 t_case "the steps run in the order this file lists them, whoever wrote the lines"
 t_eq "$(tehas_sort_steps "edge --force-recreate" "docs --force-recreate" \
   "units tehas-dispatch.timer" "sandbox")" \

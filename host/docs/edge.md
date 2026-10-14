@@ -211,7 +211,9 @@ installs the router's files and the units and makes the Docker network
   project `tehas-protolab`, has that container on port 8081. `tehas update`
   takes it down and starts the router in its place. If the router did not
   start, run `tehas update` again once the cause is gone: it remembers the
-  takeover and starts the router. See [Troubleshooting](/troubleshooting).
+  takeover for a day and starts the router. After that day the mark is not
+  acted on, and starting the router is yours to do. See
+  [Troubleshooting](/troubleshooting).
 - A host that never ran it gets nothing started. The `docker compose` line
   above starts the router. Where the router already runs, the line changes
   nothing.
@@ -363,4 +365,10 @@ Such a pull request is not built and takes no place from the others.
   there. A checkout whose address carries a credential would have that
   credential written to a second file. Keep credentials in a credential
   helper, not in the address.
-- The newest 100 open pull requests are looked at.
+- The open pull requests are read in pages of 100, newest first, until GitHub
+  ends. Past ten pages - more than a thousand open pull requests - the run has
+  not read the list and builds and removes nothing, and the log says so.
+- Each page is an answer of its own, taken at its own moment, and so this list
+  can move while it is read. Before it removes anything of a pull request a run
+  asks GitHub about that pull request on its own, as `tehasbot preview --sweep`
+  does, and a pull request that comes back on two pages counts once.

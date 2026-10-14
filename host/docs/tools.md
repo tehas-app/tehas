@@ -20,6 +20,7 @@ tehas index                      # build the code index the agents search
 tehas update [--check]           # bring this host up to date with the platform
 tehas labels                     # create the tehas labels in the repository
 tehas status                     # print the state of the factory
+tehas top [--once|--json]        # one screen of what the factory is doing
 tehas help [command]             # this list, or the text of one command
 ```
 
@@ -174,7 +175,24 @@ issue and the next poll tries again. A closed issue in that state only loses
 host no cycle holds a lock.
 
 An issue is taken only when an allowed account applied `tehas:ready` and
-nobody else has changed its title or body since. No other label holds it
+nobody else has changed its title or body since, and only while GitHub says the
+number is an open issue. A closed issue and a pull request are never taken,
+whatever label they carry. The poll's lists are of open issues, so what this
+catches is a number that changed since the list was read. The poll asks GitHub
+what a number is once a poll, and only for an issue its labels would otherwise
+take; the skip is said once a poll at most (`skip #N: it is closed, and a
+closed issue is never taken`, or `skip #N: it is a pull request, not an issue
+the factory works on`). An answer that cannot be read ends the poll with exit
+1.
+
+A `tehas:ready` from any other account asks for nothing, so it comes off the
+issue with a comment naming who
+applied it; the log line is `clear #N: tehas:ready off, applied by ...`. A
+`tehas:plan` from such an account comes off the same way. The
+comment follows the label change: when that change fails nothing is said on the
+issue and the next poll tries again. An issue the poll does not read as a
+candidate keeps its labels as they are, which covers one whose own cycle is
+alive and every issue while a hold applies. No other label holds it
 back: `needs-human-attention`, `tehas:awaiting-merge` and `tehas:question` are
 taken off as the cycle starts. While the issue's own cycle is alive the log
 says `wait #N: its cycle is still running`, and the issue is taken once that
@@ -431,8 +449,8 @@ does, so no cycle starts in the middle. A cycle started by hand with
 tehas labels        # one line per label
 ```
 
-Creates the nine labels tehas uses in the product repository: `tehas:ready`,
-`tehas:urgent`, `tehas:running`, `tehas:awaiting-merge`, `tehas:pause`,
+Creates the ten labels tehas uses in the product repository: `tehas:ready`,
+`tehas:urgent`, `tehas:running`, `tehas:awaiting-merge`, `tehas:shipped`, `tehas:pause`,
 `needs-human-attention`, `tehas:question`, `tehas:plan` and `tehas:planning`.
 Run it once for a new product, and again after pulling a version that adds a
 label. Run again, it puts their colours and descriptions back. It needs `TEHAS_REPO` and no other
@@ -467,6 +485,50 @@ starts `factory   stale:` and asks whether the timer is running.
 
 Exit 0 on `pass` and `warn`. Exit 1 on `fail`, on a stale file, or when there
 is no health file yet. Exit 64 on any argument.
+
+## tehas top
+
+```
+tehas top                # one screen, redrawn every 2 seconds
+tehas top --once         # one frame as plain text
+tehas top --json         # the snapshot a frame is drawn from
+tehas top --every 10     # redraw every 10 seconds
+```
+
+One screen for a person, in the manner of `top`: is the factory taking work,
+what is in the queue and which issues are behind the counts, what the cycles are
+doing, which units run, what the model mesh draws, and the tail of a cycle's
+console. It draws again every 2 seconds unless `--every` says otherwise; `q` or
+Ctrl-C ends it and leaves the terminal as it was. Without a terminal on standard
+output, and with `--once`, it prints one frame as plain text: no escape codes.
+
+It reads what the factory already writes under `~/tehas/live/` - the [health
+file](#tehasbot-health), the queue snapshot, the cycles, the energy sample and
+the console of a cycle - and asks `systemctl --user` about its units. No GitHub
+call, no model call, no Docker call, no instance settings, and nothing is
+written. What it shows is as old as those files, and every section that has an
+age prints it. A file older than ten minutes is not believed, the same rule
+`tehas status` uses.
+
+The frame is drawn from one snapshot and from nothing else. `--json` prints that
+snapshot: `generatedAt` and one key per section (`factory`, `queue`, `cycle`,
+`units`, `energy`, `console`). A section whose source is missing, unreadable or
+too old to believe is `null`; the frame says so in one line and draws the rest.
+The factory line and the queue counts are the ones `tehas status` prints: both
+commands take them from `lib/status.sh`, so they cannot drift apart. A section
+added to the snapshot appears in `--json` without anything else changing.
+
+A frame follows the width and height of the terminal, also after a resize. Long
+lines are cut; nothing wraps and nothing scrolls. When the terminal is short,
+console lines are dropped first, then unit rows, then queue rows. Text that came
+out of a file has its control characters removed before it reaches the terminal.
+`COLUMNS` and `LINES` say what the size is when the terminal cannot be asked.
+
+Exit 0 when a frame was drawn or a snapshot printed, whatever the factory says:
+a `fail` or a stale health file is shown here, not returned - that is what
+`tehas status` is for. Exit 1 when there is no `~/tehas/live/` directory at all.
+Exit 64 on an unknown argument, or on a `--every` that is not a whole number
+from 1 to 64.
 
 ## tehasbot
 
@@ -513,7 +575,15 @@ image (exit 4) is parked with a comment that says so. A retry moves a stopped wo
 `<name>-<issue>.before-retry`, which is removed and kept by the same rule. A
 stopped unit stops the container and is reported as a cycle that ended without
 a pull request. A hangup is taken as a stop too. It checks no authorisation:
-the dispatcher did that before it started the unit.
+the dispatcher did that before it started the unit. It does check the number:
+it writes `state/cycles/<issue>.taken` once it holds its lock, then asks GitHub
+what the number is before a label is changed, a comment is posted or a
+container starts, tried three times like its other calls, and refuses a closed
+issue and a pull request (exit 65) with one line in the log. A number GitHub
+could not answer for at all is refused the same way, with a line that says
+that. Because the marker was written first, the poll that started the unit
+takes such a cycle as one that came up: the issue keeps `tehas:running`, and
+the next poll clears it in silence.
 
 `tehas:awaiting-merge` is given only to a run that ended as `handoff` and has
 an open pull request of the bot. Any other end with a pull request open gets
@@ -530,12 +600,16 @@ finds it.
 | 0    | The cycle ran and was reported, whatever its outcome |
 | 3    | A cycle for this issue is already running            |
 | 64   | The argument is not an issue number                  |
+| 65   | The number is not work the factory takes: a pull request, a closed issue, or an answer GitHub could not give after three tries. Nothing was changed and no container started. The cycle still claimed its place, so a poll that started it does not report a failed start |
 | 78   | The instance settings are invalid                    |
 
 ## tehasbot status and the console
 
 Feed the [factory floor](/) and the [plain dashboard](/dashboard). `tehasbot status` writes the queue snapshot to
 `~/tehas/live/status.json`; the dispatcher runs it at every poll, and a cycle when it ends.
+Completed means closed by a merged pull request, whatever labels the issue was
+left with. `tehasbot status` gives each such issue `tehas:shipped`, so GitHub
+lists the same issues; run `tehas labels` once so the label exists.
 `~/tehas/libexec/console` is started by the work
 script and follows the cycle's agents into `~/tehas/live/console-<issue>.txt`, masking
 tokens, passwords and private network addresses, and writing no control
@@ -835,13 +909,21 @@ are enabled. Both write to `~/tehas/logs/preview.log`.
 2. It measures the free space: the smaller of the file system of `~/tehas`
    and the one Docker keeps its images on. This is done once Docker has
    answered, before the network is checked.
-3. It asks GitHub for the open pull requests, the newest 100. No answer, an
-   answer with nothing in it, or one that is not a list ends the run: nothing
+3. It asks GitHub for the open pull requests, all of them, in pages of 100,
+   newest first. It stops when a page is short, which is where GitHub ends.
+   When the tenth page comes back full it asks for one more: an empty answer
+   means the list ended there, so a thousand open pull requests is a list it
+   has read. Anything in that answer means it stopped before the end, and it
+   builds and removes nothing: `the open pull requests are more than 1000: the
+   list was not read, nothing was built or removed`. No answer, an answer with
+   nothing in it, or one that is not a list ends the run the same way: nothing
    is built and nothing is removed. A list with no pull request in it is an
-   answer, and every preview is then removed. A list that does not say who
-   opened one of the repository's own pull requests is not a clear answer
-   either: `the list of open pull requests does not say who opened each;
-   nothing was built or removed`.
+   answer, and every preview is then looked at one by one, as step 5 says. A
+   page that does not say who opened one of the repository's own pull requests
+   is not a clear answer either: `the list of open pull requests does not say
+   who opened each; nothing was built or removed`. Each page is an answer of
+   its own, taken at its own moment, so the list can move while it is read: a
+   pull request that comes back on two pages counts once.
 4. A pull request whose head is in another repository is counted in the log
    and never built: `<k> pull requests from elsewhere, not built`. Nor is
    one whose head is in the repository and that was opened by anyone but an
@@ -849,9 +931,18 @@ are enabled. Both write to `~/tehas/logs/preview.log`.
    outside the repository, not built`. On a public repository anyone can
    open a pull request between two branches that are already there. Of the
    rest, the newest `TEHAS_PREVIEW_MAX` get a preview.
-5. What is on the host for a pull request that is no longer open is removed:
+5. What is on the host for a pull request the list does not have is removed:
    the container, the image, the fetched commit, the state and the build log.
-   The log says `#<pr>: pull request no longer open, removed`.
+   Membership in that list is not enough on its own, because a pull request can
+   fall between two pages and look closed. Before it removes anything the run
+   asks GitHub about that pull request by itself, as `tehasbot preview --sweep`
+   does, and what GitHub answers is what the log says: `#<pr>: pull request no
+   longer open, removed` for one that is closed or not there at all, `#<pr>:
+   its branch is not in <repo>, removed` and `#<pr>: it was not opened by
+   someone of <repo>, removed` for one that is open but not built here. Nothing
+   is removed where GitHub does not answer clearly: `#<pr>: no answer from
+   GitHub, kept`, nor where it says the pull request is open and one of ours:
+   `#<pr>: open though the list did not say so, kept`.
 6. Each pull request that is due is fetched and built. The commit is fetched
    into the bare clone `~/tehas/preview/repo.git`, and its
    `preview/Dockerfile` is built with the commit as the context, in at most
@@ -1036,10 +1127,11 @@ time of the last sweep and how many things it removed are `lastSweep` in
 | 78   | The instance settings are invalid, or `TEHAS_PREVIEWS` is not `1` |
 
 The [plain dashboard](/dashboard) lists the previews under "Previews", each
-with its address or the reason there is none, and says when the list was
-written. A time that is more than a few minutes old means the runs have
-stopped: see the timer. A host without previews has no `previews.json` and no
-such section.
+with its address, or with its state and the reason the run wrote into its state
+file - which is what tells a recipe whose volume was refused from a build that
+failed - and says when the list was written. A time that is more than a few
+minutes old means the runs have stopped: see the timer. A host without previews
+has no `previews.json` and no such section.
 
 ## The gates (run by the cycle, usable by hand)
 
@@ -1095,7 +1187,7 @@ which ones each id accepts and which of them it requires:
 | `units <unit>...`           | a unit file changed                  | systemd reloaded its unit files, and the unit is active: restarted, never enabled |
 | `sandbox`                   | `sandbox/` or `versions.env` changed | always                                                            |
 | `docs --force-recreate`     | `edge/docs.*` changed                | its container is running: recreated with that flag                 |
-| `edge --force-recreate`     | `edge/router.*` changed              | its container is running: recreated with that flag. Or the Protolab's server of before it runs, the compose project `tehas-protolab`: that one is taken down and the router is started. If the old one came down and the router did not start, the step stays owed and `~/tehas/state/edge-takeover` is left: the next `tehas update` starts the router whatever runs, and removes that file when it did |
+| `edge --force-recreate`     | `edge/router.*` changed              | its container is running: recreated with that flag. Or the Protolab's server of before it runs, the compose project `tehas-protolab`: that one is taken down and the router is started. If the old one came down and the router did not start, the step stays owed and `~/tehas/state/edge-takeover` is left, holding the time it was made: the next `tehas update` starts the router whatever runs, and removes that file when it did. A mark of more than a day ago is not acted on - it is said, removed, and the step is what it would have been without it |
 
 Both containers are recreated rather than just brought up, because what changed is
 the Caddyfile they mount and Caddy reads its config when the process starts:

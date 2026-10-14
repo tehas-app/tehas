@@ -77,11 +77,19 @@ Run `tehas dispatch --dry-run` and read what it prints.
 - `holding: N issues await merge and M cycles are running (limit N)`: running
   cycles count towards `TEHAS_MAX_AWAITING` with the issues that await merge.
   Wait, or raise the limit.
-- `skip #N: tehas:ready was applied by ...`: the label came from an account that
-  is not allowed. Remove it and apply it yourself.
+- `skip #N: tehas:ready was applied by ...`, then `clear #N: tehas:ready off,
+  applied by ...`: the label came from an account that is not allowed. The
+  dispatcher took it off and said so on the issue. To ask for a cycle, an
+  allowed account applies `tehas:ready`. The same two lines name `tehas:plan`
+  when that label came from such an account. With only the `skip` line, the poll was
+  a dry run or the label change failed (`WARN: label change on #N failed`), and
+  the next poll tries again.
 - `ignore #N: tehas:urgent was applied by ...`: the label came from an account
   that is not allowed, so it moves nothing: the issue keeps its place by
   number. It is said at every poll until someone removes the label.
+- `holding: the mesh at ... does not offer ...`: the model endpoint is down or
+  does not list the configured model. The issue stays queued and is taken as
+  soon as the endpoint answers. See "The model endpoint does not answer" below.
 - `holding: no resources: the model endpoint ...`: the model endpoint does not
   answer, offers no models, or does not offer the configured model. Nothing
   starts, no cycle, no planning turn and no retry. The issues stay queued and
@@ -353,12 +361,17 @@ A host that ran the Protolab's server under its old name has a container of
 the project `tehas-protolab` holding port 8081. `tehas update` takes it down
 and starts the router in its place. When the old one came down and the router
 did not start, the update says `edge: docker compose up exited <n>; the step
-is not done`, and leaves an empty file, `~/tehas/state/edge-takeover`. Fix
-what the lines above that message say and run `tehas update` again: while
-that file is there it starts the router whether or not anything runs, and
-says `edge: finishing the takeover`. If it did not, remove it once and start the
-router by hand: `docker compose -p tehas-protolab down`, then
+is not done`, and leaves `~/tehas/state/edge-takeover` holding the time it was
+made. Fix what the lines above that message say and run `tehas update` again:
+while that file is less than a day old it starts the router whether or not
+anything runs, and says `edge: finishing the takeover`. Past a day the mark is
+not acted on - the update says `edge: the mark of the takeover is <n> hours
+old, and was left to you`, removes the file, and renews the router only where
+it already runs, so a router you stopped on purpose stays stopped. Start it by
+hand then: `docker compose -p tehas-protolab down`, then
 `. ~/tehas/env.sh && docker compose -f ~/tehas/edge/router.compose.yaml up -d`.
+A mark left by an older tehas has no time on it: it is honoured once, and gets
+the time of that run.
 
 The router also needs the network `tehas-previews`, which `install.sh` makes. If
 compose says the network is not found, make it. `install.sh` does not make it
@@ -372,7 +385,8 @@ docker network create --internal --ipv6=false -o com.docker.network.bridge.gatew
 ## A preview is not there
 
 The dashboard lists the open pull requests that have a state under
-"Previews", with the address or the reason. The same is in
+"Previews", with the address, or with the state and the reason written into
+the state file. The same is in
 `~/tehas/preview/<pr>/state.json`, and what the runs did is in
 `~/tehas/logs/preview.log`. Look for the state first.
 
@@ -567,6 +581,14 @@ one is `jq .lastSweep ~/tehas/live/previews.json`. Run it by hand:
 ```
 tehasbot preview --sweep
 ```
+
+A run asks GitHub about a pull request by itself before it removes anything of
+it, because the list of open pull requests is read in pages and can move while
+it is read. What it removed is in the log as `#<pr>: pull request no longer
+open, removed`, `#<pr>: its branch is not in <repo>, removed` or `#<pr>: it was
+not opened by someone of <repo>, removed`. What it kept is said too: `#<pr>: open
+though the list did not say so, kept`, or `#<pr>: no answer from GitHub, kept`
+for a call that failed or answered unclearly.
 
 It removes only on a clear answer, so read what it printed:
 
