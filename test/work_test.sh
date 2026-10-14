@@ -701,6 +701,30 @@ t_eq "$t_rc" 0
 t_lacks "$(t_calls docker)" "kill "
 T_ENV=("${env_ok[@]}")
 
+t_case "a console that does not stop on TERM is killed after its bound, and said"
+fresh
+# exec keeps the ignored TERM and leaves no child behind holding the lock.
+t_stub console '[ "$1" = --mask ] && exit 0; trap "" TERM; exec "$(command -pv sleep)" 30'
+mv "$T/bin/console" "$tree/libexec/console"
+T_ENV=("${env_ok[@]}" TEHAS_CONSOLE_WAIT=1)
+container "$hold; says handoff; $gone"
+start=$(date +%s)
+t_run "$work 7"
+t_eq "$t_rc" 0
+t_contains "$t_out" "tehas work: the console did not stop within 1s, killing it"
+t_contains "$t_out" "status=handoff"
+[ "$(($(date +%s) - start))" -lt 20 ] || t_bad "the console was waited on for $(($(date +%s) - start))s"
+t_stub console
+mv "$T/bin/console" "$tree/libexec/console"
+
+t_case "a console that stops in time is not killed"
+fresh
+container "$hold; says handoff; $gone"
+t_run "$work 7"
+t_lacks "$t_out" "the console did not stop"
+t_lacks "$t_out" "the console ended"
+T_ENV=("${env_ok[@]}")
+
 t_case "a push check that does not end is given up after its bound: exit 3, no cycle"
 fresh
 : >"$T/push-hangs"

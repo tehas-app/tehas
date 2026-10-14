@@ -753,6 +753,8 @@ the console of a published dashboard as public. A log line of over 1 MiB is
 left out, and the console says how many were. Neither needs running by hand.
 What the console itself complains about goes to `~/tehas/logs/work-<issue>-<time>.jsonl.console`,
 and the work script says so when the console is missing or ends with an error.
+At the end of a cycle the console is given 30 seconds to stop; one that takes
+longer is killed, and the work script says so.
 The work script's own status line, in `~/tehas/live/cycles/<issue>.json` and from there in `~/tehas/live/running.json`, goes through
 the same mask (`console --mask`); without a console it is left empty.
 
