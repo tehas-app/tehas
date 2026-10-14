@@ -220,19 +220,134 @@ The common ones:
 | review round cap                    | The review kept finding problems                    | Read the review on the pull request                      |
 | developer timeout                   | An agent ran out of wall-clock                      | Usually model endpoint capacity; retry later             |
 
-## A provider error about context length
+The caps this factory has posted are explained one by one in the next
+section.
 
-```
-This model's maximum context length is 16384 tokens
-```
+## A cycle stops at a cap
 
-A child agent fell back to the first model in `models.json`, a small one.
-`PI_ENSEMBLE_SUBAGENT_MODEL` and `PI_ENSEMBLE_SUBAGENT_PROVIDER` did not reach
-it. Check them in the instance's `instance.env` and run `./install.sh --check`
-in `~/tehas/platform`. Listing the intended model first in `models.json`
-removes the trap.
+pi-rukas's handoff comment has the heading "Cap hit", and its line `**Cap**:`
+names the cap. Under "What this cap means" are pi-rukas's own
+words for this stop, and under "Worktree state at handoff" whether the work is
+on a branch and whether that branch was pushed.
 
-## A cycle parks with `integration-worktree-violation`
+Read the rest of the comment with three things in mind:
+
+- Its paths are the ones inside the cycle's container. The workspace that is
+  `~/tehas/work/tehas` there is `~/tehas/work/tehas-<issue>` on the host.
+- Its "Concrete recovery commands" are written for pi-rukas run by hand. On
+  the host a retry does what they do: tick `Retry from a clean start` in the
+  bot's comment, or apply `tehas:ready`. Both start a fresh cycle from the
+  first step, in a new workspace. Commits that were never pushed are kept in
+  `tehas-<issue>.before-retry` until the next retry. See step 5 of
+  [Operating](/operating).
+- The workspace was written by the cycle's container, its git settings and
+  hooks included. tehas never runs git in it on the host: git there runs what
+  the cycle left in those settings. Read its files instead.
+
+A retry approves the issue text as it is then, so change the issue first when
+the cap asks for it. A cap posted on a pull request came from the review
+stage, after the pull request was opened. When that pull request is still open
+at the end of the cycle, the issue gets `tehas:awaiting-merge`, not
+`needs-human-attention`.
+
+These are the caps the factory posted on its own issues from 10 to 14 October
+2026, most frequent first.
+
+### `verify-failed:develop`
+
+After the develop step, the driver ran the checks itself, and they did not
+back the developer's claim that the work is done. The lines under "What this
+cap means" say which check. Three kinds were seen:
+
+- `touched out-of-scope path <file> - declared fence violated
+  (issue-fenced)`. The plan marked that file as out of scope for the work,
+  and the developer changed it anyway. On this factory the files were tests
+  (`test/*_test.sh`), manual pages (`host/docs/*.md`), the front page's style
+  sheets (`host/fun/*.css`), and in one cycle scripts as well. Tests and
+  manual pages are what the repository's rules require a change to touch, so
+  the plan's fence and the rules disagree
+  (janit/tehas#159, trail-openers/pi-rukas#1250). Name in the issue every file
+  the change will touch, the test file and the manual page included, as
+  step 1 of [Operating](/operating) says.
+- `verify command ... failed on the CONSOLIDATED tree`, or `exceeded its
+  10-min timeout`. The product's gate failed on the change, or ran past its
+  time. The gate's output follows in the comment. Often a real defect. If the
+  failure is in code the cycle did not touch, see "The verify gate fails on
+  code the cycle did not touch" below.
+- The fix pass after the adversarial review did not clear: it changed
+  nothing, or it removed lines it should not have.
+
+The work is committed on a local branch in the workspace and was not pushed.
+There is no pull request. Change the issue where the cause is in it, then
+retry.
+
+### `intent-park`
+
+The cycle stopped before the plan. Having read the issue and the code, the
+driver did not settle on what to build. No branch was made and nothing
+was written. The first sentence of "What this cap means" says which verdict,
+and "Resolver's rationale" says why.
+
+| The comment says | Verdict | What to change |
+| --- | --- | --- |
+| "does not say enough to build from" | underspecified | Add a `## Acceptance criteria` section, or say concretely what should change |
+| "central claim is contradicted by the code as it actually is" | contradicted-by-code | What the issue says about the code is not what the code does now. The issue may be stale, or describe a bug already fixed. Read the evidence in the comment, then correct the issue or close it |
+| "rests on a premise the driver could not substantiate" | premise-unsound | Name where the API or behaviour the issue relies on is, or correct the premise |
+| "appears to be already implemented" | already-implemented | Close the issue, or say what is still missing |
+| "is too large to execute as one cycle" | too-large | Split it into several issues |
+
+The last one is in pi-rukas and was not seen here. After the change, retry.
+
+### `wall-clock`
+
+The review stage's rounds of review and fix ran past pi-rukas's limit of 90
+minutes. The comment is on the pull request. The pull request is open, with
+what was pushed before. The comment names the worktrees in the workspace that
+hold the cycle's commits; what was not pushed is only there. Read the review on the pull request, then merge
+it, finish it by hand, or close it. Nothing in the issue needs to change. Close
+the pull request before you retry: while it is open, a new cycle stops at
+`existing-pr-detected`.
+
+### `step-failed:adversarial`
+
+The adversarial review could not run: its dispatch failed twice. It says
+nothing about the code. All three times it was seen here, on 14 October, the
+model endpoint was timing out (janit/tehas#147,
+trail-openers/pi-rukas#1243). The work is committed on a local branch in the
+workspace and was not pushed. There is no pull request. Check the endpoint,
+as in "The model endpoint does not answer" below, and retry once it answers.
+The issue needs no change. The retry starts from the first step: the work
+already done is not reused.
+
+### `develop-incomplete-deliverables`
+
+The gate passed, but the change lacks a part the plan declared. The comment
+names the missing parts by id and path, for example `d5
+(host/docs/dashboard.frag)`. pi-rukas has already tried once to add them.
+The work is committed on a local branch in the workspace and was not pushed.
+There is no pull request. Retry: a new cycle gets a new attempt at the
+missing parts. If a missing part is one the issue does not want, say so in
+the issue first.
+
+### `lens-fix-not-integrated`
+
+In the review stage, a round of fixes was made in a worktree and could not be
+committed onto the branch. Both times it was seen, git said `Committing is
+not possible because you have unmerged files`. The comment is on the pull
+request. The pull request is open with the code from before that round; the
+fixes are only in the workspace. Read the review's findings on the pull
+request, then merge it, fix it by hand, or close it. Close it before you
+retry, as for `wall-clock`.
+
+### `lens-fix-reposition`
+
+In the review stage, the next round of fixes could not fetch the branch from
+GitHub (`couldn't find remote ref`). Both times it was seen, the pull request
+had been merged while the review ran, and its branch was gone. Then nothing
+is left to do. If the pull request is not merged, look for why the branch is
+not on GitHub.
+
+### `integration-worktree-violation`
 
 ```
 integrate worktree could not be created: refusing to force-remove existing
@@ -257,9 +372,37 @@ Check the push by hand:
 tehas work <issue>      # exits 3 at once, with git's message, if it cannot push
 ```
 
-The work of a parked cycle is not lost. Its commits are in
-`~/tehas/repos/<product>/.worktrees/issue-<N>-*`, and the driver's combined
-commit is on the local branch `feature/issue-<N>-...`.
+The work of a parked cycle is not lost. Its commits are in the worktrees under
+`~/tehas/work/tehas-<issue>/.worktrees/`, and the driver's combined commit is
+on the local branch `feature/issue-<N>-...` in that workspace. Once the push
+works, retry.
+
+### `existing-pr-detected`
+
+Before any work, pi-rukas found a pull request already open for the issue:
+its branch names the issue, or its description closes it (`Fixes #<N>`).
+Nothing was written. Here it was once a pull request of an earlier cycle and
+once a person's own. Merge that pull request, or close it and retry. A retry
+while it is open stops the same way.
+
+### `review-incomplete`
+
+In the review stage, at least one of the six review passes failed every
+retry, so the review did not finish. That is not a rejection. The comment is
+on the pull request, which is open with the work pushed. Review the change
+yourself, then merge or close it.
+
+## A provider error about context length
+
+```
+This model's maximum context length is 16384 tokens
+```
+
+A child agent fell back to the first model in `models.json`, a small one.
+`PI_ENSEMBLE_SUBAGENT_MODEL` and `PI_ENSEMBLE_SUBAGENT_PROVIDER` did not reach
+it. Check them in the instance's `instance.env` and run `./install.sh --check`
+in `~/tehas/platform`. Listing the intended model first in `models.json`
+removes the trap.
 
 ## The model endpoint does not answer
 
