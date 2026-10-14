@@ -194,6 +194,14 @@ closed issue is never taken`, or `skip #N: it is a pull request, not an issue
 the factory works on`). An answer that cannot be read ends the poll with exit
 1.
 
+An issue that an open pull request closes, as GitHub links them (`Closes #N`
+in its description, or a link made by hand), is not taken: a cycle would find
+the work done after paying for its explore and plan. The poll asks once, for
+an issue it would otherwise take, takes `tehas:ready` off and says on the
+issue which pull request it is. The log line is `skip #N: pull request <url>
+is open and closes it`. A merged or closed pull request holds nothing back. A
+call that fails, or an answer that cannot be read, ends the poll with exit 1.
+
 A `tehas:ready` from any other account asks for nothing, so it comes off the
 issue with a comment naming who
 applied it; the log line is `clear #N: tehas:ready off, applied by ...`. A

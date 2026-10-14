@@ -55,7 +55,9 @@
 #      request start nothing, whatever label they carry. Nothing else the issue
 #      carries holds it back: the labels of an earlier outcome go with the
 #      start. Every start takes tehas:ready off, so a label that is there was
-#      applied after the last start. While the
+#      applied after the last start. An issue that an open pull request
+#      closes, as GitHub links them, is work already done: the poll takes
+#      tehas:ready off and says so once on the issue. While the
 #      issue's own cycle is alive it waits, and starts when that cycle ended.
 #      A tehas:ready from an account outside the list authorises nothing, so
 #      the poll takes it off and says so once on the issue: left in place it
@@ -422,6 +424,35 @@ clear_unauthorised() {
     say "$n" "Tehas took \`$name\` off this issue. It was applied by \`$by\`, an account that may not authorise work in this factory, so nothing was started and the issue is not queued. To ask again, an account named in \`TEHAS_ALLOWED_LABELERS\` applies \`$name\`."
   else
     log "WARN: label change on #$n failed: --remove-label $name"
+  fi
+}
+
+# open_pr <issue>: the url of an open pull request that GitHub says closes
+# the issue, in $pr_url; empty when there is none. A cycle on such an issue
+# would find the work done, after its explore and plan were paid for.
+pr_url=""
+open_pr() {
+  # shellcheck disable=SC2016  # $owner, $name and $number are GraphQL variables
+  gh_json api graphql -F owner="${repo%%/*}" -F name="${repo##*/}" -F number="$1" \
+    -f query='query($owner: String!, $name: String!, $number: Int!) {
+      repository(owner: $owner, name: $name) { issue(number: $number) {
+        closedByPullRequestsReferences(first: 20) { nodes { url state } } } } }'
+  pr_url=$(jq -r '.data.repository.issue.closedByPullRequestsReferences.nodes
+            | if type == "array" then . else error end
+            | map(select(.state == "OPEN")) | .[0].url // ""' <<<"$json") ||
+    { log "ERROR: unreadable pull requests of #$1"; exit 1; }
+}
+
+# clear_pr_open <issue>: the label asks for work a pull request already does.
+# Take it off and say so, as clear_unauthorised does, and on the same terms.
+clear_pr_open() {
+  local n=$1
+  log "skip #$n: pull request $pr_url is open and closes it"
+  [ "$dry" = 0 ] || return 0
+  if gh issue edit "$n" --repo "$repo" --remove-label tehas:ready >/dev/null 2>&1; then
+    say "$n" "Tehas took \`tehas:ready\` off this issue and started nothing: $pr_url is open and closes it. Merge or close that pull request, then apply \`tehas:ready\` if work is still needed."
+  else
+    log "WARN: label change on #$n failed: --remove-label tehas:ready"
   fi
 }
 
@@ -1100,6 +1131,11 @@ for n in $candidates; do
   # Asked after the label approves the issue: an issue no account is allowed
   # to start costs no call, and the label is not changed until start_cycles.
   work_ok "$n" || continue
+  open_pr "$n"
+  if [ -n "$pr_url" ]; then
+    clear_pr_open "$n"
+    continue
+  fi
   picked+=("$n")
   starter[$n]=$who
   verb[$n]=labelled

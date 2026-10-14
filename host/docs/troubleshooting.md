@@ -84,6 +84,10 @@ Run `tehas dispatch --dry-run` and read what it prints.
   when that label came from such an account. With only the `skip` line, the poll was
   a dry run or the label change failed (`WARN: label change on #N failed`), and
   the next poll tries again.
+- `skip #N: pull request <url> is open and closes it`: the work is in that
+  pull request already. The dispatcher took `tehas:ready` off and said so on
+  the issue. Merge or close the pull request, then apply `tehas:ready` if work
+  is still needed.
 - `ignore #N: tehas:urgent was applied by ...`: the label came from an account
   that is not allowed, so it moves nothing: the issue keeps its place by
   number. It is said at every poll until someone removes the label.

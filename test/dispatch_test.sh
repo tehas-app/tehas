@@ -44,6 +44,10 @@ case "$1 $2" in
     n=$(printf "%s\n" "$@" | sed -n "s/^number=//p")
     case "$*" in
       *"comments(last"*) cat "$T/fx/comments-$n.json" || exit 1 ;;
+      # The pull requests that close the issue: none, unless a case writes them.
+      *closedByPullRequestsReferences*)
+        [ ! -e "$T/fx/prs-fails" ] || exit 1
+        cat "$T/fx/prs-$n.json" 2>/dev/null || cat "$T/fx/prs.json" || exit 1 ;;
       *) cat "$T/fx/edit-$n.json" 2>/dev/null || cat "$T/fx/edit.json" || exit 1 ;;
     esac ;;
   "issue edit")
@@ -116,7 +120,7 @@ cid() { # <issue> <hex digit> <bytes in use>
 dispatch_json=$T/home/tehas/live/dispatch.json
 
 reset() {
-  rm -f "$T"/calls/* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/issue-* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/slice-* "$fx"/orphan-*
+  rm -f "$T"/calls/* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/issue-* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/slice-* "$fx"/orphan-* "$fx"/prs-*
   rm -rf "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-* "$T"/home/tehas/state/park-* "$T/home/tehas/live"
   # A slice of 20 GiB with nothing in it: room for ten cycles of the default
   # reserve, so the slots and the review cap decide unless a case says more.
@@ -127,6 +131,7 @@ reset() {
   echo '[]' >"$fx/plans.json"
   echo '{"login":"tehas-bot"}' >"$fx/user.json"
   echo '{"data":{"repository":{"issue":{"lastEditedAt":null,"editor":null}}}}' >"$fx/edit.json"
+  echo '{"data":{"repository":{"issue":{"closedByPullRequestsReferences":{"nodes":[]}}}}}' >"$fx/prs.json"
   echo '{"nameWithOwner":"acme/widget"}' >"$fx/repo.json"
   echo '{"labels":[]}' >"$fx/control.json"
   echo '{"session":"abc-123","text":"Two ways.","question":{"question":"Adopt?","options":[{"label":"Adopt all","description":"Apply all five"},{"label":"Change some","description":""}]}}' >"$fx/plan-result.json"
@@ -639,6 +644,83 @@ echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice
 t_run "$dispatch --dry-run"
 t_contains "$t_out" "skip #7: its text was changed by 'unknown'"
 t_lacks "$t_out" "would run a cycle"
+
+# The pull requests GitHub says close an issue: <url> <state>...
+closing_prs() { # <issue> [<url> <state>]...
+  local n=$1 nodes="[]"
+  shift
+  while [ "$#" -gt 1 ]; do
+    nodes=$(jq -c --arg u "$1" --arg s "$2" '. + [{url: $u, state: $s}]' <<<"$nodes")
+    shift 2
+  done
+  jq -nc --argjson nodes "$nodes" '{data: {repository: {issue: {closedByPullRequestsReferences: {nodes: $nodes}}}}}' >"$fx/prs-$n.json"
+}
+
+t_case "an issue with an open pull request that closes it starts nothing, and loses tehas:ready"
+reset
+closing_prs 7 https://github.com/acme/widget/pull/90 OPEN
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "skip #7: pull request https://github.com/acme/widget/pull/90 is open and closes it"
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:ready"
+t_lacks "$(t_calls gh)" "--add-label tehas:running"
+t_eq "$(t_calls gh | grep -c '^issue comment 7 ')" 1
+t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body Tehas took \`tehas:ready\` off this issue and started nothing: https://github.com/acme/widget/pull/90 is open and closes it."
+
+t_case "a closed or merged pull request that closed it holds nothing back"
+reset
+closing_prs 7 https://github.com/acme/widget/pull/90 CLOSED https://github.com/acme/widget/pull/91 MERGED
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_contains "$(t_calls gh)" "closedByPullRequestsReferences"
+
+t_case "an open pull request does not hold up the issue behind it"
+reset
+ready 7 8
+closing_prs 7 https://github.com/acme/widget/pull/90 OPEN
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "8"
+
+t_case "when the label cannot be taken off, nothing is said, and the next poll tries again"
+reset
+closing_prs 7 https://github.com/acme/widget/pull/90 OPEN
+echo "remove-label tehas:ready" >"$fx/edit-fails-on"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "WARN: label change on #7 failed: --remove-label tehas:ready"
+t_lacks "$(t_calls gh)" "issue comment 7"
+
+t_case "a dry run says it would take the label off, and changes nothing"
+reset
+closing_prs 7 https://github.com/acme/widget/pull/90 OPEN
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "skip #7: pull request https://github.com/acme/widget/pull/90 is open and closes it"
+t_lacks "$t_out" "would run a cycle"
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "issue comment"
+
+t_case "when GitHub cannot say which pull requests close it, the poll ends"
+reset
+: >"$fx/prs-fails"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+
+t_case "an answer that cannot be read ends the poll too"
+reset
+echo '{"data":{"repository":{"issue":null}}}' >"$fx/prs-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: unreadable pull requests of #7"
+t_eq "$(t_calls fake-start)" ""
+
+t_case "an issue no allowed account labelled costs no question about its pull requests"
+reset
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"mallory"}}]' >"$fx/events-7.json"
+t_run "$dispatch"
+t_lacks "$(t_calls gh)" "closedByPullRequestsReferences"
 
 t_case "an edited issue does not hold up the one behind it"
 reset
