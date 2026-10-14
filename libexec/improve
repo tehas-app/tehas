@@ -175,15 +175,24 @@ if [ "$(jq 'add' <<<"$rooms")" -le 0 ]; then
 fi
 
 # --- Take the window ---------------------------------------------------------
-# From here a cycle that ends writes into a new window, for the next run.
+# The records are moved out one by one and the window stays, so a cycle that
+# ends now writes into it for the next run. Renaming the window instead would
+# lose a record written between its mkdir and its mv.
 stamp=$(date -u +%y%m%d-%H%M%S)
 run=$base/run-$stamp
-if ! { mkdir -p "$run/in" "$run/out" && mv "$window" "$run/in/cycles" && mv "$stack" "$run/in/issues.json"; }; then
+# A cycle may have ended while the stack was fetched: its record comes along.
+look "$window"
+took=1
+if mkdir -p "$run/in/cycles" "$run/out" && mv "$stack" "$run/in/issues.json"; then
+  for r in "${recs[@]}"; do mv "$window/$r" "$run/in/cycles/" || took=0; done
+else
+  took=0
+fi
+if [ "$took" = 0 ]; then
   [ ! -d "$run" ] || give_back "$run"
   say "cycles=${#recs[@]} failed: could not take the window"
   exit 1
 fi
-# A cycle may have ended while the stack was fetched: its record came along.
 look "$run/in/cycles"
 fail() {
   give_back "$run"

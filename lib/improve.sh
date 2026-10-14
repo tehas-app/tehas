@@ -70,7 +70,6 @@ tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills>
   cp "$raw.err" "$tmp/err.txt" 2>/dev/null || : >"$tmp/err.txt"
   cp "$raw.preflight" "$tmp/preflight.txt" 2>/dev/null || : >"$tmp/preflight.txt"
   rm -rf "${base:?}/window/$rec"
-  # A run may have taken the window a moment ago.
   if ! { mkdir -p "$base/window" && mv "$tmp" "$base/window/$rec"; }; then
     rm -rf "$tmp"
     return 1

@@ -908,6 +908,13 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "cycles=2 findings=1 invalid=0"
 t_eq "$(titles)" "The late cycle parked"
 
+t_case "the window is never renamed: a run moves its records out of it"
+ready
+ino=$(stat -c %i "$base/window")
+t_run "$improve"
+t_eq "$t_rc" 0
+t_eq "$(stat -c %i "$base/window")" "$ino"
+
 t_case "a container left by a killed run is removed before the analyst starts"
 ready
 t_run "$improve"
