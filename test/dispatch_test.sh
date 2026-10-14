@@ -2393,15 +2393,25 @@ t_lacks "$t_out" "cycles are running"
 t_eq "$(jq -r .why "$dispatch_json")" unreadable
 release
 
-t_case "a missing cgroup directory under running cycles holds"
+t_case "a missing cgroup directory under running cycles holds while the slice is active"
+reset
+slots 2
+rm -rf "$T_CGROUP/tehas.slice"
+hold 9
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "holding: the slice's use could not be read"
+release
+# A cycle between containers in a slice that is not active is one reserve.
 reset
 slots 2
 slice_show $((20 * gib)) inactive
 rm -rf "$T_CGROUP/tehas.slice"
 hold 9
 t_run "$dispatch"
-t_eq "$(t_calls fake-start)" ""
-t_contains "$t_out" "holding: the slice's use could not be read"
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$t_out" "holding:"
+t_eq "$(jq -r '"\(.room) \(.committed)"' "$dispatch_json")" "9 $((2 * gib))"
 release
 # With nothing running and the slice not active, no directory is an empty slice.
 reset

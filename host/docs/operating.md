@@ -383,7 +383,8 @@ reaches them. Remove the label to resume.
   (2g by default). A container counts at its reserve or at what it uses,
   whichever is more, so a dev session, a planning turn and the indexer take
   room like a cycle does. A cycle that has started and has no container yet
-  counts at one reserve. File cache and other memory the kernel can take back
+  counts at one reserve, also when the slice is empty and systemd has
+  removed its directory. File cache and other memory the kernel can take back
   do not count.
 - No new cycle while the whole slice stalls on memory: `full avg60` of its
   memory pressure above 10.

@@ -180,7 +180,17 @@ rm -rf "$T_CGROUP/tehas.slice"
 room 0
 t_eq "$t_out" "10 0 $MAX $((2 * GIB))"
 
-t_case "no directory with a cycle running is unreadable"
+t_case "an inactive slice with no directory and a cycle between containers promises its reserve"
+room 1
+t_eq "$t_out" "9 $((2 * GIB)) $MAX $((2 * GIB))"
+
+t_case "an inactive slice with no directory and more cycles than fit has no room"
+room 11
+t_eq "$t_out" "0 $((22 * GIB)) $MAX $((2 * GIB)) room"
+
+t_case "no directory with the slice active and a cycle running is unreadable"
+good
+rm -rf "$T_CGROUP/tehas.slice"
 room 1
 t_eq "$t_out" "0 0 $MAX $((2 * GIB)) unreadable"
 

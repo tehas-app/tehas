@@ -206,14 +206,19 @@ tehas_slice_room() {
 
   dir=$root/tehas.slice
   if [ ! -d "$dir" ]; then
-    # No directory is an empty slice only when systemd says the slice is not
-    # active and no cycle holds a lock. With no directory no cid file can
-    # name a child. In every other case something is wrong.
-    if [ "${TEHAS_SLICE_ACTIVE:-}" != active ] && [ "$count" = 0 ]; then
-      echo "$((max / reserve)) 0 $max $reserve"
-    else
+    # systemd removes the directory of a slice that is not active. A cycle
+    # holds its lock also while it has no container in the slice (the clone,
+    # the end), so each one is promised a reserve and nothing is read. An
+    # active slice with no directory is wrong.
+    if [ "${TEHAS_SLICE_ACTIVE:-}" = active ]; then
       echo "0 0 $max $reserve unreadable"
+      return 0
     fi
+    committed=$((count * reserve))
+    room=0
+    [ "$committed" -ge "$max" ] || room=$(((max - committed) / reserve))
+    [ "$room" -gt 0 ] || why=" room"
+    echo "$room $committed $max $reserve$why"
     return 0
   fi
 
