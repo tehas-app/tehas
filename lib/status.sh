@@ -45,7 +45,7 @@ tehas_state_lines() { # <health json> <now epoch seconds> <stale true|false>
      else "factory   \(.status): \(.output // "") (\(.time | age($now)))" end),
     (.checks.queue // null | if . == null then "queue     no snapshot yet"
      else "queue     \(.inLine) in line, \(.building) building, \(.review) in review, \(.stopped) stopped"
-          + (if .paused then ", paused" else "" end) end)
+          + (if .paused then ", paused" else "" end) + " (\(.time // "" | age($now)))" end)
   ' <<<"$1"
 }
 

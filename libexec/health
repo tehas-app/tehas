@@ -11,8 +11,9 @@
 #
 # The file follows the health check response format (draft-inadarei-api-health-check):
 #   status "pass"  the factory is taking work
-#   status "warn"  it is paused (tehas:pause on the control issue), or the
-#                  dispatcher holds everything because tehas.slice is missing
+#   status "warn"  the queue snapshot is older than ten minutes (GitHub did
+#                  not answer the last polls), or it is paused (tehas:pause on
+#                  the control issue), or the dispatcher holds everything because tehas.slice is missing
 #                  or cannot be read, or there are no resources (the model
 #                  endpoint does not answer or does not offer the model, as
 #                  the last poll found), or the host is too low on disk to build
@@ -67,8 +68,14 @@ slice=null
   | {time, why, hold, count, room, committed, max, reserve}' "$dispatch_file" 2>/dev/null)
 [ -n "$slice" ] || slice=null
 
-jq -n --argjson queue "$queue" --argjson view "$view" --argjson disk "$disk" --argjson slice "$slice" --arg now "$(date -u +%FT%TZ)" '
+# tehasbot status keeps the old snapshot when GitHub does not answer. Older
+# than this, its counts and its pause are not news.
+queue_max_age=600
+
+jq -n --argjson queue "$queue" --argjson view "$view" --argjson disk "$disk" --argjson slice "$slice" --arg now "$(date -u +%FT%TZ)" \
+  --argjson queueMaxAge "$queue_max_age" '
   def iso: if type == "number" then todate else null end;
+  def ago: if . < 120 then "\(.) s" elif . < 7200 then "\(. / 60 | floor) min" else "\(. / 3600 | floor) h" end;
   def brief: {
     issue, running: (.running // false), status, step,
     startedAt: (.startedAt | iso), time: (.updatedAt | iso)
@@ -86,8 +93,13 @@ jq -n --argjson queue "$queue" --argjson view "$view" --argjson disk "$disk" --a
   # holds pass by themselves.
   | ($slice != null and ($slice.why | IN("slice", "unreadable"))) as $no_slice
   | ($slice != null and $slice.why == "resources") as $no_resources
+  # A time that cannot be read counts as old.
+  | (if $queue == null then null
+     else ($now | fromdateiso8601) - ($queue.generatedAt | try fromdateiso8601 catch 0) end) as $queue_age
+  | ($queue_age != null and $queue_age > $queueMaxAge) as $old_queue
   | (if $queue == null then "fail"
      elif $failed then "fail"
+     elif $old_queue then "warn"
      elif $queue.paused then "warn"
      elif $no_slice then "warn"
      elif $no_resources then "warn"
@@ -98,6 +110,8 @@ jq -n --argjson queue "$queue" --argjson view "$view" --argjson disk "$disk" --a
       time: $now,
       output: (if $queue == null then "No queue snapshot yet: the dispatcher has not written one."
                elif $failed then "The last cycle failed: #\($last.issue) ended as \($last.status)."
+               elif $old_queue then
+                 "The queue snapshot is \($queue_age | ago) old: GitHub did not answer the last polls."
                elif $queue.paused then "The factory is paused."
                elif $no_slice then ($slice.hold // "holding")
                elif $no_resources then (($slice.hold // "") | sub("^holding: no resources: "; "No resources: ") + ".")

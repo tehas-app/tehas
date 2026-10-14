@@ -519,13 +519,13 @@ tehas status
 
 ```
 factory   pass: Idle, taking work. (40 s ago)
-queue     2 in line, 0 building, 1 in review, 0 stopped
+queue     2 in line, 0 building, 1 in review, 0 stopped (40 s ago)
 cycle     #12 handoff at step review, 3 min ago
-slice     room for 8 cycles (4 GiB of 20 GiB promised, reserve 2g, 40 s ago)
+slice     room for 2 cycles (4 GiB of 20 GiB promised, reserve 2g, 40 s ago)
 ```
 
 Prints the state of the factory from the [health file](#tehasbot-health): is
-it taking work, what is in the queue, the current or last cycle, and what the
+it taking work, what is in the queue and how old that snapshot is, the current or last cycle, and what the
 dispatcher's last poll read of `tehas.slice`. The `slice` line reads
 `holding: ...` when that poll held cycles back, and `unknown: no poll has
 reported in 10 min` when no poll read the slice in that time. It reads
@@ -706,7 +706,7 @@ serves the file at `/health` and `/healthz` as `application/health+json`.
 | `status` | Meaning                                                                                  | HTTP |
 | -------- | ---------------------------------------------------------------------------------------- | ---- |
 | `pass`   | Taking work, idle or in a cycle                                                          | 200  |
-| `warn`   | Paused (`tehas:pause` on the control issue), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read | 200  |
+| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (`tehas:pause` on the control issue), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read | 200  |
 | `fail`   | The last cycle ended as anything but `merged` or `handoff` and no cycle has started since, or there is no queue snapshot | 503  |
 
 `output` says the same in a sentence. `checks.queue` has the snapshot time and

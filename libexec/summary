@@ -18,9 +18,9 @@
 # Usage: tehas status
 #
 #   factory   pass: Idle, taking work. (40 s ago)
-#   queue     2 in line, 0 building, 1 in review, 0 stopped
+#   queue     2 in line, 0 building, 1 in review, 0 stopped (40 s ago)
 #   cycle     #12 handoff at step review, 3 min ago
-#   slice     room for 8 cycles (4 GiB of 20 GiB promised, reserve 2g, 40 s ago)
+#   slice     room for 2 cycles (4 GiB of 20 GiB promised, reserve 2g, 40 s ago)
 #
 # The slice line reads "holding: ..." when the last poll held cycles back,
 # and "unknown: no poll has reported in 10 min" when no poll got as far as

@@ -170,6 +170,34 @@ t_eq "$t_rc" 0
 t_eq "$(cksum <"$live/status.json")" "$before"
 t_eq "$(jq -r .status "$live/health.json")" pass
 
+t_case "with GitHub down for three hours, health warns and the queue line says how old it is"
+reset
+t_run "$status"
+jq --arg t "$(date -u -d '-3 hours -5 minutes' +%FT%TZ)" '.generatedAt = $t' "$live/status.json" >"$T/old.json"
+mv "$T/old.json" "$live/status.json"
+: >"$T/gh-down"
+t_run "$status && $summary"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .status "$live/health.json")" warn
+t_eq "$(jq -r .output "$live/health.json")" "The queue snapshot is 3 h old: GitHub did not answer the last polls."
+t_contains "$t_out" "factory   warn: The queue snapshot is 3 h old: GitHub did not answer the last polls."
+t_contains "$t_out" "queue     2 in line, 0 building, 1 in review, 1 stopped (3 h ago)"
+
+t_case "a snapshot of nine minutes passes, and a failed cycle is still said first"
+reset
+t_run "$status"
+jq --arg t "$(date -u -d '-9 minutes' +%FT%TZ)" '.generatedAt = $t' "$live/status.json" >"$T/old.json"
+mv "$T/old.json" "$live/status.json"
+t_run "$health"
+t_eq "$(jq -r .status "$live/health.json")" pass
+jq --arg t "$(date -u -d '-11 minutes' +%FT%TZ)" '.generatedAt = $t' "$live/status.json" >"$T/old.json"
+mv "$T/old.json" "$live/status.json"
+t_run "$health"
+t_eq "$(jq -r .output "$live/health.json")" "The queue snapshot is 11 min old: GitHub did not answer the last polls."
+cycle false aborted develop
+t_run "$health"
+t_eq "$(jq -r .status "$live/health.json")" fail
+
 t_case "status with invalid settings writes nothing, exit 78"
 reset
 t_instance TEHAS_CONTROL_ISSUE=1
