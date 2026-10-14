@@ -57,6 +57,11 @@
 # names a branch, or its body closes #<n>. A state file reached through a link
 # is not read.
 #
+# A merged pull request for the issue ends the cycle as merged whatever the
+# state says: a person may merge it while the cycle still reviews. The issue
+# then only loses tehas:running, and tehasbot status labels it shipped. One a
+# person closed without merging parks the issue without the retry boxes.
+#
 # Only a run that ended as handoff with an open pull request is reported as
 # waiting for a merge. The label change that ends a cycle is tried three
 # times, and so is the question about the pull request, and so is the call
@@ -290,9 +295,10 @@ usage=$(jq -r '
        + ["| **total** | \($e | length) | \($e | map(.u.turns) | add) | \($e | map(.u.input) | add) | \($e | map(.u.output) | add) | \($e | map(.u.cacheRead) | add) |"])
       | join("\n") end' "$state" 2>/dev/null || echo "")
 
-# The pull requests of the bot on the cycle's branch, open and merged. The
-# state file's word "merged" is a claim: it counts only with a merged pull
-# request to show for it. The branch name comes from a file the
+# The pull requests of the bot on the cycle's branch, in any state. The state
+# file's word "merged" is a claim: it counts only with a merged pull request
+# to show for it. A person may also merge or close one while the cycle runs.
+# The branch name comes from a file the
 # cycle wrote, so only a pull request the bot opened counts, and only one that
 # names this issue: its head is the issue's branch as pi-rukas names it,
 # feature/issue-<n>-..., or its body closes #<n>. A branch of another issue
@@ -326,6 +332,7 @@ pr_in() {
 }
 pr=$(pr_in OPEN)
 merged_pr=$(pr_in MERGED)
+closed_pr=$(pr_in CLOSED)
 # A pull request of the bot on the branch that names another issue is said, not
 # taken.
 foreign=""
@@ -365,10 +372,18 @@ ${usage}"
   rm -f "$TEHAS_HOME/state/park-$issue.json"
 }
 log_where="the run log is \`~/tehas/logs/dispatch-work-$issue.log\` on \`$(hostname)\`"
-if [ "$rc" = 0 ] && [ "$status" = merged ] && [ -n "$merged_pr" ]; then
+if [ -n "$merged_pr" ]; then
+  # A merge ends the cycle, whoever made it and whatever the state file says:
+  # a person may merge while the cycle still reviews. tehasbot status labels
+  # the closed issue as shipped.
   relabel --remove-label tehas:running && stuck=""
-  comment "Tehas cycle finished: $summary. The change was merged: $merged_pr$killed$stuck"
-  proven
+  if [ "$rc" = 0 ] && [ "$status" = merged ]; then
+    comment "Tehas cycle finished: $summary. The change was merged: $merged_pr$killed$stuck"
+    proven
+  else
+    comment "Tehas cycle ended: its pull request $merged_pr was merged while the cycle ran (last step \`$step\`, $mins min, runner exit $rc). Nothing more is needed here.$killed$stuck"
+  fi
+  status=merged
   pr=$merged_pr
   tidy
 elif [ "$rc" = 0 ] && [ "$status" = merged ]; then
@@ -383,6 +398,11 @@ elif [ "$rc" = 0 ] && [ "$status" = handoff ] && [ -n "$pr" ]; then
 ${usage:-No token usage was recorded for this cycle.}" >/dev/null 2>&1 || log "WARN: comment on $pr failed"
   proven
   tidy
+elif [ -z "$pr" ] && [ -n "$closed_pr" ] && [ "$rc" != 4 ]; then
+  # A person closed the pull request without merging it: whether to try again
+  # is theirs to say, with the label. No retry box.
+  relabel --remove-label tehas:running --add-label needs-human-attention && stuck=""
+  comment "Tehas cycle stopped: its pull request $closed_pr was closed without being merged ($summary, runner exit $rc). The workspace is kept; $log_where.$killed$stuck To retry, apply \`tehas:ready\`."
 else
   parked="Tehas cycle stopped without a pull request: $summary (runner exit $rc). Read the handoff comment if there is one; $log_where.$killed${pr:+ Its branch has an open pull request: $pr}$foreign"
   [ "$rc" != 4 ] || parked="Tehas started no cycle: an image the issue links could not be fetched, or the issue could not be read for its images (runner exit $rc). The comment before this one names it; $log_where."

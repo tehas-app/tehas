@@ -661,6 +661,14 @@ an open pull request of the bot that names the issue. Any other end with a
 pull request open gets `needs-human-attention`, and the comment names the
 pull request.
 
+The pull request is looked up in every state. One that a person merged while
+the cycle ran ends the cycle as merged, whatever the state file says: the
+issue only loses `tehas:running`, the comment says the pull request was merged
+while the cycle ran, nothing is parked, and [tehasbot status](#tehasbot-status-and-the-console)
+labels the closed issue `tehas:shipped`. One that a person closed without
+merging gets `needs-human-attention` and a plain comment that says so, without
+the retry boxes: to try again, apply `tehas:ready`.
+
 The state file is written inside the container, so what it says is checked
 against GitHub. A pull request counts as the cycle's only when the bot opened
 it on the branch the state names and it names the issue: its head is

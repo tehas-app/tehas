@@ -367,6 +367,54 @@ for link in file dir; do
 done
 rm -rf "$T/elsewhere"
 
+t_case "a pull request a person merged while the cycle ran ends it as merged: no park, no question"
+reset
+ended running handoff feature/x
+merged_pr
+: >"$T/home/tehas/work/.tehas-workspaces"
+rukas=$(printf 'e%.0s' {1..40})
+echo "PI_RUKAS_COMMIT=$rukas" >"$T/home/tehas/versions.env"
+echo 'exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(t_calls gh | grep '^issue edit')" "issue edit 7 --repo acme/widget --remove-label tehas:running"
+t_contains "$(t_calls gh)" 'Tehas cycle ended: its pull request https://github.com/acme/widget/pull/9 was merged while the cycle ran (last step `handoff`'
+t_contains "$(t_calls gh)" "runner exit 2"
+t_lacks "$(t_calls gh)" "stopped without a pull request"
+t_lacks "$(t_calls gh)" "issues/7/comments"
+t_eq "$(find "$park_id" 2>/dev/null | wc -l)" 0
+t_contains "$t_out" "done #7 rc=2 status=merged"
+t_contains "$t_out" "pr=https://github.com/acme/widget/pull/9"
+t_eq "$(find "$workdir" -maxdepth 0 2>/dev/null | wc -l)" 0
+t_eq "$(find "$T/home/tehas/state/rukas-proven" 2>/dev/null | wc -l)" 0
+rm -f "$T/home/tehas/versions.env"
+
+t_case "a pull request closed without a merge parks the issue without the retry boxes"
+reset
+ended running review feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+echo CLOSED >"$fx/pr-state"
+: >"$T/home/tehas/work/.tehas-workspaces"
+echo 'exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention"
+t_contains "$(t_calls gh)" "Tehas cycle stopped: its pull request https://github.com/acme/widget/pull/9 was closed without being merged"
+t_contains "$(t_calls gh)" 'To retry, apply `tehas:ready`.'
+t_lacks "$(t_calls gh)" "issues/7/comments"
+t_lacks "$(t_calls gh)" "tehas:question"
+t_eq "$(find "$park_id" 2>/dev/null | wc -l)" 0
+t_eq "$(find "$workdir" -maxdepth 0 | wc -l)" 1
+
+t_case "an open pull request beside a closed one is the cycle's"
+reset
+ended handoff commit-pr feature/x
+jq -n '[{url: "https://github.com/acme/widget/pull/8", state: "CLOSED", body: "Fixes #7", headRefName: "feature/x"},
+        {url: "https://github.com/acme/widget/pull/9", state: "OPEN", body: "Fixes #7", headRefName: "feature/x"}]' >"$fx/pr.json"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label tehas:awaiting-merge"
+t_contains "$(t_calls gh)" "Pull request waiting for a human: https://github.com/acme/widget/pull/9"
+
 t_case "a state file in the product checkout is not the cycle's: the container never writes there"
 reset
 mkdir -p "$checkout/.pi/work-state"
