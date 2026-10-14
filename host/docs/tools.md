@@ -231,7 +231,7 @@ removed before the new one starts.
 | ---- | ---------------------------------------------------------------- |
 | 0    | The cycle ended as `merged` or `handoff` (parked for a human)    |
 | 1    | The cycle ended as `aborted`                                     |
-| 2    | Pi exited, the time limit passed, or the cycle stalled, while it was running |
+| 2    | Pi exited, its session ended, the time limit passed, or the cycle stalled, while it was running |
 | 3    | The sandbox cannot push to the repository; no cycle was started  |
 | 4    | With `TEHAS_WORK_IMAGES=1`: an image the issue links could not be fetched, or the issue could not be read for its images; no cycle was started |
 | 5    | A cycle for this issue is running already: its lock `~/tehas/state/cycles/<issue>.lock` is held. Nothing was moved and no container started |
@@ -274,6 +274,14 @@ then frees its slot within the hour. The seconds go to
 how long nothing moved and at which step, parks it and removes the file. A
 cycle that keeps writing without getting anywhere is not caught by this: it
 runs until its time limit.
+
+A Pi session that ends while the cycle is still running is not waited for
+either. When pi-rukas writes its `session_shutdown` line to the error stream,
+`<log>.err`, the container is stopped at the next look and the cycle is
+`interrupted`. `~/tehas/state/cycles/<issue>.ended` is left for `tehasbot
+cycle`, which parks the issue, says that the Pi session ended during the step
+the state file names, names the open pull request when there is one, and
+removes the file.
 
 While the container runs, Docker keeps its id in `~/tehas/state/cycles/<issue>.cid`,
 which is how the dispatcher tells a cycle's container from the others in the

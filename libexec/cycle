@@ -37,6 +37,10 @@
 # the container's pids limit refused, is read the same way and said in the
 # comment: after the first one the cycle's own commands may not have run.
 #
+# tehas work stops a cycle whose Pi session ended while it ran, and leaves
+# state/cycles/<issue>.ended. While the state still says running, the status
+# reported is then "interrupted" and the comment says during which step.
+#
 # tehas work stops a cycle none of whose logs changed for TEHAS_WORK_STALL
 # seconds and leaves the seconds in state/cycles/<issue>.stalled. While the
 # state still says running, the status reported is then "stalled", the issue
@@ -204,7 +208,8 @@ restart=""
 : >"$cycles/$issue"
 # A count of kills still here is an earlier cycle's, one that was killed
 # outright before it could report.
-rm -f "${cycles:?}/${issue:?}.oom" "${cycles:?}/${issue:?}.forks" "${cycles:?}/${issue:?}.stalled" "${cycles:?}/${issue:?}.branch"
+rm -f "${cycles:?}/${issue:?}.oom" "${cycles:?}/${issue:?}.forks" "${cycles:?}/${issue:?}.stalled" \
+  "${cycles:?}/${issue:?}.ended" "${cycles:?}/${issue:?}.branch"
 # The trap is set before the runner starts, so no signal falls between.
 wpid=""
 stopped=0
@@ -279,6 +284,12 @@ if [ -f "$stall_file" ] && [ ! -L "$stall_file" ]; then
   [[ $stalled =~ ^(0|[1-9][0-9]{0,8})$ ]] || stalled=0
 fi
 rm -f "$stall_file"
+ended_file=${cycles:?}/${issue:?}.ended
+if [ -f "$ended_file" ] && [ ! -L "$ended_file" ]; then
+  case "$status" in running | unknown) status=interrupted ;; esac
+  killed="$killed The Pi session ended during \`$step\`, so tehas stopped the cycle before its time limit."
+fi
+rm -f "$ended_file"
 if [ "$stalled" != 0 ]; then
   case "$status" in running | unknown) status=stalled ;; esac
   killed="$killed None of its logs changed for $((stalled / 60)) min at step \`$step\`, so tehas stopped it before its time limit."

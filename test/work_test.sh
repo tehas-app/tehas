@@ -598,6 +598,33 @@ t_lacks "$t_out" "stalled"
 t_eq "$(find "$T/home/tehas/state/cycles/7.stalled" 2>/dev/null | wc -l)" 0
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 
+t_case "a Pi session that ended while the cycle runs stops it at once as interrupted"
+fresh
+rm -f "$T/home/tehas/state/cycles/7.ended"
+# What pi-rukas wrote to the error stream when Pi quit on a real host. The
+# container then idles.
+container "says running; echo '[pi-rukas] session_shutdown (reason: quit): aborted 2 in-flight async jobs' >&2; $hold; $gone"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "tehas work: the Pi session ended while the cycle was running, stopping it"
+t_contains "$t_out" "status=interrupted step=develop"
+t_lacks "$t_out" "time limit"
+t_lacks "$t_out" "was killed"
+t_contains "$(t_calls docker)" "stop -t 20 tehas-work-7"
+t_eq "$(find "$T/home/tehas/state/cycles/7.ended" -type f 2>/dev/null | wc -l)" 1
+t_eq "$(jq -c '[.running, .status]' "$live/cycles/7.json")" '[false,"interrupted"]'
+
+t_case "a session_shutdown that is not at the start of a line ends nothing, and no ended file is left"
+fresh
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=2
+container "says running; echo 'a tool said [pi-rukas] session_shutdown' >&2; $hold; $gone"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "time limit of 2s passed"
+t_lacks "$t_out" "session ended"
+t_eq "$(find "$T/home/tehas/state/cycles/7.ended" 2>/dev/null | wc -l)" 0
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+
 t_case "TERM still gives interrupted"
 fresh
 container "$hold; $gone"

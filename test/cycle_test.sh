@@ -743,6 +743,34 @@ echo 'echo 3600 >"$TEHAS_HOME/state/cycles/7.stalled"; exit 1' >"$fx/work.sh"
 t_run "$cycle 7"
 t_contains "$t_out" "status=aborted"
 
+t_case "a cycle whose Pi session ended is interrupted, says the step and its pull request, and is parked"
+reset
+ended running lens-fix feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+echo ': >"$TEHAS_HOME/state/cycles/7.ended"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "status \`interrupted\`, last step \`lens-fix\`"
+t_contains "$(t_calls gh)" "The Pi session ended during \`lens-fix\`, so tehas stopped the cycle before its time limit."
+t_contains "$(t_calls gh)" "Its branch has an open pull request: https://github.com/acme/widget/pull/9"
+t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
+t_contains "$t_out" "status=interrupted step=lens-fix"
+t_eq "$(find "$state/7.ended" 2>/dev/null | wc -l)" 0
+
+t_case "an ended file left by an earlier cycle is not this cycle's, and one that is a link is not read"
+reset
+mkdir -p "$state"
+: >"$state/7.ended"
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "Pi session ended"
+reset
+mkdir -p "$state"
+: >"$T/elsewhere"
+echo 'ln -sf "$T/elsewhere" "$TEHAS_HOME/state/cycles/7.ended"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "Pi session ended"
+t_eq "$(find "$state/7.ended" 2>/dev/null | wc -l)" 0
+
 t_case "a stall file that is not digits is ignored"
 reset
 ended running develop
