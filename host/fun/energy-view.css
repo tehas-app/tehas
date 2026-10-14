@@ -62,8 +62,10 @@
    336px on a wide screen, which is the column above the work order monitor;
    240px from 900 to 1279px; and below 900px the panel cannot hold the text
    beside it, so the meter lies across the foot of the panel at its full width.
-   Topaz advances half an em, so its widest line (TOKENS with a five-figure
-   rate) needs 216px, which the panel has even at 360px. */
+   Topaz advances half an em, and a token rate under a million a minute shows
+   at most five figures, so the widest line needs 212px: 176 of the line
+   itself, 32 of padding on its two sides and the 4px rule beside it. Below
+   900px that rule moves to the top, where it costs height and not width. */
 
 .floor-meter {
   display: flex;
