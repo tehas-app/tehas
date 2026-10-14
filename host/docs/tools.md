@@ -462,7 +462,7 @@ nothing is reading it.
 | Exit | Meaning                                                |
 | ---- | ------------------------------------------------------ |
 | 0    | The index was built, or was already current            |
-| 1    | The sandbox image is missing, or the indexer failed    |
+| 1    | The sandbox image is missing, or the indexer failed or did not finish in 30 minutes |
 | 3    | A cycle is running; nothing was done                   |
 | 64   | An argument this command does not know                 |
 | 78   | The instance settings are invalid, or `tehas.slice` cannot be used; nothing was done |
@@ -493,9 +493,17 @@ given. So a cycle starts with an index of the tree it is cloned from. What the
 cycle changes afterwards, in its workspace or its worktrees, is not in the
 index.
 
-Run by hand it always rebuilds, and it holds the dispatcher's lock while it
-does, so no cycle starts in the middle. A cycle started by hand with
-`tehas work` refreshes nothing.
+The indexer may run for 30 minutes. The dispatcher's lock is held all that
+time, so a hung indexer is stopped there and the poll goes on. A container
+named `tehas-index` that a killed run left behind is removed before each run.
+When the indexer fails, `~/tehas/state/index.json` stays as it was and
+`~/tehas/state/index.failed` holds the tip that failed. Before a cycle that tip
+is not tried again: the command exits 1 and the dispatcher's log says the index
+was not refreshed, until the branch moves.
+
+Run by hand it always rebuilds, a failed tip too, and it holds the dispatcher's
+lock while it does, so no cycle starts in the middle. A cycle started by hand
+with `tehas work` refreshes nothing.
 
 ## tehas labels
 
