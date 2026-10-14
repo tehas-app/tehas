@@ -1235,7 +1235,9 @@ command exits 1, so a producer and a consumer that have drifted apart cannot bot
 stay green while a step nobody performed is treated as done. The units on a step
 line are checked as unit names and against the units this version of tehas
 installs - `tehas_units` - so a step line cannot name some other unit of the host's
-for an update to restart. A compose line that leaves out its flag is refused for
+for an update to restart. The lines are checked with the checkout's
+`lib/update-steps.sh` once install.sh has run, so a unit the pulled version adds
+is restarted by the update that pulled it. A compose line that leaves out its flag is refused for
 the same reason: `docker compose up -d` without `--force-recreate` is the weaker
 action, and running it would renew nothing while the step was counted as done.
 

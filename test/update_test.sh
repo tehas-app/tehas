@@ -380,6 +380,21 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "the lock is ours"
 t_contains "$t_out" "held against others"
 
+t_case "a unit the pulled step library adds is restarted by the update that pulled it"
+instance
+platform 0 'echo "next: units tehas-dispatch.timer tehas-new.timer"'
+rm -rf "$T/upstream"
+git clone -q "$T/origin" "$T/upstream"
+sed -i 's/^tehas_units() { printf .%s\\n. /&tehas-new.timer /' "$T/upstream/lib/update-steps.sh"
+grep -q 'tehas-new.timer' "$T/upstream/lib/update-steps.sh" || t_bad "the fixture did not add a unit"
+git -C "$T/upstream" -c user.name=other -c user.email=other@example.com commit -qam "a new unit"
+git -C "$T/upstream" push -q origin main
+t_run "$update"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "WARN"
+t_contains "$(t_calls systemctl)" "--user restart tehas-dispatch.timer tehas-new.timer"
+t_eq "$(owed_steps)" ""
+
 t_case "a later: line of install.sh is printed and is no step"
 instance
 platform 0 'echo "installed: libexec/update"

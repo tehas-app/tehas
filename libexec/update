@@ -378,6 +378,17 @@ if [ "$rc" != 0 ]; then
   case "$rc" in 1 | 78) exit "$rc" ;; *) exit 1 ;; esac
 fi
 
+# The step library this command loaded is the one installed before this run.
+# install.sh printed its lines from the checkout's, which may know a step or a
+# unit the old one does not, so the lines are checked against that one.
+if [ "$mode" = update ] && [ -r "$checkout/lib/update-steps.sh" ]; then
+  # shellcheck source=lib/update-steps.sh
+  . "$checkout/lib/update-steps.sh" || {
+    echo "update: $checkout/lib/update-steps.sh could not be read; no follow-up was run" >&2
+    exit 1
+  }
+fi
+
 # --- 3. The follow-ups -------------------------------------------------------
 # Every step line this run was given: the ones install.sh printed, and the ones
 # its record holds. Those are not the same list - a run that died partway records
