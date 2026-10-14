@@ -483,6 +483,12 @@ in `sandbox/Dockerfile` is the image upstream published for that release. The
 three always name the same release, or the host and the sandbox run different
 code.
 
+When a fix is needed before upstream releases it, the pin can name a commit on
+upstream's main. Upstream publishes an image for every push to main, tagged
+`sha-` and the first 12 characters of the commit; `PI_RUKAS_VERSION` is then
+that tag. The next run of `scripts/rukas-latest.sh` puts the pin back on a
+release.
+
 Every release of tehas takes the newest release of pi-rukas. Before tagging:
 
 1. Run `scripts/rukas-latest.sh`. It reads upstream's newest release, its

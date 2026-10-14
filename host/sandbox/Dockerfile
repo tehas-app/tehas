@@ -15,7 +15,7 @@
 # Build with sandbox/build.sh, which passes the user id and the versions from
 # versions.env. The base is pinned by digest and every tool by version:
 # upgrade on purpose, then rebuild.
-FROM ghcr.io/trail-openers/pi-rukas:v0.12.79@sha256:bb9c91281187298d238cc793ceb18f8c06cd39284078b9a494c11118c7e97d3f
+FROM ghcr.io/trail-openers/pi-rukas:sha-d8ce95988680@sha256:a6cbc21b509e854196459740e9fc936d25096d2aa07ea44b58c7fd4196d21095
 
 ARG TEHAS_UID=1000
 ARG SHELLCHECK_VERSION
