@@ -34,7 +34,21 @@ case "$1 $2" in
     fi ;;
   # The park question, posted through the API so that its id comes back.
   "api repos/acme/widget/issues/"*"/comments") [ ! -e "$T/fx/post-fails" ] || exit 1; echo 4002 ;;
+  # What the number is. An open issue, unless a case writes the fixture.
+  "api repos/acme/widget/issues/"[0-9]*)
+    n=${2#repos/acme/widget/issues/}
+    case "$n" in *[!0-9]*) exit 1 ;; esac
+    # The first asks fail, as many as issue-fails-times says.
+    if [ -s "$T/fx/issue-fails-times" ]; then
+      left=$(cat "$T/fx/issue-fails-times")
+      if [ "$left" -gt 0 ]; then echo $((left - 1)) >"$T/fx/issue-fails-times"; exit 1; fi
+    fi
+    [ ! -e "$T/fx/issue-fails" ] || exit 1
+    if [ -e "$T/fx/issue-$n.json" ]; then cat "$T/fx/issue-$n.json"; else echo "{\"number\":$n,\"state\":\"open\"}"; fi ;;
 esac'
+# The sandbox image has no label unless a case writes one: the commit then
+# comes from versions.env.
+t_stub docker '[ -e "$T/fx/image.label" ] || exit 1; cat "$T/fx/image.label"'
 # What the runner does is a file a case writes; without one it ends at once.
 t_stub fake-work '[ ! -e "$T/fx/work.sh" ] || . "$T/fx/work.sh"'
 t_stub fake-status
@@ -68,6 +82,78 @@ t_instance TEHAS_CONTROL_ISSUE=1
 t_run "$cycle 7"
 t_eq "$t_rc" 78
 t_eq "$(t_calls gh)$(t_calls fake-work)" ""
+
+# The factory works on open issues only. What the number is decides it, and it
+# is asked before a label is changed, a comment is posted or a container starts.
+t_case "a closed issue is asked for and refused: no cycle, no label, no comment"
+for answer in '{"number":7,"state":"closed"}' '{"number":7,"state":"CLOSED"}'; do
+  reset
+  printf '%s' "$answer" >"$fx/issue-7.json"
+  t_run "$cycle 7"
+  t_eq "$t_rc" 65
+  t_contains "$t_out" "refuse #7: the issue is closed"
+  t_contains "$(t_calls gh)" "api repos/acme/widget/issues/7"
+  t_eq "$(t_calls fake-work)" ""
+  t_lacks "$(t_calls gh)" "issue edit"
+  t_lacks "$(t_calls gh)" "issue comment"
+  # It still said it came up. The dispatcher waits for this file to know its
+  # unit ran; a cycle that refuses its number after that is not a start that
+  # did not happen.
+  t_eq "$([ -e "$state/7.taken" ] && echo taken)" taken
+done
+
+t_case "the number of a pull request is refused, open, merged or closed"
+for answer in '{"number":9,"state":"open","pull_request":{"url":"u"}}' '{"number":9,"state":"closed","pull_request":{"url":"u"}}'; do
+  reset
+  printf '%s' "$answer" >"$fx/issue-9.json"
+  t_run "$cycle 9"
+  t_eq "$t_rc" 65
+  t_contains "$t_out" "refuse #9: it is a pull request, not an issue the factory works on"
+  t_eq "$(t_calls fake-work)" ""
+  t_lacks "$(t_calls gh)" "issue edit"
+  t_eq "$([ -e "$state/9.taken" ] && echo taken)" taken
+done
+
+t_case "an answer that cannot be read is a refusal, not a guess"
+for answer in '' 'not json' 'null' '[]' '{"message":"Not Found"}'; do
+  reset
+  printf '%s' "$answer" >"$fx/issue-7.json"
+  t_run "$cycle 7"
+  t_eq "$t_rc" 65
+  t_contains "$t_out" "refuse #7: GitHub's answer for it could not be read"
+  t_eq "$(t_calls fake-work)" ""
+  t_lacks "$(t_calls gh)" "issue edit"
+done
+
+# GitHub could not be reached at all: three tries, then a refusal that says the
+# ask failed, which is not the same as an answer that is unreadable.
+reset
+: >"$fx/issue-fails"
+t_run "$cycle 7"
+t_eq "$t_rc" 65
+t_contains "$t_out" "refuse #7: GitHub could not be asked what the number is"
+t_lacks "$t_out" "could not be read"
+t_eq "$(grep -c '^api repos/acme/widget/issues/7$' <<<"$(t_calls gh)")" 3
+t_eq "$(t_calls fake-work)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_eq "$([ -e "$state/7.taken" ] && echo taken)" taken
+
+# A call that only failed is retried, as every other call here is: the cycle
+# the dispatcher already authorized still starts.
+reset
+echo 2 >"$fx/issue-fails-times"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(grep -c '^api repos/acme/widget/issues/7$' <<<"$(t_calls gh)")" 3
+t_eq "$(t_calls fake-work)" "7"
+t_lacks "$t_out" "refuse #7"
+
+t_case "an open issue is asked for first, before its cycle starts"
+reset
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(t_calls gh | head -1)" "api repos/acme/widget/issues/7"
+t_eq "$(t_calls fake-work)" "7"
 
 t_case "a first cycle starts plainly, a later one for the same issue restarts"
 reset
@@ -444,6 +530,89 @@ t_contains "$t_out" "oom_kills=3"
 t_eq "$(jq -c '[.status, .rc, .oomKills]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" '["killed",137,3]'
 t_eq "$(find "$state/7.oom" 2>/dev/null | wc -l)" 0
 
+t_case "a stalled cycle is reported as stalled with how long nothing moved, parked, and the file removed"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+ended running lens-fix
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; echo 3600 >"$TEHAS_HOME/state/cycles/7.stalled"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_contains "$t_out" "status=stalled"
+t_contains "$(t_calls gh)" "None of its logs changed for 60 min at step \`lens-fix\`"
+t_contains "$(t_calls gh)" "needs-human-attention"
+t_eq "$(jq -c '[.status, .rc]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" '["stalled",2]'
+t_eq "$(find "$state/7.stalled" 2>/dev/null | wc -l)" 0
+
+t_case "a stall file beside a state that names an end leaves the end as it is"
+reset
+ended aborted develop
+echo 'echo 3600 >"$TEHAS_HOME/state/cycles/7.stalled"; exit 1' >"$fx/work.sh"
+t_run "$cycle 7"
+t_contains "$t_out" "status=aborted"
+
+t_case "a stall file that is not digits is ignored"
+reset
+ended running develop
+echo 'echo "60; rm -rf /" >"$TEHAS_HOME/state/cycles/7.stalled"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_contains "$t_out" "status=running"
+t_lacks "$(t_calls gh)" "None of its logs changed"
+
+t_case "a stall file left by an earlier cycle is not this cycle's"
+reset
+ended running develop
+mkdir -p "$state"
+echo 3600 >"$state/7.stalled"
+t_run "$cycle 7"
+t_contains "$t_out" "status=running"
+t_lacks "$(t_calls gh)" "None of its logs changed"
+
+t_case "the pi-rukas a cycle starts with is on record beside its lock, and a merge proves it"
+reset
+rukas=$(printf 'c%.0s' {1..40})
+echo "PI_RUKAS_COMMIT=$rukas" >"$T/home/tehas/versions.env"
+ended merged commit-pr
+t_run "$cycle 7"
+t_eq "$(cat "$state/7.rukas")" "$rukas"
+t_eq "$(cat "$T/home/tehas/state/rukas-proven")" "$rukas"
+
+t_case "a handoff with a pull request proves the pi-rukas it ran with"
+reset
+echo "PI_RUKAS_COMMIT=$rukas" >"$T/home/tehas/versions.env"
+ended handoff commit-pr feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$cycle 7"
+t_eq "$(cat "$T/home/tehas/state/rukas-proven")" "$rukas"
+
+t_case "the sandbox image's label is the commit, and a second proven one is added to the first"
+reset
+echo "PI_RUKAS_COMMIT=$rukas" >"$T/home/tehas/versions.env"
+mkdir -p "$T/home/tehas/state"
+echo before >"$T/home/tehas/state/rukas-proven"
+image=$(printf 'd%.0s' {1..40})
+echo "$image" >"$fx/image.label"
+ended merged commit-pr
+t_run "$cycle 7"
+t_eq "$(cat "$state/7.rukas")" "$image"
+t_eq "$(cat "$T/home/tehas/state/rukas-proven" | tr '\n' ' ')" "before $image "
+ended merged commit-pr
+t_run "$cycle 7"
+t_eq "$(cat "$T/home/tehas/state/rukas-proven" | tr '\n' ' ')" "before $image "
+rm -f "$T/home/tehas/versions.env" "$T/home/tehas/state/rukas-proven"
+
+t_case "a cycle that parks proves nothing, and one proven before stays"
+reset
+echo "PI_RUKAS_COMMIT=$rukas" >"$T/home/tehas/versions.env"
+mkdir -p "$T/home/tehas/state"
+echo before >"$T/home/tehas/state/rukas-proven"
+ended aborted develop
+t_run "$cycle 7"
+t_eq "$(cat "$T/home/tehas/state/rukas-proven")" "before"
+ended handoff commit-pr
+rm -f "$fx/pr.txt"
+t_run "$cycle 7"
+t_eq "$(cat "$T/home/tehas/state/rukas-proven")" "before"
+rm -f "$T/home/tehas/versions.env" "$T/home/tehas/state/rukas-proven"
+
 t_case "a cycle that left a pull request says the count too"
 reset
 ended handoff commit-pr feature/x
@@ -553,7 +722,7 @@ T_ENV=()
 tree=$T/tree
 mkdir -p "$tree/libexec" "$tree/lib"
 cp "$cycle" "$tree/libexec/cycle"
-cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/improve.sh" "$tree/lib/"
+cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/cycles.sh" "$T_ROOT/lib/improve.sh" "$tree/lib/"
 for name in work status; do cp "$T/bin/fake-$name" "$tree/libexec/$name"; done
 for name in tehas tehasbot tehas-work tehas-status; do t_stub "$name"; done
 t_run "$tree/libexec/cycle 7"

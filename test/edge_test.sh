@@ -37,11 +37,41 @@ t_run "$lib; edge_numbers '$d/nowhere'; echo rc=\$?"
 t_eq "$t_out" "rc=0"
 
 t_case "edge_lock is held by one process at a time"
-t_run "$lib; edge_lock demo || exit 9; ( exec 9>&-; $lib; edge_lock demo; echo second=\$? ); echo first=ok"
+t_run "$lib; edge_lock demo || exit 9; ( exec {edge_lock_fd}>&-; $lib; edge_lock demo; echo second=\$? ); echo first=ok"
 t_eq "$t_out" "second=1
 first=ok"
 t_run "$lib; edge_lock demo; echo again=\$?"
 t_eq "$t_out" "again=0"
+
+# The descriptor is the one bash chose, named in edge_lock_fd. A fixed number
+# is one every caller would have to guess at, and two of them would step on
+# each other.
+t_case "edge_lock names the descriptor it took, and closing that one releases the lock"
+t_run "$lib; edge_lock demo || exit 9; fd=\$edge_lock_fd
+case \$fd in ''|*[!0-9]*) echo nofd ;; *) [ \"\$fd\" -ge 10 ] && echo chosen ;; esac
+exec {edge_lock_fd}>&-
+flock -n \"$d/state/demo.lock\" echo free"
+t_eq "$t_out" "chosen
+free"
+t_eq "$(grep -c -E 'flock (-n|-w [0-9]+) 9' "$T_ROOT/lib/edge.sh")" 0
+
+t_case "a command the run starts keeps the lock unless it is told to drop the descriptor"
+# What libexec/preview does for every command that can outlive its run: a
+# descriptor a child inherits holds the lock after the parent has ended.
+t_run "$lib; edge_lock demo || exit 9; ( sleep 2 ) & child=\$!; exec {edge_lock_fd}>&-
+if flock -n \"$d/state/demo.lock\" true; then echo free-after-the-parent; else echo held-by-the-child; fi
+wait \$child"
+t_eq "$t_out" "held-by-the-child"
+t_run "$lib; edge_lock demo || exit 9; ( sleep 2 {edge_lock_fd}>&- ) & child=\$!; exec {edge_lock_fd}>&-
+if flock -n \"$d/state/demo.lock\" true; then echo free-after-the-parent; else echo held-by-the-child; fi
+wait \$child"
+t_eq "$t_out" "free-after-the-parent"
+
+# What the header tells a caller to write. Quoted, it is an argument and not a
+# redirection, and the child keeps the descriptor and the lock.
+t_case "the header names the redirection unquoted"
+t_eq "$(grep -c -F '{edge_lock_fd}>&-' "$T_ROOT/lib/edge.sh")" 1
+t_eq "$(grep -c -F '"$edge_lock_fd>&-"' "$T_ROOT/lib/edge.sh")" 0
 
 caddyfile=$T_ROOT/host/edge/router.Caddyfile
 compose=$T_ROOT/host/edge/router.compose.yaml
@@ -143,6 +173,17 @@ t_eq "$(grep -c -F '<section id="previews" hidden>' "$T_ROOT/host/docs/dashboard
 
 t_case "the dashboard says when the list of previews was written"
 t_eq "$(grep -c -F 'note.push("List written " + ago(p.generatedAt) + ".");' "$T_ROOT/host/docs/dashboard.frag")" 1
+
+# A refused volume and a build that failed are both "build-failed": only the
+# reason the run wrote into the state says which. The reason is text this
+# command wrote, never the pull request's.
+t_case "the dashboard says why a preview is not serving, with the reason from its state"
+frag=$(cat "$T_ROOT/host/docs/dashboard.frag")
+t_eq "$(grep -c -F '"build-failed": "unable to create: the build failed"' "$T_ROOT/host/docs/dashboard.frag")" 0
+t_contains "$frag" 'const reason = typeof it.reason === "string" ? it.reason.trim() : "";'
+t_contains "$frag" 'return reason ? label + ": " + reason : label;'
+t_contains "$frag" 'el("span", "when", previewWhy(it))'
+t_eq "$(grep -c -F 'el("span", "when", PREVIEW_STATES[it.state]' "$T_ROOT/host/docs/dashboard.frag")" 0
 
 t_case "the pages take an address only with a number of one to nine digits and no leading zero"
 t_eq "$(grep -c -F '/^https:\/\/uat-[1-9][0-9]{0,8}\.[a-z0-9.-]+\/$/.test(it.address)' "$T_ROOT/host/docs/dashboard.frag")" 1

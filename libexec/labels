@@ -33,6 +33,7 @@ mk tehas:ready 0e8a16 "Tehas: eligible for dispatch (apply by hand to authorize 
 mk tehas:urgent d93f0b "Tehas: dispatch before other ready issues"
 mk tehas:running 1d76db "Tehas: a /work cycle owns this issue"
 mk tehas:awaiting-merge fbca04 "Tehas: PR open and reviewed, waiting for a human"
+mk tehas:shipped 8250df "Tehas: closed by a merged pull request (given by the bot)"
 mk tehas:pause 000000 "Tehas: on the control issue, stops all dispatch"
 mk needs-human-attention b60205 "Cycle parked; the handoff comment says what to do"
 mk tehas:question 5319e7 "Tehas: a question on this issue waits for an answer"

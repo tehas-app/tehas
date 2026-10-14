@@ -156,10 +156,10 @@ The last step runs pi-rukas's own installer, which links its
 extension and skills into `~/.pi/agent/` and pulls its own `latest` image. It is
 run without `PI_ENSEMBLE_IMAGE`, so it never touches the tehas sandbox image.
 
-pi-rukas comes from the repository named in `versions.env`, which is a fork of
-upstream. A clone already on the host is pointed at that repository before it
-is fetched. [The host](/host#pi-rukas-comes-from-a-fork) says how a fix
-moves through the fork.
+pi-rukas comes from the repository named in `versions.env`, at the commit of
+one of its releases. A clone already on the host is pointed at that repository
+before it is fetched. [The host](/host#pi-rukas-comes-from-upstream) says how
+the release is chosen.
 
 Compiling `vipune` and `oo` takes a few minutes. The rest is quick. Rust is
 also what `install.sh` builds the cycle console with.

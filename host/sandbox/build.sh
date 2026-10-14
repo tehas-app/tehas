@@ -21,6 +21,7 @@ docker build \
   --build-arg SHELLCHECK_SHA256="$SHELLCHECK_SHA256" \
   --build-arg PLAYWRIGHT_VERSION="$PLAYWRIGHT_VERSION" \
   --build-arg PLAYWRIGHT_LOCK_SHA256="$PLAYWRIGHT_LOCK_SHA256" \
+  --build-arg PI_RUKAS_COMMIT="$PI_RUKAS_COMMIT" \
   -t "$image:$stamp" "$here"
 docker tag "$image:$stamp" "$image:uid$(id -u)"
-echo "built $image:$stamp, also tagged $image:uid$(id -u)"
+echo "built $image:$stamp with pi-rukas $PI_RUKAS_COMMIT, also tagged $image:uid$(id -u)"

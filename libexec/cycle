@@ -5,20 +5,24 @@
 # outcome on the issue (and the token usage on the pull request). The
 # dispatcher starts it as tehas-cycle@<issue>.service, after it has checked who
 # labelled the issue and marked it tehas:running. This command checks no
-# authorisation, as tehas work checks none: run by hand it runs a cycle for
-# any issue.
+# authorisation, as tehas work checks none: run by hand it runs a cycle for any
+# open issue. It does check the number itself: a closed issue and a pull request
+# are refused before a label is changed or a container starts.
 #
 # Usage:
 #   tehasbot cycle <issue>
 #
 # Exit: 0 the cycle ran and was reported, whatever its outcome; 3 a cycle for
-# this issue is already running; 64 the argument is not an issue number; 78
-# instance settings are missing or malformed.
+# this issue is already running; 64 the argument is not an issue number; 65 the
+# number is not work the factory takes: a pull request, a closed issue, or an
+# answer GitHub could not give after three tries; 78 instance settings are
+# missing or malformed.
 #
 # It holds state/cycles/<issue>.lock for as long as it runs. The dispatcher
 # counts the held locks, so a cycle that dies frees its place. Once it holds
 # the lock it writes state/cycles/<issue>.taken, which is what the dispatcher
-# waits for.
+# waits for. A cycle that then refuses its number leaves that file: the unit
+# did come up, and the issue keeps tehas:running until the next poll clears it.
 #
 # A TERM, INT or HUP is passed on to tehas work, which stops the container. The
 # cycle is then reported like any other that stopped without a pull request.
@@ -33,6 +37,11 @@
 # the container's pids limit refused, is read the same way and said in the
 # comment: after the first one the cycle's own commands may not have run.
 #
+# tehas work stops a cycle none of whose logs changed for TEHAS_WORK_STALL
+# seconds and leaves the seconds in state/cycles/<issue>.stalled. While the
+# state still says running, the status reported is then "stalled", the issue
+# is parked and the comment says how long nothing moved and at which step.
+#
 # A runner that exits 4 started no cycle: the instance gives a cycle the
 # images its issue links (TEHAS_WORK_IMAGES) and one could not be fetched. The
 # issue is parked and the comment says that, not that a cycle stopped. The
@@ -41,20 +50,27 @@
 #
 # Only a run that ended as handoff with an open pull request is reported as
 # waiting for a merge. The label change that ends a cycle is tried three
-# times, and so is the question about the pull request. If GitHub still refuses it, or the cycle is killed outright, the
-# issue stays marked tehas:running and the dispatcher's next poll finds it.
+# times, and so is the question about the pull request, and so is the call
+# that asks what the number is. If GitHub still refuses it, or the cycle is
+# killed outright, the issue stays marked tehas:running and the dispatcher's
+# next poll finds it.
 #
 # A cycle that stopped without a pull request asks what to do next, in a
 # comment with boxes. The id of that comment goes on record in
 # state/park-<issue>.id: the dispatcher takes a tick only in the comment named
 # there.
 #
+# The pi-rukas commit of the sandbox image when the cycle starts goes to
+# state/cycles/<issue>.rukas, and when the cycle ends as merged, or as a
+# handoff with an open pull request, is added to state/rukas-proven. The dispatcher
+# runs one cycle at a time on a commit that file does not name.
+#
 # Where the instance has an improvement loop (TEHAS_IMPROVE_REPO), it leaves
 # the cycle's record for it at the end, in tmp/improve/window (lib/improve.sh).
 #
 # Instance settings (lib/config.sh): TEHAS_REPO, TEHAS_IMPROVE_REPO.
 # From the environment, for tests: TEHAS_WORK_CMD, TEHAS_STATUS_CMD and
-# TEHAS_CYCLE_RETRY_WAIT (seconds between two tries of a label change [5]).
+# TEHAS_CYCLE_RETRY_WAIT (seconds between two tries of a GitHub call [5]).
 set -uo pipefail
 
 issue=${1:-}
@@ -89,10 +105,41 @@ mkdir -p "$cycles" "$TEHAS_HOME/logs"
 # process is killed outright the place stays taken until they are gone too.
 exec 9>"$cycles/$issue.lock"
 flock -w 5 9 || { log "a cycle for #$issue is already running"; exit 3; }
+# The place is claimed with the lock. It is what the dispatcher waits for to
+# know its unit came up, and a cycle that goes on to refuse its number still
+# came up: leaving the file out would have the poll report a start that did
+# happen as one that did not.
+# Before .taken: the dispatcher counts this cycle as one on its pi-rukas from
+# the moment it sees the cycle started.
+rukas=$(tehas_rukas_commit)
+printf '%s\n' "$rukas" >"$cycles/$issue.rukas" || log "WARN: could not record the pi-rukas commit of #$issue"
 : >"$cycles/$issue.taken"
+retry_wait=${TEHAS_CYCLE_RETRY_WAIT:-5}
+# Open issues only. GitHub is asked what the number is before a label is
+# changed, a comment is posted or a container starts. The dispatcher has often
+# marked the issue tehas:running by now, so a call that only failed is tried
+# again rather than refusing a cycle that was already authorized. A transport
+# that never answers is a refusal too, said as itself.
+asked="" answer=""
+for try in 1 2 3; do
+  if answer=$(gh api "repos/$repo/issues/$issue" 2>/dev/null); then asked=1; break; fi
+  answer=""
+  [ "$try" = 3 ] || sleep "$retry_wait"
+done
+if [ -z "$asked" ]; then
+  log "refuse #$issue: GitHub could not be asked what the number is"
+  exit 65
+fi
+tehas_work_kind "$answer" || {
+  case "$tehas_work_why" in
+    pr) log "refuse #$issue: it is a pull request, not an issue the factory works on" ;;
+    closed) log "refuse #$issue: the issue is closed" ;;
+    *) log "refuse #$issue: GitHub's answer for it could not be read" ;;
+  esac
+  exit 65
+}
 
 comment() { gh issue comment "$issue" --repo "$repo" --body "$1" >/dev/null 2>&1 || log "WARN: comment on #$issue failed"; }
-retry_wait=${TEHAS_CYCLE_RETRY_WAIT:-5}
 relabel() {
   local try
   for try in 1 2 3; do
@@ -122,6 +169,13 @@ tidy() {
   fi
 }
 
+# The pi-rukas this cycle ran with has ended well here.
+proven() {
+  [ -n "$rukas" ] || return 0
+  tehas_rukas_proven "$rukas" && return 0
+  printf '%s\n' "$rukas" >>"$TEHAS_HOME/state/rukas-proven" || log "WARN: could not record pi-rukas $rukas as proven"
+}
+
 started=$(date +%s)
 # A relabelled issue gets a fresh cycle, not whatever the last one parked.
 # The workspace is new every time, so the record of an earlier cycle is kept
@@ -131,7 +185,7 @@ restart=""
 : >"$cycles/$issue"
 # A count of kills still here is an earlier cycle's, one that was killed
 # outright before it could report.
-rm -f "${cycles:?}/${issue:?}.oom" "${cycles:?}/${issue:?}.forks"
+rm -f "${cycles:?}/${issue:?}.oom" "${cycles:?}/${issue:?}.forks" "${cycles:?}/${issue:?}.stalled"
 # The trap is set before the runner starts, so no signal falls between.
 wpid=""
 stopped=0
@@ -188,6 +242,17 @@ if [ -f "$forks_file" ] && [ ! -L "$forks_file" ]; then
   [[ $forks =~ ^(0|[1-9][0-9]{0,8})$ ]] || forks=0
 fi
 rm -f "${cycles:?}/${issue:?}.forks"
+stalled=0
+stall_file=${cycles:?}/${issue:?}.stalled
+if [ -f "$stall_file" ] && [ ! -L "$stall_file" ]; then
+  stalled=$(head -c 16 "$stall_file" 2>/dev/null | head -n 1)
+  [[ $stalled =~ ^(0|[1-9][0-9]{0,8})$ ]] || stalled=0
+fi
+rm -f "$stall_file"
+if [ "$stalled" != 0 ]; then
+  case "$status" in running | unknown) status=stalled ;; esac
+  killed="$killed None of its logs changed for $((stalled / 60)) min at step \`$step\`, so tehas stopped it before its time limit."
+fi
 [ "$forks" = 0 ] || killed="$killed Its container reached its limit of processes and $forks starts of a process were refused: what the cycle ran after that may not have run."
 branch=$(jq -r '.pipelineState.branchName // ""' "$state" 2>/dev/null || echo "")
 # The numbers are summed as numbers. Anything else in their place counts as
@@ -226,6 +291,7 @@ summary="status \`$status\`, last step \`$step\`, $mins min"
 if [ "$rc" = 0 ] && [ "$status" = merged ]; then
   relabel --remove-label tehas:running && stuck=""
   comment "Tehas cycle finished: $summary. The change was merged.$killed$stuck"
+  proven
   tidy
 elif [ "$rc" = 0 ] && [ "$status" = handoff ] && [ -n "$pr" ]; then
   relabel --remove-label tehas:running --add-label tehas:awaiting-merge && stuck=""
@@ -233,6 +299,7 @@ elif [ "$rc" = 0 ] && [ "$status" = handoff ] && [ -n "$pr" ]; then
   gh pr comment "$pr" --body "Tehas cycle for #$issue: $summary.
 
 ${usage:-No token usage was recorded for this cycle.}" >/dev/null 2>&1 || log "WARN: comment on $pr failed"
+  proven
   tidy
 else
   relabel --remove-label tehas:running --add-label needs-human-attention && stuck=""

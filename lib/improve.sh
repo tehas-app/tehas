@@ -50,8 +50,11 @@ tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills>
   rec=${rec#work-}
   mkdir -p "$base/window" || return 1
   tmp=$(mktemp -d "$base/.new.XXXXXX") || return 1
-  # The pi-rukas this host is installed with: what a fix in it is checked against.
-  rukas=$(sed -n 's/^PI_RUKAS_COMMIT=\([0-9a-f]\{7,40\}\)$/\1/p' "$TEHAS_HOME/versions.env" 2>/dev/null | head -n 1)
+  # The pi-rukas this cycle ran with, as tehasbot cycle noted it at the start,
+  # else the one the host is installed with: what a fix in it is checked
+  # against.
+  rukas=$(head -c 64 "$TEHAS_HOME/state/cycles/$issue.rukas" 2>/dev/null | head -n 1)
+  [[ $rukas =~ ^[0-9a-f]{7,40}$ ]] || rukas=$(sed -n 's/^PI_RUKAS_COMMIT=\([0-9a-f]\{7,40\}\)$/\1/p' "$TEHAS_HOME/versions.env" 2>/dev/null | head -n 1)
   if ! jq -n --argjson issue "$issue" --argjson started "$started" --argjson rc "$rc" \
     --argjson ended "$(date +%s)" --arg status "$status" --arg step "$step" --arg pr "$pr" \
     --arg log "$(basename "$raw")" --argjson kills "$kills" --arg rukas "$rukas" '
