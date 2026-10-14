@@ -2,8 +2,9 @@
 # Who applied a label. Authorisation is the account behind the label event, not
 # that the label is present (AGENTS.md rule 5), so every command that lets a
 # label decide something reads the same events the same way. Sourced by
-# libexec/dispatch (tehas:ready, tehas:plan, tehas:urgent) and by tehasbot
-# protolab (tehas:prototype).
+# libexec/dispatch (tehas:ready, tehas:plan, tehas:urgent), by tehasbot
+# protolab (tehas:prototype), and by tehas work and tehas plan (whether the
+# label that started them approved an issue's images).
 #
 #   tehas_label_actor <label>       stdin: one issue's events, as
 #                                   gh api repos/<repo>/issues/<n>/events?per_page=100
@@ -26,6 +27,12 @@
 #   tehas_label_denied <issue> <label> [<account>]
 #                                   one line naming the issue, the label and the
 #                                   account that applied it. The caller logs it.
+#   tehas_label_allowed <issue> <label>
+#                                   asks GitHub for the issue's events in
+#                                   TEHAS_REPO: 0 when the account that applied
+#                                   <label> most recently is allowed, 1 when it
+#                                   is not or no event applies it, 2 when the
+#                                   events cannot be read.
 #
 # Which issue to ask about, and what to do when its events cannot be read, is
 # the caller's: a poll that cannot ask GitHub ends, the Protolab leaves a
@@ -55,4 +62,11 @@ tehas_allowed_labeler() {
 
 tehas_label_denied() {
   printf '#%s: %s was applied by %s, not an allowed account' "$1" "$2" "'${3:-unknown}'"
+}
+
+tehas_label_allowed() { # <issue> <label>
+  local events line
+  events=$(gh api "repos/$TEHAS_REPO/issues/$1/events?per_page=100" --paginate 2>/dev/null) || return 2
+  line=$(tehas_label_actor "$2" <<<"$events") || return 2
+  tehas_allowed_labeler "${line%%$'\t'*}"
 }

@@ -83,7 +83,8 @@ say where in it the thing goes.
 An instance can give a cycle the images of its issue, with
 `TEHAS_WORK_IMAGES=1`. [tehas work](/tools#tehas-work) then fetches the images
 the issue text links, and the first two steps of the cycle, explore and plan,
-are shown them beside the text. The plan puts the placement into words, and
+are shown them beside the text. The images of an issue an allowed account
+labelled are read, whoever opened it; the Protolab's rule is the author's. The plan puts the placement into words, and
 the later steps read the plan. Images in comments are not read, and no cycle
 has been seen to use a picture yet, so words in the text stay the safe way.
 

@@ -75,11 +75,17 @@ tehas_attachment_fetch() { # <address> <file> <most bytes> [<token>]
 # The images an issue links, for a container that is given them: tehas work
 # and tehas plan. The rules are written in libexec/work's header.
 #
-#   tehas_issue_images <issue> <dir>  remake <dir> from the issue's text, with
+#   tehas_issue_images <issue> <dir> [approved]
+#                                     remake <dir> from the issue's text, with
 #                                     a manifest.json; uses TEHAS_REPO and
 #                                     GH_TOKEN. Returns 1, with the reason in
 #                                     $image_why, when the issue's images
-#                                     cannot be given and nothing may start
+#                                     cannot be given and nothing may start.
+#                                     "approved" says an allowed account
+#                                     approved the text with its label: the
+#                                     images are then taken whoever opened the
+#                                     issue. Without it, only when an owner,
+#                                     member or collaborator opened it
 #   tehas_issue_images_said <dir> <what>
 #                                     the comment that says what <what> (a
 #                                     cycle, a planning session) was given;
@@ -97,8 +103,8 @@ tehas_image_type() {
 }
 
 # shellcheck disable=SC2034  # the caller reads what this sets
-tehas_issue_images() { # <issue> <dir>
-  local issue=$1 images=$2 data who ref name ext size rc left used=0 count=0
+tehas_issue_images() { # <issue> <dir> [approved]
+  local issue=$1 images=$2 approved=${3:-} data who ref name ext size rc left used=0 count=0
   local limit=$((10 * 1024 * 1024)) max=8
   local other="Not a png, jpg, webp or gif image." over="Over the 10 MB limit of an issue."
   image_why="the directory for the issue's images could not be made"
@@ -113,9 +119,9 @@ tehas_issue_images() { # <issue> <dir>
 
   while IFS= read -r ref; do
     [ -n "$ref" ] || continue
-    case "$who" in
-      OWNER | MEMBER | COLLABORATOR) ;;
-      *) leave "$ref" "The issue was not opened by an owner, member or collaborator."; continue ;;
+    case "$approved:$who" in
+      approved:* | *:OWNER | *:MEMBER | *:COLLABORATOR) ;;
+      *) leave "$ref" "The issue was not opened by an owner, member or collaborator, and its label was not applied by an allowed account."; continue ;;
     esac
     # A file attached under its name is not fetched when the name says it is
     # no image. A pasted one has no name: its bytes say.

@@ -294,8 +294,11 @@ instance sets it. The images are fetched before anything else is made:
 
 - **Which.** Links to GitHub's own attachment storage in the issue text.
   Comments are not read: `tehas:ready` approves the text, and a comment can
-  arrive after the label. Only when the issue was opened by an owner, member
-  or collaborator of the repository.
+  arrive after the label. Only when an allowed account applied the last
+  `tehas:ready`, which approves the text with its links, or when the issue was
+  opened by an owner, member or collaborator of the repository. The labeller
+  is read from the issue's events; when they cannot be read nothing starts,
+  exit 4.
 - **Types.** png, jpg, webp and gif, told by the file's first bytes and not by
   its name. Not svg: it is text and can carry instructions.
 - **How much.** At most 8 images and 10 megabytes together, counted in the
@@ -346,7 +349,8 @@ directory at `~/tehas/state/plan-<issue>.json.keep` and removes it when the
 session ends.
 
 With `TEHAS_WORK_IMAGES=1` the first turn fetches the images the issue links,
-by the rules of `tehas work`, and says on the issue how many it was given.
+by the rules of `tehas work`, with `tehas:plan` in place of `tehas:ready`,
+and says on the issue how many it was given.
 Each turn's container gets a copy of them, read-only, at the path a cycle has
 them, with `PI_ENSEMBLE_EXTRA_IMAGE_DIRS`. The copy is
 `~/tehas/work/<name>-plan-<issue>.images`, removed after the turn. An image
