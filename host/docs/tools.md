@@ -668,7 +668,9 @@ then removes the workspace of a cycle that merged or left a pull request, and
 keeps the workspace of one that stopped. The images `tehas work` fetched for
 the cycle are removed in every case. A runner that started no cycle over an
 image (exit 4) is parked with a comment that says so. A retry moves a stopped workspace to
-`<name>-<issue>.before-retry`, which is removed and kept by the same rule. A
+`<name>-<issue>.before-retry`, which is removed and kept by the same rule.
+The dispatcher removes a kept workspace once no cycle has run on its issue for
+7 days. A
 stopped unit stops the container and is reported as a cycle that ended without
 a pull request. The report of a stopped cycle tries each call to GitHub once,
 cuts it after 20 seconds and does not refresh the status, so it ends within

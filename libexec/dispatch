@@ -25,7 +25,8 @@
 #   2. At most TEHAS_TICKET_CONCURRENCY cycles run at once.
 #      An open issue marked tehas:running whose cycle holds no lock on this
 #      host is handed to a human. Nothing is started for it. A closed one
-#      only loses the mark.
+#      only loses the mark. The workspaces kept for an issue no cycle has run
+#      on for 7 days are removed, three issues a poll at most.
 #   3. Running cycles and tehas PRs that wait for a human together do not
 #      exceed TEHAS_MAX_AWAITING. And a cycle starts only while tehas.slice,
 #      the systemd slice every sandbox container runs in, has room for one
@@ -678,6 +679,37 @@ for n in $marked; do
     log "WARN: label change on #$n failed"
   fi
 done
+
+# A parked cycle keeps its workspace for a person to read, and the one before
+# it as .before-retry. Those of an issue go together once no cycle has used
+# any of them, or taken the issue's lock, for 7 days. The issue's lock is held
+# while they are removed, so a cycle cannot start in them. Three issues a poll
+# at most, so a poll stays short. Only under the directory tehas work marked.
+sweep_workspaces() {
+  local works=${TEHAS_WORK_DIR%/*} base=${TEHAS_WORK_DIR##*/} p n lock done=0
+  local -A seen=()
+  [ -f "$works/.tehas-workspaces" ] || return 0
+  for p in "$works/$base"-*; do
+    [[ ${p##*/} =~ ^"$base"-([1-9][0-9]{0,9})(\.before-retry|\.images|\.state)?$ ]] || continue
+    n=${BASH_REMATCH[1]}
+    [ -z "${seen[$n]+set}" ] || continue
+    seen[$n]=1
+    [ "$done" -lt 3 ] || return 0
+    lock=$TEHAS_HOME/state/cycles/$n.lock
+    ! tehas_cycle_running "$n" || continue
+    [ -z "$(find "$lock" "$works/$base-$n" "$works/$base-$n".{before-retry,images,state} \
+      -maxdepth 0 -newermt "-7 days" 2>/dev/null)" ] || continue
+    done=$((done + 1))
+    if [ "$dry" = 1 ]; then
+      log "would remove the kept workspace of #$n: no cycle has run on it for 7 days"
+    elif flock -n "$lock" rm -rf -- "$works/$base-$n" "$works/$base-$n".{before-retry,images,state} 8>&-; then
+      log "removed the kept workspace of #$n: no cycle has run on it for 7 days"
+    else
+      log "WARN: could not remove the kept workspace of #$n"
+    fi
+  done
+}
+sweep_workspaces
 
 # 3. Do not pile up unreviewed work, and do not promise memory the slice does
 # not have. A running cycle is a pull request on its way, so it counts:

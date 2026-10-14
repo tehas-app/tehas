@@ -270,7 +270,9 @@ host, such as commits on worktrees that were never pushed, is moved to
 `~/tehas/work/tehas-<issue>.before-retry` and stays there until a cycle of that
 issue merges or leaves a pull request. Only the latest stopped attempt is kept:
 a second retry replaces it. Recover what you need from a stopped cycle before
-you retry twice.
+you retry twice. Nothing is kept for ever: the dispatcher's poll removes an
+issue's kept workspaces once no cycle has run on it for 7 days, three issues a
+poll at most, and logs each removal.
 
 A label or a tick approves the text of the issue as it was at that moment. If
 someone other than an allowed labeller changes the title or the body

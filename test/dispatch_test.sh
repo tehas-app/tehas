@@ -3118,4 +3118,77 @@ t_contains "$t_out" "start #7 (labelled by alice)"
 t_eq "$(find "$cycles_dir/7.requeued" "$cycles_dir/7.park" 2>/dev/null | wc -l)" 0
 rm -f "$T/home/.pi/agent/models.json" "$fx/mesh.json"
 
+# Kept workspaces. Issue 5's were last used eight days ago, issue 6's today.
+works=$T/home/tehas/work
+kept() { # <issue> <age, as touch -d takes it> [what is beside it]
+  local p
+  mkdir -p "$works" "$T/home/tehas/state/cycles"
+  : >"$works/.tehas-workspaces"
+  for p in "$works/widget-$1" "${@:3}"; do
+    mkdir -p "$p"
+    touch -d "$2" "$p"
+  done
+  touch -d "$2" "$T/home/tehas/state/cycles/$1.lock"
+}
+old() { kept "$1" "8 days ago" "$works/widget-$1.before-retry" "$works/widget-$1.images" "$works/widget-$1.state"; }
+left() { find "$works" -mindepth 1 -maxdepth 1 ! -name .tehas-workspaces -printf '%f\n' | sort | tr '\n' ' '; }
+
+t_case "a workspace no cycle has used for seven days goes, with what is beside it, and that is logged"
+reset
+rm -rf "$works"
+old 5
+kept 6 "1 day ago" "$works/widget-6.before-retry"
+mkdir -p "$works/widget-5x" "$works/other-5"
+touch -d "8 days ago" "$works/widget-5x" "$works/other-5"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(left)" "other-5 widget-5x widget-6 widget-6.before-retry "
+t_contains "$t_out" "removed the kept workspace of #5: no cycle has run on it for 7 days"
+
+t_case "a workspace whose issue's lock is held is kept, however old"
+reset
+rm -rf "$works"
+old 5
+hold 5
+touch -d "8 days ago" "$works/widget-5" "$T/home/tehas/state/cycles/5.lock"
+t_run "$dispatch"
+release
+t_eq "$(left)" "widget-5 widget-5.before-retry widget-5.images widget-5.state "
+t_lacks "$t_out" "removed the kept workspace"
+
+t_case "a workspace moved aside recently keeps the issue's workspaces"
+reset
+rm -rf "$works"
+old 5
+touch "$works/widget-5.before-retry"
+t_run "$dispatch"
+t_eq "$(left)" "widget-5 widget-5.before-retry widget-5.images widget-5.state "
+
+t_case "nothing goes from a directory tehas work did not mark"
+reset
+rm -rf "$works"
+old 5
+rm "$works/.tehas-workspaces"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(left)" "widget-5 widget-5.before-retry widget-5.images widget-5.state "
+
+t_case "a dry run says what would go and removes nothing"
+reset
+rm -rf "$works"
+old 5
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would remove the kept workspace of #5: no cycle has run on it for 7 days"
+t_eq "$(left)" "widget-5 widget-5.before-retry widget-5.images widget-5.state "
+
+t_case "a poll removes the workspaces of three issues at most"
+reset
+rm -rf "$works"
+for n in 2 3 4 5; do kept "$n" "8 days ago"; done
+t_run "$dispatch"
+t_eq "$(left)" "widget-5 "
+t_run "$dispatch"
+t_eq "$(left)" ""
+rm -rf "$works"
+
 t_done
