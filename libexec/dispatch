@@ -617,7 +617,7 @@ for st in "$TEHAS_HOME"/state/plan-*.json; do
   case "$fresh" in *" $n "*) continue ;; esac
   case " ${asking//$'\n'/ } " in
     *" $n "*) ;;
-    *) [ "$dry" = 1 ] || rm -f "$st" "$st.out" "$st.answer" "$st.brief" ;;
+    *) [ "$dry" = 1 ] || rm -rf "$st" "$st.out" "$st.answer" "$st.brief" "$st.keep" ;;
   esac
 done
 bot=""
@@ -837,7 +837,7 @@ for n in $plans; do
     exit 0
   fi
   st=$(plan_state "$n")
-  rm -f "$st" "$st.out" "$st.answer"
+  rm -rf "$st" "$st.out" "$st.answer" "$st.keep"
   jq -r '"# \(.title // "")\n\n\(.body // "")"' <<<"$brief" >"$st.brief" ||
     { log "ERROR: unreadable text of #$n"; exit 1; }
   log "start planning #$n (labelled by $who)"

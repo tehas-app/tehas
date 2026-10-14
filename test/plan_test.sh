@@ -27,6 +27,11 @@ case " $* " in *" --mode "*)
   ws=$T/home/tehas/work/widget-plan-7
   cat "$ws/.tehas/brief.md" >"$T/calls/brief.seen" 2>/dev/null
   git -C "$ws" status --porcelain >"$T/calls/tree.status" 2>&1
+  git -C "$ws" rev-parse HEAD >"$T/calls/head.seen" 2>&1
+  ls -A "$ws/.git/pi-plan-cache" >"$T/calls/cache.seen" 2>/dev/null
+  cat "$ws/.git/pi-plan-cache/"*.json >"$T/calls/cache.read" 2>/dev/null
+  # What the agent leaves in the plan cache, when a case says.
+  [ ! -e "$T/fx/cache" ] || . "$T/fx/cache"
   IFS= read -r line; printf "%s\n" "$line" >"$T/calls/docker.stdin"
   # The second line may never come: do not wait for it for ever.
   IFS= read -r -t 5 line; printf "%s\n" "$line" >"$T/calls/docker.stdin2"
@@ -82,7 +87,7 @@ asked() {
 EOF
 }
 reset() {
-  rm -f "$T"/calls/* "$T/out.json" "$fx/live"
+  rm -rf "$T"/calls/* "$T/out.json" "$fx/live" "$fx/cache" "$T/keep"
   asked
   t_instance "${T_MINIMAL[@]}"
   T_ENV=(GH_TOKEN=test-token "TEHAS_CGROUP_ROOT=$T_CGROUP")
@@ -90,10 +95,11 @@ reset() {
   printf '# Faster search\n\nMake it fast.\n' >"$T/brief.md"
 }
 
-for bad in "" "7" "x --out $T/out.json --brief $T/brief.md" "7 --out $T/out.json" \
-  "7 --out $T/out.json --brief $T/brief.md --session abc" "7 --out $T/out.json --session abc" \
-  "7 --out $T/out.json --brief $T/missing.md" "7 --out $T/out.json --session 'a b;c' --answer $T/brief.md" \
-  "7 --out $T/out.json --brief $T/brief.md --verbose"; do
+for bad in "" "7" "x --out $T/out.json --keep $T/keep --brief $T/brief.md" "7 --out $T/out.json --keep $T/keep" \
+  "7 --out $T/out.json --brief $T/brief.md" "7 --keep $T/keep --brief $T/brief.md" \
+  "7 --out $T/out.json --keep $T/keep --brief $T/brief.md --session abc" "7 --out $T/out.json --keep $T/keep --session abc" \
+  "7 --out $T/out.json --keep $T/keep --brief $T/missing.md" "7 --out $T/out.json --keep $T/keep --session 'a b;c' --answer $T/brief.md" \
+  "7 --out $T/out.json --keep $T/keep --brief $T/brief.md --verbose"; do
   t_case "a call that is not a turn ('$bad') is refused before anything runs"
   reset
   t_run "$plan $bad"
@@ -103,7 +109,7 @@ done
 
 t_case "a first turn writes the session, the message and the question"
 reset
-t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 0
 t_eq "$(jq -r .session "$T/out.json")" "abc-123"
 t_eq "$(jq -r .text "$T/out.json")" "Two ways.
@@ -181,7 +187,7 @@ t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 1
 t_case "the turn gets the slice and a cycle's limits, and the host aliases from the settings"
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_CYCLE_RESERVE=1g PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
-t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 0
 t_eq "$(after --cgroup-parent)" "tehas.slice"
 t_eq "$(after --memory)" "2048m"
@@ -213,7 +219,7 @@ t_eq "$(tail_of)" "$image pi --mode rpc --approve "
 t_case "a later turn reopens the session and sends the answer as it was written"
 reset
 printf '%s\n' '- "Adopt all", but keep `tagged-at` open' '' "second line with 'quotes' and \$HOME" >"$T/answer.md"
-t_run "$plan 7 --out $T/out.json --session abc-123 --answer $T/answer.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
 t_eq "$t_rc" 0
 t_eq "$(tail_of)" "$image pi --mode rpc --approve --session abc-123 "
 t_eq "$(jq -r .message "$T/calls/docker.stdin")" "$(cat "$T/answer.md")"
@@ -222,20 +228,20 @@ t_eq "$([ -e "$ws/.tehas/brief.md" ] && echo present)" ""
 t_case "a turn that only wrote a message has no question"
 reset
 grep -v tool_execution_end "$fx/turn.jsonl" >"$fx/turn.new" && mv "$fx/turn.new" "$fx/turn.jsonl"
-t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 0
 t_eq "$(jq -r .question "$T/out.json")" "null"
 
 t_case "a question from an earlier, interactive answer is not asked again"
 reset
 sed -i 's/"deferred":true,//' "$fx/turn.jsonl"
-t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$(jq -r .question "$T/out.json")" "null"
 
 t_case "a turn that asked with the tool and wrote nothing still counts"
 reset
 sed -i 's/"data":{"text":"Two ways.\\nPick one."}/"data":{"text":null}/' "$fx/turn.jsonl"
-t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 0
 t_eq "$(jq -r .text "$T/out.json")" ""
 t_eq "$(jq -r .question.question "$T/out.json")" "Adopt my resolutions?"
@@ -243,21 +249,21 @@ t_eq "$(jq -r .question.question "$T/out.json")" "Adopt my resolutions?"
 t_case "a turn that never settled is a failure and leaves only its session"
 reset
 grep -v agent_settled "$fx/turn.jsonl" >"$fx/turn.new" && mv "$fx/turn.new" "$fx/turn.jsonl"
-t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 2
 t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123"}'
 
 t_case "a first turn that never settled and never named its session writes nothing"
 reset
 grep -v -e agent_settled -e get_state "$fx/turn.jsonl" >"$fx/turn.new" && mv "$fx/turn.new" "$fx/turn.jsonl"
-t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 2
 t_eq "$([ -e "$T/out.json" ] && echo written)" ""
 
 t_case "a settled first turn whose session is unknown is a failure and writes nothing"
 reset
 grep -v get_state "$fx/turn.jsonl" >"$fx/turn.new" && mv "$fx/turn.new" "$fx/turn.jsonl"
-t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 2
 t_contains "$t_out" "the session id is unknown"
 t_eq "$([ -e "$T/out.json" ] && echo written)" ""
@@ -265,14 +271,14 @@ t_eq "$([ -e "$T/out.json" ] && echo written)" ""
 t_case "a later turn that never settled leaves the session it was given"
 reset
 grep -v -e agent_settled -e get_state "$fx/turn.jsonl" >"$fx/turn.new" && mv "$fx/turn.new" "$fx/turn.jsonl"
-t_run "$plan 7 --out $T/out.json --session abc-123 --answer $T/brief.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/brief.md"
 t_eq "$t_rc" 2
 t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123"}'
 
 t_case "a run that started again after settling has not settled"
 reset
 echo '{"type":"agent_start"}' >>"$fx/turn.jsonl"
-t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 2
 t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123"}'
 
@@ -281,7 +287,7 @@ reset
 printf '%s\n' '{"type":"agent_start"}' '{"type":"agent_settled"}' \
   '{"type":"response","command":"get_state","success":true,"data":{"sessionId":"abc-123"}}' \
   '{"type":"response","command":"get_last_assistant_text","success":true,"data":{"text":null}}' >"$fx/turn.jsonl"
-t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 2
 t_contains "$t_out" "said and asked nothing"
 t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123"}'
@@ -289,7 +295,7 @@ t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123"}'
 t_case "a line that is not JSON in the stream is skipped, not fatal"
 reset
 sed -i '2i not json at all' "$fx/turn.jsonl"
-t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 0
 t_eq "$(jq -r .session "$T/out.json")" "abc-123"
 
@@ -299,7 +305,7 @@ reset
   for ((i = 0; i < 20000; i++)); do printf '{"type":"message_update","delta":"word %s"}\n' "$i"; done
   cat "$fx/turn.jsonl"
 } >"$fx/turn.new" && mv "$fx/turn.new" "$fx/turn.jsonl"
-t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 0
 t_eq "$(jq -c '[.session, .text, .question.question, (.question.options | length)]' "$T/out.json")" '["abc-123","Two ways.\nPick one.","Adopt my resolutions?",2]'
 
@@ -310,20 +316,20 @@ reset
   echo '{"type":"agent_start"}'
   for ((i = 0; i < 20000; i++)); do printf '{"type":"message_update","delta":"word %s"}\n' "$i"; done
 } >"$fx/turn.new" && mv "$fx/turn.new" "$fx/turn.jsonl"
-t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 2
 
 t_case "a last line with no line end is still read"
 reset
 grep -v get_last_assistant_text "$fx/turn.jsonl" >"$fx/turn.new" && mv "$fx/turn.new" "$fx/turn.jsonl"
 printf '%s' '{"id":"text","type":"response","command":"get_last_assistant_text","success":true,"data":{"text":"Cut short"}}' >>"$fx/turn.jsonl"
-t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 0
 t_eq "$(jq -r .text "$T/out.json")" "Cut short"
 reset
 grep -v -e agent_settled -e '"response"' "$fx/turn.jsonl" >"$fx/turn.new" && mv "$fx/turn.new" "$fx/turn.jsonl"
 printf '%s' '{"type":"agent_settled"}' >>"$fx/turn.jsonl"
-t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_contains "$t_out" "the session id is unknown"
 
 # A container that stays alive: it writes its events over time, one of them
@@ -354,7 +360,7 @@ while IFS= read -r -t 30 ask; do
     *get_last_assistant_text*) echo "{\"type\":\"response\",\"command\":\"get_last_assistant_text\",\"success\":true,\"data\":{\"text\":\"Done live.\"}}"; exit 0 ;;
   esac
 done'
-t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 0
 t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123","text":"Done live.","question":null}'
 t_eq "$(jq -r .type "$T/calls/docker.asked" | tr '\n' ' ')" "get_state get_last_assistant_text "
@@ -364,7 +370,7 @@ t_case "a first turn that runs out of time is stopped and leaves its session"
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=1
 live '"$nap" 3'
-t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 2
 t_contains "$t_out" "time limit of 1s passed"
 t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123"}'
@@ -383,7 +389,7 @@ without() { reset; rm -rf "$T/home/tehas/work" "$T/home/tehas/logs"; }
 t_case "refuses with 78 without the slice, before any docker run"
 without
 printf '%s\n' FragmentPath= ActiveState=inactive MemoryMax=infinity >"$T/slice.show"
-t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 refused
 t_contains "$t_out" "tehas plan: no slice file on this host (sudo ./bootstrap.sh slice)"
 
@@ -391,7 +397,7 @@ t_case "a cgroupfs driver, cgroup v1 and a silent docker are refused the same wa
 for answer in "cgroupfs 2" "systemd 1" ""; do
   without
   echo "$answer" >"$T/docker.info"
-  t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+  t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
   refused
   t_contains "$t_out" "tehas plan: "
   t_contains "$t_out" "ocker"
@@ -400,7 +406,7 @@ done
 t_case "a reserve above the ceiling is refused"
 without
 t_instance "${T_MINIMAL[@]}" TEHAS_CYCLE_RESERVE=3g
-t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 refused
 t_contains "$t_out" "tehas plan: TEHAS_CYCLE_RESERVE=3g is more than a container may use here (2048m"
 
@@ -415,7 +421,7 @@ for words in "--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --m
   "--cgroup-parent other.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --pids-limit 4096 --cpu-shares 1024" ""; do
   without
   printf '%s\n' 'tehas_slice_ok() { return 0; }' "tehas_slice_limits() { TEHAS_SLICE_LIMITS=($words); }" >"$short/lib/slice.sh"
-  t_run "$short/libexec/plan 7 --out $T/out.json --brief $T/brief.md"
+  t_run "$short/libexec/plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
   refused
   t_contains "$t_out" "tehas plan: the container limits could not be made, not starting"
 done
@@ -423,7 +429,7 @@ done
 t_case "a missing token starts no container"
 reset
 T_ENV=("TEHAS_CGROUP_ROOT=$T_CGROUP")
-t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 64
 t_contains "$t_out" "GH_TOKEN is not set"
 t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
@@ -431,8 +437,195 @@ t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
 t_case "an invalid instance starts no container"
 reset
 t_instance TEHAS_CONTROL_ISSUE=1
-t_run "$plan 7 --out $T/out.json --brief $T/brief.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 78
 t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+
+# --- Background jobs --------------------------------------------------------------
+# The agent dispatches a subagent and ends its turn; the subagent's report
+# starts the next run. ok_after: what the container does once the report is in.
+answer_live='while IFS= read -r -t 30 ask; do
+  printf "%s\n" "$ask" >>"$T/calls/docker.asked"
+  case "$ask" in
+    *get_state*) echo "{\"type\":\"response\",\"command\":\"get_state\",\"success\":true,\"data\":{\"sessionId\":\"abc-123\"}}" ;;
+    *get_last_assistant_text*) echo "{\"type\":\"response\",\"command\":\"get_last_assistant_text\",\"success\":true,\"data\":{\"text\":\"Done after the jobs.\"}}"; exit 0 ;;
+  esac
+done'
+job() { # <jobId|batchId> <id>
+  printf '{"type":"tool_execution_end","toolCallId":"c","toolName":"dispatch","result":{"content":[{"type":"text","text":"Dispatched async job %s. End your turn."}],"details":{"%s":"%s","async":true}},"isError":false}\n' "$2" "$1" "$2"
+}
+report() { # <job|batch> <id>
+  printf '{"type":"message_end","message":{"role":"user","content":[{"type":"text","text":"[ensemble:async] Subagent `explore` (%s %s) ok — 3 turns, 2m01s"}]}}\n' "$1" "$2"
+}
+job jobId j1-abc >"$fx/job1"
+job batchId b2-def >"$fx/job2"
+report job j1-abc >"$fx/report1"
+report batch b2-def >"$fx/report2"
+
+t_case "a turn that settles while its jobs are out is not over until they report and it settles again"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=20
+live 'cat "$T/fx/job1" "$T/fx/job2"
+echo "{\"type\":\"agent_settled\"}"
+"$nap" 1.5
+# Anything asked of the container by now was asked too early.
+if IFS= read -r -t 0.1 early; then printf "%s\n" "$early" >"$T/calls/docker.early"; fi
+cat "$T/fx/report1"
+echo "{\"type\":\"agent_start\"}"
+echo "{\"type\":\"agent_settled\"}"
+"$nap" 1.5
+if IFS= read -r -t 0.1 early; then printf "%s\n" "$early" >"$T/calls/docker.early"; fi
+cat "$T/fx/report2"
+echo "{\"type\":\"agent_start\"}"
+echo "{\"type\":\"agent_settled\"}"
+'"$answer_live"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/docker.early" 2>/dev/null)" ""
+t_eq "$(jq -r .text "$T/out.json")" "Done after the jobs."
+
+t_case "a job that never reports holds the turn until the time limit, and a quote of a report is no report"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=2
+live 'cat "$T/fx/job1"
+printf "%s\n" "{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"[ensemble:async] Subagent (job j1-abc) ok\"}]}}"
+echo "{\"type\":\"agent_settled\"}"
+"$nap" 4'
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 2
+t_contains "$t_out" "time limit of 2s passed"
+t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123"}'
+
+# --- What a session carries from one turn to the next ------------------------------
+
+t_case "a first turn makes the session's directory anew and notes the commit it is at"
+reset
+mkdir -p "$T/keep/pi-plan-cache"
+echo old >"$T/keep/left-over"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/keep/commit")" "$(git -C "$checkout" rev-parse origin/main)"
+t_eq "$(cat "$T/calls/head.seen")" "$(cat "$T/keep/commit")"
+t_eq "$(ls -A "$T/keep")" "commit"
+
+t_case "the plan cache the agent leaves is kept: plain .json files only"
+reset
+cat >"$fx/cache" <<'EOF'
+mkdir -p "$ws/.git/pi-plan-cache/sub"
+echo '{"spec":"one"}' >"$ws/.git/pi-plan-cache/a1.json"
+echo '{"spec":"sub"}' >"$ws/.git/pi-plan-cache/sub/b.json"
+echo claim >"$ws/.git/pi-plan-cache/a1.json.claim"
+ln -s /etc/passwd "$ws/.git/pi-plan-cache/link.json"
+head -c 1048577 /dev/zero >"$ws/.git/pi-plan-cache/big.json"
+EOF
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(ls -A "$T/keep/pi-plan-cache")" "a1.json"
+t_eq "$(cat "$T/keep/pi-plan-cache/a1.json")" '{"spec":"one"}'
+t_eq "$([ -e "$tree" ] && echo left)" ""
+
+t_case "a later turn is at the session's commit after the branch moved on, with the cache it left"
+pinned=$(cat "$T/keep/commit")
+rm -f "$fx/cache" "$T"/calls/*
+git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m second
+git -C "$checkout" fetch -q
+echo "Adopt all" >"$T/answer.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/head.seen")" "$pinned"
+t_eq "$(git -C "$checkout" rev-parse origin/main | grep -c -x "$pinned")" 0
+t_eq "$(cat "$T/calls/cache.seen")" "a1.json"
+t_eq "$(cat "$T/calls/cache.read")" '{"spec":"one"}'
+t_eq "$(cat "$T/keep/commit")" "$pinned"
+
+t_case "a later turn whose commit is gone, or was never noted, starts at the tip and says so"
+for pin in 0123456789abcdef0123456789abcdef01234567 "not a commit"; do
+  rm -f "$T"/calls/*
+  echo "$pin" >"$T/keep/commit"
+  t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
+  t_eq "$t_rc" 0
+  t_eq "$(cat "$T/calls/head.seen")" "$(git -C "$checkout" rev-parse origin/main)"
+  t_contains "$t_out" "the turn starts at the tip of main"
+done
+
+t_case "a later turn of a session that has no directory yet makes one and goes on"
+reset
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/brief.md"
+t_eq "$t_rc" 0
+t_contains "$t_out" "no commit on record for this session"
+t_eq "$([ -d "$T/keep" ] && echo made)" made
+
+# --- The issue's images ----------------------------------------------------------
+A=https://github.com/user-attachments/assets
+t_stub gh '
+printf "%s\n" "$*" >>"$T/calls/gh.args"
+case "$1 $2" in
+  "api repos/acme/widget/issues/7") cat "$T/fx/issue.json" 2>/dev/null || exit 1 ;;
+  "issue comment") printf "%s\n" "$*" >>"$T/calls/gh.comments" ;;
+esac'
+t_stub curl '
+out="" url=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) out=$2; shift ;;
+    -H | --max-filesize | --proto | --proto-redir | --max-redirs | --max-time | -w) shift ;;
+    https://*) url=$1 ;;
+  esac
+  shift
+done
+key=$(printf %s "$url" | tr -c "A-Za-z0-9" _)
+printf "%s\n" "$url" >>"$T/calls/curl.urls"
+[ -f "$T/fx/net/$key" ] || exit 22
+cp "$T/fx/net/$key" "$out"
+printf application/octet-stream'
+net() { # <address> <printf format>
+  mkdir -p "$fx/net"
+  # shellcheck disable=SC2059  # the format carries the bytes of an image
+  printf "$2" >"$fx/net/$(printf %s "$1" | tr -c 'A-Za-z0-9' _)"
+}
+issue_is() { jq -n --arg body "$1" '{number: 7, body: $body, author_association: "OWNER"}' >"$fx/issue.json"; }
+images_on() {
+  reset
+  rm -rf "$fx/net"
+  t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1 "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=/elsewhere"
+}
+
+t_case "with images on a first turn fetches them into the session's directory and mounts a copy read-only"
+images_on
+net "$A/1111" '\x89PNG\r\n\x1a\nPNGDATA'
+issue_is "Look ![shot]($A/1111)"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[.issue, (.images | map(.file))]' "$T/keep/images/manifest.json")" '[7,["image-1.png"]]'
+t_eq "$(after -v | grep -c -x "$tree.images:$ws.images:ro")" 1
+t_eq "$(after -e | grep '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$ws.images"
+t_eq "$(turn_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -i --init")" ""
+t_contains "$(cat "$T/calls/gh.comments")" "Tehas gave this planning session 1 image from the issue text."
+t_eq "$([ -e "$tree.images" ] && echo left)" ""
+
+t_case "a later turn mounts the same images and fetches nothing"
+rm -f "$T"/calls/*
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/curl.urls" "$T/calls/gh.args" 2>/dev/null)" ""
+t_eq "$(after -v | grep -c -x "$tree.images:$ws.images:ro")" 1
+
+t_case "an image that cannot be fetched starts no session: exit 4, said on the issue"
+images_on
+issue_is "Look ![shot]($A/9999)"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 4
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+t_contains "$(cat "$T/calls/gh.comments")" "Tehas started no planning session: $A/9999 could not be fetched."
+t_eq "$([ -e "$T/keep/images" ] && echo left)" ""
+t_eq "$([ -e "$T/out.json" ] && echo written)" ""
+
+t_case "with images off nothing is fetched or mounted"
+reset
+t_instance "${T_MINIMAL[@]}" "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=/elsewhere"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/curl.urls" "$T/calls/gh.args" 2>/dev/null)" ""
+t_eq "$(after -v | grep -c images)" 0
 
 t_done
