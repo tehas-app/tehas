@@ -6,13 +6,19 @@
 # commit the tag names and the digest of the image published for it, then
 # writes PI_RUKAS_VERSION and PI_RUKAS_COMMIT in host/versions.env and the
 # FROM line of host/sandbox/Dockerfile. Nothing is written unless all three
-# were found. Needs gh, curl and jq, and the network.
+# were found. Needs gh, curl, jq and tar, and the network.
+#
+# A release is pinned only when its source still has what tehas relies on:
+# every PI_ENSEMBLE_* setting the commands of tehas pass, and the fields of
+# the state file tehas work and tehasbot cycle read, with the ends they act
+# on. One that lacks any of them is refused and the missing ones are named.
 #
 # Usage: scripts/rukas-latest.sh           update the pin
 #        scripts/rukas-latest.sh --check   only say whether the pin is the newest
 #
-# Exit: 0 the pin is the newest release, 1 --check found a newer one,
-#       2 the release, its commit or its image could not be read, 64 usage
+# Exit: 0 the pin is the newest release, 1 --check found a newer one that
+#       fits, 2 the release, its commit, its source or its image could not be
+#       read, 3 the newest release lacks something tehas relies on, 64 usage
 set -uo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -58,12 +64,35 @@ digest=$(curl -fsSI -H "Authorization: Bearer $token" \
   tr -d '\r' | sed -n 's/^docker-content-digest: *//Ip' | head -n 1)
 [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || die "no image $image:$tag"
 
+# What tehas reads of the state file (libexec/work, libexec/cycle) and the
+# settings its commands pass. Markdown is not code: a name only a changelog
+# still mentions is gone.
+fits() { # <source dir>
+  local src=$1 name names=() missing=()
+  mapfile -t names < <(cat "$root"/lib/*.sh "$root"/libexec/* "$root"/bin/* "$root/host/env.sh" 2>/dev/null |
+    grep -o 'PI_ENSEMBLE_[A-Z0-9_]*' | sort -u)
+  [ "${#names[@]}" -gt 0 ] || die "no PI_ENSEMBLE_* setting found in this checkout"
+  for name in "${names[@]}" pipelineState currentStep branchName eventLog '"merged"' '"handoff"' '"aborted"' '"running"'; do
+    grep -rqF --exclude='*.md' --exclude-dir=.git -e "$name" "$src" || missing+=("$name")
+  done
+  [ "${#missing[@]}" = 0 ] && return 0
+  echo "rukas-latest: $repo $tag lacks what tehas relies on: ${missing[*]}" >&2
+  return 1
+}
+
 from="FROM $image:$tag@$digest"
 if grep -qx "PI_RUKAS_VERSION=$tag" "$versions" && grep -qx "PI_RUKAS_COMMIT=$commit" "$versions" &&
   grep -qxF "$from" "$dockerfile"; then
   echo "pi-rukas is at the newest release, $tag ($commit)"
   exit 0
 fi
+tmp=$(mktemp -d) || die "no scratch directory"
+trap 'rm -rf "$tmp"' EXIT
+if ! { gh api "repos/$repo/tarball/$commit" >"$tmp/src.tgz" 2>/dev/null && mkdir "$tmp/src" &&
+  tar -xzf "$tmp/src.tgz" -C "$tmp/src" 2>/dev/null; }; then
+  die "no source of $repo at $commit"
+fi
+fits "$tmp/src" || exit 3
 if [ "$check" = 1 ]; then
   echo "pi-rukas has a newer release: $tag ($commit)"
   exit 1

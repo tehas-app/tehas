@@ -488,6 +488,11 @@ Every release of tehas takes the newest release of pi-rukas. Before tagging:
 1. Run `scripts/rukas-latest.sh`. It reads upstream's newest release, its
    commit and its image's digest, and writes all three. With `--check` it
    only says whether the pin is already the newest, exit 1 when it is not.
+   Either way it first reads the release's source, and refuses it with exit 3
+   when something tehas relies on is gone: a `PI_ENSEMBLE_*` setting that a
+   command of tehas passes, or a field of the state file a cycle's end is
+   read from. It names what is missing. Such a release is not pinned until
+   tehas is changed to match it.
 2. When it changed something, open a pull request with the change, merge it,
    and tag the release from that merge.
 3. On the host: pull, run `./bootstrap.sh user`, rebuild the sandbox image,
