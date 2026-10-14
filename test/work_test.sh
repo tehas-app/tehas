@@ -47,6 +47,8 @@ for a in "$@"; do
 done
 case " $* " in
   *" --mode "*) [ ! -e "$T/container.sh" ] || . "$T/container.sh" ;;
+  " image inspect "*) cat "$T/image.id" 2>/dev/null || exit 1 ;;
+  *" test -f /opt/pi-rukas/extension/src/work-driver-issue-images.ts "*) exit "$(cat "$T/image.reads" 2>/dev/null || echo 125)" ;;
   *" push --dry-run "*)
     [ ! -e "$T/push-hangs" ] || exec "$(command -pv sleep)" 30
     [ "${PUSH_RC:-0}" = 0 ] || { echo "docker: could not read from remote repository" >&2; exit "$PUSH_RC"; } ;;
@@ -77,7 +79,9 @@ env_ok=(GH_TOKEN=test-token "TEHAS_CGROUP_ROOT=$T_CGROUP")
 # The arguments of the docker call that starts the cycle.
 cycle_args() { grep -l -x -e '--mode' "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
 # The arguments of the docker call that checks the push before the cycle.
-preflight_args() { grep -l -x -e '--entrypoint' "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
+preflight_args() { grep -l -x -e 'push' "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
+# The arguments of the docker call that asks the image whether it reads images.
+reader_args() { grep -l -e 'work-driver-issue-images' "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
 # Values that follow a flag, e.g. every -v or every -e.
 after() { cycle_args | awk -v flag="$1" 'prev == flag { print } { prev = $0 }'; }
 # Every option of a docker call that is not one this command is known to
@@ -1096,6 +1100,68 @@ echo old >"$imgs/image-9.png"
 issue_is "Words only."
 t_run "$work 7"
 t_eq "$(cd "$imgs" && find . -mindepth 1 | tr '\n' ' ')" "./manifest.json "
+
+# reads <status>: what the image answers when asked for its reader: 0 it has
+# it, 1 it has not, any other a docker that failed.
+iid=sha256:$(printf '%064d' 7)
+reads() { echo "$iid" >"$T/image.id"; echo "$1" >"$T/image.reads"; rm -rf "$T/home/tehas/state/images-read"; }
+read_file=$T/home/tehas/state/images-read.json
+
+t_case "an image whose pi-rukas does not read images: the comment says they are not shown"
+images_on
+net "$A/1111" "$png"
+issue_is "![shot]($A/1111)"
+reads 1
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$(t_calls gh)" "--body Tehas fetched 1 image from the issue text for this cycle, but the pi-rukas in the sandbox image does not read them: its agents are not shown them."
+t_lacks "$(t_calls gh)" "Tehas gave this cycle"
+t_eq "$(jq -c '[.image, .reads]' "$read_file")" "[\"$image\",false]"
+
+t_case "the image is asked by its id, and its container is given nothing"
+t_eq "$(reader_args | tr '\n' ' ')" "run --rm --pull never --network none --entrypoint sh $iid -c test -f /opt/pi-rukas/extension/src/work-driver-issue-images.ts "
+
+t_case "the answer is kept per image id: a second cycle does not ask the image again"
+rm -f "$T"/calls/*
+echo 0 >"$T/image.reads"
+t_run "$work 7"
+t_eq "$(reader_args)" ""
+t_contains "$(t_calls gh)" "does not read them"
+
+t_case "an image that reads them: the comment says the cycle was given them"
+images_on
+net "$A/1111" "$png"
+issue_is "![shot]($A/1111)"
+reads 0
+t_run "$work 7"
+t_contains "$(t_calls gh)" "--body Tehas gave this cycle 1 image from the issue text."
+t_lacks "$(t_calls gh)" "could not be checked"
+t_eq "$(jq -c .reads "$read_file")" true
+
+t_case "an image that cannot be asked is said, and the answer is not kept"
+images_on
+net "$A/1111" "$png"
+issue_is "![shot]($A/1111)"
+reads 125
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$(t_calls gh)" "Whether the pi-rukas in the sandbox image reads them could not be checked."
+t_eq "$(jq -c .reads "$read_file")" null
+t_eq "$(find "$T/home/tehas/state/images-read" -type f 2>/dev/null | wc -l)" 0
+rm -f "$T/image.id" "$T"/calls/*
+t_run "$work 7"
+t_eq "$(reader_args)" ""
+t_eq "$(jq -c .reads "$read_file")" null
+
+t_case "with images off the answer is removed, and the image is not asked"
+images_on
+t_instance "${T_MINIMAL[@]}"
+reads 1
+echo '{"time":"2026-10-14T00:00:00Z","reads":false}' >"$read_file"
+t_run "$work 7"
+t_eq "$(find "$read_file" 2>/dev/null | wc -l)" 0
+t_eq "$(reader_args)$(t_calls docker | grep -c '^image ')" "0"
+rm -f "$T/image.id" "$T/image.reads"
 
 t_case "a path of the instance's own for the variable is replaced, not added to"
 images_on PI_ENSEMBLE_EXTRA_IMAGE_DIRS=/elsewhere

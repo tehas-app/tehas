@@ -196,12 +196,14 @@ if [ "$TEHAS_WORK_IMAGES" = 1 ]; then
         echo "tehas plan: the comment on #$issue failed" >&2
       exit 4
     fi
-    said=$(tehas_issue_images_said "$images" "planning session")
+    said=$(tehas_issue_images_said "$images" "planning session" "$(tehas_images_read "$image")")
     if [ -n "$said" ]; then
       gh issue comment "$issue" --repo "$TEHAS_REPO" --body "$said" >/dev/null 2>&1 ||
         echo "tehas plan: the comment on #$issue failed" >&2
     fi
   fi
+else
+  tehas_images_read_forget
 fi
 
 if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces" && rm -rf "$images_given"; }; then

@@ -86,10 +86,19 @@ tehas_attachment_fetch() { # <address> <file> <most bytes> [<token>]
 #                                     images are then taken whoever opened the
 #                                     issue. Without it, only when an owner,
 #                                     member or collaborator opened it
-#   tehas_issue_images_said <dir> <what>
+#   tehas_issue_images_said <dir> <what> [yes|no|unknown]
 #                                     the comment that says what <what> (a
 #                                     cycle, a planning session) was given;
-#                                     empty when the issue links no image
+#                                     empty when the issue links no image. The
+#                                     third is what tehas_images_read said
+#                                     [yes]
+#   tehas_images_read <image>         whether the pi-rukas in the sandbox
+#                                     image reads a manifest of images: yes,
+#                                     no or unknown, also written to
+#                                     $TEHAS_HOME/state/images-read.json for
+#                                     tehasbot health
+#   tehas_images_read_forget          remove that file: the instance gives no
+#                                     images
 
 # tehas_image_type <file>: the type its first bytes say; fails for any other file.
 tehas_image_type() {
@@ -170,10 +179,50 @@ tehas_issue_images() { # <issue> <dir> [approved]
 }
 
 # The links are of the shape tehas_attachment_links takes and the reasons are
-# written above, so nothing of the issue's own words is posted back.
-tehas_issue_images_said() { # <dir> <what>
-  jq -r --arg what "$2" 'select((.images | length) + (.leftOut | length) > 0)
-    | "Tehas gave this \($what) \(.images | length) \(if (.images | length) == 1 then "image" else "images" end) from the issue text."
+# written above, so nothing of the issue's own words is posted back. A comment
+# does not say the images were given when the agents are not shown them.
+tehas_issue_images_said() { # <dir> <what> [yes|no|unknown]
+  jq -r --arg what "$2" --arg reads "${3:-yes}" 'select((.images | length) + (.leftOut | length) > 0)
+    | "\(.images | length) \(if (.images | length) == 1 then "image" else "images" end) from the issue text" as $n
+    | if $reads == "no" then "Tehas fetched \($n) for this \($what), but the pi-rukas in the sandbox image does not read them: its agents are not shown them."
+      elif $reads == "yes" then "Tehas gave this \($what) \($n)."
+      else "Tehas gave this \($what) \($n). Whether the pi-rukas in the sandbox image reads them could not be checked." end
       + (if (.leftOut | length) > 0 then "\n\nLeft out:\n" + (.leftOut | map("- \(.link): \(.reason)") | join("\n")) else "" end)' \
     "$1/manifest.json" 2>/dev/null
 }
+
+# The reader is a file in the image, so the image answers without a session.
+# An image id names fixed content, so the answer is kept per id. The check's
+# container is given nothing: no mount, no variable, no network, and it pulls
+# nothing. Like the push check it is a few seconds and not in the slice.
+tehas_images_read() { # <image>
+  local image=$1 id answer=unknown cache=$TEHAS_HOME/state/images-read
+  local reader=/opt/pi-rukas/extension/src/work-driver-issue-images.ts
+  id=$(timeout -k 5 60 docker image inspect --format '{{.Id}}' "$image" 2>/dev/null) || id=""
+  if [[ $id =~ ^sha256:[0-9a-f]{64}$ ]]; then
+    answer=$(cat "$cache/${id#sha256:}" 2>/dev/null) || answer=""
+    case "$answer" in
+      yes | no) ;;
+      *)
+        timeout -k 5 60 docker run --rm --pull never --network none --entrypoint sh "$id" \
+          -c "test -f $reader" </dev/null >/dev/null 2>&1
+        case $? in
+          0) answer=yes ;;
+          1) answer=no ;;
+          *) answer=unknown ;;
+        esac
+        if [ "$answer" != unknown ] && mkdir -p "$cache"; then
+          { echo "$answer" >"$cache/${id#sha256:}"; } 2>/dev/null || true
+        fi
+        ;;
+    esac
+  fi
+  { mkdir -p "$TEHAS_HOME/state" &&
+    jq -n --arg time "$(date -u +%FT%TZ)" --arg image "$image" --arg answer "$answer" \
+      '{time: $time, image: $image, reads: (if $answer == "yes" then true elif $answer == "no" then false else null end)}' \
+      >"$TEHAS_HOME/state/images-read.json.new" &&
+    mv "$TEHAS_HOME/state/images-read.json.new" "$TEHAS_HOME/state/images-read.json"; } 2>/dev/null || true
+  echo "$answer"
+}
+
+tehas_images_read_forget() { rm -f "$TEHAS_HOME/state/images-read.json"; }

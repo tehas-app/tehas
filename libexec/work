@@ -67,7 +67,10 @@
 # and what was left out and why. The directory is remade for every cycle. An
 # image that is left out is said in a comment on the issue. An image that could
 # not be fetched stops the start: a cycle that works without a picture the
-# issue relies on builds the wrong thing.
+# issue relies on builds the wrong thing. The comment says whether the sandbox
+# image's pi-rukas reads the images at all: whether it has the file that reads
+# them is asked of the image once per image id, and the answer is left in
+# state/images-read.json for tehasbot health.
 #
 # The container runs in tehas.slice, as every sandbox container does, with the
 # limits lib/slice.sh makes: a memory ceiling of a quarter of the slice, no
@@ -234,12 +237,14 @@ if [ "$TEHAS_WORK_IMAGES" = 1 ]; then
       echo "tehas work: the comment on #$issue failed" >&2
     exit 4
   fi
-  said=$(tehas_issue_images_said "$images" cycle)
+  said=$(tehas_issue_images_said "$images" cycle "$(tehas_images_read "$image")")
   if [ -n "$said" ]; then
     gh issue comment "$issue" --repo "$TEHAS_REPO" --body "$said" >/dev/null 2>&1 ||
       echo "tehas work: the comment on #$issue failed" >&2
   fi
   image_opts=(-v "$images:$images_inside:ro" -e "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$images_inside")
+else
+  tehas_images_read_forget
 fi
 
 aside() {

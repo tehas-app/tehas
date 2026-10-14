@@ -102,4 +102,37 @@ outsider OWNER
 t_run "$images"
 t_eq "$(taken)" '[["image-1.png"],[]]'
 
+t_case "the comment says the images were given only when the sandbox image reads them"
+said=". $T_ROOT/lib/attachments.sh; tehas_issue_images_said $T/images cycle"
+t_run "$said"
+t_eq "$t_out" "Tehas gave this cycle 1 image from the issue text."
+t_run "$said yes"
+t_eq "$t_out" "Tehas gave this cycle 1 image from the issue text."
+t_run "$said no"
+t_eq "$t_out" "Tehas fetched 1 image from the issue text for this cycle, but the pi-rukas in the sandbox image does not read them: its agents are not shown them."
+t_run "$said unknown"
+t_eq "$t_out" "Tehas gave this cycle 1 image from the issue text. Whether the pi-rukas in the sandbox image reads them could not be checked."
+
+# --- Whether the sandbox image reads them ------------------------------------
+t_stub docker 'case "$1 $2" in "image inspect") cat "$T/image.id" ;; *) exit "${READS_RC:-0}" ;; esac'
+reader="TEHAS_HOME=$T/home/tehas; $lib; tehas_images_read some/image"
+
+t_case "an id that is not an image id is not run, and the answer is unknown"
+rm -f "$T"/calls/*
+echo "sha256:../../etc" >"$T/image.id"
+t_run "$reader"
+t_eq "$t_rc $t_out" "0 unknown"
+t_eq "$(t_calls docker)" "image inspect --format {{.Id}} some/image"
+t_eq "$(jq -c '[.image, .reads]' "$T/home/tehas/state/images-read.json")" '["some/image",null]'
+
+t_case "the image's answer is kept under its id"
+rm -f "$T"/calls/*
+echo "sha256:$(printf '%064d' 1)" >"$T/image.id"
+T_ENV=(READS_RC=1)
+t_run "$reader"
+t_eq "$t_out" no
+t_eq "$(cat "$T/home/tehas/state/images-read/$(printf '%064d' 1)")" no
+t_eq "$(jq -c .reads "$T/home/tehas/state/images-read.json")" false
+T_ENV=()
+
 t_done

@@ -26,6 +26,10 @@
 # and "unknown: no poll has reported in 10 min" when no poll got as far as
 # reading the slice in that time, as while the factory is paused.
 #
+# Where the instance gives a cycle images, an images line says whether the
+# sandbox image's pi-rukas reads them, as the last cycle or planning session
+# found.
+#
 # Exit: 0 the factory is taking work or is paused (pass, warn); 1 it is not
 # (fail), the file is older than ten minutes, or there is no health file yet;
 # 64 an argument, this command takes none.
@@ -57,5 +61,6 @@ while IFS= read -r cycle; do
   tehas_cycle_line "$cycle" "$now" || exit 1
 done < <(jq -c 'if ((.checks.cycles // []) | length) > 1 then .checks.cycles[] else (.checks.cycle // null) end' "$file")
 tehas_slice_line "$health" "$now" || exit 1
+tehas_images_line "$health" "$now" || exit 1
 
 [ "$stale" = false ] && [ "$(jq -r .status "$file")" != fail ]
