@@ -40,7 +40,15 @@ case " $* " in *" --mode "*)
   cat "$ws/.git/pi-plan-cache/"*.json >"$T/calls/cache.read" 2>/dev/null
   # What the agent leaves in the plan cache, when a case says.
   [ ! -e "$T/fx/cache" ] || . "$T/fx/cache"
-  IFS= read -r line; printf "%s\n" "$line" >"$T/calls/docker.stdin"
+  IFS= read -r line
+  # A later turn first asks what is in the session it opened.
+  case "$line" in *"\"id\":\"opened\""*)
+    printf "%s\n" "$line" >"$T/calls/docker.opened"
+    if [ -e "$T/fx/opened" ]; then . "$T/fx/opened"
+    else echo "{\"id\":\"opened\",\"type\":\"response\",\"command\":\"get_state\",\"success\":true,\"data\":{\"sessionId\":\"abc-123\",\"messageCount\":6}}"; fi
+    IFS= read -r -t 5 line ;;
+  esac
+  printf "%s\n" "$line" >"$T/calls/docker.stdin"
   # The second line may never come: do not wait for it for ever.
   IFS= read -r -t 5 line; printf "%s\n" "$line" >"$T/calls/docker.stdin2"
   # A case that needs a container that lives for a while writes its part here.
@@ -95,7 +103,7 @@ asked() {
 EOF
 }
 reset() {
-  rm -rf "$T"/calls/* "$T/out.json" "$fx/live" "$fx/cache" "$fx/fetch" "$T/keep"
+  rm -rf "$T"/calls/* "$T/out.json" "$fx/live" "$fx/cache" "$fx/fetch" "$fx/opened" "$T/keep"
   asked
   t_instance "${T_MINIMAL[@]}"
   T_ENV=(GH_TOKEN=test-token "TEHAS_CGROUP_ROOT=$T_CGROUP")
@@ -265,6 +273,49 @@ t_eq "$t_rc" 0
 t_eq "$(tail_of)" "$image pi --mode rpc --approve --session abc-123 "
 t_eq "$(jq -r .message "$T/calls/docker.stdin")" "$(cat "$T/answer.md")"
 t_eq "$([ -e "$ws/.tehas/brief.md" ] && echo present)" ""
+
+t_case "a later turn asks what is in the session before it sends the answer"
+t_eq "$(jq -c . "$T/calls/docker.opened")" '{"id":"opened","type":"get_state"}'
+t_eq "$(jq -c . "$T/calls/docker.stdin2")" '{"id":"state","type":"get_state"}'
+
+t_case "a first turn does not ask"
+reset
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$T/calls/docker.opened" ] && echo asked)" ""
+
+t_case "a later turn whose session Pi opened empty sends no answer and says the session is lost"
+reset
+cat >"$fx/opened" <<'EOF'
+echo '{"id":"opened","type":"response","command":"get_state","success":true,"data":{"sessionId":"abc-123","messageCount":0}}'
+IFS= read -r -t 1 line && printf "%s\n" "$line" >"$T/calls/docker.stdin"
+exit 0
+EOF
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/brief.md"
+t_eq "$t_rc" 2
+t_contains "$t_out" "the session abc-123 is gone: Pi opened it with no messages, so the answer was not sent"
+t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123","lost":true}'
+t_eq "$(cat "$T/calls/docker.stdin" 2>/dev/null)" ""
+t_eq "$(grep -l -x stop "$T"/calls/docker.args.* | wc -l)" 1
+t_eq "$([ -e "$tree" ] && echo left)" ""
+
+t_case "a later turn whose container never says what is in the session sends no answer"
+reset
+echo 'exit 0' >"$fx/opened"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/brief.md"
+t_eq "$t_rc" 2
+t_contains "$t_out" "Pi did not say what is in session abc-123, so the answer was not sent"
+t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123"}'
+
+t_case "a Pi that gives no count goes on and says so"
+reset
+cat >"$fx/opened" <<'EOF'
+echo '{"id":"opened","type":"response","command":"get_state","success":true,"data":{"sessionId":"abc-123"}}'
+EOF
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/brief.md"
+t_eq "$t_rc" 0
+t_contains "$t_out" "Pi did not say how many messages session abc-123 has, going on"
+t_eq "$(jq -r .message "$T/calls/docker.stdin")" "$(cat "$T/brief.md")"
 
 t_case "a turn that only wrote a message has no question"
 reset

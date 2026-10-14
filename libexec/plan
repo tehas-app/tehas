@@ -44,11 +44,13 @@
 # On exit 2 it holds only {"session": "<id>"} when the session is known: the
 # one the turn was given, or the one Pi named after the prompt. The caller can
 # then run the turn again in that session. When no session is known, nothing
-# is written.
+# is written. A later turn whose session Pi no longer has sends no answer and
+# writes {"session": "<id>", "lost": true}: the session cannot go on.
 #
 # Exit status: 0 the turn settled and said or asked something,
-#              2 it did not settle, timed out, said and asked nothing, or its
-#                session or outcome could not be written down,
+#              2 it did not settle, timed out, said and asked nothing, its
+#                session is gone, or its session or outcome could not be
+#                written down,
 #              4 a first turn the instance gives images, where one could not
 #                be fetched; said on the issue, nothing ran,
 #             64 a usage error, no bot token or no git identity; nothing ran,
@@ -325,13 +327,39 @@ pid=$!
 exec 3<&-
 
 started=$(date +%s)
-send "$(jq -cn --arg m "$message" '{id: "plan", type: "prompt", message: $m}')"
-# Asked for now and again at the end: a first turn that runs for an hour and
-# then fails must still leave the session it made, so a reply can continue it.
-send '{"id":"state","type":"get_state"}'
+trap 'exec 4>&- 2>/dev/null; docker stop -t 10 "$name" 2>/dev/null' TERM INT
 echo "tehas plan: issue $issue turn started, log $log"
 
-trap 'exec 4>&- 2>/dev/null; docker stop -t 10 "$name" 2>/dev/null' TERM INT
+# Pi opens --session <id>, or makes it anew when its file is gone. One made
+# anew has no messages, and the answer would reach an agent that knows
+# nothing of the session, so it is not sent. Asked before the prompt, so the
+# count cannot include it.
+refused=""
+if [ -z "$brief" ]; then
+  send '{"id":"opened","type":"get_state"}'
+  # Looked at once more after the container is gone: it may have answered
+  # and then exited.
+  while :; do
+    alive=0
+    kill -0 "$pid" 2>/dev/null && alive=1
+    count=$(grep -a -F '"id":"opened"' "$log" 2>/dev/null | jq -r -R 'fromjson? | select(type == "object"
+        and .type == "response" and .command == "get_state" and .id == "opened")
+      | .data.messageCount | if type == "number" then tostring else "unknown" end' 2>/dev/null | head -n 1)
+    [ -z "$count" ] && [ "$alive" = 1 ] && [ $(($(date +%s) - started)) -lt "$limit" ] || break
+    sleep 1
+  done
+  case "$count" in
+    0) refused=lost ;;
+    '') refused=silent ;;
+    unknown) echo "tehas plan: Pi did not say how many messages session $session has, going on" ;;
+  esac
+fi
+if [ -z "$refused" ]; then
+  send "$(jq -cn --arg m "$message" '{id: "plan", type: "prompt", message: $m}')"
+  # Asked for now and again at the end: a first turn that runs for an hour and
+  # then fails must still leave the session it made, so a reply can continue it.
+  send '{"id":"state","type":"get_state"}'
+fi
 
 # Settled: the last start or settle event in the stream is a settle, and no
 # background job the agent started is still out. The agent ends its turn after
@@ -389,7 +417,7 @@ scan() {
 settled() { [ "$last" = '"type":"agent_settled"' ] && [ "$out_jobs" = " " ]; }
 quiet=0
 timed_out=0
-while kill -0 "$pid" 2>/dev/null; do
+while [ -z "$refused" ] && kill -0 "$pid" 2>/dev/null; do
   sleep 1
   scan
   if settled; then quiet=$((quiet + 1)); else quiet=0; fi
@@ -402,7 +430,7 @@ while kill -0 "$pid" 2>/dev/null; do
 done
 
 if kill -0 "$pid" 2>/dev/null; then
-  if [ "$timed_out" = 0 ]; then
+  if [ "$timed_out" = 0 ] && [ -z "$refused" ]; then
     send '{"id":"state","type":"get_state"}'
     send '{"id":"text","type":"get_last_assistant_text"}'
     # The answer comes after everything read so far.
@@ -440,16 +468,22 @@ sid=$(pick '"command":"get_state"' | jq -rs 'map(select(.type == "response" and 
 
 # give_up <what happened>: the turn failed. The session, when it is known, is
 # all that is left for the caller.
+# With "lost" the outcome says the session is gone, so the caller ends it.
 give_up() {
   echo "tehas plan: issue=$issue $1, see $log"
   if [ -n "$sid" ]; then
-    if ! jq -n --arg session "$sid" '{session: $session}' >"$out.new" || ! mv "$out.new" "$out"; then
+    if ! jq -n --arg session "$sid" --arg lost "${2:-}" '{session: $session} + (if $lost == "" then {} else {lost: true} end)' >"$out.new" ||
+      ! mv "$out.new" "$out"; then
       echo "tehas plan: could not write $out" >&2
     fi
   fi
   exit 2
 }
 
+case "$refused" in
+  lost) give_up "the session $session is gone: Pi opened it with no messages, so the answer was not sent" lost ;;
+  silent) give_up "Pi did not say what is in session $session, so the answer was not sent" ;;
+esac
 if [ "$timed_out" = 1 ] || ! settled; then
   give_up "the turn did not settle"
 fi

@@ -2006,6 +2006,35 @@ t_contains "$(t_calls gh)" "This planning turn did not finish"
 t_contains "$(t_calls gh)" "--add-label tehas:question --add-label needs-human-attention"
 t_eq "$(jq -r '[.session, .turns, .failed] | @tsv' "$record")" "abc-123	2	true"
 
+t_case "a later turn whose Pi session is gone ends the session and says to start again"
+planning
+mkdir -p "$record.keep"
+comments 7 "$(plan_body x ' ' ' ')" alice
+echo '{"session":"abc-123","lost":true}' >"$fx/plan-fails"
+t_run "$dispatch"
+t_contains "$(plan_calls)" "--session abc-123"
+t_contains "$t_out" "planning #7: Pi no longer has session abc-123"
+t_contains "$(t_calls gh)" "--remove-label tehas:question --remove-label tehas:planning --remove-label tehas:plan --remove-label needs-human-attention"
+t_contains "$(t_calls gh)" "its conversation is no longer on"
+t_contains "$(t_calls gh)" "Apply \`tehas:plan\` again to start a new session."
+t_lacks "$(t_calls gh)" "This planning turn did not finish"
+t_lacks "$(t_calls gh)" "tehas:question kind=plan issue=7 turn=2"
+t_eq "$([ -e "$record" ] || [ -e "$record.keep" ] && echo kept)" ""
+
+t_case "a lost session whose labels cannot be taken off is ended by the next poll"
+planning
+comments 7 "$(plan_body x ' ' ' ')" alice
+echo '{"session":"abc-123","lost":true}' >"$fx/plan-fails"
+echo "--remove-label tehas:question --remove-label tehas:planning" >"$fx/edit-fails-on"
+t_run "$dispatch"
+t_eq "$(jq -c '[.lost, .running]' "$record")" '[true,true]'
+t_lacks "$(t_calls gh)" "its conversation is no longer on"
+rm -f "$T"/calls/* "$fx/edit-fails-on" "$fx/plan-fails"
+t_run "$dispatch"
+t_eq "$(plan_calls)" ""
+t_contains "$(t_calls gh)" "its conversation is no longer on"
+t_eq "$([ -e "$record" ] && echo kept)" ""
+
 t_case "an outcome that could not be posted is posted by the next poll, before anything else"
 planning
 comments 7 "$(plan_body x ' ' ' ')" alice

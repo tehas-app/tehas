@@ -367,10 +367,19 @@ message and the question it asked, if any. On exit 2 it holds the session id
 alone when that is known, so the dispatcher can run the turn again in the
 same session, and it is not written when no session is known.
 
+A later turn first asks Pi what is in the session it opened. Pi makes a
+session anew when its file under `~/.pi/agent/sessions` is gone, and an agent
+with no memory of the session would take the answer as a new request. So when
+Pi says the session has no messages, the answer is not sent: the turn exits 2
+and the `--out` file holds the session id and `"lost": true`. The dispatcher
+then ends the session and says on the issue to apply `tehas:plan` again. A
+turn whose container never says what is in the session sends no answer
+either, and exits 2 as a turn that can be run again.
+
 | Exit | Meaning                                                              |
 | ---- | -------------------------------------------------------------------- |
 | 0    | The turn settled and said or asked something                         |
-| 2    | The turn did not settle, timed out, said and asked nothing, or its session or outcome could not be written down |
+| 2    | The turn did not settle, timed out, said and asked nothing, its session is gone, or its session or outcome could not be written down |
 | 4    | With `TEHAS_WORK_IMAGES=1`: a first turn where an image the issue links could not be fetched, or the issue could not be read for its images; nothing ran |
 | 64   | A usage error, no bot token or no git identity; nothing ran          |
 | 78   | The instance settings are invalid, or `tehas.slice` cannot be used; nothing ran |

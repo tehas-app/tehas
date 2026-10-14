@@ -323,6 +323,11 @@ dispatcher's log says so.
    A `tehas:ready` it applies anyway is taken off, as one from any account
    outside the list is.
 
+The conversation of a session is kept by Pi on the host, in
+`~/.pi/agent/sessions`. If it is gone, for example after the host was rebuilt,
+the session cannot go on: the bot ends it, says so, and your answer is not
+sent. Apply `tehas:plan` again to start a new session.
+
 Only answers from allowed labellers count. A box ticked by anyone else, or
 more than one box, is unticked and the bot says so. A reply counts only if its
 author is an allowed account and, when it was edited, its last editor is too.
