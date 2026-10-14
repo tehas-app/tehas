@@ -1,0 +1,9 @@
+{
+  "name": "tehas-pin-ctx7",
+  "version": "0.0.0",
+  "private": true,
+  "description": "One pinned npm tree: ctx7 at the version host/versions.env names, with every package in it fixed by hash in package-lock.json.",
+  "dependencies": {
+    "ctx7": "0.5.14"
+  }
+}

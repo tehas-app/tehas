@@ -1,0 +1,9 @@
+{
+  "name": "tehas-pin-playwright",
+  "version": "0.0.0",
+  "private": true,
+  "description": "One pinned npm tree: Playwright at the version host/versions.env names, with every package in it fixed by hash in package-lock.json.",
+  "dependencies": {
+    "playwright": "1.55.1"
+  }
+}

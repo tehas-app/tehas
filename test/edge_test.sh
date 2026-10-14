@@ -111,6 +111,19 @@ if command -v caddy >/dev/null 2>&1; then
 fi
 
 recipe=$T_ROOT/preview/Dockerfile
+# shellcheck source=host/versions.env
+. "$T_ROOT/host/versions.env"
+
+t_case "every caddy container is named by the digest versions.env records"
+for f in "$T_ROOT/host/edge/docs.compose.yaml" "$T_ROOT/host/edge/router.compose.yaml" "$recipe"; do
+  t_contains "$(cat "$f")" "caddy@$CADDY_DIGEST"
+  t_contains "$(cat "$f")" "caddy $CADDY_VERSION"
+done
+t_eq "$(grep -cE '^CADDY_VERSION=[0-9]+\.[0-9]+\.[0-9]+$' "$T_ROOT/host/versions.env")" 1
+t_eq "$(grep -cE '^CADDY_DIGEST=sha256:[0-9a-f]{64}$' "$T_ROOT/host/versions.env")" 1
+# A tag can be moved, so nothing here may name caddy by tag.
+t_eq "$(grep -l -E 'caddy:[0-9]' "$T_ROOT/host/edge/docs.compose.yaml" \
+  "$T_ROOT/host/edge/router.compose.yaml" "$recipe" | wc -l)" 0
 
 t_case "the preview of this repository serves the manual on 8080 and takes nothing from a host"
 t_contains "$(cat "$recipe")" "COPY host/edge/docs.Caddyfile /etc/caddy/Caddyfile"

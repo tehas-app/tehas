@@ -126,13 +126,33 @@ Installs under the user's home, each tool in its own place:
 | Node and npm                      | `~/tehas/tools/node`                   | Release archive, checksum     |
 | `gh`                              | `~/tehas/bin/gh`                       | Release archive, checksum     |
 | Bun                               | `~/.bun/bin`                           | Release archive, checksum     |
-| Pi, `ctx7`, `parallel-cli`        | `~/.local` (npm prefix)                | npm, exact versions           |
+| Pi, `ctx7`, `parallel-cli`        | `~/tehas/tools/npm/<name>`, commands linked into `~/.local/bin` | npm tree, pinned by lockfile  |
 | Rust, then `vipune` and `oo`      | `~/.rustup`, `~/.cargo`                | rustup, then `cargo install`  |
 | `codebase-memory-mcp`             | `~/.local/bin`                         | Its installer, pinned release |
 | pi-rukas                          | `~/tehas/repos/pi-rukas`, one commit   | Its repository, then its `install.sh` |
 
 Every release archive is checked against a SHA-256 in `versions.env` before it
-is unpacked. The last step runs pi-rukas's own installer, which links its
+is unpacked. The three npm tools are pinned the same way, by a tree beside
+`versions.env` rather than by a download: `host/npm/<name>/package.json` names
+one version and `host/npm/<name>/package-lock.json` fixes every package in that
+tree by hash. `bootstrap.sh` copies the two files to `~/tehas/tools/npm/<name>`
+and installs them with `npm ci`, which refuses a package whose hash does not
+match the lockfile, so a tool's dependencies are as fixed as the tool. Before it
+installs anything it checks each tree against `versions.env` - the file's
+SHA-256, and the version its `package.json` and its lockfile name - and stops
+with nothing installed when they do not agree. A new tree is built beside the
+installed one and moved into place only once `npm ci` succeeded, so an install
+that fails leaves the tree that worked and the commands linked into it.
+`parallel-cli` is pinned this way only as far as npm goes: its own install script downloads the binary it runs,
+and the lockfile says nothing about that download.
+
+A pinned tool counts as present only when its tree is installed too. A host that
+already had one of these tools at the same version, from a bootstrap that
+installed it into npm's global tree, therefore reinstalls it from `host/npm` on
+the next `./bootstrap.sh user` and drops the global copy. `check` still reports
+the version it finds on the `PATH`.
+
+The last step runs pi-rukas's own installer, which links its
 extension and skills into `~/.pi/agent/` and pulls its own `latest` image. It is
 run without `PI_ENSEMBLE_IMAGE`, so it never touches the tehas sandbox image.
 
@@ -161,9 +181,12 @@ It does not change the exit status.
 ## Running it again
 
 It is safe to run again. A tool already at its version is skipped. A tool it
-owns that is at another version is replaced with the pinned one. To change a
+owns that is at another version is replaced with the pinned one. An npm tool at
+its version is skipped only once its pinned tree is in place. To change a
 version, edit `host/versions.env` (the version and, for an archive, its
-checksum), run `./bootstrap.sh user`, rebuild the sandbox image and rerun the
+checksum; for an npm tool, the SHA-256 of its lockfile, regenerated with
+`npm install --package-lock-only --ignore-scripts` in that directory under
+`host/npm`), run `./bootstrap.sh user`, rebuild the sandbox image and rerun the
 contract test before a cycle uses it.
 
 A tool of the same name installed elsewhere by someone else is left alone. The
@@ -180,8 +203,10 @@ them; they are here so the error is recognisable if it comes back.
   group write from `~/.local`, `~/.local/bin` and `~/.local/lib` first.
 - **`parallel-cli` needs its download script.** Installed with npm's scripts
   switched off, the package arrives without its binary and answers
-  `binary not found`. The script installs that one package with scripts on. The
-  tool is a hosted search service and is not logged in.
+  `binary not found`. The script installs that one tree with scripts on. The
+  tree is pinned by its lockfile; the binary the script fetches is not, so that
+  download is the one part of this tool the pin does not cover. The tool is a
+  hosted search service and is not logged in.
 
 ## Credentials
 

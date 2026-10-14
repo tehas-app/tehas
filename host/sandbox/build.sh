@@ -19,6 +19,8 @@ docker build \
   --build-arg TEHAS_UID="$(id -u)" \
   --build-arg SHELLCHECK_VERSION="$SHELLCHECK_VERSION" \
   --build-arg SHELLCHECK_SHA256="$SHELLCHECK_SHA256" \
+  --build-arg PLAYWRIGHT_VERSION="$PLAYWRIGHT_VERSION" \
+  --build-arg PLAYWRIGHT_LOCK_SHA256="$PLAYWRIGHT_LOCK_SHA256" \
   --build-arg PI_RUKAS_COMMIT="$PI_RUKAS_COMMIT" \
   -t "$image:$stamp" "$here"
 docker tag "$image:$stamp" "$image:uid$(id -u)"

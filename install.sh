@@ -177,6 +177,8 @@ files=(
   "versions.env|$TEHAS_HOME/versions.env|644"
   "sandbox/Dockerfile|$TEHAS_HOME/sandbox/Dockerfile|644"
   "sandbox/build.sh|$TEHAS_HOME/sandbox/build.sh|755"
+  "sandbox/npm/playwright/package.json|$TEHAS_HOME/sandbox/npm/playwright/package.json|644"
+  "sandbox/npm/playwright/package-lock.json|$TEHAS_HOME/sandbox/npm/playwright/package-lock.json|644"
   "edge/docs.Caddyfile|$TEHAS_HOME/edge/docs.Caddyfile|644"
   "edge/docs.compose.yaml|$TEHAS_HOME/edge/docs.compose.yaml|644"
   "edge/router.Caddyfile|$TEHAS_HOME/edge/router.Caddyfile|644"
