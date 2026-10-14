@@ -500,6 +500,27 @@ Every release of tehas takes the newest release of pi-rukas. Before tagging:
    time on the new pi-rukas until one ends with a pull request: see
    [Limits that hold work back](/operating#limits-that-hold-work-back).
 
+### Rolling back pi-rukas
+
+Cycles run pi-rukas from the sandbox image, so putting the previous image back
+is the rollback, and it takes effect at the next cycle's start:
+
+```
+docker image ls tehas/pi-rukas            # the builds, tagged by date
+docker tag tehas/pi-rukas:<date> tehas/pi-rukas:uid$(id -u)
+```
+
+Each image carries the pi-rukas commit it was built with, as its label
+`tehas.rukas`, and the dispatcher and the improvement loop read the commit
+from there. A commit that cycles have ended well on before runs at full
+concurrency again at once.
+
+That holds until the next sandbox build, which takes the pin from
+`versions.env`. To keep the rollback, revert the change of the pin in this
+repository and release it: `git revert` the commit that changed
+`PI_RUKAS_COMMIT` and the `FROM` line, merge, tag, and on the host
+`tehas update` and `./bootstrap.sh user`.
+
 Where the instance sets `TEHAS_IMPROVE_RUKAS_REPO`, the
 [improvement loop](/operating#the-improvement-loop) files what it finds about
 pi-rukas there, each issue naming the product's issues whose cycles showed it.

@@ -62,10 +62,10 @@
 #      tehas:plan from such an account is taken off the same way.
 #   3a. A pi-rukas commit that no cycle on this host has ended well on, as
 #      merged or as a handoff with a pull request, runs one cycle at a time.
-#      tehasbot cycle writes the commit a cycle ran with beside its lock, and
-#      the commit of a cycle that ended well in state/rukas-proven. While a
-#      running cycle has the installed commit and that file names another,
-#      nothing more starts; cycles of the commit before still count for rule
+#      The commit is the sandbox image's (lib/cycles.sh). tehasbot cycle
+#      writes the commit a cycle ran with beside its lock, and adds that of a
+#      cycle that ended well to state/rukas-proven. While a running cycle has
+#      the image's commit and that file does not name it, nothing more starts; cycles of the commit before still count for rule
 #      2 only. A bad release then costs one cycle, not a slot of each.
 #   7. tehas:urgent first, then the lowest issue number. The urgent label
 #      counts only when its most recent labelling is by an allowed account, as
@@ -588,11 +588,10 @@ free=$((TEHAS_TICKET_CONCURRENCY - count))
 
 # 3a. The pi-rukas this host is installed with, and whether a cycle has
 # ended well on it. Without a commit on record there is nothing to compare.
-rukas_now=$(sed -n 's/^PI_RUKAS_COMMIT=\([0-9a-f]\{7,40\}\)$/\1/p' "$TEHAS_HOME/versions.env" 2>/dev/null | head -n 1)
-rukas_proven=$(head -c 64 "$TEHAS_HOME/state/rukas-proven" 2>/dev/null | head -n 1)
+rukas_now=$(tehas_rukas_commit)
 canary=0
 on_new=0
-if [ -n "$rukas_now" ] && [ "$rukas_now" != "$rukas_proven" ]; then
+if [ -n "$rukas_now" ] && ! tehas_rukas_proven "$rukas_now"; then
   canary=1
   for n in $running; do
     [ "$(head -c 64 "$TEHAS_HOME/state/cycles/$n.rukas" 2>/dev/null | head -n 1)" != "$rukas_now" ] ||

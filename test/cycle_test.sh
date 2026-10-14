@@ -46,6 +46,9 @@ case "$1 $2" in
     [ ! -e "$T/fx/issue-fails" ] || exit 1
     if [ -e "$T/fx/issue-$n.json" ]; then cat "$T/fx/issue-$n.json"; else echo "{\"number\":$n,\"state\":\"open\"}"; fi ;;
 esac'
+# The sandbox image has no label unless a case writes one: the commit then
+# comes from versions.env.
+t_stub docker '[ -e "$T/fx/image.label" ] || exit 1; cat "$T/fx/image.label"'
 # What the runner does is a file a case writes; without one it ends at once.
 t_stub fake-work '[ ! -e "$T/fx/work.sh" ] || . "$T/fx/work.sh"'
 t_stub fake-status
@@ -579,6 +582,22 @@ ended handoff commit-pr feature/x
 echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
 t_run "$cycle 7"
 t_eq "$(cat "$T/home/tehas/state/rukas-proven")" "$rukas"
+
+t_case "the sandbox image's label is the commit, and a second proven one is added to the first"
+reset
+echo "PI_RUKAS_COMMIT=$rukas" >"$T/home/tehas/versions.env"
+mkdir -p "$T/home/tehas/state"
+echo before >"$T/home/tehas/state/rukas-proven"
+image=$(printf 'd%.0s' {1..40})
+echo "$image" >"$fx/image.label"
+ended merged commit-pr
+t_run "$cycle 7"
+t_eq "$(cat "$state/7.rukas")" "$image"
+t_eq "$(cat "$T/home/tehas/state/rukas-proven" | tr '\n' ' ')" "before $image "
+ended merged commit-pr
+t_run "$cycle 7"
+t_eq "$(cat "$T/home/tehas/state/rukas-proven" | tr '\n' ' ')" "before $image "
+rm -f "$T/home/tehas/versions.env" "$T/home/tehas/state/rukas-proven"
 
 t_case "a cycle that parks proves nothing, and one proven before stays"
 reset

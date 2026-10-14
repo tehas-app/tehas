@@ -385,9 +385,12 @@ reaches them. Remove the label to resume.
   While a cycle runs on it, `tehas status` says `holding: pi-rukas <commit> is
   new on this host`, and cycles still running on the pi-rukas before it count
   for the slots only. The first cycle that ends well on it lifts the hold. The
-  commit is the one in `~/tehas/versions.env` when the cycle started, and the
-  one proven is kept in `~/tehas/state/rukas-proven`. A new host, which has
-  proven none, starts the same way.
+  commit is the sandbox image's, its label `tehas.rukas`, so an image put back
+  for a [rollback](/host#rolling-back-pi-rukas) is known by its own commit;
+  an image built before the label counts as the commit in
+  `~/tehas/versions.env`. The commits proven are listed in
+  `~/tehas/state/rukas-proven`. A new host, which has proven none, starts the
+  same way.
 - Inside a cycle, `TEHAS_CONCURRENCY` workstreams side by side: 4 by default,
   fewer if the model backends cannot take it. See [The host](/host).
 - No new cycle while `TEHAS_MAX_AWAITING` issues carry `tehas:awaiting-merge`

@@ -88,7 +88,10 @@ t_stub systemctl 'case "$1 $2" in
     [ ! -e "$T/fx/slice-hangs" ] || exec sleep 20
     cat "$T/fx/slice.show" ;;
 esac'
-t_stub docker 'case "$1" in info) cat "$T/fx/docker.info" ;; esac'
+t_stub docker 'case "$1" in
+  info) cat "$T/fx/docker.info" ;;
+  image) [ -e "$T/fx/image.label" ] || exit 1; cat "$T/fx/image.label" ;;
+esac'
 gib=1073741824
 slice_env=TEHAS_CGROUP_ROOT=$T_CGROUP
 slice_show() { # <MemoryMax> [<ActiveState>]: a slice loaded from its file
@@ -2715,7 +2718,8 @@ t_eq "$t_rc" 0
 t_eq "$(t_calls systemctl)" "show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax
 --user show -p LoadState --value tehas-cycle@7.service
 --user start tehas-cycle@7.service"
-t_eq "$(t_calls docker)" "info --format {{.CgroupDriver}} {{.CgroupVersion}}"
+t_eq "$(t_calls docker)" "image inspect --format {{index .Config.Labels \"tehas.rukas\"}} tehas/pi-rukas:uid$(id -u)
+info --format {{.CgroupDriver}} {{.CgroupVersion}}"
 t_contains "$(t_calls fake-index)" "--before-cycle"
 t_eq "$(t_calls fake-status | wc -l)" 2
 for name in tehas tehasbot tehas-work tehas-status tehas-index tehas-plan; do t_eq "$(t_calls "$name")" ""; done
@@ -2763,7 +2767,7 @@ old_rukas=$(printf 'b%.0s' {1..40})
 installed() { echo "PI_RUKAS_COMMIT=$new_rukas" >"$T/home/tehas/versions.env"; }
 proven() { mkdir -p "$T/home/tehas/state"; echo "$1" >"$T/home/tehas/state/rukas-proven"; }
 ran_with() { echo "$2" >"$T/home/tehas/state/cycles/$1.rukas"; } # <issue> <commit>
-not_installed() { rm -f "$T/home/tehas/versions.env" "$T/home/tehas/state/rukas-proven"; }
+not_installed() { rm -f "$T/home/tehas/versions.env" "$T/home/tehas/state/rukas-proven" "$fx/image.label"; }
 
 t_case "a pi-rukas no cycle has ended well on starts one cycle, whatever the slots"
 reset
@@ -2812,6 +2816,39 @@ hold 10
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 release
+not_installed
+
+t_case "the commit is the sandbox image's: one put back for a rollback that was proven before runs freely"
+reset
+slots 4
+installed
+printf '%s\n' "$old_rukas" >"$T/home/tehas/state/rukas-proven"
+echo "$old_rukas" >"$fx/image.label"
+ready 7 8 9
+t_run "$dispatch"
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 "
+t_contains "$(t_calls docker)" "tehas.rukas"
+not_installed
+
+t_case "an image whose label names a commit never proven is new, whatever versions.env says"
+reset
+slots 4
+echo "PI_RUKAS_COMMIT=$old_rukas" >"$T/home/tehas/versions.env"
+proven "$old_rukas"
+echo "$new_rukas" >"$fx/image.label"
+ready 7 8 9
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+not_installed
+
+t_case "any commit in the list of proven ones counts"
+reset
+slots 4
+installed
+printf '%s\n' "$old_rukas" "$new_rukas" >"$T/home/tehas/state/rukas-proven"
+ready 7 8 9
+t_run "$dispatch"
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 "
 not_installed
 
 t_case "once a cycle has ended well on the installed pi-rukas the slots decide again"
