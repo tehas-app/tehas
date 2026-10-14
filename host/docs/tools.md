@@ -1184,6 +1184,12 @@ rewritten on the remote, are left for a person. When the checkout sits on a
 branch that is not the remote's default, it says so and updates the branch it is
 on.
 
+One update runs at a time. A real run holds `$TEHAS_HOME/state/update.lock`,
+and so does a real run of `install.sh`; a second one started while the first
+holds it prints `another update is running` and exits 1 before git, install.sh,
+Docker or systemd is called. The update hands the lock to the install.sh it
+runs. `--check` takes no lock.
+
 That pre-check covers the required settings only. The rest of the instance
 contract - `models.json` readable, valid JSON, listing the models the settings
 name, and the settings directory writable by nobody else - is install.sh's, and

@@ -352,6 +352,34 @@ t_eq "$(t_calls build)" ""
 t_eq "$(t_calls docker)" ""
 t_eq "$(t_calls systemctl)" ""
 
+t_case "a second update while one runs exits 1 and calls nothing"
+instance
+platform 2 "$ASK"
+before=$(state)
+mkdir -p "$th/state"
+t_run "exec 8>>'$th/state/update.lock'; flock -n 8 || exit 9; '$update'"
+t_eq "$t_rc" 1
+t_contains "$t_out" "tehas update: another update is running ($th/state/update.lock); nothing was changed"
+t_eq "$(state)" "$before"
+t_eq "$(t_calls install)" ""
+t_eq "$(t_calls build)" ""
+t_eq "$(t_calls docker)" ""
+t_eq "$(t_calls systemctl)" ""
+
+t_case "--check takes no lock"
+t_run "exec 8>>'$th/state/update.lock'; flock -n 8 || exit 9; '$update' --check"
+t_lacks "$t_out" "another update is running"
+t_eq "$(t_calls install)" "install --check"
+
+t_case "install.sh is handed the lock the update holds"
+instance
+platform 0 'if [ "/dev/fd/${TEHAS_UPDATE_LOCK_FD:-x}" -ef "$TEHAS_HOME/state/update.lock" ] && flock -n "$TEHAS_UPDATE_LOCK_FD"; then echo "the lock is ours"; fi
+( exec 6>>"$TEHAS_HOME/state/update.lock"; flock -n 6 ) || echo "held against others"'
+t_run "$update"
+t_eq "$t_rc" 0
+t_contains "$t_out" "the lock is ours"
+t_contains "$t_out" "held against others"
+
 t_case "a later: line of install.sh is printed and is no step"
 instance
 platform 0 'echo "installed: libexec/update"
@@ -1054,11 +1082,26 @@ t_case "a record that cannot be written stops the run before any step"
 instance
 platform 1 'echo "next: sandbox"'
 mkdir -p "$th/state"
+# The lock is there from an earlier run; only the record cannot be written.
+: >"$th/state/update.lock"
 chmod 500 "$th/state"
 t_run "$update"
 t_eq "$t_rc" 1
 t_contains "$t_out" "could not make a temporary file beside $owed_file"
 t_eq "$(t_calls build)" ""
+chmod 755 "$th/state"
+
+t_case "a state directory where the lock cannot be made stops the run before git"
+instance
+platform 1 'echo "next: sandbox"'
+before=$(state)
+mkdir -p "$th/state"
+chmod 500 "$th/state"
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "tehas update: cannot open $th/state/update.lock; nothing was changed"
+t_eq "$(state)" "$before"
+t_eq "$(t_calls install)" ""
 chmod 755 "$th/state"
 
 t_case "a failed run leaves the record, and nothing else, in state/"
@@ -1070,8 +1113,10 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "2 of 4 follow-up(s) are not done"
 # Each rewrite goes through a temporary file moved over the record, so a run that
 # died mid-write leaves the steps already owed there rather than half of a new list
-# - and a run that finished leaves no stray file.
-t_eq "$(ls -A "$th/state")" "update-pending"
+# - and a run that finished leaves no stray file. The lock is kept: removing it
+# would let a run that opened it a moment before lock a file no longer there.
+t_eq "$(ls -A "$th/state")" "update-pending
+update.lock"
 t_eq "$(owed_steps)" "docs --force-recreate
 edge --force-recreate"
 

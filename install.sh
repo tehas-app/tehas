@@ -74,14 +74,20 @@
 # removed only after systemd has reloaded, because the units it still holds
 # name them.
 #
-# Exit: 0 done or nothing to report, 1 --check found something or a step
-# failed, 78 the instance settings are invalid (nothing was changed).
+# A real run holds $TEHAS_HOME/state/update.lock, the lock tehas update holds,
+# and stops when another run has it.
+#
+# Exit: 0 done or nothing to report, 1 --check found something, a step failed
+# or another update is running, 78 the instance settings are invalid (nothing
+# was changed).
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")" && pwd)
 host=$root/host
 check=0
 [ "${1:-}" = "--check" ] && check=1
+# Read before tehas_load, which drops it from the environment.
+update_fd=${TEHAS_UPDATE_LOCK_FD:-}
 
 # shellcheck source=lib/config.sh
 . "$root/lib/config.sh"
@@ -150,6 +156,21 @@ if [ -n "$findings" ]; then
 fi
 tehas_load
 instance=$TEHAS_INSTANCE_DIR
+
+# One update at a time. Two runs side by side would build the image twice and
+# each rewrite the record of steps owed with its own view. tehas update holds the
+# lock while it runs this script and names the descriptor it holds it on; any
+# other run takes the lock itself. --check changes nothing and takes no lock.
+if [ "$check" != 1 ]; then
+  update_lock=$TEHAS_HOME/state/update.lock
+  mkdir -p "$TEHAS_HOME/state"
+  if [[ $update_fd =~ ^[0-9]+$ ]] && [ "/dev/fd/$update_fd" -ef "$update_lock" ]; then
+    flock -n "$update_fd" || { echo "tehas: another update is running ($update_lock); nothing was installed" >&2; exit 1; }
+  else
+    exec 7>>"$update_lock"
+    flock -n 7 || { echo "tehas: another update is running ($update_lock); nothing was installed" >&2; exit 1; }
+  fi
+fi
 
 # --- 2. What belongs to this instance ---------------------------------------
 # One line per file: source|destination|mode. A source starting with / is taken

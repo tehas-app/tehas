@@ -116,6 +116,11 @@ applied, and what is still owed is kept in `~/tehas/state/` (`update-pending`)
 until it has run, so the next update finishes it instead of calling the host
 current.
 
+One update runs at a time. `tehas update` and a real run of `install.sh` hold
+`~/tehas/state/update.lock`; a second one started meanwhile prints `another
+update is running` and exits 1 before it changes anything. The update hands
+its lock to the `install.sh` it runs. `--check` takes no lock.
+
 The steps are still there on their own. `install.sh` is what puts tehas on a host
 the first time, before `tehas update` exists there:
 

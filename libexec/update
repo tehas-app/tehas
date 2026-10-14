@@ -73,7 +73,8 @@
 #   tehas update -h|--help   print this text and exit 0
 #
 # Exit: 0 updated, or already up to date,
-#       1 the checkout has local changes, is not on a branch, cannot be
+#       1 another update is running (it holds $TEHAS_HOME/state/update.lock),
+#         the checkout has local changes, is not on a branch, cannot be
 #         fast-forwarded, has no commit yet, a step failed or timed out, install.sh
 #         gave no answer within its limit, systemd did not reload the unit files, a
 #         follow-up install.sh asked for is one this command does not know, or
@@ -153,6 +154,23 @@ checkout=$TEHAS_HOME/platform
 if [ ! -e "$checkout/.git" ] || [ ! -f "$checkout/install.sh" ]; then
   echo "tehas update: no platform checkout at $checkout. Clone the platform repository there, or run ./install.sh from wherever you keep it." >&2
   exit 78
+fi
+
+# One update at a time: two side by side build the image twice and each rewrite
+# the record of steps owed with its own view. install.sh takes the same lock;
+# the descriptor this one holds it on is handed to it, so it does not refuse its
+# own parent. --check changes nothing on the host and takes no lock.
+if [ "$mode" = update ]; then
+  update_lock=$TEHAS_HOME/state/update.lock
+  if ! mkdir -p "$TEHAS_HOME/state" || ! exec 7>>"$update_lock"; then
+    echo "tehas update: cannot open $update_lock; nothing was changed" >&2
+    exit 1
+  fi
+  if ! flock -n 7; then
+    echo "tehas update: another update is running ($update_lock); nothing was changed" >&2
+    exit 1
+  fi
+  export TEHAS_UPDATE_LOCK_FD=7
 fi
 
 # Steps an earlier run was asked for and did not finish are still owed, and this
