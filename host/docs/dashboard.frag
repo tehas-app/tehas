@@ -85,10 +85,25 @@
   const PREVIEW_STATES = {
     building: "building",
     "no-recipe": "no preview/Dockerfile in the commit",
-    "build-failed": "unable to create: the build failed",
-    "no-space": "unable to create: the host is low on disk",
+    "build-failed": "unable to create",
+    "no-space": "unable to create",
     "over-limit": "over the limit of previews",
   };
+  // What a preview that does not serve says about itself. The state, and for
+  // the states that can fail in several ways the reason the run wrote into its
+  // state file: a recipe whose volume was refused, a build that failed, a
+  // container that stopped at once and a host low on disk are not the same
+  // thing, and only the reason tells them apart. The reason is text this
+  // command wrote. For a refused volume it says only that the recipe declares a
+  // volume outside /tmp, /config and /data; the path of that volume, cut to 80
+  // characters with its control characters gone, is in that pull request's
+  // build log on the host. Text only ever reaches these nodes, through
+  // textContent.
+  function previewWhy(it) {
+    const label = PREVIEW_STATES[it.state] || "not serving";
+    const reason = typeof it.reason === "string" ? it.reason.trim() : "";
+    return reason ? label + ": " + reason : label;
+  }
   async function refreshPreviews() {
     let p = null;
     try {
@@ -127,7 +142,7 @@
         a.rel = "noopener";
         li.append(a);
       } else {
-        li.append(el("span", null, title), " ", el("span", "when", PREVIEW_STATES[it.state] || "not serving"));
+        li.append(el("span", null, title), " ", el("span", "when", previewWhy(it)));
       }
       ul.append(li);
     }

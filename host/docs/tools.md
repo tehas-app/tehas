@@ -873,13 +873,21 @@ are enabled. Both write to `~/tehas/logs/preview.log`.
 2. It measures the free space: the smaller of the file system of `~/tehas`
    and the one Docker keeps its images on. This is done once Docker has
    answered, before the network is checked.
-3. It asks GitHub for the open pull requests, the newest 100. No answer, an
-   answer with nothing in it, or one that is not a list ends the run: nothing
+3. It asks GitHub for the open pull requests, all of them, in pages of 100,
+   newest first. It stops when a page is short, which is where GitHub ends.
+   When the tenth page comes back full it asks for one more: an empty answer
+   means the list ended there, so a thousand open pull requests is a list it
+   has read. Anything in that answer means it stopped before the end, and it
+   builds and removes nothing: `the open pull requests are more than 1000: the
+   list was not read, nothing was built or removed`. No answer, an answer with
+   nothing in it, or one that is not a list ends the run the same way: nothing
    is built and nothing is removed. A list with no pull request in it is an
-   answer, and every preview is then removed. A list that does not say who
-   opened one of the repository's own pull requests is not a clear answer
-   either: `the list of open pull requests does not say who opened each;
-   nothing was built or removed`.
+   answer, and every preview is then looked at one by one, as step 5 says. A
+   page that does not say who opened one of the repository's own pull requests
+   is not a clear answer either: `the list of open pull requests does not say
+   who opened each; nothing was built or removed`. Each page is an answer of
+   its own, taken at its own moment, so the list can move while it is read: a
+   pull request that comes back on two pages counts once.
 4. A pull request whose head is in another repository is counted in the log
    and never built: `<k> pull requests from elsewhere, not built`. Nor is
    one whose head is in the repository and that was opened by anyone but an
@@ -887,9 +895,18 @@ are enabled. Both write to `~/tehas/logs/preview.log`.
    outside the repository, not built`. On a public repository anyone can
    open a pull request between two branches that are already there. Of the
    rest, the newest `TEHAS_PREVIEW_MAX` get a preview.
-5. What is on the host for a pull request that is no longer open is removed:
+5. What is on the host for a pull request the list does not have is removed:
    the container, the image, the fetched commit, the state and the build log.
-   The log says `#<pr>: pull request no longer open, removed`.
+   Membership in that list is not enough on its own, because a pull request can
+   fall between two pages and look closed. Before it removes anything the run
+   asks GitHub about that pull request by itself, as `tehasbot preview --sweep`
+   does, and what GitHub answers is what the log says: `#<pr>: pull request no
+   longer open, removed` for one that is closed or not there at all, `#<pr>:
+   its branch is not in <repo>, removed` and `#<pr>: it was not opened by
+   someone of <repo>, removed` for one that is open but not built here. Nothing
+   is removed where GitHub does not answer clearly: `#<pr>: no answer from
+   GitHub, kept`, nor where it says the pull request is open and one of ours:
+   `#<pr>: open though the list did not say so, kept`.
 6. Each pull request that is due is fetched and built. The commit is fetched
    into the bare clone `~/tehas/preview/repo.git`, and its
    `preview/Dockerfile` is built with the commit as the context, in at most
@@ -1074,10 +1091,11 @@ time of the last sweep and how many things it removed are `lastSweep` in
 | 78   | The instance settings are invalid, or `TEHAS_PREVIEWS` is not `1` |
 
 The [plain dashboard](/dashboard) lists the previews under "Previews", each
-with its address or the reason there is none, and says when the list was
-written. A time that is more than a few minutes old means the runs have
-stopped: see the timer. A host without previews has no `previews.json` and no
-such section.
+with its address, or with its state and the reason the run wrote into its state
+file - which is what tells a recipe whose volume was refused from a build that
+failed - and says when the list was written. A time that is more than a few
+minutes old means the runs have stopped: see the timer. A host without previews
+has no `previews.json` and no such section.
 
 ## The gates (run by the cycle, usable by hand)
 
@@ -1133,7 +1151,7 @@ which ones each id accepts and which of them it requires:
 | `units <unit>...`           | a unit file changed                  | systemd reloaded its unit files, and the unit is active: restarted, never enabled |
 | `sandbox`                   | `sandbox/` or `versions.env` changed | always                                                            |
 | `docs --force-recreate`     | `edge/docs.*` changed                | its container is running: recreated with that flag                 |
-| `edge --force-recreate`     | `edge/router.*` changed              | its container is running: recreated with that flag. Or the Protolab's server of before it runs, the compose project `tehas-protolab`: that one is taken down and the router is started. If the old one came down and the router did not start, the step stays owed and `~/tehas/state/edge-takeover` is left: the next `tehas update` starts the router whatever runs, and removes that file when it did |
+| `edge --force-recreate`     | `edge/router.*` changed              | its container is running: recreated with that flag. Or the Protolab's server of before it runs, the compose project `tehas-protolab`: that one is taken down and the router is started. If the old one came down and the router did not start, the step stays owed and `~/tehas/state/edge-takeover` is left, holding the time it was made: the next `tehas update` starts the router whatever runs, and removes that file when it did. A mark of more than a day ago is not acted on - it is said, removed, and the step is what it would have been without it |
 
 Both containers are recreated rather than just brought up, because what changed is
 the Caddyfile they mount and Caddy reads its config when the process starts:
