@@ -14,6 +14,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 // passes.
 const MAX_PASS: u64 = 8 << 20;
 const MAX_LINE: usize = 1 << 20;
+const MAX_ROLE: usize = 24;
 
 // Bytes already consumed, the start of a line whose end is not written yet,
 // and whether the line being read is one that was left out for its length.
@@ -212,7 +213,8 @@ fn day_before(time: SystemTime) -> String {
 /// `<job id in two dash-separated parts>-<role>.json`. Agents write these
 /// files, and the name is printed as it is: a role that is anything but
 /// letters, digits, dashes and underscores is not taken from the name, and
-/// neither is the name of a speaker that is not an agent.
+/// neither is the name of a speaker that is not an agent. A role is cut to
+/// the length a workstream may have.
 pub fn role(path: &str) -> String {
     let file = path.rsplit('/').next().unwrap_or(path);
     let file = file.strip_suffix(".json").unwrap_or(file);
@@ -228,7 +230,7 @@ pub fn role(path: &str) -> String {
         && role != "driver"
         && role != "tehas"
     {
-        role.to_string()
+        role[..role.len().min(MAX_ROLE)].to_string()
     } else {
         "agent".to_string()
     }
@@ -476,5 +478,7 @@ mod tests {
         assert_eq!(role("/runs/2026-10-10/a-b-driver.json"), "agent");
         assert_eq!(role("/runs/2026-10-10/tehas.json"), "agent");
         assert_eq!(role("/runs/2026-10-10/a-b-driver-2.json"), "driver-2");
+        let long = format!("/runs/2026-10-10/a-b-{}.json", "r".repeat(300));
+        assert_eq!(role(&long), "r".repeat(24));
     }
 }

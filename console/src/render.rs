@@ -27,7 +27,7 @@ impl Entry {
     }
 }
 
-/// The entry as it is written: masked, the time and the speaker on the first
+/// The entry as it is written: masked, the speaker too, the time and the speaker on the first
 /// line, further lines indented under the text. The text is an agent's and
 /// the file is also read in terminals: of the control characters only the
 /// line break and the tab are kept, so no escape sequence gets through.
@@ -45,7 +45,8 @@ pub fn format(entry: &Entry, now: u32) -> String {
     let mut lines = shown.split('\n');
     let first = lines.next().unwrap_or_default();
     let (h, m, s) = (t / 3600, t / 60 % 60, t % 60);
-    let mut out = format!("{h:02}:{m:02}:{s:02} {:<10} {first}\n", entry.who);
+    let who = mask(&entry.who);
+    let mut out = format!("{h:02}:{m:02}:{s:02} {who:<10} {first}\n");
     for line in lines {
         out.push_str(&format!("{:20}{line}\n", ""));
     }
@@ -255,6 +256,13 @@ mod tests {
     fn what_is_written_is_masked() {
         let e = Entry::new("coder", "GH_TOKEN=abc123 set", None);
         assert_eq!(format(&e, 0), "00:00:00 coder      GH_TOKEN=*** set\n");
+    }
+
+    #[test]
+    fn the_speaker_is_masked() {
+        let token = format!("ghp_{}", "A".repeat(36));
+        let out = format(&Entry::new(&token, "hello", None), 0);
+        assert_eq!(out, "00:00:00 ghp_***    hello\n");
     }
 
     #[test]
