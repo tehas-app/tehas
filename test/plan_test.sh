@@ -324,6 +324,25 @@ t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 0
 t_eq "$(jq -r .question "$T/out.json")" "null"
 
+t_case "two open questions in one turn are both posted, numbered, and answered by a reply"
+reset
+cat >>"$fx/turn.jsonl" <<'EOF'
+{"type":"tool_execution_end","toolCallId":"c2","toolName":"question","result":{"content":[],"details":{"question":"Which store?","options":["Disk","Memory"],"answer":null,"deferred":true,"optionDetails":[{"label":"Disk","description":"Slow\nand safe"},{"label":"Memory","description":""}]}},"isError":false}
+EOF
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN: the turn asked 2 questions; they are posted as one, to be answered by a reply"
+t_eq "$(jq -r .question.question "$T/out.json")" "The agent asked 2 questions. Answer each by its number in a reply.
+
+1. Adopt my resolutions?
+   - Adopt all: Apply all five
+   - Change some
+
+2. Which store?
+   - Disk: Slow and safe
+   - Memory"
+t_eq "$(jq -c .question.options "$T/out.json")" "[]"
+
 t_case "a question from an earlier, interactive answer is not asked again"
 reset
 sed -i 's/"deferred":true,//' "$fx/turn.jsonl"

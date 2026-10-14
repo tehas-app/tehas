@@ -41,6 +41,8 @@
 # On exit 0 the --out file holds
 #   {"session": "<id>", "text": "<the agent's last message>",
 #    "question": null | {"question": "...", "options": [{"label", "description"}]}}
+# When the agent left two or more questions open, "question" holds them all,
+# numbered, with their choices as text, and "options" is empty.
 # On exit 2 it holds only {"session": "<id>"} when the session is known: the
 # one the turn was given, or the one Pi named after the prompt. The caller can
 # then run the turn again in that session. When no session is known, nothing
@@ -489,13 +491,25 @@ if [ "$timed_out" = 1 ] || ! settled; then
 fi
 
 text=$(pick '"command":"get_last_assistant_text"' | jq -rs 'map(select(.type == "response" and .command == "get_last_assistant_text")) | last | .data.text // ""')
-question=$(pick '"toolName":"question"' | jq -cs 'map(select(.type == "tool_execution_end" and .toolName == "question"
-                                   and .result.details.deferred == true)) | last
-  | if . == null then null else
-      {question: (.result.details.question // ""),
-       options: [.result.details.optionDetails[]? | {label: (.label // ""), description: (.description // "")}]}
-    end')
+# Every question the agent left open this turn. One keeps its options as
+# boxes. Two or more are posted as one numbered text with no option boxes:
+# a tick could answer only one of them, so the answer is a reply.
+asked=$(pick '"toolName":"question"' | jq -cs 'map(select(.type == "tool_execution_end" and .toolName == "question"
+                                   and .result.details.deferred == true)
+  | {question: (.result.details.question // ""),
+     options: [.result.details.optionDetails[]? | {label: (.label // ""), description: (.description // "")}]})')
+question=$(jq -c 'if length == 0 then null elif length == 1 then .[0] else
+    {question: ("The agent asked \(length) questions. Answer each by its number in a reply.\n\n"
+       + (to_entries | map("\(.key + 1). \(.value.question)"
+           + (.value.options | map("\n   - " + (.label | gsub("[\r\n]+"; " "))
+               + (if .description == "" then "" else ": " + (.description | gsub("[\r\n]+"; " ")) end)) | join("")))
+         | join("\n\n"))),
+     options: []}
+  end' <<<"${asked:-[]}" 2>/dev/null)
 [ -n "$question" ] || question=null
+n_asked=$(jq 'length' <<<"${asked:-[]}" 2>/dev/null) || n_asked=0
+[ "${n_asked:-0}" -le 1 ] ||
+  echo "tehas plan: WARN: the turn asked $n_asked questions; they are posted as one, to be answered by a reply"
 
 if [ -z "$sid" ]; then
   give_up "the session id is unknown"

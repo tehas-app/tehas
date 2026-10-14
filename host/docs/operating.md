@@ -298,7 +298,10 @@ dispatcher's log says so.
    the agent offers more than 20 choices, the first 20 get a box and a line
    says how many were left out; reply to name another one. The
    last box and the label come after every turn, whether or not the agent
-   asked something, and a reply or the last box works either way.
+   asked something, and a reply or the last box works either way. When the
+   agent asks more than one question in a turn, the comment lists them all,
+   numbered, with their choices as text and no box for them: answer them in
+   a reply.
 4. Answer by ticking one box, or by replying in a comment when none of the
    boxes fits. If you do both, the reply counts, and the agent is told
    which box was ticked as well. The next poll that is free

@@ -1926,6 +1926,16 @@ t_eq "$(jq -c '[(.options | length), .options[0], .options[19]]' "$record")" '[2
 t_eq "$(t_calls gh | grep -c '^- \[ \] Way ')" 20
 t_contains "$(t_calls gh)" "Options left out: 10."
 
+t_case "questions posted as one have no option boxes, so a tick answers none of them"
+to_plan
+jq -n '{session: "abc-123", text: "Two things.", question: {question: "The agent asked 2 questions. Answer each by its number in a reply.\n\n1. Which?\n   - A\n\n2. Where?\n   - B", options: []}}' >"$fx/plan-result.json"
+t_run "$dispatch"
+t_eq "$(jq -c .options "$record")" "[]"
+t_contains "$(t_calls gh)" "1. Which?"
+t_contains "$(t_calls gh)" "2. Where?"
+t_eq "$(t_calls gh | grep -c '^- \[ \] ')" 1
+t_contains "$(t_calls gh)" "- [ ] End this planning session"
+
 t_case "a ticked option goes to the session as the next message"
 planning
 comments 7 "$(plan_body ' ' x ' ')" alice

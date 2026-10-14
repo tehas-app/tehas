@@ -363,7 +363,9 @@ Each turn's container gets a copy of them, read-only, at the path a cycle has
 them, with `PI_ENSEMBLE_EXTRA_IMAGE_DIRS`. The copy is
 `~/tehas/work/<name>-plan-<issue>.images`, removed after the turn. An image
 that cannot be fetched starts no session: exit 4, said on the issue. On exit 0 the `--out` file holds the session id, the agent's last
-message and the question it asked, if any. On exit 2 it holds the session id
+message and the question it asked, if any. When it asked more than one, they
+are put together as one numbered question with no options, so the operator
+answers them in a reply, and the log has a warning. On exit 2 it holds the session id
 alone when that is known, so the dispatcher can run the turn again in the
 same session, and it is not written when no session is known.
 
