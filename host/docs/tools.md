@@ -846,9 +846,14 @@ to read its line; the timer runs it every three hours, on the hour, and the log 
 When a cycle ends, `tehasbot cycle` leaves a record of it in
 `~/tehas/tmp/improve/window/<issue>-<time>/`: how it ended, the stream without
 its word by word updates, the console and the error output. A run fetches the
-open issues and the ones closed in the last 30 days, takes the records that
-wait, and starts the analyst. Then it checks the one file the analyst leaves,
-files what passes and removes the records.
+open issues and the ones closed in the last 30 days, takes the five oldest
+records that wait, and starts the analyst. The rest stay for the next run. Then
+it checks the one file the analyst leaves, files what passes and removes the
+records it took.
+
+The analyst has 60 minutes. One that is stopped there halves what the next run
+takes, half of what it took and never below one; a run that finishes in time
+doubles it again, up to five. The number is in `~/tehas/state/improve.cap`.
 
 The findings are about tehas and about pi-rukas, so the analyst is plain Pi
 with one prompt (`~/tehas/lib/improve-prompt.md`) and no extension. What it

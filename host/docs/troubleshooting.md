@@ -315,12 +315,15 @@ Read the last lines of `~/tehas/logs/improve.log`.
 | `findings=0`, or `duplicates` equal to `findings` | The model found nothing new |
 | `invalid=` above 0 | Findings were dropped for not being the shape asked for |
 | `failed: GitHub did not give the issue stack` | The token or the network. The records wait for the next run |
-| `failed: the analyst ended with ...` | Pi or the model. 124 is the 60 minute limit. What it printed is in the file the line names, `~/tehas/logs/improve-analyst-<stamp>.log`. The records wait |
+| `failed: the analyst ended with 124 at its bound of 60 minutes` | The model took too long for the records it was given. The next run takes half as many, as the line says. What it printed is in the file the line names. The records wait |
+| `failed: the analyst ended with ...` | Pi or the model. What it printed is in the file the line names, `~/tehas/logs/improve-analyst-<stamp>.log`. The records wait |
 | `failed: findings.json is not the shape asked for`, or `left no findings.json` | The model did not write the file it was asked for. Its output is in the same file. The records wait |
 | `failed: GitHub refused an issue` | The bot account cannot write to that repository. Issues filed before the refusal are named; the records wait, so a later run may file the same finding again under another title |
 
 A run that failed kept its records, and every later run reads them again until
-one succeeds or they are seven days old.
+one succeeds or they are seven days old. A run reads at most five, the oldest
+first, and fewer after one was stopped at its bound; `left=` on a line says how
+many wait.
 
 ## An improvement issue says a log was not uploaded
 

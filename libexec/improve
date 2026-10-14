@@ -16,7 +16,10 @@
 # read stops before it calls GitHub, and the records wait.
 #
 #   records    $TEHAS_HOME/tmp/improve/window/<issue>-<stamp>, written when a
-#              cycle ends (lib/improve.sh)
+#              cycle ends (lib/improve.sh). A run takes the five oldest and
+#              leaves the rest for the next. An analyst stopped at its bound
+#              halves that number for the next run, down to one, in
+#              state/improve.cap; one that finishes in time doubles it again
 #   filed      at most 3 issues a run, labelled tehas:improvement and nothing
 #              else; none in a repository where TEHAS_IMPROVE_MAX_OPEN such
 #              issues are open, 10 unless the instance says otherwise. A
@@ -85,6 +88,8 @@ chunk=$((5 * 1024 * 1024))
 # The analyst's bound, in seconds. A window of nine cycles took 27 minutes,
 # so 30 cut off half the runs.
 bound=3600
+max_take=5
+capf=$TEHAS_HOME/state/improve.cap
 old=$((7 * 24 * 60)) # minutes
 base=$(tehas_improve_dir)
 window=$base/window
@@ -182,6 +187,12 @@ stamp=$(date -u +%y%m%d-%H%M%S)
 run=$base/run-$stamp
 # A cycle may have ended while the stack was fetched: its record comes along.
 look "$window"
+[ "${#recs[@]}" -gt 0 ] || { say "cycles=0, nothing to read"; exit 0; }
+# The oldest first: they are the nearest to the sweep.
+cap=$(head -c 8 "$capf" 2>/dev/null)
+[[ $cap =~ ^[1-9]$ ]] && [ "$cap" -le "$max_take" ] || cap=$max_take
+mapfile -t recs < <(printf '%s\n' "${recs[@]}" | sort -t- -k2,3 | head -n "$cap")
+left=$(($(find "$window" -mindepth 1 -maxdepth 1 | wc -l) - ${#recs[@]}))
 took=1
 if mkdir -p "$run/in/cycles" "$run/out" && mv "$stack" "$run/in/issues.json"; then
   for r in "${recs[@]}"; do mv "$window/$r" "$run/in/cycles/" || took=0; done
@@ -217,6 +228,19 @@ timeout -k 60 "$bound" docker run --rm --name tehas-improve \
 arc=$?
 # A client that timeout killed leaves its container working on.
 [ "$arc" = 0 ] || docker rm -f tehas-improve >/dev/null 2>&1 || true
+# 124 is the bound, 137 the kill that follows it when the client did not stop.
+# Half of what this run took, not of the cap: fewer records than the cap can
+# be too many already. A run in time doubles it rather than going back to
+# five at once, which would only hit the bound again.
+cut=0
+case $arc in
+  0) next=$((cap * 2)) ;;
+  124 | 137) cut=1 next=$((${#recs[@]} / 2)) ;;
+  *) next=$cap ;;
+esac
+[ "$next" -le "$max_take" ] || next=$max_take
+[ "$next" -ge 1 ] || next=1
+echo "$next" >"$capf" 2>/dev/null || true
 # What the analyst printed goes with the run. Of a run that failed on it, it
 # is kept under the run's stamp until the sweep, so a person can still read
 # it after later runs.
@@ -227,6 +251,7 @@ blame() {
   fi
   fail "$*"
 }
+[ "$cut" = 0 ] || blame "the analyst ended with $arc at its bound of $((bound / 60)) minutes; the next run takes at most $next"
 [ "$arc" = 0 ] || blame "the analyst ended with $arc"
 
 # --- Check -------------------------------------------------------------------
@@ -414,4 +439,5 @@ done
 
 # --- Clean up ----------------------------------------------------------------
 rm -rf "$run"
+[ "$left" -le 0 ] || notes+=("left=$left")
 say "cycles=${#recs[@]} $(jq -r '"findings=\(.found) invalid=\(.invalid) duplicates=\(.duplicates) of=\(if .of == "" then "none" else .of end) over=\(.over)"' <<<"$plan") filed=${#filed[@]} issues=$issues rechecked=$rechecked${notes[*]:+ ${notes[*]}}"

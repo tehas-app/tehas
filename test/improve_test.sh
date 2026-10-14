@@ -210,6 +210,7 @@ printf "%s\n" "$@" >"$T/calls/docker-args"
 out=""
 for a in "$@"; do case "$a" in *:/improve/out) out=${a%:/improve/out} ;; esac; done
 cp "${out%/out}/in/issues.json" "$T/calls/issues.json" 2>/dev/null
+[ -z "$out" ] || ls "${out%/out}/in/cycles" >"$T/calls/cycles"
 [ -f "$T/fx/docker.rc" ] && { echo "No API key found for test-provider."; echo "See docs/models.md"; exit "$(cat "$T/fx/docker.rc")"; }
 if [ -L "$T/fx/findings.json" ]; then cp -P "$T/fx/findings.json" "$out/findings.json"
 elif [ -f "$T/fx/findings.json" ]; then cp "$T/fx/findings.json" "$out/findings.json"; fi
@@ -914,6 +915,78 @@ ino=$(stat -c %i "$base/window")
 t_run "$improve"
 t_eq "$t_rc" 0
 t_eq "$(stat -c %i "$base/window")" "$ino"
+
+# --- How many records a run takes -------------------------------------------
+cap() { cat "$home/state/improve.cap" 2>/dev/null || echo none; }
+many() { # <record>...: a window with these records and no findings
+  reset
+  for r in "$@"; do record "$r"; done
+  echo '{"findings": [], "followups": []}' >"$fx/findings.json"
+}
+taken() { t_calls cycles | tr '\n' ' '; }
+left() { find "$base/window" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort | tr '\n' ' '; }
+
+t_case "a run takes the five oldest records, by time and not by issue, and leaves the rest"
+many 9-261001-000000 1-261003-000000 2-261002-120000 30-261002-000000 4-261004-000000 5-261005-000000 6-261006-000000
+t_run "$improve"
+t_eq "$t_rc" 0
+t_eq "$(taken)" "1-261003-000000 2-261002-120000 30-261002-000000 4-261004-000000 9-261001-000000 "
+t_eq "$(left)" "5-261005-000000 6-261006-000000 "
+t_contains "$t_out" "cycles=5 "
+t_contains "$t_out" "left=2"
+
+t_case "an analyst stopped at its bound halves what the next run takes"
+many 1-261001-000000 2-261002-000000 3-261003-000000 4-261004-000000 5-261005-000000 6-261006-000000
+echo 124 >"$fx/docker.rc"
+t_run "$improve"
+t_eq "$t_rc" 1
+t_eq "$(cap)" 2
+t_contains "$t_out" "the next run takes at most 2"
+t_eq "$(left)" "1-261001-000000 2-261002-000000 3-261003-000000 4-261004-000000 5-261005-000000 6-261006-000000 "
+t_run "$improve"
+t_eq "$(taken)" "1-261001-000000 2-261002-000000 "
+t_eq "$(cap)" 1
+t_run "$improve"
+t_eq "$(cap)" 1
+
+t_case "a client that needed the kill counts as stopped at the bound"
+many 1-261001-000000 2-261002-000000 3-261003-000000 4-261004-000000
+echo 137 >"$fx/docker.rc"
+t_run "$improve"
+t_eq "$(cap)" 2
+
+t_case "half of what it took, not of the cap: three records stopped at the bound leave one"
+many 1-261001-000000 2-261002-000000 3-261003-000000
+echo 124 >"$fx/docker.rc"
+t_run "$improve"
+t_eq "$(cap)" 1
+
+t_case "a run that finishes in time doubles what the next takes, up to five"
+many 1-261001-000000 2-261002-000000 3-261003-000000 4-261004-000000 5-261005-000000 6-261006-000000 7-261007-000000
+mkdir -p "$home/state" && echo 1 >"$home/state/improve.cap"
+t_run "$improve"
+t_eq "$(taken)" "1-261001-000000 "
+t_eq "$(cap)" 2
+t_run "$improve"
+t_eq "$(taken)" "2-261002-000000 3-261003-000000 "
+t_eq "$(cap)" 4
+t_run "$improve"
+t_eq "$(cap)" 5
+
+t_case "an analyst that fails for another reason leaves the cap as it was"
+many 1-261001-000000 2-261002-000000 3-261003-000000 4-261004-000000
+mkdir -p "$home/state" && echo 4 >"$home/state/improve.cap"
+echo 3 >"$fx/docker.rc"
+t_run "$improve"
+t_eq "$(cap)" 4
+
+t_case "a cap that is not a number from 1 to 5 is taken as 5"
+for bad in 0 6 x "" "3; rm -rf /" 12; do
+  many 1-261001-000000 2-261002-000000 3-261003-000000 4-261004-000000 5-261005-000000 6-261006-000000
+  mkdir -p "$home/state" && printf '%s\n' "$bad" >"$home/state/improve.cap"
+  t_run "$improve"
+  t_eq "$(t_calls cycles | wc -l)" 5
+done
 
 t_case "a container left by a killed run is removed before the analyst starts"
 ready
