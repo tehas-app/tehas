@@ -99,14 +99,16 @@ Run `tehas dispatch --dry-run` and read what it prints.
   starts, no cycle, no planning turn and no retry. The issues stay queued and
   are taken as soon as the endpoint answers. See "The model endpoint does not
   answer" below.
-- `holding: no resources: <model> does not declare image input in models.json,
-  and TEHAS_WORK_IMAGES is 1`: the instance gives a cycle images and its
-  `models.json` does not list `"image"` in the model's `input`. Add it, or set
-  `TEHAS_WORK_IMAGES=0`, and run `install.sh`.
-- `holding: no resources: <model> does not answer an image, and
-  TEHAS_WORK_IMAGES is 1`: the model endpoint refused a request with a
-  one-pixel image, or took more than 30 seconds. The model runs without its
-  vision part, or every slot is busy.
+- `hold #N: its text links an attachment and TEHAS_WORK_IMAGES is 1, but
+  <model> does not declare image input in models.json`: the instance gives a
+  cycle images and its `models.json` does not list `"image"` in the model's
+  `input`. Only issues that link an attachment wait; the rest start. Add
+  `"image"`, or set `TEHAS_WORK_IMAGES=0`, and run `install.sh`.
+- `hold #N: ... but <model> does not answer an image`: the model endpoint
+  refused a request with a one-pixel image, or took more than 30 seconds. The
+  model runs without its vision part, or the backend is busy. The request is
+  sent only for an issue that links an attachment and could start now, at
+  most once a poll.
 - `nothing to do`: the issue is closed, or does not carry `tehas:ready`.
 - `wait #N: its cycle is still running`: `tehas:ready` was applied while the
   issue's cycle runs. A fresh cycle starts when that one has ended.

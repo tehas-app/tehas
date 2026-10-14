@@ -396,8 +396,12 @@ reaches them. Remove the label to resume.
 - No cycle, no planning turn and no retry while there are no resources: the
   model endpoint does not answer, or does not offer the configured model. The
   dispatcher asks it at every poll. `tehas status` says `warn: No resources`
-  and the dashboard says `no resources` until it is back. With
-  `TEHAS_WORK_IMAGES=1` a model that does not read an image counts the same.
+  and the dashboard says `no resources` until it is back.
+- With `TEHAS_WORK_IMAGES=1`, no cycle for an issue whose text links an
+  attachment while the model does not read images. The dispatcher asks the
+  model with a one-pixel image only when such an issue could start now, at
+  most once a poll. The issue stays queued, the log says `hold #N: ...`, and
+  issues without images start as usual. A planning turn is not held by it.
 - One cycle at a time on a pi-rukas that is new on the host: one that no
   cycle here has ended as `merged`, or as a handoff with a pull request, on.
   While a cycle runs on it, `tehas status` says `holding: pi-rukas <commit> is

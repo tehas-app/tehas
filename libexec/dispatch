@@ -57,7 +57,9 @@
 #      start. Every start takes tehas:ready off, so a label that is there was
 #      applied after the last start. An issue that an open pull request
 #      closes, as GitHub links them, is work already done: the poll takes
-#      tehas:ready off and says so once on the issue. While the
+#      tehas:ready off and says so once on the issue. With TEHAS_WORK_IMAGES=1
+#      an issue whose text links an attachment waits while the model does not
+#      read images; the rest start. While the
 #      issue's own cycle is alive it waits, and starts when that cycle ended.
 #      A tehas:ready from an account outside the list authorises nothing, so
 #      the poll takes it off and says so once on the issue: left in place it
@@ -150,6 +152,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/slice.sh"
 # shellcheck source=lib/labels.sh
 . "$here/../lib/labels.sh"
+# shellcheck source=lib/attachments.sh
+. "$here/../lib/attachments.sh"
 tehas_load || exit 78
 # shellcheck source=lib/questions.sh
 . "$here/../lib/questions.sh"
@@ -228,37 +232,63 @@ untick() {
 # Do not burn an issue on a model endpoint that cannot answer: every agent
 # would fail and the issue would park. Leave it queued and look again next
 # poll. mesh_check asks the endpoint once, at rule 3, and leaves the reason in
-# $mesh_hold. Where the instance gives a cycle images (TEHAS_WORK_IMAGES), the
-# model must also declare image input in models.json and answer a request
-# that carries one. The text names no address: tehas status and the health file
+# $mesh_hold. The text names no address: tehas status and the health file
 # carry it, and they are served to whoever can read the dashboard.
 mesh_hold=""
-# A png of one pixel.
-mesh_pixel=iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==
+mesh_url=""
 mesh_check() {
-  local mesh model=$PI_ENSEMBLE_SUBAGENT_MODEL list
+  local model=$PI_ENSEMBLE_SUBAGENT_MODEL list
   mesh_hold=""
-  mesh=$(jq -r --arg p "$PI_ENSEMBLE_SUBAGENT_PROVIDER" '.providers[$p].baseUrl // ""' "$HOME/.pi/agent/models.json" 2>/dev/null)
-  [ -n "$mesh" ] && [ -n "$model" ] || return 0
-  if ! list=$(curl -fsS -m 10 "$mesh/models" 2>/dev/null); then
+  mesh_url=$(jq -r --arg p "$PI_ENSEMBLE_SUBAGENT_PROVIDER" '.providers[$p].baseUrl // ""' "$HOME/.pi/agent/models.json" 2>/dev/null)
+  [ -n "$mesh_url" ] && [ -n "$model" ] || { mesh_url=""; return 0; }
+  if ! list=$(curl -fsS -m 10 "$mesh_url/models" 2>/dev/null); then
     mesh_hold="holding: no resources: the model endpoint does not answer"
   elif ! jq -e '(.data | type) == "array" and (.data | length) > 0' <<<"$list" >/dev/null 2>&1; then
     mesh_hold="holding: no resources: the model endpoint offers no models"
   elif ! jq -e --arg m "$model" '.data | any(.id == $m)' <<<"$list" >/dev/null 2>&1; then
     mesh_hold="holding: no resources: the model endpoint does not offer $model"
-  elif [ "$TEHAS_WORK_IMAGES" = 1 ]; then
-    # A cycle that is given images needs a model that reads them. Asked with
-    # one pixel, before an issue is spent on finding out.
+  fi
+}
+
+# Where the instance gives a cycle images (TEHAS_WORK_IMAGES), a cycle whose
+# issue links one needs a model that declares image input in models.json and
+# answers a request that carries one. image_ok <issue> asks only for such an
+# issue, and only when it would otherwise start: an issue without images, and
+# a planning turn, are never held by it, and a poll that can start nothing
+# sends no picture to a backend that cycles are queueing on. The model is
+# asked once a poll at most; the answer stands for the rest of it. Every
+# attachment link counts, whatever its type: tehas work decides what it
+# fetches, and a link it would take must not start a cycle on a model that
+# cannot read it. Needs the issue's answer from work_ok. Returns 1, with the
+# reason logged, when the issue waits.
+image_asked=0
+image_hold=""
+# A png of one pixel.
+mesh_pixel=iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==
+image_ok() {
+  local n=$1 linked model=$PI_ENSEMBLE_SUBAGENT_MODEL
+  [ "$TEHAS_WORK_IMAGES" = 1 ] && [ -n "$mesh_url" ] || return 0
+  linked=$(jq -r "$(tehas_attachment_links)"' (.body // "") | links | length > 0' <<<"${work_answer[$n]:-}" 2>/dev/null) || linked=""
+  case "$linked" in
+    false) return 0 ;;
+    true) ;;
+    *) log "ERROR: the text of #$n could not be read for its links"; exit 1 ;;
+  esac
+  if [ "$image_asked" = 0 ]; then
+    image_asked=1
     if ! jq -e --arg p "$PI_ENSEMBLE_SUBAGENT_PROVIDER" --arg m "$model" \
       '.providers[$p].models // [] | any(.id == $m and ((.input // []) | index("image") != null))' \
       "$HOME/.pi/agent/models.json" >/dev/null 2>&1; then
-      mesh_hold="holding: no resources: $model does not declare image input in models.json, and TEHAS_WORK_IMAGES is 1"
+      image_hold="$model does not declare image input in models.json"
     elif ! jq -n -c --arg m "$model" --arg px "$mesh_pixel" '{model: $m, max_tokens: 1, messages: [{role: "user", content: [
         {type: "text", text: "."}, {type: "image_url", image_url: {url: "data:image/png;base64,\($px)"}}]}]}' |
-      curl -fsS -m 30 -H 'Content-Type: application/json' -d @- "$mesh/chat/completions" >/dev/null 2>&1; then
-      mesh_hold="holding: no resources: $model does not answer an image, and TEHAS_WORK_IMAGES is 1"
+      curl -fsS -m 30 -H 'Content-Type: application/json' -d @- "$mesh_url/chat/completions" >/dev/null 2>&1; then
+      image_hold="$model does not answer an image"
     fi
   fi
+  [ -n "$image_hold" ] || return 0
+  log "hold #$n: its text links an attachment and TEHAS_WORK_IMAGES is 1, but $image_hold"
+  return 1
 }
 # A real poll has logged the hold at rule 3; a dry run says it where it ends.
 mesh_ok() {
@@ -311,17 +341,20 @@ report_hold() {
 # skip, logged once a poll at most like any other refusal.
 #
 # One issue can be on more than one of the poll's lists, and a number is asked
-# once a poll: the answer first read stands for the rest of it, and a refusal
+# once a poll: the answer first read stands for the rest of it, kept in
+# $work_answer for image_ok, and a refusal
 # is said once. Every call site sits after the checks that hold the issue back
 # for other reasons, so the ask is paid only for an issue this poll would
 # otherwise take.
 work_refused=" " answered=" "
+declare -A work_answer=()
 work_ok() {
   case "$answered" in *" $1 "*) return 0 ;; esac
   case "$work_refused" in *" $1 "*) return 1 ;; esac
   gh_json api "repos/$repo/issues/$1"
   if tehas_work_kind "$json"; then
     answered="$answered$1 "
+    work_answer[$1]=$json
     return 0
   fi
   case "$tehas_work_why" in
@@ -957,6 +990,7 @@ for n in $asking; do
         continue
       fi
       mesh_ok || exit 0
+      image_ok "$n" || exit 0
       if [ "$dry" = 1 ]; then
         log "would run a cycle for #$n (retry ticked by $by)"
         exit 0
@@ -1136,6 +1170,7 @@ for n in $candidates; do
     clear_pr_open "$n"
     continue
   fi
+  image_ok "$n" || continue
   picked+=("$n")
   starter[$n]=$who
   verb[$n]=labelled

@@ -2818,11 +2818,25 @@ t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 t_lacks "$(t_calls curl)" "chat/completions"
 
-t_case "with images for a cycle, a model that declares image input and answers one holds nothing back"
-reset
-t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
-mesh '{"data":[{"id":"test-model"}]}'
-declares '["text","image"]'
+# An instance that gives a cycle images, and a model that offers what
+# models.json declares for it.
+imaging() { # <input list as JSON>
+  reset
+  t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
+  mesh '{"data":[{"id":"test-model"}]}'
+  declares "$1"
+  rm -f "$fx/reads-images"
+}
+# An issue whose text links an attachment in GitHub's storage.
+pictured() { # <issue>
+  jq -nc --argjson n "$1" '{number: $n, state: "open",
+    body: "It looks like this:\n\n![shot](https://github.com/user-attachments/assets/0f3e-41)"}' >"$fx/work-$1.json"
+}
+image_asks() { t_calls curl | grep -c 'chat/completions'; }
+
+t_case "with images for a cycle, an issue that links one starts when the model declares image input and answers one"
+imaging '["text","image"]'
+pictured 7
 : >"$fx/reads-images"
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
@@ -2831,32 +2845,102 @@ t_contains "$(t_calls curl)" "-m 30 -H Content-Type: application/json -d @- http
 t_eq "$(jq -c '[.model, .max_tokens, (.messages[0].content | map(.type))]' "$T/calls/curl-body")" '["test-model",1,["text","image_url"]]'
 t_eq "$(jq -r '.messages[0].content[1].image_url.url' "$T/calls/curl-body" | cut -d, -f2 | base64 -d | head -c 8 | od -An -tx1 | tr -d ' \n')" "89504e470d0a1a0a"
 
-t_case "no resources: the model does not declare image input, and it is not asked"
-for input in '["text"]' 'null'; do
-  reset
-  t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
-  mesh '{"data":[{"id":"test-model"}]}'
-  declares "$input"
-  : >"$fx/reads-images"
+t_case "an issue that links no image starts while the model cannot read one, and the model is not asked"
+for input in '["text"]' '["text","image"]'; do
+  imaging "$input"
   t_run "$dispatch"
-  t_eq "$(t_calls fake-start)" ""
-  t_lacks "$(t_calls gh)" "issue edit"
-  t_eq "$(jq -c '[.why, .hold]' "$dispatch_json")" '["resources","holding: no resources: test-model does not declare image input in models.json, and TEHAS_WORK_IMAGES is 1"]'
-  t_lacks "$(t_calls curl)" "chat/completions"
+  t_eq "$(t_calls fake-start)" "7"
+  t_eq "$(image_asks)" 0
+  t_eq "$(jq -r .why "$dispatch_json")" ""
+  t_lacks "$(t_calls gh)" "images are off"
 done
 
-t_case "no resources: the model declares image input and does not answer an image"
-reset
-t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
-mesh '{"data":[{"id":"test-model"}]}'
-declares '["text","image"]'
-rm -f "$fx/reads-images"
+t_case "an issue that links an image waits while the model does not declare image input, and it is not asked"
+for input in '["text"]' 'null'; do
+  imaging "$input"
+  pictured 7
+  : >"$fx/reads-images"
+  t_run "$dispatch"
+  t_eq "$t_rc" 0
+  t_eq "$(t_calls fake-start)" ""
+  t_lacks "$(t_calls gh)" "issue edit"
+  t_contains "$t_out" "hold #7: its text links an attachment and TEHAS_WORK_IMAGES is 1, but test-model does not declare image input in models.json"
+  t_eq "$(image_asks)" 0
+  t_eq "$(jq -r .why "$dispatch_json")" ""
+done
+
+t_case "an issue that links an image waits while the model does not answer an image"
+imaging '["text","image"]'
+pictured 7
 t_run "$dispatch"
+t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit"
-t_eq "$(jq -c '[.why, .hold]' "$dispatch_json")" '["resources","holding: no resources: test-model does not answer an image, and TEHAS_WORK_IMAGES is 1"]'
-t_lacks "$(cat "$dispatch_json")" "mesh.test"
-rm -f "$fx/reads-images"
+t_contains "$t_out" "hold #7: its text links an attachment and TEHAS_WORK_IMAGES is 1, but test-model does not answer an image"
+t_lacks "$t_out" "mesh.test"
+
+t_case "an issue without images behind one that waits for them starts"
+imaging '["text"]'
+ready 7 8
+pictured 7
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "8"
+t_contains "$t_out" "hold #7:"
+
+t_case "the model is asked to read an image once a poll"
+imaging '["text","image"]'
+slots 3 TEHAS_WORK_IMAGES=1
+ready 7 8 9
+pictured 7
+pictured 8
+t_run "$dispatch"
+t_eq "$(image_asks)" 1
+t_eq "$(t_calls fake-start)" "9"
+t_contains "$t_out" "hold #8:"
+
+t_case "with every slot taken no image request is sent"
+imaging '["text","image"]'
+slots 1 TEHAS_WORK_IMAGES=1
+pictured 7
+: >"$fx/reads-images"
+hold 9
+t_run "$dispatch"
+t_eq "$(image_asks)" 0
+t_eq "$(t_calls fake-start)" ""
+t_eq "$(jq -r .why "$dispatch_json")" count
+release
+
+t_case "a retry of an issue that links an image waits for a model that reads one, and the tick stays"
+parked
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
+mesh '{"data":[{"id":"test-model"}]}'
+declares '["text"]'
+comments 7 "$(park_body x ' ')" alice
+pictured 7
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "api -X PATCH"
+t_contains "$t_out" "hold #7: its text links an attachment"
+
+t_case "a planning session is not held by the image part of the check"
+imaging '["text"]'
+echo '[]' >"$fx/ready.json"
+echo '[{"number":7,"labels":[{"name":"tehas:plan"}]}]' >"$fx/plans.json"
+echo '[{"event":"labeled","label":{"name":"tehas:plan"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
+pictured 7
+t_run "$dispatch"
+t_eq "$(t_calls fake-plan | wc -l)" 1
+t_eq "$(image_asks)" 0
+
+t_case "an issue whose text cannot be read for its links is not started"
+imaging '["text","image"]'
+echo '{"number":7,"state":"open","body":42}' >"$fx/work-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "ERROR: the text of #7 could not be read for its links"
 
 t_case "no resources is logged once, with nothing in line as well, and released when the endpoint is back"
 reset
