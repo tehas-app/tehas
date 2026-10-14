@@ -107,6 +107,14 @@ lib "tehas_improve_record 7 $started 0 handoff review"
 t_eq "$(jq -c '.image' "$base/window/$REC/cycle.json")" null
 rm -rf "$home/state/cycles" "$home/versions.env"
 
+t_case "the cap and its reason are recorded, reduced, and null when there are none"
+cycle_log
+lib "tehas_improve_record 7 $started 0 handoff handoff '' 0 '' '' 'step-failed:adversarial\`' 'Connection error. @x <b>'"
+t_eq "$(jq -c '[.cap, .capReason]' "$base/window/$REC/cycle.json")" '["step-failed:adversarial","Connection error. x b"]'
+cycle_log
+lib "tehas_improve_record 7 $started 0 handoff review"
+t_eq "$(jq -c '[.cap, .capReason]' "$base/window/$REC/cycle.json")" '[null,null]'
+
 t_case "a cycle without a pull request records null"
 reset
 cycle_log

@@ -41,6 +41,9 @@
 #      nothing. A comment is a
 #      question only if this host has its id on record, in $TEHAS_HOME/state:
 #      the planning record, or park-<issue>.id.
+#   4a. A cycle that tehasbot cycle parked for a provider outage starts again
+#      once, without a tick, when nothing holds cycles back, on the word of the
+#      account that started the parked one. A second such park waits.
 #   5. A reply or a ticked option on a planning question runs the next turn
 #      of that session. An issue whose tehas:plan label was applied by an
 #      allowed account starts a session. Neither waits for rule 2, the cap of
@@ -563,6 +566,11 @@ start_cycles() {
     # A park question of an earlier cycle is used up by this start, whichever
     # way it came about. Its boxes must not answer for the new cycle.
     rm -f "$(park_id "$n")"
+    # So is its park. Who authorised this start is kept for a retry after a
+    # provider outage, and the retry itself is marked for its cycle.
+    rm -f "$TEHAS_HOME/state/cycles/$n.park" "$TEHAS_HOME/state/cycles/$n.requeued"
+    printf '%s\n' "${starter[$n]}" >"$TEHAS_HOME/state/cycles/$n.by" || log "WARN: could not record who started #$n"
+    [ "${verb[$n]}" != requeued ] || : >"$TEHAS_HOME/state/cycles/$n.requeued"
     say "$n" "Tehas cycle started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC (authorized by @${starter[$n]}'s ${how[$n]}). This issue is owned by the cycle until \`tehas:running\` is removed."
     if ! start_cycle "$n"; then
       log "ERROR: the cycle for #$n did not start"
@@ -1033,6 +1041,46 @@ if [ -n "$hold" ]; then
   [ "$dry" = 1 ] && log "$hold"
   exit 0
 fi
+
+# 4a. A cycle a provider outage parked starts again once, without a tick, now
+# that nothing holds cycles back and the model endpoint answers. tehasbot cycle
+# asks for it in state/cycles/<issue>.park. The start rests on the account that
+# authorised the cycle that parked, while it is still allowed and nobody else
+# changed the text since that cycle began. A park file that cannot start
+# anything goes; a second park of the kind waits for a person.
+for pf in "$TEHAS_HOME"/state/cycles/*.park; do
+  n=${pf##*/}
+  n=${n%.park}
+  [[ $n =~ ^[1-9][0-9]*$ ]] && [ -f "$pf" ] && [ ! -L "$pf" ] && [ "$want" -gt 0 ] || continue
+  [ "$(jq -r '.retry == true and (.started | type) == "number"' "$pf" 2>/dev/null)" = true ] || continue
+  ! tehas_cycle_running "$n" || continue
+  gh_json issue view "$n" --repo "$repo" --json state,labels
+  have=" $(jq -r '[(.labels // [])[].name] | join(" ")' <<<"$json") "
+  by=$(head -c 64 "$TEHAS_HOME/state/cycles/$n.by" 2>/dev/null | head -n 1)
+  # A label of a person's decides it, in rule 6 or by waiting.
+  [[ $have != *" tehas:ready "* ]] || continue
+  if [ "$(jq -r '.state // ""' <<<"$json")" != OPEN ] || [[ $have != *" needs-human-attention "* ]] ||
+    [[ $have == *" tehas:running "* ]] || [ -e "$(plan_state "$n")" ] || ! tehas_allowed_labeler "$by" ||
+    ! unchanged_since "$n" "$(date -u -d "@$(jq -r .started "$pf")" +%FT%TZ)" "its last cycle began" "apply tehas:ready"; then
+    log "skip #$n: its retry after a provider outage is not started; it waits for a person"
+    [ "$dry" = 1 ] || rm -f "$pf"
+    continue
+  fi
+  if [ "$dry" = 1 ]; then
+    log "would run a cycle for #$n (retry after a provider outage, started by $by)"
+    exit 0
+  fi
+  units_ok "$n" || exit 1
+  picked=("$n")
+  starter[$n]=$by
+  verb[$n]=requeued
+  how[$n]="start of the cycle a provider outage parked"
+  drop[$n]="--remove-label needs-human-attention"
+  [[ $have != *" tehas:question "* ]] || drop[$n]+=" --remove-label tehas:question"
+  say "$n" "Tehas starts this issue again on its own: its last cycle was parked by a provider outage, and the model endpoint answers again. It does this once. If the new cycle is parked the same way, it waits for a person."
+  start_cycles
+  exit
+done
 
 # 6. and 7. Candidates: urgent first, then by number. The order is needed
 # before the candidates are cut to the free slots, so whose urgent label counts

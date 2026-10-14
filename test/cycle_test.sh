@@ -1026,6 +1026,86 @@ t_eq "$(t_calls fake-work)" "7"
 t_eq "$(t_calls fake-status | wc -l)" 1
 for name in tehas tehasbot tehas-work tehas-status; do t_eq "$(t_calls "$name")" ""; done
 
+# --- A cap that a provider outage gives ---------------------------------------
+# The state file as pi-rukas leaves it when a step failed for good: the failed
+# dispatch, then the cap.
+capped() { # <cap> <failure event as JSON>
+  mkdir -p "$workdir/.pi/work-state"
+  jq -n --arg cap "$1" --argjson f "$2" '{pipelineState: {status: "handoff", currentStep: "handoff", branchName: "feature/issue-7-x"},
+    eventLog: [{kind: "step-started", at: 1}, $f, {kind: "cap-hit", at: 3, cap: $cap, reviewRound: 1, nextStep: "handoff"}]}' \
+    >"$workdir/.pi/work-state/7.json"
+}
+outage='{"kind":"dispatch-failed-provider","step":"adversarial","at":2,"providerMessage":"Connection error."}'
+
+t_case "a step that failed on a provider error is parked by a provider outage, and asks for one retry"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+capped step-failed:adversarial "$outage"
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "Tehas cycle parked by a provider outage: status \`handoff\`"
+t_contains "$(t_calls gh)" "cap \`step-failed:adversarial\`: Connection error."
+t_contains "$(t_calls gh)" "Tehas starts it again once on its own, when the model endpoint answers."
+t_lacks "$(t_calls gh)" "stopped without a pull request"
+t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
+t_eq "$(jq -c '[.cap, .reason, .provider, .retry, (.started | type)]' "$state/7.park")" \
+  '["step-failed:adversarial","Connection error.",true,true,"number"]'
+t_eq "$(jq -c '[.cap, .capReason]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
+  '["step-failed:adversarial","Connection error."]'
+
+t_case "a timeout, a 5xx and pi-rukas's own cap are provider outages too"
+for f in '{"kind":"dispatch-failed","at":2,"errorTail":"request timed out after 600s"}' \
+  '{"kind":"dispatch-failed","at":2,"errorTail":"502 Bad Gateway"}'; do
+  reset
+  capped step-failed:develop "$f"
+  t_run "$cycle 7"
+  t_eq "$(jq -r .provider "$state/7.park")" true
+done
+reset
+capped provider-unavailable '{"kind":"step-started","at":2}'
+t_run "$cycle 7"
+t_eq "$(jq -c '[.provider, .retry]' "$state/7.park")" '[true,true]'
+
+t_case "the retry tehas made on its own, parked by an outage again, waits for a person"
+reset
+capped step-failed:adversarial "$outage"
+mkdir -p "$state"
+: >"$state/7.requeued"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "Tehas cycle parked by a provider outage"
+t_contains "$(t_calls gh)" "It was the retry tehas made on its own after an outage, so it waits for a person."
+t_lacks "$(t_calls gh)" "starts it again once"
+t_eq "$(jq -c '[.provider, .retry]' "$state/7.park")" '[true,false]'
+t_eq "$(find "$state/7.requeued" 2>/dev/null | wc -l)" 0
+
+t_case "a step that failed for another reason is parked as before, its cap on record and no retry"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+capped step-failed:develop '{"kind":"dispatch-failed","at":2,"errorTail":"3 assertions failed in test/x"}'
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"' >"$fx/work.sh"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
+t_lacks "$(t_calls gh)" "provider outage"
+t_eq "$(jq -c '[.cap, .provider, .retry]' "$state/7.park")" '["step-failed:develop",false,false]'
+t_eq "$(jq -r .capReason "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" "3 assertions failed in test/x"
+
+t_case "the cap and its reason are reduced before they are posted or recorded"
+reset
+capped 'step-failed:adversarial`@x' '{"kind":"dispatch-failed-provider","at":2,"providerMessage":"provider error `@alice` <!-- #5\nnext line"}'
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "cap \`step-failed:adversarialx\`: provider error alice -- 5 next line"
+t_eq "$(jq -c '[.cap, .reason]' "$state/7.park")" '["step-failed:adversarialx","provider error alice -- 5 next line"]'
+
+t_case "a cycle that left a pull request leaves no park on record, and an earlier one is gone"
+reset
+mkdir -p "$state"
+echo '{"retry":true}' >"$state/7.park"
+ended handoff commit-pr feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$cycle 7"
+t_eq "$(find "$state/7.park" 2>/dev/null | wc -l)" 0
+
 t_case "a cycle that stops asks what to do next, with boxes"
 reset
 t_run "$cycle 7"

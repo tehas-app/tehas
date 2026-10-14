@@ -78,6 +78,13 @@
 # killed outright, the issue stays marked tehas:running and the dispatcher's
 # next poll finds it.
 #
+# The cap that ended a cycle and the failure before it, from the state file,
+# go into the record and into state/cycles/<issue>.park whenever the issue is
+# parked. A cap a provider outage gives (provider-unavailable, or step-failed:*
+# and adversarial-infra-failure whose reason names the provider, a timeout, a
+# connection or a 5xx) is said as one, and the park file asks the dispatcher
+# to start the issue again once, unless this cycle was that start.
+#
 # A cycle that stopped without a pull request asks what to do next, in a
 # comment with boxes. The id of that comment goes on record in
 # state/park-<issue>.id: the dispatcher takes a tick only in the comment named
@@ -230,8 +237,13 @@ restart=""
 : >"$cycles/$issue"
 # A count of kills still here is an earlier cycle's, one that was killed
 # outright before it could report.
+# The dispatcher marks the one start it makes on its own after a provider
+# outage. That start's cycle, if an outage parks it again, waits for a person.
+requeued=0
+[ ! -e "$cycles/$issue.requeued" ] || requeued=1
 rm -f "${cycles:?}/${issue:?}.oom" "${cycles:?}/${issue:?}.forks" "${cycles:?}/${issue:?}.stalled" \
-  "${cycles:?}/${issue:?}.ended" "${cycles:?}/${issue:?}.branch" "${cycles:?}/${issue:?}.image"
+  "${cycles:?}/${issue:?}.ended" "${cycles:?}/${issue:?}.branch" "${cycles:?}/${issue:?}.image" \
+  "${cycles:?}/${issue:?}.park" "${cycles:?}/${issue:?}.requeued"
 # The trap is set before the runner starts, so no signal falls between.
 wpid=""
 stopped=0
@@ -330,6 +342,27 @@ fi
 branch=$(jq -r '.pipelineState.branchName // ""' "$state" 2>/dev/null || echo "")
 # The numbers are summed as numbers. Anything else in their place counts as
 # nothing: a string would be joined up by the sum and posted word for word.
+# The cap that ended the cycle, and the failure before it: the evidence of the
+# last cap-hit, else the provider's message or the error of the last failed
+# dispatch. Reduced and cut short as the other fields are.
+cap=$(jq -r '[(.eventLog // [])[]? | objects | select(.kind == "cap-hit")] | last | .cap // "" | strings' \
+  "$state" 2>/dev/null | tr -cd 'A-Za-z0-9_.:-' | head -c 80)
+reason=$(jq -j '[(.eventLog // [])[]? | objects] as $e
+  | ([$e[] | select(.kind == "cap-hit")] | last) as $c
+  | ([$e[] | select(.kind == "dispatch-failed" or .kind == "dispatch-failed-provider")] | last) as $f
+  | [$c.evidence?, $f.providerMessage?, $f.errorTail?] | map(strings | select(length > 0)) | first // ""' \
+  "$state" 2>/dev/null | tr '\n' ' ' | tr -cd 'A-Za-z0-9 _.,:;/()=+-' | head -c 200)
+# A cap of the kind a provider outage gives: pi-rukas's own, or a failed step
+# whose reason names the provider, a timeout, a connection or a 5xx.
+provider=0
+case "$cap" in
+  provider-unavailable) provider=1 ;;
+  step-failed:* | adversarial-infra-failure)
+    if grep -qiE 'provider|time(d)? ?out|connection|ECONNRE|ETIMEDOUT|(^|[^0-9])5[0-9]{2}([^0-9]|$)' <<<"$reason"; then
+      provider=1
+    fi
+    ;;
+esac
 usage=$(jq -r '
   def n: tonumber? // 0;
   [.eventLog[] | select(.usage) | {role: ((.role // "driver" | tostring | gsub("[^A-Za-z0-9_.-]"; "")) as $r | if $r == "" then "driver" else $r end),
@@ -393,9 +426,15 @@ stuck=" The label of this issue could not be changed. The next poll of the dispa
 
 summary="status \`$status\`, last step \`$step\`, $mins min"
 # park <text>: hand the issue to a human with the retry question.
+# The park on record for the dispatcher. retry is set only for a provider
+# outage on a cycle that was not itself the dispatcher's retry of one.
+retry=false
 park() {
   relabel --remove-label tehas:running --add-label needs-human-attention && stuck=""
   local parked="$1$stuck"
+  jq -n --arg cap "$cap" --arg reason "$reason" --argjson provider "$([ "$provider" = 1 ] && echo true || echo false)" \
+    --argjson retry "$retry" --argjson started "$started" '{$cap, $reason, $provider, $retry, $started}' \
+    >"$cycles/$issue.park" 2>/dev/null || log "WARN: could not record the park of #$issue"
   jq -n --arg text "$parked
 
 ${usage}" '{text: $text, question: null}' >"$TEHAS_HOME/state/park-$issue.json"
@@ -459,13 +498,23 @@ elif [ -z "$pr" ] && [ -n "$closed_pr" ] && [ "$rc" != 4 ]; then
   comment "Tehas cycle stopped: its pull request $closed_pr was closed without being merged ($summary, runner exit $rc). The workspace is kept; $log_where.$killed$stuck To retry, apply \`tehas:ready\`."
 else
   parked="Tehas cycle stopped without a pull request: $summary (runner exit $rc). Read the handoff comment if there is one; $log_where.$killed${pr:+ Its branch has an open pull request: $pr}$foreign"
-  [ "$rc" != 4 ] || parked="Tehas started no cycle: an image the issue links could not be fetched, or the issue could not be read for its images (runner exit $rc). The comment before this one names it; $log_where."
+  if [ "$rc" = 4 ]; then
+    parked="Tehas started no cycle: an image the issue links could not be fetched, or the issue could not be read for its images (runner exit $rc). The comment before this one names it; $log_where."
+  elif [ "$provider" = 1 ]; then
+    parked="Tehas cycle parked by a provider outage: $summary (runner exit $rc), cap \`$cap\`${reason:+: $reason}; $log_where.$killed${pr:+ Its branch has an open pull request: $pr}$foreign"
+    if [ "$requeued" = 0 ]; then
+      retry=true
+      parked="$parked Tehas starts it again once on its own, when the model endpoint answers."
+    else
+      parked="$parked It was the retry tehas made on its own after an outage, so it waits for a person."
+    fi
+  fi
   park "$parked"
 fi
 log "done #$issue rc=$rc status=$status step=$step minutes=$mins pr=${pr:-none} oom_kills=$kills forks_refused=$forks"
 # For the improvement loop, where the instance has one. The cycle is reported
 # by now, and a record that cannot be written is the loop's loss only.
-tehas_improve_record "$issue" "$started" "$rc" "$status" "$step" "$pr" "$kills" "$image_id" "$image_rukas" || log "WARN: no record of #$issue for the improvement loop"
+tehas_improve_record "$issue" "$started" "$rc" "$status" "$step" "$pr" "$kills" "$image_id" "$image_rukas" "$cap" "$reason" || log "WARN: no record of #$issue for the improvement loop"
 # The next poll refreshes the status. A stopped cycle leaves it to that poll.
 [ "$signalled" = 1 ] || "$status_cmd"
 exit 0

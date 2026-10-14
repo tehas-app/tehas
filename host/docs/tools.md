@@ -166,6 +166,18 @@ event or an answer and before it changes a label or comments, so a list naming
 the bot is refused whatever else the poll would have done. A planning turn's
 runner output is in `~/tehas/logs/dispatch-plan-<issue>.log`.
 
+A cycle that a provider outage parked starts again once without a tick.
+`tehasbot cycle` asks for it in `~/tehas/state/cycles/<issue>.park`. When
+nothing holds cycles back, so the model endpoint answers and there is a slot,
+the poll starts the issue and says on it that it does so once. The start rests
+on the account that started the cycle that parked, kept in
+`~/tehas/state/cycles/<issue>.by`: it must still be allowed, the issue must
+still be open and parked, and nobody else may have changed its text since that
+cycle began. Otherwise the log says `skip #N: its retry after a provider
+outage is not started; it waits for a person` and the park file goes. An issue
+that carries `tehas:ready` is left to that label. If the retry's own cycle is
+parked by an outage again, it waits for a person.
+
 A poll also reads the open issues marked `tehas:running`. One whose cycle
 does not hold its lock on this host, `~/tehas/state/cycles/<issue>.lock`, gets
 `needs-human-attention` in place of `tehas:running` and a comment that says
@@ -705,6 +717,16 @@ for the pull request that GitHub refuses three times is not taken for a cycle
 that left none: the issue is parked with a comment that says the pull request
 could not be looked up and names the branch, and the branch stays in
 `~/tehas/state/cycles/<issue>.branch` until the issue's next cycle starts.
+
+A parked cycle's cap, from the state file, goes into
+`~/tehas/state/cycles/<issue>.park` with the failure before it, and into the
+record for the improvement loop as `cap` and `capReason`, reduced to plain
+characters. A cap of the kind a provider outage gives is said as one: `Tehas
+cycle parked by a provider outage`, with the cap and the reason. That is
+`provider-unavailable`, or `step-failed:<step>` or `adversarial-infra-failure`
+whose reason names the provider, a timeout, a connection or a 5xx status. The
+park file then asks [tehas dispatch](#tehas-dispatch) for one retry, unless the
+cycle was that retry.
 
 | Exit | Meaning                                              |
 | ---- | ---------------------------------------------------- |
