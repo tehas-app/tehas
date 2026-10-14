@@ -315,7 +315,8 @@ Read the last lines of `~/tehas/logs/improve.log`.
 | `findings=0`, or `duplicates` equal to `findings` | The model found nothing new |
 | `invalid=` above 0 | Findings were dropped for not being the shape asked for |
 | `failed: GitHub did not give the issue stack` | The token or the network. The records wait for the next run |
-| `failed: the analyst ended with 124 at its bound of 60 minutes` | The model took too long for the records it was given. The next run takes half as many, as the line says. What it printed is in the file the line names. The records wait |
+| `stopped=124 returned=2` at the end of a line that filed | The analyst hit its bound of 60 minutes, and what its file held was filed. The records it did not name went back to the window, and the next run takes half as many as this one. What it printed is in the file `output=` names |
+| `failed: the analyst ended with 124 at its bound of 60 minutes` | The model took too long for the records it was given and left no file that passes the check; the line says which. The next run takes half as many, as the line says. What it printed is in the file the line names. The records wait |
 | `failed: the analyst ended with ...` | Pi or the model. What it printed is in the file the line names, `~/tehas/logs/improve-analyst-<stamp>.log`. The records wait |
 | `failed: findings.json is not the shape asked for`, or `left no findings.json` | The model did not write the file it was asked for. Its output is in the same file. The records wait |
 | `failed: GitHub refused an issue` | The bot account cannot write to that repository. Issues filed before the refusal are named; the records wait, so a later run may file the same finding again under another title |

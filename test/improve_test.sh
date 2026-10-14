@@ -203,7 +203,9 @@ t_eq "$t_rc" 1
 improve="$T_ROOT/libexec/improve"
 
 # docker leaves $T/fx/findings.json where the analyst would write, and keeps
-# its arguments one to a line. $T/fx/docker.rc is an exit status to fail with.
+# its arguments one to a line. $T/fx/docker.rc is an exit status to fail with;
+# $T/fx/docker.cut one to end with after the file is written, as an analyst
+# stopped at its bound would.
 t_stub docker '
 if [ "$1" = info ]; then cat "$T/docker.info"; exit; fi
 printf "%s\n" "$@" >"$T/calls/docker-args"
@@ -214,6 +216,7 @@ cp "${out%/out}/in/issues.json" "$T/calls/issues.json" 2>/dev/null
 [ -f "$T/fx/docker.rc" ] && { echo "No API key found for test-provider."; echo "See docs/models.md"; exit "$(cat "$T/fx/docker.rc")"; }
 if [ -L "$T/fx/findings.json" ]; then cp -P "$T/fx/findings.json" "$out/findings.json"
 elif [ -f "$T/fx/findings.json" ]; then cp "$T/fx/findings.json" "$out/findings.json"; fi
+[ -f "$T/fx/docker.cut" ] && exit "$(cat "$T/fx/docker.cut")"
 exit 0'
 
 # timeout runs the command at once and keeps what it was asked.
@@ -960,6 +963,76 @@ many 1-261001-000000 2-261002-000000 3-261003-000000
 echo 124 >"$fx/docker.rc"
 t_run "$improve"
 t_eq "$(cap)" 1
+
+t_case "the analyst is told its time and to write its file early"
+ready
+t_run "$improve"
+p=$(sed -n '/^--model$/,$p' "$T/calls/docker-args" | sed 1,2d)
+t_contains "$p" "You have 60 minutes"
+t_contains "$p" "Write it early"
+t_lacks "$p" "@MINUTES@"
+
+t_case "stopped at its bound with a good file: what it holds is filed, and only the records it names are done"
+many 1-261001-000000 2-261002-000000 "$REC"
+findings "$(finding "The gate runs twice in one cycle")"
+echo 124 >"$fx/docker.cut"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_eq "$(titles)" "The gate runs twice in one cycle"
+t_eq "$(left)" "1-261001-000000 2-261002-000000 "
+t_contains "$t_out" "cycles=3 findings=1"
+t_contains "$t_out" "stopped=124 returned=2"
+t_eq "$(cap)" 1
+kept=$(find "$home/logs" -name 'improve-analyst-*.log')
+[ -n "$kept" ] || t_bad "the output of a stopped analyst was not kept"
+t_contains "$t_out" "output=$kept"
+
+t_case "a record named only by a followup is done too"
+many 1-261001-000000 "$REC"
+jq -n -c --arg rec "$REC" '{findings: [{title: 1, cycles: ["1-261001-000000", 7]}],
+  followups: [{cycle: $rec}, "x"]}' >"$fx/findings.json"
+echo 124 >"$fx/docker.cut"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_eq "$(left)" ""
+t_contains "$t_out" "invalid=1"
+t_contains "$t_out" "returned=0"
+
+t_case "stopped at its bound with nothing found yet: every record goes back"
+many 1-261001-000000 "$REC"
+echo 124 >"$fx/docker.cut"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_eq "$(left)" "1-261001-000000 $REC "
+t_contains "$t_out" "returned=2"
+
+t_case "stopped at its bound with a file of the wrong shape: exit 1 and every record goes back"
+many 1-261001-000000 "$REC"
+echo '{"findings": [' >"$fx/findings.json"
+echo 124 >"$fx/docker.cut"
+t_run "$improve"
+t_eq "$t_rc" 1
+t_contains "$t_out" "at its bound of 60 minutes; the next run takes at most 1; findings.json is not the shape asked for"
+t_eq "$(left)" "1-261001-000000 $REC "
+t_eq "$(titles)" ""
+
+t_case "stopped at its bound with no file: exit 1 and every record goes back"
+many 1-261001-000000 "$REC"
+rm "$fx/findings.json"
+echo 124 >"$fx/docker.cut"
+t_run "$improve"
+t_eq "$t_rc" 1
+t_contains "$t_out" "the next run takes at most 1; the analyst left no findings.json"
+t_eq "$(left)" "1-261001-000000 $REC "
+
+t_case "an analyst that fails otherwise is not read, whatever file it left"
+many "$REC"
+findings "$(finding "The gate runs twice in one cycle")"
+echo 1 >"$fx/docker.cut"
+t_run "$improve"
+t_eq "$t_rc" 1
+t_eq "$(titles)" ""
+t_eq "$(left)" "$REC "
 
 t_case "a run that finishes in time doubles what the next takes, up to five"
 many 1-261001-000000 2-261002-000000 3-261003-000000 4-261004-000000 5-261005-000000 6-261006-000000 7-261007-000000

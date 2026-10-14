@@ -851,9 +851,14 @@ records that wait, and starts the analyst. The rest stay for the next run. Then
 it checks the one file the analyst leaves, files what passes and removes the
 records it took.
 
-The analyst has 60 minutes. One that is stopped there halves what the next run
-takes, half of what it took and never below one; a run that finishes in time
-doubles it again, up to five. The number is in `~/tehas/state/improve.cap`.
+The analyst has 60 minutes, and the prompt tells it so and asks it to write
+`findings.json` early and again as it reads more. When it is stopped there
+and the file passes the check, what the file holds is filed: the records that
+a finding or a followup names are done, the others go back to the window. With
+no file, or one that does not pass, every record goes back and the run exits 1.
+Either way the next run takes half of what this one took, never below one; a
+run that finishes in time doubles it again, up to five. The number is in
+`~/tehas/state/improve.cap`.
 
 The findings are about tehas and about pi-rukas, so the analyst is plain Pi
 with one prompt (`~/tehas/lib/improve-prompt.md`) and no extension. What it
@@ -880,8 +885,9 @@ whole log of each cycle a finding names is gzipped and uploaded to the release
 or `.log.1.gz`, `.log.2.gz`). A log that holds something shaped like a token is
 not uploaded.
 
-Exit 0 when the run finished, there was nothing to read, 10 issues are open
-already, or the loop is off.
+Exit 0 when the run finished, also with an analyst stopped at its bound that
+left a good file, there was nothing to read, 10 issues are open already, or the
+loop is off.
 Exit 1 when the analyst or GitHub failed: the records are kept and the next run
 reads them again. What a failed analyst printed is in
 `~/tehas/logs/improve-analyst-<stamp>.log`, one file per failed run, named by

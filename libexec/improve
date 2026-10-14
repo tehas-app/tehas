@@ -19,7 +19,9 @@
 #              cycle ends (lib/improve.sh). A run takes the five oldest and
 #              leaves the rest for the next. An analyst stopped at its bound
 #              halves that number for the next run, down to one, in
-#              state/improve.cap; one that finishes in time doubles it again
+#              state/improve.cap; one that finishes in time doubles it again.
+#              What a stopped analyst's file holds is filed, and the records
+#              it does not name go back to the window
 #   filed      at most 3 issues a run, labelled tehas:improvement and nothing
 #              else; none in a repository where TEHAS_IMPROVE_MAX_OPEN such
 #              issues are open, 10 unless the instance says otherwise. A
@@ -42,7 +44,8 @@
 #
 # Usage: tehasbot improve     (one line per run on standard output)
 #
-# Exit: 0 the run finished, or there was nothing to do, or the loop is off;
+# Exit: 0 the run finished, also with an analyst stopped at its bound that left
+#         a good file, or there was nothing to do, or the loop is off;
 #       1 the analyst or GitHub failed and the records were kept; what a
 #         failed analyst printed is in logs/improve-analyst-<stamp>.log;
 #      64 an argument, this command takes none;
@@ -215,6 +218,8 @@ fail() {
 # A run that was killed leaves its container running under this name.
 docker rm -f tehas-improve >/dev/null 2>&1 || true
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
+ask=$(cat "$prompt")
+ask=${ask//@MINUTES@/$((bound / 60))}
 timeout -k 60 "$bound" docker run --rm --name tehas-improve \
   --cgroup-parent tehas.slice --cpus 1 --memory 2g --memory-swap 2g --pids-limit 1024 --cpu-shares 1024 \
   -e HOME=/home/vscode -w /improve \
@@ -224,10 +229,11 @@ timeout -k 60 "$bound" docker run --rm --name tehas-improve \
   pi -p --no-session --no-extensions --no-skills --no-prompt-templates --no-context-files \
   --tools read,grep,find,ls,write \
   --provider "$PI_ENSEMBLE_SUBAGENT_PROVIDER" --model "$PI_ENSEMBLE_SUBAGENT_MODEL" \
-  "$(cat "$prompt")" >"$run/analyst.log" 2>&1 </dev/null
+  "$ask" >"$run/analyst.log" 2>&1 </dev/null
 arc=$?
 # A client that timeout killed leaves its container working on.
 [ "$arc" = 0 ] || docker rm -f tehas-improve >/dev/null 2>&1 || true
+notes=()
 # 124 is the bound, 137 the kill that follows it when the client did not stop.
 # Half of what this run took, not of the cap: fewer records than the cap can
 # be too many already. A run in time doubles it rather than going back to
@@ -251,14 +257,17 @@ blame() {
   fi
   fail "$*"
 }
-[ "$cut" = 0 ] || blame "the analyst ended with $arc at its bound of $((bound / 60)) minutes; the next run takes at most $next"
-[ "$arc" = 0 ] || blame "the analyst ended with $arc"
+# An analyst stopped at its bound was asked to keep its file up to date, so
+# a file that passes the check is filed. Without one, it failed like any other.
+why=""
+[ "$cut" = 0 ] || why="the analyst ended with $arc at its bound of $((bound / 60)) minutes; the next run takes at most $next; "
+[ "$arc" = 0 ] || [ "$cut" = 1 ] || blame "the analyst ended with $arc"
 
 # --- Check -------------------------------------------------------------------
 # A link would have this script read a file of the analyst's choosing.
 found=$run/out/findings.json
-if [ -L "$found" ] || [ ! -f "$found" ]; then blame "the analyst left no findings.json"; fi
-[ "$(stat -c %s "$found")" -le 1048576 ] || blame "findings.json is over 1 MB"
+if [ -L "$found" ] || [ ! -f "$found" ]; then blame "${why}the analyst left no findings.json"; fi
+[ "$(stat -c %s "$found")" -le 1048576 ] || blame "${why}findings.json is over 1 MB"
 
 # One program decides what is filed. A finding that is not the shape asked
 # for is dropped; a file that is not is an error. A title is compared in lower
@@ -314,10 +323,25 @@ cycles=$(printf '%s\n' "${recs[@]}" | jq -R . | jq -s -c .)
 plan=$(jq -c --argjson cycles "$cycles" --argjson rooms "$rooms" --argjson max_run "$max_run" \
   --arg repo "$repo" --arg rukas "$rukas" --arg label "$label" \
   --argjson max_recheck "$max_recheck" --slurpfile stack "$run/in/issues.json" \
-  "$check" "$found" 2>/dev/null) || blame "findings.json is not the shape asked for"
+  "$check" "$found" 2>/dev/null) || blame "${why}findings.json is not the shape asked for"
+
+# Of a stopped analyst, a record that a finding or a followup names, valid or
+# not, was read; the rest may not have been and go back for a later run.
+if [ "$cut" = 1 ]; then
+  named=$(jq -r '[(.findings | arrays | .[] | objects | .cycles | arrays | .[]),
+    (.followups | arrays | .[] | objects | .cycle)] | .[] | strings' "$found" 2>/dev/null)
+  back=0
+  mkdir -p "$window"
+  for r in "${recs[@]}"; do
+    grep -qxF -- "$r" <<<"$named" && continue
+    rm -rf "${window:?}/$r"
+    mv "$run/in/cycles/$r" "$window/" && back=$((back + 1))
+  done
+  notes+=("stopped=$arc" "returned=$back")
+  cp "$run/analyst.log" "$kept" 2>/dev/null && notes+=("output=$kept")
+fi
 
 # --- File --------------------------------------------------------------------
-notes=()
 release() {
   gh release view "$tag" --repo "$repo" >/dev/null 2>&1 ||
     gh release create "$tag" --repo "$repo" --prerelease --title "Cycle logs of the improvement loop" \
