@@ -34,6 +34,14 @@
 #                       before it is stopped as stalled [3600]
 #   TEHAS_CYCLE_RESERVE the container's memory floor [2g]
 #   TEHAS_WORK_IMAGES   1 gives the cycle the images its issue links [0]
+# From the environment, for tests: TEHAS_PREFLIGHT_WAIT (seconds the push check
+# may take [300]) and TEHAS_STOP_WAIT (seconds a docker stop may take before
+# the container is killed [60]).
+#
+# TEHAS_WORK_TIMEOUT bounds the watch loop. Every call to Docker or git
+# outside it is bounded too: a dockerd that stops answering, or a network
+# that swallows the push check, must not hold the issue's lock and its slot
+# for ever.
 #
 # What the container is given is deliberate and pinned by test/work_test.sh:
 # the bot token (pi-rukas pushes and opens the pull request from inside), the
@@ -160,6 +168,8 @@ oom_file=$TEHAS_HOME/state/cycles/$issue.oom
 forks_file=$TEHAS_HOME/state/cycles/$issue.forks
 stall_file=$TEHAS_HOME/state/cycles/$issue.stalled
 stall=$TEHAS_WORK_STALL
+preflight_wait=${TEHAS_PREFLIGHT_WAIT:-300}
+stop_wait=${TEHAS_STOP_WAIT:-60}
 
 [ -n "${GH_TOKEN:-}" ] || { echo "tehas work: GH_TOKEN is not set (source ~/tehas/env.sh)" >&2; exit 64; }
 mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state/cycles"
@@ -229,10 +239,14 @@ if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces" && aside &&
   exit 78
 fi
 # Before spending an hour of model time: can the sandbox push at all? A dry
-# run needs the same credentials a real push does and creates nothing.
-if ! docker run --rm --user "$(id -u):$(id -g)" -e HOME=/home/vscode "${envs[@]}" \
+# run needs the same credentials a real push does and creates nothing. The
+# client passes the timeout's TERM on to git in the container.
+timeout -k 10 "$preflight_wait" docker run --rm --user "$(id -u):$(id -g)" -e HOME=/home/vscode "${envs[@]}" \
   -w "$repo" -v "$tree:$repo" --entrypoint git "$image" \
-  push --dry-run origin HEAD:refs/heads/tehas-preflight >"$log.preflight" 2>&1; then
+  push --dry-run origin HEAD:refs/heads/tehas-preflight >"$log.preflight" 2>&1
+pushed=$?
+if [ "$pushed" != 0 ]; then
+  case $pushed in 124 | 137) echo "the push check did not end within ${preflight_wait}s" >>"$log.preflight" ;; esac
   echo "tehas work: the sandbox cannot push to origin, not starting a cycle:"
   tail -n 3 "$log.preflight" | sed 's/^/    /'
   exit 3
@@ -259,7 +273,17 @@ rm -f "$cid_file" "$oom_file" "$forks_file" "$stall_file"
 # A container under this name outlived the client that started it: this
 # command holds the issue's lock, so no cycle owns it. It would work on with
 # the bot's token, and Docker would refuse the name below.
-docker rm -f "$name" >/dev/null 2>&1
+timeout -k 10 "$stop_wait" docker rm -f "$name" >/dev/null 2>&1
+
+# stop_container <grace>: docker stop, bounded. When dockerd does not answer
+# in time the container is killed, also bounded: the end must be reported.
+stop_container() {
+  timeout -k 5 "$stop_wait" docker stop -t "$1" "$name" >/dev/null 2>&1
+  case $? in 124 | 137) ;; *) return 0 ;; esac
+  echo "tehas work: docker stop of $name did not end within ${stop_wait}s, killing it"
+  timeout -k 5 "$stop_wait" docker kill "$name" >/dev/null 2>&1 ||
+    echo "tehas work: docker kill of $name did not work either"
+}
 
 # Set before the container starts, so no signal falls between. A stop ends the
 # loop and is recorded as interrupted, not as running.
@@ -267,7 +291,7 @@ interrupted=0
 cpid=""
 # The live file says running only once the trap can say interrupted.
 live_on=0
-trap 'interrupted=1; [ -z "$cpid" ] || kill "$cpid" 2>/dev/null; exec 3>&- 2>/dev/null; docker stop -t 10 "$name" 2>/dev/null
+trap 'interrupted=1; [ -z "$cpid" ] || kill "$cpid" 2>/dev/null; exec 3>&- 2>/dev/null; stop_container 10
 [ "$live_on" = 0 ] || now_file false interrupted "killed by signal (TERM/INT)"' TERM INT
 docker run --rm -i --init --name "$name" \
   "${TEHAS_SLICE_LIMITS[@]}" --cidfile "$cid_file" \
@@ -375,7 +399,7 @@ done
 # A stop that came while the container was still being made found nothing to
 # stop.
 if [ "$interrupted" = 1 ] && kill -0 "$pid" 2>/dev/null; then
-  docker stop -t 10 "$name" >/dev/null 2>&1
+  stop_container 10
 fi
 if [ "$interrupted" = 0 ] && kill -0 "$pid" 2>/dev/null; then
   # Give the driver a moment to post its handoff, then end the session.
@@ -384,7 +408,7 @@ if [ "$interrupted" = 0 ] && kill -0 "$pid" 2>/dev/null; then
   sleep 5
   oom_look
   stopped=1
-  docker stop -t 20 "$name" >/dev/null 2>&1
+  stop_container 20
 fi
 if [ "$stalled" = 1 ]; then
   status=stalled

@@ -348,6 +348,26 @@ container itself, at the time limit or on a signal, nor when the cycle's state
 already said how it ended. The record for the improvement loop carries the
 count as `oomKills`.
 
+#### Time limits
+
+`TEHAS_WORK_TIMEOUT` bounds the cycle itself, and `TEHAS_WORK_STALL` a cycle
+that writes nothing. The steps around it are bounded too, so a dockerd that
+stops answering or a network that swallows packets does not hold a slot for
+ever:
+
+| Step | Bound | After it |
+| --- | --- | --- |
+| The push check before a cycle | 300 s | `tehas work` exits 3, with `the push check did not end within 300s` |
+| The clone of the cycle's workspace | 300 s | `tehas work` exits 78 |
+| `docker stop` at the end of a cycle, and on a signal | 60 s | `docker kill`, bounded the same way, and the line `docker stop of tehas-work-N did not end within 60s, killing it` |
+| The dispatcher's fetch of the product checkout | 120 s | `WARN: could not fast-forward`, and the poll goes on |
+
+`tehas-cycle@.service` stops a cycle after 8 hours (`RuntimeMaxSec`), as the
+last bound for a hang that none of these reaches. The stop is a TERM, and the
+cycle is reported as one that stopped. A unit cannot read the instance's
+settings, so `TEHAS_WORK_TIMEOUT` may be at most 25200, 7 hours: a longer one
+is refused with exit 78. The hour between is for the stop and the report.
+
 `TEHAS_TICKET_CONCURRENCY` sets the most issues worked on side by side, each
 in a cycle, a container and a workspace of its own. It defaults to the host's
 CPUs minus one, at least 1, and a value above the host's CPUs is accepted. It

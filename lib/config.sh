@@ -28,8 +28,8 @@
 #   - instance.env is authoritative. Settings of the same name in the
 #     environment are dropped; only TEHAS_HOME, TEHAS_INSTANCE_DIR and the test
 #     hooks TEHAS_WORK_CMD, TEHAS_STATUS_CMD, TEHAS_INDEX_CMD, TEHAS_PLAN_CMD,
-#     TEHAS_CYCLE_START_CMD, TEHAS_CYCLE_START_WAIT and TEHAS_CGROUP_ROOT are
-#     kept.
+#     TEHAS_CYCLE_START_CMD, TEHAS_CYCLE_START_WAIT, TEHAS_CGROUP_ROOT,
+#     TEHAS_PREFLIGHT_WAIT, TEHAS_STOP_WAIT and TEHAS_FETCH_WAIT are kept.
 #   - Loading runs no git command, makes no network call and writes nothing.
 #   - TEHAS_IMPROVE_REPO switches the improvement loop on. Unset is valid and
 #     means there is none. TEHAS_IMPROVE_RUKAS_REPO needs it.
@@ -154,7 +154,8 @@ tehas_load() {
   for v in $(compgen -v); do
     case "$v" in
       TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_INDEX_CMD | TEHAS_PLAN_CMD | \
-        TEHAS_CYCLE_START_CMD | TEHAS_CYCLE_START_WAIT | TEHAS_CGROUP_ROOT) ;;
+        TEHAS_CYCLE_START_CMD | TEHAS_CYCLE_START_WAIT | TEHAS_CGROUP_ROOT | \
+        TEHAS_PREFLIGHT_WAIT | TEHAS_STOP_WAIT | TEHAS_FETCH_WAIT) ;;
       TEHAS_* | PI_ENSEMBLE_*) unset "$v" ;;
     esac
   done
@@ -281,6 +282,13 @@ tehas_load() {
   fi
   if [ "$TEHAS_WORK_STALL" -le "$TEHAS_VERIFY_TIMEOUT" ]; then
     tehas_err "TEHAS_WORK_STALL ($TEHAS_WORK_STALL) is not longer than TEHAS_VERIFY_TIMEOUT ($TEHAS_VERIFY_TIMEOUT): a gate that prints nothing would be stopped as stalled (see $file)"
+    return 78
+  fi
+  # tehas-cycle@.service stops a cycle after 8 hours (RuntimeMaxSec), and a
+  # unit cannot read this file. A longer limit would have systemd stop every
+  # long cycle; the hour between is for the stop and the report.
+  if [ "$TEHAS_WORK_TIMEOUT" -gt 25200 ]; then
+    tehas_err "TEHAS_WORK_TIMEOUT ($TEHAS_WORK_TIMEOUT) is more than 25200: tehas-cycle@.service stops a cycle after 8 hours, and the stop and the report need the hour after the limit (see $file)"
     return 78
   fi
   if [ "$TEHAS_PREVIEWS" = 1 ] && [ -z "$TEHAS_DOMAIN" ]; then

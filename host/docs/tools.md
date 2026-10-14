@@ -65,7 +65,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_TICKET_CONCURRENCY`      | the host's CPUs minus one, at least 1    | The most cycles side by side. A ceiling, never a divisor: the dispatcher starts fewer while `tehas.slice` has no room. A value above the host's CPUs is accepted. Lower it when the model backends cannot serve `TEHAS_CONCURRENCY` times this many workstreams; nothing measures that |
 | `TEHAS_MAX_AWAITING`            | `TEHAS_TICKET_CONCURRENCY` plus 2        | Open `tehas:awaiting-merge` issues, plus running cycles, allowed before holding |
 | `TEHAS_CYCLE_RESERVE`           | `2g`                                     | Memory one container is given as a floor (`docker --memory-reservation`) and the unit the dispatcher counts room in. A reclaim priority inside `tehas.slice` and the amount admission promises, not a guarantee against the whole host. A Docker size of at least 6m, and at most a quarter of the slice's `MemoryMax`, else the command stops with 78 naming both numbers. With the default the host needs about 11 GiB of memory; a smaller host sets it lower |
-| `TEHAS_WORK_TIMEOUT`            | `21600`                                  | Seconds before a cycle is given up                              |
+| `TEHAS_WORK_TIMEOUT`            | `21600`                                  | Seconds before a cycle is given up. At most 25200: [the cycle's unit](/host#time-limits) stops a cycle after 8 hours |
 | `TEHAS_WORK_STALL`              | `3600`                                   | Seconds a cycle may go without a line added to any of its logs before it is stopped as `stalled`. Must be longer than `TEHAS_VERIFY_TIMEOUT`, because a gate can print nothing while it runs; else the command stops with 78 |
 | `TEHAS_WORK_IMAGES`             | `0`                                      | `1` gives a cycle and a planning session the images its issue text links: see [tehas work](#tehas-work) and [tehas plan](#tehas-plan). The model must declare `"image"` in its `input` in `models.json` and answer a request with an image, else the dispatcher holds every cycle |
 | `TEHAS_VERIFY_TIMEOUT`          | `1800`                                   | Seconds one run of the product's gate may take inside a cycle. A gate that takes longer is stopped and the cycle parks. Passed to pi-rukas as `PI_ENSEMBLE_VERIFY_TIMEOUT_MS` and `PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS`; pi-rukas alone allows ten minutes |
@@ -242,7 +242,9 @@ and no CPU quota, and no Docker socket or SSH keys. git inside it is given the
 bot's identity and a credential helper that reads the token, through
 environment-level configuration; before a cycle starts, a dry-run push proves
 that works. The RPC stream is kept in `~/tehas/logs/work-<issue>-<time>.jsonl`.
-The time limit is `TEHAS_WORK_TIMEOUT`. [The host](/host#limits-and-concurrency)
+The time limit is `TEHAS_WORK_TIMEOUT`. The push check, the clone and every
+`docker stop` have bounds of their own, listed under
+[time limits](/host#time-limits). [The host](/host#limits-and-concurrency)
 has the limits in full.
 
 Beside the workspace is `~/tehas/work/<name>-<issue>.state`, a directory of

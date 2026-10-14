@@ -42,6 +42,19 @@ t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=0"
 t_instance "${T_MINIMAL[@]}"
 
+t_case "a cycle's time limit that the unit's own limit would cut is refused"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=25201
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "TEHAS_WORK_TIMEOUT (25201) is more than 25200: tehas-cycle@.service stops a cycle after 8 hours"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=25200
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=0"
+t_instance "${T_MINIMAL[@]}"
+
+t_case "the cycle unit's limit is the longest time limit accepted plus an hour"
+t_eq "$(sed -n 's/^RuntimeMaxSec=//p' "$T_ROOT/host/systemd/tehas-cycle@.service")" "8h"
+
 t_case "an instance can lower the workstreams, and pi-rukas is told the same number"
 t_instance "${T_MINIMAL[@]}" TEHAS_CONCURRENCY=1
 t_run "$load && echo \"\$TEHAS_CONCURRENCY \$PI_ENSEMBLE_MAX_WORKSTREAMS\""
@@ -77,9 +90,9 @@ T_ENV=()
 t_case "the test hooks survive from the environment"
 t_instance "${T_MINIMAL[@]}"
 T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index
-  TEHAS_CYCLE_START_CMD=fake-start TEHAS_CYCLE_START_WAIT=2)
-t_run "$load && echo \"\$TEHAS_WORK_CMD \$TEHAS_STATUS_CMD \$TEHAS_INDEX_CMD \$TEHAS_CYCLE_START_CMD \$TEHAS_CYCLE_START_WAIT\""
-t_eq "$t_out" "fake-work fake-status fake-index fake-start 2"
+  TEHAS_CYCLE_START_CMD=fake-start TEHAS_CYCLE_START_WAIT=2 TEHAS_PREFLIGHT_WAIT=3 TEHAS_STOP_WAIT=4 TEHAS_FETCH_WAIT=5)
+t_run "$load && echo \"\$TEHAS_WORK_CMD \$TEHAS_STATUS_CMD \$TEHAS_INDEX_CMD \$TEHAS_CYCLE_START_CMD \$TEHAS_CYCLE_START_WAIT \$TEHAS_PREFLIGHT_WAIT \$TEHAS_STOP_WAIT \$TEHAS_FETCH_WAIT\""
+t_eq "$t_out" "fake-work fake-status fake-index fake-start 2 3 4 5"
 T_ENV=()
 
 t_case "a missing instance.env returns 78 and names the directory"

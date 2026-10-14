@@ -531,6 +531,20 @@ t_lacks "$t_out" "WARN"
 t_eq "$(t_calls fake-start)" "7"
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready"
 
+t_case "a fetch that hangs is given up after its bound, said, and the cycle still starts"
+reset
+printf '#!/bin/sh\nexec sleep 30 2>/dev/null\n' >"$T/slow-upload-pack"
+chmod +x "$T/slow-upload-pack"
+git -C "$checkout" config remote.origin.uploadpack "$T/slow-upload-pack"
+T_ENV+=(TEHAS_FETCH_WAIT=1)
+began=$(date +%s)
+t_run "$dispatch"
+git -C "$checkout" config --unset remote.origin.uploadpack
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN: could not fast-forward $checkout"
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(($(date +%s) - began < 20))" 1
+
 t_case "the code index is refreshed after the fetch and before the cycle"
 t_eq "$(t_calls fake-index)" "--before-cycle"
 t_eq "$(cat "$T/calls/index.head")" "$(git -C "$upstream" rev-parse main)"

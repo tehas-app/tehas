@@ -47,8 +47,13 @@ for a in "$@"; do
 done
 case " $* " in
   *" --mode "*) [ ! -e "$T/container.sh" ] || . "$T/container.sh" ;;
-  *" push --dry-run "*) [ "${PUSH_RC:-0}" = 0 ] || { echo "docker: could not read from remote repository" >&2; exit "$PUSH_RC"; } ;;
-  " stop "*) kill "$(cat "$T/sleeper.pid" 2>/dev/null)" 2>/dev/null ;;
+  *" push --dry-run "*)
+    [ ! -e "$T/push-hangs" ] || exec "$(command -pv sleep)" 30
+    [ "${PUSH_RC:-0}" = 0 ] || { echo "docker: could not read from remote repository" >&2; exit "$PUSH_RC"; } ;;
+  " stop "*)
+    [ ! -e "$T/stop-hangs" ] || exec "$(command -pv sleep)" 30
+    kill "$(cat "$T/sleeper.pid" 2>/dev/null)" 2>/dev/null ;;
+  " kill "*) kill "$(cat "$T/sleeper.pid" 2>/dev/null)" 2>/dev/null ;;
 esac'
 printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitconfig"
 
@@ -585,6 +590,39 @@ t_case "a container left under the issue's name is removed before the cycle's st
 rm_at=$(t_calls docker | grep -n -x -e 'rm -f tehas-work-7' | cut -d: -f1 | head -n 1)
 run_at=$(t_calls docker | grep -n -e ' --mode ' | cut -d: -f1 | head -n 1)
 t_eq "$([ -n "$rm_at" ] && [ -n "$run_at" ] && [ "$rm_at" -lt "$run_at" ] && echo before)" before
+
+t_case "a docker stop that does not end is given up after its bound, said, and the container killed"
+fresh
+: >"$T/stop-hangs"
+T_ENV=("${env_ok[@]}" TEHAS_STOP_WAIT=1)
+container "$hold; says handoff; $gone"
+t_run "$work 7"
+rm -f "$T/stop-hangs"
+t_eq "$t_rc" 0
+t_contains "$t_out" "tehas work: docker stop of tehas-work-7 did not end within 1s, killing it"
+t_contains "$(t_calls docker)" "kill tehas-work-7"
+t_contains "$t_out" "status=handoff"
+
+t_case "a stop that ends in time kills nothing"
+fresh
+container "$hold; says handoff; $gone"
+t_run "$work 7"
+t_eq "$t_rc" 0
+t_lacks "$(t_calls docker)" "kill "
+T_ENV=("${env_ok[@]}")
+
+t_case "a push check that does not end is given up after its bound: exit 3, no cycle"
+fresh
+: >"$T/push-hangs"
+T_ENV=("${env_ok[@]}" TEHAS_PREFLIGHT_WAIT=1)
+began=$(date +%s)
+t_run "$work 7"
+rm -f "$T/push-hangs"
+t_eq "$t_rc" 3
+t_contains "$t_out" "the push check did not end within 1s"
+t_eq "$(cycle_args)" ""
+t_eq "$(($(date +%s) - began < 20))" 1
+T_ENV=("${env_ok[@]}")
 
 t_case "the container's oom_kill count is printed and written to the state directory, and is not read from the slice"
 fresh

@@ -91,7 +91,8 @@
 # From the environment, for tests: TEHAS_STATUS_CMD, TEHAS_INDEX_CMD,
 # TEHAS_PLAN_CMD, TEHAS_CYCLE_START_CMD (in place of systemctl, called with
 # the issue), TEHAS_CYCLE_START_WAIT (seconds to wait for a started cycle
-# [30]) and TEHAS_CGROUP_ROOT (in place of /sys/fs/cgroup).
+# [30]), TEHAS_CGROUP_ROOT (in place of /sys/fs/cgroup) and TEHAS_FETCH_WAIT
+# (seconds the fetch of the checkout may take [120]).
 #
 # A real poll that gets as far as rule 3 writes $TEHAS_HOME/live/dispatch.json:
 # what holds cycles back, if anything, and the slice's numbers. tehasbot
@@ -450,7 +451,10 @@ refresh_checkout() {
   else
     log "WARN: $checkout has uncommitted changes, leaving its branch alone"
   fi
-  if ! git -C "$checkout" fetch -q origin || ! git -C "$checkout" merge -q --ff-only "origin/$branch"; then
+  # Bounded: it runs under the poll's lock, and a hung fetch would stop every
+  # later poll. What it starts does not take the lock with it.
+  if ! timeout -k 10 "${TEHAS_FETCH_WAIT:-120}" git -C "$checkout" fetch -q origin 8>&- ||
+    ! git -C "$checkout" merge -q --ff-only "origin/$branch"; then
     log "WARN: could not fast-forward $checkout"
   fi
 }

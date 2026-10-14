@@ -8,3 +8,8 @@ ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot cycle %i
 # and then reports on the issue, which takes a few calls to GitHub.
 KillMode=mixed
 TimeoutStopSec=120
+# The backstop for a cycle that hangs where no bound of its own reaches. Above
+# the longest TEHAS_WORK_TIMEOUT lib/config.sh accepts, 7 hours, with an hour
+# for the stop and the report. A unit cannot read the instance's setting. The
+# stop is a TERM, and the cycle is reported as one that stopped.
+RuntimeMaxSec=8h
