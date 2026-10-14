@@ -112,7 +112,14 @@ and the usage on standard error, before the instance settings are read. A mistyp
 Order of rules: pause label on the control issue, a usable `tehas.slice`,
 the free slots (`TEHAS_TICKET_CONCURRENCY` less the running cycles), the cap
 on issues awaiting merge or being worked on, the room and the memory pressure
-in the slice, who applied `tehas:ready`, then urgent first and lowest number.
+in the slice, who applied `tehas:urgent`, then who applied `tehas:ready`, then
+urgent first and lowest number. A `tehas:urgent` counts only when an allowed
+account applied it most recently: one applied by the bot or anyone else is
+ignored and logged, and the issue keeps its place by number. The urgent check
+runs for every ready issue that carries the label and this poll could still
+start, before the free slots cut the queue; who applied `tehas:ready` is read
+at the decision, when the issue is picked. A poll never asks GitHub the same
+question twice.
 What holds cycles back is one `holding:` line: at every dry run, and in the
 log once when its reason changes, with `released: cycles may start again`
 when it ends. A real poll also writes it to `~/tehas/live/dispatch.json` with

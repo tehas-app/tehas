@@ -140,11 +140,26 @@ release() {
 # count is read with nproc; a stub makes every test machine the same.
 t_stub nproc 'echo 8'
 slots() { t_instance "${T_MINIMAL[@]}" "TEHAS_TICKET_CONCURRENCY=$1" "${@:2}"; }
-ready() { # issue... : the queue, each labelled by alice; "8!" is urgent
-  local n list=""
+# The label events of an issue: tehas:ready by alice, then tehas:urgent by
+# <login>. An empty login stands for a labelling that names nobody.
+urgent_by() { # <issue> <login or "">
+  jq -nc --arg w "$2" '[{event: "labeled", label: {name: "tehas:ready"}, actor: {login: "alice"}},
+    {event: "labeled", label: {name: "tehas:urgent"},
+     actor: (if $w == "" then null else {login: $w} end)}]' >"$fx/events-$1.json"
+}
+
+ready() { # issue... : the queue, each labelled by alice; "8!" is urgent, by alice too
+  local n num labels list=""
   for n in "$@"; do
-    list="$list,{\"number\":${n%!},\"labels\":[{\"name\":\"tehas:ready\"}$([ "$n" = "${n%!}" ] || echo ',{"name":"tehas:urgent"}')]}"
-    cp "$fx/events-7.json" "$fx/events-${n%!}.json" 2>/dev/null || true
+    num=${n%!}
+    labels='{"name":"tehas:ready"}'
+    if [ "$n" = "$num" ]; then
+      cp "$fx/events-7.json" "$fx/events-$num.json" 2>/dev/null || true
+    else
+      labels="$labels,{\"name\":\"tehas:urgent\"}"
+      urgent_by "$num" alice
+    fi
+    list="$list,{\"number\":$num,\"labels\":[$labels]}"
   done
   echo "[${list#,}]" >"$fx/ready.json"
 }
@@ -757,6 +772,139 @@ slots 2
 ready 7 8! 9
 t_run "$dispatch"
 t_eq "$(t_calls fake-start | tr '\n' ' ')" "8 7 "
+
+# The order is what an urgent label buys, so who applied it is checked as the
+# labelling of tehas:ready is.
+t_case "urgent from an allowed account moves an issue ahead of a lower number"
+reset
+slots 2
+ready 3 8!
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "8 3 "
+
+t_case "urgent applied by the bot is ignored, and the poll says so"
+reset
+slots 2
+ready 3 8!
+urgent_by 8 tehas-bot
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "3 8 "
+t_contains "$t_out" "ignore #8: tehas:urgent was applied by 'tehas-bot', not an allowed account"
+
+t_case "urgent applied by an account outside the list is ignored"
+reset
+slots 2
+ready 3 8!
+urgent_by 8 mallory
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "3 8 "
+t_contains "$t_out" "ignore #8: tehas:urgent was applied by 'mallory', not an allowed account"
+
+t_case "an urgent label with no account in its event is ignored"
+reset
+slots 2
+ready 3 8!
+urgent_by 8 ""
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "3 8 "
+t_contains "$t_out" "ignore #8: tehas:urgent was applied by 'unknown', not an allowed account"
+
+t_case "an urgent label with no labelling event is ignored"
+reset
+slots 2
+ready 3 8!
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}}]' >"$fx/events-8.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "3 8 "
+t_contains "$t_out" "ignore #8: tehas:urgent was applied by 'unknown', not an allowed account"
+
+t_case "the most recent urgent labelling decides"
+reset
+slots 2
+ready 3 8!
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}},
+       {"event":"labeled","label":{"name":"tehas:urgent"},"actor":{"login":"mallory"}},
+       {"event":"unlabeled","label":{"name":"tehas:urgent"},"actor":{"login":"mallory"}},
+       {"event":"labeled","label":{"name":"tehas:urgent"},"actor":{"login":"alice"}}]' >"$fx/events-8.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "8 3 "
+
+t_case "an ignored urgent label leaves the issue ready on its own label"
+reset
+slots 2
+ready 3 8!
+urgent_by 8 mallory
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "issue edit 8 --repo acme/widget --add-label tehas:running --remove-label tehas:ready"
+
+t_case "a dry run reports the order a real poll would take"
+reset
+slots 2
+ready 3 8!
+urgent_by 8 mallory
+t_run "$dispatch --dry-run"
+t_eq "$t_rc" 0
+t_contains "$t_out" "ignore #8: tehas:urgent was applied by 'mallory', not an allowed account"
+t_eq "$(printf '%s\n' "$t_out" | sed -n 's/.*would run a cycle for #\([0-9]*\).*/\1/p' | tr '\n' ' ')" "3 8 "
+
+t_case "the urgent labelling of an issue is read once, the ready labelling again at the decision"
+reset
+slots 2
+ready 3 8!
+t_run "$dispatch"
+t_eq "$t_rc" 0
+# Once for the order, once when #8 is picked: no start rests on the read that
+# settled the order.
+t_eq "$(grep -c -e 'api repos/acme/widget/issues/8/events' <<<"$(t_calls gh)")" "2"
+
+t_case "an urgent issue this poll cannot start is not asked about"
+reset
+slots 2
+ready 8!
+hold 8
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(grep -c -e 'api repos/acme/widget/issues/8/events' <<<"$(t_calls gh)")" "0"
+t_contains "$t_out" "wait #8: its cycle is still running"
+release
+
+t_case "urgent order survives an issue number that arrives as text"
+reset
+slots 2
+ready 3 8
+echo '[{"number":3,"labels":[{"name":"tehas:ready"}]},{"number":"8","labels":[{"name":"tehas:ready"},{"name":"tehas:urgent"}]}]' >"$fx/ready.json"
+urgent_by 8 alice
+t_run "$dispatch --dry-run"
+t_eq "$t_rc" 0
+t_eq "$(printf '%s\n' "$t_out" | sed -n 's/.*would run a cycle for #\([0-9]*\).*/\1/p' | tr '\n' ' ')" "8 3 "
+
+t_case "when the urgent label events cannot be read nothing is started and no label changes"
+reset
+slots 2
+ready 3 8!
+rm "$fx/events-8.json"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: gh api repos/acme/widget/issues/8/events?per_page=100 failed"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+
+t_case "label events that are not JSON end the poll, whatever label is being read"
+reset
+slots 2
+ready 3 8!
+echo 'not json' >"$fx/events-8.json"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: unreadable label events of #8"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
 
 t_case "a running cycle takes a slot"
 reset
