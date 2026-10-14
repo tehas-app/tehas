@@ -126,6 +126,7 @@ The dispatcher takes issues urgent first, then by the lowest issue number: as ma
 | `tehas:ready`           | Queued                            | Wait, or remove the label to withdraw it |
 | `tehas:running`         | A cycle owns it                   | Leave the issue and its branch alone     |
 | `tehas:awaiting-merge`  | Pull request is open and reviewed | Review and merge                         |
+| `tehas:shipped`         | A merged pull request closed it   | Nothing; the bot gives it                |
 | `needs-human-attention` | The cycle stopped                 | Read the comment; see below              |
 
 `tehas:ready` from an allowed labeller starts a fresh cycle whatever else the

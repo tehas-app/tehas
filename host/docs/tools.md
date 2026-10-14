@@ -402,8 +402,8 @@ does, so no cycle starts in the middle. A cycle started by hand with
 tehas labels        # one line per label
 ```
 
-Creates the nine labels tehas uses in the product repository: `tehas:ready`,
-`tehas:urgent`, `tehas:running`, `tehas:awaiting-merge`, `tehas:pause`,
+Creates the ten labels tehas uses in the product repository: `tehas:ready`,
+`tehas:urgent`, `tehas:running`, `tehas:awaiting-merge`, `tehas:shipped`, `tehas:pause`,
 `needs-human-attention`, `tehas:question`, `tehas:plan` and `tehas:planning`.
 Run it once for a new product, and again after pulling a version that adds a
 label. Run again, it puts their colours and descriptions back. It needs `TEHAS_REPO` and no other
@@ -507,6 +507,9 @@ finds it.
 
 Feed the [factory floor](/) and the [plain dashboard](/dashboard). `tehasbot status` writes the queue snapshot to
 `~/tehas/live/status.json`; the dispatcher runs it at every poll, and a cycle when it ends.
+Completed means closed by a merged pull request, whatever labels the issue was
+left with. `tehasbot status` gives each such issue `tehas:shipped`, so GitHub
+lists the same issues; run `tehas labels` once so the label exists.
 `~/tehas/libexec/console` is started by the work
 script and follows the cycle's agents into `~/tehas/live/console-<issue>.txt`, masking
 tokens, passwords and private network addresses, and writing no control
