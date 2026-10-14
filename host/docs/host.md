@@ -33,7 +33,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/dev/<name>`                 | A person's clone for working by hand, named after their account, made and used by `tehas dev`, never removed. `<name>.author` next to it holds whose name its commits carry |
 | `~/tehas/repos/pi-rukas`             | pi-rukas, pinned to a commit                                            |
 | `~/tehas/docs/`, `~/tehas/fun/`      | This site's pages and the front page, installed from `host/`            |
-| `~/tehas/sandbox/`, `versions.env`   | Sandbox image definition, build script, and the pinned tool versions    |
+| `~/tehas/sandbox/`, `versions.env`   | Sandbox image definition, build script, the Playwright npm pin, and the pinned tool versions |
 | `~/tehas/edge/`                      | The docs server (`docs.compose.yaml`) and the edge router (`router.compose.yaml`) |
 | `~/tehas/protolab/`                  | The Protolab's pages and the files of each prototype, written by `tehasbot protolab` |
 | `~/tehas/preview/`                   | The state of each preview, and a bare clone the pull requests' commits are fetched into, written by `tehasbot preview` |
@@ -440,8 +440,12 @@ Another limit for one host goes in
 `tehas/pi-rukas:uid<uid>`: the upstream pi-rukas image plus the in-container
 user remapped to the tehas user's id, shellcheck, and Playwright's
 Chromium with fonts. cargo's registry belongs to that user, so a gate that
-builds Rust can fetch its crates; they go with the container. The base is pinned by digest in `sandbox/Dockerfile`, the
-tools by version in `versions.env`. A product whose gates need another
+builds Rust can fetch its crates; they go with the container. The base is pinned
+by digest in `sandbox/Dockerfile`, shellcheck by checksum, and Playwright by the
+npm tree beside it (`sandbox/npm/playwright`, whose `package-lock.json` fixes
+every package in that tree by hash). `versions.env` holds the versions and the
+checksums, and the build stops when a pin there does not match the file beside
+the Dockerfile. A product whose gates need another
 toolchain adds it to the Dockerfile.
 
 ```
@@ -539,6 +543,11 @@ as a permanent difference.
 The docs server binds to `TEHAS_HOST_ADDR`, port 8080. Without the setting it
 stays on `127.0.0.1`. `docker compose` reads the address from the environment,
 so run it from a shell that has sourced `~/tehas/env.sh`.
+
+Both compose files name Caddy by digest rather than by tag, with the version in
+the comment above the image. `versions.env` records the version and the digest
+together; `preview/Dockerfile` names the same digest, and `test/edge_test.sh`
+checks the three agree.
 
 The edge router binds to the same address, port 8081, and picks by the first
 label of the name it is asked for:

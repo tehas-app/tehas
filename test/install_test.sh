@@ -98,6 +98,8 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/libexec/work
 ./tehas/sandbox/Dockerfile
 ./tehas/sandbox/build.sh
+./tehas/sandbox/npm/playwright/package-lock.json
+./tehas/sandbox/npm/playwright/package.json
 ./tehas/versions.env"
 # The manual and the front page are whole directories; leave them out of the
 # exact comparison and check them separately. So is state/, which is what the host
@@ -112,7 +114,8 @@ next_steps() {
   tehas_steps_for systemd/tehas-cycle@.service systemd/tehas-dispatch.service systemd/tehas-dispatch.timer \
     systemd/tehas-energy.service systemd/tehas-improve.service systemd/tehas-improve.timer \
     systemd/tehas-preview.service \
-    systemd/tehas-preview.timer systemd/tehas-preview-sweep.service systemd/tehas-preview-sweep.timer systemd/tehas-protolab.service systemd/tehas-protolab.timer sandbox/Dockerfile sandbox/build.sh versions.env \
+    systemd/tehas-preview.timer systemd/tehas-preview-sweep.service systemd/tehas-preview-sweep.timer systemd/tehas-protolab.service systemd/tehas-protolab.timer sandbox/Dockerfile sandbox/build.sh \
+    sandbox/npm/playwright/package.json sandbox/npm/playwright/package-lock.json versions.env \
     edge/docs.Caddyfile edge/docs.compose.yaml edge/router.Caddyfile \
     edge/router.compose.yaml
 }

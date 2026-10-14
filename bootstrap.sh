@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Prepare a fresh host for tehas: everything tehas and pi-rukas need, at the
 # versions in host/versions.env. Safe to run again: a tool already at its
-# version is skipped, one at another version is replaced.
+# version is skipped, one at another version is replaced. An npm tool counts as
+# present only when its pinned tree is installed too.
 #
 #   sudo ./bootstrap.sh root <user>   system packages, Docker, the docker
 #                                     group and lingering for <user>, and the
@@ -23,10 +24,10 @@
 # Supported: Ubuntu 26.04 on x86_64. It stops elsewhere.
 #
 # What `user` owns and will replace: Node, gh and Bun from release archives;
-# Pi, ctx7 and parallel-cli through npm; Rust, vipune and oo;
-# codebase-memory-mcp; the pi-rukas clone. System packages are not pinned:
-# `root` installs what the distribution offers and `check` only requires them
-# to be present.
+# Pi, ctx7 and parallel-cli from the npm trees pinned in host/npm; Rust, vipune
+# and oo; codebase-memory-mcp; the pi-rukas clone. System packages are not
+# pinned: `root` installs what the distribution offers and `check` only requires
+# them to be present.
 #
 # Exit: 0 done, or check found everything; 1 something failed or check found
 # a tool missing or at another version; 64 usage, or slice not run as root.
@@ -318,11 +319,118 @@ install_bun() {
   mkdir -p "$HOME/.bun/bin"
   install -m 755 "$dl/bun-linux-x64/bun" "$HOME/.bun/bin/bun"
 }
-npm_global() { npm install -g --no-fund --no-audit "$@" >/dev/null; }
-install_pi() { npm_global --ignore-scripts "@earendil-works/pi-coding-agent@$PI_VERSION"; }
-install_ctx7() { npm_global --ignore-scripts "ctx7@$CTX7_VERSION"; }
+# --- npm pins ---------------------------------------------------------------
+# An npm tool is installed from a tree pinned beside versions.env:
+# host/npm/<name>/package.json names one version, and package-lock.json fixes
+# every package in that tree by hash. npm ci installs exactly that tree and
+# refuses a package whose hash does not match the lockfile, so the tool and all
+# of its dependencies are fixed. The copy lives under tools/npm and the tool's
+# own commands are linked into the npm prefix's bin directory, which is on PATH.
+#
+# <name>|<package>|<version>|<lockfile sha256>
+# Both halves of a pin have to be in versions.env. Without this loop a missing
+# hash aborts on set -u with an unbound variable instead of a bootstrap: line.
+for pin_key in PI_VERSION PI_LOCK_SHA256 CTX7_VERSION CTX7_LOCK_SHA256 \
+  PARALLEL_CLI_VERSION PARALLEL_CLI_LOCK_SHA256; do
+  [ -n "${!pin_key-}" ] ||
+    die "host/versions.env has no $pin_key: an npm pin is its version and its lockfile hash together"
+done
+
+npm_pins=(
+  "pi|@earendil-works/pi-coding-agent|$PI_VERSION|$PI_LOCK_SHA256"
+  "ctx7|ctx7|$CTX7_VERSION|$CTX7_LOCK_SHA256"
+  "parallel-web-cli|parallel-web-cli|$PARALLEL_CLI_VERSION|$PARALLEL_CLI_LOCK_SHA256"
+)
+
+pin_src() { echo "$root/host/npm/$1"; }
+pin_tree() { echo "$TEHAS_HOME/tools/npm/$1"; }
+
+# The version a pinned tree names for its package, one line each: what its
+# package.json asks for, what the lockfile recorded, and what it resolved. All
+# three must be the version in versions.env.
+pin_versions() { # <name> <package>
+  local src=$1 pkg=$2
+  jq -r --arg p "$pkg" '.dependencies[$p] // "-"' "$src/package.json" 2>/dev/null
+  jq -r --arg p "$pkg" '.packages as $pk
+    | ($pk[""].dependencies[$p] // "-"), ($pk["node_modules/" + $p].version // "-")' \
+    "$src/package-lock.json" 2>/dev/null
+}
+
+# Stop before anything is installed when a pinned tree is not the one recorded
+# in versions.env: a lockfile that is not the file whose hash is there, or a
+# version that is not the one here. Both mean a pin nobody changed on purpose.
+check_pins() {
+  local entry name pkg ver sha src found
+  for entry in "${npm_pins[@]}"; do
+    IFS='|' read -r name pkg ver sha <<<"$entry"
+    src=$(pin_src "$name")
+    [ -r "$src/package.json" ] && [ -r "$src/package-lock.json" ] ||
+      die "$src is missing from this checkout: cannot install $pkg $ver"
+    echo "$sha  $src/package-lock.json" | sha256sum --status -c - ||
+      die "checksum mismatch for the npm pin $name: $src/package-lock.json is not the file recorded in host/versions.env"
+    found=$(pin_versions "$src" "$pkg")
+    [ "$found" = "$(printf '%s\n%s\n%s' "$ver" "$ver" "$ver")" ] ||
+      die "the npm pin $name says $(printf '%s' "$found" | tr '\n' '/') for $pkg; host/versions.env says $ver. Change a tree and its version together"
+  done
+}
+
+# Is the tree installed under tools/npm the one versions.env records? npm ci
+# installs from a copy of the pinned lockfile, so its hash is the whole test.
+pin_installed() { # <name> <lockfile sha256>
+  local dir
+  dir=$(pin_tree "$1")
+  [ -r "$dir/package-lock.json" ] || return 1
+  echo "$2  $dir/package-lock.json" | sha256sum --status -c -
+}
+
+# Install one pinned tree and put the commands of its package on PATH. The new
+# tree is built in a staging directory beside the installed one and moved into
+# place only once npm ci succeeded and every command it names is there: an
+# install that fails - a lockfile out of sync with its package.json, a registry
+# that did not answer - leaves the tree that worked and the links into it. The
+# tree an earlier bootstrap left in npm's global tree is removed last, and only
+# when the pinned commands are already linked.
+npm_ci_pin() { # <name> <package> [npm flags...]
+  local name=$1 pkg=$2 src dir new old bins bin
+  shift 2
+  src=$(pin_src "$name") dir=$(pin_tree "$name") new=$dir.new old=$dir.old
+  rm -rf "$new"
+  mkdir -p "$new"
+  install -m 644 "$src/package.json" "$src/package-lock.json" "$new/"
+  (cd "$new" && npm ci --no-fund --no-audit "$@" >/dev/null) || {
+    rm -rf "$new"
+    die "npm ci installed nothing for $pkg from $src: $dir is as it was"
+  }
+  bins=$(jq -r --arg p "$pkg" '(.bin // empty)
+      | if type == "object" then keys_unsorted[] else ($p | split("/") | last) end' \
+      "$new/node_modules/$pkg/package.json" 2>/dev/null) ||
+    die "npm ci left no package.json for $pkg in $new"
+  [ -n "$bins" ] || die "$pkg names no command in $new"
+  while IFS= read -r bin; do
+    [ -n "$bin" ] || continue
+    # A leading dot lets .. name a directory, which the -x test below accepts.
+    [[ $bin =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "$pkg names an unusable command: $bin"
+    [ -x "$new/node_modules/.bin/$bin" ] || die "$pkg provides no $bin in $new/node_modules/.bin"
+  done <<<"$bins"
+  rm -rf "$old"
+  if [ -e "$dir" ]; then mv "$dir" "$old"; fi
+  mv "$new" "$dir" || {
+    if [ -e "$old" ]; then mv "$old" "$dir"; fi
+    die "could not move the installed tree into $dir"
+  }
+  rm -rf "$old"
+  while IFS= read -r bin; do
+    [ -n "$bin" ] || continue
+    ln -sfn "$dir/node_modules/.bin/$bin" "$HOME/.local/bin/$bin"
+  done <<<"$bins"
+  # What an earlier bootstrap left in npm's global tree is not used again.
+  rm -rf "$HOME/.local/lib/node_modules/$pkg"
+}
+
+install_pi() { npm_ci_pin pi "@earendil-works/pi-coding-agent" --ignore-scripts; }
+install_ctx7() { npm_ci_pin ctx7 ctx7 --ignore-scripts; }
 # Its postinstall script downloads the binary; with scripts off there is none.
-install_parallel() { npm_global "parallel-web-cli@$PARALLEL_CLI_VERSION"; }
+install_parallel() { npm_ci_pin parallel-web-cli parallel-web-cli; }
 install_rust() {
   if command -v rustup >/dev/null 2>&1; then
     rustup toolchain install "$RUST_VERSION" --profile minimal >/dev/null
@@ -364,6 +472,28 @@ install_rukas() {
     die "pi-rukas's installer failed, see $TEHAS_HOME/tmp/pi-rukas-install.log"
 }
 
+# step for a pinned tool: present means the version is right and the tree under
+# tools/npm is the one versions.env records. A host that already had the version
+# from an unpinned bootstrap has to get the tree, or the pin never lands there.
+step_npm() { # <name> <found function> <version> <lockfile sha256> <install function>
+  local name=$1 found
+  found=$("$2")
+  if [ "$found" = "$3" ] && pin_installed "$1" "$4"; then
+    echo "bootstrap: $name $3 is present"
+    return 0
+  fi
+  if [ "$found" = "$3" ]; then
+    echo "bootstrap: reinstalling $name $3 from host/npm/$1: $(pin_tree "$1") is not the pinned tree"
+  else
+    echo "bootstrap: installing $name $3${found:+ (replacing $found)}"
+  fi
+  "$5"
+  found=$("$2")
+  [ "$found" = "$3" ] || die "$name is ${found:-missing} after installing, expected $3"
+  pin_installed "$1" "$4" ||
+    die "$name is at $3 but $(pin_tree "$1") is not the tree recorded in host/versions.env"
+}
+
 do_user() {
   [ "$(id -u)" != 0 ] || die "the user part must not run as root"
   supported
@@ -372,13 +502,14 @@ do_user() {
     command -v "$tool" >/dev/null 2>&1 || die "$tool is missing: run 'sudo ./bootstrap.sh root $(id -un)' first"
   done
   dl=$TEHAS_HOME/tmp/dl
+  check_pins
   mkdir -p "$TEHAS_HOME/bin" "$TEHAS_HOME/tools" "$TEHAS_HOME/repos" "$dl" "$HOME/.local/bin"
   step node found_node "$NODE_VERSION" install_node
   step gh found_gh "$GH_VERSION" install_gh
   step bun found_bun "$BUN_VERSION" install_bun
-  step pi found_pi "$PI_VERSION" install_pi
-  step ctx7 found_ctx7 "$CTX7_VERSION" install_ctx7
-  step parallel-cli found_parallel "$PARALLEL_CLI_VERSION" install_parallel
+  step_npm pi found_pi "$PI_VERSION" "$PI_LOCK_SHA256" install_pi
+  step_npm ctx7 found_ctx7 "$CTX7_VERSION" "$CTX7_LOCK_SHA256" install_ctx7
+  step_npm parallel-web-cli found_parallel "$PARALLEL_CLI_VERSION" "$PARALLEL_CLI_LOCK_SHA256" install_parallel
   step rust found_rust "$RUST_VERSION" install_rust
   step vipune found_vipune "$VIPUNE_VERSION" install_vipune
   step oo found_oo "$OO_VERSION" install_oo
