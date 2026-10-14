@@ -25,7 +25,10 @@
 # did come up, and the issue keeps tehas:running until the next poll clears it.
 #
 # A TERM, INT or HUP is passed on to tehas work, which stops the container. The
-# cycle is then reported like any other that stopped without a pull request.
+# cycle is then reported like any other that stopped without a pull request,
+# but with one try for each call to GitHub, each bounded, and no refresh of the
+# status: systemd kills the unit TimeoutStopSec after the stop, and a report
+# cut off there leaves the issue marked tehas:running.
 #
 # A runner that exits 137 while the cycle's state still says running, or says
 # nothing, had its container killed: the status reported is "killed" and the
@@ -89,8 +92,9 @@
 # the cycle's record for it at the end, in tmp/improve/window (lib/improve.sh).
 #
 # Instance settings (lib/config.sh): TEHAS_REPO, TEHAS_IMPROVE_REPO.
-# From the environment, for tests: TEHAS_WORK_CMD, TEHAS_STATUS_CMD and
-# TEHAS_CYCLE_RETRY_WAIT (seconds between two tries of a GitHub call [5]).
+# From the environment, for tests: TEHAS_WORK_CMD, TEHAS_STATUS_CMD,
+# TEHAS_CYCLE_RETRY_WAIT (seconds between two tries of a GitHub call [5]) and
+# TEHAS_CYCLE_STOP_GH_WAIT (seconds a GitHub call may take after a stop [20]).
 set -uo pipefail
 
 issue=${1:-}
@@ -98,6 +102,10 @@ if [ "$#" != 1 ] || ! [[ $issue =~ ^[1-9][0-9]*$ ]]; then
   echo "usage: tehasbot cycle <issue>" >&2
   exit 64
 fi
+
+# Read before tehas_load, which clears TEHAS_* from the environment.
+stop_gh_wait=${TEHAS_CYCLE_STOP_GH_WAIT:-20}
+[[ $stop_gh_wait =~ ^[1-9][0-9]{0,3}$ ]] || stop_gh_wait=20
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/config.sh
@@ -159,12 +167,24 @@ tehas_work_kind "$answer" || {
   exit 65
 }
 
-comment() { gh issue comment "$issue" --repo "$repo" --body "$1" >/dev/null 2>&1 || log "WARN: comment on #$issue failed"; }
+# A cycle stopped by a signal has until systemd's TimeoutStopSec to report:
+# then every call to GitHub is tried once and bounded.
+signalled=0
+tries=3
+gh_call() {
+  if [ "$signalled" = 1 ]; then
+    # KILL: the report ignores TERM, and gh inherits that.
+    timeout -s KILL "$stop_gh_wait" gh "$@"
+  else
+    gh "$@"
+  fi
+}
+comment() { gh_call issue comment "$issue" --repo "$repo" --body "$1" >/dev/null 2>&1 || log "WARN: comment on #$issue failed"; }
 relabel() {
   local try
-  for try in 1 2 3; do
-    gh issue edit "$issue" --repo "$repo" "$@" >/dev/null 2>&1 && return 0
-    [ "$try" = 3 ] || sleep "$retry_wait"
+  for ((try = 1; try <= tries; try++)); do
+    gh_call issue edit "$issue" --repo "$repo" "$@" >/dev/null 2>&1 && return 0
+    [ "$try" = "$tries" ] || sleep "$retry_wait"
   done
   log "WARN: label change on #$issue failed: $*"
   return 1
@@ -175,7 +195,7 @@ posted=""
 post_question() {
   local body
   body=$(q_render park "$issue" 1 "$1") || return 1
-  posted=$(gh api "repos/$repo/issues/$issue/comments" -f body="$body" --jq .id 2>/dev/null) || return 1
+  posted=$(gh_call api "repos/$repo/issues/$issue/comments" -f body="$body" --jq .id 2>/dev/null) || return 1
   [ -n "$posted" ]
 }
 # A workspace is kept only while a person may want to read it, and so is the
@@ -213,7 +233,7 @@ rm -f "${cycles:?}/${issue:?}.oom" "${cycles:?}/${issue:?}.forks" "${cycles:?}/$
 # The trap is set before the runner starts, so no signal falls between.
 wpid=""
 stopped=0
-trap 'stopped=1; [ -z "$wpid" ] || kill -TERM "$wpid" 2>/dev/null' TERM INT HUP
+trap 'stopped=1 signalled=1; [ -z "$wpid" ] || kill -TERM "$wpid" 2>/dev/null' TERM INT HUP
 "$work" "$issue" ${restart:+"$restart"} >>"$TEHAS_HOME/logs/dispatch-work-$issue.log" 2>&1 &
 wpid=$!
 [ "$stopped" = 0 ] || kill -TERM "$wpid" 2>/dev/null
@@ -231,6 +251,7 @@ done
 # The report is made even if a stop arrives now: leaving tehas:running on the
 # issue would park it for good.
 trap '' TERM INT HUP
+[ "$signalled" = 0 ] || tries=1
 mins=$((($(date +%s) - started) / 60))
 [ ! -f "$(dirname "$workdir")/.tehas-workspaces" ] || rm -rf "$workdir.images" ||
   log "WARN: could not remove the images $workdir.images"
@@ -321,13 +342,13 @@ usage=$(jq -r '
 prs="[]"
 unread=0
 if [ -n "$branch" ]; then
-  for try in 1 2 3; do
-    if prs=$(gh pr list --repo "$repo" --head "$branch" --author "@me" --state all \
+  for ((try = 1; try <= tries; try++)); do
+    if prs=$(gh_call pr list --repo "$repo" --head "$branch" --author "@me" --state all \
       --json url,state,body,headRefName --limit 20 2>/dev/null) && jq -e 'type == "array"' >/dev/null 2>&1 <<<"$prs"; then
       break
     fi
     prs="[]"
-    if [ "$try" = 3 ]; then
+    if [ "$try" = "$tries" ]; then
       unread=1
       log "WARN: the pull requests of $(tr -cd 'A-Za-z0-9_./-' <<<"$branch") could not be read"
     else
@@ -415,7 +436,7 @@ elif [ "$rc" = 0 ] && [ "$status" = merged ]; then
 elif [ "$rc" = 0 ] && [ "$status" = handoff ] && [ -n "$pr" ]; then
   relabel --remove-label tehas:running --add-label tehas:awaiting-merge && stuck=""
   comment "Tehas cycle finished: $summary. Pull request waiting for a human: $pr$killed$stuck"
-  gh pr comment "$pr" --body "Tehas cycle for #$issue: $summary.
+  gh_call pr comment "$pr" --body "Tehas cycle for #$issue: $summary.
 
 ${usage:-No token usage was recorded for this cycle.}" >/dev/null 2>&1 || log "WARN: comment on $pr failed"
   proven
@@ -434,5 +455,6 @@ log "done #$issue rc=$rc status=$status step=$step minutes=$mins pr=${pr:-none} 
 # For the improvement loop, where the instance has one. The cycle is reported
 # by now, and a record that cannot be written is the loop's loss only.
 tehas_improve_record "$issue" "$started" "$rc" "$status" "$step" "$pr" "$kills" || log "WARN: no record of #$issue for the improvement loop"
-"$status_cmd"
+# The next poll refreshes the status. A stopped cycle leaves it to that poll.
+[ "$signalled" = 1 ] || "$status_cmd"
 exit 0

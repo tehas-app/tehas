@@ -14,6 +14,8 @@ state=$T/home/tehas/state/cycles
 park_id=$T/home/tehas/state/park-7.id
 
 t_stub gh '
+# A GitHub that does not answer, once a case writes gh-hangs.
+[ ! -e "$T/fx/gh-hangs" ] || exec "$(command -pv sleep)" 30
 case "$1 $2" in
   "pr list")
     # The first lists fail, as many as pr-fails-times says.
@@ -543,6 +545,37 @@ t_contains "$t_out" "rc=0"
 t_contains "$(t_calls gh)" "issue edit 7"
 t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:question"
+
+t_case "a stop while GitHub does not answer is reported with one bounded try a call, and no status refresh"
+reset
+T_ENV+=(TEHAS_CYCLE_STOP_GH_WAIT=1)
+ended running develop feature/x
+# GitHub stops answering once the cycle runs.
+echo 'sleep 30 & s=$!
+trap "kill \$s; exit 2" TERM
+: >"$T/fx/gh-hangs"
+: >"$T/calls/work.ready"
+wait "$s"' >"$fx/work.sh"
+t_run "$cycle 7 & pid=\$!
+for _ in \$(seq 100); do [ -e \"\$T/calls/work.ready\" ] && break; sleep 0.1; done
+start=\$(date +%s); kill -TERM \$pid; wait \$pid; echo rc=\$? seconds=\$((\$(date +%s) - start))"
+t_contains "$t_out" "rc=0"
+# Four calls, each cut after a second. Three tries of each, or the
+# default bound of 20 seconds, would take far longer. The report ignores TERM,
+# so a bound that only sent TERM would not cut a call.
+secs=$(sed -n 's/.*seconds=\([0-9]*\).*/\1/p' <<<"$t_out")
+t_eq "$([ -n "$secs" ] && [ "$secs" -le 15 ] && echo bounded)" bounded
+t_eq "$(t_calls gh | grep -c -e '--remove-label tehas:running')" 1
+t_eq "$(t_calls gh | grep -c -e '^pr list ')" 1
+t_eq "$(t_calls fake-status)" ""
+t_contains "$t_out" "WARN: label change on #7 failed"
+
+t_case "a cycle that was not stopped still refreshes the status and tries three times"
+reset
+echo "--remove-label tehas:running" >"$fx/edit-fails-on"
+t_run "$cycle 7"
+t_eq "$(t_calls gh | grep -c -e '--remove-label tehas:running')" 3
+t_eq "$(t_calls fake-status | wc -l)" 1
 
 t_case "a hangup is a stop too: the cycle is still reported"
 reset

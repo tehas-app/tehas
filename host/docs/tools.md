@@ -658,7 +658,9 @@ the cycle are removed in every case. A runner that started no cycle over an
 image (exit 4) is parked with a comment that says so. A retry moves a stopped workspace to
 `<name>-<issue>.before-retry`, which is removed and kept by the same rule. A
 stopped unit stops the container and is reported as a cycle that ended without
-a pull request. A hangup is taken as a stop too. It checks no authorisation:
+a pull request. The report of a stopped cycle tries each call to GitHub once,
+cuts it after 20 seconds and does not refresh the status, so it ends within
+the unit's `TimeoutStopSec`. A hangup is taken as a stop too. It checks no authorisation:
 the dispatcher did that before it started the unit. It does check the number:
 it writes `state/cycles/<issue>.taken` once it holds its lock, then asks GitHub
 what the number is before a label is changed, a comment is posted or a
