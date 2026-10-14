@@ -879,11 +879,14 @@ Exit 0 when the run finished, there was nothing to read, 10 issues are open
 already, or the loop is off.
 Exit 1 when the analyst or GitHub failed: the records are kept and the next run
 reads them again. What a failed analyst printed is in
-`~/tehas/logs/improve-analyst.log` until a run succeeds. Exit 64 on any argument, 78 on invalid settings. A second run
-while one is going leaves it to that one.
+`~/tehas/logs/improve-analyst-<stamp>.log`, one file per failed run, named by
+the time the run took the records. The run's line names it. Exit 64 on any
+argument, 78 on invalid settings. A second run while one is going leaves it to
+that one.
 
-Each run also removes the per-cycle files in `~/tehas/logs/` and the records
-under `~/tehas/tmp/improve/` older than seven days, read or not.
+Each run also removes the per-cycle files and the kept analyst output in
+`~/tehas/logs/`, and the records under `~/tehas/tmp/improve/`, older than seven
+days, read or not.
 ## tehasbot preview
 
 ```

@@ -463,17 +463,30 @@ t_contains "$t_out" "failed"
 t_eq "$(find "$base" -maxdepth 1 -name 'run-*' | wc -l)" 0
 t_eq "$(titles)" ""
 
-t_case "what a failed analyst printed is kept, and the line says where"
-t_contains "$t_out" "the analyst ended with 3, its output is in $home/logs/improve-analyst.log"
-t_contains "$(cat "$home/logs/improve-analyst.log")" "No API key found for test-provider."
+t_case "what a failed analyst printed is kept under the run's stamp, and the line says where"
+kept=$(find "$home/logs" -name 'improve-analyst-*.log')
+[[ $kept =~ /improve-analyst-[0-9]{6}-[0-9]{6}\.log$ ]] || t_bad "kept as '$kept'"
+t_contains "$t_out" "the analyst ended with 3, its output is in $kept"
+t_contains "$(cat "$kept")" "No API key found for test-provider."
 
-t_case "a run that works leaves no analyst output behind"
+t_case "a later run, failed or not, leaves the output of a failed one where it is"
 ready
-mkdir -p "$home/logs"
-echo "from a run that failed" >"$home/logs/improve-analyst.log"
+echo "from a run that failed" >"$home/logs/improve-analyst-261010-000000.log"
+echo 3 >"$fx/docker.rc"
+t_run "$improve"
+t_eq "$t_rc" 1
+t_eq "$(cat "$home/logs/improve-analyst-261010-000000.log")" "from a run that failed"
+t_eq "$(find "$home/logs" -name 'improve-analyst-*.log' | wc -l)" 2
+rm "$fx/docker.rc"
 t_run "$improve"
 t_eq "$t_rc" 0
-t_eq "$(find "$home/logs" -name 'improve-analyst.log' | wc -l)" 0
+t_eq "$(find "$home/logs" -name 'improve-analyst-*.log' | wc -l)" 2
+
+t_case "a run that works keeps no analyst output of its own"
+ready
+t_run "$improve"
+t_eq "$t_rc" 0
+t_eq "$(find "$home/logs" -name 'improve-analyst*' | wc -l)" 0
 
 t_case "no findings file files nothing"
 ready
@@ -905,15 +918,16 @@ t_case "the sweep removes what is over seven days old and nothing newer"
 reset
 record 3-261001-000000
 touch -d '8 days ago' "$base/window/3-261001-000000" "$home/logs/work-3-261001-000000.jsonl"
-for f in work-3-261001-000000.jsonl.err dispatch-work-3.log index-261001-000000.log dispatch.log improve.log; do
+for f in work-3-261001-000000.jsonl.err dispatch-work-3.log index-261001-000000.log dispatch.log improve.log \
+  improve-analyst-261001-000000.log improve-analyst.log; do
   touch -d '8 days ago' "$home/logs/$f"
 done
-touch -d '6 days ago' "$home/logs/work-4-261004-000000.jsonl"
+touch -d '6 days ago' "$home/logs/work-4-261004-000000.jsonl" "$home/logs/improve-analyst-261004-000000.log"
 mkdir -p "$base/.new.old" && touch -d '8 days ago' "$base/.new.old"
 t_run "$improve"
 t_eq "$t_rc" 0
 t_contains "$t_out" "cycles=0"
-t_eq "$(find "$home/logs" -type f -printf '%f\n' | sort | tr '\n' ' ')" "dispatch.log improve.log work-4-261004-000000.jsonl "
+t_eq "$(find "$home/logs" -type f -printf '%f\n' | sort | tr '\n' ' ')" "dispatch.log improve-analyst-261004-000000.log improve.log work-4-261004-000000.jsonl "
 t_eq "$(find "$base" -mindepth 1 ! -name window | wc -l)" 0
 
 t_case "a second run while one is going does nothing"

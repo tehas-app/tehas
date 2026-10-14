@@ -33,14 +33,15 @@
 #              10 a run. Nothing is closed or reopened
 #   logs       the whole log of each cycle a finding names, gzipped, as assets
 #              of the release tehas-improve-logs; over 5 MB, in numbered pieces
-#   removed    a run's records when it finishes; anything in tmp/improve and
-#              the per-cycle files in logs/ after seven days
+#   removed    a run's records when it finishes; anything in tmp/improve, and
+#              the per-cycle files and the kept analyst output in logs/, after
+#              seven days
 #
 # Usage: tehasbot improve     (one line per run on standard output)
 #
 # Exit: 0 the run finished, or there was nothing to do, or the loop is off;
 #       1 the analyst or GitHub failed and the records were kept; what a
-#         failed analyst printed is in logs/improve-analyst.log;
+#         failed analyst printed is in logs/improve-analyst-<stamp>.log;
 #      64 an argument, this command takes none;
 #      78 the instance settings are invalid, or there are records to read and
 #         tehas.slice is not usable on this host; the records were kept.
@@ -118,7 +119,8 @@ for d in "$base"/run-*/; do
 done
 find "$window" -mindepth 1 -maxdepth 1 -mmin "+$old" -exec rm -rf {} +
 find "$base" -mindepth 1 -maxdepth 1 -name '.new.*' -mmin "+$old" -exec rm -rf {} +
-find "$logs" -maxdepth 1 -type f \( -name 'work-*' -o -name 'dispatch-work-*' -o -name 'index-*' \) \
+find "$logs" -maxdepth 1 -type f \( -name 'work-*' -o -name 'dispatch-work-*' -o -name 'index-*' \
+  -o -name 'improve-analyst*.log' \) \
   -mmin "+$old" -delete
 
 # --- Look --------------------------------------------------------------------
@@ -174,7 +176,8 @@ fi
 
 # --- Take the window ---------------------------------------------------------
 # From here a cycle that ends writes into a new window, for the next run.
-run=$base/run-$(date -u +%y%m%d-%H%M%S)
+stamp=$(date -u +%y%m%d-%H%M%S)
+run=$base/run-$stamp
 if ! { mkdir -p "$run/in" "$run/out" && mv "$window" "$run/in/cycles" && mv "$stack" "$run/in/issues.json"; }; then
   [ ! -d "$run" ] || give_back "$run"
   say "cycles=${#recs[@]} failed: could not take the window"
@@ -204,10 +207,10 @@ timeout -k 60 "$bound" docker run --rm --name tehas-improve \
   "$(cat "$prompt")" >"$run/analyst.log" 2>&1 </dev/null
 arc=$?
 # What the analyst printed goes with the run. Of a run that failed on it, it
-# is kept, one file that the next such run replaces.
-kept=$logs/improve-analyst.log
+# is kept under the run's stamp until the sweep, so a person can still read
+# it after later runs.
+kept=$logs/improve-analyst-$stamp.log
 blame() {
-  rm -f "$kept"
   if cp "$run/analyst.log" "$kept" 2>/dev/null; then
     fail "$*, its output is in $kept"
   fi
@@ -400,5 +403,4 @@ done
 
 # --- Clean up ----------------------------------------------------------------
 rm -rf "$run"
-rm -f "$kept"
 say "cycles=${#recs[@]} $(jq -r '"findings=\(.found) invalid=\(.invalid) duplicates=\(.duplicates) of=\(if .of == "" then "none" else .of end) over=\(.over)"' <<<"$plan") filed=${#filed[@]} issues=$issues rechecked=$rechecked${notes[*]:+ ${notes[*]}}"
