@@ -140,6 +140,8 @@ t_eq "$(t_calls systemctl)" ""
 t_eq "$(t_calls docker)" "$net_inspect"
 t_lacks "$t_out" "tehas-previews"
 t_eq "$([ -d "$th/preview" ] && echo there)" "there"
+# A host gets its tools from bootstrap.sh before its first install.
+t_lacks "$t_out" "bootstrap.sh user"
 
 t_case "another update holding the lock stops a real run before it installs anything"
 fresh
@@ -348,6 +350,17 @@ t_run "$install"
 t_contains "$t_out" "installed: $th/libexec/dispatch"
 t_eq "$(cmp -s "$th/libexec/dispatch" "$T_ROOT/libexec/dispatch" && echo same)" "same"
 t_contains "$(cat "$th/libexec/dispatch.prev")" "# edited on the host"
+
+t_case "a changed versions.env asks for bootstrap.sh user on a later line"
+cp "$th/versions.env" "$T/versions.env.kept"
+echo "# an older pin" >>"$th/versions.env"
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "later: $T_ROOT/bootstrap.sh user   (versions.env changed"
+t_lacks "$t_out" "next: bootstrap"
+t_run "$install"
+t_lacks "$t_out" "bootstrap.sh user"
+cmp -s "$th/versions.env" "$T/versions.env.kept" || t_bad "versions.env was not put back"
 
 t_case "the console is built once, from the lock file, and installed as a program"
 t_eq "$(t_calls cargo)" "build --release --locked --quiet --manifest-path $T_ROOT/console/Cargo.toml --target-dir $T/target"

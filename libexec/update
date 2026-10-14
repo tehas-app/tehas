@@ -79,7 +79,9 @@
 #         gave no answer within its limit, systemd did not reload the unit files, a
 #         follow-up install.sh asked for is one this command does not know, or
 #         --check found something to update (a checkout behind, or steps left
-#         over from an earlier run). A record of steps owed that exists but this
+#         over from an earlier run) or something an update does not fix (the
+#         host's tools, the slice, root's copy of the command, the tests), each
+#         said apart. A record of steps owed that exists but this
 #         account cannot read is a failure too: reading it as "nothing is owed"
 #         would let the next write replace steps somebody else recorded. A status
 #         of install.sh that this command does not know (126 when its exec bit is
@@ -366,9 +368,20 @@ fi
 if [ "$rc" != 0 ]; then
   warn_unknown
   if [ "$mode" = check ]; then
-    # install.sh --check answers 1 when it found something to update. That is its
-    # report, not a failed step: in check mode nothing was meant to run.
-    echo "install: install.sh --check found something to update" >&2
+    # install.sh --check answers 1 when it found something. That is its report,
+    # not a failed step: in check mode nothing was meant to run. Files that
+    # differ and steps owed are what an update fixes; the host's tools, the
+    # slice, root's copy of the command and the tests are not.
+    found=0
+    if grep -qE '^(Installed: +DRIFT|Follow-ups: +NOT DONE)' <<<"$out"; then
+      echo "install: install.sh --check found something to update" >&2
+      found=1
+    fi
+    if grep -qE '^(Dependencies: +NOT OK|Slice: +(MISSING|DIFFERS)|Login: +NOT CURRENT|Tests: +FAILED)' <<<"$out"; then
+      echo "install: install.sh --check found something tehas update does not fix; its lines above say what" >&2
+      found=1
+    fi
+    [ "$found" = 1 ] || echo "install: install.sh --check exited $rc" >&2
   else
     echo "install: install.sh exited $rc; no follow-up was run" >&2
   fi

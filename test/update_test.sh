@@ -899,6 +899,8 @@ t_lacks "$t_out" "installed:"
 # install.sh --check answers 1 when it found drift. That is its report, not a
 # failed step: in check mode nothing was meant to run.
 t_lacks "$t_out" "no follow-up was run"
+t_contains "$t_out" "install: install.sh --check found something to update"
+t_lacks "$t_out" "does not fix"
 # Nothing moved: no merge, no file changed, nothing started.
 t_eq "$(head_sha)" "$before"
 t_eq "$(git -C "$checkout" status --porcelain)" ""
@@ -917,6 +919,21 @@ t_contains "$t_out" "checkout: would fast-forward $before"
 t_contains "$t_out" "Installed:    OK"
 t_eq "$(head_sha)" "$before"
 t_eq "$(t_calls install)" "install --check"
+
+t_case "--check names what an update does not fix apart from something to update"
+for finding in "Dependencies: NOT OK" "Slice:        MISSING (sudo ./bootstrap.sh slice)" \
+  "Login:        NOT CURRENT" "Tests:        FAILED"; do
+  instance
+  platform 0 'echo "Instance:     $TEHAS_INSTANCE_DIR OK"
+echo "'"$finding"'"
+echo "Installed:    OK"
+exit 1'
+  t_run "$update --check"
+  t_eq "$t_rc" 1
+  t_contains "$t_out" "$finding"
+  t_contains "$t_out" "install: install.sh --check found something tehas update does not fix"
+  t_lacks "$t_out" "found something to update"
+done
 
 t_case "--check on a host that is up to date reports it and exits 0"
 instance

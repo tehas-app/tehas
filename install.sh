@@ -349,6 +349,10 @@ if [ ! -x "$console_to" ] || [ "$(cat "$console_to.stamp" 2>/dev/null)" != "$con
   fi
 fi
 
+# A host has its tools from bootstrap.sh before its first install, so only a
+# versions.env that replaces another one asks for it again.
+had_versions=0
+[ -f "$TEHAS_HOME/versions.env" ] && had_versions=1
 for e in "${files[@]}"; do put "$e"; done
 
 # The operating manual and the front page are directories; pages come and go.
@@ -582,6 +586,12 @@ fi
 # performed leaves the run red and the step owed. A person who ran install.sh by
 # hand reads the same lines, and the record stays until `tehas update` clears it.
 while IFS= read -r step; do echo "next: $step"; done < <(tehas_steps_for "${changed[@]}")
+
+# The pins moved, and the tools on the host follow them only when bootstrap.sh
+# user runs. Not a step: it fetches from the network and may take long.
+if [ "$had_versions" = 1 ] && [[ " ${changed[*]} " == *" versions.env "* ]]; then
+  echo "later: $root/bootstrap.sh user   (versions.env changed; until it runs, --check says Dependencies: NOT OK)"
+fi
 
 # The old commands go while this holds the dispatcher's lock. A cycle that
 # began before this install was started by the old dispatcher, which calls

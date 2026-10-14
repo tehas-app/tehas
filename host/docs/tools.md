@@ -1286,10 +1286,16 @@ lines this command runs itself. That includes a `Login: NOT CURRENT` report for
 `/usr/local/bin/tehas`, the command the other accounts type: root's to install,
 so it is named as a line rather than run as a step.
 
+When `install.sh --check` exits 1, `--check` says which kind it found.
+`Installed: DRIFT` and `Follow-ups: NOT DONE` are `something to update`.
+`Dependencies: NOT OK`, `Slice: MISSING` or `DIFFERS`, `Login: NOT CURRENT` and
+`Tests: FAILED` are `something tehas update does not fix`: running the update
+leaves them as they are.
+
 | Exit | Meaning                                                                       |
 | ---- | ----------------------------------------------------------------------------- |
 | 0    | Updated, or already up to date                                                 |
-| 1    | The checkout has local changes, is not on a branch, cannot fast-forward, has no commit yet, a step failed or ran out of its limit, `install.sh` ran out of its limit or gave no answer, a follow-up install.sh asked for is one this command does not know, systemd did not reload the unit files, a container or unit gave no answer, the record of steps owed exists but cannot be read, a status of `install.sh` this command does not know (named in the message), or `--check` found something to update (a checkout behind, steps left over from an earlier run, or a host's `/usr/local/bin/tehas` that is not the checkout's) |
+| 1    | The checkout has local changes, is not on a branch, cannot fast-forward, has no commit yet, a step failed or ran out of its limit, `install.sh` ran out of its limit or gave no answer, a follow-up install.sh asked for is one this command does not know, systemd did not reload the unit files, a container or unit gave no answer, the record of steps owed exists but cannot be read, a status of `install.sh` this command does not know (named in the message), or `--check` found something to update (a checkout behind, files that differ, steps left over from an earlier run) or something an update does not fix (the host's tools, the slice, a host's `/usr/local/bin/tehas` that is not the checkout's, the tests) |
 | 64   | More than one argument, or an argument this command does not know              |
 | 78   | The instance settings are missing or malformed, or there is no platform checkout |
 
@@ -1327,6 +1333,11 @@ there. Otherwise it prints the command on a `later:` line, which is for a
 person and is not a step of `tehas update`; the dispatcher builds the index
 before a cycle in any case. An indexing that fails is a warning and does not
 fail the install.
+
+A real run that replaced `versions.env` prints `later: <checkout>/bootstrap.sh
+user`. The pins moved, and the tools on the host, pi-rukas among them, follow
+them only when that runs; until then `--check` says `Dependencies: NOT OK`. It
+is no step of `tehas update`, because it fetches from the network.
 
 It also removes the commands of the earlier layout from `~/tehas/bin`, unless a
 cycle is running that still uses them. See [The host](/host).
