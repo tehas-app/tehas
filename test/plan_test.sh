@@ -296,7 +296,8 @@ t_eq "$t_rc" 2
 t_contains "$t_out" "the session abc-123 is gone: Pi opened it with no messages, so the answer was not sent"
 t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123","lost":true}'
 t_eq "$(cat "$T/calls/docker.stdin" 2>/dev/null)" ""
-t_eq "$(grep -l -x stop "$T"/calls/docker.args.* | wc -l)" 1
+# The container ended by itself; closing Pi's input is all a gone one needs.
+t_eq "$(grep -l -x stop "$T"/calls/docker.args.* | wc -l)" 0
 t_eq "$([ -e "$tree" ] && echo left)" ""
 
 t_case "a later turn whose container never says what is in the session sends no answer"
