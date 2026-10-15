@@ -2923,7 +2923,6 @@ t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit"
 t_lacks "$(t_calls gh)" "issue comment"
 t_lacks "$(t_calls gh)" "awaiting-merge"
-t_lacks "$(t_calls gh)" "tehas:ready"
 t_run "$dispatch --dry-run"
 t_contains "$t_out" "holding: no slice file on this host (sudo ./bootstrap.sh slice)"
 t_lacks "$t_out" "would run a cycle"
@@ -3219,16 +3218,11 @@ t_eq "$(t_calls fake-start)" ""
 t_contains "$t_out" "ERROR: the text of #7 could not be read for its links"
 
 # What the sandbox image says about its own pi-rukas, as its build writes it:
-# <commit>|<reads>. The commit is put among the proven ones, so the canary rule
-# stays out of these cases and only the image fact decides.
+# <commit>|<reads>.
 img_commit=$(printf 'c%.0s' {1..40})
 image_says() { # <1, 0, unknown, or none when the image carries no label>
-  rm -f "$fx/image.label" "$T/home/tehas/state/rukas-proven"
-  if [ "$1" != none ]; then
-    printf '%s\n' "$img_commit|$1" >"$fx/image.label"
-    mkdir -p "$T/home/tehas/state"
-    printf '%s\n' "$img_commit" >"$T/home/tehas/state/rukas-proven"
-  fi
+  rm -f "$fx/image.label"
+  [ "$1" = none ] || printf '%s\n' "$img_commit|$1" >"$fx/image.label"
 }
 
 t_case "an issue that links an image waits while the sandbox image says its pi-rukas does not read them, and the model is not asked"
@@ -3333,8 +3327,9 @@ t_lacks "$t_out" "holding:"
 t_lacks "$t_out" "released"
 t_eq "$(jq -c '[.why, .count, .room]' "$dispatch_json")" '["",0,4]'
 
-t_case "a hold whose numbers change between polls is logged once"
+t_case "a hold whose numbers change between polls is logged once while nothing waits"
 reset
+echo '[]' >"$fx/ready.json"
 other $((19 * gib + gib / 2))
 t_run "$dispatch"
 t_contains "$t_out" "holding: tehas.slice has no room"
@@ -3342,6 +3337,14 @@ other $((19 * gib + gib * 3 / 4))
 t_run "$dispatch"
 t_lacks "$t_out" "holding:"
 t_eq "$(jq -r .committed "$dispatch_json")" "$((19 * gib + gib * 3 / 4))"
+
+t_case "while an issue waits, the hold is logged on every poll"
+reset
+other $((19 * gib + gib / 2))
+t_run "$dispatch"
+t_contains "$t_out" "holding: tehas.slice has no room"
+t_run "$dispatch"
+t_eq "$(grep -c 'holding' <<<"$t_out")" 1
 
 t_case "a hold whose reason changes is logged again"
 slice_state 12.00
@@ -3416,8 +3419,7 @@ t_eq "$t_rc" 0
 t_eq "$(t_calls systemctl)" "show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax
 --user show -p LoadState --value tehas-cycle@7.service
 --user start tehas-cycle@7.service"
-t_eq "$(t_calls docker)" "image inspect --format {{index .Config.Labels \"tehas.rukas\"}}|{{index .Config.Labels \"tehas.rukas.images\"}} tehas/pi-rukas:uid$(id -u)
-info --format {{.CgroupDriver}} {{.CgroupVersion}}"
+t_eq "$(t_calls docker)" "info --format {{.CgroupDriver}} {{.CgroupVersion}}"
 t_contains "$(t_calls fake-index)" "--before-cycle"
 t_eq "$(t_calls fake-status | wc -l)" 2
 for name in tehas tehasbot tehas-work tehas-status tehas-index tehas-plan; do t_eq "$(t_calls "$name")" ""; done
@@ -3459,106 +3461,153 @@ t_lacks "$(t_calls gh)" "issue edit"
 t_lacks "$(t_calls gh)" "issue comment"
 t_lacks "$(t_calls systemctl)" "start"
 
-# --- A pi-rukas that is new on this host -----------------------------------
+# --- The slots are filled ---------------------------------------------------
 new_rukas=$(printf 'a%.0s' {1..40})
-old_rukas=$(printf 'b%.0s' {1..40})
-installed() { echo "$new_rukas" >"$fx/image.label"; }
-proven() { mkdir -p "$T/home/tehas/state"; echo "$1" >"$T/home/tehas/state/rukas-proven"; }
-ran_with() { echo "$2" >"$T/home/tehas/state/cycles/$1.rukas"; } # <issue> <commit>
-not_installed() { rm -f "$T/home/tehas/state/rukas-proven" "$fx/image.label"; }
 
-t_case "a pi-rukas no cycle has ended well on starts one cycle, whatever the slots"
+t_case "a pi-rukas no cycle has run before starts as many cycles as the slots allow"
 reset
 slots 4
-installed
-proven "$old_rukas"
-ready 7 8 9
+echo "$new_rukas|1" >"$fx/image.label"
+ready 7 8 9 10 11 12
 t_run "$dispatch"
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 10 "
+t_lacks "$t_out" "is new on this host"
+t_eq "$(find "$T/home/tehas/state/rukas-proven" 2>/dev/null | wc -l)" 0
+rm -f "$fx/image.label"
+
+t_case "with one cycle running and five waiting, one poll starts three"
+reset
+slots 4
+ready 7 8 9 10 11
+hold 12
+t_run "$dispatch"
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 "
+t_lacks "$t_out" "holding"
+release
+
+# A running cycle whose lock a process holds, which fake-stop ends as
+# systemctl stop ends the unit. It took its lock now.
+hold_proc() { # <issue>
+  mkdir -p "$T/home/tehas/state/cycles"
+  : >"$T/home/tehas/state/cycles/$1.taken"
+  flock -o "$T/home/tehas/state/cycles/$1.lock" sleep 30 >/dev/null 2>&1 &
+  echo "$!" >"$fx/holder-$1"
+  for _ in $(seq 50); do
+    flock -n "$T/home/tehas/state/cycles/$1.lock" true || break
+    sleep 0.1
+  done
+}
+stop_by_kill() {
+  t_stub fake-stop 'kill "$(cat "$T/fx/holder-$1")"'
+  T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+}
+bot_pr() { # <issue> <state> <created at>
+  jq -n --arg n "$1" --arg st "$2" --arg at "$3" '[{url: "https://github.com/acme/widget/pull/90", state: $st,
+    body: "Fixes #\($n)", headRefName: "feature/issue-\($n)-x", createdAt: $at}]' >"$fx/prlist.json"
+}
+
+t_case "a running cycle whose issue is closed is stopped, and its slot is filled on the same poll"
+reset
+stop_by_kill
+ready 7
+hold_proc 9
+echo '{"number":9,"state":"closed"}' >"$fx/work-9.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-stop)" "9"
+t_contains "$t_out" "stop #9: its issue is closed"
+t_eq "$(cat "$T/home/tehas/state/cycles/9.done")" closed
 t_eq "$(t_calls fake-start)" "7"
-not_installed
 
-t_case "with no cycle proven on this host at all, the first start is one cycle too"
+t_case "a running cycle whose pull request is merged is stopped, and its slot is filled on the same poll"
 reset
-slots 4
-installed
-ready 7 8 9
+stop_by_kill
+ready 7
+hold_proc 9
+bot_pr 9 MERGED 2099-01-01T00:00:00Z
 t_run "$dispatch"
+t_eq "$(t_calls fake-stop)" "9"
+t_contains "$t_out" "stop #9: its pull request https://github.com/acme/widget/pull/90 is merged"
+t_eq "$(cat "$T/home/tehas/state/cycles/9.done")" merged
 t_eq "$(t_calls fake-start)" "7"
-not_installed
 
-t_case "while a cycle runs on the new pi-rukas nothing more starts, and the hold says why"
+t_case "a pull request closed without a merge stops the cycle too"
 reset
-slots 4
-installed
-proven "$old_rukas"
-ready 7 8
-hold 9
-ran_with 9 "$new_rukas"
+stop_by_kill
+echo '[]' >"$fx/ready.json"
+hold_proc 9
+bot_pr 9 CLOSED 2099-01-01T00:00:00Z
 t_run "$dispatch"
+t_eq "$(t_calls fake-stop)" "9"
+t_eq "$(cat "$T/home/tehas/state/cycles/9.done")" pr-closed
+
+t_case "an open pull request, one of an earlier cycle, or one of another issue stops nothing"
+reset
+stop_by_kill
+ready 7
+hold_proc 9
+for pr in "9 OPEN 2099-01-01T00:00:00Z" "9 MERGED 2000-01-01T00:00:00Z" "8 MERGED 2099-01-01T00:00:00Z"; do
+  # shellcheck disable=SC2086  # three words
+  bot_pr $pr
+  t_run "$dispatch --dry-run"
+  t_lacks "$t_out" "would stop"
+done
+t_run "$dispatch"
+t_eq "$(t_calls fake-stop)" ""
 t_eq "$(t_calls fake-start)" ""
-t_eq "$(jq -r .why "$dispatch_json")" canary
+t_contains "$(t_calls gh)" "pr list --repo acme/widget --author tehas-bot --state all"
+kill "$(cat "$fx/holder-9")"
+
+t_case "a dry run says it would stop a finished cycle, and stops nothing"
+reset
+stop_by_kill
+hold_proc 9
+echo '{"number":9,"state":"closed"}' >"$fx/work-9.json"
 t_run "$dispatch --dry-run"
-t_contains "$t_out" "holding: pi-rukas aaaaaaaaaaaa is new on this host, one cycle runs on it until one ends with a pull request"
-release
-not_installed
+t_contains "$t_out" "would stop tehas-cycle@9.service: its issue is closed"
+t_eq "$(t_calls fake-stop)" ""
+t_eq "$(find "$T/home/tehas/state/cycles/9.done" 2>/dev/null | wc -l)" 0
+kill "$(cat "$fx/holder-9")"
 
-t_case "cycles still running on the pi-rukas before do not hold back the first one on the new"
+t_case "with no cycle running the bot's pull requests are not asked for"
+reset
+t_run "$dispatch"
+t_lacks "$(t_calls gh)" "pr list"
+
+t_case "a poll that starts fewer than it could logs exactly one reason, on every such poll"
+reset
+slots 4 TEHAS_MAX_AWAITING=3
+echo '[{"number":1}]' >"$fx/awaiting.json"
+ready 7 8 9 10 11 12
+t_run "$dispatch"
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 "
+t_eq "$(grep -c 'holding' <<<"$t_out")" 1
+t_contains "$t_out" "holding: 2 of 4 free slots start: 1 issues await merge and 0 cycles are running (limit 3)"
+t_eq "$(jq -r .why "$dispatch_json")" awaiting
+rm -f "$T"/calls/fake-start
+rm -rf "$T/home/tehas/state/cycles"
+t_run "$dispatch"
+t_eq "$(grep -c 'holding' <<<"$t_out")" 1
+
+t_case "the slice's room, when it is the limit, is the one reason"
 reset
 slots 4
-installed
-proven "$old_rukas"
+other $((15 * gib))
+ready 7 8 9 10
+t_run "$dispatch"
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 "
+t_eq "$(grep -c 'holding' <<<"$t_out")" 1
+t_contains "$t_out" "holding: 2 of 4 free slots start: tehas.slice has room for 2 more"
+t_eq "$(jq -r .why "$dispatch_json")" room
+
+t_case "a poll that starts as many as wait says no reason"
+reset
+slots 4 TEHAS_MAX_AWAITING=3
+echo '[{"number":1}]' >"$fx/awaiting.json"
 ready 7 8
-hold 9
-ran_with 9 "$old_rukas"
-hold 10
 t_run "$dispatch"
-t_eq "$(t_calls fake-start)" "7"
-release
-not_installed
-
-t_case "the commit is the sandbox image's: one put back for a rollback that was proven before runs freely"
-reset
-slots 4
-installed
-printf '%s\n' "$old_rukas" >"$T/home/tehas/state/rukas-proven"
-echo "$old_rukas" >"$fx/image.label"
-ready 7 8 9
-t_run "$dispatch"
-t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 "
-t_contains "$(t_calls docker)" "tehas.rukas"
-not_installed
-
-t_case "an image without the label holds nothing back: there is no commit to compare"
-reset
-slots 4
-proven "$old_rukas"
-ready 7 8 9
-t_run "$dispatch"
-t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 "
-not_installed
-
-t_case "any commit in the list of proven ones counts"
-reset
-slots 4
-installed
-printf '%s\n' "$old_rukas" "$new_rukas" >"$T/home/tehas/state/rukas-proven"
-ready 7 8 9
-t_run "$dispatch"
-t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 "
-not_installed
-
-t_case "once a cycle has ended well on the installed pi-rukas the slots decide again"
-reset
-slots 4
-installed
-proven "$new_rukas"
-ready 7 8 9
-hold 10
-ran_with 10 "$new_rukas"
-t_run "$dispatch"
-t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 "
-release
-not_installed
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 "
+t_lacks "$t_out" "holding"
+t_eq "$(jq -r .why "$dispatch_json")" ""
 
 # --- A cycle a provider outage parked -------------------------------------------
 cycles_dir=$T/home/tehas/state/cycles

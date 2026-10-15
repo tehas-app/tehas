@@ -627,8 +627,7 @@ docker tag tehas/pi-rukas:<date> tehas/pi-rukas:uid$(id -u)
 Each image carries the pi-rukas commit it was built with, as its label
 `tehas.rukas`, and the dispatcher and the improvement loop read the commit
 from there. The loop's record of a cycle has the commit and the image's id as
-the cycle's container started. A commit that cycles have ended well on before runs at full
-concurrency again at once.
+the cycle's container started.
 
 That holds until the next `tehas update`, which builds the head again. Hold
 off updates until upstream's head is fixed, or point `PI_RUKAS_BRANCH` at a

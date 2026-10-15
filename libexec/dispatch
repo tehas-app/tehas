@@ -6,8 +6,9 @@
 # tehas-cycle@<issue>.service. It does not wait for a cycle: tehasbot cycle
 # runs it and reports the outcome. The poll also runs one turn of a planning
 # session, when an answer is waiting, and it does wait for that turn. A systemd
-# timer runs a poll every two minutes, whatever the cycles are doing; a
-# planning turn in progress makes the following polls wait.
+# timer runs a poll every two minutes, whatever the cycles are doing, and a
+# cycle that ends starts one; a planning turn in progress makes the following
+# polls wait.
 #
 # Usage:
 #   tehas dispatch               one poll
@@ -27,9 +28,11 @@
 #      host is handed to a human, once a fresh read shows it still marked.
 #      Nothing is started for it. A closed one only loses the mark. A cycle
 #      that holds its lock but has not been heard from for 20 minutes is
-#      stuck: its unit is stopped, and said once. The workspaces kept for an
-#      issue no cycle has run on for 7 days are removed, three issues a poll
-#      at most.
+#      stuck: its unit is stopped, and said once. A running cycle whose work
+#      is done is stopped, and its slot is free on the same poll: its issue
+#      is closed, or the bot's pull request for it, opened since the cycle
+#      began, is merged or closed. The workspaces kept for an issue no cycle
+#      has run on for 7 days are removed, three issues a poll at most.
 #   3. Running cycles and tehas PRs that wait for a human together do not
 #      exceed TEHAS_MAX_AWAITING. And a cycle starts only while tehas.slice,
 #      the systemd slice every sandbox container runs in, has room for one
@@ -37,7 +40,10 @@
 #      fit and is not under full memory pressure. Every container in the
 #      slice counts at its floor or its use, whichever is more, and a cycle
 #      that has no container yet at one reserve. A slice that is missing, has
-#      no limit or cannot be read starts nothing.
+#      no limit or cannot be read starts nothing. A poll that starts fewer
+#      cycles than there are free slots and waiting issues names the one
+#      reason: the awaiting-merge limit, the slice's room, its memory
+#      pressure or no resources.
 #   4. A box ticked by an allowed account in the bot's question comment is an
 #      answer: on a parked cycle, "Retry from a clean start" starts a fresh
 #      cycle. Rules 2 and 3 hold that back too. The tick counts only on a
@@ -73,14 +79,6 @@
 #      the poll takes it off and says so once on the issue: left in place it
 #      reads as a request for a cycle to everyone who reads the issue. A
 #      tehas:plan from such an account is taken off the same way.
-#   3a. A pi-rukas commit that no cycle on this host has ended well on, as
-#      merged or as a handoff with a pull request, runs one cycle at a time.
-#      The commit is the sandbox image's (lib/cycles.sh). tehasbot cycle
-#      writes the commit a cycle ran with beside its lock, and adds that of a
-#      cycle that ended well to state/rukas-proven. While a running cycle has
-#      the image's commit and that file does not name it, nothing more
-#      starts; cycles of the commit before still count for rule 2 only. A bad
-#      release then costs one cycle, not a slot of each.
 #   7. tehas:urgent first, then the lowest issue number. The urgent label
 #      counts only when its most recent labelling is by an allowed account, as
 #      tehas:ready does: one applied by the bot or anyone else is ignored and
@@ -105,7 +103,8 @@
 # From the environment, for tests: TEHAS_STATUS_CMD, TEHAS_INDEX_CMD,
 # TEHAS_PLAN_CMD, TEHAS_CYCLE_START_CMD and TEHAS_CYCLE_STOP_CMD (in place of
 # systemctl, called with the issue), TEHAS_CYCLE_START_WAIT (seconds to wait for a started cycle
-# [30]), TEHAS_CGROUP_ROOT (in place of /sys/fs/cgroup) and TEHAS_FETCH_WAIT
+# [30]), TEHAS_CYCLE_DONE_WAIT (seconds the stop of a finished cycle may take
+# [330]), TEHAS_CGROUP_ROOT (in place of /sys/fs/cgroup) and TEHAS_FETCH_WAIT
 # (seconds the fetch of the checkout may take [120]).
 #
 # Before a start changes any label, the poll writes what it rests on to
@@ -343,14 +342,15 @@ slice_ok() { [ -z "$slice_hold" ] && [ "$mem_why" != unreadable ]; }
 gib() { printf '%d.%d GiB' $(($1 / 1073741824)) $(($1 % 1073741824 * 10 / 1073741824)); }
 
 # report_hold: write live/dispatch.json for tehas status and log a hold when
-# its reason is not the one the last poll wrote. The numbers in the text move
-# between polls, so the one word in $why is compared. Needs $why, $hold and
-# the slice's numbers. A file that cannot be written is a warning.
+# its reason is not the one the last poll wrote, or when it keeps waiting
+# issues from free slots ($short). The numbers in the text move between polls,
+# so the one word in $why is compared. Needs $why, $hold, $short and the
+# slice's numbers. A file that cannot be written is a warning.
 report_hold() {
   local file=$TEHAS_HOME/live/dispatch.json before
   before=$(jq -r '.why // "" | strings' "$file" 2>/dev/null) || before=""
   if [ -n "$why" ]; then
-    [ "$why" = "$before" ] || log "$hold"
+    [ "$why" = "$before" ] && [ "$short" = 0 ] || log "$hold"
   elif [ -n "$before" ]; then
     log "released: cycles may start again"
   fi
@@ -829,25 +829,63 @@ for n in $(tehas_cycles_running); do
   fi || log "WARN: could not stop tehas-cycle@$n.service"
 done
 
+# A cycle whose work is done holds its slot for nothing: its issue is closed,
+# or the bot's pull request for it is merged or closed, and the cycle may
+# still be reviewing for hours. Only a pull request opened since the cycle
+# took its lock is its own: one of an earlier cycle of the issue says nothing
+# about this one. The cycle is told why in <issue>.done before its unit is
+# stopped, and reports as any stopped cycle does. The poll waits for the
+# lock, so the slot counts as free below.
+done_wait=${TEHAS_CYCLE_DONE_WAIT:-330}
+running=$(tehas_cycles_running)
+if [ -n "$running" ]; then
+  gh_json pr list --repo "$repo" --author "$bot" --state all --json url,state,body,headRefName,createdAt --limit 100
+  bot_prs=$json
+  jq -e 'type == "array"' >/dev/null 2>&1 <<<"$bot_prs" || { log "ERROR: unreadable list of the bot's pull requests"; exit 1; }
+fi
+for n in $running; do
+  took=$(stat -c %Y "$TEHAS_HOME/state/cycles/$n.taken" 2>/dev/null) || continue
+  gh_json api "repos/$repo/issues/$n"
+  if [ "$(jq -r '.state // "" | ascii_downcase' <<<"$json")" = closed ]; then
+    done_why=closed
+    done_text="its issue is closed"
+  else
+    # The newest of this cycle's pull requests decides: one it closed itself
+    # and opened again is still open work.
+    line=$(jq -r --arg n "$n" --arg since "$(date -u -d "@$took" +%FT%TZ)" "$(tehas_names_issue)"'
+      [.[] | select(type == "object" and ((.createdAt // "") | strings) >= $since) | select(mine)]
+      | sort_by(.createdAt) | last // {} | "\(.state // "")\t\(.url // "" | strings | select(test("^https://[A-Za-z0-9./_-]+$")) // "")"' <<<"$bot_prs") ||
+      { log "ERROR: unreadable list of the bot's pull requests"; exit 1; }
+    case "${line%%$'\t'*}" in
+      MERGED) done_why=merged done_text="its pull request ${line#*$'\t'} is merged" ;;
+      CLOSED) done_why=pr-closed done_text="its pull request ${line#*$'\t'} was closed without a merge" ;;
+      *) continue ;;
+    esac
+  fi
+  if [ "$dry" = 1 ]; then
+    log "would stop tehas-cycle@$n.service: $done_text"
+    continue
+  fi
+  log "stop #$n: $done_text"
+  echo "$done_why" >"$TEHAS_HOME/state/cycles/$n.done" || log "WARN: could not write the reason for #$n"
+  if [ -n "${TEHAS_CYCLE_STOP_CMD:-}" ]; then
+    timeout -k 5 "$done_wait" "$TEHAS_CYCLE_STOP_CMD" "$n" 8>&-
+  else
+    timeout -k 5 "$done_wait" systemctl --user stop "tehas-cycle@$n.service" 8>&-
+  fi || log "WARN: could not stop tehas-cycle@$n.service"
+  for ((i = 0; i < 20; i++)); do
+    tehas_cycle_running "$n" || break
+    sleep 0.5
+  done
+  ! tehas_cycle_running "$n" || log "WARN: the cycle for #$n still holds its lock after its stop"
+done
+
 # 2. The slots. A cycle that died holds no lock and is not counted.
 running=$(tehas_cycles_running | tr '\n' ' ')
 running=${running% }
 count=$(wc -w <<<"$running")
 count=$((count))
 free=$((TEHAS_TICKET_CONCURRENCY - count))
-
-# 3a. The pi-rukas a cycle started now runs, and whether a cycle has ended
-# well on it. Without a commit on record there is nothing to compare.
-rukas_now=$(tehas_rukas_commit)
-canary=0
-on_new=0
-if [ -n "$rukas_now" ] && ! tehas_rukas_proven "$rukas_now"; then
-  canary=1
-  for n in $running; do
-    [ "$(head -c 64 "$TEHAS_HOME/state/cycles/$n.rukas" 2>/dev/null | head -n 1)" != "$rukas_now" ] ||
-      on_new=$((on_new + 1))
-  done
-fi
 
 # reap <container> <why>: remove a container whose command is gone. Its
 # client died, so nothing else stops it: it would work on with the bot's
@@ -931,11 +969,32 @@ sweep_workspaces() {
 }
 sweep_workspaces
 
+# The open issues labelled tehas:ready, read once a poll, in $ready_json.
+ready_json=""
+read_ready() {
+  [ -z "$ready_json" ] || return 0
+  gh_json issue list --repo "$repo" --state open --label tehas:ready --limit 1000 --json number,labels
+  ready_json=$json
+}
+# count_waiting: how many of them could start now, as far as this host knows
+# without asking GitHub more, in $waiting: no cycle and no planning session of
+# theirs is open.
+waiting=0
+count_waiting() {
+  local n list
+  read_ready
+  list=$(jq -r '.[].number | tonumber? // empty' <<<"$ready_json") || { log "ERROR: unreadable list of ready issues"; exit 1; }
+  waiting=0
+  for n in $list; do
+    [ -e "$(plan_state "$n")" ] || tehas_cycle_running "$n" || waiting=$((waiting + 1))
+  done
+}
+
 # 3. Do not pile up unreviewed work, and do not promise memory the slice does
 # not have. A running cycle is a pull request on its way, so it counts:
 # otherwise the slots could overshoot the cap. Rules 2 and 3 hold back new
 # cycles only; a question is still read while they hold. $hold says why and
-# $why is the one word for it: slice, unreadable, resources, count, canary,
+# $why is the one word for it: slice, unreadable, resources, count,
 # awaiting, pressure, room or full, the first that applies. resources is a model
 # endpoint that does not answer or does not offer the model: it holds
 # planning turns and retries as well.
@@ -980,9 +1039,6 @@ elif [ -n "$mesh_hold" ]; then
 elif [ "$free" -le 0 ]; then
   why=count
   hold="holding: $count cycles are running (limit $TEHAS_TICKET_CONCURRENCY)"
-elif [ "$canary" = 1 ] && [ "$on_new" -gt 0 ]; then
-  why=canary
-  hold="holding: pi-rukas ${rukas_now:0:12} is new on this host, one cycle runs on it until one ends with a pull request"
 else
   gh_json issue list --repo "$repo" --state open --label tehas:awaiting-merge --limit 1000 --json number
   awaiting=$(jq length <<<"$json") || { log "ERROR: unreadable list of issues awaiting merge"; exit 1; }
@@ -1004,8 +1060,25 @@ else
   else
     want=$((free < room ? free : room))
     [ "$want" -le "$room_mem" ] || want=$room_mem
-    [ "$canary" = 0 ] || [ "$want" -le 1 ] || want=1
   fi
+fi
+# Fewer start than there are free slots and issues waiting: the reason is
+# said on every such poll, not only when it changes. Some start: the limit
+# that cut it is the reason, and it holds nothing else back.
+short=0
+if [ "$free" -gt 0 ] && [ "$want" -lt "$free" ]; then
+  count_waiting
+  [ "$waiting" -le "$want" ] || short=1
+fi
+if [ "$short" = 1 ] && [ "$want" -gt 0 ]; then
+  if [ "$want" = "$room" ]; then
+    why=awaiting
+    hold="holding: $want of $free free slots start: $awaiting issues await merge and $count cycles are running (limit $max_awaiting)"
+  else
+    why=room
+    hold="holding: $want of $free free slots start: tehas.slice has room for $want more ($(gib "$committed") of $(gib "$slice_max") promised, each cycle is given $TEHAS_CYCLE_RESERVE)"
+  fi
+  [ "$dry" = 0 ] || log "$hold"
 fi
 [ "$dry" = 1 ] || report_hold
 
@@ -1172,7 +1245,7 @@ for n in $asking; do
       # The tick approves the text as it was at that moment, as the label does.
       issue_events "$n"
       unchanged_since "$n" "$(jq -r .tick.at <<<"$ans")" "$by ticked retry" "untick the box and tick it again" || continue
-      if [ -n "$hold" ]; then
+      if [ "$want" = 0 ]; then
         [ "$dry" = 1 ] && log "$hold"
         continue
       fi
@@ -1312,7 +1385,7 @@ for n in $plans; do
   exit 0
 done
 
-if [ -n "$hold" ]; then
+if [ "$want" = 0 ]; then
   [ "$dry" = 1 ] && log "$hold"
   exit 0
 fi
@@ -1370,8 +1443,7 @@ done
 # events read of any issue asked about here ends the poll. Who applied
 # tehas:ready is read again when the issue is picked, so no start rests on this
 # ordering read.
-gh_json issue list --repo "$repo" --state open --label tehas:ready --limit 1000 --json number,labels
-ready_json=$json
+read_ready
 carrying=$(jq -r '.[] | select((.labels // []) | any(.name == "tehas:urgent")) | .number | tonumber? // empty' <<<"$ready_json") ||
   { log "ERROR: unreadable list of ready issues"; exit 1; }
 urgent=()

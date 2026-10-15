@@ -223,7 +223,7 @@ shows one cycle at a time. When several are running, or one is running and an
 earlier one can still be read, a row of tabs above it names each by its issue
 number.
 
-A timer polls every two minutes. To see the factory's state, or to see or force
+A timer polls every two minutes, and a cycle that ends starts a poll at once. To see the factory's state, or to see or force
 a poll by hand on the host:
 
 ```
@@ -527,17 +527,24 @@ reaches them. Remove the label to resume.
   model with a one-pixel image only when such an issue could start now, at
   most once a poll. The issue stays queued, the log says `hold #N: ...`, and
   issues without images start as usual. A planning turn is not held by it.
-- One cycle at a time on a pi-rukas that is new on the host: one that no
-  cycle here has ended as `merged`, or as a handoff with a pull request, on.
-  While a cycle runs on it, `tehas status` says `holding: pi-rukas <commit> is
-  new on this host`, and cycles still running on the pi-rukas before it count
-  for the slots only. The first cycle that ends well on it lifts the hold. The
-  commit is the sandbox image's, its label `tehas.rukas`, so an image put back
-  for a [rollback](/host#rolling-back-pi-rukas) is known by its own commit;
-  an image built before the label counts as the commit in
-  `~/tehas/versions.env`. The commits proven are listed in
-  `~/tehas/state/rukas-proven`. A new host, which has proven none, starts the
-  same way.
+- A slot is never kept by work that is done. Each poll stops a running
+  cycle whose issue is closed, or whose pull request, opened by the bot since
+  the cycle began, is merged or closed. It is stopped as stopping its unit
+  does: the container goes, the lock is released and `tehas:running` comes
+  off. The log says `stop #N: <reason>`. A merged one is reported as merged,
+  one whose issue was closed only loses `tehas:running`, and one whose pull
+  request was closed is parked without the retry boxes. The slot is filled
+  on the same poll. And a cycle that ends starts a poll at once
+  (`tehas-dispatch.service`), so its slot does not wait for the timer.
+- Nothing else. A new pi-rukas commit runs at full concurrency from its first
+  cycle, so a bad one can fail up to `TEHAS_TICKET_CONCURRENCY` cycles at
+  once. Those issues end labelled `needs-human-attention`, as any failed cycle
+  does, and the time limits bound the cost.
+- When a poll starts fewer cycles than there are free slots and issues
+  waiting, the log says why on every such poll, and `tehas status` shows the
+  same line: `holding: <n> of <free> free slots start: ...` when the
+  awaiting-merge limit or the slice's room cut it, else the hold that stopped
+  all of them.
 - Inside a cycle, `TEHAS_CONCURRENCY` workstreams side by side: 4 by default,
   fewer if the model backends cannot take it. See [The host](/host).
 - No new cycle while `TEHAS_MAX_AWAITING` issues carry `tehas:awaiting-merge`

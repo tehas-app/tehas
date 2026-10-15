@@ -92,9 +92,18 @@
 # there.
 #
 # The pi-rukas commit of the sandbox image when the cycle starts goes to
-# state/cycles/<issue>.rukas, and when the cycle ends as merged, or as a
-# handoff with an open pull request, is added to state/rukas-proven. The dispatcher
-# runs one cycle at a time on a commit that file does not name.
+# state/cycles/<issue>.rukas.
+#
+# The dispatcher stops a cycle whose work is done, and says why first in
+# state/cycles/<issue>.done: closed (the issue was closed), merged or
+# pr-closed (the bot's pull request for it). A merged pull request ends the
+# cycle as merged, as above. A cycle stopped because its issue was closed only
+# loses tehas:running, and nothing is asked.
+#
+# When the cycle has been reported it starts one poll of the dispatcher
+# (tehas-dispatch.service, without waiting for it), so that its slot is filled
+# at once and not at the next tick of the timer. A start that fails is a
+# warning: the timer still runs the poll.
 #
 # Where the instance has an improvement loop (TEHAS_IMPROVE_REPO), it leaves
 # the cycle's record for it at the end, in tmp/improve/window (lib/improve.sh),
@@ -146,8 +155,6 @@ flock -w 5 9 || { log "a cycle for #$issue is already running"; exit 3; }
 # know its unit came up, and a cycle that goes on to refuse its number still
 # came up: leaving the file out would have the poll report a start that did
 # happen as one that did not.
-# Before .taken: the dispatcher counts this cycle as one on its pi-rukas from
-# the moment it sees the cycle started.
 rukas=$(tehas_rukas_commit)
 printf '%s\n' "$rukas" >"$cycles/$issue.rukas" || log "WARN: could not record the pi-rukas commit of #$issue"
 : >"$cycles/$issue.taken"
@@ -221,13 +228,6 @@ tidy() {
   fi
 }
 
-# The pi-rukas this cycle ran with has ended well here.
-proven() {
-  [ -n "$rukas" ] || return 0
-  tehas_rukas_proven "$rukas" && return 0
-  printf '%s\n' "$rukas" >>"$TEHAS_HOME/state/rukas-proven" || log "WARN: could not record pi-rukas $rukas as proven"
-}
-
 started=$(date +%s)
 # A relabelled issue gets a fresh cycle, not whatever the last one parked.
 # The workspace is new every time, so the record of an earlier cycle is kept
@@ -243,7 +243,7 @@ requeued=0
 [ ! -e "$cycles/$issue.requeued" ] || requeued=1
 rm -f "${cycles:?}/${issue:?}.oom" "${cycles:?}/${issue:?}.forks" "${cycles:?}/${issue:?}.stalled" \
   "${cycles:?}/${issue:?}.ended" "${cycles:?}/${issue:?}.branch" "${cycles:?}/${issue:?}.image" \
-  "${cycles:?}/${issue:?}.park" "${cycles:?}/${issue:?}.requeued"
+  "${cycles:?}/${issue:?}.park" "${cycles:?}/${issue:?}.requeued" "${cycles:?}/${issue:?}.done"
 # The trap is set before the runner starts, so no signal falls between.
 wpid=""
 stopped=0
@@ -423,6 +423,10 @@ fi
 stuck=" The label of this issue could not be changed. The next poll of the dispatcher hands it to a human."
 
 summary="status \`$status\`, last step \`$step\`, $mins min"
+# Why the dispatcher stopped this cycle, if it did.
+done_why=$(head -c 16 "$cycles/$issue.done" 2>/dev/null | head -n 1)
+case "$done_why" in closed | merged | pr-closed) ;; *) done_why="" ;; esac
+rm -f "$cycles/$issue.done"
 # park <text>: hand the issue to a human with the retry question.
 # The park on record for the dispatcher. retry is set only for a provider
 # outage on a cycle that was not itself the dispatcher's retry of one.
@@ -464,7 +468,6 @@ if [ -n "$merged_pr" ]; then
   relabel --remove-label tehas:running && stuck=""
   if [ "$rc" = 0 ] && [ "$status" = merged ]; then
     comment "Tehas cycle finished: $summary. The change was merged: $merged_pr$killed$stuck"
-    proven
   else
     comment "Tehas cycle ended: its pull request $merged_pr was merged while the cycle ran (last step \`$step\`, $mins min, runner exit $rc). Nothing more is needed here.$killed$stuck"
   fi
@@ -487,8 +490,13 @@ elif [ "$rc" = 0 ] && [ "$status" = handoff ] && [ -n "$pr" ]; then
   gh_call pr comment "$pr" --body "Tehas cycle for #$issue: $summary.
 
 ${usage:-No token usage was recorded for this cycle.}" >/dev/null 2>&1 || log "WARN: comment on $pr failed"
-  proven
   tidy
+elif [ "$done_why" = closed ]; then
+  # Closed while the cycle ran: nobody is waiting on it, so nothing is asked.
+  # The workspace stays for the sweep.
+  relabel --remove-label tehas:running && stuck=""
+  comment "Tehas stopped the cycle: this issue was closed while it ran ($summary). Nothing more is needed here.$killed$stuck"
+  status=closed
 elif [ -z "$pr" ] && [ -n "$closed_pr" ] && [ "$rc" != 4 ]; then
   # A person closed the pull request without merging it: whether to try again
   # is theirs to say, with the label. No retry box.
@@ -515,4 +523,8 @@ log "done #$issue rc=$rc status=$status step=$step minutes=$mins pr=${pr:-none} 
 tehas_improve_record "$issue" "$started" "$rc" "$status" "$step" "$pr" "$kills" "$image_id" "$image_rukas" "$cap" "$reason" || log "WARN: no record of #$issue for the improvement loop"
 # The next poll refreshes the status. A stopped cycle leaves it to that poll.
 [ "$signalled" = 1 ] || "$status_cmd"
+# The slot is free now: fill it without waiting for the timer. A poll that is
+# running already takes this start as its own.
+timeout -k 5 10 systemctl --user start --no-block tehas-dispatch.service 9>&- >/dev/null 2>&1 ||
+  log "WARN: could not start a poll of the dispatcher"
 exit 0
