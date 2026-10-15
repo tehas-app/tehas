@@ -36,7 +36,10 @@ git clone -q "$upstream" "$checkout"
 # start a container whose cid file is already there. Only a run is recorded
 # one argument per line; what the container does is a file a case writes.
 t_stub docker 'if [ "$1" = info ]; then cat "$T/docker.info"; exit; fi
-if [ "$1" = image ]; then cat "$T/image.inspect" 2>/dev/null; exit; fi
+if [ "$1" = image ]; then
+  case " $* " in *"{{.Id}}"*) cat "$T/image.inspect" ;; *) cat "$T/image.label" ;; esac 2>/dev/null
+  exit
+fi
 printf "%s\n" "$@" >"$T/calls/docker.args.$$"
 prev=""
 for a in "$@"; do
@@ -926,6 +929,7 @@ images_on() {
   rm -rf "$fx" "$T"/calls/* "$T/home/tehas/work"
   mkdir -p "$fx/net"
   slice_good
+  reads_image 1
   T_ENV=("${env_ok[@]}")
   t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1 "$@"
 }
@@ -937,6 +941,13 @@ $state/sessions:/home/vscode/.pi/agent/sessions
 $T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
 $T/home/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro"
 manifest() { jq -c "$1" "$imgs/manifest.json" 2>&1; }
+# What the sandbox image says about its own pi-rukas, as host/sandbox/build.sh
+# writes it: <commit>|<reads>. reads_image says it for one case.
+img_commit=$(printf 'c%.0s' {1..40})
+reads_image() { # <1, 0, or none when the image carries no label>
+  rm -f "$T/image.label"
+  if [ "$1" != none ]; then printf '%s\n' "$img_commit|$1" >"$T/image.label"; fi
+}
 
 t_case "with images off GitHub is not asked, nothing is fetched and no directory is made"
 images_on
@@ -1013,6 +1024,39 @@ t_contains "$(t_calls gh)" "- $F/23/all.zip: Not a png, jpg, webp or gif image."
 t_case "the limit counts all images together: each fetch may take what is left"
 t_eq "$(t_calls curl | grep -o -e '--max-filesize [0-9]*' | tr '\n' ' ')" \
   "--max-filesize 10485760 --max-filesize 10485745 --max-filesize 10485734 --max-filesize 10485734 --max-filesize 10485721 "
+
+t_case "an image the sandbox image does not read is said as fetched and not shown, and still mounted"
+images_on
+reads_image 0
+net "$A/1111" "$png"
+issue_is "![shot]($A/1111)"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$(after -v)" "$imgs:$inside.images:ro"
+t_eq "$(after -e | grep '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$inside.images"
+t_lacks "$(t_calls gh)" "Tehas gave this cycle"
+t_contains "$(t_calls gh)" "Tehas fetched 1 image from the issue text and mounted it read-only in the container of this cycle. The pi-rukas in the sandbox image does not read them, so no agent was shown one."
+
+# An image built before the label existed is not proof of anything, and tehas
+# does not claim one way or the other.
+t_case "a sandbox image that says nothing is not claimed to have shown the images"
+images_on
+reads_image none
+net "$A/1111" "$png"
+issue_is "![shot]($A/1111)"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_lacks "$(t_calls gh)" "Tehas gave this cycle"
+t_contains "$(t_calls gh)" "The sandbox image does not say whether its pi-rukas reads them: rebuild it with $T/home/tehas/sandbox/build.sh, which records the answer."
+
+t_case "a sandbox image that reads them is said to have given them"
+images_on
+reads_image 1
+net "$A/1111" "$png"
+issue_is "![shot]($A/1111)"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body Tehas gave this cycle 1 image from the issue text."
 
 t_case "bytes that are not the image the name says are left out"
 images_on

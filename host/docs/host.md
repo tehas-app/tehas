@@ -32,7 +32,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/work/tehas-plan-<issue>.images` | With `TEHAS_WORK_IMAGES=1`, a copy of a planning session's images for one turn, read-only in its container at `~/tehas/work/tehas.images`, removed after the turn |
 | `~/tehas/work/tehas-<issue>.state`   | The cycle's own: `cache`, a copy of the code index the host built; `memory`, what its agents learn; `sessions`, Pi's session files. Made fresh for each cycle, mounted in its container, removed with the workspace. `~/tehas/work/tehas-plan-<issue>.state` is a planning turn's, removed after the turn |
 | `~/tehas/dev/<name>`                 | A person's clone for working by hand, named after their account, made and used by `tehas dev`, never removed. `<name>.author` next to it holds whose name its commits carry, `<name>.state` its memory, sessions, transcripts and code index |
-| `~/tehas/repos/pi-rukas`             | pi-rukas, pinned to a commit                                            |
+| `~/tehas/repos/pi-rukas`             | pi-rukas, at the head of its branch                                     |
 | `~/tehas/docs/`, `~/tehas/fun/`      | This site's pages and the front page, installed from `host/`            |
 | `~/tehas/sandbox/`, `versions.env`   | Sandbox image definition, build script, the Playwright npm pin, and the pinned tool versions |
 | `~/tehas/edge/`                      | The docs server (`docs.compose.yaml`) and the edge router (`router.compose.yaml`) |
@@ -99,6 +99,11 @@ tehas update --check     # report what would change; changes no file of the
 tehas update             # pull, install, run the follow-ups that apply
 ```
 
+You do not have to remember to look. `tehas status` has a `platform` line
+that says how many commits the checkout is behind origin's default branch,
+which `tehasbot status` fetches at most once an hour, and `/health` says
+`warn` once it has been behind for more than a day.
+
 `tehas update` is the three steps that took hand work before: fast-forward
 `~/tehas/platform` from its remote, run `install.sh`, then run each follow-up it
 asks for by name (`units`, `sandbox`, `docs`, `edge`: see [Commands](/tools)).
@@ -116,6 +121,11 @@ than report a changed unit as applied. A step that fails leaves the ones before 
 applied, and what is still owed is kept in `~/tehas/state/` (`update-pending`)
 until it has run, so the next update finishes it instead of calling the host
 current.
+
+One update runs at a time. `tehas update` and a real run of `install.sh` hold
+`~/tehas/state/update.lock`; a second one started meanwhile prints `another
+update is running` and exits 1 before it changes anything. The update hands
+its lock to the `install.sh` it runs. `--check` takes no lock.
 
 The steps are still there on their own. `install.sh` is what puts tehas on a host
 the first time, before `tehas update` exists there:
@@ -179,6 +189,11 @@ but for the one case below:
 a copied unit file is not in effect until systemd has reloaded it, and that reload
 belongs to the step that restarts the units. A file edited directly on the host
 shows up as drift in `--check`.
+
+Each file is copied to `<name>.new` beside the installed one and renamed over
+it. A cycle that starts during an install runs the old file or the new one,
+never part of one, and an install that is stopped or fails partway leaves the
+file it was copying as it was.
 
 One file is written, not copied: `version.txt`, beside the pages in
 `~/tehas/docs` and `~/tehas/fun`. It holds the newest tag of the checkout and
@@ -261,7 +276,7 @@ limits, twelve words on the `docker run` line:
 | Option | Value | What it does |
 | --- | --- | --- |
 | `--cgroup-parent` | `tehas.slice` | Puts the container in the slice |
-| `--memory` | a quarter of the slice's `MemoryMax` | A hard ceiling. At it the kernel kills the largest process in the container. Four containers have to run away to fill the slice on their own |
+| `--memory` | a quarter of the slice's `MemoryMax` | A hard ceiling. At it the kernel kills the largest process in the container. The dispatcher starts no cycle while four containers are in the slice, so their ceilings never sum to more than the slice |
 | `--memory-swap` | the same value | No swap for the container |
 | `--memory-reservation` | `TEHAS_CYCLE_RESERVE`, `2g` unless set | The container's floor. When the slice is full the kernel frees memory above the floors first |
 | `--pids-limit` | `4096` | The most processes and threads in the container |
@@ -503,12 +518,26 @@ toolchain adds it to the Dockerfile.
 Each build is also tagged with its date, so
 `docker tag tehas/pi-rukas:<date> tehas/pi-rukas:uid$(id -u)` rolls back.
 
-To upgrade pi-rukas: run `scripts/rukas-latest.sh` in a checkout of tehas,
-which puts the newest release's commit in `versions.env` and its image's
-digest in the `FROM` line, then rebuild and run the contract test before any
-cycle uses it. Where pi-rukas comes from is described under
-[pi-rukas comes from upstream](#pi-rukas-comes-from-upstream). The contract
-test proves the product's gates run inside the image, as the unprivileged user,
+A build asks the base image whether pi-rukas's own source has the reader of the
+manifest tehas writes beside a cycle's images, and records what it found as the
+label `tehas.rukas.images`. The Dockerfile checks that answer against the base
+it stands on and stops when they disagree. `tehas work`, `tehas plan`, the
+dispatcher and `install.sh` read the label; an image built without build.sh
+carries `unknown`, which tehas reads as "not said" rather than as an answer.
+
+An image that says its pi-rukas does not read them holds every cycle while
+`TEHAS_WORK_IMAGES=1` stands, not only the issues whose text links a picture.
+A host with that setting that puts back an image from before upstream merged
+the reader sets `TEHAS_WORK_IMAGES=0` first: putting it back is the moment
+the hold becomes real. `install.sh` reports
+the answer it read from the image, and `tehas status` and `/health` show the
+hold.
+
+The build takes pi-rukas at the head of its branch, as described under
+[pi-rukas comes from upstream](#pi-rukas-comes-from-upstream).
+`build.sh --if-moved` builds only when the head is not the commit the current
+image was built on, and `build.sh --check` only says whether it moved. The
+contract test proves the product's gates run inside the image, as the unprivileged user,
 with nothing mounted but a clone:
 
 ```
@@ -528,29 +557,25 @@ counts its memory while it is there.
 
 ## pi-rukas comes from upstream
 
-tehas takes pi-rukas from [upstream](https://github.com/trail-openers/pi-rukas),
-pinned to one of its releases. `PI_RUKAS_VERSION` and `PI_RUKAS_COMMIT` in
-`versions.env` name the release and the commit its tag points to, and the base
-in `sandbox/Dockerfile` is the image upstream published for that release. The
-three always name the same release, or the host and the sandbox run different
-code.
+tehas takes pi-rukas from [upstream](https://github.com/trail-openers/pi-rukas)
+and does not pin it. `PI_RUKAS_REPO` and `PI_RUKAS_BRANCH` in `versions.env`
+name the repository and the branch, `main`, and a host follows the head of
+that branch:
 
-Every release of tehas takes the newest release of pi-rukas. Before tagging:
+- `tehas update` moves the sandbox image to the head whenever the head is not
+  the commit the image was built on, also when no file of tehas changed. The
+  base is the image upstream publishes for each commit, tagged
+  `sha-<first 12 characters>`. A head whose image upstream has not published
+  yet fails the update with a message that says so; the next update tries
+  again. `tehas update --check` says whether the head moved.
+- `./bootstrap.sh user` moves the host's clone in `~/tehas/repos/pi-rukas` to
+  the head and runs its installer. That clone is what `tehas dev` and an
+  interactive Pi session on the host load. Cycles run the pi-rukas inside the
+  sandbox image.
 
-1. Run `scripts/rukas-latest.sh`. It reads upstream's newest release, its
-   commit and its image's digest, and writes all three. With `--check` it
-   only says whether the pin is already the newest, exit 1 when it is not.
-   Either way it first reads the release's source, and refuses it with exit 3
-   when something tehas relies on is gone: a `PI_ENSEMBLE_*` setting that a
-   command of tehas passes, or a field of the state file a cycle's end is
-   read from. It names what is missing. Such a release is not pinned until
-   tehas is changed to match it.
-2. When it changed something, open a pull request with the change, merge it,
-   and tag the release from that merge.
-3. On the host: pull, run `./bootstrap.sh user`, rebuild the sandbox image,
-   and run the contract test above. The dispatcher then runs one cycle at a
-   time on the new pi-rukas until one ends with a pull request: see
-   [Limits that hold work back](/operating#limits-that-hold-work-back).
+Nothing checks a new head before a cycle runs on it. The dispatcher runs one
+cycle at a time on a commit until one ends with a pull request: see
+[Limits that hold work back](/operating#limits-that-hold-work-back).
 
 ### Rolling back pi-rukas
 
@@ -568,17 +593,15 @@ from there. The loop's record of a cycle has the commit and the image's id as
 the cycle's container started. A commit that cycles have ended well on before runs at full
 concurrency again at once.
 
-That holds until the next sandbox build, which takes the pin from
-`versions.env`. To keep the rollback, revert the change of the pin in this
-repository and release it: `git revert` the commit that changed
-`PI_RUKAS_COMMIT` and the `FROM` line, merge, tag, and on the host
-`tehas update` and `./bootstrap.sh user`.
+That holds until the next `tehas update`, which builds the head again. Hold
+off updates until upstream's head is fixed, or point `PI_RUKAS_BRANCH` at a
+branch that holds the commit you want.
 
 Where the instance sets `TEHAS_IMPROVE_RUKAS_REPO`, the
 [improvement loop](/operating#the-improvement-loop) files what it finds about
 pi-rukas there, each issue naming the product's issues whose cycles showed it.
 No cycle on the product fixes pi-rukas. A fix is made in pi-rukas and reaches
-a host with the next release of pi-rukas and of tehas. To check it, apply
+a host with the next `tehas update` after it lands on the branch. To check it, apply
 `tehas:ready` again to a product issue the filed issue names. The loop's next
 run comments there whether the problem came back, with the pi-rukas commit
 that cycle ran.
@@ -654,7 +677,10 @@ same `docker compose ... up -d` applies after a change.
 
 ## Secrets and trust
 
-- `~/.config/tehas/env`: the bot's GitHub token (`GH_TOKEN`), mode 600.
+- `~/.config/tehas/env`: the bot's GitHub token (`GH_TOKEN`), mode 600. The
+  energy switches `TEHAS_ENERGY` and `TEHAS_ENERGY_URL` go here too
+  (see `tehasbot energy` in [Commands](/tools)); loading the instance keeps
+  them.
 - `~/.config/tehas/deploy_key`: the read-only deploy key the platform checkout
   is pulled with.
 

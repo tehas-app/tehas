@@ -65,7 +65,10 @@
 # not in it, so a patch cannot commit them, under names made here, with a
 # manifest.json that lists each file, the link it came from, its type and size,
 # and what was left out and why. The directory is remade for every cycle. An
-# image that is left out is said in a comment on the issue. An image that could
+# image that is left out is said in a comment on the issue. That comment says
+# whether the cycle was shown them, which is what the sandbox image's own label
+# answers: only when it says its pi-rukas reads the manifest does tehas say a
+# cycle was given images. An image that could
 # not be fetched stops the start: a cycle that works without a picture the
 # issue relies on builds the wrong thing.
 #
@@ -145,6 +148,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/attachments.sh"
 # shellcheck source=lib/labels.sh
 . "$here/../lib/labels.sh"
+# shellcheck source=lib/cycles.sh
+. "$here/../lib/cycles.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
 # Docker would create a missing mount source as a root-owned directory.
@@ -245,7 +250,7 @@ if [ "$TEHAS_WORK_IMAGES" = 1 ]; then
       echo "tehas work: the comment on #$issue failed" >&2
     exit 4
   fi
-  said=$(tehas_issue_images_said "$images" cycle)
+  said=$(tehas_issue_images_said "$images" cycle "$(tehas_rukas_reads_images)")
   if [ -n "$said" ]; then
     gh issue comment "$issue" --repo "$TEHAS_REPO" --body "$said" >/dev/null 2>&1 ||
       echo "tehas work: the comment on #$issue failed" >&2

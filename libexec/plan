@@ -29,7 +29,9 @@
 #                   the first turn as tehas work fetches a cycle's. Each turn
 #                   is given a copy, $TEHAS_HOME/work/<name>-plan-<issue>.images,
 #                   read-only, with PI_ENSEMBLE_EXTRA_IMAGE_DIRS, and the copy
-#                   is removed with the workspace.
+#                   is removed with the workspace. The comment that says what a
+#                   session was given says whether it was shown them, which is
+#                   what the sandbox image's own label answers.
 #
 # A confirm in a later turn files the plan that was shown only when pi-rukas
 # finds it in that record. The record is keyed on origin/<branch>, which this
@@ -126,6 +128,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/attachments.sh"
 # shellcheck source=lib/labels.sh
 . "$here/../lib/labels.sh"
+# shellcheck source=lib/cycles.sh
+. "$here/../lib/cycles.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
 # Docker would create a missing mount source as a root-owned directory.
@@ -216,7 +220,7 @@ if [ "$TEHAS_WORK_IMAGES" = 1 ]; then
         echo "tehas plan: the comment on #$issue failed" >&2
       exit 4
     fi
-    said=$(tehas_issue_images_said "$images" "planning session")
+    said=$(tehas_issue_images_said "$images" "planning session" "$(tehas_rukas_reads_images)")
     if [ -n "$said" ]; then
       gh issue comment "$issue" --repo "$TEHAS_REPO" --body "$said" >/dev/null 2>&1 ||
         echo "tehas plan: the comment on #$issue failed" >&2

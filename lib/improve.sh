@@ -59,10 +59,10 @@ tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills>
   mkdir -p "$base/window" || return 1
   tmp=$(mktemp -d "$base/.new.XXXXXX") || return 1
   # The pi-rukas this cycle ran with: the image's, as its container started,
-  # else as tehasbot cycle noted it at the start, else the one the host is
-  # installed with. What a fix in it is checked against.
+  # else as tehasbot cycle noted it at the start. What a fix in it is checked
+  # against.
   [[ $rukas =~ ^[0-9a-f]{7,40}$ ]] || rukas=$(head -c 64 "$TEHAS_HOME/state/cycles/$issue.rukas" 2>/dev/null | head -n 1)
-  [[ $rukas =~ ^[0-9a-f]{7,40}$ ]] || rukas=$(sed -n 's/^PI_RUKAS_COMMIT=\([0-9a-f]\{7,40\}\)$/\1/p' "$TEHAS_HOME/versions.env" 2>/dev/null | head -n 1)
+  [[ $rukas =~ ^[0-9a-f]{7,40}$ ]] || rukas=""
   if ! jq -n --argjson issue "$issue" --argjson started "$started" --argjson rc "$rc" \
     --argjson ended "$(date +%s)" --arg status "$status" --arg step "$step" --arg pr "$pr" \
     --arg log "$(basename "$raw")" --argjson kills "$kills" --arg rukas "$rukas" --arg image "$image" \
@@ -81,7 +81,6 @@ tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills>
   cp "$raw.err" "$tmp/err.txt" 2>/dev/null || : >"$tmp/err.txt"
   cp "$raw.preflight" "$tmp/preflight.txt" 2>/dev/null || : >"$tmp/preflight.txt"
   rm -rf "${base:?}/window/$rec"
-  # A run may have taken the window a moment ago.
   if ! { mkdir -p "$base/window" && mv "$tmp" "$base/window/$rec"; }; then
     rm -rf "$tmp"
     return 1

@@ -991,12 +991,29 @@ t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 
 # nproc is stubbed to 8 above, and reset()'s slice has room for ten.
-t_case "the ceiling defaults to the stubbed host's CPUs minus one: seven issues start"
+t_case "the ceiling defaults to the stubbed host's CPUs minus one: seven"
+reset
+t_instance "${T_MINIMAL[@]}"
+ready 7 8 9 10 11 12 13 14
+for n in 20 21 22 23 24 25 26; do hold "$n"; done
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "holding: 7 cycles are running (limit 7)"
+release
+
+t_case "below the ceiling, no more cycles start than the containers' ceilings fit in the slice"
 reset
 t_instance "${T_MINIMAL[@]}"
 ready 7 8 9 10 11 12 13 14
 t_run "$dispatch"
-t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 10 11 12 13 "
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 10 "
+reset
+t_instance "${T_MINIMAL[@]}"
+for d in a b c d; do slice_child "$(slice_id "$d")" "$gib" 0 0; done
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "holding: tehas.slice holds as many containers as their ceilings fit (4 of 5120m)"
+t_eq "$(jq -c '[.why, .room]' "$dispatch_json")" '["full",0]'
 
 t_case "an urgent issue is started first"
 reset
@@ -2488,11 +2505,11 @@ ready 7 8 9 10
 slice_show $((12 * gib))
 hold 12
 cid 12 a $((gib / 10))
-# A dev session at 3 GiB is not hidden inside the cycle's floor: 2 and 3 GiB
-# are promised, and three more reserves fit in the 7 GiB that are left.
-other $((3 * gib))
+# A container at 7 GiB is not hidden inside the cycle's floor: 2 and 7 GiB
+# are promised, and one more reserve fits in the 3 GiB that are left.
+other $((7 * gib))
 t_run "$dispatch"
-t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 "
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 "
 release
 
 t_case "reclaimable slab and file cache do not lower the room"
@@ -2502,11 +2519,12 @@ ready 7 8 9 10 11 12
 slice_show $((12 * gib))
 SLICE_FILE=$((8 * gib)) slice_child "$(slice_id d)" "$gib" $((6 * gib)) $((2 * gib))
 t_run "$dispatch"
-t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 10 11 "
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 "
 
-t_case "full pressure holds, some pressure does not"
+t_case "full pressure holds over half the slice promised, some pressure does not"
 reset
 slice_state 12.00
+other $((11 * gib))
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" ""
@@ -2514,23 +2532,32 @@ t_lacks "$(t_calls gh)" "issue edit"
 t_contains "$t_out" "holding: tehas.slice is under memory pressure (full avg60 12.00)"
 reset
 slice_state 0.00 55.00
+other $((11 * gib))
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$t_out" "holding:"
+# One container thrashing at its own ceiling in a slice mostly empty.
+reset
+slice_state 12.00
+other $((5 * gib))
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 t_lacks "$t_out" "holding:"
 
-t_case "an unreadable probe holds"
+t_case "an unreadable probe holds and names the file"
 reset
 rm "$T_CGROUP/tehas.slice/memory.pressure"
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit"
-t_contains "$t_out" "holding: the slice's use could not be read"
+t_contains "$t_out" "holding: the slice's use could not be read: $T_CGROUP/tehas.slice/memory.pressure cannot be read"
+t_eq "$(jq -r .hold "$dispatch_json")" "holding: the slice's use could not be read: $T_CGROUP/tehas.slice/memory.pressure cannot be read"
 reset
 other "$gib"
 echo "anon many" >"$T_CGROUP/tehas.slice/docker-$(slice_id d).scope/memory.stat"
 t_run "$dispatch --dry-run"
-t_contains "$t_out" "holding: the slice's use could not be read"
+t_contains "$t_out" "holding: the slice's use could not be read: $T_CGROUP/tehas.slice/docker-$(slice_id d).scope/memory.stat has no number for anon"
 t_lacks "$t_out" "would run a cycle"
 # A planning turn is held too: its container would start in a slice nobody
 # can see into, after its label and comment were spent.
@@ -2563,15 +2590,25 @@ t_lacks "$t_out" "cycles are running"
 t_eq "$(jq -r .why "$dispatch_json")" unreadable
 release
 
-t_case "a missing cgroup directory under running cycles holds"
+t_case "a missing cgroup directory under running cycles holds while the slice is active"
+reset
+slots 2
+rm -rf "$T_CGROUP/tehas.slice"
+hold 9
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "holding: the slice's use could not be read"
+release
+# A cycle between containers in a slice that is not active is one reserve.
 reset
 slots 2
 slice_show $((20 * gib)) inactive
 rm -rf "$T_CGROUP/tehas.slice"
 hold 9
 t_run "$dispatch"
-t_eq "$(t_calls fake-start)" ""
-t_contains "$t_out" "holding: the slice's use could not be read"
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$t_out" "holding:"
+t_eq "$(jq -r '"\(.room) \(.committed)"' "$dispatch_json")" "3 $((2 * gib))"
 release
 # With nothing running and the slice not active, no directory is an empty slice.
 reset
@@ -2703,7 +2740,7 @@ t_run "$dispatch"
 t_eq "$(grep -c 'released: cycles may start again' <<<"$t_out")" 1
 t_eq "$(t_calls fake-status | wc -l)" 3
 t_lacks "$t_out" "holding:"
-t_eq "$(jq -c '[.why, .hold, .room, .committed]' "$dispatch_json")" "[\"\",\"\",9,$((2 * gib))]"
+t_eq "$(jq -c '[.why, .hold, .room, .committed]' "$dispatch_json")" "[\"\",\"\",3,$((2 * gib))]"
 t_run "$dispatch"
 t_lacks "$t_out" "released"
 
@@ -2801,6 +2838,59 @@ t_eq "$(jq -c '[.why, .hold]' "$dispatch_json")" '["resources","holding: no reso
 t_lacks "$(cat "$dispatch_json")" "mesh.test"
 rm -f "$fx/reads-images"
 
+# What the sandbox image says about its own pi-rukas, as its build writes it:
+# <commit>|<reads>. The commit is put among the proven ones, so the canary rule
+# stays out of these cases and only the image fact decides.
+img_commit=$(printf 'c%.0s' {1..40})
+image_says() { # <1, 0, unknown, or none when the image carries no label>
+  rm -f "$fx/image.label" "$T/home/tehas/state/rukas-proven"
+  if [ "$1" != none ]; then
+    printf '%s\n' "$img_commit|$1" >"$fx/image.label"
+    mkdir -p "$T/home/tehas/state"
+    printf '%s\n' "$img_commit" >"$T/home/tehas/state/rukas-proven"
+  fi
+}
+
+t_case "no resources: the sandbox image says its pi-rukas does not read images, and nothing on the network is asked"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
+mesh '{"data":[{"id":"test-model"}]}'
+declares '["text","image"]'
+: >"$fx/reads-images"
+image_says 0
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_eq "$(t_calls curl)" ""
+t_eq "$(jq -c '[.why, .hold]' "$dispatch_json")" "[\"resources\",\"holding: no resources: the pi-rukas in the sandbox image cccccccccccc does not read the images a cycle is given, and TEHAS_WORK_IMAGES is 1\"]"
+image_says none
+
+t_case "an image that reads them is held for nothing, and the model is still asked"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
+mesh '{"data":[{"id":"test-model"}]}'
+declares '["text","image"]'
+: >"$fx/reads-images"
+image_says 1
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(jq -r .why "$dispatch_json")" ""
+t_contains "$(t_calls curl)" "chat/completions"
+image_says none
+
+t_case "an image that says nothing is not held for it, whatever its pi-rukas really reads"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
+mesh '{"data":[{"id":"test-model"}]}'
+declares '["text","image"]'
+: >"$fx/reads-images"
+image_says unknown
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(jq -r .why "$dispatch_json")" ""
+image_says none
+rm -f "$fx/reads-images"
+
 t_case "no resources is logged once, with nothing in line as well, and released when the endpoint is back"
 reset
 echo '[]' >"$fx/ready.json"
@@ -2846,7 +2936,7 @@ reset
 t_run "$dispatch"
 t_lacks "$t_out" "holding:"
 t_lacks "$t_out" "released"
-t_eq "$(jq -c '[.why, .count, .room]' "$dispatch_json")" '["",0,10]'
+t_eq "$(jq -c '[.why, .count, .room]' "$dispatch_json")" '["",0,4]'
 
 t_case "a hold whose numbers change between polls is logged once"
 reset
@@ -2931,7 +3021,7 @@ t_eq "$t_rc" 0
 t_eq "$(t_calls systemctl)" "show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax
 --user show -p LoadState --value tehas-cycle@7.service
 --user start tehas-cycle@7.service"
-t_eq "$(t_calls docker)" "image inspect --format {{index .Config.Labels \"tehas.rukas\"}} tehas/pi-rukas:uid$(id -u)
+t_eq "$(t_calls docker)" "image inspect --format {{index .Config.Labels \"tehas.rukas\"}}|{{index .Config.Labels \"tehas.rukas.images\"}} tehas/pi-rukas:uid$(id -u)
 info --format {{.CgroupDriver}} {{.CgroupVersion}}"
 t_contains "$(t_calls fake-index)" "--before-cycle"
 t_eq "$(t_calls fake-status | wc -l)" 2
@@ -2977,10 +3067,10 @@ t_lacks "$(t_calls systemctl)" "start"
 # --- A pi-rukas that is new on this host -----------------------------------
 new_rukas=$(printf 'a%.0s' {1..40})
 old_rukas=$(printf 'b%.0s' {1..40})
-installed() { echo "PI_RUKAS_COMMIT=$new_rukas" >"$T/home/tehas/versions.env"; }
+installed() { echo "$new_rukas" >"$fx/image.label"; }
 proven() { mkdir -p "$T/home/tehas/state"; echo "$1" >"$T/home/tehas/state/rukas-proven"; }
 ran_with() { echo "$2" >"$T/home/tehas/state/cycles/$1.rukas"; } # <issue> <commit>
-not_installed() { rm -f "$T/home/tehas/versions.env" "$T/home/tehas/state/rukas-proven" "$fx/image.label"; }
+not_installed() { rm -f "$T/home/tehas/state/rukas-proven" "$fx/image.label"; }
 
 t_case "a pi-rukas no cycle has ended well on starts one cycle, whatever the slots"
 reset
@@ -3043,15 +3133,13 @@ t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 "
 t_contains "$(t_calls docker)" "tehas.rukas"
 not_installed
 
-t_case "an image whose label names a commit never proven is new, whatever versions.env says"
+t_case "an image without the label holds nothing back: there is no commit to compare"
 reset
 slots 4
-echo "PI_RUKAS_COMMIT=$old_rukas" >"$T/home/tehas/versions.env"
 proven "$old_rukas"
-echo "$new_rukas" >"$fx/image.label"
 ready 7 8 9
 t_run "$dispatch"
-t_eq "$(t_calls fake-start)" "7"
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 "
 not_installed
 
 t_case "any commit in the list of proven ones counts"

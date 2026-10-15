@@ -53,6 +53,7 @@ case " $* " in *" --mode "*)
   IFS= read -r -t 5 line; printf "%s\n" "$line" >"$T/calls/docker.stdin2"
   # A case that needs a container that lives for a while writes its part here.
   if [ -e "$T/fx/live" ]; then . "$T/fx/live"; else cat "$T/fx/turn.jsonl" 2>/dev/null; fi ;;
+  *" image inspect "*) cat "$T/image.label" 2>/dev/null ;;
 esac'
 # The command looks at the log once a second. Here a look costs no time, so a
 # container that lives for a second is looked at many times.
@@ -734,7 +735,15 @@ issue_is() { jq -n --arg body "$1" --arg who "${2:-OWNER}" '{number: 7, body: $b
 images_on() {
   reset
   rm -rf "$fx/net" "$fx/events.json"
+  reads_image 1
   t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1 "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=/elsewhere"
+}
+# What the sandbox image says about its own pi-rukas, as host/sandbox/build.sh
+# writes it: <commit>|<reads>.
+img_commit=$(printf 'c%.0s' {1..40})
+reads_image() { # <1, 0, or none when the image carries no label>
+  rm -f "$T/image.label"
+  if [ "$1" != none ]; then printf '%s\n' "$img_commit|$1" >"$T/image.label"; fi
 }
 
 t_case "with images on a first turn fetches them into the session's directory and mounts a copy read-only"
@@ -777,6 +786,17 @@ for who in alice mallory; do
   t_eq "$t_rc" 0
   t_eq "$who $(jq -c '.images | length' "$T/keep/images/manifest.json")" "$who $([ "$who" = alice ] && echo 1 || echo 0)"
 done
+
+t_case "an image the sandbox image does not read is said as fetched and not shown"
+images_on
+reads_image 0
+net "$A/1111" '\x89PNG\r\n\x1a\nPNGDATA'
+issue_is "Look ![shot]($A/1111)"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(after -v | grep -c -x "$tree.images:$ws.images:ro")" 1
+t_lacks "$(cat "$T/calls/gh.comments")" "Tehas gave this planning session"
+t_contains "$(cat "$T/calls/gh.comments")" "Tehas fetched 1 image from the issue text and mounted it read-only in the container of this planning session. The pi-rukas in the sandbox image does not read them, so no agent was shown one."
 
 t_case "with images off nothing is fetched or mounted"
 reset
