@@ -274,6 +274,10 @@ exec 3<"$fifo"
 exec 4>"$fifo"
 exec 5>&-
 rm "$fifo"
+# send <line>: one line to Pi. Once Pi has gone nobody reads the fifo, and a
+# write would end this command by SIGPIPE before it reports. The signal is
+# ignored in a subshell only, so no child inherits that.
+send() { (trap '' PIPE; printf '%s\n' "$1" >&4) 2>/dev/null; }
 
 # A container under this name outlived the client that started it. The
 # dispatcher runs one turn at a time, so it is no turn's: left, it idles for
@@ -288,10 +292,10 @@ pid=$!
 exec 3<&-
 
 started=$(date +%s)
-jq -cn --arg m "$message" '{id: "plan", type: "prompt", message: $m}' >&4
+send "$(jq -cn --arg m "$message" '{id: "plan", type: "prompt", message: $m}')"
 # Asked for now and again at the end: a first turn that runs for an hour and
 # then fails must still leave the session it made, so a reply can continue it.
-printf '%s\n' '{"id":"state","type":"get_state"}' >&4
+send '{"id":"state","type":"get_state"}'
 echo "tehas plan: issue $issue turn started, log $log"
 
 trap 'exec 4>&- 2>/dev/null; docker stop -t 10 "$name" 2>/dev/null' TERM INT
@@ -366,7 +370,8 @@ done
 
 if kill -0 "$pid" 2>/dev/null; then
   if [ "$timed_out" = 0 ]; then
-    printf '%s\n' '{"id":"state","type":"get_state"}' '{"id":"text","type":"get_last_assistant_text"}' >&4
+    send '{"id":"state","type":"get_state"}'
+    send '{"id":"text","type":"get_last_assistant_text"}'
     # The answer comes after everything read so far.
     for _ in 1 2 3 4 5 6 7 8 9 10; do
       [ "$(tail -c "+$((offset + 1))" "$log" 2>/dev/null | grep -a -c -F '"command":"get_last_assistant_text"')" = 0 ] || break

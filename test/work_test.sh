@@ -389,6 +389,15 @@ mv "$T/bin/console" "$tree/libexec/console"
 t_run "$work 7"
 t_eq "$(jq -r .last.statusText "$T/home/tehas/live/running.json")" "step 3 of the [masked]"
 
+# Once Pi has gone nobody reads the fifo, and a plain write to it ends the
+# command by SIGPIPE (exit 141) before it reports. The race cannot be timed in
+# a test, so the shape of the one write is pinned.
+t_case "every line to Pi goes through send, which ignores SIGPIPE in a subshell"
+for f in work plan; do
+  t_eq "$(grep -c '>&4' "$T_ROOT/libexec/$f")" 1
+  t_contains "$(grep '>&4' "$T_ROOT/libexec/$f")" "(trap '' PIPE;"
+done
+
 t_case "without a console the status line is not published"
 mv "$tree/libexec/console" "$T/console.kept"
 t_run "$work 7"

@@ -274,6 +274,10 @@ exec 3<"$fifo"
 exec 4>"$fifo"
 exec 5>&-
 rm "$fifo"
+# send <line>: one line to Pi. Once Pi has gone nobody reads the fifo, and a
+# write would end this command by SIGPIPE before it reports. The signal is
+# ignored in a subshell only, so no child inherits that.
+send() { (trap '' PIPE; printf '%s\n' "$1" >&4) 2>/dev/null; }
 
 # Docker refuses a cid file that is already there. One is left only by a cycle
 # that was killed outright, and so is a count of kills.
@@ -310,7 +314,7 @@ pid=$!
 exec 3<&-
 
 started=$(date +%s)
-printf '{"id":"work","type":"prompt","message":"/work %s%s"}\n' "$issue" "$flags" >&4
+send "$(printf '{"id":"work","type":"prompt","message":"/work %s%s"}' "$issue" "$flags")"
 echo "tehas work: issue $issue started, log $log"
 
 # For the dashboard: a readable console of this cycle and its own "now" file.
