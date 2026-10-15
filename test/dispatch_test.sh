@@ -2631,6 +2631,59 @@ t_eq "$(jq -c '[.why, .hold]' "$dispatch_json")" '["resources","holding: no reso
 t_lacks "$(cat "$dispatch_json")" "mesh.test"
 rm -f "$fx/reads-images"
 
+# What the sandbox image says about its own pi-rukas, as its build writes it:
+# <commit>|<reads>. The commit is put among the proven ones, so the canary rule
+# stays out of these cases and only the image fact decides.
+img_commit=$(printf 'c%.0s' {1..40})
+image_says() { # <1, 0, unknown, or none when the image carries no label>
+  rm -f "$fx/image.label" "$T/home/tehas/state/rukas-proven"
+  if [ "$1" != none ]; then
+    printf '%s\n' "$img_commit|$1" >"$fx/image.label"
+    mkdir -p "$T/home/tehas/state"
+    printf '%s\n' "$img_commit" >"$T/home/tehas/state/rukas-proven"
+  fi
+}
+
+t_case "no resources: the sandbox image says its pi-rukas does not read images, and nothing on the network is asked"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
+mesh '{"data":[{"id":"test-model"}]}'
+declares '["text","image"]'
+: >"$fx/reads-images"
+image_says 0
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_eq "$(t_calls curl)" ""
+t_eq "$(jq -c '[.why, .hold]' "$dispatch_json")" "[\"resources\",\"holding: no resources: the pi-rukas in the sandbox image cccccccccccc does not read the images a cycle is given, and TEHAS_WORK_IMAGES is 1\"]"
+image_says none
+
+t_case "an image that reads them is held for nothing, and the model is still asked"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
+mesh '{"data":[{"id":"test-model"}]}'
+declares '["text","image"]'
+: >"$fx/reads-images"
+image_says 1
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(jq -r .why "$dispatch_json")" ""
+t_contains "$(t_calls curl)" "chat/completions"
+image_says none
+
+t_case "an image that says nothing is not held for it, whatever its pi-rukas really reads"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
+mesh '{"data":[{"id":"test-model"}]}'
+declares '["text","image"]'
+: >"$fx/reads-images"
+image_says unknown
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(jq -r .why "$dispatch_json")" ""
+image_says none
+rm -f "$fx/reads-images"
+
 t_case "no resources is logged once, with nothing in line as well, and released when the endpoint is back"
 reset
 echo '[]' >"$fx/ready.json"
@@ -2761,7 +2814,7 @@ t_eq "$t_rc" 0
 t_eq "$(t_calls systemctl)" "show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax
 --user show -p LoadState --value tehas-cycle@7.service
 --user start tehas-cycle@7.service"
-t_eq "$(t_calls docker)" "image inspect --format {{index .Config.Labels \"tehas.rukas\"}} tehas/pi-rukas:uid$(id -u)
+t_eq "$(t_calls docker)" "image inspect --format {{index .Config.Labels \"tehas.rukas\"}}|{{index .Config.Labels \"tehas.rukas.images\"}} tehas/pi-rukas:uid$(id -u)
 info --format {{.CgroupDriver}} {{.CgroupVersion}}"
 t_contains "$(t_calls fake-index)" "--before-cycle"
 t_eq "$(t_calls fake-status | wc -l)" 2

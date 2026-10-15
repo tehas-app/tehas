@@ -80,13 +80,16 @@
 #   tehas update -h|--help   print this text and exit 0
 #
 # Exit: 0 updated, or already up to date,
-#       1 the checkout has local changes, is not on a branch, cannot be
+#       1 another update is running (it holds $TEHAS_HOME/state/update.lock),
+#         the checkout has local changes, is not on a branch, cannot be
 #         fast-forwarded, has no commit yet, a step failed or timed out, install.sh
 #         gave no answer within its limit, systemd did not reload the unit files, a
 #         follow-up install.sh asked for is one this command does not know, or
 #         --check found something to update (a checkout behind, steps left
-#         over from an earlier run, or a pi-rukas head the image is not on), or
-#         the image could not be moved to that head. A record of steps owed that exists but this
+#         over from an earlier run, or a pi-rukas head the image is not on) or
+#         something an update does not fix (the host's tools, the slice, root's
+#         copy of the command, the tests), each said apart, or the image could
+#         not be moved to the pi-rukas head. A record of steps owed that exists but this
 #         account cannot read is a failure too: reading it as "nothing is owed"
 #         would let the next write replace steps somebody else recorded. A status
 #         of install.sh that this command does not know (126 when its exec bit is
@@ -161,6 +164,23 @@ checkout=$TEHAS_HOME/platform
 if [ ! -e "$checkout/.git" ] || [ ! -f "$checkout/install.sh" ]; then
   echo "tehas update: no platform checkout at $checkout. Clone the platform repository there, or run ./install.sh from wherever you keep it." >&2
   exit 78
+fi
+
+# One update at a time: two side by side build the image twice and each rewrite
+# the record of steps owed with its own view. install.sh takes the same lock;
+# the descriptor this one holds it on is handed to it, so it does not refuse its
+# own parent. --check changes nothing on the host and takes no lock.
+if [ "$mode" = update ]; then
+  update_lock=$TEHAS_HOME/state/update.lock
+  if ! mkdir -p "$TEHAS_HOME/state" || ! exec 7>>"$update_lock"; then
+    echo "tehas update: cannot open $update_lock; nothing was changed" >&2
+    exit 1
+  fi
+  if ! flock -n 7; then
+    echo "tehas update: another update is running ($update_lock); nothing was changed" >&2
+    exit 1
+  fi
+  export TEHAS_UPDATE_LOCK_FD=7
 fi
 
 # Steps an earlier run was asked for and did not finish are still owed, and this
@@ -374,9 +394,20 @@ fi
 if [ "$rc" != 0 ]; then
   warn_unknown
   if [ "$mode" = check ]; then
-    # install.sh --check answers 1 when it found something to update. That is its
-    # report, not a failed step: in check mode nothing was meant to run.
-    echo "install: install.sh --check found something to update" >&2
+    # install.sh --check answers 1 when it found something. That is its report,
+    # not a failed step: in check mode nothing was meant to run. Files that
+    # differ and steps owed are what an update fixes; the host's tools, the
+    # slice, root's copy of the command and the tests are not.
+    found=0
+    if grep -qE '^(Installed: +DRIFT|Follow-ups: +NOT DONE)' <<<"$out"; then
+      echo "install: install.sh --check found something to update" >&2
+      found=1
+    fi
+    if grep -qE '^(Dependencies: +NOT OK|Slice: +(MISSING|DIFFERS)|Login: +NOT CURRENT|Tests: +FAILED)' <<<"$out"; then
+      echo "install: install.sh --check found something tehas update does not fix; its lines above say what" >&2
+      found=1
+    fi
+    [ "$found" = 1 ] || echo "install: install.sh --check exited $rc" >&2
   else
     echo "install: install.sh exited $rc; no follow-up was run" >&2
   fi
@@ -384,6 +415,17 @@ if [ "$rc" != 0 ]; then
   # failed, whatever number it came back with: bash answers 126 or 127 when the
   # file lost its exec bit, and this command documents 0, 1, 64 and 78.
   case "$rc" in 1 | 78) exit "$rc" ;; *) exit 1 ;; esac
+fi
+
+# The step library this command loaded is the one installed before this run.
+# install.sh printed its lines from the checkout's, which may know a step or a
+# unit the old one does not, so the lines are checked against that one.
+if [ "$mode" = update ] && [ -r "$checkout/lib/update-steps.sh" ]; then
+  # shellcheck source=lib/update-steps.sh
+  . "$checkout/lib/update-steps.sh" || {
+    echo "update: $checkout/lib/update-steps.sh could not be read; no follow-up was run" >&2
+    exit 1
+  }
 fi
 
 # --- 3. The follow-ups -------------------------------------------------------

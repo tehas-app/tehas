@@ -61,9 +61,27 @@ RUN cd /opt/pin/playwright \
  && chmod -R a+rX /opt/ms-playwright \
  && rm -rf /var/lib/apt/lists/* /root/.npm /opt/pin
 
-# The pi-rukas commit the base was built from, as versions.env names it. The
+# The pi-rukas commit the base was built from, the head build.sh found. The
 # dispatcher and tehasbot cycle read it from the image, so an image put back
 # for a rollback is known by its own commit. Last, so a new commit rebuilds
 # nothing above it.
 ARG PI_RUKAS_COMMIT=""
-LABEL tehas.rukas=$PI_RUKAS_COMMIT
+
+# Whether the pi-rukas in the base reads the manifest tehas writes beside the
+# images it mounts for a cycle. The reader is a file of pi-rukas's own source,
+# and the base image carries that source, so the base can be asked directly.
+# build.sh asks it and passes what it found; this checks that answer against
+# the base actually being built on, so the label cannot disagree with the
+# image. An image built without build.sh says nothing, and tehas reads that as
+# "not said" rather than as an answer. Last, like the commit above.
+ARG TEHAS_RUKAS_IMAGES=unknown
+RUN given=${TEHAS_RUKAS_IMAGES:-unknown}; reads=0; \
+    if test -e /opt/pi-rukas/extension/src/work-driver-issue-images.ts; then reads=1; fi; \
+    echo "sandbox: the base image's pi-rukas $reads issue images"; \
+    if [ "$given" = unknown ]; then exit 0; fi; \
+    if [ "$given" != "$reads" ]; then \
+      echo "sandbox: TEHAS_RUKAS_IMAGES says $given and the base says $reads: build with sandbox/build.sh" >&2; \
+      exit 1; \
+    fi
+
+LABEL tehas.rukas=$PI_RUKAS_COMMIT tehas.rukas.images=$TEHAS_RUKAS_IMAGES

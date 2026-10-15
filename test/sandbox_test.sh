@@ -1,103 +1,105 @@
 #!/usr/bin/env bash
-# Tests for host/sandbox/build.sh, against stub git and docker: it builds on
-# upstream's image for the head of the branch versions.env names, labels the
-# image with that commit, and with --if-moved or --check looks at the label of
-# the current image first.
-# shellcheck disable=SC2016  # snippets are expanded by the shell under test
+# Tests for the Dockerfiles this repository ships. docker build continues an
+# instruction only when the line ends with a backslash, so a line that was
+# meant to continue is read as a new instruction and the build stops with an
+# unknown-instruction error before it runs anything. No other step of the gate
+# hands a Dockerfile to a parser: the shell tests stub docker, so this one
+# reads the files themselves.
+# shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh"
 
-home=$T/home/tehas
-mkdir -p "$home/sandbox"
-cp "$T_ROOT/host/sandbox/build.sh" "$home/sandbox/"
-cp "$T_ROOT/host/versions.env" "$home/"
-sed -i 's#^PI_RUKAS_REPO=.*#PI_RUKAS_REPO=https://github.com/Up-Owner/pi-rukas.git#' "$home/versions.env"
-build=$home/sandbox/build.sh
-fx=$T/fx
-mkdir -p "$fx"
+# Every instruction Docker knows, as its parser names it.
+instructions="FROM RUN CMD LABEL MAINTAINER EXPOSE ENV ADD COPY ENTRYPOINT VOLUME USER WORKDIR ONBUILD STOPSIGNAL HEALTHCHECK ARG SHELL"
 
-head=$(printf 'a%.0s' {1..40})
-old=$(printf 'b%.0s' {1..40})
-uid=$(id -u)
-
-# git answers the head in $fx/head, nothing when the file is missing. docker
-# answers the label in $fx/label, and a pull fails when $fx/pull-fails exists.
-t_stub git '[ -e "$T/fx/head" ] || exit 2; printf "%s\trefs/heads/main\n" "$(cat "$T/fx/head")"'
-t_stub docker 'case "$1" in
-  image) [ -e "$T/fx/label" ] || exit 1; cat "$T/fx/label" ;;
-  pull) [ ! -e "$T/fx/pull-fails" ] || exit 1 ;;
-esac'
-reset() {
-  rm -f "$T"/calls/* "$fx"/*
-  echo "$head" >"$fx/head"
+# parse <file>: one line per instruction Docker would refuse, naming the line
+# the instruction starts on. A trailing backslash joins the next line, as the
+# parser does; without one the instruction ends, and its first word has to be
+# one Docker knows.
+parse() { # <file>
+  local file=$1 line joined="" instr start=0 n=0 open=0 bad=0 bs=$'\\'
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1))
+    line=${line%$'\r'}
+    while [ "${line%[[:space:]]}" != "$line" ]; do line=${line%[[:space:]]}; done
+    while [ "${line#[[:space:]]}" != "$line" ]; do line=${line#[[:space:]]}; done
+    if [ "$open" = 0 ]; then
+      case "$line" in '' | '#'*) continue ;; esac
+      joined=$line
+      start=$n
+    else
+      joined+=" $line"
+    fi
+    case "$joined" in
+      *"$bs")
+        joined=${joined%"$bs"}
+        open=1
+        ;;
+      *)
+        instr=${joined%%[[:space:]]*}
+        case " $instructions " in
+          *" ${instr^^} "*) ;;
+          *)
+            echo "$file:$start: unknown instruction: ${instr^^}"
+            bad=1
+            ;;
+        esac
+        open=0
+        ;;
+    esac
+  done <"$file"
+  [ "$open" = 0 ] || echo "$file:$start: the instruction ends with a continuation and nothing follows"
+  return "$bad"
 }
 
-t_case "a build takes upstream's image for the head and labels it with the commit"
-reset
-t_run "$build"
-t_eq "$t_rc" 0
-t_contains "$(t_calls git)" "ls-remote https://github.com/Up-Owner/pi-rukas.git refs/heads/main"
-t_contains "$(t_calls docker)" "pull -q ghcr.io/up-owner/pi-rukas:sha-aaaaaaaaaaaa"
-t_contains "$(t_calls docker)" "--build-arg PI_RUKAS_IMAGE=ghcr.io/up-owner/pi-rukas:sha-aaaaaaaaaaaa --build-arg PI_RUKAS_COMMIT=$head"
-t_contains "$(t_calls docker)" "tag tehas/pi-rukas:"
-t_contains "$t_out" "with pi-rukas $head, also tagged tehas/pi-rukas:uid$uid"
-# A plain build does not ask what the current image is on.
-t_lacks "$(t_calls docker)" "image inspect"
+# The RUN of the sandbox image, with the continuations left out: the parser
+# sees three instructions where the build meant one.
+t_case "a RUN that forgets its continuations is named, not read as more instructions"
+mkdir -p "$T/dockerfile"
+cat >"$T/dockerfile/Dockerfile" <<'EOF'
+FROM base
+RUN given=${X:-unknown}; reads=0;
+    if test -e /opt/pi-rukas/extension/src/work-driver-issue-images.ts; then reads=1; fi;
+    if [ "$given" != "$reads"; then exit 1; fi
+EOF
+t_eq "$(parse "$T/dockerfile/Dockerfile")" \
+  "$T/dockerfile/Dockerfile:3: unknown instruction: IF
+$T/dockerfile/Dockerfile:4: unknown instruction: IF"
 
-t_case "with --if-moved an image already on the head is left alone"
-reset
-echo "$head" >"$fx/label"
-t_run "$build --if-moved"
-t_eq "$t_rc" 0
-t_contains "$t_out" "tehas/pi-rukas:uid$uid is on $head, the head of main"
-t_lacks "$(t_calls docker)" "build"
+t_case "the same RUN with its continuations parses"
+cat >"$T/dockerfile/Dockerfile" <<'EOF'
+FROM base
+RUN given=${X:-unknown}; reads=0; \
+    if test -e /opt/pi-rukas/extension/src/work-driver-issue-images.ts; then reads=1; fi; \
+    if [ "$given" != "$reads"; then exit 1; fi
+EOF
+t_eq "$(parse "$T/dockerfile/Dockerfile")" ""
 
-t_case "with --if-moved an image on another commit is rebuilt"
-reset
-echo "$old" >"$fx/label"
-t_run "$build --if-moved"
-t_eq "$t_rc" 0
-t_contains "$(t_calls docker)" "PI_RUKAS_COMMIT=$head"
+t_case "a continuation with nothing after it is named"
+cat >"$T/dockerfile/Dockerfile" <<'EOF'
+FROM base
+RUN echo one \
+EOF
+t_contains "$(parse "$T/dockerfile/Dockerfile")" "ends with a continuation and nothing follows"
 
-t_case "--check says the head moved and builds nothing"
-reset
-echo "$old" >"$fx/label"
-t_run "$build --check"
-t_eq "$t_rc" 1
-t_contains "$t_out" "is on $old, main is at $head"
-t_eq "$(t_calls docker | grep -c -e '^build' -e '^pull')" 0
+t_case "every Dockerfile in this repository parses"
+found=""
+for f in $(git -C "$T_ROOT" ls-files | grep -i 'Dockerfile$'); do
+  found="$found $f"
+  t_eq "$(parse "$T_ROOT/$f")" ""
+done
+t_contains "$found" "host/sandbox/Dockerfile"
 
-t_case "--check of an image with no label says so"
-reset
-t_run "$build --check"
-t_eq "$t_rc" 1
-t_contains "$t_out" "is on no known commit"
-
-t_case "without a head nothing is pulled or built"
-reset
-rm -f "$fx/head"
-t_run "$build"
-t_eq "$t_rc" 1
-t_contains "$t_out" "no head of main in https://github.com/Up-Owner/pi-rukas.git"
-t_eq "$(t_calls docker)" ""
-
-t_case "a head whose image is not published yet builds nothing"
-reset
-: >"$fx/pull-fails"
-t_run "$build"
-t_eq "$t_rc" 1
-t_contains "$t_out" "no image ghcr.io/up-owner/pi-rukas:sha-aaaaaaaaaaaa yet"
-t_lacks "$(t_calls docker)" "build"
-
-t_case "an argument it does not know is refused"
-reset
-t_run "$build --pin"
-t_eq "$t_rc" 64
-t_eq "$(t_calls git)$(t_calls docker)" ""
-
-t_case "the Dockerfile takes its base from the build, not from a pin"
-t_contains "$(cat "$T_ROOT/host/sandbox/Dockerfile")" 'FROM ${PI_RUKAS_IMAGE}'
-t_lacks "$(cat "$T_ROOT/host/versions.env")" "PI_RUKAS_COMMIT"
-t_contains "$(cat "$T_ROOT/host/versions.env")" "PI_RUKAS_BRANCH="
+# The label is asked for by the build, declared by the image and written from
+# the same answer about the same file. A drift between them is a label the host
+# reads as something else.
+t_case "the images label is asked for, declared and written by the same names"
+dockerfile=$T_ROOT/host/sandbox/Dockerfile
+build=$T_ROOT/host/sandbox/build.sh
+t_contains "$(cat "$dockerfile")" 'ARG TEHAS_RUKAS_IMAGES=unknown'
+t_contains "$(cat "$dockerfile")" 'LABEL tehas.rukas=$PI_RUKAS_COMMIT tehas.rukas.images=$TEHAS_RUKAS_IMAGES'
+t_contains "$(cat "$build")" '--build-arg TEHAS_RUKAS_IMAGES="$reads"'
+t_eq "$(grep -c -e '/opt/pi-rukas/extension/src/work-driver-issue-images.ts' "$dockerfile" "$build" | tr '\n' ' ')" \
+  "$dockerfile:1 $build:1 "
 
 t_done

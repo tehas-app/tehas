@@ -103,6 +103,14 @@ Run `tehas dispatch --dry-run` and read what it prints.
   TEHAS_WORK_IMAGES is 1`: the model endpoint refused a request with a
   one-pixel image, or took more than 30 seconds. The model runs without its
   vision part, or every slot is busy.
+- `holding: no resources: the pi-rukas in the sandbox image <commit> does not
+  read the images a cycle is given, and TEHAS_WORK_IMAGES is 1`: the sandbox
+  image says, by the label its build wrote, that its pi-rukas has no reader for
+  the manifest tehas writes beside the images. Nothing starts, for any issue,
+  and the model endpoint is not asked at all. Move the pin to a pi-rukas
+  release that has the reader, or set `TEHAS_WORK_IMAGES=0`, and run
+  `install.sh`. A rebuild onto a base without the reader is what starts the
+  hold: see [Sandbox image](/host#sandbox-image).
 - `nothing to do`: the issue is closed, or does not carry `tehas:ready`.
 - `wait #N: its cycle is still running`: `tehas:ready` was applied while the
   issue's cycle runs. A fresh cycle starts when that one has ended.
@@ -216,9 +224,15 @@ The common ones:
 | underspecified, needs clarification | The issue does not say enough                       | Add acceptance criteria, relabel                         |
 | `explore-bodies-empty`              | `gh` could not read the issue                       | Check the bot token: `gh auth status`                    |
 | verify or smoke failure             | The gates failed on the developer's change          | Read the gate output in the handoff; often a real defect |
-| protected paths                     | The patch touched `.pi/`, `.github/` or `AGENTS.md` | By design. Make that change yourself                     |
+| protected paths                     | The patch touched `.pi/`, `.github/`, `CODEOWNERS` or `agents.json` | By design. Make that change yourself                     |
 | review round cap                    | The review kept finding problems                    | Read the review on the pull request                      |
 | developer timeout                   | An agent ran out of wall-clock                      | Usually model endpoint capacity; retry later             |
+
+An edit to `AGENTS.md` or `CLAUDE.md` stops nothing here, and its absence from
+the row above is not an oversight: pi-rukas does not halt a cycle for a policy
+edit. The edit ships and you see it in the diff, and the cycle is judged
+against the doctrine at the commit it started from, so an edit of its own
+changes nothing for that cycle. See [Operating tehas](/operating).
 
 ## A provider error about context length
 
@@ -315,12 +329,16 @@ Read the last lines of `~/tehas/logs/improve.log`.
 | `findings=0`, or `duplicates` equal to `findings` | The model found nothing new |
 | `invalid=` above 0 | Findings were dropped for not being the shape asked for |
 | `failed: GitHub did not give the issue stack` | The token or the network. The records wait for the next run |
-| `failed: the analyst ended with ...` | Pi or the model. 124 is the 30 minute limit. What it printed is in `~/tehas/logs/improve-analyst.log`. The records wait |
+| `stopped=124 returned=2` at the end of a line that filed | The analyst hit its bound of 60 minutes, and what its file held was filed. The records it did not name went back to the window, and the next run takes half as many as this one. What it printed is in the file `output=` names |
+| `failed: the analyst ended with 124 at its bound of 60 minutes` | The model took too long for the records it was given and left no file that passes the check; the line says which. The next run takes half as many, as the line says. What it printed is in the file the line names. The records wait |
+| `failed: the analyst ended with ...` | Pi or the model. What it printed is in the file the line names, `~/tehas/logs/improve-analyst-<stamp>.log`. The records wait |
 | `failed: findings.json is not the shape asked for`, or `left no findings.json` | The model did not write the file it was asked for. Its output is in the same file. The records wait |
 | `failed: GitHub refused an issue` | The bot account cannot write to that repository. Issues filed before the refusal are named; the records wait, so a later run may file the same finding again under another title |
 
 A run that failed kept its records, and every later run reads them again until
-one succeeds or they are seven days old.
+one succeeds or they are seven days old. A run reads at most five, the oldest
+first, and fewer after one was stopped at its bound; `left=` on a line says how
+many wait.
 
 ## An improvement issue says a log was not uploaded
 

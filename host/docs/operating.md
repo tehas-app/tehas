@@ -82,10 +82,14 @@ say where in it the thing goes.
 
 An instance can give a cycle the images of its issue, with
 `TEHAS_WORK_IMAGES=1`. [tehas work](/tools#tehas-work) then fetches the images
-the issue text links, and the first two steps of the cycle, explore and plan,
-are shown them beside the text. The plan puts the placement into words, and
-the later steps read the plan. Images in comments are not read, and no cycle
-has been seen to use a picture yet, so words in the text stay the safe way.
+the issue text links and mounts them read-only in the cycle's container.
+Whether the cycle's first two steps, explore and plan, are actually shown them
+is what the sandbox image's own label answers, and the pinned pi-rukas does not
+read them yet, so the dispatcher holds every cycle while the setting stands,
+not only an issue whose text links a picture. The plan
+puts the placement into words, and the later steps read the plan. Images in
+comments are not read, and no cycle has been seen to use a picture yet, so
+words in the text stay the safe way.
 
 ## 1. Write an issue tehas can build
 
@@ -97,7 +101,10 @@ The cycle reads the issue body and nothing else. Give it:
 
 Vague issues park at the first step with "underspecified". Text in the issue is
 treated as untrusted input: it cannot change the gates, and the cycle halts if
-its patch touches `.pi/`, `.github/` or `AGENTS.md`.
+its patch touches `.pi/`, `.github/`, `CODEOWNERS` or `agents.json`. An edit to
+`AGENTS.md` or `CLAUDE.md` is not halted: it ships, and you see it in the diff.
+What the cycle is judged against is the doctrine at the commit it started from,
+so an edit of its own changes nothing for that cycle.
 
 ## 2. Authorize it
 
@@ -204,6 +211,41 @@ The pull request comes from the bot account against the product's default
 branch (in the example, `main`). It has passed the product's fast gate, its
 full gate, its smoke command and pi-rukas's six-pass review, but none of those
 is a human reading the diff. Nothing merges on its own.
+
+Each finding of the six-pass review has a severity: CRITICAL, HIGH, MEDIUM or
+LOW. Which severity stops a cycle is the product's decision, not the reviewer's
+and not pi-rukas's. pi-rukas reads it from the product repository's doctrine
+(`AGENTS.md`, or `CLAUDE.md` when the product has one), at the commit the cycle
+started from, so a cycle cannot lower its own bar mid-run. For this repository
+the bar is MEDIUM and above, decided in the platform repository's
+`docs/adr/0002-review-severity-policy.md`, a record in the source rather than a
+file on a host. A finding at the bar or above sends the change back to a fix
+step and the review runs again, up to three rounds. Only LOW findings may be
+deferred: they are notes on the pull request and start no fix round. A CRITICAL
+finding blocks whatever the bar says.
+
+`AGENTS.md` of this repository does not state the bar yet, because rule 7 gives
+that file to a person, so a cycle's log still records the verdict as `unstated`
+and takes pi-rukas's default, which is the same MEDIUM. Once a person adds the
+sentence the log names the bar it quoted and no cycle behaves differently. The
+sentence has to be one pi-rukas can read: one sentence that names the bar with a
+relation, `This repository blocks at MEDIUM severity and above.` pi-rukas takes
+the severity out of the sentence the judge quotes and checks that sentence
+against the file word for word, so a paraphrase that names the severities
+without the relation is a silent no-op and the cycle takes the default again.
+
+An instance can set the bar itself with `PI_ENSEMBLE_REVIEW_THRESHOLD`, which
+wins over what the product says (see [Commands](/tools#instance-settings)).
+tehas passes that line through without checking it, and pi-rukas honours it only
+when it reads as one of the four severities: a value that is not one of them is
+ignored, not refused with 78. With neither, MEDIUM.
+
+Three rounds is the most a review takes. A CRITICAL finding parks the cycle. A
+round cap reached with only MEDIUM and HIGH findings left, an approving
+adversarial review, and those findings posted as a comment on the pull request,
+carries on to the gate with the findings named on the pull request instead of
+parking; a post that fails parks. A review that runs out of its time budget
+parks whatever the findings are.
 
 After merging, the issue closes and leaves the queue. If you close a pull
 request without merging, remove `tehas:awaiting-merge` from the issue by hand;
@@ -325,10 +367,10 @@ a box and a reply do nothing.
 
 Where the instance gives a cycle the images an issue links
 (`TEHAS_WORK_IMAGES=1`), a planning session is given them too, by the same
-rules, once at its start. The bot says how many it was given and which it left
-out. If one cannot be fetched, no session starts and the bot says so. The
-pi-rukas that tehas installs does not show them to the planning agent yet, so
-describe in words what a picture shows.
+rules, once at its start. The bot says what it fetched, which it left out, and
+whether the session was shown them. If one cannot be fetched, no session starts
+and the bot says so. The pi-rukas that tehas installs does not show them to the
+planning agent yet, so describe in words what a picture shows.
 
 What the agent writes in the bot's comments is posted on the issue. On a
 public repository that is public. Secrets and private network addresses are
@@ -485,7 +527,10 @@ than the limits allow and are dropped. `filed` and `issues` are what was
 opened. An issue in the repository for pi-rukas is written with its
 repository, as `acme/rukas#12`. `rechecked` is how many comments were posted
 on issues that were worked on again; one GitHub refused follows as
-`not-commented=acme/rukas#12`.
+`not-commented=acme/rukas#12`. A run reads at most five cycles, the oldest
+first; `left=2` at the end says two wait for the next run. `stopped=124
+returned=2` says the analyst hit its bound of 60 minutes: what it had written
+was filed, and the two cycles it named nowhere wait for a later run.
 
 To turn the loop off, remove `TEHAS_IMPROVE_REPO` from `instance.env`: cycles
 stop leaving records and a run does nothing. Or stop the timer with

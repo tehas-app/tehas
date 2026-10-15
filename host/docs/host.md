@@ -117,6 +117,11 @@ applied, and what is still owed is kept in `~/tehas/state/` (`update-pending`)
 until it has run, so the next update finishes it instead of calling the host
 current.
 
+One update runs at a time. `tehas update` and a real run of `install.sh` hold
+`~/tehas/state/update.lock`; a second one started meanwhile prints `another
+update is running` and exits 1 before it changes anything. The update hands
+its lock to the `install.sh` it runs. `--check` takes no lock.
+
 The steps are still there on their own. `install.sh` is what puts tehas on a host
 the first time, before `tehas update` exists there:
 
@@ -179,6 +184,11 @@ but for the one case below:
 a copied unit file is not in effect until systemd has reloaded it, and that reload
 belongs to the step that restarts the units. A file edited directly on the host
 shows up as drift in `--check`.
+
+Each file is copied to `<name>.new` beside the installed one and renamed over
+it. A cycle that starts during an install runs the old file or the new one,
+never part of one, and an install that is stopped or fails partway leaves the
+file it was copying as it was.
 
 One file is written, not copied: `version.txt`, beside the pages in
 `~/tehas/docs` and `~/tehas/fun`. It holds the newest tag of the checkout and
@@ -476,6 +486,21 @@ toolchain adds it to the Dockerfile.
 Each build is also tagged with its date, so
 `docker tag tehas/pi-rukas:<date> tehas/pi-rukas:uid$(id -u)` rolls back.
 
+A build asks the base image whether pi-rukas's own source has the reader of the
+manifest tehas writes beside a cycle's images, and records what it found as the
+label `tehas.rukas.images`. The Dockerfile checks that answer against the base
+it stands on and stops when they disagree. `tehas work`, `tehas plan`, the
+dispatcher and `install.sh` read the label; an image built without build.sh
+carries `unknown`, which tehas reads as "not said" rather than as an answer.
+
+An image that says its pi-rukas does not read them holds every cycle while
+`TEHAS_WORK_IMAGES=1` stands, not only the issues whose text links a picture.
+A host with that setting that puts back an image from before upstream merged
+the reader sets `TEHAS_WORK_IMAGES=0` first: putting it back is the moment
+the hold becomes real. `install.sh` reports
+the answer it read from the image, and `tehas status` and `/health` show the
+hold.
+
 The build takes pi-rukas at the head of its branch, as described under
 [pi-rukas comes from upstream](#pi-rukas-comes-from-upstream).
 `build.sh --if-moved` builds only when the head is not the commit the current
@@ -619,7 +644,10 @@ same `docker compose ... up -d` applies after a change.
 
 ## Secrets and trust
 
-- `~/.config/tehas/env`: the bot's GitHub token (`GH_TOKEN`), mode 600.
+- `~/.config/tehas/env`: the bot's GitHub token (`GH_TOKEN`), mode 600. The
+  energy switches `TEHAS_ENERGY` and `TEHAS_ENERGY_URL` go here too
+  (see `tehasbot energy` in [Commands](/tools)); loading the instance keeps
+  them.
 - `~/.config/tehas/deploy_key`: the read-only deploy key the platform checkout
   is pulled with.
 

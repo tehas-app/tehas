@@ -207,16 +207,29 @@ untick() {
 # Do not burn an issue on a model endpoint that cannot answer: every agent
 # would fail and the issue would park. Leave it queued and look again next
 # poll. mesh_check asks the endpoint once, at rule 3, and leaves the reason in
-# $mesh_hold. Where the instance gives a cycle images (TEHAS_WORK_IMAGES), the
-# model must also declare image input in models.json and answer a request
-# that carries one. The text names no address: tehas status and the health file
-# carry it, and they are served to whoever can read the dashboard.
+# $mesh_hold. Where the instance gives a cycle images (TEHAS_WORK_IMAGES), two
+# readers are needed: the pi-rukas in the sandbox image, which hands over the
+# manifest tehas writes beside them, and a model that declares image input and
+# answers a request that carries one. The image is asked first, because it
+# answers without the network and a driver that does not read the manifest
+# makes the model question moot. The text names no address: tehas status and
+# the health file carry it, and they are served to whoever can read the
+# dashboard.
 mesh_hold=""
 # A png of one pixel.
 mesh_pixel=iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==
+# A cycle whose images nobody reads builds the wrong thing quietly, so nothing
+# starts while the sandbox image says its pi-rukas does not read them. An image
+# that says nothing is not held for it: it may well read them, and tehas has no
+# way to know.
 mesh_check() {
-  local mesh model=$PI_ENSEMBLE_SUBAGENT_MODEL list
+  local mesh model=$PI_ENSEMBLE_SUBAGENT_MODEL list commit
   mesh_hold=""
+  if [ "$TEHAS_WORK_IMAGES" = 1 ] && [ "$(tehas_rukas_reads_images)" = 0 ]; then
+    commit=$(tehas_rukas_commit)
+    mesh_hold="holding: no resources: the pi-rukas in the sandbox image${commit:+ ${commit:0:12}} does not read the images a cycle is given, and TEHAS_WORK_IMAGES is 1"
+    return 0
+  fi
   mesh=$(jq -r --arg p "$PI_ENSEMBLE_SUBAGENT_PROVIDER" '.providers[$p].baseUrl // ""' "$HOME/.pi/agent/models.json" 2>/dev/null)
   [ -n "$mesh" ] && [ -n "$model" ] || return 0
   if ! list=$(curl -fsS -m 10 "$mesh/models" 2>/dev/null); then
