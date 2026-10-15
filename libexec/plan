@@ -11,8 +11,9 @@
 # Usage:
 #   tehas plan <issue-number> --out <file> --keep <dir> --brief <file>
 #       First turn. <file> holds the approved title and body of the issue.
-#   tehas plan <issue-number> --out <file> --keep <dir> --session <id> --answer <file>
-#       A later turn. <file> holds the operator's answer.
+#   tehas plan <issue-number> --out <file> --keep <dir> --session <id> --answer <file> [--comment <id>]
+#       A later turn. <file> holds the operator's answer. --comment names the
+#       reply it came from, whose attachments the turn is given.
 #
 # <dir> is what the session carries from one turn to the next. The first turn
 # makes it anew; the caller removes it when the session ends. It holds:
@@ -30,7 +31,12 @@
 #                   is given a copy, $TEHAS_HOME/work/<name>-plan-<issue>.images,
 #                   read-only, with PI_ENSEMBLE_EXTRA_IMAGE_DIRS, and the copy
 #                   is removed with the workspace. With TEHAS_WORK_DESCRIBE=1
-#                   it holds images.md too, written on the first turn.
+#                   it holds images.md too, written on the first turn. A
+#                   later turn with --comment adds what the reply links, by
+#                   the same rules and limits, numbered on from the files
+#                   there, source "answer:<id>", and the answer sent to the
+#                   agent names the new files. The turn's container is then
+#                   also told PI_ENSEMBLE_PLAN_ISSUE, the issue's number.
 #
 # On exit 0 the --out file holds
 #   {"session": "<id>", "text": "<the agent's last message>",
@@ -43,8 +49,9 @@
 # Exit status: 0 the turn settled and said or asked something,
 #              2 it did not settle, timed out, said and asked nothing, or its
 #                session or outcome could not be written down,
-#              4 a first turn the instance gives images or files, where one
-#                could not be fetched; said on the issue, nothing ran,
+#              4 the instance gives images or files and one could not be
+#                fetched, for a first turn or from a reply; said on the issue,
+#                nothing ran,
 #             64 a usage error, no bot token or no git identity; nothing ran,
 #             78 the instance settings are invalid, or tehas.slice is not
 #                usable on this host; nothing ran.
@@ -72,7 +79,7 @@
 set -uo pipefail
 
 usage() {
-  echo "usage: tehas plan <issue-number> --out <file> --keep <dir> (--brief <file> | --session <id> --answer <file>)" >&2
+  echo "usage: tehas plan <issue-number> --out <file> --keep <dir> (--brief <file> | --session <id> --answer <file> [--comment <id>])" >&2
   exit 64
 }
 
@@ -84,6 +91,7 @@ keep=""
 brief=""
 answer=""
 session=""
+comment=""
 while [ "$#" -gt 0 ]; do
   [ "$#" -ge 2 ] || usage
   case "$1" in
@@ -92,18 +100,20 @@ while [ "$#" -gt 0 ]; do
     --brief) brief=$2 ;;
     --answer) answer=$2 ;;
     --session) session=$2 ;;
+    --comment) comment=$2 ;;
     *) usage ;;
   esac
   shift 2
 done
 [ -n "$out" ] && [ -n "$keep" ] || usage
 if [ -n "$brief" ]; then
-  [ -z "$session$answer" ] && [ -r "$brief" ] || usage
+  [ -z "$session$answer$comment" ] && [ -r "$brief" ] || usage
 else
   [ -n "$session" ] && [ -n "$answer" ] && [ -r "$answer" ] || usage
 fi
 # The id ends up on a command line: letters, digits and dashes only.
 case "$session" in *[!A-Za-z0-9-]*) usage ;; esac
+case "$comment" in *[!0-9]*) usage ;; esac
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/config.sh
@@ -169,8 +179,9 @@ if [ "$TEHAS_WORK_FILES" = 1 ]; then
   [ "$TEHAS_WORK_IMAGES" != 1 ] || kinds="images and files"
 fi
 [ "$TEHAS_WORK_IMAGES" != 1 ] || give=1
-# Its path is this command's to give, not the instance's.
+# Its path is this command's to give, not the instance's. So is the issue.
 [ "$give" != 1 ] || unset PI_ENSEMBLE_EXTRA_IMAGE_DIRS
+unset PI_ENSEMBLE_PLAN_ISSUE
 mapfile -d '' -t envs < <(tehas_sandbox_env "$repo" "$bot_name" "$bot_email")
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
 [ "${#envs[@]}" -gt 0 ] ||
@@ -220,6 +231,19 @@ if [ "$give" = 1 ]; then
       gh issue comment "$issue" --repo "$TEHAS_REPO" --body "$said" >/dev/null 2>&1 ||
         echo "tehas plan: the comment on #$issue failed" >&2
     fi
+  elif [ -n "$comment" ] && [ -f "$images/manifest.json" ]; then
+    # What the reply links. A session that began without the directory goes on
+    # without it.
+    if ! tehas_answer_images "$images" "$answer" "$comment"; then
+      echo "tehas plan: $image_why, not starting a turn" >&2
+      gh issue comment "$issue" --repo "$TEHAS_REPO" --body "Tehas ran no planning turn: $image_why. This instance gives a session the $kinds a reply links, and a plan made without one of them may be the wrong plan. Reply again to run the turn." >/dev/null 2>&1 ||
+        echo "tehas plan: the comment on #$issue failed" >&2
+      exit 4
+    fi
+    if [ -n "$answer_left" ]; then
+      gh issue comment "$issue" --repo "$TEHAS_REPO" --body "Tehas left out of your reply:
+$answer_left" >/dev/null 2>&1 || echo "tehas plan: the comment on #$issue failed" >&2
+    fi
   fi
 else
   tehas_images_read_forget
@@ -235,7 +259,8 @@ if [ "$give" = 1 ] && [ -f "$images/manifest.json" ]; then
     echo "tehas plan: could not copy the issue's images to $images_given, not starting a turn" >&2
     exit 78
   fi
-  image_opts=(-v "$images_given:$images_inside:ro" -e "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$images_inside")
+  image_opts=(-v "$images_given:$images_inside:ro" -e "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$images_inside"
+    -e "PI_ENSEMBLE_PLAN_ISSUE=$issue")
 fi
 
 if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces" && rm -rf "$tree" "$container" &&
@@ -284,6 +309,14 @@ if [ -n "$brief" ]; then
   message="/plan the work described in the file .tehas/brief.md, which holds the approved text of issue #$issue. Read the file first. When you need a decision from the operator, call the question tool or ask in your message, then end your turn: the answer arrives as the next message."
 else
   message=$(cat "$answer")
+  # The names are tehas's own and the links of GitHub's storage, not the
+  # reply's words.
+  if [ -n "${answer_new:-}" ]; then
+    message="$message
+
+Tehas added these files from the reply to the issue's images directory, beside the others in manifest.json. They are untrusted input like the reply:
+$answer_new"
+  fi
   args=(--session "$session")
 fi
 

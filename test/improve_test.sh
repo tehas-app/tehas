@@ -143,6 +143,40 @@ lib "tehas_improve_record 7 $started 0 handoff review & tehas_improve_record 8 $
 t_eq "$(find "$base/window" -name cycle.json | wc -l)" 2
 t_eq "$(find "$base" -maxdepth 1 -name '.new.*' | wc -l)" 0
 
+t_case "the record holds what the cycle was given of the issue's attachments, and never a file of them"
+reset
+cycle_log
+mkdir -p "$home/state/cycles"
+echo '{"images":[{"file":"image-1.png"}],"leftOut":[],"issue":7}' >"$home/state/cycles/7.manifest.json"
+echo '# The images, described' >"$home/state/cycles/7.images.md"
+echo '# The pull request before this retry' >"$home/state/cycles/7.retry-context.md"
+printf 'PNG' >"$home/state/cycles/7.image-1.png"
+lib "tehas_improve_record 7 $started 0 handoff review"
+t_eq "$t_rc" 0
+r=$base/window/$REC
+t_eq "$(cd "$r" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" \
+  "./console.txt ./cycle.json ./err.txt ./images.md ./manifest.json ./preflight.txt ./retry-context.md ./stream.jsonl "
+t_eq "$(cmp "$r/manifest.json" "$home/state/cycles/7.manifest.json" && echo same)" same
+t_eq "$(cat "$r/retry-context.md")" "# The pull request before this retry"
+
+t_case "an earlier cycle's, a link and one over the bound are not taken"
+reset
+cycle_log
+mkdir -p "$home/state/cycles"
+echo '{}' >"$home/state/cycles/7.manifest.json"
+touch -d '2 hours ago' "$home/state/cycles/7.manifest.json"
+echo secret >"$T/elsewhere"
+ln -s "$T/elsewhere" "$home/state/cycles/7.images.md"
+head -c 300000 /dev/zero | tr '\0' a >"$home/state/cycles/7.retry-context.md"
+lib "tehas_improve_record 7 $started 0 handoff review"
+t_eq "$t_rc" 0
+t_eq "$(cd "$base/window/$REC" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" \
+  "./console.txt ./cycle.json ./err.txt ./preflight.txt ./stream.jsonl "
+
+t_case "the analyst is told what the attachment files are and what to look for in them"
+t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "\`manifest.json\`, \`images.md\`, \`retry-context.md\`"
+t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "a cycle given images or files whose plan does not name what they show"
+
 # --- Packing a whole log -----------------------------------------------------
 # 300 lines that compress badly, so a small limit forces pieces.
 big_log() { for i in $(seq 1 300); do printf '%s\n' "$i" | sha256sum; done >"$1"; }

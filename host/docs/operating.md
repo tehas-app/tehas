@@ -90,7 +90,9 @@ describes each image in words, into `images.md` beside them; the pi-rukas that
 tehas pins does not read that file yet. With `TEHAS_WORK_FILES=1` a cycle is
 also given the text files the issue links, md, txt, csv, json, yaml, log,
 html, css and js, by the same rules; the pi-rukas that tehas pins does not
-read them yet either. Images in comments are not read, and no cycle
+read them yet either. Images in comments are read only with
+`TEHAS_WORK_COMMENTS=1`, and only those of an allowed account written before
+the label or the retry tick and not edited since. No cycle
 has been seen to use a picture yet, so words in the text stay the safe way.
 
 ## 1. Write an issue tehas can build
@@ -223,7 +225,11 @@ handoff comment with the reason and numbered options.
 
 To try again after fixing the cause (often: make the issue clearer), tick
 `Retry from a clean start` in the bot's comment. Tick `Leave it parked` to
-take the question away and keep the issue as it is. A label works as well: apply `tehas:ready`. `needs-human-attention` does not
+take the question away and keep the issue as it is. With
+`TEHAS_WORK_COMMENTS=1`, what an allowed account wrote on the cycle's pull
+request between the park and the tick goes with the retry: its text as
+`retry-context.md` beside the images, and its images and files by the usual
+rules. A label works as well: apply `tehas:ready`. `needs-human-attention` does not
 have to be removed first. A cycle started
 that way takes `tehas:question` off the issue, and the old boxes no longer do
 anything.
@@ -335,7 +341,11 @@ a box and a reply do nothing.
 Where the instance gives a cycle the images an issue links
 (`TEHAS_WORK_IMAGES=1`), a planning session is given them too, by the same
 rules, once at its start, and with `TEHAS_WORK_FILES=1` its text files. The
-bot says how many it was given and which it left out. If one cannot be fetched, no session starts and the bot says so. The
+bot says how many it was given and which it left out. If one cannot be fetched, no session starts and the bot says so.
+A reply can carry a picture or a file too: the next turn adds what the reply
+links to the session's images, by the same rules and limits, and tells the
+agent their names. What it leaves out the bot says. If one cannot be fetched,
+the turn does not run, and the bot says so; reply again to run it. The
 pi-rukas that tehas installs does not show them to the planning agent yet, so
 describe in words what a picture shows.
 

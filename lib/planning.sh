@@ -30,8 +30,10 @@
 #   plan_state <issue>             print the path of the record
 #   plan_record_number <file>      put the issue of a record file in $plan_n, or
 #                                  return 1 for a file that is not a readable record
-#   plan_turn <issue> first|next <file>
-#                                  run one turn and post its outcome
+#   plan_turn <issue> first|next <file> [<comment id>]
+#                                  run one turn and post its outcome; the id
+#                                  is that of the reply <file> holds, whose
+#                                  attachments the turn is given
 #   plan_finish <issue> <rc> <turns before> <session before>
 #                                  record how a turn went and post it; a failed
 #                                  first turn takes its session from the
@@ -167,7 +169,7 @@ plan_recover() {
 }
 
 plan_turn() {
-  local n=$1 mode=$2 input=$3 st out turns sid rc was written
+  local n=$1 mode=$2 input=$3 comment=${4:-} st out turns sid rc was written
   local -a args
   st=$(plan_state "$n")
   out=$st.out
@@ -213,6 +215,7 @@ plan_turn() {
     args=(--brief "$input")
   else
     args=(--session "$sid" --answer "$input")
+    [ -z "$comment" ] || args+=(--comment "$comment")
   fi
   refresh_checkout
   rm -f "$out"

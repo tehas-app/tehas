@@ -19,7 +19,9 @@
 # Source lib/config.sh and call tehas_load first.
 #
 # A record is a directory, window/<issue>-<stamp>, and the only thing the loop
-# reads of a cycle. It is built beside the window and renamed into it, so a
+# reads of a cycle. With the issue's attachments given, it also holds what
+# tehas work kept of them: manifest.json, images.md and retry-context.md, each
+# when the cycle had it, at most 256 KB. Never an image or a file. It is built beside the window and renamed into it, so a
 # run never sees half of one and cycles that end together do not collide.
 
 tehas_improve_on() { [ -n "${TEHAS_IMPROVE_REPO:-}" ]; }
@@ -37,7 +39,7 @@ _tehas_improve_condense='
 
 tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills>]]
   tehas_improve_on || return 0
-  local issue=$1 started=$2 rc=$3 status=$4 step=$5 pr=${6:-} kills=${7:-0} base raw rec tmp rukas
+  local issue=$1 started=$2 rc=$3 status=$4 step=$5 pr=${6:-} kills=${7:-0} base raw rec tmp rukas f from
   [[ $kills =~ ^(0|[1-9][0-9]{0,8})$ ]] || kills=0
   base=$(tehas_improve_dir)
   raw=$(find "$TEHAS_HOME/logs" -maxdepth 1 -type f -name "work-$issue-*.jsonl" \
@@ -69,6 +71,17 @@ tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills>
   cp "$TEHAS_HOME/live/console-$issue.txt" "$tmp/console.txt" 2>/dev/null || : >"$tmp/console.txt"
   cp "$raw.err" "$tmp/err.txt" 2>/dev/null || : >"$tmp/err.txt"
   cp "$raw.preflight" "$tmp/preflight.txt" 2>/dev/null || : >"$tmp/preflight.txt"
+  # What the cycle was given of the issue's attachments, as tehas work kept it:
+  # the manifest, the model's descriptions and a retry's pull request text.
+  # Never the files themselves. Only this cycle's, only plain files, and none
+  # over the bound.
+  for f in manifest.json images.md retry-context.md; do
+    from=$TEHAS_HOME/state/cycles/$issue.$f
+    [ -f "$from" ] && [ ! -L "$from" ] || continue
+    [ -n "$(find "$from" -maxdepth 0 -newermt "@$((started - 5))" 2>/dev/null)" ] || continue
+    [ "$(stat -c %s "$from" 2>/dev/null || echo 0)" -le 262144 ] || continue
+    cp "$from" "$tmp/$f" 2>/dev/null || rm -f "$tmp/$f"
+  done
   rm -rf "${base:?}/window/$rec"
   # A run may have taken the window a moment ago.
   if ! { mkdir -p "$base/window" && mv "$tmp" "$base/window/$rec"; }; then
