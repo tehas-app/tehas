@@ -75,15 +75,27 @@ tehas_attachment_fetch() { # <address> <file> <most bytes> [<token>]
 # The images an issue links, for a container that is given them: tehas work
 # and tehas plan. The rules are written in libexec/work's header.
 #
-#   tehas_issue_images <issue> <dir>  remake <dir> from the issue's text, with
+#   tehas_issue_images <issue> <dir> [approved]
+#                                     remake <dir> from the issue's text, with
 #                                     a manifest.json; uses TEHAS_REPO and
 #                                     GH_TOKEN. Returns 1, with the reason in
 #                                     $image_why, when the issue's images
-#                                     cannot be given and nothing may start
-#   tehas_issue_images_said <dir> <what>
+#                                     cannot be given and nothing may start.
+#                                     "approved" says an allowed account
+#                                     approved the text with its label: the
+#                                     images are then taken whoever opened the
+#                                     issue. Without it, only when an owner,
+#                                     member or collaborator opened it
+#   tehas_issue_images_said <dir> <what> <reads>
 #                                     the comment that says what <what> (a
-#                                     cycle, a planning session) was given;
-#                                     empty when the issue links no image
+#                                     cycle, a planning session) was given and
+#                                     whether it was shown: <reads> is 1 when
+#                                     the pi-rukas in the sandbox image reads
+#                                     the manifest, 0 when it says it does not,
+#                                     anything else when the image does not say
+#                                     (tehas_rukas_reads_images); empty when the
+#                                     issue links no image and nothing was left
+#                                     out
 
 # tehas_image_type <file>: the type its first bytes say; fails for any other file.
 tehas_image_type() {
@@ -97,8 +109,8 @@ tehas_image_type() {
 }
 
 # shellcheck disable=SC2034  # the caller reads what this sets
-tehas_issue_images() { # <issue> <dir>
-  local issue=$1 images=$2 data who ref name ext size rc left used=0 count=0
+tehas_issue_images() { # <issue> <dir> [approved]
+  local issue=$1 images=$2 approved=${3:-} data who ref name ext size rc left used=0 count=0
   local limit=$((10 * 1024 * 1024)) max=8
   local other="Not a png, jpg, webp or gif image." over="Over the 10 MB limit of an issue."
   image_why="the directory for the issue's images could not be made"
@@ -113,9 +125,9 @@ tehas_issue_images() { # <issue> <dir>
 
   while IFS= read -r ref; do
     [ -n "$ref" ] || continue
-    case "$who" in
-      OWNER | MEMBER | COLLABORATOR) ;;
-      *) leave "$ref" "The issue was not opened by an owner, member or collaborator."; continue ;;
+    case "$approved:$who" in
+      approved:* | *:OWNER | *:MEMBER | *:COLLABORATOR) ;;
+      *) leave "$ref" "The issue was not opened by an owner, member or collaborator, and its label was not applied by an allowed account."; continue ;;
     esac
     # A file attached under its name is not fetched when the name says it is
     # no image. A pasted one has no name: its bytes say.
@@ -164,10 +176,28 @@ tehas_issue_images() { # <issue> <dir>
 }
 
 # The links are of the shape tehas_attachment_links takes and the reasons are
-# written above, so nothing of the issue's own words is posted back.
-tehas_issue_images_said() { # <dir> <what>
-  jq -r --arg what "$2" 'select((.images | length) + (.leftOut | length) > 0)
-    | "Tehas gave this \($what) \(.images | length) \(if (.images | length) == 1 then "image" else "images" end) from the issue text."
-      + (if (.leftOut | length) > 0 then "\n\nLeft out:\n" + (.leftOut | map("- \(.link): \(.reason)") | join("\n")) else "" end)' \
+# written above, so nothing of the issue's own words is posted back. What was
+# shown is said as the sandbox image says it: a cycle is only told it was given
+# the images when the pi-rukas inside reads them, and when the image does not
+# say, the comment does not claim a picture was seen either.
+tehas_issue_images_said() { # <dir> <what> <reads>
+  jq -r --arg what "$2" --arg reads "${3:-}" \
+    --arg build "${TEHAS_HOME:-$HOME/tehas}/sandbox/build.sh" '
+    (.images | length) as $n | (.leftOut | length) as $l |
+    select($n + $l > 0) |
+    (if $n == 0 then ""
+     elif $reads == "1" then
+       "Tehas gave this \($what) \($n) \(if $n == 1 then "image" else "images" end) from the issue text."
+     else
+       "Tehas fetched \($n) \(if $n == 1 then "image" else "images" end) from the issue text and mounted \(if $n == 1 then "it" else "them" end) read-only in the container of this \($what). " +
+       (if $reads == "0" then
+          "The pi-rukas in the sandbox image does not read them, so no agent was shown one."
+        else
+          "The sandbox image does not say whether its pi-rukas reads them: rebuild it with \($build), which records the answer."
+        end)
+     end) as $head |
+    $head + (if $l > 0 then
+        (if $head == "" then "" else "\n\n" end) + "Left out:\n" + (.leftOut | map("- \(.link): \(.reason)") | join("\n"))
+      else "" end)' \
     "$1/manifest.json" 2>/dev/null
 }

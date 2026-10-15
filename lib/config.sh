@@ -151,11 +151,13 @@ tehas_load() {
   file=$dir/instance.env
   [ -r "$file" ] || { tehas_err "no instance.env in $dir (copy instances/example and fill it in)"; return 78; }
 
+  # TEHAS_ENERGY and TEHAS_ENERGY_URL are host choices in ~/.config/tehas/env,
+  # which env.sh reads before this.
   for v in $(compgen -v); do
     case "$v" in
       TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_INDEX_CMD | TEHAS_PLAN_CMD | \
         TEHAS_CYCLE_START_CMD | TEHAS_CYCLE_START_WAIT | TEHAS_CGROUP_ROOT | \
-        TEHAS_PREFLIGHT_WAIT | TEHAS_STOP_WAIT | TEHAS_FETCH_WAIT) ;;
+        TEHAS_PREFLIGHT_WAIT | TEHAS_STOP_WAIT | TEHAS_FETCH_WAIT | TEHAS_ENERGY | TEHAS_ENERGY_URL) ;;
       TEHAS_* | PI_ENSEMBLE_*) unset "$v" ;;
     esac
   done

@@ -1,7 +1,8 @@
 # shellcheck shell=bash
-# Which cycles are running, where a parked cycle's question is on record, and
-# what a number on GitHub is. Sourced by the dispatcher, by tehasbot cycle and
-# by tehas index.
+# Which cycles are running, where a parked cycle's question is on record, what
+# a number on GitHub is, and what the sandbox image says about itself. Sourced
+# by the dispatcher, by tehasbot cycle, by tehas index, by install.sh, and by
+# the two commands that give a cycle its issue's images.
 #
 # tehasbot cycle holds $TEHAS_HOME/state/cycles/<issue>.lock for as long as it
 # lives. A lock nobody holds is a cycle that ended, however it ended, so a
@@ -13,9 +14,13 @@
 #                                 the park question this host posted
 #   tehas_rukas_commit            the pi-rukas commit a cycle started now runs
 #   tehas_rukas_proven <commit>   0 if a cycle on this host ended well on it
+#   tehas_rukas_reads_images      whether that pi-rukas reads the issue image
+#                                 manifest: 1, 0, or nothing when the image
+#                                 does not say
 #
 # Needs TEHAS_HOME. Reads only: it takes each lock for an instant and lets go.
-# tehas_rukas_commit asks Docker about PI_ENSEMBLE_IMAGE.
+# The two tehas_rukas_ functions ask Docker about PI_ENSEMBLE_IMAGE, once per
+# command.
 
 tehas_cycle_running() {
   local lock=$TEHAS_HOME/state/cycles/$1.lock
@@ -63,15 +68,45 @@ tehas_work_kind() {
   [ "$tehas_work_why" = open ]
 }
 
-# What a cycle runs is the sandbox image, so its label tehas.rukas says the
-# commit, also for an image put back for a rollback. An image built before the
-# label has the commit versions.env names. Nothing when neither says.
+# The sandbox image answers two questions about itself, in its labels, and one
+# docker call answers both. tehas.rukas is the pi-rukas commit it was built
+# with; tehas.rukas.images is whether that pi-rukas reads the issue image
+# manifest, and host/sandbox/build.sh writes what it found when it builds.
+# Asked once, because a command that asks one of them usually wants the other.
+# The answer is kept for the rest of that command: every command that asks here
+# asks, acts and exits, so nothing is carried into a later poll or across a
+# rollback of the image while a command runs. A label the image does not carry,
+# or a value that is not one of the expected ones, reads as nothing.
+tehas_rukas_asked=""
+tehas_rukas_commit_label=""
+tehas_rukas_images_label=""
+tehas_rukas_ask() {
+  local line commit="" images=""
+  if [ -n "$tehas_rukas_asked" ]; then return 0; fi
+  tehas_rukas_asked=1
+  line=$(docker image inspect --format '{{index .Config.Labels "tehas.rukas"}}|{{index .Config.Labels "tehas.rukas.images"}}' "${PI_ENSEMBLE_IMAGE:-}" 2>/dev/null) || line=""
+  IFS='|' read -r commit images <<<"$line" || true
+  [[ $commit =~ ^[0-9a-f]{7,40}$ ]] || commit=""
+  case "$images" in 1 | 0) ;; *) images="" ;; esac
+  tehas_rukas_commit_label=$commit
+  tehas_rukas_images_label=$images
+}
+
+# The commit, also for an image put back for a rollback. Nothing when the
+# image does not say.
 tehas_rukas_commit() {
-  local c
-  c=$(docker image inspect --format '{{index .Config.Labels "tehas.rukas"}}' "${PI_ENSEMBLE_IMAGE:-}" 2>/dev/null) || c=""
-  [[ $c =~ ^[0-9a-f]{7,40}$ ]] ||
-    c=$(sed -n 's/^PI_RUKAS_COMMIT=\([0-9a-f]\{7,40\}\)$/\1/p' "$TEHAS_HOME/versions.env" 2>/dev/null | head -n 1)
-  printf '%s\n' "$c"
+  tehas_rukas_ask
+  printf '%s\n' "$tehas_rukas_commit_label"
+}
+
+# Whether the pi-rukas in the sandbox image reads the manifest tehas writes
+# beside the images it mounts for a cycle. 1 reads them, 0 does not, nothing
+# when the image does not say: an image built before the label existed, or not
+# built by tehas at all. Whoever is asked whether a cycle saw a picture has to
+# answer that it does not know.
+tehas_rukas_reads_images() {
+  tehas_rukas_ask
+  printf '%s\n' "$tehas_rukas_images_label"
 }
 
 # state/rukas-proven: one commit a line, each one a cycle ended well on.

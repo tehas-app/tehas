@@ -10,8 +10,8 @@
 #
 # Exit status: 0 the cycle ended as merged or handoff (parked for a human),
 #              1 it ended as aborted,
-#              2 Pi exited, the time limit passed or the cycle stalled while it
-#                was still running.
+#              2 Pi exited, its session ended, the time limit passed or the
+#                cycle stalled while it was still running.
 #              3 the sandbox cannot push to the repository; no cycle was started.
 #              4 the instance gives a cycle the issue's images and one could
 #                not be fetched, or the issue could not be read for them; no
@@ -55,8 +55,9 @@
 # The images are fetched here, before anything starts:
 #   which     Links to GitHub's own attachment storage in the issue's text.
 #             Comments are not read: the label that starts a cycle approves the
-#             text, and a comment can arrive after it. Only when the issue was
-#             opened by an owner, member or collaborator.
+#             text, and a comment can arrive after it. Only when an allowed
+#             account applied the last tehas:ready, or the issue was opened by
+#             an owner, member or collaborator.
 #   types     png, jpg, webp and gif, told by the file's first bytes. Not svg:
 #             it is text and can carry instructions.
 #   how much  At most 8 images and 10 megabytes together.
@@ -64,7 +65,10 @@
 # not in it, so a patch cannot commit them, under names made here, with a
 # manifest.json that lists each file, the link it came from, its type and size,
 # and what was left out and why. The directory is remade for every cycle. An
-# image that is left out is said in a comment on the issue. An image that could
+# image that is left out is said in a comment on the issue. That comment says
+# whether the cycle was shown them, which is what the sandbox image's own label
+# answers: only when it says its pi-rukas reads the manifest does tehas say a
+# cycle was given images. An image that could
 # not be fetched stops the start: a cycle that works without a picture the
 # issue relies on builds the wrong thing.
 #
@@ -76,6 +80,10 @@
 # container ends. A pass of the shell tests leaves several hundred.
 # Without a usable slice nothing is cloned and nothing starts. The check that
 # the sandbox can push is a container of a few seconds and is not in the slice.
+#
+# As the container starts, the image's id and the pi-rukas commit of its label
+# tehas.rukas go to state/cycles/<issue>.image, one line, for the cycle's
+# record.
 #
 # Docker writes the container's id to state/cycles/<issue>.cid, which is how
 # the dispatcher tells this cycle's container from the others in the slice.
@@ -115,6 +123,11 @@
 # hours. The status is then "stalled", and state/cycles/<issue>.stalled holds
 # the seconds for tehasbot cycle. The limit is longer than one run of the
 # product's gate may take, which can print nothing.
+#
+# A Pi session that ended while the cycle was still running is not waited
+# for either. When pi-rukas writes its session_shutdown line to the error
+# stream, the container is stopped, the status is "interrupted", and
+# state/cycles/<issue>.ended is left for tehasbot cycle.
 set -uo pipefail
 
 issue=${1:-}
@@ -133,6 +146,10 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/slice.sh"
 # shellcheck source=lib/attachments.sh
 . "$here/../lib/attachments.sh"
+# shellcheck source=lib/labels.sh
+. "$here/../lib/labels.sh"
+# shellcheck source=lib/cycles.sh
+. "$here/../lib/cycles.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
 # Docker would create a missing mount source as a root-owned directory.
@@ -167,6 +184,8 @@ cid_file=$TEHAS_HOME/state/cycles/$issue.cid
 oom_file=$TEHAS_HOME/state/cycles/$issue.oom
 forks_file=$TEHAS_HOME/state/cycles/$issue.forks
 stall_file=$TEHAS_HOME/state/cycles/$issue.stalled
+ended_file=$TEHAS_HOME/state/cycles/$issue.ended
+image_file=$TEHAS_HOME/state/cycles/$issue.image
 stall=$TEHAS_WORK_STALL
 preflight_wait=${TEHAS_PREFLIGHT_WAIT:-300}
 stop_wait=${TEHAS_STOP_WAIT:-60}
@@ -214,14 +233,24 @@ if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces"; }; then
 fi
 image_opts=()
 if [ "$TEHAS_WORK_IMAGES" = 1 ]; then
-  if ! tehas_issue_images "$issue" "$images"; then
+  # The label approved the text, links and all. A retry tick needs no rule of
+  # its own: the dispatcher checks the text against the tick, and the label
+  # that first started the issue is still the last one applied.
+  approved=""
+  tehas_label_allowed "$issue" tehas:ready
+  case $? in
+    0) approved=approved ;;
+    2) approved=unread ;;
+  esac
+  image_why="the issue's label events could not be read for its images"
+  if [ "$approved" = unread ] || ! tehas_issue_images "$issue" "$images" "$approved"; then
     rm -rf "$images"
     echo "tehas work: $image_why, not starting a cycle" >&2
     gh issue comment "$issue" --repo "$TEHAS_REPO" --body "Tehas started no cycle: $image_why. This instance gives a cycle the images an issue links, and a cycle that works without one of them may build the wrong thing. To retry, apply \`tehas:ready\`." >/dev/null 2>&1 ||
       echo "tehas work: the comment on #$issue failed" >&2
     exit 4
   fi
-  said=$(tehas_issue_images_said "$images" cycle)
+  said=$(tehas_issue_images_said "$images" cycle "$(tehas_rukas_reads_images)")
   if [ -n "$said" ]; then
     gh issue comment "$issue" --repo "$TEHAS_REPO" --body "$said" >/dev/null 2>&1 ||
       echo "tehas work: the comment on #$issue failed" >&2
@@ -281,7 +310,7 @@ send() { (trap '' PIPE; printf '%s\n' "$1" >&4) 2>/dev/null; }
 
 # Docker refuses a cid file that is already there. One is left only by a cycle
 # that was killed outright, and so is a count of kills.
-rm -f "$cid_file" "$oom_file" "$forks_file" "$stall_file"
+rm -f "$cid_file" "$oom_file" "$forks_file" "$stall_file" "$ended_file" "$image_file"
 # A container under this name outlived the client that started it: this
 # command holds the issue's lock, so no cycle owns it. It would work on with
 # the bot's token, and Docker would refuse the name below.
@@ -296,6 +325,16 @@ stop_container() {
   timeout -k 5 "$stop_wait" docker kill "$name" >/dev/null 2>&1 ||
     echo "tehas work: docker kill of $name did not work either"
 }
+
+# The image the cycle runs, as the container starts: a rebuild or a new pin
+# while the cycle runs does not change what it ran.
+image_id="" image_rukas=""
+read -r image_id image_rukas _ < <(timeout -k 5 "$stop_wait" docker image inspect \
+  --format '{{.Id}} {{index .Config.Labels "tehas.rukas"}}' "$image" 2>/dev/null)
+if [[ $image_id =~ ^sha256:[0-9a-f]{64}$ ]]; then
+  [[ $image_rukas =~ ^[0-9a-f]{7,40}$ ]] || image_rukas=""
+  printf '%s %s\n' "$image_id" "$image_rukas" >"$image_file" || echo "tehas work: could not write $image_file" >&2
+fi
 
 # Set before the container starts, so no signal falls between. A stop ends the
 # loop and is recorded as interrupted, not as running.
@@ -379,6 +418,7 @@ moved() {
 status=running
 seen=0
 stalled=0
+ended=0
 last=$started
 # Set when this command stops the container itself, and when the container
 # was killed while the cycle was running.
@@ -394,6 +434,13 @@ while [ "$interrupted" = 0 ] && kill -0 "$pid" 2>/dev/null; do
     seen=1
     status=$(jq -r '.pipelineState.status // "running"' "$state" 2>/dev/null || echo running)
     [ "$status" != running ] && break
+  fi
+  # A Pi session that quit can leave its process idle until the time limit.
+  # pi-rukas says so on the error stream.
+  if grep -q -m 1 '^\[pi-rukas\] session_shutdown' "$log.err" 2>/dev/null; then
+    echo "tehas work: the Pi session ended while the cycle was running, stopping it"
+    ended=1
+    break
   fi
   if [ $(($(date +%s) - started)) -ge "$limit" ]; then
     echo "tehas work: time limit of ${limit}s passed"
@@ -417,7 +464,7 @@ fi
 if [ "$interrupted" = 0 ] && kill -0 "$pid" 2>/dev/null; then
   # Give the driver a moment to post its handoff, then end the session: Pi
   # sees the end of its input. The stop is for a Pi that does not go.
-  [ "$status" != running ] && sleep 20
+  [ "$status" != running ] && [ "$ended" = 0 ] && sleep 20
   oom_look
   stopped=1
   exec 4>&-
@@ -433,6 +480,10 @@ fi
 if [ "$stalled" = 1 ]; then
   status=stalled
   echo "$stall" >"$stall_file" || echo "tehas work: could not write $stall_file" >&2
+fi
+if [ "$ended" = 1 ]; then
+  status=interrupted
+  : >"$ended_file" || echo "tehas work: could not write $ended_file" >&2
 fi
 wait "$pid" 2>/dev/null
 rc=$?

@@ -65,31 +65,46 @@ t_eq "$(wc -l <"$r/stream.jsonl")" 2
 t_lacks "$(cat "$r/stream.jsonl")" message_update
 t_eq "$(sed -n 2p "$r/stream.jsonl" | jq '.text | length')" 2006
 
-t_case "the record names the pi-rukas commit the host is installed with"
+t_case "the record names the pi-rukas commit tehasbot cycle noted at the start"
 t_eq "$(jq -c .rukas "$r/cycle.json")" null
 reset
-cycle_log
-printf '%s\n' "PI_VERSION=1.2.3" "PI_RUKAS_REPO=https://example.org/rukas.git" \
-  "PI_RUKAS_COMMIT=0123456789abcdef0123456789abcdef01234567" >"$home/versions.env"
-lib "tehas_improve_record 7 $started 0 handoff review"
-t_eq "$(jq -r .rukas "$base/window/$REC/cycle.json")" 0123456789abcdef0123456789abcdef01234567
-echo 'PI_RUKAS_COMMIT=$(touch /tmp/x)' >"$home/versions.env"
-cycle_log
-lib "tehas_improve_record 7 $started 0 handoff review"
-t_eq "$(jq -c .rukas "$base/window/$REC/cycle.json")" null
-
-t_case "the commit tehasbot cycle noted at the start wins over the one installed now"
 mkdir -p "$home/state/cycles"
 echo fedcba9876543210fedcba9876543210fedcba98 >"$home/state/cycles/7.rukas"
-printf '%s\n' "PI_RUKAS_COMMIT=0123456789abcdef0123456789abcdef01234567" >"$home/versions.env"
 cycle_log
 lib "tehas_improve_record 7 $started 0 handoff review"
 t_eq "$(jq -r .rukas "$base/window/$REC/cycle.json")" fedcba9876543210fedcba9876543210fedcba98
+
+t_case "a note that is not a commit records null, whatever versions.env says"
 echo 'not a commit' >"$home/state/cycles/7.rukas"
+printf '%s\n' "PI_RUKAS_COMMIT=0123456789abcdef0123456789abcdef01234567" >"$home/versions.env"
 cycle_log
 lib "tehas_improve_record 7 $started 0 handoff review"
-t_eq "$(jq -r .rukas "$base/window/$REC/cycle.json")" 0123456789abcdef0123456789abcdef01234567
+t_eq "$(jq -c .rukas "$base/window/$REC/cycle.json")" null
 rm -rf "$home/state/cycles" "$home/versions.env"
+
+t_case "the image and its commit, as the container started, win over both"
+mkdir -p "$home/state/cycles"
+echo fedcba9876543210fedcba9876543210fedcba98 >"$home/state/cycles/7.rukas"
+printf '%s\n' "PI_RUKAS_COMMIT=0123456789abcdef0123456789abcdef01234567" >"$home/versions.env"
+img=sha256:$(printf 'e%.0s' {1..64})
+cycle_log
+lib "tehas_improve_record 7 $started 0 handoff review '' 0 $img aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+t_eq "$(jq -c '[.image, .rukas]' "$base/window/$REC/cycle.json")" "[\"$img\",\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"]"
+cycle_log
+lib "tehas_improve_record 7 $started 0 handoff review '' 0 'sha256:nothex' 'not a commit'"
+t_eq "$(jq -c '[.image, .rukas]' "$base/window/$REC/cycle.json")" '[null,"fedcba9876543210fedcba9876543210fedcba98"]'
+cycle_log
+lib "tehas_improve_record 7 $started 0 handoff review"
+t_eq "$(jq -c '.image' "$base/window/$REC/cycle.json")" null
+rm -rf "$home/state/cycles" "$home/versions.env"
+
+t_case "the cap and its reason are recorded, reduced, and null when there are none"
+cycle_log
+lib "tehas_improve_record 7 $started 0 handoff handoff '' 0 '' '' 'step-failed:adversarial\`' 'Connection error. @x <b>'"
+t_eq "$(jq -c '[.cap, .capReason]' "$base/window/$REC/cycle.json")" '["step-failed:adversarial","Connection error. x b"]'
+cycle_log
+lib "tehas_improve_record 7 $started 0 handoff review"
+t_eq "$(jq -c '[.cap, .capReason]' "$base/window/$REC/cycle.json")" '[null,null]'
 
 t_case "a cycle without a pull request records null"
 reset
@@ -203,16 +218,20 @@ t_eq "$t_rc" 1
 improve="$T_ROOT/libexec/improve"
 
 # docker leaves $T/fx/findings.json where the analyst would write, and keeps
-# its arguments one to a line. $T/fx/docker.rc is an exit status to fail with.
+# its arguments one to a line. $T/fx/docker.rc is an exit status to fail with;
+# $T/fx/docker.cut one to end with after the file is written, as an analyst
+# stopped at its bound would.
 t_stub docker '
 if [ "$1" = info ]; then cat "$T/docker.info"; exit; fi
 printf "%s\n" "$@" >"$T/calls/docker-args"
 out=""
 for a in "$@"; do case "$a" in *:/improve/out) out=${a%:/improve/out} ;; esac; done
 cp "${out%/out}/in/issues.json" "$T/calls/issues.json" 2>/dev/null
+[ -z "$out" ] || ls "${out%/out}/in/cycles" >"$T/calls/cycles"
 [ -f "$T/fx/docker.rc" ] && { echo "No API key found for test-provider."; echo "See docs/models.md"; exit "$(cat "$T/fx/docker.rc")"; }
 if [ -L "$T/fx/findings.json" ]; then cp -P "$T/fx/findings.json" "$out/findings.json"
 elif [ -f "$T/fx/findings.json" ]; then cp "$T/fx/findings.json" "$out/findings.json"; fi
+[ -f "$T/fx/docker.cut" ] && exit "$(cat "$T/fx/docker.cut")"
 exit 0'
 
 # timeout runs the command at once and keeps what it was asked.
@@ -463,17 +482,30 @@ t_contains "$t_out" "failed"
 t_eq "$(find "$base" -maxdepth 1 -name 'run-*' | wc -l)" 0
 t_eq "$(titles)" ""
 
-t_case "what a failed analyst printed is kept, and the line says where"
-t_contains "$t_out" "the analyst ended with 3, its output is in $home/logs/improve-analyst.log"
-t_contains "$(cat "$home/logs/improve-analyst.log")" "No API key found for test-provider."
+t_case "what a failed analyst printed is kept under the run's stamp, and the line says where"
+kept=$(find "$home/logs" -name 'improve-analyst-*.log')
+[[ $kept =~ /improve-analyst-[0-9]{6}-[0-9]{6}\.log$ ]] || t_bad "kept as '$kept'"
+t_contains "$t_out" "the analyst ended with 3, its output is in $kept"
+t_contains "$(cat "$kept")" "No API key found for test-provider."
 
-t_case "a run that works leaves no analyst output behind"
+t_case "a later run, failed or not, leaves the output of a failed one where it is"
 ready
-mkdir -p "$home/logs"
-echo "from a run that failed" >"$home/logs/improve-analyst.log"
+echo "from a run that failed" >"$home/logs/improve-analyst-261010-000000.log"
+echo 3 >"$fx/docker.rc"
+t_run "$improve"
+t_eq "$t_rc" 1
+t_eq "$(cat "$home/logs/improve-analyst-261010-000000.log")" "from a run that failed"
+t_eq "$(find "$home/logs" -name 'improve-analyst-*.log' | wc -l)" 2
+rm "$fx/docker.rc"
 t_run "$improve"
 t_eq "$t_rc" 0
-t_eq "$(find "$home/logs" -name 'improve-analyst.log' | wc -l)" 0
+t_eq "$(find "$home/logs" -name 'improve-analyst-*.log' | wc -l)" 2
+
+t_case "a run that works keeps no analyst output of its own"
+ready
+t_run "$improve"
+t_eq "$t_rc" 0
+t_eq "$(find "$home/logs" -name 'improve-analyst*' | wc -l)" 0
 
 t_case "no findings file files nothing"
 ready
@@ -735,7 +767,7 @@ t_contains "$t_out" "filed=0 issues=none rechecked=1"
 t_contains "$(t_calls gh)" "issue comment 12 --repo acme/rukas"
 body=$(cat "$T/calls/comment-12")
 t_contains "$body" "acme/widget#7 was worked on again: cycle \`$REC\`"
-t_contains "$body" 'with pi-rukas at `0123456789abcdef0123456789abcdef01234567`'
+t_contains "$body" 'with pi-rukas at `0123456789abcdef0123456789abcdef01234567`.'
 t_contains "$body" "**Seen again:** no"
 t_contains "$body" "safety net committed 3 of 3 paths"
 t_contains "$body" "https://github.com/acme/factory/releases/download/tehas-improve-logs/ticket-$REC.log.gz"
@@ -753,6 +785,14 @@ rechecks "$(recheck '{"repo":"acme/factory","number":4,"seen":true}')"
 t_run "$improve"
 t_contains "$(t_calls gh)" "issue comment 4 --repo acme/factory"
 t_contains "$(cat "$T/calls/comment-4")" "**Seen again:** yes"
+
+t_case "the comment names the image the cycle ran when the record has one"
+again
+img=sha256:$(printf 'e%.0s' {1..64})
+jq -c --arg i "$img" '. + {image: $i}' "$base/window/$REC/cycle.json" >"$fx/c.json"
+mv "$fx/c.json" "$base/window/$REC/cycle.json"
+t_run "$improve"
+t_contains "$(cat "$T/calls/comment-12")" "with pi-rukas at \`0123456789abcdef0123456789abcdef01234567\`, image \`$img\`."
 
 t_case "a record that names no pi-rukas commit: the comment says so"
 again
@@ -895,25 +935,187 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "cycles=2 findings=1 invalid=0"
 t_eq "$(titles)" "The late cycle parked"
 
+t_case "the window is never renamed: a run moves its records out of it"
+ready
+ino=$(stat -c %i "$base/window")
+t_run "$improve"
+t_eq "$t_rc" 0
+t_eq "$(stat -c %i "$base/window")" "$ino"
+
+# --- How many records a run takes -------------------------------------------
+cap() { cat "$home/state/improve.cap" 2>/dev/null || echo none; }
+many() { # <record>...: a window with these records and no findings
+  reset
+  for r in "$@"; do record "$r"; done
+  echo '{"findings": [], "followups": []}' >"$fx/findings.json"
+}
+taken() { t_calls cycles | tr '\n' ' '; }
+left() { find "$base/window" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort | tr '\n' ' '; }
+
+t_case "a run takes the five oldest records, by time and not by issue, and leaves the rest"
+many 9-261001-000000 1-261003-000000 2-261002-120000 30-261002-000000 4-261004-000000 5-261005-000000 6-261006-000000
+t_run "$improve"
+t_eq "$t_rc" 0
+t_eq "$(taken)" "1-261003-000000 2-261002-120000 30-261002-000000 4-261004-000000 9-261001-000000 "
+t_eq "$(left)" "5-261005-000000 6-261006-000000 "
+t_contains "$t_out" "cycles=5 "
+t_contains "$t_out" "left=2"
+
+t_case "an analyst stopped at its bound halves what the next run takes"
+many 1-261001-000000 2-261002-000000 3-261003-000000 4-261004-000000 5-261005-000000 6-261006-000000
+echo 124 >"$fx/docker.rc"
+t_run "$improve"
+t_eq "$t_rc" 1
+t_eq "$(cap)" 2
+t_contains "$t_out" "the next run takes at most 2"
+t_eq "$(left)" "1-261001-000000 2-261002-000000 3-261003-000000 4-261004-000000 5-261005-000000 6-261006-000000 "
+t_run "$improve"
+t_eq "$(taken)" "1-261001-000000 2-261002-000000 "
+t_eq "$(cap)" 1
+t_run "$improve"
+t_eq "$(cap)" 1
+
+t_case "a client that needed the kill counts as stopped at the bound"
+many 1-261001-000000 2-261002-000000 3-261003-000000 4-261004-000000
+echo 137 >"$fx/docker.rc"
+t_run "$improve"
+t_eq "$(cap)" 2
+
+t_case "half of what it took, not of the cap: three records stopped at the bound leave one"
+many 1-261001-000000 2-261002-000000 3-261003-000000
+echo 124 >"$fx/docker.rc"
+t_run "$improve"
+t_eq "$(cap)" 1
+
+t_case "the analyst is told its time and to write its file early"
+ready
+t_run "$improve"
+p=$(sed -n '/^--model$/,$p' "$T/calls/docker-args" | sed 1,2d)
+t_contains "$p" "You have 60 minutes"
+t_contains "$p" "Write it early"
+t_lacks "$p" "@MINUTES@"
+
+t_case "stopped at its bound with a good file: what it holds is filed, and only the records it names are done"
+many 1-261001-000000 2-261002-000000 "$REC"
+findings "$(finding "The gate runs twice in one cycle")"
+echo 124 >"$fx/docker.cut"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_eq "$(titles)" "The gate runs twice in one cycle"
+t_eq "$(left)" "1-261001-000000 2-261002-000000 "
+t_contains "$t_out" "cycles=3 findings=1"
+t_contains "$t_out" "stopped=124 returned=2"
+t_eq "$(cap)" 1
+kept=$(find "$home/logs" -name 'improve-analyst-*.log')
+[ -n "$kept" ] || t_bad "the output of a stopped analyst was not kept"
+t_contains "$t_out" "output=$kept"
+
+t_case "a record named only by a followup is done too"
+many 1-261001-000000 "$REC"
+jq -n -c --arg rec "$REC" '{findings: [{title: 1, cycles: ["1-261001-000000", 7]}],
+  followups: [{cycle: $rec}, "x"]}' >"$fx/findings.json"
+echo 124 >"$fx/docker.cut"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_eq "$(left)" ""
+t_contains "$t_out" "invalid=1"
+t_contains "$t_out" "returned=0"
+
+t_case "stopped at its bound with nothing found yet: every record goes back"
+many 1-261001-000000 "$REC"
+echo 124 >"$fx/docker.cut"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_eq "$(left)" "1-261001-000000 $REC "
+t_contains "$t_out" "returned=2"
+
+t_case "stopped at its bound with a file of the wrong shape: exit 1 and every record goes back"
+many 1-261001-000000 "$REC"
+echo '{"findings": [' >"$fx/findings.json"
+echo 124 >"$fx/docker.cut"
+t_run "$improve"
+t_eq "$t_rc" 1
+t_contains "$t_out" "at its bound of 60 minutes; the next run takes at most 1; findings.json is not the shape asked for"
+t_eq "$(left)" "1-261001-000000 $REC "
+t_eq "$(titles)" ""
+
+t_case "stopped at its bound with no file: exit 1 and every record goes back"
+many 1-261001-000000 "$REC"
+rm "$fx/findings.json"
+echo 124 >"$fx/docker.cut"
+t_run "$improve"
+t_eq "$t_rc" 1
+t_contains "$t_out" "the next run takes at most 1; the analyst left no findings.json"
+t_eq "$(left)" "1-261001-000000 $REC "
+
+t_case "an analyst that fails otherwise is not read, whatever file it left"
+many "$REC"
+findings "$(finding "The gate runs twice in one cycle")"
+echo 1 >"$fx/docker.cut"
+t_run "$improve"
+t_eq "$t_rc" 1
+t_eq "$(titles)" ""
+t_eq "$(left)" "$REC "
+
+t_case "a run that finishes in time doubles what the next takes, up to five"
+many 1-261001-000000 2-261002-000000 3-261003-000000 4-261004-000000 5-261005-000000 6-261006-000000 7-261007-000000
+mkdir -p "$home/state" && echo 1 >"$home/state/improve.cap"
+t_run "$improve"
+t_eq "$(taken)" "1-261001-000000 "
+t_eq "$(cap)" 2
+t_run "$improve"
+t_eq "$(taken)" "2-261002-000000 3-261003-000000 "
+t_eq "$(cap)" 4
+t_run "$improve"
+t_eq "$(cap)" 5
+
+t_case "an analyst that fails for another reason leaves the cap as it was"
+many 1-261001-000000 2-261002-000000 3-261003-000000 4-261004-000000
+mkdir -p "$home/state" && echo 4 >"$home/state/improve.cap"
+echo 3 >"$fx/docker.rc"
+t_run "$improve"
+t_eq "$(cap)" 4
+
+t_case "a cap that is not a number from 1 to 5 is taken as 5"
+for bad in 0 6 x "" "3; rm -rf /" 12; do
+  many 1-261001-000000 2-261002-000000 3-261003-000000 4-261004-000000 5-261005-000000 6-261006-000000
+  mkdir -p "$home/state" && printf '%s\n' "$bad" >"$home/state/improve.cap"
+  t_run "$improve"
+  t_eq "$(t_calls cycles | wc -l)" 5
+done
+
 t_case "a container left by a killed run is removed before the analyst starts"
 ready
 t_run "$improve"
 t_eq "$(t_calls docker | grep -v '^info ' | head -n 1)" "rm -f tehas-improve"
-t_contains "$(t_calls timeout | grep -v ' systemctl \| docker info ' | head -n 1)" "-k 60 1800 docker run"
+t_contains "$(t_calls timeout | grep -v ' systemctl \| docker info ' | head -n 1)" "-k 60 3600 docker run"
+
+t_case "an analyst stopped at its bound has its container removed at once"
+ready
+echo 124 >"$fx/docker.rc"
+t_run "$improve"
+t_eq "$t_rc" 1
+t_eq "$(t_calls docker | grep -E '^(run|rm) ' | cut -c1-6 | tr '\n' ' ')" "rm -f  run -- rm -f  "
+
+t_case "an analyst that finished leaves no container to remove"
+ready
+t_run "$improve"
+t_eq "$(t_calls docker | grep -c '^rm -f tehas-improve$')" 1
 
 t_case "the sweep removes what is over seven days old and nothing newer"
 reset
 record 3-261001-000000
 touch -d '8 days ago' "$base/window/3-261001-000000" "$home/logs/work-3-261001-000000.jsonl"
-for f in work-3-261001-000000.jsonl.err dispatch-work-3.log index-261001-000000.log dispatch.log improve.log; do
+for f in work-3-261001-000000.jsonl.err dispatch-work-3.log index-261001-000000.log dispatch.log improve.log \
+  improve-analyst-261001-000000.log improve-analyst.log; do
   touch -d '8 days ago' "$home/logs/$f"
 done
-touch -d '6 days ago' "$home/logs/work-4-261004-000000.jsonl"
+touch -d '6 days ago' "$home/logs/work-4-261004-000000.jsonl" "$home/logs/improve-analyst-261004-000000.log"
 mkdir -p "$base/.new.old" && touch -d '8 days ago' "$base/.new.old"
 t_run "$improve"
 t_eq "$t_rc" 0
 t_contains "$t_out" "cycles=0"
-t_eq "$(find "$home/logs" -type f -printf '%f\n' | sort | tr '\n' ' ')" "dispatch.log improve.log work-4-261004-000000.jsonl "
+t_eq "$(find "$home/logs" -type f -printf '%f\n' | sort | tr '\n' ' ')" "dispatch.log improve-analyst-261004-000000.log improve.log work-4-261004-000000.jsonl "
 t_eq "$(find "$base" -mindepth 1 ! -name window | wc -l)" 0
 
 t_case "a second run while one is going does nothing"

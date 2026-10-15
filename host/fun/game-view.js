@@ -440,11 +440,15 @@
   // was pressed and flies, in sprite steps, to the work order monitor, which
   // then prints the ticket at modem speed. The flight is skipped when
   // motion is reduced or the monitor's number is not on screen.
+  // Whatever the flight does, the place that was pressed answers: it latches in
+  // brass for a beat. Below 1280px the work order is a panel in the column and
+  // can be off screen when a row is tapped, so the latch is what the tap gets.
   let flight = 0;
   function select(number, origin) {
     const changed = state.selected !== number;
     state.selected = number;
     markCurrent();
+    if (origin) replay(origin, "is-changed");
     const screen = document.querySelector(".screen");
     const load = () => { renderOrder(); if (changed) printOrder(); };
     const from = origin && origin.querySelector("b");

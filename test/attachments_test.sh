@@ -7,7 +7,12 @@
 . "$(dirname "$0")/lib.sh"
 
 lib=". $T_ROOT/lib/attachments.sh"
-t_stub curl 'for a in "$@"; do [ "$a" != "@-" ] || { printf "stdin: "; cat; } >>"$T/calls/curl-stdin"; done
+t_stub curl 'prev=""
+for a in "$@"; do
+  [ "$a" != "@-" ] || { printf "stdin: "; cat; } >>"$T/calls/curl-stdin"
+  [ "$prev" != -o ] || [ ! -e "$T/png" ] || cp "$T/png" "$a"
+  prev=$a
+done
 printf image/png
 exit "${CURL_RC:-0}"'
 
@@ -64,5 +69,37 @@ T_ENV=(CURL_RC=63)
 t_run "$lib; tehas_attachment_fetch https://github.com/user-attachments/assets/1 $T/out 10 tok"
 t_eq "$t_rc" 63
 T_ENV=()
+
+# --- The images an issue links -----------------------------------------------
+# gh answers for issue 7 from a file; curl hands out a png.
+t_stub gh 'case "$*" in "api repos/acme/widget/issues/7") cat "$T/issue.json" ;; esac'
+printf '\x89PNG\r\n\x1a\nPNGDATA' >"$T/png"
+outsider() { jq -n --arg who "$1" '{number: 7, author_association: $who,
+  body: "See ![shot](https://github.com/user-attachments/assets/1111)"}' >"$T/issue.json"; }
+images="TEHAS_REPO=acme/widget GH_TOKEN=tok; $lib; tehas_issue_images 7 $T/images"
+taken() { jq -c '[(.images | map(.file)), (.leftOut | map(.reason))]' "$T/images/manifest.json"; }
+
+t_case "an issue opened by someone outside the repository is given no image without an approval"
+outsider NONE
+rm -f "$T"/calls/*
+t_run "$images"
+t_eq "$t_rc" 0
+t_eq "$(taken)" '[[],["The issue was not opened by an owner, member or collaborator, and its label was not applied by an allowed account."]]'
+t_eq "$(t_calls curl)" ""
+
+t_case "an approved text gives its images whoever opened the issue"
+t_run "$images approved"
+t_eq "$t_rc" 0
+t_eq "$(taken)" '[["image-1.png"],[]]'
+t_contains "$(t_calls curl)" "https://github.com/user-attachments/assets/1111"
+
+t_case "only the word approved approves"
+t_run "$images yes"
+t_eq "$(taken)" '[[],["The issue was not opened by an owner, member or collaborator, and its label was not applied by an allowed account."]]'
+
+t_case "an owner's issue gives its images without an approval, as before"
+outsider OWNER
+t_run "$images"
+t_eq "$(taken)" '[["image-1.png"],[]]'
 
 t_done

@@ -29,10 +29,11 @@
 #   3. Running cycles and tehas PRs that wait for a human together do not
 #      exceed TEHAS_MAX_AWAITING. And a cycle starts only while tehas.slice,
 #      the systemd slice every sandbox container runs in, has room for one
-#      more TEHAS_CYCLE_RESERVE and is not under full memory pressure. Every
-#      container in the slice counts at its floor or its use, whichever is
-#      more, and a cycle that has no container yet at one reserve. A slice
-#      that is missing, has no limit or cannot be read starts nothing.
+#      more TEHAS_CYCLE_RESERVE, holds fewer containers than their ceilings
+#      fit and is not under full memory pressure. Every container in the
+#      slice counts at its floor or its use, whichever is more, and a cycle
+#      that has no container yet at one reserve. A slice that is missing, has
+#      no limit or cannot be read starts nothing.
 #   4. A box ticked by an allowed account in the bot's question comment is an
 #      answer: on a parked cycle, "Retry from a clean start" starts a fresh
 #      cycle. Rules 2 and 3 hold that back too. The tick counts only on a
@@ -41,6 +42,9 @@
 #      nothing. A comment is a
 #      question only if this host has its id on record, in $TEHAS_HOME/state:
 #      the planning record, or park-<issue>.id.
+#   4a. A cycle that tehasbot cycle parked for a provider outage starts again
+#      once, without a tick, when nothing holds cycles back, on the word of the
+#      account that started the parked one. A second such park waits.
 #   5. A reply or a ticked option on a planning question runs the next turn
 #      of that session. An issue whose tehas:plan label was applied by an
 #      allowed account starts a session. Neither waits for rule 2, the cap of
@@ -251,8 +255,11 @@ mesh_check() {
 }
 
 # Where the instance gives a cycle images (TEHAS_WORK_IMAGES), a cycle whose
-# issue links one needs a model that declares image input in models.json and
-# answers a request that carries one. image_ok <issue> asks only for such an
+# issue links one needs two readers: the pi-rukas in the sandbox image, which
+# hands over the manifest tehas writes beside them, and a model that declares
+# image input in models.json and answers a request that carries one. The
+# image is asked first: its label answers without the network, and an image
+# that says nothing is not held for it. image_ok <issue> asks only for such an
 # issue, and only when it would otherwise start: an issue without images, and
 # a planning turn, are never held by it, and a poll that can start nothing
 # sends no picture to a backend that cycles are queueing on. The model is
@@ -266,8 +273,8 @@ image_hold=""
 # A png of one pixel.
 mesh_pixel=iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==
 image_ok() {
-  local n=$1 linked model=$PI_ENSEMBLE_SUBAGENT_MODEL
-  [ "$TEHAS_WORK_IMAGES" = 1 ] && [ -n "$mesh_url" ] || return 0
+  local n=$1 linked model=$PI_ENSEMBLE_SUBAGENT_MODEL commit
+  [ "$TEHAS_WORK_IMAGES" = 1 ] || return 0
   linked=$(jq -r "$(tehas_attachment_links)"' (.body // "") | links | length > 0' <<<"${work_answer[$n]:-}" 2>/dev/null) || linked=""
   case "$linked" in
     false) return 0 ;;
@@ -276,7 +283,12 @@ image_ok() {
   esac
   if [ "$image_asked" = 0 ]; then
     image_asked=1
-    if ! jq -e --arg p "$PI_ENSEMBLE_SUBAGENT_PROVIDER" --arg m "$model" \
+    if [ "$(tehas_rukas_reads_images)" = 0 ]; then
+      commit=$(tehas_rukas_commit)
+      image_hold="the pi-rukas in the sandbox image${commit:+ ${commit:0:12}} does not read them"
+    elif [ -z "$mesh_url" ]; then
+      :
+    elif ! jq -e --arg p "$PI_ENSEMBLE_SUBAGENT_PROVIDER" --arg m "$model" \
       '.providers[$p].models // [] | any(.id == $m and ((.input // []) | index("image") != null))' \
       "$HOME/.pi/agent/models.json" >/dev/null 2>&1; then
       image_hold="$model does not declare image input in models.json"
@@ -304,6 +316,7 @@ mesh_ok() {
 # it where it ends.
 slice_hold=""
 mem_why=""
+mem_note=""
 slice_ok() { [ -z "$slice_hold" ] && [ "$mem_why" != unreadable ]; }
 
 # gib <bytes>: the size for a person, to a tenth of a GiB, rounded down.
@@ -628,6 +641,11 @@ start_cycles() {
     # A park question of an earlier cycle is used up by this start, whichever
     # way it came about. Its boxes must not answer for the new cycle.
     rm -f "$(park_id "$n")"
+    # So is its park. Who authorised this start is kept for a retry after a
+    # provider outage, and the retry itself is marked for its cycle.
+    rm -f "$TEHAS_HOME/state/cycles/$n.park" "$TEHAS_HOME/state/cycles/$n.requeued"
+    printf '%s\n' "${starter[$n]}" >"$TEHAS_HOME/state/cycles/$n.by" || log "WARN: could not record who started #$n"
+    [ "${verb[$n]}" != requeued ] || : >"$TEHAS_HOME/state/cycles/$n.requeued"
     say "$n" "Tehas cycle started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC (authorized by @${starter[$n]}'s ${how[$n]}). This issue is owned by the cycle until \`tehas:running\` is removed."
     if ! start_cycle "$n"; then
       log "ERROR: the cycle for #$n did not start"
@@ -750,7 +768,7 @@ done
 # otherwise the slots could overshoot the cap. Rules 2 and 3 hold back new
 # cycles only; a question is still read while they hold. $hold says why and
 # $why is the one word for it: slice, unreadable, resources, count, canary,
-# awaiting, pressure or room, the first that applies. resources is a model
+# awaiting, pressure, room or full, the first that applies. resources is a model
 # endpoint that does not answer or does not offer the model: it holds
 # planning turns and retries as well.
 #
@@ -763,13 +781,13 @@ slice_max=0
 if tehas_slice_ok; then
   cid_files=()
   for n in $running; do cid_files+=("$TEHAS_HOME/state/cycles/$n.cid"); done
-  if ! read -r room_mem committed slice_max _ mem_why < <(tehas_slice_room "$count" "${cid_files[@]}") ||
+  if ! read -r room_mem committed slice_max _ mem_why mem_note < <(tehas_slice_room "$count" "${cid_files[@]}") ||
     ! [[ $room_mem =~ ^[0-9]+$ && $committed =~ ^[0-9]+$ && $slice_max =~ ^[0-9]+$ ]]; then
     # An answer that is not the numbers is never read as room.
-    room_mem=0 committed=0 slice_max=0 mem_why=unreadable
+    room_mem=0 committed=0 slice_max=0 mem_why=unreadable mem_note=""
   fi
   case "$mem_why" in
-    pressure | unreadable) room_mem=0 ;;
+    pressure | unreadable | full) room_mem=0 ;;
     *) if [ "$room_mem" = 0 ]; then mem_why=room; else mem_why=""; fi ;;
   esac
 else
@@ -787,7 +805,7 @@ elif [ "$mem_why" = unreadable ]; then
   # Before the count: this holds planning turns too, and tehas status warns
   # on it, whatever the slots say.
   why=unreadable
-  hold="holding: the slice's use could not be read"
+  hold="holding: the slice's use could not be read${mem_note:+: $mem_note}"
 elif [ -n "$mesh_hold" ]; then
   why=resources
   hold=$mesh_hold
@@ -813,6 +831,7 @@ else
     case "$why" in
       pressure) hold="holding: tehas.slice is under memory pressure (full avg60 $(tehas_slice_pressure || echo unknown))" ;;
       room) hold="holding: tehas.slice has no room for another cycle ($(gib "$committed") of $(gib "$slice_max") promised, each cycle is given $TEHAS_CYCLE_RESERVE)" ;;
+      full) hold="holding: tehas.slice holds as many containers as their ceilings fit ($((slice_max / (TEHAS_SLICE_CEILING_MB * 1048576))) of ${TEHAS_SLICE_CEILING_MB}m)" ;;
     esac
   else
     want=$((free < room ? free : room))
@@ -1017,7 +1036,8 @@ for n in $asking; do
       exit "$started"
       ;;
     plan)
-      # A reply says more than a box, so it wins when both are there.
+      # A reply says more than a box, so it wins when both are there, and the
+      # answer says what was ticked.
       reply=$(jq -r '.reply.text // ""' <<<"$ans")
       if [ -n "$reply" ]; then
         by=$(jq -r .reply.by <<<"$ans")
@@ -1040,6 +1060,19 @@ for n in $asking; do
         text="The operator replied on the issue:
 
 $reply"
+        # The tick is not used, but it is not dropped without a word either.
+        if [ "$tick" = one ]; then
+          idx=$(jq -r .tick.index <<<"$ans")
+          if [ "$idx" = "$(($(jq -r .boxes <<<"$ans") - 1))" ]; then
+            choice="End this planning session"
+          else
+            choice=$(jq -r --argjson i "$idx" '.options[$i] // ""' "$st" 2>/dev/null) || choice=""
+            [ -n "$choice" ] || choice="a box that matches no option on record"
+          fi
+          text="$text
+
+A box was also ticked, by $(jq -r .tick.by <<<"$ans"): $choice"
+        fi
       else
         idx=$(jq -r .tick.index <<<"$ans")
         # The last box is always the way out.
@@ -1108,6 +1141,46 @@ if [ -n "$hold" ]; then
   [ "$dry" = 1 ] && log "$hold"
   exit 0
 fi
+
+# 4a. A cycle a provider outage parked starts again once, without a tick, now
+# that nothing holds cycles back and the model endpoint answers. tehasbot cycle
+# asks for it in state/cycles/<issue>.park. The start rests on the account that
+# authorised the cycle that parked, while it is still allowed and nobody else
+# changed the text since that cycle began. A park file that cannot start
+# anything goes; a second park of the kind waits for a person.
+for pf in "$TEHAS_HOME"/state/cycles/*.park; do
+  n=${pf##*/}
+  n=${n%.park}
+  [[ $n =~ ^[1-9][0-9]*$ ]] && [ -f "$pf" ] && [ ! -L "$pf" ] && [ "$want" -gt 0 ] || continue
+  [ "$(jq -r '.retry == true and (.started | type) == "number"' "$pf" 2>/dev/null)" = true ] || continue
+  ! tehas_cycle_running "$n" || continue
+  gh_json issue view "$n" --repo "$repo" --json state,labels
+  have=" $(jq -r '[(.labels // [])[].name] | join(" ")' <<<"$json") "
+  by=$(head -c 64 "$TEHAS_HOME/state/cycles/$n.by" 2>/dev/null | head -n 1)
+  # A label of a person's decides it, in rule 6 or by waiting.
+  [[ $have != *" tehas:ready "* ]] || continue
+  if [ "$(jq -r '.state // ""' <<<"$json")" != OPEN ] || [[ $have != *" needs-human-attention "* ]] ||
+    [[ $have == *" tehas:running "* ]] || [ -e "$(plan_state "$n")" ] || ! tehas_allowed_labeler "$by" ||
+    ! unchanged_since "$n" "$(date -u -d "@$(jq -r .started "$pf")" +%FT%TZ)" "its last cycle began" "apply tehas:ready"; then
+    log "skip #$n: its retry after a provider outage is not started; it waits for a person"
+    [ "$dry" = 1 ] || rm -f "$pf"
+    continue
+  fi
+  if [ "$dry" = 1 ]; then
+    log "would run a cycle for #$n (retry after a provider outage, started by $by)"
+    exit 0
+  fi
+  units_ok "$n" || exit 1
+  picked=("$n")
+  starter[$n]=$by
+  verb[$n]=requeued
+  how[$n]="start of the cycle a provider outage parked"
+  drop[$n]="--remove-label needs-human-attention"
+  [[ $have != *" tehas:question "* ]] || drop[$n]+=" --remove-label tehas:question"
+  say "$n" "Tehas starts this issue again on its own: its last cycle was parked by a provider outage, and the model endpoint answers again. It does this once. If the new cycle is parked the same way, it waits for a person."
+  start_cycles
+  exit
+done
 
 # 6. and 7. Candidates: urgent first, then by number. The order is needed
 # before the candidates are cut to the free slots, so whose urgent label counts

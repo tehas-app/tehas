@@ -36,6 +36,10 @@ git clone -q "$upstream" "$checkout"
 # start a container whose cid file is already there. Only a run is recorded
 # one argument per line; what the container does is a file a case writes.
 t_stub docker 'if [ "$1" = info ]; then cat "$T/docker.info"; exit; fi
+if [ "$1" = image ]; then
+  case " $* " in *"{{.Id}}"*) cat "$T/image.inspect" ;; *) cat "$T/image.label" ;; esac 2>/dev/null
+  exit
+fi
 printf "%s\n" "$@" >"$T/calls/docker.args.$$"
 prev=""
 for a in "$@"; do
@@ -598,6 +602,33 @@ t_lacks "$t_out" "stalled"
 t_eq "$(find "$T/home/tehas/state/cycles/7.stalled" 2>/dev/null | wc -l)" 0
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 
+t_case "a Pi session that ended while the cycle runs stops it at once as interrupted"
+fresh
+rm -f "$T/home/tehas/state/cycles/7.ended"
+# What pi-rukas wrote to the error stream when Pi quit on a real host. The
+# container then idles.
+container "says running; echo '[pi-rukas] session_shutdown (reason: quit): aborted 2 in-flight async jobs' >&2; $hold; $gone"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "tehas work: the Pi session ended while the cycle was running, stopping it"
+t_contains "$t_out" "status=interrupted step=develop"
+t_lacks "$t_out" "time limit"
+t_lacks "$t_out" "was killed"
+t_contains "$(t_calls docker)" "stop -t 20 tehas-work-7"
+t_eq "$(find "$T/home/tehas/state/cycles/7.ended" -type f 2>/dev/null | wc -l)" 1
+t_eq "$(jq -c '[.running, .status]' "$live/cycles/7.json")" '[false,"interrupted"]'
+
+t_case "a session_shutdown that is not at the start of a line ends nothing, and no ended file is left"
+fresh
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=2
+container "says running; echo 'a tool said [pi-rukas] session_shutdown' >&2; $hold; $gone"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "time limit of 2s passed"
+t_lacks "$t_out" "session ended"
+t_eq "$(find "$T/home/tehas/state/cycles/7.ended" 2>/dev/null | wc -l)" 0
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+
 t_case "TERM still gives interrupted"
 fresh
 container "$hold; $gone"
@@ -623,6 +654,35 @@ t_case "a container left under the issue's name is removed before the cycle's st
 rm_at=$(t_calls docker | grep -n -x -e 'rm -f tehas-work-7' | cut -d: -f1 | head -n 1)
 run_at=$(t_calls docker | grep -n -e ' --mode ' | cut -d: -f1 | head -n 1)
 t_eq "$([ -n "$rm_at" ] && [ -n "$run_at" ] && [ "$rm_at" -lt "$run_at" ] && echo before)" before
+
+t_case "the image's id and the pi-rukas commit of its label are on record, read before the container starts"
+fresh
+image_id=sha256:$(printf 'e%.0s' {1..64})
+echo "$image_id 0123456789abcdef0123456789abcdef01234567" >"$T/image.inspect"
+container 'says handoff'
+t_run "$work 7"
+t_eq "$(cat "$T/home/tehas/state/cycles/7.image")" "$image_id 0123456789abcdef0123456789abcdef01234567"
+t_contains "$(t_calls docker)" "image inspect --format {{.Id}} {{index .Config.Labels \"tehas.rukas\"}} tehas/pi-rukas:uid$(id -u)"
+at_inspect=$(t_calls docker | grep -n -e '^image inspect' | cut -d: -f1 | head -n 1)
+at_run=$(t_calls docker | grep -n -e ' --mode ' | cut -d: -f1 | head -n 1)
+t_eq "$([ -n "$at_inspect" ] && [ -n "$at_run" ] && [ "$at_inspect" -lt "$at_run" ] && echo before)" before
+
+t_case "an image without the label is on record by its id alone"
+fresh
+echo "$image_id " >"$T/image.inspect"
+t_run "$work 7"
+t_eq "$(cat "$T/home/tehas/state/cycles/7.image")" "$image_id "
+
+t_case "an answer that is not an image id leaves no record, and one left by an earlier cycle goes"
+fresh
+echo "not-an-id 0123456 \$(touch x)" >"$T/image.inspect"
+echo "$image_id 0123456" >"$T/home/tehas/state/cycles/7.image"
+t_run "$work 7"
+t_eq "$(find "$T/home/tehas/state/cycles/7.image" 2>/dev/null | wc -l)" 0
+echo "$image_id not-a-commit" >"$T/image.inspect"
+t_run "$work 7"
+t_eq "$(cat "$T/home/tehas/state/cycles/7.image")" "$image_id "
+rm -f "$T/image.inspect" "$T/home/tehas/state/cycles/7.image"
 
 t_case "a docker stop that does not end is given up after its bound, said, and the container killed"
 fresh
@@ -815,9 +875,10 @@ t_contains "$t_out" "GH_TOKEN is not set"
 t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
 
 # --- The issue's images ------------------------------------------------------
-# gh answers for the issue from a file. curl hands out $T/fx/net/<address, with
-# _ for every other character>; <name>.rc is an exit status to fail with. What
-# arrives on standard input (the header) is kept.
+# gh answers for the issue and its events from files: no events file is an
+# issue nobody labelled. curl hands out $T/fx/net/<address, with _ for every
+# other character>; <name>.rc is an exit status to fail with. What arrives on
+# standard input (the header) is kept.
 fx=$T/fx
 A=https://github.com/user-attachments/assets
 F=https://github.com/user-attachments/files
@@ -825,6 +886,9 @@ imgs=$ws.images
 t_stub gh '
 case "$1 $2" in
   "api repos/acme/widget/issues/7") cat "$T/fx/issue.json" 2>/dev/null || exit 1 ;;
+  "api repos/acme/widget/issues/7/events?per_page=100")
+    [ ! -e "$T/fx/events-fail" ] || exit 1
+    cat "$T/fx/events.json" 2>/dev/null || echo "[]" ;;
   "issue comment") [ ! -e "$T/fx/comment-fails" ] || exit 1 ;;
 esac'
 t_stub curl '
@@ -865,6 +929,7 @@ images_on() {
   rm -rf "$fx" "$T"/calls/* "$T/home/tehas/work"
   mkdir -p "$fx/net"
   slice_good
+  reads_image 1
   T_ENV=("${env_ok[@]}")
   t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1 "$@"
 }
@@ -876,6 +941,13 @@ $state/sessions:/home/vscode/.pi/agent/sessions
 $T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
 $T/home/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro"
 manifest() { jq -c "$1" "$imgs/manifest.json" 2>&1; }
+# What the sandbox image says about its own pi-rukas, as host/sandbox/build.sh
+# writes it: <commit>|<reads>. reads_image says it for one case.
+img_commit=$(printf 'c%.0s' {1..40})
+reads_image() { # <1, 0, or none when the image carries no label>
+  rm -f "$T/image.label"
+  if [ "$1" != none ]; then printf '%s\n' "$img_commit|$1" >"$T/image.label"; fi
+}
 
 t_case "with images off GitHub is not asked, nothing is fetched and no directory is made"
 images_on
@@ -953,6 +1025,39 @@ t_case "the limit counts all images together: each fetch may take what is left"
 t_eq "$(t_calls curl | grep -o -e '--max-filesize [0-9]*' | tr '\n' ' ')" \
   "--max-filesize 10485760 --max-filesize 10485745 --max-filesize 10485734 --max-filesize 10485734 --max-filesize 10485721 "
 
+t_case "an image the sandbox image does not read is said as fetched and not shown, and still mounted"
+images_on
+reads_image 0
+net "$A/1111" "$png"
+issue_is "![shot]($A/1111)"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$(after -v)" "$imgs:$inside.images:ro"
+t_eq "$(after -e | grep '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$inside.images"
+t_lacks "$(t_calls gh)" "Tehas gave this cycle"
+t_contains "$(t_calls gh)" "Tehas fetched 1 image from the issue text and mounted it read-only in the container of this cycle. The pi-rukas in the sandbox image does not read them, so no agent was shown one."
+
+# An image built before the label existed is not proof of anything, and tehas
+# does not claim one way or the other.
+t_case "a sandbox image that says nothing is not claimed to have shown the images"
+images_on
+reads_image none
+net "$A/1111" "$png"
+issue_is "![shot]($A/1111)"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_lacks "$(t_calls gh)" "Tehas gave this cycle"
+t_contains "$(t_calls gh)" "The sandbox image does not say whether its pi-rukas reads them: rebuild it with $T/home/tehas/sandbox/build.sh, which records the answer."
+
+t_case "a sandbox image that reads them is said to have given them"
+images_on
+reads_image 1
+net "$A/1111" "$png"
+issue_is "![shot]($A/1111)"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body Tehas gave this cycle 1 image from the issue text."
+
 t_case "bytes that are not the image the name says are left out"
 images_on
 net "$F/21/shot.png" '<svg xmlns="http://www.w3.org/2000/svg"><script/></svg>'
@@ -980,8 +1085,46 @@ t_run "$work 7"
 t_eq "$t_rc" 2
 t_eq "$(t_calls curl)" ""
 t_eq "$(manifest '[.images, (.leftOut | map([.link, .reason]))]')" \
-  "[[],[[\"$A/1111\",\"The issue was not opened by an owner, member or collaborator.\"]]]"
+  "[[],[[\"$A/1111\",\"The issue was not opened by an owner, member or collaborator, and its label was not applied by an allowed account.\"]]]"
 t_contains "$(cycle_args | tr '\n' ' ')" "pi --mode rpc --approve"
+
+# labelled_by <login>: the account that applied tehas:ready last.
+labelled_by() {
+  jq -n --arg who "$1" '[{event: "labeled", label: {name: "tehas:plan"}, actor: {login: "alice"}, created_at: "2026-10-12T00:00:00Z"},
+    {event: "labeled", label: {name: "tehas:ready"}, actor: {login: $who}, created_at: "2026-10-11T00:00:00Z"}]' >"$fx/events.json"
+}
+
+t_case "an outsider's issue that an allowed account labelled is given its images"
+images_on
+net "$A/1111" "$png"
+issue_is "![shot]($A/1111)" NONE
+labelled_by alice
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(manifest '[(.images | map(.link)), .leftOut]')" "[[\"$A/1111\"],[]]"
+t_contains "$(after -v)" "$imgs:$inside.images:ro"
+t_contains "$(t_calls gh)" "api repos/acme/widget/issues/7/events?per_page=100 --paginate"
+
+t_case "one labelled last by an account outside the list is not, and nothing is fetched"
+images_on
+net "$A/1111" "$png"
+issue_is "![shot]($A/1111)" NONE
+labelled_by mallory
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(t_calls curl)" ""
+t_eq "$(manifest '.images')" "[]"
+
+t_case "events that cannot be read start no cycle: exit 4, said on the issue"
+images_on
+issue_is "![shot]($A/1111)" NONE
+: >"$fx/events-fail"
+t_run "$work 7"
+t_eq "$t_rc" 4
+t_contains "$t_out" "tehas work: the issue's label events could not be read for its images, not starting a cycle"
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+t_eq "$(t_calls curl)" ""
+t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body Tehas started no cycle: the issue's label events could not be read"
 
 t_case "at most eight images: the ninth is left out and not fetched"
 images_on

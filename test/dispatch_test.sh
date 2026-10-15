@@ -1106,12 +1106,29 @@ t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 
 # nproc is stubbed to 8 above, and reset()'s slice has room for ten.
-t_case "the ceiling defaults to the stubbed host's CPUs minus one: seven issues start"
+t_case "the ceiling defaults to the stubbed host's CPUs minus one: seven"
+reset
+t_instance "${T_MINIMAL[@]}"
+ready 7 8 9 10 11 12 13 14
+for n in 20 21 22 23 24 25 26; do hold "$n"; done
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "holding: 7 cycles are running (limit 7)"
+release
+
+t_case "below the ceiling, no more cycles start than the containers' ceilings fit in the slice"
 reset
 t_instance "${T_MINIMAL[@]}"
 ready 7 8 9 10 11 12 13 14
 t_run "$dispatch"
-t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 10 11 12 13 "
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 10 "
+reset
+t_instance "${T_MINIMAL[@]}"
+for d in a b c d; do slice_child "$(slice_id "$d")" "$gib" 0 0; done
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "holding: tehas.slice holds as many containers as their ceilings fit (4 of 5120m)"
+t_eq "$(jq -c '[.why, .room]' "$dispatch_json")" '["full",0]'
 
 t_case "an urgent issue is started first"
 reset
@@ -2041,6 +2058,16 @@ t_eq "$(jq -c '[(.options | length), .options[0], .options[19]]' "$record")" '[2
 t_eq "$(t_calls gh | grep -c '^- \[ \] Way ')" 20
 t_contains "$(t_calls gh)" "Options left out: 10."
 
+t_case "questions posted as one have no option boxes, so a tick answers none of them"
+to_plan
+jq -n '{session: "abc-123", text: "Two things.", question: {question: "The agent asked 2 questions. Answer each by its number in a reply.\n\n1. Which?\n   - A\n\n2. Where?\n   - B", options: []}}' >"$fx/plan-result.json"
+t_run "$dispatch"
+t_eq "$(jq -c .options "$record")" "[]"
+t_contains "$(t_calls gh)" "1. Which?"
+t_contains "$(t_calls gh)" "2. Where?"
+t_eq "$(t_calls gh | grep -c '^- \[ \] ')" 1
+t_contains "$(t_calls gh)" "- [ ] End this planning session"
+
 t_case "a ticked option goes to the session as the next message"
 planning
 comments 7 "$(plan_body ' ' x ' ')" alice
@@ -2059,11 +2086,30 @@ t_eq "$(cat "$record.answer")" 'The operator replied on the issue:
 Adopt all, but keep `tagged-at` open.
 Then file 3 and 5.'
 
-t_case "a reply wins over a tick"
+t_case "a reply wins over a tick, and the answer says what was ticked"
 planning
-comments 7 "$(plan_body x ' ' ' ')" alice '[{"databaseId":4003,"author":{"login":"alice"},"body":"neither","createdAt":"2026-01-01T02:00:00Z"}]'
+printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ALLOWED_LABELERS='alice bob'" >"$TEHAS_INSTANCE_DIR/instance.env"
+comments 7 "$(plan_body x ' ' ' ')" alice '[{"databaseId":4003,"author":{"login":"bob"},"body":"actually, wait","createdAt":"2026-01-01T02:00:00Z"}]'
 t_run "$dispatch"
-t_contains "$(cat "$record.answer")" "neither"
+t_eq "$(cat "$record.answer")" 'The operator replied on the issue:
+
+actually, wait
+
+A box was also ticked, by alice: Adopt all'
+t_contains "$t_out" "planning #7 continues (answer from bob)"
+
+t_case "a reply with the way out ticked runs the turn and says the box was ticked"
+planning
+comments 7 "$(plan_body ' ' ' ' x)" alice '[{"databaseId":4003,"author":{"login":"alice"},"body":"one more thing","createdAt":"2026-01-01T02:00:00Z"}]'
+t_run "$dispatch"
+t_contains "$(plan_calls)" "--answer $record.answer"
+t_contains "$(cat "$record.answer")" "A box was also ticked, by alice: End this planning session"
+
+t_case "a reply alone says nothing of a box"
+planning
+comments 7 "$(plan_body ' ' ' ' ' ')" "" '[{"databaseId":4003,"author":{"login":"alice"},"body":"just this","createdAt":"2026-01-01T02:00:00Z"}]'
+t_run "$dispatch"
+t_lacks "$(cat "$record.answer")" "A box was also ticked"
 
 t_case "an answer on an issue closed since the turn ran runs no turn"
 planning
@@ -2120,6 +2166,35 @@ t_run "$dispatch"
 t_contains "$(t_calls gh)" "This planning turn did not finish"
 t_contains "$(t_calls gh)" "--add-label tehas:question --add-label needs-human-attention"
 t_eq "$(jq -r '[.session, .turns, .failed] | @tsv' "$record")" "abc-123	2	true"
+
+t_case "a later turn whose Pi session is gone ends the session and says to start again"
+planning
+mkdir -p "$record.keep"
+comments 7 "$(plan_body x ' ' ' ')" alice
+echo '{"session":"abc-123","lost":true}' >"$fx/plan-fails"
+t_run "$dispatch"
+t_contains "$(plan_calls)" "--session abc-123"
+t_contains "$t_out" "planning #7: Pi no longer has session abc-123"
+t_contains "$(t_calls gh)" "--remove-label tehas:question --remove-label tehas:planning --remove-label tehas:plan --remove-label needs-human-attention"
+t_contains "$(t_calls gh)" "its conversation is no longer on"
+t_contains "$(t_calls gh)" "Apply \`tehas:plan\` again to start a new session."
+t_lacks "$(t_calls gh)" "This planning turn did not finish"
+t_lacks "$(t_calls gh)" "tehas:question kind=plan issue=7 turn=2"
+t_eq "$([ -e "$record" ] || [ -e "$record.keep" ] && echo kept)" ""
+
+t_case "a lost session whose labels cannot be taken off is ended by the next poll"
+planning
+comments 7 "$(plan_body x ' ' ' ')" alice
+echo '{"session":"abc-123","lost":true}' >"$fx/plan-fails"
+echo "--remove-label tehas:question --remove-label tehas:planning" >"$fx/edit-fails-on"
+t_run "$dispatch"
+t_eq "$(jq -c '[.lost, .running]' "$record")" '[true,true]'
+t_lacks "$(t_calls gh)" "its conversation is no longer on"
+rm -f "$T"/calls/* "$fx/edit-fails-on" "$fx/plan-fails"
+t_run "$dispatch"
+t_eq "$(plan_calls)" ""
+t_contains "$(t_calls gh)" "its conversation is no longer on"
+t_eq "$([ -e "$record" ] && echo kept)" ""
 
 t_case "an outcome that could not be posted is posted by the next poll, before anything else"
 planning
@@ -2545,11 +2620,11 @@ ready 7 8 9 10
 slice_show $((12 * gib))
 hold 12
 cid 12 a $((gib / 10))
-# A dev session at 3 GiB is not hidden inside the cycle's floor: 2 and 3 GiB
-# are promised, and three more reserves fit in the 7 GiB that are left.
-other $((3 * gib))
+# A container at 7 GiB is not hidden inside the cycle's floor: 2 and 7 GiB
+# are promised, and one more reserve fits in the 3 GiB that are left.
+other $((7 * gib))
 t_run "$dispatch"
-t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 "
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 "
 release
 
 t_case "reclaimable slab and file cache do not lower the room"
@@ -2559,11 +2634,12 @@ ready 7 8 9 10 11 12
 slice_show $((12 * gib))
 SLICE_FILE=$((8 * gib)) slice_child "$(slice_id d)" "$gib" $((6 * gib)) $((2 * gib))
 t_run "$dispatch"
-t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 10 11 "
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 "
 
-t_case "full pressure holds, some pressure does not"
+t_case "full pressure holds over half the slice promised, some pressure does not"
 reset
 slice_state 12.00
+other $((11 * gib))
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" ""
@@ -2571,23 +2647,32 @@ t_lacks "$(t_calls gh)" "issue edit"
 t_contains "$t_out" "holding: tehas.slice is under memory pressure (full avg60 12.00)"
 reset
 slice_state 0.00 55.00
+other $((11 * gib))
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$t_out" "holding:"
+# One container thrashing at its own ceiling in a slice mostly empty.
+reset
+slice_state 12.00
+other $((5 * gib))
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 t_lacks "$t_out" "holding:"
 
-t_case "an unreadable probe holds"
+t_case "an unreadable probe holds and names the file"
 reset
 rm "$T_CGROUP/tehas.slice/memory.pressure"
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit"
-t_contains "$t_out" "holding: the slice's use could not be read"
+t_contains "$t_out" "holding: the slice's use could not be read: $T_CGROUP/tehas.slice/memory.pressure cannot be read"
+t_eq "$(jq -r .hold "$dispatch_json")" "holding: the slice's use could not be read: $T_CGROUP/tehas.slice/memory.pressure cannot be read"
 reset
 other "$gib"
 echo "anon many" >"$T_CGROUP/tehas.slice/docker-$(slice_id d).scope/memory.stat"
 t_run "$dispatch --dry-run"
-t_contains "$t_out" "holding: the slice's use could not be read"
+t_contains "$t_out" "holding: the slice's use could not be read: $T_CGROUP/tehas.slice/docker-$(slice_id d).scope/memory.stat has no number for anon"
 t_lacks "$t_out" "would run a cycle"
 # A planning turn is held too: its container would start in a slice nobody
 # can see into, after its label and comment were spent.
@@ -2620,15 +2705,25 @@ t_lacks "$t_out" "cycles are running"
 t_eq "$(jq -r .why "$dispatch_json")" unreadable
 release
 
-t_case "a missing cgroup directory under running cycles holds"
+t_case "a missing cgroup directory under running cycles holds while the slice is active"
+reset
+slots 2
+rm -rf "$T_CGROUP/tehas.slice"
+hold 9
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "holding: the slice's use could not be read"
+release
+# A cycle between containers in a slice that is not active is one reserve.
 reset
 slots 2
 slice_show $((20 * gib)) inactive
 rm -rf "$T_CGROUP/tehas.slice"
 hold 9
 t_run "$dispatch"
-t_eq "$(t_calls fake-start)" ""
-t_contains "$t_out" "holding: the slice's use could not be read"
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$t_out" "holding:"
+t_eq "$(jq -r '"\(.room) \(.committed)"' "$dispatch_json")" "3 $((2 * gib))"
 release
 # With nothing running and the slice not active, no directory is an empty slice.
 reset
@@ -2760,7 +2855,7 @@ t_run "$dispatch"
 t_eq "$(grep -c 'released: cycles may start again' <<<"$t_out")" 1
 t_eq "$(t_calls fake-status | wc -l)" 3
 t_lacks "$t_out" "holding:"
-t_eq "$(jq -c '[.why, .hold, .room, .committed]' "$dispatch_json")" "[\"\",\"\",9,$((2 * gib))]"
+t_eq "$(jq -c '[.why, .hold, .room, .committed]' "$dispatch_json")" "[\"\",\"\",3,$((2 * gib))]"
 t_run "$dispatch"
 t_lacks "$t_out" "released"
 
@@ -2942,6 +3037,74 @@ t_eq "$t_rc" 1
 t_eq "$(t_calls fake-start)" ""
 t_contains "$t_out" "ERROR: the text of #7 could not be read for its links"
 
+# What the sandbox image says about its own pi-rukas, as its build writes it:
+# <commit>|<reads>. The commit is put among the proven ones, so the canary rule
+# stays out of these cases and only the image fact decides.
+img_commit=$(printf 'c%.0s' {1..40})
+image_says() { # <1, 0, unknown, or none when the image carries no label>
+  rm -f "$fx/image.label" "$T/home/tehas/state/rukas-proven"
+  if [ "$1" != none ]; then
+    printf '%s\n' "$img_commit|$1" >"$fx/image.label"
+    mkdir -p "$T/home/tehas/state"
+    printf '%s\n' "$img_commit" >"$T/home/tehas/state/rukas-proven"
+  fi
+}
+
+t_case "an issue that links an image waits while the sandbox image says its pi-rukas does not read them, and the model is not asked"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
+mesh '{"data":[{"id":"test-model"}]}'
+declares '["text","image"]'
+: >"$fx/reads-images"
+pictured 7
+image_says 0
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_eq "$(image_asks)" 0
+t_contains "$t_out" "hold #7: its text links an attachment and TEHAS_WORK_IMAGES is 1, but the pi-rukas in the sandbox image cccccccccccc does not read them"
+t_eq "$(jq -r .why "$dispatch_json")" ""
+image_says none
+
+t_case "an issue that links no image starts while the sandbox image does not read them"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
+mesh '{"data":[{"id":"test-model"}]}'
+declares '["text","image"]'
+: >"$fx/reads-images"
+image_says 0
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+image_says none
+
+t_case "an image that reads them is held for nothing, and the model is still asked"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
+mesh '{"data":[{"id":"test-model"}]}'
+declares '["text","image"]'
+: >"$fx/reads-images"
+pictured 7
+image_says 1
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(jq -r .why "$dispatch_json")" ""
+t_eq "$(image_asks)" 1
+image_says none
+
+t_case "an image that says nothing is not held for it, whatever its pi-rukas really reads"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
+mesh '{"data":[{"id":"test-model"}]}'
+declares '["text","image"]'
+: >"$fx/reads-images"
+pictured 7
+image_says unknown
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(jq -r .why "$dispatch_json")" ""
+image_says none
+rm -f "$fx/reads-images"
+
 t_case "no resources is logged once, with nothing in line as well, and released when the endpoint is back"
 reset
 echo '[]' >"$fx/ready.json"
@@ -2987,7 +3150,7 @@ reset
 t_run "$dispatch"
 t_lacks "$t_out" "holding:"
 t_lacks "$t_out" "released"
-t_eq "$(jq -c '[.why, .count, .room]' "$dispatch_json")" '["",0,10]'
+t_eq "$(jq -c '[.why, .count, .room]' "$dispatch_json")" '["",0,4]'
 
 t_case "a hold whose numbers change between polls is logged once"
 reset
@@ -3072,7 +3235,7 @@ t_eq "$t_rc" 0
 t_eq "$(t_calls systemctl)" "show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax
 --user show -p LoadState --value tehas-cycle@7.service
 --user start tehas-cycle@7.service"
-t_eq "$(t_calls docker)" "image inspect --format {{index .Config.Labels \"tehas.rukas\"}} tehas/pi-rukas:uid$(id -u)
+t_eq "$(t_calls docker)" "image inspect --format {{index .Config.Labels \"tehas.rukas\"}}|{{index .Config.Labels \"tehas.rukas.images\"}} tehas/pi-rukas:uid$(id -u)
 info --format {{.CgroupDriver}} {{.CgroupVersion}}"
 t_contains "$(t_calls fake-index)" "--before-cycle"
 t_eq "$(t_calls fake-status | wc -l)" 2
@@ -3118,10 +3281,10 @@ t_lacks "$(t_calls systemctl)" "start"
 # --- A pi-rukas that is new on this host -----------------------------------
 new_rukas=$(printf 'a%.0s' {1..40})
 old_rukas=$(printf 'b%.0s' {1..40})
-installed() { echo "PI_RUKAS_COMMIT=$new_rukas" >"$T/home/tehas/versions.env"; }
+installed() { echo "$new_rukas" >"$fx/image.label"; }
 proven() { mkdir -p "$T/home/tehas/state"; echo "$1" >"$T/home/tehas/state/rukas-proven"; }
 ran_with() { echo "$2" >"$T/home/tehas/state/cycles/$1.rukas"; } # <issue> <commit>
-not_installed() { rm -f "$T/home/tehas/versions.env" "$T/home/tehas/state/rukas-proven" "$fx/image.label"; }
+not_installed() { rm -f "$T/home/tehas/state/rukas-proven" "$fx/image.label"; }
 
 t_case "a pi-rukas no cycle has ended well on starts one cycle, whatever the slots"
 reset
@@ -3184,15 +3347,13 @@ t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 "
 t_contains "$(t_calls docker)" "tehas.rukas"
 not_installed
 
-t_case "an image whose label names a commit never proven is new, whatever versions.env says"
+t_case "an image without the label holds nothing back: there is no commit to compare"
 reset
 slots 4
-echo "PI_RUKAS_COMMIT=$old_rukas" >"$T/home/tehas/versions.env"
 proven "$old_rukas"
-echo "$new_rukas" >"$fx/image.label"
 ready 7 8 9
 t_run "$dispatch"
-t_eq "$(t_calls fake-start)" "7"
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 "
 not_installed
 
 t_case "any commit in the list of proven ones counts"
@@ -3217,5 +3378,104 @@ t_run "$dispatch"
 t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 "
 release
 not_installed
+
+# --- A cycle a provider outage parked -------------------------------------------
+cycles_dir=$T/home/tehas/state/cycles
+# Issue 7 was parked by an outage after a cycle alice started at 02:00, its
+# question unticked, and the endpoint answers again.
+outage_parked() { # [<retry>]
+  parked
+  comments 7 "$(park_body ' ' ' ')" ""
+  mesh '{"data":[{"id":"test-model"}]}'
+  mkdir -p "$cycles_dir"
+  jq -n --argjson s "$(date -d 2026-01-01T02:00:00Z +%s)" --argjson r "${1:-true}" \
+    '{cap: "step-failed:adversarial", reason: "Connection error.", provider: true, retry: $r, started: $s}' >"$cycles_dir/7.park"
+  echo alice >"$cycles_dir/7.by"
+  echo '{"state":"OPEN","labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}' >"$fx/issue-7.json"
+}
+
+t_case "a cycle a provider outage parked starts again once, without a tick, and the issue is told"
+outage_parked
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label needs-human-attention --remove-label tehas:question"
+t_contains "$(t_calls gh)" "Tehas starts this issue again on its own: its last cycle was parked by a provider outage, and the model endpoint answers again. It does this once."
+t_contains "$(t_calls gh)" "authorized by @alice's start of the cycle a provider outage parked"
+t_contains "$t_out" "start #7 (requeued by alice)"
+t_lacks "$(t_calls gh)" "api -X PATCH"
+
+t_case "the park is used up, and the start is marked as the retry for its cycle"
+t_eq "$(find "$cycles_dir/7.park" 2>/dev/null | wc -l)" 0
+t_eq "$(find "$cycles_dir/7.requeued" 2>/dev/null | wc -l)" 1
+t_eq "$(cat "$cycles_dir/7.by")" alice
+t_eq "$([ -e "$park_id" ] && echo kept)" ""
+
+t_case "a start a person asked for is not the retry, and says who asked"
+reset
+mkdir -p "$cycles_dir"
+: >"$cycles_dir/7.requeued"
+echo '{"retry":true}' >"$cycles_dir/7.park"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(find "$cycles_dir/7.requeued" "$cycles_dir/7.park" 2>/dev/null | wc -l)" 0
+t_eq "$(cat "$cycles_dir/7.by")" alice
+
+t_case "a park that asks for no retry starts nothing and stays"
+outage_parked false
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_eq "$(find "$cycles_dir/7.park" | wc -l)" 1
+
+t_case "the retry waits while the endpoint does not answer, or the slots are full, and its park stays"
+outage_parked
+mesh
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_eq "$(find "$cycles_dir/7.park" | wc -l)" 1
+outage_parked
+hold 9
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_eq "$(find "$cycles_dir/7.park" | wc -l)" 1
+release
+
+t_case "a dry run says what it would do and changes nothing"
+outage_parked
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would run a cycle for #7 (retry after a provider outage, started by alice)"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "issue comment"
+t_eq "$(find "$cycles_dir/7.park" | wc -l)" 1
+
+t_case "no retry when its starter is no longer allowed, the text was changed by another, or the issue is not parked"
+for why in stranger edited closed unparked nobody; do
+  outage_parked
+  case "$why" in
+    stranger) echo mallory >"$cycles_dir/7.by" ;;
+    nobody) rm -f "$cycles_dir/7.by" ;;
+    edited) echo '{"data":{"repository":{"issue":{"lastEditedAt":"2026-01-01T03:00:00Z","editor":{"login":"mallory"}}}}}' >"$fx/edit-7.json" ;;
+    closed) echo '{"state":"CLOSED","labels":[{"name":"needs-human-attention"}]}' >"$fx/issue-7.json" ;;
+    unparked) echo '{"state":"OPEN","labels":[]}' >"$fx/issue-7.json" ;;
+  esac
+  t_run "$dispatch"
+  t_eq "$(t_calls fake-start)" ""
+  t_lacks "$(t_calls gh)" "issue edit"
+  t_contains "$t_out" "skip #7: its retry after a provider outage is not started; it waits for a person"
+  t_eq "$(find "$cycles_dir/7.park" 2>/dev/null | wc -l)" 0
+done
+
+t_case "an issue a person labelled tehas:ready is left to that label"
+outage_parked
+echo '{"state":"OPEN","labels":[{"name":"needs-human-attention"},{"name":"tehas:ready"}]}' >"$fx/issue-7.json"
+echo '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"needs-human-attention"}]}]' >"$fx/ready.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_contains "$t_out" "start #7 (labelled by alice)"
+t_eq "$(find "$cycles_dir/7.requeued" "$cycles_dir/7.park" 2>/dev/null | wc -l)" 0
+rm -f "$T/home/.pi/agent/models.json" "$fx/mesh.json"
 
 t_done
