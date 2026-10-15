@@ -45,12 +45,13 @@ pi-rukas /work cycle, in a sandbox on the host:
     explore -> plan -> worktrees -> develop -> verify gates
     -> adversarial loop -> commit + PR -> six-pass review
 dispatcher: labels it tehas:awaiting-merge, comments the PR link,
-            posts token usage on the PR
+            posts pi-rukas's handoff and token usage on the PR
 you: review, click through, merge
 ```
 
-If the cycle cannot finish, the issue gets `needs-human-attention` and a comment
-saying where it stopped.
+If the cycle cannot finish, or its pull request waits for more than a merge,
+the issue gets `needs-human-attention` and one comment saying where and why it
+stopped, with pi-rukas's handoff.
 
 The six-pass review blocks a change at the severity the product's own doctrine
 states, and here that bar is MEDIUM and above. See [Operating tehas](/operating)

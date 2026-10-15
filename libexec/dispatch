@@ -67,8 +67,9 @@
 #      planning session is not eligible until it is ended. It is eligible only
 #      while GitHub says the number is an open issue: a closed issue and a pull
 #      request start nothing, whatever label they carry. Nothing else the issue
-#      carries holds it back: the labels of an earlier outcome go with the
-#      start. Every start takes tehas:ready off, so a label that is there was
+#      carries holds it back: tehas's labels of an earlier outcome go with
+#      the start. needs-human-attention stays: the cycle passes --restart,
+#      and pi-rukas takes it off. Every start takes tehas:ready off, so a label that is there was
 #      applied after the last start. An issue that an open pull request
 #      closes, as GitHub links them, is work already done: the poll takes
 #      tehas:ready off and says so once on the issue. With TEHAS_WORK_IMAGES=1
@@ -1280,7 +1281,9 @@ for n in $asking; do
       given_how[$n]="retry-tick"
       # The park: when the question was asked.
       given_since[$n]=$(jq -r '.asked_at // ""' <<<"$ans")
-      drop[$n]="--remove-label needs-human-attention --remove-label tehas:question"
+      # needs-human-attention stays: the cycle's --restart is the answer it
+      # asked for, and pi-rukas takes it off.
+      drop[$n]="--remove-label tehas:question"
       # A tehas:ready left on the issue would start a second cycle after this
       # one: one start uses up every request for it.
       [[ $have == *" tehas:ready "* ]] && drop[$n]+=" --remove-label tehas:ready"
@@ -1441,8 +1444,8 @@ for pf in "$TEHAS_HOME"/state/cycles/*.park; do
   given_at[$n]=$(date -u -d "@$(jq -r .started "$pf")" +%FT%TZ)
   given_how[$n]=outage-retry
   how[$n]="start of the cycle a provider outage parked"
-  drop[$n]="--remove-label needs-human-attention"
-  [[ $have != *" tehas:question "* ]] || drop[$n]+=" --remove-label tehas:question"
+  drop[$n]=""
+  [[ $have != *" tehas:question "* ]] || drop[$n]="--remove-label tehas:question"
   say "$n" "Tehas starts this issue again on its own: its last cycle was parked by a provider outage, and the model endpoint answers again. It does this once. If the new cycle is parked the same way, it waits for a person."
   start_cycles
   exit
@@ -1518,7 +1521,9 @@ for n in $candidates; do
   drop[$n]="--remove-label tehas:ready"
   # What an earlier cycle left on the issue goes with the start. Only what
   # is there: gh refuses to remove a label the repository does not have.
-  for l in needs-human-attention tehas:awaiting-merge tehas:question; do
+  # needs-human-attention is not tehas's to take off: the cycle starts with
+  # --restart, and pi-rukas clears it.
+  for l in tehas:awaiting-merge tehas:question; do
     [[ $have == *" $l "* ]] && drop[$n]+=" --remove-label $l"
   done
 done

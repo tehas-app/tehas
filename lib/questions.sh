@@ -6,7 +6,8 @@
 #   q_clean [max characters]         stdin to stdout: an agent's words, safe to
 #                                    post, cut at the limit [60000]
 #   q_render <kind> <issue> <turn> <result.json>
-#                                    the body of a question comment
+#                                    the body of a question comment; a
+#                                    "marker" of pi-rukas's handoff goes on top
 #   q_answer <bot> <allowed logins> [comment id]
 #                                    stdin: the issue's comments as GraphQL
 #                                    answers them; stdout: what was answered
@@ -47,7 +48,14 @@ q_clean() {
 Q_MAX_OPTIONS=20
 
 q_render() {
-  local kind=$1 issue=$2 turn=$3 file=$4 n i label desc
+  local kind=$1 issue=$2 turn=$3 file=$4 n i label desc marker
+  # A park may carry pi-rukas's handoff marker, put back as its first line.
+  # Only that marker of only this issue: the text is an agent's, the marker
+  # is made by the caller.
+  marker=$(jq -r '.marker // "" | strings' "$file") || return 1
+  if [[ $marker =~ ^\<!--\ pi-rukas:handoff\ issue=$issue\ cap=[A-Za-z0-9_.:-]{1,80}\ --\>$ ]]; then
+    printf '%s\n' "$marker"
+  fi
   jq -r '.text // ""' "$file" | q_clean 40000 || return 1
   if [ "$(jq -r '.question != null' "$file")" = true ]; then
     printf '\n'

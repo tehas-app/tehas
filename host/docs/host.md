@@ -455,6 +455,13 @@ does not change it. A gate that runs its tests side by side should size
 itself from `/sys/fs/cgroup/cpu.max`, as this repository's `scripts/test.sh`
 does, or it starts more than the quota can run.
 
+The quota also sets how many runs of the gate pi-rukas makes at once inside the
+cycle: `tehas work` passes `PI_ENSEMBLE_VERIFY_CONCURRENCY`, one for each two
+whole CPUs of the quota and each 2 GiB of the memory ceiling, the lower, at
+least 1. That is pi-rukas's own rule for a host, applied to the container. A
+run that waits for another does not count its wait against
+`TEHAS_VERIFY_TIMEOUT`.
+
 The floor is a priority when the slice frees memory, not a guarantee against
 the whole host: when the host itself runs short, the host comes first. With
 the default reserve the host needs about 11 GiB of memory, because the reserve
@@ -527,9 +534,15 @@ count as `oomKills`.
 #### Time limits
 
 `TEHAS_WORK_TIMEOUT` bounds the cycle itself, and `TEHAS_WORK_STALL` a cycle
-that writes nothing. The runner is given `TEHAS_WORK_TIMEOUT` in whole minutes
-and ends the cycle itself, with exit 30; `tehas work` stops a runner that is
-still there 300 seconds later. The steps around it are bounded too, so a dockerd that
+that writes nothing. Before the limit comes the cycle's deadline,
+`PI_ENSEMBLE_CYCLE_DEADLINE`: a quarter of `TEHAS_WORK_TIMEOUT` before the end,
+or one run of the gate and 8 minutes when that is longer. After it pi-rukas
+starts no new step and parks the cycle with the cap `deadline` and a handoff,
+so a cycle that runs long ends at a step boundary with its branch and pull
+request said, not in the middle of a step. A step that started before the
+deadline may run past it; the margin is there for that step. The runner is
+given `TEHAS_WORK_TIMEOUT` in whole minutes and ends the cycle itself, with
+exit 30; `tehas work` stops a runner that is still there 300 seconds later. The steps around it are bounded too, so a dockerd that
 stops answering or a network that swallows packets does not hold a slot for
 ever:
 
