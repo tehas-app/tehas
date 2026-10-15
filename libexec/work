@@ -116,7 +116,8 @@
 #
 # The container runs in tehas.slice, as every sandbox container does, with the
 # limits lib/slice.sh makes: a memory ceiling of a quarter of the slice, no
-# swap, the reserve as its floor, a pids limit and a CPU weight. No CPU quota.
+# swap, the reserve as its floor, a CPU quota, a pids limit that follows it
+# and a CPU weight.
 # It has an init (--init): Pi collects only its own children, and a process
 # that outlives its parent would count against the pids limit until the
 # container ends. A pass of the shell tests leaves several hundred.
@@ -204,7 +205,7 @@ branch=$(tehas_branch) || exit 78
 TEHAS_SLICE_LIMITS=()
 tehas_slice_ok || { echo "tehas work: $TEHAS_SLICE_WHY" >&2; exit 78; }
 tehas_slice_limits || true
-if [ "${#TEHAS_SLICE_LIMITS[@]}" != 12 ] || [ "${TEHAS_SLICE_LIMITS[1]}" != tehas.slice ]; then
+if [ "${#TEHAS_SLICE_LIMITS[@]}" != 14 ] || [ "${TEHAS_SLICE_LIMITS[1]}" != tehas.slice ]; then
   echo "tehas work: the container limits could not be made, not starting" >&2
   exit 78
 fi

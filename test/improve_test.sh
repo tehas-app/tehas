@@ -407,7 +407,7 @@ t_case "the analyst's container gets no option beyond these, and its limits are 
 # Every option up to the image that is not one this command is known to pass,
 # read the way docker reads them. See test/work_test.sh.
 t_eq "$(printf '%s\n' "$args" | awk -v image="tehas/pi-rukas:uid$(id -u)" \
-  -v valued=" --name --cgroup-parent --cpus --memory --memory-swap --pids-limit --cpu-shares -e -w -v " -v plain=" --rm " '
+  -v valued=" --name --cgroup-parent --cpus --memory --memory-swap --pids-limit --cpu-shares -e -w -v " -v plain=" --rm --init " '
     NR == 1 { next } # "run"
     skip { skip = 0; next }
     $0 == image { found = 1; exit }
@@ -417,6 +417,7 @@ t_eq "$(printf '%s\n' "$args" | awk -v image="tehas/pi-rukas:uid$(id -u)" \
     END { if (!found) print "no image" }')" ""
 # A batch job: a quota of one CPU and 2g whatever the reserve is, and no floor.
 t_lacks "$args" "--memory-reservation"
+t_eq "$(printf '%s\n' "$args" | grep -c -x -- --init)" 1
 t_lacks "$args" "--cidfile"
 
 t_case "the slice is read once: one systemctl call, one docker info"

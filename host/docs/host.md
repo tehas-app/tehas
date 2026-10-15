@@ -333,8 +333,8 @@ Every sandbox container tehas starts runs in one systemd slice,
 the indexer and the improvement loop's analyst. The slice's `MemoryMax` bounds
 them all together. No setting describes the machine.
 
-A cycle, a planning turn, a dev session and the indexer each get the same six
-limits, twelve words on the `docker run` line:
+A cycle, a planning turn, a dev session and the indexer each get the same
+seven limits, fourteen words on the `docker run` line:
 
 | Option | Value | What it does |
 | --- | --- | --- |
@@ -342,20 +342,44 @@ limits, twelve words on the `docker run` line:
 | `--memory` | a quarter of the slice's `MemoryMax` | A hard ceiling. At it the kernel kills the largest process in the container. The dispatcher starts no cycle while four containers are in the slice, so their ceilings never sum to more than the slice |
 | `--memory-swap` | the same value | No swap for the container |
 | `--memory-reservation` | `TEHAS_CYCLE_RESERVE`, `2g` unless set | The container's floor. When the slice is full the kernel frees memory above the floors first |
-| `--pids-limit` | `4096` | The most processes and threads in the container |
+| `--cpus` | the host's CPUs less one, divided by `TEHAS_TICKET_CONCURRENCY` counted at most 4, never below 1 | A CPU quota. The container may use no more CPU time than that many CPUs |
+| `--pids-limit` | 1024 for each CPU of the quota, rounded up, from `2048` to `4096` | The most processes and threads in the container |
 | `--cpu-shares` | `1024` | A CPU weight, the same on every container |
 
-A cycle, a planning turn and a dev session also run with `--init`. Pi is the
-command of the container and collects only its own children. A process that
+On a host with 16 CPUs and `TEHAS_TICKET_CONCURRENCY=4` a container gets
+`--cpus 3.75 --pids-limit 4096`; with 8 CPUs and the default ceiling of 7,
+`--cpus 1.75 --pids-limit 2048`.
+
+Every sandbox container also runs with `--init`: a cycle, a planning turn, a
+dev session, the indexer and the analyst. Docker's init is the first process
+of the container, and it collects every process whose parent has gone. Pi is
+the command of the container and collects only its own children. A process that
 outlives its parent, as git's background housekeeping does, is handed to the
 first process of the container, and without an init it is never collected and
 counts against `--pids-limit` until the container ends. One pass of this
 repository's shell tests leaves about 950 that way, so a cycle reached the
 limit at its fifth pass and could start no process after that.
 
-There is no CPU quota. One container alone may use every CPU; several busy
-ones share them by weight, about equally. The weight is also what makes the
-kernel share CPU inside the slice at all, so every container carries it.
+The quota is a ceiling, not CPUs held for the container: what one container
+leaves idle the others may use, and several busy ones share by weight, about
+equally. The weight is also what makes the kernel share CPU inside the slice
+at all, so every container carries it. Without the quota one container's gate
+could take every CPU of the host, the model backends' among them. The cycles
+are counted at their ceiling, not as they run, so a cycle that starts first
+gets no more than one that starts later. At most four containers are in the
+slice at once (see [Limits that hold work back](/operating#limits-that-hold-work-back)),
+which is why the ceiling counts at most 4.
+
+The pids limit follows the quota because a container's processes are mostly
+what its gate runs side by side, and a gate sized by its CPUs runs fewer on
+fewer. Measured on this repository's shell tests with an init: at most 108
+processes at once with 16 test files side by side, 38 with 4. The floor of
+2048 is for the agents, their tools and git around the gate.
+
+Inside the container `nproc` still says how many CPUs the host has: a quota
+does not change it. A gate that runs its tests side by side should size
+itself from `/sys/fs/cgroup/cpu.max`, as this repository's `scripts/test.sh`
+does, or it starts more than the quota can run.
 
 The floor is a priority when the slice frees memory, not a guarantee against
 the whole host: when the host itself runs short, the host comes first. With
@@ -457,29 +481,42 @@ says so once in the log, as [troubleshooting](/troubleshooting) shows.
 in a cycle, a container and a workspace of its own. It defaults to the host's
 CPUs minus one, at least 1, and a value above the host's CPUs is accepted. It
 is a ceiling: the dispatcher starts fewer while the slice has no room. A
-container's limits do not depend on it. There is no CPU or memory budget to
-set; an instance that still sets `TEHAS_WORK_CPUS` or `TEHAS_WORK_MEMORY` is
-refused with 78 and one line naming the slice file.
+container's CPU quota and pids limit follow it (see above); its memory does
+not. There is no CPU or memory budget to set; an instance that still sets
+`TEHAS_WORK_CPUS` or `TEHAS_WORK_MEMORY` is refused with 78 and one line naming
+the slice file.
 
 `TEHAS_CONCURRENCY` sets how many workstreams one cycle may run side by side,
-inside that one container. It defaults to 4.
+inside that one container. It defaults to 1, and pi-rukas is always told it as
+`PI_ENSEMBLE_MAX_WORKSTREAMS`.
 
 A workstream is one developer agent and its review loop in their own worktree.
 pi-rukas plans up to that many per issue and folds anything beyond the limit
 into the last one, so no work is dropped at a low setting; it is done in
-sequence by fewer agents. An issue whose parts touch the same files is planned
-as one workstream whatever the limit.
+sequence by fewer agents. pi-rukas plans parts that touch the same files as
+one workstream, but not parts that only share a symbol one of them adds: each
+part starts from the same commit without the others' new types and exports,
+so each fails its type check alone.
 
-It is a limit inside one cycle. With `TEHAS_TICKET_CONCURRENCY` above 1, up to
-that many cycles run at once and each has its own `TEHAS_CONCURRENCY`
-workstreams, so the two multiply: 2 tickets and 4 workstreams are up to 8
-developer agents calling the model backends. Nothing checks that against what
-the backends can serve. Lower either one when the backends have few slots, when
-the host is small, or if cycles start timing out.
+The factory has one axis of parallelism: issues side by side, one workstream
+each. The two settings would otherwise multiply, and with them the agents
+calling the model backends and the gates on the same CPUs: 4 issues of 4
+workstreams are 16 developer agents and up to 16 full gates at once, in four
+containers' quotas. So an instance may set `TEHAS_CONCURRENCY` above 1 only
+with `TEHAS_TICKET_CONCURRENCY=1`, one issue at a time. With both above 1 every
+command stops with exit 78 and one line that names both:
+
+```
+tehas: TEHAS_CONCURRENCY (4) and TEHAS_TICKET_CONCURRENCY (7) are both above 1: choose one, ...
+```
+
+The default ceiling is the host's CPUs minus one, so on most hosts an instance
+that wants several workstreams also sets the ticket ceiling:
 
 ```
 # in the instance's instance.env, then pull and ./install.sh on the host
-TEHAS_CONCURRENCY=1
+TEHAS_TICKET_CONCURRENCY=1
+TEHAS_CONCURRENCY=4
 ```
 
 It is read when a cycle starts; a running cycle keeps the value it began with.
@@ -533,7 +570,8 @@ is the same on every host and no setting describes the machine. The other
 quarter is for the host: Docker itself, the edge router, the previews, image
 builds and the tehas user's own units. `CPUWeight=100` is systemd's default,
 written out, so the slice competes for CPU with the rest of the system on
-equal terms. There is no CPU quota on it.
+equal terms. There is no CPU quota on the slice; each container has its own
+(see above).
 
 What the file leaves out, on purpose:
 

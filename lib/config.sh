@@ -197,7 +197,12 @@ tehas_load() {
     # cycle and the only tree that cycle's container can write. Not a setting.
     export TEHAS_WORK_DIR=$TEHAS_HOME/work/${TEHAS_REPO##*/}
   fi
-  export TEHAS_CONCURRENCY=${TEHAS_CONCURRENCY:-4}
+  # Workstreams one cycle runs side by side. One by default: the factory fans
+  # out across issues, not inside one. Parts planned apart from one base do
+  # not see each other's new symbols, and each workstream's gate runs the full
+  # suite on the same CPUs. More than one is accepted only with one cycle at a
+  # time, checked below.
+  export TEHAS_CONCURRENCY=${TEHAS_CONCURRENCY:-1}
   # The most issues worked on side by side, each in a cycle of its own. A
   # ceiling: the dispatcher starts fewer while the slice has no room. By
   # default one per CPU, less one for the host. The only thing read of the
@@ -261,7 +266,8 @@ tehas_load() {
   export PI_ENSEMBLE_IMAGE=${PI_ENSEMBLE_IMAGE:-tehas/pi-rukas:uid$(id -u)}
   export PI_ENSEMBLE_HOST_ALIASES=${PI_ENSEMBLE_HOST_ALIASES:-}
   # How many workstreams one cycle may run side by side, inside its one
-  # container. pi-rukas reads the second name.
+  # container. pi-rukas reads the second name. Its own default is more than
+  # one, so it is always told.
   export PI_ENSEMBLE_MAX_WORKSTREAMS=$TEHAS_CONCURRENCY
   # Seconds one run of the product's gate may take inside a cycle. pi-rukas
   # reads milliseconds under two names, one for a workstream's gate and one for
@@ -301,6 +307,12 @@ tehas_load() {
   fi
   if [ "$TEHAS_WORK_COMMENTS" = 1 ] && [ "$TEHAS_WORK_IMAGES" != 1 ] && [ "$TEHAS_WORK_FILES" != 1 ]; then
     tehas_err "TEHAS_WORK_COMMENTS is 1 and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is: nothing is taken from comments (see $file)"
+    return 78
+  fi
+  # One axis of parallelism: several cycles of one workstream, or one cycle of
+  # several. Both would multiply the agents and the gates on the same CPUs.
+  if [ "$TEHAS_CONCURRENCY" -gt 1 ] && [ "$TEHAS_TICKET_CONCURRENCY" -gt 1 ]; then
+    tehas_err "TEHAS_CONCURRENCY ($TEHAS_CONCURRENCY) and TEHAS_TICKET_CONCURRENCY ($TEHAS_TICKET_CONCURRENCY) are both above 1: choose one, several issues at a time with one workstream each, or one issue at a time with TEHAS_TICKET_CONCURRENCY=1 (see $file)"
     return 78
   fi
   if [ "$TEHAS_WORK_STALL" -le "$TEHAS_VERIFY_TIMEOUT" ]; then

@@ -5,6 +5,9 @@
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh"
+# The CPU quota and the ticket ceiling follow the host's CPUs: the same on
+# every test machine.
+t_stub nproc 'echo 16'
 
 dev="$T_ROOT/libexec/dev"
 checkout=$T/home/tehas/repos/widget
@@ -38,7 +41,7 @@ slice_good() {
   slice_state 0.00
 }
 slice_good
-limits="--cgroup-parent --memory --memory-swap --memory-reservation --pids-limit --cpu-shares"
+limits="--cgroup-parent --memory --memory-swap --memory-reservation --cpus --pids-limit --cpu-shares"
 root="TEHAS_CGROUP_ROOT=$T_CGROUP"
 
 # The arguments of the docker call that starts the session.
@@ -157,7 +160,7 @@ t_eq "$(after --memory-swap)" "2048m"
 t_eq "$(after --memory-reservation)" "2g"
 t_eq "$(after --pids-limit)" "4096"
 t_eq "$(after --cpu-shares)" "1024"
-t_lacks "$(session_args)" "--cpus"
+t_eq "$(after --cpus)" "3.75"
 t_lacks "$(session_args)" "--cidfile"
 
 t_case "the slice is read once: one systemctl call, one docker info"
@@ -426,15 +429,15 @@ refused
 t_contains "$t_out" "tehas dev: TEHAS_CYCLE_RESERVE=3g is more than a container may use here (2048m"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 
-t_case "the twelve words are all present or nothing starts"
+t_case "the fourteen words are all present or nothing starts"
 # The command beside a slice library that says yes and hands out a short list,
 # or a list that names another parent.
 short=$T/short
 mkdir -p "$short/libexec" "$short/lib"
 cp "$T_ROOT"/lib/*.sh "$short/lib/"
 ln -s "$dev" "$short/libexec/dev"
-for words in "--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --pids-limit 4096" \
-  "--cgroup-parent other.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --pids-limit 4096 --cpu-shares 1024" ""; do
+for words in "--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096" \
+  "--cgroup-parent other.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024" ""; do
   without
   printf '%s\n' 'tehas_slice_ok() { return 0; }' "tehas_slice_limits() { TEHAS_SLICE_LIMITS=($words); }" \
     'tehas_slice_room() { echo "4 0 0 0"; }' >"$short/lib/slice.sh"

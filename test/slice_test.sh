@@ -21,6 +21,7 @@ good() {
   rm -f "$T"/calls/*
   systemd /etc/systemd/system/tehas.slice active "$MAX"
   t_stub docker "echo 'systemd 2'"
+  t_stub nproc 'echo 8'
   slice_state 0.00
   t_instance "${T_MINIMAL[@]}"
   T_ENV=(TEHAS_CGROUP_ROOT="$T_CGROUP")
@@ -151,11 +152,46 @@ t_eq "$t_out" "rc=1 max=[] ceiling=[]
 limits=1 0"
 
 # --- tehas_slice_limits -----------------------------------------------------
-t_case "limits fills exactly the twelve words with a quarter of the max in MiB"
+t_case "ok counts the host's CPUs"
+good
+t_run "$pre"'tehas_slice_ok; echo "rc=$? cpus=$TEHAS_SLICE_CPUS"'
+t_eq "$t_out" "rc=0 cpus=8"
+
+t_case "a host whose CPUs cannot be counted is refused"
+for answer in "exit 1" "echo" "echo 0" "echo eight"; do
+  good
+  t_stub nproc "$answer"
+  t_run "$ok"' cpus=[$TEHAS_SLICE_CPUS]'
+  t_eq "$t_out" "rc=1 max= active= ceiling= why=[nproc gave no count of the host's CPUs] cpus=[]"
+done
+
+t_case "limits fills exactly the fourteen words with a quarter of the max in MiB"
 good
 t_run "$pre"'tehas_slice_ok && tehas_slice_limits; echo "rc=$? n=${#TEHAS_SLICE_LIMITS[@]}"; printf "%s\n" "${TEHAS_SLICE_LIMITS[*]}"'
-t_eq "$t_out" "rc=0 n=12
---cgroup-parent tehas.slice --memory 5120m --memory-swap 5120m --memory-reservation 2g --pids-limit 4096 --cpu-shares 1024"
+t_eq "$t_out" "rc=0 n=14
+--cgroup-parent tehas.slice --memory 5120m --memory-swap 5120m --memory-reservation 2g --cpus 1.75 --pids-limit 2048 --cpu-shares 1024"
+
+# --- tehas_slice_cpus -------------------------------------------------------
+# <host CPUs> <TEHAS_TICKET_CONCURRENCY> <quota and pids limit>
+t_case "the quota is the host's CPUs less one over the cycles side by side, at most four"
+for row in "16 4 3.75 4096" "16 15 3.75 4096" "16 1 15.00 4096" "16 2 7.50 4096" \
+  "8 3 2.33 3072" "8 7 1.75 2048" "4 3 1.00 2048" "4 20 1.00 2048" "2 1 1.00 2048" "1 1 1.00 2048" "64 4 15.75 4096"; do
+  read -r cpus cycles want <<<"$row"
+  good
+  t_stub nproc "echo $cpus"
+  t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY="$cycles"
+  t_run "$pre"'tehas_slice_ok && tehas_slice_cpus'
+  t_eq "$t_out" "$want"
+done
+
+t_case "a quota with no probe, or with no concurrency, is no quota"
+good
+t_run "$pre"'tehas_slice_cpus; echo "rc=$?"'
+t_eq "$t_out" "rc=1"
+t_run "$pre"'tehas_slice_ok; TEHAS_TICKET_CONCURRENCY=; tehas_slice_cpus; echo "rc=$?"; tehas_slice_limits; echo "limits=$? ${#TEHAS_SLICE_LIMITS[@]}"'
+t_eq "$t_out" "rc=1
+limits=1 0"
+t_instance "${T_MINIMAL[@]}"
 
 t_case "limits makes no call"
 t_eq "$(wc -l <"$T/calls/systemctl" | tr -d ' ') $(wc -l <"$T/calls/docker" | tr -d ' ')" "1 1"

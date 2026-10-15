@@ -538,8 +538,8 @@ reaches them. Remove the label to resume.
   `~/tehas/versions.env`. The commits proven are listed in
   `~/tehas/state/rukas-proven`. A new host, which has proven none, starts the
   same way.
-- Inside a cycle, `TEHAS_CONCURRENCY` workstreams side by side: 4 by default,
-  fewer if the model backends cannot take it. See [The host](/host).
+- Inside a cycle, `TEHAS_CONCURRENCY` workstreams side by side: 1 by default,
+  and more only with one cycle at a time. See [The host](/host).
 - No new cycle while `TEHAS_MAX_AWAITING` issues carry `tehas:awaiting-merge`
   or are being worked on. The default is `TEHAS_TICKET_CONCURRENCY` plus 2, so
   every slot can be used while two pull requests wait. Unreviewed pull

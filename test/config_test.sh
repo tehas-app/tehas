@@ -11,11 +11,11 @@ t_case "a minimal instance loads and derives the checkout path"
 t_instance "${T_MINIMAL[@]}"
 t_run "$load && echo \"\$TEHAS_WORK_REPO|\$TEHAS_HOST_ADDR|\$TEHAS_CONCURRENCY\""
 t_eq "$t_rc" 0
-t_eq "$t_out" "$T/home/tehas/repos/widget|127.0.0.1|4"
+t_eq "$t_out" "$T/home/tehas/repos/widget|127.0.0.1|1"
 
 t_case "settings are exported to child processes"
 t_run "$load && bash -c 'echo \$TEHAS_REPO \$PI_ENSEMBLE_SUBAGENT_MODEL \$PI_ENSEMBLE_MAX_WORKSTREAMS'"
-t_eq "$t_out" "acme/widget test-model 4"
+t_eq "$t_out" "acme/widget test-model 1"
 
 t_case "a gate gets thirty minutes unless the instance says otherwise, and pi-rukas is told in milliseconds"
 t_run "$load && bash -c 'echo \$TEHAS_VERIFY_TIMEOUT \$PI_ENSEMBLE_VERIFY_TIMEOUT_MS \$PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS'"
@@ -68,8 +68,20 @@ t_instance "${T_MINIMAL[@]}"
 t_case "the poll's unit has a finite limit, an hour above the longest turn accepted"
 t_eq "$(sed -n 's/^TimeoutStartSec=//p' "$T_ROOT/host/systemd/tehas-dispatch.service")" "3h"
 
-t_case "an instance can lower the workstreams, and pi-rukas is told the same number"
-t_instance "${T_MINIMAL[@]}" TEHAS_CONCURRENCY=1
+t_case "one cycle at a time may run several workstreams, and pi-rukas is told the same number"
+t_instance "${T_MINIMAL[@]}" TEHAS_CONCURRENCY=4 TEHAS_TICKET_CONCURRENCY=1
+t_run "$load && echo \"\$TEHAS_CONCURRENCY \$TEHAS_TICKET_CONCURRENCY \$PI_ENSEMBLE_MAX_WORKSTREAMS\""
+t_eq "$t_rc" 0
+t_eq "$t_out" "4 1 4"
+
+t_case "several cycles and several workstreams are refused: one axis of parallelism"
+t_instance "${T_MINIMAL[@]}" TEHAS_CONCURRENCY=2 TEHAS_TICKET_CONCURRENCY=3
+t_run "$load"
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_CONCURRENCY (2) and TEHAS_TICKET_CONCURRENCY (3) are both above 1: choose one"
+
+t_case "an instance line for pi-rukas's workstreams is replaced by tehas' value"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_MAX_WORKSTREAMS=4
 t_run "$load && echo \"\$TEHAS_CONCURRENCY \$PI_ENSEMBLE_MAX_WORKSTREAMS\""
 t_eq "$t_out" "1 1"
 
@@ -452,6 +464,18 @@ t_stub nproc 'echo 1'
 t_run "$load && echo \"\$TEHAS_TICKET_CONCURRENCY\""
 t_eq "$t_out" "1"
 t_stub nproc 'echo 8'
+
+t_case "workstreams alone are refused where the ticket ceiling's default is above 1, accepted where it is 1"
+t_instance "${T_MINIMAL[@]}" TEHAS_CONCURRENCY=4
+t_run "$load"
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_CONCURRENCY (4) and TEHAS_TICKET_CONCURRENCY (7) are both above 1"
+t_stub nproc 'echo 2'
+t_run "$load && echo \"\$TEHAS_CONCURRENCY \$TEHAS_TICKET_CONCURRENCY\""
+t_eq "$t_rc" 0
+t_eq "$t_out" "4 1"
+t_stub nproc 'echo 8'
+t_instance "${T_MINIMAL[@]}"
 
 t_case "the review cap leaves room for every cycle and two pull requests by default"
 t_run "$load && echo \"\$TEHAS_MAX_AWAITING\""
