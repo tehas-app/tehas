@@ -7,8 +7,11 @@
 # the slice it runs in are not made here: they come from lib/slice.sh.
 #
 #   tehas_sandbox_env <tree> <name> <email>   the -e options
+#   tehas_sandbox_settings_ok                 is Pi's settings.json there
 #   tehas_sandbox_mounts <tree> <host> <state> <runs>
 #                                             the -v options
+#   tehas_sandbox_retry <host>                the provider retry a container's
+#                                             Pi runs with, as one line
 #   tehas_sandbox_seed <state> [<index dir>]  give <state> the host's code index
 #   tehas_sandbox_cache_dir                   where a container has that copy
 #   tehas_index_dir                           where the host keeps the index
@@ -74,9 +77,23 @@ tehas_sandbox_env() { # <tree> <git name> <git email>
 # The two cache volumes pi-rukas mounts are not mounted here. What a container
 # writes under its home, caches of packages among them, stays in its own layer
 # and goes when the container is removed.
+#
+# Pi's settings.json is the one install.sh puts in ~/.pi/agent: its provider
+# retry and timeout. The image has none, and without it Pi makes no retry of a
+# failed request. A missing file is a failure, not a default: Docker would
+# make a root-owned directory in its place.
+# Whether Pi's settings.json is there to be mounted. The commands ask before
+# they call Docker or git or write anything; tehas_sandbox_mounts asks again.
+tehas_sandbox_settings_ok() {
+  [ -f "$HOME/.pi/agent/settings.json" ] && return 0
+  tehas_err "no $HOME/.pi/agent/settings.json: run install.sh"
+  return 1
+}
+
 tehas_sandbox_mounts() { # <tree> <host> <state> <runs>
   local tree=$1 host=$2 state=$3 runs=$4 agent=$HOME/.pi/agent cache
   [ -n "$tree" ] && [ -n "$host" ] && [ -n "$state" ] && [ -n "$runs" ] || return 1
+  tehas_sandbox_settings_ok || return 1
   cache=$(tehas_sandbox_cache_dir)
   mkdir -p "$runs" "$state/cache" "$state/memory" "$state/sessions" || return 1
   printf '%s\0' -v "$host:$tree" \
@@ -85,7 +102,26 @@ tehas_sandbox_mounts() { # <tree> <host> <state> <runs>
     -v "$state/sessions:/home/vscode/.pi/agent/sessions" \
     -v "$runs:/home/vscode/.pi/agent/ensemble-runs" \
     -v "$agent/models.json:/home/vscode/.pi/agent/models.json:ro" \
-    -v "$agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro"
+    -v "$agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro" \
+    -v "$agent/settings.json:/home/vscode/.pi/agent/settings.json:ro"
+}
+
+# The provider retry and timeout a container's Pi runs with: the host's
+# settings.json that tehas_sandbox_mounts gives it, under the product's own
+# .pi/settings.json in <host>, merged the way Pi merges them. A value neither
+# sets is Pi's default. For the cycle's log, so a reader of it knows them.
+tehas_sandbox_retry() { # <host>
+  local global=$HOME/.pi/agent/settings.json project=$1/.pi/settings.json
+  [ -f "$global" ] || { echo "provider retry: unknown, $global is missing"; return 0; }
+  [ -r "$project" ] || project=/dev/null
+  jq -n -r --slurpfile g "$global" --slurpfile p "$project" '
+    (($g[0] // {}) * ($p[0] // {})) as $s
+    | def v($x): if $x == null then "unset" else ($x | tostring) end;
+    "provider retry: timeoutMs=\(v($s.retry.provider.timeoutMs))"
+    + " maxRetries=\(v($s.retry.provider.maxRetries))"
+    + " maxRetryDelayMs=\(v($s.retry.provider.maxRetryDelayMs))"
+    + " httpIdleTimeoutMs=\(v($s.httpIdleTimeoutMs))"' 2>/dev/null ||
+    echo "provider retry: unknown, $global or $project is not JSON"
 }
 
 # Put the host's code index in <state>/cache, the copy this container is given.

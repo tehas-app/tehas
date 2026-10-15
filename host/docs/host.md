@@ -61,7 +61,7 @@ Everything that differs between instances is in the instance directory:
 <instance dir>/
   instance.env     settings, shell KEY=value lines, no secrets
   models.json      Pi provider and model list, installed to ~/.pi/agent/
-  settings.json    optional: Pi's own settings for this host
+  settings.json    optional: Pi's own settings, installed to ~/.pi/agent/
 ```
 
 The directory is found in this order: `TEHAS_INSTANCE_DIR` in the environment,
@@ -271,6 +271,38 @@ One thing it does besides copying, on a real run only: the product checkout's
 asking the network. To pin another branch, set `TEHAS_BRANCH`. If the
 repository's default branch changes later, run `install.sh` again.
 
+### Rolling back tehas
+
+`install.sh` keeps one `<name>.prev` beside each file it replaces, and only
+one: a second install that changes the file replaces it. Copying a `.prev`
+back shows as drift, and the next install undoes it. The way back is the
+checkout. Hold it first, or the next `tehas update` fast-forwards it to the
+release you left:
+
+```
+touch ~/tehas/state/update-hold     # tehas update refuses while this exists
+cd ~/tehas/platform
+git log --oneline                   # the release to go back to
+git reset --hard <commit>
+./install.sh
+```
+
+`git checkout <tag>` does not do: `tehas update` refuses a detached checkout.
+While `~/tehas/state/update-hold` exists, `tehas update` exits 1 naming the
+file and changes nothing, and `tehas update --check` says the hold is there.
+So the `next:` lines `install.sh` prints are run by hand:
+
+| Step      | By hand                                                                          |
+| --------- | -------------------------------------------------------------------------------- |
+| `units`   | `systemctl --user daemon-reload`, then `systemctl --user restart` the units named |
+| `sandbox` | `~/tehas/sandbox/build.sh`, or put an older image back by its date tag, as in [Rolling back pi-rukas](#rolling-back-pi-rukas) |
+| `docs`    | `docker compose -f ~/tehas/edge/docs.compose.yaml up -d --force-recreate`         |
+| `edge`    | `docker compose -f ~/tehas/edge/router.compose.yaml up -d --force-recreate`       |
+
+They stay recorded in `~/tehas/state/update-pending`, and `install.sh --check`
+reports them, until a `tehas update` runs them. When a fixed release is out,
+remove the hold and run `tehas update`.
+
 ## Models
 
 Three files name a model and they do different things:
@@ -296,6 +328,31 @@ What the endpoint serves right now:
 ```
 curl -s "$(jq -r '.providers.fleet.baseUrl' ~/.pi/agent/models.json)/models" | jq -r '.data[].id'
 ```
+
+## Provider retry
+
+Pi retries a failed model request only as its `settings.json` says. The sandbox
+image has no `settings.json`, so every container is given the one `install.sh`
+put in `~/.pi/agent`, read-only: the instance's, or the generic one in
+`host/pi/settings.json`. The generic one sets:
+
+| Key                              | Value  | Without it (Pi 1.0)                          |
+| -------------------------------- | ------ | -------------------------------------------- |
+| `retry.provider.timeoutMs`       | 600000 | the HTTP idle timeout, 300000                |
+| `retry.provider.maxRetries`      | 8      | 0: a failed request is not retried           |
+| `retry.provider.maxRetryDelayMs` | 60000  | 60000                                        |
+
+A product's own `.pi/settings.json` is merged over it, so a product can change
+these for its cycles. `tehas work` writes the values in effect to the cycle's
+preflight log and prints them:
+
+```
+tehas work: provider retry: timeoutMs=600000 maxRetries=8 maxRetryDelayMs=60000 httpIdleTimeoutMs=unset
+```
+
+`unset` means Pi's default. Without `~/.pi/agent/settings.json`, `tehas work`,
+`tehas plan` and `tehas dev` stop with exit 78 before they call Docker or git
+or write anything: run `install.sh`.
 
 A host name that only resolves on a private network is not known inside the
 sandbox. Give the sandbox its address with `PI_ENSEMBLE_HOST_ALIASES`
@@ -555,6 +612,12 @@ toolchain adds it to the Dockerfile.
 
 Each build is also tagged with its date, so
 `docker tag tehas/pi-rukas:<date> tehas/pi-rukas:uid$(id -u)` rolls back.
+Each image is several gigabytes, with Chromium and Rust in it. After a build
+`build.sh` keeps the newest three date tags, the new one among them, and
+removes older ones. It keeps an older tag whose image a container, running or
+stopped, was made from, or that a `uid` tag names. On a host that builds
+often the images then take about three times the size of one, plus those
+still in use.
 
 A build asks the base image whether pi-rukas's own source has the reader of the
 manifest tehas writes beside a cycle's images, and records what it found as the
@@ -609,6 +672,10 @@ that branch:
   the head and runs its installer. That clone is what `tehas dev` and an
   interactive Pi session on the host load. Cycles run the pi-rukas inside the
   sandbox image.
+
+The shell tests check that every argument the Dockerfile reads comes from
+`versions.env`, except the ones `sandbox/build.sh` works out: the base, the
+commit, the uid and whether the base reads images.
 
 Nothing checks a new head before a cycle runs on it. The dispatcher runs one
 cycle at a time on a commit until one ends with a pull request: see
@@ -735,7 +802,7 @@ Both are outside the repository and the tehas tree.
 | Where an agent's conversation is kept  | In the container's own sessions directory: `~/tehas/work/<name>-<issue>.state/sessions` for a cycle, `~/tehas/dev/<name>.state/sessions` for a manual session. No other container reads or writes it, and a cycle's goes with its workspace |
 | Does the token enter the cycle         | Yes, as `GH_TOKEN`. pi-rukas pushes the branch and opens the pull request from inside. Agent code can do anything the token can         |
 | What else enters the container         | `PI_ENSEMBLE_*` settings, the bot's git name and email, the host aliases. Not the rest of the host environment                          |
-| Host paths mounted                     | The cycle's own workspace, `~/tehas/work/<name>-<issue>`, at the same path in every container; its own transcripts, `~/.pi/agent/ensemble-runs/issue-<issue>`; its own state directory, `~/tehas/work/<name>-<issue>.state` (read-write); `models.json`, `mcp.json` (read-only). Only the last two are the same host file in every container; nothing one container writes is mounted for another |
+| Host paths mounted                     | The cycle's own workspace, `~/tehas/work/<name>-<issue>`, at the same path in every container; its own transcripts, `~/.pi/agent/ensemble-runs/issue-<issue>`; its own state directory, `~/tehas/work/<name>-<issue>.state` (read-write); `models.json`, `mcp.json`, Pi's `settings.json` (read-only). Only the last three are the same host file in every container; nothing one container writes is mounted for another |
 | Not reachable from the container       | The Docker socket, SSH keys, `~/.config/tehas`, the platform checkout, the product checkout, the instance directory                     |
 | What the host runs from the workspace  | Nothing. The host runs git only in the product checkout, which no container has written. It reads the cycle's state file from the workspace as data |
 | The indexing container                 | `tehas index` runs the indexer, not an agent: a clone of the product read-only, and `~/tehas/state/index` to write, which no other container is given; no network, no token            |
