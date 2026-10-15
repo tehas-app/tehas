@@ -30,8 +30,11 @@
 #   plan_state <issue>             print the path of the record
 #   plan_record_number <file>      put the issue of a record file in $plan_n, or
 #                                  return 1 for a file that is not a readable record
-#   plan_turn <issue> first|next <file>
-#                                  run one turn and post its outcome
+#   plan_turn <issue> first|next <file> [account]
+#                                  run one turn and post its outcome; for a
+#                                  later turn, <account> is the one whose reply
+#                                  <file> holds, which is how the turn knows
+#                                  whose links it may fetch
 #   plan_finish <issue> <rc> <turns before> <session before>
 #                                  record how a turn went and post it; a failed
 #                                  first turn takes its session from the
@@ -167,7 +170,7 @@ plan_recover() {
 }
 
 plan_turn() {
-  local n=$1 mode=$2 input=$3 st out turns sid rc was written
+  local n=$1 mode=$2 input=$3 by=${4:-} st out turns sid rc was written
   local -a args
   st=$(plan_state "$n")
   out=$st.out
@@ -212,7 +215,10 @@ plan_turn() {
     say "$n" "Tehas planning session started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC (authorized by @${who:?}'s \`tehas:plan\` label). Each turn ends in a comment here. Answer by ticking a box or by replying."
     args=(--brief "$input")
   else
-    args=(--session "$sid" --answer "$input")
+    # The turn is told who wrote the reply. It decides on its own whether that
+    # account may authorise work here; the dispatcher has already refused a
+    # reply from anyone else.
+    args=(--session "$sid" --answer "$input" --answer-by "$by")
   fi
   refresh_checkout
   rm -f "$out"

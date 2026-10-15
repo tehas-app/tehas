@@ -12,7 +12,10 @@
 #   tehas plan <issue-number> --out <file> --keep <dir> --brief <file>
 #       First turn. <file> holds the approved title and body of the issue.
 #   tehas plan <issue-number> --out <file> --keep <dir> --session <id> --answer <file>
-#       A later turn. <file> holds the operator's answer.
+#           [--answer-by <login>]
+#       A later turn. <file> holds the operator's answer, and <login> names
+#       the account that wrote it: only the links of a reply by an account
+#       that may authorise work here are fetched.
 #
 # <dir> is what the session carries from one turn to the next. The first turn
 # makes it anew; the caller removes it when the session ends. It holds:
@@ -25,10 +28,13 @@
 #                   record and the commit are the same as when it was shown.
 #                   Only plain .json files are carried, at most 1 MB each.
 #   images/         the issue's images, with TEHAS_WORK_IMAGES=1: fetched on
-#                   the first turn as tehas work fetches a cycle's. Each turn
-#                   is given a copy, $TEHAS_HOME/work/<name>-plan-<issue>.images,
-#                   read-only, with PI_ENSEMBLE_EXTRA_IMAGE_DIRS, and the copy
-#                   is removed with the workspace.
+#                   the first turn as tehas work fetches a cycle's, and added
+#                   to on a later turn by the links of the operator's reply,
+#                   which keep the numbering and the limits of what is there.
+#                   Each turn is given a copy, $TEHAS_HOME/work/<name>-plan-
+#                   <issue>.images, read-only, with PI_ENSEMBLE_EXTRA_IMAGE_DIRS
+#                   and PI_ENSEMBLE_PLAN_ISSUE, and the copy is removed with
+#                   the workspace.
 #
 # On exit 0 the --out file holds
 #   {"session": "<id>", "text": "<the agent's last message>",
@@ -41,8 +47,8 @@
 # Exit status: 0 the turn settled and said or asked something,
 #              2 it did not settle, timed out, said and asked nothing, or its
 #                session or outcome could not be written down,
-#              4 a first turn the instance gives images, where one could not
-#                be fetched; said on the issue, nothing ran,
+#              4 a turn the instance gives images, where one of the images it
+#                links could not be fetched; said on the issue, nothing ran,
 #             64 a usage error, no bot token or no git identity; nothing ran,
 #             78 the instance settings are invalid, or tehas.slice is not
 #                usable on this host; nothing ran.
@@ -51,11 +57,13 @@
 #   TEHAS_PLAN_TIMEOUT  seconds before a turn is given up [3600]
 #   and those of tehas work for the checkout and the container's limits.
 #
-# The container is given exactly what a cycle's container is given: the same
-# image, limits, mounts and variables, assembled by lib/sandbox.sh and
-# lib/slice.sh and pinned by test/plan_test.sh, and the issue's images as a
-# cycle gets them. It differs in its name, in what pi is told, and in having
-# no cid file. Not the Docker socket, SSH keys
+# The container is what a cycle's container is: the same image, limits, mounts
+# and variables, assembled by lib/sandbox.sh and lib/slice.sh and pinned by
+# test/plan_test.sh, and the session's images as a cycle gets the issue's. It
+# differs in its name, in what pi is told, in having no cid file, and in
+# PI_ENSEMBLE_PLAN_ISSUE, which names the issue the manifest is for: a
+# digits-only number checked before the container starts, and never a value the
+# instance set. Not the Docker socket, SSH keys
 # or ~/.config/tehas. It runs in tehas.slice with a cycle's limits, so the
 # dispatcher counts its memory with the cycles'. Without a usable slice
 # nothing is cloned and nothing starts.
@@ -70,7 +78,7 @@
 set -uo pipefail
 
 usage() {
-  echo "usage: tehas plan <issue-number> --out <file> --keep <dir> (--brief <file> | --session <id> --answer <file>)" >&2
+  echo "usage: tehas plan <issue-number> --out <file> --keep <dir> (--brief <file> | --session <id> --answer <file> [--answer-by <login>])" >&2
   exit 64
 }
 
@@ -82,6 +90,7 @@ keep=""
 brief=""
 answer=""
 session=""
+answer_by=""
 while [ "$#" -gt 0 ]; do
   [ "$#" -ge 2 ] || usage
   case "$1" in
@@ -89,6 +98,7 @@ while [ "$#" -gt 0 ]; do
     --keep) keep=$2 ;;
     --brief) brief=$2 ;;
     --answer) answer=$2 ;;
+    --answer-by) answer_by=$2 ;;
     --session) session=$2 ;;
     *) usage ;;
   esac
@@ -96,12 +106,15 @@ while [ "$#" -gt 0 ]; do
 done
 [ -n "$out" ] && [ -n "$keep" ] || usage
 if [ -n "$brief" ]; then
-  [ -z "$session$answer" ] && [ -r "$brief" ] || usage
+  [ -z "$session$answer$answer_by" ] && [ -r "$brief" ] || usage
 else
   [ -n "$session" ] && [ -n "$answer" ] && [ -r "$answer" ] || usage
 fi
 # The id ends up on a command line: letters, digits and dashes only.
 case "$session" in *[!A-Za-z0-9-]*) usage ;; esac
+# The reply's account is matched against the instance's list, which holds the
+# same characters. An account that may not authorise work fetches nothing.
+case "$answer_by" in *[!A-Za-z0-9-]*) usage ;; esac
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/config.sh
@@ -113,7 +126,7 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/attachments.sh
 . "$here/../lib/attachments.sh"
 tehas_load || exit 78
-tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
+tehas_require TEHAS_REPO TEHAS_ALLOWED_LABELERS PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
 # Docker would create a missing mount source as a root-owned directory.
 tehas_checkout || exit 78
 branch=$(tehas_branch) || exit 78
@@ -153,8 +166,13 @@ bot_name=$(git config --global user.name || true)
 bot_email=$(git config --global user.email || true)
 [ -n "$bot_name" ] && [ -n "$bot_email" ] ||
   { echo "tehas plan: git user.name and user.email are not set for $(id -un)" >&2; exit 64; }
-# The path of the images is this command's to give, not the instance's.
+# The path of the images and the issue they belong to are this command's to
+# give, not the instance's. lib/sandbox.sh forwards every PI_ENSEMBLE_* it
+# finds in the environment as a bare -e, this command's own options come before
+# those, and Docker takes the last -e of a name given twice: what is set here
+# is unset there first.
 [ "$TEHAS_WORK_IMAGES" != 1 ] || unset PI_ENSEMBLE_EXTRA_IMAGE_DIRS
+unset PI_ENSEMBLE_PLAN_ISSUE
 mapfile -d '' -t envs < <(tehas_sandbox_env "$repo" "$bot_name" "$bot_email")
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
 [ "${#envs[@]}" -gt 0 ] ||
@@ -175,8 +193,10 @@ if ! mkdir -p "$keep"; then
   exit 78
 fi
 
-# The issue's images, once per session, from the first turn.
+# The images, once per session and once per reply: the first turn takes them
+# from the issue's text, a later turn adds what the operator's reply links.
 image_opts=()
+new_files=""
 if [ "$TEHAS_WORK_IMAGES" = 1 ]; then
   if [ -n "$brief" ]; then
     if ! tehas_issue_images "$issue" "$images"; then
@@ -187,10 +207,23 @@ if [ "$TEHAS_WORK_IMAGES" = 1 ]; then
       exit 4
     fi
     said=$(tehas_issue_images_said "$images" "planning session")
-    if [ -n "$said" ]; then
-      gh issue comment "$issue" --repo "$TEHAS_REPO" --body "$said" >/dev/null 2>&1 ||
+  else
+    if ! tehas_reply_images "$issue" "$images" "$(cat "$answer")" "$answer_by"; then
+      echo "tehas plan: $image_why, not starting a turn" >&2
+      gh issue comment "$issue" --repo "$TEHAS_REPO" --body "Tehas ran no planning turn: $image_why. A plan made without an image the reply links may be the wrong plan. Reply again to run this turn, or end the session and apply \`tehas:plan\` to start a new one." >/dev/null 2>&1 ||
         echo "tehas plan: the comment on #$issue failed" >&2
+      exit 4
     fi
+    said=$(tehas_images_added "$images" "planning session" "the operator's reply")
+    new_files=$(jq -rs 'if length == 0 then "" else
+        "Tehas gave this turn " + (length | tostring) +
+        (if length == 1 then " image" else " images" end) + " from your reply: " +
+        (map(.file) | join(", ")) + "."
+      end' "$images/.added" 2>/dev/null) || new_files=""
+  fi
+  if [ -n "$said" ]; then
+    gh issue comment "$issue" --repo "$TEHAS_REPO" --body "$said" >/dev/null 2>&1 ||
+      echo "tehas plan: the comment on #$issue failed" >&2
   fi
 fi
 
@@ -198,13 +231,15 @@ if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces" && rm -rf "$images_giv
   echo "tehas plan: could not make $works, not starting a turn" >&2
   exit 78
 fi
-# A session that began without them goes on without them.
+# What the session has been given so far, which is nothing at all for a
+# session that ran while the instance had them off.
 if [ "$TEHAS_WORK_IMAGES" = 1 ] && [ -f "$images/manifest.json" ]; then
-  if ! cp -r "$images" "$images_given"; then
+  if ! { cp -r "$images" "$images_given" && rm -f "$images_given/.added" "$images_given/.added.left"; }; then
     echo "tehas plan: could not copy the issue's images to $images_given, not starting a turn" >&2
     exit 78
   fi
-  image_opts=(-v "$images_given:$images_inside:ro" -e "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$images_inside")
+  image_opts=(-v "$images_given:$images_inside:ro"
+    -e "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$images_inside" -e "PI_ENSEMBLE_PLAN_ISSUE=$issue")
 fi
 
 if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces" && rm -rf "$tree" "$container" &&
@@ -253,6 +288,11 @@ if [ -n "$brief" ]; then
   message="/plan the work described in the file .tehas/brief.md, which holds the approved text of issue #$issue. Read the file first. When you need a decision from the operator, call the question tool or ask in your message, then end your turn: the answer arrives as the next message."
 else
   message=$(cat "$answer")
+  # The agent is told the names the new files have, beside the reply that
+  # links them.
+  [ -z "$new_files" ] || message="$message
+
+$new_files"
   args=(--session "$session")
 fi
 

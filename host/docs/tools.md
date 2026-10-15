@@ -306,19 +306,23 @@ for an issue whose session the factory is working on.
 
 ```
 tehas plan 12 --out /tmp/turn.json --keep /tmp/turn.keep --brief brief.md
-tehas plan 12 --out /tmp/turn.json --keep /tmp/turn.keep --session <id> --answer answer.md
+tehas plan 12 --out /tmp/turn.json --keep /tmp/turn.keep --session <id> --answer answer.md \
+    [--answer-by <login>]
 ```
 
 The first form starts a session from a file with the issue's title and body.
 The second reopens the session and sends the file's content as the operator's
-answer. A turn ends when the agent has settled and every subagent it sent out
-in the background has reported back, so it ends when the agent has asked. A
-subagent that never reports holds the turn until `TEHAS_PLAN_TIMEOUT`.
+answer; `<login>` names the account that wrote it, and only the links of an
+answer from an account in `TEHAS_ALLOWED_LABELERS` are fetched. A turn ends
+when the agent has settled and every subagent it sent out in the background has
+reported back, so it ends when the agent has asked. A subagent that never
+reports holds the turn until `TEHAS_PLAN_TIMEOUT`.
 
 `--keep` names a directory the session carries from one turn to the next. The
 first form makes it anew. It holds the commit the first turn's workspace was
 at, pi-rukas's record of the plans the agent showed (its plain `.json` files,
-at most 1 MB each), and with `TEHAS_WORK_IMAGES=1` the issue's images. Every
+at most 1 MB each), and with `TEHAS_WORK_IMAGES=1` the images the session has
+been given: the issue's own, and any an operator's reply added. Every
 later turn's workspace is at that commit and gets that record back, so a plan
 the operator confirms is filed as it was shown. A later turn whose commit is
 missing or gone starts at the tip of the branch and says so, and the agent
@@ -327,20 +331,35 @@ directory at `~/tehas/state/plan-<issue>.json.keep` and removes it when the
 session ends.
 
 With `TEHAS_WORK_IMAGES=1` the first turn fetches the images the issue links,
-by the rules of `tehas work`, and says on the issue how many it was given.
-Each turn's container gets a copy of them, read-only, at the path a cycle has
-them, with `PI_ENSEMBLE_EXTRA_IMAGE_DIRS`. The copy is
+by the rules of `tehas work`, and says on the issue how many it was given. A
+later turn adds what the operator's reply links, by the same rules and the same
+limits, counted over the whole session: the numbering of `image-1.png`,
+`image-2.png` and so on continues from what is already there, and a link the
+session already has, or one it already left out for a reason that still stands
+(its type, the limits of the session), is not fetched again. A link left out
+only because of the account that wrote it is considered again when an account
+in `TEHAS_ALLOWED_LABELERS` quotes it. Only links to GitHub's own attachment
+storage are considered at all: a link to anything else is ignored, neither
+fetched nor recorded. A link of a reply from an account that is not in
+`TEHAS_ALLOWED_LABELERS` is recorded in the manifest as left out and never
+fetched. The message the turn sends is the answer as it was written, with the
+new file names after it. Each turn's container gets a copy of them, read-only,
+at the path a cycle has them, with `PI_ENSEMBLE_EXTRA_IMAGE_DIRS` and
+`PI_ENSEMBLE_PLAN_ISSUE`, which names the issue the manifest is for; on a turn
+that runs with images neither name comes from `instance.env`. The copy is
 `~/tehas/work/<name>-plan-<issue>.images`, removed after the turn. An image
-that cannot be fetched starts no session: exit 4, said on the issue. On exit 0 the `--out` file holds the session id, the agent's last
-message and the question it asked, if any. On exit 2 it holds the session id
-alone when that is known, so the dispatcher can run the turn again in the
-same session, and it is not written when no session is known.
+that cannot be fetched runs no turn: exit 4, said on the issue, and the images
+of the earlier turns stay as they were. On exit 0 the `--out` file holds the
+session id, the agent's last message and the question it asked, if any. On
+exit 2 it holds the session id alone when that is known, so the dispatcher can
+run the turn again in the same session, and it is not written when no session
+is known.
 
 | Exit | Meaning                                                              |
 | ---- | -------------------------------------------------------------------- |
 | 0    | The turn settled and said or asked something                         |
 | 2    | The turn did not settle, timed out, said and asked nothing, or its session or outcome could not be written down |
-| 4    | With `TEHAS_WORK_IMAGES=1`: a first turn where an image the issue links could not be fetched, or the issue could not be read for its images; nothing ran |
+| 4    | With `TEHAS_WORK_IMAGES=1`: a turn where an image the issue or the reply links could not be fetched, or the images already given to the session could not be read; nothing ran |
 | 64   | A usage error, no bot token or no git identity; nothing ran          |
 | 78   | The instance settings are invalid, or `tehas.slice` cannot be used; nothing ran |
 

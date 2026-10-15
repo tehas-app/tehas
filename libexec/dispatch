@@ -956,7 +956,7 @@ $reply"
       fi
       printf '%s\n' "$text" >"$st.answer"
       log "planning #$n continues (answer from $by)"
-      plan_turn "$n" next "$st.answer"
+      plan_turn "$n" next "$st.answer" "$by"
       "$status_cmd"
       exit 0
       ;;

@@ -1820,15 +1820,16 @@ t_case "a ticked option goes to the session as the next message"
 planning
 comments 7 "$(plan_body ' ' x ' ')" alice
 t_run "$dispatch"
-t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --session abc-123 --answer $record.answer"
+t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --session abc-123 --answer $record.answer --answer-by"
 t_eq "$(cat "$record.answer")" "The operator chose: Change some"
 t_contains "$(t_calls gh)" "<!-- tehas:question kind=plan issue=7 turn=2 -->"
 t_eq "$(jq -r .turns "$record")" 2
 
-t_case "a reply goes to the session as it was written"
+t_case "a reply goes to the session as it was written, with its account named"
 planning
 comments 7 "$(plan_body ' ' ' ' ' ')" "" '[{"databaseId":4003,"author":{"login":"alice"},"body":"Adopt all, but keep `tagged-at` open.\nThen file 3 and 5.","createdAt":"2026-01-01T02:00:00Z"}]'
 t_run "$dispatch"
+t_contains "$(plan_calls)" "--answer $record.answer --answer-by alice"
 t_eq "$(cat "$record.answer")" 'The operator replied on the issue:
 
 Adopt all, but keep `tagged-at` open.

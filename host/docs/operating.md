@@ -325,10 +325,13 @@ a box and a reply do nothing.
 
 Where the instance gives a cycle the images an issue links
 (`TEHAS_WORK_IMAGES=1`), a planning session is given them too, by the same
-rules, once at its start. The bot says how many it was given and which it left
-out. If one cannot be fetched, no session starts and the bot says so. The
-pi-rukas that tehas installs does not show them to the planning agent yet, so
-describe in words what a picture shows.
+rules: the issue's own at its start, and the images your replies link on the
+turn that answers, which keep the numbering and the limits of what the session
+already has. A link in a reply from an account that may not authorise work is
+left out, and the bot says so. The bot says how many it was given and which it
+left out. If one cannot be fetched, the turn does not run and the bot says so.
+The pi-rukas that tehas installs does not show them to the planning agent yet,
+so describe in words what a picture shows.
 
 What the agent writes in the bot's comments is posted on the issue. On a
 public repository that is public. Secrets and private network addresses are

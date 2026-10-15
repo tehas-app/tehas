@@ -108,6 +108,20 @@ for bad in "" "7" "x --out $T/out.json --keep $T/keep --brief $T/brief.md" "7 --
   t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
 done
 
+t_case "a call that names the reply's account for a first turn is refused"
+reset
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md --answer-by alice"
+t_eq "$t_rc" 64
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+
+t_case "a reply account that is not a login is refused before anything runs"
+reset
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/brief.md --answer-by 'a b'"
+t_eq "$t_rc" 64
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/brief.md --answer-by 'x;rm'"
+t_eq "$t_rc" 64
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+
 t_case "a first turn writes the session, the message and the question"
 reset
 t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
@@ -595,7 +609,8 @@ issue_is() { jq -n --arg body "$1" '{number: 7, body: $body, author_association:
 images_on() {
   reset
   rm -rf "$fx/net"
-  t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1 "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=/elsewhere"
+  t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1 "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=/elsewhere" \
+    "PI_ENSEMBLE_PLAN_ISSUE=999"
 }
 
 t_case "with images on a first turn fetches them into the session's directory and mounts a copy read-only"
@@ -607,9 +622,100 @@ t_eq "$t_rc" 0
 t_eq "$(jq -c '[.issue, (.images | map(.file))]' "$T/keep/images/manifest.json")" '[7,["image-1.png"]]'
 t_eq "$(after -v | grep -c -x "$tree.images:$ws.images:ro")" 1
 t_eq "$(after -e | grep '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$ws.images"
+t_eq "$(after -e | grep -c '^PI_ENSEMBLE_PLAN_ISSUE')" 1
+t_eq "$(after -e | grep '^PI_ENSEMBLE_PLAN_ISSUE')" "PI_ENSEMBLE_PLAN_ISSUE=7"
 t_eq "$(turn_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -i --init")" ""
 t_contains "$(cat "$T/calls/gh.comments")" "Tehas gave this planning session 1 image from the issue text."
 t_eq "$([ -e "$tree.images" ] && echo left)" ""
+
+t_case "with images on, a reply adds its image to the session's, with the numbering kept"
+images_on
+net "$A/1111" '\x89PNG\r\n\x1a\nPNGDATA'
+net "$A/2222" '\x89PNG\r\n\x1a\nSECOND'
+issue_is "Look ![shot]($A/1111)"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+printf 'Here is the other one ![more](%s/2222), and the same again (%s/1111)\n' "$A" "$A" >"$T/reply.md"
+rm -f "$T"/calls/*
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/reply.md --answer-by alice"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[.issue, (.images | map(.file)), (.leftOut | length)]' "$T/keep/images/manifest.json")" '[7,["image-1.png","image-2.png"],0]'
+t_eq "$(jq -r '[.images[1].link, .images[1].type, .images[1].bytes] | join(" ")' "$T/keep/images/manifest.json")" "$A/2222 image/png 14"
+t_eq "$(cat "$T/calls/curl.urls")" "$A/2222"
+t_eq "$(after -v | grep -c -x "$tree.images:$ws.images:ro")" 1
+t_eq "$(after -e | grep '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$ws.images"
+t_eq "$(after -e | grep '^PI_ENSEMBLE_PLAN_ISSUE')" "PI_ENSEMBLE_PLAN_ISSUE=7"
+t_eq "$(turn_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -i --init")" ""
+t_contains "$(jq -r .message "$T/calls/docker.stdin")" "Here is the other one ![more]($A/2222), and the same again ($A/1111)"
+t_contains "$(jq -r .message "$T/calls/docker.stdin")" "Tehas gave this turn 1 image from your reply: image-2.png."
+t_contains "$(cat "$T/calls/gh.comments")" "Tehas gave this planning session 1 image from the operator's reply."
+t_eq "$([ -e "$tree.images/.added" ] && echo given)" ""
+t_eq "$([ -e "$T/keep/images/.added" ] && echo kept)" kept
+
+t_case "the reply's own words are the whole message when it links nothing"
+rm -f "$T"/calls/*
+printf 'Adopt all, but keep `tagged-at` open.\n' >"$T/reply.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/reply.md --answer-by alice"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .message "$T/calls/docker.stdin")" 'Adopt all, but keep `tagged-at` open.'
+t_eq "$(cat "$T/calls/curl.urls" "$T/calls/gh.args" 2>/dev/null)" ""
+t_eq "$(jq -c '(.images | map(.file))' "$T/keep/images/manifest.json")" '["image-1.png","image-2.png"]'
+
+t_case "a reply link of an account that may not authorise work is left out, and nothing is fetched"
+rm -f "$T"/calls/*
+printf 'Steal ![x](https://github.com/user-attachments/files/9/b.png)\n' >"$T/reply.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/reply.md --answer-by mallory"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/curl.urls" 2>/dev/null)" ""
+t_eq "$(jq -c '[(.images | map(.file)), (.leftOut | map(.link))]' "$T/keep/images/manifest.json")" \
+  '[["image-1.png","image-2.png"],["https://github.com/user-attachments/files/9/b.png"]]'
+t_contains "$(jq -r '.leftOut[-1].reason' "$T/keep/images/manifest.json")" "may authorise work"
+t_contains "$(cat "$T/calls/gh.comments")" "Left out:"
+t_eq "$(jq -r .message "$T/calls/docker.stdin")" "Steal ![x](https://github.com/user-attachments/files/9/b.png)"
+
+t_case "a link that is not GitHub's own storage is never fetched, whatever the account"
+rm -f "$T"/calls/*
+printf 'See https://example.com/shot.png and [x](https://github.com.evil.example/user-attachments/assets/3333)\n' >"$T/reply.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/reply.md --answer-by alice"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[(.images | map(.file)), (.leftOut | map(.link))]' "$T/keep/images/manifest.json")" \
+  '[["image-1.png","image-2.png"],["https://github.com/user-attachments/files/9/b.png"]]'
+t_eq "$(cat "$T/calls/curl.urls" 2>/dev/null)" ""
+
+t_case "a reply image that cannot be fetched runs no turn: exit 4, said on the issue, the earlier images kept"
+rm -f "$T"/calls/* "$T/out.json"
+printf 'The hard one ![bad](%s/9999)\n' "$A" >"$T/reply.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/reply.md --answer-by alice"
+t_eq "$t_rc" 4
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+t_eq "$([ -e "$T/out.json" ] && echo written)" ""
+t_contains "$(cat "$T/calls/gh.comments")" "Tehas ran no planning turn: $A/9999 could not be fetched."
+t_eq "$(jq -c '[(.issue), (.images | map(.file))]' "$T/keep/images/manifest.json")" '[7,["image-1.png","image-2.png"]]'
+t_eq "$([ -e "$T/keep/images/image-2.png" ] && echo kept)" kept
+
+t_case "a reply that adds a second image numbers it after the first two"
+net "$A/3333" '\x89PNG\r\n\x1a\nTHIRD'
+printf 'Two more ![a](%s/3333) ![b](%s/2222)\n' "$A" "$A" >"$T/reply.md"
+rm -f "$T"/calls/*
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/reply.md --answer-by alice"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '(.images | map(.file))' "$T/keep/images/manifest.json")" '["image-1.png","image-2.png","image-3.png"]'
+t_contains "$(jq -r .message "$T/calls/docker.stdin")" "Tehas gave this turn 1 image from your reply: image-3.png."
+
+t_case "a reply image is fetched for a session that had no images yet"
+images_on
+net "$A/4444" '\x89PNG\r\n\x1a\nFIRST'
+issue_is "No picture here."
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[(.images | length), (.leftOut | length)]' "$T/keep/images/manifest.json")" '[0,0]'
+printf 'Now ![one](%s/4444)\n' "$A" >"$T/reply.md"
+rm -f "$T"/calls/*
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/reply.md --answer-by alice"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '(.images | map(.file))' "$T/keep/images/manifest.json")" '["image-1.png"]'
+t_eq "$(after -v | grep -c -x "$tree.images:$ws.images:ro")" 1
+t_eq "$(after -e | grep '^PI_ENSEMBLE_PLAN_ISSUE')" "PI_ENSEMBLE_PLAN_ISSUE=7"
 
 t_case "a later turn mounts the same images and fetches nothing"
 rm -f "$T"/calls/*
@@ -617,6 +723,69 @@ t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/br
 t_eq "$t_rc" 0
 t_eq "$(cat "$T/calls/curl.urls" "$T/calls/gh.args" 2>/dev/null)" ""
 t_eq "$(after -v | grep -c -x "$tree.images:$ws.images:ro")" 1
+
+t_case "a reply image that is not an image is left out, and the same link is not fetched again by a later reply"
+images_on
+net "$A/5555" 'not a picture'
+issue_is "Words only."
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+printf 'Odd one ![z](%s/5555)\n' "$A" >"$T/reply.md"
+rm -f "$T"/calls/*
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/reply.md --answer-by alice"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/curl.urls")" "$A/5555"
+t_eq "$(jq -c '[(.images | length), (.leftOut | map([.link, .reason]))]' "$T/keep/images/manifest.json")" \
+  '[0,[["https://github.com/user-attachments/assets/5555","Not a png, jpg, webp or gif image."]]]'
+t_contains "$(cat "$T/calls/gh.comments")" "Tehas gave this planning session no image from the operator's reply."
+t_contains "$(cat "$T/calls/gh.comments")" "Left out:"
+rm -f "$T"/calls/*
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/reply.md --answer-by alice"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/curl.urls" 2>/dev/null)" ""
+t_eq "$(cat "$T/calls/gh.comments" 2>/dev/null)" ""
+t_eq "$(jq -c '[(.images | length), (.leftOut | map(.link))]' "$T/keep/images/manifest.json")" \
+  '[0,["https://github.com/user-attachments/assets/5555"]]'
+t_eq "$(jq -r .message "$T/calls/docker.stdin")" "Odd one ![z]($A/5555)"
+
+t_case "a later reply with no account named is given nothing, and its link is left out"
+images_on
+net "$A/6666" '\x89PNG\r\n\x1a\nSIX'
+issue_is "Words only."
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+printf 'See ![p](%s/6666)\n' "$A" >"$T/reply.md"
+rm -f "$T"/calls/*
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/reply.md"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/curl.urls" 2>/dev/null)" ""
+t_eq "$(jq -c '[(.images | length), (.leftOut | map(.reason))]' "$T/keep/images/manifest.json")" \
+  '[0,["It was not written by an account that may authorise work here."]]'
+
+t_case "a link a stranger's reply left out is fetched when an allowed account quotes it, and is recorded left out once"
+images_on
+net "$A/7777" '\x89PNG\r\n\x1a\nSEVEN'
+issue_is "Words only."
+printf 'Look ![s](%s/7777)\n' "$A" >"$T/reply.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+rm -f "$T"/calls/*
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/reply.md --answer-by mallory"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/curl.urls" 2>/dev/null)" ""
+t_contains "$(cat "$T/calls/gh.comments")" "Left out:"
+rm -f "$T"/calls/*
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/reply.md --answer-by mallory"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/curl.urls" "$T/calls/gh.comments" 2>/dev/null)" ""
+t_eq "$(jq -c '[(.images | length), (.leftOut | length)]' "$T/keep/images/manifest.json")" '[0,1]'
+rm -f "$T"/calls/*
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/reply.md --answer-by alice"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/curl.urls")" "$A/7777"
+t_eq "$(jq -c '[(.images | map(.file)), (.leftOut | length)]' "$T/keep/images/manifest.json")" '[["image-1.png"],1]'
+t_contains "$(cat "$T/calls/gh.comments")" "Tehas gave this planning session 1 image from the operator's reply."
+t_contains "$(jq -r .message "$T/calls/docker.stdin")" "Tehas gave this turn 1 image from your reply: image-1.png."
 
 t_case "an image that cannot be fetched starts no session: exit 4, said on the issue"
 images_on
@@ -635,5 +804,27 @@ t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 0
 t_eq "$(cat "$T/calls/curl.urls" "$T/calls/gh.args" 2>/dev/null)" ""
 t_eq "$(after -v | grep -c images)" 0
+
+t_case "an instance that sets the names of the images gives neither to a turn"
+reset
+t_instance "${T_MINIMAL[@]}" "PI_ENSEMBLE_PLAN_ISSUE=999"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(after -e | grep -c 'PI_ENSEMBLE_PLAN_ISSUE')" 0
+images_on
+net "$A/1111" '\x89PNG\r\n\x1a\nPNGDATA'
+issue_is "Look ![shot]($A/1111)"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(after -e | grep -c '^PI_ENSEMBLE_PLAN_ISSUE')" 1
+t_eq "$(after -e | grep '^PI_ENSEMBLE_PLAN_ISSUE')" "PI_ENSEMBLE_PLAN_ISSUE=7"
+net "$A/2222" '\x89PNG\r\n\x1a\nSECOND'
+printf 'And the other one ![more](%s/2222)\n' "$A" >"$T/reply.md"
+rm -f "$T"/calls/*
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/reply.md --answer-by alice"
+t_eq "$t_rc" 0
+t_eq "$(after -e | grep -c '^PI_ENSEMBLE_PLAN_ISSUE')" 1
+t_eq "$(after -e | grep '^PI_ENSEMBLE_PLAN_ISSUE')" "PI_ENSEMBLE_PLAN_ISSUE=7"
+t_eq "$(after -e | grep '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$ws.images"
 
 t_done
