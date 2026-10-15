@@ -60,6 +60,9 @@ esac'
 # container that lives for a second is looked at many times.
 t_stub sleep
 printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitconfig"
+# Pi's settings as install.sh leaves them on a host.
+mkdir -p "$T/home/.pi/agent"
+echo '{"retry":{"provider":{"timeoutMs":600000,"maxRetries":8,"maxRetryDelayMs":60000}}}' >"$T/home/.pi/agent/settings.json"
 # A host with the root step done: the slice loaded from its file with 8 GiB,
 # so a container's ceiling is 2048m, Docker on the systemd driver and cgroup
 # v2, and nothing in the slice.
@@ -125,6 +128,17 @@ for bad in "" "7" "x --out $T/out.json --keep $T/keep --brief $T/brief.md" "7 --
   t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
 done
 
+t_case "without Pi's settings.json no turn starts and nothing is written"
+reset
+mv "$T/home/.pi/agent/settings.json" "$T/settings.kept"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 78
+t_contains "$t_out" "no $T/home/.pi/agent/settings.json: run install.sh"
+t_eq "$(t_calls docker)" ""
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+t_eq "$(find "$T/out.json" "$T/keep" -maxdepth 0 2>/dev/null | wc -l)" 0
+mv "$T/settings.kept" "$T/home/.pi/agent/settings.json"
+
 t_case "a first turn writes the session, the message and the question"
 reset
 t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
@@ -163,7 +177,8 @@ $state/cache:/home/vscode/.tehas-cache
 $state/memory:/home/vscode/.vipune
 $state/sessions:/home/vscode/.pi/agent/sessions
 $T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
-$T/home/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro"
+$T/home/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro
+$T/home/.pi/agent/settings.json:/home/vscode/.pi/agent/settings.json:ro"
 t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
 
 t_case "the turn is given its own cache, memory and sessions, and no shared one"

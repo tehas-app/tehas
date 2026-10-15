@@ -61,7 +61,7 @@ Everything that differs between instances is in the instance directory:
 <instance dir>/
   instance.env     settings, shell KEY=value lines, no secrets
   models.json      Pi provider and model list, installed to ~/.pi/agent/
-  settings.json    optional: Pi's own settings for this host
+  settings.json    optional: Pi's own settings, installed to ~/.pi/agent/
 ```
 
 The directory is found in this order: `TEHAS_INSTANCE_DIR` in the environment,
@@ -328,6 +328,31 @@ What the endpoint serves right now:
 ```
 curl -s "$(jq -r '.providers.fleet.baseUrl' ~/.pi/agent/models.json)/models" | jq -r '.data[].id'
 ```
+
+## Provider retry
+
+Pi retries a failed model request only as its `settings.json` says. The sandbox
+image has no `settings.json`, so every container is given the one `install.sh`
+put in `~/.pi/agent`, read-only: the instance's, or the generic one in
+`host/pi/settings.json`. The generic one sets:
+
+| Key                              | Value  | Without it (Pi 1.0)                          |
+| -------------------------------- | ------ | -------------------------------------------- |
+| `retry.provider.timeoutMs`       | 600000 | the HTTP idle timeout, 300000                |
+| `retry.provider.maxRetries`      | 8      | 0: a failed request is not retried           |
+| `retry.provider.maxRetryDelayMs` | 60000  | 60000                                        |
+
+A product's own `.pi/settings.json` is merged over it, so a product can change
+these for its cycles. `tehas work` writes the values in effect to the cycle's
+preflight log and prints them:
+
+```
+tehas work: provider retry: timeoutMs=600000 maxRetries=8 maxRetryDelayMs=60000 httpIdleTimeoutMs=unset
+```
+
+`unset` means Pi's default. Without `~/.pi/agent/settings.json`, `tehas work`,
+`tehas plan` and `tehas dev` stop with exit 78 before they call Docker or git
+or write anything: run `install.sh`.
 
 A host name that only resolves on a private network is not known inside the
 sandbox. Give the sandbox its address with `PI_ENSEMBLE_HOST_ALIASES`
@@ -778,7 +803,7 @@ Both are outside the repository and the tehas tree.
 | Where an agent's conversation is kept  | In the container's own sessions directory: `~/tehas/work/<name>-<issue>.state/sessions` for a cycle, `~/tehas/dev/<name>.state/sessions` for a manual session. No other container reads or writes it, and a cycle's goes with its workspace |
 | Does the token enter the cycle         | Yes, as `GH_TOKEN`. pi-rukas pushes the branch and opens the pull request from inside. Agent code can do anything the token can         |
 | What else enters the container         | `PI_ENSEMBLE_*` settings, the bot's git name and email, the host aliases. Not the rest of the host environment                          |
-| Host paths mounted                     | The cycle's own workspace, `~/tehas/work/<name>-<issue>`, at the same path in every container; its own transcripts, `~/.pi/agent/ensemble-runs/issue-<issue>`; its own state directory, `~/tehas/work/<name>-<issue>.state` (read-write); `models.json`, `mcp.json` (read-only). Only the last two are the same host file in every container; nothing one container writes is mounted for another |
+| Host paths mounted                     | The cycle's own workspace, `~/tehas/work/<name>-<issue>`, at the same path in every container; its own transcripts, `~/.pi/agent/ensemble-runs/issue-<issue>`; its own state directory, `~/tehas/work/<name>-<issue>.state` (read-write); `models.json`, `mcp.json`, Pi's `settings.json` (read-only). Only the last three are the same host file in every container; nothing one container writes is mounted for another |
 | Not reachable from the container       | The Docker socket, SSH keys, `~/.config/tehas`, the platform checkout, the product checkout, the instance directory                     |
 | What the host runs from the workspace  | Nothing. The host runs git only in the product checkout, which no container has written. It reads the cycle's state file from the workspace as data |
 | The indexing container                 | `tehas index` runs the indexer, not an agent: a clone of the product read-only, and `~/tehas/state/index` to write, which no other container is given; no network, no token            |
