@@ -374,7 +374,7 @@ issues=none
 comment='
   def defuse: gsub("@(?=[A-Za-z0-9])"; "@\u200b") | gsub("<!--"; "&lt;!--");
   "_The tehas improvement loop, read by the model `\($model)`. A model wrote this: check it against the log._", "",
-  "\($product)#\(.cycle | split("-")[0]) was worked on again: cycle `\(.cycle)`, with pi-rukas at \(if $rukas == "" then "a commit the record does not name" else "`\($rukas)`" end).", "",
+  "\($product)#\(.cycle | split("-")[0]) was worked on again: cycle `\(.cycle)`, with pi-rukas at \(if $rukas == "" then "a commit the record does not name" else "`\($rukas)`" end)\(if $image == "" then "" else ", image `\($image)`" end).", "",
   "**Seen again:** \(if .seen then "yes" else "no" end)", "", (.note | defuse), "",
   "**Whole log**", "", ($links | rtrimstr("\n"))'
 rechecked=0
@@ -386,8 +386,10 @@ for ((i = 0; i < n; i++)); do
   upload "$rec" || fail "could not write under $run"
   rukas_at=$(jq -r '.rukas // "" | if type == "string" and test("^[0-9a-f]{7,40}$") then . else "" end' \
     "$run/in/cycles/$rec/cycle.json" 2>/dev/null) || rukas_at=""
+  image_at=$(jq -r '.image // "" | if type == "string" and test("^sha256:[0-9a-f]{64}$") then . else "" end' \
+    "$run/in/cycles/$rec/cycle.json" 2>/dev/null) || image_at=""
   jq -r --arg links "$(cat "$run/up/$rec.links")" --arg model "$PI_ENSEMBLE_SUBAGENT_MODEL" \
-    --arg product "$TEHAS_REPO" --arg rukas "$rukas_at" "$comment" <<<"$f" >"$run/body.md"
+    --arg product "$TEHAS_REPO" --arg rukas "$rukas_at" --arg image "$image_at" "$comment" <<<"$f" >"$run/body.md"
   if gh issue comment "${to##*#}" --repo "${to%#*}" --body-file "$run/body.md" >/dev/null 2>&1; then
     rechecked=$((rechecked + 1))
   else

@@ -14,6 +14,8 @@ state=$T/home/tehas/state/cycles
 park_id=$T/home/tehas/state/park-7.id
 
 t_stub gh '
+# A GitHub that does not answer, once a case writes gh-hangs.
+[ ! -e "$T/fx/gh-hangs" ] || exec "$(command -pv sleep)" 30
 case "$1 $2" in
   "pr list")
     # The first lists fail, as many as pr-fails-times says.
@@ -544,6 +546,37 @@ t_contains "$(t_calls gh)" "issue edit 7"
 t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:question"
 
+t_case "a stop while GitHub does not answer is reported with one bounded try a call, and no status refresh"
+reset
+T_ENV+=(TEHAS_CYCLE_STOP_GH_WAIT=1)
+ended running develop feature/x
+# GitHub stops answering once the cycle runs.
+echo 'sleep 30 & s=$!
+trap "kill \$s; exit 2" TERM
+: >"$T/fx/gh-hangs"
+: >"$T/calls/work.ready"
+wait "$s"' >"$fx/work.sh"
+t_run "$cycle 7 & pid=\$!
+for _ in \$(seq 100); do [ -e \"\$T/calls/work.ready\" ] && break; sleep 0.1; done
+start=\$(date +%s); kill -TERM \$pid; wait \$pid; echo rc=\$? seconds=\$((\$(date +%s) - start))"
+t_contains "$t_out" "rc=0"
+# Four calls, each cut after a second. Three tries of each, or the
+# default bound of 20 seconds, would take far longer. The report ignores TERM,
+# so a bound that only sent TERM would not cut a call.
+secs=$(sed -n 's/.*seconds=\([0-9]*\).*/\1/p' <<<"$t_out")
+t_eq "$([ -n "$secs" ] && [ "$secs" -le 15 ] && echo bounded)" bounded
+t_eq "$(t_calls gh | grep -c -e '--remove-label tehas:running')" 1
+t_eq "$(t_calls gh | grep -c -e '^pr list ')" 1
+t_eq "$(t_calls fake-status)" ""
+t_contains "$t_out" "WARN: label change on #7 failed"
+
+t_case "a cycle that was not stopped still refreshes the status and tries three times"
+reset
+echo "--remove-label tehas:running" >"$fx/edit-fails-on"
+t_run "$cycle 7"
+t_eq "$(t_calls gh | grep -c -e '--remove-label tehas:running')" 3
+t_eq "$(t_calls fake-status | wc -l)" 1
+
 t_case "a hangup is a stop too: the cycle is still reported"
 reset
 echo 'sleep 30 & s=$!
@@ -600,7 +633,7 @@ t_run "$cycle 7"
 t_eq "$(t_calls gh | grep -c -e '^pr list ')" 2
 t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label tehas:awaiting-merge"
 
-t_case "after three refusals the cycle is reported as stopped, and the log says why"
+t_case "after three refusals the cycle is parked as one whose pull request could not be looked up"
 reset
 ended handoff commit-pr feature/x
 echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
@@ -609,6 +642,28 @@ t_run "$cycle 7"
 t_eq "$(t_calls gh | grep -c -e '^pr list ')" 3
 t_contains "$t_out" "WARN: the pull requests of feature/x could not be read"
 t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
+t_contains "$(t_calls gh)" "its pull request could not be looked up: GitHub did not list the pull requests of the branch \`feature/x\`"
+t_lacks "$(t_calls gh)" "stopped without a pull request"
+t_lacks "$(t_calls gh)" "tehas:awaiting-merge"
+
+t_case "the branch whose pull request could not be looked up stays on record"
+t_eq "$(cat "$state/7.branch")" feature/x
+
+t_case "a list that was read leaves no branch on record, and one left by an earlier cycle goes"
+mkdir -p "$state"
+echo feature/old >"$state/7.branch"
+ended handoff commit-pr feature/x
+t_run "$cycle 7"
+t_eq "$(find "$state/7.branch" 2>/dev/null | wc -l)" 0
+t_contains "$(t_calls gh)" "Pull request waiting for a human"
+
+t_case "a branch name the container wrote is reduced before it is recorded"
+reset
+ended handoff commit-pr 'feature/x`;@y$z'
+echo 3 >"$fx/pr-fails-times"
+t_run "$cycle 7"
+t_eq "$(cat "$state/7.branch")" feature/xyz
+t_contains "$(t_calls gh)" "the branch \`feature/xyz\`"
 
 t_case "when the label cannot be changed the comment says so"
 reset
@@ -645,6 +700,43 @@ t_eq "$(jq -c '[.issue, .status, .step, .rc, .pr, .log]' "$rec/cycle.json")" \
   '[7,"handoff","commit-pr",0,"https://github.com/acme/widget/pull/9","work-7-261011-120000.jsonl"]'
 t_eq "$(cat "$rec/stream.jsonl")" '{"type":"agent_start"}'
 t_eq "$(t_calls fake-status | wc -l)" 1
+
+t_case "the record names the image and the pi-rukas commit tehas work saw as the container started"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+echo "PI_RUKAS_COMMIT=$(printf 'c%.0s' {1..40})" >"$T/home/tehas/versions.env"
+image_id=sha256:$(printf 'e%.0s' {1..64})
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"
+echo "'"$image_id"' 0123456789abcdef0123456789abcdef01234567" >"$TEHAS_HOME/state/cycles/7.image"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$(jq -c '[.image, .rukas]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
+  "[\"$image_id\",\"0123456789abcdef0123456789abcdef01234567\"]"
+t_eq "$(find "$state/7.image" 2>/dev/null | wc -l)" 0
+
+t_case "without that file the record falls back, and one left by an earlier cycle is not this cycle's"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+echo "PI_RUKAS_COMMIT=$(printf 'c%.0s' {1..40})" >"$T/home/tehas/versions.env"
+mkdir -p "$state"
+echo "$image_id 0123456789abcdef0123456789abcdef01234567" >"$state/7.image"
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$(jq -c '[.image, .rukas]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
+  "[null,\"$(printf 'c%.0s' {1..40})\"]"
+
+t_case "an image file that is a link, or does not hold an id, is not read"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+echo "$image_id 0123456789abcdef0123456789abcdef01234567" >"$T/elsewhere"
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"
+ln -sf "$T/elsewhere" "$TEHAS_HOME/state/cycles/7.image"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$(jq -c '.image' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" null
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"
+echo "sha256:short \`x\` 0123456" >"$TEHAS_HOME/state/cycles/7.image"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$(jq -c '[.image, .rukas]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" "[null,\"$(printf 'c%.0s' {1..40})\"]"
+rm -f "$T/home/tehas/versions.env"
 
 t_case "the record names the runner's exit when there is no pull request"
 reset
@@ -720,6 +812,34 @@ ended aborted develop
 echo 'echo 3600 >"$TEHAS_HOME/state/cycles/7.stalled"; exit 1' >"$fx/work.sh"
 t_run "$cycle 7"
 t_contains "$t_out" "status=aborted"
+
+t_case "a cycle whose Pi session ended is interrupted, says the step and its pull request, and is parked"
+reset
+ended running lens-fix feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+echo ': >"$TEHAS_HOME/state/cycles/7.ended"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "status \`interrupted\`, last step \`lens-fix\`"
+t_contains "$(t_calls gh)" "The Pi session ended during \`lens-fix\`, so tehas stopped the cycle before its time limit."
+t_contains "$(t_calls gh)" "Its branch has an open pull request: https://github.com/acme/widget/pull/9"
+t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
+t_contains "$t_out" "status=interrupted step=lens-fix"
+t_eq "$(find "$state/7.ended" 2>/dev/null | wc -l)" 0
+
+t_case "an ended file left by an earlier cycle is not this cycle's, and one that is a link is not read"
+reset
+mkdir -p "$state"
+: >"$state/7.ended"
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "Pi session ended"
+reset
+mkdir -p "$state"
+: >"$T/elsewhere"
+echo 'ln -sf "$T/elsewhere" "$TEHAS_HOME/state/cycles/7.ended"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "Pi session ended"
+t_eq "$(find "$state/7.ended" 2>/dev/null | wc -l)" 0
 
 t_case "a stall file that is not digits is ignored"
 reset
@@ -905,6 +1025,86 @@ t_eq "$t_rc" 0
 t_eq "$(t_calls fake-work)" "7"
 t_eq "$(t_calls fake-status | wc -l)" 1
 for name in tehas tehasbot tehas-work tehas-status; do t_eq "$(t_calls "$name")" ""; done
+
+# --- A cap that a provider outage gives ---------------------------------------
+# The state file as pi-rukas leaves it when a step failed for good: the failed
+# dispatch, then the cap.
+capped() { # <cap> <failure event as JSON>
+  mkdir -p "$workdir/.pi/work-state"
+  jq -n --arg cap "$1" --argjson f "$2" '{pipelineState: {status: "handoff", currentStep: "handoff", branchName: "feature/issue-7-x"},
+    eventLog: [{kind: "step-started", at: 1}, $f, {kind: "cap-hit", at: 3, cap: $cap, reviewRound: 1, nextStep: "handoff"}]}' \
+    >"$workdir/.pi/work-state/7.json"
+}
+outage='{"kind":"dispatch-failed-provider","step":"adversarial","at":2,"providerMessage":"Connection error."}'
+
+t_case "a step that failed on a provider error is parked by a provider outage, and asks for one retry"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+capped step-failed:adversarial "$outage"
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "Tehas cycle parked by a provider outage: status \`handoff\`"
+t_contains "$(t_calls gh)" "cap \`step-failed:adversarial\`: Connection error."
+t_contains "$(t_calls gh)" "Tehas starts it again once on its own, when the model endpoint answers."
+t_lacks "$(t_calls gh)" "stopped without a pull request"
+t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
+t_eq "$(jq -c '[.cap, .reason, .provider, .retry, (.started | type)]' "$state/7.park")" \
+  '["step-failed:adversarial","Connection error.",true,true,"number"]'
+t_eq "$(jq -c '[.cap, .capReason]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
+  '["step-failed:adversarial","Connection error."]'
+
+t_case "a timeout, a 5xx and pi-rukas's own cap are provider outages too"
+for f in '{"kind":"dispatch-failed","at":2,"errorTail":"request timed out after 600s"}' \
+  '{"kind":"dispatch-failed","at":2,"errorTail":"502 Bad Gateway"}'; do
+  reset
+  capped step-failed:develop "$f"
+  t_run "$cycle 7"
+  t_eq "$(jq -r .provider "$state/7.park")" true
+done
+reset
+capped provider-unavailable '{"kind":"step-started","at":2}'
+t_run "$cycle 7"
+t_eq "$(jq -c '[.provider, .retry]' "$state/7.park")" '[true,true]'
+
+t_case "the retry tehas made on its own, parked by an outage again, waits for a person"
+reset
+capped step-failed:adversarial "$outage"
+mkdir -p "$state"
+: >"$state/7.requeued"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "Tehas cycle parked by a provider outage"
+t_contains "$(t_calls gh)" "It was the retry tehas made on its own after an outage, so it waits for a person."
+t_lacks "$(t_calls gh)" "starts it again once"
+t_eq "$(jq -c '[.provider, .retry]' "$state/7.park")" '[true,false]'
+t_eq "$(find "$state/7.requeued" 2>/dev/null | wc -l)" 0
+
+t_case "a step that failed for another reason is parked as before, its cap on record and no retry"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+capped step-failed:develop '{"kind":"dispatch-failed","at":2,"errorTail":"3 assertions failed in test/x"}'
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"' >"$fx/work.sh"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
+t_lacks "$(t_calls gh)" "provider outage"
+t_eq "$(jq -c '[.cap, .provider, .retry]' "$state/7.park")" '["step-failed:develop",false,false]'
+t_eq "$(jq -r .capReason "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" "3 assertions failed in test/x"
+
+t_case "the cap and its reason are reduced before they are posted or recorded"
+reset
+capped 'step-failed:adversarial`@x' '{"kind":"dispatch-failed-provider","at":2,"providerMessage":"provider error `@alice` <!-- #5\nnext line"}'
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "cap \`step-failed:adversarialx\`: provider error alice -- 5 next line"
+t_eq "$(jq -c '[.cap, .reason]' "$state/7.park")" '["step-failed:adversarialx","provider error alice -- 5 next line"]'
+
+t_case "a cycle that left a pull request leaves no park on record, and an earlier one is gone"
+reset
+mkdir -p "$state"
+echo '{"retry":true}' >"$state/7.park"
+ended handoff commit-pr feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$cycle 7"
+t_eq "$(find "$state/7.park" 2>/dev/null | wc -l)" 0
 
 t_case "a cycle that stops asks what to do next, with boxes"
 reset

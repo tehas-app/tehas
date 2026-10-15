@@ -225,6 +225,12 @@ anything.
 An issue closed since its cycle stopped is not work. Neither the tick nor a new
 `tehas:ready` starts anything on it, and the poll's log says so.
 
+A cycle that a provider outage parked says so in its comment: `parked by a
+provider outage`, with the cap. Nothing needs doing: once the model endpoint
+answers, the dispatcher starts the issue again on its own and says so on the
+issue. It does that once. If that cycle is parked by an outage too, the issue
+waits for a tick or a label like any other.
+
 When the bot cannot post the boxes, it posts a plain comment that gives the
 label to apply. When the boxes are posted and the label `tehas:question` cannot be
 added, a second comment says that the boxes cannot be used, tells you to run

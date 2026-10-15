@@ -10,8 +10,8 @@
 #
 # Exit status: 0 the cycle ended as merged or handoff (parked for a human),
 #              1 it ended as aborted,
-#              2 Pi exited, the time limit passed or the cycle stalled while it
-#                was still running.
+#              2 Pi exited, its session ended, the time limit passed or the
+#                cycle stalled while it was still running.
 #              3 the sandbox cannot push to the repository; no cycle was started.
 #              4 the instance gives a cycle the issue's images and one could
 #                not be fetched, or the issue could not be read for them; no
@@ -77,6 +77,10 @@
 # Without a usable slice nothing is cloned and nothing starts. The check that
 # the sandbox can push is a container of a few seconds and is not in the slice.
 #
+# As the container starts, the image's id and the pi-rukas commit of its label
+# tehas.rukas go to state/cycles/<issue>.image, one line, for the cycle's
+# record.
+#
 # Docker writes the container's id to state/cycles/<issue>.cid, which is how
 # the dispatcher tells this cycle's container from the others in the slice.
 # The file is removed at the end. While the cycle runs, this command reads how
@@ -115,6 +119,11 @@
 # hours. The status is then "stalled", and state/cycles/<issue>.stalled holds
 # the seconds for tehasbot cycle. The limit is longer than one run of the
 # product's gate may take, which can print nothing.
+#
+# A Pi session that ended while the cycle was still running is not waited
+# for either. When pi-rukas writes its session_shutdown line to the error
+# stream, the container is stopped, the status is "interrupted", and
+# state/cycles/<issue>.ended is left for tehasbot cycle.
 set -uo pipefail
 
 issue=${1:-}
@@ -167,6 +176,8 @@ cid_file=$TEHAS_HOME/state/cycles/$issue.cid
 oom_file=$TEHAS_HOME/state/cycles/$issue.oom
 forks_file=$TEHAS_HOME/state/cycles/$issue.forks
 stall_file=$TEHAS_HOME/state/cycles/$issue.stalled
+ended_file=$TEHAS_HOME/state/cycles/$issue.ended
+image_file=$TEHAS_HOME/state/cycles/$issue.image
 stall=$TEHAS_WORK_STALL
 preflight_wait=${TEHAS_PREFLIGHT_WAIT:-300}
 stop_wait=${TEHAS_STOP_WAIT:-60}
@@ -281,7 +292,7 @@ send() { (trap '' PIPE; printf '%s\n' "$1" >&4) 2>/dev/null; }
 
 # Docker refuses a cid file that is already there. One is left only by a cycle
 # that was killed outright, and so is a count of kills.
-rm -f "$cid_file" "$oom_file" "$forks_file" "$stall_file"
+rm -f "$cid_file" "$oom_file" "$forks_file" "$stall_file" "$ended_file" "$image_file"
 # A container under this name outlived the client that started it: this
 # command holds the issue's lock, so no cycle owns it. It would work on with
 # the bot's token, and Docker would refuse the name below.
@@ -296,6 +307,16 @@ stop_container() {
   timeout -k 5 "$stop_wait" docker kill "$name" >/dev/null 2>&1 ||
     echo "tehas work: docker kill of $name did not work either"
 }
+
+# The image the cycle runs, as the container starts: a rebuild or a new pin
+# while the cycle runs does not change what it ran.
+image_id="" image_rukas=""
+read -r image_id image_rukas _ < <(timeout -k 5 "$stop_wait" docker image inspect \
+  --format '{{.Id}} {{index .Config.Labels "tehas.rukas"}}' "$image" 2>/dev/null)
+if [[ $image_id =~ ^sha256:[0-9a-f]{64}$ ]]; then
+  [[ $image_rukas =~ ^[0-9a-f]{7,40}$ ]] || image_rukas=""
+  printf '%s %s\n' "$image_id" "$image_rukas" >"$image_file" || echo "tehas work: could not write $image_file" >&2
+fi
 
 # Set before the container starts, so no signal falls between. A stop ends the
 # loop and is recorded as interrupted, not as running.
@@ -379,6 +400,7 @@ moved() {
 status=running
 seen=0
 stalled=0
+ended=0
 last=$started
 # Set when this command stops the container itself, and when the container
 # was killed while the cycle was running.
@@ -394,6 +416,13 @@ while [ "$interrupted" = 0 ] && kill -0 "$pid" 2>/dev/null; do
     seen=1
     status=$(jq -r '.pipelineState.status // "running"' "$state" 2>/dev/null || echo running)
     [ "$status" != running ] && break
+  fi
+  # A Pi session that quit can leave its process idle until the time limit.
+  # pi-rukas says so on the error stream.
+  if grep -q -m 1 '^\[pi-rukas\] session_shutdown' "$log.err" 2>/dev/null; then
+    echo "tehas work: the Pi session ended while the cycle was running, stopping it"
+    ended=1
+    break
   fi
   if [ $(($(date +%s) - started)) -ge "$limit" ]; then
     echo "tehas work: time limit of ${limit}s passed"
@@ -417,7 +446,7 @@ fi
 if [ "$interrupted" = 0 ] && kill -0 "$pid" 2>/dev/null; then
   # Give the driver a moment to post its handoff, then end the session: Pi
   # sees the end of its input. The stop is for a Pi that does not go.
-  [ "$status" != running ] && sleep 20
+  [ "$status" != running ] && [ "$ended" = 0 ] && sleep 20
   oom_look
   stopped=1
   exec 4>&-
@@ -433,6 +462,10 @@ fi
 if [ "$stalled" = 1 ]; then
   status=stalled
   echo "$stall" >"$stall_file" || echo "tehas work: could not write $stall_file" >&2
+fi
+if [ "$ended" = 1 ]; then
+  status=interrupted
+  : >"$ended_file" || echo "tehas work: could not write $ended_file" >&2
 fi
 wait "$pid" 2>/dev/null
 rc=$?

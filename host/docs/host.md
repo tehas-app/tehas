@@ -360,6 +360,8 @@ ever:
 | The push check before a cycle | 300 s | `tehas work` exits 3, with `the push check did not end within 300s` |
 | The clone of the cycle's workspace | 300 s | `tehas work` exits 78 |
 | `docker stop` at the end of a cycle, and on a signal | 60 s | `docker kill`, bounded the same way, and the line `docker stop of tehas-work-N did not end within 60s, killing it` |
+| A call to GitHub in the report of a cycle that was stopped | 20 s, tried once | The call counts as refused. A label change that never happened leaves the issue `tehas:running` for the next poll |
+| The stop of a cycle, its container and its report | 300 s (`TimeoutStopSec` of `tehas-cycle@.service`) | systemd kills the unit. The worst stop within the bounds above is about 230 s |
 | The dispatcher's fetch of the product checkout | 120 s | `WARN: could not fast-forward`, and the poll goes on |
 | A poll of the dispatcher | 3 hours (`TimeoutStartSec` of `tehas-dispatch.service`) | systemd stops it. A planning turn it cut off is reported by the next poll |
 
@@ -562,7 +564,8 @@ docker tag tehas/pi-rukas:<date> tehas/pi-rukas:uid$(id -u)
 
 Each image carries the pi-rukas commit it was built with, as its label
 `tehas.rukas`, and the dispatcher and the improvement loop read the commit
-from there. A commit that cycles have ended well on before runs at full
+from there. The loop's record of a cycle has the commit and the image's id as
+the cycle's container started. A commit that cycles have ended well on before runs at full
 concurrency again at once.
 
 That holds until the next sandbox build, which takes the pin from

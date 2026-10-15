@@ -166,6 +166,18 @@ event or an answer and before it changes a label or comments, so a list naming
 the bot is refused whatever else the poll would have done. A planning turn's
 runner output is in `~/tehas/logs/dispatch-plan-<issue>.log`.
 
+A cycle that a provider outage parked starts again once without a tick.
+`tehasbot cycle` asks for it in `~/tehas/state/cycles/<issue>.park`. When
+nothing holds cycles back, so the model endpoint answers and there is a slot,
+the poll starts the issue and says on it that it does so once. The start rests
+on the account that started the cycle that parked, kept in
+`~/tehas/state/cycles/<issue>.by`: it must still be allowed, the issue must
+still be open and parked, and nobody else may have changed its text since that
+cycle began. Otherwise the log says `skip #N: its retry after a provider
+outage is not started; it waits for a person` and the park file goes. An issue
+that carries `tehas:ready` is left to that label. If the retry's own cycle is
+parked by an outage again, it waits for a person.
+
 A poll also reads the open issues marked `tehas:running`. One whose cycle
 does not hold its lock on this host, `~/tehas/state/cycles/<issue>.lock`, gets
 `needs-human-attention` in place of `tehas:running` and a comment that says
@@ -231,7 +243,7 @@ removed before the new one starts.
 | ---- | ---------------------------------------------------------------- |
 | 0    | The cycle ended as `merged` or `handoff` (parked for a human)    |
 | 1    | The cycle ended as `aborted`                                     |
-| 2    | Pi exited, the time limit passed, or the cycle stalled, while it was running |
+| 2    | Pi exited, its session ended, the time limit passed, or the cycle stalled, while it was running |
 | 3    | The sandbox cannot push to the repository; no cycle was started  |
 | 4    | With `TEHAS_WORK_IMAGES=1`: an image the issue links could not be fetched, or the issue could not be read for its images; no cycle was started |
 | 5    | A cycle for this issue is running already: its lock `~/tehas/state/cycles/<issue>.lock` is held. Nothing was moved and no container started |
@@ -274,6 +286,14 @@ then frees its slot within the hour. The seconds go to
 how long nothing moved and at which step, parks it and removes the file. A
 cycle that keeps writing without getting anywhere is not caught by this: it
 runs until its time limit.
+
+A Pi session that ends while the cycle is still running is not waited for
+either. When pi-rukas writes its `session_shutdown` line to the error stream,
+`<log>.err`, the container is stopped at the next look and the cycle is
+`interrupted`. `~/tehas/state/cycles/<issue>.ended` is left for `tehasbot
+cycle`, which parks the issue, says that the Pi session ended during the step
+the state file names, names the open pull request when there is one, and
+removes the file.
 
 While the container runs, Docker keeps its id in `~/tehas/state/cycles/<issue>.cid`,
 which is how the dispatcher tells a cycle's container from the others in the
@@ -673,7 +693,9 @@ the cycle are removed in every case. A runner that started no cycle over an
 image (exit 4) is parked with a comment that says so. A retry moves a stopped workspace to
 `<name>-<issue>.before-retry`, which is removed and kept by the same rule. A
 stopped unit stops the container and is reported as a cycle that ended without
-a pull request. A hangup is taken as a stop too. It checks no authorisation:
+a pull request. The report of a stopped cycle tries each call to GitHub once,
+cuts it after 20 seconds and does not refresh the status, so it ends within
+the unit's `TimeoutStopSec`. A hangup is taken as a stop too. It checks no authorisation:
 the dispatcher did that before it started the unit. It does check the number:
 it writes `state/cycles/<issue>.taken` once it holds its lock, then asks GitHub
 what the number is before a label is changed, a comment is posted or a
@@ -713,7 +735,21 @@ The label change that ends a cycle is tried three times, five seconds apart,
 and so is the search for the pull request. If GitHub still refuses the label
 change, the log says `WARN: label change on #N failed`, the cycle's comment
 says that the label could not be changed, and the issue stays `tehas:running`
-until the next poll of [tehas dispatch](#tehas-dispatch) finds it.
+until the next poll of [tehas dispatch](#tehas-dispatch) finds it. A search
+for the pull request that GitHub refuses three times is not taken for a cycle
+that left none: the issue is parked with a comment that says the pull request
+could not be looked up and names the branch, and the branch stays in
+`~/tehas/state/cycles/<issue>.branch` until the issue's next cycle starts.
+
+A parked cycle's cap, from the state file, goes into
+`~/tehas/state/cycles/<issue>.park` with the failure before it, and into the
+record for the improvement loop as `cap` and `capReason`, reduced to plain
+characters. A cap of the kind a provider outage gives is said as one: `Tehas
+cycle parked by a provider outage`, with the cap and the reason. That is
+`provider-unavailable`, or `step-failed:<step>` or `adversarial-infra-failure`
+whose reason names the provider, a timeout, a connection or a 5xx status. The
+park file then asks [tehas dispatch](#tehas-dispatch) for one retry, unless the
+cycle was that retry.
 
 | Exit | Meaning                                              |
 | ---- | ---------------------------------------------------- |
@@ -953,7 +989,14 @@ to read its line; the timer runs it every three hours, on the hour, and the log 
 
 When a cycle ends, `tehasbot cycle` leaves a record of it in
 `~/tehas/tmp/improve/window/<issue>-<time>/`: how it ended, the stream without
-its word by word updates, the console and the error output. A run fetches the
+its word by word updates, the console and the error output. Its `cycle.json`
+names the image the cycle's container started from (`image`, its id) and the
+pi-rukas commit of that image's label (`rukas`), which `tehas work` reads as
+the container starts and leaves in `~/tehas/state/cycles/<issue>.image`. A
+repin or a rebuild while the cycle runs does not change them. Without that
+file the commit is the one the cycle noted at its start, else the one in
+`versions.env`. A comment on an issue the loop filed, when the issue is worked
+on again, names both. A run fetches the
 open issues and the ones closed in the last 30 days, takes the records that
 wait, and starts the analyst. Then it checks the one file the analyst leaves,
 files what passes and removes the records.

@@ -36,6 +36,7 @@ git clone -q "$upstream" "$checkout"
 # start a container whose cid file is already there. Only a run is recorded
 # one argument per line; what the container does is a file a case writes.
 t_stub docker 'if [ "$1" = info ]; then cat "$T/docker.info"; exit; fi
+if [ "$1" = image ]; then cat "$T/image.inspect" 2>/dev/null; exit; fi
 printf "%s\n" "$@" >"$T/calls/docker.args.$$"
 prev=""
 for a in "$@"; do
@@ -598,6 +599,33 @@ t_lacks "$t_out" "stalled"
 t_eq "$(find "$T/home/tehas/state/cycles/7.stalled" 2>/dev/null | wc -l)" 0
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 
+t_case "a Pi session that ended while the cycle runs stops it at once as interrupted"
+fresh
+rm -f "$T/home/tehas/state/cycles/7.ended"
+# What pi-rukas wrote to the error stream when Pi quit on a real host. The
+# container then idles.
+container "says running; echo '[pi-rukas] session_shutdown (reason: quit): aborted 2 in-flight async jobs' >&2; $hold; $gone"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "tehas work: the Pi session ended while the cycle was running, stopping it"
+t_contains "$t_out" "status=interrupted step=develop"
+t_lacks "$t_out" "time limit"
+t_lacks "$t_out" "was killed"
+t_contains "$(t_calls docker)" "stop -t 20 tehas-work-7"
+t_eq "$(find "$T/home/tehas/state/cycles/7.ended" -type f 2>/dev/null | wc -l)" 1
+t_eq "$(jq -c '[.running, .status]' "$live/cycles/7.json")" '[false,"interrupted"]'
+
+t_case "a session_shutdown that is not at the start of a line ends nothing, and no ended file is left"
+fresh
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=2
+container "says running; echo 'a tool said [pi-rukas] session_shutdown' >&2; $hold; $gone"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "time limit of 2s passed"
+t_lacks "$t_out" "session ended"
+t_eq "$(find "$T/home/tehas/state/cycles/7.ended" 2>/dev/null | wc -l)" 0
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+
 t_case "TERM still gives interrupted"
 fresh
 container "$hold; $gone"
@@ -623,6 +651,35 @@ t_case "a container left under the issue's name is removed before the cycle's st
 rm_at=$(t_calls docker | grep -n -x -e 'rm -f tehas-work-7' | cut -d: -f1 | head -n 1)
 run_at=$(t_calls docker | grep -n -e ' --mode ' | cut -d: -f1 | head -n 1)
 t_eq "$([ -n "$rm_at" ] && [ -n "$run_at" ] && [ "$rm_at" -lt "$run_at" ] && echo before)" before
+
+t_case "the image's id and the pi-rukas commit of its label are on record, read before the container starts"
+fresh
+image_id=sha256:$(printf 'e%.0s' {1..64})
+echo "$image_id 0123456789abcdef0123456789abcdef01234567" >"$T/image.inspect"
+container 'says handoff'
+t_run "$work 7"
+t_eq "$(cat "$T/home/tehas/state/cycles/7.image")" "$image_id 0123456789abcdef0123456789abcdef01234567"
+t_contains "$(t_calls docker)" "image inspect --format {{.Id}} {{index .Config.Labels \"tehas.rukas\"}} tehas/pi-rukas:uid$(id -u)"
+at_inspect=$(t_calls docker | grep -n -e '^image inspect' | cut -d: -f1 | head -n 1)
+at_run=$(t_calls docker | grep -n -e ' --mode ' | cut -d: -f1 | head -n 1)
+t_eq "$([ -n "$at_inspect" ] && [ -n "$at_run" ] && [ "$at_inspect" -lt "$at_run" ] && echo before)" before
+
+t_case "an image without the label is on record by its id alone"
+fresh
+echo "$image_id " >"$T/image.inspect"
+t_run "$work 7"
+t_eq "$(cat "$T/home/tehas/state/cycles/7.image")" "$image_id "
+
+t_case "an answer that is not an image id leaves no record, and one left by an earlier cycle goes"
+fresh
+echo "not-an-id 0123456 \$(touch x)" >"$T/image.inspect"
+echo "$image_id 0123456" >"$T/home/tehas/state/cycles/7.image"
+t_run "$work 7"
+t_eq "$(find "$T/home/tehas/state/cycles/7.image" 2>/dev/null | wc -l)" 0
+echo "$image_id not-a-commit" >"$T/image.inspect"
+t_run "$work 7"
+t_eq "$(cat "$T/home/tehas/state/cycles/7.image")" "$image_id "
+rm -f "$T/image.inspect" "$T/home/tehas/state/cycles/7.image"
 
 t_case "a docker stop that does not end is given up after its bound, said, and the container killed"
 fresh

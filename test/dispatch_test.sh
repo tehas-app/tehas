@@ -3077,4 +3077,103 @@ t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 "
 release
 not_installed
 
+# --- A cycle a provider outage parked -------------------------------------------
+cycles_dir=$T/home/tehas/state/cycles
+# Issue 7 was parked by an outage after a cycle alice started at 02:00, its
+# question unticked, and the endpoint answers again.
+outage_parked() { # [<retry>]
+  parked
+  comments 7 "$(park_body ' ' ' ')" ""
+  mesh '{"data":[{"id":"test-model"}]}'
+  mkdir -p "$cycles_dir"
+  jq -n --argjson s "$(date -d 2026-01-01T02:00:00Z +%s)" --argjson r "${1:-true}" \
+    '{cap: "step-failed:adversarial", reason: "Connection error.", provider: true, retry: $r, started: $s}' >"$cycles_dir/7.park"
+  echo alice >"$cycles_dir/7.by"
+  echo '{"state":"OPEN","labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}' >"$fx/issue-7.json"
+}
+
+t_case "a cycle a provider outage parked starts again once, without a tick, and the issue is told"
+outage_parked
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label needs-human-attention --remove-label tehas:question"
+t_contains "$(t_calls gh)" "Tehas starts this issue again on its own: its last cycle was parked by a provider outage, and the model endpoint answers again. It does this once."
+t_contains "$(t_calls gh)" "authorized by @alice's start of the cycle a provider outage parked"
+t_contains "$t_out" "start #7 (requeued by alice)"
+t_lacks "$(t_calls gh)" "api -X PATCH"
+
+t_case "the park is used up, and the start is marked as the retry for its cycle"
+t_eq "$(find "$cycles_dir/7.park" 2>/dev/null | wc -l)" 0
+t_eq "$(find "$cycles_dir/7.requeued" 2>/dev/null | wc -l)" 1
+t_eq "$(cat "$cycles_dir/7.by")" alice
+t_eq "$([ -e "$park_id" ] && echo kept)" ""
+
+t_case "a start a person asked for is not the retry, and says who asked"
+reset
+mkdir -p "$cycles_dir"
+: >"$cycles_dir/7.requeued"
+echo '{"retry":true}' >"$cycles_dir/7.park"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(find "$cycles_dir/7.requeued" "$cycles_dir/7.park" 2>/dev/null | wc -l)" 0
+t_eq "$(cat "$cycles_dir/7.by")" alice
+
+t_case "a park that asks for no retry starts nothing and stays"
+outage_parked false
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_eq "$(find "$cycles_dir/7.park" | wc -l)" 1
+
+t_case "the retry waits while the endpoint does not answer, or the slots are full, and its park stays"
+outage_parked
+mesh
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_eq "$(find "$cycles_dir/7.park" | wc -l)" 1
+outage_parked
+hold 9
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_eq "$(find "$cycles_dir/7.park" | wc -l)" 1
+release
+
+t_case "a dry run says what it would do and changes nothing"
+outage_parked
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would run a cycle for #7 (retry after a provider outage, started by alice)"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "issue comment"
+t_eq "$(find "$cycles_dir/7.park" | wc -l)" 1
+
+t_case "no retry when its starter is no longer allowed, the text was changed by another, or the issue is not parked"
+for why in stranger edited closed unparked nobody; do
+  outage_parked
+  case "$why" in
+    stranger) echo mallory >"$cycles_dir/7.by" ;;
+    nobody) rm -f "$cycles_dir/7.by" ;;
+    edited) echo '{"data":{"repository":{"issue":{"lastEditedAt":"2026-01-01T03:00:00Z","editor":{"login":"mallory"}}}}}' >"$fx/edit-7.json" ;;
+    closed) echo '{"state":"CLOSED","labels":[{"name":"needs-human-attention"}]}' >"$fx/issue-7.json" ;;
+    unparked) echo '{"state":"OPEN","labels":[]}' >"$fx/issue-7.json" ;;
+  esac
+  t_run "$dispatch"
+  t_eq "$(t_calls fake-start)" ""
+  t_lacks "$(t_calls gh)" "issue edit"
+  t_contains "$t_out" "skip #7: its retry after a provider outage is not started; it waits for a person"
+  t_eq "$(find "$cycles_dir/7.park" 2>/dev/null | wc -l)" 0
+done
+
+t_case "an issue a person labelled tehas:ready is left to that label"
+outage_parked
+echo '{"state":"OPEN","labels":[{"name":"needs-human-attention"},{"name":"tehas:ready"}]}' >"$fx/issue-7.json"
+echo '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"needs-human-attention"}]}]' >"$fx/ready.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_contains "$t_out" "start #7 (labelled by alice)"
+t_eq "$(find "$cycles_dir/7.requeued" "$cycles_dir/7.park" 2>/dev/null | wc -l)" 0
+rm -f "$T/home/.pi/agent/models.json" "$fx/mesh.json"
+
 t_done
