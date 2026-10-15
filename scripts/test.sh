@@ -10,6 +10,11 @@
 #
 # Usage: scripts/test.sh
 #
+# The test files run side by side, at most TEHAS_TEST_JOBS at once [the number
+# of CPUs]: each keeps everything under a scratch directory of its own
+# (test/lib.sh), and one after another they took about 18 minutes. Each file's
+# output is printed whole, in name order, once all have ended.
+#
 # Exit: 0 every check passed, 1 a check failed, 2 nothing could be checked
 set -uo pipefail
 
@@ -37,10 +42,29 @@ elif [ "${#files[@]}" -gt 0 ]; then
   fi
 fi
 
+jobs=${TEHAS_TEST_JOBS:-$(nproc 2>/dev/null || echo 1)}
+[[ $jobs =~ ^[1-9][0-9]*$ ]] || jobs=1
+out=$(mktemp -d "${TMPDIR:-/tmp}/tehas-tests.XXXXXX") || exit 2
+trap 'rm -rf "$out"' EXIT
+tests=()
 for t in "$root"/test/*_test.sh; do
-  [ -f "$t" ] || continue
+  [ -f "$t" ] && tests+=("$t")
+done
+running=0
+for t in "${tests[@]}"; do
   ran=1
-  bash "$t" || failed=1
+  # A file's status is written only when it ends, so a missing one is a failure.
+  (bash "$t" >"$out/${t##*/}.log" 2>&1; echo "$?" >"$out/${t##*/}.rc") &
+  running=$((running + 1))
+  if [ "$running" -ge "$jobs" ]; then
+    wait -n
+    running=$((running - 1))
+  fi
+done
+wait
+for t in "${tests[@]}"; do
+  cat "$out/${t##*/}.log" 2>/dev/null
+  [ "$(cat "$out/${t##*/}.rc" 2>/dev/null)" = 0 ] || failed=1
 done
 
 [ "$ran" = 1 ] || { echo "test.sh: nothing could be checked" >&2; exit 2; }
