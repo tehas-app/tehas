@@ -45,6 +45,7 @@
   <link rel="preload" href="/fun/TopazPlus_a1200_v1.0.ttf" as="font" type="font/ttf" crossorigin>
   <link rel="stylesheet" href="/fun/game-view.css">
   <link rel="stylesheet" href="/fun/energy-view.css">
+  <link rel="stylesheet" href="/fun/host-view.css">
   {{- /* Visitor analytics, only on an instance that names a script and a site. */}}
   {{- if and (env "TEHAS_ANALYTICS_SRC") (env "TEHAS_ANALYTICS_SITE") }}
   <script async src="{{ env "TEHAS_ANALYTICS_SRC" }}" data-site="{{ env "TEHAS_ANALYTICS_SITE" }}"{{ if eq (env "TEHAS_ANALYTICS_COOKIE") "1" }} data-cookie="true"{{ end }}></script>
@@ -65,6 +66,7 @@
       <a href="#lab">PROTOLAB</a>
       <a href="#console">PRODUCTION CONSOLE</a>
       <a href="#energy" id="menu-energy" hidden>ENERGY USE</a>
+      <a href="#host" id="menu-host" hidden>HOST</a>
       <a href="#break-room">BREAKROOM</a>
       <a href="/overview">MANUAL</a>
       <a href="/agents">AGENTS</a>
@@ -84,6 +86,9 @@
           <span class="meter-gauge" id="meter-watts-gauge" aria-hidden="true"></span>
           <span class="meter-row" id="meter-tokens-row"><b>TOKENS</b><span><i id="meter-tokens">--</i> /MIN</span></span>
           <span class="meter-gauge" id="meter-tokens-gauge" aria-hidden="true"></span>
+        </a>
+        <a class="floor-host" id="floor-host" href="#host" aria-label="Host. Opens Host." hidden>
+          <b>HOST</b><span><i id="floor-host-cpu">--</i></span>
         </a>
       </div>
 
@@ -254,6 +259,27 @@
       </div>
     </section>
 
+    <section class="host" id="host" aria-labelledby="host-title" hidden>
+      <div class="host-head">
+        <h2 id="host-title">HOST</h2>
+        <p class="host-scope"><span id="host-cpus"></span> <span>LOAD</span> <span id="host-load"></span> <span class="host-state" id="host-state" role="status">CHECKING</span></p>
+      </div>
+      <div class="host-body">
+        <p class="host-readings">
+          <span>CPU <span class="host-gauge" id="host-cpu-gauge" aria-hidden="true"></span> <b id="host-cpu">--</b></span>
+          <span>MEMORY <span class="host-gauge" id="host-mem-gauge" aria-hidden="true"></span> <b id="host-mem">-</b> <b id="host-mem-percent">--</b></span>
+        </p>
+        <table class="host-table" aria-label="Processes on the host">
+          <thead><tr><th scope="col">PID</th><th scope="col">PROCESS</th><th scope="col" class="num">CPU</th><th scope="col" class="num col-mem">MEM</th><th scope="col" class="num">UP</th></tr></thead>
+          <tbody id="host-rows"></tbody>
+        </table>
+        <table class="host-table host-units" id="host-units" aria-label="Units of the factory">
+          <thead><tr><th scope="col">UNIT</th><th scope="col">INSTALLED</th><th scope="col">STATE</th><th scope="col" class="num col-next">NEXT</th></tr></thead>
+          <tbody id="host-unit-rows"></tbody>
+        </table>
+      </div>
+    </section>
+
     <section class="break-room" id="break-room" aria-labelledby="break-title">
       <div class="break-head">
         <h2 id="break-title">BREAKROOM</h2>
@@ -308,5 +334,6 @@ __ __/\ _/       \_   \____/__   _     \__   _/     \\______   \_ /\___ ___ _
   <script src="/fun/fold-fit.js"></script>
   <script src="/fun/game-view.js"></script>
   <script type="module" src="/fun/energy-view.js"></script>
+  <script type="module" src="/fun/host-view.js"></script>
 </body>
 </html>

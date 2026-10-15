@@ -7,10 +7,15 @@
 #
 # The snapshot reads what the factory already writes under $TEHAS_HOME/live/ -
 # health.json, status.json, running.json, energy.json and the console of a
-# cycle - and asks systemctl --user about its units. No GitHub call, no model,
-# no Docker call, no instance settings, and nothing is written. A section whose
-# source is missing, unreadable or too old to believe is null; the others are
-# there all the same.
+# cycle - asks systemctl --user about its units - and reads the host itself in
+# /proc. No GitHub call, no model, no Docker call, no instance settings, and
+# nothing is written. A section whose source is missing, unreadable or too old
+# to believe is null; the others are there all the same.
+#
+# The host section names a process by its short command name (comm) only. The
+# command line is never opened: it can hold tokens, addresses and paths. No
+# user name, working directory, environment, host name, address or open file is
+# read either, for the terminal and the published file alike.
 #
 # The frame is drawn from the snapshot and from nothing else: it opens no file,
 # asks no command for data and reads no clock. It cuts every line to the width
@@ -136,6 +141,13 @@ tehas_top_snapshot() { # <console lines wanted>
     case "$cycle" in '' | null) cycle=null ;; esac
   fi
 
+  # The host itself: two readings a second apart, so CPU use is what changed.
+  host=$(_tehas_host_section)
+  case "$host" in '' | null) host=null ;; esac
+  if [ "$host" != null ] && ! jq -e 'type == "object"' <<<"$host" >/dev/null 2>&1; then
+    host=null
+  fi
+
   units=$(tehas_top_units) || units=null
   case "$units" in '' | null) units=null ;; esac
   if [ "$units" != null ] && ! jq -e 'type == "array"' <<<"$units" >/dev/null 2>&1; then
@@ -171,14 +183,224 @@ tehas_top_snapshot() { # <console lines wanted>
 
   jq -c -n --arg generatedAt "$(date -u +%FT%TZ)" --argjson factory "$factory" \
     --argjson queue "$queue" --argjson cycle "$cycle" --argjson units "$units" \
-    --argjson energy "$energy" --argjson console "$console" \
+    --argjson energy "$energy" --argjson console "$console" --argjson host "$host" \
     "$tehas_top_safe_defs"'{ generatedAt: $generatedAt, factory: $factory, queue: $queue,
-     cycle: $cycle, units: $units, energy: $energy, console: $console } | safe'
+     cycle: $cycle, host: $host, units: $units, energy: $energy, console: $console } | safe'
+}
+
+# --- the host section -------------------------------------------------------
+
+# Where the host's own numbers are read. On a host this is /proc; the tests
+# point it at a tree of files they write, so no case depends on the machine
+# that runs it. Nothing outside this directory is opened.
+tehas_proc_dir=${TEHAS_PROC_DIR:-/proc}
+
+# How many processes the section keeps, and the bytes in one page of resident
+# memory, which /proc counts in pages.
+tehas_host_rows=15
+tehas_page_size=$(getconf PAGE_SIZE 2>/dev/null) || tehas_page_size=''
+case "$tehas_page_size" in '' | *[!0-9]*) tehas_page_size=4096 ;; esac
+
+# One reading of the host, as JSON: the clock in seconds (/proc/uptime), the
+# number of CPUs, the load averages, memory in KiB, the aggregate cpu line of
+# /proc/stat, and one row per process: pid, comm, CPU ticks, start ticks and
+# resident pages. A tick is a hundredth of a second on every Linux this reads.
+# The clock is the host's own, so two readings measure a difference without
+# either of them looking at a wall clock or a sleep.
+tehas_host_reading() { # [dir] -> the reading as JSON; nothing when it cannot be read
+  local dir pid row line up n procs mem k v root
+  local -a f load=() files=()
+  local total='' idle='' memtotal='' memavail=''
+  root=${1:-$tehas_proc_dir}
+  [ -r "$root/uptime" ] && [ -r "$root/stat" ] || return 1
+  IFS= read -r up <"$root/uptime" || return 1
+  up=${up%% *}
+  case "$up" in '' | *[!0-9.]*) return 1 ;; esac
+
+  # The first line of /proc/stat is the sum over every cpu: user nice system
+  # idle iowait irq softirq steal. Idle and iowait are not use.
+  IFS= read -r line <"$root/stat" || return 1
+  read -r -a f <<<"$line" || return 1
+  [ "${f[0]:-}" = cpu ] || return 1
+  [ "${#f[@]}" -ge 9 ] || return 1
+  total=0
+  for row in "${f[@]:1:8}"; do
+    case "$row" in '' | *[!0-9]*) return 1 ;; esac
+    total=$((total + row))
+  done
+  idle=$((f[4] + f[5]))
+
+  # The CPUs of this host: the processors /proc/cpuinfo names. Where it names
+  # none, ask the machine.
+  n=0
+  if [ -r "$root/cpuinfo" ]; then
+    while IFS= read -r line; do
+      case "$line" in processor*) n=$((n + 1)) ;; esac
+    done <"$root/cpuinfo"
+  fi
+  if [ "$n" = 0 ]; then
+    n=$(nproc 2>/dev/null) || n=''
+    case "$n" in '' | *[!0-9]*) n=1 ;; esac
+  fi
+
+  # The three load averages and memory in KiB. Either can be absent, and the
+  # section then says so with null rather than guessing at it.
+  load=()
+  if [ -r "$root/loadavg" ] && IFS= read -r line <"$root/loadavg"; then
+    read -r -a f <<<"$line" || true
+    for row in "${f[@]:0:3}"; do
+      case "$row" in '' | *[!0-9.]*) load=(); break ;; esac
+      load+=("$row")
+    done
+    [ "${#load[@]}" = 3 ] || load=()
+  fi
+  if [ -r "$root/meminfo" ]; then
+    while read -r k v _; do
+      case "$k" in
+        MemTotal:) memtotal=$v ;;
+        MemAvailable:) memavail=$v ;;
+      esac
+    done <"$root/meminfo"
+  fi
+  case "$memtotal" in '' | *[!0-9]*) memtotal='' ;; esac
+  case "$memavail" in '' | *[!0-9]*) memavail='' ;; esac
+  if [ -n "$memtotal" ] && [ -n "$memavail" ]; then
+    mem=$(printf '{"totalKb":%s,"availKb":%s}' "$memtotal" "$memavail")
+  else
+    mem=null
+  fi
+
+  # Every process in one pass. A fork for each pid costs more than the reading
+  # itself on a host with hundreds of processes, and two readings go into every
+  # snapshot of a service that runs for ever.
+  files=()
+  for dir in "$root"/*; do
+    pid=${dir##*/}
+    case "$pid" in '' | *[!0-9]*) continue ;; esac
+    if [ -r "$dir/stat" ]; then files+=("$dir"); fi
+  done
+
+  procs='[]'
+  if [ "${#files[@]}" -gt 0 ]; then
+    procs=$(printf '%s\n' "${files[@]}" | _tehas_proc_rows) || procs=''
+    case "$procs" in '' | '['*']') ;; *) procs='[]' ;; esac
+  fi
+
+  printf '{"clock":%s,"cpus":%s,"load":[%s],"memory":%s,"cpuAll":%s,"cpuIdle":%s,"procs":%s}\n' \
+    "$up" "$n" "${load:+$(printf '%s,' "${load[@]}" | LC_ALL=C sed 's/,$//')}" \
+    "$mem" "$total" "$idle" "$procs"
+}
+
+# The rows of one reading as a JSON array: [pid,comm,cpu ticks,start ticks,rss
+# pages] for every directory named on stdin. awk reads the stat files, so one
+# process does the work of what was a fork per pid, and jq turns the fields into
+# JSON, so a name is escaped where it is read rather than by string surgery.
+#
+# The comm field of /proc/<pid>/stat is text between brackets that may itself
+# hold a space or a bracket, so it is what lies between the first ( and the last
+# ), and the fields after it are counted from there: state comes first, so utime
+# is the twelfth of those, starttime the twentieth and rss the twenty-second. A
+# file that cannot be read, or that names too few fields, gives no row.
+_tehas_proc_rows() { # <process directory>..., one per line on stdin
+  LC_ALL=C awk '
+    function row(dir,   parts, n, pid, s, line, f, k) {
+      n = split(dir, parts, "/")
+      pid = parts[n]
+      s = ""
+      while ((getline line < (dir "/stat")) > 0) s = s (s == "" ? "" : " ") line
+      close(dir "/stat")
+      if (s == "") return            # unreadable, or gone since it was listed
+      gsub(/[[:cntrl:]]/, " ", s)
+      if (!match(s, /[(].*[)]/)) return
+      k = split(substr(s, RSTART + RLENGTH), f, " ")
+      if (k < 22) return
+      if (f[12] !~ /^[0-9]+$/ || f[13] !~ /^[0-9]+$/) return
+      if (f[20] !~ /^[0-9]+$/ || f[22] !~ /^[0-9]+$/) return
+      # utime and stime are added by jq; here they stay the text of the file.
+      print pid "\t" substr(s, RSTART + 1, RLENGTH - 2) "\t" f[12] "\t" f[13] \
+            "\t" f[20] "\t" f[22]
+    }
+    { row($0) }
+  ' | jq -cRn '
+    [ inputs | select(. != "") | split("\t") | select(length == 6)
+      | [ (.[0] | tonumber), .[1],
+          ((.[2] | tonumber) + (.[3] | tonumber)),
+          (.[4] | tonumber), (.[5] | tonumber) ] ]
+  '
+}
+
+# The host section from two readings: the later one and the earlier one. CPU
+# use is what changed between them - never the average since a process started.
+# A process counts in the difference only when it has the same pid and the same
+# start time in both, so a reused pid is not read as one long process. Two
+# readings at the same instant measure nothing: their CPU figures are null.
+tehas_top_host() { # <later reading> <earlier reading>
+  local now=$1 was=$2
+  [ -n "$now" ] && [ -n "$was" ] || return 1
+  jq -c -n --argjson now "$now" --argjson was "$was" --argjson rows "$tehas_host_rows" \
+    --argjson page "$tehas_page_size" '
+    def num: if type == "number" and . >= 0 then . else null end;
+    def one: (. * 10 | round) / 10;
+    def clamp($lo; $hi): if . < $lo then $lo elif . > $hi then $hi else . end;
+    def row5: select(type == "array" and length == 5);
+    (if ($now | type) == "object" then $now else null end) as $a
+    | (if ($was | type) == "object" then $was else null end) as $b
+    | if $a == null or $b == null then null else
+        ($a.clock | num) as $c2 | ($b.clock | num) as $c1
+        | (if $c2 != null and $c1 != null and $c2 > $c1 then (($c2 - $c1) * 100 | round) else null end) as $dt
+        | ($b.procs // [] | map(row5 | {key: (.[0] | tostring), value: .}) | from_entries) as $prev
+        | ($a.cpuAll | num) as $t2 | ($b.cpuAll | num) as $t1
+        | ($a.cpuIdle | num) as $i2 | ($b.cpuIdle | num) as $i1
+        | (if $t2 != null and $t1 != null then $t2 - $t1 else null end) as $dall
+        | (if $i2 != null and $i1 != null then $i2 - $i1 else null end) as $didle
+        | ($a.memory // null) as $mem
+        | (if $mem == null then null
+           else { totalKb: ($mem.totalKb | num), availKb: ($mem.availKb | num) } end) as $m
+        | {
+            cpus: ($a.cpus | num),
+            load: ($a.load // null | if type == "array" and length == 3 then . else null end),
+            cpuPercent: (if $dt != null and $dall != null and $dall > 0 and $didle != null
+                         then ((($dall - $didle) / $dall * 100) | clamp(0; 100) | one)
+                         else null end),
+            memory: (if $m == null or $m.totalKb == null or $m.availKb == null or $m.totalKb <= 0 then null
+                     else { totalMb: ($m.totalKb / 1024 | round),
+                            usedMb: (($m.totalKb - $m.availKb) / 1024 | round),
+                            percent: ((($m.totalKb - $m.availKb) / $m.totalKb * 100) | clamp(0; 100) | one) } end),
+            processes: ([ $a.procs // [] | .[] | row5
+                          | . as $r | $prev[(.[0] | tostring)] as $p
+                          | select($p != null and ($p[3] | num) == (.[3] | num))
+                          | { pid: .[0], name: (.[1] // ""),
+                              cpuPercent: (if $dt != null and $dt > 0 and ((.[2] | num) != null) and (($p[2] | num) != null)
+                                           then (((.[2] | num) - ($p[2] | num)) / $dt * 100 | clamp(0; 99999) | one)
+                                           else null end),
+                              memPercent: (if $m == null or $m.totalKb == null or $m.totalKb <= 0 or ((.[4] | num) == null)
+                                           then null
+                                           else ((.[4] * $page / 1024) / $m.totalKb * 100 | clamp(0; 100) | one) end),
+                              upSeconds: (if $c2 == null or ((.[3] | num) == null)
+                                          then null
+                                          else ((($c2 * 100 | round) - .[3]) / 100 | floor | clamp(0; 999999999)) end) }
+                        ]
+                        | sort_by([ -(.cpuPercent // -1), .pid ])
+                        | .[0:$rows])
+          }
+      end
+    '
+}
+
+# The host section of one snapshot: two readings, a second apart. A reading that
+# cannot be taken is no section.
+_tehas_host_section() {
+  local first second
+  first=$(tehas_host_reading) || return 1
+  sleep 1
+  second=$(tehas_host_reading) || return 1
+  tehas_top_host "$second" "$first"
 }
 
 # The lines of a frame, one JSON item per line: {"p": <drop priority>, "kind":
-# ..., ...}. Console lines are dropped first (1), then unit rows (2), then
-# queue rows (3). Nothing else is dropped, and what is left fits the height.
+# ..., ...}. Host process rows are dropped first (1), then console lines and
+# unit rows (2, the later row going first), then queue rows (3). Nothing else is
+# dropped, and what is left fits the height.
 tehas_top_plan() { # <snapshot> <width> <height>
   local snap=$1 cols=${2:-80} rows=${3:-24} now
   now=$(jq -r '.generatedAt | try fromdateiso8601 catch (now | floor)' <<<"$snap") || return 1
@@ -190,7 +412,7 @@ tehas_top_plan() { # <snapshot> <width> <height>
     def drop($keys): to_entries | map(select(.key as $k | ($keys | index($k)) == null) | .value);
     def fit($h):
       if total <= $h then .
-      else reduce range(1; 4) as $p (.;
+      else reduce range(1; 5) as $p (.;
         if total <= $h then .
         else (total - $h) as $need
           | ([to_entries[] | select(.value.p == $p) | .key] | reverse | .[:$need]) as $drop
@@ -227,25 +449,33 @@ tehas_top_plan() { # <snapshot> <width> <height>
             else [ .[] | {p: 9, n: 1, kind: "cycle", cycle: ., now: $now} ] end
         end ) as $cycles
 
-    # 4. the units of the factory.
+    # 4. the host: one line of load, cpu and memory, then the processes.
+    # Process rows are the most expendable part of the frame: they go before
+    # console lines and unit rows when the terminal is short.
+    | ( if $s.host == null then [ text("host      no reading of /proc"; 9) ]
+        else [ {p: 9, n: 1, kind: "host", host: $s.host} ]
+             + [ ($s.host.processes // [])[] | {p: 1, n: 1, kind: "process", process: .} ]
+        end ) as $host
+
+    # 5. the units of the factory.
     | ( if $s.units == null then [ text("units     systemctl --user gave no answer"; 9) ]
         elif ($s.units | length) == 0 then [ text("units     no tehas units"; 9) ]
         else [ text("units     \($s.units | length) units, \([$s.units[] | select(.activeState == "active")] | length) active"; 9) ]
              + [ $s.units[] | {p: 2, n: 1, kind: "unit", unit: .} ]
         end ) as $units
 
-    # 5. what the model mesh draws.
+    # 6. what the model mesh draws.
     | [ if $s.energy == null then text("energy    no sample"; 9)
         else text("energy    \($s.energy.watts // "?") W now, \($s.energy.busy // "?") of \($s.energy.slots // "?") slots busy\(stamp($s.energy.time; $now))"; 9)
         end ] as $energy
 
-    # 6. the console of a cycle, in the rows that are left.
+    # 7. the console of a cycle, in the rows that are left.
     | ( if $s.console == null then [ text("console   no console file"; 9) ]
         else [ text("console   #\($s.console.issue // "?")  \($s.console.name)  \(if ($s.console.ended // false) then "ended" else "live" end)"; 9) ]
-             + [ ($s.console.lines // [])[] | {p: 1, n: 1, kind: "console", line: .} ]
+             + [ ($s.console.lines // [])[] | {p: 2, n: 1, kind: "console", line: .} ]
         end ) as $console
 
-    | ($title + $factory + $issues + $cycles + $units + $energy + $console) | fit($rows) | .[]
+    | ($title + $factory + $issues + $cycles + $host + $units + $energy + $console) | fit($rows) | .[]
   ' <<<"$snap"
 }
 
@@ -269,6 +499,28 @@ tehas_top_frame() { # <snapshot> <width> <height>
         json=$(jq -c '.cycle' <<<"$item")
         now=$(jq -r '.now' <<<"$item")
         tehas_cycle_line "$json" "$now" | cut -c 1-"$cols"
+        ;;
+      host)
+        jq -r --argjson cols "$cols" '
+          def q: if . == null then "?" else (. | tostring) end;
+          # Three load averages or none: an absent reading is one "?", never a
+          # line of separators with nothing between them.
+          def three: if type == "array" and length == 3 then [ .[] | q ] | join(" ") else "?" end;
+          "host      " + (.host.cpus | q) + " cpus, load " + (.host.load | three) +
+          ", cpu " + (.host.cpuPercent | q) + "%, mem " +
+          ((.host.memory.usedMb // "?") | tostring) + " of " + ((.host.memory.totalMb // "?") | tostring) + " MB" |
+          .[0:$cols]
+        ' <<<"$item"
+        ;;
+      process)
+        jq -r --argjson cols "$cols" '
+          def rj($v; $w): (($v // "?") | tostring) as $t
+            | if ($t | length) >= $w then $t[0:$w] else ("          " + $t)[(-$w):] end;
+          "  " + rj(.process.pid; 7) + "  " +
+          (((.process.name // "") + "               ")[0:15]) + "  " +
+          rj(.process.cpuPercent; 5) + "%  " + rj(.process.memPercent; 5) + "%  " +
+          rj(.process.upSeconds; 8) + " s" | .[0:$cols]
+        ' <<<"$item"
         ;;
       issue)
         jq -r --argjson cols "$cols" '

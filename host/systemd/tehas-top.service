@@ -1,0 +1,15 @@
+[Unit]
+Description=Tehas: publish the host's load and processes for the dashboard every 5 seconds
+
+[Service]
+# It writes nothing unless the instance sets TEHAS_TOP=1: with 0 it removes
+# live/top.json and waits, so a host that publishes no host section serves none.
+# A setting that is malformed ends each run with 78 rather than a loop that
+# says nothing: Restart below starts it again after 5 seconds, and the journal
+# shows the same complaint at every start.
+ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot top --every"
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
