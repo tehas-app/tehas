@@ -666,12 +666,18 @@ left with. `tehasbot status` gives each such issue `tehas:shipped`, so GitHub
 lists the same issues; run `tehas labels` once so the label exists.
 `~/tehas/libexec/console` is started by the work
 script and follows the cycle's agents into `~/tehas/live/console-<issue>.txt`, masking
-tokens, passwords and private network addresses, and writing no control
-character but the line break and the tab. An agent of a workstream is named
+tokens, keys, passwords (also in a URL and after `Bearer`) and private network
+addresses, and writing no control character but the line break and the tab.
+Invisible format characters, direction overrides among them, are dropped
+before the mask looks, so they do not hide a token from it; any that remain
+and the Unicode line and paragraph separators are written as U+FFFD. An agent of a workstream is named
 with it, as in `developer[task-a]`. The mask catches accidents;
 it cannot stop an agent that sets out to print a secret another way, so treat
 the console of a published dashboard as public. A log line of over 1 MiB is
-left out, and the console says how many were. Neither needs running by hand.
+left out, and the console says how many were. So is a line not yet ended
+when the files together already hold 16 MiB of such lines, and a transcript
+that is removed is forgotten. A console file removed while the cycle runs is made
+again by the console at its next pass. Neither needs running by hand.
 What the console itself complains about goes to `~/tehas/logs/work-<issue>-<time>.jsonl.console`,
 and the work script says so when the console is missing or ends with an error.
 The work script's own status line, in `~/tehas/live/cycles/<issue>.json` and from there in `~/tehas/live/running.json`, goes through
