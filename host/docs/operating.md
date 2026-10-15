@@ -90,7 +90,9 @@ describes each image in words, into `images.md` beside them; the pi-rukas that
 tehas pins does not read that file yet. With `TEHAS_WORK_FILES=1` a cycle is
 also given the text files the issue links, md, txt, csv, json, yaml, log,
 html, css and js, by the same rules; the pi-rukas that tehas pins does not
-read them yet either. Images in comments are not read, and no cycle
+read them yet either. Images in comments are read only with
+`TEHAS_WORK_COMMENTS=1`, and only those of an allowed account written before
+the label or the retry tick and not edited since. No cycle
 has been seen to use a picture yet, so words in the text stay the safe way.
 
 ## 1. Write an issue tehas can build

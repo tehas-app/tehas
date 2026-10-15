@@ -1297,6 +1297,90 @@ t_eq "$(manifest '[(.images | map(.link)), .approval]')" "[[\"$A/1111\"],null]"
 t_contains "$(t_calls gh)" "events"
 rm -f "$record"
 
+# --- Comments -------------------------------------------------------------------
+# with_comments <source> <link> <by> ...: add comment links to the record.
+with_comments() {
+  local add='[]'
+  while [ "$#" -ge 3 ]; do
+    add=$(jq -c --arg s "$1" --arg l "$2" --arg b "$3" '. + [{link: $l, source: $s, by: $b}]' <<<"$add")
+    shift 3
+  done
+  jq --argjson add "$add" '.comment_links = $add' "$record" >"$record.new" && mv "$record.new" "$record"
+}
+
+t_case "with comments on, the record's comment links are fetched after the body's, and each entry says where it was written"
+images_on TEHAS_WORK_COMMENTS=1
+net "$A/1111" "$png"
+net "$A/2222" "$jpg"
+net "$A/3333" "$gif"
+issue_is "![a]($A/1111)" NONE
+record_is alice "![a]($A/1111)" "$A/1111"
+with_comments comment:51 "$A/2222" alice comment:52 "$A/1111" alice comment:52 "$A/3333" alice
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(manifest '.images | map([.file, .link, .source])')" \
+  "[[\"image-1.png\",\"$A/1111\",\"body\"],[\"image-2.jpg\",\"$A/2222\",\"comment:51\"],[\"image-3.gif\",\"$A/3333\",\"comment:52\"]]"
+t_contains "$(t_calls gh)" "Tehas gave this cycle 3 images from the issue and its comments."
+t_contains "$(t_calls gh)" "- $A/2222 (comment 51): image-2.jpg, sha256"
+
+t_case "the limits count the body and the comments together"
+images_on TEHAS_WORK_COMMENTS=1
+body=""
+links=()
+for i in 1 2 3 4 5 6 7 8; do
+  net "$A/000$i" "$png"
+  body="$body ![i]($A/000$i)"
+  links+=("$A/000$i")
+done
+net "$A/0009" "$png"
+issue_is "$body" NONE
+record_is alice "$body" "${links[@]}"
+with_comments comment:51 "$A/0009" alice
+t_run "$work 7"
+t_eq "$(manifest '[(.images | length), (.leftOut | map([.link, .reason, .source]))]')" \
+  "[8,[[\"$A/0009\",\"More than 8 images.\",\"comment:51\"]]]"
+
+t_case "a comment whose author is no longer allowed is left out, and said so"
+images_on TEHAS_WORK_COMMENTS=1
+net "$A/2222" "$jpg"
+issue_is "Words." NONE
+record_is alice "Words."
+with_comments comment:51 "$A/2222" mallory
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(t_calls curl)" ""
+t_eq "$(manifest '.leftOut | map([.link, .source])')" "[[\"$A/2222\",\"comment:51\"]]"
+t_contains "$(t_calls gh)" "- $A/2222 (comment 51): The comment was not written by an allowed account"
+
+t_case "with comments off the record's comment links are not fetched"
+images_on
+net "$A/2222" "$jpg"
+issue_is "Words." NONE
+record_is alice "Words."
+with_comments comment:51 "$A/2222" alice
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(t_calls curl)" ""
+t_eq "$(manifest '[.images, .leftOut]')" '[[],[]]'
+
+t_case "a comment link of another source or shape in the record is not fetched"
+images_on TEHAS_WORK_COMMENTS=1
+net "$A/2222" "$jpg"
+issue_is "Words." NONE
+record_is alice "Words."
+with_comments body:1 "$A/2222" alice comment:x "$A/2222" alice comment:51 "https://example.com/x.png" alice
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(t_calls curl)" ""
+
+t_case "comments add no mount and no variable"
+images_on TEHAS_WORK_COMMENTS=1
+issue_is "Words." NONE
+record_is alice "Words."
+t_run "$work 7"
+t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$mounts_off" "$imgs:$inside.images:ro" | LC_ALL=C sort)"
+t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_ENSEMBLE_EXTRA_IMAGE_DIRS | LC_ALL=C sort)"
+
 # --- The images described ------------------------------------------------------
 chat=https://models.test/v1/chat/completions
 describe_on() {

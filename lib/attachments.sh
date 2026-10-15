@@ -156,10 +156,11 @@ tehas_text_ok() {
 # text files when TEHAS_WORK_FILES is 1. Each kind has its own limits.
 # shellcheck disable=SC2034  # the caller reads what this sets
 tehas_issue_images() { # <issue> <dir> [approved] [record]
-  local issue=$1 images=$2 approved=${3:-} record=${4:-} data who ref name ext kind type size rc left sum given=null
-  local want_images=1 want_files=0 used=0 count=0 fused=0 fcount=0
+  local issue=$1 images=$2 approved=${3:-} record=${4:-} data who ref src by name ext kind type size rc left sum given=null
+  local want_images=1 want_files=0 want_comments=0 used=0 count=0 fused=0 fcount=0
   [ "${TEHAS_WORK_IMAGES:-1}" != 0 ] || want_images=0
   [ "${TEHAS_WORK_FILES:-0}" != 1 ] || want_files=1
+  [ "${TEHAS_WORK_COMMENTS:-0}" != 1 ] || want_comments=1
   local limit=$((10 * 1024 * 1024)) max=8 flimit=$((4 * 1024 * 1024)) fmax=16 fone=$((1024 * 1024))
   local other="Not a png, jpg, webp or gif image." over="Over the 10 MB limit of an issue."
   local fover="Over the 4 MB limit of an issue's files." fbig="Over the 1 MB limit of a file."
@@ -171,7 +172,7 @@ tehas_issue_images() { # <issue> <dir> [approved] [record]
   : >"$images/.taken"
   : >"$images/.files"
   : >"$images/.left"
-  leave() { jq -n -c --arg link "$1" --arg reason "$2" '{link: $link, reason: $reason}' >>"$images/.left"; }
+  leave() { jq -n -c --arg link "$1" --arg reason "$2" --arg source "$src" '{link: $link, reason: $reason, source: $source}' >>"$images/.left"; }
   image_why="the issue could not be read for its images"
   data=$(gh api "repos/$TEHAS_REPO/issues/$issue" 2>/dev/null) || return 1
   jq -e 'type == "object" and (.body == null or (.body | type) == "string")' <<<"$data" >/dev/null 2>&1 || return 1
@@ -181,7 +182,8 @@ tehas_issue_images() { # <issue> <dir> [approved] [record]
   if [ -n "$record" ]; then
     image_why="the approval record $record could not be read"
     jq -e 'type == "object" and (.body_sha256 | type) == "string" and (.links | type) == "array"
-      and (.at | type) == "string" and (.by | type) == "string" and (.how | type) == "string"' "$record" >/dev/null 2>&1 || return 1
+      and (.at | type) == "string" and (.by | type) == "string" and (.how | type) == "string"
+      and (.comment_links == null or (.comment_links | type) == "array")' "$record" >/dev/null 2>&1 || return 1
     image_why="the issue's text could not be read for its hash"
     sum=$(tehas_body_sha256 <<<"$data") || return 1
     if [ "$sum" != "$(jq -r .body_sha256 "$record")" ]; then
@@ -191,12 +193,21 @@ tehas_issue_images() { # <issue> <dir> [approved] [record]
     given=$(jq -c '{at, by, how}' "$record") || return 1
   fi
 
-  while IFS= read -r ref; do
+  # One line per link: where it was written, the link, and for a comment who
+  # wrote it. A tab parts them; none of the three can hold one.
+  while IFS=$'\t' read -r src ref by; do
     [ -n "$ref" ] || continue
-    case "$approved:$who" in
-      approved:* | *:OWNER | *:MEMBER | *:COLLABORATOR) ;;
-      *) leave "$ref" "The issue was not opened by an owner, member or collaborator, and its label was not applied by an allowed account."; continue ;;
-    esac
+    if [ "$src" = body ]; then
+      case "$approved:$who" in
+        approved:* | *:OWNER | *:MEMBER | *:COLLABORATOR) ;;
+        *) leave "$ref" "The issue was not opened by an owner, member or collaborator, and its label was not applied by an allowed account."; continue ;;
+      esac
+    # A comment is taken on its author's word and the approval's, both allowed
+    # now: the record says who they were, not that they still may.
+    elif [ "$approved" != approved ] || ! tehas_allowed_labeler "$by"; then
+      leave "$ref" "The comment was not written by an allowed account, or the start was not approved by one."
+      continue
+    fi
     # A file attached under its name is taken by what the name says. A pasted
     # one has no name and is only ever an image: its bytes say which.
     name=""
@@ -264,18 +275,29 @@ tehas_issue_images() { # <issue> <dir> [approved] [record]
     sum=$(sha256sum "$images/$name") || { image_why="the issue's images could not be read back"; return 1; }
     if [ "$kind" = image ]; then
       jq -n -c --arg file "$name" --arg link "$ref" --arg type "$type" --argjson bytes "$size" \
-        --arg sum "${sum%% *}" '{file: $file, link: $link, type: $type, bytes: $bytes, sha256: $sum}' >>"$images/.taken"
+        --arg sum "${sum%% *}" --arg source "$src" \
+        '{file: $file, link: $link, type: $type, bytes: $bytes, sha256: $sum, source: $source}' >>"$images/.taken"
     else
       # The name as the link has it: the link's characters only.
       jq -n -c --arg file "$name" --arg link "$ref" --arg name "${ref##*/}" --arg type "$type" --argjson bytes "$size" \
-        --arg sum "${sum%% *}" '{file: $file, link: $link, name: $name, type: $type, bytes: $bytes, sha256: $sum}' >>"$images/.files"
+        --arg sum "${sum%% *}" --arg source "$src" \
+        '{file: $file, link: $link, name: $name, type: $type, bytes: $bytes, sha256: $sum, source: $source}' >>"$images/.files"
     fi
   done < <(if [ -n "$record" ]; then
-    # Only links of the shape this file takes, whatever the record holds.
-    jq -r "$(tehas_attachment_links)"'.links[] | strings | select(links == [.])' "$record"
+    # Only links of the shape this file takes, whatever the record holds: the
+    # body's first, then the comments' in the order written. Comments only
+    # where the instance takes them.
+    jq -r --argjson comments "$want_comments" "$(tehas_attachment_links)"'
+      (.links[] | strings | select(links == [.]) | "body\t\(.)\t"),
+      (if $comments == 1 then (.comment_links // [])[]
+         | select(type == "object" and (.link | type) == "string" and (.source | type) == "string"
+             and (.by | type) == "string" and (.link | links == [.])
+             and (.source | test("^(pr-)?comment:[0-9]+$")) and (.by | test("^[A-Za-z0-9-]+$")))
+         | "\(.source)\t\(.link)\t\(.by)"
+       else empty end)' "$record"
   else
-    jq -r "$(tehas_attachment_links)"'(.body // "") | links | .[]' <<<"$data"
-  fi | awk '!seen[$0]++')
+    jq -r "$(tehas_attachment_links)"'(.body // "") | links | .[] | "body\t\(.)\t"' <<<"$data"
+  fi | awk -F '\t' '!seen[$2]++')
 
   image_why="the issue's images could not be written"
   jq -n --argjson issue "$issue" --argjson given "$given" --argjson files "$want_files" \
@@ -308,8 +330,10 @@ tehas_issue_images_changed() { # <kept manifest> <dir>
 tehas_issue_images_said() { # <dir> <what> [yes|no|unknown]
   jq -r --arg what "$2" --arg reads "${3:-yes}" '(.files // []) as $files
     | select((.images | length) + ($files | length) + (.leftOut | length) > 0)
-    | "\(.images | length) \(if (.images | length) == 1 then "image" else "images" end) from the issue text" as $n
-    | "\($files | length) \(if ($files | length) == 1 then "file" else "files" end) from the issue text" as $f
+    | (if any(.images[], $files[]; (.source // "body") != "body") then "the issue and its comments" else "the issue text" end) as $from
+    | def where: if (.source // "body") == "body" then "" else " (\(.source | sub(":"; " ")))" end;
+      "\(.images | length) \(if (.images | length) == 1 then "image" else "images" end) from \($from)" as $n
+    | "\($files | length) \(if ($files | length) == 1 then "file" else "files" end) from \($from)" as $f
     | ([(if (.images | length) > 0 or ($files | length) == 0 then
           if $reads == "no" then "Tehas fetched \($n) for this \($what), but the pi-rukas in the sandbox image does not read them: its agents are not shown them."
           elif $reads == "yes" then "Tehas gave this \($what) \($n)."
@@ -319,8 +343,8 @@ tehas_issue_images_said() { # <dir> <what> [yes|no|unknown]
           "Tehas fetched \($f) for this \($what) and lists them in its manifest. The pi-rukas in the sandbox image does not read them yet: its agents are not shown them."
         else empty end)] | join(" "))
       + (if (.images | length) + ($files | length) > 0 then
-          "\n\n" + (.images + $files | map("- \(.link): \(.file), sha256 \(.sha256)") | join("\n")) else "" end)
-      + (if (.leftOut | length) > 0 then "\n\nLeft out:\n" + (.leftOut | map("- \(.link): \(.reason)") | join("\n")) else "" end)' \
+          "\n\n" + (.images + $files | map("- \(.link)\(where): \(.file), sha256 \(.sha256)") | join("\n")) else "" end)
+      + (if (.leftOut | length) > 0 then "\n\nLeft out:\n" + (.leftOut | map("- \(.link)\(where): \(.reason)") | join("\n")) else "" end)' \
     "$1/manifest.json" 2>/dev/null
 }
 

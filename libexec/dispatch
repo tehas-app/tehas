@@ -88,6 +88,8 @@
 #   TEHAS_WORK_REPO           checkout cycles are cloned from [$TEHAS_HOME/repos/<name>]
 #   TEHAS_BRANCH              branch work lands on [the checkout's origin/HEAD]
 #   TEHAS_PLAN_MAX_TURNS      turns a planning session may take [20]
+#   TEHAS_WORK_COMMENTS       1 adds the links of comments to the approval
+#                             record [0]
 # From the environment, for tests: TEHAS_STATUS_CMD, TEHAS_INDEX_CMD,
 # TEHAS_PLAN_CMD, TEHAS_CYCLE_START_CMD (in place of systemctl, called with
 # the issue), TEHAS_CYCLE_START_WAIT (seconds to wait for a started cycle
@@ -98,9 +100,12 @@
 # $TEHAS_HOME/state/cycles/<issue>.approved.json: {at, by, how, body_sha256,
 # links}. Who approved and when, by the label or a retry tick, a sha256 of the
 # body that approval was checked against (carriage returns dropped), and the
-# links to GitHub's attachment storage in that body. tehas work fetches those
-# links and no others, and only while the body still has that hash. A record
-# that cannot be written starts nothing, exit 1.
+# links to GitHub's attachment storage in that body. With TEHAS_WORK_COMMENTS=1
+# it adds comment_links, [{link, source, by}]: the links in the issue's comments
+# that an allowed account wrote and nobody edited after the approval, source
+# "comment:<id>". tehas work fetches those links and no others, and only while
+# the body still has that hash. A record that cannot be written, or comments
+# that cannot be read, start nothing, exit 1.
 #
 # A real poll that gets as far as rule 3 writes $TEHAS_HOME/live/dispatch.json:
 # what holds cycles back, if anything, and the slice's numbers. tehasbot
@@ -513,13 +518,38 @@ declare -A starter=() verb=() how=() drop=() given_at=() given_how=()
 # approved_record <issue>: write state/cycles/<issue>.approved.json. Returns 1
 # when it could not be written.
 approved_record() {
-  local n=$1 file=$TEHAS_HOME/state/cycles/$1.approved.json sum
+  local n=$1 file=$TEHAS_HOME/state/cycles/$1.approved.json sum from='[]'
   [ -n "${text_of[$n]:-}" ] || return 1
   sum=$(jq '.data.repository.issue // {}' <<<"${text_of[$n]}" | tehas_body_sha256) || return 1
+  if [ "$TEHAS_WORK_COMMENTS" = 1 ]; then
+    from=$(comment_links "$n" "${given_at[$n]}") || { log "ERROR: the comments of #$n could not be read"; return 1; }
+  fi
   jq --arg at "${given_at[$n]}" --arg by "${starter[$n]}" --arg how "${given_how[$n]}" --arg sum "$sum" \
+    --argjson comments "$TEHAS_WORK_COMMENTS" --argjson from "$from" \
     "$(tehas_attachment_links)"'{at: $at, by: $by, how: $how, body_sha256: $sum,
-      links: (.data.repository.issue.body // "" | links | reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end))}' \
+      links: (.data.repository.issue.body // "" | links | reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end))}
+      + if $comments == 1 then {comment_links: $from} else {} end' \
     <<<"${text_of[$n]}" >"$file.new" 2>/dev/null && mv "$file.new" "$file"
+}
+
+# comment_links <issue> <time>: the attachment links in the issue's comments
+# that the approval at <time> covers, as a JSON list of {link, source, by}, in
+# the order written. A comment counts only when an allowed account wrote it and
+# it was neither written nor edited after <time>: a later one was not there to
+# be approved. Fails when the comments cannot be read.
+comment_links() {
+  local list
+  list=$(gh api "repos/$repo/issues/$1/comments?per_page=100" --paginate 2>/dev/null) || return 1
+  jq -cs --arg at "$2" --arg allowed "$TEHAS_ALLOWED_LABELERS" "$(tehas_attachment_links)"'
+    if any(.[]; type != "array") then error("not a list of comments") else . end
+    | ($allowed | split(" ")) as $list
+    | [add // [] | .[] | select(type == "object" and (.id | type) == "number" and (.body | type) == "string"
+        and ((.user.login // "") as $a | $a != "" and ($list | index($a)) != null)
+        and (.created_at | type) == "string" and (.updated_at | type) == "string"
+        and $at != "" and .created_at <= $at and .updated_at <= $at)]
+    | sort_by(.created_at, .id)
+    | [.[] | .id as $id | .user.login as $by | .body | links[] | {link: ., source: "comment:\($id)", by: $by}]
+    | reduce .[] as $x ([]; if any(.[]; .link == $x.link) then . else . + [$x] end)' <<<"$list" 2>/dev/null
 }
 
 # Without systemd's answer every picked issue would be marked running and then

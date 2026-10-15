@@ -37,6 +37,7 @@
 #   TEHAS_WORK_IMAGES   1 gives the cycle the images its issue links [0]
 #   TEHAS_WORK_DESCRIBE 1 has the model describe those images first [0]
 #   TEHAS_WORK_FILES    1 gives the cycle the text files its issue links [0]
+#   TEHAS_WORK_COMMENTS 1 takes those of the issue's comments too [0]
 # From the environment, for tests: TEHAS_PREFLIGHT_WAIT (seconds the push check
 # may take [300]) and TEHAS_STOP_WAIT (seconds a docker stop may take before
 # the container is killed [60]).
@@ -57,8 +58,8 @@
 # read-only, and PI_ENSEMBLE_EXTRA_IMAGE_DIRS, their path inside the container.
 # The images are fetched here, before anything starts:
 #   which     Links to GitHub's own attachment storage in the issue's text.
-#             Comments are not read: the label that starts a cycle approves the
-#             text, and a comment can arrive after it. Only when an allowed
+#             Comments only with TEHAS_WORK_COMMENTS=1, and only from the
+#             record: see below. Only when an allowed
 #             account approved the start, or the issue was opened by an owner,
 #             member or collaborator. Where the dispatcher left its approval
 #             record, state/cycles/<issue>.approved.json, the links are the
@@ -92,6 +93,13 @@
 # image's pi-rukas reads the images at all: whether it has the file that reads
 # them is asked of the image once per image id, and the answer is left in
 # state/images-read.json for tehasbot health.
+#
+# With TEHAS_WORK_COMMENTS=1 the record's comment_links are fetched too, after
+# the body's links, under the same limits counted together: links of comments
+# an allowed account wrote and nobody edited after the approval, as the
+# dispatcher found them. Each is taken only while its author is still allowed.
+# Every manifest entry has a source, "body" or "comment:<id>". By hand there is
+# no record, and only the body is read. No mount and no variable more.
 #
 # With TEHAS_WORK_DESCRIBE=1 the model endpoint describes each image in words
 # first (lib/describe.sh), into images.md in the same directory, for the steps

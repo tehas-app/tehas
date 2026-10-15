@@ -27,6 +27,9 @@ case "$1 $2" in
   "api user") cat "$T/fx/user.json" || exit 1 ;;
   "api -X") [ ! -e "$T/fx/patch-fails" ] || exit 1 ;;
   "api repos/acme/widget/issues/"*"/comments") [ ! -e "$T/fx/post-fails" ] || exit 1; echo 4002 ;;
+  "api repos/acme/widget/issues/"*"/comments?per_page=100")
+    n=${2#repos/acme/widget/issues/}
+    cat "$T/fx/icomments-${n%%/*}.json" 2>/dev/null || exit 1 ;;
   "api repos/acme/widget/issues/"*)
     n=${2#repos/acme/widget/issues/}
     case "$n" in
@@ -114,7 +117,7 @@ cid() { # <issue> <hex digit> <bytes in use>
 dispatch_json=$T/home/tehas/live/dispatch.json
 
 reset() {
-  rm -f "$T"/calls/* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/issue-* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/slice-* "$fx"/orphan-*
+  rm -f "$T"/calls/* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/icomments-* "$fx"/issue-* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/slice-* "$fx"/orphan-*
   rm -rf "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-* "$T"/home/tehas/state/park-* "$T/home/tehas/live"
   # A slice of 20 GiB with nothing in it: room for ten cycles of the default
   # reserve, so the slots and the review cap decide unless a case says more.
@@ -433,6 +436,73 @@ sum=$(printf 'See ![a](%s/1111)\nand ![b](%s/2222) and again %s/1111, not https:
 t_eq "$(jq -c . "$T/calls/approved.at-mark" 2>&1)" \
   "{\"at\":\"2026-01-01T00:00:00Z\",\"by\":\"alice\",\"how\":\"label\",\"body_sha256\":\"$sum\",\"links\":[\"$A/1111\",\"$A/2222\"]}"
 t_eq "$(cmp "$approved_file" "$T/calls/approved.at-mark" && echo same)" same
+
+t_case "without the comments setting the record names no comment and none are read"
+t_eq "$(jq -c 'has("comment_links")' "$approved_file")" false
+t_lacks "$(t_calls gh)" "comments?per_page"
+
+# icomment <id> <login> <created> <updated> <body>: one comment as REST lists it.
+icomment() {
+  jq -n -c --argjson id "$1" --arg who "$2" --arg c "$3" --arg u "$4" --arg body "$5" \
+    '{id: $id, user: {login: $who}, created_at: $c, updated_at: $u, body: $body}'
+}
+t_case "with comments on, the record takes the links of comments an allowed account wrote before the label"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_WORK_IMAGES=1 TEHAS_WORK_COMMENTS=1
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-01-01T00:00:00Z"}]' >"$fx/events-7.json"
+jq -n --arg body "![a]($A/1111)" '{data: {repository: {issue: {lastEditedAt: null, editor: null, body: $body}}}}' >"$fx/edit-7.json"
+{
+  echo '['
+  icomment 52 alice 2025-12-31T10:00:00Z 2025-12-31T10:00:00Z "later ![c]($A/5555) and ![a]($A/1111)"
+  echo ','
+  icomment 51 alice 2025-12-31T09:00:00Z 2025-12-31T09:00:00Z "first ![b]($A/4444)"
+  echo ','
+  icomment 53 mallory 2025-12-31T11:00:00Z 2025-12-31T11:00:00Z "an outsider's ![m]($A/6666)"
+  echo ','
+  icomment 54 alice 2026-01-01T00:00:01Z 2026-01-01T00:00:01Z "after the label ![l]($A/7777)"
+  echo ','
+  icomment 55 alice 2025-12-31T12:00:00Z 2026-01-01T00:30:00Z "edited after the label ![e]($A/8888)"
+  echo ']'
+} >"$fx/icomments-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(jq -c '[.links, .comment_links]' "$T/calls/approved.at-mark" 2>&1)" \
+  "[[\"$A/1111\"],[{\"link\":\"$A/4444\",\"source\":\"comment:51\",\"by\":\"alice\"},{\"link\":\"$A/5555\",\"source\":\"comment:52\",\"by\":\"alice\"},{\"link\":\"$A/1111\",\"source\":\"comment:52\",\"by\":\"alice\"}]]"
+
+t_case "an outsider's comment, one written after the label and one edited after it are not in the record"
+t_lacks "$(cat "$approved_file")" "$A/6666"
+t_lacks "$(cat "$approved_file")" "$A/7777"
+t_lacks "$(cat "$approved_file")" "$A/8888"
+
+t_case "a retry tick's record takes the comments written before the tick"
+parked
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_WORK_IMAGES=1 TEHAS_WORK_COMMENTS=1
+comments 7 "$(park_body x ' ')" alice
+{
+  echo '['
+  icomment 61 alice 2026-01-01T00:30:00Z 2026-01-01T00:30:00Z "![r]($A/9191)"
+  echo ','
+  icomment 62 alice 2026-01-01T01:00:01Z 2026-01-01T01:00:01Z "![s]($A/9292)"
+  echo ']'
+} >"$fx/icomments-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[.how, (.comment_links | map(.source))]' "$T/calls/approved.at-mark" 2>&1)" '["retry-tick",["comment:61"]]'
+
+t_case "comments that cannot be read start nothing and change no label: exit 1"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_WORK_IMAGES=1 TEHAS_WORK_COMMENTS=1
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: the comments of #7 could not be read"
+t_contains "$t_out" "ERROR: could not write the approval record of #7, not starting a cycle"
+t_lacks "$(t_calls gh)" "issue edit"
+t_eq "$(t_calls fake-start)" ""
+echo '{"not": "a list"}' >"$fx/icomments-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_lacks "$(t_calls gh)" "issue edit"
 
 t_case "an issue with no body is approved with the hash of nothing and no links"
 reset

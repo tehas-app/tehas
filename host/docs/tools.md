@@ -70,6 +70,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_WORK_IMAGES`             | `0`                                      | `1` gives a cycle and a planning session the images its issue text links: see [tehas work](#tehas-work) and [tehas plan](#tehas-plan). The model must declare `"image"` in its `input` in `models.json` and answer a request with an image, else the dispatcher holds every cycle |
 | `TEHAS_WORK_DESCRIBE`           | `0`                                      | `1` has the model describe each of those images in words before the cycle or planning session starts, into `images.md` beside them: see [tehas work](#tehas-work). Needs `TEHAS_WORK_IMAGES=1`, else the command stops with 78 |
 | `TEHAS_WORK_FILES`              | `0`                                      | `1` gives a cycle and a planning session the text files its issue text links: md, txt, csv, json, yaml, log, html, css and js, at most 16, 1 MB each and 4 MB together. Needs no model that reads images. See [tehas work](#tehas-work) |
+| `TEHAS_WORK_COMMENTS`           | `0`                                      | `1` takes the images and files of the issue's comments too: those an allowed account wrote and nobody edited after the approval. Needs `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, else the command stops with 78. See [tehas work](#tehas-work) |
 | `TEHAS_VERIFY_TIMEOUT`          | `1800`                                   | Seconds one run of the product's gate may take inside a cycle. A gate that takes longer is stopped and the cycle parks. Passed to pi-rukas as `PI_ENSEMBLE_VERIFY_TIMEOUT_MS` and `PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS`; pi-rukas alone allows ten minutes |
 | `TEHAS_PLAN_MAX_TURNS`          | `20`                                     | Turns a planning session may take before it is ended            |
 | `TEHAS_PLAN_TIMEOUT`            | `3600`                                   | Seconds before one planning turn is given up. At most 7200: [the poll's unit](/host#time-limits) stops a poll after 3 hours |
@@ -213,9 +214,15 @@ it was approved, `how` (`label` or `retry-tick`), `body_sha256`, the sha256 of
 the body that approval was checked against with carriage returns dropped, and
 `links`, the links to GitHub's attachment storage in that body. The body is
 read in the same call as the record of who last edited it, so it is the text
-the check passed. [tehas work](#tehas-work) fetches those links and no others.
+the check passed. With `TEHAS_WORK_COMMENTS=1` the poll also lists the
+issue's comments and adds `comment_links`: the links of each comment an
+allowed account wrote whose `created_at` and `updated_at` are at or before
+`at`, in the order written, each as `{link, source, by}` with `source`
+`comment:<id>`. [tehas work](#tehas-work) fetches those links and no others.
 A record that cannot be written starts nothing: `ERROR: could not write the
 approval record of #N, not starting a cycle`, exit 1, and no label changes.
+Comments that cannot be read are logged as `ERROR: the comments of #N could
+not be read` and stop the start the same way.
 
 ## tehas work
 
@@ -305,8 +312,9 @@ that path. This widens what a cycle is given, and it is off unless the
 instance sets it. The images are fetched before anything else is made:
 
 - **Which.** Links to GitHub's own attachment storage in the issue text.
-  Comments are not read: `tehas:ready` approves the text, and a comment can
-  arrive after the label. Only when an allowed account approved the start,
+  Comments are read only with `TEHAS_WORK_COMMENTS=1`, and then only those an
+  allowed account wrote and nobody edited after the approval: see below. Only
+  when an allowed account approved the start,
   which approves the text with its links, or when the issue was opened by an
   owner, member or collaborator of the repository. When the dispatcher left
   its approval record, `~/tehas/state/cycles/<issue>.approved.json`, and it
@@ -385,6 +393,20 @@ off, an image the issue links is left out and said. The comment on the issue
 says how many files were fetched, with each hash, and that the pi-rukas that
 tehas pins does not read them yet: the manifest is ready for a release that
 does.
+
+With `TEHAS_WORK_COMMENTS=1` the links in the issue's comments are taken as
+well, by an approval record only: a comment is taken when an allowed account
+wrote it and it was written and last edited at or before the approval's time.
+The dispatcher lists the comments when it decides the start and adds their
+links to the record as `comment_links`, each with its `source`,
+`comment:<id>`, and its author. `tehas work` fetches them after the body's
+links, in the order written, under the same limits, counted together, and
+only while the author is still allowed. Every entry of the manifest, left out
+or not, has a `source`: `body` or the comment's. The comment on the issue
+names the comment beside each link. A start by hand, without a record, reads
+the body only. The setting adds no mount and no variable, and it needs
+`TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, else the command stops with
+78.
 
 ## tehas plan
 
