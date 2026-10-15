@@ -349,8 +349,29 @@ console=$live/console-$issue.txt
 # The cycle does not depend on it: without a console it runs all the same,
 # and this says why the dashboard shows none.
 [ -x "$here/console" ] || echo "tehas work: no console at $here/console, so the dashboard shows none; run install.sh"
+# Names the host knows that an agent can print, for the console to mask: the
+# host aliases, the model host and the bot's email. They are names, not
+# secrets, so they may go on a command line; a token never does. A name under
+# 4 characters would mask ordinary text.
+private=()
+add_private() { if [ "${#1}" -ge 4 ]; then private+=(--private "$1"); fi; }
+IFS=',' read -ra pairs <<<"${PI_ENSEMBLE_HOST_ALIASES:-}"
+for pair in "${pairs[@]}"; do
+  add_private "${pair%%:*}"
+  [ "${pair#*:}" = "$pair" ] || add_private "${pair#*:}"
+done
+model_host=$(jq -r --arg p "$PI_ENSEMBLE_SUBAGENT_PROVIDER" '.providers[$p].baseUrl // ""' "$agent/models.json" 2>/dev/null) || model_host=""
+model_host=${model_host#*://}
+model_host=${model_host%%/*}
+model_host=${model_host##*@}
+case "$model_host" in
+  \[*) model_host=${model_host#[}; model_host=${model_host%%]*} ;;
+  *) model_host=${model_host%%:*} ;;
+esac
+add_private "$model_host"
+add_private "$bot_email"
 "$here/console" --rpc "$log" \
-  --runs "$runs" --out "$console" --since "$((started - 5))" >/dev/null 2>"$log.console" 4>&- &
+  --runs "$runs" --out "$console" --since "$((started - 5))" "${private[@]}" >/dev/null 2>"$log.console" 4>&- &
 cpid=$!
 now_file() { # running? status step
   local text
@@ -358,7 +379,7 @@ now_file() { # running? status step
   # it goes through the console's mask, and without a console it is not
   # published at all.
   text=$(tail -c 60000 "$log" 2>/dev/null | grep -o '"statusText":"[^"]*"' | tail -n 1 | cut -d'"' -f4 |
-    "$here/console" --mask 2>/dev/null)
+    "$here/console" --mask "${private[@]}" 2>/dev/null)
   jq -n --argjson issue "$issue" --argjson running "$1" --arg status "$2" --arg step "$3" \
     --arg text "$text" --argjson startedAt "$started" --argjson at "$(date +%s)" \
     '{issue: $issue, running: $running, status: $status, step: $step, statusText: $text,

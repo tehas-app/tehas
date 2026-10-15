@@ -760,6 +760,14 @@ longer is killed, and the work script says so.
 The work script's own status line, in `~/tehas/live/cycles/<issue>.json` and from there in `~/tehas/live/running.json`, goes through
 the same mask (`console --mask`); without a console it is left empty.
 
+The console, and the mask of the status line, also mask in any case the names
+the host knows that an agent can print: each name and address in
+`PI_ENSEMBLE_HOST_ALIASES`, the host of the model provider's `baseUrl` in
+`models.json`, and the bot's git email. The work script gives them with
+`--private`; a name shorter than 4 characters is left out, as it would mask
+ordinary words. They are names, not secrets: a token is never on a command
+line.
+
 The snapshot also carries the words of the breakroom game, Buzzword Buster.
 They are counted over the titles and labels of every issue of the repository,
 the newest thousand, not only the ones the factory was given: work going on

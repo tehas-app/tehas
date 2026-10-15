@@ -168,6 +168,29 @@ t_stub console
 mv "$T/bin/console" "$tree/libexec/console"
 t_run "$work 7"
 
+t_case "the console masks the host aliases, the model host and the bot's email, not names under 4 characters"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=gpu1:192.0.2.9,gb:192.0.2.10,,v6host:2001:db8::1
+mkdir -p "$T/home/.pi/agent"
+echo '{"providers":{"other":{"baseUrl":"http://elsewhere.lan/v1"},"test-provider":{"baseUrl":"http://models.lan:8086/v1"}}}' \
+  >"$T/home/.pi/agent/models.json"
+echo 'echo "{\"statusText\":\"working\"}"' >"$T/container.sh"
+rm -f "$T/calls/console"
+t_run "$work 7"
+given=$(t_calls console | grep -e '^--rpc ')
+t_contains "$given" " --private gpu1 --private 192.0.2.9 --private 192.0.2.10 --private v6host --private 2001:db8::1 --private models.lan --private bot@example.com"
+t_lacks "$given" "--private gb "
+t_lacks "$given" "elsewhere"
+t_contains "$(t_calls console | grep -e '^--mask ' | head -n 1)" "--mask --private gpu1 --private 192.0.2.9"
+t_lacks "$(t_calls console)" "test-token"
+
+t_case "without models.json or aliases the console is given the bot's email only"
+t_instance "${T_MINIMAL[@]}"
+rm -f "$T/home/.pi/agent/models.json" "$T/calls/console"
+t_run "$work 7"
+t_eq "$(t_calls console | grep -e '^--rpc ' | grep -o -e '--private .*')" "--private bot@example.com"
+rm -f "$T/container.sh"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+
 t_case "the cycle works in a fresh clone at the branch's tip, with the product's origin"
 t_eq "$(git -C "$ws" rev-parse HEAD)" "$(git -C "$upstream" rev-parse main)"
 t_eq "$(git -C "$ws" branch --show-current)" main

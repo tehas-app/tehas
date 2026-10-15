@@ -2,7 +2,7 @@
 //! for the dashboard.
 //!
 //!   console --rpc <work-N.jsonl> --runs <ensemble-runs dir>
-//!     --out <console.txt> --since <epoch seconds>
+//!     --out <console.txt> --since <epoch seconds> [--private <name>]...
 //!
 //! Follows two sources until it is told to stop (TERM or INT):
 //!   - the cycle's Pi RPC stream: driver notices and step boundaries,
@@ -10,9 +10,11 @@
 //!     said, the commands it ran and the start of what came back.
 //!
 //! Output is plain text. Tokens, database passwords and private network
-//! addresses are masked, see mask.rs.
+//! addresses are masked, see mask.rs, and so is each name given with
+//! --private, as text in any case. A name is not a secret: it is on the
+//! command line.
 //!
-//!   console --mask
+//!   console --mask [--private <name>]...
 //!
 //! The mask alone: standard input to standard output, for libexec/work's own
 //! line on the dashboard, so that the mask is written in one place.
@@ -46,12 +48,20 @@ struct Args {
     since: SystemTime,
 }
 
-fn args() -> Result<Args, String> {
-    let given: Vec<String> = std::env::args_os()
-        .skip(1)
-        .map(|a| a.into_string())
-        .collect::<Result<_, _>>()
-        .map_err(|_| "console: an argument is not UTF-8")?;
+// Takes every `--private <name>` out of the arguments.
+fn private(given: &mut Vec<String>) -> Result<Vec<String>, String> {
+    let mut names = Vec::new();
+    while let Some(i) = given.iter().position(|a| a == "--private") {
+        if i + 1 >= given.len() {
+            return Err("console: --private needs a name".to_string());
+        }
+        names.push(given.remove(i + 1));
+        given.remove(i);
+    }
+    Ok(names)
+}
+
+fn args(given: &[String]) -> Result<Args, String> {
     let value = |name: &str| -> Result<String, String> {
         let flag = format!("--{name}");
         given
@@ -118,7 +128,7 @@ fn run(args: &Args, stop: &AtomicBool) -> io::Result<()> {
                     Some(workstream) => format!("{role}[{workstream}]"),
                     None => role.clone(),
                 };
-                for entry in render::transcript_line(&who, &line) {
+                for entry in render::transcript_line(&mask::mask(&who), &line) {
                     write(&mut out, &entry)?;
                 }
             }
@@ -157,7 +167,23 @@ fn mask_stdin() -> io::Result<()> {
 }
 
 fn main() -> ExitCode {
-    if std::env::args_os().skip(1).eq(["--mask"]) {
+    let given = std::env::args_os()
+        .skip(1)
+        .map(|a| a.into_string())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "console: an argument is not UTF-8".to_string());
+    let given = given.and_then(|mut given| {
+        mask::set_private(&private(&mut given)?)?;
+        Ok(given)
+    });
+    let given = match given {
+        Ok(given) => given,
+        Err(message) => {
+            complain(&message);
+            return ExitCode::from(2);
+        }
+    };
+    if given == ["--mask"] {
         return match mask_stdin() {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
@@ -166,7 +192,7 @@ fn main() -> ExitCode {
             }
         };
     }
-    let args = match args() {
+    let args = match args(&given) {
         Ok(args) => args,
         Err(message) => {
             complain(&message);
