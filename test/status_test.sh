@@ -34,7 +34,7 @@ issue() { # number label state
   printf '{"number":%s,"title":"t","url":"u","state":"%s","labels":[{"name":"%s"}],"updatedAt":"2026-01-01T00:00:00Z","closedAt":null}' "$1" "${3:-OPEN}" "$2"
 }
 reset() {
-  rm -rf "$T"/calls/* "$T/gh-down" "$T/all-down" "$T/shipped-down" "$live"
+  rm -rf "$T"/calls/* "$T/gh-down" "$T/all-down" "$T/shipped-down" "$live" "$T/home/tehas/state"
   echo "[]" >"$T/all.json"
   shipped
   T_ENV=()
@@ -239,6 +239,53 @@ t_run "$status && $summary"
 t_eq "$t_rc" 0
 t_contains "$t_out" "factory   warn: The factory is paused."
 t_contains "$t_out" "1 stopped, paused"
+
+t_case "status writes the pause switch: the flag with its time and reason, never who wrote it"
+reset
+mkdir -p "$T/home/tehas/state"
+jq -nc '{by: "boss", at: "2026-10-15T10:00:00Z", reason: "waiting for the gate"}' >"$T/home/tehas/state/pause.json"
+t_run "$status && $summary"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .paused "$live/status.json")" "true"
+t_eq "$(jq -rc '.pause.flag | keys | join(",")' "$live/status.json")" "at,reason"
+t_eq "$(jq -r .pause.flag.reason "$live/status.json")" "waiting for the gate"
+t_eq "$(jq -r .pause.label "$live/status.json")" "false"
+t_lacks "$(jq -c .pause "$live/status.json")" "boss"
+t_eq "$(jq -r .status "$live/health.json")" "warn"
+t_eq "$(jq -r .output "$live/health.json")" "The factory is paused."
+t_eq "$(jq -rc '.checks.pause.flag | keys | join(",")' "$live/health.json")" "at,reason"
+t_contains "$t_out" "pause     flag, written"
+t_contains "$t_out" "waiting for the gate"
+t_contains "$t_out" "1 stopped, paused"
+
+t_case "the label alone is a pause the health file names, with no flag"
+reset
+echo true >"$T/paused"
+t_run "$status && $summary"
+t_eq "$(jq -rc '.pause.flag' "$live/status.json")" "null"
+t_eq "$(jq -r .pause.label "$live/status.json")" "true"
+t_eq "$(jq -rc '.checks.pause.flag' "$live/health.json")" "null"
+t_contains "$t_out" "pause     label: tehas:pause on the control issue"
+t_lacks "$t_out" "pause     flag"
+
+t_case "neither switch set: no pause line, and a pause object that says so"
+reset
+t_run "$status && $summary"
+t_eq "$(jq -r .paused "$live/status.json")" "false"
+t_eq "$(jq -rc .pause "$live/status.json")" '{"flag":null,"label":false}'
+t_eq "$(jq -rc .checks.pause "$live/health.json")" '{"flag":null,"label":false}'
+t_lacks "$t_out" "pause     "
+t_eq "$(jq -r .status "$live/health.json")" "pass"
+
+t_case "a flag that cannot be read still holds the factory paused"
+reset
+mkdir -p "$T/home/tehas/state"
+echo 'not a flag' >"$T/home/tehas/state/pause.json"
+t_run "$status && $summary"
+t_eq "$(jq -r .paused "$live/status.json")" "true"
+t_eq "$(jq -rc .pause.flag "$live/status.json")" '{"at":null,"reason":null}'
+t_eq "$(jq -r .status "$live/health.json")" "warn"
+t_contains "$t_out" "pause     flag, written at an unknown time"
 
 t_case "summary: a failed cycle is exit 1, and still printed"
 reset

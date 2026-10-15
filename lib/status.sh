@@ -9,14 +9,20 @@
 #   tehas_health_readable <file>    0 when the file is there and holds a status
 #   tehas_health_stale <file> <now> 0 when the file is older than the rule
 #                                   (a time that cannot be read counts as old)
-#   tehas_state_lines <json> <now> <stale>   the factory line and the queue line
+#   tehas_state_lines <json> <now> <stale>   the factory line, the queue line,
+#                                            and a line for each pause switch
 #   tehas_cycle_line <json> <now>            one cycle, as health.json writes it
 #   tehas_slice_line <health json> <now>     the last poll's slice check
 #   tehas_platform_line <health json> <now>  the platform checkout against
 #                                            origin; nothing without one
 #
-# <json> is JSON text given as an argument: nothing here opens a file, loads the
-# instance settings or writes anything.
+# And the pause flag itself, which every command that reads it reads through:
+#
+#   tehas_pause_read <file>       the flag tehas pause writes, {by, at, reason}
+#
+# <json> is JSON text given as an argument: nothing here loads the instance
+# settings or writes anything. tehas_pause_read is the one function that reads a
+# file, and it reads only the one its argument names.
 
 # shellcheck disable=SC2016  # the jq program below is data, not a shell string
 tehas_health_max_age=600
@@ -37,17 +43,45 @@ tehas_state_defs='
   def ago($now): ($now - .) | if . < 0 then 0 else . end
     | if . < 120 then "\(.) s ago" elif . < 7200 then "\(. / 60 | floor) min ago" else "\(. / 3600 | floor) h ago" end;
   def age($now): (try (fromdateiso8601 | ago($now)) catch "at an unknown time");
+  # What holds the factory paused, one line for each switch that is set.
+  # {flag: {at, reason} or null, label: true|false}, as health.json writes it.
+  def pause_lines($now): if . == null or (.flag == null and .label != true) then empty else . end
+    | ((if .flag == null then empty
+        else "pause     flag, written \(.flag.at // "" | age($now))"
+             + (if (.flag.reason // "") == "" then "" else ": \(.flag.reason)" end)
+        end),
+       (if .label == true then "pause     label: tehas:pause on the control issue" else empty end));
 '
 
-# The two lines a health object gives: is the factory taking work, and what is
-# in the queue.
+# tehas_pause_read <file>: the pause flag, as tehas pause writes it.
+#   0  <file> holds {by, at, reason}: the object, compact, on standard output
+#   1  no such file: nothing on standard output
+#   2  something is at <file> and is not a pause flag: nothing on standard output
+# A flag that cannot be understood is never read as no flag: every caller counts
+# 2 as paused, so a damaged flag stops the factory rather than starting it.
+# `at` and `reason` must be strings; `by` may be anything and reads as nobody.
+# Nothing that reaches a page publishes `by`: it names an account on this host.
+tehas_pause_read() { # <file>
+  local json
+  [ -e "$1" ] || return 1
+  json=$(jq -ce '
+    select(type == "object")
+    | select((.at | type) == "string")
+    | select((.reason | type) == "string")
+    | {by: (if (.by | type) == "string" then .by else "" end), at, reason}' "$1" 2>/dev/null) || return 2
+  printf '%s\n' "$json"
+}
+
+# The lines a health object gives: is the factory taking work, what is in the
+# queue, and what holds it paused, if anything.
 tehas_state_lines() { # <health json> <now epoch seconds> <stale true|false>
   jq -r --argjson now "$2" --argjson stale "$3" "$tehas_state_defs"'
     (if $stale then "factory   stale: the dispatcher last reported \(.time | age($now)), is its timer running? It said \(.status): \(.output // "")"
      else "factory   \(.status): \(.output // "") (\(.time | age($now)))" end),
     (.checks.queue // null | if . == null then "queue     no snapshot yet"
      else "queue     \(.inLine) in line, \(.building) building, \(.review) in review, \(.stopped) stopped"
-          + (if .paused then ", paused" else "" end) + " (\(.time // "" | age($now)))" end)
+          + (if .paused then ", paused" else "" end) + " (\(.time // "" | age($now)))" end),
+    (.checks.pause // null | pause_lines($now))
   ' <<<"$1"
 }
 

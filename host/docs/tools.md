@@ -21,6 +21,8 @@ tehas update [--check]           # bring this host up to date with the platform
 tehas labels                     # create the tehas labels in the repository
 tehas status                     # print the state of the factory
 tehas top [--once|--json]        # one screen of what the factory is doing
+tehas pause [reason]             # stop this host from starting new work
+tehas resume                     # lift this host's pause flag
 tehas help [command]             # this list, or the text of one command
 ```
 
@@ -149,7 +151,8 @@ than one, is refused: exit 64 with `tehas dispatch: unknown argument: <argument>
 and the usage on standard error, before the instance settings are read. A mistyped
 `--dryrun` therefore starts no poll and changes nothing.
 
-Order of rules: pause label on the control issue, a usable `tehas.slice`,
+Order of rules: the pause switches (this host's flag, then the label on the
+control issue), a usable `tehas.slice`,
 a model endpoint that answers and offers the model, the free slots
 (`TEHAS_TICKET_CONCURRENCY` less the running cycles, after it has stopped
 the cycles whose issue is closed or whose pull request is merged or closed),
@@ -795,6 +798,38 @@ label. Run again, it puts their colours and descriptions back. It needs `TEHAS_R
 setting. Exit 0 when every label is there, 1 when one could not be made, 64 on
 any argument, 78 when the repository is not set.
 
+## tehas pause
+
+```
+tehas pause              # pause this host
+tehas pause waiting for the gate   # and say why
+```
+
+Writes the pause flag, `~/tehas/state/pause.json`, holding who set it, when and
+why, in a file with mode 600. While it is there the dispatcher starts nothing,
+and a cycle already running finishes. The flag is read without asking GitHub
+anything, so a host can be paused when GitHub cannot be reached. Pausing a
+paused host succeeds and keeps the first flag. The reason is one argument, kept
+to 200 characters, and it reaches pages that may be public.
+
+Exit 0 when the host is paused, 64 on more than one argument, 78 when the
+instance settings are missing or malformed, which writes nothing.
+
+## tehas resume
+
+```
+tehas resume     # remove this host's pause flag
+```
+
+Removes the flag, and succeeds when there is none. It then reports the other
+switch: `tehas:pause` on the control issue. Only an account in
+`TEHAS_ALLOWED_LABELERS` lifts that label, so when it is gone and its most recent
+`tehas:pause` event is a removal by anyone else, this says who removed it and
+that the factory stays paused. It never changes a label.
+
+Exit 0 when the flag is gone, whatever the label says, 64 on any argument, 78
+when the instance settings are missing or malformed.
+
 ## tehas status
 
 ```
@@ -814,7 +849,15 @@ it taking work, what is in the queue and how old that snapshot is, how far
 the platform checkout is behind origin (on a host that has one), the current or last cycle, and what the
 dispatcher's last poll read of `tehas.slice`. The `slice` line reads
 `holding: ...` when that poll held cycles back, and `unknown: no poll has
-reported in 10 min` when no poll read the slice in that time. It reads
+reported in 10 min` when no poll read the slice in that time. While the factory
+is paused it adds one line for each switch that is set:
+
+```
+pause     flag, written 4 min ago: waiting for the gate
+pause     label: tehas:pause on the control issue
+```
+
+It reads
 that one file and nothing else: no GitHub call, no instance settings, and it
 writes nothing. So it is as fresh as the dispatcher's last poll, and the first
 line says how old that is.
@@ -1062,16 +1105,21 @@ curl -i http://tehas-tehas:8080/health
 ```
 
 Writes the factory's health from what is already on disk: the queue snapshot,
-the running cycles, the last one that finished and what the dispatcher's
-last poll wrote about the slice. The status script runs it on exit, so it is
+the running cycles, the last one that finished, what the dispatcher's
+last poll wrote about the slice, and this host's pause flag. The status script
+runs it on exit, so it is
 refreshed at every poll and at the end of every cycle. The docs server
 serves the file at `/health` and `/healthz` as `application/health+json`.
 `tehas status` prints the same file for a person.
 
+`checks.pause` names the switches: `{flag: {at, reason}, label}`, with `flag`
+null when no flag is set. It carries no `by`: the account that wrote the flag
+stays on the host, because this file is served.
+
 | `status` | Meaning                                                                                  | HTTP |
 | -------- | ---------------------------------------------------------------------------------------- | ---- |
 | `pass`   | Taking work, idle or in a cycle                                                          | 200  |
-| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (`tehas:pause` on the control issue), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`) | 200  |
+| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (the pause flag on this host, or `tehas:pause` on the control issue), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`) | 200  |
 | `fail`   | The last cycle ended as anything but `merged` or `handoff` and no cycle has started since, or there is no queue snapshot | 503  |
 
 `output` says the same in a sentence. `checks.queue` has the snapshot time and

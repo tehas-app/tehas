@@ -33,6 +33,23 @@
 #                                   <label> most recently is allowed, 1 when it
 #                                   is not or no event applies it, 2 when the
 #                                   events cannot be read.
+#   tehas_pause_holds               stdin: one issue's events, as above, for the
+#                                   control issue. The pause label works one way:
+#                                   anyone who can label may stop the factory,
+#                                   only an allowed account may start it again.
+#                                   0 when the tehas:pause event with the latest
+#                                   stamp is a removal by an account outside
+#                                   TEHAS_ALLOWED_LABELERS, or by an event that
+#                                   names no account - the host stays paused -
+#                                   with that account on standard output, empty
+#                                   when the event names none. 1 when nothing the
+#                                   events say holds the host paused: no
+#                                   tehas:pause event, or its last removal was by
+#                                   an allowed account. 2 when the events are not
+#                                   what this expects, which is never the same as
+#                                   having no event. Whether the label is on the
+#                                   issue now is not this function's to see: the
+#                                   caller reads the issue.
 #
 # Which issue to ask about, and what to do when its events cannot be read, is
 # the caller's: a poll that cannot ask GitHub ends, the Protolab leaves a
@@ -69,4 +86,24 @@ tehas_label_allowed() { # <issue> <label>
   events=$(gh api "repos/$TEHAS_REPO/issues/$1/events?per_page=100" --paginate 2>/dev/null) || return 2
   line=$(tehas_label_actor "$2" <<<"$events") || return 2
   tehas_allowed_labeler "${line%%$'\t'*}"
+}
+
+# tehas_pause_holds: as tehas_label_actor reads the events, but for both kinds
+# of pause event: what stopped the factory, and what took the stop away.
+tehas_pause_holds() {
+  local line event by
+  line=$(jq -rs '
+    if any(.[]; type != "array") then error("not a list of events") else . end
+    | (add // [])
+    | map(select((.event == "labeled" or .event == "unlabeled") and .label.name == "tehas:pause"))
+    # GitHub documents no order for these events, so the stamp decides: equal
+    # stamps keep the order the pages arrived in, a missing stamp sorts first.
+    | sort_by(.created_at)
+    | last // {}
+    | "\(.event // "")\t\(.actor.login // "")"' 2>/dev/null) || return 2
+  event=${line%%$'\t'*}
+  by=${line#*$'\t'}
+  [ "$event" = unlabeled ] || return 1
+  tehas_allowed_labeler "$by" && return 1
+  printf '%s\n' "$by"
 }

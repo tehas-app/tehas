@@ -2,18 +2,21 @@
 # Write the factory's health file: $TEHAS_HOME/live/health.json, served by the
 # docs server as /health (and /healthz).
 #
-# It reads only what the factory already writes under live/: status.json (the
-# queue snapshot from tehasbot status), running.json (the running cycles
-# and the last one, from tehas work) and dispatch.json (what holds cycles
-# back and the slice's numbers, from the last poll of tehas dispatch). No
-# network, no model, no systemctl and no docker. tehasbot status runs it on
-# exit, so it is refreshed at every poll and at the end of every cycle.
+# It reads what the factory already writes under live/: status.json (the queue
+# snapshot from tehasbot status), running.json (the running cycles and the last
+# one, from tehas work) and dispatch.json (what holds cycles back and the slice's
+# numbers, from the last poll of tehas dispatch), and this host's pause flag,
+# $TEHAS_HOME/state/pause.json, so that a host paused while GitHub did not answer
+# still reports itself paused. No network, no model, no systemctl and no docker.
+# tehasbot status runs it on exit, so it is refreshed at every poll and at the
+# end of every cycle.
 #
 # The file follows the health check response format (draft-inadarei-api-health-check):
 #   status "pass"  the factory is taking work
 #   status "warn"  the queue snapshot is older than ten minutes (GitHub did
-#                  not answer the last polls), or it is paused (tehas:pause on
-#                  the control issue), or the dispatcher holds everything because tehas.slice is missing
+#                  not answer the last polls), or it is paused (the pause flag
+#                  tehas pause writes on this host, or tehas:pause on the control
+#                  issue), or the dispatcher holds everything because tehas.slice is missing
 #                  or cannot be read, or there are no resources (the model
 #                  endpoint does not answer or does not offer the model, as
 #                  the last poll found), or the host is too low on disk to build
@@ -39,6 +42,8 @@ mkdir -p "$live"
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/live.sh
 . "$here/../lib/live.sh"
+# shellcheck source=lib/status.sh
+. "$here/../lib/status.sh"
 # A cycle that died without a word stops being shown as running here.
 tehas_live_assemble 2>/dev/null || true
 
@@ -87,8 +92,22 @@ slice=null
 # than this, its counts and its pause are not news.
 queue_max_age=600
 
+# The two pause switches. The flag is this host's own file, read here as well as
+# in the snapshot, so a host paused while GitHub did not answer still reports
+# itself paused. The label comes from the snapshot, which is the only place this
+# command reads it from. `by` is not carried: the health file is served.
+pause_flag=$(tehas_pause_read "$TEHAS_HOME/state/pause.json")
+case $? in
+  0) pause_flag=$(jq -c '{at, reason}' <<<"$pause_flag") ;;
+  1) pause_flag=null ;;
+  2) pause_flag='{"at":null,"reason":null}' ;;
+esac
+label_paused=$(jq -rc 'if (.pause.label | type) == "boolean" then .pause.label
+  elif (.paused | type) == "boolean" then .paused else false end' <<<"$queue" 2>/dev/null) || label_paused=false
+pause=$(jq -nc --argjson flag "$pause_flag" --argjson label "$label_paused" '{flag: $flag, label: $label}')
+
 jq -n --argjson queue "$queue" --argjson view "$view" --argjson disk "$disk" --argjson slice "$slice" --arg now "$(date -u +%FT%TZ)" \
-  --argjson queueMaxAge "$queue_max_age" --argjson endings "$endings" --argjson platform "$platform" '
+  --argjson queueMaxAge "$queue_max_age" --argjson endings "$endings" --argjson platform "$platform" --argjson pause "$pause" '
   def iso: if type == "number" then todate else null end;
   def ago: if . < 120 then "\(.) s" elif . < 7200 then "\(. / 60 | floor) min" else "\(. / 3600 | floor) h" end;
   def brief: {
@@ -116,10 +135,11 @@ jq -n --argjson queue "$queue" --argjson view "$view" --argjson disk "$disk" --a
   | (if $queue == null then null
      else ($now | fromdateiso8601) - ($queue.generatedAt | try fromdateiso8601 catch 0) end) as $queue_age
   | ($queue_age != null and $queue_age > $queueMaxAge) as $old_queue
+  | ($pause.flag != null or $pause.label == true) as $paused
   | (if $queue == null then "fail"
      elif $failed then "fail"
      elif $old_queue then "warn"
-     elif $queue.paused then "warn"
+     elif $paused then "warn"
      elif $no_slice then "warn"
      elif $no_resources then "warn"
      elif $disk != null and $disk.low then "warn"
@@ -132,7 +152,7 @@ jq -n --argjson queue "$queue" --argjson view "$view" --argjson disk "$disk" --a
                elif $failed then "The last cycle failed: #\($last.issue) ended as \($last.status)."
                elif $old_queue then
                  "The queue snapshot is \($queue_age | ago) old: GitHub did not answer the last polls."
-               elif $queue.paused then "The factory is paused."
+               elif $paused then "The factory is paused."
                elif $no_slice then ($slice.hold // "holding")
                elif $no_resources then (($slice.hold // "") | sub("^holding: no resources: "; "No resources: ") + ".")
                elif $disk != null and $disk.low then
@@ -145,7 +165,7 @@ jq -n --argjson queue "$queue" --argjson view "$view" --argjson disk "$disk" --a
       checks: {
         queue: (if $queue == null then null else {
           time: $queue.generatedAt,
-          paused: ($queue.paused // false),
+          paused: $paused,
           inLine: ($queue.queued | length),
           building: ($queue.running | length),
           review: ($queue.awaiting | length),
@@ -159,6 +179,7 @@ jq -n --argjson queue "$queue" --argjson view "$view" --argjson disk "$disk" --a
                  | map({issue, status, step, startedAt: (.startedAt | iso), time: (.updatedAt | iso)})),
         disk: (if $disk == null then null else ($disk | {time, freeBytes, minFreeBytes, low}) end),
         slice: $slice,
+        pause: $pause,
         platform: $platform
       }
     }' >"$live/health.json.new" 2>/dev/null || exit 1

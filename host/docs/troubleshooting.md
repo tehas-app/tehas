@@ -53,7 +53,17 @@ The dispatcher fails the same way under systemd; the line is then in
 Run `tehas dispatch --dry-run` and read what it prints.
 
 - `paused: issue #N carries tehas:pause`: the control issue holds the pause
-  label. Remove it to resume.
+  label. Only an account named in `TEHAS_ALLOWED_LABELERS` can lift it: apply
+  the label and take it off again, or run `tehas resume` on the host.
+- `paused: the flag tehas pause wrote at <time> holds this host`: this host is
+  paused by `tehas pause`. `tehas resume` lifts it.
+- `paused: tehas:pause was taken off #N by 'x', who may not authorise work here`:
+  an account outside `TEHAS_ALLOWED_LABELERS` removed the label, and removing a
+  pause is work an allowed account authorises. An allowed account applies
+  `tehas:pause` and takes it off again.
+- `WARN: ~/tehas/state/pause.json is not a pause flag: taking it as paused`: the
+  flag file is damaged, and a switch that cannot be read is taken as closed.
+  `tehas resume` removes it; `tehas pause` writes one that can be read.
 - `holding: N cycles are running (limit N)`: the ceiling is reached. Wait for
   a cycle to end, or raise `TEHAS_TICKET_CONCURRENCY`.
 - `holding: tehas.slice has no room for another cycle (X GiB of Y GiB promised,

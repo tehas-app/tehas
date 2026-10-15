@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# tehas resume: lift this host's pause flag.
+#
+# It removes $TEHAS_HOME/state/pause.json, the switch tehas pause sets, and
+# reports the other switch: tehas:pause on the control issue. Removing the flag
+# does not touch that label, and only an account in TEHAS_ALLOWED_LABELERS can
+# lift it: when the tehas:pause event with the latest stamp on the control issue
+# is a removal by anyone else, the factory stays paused and this command says
+# who removed it.
+#
+# Usage: tehas resume
+#        tehas resume -h|--help   print this text and exit 0
+#
+# It calls GitHub to read the control issue, and only after it has removed the
+# flag: the host's own switch comes off whatever GitHub then says.
+#
+# Exit: 0 the flag is gone (removed, or there was none), whatever the label says;
+# 64 an argument, this command takes none; 78 the instance settings are missing
+# or malformed, which writes nothing.
+#
+# Instance settings (lib/config.sh): TEHAS_REPO, TEHAS_CONTROL_ISSUE and
+# TEHAS_ALLOWED_LABELERS, which this reads the control issue with.
+set -uo pipefail
+
+show_usage() {
+  sed -n '2,/^[^#]/p' "$0" | sed -n '/^#/s/^# \{0,1\}//p'
+}
+
+case "${1-}" in
+  -h | --help)
+    [ "$#" = 1 ] || { echo "usage: tehas resume" >&2; exit 64; }
+    show_usage
+    exit 0
+    ;;
+  *) [ "$#" = 0 ] || { echo "usage: tehas resume" >&2; exit 64; } ;;
+esac
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/config.sh
+. "$here/../lib/config.sh"
+tehas_load || exit 78
+tehas_require TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS
+# shellcheck source=lib/labels.sh
+. "$here/../lib/labels.sh"
+# shellcheck source=lib/status.sh
+. "$here/../lib/status.sh"
+
+repo=$TEHAS_REPO
+control=$TEHAS_CONTROL_ISSUE
+flag=$TEHAS_HOME/state/pause.json
+
+if [ -e "$flag" ]; then
+  rm -f "$flag" || { echo "tehas resume: could not remove $flag" >&2; exit 1; }
+  echo "resumed: the pause flag is gone"
+else
+  echo "no pause flag on this host"
+fi
+
+# The other switch. The host's own is off, so what GitHub says decides whether
+# work can start again.
+labels=$(gh issue view "$control" --repo "$repo" --json labels \
+  --jq '.labels | any(.name == "tehas:pause")' 2>/dev/null)
+case "$labels" in
+  true)
+    echo "the factory stays paused: tehas:pause is still on issue #$control"
+    exit 0
+    ;;
+  false) ;;
+  *)
+    echo "tehas resume: the labels of issue #$control could not be read: check tehas:pause there yourself" >&2
+    exit 0
+    ;;
+esac
+
+# The label is off. Who took it off decides whether the factory may start.
+events=$(gh api "repos/$repo/issues/$control/events?per_page=100" --paginate 2>/dev/null) || {
+  echo "tehas resume: the label events of issue #$control could not be read" >&2
+  exit 0
+}
+by=$(tehas_pause_holds <<<"$events")
+case $? in
+  0)
+    printf 'the factory stays paused: tehas:pause was taken off #%s by %s, who may not authorise work here\n' \
+      "$control" "'${by:-unknown}'"
+    ;;
+  2) echo "tehas resume: the label events of issue #$control could not be read" >&2 ;;
+esac

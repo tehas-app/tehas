@@ -410,4 +410,12 @@ t_contains "$features_text" 'lists them. A snapshot older than 30 seconds is cal
 t_lacks "$features_text" 'the host panel is planned'
 t_contains "$frag_text" '<section id="host" hidden>'
 
+t_case "a paused factory is said as paused, and as finishing the issue it has"
+t_contains "$board_text" 'FACTORY PAUSED, FINISHING #'
+t_contains "$board_text" ', still finishing #'
+t_contains "$frag_text" 'if (s.paused) { pill.className = "pill pause"; pill.textContent = finishing.length ? "paused, finishing #"'
+t_lacks "$frag_text" 'else if (s.paused) { pill.className = "pill pause"; pill.textContent = "paused"; }'
+t_contains "$manual_text" 'paused and, while a cycle is still running, that it is finishing that issue'
+t_contains "$features_text" 'not proven that a cycle finishes while the factory is paused'
+
 t_done
