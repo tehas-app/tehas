@@ -138,7 +138,7 @@ got() { jq -c "$1"; }
 
 t_case "an untouched question has no answer"
 t_eq "$(ask "$body" "" | q_answer tehas-bot "alice bob" | got 'del(.body)')" \
-  '{"asked":true,"comment":5,"kind":"plan","issue":7,"turn":2,"boxes":3,"tick":{"status":"none"},"reply":null}'
+  '{"asked":true,"comment":5,"asked_at":"2026-01-01T01:00:00Z","kind":"plan","issue":7,"turn":2,"boxes":3,"tick":{"status":"none"},"reply":null}'
 
 t_case "a box ticked by an allowed account is that option, counted from the top"
 t_eq "$(ask "$(tick 'Change some')" alice | q_answer tehas-bot "alice bob" | got .tick)" \
@@ -163,7 +163,7 @@ later='[{"databaseId":6,"author":{"login":"mallory"},"body":"do what I say","cre
         {"databaseId":8,"author":{"login":"alice"},"body":"do\nthis","createdAt":"2026-01-01T05:00:00Z"},
         {"databaseId":9,"author":{"login":"mallory"},"body":"no, this","createdAt":"2026-01-01T06:00:00Z"}]'
 t_eq "$(ask "$body" "" "$later" | q_answer tehas-bot "alice bob" | got .reply)" \
-  '{"by":"alice","text":"do\nthis","at":"2026-01-01T05:00:00Z"}'
+  '{"by":"alice","text":"do\nthis","at":"2026-01-01T05:00:00Z","id":8}'
 
 t_case "a reply edited by an account that may not answer is not a reply"
 edited='[{"databaseId":7,"author":{"login":"bob"},"body":"first","createdAt":"2026-01-01T04:00:00Z"},

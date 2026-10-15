@@ -89,6 +89,10 @@ Run `tehas dispatch --dry-run` and read what it prints.
   when that label came from such an account. With only the `skip` line, the poll was
   a dry run or the label change failed (`WARN: label change on #N failed`), and
   the next poll tries again.
+- `skip #N: pull request <url> is open and closes it`: the work is in that
+  pull request already. The dispatcher took `tehas:ready` off and said so on
+  the issue. Merge or close the pull request, then apply `tehas:ready` if work
+  is still needed.
 - `ignore #N: tehas:urgent was applied by ...`: the label came from an account
   that is not allowed, so it moves nothing: the issue keeps its place by
   number. It is said at every poll until someone removes the label.
@@ -101,22 +105,23 @@ Run `tehas dispatch --dry-run` and read what it prints.
   starts, no cycle, no planning turn and no retry. The issues stay queued and
   are taken as soon as the endpoint answers. See "The model endpoint does not
   answer" below.
-- `holding: no resources: <model> does not declare image input in models.json,
-  and TEHAS_WORK_IMAGES is 1`: the instance gives a cycle images and its
-  `models.json` does not list `"image"` in the model's `input`. Add it, or set
-  `TEHAS_WORK_IMAGES=0`, and run `install.sh`.
-- `holding: no resources: <model> does not answer an image, and
-  TEHAS_WORK_IMAGES is 1`: the model endpoint refused a request with a
-  one-pixel image, or took more than 30 seconds. The model runs without its
-  vision part, or every slot is busy.
-- `holding: no resources: the pi-rukas in the sandbox image <commit> does not
-  read the images a cycle is given, and TEHAS_WORK_IMAGES is 1`: the sandbox
-  image says, by the label its build wrote, that its pi-rukas has no reader for
-  the manifest tehas writes beside the images. Nothing starts, for any issue,
-  and the model endpoint is not asked at all. Run `tehas update`, which
-  rebuilds onto upstream's head, which has the reader, or set
-  `TEHAS_WORK_IMAGES=0` and run `install.sh`. An image put back from before
-  2026-10-14 is what starts the hold: see
+- `hold #N: its text links an attachment and TEHAS_WORK_IMAGES is 1, but
+  <model> does not declare image input in models.json`: the instance gives a
+  cycle images and its `models.json` does not list `"image"` in the model's
+  `input`. Only issues that link an attachment wait; the rest start. Add
+  `"image"`, or set `TEHAS_WORK_IMAGES=0`, and run `install.sh`.
+- `hold #N: ... but <model> does not answer an image`: the model endpoint
+  refused a request with a one-pixel image, or took more than 30 seconds. The
+  model runs without its vision part, or the backend is busy. The request is
+  sent only for an issue that links an attachment and could start now, at
+  most once a poll.
+- `hold #N: ... but the pi-rukas in the sandbox image <commit> does not read
+  them`: the sandbox image says, by the label its build wrote, that its
+  pi-rukas has no reader for the manifest tehas writes beside the images.
+  Only issues that link an attachment wait, and the model is not asked.
+  Run `tehas update`, which rebuilds onto upstream's head, which has the
+  reader, or set `TEHAS_WORK_IMAGES=0` and run `install.sh`. An image put
+  back from before 2026-10-14 is what starts the hold: see
   [Rolling back pi-rukas](/host#rolling-back-pi-rukas).
 - `nothing to do`: the issue is closed, or does not carry `tehas:ready`.
 - `wait #N: its cycle is still running`: `tehas:ready` was applied while the
@@ -125,6 +130,13 @@ Run `tehas dispatch --dry-run` and read what it prints.
   (`park #N` in the log of a real poll): the cycle of that issue ended without
   a report, or never started. The next real poll gives the issue
   `needs-human-attention`. Read `~/tehas/logs/dispatch-work-N.log`.
+- `WARN: the cycle for #N holds its lock but has not been heard from since
+  <time>, more than 1200s: stopping tehas-cycle@N.service`: the cycle's live
+  file has not been written for 20 minutes, so the poll stopped its unit.
+  Read `~/tehas/logs/dispatch-work-N.log` and the end of the cycle's
+  `~/tehas/logs/work-N-*.jsonl` for where it hung. `WARN: could not stop
+  tehas-cycle@N.service` after it means the stop did not go through: stop
+  the unit by hand with `systemctl --user stop tehas-cycle@N.service`.
 - `N cycles running, room for M more`, then `would run a cycle for #N ...`:
   the issues the next poll starts. In the log you may also see `the code index
   stays as it is: a cycle is running on #N`. That is no reason an issue waits.
@@ -135,6 +147,13 @@ Run `tehas dispatch --dry-run` and read what it prints.
 - `another poll, or tehas index, holds the dispatcher's lock`: a poll or an
   index run is under way. Try again in a minute. A running cycle does not hold
   this lock.
+- `WARN: the dispatcher's lock has been held since <time>, more than Ns: a
+  poll or tehas index hangs, and no poll runs until it ends`: logged once by
+  the first poll that finds the lock held longer than `TEHAS_PLAN_TIMEOUT`
+  plus half an hour. No sweep, start or planning turn runs meanwhile. Look for
+  the hung process with `systemctl --user status tehas-dispatch.service`; the
+  unit stops a poll after 3 hours by itself. `~/tehas/state/dispatch.taken`
+  holds when the lock was taken, in seconds since 1970.
 - `ERROR: gh ... failed`: a GitHub call did not answer, or the control issue
   does not exist. The poll ends there on purpose: the pause switch, the limit
   and the labeller check are never decided on an answer that did not come.
@@ -236,25 +255,141 @@ The common ones:
 | review round cap                    | The review kept finding problems                    | Read the review on the pull request                      |
 | developer timeout                   | An agent ran out of wall-clock                      | Usually model endpoint capacity; retry later             |
 
+The caps this factory has posted are explained one by one in the next
+section.
+
 An edit to `AGENTS.md` or `CLAUDE.md` stops nothing here, and its absence from
 the row above is not an oversight: pi-rukas does not halt a cycle for a policy
 edit. The edit ships and you see it in the diff, and the cycle is judged
 against the doctrine at the commit it started from, so an edit of its own
 changes nothing for that cycle. See [Operating tehas](/operating).
 
-## A provider error about context length
 
-```
-This model's maximum context length is 16384 tokens
-```
+## A cycle stops at a cap
 
-A child agent fell back to the first model in `models.json`, a small one.
-`PI_ENSEMBLE_SUBAGENT_MODEL` and `PI_ENSEMBLE_SUBAGENT_PROVIDER` did not reach
-it. Check them in the instance's `instance.env` and run `./install.sh --check`
-in `~/tehas/platform`. Listing the intended model first in `models.json`
-removes the trap.
+pi-rukas's handoff comment has the heading "Cap hit", and its line `**Cap**:`
+names the cap. Under "What this cap means" are pi-rukas's own
+words for this stop, and under "Worktree state at handoff" whether the work is
+on a branch and whether that branch was pushed.
 
-## A cycle parks with `integration-worktree-violation`
+Read the rest of the comment with three things in mind:
+
+- Its paths are the ones inside the cycle's container. The workspace that is
+  `~/tehas/work/tehas` there is `~/tehas/work/tehas-<issue>` on the host.
+- Its "Concrete recovery commands" are written for pi-rukas run by hand. On
+  the host a retry does what they do: tick `Retry from a clean start` in the
+  bot's comment, or apply `tehas:ready`. Both start a fresh cycle from the
+  first step, in a new workspace. Commits that were never pushed are kept in
+  `tehas-<issue>.before-retry` until the next retry. See step 5 of
+  [Operating](/operating).
+- The workspace was written by the cycle's container, its git settings and
+  hooks included. tehas never runs git in it on the host: git there runs what
+  the cycle left in those settings. Read its files instead.
+
+A retry approves the issue text as it is then, so change the issue first when
+the cap asks for it. A cap posted on a pull request came from the review
+stage, after the pull request was opened. When that pull request is still open
+at the end of the cycle, the issue gets `tehas:awaiting-merge`, not
+`needs-human-attention`.
+
+These are the caps the factory posted on its own issues from 10 to 14 October
+2026, most frequent first.
+
+### `verify-failed:develop`
+
+After the develop step, the driver ran the checks itself, and they did not
+back the developer's claim that the work is done. The lines under "What this
+cap means" say which check. Three kinds were seen:
+
+- `touched out-of-scope path <file> - declared fence violated
+  (issue-fenced)`. The plan marked that file as out of scope for the work,
+  and the developer changed it anyway. On this factory the files were tests
+  (`test/*_test.sh`), manual pages (`host/docs/*.md`), the front page's style
+  sheets (`host/fun/*.css`), and in one cycle scripts as well. Tests and
+  manual pages are what the repository's rules require a change to touch, so
+  the plan's fence and the rules disagree
+  (janit/tehas#159, trail-openers/pi-rukas#1250). Name in the issue every file
+  the change will touch, the test file and the manual page included, as
+  step 1 of [Operating](/operating) says.
+- `verify command ... failed on the CONSOLIDATED tree`, or `exceeded its
+  10-min timeout`. The product's gate failed on the change, or ran past its
+  time. The gate's output follows in the comment. Often a real defect. If the
+  failure is in code the cycle did not touch, see "The verify gate fails on
+  code the cycle did not touch" below.
+- The fix pass after the adversarial review did not clear: it changed
+  nothing, or it removed lines it should not have.
+
+The work is committed on a local branch in the workspace and was not pushed.
+There is no pull request. Change the issue where the cause is in it, then
+retry.
+
+### `intent-park`
+
+The cycle stopped before the plan. Having read the issue and the code, the
+driver did not settle on what to build. No branch was made and nothing
+was written. The first sentence of "What this cap means" says which verdict,
+and "Resolver's rationale" says why.
+
+| The comment says | Verdict | What to change |
+| --- | --- | --- |
+| "does not say enough to build from" | underspecified | Add a `## Acceptance criteria` section, or say concretely what should change |
+| "central claim is contradicted by the code as it actually is" | contradicted-by-code | What the issue says about the code is not what the code does now. The issue may be stale, or describe a bug already fixed. Read the evidence in the comment, then correct the issue or close it |
+| "rests on a premise the driver could not substantiate" | premise-unsound | Name where the API or behaviour the issue relies on is, or correct the premise |
+| "appears to be already implemented" | already-implemented | Close the issue, or say what is still missing |
+| "is too large to execute as one cycle" | too-large | Split it into several issues |
+
+The last one is in pi-rukas and was not seen here. After the change, retry.
+
+### `wall-clock`
+
+The review stage's rounds of review and fix ran past pi-rukas's limit of 90
+minutes. The comment is on the pull request. The pull request is open, with
+what was pushed before. The comment names the worktrees in the workspace that
+hold the cycle's commits; what was not pushed is only there. Read the review on the pull request, then merge
+it, finish it by hand, or close it. Nothing in the issue needs to change. Close
+the pull request before you retry: while it is open, a new cycle stops at
+`existing-pr-detected`.
+
+### `step-failed:adversarial`
+
+The adversarial review could not run: its dispatch failed twice. It says
+nothing about the code. All three times it was seen here, on 14 October, the
+model endpoint was timing out (janit/tehas#147,
+trail-openers/pi-rukas#1243). The work is committed on a local branch in the
+workspace and was not pushed. There is no pull request. Check the endpoint,
+as in "The model endpoint does not answer" below, and retry once it answers.
+The issue needs no change. The retry starts from the first step: the work
+already done is not reused.
+
+### `develop-incomplete-deliverables`
+
+The gate passed, but the change lacks a part the plan declared. The comment
+names the missing parts by id and path, for example `d5
+(host/docs/dashboard.frag)`. pi-rukas has already tried once to add them.
+The work is committed on a local branch in the workspace and was not pushed.
+There is no pull request. Retry: a new cycle gets a new attempt at the
+missing parts. If a missing part is one the issue does not want, say so in
+the issue first.
+
+### `lens-fix-not-integrated`
+
+In the review stage, a round of fixes was made in a worktree and could not be
+committed onto the branch. Both times it was seen, git said `Committing is
+not possible because you have unmerged files`. The comment is on the pull
+request. The pull request is open with the code from before that round; the
+fixes are only in the workspace. Read the review's findings on the pull
+request, then merge it, fix it by hand, or close it. Close it before you
+retry, as for `wall-clock`.
+
+### `lens-fix-reposition`
+
+In the review stage, the next round of fixes could not fetch the branch from
+GitHub (`couldn't find remote ref`). Both times it was seen, the pull request
+had been merged while the review ran, and its branch was gone. Then nothing
+is left to do. If the pull request is not merged, look for why the branch is
+not on GitHub.
+
+### `integration-worktree-violation`
 
 ```
 integrate worktree could not be created: refusing to force-remove existing
@@ -283,6 +418,34 @@ The work of a parked cycle is not lost. Its commits are in the cycle's own
 workspace, `~/tehas/work/<product>-<N>/.worktrees/issue-<N>-*`, and the
 driver's combined commit is on the local branch `feature/issue-<N>-...` there.
 A retry moves that workspace to `<product>-<N>.before-retry`.
+Once the push works, retry.
+
+### `existing-pr-detected`
+
+Before any work, pi-rukas found a pull request already open for the issue:
+its branch names the issue, or its description closes it (`Fixes #<N>`).
+Nothing was written. Here it was once a pull request of an earlier cycle and
+once a person's own. Merge that pull request, or close it and retry. A retry
+while it is open stops the same way.
+
+### `review-incomplete`
+
+In the review stage, at least one of the six review passes failed every
+retry, so the review did not finish. That is not a rejection. The comment is
+on the pull request, which is open with the work pushed. Review the change
+yourself, then merge or close it.
+
+## A provider error about context length
+
+```
+This model's maximum context length is 16384 tokens
+```
+
+A child agent fell back to the first model in `models.json`, a small one.
+`PI_ENSEMBLE_SUBAGENT_MODEL` and `PI_ENSEMBLE_SUBAGENT_PROVIDER` did not reach
+it. Check them in the instance's `instance.env` and run `./install.sh --check`
+in `~/tehas/platform`. Listing the intended model first in `models.json`
+removes the trap.
 
 ## The model endpoint does not answer
 

@@ -75,29 +75,66 @@ means:
   prototype built elsewhere,
 - someone applies `tehas:ready`, as in step 2.
 
-Attachments are reference for people today. The cycle reads the issue body and
-nothing else, so anything it must know has to be in the text. For a picture
-that means words: name the element by its selector and its visible title, and
-say where in it the thing goes.
+## Attachments
 
-An instance can give a cycle the images of its issue, with
-`TEHAS_WORK_IMAGES=1`. [tehas work](/tools#tehas-work) then fetches the images
-the issue text links and mounts them read-only in the cycle's container.
-Whether the cycle's first two steps, explore and plan, are actually shown them
-is what the sandbox image's own label answers, and the pinned pi-rukas does not
-read them yet, so the dispatcher holds every cycle while the setting stands,
-not only an issue whose text links a picture. The plan
-puts the placement into words, and the later steps read the plan. Images in
-comments are not read, and no cycle has been seen to use a picture yet, so
-words in the text stay the safe way.
+What is attached to an issue reaches three parts of tehas, each by its own
+rule. A cycle works from words first: anything it must know is safest in the
+issue text.
+
+| What                                        | A cycle | A planning session | The Protolab |
+| ------------------------------------------- | ------- | ------------------ | ------------ |
+| The issue's title and body                  | Read | Read, at the start | The title |
+| Comments on the issue                       | Not given | Replies by an allowed account to its question, as answers | Not shown |
+| A png, jpg, webp or gif linked in the body  | Fetched and mounted with `TEHAS_WORK_IMAGES=1`; shown to explore and plan when the sandbox image says its pi-rukas reads them | The same | Shown |
+| The same image linked in a comment          | With `TEHAS_WORK_COMMENTS=1`, when an allowed account wrote it before the label or the retry tick and nobody edited it since | When a reply to its question links it | Shown |
+| md, txt, csv, json, yaml, log, html, css or js linked in the body | Fetched and mounted with `TEHAS_WORK_FILES=1`; pi-rukas does not read them yet | The same | html, css, js, json and txt shown, html in a frame |
+| svg, avif, a video                          | Not given | Not given | Shown |
+| Any other file, such as a zip or a pdf      | Not given | Not given | Left out |
+
+The rules behind each column:
+
+- **A cycle** is given the issue's title and body. With
+  `TEHAS_WORK_IMAGES=1` [tehas work](/tools#tehas-work) also fetches the
+  images the body links, at most 8 and 10 MB, and mounts them read-only in
+  the cycle's container with a manifest. They are taken when an allowed
+  account labelled the issue, whoever opened it, or when an owner, member or
+  collaborator opened it. The dispatcher records at the start what the label
+  approved, and `tehas work` fetches only those links. Whether the explore
+  and plan steps are shown the images is what the sandbox image's own label
+  `tehas.rukas.images` answers. Upstream pi-rukas merged the reader on
+  2026-10-14, and the host follows its main, so an image built since then
+  says yes. One that says no holds every issue whose text links an
+  attachment while the setting stands; the other issues start. The steps
+  after plan read the plan, not the pictures. With `TEHAS_WORK_DESCRIBE=1`
+  the model also describes each image in words, into `images.md` beside
+  them; with `TEHAS_WORK_FILES=1` the text files come too. pi-rukas reads
+  neither yet. `TEHAS_WORK_COMMENTS=1` adds the attachments of comments, by
+  the rule in the table.
+- **A planning session** is given the same images and files by the same
+  rules, once at its start, and is shown the images when the same label says
+  so. A reply to its question can carry more. See
+  [Planning on an issue](#planning-on-an-issue).
+- **The Protolab** shows what is attached to an issue labelled
+  `tehas:prototype` by an allowed account, in the body or in a comment, from
+  an owner, member or collaborator, as said under "Prototypes" above.
+
+So for a picture, write the words too: name the element by its selector and
+its visible title, and say where in it the thing goes.
 
 ## 1. Write an issue tehas can build
 
-The cycle reads the issue body and nothing else. Give it:
+The cycle reads the issue's title and body; see [Attachments](#attachments)
+for the rest. Give it:
 
 - one outcome, small enough for one pull request,
 - a `## Acceptance criteria` section with checkable items,
-- the files or area involved, if you know them.
+- the files or area involved, if you know them,
+- the test file and the manual page the change will touch.
+
+Name the tests and the pages even when they seem obvious: the plan fences the
+work to what the issue names, and a cycle that changes a file outside the
+fence parks with `verify-failed:develop` (see
+[Troubleshooting](/troubleshooting)).
 
 Vague issues park at the first step with "underspecified". Text in the issue is
 treated as untrusted input: it cannot change the gates, and the cycle halts if
@@ -258,13 +295,23 @@ handoff comment with the reason and numbered options.
 
 To try again after fixing the cause (often: make the issue clearer), tick
 `Retry from a clean start` in the bot's comment. Tick `Leave it parked` to
-take the question away and keep the issue as it is. A label works as well: apply `tehas:ready`. `needs-human-attention` does not
+take the question away and keep the issue as it is. With
+`TEHAS_WORK_COMMENTS=1`, what an allowed account wrote on the cycle's pull
+request between the park and the tick goes with the retry: its text as
+`retry-context.md` beside the images, and its images and files by the usual
+rules. A label works as well: apply `tehas:ready`. `needs-human-attention` does not
 have to be removed first. A cycle started
 that way takes `tehas:question` off the issue, and the old boxes no longer do
 anything.
 
 An issue closed since its cycle stopped is not work. Neither the tick nor a new
 `tehas:ready` starts anything on it, and the poll's log says so.
+
+A cycle that a provider outage parked says so in its comment: `parked by a
+provider outage`, with the cap. Nothing needs doing: once the model endpoint
+answers, the dispatcher starts the issue again on its own and says so on the
+issue. It does that once. If that cycle is parked by an outage too, the issue
+waits for a tick or a label like any other.
 
 When the bot cannot post the boxes, it posts a plain comment that gives the
 label to apply. When the boxes are posted and the label `tehas:question` cannot be
@@ -281,8 +328,11 @@ loses `tehas:running`.
 
 A tick counts only from an allowed labeller, and only while the issue is
 parked and open: it carries `needs-human-attention` and neither
-`tehas:running` nor `tehas:awaiting-merge`. It is used once. When the cycle starts, the bot unticks
-the box, so the same tick cannot start a second cycle. A box ticked by anyone
+`tehas:running` nor `tehas:awaiting-merge`. It is used once. The poll first
+marks the issue `tehas:running`; if GitHub refuses that, the tick stays and
+the next poll tries again. Once the issue is marked the question is no longer
+on record, so the same tick cannot start a second cycle, and the bot unticks
+the box to show it was taken. A box ticked by anyone
 else, or more than one box, is unticked and the bot says so in a comment.
 A retry ticked on an issue that is not parked is unticked too, and the bot
 says that nothing was started.
@@ -302,7 +352,9 @@ host, such as commits on worktrees that were never pushed, is moved to
 `~/tehas/work/tehas-<issue>.before-retry` and stays there until a cycle of that
 issue merges or leaves a pull request. Only the latest stopped attempt is kept:
 a second retry replaces it. Recover what you need from a stopped cycle before
-you retry twice.
+you retry twice. Nothing is kept for ever: the dispatcher's poll removes an
+issue's kept workspaces once no cycle has run on it for 7 days, three issues a
+poll at most, and logs each removal.
 
 A label or a tick approves the text of the issue as it was at that moment. If
 someone other than an allowed labeller changes the title or the body
@@ -336,9 +388,13 @@ dispatcher's log says so.
    the agent offers more than 20 choices, the first 20 get a box and a line
    says how many were left out; reply to name another one. The
    last box and the label come after every turn, whether or not the agent
-   asked something, and a reply or the last box works either way.
+   asked something, and a reply or the last box works either way. When the
+   agent asks more than one question in a turn, the comment lists them all,
+   numbered, with their choices as text and no box for them: answer them in
+   a reply.
 4. Answer by ticking one box, or by replying in a comment when none of the
-   boxes fits. If you do both, the reply counts. The next poll that is free
+   boxes fits. If you do both, the reply counts, and the agent is told
+   which box was ticked as well. The next poll that is free
    continues the session with your answer, and the issue carries
    `tehas:planning` while the turn runs. A poll waits for a planning turn,
    so while another planning turn runs, your answer waits until it ends,
@@ -348,12 +404,23 @@ dispatcher's log says so.
    endpoint does not list the model.
 5. The agent shows you a plan before it files it, and files it when you
    confirm. Every turn of a session works on the commit the session started
-   on, so the plan you confirm is the plan that is filed, word for word, if
-   you confirm within two hours of seeing it. After that the agent reviews it
-   again before it files. The agent files the issues it plans with the bot's
-   token. To finish, tick
+   on. Whether what is filed is what you saw depends on pi-rukas. The release
+   tehas installs, v0.12.79, keeps no record of the plans it showed, so read
+   the issues it files. A later release keeps one, and a confirmed plan is
+   then filed as it was shown when it is found there: with no time limit
+   from a release that reads `PI_ENSEMBLE_PLAN_CACHE_TTL_MS`, within two
+   hours from one that does not. A plan that is not found is drafted again.
+   The agent files the issues it plans with the bot's token. To finish, tick
    `End this planning session`. Filed issues are never started on their own:
-   apply `tehas:ready` to the ones you want built.
+   apply `tehas:ready` to the ones you want built. The agent is told to add
+   and remove no `tehas:*` label and no `needs-human-attention` on any issue.
+   A `tehas:ready` it applies anyway is taken off, as one from any account
+   outside the list is.
+
+The conversation of a session is kept by Pi on the host, in
+`~/.pi/agent/sessions`. If it is gone, for example after the host was rebuilt,
+the session cannot go on: the bot ends it, says so, and your answer is not
+sent. Apply `tehas:plan` again to start a new session.
 
 Only answers from allowed labellers count. A box ticked by anyone else, or
 more than one box, is unticked and the bot says so. A reply counts only if its
@@ -366,10 +433,15 @@ a box and a reply do nothing.
 
 Where the instance gives a cycle the images an issue links
 (`TEHAS_WORK_IMAGES=1`), a planning session is given them too, by the same
-rules, once at its start. The bot says what it fetched, which it left out, and
-whether the session was shown them. If one cannot be fetched, no session starts
-and the bot says so. The pi-rukas that tehas installs does not show them to the
-planning agent yet, so describe in words what a picture shows.
+rules, once at its start, and with `TEHAS_WORK_FILES=1` its text files. The
+bot says what it fetched, which it left out, and whether the session was shown
+them. If one cannot be fetched, no session starts and the bot says so. A reply
+can carry a picture or a file too: the next turn adds what the reply links to
+the session's images, by the same rules and limits, and tells the agent their
+names. What it leaves out the bot says. If one cannot be fetched, the turn
+does not run, and the bot says so; reply again to run it. The planning agent
+is shown the images when the sandbox image's label says its pi-rukas reads
+them. See [Attachments](#attachments).
 
 What the agent writes in the bot's comments is posted on the issue. On a
 public repository that is public. Secrets and private network addresses are
@@ -449,8 +521,12 @@ reaches them. Remove the label to resume.
 - No cycle, no planning turn and no retry while there are no resources: the
   model endpoint does not answer, or does not offer the configured model. The
   dispatcher asks it at every poll. `tehas status` says `warn: No resources`
-  and the dashboard says `no resources` until it is back. With
-  `TEHAS_WORK_IMAGES=1` a model that does not read an image counts the same.
+  and the dashboard says `no resources` until it is back.
+- With `TEHAS_WORK_IMAGES=1`, no cycle for an issue whose text links an
+  attachment while the model does not read images. The dispatcher asks the
+  model with a one-pixel image only when such an issue could start now, at
+  most once a poll. The issue stays queued, the log says `hold #N: ...`, and
+  issues without images start as usual. A planning turn is not held by it.
 - One cycle at a time on a pi-rukas that is new on the host: one that no
   cycle here has ended as `merged`, or as a handoff with a pull request, on.
   While a cycle runs on it, `tehas status` says `holding: pi-rukas <commit> is
@@ -560,7 +636,10 @@ tehas work 123 --restart
 ```
 
 It does not take the dispatcher's lock, so a poll can start a queue cycle while
-yours runs. Apply `tehas:pause` first, or check that nothing is ready.
+yours runs. Apply `tehas:pause` first, or check that nothing is ready. It does
+take the issue's own lock: for an issue whose cycle is running it refuses with
+exit 5 and touches nothing, and while yours runs the dispatcher starts no cycle
+for that issue.
 
 ## Watching a running cycle
 
