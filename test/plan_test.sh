@@ -638,20 +638,25 @@ t_eq "$(ls -A "$T/keep")" "brief.md
 commit"
 t_eq "$(cat "$T/keep/brief.md")" "$(cat "$T/brief.md")"
 
-t_case "the plan cache the agent leaves is kept: plain .json files only"
+t_case "the plan cache the agent leaves is kept: plain .json files and the .filed and .claim markers only"
 reset
 cat >"$fx/cache" <<'EOF'
 mkdir -p "$ws/.git/pi-plan-cache/sub"
 echo '{"spec":"one"}' >"$ws/.git/pi-plan-cache/a1.json"
 echo '{"spec":"sub"}' >"$ws/.git/pi-plan-cache/sub/b.json"
-echo claim >"$ws/.git/pi-plan-cache/a1.json.claim"
+echo claim >"$ws/.git/pi-plan-cache/a1.claim"
+echo filed >"$ws/.git/pi-plan-cache/a1.filed"
+echo other >"$ws/.git/pi-plan-cache/a1.json.tmp"
 ln -s /etc/passwd "$ws/.git/pi-plan-cache/link.json"
+ln -s /etc/passwd "$ws/.git/pi-plan-cache/link.filed"
 head -c 1048577 /dev/zero >"$ws/.git/pi-plan-cache/big.json"
+head -c 1048577 /dev/zero >"$ws/.git/pi-plan-cache/big.claim"
 EOF
 t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 0
-t_eq "$(ls -A "$T/keep/pi-plan-cache")" "a1.json"
+t_eq "$(find "$T/keep/pi-plan-cache" -mindepth 1 -printf '%f\n' | sort | tr '\n' ' ')" "a1.claim a1.filed a1.json "
 t_eq "$(cat "$T/keep/pi-plan-cache/a1.json")" '{"spec":"one"}'
+t_eq "$(cat "$T/keep/pi-plan-cache/a1.filed")" "filed"
 t_eq "$([ -e "$tree" ] && echo left)" ""
 
 t_case "a later turn is at the session's commit after the branch moved on, with the cache it left and the approved text"
@@ -669,7 +674,7 @@ t_eq "$(cat "$T/calls/head.seen")" "$pinned"
 t_eq "$(cat "$T/calls/brief.seen")" "$first"
 t_eq "$(cat "$T/calls/tree.status")" ""
 t_eq "$(git -C "$checkout" rev-parse origin/main | grep -c -x "$pinned")" 0
-t_eq "$(cat "$T/calls/cache.seen")" "a1.json"
+t_eq "$(tr '\n' ' ' <"$T/calls/cache.seen")" "a1.claim a1.filed a1.json "
 t_eq "$(cat "$T/calls/cache.read")" '{"spec":"one"}'
 t_eq "$(cat "$T/keep/commit")" "$pinned"
 

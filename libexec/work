@@ -39,8 +39,9 @@
 #   TEHAS_WORK_FILES    1 gives the cycle the text files its issue links [0]
 #   TEHAS_WORK_COMMENTS 1 takes those of the issue's comments too [0]
 # From the environment, for tests: TEHAS_PREFLIGHT_WAIT (seconds the push check
-# may take [300]) and TEHAS_STOP_WAIT (seconds a docker stop may take before
-# the container is killed [60]).
+# may take [300]), TEHAS_STOP_WAIT (seconds a docker stop may take before
+# the container is killed [60]) and TEHAS_CONSOLE_WAIT (seconds the console
+# may take to stop before it is killed [30]).
 #
 # TEHAS_WORK_TIMEOUT bounds the watch loop. Every call to Docker or git
 # outside it is bounded too: a dockerd that stops answering, or a network
@@ -235,6 +236,8 @@ image_file=$TEHAS_HOME/state/cycles/$issue.image
 stall=$TEHAS_WORK_STALL
 preflight_wait=${TEHAS_PREFLIGHT_WAIT:-300}
 stop_wait=${TEHAS_STOP_WAIT:-60}
+console_wait=${TEHAS_CONSOLE_WAIT:-30}
+[[ $console_wait =~ ^[1-9][0-9]{0,3}$ ]] || console_wait=30
 
 [ -n "${GH_TOKEN:-}" ] || { echo "tehas work: GH_TOKEN is not set (source ~/tehas/env.sh)" >&2; exit 64; }
 mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state/cycles"
@@ -438,8 +441,29 @@ console=$live/console-$issue.txt
 # The cycle does not depend on it: without a console it runs all the same,
 # and this says why the dashboard shows none.
 [ -x "$here/console" ] || echo "tehas work: no console at $here/console, so the dashboard shows none; run install.sh"
+# Names the host knows that an agent can print, for the console to mask: the
+# host aliases, the model host and the bot's email. They are names, not
+# secrets, so they may go on a command line; a token never does. A name under
+# 4 characters would mask ordinary text.
+private=()
+add_private() { if [ "${#1}" -ge 4 ]; then private+=(--private "$1"); fi; }
+IFS=',' read -ra pairs <<<"${PI_ENSEMBLE_HOST_ALIASES:-}"
+for pair in "${pairs[@]}"; do
+  add_private "${pair%%:*}"
+  [ "${pair#*:}" = "$pair" ] || add_private "${pair#*:}"
+done
+model_host=$(jq -r --arg p "$PI_ENSEMBLE_SUBAGENT_PROVIDER" '.providers[$p].baseUrl // ""' "$agent/models.json" 2>/dev/null) || model_host=""
+model_host=${model_host#*://}
+model_host=${model_host%%/*}
+model_host=${model_host##*@}
+case "$model_host" in
+  \[*) model_host=${model_host#[}; model_host=${model_host%%]*} ;;
+  *) model_host=${model_host%%:*} ;;
+esac
+add_private "$model_host"
+add_private "$bot_email"
 "$here/console" --rpc "$log" \
-  --runs "$runs" --out "$console" --since "$((started - 5))" >/dev/null 2>"$log.console" 4>&- &
+  --runs "$runs" --out "$console" --since "$((started - 5))" "${private[@]}" >/dev/null 2>"$log.console" 4>&- &
 cpid=$!
 now_file() { # running? status step
   local text
@@ -447,7 +471,7 @@ now_file() { # running? status step
   # it goes through the console's mask, and without a console it is not
   # published at all.
   text=$(tail -c 60000 "$log" 2>/dev/null | grep -o '"statusText":"[^"]*"' | tail -n 1 | cut -d'"' -f4 |
-    "$here/console" --mask 2>/dev/null)
+    "$here/console" --mask "${private[@]}" 2>/dev/null)
   jq -n --argjson issue "$issue" --argjson running "$1" --arg status "$2" --arg step "$3" \
     --arg text "$text" --argjson startedAt "$started" --argjson at "$(date +%s)" \
     '{issue: $issue, running: $running, status: $status, step: $step, statusText: $text,
@@ -586,6 +610,16 @@ if [ "$forks" -gt 0 ]; then
 fi
 sleep 3 # let the console catch the last transcript lines
 kill -TERM "$cpid" 2>/dev/null
+# The console finishes its pass before it stops. A slow one must not hold the
+# issue's lock and its slot.
+for ((i = 0; i < console_wait * 5; i++)); do
+  kill -0 "$cpid" 2>/dev/null || break
+  sleep 0.2
+done
+if kill -0 "$cpid" 2>/dev/null; then
+  echo "tehas work: the console did not stop within ${console_wait}s, killing it"
+  kill -KILL "$cpid" 2>/dev/null
+fi
 wait "$cpid" 2>/dev/null
 crc=$?
 [ "$crc" = 0 ] || [ ! -x "$here/console" ] || echo "tehas work: the console ended with $crc, see $log.console"

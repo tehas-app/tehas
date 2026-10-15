@@ -113,10 +113,6 @@ if [ "$#" != 1 ] || ! [[ $issue =~ ^[1-9][0-9]*$ ]]; then
   exit 64
 fi
 
-# Read before tehas_load, which clears TEHAS_* from the environment.
-stop_gh_wait=${TEHAS_CYCLE_STOP_GH_WAIT:-20}
-[[ $stop_gh_wait =~ ^[1-9][0-9]{0,3}$ ]] || stop_gh_wait=20
-
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/config.sh
 . "$here/../lib/config.sh"
@@ -128,6 +124,9 @@ tehas_load || exit 78
 # shellcheck source=lib/questions.sh
 . "$here/../lib/questions.sh"
 tehas_require TEHAS_REPO
+
+stop_gh_wait=${TEHAS_CYCLE_STOP_GH_WAIT:-20}
+[[ $stop_gh_wait =~ ^[1-9][0-9]{0,3}$ ]] || stop_gh_wait=20
 
 log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*"; }
 
