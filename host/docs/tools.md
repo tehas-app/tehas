@@ -516,7 +516,7 @@ the product that is kept. For working by hand; see
 [Operating](/operating).
 
 ```
-tehas dev [<name>] [--author "Name <email>"] [-- <pi arguments>]
+tehas dev [<name>] [--author "Name <email>"] [--issue <number>] [-- <pi arguments>]
 tehas dev --help
 ```
 
@@ -526,11 +526,24 @@ never reset or removed. `--author` is stored in `~/tehas/dev/<name>.author` and
 becomes git's name and email in every session of that clone; without one the
 bot's are used. What follows `--` is passed to `pi`.
 
+`--issue <number>` gives the session the images and text files that issue
+links, with `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, by the rules of
+[tehas work](#tehas-work) without an approval record. The person running the
+command approved nothing, so the images are taken when an allowed account
+applied the issue's last `tehas:ready`, or else when an owner, member or
+collaborator opened it. They go to `~/tehas/dev/<name>.images`, remade at
+every start with `--issue`, and the container gets that directory read-only
+at the same path and `PI_ENSEMBLE_EXTRA_IMAGE_DIRS`, which names it. What was
+given and left out is printed; nothing is said on the issue. Without
+`--issue` the session gets neither, and an instance's
+`PI_ENSEMBLE_EXTRA_IMAGE_DIRS` is not passed on.
+
 | Exit | Meaning                                                                                   |
 | ---- | ----------------------------------------------------------------------------------------- |
 | any  | The session's own exit status, as Docker reports it                                       |
+| 4    | With `--issue`: an image or file the issue links could not be fetched, or the issue or its label events could not be read; no container |
 | 64   | A wrong argument, a malformed author, no bot token or no git identity; no container       |
-| 78   | The instance settings are invalid, the clone's directory is not a clone, or `tehas.slice` cannot be used; no container |
+| 78   | The instance settings are invalid, the clone's directory is not a clone, `tehas.slice` cannot be used, or `--issue` was given and the instance gives no images or files; no container |
 
 Arguments are checked before the settings are read, so `--help` works on a
 host with no instance and a mistyped argument makes no clone.
