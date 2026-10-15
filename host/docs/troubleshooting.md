@@ -61,6 +61,12 @@ Run `tehas dispatch --dry-run` and read what it prints.
   an account outside `TEHAS_ALLOWED_LABELERS` removed the label, and removing a
   pause is work an allowed account authorises. An allowed account applies
   `tehas:pause` and takes it off again.
+- `paused: tehas:pause is not on #N, but its last tehas:pause event only applied
+  it: nothing has taken the pause off`: the label left the control issue without
+  any account taking it off, which is what deleting or renaming the label itself
+  looks like. No account was asked to lift the pause, so the factory stays
+  paused. An allowed account applies `tehas:pause` and takes it off again, and
+  `tehas labels` puts a deleted label back.
 - `WARN: ~/tehas/state/pause.json is not a pause flag: taking it as paused`: the
   flag file is damaged, and a switch that cannot be read is taken as closed.
   `tehas resume` removes it; `tehas pause` writes one that can be read.

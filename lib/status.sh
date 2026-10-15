@@ -52,16 +52,17 @@ tehas_state_defs='
   def age($now): (try (fromdateiso8601 | ago($now)) catch "at an unknown time");
   # What holds the factory paused, one line for each switch that is set:
   # {flag: {at, reason} or null, label: true|false, lifted: true|false}, as
-  # health.json writes it. lifted names the case where the label is off and the
-  # account that took it off may not authorise work, so the host stays paused.
+  # health.json writes it. lifted names the case where the label is off and no
+  # allowed account took it off, so the host stays paused: a stranger removed it,
+  # or the label object itself was deleted.
   def oneline: '"$tehas_pause_oneline"';
-  def pause_lines($now): if . == null or (.flag == null and .label != true) then empty else . end
+  def pause_lines($now): if . == null or (.flag == null and .label != true and .lifted != true) then empty else . end
     | ((if .flag == null then empty
         else "pause     flag, written \(.flag.at // "" | age($now))"
              + (if (.flag.reason // "" | oneline) == "" then "" else ": \(.flag.reason | oneline)" end)
         end),
        (if .label == true then "pause     label: tehas:pause on the control issue" else empty end),
-       (if .lifted == true then "pause     label: tehas:pause was taken off the control issue by an account that may not authorise work here" else empty end));
+       (if .lifted == true then "pause     label: tehas:pause is off the control issue, but no account in TEHAS_ALLOWED_LABELERS took it off" else empty end));
 '
 
 # tehas_pause_read <file>: the pause flag, as tehas pause writes it.

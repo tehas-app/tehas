@@ -5,8 +5,8 @@
 # reports the other switch: tehas:pause on the control issue. Removing the flag
 # does not touch that label, and only an account in TEHAS_ALLOWED_LABELERS can
 # lift it: when the tehas:pause event with the latest stamp on the control issue
-# is a removal by anyone else, the factory stays paused and this command says
-# who removed it.
+# is a removal by anyone else, or is an application nothing has taken back, the
+# factory stays paused and this command says who removed it.
 #
 # Usage: tehas resume
 #        tehas resume -h|--help   print this text and exit 0
@@ -79,11 +79,17 @@ events=$(gh api "repos/$repo/issues/$control/events?per_page=100" --paginate 2>/
   echo "tehas resume: the label events of issue #$control could not be read" >&2
   exit 0
 }
-by=$(tehas_pause_holds <<<"$events")
+pause_event=$(tehas_pause_holds <<<"$events")
 case $? in
   0)
-    printf 'the factory stays paused: tehas:pause was taken off #%s by %s, who may not authorise work here\n' \
-      "$control" "'${by:-unknown}'"
+    pause_kind=${pause_event%%$'\t'*}
+    pause_by=${pause_event#*$'\t'}
+    if [ "$pause_kind" = unlabeled ]; then
+      printf 'the factory stays paused: tehas:pause was taken off #%s by %s, who may not authorise work here\n' \
+        "$control" "'${pause_by:-unknown}'"
+    else
+      printf 'the factory stays paused: tehas:pause is not on issue #%s, but its last tehas:pause event only applied it\n' "$control"
+    fi
     ;;
   2) echo "tehas resume: the label events of issue #$control could not be read" >&2 ;;
 esac

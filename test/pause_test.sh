@@ -121,6 +121,14 @@ t_run "$resume"
 t_contains "$t_out" "taken off #1 by 'unknown'"
 t_eq "$(t_calls gh | grep -c 'events')" 3
 
+t_case "resume says when nothing took the label off, only applied it"
+reset
+pause_events labeled mallory
+t_run "$resume"
+t_eq "$t_rc" 0
+t_contains "$t_out" "its last tehas:pause event only applied it"
+t_contains "$t_out" "stays paused"
+
 t_case "resume with no pause event on the control issue says nothing extra"
 reset
 t_run "$resume"

@@ -2,7 +2,7 @@
   "generatedAt": "2026-10-10T12:00:00Z",
   "repo": "example/preview",
   "paused": false,
-  "pause": {"flag": null, "label": false},
+  "pause": {"flag": null, "label": false, "lifted": false},
   "running": [],
   "queued": [
     {"number": 2, "title": "Sample: a ticket in line", "url": "https://github.com/", "updatedAt": "2026-10-10T11:00:00Z", "closedAt": null}

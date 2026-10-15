@@ -494,14 +494,20 @@ the example, issue 1), is the switch that works from away from the host. It work
 one way. Anyone who may label the repository may apply it, because stopping is
 the safe direction. Only an account in `TEHAS_ALLOWED_LABELERS` lifts it: when
 the label is gone and the `tehas:pause` event with the latest stamp on the
-control issue is a removal by anyone else, or names nobody, the poll starts
-nothing and logs who removed it. To resume from away, an allowed account applies
+control issue is a removal by anyone else, names nobody, or is an application no
+event took back, the poll starts nothing and says what it found. Deleting or
+renaming the label itself is the last of those: no account was asked to lift the
+pause, so it holds. To resume from away, an allowed account applies
 `tehas:pause` and takes it off again. A poll that cannot read the control issue's
 label events starts nothing.
 
 While either switch is set the poll starts nothing: no cycle, no planning turn,
 no answer to a planning question, no retry by a tick. A cycle already running
-finishes. `tehas status` prints a line for each switch that is set, with when the
+finishes, and the poll still gives up work that is finished: it stops a cycle
+whose issue is closed or whose pull request is merged or closed, stops one nobody
+has heard from, and clears an issue marked `tehas:running` with no cycle behind
+it. A paused factory therefore keeps no slot and no model time for work it has
+already done. `tehas status` prints a line for each switch that is set, with when the
 flag was written and why; the dashboard and the front page say the factory is
 paused and, while a cycle is still running, that it is finishing that issue.
 

@@ -698,8 +698,9 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "paused: the flag tehas pause wrote at 2026-10-15T10:00:00Z holds this host"
 t_lacks "$t_out" "would run a cycle"
 t_eq "$(t_calls fake-start)" ""
+# The flag decides on its own: the control issue is not asked about at all.
 t_lacks "$(t_calls gh)" "issue view"
-t_lacks "$(t_calls gh)" "issue list"
+t_lacks "$(t_calls gh)" "issues/1/events"
 
 t_case "a flag that cannot be read starts nothing and is said"
 reset
@@ -765,6 +766,24 @@ mv "$fx/events-1.json.new" "$fx/events-1.json"
 echo '{"labels":[{"name":"tehas:pause"}]}' >"$fx/control.json"
 t_run "$dispatch --dry-run"
 t_contains "$t_out" "paused: issue #1 carries tehas:pause"
+t_eq "$(t_calls fake-start)" ""
+
+t_case "a pause whose label was deleted holds the host"
+reset
+echo '[{"event":"labeled","label":{"name":"tehas:pause"},"actor":{"login":"mallory"},"created_at":"2026-10-15T09:00:00Z"}]' >"$fx/events-1.json"
+t_run "$dispatch --dry-run"
+t_eq "$t_rc" 0
+t_contains "$t_out" "its last tehas:pause event only applied it"
+t_lacks "$t_out" "would run a cycle"
+t_eq "$(t_calls fake-start)" ""
+
+t_case "a pause applied and taken off in the same second holds the host"
+reset
+jq -nc '[{event: "unlabeled", label: {name: "tehas:pause"}, actor: {login: "alice"}, created_at: "2026-10-15T10:00:00Z"},
+  {event: "labeled", label: {name: "tehas:pause"}, actor: {login: "mallory"}, created_at: "2026-10-15T10:00:00Z"}]' >"$fx/events-1.json"
+t_run "$dispatch --dry-run"
+t_eq "$t_rc" 0
+t_contains "$t_out" "only applied it"
 t_eq "$(t_calls fake-start)" ""
 
 t_case "events that cannot be read start nothing"
@@ -1280,12 +1299,13 @@ t_run "$dispatch"
 t_lacks "$(t_calls docker)" "rm "
 release
 
-t_case "a paused factory leaves it"
+t_case "a paused factory still clears it"
 reset
 echo '[{"number":9}]' >"$fx/marked.json"
 echo '{"labels":[{"name":"tehas:pause"}]}' >"$fx/control.json"
 t_run "$dispatch"
-t_lacks "$(t_calls gh)" "issue edit"
+t_contains "$t_out" "park #9: it is marked tehas:running and no cycle holds its lock"
+t_contains "$(t_calls gh)" "issue edit 9 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention"
 
 t_case "when the issues marked as running cannot be read nothing is dispatched"
 reset
@@ -3694,6 +3714,44 @@ t_contains "$t_out" "would stop tehas-cycle@9.service: its issue is closed"
 t_eq "$(t_calls fake-stop)" ""
 t_eq "$(find "$T/home/tehas/state/cycles/9.done" 2>/dev/null | wc -l)" 0
 kill "$(cat "$fx/holder-9")"
+
+# The pause switches say what a poll may start, not what it may clean up: a
+# paused factory still gives up the work it has finished and still clears a mark
+# with no cycle behind it.
+t_case "a paused poll stops a cycle whose issue is closed and starts nothing"
+reset
+stop_by_kill
+pause_flag '{"by":"boss","at":"2026-10-15T10:00:00Z","reason":"waiting for the gate"}'
+hold_proc 9
+echo '{"number":9,"state":"closed"}' >"$fx/work-9.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-stop)" "9"
+t_contains "$t_out" "stop #9: its issue is closed"
+t_eq "$(cat "$T/home/tehas/state/cycles/9.done")" closed
+t_eq "$(t_calls fake-start)" ""
+
+t_case "a paused dry run says it would stop a finished cycle and stops nothing"
+reset
+stop_by_kill
+pause_flag '{"by":"boss","at":"2026-10-15T10:00:00Z","reason":""}'
+hold_proc 9
+echo '{"number":9,"state":"closed"}' >"$fx/work-9.json"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would stop tehas-cycle@9.service: its issue is closed"
+t_contains "$t_out" "paused: the flag tehas pause wrote"
+t_eq "$(t_calls fake-stop)" ""
+t_eq "$(t_calls fake-start)" ""
+kill "$(cat "$fx/holder-9")"
+
+t_case "a paused poll still parks an issue marked tehas:running with no cycle behind it"
+reset
+pause_flag '{"by":"boss","at":"2026-10-15T10:00:00Z","reason":""}'
+echo '[{"number":9}]' >"$fx/marked.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "park #9: it is marked tehas:running and no cycle holds its lock"
+t_eq "$(t_calls fake-start)" ""
 
 t_case "with no cycle running the bot's pull requests are not asked for"
 reset

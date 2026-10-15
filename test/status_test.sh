@@ -18,6 +18,7 @@ case "$*" in
   "issue list"*) [ ! -e "$T/all-down" ] || exit 1; cat "$T/all.json" ;;
   "issue view"*) cat "$T/paused" ;;
   "issue edit"*) [ -z "${GH_EDIT_FAILS:-}" ] || exit 1 ;;
+  "api repos/acme/widget/issues/"*"/events"*) cat "$T/events.json" 2>/dev/null || exit 1 ;;
   "api graphql"*) [ ! -e "$T/shipped-down" ] || exit 1; cat "$T/shipped.json" ;;
 esac'
 closed() { # number closedAt closer [label]: a closed issue as the search for shipped work returns it
@@ -41,6 +42,7 @@ reset() {
   t_instance "${T_MINIMAL[@]}"
   echo "[$(issue 3 tehas:ready),$(issue 4 tehas:ready),$(issue 5 tehas:awaiting-merge),$(issue 6 needs-human-attention)]" >"$T/issues.json"
   echo false >"$T/paused"
+  echo '[]' >"$T/events.json"
 }
 one() { # issue running status step [started [updated]]: one cycle as the work script writes it; times are seconds ago
   printf '{"issue":%s,"running":%s,"status":"%s","step":"%s","startedAt":%s,"updatedAt":%s}' \
@@ -272,10 +274,53 @@ t_case "neither switch set: no pause line, and a pause object that says so"
 reset
 t_run "$status && $summary"
 t_eq "$(jq -r .paused "$live/status.json")" "false"
-t_eq "$(jq -rc .pause "$live/status.json")" '{"flag":null,"label":false}'
-t_eq "$(jq -rc .checks.pause "$live/health.json")" '{"flag":null,"label":false}'
+t_eq "$(jq -rc .pause "$live/status.json")" '{"flag":null,"label":false,"lifted":false}'
+t_eq "$(jq -rc .checks.pause "$live/health.json")" '{"flag":null,"label":false,"lifted":false}'
 t_lacks "$t_out" "pause     "
 t_eq "$(jq -r .status "$live/health.json")" "pass"
+
+# The label works one way: its absence is a resume only when an allowed account
+# took it off. The reporting says what the poll acts on.
+pause_events() { # <event> <login or "">: one tehas:pause event on the control issue
+  local actor
+  [ -z "$2" ] && actor="null" || actor="{\"login\":\"$2\"}"
+  jq -nc --arg e "$1" --argjson a "$actor" \
+    '[{event: $e, label: {name: "tehas:pause"}, actor: $a, created_at: "2026-01-02T00:00:00Z"}]' >"$T/events.json"
+}
+
+t_case "a pause a stranger took off is published as paused, with a line of its own"
+reset
+pause_events unlabeled tehas-bot
+t_run "$status && $summary"
+t_eq "$(jq -r .paused "$live/status.json")" "true"
+t_eq "$(jq -rc .pause "$live/status.json")" '{"flag":null,"label":false,"lifted":true}'
+t_eq "$(jq -rc .checks.pause "$live/health.json")" '{"flag":null,"label":false,"lifted":true}'
+t_eq "$(jq -r .status "$live/health.json")" "warn"
+t_eq "$(jq -r .output "$live/health.json")" "The factory is paused."
+t_contains "$t_out" "pause     label: tehas:pause is off the control issue, but no account in TEHAS_ALLOWED_LABELERS took it off"
+t_lacks "$t_out" "pause     label: tehas:pause on the control issue"
+
+t_case "a pause an allowed account took off is not a pause, and a pause event with no account is"
+reset
+pause_events unlabeled alice
+t_run "$status"
+t_eq "$(jq -r .pause.lifted "$live/status.json")" "false"
+for actor in "" "mallory"; do
+  pause_events unlabeled "$actor"
+  t_run "$status"
+  t_eq "$(jq -r .pause.lifted "$live/status.json")" "true"
+done
+
+# The label is gone and the last pause event only applied it: the label object
+# was deleted or renamed, and no account was asked to lift the pause.
+t_case "a pause no event took off is published as paused"
+reset
+pause_events labeled mallory
+t_run "$status && $summary"
+t_eq "$(jq -r .paused "$live/status.json")" "true"
+t_eq "$(jq -r .pause.lifted "$live/status.json")" "true"
+t_eq "$(jq -r .status "$live/health.json")" "warn"
+t_contains "$t_out" "pause     label: tehas:pause is off the control issue, but no account in TEHAS_ALLOWED_LABELERS took it off"
 
 t_case "a flag that cannot be read still holds the factory paused"
 reset

@@ -152,10 +152,13 @@ and the usage on standard error, before the instance settings are read. A mistyp
 `--dryrun` therefore starts no poll and changes nothing.
 
 Order of rules: the pause switches (this host's flag, then the label on the
-control issue), a usable `tehas.slice`,
+control issue) decide that this poll starts nothing. They do not stop it cleaning
+up what this host already has: it still stops a cycle whose issue is closed or
+whose pull request is merged or closed, stops a cycle nobody has heard from, and
+clears an issue marked `tehas:running` with no cycle behind it. The poll ends
+there. For a factory that is not paused it goes on: a usable `tehas.slice`,
 a model endpoint that answers and offers the model, the free slots
-(`TEHAS_TICKET_CONCURRENCY` less the running cycles, after it has stopped
-the cycles whose issue is closed or whose pull request is merged or closed),
+(`TEHAS_TICKET_CONCURRENCY` less the running cycles, after that housekeeping),
 the cap on issues awaiting merge or being worked on, the room, the containers'
 ceilings and the memory pressure in the slice, who applied `tehas:urgent`,
 then who applied `tehas:ready`, then
@@ -806,14 +809,18 @@ tehas pause waiting for the gate   # and say why
 ```
 
 Writes the pause flag, `~/tehas/state/pause.json`, holding who set it, when and
-why, in a file with mode 600. While it is there the dispatcher starts nothing,
-and a cycle already running finishes. The flag is read without asking GitHub
-anything, so a host can be paused when GitHub cannot be reached. Pausing a
+why, in a file with mode 600. While it is there the dispatcher starts nothing:
+no cycle, no planning turn, no answer to a planning question, no retry by a
+tick. A cycle already running finishes, and the poll still stops one whose issue
+is closed or whose pull request is merged or closed, and still clears an issue
+marked `tehas:running` with no cycle behind it. The flag is read without asking
+GitHub anything, so a host can be paused when GitHub cannot be reached. Pausing a
 paused host succeeds and keeps the first flag. The reason is one argument, kept
 to 200 characters, and it reaches pages that may be public.
 
 Exit 0 when the host is paused, 64 on more than one argument, 78 when the
-instance settings are missing or malformed, which writes nothing.
+instance settings are missing or malformed, which writes nothing, 1 when the flag
+could not be written, a directory in its way among them.
 
 ## tehas resume
 
@@ -824,8 +831,9 @@ tehas resume     # remove this host's pause flag
 Removes the flag, and succeeds when there is none. It then reports the other
 switch: `tehas:pause` on the control issue. Only an account in
 `TEHAS_ALLOWED_LABELERS` lifts that label, so when it is gone and its most recent
-`tehas:pause` event is a removal by anyone else, this says who removed it and
-that the factory stays paused. It never changes a label.
+`tehas:pause` event is a removal by anyone else, or is an application no event
+took back, this says so and that the factory stays paused. It never changes a
+label.
 
 Exit 0 when the flag is gone, whatever the label says, 64 on any argument, 78
 when the instance settings are missing or malformed.
@@ -855,6 +863,7 @@ is paused it adds one line for each switch that is set:
 ```
 pause     flag, written 4 min ago: waiting for the gate
 pause     label: tehas:pause on the control issue
+pause     label: tehas:pause is off the control issue, but no account in TEHAS_ALLOWED_LABELERS took it off
 ```
 
 It reads
@@ -1112,14 +1121,17 @@ refreshed at every poll and at the end of every cycle. The docs server
 serves the file at `/health` and `/healthz` as `application/health+json`.
 `tehas status` prints the same file for a person.
 
-`checks.pause` names the switches: `{flag: {at, reason}, label}`, with `flag`
-null when no flag is set. It carries no `by`: the account that wrote the flag
-stays on the host, because this file is served.
+`checks.pause` names the switches: `{flag: {at, reason}, label, lifted}`, with
+`flag` null when no flag is set, `label` whether `tehas:pause` is on the control
+issue, and `lifted` whether the label is off with no account in
+`TEHAS_ALLOWED_LABELERS` having taken it off, which holds the host paused. It
+carries no `by`: the account that wrote the flag stays on the host, because this
+file is served.
 
 | `status` | Meaning                                                                                  | HTTP |
 | -------- | ---------------------------------------------------------------------------------------- | ---- |
 | `pass`   | Taking work, idle or in a cycle                                                          | 200  |
-| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (the pause flag on this host, or `tehas:pause` on the control issue), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`) | 200  |
+| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`) | 200  |
 | `fail`   | The last cycle ended as anything but `merged` or `handoff` and no cycle has started since, or there is no queue snapshot | 503  |
 
 `output` says the same in a sentence. `checks.queue` has the snapshot time and
