@@ -128,6 +128,17 @@ for bad in "" "7" "x --out $T/out.json --keep $T/keep --brief $T/brief.md" "7 --
   t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
 done
 
+t_case "without Pi's settings.json no turn starts and nothing is written"
+reset
+mv "$T/home/.pi/agent/settings.json" "$T/settings.kept"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 78
+t_contains "$t_out" "no $T/home/.pi/agent/settings.json: run install.sh"
+t_eq "$(t_calls docker)" ""
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+t_eq "$(find "$T/out.json" "$T/keep" -maxdepth 0 2>/dev/null | wc -l)" 0
+mv "$T/settings.kept" "$T/home/.pi/agent/settings.json"
+
 t_case "a first turn writes the session, the message and the question"
 reset
 t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"

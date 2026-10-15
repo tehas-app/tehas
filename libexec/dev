@@ -147,6 +147,7 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/labels.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
+tehas_sandbox_settings_ok || exit 78
 tehas_checkout || exit 78
 branch=$(tehas_branch) || exit 78
 # No container starts outside the slice, and none with half its limits.

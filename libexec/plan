@@ -147,6 +147,7 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/cycles.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
+tehas_sandbox_settings_ok || exit 78
 # Docker would create a missing mount source as a root-owned directory.
 tehas_checkout || exit 78
 branch=$(tehas_branch) || exit 78

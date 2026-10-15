@@ -317,15 +317,29 @@ t_eq "$t_out" "provider retry: timeoutMs=600000 maxRetries=2 maxRetryDelayMs=600
 echo '{"retry":' >"$T/prod/.pi/settings.json"
 t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; tehas_sandbox_retry '$T/prod'"
 t_contains "$t_out" "provider retry: unknown"
+t_contains "$t_out" "is not JSON"
+mv "$T/home/.pi/agent/settings.json" "$T/settings.kept"
+t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; tehas_sandbox_retry '$T/prod'"
+t_eq "$t_out" "provider retry: unknown, $T/home/.pi/agent/settings.json is missing"
+mv "$T/settings.kept" "$T/home/.pi/agent/settings.json"
 rm -rf "$T/prod"
 
-t_case "without Pi's settings.json no cycle starts, and nothing is made in its place"
+t_case "without Pi's settings.json nothing runs: no docker call, the workspace and the kept one as they were"
 mv "$T/home/.pi/agent/settings.json" "$T/settings.kept"
-rm -f "$T"/calls/docker*
+mkdir -p "$ws.before-retry"
+echo kept >"$ws.before-retry/marker"
+echo current >"$ws/marker"
+snapshot() { find "$ws" "$ws.before-retry" -printf '%P %s %T@\n' 2>/dev/null | LC_ALL=C sort | md5sum; }
+before=$(snapshot)
+rm -f "$T"/calls/*
 t_run "$work 7"
 t_eq "$t_rc" 78
 t_contains "$t_out" "no $T/home/.pi/agent/settings.json: run install.sh"
-t_eq "$(cycle_args)" ""
+t_eq "$(t_calls docker)$(t_calls systemctl)" ""
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+t_eq "$(snapshot)" "$before"
+t_eq "$(cat "$ws/marker")" current
+t_eq "$(cat "$ws.before-retry/marker")" kept
 t_eq "$(find "$T/home/.pi/agent/settings.json" -maxdepth 0 2>/dev/null | wc -l)" 0
 mv "$T/settings.kept" "$T/home/.pi/agent/settings.json"
 t_run "$work 7"

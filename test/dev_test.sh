@@ -123,6 +123,17 @@ t_contains "$t_out" "not of acme/widget"
 t_eq "$(containers)" 0
 git -C "$checkout" remote set-url origin "$upstream"
 
+t_case "without Pi's settings.json no container starts and no clone is made"
+mv "$T/home/.pi/agent/settings.json" "$T/settings.kept"
+rm -f "$T"/calls/*
+t_run "$dev"
+t_eq "$t_rc" 78
+t_contains "$t_out" "no $T/home/.pi/agent/settings.json: run install.sh"
+t_eq "$(t_calls docker)" ""
+t_eq "$(containers)" 0
+t_eq "$([ -e "$devs" ] && echo there)" ""
+mv "$T/settings.kept" "$T/home/.pi/agent/settings.json"
+
 t_case "the first run makes the clone at the branch's tip, with the product's origin"
 again
 t_run "$dev"

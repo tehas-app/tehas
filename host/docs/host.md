@@ -318,8 +318,9 @@ preflight log and prints them:
 tehas work: provider retry: timeoutMs=600000 maxRetries=8 maxRetryDelayMs=60000 httpIdleTimeoutMs=unset
 ```
 
-`unset` means Pi's default. Without `~/.pi/agent/settings.json` no container
-starts: run `install.sh`.
+`unset` means Pi's default. Without `~/.pi/agent/settings.json`, `tehas work`,
+`tehas plan` and `tehas dev` stop with exit 78 before they call Docker or git
+or write anything: run `install.sh`.
 
 A host name that only resolves on a private network is not known inside the
 sandbox. Give the sandbox its address with `PI_ENSEMBLE_HOST_ALIASES`

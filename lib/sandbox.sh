@@ -7,6 +7,7 @@
 # the slice it runs in are not made here: they come from lib/slice.sh.
 #
 #   tehas_sandbox_env <tree> <name> <email>   the -e options
+#   tehas_sandbox_settings_ok                 is Pi's settings.json there
 #   tehas_sandbox_mounts <tree> <host> <state> <runs>
 #                                             the -v options
 #   tehas_sandbox_retry <host>                the provider retry a container's
@@ -81,10 +82,18 @@ tehas_sandbox_env() { # <tree> <git name> <git email>
 # retry and timeout. The image has none, and without it Pi makes no retry of a
 # failed request. A missing file is a failure, not a default: Docker would
 # make a root-owned directory in its place.
+# Whether Pi's settings.json is there to be mounted. The commands ask before
+# they call Docker or git or write anything; tehas_sandbox_mounts asks again.
+tehas_sandbox_settings_ok() {
+  [ -f "$HOME/.pi/agent/settings.json" ] && return 0
+  tehas_err "no $HOME/.pi/agent/settings.json: run install.sh"
+  return 1
+}
+
 tehas_sandbox_mounts() { # <tree> <host> <state> <runs>
   local tree=$1 host=$2 state=$3 runs=$4 agent=$HOME/.pi/agent cache
   [ -n "$tree" ] && [ -n "$host" ] && [ -n "$state" ] && [ -n "$runs" ] || return 1
-  [ -f "$agent/settings.json" ] || { tehas_err "no $agent/settings.json: run install.sh"; return 1; }
+  tehas_sandbox_settings_ok || return 1
   cache=$(tehas_sandbox_cache_dir)
   mkdir -p "$runs" "$state/cache" "$state/memory" "$state/sessions" || return 1
   printf '%s\0' -v "$host:$tree" \
@@ -103,6 +112,7 @@ tehas_sandbox_mounts() { # <tree> <host> <state> <runs>
 # sets is Pi's default. For the cycle's log, so a reader of it knows them.
 tehas_sandbox_retry() { # <host>
   local global=$HOME/.pi/agent/settings.json project=$1/.pi/settings.json
+  [ -f "$global" ] || { echo "provider retry: unknown, $global is missing"; return 0; }
   [ -r "$project" ] || project=/dev/null
   jq -n -r --slurpfile g "$global" --slurpfile p "$project" '
     (($g[0] // {}) * ($p[0] // {})) as $s
