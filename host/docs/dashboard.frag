@@ -29,6 +29,14 @@
   <ul class="issues" id="preview-list"></ul>
 </section>
 
+<section id="host" hidden>
+  <h2>Host <span class="n" id="n-host"></span></h2>
+  <p class="muted" id="host-note"></p>
+  <ul class="issues" id="host-list"></ul>
+  <h3>Units <span class="n" id="n-units"></span></h3>
+  <ul class="issues" id="unit-list"></ul>
+</section>
+
 <script src="/fun/console-tabs.js"></script>
 <script>
 (() => {
@@ -148,6 +156,78 @@
     }
   }
 
+  // The host itself: /live/top.json, the snapshot libexec/top builds, written
+  // by tehasbot top when TEHAS_TOP is 1. A host that does not publish it has no
+  // such file and the section stays hidden. Process names come from /proc and
+  // are untrusted text: they reach the page through textContent only.
+  const HOST_STALE = 30;
+  function hostUptime(secs) {
+    if (typeof secs !== "number" || !Number.isFinite(secs) || secs < 0) return "-";
+    if (secs < 60) return Math.round(secs) + " s";
+    if (secs < 3600) return Math.floor(secs / 60) + " min";
+    if (secs < 86400) return Math.floor(secs / 3600) + " h";
+    return Math.floor(secs / 86400) + " d";
+  }
+  const figure = (v) => (typeof v === "number" && Number.isFinite(v) ? Math.round(v * 10) / 10 + "%" : "-");
+  async function refreshHost() {
+    let t = null, servedAt = null;
+    try {
+      const r = await fetch("/live/top.json", { cache: "no-store" });
+      if (r.ok) {
+        t = await r.json();
+        // Staleness is judged by the server's clock, not the visitor's. A host
+        // whose clock runs behind would else read its own dead file as new.
+        const served = Date.parse(r.headers.get("Date") || "");
+        servedAt = Number.isNaN(served) ? null : served;
+      }
+    } catch { /* this host publishes no snapshot */ }
+    const section = $("host");
+    const h = t && typeof t === "object" && t.host && typeof t.host === "object" ? t.host : null;
+    section.hidden = !h;
+    if (!h) return;
+    const at = Date.parse(t.generatedAt);
+    const age = servedAt == null || Number.isNaN(at) ? null : Math.round((servedAt - at) / 1000);
+    const note = [];
+    note.push(typeof h.cpus === "number" ? h.cpus + " cpus" : "no cpu count");
+    note.push(Array.isArray(h.load) && h.load.length === 3 ? "load " + h.load.join(" ") : "no load average");
+    note.push(figure(h.cpuPercent) + " of the cpus in use");
+    if (h.memory && typeof h.memory.totalMb === "number" && typeof h.memory.usedMb === "number") {
+      note.push("memory " + Math.round(h.memory.usedMb) + " of " + Math.round(h.memory.totalMb) + " MB");
+    }
+    // The publisher rewrites the file every five seconds: an old time means the
+    // unit is not running, and the numbers on screen are not the host's now.
+    note.push(age === null ? "snapshot unreadable" : (age > HOST_STALE ? "snapshot is " + ago(t.generatedAt) : "snapshot written " + ago(t.generatedAt)));
+    $("host-note").textContent = note.join(", ") + ".";
+    const rows = Array.isArray(h.processes) ? h.processes : [];
+    $("n-host").textContent = rows.length ? "(" + rows.length + ")" : "";
+    const ul = $("host-list");
+    ul.replaceChildren();
+    if (!rows.length) ul.append(el("li", "empty", "No process was read from /proc."));
+    for (const p of rows) {
+      if (!p || typeof p.name !== "string" || !p.name) continue;
+      const li = el("li");
+      li.append(el("span", null, p.name), " ",
+        el("span", "when", "pid " + (Number.isSafeInteger(p.pid) ? p.pid : "-") +
+          "  cpu " + figure(p.cpuPercent) + "  mem " + figure(p.memPercent) + "  up " + hostUptime(p.upSeconds)));
+      ul.append(li);
+    }
+    // The units of the factory, as tehas top lists them: name, whether systemd
+    // has it installed, its state, and when a timer next fires.
+    const units = (Array.isArray(t.units) ? t.units : [])
+      .filter((u) => u && typeof u === "object" && typeof u.id === "string" && u.id).slice(0, 30);
+    $("n-units").textContent = units.length ? "(" + units.length + ")" : "";
+    const listed = $("unit-list");
+    listed.replaceChildren();
+    if (!units.length) { listed.append(el("li", "empty", "systemctl --user gave no units.")); return; }
+    for (const u of units) {
+      const li = el("li");
+      li.append(el("span", null, u.id.slice(0, 64)), " ",
+        el("span", "when", (u.unitFileState || "-") + "  " + (u.activeState || "-") +
+          (typeof u.next === "string" && u.next ? "  next " + u.next : "")));
+      listed.append(li);
+    }
+  }
+
   // Several cycles can run side by side: console-tabs.js says which there are
   // and which one is shown. running is the shown cycle while it runs.
   const TABS = globalThis.TEHAS_CONSOLE_TABS;
@@ -155,6 +235,7 @@
 
   async function refresh() {
     refreshPreviews();
+    refreshHost();
     let s, now;
     try {
       s = await (await fetch("/live/status.json", { cache: "no-store" })).json();

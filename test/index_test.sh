@@ -13,6 +13,7 @@ index="$T_ROOT/libexec/index"
 checkout=$T/home/tehas/repos/widget
 ws=$T/home/tehas/work/widget
 marker=$T/home/tehas/state/index.json
+failed=$T/home/tehas/state/index.failed
 # Where the host keeps the index, and where the indexer has it.
 indexdir=$T/home/tehas/state/index
 cache=/home/vscode/.tehas-cache
@@ -33,6 +34,7 @@ git clone -q "$upstream" "$checkout"
 stub='if [ "$1" = info ]; then cat "$T/docker.info"; exit; fi
 printf "%s\n" "$@" >"$T/calls/docker.args.$$"
 [ "$1" = image ] && exit "${IMAGE_RC:-0}"
+[ "$1" = rm ] && exit 0
 written=""
 for a in "$@"; do
   case "$a" in
@@ -40,10 +42,16 @@ for a in "$@"; do
     *:/home/vscode/.tehas-cache) written=${a%%:*} ;;
   esac
 done
+[ -z "${RUN_SLEEP:-}" ] || exec sleep "$RUN_SLEEP"
 [ "${RUN_RC:-0}" = 0 ] || exit "$RUN_RC"
 echo index >"$written/widget.db"
 echo "${RUN_OUT:-{\"project\":\"p\",\"status\":\"indexed\",\"nodes\":5,\"edges\":7\}}"'
 t_stub docker "$stub"
+# The real timeout. Around the indexer, the one called with -k, the bound is
+# $TIMEOUT_BOUND when it is set.
+t_stub timeout 'real=$(PATH=${PATH#"$T/bin:"} command -v timeout)
+if [ -n "${TIMEOUT_BOUND:-}" ] && [ "$1" = -k ]; then exec "$real" -k 1 "$TIMEOUT_BOUND" "${@:4}"; fi
+exec "$real" "$@"'
 # A host with the root step done: the slice loaded from its file with 8 GiB,
 # so a container's ceiling is 2048m, Docker on the systemd driver and cgroup
 # v2, and nothing in the slice.
@@ -370,20 +378,74 @@ t_eq "$(find "$indexdir" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort 
   "logs other-tree.db widget.db.stage.abc123.tmp.945328.0x200002bc000 "
 T_ENV=("$root")
 
-t_case "a failed indexer exits 1 and leaves the record as it was"
+t_case "a failed indexer exits 1, leaves the record as it was and notes the tip"
 reset
 before=$(cat "$marker")
+tip=$(git -C "$upstream" rev-parse main)
 T_ENV=(RUN_RC=1 "$root")
 t_run "$index"
 t_eq "$t_rc" 1
 t_contains "$t_out" "$T/home/tehas/logs/index-"
 t_eq "$(cat "$marker")" "$before"
+t_eq "$(cat "$failed")" "$tip"
 
 t_case "an answer that does not say indexed counts as failed"
+rm -f "$failed"
 T_ENV=('RUN_OUT={"error":"no such path"}' "$root")
 t_run "$index"
 t_eq "$t_rc" 1
 t_eq "$(cat "$marker")" "$before"
+t_eq "$(cat "$failed")" "$tip"
 T_ENV=("$root")
+
+t_case "a container left by a killed run is removed before the run, under timeout"
+reset
+t_run "$index"
+t_eq "$t_rc" 0
+t_eq "$(t_calls docker | grep -v '^info ' | cut -d' ' -f1-3 | tr '\n' ' ')" "image inspect $image rm -f tehas-index run --rm --name "
+t_eq "$(t_calls timeout | grep '^-k ' | cut -d' ' -f1-5)" "-k 30 1800 docker run"
+t_eq "$(find "$failed" 2>/dev/null | wc -l)" 0
+
+t_case "an indexer that hangs is stopped at the bound, and its container removed"
+reset
+began=$(date +%s)
+T_ENV=(RUN_SLEEP=60 TIMEOUT_BOUND=1 "$root")
+t_run "$index"
+t_eq "$t_rc" 1
+[ "$(($(date +%s) - began))" -lt 20 ] || t_bad "the run was not stopped at the bound"
+t_contains "$t_out" "the indexer did not finish within"
+t_eq "$(t_calls docker | grep -c '^rm -f tehas-index$')" 2
+T_ENV=("$root")
+
+t_case "before a cycle, two failures at one tip give one run"
+commit fails
+git -C "$checkout" fetch -q
+tip=$(git -C "$upstream" rev-parse main)
+before=$(jq -r .commit "$marker")
+reset
+T_ENV=(RUN_RC=1 "$root")
+t_run "$index --before-cycle"
+t_eq "$t_rc" 1
+t_run "$index --before-cycle"
+t_eq "$t_rc" 1
+t_contains "$t_out" "not tried again before the branch moves"
+t_eq "$(runs)" 1
+t_eq "$(jq -r .commit "$marker")" "$before"
+t_eq "$(cat "$failed")" "$tip"
+
+t_case "by hand a failed tip is tried again, and a branch that moved is tried before a cycle"
+reset
+t_run "$index"
+t_eq "$t_rc" 1
+t_eq "$(runs)" 1
+T_ENV=("$root")
+commit mended
+git -C "$checkout" fetch -q
+reset
+t_run "$index --before-cycle"
+t_eq "$t_rc" 0
+t_eq "$(runs)" 1
+t_eq "$(jq -r .commit "$marker")" "$(git -C "$upstream" rev-parse main)"
+t_eq "$(find "$failed" 2>/dev/null | wc -l)" 0
 
 t_done

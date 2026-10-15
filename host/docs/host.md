@@ -271,6 +271,38 @@ One thing it does besides copying, on a real run only: the product checkout's
 asking the network. To pin another branch, set `TEHAS_BRANCH`. If the
 repository's default branch changes later, run `install.sh` again.
 
+### Rolling back tehas
+
+`install.sh` keeps one `<name>.prev` beside each file it replaces, and only
+one: a second install that changes the file replaces it. Copying a `.prev`
+back shows as drift, and the next install undoes it. The way back is the
+checkout. Hold it first, or the next `tehas update` fast-forwards it to the
+release you left:
+
+```
+touch ~/tehas/state/update-hold     # tehas update refuses while this exists
+cd ~/tehas/platform
+git log --oneline                   # the release to go back to
+git reset --hard <commit>
+./install.sh
+```
+
+`git checkout <tag>` does not do: `tehas update` refuses a detached checkout.
+While `~/tehas/state/update-hold` exists, `tehas update` exits 1 naming the
+file and changes nothing, and `tehas update --check` says the hold is there.
+So the `next:` lines `install.sh` prints are run by hand:
+
+| Step      | By hand                                                                          |
+| --------- | -------------------------------------------------------------------------------- |
+| `units`   | `systemctl --user daemon-reload`, then `systemctl --user restart` the units named |
+| `sandbox` | `~/tehas/sandbox/build.sh`, or put an older image back by its date tag, as in [Rolling back pi-rukas](#rolling-back-pi-rukas) |
+| `docs`    | `docker compose -f ~/tehas/edge/docs.compose.yaml up -d --force-recreate`         |
+| `edge`    | `docker compose -f ~/tehas/edge/router.compose.yaml up -d --force-recreate`       |
+
+They stay recorded in `~/tehas/state/update-pending`, and `install.sh --check`
+reports them, until a `tehas update` runs them. When a fixed release is out,
+remove the hold and run `tehas update`.
+
 ## Models
 
 Three files name a model and they do different things:
@@ -618,6 +650,12 @@ toolchain adds it to the Dockerfile.
 
 Each build is also tagged with its date, so
 `docker tag tehas/pi-rukas:<date> tehas/pi-rukas:uid$(id -u)` rolls back.
+Each image is several gigabytes, with Chromium and Rust in it. After a build
+`build.sh` keeps the newest three date tags, the new one among them, and
+removes older ones. It keeps an older tag whose image a container, running or
+stopped, was made from, or that a `uid` tag names. On a host that builds
+often the images then take about three times the size of one, plus those
+still in use.
 
 A build asks the base image whether pi-rukas's own source has the reader of the
 manifest tehas writes beside a cycle's images, and records what it found as the
@@ -673,6 +711,10 @@ that branch:
   interactive Pi session on the host load. Cycles run the pi-rukas inside the
   sandbox image.
 
+The shell tests check that every argument the Dockerfile reads comes from
+`versions.env`, except the ones `sandbox/build.sh` works out: the base, the
+commit, the uid and whether the base reads images.
+
 Nothing checks a new head before a cycle runs on it. The dispatcher runs one
 cycle at a time on a commit until one ends with a pull request: see
 [Limits that hold work back](/operating#limits-that-hold-work-back).
@@ -713,6 +755,7 @@ that cycle ran.
 | This site   | `docker compose -f ~/tehas/edge/docs.compose.yaml up -d`   | `curl -i http://tehas-tehas:8080/health`               |
 | Dispatcher  | systemd user timer `tehas-dispatch.timer`, every 2 minutes | `tail ~/tehas/logs/dispatch.log`                       |
 | Energy use sampler, optional | systemd user service `tehas-energy.service`, every 15 s. Enable it only when the model backend is a [viiwork](https://github.com/janit/viiwork) mesh | `jq .generatedAt ~/tehas/live/energy.json` |
+| Host snapshot publisher, optional | systemd user service `tehas-top.service`, every 5 s. It writes nothing unless `TEHAS_TOP=1` | `jq '.host.cpus, .host.load' ~/tehas/live/top.json` |
 | Protolab pages | systemd user timer `tehas-protolab.timer`, every 5 minutes | `tail ~/tehas/logs/protolab.log` |
 | Improvement loop, optional | systemd user timer `tehas-improve.timer`, every 3 hours. It does nothing unless `TEHAS_IMPROVE_REPO` is set | `tail ~/tehas/logs/improve.log` |
 | Edge router | `docker compose -f ~/tehas/edge/router.compose.yaml up -d` | `curl -i http://tehas-tehas:8081/` |

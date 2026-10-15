@@ -11,16 +11,22 @@ page=$T_ROOT/host/fun/index.html
 game=$T_ROOT/host/fun/game-view.css
 energy=$T_ROOT/host/fun/energy-view.css
 script=$T_ROOT/host/fun/energy-view.js
+hostjs=$T_ROOT/host/fun/host-view.js
+hostcss=$T_ROOT/host/fun/host-view.css
 board=$T_ROOT/host/fun/game-view.js
 manual=$T_ROOT/host/docs/operating.md
 features=$T_ROOT/host/docs/features.md
+frag=$T_ROOT/host/docs/dashboard.frag
 manual_text=$(cat "$manual")
 features_text=$(cat "$features")
+frag_text=$(cat "$frag")
 page_text=$(cat "$page")
 game_text=$(cat "$game")
 energy_text=$(cat "$energy")
 script_text=$(cat "$script")
 board_text=$(cat "$board")
+hostjs_text=$(cat "$hostjs")
+hostcss_text=$(cat "$hostcss")
 
 # The markup of one element: from the line that opens it to the line that
 # closes it. Each of these holds no element of its own kind, so the first line
@@ -296,5 +302,112 @@ t_case "the answer stays where it was pressed: selecting moves nothing on the pa
 t_lacks "$select_fn" 'scrollIntoView'
 t_lacks "$select_fn" 'scrollTo'
 t_lacks "$select_fn" 'window.scroll'
+
+# How a block element opens and closes across the whole page. A check that reads
+# only ids and attributes passes with a closing tag missing, and one missing
+# </div> moves everything after it inside the element before it: under
+# .floor { display: contents } that empties the grid area of the factory line.
+unbalanced=""
+for tag in div section main header nav table thead tbody tr td th ul ol li figure p h1 h2 h3 dl dt dd span b i a button canvas; do
+  o=$(grep -o "<${tag}[ >/]" <<<"$page_text" | wc -l)
+  c=$(grep -o "</$tag>" <<<"$page_text" | wc -l)
+  [ "$o" = "$c" ] || unbalanced="$unbalanced $tag($o/$c)"
+done
+
+t_case "the page closes every element it opens"
+t_eq "$unbalanced" ""
+# The head panel ends at its own closing tag: with that tag gone the block below
+# it would be read as part of the panel.
+t_contains "$head_panel" 'id="floor-host"'
+t_lacks "$head_panel" '<div class="line">'
+t_lacks "$head_panel" 'class="stations"'
+
+# The Host panel: what the page holds for host-view.js, and the row of the
+# stage it stands in.
+host_section=$(block '<section class="host" id="host"' '</section>')
+host_looks_up() { t_contains "$hostjs_text" "\$(\"$1\")"; }
+# The rows the stage names, in the order they are drawn.
+stage_areas=$(awk '/^\.stage \{/,/^\}/' "$game" | grep -o '"[a-z ]*"' | tr '\n' ' ')
+
+t_case "the page loads the host view and holds every element it names"
+t_contains "$page_text" '<link rel="stylesheet" href="/fun/host-view.css">'
+t_contains "$page_text" '<script type="module" src="/fun/host-view.js"></script>'
+for id in host menu-host floor-host host-cpus host-load host-cpu host-cpu-gauge host-mem host-mem-percent host-mem-gauge host-state host-rows host-units host-unit-rows floor-host-cpu; do
+  t_contains "$page_text" "id=\"$id\""
+done
+for id in host menu-host floor-host host-cpus host-load host-cpu host-mem host-state host-rows host-unit-rows; do
+  host_looks_up "$id"
+done
+
+t_case "the panel, its link and its chip start hidden: nothing shows before the file is read"
+t_contains "$host_section" '<section class="host" id="host" aria-labelledby="host-title" hidden>'
+t_contains "$page_text" '<a href="#host" id="menu-host" hidden>HOST</a>'
+t_contains "$page_text" 'id="floor-host" href="#host" aria-label="Host. Opens Host." hidden'
+# The three are shown or hidden together, and only where the file answers.
+t_contains "$hostjs_text" 'section.hidden = menuLink.hidden = floorHost.hidden = !data'
+t_contains "$hostjs_text" 'if (r.status === 404) { data = null; missedAt = Date.now(); }'
+t_eq "$(awk '/href="#host"/ { n++ } END { print n }' <<<"$page_text")" 2
+
+# A panel that spans the columns and names no area is placed by the grid's own
+# rules, and those rules move it: with the energy panel shown every named row is
+# taken, and the panel lands after the breakroom. The row is named here so that
+# the panel stands in one place on every host.
+t_case "the panel takes a row of its own, between the energy and the breakroom"
+t_contains "$hostcss_text" 'grid-area: host;'
+t_lacks "$hostcss_text" 'grid-column:'
+t_eq "$stage_areas" '"head head" "line monitor" "doors monitor" "board monitor" "lab monitor" "console monitor" "energy energy" "host host" "break break" '
+# The one-column stage names the row too, in its own order.
+t_eq "$(query_of 'grid-template-areas: "floor" "doors" "desk" "energy" "host" "break";' "$game")" \
+  "@media (max-width: 1279px) {"
+t_lacks "$game_text" '.host '
+t_lacks "$energy_text" '.host '
+# The chip is part of the head panel only where it is shown.
+t_contains "$hostcss_text" '.floor-host'
+t_contains "$hostcss_text" '.floor-head:has(> .floor-host:not([hidden]))'
+
+t_case "what the host says reaches the page as text, never as markup"
+t_lacks "$hostjs_text" 'innerHTML'
+t_lacks "$hostjs_text" 'insertAdjacentHTML'
+t_lacks "$hostjs_text" 'outerHTML'
+t_contains "$hostjs_text" 'th.textContent = name;'
+t_contains "$hostjs_text" 'const text = (v) => (typeof v === "string" ? v.slice(0, 64) : "");'
+# The published file is the snapshot of tehas top, and the panel reads it on
+# the publisher's own period.
+t_contains "$hostjs_text" 'fetch("/live/top.json", { cache: "no-store" })'
+t_contains "$hostjs_text" 'export const PERIOD = 5;'
+# A file older than half a minute of publishes is shown as stale, not as live.
+t_contains "$hostjs_text" 'export const STALE_AFTER = 30;'
+t_contains "$frag_text" 'const HOST_STALE = 30;'
+t_lacks "$hostjs_text" 'STALE_AFTER = 45'
+t_lacks "$frag_text" 'HOST_STALE = 45'
+
+# Both pages judge the age of a snapshot by the server's clock: a host whose
+# clock runs behind would else read its own dead file as fresh.
+t_contains "$frag_text" 'Date.parse(r.headers.get("Date") || "")'
+t_contains "$hostjs_text" 'Date.parse(r.headers.get("Date") || "")'
+
+t_case "the panel lists the units below the processes, as tehas top lists them"
+t_contains "$host_section" '<table class="host-table host-units" id="host-units" aria-label="Units of the factory">'
+t_contains "$host_section" '<tbody id="host-unit-rows"></tbody>'
+for name in UNIT INSTALLED STATE NEXT; do
+  t_contains "$host_section" ">$name</th>"
+done
+t_contains "$hostjs_text" 'units: list(file.units)'
+t_contains "$hostjs_text" 'unitRows.replaceChildren();'
+# The plain dashboard gives the same as a simple list.
+t_contains "$frag_text" '<ul class="issues" id="unit-list"></ul>'
+t_contains "$frag_text" 'const units = (Array.isArray(t.units) ? t.units : [])'
+
+t_case "a page that publishes nothing is not asked for every five seconds"
+t_contains "$hostjs_text" 'const MISS_RETRY = 60;'
+t_contains "$hostjs_text" 'if (missedAt && Date.now() - missedAt < MISS_RETRY * 1000) return;'
+
+t_case "the manual and the feature list say the host panel exists"
+t_contains "$features_text" 'Host panel'
+t_contains "$features_text" 'tehasbot top` writes that snapshot'
+t_contains "$features_text" 'then the units as'
+t_contains "$features_text" 'lists them. A snapshot older than 30 seconds is called stale'
+t_lacks "$features_text" 'the host panel is planned'
+t_contains "$frag_text" '<section id="host" hidden>'
 
 t_done

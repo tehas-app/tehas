@@ -37,7 +37,8 @@
 #                                     holds the branch's tip
 #
 # Exit status: 0 the index was built, or was already current,
-#              1 the sandbox image is missing or the indexer failed,
+#              1 the sandbox image is missing or the indexer failed, did not
+#                finish in time, or, before a cycle, failed at this tip before
 #              3 a cycle is running, or a poll or another index run holds the
 #                dispatcher's lock; nothing was done.
 #             64 an argument this command does not know.
@@ -50,6 +51,11 @@
 # cycle's limits (lib/slice.sh), so the dispatcher counts its memory with the
 # cycles'. Without a usable slice nothing is cloned and nothing starts.
 set -uo pipefail
+
+# How long the indexer may run, in seconds. The dispatcher's lock is held for
+# all of it, and no poll is processed meanwhile. Indexing takes minutes; this
+# bounds an indexer that hangs.
+index_bound=1800
 
 cycle=0
 case "$#:${1:-}" in
@@ -75,6 +81,9 @@ src=$TEHAS_WORK_REPO
 repo=$TEHAS_WORK_DIR
 image=$PI_ENSEMBLE_IMAGE
 marker=$TEHAS_HOME/state/index.json
+# The tip the indexer last failed at. Apart from the marker, which install.sh
+# reads as "an index was built".
+failed=$TEHAS_HOME/state/index.failed
 index=$(tehas_index_dir)
 log=$TEHAS_HOME/logs/index-$(date -u +%y%m%d-%H%M%S).log
 
@@ -135,6 +144,10 @@ if [ "$cycle" = 0 ]; then
 elif has_index_data "$index" && [ "$(jq -r '.commit // empty' "$marker" 2>/dev/null)" = "$base" ]; then
   echo "tehas index: ${TEHAS_REPO##*/} is already indexed at ${base:0:12}"
   exit 0
+elif [ "$(cat "$failed" 2>/dev/null)" = "$base" ]; then
+  # Without this every idle poll would run the same failing indexer again.
+  echo "tehas index: the indexer failed at ${base:0:12}, not tried again before the branch moves; run tehas index to try now" >&2
+  exit 1
 fi
 
 # No container starts outside the slice, and none with half its limits. Asked
@@ -163,7 +176,10 @@ if ! { git init -q -b "$branch" "$tree" &&
 fi
 
 started=$(date +%s)
-docker run --rm --init --name tehas-index --network none \
+# A run that was killed leaves its container under this name, and every later
+# run would fail on the name.
+docker rm -f tehas-index >/dev/null 2>&1 || true
+timeout -k 30 "$index_bound" docker run --rm --init --name tehas-index --network none \
   "${TEHAS_SLICE_LIMITS[@]}" \
   --user "$(id -u):$(id -g)" -e HOME=/home/vscode \
   -e "CBM_CACHE_DIR=$(tehas_sandbox_cache_dir)" \
@@ -176,7 +192,13 @@ rc=$?
 # The indexer answers with one JSON object. Anything else is a failure.
 answer=$(grep '^{' "$log" | tail -n 1)
 if [ "$rc" != 0 ] || [ "$(jq -r '.status // empty' <<<"$answer" 2>/dev/null)" != indexed ]; then
-  echo "tehas index: the indexer failed (exit $rc), see $log and $log.err" >&2
+  case "$rc" in
+    124) echo "tehas index: the indexer did not finish within ${index_bound}s, see $log and $log.err" >&2 ;;
+    *) echo "tehas index: the indexer failed (exit $rc), see $log and $log.err" >&2 ;;
+  esac
+  echo "$base" >"$failed"
+  # timeout stops the docker client, not the container.
+  docker rm -f tehas-index >/dev/null 2>&1 || true
   exit 1
 fi
 
@@ -185,6 +207,7 @@ edges=$(jq -r '.edges // 0' <<<"$answer")
 jq -n --arg commit "$base" --arg branch "$branch" --argjson nodes "$nodes" --argjson edges "$edges" \
   --argjson at "$(date +%s)" '{commit: $commit, branch: $branch, nodes: $nodes, edges: $edges, at: $at}' \
   >"$marker.new" && mv "$marker.new" "$marker"
+rm -f "$failed"
 # Only a run that wrote its index prunes. A failed one may have left the half
 # written database where a later run can still find it.
 prune_index "$index" "$started"

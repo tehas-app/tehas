@@ -8,6 +8,8 @@
 #   tehasbot status               write the queue snapshot, live/status.json
 #   tehasbot health               write the health file, live/health.json
 #   tehasbot energy [--every]     sample the model mesh's power (the service)
+#   tehasbot top [--every]        publish the host section for the dashboard
+#                                 (the service; its script is top-publish)
 #   tehasbot protolab             build the Protolab pages (the timer)
 #   tehasbot preview [--sweep]    keep the previews of pull requests (the timers)
 #   tehasbot improve              one run of the improvement loop (the timer)
@@ -37,6 +39,12 @@ case "${1-help}" in
     file=$libexec/$1
     shift
     exec "$file" "$@"
+    ;;
+  top)
+    # The command is `top`; its script is named for what it does, because
+    # libexec/top is the view for a person and not this.
+    shift
+    exec "$libexec/top-publish" "$@"
     ;;
   *)
     printf 'tehasbot: unknown command: %s\n' "$1" >&2

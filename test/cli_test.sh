@@ -15,7 +15,7 @@ cp "$T_ROOT/bin/tehas" "$T_ROOT/bin/tehasbot" "$tree/bin/"
 # The settings library is there to be read, so that not reading it means something.
 cp "$T_ROOT/lib/config.sh" "$tree/lib/config.sh"
 # One line per call: the name, then each argument after a "|".
-for name in dispatch cycle work plan dev index update labels summary status health energy protolab preview improve top; do
+for name in dispatch cycle work plan dev index update labels summary status health energy protolab preview improve top top-publish; do
   printf '%s\n' '#!/usr/bin/env bash' "# The text of $name." '#' "# Usage: $name" 'set -u' 'IFS="|"' \
     "printf '%s\\n' \"$name\${*:+|\$*}\" >>\"\$T/calls/libexec\"" 'exit "${RC:-0}"' >"$tree/libexec/$name"
   chmod +x "$tree/libexec/$name"
@@ -141,13 +141,14 @@ t_eq "$(ran)" ""
 
 t_case "tehasbot runs the script of each command with the remaining arguments"
 reset
-t_run "$bot dispatch && $bot cycle 7 && $bot status && $bot health && $bot energy --every && $bot protolab && $bot preview && $bot improve"
+t_run "$bot dispatch && $bot cycle 7 && $bot status && $bot health && $bot energy --every && $bot top --every && $bot protolab && $bot preview && $bot improve"
 t_eq "$t_rc" 0
 t_eq "$(ran)" "dispatch
 cycle|7
 status
 health
 energy|--every
+top-publish|--every
 protolab
 preview
 improve"
@@ -162,6 +163,7 @@ reset
 t_run "$bot"
 t_eq "$t_rc" 0
 t_contains "$t_out" "tehasbot energy [--every]"
+t_contains "$t_out" "tehasbot top [--every]"
 t_run "$bot help"
 t_eq "$t_rc" 0
 for name in work plan dev index update labels summary bogus "''"; do
@@ -203,10 +205,14 @@ done
 
 t_case "every command in the usage of tehasbot has an executable script"
 names=$("$T_ROOT/bin/tehasbot" help | sed -n 's/^  tehasbot \([a-z]*\).*/\1/p' | grep -v -x help | tr '\n' ' ')
-t_eq "$names" "dispatch cycle status health energy protolab preview improve "
+t_eq "$names" "dispatch cycle status health energy top protolab preview improve "
 missing=""
 for name in $names; do
-  [ -x "$T_ROOT/libexec/$name" ] || missing="$missing $name"
+  # The command is `top`; its script is top-publish, because libexec/top is the
+  # view a person runs.
+  script=$name
+  [ "$name" = top ] && script=top-publish
+  [ -x "$T_ROOT/libexec/$script" ] || missing="$missing $name"
 done
 t_eq "$missing" ""
 

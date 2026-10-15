@@ -220,6 +220,7 @@ files=(
   "systemd/tehas-preview.timer|$units/tehas-preview.timer|644"
   "systemd/tehas-preview-sweep.service|$units/tehas-preview-sweep.service|644"
   "systemd/tehas-preview-sweep.timer|$units/tehas-preview-sweep.timer|644"
+  "systemd/tehas-top.service|$units/tehas-top.service|644"
   "pi/mcp.json|$agent/mcp.json|644"
   "$instance/models.json|$agent/models.json|644"
 )
@@ -227,7 +228,7 @@ files=(
 for f in tehas tehasbot; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
-for f in cycle dev dev-login dispatch energy health improve index labels plan preview protolab status summary top update work; do
+for f in cycle dev dev-login dispatch energy health improve index labels plan preview protolab status summary top top-publish update work; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
 # Pi's own settings: the instance may bring its own (default provider and
