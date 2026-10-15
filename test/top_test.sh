@@ -108,7 +108,7 @@ files
 energy
 t_run "$top --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -r '[(.generatedAt | type), (keys | length)] | join(" ")' <<<"$t_out")" "string 8"
+t_eq "$(jq -r '[(.generatedAt | type), (keys | length)] | join(" ")' <<<"$t_out")" "string 9"
 t_eq "$(jq -r '[.factory, .queue, .cycle, .host, .units, .energy, .console | type] | join(",")' <<<"$t_out")" \
   "object,object,object,object,array,object,object"
 t_eq "$(jq -r '.factory.status, .queue.counts.inLine, .cycle.cycles[0].issue, .console.name' <<<"$t_out")" \
@@ -423,7 +423,8 @@ T_ENV=(TEHAS_PROC_DIR="$T/no-such-tree")
 t_run "$top --json"
 t_eq "$t_rc" 0
 t_eq "$(jq -c '.host' <<<"$t_out")" "null"
-t_eq "$(jq -r 'keys | length' <<<"$t_out")" 8
+t_eq "$(jq -r 'keys | length' <<<"$t_out")" 9
+t_eq "$(jq -c '.reading' <<<"$t_out")" "null"
 t_run "$top --once"
 t_eq "$t_rc" 0
 t_contains "$t_out" "host      no reading of /proc"
@@ -482,6 +483,75 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "host      2 cpus, load ?, cpu ?%, mem ? of ? MB"
 
 published() { [ -f "$live/top.json" ] && echo there || echo gone; }
+published_keys() { jq -r 'keys | join(",")' "$live/top.json"; }
+
+# A sleep that records that it was asked and does nothing, in a directory of its
+# own: only a case that puts it first on PATH gets it, so every other case in
+# this file still sleeps for real.
+nosleep() {
+  mkdir -p "$T/nosleep"
+  cat >"$T/nosleep/sleep" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$T/calls/sleep"
+EOF
+  chmod +x "$T/nosleep/sleep"
+}
+
+# The same tree five seconds on: tehas-cycle used 5 s of CPU in the window, and
+# the aggregate line moved by 1000 ticks of which 500 were idle - 50% over the
+# host, and 100% for that one process.
+proc_ahead() { # <dir>
+  proc_files "$1" 1005 '1500 100 500 8500 200 10 5 20' \
+    '100 systemd 160 300' '200 tehas-cycle 500 800' '300 pi-rukas 735 1200' '400 gh 12 100'
+}
+
+t_case "the snapshot carries the reading its host section was computed from"
+reset
+files
+t_run "$top --json"
+t_eq "$t_rc" 0
+t_eq "$(jq -r '(.reading.clock == 1000), .reading.cpus, (.reading.procs | length), (.reading | type)' <<<"$t_out")" \
+  "true
+2
+4
+object"
+# A tree that cannot be read gives no reading either: the next call has nothing
+# to compare against and takes a pair.
+T_ENV=(TEHAS_PROC_DIR="$T/no-such-tree")
+t_run "$top --json"
+t_eq "$(jq -c '.reading' <<<"$t_out")" "null"
+T_ENV=(TEHAS_PROC_DIR="$proc1")
+
+t_case "a snapshot given the reading of the frame before does not wait for a second one"
+reset
+files
+nosleep
+T_ENV=(TEHAS_PROC_DIR="$proc1" PATH="$T/nosleep:$T/bin:$PATH")
+t_run '. "$T_ROOT/lib/top.sh"; tehas_top_snapshot 16 >"$T/one"'
+t_eq "$t_rc" 0
+# Nothing to compare with: a pair of readings, and the second one a second on.
+t_eq "$(t_calls sleep | tr '\n' ' ')" "1 "
+t_eq "$(jq -r '.reading.clock' "$T/one")" "1000.00"
+t_eq "$(jq -c '[.host.cpuPercent] + [.host.processes[].cpuPercent]' "$T/one")" \
+  '[null,null,null,null,null]'
+# Time passes, as it does between two frames of a view. The reading of the frame
+# before is handed to the next one, and that call takes no sleep at all.
+proc_ahead "$proc1"
+t_run '. "$T_ROOT/lib/top.sh"; tehas_top_snapshot 16 "$(jq -c .reading "$T/one")" >"$T/two"'
+t_eq "$t_rc" 0
+t_eq "$(t_calls sleep | tr '\n' ' ')" "1 "
+t_eq "$(jq -r '.reading.clock' "$T/two")" "1005.00"
+# Measured over the five seconds between the two readings: 50% for the host, and
+# 100% for the process that used them.
+t_eq "$(jq -c '.host.cpuPercent, [.host.processes[] | select(.name == "tehas-cycle") | .cpuPercent]' "$T/two")" \
+  "50
+[100]"
+t_eq "$(jq -r '[.host.processes[] | select(.name == "tehas-cycle") | .upSeconds] | .[0]' "$T/two")" "995"
+# The frame is drawn from the snapshot as it is: the extra key changes nothing
+# that is printed.
+t_run '. "$T_ROOT/lib/top.sh"; tehas_top_frame "$(cat "$T/two")" 80 24'
+t_contains "$t_out" "host      2 cpus, load 0.10 0.20 0.30, cpu 50%, mem 32 of 64 MB"
+t_contains "$t_out" "tehas-cycle"
 
 # Two readings a hundred seconds apart, written by hand: the sleepy one has
 # used a thousand seconds of CPU in its life and one second in this window, the
@@ -524,7 +594,17 @@ t_run '. "$T_ROOT/lib/top.sh"; tehas_top_host "$(cat "$T/r2")" "$(cat "$T/r1")" 
 t_eq "$t_rc" 0
 t_eq "$(jq -c '.processes' "$T/host")" "[]"
 
-t_case "the published file is the snapshot without the console key"
+t_case "the redrawing view hands the reading of one frame to the next"
+reset
+files
+# The live loop is the one thing a test cannot run here: it needs a terminal.
+# What it does with the reading is checked in the script it runs.
+t_contains "$(cat "$T_ROOT/libexec/top")" 'tehas_top_snapshot "$rows" "$prev"'
+t_contains "$(cat "$T_ROOT/libexec/top")" "jq -c '.reading // empty'"
+t_contains "$(cat "$T_ROOT/libexec/top")" "prev=''
+"
+
+t_case "the published file is the snapshot cut to the keys that may be published"
 reset
 files
 energy
@@ -537,12 +617,43 @@ t_eq "$t_out" ""
 t_eq "$(published)" "there"
 # The two snapshots are taken a second apart, so the age of the health file -
 # and the moment stamped on the snapshot - differ by that second. Everything
-# else is the same, and the console key is not in the published file at all.
-t_eq "$(jq -c 'del(.generatedAt, .console, .factory.ageSeconds)' "$live/top.json")" \
-  "$(jq -c 'del(.generatedAt, .console, .factory.ageSeconds)' <<<"$snapshot")"
+# else is the same, and neither the console of a cycle nor the reading the host
+# section was computed from is in the published file at all.
+t_eq "$(jq -c 'del(.generatedAt, .console, .reading, .factory.ageSeconds)' "$live/top.json")" \
+  "$(jq -c 'del(.generatedAt, .console, .reading, .factory.ageSeconds)' <<<"$snapshot")"
 t_eq "$(jq -r '.host | type' "$live/top.json")" "object"
-t_lacks "$(jq -c 'keys' "$live/top.json")" "console"
+t_eq "$(published_keys)" "cycle,energy,factory,generatedAt,host,queue,units"
 t_lacks "$live/top.json" "SecretTokenInACommandLine"
+
+# What is published is a list of keys, not a list of keys to take out: two keys
+# that are in the snapshot today reach the file only because they are named.
+t_case "a key added to the snapshot later does not reach the published file"
+reset
+files
+energy
+t_instance "${T_MINIMAL[@]}" TEHAS_TOP=1
+t_run "$publish"
+t_eq "$(published_keys)" "cycle,energy,factory,generatedAt,host,queue,units"
+# The same snapshot with a key no page draws, and one that holds a token: what
+# comes out of the cut is what it was without them.
+t_run '. "$T_ROOT/lib/top.sh"; snapshot=$(tehas_top_snapshot 16)
+  extended=$(jq -c ". + {token: \"ghp_aStringThatIsASecret\", draft: {note: \"not published\"}}" <<<"$snapshot")
+  tehas_top_published "$extended" >"$T/out"
+  jq -c "del(.generatedAt, .factory.ageSeconds, .console, .reading)" <<<"$snapshot" >"$T/kept"'
+t_eq "$t_rc" 0
+t_eq "$(jq -r 'keys | join(",")' "$T/out")" "cycle,energy,factory,generatedAt,host,queue,units"
+t_lacks "$T/out" "ghp_aStringThatIsASecret"
+t_lacks "$T/out" "not published"
+t_lacks "$T/out" "\"token\""
+t_eq "$(cat "$T/kept")" "$(jq -c 'del(.generatedAt, .factory.ageSeconds)' "$T/out")"
+
+# The cut answers nothing for a snapshot that is not one.
+t_case "the published cut refuses a snapshot that is not an object"
+reset
+t_run '. "$T_ROOT/lib/top.sh"; tehas_top_published "{not json}"'
+t_eq "$t_rc" 1
+t_run '. "$T_ROOT/lib/top.sh"; tehas_top_published ""'
+t_eq "$t_rc" 1
 
 t_case "the publisher writes the file and changes nothing else under live/"
 reset
@@ -586,8 +697,8 @@ t_instance "${T_MINIMAL[@]}" TEHAS_TOP=yes
 t_run "$publish"
 t_eq "$t_rc" 78
 t_contains "$t_out" "TEHAS_TOP is not valid: expected 0 or 1"
-t_eq "$(jq -c 'del(.generatedAt, .console, .factory.ageSeconds)' "$live/top.json")" \
-  "$(jq -c 'del(.generatedAt, .console, .factory.ageSeconds)' <<<"$snapshot")"
+t_eq "$(jq -c 'del(.generatedAt, .console, .reading, .factory.ageSeconds)' "$live/top.json")" \
+  "$(jq -c 'del(.generatedAt, .console, .reading, .factory.ageSeconds)' <<<"$snapshot")"
 
 t_case "with no instance settings the publisher stops with 78 and writes nothing"
 reset

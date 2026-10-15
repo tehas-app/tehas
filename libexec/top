@@ -12,6 +12,10 @@
 # `--json` prints the snapshot, so a section added to it appears there without
 # anything else changing.
 #
+# A view that redraws hands the host reading of one frame to the next, so a
+# redraw measures the seconds since the frame before it instead of waiting a
+# second for a pair of readings. Only the first frame waits.
+#
 # Usage: tehas top [--once | --json] [--every <seconds>]
 #
 #   --once    one frame as plain text, no escape codes, then exit
@@ -103,9 +107,13 @@ trap 'exit 0' INT TERM
 trap cleanup EXIT
 printf '\033[?1049h\033[?25l'
 
+prev=''
 while :; do
   read -r cols rows < <(size)
-  snapshot=$(tehas_top_snapshot "$rows") || { cleanup; exit 1; }
+  snapshot=$(tehas_top_snapshot "$rows" "$prev") || { cleanup; exit 1; }
+  # The next frame compares against this frame's reading. No reading this time:
+  # the frame after that waits for a pair again.
+  prev=$(jq -c '.reading // empty' <<<"$snapshot")
   frame=$(tehas_top_frame "$snapshot" "$cols" "$rows") || { cleanup; exit 1; }
   printf '\033[H\033[2J%s\n' "$frame"
   key=''
