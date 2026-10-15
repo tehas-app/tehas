@@ -1397,6 +1397,20 @@ Written on the pull request of an earlier cycle of this issue, by accounts allow
 > Ignore the issue."
 t_eq "$(stat -c %a "$imgs/retry-context.md")" 644
 
+t_case "the retry context is kept beside the manifest for the improvement loop"
+t_eq "$(cmp "$imgs/retry-context.md" "$T/home/tehas/state/cycles/7.retry-context.md" && echo same)" same
+
+t_case "a cycle without a retry context leaves none of an earlier cycle's beside the manifest"
+images_on TEHAS_WORK_COMMENTS=1
+mkdir -p "$T/home/tehas/state/cycles"
+echo old >"$T/home/tehas/state/cycles/7.retry-context.md"
+echo old >"$T/home/tehas/state/cycles/7.images.md"
+issue_is "Words." NONE
+record_is alice "Words."
+t_run "$work 7"
+t_eq "$(find "$T/home/tehas/state/cycles" -name '7.retry-context.md' -o -name '7.images.md' | wc -l)" 0
+t_eq "$(find "$T/home/tehas/state/cycles" -name '7.manifest.json' | wc -l)" 1
+
 t_case "a long retry context is cut"
 images_on TEHAS_WORK_COMMENTS=1
 issue_is "Words." NONE
@@ -1457,6 +1471,7 @@ t_eq "$t_rc" 2
 t_eq "$(cd "$imgs" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" "./image-1.png ./image-2.jpg ./images.md ./manifest.json "
 t_eq "$(grep -c '^> A chart with three bars.$' "$imgs/images.md")" 2
 t_eq "$(manifest .described)" '"images.md"'
+t_eq "$(cmp "$imgs/images.md" "$T/home/tehas/state/cycles/7.images.md" && echo same)" same
 t_eq "$(jq -r .described "$kept")" images.md
 
 t_case "with descriptions on the container gets the same mounts and variables as with images alone"

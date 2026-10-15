@@ -345,7 +345,10 @@ workspace and not in it, so no patch can commit them. The files are named
 the link it came from, its type, its size and its sha256, the approval it was
 fetched for (`at`, `by` and `how` of the record, or null by hand), and every
 link that was left out with the reason. The manifest is kept as
-`~/tehas/state/cycles/<issue>.manifest.json`. When the next fetch is for the
+`~/tehas/state/cycles/<issue>.manifest.json`, with `images.md` and
+`retry-context.md` beside it as `<issue>.images.md` and
+`<issue>.retry-context.md` when the cycle has them, for the improvement
+loop's record. When the next fetch is for the
 same approval, a restart of the same cycle, a link that gives other bytes than
 the kept manifest says stops the start with exit 4 and the link named. The directory is remade for every cycle and removed by
 `tehasbot cycle` when the cycle is over. A comment on the issue says how many
@@ -1067,7 +1070,12 @@ to read its line; the timer runs it every three hours, on the hour, and the log 
 
 When a cycle ends, `tehasbot cycle` leaves a record of it in
 `~/tehas/tmp/improve/window/<issue>-<time>/`: how it ended, the stream without
-its word by word updates, the console and the error output. A run fetches the
+its word by word updates, the console and the error output. When the cycle
+was given the issue's images or files, the record also holds what
+`tehas work` kept of them in `~/tehas/state/cycles/`: `manifest.json`, and
+`images.md` and `retry-context.md` when the cycle had them. Only this
+cycle's, only plain files, at most 256 KB each, and never an image or a file
+itself. A run fetches the
 open issues and the ones closed in the last 30 days, takes the records that
 wait, and starts the analyst. Then it checks the one file the analyst leaves,
 files what passes and removes the records.

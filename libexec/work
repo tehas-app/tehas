@@ -85,7 +85,9 @@
 # manifest.json that lists each file, the link it came from, its type, size
 # and sha256, the approval, and what was left out and why. The directory is
 # remade for every cycle. The manifest is kept as
-# state/cycles/<issue>.manifest.json, and a later fetch of the same approval
+# state/cycles/<issue>.manifest.json, with images.md and retry-context.md
+# beside it as <issue>.images.md and <issue>.retry-context.md when the cycle
+# has them, for the improvement loop's record, and a later fetch of the same approval
 # whose link gives other bytes stops the start. An image that is left out is
 # said in a comment on the issue, and each one given with its sha256. An image
 # that could not be fetched stops the start: a cycle that works without a picture the
@@ -302,6 +304,13 @@ if [ "$give" = 1 ]; then
   fi
   { cp "$images/manifest.json" "$kept.new" && mv "$kept.new" "$kept"; } 2>/dev/null ||
     echo "tehas work: could not keep the manifest as $kept" >&2
+  # Kept beside it for the improvement loop's record: the directory is removed
+  # when the cycle ends. Only this cycle's: an earlier one's would mislead.
+  for f in images.md retry-context.md; do
+    rm -f "${kept%.manifest.json}.$f"
+    [ ! -f "$images/$f" ] || cp "$images/$f" "${kept%.manifest.json}.$f" 2>/dev/null ||
+      echo "tehas work: could not keep $f beside $kept" >&2
+  done
   reads=yes
   if [ "$TEHAS_WORK_IMAGES" = 1 ]; then reads=$(tehas_images_read "$image"); else tehas_images_read_forget; fi
   said=$(tehas_issue_images_said "$images" cycle "$reads")
