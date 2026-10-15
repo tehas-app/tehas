@@ -254,23 +254,37 @@ untick() {
 
 # Do not burn an issue on a model endpoint that cannot answer: every agent
 # would fail and the issue would park. Leave it queued and look again next
-# poll. mesh_check asks the endpoint once, at rule 3, and leaves the reason in
-# $mesh_hold. The text names no address: tehas status and the health file
-# carry it, and they are served to whoever can read the dashboard.
+# poll. mesh_check asks each provider's endpoint once, at rule 3, about every
+# model the agents use (tehas_models: the subagent default and each role's
+# own), and leaves the first reason in $mesh_hold. A provider with no baseUrl
+# is not asked. $mesh_url is the subagent provider's endpoint. The text names
+# no address: tehas status and the health file carry it, and they are served
+# to whoever can read the dashboard.
 mesh_hold=""
 mesh_url=""
 mesh_check() {
-  local model=$PI_ENSEMBLE_SUBAGENT_MODEL list
+  local p m url list
+  local -A lists=() urls=()
   mesh_hold=""
   mesh_url=$(jq -r --arg p "$PI_ENSEMBLE_SUBAGENT_PROVIDER" '.providers[$p].baseUrl // ""' "$HOME/.pi/agent/models.json" 2>/dev/null)
-  [ -n "$mesh_url" ] && [ -n "$model" ] || { mesh_url=""; return 0; }
-  if ! list=$(curl -fsS -m 10 "$mesh_url/models" 2>/dev/null); then
-    mesh_hold="holding: no resources: the model endpoint does not answer"
-  elif ! jq -e '(.data | type) == "array" and (.data | length) > 0' <<<"$list" >/dev/null 2>&1; then
-    mesh_hold="holding: no resources: the model endpoint offers no models"
-  elif ! jq -e --arg m "$model" '.data | any(.id == $m)' <<<"$list" >/dev/null 2>&1; then
-    mesh_hold="holding: no resources: the model endpoint does not offer $model"
-  fi
+  [ -n "$mesh_url" ] && [ -n "$PI_ENSEMBLE_SUBAGENT_MODEL" ] || { mesh_url=""; return 0; }
+  while read -r p m; do
+    if [ -z "${urls[$p]+x}" ]; then
+      urls[$p]=$(jq -r --arg p "$p" '.providers[$p].baseUrl // ""' "$HOME/.pi/agent/models.json" 2>/dev/null)
+      lists[$p]=""
+      [ -z "${urls[$p]}" ] || lists[$p]=$(curl -fsS -m 10 "${urls[$p]}/models" 2>/dev/null) || lists[$p]=$'\001'
+    fi
+    url=${urls[$p]} list=${lists[$p]}
+    [ -n "$url" ] || continue
+    if [ "$list" = $'\001' ]; then
+      mesh_hold="holding: no resources: the model endpoint does not answer"
+    elif ! jq -e '(.data | type) == "array" and (.data | length) > 0' <<<"$list" >/dev/null 2>&1; then
+      mesh_hold="holding: no resources: the model endpoint offers no models"
+    elif ! jq -e --arg m "$m" '.data | any(.id == $m)' <<<"$list" >/dev/null 2>&1; then
+      mesh_hold="holding: no resources: the model endpoint does not offer $m"
+    fi
+    [ -z "$mesh_hold" ] || return 0
+  done < <(tehas_models)
 }
 
 # Where the instance gives a cycle images (TEHAS_WORK_IMAGES), a cycle whose

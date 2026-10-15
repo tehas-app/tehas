@@ -202,6 +202,11 @@ curl -s http://<model host>/v1/chat/completions -H 'content-type: application/js
   -d '{"model":"<model>","messages":[{"role":"user","content":"ready?"}],"max_tokens":5}'
 ```
 
+When several cycles run, their agents all ask for the same model unless roles
+have their own. The six lens reviewers of one cycle alone call it at once.
+Give the busiest roles a model on other machines: see
+[A model per role](/host#a-model-per-role).
+
 When it answers, apply `tehas:ready` to the issue again. Set `PI_ENSEMBLE_DEBUG=1` in `instance.env` to get the
 cause into the error stream in the first place.
 

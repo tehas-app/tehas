@@ -17,6 +17,7 @@
 #   tehas_checkout       check the product checkout is a clone of TEHAS_REPO;
 #                        returns 78 if not.
 #   tehas_branch         print the branch work lands on; returns 78 if unknown.
+#   tehas_models         print "provider model" for every model the agents use.
 #
 # A command starts with:
 #   here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -138,10 +139,59 @@ _tehas_valid() {
         return 1
       fi
       ;;
-    PI_ENSEMBLE_SUBAGENT_MODEL | PI_ENSEMBLE_SUBAGENT_PROVIDER | TEHAS_BRANCH)
+    PI_ENSEMBLE_SUBAGENT_MODEL | PI_ENSEMBLE_SUBAGENT_PROVIDER | PI_ENSEMBLE_MODEL_* | PI_ENSEMBLE_PROVIDER_* | TEHAS_BRANCH)
       [[ $v =~ ^[^[:space:]]+$ ]] || { echo "expected one word"; return 1; }
       ;;
   esac
+  return 0
+}
+
+# The roles an instance may give a model of their own, as the suffix of
+# PI_ENSEMBLE_MODEL_<ROLE> and PI_ENSEMBLE_PROVIDER_<ROLE>. They are the roles
+# the pinned pi-rukas spawns (extension/src/roles.ts at PI_RUKAS_VERSION in
+# host/versions.env). All six lens reviewers are one role,
+# CODE_REVIEW_SPECIALIST. The project manager is the session: its model is the
+# product's .pi/settings.json. Change this list when a new pin changes them.
+tehas_model_roles() { printf '%s\n' DEVELOPER OPS EXPLORE ADVERSARIAL_DEVELOPER CODE_REVIEW_SPECIALIST; }
+
+# Check the per-role model settings and give each role model a provider.
+# A name pi-rukas does not read would reach the container and be ignored, and
+# that role would run on PI_ENSEMBLE_SUBAGENT_MODEL without a word, so it is
+# refused. So is a provider without its model: pi-rukas ignores it. A role
+# model with no provider of its own gets PI_ENSEMBLE_SUBAGENT_PROVIDER, because
+# Pi cannot find a custom provider's model by its id alone. An empty line is
+# not set. Returns 78 with one line on stderr.
+_tehas_role_models() { # <instance.env>
+  local file=$1 v m p role reason roles
+  roles=" $(tehas_model_roles | tr '\n' ' ')"
+  for v in $(compgen -v); do
+    case "$v" in
+      PI_ENSEMBLE_MODEL_*) role=${v#PI_ENSEMBLE_MODEL_} ;;
+      PI_ENSEMBLE_PROVIDER_*) role=${v#PI_ENSEMBLE_PROVIDER_} ;;
+      *) continue ;;
+    esac
+    case "$roles " in
+      *" $role "*) ;;
+      *)
+        tehas_err "$v names no role pi-rukas gives a model to; the roles are$roles (see $file)"
+        return 78
+        ;;
+    esac
+    if [ -z "${!v}" ]; then
+      unset "$v"
+      continue
+    fi
+    reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
+  done
+  for role in $roles; do
+    m=PI_ENSEMBLE_MODEL_$role p=PI_ENSEMBLE_PROVIDER_$role
+    if [ -z "${!m:-}" ] && [ -n "${!p:-}" ]; then
+      tehas_err "$p is set and $m is not: pi-rukas ignores a provider without its model (see $file)"
+      return 78
+    fi
+    [ -z "${!m:-}" ] || [ -n "${!p:-}" ] || [ -z "${PI_ENSEMBLE_SUBAGENT_PROVIDER:-}" ] ||
+      export "$p=$PI_ENSEMBLE_SUBAGENT_PROVIDER"
+  done
   return 0
 }
 
@@ -170,6 +220,8 @@ tehas_load() {
   # shellcheck disable=SC1090
   . "$file" || { set +a; tehas_err "$file could not be read as shell"; return 78; }
   set +a
+
+  _tehas_role_models "$file" || return 78
 
   # Database clones are not part of this version. An instance that still asks
   # for them is refused, not run without them.
@@ -378,6 +430,19 @@ tehas_edge_name() {
 tehas_require_instance_settings() {
   tehas_require TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS \
     PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
+}
+
+# Every provider and model pair the agents use, one "provider model" line
+# each, without repeats: the subagent default first, then each role's own.
+tehas_models() {
+  local role m p
+  {
+    printf '%s %s\n' "${PI_ENSEMBLE_SUBAGENT_PROVIDER:-}" "${PI_ENSEMBLE_SUBAGENT_MODEL:-}"
+    for role in $(tehas_model_roles); do
+      m=PI_ENSEMBLE_MODEL_$role p=PI_ENSEMBLE_PROVIDER_$role
+      [ -z "${!m:-}" ] || printf '%s %s\n' "${!p:-}" "${!m}"
+    done
+  } | awk '$1 != "" && $2 != "" && !seen[$0]++'
 }
 
 # The product checkout must exist and be a clone of TEHAS_REPO: issues are

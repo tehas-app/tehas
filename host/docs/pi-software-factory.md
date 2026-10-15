@@ -109,7 +109,7 @@ request waits for a person.
 Self-hosted ones, through an OpenAI-compatible endpoint named in the instance
 settings. The example instance serves them with
 [viiwork](https://github.com/janit/viiwork), a flexible meshed inference platform for both home and enterprise grade hardware;
-any other OpenAI-compatible endpoint works too. One model serves every agent role today. A cycle needs a model that
+any other OpenAI-compatible endpoint works too. One model serves every agent role unless the instance gives a role its own. A cycle needs a model that
 can hold at least two conversations at once and a context of around 80,000
 tokens; [Features](/features) explains what happens without that.
 

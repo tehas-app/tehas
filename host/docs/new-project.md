@@ -130,7 +130,8 @@ is not public.
 | `TEHAS_REPO`                           | `owner/name` of the product repository                                                              |
 | `TEHAS_CONTROL_ISSUE`                  | Number of an issue you create for the pause label. Keep it open                                     |
 | `TEHAS_ALLOWED_LABELERS`               | Logins whose labels count, space separated: `tehas:ready`, `tehas:plan`, `tehas:urgent`, `tehas:prototype`. Never the bot |
-| `PI_ENSEMBLE_SUBAGENT_MODEL`, `_PROVIDER` | The model every agent role uses. Must be listed in `models.json`                                 |
+| `PI_ENSEMBLE_SUBAGENT_MODEL`, `_PROVIDER` | The model every agent role uses unless it has its own. Must be listed in `models.json`           |
+| `PI_ENSEMBLE_MODEL_<ROLE>`, `PI_ENSEMBLE_PROVIDER_<ROLE>` | Optional. A model for one role, such as the lens reviewers, so cycles do not all wait on one model. See [A model per role](/host#a-model-per-role) |
 | `PI_ENSEMBLE_HOST_ALIASES`             | `name:address` pairs the sandbox needs, such as a model host whose name only resolves privately     |
 | `TEHAS_HOST_ADDR`                      | The host's private address, to reach the dashboard from other devices. Without it: `127.0.0.1`      |
 

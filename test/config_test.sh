@@ -573,4 +573,63 @@ t_run '. "$T_ROOT/host/env.sh"; echo "[$GH_TOKEN] [${TEHAS_ENERGY:-}] [${TEHAS_E
 t_eq "$t_out" "[t0] [off] [http://mesh.example:8086/v1/cluster] [acme/widget]"
 rm -rf "$T/home/.config/tehas" "$T/home/tehas/lib"
 
+t_case "without a role model every role is left to the subagent model"
+t_instance "${T_MINIMAL[@]}"
+t_run "$load && env | grep -E '^PI_ENSEMBLE_(MODEL|PROVIDER)_' ; tehas_models"
+t_eq "$t_out" "test-provider test-model"
+
+t_case "a role model is passed on, with the subagent provider unless it names its own"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_MODEL_CODE_REVIEW_SPECIALIST=small-model \
+  PI_ENSEMBLE_MODEL_DEVELOPER=big-model PI_ENSEMBLE_PROVIDER_DEVELOPER=other-provider
+t_run "$load && bash -c 'env | grep -E \"^PI_ENSEMBLE_(MODEL|PROVIDER)_\" | LC_ALL=C sort'"
+t_eq "$t_rc" 0
+t_eq "$t_out" "PI_ENSEMBLE_MODEL_CODE_REVIEW_SPECIALIST=small-model
+PI_ENSEMBLE_MODEL_DEVELOPER=big-model
+PI_ENSEMBLE_PROVIDER_CODE_REVIEW_SPECIALIST=test-provider
+PI_ENSEMBLE_PROVIDER_DEVELOPER=other-provider"
+
+t_case "tehas_models names each provider and model once, the subagent default first"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_MODEL_EXPLORE=test-model \
+  PI_ENSEMBLE_MODEL_DEVELOPER=big-model PI_ENSEMBLE_PROVIDER_DEVELOPER=other-provider \
+  PI_ENSEMBLE_MODEL_OPS=big-model PI_ENSEMBLE_PROVIDER_OPS=other-provider
+t_run "$load && tehas_models"
+t_eq "$t_out" "test-provider test-model
+other-provider big-model"
+
+t_case "an empty role model is not set and is not passed on"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_MODEL_DEVELOPER=
+t_run "$load && echo \"[\$(env | grep '^PI_ENSEMBLE_MODEL_')]\""
+t_eq "$t_rc" 0
+t_eq "$t_out" "[]"
+
+for bad in PI_ENSEMBLE_MODEL_REVIEWER=m PI_ENSEMBLE_MODEL_PROJECT_MANAGER=m PI_ENSEMBLE_MODEL_developer=m \
+  PI_ENSEMBLE_PROVIDER_PLANNER=p PI_ENSEMBLE_MODEL_LENS_SECURITY=; do
+  t_case "a role pi-rukas does not know is refused: ${bad%%=*}"
+  t_instance "${T_MINIMAL[@]}" "$bad"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  t_contains "$t_out" "tehas: ${bad%%=*} names no role pi-rukas gives a model to; the roles are DEVELOPER OPS EXPLORE ADVERSARIAL_DEVELOPER CODE_REVIEW_SPECIALIST"
+done
+
+t_case "a role provider without its model is refused"
+for line in PI_ENSEMBLE_PROVIDER_OPS=other "PI_ENSEMBLE_PROVIDER_OPS=other PI_ENSEMBLE_MODEL_OPS="; do
+  # shellcheck disable=SC2086  # one setting per word
+  t_instance "${T_MINIMAL[@]}" $line
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  t_contains "$t_out" "PI_ENSEMBLE_PROVIDER_OPS is set and PI_ENSEMBLE_MODEL_OPS is not"
+done
+
+t_case "a role model of two words is refused"
+printf '%s\n' "${T_MINIMAL[@]}" "PI_ENSEMBLE_MODEL_EXPLORE='two words'" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "PI_ENSEMBLE_MODEL_EXPLORE is not valid: expected one word"
+t_instance "${T_MINIMAL[@]}"
+
+t_case "a role model in the environment is dropped, like every setting"
+t_run "PI_ENSEMBLE_MODEL_NOPE=x PI_ENSEMBLE_MODEL_DEVELOPER=x; export PI_ENSEMBLE_MODEL_NOPE PI_ENSEMBLE_MODEL_DEVELOPER; $load && echo \"[\${PI_ENSEMBLE_MODEL_DEVELOPER:-}]\""
+t_eq "$t_rc" 0
+t_eq "$t_out" "[]"
+
 t_done

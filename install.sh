@@ -103,7 +103,7 @@ update_fd=${TEHAS_UPDATE_LOCK_FD:-}
 # Every finding is one line. Any finding stops a real run before it changes
 # anything.
 instance_findings() {
-  local dir file models product_model mode owner group
+  local dir file models product_model mode owner group provider model
   tehas_load 2>&1 || return 0
   dir=$TEHAS_INSTANCE_DIR
   (tehas_require_instance_settings 2>&1) || return 0
@@ -113,9 +113,11 @@ instance_findings() {
   elif ! jq -e . "$models" >/dev/null 2>&1; then
     echo "tehas: $models is not valid JSON"
   else
-    jq -e --arg p "$PI_ENSEMBLE_SUBAGENT_PROVIDER" --arg m "$PI_ENSEMBLE_SUBAGENT_MODEL" \
-      '.providers[$p].models // [] | any(.id == $m)' "$models" >/dev/null ||
-      echo "tehas: models.json does not list model $PI_ENSEMBLE_SUBAGENT_MODEL under provider $PI_ENSEMBLE_SUBAGENT_PROVIDER"
+    while read -r provider model; do
+      jq -e --arg p "$provider" --arg m "$model" \
+        '.providers[$p].models // [] | any(.id == $m)' "$models" >/dev/null ||
+        echo "tehas: models.json does not list model $model under provider $provider"
+    done < <(tehas_models)
     # The session's model is named by the product, not the instance.
     if [ -r "$TEHAS_WORK_REPO/.pi/settings.json" ]; then
       product_model=$(jq -r '"\(.defaultProvider // "")/\(.defaultModel // "")"' "$TEHAS_WORK_REPO/.pi/settings.json" 2>/dev/null || echo "/")
