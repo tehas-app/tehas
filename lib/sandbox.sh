@@ -133,7 +133,7 @@ tehas_sandbox_clone() { # <src> <tree> <branch>
   url=$(git -C "$src" config --get remote.origin.url) || return 1
   git init -q -b "$branch" "$tree" &&
     git -C "$tree" remote add origin "$url" &&
-    git -C "$tree" fetch -q --no-tags "$src" '+refs/remotes/origin/*:refs/remotes/origin/*' &&
+    timeout -k 10 300 git -C "$tree" fetch -q --no-tags "$src" '+refs/remotes/origin/*:refs/remotes/origin/*' &&
     git -C "$tree" symbolic-ref refs/remotes/origin/HEAD "refs/remotes/origin/$branch" &&
     git -C "$tree" checkout -q -B "$branch" "$base" &&
     git -C "$tree" branch -q --set-upstream-to="origin/$branch" "$branch"

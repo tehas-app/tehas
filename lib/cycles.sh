@@ -14,6 +14,8 @@
 #                                 the park question this host posted
 #   tehas_rukas_commit            the pi-rukas commit a cycle started now runs
 #   tehas_rukas_proven <commit>   0 if a cycle on this host ended well on it
+#   tehas_names_issue             print a jq definition, `mine`: whether a pull
+#                                 request of gh pr list names the issue $n
 #   tehas_rukas_reads_images      whether that pi-rukas reads the issue image
 #                                 manifest: 1, 0, or nothing when the image
 #                                 does not say
@@ -111,3 +113,12 @@ tehas_rukas_reads_images() {
 
 # state/rukas-proven: one commit a line, each one a cycle ended well on.
 tehas_rukas_proven() { [ -n "$1" ] && grep -qxF -e "$1" "$TEHAS_HOME/state/rukas-proven" 2>/dev/null; }
+
+# A pull request names an issue when its head is the issue's branch as pi-rukas
+# names it, feature/issue-<n>-..., or its body closes #<n>. tehasbot cycle and
+# the dispatcher must agree on which pull request is a cycle's.
+tehas_names_issue() {
+  # shellcheck disable=SC2016  # a jq program
+  printf '%s\n' 'def mine: ((.headRefName // "") | tostring | (. == "feature/issue-\($n)" or startswith("feature/issue-\($n)-")))
+  or ((.body // "") | tostring | test("(?i)\\b(close[sd]?|fix(e[sd])?|resolve[sd]?):?\\s+#\($n)([^0-9]|$)"));'
+}

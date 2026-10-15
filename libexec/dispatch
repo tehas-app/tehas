@@ -24,8 +24,12 @@
 #   1. Label tehas:pause on the control issue stops all dispatch.
 #   2. At most TEHAS_TICKET_CONCURRENCY cycles run at once.
 #      An open issue marked tehas:running whose cycle holds no lock on this
-#      host is handed to a human. Nothing is started for it. A closed one
-#      only loses the mark.
+#      host is handed to a human, once a fresh read shows it still marked.
+#      Nothing is started for it. A closed one only loses the mark. A cycle
+#      that holds its lock but has not been heard from for 20 minutes is
+#      stuck: its unit is stopped, and said once. The workspaces kept for an
+#      issue no cycle has run on for 7 days are removed, three issues a poll
+#      at most.
 #   3. Running cycles and tehas PRs that wait for a human together do not
 #      exceed TEHAS_MAX_AWAITING. And a cycle starts only while tehas.slice,
 #      the systemd slice every sandbox container runs in, has room for one
@@ -42,6 +46,9 @@
 #      nothing. A comment is a
 #      question only if this host has its id on record, in $TEHAS_HOME/state:
 #      the planning record, or park-<issue>.id.
+#   4a. A cycle that tehasbot cycle parked for a provider outage starts again
+#      once, without a tick, when nothing holds cycles back, on the word of the
+#      account that started the parked one. A second such park waits.
 #   5. A reply or a ticked option on a planning question runs the next turn
 #      of that session. An issue whose tehas:plan label was applied by an
 #      allowed account starts a session. Neither waits for rule 2, the cap of
@@ -56,7 +63,11 @@
 #      request start nothing, whatever label they carry. Nothing else the issue
 #      carries holds it back: the labels of an earlier outcome go with the
 #      start. Every start takes tehas:ready off, so a label that is there was
-#      applied after the last start. While the
+#      applied after the last start. An issue that an open pull request
+#      closes, as GitHub links them, is work already done: the poll takes
+#      tehas:ready off and says so once on the issue. With TEHAS_WORK_IMAGES=1
+#      an issue whose text links an attachment waits while the model does not
+#      read images; the rest start. While the
 #      issue's own cycle is alive it waits, and starts when that cycle ended.
 #      A tehas:ready from an account outside the list authorises nothing, so
 #      the poll takes it off and says so once on the issue: left in place it
@@ -89,10 +100,27 @@
 #   TEHAS_WORK_REPO           checkout cycles are cloned from [$TEHAS_HOME/repos/<name>]
 #   TEHAS_BRANCH              branch work lands on [the checkout's origin/HEAD]
 #   TEHAS_PLAN_MAX_TURNS      turns a planning session may take [20]
+#   TEHAS_WORK_COMMENTS       1 adds the links of comments to the approval
+#                             record [0]
 # From the environment, for tests: TEHAS_STATUS_CMD, TEHAS_INDEX_CMD,
-# TEHAS_PLAN_CMD, TEHAS_CYCLE_START_CMD (in place of systemctl, called with
-# the issue), TEHAS_CYCLE_START_WAIT (seconds to wait for a started cycle
-# [30]) and TEHAS_CGROUP_ROOT (in place of /sys/fs/cgroup).
+# TEHAS_PLAN_CMD, TEHAS_CYCLE_START_CMD and TEHAS_CYCLE_STOP_CMD (in place of
+# systemctl, called with the issue), TEHAS_CYCLE_START_WAIT (seconds to wait for a started cycle
+# [30]), TEHAS_CGROUP_ROOT (in place of /sys/fs/cgroup) and TEHAS_FETCH_WAIT
+# (seconds the fetch of the checkout may take [120]).
+#
+# Before a start changes any label, the poll writes what it rests on to
+# $TEHAS_HOME/state/cycles/<issue>.approved.json: {at, by, how, body_sha256,
+# links}. Who approved and when, by the label or a retry tick, a sha256 of the
+# body that approval was checked against (carriage returns dropped), and the
+# links to GitHub's attachment storage in that body. With TEHAS_WORK_COMMENTS=1
+# it adds comment_links, [{link, source, by}]: the links in the issue's comments
+# that an allowed account wrote and nobody edited after the approval, source
+# "comment:<id>". On a retry tick it adds the links of the comments allowed
+# accounts wrote on the parked cycle's pull request between the park and the
+# tick, source "pr-comment:<id>", and their text as retry_context, [{source,
+# by, at, text}]. tehas work fetches those links and no others, and only while
+# the body still has that hash. A record that cannot be written, or comments
+# that cannot be read, start nothing, exit 1.
 #
 # A real poll that gets as far as rule 3 writes $TEHAS_HOME/live/dispatch.json:
 # what holds cycles back, if anything, and the slice's numbers. tehasbot
@@ -148,6 +176,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/slice.sh"
 # shellcheck source=lib/labels.sh
 . "$here/../lib/labels.sh"
+# shellcheck source=lib/attachments.sh
+. "$here/../lib/attachments.sh"
 tehas_load || exit 78
 # shellcheck source=lib/questions.sh
 . "$here/../lib/questions.sh"
@@ -169,9 +199,27 @@ tehas_checkout || exit 78
 branch=$(tehas_branch) || exit 78
 
 mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/logs" "$TEHAS_HOME/live"
-# Held for the poll only. A cycle holds the lock of its own issue.
-exec 8>"$TEHAS_HOME/state/dispatch.lock"
-flock -n 8 || { [ "$dry" = 1 ] && log "another poll, or tehas index, holds the dispatcher's lock"; exit 0; }
+# Held for the poll only. A cycle holds the lock of its own issue. Opened
+# without truncating it: a poll that finds it held changes nothing.
+exec 8>>"$TEHAS_HOME/state/dispatch.lock"
+# When the lock was last taken, and the take a hang was last said for.
+taken=$TEHAS_HOME/state/dispatch.taken
+stuck=$TEHAS_HOME/state/dispatch.stuck
+if ! flock -n 8; then
+  [ "$dry" = 0 ] || log "another poll, or tehas index, holds the dispatcher's lock"
+  # Every later poll stops here while one hangs, so the hang is said, once
+  # for each take of the lock. A poll may take a planning turn's time limit,
+  # and the index and GitHub's calls on top.
+  at=$(head -c 16 "$taken" 2>/dev/null | head -n 1) || at=""
+  bound=$((TEHAS_PLAN_TIMEOUT + 1800))
+  if [[ $at =~ ^[0-9]{1,12}$ ]] && [ $(($(date +%s) - at)) -gt "$bound" ] &&
+    { [ "$dry" = 1 ] || [ "$(head -c 16 "$stuck" 2>/dev/null)" != "$at" ]; }; then
+    log "WARN: the dispatcher's lock has been held since $(date -u -d "@$at" +%FT%TZ), more than ${bound}s: a poll or tehas index hangs, and no poll runs until it ends"
+    [ "$dry" = 1 ] || echo "$at" >"$stuck" || log "WARN: could not write $stuck"
+  fi
+  exit 0
+fi
+date +%s >"$taken" || log "WARN: could not write $taken"
 
 # gh_json <gh arguments>: the answer in $json. A failed call ends the poll:
 # no rule below may be decided on an answer that never came. Always call it as
@@ -208,50 +256,71 @@ untick() {
 # Do not burn an issue on a model endpoint that cannot answer: every agent
 # would fail and the issue would park. Leave it queued and look again next
 # poll. mesh_check asks the endpoint once, at rule 3, and leaves the reason in
-# $mesh_hold. Where the instance gives a cycle images (TEHAS_WORK_IMAGES), two
-# readers are needed: the pi-rukas in the sandbox image, which hands over the
-# manifest tehas writes beside them, and a model that declares image input and
-# answers a request that carries one. The image is asked first, because it
-# answers without the network and a driver that does not read the manifest
-# makes the model question moot. The text names no address: tehas status and
-# the health file carry it, and they are served to whoever can read the
-# dashboard.
+# $mesh_hold. The text names no address: tehas status and the health file
+# carry it, and they are served to whoever can read the dashboard.
 mesh_hold=""
-# A png of one pixel.
-mesh_pixel=iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==
-# A cycle whose images nobody reads builds the wrong thing quietly, so nothing
-# starts while the sandbox image says its pi-rukas does not read them. An image
-# that says nothing is not held for it: it may well read them, and tehas has no
-# way to know.
+mesh_url=""
 mesh_check() {
-  local mesh model=$PI_ENSEMBLE_SUBAGENT_MODEL list commit
+  local model=$PI_ENSEMBLE_SUBAGENT_MODEL list
   mesh_hold=""
-  if [ "$TEHAS_WORK_IMAGES" = 1 ] && [ "$(tehas_rukas_reads_images)" = 0 ]; then
-    commit=$(tehas_rukas_commit)
-    mesh_hold="holding: no resources: the pi-rukas in the sandbox image${commit:+ ${commit:0:12}} does not read the images a cycle is given, and TEHAS_WORK_IMAGES is 1"
-    return 0
-  fi
-  mesh=$(jq -r --arg p "$PI_ENSEMBLE_SUBAGENT_PROVIDER" '.providers[$p].baseUrl // ""' "$HOME/.pi/agent/models.json" 2>/dev/null)
-  [ -n "$mesh" ] && [ -n "$model" ] || return 0
-  if ! list=$(curl -fsS -m 10 "$mesh/models" 2>/dev/null); then
+  mesh_url=$(jq -r --arg p "$PI_ENSEMBLE_SUBAGENT_PROVIDER" '.providers[$p].baseUrl // ""' "$HOME/.pi/agent/models.json" 2>/dev/null)
+  [ -n "$mesh_url" ] && [ -n "$model" ] || { mesh_url=""; return 0; }
+  if ! list=$(curl -fsS -m 10 "$mesh_url/models" 2>/dev/null); then
     mesh_hold="holding: no resources: the model endpoint does not answer"
   elif ! jq -e '(.data | type) == "array" and (.data | length) > 0' <<<"$list" >/dev/null 2>&1; then
     mesh_hold="holding: no resources: the model endpoint offers no models"
   elif ! jq -e --arg m "$model" '.data | any(.id == $m)' <<<"$list" >/dev/null 2>&1; then
     mesh_hold="holding: no resources: the model endpoint does not offer $model"
-  elif [ "$TEHAS_WORK_IMAGES" = 1 ]; then
-    # A cycle that is given images needs a model that reads them. Asked with
-    # one pixel, before an issue is spent on finding out.
-    if ! jq -e --arg p "$PI_ENSEMBLE_SUBAGENT_PROVIDER" --arg m "$model" \
+  fi
+}
+
+# Where the instance gives a cycle images (TEHAS_WORK_IMAGES), a cycle whose
+# issue links one needs two readers: the pi-rukas in the sandbox image, which
+# hands over the manifest tehas writes beside them, and a model that declares
+# image input in models.json and answers a request that carries one. The
+# image is asked first: its label answers without the network, and an image
+# that says nothing is not held for it. image_ok <issue> asks only for such an
+# issue, and only when it would otherwise start: an issue without images, and
+# a planning turn, are never held by it, and a poll that can start nothing
+# sends no picture to a backend that cycles are queueing on. The model is
+# asked once a poll at most; the answer stands for the rest of it. Every
+# attachment link counts, whatever its type: tehas work decides what it
+# fetches, and a link it would take must not start a cycle on a model that
+# cannot read it. Needs the issue's answer from work_ok. Returns 1, with the
+# reason logged, when the issue waits.
+image_asked=0
+image_hold=""
+# A png of one pixel.
+mesh_pixel=iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==
+image_ok() {
+  local n=$1 linked model=$PI_ENSEMBLE_SUBAGENT_MODEL commit
+  [ "$TEHAS_WORK_IMAGES" = 1 ] || return 0
+  linked=$(jq -r "$(tehas_attachment_links)"' (.body // "") | links | length > 0' <<<"${work_answer[$n]:-}" 2>/dev/null) || linked=""
+  case "$linked" in
+    false) return 0 ;;
+    true) ;;
+    *) log "ERROR: the text of #$n could not be read for its links"; exit 1 ;;
+  esac
+  if [ "$image_asked" = 0 ]; then
+    image_asked=1
+    if [ "$(tehas_rukas_reads_images)" = 0 ]; then
+      commit=$(tehas_rukas_commit)
+      image_hold="the pi-rukas in the sandbox image${commit:+ ${commit:0:12}} does not read them"
+    elif [ -z "$mesh_url" ]; then
+      :
+    elif ! jq -e --arg p "$PI_ENSEMBLE_SUBAGENT_PROVIDER" --arg m "$model" \
       '.providers[$p].models // [] | any(.id == $m and ((.input // []) | index("image") != null))' \
       "$HOME/.pi/agent/models.json" >/dev/null 2>&1; then
-      mesh_hold="holding: no resources: $model does not declare image input in models.json, and TEHAS_WORK_IMAGES is 1"
+      image_hold="$model does not declare image input in models.json"
     elif ! jq -n -c --arg m "$model" --arg px "$mesh_pixel" '{model: $m, max_tokens: 1, messages: [{role: "user", content: [
         {type: "text", text: "."}, {type: "image_url", image_url: {url: "data:image/png;base64,\($px)"}}]}]}' |
-      curl -fsS -m 30 -H 'Content-Type: application/json' -d @- "$mesh/chat/completions" >/dev/null 2>&1; then
-      mesh_hold="holding: no resources: $model does not answer an image, and TEHAS_WORK_IMAGES is 1"
+      curl -fsS -m 30 -H 'Content-Type: application/json' -d @- "$mesh_url/chat/completions" >/dev/null 2>&1; then
+      image_hold="$model does not answer an image"
     fi
   fi
+  [ -n "$image_hold" ] || return 0
+  log "hold #$n: its text links an attachment and TEHAS_WORK_IMAGES is 1, but $image_hold"
+  return 1
 }
 # A real poll has logged the hold at rule 3; a dry run says it where it ends.
 mesh_ok() {
@@ -305,17 +374,20 @@ report_hold() {
 # skip, logged once a poll at most like any other refusal.
 #
 # One issue can be on more than one of the poll's lists, and a number is asked
-# once a poll: the answer first read stands for the rest of it, and a refusal
+# once a poll: the answer first read stands for the rest of it, kept in
+# $work_answer for image_ok, and a refusal
 # is said once. Every call site sits after the checks that hold the issue back
 # for other reasons, so the ask is paid only for an issue this poll would
 # otherwise take.
 work_refused=" " answered=" "
+declare -A work_answer=()
 work_ok() {
   case "$answered" in *" $1 "*) return 0 ;; esac
   case "$work_refused" in *" $1 "*) return 1 ;; esac
   gh_json api "repos/$repo/issues/$1"
   if tehas_work_kind "$json"; then
     answered="$answered$1 "
+    work_answer[$1]=$json
     return 0
   fi
   case "$tehas_work_why" in
@@ -421,22 +493,56 @@ clear_unauthorised() {
   fi
 }
 
+# open_pr <issue>: the url of an open pull request that GitHub says closes
+# the issue, in $pr_url; empty when there is none. A cycle on such an issue
+# would find the work done, after its explore and plan were paid for.
+pr_url=""
+open_pr() {
+  # shellcheck disable=SC2016  # $owner, $name and $number are GraphQL variables
+  gh_json api graphql -F owner="${repo%%/*}" -F name="${repo##*/}" -F number="$1" \
+    -f query='query($owner: String!, $name: String!, $number: Int!) {
+      repository(owner: $owner, name: $name) { issue(number: $number) {
+        closedByPullRequestsReferences(first: 20) { nodes { url state } } } } }'
+  pr_url=$(jq -r '.data.repository.issue.closedByPullRequestsReferences.nodes
+            | if type == "array" then . else error end
+            | map(select(.state == "OPEN")) | .[0].url // ""' <<<"$json") ||
+    { log "ERROR: unreadable pull requests of #$1"; exit 1; }
+}
+
+# clear_pr_open <issue>: the label asks for work a pull request already does.
+# Take it off and say so, as clear_unauthorised does, and on the same terms.
+clear_pr_open() {
+  local n=$1
+  log "skip #$n: pull request $pr_url is open and closes it"
+  [ "$dry" = 0 ] || return 0
+  if gh issue edit "$n" --repo "$repo" --remove-label tehas:ready >/dev/null 2>&1; then
+    say "$n" "Tehas took \`tehas:ready\` off this issue and started nothing: $pr_url is open and closes it. Merge or close that pull request, then apply \`tehas:ready\` if work is still needed."
+  else
+    log "WARN: label change on #$n failed: --remove-label tehas:ready"
+  fi
+}
+
 # unchanged_since <issue> <time> <what happened then> [how to approve again]
 # Needs the label events of $n in $events; they are read when they are not
 # already at hand. An approval covers the text that was there when it was given.
 # A title or body changed afterwards by anyone else has not been approved by
-# anybody: the issue waits until an allowed account approves it again. Returns
+# anybody: the issue waits until an allowed account approves it again. A change
+# whose account GitHub no longer names, a deleted one, is by 'unknown'. Returns
 # 1, with the reason logged, if that happened.
+# The body comes in the same answer as the edit record, so the text kept in
+# $text_of for the approval record is the text this check passed.
+declare -A text_of=()
 unchanged_since() {
   local n=$1 since=$2 what=$3 again=${4:-apply the label again} renamed edited editors edited_at stale e
   [ "$events_for" = "$n" ] || issue_events "$n"
   renamed=$(jq -rs --arg at "$since" 'add // [] | map(select(.event == "renamed" and ($at == "" or .created_at > $at)))
-                  | map(.actor.login // "") | join(" ")' <<<"$events") ||
+                  | map(.actor.login // "" | if . == "" then "unknown" else . end) | join(" ")' <<<"$events") ||
     { log "ERROR: unreadable label events of #$n"; exit 1; }
   # shellcheck disable=SC2016  # $owner, $name and $number are GraphQL variables
   gh_json api graphql -F owner="${repo%%/*}" -F name="${repo##*/}" -F number="$n" \
     -f query='query($owner: String!, $name: String!, $number: Int!) {
-      repository(owner: $owner, name: $name) { issue(number: $number) { lastEditedAt editor { login } } } }'
+      repository(owner: $owner, name: $name) { issue(number: $number) { lastEditedAt editor { login } body } } }'
+  text_of[$n]=$json
   edited=$(jq -r '.data.repository.issue | "\(.editor.login // "") \(.lastEditedAt // "")"' <<<"$json") ||
     { log "ERROR: unreadable edit record of #$n"; exit 1; }
   editors=$renamed
@@ -465,7 +571,10 @@ refresh_checkout() {
   else
     log "WARN: $checkout has uncommitted changes, leaving its branch alone"
   fi
-  if ! git -C "$checkout" fetch -q origin || ! git -C "$checkout" merge -q --ff-only "origin/$branch"; then
+  # Bounded: it runs under the poll's lock, and a hung fetch would stop every
+  # later poll. What it starts does not take the lock with it.
+  if ! timeout -k 10 "${TEHAS_FETCH_WAIT:-120}" git -C "$checkout" fetch -q origin 8>&- ||
+    ! git -C "$checkout" merge -q --ff-only "origin/$branch"; then
     log "WARN: could not fast-forward $checkout"
   fi
 }
@@ -484,9 +593,85 @@ wait_for() {
 
 # What a poll will start, and on whose word: the issues in $picked and, for
 # each, who authorised it, the word for how in the log and in the comment, and
-# the gh issue edit options that take it out of the queue it came from.
+# the gh issue edit options that take it out of the queue it came from. For
+# the approval record: when it was given and how, in one word.
 picked=()
-declare -A starter=() verb=() how=() drop=()
+declare -A starter=() verb=() how=() drop=() given_at=() given_how=() given_since=()
+
+# approved_record <issue>: write state/cycles/<issue>.approved.json. Returns 1
+# when it could not be written.
+approved_record() {
+  local n=$1 file=$TEHAS_HOME/state/cycles/$1.approved.json sum from='[]' retry=null
+  [ -n "${text_of[$n]:-}" ] || return 1
+  sum=$(jq '.data.repository.issue // {}' <<<"${text_of[$n]}" | tehas_body_sha256) || return 1
+  if [ "$TEHAS_WORK_COMMENTS" = 1 ]; then
+    from=$(comment_links "$n" "${given_at[$n]}") || { log "ERROR: the comments of #$n could not be read"; return 1; }
+    if [ "${given_how[$n]}" = retry-tick ]; then
+      retry=$(pr_comments "$n" "${given_since[$n]:-}" "${given_at[$n]}") ||
+        { log "ERROR: the comments on the pull request of #$n could not be read"; return 1; }
+    fi
+  fi
+  jq --arg at "${given_at[$n]}" --arg by "${starter[$n]}" --arg how "${given_how[$n]}" --arg sum "$sum" \
+    --argjson comments "$TEHAS_WORK_COMMENTS" --argjson from "$from" --argjson retry "$retry" \
+    "$(tehas_attachment_links)"'{at: $at, by: $by, how: $how, body_sha256: $sum,
+      links: (.data.repository.issue.body // "" | links | reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end))}
+      + if $comments == 1 then {comment_links: ($from + ($retry.links // []))} else {} end
+      + if $retry == null then {} else {retry_context: $retry.context} end' \
+    <<<"${text_of[$n]}" >"$file.new" 2>/dev/null && mv "$file.new" "$file"
+}
+
+# A jq definition, `window`: of the comments as the REST API lists them, one
+# JSON list per page, those an allowed account wrote at or after $since and at
+# or before $at, and that nobody edited after $at, in the order written. A
+# comment later than the approval was not there to be approved. An $at that is
+# empty takes none.
+# shellcheck disable=SC2016  # a jq program
+comment_window='def window: if any(.[]; type != "array") then error("not a list of comments") else . end
+  | ($allowed | split(" ")) as $list
+  | [add // [] | .[] | select(type == "object" and (.id | type) == "number" and (.body | type) == "string"
+      and ((.user.login // "") as $a | $a != "" and ($list | index($a)) != null)
+      and (.created_at | type) == "string" and (.updated_at | type) == "string"
+      and $at != "" and .created_at >= $since and .created_at <= $at and .updated_at <= $at)]
+  | sort_by(.created_at, .id);
+  def dedupe: reduce .[] as $x ([]; if any(.[]; .link == $x.link) then . else . + [$x] end);'
+
+# comment_links <issue> <time>: the attachment links in the issue's comments
+# that the approval at <time> covers, as a JSON list of {link, source, by}.
+# Fails when the comments cannot be read.
+comment_links() {
+  local list
+  list=$(gh api "repos/$repo/issues/$1/comments?per_page=100" --paginate 2>/dev/null) || return 1
+  jq -cs --arg since "" --arg at "$2" --arg allowed "$TEHAS_ALLOWED_LABELERS" "$(tehas_attachment_links)$comment_window"'
+    window | [.[] | .id as $id | .user.login as $by | .body | links[] | {link: ., source: "comment:\($id)", by: $by}] | dedupe' \
+    <<<"$list" 2>/dev/null
+}
+
+# pr_comments <issue> <park time> <tick time>: what a reviewer said on the
+# parked cycle's pull request before the retry, as {links, context}. The pull
+# requests are the bot's that name the issue, as tehasbot cycle finds a
+# cycle's. Of their comments, those an allowed account wrote between the park
+# and the tick and nobody edited after it: the tick approves them as it
+# approves the text. links as comment_links has them, source
+# "pr-comment:<id>"; context the first 20, each cut at 4000 characters, for
+# retry-context.md. Fails when a list cannot be read.
+pr_comments() {
+  local prs pr list all=""
+  prs=$(gh pr list --repo "$repo" --author "$bot" --state all --json number,body,headRefName --limit 100 2>/dev/null) || return 1
+  prs=$(jq -r --arg n "$1" "$(tehas_names_issue)"'
+    if type != "array" then error("not a list") else . end
+    | [.[] | select(type == "object" and (.number | type) == "number") | select(mine) | .number] | sort | .[]' <<<"$prs" 2>/dev/null) ||
+    return 1
+  for pr in $prs; do
+    list=$(gh api "repos/$repo/issues/$pr/comments?per_page=100" --paginate 2>/dev/null) || return 1
+    all+=$list$'\n'
+  done
+  [ -n "$2" ] || all=""
+  jq -cs --arg since "$2" --arg at "$3" --arg allowed "$TEHAS_ALLOWED_LABELERS" "$(tehas_attachment_links)$comment_window"'
+    window
+    | {links: ([.[] | .id as $id | .user.login as $by | .body | links[] | {link: ., source: "pr-comment:\($id)", by: $by}] | dedupe),
+       context: [.[0:20][] | {source: "pr-comment:\(.id)", by: .user.login, at: .created_at, text: (.body | gsub("\r"; "") | .[0:4000])}]}' \
+    <<<"$all" 2>/dev/null
+}
 
 # Without systemd's answer every picked issue would be marked running and then
 # parked, at every poll. A shell without the user's bus gets none.
@@ -537,7 +722,7 @@ start_cycles() {
   # still works, so a failure here is a warning.
   if [ "$count" = 0 ]; then
     index_log=$TEHAS_HOME/logs/dispatch-work-${picked[0]}.log
-    "$index_cmd" --before-cycle >>"$index_log" 2>&1 ||
+    "$index_cmd" --before-cycle >>"$index_log" 2>&1 8>&- ||
       log "WARN: the code index was not refreshed, see $index_log"
   else
     log "the code index stays as it is: a cycle is running on #${running// /, #}"
@@ -546,6 +731,11 @@ start_cycles() {
   for n in "${picked[@]}"; do
     log "start #$n (${verb[$n]} by ${starter[$n]})"
     read -ra out <<<"${drop[$n]}"
+    if ! approved_record "$n"; then
+      rm -f "$TEHAS_HOME/state/cycles/$n.approved.json.new"
+      log "ERROR: could not write the approval record of #$n, not starting a cycle"
+      exit 1
+    fi
     # The cycle starts only once the issue is marked as taken. If the label
     # cannot be changed, the issue would stay in its queue and every later
     # poll would start the same issue again.
@@ -556,6 +746,11 @@ start_cycles() {
     # A park question of an earlier cycle is used up by this start, whichever
     # way it came about. Its boxes must not answer for the new cycle.
     rm -f "$(park_id "$n")"
+    # So is its park. Who authorised this start is kept for a retry after a
+    # provider outage, and the retry itself is marked for its cycle.
+    rm -f "$TEHAS_HOME/state/cycles/$n.park" "$TEHAS_HOME/state/cycles/$n.requeued"
+    printf '%s\n' "${starter[$n]}" >"$TEHAS_HOME/state/cycles/$n.by" || log "WARN: could not record who started #$n"
+    [ "${verb[$n]}" != requeued ] || : >"$TEHAS_HOME/state/cycles/$n.requeued"
     say "$n" "Tehas cycle started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC (authorized by @${starter[$n]}'s ${how[$n]}). This issue is owned by the cycle until \`tehas:running\` is removed."
     if ! start_cycle "$n"; then
       log "ERROR: the cycle for #$n did not start"
@@ -602,6 +797,38 @@ if [ "$paused" != false ]; then
   exit 0
 fi
 
+# A cycle that holds its lock but has not been heard from for 20 minutes is
+# stuck: a tehas work that hangs after its container ended, say. It would hold
+# its slot and its reserve until a person stopped it, so its unit is stopped.
+# tehas work writes the live file every 10 seconds from the host, also through
+# a long gate in the container. A cycle that took its lock lately counts as
+# heard from: the live file may be its issue's last cycle's. Said and stopped
+# once for each time it was last heard from; a dry run says it every time.
+quiet_bound=1200
+for n in $(tehas_cycles_running); do
+  heard=$(jq -r '.updatedAt | numbers | floor' "$TEHAS_HOME/live/cycles/$n.json" 2>/dev/null) || heard=""
+  [[ $heard =~ ^[0-9]{1,12}$ ]] || heard=0
+  took=$(stat -c %Y "$TEHAS_HOME/state/cycles/$n.taken" 2>/dev/null) || took=0
+  [ "$took" -le "$heard" ] || heard=$took
+  [ "$heard" -gt 0 ] && [ $(($(date +%s) - heard)) -gt "$quiet_bound" ] || continue
+  note=$TEHAS_HOME/state/cycles/$n.quiet
+  why="the cycle for #$n holds its lock but has not been heard from since $(date -u -d "@$heard" +%FT%TZ), more than ${quiet_bound}s"
+  if [ "$dry" = 1 ]; then
+    log "would stop tehas-cycle@$n.service: $why"
+    continue
+  fi
+  [ "$(head -c 16 "$note" 2>/dev/null)" != "$heard" ] || continue
+  log "WARN: $why: stopping tehas-cycle@$n.service"
+  echo "$heard" >"$note" || log "WARN: could not write $note"
+  # Without waiting for it: the cycle reports as it stops, and the poll holds
+  # its lock meanwhile.
+  if [ -n "${TEHAS_CYCLE_STOP_CMD:-}" ]; then
+    timeout -k 5 30 "$TEHAS_CYCLE_STOP_CMD" "$n" 8>&-
+  else
+    timeout -k 5 30 systemctl --user --no-block stop "tehas-cycle@$n.service" 8>&-
+  fi || log "WARN: could not stop tehas-cycle@$n.service"
+done
+
 # 2. The slots. A cycle that died holds no lock and is not counted.
 running=$(tehas_cycles_running | tr '\n' ' ')
 running=${running% }
@@ -622,15 +849,26 @@ if [ -n "$rukas_now" ] && ! tehas_rukas_proven "$rukas_now"; then
   done
 fi
 
+# reap <container> <why>: remove a container whose command is gone. Its
+# client died, so nothing else stops it: it would work on with the bot's
+# token, count in the slice, and the next start under its name would fail.
+reap() {
+  local gone
+  gone=$(docker rm -f "$1" 2>/dev/null) || gone=""
+  [ -z "$gone" ] || log "removed the container $1: $2"
+}
+
 # A cycle that was killed, or whose last label change GitHub refused, leaves
 # its issue marked as running. No rule below would look at it again. The
 # comment follows the label change only: while the change fails, the next poll
-# finds the issue again and must not say the same once more.
+# finds the issue again and must not say the same once more. A container of
+# that issue is left only by a cycle whose client died, and goes.
 gh_json issue list --repo "$repo" --state all --label tehas:running --limit 1000 --json number,state
 marked_json=$json
 marked=$(jq -r 'map(.number) | sort | .[]' <<<"$marked_json") || { log "ERROR: unreadable list of issues marked as running"; exit 1; }
 for n in $marked; do
   ! tehas_cycle_running "$n" || continue
+  [ "$dry" = 1 ] || reap "tehas-work-$n" "no cycle holds the lock of #$n"
   # A closed issue is nobody's to retry: the mark goes and nothing is said.
   if [ "$(jq -r --argjson n "$n" '.[] | select(.number == $n) | .state // "OPEN"' <<<"$marked_json")" = CLOSED ]; then
     if [ "$dry" = 1 ]; then
@@ -639,6 +877,15 @@ for n in $marked; do
     fi
     log "clear #$n: it is closed, marked tehas:running, and no cycle holds its lock"
     gh issue edit "$n" --repo "$repo" --remove-label tehas:running >/dev/null 2>&1 || log "WARN: label change on #$n failed"
+    continue
+  fi
+  # The list was read before this loop. A cycle that ended since has taken
+  # tehas:running off and said how it ended: parking it now would be false.
+  gh_json api "repos/$repo/issues/$n"
+  still=$(jq -r '(.labels // []) | any(.name == "tehas:running")' <<<"$json") ||
+    { log "ERROR: GitHub's answer for #$n could not be read"; exit 1; }
+  if [ "$still" != true ]; then
+    log "skip #$n: tehas:running is gone from it since the list was read"
     continue
   fi
   if [ "$dry" = 1 ]; then
@@ -652,6 +899,37 @@ for n in $marked; do
     log "WARN: label change on #$n failed"
   fi
 done
+
+# A parked cycle keeps its workspace for a person to read, and the one before
+# it as .before-retry. Those of an issue go together once no cycle has used
+# any of them, or taken the issue's lock, for 7 days. The issue's lock is held
+# while they are removed, so a cycle cannot start in them. Three issues a poll
+# at most, so a poll stays short. Only under the directory tehas work marked.
+sweep_workspaces() {
+  local works=${TEHAS_WORK_DIR%/*} base=${TEHAS_WORK_DIR##*/} p n lock done=0
+  local -A seen=()
+  [ -f "$works/.tehas-workspaces" ] || return 0
+  for p in "$works/$base"-*; do
+    [[ ${p##*/} =~ ^"$base"-([1-9][0-9]{0,9})(\.before-retry|\.images|\.state)?$ ]] || continue
+    n=${BASH_REMATCH[1]}
+    [ -z "${seen[$n]+set}" ] || continue
+    seen[$n]=1
+    [ "$done" -lt 3 ] || return 0
+    lock=$TEHAS_HOME/state/cycles/$n.lock
+    ! tehas_cycle_running "$n" || continue
+    [ -z "$(find "$lock" "$works/$base-$n" "$works/$base-$n".{before-retry,images,state} \
+      -maxdepth 0 -newermt "-7 days" 2>/dev/null)" ] || continue
+    done=$((done + 1))
+    if [ "$dry" = 1 ]; then
+      log "would remove the kept workspace of #$n: no cycle has run on it for 7 days"
+    elif flock -n "$lock" rm -rf -- "$works/$base-$n" "$works/$base-$n".{before-retry,images,state} 8>&-; then
+      log "removed the kept workspace of #$n: no cycle has run on it for 7 days"
+    else
+      log "WARN: could not remove the kept workspace of #$n"
+    fi
+  done
+}
+sweep_workspaces
 
 # 3. Do not pile up unreviewed work, and do not promise memory the slice does
 # not have. A running cycle is a pull request on its way, so it counts:
@@ -746,6 +1024,7 @@ for st in "$TEHAS_HOME"/state/plan-*.json; do
   if [ "$dry" = 1 ]; then
     log "would report the cut-off planning turn of #$n"
   else
+    reap "tehas-plan-$n" "the planning turn of #$n was cut off"
     plan_recover "$n" || true
   fi
   fresh="$fresh$n "
@@ -898,35 +1177,45 @@ for n in $asking; do
         continue
       fi
       mesh_ok || exit 0
+      image_ok "$n" || exit 0
       if [ "$dry" = 1 ]; then
         log "would run a cycle for #$n (retry ticked by $by)"
         exit 0
       fi
-      # Asked before the tick is used up: a tick must not be spent on a start
+      # Asked before anything changes: a tick must not be spent on a start
       # that cannot happen.
       units_ok "$n" || exit 1
-      # One tick is one start. Unticking edits the comment as the bot, so the
-      # bot becomes its last editor and the tick cannot be read a second time.
-      if ! untick "$n" "$ans"; then
-        log "ERROR: could not use up the retry tick on #$n, not starting a cycle"
-        continue
-      fi
       picked=("$n")
       starter[$n]=$by
       verb[$n]="retry ticked"
       how[$n]="retry tick"
+      given_at[$n]=$(jq -r .tick.at <<<"$ans")
+      given_how[$n]="retry-tick"
+      # The park: when the question was asked.
+      given_since[$n]=$(jq -r '.asked_at // ""' <<<"$ans")
       drop[$n]="--remove-label needs-human-attention --remove-label tehas:question"
       # A tehas:ready left on the issue would start a second cycle after this
       # one: one start uses up every request for it.
       [[ $have == *" tehas:ready "* ]] && drop[$n]+=" --remove-label tehas:ready"
+      # One tick is one start. The issue is marked first: when that fails the
+      # poll ends here and the tick stays, so the next poll tries again. Once
+      # it is marked the start has removed the question from the record, so
+      # the tick can start nothing more. It is unticked then, so the comment
+      # shows it was taken; a failure there is only a warning.
       start_cycles
-      exit
+      started=$?
+      untick "$n" "$ans" || log "WARN: could not untick the retry on #$n; its question is no longer on record, so it starts nothing more"
+      exit "$started"
       ;;
     plan)
-      # A reply says more than a box, so it wins when both are there.
+      # A reply says more than a box, so it wins when both are there, and the
+      # answer says what was ticked.
       reply=$(jq -r '.reply.text // ""' <<<"$ans")
+      reply_id=""
       if [ -n "$reply" ]; then
         by=$(jq -r .reply.by <<<"$ans")
+        reply_id=$(jq -r '.reply.id // "" | tostring' <<<"$ans")
+        case "$reply_id" in *[!0-9]*) reply_id="" ;; esac
       elif [ "$tick" != one ]; then
         continue
       fi
@@ -946,6 +1235,19 @@ for n in $asking; do
         text="The operator replied on the issue:
 
 $reply"
+        # The tick is not used, but it is not dropped without a word either.
+        if [ "$tick" = one ]; then
+          idx=$(jq -r .tick.index <<<"$ans")
+          if [ "$idx" = "$(($(jq -r .boxes <<<"$ans") - 1))" ]; then
+            choice="End this planning session"
+          else
+            choice=$(jq -r --argjson i "$idx" '.options[$i] // ""' "$st" 2>/dev/null) || choice=""
+            [ -n "$choice" ] || choice="a box that matches no option on record"
+          fi
+          text="$text
+
+A box was also ticked, by $(jq -r .tick.by <<<"$ans"): $choice"
+        fi
       else
         idx=$(jq -r .tick.index <<<"$ans")
         # The last box is always the way out.
@@ -972,7 +1274,7 @@ $reply"
       fi
       printf '%s\n' "$text" >"$st.answer"
       log "planning #$n continues (answer from $by)"
-      plan_turn "$n" next "$st.answer"
+      plan_turn "$n" next "$st.answer" "$reply_id"
       "$status_cmd"
       exit 0
       ;;
@@ -1014,6 +1316,50 @@ if [ -n "$hold" ]; then
   [ "$dry" = 1 ] && log "$hold"
   exit 0
 fi
+
+# 4a. A cycle a provider outage parked starts again once, without a tick, now
+# that nothing holds cycles back and the model endpoint answers. tehasbot cycle
+# asks for it in state/cycles/<issue>.park. The start rests on the account that
+# authorised the cycle that parked, while it is still allowed and nobody else
+# changed the text since that cycle began. A park file that cannot start
+# anything goes; a second park of the kind waits for a person.
+for pf in "$TEHAS_HOME"/state/cycles/*.park; do
+  n=${pf##*/}
+  n=${n%.park}
+  [[ $n =~ ^[1-9][0-9]*$ ]] && [ -f "$pf" ] && [ ! -L "$pf" ] && [ "$want" -gt 0 ] || continue
+  [ "$(jq -r '.retry == true and (.started | type) == "number"' "$pf" 2>/dev/null)" = true ] || continue
+  ! tehas_cycle_running "$n" || continue
+  gh_json issue view "$n" --repo "$repo" --json state,labels
+  have=" $(jq -r '[(.labels // [])[].name] | join(" ")' <<<"$json") "
+  by=$(head -c 64 "$TEHAS_HOME/state/cycles/$n.by" 2>/dev/null | head -n 1)
+  # A label of a person's decides it, in rule 6 or by waiting.
+  [[ $have != *" tehas:ready "* ]] || continue
+  if [ "$(jq -r '.state // ""' <<<"$json")" != OPEN ] || [[ $have != *" needs-human-attention "* ]] ||
+    [[ $have == *" tehas:running "* ]] || [ -e "$(plan_state "$n")" ] || ! tehas_allowed_labeler "$by" ||
+    ! unchanged_since "$n" "$(date -u -d "@$(jq -r .started "$pf")" +%FT%TZ)" "its last cycle began" "apply tehas:ready"; then
+    log "skip #$n: its retry after a provider outage is not started; it waits for a person"
+    [ "$dry" = 1 ] || rm -f "$pf"
+    continue
+  fi
+  if [ "$dry" = 1 ]; then
+    log "would run a cycle for #$n (retry after a provider outage, started by $by)"
+    exit 0
+  fi
+  units_ok "$n" || exit 1
+  picked=("$n")
+  starter[$n]=$by
+  verb[$n]=requeued
+  # The text was checked unchanged since the parked cycle began, so the
+  # approval record stands on that time.
+  given_at[$n]=$(date -u -d "@$(jq -r .started "$pf")" +%FT%TZ)
+  given_how[$n]=outage-retry
+  how[$n]="start of the cycle a provider outage parked"
+  drop[$n]="--remove-label needs-human-attention"
+  [[ $have != *" tehas:question "* ]] || drop[$n]+=" --remove-label tehas:question"
+  say "$n" "Tehas starts this issue again on its own: its last cycle was parked by a provider outage, and the model endpoint answers again. It does this once. If the new cycle is parked the same way, it waits for a person."
+  start_cycles
+  exit
+done
 
 # 6. and 7. Candidates: urgent first, then by number. The order is needed
 # before the candidates are cut to the free slots, so whose urgent label counts
@@ -1071,10 +1417,18 @@ for n in $candidates; do
   # Asked after the label approves the issue: an issue no account is allowed
   # to start costs no call, and the label is not changed until start_cycles.
   work_ok "$n" || continue
+  open_pr "$n"
+  if [ -n "$pr_url" ]; then
+    clear_pr_open "$n"
+    continue
+  fi
+  image_ok "$n" || continue
   picked+=("$n")
   starter[$n]=$who
   verb[$n]=labelled
   how[$n]="\`tehas:ready\` label"
+  given_at[$n]=$at
+  given_how[$n]=label
   drop[$n]="--remove-label tehas:ready"
   # What an earlier cycle left on the issue goes with the start. Only what
   # is there: gh refuses to remove a label the repository does not have.

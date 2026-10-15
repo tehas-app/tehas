@@ -15,9 +15,11 @@
 # for. The clone is made at the tip the product checkout last fetched, mounted
 # read-only and removed afterwards. The cycle's workspace is not touched.
 #
-# The index is as fresh as its last run. The dispatcher runs this before each
-# cycle, so a cycle starts with an index of the tree it is cloned from. What
-# the cycle changes after that is not in it.
+# The index is as fresh as its last run. The dispatcher runs this when it
+# starts cycles and none is running, so those cycles start with an index of the
+# tree they are cloned from. A cycle started while another runs gets the index
+# as it is, which falls behind the branch while cycles overlap. What a cycle
+# changes is never in it.
 #
 # Called before a cycle, it is done only when the directory holds index data
 # and its record names the branch's tip. The record alone is not enough: on a
@@ -122,8 +124,11 @@ prune_index() { # <dir> <epoch this run started>
 # held by the caller, who has also looked at the cycles.
 mkdir -p "$TEHAS_HOME/state" "$TEHAS_HOME/logs" "$TEHAS_HOME/tmp" "$index"
 if [ "$cycle" = 0 ]; then
-  exec 8>"$TEHAS_HOME/state/dispatch.lock"
+  exec 8>>"$TEHAS_HOME/state/dispatch.lock"
   flock -n 8 || { echo "tehas index: the dispatcher's lock is held by a poll or another index run, nothing was indexed; run it again in a moment" >&2; exit 3; }
+  # When the lock was taken, as a poll records it: a poll that finds it held
+  # for too long says so.
+  date +%s >"$TEHAS_HOME/state/dispatch.taken" || true
   running=$(tehas_cycles_running | tr '\n' ' ')
   [ -z "$running" ] ||
     { echo "tehas index: a cycle is running (issue ${running% }), nothing was indexed; run it again afterwards" >&2; exit 3; }
