@@ -109,6 +109,13 @@ Run `tehas dispatch --dry-run` and read what it prints.
 - `park #N: it is marked tehas:running and no cycle holds its lock`: the cycle
   of that issue ended without a report, or never started. The issue now carries
   `needs-human-attention`. Read `~/tehas/logs/dispatch-work-N.log`.
+- `WARN: the cycle for #N holds its lock but has not been heard from since
+  <time>, more than 1200s: stopping tehas-cycle@N.service`: the cycle's live
+  file has not been written for 20 minutes, so the poll stopped its unit.
+  Read `~/tehas/logs/dispatch-work-N.log` and the end of the cycle's
+  `~/tehas/logs/work-N-*.jsonl` for where it hung. `WARN: could not stop
+  tehas-cycle@N.service` after it means the stop did not go through: stop
+  the unit by hand with `systemctl --user stop tehas-cycle@N.service`.
 - `N cycles running, room for M more`, then `would run a cycle for #N ...`:
   the issues the next poll starts. In the log you may also see `the code index
   stays as it is: a cycle is running on #N`. That is no reason an issue waits.

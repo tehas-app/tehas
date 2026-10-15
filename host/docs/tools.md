@@ -192,6 +192,19 @@ token and hold the name. The container of a planning turn that was cut off,
 paused factory leaves such an issue as it is. Run the dispatcher only on the host that runs the cycles: on any other
 host no cycle holds a lock.
 
+The other way round, a cycle that holds its lock but has not been heard from
+for 20 minutes is stuck, for example a `tehas work` that hangs after its
+container ended. Heard from means its live file,
+`~/tehas/live/cycles/<issue>.json`, was written, which `tehas work` does every
+10 seconds from the host, also while a long gate runs in the container, or
+that it took its lock. The poll logs `WARN: the cycle for #N holds its lock but
+has not been heard from since <time>, more than 1200s: stopping
+tehas-cycle@N.service` and stops the unit without waiting for it. The cycle
+reports as it stops; a later poll finds the issue as above. This is said and
+done once for each time the cycle was last heard from, kept in
+`~/tehas/state/cycles/<issue>.quiet`. A dry run says `would stop` and stops
+nothing. A paused factory does not stop it.
+
 An issue is taken only when an allowed account applied `tehas:ready` and
 nobody else has changed its title or body since, and only while GitHub says the
 number is an open issue. A closed issue and a pull request are never taken,
