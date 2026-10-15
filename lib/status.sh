@@ -27,6 +27,13 @@
 # shellcheck disable=SC2016  # the jq program below is data, not a shell string
 tehas_health_max_age=600
 
+# A pause reason is printed as one line of tehas status and written to files a
+# page may read, so it holds no line of its own: every control character (tab,
+# carriage return, escape, the separators U+2028 and U+2029) becomes a space,
+# and the ends are trimmed. The reader applies it and the line writer applies
+# it again, so a reason that reached a file some other way forges no line.
+tehas_pause_oneline='gsub("[\u0001-\u001f\u007f-\u009f\u2028\u2029]+"; " ") | gsub("^ *| *$"; "")'
+
 # A health file with a status string in it.
 tehas_health_readable() { # <file>
   jq -e '.status | type == "string"' "$1" >/dev/null 2>&1
@@ -43,14 +50,18 @@ tehas_state_defs='
   def ago($now): ($now - .) | if . < 0 then 0 else . end
     | if . < 120 then "\(.) s ago" elif . < 7200 then "\(. / 60 | floor) min ago" else "\(. / 3600 | floor) h ago" end;
   def age($now): (try (fromdateiso8601 | ago($now)) catch "at an unknown time");
-  # What holds the factory paused, one line for each switch that is set.
-  # {flag: {at, reason} or null, label: true|false}, as health.json writes it.
+  # What holds the factory paused, one line for each switch that is set:
+  # {flag: {at, reason} or null, label: true|false, lifted: true|false}, as
+  # health.json writes it. lifted names the case where the label is off and the
+  # account that took it off may not authorise work, so the host stays paused.
+  def oneline: '"$tehas_pause_oneline"';
   def pause_lines($now): if . == null or (.flag == null and .label != true) then empty else . end
     | ((if .flag == null then empty
         else "pause     flag, written \(.flag.at // "" | age($now))"
-             + (if (.flag.reason // "") == "" then "" else ": \(.flag.reason)" end)
+             + (if (.flag.reason // "" | oneline) == "" then "" else ": \(.flag.reason | oneline)" end)
         end),
-       (if .label == true then "pause     label: tehas:pause on the control issue" else empty end));
+       (if .label == true then "pause     label: tehas:pause on the control issue" else empty end),
+       (if .lifted == true then "pause     label: tehas:pause was taken off the control issue by an account that may not authorise work here" else empty end));
 '
 
 # tehas_pause_read <file>: the pause flag, as tehas pause writes it.
@@ -61,6 +72,8 @@ tehas_state_defs='
 # 2 as paused, so a damaged flag stops the factory rather than starting it.
 # `at` and `reason` must be strings; `by` may be anything and reads as nobody.
 # Nothing that reaches a page publishes `by`: it names an account on this host.
+# The reason comes back on one line, kept to the 200 characters tehas pause
+# writes, whatever the file holds.
 tehas_pause_read() { # <file>
   local json
   [ -e "$1" ] || return 1
@@ -68,7 +81,8 @@ tehas_pause_read() { # <file>
     select(type == "object")
     | select((.at | type) == "string")
     | select((.reason | type) == "string")
-    | {by: (if (.by | type) == "string" then .by else "" end), at, reason}' "$1" 2>/dev/null) || return 2
+    | {by: (if (.by | type) == "string" then .by else "" end), at,
+       reason: (.reason | '"$tehas_pause_oneline"' | .[:200])}' "$1" 2>/dev/null) || return 2
   printf '%s\n' "$json"
 }
 

@@ -4,7 +4,7 @@
 # One snapshot of the queue as GitHub sees it (which issues are in line, being
 # worked on, waiting for a human, stopped, completed), whether the last poll
 # found no resources (live/dispatch.json), and the words of the breakroom game.
-# Deterministic, no model, three GitHub calls. The dispatcher runs it at every
+# Deterministic, no model, four GitHub calls. The dispatcher runs it at every
 # poll, and a cycle when it ends.
 #
 # The words are counted over the titles and labels of every issue of the
@@ -22,10 +22,12 @@
 #
 # The snapshot says whether the factory is paused, and which of the two
 # switches holds it: `paused: true` when either is set, and `pause: {flag,
-# label}`, where `flag` is {at, reason} written by tehas pause or null, and
-# `label` is tehas:pause on the control issue. The flag is read from this host,
-# so pausing needs no answer from GitHub. `by`, the account that set the flag,
-# stays out of the file: the page that reads it can be public.
+# label, lifted}`, where `flag` is {at, reason} written by tehas pause or null,
+# `label` is tehas:pause on the control issue, and `lifted` says the label is
+# off but the account that took it off may not authorise work, which holds this
+# host paused just as much. The flag is read from this host, so pausing needs no
+# answer from GitHub. `by`, the account that set the flag, stays out of the file:
+# the page that reads it can be public.
 #
 # Usage: tehasbot status          (prints nothing; exit 0 even when GitHub is down,
 #                                 the previous file is then left in place;
@@ -35,10 +37,12 @@ set -uo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/config.sh
 . "$here/../lib/config.sh"
+# shellcheck source=lib/labels.sh
+. "$here/../lib/labels.sh"
 # shellcheck source=lib/status.sh
 . "$here/../lib/status.sh"
 tehas_load || exit 78
-tehas_require TEHAS_REPO TEHAS_CONTROL_ISSUE
+tehas_require TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS
 repo=$TEHAS_REPO
 control=$TEHAS_CONTROL_ISSUE
 live=$TEHAS_HOME/live
@@ -98,6 +102,17 @@ shipped=$(jq -ce '.data.search.nodes | map(select(.number != null and .timelineI
   | {number, title, url, updatedAt, closedAt, labels: [.labels.nodes[].name]})' <<<"$shipped" 2>/dev/null) || exit 0
 paused=$(gh issue view "$control" --repo "$repo" --json labels \
   --jq '.labels | any(.name == "tehas:pause")' 2>/dev/null || echo false)
+# The label works one way, so its absence is not always a resume. The poll
+# decides that from lib/labels.sh before it starts anything; this reports the
+# same verdict, so that a factory held by a pause a stranger lifted is not
+# published as taking work. An answer that cannot be read reports nothing extra:
+# the poll, which acts on it, ends when it cannot read the events.
+lifted=false
+if [ "$paused" = false ]; then
+  if events=$(gh api "repos/$repo/issues/$control/events?per_page=100" --paginate 2>/dev/null); then
+    tehas_pause_holds <<<"$events" >/dev/null && lifted=true
+  fi
+fi
 # The host's own switch, read without asking GitHub anything. A flag that cannot
 # be read counts as paused and has nothing to say for itself beyond that.
 pause_flag=$(tehas_pause_read "$TEHAS_HOME/state/pause.json")
@@ -114,6 +129,7 @@ no_resources=$(jq -s 'length == 1 and (.[0] | type == "object" and .why == "reso
 
 jq -n --argjson issues "$issues" --argjson shipped "$shipped" --argjson paused "$paused" --argjson everything "$everything" \
   --argjson noResources "${no_resources:-false}" --argjson pauseFlag "$pause_flag" --argjson flagPaused "$flag_paused" \
+  --argjson lifted "$lifted" \
   --arg repo "$repo" --arg now "$(date -u +%FT%TZ)" '
   def has($l): (.labels | map(.name) | index($l)) != null;
   def slim: {number, title, url, updatedAt, closedAt};
@@ -121,8 +137,8 @@ jq -n --argjson issues "$issues" --argjson shipped "$shipped" --argjson paused "
   ($issues | map(select(.state == "OPEN"))) as $open
   | {
       generatedAt: $now, repo: $repo,
-      paused: ($paused or $flagPaused),
-      pause: {flag: $pauseFlag, label: $paused},
+      paused: ($paused or $flagPaused or $lifted),
+      pause: {flag: $pauseFlag, label: $paused, lifted: $lifted},
       noResources: $noResources,
       running: ($open | map(select(has("tehas:running")) | slim)),
       queued: ($open | map(select(has("tehas:ready") and (has("tehas:running") | not)) | slim) | sort_by(.number)),

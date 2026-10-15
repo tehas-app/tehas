@@ -15,9 +15,11 @@
 # Usage: tehas pause [reason]
 #        tehas pause -h|--help   print this text and exit 0
 #
-# The reason is one argument, kept to 200 characters. It is written to the flag
-# and shown by tehas status and on the dashboard, which may be public: write
-# nothing in it that should not be read in public.
+# The reason is one argument, kept to 200 characters on one line: a control
+# character in it becomes a space, because tehas status prints one fact per line
+# and a newline in the reason would print a line that is not there. It is written
+# to the flag and shown by tehas status and on the dashboard, which may be
+# public: write nothing in it that should not be read in public.
 #
 # Exit: 0 the host is paused (this command wrote the flag, or it was already
 # there and is kept as it was); 64 more than one argument; 78 the instance
@@ -49,6 +51,12 @@ tehas_load || exit 78
 
 flag=$TEHAS_HOME/state/pause.json
 reason=${1-}
+# One line before one length: tehas status and the health file are line oriented,
+# so a reason carrying a newline would forge a line of its own. LC_ALL=C keeps
+# tr on bytes, which leaves every byte of a UTF-8 character alone.
+reason=$(printf '%s' "$reason" | LC_ALL=C tr '\001-\037\177' '   ')
+reason=$(printf '%s' "$reason" | LC_ALL=C tr -s ' ')
+reason=${reason# }
 reason=${reason:0:200}
 
 # The first pause wins: pausing a paused factory says what is already the case
@@ -73,6 +81,10 @@ mkdir -p "${flag%/*}" || { echo "tehas pause: could not create ${flag%/*}" >&2; 
 now=$(date -u +%FT%TZ)
 by=$(id -un)
 tmp=$flag.new
+# The name is fixed, so clear it first: a leftover from a crash, or something
+# planted in state/, would otherwise be truncated in place with its old mode, or
+# followed as a symlink, or fail as a directory.
+rm -f "$tmp" || { echo "tehas pause: could not remove $tmp" >&2; exit 1; }
 if ! (umask 077; jq -nc --arg by "$by" --arg at "$now" --arg reason "$reason" '{by: $by, at: $at, reason: $reason}' >"$tmp"); then
   rm -f "$tmp"
   echo "tehas pause: could not write $tmp" >&2

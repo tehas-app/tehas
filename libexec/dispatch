@@ -23,8 +23,8 @@
 #
 # Rules, in order:
 #   1. Two pause switches stop all dispatch: the flag $TEHAS_HOME/state/pause.json,
-#      which tehas pause writes on this host and which is read without asking
-#      GitHub anything, and the label tehas:pause on the control issue, which
+#      which tehas pause writes on this host and which is read before this poll
+#      asks GitHub anything, and the label tehas:pause on the control issue, which
 #      works from away from the host. The label works one way: anyone who may
 #      label applies it, only an account in TEHAS_ALLOWED_LABELERS lifts it. When
 #      the label is gone but its last tehas:pause event is a removal by anyone
@@ -790,6 +790,21 @@ start_cycles() {
 
 [ "$dry" = 0 ] && "$status_cmd"
 
+# 1. Pause switches. This host's flag first, before this poll asks GitHub
+# anything: a host can be paused when GitHub does not answer. A flag that cannot
+# be read or understood is a closed switch, never an absent one.
+pause_flag=$(tehas_pause_read "$TEHAS_HOME/state/pause.json")
+case $? in
+  0)
+    [ "$dry" = 1 ] && log "paused: the flag tehas pause wrote at $(jq -r .at <<<"$pause_flag") holds this host"
+    exit 0
+    ;;
+  2)
+    log "WARN: $TEHAS_HOME/state/pause.json is not a pause flag: taking it as paused"
+    exit 0
+    ;;
+esac
+
 # The repository must still answer to its configured name. After a rename
 # GitHub redirects some calls and answers others with an empty list, so the
 # queue would look empty for ever with no error.
@@ -830,7 +845,9 @@ esac
 
 # The label. Stopping is the safe direction, so anyone with write access may do
 # it. Starting again is the direction that needs authority, as tehas:ready does:
-# it takes an account from TEHAS_ALLOWED_LABELERS.
+# it takes an account from TEHAS_ALLOWED_LABELERS. A pause applied by anyone else
+# therefore holds this host until an allowed account lifts it, and a cycle cannot
+# let itself out of it.
 gh_json issue view "$control" --repo "$repo" --json labels
 paused=$(jq -r '.labels | any(.name == "tehas:pause")' <<<"$json") || { log "ERROR: unreadable answer for issue #$control"; exit 1; }
 if [ "$paused" != false ]; then
@@ -840,7 +857,7 @@ fi
 issue_events "$control"
 removed_by=$(tehas_pause_holds <<<"$events")
 case $? in
-  0) log "paused: tehas:pause was taken off #$control by '${removed_by:-unknown}', who may not authorise work here; the factory stays paused"; exit 0 ;;
+  0) log "paused: tehas:pause was taken off #$control by '${removed_by:-unknown}', who may not authorise work here; the factory stays paused until an allowed account applies tehas:pause and takes it off again"; exit 0 ;;
   2) log "ERROR: unreadable label events of #$control"; exit 1 ;;
 esac
 events=""

@@ -95,16 +95,20 @@ queue_max_age=600
 # The two pause switches. The flag is this host's own file, read here as well as
 # in the snapshot, so a host paused while GitHub did not answer still reports
 # itself paused. The label comes from the snapshot, which is the only place this
-# command reads it from. `by` is not carried: the health file is served.
+# command reads it from, and so does `lifted`: the label is off but a pause a
+# stranger lifted still holds this host. `by` is not carried: the health file is
+# served.
 pause_flag=$(tehas_pause_read "$TEHAS_HOME/state/pause.json")
 case $? in
   0) pause_flag=$(jq -c '{at, reason}' <<<"$pause_flag") ;;
   1) pause_flag=null ;;
   2) pause_flag='{"at":null,"reason":null}' ;;
 esac
-label_paused=$(jq -rc 'if (.pause.label | type) == "boolean" then .pause.label
+label_paused=$(jq -rc 'if (.pause.label | type) == "boolean" then (.pause.label or .pause.lifted == true)
   elif (.paused | type) == "boolean" then .paused else false end' <<<"$queue" 2>/dev/null) || label_paused=false
-pause=$(jq -nc --argjson flag "$pause_flag" --argjson label "$label_paused" '{flag: $flag, label: $label}')
+lifted=$(jq -rc 'if (.pause.lifted | type) == "boolean" then .pause.lifted else false end' <<<"$queue" 2>/dev/null) || lifted=false
+pause=$(jq -nc --argjson flag "$pause_flag" --argjson label "$label_paused" --argjson lifted "$lifted" \
+  '{flag: $flag, label: $label, lifted: $lifted}')
 
 jq -n --argjson queue "$queue" --argjson view "$view" --argjson disk "$disk" --argjson slice "$slice" --arg now "$(date -u +%FT%TZ)" \
   --argjson queueMaxAge "$queue_max_age" --argjson endings "$endings" --argjson platform "$platform" --argjson pause "$pause" '

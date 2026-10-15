@@ -49,8 +49,10 @@ repo=$TEHAS_REPO
 control=$TEHAS_CONTROL_ISSUE
 flag=$TEHAS_HOME/state/pause.json
 
-if [ -e "$flag" ]; then
+if [ -e "$flag" ] || [ -e "$flag.new" ]; then
   rm -f "$flag" || { echo "tehas resume: could not remove $flag" >&2; exit 1; }
+  # The name pause writes through. A leftover of it must not outlive the flag.
+  rm -f "$flag.new" || echo "tehas resume: could not remove $flag.new" >&2
   echo "resumed: the pause flag is gone"
 else
   echo "no pause flag on this host"
