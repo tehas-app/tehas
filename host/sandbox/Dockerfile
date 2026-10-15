@@ -12,10 +12,12 @@
 #
 # A product whose gates need another toolchain adds it here.
 #
-# Build with sandbox/build.sh, which passes the user id and the versions from
-# versions.env. The base is pinned by digest, shellcheck by checksum, and
-# Playwright by a lockfile beside this file: upgrade on purpose, then rebuild.
-FROM ghcr.io/trail-openers/pi-rukas:v0.12.79@sha256:bb9c91281187298d238cc793ceb18f8c06cd39284078b9a494c11118c7e97d3f
+# Build with sandbox/build.sh, which passes the user id, the versions from
+# versions.env and the base: upstream's image for the head of the branch
+# versions.env names. shellcheck is pinned by checksum and Playwright by a
+# lockfile beside this file.
+ARG PI_RUKAS_IMAGE
+FROM ${PI_RUKAS_IMAGE}
 
 ARG TEHAS_UID=1000
 ARG SHELLCHECK_VERSION
@@ -59,9 +61,27 @@ RUN cd /opt/pin/playwright \
  && chmod -R a+rX /opt/ms-playwright \
  && rm -rf /var/lib/apt/lists/* /root/.npm /opt/pin
 
-# The pi-rukas commit the base was built from, as versions.env names it. The
+# The pi-rukas commit the base was built from, the head build.sh found. The
 # dispatcher and tehasbot cycle read it from the image, so an image put back
 # for a rollback is known by its own commit. Last, so a new commit rebuilds
 # nothing above it.
 ARG PI_RUKAS_COMMIT=""
-LABEL tehas.rukas=$PI_RUKAS_COMMIT
+
+# Whether the pi-rukas in the base reads the manifest tehas writes beside the
+# images it mounts for a cycle. The reader is a file of pi-rukas's own source,
+# and the base image carries that source, so the base can be asked directly.
+# build.sh asks it and passes what it found; this checks that answer against
+# the base actually being built on, so the label cannot disagree with the
+# image. An image built without build.sh says nothing, and tehas reads that as
+# "not said" rather than as an answer. Last, like the commit above.
+ARG TEHAS_RUKAS_IMAGES=unknown
+RUN given=${TEHAS_RUKAS_IMAGES:-unknown}; reads=0; \
+    if test -e /opt/pi-rukas/extension/src/work-driver-issue-images.ts; then reads=1; fi; \
+    echo "sandbox: the base image's pi-rukas $reads issue images"; \
+    if [ "$given" = unknown ]; then exit 0; fi; \
+    if [ "$given" != "$reads" ]; then \
+      echo "sandbox: TEHAS_RUKAS_IMAGES says $given and the base says $reads: build with sandbox/build.sh" >&2; \
+      exit 1; \
+    fi
+
+LABEL tehas.rukas=$PI_RUKAS_COMMIT tehas.rukas.images=$TEHAS_RUKAS_IMAGES
