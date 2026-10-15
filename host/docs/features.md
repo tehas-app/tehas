@@ -144,8 +144,10 @@ repository's contract files were on a work branch when the instance was set up.
 - Electricity price scheduling. `tehas:urgent` only changes ordering today.
 - Model evaluation; every role uses the same model by decision, not by
   measurement.
-- Watching tehas itself: a stuck cycle, a failed refresh. A full disk is seen
-  where previews are on, and stops previews only.
+- Watching tehas itself: a failed refresh. A full disk is seen where previews
+  are on, and stops previews only. A cycle that holds its lock and is not
+  heard from for 20 minutes is stopped by the dispatcher; tested, not yet
+  seen on a host.
 - More than one project per host. See [A new project](/new-project).
 - A private database copy per cycle or per preview.
 

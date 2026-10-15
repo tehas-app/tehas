@@ -6,7 +6,7 @@
 //! knows.
 
 use regex::{Captures, Regex};
-use std::sync::LazyLock;
+use std::sync::{LazyLock, OnceLock};
 
 fn regex(pattern: &str) -> Regex {
     Regex::new(pattern).expect("a pattern of the mask is not a regular expression")
@@ -53,7 +53,49 @@ pub fn mask(s: &str) -> String {
     let s = SECRET_ASSIGNMENT.replace_all(&s, "${1}***");
     let s = PRIVATE_IPV4.replace_all(&s, private_address);
     let s = PRIVATE_IPV6.replace_all(&s, private_address);
-    TAILNET_NAME.replace_all(&s, "[private name]").into_owned()
+    let s = TAILNET_NAME.replace_all(&s, "[private name]");
+    hide(PRIVATE.get().and_then(Option::as_ref), &s)
+}
+
+// Names the host knows and an agent can print: the host aliases, the model
+// host, the bot's email. tehas work gives them with --private.
+static PRIVATE: OnceLock<Option<Regex>> = OnceLock::new();
+
+// A shorter name would mask ordinary words.
+const SHORTEST_PRIVATE: usize = 4;
+
+/// One pattern of the names, matched as text in any case, the longest first
+/// so that a name is not masked in part. None when no name is kept.
+fn private_names(names: &[String]) -> Result<Option<Regex>, String> {
+    let own = "[private address] [private name] ***";
+    let mut kept: Vec<&str> = names
+        .iter()
+        .map(|n| n.trim())
+        .filter(|n| n.chars().count() >= SHORTEST_PRIVATE)
+        // A name in the mask's own words would mask what the mask wrote.
+        .filter(|n| !own.to_lowercase().contains(&n.to_lowercase()))
+        .collect();
+    if kept.is_empty() {
+        return Ok(None);
+    }
+    kept.sort_by_key(|n| std::cmp::Reverse(n.len()));
+    let alternation: Vec<String> = kept.iter().map(|n| regex::escape(n)).collect();
+    Regex::new(&format!("(?i){}", alternation.join("|")))
+        .map(Some)
+        .map_err(|e| format!("console: --private: {e}"))
+}
+
+/// Sets the names for the rest of the run. Once: the first call wins.
+pub fn set_private(names: &[String]) -> Result<(), String> {
+    let _ = PRIVATE.set(private_names(names)?);
+    Ok(())
+}
+
+fn hide(names: Option<&Regex>, s: &str) -> String {
+    match names {
+        Some(names) => names.replace_all(s, "[private name]").into_owned(),
+        None => s.to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -218,5 +260,56 @@ mod tests {
         // An address that runs on into more digits is a longer number.
         let long = format!("{}456", ip([10, 1, 2, 3]));
         assert_eq!(mask(&long), long);
+    }
+}
+
+#[cfg(test)]
+mod private_tests {
+    use super::{hide, private_names};
+
+    fn names(given: &[&str]) -> Vec<String> {
+        given.iter().map(|n| n.to_string()).collect()
+    }
+
+    #[test]
+    fn a_name_the_host_knows_is_masked_wherever_it_is() {
+        let known = private_names(&names(&["models.lan", "bot@example.com"])).unwrap();
+        assert_eq!(
+            hide(
+                known.as_ref(),
+                "curl http://models.lan:8086/v1 by bot@example.com."
+            ),
+            "curl http://[private name]:8086/v1 by [private name]."
+        );
+    }
+
+    #[test]
+    fn a_name_is_masked_in_any_case_and_as_text_not_a_pattern() {
+        let known = private_names(&names(&["a.b-c"])).unwrap();
+        assert_eq!(hide(known.as_ref(), "A.B-C axb-c"), "[private name] axb-c");
+    }
+
+    #[test]
+    fn the_longer_of_two_names_is_masked_whole() {
+        let known = private_names(&names(&["gpu1", "gpu1.lan"])).unwrap();
+        assert_eq!(hide(known.as_ref(), "at gpu1.lan"), "at [private name]");
+    }
+
+    #[test]
+    fn short_and_empty_names_are_left_out() {
+        assert!(private_names(&names(&["", "abc", "  "])).unwrap().is_none());
+        let known = private_names(&names(&["abc", "host1"])).unwrap();
+        assert_eq!(hide(known.as_ref(), "abc host1"), "abc [private name]");
+    }
+
+    #[test]
+    fn a_name_in_the_mask_s_own_words_is_left_out() {
+        let known = private_names(&names(&["private", "name"])).unwrap();
+        assert!(known.is_none());
+    }
+
+    #[test]
+    fn without_names_nothing_changes() {
+        assert_eq!(hide(None, "models.lan"), "models.lan");
     }
 }

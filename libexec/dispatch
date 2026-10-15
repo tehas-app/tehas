@@ -25,7 +25,8 @@
 #   2. At most TEHAS_TICKET_CONCURRENCY cycles run at once.
 #      An open issue marked tehas:running whose cycle holds no lock on this
 #      host is handed to a human. Nothing is started for it. A closed one
-#      only loses the mark. The workspaces kept for an issue no cycle has run
+#      only loses the mark. A cycle that holds its lock but has not been heard
+#      from for 20 minutes is stuck: its unit is stopped, and said once. The workspaces kept for an issue no cycle has run
 #      on for 7 days are removed, three issues a poll at most.
 #   3. Running cycles and tehas PRs that wait for a human together do not
 #      exceed TEHAS_MAX_AWAITING. And a cycle starts only while tehas.slice,
@@ -93,8 +94,8 @@
 #   TEHAS_BRANCH              branch work lands on [the checkout's origin/HEAD]
 #   TEHAS_PLAN_MAX_TURNS      turns a planning session may take [20]
 # From the environment, for tests: TEHAS_STATUS_CMD, TEHAS_INDEX_CMD,
-# TEHAS_PLAN_CMD, TEHAS_CYCLE_START_CMD (in place of systemctl, called with
-# the issue), TEHAS_CYCLE_START_WAIT (seconds to wait for a started cycle
+# TEHAS_PLAN_CMD, TEHAS_CYCLE_START_CMD and TEHAS_CYCLE_STOP_CMD (in place of
+# systemctl, called with the issue), TEHAS_CYCLE_START_WAIT (seconds to wait for a started cycle
 # [30]), TEHAS_CGROUP_ROOT (in place of /sys/fs/cgroup) and TEHAS_FETCH_WAIT
 # (seconds the fetch of the checkout may take [120]).
 #
@@ -617,6 +618,38 @@ if [ "$paused" != false ]; then
   [ "$dry" = 1 ] && log "paused: issue #$control carries tehas:pause"
   exit 0
 fi
+
+# A cycle that holds its lock but has not been heard from for 20 minutes is
+# stuck: a tehas work that hangs after its container ended, say. It would hold
+# its slot and its reserve until a person stopped it, so its unit is stopped.
+# tehas work writes the live file every 10 seconds from the host, also through
+# a long gate in the container. A cycle that took its lock lately counts as
+# heard from: the live file may be its issue's last cycle's. Said and stopped
+# once for each time it was last heard from; a dry run says it every time.
+quiet_bound=1200
+for n in $(tehas_cycles_running); do
+  heard=$(jq -r '.updatedAt | numbers | floor' "$TEHAS_HOME/live/cycles/$n.json" 2>/dev/null) || heard=""
+  [[ $heard =~ ^[0-9]{1,12}$ ]] || heard=0
+  took=$(stat -c %Y "$TEHAS_HOME/state/cycles/$n.taken" 2>/dev/null) || took=0
+  [ "$took" -le "$heard" ] || heard=$took
+  [ "$heard" -gt 0 ] && [ $(($(date +%s) - heard)) -gt "$quiet_bound" ] || continue
+  note=$TEHAS_HOME/state/cycles/$n.quiet
+  why="the cycle for #$n holds its lock but has not been heard from since $(date -u -d "@$heard" +%FT%TZ), more than ${quiet_bound}s"
+  if [ "$dry" = 1 ]; then
+    log "would stop tehas-cycle@$n.service: $why"
+    continue
+  fi
+  [ "$(head -c 16 "$note" 2>/dev/null)" != "$heard" ] || continue
+  log "WARN: $why: stopping tehas-cycle@$n.service"
+  echo "$heard" >"$note" || log "WARN: could not write $note"
+  # Without waiting for it: the cycle reports as it stops, and the poll holds
+  # its lock meanwhile.
+  if [ -n "${TEHAS_CYCLE_STOP_CMD:-}" ]; then
+    timeout -k 5 30 "$TEHAS_CYCLE_STOP_CMD" "$n" 8>&-
+  else
+    timeout -k 5 30 systemctl --user --no-block stop "tehas-cycle@$n.service" 8>&-
+  fi || log "WARN: could not stop tehas-cycle@$n.service"
+done
 
 # 2. The slots. A cycle that died holds no lock and is not counted.
 running=$(tehas_cycles_running | tr '\n' ' ')

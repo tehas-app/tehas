@@ -192,6 +192,19 @@ token and hold the name. The container of a planning turn that was cut off,
 paused factory leaves such an issue as it is. Run the dispatcher only on the host that runs the cycles: on any other
 host no cycle holds a lock.
 
+The other way round, a cycle that holds its lock but has not been heard from
+for 20 minutes is stuck, for example a `tehas work` that hangs after its
+container ended. Heard from means its live file,
+`~/tehas/live/cycles/<issue>.json`, was written, which `tehas work` does every
+10 seconds from the host, also while a long gate runs in the container, or
+that it took its lock. The poll logs `WARN: the cycle for #N holds its lock but
+has not been heard from since <time>, more than 1200s: stopping
+tehas-cycle@N.service` and stops the unit without waiting for it. The cycle
+reports as it stops; a later poll finds the issue as above. This is said and
+done once for each time the cycle was last heard from, kept in
+`~/tehas/state/cycles/<issue>.quiet`. A dry run says `would stop` and stops
+nothing. A paused factory does not stop it.
+
 An issue is taken only when an allowed account applied `tehas:ready` and
 nobody else has changed its title or body since, and only while GitHub says the
 number is an open issue. A closed issue and a pull request are never taken,
@@ -759,6 +772,14 @@ At the end of a cycle the console is given 30 seconds to stop; one that takes
 longer is killed, and the work script says so.
 The work script's own status line, in `~/tehas/live/cycles/<issue>.json` and from there in `~/tehas/live/running.json`, goes through
 the same mask (`console --mask`); without a console it is left empty.
+
+The console, and the mask of the status line, also mask in any case the names
+the host knows that an agent can print: each name and address in
+`PI_ENSEMBLE_HOST_ALIASES`, the host of the model provider's `baseUrl` in
+`models.json`, and the bot's git email. The work script gives them with
+`--private`; a name shorter than 4 characters is left out, as it would mask
+ordinary words. They are names, not secrets: a token is never on a command
+line.
 
 The snapshot also carries the words of the breakroom game, Buzzword Buster.
 They are counted over the titles and labels of every issue of the repository,

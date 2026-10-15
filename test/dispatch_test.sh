@@ -3191,4 +3191,69 @@ t_run "$dispatch"
 t_eq "$(left)" ""
 rm -rf "$works"
 
+
+# A cycle on #9 whose live file was last written <age> seconds ago, and that
+# took its lock <taken> seconds ago.
+quiet_cycle() { # <age> <taken>
+  hold 9
+  mkdir -p "$T/home/tehas/live/cycles"
+  printf '{"issue":9,"running":true,"updatedAt":%s}\n' "$(($(date +%s) - $1))" >"$T/home/tehas/live/cycles/9.json"
+  touch -d "@$(($(date +%s) - $2))" "$T/home/tehas/state/cycles/9.taken"
+}
+
+t_case "a cycle that holds its lock and has not been heard from for 20 minutes is reported and stopped, once"
+reset
+t_stub fake-stop '[ ! -e "/proc/$$/fd/8" ] || : >"$T/calls/stop.fd8"'
+T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+quiet_cycle 1300 3600
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN: the cycle for #9 holds its lock but has not been heard from since "
+t_contains "$t_out" "more than 1200s: stopping tehas-cycle@9.service"
+t_eq "$(t_calls fake-stop)" "9"
+t_eq "$(find "$T/calls/stop.fd8" 2>/dev/null | wc -l)" 0
+t_run "$dispatch"
+t_lacks "$t_out" "#9 holds its lock"
+t_eq "$(t_calls fake-stop)" "9"
+release
+
+t_case "a stop that fails is said"
+reset
+t_stub fake-stop '[ ! -e "/proc/$$/fd/8" ] || : >"$T/calls/stop.fd8"; exit 1'
+T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+quiet_cycle 1300 3600
+t_run "$dispatch"
+t_contains "$t_out" "WARN: could not stop tehas-cycle@9.service"
+t_eq "$(find "$T/calls/stop.fd8" 2>/dev/null | wc -l)" 0
+release
+
+t_case "a cycle heard from lately, or one that took its lock lately, is left alone"
+reset
+t_stub fake-stop
+T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+quiet_cycle 20 3600
+t_run "$dispatch"
+t_lacks "$t_out" "holds its lock but"
+release
+# A live file left by the issue's last cycle, and a new one still starting.
+quiet_cycle 86400 60
+t_run "$dispatch"
+t_lacks "$t_out" "holds its lock but"
+t_eq "$(t_calls fake-stop)" ""
+release
+
+t_case "a dry run says it would stop a quiet cycle, every time, and stops nothing"
+reset
+t_stub fake-stop
+T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+quiet_cycle 1300 3600
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would stop tehas-cycle@9.service: the cycle for #9 holds its lock but has not been heard from since "
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would stop tehas-cycle@9.service"
+t_eq "$(t_calls fake-stop)" ""
+t_run "$dispatch"
+t_eq "$(t_calls fake-stop)" "9"
+release
+
 t_done
