@@ -755,6 +755,21 @@ t_run "$work 7"
 t_eq "$(cat "$T/home/tehas/state/cycles/7.image")" "$image_id "
 rm -f "$T/image.inspect" "$T/home/tehas/state/cycles/7.image"
 
+t_case "what the container is given of the settings is on record, before it starts, with the cycles running"
+fresh
+container 'says handoff'
+t_run "$work 7"
+t_eq "$t_rc" 0
+f=$T/home/tehas/state/cycles/7.settings
+t_eq "$(jq -r '.container | keys[]' "$f" | LC_ALL=C sort | tr '\n' ' ')" \
+  "PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS PI_ENSEMBLE_MAX_WORKSTREAMS PI_ENSEMBLE_NO_DOCKER_SOCKET PI_ENSEMBLE_NO_SSH PI_ENSEMBLE_SANDBOX_MODE PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER PI_ENSEMBLE_VERIFY_TIMEOUT_MS PI_ENSEMBLE_WORKSPACE_ROOT "
+t_eq "$(jq -r '.container.PI_ENSEMBLE_SUBAGENT_MODEL' "$f")" test-model
+t_eq "$(jq -r '.container.PI_ENSEMBLE_WORKSPACE_ROOT' "$f")" "[withheld]"
+# This command holds the issue's lock, so it counts itself.
+t_eq "$(jq -r '.concurrentCycles' "$f")" 1
+t_lacks "$(cat "$f")" GH_TOKEN
+t_lacks "$(cat "$f")" test-token
+
 t_case "a docker stop that does not end is given up after its bound, said, and the container killed"
 fresh
 : >"$T/stop-hangs"

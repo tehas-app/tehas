@@ -126,7 +126,9 @@
 #
 # As the container starts, the image's id and the pi-rukas commit of its label
 # tehas.rukas go to state/cycles/<issue>.image, one line, for the cycle's
-# record.
+# record. So do, in state/cycles/<issue>.settings, the PI_ENSEMBLE_* values the
+# container is given, the TEHAS_* settings that shape a cycle and how many
+# cycles hold their lock, this one with them (lib/improve.sh).
 #
 # Docker writes the container's id to state/cycles/<issue>.cid, which is how
 # the dispatcher tells this cycle's container from the others in the slice.
@@ -195,6 +197,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/labels.sh"
 # shellcheck source=lib/cycles.sh
 . "$here/../lib/cycles.sh"
+# shellcheck source=lib/improve.sh
+. "$here/../lib/improve.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
 tehas_sandbox_settings_ok || exit 78
@@ -235,6 +239,7 @@ record=$TEHAS_HOME/state/cycles/$issue.approved.json
 kept=$TEHAS_HOME/state/cycles/$issue.manifest.json
 ended_file=$TEHAS_HOME/state/cycles/$issue.ended
 image_file=$TEHAS_HOME/state/cycles/$issue.image
+settings_file=$TEHAS_HOME/state/cycles/$issue.settings
 stall=$TEHAS_WORK_STALL
 preflight_wait=${TEHAS_PREFLIGHT_WAIT:-300}
 stop_wait=${TEHAS_STOP_WAIT:-60}
@@ -392,7 +397,7 @@ send() { (trap '' PIPE; printf '%s\n' "$1" >&4) 2>/dev/null; }
 
 # Docker refuses a cid file that is already there. One is left only by a cycle
 # that was killed outright, and so is a count of kills.
-rm -f "$cid_file" "$oom_file" "$forks_file" "$stall_file" "$ended_file" "$image_file"
+rm -f "$cid_file" "$oom_file" "$forks_file" "$stall_file" "$ended_file" "$image_file" "$settings_file"
 # A container under this name outlived the client that started it: this
 # command holds the issue's lock, so no cycle owns it. It would work on with
 # the bot's token, and Docker would refuse the name below.
@@ -417,6 +422,11 @@ if [[ $image_id =~ ^sha256:[0-9a-f]{64}$ ]]; then
   [[ $image_rukas =~ ^[0-9a-f]{7,40}$ ]] || image_rukas=""
   printf '%s %s\n' "$image_id" "$image_rukas" >"$image_file" || echo "tehas work: could not write $image_file" >&2
 fi
+
+# What the container is given of the settings, and how many cycles run now,
+# this one with them, for the cycle's record.
+tehas_improve_settings "$settings_file" "$(tehas_cycles_running | wc -l)" "${envs[@]}" "${image_opts[@]}" ||
+  echo "tehas work: could not write $settings_file" >&2
 
 # Set before the container starts, so no signal falls between. A stop ends the
 # loop and is recorded as interrupted, not as running.

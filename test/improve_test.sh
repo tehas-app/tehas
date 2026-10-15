@@ -192,6 +192,96 @@ t_case "the analyst is told what the attachment files are and what to look for i
 t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "\`manifest.json\`, \`images.md\`, \`retry-context.md\`"
 t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "a cycle given images or files whose plan does not name what they show"
 
+# --- What a cycle ran with --------------------------------------------------
+settings() { lib "export $1; tehas_improve_settings \"\$TEHAS_HOME/s.json\" ${2:-3} ${3:-}"; }
+
+t_case "the settings a container is given, the TEHAS_* that shape a cycle, and how many cycles ran"
+reset
+mkdir -p "$home"
+settings "PI_ENSEMBLE_MAX_WORKSTREAMS=1 TEHAS_WORK_TIMEOUT=21600 TEHAS_HOST_ADDR=192.0.2.9 TEHAS_ANALYTICS_COOKIE=c" 3 \
+  "-e GH_TOKEN -e PI_ENSEMBLE_SANDBOX_MODE=1 -e PI_ENSEMBLE_MAX_WORKSTREAMS -e GIT_CONFIG_COUNT=4 -v /a:/b -e PI_ENSEMBLE_EXTRA_IMAGE_DIRS=/w.images"
+t_eq "$t_rc" 0
+t_eq "$(jq -c .container "$home/s.json")" \
+  '{"PI_ENSEMBLE_SANDBOX_MODE":"1","PI_ENSEMBLE_MAX_WORKSTREAMS":"1","PI_ENSEMBLE_EXTRA_IMAGE_DIRS":"[withheld]"}'
+t_eq "$(jq -c .concurrentCycles "$home/s.json")" 3
+t_eq "$(jq -r '.host.TEHAS_WORK_TIMEOUT' "$home/s.json")" 21600
+t_eq "$(jq -c '.host | has("TEHAS_HOST_ADDR") or has("TEHAS_ANALYTICS_COOKIE") or has("TEHAS_REPO")' "$home/s.json")" false
+
+t_case "a value whose name or shape may be a secret is withheld, and a count that is not one is null"
+reset
+mkdir -p "$home"
+settings "PI_ENSEMBLE_X=1" "'3; x'" "-e PI_ENSEMBLE_API_KEY=k -e PI_ENSEMBLE_NOTE=ghp_$(printf 'a%.0s' {1..36}) -e PI_ENSEMBLE_OK=fine"
+t_eq "$(jq -c '[.container.PI_ENSEMBLE_API_KEY, .container.PI_ENSEMBLE_NOTE, .container.PI_ENSEMBLE_OK, .concurrentCycles]' "$home/s.json")" \
+  '["[withheld]","[withheld]","fine",null]'
+t_lacks "$(cat "$home/s.json")" ghp_
+
+t_case "only a value of a safe shape is written: no URL, host, path, address or token of any kind"
+reset
+mkdir -p "$home"
+long=$(printf 'a1%.0s' {1..20})
+opts=""
+i=0
+for v in "https://user:pw@models.example.com/v1" "http://gpu-box.internal:8080/v1" "gpu-box.internal:8080" \
+  "/home/tehas/work" "a@b" "192.0.2.10" "192.0.2.10:11434" "hf_$long" "gsk_$long" "AIza$long" \
+  "glpat-$(printf 'x%.0s' {1..20})" "db.lan" "llm:11434" "eyJhbGciOiJIUzI1NiJ9.e30.x" "$(printf 'f%.0s' {1..40})" "$long==" "a b" \
+  "$(printf 'x,%.0s' {1..40})"; do
+  i=$((i + 1))
+  opts+=" -e 'PI_ENSEMBLE_V$i=$v'"
+done
+settings "PI_ENSEMBLE_X=1" 1 "$opts -e PI_ENSEMBLE_N=600000 -e PI_ENSEMBLE_B=true -e PI_ENSEMBLE_M=qwen3.8-flash-next -e PI_ENSEMBLE_L=a,b:c=d_e"
+t_eq "$(jq -c '[.container | to_entries[] | select(.key | test("^PI_ENSEMBLE_V")) | .value] | unique' "$home/s.json")" '["[withheld]"]'
+t_eq "$(jq -c '[.container | to_entries[] | select(.key | test("^PI_ENSEMBLE_V"))] | length' "$home/s.json")" "$i"
+t_eq "$(jq -c '[.container.PI_ENSEMBLE_N, .container.PI_ENSEMBLE_B, .container.PI_ENSEMBLE_M, .container.PI_ENSEMBLE_L]' "$home/s.json")" \
+  '["600000","true","qwen3.8-flash-next","a,b:c=d_e"]'
+for bad in pw@ gpu-box example.com 192.0.2 hf_ gsk_ AIza glpat eyJ /home; do t_lacks "$(cat "$home/s.json")" "$bad"; done
+
+t_case "a value whose name may be a secret or a host is withheld whatever its shape"
+reset
+mkdir -p "$home"
+opts=""
+for frag in KEY TOKEN SECRET PASS PWD COOKIE AUTH CRED BEARER PRIVATE HOST URL ADDR ENDPOINT DOMAIN PROXY; do
+  opts+=" -e PI_ENSEMBLE_A_${frag}_Z=1"
+done
+settings "PI_ENSEMBLE_X=1" 1 "$opts"
+t_eq "$(jq -c '[.container[]] | unique' "$home/s.json")" '["[withheld]"]'
+t_eq "$(jq -c '.container | length' "$home/s.json")" 16
+
+t_case "the record carries this cycle's settings, the count and the provider retry line"
+reset
+cycle_log
+mkdir -p "$home/state/cycles"
+echo '{"container":{"PI_ENSEMBLE_MAX_WORKSTREAMS":"1"},"host":{"TEHAS_WORK_TIMEOUT":"21600"},"concurrentCycles":4}' \
+  >"$home/state/cycles/7.settings"
+printf '%s\n' "preflight ok" "provider retry: timeoutMs=600000 maxRetries=8 maxRetryDelayMs=60000 httpIdleTimeoutMs=unset" \
+  >"$home/logs/work-$REC.jsonl.preflight"
+lib "tehas_improve_record 7 $started 0 handoff review"
+r=$base/window/$REC
+t_eq "$(jq -c '[.settings, .concurrentCycles, .providerRetry]' "$r/cycle.json")" \
+  '[{"container":{"PI_ENSEMBLE_MAX_WORKSTREAMS":"1"},"host":{"TEHAS_WORK_TIMEOUT":"21600"}},4,"provider retry: timeoutMs=600000 maxRetries=8 maxRetryDelayMs=60000 httpIdleTimeoutMs=unset"]'
+
+t_case "an earlier cycle's settings, a link, or a file of another shape give null"
+for kind in old link shape; do
+  reset
+  cycle_log
+  mkdir -p "$home/state/cycles"
+  f=$home/state/cycles/7.settings
+  case $kind in
+    old) echo '{"container":{},"host":{},"concurrentCycles":1}' >"$f"; touch -d '2 hours ago' "$f" ;;
+    link) echo '{"container":{},"host":{},"concurrentCycles":1}' >"$T/elsewhere"; ln -s "$T/elsewhere" "$f" ;;
+    shape) echo '{"container":{"A":1},"host":{},"concurrentCycles":1}' >"$f" ;;
+  esac
+  lib "tehas_improve_record 7 $started 0 handoff review"
+  t_eq "$(jq -c '[.settings, .concurrentCycles, .providerRetry]' "$base/window/$REC/cycle.json")" '[null,null,null]'
+done
+
+t_case "the analyst is told what the settings are and when a finding is a boundary one"
+t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "\`settings.container\`"
+t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "\`concurrentCycles\`"
+t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "\`providerRetry\`"
+t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "never guess it, never fill it in"
+t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "\`boundary\` is for a problem with a half on each side"
+t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "pi-rukas | console | gate | docs | boundary"
+
 # --- Packing a whole log -----------------------------------------------------
 # 300 lines that compress badly, so a small limit forces pieces.
 big_log() { for i in $(seq 1 300); do printf '%s\n' "$i" | sha256sum; done >"$1"; }
@@ -308,6 +398,13 @@ case "$1 $2" in
       case "$1" in --body-file) cp "$2" "$T/calls/comment-$n" ;; esac
       shift
     done ;;
+  "api "*)
+    # The events of an issue and a comparison, from fixtures, as --jq would
+    # leave them. Without a fixture the call fails.
+    case " $* " in
+      *"/events "*) [ -f "$T/fx/events" ] || exit 1; cat "$T/fx/events" ;;
+      *"/compare/"*) [ -f "$T/fx/compare" ] || exit 1; cat "$T/fx/compare" ;;
+    esac ;;
   "release view") [ -f "$T/fx/release" ]; exit $? ;;
   "release create") [ -f "$T/fx/gh-release.rc" ] && exit 1; : >"$T/fx/release" ;;
   "release upload")
@@ -770,6 +867,92 @@ t_run "$improve"
 t_eq "$t_rc" 78
 t_eq "$(t_calls gh)$(t_calls docker)" ""
 
+# --- A boundary finding ------------------------------------------------------
+boundary_finding() { finding "$1" '{"category":"boundary","factory_part":"Give the container a CPU quota.","rukas_part":"Size the gate from the cgroup."}'; }
+
+t_case "a boundary finding is two issues, one a repository, each with its half, linked both ways"
+ready
+with_rukas
+findings "$(boundary_finding "Gates time out under four cycles")"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/filed-in")" "acme/factory
+acme/rukas"
+t_contains "$t_out" "filed=2 issues=#101,acme/rukas#102"
+t_eq "$(t_calls gh | grep '^issue create' | grep -c -e '--label tehas:improvement --label cross-project')" 2
+t_contains "$(t_calls gh)" "label create cross-project --repo acme/factory"
+t_contains "$(t_calls gh)" "label create cross-project --repo acme/rukas"
+first=$(cat "$T/calls/body-101")
+second=$(cat "$T/calls/body-102")
+t_contains "$first" "**Category:** boundary"
+t_contains "$first" "This is the factory's half"
+t_contains "$first" "**This repository's half**
+
+Give the container a CPU quota."
+t_contains "$first" "**The other half**, filed in acme/rukas"
+t_contains "$second" "**This repository's half**
+
+Size the gate from the cgroup."
+t_contains "$second" "**The other half**, filed in acme/factory: https://github.com/acme/factory/issues/101"
+t_contains "$(t_calls gh)" "issue comment 101 --repo acme/factory --body The half for pi-rukas is filed as https://github.com/acme/rukas/issues/102."
+
+t_case "a boundary finding without both halves is invalid"
+ready
+with_rukas
+findings "$(finding One '{"category":"boundary","factory_part":"x"}')" \
+  "$(finding Two '{"category":"boundary","factory_part":"x","rukas_part":""}')" \
+  "$(finding Three '{"category":"boundary","factory_part":"x","rukas_part":"a\u0007b"}')"
+t_run "$improve"
+t_contains "$t_out" "invalid=3"
+t_eq "$(titles)" ""
+
+t_case "a boundary finding needs room in both repositories, and counts as two of the three"
+ready
+with_rukas
+full 10 "Driver finding" >"$fx/rukas-open.json"
+findings "$(boundary_finding "Gates time out")"
+t_run "$improve"
+t_contains "$t_out" "over=1 filed=0"
+ready
+with_rukas
+findings "$(finding One)" "$(boundary_finding Two)" "$(finding Three)"
+t_run "$improve"
+t_contains "$t_out" "over=1 filed=3 issues=#101,#102,acme/rukas#103"
+
+t_case "the half for pi-rukas is refused: the factory's half says so, and the run fails"
+ready
+with_rukas
+findings "$(boundary_finding "Gates time out")"
+echo 102 >"$fx/gh-create.rc"
+t_run "$improve"
+t_eq "$t_rc" 1
+t_contains "$t_out" "GitHub refused an issue; filed before that: #101"
+t_contains "$(t_calls gh)" "issue comment 101 --repo acme/factory --body GitHub refused the half for pi-rukas, so it is not filed in acme/rukas"
+t_lacks "$(t_calls gh)" "The half for pi-rukas is filed as"
+
+t_case "without a repository for pi-rukas a boundary finding is one issue with both halves"
+ready
+findings "$(boundary_finding "Gates time out")"
+t_run "$improve"
+t_contains "$t_out" "filed=1 issues=#101"
+body=$(cat "$T/calls/body-101")
+t_contains "$body" "this repository is not pi-rukas"
+t_contains "$body" "**The factory's half**
+
+Give the container a CPU quota."
+t_contains "$body" "**The half for pi-rukas**
+
+Size the gate from the cgroup."
+t_contains "$(t_calls gh)" "--label cross-project"
+
+t_case "the halves of a finding of another category are left out"
+ready
+findings "$(finding One '{"factory_part":"stray","rukas_part":"stray"}')"
+t_run "$improve"
+t_contains "$t_out" "filed=1"
+t_lacks "$(cat "$T/calls/body-101")" stray
+t_lacks "$(t_calls gh)" cross-project
+
 # --- An issue worked on again ------------------------------------------------
 OLD=7-261009-100000
 ticket() { # <number> [<cycles line>] [<label>] [<state>]: an issue the loop filed
@@ -834,6 +1017,77 @@ again
 record "$REC"
 t_run "$improve"
 t_contains "$(cat "$T/calls/comment-12")" "a commit the record does not name"
+
+t_case "an open issue is not checked for a fix"
+again
+t_run "$improve"
+t_lacks "$(t_calls gh)" "api "
+t_contains "$(cat "$T/calls/comment-12")" "**Seen again:** no"
+
+FIX=abcdefabcdefabcdefabcdefabcdefabcdefabcd
+closed_again() { # issue 12 of acme/rukas closed by $FIX, worked on again, seen
+  again
+  echo '[]' >"$fx/rukas-open.json"
+  ticket 12 "$OLD" tehas:improvement CLOSED | jq -s . >"$fx/rukas-closed.json"
+  printf '%s\n' - "$FIX" >"$fx/events"
+  rechecks "$(recheck '{"seen":true}')"
+}
+
+t_case "seen again in a build without the fix: the comment says not in this build"
+for st in behind diverged; do
+  closed_again
+  echo "$st" >"$fx/compare"
+  t_run "$improve"
+  t_contains "$(t_calls gh)" "api --paginate repos/acme/rukas/issues/12/events"
+  t_contains "$(t_calls gh)" "api repos/acme/rukas/compare/$FIX...0123456789abcdef0123456789abcdef01234567"
+  body=$(cat "$T/calls/comment-12")
+  t_contains "$body" "**Seen again:** not in this build: the fix \`abcdefabcdef\` is not in \`0123456789ab\`"
+  t_lacks "$body" "**Seen again:** yes"
+done
+
+t_case "seen again in a build with the fix: yes, and the comment says the fix was in it"
+for st in ahead identical; do
+  closed_again
+  echo "$st" >"$fx/compare"
+  t_run "$improve"
+  t_contains "$(cat "$T/calls/comment-12")" "**Seen again:** yes, with the fix \`abcdefabcdef\` in this build"
+done
+
+t_case "not seen in a build without the fix says so"
+closed_again
+echo behind >"$fx/compare"
+rechecks "$(recheck)"
+t_run "$improve"
+t_contains "$(cat "$T/calls/comment-12")" "**Seen again:** no, though the fix \`abcdefabcdef\` is not in \`0123456789ab\`"
+
+t_case "a build that is not known, or no answer, says build unknown and never not in this build"
+closed_again
+record "$REC"
+echo behind >"$fx/compare"
+t_run "$improve"
+t_lacks "$(t_calls gh)" "/compare/"
+t_contains "$(cat "$T/calls/comment-12")" "**Seen again:** yes, build unknown: the record names no commit of acme/rukas"
+closed_again
+t_run "$improve"
+t_contains "$(cat "$T/calls/comment-12")" "**Seen again:** yes, build unknown: GitHub did not say whether the fix"
+
+t_case "an issue closed by hand has no fix, and one of the factory is never compared to pi-rukas"
+closed_again
+printf '%s\n' "$FIX" - >"$fx/events"
+echo behind >"$fx/compare"
+t_run "$improve"
+t_lacks "$(t_calls gh)" "/compare/"
+t_contains "$(cat "$T/calls/comment-12")" "**Seen again:** yes"
+t_lacks "$(cat "$T/calls/comment-12")" "build"
+again
+echo '[]' >"$fx/rukas-open.json"
+ticket 4 "$OLD" tehas:improvement CLOSED | jq -s . >"$fx/closed.json"
+printf '%s\n' "$FIX" >"$fx/events"
+echo behind >"$fx/compare"
+rechecks "$(recheck '{"repo":"acme/factory","number":4,"seen":true}')"
+t_run "$improve"
+t_lacks "$(t_calls gh)" "/compare/"
+t_contains "$(cat "$T/calls/comment-4")" "**Seen again:** yes, build unknown: the record names no commit of acme/factory"
 
 t_case "no comment on an issue the loop did not file"
 again
