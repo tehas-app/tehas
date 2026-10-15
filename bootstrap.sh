@@ -228,6 +228,18 @@ rukas_head() {
 }
 
 # --- check --------------------------------------------------------------------
+# An npm tool is present as user sees it: its version on the tree versions.env
+# records. Another tree at the same version is one user replaces.
+found_npm() { # <tree name> <found function> <lockfile sha256>
+  local found
+  found=$("$2")
+  [ -z "$found" ] || pin_installed "$1" "$3" || found="$found, not the pinned tree"
+  printf '%s\n' "$found"
+}
+found_pi_tree() { found_npm pi found_pi "$PI_LOCK_SHA256"; }
+found_ctx7_tree() { found_npm ctx7 found_ctx7 "$CTX7_LOCK_SHA256"; }
+found_parallel_tree() { found_npm parallel-web-cli found_parallel "$PARALLEL_CLI_LOCK_SHA256"; }
+
 do_check() {
   local rc=0 name want found tool
   home_paths
@@ -243,9 +255,9 @@ do_check() {
 node found_node $NODE_VERSION
 gh found_gh $GH_VERSION
 bun found_bun $BUN_VERSION
-pi found_pi $PI_VERSION
-ctx7 found_ctx7 $CTX7_VERSION
-parallel-cli found_parallel $PARALLEL_CLI_VERSION
+pi found_pi_tree $PI_VERSION
+ctx7 found_ctx7_tree $CTX7_VERSION
+parallel-cli found_parallel_tree $PARALLEL_CLI_VERSION
 rust found_rust $RUST_VERSION
 vipune found_vipune $VIPUNE_VERSION
 oo found_oo $OO_VERSION

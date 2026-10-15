@@ -110,6 +110,20 @@ t_contains "$(grep '^gh ' <<<"$t_out")" "2.0.0"
 t_contains "$(grep '^gh ' <<<"$t_out")" "$GH_VERSION"
 t_contains "$(grep '^gh ' <<<"$t_out")" "DIFFERS"
 
+t_case "check reports an npm tool at its version but not on the pinned tree, as user would replace it"
+all_present
+printf ' ' >>"$T/home/tehas/tools/npm/ctx7/package-lock.json"
+t_run "$bootstrap check"
+t_eq "$t_rc" 1
+t_contains "$(grep '^ctx7 ' <<<"$t_out")" "not the pinned tree"
+t_contains "$(grep '^ctx7 ' <<<"$t_out")" "DIFFERS"
+t_lacks "$(grep '^pi ' <<<"$t_out")" "DIFFERS"
+pin_trees_absent
+t_run "$bootstrap check"
+t_eq "$t_rc" 1
+t_contains "$(grep '^parallel-cli ' <<<"$t_out")" "not the pinned tree"
+pin_trees_in_place
+
 t_case "check reports a missing tool and exits 1"
 all_present
 rm "$T/bin/vipune"
