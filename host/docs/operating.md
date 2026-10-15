@@ -485,7 +485,10 @@ than the limits allow and are dropped. `filed` and `issues` are what was
 opened. An issue in the repository for pi-rukas is written with its
 repository, as `acme/rukas#12`. `rechecked` is how many comments were posted
 on issues that were worked on again; one GitHub refused follows as
-`not-commented=acme/rukas#12`.
+`not-commented=acme/rukas#12`. A run reads at most five cycles, the oldest
+first; `left=2` at the end says two wait for the next run. `stopped=124
+returned=2` says the analyst hit its bound of 60 minutes: what it had written
+was filed, and the two cycles it named nowhere wait for a later run.
 
 To turn the loop off, remove `TEHAS_IMPROVE_REPO` from `instance.env`: cycles
 stop leaving records and a run does nothing. Or stop the timer with
