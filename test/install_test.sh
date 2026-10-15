@@ -111,6 +111,9 @@ files="./.config/systemd/user/tehas-cycle@.service
 # puts.
 core_files() { installed_files | grep -v -e '^./tehas/docs/' -e '^./tehas/fun/' -e '^./tehas/state/'; }
 sorted() { printf '%s\n' "$@" | LC_ALL=C sort; }
+# Every file under the scratch home but the update lock, which a real run takes
+# before it builds or copies anything.
+host_files() { find "$home" -type f ! -path "$th/state/update.lock"; }
 
 # The follow-ups a fresh install of this repository asks for, taken from the one
 # place that names them and the sources a fresh host has none of.
@@ -140,6 +143,41 @@ t_eq "$(t_calls systemctl)" ""
 t_eq "$(t_calls docker)" "$net_inspect"
 t_lacks "$t_out" "tehas-previews"
 t_eq "$([ -d "$th/preview" ] && echo there)" "there"
+# A host gets its tools from bootstrap.sh before its first install.
+t_lacks "$t_out" "bootstrap.sh user"
+
+t_case "another update holding the lock stops a real run before it installs anything"
+fresh
+instance
+mkdir -p "$th/state"
+lock=$th/state/update.lock
+t_run "exec 8>>'$lock'; flock -n 8 || exit 9; '$install'"
+t_eq "$t_rc" 1
+t_contains "$t_out" "tehas: another update is running ($lock); nothing was installed"
+t_eq "$(core_files)" ""
+t_eq "$(t_calls cargo)" ""
+
+t_case "the lock handed over by the update holding it is taken"
+t_run "exec 8>>'$lock'; flock -n 8 || exit 9; TEHAS_UPDATE_LOCK_FD=8 '$install'"
+t_eq "$t_rc" 0
+t_eq "$(core_files)" "$(sorted "$files")"
+
+t_case "a descriptor on the lock file that does not hold the lock is not taken for it"
+fresh
+instance
+mkdir -p "$th/state"
+t_run "( exec 6>>'$lock'; flock -n 6 && : >'$T/held' && exec sleep 20 ) &
+while [ ! -e '$T/held' ]; do sleep 0.1; done
+exec 8>>'$lock'; TEHAS_UPDATE_LOCK_FD=8 '$install'; rc=\$?; kill \$!; wait; exit \$rc"
+rm -f "$T/held"
+t_eq "$t_rc" 1
+t_contains "$t_out" "another update is running"
+t_eq "$(core_files)" ""
+
+t_case "--check runs while an update holds the lock"
+t_run "exec 8>>'$lock'; flock -n 8 || exit 9; '$install' --check"
+t_lacks "$t_out" "another update is running"
+t_contains "$t_out" "Installed:    DRIFT"
 
 t_case "a host without the previews' network gets it, internal and with no address for the host"
 fresh
@@ -299,11 +337,33 @@ t_contains "$t_out" "Installed:    DRIFT (1 files)"
 t_contains "$t_out" "differs: $th/libexec/dispatch"
 t_eq "$(installed_files | xargs -I{} sh -c "cd '$home' && cksum '{}'")" "$before"
 
+t_case "a copy that fails halfway leaves the installed file as it was"
+before=$(cksum <"$th/libexec/dispatch")
+# An install that writes part of the file where it was told to, then fails.
+t_stub install 'head -c 100 "$3" >"$4"; exit 1'
+t_run "$install"
+rm -f "$T/bin/install"
+t_eq "$t_rc" 1
+t_contains "$t_out" "tehas: could not install $th/libexec/dispatch"
+t_eq "$(cksum <"$th/libexec/dispatch")" "$before"
+t_eq "$(find "$th/libexec" -name '*.new' | wc -l)" 0
+
 t_case "a real run repairs drift and keeps the old file as .prev"
 t_run "$install"
 t_contains "$t_out" "installed: $th/libexec/dispatch"
 t_eq "$(cmp -s "$th/libexec/dispatch" "$T_ROOT/libexec/dispatch" && echo same)" "same"
 t_contains "$(cat "$th/libexec/dispatch.prev")" "# edited on the host"
+
+t_case "a changed versions.env asks for bootstrap.sh user on a later line"
+cp "$th/versions.env" "$T/versions.env.kept"
+echo "# an older pin" >>"$th/versions.env"
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "later: $T_ROOT/bootstrap.sh user   (versions.env changed"
+t_lacks "$t_out" "next: bootstrap"
+t_run "$install"
+t_lacks "$t_out" "bootstrap.sh user"
+cmp -s "$th/versions.env" "$T/versions.env.kept" || t_bad "versions.env was not put back"
 
 t_case "the console is built once, from the lock file, and installed as a program"
 t_eq "$(t_calls cargo)" "build --release --locked --quiet --manifest-path $T_ROOT/console/Cargo.toml --target-dir $T/target"
@@ -367,7 +427,7 @@ for failure in CARGO_RC=101 NO_CONSOLE=1; do
   t_run "$install"
   t_eq "$t_rc" 1
   t_contains "$t_out" "the console did not build"
-  t_eq "$(find "$home" -type f | wc -l)" 0
+  t_eq "$(host_files | wc -l)" 0
 done
 t_env
 
@@ -379,7 +439,7 @@ t_run "$install"
 t_eq "$t_rc" 1
 t_contains "$t_out" "cargo is not installed"
 t_lacks "$t_out" "the console did not build"
-t_eq "$(find "$home" -type f | wc -l)" 0
+t_eq "$(host_files | wc -l)" 0
 t_env
 
 t_case "the footers are given the checkout's newest tag and its commit"
@@ -424,7 +484,7 @@ cp -R "$T_ROOT/install.sh" "$T_ROOT/lib" "$T_ROOT/host" "$T_ROOT/bin" "$T_ROOT/l
 t_run "$bare/install.sh"
 t_eq "$t_rc" 1
 t_contains "$t_out" "$bare/console is missing from this checkout"
-t_eq "$(find "$home" -type f | wc -l)" 0
+t_eq "$(host_files | wc -l)" 0
 
 t_case "an instance with a missing setting installs nothing and exits 78"
 fresh
