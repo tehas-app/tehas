@@ -1332,6 +1332,14 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "install: install.sh gave no answer in 1800s and was stopped"
 t_eq "$(owed_steps)" ""
 
+t_case "an install.sh --check that stops answering claims no copies"
+before=$(head_sha)
+t_run "$update --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "install: install.sh --check gave no answer in 1800s and was stopped; it changes nothing, so nothing was installed"
+t_lacks "$t_out" "what it had copied"
+t_eq "$(head_sha)" "$before"
+
 t_case "a step owed from an earlier run runs where its id says it runs"
 instance
 platform 1 'echo "next: units tehas-dispatch.timer"'

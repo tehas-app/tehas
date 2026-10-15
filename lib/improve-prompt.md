@@ -8,11 +8,18 @@ pi-rukas could be better, and to write your findings to one file.
 - `/improve/in/cycles/<issue>-<stamp>/`: one directory per cycle that ended.
   - `cycle.json`: issue number, seconds, final status and step, exit status,
     the pull request if there is one, `oomKills`, how many processes in
-    the cycle's container were killed for memory (0 when none), and `rukas`,
-    the commit of pi-rukas the cycle ran.
+    the cycle's container were killed for memory (0 when none), `rukas`,
+    the commit of pi-rukas the cycle ran, `image`, the id of the sandbox
+    image its container started from, and `cap` and `capReason`, the cap
+    that ended the cycle and the failure before it (null when there were
+    none).
   - `stream.jsonl`: the cycle's event stream, condensed.
   - `console.txt`: what each agent wrote, as an operator saw it.
   - `err.txt`, `preflight.txt`: the cycle's error stream and preflight output.
+  - `manifest.json`, `images.md`, `retry-context.md`, when the cycle was given
+    the issue's images or files: what it was given and left out, a model's
+    descriptions of the images, and a reviewer's words on the pull request
+    before a retry. Not the images themselves.
 - `/improve/in/issues.json`: the issue stack. Every open issue and the issues
   closed in the last 30 days, with repository, number, title, state, labels
   and body, and `cycles`, the cycles an issue filed by an earlier review like
@@ -43,7 +50,9 @@ Problems in how the work was done, not in the product's code:
 - an agent that ignored its instructions, misread a result, or reported
   success it did not have;
 - an error message, a log line or a page of the manual that would have sent
-  an operator the wrong way.
+  an operator the wrong way;
+- a cycle given images or files whose plan does not name what they show, or
+  whose work went against them.
 
 Read `cycle.json` of every cycle first. Use grep on `stream.jsonl` and
 `console.txt`; they are long. One real problem with evidence is worth more

@@ -25,7 +25,10 @@
 # did come up, and the issue keeps tehas:running until the next poll clears it.
 #
 # A TERM, INT or HUP is passed on to tehas work, which stops the container. The
-# cycle is then reported like any other that stopped without a pull request.
+# cycle is then reported like any other that stopped without a pull request,
+# but with one try for each call to GitHub, each bounded, and no refresh of the
+# status: systemd kills the unit TimeoutStopSec after the stop, and a report
+# cut off there leaves the issue marked tehas:running.
 #
 # A runner that exits 137 while the cycle's state still says running, or says
 # nothing, had its container killed: the status reported is "killed" and the
@@ -37,25 +40,51 @@
 # the container's pids limit refused, is read the same way and said in the
 # comment: after the first one the cycle's own commands may not have run.
 #
+# tehas work stops a cycle whose Pi session ended while it ran, and leaves
+# state/cycles/<issue>.ended. While the state still says running, the status
+# reported is then "interrupted" and the comment says during which step.
+#
 # tehas work stops a cycle none of whose logs changed for TEHAS_WORK_STALL
 # seconds and leaves the seconds in state/cycles/<issue>.stalled. While the
 # state still says running, the status reported is then "stalled", the issue
 # is parked and the comment says how long nothing moved and at which step.
 #
 # A runner that exits 4 started no cycle: the instance gives a cycle the
-# images its issue links (TEHAS_WORK_IMAGES) and one could not be fetched. The
-# issue is parked and the comment says that, not that a cycle stopped. The
+# images or files its issue links (TEHAS_WORK_IMAGES, TEHAS_WORK_FILES) and one
+# could not be given. The issue is parked and the comment says that, not that
+# a cycle stopped. The
 # images of a cycle that ran are removed here when it is over: only the
 # container read them. So is the cycle's own state directory, the copy of the
 # code index, the memory and the sessions its agents wrote: no later cycle
 # reads them.
 #
+# The state file is the container's word. Its "merged" counts only when the
+# bot has a merged pull request for the issue on the cycle's branch; without
+# one the issue is parked and nothing is removed. A pull request counts only
+# when it names this issue: its head is feature/issue-<n>-..., as pi-rukas
+# names a branch, or its body closes #<n>. A state file reached through a link
+# is not read.
+#
+# A merged pull request for the issue ends the cycle as merged whatever the
+# state says: a person may merge it while the cycle still reviews. The issue
+# then only loses tehas:running, and tehasbot status labels it shipped. One a
+# person closed without merging parks the issue without the retry boxes.
+#
 # Only a run that ended as handoff with an open pull request is reported as
 # waiting for a merge. The label change that ends a cycle is tried three
 # times, and so is the question about the pull request, and so is the call
-# that asks what the number is. If GitHub still refuses it, or the cycle is
+# that asks what the number is. A pull request that could not be looked up is
+# not taken for none: the issue is parked with a comment that says so and names
+# the branch, which stays in state/cycles/<issue>.branch. If GitHub still refuses it, or the cycle is
 # killed outright, the issue stays marked tehas:running and the dispatcher's
 # next poll finds it.
+#
+# The cap that ended a cycle and the failure before it, from the state file,
+# go into the record and into state/cycles/<issue>.park whenever the issue is
+# parked. A cap a provider outage gives (provider-unavailable, or step-failed:*
+# and adversarial-infra-failure whose reason names the provider, a timeout, a
+# connection or a 5xx) is said as one, and the park file asks the dispatcher
+# to start the issue again once, unless this cycle was that start.
 #
 # A cycle that stopped without a pull request asks what to do next, in a
 # comment with boxes. The id of that comment goes on record in
@@ -68,11 +97,14 @@
 # runs one cycle at a time on a commit that file does not name.
 #
 # Where the instance has an improvement loop (TEHAS_IMPROVE_REPO), it leaves
-# the cycle's record for it at the end, in tmp/improve/window (lib/improve.sh).
+# the cycle's record for it at the end, in tmp/improve/window (lib/improve.sh),
+# with the image and the pi-rukas commit tehas work left in
+# state/cycles/<issue>.image.
 #
 # Instance settings (lib/config.sh): TEHAS_REPO, TEHAS_IMPROVE_REPO.
-# From the environment, for tests: TEHAS_WORK_CMD, TEHAS_STATUS_CMD and
-# TEHAS_CYCLE_RETRY_WAIT (seconds between two tries of a GitHub call [5]).
+# From the environment, for tests: TEHAS_WORK_CMD, TEHAS_STATUS_CMD,
+# TEHAS_CYCLE_RETRY_WAIT (seconds between two tries of a GitHub call [5]) and
+# TEHAS_CYCLE_STOP_GH_WAIT (seconds a GitHub call may take after a stop [20]).
 set -uo pipefail
 
 issue=${1:-}
@@ -92,6 +124,9 @@ tehas_load || exit 78
 # shellcheck source=lib/questions.sh
 . "$here/../lib/questions.sh"
 tehas_require TEHAS_REPO
+
+stop_gh_wait=${TEHAS_CYCLE_STOP_GH_WAIT:-20}
+[[ $stop_gh_wait =~ ^[1-9][0-9]{0,3}$ ]] || stop_gh_wait=20
 
 log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*"; }
 
@@ -141,12 +176,24 @@ tehas_work_kind "$answer" || {
   exit 65
 }
 
-comment() { gh issue comment "$issue" --repo "$repo" --body "$1" >/dev/null 2>&1 || log "WARN: comment on #$issue failed"; }
+# A cycle stopped by a signal has until systemd's TimeoutStopSec to report:
+# then every call to GitHub is tried once and bounded.
+signalled=0
+tries=3
+gh_call() {
+  if [ "$signalled" = 1 ]; then
+    # KILL: the report ignores TERM, and gh inherits that.
+    timeout -s KILL "$stop_gh_wait" gh "$@"
+  else
+    gh "$@"
+  fi
+}
+comment() { gh_call issue comment "$issue" --repo "$repo" --body "$1" >/dev/null 2>&1 || log "WARN: comment on #$issue failed"; }
 relabel() {
   local try
-  for try in 1 2 3; do
-    gh issue edit "$issue" --repo "$repo" "$@" >/dev/null 2>&1 && return 0
-    [ "$try" = 3 ] || sleep "$retry_wait"
+  for ((try = 1; try <= tries; try++)); do
+    gh_call issue edit "$issue" --repo "$repo" "$@" >/dev/null 2>&1 && return 0
+    [ "$try" = "$tries" ] || sleep "$retry_wait"
   done
   log "WARN: label change on #$issue failed: $*"
   return 1
@@ -157,7 +204,7 @@ posted=""
 post_question() {
   local body
   body=$(q_render park "$issue" 1 "$1") || return 1
-  posted=$(gh api "repos/$repo/issues/$issue/comments" -f body="$body" --jq .id 2>/dev/null) || return 1
+  posted=$(gh_call api "repos/$repo/issues/$issue/comments" -f body="$body" --jq .id 2>/dev/null) || return 1
   [ -n "$posted" ]
 }
 # A workspace is kept only while a person may want to read it, and so is the
@@ -190,11 +237,17 @@ restart=""
 : >"$cycles/$issue"
 # A count of kills still here is an earlier cycle's, one that was killed
 # outright before it could report.
-rm -f "${cycles:?}/${issue:?}.oom" "${cycles:?}/${issue:?}.forks" "${cycles:?}/${issue:?}.stalled"
+# The dispatcher marks the one start it makes on its own after a provider
+# outage. That start's cycle, if an outage parks it again, waits for a person.
+requeued=0
+[ ! -e "$cycles/$issue.requeued" ] || requeued=1
+rm -f "${cycles:?}/${issue:?}.oom" "${cycles:?}/${issue:?}.forks" "${cycles:?}/${issue:?}.stalled" \
+  "${cycles:?}/${issue:?}.ended" "${cycles:?}/${issue:?}.branch" "${cycles:?}/${issue:?}.image" \
+  "${cycles:?}/${issue:?}.park" "${cycles:?}/${issue:?}.requeued"
 # The trap is set before the runner starts, so no signal falls between.
 wpid=""
 stopped=0
-trap 'stopped=1; [ -z "$wpid" ] || kill -TERM "$wpid" 2>/dev/null' TERM INT HUP
+trap 'stopped=1 signalled=1; [ -z "$wpid" ] || kill -TERM "$wpid" 2>/dev/null' TERM INT HUP
 "$work" "$issue" ${restart:+"$restart"} >>"$TEHAS_HOME/logs/dispatch-work-$issue.log" 2>&1 &
 wpid=$!
 [ "$stopped" = 0 ] || kill -TERM "$wpid" 2>/dev/null
@@ -212,6 +265,7 @@ done
 # The report is made even if a stop arrives now: leaving tehas:running on the
 # issue would park it for good.
 trap '' TERM INT HUP
+[ "$signalled" = 0 ] || tries=1
 mins=$((($(date +%s) - started) / 60))
 [ ! -f "$(dirname "$workdir")/.tehas-workspaces" ] || rm -rf "$workdir.images" ||
   log "WARN: could not remove the images $workdir.images"
@@ -222,7 +276,13 @@ mins=$((($(date +%s) - started) / 60))
   log "WARN: could not remove the cycle's state $workdir.state"
 
 # The one thing read back from the tree the container wrote, and only as data.
+# Not through a link, as the count files are not: the container could point
+# the host at any file it can read.
 state=$workdir/.pi/work-state/$issue.json
+if [ -L "$workdir/.pi" ] || [ -L "$workdir/.pi/work-state" ] || [ -L "$state" ]; then
+  log "WARN: the state file of #$issue is reached through a link, it is not read"
+  state=/dev/null
+fi
 # The file is written inside the container, and what the bot posts from it is
 # trusted later, so only plain characters are kept.
 status=$(jq -r '.pipelineState.status // "unknown"' "$state" 2>/dev/null | tr -cd 'A-Za-z0-9_.-')
@@ -259,6 +319,21 @@ if [ -f "$stall_file" ] && [ ! -L "$stall_file" ]; then
   [[ $stalled =~ ^(0|[1-9][0-9]{0,8})$ ]] || stalled=0
 fi
 rm -f "$stall_file"
+ended_file=${cycles:?}/${issue:?}.ended
+if [ -f "$ended_file" ] && [ ! -L "$ended_file" ]; then
+  case "$status" in running | unknown) status=interrupted ;; esac
+  killed="$killed The Pi session ended during \`$step\`, so tehas stopped the cycle before its time limit."
+fi
+rm -f "$ended_file"
+# The image the container started from, as tehas work saw it, for the record.
+image_id="" image_rukas=""
+image_file=${cycles:?}/${issue:?}.image
+if [ -f "$image_file" ] && [ ! -L "$image_file" ]; then
+  read -r image_id image_rukas _ < <(head -c 200 "$image_file" 2>/dev/null | head -n 1)
+  [[ $image_id =~ ^sha256:[0-9a-f]{64}$ ]] || image_id=""
+  [[ $image_rukas =~ ^[0-9a-f]{7,40}$ ]] || image_rukas=""
+fi
+rm -f "$image_file"
 if [ "$stalled" != 0 ]; then
   case "$status" in running | unknown) status=stalled ;; esac
   killed="$killed None of its logs changed for $((stalled / 60)) min at step \`$step\`, so tehas stopped it before its time limit."
@@ -267,6 +342,27 @@ fi
 branch=$(jq -r '.pipelineState.branchName // ""' "$state" 2>/dev/null || echo "")
 # The numbers are summed as numbers. Anything else in their place counts as
 # nothing: a string would be joined up by the sum and posted word for word.
+# The cap that ended the cycle, and the failure before it: the evidence of the
+# last cap-hit, else the provider's message or the error of the last failed
+# dispatch. Reduced and cut short as the other fields are.
+cap=$(jq -r '[(.eventLog // [])[]? | objects | select(.kind == "cap-hit")] | last | .cap // "" | strings' \
+  "$state" 2>/dev/null | tr -cd 'A-Za-z0-9_.:-' | head -c 80)
+reason=$(jq -j '[(.eventLog // [])[]? | objects] as $e
+  | ([$e[] | select(.kind == "cap-hit")] | last) as $c
+  | ([$e[] | select(.kind == "dispatch-failed" or .kind == "dispatch-failed-provider")] | last) as $f
+  | [$c.evidence?, $f.providerMessage?, $f.errorTail?] | map(strings | select(length > 0)) | first // ""' \
+  "$state" 2>/dev/null | tr '\n' ' ' | tr -cd 'A-Za-z0-9 _.,:;/()=+-' | head -c 200)
+# A cap of the kind a provider outage gives: pi-rukas's own, or a failed step
+# whose reason names the provider, a timeout, a connection or a 5xx.
+provider=0
+case "$cap" in
+  provider-unavailable) provider=1 ;;
+  step-failed:* | adversarial-infra-failure)
+    if grep -qiE 'provider|time(d)? ?out|connection|ECONNRE|ETIMEDOUT|(^|[^0-9])5[0-9]{2}([^0-9]|$)' <<<"$reason"; then
+      provider=1
+    fi
+    ;;
+esac
 usage=$(jq -r '
   def n: tonumber? // 0;
   [.eventLog[] | select(.usage) | {role: ((.role // "driver" | tostring | gsub("[^A-Za-z0-9_.-]"; "")) as $r | if $r == "" then "driver" else $r end),
@@ -277,44 +373,66 @@ usage=$(jq -r '
        + ["| **total** | \($e | length) | \($e | map(.u.turns) | add) | \($e | map(.u.input) | add) | \($e | map(.u.output) | add) | \($e | map(.u.cacheRead) | add) |"])
       | join("\n") end' "$state" 2>/dev/null || echo "")
 
-pr=""
+# The pull requests of the bot on the cycle's branch, in any state. The state
+# file's word "merged" is a claim: it counts only with a merged pull request
+# to show for it. A person may also merge or close one while the cycle runs.
+# The branch name comes from a file the
+# cycle wrote, so only a pull request the bot opened counts, and only one that
+# names this issue: its head is the issue's branch as pi-rukas names it,
+# feature/issue-<n>-..., or its body closes #<n>. A branch of another issue
+# finds nothing. Without an answer a handoff would be taken for a cycle that
+# left nothing.
+# A list GitHub would not give is not an empty one: $unread says so.
+prs="[]"
+unread=0
 if [ -n "$branch" ]; then
-  # The branch name comes from a file the cycle wrote. Only a pull request the
-  # bot itself opened counts, so it cannot point at somebody else's.
-  # Without an answer a handoff would be taken for a cycle that left nothing.
-  for try in 1 2 3; do
-    if pr=$(gh pr list --repo "$repo" --head "$branch" --author "@me" --state open --json url --jq '.[0].url // ""' 2>/dev/null); then
+  for ((try = 1; try <= tries; try++)); do
+    if prs=$(gh_call pr list --repo "$repo" --head "$branch" --author "@me" --state all \
+      --json url,state,body,headRefName --limit 20 2>/dev/null) && jq -e 'type == "array"' >/dev/null 2>&1 <<<"$prs"; then
       break
     fi
-    pr=""
-    if [ "$try" = 3 ]; then
+    prs="[]"
+    if [ "$try" = "$tries" ]; then
+      unread=1
       log "WARN: the pull requests of $(tr -cd 'A-Za-z0-9_./-' <<<"$branch") could not be read"
     else
       sleep "$retry_wait"
     fi
   done
 fi
+# Whether a pull request names this issue, as jq.
+names_issue=$(tehas_names_issue)
+# pr_in <OPEN|MERGED|CLOSED>: the address of this issue's pull request in that
+# state, or nothing.
+pr_in() {
+  jq -r --arg n "$issue" --arg st "$1" "$names_issue"'
+    [.[] | select(type == "object" and ((.state // "") | ascii_upcase) == $st) | select(mine)
+     | .url | strings | select(test("^https://[A-Za-z0-9./_-]+$"))] | first // ""' <<<"$prs" 2>/dev/null
+}
+pr=$(pr_in OPEN)
+merged_pr=$(pr_in MERGED)
+closed_pr=$(pr_in CLOSED)
+# A pull request of the bot on the branch that names another issue is said, not
+# taken.
+foreign=""
+if [ "$(jq --arg n "$issue" "$names_issue"'[.[] | select(type == "object") | select(mine | not)] | length' <<<"$prs" 2>/dev/null)" != 0 ] &&
+  [ "$(jq --arg n "$issue" "$names_issue"'[.[] | select(type == "object") | select(mine)] | length' <<<"$prs" 2>/dev/null)" = 0 ]; then
+  foreign=" The branch \`$(tr -cd 'A-Za-z0-9_./-' <<<"$branch")\` has a pull request of the bot that does not name this issue, so it is not taken as this cycle's."
+fi
 # Said in the comment when the label stayed: the issue then reads as running.
 stuck=" The label of this issue could not be changed. The next poll of the dispatcher hands it to a human."
 
 summary="status \`$status\`, last step \`$step\`, $mins min"
-if [ "$rc" = 0 ] && [ "$status" = merged ]; then
-  relabel --remove-label tehas:running && stuck=""
-  comment "Tehas cycle finished: $summary. The change was merged.$killed$stuck"
-  proven
-  tidy
-elif [ "$rc" = 0 ] && [ "$status" = handoff ] && [ -n "$pr" ]; then
-  relabel --remove-label tehas:running --add-label tehas:awaiting-merge && stuck=""
-  comment "Tehas cycle finished: $summary. Pull request waiting for a human: $pr$killed$stuck"
-  gh pr comment "$pr" --body "Tehas cycle for #$issue: $summary.
-
-${usage:-No token usage was recorded for this cycle.}" >/dev/null 2>&1 || log "WARN: comment on $pr failed"
-  proven
-  tidy
-else
+# park <text>: hand the issue to a human with the retry question.
+# The park on record for the dispatcher. retry is set only for a provider
+# outage on a cycle that was not itself the dispatcher's retry of one.
+retry=false
+park() {
   relabel --remove-label tehas:running --add-label needs-human-attention && stuck=""
-  parked="Tehas cycle stopped without a pull request: $summary (runner exit $rc). Read the handoff comment if there is one; the run log is \`~/tehas/logs/dispatch-work-$issue.log\` on \`$(hostname)\`.$killed${pr:+ Its branch has an open pull request: $pr}$stuck"
-  [ "$rc" != 4 ] || parked="Tehas started no cycle: an image the issue links could not be fetched, or the issue could not be read for its images (runner exit $rc). The comment before this one names it; the run log is \`~/tehas/logs/dispatch-work-$issue.log\` on \`$(hostname)\`.$stuck"
+  local parked="$1$stuck"
+  jq -n --arg cap "$cap" --arg reason "$reason" --argjson provider "$([ "$provider" = 1 ] && echo true || echo false)" \
+    --argjson retry "$retry" --argjson started "$started" '{$cap, $reason, $provider, $retry, $started}' \
+    >"$cycles/$issue.park" 2>/dev/null || log "WARN: could not record the park of #$issue"
   jq -n --arg text "$parked
 
 ${usage}" '{text: $text, question: null}' >"$TEHAS_HOME/state/park-$issue.json"
@@ -337,10 +455,64 @@ ${usage}" '{text: $text, question: null}' >"$TEHAS_HOME/state/park-$issue.json"
 ${usage}"
   fi
   rm -f "$TEHAS_HOME/state/park-$issue.json"
+}
+log_where="the run log is \`~/tehas/logs/dispatch-work-$issue.log\` on \`$(hostname)\`"
+if [ -n "$merged_pr" ]; then
+  # A merge ends the cycle, whoever made it and whatever the state file says:
+  # a person may merge while the cycle still reviews. tehasbot status labels
+  # the closed issue as shipped.
+  relabel --remove-label tehas:running && stuck=""
+  if [ "$rc" = 0 ] && [ "$status" = merged ]; then
+    comment "Tehas cycle finished: $summary. The change was merged: $merged_pr$killed$stuck"
+    proven
+  else
+    comment "Tehas cycle ended: its pull request $merged_pr was merged while the cycle ran (last step \`$step\`, $mins min, runner exit $rc). Nothing more is needed here.$killed$stuck"
+  fi
+  status=merged
+  pr=$merged_pr
+  tidy
+elif [ "$unread" = 1 ]; then
+  # Whether the cycle left a pull request is not known. The branch stays on
+  # record for whoever looks again.
+  printf '%s\n' "$(tr -cd 'A-Za-z0-9_./-' <<<"$branch")" >"$cycles/$issue.branch" ||
+    log "WARN: could not record the branch of #$issue"
+  park "Tehas cycle stopped, and its pull request could not be looked up: GitHub did not list the pull requests of the branch \`$(tr -cd 'A-Za-z0-9_./-' <<<"$branch")\` ($summary, runner exit $rc). Look for one there before you retry. The workspace is kept; $log_where.$killed"
+elif [ "$rc" = 0 ] && [ "$status" = merged ]; then
+  # A claim the container wrote. Without the merge to show for it the
+  # workspaces are kept: what they hold may exist nowhere else.
+  park "Tehas cycle stopped: its state says \`merged\`, but the bot has no merged pull request for this issue on \`$(tr -cd 'A-Za-z0-9_./-' <<<"${branch:-none}")\` ($summary). Nothing was removed; $log_where.$killed${pr:+ Its branch has an open pull request: $pr}$foreign"
+elif [ "$rc" = 0 ] && [ "$status" = handoff ] && [ -n "$pr" ]; then
+  relabel --remove-label tehas:running --add-label tehas:awaiting-merge && stuck=""
+  comment "Tehas cycle finished: $summary. Pull request waiting for a human: $pr$killed$stuck"
+  gh_call pr comment "$pr" --body "Tehas cycle for #$issue: $summary.
+
+${usage:-No token usage was recorded for this cycle.}" >/dev/null 2>&1 || log "WARN: comment on $pr failed"
+  proven
+  tidy
+elif [ -z "$pr" ] && [ -n "$closed_pr" ] && [ "$rc" != 4 ]; then
+  # A person closed the pull request without merging it: whether to try again
+  # is theirs to say, with the label. No retry box.
+  relabel --remove-label tehas:running --add-label needs-human-attention && stuck=""
+  comment "Tehas cycle stopped: its pull request $closed_pr was closed without being merged ($summary, runner exit $rc). The workspace is kept; $log_where.$killed$stuck To retry, apply \`tehas:ready\`."
+else
+  parked="Tehas cycle stopped without a pull request: $summary (runner exit $rc). Read the handoff comment if there is one; $log_where.$killed${pr:+ Its branch has an open pull request: $pr}$foreign"
+  if [ "$rc" = 4 ]; then
+    parked="Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit $rc). The comment before this one names it; $log_where."
+  elif [ "$provider" = 1 ]; then
+    parked="Tehas cycle parked by a provider outage: $summary (runner exit $rc), cap \`$cap\`${reason:+: $reason}; $log_where.$killed${pr:+ Its branch has an open pull request: $pr}$foreign"
+    if [ "$requeued" = 0 ]; then
+      retry=true
+      parked="$parked Tehas starts it again once on its own, when the model endpoint answers."
+    else
+      parked="$parked It was the retry tehas made on its own after an outage, so it waits for a person."
+    fi
+  fi
+  park "$parked"
 fi
 log "done #$issue rc=$rc status=$status step=$step minutes=$mins pr=${pr:-none} oom_kills=$kills forks_refused=$forks"
 # For the improvement loop, where the instance has one. The cycle is reported
 # by now, and a record that cannot be written is the loop's loss only.
-tehas_improve_record "$issue" "$started" "$rc" "$status" "$step" "$pr" "$kills" || log "WARN: no record of #$issue for the improvement loop"
-"$status_cmd"
+tehas_improve_record "$issue" "$started" "$rc" "$status" "$step" "$pr" "$kills" "$image_id" "$image_rukas" "$cap" "$reason" || log "WARN: no record of #$issue for the improvement loop"
+# The next poll refreshes the status. A stopped cycle leaves it to that poll.
+[ "$signalled" = 1 ] || "$status_cmd"
 exit 0

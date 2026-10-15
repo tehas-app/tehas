@@ -126,9 +126,9 @@ nothing has run for long. Its first unattended cycle took 61 minutes and about
 [features page](host/docs/features.md) says for each part whether it was seen
 working on a host, covered by tests only, or not built.
 
-A running preview of every pull request is built and covered by the tests. It
-has not run on a host yet. One thing tehas does not do: serve more than one
-repository from one host.
+A running preview of every pull request has been seen working on the example
+instance, but not every part of it yet. One thing tehas does not do: serve
+more than one repository from one host.
 
 ## Working on tehas
 
@@ -155,23 +155,35 @@ there too. `tag-deploy.sh` refuses when main has
 moved past the newest tag, because `tehas update` installs the head of the
 branch, not a tag. `--check` reports without changing the host.
 
+`tag-deploy.sh` logs in with plain `ssh <host>`. Put the user and key for the
+host in `~/.ssh/config`, or set the command in `TEHAS_SSH`. A deploy can end
+with a `later:` line, such as `bootstrap.sh user` when `host/versions.env`
+changed. `tehas update` does not run those steps; a person runs them on the
+host.
+
 | Path | What it is |
 | --- | --- |
 | `bin/` | The two commands: `tehas` for a person, `tehasbot` for the units. Installed to `~/tehas/bin` |
 | `libexec/` | The scripts behind them, all bash. Installed to `~/tehas/libexec` |
 | `console/` | The console of a running cycle, a Rust program. `install.sh` builds it and installs it as `~/tehas/libexec/console` |
 | `lib/config.sh` | Loads and checks the instance settings |
+| `lib/attachments.sh` | Files attached to an issue: which links count and how one is fetched |
 | `lib/cycles.sh` | Which cycles are running, from the lock each one holds, and where a parked cycle's question is on record |
+| `lib/edge.sh` | What `tehasbot protolab` and `tehasbot preview` share: numbered sets under `~/tehas` and the previews' network |
+| `lib/improve.sh`, `lib/improve-prompt.md` | The improvement loop's shared parts, and the prompt its analyst reads |
+| `lib/labels.sh` | Who applied a label, read from the label events |
 | `lib/live.sh` | The live view of the cycles, put together from a file per cycle |
+| `lib/planning.sh`, `lib/questions.sh` | The steps of a planning session, and the questions the factory asks on an issue |
 | `lib/sandbox.sh` | What a sandbox container is given, for a cycle and for a session by hand |
 | `lib/slice.sh` | Reads `tehas.slice`: whether it is usable, the limits of a container, the room left |
+| `lib/status.sh`, `lib/top.sh` | The factory's state for `tehas status`, and the frame of `tehas top` |
 | `lib/update-steps.sh` | The follow-up steps of an install, which `install.sh` asks for and `tehas update` runs |
 | `host/` | Everything else that is installed: units, the docs server, the sandbox image, the manual |
 | `preview/` | What `tehasbot preview` builds for a pull request of this repository |
 | `install.sh`, `bootstrap.sh` | Install tehas on a host, and prepare a host's tools |
 | `instances/` | `example/` to copy, and `tehas-tehas/`, the settings of the example instance |
-| `test/` | Shell tests, one file per unit |
-| `scripts/` | The gate, the lint, and the release and deploy scripts |
+| `test/` | Shell tests, one file per unit, and the front page's node tests |
+| `scripts/` | The gate, the lint, the test runner, the pi-rukas pin, and the release and deploy scripts |
 | `docs/adr/` | Decisions, with their reasons |
 
 ## Licence
