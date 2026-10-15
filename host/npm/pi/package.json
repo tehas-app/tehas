@@ -1,0 +1,9 @@
+{
+  "name": "tehas-pin-pi",
+  "version": "0.0.0",
+  "private": true,
+  "description": "One pinned npm tree: Pi at the version host/versions.env names, with every package in it fixed by hash in package-lock.json.",
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "1.0.4"
+  }
+}

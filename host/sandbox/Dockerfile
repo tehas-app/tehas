@@ -13,14 +13,15 @@
 # A product whose gates need another toolchain adds it here.
 #
 # Build with sandbox/build.sh, which passes the user id and the versions from
-# versions.env. The base is pinned by digest and every tool by version:
-# upgrade on purpose, then rebuild.
+# versions.env. The base is pinned by digest, shellcheck by checksum, and
+# Playwright by a lockfile beside this file: upgrade on purpose, then rebuild.
 FROM ghcr.io/trail-openers/pi-rukas:sha-d8ce95988680@sha256:a6cbc21b509e854196459740e9fc936d25096d2aa07ea44b58c7fd4196d21095
 
 ARG TEHAS_UID=1000
 ARG SHELLCHECK_VERSION
 ARG SHELLCHECK_SHA256
-ARG PLAYWRIGHT_VERSION=1.55.1
+ARG PLAYWRIGHT_VERSION
+ARG PLAYWRIGHT_LOCK_SHA256
 
 USER root
 
@@ -40,11 +41,23 @@ RUN curl -fsSL "https://github.com/koalaman/shellcheck/releases/download/v${SHEL
  && rm -rf /tmp/shellcheck.tar.xz "/tmp/shellcheck-v${SHELLCHECK_VERSION}" \
  && shellcheck --version
 
+# Playwright comes from the npm tree pinned beside this file, npm/playwright:
+# package.json names one version and package-lock.json fixes every package in
+# that tree by hash. The build stops when the tree is not the one versions.env
+# records (build.sh passes its sha256 and its version here), and npm ci then
+# refuses a package whose hash does not match the lockfile. Scripts are off for
+# the install; the browsers are fetched by the command below, not by a package's
+# postinstall hook.
+COPY npm/playwright/package.json npm/playwright/package-lock.json /opt/pin/playwright/
 # Browsers live outside any home directory so every user can read them.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
-RUN npx --yes "playwright@${PLAYWRIGHT_VERSION}" install --with-deps chromium \
+RUN cd /opt/pin/playwright \
+ && echo "${PLAYWRIGHT_LOCK_SHA256}  package-lock.json" | sha256sum -c - \
+ && node -e 'const v=process.argv[1], p=require("./package.json"), l=require("./package-lock.json"); if (p.dependencies.playwright !== v || l.packages[""].dependencies.playwright !== v || l.packages["node_modules/playwright"].version !== v) { console.error("sandbox: the Playwright pin is not " + v); process.exit(1) }' "$PLAYWRIGHT_VERSION" \
+ && npm ci --ignore-scripts --no-fund --no-audit \
+ && ./node_modules/.bin/playwright install --with-deps chromium \
  && chmod -R a+rX /opt/ms-playwright \
- && rm -rf /var/lib/apt/lists/* /root/.npm
+ && rm -rf /var/lib/apt/lists/* /root/.npm /opt/pin
 
 # The pi-rukas commit the base was built from, as versions.env names it. The
 # dispatcher and tehasbot cycle read it from the image, so an image put back

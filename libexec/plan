@@ -64,7 +64,9 @@
 # every turn and removed when the turn is over. Inside the container it is at
 # the path every cycle has its own, $TEHAS_HOME/work/<name>. The transcripts go
 # to ~/.pi/agent/ensemble-runs/plan-<issue>, so a turn and a cycle see nothing
-# of each other.
+# of each other. Beside the workspace is <name>-plan-<issue>.state, the turn's
+# own copy of the code index, its own memory and its own Pi sessions, removed
+# with the workspace.
 set -uo pipefail
 
 usage() {
@@ -132,6 +134,9 @@ limit=$TEHAS_PLAN_TIMEOUT
 log=$TEHAS_HOME/logs/plan-$issue-$(date -u +%y%m%d-%H%M%S).jsonl
 name=tehas-plan-$issue
 runs=$HOME/.pi/agent/ensemble-runs/plan-$issue
+# The turn's own state on the host, beside the workspace and not in it.
+container=$tree.state
+index=$(tehas_index_dir)
 images=$keep/images
 # What a turn's container is given of them: a copy beside the workspace, so no
 # container sees the state directory.
@@ -151,9 +156,8 @@ bot_email=$(git config --global user.email || true)
 # The path of the images is this command's to give, not the instance's.
 [ "$TEHAS_WORK_IMAGES" != 1 ] || unset PI_ENSEMBLE_EXTRA_IMAGE_DIRS
 mapfile -d '' -t envs < <(tehas_sandbox_env "$repo" "$bot_name" "$bot_email")
-mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$repo" "$tree" "$runs")
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
-[ "${#envs[@]}" -gt 0 ] && [ "${#mounts[@]}" -gt 0 ] ||
+[ "${#envs[@]}" -gt 0 ] ||
   { echo "tehas plan: could not prepare the sandbox, not starting a turn" >&2; exit 78; }
 
 # A fresh workspace for this turn, as a cycle gets one. Only a directory tehas
@@ -203,7 +207,7 @@ if [ "$TEHAS_WORK_IMAGES" = 1 ] && [ -f "$images/manifest.json" ]; then
   image_opts=(-v "$images_given:$images_inside:ro" -e "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$images_inside")
 fi
 
-if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces" && rm -rf "$tree" &&
+if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces" && rm -rf "$tree" "$container" &&
   tehas_sandbox_clone "$src" "$tree" "$branch"; }; then
   echo "tehas plan: could not make the workspace $tree, not starting a turn" >&2
   exit 78
@@ -251,6 +255,15 @@ else
   message=$(cat "$answer")
   args=(--session "$session")
 fi
+
+# The turn's own copy of the host's code index, asked for only once this turn
+# will start: a turn that never began leaves no copy behind.
+tehas_sandbox_seed "$container" "$index" ||
+  echo "tehas plan: the code index could not be copied into $container/cache, this turn searches without one"
+# The mounts name directories that only exist now.
+mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$repo" "$tree" "$container" "$runs")
+[ "${#mounts[@]}" -gt 0 ] ||
+  { echo "tehas plan: could not prepare the sandbox, not starting a turn" >&2; exit 78; }
 
 fifo=$(mktemp -u)
 mkfifo "$fifo"
@@ -364,7 +377,7 @@ if [ -d "$cache" ]; then
     echo "tehas plan: could not keep the plan cache of $tree" >&2
   fi
 fi
-rm -rf "$tree" "$images_given" || echo "tehas plan: could not remove the workspace $tree" >&2
+rm -rf "$tree" "$container" "$images_given" || echo "tehas plan: could not remove the workspace $tree" >&2
 
 # pick <text>: the lines of the log that hold the text, as JSON values. The
 # few lines wanted are found by what they say before anything parses them, so

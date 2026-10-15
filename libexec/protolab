@@ -148,7 +148,7 @@ render='
   def bottom:
     "  </main>\n"
     + "  <footer class=\"footer\">\n"
-    + "    <p class=\"footer-note\">The Protolab holds tickets at the prototype stage: open issues labelled tehas:prototype. The files are copies of what is attached to the issue, at most \($limit | size) a ticket. This view is read-only; a page goes when its ticket is closed or loses the label.</p>\n"
+    + "    <p class=\"footer-note\">The Protolab holds tickets at the prototype stage: open issues labelled tehas:prototype by an allowed account. The files are copies of what is attached to the issue, at most \($limit | size) a ticket. This view is read-only; a page goes when its ticket is closed or loses the label.</p>\n"
     + "    <div class=\"ascii\"><pre role=\"img\" aria-label=\"Tehas ASCII art logo\">"
     + ("       __________________________.____    _________    ______\n"
        + "       \\___     ___/  __    /    |    \\ _/    _    \\ _/   __/__\n"
@@ -230,7 +230,7 @@ render='
     + "      <div class=\"lab-head\"><h1 id=\"lab-title\">PROTOLAB</h1><p>\(length | plural("PROTOTYPE"; "PROTOTYPES"))</p></div>\n"
     + "      <div class=\"lab-body\">\n"
     + "        <ul class=\"rows\">\n"
-    + (if length == 0 then "          <li class=\"rows-note\">Nothing in the lab. Label an open ticket tehas:prototype to put it here.</li>\n"
+    + (if length == 0 then "          <li class=\"rows-note\">Nothing in the lab. An allowed account labels an open ticket tehas:prototype to put it here.</li>\n"
        else (map(row) | join("")) end)
     + "        </ul>\n"
     + "        <figure class=\"lab-scene\">\n"

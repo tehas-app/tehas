@@ -11,8 +11,9 @@ fx=$T/fx
 mkdir -p "$fx"
 checkout=$T/home/tehas/repos/widget
 ws=$T/home/tehas/work/widget
-# The directory on the host behind it, for issue 7.
+# The directory on the host behind it, for issue 7, and the turn's own state.
 tree=$ws-plan-7
+state=$tree.state
 upstream=$T/git/acme/widget
 mkdir -p "$upstream"
 git init -q -b main "$upstream"
@@ -124,6 +125,7 @@ t_eq "$(cat "$T/calls/tree.status")" ""
 t_case "the workspace is the turn's own, and it is gone when the turn is over"
 t_eq "$([ -e "$tree" ] && echo left)" ""
 t_eq "$([ -e "$ws" ] && echo made)" ""
+t_eq "$([ -e "$state" ] && echo left)" ""
 t_contains "$(jq -r .message "$T/calls/docker.stdin")" "/plan the work described in the file .tehas/brief.md"
 t_contains "$(jq -r .message "$T/calls/docker.stdin")" "issue #7"
 t_eq "$(jq -r .type "$T/calls/docker.stdin")" "prompt"
@@ -137,13 +139,18 @@ t_eq "$(tail_of)" "$image pi --mode rpc --approve "
 t_case "the planning container gets the mounts of a work cycle, no more"
 want="$tree:$ws
 $T/home/.pi/agent/ensemble-runs/plan-7:/home/vscode/.pi/agent/ensemble-runs
+$state/cache:/home/vscode/.tehas-cache
+$state/memory:/home/vscode/.vipune
+$state/sessions:/home/vscode/.pi/agent/sessions
 $T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
-$T/home/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro
-$T/home/.pi/agent/sessions:/home/vscode/.pi/agent/sessions
-$T/home/.vipune:/home/vscode/.vipune
-pi-ensemble-bun-cache:/home/vscode/.bun
-pi-ensemble-cache:/home/vscode/.cache"
+$T/home/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro"
 t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
+
+t_case "the turn is given its own cache, memory and sessions, and no shared one"
+t_lacks "$(after -v)" "pi-ensemble"
+t_lacks "$(after -v)" "$T/home/.pi/agent/sessions"
+t_lacks "$(after -v)" "$T/home/.vipune"
+t_contains "$(after -e)" "CBM_CACHE_DIR=/home/vscode/.tehas-cache"
 
 t_case "the planning container gets the variables of a work cycle, no more"
 want="GH_TOKEN
@@ -157,6 +164,7 @@ GIT_CONFIG_VALUE_1
 GIT_CONFIG_VALUE_2
 GIT_CONFIG_VALUE_3
 GIT_TERMINAL_PROMPT
+CBM_CACHE_DIR
 PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS
 PI_ENSEMBLE_MAX_WORKSTREAMS
 PI_ENSEMBLE_NO_DOCKER_SOCKET
@@ -207,7 +215,7 @@ t_eq "$(t_calls docker | grep -c '^info ')" 1
 # A turn has a workspace and a transcripts directory of its own on the host.
 # They are mounted at the paths a cycle's are.
 t_case "docker is given what tehas work gives a cycle's container: only the name, the two directories of its own, the cycle's cid file and what pi is told differ"
-turn_args | options | sed -e "s|^$tree:|$ws-7:|" -e 's|/ensemble-runs/plan-7:|/ensemble-runs/issue-7:|' >"$T/plan.options"
+turn_args | options | sed -e "s|^$tree:|$ws-7:|" -e 's|/ensemble-runs/plan-7:|/ensemble-runs/issue-7:|' -e 's|widget-plan-7\.state|widget-7.state|' >"$T/plan.options"
 rm -f "$T"/calls/*
 t_run "$T_ROOT/libexec/work 7"
 turn_args | options >"$T/work.options"

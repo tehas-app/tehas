@@ -41,6 +41,13 @@
 # written it, hooks and git configuration included, so no git command is run
 # there again, not even to read it.
 #
+# Beside the clone is <name>.state, this clone's own: its memory, its Pi
+# sessions, its transcripts and its own code index. It is kept with the clone,
+# so a person resumes their sessions and keeps the index their session built,
+# and no cycle shares either. The host's index of the product is not copied
+# here: it is keyed to the path a cycle works at, which is not the path of this
+# clone.
+#
 # A session shares the model endpoint with a running cycle and does not hold
 # the queue, beyond the room its memory takes in the slice. One session per clone: docker refuses a second container of the
 # same name. It needs a terminal; docker refuses to start without one.
@@ -123,6 +130,10 @@ fi
 devs=$TEHAS_HOME/dev
 tree=$devs/$name
 stored=$devs/$name.author
+# The clone's own state on the host: what this session writes and nothing a
+# cycle wrote. Kept with the clone.
+state=$devs/$name.state
+runs=$state/runs
 
 [ -n "${GH_TOKEN:-}" ] || { echo "tehas dev: GH_TOKEN is not set (source ~/tehas/env.sh)" >&2; exit 64; }
 
@@ -177,7 +188,7 @@ if [ "$fresh" = 1 ]; then
 fi
 
 mapfile -d '' -t envs < <(tehas_sandbox_env "$tree" "$git_name" "$git_email")
-mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$tree")
+mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$tree" "$tree" "$state" "$runs")
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
 [ "${#envs[@]}" -gt 0 ] && [ "${#mounts[@]}" -gt 0 ] ||
   { echo "tehas dev: could not prepare the sandbox, not starting a session" >&2; exit 78; }

@@ -35,8 +35,10 @@
 #
 # What the container is given is deliberate and pinned by test/work_test.sh:
 # the bot token (pi-rukas pushes and opens the pull request from inside), the
-# PI_ENSEMBLE_* settings, the bot's git identity, the cycle's workspace and
-# Pi's state directories. Not the Docker socket, SSH keys or ~/.config/tehas.
+# PI_ENSEMBLE_* settings, the bot's git identity, the cycle's workspace, and a
+# directory of its own for what it writes: its copy of the code index, its
+# memory and Pi's sessions. Nothing it writes there is what a later cycle of
+# another issue reads. Not the Docker socket, SSH keys or ~/.config/tehas.
 #
 # With TEHAS_WORK_IMAGES=1 it is given two things more: the issue's images,
 # read-only, and PI_ENSEMBLE_EXTRA_IMAGE_DIRS, their path inside the container.
@@ -82,6 +84,12 @@
 # git configuration included, and the host runs git in the product checkout.
 # So the host runs git only in a tree no container has touched, and reads from
 # the workspace afterwards nothing but the cycle's state file, as data.
+#
+# Beside the workspace is <name>-<issue>.state, the cycle's own: cache holds its
+# copy of the code index $TEHAS_HOME/state/index, memory its own store of what
+# its agents learned, sessions Pi's session files. It is made fresh for every
+# cycle and removed with the workspace by tehasbot cycle. The cycle's agents
+# index nothing of another cycle's and their caches start cold.
 #
 # The agents' transcripts go to ~/.pi/agent/ensemble-runs/issue-<issue>, so a
 # cycle sees its own and the console shows no other cycle's agents.
@@ -138,6 +146,9 @@ log=$TEHAS_HOME/logs/work-$issue-$(date -u +%y%m%d-%H%M%S).jsonl
 name=tehas-work-$issue
 agent=$HOME/.pi/agent
 runs=$agent/ensemble-runs/issue-$issue
+# The cycle's own state on the host, beside the workspace and not in it.
+container=$tree.state
+index=$(tehas_index_dir)
 cid_file=$TEHAS_HOME/state/cycles/$issue.cid
 oom_file=$TEHAS_HOME/state/cycles/$issue.oom
 forks_file=$TEHAS_HOME/state/cycles/$issue.forks
@@ -156,9 +167,8 @@ bot_email=$(git config --global user.email || true)
 # The path of the images is this command's to give, not the instance's.
 [ "$TEHAS_WORK_IMAGES" != 1 ] || unset PI_ENSEMBLE_EXTRA_IMAGE_DIRS
 mapfile -d '' -t envs < <(tehas_sandbox_env "$repo" "$bot_name" "$bot_email")
-mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$repo" "$tree" "$runs")
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
-[ "${#envs[@]}" -gt 0 ] && [ "${#mounts[@]}" -gt 0 ] ||
+[ "${#envs[@]}" -gt 0 ] ||
   { echo "tehas work: could not prepare the sandbox, not starting a cycle" >&2; exit 78; }
 
 # A fresh workspace for this cycle, at the tip the product checkout last
@@ -202,11 +212,10 @@ aside() {
   rm -rf "$tree.before-retry" && mv "$tree" "$tree.before-retry"
 }
 if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces" && aside &&
-  tehas_sandbox_clone "$src" "$tree" "$branch"; }; then
+  rm -rf "$container" && tehas_sandbox_clone "$src" "$tree" "$branch"; }; then
   echo "tehas work: could not make the workspace $tree, not starting a cycle" >&2
   exit 78
 fi
-
 # Before spending an hour of model time: can the sandbox push at all? A dry
 # run needs the same credentials a real push does and creates nothing.
 if ! docker run --rm --user "$(id -u):$(id -g)" -e HOME=/home/vscode "${envs[@]}" \
@@ -216,6 +225,16 @@ if ! docker run --rm --user "$(id -u):$(id -g)" -e HOME=/home/vscode "${envs[@]}
   tail -n 3 "$log.preflight" | sed 's/^/    /'
   exit 3
 fi
+# The cycle's own copy of the host's code index, asked for only once this cycle
+# can start: a cycle that never began leaves no copy behind. Without one the
+# agents search by reading files, which is slower and finds less; a copy that
+# fails is not worth stopping a cycle for.
+tehas_sandbox_seed "$container" "$index" ||
+  echo "tehas work: the code index could not be copied into $container/cache, this cycle searches without one"
+# The mounts name directories that only exist now.
+mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$repo" "$tree" "$container" "$runs")
+[ "${#mounts[@]}" -gt 0 ] ||
+  { echo "tehas work: could not prepare the sandbox, not starting a cycle" >&2; exit 78; }
 
 fifo=$(mktemp -u)
 mkfifo "$fifo"
