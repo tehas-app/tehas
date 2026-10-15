@@ -141,6 +141,20 @@ The tests need bash, git, jq and shellcheck. They use no network and no sandbox
 image. The full gate also needs cargo and node, and cargo fetches the console's
 crates the first time. The rules for changes are in [`AGENTS.md`](AGENTS.md).
 
+To release and deploy:
+
+```
+scripts/tag-release.sh              # tag the head of main as the next patch and push the tag
+scripts/tag-deploy.sh tehas-tehas   # run tehas update on that host, check it lands on the tag
+```
+
+Both run unattended. `tag-release.sh` runs the gate on the head of main before
+it tags, does nothing when the head is already tagged, and prints the tag on
+stdout; `--minor`, `--major`, `--message`, `--no-verify` and `--dry-run` are
+there too. `tag-deploy.sh` refuses when main has
+moved past the newest tag, because `tehas update` installs the head of the
+branch, not a tag. `--check` reports without changing the host.
+
 | Path | What it is |
 | --- | --- |
 | `bin/` | The two commands: `tehas` for a person, `tehasbot` for the units. Installed to `~/tehas/bin` |
@@ -157,7 +171,7 @@ crates the first time. The rules for changes are in [`AGENTS.md`](AGENTS.md).
 | `install.sh`, `bootstrap.sh` | Install tehas on a host, and prepare a host's tools |
 | `instances/` | `example/` to copy, and `tehas-tehas/`, the settings of the example instance |
 | `test/` | Shell tests, one file per unit |
-| `scripts/` | The gate and the lint |
+| `scripts/` | The gate, the lint, and the release and deploy scripts |
 | `docs/adr/` | Decisions, with their reasons |
 
 ## Licence
