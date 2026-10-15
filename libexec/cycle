@@ -30,9 +30,15 @@
 # status: systemd kills the unit TimeoutStopSec after the stop, and a report
 # cut off there leaves the issue marked tehas:running.
 #
-# A runner that exits 137 while the cycle's state still says running, or says
-# nothing, had its container killed: the status reported is "killed" and the
-# issue is parked. tehas work leaves in state/cycles/<issue>.oom how many
+# The cycle's outcome is the result of pi-rukas's headless runner, which tehas
+# work leaves in state/cycles/<issue>.result.json (lib/headless.sh reads it):
+# its status, the step it stopped in, its cap, branch and token usage. Nothing
+# is read from the tree the container wrote. The per-role usage and the reason
+# of the last cap come from state/cycles/<issue>.progress.json, which tehas
+# work makes from the runner's progress lines.
+#
+# A runner that exits 137 with no result had its container killed: the status
+# reported is "killed" and the issue is parked. tehas work leaves in state/cycles/<issue>.oom how many
 # processes in the container were killed for memory. The file is read here as
 # digits and removed, the number is said in the comment when it is above 0,
 # and it goes into the record for the improvement loop. Nothing is read from
@@ -40,14 +46,10 @@
 # the container's pids limit refused, is read the same way and said in the
 # comment: after the first one the cycle's own commands may not have run.
 #
-# tehas work stops a cycle whose Pi session ended while it ran, and leaves
-# state/cycles/<issue>.ended. While the state still says running, the status
-# reported is then "interrupted" and the comment says during which step.
-#
 # tehas work stops a cycle none of whose logs changed for TEHAS_WORK_STALL
-# seconds and leaves the seconds in state/cycles/<issue>.stalled. While the
-# state still says running, the status reported is then "stalled", the issue
-# is parked and the comment says how long nothing moved and at which step.
+# seconds and leaves the seconds in state/cycles/<issue>.stalled. The status
+# reported is then "stalled", the issue is parked and the comment says how long
+# nothing moved and at which step.
 #
 # A runner that exits 4 started no cycle: the instance gives a cycle the
 # images or files its issue links (TEHAS_WORK_IMAGES, TEHAS_WORK_FILES) and one
@@ -58,20 +60,19 @@
 # code index, the memory and the sessions its agents wrote: no later cycle
 # reads them.
 #
-# The state file is the container's word. Its "merged" counts only when the
-# bot has a merged pull request for the issue on the cycle's branch; without
-# one the issue is parked and nothing is removed. A pull request counts only
-# when it names this issue: its head is feature/issue-<n>-..., as pi-rukas
-# names a branch, or its body closes #<n>. A state file reached through a link
-# is not read.
+# The result's "merged" counts only when the bot has a merged pull request for
+# the issue on the cycle's branch; without one the issue is parked and nothing
+# is removed. A pull request counts only when it names this issue: its head is
+# feature/issue-<n>-..., as pi-rukas names a branch, or its body closes #<n>.
+# A result or progress file that is a link is not read.
 #
 # A merged pull request for the issue ends the cycle as merged whatever the
 # state says: a person may merge it while the cycle still reviews. The issue
 # then only loses tehas:running, and tehasbot status labels it shipped. One a
 # person closed without merging parks the issue without the retry boxes.
 #
-# Only a run that ended as handoff with an open pull request is reported as
-# waiting for a merge. The label change that ends a cycle is tried three
+# Only a run that ended as handoff (runner exit 10 or 11) with an open pull
+# request is reported as waiting for a merge. The label change that ends a cycle is tried three
 # times, and so is the question about the pull request, and so is the call
 # that asks what the number is. A pull request that could not be looked up is
 # not taken for none: the issue is parked with a comment that says so and names
@@ -79,12 +80,12 @@
 # killed outright, the issue stays marked tehas:running and the dispatcher's
 # next poll finds it.
 #
-# The cap that ended a cycle and the failure before it, from the state file,
-# go into the record and into state/cycles/<issue>.park whenever the issue is
-# parked. A cap a provider outage gives (provider-unavailable, or step-failed:*
-# and adversarial-infra-failure whose reason names the provider, a timeout, a
-# connection or a 5xx) is said as one, and the park file asks the dispatcher
-# to start the issue again once, unless this cycle was that start.
+# The cap that ended a cycle and the failure before it go into the record and
+# into state/cycles/<issue>.park whenever the issue is parked. A cap a
+# provider outage gives (step-failed:* and adversarial-infra-failure whose
+# reason names the provider, a timeout, a connection or a 5xx) is said as one,
+# and the park file asks the dispatcher to start the issue again once, unless
+# this cycle was that start.
 #
 # A cycle that stopped without a pull request asks what to do next, in a
 # comment with boxes. The id of that comment goes on record in
@@ -129,6 +130,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/cycles.sh"
 # shellcheck source=lib/improve.sh
 . "$here/../lib/improve.sh"
+# shellcheck source=lib/headless.sh
+. "$here/../lib/headless.sh"
 tehas_load || exit 78
 # shellcheck source=lib/questions.sh
 . "$here/../lib/questions.sh"
@@ -242,7 +245,8 @@ restart=""
 requeued=0
 [ ! -e "$cycles/$issue.requeued" ] || requeued=1
 rm -f "${cycles:?}/${issue:?}.oom" "${cycles:?}/${issue:?}.forks" "${cycles:?}/${issue:?}.stalled" \
-  "${cycles:?}/${issue:?}.ended" "${cycles:?}/${issue:?}.branch" "${cycles:?}/${issue:?}.image" \
+  "${cycles:?}/${issue:?}.result.json" "${cycles:?}/${issue:?}.progress.json" \
+  "${cycles:?}/${issue:?}.branch" "${cycles:?}/${issue:?}.image" \
   "${cycles:?}/${issue:?}.park" "${cycles:?}/${issue:?}.requeued" "${cycles:?}/${issue:?}.done"
 # The trap is set before the runner starts, so no signal falls between.
 wpid=""
@@ -275,22 +279,23 @@ mins=$((($(date +%s) - started) / 60))
 [ ! -f "$(dirname "$workdir")/.tehas-workspaces" ] || rm -rf "$workdir.state" ||
   log "WARN: could not remove the cycle's state $workdir.state"
 
-# The one thing read back from the tree the container wrote, and only as data.
-# Not through a link, as the count files are not: the container could point
-# the host at any file it can read.
-state=$workdir/.pi/work-state/$issue.json
-if [ -L "$workdir/.pi" ] || [ -L "$workdir/.pi/work-state" ] || [ -L "$state" ]; then
-  log "WARN: the state file of #$issue is reached through a link, it is not read"
-  state=/dev/null
+# The runner's result and the summary of its progress, as tehas work wrote
+# them. Not through a link: these are host files, and a link would be
+# something else.
+result=$cycles/$issue.result.json
+progress=$cycles/$issue.progress.json
+if [ -L "$result" ]; then
+  log "WARN: the result of #$issue is a link, it is not read"
+  result=/dev/null
 fi
-# The file is written inside the container, and what the bot posts from it is
-# trusted later, so only plain characters are kept.
-status=$(jq -r '.pipelineState.status // "unknown"' "$state" 2>/dev/null | tr -cd 'A-Za-z0-9_.-')
-step=$(jq -r '.pipelineState.currentStep // "-"' "$state" 2>/dev/null | tr -cd 'A-Za-z0-9_.-')
+[ ! -L "$progress" ] || progress=/dev/null
+outcome=$(tehas_headless_outcome "$result" "$issue") || outcome='{}'
+status=$(jq -r '.status // "unknown"' <<<"$outcome" | tr -cd 'A-Za-z0-9_.-')
+step=$(jq -r '[.failedStep, .lastStep] | map(strings | select(. != "")) | first // "-"' <<<"$outcome" | tr -cd 'A-Za-z0-9_.-')
 status=${status:-unknown}
 step=${step:--}
-# The runner says 137 only for a container that was killed under it. A state
-# that names an end has the last word.
+# The runner says 137 only for a container that was killed under it with no
+# result written. A result that names an end has the last word.
 if [ "$rc" = 137 ]; then
   case "$status" in running | unknown) status=killed ;; esac
 fi
@@ -319,12 +324,6 @@ if [ -f "$stall_file" ] && [ ! -L "$stall_file" ]; then
   [[ $stalled =~ ^(0|[1-9][0-9]{0,8})$ ]] || stalled=0
 fi
 rm -f "$stall_file"
-ended_file=${cycles:?}/${issue:?}.ended
-if [ -f "$ended_file" ] && [ ! -L "$ended_file" ]; then
-  case "$status" in running | unknown) status=interrupted ;; esac
-  killed="$killed The Pi session ended during \`$step\`, so tehas stopped the cycle before its time limit."
-fi
-rm -f "$ended_file"
 # The image the container started from, as tehas work saw it, for the record.
 image_id="" image_rukas=""
 image_file=${cycles:?}/${issue:?}.image
@@ -335,43 +334,38 @@ if [ -f "$image_file" ] && [ ! -L "$image_file" ]; then
 fi
 rm -f "$image_file"
 if [ "$stalled" != 0 ]; then
-  case "$status" in running | unknown) status=stalled ;; esac
+  case "$status" in running | unknown | interrupted) status=stalled ;; esac
   killed="$killed None of its logs changed for $((stalled / 60)) min at step \`$step\`, so tehas stopped it before its time limit."
 fi
 [ "$forks" = 0 ] || killed="$killed Its container reached its limit of processes and $forks starts of a process were refused: what the cycle ran after that may not have run."
-branch=$(jq -r '.pipelineState.branchName // ""' "$state" 2>/dev/null || echo "")
-# The numbers are summed as numbers. Anything else in their place counts as
-# nothing: a string would be joined up by the sum and posted word for word.
-# The cap that ended the cycle, and the failure before it: the evidence of the
-# last cap-hit, else the provider's message or the error of the last failed
-# dispatch. Reduced and cut short as the other fields are.
-cap=$(jq -r '[(.eventLog // [])[]? | objects | select(.kind == "cap-hit")] | last | .cap // "" | strings' \
-  "$state" 2>/dev/null | tr -cd 'A-Za-z0-9_.:-' | head -c 80)
-reason=$(jq -j '[(.eventLog // [])[]? | objects] as $e
-  | ([$e[] | select(.kind == "cap-hit")] | last) as $c
-  | ([$e[] | select(.kind == "dispatch-failed" or .kind == "dispatch-failed-provider")] | last) as $f
-  | [$c.evidence?, $f.providerMessage?, $f.errorTail?] | map(strings | select(length > 0)) | first // ""' \
-  "$state" 2>/dev/null | tr '\n' ' ' | tr -cd 'A-Za-z0-9 _.,:;/()=+-' | head -c 200)
+branch=$(jq -r '.branch // ""' <<<"$outcome")
+# The cap that ended the cycle, from the result's published vocabulary. The
+# failure before it is what tehas work could read of the progress: the result
+# carries no reason. Reduced and cut short as the other fields are.
+cap=$(jq -r '.cap // ""' <<<"$outcome" | tr -cd 'A-Za-z0-9_.:-' | head -c 80)
+reason=$(head -c 1000000 "$progress" 2>/dev/null | jq -j '.reason // "" | strings' 2>/dev/null |
+  tr '\n' ' ' | tr -cd 'A-Za-z0-9 _.,:;/()=+-' | head -c 200)
 # A cap of the kind a provider outage gives: pi-rukas's own, or a failed step
 # whose reason names the provider, a timeout, a connection or a 5xx.
 provider=0
 case "$cap" in
-  provider-unavailable) provider=1 ;;
   step-failed:* | adversarial-infra-failure)
     if grep -qiE 'provider|time(d)? ?out|connection|ECONNRE|ETIMEDOUT|(^|[^0-9])5[0-9]{2}([^0-9]|$)' <<<"$reason"; then
       provider=1
     fi
     ;;
 esac
-usage=$(jq -r '
-  def n: tonumber? // 0;
-  [.eventLog[] | select(.usage) | {role: ((.role // "driver" | tostring | gsub("[^A-Za-z0-9_.-]"; "")) as $r | if $r == "" then "driver" else $r end),
-                                   u: (.usage | {turns: (.turns | n), input: (.input | n), output: (.output | n), cacheRead: (.cacheRead | n)})}] as $e
-  | if ($e | length) == 0 then "" else
+# The token usage: a row per role from the progress, and the result's totals,
+# which count failed dispatches too. Numbers only: anything else counts as
+# nothing.
+usage=$(head -c 1000000 "$progress" 2>/dev/null | jq -r --argjson total "$(jq -c '.usage // {}' <<<"$outcome")" '
+  def n: if type == "number" and . >= 0 then . else 0 end;
+  [.roles[]? | objects] as $r
+  | if ($r | length) == 0 and ($total.dispatches | n) == 0 then "" else
       (["| Role | Dispatches | Turns | Input | Output | Cache read |", "|---|---|---|---|---|---|"]
-       + ($e | group_by(.role) | map("| \(.[0].role) | \(length) | \(map(.u.turns) | add) | \(map(.u.input) | add) | \(map(.u.output) | add) | \(map(.u.cacheRead) | add) |"))
-       + ["| **total** | \($e | length) | \($e | map(.u.turns) | add) | \($e | map(.u.input) | add) | \($e | map(.u.output) | add) | \($e | map(.u.cacheRead) | add) |"])
-      | join("\n") end' "$state" 2>/dev/null || echo "")
+       + ($r | map("| \(.role | tostring | gsub("[^A-Za-z0-9_.-]"; "")) | \(.dispatches | n) | \(.turns | n) | \(.input | n) | \(.output | n) | \(.cacheRead | n) |"))
+       + ["| **total, all dispatches** | \($total.dispatches | n) | \($total.turns | n) | \($total.input | n) | \($total.output | n) | \($total.cacheRead | n) |"])
+      | join("\n") end' 2>/dev/null || echo "")
 
 # The pull requests of the bot on the cycle's branch, in any state. The state
 # file's word "merged" is a claim: it counts only with a merged pull request
@@ -484,7 +478,7 @@ elif [ "$rc" = 0 ] && [ "$status" = merged ]; then
   # A claim the container wrote. Without the merge to show for it the
   # workspaces are kept: what they hold may exist nowhere else.
   park "Tehas cycle stopped: its state says \`merged\`, but the bot has no merged pull request for this issue on \`$(tr -cd 'A-Za-z0-9_./-' <<<"${branch:-none}")\` ($summary). Nothing was removed; $log_where.$killed${pr:+ Its branch has an open pull request: $pr}$foreign"
-elif [ "$rc" = 0 ] && [ "$status" = handoff ] && [ -n "$pr" ]; then
+elif { [ "$rc" = 10 ] || [ "$rc" = 11 ]; } && [ "$status" = handoff ] && [ -n "$pr" ]; then
   relabel --remove-label tehas:running --add-label tehas:awaiting-merge && stuck=""
   comment "Tehas cycle finished: $summary. Pull request waiting for a human: $pr$killed$stuck"
   gh_call pr comment "$pr" --body "Tehas cycle for #$issue: $summary.

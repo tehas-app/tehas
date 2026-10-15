@@ -79,10 +79,10 @@ fn entries_and_the_speaker_are_masked_of_the_names_given() {
     let today = String::from_utf8(today.stdout).unwrap();
     let day = dir.join("runs").join(today.trim());
     fs::create_dir_all(&day).unwrap();
-    let (rpc, out) = (dir.join("work-7.jsonl"), dir.join("console-7.txt"));
+    let (progress, out) = (dir.join("work-7.ndjson"), dir.join("console-7.txt"));
     fs::write(
-        &rpc,
-        "{\"type\":\"extension_ui_request\",\"method\":\"notify\",\"message\":\"asked models.lan\"}\n",
+        &progress,
+        "{\"v\":1,\"kind\":\"log\",\"message\":\"asked models.lan\"}\n",
     )
     .unwrap();
     fs::write(
@@ -99,7 +99,7 @@ fn entries_and_the_speaker_are_masked_of_the_names_given() {
         .as_secs()
         - 5;
     let mut console = Command::new(CONSOLE)
-        .args(["--rpc", rpc.to_str().unwrap()])
+        .args(["--progress", progress.to_str().unwrap()])
         .args(["--runs", dir.join("runs").to_str().unwrap()])
         .args([
             "--out",
