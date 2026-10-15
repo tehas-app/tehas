@@ -92,15 +92,11 @@ tehas_rukas_ask() {
   tehas_rukas_images_label=$images
 }
 
-# The commit, also for an image put back for a rollback. An image built before
-# the label has the commit versions.env names. Nothing when neither says.
+# The commit, also for an image put back for a rollback. Nothing when the
+# image does not say.
 tehas_rukas_commit() {
-  local c
   tehas_rukas_ask
-  c=$tehas_rukas_commit_label
-  [ -n "$c" ] ||
-    c=$(sed -n 's/^PI_RUKAS_COMMIT=\([0-9a-f]\{7,40\}\)$/\1/p' "$TEHAS_HOME/versions.env" 2>/dev/null | head -n 1)
-  printf '%s\n' "$c"
+  printf '%s\n' "$tehas_rukas_commit_label"
 }
 
 # Whether the pi-rukas in the sandbox image reads the manifest tehas writes

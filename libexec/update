@@ -31,6 +31,12 @@
 # is owed" for a file this account cannot open would let the next write replace
 # steps somebody else recorded.
 #
+# pi-rukas is not pinned. Last, where the installed versions.env names a branch
+# for it, the sandbox image is moved to that branch's head when the head is not
+# the commit the image was built on, also when no file of tehas changed. A run
+# that built the image already, or whose steps failed, skips this. --check only
+# says whether the head moved.
+#
 # A step line recorded as "protolab <flag>" by an earlier version is the edge
 # step: lib/update-steps.sh answers that for every reader of a step line, so no
 # command here spells the alias itself.
@@ -68,6 +74,7 @@
 #                            what the remote has - origin/<branch> moves, and a
 #                            branch the remote deleted stops being reported. It
 #                            runs install.sh --check, which runs the tests.
+#                            It asks for the head of pi-rukas's branch.
 #                            Nothing is merged, installed, built or started, and
 #                            it exits 1 when there is something to update.
 #   tehas update -h|--help   print this text and exit 0
@@ -78,10 +85,11 @@
 #         fast-forwarded, has no commit yet, a step failed or timed out, install.sh
 #         gave no answer within its limit, systemd did not reload the unit files, a
 #         follow-up install.sh asked for is one this command does not know, or
-#         --check found something to update (a checkout behind, or steps left
-#         over from an earlier run) or something an update does not fix (the
-#         host's tools, the slice, root's copy of the command, the tests), each
-#         said apart. A record of steps owed that exists but this
+#         --check found something to update (a checkout behind, steps left
+#         over from an earlier run, or a pi-rukas head the image is not on) or
+#         something an update does not fix (the host's tools, the slice, root's
+#         copy of the command, the tests), each said apart, or the image could
+#         not be moved to the pi-rukas head. A record of steps owed that exists but this
 #         account cannot read is a failure too: reading it as "nothing is owed"
 #         would let the next write replace steps somebody else recorded. A status
 #         of install.sh that this command does not know (126 when its exec bit is
@@ -326,6 +334,24 @@ else
   fi
 fi
 
+# pi-rukas is not pinned: the sandbox image follows the head of the branch the
+# installed versions.env names, so an update looks at the head even when no
+# file of tehas changed. A host whose versions.env names no branch is left as
+# it is.
+follows_rukas() {
+  grep -q '^PI_RUKAS_BRANCH=' "$TEHAS_HOME/versions.env" 2>/dev/null && [ -x "$TEHAS_HOME/sandbox/build.sh" ]
+}
+rukas_step() { # --if-moved | --check
+  local out rc
+  out=$(timeout "$build_limit" "$TEHAS_HOME/sandbox/build.sh" "$1" 2>&1)
+  rc=$?
+  [ -n "$out" ] && printf '%s\n' "$out"
+  if [ "$rc" = 124 ]; then
+    echo "pi-rukas: the build gave no answer in ${build_limit}s" >&2
+  fi
+  return "$rc"
+}
+
 # --- 2. install.sh -----------------------------------------------------------
 # Its stdout is printed as it is; its stderr goes on this command's stderr, where
 # a diagnostic belongs, so what happened to be written as an error can never be
@@ -445,6 +471,7 @@ if [ "$mode" = check ]; then
   # Nothing was merged, installed, built or started. What is left to do is the
   # checkout moving, and any step an earlier run never finished.
   if [ "${#leftover[@]}" != 0 ] || [ "${#unknown[@]}" != 0 ]; then pending=1; fi
+  if follows_rukas && ! rukas_step --check; then pending=1; fi
   exit "$pending"
 fi
 
@@ -651,6 +678,7 @@ build_sandbox() {
     return 1
   fi
   echo "sandbox: building the image"
+  built=1
   out=$(timeout "$build_limit" "$TEHAS_HOME/sandbox/build.sh" 2>&1)
   rc=$?
   [ -n "$out" ] && printf '%s\n' "$out"
@@ -707,6 +735,7 @@ steps=()
 while IFS= read -r line; do steps+=("$line"); done < <(tehas_sort_steps "${asked[@]}")
 
 status=0
+built=0
 if [ "${#unknown[@]}" != 0 ]; then status=1; fi
 if ! write_pending "${steps[@]}"; then exit 1; fi
 
@@ -728,6 +757,12 @@ done
 if [ "${#steps[@]}" != 0 ] && [ "$ran" -lt "${#steps[@]}" ]; then
   printf 'update: %s of %s follow-up(s) are not done, recorded in %s; tehas update runs them again\n' \
     $((${#steps[@]} - ran)) "${#steps[@]}" "$pending_file" >&2
+fi
+
+# A build this run made is already on the head.
+if [ "$status" = 0 ] && [ "$built" = 0 ] && follows_rukas && ! rukas_step --if-moved; then
+  echo "pi-rukas: the image was not moved to the head of its branch; tehas update tries again" >&2
+  status=1
 fi
 
 exit "$status"
