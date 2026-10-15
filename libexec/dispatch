@@ -103,7 +103,10 @@
 # links to GitHub's attachment storage in that body. With TEHAS_WORK_COMMENTS=1
 # it adds comment_links, [{link, source, by}]: the links in the issue's comments
 # that an allowed account wrote and nobody edited after the approval, source
-# "comment:<id>". tehas work fetches those links and no others, and only while
+# "comment:<id>". On a retry tick it adds the links of the comments allowed
+# accounts wrote on the parked cycle's pull request between the park and the
+# tick, source "pr-comment:<id>", and their text as retry_context, [{source,
+# by, at, text}]. tehas work fetches those links and no others, and only while
 # the body still has that hash. A record that cannot be written, or comments
 # that cannot be read, start nothing, exit 1.
 #
@@ -513,43 +516,81 @@ wait_for() {
 # the gh issue edit options that take it out of the queue it came from. For
 # the approval record: when it was given and how, in one word.
 picked=()
-declare -A starter=() verb=() how=() drop=() given_at=() given_how=()
+declare -A starter=() verb=() how=() drop=() given_at=() given_how=() given_since=()
 
 # approved_record <issue>: write state/cycles/<issue>.approved.json. Returns 1
 # when it could not be written.
 approved_record() {
-  local n=$1 file=$TEHAS_HOME/state/cycles/$1.approved.json sum from='[]'
+  local n=$1 file=$TEHAS_HOME/state/cycles/$1.approved.json sum from='[]' retry=null
   [ -n "${text_of[$n]:-}" ] || return 1
   sum=$(jq '.data.repository.issue // {}' <<<"${text_of[$n]}" | tehas_body_sha256) || return 1
   if [ "$TEHAS_WORK_COMMENTS" = 1 ]; then
     from=$(comment_links "$n" "${given_at[$n]}") || { log "ERROR: the comments of #$n could not be read"; return 1; }
+    if [ "${given_how[$n]}" = retry-tick ]; then
+      retry=$(pr_comments "$n" "${given_since[$n]:-}" "${given_at[$n]}") ||
+        { log "ERROR: the comments on the pull request of #$n could not be read"; return 1; }
+    fi
   fi
   jq --arg at "${given_at[$n]}" --arg by "${starter[$n]}" --arg how "${given_how[$n]}" --arg sum "$sum" \
-    --argjson comments "$TEHAS_WORK_COMMENTS" --argjson from "$from" \
+    --argjson comments "$TEHAS_WORK_COMMENTS" --argjson from "$from" --argjson retry "$retry" \
     "$(tehas_attachment_links)"'{at: $at, by: $by, how: $how, body_sha256: $sum,
       links: (.data.repository.issue.body // "" | links | reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end))}
-      + if $comments == 1 then {comment_links: $from} else {} end' \
+      + if $comments == 1 then {comment_links: ($from + ($retry.links // []))} else {} end
+      + if $retry == null then {} else {retry_context: $retry.context} end' \
     <<<"${text_of[$n]}" >"$file.new" 2>/dev/null && mv "$file.new" "$file"
 }
 
+# A jq definition, `window`: of the comments as the REST API lists them, one
+# JSON list per page, those an allowed account wrote at or after $since and at
+# or before $at, and that nobody edited after $at, in the order written. A
+# comment later than the approval was not there to be approved. An $at that is
+# empty takes none.
+# shellcheck disable=SC2016  # a jq program
+comment_window='def window: if any(.[]; type != "array") then error("not a list of comments") else . end
+  | ($allowed | split(" ")) as $list
+  | [add // [] | .[] | select(type == "object" and (.id | type) == "number" and (.body | type) == "string"
+      and ((.user.login // "") as $a | $a != "" and ($list | index($a)) != null)
+      and (.created_at | type) == "string" and (.updated_at | type) == "string"
+      and $at != "" and .created_at >= $since and .created_at <= $at and .updated_at <= $at)]
+  | sort_by(.created_at, .id);
+  def dedupe: reduce .[] as $x ([]; if any(.[]; .link == $x.link) then . else . + [$x] end);'
+
 # comment_links <issue> <time>: the attachment links in the issue's comments
-# that the approval at <time> covers, as a JSON list of {link, source, by}, in
-# the order written. A comment counts only when an allowed account wrote it and
-# it was neither written nor edited after <time>: a later one was not there to
-# be approved. Fails when the comments cannot be read.
+# that the approval at <time> covers, as a JSON list of {link, source, by}.
+# Fails when the comments cannot be read.
 comment_links() {
   local list
   list=$(gh api "repos/$repo/issues/$1/comments?per_page=100" --paginate 2>/dev/null) || return 1
-  jq -cs --arg at "$2" --arg allowed "$TEHAS_ALLOWED_LABELERS" "$(tehas_attachment_links)"'
-    if any(.[]; type != "array") then error("not a list of comments") else . end
-    | ($allowed | split(" ")) as $list
-    | [add // [] | .[] | select(type == "object" and (.id | type) == "number" and (.body | type) == "string"
-        and ((.user.login // "") as $a | $a != "" and ($list | index($a)) != null)
-        and (.created_at | type) == "string" and (.updated_at | type) == "string"
-        and $at != "" and .created_at <= $at and .updated_at <= $at)]
-    | sort_by(.created_at, .id)
-    | [.[] | .id as $id | .user.login as $by | .body | links[] | {link: ., source: "comment:\($id)", by: $by}]
-    | reduce .[] as $x ([]; if any(.[]; .link == $x.link) then . else . + [$x] end)' <<<"$list" 2>/dev/null
+  jq -cs --arg since "" --arg at "$2" --arg allowed "$TEHAS_ALLOWED_LABELERS" "$(tehas_attachment_links)$comment_window"'
+    window | [.[] | .id as $id | .user.login as $by | .body | links[] | {link: ., source: "comment:\($id)", by: $by}] | dedupe' \
+    <<<"$list" 2>/dev/null
+}
+
+# pr_comments <issue> <park time> <tick time>: what a reviewer said on the
+# parked cycle's pull request before the retry, as {links, context}. The pull
+# requests are the bot's that name the issue, as tehasbot cycle finds a
+# cycle's. Of their comments, those an allowed account wrote between the park
+# and the tick and nobody edited after it: the tick approves them as it
+# approves the text. links as comment_links has them, source
+# "pr-comment:<id>"; context the first 20, each cut at 4000 characters, for
+# retry-context.md. Fails when a list cannot be read.
+pr_comments() {
+  local prs pr list all=""
+  prs=$(gh pr list --repo "$repo" --author "$bot" --state all --json number,body,headRefName --limit 100 2>/dev/null) || return 1
+  prs=$(jq -r --arg n "$1" "$(tehas_names_issue)"'
+    if type != "array" then error("not a list") else . end
+    | [.[] | select(type == "object" and (.number | type) == "number") | select(mine) | .number] | sort | .[]' <<<"$prs" 2>/dev/null) ||
+    return 1
+  for pr in $prs; do
+    list=$(gh api "repos/$repo/issues/$pr/comments?per_page=100" --paginate 2>/dev/null) || return 1
+    all+=$list$'\n'
+  done
+  [ -n "$2" ] || all=""
+  jq -cs --arg since "$2" --arg at "$3" --arg allowed "$TEHAS_ALLOWED_LABELERS" "$(tehas_attachment_links)$comment_window"'
+    window
+    | {links: ([.[] | .id as $id | .user.login as $by | .body | links[] | {link: ., source: "pr-comment:\($id)", by: $by}] | dedupe),
+       context: [.[0:20][] | {source: "pr-comment:\(.id)", by: .user.login, at: .created_at, text: (.body | gsub("\r"; "") | .[0:4000])}]}' \
+    <<<"$all" 2>/dev/null
 }
 
 # Without systemd's answer every picked issue would be marked running and then
@@ -990,7 +1031,9 @@ for n in $asking; do
       verb[$n]="retry ticked"
       how[$n]="retry tick"
       given_at[$n]=$(jq -r .tick.at <<<"$ans")
-      given_how[$n]=retry-tick
+      given_how[$n]="retry-tick"
+      # The park: when the question was asked.
+      given_since[$n]=$(jq -r '.asked_at // ""' <<<"$ans")
       drop[$n]="--remove-label needs-human-attention --remove-label tehas:question"
       # A tehas:ready left on the issue would start a second cycle after this
       # one: one start uses up every request for it.

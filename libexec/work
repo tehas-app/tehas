@@ -98,8 +98,12 @@
 # the body's links, under the same limits counted together: links of comments
 # an allowed account wrote and nobody edited after the approval, as the
 # dispatcher found them. Each is taken only while its author is still allowed.
-# Every manifest entry has a source, "body" or "comment:<id>". By hand there is
-# no record, and only the body is read. No mount and no variable more.
+# Every manifest entry has a source, "body", "comment:<id>" or, for a retry,
+# "pr-comment:<id>". By hand there is no record, and only the body is read. A
+# record of a retry tick may carry retry_context, what reviewers wrote on the
+# pull request: it goes to retry-context.md in the same directory, headed as
+# untrusted, every line quoted, cut at 32000 characters. No mount and no
+# variable more.
 #
 # With TEHAS_WORK_DESCRIBE=1 the model endpoint describes each image in words
 # first (lib/describe.sh), into images.md in the same directory, for the steps

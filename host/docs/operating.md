@@ -225,7 +225,11 @@ handoff comment with the reason and numbered options.
 
 To try again after fixing the cause (often: make the issue clearer), tick
 `Retry from a clean start` in the bot's comment. Tick `Leave it parked` to
-take the question away and keep the issue as it is. A label works as well: apply `tehas:ready`. `needs-human-attention` does not
+take the question away and keep the issue as it is. With
+`TEHAS_WORK_COMMENTS=1`, what an allowed account wrote on the cycle's pull
+request between the park and the tick goes with the retry: its text as
+`retry-context.md` beside the images, and its images and files by the usual
+rules. A label works as well: apply `tehas:ready`. `needs-human-attention` does not
 have to be removed first. A cycle started
 that way takes `tehas:question` off the issue, and the old boxes no longer do
 anything.

@@ -222,7 +222,16 @@ allowed account wrote whose `created_at` and `updated_at` are at or before
 A record that cannot be written starts nothing: `ERROR: could not write the
 approval record of #N, not starting a cycle`, exit 1, and no label changes.
 Comments that cannot be read are logged as `ERROR: the comments of #N could
-not be read` and stop the start the same way.
+not be read` and stop the start the same way. On a retry tick, with the
+setting on, the poll also lists the bot's pull requests that name the issue,
+as `tehasbot cycle` finds a cycle's, and their comments: those an allowed
+account wrote between the park question and the tick and nobody edited after
+the tick. Their links join `comment_links` with `source` `pr-comment:<id>`,
+and their text, the first 20 cut at 4000 characters each, goes to
+`retry_context` as `{source, by, at, text}`. Pull requests or comments that
+cannot be read stop the retry: `ERROR: the comments on the pull request of
+#N could not be read`, exit 1, and the tick stays. Only conversation comments
+are read, not review comments or reviews.
 
 ## tehas work
 
@@ -404,7 +413,12 @@ links, in the order written, under the same limits, counted together, and
 only while the author is still allowed. Every entry of the manifest, left out
 or not, has a `source`: `body` or the comment's. The comment on the issue
 names the comment beside each link. A start by hand, without a record, reads
-the body only. The setting adds no mount and no variable, and it needs
+the body only. When the record has a `retry_context`, the text of a
+reviewer's comments on the pull request before a retry tick, it goes to
+`retry-context.md` in the same directory, under a head that says it is
+untrusted input, every line quoted, each comment cut at 4000 characters and
+the whole at 32000, and the manifest gets `"retryContext":
+"retry-context.md"`. The pinned pi-rukas does not read it yet. The setting adds no mount and no variable, and it needs
 `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, else the command stops with
 78.
 
