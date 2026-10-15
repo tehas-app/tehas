@@ -79,6 +79,27 @@ tehas_headless_outcome "$T/r.json" 7 >/dev/null || t_eq nothing nothing
 t_eq "$(tehas_headless_outcome "$T/r.json" 7)" ""
 t_eq "$(tehas_headless_outcome "$T/missing.json" 7)" ""
 
+t_case "an exit code that is missing or not a number is null, not 0"
+jq 'del(.issues[0].exitCode)' "$fx/result.json" >"$T/r.json"
+t_eq "$(tehas_headless_outcome "$T/r.json" 7 | jq -c .exitCode)" null
+jq '.issues[0].exitCode = "0"' "$fx/result.json" >"$T/r.json"
+t_eq "$(tehas_headless_outcome "$T/r.json" 7 | jq -c .exitCode)" null
+
+t_case "a schema 3 result with no issue entry is error only, and one with entries is not"
+echo '{"schemaVersion":3,"issues":[],"error":{"code":"refused"}}' >"$T/r.json"
+tehas_headless_error_only "$T/r.json"
+t_eq "$?" 0
+echo '{"schemaVersion":3,"error":{"code":"refused"}}' >"$T/r.json"
+tehas_headless_error_only "$T/r.json"
+t_eq "$?" 0
+tehas_headless_error_only "$fx/result.json"
+t_eq "$?" 1
+for bad in '{"schemaVersion":2,"issues":[]}' '{"schemaVersion":3,"issues":{}}' '[]' 'not json'; do
+  echo "$bad" >"$T/r.json"
+  tehas_headless_error_only "$T/r.json"
+  t_eq "$?" 1
+done
+
 t_case "the outcome's text is plain characters and its numbers are numbers"
 jq '.issues[0].status = "handoff\n<!-- x -->" | .issues[0].branch = "a b;`c`" | .issues[0].usage.input = "9; rm"' "$fx/result.json" >"$T/r.json"
 t_eq "$(tehas_headless_outcome "$T/r.json" 7 | jq -c '[.status, .branch, .usage.input]')" '["handoff--x--","abc",0]'

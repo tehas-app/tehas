@@ -19,7 +19,8 @@
 #               0 merged, 10 handoff, 11 handoff for clarification,
 #              20 aborted, 21 interrupted, 30 crash or its own time limit,
 #              40 refused to start.
-#              2 the cycle was stopped here as stalled or at the time limit,
+#              2 the cycle was stopped here as stalled or at the time limit
+#                (status "timeout", state/cycles/<issue>.timed),
 #                or the runner ended without a result.
 #              3 the sandbox cannot push to the repository; no cycle was started.
 #              4 the instance gives a cycle the issue's images or files and one
@@ -252,6 +253,7 @@ cid_file=$TEHAS_HOME/state/cycles/$issue.cid
 oom_file=$TEHAS_HOME/state/cycles/$issue.oom
 forks_file=$TEHAS_HOME/state/cycles/$issue.forks
 stall_file=$TEHAS_HOME/state/cycles/$issue.stalled
+timed_file=$TEHAS_HOME/state/cycles/$issue.timed
 # What the dispatcher approved, and the manifest of the last fetch, kept.
 record=$TEHAS_HOME/state/cycles/$issue.approved.json
 kept=$TEHAS_HOME/state/cycles/$issue.manifest.json
@@ -426,7 +428,7 @@ mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$repo" "$tree" "$container" "$
 
 # Docker refuses a cid file that is already there. One is left only by a cycle
 # that was killed outright, and so is a count of kills.
-rm -f "$cid_file" "$oom_file" "$forks_file" "$stall_file" "$image_file" "$settings_file" "$result_file" "$progress_file"
+rm -f "$cid_file" "$oom_file" "$forks_file" "$stall_file" "$timed_file" "$image_file" "$settings_file" "$result_file" "$progress_file"
 # A container under this name outlived the client that started it: this
 # command holds the issue's lock, so no cycle owns it. It would work on with
 # the bot's token, and Docker would refuse the name below.
@@ -603,21 +605,25 @@ fi
 wait "$pid" 2>/dev/null
 rc=$?
 rm -f "$cid_file"
-have=0
+have=0 error_only=0
 outcome=$(tehas_headless_outcome "$result_file" "$issue") && have=1 || outcome='{}'
+[ "$have" = 1 ] || ! tehas_headless_error_only "$result_file" || error_only=1
 if [ "$have" = 1 ]; then
   status=$(jq -r .status <<<"$outcome")
   status=${status:-unknown}
   # The runner ends a cycle stopped here as interrupted.
   [ "$stalled" = 0 ] || case "$status" in running | unknown | interrupted) status=stalled ;; esac
+  [ "$timed" = 0 ] || case "$status" in running | unknown | interrupted) status=timeout ;; esac
 else
   [ "$interrupted" = 0 ] || status=interrupted
   [ "$stalled" = 0 ] || status=stalled
+  [ "$timed" = 0 ] || status=timeout
 fi
+[ "$timed" = 0 ] || echo "$limit" >"$timed_file" || echo "tehas work: could not write $timed_file" >&2
 [ "$stalled" = 0 ] || echo "$stall" >"$stall_file" || echo "tehas work: could not write $stall_file" >&2
 # A container that ended with 137 was killed. It is this cycle's end only when
 # nobody here stopped it and the runner wrote no result.
-if [ "$rc" = 137 ] && [ "$have" = 0 ] && [ "$interrupted" = 0 ] && [ "$stopped" = 0 ]; then
+if [ "$rc" = 137 ] && [ "$have" = 0 ] && [ "$error_only" = 0 ] && [ "$interrupted" = 0 ] && [ "$stopped" = 0 ]; then
   status=killed
   killed=1
   echo "tehas work: the container was killed (137) while the cycle was running: out of memory, or stopped from outside"
@@ -659,8 +665,13 @@ echo "tehas work: issue=$issue status=$status step=$step cap=${cap:--} runner_ex
 [ "$killed" = 0 ] || exit 137
 [ "$stalled" = 0 ] && [ "$timed" = 0 ] || exit 2
 if [ "$have" = 1 ]; then
+  # A result without an exit code of its own gives null here, which is none.
   for code in "$rc" "$(jq -r .exitCode <<<"$outcome")"; do
     case "$code" in 0 | 10 | 11 | 20 | 21 | 30 | 40) exit "$code" ;; esac
   done
+elif [ "$error_only" = 1 ]; then
+  # A result with no entry for the issue, such as a refusal that carries only
+  # an error: the runner's own status still says how it ended.
+  case "$rc" in 0 | 10 | 11 | 20 | 21 | 30 | 40) exit "$rc" ;; esac
 fi
 exit 2

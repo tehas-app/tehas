@@ -719,6 +719,27 @@ t_run "$work 7"
 t_eq "$t_rc" 2
 t_contains "$t_out" "status=running"
 
+t_case "a result without an exit code of its own is no success: exit 2"
+for code in 1 137; do
+  fresh
+  container "says merged | jq -c 'del(.exitCode, .issues[0].exitCode)'; exit $code"
+  t_run "$work 7"
+  t_eq "$t_rc" 2
+done
+
+t_case "a result with no issue entry keeps the runner's own exit: a refusal is 40, and is no kill"
+for code in 30 40; do
+  fresh
+  container "echo '{\"schemaVersion\":3,\"exitCode\":$code,\"issues\":[],\"error\":{\"code\":\"refused\"}}'; exit $code"
+  t_run "$work 7"
+  t_eq "$t_rc" "$code"
+done
+fresh
+container "echo '{\"schemaVersion\":3,\"issues\":[]}'; exit 137"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_lacks "$t_out" "was killed"
+
 t_case "a result of another schema, or for another issue, is no result"
 fresh
 container 'says merged | sed "s/\"schemaVersion\":3/\"schemaVersion\":2/"; exit 0'
@@ -818,9 +839,19 @@ container "$hold; $gone"
 t_run "$work 7"
 t_eq "$t_rc" 2
 t_contains "$t_out" "time limit of 1s passed"
-t_contains "$t_out" "status=running"
+t_contains "$t_out" "status=timeout"
 t_lacks "$t_out" "was killed"
 t_contains "$(t_calls docker)" "stop -t 20 tehas-work-7"
+t_eq "$(cat "$T/home/tehas/state/cycles/7.timed")" 1
+
+t_case "a runner stopped at the time limit that writes interrupted is a timeout, exit 2"
+fresh
+container "trap 'says interrupted; exit 21' TERM; \"\$nap\" 60 & echo \$! >\"\$T/sleeper.pid\"; wait; wait"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "status=timeout"
+t_eq "$(jq -c '[.running, .status]' "$live/cycles/7.json")" '[false,"timeout"]'
+t_eq "$(cat "$T/home/tehas/state/cycles/7.timed")" 1
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 T_ENV=("${env_ok[@]}")
 

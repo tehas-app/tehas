@@ -19,7 +19,11 @@
 #       lines, each counted once by its key, and the reason of the last cap.
 #   tehas_headless_outcome <result> <issue>
 #       the issue's entry of a schema 3 result as one JSON object, its text
-#       fields reduced to plain characters. Returns 1 when there is none.
+#       fields reduced to plain characters, its exitCode null unless a number.
+#       Returns 1 when there is none.
+#   tehas_headless_error_only <result>
+#       whether <result> is a schema 3 result with no issue entry at all, as a
+#       refusal that carries only an error may be.
 
 # The contract versions this file and the console read. Lower case: tehas_load
 # unsets every TEHAS_* name.
@@ -92,6 +96,12 @@ tehas_headless_progress() { # <ndjson>
     | {roles: $roles, reason: ($evidence // $failure // "")}' 2>/dev/null
 }
 
+tehas_headless_error_only() { # <result>
+  jq -e --argjson rv "$tehas_headless_result" \
+    'type == "object" and .schemaVersion == $rv and ((.issues // []) | type == "array" and length == 0)' \
+    "$1" >/dev/null 2>&1 || return 1
+}
+
 tehas_headless_outcome() { # <result> <issue>
   jq -e -c --argjson issue "$2" --argjson rv "$tehas_headless_result" '
     def plain: if type == "string" then gsub("[^A-Za-z0-9_.:/-]"; "") else "" end;
@@ -103,7 +113,8 @@ tehas_headless_outcome() { # <result> <issue>
     | {status: (.status | plain), cap: (.cap | plain), failedStep: (.failedStep | plain),
        lastStep: ([.steps[]? | .step? | plain] | last // ""),
        branch: (.branch | plain), prUrl: (.prUrl | plain),
-       resumable: (.resumable == true), exitCode: (.exitCode | n),
+       resumable: (.resumable == true),
+       exitCode: (if (.exitCode | type) == "number" then .exitCode else null end),
        usage: (.usage // {} | {input: (.input | n), output: (.output | n),
                cacheRead: (.cacheRead | n), turns: (.turns | n), dispatches: (.dispatches | n)}),
        buildCommit: ($r.buildCommit | plain), buildVersion: ($r.buildVersion | plain)}' "$1" 2>/dev/null

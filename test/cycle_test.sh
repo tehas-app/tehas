@@ -843,6 +843,16 @@ echo 'echo 3600 >"$TEHAS_HOME/state/cycles/7.stalled"; exit 1' >"$fx/work.sh"
 t_run "$cycle 7"
 t_contains "$t_out" "status=aborted"
 
+t_case "a runner tehas stopped past its time limit is reported as a timeout and parked"
+reset
+ended interrupted develop
+echo 'echo 21600 >"$TEHAS_HOME/state/cycles/7.timed"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "status \`timeout\`, last step \`develop\`"
+t_contains "$(t_calls gh)" "It ran past its time limit of 360 min at step \`develop\`"
+t_contains "$(t_calls gh)" "--add-label needs-human-attention"
+t_eq "$(find "$state/7.timed" 2>/dev/null | wc -l)" 0
+
 t_case "a stall file that is not digits is ignored"
 reset
 ended running develop
@@ -1105,6 +1115,17 @@ t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
 t_lacks "$(t_calls gh)" "provider outage"
 t_eq "$(jq -c '[.cap, .provider, .retry]' "$state/7.park")" '["step-failed:develop",false,false]'
 t_eq "$(jq -r .capReason "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" "3 assertions failed in test/x"
+
+t_case "a failed step with no reason is said in the log, and is not taken for an outage"
+reset
+capped step-failed:develop '{"kind":"dispatch-failed","at":2}'
+t_run "$cycle 7"
+t_contains "$t_out" "WARN: #7 ended at step-failed:develop and no reason was found in its progress"
+t_eq "$(jq -r .provider "$state/7.park")" false
+reset
+capped step-failed:develop '{"kind":"dispatch-failed","at":2,"errorTail":"exit 1"}'
+t_run "$cycle 7"
+t_lacks "$t_out" "no reason was found"
 
 t_case "the cap and its reason are reduced before they are posted or recorded"
 reset

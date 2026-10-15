@@ -372,9 +372,13 @@ removed before the new one starts.
 | 78   | The instance settings are invalid, `tehas.slice` is missing, has no memory limit, or cannot be used (the message names `sudo ./bootstrap.sh slice` or the reason), or the image does not support what the cycle is given; no cycle was started |
 | 137  | The container was killed while the cycle was running, and the runner wrote no result: out of memory, or stopped from outside. The cycle is `killed` |
 
-The runner's codes are its own only when it wrote a result for the issue. A
+The runner's codes are its own only when it wrote a result for the issue, or a
+result with no issue entry at all (a refusal that carries only an error). A
 docker client that exits otherwise, after a result was written, gives the
-result's `exitCode`.
+result's `exitCode`; a result without one is exit 2. A runner stopped here at
+the time limit and grace is `timeout`, whatever its result says, and the
+limit's seconds go to `~/tehas/state/cycles/<issue>.timed`, which `tehasbot
+cycle` says on the issue and removes.
 
 The container runs in `tehas.slice` and gets the bot token and the
 `PI_ENSEMBLE_*` settings, a memory ceiling of a quarter of the slice with no
