@@ -23,6 +23,19 @@
 # On "fail" it also creates live/health.down, which makes the docs server answer
 # 503 with the same body; otherwise it removes that file.
 #
+# checks.failures names every failed ending it has seen: what the file recorded
+# the last time, what is on disk under live/cycles, and the cycle that finished
+# last. A failed cycle's file is kept for a day, but "fail" lasts only until a
+# cycle starts after it, so the record is what keeps a short failure visible to
+# a monitor that polls every few minutes. It holds at most 20 endings, each
+# from the last 24 hours. An ending is one run of one cycle, told by its issue
+# and when it started: the work script writes one ending twice when a cycle is
+# stopped, and the last cycle is on disk and in the view as well, so each is
+# named once. An ending whose time cannot be read is dropped, not stamped with
+# now: one could never age out, and it would add an entry at every poll. An
+# ending with no status word is not named either, because there is nothing to
+# say about it.
+#
 # A stopped dispatcher cannot report itself: the file just stops changing. A
 # monitor should treat a "time" older than about ten minutes as down.
 #
@@ -32,9 +45,39 @@ set -uo pipefail
 : "${TEHAS_HOME:=$HOME/tehas}"
 live=$TEHAS_HOME/live
 mkdir -p "$live"
+# This command runs at every poll and again at the end of a cycle, so two of
+# them can be writing at once: the temporary file carries this process's id so
+# neither overwrites the other's. It ends in .new, which the docs server hides.
+tmp=$live/health.json.$$.new
+# One that was killed outright leaves its file behind. Ten minutes is longer
+# than this command takes, so an older one belongs to no run.
+find "$live" -maxdepth 1 -name 'health.json.*.new' -mmin +10 -delete 2>/dev/null || true
+trap 'rm -f "$tmp"' EXIT
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/live.sh
 . "$here/../lib/live.sh"
+
+# What this file recorded last time. The record is carried from one write to
+# the next because a failure is not always still on disk when it is read.
+seen=$(jq -c '(.checks.failures | if type == "array" then . else [] end)
+  | map(select(type == "object") | {issue, status, step, startedAt, time})' "$live/health.json" 2>/dev/null)
+[ -n "$seen" ] || seen='[]'
+
+# The cycle endings on disk, read before the assemble below keeps only the last
+# one: a failure another cycle's heartbeat overtook must still be named.
+endings='[]'
+files=()
+for f in "$live"/cycles/*.json; do
+  # One file that is not an object is skipped, not fatal: the others still
+  # reach the record.
+  [ -e "$f" ] && jq -e 'type == "object"' "$f" >/dev/null 2>&1 && files+=("$f")
+done
+if [ "${#files[@]}" -gt 0 ]; then
+  endings=$(jq -cs '
+    [.[] | select((.running // false) != true) | {issue, status, step, startedAt, updatedAt}]' "${files[@]}" 2>/dev/null)
+  [ -n "$endings" ] || endings='[]'
+fi
+
 # A cycle that died without a word stops being shown as running here.
 tehas_live_assemble 2>/dev/null || true
 
@@ -67,12 +110,25 @@ slice=null
   | {time, why, hold, count, room, committed, max, reserve}' "$dispatch_file" 2>/dev/null)
 [ -n "$slice" ] || slice=null
 
-jq -n --argjson queue "$queue" --argjson view "$view" --argjson disk "$disk" --argjson slice "$slice" --arg now "$(date -u +%FT%TZ)" '
-  def iso: if type == "number" then todate else null end;
+jq -n --argjson queue "$queue" --argjson view "$view" --argjson disk "$disk" --argjson slice "$slice" \
+  --argjson seen "$seen" --argjson endings "$endings" --arg now "$(date -u +%FT%TZ)" '
+  # A timestamp outside the range jq can convert is no time at all. It must
+  # not stop the write: one bad number would lose every other ending too.
+  def iso: if type == "number" then (try (todate) catch null) else null end;
+  # Status and step are words of the agent that ran the cycle, from its own
+  # state file, and have no length limit. In the record they stay short: at
+  # most 20 entries would otherwise repeat one long string in a served file.
+  def clip: if type == "string" then .[0:200] else null end;
+  # A time as this record keeps it: a whole second in UTC. What the record
+  # carried back is already in that shape, so it survives the round trip.
+  def stamp: if type == "number" then (try (todate) catch null)
+             elif type == "string" then (try (fromdateiso8601 | todate) catch null)
+             else null end;
   def brief: {
     issue, running: (.running // false), status, step,
     startedAt: (.startedAt | iso), time: (.updatedAt | iso)
   };
+  def failed: (.status // "") | IN("merged", "handoff") | not;
   # The view tehas work writes, or the one object an earlier version wrote.
   (if ($view | type) != "object" then {cycles: [], last: null}
    elif ($view | has("cycles")) then $view
@@ -80,7 +136,7 @@ jq -n --argjson queue "$queue" --argjson view "$view" --argjson disk "$disk" --a
    else {cycles: [], last: $view} end) as $v
   | ($v.cycles // []) as $running
   | $v.last as $last
-  | ($last != null and (($last.status // "") | IN("merged", "handoff") | not)
+  | ($last != null and ($last | failed)
      and ($running | map(select((.startedAt // 0) >= ($last.updatedAt // 0))) | length) == 0) as $failed
   # Nothing starts on a slice that is missing or cannot be read. The other
   # holds pass by themselves.
@@ -93,6 +149,29 @@ jq -n --argjson queue "$queue" --argjson view "$view" --argjson disk "$disk" --a
      elif $no_resources then "warn"
      elif $disk != null and $disk.low then "warn"
      else "pass" end) as $status
+  # What this file now records about failed endings: what it recorded before,
+  # what is on disk under live/cycles, and the cycle that finished last. An
+  # ending is one run of one cycle, told by its issue and when it started, and
+  # it keeps the first time it was seen to end: the work script writes one
+  # ending twice when a cycle is stopped, the last cycle is on disk and in the
+  # view as well, and none of that may add an entry or move a time. Newest
+  # first, a day deep, at most 20. An ending whose time cannot be read is not
+  # kept, because it could never age out, and one with no status word is not
+  # named, because there is nothing to say about it.
+  | ($now | fromdateiso8601) as $epoch
+  | ($seen + $endings + (if $failed then [$last] else [] end))
+    | map(select(type == "object")
+          | {issue, status, step,
+             startedAt: (.startedAt | stamp),
+             time: (if .updatedAt != null then (.updatedAt | stamp) else (.time | stamp) end)})
+    | map(select((.issue | type) == "number" and (.status | type) == "string"
+                  and (.status | IN("merged", "handoff") | not)
+                  and (.time | type) == "string"
+                  and ((.time | try fromdateiso8601 catch 0) > $epoch - 86400)
+                  and ((.time | try fromdateiso8601 catch 0) <= $epoch)))
+    | map({issue, status: (.status | clip), step: (.step | clip), startedAt, time})
+    | group_by([.issue, .startedAt]) | map(min_by(.time)) | sort_by(.time) | reverse | .[:20]
+    as $failures
   | {
       status: $status,
       time: $now,
@@ -117,11 +196,12 @@ jq -n --argjson queue "$queue" --argjson view "$view" --argjson disk "$disk" --a
         } end),
         cycle: (($running[0] // $last) | if . == null then null else brief end),
         cycles: ($running | map(brief)),
+        failures: $failures,
         disk: (if $disk == null then null else ($disk | {time, freeBytes, minFreeBytes, low}) end),
         slice: $slice
       }
-    }' >"$live/health.json.new" 2>/dev/null || exit 1
-mv "$live/health.json.new" "$live/health.json"
+    }' >"$tmp" 2>/dev/null || { rm -f "$tmp"; exit 1; }
+mv "$tmp" "$live/health.json"
 
 if [ "$(jq -r .status "$live/health.json")" = fail ]; then
   : >"$live/health.down"

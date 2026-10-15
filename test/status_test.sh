@@ -54,6 +54,12 @@ cycle() { # running status step: issue 12, running or the last one
     printf '{"cycles":[],"last":%s}\n' "$(one 12 "$@")" >"$live/running.json"
   fi
 }
+ended() { # issue status step [ago]: one finished cycle, as its own file under live/cycles
+  local ago=${4:-180}
+  mkdir -p "$live/cycles"
+  printf '{"issue":%s,"running":false,"status":"%s","step":"%s","startedAt":%s,"updatedAt":%s}\n' \
+    "$1" "$2" "$3" "$(($(date +%s) - ago - 500))" "$(($(date +%s) - ago))" >"$live/cycles/$1.json"
+}
 
 t_case "status writes the snapshot and the health file, without a command on PATH"
 reset
@@ -415,6 +421,205 @@ cycle false died verify
 t_run "$status"
 t_eq "$(jq -r '.status' "$live/health.json")" "fail"
 
+# checks.failures: the record of failed endings that outlives the cycle file
+# and the failure itself.
+t_case "health names an aborted cycle whose file a later merge replaced"
+reset
+ended 9 aborted develop 70
+ended 12 merged review 60
+t_run "$status && $summary"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .status "$live/health.json")" pass
+t_contains "$t_out" "factory   pass: Idle, taking work."
+t_eq "$(jq -c '[.checks.failures[] | {issue, status, step}]' "$live/health.json")" \
+  '[{"issue":9,"status":"aborted","step":"develop"}]'
+t_eq "$(find "$live/cycles" -name '*.json' -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" "12.json 9.json "
+
+t_case "the record of a failed cycle outlives its file and a later success"
+reset
+cycle false aborted develop 700 180
+t_run "$status"
+t_eq "$(jq -r .status "$live/health.json")" fail
+t_eq "$(jq -c '[.checks.failures[] | .issue]' "$live/health.json")" "[12]"
+cycle false merged review 300 10
+t_run "$status"
+t_eq "$(jq -r .status "$live/health.json")" pass
+t_eq "$(jq -c '[.checks.failures[] | {issue, status}]' "$live/health.json")" \
+  '[{"issue":12,"status":"aborted"}]'
+
+t_case "the same failed ending is named once however many polls see it"
+reset
+ended 9 aborted develop 180
+t_run "$status && $status && $status"
+t_eq "$(jq -r .status "$live/health.json")" fail
+t_eq "$(jq -r '.checks.failures | length' "$live/health.json")" 1
+t_eq "$(jq -c '[.checks.failures[] | .issue]' "$live/health.json")" "[9]"
+
+t_case "a stopped cycle that writes its ending twice is named once, at its first time"
+reset
+ended 9 interrupted develop 180
+t_run "$status"
+t_eq "$(jq -r '.checks.failures | length' "$live/health.json")" 1
+first=$(jq -r '.checks.failures[0].time' "$live/health.json")
+# The work script's trap records the stop, and after the container is gone its
+# last line records the same run again, with a new end time.
+jq '.updatedAt = ((.updatedAt // 0) + 20)' "$live/cycles/9.json" >"$live/x" &&
+  mv "$live/x" "$live/cycles/9.json"
+t_run "$status; $status"
+t_eq "$(jq -r '.checks.failures | length' "$live/health.json")" 1
+t_eq "$(jq -c '[.checks.failures[0] | {issue, status}]' "$live/health.json")" \
+  '[{"issue":9,"status":"interrupted"}]'
+t_eq "$(jq -r '.checks.failures[0].time' "$live/health.json")" "$first"
+
+t_case "a cycle that fails twice is two endings"
+reset
+ended 9 aborted develop 300
+t_run "$status"
+t_eq "$(jq -r '.checks.failures | length' "$live/health.json")" 1
+ended 9 aborted verify 60 # the same issue, a new run of it
+t_run "$status"
+t_eq "$(jq -r '.checks.failures | length' "$live/health.json")" 2
+t_eq "$(jq -c '[.checks.failures[] | .step]' "$live/health.json")" '["verify","develop"]'
+
+t_case "an ending with no status word is named by no one"
+reset
+ended 9 aborted develop 300
+ended 11 lost verify 200
+jq 'del(.status)' "$live/cycles/11.json" >"$live/x" && mv "$live/x" "$live/cycles/11.json"
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .status "$live/health.json")" fail
+t_eq "$(jq -c '[.checks.failures[] | .issue]' "$live/health.json")" "[9]"
+
+t_case "a merged or parked ending is no failure, and the record is empty"
+reset
+ended 9 handoff review 100
+ended 11 merged review 60
+t_run "$status"
+t_eq "$(jq -r .status "$live/health.json")" pass
+t_eq "$(jq -c .checks.failures "$live/health.json")" "[]"
+
+t_case "a failed ending older than a day is no record and no file"
+reset
+ended 9 aborted develop 90000 # 25 h ago
+ended 12 merged review 5
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .status "$live/health.json")" pass
+t_eq "$(jq -c .checks.failures "$live/health.json")" "[]"
+t_eq "$(find "$live/cycles" -name '*.json' -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" "12.json "
+
+t_case "an ending older than a day drops out of the carried record"
+reset
+ended 9 aborted develop 180
+t_run "$status"
+t_eq "$(jq -r '.checks.failures | length' "$live/health.json")" 1
+# A later cycle took the view, so only the record is left to name #9.
+rm -rf "$live/cycles"
+cycle false merged review 300 10
+jq --arg t "$(date -u -d '-26 hours' +%FT%TZ)" '.checks.failures[0].time = $t' \
+  "$live/health.json" >"$live/x" && mv "$live/x" "$live/health.json"
+t_run "$status"
+t_eq "$(jq -c .checks.failures "$live/health.json")" "[]"
+
+t_case "the record holds at most 20 endings, the newest first"
+reset
+ended 12 merged review 5
+t_run "$status"
+jq '.checks.failures = [range(30) | {issue: (100 + .), status: "aborted", step: "develop",
+     time: (now - . * 600 | todate)}]' "$live/health.json" >"$live/x" && mv "$live/x" "$live/health.json"
+t_run "$status"
+t_eq "$(jq -r '.checks.failures | length' "$live/health.json")" 20
+t_eq "$(jq -c '[.checks.failures[0].issue, .checks.failures[19].issue]' "$live/health.json")" "[100,119]"
+
+t_case "a cycle file that is not JSON leaves the other endings on record"
+reset
+ended 9 aborted develop 180
+ended 11 timed-out verify 120
+echo "not json" >"$live/cycles/12.json"
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[.checks.failures[] | .issue]' "$live/health.json")" "[11,9]"
+
+t_case "an ending whose time cannot be read is dropped, not stamped with now"
+reset
+ended 9 aborted develop 180
+jq 'del(.updatedAt)' "$live/cycles/9.json" >"$live/x" && mv "$live/x" "$live/cycles/9.json"
+t_run "$status; $status; $status"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .status "$live/health.json")" fail
+t_eq "$(jq -c .checks.failures "$live/health.json")" "[]"
+
+t_case "a timestamp jq cannot convert does not stop the record"
+reset
+ended 9 aborted develop 180
+ended 11 timed-out verify 150
+ended 13 stalled verify 120
+jq '.updatedAt = -1000000000000000000' "$live/cycles/9.json" >"$live/x" && mv "$live/x" "$live/cycles/9.json"
+jq '.updatedAt = 1000000000000000000' "$live/cycles/11.json" >"$live/x" && mv "$live/x" "$live/cycles/11.json"
+t_run "$status; $summary"
+t_eq "$t_rc" 1
+t_eq "$(jq -r .status "$live/health.json")" fail
+t_eq "$(jq -c '[.checks.failures[] | .issue]' "$live/health.json")" "[13]"
+
+t_case "the record keeps the cycle's own words short"
+reset
+ended 9 aborted develop 180
+jq '.step = ("x" * 8000) | .status = ("s" * 400)' "$live/cycles/9.json" >"$live/x" &&
+  mv "$live/x" "$live/cycles/9.json"
+t_run "$status"
+t_eq "$(jq -r '.checks.failures[0].step | length' "$live/health.json")" 200
+t_eq "$(jq -r '.checks.failures[0].status | length' "$live/health.json")" 200
+jq '.checks.failures[0].step = ("y" * 5000)' "$live/health.json" >"$live/x" &&
+  mv "$live/x" "$live/health.json"
+t_run "$status"
+t_eq "$(jq -r '.checks.failures[0].step | length' "$live/health.json")" 200
+
+t_case "health leaves no temporary file when it cannot write, and keeps its record"
+reset
+ended 9 aborted develop 180
+t_run "$status"
+t_eq "$(jq -r '.checks.failures | length' "$live/health.json")" 1
+chmod a-w "$live"
+t_run "$health"
+t_eq "$t_rc" 1
+chmod u+w "$live"
+t_eq "$(find "$live" -name '*.new' | wc -l)" 0
+t_eq "$(jq -r '.checks.failures | length' "$live/health.json")" 1
+
+t_case "an ending carries the time its cycle started, which is what makes it one ending"
+reset
+ended 9 aborted develop 180
+t_run "$status"
+t_eq "$(jq -r '.checks.failures[0].startedAt | type' "$live/health.json")" "string"
+t_eq "$(jq -r '.checks.failures[0].startedAt' "$live/health.json")" \
+  "$(jq -r '.startedAt | todate' "$live/cycles/9.json")"
+
+t_case "health removes the temporary file a killed run left, and leaves a new one alone"
+reset
+ended 9 aborted develop 180
+: >"$live/health.json.999999.new"
+: >"$live/health.json.999998.new"
+t_run "touch -d '20 minutes ago' \"$live/health.json.999999.new\"; $health"
+t_eq "$t_rc" 0
+t_eq "$(find "$live" -name 'health.json.*.new' -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" \
+  "health.json.999998.new "
+t_eq "$(jq -c '[.checks.failures[] | .issue]' "$live/health.json")" "[9]"
+
+for bad in 'not json' '{"checks": {"failures": "many"}}' '{"checks": null}' \
+  '{"checks": {"failures": ["x", 7, {"issue": "a", "time": "now"}]}}'; do
+  t_case "health: a health file whose record is '$bad' does not break the write"
+  reset
+  ended 9 aborted develop 180
+  printf '%s\n' "$bad" >"$live/health.json"
+  t_run "$status; $summary"
+  t_eq "$t_rc" 1
+  t_eq "$(jq -r .status "$live/health.json")" fail
+  t_contains "$t_out" "The last cycle failed: #9 ended as aborted."
+  t_eq "$(jq -c '[.checks.failures[] | .issue]' "$live/health.json")" "[9]"
+  t_eq "$(find "$live" -name health.down | wc -l)" 1
+done
+
 # What the dispatcher's last poll wrote about the slice, as libexec/dispatch
 # writes live/dispatch.json. 4 GiB of 20 GiB are promised.
 poll() { # <why> <hold> [<age in seconds>]
@@ -564,6 +769,7 @@ t_run "$status; $summary"
 t_eq "$t_rc" 1
 t_contains "$t_out" "The last cycle failed: #9 ended as lost."
 t_eq "$(jq -c '[.last.issue, .last.status]' "$live/running.json")" '[9,"lost"]'
+t_eq "$(jq -c '[.checks.failures[] | {issue, status}]' "$live/health.json")" '[{"issue":9,"status":"lost"}]'
 t_eq "$(find "$live/cycles" -name '*.json' -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" "9.json "
 
 t_done

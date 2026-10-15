@@ -719,6 +719,23 @@ starts after that one ended. A cycle that was already running when the other
 one failed does not clear it. A cycle that has written nothing for two
 minutes is recorded as ended with the status `lost`, which is a failure.
 
+`checks.failures` names the cycle endings that failed, newest first, each with
+its `issue`, `status`, `step`, `startedAt` and `time`. It outlives both the
+failure and the cycle that caused it: `fail` clears as soon as a cycle starts
+after the one that failed, so a monitor that polls every few minutes still sees
+an abort a later merge overtook. A failed ending keeps its file under
+`live/cycles` for a day, longer than any other finished cycle, so the next run
+of this command can name it; a merged or parked one loses its file at once.
+The list holds at most 20 endings and drops any older than 24 hours. It is
+`[]` when nothing failed in that time. An ending is one run of one cycle,
+told by its issue and its `startedAt`, and it keeps the first `time` it was
+seen to end: the work script writes a stopped cycle twice and the last cycle is
+on disk and in the view as well, and none of that names one ending twice. An
+ending whose time cannot be read, or that is dated after this command started,
+is dropped rather than stamped with now, because it could never age out. An
+ending with no status word is not named either. `status` and `step` are the
+cycle's own words and are kept to their first 200 characters.
+
 `checks.disk` has the free and the required bytes and `low`, as `tehasbot
 preview` last wrote them to `live/previews.json`. It is `null` on a host
 without previews, and when that figure is more than half an hour old. When

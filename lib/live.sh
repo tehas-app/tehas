@@ -14,6 +14,11 @@
 # Called by tehas work each time it writes its own file, and by tehasbot
 # health. Two callers at once can leave the view one tick old; the next tick
 # corrects it. Needs TEHAS_HOME.
+#
+# Only the last finished cycle is in the view, so the file of any other one
+# goes. One that failed keeps its file for a day: tehasbot health builds its
+# record of failed endings from these files, and a failure a later cycle
+# overtook must still be named.
 
 tehas_live_assemble() {
   local live=$TEHAS_HOME/live f files=() now marker tmp view issues i lost
@@ -43,11 +48,21 @@ tehas_live_assemble() {
   tmp=$live/.running.$$.new
   view=$live/.running.$$.view.new
   : >"$marker"
-  if ! jq -c -s '
+  if ! jq -c -s --argjson now "$now" '
+      # A finished cycle that failed, still inside the day the health record
+      # covers. Its file is what that record is built from, so it stays until
+      # then. A merged or parked one is told by the view alone and goes at
+      # once, and so does one whose status or time cannot be read: the record
+      # could name neither.
+      def kept_failure: ((.status | type) == "string") and
+        (.status | IN("merged", "handoff") | not) and
+        ((.updatedAt | type) == "number") and
+        (.updatedAt >= $now - 86400) and (.updatedAt <= $now);
       (map(select(.running == true)) | sort_by(.startedAt, .issue)) as $cycles
       | (map(select(.running != true)) | sort_by(.updatedAt) | last) as $last
       | {view: {cycles: $cycles, last: $last},
-         prune: (map(select(.running != true and .issue != $last.issue) | .issue))}' \
+         prune: (map(select(.running != true and .issue != $last.issue
+                            and (kept_failure | not)) | .issue))}' \
       "${files[@]}" >"$tmp" 2>/dev/null; then
     rm -f "$tmp" "$marker"
     return 1
@@ -57,7 +72,8 @@ tehas_live_assemble() {
     rm -f "$tmp" "$view" "$marker"
     return 1
   fi
-  # Only the last finished cycle is shown, so only its file is kept.
+  # Only the last finished cycle is shown, so the file of any other one goes:
+  # kept for a day when it failed, at once otherwise.
   for i in $issues; do
     f=$live/cycles/$i.json
     [ -e "$f" ] || continue
