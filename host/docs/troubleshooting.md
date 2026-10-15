@@ -63,12 +63,17 @@ Run `tehas dispatch --dry-run` and read what it prints.
   container holds far more than its reserve, that is the one to look at:
   `systemd-cgtop /tehas.slice` shows them. A lower `TEHAS_CYCLE_RESERVE` fits
   more cycles and promises each one less.
+- `holding: tehas.slice holds as many containers as their ceilings fit (4 of
+  Nm)`: four containers are in the slice, each may grow to a quarter of it.
+  Every container counts: cycles, dev sessions, planning turns, the indexer.
+  Wait for one to end.
 - `holding: tehas.slice is under memory pressure (full avg60 N)`: every
   process in the slice waited for memory for more than a tenth of the last
-  minute. Cycles start again when it falls to 10 or under.
-- `holding: the slice's use could not be read`: a file under
-  `/sys/fs/cgroup/tehas.slice` is missing or unreadable. See "The dispatcher
-  holds on the slice" below.
+  minute, and more than half of the slice is promised. Cycles start again
+  when it falls to 10 or under, or when half or less is promised.
+- `holding: the slice's use could not be read: <file> ...`: a file under
+  `/sys/fs/cgroup/tehas.slice` is missing or unreadable; the line names it
+  and what was missing in it. See "The dispatcher holds on the slice" below.
 - Any other `holding:` line that names the slice, Docker, `systemctl` or
   `TEHAS_CYCLE_RESERVE`: the slice cannot be used. See "The dispatcher holds
   on the slice" below.
@@ -103,6 +108,14 @@ Run `tehas dispatch --dry-run` and read what it prints.
   TEHAS_WORK_IMAGES is 1`: the model endpoint refused a request with a
   one-pixel image, or took more than 30 seconds. The model runs without its
   vision part, or every slot is busy.
+- `holding: no resources: the pi-rukas in the sandbox image <commit> does not
+  read the images a cycle is given, and TEHAS_WORK_IMAGES is 1`: the sandbox
+  image says, by the label its build wrote, that its pi-rukas has no reader for
+  the manifest tehas writes beside the images. Nothing starts, for any issue,
+  and the model endpoint is not asked at all. Move the pin to a pi-rukas
+  release that has the reader, or set `TEHAS_WORK_IMAGES=0`, and run
+  `install.sh`. A rebuild onto a base without the reader is what starts the
+  hold: see [Sandbox image](/host#sandbox-image).
 - `nothing to do`: the issue is closed, or does not carry `tehas:ready`.
 - `wait #N: its cycle is still running`: `tehas:ready` was applied while the
   issue's cycle runs. A fresh cycle starts when that one has ended.
@@ -193,7 +206,7 @@ issue. The queue is kept and is taken up when the hold ends. The line is in
 | `systemctl gave no answer`, `docker gave no answer` | The command failed or was silent for ten seconds. Run `systemctl show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax` and `docker info` by hand. |
 | `... cgroup.controllers does not list cpu, memory and pids` | The host's cgroup tree lacks a controller. Read `/sys/fs/cgroup/cgroup.controllers`. |
 | `TEHAS_CYCLE_RESERVE=... is more than a container may use here` | The reserve is above a quarter of the slice's limit. Set a lower `TEHAS_CYCLE_RESERVE` in `instance.env`. The line names the host size the reserve needs. |
-| `the slice's use could not be read` | Read `/sys/fs/cgroup/tehas.slice/memory.pressure` and the `memory.stat` and `memory.low` of each `docker-*.scope` under it as the tehas user. A kernel with pressure accounting off has no `memory.pressure`. If the directory is missing while cycles run, look at `systemctl status tehas.slice`. |
+| `the slice's use could not be read: ...` | The rest of the line names the file and what was missing: `.../memory.pressure cannot be read` or `has no full avg60`, `.../memory.stat has no number for anon` (or `shmem`, `slab_reclaimable`), `.../memory.low cannot be read` or `is not a number`. Read that file as the tehas user. A kernel booted with `psi=0` has no `memory.pressure`: remove that option from the kernel command line. A kernel too old for the `kernel` line in `memory.stat` is read without it: kernel memory is then not counted. If the directory is missing while systemd says the slice is active, look at `systemctl status tehas.slice`. A slice that is not active has no directory, and its cycles that have no container yet count at one reserve each. |
 
 The `slice` line reads `unknown: no poll has reported in 10 min` when no poll
 got as far as reading the slice in that time. That is so while the factory
@@ -216,12 +229,19 @@ The common ones:
 | underspecified, needs clarification | The issue does not say enough                       | Add acceptance criteria, relabel                         |
 | `explore-bodies-empty`              | `gh` could not read the issue                       | Check the bot token: `gh auth status`                    |
 | verify or smoke failure             | The gates failed on the developer's change          | Read the gate output in the handoff; often a real defect |
-| protected paths                     | The patch touched `.pi/`, `.github/` or `AGENTS.md` | By design. Make that change yourself                     |
+| protected paths                     | The patch touched `.pi/`, `.github/`, `CODEOWNERS` or `agents.json` | By design. Make that change yourself                     |
 | review round cap                    | The review kept finding problems                    | Read the review on the pull request                      |
 | developer timeout                   | An agent ran out of wall-clock                      | Usually model endpoint capacity; retry later             |
 
 The caps this factory has posted are explained one by one in the next
 section.
+
+An edit to `AGENTS.md` or `CLAUDE.md` stops nothing here, and its absence from
+the row above is not an oversight: pi-rukas does not halt a cycle for a policy
+edit. The edit ships and you see it in the diff, and the cycle is judged
+against the doctrine at the commit it started from, so an edit of its own
+changes nothing for that cycle. See [Operating tehas](/operating).
+
 
 ## A cycle stops at a cap
 
@@ -458,12 +478,16 @@ Read the last lines of `~/tehas/logs/improve.log`.
 | `findings=0`, or `duplicates` equal to `findings` | The model found nothing new |
 | `invalid=` above 0 | Findings were dropped for not being the shape asked for |
 | `failed: GitHub did not give the issue stack` | The token or the network. The records wait for the next run |
-| `failed: the analyst ended with ...` | Pi or the model. 124 is the 30 minute limit. What it printed is in `~/tehas/logs/improve-analyst.log`. The records wait |
+| `stopped=124 returned=2` at the end of a line that filed | The analyst hit its bound of 60 minutes, and what its file held was filed. The records it did not name went back to the window, and the next run takes half as many as this one. What it printed is in the file `output=` names |
+| `failed: the analyst ended with 124 at its bound of 60 minutes` | The model took too long for the records it was given and left no file that passes the check; the line says which. The next run takes half as many, as the line says. What it printed is in the file the line names. The records wait |
+| `failed: the analyst ended with ...` | Pi or the model. What it printed is in the file the line names, `~/tehas/logs/improve-analyst-<stamp>.log`. The records wait |
 | `failed: findings.json is not the shape asked for`, or `left no findings.json` | The model did not write the file it was asked for. Its output is in the same file. The records wait |
 | `failed: GitHub refused an issue` | The bot account cannot write to that repository. Issues filed before the refusal are named; the records wait, so a later run may file the same finding again under another title |
 
 A run that failed kept its records, and every later run reads them again until
-one succeeds or they are seven days old.
+one succeeds or they are seven days old. A run reads at most five, the oldest
+first, and fewer after one was stopped at its bound; `left=` on a line says how
+many wait.
 
 ## An improvement issue says a log was not uploaded
 

@@ -12,6 +12,8 @@
 #   tehas_state_lines <json> <now> <stale>   the factory line and the queue line
 #   tehas_cycle_line <json> <now>            one cycle, as health.json writes it
 #   tehas_slice_line <health json> <now>     the last poll's slice check
+#   tehas_platform_line <health json> <now>  the platform checkout against
+#                                            origin; nothing without one
 #
 # <json> is JSON text given as an argument: nothing here opens a file, loads the
 # instance settings or writes anything.
@@ -45,7 +47,7 @@ tehas_state_lines() { # <health json> <now epoch seconds> <stale true|false>
      else "factory   \(.status): \(.output // "") (\(.time | age($now)))" end),
     (.checks.queue // null | if . == null then "queue     no snapshot yet"
      else "queue     \(.inLine) in line, \(.building) building, \(.review) in review, \(.stopped) stopped"
-          + (if .paused then ", paused" else "" end) end)
+          + (if .paused then ", paused" else "" end) + " (\(.time // "" | age($now)))" end)
   ' <<<"$1"
 }
 
@@ -67,5 +69,16 @@ tehas_slice_line() { # <health json> <now epoch seconds>
      | if . == null then "slice     unknown: no poll has reported in 10 min"
        elif (.why // "") | IN("", "resources") | not then "slice     \(.hold // "holding") (\(.time | age($now)))"
        else "slice     room for \(.room // 0) cycles (\(.committed | gib) GiB of \(.max | gib) GiB promised, reserve \(.reserve // "unknown"), \(.time | age($now)))" end)
+  ' <<<"$1"
+}
+
+# The platform checkout as tehasbot status last read it.
+tehas_platform_line() { # <health json> <now epoch seconds>
+  jq -r --argjson now "$2" "$tehas_state_defs"'
+    .checks.platform // empty
+    | "platform  \((.commit // "unknown")[:7]), "
+      + (if .behind > 0 then "\(.behind) commits behind \(.upstream) since \(.behindSince // "" | .[:10])"
+         else "up to date with \(.upstream)" end)
+      + (if .fetchedAt == null then ", never fetched" else ", fetched \(.fetchedAt | age($now))" end)
   ' <<<"$1"
 }

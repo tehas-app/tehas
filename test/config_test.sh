@@ -461,4 +461,14 @@ t_case "loading sets no cgroup root of its own"
 t_run "$load && echo \"[\${TEHAS_CGROUP_ROOT:-}]\""
 t_eq "$t_out" "[]"
 
+t_case "the energy switches in ~/.config/tehas/env survive env.sh"
+t_instance "${T_MINIMAL[@]}"
+mkdir -p "$T/home/.config/tehas" "$T/home/tehas/lib"
+cp "$T_ROOT/lib/config.sh" "$T/home/tehas/lib/"
+printf '%s\n' GH_TOKEN=t0 TEHAS_ENERGY=off TEHAS_ENERGY_URL=http://mesh.example:8086/v1/cluster \
+  >"$T/home/.config/tehas/env"
+t_run '. "$T_ROOT/host/env.sh"; echo "[$GH_TOKEN] [${TEHAS_ENERGY:-}] [${TEHAS_ENERGY_URL:-}] [$TEHAS_REPO]"'
+t_eq "$t_out" "[t0] [off] [http://mesh.example:8086/v1/cluster] [acme/widget]"
+rm -rf "$T/home/.config/tehas" "$T/home/tehas/lib"
+
 t_done

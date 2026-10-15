@@ -214,7 +214,8 @@ t_case "a short terminal drops console lines, not the sections"
 reset
 files
 energy
-printf '%s\n' "$(seq 1 30)" >"$live/console-12.txt"
+# Named lines: a bare number could match the snapshot's clock.
+seq -f 'console line %g' 1 30 >"$live/console-12.txt"
 T_ENV=(COLUMNS=80 LINES=12)
 t_run "$top --once"
 t_eq "$(printf '%s\n' "$t_out" | wc -l)" 12
@@ -222,7 +223,7 @@ for line in "factory   pass" "queue     1 in line" "cycle     #12 running" "unit
   "energy    312.5 W" "console   #12"; do
   t_contains "$t_out" "$line"
 done
-t_lacks "$t_out" "30"
+t_lacks "$t_out" "console line 30"
 
 t_case "an escape sequence in a title or a console line does not reach the output"
 reset
