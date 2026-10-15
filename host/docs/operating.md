@@ -424,10 +424,25 @@ reaches them. Remove the label to resume.
   (2g by default). A container counts at its reserve or at what it uses,
   whichever is more, so a dev session, a planning turn and the indexer take
   room like a cycle does. A cycle that has started and has no container yet
-  counts at one reserve. File cache and other memory the kernel can take back
+  counts at one reserve, also when the slice is empty and systemd has
+  removed its directory. File cache and other memory the kernel can take back
   do not count.
+- No more containers in the slice than their ceilings fit in its limit: a
+  container may use a quarter of the slice, so four. Every container counts,
+  a dev session, a planning turn and the indexer as well, and a cycle that
+  has no container yet. Room by use alone would let in cycles that are small
+  in their first steps and may each grow to a quarter later; then the whole
+  slice reclaims and the kernel kills in the biggest container. So on any
+  host at most four cycles run at once, whatever `TEHAS_TICKET_CONCURRENCY`
+  says; a host with 4 slots is unchanged, except that a dev session or a
+  planning turn takes the fourth. The ceiling is not sized by
+  `TEHAS_TICKET_CONCURRENCY` instead: containers that are not cycles would
+  still oversubscribe the slice, and on a host with many CPUs the ceiling
+  would fall below the reserve.
 - No new cycle while the whole slice stalls on memory: `full avg60` of its
-  memory pressure above 10.
+  memory pressure above 10 while more than half of the slice is promised.
+  Below that the pressure is one container at its own ceiling, which a new
+  container does not make worse, so it holds nothing.
 - No cycle and no planning turn while the slice is missing, has no limit, or
   Docker cannot place containers in it. `tehas status` then says `warn`. See
   [Troubleshooting](/troubleshooting).

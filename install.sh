@@ -437,7 +437,7 @@ slice_state() {
 # that to be true, and the image says whether it does, by a label its build
 # writes (host/sandbox/build.sh). A disagreement is between the setting and the
 # image, not in what this script installs, so it is said and not failed: the
-# host moves the pin, turns the setting off, or rebuilds the image so it says.
+# host rebuilds the image on a pi-rukas that reads them, or turns the setting off.
 # Nothing when the setting is off, when the image reads them, or when there is
 # no image to ask.
 images_say() { # <check|run>
@@ -448,7 +448,7 @@ images_say() { # <check|run>
     1) return 0 ;;
     0)
       status="NOT READ"
-      sentence="TEHAS_WORK_IMAGES is 1 and the sandbox image $PI_ENSEMBLE_IMAGE says its pi-rukas does not read the images a cycle is given. The dispatcher holds every cycle while that stands, not only an issue whose text links a picture: move the pin to a pi-rukas that reads them, or set TEHAS_WORK_IMAGES=0."
+      sentence="TEHAS_WORK_IMAGES is 1 and the sandbox image $PI_ENSEMBLE_IMAGE says its pi-rukas does not read the images a cycle is given. The dispatcher holds every cycle while that stands, not only an issue whose text links a picture: rebuild the image on a pi-rukas that reads them (tehas update), or set TEHAS_WORK_IMAGES=0."
       ;;
     *)
       status="NOT SAID"

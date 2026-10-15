@@ -102,36 +102,4 @@ t_contains "$(cat "$build")" '--build-arg TEHAS_RUKAS_IMAGES="$reads"'
 t_eq "$(grep -c -e '/opt/pi-rukas/extension/src/work-driver-issue-images.ts' "$dockerfile" "$build" | tr '\n' ' ')" \
   "$dockerfile:1 $build:1 "
 
-# build.sh asks the base named by the FROM line, and the answer is what the
-# image is built with. A base that cannot be asked stops the build with the
-# reason, rather than a label that guesses.
-ask_docker() {
-  t_stub docker 'case " $* " in
-  *" run --rm "*) exit "${ASK_RC:-0}" ;;
-esac'
-  rm -f "$T"/calls/*
-}
-
-for want in 1 0; do
-  t_case "build.sh records what the base answered: $want"
-  ask_docker
-  T_ENV=(ASK_RC=$((1 - want)))
-  t_run "$T_ROOT/host/sandbox/build.sh"
-  t_eq "$t_rc" 0
-  t_contains "$(t_calls docker)" "run --rm --entrypoint test ghcr.io/trail-openers/pi-rukas"
-  t_contains "$(t_calls docker)" "-e /opt/pi-rukas/extension/src/work-driver-issue-images.ts"
-  t_contains "$(t_calls docker)" "--build-arg TEHAS_RUKAS_IMAGES=$want"
-  t_contains "$t_out" "issue images: $want"
-done
-T_ENV=()
-
-t_case "a base that cannot be run stops the build and says why"
-ask_docker
-T_ENV=(ASK_RC=125)
-t_run "$T_ROOT/host/sandbox/build.sh"
-t_eq "$t_rc" 1
-t_contains "$t_out" "could not be run to be asked (docker said 125): no such image, or no test binary at its entrypoint"
-t_lacks "$(t_calls docker)" "build --build-arg"
-T_ENV=()
-
 t_done

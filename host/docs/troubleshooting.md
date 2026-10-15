@@ -63,12 +63,17 @@ Run `tehas dispatch --dry-run` and read what it prints.
   container holds far more than its reserve, that is the one to look at:
   `systemd-cgtop /tehas.slice` shows them. A lower `TEHAS_CYCLE_RESERVE` fits
   more cycles and promises each one less.
+- `holding: tehas.slice holds as many containers as their ceilings fit (4 of
+  Nm)`: four containers are in the slice, each may grow to a quarter of it.
+  Every container counts: cycles, dev sessions, planning turns, the indexer.
+  Wait for one to end.
 - `holding: tehas.slice is under memory pressure (full avg60 N)`: every
   process in the slice waited for memory for more than a tenth of the last
-  minute. Cycles start again when it falls to 10 or under.
-- `holding: the slice's use could not be read`: a file under
-  `/sys/fs/cgroup/tehas.slice` is missing or unreadable. See "The dispatcher
-  holds on the slice" below.
+  minute, and more than half of the slice is promised. Cycles start again
+  when it falls to 10 or under, or when half or less is promised.
+- `holding: the slice's use could not be read: <file> ...`: a file under
+  `/sys/fs/cgroup/tehas.slice` is missing or unreadable; the line names it
+  and what was missing in it. See "The dispatcher holds on the slice" below.
 - Any other `holding:` line that names the slice, Docker, `systemctl` or
   `TEHAS_CYCLE_RESERVE`: the slice cannot be used. See "The dispatcher holds
   on the slice" below.
@@ -108,10 +113,11 @@ Run `tehas dispatch --dry-run` and read what it prints.
   read the images a cycle is given, and TEHAS_WORK_IMAGES is 1`: the sandbox
   image says, by the label its build wrote, that its pi-rukas has no reader for
   the manifest tehas writes beside the images. Nothing starts, for any issue,
-  and the model endpoint is not asked at all. Move the pin to a pi-rukas
-  release that has the reader, or set `TEHAS_WORK_IMAGES=0`, and run
-  `install.sh`. A rebuild onto a base without the reader is what starts the
-  hold: see [Sandbox image](/host#sandbox-image).
+  and the model endpoint is not asked at all. Run `tehas update`, which
+  rebuilds onto upstream's head, which has the reader, or set
+  `TEHAS_WORK_IMAGES=0` and run `install.sh`. An image put back from before
+  2026-10-14 is what starts the hold: see
+  [Rolling back pi-rukas](/host#rolling-back-pi-rukas).
 - `nothing to do`: the issue is closed, or does not carry `tehas:ready`.
 - `wait #N: its cycle is still running`: `tehas:ready` was applied while the
   issue's cycle runs. A fresh cycle starts when that one has ended.
@@ -203,7 +209,7 @@ issue. The queue is kept and is taken up when the hold ends. The line is in
 | `systemctl gave no answer`, `docker gave no answer` | The command failed or was silent for ten seconds. Run `systemctl show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax` and `docker info` by hand. |
 | `... cgroup.controllers does not list cpu, memory and pids` | The host's cgroup tree lacks a controller. Read `/sys/fs/cgroup/cgroup.controllers`. |
 | `TEHAS_CYCLE_RESERVE=... is more than a container may use here` | The reserve is above a quarter of the slice's limit. Set a lower `TEHAS_CYCLE_RESERVE` in `instance.env`. The line names the host size the reserve needs. |
-| `the slice's use could not be read` | Read `/sys/fs/cgroup/tehas.slice/memory.pressure` and the `memory.stat` and `memory.low` of each `docker-*.scope` under it as the tehas user. A kernel with pressure accounting off has no `memory.pressure`. If the directory is missing while cycles run, look at `systemctl status tehas.slice`. |
+| `the slice's use could not be read: ...` | The rest of the line names the file and what was missing: `.../memory.pressure cannot be read` or `has no full avg60`, `.../memory.stat has no number for anon` (or `shmem`, `slab_reclaimable`), `.../memory.low cannot be read` or `is not a number`. Read that file as the tehas user. A kernel booted with `psi=0` has no `memory.pressure`: remove that option from the kernel command line. A kernel too old for the `kernel` line in `memory.stat` is read without it: kernel memory is then not counted. If the directory is missing while systemd says the slice is active, look at `systemctl status tehas.slice`. A slice that is not active has no directory, and its cycles that have no container yet count at one reserve each. |
 
 The `slice` line reads `unknown: no poll has reported in 10 min` when no poll
 got as far as reading the slice in that time. That is so while the factory

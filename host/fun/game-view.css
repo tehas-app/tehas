@@ -31,7 +31,9 @@
   --shadow-sign: 8px 8px 0 #352;
   --ring: 0 0 0 4px var(--brass);
 
-  /* Height of the sticky header, for everything that sticks or scrolls under it. */
+  /* Height of the sticky header, for everything that sticks or scrolls under
+     it. Each width band sets it, and a page whose menu wraps into rows sets a
+     taller one: see the media blocks at the end of this file. */
   --header: 80px;
 
 }
@@ -629,10 +631,19 @@ body[data-factory="live"] .console-state::before {
 }
 
 @media (max-width: 1279px) {
+  /* One row of links beside the wordmark row: what the manual and Protolab
+     headers, which hold four links, still make. */
   :root { --header: 128px; }
+  /* The front page wraps its menu, so its band is the wordmark row plus two
+     rows of links. Only this page has .desk. */
+  :root:has(.desk) { --header: 174px; }
   .topbar { flex-wrap: wrap; }
-  .menu { order: 3; flex-basis: 100%; margin-left: 0; overflow-x: auto; scrollbar-width: none; }
-  .menu::-webkit-scrollbar { display: none; }
+  .menu { order: 3; flex-basis: 100%; margin-left: 0; }
+  /* Wrapping, not a row that scrolls with its scrollbar hidden: below about
+     870px the links past the edge could only be reached by an invisible swipe. */
+  .topbar:not(.topbar-short) > .menu { flex-wrap: wrap; }
+  .topbar-short > .menu { overflow-x: auto; scrollbar-width: none; }
+  .topbar-short > .menu::-webkit-scrollbar { display: none; }
   .topbar > .gate { margin-left: auto; }
   .stage {
     grid-template-columns: minmax(0, 1fr);
@@ -641,9 +652,9 @@ body[data-factory="live"] .console-state::before {
   .floor { display: block; grid-area: floor; }
   .floor-head, .line { grid-area: auto; }
   .floor-head { margin-top: 24px; }
-  /* The monitor stays in view only while the board is on screen. */
+  /* Here the work order is a panel in the column: it scrolls away with the
+     board instead of travelling under the header. */
   .desk { display: block; grid-area: desk; padding-top: 72px; }
-  .monitor-wrap { padding-top: 0; position: sticky; top: var(--header); z-index: 2; }
   .monitor { position: static; display: block; min-height: 0; max-width: 720px; }
   .screen { min-height: 0; }
   .monitor-base { display: none; }
@@ -676,6 +687,8 @@ body[data-factory="live"] .console-state::before {
   #console-out { height: 320px; padding: 8px; }
   .stage { padding: 0 16px; }
   :root { --header: 120px; }
+  /* A phone width wraps the front page menu into three rows. */
+  :root:has(.desk) { --header: 204px; }
   .topbar { padding: 8px 8px 0; gap: 0 8px; }
   .source, .topbar > .gate { padding: 4px 8px; }
   .menu { padding: 0 8px; }

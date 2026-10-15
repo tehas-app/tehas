@@ -65,30 +65,21 @@ t_eq "$(wc -l <"$r/stream.jsonl")" 2
 t_lacks "$(cat "$r/stream.jsonl")" message_update
 t_eq "$(sed -n 2p "$r/stream.jsonl" | jq '.text | length')" 2006
 
-t_case "the record names the pi-rukas commit the host is installed with"
+t_case "the record names the pi-rukas commit tehasbot cycle noted at the start"
 t_eq "$(jq -c .rukas "$r/cycle.json")" null
 reset
-cycle_log
-printf '%s\n' "PI_VERSION=1.2.3" "PI_RUKAS_REPO=https://example.org/rukas.git" \
-  "PI_RUKAS_COMMIT=0123456789abcdef0123456789abcdef01234567" >"$home/versions.env"
-lib "tehas_improve_record 7 $started 0 handoff review"
-t_eq "$(jq -r .rukas "$base/window/$REC/cycle.json")" 0123456789abcdef0123456789abcdef01234567
-echo 'PI_RUKAS_COMMIT=$(touch /tmp/x)' >"$home/versions.env"
-cycle_log
-lib "tehas_improve_record 7 $started 0 handoff review"
-t_eq "$(jq -c .rukas "$base/window/$REC/cycle.json")" null
-
-t_case "the commit tehasbot cycle noted at the start wins over the one installed now"
 mkdir -p "$home/state/cycles"
 echo fedcba9876543210fedcba9876543210fedcba98 >"$home/state/cycles/7.rukas"
-printf '%s\n' "PI_RUKAS_COMMIT=0123456789abcdef0123456789abcdef01234567" >"$home/versions.env"
 cycle_log
 lib "tehas_improve_record 7 $started 0 handoff review"
 t_eq "$(jq -r .rukas "$base/window/$REC/cycle.json")" fedcba9876543210fedcba9876543210fedcba98
+
+t_case "a note that is not a commit records null, whatever versions.env says"
 echo 'not a commit' >"$home/state/cycles/7.rukas"
+printf '%s\n' "PI_RUKAS_COMMIT=0123456789abcdef0123456789abcdef01234567" >"$home/versions.env"
 cycle_log
 lib "tehas_improve_record 7 $started 0 handoff review"
-t_eq "$(jq -r .rukas "$base/window/$REC/cycle.json")" 0123456789abcdef0123456789abcdef01234567
+t_eq "$(jq -c .rukas "$base/window/$REC/cycle.json")" null
 rm -rf "$home/state/cycles" "$home/versions.env"
 
 t_case "a cycle without a pull request records null"
