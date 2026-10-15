@@ -52,6 +52,10 @@ you: review, click through, merge
 If the cycle cannot finish, the issue gets `needs-human-attention` and a comment
 saying where it stopped.
 
+The six-pass review blocks a change at the severity the product's own doctrine
+states, and here that bar is MEDIUM and above. See [Operating tehas](/operating)
+for what a finding does and what a cycle may defer.
+
 ## What runs where
 
 | Where          | Role                                                                                                                  |

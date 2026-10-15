@@ -72,7 +72,40 @@ in the platform repository has every one with a comment.
 | `TEHAS_PLAN_MAX_TURNS`          | `20`                                     | Turns a planning session may take before it is ended            |
 | `TEHAS_PLAN_TIMEOUT`            | `3600`                                   | Seconds before one planning turn is given up                    |
 | `PI_ENSEMBLE_HOST_ALIASES`      | empty                                    | `name:address` pairs the sandbox must resolve, comma separated  |
+| `PI_ENSEMBLE_REVIEW_THRESHOLD`  | unset                                    | Optional. The code-review severity that blocks a change in a cycle: `CRITICAL`, `HIGH`, `MEDIUM` or `LOW`. Read by pi-rukas, not by tehas, and it wins over the severity the product's doctrine (`AGENTS.md` or `CLAUDE.md`) states. Unset, or anything other than those four words: pi-rukas ignores it and uses the severity that doctrine states, and MEDIUM when it states none. tehas does not check this value and does not stop with 78 over it. A `CRITICAL` finding blocks whatever this says |
 | `PI_ENSEMBLE_IMAGE`             | `tehas/pi-rukas:uid<uid>`                | The sandbox image                                               |
+
+A line named `PI_ENSEMBLE_*` reaches a cycle's container as it is, except for
+the names tehas owns. The same line reaches a planning session and a `tehas dev`
+session.
+
+- `PI_ENSEMBLE_IMAGE` and `PI_ENSEMBLE_HOST_ALIASES`: tehas reads these and does
+  not pass them on. They pick the image the container runs and its `--add-host`
+  lines.
+- `PI_ENSEMBLE_SANDBOX_MODE` and `PI_ENSEMBLE_WORKSPACE_ROOT`: tehas sets these
+  for every container. An instance line for one of them is a second `-e` for a
+  name tehas has already fixed, given after tehas' own.
+- `PI_ENSEMBLE_MAX_WORKSTREAMS`, `PI_ENSEMBLE_VERIFY_TIMEOUT_MS`,
+  `PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS`, `PI_ENSEMBLE_NO_DOCKER_SOCKET`
+  and `PI_ENSEMBLE_NO_SSH`: tehas sets all five after it reads the instance
+  file, the first from `TEHAS_CONCURRENCY` and the two timeouts from
+  `TEHAS_VERIFY_TIMEOUT`. An instance line for one of them is replaced by
+  tehas' value before the container starts, with no message: set the `TEHAS_*`
+  name instead. The last two are not settings at all, and no instance line
+  gives a cycle the Docker socket or SSH keys.
+- `PI_ENSEMBLE_EXTRA_IMAGE_DIRS` names the mounted images directory and is
+  tehas' to set when `TEHAS_WORK_IMAGES=1`, where an instance line for it is
+  dropped (see [tehas work](#tehas-work)).
+
+A lever pi-rukas reads under any other name needs no setting of tehas' own, and
+tehas neither checks its value nor passes it on under another name. Unlike a
+`TEHAS_*` setting, a malformed value here is not refused with 78: it reaches
+pi-rukas and pi-rukas decides what to do with it, which for
+`PI_ENSEMBLE_REVIEW_THRESHOLD` is to ignore it. The channel also carries
+pi-rukas levers that loosen a cycle's own guards, `PI_ENSEMBLE_PROTECTED_PATHS`
+and `PI_ENSEMBLE_POLICY_JUDGE` among them. tehas sets neither, and setting one
+is a person's decision on the instance, never something a cycle can do for
+itself.
 
 The example instance sets the five required ones, `TEHAS_HOST_ADDR`,
 `PI_ENSEMBLE_HOST_ALIASES`, and, because it is public, `TEHAS_INDEXING` and the
