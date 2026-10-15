@@ -9,9 +9,12 @@
 # were found. Needs gh, curl, jq and tar, and the network.
 #
 # A release is pinned only when its source still has what tehas relies on:
-# every PI_ENSEMBLE_* setting the commands of tehas pass, and the fields of
-# the state file tehas work and tehasbot cycle read, with the ends they act
-# on. One that lacks any of them is refused and the missing ones are named.
+# every PI_ENSEMBLE_* setting the commands of tehas pass, the fields of the
+# state file tehas work and tehasbot cycle read, with the ends they act on, and
+# the reader that hands a cycle the images of its issue - tehas fetches them,
+# mounts them and names the directory, and a release without the reader leaves
+# them unread. One that lacks any of them is refused and the missing ones are
+# named.
 #
 # Usage: scripts/rukas-latest.sh           update the pin
 #        scripts/rukas-latest.sh --check   only say whether the pin is the newest
@@ -64,9 +67,12 @@ digest=$(curl -fsSI -H "Authorization: Bearer $token" \
   tr -d '\r' | sed -n 's/^docker-content-digest: *//Ip' | head -n 1)
 [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || die "no image $image:$tag"
 
-# What tehas reads of the state file (libexec/work, libexec/cycle) and the
-# settings its commands pass. Markdown is not code: a name only a changelog
-# still mentions is gone.
+# What tehas reads of the state file (libexec/work, libexec/cycle), the
+# settings its commands pass, and the file that reads the manifest tehas writes
+# beside a cycle's images. Markdown is not code: a name only a changelog still
+# mentions is gone. The setting is not the reader either: v0.12.79 names
+# PI_ENSEMBLE_EXTRA_IMAGE_DIRS in its sandbox guard's error text and reads
+# nothing.
 fits() { # <source dir>
   local src=$1 name names=() missing=()
   mapfile -t names < <(cat "$root"/lib/*.sh "$root"/libexec/* "$root"/bin/* "$root/host/env.sh" 2>/dev/null |
@@ -75,6 +81,8 @@ fits() { # <source dir>
   for name in "${names[@]}" pipelineState currentStep branchName eventLog '"merged"' '"handoff"' '"aborted"' '"running"'; do
     grep -rqF --exclude='*.md' --exclude-dir=.git -e "$name" "$src" || missing+=("$name")
   done
+  [ -n "$(find "$src" -type f -path '*/extension/src/work-driver-issue-images.ts' -print -quit)" ] ||
+    missing+=("the issue image reader extension/src/work-driver-issue-images.ts")
   [ "${#missing[@]}" = 0 ] && return 0
   echo "rukas-latest: $repo $tag lacks what tehas relies on: ${missing[*]}" >&2
   return 1

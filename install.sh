@@ -96,6 +96,8 @@ update_fd=${TEHAS_UPDATE_LOCK_FD:-}
 . "$root/lib/update-steps.sh"
 # shellcheck source=lib/edge.sh
 . "$root/lib/edge.sh"
+# shellcheck source=lib/cycles.sh
+. "$root/lib/cycles.sh"
 
 # --- 1. Instance settings ---------------------------------------------------
 # Every finding is one line. Any finding stops a real run before it changes
@@ -430,6 +432,37 @@ slice_state() {
   fi
 }
 
+# TEHAS_WORK_IMAGES=1 promises a cycle the images its issue links. The pi-rukas
+# in the sandbox image has to read the manifest tehas writes beside them for
+# that to be true, and the image says whether it does, by a label its build
+# writes (host/sandbox/build.sh). A disagreement is between the setting and the
+# image, not in what this script installs, so it is said and not failed: the
+# host moves the pin, turns the setting off, or rebuilds the image so it says.
+# Nothing when the setting is off, when the image reads them, or when there is
+# no image to ask.
+images_say() { # <check|run>
+  local mode=$1 status sentence
+  if [ "$TEHAS_WORK_IMAGES" != 1 ]; then return 0; fi
+  docker image inspect "$PI_ENSEMBLE_IMAGE" >/dev/null 2>&1 || return 0
+  case "$(tehas_rukas_reads_images)" in
+    1) return 0 ;;
+    0)
+      status="NOT READ"
+      sentence="TEHAS_WORK_IMAGES is 1 and the sandbox image $PI_ENSEMBLE_IMAGE says its pi-rukas does not read the images a cycle is given. The dispatcher holds every cycle while that stands, not only an issue whose text links a picture: move the pin to a pi-rukas that reads them, or set TEHAS_WORK_IMAGES=0."
+      ;;
+    *)
+      status="NOT SAID"
+      sentence="TEHAS_WORK_IMAGES is 1 and the sandbox image $PI_ENSEMBLE_IMAGE does not say whether its pi-rukas reads the images a cycle is given. Rebuild it with $TEHAS_HOME/sandbox/build.sh, which records the answer."
+      ;;
+  esac
+  if [ "$mode" = check ]; then
+    echo "Images:       $status"
+    echo "  $sentence"
+  else
+    echo "note: $sentence"
+  fi
+}
+
 # --- 4. Report (--check) -----------------------------------------------------
 if [ "$check" = 1 ]; then
   rc=0
@@ -458,6 +491,8 @@ if [ "$check" = 1 ]; then
     DIFFERS) echo "Slice:        DIFFERS (sudo ./bootstrap.sh slice)"; rc=1 ;;
     *) echo "Slice:        not checked (running inside the tests)" ;;
   esac
+
+  images_say check
 
   if [ "${#changed[@]}" = 0 ]; then
     echo "Installed:    OK"
@@ -549,6 +584,8 @@ case "$(slice_state)" in
   MISSING) echo "note: $slice_to is missing (sudo ./bootstrap.sh slice)" ;;
   DIFFERS) echo "note: $slice_to differs from host/slice/tehas.slice in this checkout (sudo ./bootstrap.sh slice)" ;;
 esac
+
+images_say run
 
 # The one place the default branch is looked up over the network.
 if [ -z "${TEHAS_BRANCH:-}" ] && [ -d "$TEHAS_WORK_REPO/.git" ]; then

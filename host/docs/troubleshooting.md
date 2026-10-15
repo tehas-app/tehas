@@ -103,6 +103,14 @@ Run `tehas dispatch --dry-run` and read what it prints.
   TEHAS_WORK_IMAGES is 1`: the model endpoint refused a request with a
   one-pixel image, or took more than 30 seconds. The model runs without its
   vision part, or every slot is busy.
+- `holding: no resources: the pi-rukas in the sandbox image <commit> does not
+  read the images a cycle is given, and TEHAS_WORK_IMAGES is 1`: the sandbox
+  image says, by the label its build wrote, that its pi-rukas has no reader for
+  the manifest tehas writes beside the images. Nothing starts, for any issue,
+  and the model endpoint is not asked at all. Move the pin to a pi-rukas
+  release that has the reader, or set `TEHAS_WORK_IMAGES=0`, and run
+  `install.sh`. A rebuild onto a base without the reader is what starts the
+  hold: see [Sandbox image](/host#sandbox-image).
 - `nothing to do`: the issue is closed, or does not carry `tehas:ready`.
 - `wait #N: its cycle is still running`: `tehas:ready` was applied while the
   issue's cycle runs. A fresh cycle starts when that one has ended.
