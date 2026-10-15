@@ -525,13 +525,12 @@ it stands on and stops when they disagree. `tehas work`, `tehas plan`, the
 dispatcher and `install.sh` read the label; an image built without build.sh
 carries `unknown`, which tehas reads as "not said" rather than as an answer.
 
-An image that says its pi-rukas does not read them holds every cycle while
-`TEHAS_WORK_IMAGES=1` stands, not only the issues whose text links a picture.
-A host with that setting that puts back an image from before upstream merged
-the reader sets `TEHAS_WORK_IMAGES=0` first: putting it back is the moment
-the hold becomes real. `install.sh` reports
-the answer it read from the image, and `tehas status` and `/health` show the
-hold.
+An image that says its pi-rukas does not read them holds every issue whose
+text links an attachment while `TEHAS_WORK_IMAGES=1` stands; other issues
+start. A host with that setting that puts back an image from before upstream
+merged the reader sets `TEHAS_WORK_IMAGES=0` first: putting it back is the
+moment the hold becomes real. `install.sh` reports the answer it read from
+the image, and the dispatch log names each issue it holds.
 
 The build takes pi-rukas at the head of its branch, as described under
 [pi-rukas comes from upstream](#pi-rukas-comes-from-upstream).
@@ -689,7 +688,7 @@ Both are outside the repository and the tehas tree.
 | Question                               | Answer                                                                                                                                  |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | Who can start a cycle                  | Only an account in `TEHAS_ALLOWED_LABELERS`. The dispatcher checks who most recently applied `tehas:ready`, not just that it is there   |
-| What the label approves                | The title and body as they were when it was applied. An issue whose text was changed afterwards by any other account is skipped until the label is applied again |
+| What the label approves                | The title and body as they were when it was applied. An issue whose text was changed afterwards by any other account, or by one GitHub no longer names, is skipped until the label is applied again |
 | What else starts a cycle               | The retry box of a parked issue, ticked by one of those accounts. It counts once, and only in the question whose comment id the host has on record for that issue. Like the label, the tick approves the text as it was at that moment |
 | Who can start or continue planning     | The same accounts. A session starts when one of them applied `tehas:plan`. A turn runs on a tick or a reply from one of them to the question the session is waiting on |
 | Who can put a ticket in the Protolab   | The same accounts. `tehasbot protolab` checks who most recently applied `tehas:prototype`, as the dispatcher checks `tehas:ready`. A label from anyone else counts as no label, and a page it had is removed. The pass stops with an error when `TEHAS_ALLOWED_LABELERS` names the bot's own login. The files beside a ticket are taken only from an owner, member or collaborator |

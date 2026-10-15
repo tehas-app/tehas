@@ -67,7 +67,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_CYCLE_RESERVE`           | `2g`                                     | Memory one container is given as a floor (`docker --memory-reservation`) and the unit the dispatcher counts room in. A reclaim priority inside `tehas.slice` and the amount admission promises, not a guarantee against the whole host. A Docker size of at least 6m, and at most a quarter of the slice's `MemoryMax`, else the command stops with 78 naming both numbers. With the default the host needs about 11 GiB of memory; a smaller host sets it lower |
 | `TEHAS_WORK_TIMEOUT`            | `21600`                                  | Seconds before a cycle is given up. At most 25200: [the cycle's unit](/host#time-limits) stops a cycle after 8 hours |
 | `TEHAS_WORK_STALL`              | `3600`                                   | Seconds a cycle may go without a line added to any of its logs before it is stopped as `stalled`. Must be longer than `TEHAS_VERIFY_TIMEOUT`, because a gate can print nothing while it runs; else the command stops with 78 |
-| `TEHAS_WORK_IMAGES`             | `0`                                      | `1` gives a cycle and a planning session the images its issue text links: see [tehas work](#tehas-work) and [tehas plan](#tehas-plan). The model must declare `"image"` in its `input` in `models.json` and answer a request with an image, else the dispatcher holds every cycle. The sandbox image must also say, by the label `tehas.rukas.images` its build writes, that its pi-rukas reads the manifest tehas writes beside them: an image that says it does not holds every cycle too, and `install.sh` reports what it found |
+| `TEHAS_WORK_IMAGES`             | `0`                                      | `1` gives a cycle and a planning session the images its issue text links: see [tehas work](#tehas-work) and [tehas plan](#tehas-plan). The model must declare `"image"` in its `input` in `models.json` and answer a request with an image, and the sandbox image must say, by the label `tehas.rukas.images` its build writes, that its pi-rukas reads the manifest tehas writes beside them. Else the dispatcher holds the cycles of issues whose text links an attachment; other issues start, and `install.sh` reports what the label says |
 | `TEHAS_VERIFY_TIMEOUT`          | `1800`                                   | Seconds one run of the product's gate may take inside a cycle. A gate that takes longer is stopped and the cycle parks. Passed to pi-rukas as `PI_ENSEMBLE_VERIFY_TIMEOUT_MS` and `PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS`; pi-rukas alone allows ten minutes |
 | `TEHAS_PLAN_MAX_TURNS`          | `20`                                     | Turns a planning session may take before it is ended            |
 | `TEHAS_PLAN_TIMEOUT`            | `3600`                                   | Seconds before one planning turn is given up. At most 7200: [the poll's unit](/host#time-limits) stops a poll after 3 hours |
@@ -215,7 +215,10 @@ A poll also reads the open issues marked `tehas:running`. One whose cycle
 does not hold its lock on this host, `~/tehas/state/cycles/<issue>.lock`, gets
 `needs-human-attention` in place of `tehas:running` and a comment that says
 where the run log is. The log line is `park #N: it is marked tehas:running and
-no cycle holds its lock`. If the label change fails nothing is said on the
+no cycle holds its lock`. The issue is read again first: one whose cycle
+ended while the poll ran has lost `tehas:running` already and is left, with
+the line `skip #N: tehas:running is gone from it since the list was read`. If
+the label change fails nothing is said on the
 issue and the next poll tries again. A closed issue in that state only loses
 `tehas:running`. For either, a container `tehas-work-<issue>` that is still
 there is removed, with the line `removed the container tehas-work-N: no cycle
@@ -248,6 +251,14 @@ take; the skip is said once a poll at most (`skip #N: it is closed, and a
 closed issue is never taken`, or `skip #N: it is a pull request, not an issue
 the factory works on`). An answer that cannot be read ends the poll with exit
 1.
+
+An issue that an open pull request closes, as GitHub links them (`Closes #N`
+in its description, or a link made by hand), is not taken: a cycle would find
+the work done after paying for its explore and plan. The poll asks once, for
+an issue it would otherwise take, takes `tehas:ready` off and says on the
+issue which pull request it is. The log line is `skip #N: pull request <url>
+is open and closes it`. A merged or closed pull request holds nothing back. A
+call that fails, or an answer that cannot be read, ends the poll with exit 1.
 
 A `tehas:ready` from any other account asks for nothing, so it comes off the
 issue with a comment naming who

@@ -89,6 +89,10 @@ Run `tehas dispatch --dry-run` and read what it prints.
   when that label came from such an account. With only the `skip` line, the poll was
   a dry run or the label change failed (`WARN: label change on #N failed`), and
   the next poll tries again.
+- `skip #N: pull request <url> is open and closes it`: the work is in that
+  pull request already. The dispatcher took `tehas:ready` off and said so on
+  the issue. Merge or close the pull request, then apply `tehas:ready` if work
+  is still needed.
 - `ignore #N: tehas:urgent was applied by ...`: the label came from an account
   that is not allowed, so it moves nothing: the issue keeps its place by
   number. It is said at every poll until someone removes the label.
@@ -100,22 +104,23 @@ Run `tehas dispatch --dry-run` and read what it prints.
   starts, no cycle, no planning turn and no retry. The issues stay queued and
   are taken as soon as the endpoint answers. See "The model endpoint does not
   answer" below.
-- `holding: no resources: <model> does not declare image input in models.json,
-  and TEHAS_WORK_IMAGES is 1`: the instance gives a cycle images and its
-  `models.json` does not list `"image"` in the model's `input`. Add it, or set
-  `TEHAS_WORK_IMAGES=0`, and run `install.sh`.
-- `holding: no resources: <model> does not answer an image, and
-  TEHAS_WORK_IMAGES is 1`: the model endpoint refused a request with a
-  one-pixel image, or took more than 30 seconds. The model runs without its
-  vision part, or every slot is busy.
-- `holding: no resources: the pi-rukas in the sandbox image <commit> does not
-  read the images a cycle is given, and TEHAS_WORK_IMAGES is 1`: the sandbox
-  image says, by the label its build wrote, that its pi-rukas has no reader for
-  the manifest tehas writes beside the images. Nothing starts, for any issue,
-  and the model endpoint is not asked at all. Move the pin to a pi-rukas
-  release that has the reader, or set `TEHAS_WORK_IMAGES=0`, and run
-  `install.sh`. A rebuild onto a base without the reader is what starts the
-  hold: see [Sandbox image](/host#sandbox-image).
+- `hold #N: its text links an attachment and TEHAS_WORK_IMAGES is 1, but
+  <model> does not declare image input in models.json`: the instance gives a
+  cycle images and its `models.json` does not list `"image"` in the model's
+  `input`. Only issues that link an attachment wait; the rest start. Add
+  `"image"`, or set `TEHAS_WORK_IMAGES=0`, and run `install.sh`.
+- `hold #N: ... but <model> does not answer an image`: the model endpoint
+  refused a request with a one-pixel image, or took more than 30 seconds. The
+  model runs without its vision part, or the backend is busy. The request is
+  sent only for an issue that links an attachment and could start now, at
+  most once a poll.
+- `hold #N: ... but the pi-rukas in the sandbox image <commit> does not read
+  them`: the sandbox image says, by the label its build wrote, that its
+  pi-rukas has no reader for the manifest tehas writes beside the images.
+  Only issues that link an attachment wait, and the model is not asked.
+  Rebuild the image from a pi-rukas that has the reader, or set
+  `TEHAS_WORK_IMAGES=0`, and run `install.sh`. See
+  [Sandbox image](/host#sandbox-image).
 - `nothing to do`: the issue is closed, or does not carry `tehas:ready`.
 - `wait #N: its cycle is still running`: `tehas:ready` was applied while the
   issue's cycle runs. A fresh cycle starts when that one has ended.

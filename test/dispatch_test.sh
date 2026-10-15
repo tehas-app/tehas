@@ -32,14 +32,22 @@ case "$1 $2" in
     case "$n" in
       */*) cat "$T/fx/events-${n%/events*}.json" || exit 1 ;;
       # What the number is: an open issue, unless a case writes the fixture.
+      # It carries tehas:running when the list of marked issues names it.
       *)
         [ ! -e "$T/fx/work-fails" ] || exit 1
-        if [ -e "$T/fx/work-$n.json" ]; then cat "$T/fx/work-$n.json"; else echo "{\"number\":$n,\"state\":\"open\"}"; fi ;;
+        if [ -e "$T/fx/work-$n.json" ]; then cat "$T/fx/work-$n.json"; else
+          jq -c --argjson n "$n" "{number: \$n, state: \"open\", labels: (if any(.[]?; type == \"object\" and .number == \$n)
+            then [{name: \"tehas:running\"}] else [] end)}" "$T/fx/marked.json" 2>/dev/null || echo "{\"number\":$n,\"state\":\"open\"}"
+        fi ;;
     esac ;;
   "api graphql")
     n=$(printf "%s\n" "$@" | sed -n "s/^number=//p")
     case "$*" in
       *"comments(last"*) cat "$T/fx/comments-$n.json" || exit 1 ;;
+      # The pull requests that close the issue: none, unless a case writes them.
+      *closedByPullRequestsReferences*)
+        [ ! -e "$T/fx/prs-fails" ] || exit 1
+        cat "$T/fx/prs-$n.json" 2>/dev/null || cat "$T/fx/prs.json" || exit 1 ;;
       *) cat "$T/fx/edit-$n.json" 2>/dev/null || cat "$T/fx/edit.json" || exit 1 ;;
     esac ;;
   "issue edit")
@@ -112,7 +120,7 @@ cid() { # <issue> <hex digit> <bytes in use>
 dispatch_json=$T/home/tehas/live/dispatch.json
 
 reset() {
-  rm -f "$T"/calls/* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/issue-* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/slice-* "$fx"/orphan-*
+  rm -f "$T"/calls/* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/issue-* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/slice-* "$fx"/orphan-* "$fx"/prs-*
   rm -rf "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-* "$T"/home/tehas/state/park-* "$T/home/tehas/live"
   # A slice of 20 GiB with nothing in it: room for ten cycles of the default
   # reserve, so the slots and the review cap decide unless a case says more.
@@ -123,6 +131,7 @@ reset() {
   echo '[]' >"$fx/plans.json"
   echo '{"login":"tehas-bot"}' >"$fx/user.json"
   echo '{"data":{"repository":{"issue":{"lastEditedAt":null,"editor":null}}}}' >"$fx/edit.json"
+  echo '{"data":{"repository":{"issue":{"closedByPullRequestsReferences":{"nodes":[]}}}}}' >"$fx/prs.json"
   echo '{"nameWithOwner":"acme/widget"}' >"$fx/repo.json"
   echo '{"labels":[]}' >"$fx/control.json"
   echo '{"session":"abc-123","text":"Two ways.","question":{"question":"Adopt?","options":[{"label":"Adopt all","description":"Apply all five"},{"label":"Change some","description":""}]}}' >"$fx/plan-result.json"
@@ -628,6 +637,91 @@ echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice
 t_run "$dispatch --dry-run"
 t_contains "$t_out" "skip #7: its text was changed by 'mallory'"
 
+t_case "a title changed after the label by an account with no login is not approved"
+reset
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-01-02T10:00:00Z"},
+       {"event":"renamed","actor":null,"created_at":"2026-01-02T10:01:00Z"}]' >"$fx/events-7.json"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "skip #7: its text was changed by 'unknown'"
+t_lacks "$t_out" "would run a cycle"
+
+# The pull requests GitHub says close an issue: <url> <state>...
+closing_prs() { # <issue> [<url> <state>]...
+  local n=$1 nodes="[]"
+  shift
+  while [ "$#" -gt 1 ]; do
+    nodes=$(jq -c --arg u "$1" --arg s "$2" '. + [{url: $u, state: $s}]' <<<"$nodes")
+    shift 2
+  done
+  jq -nc --argjson nodes "$nodes" '{data: {repository: {issue: {closedByPullRequestsReferences: {nodes: $nodes}}}}}' >"$fx/prs-$n.json"
+}
+
+t_case "an issue with an open pull request that closes it starts nothing, and loses tehas:ready"
+reset
+closing_prs 7 https://github.com/acme/widget/pull/90 OPEN
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "skip #7: pull request https://github.com/acme/widget/pull/90 is open and closes it"
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:ready"
+t_lacks "$(t_calls gh)" "--add-label tehas:running"
+t_eq "$(t_calls gh | grep -c '^issue comment 7 ')" 1
+t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body Tehas took \`tehas:ready\` off this issue and started nothing: https://github.com/acme/widget/pull/90 is open and closes it."
+
+t_case "a closed or merged pull request that closed it holds nothing back"
+reset
+closing_prs 7 https://github.com/acme/widget/pull/90 CLOSED https://github.com/acme/widget/pull/91 MERGED
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_contains "$(t_calls gh)" "closedByPullRequestsReferences"
+
+t_case "an open pull request does not hold up the issue behind it"
+reset
+ready 7 8
+closing_prs 7 https://github.com/acme/widget/pull/90 OPEN
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "8"
+
+t_case "when the label cannot be taken off, nothing is said, and the next poll tries again"
+reset
+closing_prs 7 https://github.com/acme/widget/pull/90 OPEN
+echo "remove-label tehas:ready" >"$fx/edit-fails-on"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "WARN: label change on #7 failed: --remove-label tehas:ready"
+t_lacks "$(t_calls gh)" "issue comment 7"
+
+t_case "a dry run says it would take the label off, and changes nothing"
+reset
+closing_prs 7 https://github.com/acme/widget/pull/90 OPEN
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "skip #7: pull request https://github.com/acme/widget/pull/90 is open and closes it"
+t_lacks "$t_out" "would run a cycle"
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "issue comment"
+
+t_case "when GitHub cannot say which pull requests close it, the poll ends"
+reset
+: >"$fx/prs-fails"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+
+t_case "an answer that cannot be read ends the poll too"
+reset
+echo '{"data":{"repository":{"issue":null}}}' >"$fx/prs-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: unreadable pull requests of #7"
+t_eq "$(t_calls fake-start)" ""
+
+t_case "an issue no allowed account labelled costs no question about its pull requests"
+reset
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"mallory"}}]' >"$fx/events-7.json"
+t_run "$dispatch"
+t_lacks "$(t_calls gh)" "closedByPullRequestsReferences"
+
 t_case "an edited issue does not hold up the one behind it"
 reset
 echo '[{"number":7,"labels":[{"name":"tehas:ready"}]},{"number":8,"labels":[{"name":"tehas:ready"}]}]' >"$fx/ready.json"
@@ -787,6 +881,27 @@ t_lacks "$(t_calls gh)" "remove \`needs-human-attention\`"
 
 t_case "and the poll goes on to the queue, and starts nothing for that issue"
 t_eq "$(t_calls fake-start)" "7"
+
+t_case "an issue whose cycle ended after the list was read is not parked"
+reset
+echo '[{"number":9}]' >"$fx/marked.json"
+echo '{"number":9,"state":"open","labels":[{"name":"tehas:awaiting-merge"}]}' >"$fx/work-9.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "skip #9: tehas:running is gone from it since the list was read"
+t_lacks "$(t_calls gh)" "issue edit 9"
+t_lacks "$(t_calls gh)" "issue comment 9"
+t_eq "$(t_calls fake-start)" "7"
+
+t_case "the issue is read again before it is parked, and a failed read ends the poll"
+reset
+echo '[{"number":9}]' >"$fx/marked.json"
+: >"$fx/work-fails"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_lacks "$(t_calls gh)" "issue edit"
+t_eq "$(t_calls fake-start)" ""
+rm -f "$fx/work-fails"
 
 t_case "a closed issue marked as running with no cycle loses the mark and is not parked"
 reset
@@ -2798,11 +2913,25 @@ t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 t_lacks "$(t_calls curl)" "chat/completions"
 
-t_case "with images for a cycle, a model that declares image input and answers one holds nothing back"
-reset
-t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
-mesh '{"data":[{"id":"test-model"}]}'
-declares '["text","image"]'
+# An instance that gives a cycle images, and a model that offers what
+# models.json declares for it.
+imaging() { # <input list as JSON>
+  reset
+  t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
+  mesh '{"data":[{"id":"test-model"}]}'
+  declares "$1"
+  rm -f "$fx/reads-images"
+}
+# An issue whose text links an attachment in GitHub's storage.
+pictured() { # <issue>
+  jq -nc --argjson n "$1" '{number: $n, state: "open",
+    body: "It looks like this:\n\n![shot](https://github.com/user-attachments/assets/0f3e-41)"}' >"$fx/work-$1.json"
+}
+image_asks() { t_calls curl | grep -c 'chat/completions'; }
+
+t_case "with images for a cycle, an issue that links one starts when the model declares image input and answers one"
+imaging '["text","image"]'
+pictured 7
 : >"$fx/reads-images"
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
@@ -2811,32 +2940,102 @@ t_contains "$(t_calls curl)" "-m 30 -H Content-Type: application/json -d @- http
 t_eq "$(jq -c '[.model, .max_tokens, (.messages[0].content | map(.type))]' "$T/calls/curl-body")" '["test-model",1,["text","image_url"]]'
 t_eq "$(jq -r '.messages[0].content[1].image_url.url' "$T/calls/curl-body" | cut -d, -f2 | base64 -d | head -c 8 | od -An -tx1 | tr -d ' \n')" "89504e470d0a1a0a"
 
-t_case "no resources: the model does not declare image input, and it is not asked"
-for input in '["text"]' 'null'; do
-  reset
-  t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
-  mesh '{"data":[{"id":"test-model"}]}'
-  declares "$input"
-  : >"$fx/reads-images"
+t_case "an issue that links no image starts while the model cannot read one, and the model is not asked"
+for input in '["text"]' '["text","image"]'; do
+  imaging "$input"
   t_run "$dispatch"
-  t_eq "$(t_calls fake-start)" ""
-  t_lacks "$(t_calls gh)" "issue edit"
-  t_eq "$(jq -c '[.why, .hold]' "$dispatch_json")" '["resources","holding: no resources: test-model does not declare image input in models.json, and TEHAS_WORK_IMAGES is 1"]'
-  t_lacks "$(t_calls curl)" "chat/completions"
+  t_eq "$(t_calls fake-start)" "7"
+  t_eq "$(image_asks)" 0
+  t_eq "$(jq -r .why "$dispatch_json")" ""
+  t_lacks "$(t_calls gh)" "images are off"
 done
 
-t_case "no resources: the model declares image input and does not answer an image"
-reset
-t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
-mesh '{"data":[{"id":"test-model"}]}'
-declares '["text","image"]'
-rm -f "$fx/reads-images"
+t_case "an issue that links an image waits while the model does not declare image input, and it is not asked"
+for input in '["text"]' 'null'; do
+  imaging "$input"
+  pictured 7
+  : >"$fx/reads-images"
+  t_run "$dispatch"
+  t_eq "$t_rc" 0
+  t_eq "$(t_calls fake-start)" ""
+  t_lacks "$(t_calls gh)" "issue edit"
+  t_contains "$t_out" "hold #7: its text links an attachment and TEHAS_WORK_IMAGES is 1, but test-model does not declare image input in models.json"
+  t_eq "$(image_asks)" 0
+  t_eq "$(jq -r .why "$dispatch_json")" ""
+done
+
+t_case "an issue that links an image waits while the model does not answer an image"
+imaging '["text","image"]'
+pictured 7
 t_run "$dispatch"
+t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit"
-t_eq "$(jq -c '[.why, .hold]' "$dispatch_json")" '["resources","holding: no resources: test-model does not answer an image, and TEHAS_WORK_IMAGES is 1"]'
-t_lacks "$(cat "$dispatch_json")" "mesh.test"
-rm -f "$fx/reads-images"
+t_contains "$t_out" "hold #7: its text links an attachment and TEHAS_WORK_IMAGES is 1, but test-model does not answer an image"
+t_lacks "$t_out" "mesh.test"
+
+t_case "an issue without images behind one that waits for them starts"
+imaging '["text"]'
+ready 7 8
+pictured 7
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "8"
+t_contains "$t_out" "hold #7:"
+
+t_case "the model is asked to read an image once a poll"
+imaging '["text","image"]'
+slots 3 TEHAS_WORK_IMAGES=1
+ready 7 8 9
+pictured 7
+pictured 8
+t_run "$dispatch"
+t_eq "$(image_asks)" 1
+t_eq "$(t_calls fake-start)" "9"
+t_contains "$t_out" "hold #8:"
+
+t_case "with every slot taken no image request is sent"
+imaging '["text","image"]'
+slots 1 TEHAS_WORK_IMAGES=1
+pictured 7
+: >"$fx/reads-images"
+hold 9
+t_run "$dispatch"
+t_eq "$(image_asks)" 0
+t_eq "$(t_calls fake-start)" ""
+t_eq "$(jq -r .why "$dispatch_json")" count
+release
+
+t_case "a retry of an issue that links an image waits for a model that reads one, and the tick stays"
+parked
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
+mesh '{"data":[{"id":"test-model"}]}'
+declares '["text"]'
+comments 7 "$(park_body x ' ')" alice
+pictured 7
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "api -X PATCH"
+t_contains "$t_out" "hold #7: its text links an attachment"
+
+t_case "a planning session is not held by the image part of the check"
+imaging '["text"]'
+echo '[]' >"$fx/ready.json"
+echo '[{"number":7,"labels":[{"name":"tehas:plan"}]}]' >"$fx/plans.json"
+echo '[{"event":"labeled","label":{"name":"tehas:plan"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
+pictured 7
+t_run "$dispatch"
+t_eq "$(t_calls fake-plan | wc -l)" 1
+t_eq "$(image_asks)" 0
+
+t_case "an issue whose text cannot be read for its links is not started"
+imaging '["text","image"]'
+echo '{"number":7,"state":"open","body":42}' >"$fx/work-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "ERROR: the text of #7 could not be read for its links"
 
 # What the sandbox image says about its own pi-rukas, as its build writes it:
 # <commit>|<reads>. The commit is put among the proven ones, so the canary rule
@@ -2851,7 +3050,23 @@ image_says() { # <1, 0, unknown, or none when the image carries no label>
   fi
 }
 
-t_case "no resources: the sandbox image says its pi-rukas does not read images, and nothing on the network is asked"
+t_case "an issue that links an image waits while the sandbox image says its pi-rukas does not read them, and the model is not asked"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
+mesh '{"data":[{"id":"test-model"}]}'
+declares '["text","image"]'
+: >"$fx/reads-images"
+pictured 7
+image_says 0
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_eq "$(image_asks)" 0
+t_contains "$t_out" "hold #7: its text links an attachment and TEHAS_WORK_IMAGES is 1, but the pi-rukas in the sandbox image cccccccccccc does not read them"
+t_eq "$(jq -r .why "$dispatch_json")" ""
+image_says none
+
+t_case "an issue that links no image starts while the sandbox image does not read them"
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
 mesh '{"data":[{"id":"test-model"}]}'
@@ -2859,10 +3074,7 @@ declares '["text","image"]'
 : >"$fx/reads-images"
 image_says 0
 t_run "$dispatch"
-t_eq "$(t_calls fake-start)" ""
-t_lacks "$(t_calls gh)" "issue edit"
-t_eq "$(t_calls curl)" ""
-t_eq "$(jq -c '[.why, .hold]' "$dispatch_json")" "[\"resources\",\"holding: no resources: the pi-rukas in the sandbox image cccccccccccc does not read the images a cycle is given, and TEHAS_WORK_IMAGES is 1\"]"
+t_eq "$(t_calls fake-start)" "7"
 image_says none
 
 t_case "an image that reads them is held for nothing, and the model is still asked"
@@ -2871,11 +3083,12 @@ t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
 mesh '{"data":[{"id":"test-model"}]}'
 declares '["text","image"]'
 : >"$fx/reads-images"
+pictured 7
 image_says 1
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 t_eq "$(jq -r .why "$dispatch_json")" ""
-t_contains "$(t_calls curl)" "chat/completions"
+t_eq "$(image_asks)" 1
 image_says none
 
 t_case "an image that says nothing is not held for it, whatever its pi-rukas really reads"
@@ -2884,6 +3097,7 @@ t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
 mesh '{"data":[{"id":"test-model"}]}'
 declares '["text","image"]'
 : >"$fx/reads-images"
+pictured 7
 image_says unknown
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"

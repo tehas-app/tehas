@@ -86,8 +86,8 @@ the issue text links and mounts them read-only in the cycle's container.
 Whether the cycle's first two steps, explore and plan, are shown them beside
 the text is what the sandbox image's own label answers. An image built since
 upstream pi-rukas merged the reader on 2026-10-14 says yes. One that says no
-holds every cycle while the setting stands, not only an issue whose text
-links a picture. The images of an issue an allowed account labelled are read,
+holds every issue whose text links an attachment while the setting stands;
+the other issues start. The images of an issue an allowed account labelled are read,
 whoever opened it; the Protolab's rule is the author's. The plan puts the
 placement into words, and the later steps read the plan. Images in comments
 are not read, and no cycle has been seen to use a picture yet, so words in
@@ -478,8 +478,12 @@ reaches them. Remove the label to resume.
 - No cycle, no planning turn and no retry while there are no resources: the
   model endpoint does not answer, or does not offer the configured model. The
   dispatcher asks it at every poll. `tehas status` says `warn: No resources`
-  and the dashboard says `no resources` until it is back. With
-  `TEHAS_WORK_IMAGES=1` a model that does not read an image counts the same.
+  and the dashboard says `no resources` until it is back.
+- With `TEHAS_WORK_IMAGES=1`, no cycle for an issue whose text links an
+  attachment while the model does not read images. The dispatcher asks the
+  model with a one-pixel image only when such an issue could start now, at
+  most once a poll. The issue stays queued, the log says `hold #N: ...`, and
+  issues without images start as usual. A planning turn is not held by it.
 - One cycle at a time on a pi-rukas that is new on the host: one that no
   cycle here has ended as `merged`, or as a handoff with a pull request, on.
   While a cycle runs on it, `tehas status` says `holding: pi-rukas <commit> is
