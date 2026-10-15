@@ -402,7 +402,7 @@ t_case "a container left by a killed run is removed before the run, under timeou
 reset
 t_run "$index"
 t_eq "$t_rc" 0
-t_eq "$(t_calls docker | grep -v '^info ' | cut -d' ' -f1-3 | tr '\n' ' ')" "image inspect $image rm -f tehas-index run --rm --name "
+t_eq "$(t_calls docker | grep -v '^info ' | cut -d' ' -f1-3 | tr '\n' ' ')" "image inspect $image rm -f tehas-index run --rm --init "
 t_eq "$(t_calls timeout | grep '^-k ' | cut -d' ' -f1-5)" "-k 30 1800 docker run"
 t_eq "$(find "$failed" 2>/dev/null | wc -l)" 0
 

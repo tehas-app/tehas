@@ -192,7 +192,8 @@ tehas_slice_cpus() {
   spare=$((cpus > 1 ? cpus - 1 : 1))
   quota=$((spare * 100 / cycles))
   [ "$quota" -ge 100 ] || quota=100
-  pids=$(((quota + 99) / 100 * 1024))
+  pids=$(((quota + 99) / 100))
+  pids=$((pids * 1024))
   [ "$pids" -ge 2048 ] || pids=2048
   [ "$pids" -le 4096 ] || pids=4096
   printf '%d.%02d %d\n' $((quota / 100)) $((quota % 100)) "$pids"
