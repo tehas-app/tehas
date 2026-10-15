@@ -545,56 +545,6 @@ t_run "$summary"
 t_eq "$t_rc" 0
 t_contains "$t_out" "slice     unknown: no poll has reported in 10 min"
 
-read_file=$T/home/tehas/state/images-read.json
-reads() { # true|false|null: what tehas work last found in the sandbox image
-  mkdir -p "$(dirname "$read_file")"
-  jq -n --argjson reads "$1" --arg at "$(date -u -d "@$(($(date +%s) - 120))" +%FT%TZ)" \
-    '{time: $at, image: "tehas/pi-rukas:uid1001", reads: $reads}' >"$read_file"
-}
-
-t_case "health: images the sandbox image does not read are a warning, and tehas status says so"
-reset
-reads false
-t_run "$status && $summary"
-t_eq "$(jq -r .status "$live/health.json")" warn
-t_eq "$(jq -r .output "$live/health.json")" "Images are fetched, but the sandbox image's pi-rukas does not read them."
-t_eq "$(jq -c '.checks.images | [.reads, has("image")]' "$live/health.json")" '[false,false]'
-t_contains "$t_out" "images    fetched but not read: the sandbox image's pi-rukas does not read them (checked 2 min ago)"
-
-t_case "health: images it reads, or an image that could not be asked, pass"
-reset
-reads true
-t_run "$status && $summary"
-t_eq "$(jq -r .status "$live/health.json")" pass
-t_contains "$t_out" "images    read by the sandbox image's pi-rukas (checked 2 min ago)"
-reads null
-t_run "$status && $summary"
-t_eq "$(jq -r .status "$live/health.json")" pass
-t_contains "$t_out" "images    unknown: the sandbox image could not be asked (2 min ago)"
-
-t_case "health: low disk is said before unread images"
-reset
-reads false
-disk true
-t_run "$status"
-t_eq "$(jq -r .output "$live/health.json")" "The host is low on disk: previews are not being built."
-
-for bad in 'not json' '{"reads":false}' '{"time":"x","reads":"no"}' '[]'; do
-  t_case "health: an images-read.json of '$bad' gives no images check and no warning"
-  reset
-  printf '%s\n' "$bad" >"$read_file"
-  t_run "$status && $summary"
-  t_eq "$(jq -c '[.status, .checks.images]' "$live/health.json")" '["pass",null]'
-  t_lacks "$t_out" "images "
-done
-
-t_case "summary: an instance that gives no images has no images line"
-reset
-rm -f "$read_file"
-t_run "$status && $summary"
-t_lacks "$t_out" "images "
-t_eq "$(jq -c .checks.images "$live/health.json")" null
-
 t_case "health and summary read files only: no systemctl, no docker"
 reset
 t_stub systemctl

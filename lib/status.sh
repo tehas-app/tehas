@@ -12,9 +12,6 @@
 #   tehas_state_lines <json> <now> <stale>   the factory line and the queue line
 #   tehas_cycle_line <json> <now>            one cycle, as health.json writes it
 #   tehas_slice_line <health json> <now>     the last poll's slice check
-#   tehas_images_line <health json> <now>    whether the sandbox image reads
-#                                            the images; empty when the
-#                                            instance gives none
 #
 # <json> is JSON text given as an argument: nothing here opens a file, loads the
 # instance settings or writes anything.
@@ -70,15 +67,5 @@ tehas_slice_line() { # <health json> <now epoch seconds>
      | if . == null then "slice     unknown: no poll has reported in 10 min"
        elif (.why // "") | IN("", "resources") | not then "slice     \(.hold // "holding") (\(.time | age($now)))"
        else "slice     room for \(.room // 0) cycles (\(.committed | gib) GiB of \(.max | gib) GiB promised, reserve \(.reserve // "unknown"), \(.time | age($now)))" end)
-  ' <<<"$1"
-}
-
-# What tehas work or tehas plan last found in the sandbox image.
-tehas_images_line() { # <health json> <now epoch seconds>
-  jq -r --argjson now "$2" "$tehas_state_defs"'
-    .checks.images // null | select(. != null)
-    | if .reads == true then "images    read by the sandbox image\u0027s pi-rukas (checked \(.time | age($now)))"
-      elif .reads == false then "images    fetched but not read: the sandbox image\u0027s pi-rukas does not read them (checked \(.time | age($now)))"
-      else "images    unknown: the sandbox image could not be asked (\(.time | age($now)))" end
   ' <<<"$1"
 }

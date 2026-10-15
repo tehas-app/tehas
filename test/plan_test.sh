@@ -748,9 +748,6 @@ t_eq "$(after -v | grep -c -x "$tree.images:$ws.images:ro")" 1
 t_eq "$(after -e | grep '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$ws.images"
 t_eq "$(turn_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -i --init")" ""
 t_contains "$(cat "$T/calls/gh.comments")" "Tehas gave this planning session 1 image from the issue text."
-# The stub docker names no image id, so whether pi-rukas reads them is not known.
-t_contains "$(cat "$T/calls/gh.comments")" "Whether the pi-rukas in the sandbox image reads them could not be checked."
-t_eq "$(jq -c .reads "$T/home/tehas/state/images-read.json")" null
 t_eq "$([ -e "$tree.images" ] && echo left)" ""
 
 t_case "a later turn mounts the same images and fetches nothing"
@@ -786,7 +783,6 @@ reset
 t_instance "${T_MINIMAL[@]}" "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=/elsewhere"
 t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 0
-t_eq "$(find "$T/home/tehas/state/images-read.json" 2>/dev/null | wc -l)" 0
 t_eq "$(cat "$T/calls/curl.urls" "$T/calls/gh.args" 2>/dev/null)" ""
 t_eq "$(after -v | grep -c images)" 0
 
