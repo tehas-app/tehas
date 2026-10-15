@@ -24,7 +24,7 @@ and is the only thing tehas reads from it.
 | File                                                     | Purpose                                                                                                                                                                                                          | Required                                |
 | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
 | `AGENTS.md`                                              | The rules agents work under: architecture rules, how to verify, commit style, what never to touch. No sentence granting merge rights, unless you want auto-merge                                                 | Yes                                     |
-| `.pi/verify-cmd`                                         | Fast gate. The first line that is not empty or a comment is run in the cycle's worktree, 10 minute limit. Without it pi-rukas guesses from `package.json` or `Cargo.toml`, and for other stacks verifies nothing | Yes                                     |
+| `.pi/verify-cmd`                                         | Fast gate. The first line that is not empty or a comment is run in the cycle's worktree, 30 minute limit by default (`TEHAS_VERIFY_TIMEOUT`). Without it pi-rukas guesses from `package.json` or `Cargo.toml`, and for other stacks verifies nothing | Yes                                     |
 | `.pi/verify-cmd-full`                                    | Full gate, same format; stands in for CI                                                                                                                                                                         | Recommended                             |
 | `.pi/smoke-cmd`                                          | Proves the built product starts, same format                                                                                                                                                                     | Recommended                             |
 | `.pi/worktree-setup`                                     | Shell script run in each new worktree with no arguments and no environment: install dependencies. Must exit 0                                                                                                    | If a bare checkout cannot run the gates |
@@ -95,7 +95,9 @@ checkout.
 echo ~/tehas/platform/instances/tehas-tehas >~/.config/tehas/instance-dir
 ```
 
-The example's whole `instance.env`:
+The start of the example's `instance.env`, without its comments. The rest of
+it turns on optional parts: previews, the improvement loop and limits of its
+own.
 
 ```
 TEHAS_REPO=janit/tehas
@@ -150,7 +152,7 @@ must be listed too. The example's, with one provider and one model:
           "id": "qwen3.8-flash-next",
           "name": "Qwen3.8 Flash Next (fleet)",
           "reasoning": false,
-          "input": ["text"],
+          "input": ["text", "image"],
           "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
           "contextWindow": 262144,
           "maxTokens": 32768,
@@ -199,8 +201,8 @@ settings installs nothing and exits 78.
 
 ### 6. The sandbox image
 
-`sandbox/Dockerfile` adds shellcheck and Playwright's Chromium to the
-pi-rukas image and remaps the user id. Add whatever your gates need. Then:
+`host/sandbox/Dockerfile` in the platform checkout adds shellcheck and
+Playwright's Chromium to the pi-rukas image and remaps the user id. Add whatever your gates need. Then:
 
 ```
 ~/tehas/sandbox/build.sh

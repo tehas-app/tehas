@@ -66,18 +66,19 @@ Everything that differs between instances is in the instance directory:
 
 The directory is found in this order: `TEHAS_INSTANCE_DIR` in the environment,
 the one-line file `~/.config/tehas/instance-dir`, then `~/.config/tehas` itself.
-The example points at a directory in the platform checkout:
+The tehas-tehas host keeps its instance beside the secrets:
 
 ```
 cat ~/.config/tehas/instance-dir
-/home/boss/tehas/platform/instances/tehas-tehas
+/home/boss/.config/tehas/instance
 ```
 
 Rules that hold for every command:
 
 - `instance.env` wins. A setting of the same name in the environment is
-  dropped. Only `TEHAS_HOME`, `TEHAS_INSTANCE_DIR` and three hooks the tests
-  use are taken from the environment.
+  dropped. Only `TEHAS_HOME`, `TEHAS_INSTANCE_DIR`, the energy switches
+  `TEHAS_ENERGY` and `TEHAS_ENERGY_URL`, and seven hooks the tests use are
+  taken from the environment.
 - A missing or malformed setting stops the command with exit 78 and one line
   naming the setting, before it calls GitHub, Docker or git.
 - Loading settings runs no git command, makes no network call and writes
@@ -108,7 +109,7 @@ checks, before it calls git. It changes nothing when the checkout has local
 changes or cannot be fast-forwarded, and it never enables a unit or starts a
 container the host was not already running: a changed unit is reloaded and
 restarted when it was active, and a docs or edge router container is recreated when
-it is up - Caddy reads its config when the process starts, so a changed Caddyfile
+it is up. Caddy reads its config when the process starts, so a changed Caddyfile
 needs the container brought back up. Asking Docker or systemd whether one runs and
 getting no answer stops the update; only a real answer counts, not an exit status
 on its own, and a systemd that did not reload the unit files stops the run rather
@@ -122,12 +123,31 @@ One update runs at a time. `tehas update` and a real run of `install.sh` hold
 update is running` and exits 1 before it changes anything. The update hands
 its lock to the `install.sh` it runs. `--check` takes no lock.
 
+From a checkout of tehas on another machine, two scripts release and deploy.
+`scripts/tag-release.sh` runs the gate on the head of the remote's default
+branch in a temporary worktree, tags that commit as the next `vX.Y.Z` with an
+annotated tag, and pushes the tag. `scripts/tag-deploy.sh tehas-tehas` refuses
+unless the newest tag is the head of that branch, runs
+`. ~/tehas/env.sh && tehas update` on the host over ssh, then checks that the
+host's checkout is at the tag. With `--check` it runs `tehas update --check`
+instead. The ssh destination has to log in as the tehas user. Put the user and
+key in `~/.ssh/config`, or give the ssh command in `TEHAS_SSH`:
+
+```
+Host tehas-tehas
+  User boss
+  IdentityFile ~/.ssh/<key>
+```
+
+Logged in as another account, the remote command fails with
+`~/tehas/env.sh: No such file or directory`.
+
 The steps are still there on their own. `install.sh` is what puts tehas on a host
 the first time, before `tehas update` exists there:
 
 ```
 cd ~/tehas/platform && git pull
-./install.sh --check     # change nothing, report up to seven results
+./install.sh --check     # change nothing, report up to eight results
 ./install.sh             # copy changed files into place, keep <name>.prev
 ```
 
@@ -136,10 +156,12 @@ The labels `tehas:plan`, `tehas:planning` and `tehas:question`, for planning on
 an issue and the retry tick, are not in a repository until it has been.
 
 `--check` prints one line each for the instance settings, the host's tools, the
-slice, the installed files, the command the other accounts type where root
-installed one, the follow-ups an earlier run left undone, and the tests. Two of
-the seven appear only where there is something to say, and the sample below is a
-host with a follow-up owed and no root-installed copy:
+slice, whether the sandbox image reads a cycle's images (`Images:`), the
+installed files, the command the other accounts type where root installed one,
+the follow-ups an earlier run left undone, and the tests. Three of the eight
+appear only where there is something to say, so a current host prints five
+lines, each `OK`. The sample below is a host with a follow-up owed and no
+root-installed copy:
 
 ```
 Instance:     /home/boss/tehas/platform/instances/tehas-tehas OK
@@ -152,7 +174,7 @@ Tests:        OK
 ```
 
 The `Follow-ups:` line appears only while `~/tehas/state/update-pending` still
-holds steps that were asked for and never ran - and while it does, `--check`
+holds steps that were asked for and never ran. While it does, `--check`
 exits 1, because a host with files matching and a step unapplied is not current.
 Running `tehas update` runs them and clears the record
 ([Troubleshooting](/troubleshooting) has the case in full).
@@ -177,13 +199,29 @@ which is root's step.
 
 `install.sh` validates the settings first and installs nothing if they are
 invalid. It prints one `next:` line per follow-up its changed files call for, and
-restarts nothing itself; `tehas update` is what runs them, and it records each of
-them as owed while it copies the file that calls for it - which is why a run that
-dies partway does not leave the host looking current. It asks systemd for nothing,
+restarts nothing itself; `tehas update` is what runs them. `install.sh` records
+each of them as owed while it copies the file that calls for it. That is why a run
+that dies partway does not leave the host looking current. It asks systemd for nothing,
 but for the one case below:
 a copied unit file is not in effect until systemd has reloaded it, and that reload
 belongs to the step that restarts the units. A file edited directly on the host
 shows up as drift in `--check`.
+
+A run that copies a changed `versions.env` also prints
+`later: <checkout>/bootstrap.sh user   (versions.env changed; until it runs, --check says Dependencies: NOT OK)`.
+`tehas update` rebuilds the sandbox image for that change but does not run
+`bootstrap.sh user`: it fetches from the network and replaces the tools under
+the tehas user's home and the pi-rukas checkout. Run it yourself, as the tehas
+user, once the update has finished and no cycle is running:
+
+```
+cd ~/tehas/platform && ./bootstrap.sh user
+```
+
+The line is printed only by the run that copied the file. After that only
+`--check` says it, as `Dependencies: NOT OK`, and only for a tool at another
+version: a changed npm lockfile with the same version is not reported there
+(see [Bootstrap](/bootstrap#3-check)).
 
 Each file is copied to `<name>.new` beside the installed one and renamed over
 it. A cycle that starts during an install runs the old file or the new one,
@@ -533,7 +571,8 @@ in `sandbox/Dockerfile` is the image upstream published for that release. The
 three always name the same release, or the host and the sandbox run different
 code.
 
-Every release of tehas takes the newest release of pi-rukas. Before tagging:
+Every release of tehas takes the newest release of pi-rukas.
+`scripts/tag-release.sh` does not do this for you. Before tagging:
 
 1. Run `scripts/rukas-latest.sh`. It reads upstream's newest release, its
    commit and its image's digest, and writes all three. With `--check` it
@@ -546,8 +585,9 @@ Every release of tehas takes the newest release of pi-rukas. Before tagging:
    Such a release is not pinned until tehas is changed to match it.
 2. When it changed something, open a pull request with the change, merge it,
    and tag the release from that merge.
-3. On the host: pull, run `./bootstrap.sh user`, rebuild the sandbox image,
-   and run the contract test above. With `TEHAS_WORK_IMAGES=1` the order
+3. On the host: `tehas update`, which rebuilds the sandbox image because
+   `versions.env` changed, then `./bootstrap.sh user`, then the contract test
+   above. With `TEHAS_WORK_IMAGES=1` the order
    matters: rebuilding onto a base whose pi-rukas has no reader holds every
    cycle, so move the pin to a release that has it, or turn the setting off
    before the rebuild: see [Sandbox image](#sandbox-image). The dispatcher

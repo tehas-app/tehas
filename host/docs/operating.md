@@ -168,16 +168,15 @@ The dispatcher takes issues urgent first, then by the lowest issue number: as ma
 | `tehas:awaiting-merge`  | Pull request is open and reviewed | Review and merge                         |
 | `tehas:shipped`         | A merged pull request closed it   | Nothing; the bot gives it                |
 | `needs-human-attention` | The cycle stopped                 | Read the comment; see below              |
+| `tehas:plan`            | A planning session is asked for   | Wait for the first comment               |
+| `tehas:planning`        | A planning turn is running        | Wait                                     |
+| `tehas:question`        | The factory asked something       | Tick a box; in a planning session you may reply instead |
+| `tehas:improvement`     | Filed by the improvement loop     | Read it; apply `tehas:ready` if it should be built |
 
 `tehas:ready` from an allowed labeller starts a fresh cycle whatever else the
 issue carries. The labels of the earlier outcome go when the cycle starts. On
 an issue whose cycle is still running, the label waits: a fresh cycle starts
 when that one has ended. Remove the label before then to withdraw it.
-
-| `tehas:plan`            | A planning session is asked for   | Wait for the first comment               |
-| `tehas:planning`        | A planning turn is running        | Wait                                     |
-| `tehas:question`        | The factory asked something       | Tick a box; in a planning session you may reply instead |
-| `tehas:improvement`     | Filed by the improvement loop     | Read it; apply `tehas:ready` if it should be built |
 
 When the cycle starts and when it ends, the bot comments on the issue. The token
 usage per agent role is posted on the pull request.

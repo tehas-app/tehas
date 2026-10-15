@@ -26,9 +26,11 @@ How far this is proven:
   answered as this page says. That was on a development machine.
 - The preview image of this repository was built and run with the options a
   preview gets, and served the front page, the dashboard and `/health`.
-- `tehasbot preview` is covered by the shell tests. It has never run on a
-  host, against GitHub or against Docker. Steps 7 to 10 are what the code
-  does, not a record of a run.
+- `tehasbot preview` is covered by the shell tests. On the tehas-tehas host
+  on 11 October 2026 it built and served two pull requests at their names and
+  removed both after their merge. The notice at the top of a pull request's
+  description, the check every three hours, a full disk and a pull request
+  over the limit have not been seen on a host.
 
 See [Features](/features).
 

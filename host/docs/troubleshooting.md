@@ -87,9 +87,10 @@ Run `tehas dispatch --dry-run` and read what it prints.
 - `ignore #N: tehas:urgent was applied by ...`: the label came from an account
   that is not allowed, so it moves nothing: the issue keeps its place by
   number. It is said at every poll until someone removes the label.
-- `holding: the mesh at ... does not offer ...`: the model endpoint is down or
-  does not list the configured model. The issue stays queued and is taken as
-  soon as the endpoint answers. See "The model endpoint does not answer" below.
+- `holding: pi-rukas <commit> is new on this host, ...`: no cycle has ended
+  well on the installed pi-rukas yet, so one cycle runs on it at a time. The
+  first that ends as merged, or with a pull request, lifts the hold. See
+  [Limits that hold work back](/operating#limits-that-hold-work-back).
 - `holding: no resources: the model endpoint ...`: the model endpoint does not
   answer, offers no models, or does not offer the configured model. Nothing
   starts, no cycle, no planning turn and no retry. The issues stay queued and
@@ -114,8 +115,9 @@ Run `tehas dispatch --dry-run` and read what it prints.
 - `nothing to do`: the issue is closed, or does not carry `tehas:ready`.
 - `wait #N: its cycle is still running`: `tehas:ready` was applied while the
   issue's cycle runs. A fresh cycle starts when that one has ended.
-- `park #N: it is marked tehas:running and no cycle holds its lock`: the cycle
-  of that issue ended without a report, or never started. The issue now carries
+- `would park #N: it is marked tehas:running and no cycle holds its lock`
+  (`park #N` in the log of a real poll): the cycle of that issue ended without
+  a report, or never started. The next real poll gives the issue
   `needs-human-attention`. Read `~/tehas/logs/dispatch-work-N.log`.
 - `N cycles running, room for M more`, then `would run a cycle for #N ...`:
   the issues the next poll starts. In the log you may also see `the code index
@@ -271,9 +273,10 @@ Check the push by hand:
 tehas work <issue>      # exits 3 at once, with git's message, if it cannot push
 ```
 
-The work of a parked cycle is not lost. Its commits are in
-`~/tehas/repos/<product>/.worktrees/issue-<N>-*`, and the driver's combined
-commit is on the local branch `feature/issue-<N>-...`.
+The work of a parked cycle is not lost. Its commits are in the cycle's own
+workspace, `~/tehas/work/<product>-<N>/.worktrees/issue-<N>-*`, and the
+driver's combined commit is on the local branch `feature/issue-<N>-...` there.
+A retry moves that workspace to `<product>-<N>.before-retry`.
 
 ## The model endpoint does not answer
 
@@ -301,8 +304,9 @@ A cycle that died leaves `status: running` behind. Confirm with
 tehas work <issue> --restart
 ```
 
-Copy the state file first if you want to know why it died; `--restart`
-overwrites it. Branches, worktrees and commits are kept.
+The new run starts in a fresh workspace. The old one, its state file
+included, is moved to `~/tehas/work/<product>-<issue>.before-retry`, and the
+next run replaces that. Branches pushed to GitHub are kept.
 
 ## The verify gate fails on code the cycle did not touch
 
@@ -361,17 +365,62 @@ A follow-up that was asked for has not run. The lines are in
 what `tehas update` has not finished. Run `tehas update`: it runs the steps in the
 order `lib/update-steps.sh` lists them and clears the record. If it names a step
 line in a `WARN:` instead, the checkout asks for a step this installed
-`tehas update` does not know - pull and run it again, since `install.sh` installs
+`tehas update` does not know. Pull and run it again, since `install.sh` installs
 the commands before the follow-ups run.
 
 The lines are step lines, not shell text: `docs` on its own is not one, because
 that renewal needs its `--force-recreate` flag. A line `lib/update-steps.sh` does
 not accept is named in a `WARN:`, is not run, and stays in the record.
 
-A record this account cannot open - written by another account, or with a mode
-that blocks reading - stops the update with exit 1 rather than read as "nothing
+A record this account cannot open, written by another account or with a mode
+that blocks reading, stops the update with exit 1 rather than read as "nothing
 owed": it holds steps, and writing over it would lose them. Make it readable
 again, or delete it once you have run those steps yourself.
+
+## `tehas update` stopped partway
+
+Each step prints one line, and the update stops at the first that fails, with
+exit 1. What ran before it stays done: files `install.sh` copied stay
+installed, each replaced file kept as `<name>.prev`. The steps not yet run stay
+in `~/tehas/state/update-pending`, and `install.sh --check` reports them as
+`Follow-ups: NOT DONE`. Fix what the failed line names and run `tehas update`
+again. It runs the owed steps even when the checkout has not moved.
+
+A line that starts `settings:` and exit 78 right after the fast-forward mean
+the new code asks for a setting the instance does not have. The checkout is
+at the new code and nothing was installed. Add the setting to `instance.env`
+and run `tehas update` again.
+
+## `install.sh` printed a `later:` line
+
+A `later:` line is for a person. `tehas update` passes it through and does not
+run it, and it is not recorded as owed. Run the command it names yourself:
+
+- `later: <checkout>/bootstrap.sh user`: `versions.env` changed, and the tools
+  on the host follow the pins only when this runs, as the tehas user. Until
+  then `install.sh --check` says `Dependencies: NOT OK`.
+- `later: ~/tehas/bin/tehas index`: the code index was not built. It needs the
+  sandbox image and the product checkout.
+- `later: sudo <checkout>/bootstrap.sh dev <user>`: root's copy of the command
+  behind `tehas dev` for other accounts is not this checkout's. Only root can
+  install it.
+- `later: ./install.sh again ...`: old files were left in place. The line says
+  when to run it.
+
+## `scripts/tag-deploy.sh` fails with `~/tehas/env.sh: No such file or directory`
+
+The script runs `tehas update` on the host over ssh, as the account ssh logs in
+as. Without a user in the destination or in `~/.ssh/config`, that is your local
+login name, not the tehas user. Put the host's user and key in `~/.ssh/config`:
+
+```
+Host tehas-tehas
+  User boss
+  IdentityFile ~/.ssh/<key>
+```
+
+Then run `scripts/tag-deploy.sh tehas-tehas` again. `TEHAS_SSH` changes the
+ssh command itself.
 
 ## The edge router does not start
 
@@ -383,7 +432,7 @@ is not done`, and leaves `~/tehas/state/edge-takeover` holding the time it was
 made. Fix what the lines above that message say and run `tehas update` again:
 while that file is less than a day old it starts the router whether or not
 anything runs, and says `edge: finishing the takeover`. Past a day the mark is
-not acted on - the update says `edge: the mark of the takeover is <n> hours
+not acted on: the update says `edge: the mark of the takeover is <n> hours
 old, and was left to you`, removes the file, and renews the router only where
 it already runs, so a router you stopped on purpose stays stopped. Start it by
 hand then: `docker compose -p tehas-protolab down`, then

@@ -145,7 +145,9 @@ and the usage on standard error, before the instance settings are read. A mistyp
 `--dryrun` therefore starts no poll and changes nothing.
 
 Order of rules: pause label on the control issue, a usable `tehas.slice`,
-the free slots (`TEHAS_TICKET_CONCURRENCY` less the running cycles), the cap
+a model endpoint that answers and offers the model, the free slots
+(`TEHAS_TICKET_CONCURRENCY` less the running cycles), one cycle at a time on a
+pi-rukas commit that has not yet ended a cycle well on this host, the cap
 on issues awaiting merge or being worked on, the room and the memory pressure
 in the slice, who applied `tehas:urgent`, then who applied `tehas:ready`, then
 urgent first and lowest number. A `tehas:urgent` counts only when an allowed
@@ -241,8 +243,8 @@ One pi-rukas `/work` cycle, headless, in the sandbox image.
 tehas work <issue> [--restart]
 ```
 
-It starts `pi --mode rpc --approve` in a container, sends `/work <issue>` and
-waits until `.pi/work-state/<issue>.json` in the workspace `~/tehas/work/<name>-<issue>` leaves `running`.
+It starts `pi --mode rpc --approve` in a container, sends `/work <issue>`
+(`/work <issue> --restart` with `--restart`) and waits until `.pi/work-state/<issue>.json` in the workspace `~/tehas/work/<name>-<issue>` leaves `running`.
 
 | Exit | Meaning                                                          |
 | ---- | ---------------------------------------------------------------- |
@@ -251,7 +253,7 @@ waits until `.pi/work-state/<issue>.json` in the workspace `~/tehas/work/<name>-
 | 2    | Pi exited, the time limit passed, or the cycle stalled, while it was running |
 | 3    | The sandbox cannot push to the repository; no cycle was started  |
 | 4    | With `TEHAS_WORK_IMAGES=1`: an image the issue links could not be fetched, or the issue could not be read for its images; no cycle was started |
-| 64   | No bot token or no git identity; no cycle was started            |
+| 64   | The issue is not a number, or no bot token or no git identity; no cycle was started |
 | 78   | The instance settings are invalid, or `tehas.slice` is missing, has no memory limit, or cannot be used (the message names `sudo ./bootstrap.sh slice` or the reason); no cycle was started |
 | 137  | The container was killed while the cycle was running: out of memory, or stopped from outside. The cycle is `killed` |
 
@@ -471,7 +473,7 @@ session above. Any other command typed there is refused with exit 64.
 It is a copy of `host/login/tehas`, and only root installs it, so an update of
 the platform can leave those accounts typing an older command. No tehas command
 replaces it: `install.sh --check` reports the difference as `Login: NOT CURRENT`
-and a real install prints `later: sudo ./bootstrap.sh dev boss`. Run that command
+and a real install prints `later: sudo ~/tehas/platform/bootstrap.sh dev boss`. Run that command
 again after an update that changed `host/login/tehas`.
 
 | Exit | Meaning                                                                                   |
@@ -511,7 +513,7 @@ nothing is reading it.
 | ---- | ------------------------------------------------------ |
 | 0    | The index was built, or was already current            |
 | 1    | The sandbox image is missing, or the indexer failed    |
-| 3    | A cycle is running; nothing was done                   |
+| 3    | A cycle is running, or a poll or another index run holds the dispatcher's lock; nothing was done |
 | 64   | An argument this command does not know                 |
 | 78   | The instance settings are invalid, or `tehas.slice` cannot be used; nothing was done |
 
@@ -783,9 +785,11 @@ previews are not being built." when `freeBytes` is `null`.
 `checks.slice` is `live/dispatch.json` as the dispatcher's last poll wrote
 it: `time`, `why`, `hold`, `count`, `room`, `committed`, `max` and `reserve`.
 `why` is empty when cycles may start, else one word: `slice`, `unreadable`,
-`resources`, `count`, `awaiting`, `pressure` or `room`, and `hold` is the line
-the dispatcher logged. `resources` is a model endpoint that does not answer or
-does not offer the configured model. `room` is how many more reserves fit in the slice;
+`resources`, `count`, `canary`, `awaiting`, `pressure` or `room`, and `hold` is
+the line the dispatcher logged. `resources` is a model endpoint that does not
+answer or does not offer the configured model, or, with `TEHAS_WORK_IMAGES=1`,
+a model or sandbox image that cannot take the images. `canary` is a new
+pi-rukas commit that runs one cycle at a time. `room` is how many more reserves fit in the slice;
 `committed` and `max` are bytes. With `slice` or `unreadable` the status is
 `warn` and `output` is the hold. With `resources` the status is `warn` and
 `output` starts with `No resources:`. It is `null` when the file is more than ten
@@ -975,20 +979,22 @@ open issue is a duplicate. In the issue the model's text has every mention
 broken and its evidence inside a fence it cannot close. The label is
 `tehas:improvement` and no other.
 
-Limits: 3 issues a run; no run files while 10 open issues carry the label. The
+Limits: 3 issues a run; no run files in a repository while
+`TEHAS_IMPROVE_MAX_OPEN` (10 by default) open issues there carry the label. The
 whole log of each cycle a finding names is gzipped and uploaded to the release
 `tehas-improve-logs`, in pieces of at most 5 MB (`ticket-<issue>-<time>.log.gz`,
 or `.log.1.gz`, `.log.2.gz`). A log that holds something shaped like a token is
 not uploaded.
 
 Exit 0 when the run finished, also with an analyst stopped at its bound that
-left a good file, there was nothing to read, 10 issues are open already, or the
-loop is off.
+left a good file, there was nothing to read, the open issues are at their
+limit already, or the loop is off.
 Exit 1 when the analyst or GitHub failed: the records are kept and the next run
 reads them again. What a failed analyst printed is in
 `~/tehas/logs/improve-analyst-<stamp>.log`, one file per failed run, named by
 the time the run took the records. The run's line names it. Exit 64 on any
-argument, 78 on invalid settings. A second run while one is going leaves it to
+argument, 78 on invalid settings, or when there are records to read and
+`tehas.slice` cannot be used: the records are kept. A second run while one is going leaves it to
 that one.
 
 Each run also removes the per-cycle files and the kept analyst output in
@@ -1405,7 +1411,7 @@ leaves them as they are.
 | Exit | Meaning                                                                       |
 | ---- | ----------------------------------------------------------------------------- |
 | 0    | Updated, or already up to date                                                 |
-| 1    | The checkout has local changes, is not on a branch, cannot fast-forward, has no commit yet, a step failed or ran out of its limit, `install.sh` ran out of its limit or gave no answer, a follow-up install.sh asked for is one this command does not know, systemd did not reload the unit files, a container or unit gave no answer, the record of steps owed exists but cannot be read, a status of `install.sh` this command does not know (named in the message), or `--check` found something to update (a checkout behind, files that differ, steps left over from an earlier run) or something an update does not fix (the host's tools, the slice, a host's `/usr/local/bin/tehas` that is not the checkout's, the tests) |
+| 1    | Another update is running, the checkout has local changes, is not on a branch, cannot fast-forward, has no commit yet, a step failed or ran out of its limit, `install.sh` ran out of its limit or gave no answer, a follow-up install.sh asked for is one this command does not know, systemd did not reload the unit files, a container or unit gave no answer, the record of steps owed exists but cannot be read, a status of `install.sh` this command does not know (named in the message), or `--check` found something to update (a checkout behind, files that differ, steps left over from an earlier run) or something an update does not fix (the host's tools, the slice, a host's `/usr/local/bin/tehas` that is not the checkout's, the tests) |
 | 64   | More than one argument, or an argument this command does not know              |
 | 78   | The instance settings are missing or malformed, or there is no platform checkout |
 
@@ -1420,8 +1426,8 @@ cd ~/tehas/platform
 ./install.sh
 ```
 
-Exit 0 when done or nothing to report, 1 when `--check` found something or a
-step failed, 78 when the instance settings are invalid (nothing was changed).
+Exit 0 when done or nothing to report, 1 when `--check` found something, a
+step failed or another update is running, 78 when the instance settings are invalid (nothing was changed).
 `Slice: MISSING` and `Slice: DIFFERS` are something found: `--check` exits 1
 until root has run `sudo ./bootstrap.sh slice`, because every sandbox container
 runs in the slice and none starts without it. A real run installs either way and
@@ -1470,10 +1476,16 @@ Prepares a fresh host with everything tehas and pi-rukas need, at the versions
 in `host/versions.env`. See [Bootstrap a host](/bootstrap).
 
 ```
-sudo ./bootstrap.sh root boss   # system packages, Docker, docker group, lingering
+sudo ./bootstrap.sh root boss   # system packages, Docker, docker group, lingering, the slice
+sudo ./bootstrap.sh slice       # the slice alone, /etc/systemd/system/tehas.slice
 ./bootstrap.sh user             # the rest, under the user's home
-./bootstrap.sh check            # change nothing; found and expected version per tool
+sudo ./bootstrap.sh dev boss    # let other accounts start a session with tehas dev
+./bootstrap.sh check            # change nothing; found and expected version per tool, and the slice
 ```
+
+Exit 0 when done or `check` found everything, 1 when something failed or
+`check` found a tool missing or at another version, 64 on a usage error or
+`slice` not run as root.
 
 ## scripts/test.sh
 
@@ -1486,8 +1498,9 @@ scripts/test.sh
 
 It runs shellcheck over the shell scripts, then every `test/*_test.sh`. Those
 need bash, git, jq and shellcheck only: no sandbox image, no product checkout
-and no network. Exit 0 when every check passed, 1 when one failed, 2 when
-nothing could be checked.
+and no network. The test files run side by side, at most `TEHAS_TEST_JOBS` at
+once, the number of CPUs by default. Exit 0 when every check passed, 1 when one
+failed, 2 when nothing could be checked.
 
 `scripts/check-generic.sh` is the lint that keeps private network addresses out
 of every file, and product and host names out of platform files. The names
