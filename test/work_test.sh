@@ -186,6 +186,12 @@ t_lacks "$given" "elsewhere"
 t_contains "$(t_calls console | grep -e '^--mask ' | head -n 1)" "--mask --private gpu1 --private 192.0.2.9"
 t_lacks "$(t_calls console)" "test-token"
 
+t_case "the console masks the host of a role's own provider too"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_MODEL_DEVELOPER=big PI_ENSEMBLE_PROVIDER_DEVELOPER=other
+rm -f "$T/calls/console"
+t_run "$work 7"
+t_contains "$(t_calls console | grep -e '^--rpc ')" "--private models.lan --private elsewhere.lan --private bot@example.com"
+
 t_case "without models.json or aliases the console is given the bot's email only"
 t_instance "${T_MINIMAL[@]}"
 rm -f "$T/home/.pi/agent/models.json" "$T/calls/console"
@@ -280,6 +286,25 @@ PI_ENSEMBLE_SUBAGENT_PROVIDER
 PI_ENSEMBLE_VERIFY_TIMEOUT_MS
 PI_ENSEMBLE_WORKSPACE_ROOT"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
+
+t_case "a role's own model is passed in under the names pi-rukas reads, and nothing else is"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_MODEL_CODE_REVIEW_SPECIALIST=small-model
+rm -f "$T"/calls/*
+t_run "$work 7"
+t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" \
+  "$(printf '%s\n' "$want" PI_ENSEMBLE_MODEL_CODE_REVIEW_SPECIALIST PI_ENSEMBLE_PROVIDER_CODE_REVIEW_SPECIALIST | LC_ALL=C sort)"
+t_eq "$(cycle_args | grep -c -e '^PI_ENSEMBLE_MODEL_CODE_REVIEW_SPECIALIST$' -e '^PI_ENSEMBLE_PROVIDER_CODE_REVIEW_SPECIALIST$')" 2
+
+t_case "a role that pi-rukas does not know stops the cycle before Docker"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_MODEL_REVIEWER=small-model
+rm -f "$T"/calls/*
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_contains "$t_out" "PI_ENSEMBLE_MODEL_REVIEWER names no role"
+t_eq "$(t_calls docker)" ""
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+rm -f "$T"/calls/*
+t_run "$work 7"
 
 t_case "the cycle's container gets no option beyond the documented ones"
 image="tehas/pi-rukas:uid$(id -u)"

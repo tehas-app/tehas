@@ -310,7 +310,8 @@ Three files name a model and they do different things:
 | Where                                                    | Controls                                                         |
 | -------------------------------------------------------- | ---------------------------------------------------------------- |
 | `.pi/settings.json` in the product repository            | Provider and model of the session, the agent driving the cycle   |
-| `PI_ENSEMBLE_SUBAGENT_MODEL`, `_PROVIDER` in `instance.env` | Every subagent role                                           |
+| `PI_ENSEMBLE_SUBAGENT_MODEL`, `_PROVIDER` in `instance.env` | Every subagent role that has no model of its own              |
+| `PI_ENSEMBLE_MODEL_<ROLE>`, `PI_ENSEMBLE_PROVIDER_<ROLE>` in `instance.env` | One role                                       |
 | `models.json` in the instance directory                  | What the provider is and which models it offers                  |
 
 Child agents do not inherit the session's model. Without the instance setting
@@ -320,8 +321,7 @@ Changing the instance setting does not change the session's model.
 `models.json`.
 
 In the example every role and the session use `qwen3.8-flash-next` on the
-provider `fleet`. One role differently: `PI_ENSEMBLE_MODEL_<ROLE>` and
-`PI_ENSEMBLE_PROVIDER_<ROLE>` in `instance.env`.
+provider `fleet`.
 
 What the endpoint serves right now:
 
@@ -332,6 +332,47 @@ curl -s "$(jq -r '.providers.fleet.baseUrl' ~/.pi/agent/models.json)/models" | j
 A host name that only resolves on a private network is not known inside the
 sandbox. Give the sandbox its address with `PI_ENSEMBLE_HOST_ALIASES`
 (`name:address`, comma separated).
+
+### A model per role
+
+Every agent of every cycle asks for the same model by default. Several cycles
+at once, each with six lens reviewers, can take every slot that model has, and
+then calls are refused with `429 no free slot`. Give a role a model of its own
+to spread the calls. In `instance.env`, where `second-model` is another model
+`models.json` lists under `fleet`:
+
+```
+PI_ENSEMBLE_MODEL_CODE_REVIEW_SPECIALIST=second-model
+PI_ENSEMBLE_PROVIDER_CODE_REVIEW_SPECIALIST=fleet
+```
+
+| Role (`<ROLE>`)          | What it does in a cycle                         |
+| ------------------------ | ----------------------------------------------- |
+| `EXPLORE`                | Reads the code before the plan                  |
+| `DEVELOPER`              | Writes the change, one per workstream           |
+| `ADVERSARIAL_DEVELOPER`  | Reviews the change and argues against it        |
+| `CODE_REVIEW_SPECIALIST` | The lens review: all six lenses are this role   |
+| `OPS`                    | Makes the branch, writes the handoff            |
+
+These are the roles the pinned pi-rukas reads a model for. The session (the
+project manager, which plans) is not among them: its model is the product's
+`.pi/settings.json`. The six lenses are one role, so they share one model;
+the pinned pi-rukas cannot give one lens a model of its own.
+
+- A role that is not set uses `PI_ENSEMBLE_SUBAGENT_MODEL`. With none set,
+  nothing changes.
+- `_PROVIDER_<ROLE>` defaults to `PI_ENSEMBLE_SUBAGENT_PROVIDER`.
+- Any other role name, a provider without its model, or a value of more than
+  one word stops every command with exit 78 before it does anything. A
+  misspelt role would otherwise run on the default model without a word.
+- `./install.sh --check` reports a role's model that `models.json` does not
+  list under its provider. The dispatcher holds starts while an endpoint does
+  not offer one of the models, as it does for the default model.
+- The settings reach the cycle's container by name, as every `PI_ENSEMBLE_*`
+  setting does.
+
+A role's model is still a model that can be busy. Nothing counts the slots a
+model has; spread the roles over models that different machines serve.
 
 ## Limits and concurrency
 

@@ -452,15 +452,18 @@ for pair in "${pairs[@]}"; do
   add_private "${pair%%:*}"
   [ "${pair#*:}" = "$pair" ] || add_private "${pair#*:}"
 done
-model_host=$(jq -r --arg p "$PI_ENSEMBLE_SUBAGENT_PROVIDER" '.providers[$p].baseUrl // ""' "$agent/models.json" 2>/dev/null) || model_host=""
-model_host=${model_host#*://}
-model_host=${model_host%%/*}
-model_host=${model_host##*@}
-case "$model_host" in
-  \[*) model_host=${model_host#[}; model_host=${model_host%%]*} ;;
-  *) model_host=${model_host%%:*} ;;
-esac
-add_private "$model_host"
+# Every provider the agents use, a role's own among them.
+while read -r model_provider _; do
+  model_host=$(jq -r --arg p "$model_provider" '.providers[$p].baseUrl // ""' "$agent/models.json" 2>/dev/null) || model_host=""
+  model_host=${model_host#*://}
+  model_host=${model_host%%/*}
+  model_host=${model_host##*@}
+  case "$model_host" in
+    \[*) model_host=${model_host#[}; model_host=${model_host%%]*} ;;
+    *) model_host=${model_host%%:*} ;;
+  esac
+  add_private "$model_host"
+done < <(tehas_models)
 add_private "$bot_email"
 "$here/console" --rpc "$log" \
   --runs "$runs" --out "$console" --since "$((started - 5))" "${private[@]}" >/dev/null 2>"$log.console" 4>&- &

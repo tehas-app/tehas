@@ -512,6 +512,23 @@ t_run "$install"
 t_eq "$t_rc" 78
 t_contains "$t_out" "models.json does not list model other-model under provider test-provider"
 
+t_case "a role's model missing from models.json is a finding, under the provider it would use"
+fresh
+instance PI_ENSEMBLE_MODEL_DEVELOPER=big-model PI_ENSEMBLE_MODEL_EXPLORE=session-model
+t_run "$install"
+t_eq "$t_rc" 78
+t_contains "$t_out" "models.json does not list model big-model under provider test-provider"
+t_lacks "$t_out" "model session-model"
+t_lacks "$t_out" "model test-model"
+
+t_case "a role pi-rukas does not know installs nothing"
+fresh
+instance PI_ENSEMBLE_MODEL_REVIEWER=test-model
+t_run "$install"
+t_eq "$t_rc" 78
+t_contains "$t_out" "PI_ENSEMBLE_MODEL_REVIEWER names no role"
+t_eq "$(find "$home" -type f | wc -l)" 0
+
 t_case "a missing models.json is a finding"
 instance
 rm "$TEHAS_INSTANCE_DIR/models.json"

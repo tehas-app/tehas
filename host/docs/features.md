@@ -56,6 +56,7 @@ a day.
 | Review severity bar     | A review finding blocks the change at the severity the product states, and starts a fix round. Here that bar is MEDIUM and above: LOW findings are notes on the pull request, a CRITICAL finding blocks whatever the bar says, and pi-rukas reads the bar from the product's doctrine (`AGENTS.md`, or `CLAUDE.md` when it has one) at the cycle's base commit, or from `PI_ENSEMBLE_REVIEW_THRESHOLD` on the instance. Three rounds at most | pi-rukas feature. Its MEDIUM default was seen in the log of cycle 97-261013-125428, 2026-10-13, where the verdict was recorded as unstated because this repository states no bar. A bar read from doctrine has not been seen on a host |
 | Human merge             | Nothing merges on its own                                                                                                                | By configuration (no merge grant in `AGENTS.md`)                                   |
 | Self-hosted models only | One model for every role, set in the instance's `instance.env`                                                                           | Verified                                                                           |
+| A model per role        | `PI_ENSEMBLE_MODEL_<ROLE>` gives one of the five roles the pinned pi-rukas reads its own model; the provider defaults to the subagent one. An unknown role is refused with exit 78 | Covered by the shell tests. Not yet seen on a host                                 |
 | Work by hand            | `tehas dev` gives a person an interactive pi-rukas session on the host: the cycle's sandbox with a terminal, a clone that is kept, and the person's name on the commits. The push and the pull request are still the bot's | Seen on the tehas-tehas host through the own-account entry below, which runs this command. Started directly as the tehas user: covered by the shell tests only |
 | Work by hand, own account | An account in the group `tehas` types `tehas dev` and gets its session in a clone named after it, with the name and email of its own git configuration on the commits. One `sudo` rule, written by `bootstrap.sh dev`, runs it as the tehas user | Seen on the tehas-tehas host: the root step, the clone, a session that reached the model, and the account's own name and email as author and committer inside it. A push and a pull request from a session are not yet seen |
 | Concurrency knob        | `TEHAS_CONCURRENCY` sets how many workstreams a cycle runs side by side; 4 by default, lower it when the model backends have few slots    | Setting reaches the sandbox; its effect on a cycle is not yet observed             |
@@ -157,8 +158,8 @@ repository's contract files were on a work branch when the instance was set up.
 
 - Monitoring: availability probes, incident issues, weekly report.
 - Electricity price scheduling. `tehas:urgent` only changes ordering today.
-- Model evaluation; every role uses the same model by decision, not by
-  measurement.
+- Model evaluation; every role uses the same model by default, by decision,
+  not by measurement.
 - Watching tehas itself: a failed refresh. A full disk is seen where previews
   are on, and stops previews only. A cycle that holds its lock and is not
   heard from for 20 minutes is stopped by the dispatcher; tested, not yet
