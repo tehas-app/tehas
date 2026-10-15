@@ -216,9 +216,15 @@ The common ones:
 | underspecified, needs clarification | The issue does not say enough                       | Add acceptance criteria, relabel                         |
 | `explore-bodies-empty`              | `gh` could not read the issue                       | Check the bot token: `gh auth status`                    |
 | verify or smoke failure             | The gates failed on the developer's change          | Read the gate output in the handoff; often a real defect |
-| protected paths                     | The patch touched `.pi/`, `.github/` or `AGENTS.md` | By design. Make that change yourself                     |
+| protected paths                     | The patch touched `.pi/`, `.github/`, `CODEOWNERS` or `agents.json` | By design. Make that change yourself                     |
 | review round cap                    | The review kept finding problems                    | Read the review on the pull request                      |
 | developer timeout                   | An agent ran out of wall-clock                      | Usually model endpoint capacity; retry later             |
+
+An edit to `AGENTS.md` or `CLAUDE.md` stops nothing here, and its absence from
+the row above is not an oversight: pi-rukas does not halt a cycle for a policy
+edit. The edit ships and you see it in the diff, and the cycle is judged
+against the doctrine at the commit it started from, so an edit of its own
+changes nothing for that cycle. See [Operating tehas](/operating).
 
 ## A provider error about context length
 
