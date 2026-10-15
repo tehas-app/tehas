@@ -580,8 +580,11 @@ stack is filed as an issue of its own in that repository.
   variables its container was given, the `TEHAS_*` settings that shape a
   cycle, how many cycles were running as its container started, and the
   provider retry line of its preflight log. `tehas work` leaves the first
-  three in `~/tehas/state/cycles/<issue>.settings`. A value whose name or
-  shape looks like a secret is written as `[withheld]`.
+  three in `~/tehas/state/cycles/<issue>.settings`. What the model reads may
+  reach a public issue, so only short plain values are written: numbers,
+  booleans and words of letters, digits and `_.,:=-`. Any other value is
+  `[withheld]`: every URL, host, path and address, anything that may be a
+  token, and every value whose name says it may be a secret or a host.
 - **Each issue names the product's issues** whose cycles it rests on, as
   `owner/name#7`, so GitHub links the two both ways.
 - **Each issue says what working on it means**, in the line `Working on it`,

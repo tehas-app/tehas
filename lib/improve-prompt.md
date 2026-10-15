@@ -19,7 +19,10 @@ pi-rukas could be better, and to write your findings to one file.
     and how many cycles may run at once; `concurrentCycles`, how many cycles
     were running as its container started, this one with them; and
     `providerRetry`, the retry and timeout its Pi had for a model request.
-    A value shown as `[withheld]` was kept out. Each is null when the cycle
+    Only short values of a plain shape are shown; any other value, every
+    URL, host, path, address and anything that may be a secret, is
+    `[withheld]`. A withheld value was set, and that is all you know of it:
+    never guess it, never fill it in, and never write one into a finding. Each is null when the cycle
     did not leave it. A pi-rukas default is in effect for every
     `PI_ENSEMBLE_*` variable that is not in `settings.container`.
   - `stream.jsonl`: the cycle's event stream, condensed.

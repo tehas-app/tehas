@@ -202,11 +202,10 @@ settings "PI_ENSEMBLE_MAX_WORKSTREAMS=1 TEHAS_WORK_TIMEOUT=21600 TEHAS_HOST_ADDR
   "-e GH_TOKEN -e PI_ENSEMBLE_SANDBOX_MODE=1 -e PI_ENSEMBLE_MAX_WORKSTREAMS -e GIT_CONFIG_COUNT=4 -v /a:/b -e PI_ENSEMBLE_EXTRA_IMAGE_DIRS=/w.images"
 t_eq "$t_rc" 0
 t_eq "$(jq -c .container "$home/s.json")" \
-  '{"PI_ENSEMBLE_SANDBOX_MODE":"1","PI_ENSEMBLE_MAX_WORKSTREAMS":"1","PI_ENSEMBLE_EXTRA_IMAGE_DIRS":"/w.images"}'
+  '{"PI_ENSEMBLE_SANDBOX_MODE":"1","PI_ENSEMBLE_MAX_WORKSTREAMS":"1","PI_ENSEMBLE_EXTRA_IMAGE_DIRS":"[withheld]"}'
 t_eq "$(jq -c .concurrentCycles "$home/s.json")" 3
 t_eq "$(jq -r '.host.TEHAS_WORK_TIMEOUT' "$home/s.json")" 21600
-t_eq "$(jq -r '.host.TEHAS_REPO' "$home/s.json")" acme/widget
-t_eq "$(jq -c '.host | has("TEHAS_HOST_ADDR") or has("TEHAS_ANALYTICS_COOKIE")' "$home/s.json")" false
+t_eq "$(jq -c '.host | has("TEHAS_HOST_ADDR") or has("TEHAS_ANALYTICS_COOKIE") or has("TEHAS_REPO")' "$home/s.json")" false
 
 t_case "a value whose name or shape may be a secret is withheld, and a count that is not one is null"
 reset
@@ -215,6 +214,37 @@ settings "PI_ENSEMBLE_X=1" "'3; x'" "-e PI_ENSEMBLE_API_KEY=k -e PI_ENSEMBLE_NOT
 t_eq "$(jq -c '[.container.PI_ENSEMBLE_API_KEY, .container.PI_ENSEMBLE_NOTE, .container.PI_ENSEMBLE_OK, .concurrentCycles]' "$home/s.json")" \
   '["[withheld]","[withheld]","fine",null]'
 t_lacks "$(cat "$home/s.json")" ghp_
+
+t_case "only a value of a safe shape is written: no URL, host, path, address or token of any kind"
+reset
+mkdir -p "$home"
+long=$(printf 'a1%.0s' {1..20})
+opts=""
+i=0
+for v in "https://user:pw@models.example.com/v1" "http://gpu-box.internal:8080/v1" "gpu-box.internal:8080" \
+  "/home/tehas/work" "a@b" "192.0.2.10" "192.0.2.10:11434" "hf_$long" "gsk_$long" "AIza$long" \
+  "glpat-$(printf 'x%.0s' {1..20})" "db.lan" "llm:11434" "eyJhbGciOiJIUzI1NiJ9.e30.x" "$(printf 'f%.0s' {1..40})" "$long==" "a b" \
+  "$(printf 'x,%.0s' {1..40})"; do
+  i=$((i + 1))
+  opts+=" -e 'PI_ENSEMBLE_V$i=$v'"
+done
+settings "PI_ENSEMBLE_X=1" 1 "$opts -e PI_ENSEMBLE_N=600000 -e PI_ENSEMBLE_B=true -e PI_ENSEMBLE_M=qwen3.8-flash-next -e PI_ENSEMBLE_L=a,b:c=d_e"
+t_eq "$(jq -c '[.container | to_entries[] | select(.key | test("^PI_ENSEMBLE_V")) | .value] | unique' "$home/s.json")" '["[withheld]"]'
+t_eq "$(jq -c '[.container | to_entries[] | select(.key | test("^PI_ENSEMBLE_V"))] | length' "$home/s.json")" "$i"
+t_eq "$(jq -c '[.container.PI_ENSEMBLE_N, .container.PI_ENSEMBLE_B, .container.PI_ENSEMBLE_M, .container.PI_ENSEMBLE_L]' "$home/s.json")" \
+  '["600000","true","qwen3.8-flash-next","a,b:c=d_e"]'
+for bad in pw@ gpu-box example.com 192.0.2 hf_ gsk_ AIza glpat eyJ /home; do t_lacks "$(cat "$home/s.json")" "$bad"; done
+
+t_case "a value whose name may be a secret or a host is withheld whatever its shape"
+reset
+mkdir -p "$home"
+opts=""
+for frag in KEY TOKEN SECRET PASS PWD COOKIE AUTH CRED BEARER PRIVATE HOST URL ADDR ENDPOINT DOMAIN PROXY; do
+  opts+=" -e PI_ENSEMBLE_A_${frag}_Z=1"
+done
+settings "PI_ENSEMBLE_X=1" 1 "$opts"
+t_eq "$(jq -c '[.container[]] | unique' "$home/s.json")" '["[withheld]"]'
+t_eq "$(jq -c '.container | length' "$home/s.json")" 16
 
 t_case "the record carries this cycle's settings, the count and the provider retry line"
 reset
@@ -248,6 +278,7 @@ t_case "the analyst is told what the settings are and when a finding is a bounda
 t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "\`settings.container\`"
 t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "\`concurrentCycles\`"
 t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "\`providerRetry\`"
+t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "never guess it, never fill it in"
 t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "\`boundary\` is for a problem with a half on each side"
 t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "pi-rukas | console | gate | docs | boundary"
 
@@ -886,6 +917,17 @@ with_rukas
 findings "$(finding One)" "$(boundary_finding Two)" "$(finding Three)"
 t_run "$improve"
 t_contains "$t_out" "over=1 filed=3 issues=#101,#102,acme/rukas#103"
+
+t_case "the half for pi-rukas is refused: the factory's half says so, and the run fails"
+ready
+with_rukas
+findings "$(boundary_finding "Gates time out")"
+echo 102 >"$fx/gh-create.rc"
+t_run "$improve"
+t_eq "$t_rc" 1
+t_contains "$t_out" "GitHub refused an issue; filed before that: #101"
+t_contains "$(t_calls gh)" "issue comment 101 --repo acme/factory --body GitHub refused the half for pi-rukas, so it is not filed in acme/rukas"
+t_lacks "$(t_calls gh)" "The half for pi-rukas is filed as"
 
 t_case "without a repository for pi-rukas a boundary finding is one issue with both halves"
 ready

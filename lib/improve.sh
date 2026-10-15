@@ -127,13 +127,31 @@ tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills>
 # The TEHAS_* settings a record carries: those that shape a cycle. Not every
 # one: the analyst's words are filed in public, and a host's addresses, its
 # domain and the analytics settings are none of its business.
-_tehas_improve_host='^TEHAS_(WORK_(TIMEOUT|STALL|CPUS|MEMORY|IMAGES|FILES|COMMENTS|DESCRIBE)|CONCURRENCY|TICKET_CONCURRENCY|MAX_AWAITING|CYCLE_RESERVE|VERIFY_TIMEOUT|PREFLIGHT_WAIT|STOP_WAIT|CONSOLE_WAIT|BRANCH|REPO)$'
+_tehas_improve_host='^TEHAS_(WORK_(TIMEOUT|STALL|CPUS|MEMORY|IMAGES|FILES|COMMENTS|DESCRIBE)|CONCURRENCY|TICKET_CONCURRENCY|MAX_AWAITING|CYCLE_RESERVE|VERIFY_TIMEOUT|PREFLIGHT_WAIT|STOP_WAIT|CONSOLE_WAIT|BRANCH)$'
 
-# A value goes in as it is unless its name or its shape says it may be a
-# secret, and then as [withheld]. Each is cut at 500 characters.
+# Only a value of a safe shape goes in: a number, a boolean, or a short word
+# of [A-Za-z0-9_.,:=-]. Everything else is [withheld]: any path, URL or
+# address, anything with an @, an IP address, a name with a domain in it
+# (a dot before a letter) or a port, a long run of letters and digits that
+# may be a token, and any value whose name says it may be a
+# secret or a host.
 _tehas_improve_value() { # <name> <value>
-  case "$1" in *KEY* | *TOKEN* | *SECRET* | *PASS* | *COOKIE* | *AUTH* | *CREDENTIAL*) echo "[withheld]"; return ;; esac
-  if tehas_improve_secret /dev/stdin <<<"$2"; then echo "[withheld]"; else printf '%s' "${2:0:500}" | tr -d '\000-\037\177'; fi
+  local v=$2
+  case "$1" in
+    *KEY* | *TOKEN* | *SECRET* | *PASS* | *PWD* | *COOKIE* | *AUTH* | *CRED* | *BEARER* | *PRIVATE* | \
+      *HOST* | *URL* | *ADDR* | *ENDPOINT* | *DOMAIN* | *PROXY*)
+      echo "[withheld]"
+      return
+      ;;
+  esac
+  if [[ $v =~ ^[A-Za-z0-9_.,:=-]{0,64}$ ]] && ! [[ $v =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}(:[0-9]+)?$ ]] &&
+    ! [[ $v =~ [A-Za-z0-9]{16,} ]] && ! [[ $v =~ (^|[^A-Za-z0-9])eyJ ]] &&
+    ! [[ $v =~ [A-Za-z0-9-]\.[A-Za-z] ]] && ! [[ $v =~ :[0-9]+$ ]] &&
+    ! tehas_improve_secret /dev/stdin <<<"$v"; then
+    printf '%s' "$v"
+  else
+    echo "[withheld]"
+  fi
 }
 
 tehas_improve_settings() { # <file> <concurrent> <docker options>...

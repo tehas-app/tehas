@@ -450,12 +450,20 @@ for ((i = 0; i < n; i++)); do
   category=$(jq -r .category <<<"$f")
   if [ "$category" = boundary ] && [ "$rukas" != "$repo" ]; then
     # One issue a side, each naming its own half; the second links the first
-    # in its body, the first is told of the second in a comment.
+    # in its body, the first is told of the second in a comment. When the
+    # second is refused, the first says so: its title keeps a later run from
+    # filing the pair again, so a person files the other half.
     open_issue "$repo" "This is the factory's half of a problem at the boundary with pi-rukas. Only that half is fixed in this repository, once a person applies \`tehas:ready\`. The half for pi-rukas is filed in $rukas and is not worked around here." \
       factory "$rukas" "" "$label" "$cross" || { failed=1; break; }
     first=$url
-    open_issue "$rukas" "This is the half for pi-rukas of a problem at the boundary with the factory that runs it. Only that half is fixed here; the factory's half is filed in $repo. Nothing starts until a person applies \`tehas:ready\`." \
-      rukas "$repo" "$first" "$label" "$cross" || { failed=1; break; }
+    if ! open_issue "$rukas" "This is the half for pi-rukas of a problem at the boundary with the factory that runs it. Only that half is fixed here; the factory's half is filed in $repo. Nothing starts until a person applies \`tehas:ready\`." \
+      rukas "$repo" "$first" "$label" "$cross"; then
+      gh issue comment "${first##*/}" --repo "$repo" --body "GitHub refused the half for pi-rukas, so it is not filed in $rukas, and the loop will not file it again. Until a person files it there from the text above, this issue stands alone." >/dev/null 2>&1 ||
+        notes+=("not-corrected=#${first##*/}")
+      notes+=("half-filed=#${first##*/}")
+      failed=1
+      break
+    fi
     gh issue comment "${first##*/}" --repo "$repo" --body "The half for pi-rukas is filed as $url." >/dev/null 2>&1 ||
       notes+=("not-linked=#${first##*/}")
     continue
