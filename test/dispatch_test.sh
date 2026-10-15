@@ -1926,6 +1926,16 @@ t_eq "$(jq -c '[(.options | length), .options[0], .options[19]]' "$record")" '[2
 t_eq "$(t_calls gh | grep -c '^- \[ \] Way ')" 20
 t_contains "$(t_calls gh)" "Options left out: 10."
 
+t_case "questions posted as one have no option boxes, so a tick answers none of them"
+to_plan
+jq -n '{session: "abc-123", text: "Two things.", question: {question: "The agent asked 2 questions. Answer each by its number in a reply.\n\n1. Which?\n   - A\n\n2. Where?\n   - B", options: []}}' >"$fx/plan-result.json"
+t_run "$dispatch"
+t_eq "$(jq -c .options "$record")" "[]"
+t_contains "$(t_calls gh)" "1. Which?"
+t_contains "$(t_calls gh)" "2. Where?"
+t_eq "$(t_calls gh | grep -c '^- \[ \] ')" 1
+t_contains "$(t_calls gh)" "- [ ] End this planning session"
+
 t_case "a ticked option goes to the session as the next message"
 planning
 comments 7 "$(plan_body ' ' x ' ')" alice
@@ -1944,11 +1954,30 @@ t_eq "$(cat "$record.answer")" 'The operator replied on the issue:
 Adopt all, but keep `tagged-at` open.
 Then file 3 and 5.'
 
-t_case "a reply wins over a tick"
+t_case "a reply wins over a tick, and the answer says what was ticked"
 planning
-comments 7 "$(plan_body x ' ' ' ')" alice '[{"databaseId":4003,"author":{"login":"alice"},"body":"neither","createdAt":"2026-01-01T02:00:00Z"}]'
+printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ALLOWED_LABELERS='alice bob'" >"$TEHAS_INSTANCE_DIR/instance.env"
+comments 7 "$(plan_body x ' ' ' ')" alice '[{"databaseId":4003,"author":{"login":"bob"},"body":"actually, wait","createdAt":"2026-01-01T02:00:00Z"}]'
 t_run "$dispatch"
-t_contains "$(cat "$record.answer")" "neither"
+t_eq "$(cat "$record.answer")" 'The operator replied on the issue:
+
+actually, wait
+
+A box was also ticked, by alice: Adopt all'
+t_contains "$t_out" "planning #7 continues (answer from bob)"
+
+t_case "a reply with the way out ticked runs the turn and says the box was ticked"
+planning
+comments 7 "$(plan_body ' ' ' ' x)" alice '[{"databaseId":4003,"author":{"login":"alice"},"body":"one more thing","createdAt":"2026-01-01T02:00:00Z"}]'
+t_run "$dispatch"
+t_contains "$(plan_calls)" "--answer $record.answer"
+t_contains "$(cat "$record.answer")" "A box was also ticked, by alice: End this planning session"
+
+t_case "a reply alone says nothing of a box"
+planning
+comments 7 "$(plan_body ' ' ' ' ' ')" "" '[{"databaseId":4003,"author":{"login":"alice"},"body":"just this","createdAt":"2026-01-01T02:00:00Z"}]'
+t_run "$dispatch"
+t_lacks "$(cat "$record.answer")" "A box was also ticked"
 
 t_case "an answer on an issue closed since the turn ran runs no turn"
 planning
@@ -2005,6 +2034,35 @@ t_run "$dispatch"
 t_contains "$(t_calls gh)" "This planning turn did not finish"
 t_contains "$(t_calls gh)" "--add-label tehas:question --add-label needs-human-attention"
 t_eq "$(jq -r '[.session, .turns, .failed] | @tsv' "$record")" "abc-123	2	true"
+
+t_case "a later turn whose Pi session is gone ends the session and says to start again"
+planning
+mkdir -p "$record.keep"
+comments 7 "$(plan_body x ' ' ' ')" alice
+echo '{"session":"abc-123","lost":true}' >"$fx/plan-fails"
+t_run "$dispatch"
+t_contains "$(plan_calls)" "--session abc-123"
+t_contains "$t_out" "planning #7: Pi no longer has session abc-123"
+t_contains "$(t_calls gh)" "--remove-label tehas:question --remove-label tehas:planning --remove-label tehas:plan --remove-label needs-human-attention"
+t_contains "$(t_calls gh)" "its conversation is no longer on"
+t_contains "$(t_calls gh)" "Apply \`tehas:plan\` again to start a new session."
+t_lacks "$(t_calls gh)" "This planning turn did not finish"
+t_lacks "$(t_calls gh)" "tehas:question kind=plan issue=7 turn=2"
+t_eq "$([ -e "$record" ] || [ -e "$record.keep" ] && echo kept)" ""
+
+t_case "a lost session whose labels cannot be taken off is ended by the next poll"
+planning
+comments 7 "$(plan_body x ' ' ' ')" alice
+echo '{"session":"abc-123","lost":true}' >"$fx/plan-fails"
+echo "--remove-label tehas:question --remove-label tehas:planning" >"$fx/edit-fails-on"
+t_run "$dispatch"
+t_eq "$(jq -c '[.lost, .running]' "$record")" '[true,true]'
+t_lacks "$(t_calls gh)" "its conversation is no longer on"
+rm -f "$T"/calls/* "$fx/edit-fails-on" "$fx/plan-fails"
+t_run "$dispatch"
+t_eq "$(plan_calls)" ""
+t_contains "$(t_calls gh)" "its conversation is no longer on"
+t_eq "$([ -e "$record" ] && echo kept)" ""
 
 t_case "an outcome that could not be posted is posted by the next poll, before anything else"
 planning

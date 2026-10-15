@@ -298,9 +298,13 @@ dispatcher's log says so.
    the agent offers more than 20 choices, the first 20 get a box and a line
    says how many were left out; reply to name another one. The
    last box and the label come after every turn, whether or not the agent
-   asked something, and a reply or the last box works either way.
+   asked something, and a reply or the last box works either way. When the
+   agent asks more than one question in a turn, the comment lists them all,
+   numbered, with their choices as text and no box for them: answer them in
+   a reply.
 4. Answer by ticking one box, or by replying in a comment when none of the
-   boxes fits. If you do both, the reply counts. The next poll that is free
+   boxes fits. If you do both, the reply counts, and the agent is told
+   which box was ticked as well. The next poll that is free
    continues the session with your answer, and the issue carries
    `tehas:planning` while the turn runs. A poll waits for a planning turn,
    so while another planning turn runs, your answer waits until it ends,
@@ -310,12 +314,23 @@ dispatcher's log says so.
    endpoint does not list the model.
 5. The agent shows you a plan before it files it, and files it when you
    confirm. Every turn of a session works on the commit the session started
-   on, so the plan you confirm is the plan that is filed, word for word, if
-   you confirm within two hours of seeing it. After that the agent reviews it
-   again before it files. The agent files the issues it plans with the bot's
-   token. To finish, tick
+   on. Whether what is filed is what you saw depends on pi-rukas. The release
+   tehas installs, v0.12.79, keeps no record of the plans it showed, so read
+   the issues it files. A later release keeps one, and a confirmed plan is
+   then filed as it was shown when it is found there: with no time limit
+   from a release that reads `PI_ENSEMBLE_PLAN_CACHE_TTL_MS`, within two
+   hours from one that does not. A plan that is not found is drafted again.
+   The agent files the issues it plans with the bot's token. To finish, tick
    `End this planning session`. Filed issues are never started on their own:
-   apply `tehas:ready` to the ones you want built.
+   apply `tehas:ready` to the ones you want built. The agent is told to add
+   and remove no `tehas:*` label and no `needs-human-attention` on any issue.
+   A `tehas:ready` it applies anyway is taken off, as one from any account
+   outside the list is.
+
+The conversation of a session is kept by Pi on the host, in
+`~/.pi/agent/sessions`. If it is gone, for example after the host was rebuilt,
+the session cannot go on: the bot ends it, says so, and your answer is not
+sent. Apply `tehas:plan` again to start a new session.
 
 Only answers from allowed labellers count. A box ticked by anyone else, or
 more than one box, is unticked and the bot says so. A reply counts only if its

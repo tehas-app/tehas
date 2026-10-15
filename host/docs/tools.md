@@ -335,13 +335,25 @@ in the background has reported back, so it ends when the agent has asked. A
 subagent that never reports holds the turn until `TEHAS_PLAN_TIMEOUT`.
 
 `--keep` names a directory the session carries from one turn to the next. The
-first form makes it anew. It holds the commit the first turn's workspace was
+first form makes it anew. It holds the approved title and body, which every
+turn's workspace gets as `.tehas/brief.md`, so a later turn never plans from
+the issue as it is now, the commit the first turn's workspace was
 at, pi-rukas's record of the plans the agent showed (its plain `.json` files,
 at most 1 MB each), and with `TEHAS_WORK_IMAGES=1` the issue's images. Every
-later turn's workspace is at that commit and gets that record back, so a plan
-the operator confirms is filed as it was shown. A later turn whose commit is
-missing or gone starts at the tip of the branch and says so, and the agent
-then reviews the plan again before it files it. The dispatcher keeps the
+later turn's workspace is at that commit and gets that record back. A later
+turn whose commit is missing or gone starts at the tip of the branch and says
+so.
+
+pi-rukas keys that record on `origin/<branch>` after a fetch of its own, and
+on what the agent asks for. In a turn's workspace `origin/<branch>` is the
+session's commit, and the clone has no fetch refspec, so a fetch inside the
+container writes only `FETCH_HEAD` and the key stays put. Pushing works as
+before. The container is given `PI_ENSEMBLE_PLAN_CACHE_TTL_MS=0`, whatever
+the instance sets, so the record does not expire; a pi-rukas without that
+setting expires it after two hours. A plan the operator confirms is filed as
+it was shown only when pi-rukas finds it in the record: otherwise the agent
+drafts it again, and the draft may differ. v0.12.79, the release tehas
+installs, keeps no record at all. The dispatcher keeps the
 directory at `~/tehas/state/plan-<issue>.json.keep` and removes it when the
 session ends.
 
@@ -351,14 +363,25 @@ Each turn's container gets a copy of them, read-only, at the path a cycle has
 them, with `PI_ENSEMBLE_EXTRA_IMAGE_DIRS`. The copy is
 `~/tehas/work/<name>-plan-<issue>.images`, removed after the turn. An image
 that cannot be fetched starts no session: exit 4, said on the issue. On exit 0 the `--out` file holds the session id, the agent's last
-message and the question it asked, if any. On exit 2 it holds the session id
+message and the question it asked, if any. When it asked more than one, they
+are put together as one numbered question with no options, so the operator
+answers them in a reply, and the log has a warning. On exit 2 it holds the session id
 alone when that is known, so the dispatcher can run the turn again in the
 same session, and it is not written when no session is known.
+
+A later turn first asks Pi what is in the session it opened. Pi makes a
+session anew when its file under `~/.pi/agent/sessions` is gone, and an agent
+with no memory of the session would take the answer as a new request. So when
+Pi says the session has no messages, the answer is not sent: the turn exits 2
+and the `--out` file holds the session id and `"lost": true`. The dispatcher
+then ends the session and says on the issue to apply `tehas:plan` again. A
+turn whose container never says what is in the session sends no answer
+either, and exits 2 as a turn that can be run again.
 
 | Exit | Meaning                                                              |
 | ---- | -------------------------------------------------------------------- |
 | 0    | The turn settled and said or asked something                         |
-| 2    | The turn did not settle, timed out, said and asked nothing, or its session or outcome could not be written down |
+| 2    | The turn did not settle, timed out, said and asked nothing, its session is gone, or its session or outcome could not be written down |
 | 4    | With `TEHAS_WORK_IMAGES=1`: a first turn where an image the issue links could not be fetched, or the issue could not be read for its images; nothing ran |
 | 64   | A usage error, no bot token or no git identity; nothing ran          |
 | 78   | The instance settings are invalid, or `tehas.slice` cannot be used; nothing ran |
