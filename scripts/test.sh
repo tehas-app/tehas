@@ -10,8 +10,10 @@
 #
 # Usage: scripts/test.sh
 #
-# The test files run side by side, at most TEHAS_TEST_JOBS at once [the number
-# of CPUs]: each keeps everything under a scratch directory of its own
+# The test files run side by side, at most TEHAS_TEST_JOBS at once [the CPU
+# quota of the cgroup it runs in, rounded up, or else the number of CPUs; a
+# container's quota does not change what nproc says]: each keeps everything
+# under a scratch directory of its own
 # (test/lib.sh), and one after another they took about 18 minutes. Each file's
 # output is printed whole, in name order, once all have ended.
 #
@@ -42,7 +44,16 @@ elif [ "${#files[@]}" -gt 0 ]; then
   fi
 fi
 
-jobs=${TEHAS_TEST_JOBS:-$(nproc 2>/dev/null || echo 1)}
+cpus() {
+  local quota period
+  if read -r quota period 2>/dev/null </sys/fs/cgroup/cpu.max &&
+    [[ $quota =~ ^[1-9][0-9]*$ && $period =~ ^[1-9][0-9]*$ ]]; then
+    echo $(((quota + period - 1) / period))
+  else
+    nproc 2>/dev/null || echo 1
+  fi
+}
+jobs=${TEHAS_TEST_JOBS:-$(cpus)}
 [[ $jobs =~ ^[1-9][0-9]*$ ]] || jobs=1
 out=$(mktemp -d "${TMPDIR:-/tmp}/tehas-tests.XXXXXX") || exit 2
 trap 'rm -rf "$out"' EXIT

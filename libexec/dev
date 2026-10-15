@@ -35,8 +35,8 @@
 # environment.
 #
 # It runs in tehas.slice with a cycle's limits: a memory ceiling of a quarter
-# of the slice, no swap, the reserve as its floor, a pids limit and a CPU
-# weight. The dispatcher counts its memory with the cycles', so a session can
+# of the slice, no swap, the reserve as its floor, a CPU quota, a pids limit
+# and a CPU weight. The dispatcher counts its memory with the cycles', so a session can
 # keep a cycle from starting. Before it starts, the command says how many more
 # cycles the slice has room for. Without a usable slice no clone is made and
 # nothing starts.
@@ -154,7 +154,7 @@ branch=$(tehas_branch) || exit 78
 TEHAS_SLICE_LIMITS=()
 tehas_slice_ok || { echo "tehas dev: $TEHAS_SLICE_WHY" >&2; exit 78; }
 tehas_slice_limits || true
-if [ "${#TEHAS_SLICE_LIMITS[@]}" != 12 ] || [ "${TEHAS_SLICE_LIMITS[1]}" != tehas.slice ]; then
+if [ "${#TEHAS_SLICE_LIMITS[@]}" != 14 ] || [ "${TEHAS_SLICE_LIMITS[1]}" != tehas.slice ]; then
   echo "tehas dev: the container limits could not be made, not starting" >&2
   exit 78
 fi

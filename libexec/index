@@ -156,7 +156,7 @@ fi
 TEHAS_SLICE_LIMITS=()
 tehas_slice_ok || { echo "tehas index: $TEHAS_SLICE_WHY" >&2; exit 78; }
 tehas_slice_limits || true
-if [ "${#TEHAS_SLICE_LIMITS[@]}" != 12 ] || [ "${TEHAS_SLICE_LIMITS[1]}" != tehas.slice ]; then
+if [ "${#TEHAS_SLICE_LIMITS[@]}" != 14 ] || [ "${TEHAS_SLICE_LIMITS[1]}" != tehas.slice ]; then
   echo "tehas index: the container limits could not be made, not starting" >&2
   exit 78
 fi
@@ -179,7 +179,7 @@ started=$(date +%s)
 # A run that was killed leaves its container under this name, and every later
 # run would fail on the name.
 docker rm -f tehas-index >/dev/null 2>&1 || true
-timeout -k 30 "$index_bound" docker run --rm --name tehas-index --network none \
+timeout -k 30 "$index_bound" docker run --rm --init --name tehas-index --network none \
   "${TEHAS_SLICE_LIMITS[@]}" \
   --user "$(id -u):$(id -g)" -e HOME=/home/vscode \
   -e "CBM_CACHE_DIR=$(tehas_sandbox_cache_dir)" \

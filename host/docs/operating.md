@@ -545,8 +545,8 @@ reaches them. Remove the label to resume.
   same line: `holding: <n> of <free> free slots start: ...` when the
   awaiting-merge limit or the slice's room cut it, else the hold that stopped
   all of them.
-- Inside a cycle, `TEHAS_CONCURRENCY` workstreams side by side: 4 by default,
-  fewer if the model backends cannot take it. See [The host](/host).
+- Inside a cycle, `TEHAS_CONCURRENCY` workstreams side by side: 1 by default,
+  and more only with one cycle at a time. See [The host](/host).
 - No new cycle while `TEHAS_MAX_AWAITING` issues carry `tehas:awaiting-merge`
   or are being worked on. The default is `TEHAS_TICKET_CONCURRENCY` plus 2, so
   every slot can be used while two pull requests wait. Unreviewed pull

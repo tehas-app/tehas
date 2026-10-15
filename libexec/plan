@@ -155,7 +155,7 @@ branch=$(tehas_branch) || exit 78
 TEHAS_SLICE_LIMITS=()
 tehas_slice_ok || { echo "tehas plan: $TEHAS_SLICE_WHY" >&2; exit 78; }
 tehas_slice_limits || true
-if [ "${#TEHAS_SLICE_LIMITS[@]}" != 12 ] || [ "${TEHAS_SLICE_LIMITS[1]}" != tehas.slice ]; then
+if [ "${#TEHAS_SLICE_LIMITS[@]}" != 14 ] || [ "${TEHAS_SLICE_LIMITS[1]}" != tehas.slice ]; then
   echo "tehas plan: the container limits could not be made, not starting" >&2
   exit 78
 fi

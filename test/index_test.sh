@@ -5,6 +5,9 @@
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh"
+# The CPU quota and the ticket ceiling follow the host's CPUs: the same on
+# every test machine.
+t_stub nproc 'echo 16'
 
 index="$T_ROOT/libexec/index"
 checkout=$T/home/tehas/repos/widget
@@ -59,7 +62,7 @@ slice_good() {
   slice_state 0.00
 }
 slice_good
-limits="--cgroup-parent --memory --memory-swap --memory-reservation --pids-limit --cpu-shares"
+limits="--cgroup-parent --memory --memory-swap --memory-reservation --cpus --pids-limit --cpu-shares"
 root="TEHAS_CGROUP_ROOT=$T_CGROUP"
 
 run_args() { grep -l -x -e index_repository "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
@@ -163,7 +166,9 @@ t_eq "$(find "$T/home/tehas/work" 2>/dev/null | wc -l)" 0
 t_case "the indexing container gets no network, no token and no option beyond these"
 t_eq "$(after --network)" none
 t_eq "$(after --user)" "$(id -u):$(id -g)"
-t_eq "$(run_args | unknown_options "$image" "--name --network $limits --user -e -w -v --entrypoint" "--rm")" ""
+# An init collects what git and the indexer leave behind, as in a cycle.
+t_eq "$(run_args | grep -c -x -e --init)" 1
+t_eq "$(run_args | unknown_options "$image" "--name --network $limits --user -e -w -v --entrypoint" "--rm --init")" ""
 args=$(cat "$T"/calls/docker.args.*)
 t_lacks "$args" "test-token"
 t_lacks "$args" "GH_TOKEN"
@@ -191,9 +196,9 @@ t_eq "$(after --memory-reservation)" "1g"
 t_eq "$(after --pids-limit)" "4096"
 t_eq "$(after --cpu-shares)" "1024"
 t_eq "$(after --network)" none
-t_lacks "$(run_args)" "--cpus"
+t_eq "$(after --cpus)" "3.75"
 t_lacks "$(run_args)" "--cidfile"
-t_eq "$(run_args | unknown_options "$image" "--name --network $limits --user -e -w -v --entrypoint" "--rm")" ""
+t_eq "$(run_args | unknown_options "$image" "--name --network $limits --user -e -w -v --entrypoint" "--rm --init")" ""
 t_instance "${T_MINIMAL[@]}"
 
 t_case "the slice is read once: one systemctl call, one docker info"
@@ -238,15 +243,15 @@ refused
 t_contains "$t_out" "tehas index: TEHAS_CYCLE_RESERVE=3g is more than a container may use here (2048m"
 t_instance "${T_MINIMAL[@]}"
 
-t_case "the twelve words are all present or nothing starts"
+t_case "the fourteen words are all present or nothing starts"
 # The command beside a slice library that says yes and hands out a short list,
 # or a list that names another parent.
 short=$T/short
 mkdir -p "$short/libexec" "$short/lib"
 cp "$T_ROOT"/lib/*.sh "$short/lib/"
 ln -s "$index" "$short/libexec/index"
-for words in "--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --pids-limit 4096" \
-  "--cgroup-parent other.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --pids-limit 4096 --cpu-shares 1024" ""; do
+for words in "--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096" \
+  "--cgroup-parent other.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024" ""; do
   without
   printf '%s\n' 'tehas_slice_ok() { return 0; }' "tehas_slice_limits() { TEHAS_SLICE_LIMITS=($words); }" >"$short/lib/slice.sh"
   t_run "$short/libexec/index"
@@ -397,7 +402,7 @@ t_case "a container left by a killed run is removed before the run, under timeou
 reset
 t_run "$index"
 t_eq "$t_rc" 0
-t_eq "$(t_calls docker | grep -v '^info ' | cut -d' ' -f1-3 | tr '\n' ' ')" "image inspect $image rm -f tehas-index run --rm --name "
+t_eq "$(t_calls docker | grep -v '^info ' | cut -d' ' -f1-3 | tr '\n' ' ')" "image inspect $image rm -f tehas-index run --rm --init "
 t_eq "$(t_calls timeout | grep '^-k ' | cut -d' ' -f1-5)" "-k 30 1800 docker run"
 t_eq "$(find "$failed" 2>/dev/null | wc -l)" 0
 

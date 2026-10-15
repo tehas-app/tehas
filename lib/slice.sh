@@ -15,18 +15,29 @@
 #                          TEHAS_SLICE_ACTIVE      "active", or another state
 #                          TEHAS_SLICE_CEILING_MB  what one container may use:
 #                                                  a quarter of the max, MiB
+#                          TEHAS_SLICE_CPUS        the host's CPUs, from nproc
 #                        or returns 1 and sets TEHAS_SLICE_WHY to one line a
 #                        person can act on. A command starts with
 #                          tehas_slice_ok || { echo "tehas x: $TEHAS_SLICE_WHY" >&2; exit 78; }
 #   tehas_slice_limits   after tehas_slice_ok. No call, only arithmetic. Fills
-#                        the array TEHAS_SLICE_LIMITS with exactly twelve
+#                        the array TEHAS_SLICE_LIMITS with exactly fourteen
 #                        words for docker run:
 #                          --cgroup-parent tehas.slice --memory <n>m
 #                          --memory-swap <n>m --memory-reservation <reserve>
-#                          --pids-limit 4096 --cpu-shares 1024
+#                          --cpus <c> --pids-limit <p> --cpu-shares 1024
 #                        and returns 0, or leaves it empty and returns 1. The
-#                        caller checks for twelve words and "tehas.slice" as
-#                        the second before it starts anything.
+#                        caller checks for fourteen words and "tehas.slice" as
+#                        the second before it starts anything. <c> and <p>
+#                        are what tehas_slice_cpus prints.
+#   tehas_slice_cpus     after tehas_slice_ok. No call. Prints the CPU quota
+#                        and the pids limit of one container: "<c> <p>".
+#                        <c> is the host's CPUs less one, shared by the
+#                        cycles that may run at once (TEHAS_TICKET_CONCURRENCY,
+#                        at most the four the slice holds), never below one
+#                        CPU, as docker writes it (3.75). <p> is 1024 for
+#                        each CPU of <c>, rounded up, from 2048 to 4096.
+#                        Returns 1 with nothing printed without a probe or
+#                        with a concurrency that is not a number.
 #   tehas_slice_room <count> [<cid file>...]
 #                        after tehas_slice_ok. How many more containers of one
 #                        reserve fit, and never more than leave the slice with
@@ -52,8 +63,9 @@
 #                        printed when it cannot be read, and sets
 #                        TEHAS_SLICE_WHY to the file and what was missing.
 #
-# Settings read: TEHAS_CYCLE_RESERVE (lib/config.sh gives it a default and
-# checks it) and TEHAS_CGROUP_ROOT, the tests' seam for /sys/fs/cgroup.
+# Settings read: TEHAS_CYCLE_RESERVE and TEHAS_TICKET_CONCURRENCY
+# (lib/config.sh gives them defaults and checks them) and TEHAS_CGROUP_ROOT,
+# the tests' seam for /sys/fs/cgroup.
 
 _tehas_slice_num() { [[ ${1:-} =~ ^(0|[1-9][0-9]{0,17})$ ]]; }
 
@@ -79,9 +91,9 @@ _tehas_slice_bytes() {
 
 # shellcheck disable=SC2034  # the caller reads what this sets
 tehas_slice_ok() {
-  local out line path="" max="" active="" driver="" version="" ctl="" c reserve ceiling need
+  local out line path="" max="" active="" driver="" version="" ctl="" c reserve ceiling need cpus
   local root=${TEHAS_CGROUP_ROOT:-/sys/fs/cgroup}
-  TEHAS_SLICE_WHY="" TEHAS_SLICE_MAX="" TEHAS_SLICE_ACTIVE="" TEHAS_SLICE_CEILING_MB=""
+  TEHAS_SLICE_WHY="" TEHAS_SLICE_MAX="" TEHAS_SLICE_ACTIVE="" TEHAS_SLICE_CEILING_MB="" TEHAS_SLICE_CPUS=""
 
   if ! out=$(timeout 10 systemctl show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax 2>/dev/null </dev/null) ||
     [ -z "$out" ]; then
@@ -149,20 +161,54 @@ tehas_slice_ok() {
     return 1
   fi
 
+  cpus=$(nproc 2>/dev/null) || cpus=""
+  if ! _tehas_slice_num "$cpus" || [ "$cpus" = 0 ]; then
+    TEHAS_SLICE_WHY="nproc gave no count of the host's CPUs"
+    return 1
+  fi
+
   TEHAS_SLICE_MAX=$max
   TEHAS_SLICE_ACTIVE=$active
   TEHAS_SLICE_CEILING_MB=$ceiling
+  TEHAS_SLICE_CPUS=$cpus
   return 0
+}
+
+# The quota is a ceiling, not a share that is held: an idle container leaves
+# its CPUs to the others, and the weight shares them when all are busy. Without
+# one, a single container's gate could take every CPU of the host, the host's
+# own services and the model backends among them. One CPU is left to the host.
+# The cycles side by side are counted at their ceiling, not as they run, so a
+# container's quota does not depend on when it started.
+#
+# The pids limit follows the quota: a container's processes are mostly what
+# its gate runs side by side, and a gate sized by its CPUs runs fewer on fewer.
+# 2048 at least, for the agents, their tools and git around the gate.
+tehas_slice_cpus() {
+  local cpus=${TEHAS_SLICE_CPUS:-} cycles=${TEHAS_TICKET_CONCURRENCY:-} spare quota pids
+  _tehas_slice_num "$cpus" && [ "$cpus" -gt 0 ] || return 1
+  _tehas_slice_num "$cycles" && [ "$cycles" -gt 0 ] || return 1
+  [ "$cycles" -le 4 ] || cycles=4
+  spare=$((cpus > 1 ? cpus - 1 : 1))
+  quota=$((spare * 100 / cycles))
+  [ "$quota" -ge 100 ] || quota=100
+  pids=$(((quota + 99) / 100))
+  pids=$((pids * 1024))
+  [ "$pids" -ge 2048 ] || pids=2048
+  [ "$pids" -le 4096 ] || pids=4096
+  printf '%d.%02d %d\n' $((quota / 100)) $((quota % 100)) "$pids"
 }
 
 # shellcheck disable=SC2034  # the caller reads the array
 tehas_slice_limits() {
-  local mb=${TEHAS_SLICE_CEILING_MB:-}
+  local mb=${TEHAS_SLICE_CEILING_MB:-} cpu quota pids
   TEHAS_SLICE_LIMITS=()
   _tehas_slice_num "$mb" && [ "$mb" -gt 0 ] || return 1
   _tehas_slice_bytes "${TEHAS_CYCLE_RESERVE:-}" >/dev/null || return 1
+  cpu=$(tehas_slice_cpus) || return 1
+  read -r quota pids <<<"$cpu"
   TEHAS_SLICE_LIMITS=(--cgroup-parent tehas.slice --memory "${mb}m" --memory-swap "${mb}m"
-    --memory-reservation "$TEHAS_CYCLE_RESERVE" --pids-limit 4096 --cpu-shares 1024)
+    --memory-reservation "$TEHAS_CYCLE_RESERVE" --cpus "$quota" --pids-limit "$pids" --cpu-shares 1024)
 }
 
 tehas_slice_pressure() {

@@ -122,7 +122,8 @@ anything here.
 ### Can one factory serve several repositories?
 
 Not yet. An instance is one host and one product repository. It works on
-several issues side by side: by default one for each CPU of the host, less one.
+several issues side by side: by default one for each CPU of the host, less one,
+each as one workstream in a container with its share of the CPUs.
 
 ### Where does the name come from?
 

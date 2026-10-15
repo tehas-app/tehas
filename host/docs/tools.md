@@ -61,8 +61,8 @@ in the platform repository has every one with a comment.
 | `TEHAS_IMPROVE_MAX_OPEN`        | `10`                                     | How many issues labelled `tehas:improvement` may be open in one repository before the loop files no more there |
 | `TEHAS_WORK_REPO`               | `~/tehas/repos/<name>`                   | The product checkout cycles are cloned from. Must be a clone of `TEHAS_REPO`. A cycle works in `~/tehas/work/<name>-<issue>`, which is not a setting |
 | `TEHAS_BRANCH`                  | the checkout's `origin/HEAD`             | Branch cycles start from and pull requests target               |
-| `TEHAS_CONCURRENCY`             | `4`                                      | Workstreams side by side inside one cycle                       |
-| `TEHAS_TICKET_CONCURRENCY`      | the host's CPUs minus one, at least 1    | The most cycles side by side. A ceiling, never a divisor: the dispatcher starts fewer while `tehas.slice` has no room, and never more than leave four containers in it (see [Limits that hold work back](/operating#limits-that-hold-work-back)). A value above the host's CPUs is accepted. Lower it when the model backends cannot serve `TEHAS_CONCURRENCY` times this many workstreams; nothing measures that |
+| `TEHAS_CONCURRENCY`             | `1`                                      | Workstreams side by side inside one cycle. Above 1 only with `TEHAS_TICKET_CONCURRENCY=1`: with both above 1 a command stops with 78 (see [The host](/host#limits-and-concurrency)) |
+| `TEHAS_TICKET_CONCURRENCY`      | the host's CPUs minus one, at least 1    | The most cycles side by side. A ceiling, never a divisor: the dispatcher starts fewer while `tehas.slice` has no room, and never more than leave four containers in it (see [Limits that hold work back](/operating#limits-that-hold-work-back)). A value above the host's CPUs is accepted. A container's CPU quota is the host's CPUs less one over this, counted at most 4. Lower it when the model backends cannot serve this many cycles; nothing measures that |
 | `TEHAS_MAX_AWAITING`            | `TEHAS_TICKET_CONCURRENCY` plus 2        | Open `tehas:awaiting-merge` issues, plus running cycles, allowed before holding |
 | `TEHAS_CYCLE_RESERVE`           | `2g`                                     | Memory one container is given as a floor (`docker --memory-reservation`) and the unit the dispatcher counts room in. A reclaim priority inside `tehas.slice` and the amount admission promises, not a guarantee against the whole host. A Docker size of at least 6m, and at most a quarter of the slice's `MemoryMax`, else the command stops with 78 naming both numbers. With the default the host needs about 11 GiB of memory; a smaller host sets it lower |
 | `TEHAS_WORK_TIMEOUT`            | `21600`                                  | Seconds before a cycle is given up. At most 25200: [the cycle's unit](/host#time-limits) stops a cycle after 8 hours |
@@ -343,8 +343,9 @@ removed before the new one starts.
 
 The container runs in `tehas.slice` and gets the bot token and the
 `PI_ENSEMBLE_*` settings, a memory ceiling of a quarter of the slice with no
-swap, `TEHAS_CYCLE_RESERVE` as its floor, a pids limit of 4096, a CPU weight
-and no CPU quota, and no Docker socket or SSH keys. git inside it is given the
+swap, `TEHAS_CYCLE_RESERVE` as its floor, a CPU quota of its share of the
+host's CPUs, a pids limit that follows the quota, a CPU weight and an init, and
+no Docker socket or SSH keys. git inside it is given the
 bot's identity and a credential helper that reads the token, through
 environment-level configuration; before a cycle starts, a dry-run push proves
 that works. The RPC stream is kept in `~/tehas/logs/work-<issue>-<time>.jsonl`.
@@ -1892,7 +1893,8 @@ scripts/test.sh
 It runs shellcheck over the shell scripts, then every `test/*_test.sh`. Those
 need bash, git, jq and shellcheck only: no sandbox image, no product checkout
 and no network. The test files run side by side, at most `TEHAS_TEST_JOBS` at
-once, the number of CPUs by default. Exit 0 when every check passed, 1 when one
+once: by default the CPU quota of the cgroup it runs in, rounded up, or the
+number of CPUs where there is none. Exit 0 when every check passed, 1 when one
 failed, 2 when nothing could be checked.
 
 `scripts/check-generic.sh` is the lint that keeps private network addresses out
