@@ -13,6 +13,7 @@
 #   failed    true when the last turn did not finish
 #   running   true while a turn is in flight
 #   comment   the id of the open question comment, once it is posted
+#   lost      true when Pi no longer has the session; it is then ended
 # While pending, the outcome is kept next to the record as <record>.out. What
 # the runner carries from one turn to the next is in <record>.keep, and the
 # approved text in <record>.brief; both go with the record.
@@ -38,7 +39,8 @@
 #                                  record how a turn went and post it; a failed
 #                                  first turn takes its session from the
 #                                  outcome file, if the runner left one there
-#   plan_recover <issue>           finish a turn that was cut off
+#   plan_recover <issue>           finish a turn that was cut off, or end a
+#                                  session found lost that could not be ended
 #   plan_post <issue>              post the outcome kept in the record
 #   plan_end <issue> <text>        end the session and say why; returns 1,
 #                                  having changed nothing, if the labels stay
@@ -111,6 +113,11 @@ plan_post() {
   fi
 }
 
+# A session Pi no longer has cannot go on: what was said in it is gone.
+plan_lost() {
+  plan_end "$1" "Tehas ended this planning session: its conversation is no longer on \`$(hostname)\` (\`~/.pi/agent/sessions\`), so the last answer was not sent to the agent. Apply \`tehas:plan\` again to start a new session."
+}
+
 plan_finish() {
   local n=$1 rc=$2 turns=$(($3 + 1)) sid=$4 st out why ok
   st=$(plan_state "$n")
@@ -119,6 +126,16 @@ plan_finish() {
     why="was cut off, for example by a restart of the host"
   else
     why="exited with status $rc"
+  fi
+
+  # Noted first, so a poll that cannot end it yet ends it next time.
+  if [ "$rc" != 0 ] && jq -e '.lost == true' "$out" >/dev/null 2>&1; then
+    if ! { jq -c '.lost = true' "$st" >"$st.new" && mv "$st.new" "$st"; }; then
+      log "WARN: could not note in the record of #$n that its session is lost"
+    fi
+    log "planning #$n: Pi no longer has session $sid"
+    plan_lost "$n" || return 1
+    return 0
   fi
 
   if [ "$rc" = 0 ] && jq -e '(.session // "") != ""' "$out" >/dev/null 2>&1; then
@@ -164,6 +181,10 @@ plan_recover() {
   local n=$1 st
   st=$(plan_state "$n")
   rm -f "$st.out"
+  if [ "$(jq -r '.lost // false' "$st" 2>/dev/null)" = true ]; then
+    plan_lost "$n"
+    return
+  fi
   log "planning #$n: a turn was cut off"
   plan_finish "$n" interrupted "$(jq -r '.turns // 0' "$st" 2>/dev/null)" "$(jq -r '.session // ""' "$st" 2>/dev/null)"
 }

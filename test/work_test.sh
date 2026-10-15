@@ -36,6 +36,10 @@ git clone -q "$upstream" "$checkout"
 # start a container whose cid file is already there. Only a run is recorded
 # one argument per line; what the container does is a file a case writes.
 t_stub docker 'if [ "$1" = info ]; then cat "$T/docker.info"; exit; fi
+if [ "$1" = image ]; then
+  case " $* " in *"{{.Id}}"*) cat "$T/image.inspect" ;; *) cat "$T/image.label" ;; esac 2>/dev/null
+  exit
+fi
 printf "%s\n" "$@" >"$T/calls/docker.args.$$"
 prev=""
 for a in "$@"; do
@@ -47,8 +51,6 @@ for a in "$@"; do
 done
 case " $* " in
   *" --mode "*) [ ! -e "$T/container.sh" ] || . "$T/container.sh" ;;
-  " image inspect "*) cat "$T/image.id" 2>/dev/null || exit 1 ;;
-  *" test -f /opt/pi-rukas/extension/src/work-driver-issue-images.ts "*) exit "$(cat "$T/image.reads" 2>/dev/null || echo 125)" ;;
   *" push --dry-run "*)
     [ ! -e "$T/push-hangs" ] || exec "$(command -pv sleep)" 30
     [ "${PUSH_RC:-0}" = 0 ] || { echo "docker: could not read from remote repository" >&2; exit "$PUSH_RC"; } ;;
@@ -79,9 +81,7 @@ env_ok=(GH_TOKEN=test-token "TEHAS_CGROUP_ROOT=$T_CGROUP")
 # The arguments of the docker call that starts the cycle.
 cycle_args() { grep -l -x -e '--mode' "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
 # The arguments of the docker call that checks the push before the cycle.
-preflight_args() { grep -l -x -e 'push' "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
-# The arguments of the docker call that asks the image whether it reads images.
-reader_args() { grep -l -e 'work-driver-issue-images' "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
+preflight_args() { grep -l -x -e '--entrypoint' "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
 # Values that follow a flag, e.g. every -v or every -e.
 after() { cycle_args | awk -v flag="$1" 'prev == flag { print } { prev = $0 }'; }
 # Every option of a docker call that is not one this command is known to
@@ -602,6 +602,33 @@ t_lacks "$t_out" "stalled"
 t_eq "$(find "$T/home/tehas/state/cycles/7.stalled" 2>/dev/null | wc -l)" 0
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 
+t_case "a Pi session that ended while the cycle runs stops it at once as interrupted"
+fresh
+rm -f "$T/home/tehas/state/cycles/7.ended"
+# What pi-rukas wrote to the error stream when Pi quit on a real host. The
+# container then idles.
+container "says running; echo '[pi-rukas] session_shutdown (reason: quit): aborted 2 in-flight async jobs' >&2; $hold; $gone"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "tehas work: the Pi session ended while the cycle was running, stopping it"
+t_contains "$t_out" "status=interrupted step=develop"
+t_lacks "$t_out" "time limit"
+t_lacks "$t_out" "was killed"
+t_contains "$(t_calls docker)" "stop -t 20 tehas-work-7"
+t_eq "$(find "$T/home/tehas/state/cycles/7.ended" -type f 2>/dev/null | wc -l)" 1
+t_eq "$(jq -c '[.running, .status]' "$live/cycles/7.json")" '[false,"interrupted"]'
+
+t_case "a session_shutdown that is not at the start of a line ends nothing, and no ended file is left"
+fresh
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=2
+container "says running; echo 'a tool said [pi-rukas] session_shutdown' >&2; $hold; $gone"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "time limit of 2s passed"
+t_lacks "$t_out" "session ended"
+t_eq "$(find "$T/home/tehas/state/cycles/7.ended" 2>/dev/null | wc -l)" 0
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+
 t_case "TERM still gives interrupted"
 fresh
 container "$hold; $gone"
@@ -627,6 +654,35 @@ t_case "a container left under the issue's name is removed before the cycle's st
 rm_at=$(t_calls docker | grep -n -x -e 'rm -f tehas-work-7' | cut -d: -f1 | head -n 1)
 run_at=$(t_calls docker | grep -n -e ' --mode ' | cut -d: -f1 | head -n 1)
 t_eq "$([ -n "$rm_at" ] && [ -n "$run_at" ] && [ "$rm_at" -lt "$run_at" ] && echo before)" before
+
+t_case "the image's id and the pi-rukas commit of its label are on record, read before the container starts"
+fresh
+image_id=sha256:$(printf 'e%.0s' {1..64})
+echo "$image_id 0123456789abcdef0123456789abcdef01234567" >"$T/image.inspect"
+container 'says handoff'
+t_run "$work 7"
+t_eq "$(cat "$T/home/tehas/state/cycles/7.image")" "$image_id 0123456789abcdef0123456789abcdef01234567"
+t_contains "$(t_calls docker)" "image inspect --format {{.Id}} {{index .Config.Labels \"tehas.rukas\"}} tehas/pi-rukas:uid$(id -u)"
+at_inspect=$(t_calls docker | grep -n -e '^image inspect' | cut -d: -f1 | head -n 1)
+at_run=$(t_calls docker | grep -n -e ' --mode ' | cut -d: -f1 | head -n 1)
+t_eq "$([ -n "$at_inspect" ] && [ -n "$at_run" ] && [ "$at_inspect" -lt "$at_run" ] && echo before)" before
+
+t_case "an image without the label is on record by its id alone"
+fresh
+echo "$image_id " >"$T/image.inspect"
+t_run "$work 7"
+t_eq "$(cat "$T/home/tehas/state/cycles/7.image")" "$image_id "
+
+t_case "an answer that is not an image id leaves no record, and one left by an earlier cycle goes"
+fresh
+echo "not-an-id 0123456 \$(touch x)" >"$T/image.inspect"
+echo "$image_id 0123456" >"$T/home/tehas/state/cycles/7.image"
+t_run "$work 7"
+t_eq "$(find "$T/home/tehas/state/cycles/7.image" 2>/dev/null | wc -l)" 0
+echo "$image_id not-a-commit" >"$T/image.inspect"
+t_run "$work 7"
+t_eq "$(cat "$T/home/tehas/state/cycles/7.image")" "$image_id "
+rm -f "$T/image.inspect" "$T/home/tehas/state/cycles/7.image"
 
 t_case "a docker stop that does not end is given up after its bound, said, and the container killed"
 fresh
@@ -875,6 +931,7 @@ images_on() {
   rm -rf "$fx" "$T"/calls/* "$T/home/tehas/work" "$T/home/tehas/state/cycles/7.manifest.json" "$T/home/tehas/state/cycles/7.approved.json"
   mkdir -p "$fx/net"
   slice_good
+  reads_image 1
   T_ENV=("${env_ok[@]}")
   t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1 "$@"
 }
@@ -886,6 +943,13 @@ $state/sessions:/home/vscode/.pi/agent/sessions
 $T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
 $T/home/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro"
 manifest() { jq -c "$1" "$imgs/manifest.json" 2>&1; }
+# What the sandbox image says about its own pi-rukas, as host/sandbox/build.sh
+# writes it: <commit>|<reads>. reads_image says it for one case.
+img_commit=$(printf 'c%.0s' {1..40})
+reads_image() { # <1, 0, or none when the image carries no label>
+  rm -f "$T/image.label"
+  if [ "$1" != none ]; then printf '%s\n' "$img_commit|$1" >"$T/image.label"; fi
+}
 
 t_case "with images off GitHub is not asked, nothing is fetched and no directory is made"
 images_on
@@ -962,6 +1026,39 @@ t_contains "$(t_calls gh)" "- $F/23/all.zip: Not a png, jpg, webp or gif image."
 t_case "the limit counts all images together: each fetch may take what is left"
 t_eq "$(t_calls curl | grep -o -e '--max-filesize [0-9]*' | tr '\n' ' ')" \
   "--max-filesize 10485760 --max-filesize 10485745 --max-filesize 10485734 --max-filesize 10485734 --max-filesize 10485721 "
+
+t_case "an image the sandbox image does not read is said as fetched and not shown, and still mounted"
+images_on
+reads_image 0
+net "$A/1111" "$png"
+issue_is "![shot]($A/1111)"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$(after -v)" "$imgs:$inside.images:ro"
+t_eq "$(after -e | grep '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$inside.images"
+t_lacks "$(t_calls gh)" "Tehas gave this cycle"
+t_contains "$(t_calls gh)" "Tehas fetched 1 image from the issue text and mounted it read-only in the container of this cycle. The pi-rukas in the sandbox image does not read them, so no agent was shown one."
+
+# An image built before the label existed is not proof of anything, and tehas
+# does not claim one way or the other.
+t_case "a sandbox image that says nothing is not claimed to have shown the images"
+images_on
+reads_image none
+net "$A/1111" "$png"
+issue_is "![shot]($A/1111)"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_lacks "$(t_calls gh)" "Tehas gave this cycle"
+t_contains "$(t_calls gh)" "The sandbox image does not say whether its pi-rukas reads them: rebuild it with $T/home/tehas/sandbox/build.sh, which records the answer."
+
+t_case "a sandbox image that reads them is said to have given them"
+images_on
+reads_image 1
+net "$A/1111" "$png"
+issue_is "![shot]($A/1111)"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body Tehas gave this cycle 1 image from the issue text."
 
 t_case "bytes that are not the image the name says are left out"
 images_on
@@ -1102,68 +1199,6 @@ echo old >"$imgs/image-9.png"
 issue_is "Words only."
 t_run "$work 7"
 t_eq "$(cd "$imgs" && find . -mindepth 1 | tr '\n' ' ')" "./manifest.json "
-
-# reads <status>: what the image answers when asked for its reader: 0 it has
-# it, 1 it has not, any other a docker that failed.
-iid=sha256:$(printf '%064d' 7)
-reads() { echo "$iid" >"$T/image.id"; echo "$1" >"$T/image.reads"; rm -rf "$T/home/tehas/state/images-read"; }
-read_file=$T/home/tehas/state/images-read.json
-
-t_case "an image whose pi-rukas does not read images: the comment says they are not shown"
-images_on
-net "$A/1111" "$png"
-issue_is "![shot]($A/1111)"
-reads 1
-t_run "$work 7"
-t_eq "$t_rc" 2
-t_contains "$(t_calls gh)" "--body Tehas fetched 1 image from the issue text for this cycle, but the pi-rukas in the sandbox image does not read them: its agents are not shown them."
-t_lacks "$(t_calls gh)" "Tehas gave this cycle"
-t_eq "$(jq -c '[.image, .reads]' "$read_file")" "[\"$image\",false]"
-
-t_case "the image is asked by its id, and its container is given nothing"
-t_eq "$(reader_args | tr '\n' ' ')" "run --rm --pull never --network none --entrypoint sh $iid -c test -f /opt/pi-rukas/extension/src/work-driver-issue-images.ts "
-
-t_case "the answer is kept per image id: a second cycle does not ask the image again"
-rm -f "$T"/calls/*
-echo 0 >"$T/image.reads"
-t_run "$work 7"
-t_eq "$(reader_args)" ""
-t_contains "$(t_calls gh)" "does not read them"
-
-t_case "an image that reads them: the comment says the cycle was given them"
-images_on
-net "$A/1111" "$png"
-issue_is "![shot]($A/1111)"
-reads 0
-t_run "$work 7"
-t_contains "$(t_calls gh)" "--body Tehas gave this cycle 1 image from the issue text."
-t_lacks "$(t_calls gh)" "could not be checked"
-t_eq "$(jq -c .reads "$read_file")" true
-
-t_case "an image that cannot be asked is said, and the answer is not kept"
-images_on
-net "$A/1111" "$png"
-issue_is "![shot]($A/1111)"
-reads 125
-t_run "$work 7"
-t_eq "$t_rc" 2
-t_contains "$(t_calls gh)" "Whether the pi-rukas in the sandbox image reads them could not be checked."
-t_eq "$(jq -c .reads "$read_file")" null
-t_eq "$(find "$T/home/tehas/state/images-read" -type f 2>/dev/null | wc -l)" 0
-rm -f "$T/image.id" "$T"/calls/*
-t_run "$work 7"
-t_eq "$(reader_args)" ""
-t_eq "$(jq -c .reads "$read_file")" null
-
-t_case "with images off the answer is removed, and the image is not asked"
-images_on
-t_instance "${T_MINIMAL[@]}"
-reads 1
-echo '{"time":"2026-10-14T00:00:00Z","reads":false}' >"$read_file"
-t_run "$work 7"
-t_eq "$(find "$read_file" 2>/dev/null | wc -l)" 0
-t_eq "$(reader_args)$(t_calls docker | grep -c '^image ')" "0"
-rm -f "$T/image.id" "$T/image.reads"
 
 t_case "a path of the instance's own for the variable is replaced, not added to"
 images_on PI_ENSEMBLE_EXTRA_IMAGE_DIRS=/elsewhere
@@ -1530,9 +1565,10 @@ t_eq "$(cycle_args | unknown_options "$image" \
   "--name --cgroup-parent --memory --memory-swap --memory-reservation --pids-limit --cpu-shares --cidfile -w -v -e" "--rm -i --init")" ""
 t_eq "$(preflight_args | awk 'prev == "-v" { print } { prev = $0 }')" "$ws:$inside"
 
-t_case "with files alone the sandbox image is not asked about images"
-t_eq "$(reader_args)$(t_calls docker | grep -c '^image ')" "0"
-t_eq "$(find "$T/home/tehas/state/images-read.json" 2>/dev/null | wc -l)" 0
+t_case "with files alone the comment says nothing of images"
+t_contains "$(t_calls gh)" "Tehas fetched 1 file from the issue text for this cycle"
+t_lacks "$(t_calls gh)" "image from the issue text"
+t_lacks "$(t_calls gh)" "sandbox image does not say"
 
 t_case "text files are taken by their name, under names of tehas's own, listed with their name, type, size and hash"
 files_on
@@ -1627,13 +1663,14 @@ t_case "with images and files both on there is still one directory and one varia
 files_on TEHAS_WORK_IMAGES=1
 net "$F/31/spec.md" '# Spec\n'
 net "$A/1111" "$png"
+reads_image 1
 issue_is "[spec.md]($F/31/spec.md) ![s]($A/1111)"
 t_run "$work 7"
 t_eq "$t_rc" 2
 t_eq "$(cd "$imgs" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" "./file-1.md ./image-1.png ./manifest.json "
 t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$mounts_off" "$imgs:$inside.images:ro" | LC_ALL=C sort)"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_ENSEMBLE_EXTRA_IMAGE_DIRS | LC_ALL=C sort)"
-t_contains "$(t_calls gh)" "--body Tehas gave this cycle 1 image from the issue text. Whether the pi-rukas in the sandbox image reads them could not be checked. Tehas fetched 1 file from the issue text"
+t_contains "$(t_calls gh)" "--body Tehas gave this cycle 1 image from the issue text. Tehas fetched 1 file from the issue text"
 
 t_case "a file of the same approval that gives other bytes stops the start"
 record_is alice "[spec.md]($F/31/spec.md) ![s]($A/1111)" "$F/31/spec.md"

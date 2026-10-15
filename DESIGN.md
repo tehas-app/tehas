@@ -308,10 +308,16 @@ title, stage, labels, then the ticket's history (created, changed, tokens, time
 and an energy estimate marked with a tilde) and a link when the data has one.
 On wide screens it is as tall as the stations and doors beside it,
 stands to the right of the stations and stays in view while the page scrolls.
+Below 1280px it is a panel in the single column and scrolls away with the page;
+pressing a row there still marks the row and prints the order, only the flying
+number is skipped when the monitor is off screen. The row that was pressed
+latches in Brass for a beat instead, wherever it stands.
 
 ### Issue Board
 - **Rows:** number in Rust, title, stage. 1px Hairline between rows.
   Hover is Steel; the selected row is Brass Light. The two never match.
+  A row you press latches in Brass for a beat, so the press is answered where
+  it landed even when the monitor is off screen.
 - **Tools:** a labelled search field and stage select, 48px tall with a 4px
   outline, and a clear button that appears only when something is narrowed.
 
@@ -353,9 +359,13 @@ wordmark, the data source tag (Brass for sample data or a stale queue, Bone
 for a loaded export, absent while the page shows the fresh live queue), the
 section menu ending in an underlined link to the project on GitHub, over a
 Brass stripe. Below 1280px the
-menu takes a second row and scrolls sideways; on phones the wordmark gives way
+menu takes a row of its own: on the factory floor its links wrap into as many
+rows as they need, where the manual and Protolab headers, which hold four
+links, keep one row that scrolls sideways; on phones the wordmark gives way
 to the sprite alone. Everything that sticks or scrolls to an anchor clears the
-header's height.
+header's height, so the clearance a page uses is the band that page really
+makes: `--header` in game-view.css, per width band, and taller on the factory
+floor where the menu wraps.
 
 ### Production Console
 A Bone Shade panel holding a CRT Black screen with CRT Amber text: the running

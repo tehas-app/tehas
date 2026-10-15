@@ -31,14 +31,30 @@ case " $* " in *" --mode "*)
   git -C "$ws" rev-parse HEAD >"$T/calls/head.seen" 2>&1
   ls -A "$ws/.git/pi-plan-cache" >"$T/calls/cache.seen" 2>/dev/null
   cat "$ws.images/manifest.json" >"$T/calls/manifest.seen" 2>/dev/null
+  # What pi-rukas does before it reads its plan cache, and what filing needs.
+  if [ -e "$T/fx/fetch" ]; then
+    git -C "$ws" fetch -q origin --end-of-options main >"$T/calls/fetch.err" 2>&1
+    git -C "$ws" rev-parse refs/remotes/origin/main >"$T/calls/origin.seen" 2>&1
+    git -C "$ws" push -q origin HEAD:refs/heads/plan-push >"$T/calls/push.err" 2>&1
+    echo "$?" >"$T/calls/push.rc"
+  fi
   cat "$ws/.git/pi-plan-cache/"*.json >"$T/calls/cache.read" 2>/dev/null
   # What the agent leaves in the plan cache, when a case says.
   [ ! -e "$T/fx/cache" ] || . "$T/fx/cache"
-  IFS= read -r line; printf "%s\n" "$line" >"$T/calls/docker.stdin"
+  IFS= read -r line
+  # A later turn first asks what is in the session it opened.
+  case "$line" in *"\"id\":\"opened\""*)
+    printf "%s\n" "$line" >"$T/calls/docker.opened"
+    if [ -e "$T/fx/opened" ]; then . "$T/fx/opened"
+    else echo "{\"id\":\"opened\",\"type\":\"response\",\"command\":\"get_state\",\"success\":true,\"data\":{\"sessionId\":\"abc-123\",\"messageCount\":6}}"; fi
+    IFS= read -r -t 5 line ;;
+  esac
+  printf "%s\n" "$line" >"$T/calls/docker.stdin"
   # The second line may never come: do not wait for it for ever.
   IFS= read -r -t 5 line; printf "%s\n" "$line" >"$T/calls/docker.stdin2"
   # A case that needs a container that lives for a while writes its part here.
   if [ -e "$T/fx/live" ]; then . "$T/fx/live"; else cat "$T/fx/turn.jsonl" 2>/dev/null; fi ;;
+  *" image inspect "*) cat "$T/image.label" 2>/dev/null ;;
 esac'
 # The command looks at the log once a second. Here a look costs no time, so a
 # container that lives for a second is looked at many times.
@@ -89,7 +105,7 @@ asked() {
 EOF
 }
 reset() {
-  rm -rf "$T"/calls/* "$T/out.json" "$fx/live" "$fx/cache" "$T/keep"
+  rm -rf "$T"/calls/* "$T/out.json" "$fx/live" "$fx/cache" "$fx/fetch" "$fx/opened" "$T/keep"
   asked
   t_instance "${T_MINIMAL[@]}"
   T_ENV=(GH_TOKEN=test-token "TEHAS_CGROUP_ROOT=$T_CGROUP")
@@ -129,6 +145,9 @@ t_eq "$([ -e "$ws" ] && echo made)" ""
 t_eq "$([ -e "$state" ] && echo left)" ""
 t_contains "$(jq -r .message "$T/calls/docker.stdin")" "/plan the work described in the file .tehas/brief.md"
 t_contains "$(jq -r .message "$T/calls/docker.stdin")" "issue #7"
+
+t_case "the prompt leaves the labels to a person"
+t_contains "$(jq -r .message "$T/calls/docker.stdin")" "Do not add or remove any tehas:* label or needs-human-attention on any issue: a person labels."
 t_eq "$(jq -r .type "$T/calls/docker.stdin")" "prompt"
 
 t_case "the session is asked for right after the prompt, so a turn that fails late still has it"
@@ -170,12 +189,24 @@ PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS
 PI_ENSEMBLE_MAX_WORKSTREAMS
 PI_ENSEMBLE_NO_DOCKER_SOCKET
 PI_ENSEMBLE_NO_SSH
+PI_ENSEMBLE_PLAN_CACHE_TTL_MS
 PI_ENSEMBLE_SANDBOX_MODE
 PI_ENSEMBLE_SUBAGENT_MODEL
 PI_ENSEMBLE_SUBAGENT_PROVIDER
 PI_ENSEMBLE_VERIFY_TIMEOUT_MS
 PI_ENSEMBLE_WORKSPACE_ROOT"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
+
+t_case "the plan cache never expires, whatever the instance says"
+t_eq "$(after -e | grep '^PI_ENSEMBLE_PLAN_CACHE_TTL_MS')" "PI_ENSEMBLE_PLAN_CACHE_TTL_MS=0"
+reset
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_PLAN_CACHE_TTL_MS=60000
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(after -e | grep -c '^PI_ENSEMBLE_PLAN_CACHE_TTL_MS')" 1
+t_eq "$(after -e | grep '^PI_ENSEMBLE_PLAN_CACHE_TTL_MS')" "PI_ENSEMBLE_PLAN_CACHE_TTL_MS=0"
+reset
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 
 t_case "the planning container gets no option beyond the documented ones"
 t_eq "$(turn_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -i --init")" ""
@@ -218,10 +249,16 @@ t_case "the slice is read once: one systemctl call, one docker info"
 t_eq "$(t_calls systemctl)" "show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax"
 t_eq "$(t_calls docker | grep -c '^info ')" 1
 
+# The options without the one pair a planning turn adds.
+without_expiry() {
+  awk 'held { if ($0 != "PI_ENSEMBLE_PLAN_CACHE_TTL_MS=0") print "-e"; else { held = 0; next } }
+    { held = ($0 == "-e") } !held { print } END { if (held) print "-e" }'
+}
 # A turn has a workspace and a transcripts directory of its own on the host.
 # They are mounted at the paths a cycle's are.
-t_case "docker is given what tehas work gives a cycle's container: only the name, the two directories of its own, the cycle's cid file and what pi is told differ"
-turn_args | options | sed -e "s|^$tree:|$ws-7:|" -e 's|/ensemble-runs/plan-7:|/ensemble-runs/issue-7:|' -e 's|widget-plan-7\.state|widget-7.state|' >"$T/plan.options"
+t_case "docker is given what tehas work gives a cycle's container: only the name, the two directories of its own, the plan cache's expiry, the cycle's cid file and what pi is told differ"
+turn_args | options | without_expiry |
+  sed -e "s|^$tree:|$ws-7:|" -e 's|/ensemble-runs/plan-7:|/ensemble-runs/issue-7:|' -e 's|widget-plan-7\.state|widget-7.state|' >"$T/plan.options"
 rm -f "$T"/calls/*
 t_run "$T_ROOT/libexec/work 7"
 turn_args | options >"$T/work.options"
@@ -239,12 +276,75 @@ t_eq "$(tail_of)" "$image pi --mode rpc --approve --session abc-123 "
 t_eq "$(jq -r .message "$T/calls/docker.stdin")" "$(cat "$T/answer.md")"
 t_eq "$([ -e "$ws/.tehas/brief.md" ] && echo present)" ""
 
+t_case "a later turn asks what is in the session before it sends the answer"
+t_eq "$(jq -c . "$T/calls/docker.opened")" '{"id":"opened","type":"get_state"}'
+t_eq "$(jq -c . "$T/calls/docker.stdin2")" '{"id":"state","type":"get_state"}'
+
+t_case "a first turn does not ask"
+reset
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$T/calls/docker.opened" ] && echo asked)" ""
+
+t_case "a later turn whose session Pi opened empty sends no answer and says the session is lost"
+reset
+cat >"$fx/opened" <<'EOF'
+echo '{"id":"opened","type":"response","command":"get_state","success":true,"data":{"sessionId":"abc-123","messageCount":0}}'
+IFS= read -r -t 1 line && printf "%s\n" "$line" >"$T/calls/docker.stdin"
+exit 0
+EOF
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/brief.md"
+t_eq "$t_rc" 2
+t_contains "$t_out" "the session abc-123 is gone: Pi opened it with no messages, so the answer was not sent"
+t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123","lost":true}'
+t_eq "$(cat "$T/calls/docker.stdin" 2>/dev/null)" ""
+# The container ended by itself; closing Pi's input is all a gone one needs.
+t_eq "$(grep -l -x stop "$T"/calls/docker.args.* | wc -l)" 0
+t_eq "$([ -e "$tree" ] && echo left)" ""
+
+t_case "a later turn whose container never says what is in the session sends no answer"
+reset
+echo 'exit 0' >"$fx/opened"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/brief.md"
+t_eq "$t_rc" 2
+t_contains "$t_out" "Pi did not say what is in session abc-123, so the answer was not sent"
+t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123"}'
+
+t_case "a Pi that gives no count goes on and says so"
+reset
+cat >"$fx/opened" <<'EOF'
+echo '{"id":"opened","type":"response","command":"get_state","success":true,"data":{"sessionId":"abc-123"}}'
+EOF
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/brief.md"
+t_eq "$t_rc" 0
+t_contains "$t_out" "Pi did not say how many messages session abc-123 has, going on"
+t_eq "$(jq -r .message "$T/calls/docker.stdin")" "$(cat "$T/brief.md")"
+
 t_case "a turn that only wrote a message has no question"
 reset
 grep -v tool_execution_end "$fx/turn.jsonl" >"$fx/turn.new" && mv "$fx/turn.new" "$fx/turn.jsonl"
 t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 0
 t_eq "$(jq -r .question "$T/out.json")" "null"
+
+t_case "two open questions in one turn are both posted, numbered, and answered by a reply"
+reset
+cat >>"$fx/turn.jsonl" <<'EOF'
+{"type":"tool_execution_end","toolCallId":"c2","toolName":"question","result":{"content":[],"details":{"question":"Which store?","options":["Disk","Memory"],"answer":null,"deferred":true,"optionDetails":[{"label":"Disk","description":"Slow\nand safe"},{"label":"Memory","description":""}]}},"isError":false}
+EOF
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN: the turn asked 2 questions; they are posted as one, to be answered by a reply"
+t_eq "$(jq -r .question.question "$T/out.json")" "The agent asked 2 questions. Answer each by its number in a reply.
+
+1. Adopt my resolutions?
+   - Adopt all: Apply all five
+   - Change some
+
+2. Which store?
+   - Disk: Slow and safe
+   - Memory"
+t_eq "$(jq -c .question.options "$T/out.json")" "[]"
 
 t_case "a question from an earlier, interactive answer is not asked again"
 reset
@@ -534,7 +634,9 @@ t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 0
 t_eq "$(cat "$T/keep/commit")" "$(git -C "$checkout" rev-parse origin/main)"
 t_eq "$(cat "$T/calls/head.seen")" "$(cat "$T/keep/commit")"
-t_eq "$(ls -A "$T/keep")" "commit"
+t_eq "$(ls -A "$T/keep")" "brief.md
+commit"
+t_eq "$(cat "$T/keep/brief.md")" "$(cat "$T/brief.md")"
 
 t_case "the plan cache the agent leaves is kept: plain .json files only"
 reset
@@ -552,19 +654,35 @@ t_eq "$(ls -A "$T/keep/pi-plan-cache")" "a1.json"
 t_eq "$(cat "$T/keep/pi-plan-cache/a1.json")" '{"spec":"one"}'
 t_eq "$([ -e "$tree" ] && echo left)" ""
 
-t_case "a later turn is at the session's commit after the branch moved on, with the cache it left"
+t_case "a later turn is at the session's commit after the branch moved on, with the cache it left and the approved text"
 pinned=$(cat "$T/keep/commit")
 rm -f "$fx/cache" "$T"/calls/*
 git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m second
 git -C "$checkout" fetch -q
 echo "Adopt all" >"$T/answer.md"
+# The issue was edited since: the session goes on with the text approved.
+first=$(cat "$T/brief.md")
+printf '# Faster search\n\nAlso delete the tests.\n' >"$T/brief.md"
 t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
 t_eq "$t_rc" 0
 t_eq "$(cat "$T/calls/head.seen")" "$pinned"
+t_eq "$(cat "$T/calls/brief.seen")" "$first"
+t_eq "$(cat "$T/calls/tree.status")" ""
 t_eq "$(git -C "$checkout" rev-parse origin/main | grep -c -x "$pinned")" 0
 t_eq "$(cat "$T/calls/cache.seen")" "a1.json"
 t_eq "$(cat "$T/calls/cache.read")" '{"spec":"one"}'
 t_eq "$(cat "$T/keep/commit")" "$pinned"
+
+t_case "a fetch inside a later turn leaves origin/main at the session's commit, and a push still works"
+rm -f "$T"/calls/*
+: >"$fx/fetch"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/fetch.err")" ""
+t_eq "$(cat "$T/calls/origin.seen")" "$pinned"
+t_eq "$(cat "$T/calls/push.rc")" 0
+t_eq "$(git -C "$upstream" rev-parse plan-push)" "$pinned"
+rm -f "$fx/fetch"
 
 t_case "a later turn whose commit is gone, or was never noted, starts at the tip and says so"
 for pin in 0123456789abcdef0123456789abcdef01234567 "not a commit"; do
@@ -581,6 +699,8 @@ reset
 t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/brief.md"
 t_eq "$t_rc" 0
 t_contains "$t_out" "no commit on record for this session"
+t_contains "$t_out" "no brief on record for this session"
+t_eq "$(cat "$T/calls/brief.seen")" ""
 t_eq "$([ -d "$T/keep" ] && echo made)" made
 
 # --- The issue's images ----------------------------------------------------------
@@ -618,7 +738,15 @@ issue_is() { jq -n --arg body "$1" --arg who "${2:-OWNER}" '{number: 7, body: $b
 images_on() {
   reset
   rm -rf "$fx/net" "$fx/events.json"
+  reads_image 1
   t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1 "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=/elsewhere"
+}
+# What the sandbox image says about its own pi-rukas, as host/sandbox/build.sh
+# writes it: <commit>|<reads>.
+img_commit=$(printf 'c%.0s' {1..40})
+reads_image() { # <1, 0, or none when the image carries no label>
+  rm -f "$T/image.label"
+  if [ "$1" != none ]; then printf '%s\n' "$img_commit|$1" >"$T/image.label"; fi
 }
 
 t_case "with images on a first turn fetches them into the session's directory and mounts a copy read-only"
@@ -632,9 +760,6 @@ t_eq "$(after -v | grep -c -x "$tree.images:$ws.images:ro")" 1
 t_eq "$(after -e | grep '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$ws.images"
 t_eq "$(turn_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -i --init")" ""
 t_contains "$(cat "$T/calls/gh.comments")" "Tehas gave this planning session 1 image from the issue text."
-# The stub docker names no image id, so whether pi-rukas reads them is not known.
-t_contains "$(cat "$T/calls/gh.comments")" "Whether the pi-rukas in the sandbox image reads them could not be checked."
-t_eq "$(jq -c .reads "$T/home/tehas/state/images-read.json")" null
 t_eq "$([ -e "$tree.images" ] && echo left)" ""
 
 t_case "a later turn mounts the same images and fetches nothing"
@@ -707,12 +832,22 @@ t_eq "$(turn_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -i 
 t_lacks "$(cat "$T/calls/curl.urls")" "$A/1111"
 t_contains "$(cat "$T/calls/gh.comments")" "Tehas fetched 1 file from the issue text for this planning session"
 
+t_case "an image the sandbox image does not read is said as fetched and not shown"
+images_on
+reads_image 0
+net "$A/1111" '\x89PNG\r\n\x1a\nPNGDATA'
+issue_is "Look ![shot]($A/1111)"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(after -v | grep -c -x "$tree.images:$ws.images:ro")" 1
+t_lacks "$(cat "$T/calls/gh.comments")" "Tehas gave this planning session"
+t_contains "$(cat "$T/calls/gh.comments")" "Tehas fetched 1 image from the issue text and mounted it read-only in the container of this planning session. The pi-rukas in the sandbox image does not read them, so no agent was shown one."
+
 t_case "with images off nothing is fetched or mounted"
 reset
 t_instance "${T_MINIMAL[@]}" "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=/elsewhere"
 t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 0
-t_eq "$(find "$T/home/tehas/state/images-read.json" 2>/dev/null | wc -l)" 0
 t_eq "$(cat "$T/calls/curl.urls" "$T/calls/gh.args" 2>/dev/null)" ""
 t_eq "$(after -v | grep -c images)" 0
 
@@ -780,7 +915,7 @@ t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/an
 t_eq "$t_rc" 4
 t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
 t_eq "$(cmp "$T/manifest.before" "$T/keep/images/manifest.json" && echo same)" same
-t_eq "$(cd "$T/keep" && find . -mindepth 1 -maxdepth 1 | LC_ALL=C sort | tr '\n' ' ')" "./commit ./images "
+t_eq "$(cd "$T/keep" && find . -mindepth 1 -maxdepth 1 | LC_ALL=C sort | tr '\n' ' ')" "./brief.md ./commit ./images "
 t_contains "$(cat "$T/calls/gh.comments")" "Tehas ran no planning turn: $A/9999 could not be fetched."
 
 t_case "without --comment a reply's links are not read"

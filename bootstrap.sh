@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Prepare a fresh host for tehas: everything tehas and pi-rukas need, at the
-# versions in host/versions.env. Safe to run again: a tool already at its
-# version is skipped, one at another version is replaced. An npm tool counts as
-# present only when its pinned tree is installed too.
+# versions in host/versions.env, and pi-rukas at the head of the branch named
+# there. Safe to run again: a tool already at its version is skipped, one at
+# another version is replaced. An npm tool counts as present only when its
+# pinned tree is installed too.
 #
 #   sudo ./bootstrap.sh root <user>   system packages, Docker, the docker
 #                                     group and lingering for <user>, and the
@@ -25,7 +26,8 @@
 #
 # What `user` owns and will replace: Node, gh and Bun from release archives;
 # Pi, ctx7 and parallel-cli from the npm trees pinned in host/npm; Rust, vipune
-# and oo; codebase-memory-mcp; the pi-rukas clone. System packages are not
+# and oo; codebase-memory-mcp; the pi-rukas clone, moved to the branch's head
+# on every run. System packages are not
 # pinned: `root` installs what the distribution offers and `check` only requires
 # them to be present.
 #
@@ -217,6 +219,13 @@ found_rukas() {
   [ -e "$HOME/.pi/agent/extensions/pi-rukas" ] || return 0
   git -C "$TEHAS_HOME/repos/pi-rukas" rev-parse HEAD 2>/dev/null || true
 }
+# pi-rukas is not pinned: what is expected is the head of its branch now.
+rukas_head() {
+  local head
+  head=$(git ls-remote "$PI_RUKAS_REPO" "refs/heads/$PI_RUKAS_BRANCH" 2>/dev/null | cut -f1) || head=""
+  [[ $head =~ ^[0-9a-f]{40}$ ]] || return 1
+  printf '%s\n' "$head"
+}
 
 # --- check --------------------------------------------------------------------
 do_check() {
@@ -241,7 +250,7 @@ rust found_rust $RUST_VERSION
 vipune found_vipune $VIPUNE_VERSION
 oo found_oo $OO_VERSION
 codebase-memory-mcp found_cbm $CBM_VERSION
-pi-rukas found_rukas $PI_RUKAS_COMMIT
+pi-rukas found_rukas $(rukas_head || echo "no head of $PI_RUKAS_BRANCH")
 EOF
   # System tools: present is enough, the version is shown for the record.
   for tool in docker git jq curl openssl flock shellcheck unzip; do
@@ -465,7 +474,7 @@ install_rukas() {
     mkdir -p "$TEHAS_HOME/repos"
     git clone -q "$PI_RUKAS_REPO" "$dir"
   fi
-  git -C "$dir" checkout -q "$PI_RUKAS_COMMIT"
+  git -C "$dir" checkout -q "$rukas_want"
   # A login shell exports PI_ENSEMBLE_IMAGE as the tehas sandbox image. The
   # installer would pull that name, fail, and build upstream's image over it.
   (cd "$dir" && env -u PI_ENSEMBLE_IMAGE ./install.sh >"$TEHAS_HOME/tmp/pi-rukas-install.log" 2>&1) ||
@@ -514,7 +523,8 @@ do_user() {
   step vipune found_vipune "$VIPUNE_VERSION" install_vipune
   step oo found_oo "$OO_VERSION" install_oo
   step codebase-memory-mcp found_cbm "$CBM_VERSION" install_cbm
-  step pi-rukas found_rukas "$PI_RUKAS_COMMIT" install_rukas
+  rukas_want=$(rukas_head) || die "no head of $PI_RUKAS_BRANCH in $PI_RUKAS_REPO"
+  step pi-rukas found_rukas "$rukas_want" install_rukas
   echo "bootstrap: user part done"
 }
 

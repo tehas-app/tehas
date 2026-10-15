@@ -104,19 +104,17 @@ t_eq "$(taken)" '[["image-1.png"],[]]'
 
 t_case "the comment says the images were given only when the sandbox image reads them"
 said=". $T_ROOT/lib/attachments.sh; tehas_issue_images_said $T/images cycle"
+t_run "$said 1"
+t_eq "$(head -n 1 <<<"$t_out")" "Tehas gave this cycle 1 image from the issue text."
+t_run "$said 0"
+t_eq "$(head -n 1 <<<"$t_out")" "Tehas fetched 1 image from the issue text and mounted it read-only in the container of this cycle. The pi-rukas in the sandbox image does not read them, so no agent was shown one."
 t_run "$said"
-t_eq "$(head -n 1 <<<"$t_out")" "Tehas gave this cycle 1 image from the issue text."
-t_run "$said yes"
-t_eq "$(head -n 1 <<<"$t_out")" "Tehas gave this cycle 1 image from the issue text."
-t_run "$said no"
-t_eq "$(head -n 1 <<<"$t_out")" "Tehas fetched 1 image from the issue text for this cycle, but the pi-rukas in the sandbox image does not read them: its agents are not shown them."
-t_run "$said unknown"
-t_eq "$(head -n 1 <<<"$t_out")" "Tehas gave this cycle 1 image from the issue text. Whether the pi-rukas in the sandbox image reads them could not be checked."
+t_contains "$(head -n 1 <<<"$t_out")" "Tehas fetched 1 image from the issue text and mounted it read-only in the container of this cycle. The sandbox image does not say whether its pi-rukas reads them: rebuild it with"
 
 pngsum=$(sha256sum "$T/png" | cut -d' ' -f1)
 t_case "each image is recorded with its sha256, and the comment lists them"
 t_eq "$(jq -r '.images[0].sha256' "$T/images/manifest.json")" "$pngsum"
-t_run "$said"
+t_run "$said 1"
 t_eq "$t_out" "Tehas gave this cycle 1 image from the issue text.
 
 - https://github.com/user-attachments/assets/1111: image-1.png, sha256 $pngsum"
@@ -185,8 +183,8 @@ empty"
 t_case "the comment names images and files apart, and the hash of each"
 mkdir -p "$T/both"
 jq -n '{images: [{file: "image-1.png", link: "L1", sha256: "aa"}], files: [{file: "file-1.md", link: "L2", sha256: "bb"}, {file: "file-2.txt", link: "L3", sha256: "cc"}], leftOut: []}' >"$T/both/manifest.json"
-t_run "$lib; tehas_issue_images_said $T/both cycle no"
-t_eq "$t_out" "Tehas fetched 1 image from the issue text for this cycle, but the pi-rukas in the sandbox image does not read them: its agents are not shown them. Tehas fetched 2 files from the issue text for this cycle and lists them in its manifest. The pi-rukas in the sandbox image does not read them yet: its agents are not shown them.
+t_run "$lib; tehas_issue_images_said $T/both cycle 0"
+t_eq "$t_out" "Tehas fetched 1 image from the issue text and mounted it read-only in the container of this cycle. The pi-rukas in the sandbox image does not read them, so no agent was shown one. Tehas fetched 2 files from the issue text for this cycle and lists them in its manifest. The pi-rukas in the sandbox image does not read them yet: its agents are not shown them.
 
 - L1: image-1.png, sha256 aa
 - L2: file-1.md, sha256 bb
@@ -200,27 +198,5 @@ jq '.approval = {at: "t", by: "alice", how: "label"}' "$T/both/manifest.json" >"
 jq '.files[1].sha256 = "dd"' "$T/both/manifest.json" >"$T/kept.json"
 t_run "$lib; tehas_issue_images_changed $T/kept.json $T/both || echo \"\$image_why\""
 t_eq "$t_out" "L3 gave other bytes than when this approval was first fetched"
-
-# --- Whether the sandbox image reads them ------------------------------------
-t_stub docker 'case "$1 $2" in "image inspect") cat "$T/image.id" ;; *) exit "${READS_RC:-0}" ;; esac'
-reader="TEHAS_HOME=$T/home/tehas; $lib; tehas_images_read some/image"
-
-t_case "an id that is not an image id is not run, and the answer is unknown"
-rm -f "$T"/calls/*
-echo "sha256:../../etc" >"$T/image.id"
-t_run "$reader"
-t_eq "$t_rc $t_out" "0 unknown"
-t_eq "$(t_calls docker)" "image inspect --format {{.Id}} some/image"
-t_eq "$(jq -c '[.image, .reads]' "$T/home/tehas/state/images-read.json")" '["some/image",null]'
-
-t_case "the image's answer is kept under its id"
-rm -f "$T"/calls/*
-echo "sha256:$(printf '%064d' 1)" >"$T/image.id"
-T_ENV=(READS_RC=1)
-t_run "$reader"
-t_eq "$t_out" no
-t_eq "$(cat "$T/home/tehas/state/images-read/$(printf '%064d' 1)")" no
-t_eq "$(jq -c .reads "$T/home/tehas/state/images-read.json")" false
-T_ENV=()
 
 t_done

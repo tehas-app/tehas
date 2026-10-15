@@ -21,6 +21,7 @@ git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-
 git clone -q "$upstream" "$checkout"
 
 docker_stub='if [ "$1" = info ]; then cat "$T/docker.info"; exit; fi
+if [ "$1" = image ]; then cat "$T/image.label" 2>/dev/null; exit; fi
 printf "%s\n" "$@" >"$T/calls/docker.args.$$"'
 t_stub docker "$docker_stub"
 printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitconfig"
@@ -364,13 +365,14 @@ t_case "a slice under pressure, or one that cannot be read, has no room and the 
 again
 slice_good
 slice_state 12.00
+slice_child "$(slice_id b)" $((5 * 1073741824)) 0 2147483648
 t_run "$dev"
 t_eq "$t_rc" 0
 t_contains "$t_out" "tehas dev: tehas.slice has room for 0 more cycles (it is under memory pressure)"
 slice_good
 rm -f "$T_CGROUP/tehas.slice/memory.pressure"
 t_run "$dev"
-t_contains "$t_out" "tehas dev: tehas.slice has room for 0 more cycles (its use could not be read)"
+t_contains "$t_out" "tehas dev: tehas.slice has room for 0 more cycles (its use could not be read: $T_CGROUP/tehas.slice/memory.pressure cannot be read)"
 t_eq "$(containers)" 2
 slice_good
 
@@ -474,6 +476,7 @@ t_case "with --issue the session gets the issue's images read-only and the varia
 attach_on
 net "$A/1111" '\x89PNG\r\n\x1a\nPNGDATA'
 issue_is "Look ![shot]($A/1111)"
+printf '%s|1\n' "$(printf 'a%.0s' {1..40})" >"$T/image.label"
 t_run "$dev --issue 7"
 t_eq "$t_rc" 0
 t_eq "$(containers)" 1
@@ -484,6 +487,7 @@ t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_E
 t_eq "$(session_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -it --init")" ""
 t_eq "$(cd "$imgs" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" "./image-1.png ./manifest.json "
 t_contains "$t_out" "tehas dev: Tehas gave this session 1 image from the issue text."
+rm -f "$T/image.label"
 t_lacks "$(session_args)" "/elsewhere"
 
 t_case "without --issue the session gets neither, and an instance's image directory is not passed on"
