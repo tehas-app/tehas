@@ -3791,6 +3791,8 @@ quiet_cycle() { # <age> <taken>
   printf '{"issue":9,"running":true,"updatedAt":%s}\n' "$(($(date +%s) - $1))" >"$T/home/tehas/live/cycles/9.json"
   touch -d "@$(($(date +%s) - $2))" "$T/home/tehas/state/cycles/9.taken"
 }
+# The issues with a quiet note on record.
+notes() { find "$T/home/tehas/state/cycles" -maxdepth 1 -name '*.quiet' -printf '%f\n' 2>/dev/null | sed 's/\.quiet$//' | sort | tr '\n' ' '; }
 
 t_case "a cycle that holds its lock and has not been heard from for 20 minutes is reported and stopped, once"
 reset
@@ -3803,12 +3805,14 @@ t_contains "$t_out" "WARN: the cycle for #9 holds its lock but has not been hear
 t_contains "$t_out" "more than 1200s: stopping tehas-cycle@9.service"
 t_eq "$(t_calls fake-stop)" "9"
 t_eq "$(find "$T/calls/stop.fd8" 2>/dev/null | wc -l)" 0
+t_eq "$(notes)" "9 "
 t_run "$dispatch"
 t_lacks "$t_out" "#9 holds its lock"
 t_eq "$(t_calls fake-stop)" "9"
+t_eq "$(notes)" "9 "
 release
 
-t_case "a stop that fails is said"
+t_case "a stop that fails is said, leaves no note, and is asked again at the next poll"
 reset
 t_stub fake-stop '[ ! -e "/proc/$$/fd/8" ] || : >"$T/calls/stop.fd8"; exit 1'
 T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
@@ -3816,6 +3820,12 @@ quiet_cycle 1300 3600
 t_run "$dispatch"
 t_contains "$t_out" "WARN: could not stop tehas-cycle@9.service"
 t_eq "$(find "$T/calls/stop.fd8" 2>/dev/null | wc -l)" 0
+t_eq "$(notes)" ""
+t_run "$dispatch"
+t_contains "$t_out" "WARN: the cycle for #9 holds its lock but has not been heard from since "
+t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 9 "
+t_run "$dispatch"
+t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 9 9 "
 release
 
 t_case "a cycle heard from lately, or one that took its lock lately, is left alone"
@@ -3843,8 +3853,43 @@ t_contains "$t_out" "would stop tehas-cycle@9.service: the cycle for #9 holds it
 t_run "$dispatch --dry-run"
 t_contains "$t_out" "would stop tehas-cycle@9.service"
 t_eq "$(t_calls fake-stop)" ""
+t_eq "$(notes)" ""
 t_run "$dispatch"
 t_eq "$(t_calls fake-stop)" "9"
+release
+
+t_case "the note of an issue no cycle holds is gone from a later poll"
+reset
+t_stub fake-stop
+T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+quiet_cycle 1300 3600
+t_run "$dispatch"
+t_eq "$(notes)" "9 "
+# The unit stopped: no cycle holds the lock of #9 any more.
+release
+t_run "$dispatch --dry-run"
+t_eq "$(notes)" "9 "
+t_run "$dispatch"
+t_eq "$(notes)" ""
+
+# A note left by hand, for an issue that has never had a cycle here.
+: >"$T/home/tehas/state/cycles/11.quiet"
+t_run "$dispatch"
+t_eq "$(notes)" ""
+
+t_case "a quiet cycle that is heard from again keeps no note"
+reset
+t_stub fake-stop
+T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+quiet_cycle 1300 3600
+t_run "$dispatch"
+t_eq "$(notes)" "9 "
+# The stop was asked, and the cycle went on writing its live file.
+quiet_cycle 20 3600
+t_run "$dispatch"
+t_lacks "$t_out" "holds its lock but"
+t_eq "$(notes)" ""
+t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 "
 release
 
 t_done

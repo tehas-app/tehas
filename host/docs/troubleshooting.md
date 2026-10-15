@@ -139,8 +139,10 @@ Run `tehas dispatch --dry-run` and read what it prints.
   file has not been written for 20 minutes, so the poll stopped its unit.
   Read `~/tehas/logs/dispatch-work-N.log` and the end of the cycle's
   `~/tehas/logs/work-N-*.jsonl` for where it hung. `WARN: could not stop
-  tehas-cycle@N.service` after it means the stop did not go through: stop
-  the unit by hand with `systemctl --user stop tehas-cycle@N.service`.
+  tehas-cycle@N.service (exit <code>)` after it means the stop did not go
+  through: the next poll asks again, every two minutes. If it keeps failing,
+  stop the unit by hand with `systemctl --user stop tehas-cycle@N.service` and
+  read `journalctl --user -u tehas-cycle@N`.
 - `N cycles running, room for M more`, then `would run a cycle for #N ...`:
   the issues the next poll starts. In the log you may also see `the code index
   stays as it is: a cycle is running on #N`. That is no reason an issue waits.

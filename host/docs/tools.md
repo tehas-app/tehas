@@ -243,9 +243,14 @@ that it took its lock. The poll logs `WARN: the cycle for #N holds its lock but
 has not been heard from since <time>, more than 1200s: stopping
 tehas-cycle@N.service` and stops the unit without waiting for it. The cycle
 reports as it stops; a later poll finds the issue as above. This is said and
-done once for each time the cycle was last heard from, kept in
-`~/tehas/state/cycles/<issue>.quiet`. A dry run says `would stop` and stops
-nothing. A paused factory does not stop it.
+done once for each time the cycle was last heard from: the poll writes that
+time to `~/tehas/state/cycles/<issue>.quiet`, and only when the stop went
+through. A stop that failed or timed out leaves no note, so the next poll says
+it and asks again, with `WARN: could not stop tehas-cycle@N.service (exit
+<code>): it holds its slot, and the next poll asks again`. The note goes once
+the episode is over: a later poll removes it when no cycle holds that issue's
+lock, or the cycle is heard from again. A dry run says `would stop`, stops
+nothing and removes no note. A paused factory does not stop it.
 
 An issue is taken only when an allowed account applied `tehas:ready` and
 nobody else has changed its title or body since, and only while GitHub says the
