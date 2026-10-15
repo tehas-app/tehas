@@ -27,18 +27,18 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/libexec/`                   | The scripts behind the two commands, one for each thing they do. Not on `PATH` |
 | `~/tehas/platform`                   | Checkout of this repository; `install.sh` runs from it and `tehas update` pulls it |
 | `~/tehas/repos/tehas`                | The product checkout, on the default branch. Cycles are cloned from it; no container is given it |
-| `~/tehas/work/tehas-<issue>`         | The cycle's workspace: a fresh clone made for each cycle. Removed after a cycle that merged or left a pull request, otherwise kept, and moved to `tehas-<issue>.before-retry` when that issue is retried. `~/tehas/work/tehas` is only its path inside the container |
-| `~/tehas/work/tehas-<issue>.images`  | With `TEHAS_WORK_IMAGES=1`, the images of the cycle's issue and their `manifest.json`. Made for each cycle, read-only in its container at `~/tehas/work/tehas.images`, removed when the cycle is over |
-| `~/tehas/work/tehas-plan-<issue>.images` | With `TEHAS_WORK_IMAGES=1`, a copy of a planning session's images for one turn, read-only in its container at `~/tehas/work/tehas.images`, removed after the turn |
+| `~/tehas/work/tehas-<issue>`         | The cycle's workspace: a fresh clone made for each cycle. Removed after a cycle that merged or left a pull request, otherwise kept, and moved to `tehas-<issue>.before-retry` when that issue is retried. A kept workspace, its `.before-retry` and what else is left beside it go once no cycle has run on the issue for 7 days. `~/tehas/work/tehas` is only its path inside the container |
+| `~/tehas/work/tehas-<issue>.images`  | With `TEHAS_WORK_IMAGES=1`, the images of the cycle's issue and their `manifest.json`, and with `TEHAS_WORK_DESCRIBE=1` the model's descriptions of them, `images.md`. With `TEHAS_WORK_FILES=1`, the issue's text files too, `file-<n>.<ext>`, with or without the images. Made for each cycle, read-only in its container at `~/tehas/work/tehas.images`, removed when the cycle is over |
+| `~/tehas/work/tehas-plan-<issue>.images` | With `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, a copy of a planning session's images and files for one turn, read-only in its container at `~/tehas/work/tehas.images`, removed after the turn |
 | `~/tehas/work/tehas-<issue>.state`   | The cycle's own: `cache`, a copy of the code index the host built; `memory`, what its agents learn; `sessions`, Pi's session files. Made fresh for each cycle, mounted in its container, removed with the workspace. `~/tehas/work/tehas-plan-<issue>.state` is a planning turn's, removed after the turn |
-| `~/tehas/dev/<name>`                 | A person's clone for working by hand, named after their account, made and used by `tehas dev`, never removed. `<name>.author` next to it holds whose name its commits carry, `<name>.state` its memory, sessions, transcripts and code index |
+| `~/tehas/dev/<name>`                 | A person's clone for working by hand, named after their account, made and used by `tehas dev`, never removed. `<name>.author` next to it holds whose name its commits carry, `<name>.state` its memory, sessions, transcripts and code index, and `<name>.images` the images and files of the issue named by `--issue`, read-only in the session's container |
 | `~/tehas/repos/pi-rukas`             | pi-rukas, at the head of its branch                                     |
 | `~/tehas/docs/`, `~/tehas/fun/`      | This site's pages and the front page, installed from `host/`            |
 | `~/tehas/sandbox/`, `versions.env`   | Sandbox image definition, build script, the Playwright npm pin, and the pinned tool versions |
 | `~/tehas/edge/`                      | The docs server (`docs.compose.yaml`) and the edge router (`router.compose.yaml`) |
 | `~/tehas/protolab/`                  | The Protolab's pages and the files of each prototype, written by `tehasbot protolab` |
 | `~/tehas/preview/`                   | The state of each preview, and a bare clone the pull requests' commits are fetched into, written by `tehasbot preview` |
-| `~/tehas/logs/`, `state/`, `live/`, `tmp/` | Logs, state, dashboard data, scratch. `state/` holds the dispatch lock, status files, the record of each planning session (`plan-<issue>.json`, with what it carries between turns in `plan-<issue>.json.keep/`) and the id of each parked cycle's question (`park-<issue>.id`). No cycle, planning or manual container is given it; the indexing container is given `state/index` to write |
+| `~/tehas/logs/`, `state/`, `live/`, `tmp/` | Logs, state, dashboard data, scratch. `state/` holds the dispatch lock, status files, the record of each planning session (`plan-<issue>.json`, with what it carries between turns in `plan-<issue>.json.keep/`) and the id of each parked cycle's question (`park-<issue>.id`), and what each start rests on and the manifest of its images (`cycles/<issue>.approved.json`, `cycles/<issue>.manifest.json`, with `cycles/<issue>.images.md` and `cycles/<issue>.retry-context.md` when the cycle had them). No cycle, planning or manual container is given it; the indexing container is given `state/index` to write |
 | `~/tehas/tmp/improve/`, `~/tehas/state/improve.lock` | Where the improvement loop is on: the record of each cycle that ended, until a run has read it, and the lock of a run |
 | `~/tehas/state/index`                | The code index `tehas index` builds, under the name of the tree it was made from. The indexing container is given it to write; no cycle, planning or manual container is given it, and a cycle is given a copy of it in its own state directory |
 | `~/.pi/agent/`                       | Pi user configuration (models, MCP servers)                             |
@@ -363,6 +363,33 @@ container itself, at the time limit or on a signal, nor when the cycle's state
 already said how it ended. The record for the improvement loop carries the
 count as `oomKills`.
 
+#### Time limits
+
+`TEHAS_WORK_TIMEOUT` bounds the cycle itself, and `TEHAS_WORK_STALL` a cycle
+that writes nothing. The steps around it are bounded too, so a dockerd that
+stops answering or a network that swallows packets does not hold a slot for
+ever:
+
+| Step | Bound | After it |
+| --- | --- | --- |
+| The push check before a cycle | 300 s | `tehas work` exits 3, with `the push check did not end within 300s` |
+| The clone of the cycle's workspace | 300 s | `tehas work` exits 78 |
+| `docker stop` at the end of a cycle, and on a signal | 60 s | `docker kill`, bounded the same way, and the line `docker stop of tehas-work-N did not end within 60s, killing it` |
+| A call to GitHub in the report of a cycle that was stopped | 20 s, tried once | The call counts as refused. A label change that never happened leaves the issue `tehas:running` for the next poll |
+| The stop of a cycle, its container and its report | 300 s (`TimeoutStopSec` of `tehas-cycle@.service`) | systemd kills the unit. The worst stop within the bounds above is about 230 s |
+| The dispatcher's fetch of the product checkout | 120 s | `WARN: could not fast-forward`, and the poll goes on |
+| A poll of the dispatcher | 3 hours (`TimeoutStartSec` of `tehas-dispatch.service`) | systemd stops it. A planning turn it cut off is reported by the next poll |
+
+`tehas-cycle@.service` stops a cycle after 8 hours (`RuntimeMaxSec`), as the
+last bound for a hang that none of these reaches. The stop is a TERM, and the
+cycle is reported as one that stopped. A unit cannot read the instance's
+settings, so `TEHAS_WORK_TIMEOUT` may be at most 25200, 7 hours: a longer one
+is refused with exit 78. The hour between is for the stop and the report.
+`TEHAS_PLAN_TIMEOUT` may be at most 7200 for the same reason: a poll that runs
+a planning turn also fetches, and calls GitHub. A poll that finds the
+dispatcher's lock held for longer than `TEHAS_PLAN_TIMEOUT` plus half an hour
+says so once in the log, as [troubleshooting](/troubleshooting) shows.
+
 `TEHAS_TICKET_CONCURRENCY` sets the most issues worked on side by side, each
 in a cycle, a container and a workspace of its own. It defaults to the host's
 CPUs minus one, at least 1, and a value above the host's CPUs is accepted. It
@@ -498,13 +525,12 @@ it stands on and stops when they disagree. `tehas work`, `tehas plan`, the
 dispatcher and `install.sh` read the label; an image built without build.sh
 carries `unknown`, which tehas reads as "not said" rather than as an answer.
 
-An image that says its pi-rukas does not read them holds every cycle while
-`TEHAS_WORK_IMAGES=1` stands, not only the issues whose text links a picture.
-A host with that setting that puts back an image from before upstream merged
-the reader sets `TEHAS_WORK_IMAGES=0` first: putting it back is the moment
-the hold becomes real. `install.sh` reports
-the answer it read from the image, and `tehas status` and `/health` show the
-hold.
+An image that says its pi-rukas does not read them holds every issue whose
+text links an attachment while `TEHAS_WORK_IMAGES=1` stands; other issues
+start. A host with that setting that puts back an image from before upstream
+merged the reader sets `TEHAS_WORK_IMAGES=0` first: putting it back is the
+moment the hold becomes real. `install.sh` reports the answer it read from
+the image, and the dispatch log names each issue it holds.
 
 The build takes pi-rukas at the head of its branch, as described under
 [pi-rukas comes from upstream](#pi-rukas-comes-from-upstream).
@@ -562,7 +588,8 @@ docker tag tehas/pi-rukas:<date> tehas/pi-rukas:uid$(id -u)
 
 Each image carries the pi-rukas commit it was built with, as its label
 `tehas.rukas`, and the dispatcher and the improvement loop read the commit
-from there. A commit that cycles have ended well on before runs at full
+from there. The loop's record of a cycle has the commit and the image's id as
+the cycle's container started. A commit that cycles have ended well on before runs at full
 concurrency again at once.
 
 That holds until the next `tehas update`, which builds the head again. Hold
@@ -661,7 +688,7 @@ Both are outside the repository and the tehas tree.
 | Question                               | Answer                                                                                                                                  |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | Who can start a cycle                  | Only an account in `TEHAS_ALLOWED_LABELERS`. The dispatcher checks who most recently applied `tehas:ready`, not just that it is there   |
-| What the label approves                | The title and body as they were when it was applied. An issue whose text was changed afterwards by any other account is skipped until the label is applied again |
+| What the label approves                | The title and body as they were when it was applied. An issue whose text was changed afterwards by any other account, or by one GitHub no longer names, is skipped until the label is applied again |
 | What else starts a cycle               | The retry box of a parked issue, ticked by one of those accounts. It counts once, and only in the question whose comment id the host has on record for that issue. Like the label, the tick approves the text as it was at that moment |
 | Who can start or continue planning     | The same accounts. A session starts when one of them applied `tehas:plan`. A turn runs on a tick or a reply from one of them to the question the session is waiting on |
 | Who can put a ticket in the Protolab   | The same accounts. `tehasbot protolab` checks who most recently applied `tehas:prototype`, as the dispatcher checks `tehas:ready`. A label from anyone else counts as no label, and a page it had is removed. The pass stops with an error when `TEHAS_ALLOWED_LABELERS` names the bot's own login. The files beside a ticket are taken only from an owner, member or collaborator |

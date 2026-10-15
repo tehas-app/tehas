@@ -65,12 +65,15 @@ in the platform repository has every one with a comment.
 | `TEHAS_TICKET_CONCURRENCY`      | the host's CPUs minus one, at least 1    | The most cycles side by side. A ceiling, never a divisor: the dispatcher starts fewer while `tehas.slice` has no room, and never more than leave four containers in it (see [Limits that hold work back](/operating#limits-that-hold-work-back)). A value above the host's CPUs is accepted. Lower it when the model backends cannot serve `TEHAS_CONCURRENCY` times this many workstreams; nothing measures that |
 | `TEHAS_MAX_AWAITING`            | `TEHAS_TICKET_CONCURRENCY` plus 2        | Open `tehas:awaiting-merge` issues, plus running cycles, allowed before holding |
 | `TEHAS_CYCLE_RESERVE`           | `2g`                                     | Memory one container is given as a floor (`docker --memory-reservation`) and the unit the dispatcher counts room in. A reclaim priority inside `tehas.slice` and the amount admission promises, not a guarantee against the whole host. A Docker size of at least 6m, and at most a quarter of the slice's `MemoryMax`, else the command stops with 78 naming both numbers. With the default the host needs about 11 GiB of memory; a smaller host sets it lower |
-| `TEHAS_WORK_TIMEOUT`            | `21600`                                  | Seconds before a cycle is given up                              |
+| `TEHAS_WORK_TIMEOUT`            | `21600`                                  | Seconds before a cycle is given up. At most 25200: [the cycle's unit](/host#time-limits) stops a cycle after 8 hours |
 | `TEHAS_WORK_STALL`              | `3600`                                   | Seconds a cycle may go without a line added to any of its logs before it is stopped as `stalled`. Must be longer than `TEHAS_VERIFY_TIMEOUT`, because a gate can print nothing while it runs; else the command stops with 78 |
-| `TEHAS_WORK_IMAGES`             | `0`                                      | `1` gives a cycle and a planning session the images its issue text links: see [tehas work](#tehas-work) and [tehas plan](#tehas-plan). The model must declare `"image"` in its `input` in `models.json` and answer a request with an image, else the dispatcher holds every cycle. The sandbox image must also say, by the label `tehas.rukas.images` its build writes, that its pi-rukas reads the manifest tehas writes beside them: an image that says it does not holds every cycle too, and `install.sh` reports what it found |
+| `TEHAS_WORK_IMAGES`             | `0`                                      | `1` gives a cycle and a planning session the images its issue text links: see [tehas work](#tehas-work) and [tehas plan](#tehas-plan). The model must declare `"image"` in its `input` in `models.json` and answer a request with an image, and the sandbox image must say, by the label `tehas.rukas.images` its build writes, that its pi-rukas reads the manifest tehas writes beside them. Else the dispatcher holds the cycles of issues whose text links an attachment; other issues start, and `install.sh` reports what the label says |
+| `TEHAS_WORK_DESCRIBE`           | `0`                                      | `1` has the model describe each of those images in words before the cycle or planning session starts, into `images.md` beside them: see [tehas work](#tehas-work). Needs `TEHAS_WORK_IMAGES=1`, else the command stops with 78 |
+| `TEHAS_WORK_FILES`              | `0`                                      | `1` gives a cycle and a planning session the text files its issue text links: md, txt, csv, json, yaml, log, html, css and js, at most 16, 1 MB each and 4 MB together. Needs no model that reads images. See [tehas work](#tehas-work) |
+| `TEHAS_WORK_COMMENTS`           | `0`                                      | `1` takes the images and files of the issue's comments too: those an allowed account wrote and nobody edited after the approval. Needs `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, else the command stops with 78. See [tehas work](#tehas-work) |
 | `TEHAS_VERIFY_TIMEOUT`          | `1800`                                   | Seconds one run of the product's gate may take inside a cycle. A gate that takes longer is stopped and the cycle parks. Passed to pi-rukas as `PI_ENSEMBLE_VERIFY_TIMEOUT_MS` and `PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS`; pi-rukas alone allows ten minutes |
 | `TEHAS_PLAN_MAX_TURNS`          | `20`                                     | Turns a planning session may take before it is ended            |
-| `TEHAS_PLAN_TIMEOUT`            | `3600`                                   | Seconds before one planning turn is given up                    |
+| `TEHAS_PLAN_TIMEOUT`            | `3600`                                   | Seconds before one planning turn is given up. At most 7200: [the poll's unit](/host#time-limits) stops a poll after 3 hours |
 | `PI_ENSEMBLE_HOST_ALIASES`      | empty                                    | `name:address` pairs the sandbox must resolve, comma separated  |
 | `PI_ENSEMBLE_REVIEW_THRESHOLD`  | unset                                    | Optional. The code-review severity that blocks a change in a cycle: `CRITICAL`, `HIGH`, `MEDIUM` or `LOW`. Read by pi-rukas, not by tehas, and it wins over the severity the product's doctrine (`AGENTS.md` or `CLAUDE.md`) states. Unset, or anything other than those four words: pi-rukas ignores it and uses the severity that doctrine states, and MEDIUM when it states none. tehas does not check this value and does not stop with 78 over it. A `CRITICAL` finding blocks whatever this says |
 | `PI_ENSEMBLE_IMAGE`             | `tehas/pi-rukas:uid<uid>`                | The sandbox image                                               |
@@ -199,14 +202,47 @@ event or an answer and before it changes a label or comments, so a list naming
 the bot is refused whatever else the poll would have done. A planning turn's
 runner output is in `~/tehas/logs/dispatch-plan-<issue>.log`.
 
+A cycle that a provider outage parked starts again once without a tick.
+`tehasbot cycle` asks for it in `~/tehas/state/cycles/<issue>.park`. When
+nothing holds cycles back, so the model endpoint answers and there is a slot,
+the poll starts the issue and says on it that it does so once. The start rests
+on the account that started the cycle that parked, kept in
+`~/tehas/state/cycles/<issue>.by`: it must still be allowed, the issue must
+still be open and parked, and nobody else may have changed its text since that
+cycle began. Otherwise the log says `skip #N: its retry after a provider
+outage is not started; it waits for a person` and the park file goes. An issue
+that carries `tehas:ready` is left to that label. If the retry's own cycle is
+parked by an outage again, it waits for a person.
+
 A poll also reads the open issues marked `tehas:running`. One whose cycle
 does not hold its lock on this host, `~/tehas/state/cycles/<issue>.lock`, gets
 `needs-human-attention` in place of `tehas:running` and a comment that says
 where the run log is. The log line is `park #N: it is marked tehas:running and
-no cycle holds its lock`. If the label change fails nothing is said on the
+no cycle holds its lock`. The issue is read again first: one whose cycle
+ended while the poll ran has lost `tehas:running` already and is left, with
+the line `skip #N: tehas:running is gone from it since the list was read`. If
+the label change fails nothing is said on the
 issue and the next poll tries again. A closed issue in that state only loses
-`tehas:running`. A paused factory leaves such an issue as it is. Run the dispatcher only on the host that runs the cycles: on any other
+`tehas:running`. For either, a container `tehas-work-<issue>` that is still
+there is removed, with the line `removed the container tehas-work-N: no cycle
+holds the lock of #N`: its client died, and it would work on with the bot's
+token and hold the name. The container of a planning turn that was cut off,
+`tehas-plan-<issue>`, is removed the same way before the turn is reported. A
+paused factory leaves such an issue as it is. Run the dispatcher only on the host that runs the cycles: on any other
 host no cycle holds a lock.
+
+The other way round, a cycle that holds its lock but has not been heard from
+for 20 minutes is stuck, for example a `tehas work` that hangs after its
+container ended. Heard from means its live file,
+`~/tehas/live/cycles/<issue>.json`, was written, which `tehas work` does every
+10 seconds from the host, also while a long gate runs in the container, or
+that it took its lock. The poll logs `WARN: the cycle for #N holds its lock but
+has not been heard from since <time>, more than 1200s: stopping
+tehas-cycle@N.service` and stops the unit without waiting for it. The cycle
+reports as it stops; a later poll finds the issue as above. This is said and
+done once for each time the cycle was last heard from, kept in
+`~/tehas/state/cycles/<issue>.quiet`. A dry run says `would stop` and stops
+nothing. A paused factory does not stop it.
 
 An issue is taken only when an allowed account applied `tehas:ready` and
 nobody else has changed its title or body since, and only while GitHub says the
@@ -218,6 +254,14 @@ take; the skip is said once a poll at most (`skip #N: it is closed, and a
 closed issue is never taken`, or `skip #N: it is a pull request, not an issue
 the factory works on`). An answer that cannot be read ends the poll with exit
 1.
+
+An issue that an open pull request closes, as GitHub links them (`Closes #N`
+in its description, or a link made by hand), is not taken: a cycle would find
+the work done after paying for its explore and plan. The poll asks once, for
+an issue it would otherwise take, takes `tehas:ready` off and says on the
+issue which pull request it is. The log line is `skip #N: pull request <url>
+is open and closes it`. A merged or closed pull request holds nothing back. A
+call that fails, or an answer that cannot be read, ends the poll with exit 1.
 
 A `tehas:ready` from any other account asks for nothing, so it comes off the
 issue with a comment naming who
@@ -233,6 +277,33 @@ says `wait #N: its cycle is still running`, and the issue is taken once that
 cycle has ended. Every list of issues is read up to 1000. A cycle starts only once the
 issue is marked `tehas:running`; if that label change fails, the poll stops.
 
+Before it marks an issue, the poll writes what the start rests on to
+`~/tehas/state/cycles/<issue>.approved.json`: `at` and `by`, when and by whom
+it was approved, `how` (`label`, `retry-tick`, or `outage-retry` for the one
+start after a provider outage, whose `at` is when the parked cycle began),
+`body_sha256`, the sha256 of the body that approval was checked against with
+carriage returns dropped, and
+`links`, the links to GitHub's attachment storage in that body. The body is
+read in the same call as the record of who last edited it, so it is the text
+the check passed. With `TEHAS_WORK_COMMENTS=1` the poll also lists the
+issue's comments and adds `comment_links`: the links of each comment an
+allowed account wrote whose `created_at` and `updated_at` are at or before
+`at`, in the order written, each as `{link, source, by}` with `source`
+`comment:<id>`. [tehas work](#tehas-work) fetches those links and no others.
+A record that cannot be written starts nothing: `ERROR: could not write the
+approval record of #N, not starting a cycle`, exit 1, and no label changes.
+Comments that cannot be read are logged as `ERROR: the comments of #N could
+not be read` and stop the start the same way. On a retry tick, with the
+setting on, the poll also lists the bot's pull requests that name the issue,
+as `tehasbot cycle` finds a cycle's, and their comments: those an allowed
+account wrote between the park question and the tick and nobody edited after
+the tick. Their links join `comment_links` with `source` `pr-comment:<id>`,
+and their text, the first 20 cut at 4000 characters each, goes to
+`retry_context` as `{source, by, at, text}`. Pull requests or comments that
+cannot be read stop the retry: `ERROR: the comments on the pull request of
+#N could not be read`, exit 1, and the tick stays. Only conversation comments
+are read, not review comments or reviews.
+
 ## tehas work
 
 One pi-rukas `/work` cycle, headless, in the sandbox image.
@@ -243,14 +314,26 @@ tehas work <issue> [--restart]
 
 It starts `pi --mode rpc --approve` in a container, sends `/work <issue>` and
 waits until `.pi/work-state/<issue>.json` in the workspace `~/tehas/work/<name>-<issue>` leaves `running`.
+It then gives the driver 20 seconds to post its handoff and ends the session
+by closing Pi's input. Only a Pi that has not gone five seconds later is
+stopped with `docker stop`.
+
+It holds the issue's lock, `~/tehas/state/cycles/<issue>.lock`, while it runs.
+Run by hand for an issue whose cycle is running, it refuses before it moves
+anything (exit 5). Under `tehasbot cycle` it is handed that lock, already
+held, and goes on. While a run by hand holds the lock, the dispatcher counts it
+as the issue's cycle and starts no other for the issue. With the lock held, a
+container left under the name `tehas-work-<issue>` is no cycle's: it is
+removed before the new one starts.
 
 | Exit | Meaning                                                          |
 | ---- | ---------------------------------------------------------------- |
 | 0    | The cycle ended as `merged` or `handoff` (parked for a human)    |
 | 1    | The cycle ended as `aborted`                                     |
-| 2    | Pi exited, the time limit passed, or the cycle stalled, while it was running |
+| 2    | Pi exited, its session ended, the time limit passed, or the cycle stalled, while it was running |
 | 3    | The sandbox cannot push to the repository; no cycle was started  |
-| 4    | With `TEHAS_WORK_IMAGES=1`: an image the issue links could not be fetched, or the issue could not be read for its images; no cycle was started |
+| 4    | With `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`: an image or file the issue links could not be fetched, the issue could not be read for them, its text is not the text that was approved, or a file is not the one first fetched for the approval; no cycle was started |
+| 5    | A cycle for this issue is running already: its lock `~/tehas/state/cycles/<issue>.lock` is held. Nothing was moved and no container started |
 | 64   | No bot token or no git identity; no cycle was started            |
 | 78   | The instance settings are invalid, or `tehas.slice` is missing, has no memory limit, or cannot be used (the message names `sudo ./bootstrap.sh slice` or the reason); no cycle was started |
 | 137  | The container was killed while the cycle was running: out of memory, or stopped from outside. The cycle is `killed` |
@@ -262,7 +345,9 @@ and no CPU quota, and no Docker socket or SSH keys. git inside it is given the
 bot's identity and a credential helper that reads the token, through
 environment-level configuration; before a cycle starts, a dry-run push proves
 that works. The RPC stream is kept in `~/tehas/logs/work-<issue>-<time>.jsonl`.
-The time limit is `TEHAS_WORK_TIMEOUT`. [The host](/host#limits-and-concurrency)
+The time limit is `TEHAS_WORK_TIMEOUT`. The push check, the clone and every
+`docker stop` have bounds of their own, listed under
+[time limits](/host#time-limits). [The host](/host#limits-and-concurrency)
 has the limits in full.
 
 Beside the workspace is `~/tehas/work/<name>-<issue>.state`, a directory of
@@ -289,6 +374,14 @@ how long nothing moved and at which step, parks it and removes the file. A
 cycle that keeps writing without getting anywhere is not caught by this: it
 runs until its time limit.
 
+A Pi session that ends while the cycle is still running is not waited for
+either. When pi-rukas writes its `session_shutdown` line to the error stream,
+`<log>.err`, the container is stopped at the next look and the cycle is
+`interrupted`. `~/tehas/state/cycles/<issue>.ended` is left for `tehasbot
+cycle`, which parks the issue, says that the Pi session ended during the step
+the state file names, names the open pull request when there is one, and
+removes the file.
+
 While the container runs, Docker keeps its id in `~/tehas/state/cycles/<issue>.cid`,
 which is how the dispatcher tells a cycle's container from the others in the
 slice; the file goes with the container. When processes in the container were
@@ -307,9 +400,19 @@ that path. This widens what a cycle is given, and it is off unless the
 instance sets it. The images are fetched before anything else is made:
 
 - **Which.** Links to GitHub's own attachment storage in the issue text.
-  Comments are not read: `tehas:ready` approves the text, and a comment can
-  arrive after the label. Only when the issue was opened by an owner, member
-  or collaborator of the repository.
+  Comments are read only with `TEHAS_WORK_COMMENTS=1`, and then only those an
+  allowed account wrote and nobody edited after the approval: see below. Only
+  when an allowed account approved the start,
+  which approves the text with its links, or when the issue was opened by an
+  owner, member or collaborator of the repository. When the dispatcher left
+  its approval record, `~/tehas/state/cycles/<issue>.approved.json`, and it
+  is a file and not a link, the links are the record's and the approver is its
+  `by`. The body is read again and must have the record's hash: a body changed
+  since the approval starts nothing, exit 4, said on the issue. A record that
+  cannot be read stops the start the same way. Without a record, by hand, the
+  links are the body's and the approver is who applied the last `tehas:ready`,
+  read from the issue's events; when they cannot be read nothing starts,
+  exit 4.
 - **Types.** png, jpg, webp and gif, told by the file's first bytes and not by
   its name. Not svg: it is text and can carry instructions.
 - **How much.** At most 8 images and 10 megabytes together, counted in the
@@ -318,12 +421,20 @@ instance sets it. The images are fetched before anything else is made:
 On the host they are in `~/tehas/work/<name>-<issue>.images`, beside the
 workspace and not in it, so no patch can commit them. The files are named
 `image-1.png`, `image-2.jpg` and so on, and `manifest.json` lists each with
-the link it came from, its type and its size, and every link that was left
-out with the reason. The directory is remade for every cycle and removed by
+the link it came from, its type, its size and its sha256, the approval it was
+fetched for (`at`, `by` and `how` of the record, or null by hand), and every
+link that was left out with the reason. The manifest is kept as
+`~/tehas/state/cycles/<issue>.manifest.json`, with `images.md` and
+`retry-context.md` beside it as `<issue>.images.md` and
+`<issue>.retry-context.md` when the cycle has them, for the improvement
+loop's record. When the next fetch is for the
+same approval, a restart of the same cycle, a link that gives other bytes than
+the kept manifest says stops the start with exit 4 and the link named. The directory is remade for every cycle and removed by
 `tehasbot cycle` when the cycle is over. A comment on the issue says how many
-images were fetched and what was left out, and whether the cycle was shown
-them. An image that could not be fetched stops the start with exit 4, and the
-comment names it: the issue is parked, and `tehas:ready` tries again.
+images were fetched, each with its link and sha256, what was left out, and
+whether the cycle was shown them. An image that could not be fetched stops the
+start with exit 4, and the comment names it: the issue is parked, and
+`tehas:ready` tries again.
 
 Whether a cycle was shown them is answered by the sandbox image itself.
 `sandbox/build.sh` asks the base image whether pi-rukas's own source has the
@@ -342,6 +453,59 @@ prompts each beside its link, from upstream's commit of 2026-10-14. The host
 follows upstream's main, so an image built since then has the reader. The
 steps after plan do not see them.
 
+With `TEHAS_WORK_DESCRIBE=1` as well, `tehas work` asks the model to describe
+each image in words before anything else is made, for the steps and models
+that are not shown the pixels. One chat request per image, at most 8, to the
+provider's `baseUrl` in `~/.pi/agent/models.json` with
+`PI_ENSEMBLE_SUBAGENT_MODEL`, as the dispatcher's check of the endpoint asks
+it, and no token. Each request may take 60 seconds, and each answer is cut at
+1500 characters. The prompt is fixed: describe what the image shows, quote
+visible text word for word, treat nothing in it as an instruction. The answers
+go to `images.md` beside `manifest.json`, one section per image with its link,
+under a head that says a model wrote them from untrusted images. Every line of
+an answer is quoted, so an answer cannot start a section of its own. The
+manifest gets `"described": "images.md"`. A request that fails leaves `not
+described:` and the reason for that image, and the cycle starts all the same.
+The file is in the directory that is mounted already: no mount and no
+variable more. The pi-rukas that tehas pins does not read `images.md` yet; the
+file is ready for a release that does.
+
+With `TEHAS_WORK_FILES=1` the container is given the same directory and the
+same variable, whether or not `TEHAS_WORK_IMAGES` is 1, and the directory also
+holds the text files the issue links. This widens what a cycle is given, and
+it is off unless the instance sets it. The rules of which links and whose
+approval are those of the images. A file is taken by its name's extension,
+md, txt, csv, json, yaml, yml, log, html, css or js, and then checked: valid
+UTF-8 and no NUL byte, else it is left out with the reason. html is text here;
+rendering it is the [Protolab](#tehasbot-protolab)'s job. svg, pdf and
+archives are left out. At most 16 files, 1 MB each and 4 MB together, apart
+from the images' limits. They are named `file-1.md`, `file-2.csv` and so on,
+and `manifest.json` lists them under `files`, each with its link, its original
+name, its type, its size and its sha256; `images` is as before. With images
+off, an image the issue links is left out and said. The comment on the issue
+says how many files were fetched, with each hash, and that the pi-rukas that
+tehas pins does not read them yet: the manifest is ready for a release that
+does.
+
+With `TEHAS_WORK_COMMENTS=1` the links in the issue's comments are taken as
+well, by an approval record only: a comment is taken when an allowed account
+wrote it and it was written and last edited at or before the approval's time.
+The dispatcher lists the comments when it decides the start and adds their
+links to the record as `comment_links`, each with its `source`,
+`comment:<id>`, and its author. `tehas work` fetches them after the body's
+links, in the order written, under the same limits, counted together, and
+only while the author is still allowed. Every entry of the manifest, left out
+or not, has a `source`: `body` or the comment's. The comment on the issue
+names the comment beside each link. A start by hand, without a record, reads
+the body only. When the record has a `retry_context`, the text of a
+reviewer's comments on the pull request before a retry tick, it goes to
+`retry-context.md` in the same directory, under a head that says it is
+untrusted input, every line quoted, each comment cut at 4000 characters and
+the whole at 32000, and the manifest gets `"retryContext":
+"retry-context.md"`. The pinned pi-rukas does not read it yet. The setting adds no mount and no variable, and it needs
+`TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, else the command stops with
+78.
+
 ## tehas plan
 
 Runs one turn of a planning session, headless, in the sandbox image. The
@@ -353,7 +517,7 @@ for an issue whose session the factory is working on.
 
 ```
 tehas plan 12 --out /tmp/turn.json --keep /tmp/turn.keep --brief brief.md
-tehas plan 12 --out /tmp/turn.json --keep /tmp/turn.keep --session <id> --answer answer.md
+tehas plan 12 --out /tmp/turn.json --keep /tmp/turn.keep --session <id> --answer answer.md [--comment <id>]
 ```
 
 The first form starts a session from a file with the issue's title and body.
@@ -363,32 +527,71 @@ in the background has reported back, so it ends when the agent has asked. A
 subagent that never reports holds the turn until `TEHAS_PLAN_TIMEOUT`.
 
 `--keep` names a directory the session carries from one turn to the next. The
-first form makes it anew. It holds the commit the first turn's workspace was
-at, pi-rukas's record of the plans the agent showed (its plain `.json` files,
-at most 1 MB each), and with `TEHAS_WORK_IMAGES=1` the issue's images. Every
-later turn's workspace is at that commit and gets that record back, so a plan
-the operator confirms is filed as it was shown. A later turn whose commit is
-missing or gone starts at the tip of the branch and says so, and the agent
-then reviews the plan again before it files it. The dispatcher keeps the
+first form makes it anew. It holds the approved title and body, which every
+turn's workspace gets as `.tehas/brief.md`, so a later turn never plans from
+the issue as it is now, the commit the first turn's workspace was
+at, pi-rukas's record of the plans the agent showed (its plain `.json` files
+and its `.filed` and `.claim` markers, at most 1 MB each), and with
+`TEHAS_WORK_IMAGES=1` the issue's images. Every later turn's workspace is at
+that commit and gets that record back. A later turn whose commit is missing or
+gone starts at the tip of the branch and says so.
+
+pi-rukas keys that record on `origin/<branch>` after a fetch of its own, and
+on what the agent asks for. In a turn's workspace `origin/<branch>` is the
+session's commit, and the clone has no fetch refspec, so a fetch inside the
+container writes only `FETCH_HEAD` and the key stays put. Pushing works as
+before. The container is given `PI_ENSEMBLE_PLAN_CACHE_TTL_MS=0`, whatever
+the instance sets, so the record does not expire; a pi-rukas without that
+setting expires it after two hours. A plan the operator confirms is filed as
+it was shown only when pi-rukas finds it in the record: otherwise the agent
+drafts it again, and the draft may differ. The dispatcher keeps the
 directory at `~/tehas/state/plan-<issue>.json.keep` and removes it when the
 session ends.
 
 With `TEHAS_WORK_IMAGES=1` the first turn fetches the images the issue links,
-by the rules of `tehas work`, and says on the issue what it fetched and
-whether the session was shown them.
+by the rules of `tehas work`, with `tehas:plan` in place of `tehas:ready`,
+and says on the issue what it fetched and whether the session was shown them.
 Each turn's container gets a copy of them, read-only, at the path a cycle has
-them, with `PI_ENSEMBLE_EXTRA_IMAGE_DIRS`. The copy is
+them, with `PI_ENSEMBLE_EXTRA_IMAGE_DIRS` and `PI_ENSEMBLE_PLAN_ISSUE`, the
+issue's number. The copy is
 `~/tehas/work/<name>-plan-<issue>.images`, removed after the turn. An image
-that cannot be fetched starts no session: exit 4, said on the issue. On exit 0 the `--out` file holds the session id, the agent's last
-message and the question it asked, if any. On exit 2 it holds the session id
+that cannot be fetched starts no session: exit 4, said on the issue. With
+`TEHAS_WORK_DESCRIBE=1` the first turn also writes `images.md`, as
+`tehas work` does, and every turn's copy holds it. With `TEHAS_WORK_FILES=1`
+the first turn fetches the text files too, by the rules of `tehas work`, into
+the same directory.
+
+A later turn given `--comment <id>`, the id of the reply its answer came
+from, fetches the images and files the answer links into that directory
+before it starts: by the same rules and limits, counted with what is there,
+numbered on from it, and with `source` `answer:<id>` in the manifest. A link
+already there is not fetched again, and the new images are not described. The
+dispatcher passes the id when the answer is a reply; the reply counts only
+from an allowed account, so its links are approved as the label approves the
+body's. The answer sent to the agent ends with the names of the new files. A
+link left out is said on the issue. A link that cannot be fetched runs no
+turn: exit 4, said on the issue, and the directory stays as it was; a reply
+runs the turn again. On exit 0 the `--out` file holds the session id, the agent's last
+message and the question it asked, if any. When it asked more than one, they
+are put together as one numbered question with no options, so the operator
+answers them in a reply, and the log has a warning. On exit 2 it holds the session id
 alone when that is known, so the dispatcher can run the turn again in the
 same session, and it is not written when no session is known.
+
+A later turn first asks Pi what is in the session it opened. Pi makes a
+session anew when its file under `~/.pi/agent/sessions` is gone, and an agent
+with no memory of the session would take the answer as a new request. So when
+Pi says the session has no messages, the answer is not sent: the turn exits 2
+and the `--out` file holds the session id and `"lost": true`. The dispatcher
+then ends the session and says on the issue to apply `tehas:plan` again. A
+turn whose container never says what is in the session sends no answer
+either, and exits 2 as a turn that can be run again.
 
 | Exit | Meaning                                                              |
 | ---- | -------------------------------------------------------------------- |
 | 0    | The turn settled and said or asked something                         |
-| 2    | The turn did not settle, timed out, said and asked nothing, or its session or outcome could not be written down |
-| 4    | With `TEHAS_WORK_IMAGES=1`: a first turn where an image the issue links could not be fetched, or the issue could not be read for its images; nothing ran |
+| 2    | The turn did not settle, timed out, said and asked nothing, its session is gone, or its session or outcome could not be written down |
+| 4    | With `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`: a first turn where an image or file the issue links could not be fetched, or the issue could not be read for them, or a later turn where one its reply links could not be fetched; nothing ran |
 | 64   | A usage error, no bot token or no git identity; nothing ran          |
 | 78   | The instance settings are invalid, or `tehas.slice` cannot be used; nothing ran |
 
@@ -403,7 +606,10 @@ and are removed with it, and its transcripts go to
 before a turn. The agent files issues with the token. The RPC stream is
 kept in `~/tehas/logs/plan-<issue>-<time>.jsonl`. The limit is
 `TEHAS_PLAN_TIMEOUT`, and the session record is
-`~/tehas/state/plan-<issue>.json`.
+`~/tehas/state/plan-<issue>.json`. Once the outcome is read the session is
+ended by closing Pi's input, and only a Pi that has not gone two seconds later
+is stopped with `docker stop`. A container left under the turn's name, by
+a turn whose client died, is removed before the turn starts.
 
 ## tehas dev
 
@@ -412,7 +618,7 @@ the product that is kept. For working by hand; see
 [Operating](/operating).
 
 ```
-tehas dev [<name>] [--author "Name <email>"] [-- <pi arguments>]
+tehas dev [<name>] [--author "Name <email>"] [--issue <number>] [-- <pi arguments>]
 tehas dev --help
 ```
 
@@ -422,11 +628,24 @@ never reset or removed. `--author` is stored in `~/tehas/dev/<name>.author` and
 becomes git's name and email in every session of that clone; without one the
 bot's are used. What follows `--` is passed to `pi`.
 
+`--issue <number>` gives the session the images and text files that issue
+links, with `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, by the rules of
+[tehas work](#tehas-work) without an approval record. The person running the
+command approved nothing, so the images are taken when an allowed account
+applied the issue's last `tehas:ready`, or else when an owner, member or
+collaborator opened it. They go to `~/tehas/dev/<name>.images`, remade at
+every start with `--issue`, and the container gets that directory read-only
+at the same path and `PI_ENSEMBLE_EXTRA_IMAGE_DIRS`, which names it. What was
+given and left out is printed; nothing is said on the issue. Without
+`--issue` the session gets neither, and an instance's
+`PI_ENSEMBLE_EXTRA_IMAGE_DIRS` is not passed on.
+
 | Exit | Meaning                                                                                   |
 | ---- | ----------------------------------------------------------------------------------------- |
 | any  | The session's own exit status, as Docker reports it                                       |
+| 4    | With `--issue`: an image or file the issue links could not be fetched, or the issue or its label events could not be read; no container |
 | 64   | A wrong argument, a malformed author, no bot token or no git identity; no container       |
-| 78   | The instance settings are invalid, the clone's directory is not a clone, or `tehas.slice` cannot be used; no container |
+| 78   | The instance settings are invalid, the clone's directory is not a clone, `tehas.slice` cannot be used, or `--issue` was given and the instance gives no images or files; no container |
 
 Arguments are checked before the settings are read, so `--help` works on a
 host with no instance and a mistyped argument makes no clone.
@@ -679,9 +898,13 @@ then removes the workspace of a cycle that merged or left a pull request, and
 keeps the workspace of one that stopped. The images `tehas work` fetched for
 the cycle are removed in every case. A runner that started no cycle over an
 image (exit 4) is parked with a comment that says so. A retry moves a stopped workspace to
-`<name>-<issue>.before-retry`, which is removed and kept by the same rule. A
+`<name>-<issue>.before-retry`, which is removed and kept by the same rule.
+The dispatcher removes a kept workspace once no cycle has run on its issue for
+7 days. A
 stopped unit stops the container and is reported as a cycle that ended without
-a pull request. A hangup is taken as a stop too. It checks no authorisation:
+a pull request. The report of a stopped cycle tries each call to GitHub once,
+cuts it after 20 seconds and does not refresh the status, so it ends within
+the unit's `TimeoutStopSec`. A hangup is taken as a stop too. It checks no authorisation:
 the dispatcher did that before it started the unit. It does check the number:
 it writes `state/cycles/<issue>.taken` once it holds its lock, then asks GitHub
 what the number is before a label is changed, a comment is posted or a
@@ -693,14 +916,49 @@ takes such a cycle as one that came up: the issue keeps `tehas:running`, and
 the next poll clears it in silence.
 
 `tehas:awaiting-merge` is given only to a run that ended as `handoff` and has
-an open pull request of the bot. Any other end with a pull request open gets
-`needs-human-attention`, and the comment names the pull request. The label
-change that ends a cycle is tried three times, five seconds apart, and so is
-the search for the pull request. If GitHub still refuses the label change, the
-log says `WARN: label change on #N failed`, the cycle's comment says that the
-label could not be changed, and the issue
-stays `tehas:running` until the next poll of [tehas dispatch](#tehas-dispatch)
-finds it.
+an open pull request of the bot that names the issue. Any other end with a
+pull request open gets `needs-human-attention`, and the comment names the
+pull request.
+
+The pull request is looked up in every state. One that a person merged while
+the cycle ran ends the cycle as merged, whatever the state file says: the
+issue only loses `tehas:running`, the comment says the pull request was merged
+while the cycle ran, nothing is parked, and [tehasbot status](#tehasbot-status-and-the-console)
+labels the closed issue `tehas:shipped`. One that a person closed without
+merging gets `needs-human-attention` and a plain comment that says so, without
+the retry boxes: to try again, apply `tehas:ready`.
+
+The state file is written inside the container, so what it says is checked
+against GitHub. A pull request counts as the cycle's only when the bot opened
+it on the branch the state names and it names the issue: its head is
+`feature/issue-<n>-...`, as pi-rukas names a branch, or its body closes `#<n>`
+(`Fixes #<n>`, `Closes #<n>`). A pull request on that branch that names
+another issue is said in the comment and not taken. A state of `merged` is
+reported as merged only when the bot has a merged pull request for the issue
+on that branch. Without one the issue is parked, the comment says that the
+bot has no merged pull request for the issue, and both workspaces are kept. A
+state file reached through a link, or under a linked `.pi` directory, is not
+read: the status is then `unknown`.
+
+The label change that ends a cycle is tried three times, five seconds apart,
+and so is the search for the pull request. If GitHub still refuses the label
+change, the log says `WARN: label change on #N failed`, the cycle's comment
+says that the label could not be changed, and the issue stays `tehas:running`
+until the next poll of [tehas dispatch](#tehas-dispatch) finds it. A search
+for the pull request that GitHub refuses three times is not taken for a cycle
+that left none: the issue is parked with a comment that says the pull request
+could not be looked up and names the branch, and the branch stays in
+`~/tehas/state/cycles/<issue>.branch` until the issue's next cycle starts.
+
+A parked cycle's cap, from the state file, goes into
+`~/tehas/state/cycles/<issue>.park` with the failure before it, and into the
+record for the improvement loop as `cap` and `capReason`, reduced to plain
+characters. A cap of the kind a provider outage gives is said as one: `Tehas
+cycle parked by a provider outage`, with the cap and the reason. That is
+`provider-unavailable`, or `step-failed:<step>` or `adversarial-infra-failure`
+whose reason names the provider, a timeout, a connection or a 5xx status. The
+park file then asks [tehas dispatch](#tehas-dispatch) for one retry, unless the
+cycle was that retry.
 
 | Exit | Meaning                                              |
 | ---- | ---------------------------------------------------- |
@@ -743,8 +1001,18 @@ that is removed is forgotten. A console file removed while the cycle runs is mad
 again by the console at its next pass. Neither needs running by hand.
 What the console itself complains about goes to `~/tehas/logs/work-<issue>-<time>.jsonl.console`,
 and the work script says so when the console is missing or ends with an error.
+At the end of a cycle the console is given 30 seconds to stop; one that takes
+longer is killed, and the work script says so.
 The work script's own status line, in `~/tehas/live/cycles/<issue>.json` and from there in `~/tehas/live/running.json`, goes through
 the same mask (`console --mask`); without a console it is left empty.
+
+The console, and the mask of the status line, also mask in any case the names
+the host knows that an agent can print: each name and address in
+`PI_ENSEMBLE_HOST_ALIASES`, the host of the model provider's `baseUrl` in
+`models.json`, and the bot's git email. The work script gives them with
+`--private`; a name shorter than 4 characters is left out, as it would mask
+ordinary words. They are names, not secrets: a token is never on a command
+line.
 
 The snapshot also carries the words of the breakroom game, Buzzword Buster.
 They are counted over the titles and labels of every issue of the repository,
@@ -970,10 +1238,20 @@ to read its line; the timer runs it every three hours, on the hour, and the log 
 
 When a cycle ends, `tehasbot cycle` leaves a record of it in
 `~/tehas/tmp/improve/window/<issue>-<time>/`: how it ended, the stream without
-its word by word updates, the console and the error output. A run fetches the
-open issues and the ones closed in the last 30 days, takes the five oldest
-records that wait, and starts the analyst. The rest stay for the next run. Then
-it checks the one file the analyst leaves, files what passes and removes the
+its word by word updates, the console and the error output. Its `cycle.json`
+names the image the cycle's container started from (`image`, its id) and the
+pi-rukas commit of that image's label (`rukas`), which `tehas work` reads as
+the container starts and leaves in `~/tehas/state/cycles/<issue>.image`. A
+rebuild while the cycle runs does not change them. Without that file the
+commit is the one the cycle noted at its start. A comment on an issue the loop
+filed, when the issue is worked on again, names both. When the cycle was given the issue's images or files, the record also holds
+what `tehas work` kept of them in `~/tehas/state/cycles/`: `manifest.json`,
+and `images.md` and `retry-context.md` when the cycle had them. Only this
+cycle's, only plain files, at most 256 KB each, and never an image or a file
+itself. A run fetches the open
+issues and the ones closed in the last 30 days, takes the five oldest records
+that wait, and starts the analyst. The rest stay for the next run. Then it
+checks the one file the analyst leaves, files what passes and removes the
 records it took.
 
 The analyst has 60 minutes, and the prompt tells it so and asks it to write
@@ -1418,7 +1696,9 @@ what names them. There is no command that marks a follow-up done by hand; runnin
 Every call outside the command has a limit, and hitting it fails saying how long:
 120s for the fetch, 1800s for install.sh (copies, dependency check, tests, and its
 one call to a remote), 180s for Docker, 60s for systemctl, 1800s for the sandbox
-build.
+build. An `install.sh --check` stopped at its limit has copied nothing, and the
+line says so. The tests are most of its time; on a busy host run
+`./install.sh --check` by hand to see them through.
 
 `--check` contacts the remote with `git fetch --prune`, so the remote-tracking
 refs under `origin/` match what the remote has, including branches the remote

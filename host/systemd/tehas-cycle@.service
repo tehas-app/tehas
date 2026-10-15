@@ -5,6 +5,13 @@ Description=Tehas: the work cycle for issue %i
 Type=exec
 ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot cycle %i >> %h/tehas/logs/dispatch.log 2>&1"
 # A stop reaches the command only. It passes it on to the cycle's container
-# and then reports on the issue, which takes a few calls to GitHub.
+# and then reports on the issue, which takes a few calls to GitHub. The worst
+# stop: docker stop and docker kill at their bounds, 130 s, then five calls
+# to GitHub tried once at 20 s each.
 KillMode=mixed
-TimeoutStopSec=120
+TimeoutStopSec=300
+# The backstop for a cycle that hangs where no bound of its own reaches. Above
+# the longest TEHAS_WORK_TIMEOUT lib/config.sh accepts, 7 hours, with an hour
+# for the stop and the report. A unit cannot read the instance's setting. The
+# stop is a TERM, and the cycle is reported as one that stopped.
+RuntimeMaxSec=8h

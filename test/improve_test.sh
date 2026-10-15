@@ -82,6 +82,30 @@ lib "tehas_improve_record 7 $started 0 handoff review"
 t_eq "$(jq -c .rukas "$base/window/$REC/cycle.json")" null
 rm -rf "$home/state/cycles" "$home/versions.env"
 
+t_case "the image and its commit, as the container started, win over both"
+mkdir -p "$home/state/cycles"
+echo fedcba9876543210fedcba9876543210fedcba98 >"$home/state/cycles/7.rukas"
+printf '%s\n' "PI_RUKAS_COMMIT=0123456789abcdef0123456789abcdef01234567" >"$home/versions.env"
+img=sha256:$(printf 'e%.0s' {1..64})
+cycle_log
+lib "tehas_improve_record 7 $started 0 handoff review '' 0 $img aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+t_eq "$(jq -c '[.image, .rukas]' "$base/window/$REC/cycle.json")" "[\"$img\",\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"]"
+cycle_log
+lib "tehas_improve_record 7 $started 0 handoff review '' 0 'sha256:nothex' 'not a commit'"
+t_eq "$(jq -c '[.image, .rukas]' "$base/window/$REC/cycle.json")" '[null,"fedcba9876543210fedcba9876543210fedcba98"]'
+cycle_log
+lib "tehas_improve_record 7 $started 0 handoff review"
+t_eq "$(jq -c '.image' "$base/window/$REC/cycle.json")" null
+rm -rf "$home/state/cycles" "$home/versions.env"
+
+t_case "the cap and its reason are recorded, reduced, and null when there are none"
+cycle_log
+lib "tehas_improve_record 7 $started 0 handoff handoff '' 0 '' '' 'step-failed:adversarial\`' 'Connection error. @x <b>'"
+t_eq "$(jq -c '[.cap, .capReason]' "$base/window/$REC/cycle.json")" '["step-failed:adversarial","Connection error. x b"]'
+cycle_log
+lib "tehas_improve_record 7 $started 0 handoff review"
+t_eq "$(jq -c '[.cap, .capReason]' "$base/window/$REC/cycle.json")" '[null,null]'
+
 t_case "a cycle without a pull request records null"
 reset
 cycle_log
@@ -133,6 +157,40 @@ cp "$home/logs/work-$REC.jsonl" "$home/logs/work-8-261010-200150.jsonl"
 lib "tehas_improve_record 7 $started 0 handoff review & tehas_improve_record 8 $started 0 handoff review & wait"
 t_eq "$(find "$base/window" -name cycle.json | wc -l)" 2
 t_eq "$(find "$base" -maxdepth 1 -name '.new.*' | wc -l)" 0
+
+t_case "the record holds what the cycle was given of the issue's attachments, and never a file of them"
+reset
+cycle_log
+mkdir -p "$home/state/cycles"
+echo '{"images":[{"file":"image-1.png"}],"leftOut":[],"issue":7}' >"$home/state/cycles/7.manifest.json"
+echo '# The images, described' >"$home/state/cycles/7.images.md"
+echo '# The pull request before this retry' >"$home/state/cycles/7.retry-context.md"
+printf 'PNG' >"$home/state/cycles/7.image-1.png"
+lib "tehas_improve_record 7 $started 0 handoff review"
+t_eq "$t_rc" 0
+r=$base/window/$REC
+t_eq "$(cd "$r" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" \
+  "./console.txt ./cycle.json ./err.txt ./images.md ./manifest.json ./preflight.txt ./retry-context.md ./stream.jsonl "
+t_eq "$(cmp "$r/manifest.json" "$home/state/cycles/7.manifest.json" && echo same)" same
+t_eq "$(cat "$r/retry-context.md")" "# The pull request before this retry"
+
+t_case "an earlier cycle's, a link and one over the bound are not taken"
+reset
+cycle_log
+mkdir -p "$home/state/cycles"
+echo '{}' >"$home/state/cycles/7.manifest.json"
+touch -d '2 hours ago' "$home/state/cycles/7.manifest.json"
+echo secret >"$T/elsewhere"
+ln -s "$T/elsewhere" "$home/state/cycles/7.images.md"
+head -c 300000 /dev/zero | tr '\0' a >"$home/state/cycles/7.retry-context.md"
+lib "tehas_improve_record 7 $started 0 handoff review"
+t_eq "$t_rc" 0
+t_eq "$(cd "$base/window/$REC" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" \
+  "./console.txt ./cycle.json ./err.txt ./preflight.txt ./stream.jsonl "
+
+t_case "the analyst is told what the attachment files are and what to look for in them"
+t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "\`manifest.json\`, \`images.md\`, \`retry-context.md\`"
+t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "a cycle given images or files whose plan does not name what they show"
 
 # --- Packing a whole log -----------------------------------------------------
 # 300 lines that compress badly, so a small limit forces pieces.
@@ -743,7 +801,7 @@ t_contains "$t_out" "filed=0 issues=none rechecked=1"
 t_contains "$(t_calls gh)" "issue comment 12 --repo acme/rukas"
 body=$(cat "$T/calls/comment-12")
 t_contains "$body" "acme/widget#7 was worked on again: cycle \`$REC\`"
-t_contains "$body" 'with pi-rukas at `0123456789abcdef0123456789abcdef01234567`'
+t_contains "$body" 'with pi-rukas at `0123456789abcdef0123456789abcdef01234567`.'
 t_contains "$body" "**Seen again:** no"
 t_contains "$body" "safety net committed 3 of 3 paths"
 t_contains "$body" "https://github.com/acme/factory/releases/download/tehas-improve-logs/ticket-$REC.log.gz"
@@ -761,6 +819,14 @@ rechecks "$(recheck '{"repo":"acme/factory","number":4,"seen":true}')"
 t_run "$improve"
 t_contains "$(t_calls gh)" "issue comment 4 --repo acme/factory"
 t_contains "$(cat "$T/calls/comment-4")" "**Seen again:** yes"
+
+t_case "the comment names the image the cycle ran when the record has one"
+again
+img=sha256:$(printf 'e%.0s' {1..64})
+jq -c --arg i "$img" '. + {image: $i}' "$base/window/$REC/cycle.json" >"$fx/c.json"
+mv "$fx/c.json" "$base/window/$REC/cycle.json"
+t_run "$improve"
+t_contains "$(cat "$T/calls/comment-12")" "with pi-rukas at \`0123456789abcdef0123456789abcdef01234567\`, image \`$img\`."
 
 t_case "a record that names no pi-rukas commit: the comment says so"
 again
