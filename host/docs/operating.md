@@ -571,6 +571,17 @@ stack is filed as an issue of its own in that repository.
   has the limit of 10 open issues to itself, so one that is full does not
   hold the other back. How a fix then reaches the host is
   under [pi-rukas comes from upstream](/host#pi-rukas-comes-from-upstream).
+- **A finding at the boundary is two issues.** The category `boundary` is
+  for a problem with a half in the factory and a half in pi-rukas, or a
+  shape the two have to agree on. Each half is filed in its own repository,
+  the two link each other, and both carry `cross-project` as well. Without
+  a repository for pi-rukas it is one issue that names both halves.
+- **The model reads what each cycle ran with**: the `PI_ENSEMBLE_*`
+  variables its container was given, the `TEHAS_*` settings that shape a
+  cycle, how many cycles were running as its container started, and the
+  provider retry line of its preflight log. `tehas work` leaves the first
+  three in `~/tehas/state/cycles/<issue>.settings`. A value whose name or
+  shape looks like a secret is written as `[withheld]`.
 - **Each issue names the product's issues** whose cycles it rests on, as
   `owner/name#7`, so GitHub links the two both ways.
 - **Each issue says what working on it means**, in the line `Working on it`,
@@ -585,12 +596,19 @@ stack is filed as an issue of its own in that repository.
   an earlier cycle of it, the model says whether the problem came back. That
   is a comment on the filed issue, open or closed: `Seen again: yes` or `no`,
   what the new cycle showed, its whole log, and the pi-rukas commit the host
-  was installed with. This is how a fix in pi-rukas is verified: deploy it,
+  was installed with. Of a closed issue in the repository for pi-rukas, the
+  loop asks GitHub whether the commit that closed it is in that pi-rukas
+  commit, the question `git merge-base --is-ancestor` answers. When it is
+  not, the comment says `not in this build` instead of `yes`. When the
+  record names no commit, or GitHub does not answer, it says `build unknown`.
+  The record names no commit of the factory, so an issue there that a
+  commit closed always says `build unknown`. This is how a fix in pi-rukas is verified: deploy it,
   apply `tehas:ready` to the product issue again, and read the comment. A
   model wrote it, so check it against the log. The loop closes and reopens
   nothing. At most 10 comments a run, and none in a run that waits because
   every repository is full.
-- **The label is `tehas:improvement` and nothing else.** tehas does not act on
+- **The label is `tehas:improvement`**, with `cross-project` beside it on the
+  two halves of a boundary finding. tehas does not act on
   it, and the loop never applies `tehas:ready`. A filed issue is a proposal a
   model wrote: read it, correct it, and apply `tehas:ready` yourself if it
   should be built. Close it if not.

@@ -9,10 +9,19 @@ pi-rukas could be better, and to write your findings to one file.
   - `cycle.json`: issue number, seconds, final status and step, exit status,
     the pull request if there is one, `oomKills`, how many processes in
     the cycle's container were killed for memory (0 when none), `rukas`,
-    the commit of pi-rukas the cycle ran, `image`, the id of the sandbox
-    image its container started from, and `cap` and `capReason`, the cap
-    that ended the cycle and the failure before it (null when there were
-    none).
+    the commit of pi-rukas the cycle ran, as the sandbox image's label
+    names it, `image`, the id of the sandbox image its container started
+    from, and `cap` and `capReason`, the cap that ended the cycle and the
+    failure before it (null when there were none). Also what the cycle ran
+    with: `settings.container`, every `PI_ENSEMBLE_*` variable its container
+    was given, with its value; `settings.host`, the factory's `TEHAS_*`
+    settings that shape a cycle, among them its time limit, its stall limit
+    and how many cycles may run at once; `concurrentCycles`, how many cycles
+    were running as its container started, this one with them; and
+    `providerRetry`, the retry and timeout its Pi had for a model request.
+    A value shown as `[withheld]` was kept out. Each is null when the cycle
+    did not leave it. A pi-rukas default is in effect for every
+    `PI_ENSEMBLE_*` variable that is not in `settings.container`.
   - `stream.jsonl`: the cycle's event stream, condensed.
   - `console.txt`: what each agent wrote, as an operator saw it.
   - `err.txt`, `preflight.txt`: the cycle's error stream and preflight output.
@@ -64,9 +73,26 @@ A finding is filed where it can be fixed, so the category matters. `pi-rukas`
 is for what only a change in pi-rukas can fix: the work driver and its steps
 (branch, develop, adversarial, commit-pr, handoff), its safety net and
 verify, the project manager, the `dispatch_*` tools and the slow-run notices.
-Lines of `err.txt` that begin `[pi-rukas]` are its own. The other categories
-are the factory's: the dispatcher that starts cycles, the script and the
+Lines of `err.txt` that begin `[pi-rukas]` are its own. The other categories,
+but `boundary`, are the factory's: the dispatcher that starts cycles, the script and the
 container a cycle runs in, the console, the product's gates, the manual.
+
+Read the settings before you blame a default. A timeout, a limit of
+processes or memory, or a step that ran slowly while three other cycles
+ran beside it, may be the factory's choice of settings and not pi-rukas's
+behaviour.
+
+`boundary` is for a problem with a half on each side. Ask whether a person
+running pi-rukas by hand, in their own terminal, would hit it. Yes, and
+only pi-rukas has to change: `pi-rukas`. Only because of how the factory
+runs it, its container, limits, settings or how many cycles it runs at
+once: one of the factory's categories. Both, or the two must agree on
+something between them, a setting, a status or the shape of a result:
+`boundary`. A boundary finding names each half in a field of its own:
+`factory_part`, what the factory has to change, and `rukas_part`, what
+pi-rukas has to change. Each half is filed in its own repository and the
+two issues link each other. Do not use `boundary` to avoid choosing: when
+one side alone can fix it, choose that side.
 
 ## Duplicates
 
@@ -86,6 +112,10 @@ pair, open or closed. `seen` is true when it happened again and false when the
 cycle went through the same place without it. If the cycle never reached that
 place, leave the pair out. Put what you saw in `note`, with the lines that
 show it. A problem that is seen again is a follow-up, not a new finding.
+Say only what the cycle shows. Whether the fix was in the build the cycle
+ran is checked after you, against its `rukas` commit, and the comment says
+so: a problem seen again in a cycle that ran without the fix is not a sign
+the fix failed.
 
 ## What to write
 
@@ -93,11 +123,13 @@ Write `/improve/out/findings.json` and nothing else, in this shape:
 
     {"findings": [{
       "title": "one line, up to 100 characters, says what is wrong",
-      "category": "dispatcher | cycle | pi-rukas | console | gate | docs",
+      "category": "dispatcher | cycle | pi-rukas | console | gate | docs | boundary",
       "body": "up to 6000 characters of markdown: what happened, why it matters, what could change",
       "evidence": "up to 3000 characters quoted from the files, with the file each quote is from",
       "cycles": ["<issue>-<stamp> of every cycle the finding rests on"],
-      "duplicate_of": null
+      "duplicate_of": null,
+      "factory_part": "boundary only, up to 3000 characters: the factory's half",
+      "rukas_part": "boundary only, up to 3000 characters: pi-rukas's half"
     }],
     "followups": [{
       "repo": "the repository of the filed issue, as in issues.json",
@@ -107,6 +139,7 @@ Write `/improve/out/findings.json` and nothing else, in this shape:
       "note": "up to 1500 characters: what the new cycle shows, quoted"
     }]}
 
-`category` is exactly one of the six words. `cycles` holds directory names
+`category` is exactly one of the seven words. Leave out `factory_part` and
+`rukas_part` unless the category is `boundary`. `cycles` holds directory names
 from `/improve/in/cycles`, at least one. At most five findings. With nothing
 to report, write `{"findings": [], "followups": []}`.

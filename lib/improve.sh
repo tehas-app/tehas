@@ -1,7 +1,8 @@
 # shellcheck shell=bash
 # The improvement loop's shared parts: the switch, the record a cycle leaves
-# for the loop, and how a whole log is packed for upload. Sourced by
-# libexec/improve and by the script that ends a cycle.
+# for the loop, what a cycle ran with, and how a whole log is packed for
+# upload. Sourced by libexec/improve, by tehas work and by the script that
+# ends a cycle.
 #
 #   tehas_improve_on       is the loop switched on for this instance?
 #   tehas_improve_dir      print where records wait
@@ -14,6 +15,11 @@
 #                          pi-rukas commit of its label, image and rukas.
 #                          <cap> and <reason> are what ended the cycle, cap
 #                          and capReason
+#   tehas_improve_settings <file> <concurrent> <docker options>...
+#                          write what a cycle ran with, for its record: the
+#                          PI_ENSEMBLE_* variables the -e options give the
+#                          container, the instance's TEHAS_* settings that
+#                          shape a cycle, and how many cycles were running
 #   tehas_improve_secret <file>
 #                          does the file hold something shaped like a token?
 #   tehas_improve_pack <file> <dir> <name> <limit>
@@ -23,7 +29,9 @@
 # Source lib/config.sh and call tehas_load first.
 #
 # A record is a directory, window/<issue>-<stamp>, and the only thing the loop
-# reads of a cycle. With the issue's attachments given, it also holds what
+# reads of a cycle. Its cycle.json also holds what tehas work left in
+# state/cycles/<issue>.settings, when this cycle wrote it, and the provider
+# retry line of the preflight log. With the issue's attachments given, it also holds what
 # tehas work kept of them: manifest.json, images.md and retry-context.md, each
 # when the cycle had it, at most 256 KB. Never an image or a file. It is built beside the window and renamed into it, so a
 # run never sees half of one and cycles that end together do not collide.
@@ -44,7 +52,7 @@ _tehas_improve_condense='
 tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills> [<image> [<rukas> [<cap> [<reason>]]]]]]
   tehas_improve_on || return 0
   local issue=$1 started=$2 rc=$3 status=$4 step=$5 pr=${6:-} kills=${7:-0} image=${8:-} rukas=${9:-} base raw rec tmp f from
-  local cap reason
+  local cap reason settings retry
   cap=$(tr -cd 'A-Za-z0-9_.:-' <<<"${10:-}" | head -c 80)
   reason=$(tr -cd 'A-Za-z0-9 _.,:;/()=+-' <<<"${11:-}" | head -c 200)
   [[ $kills =~ ^(0|[1-9][0-9]{0,8})$ ]] || kills=0
@@ -65,15 +73,31 @@ tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills>
   # against.
   [[ $rukas =~ ^[0-9a-f]{7,40}$ ]] || rukas=$(head -c 64 "$TEHAS_HOME/state/cycles/$issue.rukas" 2>/dev/null | head -n 1)
   [[ $rukas =~ ^[0-9a-f]{7,40}$ ]] || rukas=""
+  # What it ran with: only this cycle's file, and only an object of the shape
+  # tehas_improve_settings writes.
+  settings=null
+  from=$TEHAS_HOME/state/cycles/$issue.settings
+  if [ -f "$from" ] && [ ! -L "$from" ] && [ "$(stat -c %s "$from" 2>/dev/null || echo 0)" -le 65536 ] &&
+    [ -n "$(find "$from" -maxdepth 0 -newermt "@$((started - 5))" 2>/dev/null)" ]; then
+    settings=$(jq -c 'if type == "object" and (.container | type == "object") and (.host | type == "object")
+      and ([.container[], .host[]] | all(type == "string"))
+      and (.concurrentCycles == null or (.concurrentCycles | type == "number"))
+      then . else null end' "$from" 2>/dev/null) || settings=null
+    [ -n "$settings" ] || settings=null
+  fi
+  retry=$(grep -a -m 1 '^provider retry: ' "$raw.preflight" 2>/dev/null | tr -cd 'A-Za-z0-9 _.,:;/()=+-' | head -c 200)
   if ! jq -n --argjson issue "$issue" --argjson started "$started" --argjson rc "$rc" \
     --argjson ended "$(date +%s)" --arg status "$status" --arg step "$step" --arg pr "$pr" \
     --arg log "$(basename "$raw")" --argjson kills "$kills" --arg rukas "$rukas" --arg image "$image" \
-    --arg cap "$cap" --arg reason "$reason" '
+    --arg cap "$cap" --arg reason "$reason" --argjson settings "$settings" --arg retry "$retry" '
       {issue: $issue, started: $started, seconds: ($ended - $started), status: $status,
        step: $step, rc: $rc, pr: (if $pr == "" then null else $pr end), log: $log,
        oomKills: $kills, rukas: (if $rukas == "" then null else $rukas end),
        image: (if $image == "" then null else $image end),
-       cap: (if $cap == "" then null else $cap end), capReason: (if $reason == "" then null else $reason end)}' \
+       cap: (if $cap == "" then null else $cap end), capReason: (if $reason == "" then null else $reason end),
+       settings: (if $settings == null then null else {container: $settings.container, host: $settings.host} end),
+       concurrentCycles: (if $settings == null then null else $settings.concurrentCycles end),
+       providerRetry: (if $retry == "" then null else $retry end)}' \
     >"$tmp/cycle.json"; then
     rm -rf "$tmp"
     return 1
@@ -98,6 +122,45 @@ tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills>
     rm -rf "$tmp"
     return 1
   fi
+}
+
+# The TEHAS_* settings a record carries: those that shape a cycle. Not every
+# one: the analyst's words are filed in public, and a host's addresses, its
+# domain and the analytics settings are none of its business.
+_tehas_improve_host='^TEHAS_(WORK_(TIMEOUT|STALL|CPUS|MEMORY|IMAGES|FILES|COMMENTS|DESCRIBE)|CONCURRENCY|TICKET_CONCURRENCY|MAX_AWAITING|CYCLE_RESERVE|VERIFY_TIMEOUT|PREFLIGHT_WAIT|STOP_WAIT|CONSOLE_WAIT|BRANCH|REPO)$'
+
+# A value goes in as it is unless its name or its shape says it may be a
+# secret, and then as [withheld]. Each is cut at 500 characters.
+_tehas_improve_value() { # <name> <value>
+  case "$1" in *KEY* | *TOKEN* | *SECRET* | *PASS* | *COOKIE* | *AUTH* | *CREDENTIAL*) echo "[withheld]"; return ;; esac
+  if tehas_improve_secret /dev/stdin <<<"$2"; then echo "[withheld]"; else printf '%s' "${2:0:500}" | tr -d '\000-\037\177'; fi
+}
+
+tehas_improve_settings() { # <file> <concurrent> <docker options>...
+  local out=$1 n=$2 a next=0 name value
+  local -a pairs=() host=()
+  shift 2
+  [[ $n =~ ^(0|[1-9][0-9]{0,4})$ ]] || n=null
+  for a in "$@"; do
+    if [ "$next" = 1 ]; then
+      next=0
+      name=${a%%=*}
+      [[ $name =~ ^PI_ENSEMBLE_[A-Z0-9_]+$ ]] || continue
+      if [ "$name" = "$a" ]; then value=${!name-}; else value=${a#*=}; fi
+      pairs+=("$name" "$(_tehas_improve_value "$name" "$value")")
+    elif [ "$a" = -e ]; then
+      next=1
+    fi
+  done
+  while IFS= read -r name; do
+    host+=("$name" "$(_tehas_improve_value "$name" "${!name-}")")
+  done < <(compgen -v | grep -E "$_tehas_improve_host" | sort)
+  jq -n --argjson n "$n" --argjson split "${#pairs[@]}" '
+    def obj: [range(0; length; 2) as $i | {key: .[$i], value: .[$i + 1]}] | from_entries;
+    {container: ($ARGS.positional[0:$split] | obj), host: ($ARGS.positional[$split:] | obj),
+     concurrentCycles: $n}' --args "${pairs[@]}" "${host[@]}" >"$out.new" && mv "$out.new" "$out" && return 0
+  rm -f "$out.new"
+  return 1
 }
 
 # Logs should hold no secret. This is for the day one does: a log that matches

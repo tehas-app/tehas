@@ -22,12 +22,15 @@
 #              state/improve.cap; one that finishes in time doubles it again.
 #              What a stopped analyst's file holds is filed, and the records
 #              it does not name go back to the window
-#   filed      at most 3 issues a run, labelled tehas:improvement and nothing
-#              else; none in a repository where TEHAS_IMPROVE_MAX_OPEN such
-#              issues are open, 10 unless the instance says otherwise. A
-#              finding of the category pi-rukas goes to
-#              TEHAS_IMPROVE_RUKAS_REPO where that is set. Both repositories
-#              are read for duplicates, and each has that limit to itself
+#   filed      at most 3 issues a run, labelled tehas:improvement; none in a
+#              repository where TEHAS_IMPROVE_MAX_OPEN such issues are open,
+#              10 unless the instance says otherwise. A finding of the
+#              category pi-rukas goes to TEHAS_IMPROVE_RUKAS_REPO where that
+#              is set. One of the category boundary is an issue in each, each
+#              naming its own half, linked both ways and labelled
+#              cross-project too; with no repository for pi-rukas, one issue
+#              with both halves. Both repositories are read for duplicates,
+#              and each has that limit to itself
 #   issues     each filed issue names the product's issues its cycles worked,
 #              and says what working on it means: a finding about the factory
 #              is built where it is filed, one about pi-rukas is fixed in
@@ -35,7 +38,10 @@
 #   rechecked  when one of those issues is worked on again, the analyst says
 #              whether the problem came back, and that is a comment on the
 #              filed issue with the pi-rukas commit the new cycle ran; at most
-#              10 a run. Nothing is closed or reopened
+#              10 a run. Of a closed issue, the comment says whether the
+#              commit that closed it is in that build, and "not in this
+#              build" rather than "yes" when it is not, or that the build is
+#              unknown. Nothing is closed or reopened
 #   logs       the whole log of each cycle a finding names, gzipped, as assets
 #              of the release tehas-improve-logs; over 5 MB, in numbered pieces
 #   removed    a run's records when it finishes; anything in tmp/improve, and
@@ -285,7 +291,9 @@ check='
   def valid($numbers):
     type == "object"
     and (.title | type == "string" and length >= 1 and length <= 100 and clean([]))
-    and (.category | type == "string" and IN("dispatcher", "cycle", "pi-rukas", "console", "gate", "docs"))
+    and (.category | type == "string" and IN("dispatcher", "cycle", "pi-rukas", "console", "gate", "docs", "boundary"))
+    and (.category != "boundary" or all(.factory_part, .rukas_part;
+      type == "string" and length >= 1 and length <= 3000 and clean([9, 10, 13])))
     and (.body | type == "string" and length >= 1 and length <= 6000 and clean([9, 10, 13]))
     and (.evidence | type == "string" and length <= 3000 and clean([9, 10, 13]))
     and (.cycles | type == "array" and length >= 1 and all(.[]; type == "string" and IN($cycles[])))
@@ -310,8 +318,10 @@ check='
       | if (.seen | index($t)) != null then . else {seen: (.seen + [$t]), keep: (.keep + [$f])} end)
     | .keep) as $keep
   | (reduce $keep[] as $f ({room: $rooms, left: $max_run, file: []};
-      (if $f.category == "pi-rukas" then $rukas else $repo end) as $to
-      | if .left > 0 and .room[$to] > 0 then .room[$to] -= 1 | .left -= 1 | .file += [$f] else . end)
+      (if $f.category == "pi-rukas" then [$rukas] elif $f.category == "boundary" then [$repo, $rukas] | unique
+       else [$repo] end) as $to
+      | if .left >= ($to | length) and all($to[] as $r | .room[$r]; . > 0)
+        then reduce $to[] as $r (.; .room[$r] -= 1) | .left -= ($to | length) | .file += [$f] else . end)
     | .file) as $file
   | {found: ($all | length), invalid: (($all | length) - ($good | length)),
      duplicates: (($good | length) - ($keep | length)),
@@ -389,11 +399,18 @@ body='
   "_Filed by the tehas improvement loop, read by the model `\($model)`. It is a proposal: nothing works on it until a person labels it._",
   "", "**Category:** \(.category)", "", "**Working on it:** \($does)", "",
   "**Issues:** \([.cycles[] | "\($product)#\(split("-")[0])"] | unique | join(", "))", "", (.body | defuse), "",
+  (if .category != "boundary" then empty
+   elif $half == "both" then "**The factory\u0027s half**", "", (.factory_part | defuse), "",
+     "**The half for pi-rukas**", "", (.rukas_part | defuse), ""
+   else "**This repository\u0027s half**", "", (if $half == "factory" then .factory_part else .rukas_part end | defuse), "",
+     "**The other half**, filed in \($other_repo)\(if $other == "" then "" else ": \($other)" end)", "",
+     (if $half == "factory" then .rukas_part else .factory_part end | defuse), "" end),
   "**Evidence**", "", "````text", (.evidence | gsub("`{3,}"; "\u0027\u0027\u0027")), "````", "",
   "**Cycles:** \(.cycles | unique | join(", "))", "", "**Whole logs**", "", ($links | rtrimstr("\n"))'
 
 filed=()
 failed=0
+cross="cross-project"
 n=$(jq '.file | length' <<<"$plan")
 if [ "$n" -gt 0 ]; then
   # It fails when the label is there already, which is fine.
@@ -402,6 +419,26 @@ if [ "$n" -gt 0 ]; then
       --description "Tehas: filed by the improvement loop, a proposal" >/dev/null 2>&1 || true
   done
 fi
+if jq -e '[.file[] | select(.category == "boundary")] | length > 0' <<<"$plan" >/dev/null; then
+  for r in "${repos[@]}"; do
+    gh label create "$cross" --repo "$r" --color 0e8a16 \
+      --description "Needs a change on both sides of the factory and pi-rukas" >/dev/null 2>&1 || true
+  done
+fi
+# open_issue <repository> <working on it> <half> <other repository> <other url> <label>...
+# Open one issue of the finding $f; its url is left in $url.
+open_issue() {
+  local to=$1 does=$2 half=$3 other_repo=$4 other=$5 opts=() l
+  shift 5
+  for l in "$@"; do opts+=(--label "$l"); done
+  jq -r --arg links "$links" --arg model "$PI_ENSEMBLE_SUBAGENT_MODEL" --arg product "$TEHAS_REPO" \
+    --arg does "$does" --arg half "$half" --arg other_repo "$other_repo" --arg other "$other" \
+    "$body" <<<"$f" >"$run/body.md" || return 1
+  url=$(gh issue create --repo "$to" --title "$(jq -r .title <<<"$f")" --body-file "$run/body.md" "${opts[@]}") ||
+    return 1
+  # A number alone is an issue of TEHAS_IMPROVE_REPO.
+  if [ "$to" = "$repo" ]; then filed+=("#${url##*/}"); else filed+=("$to#${url##*/}"); fi
+}
 for ((i = 0; i < n; i++)); do
   f=$(jq -c ".file[$i]" <<<"$plan")
   links=""
@@ -410,24 +447,33 @@ for ((i = 0; i < n; i++)); do
     links+=$(cat "$run/up/$rec.links")$'\n'
   done < <(jq -r '.cycles | unique | .[]' <<<"$f")
   # The body is what a cycle is given as its task, so it says whose fix it is.
+  category=$(jq -r .category <<<"$f")
+  if [ "$category" = boundary ] && [ "$rukas" != "$repo" ]; then
+    # One issue a side, each naming its own half; the second links the first
+    # in its body, the first is told of the second in a comment.
+    open_issue "$repo" "This is the factory's half of a problem at the boundary with pi-rukas. Only that half is fixed in this repository, once a person applies \`tehas:ready\`. The half for pi-rukas is filed in $rukas and is not worked around here." \
+      factory "$rukas" "" "$label" "$cross" || { failed=1; break; }
+    first=$url
+    open_issue "$rukas" "This is the half for pi-rukas of a problem at the boundary with the factory that runs it. Only that half is fixed here; the factory's half is filed in $repo. Nothing starts until a person applies \`tehas:ready\`." \
+      rukas "$repo" "$first" "$label" "$cross" || { failed=1; break; }
+    gh issue comment "${first##*/}" --repo "$repo" --body "The half for pi-rukas is filed as $url." >/dev/null 2>&1 ||
+      notes+=("not-linked=#${first##*/}")
+    continue
+  fi
+  if [ "$category" = boundary ]; then
+    open_issue "$repo" "This is a problem at the boundary between the factory and pi-rukas, and this repository is not pi-rukas. A cycle here fixes only the factory's half, once a person applies \`tehas:ready\`; for the half for pi-rukas it changes no code and writes down what has to change there." \
+      both "" "" "$label" "$cross" || { failed=1; break; }
+    continue
+  fi
   to=$repo
   does="This is a problem in the factory. It is fixed in this repository: a cycle builds the fix once a person applies \`tehas:ready\`."
-  if [ "$(jq -r .category <<<"$f")" = pi-rukas ]; then
+  if [ "$category" = pi-rukas ]; then
     to=$rukas
     does="This is a problem in pi-rukas. It is fixed here, in pi-rukas, and not worked around in $TEHAS_REPO. Nothing starts until a person applies \`tehas:ready\`. When a host runs the fix and one of the issues below is worked on again, the loop says here whether the problem came back."
     [ "$to" != "$repo" ] ||
       does="This is a problem in pi-rukas, and this repository is not pi-rukas. A cycle here cannot fix it and must not work around it: it changes no code, writes down what has to change in pi-rukas, and hands off."
   fi
-  jq -r --arg links "$links" --arg model "$PI_ENSEMBLE_SUBAGENT_MODEL" --arg product "$TEHAS_REPO" \
-    --arg does "$does" "$body" <<<"$f" >"$run/body.md"
-  if url=$(gh issue create --repo "$to" --title "$(jq -r .title <<<"$f")" \
-    --body-file "$run/body.md" --label "$label"); then
-    # A number alone is an issue of TEHAS_IMPROVE_REPO.
-    if [ "$to" = "$repo" ]; then filed+=("#${url##*/}"); else filed+=("$to#${url##*/}"); fi
-  else
-    failed=1
-    break
-  fi
+  open_issue "$to" "$does" "" "" "" "$label" || { failed=1; break; }
 done
 issues=none
 [ "${#filed[@]}" = 0 ] || issues=$(IFS=,; echo "${filed[*]}")
@@ -436,12 +482,48 @@ issues=none
 # --- Recheck -----------------------------------------------------------------
 # A comment that GitHub refuses is noted and the run goes on: its findings are
 # filed, and a second run would file nothing new and lose the records anyway.
+#
+# Before it says "seen again" of a closed issue, the comment says whether the
+# fix was in the build the cycle ran. The fix is the commit GitHub closed the
+# issue with; the build is the record's pi-rukas commit, and only for an issue
+# of TEHAS_IMPROVE_RUKAS_REPO: the record names no commit of the factory.
+# Without a build, or without an answer, the comment says the build is
+# unknown rather than claim either.
+
+# fix_of <repository> <number>: the commit of the last close, when a commit
+# closed it. Nothing for an issue closed by hand.
+fix_of() {
+  local c
+  c=$(gh api --paginate "repos/$1/issues/$2/events" \
+    --jq '.[] | select(.event == "closed") | .commit_id // "-"' 2>/dev/null | tail -n 1)
+  [[ $c =~ ^[0-9a-f]{40}$ ]] && printf '%s\n' "$c"
+  return 0
+}
+# in_build <repository> <fix> <build>: yes, no or unknown. GitHub's compare
+# answers what git merge-base --is-ancestor <fix> <build> would; the host
+# keeps no clone of pi-rukas.
+in_build() {
+  local st
+  st=$(gh api "repos/$1/compare/$2...$3" --jq .status 2>/dev/null) || st=""
+  case $st in
+    identical | ahead) echo yes ;;
+    behind | diverged) echo no ;;
+    *) echo unknown ;;
+  esac
+}
 # shellcheck disable=SC2016  # a jq program: the variables are jq's
 comment='
   def defuse: gsub("@(?=[A-Za-z0-9])"; "@\u200b") | gsub("<!--"; "&lt;!--");
   "_The tehas improvement loop, read by the model `\($model)`. A model wrote this: check it against the log._", "",
   "\($product)#\(.cycle | split("-")[0]) was worked on again: cycle `\(.cycle)`, with pi-rukas at \(if $rukas == "" then "a commit the record does not name" else "`\($rukas)`" end)\(if $image == "" then "" else ", image `\($image)`" end).", "",
-  "**Seen again:** \(if .seen then "yes" else "no" end)", "", (.note | defuse), "",
+  ($fix[0:12]) as $f | ($build[0:12]) as $b | (if .seen then "yes" else "no" end) as $said
+  | "**Seen again:** \(if $fix == "" then $said
+      elif $in == "yes" then "\($said), with the fix `\($f)` in this build"
+      elif $in == "no" and .seen then "not in this build: the fix `\($f)` is not in `\($b)`, so this cycle ran without it"
+      elif $in == "no" then "no, though the fix `\($f)` is not in `\($b)`"
+      elif $build == "" then "\($said), build unknown: the record names no commit of \(.repo) that this cycle ran, so whether the fix `\($f)` was in it is not known"
+      else "\($said), build unknown: GitHub did not say whether the fix `\($f)` is in `\($b)`" end)", "",
+  (.note | defuse), "",
   "**Whole log**", "", ($links | rtrimstr("\n"))'
 rechecked=0
 n=$(jq '.recheck | length' <<<"$plan")
@@ -454,8 +536,18 @@ for ((i = 0; i < n; i++)); do
     "$run/in/cycles/$rec/cycle.json" 2>/dev/null) || rukas_at=""
   image_at=$(jq -r '.image // "" | if type == "string" and test("^sha256:[0-9a-f]{64}$") then . else "" end' \
     "$run/in/cycles/$rec/cycle.json" 2>/dev/null) || image_at=""
+  fix="" build="" in=""
+  state=$(jq -r --arg r "${to%#*}" --argjson n "${to##*#}" \
+    '[.[] | select(.repo == $r and .number == $n) | .state][0] // ""' "$run/in/issues.json" 2>/dev/null) || state=""
+  [ "$state" != CLOSED ] || fix=$(fix_of "${to%#*}" "${to##*#}")
+  if [ -n "$fix" ]; then
+    [ "$rukas" = "$repo" ] || [ "${to%#*}" != "$rukas" ] || build=$rukas_at
+    in=unknown
+    [ -z "$build" ] || in=$(in_build "${to%#*}" "$fix" "$build")
+  fi
   jq -r --arg links "$(cat "$run/up/$rec.links")" --arg model "$PI_ENSEMBLE_SUBAGENT_MODEL" \
-    --arg product "$TEHAS_REPO" --arg rukas "$rukas_at" --arg image "$image_at" "$comment" <<<"$f" >"$run/body.md"
+    --arg product "$TEHAS_REPO" --arg rukas "$rukas_at" --arg image "$image_at" \
+    --arg fix "$fix" --arg build "$build" --arg in "$in" "$comment" <<<"$f" >"$run/body.md"
   if gh issue comment "${to##*#}" --repo "${to%#*}" --body-file "$run/body.md" >/dev/null 2>&1; then
     rechecked=$((rechecked + 1))
   else
