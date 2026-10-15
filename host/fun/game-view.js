@@ -441,7 +441,7 @@
   // then prints the ticket at modem speed. The flight is skipped when
   // motion is reduced or the monitor's number is not on screen.
   // Whatever the flight does, the place that was pressed answers: it latches in
-  // brass for a beat. Below 1280px the work order is a panel in the column and
+  // brass for a beat. Below 1440px the work order is a panel in the column and
   // can be off screen when a row is tapped, so the latch is what the tap gets.
   let flight = 0;
   function select(number, origin) {
@@ -492,13 +492,16 @@
     renderOrder();
   }
 
-  // On wide screens the first screen (the head panel, the stations, the doors)
-  // is centred in the window with equal room above and below, and the board
-  // starts under the fold. Offsets are used, not client rects, so the load
-  // animation does not skew them. The head panel's box is one of the inputs: its
-  // border, its padding and its lines stand above the doors. renderFloor asks
-  // for a refit when that panel changes; so do a resize and the fonts settling.
-  const wide = window.matchMedia("(min-width: 1280px)");
+  // On the widths where the monitor stands beside the stations the first screen
+  // (the head panel, the stations, the doors) is centred in the window with
+  // equal room above and below, and the board starts under the fold. Offsets are
+  // used, not client rects, so the load animation does not skew them. The head
+  // panel's box is one of the inputs: its border, its padding and its lines
+  // stand above the doors. renderFloor asks for a refit when that panel changes;
+  // so do a resize and the fonts settling. The width is the one where game-view.css
+  // gives the stage its monitor column: centring the first screen is what fills
+  // the height that column stands over.
+  const wide = window.matchMedia("(min-width: 1440px)");
   function fitFold() {
     const fold = globalThis.TEHAS_FOLD_FIT;
     if (!fold) return; // fold-fit.js did not load: the CSS fallbacks stand

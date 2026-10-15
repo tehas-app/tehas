@@ -118,10 +118,11 @@ accents, gamified productivity (points, streaks, badges, confetti), demoscene
 styling outside the footer, and any detail beyond the SMB3 level: gradients,
 soft shadows, smooth shading.
 
-Everything sits on an 8px grid. Wide screens (1280px and up) set the stations
+Everything sits on an 8px grid. Wide screens (1440px and up) set the stations
 in a row with the monitor beside them; below that the page is one column and
-the stations stack. On wide screens the first screen is centred in the window
-with equal room above and below it, and the issue board starts under the fold.
+every panel fills it, and below 1280px the stations stack. On wide screens the
+first screen is centred in the window with equal room above and below it, and
+the issue board starts under the fold.
 
 Motion is stepped, like sprite frames. One-shot moves answer something the
 viewer did or mark data arriving: signs and doors pop in on load, a changed
@@ -277,7 +278,7 @@ against the chart's scale, the token gauge against the busiest minute of the
 last half hour. Where the mesh counts no tokens the meter shows power alone. It
 leads to Energy Use. The meter costs width and is given a column of its own:
 336px on a wide screen, which is the column above the monitor; 240px from 900 to
-1279px; below 900px the panel is one column again and the meter lies across its
+1439px; below 900px the panel is one column again and the meter lies across its
 foot at full width. Where the two do not fit side by side it is the meter that
 moves, never the text.
 
@@ -285,9 +286,9 @@ moves, never the text.
 A signboard: the station's scene, the name and count in display type, one
 ticket (next up, in work, needs review, latest) with its title held to two
 lines, and a text button that filters the board to that station. The scene's
-frame sits outside the picture so the art fills it edge to edge. On wide
-screens the four signs share the row
-equally; below 1280px the scene sits beside the text at its native 240 by 130.
+frame sits outside the picture so the art fills it edge to edge. From 1280px
+the four signs share the row equally and that row fills the width the stage
+has; below 1280px the scene sits beside the text at its native 240 by 130.
 
 ### Factory State Tag
 A tag at the far right of the header that says how the factory is. Green (`#8a5`) and
@@ -308,7 +309,8 @@ title, stage, labels, then the ticket's history (created, changed, tokens, time
 and an energy estimate marked with a tilde) and a link when the data has one.
 On wide screens it is as tall as the stations and doors beside it,
 stands to the right of the stations and stays in view while the page scrolls.
-Below 1280px it is a panel in the single column and scrolls away with the page;
+Below 1440px it is a panel in the single column, as wide as the board, and
+scrolls away with the page;
 pressing a row there still marks the row and prints the order, only the flying
 number is skipped when the monitor is off screen. The row that was pressed
 latches in Brass for a beat instead, wherever it stands.
