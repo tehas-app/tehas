@@ -417,10 +417,10 @@ t_eq "$(jq -r '.status' "$live/health.json")" "fail"
 
 # What the dispatcher's last poll wrote about the slice, as libexec/dispatch
 # writes live/dispatch.json. 4 GiB of 20 GiB are promised.
-poll() { # <why> <hold> [<age in seconds>]
+poll() { # <why> <hold> [<age in seconds>] [<issues held for images, as JSON>]
   mkdir -p "$live"
-  jq -n --arg why "$1" --arg hold "$2" --arg at "$(date -u -d "@$(($(date +%s) - ${3:-40}))" +%FT%TZ)" \
-    '{time: $at, why: $why, hold: $hold, count: 1, room: 8, committed: 4294967296, max: 21474836480, reserve: "2g"}' \
+  jq -n --arg why "$1" --arg hold "$2" --arg at "$(date -u -d "@$(($(date +%s) - ${3:-40}))" +%FT%TZ)" --argjson held "${4:-[]}" \
+    '{time: $at, why: $why, hold: $hold, count: 1, room: 8, committed: 4294967296, max: 21474836480, reserve: "2g", imageHeld: $held}' \
     >"$live/dispatch.json"
 }
 
@@ -430,7 +430,7 @@ poll "" ""
 t_run "$status"
 t_eq "$(jq -r .status "$live/health.json")" pass
 t_eq "$(jq -c '.checks.slice | del(.time)' "$live/health.json")" \
-  '{"why":"","hold":"","count":1,"room":8,"committed":4294967296,"max":21474836480,"reserve":"2g"}'
+  '{"why":"","hold":"","count":1,"room":8,"committed":4294967296,"max":21474836480,"reserve":"2g","imageHeld":[]}'
 t_eq "$(jq -r .checks.slice.time "$live/health.json")" "$(jq -r .time "$live/dispatch.json")"
 
 for why in slice unreadable; do
@@ -469,6 +469,57 @@ t_eq "$([ -e "$live/health.down" ] && echo down)" ""
 t_eq "$(jq -r .noResources "$live/status.json")" true
 t_contains "$t_out" "factory   warn: No resources: the model endpoint does not answer."
 t_contains "$t_out" "slice     room for 8 cycles"
+
+# The issues rule 3b held back for a model that reads images: a warning of its
+# own, with the numbers, and nothing else held.
+t_case "health: issues that wait for a model that reads images are a warning, said by the factory line, and the slice keeps its numbers"
+reset
+poll "" "" 40 '[7,12]'
+t_run "$status; $summary"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .status "$live/health.json")" warn
+t_eq "$(jq -r .output "$live/health.json")" "2 issues wait for a model that reads images (#7, #12)."
+t_eq "$(jq -c .checks.slice.imageHeld "$live/health.json")" '[7,12]'
+t_eq "$(jq -r .noResources "$live/status.json")" false
+t_eq "$([ -e "$live/health.down" ] && echo down)" ""
+t_contains "$t_out" "factory   warn: 2 issues wait for a model that reads images (#7, #12)."
+t_contains "$t_out" "slice     room for 8 cycles"
+
+t_case "health: one issue that waits is said as one"
+reset
+poll "" "" 40 '[7]'
+t_run "$status"
+t_eq "$(jq -r .output "$live/health.json")" "1 issue waits for a model that reads images (#7)."
+
+t_case "health: a pause and no resources are said before an image wait"
+reset
+poll "" "" 40 '[7]'
+echo true >"$T/paused"
+t_run "$status"
+t_eq "$(jq -r .output "$live/health.json")" "The factory is paused."
+echo false >"$T/paused"
+poll resources "holding: no resources: the model endpoint does not answer" 40 '[7]'
+t_run "$status"
+t_eq "$(jq -r .output "$live/health.json")" "No resources: the model endpoint does not answer."
+
+t_case "health: an image wait is not said from a poll older than ten minutes"
+reset
+poll "" "" 660 '[7]'
+t_run "$status"
+t_eq "$(jq -r .status "$live/health.json")" pass
+t_eq "$(jq -c .checks.slice "$live/health.json")" null
+
+# An older dispatch.json, written before the wait was reported, has no field at
+# all: it is no wait, not a broken file.
+t_case "health: a dispatch.json with no imageHeld is no wait"
+reset
+poll "" "" 40
+jq 'del(.imageHeld)' "$live/dispatch.json" >"$live/x" && mv "$live/x" "$live/dispatch.json"
+t_run "$status; $summary"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .status "$live/health.json")" pass
+t_eq "$(jq -c '.checks.slice | .imageHeld' "$live/health.json")" '[]'
+t_contains "$t_out" "factory   pass: Idle, taking work."
 
 t_case "status: no resources is not said from a poll older than ten minutes, or from any other hold"
 reset

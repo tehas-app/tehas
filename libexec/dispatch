@@ -69,6 +69,23 @@
 #      the image's commit and that file does not name it, nothing more
 #      starts; cycles of the commit before still count for rule 2 only. A bad
 #      release then costs one cycle, not a slot of each.
+#   3b. Where the instance gives a cycle the images its issue links
+#      (TEHAS_WORK_IMAGES), only the issues that need a model which reads
+#      images are held back by that rule. An issue needs one when tehas work
+#      would fetch an image for its cycle: its approved text links a file of
+#      the shape tehas work takes (a named file with the extension of an
+#      image, or a link of GitHub's storage for a pasted file, where only the
+#      bytes say what it is) and the issue was opened by an owner, member or
+#      collaborator, which is what decides whether a cycle is given images at
+#      all. While the model does not declare image input in models.json, or
+#      models.json names no endpoint for it, or it does not answer a request
+#      with one pixel, such an issue waits and the rest start, each saying in
+#      its start comment that the cycle was given no images. The issues one
+#      poll held back this way go into live/dispatch.json, so tehas status and
+#      /health say the wait and not only the log. A planning turn is held by
+#      rule 3's model check alone: its images go to the session whatever the
+#      model reads. The request with one pixel goes only when an issue that
+#      links an image could start, and at most once a poll.
 #   7. tehas:urgent first, then the lowest issue number. The urgent label
 #      counts only when its most recent labelling is by an allowed account, as
 #      tehas:ready does: one applied by the bot or anyone else is ignored and
@@ -94,7 +111,8 @@
 # [30]) and TEHAS_CGROUP_ROOT (in place of /sys/fs/cgroup).
 #
 # A real poll that gets as far as rule 3 writes $TEHAS_HOME/live/dispatch.json:
-# what holds cycles back, if anything, and the slice's numbers. tehasbot
+# what holds cycles back, if anything, the slice's numbers, and the issues
+# rule 3b held back for images. tehasbot
 # health copies it for tehas status. A hold is logged once, when its reason
 # changes, and "released" once when it ends; a dry run prints it every time.
 set -uo pipefail
@@ -147,6 +165,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/slice.sh"
 # shellcheck source=lib/labels.sh
 . "$here/../lib/labels.sh"
+# shellcheck source=lib/attachments.sh
+. "$here/../lib/attachments.sh"
 tehas_load || exit 78
 # shellcheck source=lib/questions.sh
 . "$here/../lib/questions.sh"
@@ -207,17 +227,20 @@ untick() {
 # Do not burn an issue on a model endpoint that cannot answer: every agent
 # would fail and the issue would park. Leave it queued and look again next
 # poll. mesh_check asks the endpoint once, at rule 3, and leaves the reason in
-# $mesh_hold. Where the instance gives a cycle images (TEHAS_WORK_IMAGES), the
-# model must also declare image input in models.json and answer a request
-# that carries one. The text names no address: tehas status and the health file
-# carry it, and they are served to whoever can read the dashboard.
+# $mesh_hold. It asks nothing about images: what the model reads is decided per
+# issue, by rule 3b, below. The text names no address: tehas status and the
+# health file carry it, and they are served to whoever can read the dashboard.
 mesh_hold=""
 # A png of one pixel.
 mesh_pixel=iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==
+# models.json: the instance's own statement about the model. TEHAS_MODELS_FILE
+# names it where a host or a test keeps it somewhere else, as libexec/energy
+# already honours it.
+models_json=${TEHAS_MODELS_FILE:-$HOME/.pi/agent/models.json}
 mesh_check() {
   local mesh model=$PI_ENSEMBLE_SUBAGENT_MODEL list
   mesh_hold=""
-  mesh=$(jq -r --arg p "$PI_ENSEMBLE_SUBAGENT_PROVIDER" '.providers[$p].baseUrl // ""' "$HOME/.pi/agent/models.json" 2>/dev/null)
+  mesh=$(jq -r --arg p "$PI_ENSEMBLE_SUBAGENT_PROVIDER" '.providers[$p].baseUrl // ""' "$models_json" 2>/dev/null)
   [ -n "$mesh" ] && [ -n "$model" ] || return 0
   if ! list=$(curl -fsS -m 10 "$mesh/models" 2>/dev/null); then
     mesh_hold="holding: no resources: the model endpoint does not answer"
@@ -225,18 +248,6 @@ mesh_check() {
     mesh_hold="holding: no resources: the model endpoint offers no models"
   elif ! jq -e --arg m "$model" '.data | any(.id == $m)' <<<"$list" >/dev/null 2>&1; then
     mesh_hold="holding: no resources: the model endpoint does not offer $model"
-  elif [ "$TEHAS_WORK_IMAGES" = 1 ]; then
-    # A cycle that is given images needs a model that reads them. Asked with
-    # one pixel, before an issue is spent on finding out.
-    if ! jq -e --arg p "$PI_ENSEMBLE_SUBAGENT_PROVIDER" --arg m "$model" \
-      '.providers[$p].models // [] | any(.id == $m and ((.input // []) | index("image") != null))' \
-      "$HOME/.pi/agent/models.json" >/dev/null 2>&1; then
-      mesh_hold="holding: no resources: $model does not declare image input in models.json, and TEHAS_WORK_IMAGES is 1"
-    elif ! jq -n -c --arg m "$model" --arg px "$mesh_pixel" '{model: $m, max_tokens: 1, messages: [{role: "user", content: [
-        {type: "text", text: "."}, {type: "image_url", image_url: {url: "data:image/png;base64,\($px)"}}]}]}' |
-      curl -fsS -m 30 -H 'Content-Type: application/json' -d @- "$mesh/chat/completions" >/dev/null 2>&1; then
-      mesh_hold="holding: no resources: $model does not answer an image, and TEHAS_WORK_IMAGES is 1"
-    fi
   fi
 }
 # A real poll has logged the hold at rule 3; a dry run says it where it ends.
@@ -244,6 +255,109 @@ mesh_ok() {
   [ -n "$mesh_hold" ] || return 0
   [ "$dry" != 1 ] || log "$mesh_hold"
   return 1
+}
+
+# Rule 3b: whether the cycle's model reads images, and which issues that
+# answer holds back. An issue whose text links no image starts whatever the
+# model reads, so nothing is asked for it: the request with one pixel costs a
+# slot of the model, and a poll that starts no cycle must not pay it. The
+# answer is kept for the poll, yes or no, so the issues that do link an image
+# are decided on one request.
+declared_image() { # models.json lists "image" in the model's input
+  local model=${PI_ENSEMBLE_SUBAGENT_MODEL:-}
+  [ -n "$model" ] || return 1
+  jq -e --arg p "${PI_ENSEMBLE_SUBAGENT_PROVIDER:-}" --arg m "$model" \
+    '.providers[$p].models // [] | any(.id == $m and ((.input // []) | index("image") != null))' \
+    "$models_json" >/dev/null 2>&1
+}
+
+# Whether the cycle's model reads an image, decided once a poll. The reason it
+# does not is left in $images_why by the check that failed, so the log and the
+# manual name the one that applies: a model models.json does not say reads an
+# image, an endpoint models.json does not name, or a request that did not come
+# back. Nothing here guesses the reason from another check.
+images_read=""
+images_why=""
+model_reads_images() {
+  local mesh model=${PI_ENSEMBLE_SUBAGENT_MODEL:-}
+  case "$images_read" in
+    yes) return 0 ;;
+    no) return 1 ;;
+  esac
+  if ! declared_image; then
+    images_read=no
+    images_why="$model does not declare image input in models.json"
+    return 1
+  fi
+  mesh=$(jq -r --arg p "${PI_ENSEMBLE_SUBAGENT_PROVIDER:-}" '.providers[$p].baseUrl // ""' \
+    "$models_json" 2>/dev/null)
+  if [ -z "$mesh" ]; then
+    images_read=no
+    images_why="models.json names no endpoint for $PI_ENSEMBLE_SUBAGENT_PROVIDER, so $model could not be asked to read one"
+    return 1
+  fi
+  # models.json is the instance's claim about the model. The endpoint is asked
+  # with one pixel before an issue is spent on finding out.
+  if ! jq -n -c --arg m "$model" --arg px "$mesh_pixel" '{model: $m, max_tokens: 1, messages: [{role: "user", content: [
+      {type: "text", text: "."}, {type: "image_url", image_url: {url: "data:image/png;base64,\($px)"}}]}]}' |
+    curl -fsS -m 60 -H 'Content-Type: application/json' -d @- "$mesh/chat/completions" >/dev/null 2>&1; then
+    images_read=no
+    images_why="$model did not answer a request with one pixel"
+    return 1
+  fi
+  images_read=yes
+}
+
+# The links of an issue's body and who opened it, kept for the poll with the
+# answer about the number (work_ok), so rule 3b asks GitHub once and says what
+# it found.
+declare -A links_of=()
+declare -A author_of=()
+
+# image_gate <issue>: may this cycle start, as far as images go? Returns 1,
+# with the reason for the log in $image_why, when the issue links an image the
+# model cannot be shown to read. For an issue that starts without images it
+# leaves note_of[<issue>], the sentence for its start comment.
+#
+# An image the cycle would not be given is no reason to wait for a model: tehas
+# work fetches the images of an issue text only from an owner, member or
+# collaborator, so an issue opened by anyone else is given none whatever its
+# text links, and it takes the note path rather than the hold. Holding it would
+# protect against a situation that cannot happen.
+declare -A note_of=()
+image_why=""
+image_held=()
+image_gate() {
+  local n=$1 link hit=0
+  image_why=""
+  note_of[$n]=""
+  [ "$TEHAS_WORK_IMAGES" = 1 ] || return 0
+  # Which links tehas work would fetch as an image: its own test, in
+  # lib/attachments.sh. A named file counts when its name says it is an image;
+  # a link of GitHub's pasted storage counts whatever it ends with, because
+  # only its bytes say what it is. Asked only for an issue a cycle would be
+  # given images for at all: tehas work takes them from an owner, member or
+  # collaborator, so an issue opened by anyone else links none a cycle is given.
+  case "${author_of["$n"]:-}" in
+    OWNER | MEMBER | COLLABORATOR)
+      while IFS= read -r link; do
+        [ -n "$link" ] || continue
+        if tehas_attachment_is_image_link "$link"; then
+          hit=1
+          break
+        fi
+      done <<<"${links_of["$n"]:-}"
+      ;;
+  esac
+  if [ "$hit" = 1 ]; then
+    model_reads_images && return 0
+    image_why="its text links an image and $images_why"
+    image_held+=("$n")
+    return 1
+  fi
+  declared_image || note_of[$n]="
+
+This issue links no image that a cycle is given, so the cycle was given none. The cycle's model \`$PI_ENSEMBLE_SUBAGENT_MODEL\` does not declare image input in \`models.json\`. An issue whose text links an image a cycle is given waits until it does."
 }
 
 # A planning turn runs in a container in the slice. With no usable slice, or
@@ -260,11 +374,14 @@ gib() { printf '%d.%d GiB' $(($1 / 1073741824)) $(($1 % 1073741824 * 10 / 107374
 
 # report_hold: write live/dispatch.json for tehas status and log a hold when
 # its reason is not the one the last poll wrote. The numbers in the text move
-# between polls, so the one word in $why is compared. Needs $why, $hold and
-# the slice's numbers. A file that cannot be written is a warning.
+# between polls, so the one word in $why is compared. Needs $why, $hold, the
+# slice's numbers and $image_held, the issues rule 3b held back this poll. A
+# file that cannot be written is a warning.
 report_hold() {
-  local file=$TEHAS_HOME/live/dispatch.json before
+  local file=$TEHAS_HOME/live/dispatch.json before before_held held
   before=$(jq -r '.why // "" | strings' "$file" 2>/dev/null) || before=""
+  before_held=$(jq -c '(.imageHeld // []) | sort' "$file" 2>/dev/null) || before_held="[]"
+  held=$(printf '%s\n' "${image_held[@]}" | jq -sc 'map(tonumber) | sort') || held="[]"
   if [ -n "$why" ]; then
     [ "$why" = "$before" ] || log "$hold"
   elif [ -n "$before" ]; then
@@ -272,15 +389,27 @@ report_hold() {
   fi
   if jq -n --arg time "$(date -u +%FT%TZ)" --arg why "$why" --arg hold "$hold" --arg reserve "$TEHAS_CYCLE_RESERVE" \
     --argjson count "$count" --argjson room "$room_mem" --argjson committed "$committed" --argjson max "$slice_max" \
-    '{$time, $why, $hold, $count, $room, $committed, $max, $reserve}' >"$file.new" 2>/dev/null; then
+    --argjson held "$held" \
+    '{$time, $why, $hold, $count, $room, $committed, $max, $reserve, imageHeld: $held}' >"$file.new" 2>/dev/null; then
     mv "$file.new" "$file" || log "WARN: could not write $file"
   else
     rm -f "$file.new"
     log "WARN: could not write $file"
   fi
   # tehas status reads the health file, which was written when this poll
-  # began. A hold that begins or ends is shown now, not a poll later.
-  [ "$why" = "$before" ] || "$status_cmd"
+  # began. A hold that begins or ends is shown now, not a poll later, and so
+  # is an issue that begins or stops waiting for a model that reads images.
+  [ "$why" = "$before" ] && [ "$held" = "$before_held" ] || "$status_cmd"
+}
+
+# Rule 3b decides issue by issue, after the hold above was reported. When it
+# held any back, the same file is written again with those numbers, so tehas
+# status and /health carry the wait. A poll that held none needs no second
+# write: the first already cleared it.
+report_image_hold() {
+  [ "$dry" = 1 ] && return 0
+  [ "${#image_held[@]}" = 0 ] && return 0
+  report_hold
 }
 
 # work_ok <issue>: is that number still work the factory takes? It asks GitHub
@@ -294,6 +423,10 @@ report_hold() {
 # is said once. Every call site sits after the checks that hold the issue back
 # for other reasons, so the ask is paid only for an issue this poll would
 # otherwise take.
+#
+# The links of the body and who opened the issue are kept with the answer, for
+# rule 3b: the text this call read is the text the label approved, and the
+# image rule asks for it without a call of its own.
 work_refused=" " answered=" "
 work_ok() {
   case "$answered" in *" $1 "*) return 0 ;; esac
@@ -301,6 +434,10 @@ work_ok() {
   gh_json api "repos/$repo/issues/$1"
   if tehas_work_kind "$json"; then
     answered="$answered$1 "
+    links_of[$1]=$(jq -r "$(tehas_attachment_links)"'(.body // "") | links | .[]' <<<"$json" 2>/dev/null) ||
+      { log "ERROR: GitHub's answer for #$1 could not be read"; exit 1; }
+    author_of[$1]=$(jq -r '.author_association // "" | strings' <<<"$json" 2>/dev/null) ||
+      { log "ERROR: GitHub's answer for #$1 could not be read"; exit 1; }
     return 0
   fi
   case "$tehas_work_why" in
@@ -541,7 +678,7 @@ start_cycles() {
     # A park question of an earlier cycle is used up by this start, whichever
     # way it came about. Its boxes must not answer for the new cycle.
     rm -f "$(park_id "$n")"
-    say "$n" "Tehas cycle started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC (authorized by @${starter[$n]}'s ${how[$n]}). This issue is owned by the cycle until \`tehas:running\` is removed."
+    say "$n" "Tehas cycle started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC (authorized by @${starter[$n]}'s ${how[$n]}). This issue is owned by the cycle until \`tehas:running\` is removed.${note_of[$n]:-}"
     if ! start_cycle "$n"; then
       log "ERROR: the cycle for #$n did not start"
       gh issue edit "$n" --repo "$repo" --remove-label tehas:running --add-label needs-human-attention >/dev/null 2>&1 ||
@@ -645,7 +782,9 @@ done
 # $why is the one word for it: slice, unreadable, resources, count, canary,
 # awaiting, pressure or room, the first that applies. resources is a model
 # endpoint that does not answer or does not offer the model: it holds
-# planning turns and retries as well.
+# planning turns and retries as well. What the model reads of an image is not
+# decided here: rule 3b holds single issues and holds nothing else, and names
+# them in the file instead of in $why.
 #
 # The slice is read here, after the sweep above, which needs no slice. The
 # room is read whenever the slice is usable, also when the slots are full, so
@@ -882,10 +1021,14 @@ for n in $asking; do
         continue
       fi
       mesh_ok || exit 0
+      image_gate "$n" || { log "skip #$n: $image_why"; continue; }
       if [ "$dry" = 1 ]; then
         log "would run a cycle for #$n (retry ticked by $by)"
         exit 0
       fi
+      # Any retry this poll held back for images is said before the poll ends
+      # with this start.
+      report_image_hold
       # Asked before the tick is used up: a tick must not be spent on a start
       # that cannot happen.
       units_ok "$n" || exit 1
@@ -1055,6 +1198,9 @@ for n in $candidates; do
   # Asked after the label approves the issue: an issue no account is allowed
   # to start costs no call, and the label is not changed until start_cycles.
   work_ok "$n" || continue
+  # Rule 3b: an issue whose text needs a model that reads images waits on its
+  # own, with the rest of the queue behind it.
+  image_gate "$n" || { log "skip #$n: $image_why"; continue; }
   picked+=("$n")
   starter[$n]=$who
   verb[$n]=labelled
@@ -1066,6 +1212,8 @@ for n in $candidates; do
     [[ $have == *" $l "* ]] && drop[$n]+=" --remove-label $l"
   done
 done
+
+report_image_hold
 
 if [ "$dry" = 1 ]; then
   log "$count cycles running, room for $want more"

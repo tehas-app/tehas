@@ -28,6 +28,20 @@ https://github.com/user-attachments/files/21/b.png
 https://github.com/acme/widget/assets/42/cc-dd
 https://user-images.githubusercontent.com/9/shot.png"
 
+t_case "a link cut off before its name, and one with a query, are still links"
+text='A cut-off link: https://github.com/user-attachments/files/12345678 and an avatar: https://user-images.githubusercontent.com/u/12345?s=96'
+t_run "$lib; jq -rn --arg t '$text' \"\$(tehas_attachment_links) \"'\$t | links[]'"
+t_eq "$t_out" "https://github.com/user-attachments/files/12345678
+https://user-images.githubusercontent.com/u/12345?s=96"
+
+t_case "the shape of a link tehas work fetches as an image: a named image, or GitHub's pasted storage"
+t_run "$lib; for l in https://github.com/user-attachments/files/21/b.png https://github.com/acme/widget/files/22/shot.JPEG \
+  https://user-images.githubusercontent.com/9/shot.png https://github.com/user-attachments/assets/1111-aa \
+  https://github.com/acme/widget/assets/42/name.pdf https://github.com/user-attachments/files/23/run.txt \
+  https://github.com/user-attachments/files/24/drawing.svg https://github.com/user-attachments/files/25 \
+  https://user-images.githubusercontent.com/u/9?s=96; do tehas_attachment_is_image_link \$l && echo y || echo n; done | tr '\n' ' '"
+t_eq "$t_out" "y y y y y n n n n "
+
 t_case "the kind of a file follows its extension, and an unknown one fails"
 t_run "$lib; for e in png jpg jpeg gif webp svg avif mp4 webm mov html htm css js mjs json txt; do tehas_attachment_kind \$e; done | tr '\n' ' '"
 t_eq "$t_out" "image image image image image image image video video video app app part part part part part "

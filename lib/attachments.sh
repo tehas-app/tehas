@@ -8,6 +8,11 @@
 #   tehas_attachment_links            print a jq definition, `links`: every
 #                                     attachment link in a string, in the
 #                                     order written
+#   tehas_attachment_is_image_link <link>
+#                                     would tehas work try this link as an
+#                                     image? Shape only: the name of a named
+#                                     file, or GitHub's storage for a pasted
+#                                     one, which has no name
 #   tehas_attachment_kind <extension> image, video, app or part; fails for a
 #                                     type that is not known
 #   tehas_attachment_ext <content type>
@@ -25,6 +30,23 @@
 tehas_attachment_links() {
   # shellcheck disable=SC2016  # a jq program
   printf '%s\n' 'def links: [scan("https://(?:github\\.com/user-attachments/(?:assets|files)/|github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(?:assets|files)/[0-9]+/|user-images\\.githubusercontent\\.com/)[A-Za-z0-9._~%/?&=+-]+")];'
+}
+
+# Whether a link has the shape of a file tehas work fetches as an image. The
+# bytes are not read here, so a pasted link counts whenever it is GitHub's
+# assets storage: only its bytes say what it is. tehas work and the
+# dispatcher's rule over images ask the same question, so it is asked here.
+tehas_attachment_is_image_link() { # <link>
+  local name ext
+  case "$1" in
+    https://github.com/user-attachments/assets/* | https://github.com/*/assets/*) return 0 ;;
+  esac
+  name=${1##*/}
+  name=${name%%\?*}
+  ext=""
+  case "$name" in *.*) ext=${name##*.} ;; esac
+  case "${ext,,}" in png | jpg | jpeg | webp | gif) return 0 ;; esac
+  return 1
 }
 
 tehas_attachment_kind() {
@@ -98,7 +120,7 @@ tehas_image_type() {
 
 # shellcheck disable=SC2034  # the caller reads what this sets
 tehas_issue_images() { # <issue> <dir>
-  local issue=$1 images=$2 data who ref name ext size rc left used=0 count=0
+  local issue=$1 images=$2 data who ref ext size rc left used=0 count=0
   local limit=$((10 * 1024 * 1024)) max=8
   local other="Not a png, jpg, webp or gif image." over="Over the 10 MB limit of an issue."
   image_why="the directory for the issue's images could not be made"
@@ -119,16 +141,7 @@ tehas_issue_images() { # <issue> <dir>
     esac
     # A file attached under its name is not fetched when the name says it is
     # no image. A pasted one has no name: its bytes say.
-    case "$ref" in
-      https://github.com/user-attachments/assets/* | https://github.com/*/assets/*) ;;
-      *)
-        name=${ref##*/}
-        name=${name%%\?*}
-        ext=""
-        case "$name" in *.*) ext=${name##*.} ;; esac
-        case "${ext,,}" in png | jpg | jpeg | webp | gif) ;; *) leave "$ref" "$other"; continue ;; esac
-        ;;
-    esac
+    tehas_attachment_is_image_link "$ref" || { leave "$ref" "$other"; continue; }
     if [ "$count" -ge "$max" ]; then leave "$ref" "More than $max images."; continue; fi
     left=$((limit - used))
     if [ "$left" -le 0 ]; then leave "$ref" "$over"; continue; fi

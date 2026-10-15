@@ -2583,6 +2583,35 @@ declares() { # <input list as JSON>
   jq -n --argjson input "$1" '{providers: {"test-provider": {baseUrl: "http://mesh.test/v1",
     models: [{id: "other", input: ["text", "image"]}, {id: "test-model", input: $input}]}}}' >"$T/home/.pi/agent/models.json"
 }
+# The same model, with no address for its provider: nothing can be asked of it.
+no_endpoint() {
+  mkdir -p "$T/home/.pi/agent"
+  jq -n '{providers: {"test-provider": {models: [{id: "test-model", input: ["text", "image"]}]}}}' >"$T/home/.pi/agent/models.json"
+}
+# The text of an issue, as GitHub answers for the number. Its links and who
+# opened it are what the image rule reads, from the call that asks what the
+# number is: tehas work gives a cycle images only from an owner, member or
+# collaborator. An empty third argument leaves the field out, as an answer that
+# does not name one.
+body_of() { # <issue> <body> [<author_association>]
+  jq -n --argjson n "$1" --arg body "$2" --arg who "${3-OWNER}" \
+    '{number: $n, state: "open", body: $body} + (if $who == "" then {} else {author_association: $who} end)' \
+    >"$fx/work-$1.json"
+}
+shot='The panel: https://github.com/user-attachments/files/12345678/panel.png'
+pasted='A pasted picture: https://github.com/user-attachments/assets/11111111-2222-3333-4444-555555555555'
+not_image='A log: https://github.com/user-attachments/files/12345678/run.txt and a film: https://github.com/user-attachments/files/12345679/talk.mp4'
+jpeg='A photo: https://github.com/acme/widget/files/999777/shot.jpeg'
+pasted_pdf='A drawing: https://github.com/acme/widget/assets/999777/name.pdf'
+no_shape='A cut-off link: https://github.com/user-attachments/files/12345678 and an avatar: https://user-images.githubusercontent.com/u/12345?s=96'
+# An instance that gives a cycle the images its issue links, on a model that
+# declares an input and answers, or does not answer, a request with an image.
+images_on() { # <input list as JSON> [<answers an image: yes/no>]
+  t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_WORK_IMAGES=1
+  mesh '{"data":[{"id":"test-model"}]}'
+  declares "$1"
+  if [ "${2:-yes}" = yes ]; then : >"$fx/reads-images"; else rm -f "$fx/reads-images"; fi
+}
 
 t_case "without images for a cycle the model is not asked to read one"
 reset
@@ -2591,45 +2620,223 @@ t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 t_lacks "$(t_calls curl)" "chat/completions"
 
-t_case "with images for a cycle, a model that declares image input and answers one holds nothing back"
+t_case "an issue that links an image starts when the model declares image input and answers one"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
-mesh '{"data":[{"id":"test-model"}]}'
-declares '["text","image"]'
-: >"$fx/reads-images"
+images_on '["text","image"]'
+body_of 7 "$shot"
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 t_eq "$(jq -r .why "$dispatch_json")" ""
-t_contains "$(t_calls curl)" "-m 30 -H Content-Type: application/json -d @- http://mesh.test/v1/chat/completions"
+t_contains "$(t_calls curl)" "-m 60 -H Content-Type: application/json -d @- http://mesh.test/v1/chat/completions"
 t_eq "$(jq -c '[.model, .max_tokens, (.messages[0].content | map(.type))]' "$T/calls/curl-body")" '["test-model",1,["text","image_url"]]'
 t_eq "$(jq -r '.messages[0].content[1].image_url.url' "$T/calls/curl-body" | cut -d, -f2 | base64 -d | head -c 8 | od -An -tx1 | tr -d ' \n')" "89504e470d0a1a0a"
 
-t_case "no resources: the model does not declare image input, and it is not asked"
+t_case "no resources: an issue that links an image waits when the model does not declare image input, and it is not asked"
 for input in '["text"]' 'null'; do
   reset
-  t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
-  mesh '{"data":[{"id":"test-model"}]}'
-  declares "$input"
-  : >"$fx/reads-images"
+  images_on "$input"
+  body_of 7 "$shot"
   t_run "$dispatch"
+  t_eq "$t_rc" 0
   t_eq "$(t_calls fake-start)" ""
   t_lacks "$(t_calls gh)" "issue edit"
-  t_eq "$(jq -c '[.why, .hold]' "$dispatch_json")" '["resources","holding: no resources: test-model does not declare image input in models.json, and TEHAS_WORK_IMAGES is 1"]'
+  t_eq "$(jq -r .why "$dispatch_json")" ""
+  t_eq "$(jq -c .imageHeld "$dispatch_json")" '[7]'
+  t_eq "$(grep -c 'skip #7: its text links an image and test-model does not declare image input in models.json' <<<"$t_out")" 1
   t_lacks "$(t_calls curl)" "chat/completions"
 done
 
-t_case "no resources: the model declares image input and does not answer an image"
+t_case "no resources: an issue that links an image waits when the model declares it and does not answer one"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
-mesh '{"data":[{"id":"test-model"}]}'
-declares '["text","image"]'
-rm -f "$fx/reads-images"
+images_on '["text","image"]' no
+body_of 7 "$shot"
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit"
-t_eq "$(jq -c '[.why, .hold]' "$dispatch_json")" '["resources","holding: no resources: test-model does not answer an image, and TEHAS_WORK_IMAGES is 1"]'
+t_contains "$t_out" "skip #7: its text links an image and test-model did not answer a request with one pixel"
+t_eq "$(jq -c .imageHeld "$dispatch_json")" '[7]'
 t_lacks "$(cat "$dispatch_json")" "mesh.test"
 rm -f "$fx/reads-images"
+
+t_case "an issue that links no image starts while the model reads none, and its comment says so"
+reset
+images_on '["text"]'
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(jq -r .why "$dispatch_json")" ""
+t_eq "$(jq -c .imageHeld "$dispatch_json")" '[]'
+t_lacks "$(t_calls curl)" "chat/completions"
+t_contains "$(t_calls gh)" "This issue links no image that a cycle is given, so the cycle was given none. The cycle's model \`test-model\` does not declare image input in \`models.json\`. An issue whose text links an image a cycle is given waits until it does."
+
+# The wait is reported: the issues one poll held back go into the file tehas
+# status and /health read, and the health file is refreshed for them. Nothing
+# else is held, so $why stays empty.
+t_case "issues held for images are written to live/dispatch.json, and the status is refreshed for them"
+reset
+images_on '["text"]'
+body_of 7 "$shot"
+t_run "$dispatch"
+t_eq "$(jq -c '[.why, .imageHeld]' "$dispatch_json")" '["",[7]]'
+t_eq "$(t_calls fake-status | wc -l)" 2
+
+t_case "the wait is cleared when the model reads images: the file says none, and the status is refreshed"
+reset
+images_on '["text"]'
+body_of 7 "$shot"
+t_run "$dispatch"
+t_eq "$(jq -c .imageHeld "$dispatch_json")" '[7]'
+declares '["text","image"]'
+: >"$fx/reads-images"
+rm -f "$T/calls/fake-status"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(jq -c '[.why, .imageHeld]' "$dispatch_json")" '["",[]]'
+t_eq "$(t_calls fake-status | wc -l)" 3
+rm -f "$fx/reads-images"
+t_case "only the issue that links an image is held back: the rest of the queue starts"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=2 TEHAS_WORK_IMAGES=1
+mesh '{"data":[{"id":"test-model"}]}'
+declares '["text"]'
+ready 7 8
+body_of 7 "$shot"
+body_of 8 "Nothing to see here."
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}}]' >"$fx/events-8.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "8 "
+t_contains "$t_out" "skip #7: its text links an image"
+t_lacks "$(t_calls gh)" "issue edit 7"
+t_eq "$(jq -r .why "$dispatch_json")" ""
+t_eq "$(jq -c .imageHeld "$dispatch_json")" '[7]'
+
+t_case "the request with one pixel goes once a poll, for two issues that link images"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=2 TEHAS_WORK_IMAGES=1
+mesh '{"data":[{"id":"test-model"}]}'
+declares '["text","image"]'
+: >"$fx/reads-images"
+ready 7 8
+body_of 7 "$shot"
+body_of 8 "$pasted"
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}}]' >"$fx/events-8.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 "
+t_eq "$(grep -c 'chat/completions' <<<"$(t_calls curl)")" 1
+rm -f "$fx/reads-images"
+
+t_case "nothing is asked of the model when no cycle could start"
+reset
+images_on '["text","image"]' no
+body_of 7 "$shot"
+hold 9
+t_run "$dispatch"
+t_eq "$(jq -r .why "$dispatch_json")" count
+t_lacks "$(t_calls curl)" "chat/completions"
+release
+
+t_case "a retry on an issue that links an image waits, and its tick stays"
+reset
+parked
+images_on '["text"]'
+comments 7 "$(park_body x ' ')" alice
+body_of 7 "$shot"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "api -X PATCH"
+t_contains "$t_out" "skip #7: its text links an image"
+t_eq "$(cat "$park_id")" 4001
+t_eq "$(jq -c .imageHeld "$dispatch_json")" '[7]'
+
+# tehas work fetches the images of an issue text only from an owner, member or
+# collaborator (lib/attachments.sh). An issue opened by anyone else is given no
+# images whatever its text links, so the image rule holds nothing back for it
+# and asks nothing of the model.
+for assoc in CONTRIBUTOR FIRST_TIME_CONTRIBUTOR NONE ''; do
+  t_case "an issue whose author is ${assoc:-not named} is given no images: it starts, and the model is not asked"
+  reset
+  images_on '["text","image"]' no
+  body_of 7 "$jpeg" "$assoc"
+  t_run "$dispatch"
+  t_eq "$t_rc" 0
+  t_eq "$(t_calls fake-start)" "7"
+  t_lacks "$t_out" "skip #7"
+  t_lacks "$(t_calls curl)" "chat/completions"
+  t_eq "$(jq -c .imageHeld "$dispatch_json")" '[]'
+done
+
+t_case "an issue whose author is a contributor says in its comment that the cycle was given no images"
+reset
+images_on '["text"]'
+body_of 7 "$shot" CONTRIBUTOR
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_contains "$(t_calls gh)" "This issue links no image that a cycle is given, so the cycle was given none."
+t_eq "$(jq -c .imageHeld "$dispatch_json")" '[]'
+
+t_case "a planning session is held by the model check alone, not by what its issue links"
+reset
+to_plan
+images_on '["text"]'
+echo '{"title":"Faster search","body":"The panel: https://github.com/user-attachments/files/12345678/panel.png"}' >"$fx/issue-7.json"
+t_run "$dispatch"
+t_contains "$(t_calls fake-plan)" "7"
+t_lacks "$(t_calls curl)" "chat/completions"
+t_lacks "$t_out" "skip #7"
+
+t_case "an issue that links a file that is no image starts, and the model is not asked"
+reset
+images_on '["text"]'
+body_of 7 "$not_image"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$(t_calls curl)" "chat/completions"
+
+t_case "an issue that links a pasted file with no name counts as an image"
+reset
+images_on '["text"]'
+body_of 7 "$pasted"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "skip #7: its text links an image and test-model does not declare image input in models.json"
+
+t_case "a named jpeg counts as an image, as it does for tehas work"
+reset
+images_on '["text"]'
+body_of 7 "$jpeg"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "skip #7: its text links an image and test-model does not declare image input in models.json"
+
+t_case "a pasted link under a name that is no image still counts: only its bytes say"
+reset
+images_on '["text"]'
+body_of 7 "$pasted_pdf"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "skip #7: its text links an image and test-model does not declare image input in models.json"
+
+t_case "links tehas work would not fetch are no image, and the model is not asked"
+reset
+images_on '["text"]'
+body_of 7 "$no_shape"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$t_out" "skip #7"
+t_lacks "$(t_calls curl)" "chat/completions"
+
+t_case "an issue that links an image waits when models.json names no endpoint, and the reason is not an answer"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_WORK_IMAGES=1
+no_endpoint
+body_of 7 "$shot"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_contains "$t_out" "skip #7: its text links an image and models.json names no endpoint for test-provider, so test-model could not be asked to read one"
+t_lacks "$t_out" "did not answer a request with one pixel"
+t_lacks "$(t_calls curl)" "chat/completions"
 
 t_case "no resources is logged once, with nothing in line as well, and released when the endpoint is back"
 reset
@@ -2742,7 +2949,7 @@ bare_tree() {
   rm -rf "$tree"
   mkdir -p "$tree/libexec" "$tree/lib"
   cp "$dispatch" "$tree/libexec/dispatch"
-  cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/cycles.sh" "$T_ROOT/lib/labels.sh" "$T_ROOT/lib/questions.sh" "$T_ROOT/lib/planning.sh" "$T_ROOT/lib/slice.sh" "$tree/lib/"
+  cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/cycles.sh" "$T_ROOT/lib/labels.sh" "$T_ROOT/lib/attachments.sh" "$T_ROOT/lib/questions.sh" "$T_ROOT/lib/planning.sh" "$T_ROOT/lib/slice.sh" "$tree/lib/"
   for name in status index plan; do cp "$T/bin/fake-$name" "$tree/libexec/$name"; done
   for name in tehas tehasbot tehas-work tehas-status tehas-index tehas-plan; do t_stub "$name"; done
 }

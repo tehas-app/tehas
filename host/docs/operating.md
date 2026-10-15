@@ -87,6 +87,14 @@ are shown them beside the text. The plan puts the placement into words, and
 the later steps read the plan. Images in comments are not read, and no cycle
 has been seen to use a picture yet, so words in the text stay the safe way.
 
+While the cycle's model cannot be shown to read an image, only an issue whose
+text links one waits for a cycle, and only when a cycle would be given its
+images at all: tehas work fetches them only from an issue opened by an owner,
+member or collaborator. The issues that link none start, and their start
+comment says the cycle was given no images. `tehas status` and `/health` say
+how many wait, as `warn: 2 issues wait for a model that reads images (#7,
+#12)`, while the dispatcher is holding them back.
+
 ## 1. Write an issue tehas can build
 
 The cycle reads the issue body and nothing else. Give it:
@@ -394,7 +402,12 @@ reaches them. Remove the label to resume.
   model endpoint does not answer, or does not offer the configured model. The
   dispatcher asks it at every poll. `tehas status` says `warn: No resources`
   and the dashboard says `no resources` until it is back. With
-  `TEHAS_WORK_IMAGES=1` a model that does not read an image counts the same.
+  `TEHAS_WORK_IMAGES=1` whether the model reads an image is a rule of its own:
+  it holds the issues whose text links an image, one at a time, and asks the
+  endpoint with one pixel only when such an issue could start. The other
+  issues start. While any are held, `tehas status` and `/health` say `warn: 2
+  issues wait for a model that reads images (#7, #12)`; the dashboard does not
+  show it.
 - One cycle at a time on a pi-rukas that is new on the host: one that no
   cycle here has ended as `merged`, or as a handoff with a pull request, on.
   While a cycle runs on it, `tehas status` says `holding: pi-rukas <commit> is

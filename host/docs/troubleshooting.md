@@ -95,14 +95,27 @@ Run `tehas dispatch --dry-run` and read what it prints.
   starts, no cycle, no planning turn and no retry. The issues stay queued and
   are taken as soon as the endpoint answers. See "The model endpoint does not
   answer" below.
-- `holding: no resources: <model> does not declare image input in models.json,
-  and TEHAS_WORK_IMAGES is 1`: the instance gives a cycle images and its
-  `models.json` does not list `"image"` in the model's `input`. Add it, or set
-  `TEHAS_WORK_IMAGES=0`, and run `install.sh`.
-- `holding: no resources: <model> does not answer an image, and
-  TEHAS_WORK_IMAGES is 1`: the model endpoint refused a request with a
-  one-pixel image, or took more than 30 seconds. The model runs without its
-  vision part, or every slot is busy.
+- `skip #N: its text links an image and <model> does not declare image input
+  in models.json`: the instance gives a cycle images, this issue's text links
+  one, and `models.json` does not list `"image"` in the model's `input`. Add
+  it, or set `TEHAS_WORK_IMAGES=0`, and run `install.sh`. The issue stays
+  queued; the issues that link no image start.
+- `skip #N: its text links an image and models.json names no endpoint for
+  <provider>, so <model> could not be asked to read one`: the instance gives a
+  cycle images, this issue's text links one, and `models.json` has no
+  `baseUrl` for the cycle's provider, so nothing was asked of any endpoint.
+  Set it, or set `TEHAS_WORK_IMAGES=0`, and run `install.sh`. The issue stays
+  queued; the issues that link no image start.
+- `skip #N: its text links an image and <model> did not answer a request with
+  one pixel`: the model endpoint refused a request with a one-pixel image, or
+  took more than 60 seconds. The model runs without its vision part, or every
+  slot is busy. The issue stays queued; the issues that link no image start.
+- `warn: N issues wait for a model that reads images (#N, ...)`: what `tehas
+  status` and `/health` say while the issues above are held back, so the wait
+  is visible without reading the log. It clears when the model reads images or
+  the issues no longer link one. An issue opened by an account that is no
+  owner, member or collaborator of the repository is given no images at all, so
+  it is never held this way.
 - `nothing to do`: the issue is closed, or does not carry `tehas:ready`.
 - `wait #N: its cycle is still running`: `tehas:ready` was applied while the
   issue's cycle runs. A fresh cycle starts when that one has ended.
