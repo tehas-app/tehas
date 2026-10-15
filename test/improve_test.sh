@@ -356,6 +356,7 @@ improve="$T_ROOT/libexec/improve"
 t_stub docker '
 if [ "$1" = info ]; then cat "$T/docker.info"; exit; fi
 printf "%s\n" "$@" >"$T/calls/docker-args"
+if [ "$1" = run ] && { true >&9; } 2>/dev/null; then : >"$T/calls/docker-lock"; fi
 out=""
 for a in "$@"; do case "$a" in *:/improve/out) out=${a%:/improve/out} ;; esac; done
 cp "${out%/out}/in/issues.json" "$T/calls/issues.json" 2>/dev/null
@@ -1425,6 +1426,12 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "cycles=0"
 t_eq "$(find "$home/logs" -type f -printf '%f\n' | sort | tr '\n' ' ')" "dispatch.log improve-analyst-261004-000000.log improve.log work-4-261004-000000.jsonl "
 t_eq "$(find "$base" -mindepth 1 ! -name window | wc -l)" 0
+
+t_case "the analyst's container is not given the run's lock"
+ready
+t_run "$improve"
+t_eq "$(find "$T/calls/docker-args" | wc -l)" 1
+t_eq "$(find "$T/calls/docker-lock" 2>/dev/null | wc -l)" 0
 
 t_case "a second run while one is going does nothing"
 ready
