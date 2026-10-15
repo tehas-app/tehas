@@ -96,10 +96,14 @@ Run `tehas dispatch --dry-run` and read what it prints.
 - `ignore #N: tehas:urgent was applied by ...`: the label came from an account
   that is not allowed, so it moves nothing: the issue keeps its place by
   number. It is said at every poll until someone removes the label.
-- `holding: pi-rukas <commit> is new on this host, ...`: no cycle has ended
-  well on the installed pi-rukas yet, so one cycle runs on it at a time. The
-  first that ends as merged, or with a pull request, lifts the hold. See
+- `holding: <n> of <free> free slots start: ...`: some cycles started, fewer
+  than there are free slots and issues waiting. The rest of the line is the
+  one limit that cut it: issues awaiting merge (`TEHAS_MAX_AWAITING`), or the
+  slice's room. It is said on every such poll. See
   [Limits that hold work back](/operating#limits-that-hold-work-back).
+- `stop #N: its issue is closed` or `stop #N: its pull request <url> is
+  merged`: the cycle's work was done, so the poll stopped it and gave its slot
+  to the next issue. Nothing more is needed.
 - `holding: no resources: the model endpoint ...`: the model endpoint does not
   answer, offers no models, or does not offer the configured model. Nothing
   starts, no cycle, no planning turn and no retry. The issues stay queued and

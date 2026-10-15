@@ -149,9 +149,9 @@ and the usage on standard error, before the instance settings are read. A mistyp
 
 Order of rules: pause label on the control issue, a usable `tehas.slice`,
 a model endpoint that answers and offers the model, the free slots
-(`TEHAS_TICKET_CONCURRENCY` less the running cycles), one cycle at a time on a
-pi-rukas commit that has not yet ended a cycle well on this host, the cap
-on issues awaiting merge or being worked on, the room, the containers'
+(`TEHAS_TICKET_CONCURRENCY` less the running cycles, after it has stopped
+the cycles whose issue is closed or whose pull request is merged or closed),
+the cap on issues awaiting merge or being worked on, the room, the containers'
 ceilings and the memory pressure in the slice, who applied `tehas:urgent`,
 then who applied `tehas:ready`, then
 urgent first and lowest number. A `tehas:urgent` counts only when an allowed
@@ -1104,12 +1104,14 @@ previews are not being built." when `freeBytes` is `null`.
 `checks.slice` is `live/dispatch.json` as the dispatcher's last poll wrote
 it: `time`, `why`, `hold`, `count`, `room`, `committed`, `max` and `reserve`.
 `why` is empty when cycles may start, else one word: `slice`, `unreadable`,
-`resources`, `count`, `canary`, `awaiting`, `pressure`, `room` or `full`, and
+`resources`, `count`, `awaiting`, `pressure`, `room` or `full`, and
 `hold` is the line the dispatcher logged; with `unreadable` it names the file
 and what was missing in it. `resources` is a model endpoint that does not
 answer or does not offer the configured model, or, with `TEHAS_WORK_IMAGES=1`,
-a model or sandbox image that cannot take the images. `canary` is a new
-pi-rukas commit that runs one cycle at a time. `full` is a slice that holds as
+a model or sandbox image that cannot take the images. `awaiting` and `room`
+are also given, with cycles starting, when the awaiting-merge limit or the
+slice's room let fewer start than there are free slots and issues waiting;
+`hold` then starts `holding: <n> of <free> free slots start:`. `full` is a slice that holds as
 many containers as their ceilings fit. `room` is how many more reserves fit in the slice;
 `committed` and `max` are bytes. With `slice` or `unreadable` the status is
 `warn` and `output` is the hold. With `resources` the status is `warn` and

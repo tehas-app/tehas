@@ -64,6 +64,8 @@ t_stub docker '[ -e "$T/fx/image.label" ] || exit 1; cat "$T/fx/image.label"'
 # What the runner does is a file a case writes; without one it ends at once.
 t_stub fake-work '[ ! -e "$T/fx/work.sh" ] || . "$T/fx/work.sh"'
 t_stub fake-status
+# The poll a cycle starts when it ends.
+t_stub systemctl
 
 reset() {
   rm -rf "$T"/calls/* "${fx:?}"/* "$state" "$workdir" "$T/home/tehas/work" "$T/home/tehas/logs" "$T/home/tehas/tmp" \
@@ -859,7 +861,7 @@ t_run "$cycle 7"
 t_contains "$t_out" "status=running"
 t_lacks "$(t_calls gh)" "None of its logs changed"
 
-t_case "the pi-rukas a cycle starts with is on record beside its lock, and a merge proves it"
+t_case "the pi-rukas a cycle starts with is on record beside its lock, and nothing writes state/rukas-proven"
 reset
 rukas=$(printf 'c%.0s' {1..40})
 echo "$rukas" >"$fx/image.label"
@@ -867,47 +869,65 @@ ended merged commit-pr feature/x
 merged_pr
 t_run "$cycle 7"
 t_eq "$(cat "$state/7.rukas")" "$rukas"
-t_eq "$(cat "$T/home/tehas/state/rukas-proven")" "$rukas"
-
-t_case "a handoff with a pull request proves the pi-rukas it ran with"
-reset
-echo "$rukas" >"$fx/image.label"
 ended handoff commit-pr feature/x
-echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+echo OPEN >"$fx/pr-state"
 t_run "$cycle 7"
-t_eq "$(cat "$T/home/tehas/state/rukas-proven")" "$rukas"
+t_contains "$(t_calls gh)" "Pull request waiting for a human"
+t_eq "$(find "$T/home/tehas/state/rukas-proven" 2>/dev/null | wc -l)" 0
 
-t_case "a second proven commit is added to the first, and one proven twice is listed once"
+t_case "the end of a cycle starts one poll of the dispatcher"
 reset
-echo "$rukas" >"$fx/image.label"
-mkdir -p "$T/home/tehas/state"
-echo before >"$T/home/tehas/state/rukas-proven"
-image=$(printf 'd%.0s' {1..40})
-echo "$image" >"$fx/image.label"
-ended merged commit-pr feature/x
+t_run "$cycle 7"
+t_eq "$(t_calls systemctl)" "--user start --no-block tehas-dispatch.service"
+
+t_case "a poll that cannot be started is a warning, and the cycle is still reported"
+reset
+t_stub systemctl 'exit 1'
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN: could not start a poll of the dispatcher"
+t_contains "$t_out" "done #7"
+t_stub systemctl
+
+t_case "a handoff whose pull request merged before the cycle ended is reported with it"
+reset
+ended handoff handoff feature/x
 merged_pr
 t_run "$cycle 7"
-t_eq "$(cat "$state/7.rukas")" "$image"
-t_eq "$(cat "$T/home/tehas/state/rukas-proven" | tr '\n' ' ')" "before $image "
-ended merged commit-pr feature/x
-merged_pr
-t_run "$cycle 7"
-t_eq "$(cat "$T/home/tehas/state/rukas-proven" | tr '\n' ' ')" "before $image "
-rm -f "$T/home/tehas/state/rukas-proven"
+t_eq "$(t_calls gh | grep '^issue edit')" "issue edit 7 --repo acme/widget --remove-label tehas:running"
+t_contains "$(t_calls gh)" "https://github.com/acme/widget/pull/9"
+t_contains "$t_out" "status=merged"
+t_contains "$t_out" "pr=https://github.com/acme/widget/pull/9"
 
-t_case "a cycle that parks proves nothing, and one proven before stays"
+t_case "a cycle the dispatcher stopped because its issue was closed only loses its running label"
 reset
-echo "$rukas" >"$fx/image.label"
-mkdir -p "$T/home/tehas/state"
-echo before >"$T/home/tehas/state/rukas-proven"
-ended aborted develop
+ended running adversarial feature/x
+echo 'mkdir -p "$TEHAS_HOME/state/cycles"; echo closed >"$TEHAS_HOME/state/cycles/7.done"; exit 2' >"$fx/work.sh"
 t_run "$cycle 7"
-t_eq "$(cat "$T/home/tehas/state/rukas-proven")" "before"
-ended handoff commit-pr
-rm -f "$fx/pr.txt"
+t_eq "$t_rc" 0
+t_eq "$(t_calls gh | grep '^issue edit')" "issue edit 7 --repo acme/widget --remove-label tehas:running"
+t_contains "$(t_calls gh)" "Tehas stopped the cycle: this issue was closed while it ran"
+t_lacks "$(t_calls gh)" "needs-human-attention"
+t_lacks "$(t_calls gh)" "issues/7/comments"
+t_contains "$t_out" "status=closed"
+t_eq "$(find "$state/7.done" 2>/dev/null | wc -l)" 0
+
+t_case "a reason the dispatcher left for an earlier cycle is not this cycle's"
+reset
+mkdir -p "$state"
+echo closed >"$state/7.done"
 t_run "$cycle 7"
-t_eq "$(cat "$T/home/tehas/state/rukas-proven")" "before"
-rm -f "$T/home/tehas/state/rukas-proven"
+t_contains "$(t_calls gh)" "--add-label needs-human-attention"
+t_lacks "$(t_calls gh)" "this issue was closed"
+
+t_case "a merged pull request wins over a closed issue"
+reset
+ended running adversarial feature/x
+merged_pr
+echo 'mkdir -p "$TEHAS_HOME/state/cycles"; echo closed >"$TEHAS_HOME/state/cycles/7.done"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "was merged while the cycle ran"
+t_contains "$t_out" "status=merged"
 
 t_case "a cycle that left a pull request says the count too"
 reset
