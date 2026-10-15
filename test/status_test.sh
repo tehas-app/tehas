@@ -170,6 +170,34 @@ t_eq "$t_rc" 0
 t_eq "$(cksum <"$live/status.json")" "$before"
 t_eq "$(jq -r .status "$live/health.json")" pass
 
+t_case "with GitHub down for three hours, health warns and the queue line says how old it is"
+reset
+t_run "$status"
+jq --arg t "$(date -u -d '-3 hours -5 minutes' +%FT%TZ)" '.generatedAt = $t' "$live/status.json" >"$T/old.json"
+mv "$T/old.json" "$live/status.json"
+: >"$T/gh-down"
+t_run "$status && $summary"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .status "$live/health.json")" warn
+t_eq "$(jq -r .output "$live/health.json")" "The queue snapshot is 3 h old: GitHub did not answer the last polls."
+t_contains "$t_out" "factory   warn: The queue snapshot is 3 h old: GitHub did not answer the last polls."
+t_contains "$t_out" "queue     2 in line, 0 building, 1 in review, 1 stopped (3 h ago)"
+
+t_case "a snapshot of nine minutes passes, and a failed cycle is still said first"
+reset
+t_run "$status"
+jq --arg t "$(date -u -d '-9 minutes' +%FT%TZ)" '.generatedAt = $t' "$live/status.json" >"$T/old.json"
+mv "$T/old.json" "$live/status.json"
+t_run "$health"
+t_eq "$(jq -r .status "$live/health.json")" pass
+jq --arg t "$(date -u -d '-11 minutes' +%FT%TZ)" '.generatedAt = $t' "$live/status.json" >"$T/old.json"
+mv "$T/old.json" "$live/status.json"
+t_run "$health"
+t_eq "$(jq -r .output "$live/health.json")" "The queue snapshot is 11 min old: GitHub did not answer the last polls."
+cycle false aborted develop
+t_run "$health"
+t_eq "$(jq -r .status "$live/health.json")" fail
+
 t_case "status with invalid settings writes nothing, exit 78"
 reset
 t_instance TEHAS_CONTROL_ISSUE=1
@@ -272,6 +300,158 @@ t_run "$status; $summary"
 t_eq "$t_rc" 1
 t_contains "$t_out" "The last cycle failed: #9 ended as lost."
 t_eq "$(jq -c '[(.cycles | length), .last.status]' "$live/running.json")" '[0,"lost"]'
+
+t_case "a cycle that stopped writing while its lock is held stays running; a free lock is lost"
+reset
+mkdir -p "$live/cycles" "$T/home/tehas/state/cycles"
+printf '{"issue":9,"running":true,"status":"running","step":"develop","startedAt":%s,"updatedAt":%s}\n' \
+  "$(($(date +%s) - 900))" "$(($(date +%s) - 300))" >"$live/cycles/9.json"
+exec 8>"$T/home/tehas/state/cycles/9.lock"
+flock -n 8
+t_run "$status; $summary"
+t_eq "$t_rc" 0
+t_contains "$t_out" "factory   pass: Working on #9."
+t_eq "$(jq -r .status "$live/cycles/9.json")" running
+exec 8>&-
+t_run "$status; $summary"
+t_eq "$t_rc" 1
+t_contains "$t_out" "The last cycle failed: #9 ended as lost."
+
+t_case "an abort a merge overtook ten seconds later passes, and checks.failed still names it"
+reset
+t_run "$status"
+mkdir -p "$live/cycles"
+ended() { # issue status started-ago updated-ago
+  printf '{"issue":%s,"running":false,"status":"%s","step":"develop","startedAt":%s,"updatedAt":%s}\n' \
+    "$1" "$2" "$(($(date +%s) - $3))" "$(($(date +%s) - $4))" >"$live/cycles/$1.json"
+}
+ended 12 aborted 900 20
+t_run "$health"
+t_eq "$(jq -r .status "$live/health.json")" fail
+ended 13 merged 800 10
+t_run "$health"
+t_eq "$(jq -r .status "$live/health.json")" pass
+t_eq "$([ -e "$live/cycles/12.json" ] && echo kept)" ""
+t_eq "$(jq -c '[.checks.failed[] | [.issue, .status, .step]]' "$live/health.json")" '[[12,"aborted","develop"]]'
+t_eq "$(jq -r '.checks.failed[0].time | fromdateiso8601 | (now - .) < 60' "$live/health.json")" true
+
+t_case "two endings that arrive together are both recorded"
+reset
+t_run "$status"
+mkdir -p "$live/cycles"
+ended 12 killed 900 20
+ended 13 merged 800 10
+t_run "$health"
+t_eq "$(jq -r .status "$live/health.json")" pass
+t_eq "$(jq -c '[.checks.failed[].issue]' "$live/health.json")" '[12]'
+t_eq "$(jq -c '[.[].issue]' "$live/endings.json")" '[12,13]'
+
+t_case "the endings keep the last ten, and a failure eleven endings ago is gone"
+reset
+t_run "$status"
+mkdir -p "$live/cycles"
+ended 20 aborted 900 300
+t_run "$health"
+for n in 21 22 23 24 25 26 27 28 29 30; do
+  ended "$n" merged 800 $((300 - n))
+  t_run "$health"
+done
+t_eq "$(jq length "$live/endings.json")" 10
+t_eq "$(jq -c .checks.failed "$live/health.json")" '[]'
+t_eq "$(ls "$live/cycles")" "30.json"
+
+t_case "an endings file that is not a list is started again"
+reset
+t_run "$status"
+mkdir -p "$live/cycles"
+echo '{"not":"a list"}' >"$live/endings.json"
+ended 12 aborted 900 20
+t_run "$health"
+t_eq "$(jq -c '[.[].issue]' "$live/endings.json")" '[12]'
+t_eq "$(jq -c '[.checks.failed[].issue]' "$live/health.json")" '[12]'
+
+# The platform checkout: a clone of a local origin, which a case moves ahead.
+g() { git -c user.name=t -c user.email=t@example.invalid -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
+platform_setup() {
+  rm -rf "$T/origin" "$T/origin.git" "$T/home/tehas/platform" "$T/home/tehas/state/platform-fetch"
+  g init -q "$T/origin"
+  g -C "$T/origin" commit -q --allow-empty -m one
+  g clone -q --bare "$T/origin" "$T/origin.git"
+  g clone -q "$T/origin.git" "$T/home/tehas/platform"
+}
+origin_ahead() { # <commits> <date>
+  local i
+  for ((i = 0; i < $1; i++)); do
+    GIT_COMMITTER_DATE=$2 GIT_AUTHOR_DATE=$2 g -C "$T/origin" commit -q --allow-empty -m "ahead $i"
+  done
+  g -C "$T/origin" push -q "$T/origin.git" main
+}
+
+t_case "platform: an up to date checkout is said, and passes"
+reset
+platform_setup
+t_run "$status && $summary"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .status "$live/health.json")" pass
+t_contains "$t_out" "platform  $(git -C "$T/home/tehas/platform" rev-parse --short=7 HEAD), up to date with origin/main, fetched "
+t_eq "$(jq -r .checks.platform.behind "$live/health.json")" 0
+
+t_case "platform: behind for more than a day is a warning that says how far"
+platform_setup
+origin_ahead 2 "$(date -u -d '-2 days' +%FT%TZ)"
+t_run "$status && $summary"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .status "$live/health.json")" warn
+t_eq "$(jq -r .output "$live/health.json")" "The platform is 2 commits behind origin/main since $(date -u -d '-2 days' +%F): run tehas update."
+t_contains "$t_out" "platform  $(git -C "$T/home/tehas/platform" rev-parse --short=7 HEAD), 2 commits behind origin/main since $(date -u -d '-2 days' +%F)"
+
+t_case "platform: behind for less than a day is said and passes"
+platform_setup
+origin_ahead 1 "$(date -u -d '-2 hours' +%FT%TZ)"
+t_run "$status && $summary"
+t_eq "$(jq -r .status "$live/health.json")" pass
+t_contains "$t_out" "1 commits behind origin/main"
+
+t_case "platform: the checkout is fetched at most once an hour"
+platform_setup
+t_run "$status"
+origin_ahead 1 "$(date -u -d '-2 days' +%FT%TZ)"
+t_run "$status"
+t_eq "$(jq -r .behind "$live/platform.json")" 0
+read -r last _ <"$T/home/tehas/state/platform-fetch"
+echo "$((last - 3601)) $((last - 3601))" >"$T/home/tehas/state/platform-fetch"
+t_run "$status"
+t_eq "$(jq -r .behind "$live/platform.json")" 1
+
+t_case "platform: a fetch that fails is no error, and is not tried again for an hour"
+platform_setup
+mv "$T/origin.git" "$T/origin.gone"
+echo "1 1" >"$T/home/tehas/state/platform-fetch"
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$t_out" ""
+t_eq "$(jq -r .fetchedAt "$live/platform.json")" "1970-01-01T00:00:01Z"
+read -r last _ <"$T/home/tehas/state/platform-fetch"
+t_eq "$(( $(date +%s) - last < 60 ))" 1
+mv "$T/origin.gone" "$T/origin.git"
+
+t_case "platform: with GitHub down the checkout is still read"
+platform_setup
+: >"$T/gh-down"
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .behind "$live/platform.json")" 0
+rm -f "$T/gh-down"
+
+t_case "platform: no checkout, no file and no line"
+reset
+rm -rf "$T/home/tehas/platform"
+mkdir -p "$live"
+echo '{}' >"$live/platform.json"
+t_run "$status && $summary"
+t_eq "$([ -e "$live/platform.json" ] && echo there)" ""
+t_lacks "$t_out" "platform"
+t_eq "$(jq -r .checks.platform "$live/health.json")" null
 
 t_case "summary: a health file older than ten minutes is not believed, exit 1"
 reset

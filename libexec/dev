@@ -214,11 +214,13 @@ while IFS= read -r n; do
 done < <(tehas_cycles_running)
 room=0
 why=""
-read -r room _ _ _ why < <(tehas_slice_room "$count" "${cids[@]}") || true
+note=""
+read -r room _ _ _ why note < <(tehas_slice_room "$count" "${cids[@]}") || true
 [[ $room =~ ^[0-9]+$ ]] || { room=0 why=unreadable; }
 case "$why" in
   pressure) why=" (it is under memory pressure)" ;;
-  unreadable) why=" (its use could not be read)" ;;
+  full) why=" (it holds as many containers as their ceilings fit)" ;;
+  unreadable) why=" (its use could not be read${note:+: $note})" ;;
   *) why="" ;;
 esac
 echo "tehas dev: tehas.slice has room for $room more cycles$why"

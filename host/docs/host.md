@@ -99,6 +99,11 @@ tehas update --check     # report what would change; changes no file of the
 tehas update             # pull, install, run the follow-ups that apply
 ```
 
+You do not have to remember to look. `tehas status` has a `platform` line
+that says how many commits the checkout is behind origin's default branch,
+which `tehasbot status` fetches at most once an hour, and `/health` says
+`warn` once it has been behind for more than a day.
+
 `tehas update` is the three steps that took hand work before: fast-forward
 `~/tehas/platform` from its remote, run `install.sh`, then run each follow-up it
 asks for by name (`units`, `sandbox`, `docs`, `edge`: see [Commands](/tools)).
@@ -271,7 +276,7 @@ limits, twelve words on the `docker run` line:
 | Option | Value | What it does |
 | --- | --- | --- |
 | `--cgroup-parent` | `tehas.slice` | Puts the container in the slice |
-| `--memory` | a quarter of the slice's `MemoryMax` | A hard ceiling. At it the kernel kills the largest process in the container. Four containers have to run away to fill the slice on their own |
+| `--memory` | a quarter of the slice's `MemoryMax` | A hard ceiling. At it the kernel kills the largest process in the container. The dispatcher starts no cycle while four containers are in the slice, so their ceilings never sum to more than the slice |
 | `--memory-swap` | the same value | No swap for the container |
 | `--memory-reservation` | `TEHAS_CYCLE_RESERVE`, `2g` unless set | The container's floor. When the slice is full the kernel frees memory above the floors first |
 | `--pids-limit` | `4096` | The most processes and threads in the container |
