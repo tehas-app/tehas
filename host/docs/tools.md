@@ -339,7 +339,8 @@ Before anything is moved or fetched, it asks the image what it supports,
 exit codes 1, result schema 3 and stable NDJSON 1, the `work` verb takes the
 flags passed, and every `PI_ENSEMBLE_*` variable the container would be given
 is an input the image lists for a host to set (scope `cycle` or `sandbox`; a
-family such as `PI_ENSEMBLE_MODEL_<ROLE>` covers its names). Anything else is
+family such as `PI_ENSEMBLE_MODEL_<ROLE>` covers the members the image lists
+for it, or any name when it lists none, as v0.12.80 does). Anything else is
 exit 78, with what is not supported named:
 
 ```
@@ -391,10 +392,13 @@ that works. The runner's NDJSON progress, its error stream, is kept in
 `~/tehas/logs/work-<issue>-<time>.jsonl`. The console and the dashboard's line
 read only the kinds the runner declares stable; a line it marks `unstable` is
 not shown. At the end, `~/tehas/state/cycles/<issue>.progress.json` holds the
-token usage per role of the stable `dispatch-completed` lines, each counted
-once by its key, and the reason of the last cap for `tehasbot cycle`. The
-result has no reason, so that one is read from lines the runner marks
-unstable, and may be empty.
+token usage per role, why the cycle stopped at its cap and the kind of that
+failure, for `tehasbot cycle`. They come from the result (`usage.byRole` and
+`failure`) when the image's `--capabilities` answer says it carries them
+(`features.usageByRole`, `features.failureReason`). An image that does not,
+v0.12.80, gives the usage of the stable `dispatch-completed` lines, each
+counted once by its key, and a reason read from lines the runner marks
+unstable, which may be empty.
 The time limit is `TEHAS_WORK_TIMEOUT`. The push check, the clone and every
 `docker stop` have bounds of their own, listed under
 [time limits](/host#time-limits). [The host](/host#limits-and-concurrency)
@@ -479,8 +483,9 @@ start with exit 4, and the comment names it: the issue is parked, and
 `tehas:ready` tries again.
 
 Whether a cycle was shown them is answered by the sandbox image itself.
-`sandbox/build.sh` asks the base image whether pi-rukas's own source has the
-reader of this manifest, and the build records the answer as the label
+`sandbox/build.sh` asks the base image's `--capabilities` whether its
+pi-rukas reads this manifest (`PI_ENSEMBLE_ISSUE_IMAGES` for manifest format
+1), and the build records the answer as the label
 `tehas.rukas.images`; a build that is given an answer that does not match the
 base it stands on stops. `tehas work`, `tehas plan`, the dispatcher and
 `install.sh` read that label. When it says the pi-rukas does not read the
@@ -1020,11 +1025,15 @@ could not be looked up and names the branch, and the branch stays in
 
 A parked cycle's cap, from the result, goes into
 `~/tehas/state/cycles/<issue>.park` with the failure before it (the reason
-`tehas work` read of the progress), and into the
+`tehas work` wrote to the progress file), and into the
 record for the improvement loop as `cap` and `capReason`, reduced to plain
-characters. A cap of the kind a provider outage gives is said as one: `Tehas
-cycle parked by a provider outage`, with the cap and the reason. That is
-`step-failed:<step>` or `adversarial-infra-failure` whose reason names the provider, a timeout, a connection or a 5xx status. The
+characters. The record also holds `buildCommit`, the pi-rukas commit the
+result says the cycle ran; the improvement loop checks a fix against it. A
+provider outage is said as one: `Tehas cycle parked by a provider outage`,
+with the cap and the reason. That is a result whose `failure.kind` is
+`provider`. For an image whose result has no `failure` (v0.12.80) it is
+`step-failed:<step>` or `adversarial-infra-failure` whose reason names the
+provider, a timeout, a connection or a 5xx status. The
 park file then asks [tehas dispatch](#tehas-dispatch) for one retry, unless the
 cycle was that retry.
 
@@ -1059,8 +1068,8 @@ tokens, keys, passwords (also in a URL and after `Bearer`) and private network
 addresses, and writing no control character but the line break and the tab.
 Invisible format characters, direction overrides among them, are dropped
 before the mask looks, so they do not hide a token from it; any that remain
-and the Unicode line and paragraph separators are written as U+FFFD. An agent of a workstream is named
-with it, as in `developer[task-a]`. The mask catches accidents;
+and the Unicode line and paragraph separators are written as U+FFFD. An agent
+is named by its role. The mask catches accidents;
 it cannot stop an agent that sets out to print a secret another way, so treat
 the console of a published dashboard as public. A log line of over 1 MiB is
 left out, and the console says how many were. So is a line not yet ended

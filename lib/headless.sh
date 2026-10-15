@@ -11,12 +11,22 @@
 #       not take, a variable in <names> (space separated) that is no input a
 #       host may set. Prints nothing when all are supported. Returns 1 when
 #       the answer is not an object.
+#       A family such as PI_ENSEMBLE_MODEL_<ROLE> takes the members the
+#       answer lists for it, and any name characters when it lists none.
+#   tehas_headless_reads_images <caps>
+#       1 when the answer lists PI_ENSEMBLE_ISSUE_IMAGES for the manifest
+#       format tehas writes (manifestVersion 1), else 0.
 #   tehas_headless_now <ndjson>
 #       the step of the last stable step-started line and the message of the
 #       last stable log line, as two lines.
-#   tehas_headless_progress <ndjson>
-#       one JSON object: per-role usage of the stable dispatch-completed
-#       lines, each counted once by its key, and the reason of the last cap.
+#   tehas_headless_progress <ndjson> [<caps> <result> <issue>]
+#       one JSON object: roles, the per-role usage; reason, why the cycle
+#       stopped at its cap; failure, the result's failure kind, step, role and
+#       cause, or null; from, where roles and failure were read. They come
+#       from the result where the answer says it carries them
+#       (features.usageByRole, features.failureReason), else from the
+#       progress: the stable dispatch-completed lines, each counted once by
+#       its key, and for the reason lines the runner marks unstable.
 #   tehas_headless_outcome <result> <issue>
 #       the issue's entry of a schema 3 result as one JSON object, its text
 #       fields reduced to plain characters, its exitCode null unless a number.
@@ -37,10 +47,13 @@ tehas_headless_unsupported() { # <caps> <flags> <names>
     --argjson ev "$tehas_headless_exit_codes" --argjson rv "$tehas_headless_result" \
     --argjson nv "$tehas_headless_ndjson_stable" '
     def words: split(" ") | map(select(length > 0));
-    # A family such as PI_ENSEMBLE_MODEL_<ROLE> takes any suffix of name characters.
-    def family: gsub("<[A-Z]+>"; "[A-Z0-9_]+") | "^" + . + "$";
+    # A family such as PI_ENSEMBLE_MODEL_<ROLE> takes its listed members, or
+    # any suffix of name characters when the build lists none.
+    def family($m): ([$m[]? | strings | select(test("^[A-Z0-9_]+$"))]) as $ids
+      | gsub("<[A-Z]+>"; if ($ids | length) > 0 then "(" + ($ids | join("|")) + ")" else "[A-Z0-9_]+" end)
+      | "^" + . + "$";
     [.inputs[]? | objects | select(.scope == "cycle" or .scope == "sandbox")
-     | .name | strings | select(test("^[A-Z0-9_<>]+$")) | family] as $ok
+     | .members as $m | .name | strings | select(test("^[A-Z0-9_<>]+$")) | family($m)] as $ok
     | [.verbs.work.flags[]? | strings] as $have
     | (if .contracts.exitCodes.version == $ev then empty
        else "exit codes version \(.contracts.exitCodes.version), not \($ev)" end),
@@ -51,6 +64,15 @@ tehas_headless_unsupported() { # <caps> <flags> <names>
       ($flags | words[] | select(startswith("--")) | select(. as $f | $have | index($f) | not) | "the flag \(.)"),
       ($names | words[] | select(. as $n | any($ok[]; . as $re | $n | test($re)) | not)
        | "the input \(.)")' <<<"$1" 2>/dev/null | tr -cd 'A-Za-z0-9_ .,<>\n-'
+}
+
+tehas_headless_reads_images() { # <caps>
+  if [ "$(jq -r 'if type == "object" and any(.inputs[]? | objects;
+    .name == "PI_ENSEMBLE_ISSUE_IMAGES" and .manifestVersion == 1) then 1 else 0 end' <<<"$1" 2>/dev/null)" = 1 ]; then
+    echo 1
+  else
+    echo 0
+  fi
 }
 
 # The stable lines of a progress stream, each a JSON object. A line that is
@@ -69,12 +91,48 @@ tehas_headless_now() { # <ndjson>
     2>/dev/null | head -n 2
 }
 
-tehas_headless_progress() { # <ndjson>
+tehas_headless_progress() { # <ndjson> [<caps> <result> <issue>]
+  local legacy result=null caps
+  caps=$(jq -c 'objects' <<<"${2:-}" 2>/dev/null) || caps=""
+  [ -n "$caps" ] || caps='{}'
+  legacy=$(_tehas_headless_progress_lines "$1") || legacy='{"roles":[],"reason":""}'
+  if [ -n "${4:-}" ] && [ ! -L "${3:-}" ]; then
+    result=$(jq -c --argjson issue "$4" --argjson rv "$tehas_headless_result" '
+      select(type == "object" and .schemaVersion == $rv)
+      | [.issues[]? | objects | select(.issue == $issue)] | first // null' "$3" 2>/dev/null) || result=null
+    [ -n "$result" ] || result=null
+  fi
+  jq -n -c --argjson legacy "$legacy" --argjson r "$result" --argjson caps "$caps" '
+    def n: if type == "number" and . >= 0 then . else 0 end;
+    def plain: if type == "string" then gsub("[^A-Za-z0-9_.:-]"; "") else "" end;
+    (($caps.features.usageByRole == true) and ($r != null)) as $by_role
+    | (($caps.features.failureReason == true) and ($r != null)) as $by_failure
+    | ($r.failure // null | objects // null) as $f
+    | {roles: (if $by_role then
+               [($r.usage | objects | .byRole | objects) // {} | to_entries[] | select(.value | type == "object")
+                | (.key | plain) as $k
+                | {role: (if $k == "" then "driver" else $k end), dispatches: (.value.dispatches | n),
+                   turns: (.value.turns | n), input: (.value.input | n), output: (.value.output | n),
+                   cacheRead: (.value.cacheRead | n)}]
+             else $legacy.roles end),
+       reason: (if $by_failure then
+                ([$f.providerMessage?, $f.message?] | map(strings | select(length > 0)) | first // "")
+              else $legacy.reason end),
+       failure: (if $by_failure and $f != null then
+                 {kind: ($f.kind | plain), step: ($f.step | plain), role: ($f.role | plain), cause: ($f.cause | plain)}
+               else null end),
+       from: {roles: (if $by_role then "result" else "progress" end),
+              failure: (if $by_failure then "result" else "progress" end)}}' 2>/dev/null
+}
+
+# The per-role usage and the reason of a build whose result carries neither
+# (v0.12.80): the stable dispatch-completed lines, and for the reason the
+# lines the runner marks unstable.
+# TODO(trail-openers/pi-rukas#1367): remove once no host runs an image
+# without features.failureReason and features.usageByRole.
+_tehas_headless_progress_lines() { # <ndjson>
   {
     _tehas_headless_stable "$1"
-    # The reason is read from unstable lines: the result carries none, and a
-    # cap-hit's stable fields do not include its evidence. Shown and used
-    # for the provider-outage retry only, never as an outcome.
     jq -R -c 'fromjson? | objects | select(.v == 1 and .unstable == true)
       | select(.kind == "dispatch-failed" or .kind == "dispatch-failed-provider")' "$1" 2>/dev/null
     jq -R -c 'fromjson? | objects | select(.v == 1 and .kind == "cap-hit")' "$1" 2>/dev/null
