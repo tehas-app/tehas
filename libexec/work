@@ -357,6 +357,9 @@ if [ "$pushed" != 0 ]; then
   tail -n 3 "$log.preflight" | sed 's/^/    /'
   exit 3
 fi
+retry=$(tehas_sandbox_retry "$tree")
+echo "$retry" >>"$log.preflight"
+echo "tehas work: $retry"
 # The cycle's own copy of the host's code index, asked for only once this cycle
 # can start: a cycle that never began leaves no copy behind. Without one the
 # agents search by reading files, which is slower and finds less; a copy that

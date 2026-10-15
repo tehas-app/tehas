@@ -60,6 +60,9 @@ case " $* " in
   " kill "*) kill "$(cat "$T/sleeper.pid" 2>/dev/null)" 2>/dev/null ;;
 esac'
 printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitconfig"
+# Pi's settings as install.sh leaves them on a host.
+mkdir -p "$T/home/.pi/agent"
+echo '{"retry":{"provider":{"timeoutMs":600000,"maxRetries":8,"maxRetryDelayMs":60000}}}' >"$T/home/.pi/agent/settings.json"
 
 # A host with the root step done: the slice loaded from its file with 8 GiB,
 # so a container's ceiling is 2048m, Docker on the systemd driver and cgroup
@@ -210,7 +213,8 @@ $state/cache:/home/vscode/.tehas-cache
 $state/memory:/home/vscode/.vipune
 $state/sessions:/home/vscode/.pi/agent/sessions
 $T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
-$T/home/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro"
+$T/home/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro
+$T/home/.pi/agent/settings.json:/home/vscode/.pi/agent/settings.json:ro"
 t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
 
 t_case "the agents are told the path inside the container, not the host's"
@@ -298,6 +302,33 @@ t_eq "$(preflight_args | awk 'prev == "-v" { print } { prev = $0 }')" "$ws:$insi
 t_eq "$(preflight_args | awk 'prev == "-e" { print } { prev = $0 }' | sed 's/=.*//' | LC_ALL=C sort)" \
   "$(printf '%s\n' "$want" HOME | LC_ALL=C sort)"
 t_eq "$(preflight_args | awk 'prev == "--user" { print } { prev = $0 }')" "$(id -u):$(id -g)"
+
+t_case "the cycle's log names the provider retry its Pi runs with"
+line="provider retry: timeoutMs=600000 maxRetries=8 maxRetryDelayMs=60000 httpIdleTimeoutMs=unset"
+t_contains "$t_out" "tehas work: $line"
+cycle_log=$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p')
+t_eq "$(tail -n 1 "$cycle_log.preflight")" "$line"
+
+t_case "the product's own .pi/settings.json is merged over the host's, as Pi merges them"
+mkdir -p "$T/prod/.pi"
+echo '{"retry":{"provider":{"maxRetries":2}},"httpIdleTimeoutMs":120000}' >"$T/prod/.pi/settings.json"
+t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; tehas_sandbox_retry '$T/prod'"
+t_eq "$t_out" "provider retry: timeoutMs=600000 maxRetries=2 maxRetryDelayMs=60000 httpIdleTimeoutMs=120000"
+echo '{"retry":' >"$T/prod/.pi/settings.json"
+t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; tehas_sandbox_retry '$T/prod'"
+t_contains "$t_out" "provider retry: unknown"
+rm -rf "$T/prod"
+
+t_case "without Pi's settings.json no cycle starts, and nothing is made in its place"
+mv "$T/home/.pi/agent/settings.json" "$T/settings.kept"
+rm -f "$T"/calls/docker*
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_contains "$t_out" "no $T/home/.pi/agent/settings.json: run install.sh"
+t_eq "$(cycle_args)" ""
+t_eq "$(find "$T/home/.pi/agent/settings.json" -maxdepth 0 2>/dev/null | wc -l)" 0
+mv "$T/settings.kept" "$T/home/.pi/agent/settings.json"
+t_run "$work 7"
 
 t_case "the token is passed by name, never written into the arguments"
 t_lacks "$(cycle_args)" "test-token"
@@ -988,7 +1019,8 @@ $state/cache:/home/vscode/.tehas-cache
 $state/memory:/home/vscode/.vipune
 $state/sessions:/home/vscode/.pi/agent/sessions
 $T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
-$T/home/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro"
+$T/home/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro
+$T/home/.pi/agent/settings.json:/home/vscode/.pi/agent/settings.json:ro"
 manifest() { jq -c "$1" "$imgs/manifest.json" 2>&1; }
 # What the sandbox image says about its own pi-rukas, as host/sandbox/build.sh
 # writes it: <commit>|<reads>. reads_image says it for one case.
