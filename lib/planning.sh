@@ -13,6 +13,7 @@
 #   failed    true when the last turn did not finish
 #   running   true while a turn is in flight
 #   comment   the id of the open question comment, once it is posted
+#   lost      true when Pi no longer has the session; it is then ended
 # While pending, the outcome is kept next to the record as <record>.out. What
 # the runner carries from one turn to the next is in <record>.keep, and the
 # approved text in <record>.brief; both go with the record.
@@ -30,13 +31,16 @@
 #   plan_state <issue>             print the path of the record
 #   plan_record_number <file>      put the issue of a record file in $plan_n, or
 #                                  return 1 for a file that is not a readable record
-#   plan_turn <issue> first|next <file>
-#                                  run one turn and post its outcome
+#   plan_turn <issue> first|next <file> [<comment id>]
+#                                  run one turn and post its outcome; the id
+#                                  is that of the reply <file> holds, whose
+#                                  attachments the turn is given
 #   plan_finish <issue> <rc> <turns before> <session before>
 #                                  record how a turn went and post it; a failed
 #                                  first turn takes its session from the
 #                                  outcome file, if the runner left one there
-#   plan_recover <issue>           finish a turn that was cut off
+#   plan_recover <issue>           finish a turn that was cut off, or end a
+#                                  session found lost that could not be ended
 #   plan_post <issue>              post the outcome kept in the record
 #   plan_end <issue> <text>        end the session and say why; returns 1,
 #                                  having changed nothing, if the labels stay
@@ -109,6 +113,11 @@ plan_post() {
   fi
 }
 
+# A session Pi no longer has cannot go on: what was said in it is gone.
+plan_lost() {
+  plan_end "$1" "Tehas ended this planning session: its conversation is no longer on \`$(hostname)\` (\`~/.pi/agent/sessions\`), so the last answer was not sent to the agent. Apply \`tehas:plan\` again to start a new session."
+}
+
 plan_finish() {
   local n=$1 rc=$2 turns=$(($3 + 1)) sid=$4 st out why ok
   st=$(plan_state "$n")
@@ -117,6 +126,16 @@ plan_finish() {
     why="was cut off, for example by a restart of the host"
   else
     why="exited with status $rc"
+  fi
+
+  # Noted first, so a poll that cannot end it yet ends it next time.
+  if [ "$rc" != 0 ] && jq -e '.lost == true' "$out" >/dev/null 2>&1; then
+    if ! { jq -c '.lost = true' "$st" >"$st.new" && mv "$st.new" "$st"; }; then
+      log "WARN: could not note in the record of #$n that its session is lost"
+    fi
+    log "planning #$n: Pi no longer has session $sid"
+    plan_lost "$n" || return 1
+    return 0
   fi
 
   if [ "$rc" = 0 ] && jq -e '(.session // "") != ""' "$out" >/dev/null 2>&1; then
@@ -162,12 +181,16 @@ plan_recover() {
   local n=$1 st
   st=$(plan_state "$n")
   rm -f "$st.out"
+  if [ "$(jq -r '.lost // false' "$st" 2>/dev/null)" = true ]; then
+    plan_lost "$n"
+    return
+  fi
   log "planning #$n: a turn was cut off"
   plan_finish "$n" interrupted "$(jq -r '.turns // 0' "$st" 2>/dev/null)" "$(jq -r '.session // ""' "$st" 2>/dev/null)"
 }
 
 plan_turn() {
-  local n=$1 mode=$2 input=$3 st out turns sid rc was written
+  local n=$1 mode=$2 input=$3 comment=${4:-} st out turns sid rc was written
   local -a args
   st=$(plan_state "$n")
   out=$st.out
@@ -213,10 +236,13 @@ plan_turn() {
     args=(--brief "$input")
   else
     args=(--session "$sid" --answer "$input")
+    [ -z "$comment" ] || args+=(--comment "$comment")
   fi
   refresh_checkout
   rm -f "$out"
-  "${plan_cmd:?}" "$n" --out "$out" --keep "$st.keep" "${args[@]}" >>"$TEHAS_HOME/logs/dispatch-plan-$n.log" 2>&1 &
+  # The poll's lock is not passed on: a turn's children that outlive a poll
+  # killed outright must not stop every later poll.
+  "${plan_cmd:?}" "$n" --out "$out" --keep "$st.keep" "${args[@]}" >>"$TEHAS_HOME/logs/dispatch-plan-$n.log" 2>&1 8>&- &
   wait_for $!
   rc=$?
   plan_finish "$n" "$rc" "$turns" "$sid"

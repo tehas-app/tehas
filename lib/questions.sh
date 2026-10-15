@@ -103,13 +103,13 @@ q_answer() {
         | ($q.value.editor.login // "") as $ed
         | ($c[($q.key + 1):] | map(select((.author.login // "") as $a | ($list | index($a))
                   and ((.editor.login // "") as $e | $e == "" or ($list | index($e))))) | last) as $r
-        | {asked: true, comment: $q.value.databaseId, body: $q.value.body, kind: $m.kind,
+        | {asked: true, comment: $q.value.databaseId, asked_at: ($q.value.createdAt // ""), body: $q.value.body, kind: $m.kind,
            issue: ($m.issue | tonumber), turn: ($m.turn | tonumber), boxes: ($boxes | length),
            tick: (if ($ticks | length) == 0 then {status: "none"}
                   elif ($list | index($ed)) == null then {status: "stranger", by: $ed}
                   elif ($ticks | length) > 1 then {status: "many", by: $ed}
                   else {status: "one", by: $ed, index: $ticks[0], at: ($q.value.lastEditedAt // "")} end),
-           reply: (if $r == null then null else {by: $r.author.login, text: $r.body, at: $r.createdAt} end)}
+           reply: (if $r == null then null else {by: $r.author.login, text: $r.body, at: $r.createdAt, id: $r.databaseId} end)}
       end'
 }
 

@@ -20,7 +20,7 @@ This site is the operating manual of one instance.
 
 An instance is one host serving one product repository. What differs between
 instances is in an instance directory: two small files, `instance.env` and
-`models.json`. The scripts are the same everywhere.
+`models.json`, and optionally Pi's own `settings.json`. The scripts are the same everywhere.
 
 The examples on this site come from the instance that works on tehas itself:
 

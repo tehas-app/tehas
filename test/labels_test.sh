@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Tests for libexec/labels against a stub gh: which labels it makes, where,
-# and that it needs the repository and nothing else.
+# and that it needs the repository and nothing else. And for
+# tehas_label_allowed in lib/labels.sh: who applied a label, asked of GitHub.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh"
@@ -57,5 +58,44 @@ t_eq "$t_rc" 64
 t_contains "$t_out" "usage: tehas labels"
 t_lacks "$t_out" "TEHAS_REPO"
 t_eq "$(t_calls gh)" ""
+
+# --- tehas_label_allowed -------------------------------------------------------
+t_stub gh 'case "$*" in
+  "api repos/acme/widget/issues/7/events?per_page=100 --paginate")
+    [ ! -e "$T/events-fail" ] || exit 1
+    cat "$T/events.json" ;;
+esac'
+allowed=". $T_ROOT/lib/labels.sh; TEHAS_REPO=acme/widget TEHAS_ALLOWED_LABELERS='alice bob'; tehas_label_allowed 7 tehas:ready"
+labelled() { # <login>...: each applies tehas:ready in turn
+  local i=0 login
+  for login in "$@"; do
+    i=$((i + 1))
+    printf '{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"%s"},"created_at":"2026-10-1%sT00:00:00Z"}\n' "$login" "$i"
+  done | jq -s . >"$T/events.json"
+}
+
+t_case "the label counts when an allowed account applied it most recently"
+rm -f "$T"/calls/* "$T/events-fail"
+labelled mallory bob
+t_run "$allowed"
+t_eq "$t_rc" 0
+t_eq "$(t_calls gh)" "api repos/acme/widget/issues/7/events?per_page=100 --paginate"
+
+t_case "it does not when the last account is not allowed, or no event applies it"
+labelled alice mallory
+t_run "$allowed"
+t_eq "$t_rc" 1
+echo '[]' >"$T/events.json"
+t_run "$allowed"
+t_eq "$t_rc" 1
+
+t_case "events that cannot be read are 2, not a refusal"
+: >"$T/events-fail"
+t_run "$allowed"
+t_eq "$t_rc" 2
+rm -f "$T/events-fail"
+echo '{"message":"Not Found"}' >"$T/events.json"
+t_run "$allowed"
+t_eq "$t_rc" 2
 
 t_done
