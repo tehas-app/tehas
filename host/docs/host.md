@@ -476,6 +476,21 @@ toolchain adds it to the Dockerfile.
 Each build is also tagged with its date, so
 `docker tag tehas/pi-rukas:<date> tehas/pi-rukas:uid$(id -u)` rolls back.
 
+A build asks the base image whether pi-rukas's own source has the reader of the
+manifest tehas writes beside a cycle's images, and records what it found as the
+label `tehas.rukas.images`. The Dockerfile checks that answer against the base
+it stands on and stops when they disagree. `tehas work`, `tehas plan`, the
+dispatcher and `install.sh` read the label; an image built without build.sh
+carries `unknown`, which tehas reads as "not said" rather than as an answer.
+
+An image that says its pi-rukas does not read them holds every cycle while
+`TEHAS_WORK_IMAGES=1` stands, not only the issues whose text links a picture.
+So a host with that setting moves the pin to a release that has the reader
+before it rebuilds onto a base without one, or sets `TEHAS_WORK_IMAGES=0`
+first: the rebuild is the moment the hold becomes real. `install.sh` reports
+the answer it read from the image, and `tehas status` and `/health` show the
+hold.
+
 To upgrade pi-rukas: run `scripts/rukas-latest.sh` in a checkout of tehas,
 which puts the newest release's commit in `versions.env` and its image's
 digest in the `FROM` line, then rebuild and run the contract test before any
@@ -515,14 +530,19 @@ Every release of tehas takes the newest release of pi-rukas. Before tagging:
    only says whether the pin is already the newest, exit 1 when it is not.
    Either way it first reads the release's source, and refuses it with exit 3
    when something tehas relies on is gone: a `PI_ENSEMBLE_*` setting that a
-   command of tehas passes, or a field of the state file a cycle's end is
-   read from. It names what is missing. Such a release is not pinned until
-   tehas is changed to match it.
+   command of tehas passes, a field of the state file a cycle's end is
+   read from, or `extension/src/work-driver-issue-images.ts`, the reader of the
+   manifest tehas writes beside a cycle's images. It names what is missing.
+   Such a release is not pinned until tehas is changed to match it.
 2. When it changed something, open a pull request with the change, merge it,
    and tag the release from that merge.
 3. On the host: pull, run `./bootstrap.sh user`, rebuild the sandbox image,
-   and run the contract test above. The dispatcher then runs one cycle at a
-   time on the new pi-rukas until one ends with a pull request: see
+   and run the contract test above. With `TEHAS_WORK_IMAGES=1` the order
+   matters: rebuilding onto a base whose pi-rukas has no reader holds every
+   cycle, so move the pin to a release that has it, or turn the setting off
+   before the rebuild: see [Sandbox image](#sandbox-image). The dispatcher
+   then runs one cycle at a time on the new pi-rukas until one ends with a
+   pull request: see
    [Limits that hold work back](/operating#limits-that-hold-work-back).
 
 ### Rolling back pi-rukas

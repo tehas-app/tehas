@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Tests for scripts/rukas-latest.sh, against stub gh and curl: it writes the
 # newest release's commit and image, changes nothing when a lookup fails,
-# refuses a release that lacks what tehas relies on, and --check only reports.
+# refuses a release that lacks what tehas relies on, including the reader of a
+# cycle's images, and --check only reports.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh"
@@ -10,14 +11,16 @@ repo=$T/repo
 commit=0123456789abcdef0123456789abcdef01234567
 digest=sha256:$(printf 'a%.0s' {1..64})
 
-# The release's source: what tehas reads, and the setting its commands pass.
-# A name only a Markdown file mentions does not count.
+# The release's source: what tehas reads, the setting its commands pass, and
+# the file that reads the manifest tehas writes beside a cycle's images. A name
+# only a Markdown file mentions does not count.
 src=$T/src/up-pi-rukas-0123456
 source_tree() {
   rm -rf "$T/src"
-  mkdir -p "$src/extension"
+  mkdir -p "$src/extension/src"
   printf '%s\n' 'PI_ENSEMBLE_MAX_WORKSTREAMS' 'pipelineState currentStep branchName eventLog' \
     'status: "merged" | "handoff" | "aborted" | "running"' >"$src/extension/driver.ts"
+  printf '%s\n' 'export function loadIssueImages() { return [] }' >"$src/extension/src/work-driver-issue-images.ts"
   echo PI_ENSEMBLE_GONE >"$src/CHANGELOG.md"
   tar -czf "$T/src.tgz" -C "$T/src" .
 }
@@ -123,6 +126,17 @@ before=$(snapshot)
 t_run "$repo/scripts/rukas-latest.sh --check"
 t_eq "$t_rc" 3
 t_contains "$t_out" '"handoff"'
+t_eq "$(snapshot)" "$before"
+source_tree
+
+t_case "a release with no reader for the images a cycle is given is refused"
+fresh
+rm -f "$src/extension/src/work-driver-issue-images.ts"
+tar -czf "$T/src.tgz" -C "$T/src" .
+before=$(snapshot)
+t_run "$repo/scripts/rukas-latest.sh"
+t_eq "$t_rc" 3
+t_contains "$t_out" "lacks what tehas relies on: the issue image reader extension/src/work-driver-issue-images.ts"
 t_eq "$(snapshot)" "$before"
 source_tree
 

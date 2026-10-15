@@ -82,10 +82,14 @@ say where in it the thing goes.
 
 An instance can give a cycle the images of its issue, with
 `TEHAS_WORK_IMAGES=1`. [tehas work](/tools#tehas-work) then fetches the images
-the issue text links, and the first two steps of the cycle, explore and plan,
-are shown them beside the text. The plan puts the placement into words, and
-the later steps read the plan. Images in comments are not read, and no cycle
-has been seen to use a picture yet, so words in the text stay the safe way.
+the issue text links and mounts them read-only in the cycle's container.
+Whether the cycle's first two steps, explore and plan, are actually shown them
+is what the sandbox image's own label answers, and the pinned pi-rukas does not
+read them yet, so the dispatcher holds every cycle while the setting stands,
+not only an issue whose text links a picture. The plan
+puts the placement into words, and the later steps read the plan. Images in
+comments are not read, and no cycle has been seen to use a picture yet, so
+words in the text stay the safe way.
 
 ## 1. Write an issue tehas can build
 
@@ -325,10 +329,10 @@ a box and a reply do nothing.
 
 Where the instance gives a cycle the images an issue links
 (`TEHAS_WORK_IMAGES=1`), a planning session is given them too, by the same
-rules, once at its start. The bot says how many it was given and which it left
-out. If one cannot be fetched, no session starts and the bot says so. The
-pi-rukas that tehas installs does not show them to the planning agent yet, so
-describe in words what a picture shows.
+rules, once at its start. The bot says what it fetched, which it left out, and
+whether the session was shown them. If one cannot be fetched, no session starts
+and the bot says so. The pi-rukas that tehas installs does not show them to the
+planning agent yet, so describe in words what a picture shows.
 
 What the agent writes in the bot's comments is posted on the issue. On a
 public repository that is public. Secrets and private network addresses are

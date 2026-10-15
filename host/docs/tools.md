@@ -67,7 +67,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_CYCLE_RESERVE`           | `2g`                                     | Memory one container is given as a floor (`docker --memory-reservation`) and the unit the dispatcher counts room in. A reclaim priority inside `tehas.slice` and the amount admission promises, not a guarantee against the whole host. A Docker size of at least 6m, and at most a quarter of the slice's `MemoryMax`, else the command stops with 78 naming both numbers. With the default the host needs about 11 GiB of memory; a smaller host sets it lower |
 | `TEHAS_WORK_TIMEOUT`            | `21600`                                  | Seconds before a cycle is given up                              |
 | `TEHAS_WORK_STALL`              | `3600`                                   | Seconds a cycle may go without a line added to any of its logs before it is stopped as `stalled`. Must be longer than `TEHAS_VERIFY_TIMEOUT`, because a gate can print nothing while it runs; else the command stops with 78 |
-| `TEHAS_WORK_IMAGES`             | `0`                                      | `1` gives a cycle and a planning session the images its issue text links: see [tehas work](#tehas-work) and [tehas plan](#tehas-plan). The model must declare `"image"` in its `input` in `models.json` and answer a request with an image, else the dispatcher holds every cycle |
+| `TEHAS_WORK_IMAGES`             | `0`                                      | `1` gives a cycle and a planning session the images its issue text links: see [tehas work](#tehas-work) and [tehas plan](#tehas-plan). The model must declare `"image"` in its `input` in `models.json` and answer a request with an image, else the dispatcher holds every cycle. The sandbox image must also say, by the label `tehas.rukas.images` its build writes, that its pi-rukas reads the manifest tehas writes beside them: an image that says it does not holds every cycle too, and `install.sh` reports what it found |
 | `TEHAS_VERIFY_TIMEOUT`          | `1800`                                   | Seconds one run of the product's gate may take inside a cycle. A gate that takes longer is stopped and the cycle parks. Passed to pi-rukas as `PI_ENSEMBLE_VERIFY_TIMEOUT_MS` and `PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS`; pi-rukas alone allows ten minutes |
 | `TEHAS_PLAN_MAX_TURNS`          | `20`                                     | Turns a planning session may take before it is ended            |
 | `TEHAS_PLAN_TIMEOUT`            | `3600`                                   | Seconds before one planning turn is given up                    |
@@ -288,12 +288,26 @@ workspace and not in it, so no patch can commit them. The files are named
 the link it came from, its type and its size, and every link that was left
 out with the reason. The directory is remade for every cycle and removed by
 `tehasbot cycle` when the cycle is over. A comment on the issue says how many
-images the cycle was given and what was left out. An image that could not be
-fetched stops the start with exit 4, and the comment names it: the issue is
-parked, and `tehas:ready` tries again.
+images were fetched and what was left out, and whether the cycle was shown
+them. An image that could not be fetched stops the start with exit 4, and the
+comment names it: the issue is parked, and `tehas:ready` tries again.
 
-pi-rukas reads the manifest and attaches the images to the explore and plan
-prompts, each listed beside its link. The steps after plan do not see them.
+Whether a cycle was shown them is answered by the sandbox image itself.
+`sandbox/build.sh` asks the base image whether pi-rukas's own source has the
+reader of this manifest, and the build records the answer as the label
+`tehas.rukas.images`; a build that is given an answer that does not match the
+base it stands on stops. `tehas work`, `tehas plan`, the dispatcher and
+`install.sh` read that label. When it says the pi-rukas does not read the
+manifest, the comment says the images were fetched and not shown rather than
+that they were given, and the dispatcher holds every cycle while the setting
+stands. An image with no label, built before it existed, is answered as "not
+said": nothing is claimed, `install.sh` names the rebuild that would make the
+image say, and cycles are not held for it.
+
+pi-rukas reads the manifest, and attaches the images to the explore and plan
+prompts each beside its link, only in a release that has the reader. Upstream
+merged it on 2026-10-14 and no release carries it yet, so v0.12.79, the one
+pinned here, does not. The steps after plan do not see them.
 
 ## tehas plan
 
@@ -327,7 +341,8 @@ directory at `~/tehas/state/plan-<issue>.json.keep` and removes it when the
 session ends.
 
 With `TEHAS_WORK_IMAGES=1` the first turn fetches the images the issue links,
-by the rules of `tehas work`, and says on the issue how many it was given.
+by the rules of `tehas work`, and says on the issue what it fetched and
+whether the session was shown them.
 Each turn's container gets a copy of them, read-only, at the path a cycle has
 them, with `PI_ENSEMBLE_EXTRA_IMAGE_DIRS`. The copy is
 `~/tehas/work/<name>-plan-<issue>.images`, removed after the turn. An image
