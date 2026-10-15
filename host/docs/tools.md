@@ -314,8 +314,11 @@ instance sets it. The images are fetched before anything else is made:
 
 - **Which.** Links to GitHub's own attachment storage in the issue text.
   Comments are not read: `tehas:ready` approves the text, and a comment can
-  arrive after the label. Only when the issue was opened by an owner, member
-  or collaborator of the repository.
+  arrive after the label. Only when an allowed account applied the last
+  `tehas:ready`, which approves the text with its links, or when the issue was
+  opened by an owner, member or collaborator of the repository. The labeller
+  is read from the issue's events; when they cannot be read nothing starts,
+  exit 4.
 - **Types.** png, jpg, webp and gif, told by the file's first bytes and not by
   its name. Not svg: it is text and can carry instructions.
 - **How much.** At most 8 images and 10 megabytes together, counted in the
@@ -330,6 +333,18 @@ out with the reason. The directory is remade for every cycle and removed by
 images the cycle was given and what was left out. An image that could not be
 fetched stops the start with exit 4, and the comment names it: the issue is
 parked, and `tehas:ready` tries again.
+
+Whether the agents are shown them is pi-rukas's part: a release reads the
+manifest only when it has the file
+`/opt/pi-rukas/extension/src/work-driver-issue-images.ts` in the sandbox
+image. Before the comment, `tehas work` asks the image for that file, in a
+container of a few seconds that is given no mount, no variable and no network
+and pulls nothing. The answer is kept per image id in
+`~/tehas/state/images-read/`, since an id names fixed content, and the last
+one in `~/tehas/state/images-read.json` for [tehasbot health](#tehasbot-health).
+When the image does not have it, the comment says the images were fetched but
+its agents are not shown them; when the image could not be asked, it says
+that too. The images are mounted either way.
 
 pi-rukas reads the manifest and attaches the images to the explore and plan
 prompts, each listed beside its link. The steps after plan do not see them.
@@ -378,7 +393,9 @@ directory at `~/tehas/state/plan-<issue>.json.keep` and removes it when the
 session ends.
 
 With `TEHAS_WORK_IMAGES=1` the first turn fetches the images the issue links,
-by the rules of `tehas work`, and says on the issue how many it was given.
+by the rules of `tehas work`, with `tehas:plan` in place of `tehas:ready`,
+and says on the issue how many it was given and whether the sandbox image's
+pi-rukas reads them.
 Each turn's container gets a copy of them, read-only, at the path a cycle has
 them, with `PI_ENSEMBLE_EXTRA_IMAGE_DIRS`. The copy is
 `~/tehas/work/<name>-plan-<issue>.images`, removed after the turn. An image
@@ -593,8 +610,11 @@ Prints the state of the factory from the [health file](#tehasbot-health): is
 it taking work, what is in the queue, the current or last cycle, and what the
 dispatcher's last poll read of `tehas.slice`. The `slice` line reads
 `holding: ...` when that poll held cycles back, and `unknown: no poll has
-reported in 10 min` when no poll read the slice in that time. It reads
-that one file and nothing else: no GitHub call, no instance settings, and it
+reported in 10 min` when no poll read the slice in that time. Where the
+instance gives a cycle images (`TEHAS_WORK_IMAGES=1`), an `images` line says
+whether the sandbox image's pi-rukas reads them, as the last cycle or planning
+session found: `read by ...`, `fetched but not read: ...` or `unknown: ...`.
+It reads that one file and nothing else: no GitHub call, no instance settings, and it
 writes nothing. So it is as fresh as the dispatcher's last poll, and the first
 line says how old that is.
 
@@ -808,7 +828,7 @@ serves the file at `/health` and `/healthz` as `application/health+json`.
 | `status` | Meaning                                                                                  | HTTP |
 | -------- | ---------------------------------------------------------------------------------------- | ---- |
 | `pass`   | Taking work, idle or in a cycle                                                          | 200  |
-| `warn`   | Paused (`tehas:pause` on the control issue), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read | 200  |
+| `warn`   | Paused (`tehas:pause` on the control issue), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the images a cycle is given are fetched but the sandbox image's pi-rukas does not read them | 200  |
 | `fail`   | The last cycle ended as anything but `merged` or `handoff` and no cycle has started since, or there is no queue snapshot | 503  |
 
 `output` says the same in a sentence. `checks.queue` has the snapshot time and
@@ -827,6 +847,13 @@ without previews, and when that figure is more than half an hour old. When
 `low` is true, `output` is "The host is low on disk: previews are not being
 built." with a figure, and "The host's free disk space could not be read:
 previews are not being built." when `freeBytes` is `null`.
+
+`checks.images` has `reads` and the `time` it was found, from
+`state/images-read.json`, which `tehas work` and `tehas plan` write when
+the instance gives images and remove when it does not. `reads` is `true`,
+`false`, or `null` when the image could not be asked. It is `null` on an
+instance without images. When `reads` is `false`, `output` is "Images are
+fetched, but the sandbox image's pi-rukas does not read them."
 
 `checks.slice` is `live/dispatch.json` as the dispatcher's last poll wrote
 it: `time`, `why`, `hold`, `count`, `room`, `committed`, `max` and `reserve`.

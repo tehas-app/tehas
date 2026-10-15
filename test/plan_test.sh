@@ -707,6 +707,7 @@ t_stub gh '
 printf "%s\n" "$*" >>"$T/calls/gh.args"
 case "$1 $2" in
   "api repos/acme/widget/issues/7") cat "$T/fx/issue.json" 2>/dev/null || exit 1 ;;
+  "api repos/acme/widget/issues/7/events?per_page=100") cat "$T/fx/events.json" 2>/dev/null || echo "[]" ;;
   "issue comment") printf "%s\n" "$*" >>"$T/calls/gh.comments" ;;
 esac'
 t_stub curl '
@@ -729,10 +730,10 @@ net() { # <address> <printf format>
   # shellcheck disable=SC2059  # the format carries the bytes of an image
   printf "$2" >"$fx/net/$(printf %s "$1" | tr -c 'A-Za-z0-9' _)"
 }
-issue_is() { jq -n --arg body "$1" '{number: 7, body: $body, author_association: "OWNER"}' >"$fx/issue.json"; }
+issue_is() { jq -n --arg body "$1" --arg who "${2:-OWNER}" '{number: 7, body: $body, author_association: $who}' >"$fx/issue.json"; }
 images_on() {
   reset
-  rm -rf "$fx/net"
+  rm -rf "$fx/net" "$fx/events.json"
   t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1 "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=/elsewhere"
 }
 
@@ -747,6 +748,9 @@ t_eq "$(after -v | grep -c -x "$tree.images:$ws.images:ro")" 1
 t_eq "$(after -e | grep '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$ws.images"
 t_eq "$(turn_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -i --init")" ""
 t_contains "$(cat "$T/calls/gh.comments")" "Tehas gave this planning session 1 image from the issue text."
+# The stub docker names no image id, so whether pi-rukas reads them is not known.
+t_contains "$(cat "$T/calls/gh.comments")" "Whether the pi-rukas in the sandbox image reads them could not be checked."
+t_eq "$(jq -c .reads "$T/home/tehas/state/images-read.json")" null
 t_eq "$([ -e "$tree.images" ] && echo left)" ""
 
 t_case "a later turn mounts the same images and fetches nothing"
@@ -766,11 +770,23 @@ t_contains "$(cat "$T/calls/gh.comments")" "Tehas started no planning session: $
 t_eq "$([ -e "$T/keep/images" ] && echo left)" ""
 t_eq "$([ -e "$T/out.json" ] && echo written)" ""
 
+t_case "an outsider's issue gives its images when an allowed account applied tehas:plan, and not otherwise"
+for who in alice mallory; do
+  images_on
+  net "$A/1111" '\x89PNG\r\n\x1a\nPNGDATA'
+  issue_is "Look ![shot]($A/1111)" NONE
+  jq -n --arg who "$who" '[{event: "labeled", label: {name: "tehas:plan"}, actor: {login: $who}, created_at: "2026-10-11T00:00:00Z"}]' >"$fx/events.json"
+  t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+  t_eq "$t_rc" 0
+  t_eq "$who $(jq -c '.images | length' "$T/keep/images/manifest.json")" "$who $([ "$who" = alice ] && echo 1 || echo 0)"
+done
+
 t_case "with images off nothing is fetched or mounted"
 reset
 t_instance "${T_MINIMAL[@]}" "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=/elsewhere"
 t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 0
+t_eq "$(find "$T/home/tehas/state/images-read.json" 2>/dev/null | wc -l)" 0
 t_eq "$(cat "$T/calls/curl.urls" "$T/calls/gh.args" 2>/dev/null)" ""
 t_eq "$(after -v | grep -c images)" 0
 
