@@ -10,8 +10,26 @@
 # Before anything is moved or fetched, the image is asked what it supports
 # (`pi-rukas-headless --capabilities`). The cycle starts only when the image
 # speaks the contract versions read here (exit codes 1, result schema 3, stable
-# NDJSON 1), takes the flags passed, and lists every PI_ENSEMBLE_* variable
-# the container is given as an input a host may set. Anything else is exit 78.
+# NDJSON 1), takes the flags passed, lists every PI_ENSEMBLE_* variable the
+# container is given as an input a host may set, and has the features this
+# command relies on: the host handoff channel, the cycle deadline when one is
+# given and, with --restart, a restart that clears needs-human-attention.
+# Anything else is exit 78. So is an entry of TEHAS_RUKAS_WORKAROUNDS whose
+# release the image's pi-rukas has reached: the workaround has expired.
+#
+# Three PI_ENSEMBLE_* values are this command's, whatever the instance says:
+#   PI_ENSEMBLE_HANDOFF_CHANNEL=host  pi-rukas posts no handoff comment and
+#                       applies no label; tehasbot cycle posts the one comment
+#                       from the result's handoff and labels the issue.
+#   PI_ENSEMBLE_CYCLE_DEADLINE   the time after which the cycle starts no new
+#                       step and parks with cap "deadline": TEHAS_WORK_TIMEOUT
+#                       less a quarter of it, or less one run of the gate and
+#                       8 minutes when that is longer. None when that leaves
+#                       no time at all. PI_ENSEMBLE_CYCLE_BUDGET_MS is not
+#                       passed.
+#   PI_ENSEMBLE_VERIFY_CONCURRENCY  runs of the gate at once, from the
+#                       container's CPU quota and memory ceiling
+#                       (tehas_slice_verify).
 #
 # Usage: tehas work <issue-number> [--restart]
 #
@@ -48,6 +66,8 @@
 #   TEHAS_WORK_STALL    seconds with no line added to any of the cycle's logs
 #                       before it is stopped as stalled [3600]
 #   TEHAS_CYCLE_RESERVE the container's memory floor [2g]
+#   TEHAS_RUKAS_WORKAROUNDS  settings that work around a pi-rukas defect, as
+#                       NAME@VERSION: VERSION is the release that fixes it []
 #   TEHAS_WORK_IMAGES   1 gives the cycle the images its issue links [0]
 #   TEHAS_WORK_DESCRIBE 1 has the model describe those images first [0]
 #   TEHAS_WORK_FILES    1 gives the cycle the text files its issue links [0]
@@ -301,10 +321,30 @@ fi
 [ "$TEHAS_WORK_IMAGES" != 1 ] || give=1
 # Its path is this command's to give, not the instance's.
 [ "$give" != 1 ] || unset PI_ENSEMBLE_EXTRA_IMAGE_DIRS
+# So are who reports a handoff, the cycle's deadline and how many gate runs
+# it makes at once.
+unset PI_ENSEMBLE_HANDOFF_CHANNEL PI_ENSEMBLE_CYCLE_DEADLINE PI_ENSEMBLE_CYCLE_BUDGET_MS PI_ENSEMBLE_VERIFY_CONCURRENCY
 mapfile -d '' -t envs < <(tehas_sandbox_env "$repo" "$bot_name" "$bot_email")
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
 [ "${#envs[@]}" -gt 0 ] ||
   { echo "tehas work: could not prepare the sandbox, not starting a cycle" >&2; exit 78; }
+verify_at_once=$(tehas_slice_verify) ||
+  { echo "tehas work: the container limits could not be made, not starting" >&2; exit 78; }
+# tehasbot cycle posts the one comment of a handoff and labels the issue.
+envs+=(-e PI_ENSEMBLE_HANDOFF_CHANNEL=host -e "PI_ENSEMBLE_VERIFY_CONCURRENCY=$verify_at_once")
+features=handoffChannel
+# No step starts after the deadline: the cycle parks with a handoff instead.
+# A step that started before it may run past it, so the margin holds the
+# longest step there is room for: a quarter of the limit, and never less than
+# one run of the gate and the handoff's 8 minutes.
+margin=$((limit / 4))
+[ "$margin" -ge $((TEHAS_VERIFY_TIMEOUT + 480)) ] || margin=$((TEHAS_VERIFY_TIMEOUT + 480))
+if [ "$margin" -lt "$limit" ]; then
+  envs+=(-e "PI_ENSEMBLE_CYCLE_DEADLINE=$((($(date +%s) + limit - margin) * 1000))")
+  features+=" cycleDeadline"
+else
+  echo "tehas work: the time limit of ${limit}s leaves no room for a deadline before it, the cycle has none"
+fi
 
 # A fresh workspace for this cycle, at the tip the product checkout last
 # fetched for the branch. A workspace is still here only when this issue's last
@@ -322,7 +362,7 @@ fi
 # its own source (pi-rukas v0.12.80).
 runner=/opt/pi-rukas/bin/pi-rukas-headless
 run_flags=(--timeout "$(((limit + 59) / 60))" --json)
-[ -z "$flags" ] || run_flags+=(--restart)
+[ -z "$flags" ] || { run_flags+=(--restart); features+=" restartClearsAttention"; }
 # What the image supports, asked before anything is moved or fetched.
 names=""
 for e in "${envs[@]}"; do
@@ -331,13 +371,22 @@ done
 [ "$give" != 1 ] || names+=" PI_ENSEMBLE_EXTRA_IMAGE_DIRS"
 caps=$(timeout -k 10 "$caps_wait" docker run --rm --init "$image" "$runner" --capabilities 2>/dev/null)
 caps_rc=$?
-if [ "$caps_rc" != 0 ] || ! unsupported=$(tehas_headless_unsupported "$caps" "${run_flags[*]}" "$names"); then
+if [ "$caps_rc" != 0 ] || ! unsupported=$(tehas_headless_unsupported "$caps" "${run_flags[*]}" "$names" "$features"); then
   echo "tehas work: $image gave no --capabilities answer (exit $caps_rc), not starting a cycle" >&2
   exit 78
 fi
 if [ -n "$unsupported" ]; then
   echo "tehas work: $image does not support what this cycle is given, not starting a cycle:" >&2
   printf '%s\n' "$unsupported" | sed 's/^/    /' >&2
+  exit 78
+fi
+# A workaround the instance carries for a pi-rukas defect ends with the
+# release that fixes it.
+expired=$(tehas_headless_expired "$caps" "$TEHAS_RUKAS_WORKAROUNDS")
+if [ -n "$expired" ]; then
+  echo "tehas work: TEHAS_RUKAS_WORKAROUNDS names a workaround this image no longer needs, not starting a cycle:" >&2
+  printf '%s\n' "$expired" | sed 's/^/    /' >&2
+  echo "    Remove the setting and its entry from $TEHAS_INSTANCE_DIR/instance.env." >&2
   exit 78
 fi
 

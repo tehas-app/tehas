@@ -76,9 +76,11 @@ caps_good() {
     verbs: {work: {flags: ["--restart", "--json", "--timeout"]}},
     inputs: ([("SANDBOX_MODE", "WORKSPACE_ROOT") | {name: "PI_ENSEMBLE_\(.)", scope: "sandbox"}]
       + [("MAX_WORKSTREAMS", "VERIFY_TIMEOUT_MS", "INTEGRATION_VERIFY_TIMEOUT_MS", "SUBAGENT_MODEL",
-          "SUBAGENT_PROVIDER", "MODEL_<ROLE>", "PROVIDER_<ROLE>", "EXTRA_IMAGE_DIRS", "COMMENT_RETENTION")
+          "SUBAGENT_PROVIDER", "MODEL_<ROLE>", "PROVIDER_<ROLE>", "EXTRA_IMAGE_DIRS", "COMMENT_RETENTION",
+          "HANDOFF_CHANNEL", "CYCLE_DEADLINE", "VERIFY_CONCURRENCY")
          | {name: "PI_ENSEMBLE_\(.)", scope: "cycle"}]
-      + [{name: "PI_ENSEMBLE_SUBAGENT_MODE", scope: "internal"}])}' >"$T/caps.json"
+      + [{name: "PI_ENSEMBLE_SUBAGENT_MODE", scope: "internal"}]),
+    features: {resultFromMemory: true, cycleDeadline: true, handoffChannel: true, restartClearsAttention: true}}' >"$T/caps.json"
 }
 caps_good
 # Pi's settings as install.sh leaves them on a host.
@@ -302,11 +304,14 @@ GIT_CONFIG_VALUE_2
 GIT_CONFIG_VALUE_3
 GIT_TERMINAL_PROMPT
 CBM_CACHE_DIR
+PI_ENSEMBLE_CYCLE_DEADLINE
+PI_ENSEMBLE_HANDOFF_CHANNEL
 PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS
 PI_ENSEMBLE_MAX_WORKSTREAMS
 PI_ENSEMBLE_SANDBOX_MODE
 PI_ENSEMBLE_SUBAGENT_MODEL
 PI_ENSEMBLE_SUBAGENT_PROVIDER
+PI_ENSEMBLE_VERIFY_CONCURRENCY
 PI_ENSEMBLE_VERIFY_TIMEOUT_MS
 PI_ENSEMBLE_WORKSPACE_ROOT"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
@@ -435,6 +440,89 @@ caps_fresh
 t_run "$work 7"
 t_eq "$t_rc" 2
 caps_good
+
+t_case "an image without the host handoff channel stops the cycle, and one without a restart that clears the label stops a restart"
+caps_fresh
+jq '.features.handoffChannel = false' "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
+t_run "$work 7"
+caps_refused
+t_contains "$t_out" "the feature handoffChannel"
+caps_good
+caps_fresh
+jq 'del(.features.restartClearsAttention)' "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
+t_run "$work 7 --restart"
+caps_refused
+t_contains "$t_out" "the feature restartClearsAttention"
+caps_fresh
+t_run "$work 7"
+t_eq "$t_rc" 2
+caps_good
+
+t_case "the handoff channel, the deadline and the gate runs at once are this command's, not the instance's"
+caps_fresh
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 PI_ENSEMBLE_HANDOFF_CHANNEL=forge \
+  PI_ENSEMBLE_CYCLE_BUDGET_MS=60000 PI_ENSEMBLE_VERIFY_CONCURRENCY=9 PI_ENSEMBLE_CYCLE_DEADLINE=1
+before=$(date +%s)
+t_run "$work 7"
+t_eq "$(after -e | grep -c '^PI_ENSEMBLE_HANDOFF_CHANNEL')" 1
+t_contains "$(after -e)" "PI_ENSEMBLE_HANDOFF_CHANNEL=host"
+t_lacks "$(after -e)" "PI_ENSEMBLE_CYCLE_BUDGET_MS"
+# A container of a 2048m ceiling runs one gate at a time.
+t_eq "$(after -e | grep '^PI_ENSEMBLE_VERIFY_CONCURRENCY')" "PI_ENSEMBLE_VERIFY_CONCURRENCY=1"
+# Six hours less a quarter of them, in milliseconds since the epoch.
+deadline=$(after -e | sed -n 's/^PI_ENSEMBLE_CYCLE_DEADLINE=//p')
+t_eq "$(after -e | grep -c '^PI_ENSEMBLE_CYCLE_DEADLINE')" 1
+t_eq "$([ "$deadline" -ge $(((before + 16200) * 1000)) ] && [ "$deadline" -le $(((before + 16200 + 60) * 1000)) ] && echo in-range)" in-range
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+
+t_case "the margin before the time limit holds one run of the gate and the handoff"
+caps_fresh
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_WORK_TIMEOUT=7200 TEHAS_VERIFY_TIMEOUT=2400
+before=$(date +%s)
+t_run "$work 7"
+deadline=$(after -e | sed -n 's/^PI_ENSEMBLE_CYCLE_DEADLINE=//p')
+# 7200 - (2400 + 480)
+t_eq "$([ "$deadline" -ge $(((before + 4320) * 1000)) ] && [ "$deadline" -le $(((before + 4320 + 60) * 1000)) ] && echo in-range)" in-range
+
+t_case "a time limit with no room for a deadline gives none, says so, and does not need the feature"
+caps_fresh
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_WORK_TIMEOUT=600 TEHAS_VERIFY_TIMEOUT=120
+jq 'del(.features.cycleDeadline)' "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
+t_run "$work 7"
+t_lacks "$t_out" "does not support"
+t_contains "$t_out" "the time limit of 600s leaves no room for a deadline before it, the cycle has none"
+t_lacks "$(after -e)" "PI_ENSEMBLE_CYCLE_DEADLINE"
+caps_good
+caps_fresh
+jq 'del(.features.cycleDeadline)' "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+t_run "$work 7"
+caps_refused
+t_contains "$t_out" "the feature cycleDeadline"
+caps_good
+
+t_case "a workaround whose release the image has reached stops the cycle: 78, named"
+caps_fresh
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 PI_ENSEMBLE_COMMENT_RETENTION=0 \
+  TEHAS_RUKAS_WORKAROUNDS=PI_ENSEMBLE_COMMENT_RETENTION@0.12.80
+t_run "$work 7"
+caps_refused
+t_contains "$t_out" "TEHAS_RUKAS_WORKAROUNDS names a workaround this image no longer needs"
+t_contains "$t_out" "PI_ENSEMBLE_COMMENT_RETENTION works around a pi-rukas defect fixed in 0.12.80, and the image's pi-rukas is 0.12.80"
+t_contains "$t_out" "Remove the setting and its entry from"
+caps_fresh
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 PI_ENSEMBLE_COMMENT_RETENTION=0 \
+  TEHAS_RUKAS_WORKAROUNDS=PI_ENSEMBLE_COMMENT_RETENTION@0.12.81
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_lacks "$t_out" "no longer needs"
+caps_fresh
+jq '.version = "main"' "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
+t_run "$work 7"
+caps_refused
+t_contains "$t_out" "the image's pi-rukas version could not be read"
+caps_good
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 
 t_case "with images on, the image must read the images directory's variable"
 caps_fresh
@@ -802,7 +890,7 @@ t_eq "$(jq -r '.reason' "$progress_file")" "502 Bad Gateway"
 
 t_case "where the image says its result carries them, the usage per role and the failure come from the result"
 fresh
-jq '.features = {failureReason: true, usageByRole: true}' "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
+jq '.features += {failureReason: true, usageByRole: true}' "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
 container "progress '$(done_line 7:1:1 liar)'
 progress '{\"v\":1,\"kind\":\"dispatch-failed-provider\",\"unstable\":true,\"event\":{\"providerMessage\":\"from the progress\"}}'
 echo '{\"schemaVersion\":3,\"buildCommit\":null,\"exitCode\":10,\"issues\":[{\"issue\":7,\"status\":\"handoff\",\"cap\":\"step-failed:develop\",\"failure\":{\"kind\":\"provider\",\"message\":\"m\",\"providerMessage\":\"503 from the result\"},\"usage\":{\"dispatches\":1,\"byRole\":{\"developer\":{\"input\":3,\"output\":1,\"cacheRead\":0,\"turns\":2,\"dispatches\":1}}},\"exitCode\":10}]}'
@@ -1006,7 +1094,7 @@ t_run "$work 7"
 t_eq "$t_rc" 0
 f=$T/home/tehas/state/cycles/7.settings
 t_eq "$(jq -r '.container | keys[]' "$f" | LC_ALL=C sort | tr '\n' ' ')" \
-  "PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS PI_ENSEMBLE_MAX_WORKSTREAMS PI_ENSEMBLE_SANDBOX_MODE PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER PI_ENSEMBLE_VERIFY_TIMEOUT_MS PI_ENSEMBLE_WORKSPACE_ROOT "
+  "PI_ENSEMBLE_CYCLE_DEADLINE PI_ENSEMBLE_HANDOFF_CHANNEL PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS PI_ENSEMBLE_MAX_WORKSTREAMS PI_ENSEMBLE_SANDBOX_MODE PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER PI_ENSEMBLE_VERIFY_CONCURRENCY PI_ENSEMBLE_VERIFY_TIMEOUT_MS PI_ENSEMBLE_WORKSPACE_ROOT "
 t_eq "$(jq -r '.container.PI_ENSEMBLE_SUBAGENT_MODEL' "$f")" test-model
 t_eq "$(jq -r '.container.PI_ENSEMBLE_WORKSPACE_ROOT' "$f")" "[withheld]"
 # This command holds the issue's lock, so it counts itself.

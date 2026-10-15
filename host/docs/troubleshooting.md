@@ -252,7 +252,8 @@ poll, after a start, and when the reason for a hold changes.
 
 ## The cycle parked (`needs-human-attention`)
 
-Read pi-rukas's handoff comment on the issue first; it names the cap that fired.
+Read the bot's comment on the issue first: it names the cap that fired, and
+pi-rukas's handoff follows in the same comment.
 The common ones:
 
 | Reason                              | What it means                                       | What to do                                               |
@@ -276,8 +277,8 @@ changes nothing for that cycle. See [Operating tehas](/operating).
 
 ## A cycle stops at a cap
 
-pi-rukas's handoff comment has the heading "Cap hit", and its line `**Cap**:`
-names the cap. Under "What this cap means" are pi-rukas's own
+pi-rukas's handoff, in the bot's comment, has the heading "Cap hit", and its
+line `**Cap**:` names the cap. Under "What this cap means" are pi-rukas's own
 words for this stop, and under "Worktree state at handoff" whether the work is
 on a branch and whether that branch was pushed.
 
@@ -298,8 +299,15 @@ Read the rest of the comment with three things in mind:
 A retry approves the issue text as it is then, so change the issue first when
 the cap asks for it. A cap posted on a pull request came from the review
 stage, after the pull request was opened. When that pull request is still open
-at the end of the cycle, the issue gets `tehas:awaiting-merge`, not
-`needs-human-attention`.
+at the end of the cycle, the issue gets `needs-human-attention`, and the
+comment names the cap and the pull request. Only the cap `awaiting-human-merge`
+gives `tehas:awaiting-merge`, and only when the review did not run out of
+rounds with findings open.
+
+The cap `deadline` means the cycle came to the deadline tehas gives it, a
+quarter of `TEHAS_WORK_TIMEOUT` before the end, and started no new step. Its
+branch and pull request are as the handoff says. Retry when the issue can be
+done in the time, or split it.
 
 These are the caps the factory posted on its own issues from 10 to 14 October
 2026, most frequent first.

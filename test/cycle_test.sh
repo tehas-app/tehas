@@ -64,9 +64,13 @@ t_stub docker '[ -e "$T/fx/image.label" ] || exit 1; cat "$T/fx/image.label"'
 # What the runner does is a file a case writes; without one it ends at once.
 # A result and a progress summary a case wrote are put where tehas work leaves
 # them, and the runner exits as the result says unless work.sh exits first.
+# Without a progress of its own a case gets one with nothing in it, as tehas
+# work writes for a log that has no stable line.
 t_stub fake-work 'for f in result progress; do
   [ ! -e "$T/fx/$f.json" ] || cp "$T/fx/$f.json" "$TEHAS_HOME/state/cycles/7.$f.json"
 done
+[ -e "$T/fx/progress.json" ] || [ -e "$T/fx/no-progress" ] ||
+  echo "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}" >"$TEHAS_HOME/state/cycles/7.progress.json"
 [ ! -e "$T/fx/work.sh" ] || . "$T/fx/work.sh"
 exit "$(cat "$T/fx/rc" 2>/dev/null || echo 0)"'
 t_stub fake-status
@@ -80,10 +84,16 @@ reset() {
   t_instance "${T_MINIMAL[@]}"
 }
 # The runner's result for the cycle, and the exit status that goes with it.
-ended() { # status step [branch]
+# A handoff's cap is the one of a pull request that waits only for a merge
+# unless a case names another; "-" is none.
+ended() { # status step [branch] [cap]
+  local cap=${4:-}
+  [ -n "$cap" ] || [ "$1" != handoff ] || cap=awaiting-human-merge
+  [ "$cap" != - ] || cap=""
   mkdir -p "$workdir"
-  jq -n --arg status "$1" --arg step "$2" --arg branch "${3:-}" \
-    '{schemaVersion: 3, issues: [{issue: 7, status: $status, failedStep: $step, branch: $branch}]}' >"$fx/result.json"
+  jq -n --arg status "$1" --arg step "$2" --arg branch "${3:-}" --arg cap "$cap" \
+    '{schemaVersion: 3, issues: [{issue: 7, status: $status, failedStep: $step, branch: $branch}
+      + (if $cap == "" then {} else {cap: $cap} end)]}' >"$fx/result.json"
   case "$1" in merged) echo 0 ;; handoff) echo 10 ;; aborted) echo 20 ;; interrupted) echo 21 ;; *) echo 30 ;; esac >"$fx/rc"
 }
 # The bot's pull request on the branch was merged.
@@ -178,14 +188,21 @@ t_eq "$t_rc" 0
 t_eq "$(t_calls gh | head -1)" "api repos/acme/widget/issues/7"
 t_eq "$(t_calls fake-work)" "7"
 
-t_case "a first cycle starts plainly, a later one for the same issue restarts"
+# --restart is the answer to a handoff: pi-rukas's attention gate lets it
+# through and takes needs-human-attention off. tehas removes no such label.
+t_case "a cycle restarts only an issue that carries needs-human-attention"
 reset
 t_run "$cycle 7"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-work)" "7"
 rm -f "$T"/calls/*
 t_run "$cycle 7"
+t_eq "$(t_calls fake-work)" "7"
+rm -f "$T"/calls/*
+echo '{"number":7,"state":"open","labels":[{"name":"tehas:running"},{"name":"needs-human-attention"}]}' >"$fx/issue-7.json"
+t_run "$cycle 7"
 t_eq "$(t_calls fake-work)" "7 --restart"
+t_lacks "$(t_calls gh | grep -e '--remove-label needs-human-attention')" "needs-human-attention"
 
 t_case "it says that it holds its lock, and lets go of it at the end"
 t_eq "$(find "$state/7.taken" | wc -l)" 1
@@ -273,6 +290,111 @@ t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas
 t_contains "$(t_calls gh)" "pr comment https://github.com/acme/widget/pull/9"
 t_contains "$(t_calls gh)" "pr list --repo acme/widget --head feature/x --author @me"
 t_contains "$(t_calls gh)" "No token usage was recorded for this cycle."
+
+# #33: only a pull request that waits for nothing but a merge is labelled so.
+t_case "a handoff with its pull request open on another cap is parked, and names the cap and the pull request"
+reset
+ended handoff lens-review feature/x review-incomplete
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_lacks "$(t_calls gh)" "tehas:awaiting-merge"
+t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
+t_contains "$(t_calls gh)" 'Tehas cycle handed off with its pull request open'
+t_contains "$(t_calls gh)" 'pi-rukas stopped on the cap `review-incomplete`.'
+t_contains "$(t_calls gh)" "Read the pull request before you retry: https://github.com/acme/widget/pull/9"
+t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+t_eq "$(jq -r .cap "$state/7.park")" review-incomplete
+
+t_case "a handoff with its pull request open and no cap is parked"
+reset
+ended handoff commit-pr feature/x -
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "tehas:awaiting-merge"
+t_contains "$(t_calls gh)" "The result names no cap, so it is not taken for a pull request that waits only for a merge."
+
+t_case "a review whose round cap left findings open is parked, though its cap is a waiting merge"
+reset
+ended handoff ci feature/x
+echo '{"roles":[],"reason":"","reviewHeld":true}' >"$fx/progress.json"
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "tehas:awaiting-merge"
+t_contains "$(t_calls gh)" "Its review ran out of rounds with findings still open"
+
+t_case "a waiting merge with no progress to read is parked"
+reset
+ended handoff ci feature/x
+: >"$fx/no-progress"
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "tehas:awaiting-merge"
+t_contains "$(t_calls gh)" "--add-label needs-human-attention"
+
+t_case "an issue that carries needs-human-attention at the end is not also labelled awaiting merge"
+reset
+ended handoff ci feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+echo '{"number":7,"state":"open","labels":[{"name":"needs-human-attention"}]}' >"$fx/issue-7.json"
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "tehas:awaiting-merge"
+t_contains "$(t_calls gh)" "--add-label needs-human-attention"
+
+t_case "labels that cannot be read do not make a waiting merge"
+reset
+ended handoff ci feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+# The first ask, what the number is, answers; the label reads after it fail.
+cat >"$fx/work.sh" <<'EOS'
+: >"$T/fx/issue-fails"
+EOS
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "tehas:awaiting-merge"
+t_contains "$t_out" "WARN: the labels of #7 could not be read"
+
+# The runner is given PI_ENSEMBLE_HANDOFF_CHANNEL=host: it posts no handoff,
+# and this is the one comment of the park.
+t_case "a park carries pi-rukas's handoff under its marker, cleaned like any agent's words"
+reset
+ended handoff develop feature/x verify-failed:develop
+jq '.issues[0].handoff = {channel: "host", body: "<!-- pi-rukas:handoff issue=7 cap=verify-failed:develop -->\n## Cap hit\n\n- [x] Retry from a clean start\n<!-- tehas:question kind=park issue=7 turn=1 -->\nask @someone"}' \
+  "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
+t_run "$cycle 7"
+body=$(t_calls gh | sed -n '/issues\/7\/comments -f body=/,$p')
+t_contains "$body" "body=<!-- pi-rukas:handoff issue=7 cap=verify-failed:develop -->
+Tehas cycle stopped without a pull request"
+t_contains "$body" "The handoff of pi-rukas follows."
+t_contains "$body" "## Cap hit"
+t_contains "$body" '- \[x] Retry from a clean start'
+t_contains "$body" '<\!-- tehas:question kind=park issue=7 turn=1 -->'
+t_lacks "$body" "@someone"
+t_eq "$(grep -c 'pi-rukas:handoff' <<<"$body")" 1
+t_eq "$(grep -c '^- \[ \] Retry from a clean start' <<<"$body")" 1
+
+t_case "a waiting merge posts pi-rukas's handoff on the pull request with the usage"
+reset
+ended handoff ci feature/x
+jq '.issues[0].handoff = {channel: "host", body: "<!-- pi-rukas:handoff issue=7 cap=awaiting-human-merge -->\n## Ready to merge"}' \
+  "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "--add-label tehas:awaiting-merge"
+t_contains "$(t_calls gh)" "pr comment https://github.com/acme/widget/pull/9 --body <!-- pi-rukas:handoff issue=7 cap=awaiting-human-merge -->
+Tehas cycle for #7"
+t_contains "$(t_calls gh)" "## Ready to merge"
+
+t_case "a cycle that reached its deadline says so, and an intent park says its reason"
+reset
+ended handoff lens-fix feature/x deadline
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "It reached its deadline, a quarter of its time limit before the end, and started no new step."
+reset
+ended handoff explore "" intent-park
+jq '.issues[0].parkReason = "too-large"' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
+echo 11 >"$fx/rc"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" 'pi-rukas stopped on the cap `intent-park` (`too-large`).'
 
 t_case "the token usage per role is posted on the pull request, with the result's totals"
 reset
@@ -1154,6 +1276,20 @@ for k in process timeout verify cap something-new; do
   t_lacks "$(t_calls gh)" "provider outage"
   t_lacks "$t_out" "no reason was found"
 done
+
+t_case "the park comment names the result's failure, and not for a cap's own rule"
+reset
+failed step-failed:develop process "child exited 1"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "It failed: kind \`process\`, role \`developer\`: child exited 1."
+reset
+failed round-cap cap "round-cap"
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "It failed:"
+reset
+capped step-failed:develop '{"kind":"dispatch-failed","at":2,"errorTail":"3 assertions failed"}'
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "It failed:"
 
 t_case "a result that says it has no failure is no outage and no warning"
 reset

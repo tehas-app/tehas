@@ -139,6 +139,10 @@ _tehas_valid() {
         return 1
       fi
       ;;
+    TEHAS_RUKAS_WORKAROUNDS)
+      [[ $v =~ ^(PI_ENSEMBLE|TEHAS)_[A-Z0-9_]+@[0-9]{1,6}(\.[0-9]{1,6}){1,3}(\ (PI_ENSEMBLE|TEHAS)_[A-Z0-9_]+@[0-9]{1,6}(\.[0-9]{1,6}){1,3})*$ ]] ||
+        { echo "expected NAME@VERSION entries separated by single spaces, such as PI_ENSEMBLE_COMMENT_RETENTION@0.12.80"; return 1; }
+      ;;
     PI_ENSEMBLE_SUBAGENT_MODEL | PI_ENSEMBLE_SUBAGENT_PROVIDER | PI_ENSEMBLE_MODEL_* | PI_ENSEMBLE_PROVIDER_* | TEHAS_BRANCH)
       [[ $v =~ ^[^[:space:]]+$ ]] || { echo "expected one word"; return 1; }
       ;;
@@ -288,6 +292,10 @@ tehas_load() {
   # files no more there. What it files is a model's reading of text anyone
   # may have written, so nobody reading must not mean an endless stack.
   export TEHAS_IMPROVE_MAX_OPEN=${TEHAS_IMPROVE_MAX_OPEN:-10}
+  # Settings that only work around a pi-rukas defect, each with the release
+  # that fixes it. tehas work refuses a cycle once the image has that release,
+  # so a workaround does not outlive its reason.
+  export TEHAS_RUKAS_WORKAROUNDS=${TEHAS_RUKAS_WORKAROUNDS:-}
   export TEHAS_HOST_ADDR=${TEHAS_HOST_ADDR:-127.0.0.1}
   # Room for every cycle and two pull requests that wait for a review. A fixed
   # number would leave slots that can never be used. A concurrency that is not
@@ -348,9 +356,17 @@ tehas_load() {
     [ -n "${!v:-}" ] || continue
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
-  for v in TEHAS_ANALYTICS_SRC TEHAS_ANALYTICS_SITE TEHAS_IMPROVE_REPO TEHAS_IMPROVE_RUKAS_REPO TEHAS_IMPROVE_MAX_OPEN; do
+  for v in TEHAS_ANALYTICS_SRC TEHAS_ANALYTICS_SITE TEHAS_IMPROVE_REPO TEHAS_IMPROVE_RUKAS_REPO TEHAS_IMPROVE_MAX_OPEN TEHAS_RUKAS_WORKAROUNDS; do
     [ -n "${!v}" ] || continue
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
+  done
+  # An entry for a setting the instance no longer has is a workaround removed
+  # by half.
+  for v in $TEHAS_RUKAS_WORKAROUNDS; do
+    v=${v%@*}
+    [ "$v" != TEHAS_RUKAS_WORKAROUNDS ] && [ -n "${!v:-}" ] && continue
+    tehas_err "TEHAS_RUKAS_WORKAROUNDS names $v, which is not set: remove its entry (see $file)"
+    return 78
   done
   if [ -n "$TEHAS_ANALYTICS_SRC" ] && [ -z "$TEHAS_ANALYTICS_SITE" ]; then
     tehas_err "TEHAS_ANALYTICS_SITE is not set and TEHAS_ANALYTICS_SRC is (see $file)"

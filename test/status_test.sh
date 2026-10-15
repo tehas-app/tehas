@@ -76,6 +76,15 @@ t_eq "$(jq -r '.awaiting | length' "$live/status.json")" 1
 t_eq "$(jq -r '[.queued[].number] | join(",")' "$live/status.json")" "3"
 t_eq "$(jq -r .status "$live/health.json")" pass
 
+# A cycle starts with --restart and pi-rukas takes needs-human-attention off
+# once it runs: until then the issue carries both labels.
+t_case "an issue a cycle is running on is not stopped, whatever else it carries"
+reset
+echo '[{"number":6,"title":"t","url":"u","state":"OPEN","labels":[{"name":"tehas:running"},{"name":"needs-human-attention"}],"updatedAt":"2026-01-01T00:00:00Z","closedAt":null}]' >"$T/issues.json"
+t_run "$status"
+t_eq "$(jq -r '.running | length' "$live/status.json")" 1
+t_eq "$(jq -r '.stopped | length' "$live/status.json")" 0
+
 t_case "the breakroom's words are counted over every issue, labelled for the factory or not"
 reset
 cat >"$T/all.json" <<'EOF2'

@@ -76,7 +76,23 @@
 # person closed without merging parks the issue without the retry boxes.
 #
 # Only a run that ended as handoff (runner exit 10 or 11) with an open pull
-# request is reported as waiting for a merge. The label change that ends a cycle is tried three
+# request, on the cap awaiting-human-merge, is reported as waiting for a merge,
+# and only while no stable cap-hit of its progress ended the review on its
+# round cap (reviewHeld) and the issue does not carry needs-human-attention as
+# GitHub answers at the end. Any other handoff with a pull request is parked
+# and its comment names the cap and the pull request.
+#
+# pi-rukas reports no handoff itself: tehas work gives a cycle
+# PI_ENSEMBLE_HANDOFF_CHANNEL=host. The handoff the runner rendered is in its
+# result, and goes into this command's one comment of the park (on the pull
+# request, for a waiting merge), cleaned as an agent's words are, under
+# pi-rukas's marker <!-- pi-rukas:handoff issue=<n> cap=<cap> -->.
+#
+# An issue that carries needs-human-attention when its cycle starts is run with
+# --restart: the start is a person's answer to the handoff. pi-rukas then takes
+# the label off. This command and the dispatcher remove it nowhere.
+#
+# The label change that ends a cycle is tried three
 # times, and so is the question about the pull request, and so is the call
 # that asks what the number is. A pull request that could not be looked up is
 # not taken for none: the issue is parked with a comment that says so and names
@@ -213,6 +229,21 @@ relabel() {
   log "WARN: label change on #$issue failed: $*"
   return 1
 }
+# attention_off: the issue does not carry needs-human-attention now, as GitHub
+# answers. No answer counts as carrying it: a pull request is said to wait only
+# for a merge only when that is known.
+attention_off() {
+  local try json
+  for ((try = 1; try <= tries; try++)); do
+    if json=$(gh_call api "repos/$repo/issues/$issue" 2>/dev/null) && jq -e 'type == "object"' >/dev/null 2>&1 <<<"$json"; then
+      jq -e '(.labels // []) | any(.name? == "needs-human-attention") | not' >/dev/null 2>&1 <<<"$json"
+      return
+    fi
+    [ "$try" = "$tries" ] || sleep "$retry_wait"
+  done
+  log "WARN: the labels of #$issue could not be read, so its pull request is not said to wait only for a merge"
+  return 1
+}
 # post_question <result.json>: post the park question. Its id is left in
 # $posted. Returns 1 when it could not be posted.
 posted=""
@@ -237,12 +268,19 @@ tidy() {
 }
 
 started=$(date +%s)
-# A relabelled issue gets a fresh cycle, not whatever the last one parked.
 # The workspace is new every time, so the record of an earlier cycle is kept
 # here, on the host.
-restart=""
-[ -e "$cycles/$issue" ] && restart=--restart
 : >"$cycles/$issue"
+# An issue a handoff left with needs-human-attention starts again only on a
+# person's answer: the label or the tick that started this cycle, or the one
+# start after a provider outage the dispatcher makes for the account that
+# authorised the cycle before. That answer is what --restart tells the runner.
+# It lets the start past pi-rukas's attention gate and takes the label off the
+# issue itself: nothing here removes it.
+restart=""
+if jq -e '(.labels // []) | any(.name? == "needs-human-attention")' >/dev/null 2>&1 <<<"$answer"; then
+  restart=--restart
+fi
 # A count of kills still here is an earlier cycle's, one that was killed
 # outright before it could report.
 # The dispatcher marks the one start it makes on its own after a provider
@@ -360,6 +398,15 @@ branch=$(jq -r '.branch // ""' <<<"$outcome")
 # of whether a fix was in it.
 build=$(jq -r '.buildCommit // ""' <<<"$outcome")
 [[ $build =~ ^[0-9a-f]{40}$ ]] || build=""
+# The handoff the runner rendered and left to this command to post: tehas work
+# gives a cycle PI_ENSEMBLE_HANDOFF_CHANNEL=host, so pi-rukas posts none and
+# applies no label. Its first line is pi-rukas's marker, which goes back on top
+# of the comment, so a reader can tell it posted the handoff.
+handoff=$(jq -r '.handoffBody // "" | sub("^<!-- pi-rukas:handoff [^\n]*-->\n*"; "")' <<<"$outcome" 2>/dev/null)
+park_reason=$(jq -r '.parkReason // ""' <<<"$outcome" | tr -cd 'a-z-' | head -c 40)
+# A stable cap-hit that ended the review on its round cap and sent the cycle on
+# to ci: the pull request has review findings no round answered.
+review_held=$(head -c 1000000 "$progress" 2>/dev/null | jq -r '.reviewHeld == true' 2>/dev/null)
 # The cap that ended the cycle, from the result's published vocabulary, and
 # why: the result's failure, or for an image without one what tehas work could
 # read of the progress. Reduced and cut short as the other fields are.
@@ -369,6 +416,10 @@ reason=$(head -c 1000000 "$progress" 2>/dev/null | jq -j '.reason // "" | string
 failure_from=$(head -c 1000000 "$progress" 2>/dev/null | jq -r '.from.failure // "" | strings' 2>/dev/null)
 failure_kind=$(head -c 1000000 "$progress" 2>/dev/null | jq -r '.failure.kind // "" | strings' 2>/dev/null |
   tr -cd 'a-z-' | head -c 40)
+failure_role=$(head -c 1000000 "$progress" 2>/dev/null | jq -r '.failure.role // "" | strings' 2>/dev/null |
+  tr -cd 'A-Za-z0-9_.-' | head -c 40)
+failure_cause=$(head -c 1000000 "$progress" 2>/dev/null | jq -r '.failure.cause // "" | strings' 2>/dev/null |
+  tr -cd 'A-Za-z0-9_.:-' | head -c 60)
 provider=0
 if [ "$failure_from" = result ]; then
   [ "$failure_kind" != provider ] || provider=1
@@ -451,6 +502,18 @@ fi
 stuck=" The label of this issue could not be changed. The next poll of the dispatcher hands it to a human."
 
 summary="status \`$status\`, last step \`$step\`, $mins min"
+# Why pi-rukas stopped, for a comment: its cap and, for an intent park, the
+# reason. A cap is a word of the runner's published vocabulary.
+why=""
+[ -z "$cap" ] || why=" pi-rukas stopped on the cap \`$cap\`${park_reason:+ (\`$park_reason\`)}."
+[ "$cap" != deadline ] || why="$why It reached its deadline, a quarter of its time limit before the end, and started no new step."
+# The failure behind the cap, where the result gives one. Of kind cap nothing
+# failed: the cap's own rule stopped the cycle, and the cap says that.
+if [ "$failure_from" = result ] && [ -n "$failure_kind" ] && [ "$failure_kind" != cap ] && [ "$provider" != 1 ]; then
+  why="$why It failed: kind \`$failure_kind\`${failure_role:+, role \`$failure_role\`}${failure_cause:+, cause \`$failure_cause\`}${reason:+: $reason}."
+fi
+marker=""
+[ -z "$handoff" ] || marker="<!-- pi-rukas:handoff issue=$issue cap=${cap:-none} -->"
 # Why the dispatcher stopped this cycle, if it did.
 done_why=$(head -c 16 "$cycles/$issue.done" 2>/dev/null | head -n 1)
 case "$done_why" in closed | merged | pr-closed) ;; *) done_why="" ;; esac
@@ -465,9 +528,11 @@ park() {
   jq -n --arg cap "$cap" --arg reason "$reason" --argjson provider "$([ "$provider" = 1 ] && echo true || echo false)" \
     --argjson retry "$retry" --argjson started "$started" '{$cap, $reason, $provider, $retry, $started}' \
     >"$cycles/$issue.park" 2>/dev/null || log "WARN: could not record the park of #$issue"
-  jq -n --arg text "$parked
+  jq -n --arg text "$parked${handoff:+
 
-${usage}" '{text: $text, question: null}' >"$TEHAS_HOME/state/park-$issue.json"
+$handoff}
+
+${usage}" --arg marker "$marker" '{text: $text, question: null, marker: $marker}' >"$TEHAS_HOME/state/park-$issue.json"
   if post_question "$TEHAS_HOME/state/park-$issue.json"; then
     # On record before the label shows it: a tick counts only in the comment
     # named here. Without the record a tick starts nothing and says so.
@@ -482,9 +547,12 @@ ${usage}" '{text: $text, question: null}' >"$TEHAS_HOME/state/park-$issue.json"
     fi
   else
     # Without the boxes there is nothing to tick: say the old way.
-    comment "$parked To retry, apply \`tehas:ready\`.
+    comment "${marker:+$marker
+}$(printf '%s' "$parked To retry, apply \`tehas:ready\`.${handoff:+
 
-${usage}"
+$handoff}
+
+${usage}" | q_clean 60000)"
   fi
   rm -f "$TEHAS_HOME/state/park-$issue.json"
 }
@@ -512,13 +580,27 @@ elif [ "$rc" = 0 ] && [ "$status" = merged ]; then
   # A claim the container wrote. Without the merge to show for it the
   # workspaces are kept: what they hold may exist nowhere else.
   park "Tehas cycle stopped: its state says \`merged\`, but the bot has no merged pull request for this issue on \`$(tr -cd 'A-Za-z0-9_./-' <<<"${branch:-none}")\` ($summary). Nothing was removed; $log_where.$killed${pr:+ Its branch has an open pull request: $pr}$foreign"
-elif { [ "$rc" = 10 ] || [ "$rc" = 11 ]; } && [ "$status" = handoff ] && [ -n "$pr" ]; then
+elif { [ "$rc" = 10 ] || [ "$rc" = 11 ]; } && [ "$status" = handoff ] && [ -n "$pr" ] &&
+  [ "$cap" = awaiting-human-merge ] && [ "$review_held" = false ] && attention_off; then
   relabel --remove-label tehas:running --add-label tehas:awaiting-merge && stuck=""
   comment "Tehas cycle finished: $summary. Pull request waiting for a human: $pr$killed$stuck"
-  gh_call pr comment "$pr" --body "Tehas cycle for #$issue: $summary.
+  gh_call pr comment "$pr" --body "${marker:+$marker
+}$(printf '%s' "Tehas cycle for #$issue: $summary.${handoff:+
 
-${usage:-No token usage was recorded for this cycle.}" >/dev/null 2>&1 || log "WARN: comment on $pr failed"
+$handoff}
+
+${usage:-No token usage was recorded for this cycle.}" | q_clean 60000)" >/dev/null 2>&1 || log "WARN: comment on $pr failed"
   tidy
+elif { [ "$rc" = 10 ] || [ "$rc" = 11 ]; } && [ "$status" = handoff ] && [ -n "$pr" ]; then
+  # A handoff with its pull request open for any other reason is not waiting
+  # only for a merge: an incomplete review, a cap, a reason that cannot be
+  # read, a review whose round cap left findings open, or a label a person or
+  # pi-rukas put on the issue. It is parked, and the pull request is named.
+  held=""
+  [ "$review_held" = false ] || [ "$cap" != awaiting-human-merge ] ||
+    held=" Its review ran out of rounds with findings still open, so it is not waiting only for a merge."
+  [ -n "$cap" ] || why=" The result names no cap, so it is not taken for a pull request that waits only for a merge."
+  park "Tehas cycle handed off with its pull request open: $summary (runner exit $rc).$why$held Read the pull request before you retry: $pr. The workspace is kept; $log_where.$killed$foreign"
 elif [ "$done_why" = closed ]; then
   # Closed while the cycle ran: nobody is waiting on it, so nothing is asked.
   # The workspace stays for the sweep.
@@ -529,9 +611,12 @@ elif [ -z "$pr" ] && [ -n "$closed_pr" ] && [ "$rc" != 4 ]; then
   # A person closed the pull request without merging it: whether to try again
   # is theirs to say, with the label. No retry box.
   relabel --remove-label tehas:running --add-label needs-human-attention && stuck=""
-  comment "Tehas cycle stopped: its pull request $closed_pr was closed without being merged ($summary, runner exit $rc). The workspace is kept; $log_where.$killed$stuck To retry, apply \`tehas:ready\`."
+  comment "${marker:+$marker
+}$(printf '%s' "Tehas cycle stopped: its pull request $closed_pr was closed without being merged ($summary, runner exit $rc).$why The workspace is kept; $log_where.$killed$stuck To retry, apply \`tehas:ready\`.${handoff:+
+
+$handoff}" | q_clean 60000)"
 else
-  parked="Tehas cycle stopped without a pull request: $summary (runner exit $rc). Read the handoff comment if there is one; $log_where.$killed${pr:+ Its branch has an open pull request: $pr}$foreign"
+  parked="Tehas cycle stopped without a pull request: $summary (runner exit $rc).$why${handoff:+ The handoff of pi-rukas follows.} The workspace is kept; $log_where.$killed${pr:+ Its branch has an open pull request: $pr}$foreign"
   if [ "$rc" = 4 ]; then
     parked="Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit $rc). The comment before this one names it; $log_where."
   elif [ "$provider" = 1 ]; then

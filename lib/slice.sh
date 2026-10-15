@@ -38,6 +38,13 @@
 #                        each CPU of <c>, rounded up, from 2048 to 4096.
 #                        Returns 1 with nothing printed without a probe or
 #                        with a concurrency that is not a number.
+#   tehas_slice_verify   after tehas_slice_limits. No call. Prints how many
+#                        runs of the product's gate one container runs at
+#                        once: one for each two whole CPUs of its quota and
+#                        each 2 GiB of its memory ceiling, the lower, at least
+#                        one. The rule pi-rukas applies to a host, applied to
+#                        the container. Returns 1 with nothing printed when
+#                        TEHAS_SLICE_LIMITS has no quota or ceiling.
 #   tehas_slice_room <count> [<cid file>...]
 #                        after tehas_slice_ok. How many more containers of one
 #                        reserve fit, and never more than leave the slice with
@@ -209,6 +216,21 @@ tehas_slice_limits() {
   read -r quota pids <<<"$cpu"
   TEHAS_SLICE_LIMITS=(--cgroup-parent tehas.slice --memory "${mb}m" --memory-swap "${mb}m"
     --memory-reservation "$TEHAS_CYCLE_RESERVE" --cpus "$quota" --pids-limit "$pids" --cpu-shares 1024)
+}
+
+tehas_slice_verify() {
+  local i cpus="" mb="" n
+  for ((i = 0; i + 1 < ${#TEHAS_SLICE_LIMITS[@]}; i++)); do
+    case "${TEHAS_SLICE_LIMITS[i]}" in
+      --cpus) cpus=${TEHAS_SLICE_LIMITS[i + 1]%%.*} ;;
+      --memory) mb=${TEHAS_SLICE_LIMITS[i + 1]%m} ;;
+    esac
+  done
+  _tehas_slice_num "$cpus" && _tehas_slice_num "$mb" || return 1
+  n=$((cpus / 2))
+  [ $((mb / 2048)) -ge "$n" ] || n=$((mb / 2048))
+  [ "$n" -ge 1 ] || n=1
+  printf '%d\n' "$n"
 }
 
 tehas_slice_pressure() {

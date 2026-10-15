@@ -4,33 +4,43 @@
 # publishes is read here (docs/headless.md in pi-rukas), never its state file.
 # Sourced by tehas work (libexec/work) and tehasbot cycle (libexec/cycle).
 #
-#   tehas_headless_unsupported <caps> <flags> <names>
+#   tehas_headless_unsupported <caps> <flags> <names> [features]
 #       what the image's --capabilities answer <caps> does not support, one
 #       line each: a contract version other than the one read here, a flag in
 #       <flags> (the work arguments, space separated) that the work verb does
 #       not take, a variable in <names> (space separated) that is no input a
-#       host may set. Prints nothing when all are supported. Returns 1 when
+#       host may set, a name in <features> that the answer's features do not
+#       set to true. Prints nothing when all are supported. Returns 1 when
 #       the answer is not an object.
 #       A family such as PI_ENSEMBLE_MODEL_<ROLE> takes the members the
 #       answer lists for it, and any name characters when it lists none.
 #   tehas_headless_reads_images <caps>
 #       1 when the answer lists PI_ENSEMBLE_ISSUE_IMAGES for the manifest
 #       format tehas writes (manifestVersion 1), else 0.
+#   tehas_headless_expired <caps> <workarounds>
+#       the workarounds in <workarounds> (NAME@VERSION, space separated) that
+#       the image's pi-rukas no longer needs: its version is VERSION or later.
+#       One line each. A version that cannot be read expires them all, said
+#       once: whether the fix is there is not known.
 #   tehas_headless_now <ndjson>
 #       the step of the last stable step-started line and the message of the
 #       last stable log line, as two lines.
 #   tehas_headless_progress <ndjson> [<caps> <result> <issue>]
 #       one JSON object: roles, the per-role usage; reason, why the cycle
 #       stopped at its cap; failure, the result's failure kind, step, role and
-#       cause, or null; from, where roles and failure were read. They come
-#       from the result where the answer says it carries them
-#       (features.usageByRole, features.failureReason), else from the
-#       progress: the stable dispatch-completed lines, each counted once by
-#       its key, and for the reason lines the runner marks unstable.
+#       cause, or null; from, where roles and failure were read; reviewHeld, a
+#       stable cap-hit ended the review on its round cap and sent the cycle on
+#       to ci, so its findings were left open. roles and failure come from the
+#       result where the answer says it carries them (features.usageByRole,
+#       features.failureReason), else from the progress: the stable
+#       dispatch-completed lines, each counted once by its key, and for the
+#       reason lines the runner marks unstable.
 #   tehas_headless_outcome <result> <issue>
 #       the issue's entry of a schema 3 result as one JSON object, its text
 #       fields reduced to plain characters, its exitCode null unless a number.
-#       Returns 1 when there is none.
+#       handoffBody is the handoff's markdown as the runner rendered it, cut
+#       at 30000 characters and not cleaned: it is for a comment, through
+#       q_clean. Returns 1 when there is none.
 #   tehas_headless_error_only <result>
 #       whether <result> is a schema 3 result with no issue entry at all, as a
 #       refusal that carries only an error may be.
@@ -41,9 +51,9 @@ tehas_headless_exit_codes=1
 tehas_headless_result=3
 tehas_headless_ndjson_stable=1
 
-tehas_headless_unsupported() { # <caps> <flags> <names>
+tehas_headless_unsupported() { # <caps> <flags> <names> [features]
   jq -e 'type == "object"' >/dev/null 2>&1 <<<"$1" || return 1
-  jq -r --arg flags "$2" --arg names "$3" \
+  jq -r --arg flags "$2" --arg names "$3" --arg features "${4:-}" \
     --argjson ev "$tehas_headless_exit_codes" --argjson rv "$tehas_headless_result" \
     --argjson nv "$tehas_headless_ndjson_stable" '
     def words: split(" ") | map(select(length > 0));
@@ -63,7 +73,24 @@ tehas_headless_unsupported() { # <caps> <flags> <names>
        else "stable NDJSON version \(.contracts.ndjson.stable.version), not \($nv)" end),
       ($flags | words[] | select(startswith("--")) | select(. as $f | $have | index($f) | not) | "the flag \(.)"),
       ($names | words[] | select(. as $n | any($ok[]; . as $re | $n | test($re)) | not)
-       | "the input \(.)")' <<<"$1" 2>/dev/null | tr -cd 'A-Za-z0-9_ .,<>\n-'
+       | "the input \(.)"),
+      (.features as $f | $features | words[] | select(($f | type) != "object" or $f[.] != true)
+       | "the feature \(.)")' <<<"$1" 2>/dev/null | tr -cd 'A-Za-z0-9_ .,<>\n-'
+}
+
+tehas_headless_expired() { # <caps> <workarounds>
+  local have entry name want
+  [ -n "$2" ] || return 0
+  have=$(jq -r '.version | strings' 2>/dev/null <<<"$1")
+  if ! [[ $have =~ ^[0-9]{1,6}(\.[0-9]{1,6}){1,3}$ ]]; then
+    printf '%s\n' "the image's pi-rukas version could not be read, so it is not known whether $2 are still needed"
+    return 0
+  fi
+  for entry in $2; do
+    name=${entry%@*} want=${entry##*@}
+    [ "$(printf '%s\n%s\n' "$want" "$have" | sort -V | head -n 1)" = "$want" ] || continue
+    printf '%s\n' "$name works around a pi-rukas defect fixed in $want, and the image's pi-rukas is $have"
+  done
 }
 
 tehas_headless_reads_images() { # <caps>
@@ -95,7 +122,8 @@ tehas_headless_progress() { # <ndjson> [<caps> <result> <issue>]
   local legacy result=null caps
   caps=$(jq -c 'objects' <<<"${2:-}" 2>/dev/null) || caps=""
   [ -n "$caps" ] || caps='{}'
-  legacy=$(_tehas_headless_progress_lines "$1") || legacy='{"roles":[],"reason":""}'
+  legacy=$(_tehas_headless_progress_lines "$1") || legacy=""
+  [ -n "$legacy" ] || legacy='{"roles":[],"reason":"","reviewHeld":false}'
   if [ -n "${4:-}" ] && [ ! -L "${3:-}" ]; then
     result=$(jq -c --argjson issue "$4" --argjson rv "$tehas_headless_result" '
       select(type == "object" and .schemaVersion == $rv)
@@ -121,6 +149,7 @@ tehas_headless_progress() { # <ndjson> [<caps> <result> <issue>]
        failure: (if $by_failure and $f != null then
                  {kind: ($f.kind | plain), step: ($f.step | plain), role: ($f.role | plain), cause: ($f.cause | plain)}
                else null end),
+       reviewHeld: ($legacy.reviewHeld == true),
        from: {roles: (if $by_role then "result" else "progress" end),
               failure: (if $by_failure then "result" else "progress" end)}}' 2>/dev/null
 }
@@ -149,9 +178,11 @@ _tehas_headless_progress_lines() { # <ndjson>
             input: (map(.u.input) | add), output: (map(.u.output) | add),
             cacheRead: (map(.u.cacheRead) | add)})) as $roles
     | ([.[] | select(.kind == "cap-hit") | .event.evidence?] | map(strings | select(length > 0)) | last) as $evidence
+    | any(.[]; .kind == "cap-hit" and (.unstable // false) == false
+          and .event.cap? == "round-cap" and .event.nextStep? == "ci") as $held
     | ([.[] | select(.unstable == true) | .event | (.providerMessage?, .errorTail?)]
        | map(strings | select(length > 0)) | last) as $failure
-    | {roles: $roles, reason: ($evidence // $failure // "")}' 2>/dev/null
+    | {roles: $roles, reason: ($evidence // $failure // ""), reviewHeld: $held}' 2>/dev/null
 }
 
 tehas_headless_error_only() { # <result>
@@ -170,6 +201,8 @@ tehas_headless_outcome() { # <result> <issue>
     | select(. != null)
     | {status: (.status | plain), cap: (.cap | plain), failedStep: (.failedStep | plain),
        lastStep: ([.steps[]? | .step? | plain] | last // ""),
+       parkReason: (.parkReason | plain),
+       handoffBody: (.handoff.body? | if type == "string" then .[0:30000] else "" end),
        branch: (.branch | plain), prUrl: (.prUrl | plain),
        resumable: (.resumable == true),
        exitCode: (if (.exitCode | type) == "number" then .exitCode else null end),
