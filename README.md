@@ -153,7 +153,9 @@ it tags, does nothing when the head is already tagged, and prints the tag on
 stdout; `--minor`, `--major`, `--message`, `--no-verify` and `--dry-run` are
 there too. `tag-deploy.sh` refuses when main has
 moved past the newest tag, because `tehas update` installs the head of the
-branch, not a tag. `--check` reports without changing the host.
+branch, not a tag. It also stops when the ssh user has no `~/tehas/env.sh`:
+log in as the account tehas runs as, through `~/.ssh/config` or `TEHAS_SSH`.
+`--check` reports without changing the host.
 
 | Path | What it is |
 | --- | --- |
