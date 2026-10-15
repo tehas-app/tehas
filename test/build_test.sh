@@ -10,6 +10,8 @@
 
 build="$T_ROOT/host/sandbox/build.sh"
 uid=$(id -u)
+# The head of pi-rukas's branch, so the build asks no network.
+t_stub git 'printf "%s\trefs/heads/main\n" aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 t_stub docker 'case "$1" in
   build)
     while [ "$#" -gt 0 ]; do [ "$1" = -t ] && echo "${2#*:} sha256:new" >>"$T/images"; shift; done ;;
@@ -77,17 +79,9 @@ t_run "$build"
 t_eq "$t_rc" 0
 t_eq "$(removed)" ""
 
-t_case "the Dockerfile's base is the image of PI_RUKAS_VERSION"
-from=$(grep -m 1 '^FROM ' "$T_ROOT/host/sandbox/Dockerfile")
-version=$(sed -n 's/^PI_RUKAS_VERSION=//p' "$T_ROOT/host/versions.env")
-[ -n "$version" ] || t_bad "versions.env has no PI_RUKAS_VERSION"
-from=${from#FROM }
-from=${from%@*}
-t_eq "${from##*:}" "$version"
-
 t_case "every argument the Dockerfile reads is passed from versions.env"
 while read -r arg; do
-  [ "$arg" = TEHAS_UID ] && continue
+  case $arg in PI_RUKAS_IMAGE | PI_RUKAS_COMMIT | TEHAS_UID | TEHAS_RUKAS_IMAGES) continue ;; esac
   grep -q "^$arg=" "$T_ROOT/host/versions.env" || t_bad "$arg is not in versions.env"
   grep -qF -- "--build-arg $arg=\"\$$arg\"" "$build" || t_bad "build.sh does not pass $arg"
 done < <(sed -n 's/^ARG \([A-Z0-9_]*\).*/\1/p' "$T_ROOT/host/sandbox/Dockerfile")

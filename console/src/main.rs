@@ -26,9 +26,9 @@ mod tail;
 
 use render::Entry;
 use std::collections::HashMap;
-use std::fs::{File, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -85,12 +85,30 @@ fn write(out: &mut File, entry: &Entry) -> io::Result<()> {
     out.write_all(render::format(entry, now as u32).as_bytes())
 }
 
-fn run(args: &Args, stop: &AtomicBool) -> io::Result<()> {
-    let mut out = OpenOptions::new()
+fn open_out(path: &str) -> io::Result<File> {
+    OpenOptions::new()
         .create(true)
         .append(true)
         .mode(0o644)
-        .open(&args.out)?;
+        .open(path)
+}
+
+// A console file removed or replaced while the cycle runs is opened again by
+// its name, or the rest of the cycle would go to a file no one can read.
+fn reopened(out: File, path: &str) -> io::Result<File> {
+    let same = match (fs::metadata(path), out.metadata()) {
+        (Ok(named), Ok(held)) => named.dev() == held.dev() && named.ino() == held.ino(),
+        _ => false,
+    };
+    if same {
+        Ok(out)
+    } else {
+        open_out(path)
+    }
+}
+
+fn run(args: &Args, stop: &AtomicBool) -> io::Result<()> {
+    let mut out = open_out(&args.out)?;
     let mut follower = tail::Follower::default();
     let mut workstreams: HashMap<String, String> = HashMap::new();
     write(
@@ -101,12 +119,17 @@ fn run(args: &Args, stop: &AtomicBool) -> io::Result<()> {
         // Read before the lines are: a stop that arrives during a pass is
         // followed by one more pass, so the last lines are not lost.
         let stopping = stop.load(Ordering::Relaxed);
+        out = reopened(out, &args.out)?;
         for line in follower.new_lines(&args.rpc) {
             if let Some(entry) = render::rpc_line(&line) {
                 write(&mut out, &entry)?;
             }
         }
         for transcript in follower.transcripts(&args.runs, args.since) {
+            // A stop that arrives now goes straight to the last pass.
+            if !stopping && stop.load(Ordering::Relaxed) {
+                break;
+            }
             let role = tail::role(&transcript.path);
             for line in follower.transcript_lines(&transcript) {
                 if let Some(workstream) = render::workstream(&line) {
@@ -126,6 +149,11 @@ fn run(args: &Args, stop: &AtomicBool) -> io::Result<()> {
         let skipped = follower.take_skipped();
         if skipped > 0 {
             let said = format!("log lines over 1 MiB left out: {skipped}");
+            write(&mut out, &Entry::new("tehas", said, None))?;
+        }
+        let unheld = follower.take_unheld();
+        if unheld > 0 {
+            let said = format!("unfinished log lines left out, 16 MiB of them held: {unheld}");
             write(&mut out, &Entry::new("tehas", said, None))?;
         }
         if stopping {

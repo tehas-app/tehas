@@ -129,7 +129,7 @@ Installs under the user's home, each tool in its own place:
 | Pi, `ctx7`, `parallel-cli`        | `~/tehas/tools/npm/<name>`, commands linked into `~/.local/bin` | npm tree, pinned by lockfile  |
 | Rust, then `vipune` and `oo`      | `~/.rustup`, `~/.cargo`                | rustup, then `cargo install`  |
 | `codebase-memory-mcp`             | `~/.local/bin`                         | Its installer, pinned release |
-| pi-rukas                          | `~/tehas/repos/pi-rukas`, one commit   | Its repository, then its `install.sh` |
+| pi-rukas                          | `~/tehas/repos/pi-rukas`, its branch's head | Its repository, then its `install.sh` |
 
 Every release archive is checked against a SHA-256 in `versions.env` before it
 is unpacked. The three npm tools are pinned the same way, by a tree beside
@@ -156,10 +156,12 @@ The last step runs pi-rukas's own installer, which links its
 extension and skills into `~/.pi/agent/` and pulls its own `latest` image. It is
 run without `PI_ENSEMBLE_IMAGE`, so it never touches the tehas sandbox image.
 
-pi-rukas comes from the repository named in `versions.env`, at the commit of
-one of its releases. A clone already on the host is pointed at that repository
-before it is fetched. [The host](/host#pi-rukas-comes-from-upstream) says how
-the release is chosen.
+pi-rukas comes from the repository named in `versions.env`, at the head of the
+branch named there. It is not pinned: each run moves the clone to the head,
+and `check` reports a clone behind it as `DIFFERS`. A clone already on the
+host is pointed at that repository before it is fetched.
+[The host](/host#pi-rukas-comes-from-upstream) says how the sandbox image
+follows the same branch.
 
 Compiling `vipune` and `oo` takes a few minutes. The rest is quick. Rust is
 also what `install.sh` builds the cycle console with.

@@ -352,6 +352,49 @@ t_eq "$(t_calls build)" ""
 t_eq "$(t_calls docker)" ""
 t_eq "$(t_calls systemctl)" ""
 
+t_case "a second update while one runs exits 1 and calls nothing"
+instance
+platform 2 "$ASK"
+before=$(state)
+mkdir -p "$th/state"
+t_run "exec 8>>'$th/state/update.lock'; flock -n 8 || exit 9; '$update'"
+t_eq "$t_rc" 1
+t_contains "$t_out" "tehas update: another update is running ($th/state/update.lock); nothing was changed"
+t_eq "$(state)" "$before"
+t_eq "$(t_calls install)" ""
+t_eq "$(t_calls build)" ""
+t_eq "$(t_calls docker)" ""
+t_eq "$(t_calls systemctl)" ""
+
+t_case "--check takes no lock"
+t_run "exec 8>>'$th/state/update.lock'; flock -n 8 || exit 9; '$update' --check"
+t_lacks "$t_out" "another update is running"
+t_eq "$(t_calls install)" "install --check"
+
+t_case "install.sh is handed the lock the update holds"
+instance
+platform 0 'if [ "/dev/fd/${TEHAS_UPDATE_LOCK_FD:-x}" -ef "$TEHAS_HOME/state/update.lock" ] && flock -n "$TEHAS_UPDATE_LOCK_FD"; then echo "the lock is ours"; fi
+( exec 6>>"$TEHAS_HOME/state/update.lock"; flock -n 6 ) || echo "held against others"'
+t_run "$update"
+t_eq "$t_rc" 0
+t_contains "$t_out" "the lock is ours"
+t_contains "$t_out" "held against others"
+
+t_case "a unit the pulled step library adds is restarted by the update that pulled it"
+instance
+platform 0 'echo "next: units tehas-dispatch.timer tehas-new.timer"'
+rm -rf "$T/upstream"
+git clone -q "$T/origin" "$T/upstream"
+sed -i 's/^tehas_units() { printf .%s\\n. /&tehas-new.timer /' "$T/upstream/lib/update-steps.sh"
+grep -q 'tehas-new.timer' "$T/upstream/lib/update-steps.sh" || t_bad "the fixture did not add a unit"
+git -C "$T/upstream" -c user.name=other -c user.email=other@example.com commit -qam "a new unit"
+git -C "$T/upstream" push -q origin main
+t_run "$update"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "WARN"
+t_contains "$(t_calls systemctl)" "--user restart tehas-dispatch.timer tehas-new.timer"
+t_eq "$(owed_steps)" ""
+
 t_case "a later: line of install.sh is printed and is no step"
 instance
 platform 0 'echo "installed: libexec/update"
@@ -878,6 +921,8 @@ t_lacks "$t_out" "installed:"
 # install.sh --check answers 1 when it found drift. That is its report, not a
 # failed step: in check mode nothing was meant to run.
 t_lacks "$t_out" "no follow-up was run"
+t_contains "$t_out" "install: install.sh --check found something to update"
+t_lacks "$t_out" "does not fix"
 # Nothing moved: no merge, no file changed, nothing started.
 t_eq "$(head_sha)" "$before"
 t_eq "$(git -C "$checkout" status --porcelain)" ""
@@ -896,6 +941,21 @@ t_contains "$t_out" "checkout: would fast-forward $before"
 t_contains "$t_out" "Installed:    OK"
 t_eq "$(head_sha)" "$before"
 t_eq "$(t_calls install)" "install --check"
+
+t_case "--check names what an update does not fix apart from something to update"
+for finding in "Dependencies: NOT OK" "Slice:        MISSING (sudo ./bootstrap.sh slice)" \
+  "Login:        NOT CURRENT" "Tests:        FAILED"; do
+  instance
+  platform 0 'echo "Instance:     $TEHAS_INSTANCE_DIR OK"
+echo "'"$finding"'"
+echo "Installed:    OK"
+exit 1'
+  t_run "$update --check"
+  t_eq "$t_rc" 1
+  t_contains "$t_out" "$finding"
+  t_contains "$t_out" "install: install.sh --check found something tehas update does not fix"
+  t_lacks "$t_out" "found something to update"
+done
 
 t_case "--check on a host that is up to date reports it and exits 0"
 instance
@@ -1076,11 +1136,26 @@ t_case "a record that cannot be written stops the run before any step"
 instance
 platform 1 'echo "next: sandbox"'
 mkdir -p "$th/state"
+# The lock is there from an earlier run; only the record cannot be written.
+: >"$th/state/update.lock"
 chmod 500 "$th/state"
 t_run "$update"
 t_eq "$t_rc" 1
 t_contains "$t_out" "could not make a temporary file beside $owed_file"
 t_eq "$(t_calls build)" ""
+chmod 755 "$th/state"
+
+t_case "a state directory where the lock cannot be made stops the run before git"
+instance
+platform 1 'echo "next: sandbox"'
+before=$(state)
+mkdir -p "$th/state"
+chmod 500 "$th/state"
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "tehas update: cannot open $th/state/update.lock; nothing was changed"
+t_eq "$(state)" "$before"
+t_eq "$(t_calls install)" ""
 chmod 755 "$th/state"
 
 t_case "a failed run leaves the record, and nothing else, in state/"
@@ -1092,8 +1167,10 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "2 of 4 follow-up(s) are not done"
 # Each rewrite goes through a temporary file moved over the record, so a run that
 # died mid-write leaves the steps already owed there rather than half of a new list
-# - and a run that finished leaves no stray file.
-t_eq "$(ls -A "$th/state")" "update-pending"
+# - and a run that finished leaves no stray file. The lock is kept: removing it
+# would let a run that opened it a moment before lock a file no longer there.
+t_eq "$(ls -A "$th/state")" "update-pending
+update.lock"
 t_eq "$(owed_steps)" "docs --force-recreate
 edge --force-recreate"
 
@@ -1271,5 +1348,61 @@ t_case "the compose files pin the project names the liveness check filters on"
 for pair in "docs.compose.yaml tehas-docs" "router.compose.yaml tehas-edge"; do
   t_contains "$(cat "$T_ROOT/host/edge/${pair%% *}")" "name: ${pair#* }"
 done
+
+# --- pi-rukas follows its branch ---------------------------------------------
+# The installed versions.env names a branch, and build.sh is a stub that keeps
+# its arguments and exits with the given status.
+rukas_build() { # <exit status>
+  cat >"$th/sandbox/build.sh" <<EOF
+#!/usr/bin/env bash
+echo "build \$*" >>"$T/calls/build"
+echo "pi-rukas: stub"
+exit $1
+EOF
+  chmod +x "$th/sandbox/build.sh"
+  echo "PI_RUKAS_BRANCH=main" >"$th/versions.env"
+}
+
+t_case "an up to date checkout still moves the image to the head of pi-rukas's branch"
+instance
+platform 0
+rukas_build 0
+t_run "$update"
+t_eq "$t_rc" 0
+t_eq "$(t_calls build)" "build --if-moved"
+t_contains "$(t_calls timeout)" "$th/sandbox/build.sh --if-moved"
+
+t_case "a run that built the sandbox image does not look at the head again"
+instance
+platform 1 'echo "next: sandbox"'
+rukas_build 0
+t_run "$update"
+t_eq "$t_rc" 0
+t_eq "$(t_calls build)" "build "
+
+t_case "an image that cannot be moved to the head fails the update"
+instance
+platform 0
+rukas_build 1
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "pi-rukas: the image was not moved to the head of its branch"
+
+t_case "--check says the head moved and builds nothing"
+instance
+platform 0
+rukas_build 1
+t_run "$update --check"
+t_eq "$t_rc" 1
+t_eq "$(t_calls build)" "build --check"
+t_contains "$t_out" "pi-rukas: stub"
+
+t_case "a versions.env that names no branch leaves the image alone"
+instance
+platform 0
+echo "PI_RUKAS_COMMIT=0123456789abcdef0123456789abcdef01234567" >"$th/versions.env"
+t_run "$update"
+t_eq "$t_rc" 0
+t_eq "$(t_calls build)" ""
 
 t_done
