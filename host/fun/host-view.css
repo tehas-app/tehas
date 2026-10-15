@@ -1,0 +1,75 @@
+/* Host: the machine the factory runs on, read from /live/top.json. Drawn by
+   host-view.js, and shown only where that file is published (TEHAS_TOP is 1). */
+
+.host {
+  /* The stage names a row for this panel, between the energy and the
+     breakroom: its place cannot depend on which other panels are shown. */
+  grid-area: host;
+  margin-top: 72px;
+  scroll-margin-top: calc(var(--header) + 16px);
+  background: var(--bone-shade);
+  border: 4px solid var(--outline);
+  box-shadow: var(--shadow-sign);
+}
+.host-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 24px;
+  padding: 12px 16px;
+  background: var(--steel);
+  border-bottom: 4px solid var(--outline);
+}
+.host-head h2 { margin: 0; }
+.host-scope { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0; }
+.host-state { padding: 0 8px; background: var(--bone-shade); border: 4px solid var(--outline); }
+.host-state[data-state="live"] { background: var(--brass); }
+.host-body { padding: 16px; }
+.host-readings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 32px;
+  margin: 0 0 8px;
+  font-weight: 700;
+}
+.host-readings span { display: inline-flex; align-items: center; gap: 8px; }
+.host-gauge { display: inline-flex; gap: 2px; vertical-align: -2px; }
+.host-gauge i { width: 6px; height: 16px; background: var(--bone); }
+.host-gauge .is-used { background: var(--slate); }
+.host-table { width: 100%; border-collapse: collapse; }
+.host-table th, .host-table td {
+  padding: 8px 16px 8px 0;
+  font-weight: 400;
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.host-table th:last-child, .host-table td:last-child { padding-right: 0; }
+.host-table thead th { color: var(--slate); }
+.host-table tbody tr { border-top: 1px solid var(--hairline); }
+.host-table .num { text-align: right; white-space: nowrap; }
+/* The units come after the processes, in a table of their own. */
+.host-units { margin-top: 24px; }
+
+/* The head panel carries the host line beside the power meter, and gives way
+   to it: the meter is the reading people look at. */
+.floor-head:has(> .floor-host:not([hidden])) { flex-wrap: wrap; }
+.floor-host {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bone);
+  border: 4px solid var(--outline);
+  color: inherit;
+  text-decoration: none;
+}
+.floor-host b { font-size: 0.75em; }
+
+@media (max-width: 699px) {
+  .host { margin-top: 40px; }
+  .host-readings { gap: 8px 16px; }
+  /* The process id, the memory share and the next firing of a timer are what a
+     phone has no room for; the name and its state are the point of the row. */
+  .host-table .col-mem, .host-table .col-next { display: none; }
+}

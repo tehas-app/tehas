@@ -203,6 +203,7 @@ body[data-factory="live"] .console-state::before {
     "lab monitor"
     "console monitor"
     "energy energy"
+    "host host"
     "break break";
   column-gap: 24px;
   max-width: 1488px;
@@ -647,7 +648,7 @@ body[data-factory="live"] .console-state::before {
   .topbar > .gate { margin-left: auto; }
   .stage {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "floor" "doors" "desk" "energy" "break";
+    grid-template-areas: "floor" "doors" "desk" "energy" "host" "break";
   }
   .floor { display: block; grid-area: floor; }
   .floor-head, .line { grid-area: auto; }

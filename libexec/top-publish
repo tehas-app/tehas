@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# Write the dashboard's host file: $TEHAS_HOME/live/top.json.
+#
+# The snapshot behind `tehas top` (lib/top.sh), with the host section and
+# without the console key: the page already has the console of a cycle from its
+# own file, and a second copy of it here would be one more thing to keep in
+# step. Same function, same format, so the terminal and this file cannot drift.
+#
+# The dashboard can be on the internet, and so is this file. What it holds: the
+# health line and the queue counts, the issues behind them, the cycles, the
+# units of the factory, the energy sample, and the host - cpus, load averages,
+# cpu use, memory, and the processes that used the most CPU, named by their
+# short command name only. No command line, no user name, no working directory,
+# no environment, no address, nothing read from inside a container.
+#
+# It loads the instance settings first and stops with 78 when they are missing
+# or malformed. TEHAS_TOP=1 in instance.env turns it on; unset or 0 removes the
+# file and exits 0, so a host that publishes no host section has no stale file
+# left to serve. No model, no network call, no GitHub call, no Docker call.
+#
+# Usage: tehasbot top              one snapshot; prints nothing
+#        tehasbot top --every      one snapshot at every 5-second mark, for ever
+#
+# The file is written beside the old one and renamed over it, so the page never
+# reads half a file. A write that fails leaves the previous file in place.
+#
+# Exit: 0 the file was written, or removed because the setting is off;
+#       1 no snapshot, or the file could not be written;
+#       64 an unknown argument;
+#       78 the instance settings are missing or malformed. With --every the same
+#          78 ends the loop: a host with broken settings says so.
+set -uo pipefail
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/config.sh
+. "$here/../lib/config.sh"
+# shellcheck source=lib/top.sh
+. "$here/../lib/top.sh"
+
+tehas_load || exit 78
+
+live=$TEHAS_HOME/live
+file=$live/top.json
+period=5
+
+case "${1:-}" in
+  "") ;;
+  --every)
+    while :; do
+      # The next run resolves the host tree from its own environment: lib/top.sh
+      # reads TEHAS_PROC_DIR when it is sourced, before tehas_load clears the
+      # settings, so a run pointed at another tree (the tests do that) has to
+      # say so to the runs it starts.
+      TEHAS_PROC_DIR=$tehas_proc_dir "$0"
+      case $? in
+        # Broken instance settings do not fix themselves between one mark and
+        # the next: the unit is told, so systemd shows a failing service rather
+        # than a loop that never reports anything.
+        78) exit 78 ;;
+        *) ;; # a snapshot or a write that failed: the next mark tries again
+      esac
+      sleep $((period - $(date +%s) % period))
+    done ;;
+  *) echo "usage: tehasbot top [--every]" >&2; exit 64 ;;
+esac
+
+if [ "$TEHAS_TOP" != 1 ]; then
+  rm -f "$file"
+  exit 0
+fi
+
+mkdir -p "$live" || { echo "tehasbot top: could not create $live" >&2; exit 1; }
+
+# Two readings a second apart, so the CPU figures are what changed between them.
+snapshot=$(tehas_top_snapshot 0) || { echo "tehasbot top: no snapshot" >&2; exit 1; }
+jq -c 'del(.console)' <<<"$snapshot" >"$file.new" 2>/dev/null ||
+  { rm -f "$file.new"; echo "tehasbot top: could not write $file" >&2; exit 1; }
+mv -f "$file.new" "$file" ||
+  { rm -f "$file.new"; echo "tehasbot top: could not write $file" >&2; exit 1; }
+exit 0

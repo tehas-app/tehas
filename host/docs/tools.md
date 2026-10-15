@@ -833,25 +833,38 @@ output, and with `--once`, it prints one frame as plain text: no escape codes.
 
 It reads what the factory already writes under `~/tehas/live/` - the [health
 file](#tehasbot-health), the queue snapshot, the cycles, the energy sample and
-the console of a cycle - and asks `systemctl --user` about its units. No GitHub
-call, no model call, no Docker call, no instance settings, and nothing is
-written. What it shows is as old as those files, and every section that has an
-age prints it. A file older than ten minutes is not believed, the same rule
-`tehas status` uses.
+the console of a cycle - asks `systemctl --user` about its units, and reads the
+host's own numbers from `/proc`. No GitHub call, no model call, no Docker call,
+no instance settings, and nothing is written. What it shows is as old as those
+files, and every section that has an age prints it. A file older than ten
+minutes is not believed, the same rule `tehas status` uses.
 
 The frame is drawn from one snapshot and from nothing else. `--json` prints that
 snapshot: `generatedAt` and one key per section (`factory`, `queue`, `cycle`,
-`units`, `energy`, `console`). A section whose source is missing, unreadable or
-too old to believe is `null`; the frame says so in one line and draws the rest.
-The factory line and the queue counts are the ones `tehas status` prints: both
-commands take them from `lib/status.sh`, so they cannot drift apart. A section
-added to the snapshot appears in `--json` without anything else changing.
+`host`, `units`, `energy`, `console`). A section whose source is missing,
+unreadable or too old to believe is `null`; the frame says so in one line and
+draws the rest. The factory line and the queue counts are the ones `tehas status`
+prints: both commands take them from `lib/status.sh`, so they cannot drift apart.
+A section added to the snapshot appears in `--json` without anything else
+changing.
+
+The host section is a second reading of `/proc`, taken one second after the
+first: the machine's cpu count, its three load averages, what share of its cpus
+and of its memory is in use over that second, and up to fifteen processes with
+their pid, their short name from `/proc/<pid>/stat`, their share of a cpu, their
+share of memory and how long they have been running. A process is named by that
+short name only: the command line, and everything else under `/proc/<pid>/`, is
+never opened. A pid that was reused between the two readings is not shown. The
+figures are what changed in that second, not the average since a process began.
+They sit between the cycle rows and the units; when the terminal is short the
+process rows go first, before the console lines.
 
 A frame follows the width and height of the terminal, also after a resize. Long
 lines are cut; nothing wraps and nothing scrolls. When the terminal is short,
-console lines are dropped first, then unit rows, then queue rows. Text that came
-out of a file has its control characters removed before it reaches the terminal.
-`COLUMNS` and `LINES` say what the size is when the terminal cannot be asked.
+host process rows are dropped first, then console lines, then unit rows, then
+queue rows. Text that came out of a file has its control characters removed
+before it reaches the terminal. `COLUMNS` and `LINES` say what the size is when
+the terminal cannot be asked.
 
 Exit 0 when a frame was drawn or a snapshot printed, whatever the factory says:
 a `fail` or a stale health file is shown here, not returned - that is what
@@ -870,13 +883,14 @@ tehasbot cycle <issue>        # one cycle and its report; what tehas-cycle@<issu
 tehasbot status               # write the queue snapshot
 tehasbot health               # write the health file
 tehasbot energy [--every]     # sample the model mesh; what tehas-energy.service runs
+tehasbot top [--every]        # publish the snapshot of tehas top; what tehas-top.service runs
 tehasbot protolab             # build the Protolab; what tehas-protolab.timer runs
 tehasbot preview              # keep the previews; what tehas-preview.timer runs
 tehasbot preview --sweep      # the second check; what tehas-preview-sweep.timer runs
 tehasbot improve              # one run of the improvement loop; what tehas-improve.timer runs
 ```
 
-The units are `tehas-dispatch.timer`, `tehas-energy.service`,
+The units are `tehas-dispatch.timer`, `tehas-energy.service`, `tehas-top.service`,
 `tehas-protolab.timer`, the previews' `tehas-preview.timer` and
 `tehas-preview-sweep.timer`, the improvement loop's `tehas-improve.timer`, and one `tehas-cycle@<issue>.service` per running
 cycle. A cycle's container is `tehas-work-<issue>`.
@@ -1177,6 +1191,49 @@ service and delete `~/tehas/live/energy.json`.
 Against a backend that is not viiwork the service still asks
 `<provider>/v1/cluster` every 15 seconds and writes nothing. On such a host
 leave the service disabled, or set `TEHAS_ENERGY=off`.
+
+## tehasbot top
+
+Optional. It publishes what `tehas top` draws, so that the factory floor and the
+plain dashboard can show the same numbers a person sees on the host. Nothing on
+the host reads its file.
+
+```
+tehasbot top                 # one snapshot; prints nothing; writes ~/tehas/live/top.json
+tehasbot top --every         # one snapshot at every 5-second mark; what the service runs
+systemctl --user enable --now tehas-top.service
+```
+
+It builds the snapshot with the same `lib/top.sh` the terminal view uses, and
+writes it as one line of JSON with the `console` key removed: `generatedAt`,
+`factory`, `queue`, `cycle`, `host`, `units` and `energy`. The command reads the
+instance settings, so a setting that is missing or malformed stops it with 78;
+with `--every` the same 78 ends the loop, and systemd shows the failing service.
+It writes the file only when `TEHAS_TOP` is `1`; with `0`, which is the default,
+it removes the file and exits 0. It writes to `top.json.new` and moves it into
+place, so a reader never sees half a file, and a snapshot it cannot write leaves
+the one that is there in place.
+
+`TEHAS_TOP` is set in the instance directory. The unit is installed on every
+instance and starts only when you enable it; nothing enables it for you. The
+service reads its settings when it starts, so run `systemctl --user restart
+tehas-top.service` after changing the setting. Stopping the service does not hide
+the section: the last file stays until the page calls it stale, and the way to
+remove it is `TEHAS_TOP=0` with one run of `tehasbot top`, or deleting the file.
+
+The file is readable by anyone who can open the dashboard. It names the host's
+cpu count, load averages, memory, its units, and up to fifteen processes by pid
+and short name. It holds no command line, no path outside `/proc`, no token and
+nothing about the sandbox: a cycle's container is one process among those rows,
+and the console of a cycle is not in it.
+
+The factory floor reads it every 5 seconds, the plain dashboard on its own
+10-second refresh. Both show no host panel where the file is not there, and a
+page that gets no answer at all asks again once a minute rather than at every
+period. The panel gives the readings, then the processes, then the units as
+`tehas top` lists them: name, whether systemd has it installed, its state, and
+when a timer next fires. A snapshot older than 30 seconds is called stale rather
+than live.
 
 ## tehasbot protolab
 
