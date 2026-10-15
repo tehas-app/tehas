@@ -20,6 +20,9 @@ printf 'ID=debian\nVERSION_ID="13"\n' >"$T/os-debian"
 T_PATH=$T/bin:/usr/bin:/bin
 T_ENV=(BOOTSTRAP_OS_RELEASE="$T/os-ubuntu" PATH="$T_PATH")
 
+# The head of pi-rukas's branch, as git ls-remote answers it.
+rukas_head=$(printf 'e%.0s' {1..40})
+
 # Every tool at its expected version, the npm ones installed from their pinned
 # tree: what a host has after one run of `user` with nothing to change.
 all_present() {
@@ -33,7 +36,7 @@ all_present() {
   t_stub vipune "echo 'vipune $VIPUNE_VERSION'"
   t_stub oo "echo 'oo $OO_VERSION'"
   t_stub codebase-memory-mcp "echo 'codebase-memory-mcp $CBM_VERSION'"
-  t_stub git "case \"\$*\" in *rev-parse*) echo $PI_RUKAS_COMMIT ;; *) echo 'git version 2.53.0' ;; esac"
+  t_stub git "case \"\$*\" in *ls-remote*) printf '%s\trefs/heads/$PI_RUKAS_BRANCH\n' $rukas_head ;; *rev-parse*) echo $rukas_head ;; *) echo 'git version 2.53.0' ;; esac"
   t_stub docker 'echo "Docker version 29.1.3"'
   t_stub loginctl 'echo yes'
   t_stub curl 'echo "curl 8.0.0"'
@@ -92,7 +95,7 @@ t_eq "$t_rc" 0
 t_lacks "$t_out" "MISSING"
 t_lacks "$t_out" "DIFFERS"
 t_contains "$t_out" "node"
-t_contains "$t_out" "$PI_RUKAS_COMMIT"
+t_contains "$t_out" "$rukas_head"
 
 t_case "check changes nothing"
 before=$(find "$T/home" | sort)
@@ -392,13 +395,34 @@ t_lacks "$(cat "$T_ROOT/host/sandbox/Dockerfile")" "playwright@"
 
 t_case "an existing pi-rukas clone is fetched from the repository in versions.env"
 all_present
-t_stub git 'case "$*" in *rev-parse*) echo 0000000000000000000000000000000000000000 ;; *) echo "git version 2.53.0" ;; esac'
+behind_head() {
+  t_stub git "case \"\$*\" in *ls-remote*) printf '%s\trefs/heads/$PI_RUKAS_BRANCH\n' $rukas_head ;; *rev-parse*) echo 0000000000000000000000000000000000000000 ;; *) echo 'git version 2.53.0' ;; esac"
+}
+behind_head
 mkdir -p "$T/home/tehas/repos/pi-rukas/.git"
 printf '#!/bin/sh\n' >"$T/home/tehas/repos/pi-rukas/install.sh"
 chmod +x "$T/home/tehas/repos/pi-rukas/install.sh"
 rm -f "$T"/calls/*
 t_run "$bootstrap user"
 t_contains "$(t_calls git)" "remote set-url origin $PI_RUKAS_REPO"
+
+t_case "pi-rukas behind its branch is moved to the head"
+t_contains "$(t_calls git)" "checkout -q $rukas_head"
+
+t_case "check reports a pi-rukas behind the head of its branch"
+t_run "$bootstrap check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "$rukas_head"
+t_contains "$t_out" "DIFFERS"
+
+t_case "without the head of its branch the user part stops before pi-rukas"
+t_stub git 'case "$*" in *ls-remote*) exit 2 ;; *rev-parse*) echo 0000000000000000000000000000000000000000 ;; *) echo "git version 2.53.0" ;; esac'
+rm -f "$T"/calls/*
+t_run "$bootstrap user"
+t_eq "$t_rc" 1
+t_contains "$t_out" "no head of $PI_RUKAS_BRANCH in $PI_RUKAS_REPO"
+t_lacks "$(t_calls git)" "fetch"
+behind_head
 
 t_case "pi-rukas's installer is not given the sandbox image's name"
 # It would pull that name, fail, and build upstream's image over the tag.

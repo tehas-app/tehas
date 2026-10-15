@@ -64,13 +64,11 @@ tehas_work_kind() {
 }
 
 # What a cycle runs is the sandbox image, so its label tehas.rukas says the
-# commit, also for an image put back for a rollback. An image built before the
-# label has the commit versions.env names. Nothing when neither says.
+# commit, also for an image put back for a rollback. Nothing when it does not.
 tehas_rukas_commit() {
   local c
   c=$(docker image inspect --format '{{index .Config.Labels "tehas.rukas"}}' "${PI_ENSEMBLE_IMAGE:-}" 2>/dev/null) || c=""
-  [[ $c =~ ^[0-9a-f]{7,40}$ ]] ||
-    c=$(sed -n 's/^PI_RUKAS_COMMIT=\([0-9a-f]\{7,40\}\)$/\1/p' "$TEHAS_HOME/versions.env" 2>/dev/null | head -n 1)
+  [[ $c =~ ^[0-9a-f]{7,40}$ ]] || c=""
   printf '%s\n' "$c"
 }
 

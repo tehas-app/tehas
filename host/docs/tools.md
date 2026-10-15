@@ -1231,6 +1231,16 @@ contract - `models.json` readable, valid JSON, listing the models the settings
 name, and the settings directory writable by nobody else - is install.sh's, and
 install.sh answers it with 78 before it copies a file.
 
+After the follow-ups, pi-rukas. It is not pinned: where the installed `versions.env` names
+`PI_RUKAS_BRANCH`, the update runs `sandbox/build.sh --if-moved`, which
+rebuilds the sandbox image only when the head of that branch is not the commit
+the image was built on. It does this also when no file of tehas changed, and
+skips it when this run built the image already or a step failed. An image that
+cannot be moved, for example because upstream has not published the head's
+image yet, makes the update exit 1. `--check` runs `build.sh --check` and
+exits 1 when the head moved. See
+[pi-rukas comes from upstream](/host#pi-rukas-comes-from-upstream).
+
 The follow-ups are steps named by id in `lib/update-steps.sh`, which install.sh
 prints as `next: <step line>` and this command runs as its own steps rather than
 as shell text. The arguments belong to the step, and `lib/update-steps.sh` says

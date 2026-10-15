@@ -46,8 +46,8 @@ case "$1 $2" in
     [ ! -e "$T/fx/issue-fails" ] || exit 1
     if [ -e "$T/fx/issue-$n.json" ]; then cat "$T/fx/issue-$n.json"; else echo "{\"number\":$n,\"state\":\"open\"}"; fi ;;
 esac'
-# The sandbox image has no label unless a case writes one: the commit then
-# comes from versions.env.
+# The sandbox image has no label unless a case writes one: no commit is then
+# on record.
 t_stub docker '[ -e "$T/fx/image.label" ] || exit 1; cat "$T/fx/image.label"'
 # What the runner does is a file a case writes; without one it ends at once.
 t_stub fake-work '[ ! -e "$T/fx/work.sh" ] || . "$T/fx/work.sh"'
@@ -590,7 +590,7 @@ t_lacks "$(t_calls gh)" "None of its logs changed"
 t_case "the pi-rukas a cycle starts with is on record beside its lock, and a merge proves it"
 reset
 rukas=$(printf 'c%.0s' {1..40})
-echo "PI_RUKAS_COMMIT=$rukas" >"$T/home/tehas/versions.env"
+echo "$rukas" >"$fx/image.label"
 ended merged commit-pr
 t_run "$cycle 7"
 t_eq "$(cat "$state/7.rukas")" "$rukas"
@@ -598,15 +598,15 @@ t_eq "$(cat "$T/home/tehas/state/rukas-proven")" "$rukas"
 
 t_case "a handoff with a pull request proves the pi-rukas it ran with"
 reset
-echo "PI_RUKAS_COMMIT=$rukas" >"$T/home/tehas/versions.env"
+echo "$rukas" >"$fx/image.label"
 ended handoff commit-pr feature/x
 echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
 t_run "$cycle 7"
 t_eq "$(cat "$T/home/tehas/state/rukas-proven")" "$rukas"
 
-t_case "the sandbox image's label is the commit, and a second proven one is added to the first"
+t_case "a second proven commit is added to the first, and one proven twice is listed once"
 reset
-echo "PI_RUKAS_COMMIT=$rukas" >"$T/home/tehas/versions.env"
+echo "$rukas" >"$fx/image.label"
 mkdir -p "$T/home/tehas/state"
 echo before >"$T/home/tehas/state/rukas-proven"
 image=$(printf 'd%.0s' {1..40})
@@ -618,11 +618,11 @@ t_eq "$(cat "$T/home/tehas/state/rukas-proven" | tr '\n' ' ')" "before $image "
 ended merged commit-pr
 t_run "$cycle 7"
 t_eq "$(cat "$T/home/tehas/state/rukas-proven" | tr '\n' ' ')" "before $image "
-rm -f "$T/home/tehas/versions.env" "$T/home/tehas/state/rukas-proven"
+rm -f "$T/home/tehas/state/rukas-proven"
 
 t_case "a cycle that parks proves nothing, and one proven before stays"
 reset
-echo "PI_RUKAS_COMMIT=$rukas" >"$T/home/tehas/versions.env"
+echo "$rukas" >"$fx/image.label"
 mkdir -p "$T/home/tehas/state"
 echo before >"$T/home/tehas/state/rukas-proven"
 ended aborted develop
@@ -632,7 +632,7 @@ ended handoff commit-pr
 rm -f "$fx/pr.txt"
 t_run "$cycle 7"
 t_eq "$(cat "$T/home/tehas/state/rukas-proven")" "before"
-rm -f "$T/home/tehas/versions.env" "$T/home/tehas/state/rukas-proven"
+rm -f "$T/home/tehas/state/rukas-proven"
 
 t_case "a cycle that left a pull request says the count too"
 reset

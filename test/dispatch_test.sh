@@ -2807,10 +2807,10 @@ t_lacks "$(t_calls systemctl)" "start"
 # --- A pi-rukas that is new on this host -----------------------------------
 new_rukas=$(printf 'a%.0s' {1..40})
 old_rukas=$(printf 'b%.0s' {1..40})
-installed() { echo "PI_RUKAS_COMMIT=$new_rukas" >"$T/home/tehas/versions.env"; }
+installed() { echo "$new_rukas" >"$fx/image.label"; }
 proven() { mkdir -p "$T/home/tehas/state"; echo "$1" >"$T/home/tehas/state/rukas-proven"; }
 ran_with() { echo "$2" >"$T/home/tehas/state/cycles/$1.rukas"; } # <issue> <commit>
-not_installed() { rm -f "$T/home/tehas/versions.env" "$T/home/tehas/state/rukas-proven" "$fx/image.label"; }
+not_installed() { rm -f "$T/home/tehas/state/rukas-proven" "$fx/image.label"; }
 
 t_case "a pi-rukas no cycle has ended well on starts one cycle, whatever the slots"
 reset
@@ -2873,15 +2873,13 @@ t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 "
 t_contains "$(t_calls docker)" "tehas.rukas"
 not_installed
 
-t_case "an image whose label names a commit never proven is new, whatever versions.env says"
+t_case "an image without the label holds nothing back: there is no commit to compare"
 reset
 slots 4
-echo "PI_RUKAS_COMMIT=$old_rukas" >"$T/home/tehas/versions.env"
 proven "$old_rukas"
-echo "$new_rukas" >"$fx/image.label"
 ready 7 8 9
 t_run "$dispatch"
-t_eq "$(t_calls fake-start)" "7"
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 9 "
 not_installed
 
 t_case "any commit in the list of proven ones counts"

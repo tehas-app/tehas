@@ -12,10 +12,12 @@
 #
 # A product whose gates need another toolchain adds it here.
 #
-# Build with sandbox/build.sh, which passes the user id and the versions from
-# versions.env. The base is pinned by digest, shellcheck by checksum, and
-# Playwright by a lockfile beside this file: upgrade on purpose, then rebuild.
-FROM ghcr.io/trail-openers/pi-rukas:v0.12.79@sha256:bb9c91281187298d238cc793ceb18f8c06cd39284078b9a494c11118c7e97d3f
+# Build with sandbox/build.sh, which passes the user id, the versions from
+# versions.env and the base: upstream's image for the head of the branch
+# versions.env names. shellcheck is pinned by checksum and Playwright by a
+# lockfile beside this file.
+ARG PI_RUKAS_IMAGE
+FROM ${PI_RUKAS_IMAGE}
 
 ARG TEHAS_UID=1000
 ARG SHELLCHECK_VERSION
