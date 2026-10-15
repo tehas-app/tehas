@@ -87,7 +87,10 @@ are shown them beside the text. The images of an issue an allowed account
 labelled are read, whoever opened it; the Protolab's rule is the author's. The plan puts the placement into words, and
 the later steps read the plan. With `TEHAS_WORK_DESCRIBE=1` the model also
 describes each image in words, into `images.md` beside them; the pi-rukas that
-tehas pins does not read that file yet. Images in comments are not read, and no cycle
+tehas pins does not read that file yet. With `TEHAS_WORK_FILES=1` a cycle is
+also given the text files the issue links, md, txt, csv, json, yaml, log,
+html, css and js, by the same rules; the pi-rukas that tehas pins does not
+read them yet either. Images in comments are not read, and no cycle
 has been seen to use a picture yet, so words in the text stay the safe way.
 
 ## 1. Write an issue tehas can build
@@ -331,8 +334,8 @@ a box and a reply do nothing.
 
 Where the instance gives a cycle the images an issue links
 (`TEHAS_WORK_IMAGES=1`), a planning session is given them too, by the same
-rules, once at its start. The bot says how many it was given and which it left
-out. If one cannot be fetched, no session starts and the bot says so. The
+rules, once at its start, and with `TEHAS_WORK_FILES=1` its text files. The
+bot says how many it was given and which it left out. If one cannot be fetched, no session starts and the bot says so. The
 pi-rukas that tehas installs does not show them to the planning agent yet, so
 describe in words what a picture shows.
 

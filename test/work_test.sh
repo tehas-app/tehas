@@ -1354,6 +1354,149 @@ t_eq "$(find "$imgs/images.md" 2>/dev/null | wc -l)" 0
 t_lacks "$(t_calls curl)" "chat/completions"
 t_eq "$(manifest .described)" null
 
+# --- The issue's text files ----------------------------------------------------
+files_on() {
+  images_on "$@"
+  t_instance "${T_MINIMAL[@]}" TEHAS_WORK_FILES=1 "$@"
+}
+files() { jq -c "[.files[] | [.file, .link, .name, .type, .bytes]]" "$imgs/manifest.json" 2>&1; }
+left() { jq -c "[.leftOut[] | [.link, .reason]]" "$imgs/manifest.json" 2>&1; }
+
+t_case "a files setting that is not 0 or 1 starts nothing and asks nobody"
+files_on
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_FILES=yes
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_eq "$(t_calls gh)$(t_calls curl)$(t_calls docker)" ""
+
+t_case "with files alone the cycle gets the one directory, read-only, and the one variable, as with images"
+files_on
+net "$F/31/spec.md" '# Spec\nDo it.\n'
+issue_is "[spec.md]($F/31/spec.md)"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$mounts_off" "$imgs:$inside.images:ro" | LC_ALL=C sort)"
+t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_ENSEMBLE_EXTRA_IMAGE_DIRS | LC_ALL=C sort)"
+t_eq "$(after -e | grep '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$inside.images"
+t_eq "$(cycle_args | unknown_options "$image" \
+  "--name --cgroup-parent --memory --memory-swap --memory-reservation --pids-limit --cpu-shares --cidfile -w -v -e" "--rm -i --init")" ""
+t_eq "$(preflight_args | awk 'prev == "-v" { print } { prev = $0 }')" "$ws:$inside"
+
+t_case "with files alone the sandbox image is not asked about images"
+t_eq "$(reader_args)$(t_calls docker | grep -c '^image ')" "0"
+t_eq "$(find "$T/home/tehas/state/images-read.json" 2>/dev/null | wc -l)" 0
+
+t_case "text files are taken by their name, under names of tehas's own, listed with their name, type, size and hash"
+files_on
+net "$F/31/spec.md" '# Spec\n'
+net "$F/32/Data.CSV" 'a,b\n1,2\n'
+net "$F/33/fix.json" '{"a": 1}'
+net "$F/34/ci.yml" 'on: push\n'
+net "$F/35/page.html" '<p>hi</p>'
+net "$F/36/run.log" 'ok\n'
+net "$F/37/all.zip" 'PK'
+net "$A/1111" "$png"
+net "$F/38/shot.png" "$png"
+issue_is "[spec.md]($F/31/spec.md) [Data.CSV]($F/32/Data.CSV) [fix.json]($F/33/fix.json) [ci.yml]($F/34/ci.yml)
+[page.html]($F/35/page.html) [run.log]($F/36/run.log) [all.zip]($F/37/all.zip) ![s]($A/1111) [shot.png]($F/38/shot.png)"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(cd "$imgs" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" \
+  "./file-1.md ./file-2.csv ./file-3.json ./file-4.yml ./file-5.html ./file-6.log ./manifest.json "
+t_eq "$(files)" "[[\"file-1.md\",\"$F/31/spec.md\",\"spec.md\",\"text/markdown\",7],[\"file-2.csv\",\"$F/32/Data.CSV\",\"Data.CSV\",\"text/csv\",8],[\"file-3.json\",\"$F/33/fix.json\",\"fix.json\",\"application/json\",8],[\"file-4.yml\",\"$F/34/ci.yml\",\"ci.yml\",\"application/yaml\",9],[\"file-5.html\",\"$F/35/page.html\",\"page.html\",\"text/html\",9],[\"file-6.log\",\"$F/36/run.log\",\"run.log\",\"text/plain\",3]]"
+t_eq "$(manifest '.files[0].sha256')" "\"$(printf '# Spec\n' | sha256sum | cut -d' ' -f1)\""
+t_eq "$(manifest '.images')" "[]"
+
+t_case "with images off an image and another type are left out and not fetched"
+other="Not a md, txt, csv, json, yaml, log, html, css or js file. This instance gives a cycle no images."
+t_eq "$(left)" "[[\"$F/37/all.zip\",\"$other\"],[\"$A/1111\",\"$other\"],[\"$F/38/shot.png\",\"$other\"]]"
+t_lacks "$(t_calls curl)" "all.zip"
+t_lacks "$(t_calls curl)" "$A/1111"
+t_lacks "$(t_calls curl)" "shot.png"
+
+t_case "the comment says the files were fetched and are not shown yet, with each hash"
+t_contains "$(t_calls gh)" "--body Tehas fetched 6 files from the issue text for this cycle and lists them in its manifest. The pi-rukas in the sandbox image does not read them yet: its agents are not shown them."
+t_contains "$(t_calls gh)" "- $F/31/spec.md: file-1.md, sha256 $(printf '# Spec\n' | sha256sum | cut -d' ' -f1)"
+t_lacks "$(t_calls gh)" "Tehas gave this cycle"
+
+t_case "bytes that are not UTF-8 text, or hold a NUL, are left out with the reason"
+files_on
+net "$F/31/bad.txt" 'caf\xe9\n'
+net "$F/32/nul.txt" 'a\x00b'
+net "$F/33/ok.txt" 'caf\xc3\xa9\n'
+issue_is "[bad.txt]($F/31/bad.txt) [nul.txt]($F/32/nul.txt) [ok.txt]($F/33/ok.txt)"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(left)" "[[\"$F/31/bad.txt\",\"Not valid UTF-8 text, or it holds a NUL byte.\"],[\"$F/32/nul.txt\",\"Not valid UTF-8 text, or it holds a NUL byte.\"]]"
+t_eq "$(cd "$imgs" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" "./file-1.txt ./manifest.json "
+
+t_case "a file may take 1 MB and all files 4 MB: each fetch is held to what is left"
+files_on
+body=""
+for i in 1 2 3 4 5; do
+  head -c 900000 /dev/zero | tr '\0' a >"$fx/net/$(printf %s "$F/4$i/f$i.txt" | tr -c 'A-Za-z0-9' _)"
+  body="$body [f$i.txt]($F/4$i/f$i.txt)"
+done
+head -c 1100000 /dev/zero | tr '\0' a >"$fx/net/$(printf %s "$F/49/big.txt" | tr -c 'A-Za-z0-9' _)"
+issue_is "[big.txt]($F/49/big.txt)$body"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(manifest '.files | map(.name)')" '["f1.txt","f2.txt","f3.txt","f4.txt"]'
+t_eq "$(left)" "[[\"$F/49/big.txt\",\"Over the 1 MB limit of a file.\"],[\"$F/45/f5.txt\",\"Over the 4 MB limit of an issue's files.\"]]"
+t_eq "$(t_calls curl | grep -o -e '--max-filesize [0-9]*' | tr '\n' ' ')" \
+  "--max-filesize 1048576 --max-filesize 1048576 --max-filesize 1048576 --max-filesize 1048576 --max-filesize 1048576 --max-filesize 594304 "
+
+t_case "at most sixteen files: the seventeenth is left out and not fetched"
+files_on
+body=""
+for i in $(seq 1 17); do
+  net "$F/5$i/n$i.txt" 'x'
+  body="$body [n$i.txt]($F/5$i/n$i.txt)"
+done
+issue_is "$body"
+t_run "$work 7"
+t_eq "$(manifest '[(.files | length), (.leftOut | map([.link, .reason]))]')" "[16,[[\"$F/517/n17.txt\",\"More than 16 files.\"]]]"
+t_lacks "$(t_calls curl)" "$F/517/n17.txt"
+
+t_case "an outsider's issue is given no file without an approval, and nothing is fetched"
+files_on
+net "$F/31/spec.md" '# Spec\n'
+issue_is "[spec.md]($F/31/spec.md)" NONE
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(t_calls curl)" ""
+t_eq "$(manifest '.files')" "[]"
+
+t_case "a file that cannot be fetched starts no cycle: exit 4, and the comment names files"
+files_on
+issue_is "[spec.md]($F/31/spec.md)"
+t_run "$work 7"
+t_eq "$t_rc" 4
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+t_contains "$(t_calls gh)" "Tehas started no cycle: $F/31/spec.md could not be fetched. This instance gives a cycle the files an issue links"
+
+t_case "with images and files both on there is still one directory and one variable, and both kinds are in it"
+files_on TEHAS_WORK_IMAGES=1
+net "$F/31/spec.md" '# Spec\n'
+net "$A/1111" "$png"
+issue_is "[spec.md]($F/31/spec.md) ![s]($A/1111)"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(cd "$imgs" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" "./file-1.md ./image-1.png ./manifest.json "
+t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$mounts_off" "$imgs:$inside.images:ro" | LC_ALL=C sort)"
+t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_ENSEMBLE_EXTRA_IMAGE_DIRS | LC_ALL=C sort)"
+t_contains "$(t_calls gh)" "--body Tehas gave this cycle 1 image from the issue text. Whether the pi-rukas in the sandbox image reads them could not be checked. Tehas fetched 1 file from the issue text"
+
+t_case "a file of the same approval that gives other bytes stops the start"
+record_is alice "[spec.md]($F/31/spec.md) ![s]($A/1111)" "$F/31/spec.md"
+rm -f "$kept"
+t_run "$work 7"
+t_eq "$t_rc" 2
+net "$F/31/spec.md" '# Other\n'
+t_run "$work 7"
+t_eq "$t_rc" 4
+t_contains "$t_out" "$F/31/spec.md gave other bytes than when this approval was first fetched"
+
 t_case "a cycle the push check stopped leaves no copy of the index beside its workspace"
 images_on
 issue_is "Words only."

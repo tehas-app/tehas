@@ -43,8 +43,9 @@
 # is parked and the comment says how long nothing moved and at which step.
 #
 # A runner that exits 4 started no cycle: the instance gives a cycle the
-# images its issue links (TEHAS_WORK_IMAGES) and one could not be fetched. The
-# issue is parked and the comment says that, not that a cycle stopped. The
+# images or files its issue links (TEHAS_WORK_IMAGES, TEHAS_WORK_FILES) and one
+# could not be given. The issue is parked and the comment says that, not that
+# a cycle stopped. The
 # images of a cycle that ran are removed here when it is over: only the
 # container read them. So is the cycle's own state directory, the copy of the
 # code index, the memory and the sessions its agents wrote: no later cycle
@@ -405,7 +406,7 @@ elif [ -z "$pr" ] && [ -n "$closed_pr" ] && [ "$rc" != 4 ]; then
   comment "Tehas cycle stopped: its pull request $closed_pr was closed without being merged ($summary, runner exit $rc). The workspace is kept; $log_where.$killed$stuck To retry, apply \`tehas:ready\`."
 else
   parked="Tehas cycle stopped without a pull request: $summary (runner exit $rc). Read the handoff comment if there is one; $log_where.$killed${pr:+ Its branch has an open pull request: $pr}$foreign"
-  [ "$rc" != 4 ] || parked="Tehas started no cycle: an image the issue links could not be fetched, or the issue could not be read for its images (runner exit $rc). The comment before this one names it; $log_where."
+  [ "$rc" != 4 ] || parked="Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit $rc). The comment before this one names it; $log_where."
   park "$parked"
 fi
 log "done #$issue rc=$rc status=$status step=$step minutes=$mins pr=${pr:-none} oom_kills=$kills forks_refused=$forks"

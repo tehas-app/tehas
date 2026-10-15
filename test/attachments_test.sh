@@ -165,6 +165,42 @@ rm -f "$T/kept.json"
 t_run "$changed"
 t_eq "$t_rc$t_out" "0"
 
+t_case "the text types a cycle may be given, and no other"
+t_run "$lib; for e in md txt log csv json yaml yml html css js; do tehas_text_type \$e; done | tr '\n' ' '"
+t_eq "$t_out" "text/markdown text/plain text/plain text/csv application/json application/yaml application/yaml text/html text/css text/javascript "
+for e in svg htm mjs pdf zip png ''; do
+  t_run "$lib; tehas_text_type '$e'"
+  t_eq "$e:$t_rc$t_out" "$e:1"
+done
+
+t_case "text is valid UTF-8 with no NUL byte"
+printf 'caf\xc3\xa9\n' >"$T/ok.txt"
+printf 'caf\xe9\n' >"$T/latin1.txt"
+printf 'a\x00b' >"$T/nul.txt"
+: >"$T/empty.txt"
+t_run "$lib; for f in ok latin1 nul empty; do tehas_text_ok $T/\$f.txt && echo \$f; done"
+t_eq "$t_out" "ok
+empty"
+
+t_case "the comment names images and files apart, and the hash of each"
+mkdir -p "$T/both"
+jq -n '{images: [{file: "image-1.png", link: "L1", sha256: "aa"}], files: [{file: "file-1.md", link: "L2", sha256: "bb"}, {file: "file-2.txt", link: "L3", sha256: "cc"}], leftOut: []}' >"$T/both/manifest.json"
+t_run "$lib; tehas_issue_images_said $T/both cycle no"
+t_eq "$t_out" "Tehas fetched 1 image from the issue text for this cycle, but the pi-rukas in the sandbox image does not read them: its agents are not shown them. Tehas fetched 2 files from the issue text for this cycle and lists them in its manifest. The pi-rukas in the sandbox image does not read them yet: its agents are not shown them.
+
+- L1: image-1.png, sha256 aa
+- L2: file-1.md, sha256 bb
+- L3: file-2.txt, sha256 cc"
+jq '.images = []' "$T/both/manifest.json" >"$T/m" && mv "$T/m" "$T/both/manifest.json"
+t_run "$lib; tehas_issue_images_said $T/both cycle"
+t_eq "$(head -n 1 <<<"$t_out")" "Tehas fetched 2 files from the issue text for this cycle and lists them in its manifest. The pi-rukas in the sandbox image does not read them yet: its agents are not shown them."
+
+t_case "a file of the same approval is held to its bytes as an image is"
+jq '.approval = {at: "t", by: "alice", how: "label"}' "$T/both/manifest.json" >"$T/m" && mv "$T/m" "$T/both/manifest.json"
+jq '.files[1].sha256 = "dd"' "$T/both/manifest.json" >"$T/kept.json"
+t_run "$lib; tehas_issue_images_changed $T/kept.json $T/both || echo \"\$image_why\""
+t_eq "$t_out" "L3 gave other bytes than when this approval was first fetched"
+
 # --- Whether the sandbox image reads them ------------------------------------
 t_stub docker 'case "$1 $2" in "image inspect") cat "$T/image.id" ;; *) exit "${READS_RC:-0}" ;; esac'
 reader="TEHAS_HOME=$T/home/tehas; $lib; tehas_images_read some/image"

@@ -2,8 +2,8 @@
 # Files attached to an issue: which links are GitHub's attachment storage,
 # which types are known, and how one file is fetched. Sourced by the commands
 # that fetch them: tehasbot protolab (a ticket's page), and tehas work and
-# tehas plan (the images an issue links). It is in one place so they cannot
-# drift apart.
+# tehas plan (the images and text files an issue links). It is in one place
+# so they cannot drift apart.
 #
 #   tehas_attachment_links            print a jq definition, `links`: every
 #                                     attachment link in a string, in the
@@ -72,8 +72,9 @@ tehas_attachment_fetch() { # <address> <file> <most bytes> [<token>]
   curl "${args[@]}" "$1" </dev/null
 }
 
-# The images an issue links, for a container that is given them: tehas work
-# and tehas plan. The rules are written in libexec/work's header.
+# The images and text files an issue links, for a container that is given
+# them: tehas work and tehas plan. The rules are written in libexec/work's
+# header.
 #
 #   tehas_issue_images <issue> <dir> [approved] [record]
 #                                     remake <dir> from the issue's text, with
@@ -118,7 +119,6 @@ tehas_image_type() {
   esac
 }
 
-# shellcheck disable=SC2034  # the caller reads what this sets
 # tehas_body_sha256: the sha256 of an issue's body, given the issue as JSON on
 # standard input. Carriage returns are dropped: the dispatcher reads the body
 # from GraphQL and tehas work from REST, and only line ends may differ.
@@ -130,13 +130,46 @@ tehas_body_sha256() {
   echo "$sum"
 }
 
+# tehas_text_type <extension>: the type of a text file a cycle may be given;
+# fails for any other extension. Not svg: as an image it is code, and no step
+# wants it as text yet.
+tehas_text_type() {
+  case "$1" in
+    md) echo text/markdown ;;
+    txt | log) echo text/plain ;;
+    csv) echo text/csv ;;
+    json) echo application/json ;;
+    yaml | yml) echo application/yaml ;;
+    html) echo text/html ;;
+    css) echo text/css ;;
+    js) echo text/javascript ;;
+    *) return 1 ;;
+  esac
+}
+
+# tehas_text_ok <file>: valid UTF-8 with no NUL byte.
+tehas_text_ok() {
+  [ "$(tr -d '\000' <"$1" | wc -c)" = "$(wc -c <"$1")" ] && iconv -f UTF-8 -t UTF-8 "$1" >/dev/null 2>&1
+}
+
+# What is taken follows the settings: images unless TEHAS_WORK_IMAGES is 0,
+# text files when TEHAS_WORK_FILES is 1. Each kind has its own limits.
+# shellcheck disable=SC2034  # the caller reads what this sets
 tehas_issue_images() { # <issue> <dir> [approved] [record]
-  local issue=$1 images=$2 approved=${3:-} record=${4:-} data who ref name ext size rc left sum given=null used=0 count=0
-  local limit=$((10 * 1024 * 1024)) max=8
+  local issue=$1 images=$2 approved=${3:-} record=${4:-} data who ref name ext kind type size rc left sum given=null
+  local want_images=1 want_files=0 used=0 count=0 fused=0 fcount=0
+  [ "${TEHAS_WORK_IMAGES:-1}" != 0 ] || want_images=0
+  [ "${TEHAS_WORK_FILES:-0}" != 1 ] || want_files=1
+  local limit=$((10 * 1024 * 1024)) max=8 flimit=$((4 * 1024 * 1024)) fmax=16 fone=$((1024 * 1024))
   local other="Not a png, jpg, webp or gif image." over="Over the 10 MB limit of an issue."
+  local fover="Over the 4 MB limit of an issue's files." fbig="Over the 1 MB limit of a file."
+  local notext="Not valid UTF-8 text, or it holds a NUL byte."
+  [ "$want_files" = 0 ] || other="Not a png, jpg, webp or gif image, nor a md, txt, csv, json, yaml, log, html, css or js file."
+  [ "$want_images" = 1 ] || other="Not a md, txt, csv, json, yaml, log, html, css or js file. This instance gives a cycle no images."
   image_why="the directory for the issue's images could not be made"
   { rm -rf "$images" && mkdir -p "$images"; } || return 1
   : >"$images/.taken"
+  : >"$images/.files"
   : >"$images/.left"
   leave() { jq -n -c --arg link "$1" --arg reason "$2" '{link: $link, reason: $reason}' >>"$images/.left"; }
   image_why="the issue could not be read for its images"
@@ -164,8 +197,10 @@ tehas_issue_images() { # <issue> <dir> [approved] [record]
       approved:* | *:OWNER | *:MEMBER | *:COLLABORATOR) ;;
       *) leave "$ref" "The issue was not opened by an owner, member or collaborator, and its label was not applied by an allowed account."; continue ;;
     esac
-    # A file attached under its name is not fetched when the name says it is
-    # no image. A pasted one has no name: its bytes say.
+    # A file attached under its name is taken by what the name says. A pasted
+    # one has no name and is only ever an image: its bytes say which.
+    name=""
+    kind=image
     case "$ref" in
       https://github.com/user-attachments/assets/* | https://github.com/*/assets/*) ;;
       *)
@@ -173,33 +208,68 @@ tehas_issue_images() { # <issue> <dir> [approved] [record]
         name=${name%%\?*}
         ext=""
         case "$name" in *.*) ext=${name##*.} ;; esac
-        case "${ext,,}" in png | jpg | jpeg | webp | gif) ;; *) leave "$ref" "$other"; continue ;; esac
+        ext=${ext,,}
+        case "$ext" in
+          png | jpg | jpeg | webp | gif) ;;
+          *) kind=text ;;
+        esac
         ;;
     esac
-    if [ "$count" -ge "$max" ]; then leave "$ref" "More than $max images."; continue; fi
-    left=$((limit - used))
-    if [ "$left" -le 0 ]; then leave "$ref" "$over"; continue; fi
+    if [ "$kind" = image ] && [ "$want_images" = 0 ]; then leave "$ref" "$other"; continue; fi
+    if [ "$kind" = text ] && { [ "$want_files" = 0 ] || ! type=$(tehas_text_type "$ext"); }; then
+      leave "$ref" "$other"
+      continue
+    fi
+    if [ "$kind" = image ]; then
+      if [ "$count" -ge "$max" ]; then leave "$ref" "More than $max images."; continue; fi
+      left=$((limit - used))
+      if [ "$left" -le 0 ]; then leave "$ref" "$over"; continue; fi
+    else
+      if [ "$fcount" -ge "$fmax" ]; then leave "$ref" "More than $fmax files."; continue; fi
+      left=$((flimit - fused))
+      if [ "$left" -le 0 ]; then leave "$ref" "$fover"; continue; fi
+      [ "$left" -le "$fone" ] || left=$fone
+    fi
 
     rm -f "$images/.part"
     tehas_attachment_fetch "$ref" "$images/.part" "$left" "$GH_TOKEN" >/dev/null
     rc=$?
-    case "$rc" in
-      0) ;;
-      63) leave "$ref" "$over"; continue ;;
+    case "$rc:$kind" in
+      0:*) ;;
+      63:image) leave "$ref" "$over"; continue ;;
+      63:text) if [ "$left" = "$fone" ]; then leave "$ref" "$fbig"; else leave "$ref" "$fover"; fi; continue ;;
       *) image_why="$ref could not be fetched"; return 1 ;;
     esac
     size=$(stat -c %s "$images/.part" 2>/dev/null) || size=0
-    if [ "$size" -gt "$left" ]; then leave "$ref" "$over"; continue; fi
-    ext=$(tehas_image_type "$images/.part") || { leave "$ref" "$other"; continue; }
-    count=$((count + 1))
-    used=$((used + size))
-    if ! { mv "$images/.part" "$images/image-$count.$ext" && chmod 644 "$images/image-$count.$ext"; }; then
+    if [ "$size" -gt "$left" ]; then
+      if [ "$kind" = image ]; then leave "$ref" "$over"; elif [ "$left" = "$fone" ]; then leave "$ref" "$fbig"; else leave "$ref" "$fover"; fi
+      continue
+    fi
+    if [ "$kind" = image ]; then
+      ext=$(tehas_image_type "$images/.part") || { leave "$ref" "$other"; continue; }
+      count=$((count + 1))
+      used=$((used + size))
+      name=image-$count.$ext
+      type=image/${ext/jpg/jpeg}
+    else
+      tehas_text_ok "$images/.part" || { leave "$ref" "$notext"; continue; }
+      fcount=$((fcount + 1))
+      fused=$((fused + size))
+      name=file-$fcount.$ext
+    fi
+    if ! { mv "$images/.part" "$images/$name" && chmod 644 "$images/$name"; }; then
       image_why="the issue's images could not be written"
       return 1
     fi
-    sum=$(sha256sum "$images/image-$count.$ext") || { image_why="the issue's images could not be read back"; return 1; }
-    jq -n -c --arg file "image-$count.$ext" --arg link "$ref" --arg type "image/${ext/jpg/jpeg}" --argjson bytes "$size" \
-      --arg sum "${sum%% *}" '{file: $file, link: $link, type: $type, bytes: $bytes, sha256: $sum}' >>"$images/.taken"
+    sum=$(sha256sum "$images/$name") || { image_why="the issue's images could not be read back"; return 1; }
+    if [ "$kind" = image ]; then
+      jq -n -c --arg file "$name" --arg link "$ref" --arg type "$type" --argjson bytes "$size" \
+        --arg sum "${sum%% *}" '{file: $file, link: $link, type: $type, bytes: $bytes, sha256: $sum}' >>"$images/.taken"
+    else
+      # The name as the link has it: the link's characters only.
+      jq -n -c --arg file "$name" --arg link "$ref" --arg name "${ref##*/}" --arg type "$type" --argjson bytes "$size" \
+        --arg sum "${sum%% *}" '{file: $file, link: $link, name: $name, type: $type, bytes: $bytes, sha256: $sum}' >>"$images/.files"
+    fi
   done < <(if [ -n "$record" ]; then
     # Only links of the shape this file takes, whatever the record holds.
     jq -r "$(tehas_attachment_links)"'.links[] | strings | select(links == [.])' "$record"
@@ -208,9 +278,11 @@ tehas_issue_images() { # <issue> <dir> [approved] [record]
   fi | awk '!seen[$0]++')
 
   image_why="the issue's images could not be written"
-  jq -n --argjson issue "$issue" --argjson given "$given" --slurpfile images "$images/.taken" --slurpfile left "$images/.left" \
-    '{images: $images, leftOut: $left} + {issue: $issue, approval: $given}' >"$images/manifest.json" || return 1
-  rm -f "$images/.part" "$images/.taken" "$images/.left"
+  jq -n --argjson issue "$issue" --argjson given "$given" --argjson files "$want_files" \
+    --slurpfile images "$images/.taken" --slurpfile taken "$images/.files" --slurpfile left "$images/.left" \
+    '{images: $images} + (if $files == 1 then {files: $taken} else {} end) + {leftOut: $left, issue: $issue, approval: $given}' \
+    >"$images/manifest.json" || return 1
+  rm -f "$images/.part" "$images/.taken" "$images/.files" "$images/.left"
   { chmod 755 "$images" && chmod 644 "$images/manifest.json"; } || return 1
   image_why=""
 }
@@ -224,21 +296,30 @@ tehas_issue_images_changed() { # <kept manifest> <dir>
   [ -f "$1" ] && [ ! -L "$1" ] || return 0
   link=$(jq -r --slurpfile new "$2/manifest.json" '
     select(.approval != null and .approval == $new[0].approval)
-    | [.images[]? | {(.link): .sha256}] | add // {} | . as $old
-    | $new[0].images[] | select($old[.link] != null and $old[.link] != .sha256) | .link' "$1" 2>/dev/null | head -n 1)
+    | [.images[]?, .files[]? | {(.link): .sha256}] | add // {} | . as $old
+    | $new[0] | .images[]?, .files[]? | select($old[.link] != null and $old[.link] != .sha256) | .link' "$1" 2>/dev/null | head -n 1)
   [ -z "$link" ] || { image_why="$link gave other bytes than when this approval was first fetched"; return 1; }
 }
 
 # The links are of the shape tehas_attachment_links takes and the reasons are
 # written above, so nothing of the issue's own words is posted back. A comment
-# does not say the images were given when the agents are not shown them.
+# does not say the images were given when the agents are not shown them, and
+# no pi-rukas reads the text files yet.
 tehas_issue_images_said() { # <dir> <what> [yes|no|unknown]
-  jq -r --arg what "$2" --arg reads "${3:-yes}" 'select((.images | length) + (.leftOut | length) > 0)
+  jq -r --arg what "$2" --arg reads "${3:-yes}" '(.files // []) as $files
+    | select((.images | length) + ($files | length) + (.leftOut | length) > 0)
     | "\(.images | length) \(if (.images | length) == 1 then "image" else "images" end) from the issue text" as $n
-    | if $reads == "no" then "Tehas fetched \($n) for this \($what), but the pi-rukas in the sandbox image does not read them: its agents are not shown them."
-      elif $reads == "yes" then "Tehas gave this \($what) \($n)."
-      else "Tehas gave this \($what) \($n). Whether the pi-rukas in the sandbox image reads them could not be checked." end
-      + (if (.images | length) > 0 then "\n\n" + (.images | map("- \(.link): \(.file), sha256 \(.sha256)") | join("\n")) else "" end)
+    | "\($files | length) \(if ($files | length) == 1 then "file" else "files" end) from the issue text" as $f
+    | ([(if (.images | length) > 0 or ($files | length) == 0 then
+          if $reads == "no" then "Tehas fetched \($n) for this \($what), but the pi-rukas in the sandbox image does not read them: its agents are not shown them."
+          elif $reads == "yes" then "Tehas gave this \($what) \($n)."
+          else "Tehas gave this \($what) \($n). Whether the pi-rukas in the sandbox image reads them could not be checked." end
+        else empty end),
+       (if ($files | length) > 0 then
+          "Tehas fetched \($f) for this \($what) and lists them in its manifest. The pi-rukas in the sandbox image does not read them yet: its agents are not shown them."
+        else empty end)] | join(" "))
+      + (if (.images | length) + ($files | length) > 0 then
+          "\n\n" + (.images + $files | map("- \(.link): \(.file), sha256 \(.sha256)") | join("\n")) else "" end)
       + (if (.leftOut | length) > 0 then "\n\nLeft out:\n" + (.leftOut | map("- \(.link): \(.reason)") | join("\n")) else "" end)' \
     "$1/manifest.json" 2>/dev/null
 }

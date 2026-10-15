@@ -689,6 +689,23 @@ t_eq "$t_rc" 0
 t_eq "$(cat "$T/calls/curl.urls" 2>/dev/null)" ""
 rm -f "$T/home/.pi/agent/models.json"
 
+t_case "with files alone a first turn fetches them, and the turn gets the one directory and the one variable"
+images_on
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_FILES=1 "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=/elsewhere"
+net "https://github.com/user-attachments/files/31/spec.md" '# Spec\n'
+net "$A/1111" '\x89PNG\r\n\x1a\nPNGDATA'
+issue_is "[spec.md](https://github.com/user-attachments/files/31/spec.md) ![shot]($A/1111)"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(cd "$T/keep/images" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" "./file-1.md ./manifest.json "
+t_eq "$(after -v | grep -c images)" 1
+t_eq "$(after -v | grep -c -x "$tree.images:$ws.images:ro")" 1
+t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_ENSEMBLE_EXTRA_IMAGE_DIRS | LC_ALL=C sort)"
+t_eq "$(after -e | grep '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$ws.images"
+t_eq "$(turn_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -i --init")" ""
+t_lacks "$(cat "$T/calls/curl.urls")" "$A/1111"
+t_contains "$(cat "$T/calls/gh.comments")" "Tehas fetched 1 file from the issue text for this planning session"
+
 t_case "with images off nothing is fetched or mounted"
 reset
 t_instance "${T_MINIMAL[@]}" "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=/elsewhere"

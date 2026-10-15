@@ -13,9 +13,10 @@
 #              2 Pi exited, the time limit passed or the cycle stalled while it
 #                was still running.
 #              3 the sandbox cannot push to the repository; no cycle was started.
-#              4 the instance gives a cycle the issue's images and one could
-#                not be fetched, the issue could not be read for them, or its
-#                text or a file is not what was approved; no cycle was started.
+#              4 the instance gives a cycle the issue's images or files and one
+#                could not be fetched, the issue could not be read for them, or
+#                its text or a file is not what was approved; no cycle was
+#                started.
 #              5 a cycle for this issue is running already; nothing was
 #                touched.
 #
@@ -35,6 +36,7 @@
 #   TEHAS_CYCLE_RESERVE the container's memory floor [2g]
 #   TEHAS_WORK_IMAGES   1 gives the cycle the images its issue links [0]
 #   TEHAS_WORK_DESCRIBE 1 has the model describe those images first [0]
+#   TEHAS_WORK_FILES    1 gives the cycle the text files its issue links [0]
 # From the environment, for tests: TEHAS_PREFLIGHT_WAIT (seconds the push check
 # may take [300]) and TEHAS_STOP_WAIT (seconds a docker stop may take before
 # the container is killed [60]).
@@ -66,6 +68,17 @@
 #   types     png, jpg, webp and gif, told by the file's first bytes. Not svg:
 #             it is text and can carry instructions.
 #   how much  At most 8 images and 10 megabytes together.
+#
+# With TEHAS_WORK_FILES=1 it is given the same directory and the same variable,
+# whether or not TEHAS_WORK_IMAGES is 1, and the directory holds the issue's
+# text files too, by the same rule of which links and whose approval:
+#   types     md, txt, csv, json, yaml, yml, log, html, css and js, by the
+#             name's extension, then checked: valid UTF-8 and no NUL byte.
+#             html is text here; rendering it is the Protolab's job.
+#   how much  At most 16 files, 1 megabyte each and 4 megabytes together.
+# They are named file-1.md and so on and listed under "files" in the manifest
+# with their original name. The pi-rukas that tehas pins does not read them
+# yet.
 # They go to $TEHAS_HOME/work/<name>-<issue>.images, beside the workspace and
 # not in it, so a patch cannot commit them, under names made here, with a
 # manifest.json that lists each file, the link it came from, its type, size
@@ -211,8 +224,18 @@ bot_name=$(git config --global user.name || true)
 bot_email=$(git config --global user.email || true)
 [ -n "$bot_name" ] && [ -n "$bot_email" ] ||
   { echo "tehas work: git user.name and user.email are not set for $(id -un)" >&2; exit 64; }
-# The path of the images is this command's to give, not the instance's.
-[ "$TEHAS_WORK_IMAGES" != 1 ] || unset PI_ENSEMBLE_EXTRA_IMAGE_DIRS
+# The images and the text files share one directory, given to the container
+# when the instance gives either kind.
+give=0
+kinds=images
+if [ "$TEHAS_WORK_FILES" = 1 ]; then
+  give=1
+  kinds=files
+  [ "$TEHAS_WORK_IMAGES" != 1 ] || kinds="images and files"
+fi
+[ "$TEHAS_WORK_IMAGES" != 1 ] || give=1
+# Its path is this command's to give, not the instance's.
+[ "$give" != 1 ] || unset PI_ENSEMBLE_EXTRA_IMAGE_DIRS
 mapfile -d '' -t envs < <(tehas_sandbox_env "$repo" "$bot_name" "$bot_email")
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
 [ "${#envs[@]}" -gt 0 ] ||
@@ -238,7 +261,7 @@ if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces"; }; then
   exit 78
 fi
 image_opts=()
-if [ "$TEHAS_WORK_IMAGES" = 1 ]; then
+if [ "$give" = 1 ]; then
   approved=""
   if [ -f "$record" ] && [ ! -L "$record" ]; then
     # The dispatcher's record of the start: who approved and which links.
@@ -258,7 +281,7 @@ if [ "$TEHAS_WORK_IMAGES" = 1 ]; then
     ! tehas_issue_images_changed "$kept" "$images"; then
     rm -rf "$images"
     echo "tehas work: $image_why, not starting a cycle" >&2
-    gh issue comment "$issue" --repo "$TEHAS_REPO" --body "Tehas started no cycle: $image_why. This instance gives a cycle the images an issue links, and a cycle that works without one of them may build the wrong thing. To retry, apply \`tehas:ready\`." >/dev/null 2>&1 ||
+    gh issue comment "$issue" --repo "$TEHAS_REPO" --body "Tehas started no cycle: $image_why. This instance gives a cycle the $kinds an issue links, and a cycle that works without one of them may build the wrong thing. To retry, apply \`tehas:ready\`." >/dev/null 2>&1 ||
       echo "tehas work: the comment on #$issue failed" >&2
     exit 4
   fi
@@ -267,7 +290,9 @@ if [ "$TEHAS_WORK_IMAGES" = 1 ]; then
   fi
   { cp "$images/manifest.json" "$kept.new" && mv "$kept.new" "$kept"; } 2>/dev/null ||
     echo "tehas work: could not keep the manifest as $kept" >&2
-  said=$(tehas_issue_images_said "$images" cycle "$(tehas_images_read "$image")")
+  reads=yes
+  if [ "$TEHAS_WORK_IMAGES" = 1 ]; then reads=$(tehas_images_read "$image"); else tehas_images_read_forget; fi
+  said=$(tehas_issue_images_said "$images" cycle "$reads")
   if [ -n "$said" ]; then
     gh issue comment "$issue" --repo "$TEHAS_REPO" --body "$said" >/dev/null 2>&1 ||
       echo "tehas work: the comment on #$issue failed" >&2

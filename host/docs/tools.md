@@ -69,6 +69,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_WORK_STALL`              | `3600`                                   | Seconds a cycle may go without a line added to any of its logs before it is stopped as `stalled`. Must be longer than `TEHAS_VERIFY_TIMEOUT`, because a gate can print nothing while it runs; else the command stops with 78 |
 | `TEHAS_WORK_IMAGES`             | `0`                                      | `1` gives a cycle and a planning session the images its issue text links: see [tehas work](#tehas-work) and [tehas plan](#tehas-plan). The model must declare `"image"` in its `input` in `models.json` and answer a request with an image, else the dispatcher holds every cycle |
 | `TEHAS_WORK_DESCRIBE`           | `0`                                      | `1` has the model describe each of those images in words before the cycle or planning session starts, into `images.md` beside them: see [tehas work](#tehas-work). Needs `TEHAS_WORK_IMAGES=1`, else the command stops with 78 |
+| `TEHAS_WORK_FILES`              | `0`                                      | `1` gives a cycle and a planning session the text files its issue text links: md, txt, csv, json, yaml, log, html, css and js, at most 16, 1 MB each and 4 MB together. Needs no model that reads images. See [tehas work](#tehas-work) |
 | `TEHAS_VERIFY_TIMEOUT`          | `1800`                                   | Seconds one run of the product's gate may take inside a cycle. A gate that takes longer is stopped and the cycle parks. Passed to pi-rukas as `PI_ENSEMBLE_VERIFY_TIMEOUT_MS` and `PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS`; pi-rukas alone allows ten minutes |
 | `TEHAS_PLAN_MAX_TURNS`          | `20`                                     | Turns a planning session may take before it is ended            |
 | `TEHAS_PLAN_TIMEOUT`            | `3600`                                   | Seconds before one planning turn is given up. At most 7200: [the poll's unit](/host#time-limits) stops a poll after 3 hours |
@@ -244,7 +245,7 @@ removed before the new one starts.
 | 1    | The cycle ended as `aborted`                                     |
 | 2    | Pi exited, the time limit passed, or the cycle stalled, while it was running |
 | 3    | The sandbox cannot push to the repository; no cycle was started  |
-| 4    | With `TEHAS_WORK_IMAGES=1`: an image the issue links could not be fetched, the issue could not be read for its images, its text is not the text that was approved, or a file is not the one first fetched for the approval; no cycle was started |
+| 4    | With `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`: an image or file the issue links could not be fetched, the issue could not be read for them, its text is not the text that was approved, or a file is not the one first fetched for the approval; no cycle was started |
 | 5    | A cycle for this issue is running already: its lock `~/tehas/state/cycles/<issue>.lock` is held. Nothing was moved and no container started |
 | 64   | No bot token or no git identity; no cycle was started            |
 | 78   | The instance settings are invalid, or `tehas.slice` is missing, has no memory limit, or cannot be used (the message names `sudo ./bootstrap.sh slice` or the reason); no cycle was started |
@@ -368,6 +369,23 @@ The file is in the directory that is mounted already: no mount and no
 variable more. The pi-rukas that tehas pins does not read `images.md` yet; the
 file is ready for a release that does.
 
+With `TEHAS_WORK_FILES=1` the container is given the same directory and the
+same variable, whether or not `TEHAS_WORK_IMAGES` is 1, and the directory also
+holds the text files the issue links. This widens what a cycle is given, and
+it is off unless the instance sets it. The rules of which links and whose
+approval are those of the images. A file is taken by its name's extension,
+md, txt, csv, json, yaml, yml, log, html, css or js, and then checked: valid
+UTF-8 and no NUL byte, else it is left out with the reason. html is text here;
+rendering it is the [Protolab](#tehasbot-protolab)'s job. svg, pdf and
+archives are left out. At most 16 files, 1 MB each and 4 MB together, apart
+from the images' limits. They are named `file-1.md`, `file-2.csv` and so on,
+and `manifest.json` lists them under `files`, each with its link, its original
+name, its type, its size and its sha256; `images` is as before. With images
+off, an image the issue links is left out and said. The comment on the issue
+says how many files were fetched, with each hash, and that the pi-rukas that
+tehas pins does not read them yet: the manifest is ready for a release that
+does.
+
 ## tehas plan
 
 Runs one turn of a planning session, headless, in the sandbox image. The
@@ -408,7 +426,9 @@ them, with `PI_ENSEMBLE_EXTRA_IMAGE_DIRS`. The copy is
 `~/tehas/work/<name>-plan-<issue>.images`, removed after the turn. An image
 that cannot be fetched starts no session: exit 4, said on the issue. With
 `TEHAS_WORK_DESCRIBE=1` the first turn also writes `images.md`, as
-`tehas work` does, and every turn's copy holds it. On exit 0 the `--out` file holds the session id, the agent's last
+`tehas work` does, and every turn's copy holds it. With `TEHAS_WORK_FILES=1`
+the first turn fetches the text files too, by the rules of `tehas work`, into
+the same directory. On exit 0 the `--out` file holds the session id, the agent's last
 message and the question it asked, if any. On exit 2 it holds the session id
 alone when that is known, so the dispatcher can run the turn again in the
 same session, and it is not written when no session is known.
@@ -417,7 +437,7 @@ same session, and it is not written when no session is known.
 | ---- | -------------------------------------------------------------------- |
 | 0    | The turn settled and said or asked something                         |
 | 2    | The turn did not settle, timed out, said and asked nothing, or its session or outcome could not be written down |
-| 4    | With `TEHAS_WORK_IMAGES=1`: a first turn where an image the issue links could not be fetched, or the issue could not be read for its images; nothing ran |
+| 4    | With `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`: a first turn where an image or file the issue links could not be fetched, or the issue could not be read for them; nothing ran |
 | 64   | A usage error, no bot token or no git identity; nothing ran          |
 | 78   | The instance settings are invalid, or `tehas.slice` cannot be used; nothing ran |
 

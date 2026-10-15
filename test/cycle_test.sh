@@ -207,7 +207,7 @@ reset
 echo 'exit 4' >"$fx/work.sh"
 t_run "$cycle 7"
 t_eq "$t_rc" 0
-t_contains "$(t_calls gh)" "Tehas started no cycle: an image the issue links could not be fetched, or the issue could not be read for its images (runner exit 4)."
+t_contains "$(t_calls gh)" "Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit 4)."
 t_lacks "$(t_calls gh)" "stopped without a pull request"
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention"
 
