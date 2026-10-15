@@ -42,6 +42,32 @@ t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=0"
 t_instance "${T_MINIMAL[@]}"
 
+t_case "a cycle's time limit that the unit's own limit would cut is refused"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=25201
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "TEHAS_WORK_TIMEOUT (25201) is more than 25200: tehas-cycle@.service stops a cycle after 8 hours"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=25200
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=0"
+t_instance "${T_MINIMAL[@]}"
+
+t_case "the cycle unit's limit is the longest time limit accepted plus an hour"
+t_eq "$(sed -n 's/^RuntimeMaxSec=//p' "$T_ROOT/host/systemd/tehas-cycle@.service")" "8h"
+
+t_case "a planning turn's time limit that the poll's unit would cut is refused"
+t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=7201
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "TEHAS_PLAN_TIMEOUT (7201) is more than 7200: tehas-dispatch.service stops a poll after 3 hours"
+t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=7200
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=0"
+t_instance "${T_MINIMAL[@]}"
+
+t_case "the poll's unit has a finite limit, an hour above the longest turn accepted"
+t_eq "$(sed -n 's/^TimeoutStartSec=//p' "$T_ROOT/host/systemd/tehas-dispatch.service")" "3h"
+
 t_case "an instance can lower the workstreams, and pi-rukas is told the same number"
 t_instance "${T_MINIMAL[@]}" TEHAS_CONCURRENCY=1
 t_run "$load && echo \"\$TEHAS_CONCURRENCY \$PI_ENSEMBLE_MAX_WORKSTREAMS\""
@@ -74,12 +100,47 @@ t_run "$load && echo \"\$TEHAS_WORK_IMAGES\""
 t_eq "$t_out" "1"
 T_ENV=()
 
+t_case "images are not described unless the instance says so, and only where it gives images"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
+t_run "$load && echo \"\$TEHAS_WORK_DESCRIBE\""
+t_eq "$t_out" "0"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1 TEHAS_WORK_DESCRIBE=1
+t_run "$load && echo \"\$TEHAS_WORK_DESCRIBE\""
+t_eq "$t_out" "1"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_DESCRIBE=1
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "tehas: TEHAS_WORK_DESCRIBE is 1 and TEHAS_WORK_IMAGES is not"
+
+t_case "comments are not read unless the instance says so, and only where it gives images or files"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
+t_run "$load && echo \"\$TEHAS_WORK_COMMENTS\""
+t_eq "$t_out" "0"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_FILES=1 TEHAS_WORK_COMMENTS=1
+t_run "$load && echo \"\$TEHAS_WORK_COMMENTS\""
+t_eq "$t_out" "1"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_COMMENTS=1
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "tehas: TEHAS_WORK_COMMENTS is 1 and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is"
+
+t_case "a cycle is given no text files unless the instance says so, and they need no images"
+t_instance "${T_MINIMAL[@]}"
+T_ENV=(TEHAS_WORK_FILES=1)
+t_run "$load && echo \"\$TEHAS_WORK_FILES\""
+t_eq "$t_out" "0"
+T_ENV=()
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_FILES=1
+t_run "$load && echo \"\$TEHAS_WORK_FILES \$TEHAS_WORK_IMAGES\""
+t_eq "$t_out" "1 0"
+
 t_case "the test hooks survive from the environment"
 t_instance "${T_MINIMAL[@]}"
 T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index
-  TEHAS_CYCLE_START_CMD=fake-start TEHAS_CYCLE_START_WAIT=2)
-t_run "$load && echo \"\$TEHAS_WORK_CMD \$TEHAS_STATUS_CMD \$TEHAS_INDEX_CMD \$TEHAS_CYCLE_START_CMD \$TEHAS_CYCLE_START_WAIT\""
-t_eq "$t_out" "fake-work fake-status fake-index fake-start 2"
+  TEHAS_CYCLE_START_CMD=fake-start TEHAS_CYCLE_START_WAIT=2 TEHAS_PREFLIGHT_WAIT=3 TEHAS_STOP_WAIT=4 TEHAS_FETCH_WAIT=5
+  TEHAS_CYCLE_RETRY_WAIT=6 TEHAS_CYCLE_STOP_GH_WAIT=7 TEHAS_CONSOLE_WAIT=8 TEHAS_CYCLE_STOP_CMD=fake-stop)
+t_run "$load && echo \"\$TEHAS_WORK_CMD \$TEHAS_STATUS_CMD \$TEHAS_INDEX_CMD \$TEHAS_CYCLE_START_CMD \$TEHAS_CYCLE_START_WAIT \$TEHAS_PREFLIGHT_WAIT \$TEHAS_STOP_WAIT \$TEHAS_FETCH_WAIT \$TEHAS_CYCLE_RETRY_WAIT \$TEHAS_CYCLE_STOP_GH_WAIT \$TEHAS_CONSOLE_WAIT \$TEHAS_CYCLE_STOP_CMD\""
+t_eq "$t_out" "fake-work fake-status fake-index fake-start 2 3 4 5 6 7 8 fake-stop"
 T_ENV=()
 
 t_case "a missing instance.env returns 78 and names the directory"
@@ -149,7 +210,7 @@ for bad in "TEHAS_REPO=widget" "TEHAS_REPO=a/b/c" "TEHAS_CONTROL_ISSUE=abc" "TEH
 done
 
 for bad in "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=two" "TEHAS_MAX_AWAITING=-1" "TEHAS_WORK_TIMEOUT=soon" "TEHAS_WORK_STALL=0" "TEHAS_WORK_STALL=1h" "TEHAS_HOST_ADDR=not an address" \
-  "TEHAS_BRANCH=two words" "TEHAS_INDEXING=yes" "TEHAS_WORK_IMAGES=yes" "TEHAS_WORK_IMAGES=2" "TEHAS_ANALYTICS_SRC=http://plain.example/ea.js" \
+  "TEHAS_BRANCH=two words" "TEHAS_INDEXING=yes" "TEHAS_WORK_IMAGES=yes" "TEHAS_WORK_IMAGES=2" "TEHAS_WORK_DESCRIBE=yes" "TEHAS_WORK_FILES=yes" "TEHAS_WORK_FILES=2" "TEHAS_WORK_COMMENTS=yes" "TEHAS_TOP=yes" "TEHAS_TOP=2" "TEHAS_ANALYTICS_SRC=http://plain.example/ea.js" \
   "TEHAS_ANALYTICS_SRC=https://a.example/x.js\" onload=\"x" "TEHAS_ANALYTICS_SITE=two words" \
   "TEHAS_ANALYTICS_COOKIE=yes" "TEHAS_PROTOLAB_URL=https://lab.example/" "TEHAS_PROTOLAB_URL=lab.example" \
   "TEHAS_PLAN_MAX_TURNS=0" "TEHAS_PLAN_TIMEOUT=1h" "TEHAS_VERIFY_TIMEOUT=30m" "TEHAS_VERIFY_TIMEOUT=0" \
@@ -460,5 +521,32 @@ T_ENV=()
 t_case "loading sets no cgroup root of its own"
 t_run "$load && echo \"[\${TEHAS_CGROUP_ROOT:-}]\""
 t_eq "$t_out" "[]"
+
+t_case "the host section is published only when the instance asks for it"
+t_instance "${T_MINIMAL[@]}"
+t_run "$load && echo \"\$TEHAS_TOP\""
+t_eq "$t_out" "0"
+t_instance "${T_MINIMAL[@]}" TEHAS_TOP=1
+t_run "$load && echo \"\$TEHAS_TOP\""
+t_eq "$t_out" "1"
+t_instance "${T_MINIMAL[@]}" TEHAS_TOP=0
+t_run "$load && echo \"\$TEHAS_TOP\""
+t_eq "$t_out" "0"
+# A line in the environment is not the instance asking for it.
+t_instance "${T_MINIMAL[@]}"
+T_ENV=(TEHAS_TOP=1)
+t_run "$load && echo \"\$TEHAS_TOP\""
+t_eq "$t_out" "0"
+T_ENV=()
+
+t_case "the energy switches in ~/.config/tehas/env survive env.sh"
+t_instance "${T_MINIMAL[@]}"
+mkdir -p "$T/home/.config/tehas" "$T/home/tehas/lib"
+cp "$T_ROOT/lib/config.sh" "$T/home/tehas/lib/"
+printf '%s\n' GH_TOKEN=t0 TEHAS_ENERGY=off TEHAS_ENERGY_URL=http://mesh.example:8086/v1/cluster \
+  >"$T/home/.config/tehas/env"
+t_run '. "$T_ROOT/host/env.sh"; echo "[$GH_TOKEN] [${TEHAS_ENERGY:-}] [${TEHAS_ENERGY_URL:-}] [$TEHAS_REPO]"'
+t_eq "$t_out" "[t0] [off] [http://mesh.example:8086/v1/cluster] [acme/widget]"
+rm -rf "$T/home/.config/tehas" "$T/home/tehas/lib"
 
 t_done

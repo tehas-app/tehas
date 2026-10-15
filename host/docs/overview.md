@@ -20,7 +20,7 @@ This site is the operating manual of one instance.
 
 An instance is one host serving one product repository. What differs between
 instances is in an instance directory: two small files, `instance.env` and
-`models.json`. The scripts are the same everywhere.
+`models.json`, and optionally Pi's own `settings.json`. The scripts are the same everywhere.
 
 The examples on this site come from the instance that works on tehas itself:
 
@@ -51,6 +51,10 @@ you: review, click through, merge
 
 If the cycle cannot finish, the issue gets `needs-human-attention` and a comment
 saying where it stopped.
+
+The six-pass review blocks a change at the severity the product's own doctrine
+states, and here that bar is MEDIUM and above. See [Operating tehas](/operating)
+for what a finding does and what a cycle may defer.
 
 ## What runs where
 

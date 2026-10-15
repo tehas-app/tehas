@@ -28,8 +28,10 @@
 #   - instance.env is authoritative. Settings of the same name in the
 #     environment are dropped; only TEHAS_HOME, TEHAS_INSTANCE_DIR and the test
 #     hooks TEHAS_WORK_CMD, TEHAS_STATUS_CMD, TEHAS_INDEX_CMD, TEHAS_PLAN_CMD,
-#     TEHAS_CYCLE_START_CMD, TEHAS_CYCLE_START_WAIT and TEHAS_CGROUP_ROOT are
-#     kept.
+#     TEHAS_CYCLE_START_CMD, TEHAS_CYCLE_STOP_CMD, TEHAS_CYCLE_START_WAIT,
+#     TEHAS_CGROUP_ROOT, TEHAS_PREFLIGHT_WAIT, TEHAS_STOP_WAIT, TEHAS_FETCH_WAIT,
+#     TEHAS_CONSOLE_WAIT, TEHAS_CYCLE_RETRY_WAIT and TEHAS_CYCLE_STOP_GH_WAIT
+#     are kept.
 #   - Loading runs no git command, makes no network call and writes nothing.
 #   - TEHAS_IMPROVE_REPO switches the improvement loop on. Unset is valid and
 #     means there is none. TEHAS_IMPROVE_RUKAS_REPO needs it.
@@ -89,7 +91,7 @@ _tehas_valid() {
       [[ $v =~ ^[A-Za-z0-9][A-Za-z0-9-]*(\ [A-Za-z0-9][A-Za-z0-9-]*)*$ ]] ||
         { echo "expected GitHub logins separated by single spaces"; return 1; }
       ;;
-    TEHAS_INDEXING | TEHAS_ANALYTICS_COOKIE | TEHAS_WORK_IMAGES)
+    TEHAS_INDEXING | TEHAS_ANALYTICS_COOKIE | TEHAS_WORK_IMAGES | TEHAS_WORK_DESCRIBE | TEHAS_WORK_FILES | TEHAS_WORK_COMMENTS | TEHAS_TOP)
       case "$v" in 0 | 1) ;; *) echo "expected 0 or 1"; return 1 ;; esac
       ;;
     # Both end up in an HTML attribute of every page, so no quote, space or
@@ -151,10 +153,14 @@ tehas_load() {
   file=$dir/instance.env
   [ -r "$file" ] || { tehas_err "no instance.env in $dir (copy instances/example and fill it in)"; return 78; }
 
+  # TEHAS_ENERGY and TEHAS_ENERGY_URL are host choices in ~/.config/tehas/env,
+  # which env.sh reads before this.
   for v in $(compgen -v); do
     case "$v" in
       TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_INDEX_CMD | TEHAS_PLAN_CMD | \
-        TEHAS_CYCLE_START_CMD | TEHAS_CYCLE_START_WAIT | TEHAS_CGROUP_ROOT) ;;
+        TEHAS_CYCLE_START_CMD | TEHAS_CYCLE_STOP_CMD | TEHAS_CYCLE_START_WAIT | TEHAS_CGROUP_ROOT | \
+        TEHAS_PREFLIGHT_WAIT | TEHAS_STOP_WAIT | TEHAS_FETCH_WAIT | TEHAS_CONSOLE_WAIT | \
+        TEHAS_CYCLE_RETRY_WAIT | TEHAS_CYCLE_STOP_GH_WAIT | TEHAS_ENERGY | TEHAS_ENERGY_URL) ;;
       TEHAS_* | PI_ENSEMBLE_*) unset "$v" ;;
     esac
   done
@@ -203,6 +209,11 @@ tehas_load() {
   # this host is lib/slice.sh's question, asked when a container is started.
   export TEHAS_CYCLE_RESERVE=${TEHAS_CYCLE_RESERVE:-2g}
   export TEHAS_INDEXING=${TEHAS_INDEXING:-0}
+  # Whether the host's load and processes are published for the dashboard, by
+  # `tehasbot top`. Off unless the instance says so: the dashboard can be on the
+  # internet, and this names the processes of the host. It governs the published
+  # file only; `tehas top` in a terminal works whatever it says.
+  export TEHAS_TOP=${TEHAS_TOP:-0}
   # Visitor analytics on the dashboard and the manual. Off unless the instance
   # names a script and a site.
   export TEHAS_ANALYTICS_SRC=${TEHAS_ANALYTICS_SRC:-}
@@ -233,6 +244,16 @@ tehas_load() {
   # instance says so: it is one more thing a container is given, and it needs
   # a model that reads images.
   export TEHAS_WORK_IMAGES=${TEHAS_WORK_IMAGES:-0}
+  # Whether the model describes those images in words before a cycle or a
+  # planning session starts. One request per image to the model endpoint.
+  export TEHAS_WORK_DESCRIBE=${TEHAS_WORK_DESCRIBE:-0}
+  # Whether a cycle is given the text files its issue links: md, txt, csv and
+  # the like. Off unless the instance says so. It needs no model that reads
+  # images.
+  export TEHAS_WORK_FILES=${TEHAS_WORK_FILES:-0}
+  # Whether the links in comments by allowed accounts, written before the
+  # approval, are taken too. Off unless the instance says so.
+  export TEHAS_WORK_COMMENTS=${TEHAS_WORK_COMMENTS:-0}
   # A planning session: how many turns it may take, and how long one turn may.
   export TEHAS_PLAN_MAX_TURNS=${TEHAS_PLAN_MAX_TURNS:-20}
   export TEHAS_PLAN_TIMEOUT=${TEHAS_PLAN_TIMEOUT:-3600}
@@ -259,7 +280,7 @@ tehas_load() {
   # Agents get neither the host Docker socket nor SSH keys. Not a setting.
   export PI_ENSEMBLE_NO_DOCKER_SOCKET=1 PI_ENSEMBLE_NO_SSH=1
 
-  for v in TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_ANALYTICS_COOKIE TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
+  for v in TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_WORK_DESCRIBE TEHAS_WORK_FILES TEHAS_WORK_COMMENTS TEHAS_ANALYTICS_COOKIE TEHAS_TOP TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
     TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_RESERVE; do
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
@@ -279,8 +300,29 @@ tehas_load() {
     tehas_err "TEHAS_IMPROVE_REPO is not set and TEHAS_IMPROVE_RUKAS_REPO is (see $file)"
     return 78
   fi
+  if [ "$TEHAS_WORK_DESCRIBE" = 1 ] && [ "$TEHAS_WORK_IMAGES" != 1 ]; then
+    tehas_err "TEHAS_WORK_DESCRIBE is 1 and TEHAS_WORK_IMAGES is not: there are no images to describe (see $file)"
+    return 78
+  fi
+  if [ "$TEHAS_WORK_COMMENTS" = 1 ] && [ "$TEHAS_WORK_IMAGES" != 1 ] && [ "$TEHAS_WORK_FILES" != 1 ]; then
+    tehas_err "TEHAS_WORK_COMMENTS is 1 and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is: nothing is taken from comments (see $file)"
+    return 78
+  fi
   if [ "$TEHAS_WORK_STALL" -le "$TEHAS_VERIFY_TIMEOUT" ]; then
     tehas_err "TEHAS_WORK_STALL ($TEHAS_WORK_STALL) is not longer than TEHAS_VERIFY_TIMEOUT ($TEHAS_VERIFY_TIMEOUT): a gate that prints nothing would be stopped as stalled (see $file)"
+    return 78
+  fi
+  # tehas-cycle@.service stops a cycle after 8 hours (RuntimeMaxSec), and a
+  # unit cannot read this file. A longer limit would have systemd stop every
+  # long cycle; the hour between is for the stop and the report.
+  if [ "$TEHAS_WORK_TIMEOUT" -gt 25200 ]; then
+    tehas_err "TEHAS_WORK_TIMEOUT ($TEHAS_WORK_TIMEOUT) is more than 25200: tehas-cycle@.service stops a cycle after 8 hours, and the stop and the report need the hour after the limit (see $file)"
+    return 78
+  fi
+  # tehas-dispatch.service stops a poll after 3 hours (TimeoutStartSec). A
+  # poll runs one planning turn or refreshes the index, and calls GitHub.
+  if [ "$TEHAS_PLAN_TIMEOUT" -gt 7200 ]; then
+    tehas_err "TEHAS_PLAN_TIMEOUT ($TEHAS_PLAN_TIMEOUT) is more than 7200: tehas-dispatch.service stops a poll after 3 hours, and a poll needs time around its planning turn (see $file)"
     return 78
   fi
   if [ "$TEHAS_PREVIEWS" = 1 ] && [ -z "$TEHAS_DOMAIN" ]; then

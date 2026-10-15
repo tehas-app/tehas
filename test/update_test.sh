@@ -352,6 +352,49 @@ t_eq "$(t_calls build)" ""
 t_eq "$(t_calls docker)" ""
 t_eq "$(t_calls systemctl)" ""
 
+t_case "a second update while one runs exits 1 and calls nothing"
+instance
+platform 2 "$ASK"
+before=$(state)
+mkdir -p "$th/state"
+t_run "exec 8>>'$th/state/update.lock'; flock -n 8 || exit 9; '$update'"
+t_eq "$t_rc" 1
+t_contains "$t_out" "tehas update: another update is running ($th/state/update.lock); nothing was changed"
+t_eq "$(state)" "$before"
+t_eq "$(t_calls install)" ""
+t_eq "$(t_calls build)" ""
+t_eq "$(t_calls docker)" ""
+t_eq "$(t_calls systemctl)" ""
+
+t_case "--check takes no lock"
+t_run "exec 8>>'$th/state/update.lock'; flock -n 8 || exit 9; '$update' --check"
+t_lacks "$t_out" "another update is running"
+t_eq "$(t_calls install)" "install --check"
+
+t_case "install.sh is handed the lock the update holds"
+instance
+platform 0 'if [ "/dev/fd/${TEHAS_UPDATE_LOCK_FD:-x}" -ef "$TEHAS_HOME/state/update.lock" ] && flock -n "$TEHAS_UPDATE_LOCK_FD"; then echo "the lock is ours"; fi
+( exec 6>>"$TEHAS_HOME/state/update.lock"; flock -n 6 ) || echo "held against others"'
+t_run "$update"
+t_eq "$t_rc" 0
+t_contains "$t_out" "the lock is ours"
+t_contains "$t_out" "held against others"
+
+t_case "a unit the pulled step library adds is restarted by the update that pulled it"
+instance
+platform 0 'echo "next: units tehas-dispatch.timer tehas-new.timer"'
+rm -rf "$T/upstream"
+git clone -q "$T/origin" "$T/upstream"
+sed -i 's/^tehas_units() { printf .%s\\n. /&tehas-new.timer /' "$T/upstream/lib/update-steps.sh"
+grep -q 'tehas-new.timer' "$T/upstream/lib/update-steps.sh" || t_bad "the fixture did not add a unit"
+git -C "$T/upstream" -c user.name=other -c user.email=other@example.com commit -qam "a new unit"
+git -C "$T/upstream" push -q origin main
+t_run "$update"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "WARN"
+t_contains "$(t_calls systemctl)" "--user restart tehas-dispatch.timer tehas-new.timer"
+t_eq "$(owed_steps)" ""
+
 t_case "a later: line of install.sh is printed and is no step"
 instance
 platform 0 'echo "installed: libexec/update"
@@ -386,11 +429,12 @@ compose -f $th/edge/router.compose.yaml up -d --force-recreate"
 t_eq "$(t_calls systemctl)" "--user daemon-reload
 --user is-active tehas-dispatch.timer
 --user is-active tehas-energy.service
+--user is-active tehas-top.service
 --user is-active tehas-preview.timer
 --user is-active tehas-preview-sweep.timer
 --user is-active tehas-protolab.timer
 --user is-active tehas-improve.timer
---user restart tehas-dispatch.timer tehas-energy.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer"
+--user restart tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer"
 # Every call outside the command went through a timeout, install.sh included,
 # and nothing is owed now.
 t_eq "$(t_calls timeout | sed 's/^[0-9]* //')" "git -C $checkout fetch --prune origin
@@ -398,11 +442,12 @@ $checkout/install.sh
 systemctl --user daemon-reload
 systemctl --user is-active tehas-dispatch.timer
 systemctl --user is-active tehas-energy.service
+systemctl --user is-active tehas-top.service
 systemctl --user is-active tehas-preview.timer
 systemctl --user is-active tehas-preview-sweep.timer
 systemctl --user is-active tehas-protolab.timer
 systemctl --user is-active tehas-improve.timer
-systemctl --user restart tehas-dispatch.timer tehas-energy.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer
+systemctl --user restart tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer
 $th/sandbox/build.sh
 docker ps --quiet --filter label=com.docker.compose.project=tehas-docs
 docker compose -f $th/edge/docs.compose.yaml up -d --force-recreate
@@ -429,6 +474,7 @@ ps --quiet --filter label=com.docker.compose.project=tehas-edge"
 t_eq "$(t_calls systemctl)" "--user daemon-reload
 --user is-active tehas-dispatch.timer
 --user is-active tehas-energy.service
+--user is-active tehas-top.service
 --user is-active tehas-preview.timer
 --user is-active tehas-preview-sweep.timer
 --user is-active tehas-protolab.timer
@@ -601,7 +647,7 @@ t_stub systemctl 'if [ "$2" = is-active ]; then
 fi'
 t_run "$update"
 t_eq "$t_rc" 0
-t_contains "$t_out" "systemd: restarted tehas-dispatch.timer tehas-energy.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer"
+t_contains "$t_out" "systemd: restarted tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer"
 t_lacks "$t_out" "no unit was restarted"
 
 t_case "a unit systemd does not know is an answer, and leaves that unit alone"
@@ -614,7 +660,7 @@ t_stub systemctl 'if [ "$2" = is-active ]; then
 fi'
 t_run "$update"
 t_eq "$t_rc" 0
-t_contains "$t_out" "systemd: restarted tehas-energy.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer"
+t_contains "$t_out" "systemd: restarted tehas-energy.service tehas-top.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer"
 t_lacks "$t_out" "no unit was restarted"
 
 t_case "a docker query that fails stops the update instead of reading as not running"
@@ -647,7 +693,7 @@ t_lacks "$t_out" "none of them runs on this host"
 # four steps are still owed.
 t_eq "$(t_calls docker)" ""
 t_eq "$(t_calls build)" ""
-t_eq "$(owed_steps)" "units tehas-dispatch.timer tehas-energy.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer
+t_eq "$(owed_steps)" "units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer
 sandbox
 docs --force-recreate
 edge --force-recreate"
@@ -749,6 +795,28 @@ t_contains "$t_out" "libexec/new-thing"
 t_eq "$(state)" "$before"
 t_eq "$(t_calls install)" ""
 t_eq "$(t_calls build)" ""
+
+t_case "a held platform is not fetched, merged or installed, and the hold is named"
+instance
+platform 1 "$ASK"
+before=$(state)
+mkdir -p "$th/state"
+: >"$th/state/update-hold"
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "$th/state/update-hold exists"
+t_eq "$(state)" "$before"
+t_eq "$(t_calls timeout)" ""
+t_eq "$(t_calls install)" ""
+t_eq "$(t_calls build)" ""
+
+t_case "--check on a held platform says so and still reports"
+t_run "$update --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "an update will not move the checkout until it is removed"
+t_contains "$t_out" "checkout: would fast-forward"
+t_eq "$(state | cut -d' ' -f2)" "$(cut -d' ' -f2 <<<"$before")"
+rm -f "$th/state/update-hold"
 
 t_case "a checkout with commits of its own is not fast-forwarded"
 instance
@@ -856,6 +924,8 @@ t_lacks "$t_out" "installed:"
 # install.sh --check answers 1 when it found drift. That is its report, not a
 # failed step: in check mode nothing was meant to run.
 t_lacks "$t_out" "no follow-up was run"
+t_contains "$t_out" "install: install.sh --check found something to update"
+t_lacks "$t_out" "does not fix"
 # Nothing moved: no merge, no file changed, nothing started.
 t_eq "$(head_sha)" "$before"
 t_eq "$(git -C "$checkout" status --porcelain)" ""
@@ -874,6 +944,21 @@ t_contains "$t_out" "checkout: would fast-forward $before"
 t_contains "$t_out" "Installed:    OK"
 t_eq "$(head_sha)" "$before"
 t_eq "$(t_calls install)" "install --check"
+
+t_case "--check names what an update does not fix apart from something to update"
+for finding in "Dependencies: NOT OK" "Slice:        MISSING (sudo ./bootstrap.sh slice)" \
+  "Login:        NOT CURRENT" "Tests:        FAILED"; do
+  instance
+  platform 0 'echo "Instance:     $TEHAS_INSTANCE_DIR OK"
+echo "'"$finding"'"
+echo "Installed:    OK"
+exit 1'
+  t_run "$update --check"
+  t_eq "$t_rc" 1
+  t_contains "$t_out" "$finding"
+  t_contains "$t_out" "install: install.sh --check found something tehas update does not fix"
+  t_lacks "$t_out" "found something to update"
+done
 
 t_case "--check on a host that is up to date reports it and exits 0"
 instance
@@ -1054,11 +1139,26 @@ t_case "a record that cannot be written stops the run before any step"
 instance
 platform 1 'echo "next: sandbox"'
 mkdir -p "$th/state"
+# The lock is there from an earlier run; only the record cannot be written.
+: >"$th/state/update.lock"
 chmod 500 "$th/state"
 t_run "$update"
 t_eq "$t_rc" 1
 t_contains "$t_out" "could not make a temporary file beside $owed_file"
 t_eq "$(t_calls build)" ""
+chmod 755 "$th/state"
+
+t_case "a state directory where the lock cannot be made stops the run before git"
+instance
+platform 1 'echo "next: sandbox"'
+before=$(state)
+mkdir -p "$th/state"
+chmod 500 "$th/state"
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "tehas update: cannot open $th/state/update.lock; nothing was changed"
+t_eq "$(state)" "$before"
+t_eq "$(t_calls install)" ""
 chmod 755 "$th/state"
 
 t_case "a failed run leaves the record, and nothing else, in state/"
@@ -1070,8 +1170,10 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "2 of 4 follow-up(s) are not done"
 # Each rewrite goes through a temporary file moved over the record, so a run that
 # died mid-write leaves the steps already owed there rather than half of a new list
-# - and a run that finished leaves no stray file.
-t_eq "$(ls -A "$th/state")" "update-pending"
+# - and a run that finished leaves no stray file. The lock is kept: removing it
+# would let a run that opened it a moment before lock a file no longer there.
+t_eq "$(ls -A "$th/state")" "update-pending
+update.lock"
 t_eq "$(owed_steps)" "docs --force-recreate
 edge --force-recreate"
 
@@ -1083,7 +1185,7 @@ real_platform
 t_run "$update"
 t_eq "$t_rc" 0
 t_contains "$t_out" "installed: $th/libexec/update"
-t_contains "$t_out" "systemd: restarted tehas-dispatch.timer tehas-energy.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer"
+t_contains "$t_out" "systemd: restarted tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer"
 t_contains "$t_out" "docs: updating the container"
 t_contains "$t_out" "edge: updating the container"
 # The order install.sh prints is the order an update runs, and nothing is left
@@ -1122,7 +1224,7 @@ t_stub systemctl 'if [ "$2" = is-active ]; then echo active; fi'
 t_run "$update"
 t_eq "$t_rc" 0
 t_contains "$t_out" "follow-up(s) an earlier run did not finish (see $owed_file)"
-t_contains "$t_out" "systemd: restarted tehas-dispatch.timer tehas-energy.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer"
+t_contains "$t_out" "systemd: restarted tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer"
 t_contains "$t_out" "docs: updating the container"
 t_eq "$(owed_steps)" ""
 
@@ -1233,6 +1335,14 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "install: install.sh gave no answer in 1800s and was stopped"
 t_eq "$(owed_steps)" ""
 
+t_case "an install.sh --check that stops answering claims no copies"
+before=$(head_sha)
+t_run "$update --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "install: install.sh --check gave no answer in 1800s and was stopped; it changes nothing, so nothing was installed"
+t_lacks "$t_out" "what it had copied"
+t_eq "$(head_sha)" "$before"
+
 t_case "a step owed from an earlier run runs where its id says it runs"
 instance
 platform 1 'echo "next: units tehas-dispatch.timer"'
@@ -1249,5 +1359,61 @@ t_case "the compose files pin the project names the liveness check filters on"
 for pair in "docs.compose.yaml tehas-docs" "router.compose.yaml tehas-edge"; do
   t_contains "$(cat "$T_ROOT/host/edge/${pair%% *}")" "name: ${pair#* }"
 done
+
+# --- pi-rukas follows its branch ---------------------------------------------
+# The installed versions.env names a branch, and build.sh is a stub that keeps
+# its arguments and exits with the given status.
+rukas_build() { # <exit status>
+  cat >"$th/sandbox/build.sh" <<EOF
+#!/usr/bin/env bash
+echo "build \$*" >>"$T/calls/build"
+echo "pi-rukas: stub"
+exit $1
+EOF
+  chmod +x "$th/sandbox/build.sh"
+  echo "PI_RUKAS_BRANCH=main" >"$th/versions.env"
+}
+
+t_case "an up to date checkout still moves the image to the head of pi-rukas's branch"
+instance
+platform 0
+rukas_build 0
+t_run "$update"
+t_eq "$t_rc" 0
+t_eq "$(t_calls build)" "build --if-moved"
+t_contains "$(t_calls timeout)" "$th/sandbox/build.sh --if-moved"
+
+t_case "a run that built the sandbox image does not look at the head again"
+instance
+platform 1 'echo "next: sandbox"'
+rukas_build 0
+t_run "$update"
+t_eq "$t_rc" 0
+t_eq "$(t_calls build)" "build "
+
+t_case "an image that cannot be moved to the head fails the update"
+instance
+platform 0
+rukas_build 1
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "pi-rukas: the image was not moved to the head of its branch"
+
+t_case "--check says the head moved and builds nothing"
+instance
+platform 0
+rukas_build 1
+t_run "$update --check"
+t_eq "$t_rc" 1
+t_eq "$(t_calls build)" "build --check"
+t_contains "$t_out" "pi-rukas: stub"
+
+t_case "a versions.env that names no branch leaves the image alone"
+instance
+platform 0
+echo "PI_RUKAS_COMMIT=0123456789abcdef0123456789abcdef01234567" >"$th/versions.env"
+t_run "$update"
+t_eq "$t_rc" 0
+t_eq "$(t_calls build)" ""
 
 t_done

@@ -9,19 +9,23 @@
 #   {"cycles": [<each running cycle, oldest first>],
 #    "last": <the cycle that finished most recently, or null>}
 #
+# The files of finished cycles other than the last are removed, so before
+# that each ending is kept in live/endings.json: the last ten, oldest first,
+# each {issue, status, step, startedAt, updatedAt}. tehasbot health reads
+# it, so an ending a later one overtook is still seen.
+#
 #   tehas_live_assemble   write live/running.json; returns 1 if it could not
+#
+# A file that went quiet is lost only when its issue's lock
+# (state/cycles/<issue>.lock, held by tehasbot cycle) is free: a host that
+# stalled for two minutes does not make a running cycle lost.
 #
 # Called by tehas work each time it writes its own file, and by tehasbot
 # health. Two callers at once can leave the view one tick old; the next tick
 # corrects it. Needs TEHAS_HOME.
-#
-# Only the last finished cycle is in the view, so the file of any other one
-# goes. One that failed keeps its file for a day: tehasbot health builds its
-# record of failed endings from these files, and a failure a later cycle
-# overtook must still be named.
 
 tehas_live_assemble() {
-  local live=$TEHAS_HOME/live f files=() now marker tmp view issues i lost
+  local live=$TEHAS_HOME/live f files=() now marker tmp view issues i lost lock prev endings
   now=$(date +%s)
   for f in "$live"/cycles/*.json; do
     [ -e "$f" ] || continue
@@ -30,7 +34,10 @@ tehas_live_assemble() {
     # It ended when it was found, so it counts from now, not from its last
     # heartbeat. The temporary names start with a dot and end in .new: the
     # docs server hides those, and the glob above does not match them.
-    if jq -e --argjson now "$now" '.running == true and ((.updatedAt // 0) < $now - 120)' "$f" >/dev/null 2>&1; then
+    lock=${f##*/}
+    lock=$TEHAS_HOME/state/cycles/${lock%.json}.lock
+    if jq -e --argjson now "$now" '.running == true and ((.updatedAt // 0) < $now - 120)' "$f" >/dev/null 2>&1 &&
+      ! { [ -e "$lock" ] && ! flock -n "$lock" true; }; then
       lost=${f%/*}/.${f##*/}.lost.$$.new
       if jq -c --argjson now "$now" '.running = false | .status = "lost" | .updatedAt = $now' "$f" >"$lost" 2>/dev/null; then
         mv "$lost" "$f"
@@ -47,24 +54,25 @@ tehas_live_assemble() {
   marker=$live/.running.$$.mark.new
   tmp=$live/.running.$$.new
   view=$live/.running.$$.view.new
+  endings=$live/.endings.$$.new
+  prev=$(jq -c 'if type == "array" then . else [] end' "$live/endings.json" 2>/dev/null) || prev='[]'
+  [ -n "$prev" ] || prev='[]'
   : >"$marker"
-  if ! jq -c -s --argjson now "$now" '
-      # A finished cycle that failed, still inside the day the health record
-      # covers. Its file is what that record is built from, so it stays until
-      # then. A merged or parked one is told by the view alone and goes at
-      # once, and so does one whose status or time cannot be read: the record
-      # could name neither.
-      def kept_failure: ((.status | type) == "string") and
-        (.status | IN("merged", "handoff") | not) and
-        ((.updatedAt | type) == "number") and
-        (.updatedAt >= $now - 86400) and (.updatedAt <= $now);
+  if ! jq -c -s --argjson prev "$prev" '
       (map(select(.running == true)) | sort_by(.startedAt, .issue)) as $cycles
       | (map(select(.running != true)) | sort_by(.updatedAt) | last) as $last
       | {view: {cycles: $cycles, last: $last},
-         prune: (map(select(.running != true and .issue != $last.issue
-                            and (kept_failure | not)) | .issue))}' \
+         prune: (map(select(.running != true and .issue != $last.issue) | .issue)),
+         endings: ($prev + map(select(.running != true) | {issue, status, step, startedAt, updatedAt})
+                   | unique_by([.issue, .startedAt]) | sort_by(.updatedAt) | .[-10:])}' \
       "${files[@]}" >"$tmp" 2>/dev/null; then
     rm -f "$tmp" "$marker"
+    return 1
+  fi
+  # The endings are written before any file is pruned. A record that
+  # cannot be written leaves the files where they are.
+  if ! jq -c .endings "$tmp" >"$endings" 2>/dev/null || ! mv "$endings" "$live/endings.json"; then
+    rm -f "$tmp" "$endings" "$marker"
     return 1
   fi
   issues=$(jq -r '.prune[]' "$tmp" 2>/dev/null)
@@ -72,8 +80,7 @@ tehas_live_assemble() {
     rm -f "$tmp" "$view" "$marker"
     return 1
   fi
-  # Only the last finished cycle is shown, so the file of any other one goes:
-  # kept for a day when it failed, at once otherwise.
+  # Only the last finished cycle is shown, so the file of any other one goes.
   for i in $issues; do
     f=$live/cycles/$i.json
     [ -e "$f" ] || continue

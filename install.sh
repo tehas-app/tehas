@@ -25,7 +25,8 @@
 #
 # It does not start the dispatcher or the docs server, rebuild the sandbox image or touch secrets (~/.config/tehas/env); the
 # follow-up steps are printed when their inputs changed. A replaced file is
-# kept next to the new one as <name>.prev.
+# kept next to the new one as <name>.prev. Each file is copied to <name>.new
+# and renamed over the installed one.
 #
 # It also removes the commands of an earlier layout, one file for each command
 # in ~/tehas/bin and the console script in ~/tehas/libexec, unless a cycle is
@@ -74,14 +75,20 @@
 # removed only after systemd has reloaded, because the units it still holds
 # name them.
 #
-# Exit: 0 done or nothing to report, 1 --check found something or a step
-# failed, 78 the instance settings are invalid (nothing was changed).
+# A real run holds $TEHAS_HOME/state/update.lock, the lock tehas update holds,
+# and stops when another run has it.
+#
+# Exit: 0 done or nothing to report, 1 --check found something, a step failed
+# or another update is running, 78 the instance settings are invalid (nothing
+# was changed).
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")" && pwd)
 host=$root/host
 check=0
 [ "${1:-}" = "--check" ] && check=1
+# Read before tehas_load, which drops it from the environment.
+update_fd=${TEHAS_UPDATE_LOCK_FD:-}
 
 # shellcheck source=lib/config.sh
 . "$root/lib/config.sh"
@@ -89,6 +96,8 @@ check=0
 . "$root/lib/update-steps.sh"
 # shellcheck source=lib/edge.sh
 . "$root/lib/edge.sh"
+# shellcheck source=lib/cycles.sh
+. "$root/lib/cycles.sh"
 
 # --- 1. Instance settings ---------------------------------------------------
 # Every finding is one line. Any finding stops a real run before it changes
@@ -151,6 +160,21 @@ fi
 tehas_load
 instance=$TEHAS_INSTANCE_DIR
 
+# One update at a time. Two runs side by side would build the image twice and
+# each rewrite the record of steps owed with its own view. tehas update holds the
+# lock while it runs this script and names the descriptor it holds it on; any
+# other run takes the lock itself. --check changes nothing and takes no lock.
+if [ "$check" != 1 ]; then
+  update_lock=$TEHAS_HOME/state/update.lock
+  mkdir -p "$TEHAS_HOME/state"
+  if [[ $update_fd =~ ^[0-9]+$ ]] && [ "/dev/fd/$update_fd" -ef "$update_lock" ]; then
+    flock -n "$update_fd" || { echo "tehas: another update is running ($update_lock); nothing was installed" >&2; exit 1; }
+  else
+    exec 7>>"$update_lock"
+    flock -n 7 || { echo "tehas: another update is running ($update_lock); nothing was installed" >&2; exit 1; }
+  fi
+fi
+
 # --- 2. What belongs to this instance ---------------------------------------
 # One line per file: source|destination|mode. A source starting with / is taken
 # as is; anything else is under host/, except bin/, libexec/ and lib/ at the top.
@@ -161,6 +185,7 @@ files=(
   "env.sh|$TEHAS_HOME/env.sh|644"
   "lib/config.sh|$TEHAS_HOME/lib/config.sh|644"
   "lib/attachments.sh|$TEHAS_HOME/lib/attachments.sh|644"
+  "lib/describe.sh|$TEHAS_HOME/lib/describe.sh|644"
   "lib/cycles.sh|$TEHAS_HOME/lib/cycles.sh|644"
   "lib/labels.sh|$TEHAS_HOME/lib/labels.sh|644"
   "lib/improve.sh|$TEHAS_HOME/lib/improve.sh|644"
@@ -195,6 +220,7 @@ files=(
   "systemd/tehas-preview.timer|$units/tehas-preview.timer|644"
   "systemd/tehas-preview-sweep.service|$units/tehas-preview-sweep.service|644"
   "systemd/tehas-preview-sweep.timer|$units/tehas-preview-sweep.timer|644"
+  "systemd/tehas-top.service|$units/tehas-top.service|644"
   "pi/mcp.json|$agent/mcp.json|644"
   "$instance/models.json|$agent/models.json|644"
 )
@@ -202,7 +228,7 @@ files=(
 for f in tehas tehasbot; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
-for f in cycle dev dev-login dispatch energy health improve index labels plan preview protolab status summary top update work; do
+for f in cycle dev dev-login dispatch energy health improve index labels plan preview protolab status summary top top-publish update work; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
 # Pi's own settings: the instance may bring its own (default provider and
@@ -243,8 +269,17 @@ put() {
   record_step "$src"
   mkdir -p "$(dirname "$to")"
   [ -f "$to" ] && cp -p "$to" "$to.prev"
-  install -m "$mode" "$from" "$to"
+  # Copied beside it and renamed over it, so a cycle that starts meanwhile finds
+  # the old file or the new one, never a part of one.
+  install -m "$mode" "$from" "$to.new" || { rm -f "$to.new"; echo "tehas: could not install $to" >&2; exit 1; }
+  mv -f "$to.new" "$to" || { rm -f "$to.new"; echo "tehas: could not install $to" >&2; exit 1; }
   echo "installed: $to"
+}
+
+# write_file <path>: stdin into <path>, by the same rename.
+write_file() {
+  cat >"$1.new" || { rm -f "$1.new"; echo "tehas: could not write $1" >&2; exit 1; }
+  mv -f "$1.new" "$1" || { rm -f "$1.new"; echo "tehas: could not write $1" >&2; exit 1; }
 }
 
 # The step this source calls for, added to the record of steps owed. One call per
@@ -316,10 +351,14 @@ if [ ! -x "$console_to" ] || [ "$(cat "$console_to.stamp" 2>/dev/null)" != "$con
       exit 1
     fi
     put "$built|$console_to|755"
-    echo "$console_source $(console_sum "$console_to")" >"$console_to.stamp"
+    echo "$console_source $(console_sum "$console_to")" | write_file "$console_to.stamp"
   fi
 fi
 
+# A host has its tools from bootstrap.sh before its first install, so only a
+# versions.env that replaces another one asks for it again.
+had_versions=0
+[ -f "$TEHAS_HOME/versions.env" ] && had_versions=1
 for e in "${files[@]}"; do put "$e"; done
 
 # The operating manual and the front page are directories; pages come and go.
@@ -358,7 +397,7 @@ if [ "$check" != 1 ]; then
     if [ -z "$version" ]; then
       rm -f "$to"
     elif [ "$(cat "$to" 2>/dev/null)" != "$version" ]; then
-      echo "$version" >"$to"
+      echo "$version" | write_file "$to"
       echo "version: $version in $to"
     fi
   done
@@ -395,6 +434,37 @@ slice_state() {
   fi
 }
 
+# TEHAS_WORK_IMAGES=1 promises a cycle the images its issue links. The pi-rukas
+# in the sandbox image has to read the manifest tehas writes beside them for
+# that to be true, and the image says whether it does, by a label its build
+# writes (host/sandbox/build.sh). A disagreement is between the setting and the
+# image, not in what this script installs, so it is said and not failed: the
+# host rebuilds the image on a pi-rukas that reads them, or turns the setting off.
+# Nothing when the setting is off, when the image reads them, or when there is
+# no image to ask.
+images_say() { # <check|run>
+  local mode=$1 status sentence
+  if [ "$TEHAS_WORK_IMAGES" != 1 ]; then return 0; fi
+  docker image inspect "$PI_ENSEMBLE_IMAGE" >/dev/null 2>&1 || return 0
+  case "$(tehas_rukas_reads_images)" in
+    1) return 0 ;;
+    0)
+      status="NOT READ"
+      sentence="TEHAS_WORK_IMAGES is 1 and the sandbox image $PI_ENSEMBLE_IMAGE says its pi-rukas does not read the images a cycle is given. The dispatcher holds every cycle while that stands, not only an issue whose text links a picture: rebuild the image on a pi-rukas that reads them (tehas update), or set TEHAS_WORK_IMAGES=0."
+      ;;
+    *)
+      status="NOT SAID"
+      sentence="TEHAS_WORK_IMAGES is 1 and the sandbox image $PI_ENSEMBLE_IMAGE does not say whether its pi-rukas reads the images a cycle is given. Rebuild it with $TEHAS_HOME/sandbox/build.sh, which records the answer."
+      ;;
+  esac
+  if [ "$mode" = check ]; then
+    echo "Images:       $status"
+    echo "  $sentence"
+  else
+    echo "note: $sentence"
+  fi
+}
+
 # --- 4. Report (--check) -----------------------------------------------------
 if [ "$check" = 1 ]; then
   rc=0
@@ -423,6 +493,8 @@ if [ "$check" = 1 ]; then
     DIFFERS) echo "Slice:        DIFFERS (sudo ./bootstrap.sh slice)"; rc=1 ;;
     *) echo "Slice:        not checked (running inside the tests)" ;;
   esac
+
+  images_say check
 
   if [ "${#changed[@]}" = 0 ]; then
     echo "Installed:    OK"
@@ -515,6 +587,8 @@ case "$(slice_state)" in
   DIFFERS) echo "note: $slice_to differs from host/slice/tehas.slice in this checkout (sudo ./bootstrap.sh slice)" ;;
 esac
 
+images_say run
+
 # The one place the default branch is looked up over the network.
 if [ -z "${TEHAS_BRANCH:-}" ] && [ -d "$TEHAS_WORK_REPO/.git" ]; then
   git -C "$TEHAS_WORK_REPO" remote set-head origin -a >/dev/null 2>&1 ||
@@ -553,6 +627,12 @@ fi
 # performed leaves the run red and the step owed. A person who ran install.sh by
 # hand reads the same lines, and the record stays until `tehas update` clears it.
 while IFS= read -r step; do echo "next: $step"; done < <(tehas_steps_for "${changed[@]}")
+
+# The pins moved, and the tools on the host follow them only when bootstrap.sh
+# user runs. Not a step: it fetches from the network and may take long.
+if [ "$had_versions" = 1 ] && [[ " ${changed[*]} " == *" versions.env "* ]]; then
+  echo "later: $root/bootstrap.sh user   (versions.env changed; until it runs, --check says Dependencies: NOT OK)"
+fi
 
 # The old commands go while this holds the dispatcher's lock. A cycle that
 # began before this install was started by the old dispatcher, which calls

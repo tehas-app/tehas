@@ -11,30 +11,28 @@
 #
 # The file follows the health check response format (draft-inadarei-api-health-check):
 #   status "pass"  the factory is taking work
-#   status "warn"  it is paused (tehas:pause on the control issue), or the
-#                  dispatcher holds everything because tehas.slice is missing
+#   status "warn"  the queue snapshot is older than ten minutes (GitHub did
+#                  not answer the last polls), or it is paused (tehas:pause on
+#                  the control issue), or the dispatcher holds everything because tehas.slice is missing
 #                  or cannot be read, or there are no resources (the model
 #                  endpoint does not answer or does not offer the model, as
 #                  the last poll found), or the host is too low on disk to build
 #                  previews, or its free space could not be read
-#                  (live/previews.json, from tehasbot preview)
+#                  (live/previews.json, from tehasbot preview), or the
+#                  platform checkout has lacked a commit of origin's default
+#                  branch for more than a day (live/platform.json, from
+#                  tehasbot status)
 #   status "fail"  the last cycle ended as anything but merged or handoff and
 #                  no cycle has started since, or there is no queue snapshot yet
 # On "fail" it also creates live/health.down, which makes the docs server answer
 # 503 with the same body; otherwise it removes that file.
 #
-# checks.failures names every failed ending it has seen: what the file recorded
-# the last time, what is on disk under live/cycles, and the cycle that finished
-# last. A failed cycle's file is kept for a day, but "fail" lasts only until a
-# cycle starts after it, so the record is what keeps a short failure visible to
-# a monitor that polls every few minutes. It holds at most 20 endings, each
-# from the last 24 hours. An ending is one run of one cycle, told by its issue
-# and when it started: the work script writes one ending twice when a cycle is
-# stopped, and the last cycle is on disk and in the view as well, so each is
-# named once. An ending whose time cannot be read is dropped, not stamped with
-# now: one could never age out, and it would add an entry at every poll. An
-# ending with no status word is not named either, because there is nothing to
-# say about it.
+# checks.failures names every failed ending it has seen in the last 24 hours,
+# newest first, up to 20. A cycle's ending can be pruned after the next cycle,
+# so this record keeps a short failure visible to a monitor that polls every
+# few minutes. The record is carried between writes and deduplicated by issue
+# and start time. An ending whose time cannot be read is dropped, not stamped
+# with now: it could never age out. An ending with no status word is not named.
 #
 # A stopped dispatcher cannot report itself: the file just stops changing. A
 # monitor should treat a "time" older than about ten minutes as down.
@@ -59,12 +57,12 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 # What this file recorded last time. The record is carried from one write to
 # the next because a failure is not always still on disk when it is read.
-seen=$(jq -c '(.checks.failures | if type == "array" then . else [] end)
+seen=$(jq -cs 'select(length == 1) | .[0]
+  | (.checks.failures | if type == "array" then . else [] end)
   | map(select(type == "object") | {issue, status, step, startedAt, time})' "$live/health.json" 2>/dev/null)
 [ -n "$seen" ] || seen='[]'
 
-# The cycle endings on disk, read before the assemble below keeps only the last
-# one: a failure another cycle's heartbeat overtook must still be named.
+# Read cycle files before the assemble below prunes them.
 endings='[]'
 files=()
 for f in "$live"/cycles/*.json; do
@@ -87,6 +85,13 @@ queue=null
 view=null
 [ -s "$status_file" ] && queue=$(jq -c . "$status_file" 2>/dev/null || echo null)
 [ -s "$running_file" ] && view=$(jq -c . "$running_file" 2>/dev/null || echo null)
+# The last ten endings, which lib/live.sh keeps. The status is still decided
+# by the last one alone: one aborted cycle beside three working ones is a
+# failure until a cycle starts after it. checks.failed lists the failed ones
+# of the ten, so a failure a later success overtook is still there for a
+# monitor that polls less often than cycles end.
+recorded=$(jq -c 'if type == "array" then . else [] end' "$live/endings.json" 2>/dev/null) || recorded='[]'
+[ -n "$recorded" ] || recorded='[]'
 
 # The free space of the host, as tehasbot preview measured it. A host without
 # previews has no such file, and a figure that is no longer written is not
@@ -97,6 +102,11 @@ disk=null
   select((.disk | type) == "object" and (now - (.generatedAt | fromdateiso8601)) < 1800)
   | .disk + {time: .generatedAt}' "$previews_file" 2>/dev/null)
 [ -n "$disk" ] || disk=null
+
+# The platform checkout against origin, as tehasbot status last read it.
+platform=null
+[ -s "$live/platform.json" ] && platform=$(jq -c 'select(type == "object" and (.behind | type) == "number")' "$live/platform.json" 2>/dev/null)
+[ -n "$platform" ] || platform=null
 
 # What the last poll said about the slice. The poll before this one wrote it,
 # or this one when a cycle or a planning turn was started. A file older than
@@ -110,8 +120,13 @@ slice=null
   | {time, why, hold, count, room, committed, max, reserve}' "$dispatch_file" 2>/dev/null)
 [ -n "$slice" ] || slice=null
 
+# tehasbot status keeps the old snapshot when GitHub does not answer. Older
+# than this, its counts and its pause are not news.
+queue_max_age=600
+
 jq -n --argjson queue "$queue" --argjson view "$view" --argjson disk "$disk" --argjson slice "$slice" \
-  --argjson seen "$seen" --argjson endings "$endings" --arg now "$(date -u +%FT%TZ)" '
+  --argjson seen "$seen" --argjson endings "$endings" --argjson recorded "$recorded" \
+  --argjson platform "$platform" --arg now "$(date -u +%FT%TZ)" --argjson queueMaxAge "$queue_max_age" '
   # A timestamp outside the range jq can convert is no time at all. It must
   # not stop the write: one bad number would lose every other ending too.
   def iso: if type == "number" then (try (todate) catch null) else null end;
@@ -124,6 +139,7 @@ jq -n --argjson queue "$queue" --argjson view "$view" --argjson disk "$disk" --a
   def stamp: if type == "number" then (try (todate) catch null)
              elif type == "string" then (try (fromdateiso8601 | todate) catch null)
              else null end;
+  def ago: if . < 120 then "\(.) s" elif . < 7200 then "\(. / 60 | floor) min" else "\(. / 3600 | floor) h" end;
   def brief: {
     issue, running: (.running // false), status, step,
     startedAt: (.startedAt | iso), time: (.updatedAt | iso)
@@ -142,12 +158,22 @@ jq -n --argjson queue "$queue" --argjson view "$view" --argjson disk "$disk" --a
   # holds pass by themselves.
   | ($slice != null and ($slice.why | IN("slice", "unreadable"))) as $no_slice
   | ($slice != null and $slice.why == "resources") as $no_resources
+  # A fix merged for the factory runs only after tehas update. A day behind
+  # is long enough to be news and short enough to matter.
+  | ($platform != null and $platform.behind > 0
+     and (($now | fromdateiso8601) - ($platform.behindSince | try fromdateiso8601 catch 0)) > 86400) as $behind
+  # A time that cannot be read counts as old.
+  | (if $queue == null then null
+     else ($now | fromdateiso8601) - ($queue.generatedAt | try fromdateiso8601 catch 0) end) as $queue_age
+  | ($queue_age != null and $queue_age > $queueMaxAge) as $old_queue
   | (if $queue == null then "fail"
      elif $failed then "fail"
+     elif $old_queue then "warn"
      elif $queue.paused then "warn"
      elif $no_slice then "warn"
      elif $no_resources then "warn"
      elif $disk != null and $disk.low then "warn"
+     elif $behind then "warn"
      else "pass" end) as $status
   # What this file now records about failed endings: what it recorded before,
   # what is on disk under live/cycles, and the cycle that finished last. An
@@ -177,12 +203,16 @@ jq -n --argjson queue "$queue" --argjson view "$view" --argjson disk "$disk" --a
       time: $now,
       output: (if $queue == null then "No queue snapshot yet: the dispatcher has not written one."
                elif $failed then "The last cycle failed: #\($last.issue) ended as \($last.status)."
+               elif $old_queue then
+                 "The queue snapshot is \($queue_age | ago) old: GitHub did not answer the last polls."
                elif $queue.paused then "The factory is paused."
                elif $no_slice then ($slice.hold // "holding")
                elif $no_resources then (($slice.hold // "") | sub("^holding: no resources: "; "No resources: ") + ".")
                elif $disk != null and $disk.low then
                  (if $disk.freeBytes == null then "The host\u0027s free disk space could not be read: previews are not being built."
                   else "The host is low on disk: previews are not being built." end)
+               elif $behind then
+                 "The platform is \($platform.behind) commits behind \($platform.upstream) since \($platform.behindSince // "" | .[:10]): run tehas update."
                elif ($running | length) > 0 then "Working on \($running | map("#\(.issue)") | join(", "))."
                else "Idle, taking work." end),
       checks: {
@@ -197,8 +227,13 @@ jq -n --argjson queue "$queue" --argjson view "$view" --argjson disk "$disk" --a
         cycle: (($running[0] // $last) | if . == null then null else brief end),
         cycles: ($running | map(brief)),
         failures: $failures,
+        failed: ($recorded + (if $last == null then [] else [$last] end)
+                 | map(objects | select((.status // "") | IN("merged", "handoff") | not))
+                 | unique_by([.issue, .startedAt]) | sort_by(.updatedAt) | reverse
+                 | map({issue, status, step, startedAt: (.startedAt | iso), time: (.updatedAt | iso)})),
         disk: (if $disk == null then null else ($disk | {time, freeBytes, minFreeBytes, low}) end),
-        slice: $slice
+        slice: $slice,
+        platform: $platform
       }
     }' >"$tmp" 2>/dev/null || { rm -f "$tmp"; exit 1; }
 mv "$tmp" "$live/health.json"

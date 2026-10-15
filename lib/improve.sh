@@ -5,11 +5,15 @@
 #
 #   tehas_improve_on       is the loop switched on for this instance?
 #   tehas_improve_dir      print where records wait
-#   tehas_improve_record <issue> <started> <rc> <status> <step> [<pr> [<kills>]]
+#   tehas_improve_record <issue> <started> <rc> <status> <step> [<pr> [<kills> [<image> [<rukas> [<cap> [<reason>]]]]]]
 #                          write the record of a cycle that has ended. <kills>
 #                          is how many processes in its container were killed
 #                          for memory, oomKills in cycle.json; anything but a
-#                          number counts as 0
+#                          number counts as 0. <image> and <rukas> are the id
+#                          of the image the container started from and the
+#                          pi-rukas commit of its label, image and rukas.
+#                          <cap> and <reason> are what ended the cycle, cap
+#                          and capReason
 #   tehas_improve_secret <file>
 #                          does the file hold something shaped like a token?
 #   tehas_improve_pack <file> <dir> <name> <limit>
@@ -19,7 +23,9 @@
 # Source lib/config.sh and call tehas_load first.
 #
 # A record is a directory, window/<issue>-<stamp>, and the only thing the loop
-# reads of a cycle. It is built beside the window and renamed into it, so a
+# reads of a cycle. With the issue's attachments given, it also holds what
+# tehas work kept of them: manifest.json, images.md and retry-context.md, each
+# when the cycle had it, at most 256 KB. Never an image or a file. It is built beside the window and renamed into it, so a
 # run never sees half of one and cycles that end together do not collide.
 
 tehas_improve_on() { [ -n "${TEHAS_IMPROVE_REPO:-}" ]; }
@@ -35,10 +41,14 @@ _tehas_improve_condense='
   | if .type == "extension_ui_request" then del(.id) else . end
   | walk(if type == "string" and length > 2000 then .[0:2000] + " [cut]" else . end)'
 
-tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills>]]
+tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills> [<image> [<rukas> [<cap> [<reason>]]]]]]
   tehas_improve_on || return 0
-  local issue=$1 started=$2 rc=$3 status=$4 step=$5 pr=${6:-} kills=${7:-0} base raw rec tmp rukas
+  local issue=$1 started=$2 rc=$3 status=$4 step=$5 pr=${6:-} kills=${7:-0} image=${8:-} rukas=${9:-} base raw rec tmp f from
+  local cap reason
+  cap=$(tr -cd 'A-Za-z0-9_.:-' <<<"${10:-}" | head -c 80)
+  reason=$(tr -cd 'A-Za-z0-9 _.,:;/()=+-' <<<"${11:-}" | head -c 200)
   [[ $kills =~ ^(0|[1-9][0-9]{0,8})$ ]] || kills=0
+  [[ $image =~ ^sha256:[0-9a-f]{64}$ ]] || image=""
   base=$(tehas_improve_dir)
   raw=$(find "$TEHAS_HOME/logs" -maxdepth 1 -type f -name "work-$issue-*.jsonl" \
     -newermt "@$((started - 5))" 2>/dev/null | sort | tail -n 1)
@@ -50,17 +60,20 @@ tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills>
   rec=${rec#work-}
   mkdir -p "$base/window" || return 1
   tmp=$(mktemp -d "$base/.new.XXXXXX") || return 1
-  # The pi-rukas this cycle ran with, as tehasbot cycle noted it at the start,
-  # else the one the host is installed with: what a fix in it is checked
+  # The pi-rukas this cycle ran with: the image's, as its container started,
+  # else as tehasbot cycle noted it at the start. What a fix in it is checked
   # against.
-  rukas=$(head -c 64 "$TEHAS_HOME/state/cycles/$issue.rukas" 2>/dev/null | head -n 1)
-  [[ $rukas =~ ^[0-9a-f]{7,40}$ ]] || rukas=$(sed -n 's/^PI_RUKAS_COMMIT=\([0-9a-f]\{7,40\}\)$/\1/p' "$TEHAS_HOME/versions.env" 2>/dev/null | head -n 1)
+  [[ $rukas =~ ^[0-9a-f]{7,40}$ ]] || rukas=$(head -c 64 "$TEHAS_HOME/state/cycles/$issue.rukas" 2>/dev/null | head -n 1)
+  [[ $rukas =~ ^[0-9a-f]{7,40}$ ]] || rukas=""
   if ! jq -n --argjson issue "$issue" --argjson started "$started" --argjson rc "$rc" \
     --argjson ended "$(date +%s)" --arg status "$status" --arg step "$step" --arg pr "$pr" \
-    --arg log "$(basename "$raw")" --argjson kills "$kills" --arg rukas "$rukas" '
+    --arg log "$(basename "$raw")" --argjson kills "$kills" --arg rukas "$rukas" --arg image "$image" \
+    --arg cap "$cap" --arg reason "$reason" '
       {issue: $issue, started: $started, seconds: ($ended - $started), status: $status,
        step: $step, rc: $rc, pr: (if $pr == "" then null else $pr end), log: $log,
-       oomKills: $kills, rukas: (if $rukas == "" then null else $rukas end)}' \
+       oomKills: $kills, rukas: (if $rukas == "" then null else $rukas end),
+       image: (if $image == "" then null else $image end),
+       cap: (if $cap == "" then null else $cap end), capReason: (if $reason == "" then null else $reason end)}' \
     >"$tmp/cycle.json"; then
     rm -rf "$tmp"
     return 1
@@ -69,8 +82,18 @@ tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills>
   cp "$TEHAS_HOME/live/console-$issue.txt" "$tmp/console.txt" 2>/dev/null || : >"$tmp/console.txt"
   cp "$raw.err" "$tmp/err.txt" 2>/dev/null || : >"$tmp/err.txt"
   cp "$raw.preflight" "$tmp/preflight.txt" 2>/dev/null || : >"$tmp/preflight.txt"
+  # What the cycle was given of the issue's attachments, as tehas work kept it:
+  # the manifest, the model's descriptions and a retry's pull request text.
+  # Never the files themselves. Only this cycle's, only plain files, and none
+  # over the bound.
+  for f in manifest.json images.md retry-context.md; do
+    from=$TEHAS_HOME/state/cycles/$issue.$f
+    [ -f "$from" ] && [ ! -L "$from" ] || continue
+    [ -n "$(find "$from" -maxdepth 0 -newermt "@$((started - 5))" 2>/dev/null)" ] || continue
+    [ "$(stat -c %s "$from" 2>/dev/null || echo 0)" -le 262144 ] || continue
+    cp "$from" "$tmp/$f" 2>/dev/null || rm -f "$tmp/$f"
+  done
   rm -rf "${base:?}/window/$rec"
-  # A run may have taken the window a moment ago.
   if ! { mkdir -p "$base/window" && mv "$tmp" "$base/window/$rec"; }; then
     rm -rf "$tmp"
     return 1

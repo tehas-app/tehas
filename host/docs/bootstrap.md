@@ -129,7 +129,7 @@ Installs under the user's home, each tool in its own place:
 | Pi, `ctx7`, `parallel-cli`        | `~/tehas/tools/npm/<name>`, commands linked into `~/.local/bin` | npm tree, pinned by lockfile  |
 | Rust, then `vipune` and `oo`      | `~/.rustup`, `~/.cargo`                | rustup, then `cargo install`  |
 | `codebase-memory-mcp`             | `~/.local/bin`                         | Its installer, pinned release |
-| pi-rukas                          | `~/tehas/repos/pi-rukas`, one commit   | Its repository, then its `install.sh` |
+| pi-rukas                          | `~/tehas/repos/pi-rukas`, its branch's head | Its repository, then its `install.sh` |
 
 Every release archive is checked against a SHA-256 in `versions.env` before it
 is unpacked. The three npm tools are pinned the same way, by a tree beside
@@ -138,28 +138,33 @@ one version and `host/npm/<name>/package-lock.json` fixes every package in that
 tree by hash. `bootstrap.sh` copies the two files to `~/tehas/tools/npm/<name>`
 and installs them with `npm ci`, which refuses a package whose hash does not
 match the lockfile, so a tool's dependencies are as fixed as the tool. Before it
-installs anything it checks each tree against `versions.env` - the file's
-SHA-256, and the version its `package.json` and its lockfile name - and stops
+installs anything it checks each tree against `versions.env`: the file's
+SHA-256, and the version its `package.json` and its lockfile name. It stops
 with nothing installed when they do not agree. A new tree is built beside the
 installed one and moved into place only once `npm ci` succeeded, so an install
 that fails leaves the tree that worked and the commands linked into it.
 `parallel-cli` is pinned this way only as far as npm goes: its own install script downloads the binary it runs,
 and the lockfile says nothing about that download.
 
-A pinned tool counts as present only when its tree is installed too. A host that
-already had one of these tools at the same version, from a bootstrap that
-installed it into npm's global tree, therefore reinstalls it from `host/npm` on
-the next `./bootstrap.sh user` and drops the global copy. `check` still reports
-the version it finds on the `PATH`.
+For `user`, a pinned tool counts as present only when its tree is installed
+too: the lockfile under `~/tehas/tools/npm/<name>` has the SHA-256 that
+`versions.env` records. A host that already had one of these tools at the same
+version, from a bootstrap that installed it into npm's global tree, therefore
+reinstalls it from `host/npm` on the next `./bootstrap.sh user` and drops the
+global copy. `check` does not look at the tree. It compares only the version it
+finds on the `PATH`, so it says `ok` for a tool whose tree `user` would still
+replace.
 
 The last step runs pi-rukas's own installer, which links its
 extension and skills into `~/.pi/agent/` and pulls its own `latest` image. It is
 run without `PI_ENSEMBLE_IMAGE`, so it never touches the tehas sandbox image.
 
-pi-rukas comes from the repository named in `versions.env`, at the commit of
-one of its releases. A clone already on the host is pointed at that repository
-before it is fetched. [The host](/host#pi-rukas-comes-from-upstream) says how
-the release is chosen.
+pi-rukas comes from the repository named in `versions.env`, at the head of the
+branch named there. It is not pinned: each run moves the clone to the head,
+and `check` reports a clone behind it as `DIFFERS`. A clone already on the
+host is pointed at that repository before it is fetched.
+[The host](/host#pi-rukas-comes-from-upstream) says how the sandbox image
+follows the same branch.
 
 Compiling `vipune` and `oo` takes a few minutes. The rest is quick. Rust is
 also what `install.sh` builds the cycle console with.
@@ -170,9 +175,10 @@ nothing uses it and `bootstrap.sh` does not remove it.
 ### 3. `check`
 
 Changes nothing. Prints each tool with the version found and the one expected,
-then the system tools, Docker without sudo, and lingering. Exit 1 if anything
-is missing or at another version. `./install.sh --check` runs it as its
-`Dependencies` line.
+then the system tools, Docker's compose and buildx, Docker without sudo, and
+lingering. Exit 1 if anything is missing or at another version. It does not
+check the npm trees, so a changed lockfile at the same version passes it.
+`./install.sh --check` runs it as its `Dependencies` line.
 
 The last line is the slice: `tehas.slice: in place`, `missing` or `differs`,
 by comparing the file under `/etc/systemd/system` with the one in the checkout.
@@ -188,6 +194,12 @@ checksum; for an npm tool, the SHA-256 of its lockfile, regenerated with
 `npm install --package-lock-only --ignore-scripts` in that directory under
 `host/npm`), run `./bootstrap.sh user`, rebuild the sandbox image and rerun the
 contract test before a cycle uses it.
+
+An update that brings a changed `versions.env` to a host prints
+`later: .../bootstrap.sh user`. Neither `install.sh` nor `tehas update` runs
+it. Run `./bootstrap.sh user` yourself once the update has finished and no
+cycle is running. [The host](/host#configuration-comes-from-git) has the
+details.
 
 A tool of the same name installed elsewhere by someone else is left alone. The
 pinned one comes first on the `PATH` that `env.sh` sets.

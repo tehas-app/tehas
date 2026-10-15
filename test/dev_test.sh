@@ -21,9 +21,13 @@ git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-
 git clone -q "$upstream" "$checkout"
 
 docker_stub='if [ "$1" = info ]; then cat "$T/docker.info"; exit; fi
+if [ "$1" = image ]; then cat "$T/image.label" 2>/dev/null; exit; fi
 printf "%s\n" "$@" >"$T/calls/docker.args.$$"'
 t_stub docker "$docker_stub"
 printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitconfig"
+# Pi's settings as install.sh leaves them on a host.
+mkdir -p "$T/home/.pi/agent"
+echo '{"retry":{"provider":{"timeoutMs":600000,"maxRetries":8,"maxRetryDelayMs":60000}}}' >"$T/home/.pi/agent/settings.json"
 # A host with the root step done: the slice loaded from its file with 8 GiB,
 # so a container's ceiling is 2048m, Docker on the systemd driver and cgroup
 # v2, and nothing in the slice.
@@ -119,6 +123,17 @@ t_contains "$t_out" "not of acme/widget"
 t_eq "$(containers)" 0
 git -C "$checkout" remote set-url origin "$upstream"
 
+t_case "without Pi's settings.json no container starts and no clone is made"
+mv "$T/home/.pi/agent/settings.json" "$T/settings.kept"
+rm -f "$T"/calls/*
+t_run "$dev"
+t_eq "$t_rc" 78
+t_contains "$t_out" "no $T/home/.pi/agent/settings.json: run install.sh"
+t_eq "$(t_calls docker)" ""
+t_eq "$(containers)" 0
+t_eq "$([ -e "$devs" ] && echo there)" ""
+mv "$T/settings.kept" "$T/home/.pi/agent/settings.json"
+
 t_case "the first run makes the clone at the branch's tip, with the product's origin"
 again
 t_run "$dev"
@@ -162,7 +177,8 @@ $state/cache:/home/vscode/.tehas-cache
 $state/memory:/home/vscode/.vipune
 $state/sessions:/home/vscode/.pi/agent/sessions
 $T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
-$T/home/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro"
+$T/home/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro
+$T/home/.pi/agent/settings.json:/home/vscode/.pi/agent/settings.json:ro"
 t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
 
 t_case "the session's state is its own, made beside the clone and kept between sessions"
@@ -364,13 +380,14 @@ t_case "a slice under pressure, or one that cannot be read, has no room and the 
 again
 slice_good
 slice_state 12.00
+slice_child "$(slice_id b)" $((5 * 1073741824)) 0 2147483648
 t_run "$dev"
 t_eq "$t_rc" 0
 t_contains "$t_out" "tehas dev: tehas.slice has room for 0 more cycles (it is under memory pressure)"
 slice_good
 rm -f "$T_CGROUP/tehas.slice/memory.pressure"
 t_run "$dev"
-t_contains "$t_out" "tehas dev: tehas.slice has room for 0 more cycles (its use could not be read)"
+t_contains "$t_out" "tehas dev: tehas.slice has room for 0 more cycles (its use could not be read: $T_CGROUP/tehas.slice/memory.pressure cannot be read)"
 t_eq "$(containers)" 2
 slice_good
 
@@ -426,6 +443,122 @@ for words in "--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --m
   t_contains "$t_out" "tehas dev: the container limits could not be made, not starting"
 done
 without
+
+# --- An issue's attachments ----------------------------------------------------
+A=https://github.com/user-attachments/assets
+t_stub gh 'case "$1 $2" in
+  "api repos/acme/widget/issues/7") cat "$T/fx/issue.json" 2>/dev/null || exit 1 ;;
+  "api repos/acme/widget/issues/7/events?per_page=100") cat "$T/fx/events.json" 2>/dev/null || echo "[]" ;;
+esac'
+t_stub curl '
+out="" url=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) out=$2; shift ;;
+    -H | --max-filesize | --proto | --proto-redir | --max-redirs | --max-time | -w) shift ;;
+    https://*) url=$1 ;;
+  esac
+  shift
+done
+key=$(printf %s "$url" | tr -c "A-Za-z0-9" _)
+[ -f "$T/fx/net/$key" ] || exit 22
+cp "$T/fx/net/$key" "$out"
+printf application/octet-stream'
+net() { # <address> <printf format>
+  mkdir -p "$T/fx/net"
+  # shellcheck disable=SC2059  # the format carries the bytes of an image
+  printf "$2" >"$T/fx/net/$(printf %s "$1" | tr -c 'A-Za-z0-9' _)"
+}
+issue_is() { mkdir -p "$T/fx"; jq -n --arg body "$1" --arg who "${2:-OWNER}" '{number: 7, body: $body, author_association: $who}' >"$T/fx/issue.json"; }
+labelled_by() { jq -n --arg who "$1" '[{event: "labeled", label: {name: "tehas:ready"}, actor: {login: $who}, created_at: "2026-10-11T00:00:00Z"}]' >"$T/fx/events.json"; }
+imgs=$devs/main.images
+mounts_base="$clone:$clone
+$state/runs:/home/vscode/.pi/agent/ensemble-runs
+$state/cache:/home/vscode/.tehas-cache
+$state/memory:/home/vscode/.vipune
+$state/sessions:/home/vscode/.pi/agent/sessions
+$T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
+$T/home/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro
+$T/home/.pi/agent/settings.json:/home/vscode/.pi/agent/settings.json:ro"
+attach_on() {
+  without
+  rm -rf "$T/fx" "$imgs" "$devs/main.author"
+  t_stub docker "$docker_stub"
+  T_ENV=(GH_TOKEN=test-token "$root")
+  t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1 PI_ENSEMBLE_EXTRA_IMAGE_DIRS=/elsewhere
+}
+
+t_case "with --issue the session gets the issue's images read-only and the variable that names them"
+attach_on
+net "$A/1111" '\x89PNG\r\n\x1a\nPNGDATA'
+issue_is "Look ![shot]($A/1111)"
+printf '%s|1\n' "$(printf 'a%.0s' {1..40})" >"$T/image.label"
+t_run "$dev --issue 7"
+t_eq "$t_rc" 0
+t_eq "$(containers)" 1
+t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$mounts_base" "$imgs:$imgs:ro" | LC_ALL=C sort)"
+t_eq "$(after -e | grep -c '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" 1
+t_eq "$(passed PI_ENSEMBLE_EXTRA_IMAGE_DIRS)" "$imgs"
+t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_ENSEMBLE_EXTRA_IMAGE_DIRS | LC_ALL=C sort)"
+t_eq "$(session_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -it --init")" ""
+t_eq "$(cd "$imgs" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" "./image-1.png ./manifest.json "
+t_contains "$t_out" "tehas dev: Tehas gave this session 1 image from the issue text."
+rm -f "$T/image.label"
+t_lacks "$(session_args)" "/elsewhere"
+
+t_case "without --issue the session gets neither, and an instance's image directory is not passed on"
+again
+t_run "$dev"
+t_eq "$t_rc" 0
+t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$mounts_base" | LC_ALL=C sort)"
+t_eq "$(after -e | grep -c '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" 0
+t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
+
+t_case "an outsider's issue gives its images only when an allowed account applied its last tehas:ready"
+for who in alice mallory; do
+  attach_on
+  net "$A/1111" '\x89PNG\r\n\x1a\nPNGDATA'
+  issue_is "Look ![shot]($A/1111)" NONE
+  labelled_by "$who"
+  t_run "$dev --issue 7"
+  t_eq "$t_rc" 0
+  t_eq "$who $(jq -c '.images | length' "$imgs/manifest.json")" "$who $([ "$who" = alice ] && echo 1 || echo 0)"
+done
+
+t_case "with files alone --issue gives the text files and the same one mount"
+attach_on
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_FILES=1
+net "https://github.com/user-attachments/files/31/spec.md" '# Spec\n'
+issue_is "[spec.md](https://github.com/user-attachments/files/31/spec.md)"
+t_run "$dev --issue 7"
+t_eq "$t_rc" 0
+t_eq "$(cd "$imgs" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" "./file-1.md ./manifest.json "
+t_eq "$(after -v | grep -c -x "$imgs:$imgs:ro")" 1
+
+t_case "an image that cannot be fetched starts no session: exit 4"
+attach_on
+issue_is "Look ![shot]($A/9999)"
+t_run "$dev --issue 7"
+t_eq "$t_rc" 4
+t_eq "$(containers)" 0
+t_contains "$t_out" "tehas dev: $A/9999 could not be fetched, not starting a session"
+t_eq "$([ -e "$imgs" ] && echo left)" ""
+
+t_case "--issue on an instance that gives no images or files starts nothing: exit 78"
+attach_on
+t_instance "${T_MINIMAL[@]}"
+t_run "$dev --issue 7"
+t_eq "$t_rc" 78
+t_eq "$(containers)" 0
+t_eq "$(t_calls gh)$(t_calls curl)" ""
+
+t_case "--issue without a number is refused"
+for bad in "--issue" "--issue x" "--issue 07" "--issue ''"; do
+  attach_on
+  t_run "$dev $bad"
+  t_eq "$t_rc" 64
+  t_eq "$(containers)" 0
+done
 
 t_case "no git identity at all starts no container"
 : >"$T/home/.gitconfig"

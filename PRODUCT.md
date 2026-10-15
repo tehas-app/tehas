@@ -30,8 +30,9 @@ The page shows the factory's live queue and the running cycle's console, from
 the same files the plain dashboard reads, and says so in the header. Where the
 queue cannot be reached it falls back to fictional sample data, clearly marked;
 a viewer can also load an export. The queue snapshot lists only tickets on the
-line, so prototypes and tickets not on the line appear only from an export or
-the sample.
+line. With the live queue, prototypes come from the Protolab's own list where
+the host runs one. Tickets not on the line appear only from an export or the
+sample.
 
 ## Brand Personality
 

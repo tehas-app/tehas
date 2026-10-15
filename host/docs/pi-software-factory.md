@@ -74,8 +74,8 @@ short, and [Operating](/operating) covers the day-to-day.
 | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | You start a session and stay with it         | Issues wait in GitHub and are picked up as slots come free, urgent ones first                                 |
 | Whoever has the terminal decides what runs   | Only a label from an account on the allow list starts work                                                    |
-| The agent runs with your files and your keys | It runs in a container with CPU and memory limits and one bot token: no Docker socket, no SSH keys            |
-| You decide when it is done                   | The repository's own gates decide, and the cycle halts if its patch touches `.pi/`, `.github/` or `AGENTS.md` |
+| The agent runs with your files and your keys | It runs in a container with memory and process limits and one bot token: no Docker socket, no SSH keys            |
+| You decide when it is done                   | The repository's own gates decide, and the cycle halts if its patch touches `.pi/`, `.github/`, `CODEOWNERS` or `agents.json`. An edit to `AGENTS.md` is not halted: it ships, and the cycle is judged against the doctrine at its base commit |
 | Output scrolls past in your terminal         | The console streams to the factory floor with tokens and passwords masked, and usage is posted on the pull request |
 | A stalled session waits for you to notice    | A stopped cycle labels the issue and says why; a pause label on the control issue holds the queue             |
 
@@ -97,7 +97,7 @@ The [plain dashboard](/dashboard) has the same queue as lists.
 
 ### Is this an official Pi project?
 
-No. Tehas uses Pi as it is published, pinned by version. It takes pi-rukas from [upstream](https://github.com/trail-openers/pi-rukas), pinned to the newest release when tehas is released.
+No. Tehas uses Pi as it is published, pinned by version. It takes pi-rukas from [upstream](https://github.com/trail-openers/pi-rukas) unpinned, at the head of its main branch.
 
 ### Does tehas write code without anyone checking it?
 
@@ -121,8 +121,8 @@ anything here.
 
 ### Can one factory serve several repositories?
 
-Not yet. An instance is one host, one product repository and one cycle at a
-time by default.
+Not yet. An instance is one host and one product repository. It works on
+several issues side by side: by default one for each CPU of the host, less one.
 
 ### Where does the name come from?
 

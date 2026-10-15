@@ -2,7 +2,7 @@
 //! for the dashboard.
 //!
 //!   console --rpc <work-N.jsonl> --runs <ensemble-runs dir>
-//!     --out <console.txt> --since <epoch seconds>
+//!     --out <console.txt> --since <epoch seconds> [--private <name>]...
 //!
 //! Follows two sources until it is told to stop (TERM or INT):
 //!   - the cycle's Pi RPC stream: driver notices and step boundaries,
@@ -10,9 +10,11 @@
 //!     said, the commands it ran and the start of what came back.
 //!
 //! Output is plain text. Tokens, database passwords and private network
-//! addresses are masked, see mask.rs.
+//! addresses are masked, see mask.rs, and so is each name given with
+//! --private, as text in any case. A name is not a secret: it is on the
+//! command line.
 //!
-//!   console --mask
+//!   console --mask [--private <name>]...
 //!
 //! The mask alone: standard input to standard output, for libexec/work's own
 //! line on the dashboard, so that the mask is written in one place.
@@ -26,9 +28,9 @@ mod tail;
 
 use render::Entry;
 use std::collections::HashMap;
-use std::fs::{File, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -46,12 +48,20 @@ struct Args {
     since: SystemTime,
 }
 
-fn args() -> Result<Args, String> {
-    let given: Vec<String> = std::env::args_os()
-        .skip(1)
-        .map(|a| a.into_string())
-        .collect::<Result<_, _>>()
-        .map_err(|_| "console: an argument is not UTF-8")?;
+// Takes every `--private <name>` out of the arguments.
+fn private(given: &mut Vec<String>) -> Result<Vec<String>, String> {
+    let mut names = Vec::new();
+    while let Some(i) = given.iter().position(|a| a == "--private") {
+        if i + 1 >= given.len() {
+            return Err("console: --private needs a name".to_string());
+        }
+        names.push(given.remove(i + 1));
+        given.remove(i);
+    }
+    Ok(names)
+}
+
+fn args(given: &[String]) -> Result<Args, String> {
     let value = |name: &str| -> Result<String, String> {
         let flag = format!("--{name}");
         given
@@ -85,12 +95,30 @@ fn write(out: &mut File, entry: &Entry) -> io::Result<()> {
     out.write_all(render::format(entry, now as u32).as_bytes())
 }
 
-fn run(args: &Args, stop: &AtomicBool) -> io::Result<()> {
-    let mut out = OpenOptions::new()
+fn open_out(path: &str) -> io::Result<File> {
+    OpenOptions::new()
         .create(true)
         .append(true)
         .mode(0o644)
-        .open(&args.out)?;
+        .open(path)
+}
+
+// A console file removed or replaced while the cycle runs is opened again by
+// its name, or the rest of the cycle would go to a file no one can read.
+fn reopened(out: File, path: &str) -> io::Result<File> {
+    let same = match (fs::metadata(path), out.metadata()) {
+        (Ok(named), Ok(held)) => named.dev() == held.dev() && named.ino() == held.ino(),
+        _ => false,
+    };
+    if same {
+        Ok(out)
+    } else {
+        open_out(path)
+    }
+}
+
+fn run(args: &Args, stop: &AtomicBool) -> io::Result<()> {
+    let mut out = open_out(&args.out)?;
     let mut follower = tail::Follower::default();
     let mut workstreams: HashMap<String, String> = HashMap::new();
     write(
@@ -101,12 +129,17 @@ fn run(args: &Args, stop: &AtomicBool) -> io::Result<()> {
         // Read before the lines are: a stop that arrives during a pass is
         // followed by one more pass, so the last lines are not lost.
         let stopping = stop.load(Ordering::Relaxed);
+        out = reopened(out, &args.out)?;
         for line in follower.new_lines(&args.rpc) {
             if let Some(entry) = render::rpc_line(&line) {
                 write(&mut out, &entry)?;
             }
         }
         for transcript in follower.transcripts(&args.runs, args.since) {
+            // A stop that arrives now goes straight to the last pass.
+            if !stopping && stop.load(Ordering::Relaxed) {
+                break;
+            }
             let role = tail::role(&transcript.path);
             for line in follower.transcript_lines(&transcript) {
                 if let Some(workstream) = render::workstream(&line) {
@@ -118,7 +151,7 @@ fn run(args: &Args, stop: &AtomicBool) -> io::Result<()> {
                     Some(workstream) => format!("{role}[{workstream}]"),
                     None => role.clone(),
                 };
-                for entry in render::transcript_line(&who, &line) {
+                for entry in render::transcript_line(&mask::mask(&who), &line) {
                     write(&mut out, &entry)?;
                 }
             }
@@ -126,6 +159,11 @@ fn run(args: &Args, stop: &AtomicBool) -> io::Result<()> {
         let skipped = follower.take_skipped();
         if skipped > 0 {
             let said = format!("log lines over 1 MiB left out: {skipped}");
+            write(&mut out, &Entry::new("tehas", said, None))?;
+        }
+        let unheld = follower.take_unheld();
+        if unheld > 0 {
+            let said = format!("unfinished log lines left out, 16 MiB of them held: {unheld}");
             write(&mut out, &Entry::new("tehas", said, None))?;
         }
         if stopping {
@@ -157,7 +195,23 @@ fn mask_stdin() -> io::Result<()> {
 }
 
 fn main() -> ExitCode {
-    if std::env::args_os().skip(1).eq(["--mask"]) {
+    let given = std::env::args_os()
+        .skip(1)
+        .map(|a| a.into_string())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "console: an argument is not UTF-8".to_string());
+    let given = given.and_then(|mut given| {
+        mask::set_private(&private(&mut given)?)?;
+        Ok(given)
+    });
+    let given = match given {
+        Ok(given) => given,
+        Err(message) => {
+            complain(&message);
+            return ExitCode::from(2);
+        }
+    };
+    if given == ["--mask"] {
         return match mask_stdin() {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
@@ -166,7 +220,7 @@ fn main() -> ExitCode {
             }
         };
     }
-    let args = match args() {
+    let args = match args(&given) {
         Ok(args) => args,
         Err(message) => {
             complain(&message);
