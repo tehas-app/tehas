@@ -341,7 +341,11 @@ a box and a reply do nothing.
 Where the instance gives a cycle the images an issue links
 (`TEHAS_WORK_IMAGES=1`), a planning session is given them too, by the same
 rules, once at its start, and with `TEHAS_WORK_FILES=1` its text files. The
-bot says how many it was given and which it left out. If one cannot be fetched, no session starts and the bot says so. The
+bot says how many it was given and which it left out. If one cannot be fetched, no session starts and the bot says so.
+A reply can carry a picture or a file too: the next turn adds what the reply
+links to the session's images, by the same rules and limits, and tells the
+agent their names. What it leaves out the bot says. If one cannot be fetched,
+the turn does not run, and the bot says so; reply again to run it. The
 pi-rukas that tehas installs does not show them to the planning agent yet, so
 describe in words what a picture shows.
 

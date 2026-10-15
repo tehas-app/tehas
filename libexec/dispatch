@@ -1051,8 +1051,11 @@ for n in $asking; do
     plan)
       # A reply says more than a box, so it wins when both are there.
       reply=$(jq -r '.reply.text // ""' <<<"$ans")
+      reply_id=""
       if [ -n "$reply" ]; then
         by=$(jq -r .reply.by <<<"$ans")
+        reply_id=$(jq -r '.reply.id // "" | tostring' <<<"$ans")
+        case "$reply_id" in *[!0-9]*) reply_id="" ;; esac
       elif [ "$tick" != one ]; then
         continue
       fi
@@ -1098,7 +1101,7 @@ $reply"
       fi
       printf '%s\n' "$text" >"$st.answer"
       log "planning #$n continues (answer from $by)"
-      plan_turn "$n" next "$st.answer"
+      plan_turn "$n" next "$st.answer" "$reply_id"
       "$status_cmd"
       exit 0
       ;;

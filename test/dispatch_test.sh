@@ -2116,6 +2116,15 @@ t_eq "$(cat "$record.answer")" 'The operator replied on the issue:
 Adopt all, but keep `tagged-at` open.
 Then file 3 and 5.'
 
+t_case "a reply's turn is given the reply's comment id, so its attachments go with it"
+t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --session abc-123 --answer $record.answer --comment 4003"
+
+t_case "a ticked option passes no comment"
+planning
+comments 7 "$(plan_body ' ' x ' ')" alice
+t_run "$dispatch"
+t_lacks "$(plan_calls)" "--comment"
+
 t_case "a reply wins over a tick"
 planning
 comments 7 "$(plan_body x ' ' ' ')" alice '[{"databaseId":4003,"author":{"login":"alice"},"body":"neither","createdAt":"2026-01-01T02:00:00Z"}]'

@@ -109,7 +109,7 @@ q_answer() {
                   elif ($list | index($ed)) == null then {status: "stranger", by: $ed}
                   elif ($ticks | length) > 1 then {status: "many", by: $ed}
                   else {status: "one", by: $ed, index: $ticks[0], at: ($q.value.lastEditedAt // "")} end),
-           reply: (if $r == null then null else {by: $r.author.login, text: $r.body, at: $r.createdAt} end)}
+           reply: (if $r == null then null else {by: $r.author.login, text: $r.body, at: $r.createdAt, id: $r.databaseId} end)}
       end'
 }
 

@@ -30,6 +30,7 @@ case " $* " in *" --mode "*)
   git -C "$ws" status --porcelain >"$T/calls/tree.status" 2>&1
   git -C "$ws" rev-parse HEAD >"$T/calls/head.seen" 2>&1
   ls -A "$ws/.git/pi-plan-cache" >"$T/calls/cache.seen" 2>/dev/null
+  cat "$ws.images/manifest.json" >"$T/calls/manifest.seen" 2>/dev/null
   cat "$ws/.git/pi-plan-cache/"*.json >"$T/calls/cache.read" 2>/dev/null
   # What the agent leaves in the plan cache, when a case says.
   [ ! -e "$T/fx/cache" ] || . "$T/fx/cache"
@@ -679,7 +680,7 @@ t_contains "$(cat "$T/keep/images/images.md")" "> A dialog."
 t_eq "$(jq -r .described "$T/keep/images/manifest.json")" images.md
 t_eq "$(after -v | grep -c images)" 1
 t_eq "$(after -v | grep -c -x "$tree.images:$ws.images:ro")" 1
-t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_ENSEMBLE_EXTRA_IMAGE_DIRS | LC_ALL=C sort)"
+t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_ENSEMBLE_EXTRA_IMAGE_DIRS PI_ENSEMBLE_PLAN_ISSUE | LC_ALL=C sort)"
 t_eq "$(turn_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -i --init")" ""
 
 t_case "a later turn describes nothing again"
@@ -700,7 +701,7 @@ t_eq "$t_rc" 0
 t_eq "$(cd "$T/keep/images" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" "./file-1.md ./manifest.json "
 t_eq "$(after -v | grep -c images)" 1
 t_eq "$(after -v | grep -c -x "$tree.images:$ws.images:ro")" 1
-t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_ENSEMBLE_EXTRA_IMAGE_DIRS | LC_ALL=C sort)"
+t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_ENSEMBLE_EXTRA_IMAGE_DIRS PI_ENSEMBLE_PLAN_ISSUE | LC_ALL=C sort)"
 t_eq "$(after -e | grep '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$ws.images"
 t_eq "$(turn_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -i --init")" ""
 t_lacks "$(cat "$T/calls/curl.urls")" "$A/1111"
@@ -714,5 +715,87 @@ t_eq "$t_rc" 0
 t_eq "$(find "$T/home/tehas/state/images-read.json" 2>/dev/null | wc -l)" 0
 t_eq "$(cat "$T/calls/curl.urls" "$T/calls/gh.args" 2>/dev/null)" ""
 t_eq "$(after -v | grep -c images)" 0
+
+t_case "with images off a reply's links are not fetched and the turn is not told the issue, whatever the instance says"
+reset
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_PLAN_ISSUE=99
+net "$A/2222" '\x89PNG\r\n\x1a\nPNGDATA'
+printf 'The operator replied on the issue:\n\n![b](%s/2222)\n' "$A" >"$T/answer.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md --comment 4003"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/curl.urls" 2>/dev/null)" ""
+t_eq "$(after -e | grep -c '^PI_ENSEMBLE_PLAN_ISSUE')" 0
+t_eq "$(after -v | grep -c images)" 0
+
+# --- A reply's attachments -----------------------------------------------------
+reply_is() { printf 'The operator replied on the issue:\n\n%s\n' "$1" >"$T/answer.md"; }
+# A session whose first turn took one image from the issue.
+first_turn() {
+  images_on
+  net "$A/1111" '\x89PNG\r\n\x1a\nPNGDATA'
+  issue_is "Look ![shot]($A/1111)"
+  t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+  rm -f "$T"/calls/*
+}
+
+t_case "a reply with a link adds its image to the session, numbered on, and the turn sees it"
+first_turn
+net "$A/2222" '\xff\xd8\xff\xe0JPGDATA'
+reply_is "Like this ![b]($A/2222), not like ![shot]($A/1111), and see https://example.com/x.png"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md --comment 4003"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '.images | map([.file, .link, .source])' "$T/keep/images/manifest.json")" \
+  "[[\"image-1.png\",\"$A/1111\",\"body\"],[\"image-2.jpg\",\"$A/2222\",\"answer:4003\"]]"
+t_eq "$(cat "$T/calls/curl.urls")" "$A/2222"
+t_eq "$(jq -c '.images | map(.file)' "$T/calls/manifest.seen")" '["image-1.png","image-2.jpg"]'
+t_eq "$(cd "$T/keep/images" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" "./image-1.png ./image-2.jpg ./manifest.json "
+
+t_case "the answer sent to the agent names the new file"
+t_contains "$(jq -r .message "$T/calls/docker.stdin")" "Like this"
+t_contains "$(jq -r .message "$T/calls/docker.stdin")" "- image-2.jpg, from $A/2222"
+
+t_case "the turn is told the issue, and gets no other mount or variable than a first turn"
+t_eq "$(after -e | grep '^PI_ENSEMBLE_PLAN_ISSUE')" "PI_ENSEMBLE_PLAN_ISSUE=7"
+t_eq "$(after -v | grep -c images)" 1
+t_eq "$(after -v | grep -c -x "$tree.images:$ws.images:ro")" 1
+t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_ENSEMBLE_EXTRA_IMAGE_DIRS PI_ENSEMBLE_PLAN_ISSUE | LC_ALL=C sort)"
+t_eq "$(turn_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -i --init")" ""
+
+t_case "a reply over the limits leaves the link out and says so on the issue"
+first_turn
+for i in 2 3 4 5 6 7 8 9; do net "$A/000$i" '\x89PNG\r\n\x1a\nPNGDATA'; done
+reply_is "$(for i in 2 3 4 5 6 7 8 9; do printf '![x](%s/000%s) ' "$A" "$i"; done)"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md --comment 4003"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[(.images | length), (.leftOut | map([.link, .reason, .source]))]' "$T/keep/images/manifest.json")" \
+  "[8,[[\"$A/0009\",\"More than 8 images.\",\"answer:4003\"]]]"
+t_contains "$(cat "$T/calls/gh.comments")" "Tehas left out of your reply:
+- $A/0009: More than 8 images."
+
+t_case "a reply's link that cannot be fetched runs no turn and leaves the session's images as they were: exit 4"
+first_turn
+cp "$T/keep/images/manifest.json" "$T/manifest.before"
+reply_is "![b]($A/9999)"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md --comment 4003"
+t_eq "$t_rc" 4
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+t_eq "$(cmp "$T/manifest.before" "$T/keep/images/manifest.json" && echo same)" same
+t_eq "$(cd "$T/keep" && find . -mindepth 1 -maxdepth 1 | LC_ALL=C sort | tr '\n' ' ')" "./commit ./images "
+t_contains "$(cat "$T/calls/gh.comments")" "Tehas ran no planning turn: $A/9999 could not be fetched."
+
+t_case "without --comment a reply's links are not read"
+first_turn
+net "$A/2222" '\xff\xd8\xff\xe0JPGDATA'
+reply_is "![b]($A/2222)"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/curl.urls" 2>/dev/null)" ""
+
+for bad in "--brief $T/brief.md --comment 4003" "--session abc-123 --answer $T/brief.md --comment 12a"; do
+  t_case "--comment where it does not belong ('$bad') is refused"
+  reset
+  t_run "$plan 7 --out $T/out.json --keep $T/keep $bad"
+  t_eq "$t_rc" 64
+done
 
 t_done

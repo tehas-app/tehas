@@ -433,7 +433,7 @@ for an issue whose session the factory is working on.
 
 ```
 tehas plan 12 --out /tmp/turn.json --keep /tmp/turn.keep --brief brief.md
-tehas plan 12 --out /tmp/turn.json --keep /tmp/turn.keep --session <id> --answer answer.md
+tehas plan 12 --out /tmp/turn.json --keep /tmp/turn.keep --session <id> --answer answer.md [--comment <id>]
 ```
 
 The first form starts a session from a file with the issue's title and body.
@@ -458,13 +458,26 @@ by the rules of `tehas work`, with `tehas:plan` in place of `tehas:ready`,
 and says on the issue how many it was given and whether the sandbox image's
 pi-rukas reads them.
 Each turn's container gets a copy of them, read-only, at the path a cycle has
-them, with `PI_ENSEMBLE_EXTRA_IMAGE_DIRS`. The copy is
+them, with `PI_ENSEMBLE_EXTRA_IMAGE_DIRS` and `PI_ENSEMBLE_PLAN_ISSUE`, the
+issue's number. The copy is
 `~/tehas/work/<name>-plan-<issue>.images`, removed after the turn. An image
 that cannot be fetched starts no session: exit 4, said on the issue. With
 `TEHAS_WORK_DESCRIBE=1` the first turn also writes `images.md`, as
 `tehas work` does, and every turn's copy holds it. With `TEHAS_WORK_FILES=1`
 the first turn fetches the text files too, by the rules of `tehas work`, into
-the same directory. On exit 0 the `--out` file holds the session id, the agent's last
+the same directory.
+
+A later turn given `--comment <id>`, the id of the reply its answer came
+from, fetches the images and files the answer links into that directory
+before it starts: by the same rules and limits, counted with what is there,
+numbered on from it, and with `source` `answer:<id>` in the manifest. A link
+already there is not fetched again, and the new images are not described. The
+dispatcher passes the id when the answer is a reply; the reply counts only
+from an allowed account, so its links are approved as the label approves the
+body's. The answer sent to the agent ends with the names of the new files. A
+link left out is said on the issue. A link that cannot be fetched runs no
+turn: exit 4, said on the issue, and the directory stays as it was; a reply
+runs the turn again. On exit 0 the `--out` file holds the session id, the agent's last
 message and the question it asked, if any. On exit 2 it holds the session id
 alone when that is known, so the dispatcher can run the turn again in the
 same session, and it is not written when no session is known.
@@ -473,7 +486,7 @@ same session, and it is not written when no session is known.
 | ---- | -------------------------------------------------------------------- |
 | 0    | The turn settled and said or asked something                         |
 | 2    | The turn did not settle, timed out, said and asked nothing, or its session or outcome could not be written down |
-| 4    | With `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`: a first turn where an image or file the issue links could not be fetched, or the issue could not be read for them; nothing ran |
+| 4    | With `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`: a first turn where an image or file the issue links could not be fetched, or the issue could not be read for them, or a later turn where one its reply links could not be fetched; nothing ran |
 | 64   | A usage error, no bot token or no git identity; nothing ran          |
 | 78   | The instance settings are invalid, or `tehas.slice` cannot be used; nothing ran |
 
