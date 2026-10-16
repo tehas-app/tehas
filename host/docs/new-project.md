@@ -247,7 +247,7 @@ docker compose -f ~/tehas/edge/docs.compose.yaml up -d --force-recreate  # this 
 tehas labels
 tehas dispatch --dry-run
 systemctl --user daemon-reload
-systemctl --user enable --now tehas-dispatch.timer tehas-protolab.timer
+systemctl --user enable --now tehas-dispatch.timer tehas-dispatch.path tehas-protolab.timer
 tehas update        # runs the follow-ups install.sh recorded, and clears them
 ```
 

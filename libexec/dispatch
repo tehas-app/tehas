@@ -201,6 +201,10 @@ mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/logs" "$TEHAS_HOME/live"
 # Held for the poll only. A cycle holds the lock of its own issue. Opened
 # without truncating it: a poll that finds it held changes nothing.
 exec 8>>"$TEHAS_HOME/state/dispatch.lock"
+# A cycle that ended asked for a poll, and this is it. Removed before the lock
+# is tried, so tehas-dispatch.path does not start poll after poll while tehas
+# index holds the lock: the timer polls once the index is done.
+[ "$dry" = 1 ] || rm -f "$TEHAS_HOME/state/dispatch.again"
 # When the lock was last taken, and the take a hang was last said for.
 taken=$TEHAS_HOME/state/dispatch.taken
 stuck=$TEHAS_HOME/state/dispatch.stuck

@@ -875,10 +875,16 @@ t_run "$cycle 7"
 t_contains "$(t_calls gh)" "Pull request waiting for a human"
 t_eq "$(find "$T/home/tehas/state/rukas-proven" 2>/dev/null | wc -l)" 0
 
-t_case "the end of a cycle starts one poll of the dispatcher"
+t_case "the end of a cycle starts one poll of the dispatcher, and leaves the request for the path unit"
 reset
+rm -f "$T/home/tehas/state/dispatch.again"
 t_run "$cycle 7"
 t_eq "$(t_calls systemctl)" "--user start --no-block tehas-dispatch.service"
+t_eq "$(find "$T/home/tehas/state/dispatch.again" 2>/dev/null | wc -l)" 1
+
+t_case "the path unit watches for the file the cycle leaves, and starts a poll"
+t_eq "$(sed -n 's/^PathExists=//p' "$T_ROOT/host/systemd/tehas-dispatch.path")" "%h/tehas/state/dispatch.again"
+t_eq "$(sed -n 's/^Unit=//p' "$T_ROOT/host/systemd/tehas-dispatch.path")" "tehas-dispatch.service"
 
 t_case "a poll that cannot be started is a warning, and the cycle is still reported"
 reset

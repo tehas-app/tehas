@@ -901,7 +901,8 @@ tehasbot preview --sweep      # the second check; what tehas-preview-sweep.timer
 tehasbot improve              # one run of the improvement loop; what tehas-improve.timer runs
 ```
 
-The units are `tehas-dispatch.timer`, `tehas-energy.service`, `tehas-top.service`,
+The units are `tehas-dispatch.timer`, `tehas-dispatch.path` (a poll as soon
+as a cycle ends), `tehas-energy.service`, `tehas-top.service`,
 `tehas-protolab.timer`, the previews' `tehas-preview.timer` and
 `tehas-preview-sweep.timer`, the improvement loop's `tehas-improve.timer`, and one `tehas-cycle@<issue>.service` per running
 cycle. A cycle's container is `tehas-work-<issue>`.
