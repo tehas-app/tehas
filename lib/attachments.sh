@@ -27,6 +27,38 @@ tehas_attachment_links() {
   printf '%s\n' 'def links: [scan("https://(?:github\\.com/user-attachments/(?:assets|files)/|github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(?:assets|files)/[0-9]+/|user-images\\.githubusercontent\\.com/)[A-Za-z0-9._~%/?&=+-]+")];'
 }
 
+# The dispatcher's approval record, state/cycles/<issue>.approved.json, as the
+# readers here expect it. at, by and how are asserted by shape, not only by
+# type: they are printed to an operator and published in a cycle's record, and
+# a value with a newline in it moves the fields of a manifest read back by
+# line. tehas_retry_context asserts the same of the text it quotes.
+tehas_approval_record() {
+  # shellcheck disable=SC2016  # a jq program
+  printf '%s\n' 'def record_ok: type == "object" and (.links | type) == "array"
+    and (.at | type) == "string" and (.at | test("^[0-9T:.Z-]+$"))
+    and (.by | type) == "string" and (.by | test("^[A-Za-z0-9-]+$"))
+    and (.how | test("^(label|retry-tick|outage-retry)$"))
+    and (.comment_links == null or (.comment_links | type) == "array");'
+}
+
+# The most bytes the improvement loop copies of a manifest into the analyst's
+# record (lib/improve.sh). A manifest over it is left out whole, so both
+# writers of state/cycles/<issue>.manifest.json keep this instead.
+tehas_manifest_bytes() {
+  echo 262144
+}
+
+# A jq definition, `cap_left`: at most 100 left-out entries, each link cut at
+# 512 characters, and leftOutMore counting the rest (0 when there are none).
+# Both writers of a manifest pass their list through it, so an issue dense with
+# attachments leaves a record the improvement loop can copy rather than none.
+tehas_manifest_cap() {
+  # shellcheck disable=SC2016  # a jq program
+  printf '%s\n' 'def cap_left: (.leftOut // []) as $l
+    | .leftOut = [$l[:100][] | .link |= .[0:512]]
+    | .leftOutMore = (if ($l | length) > 100 then ($l | length) - 100 else 0 end);'
+}
+
 tehas_attachment_kind() {
   case "$1" in
     png | jpg | jpeg | gif | webp | svg | avif) echo image ;;
@@ -94,20 +126,30 @@ tehas_attachment_fetch() { # <address> <file> <most bytes> [<token>]
 #                                     returns 1, with the reason in $image_why,
 #                                     when both are of the same approval and a
 #                                     link gave other bytes this time
-#   tehas_issue_images_none <issue> <file> [record]
+#   tehas_issue_images_left_out <issue> <file> [record]
 #                                     a cycle given no images and no files: a
 #                                     manifest at <file> that gives none and
 #                                     leaves out the links the approval record
 #                                     lists, with the reason, named with that
-#                                     approval. At most 100 entries, and
-#                                     leftOutMore counts the rest (0 when there
-#                                     are none), so the file stays small enough
-#                                     for the improvement loop to copy. It
-#                                     fetches nothing and asks GitHub nothing.
-#                                     Returns 1 when it wrote nothing: no
-#                                     record, a record that cannot be read, a
-#                                     link in place of the file, or an issue
-#                                     that links nothing
+#                                     approval, and the line that says the gap,
+#                                     in $image_gap. It caps what it lists and
+#                                     counts the rest in leftOutMore, so the
+#                                     file stays small enough for the
+#                                     improvement loop to copy. It fetches
+#                                     nothing and asks GitHub nothing. Returns
+#                                     1 when there is nothing to say: no
+#                                     record, an issue that links nothing, a
+#                                     link in place of the file. Returns 2 when
+#                                     a record is there but could not be read,
+#                                     or its manifest could not be written
+#   tehas_approval_record           print a jq definition, `record_ok`: the
+#                                     shape of the dispatcher's approval record,
+#                                     so its readers cannot drift apart
+#   tehas_manifest_bytes            the most bytes the improvement loop copies
+#                                     of a manifest into a cycle's record
+#   tehas_manifest_cap              print a jq definition, `cap_left`: the
+#                                     left-out entries a manifest lists at most,
+#                                     and leftOutMore counting the rest
 #   tehas_answer_images <dir> <answer file> <comment id>
 #                                     add to a planning session's <dir> what
 #                                     the reply in <answer file> links, source
@@ -325,9 +367,8 @@ tehas_issue_images() { # <issue> <dir> [approved] [record]
   # and no record of which links were approved is no ground to fetch any.
   if [ -n "$record" ]; then
     image_why="the approval record $record could not be read"
-    jq -e 'type == "object" and (.body_sha256 | type) == "string" and (.links | type) == "array"
-      and (.at | type) == "string" and (.by | type) == "string" and (.how | type) == "string"
-      and (.comment_links == null or (.comment_links | type) == "array")' "$record" >/dev/null 2>&1 || return 1
+    jq -e "$(tehas_approval_record)"'record_ok and (.body_sha256 | type) == "string"' \
+      "$record" >/dev/null 2>&1 || return 1
     image_why="the issue's text could not be read for its hash"
     sum=$(tehas_body_sha256 <<<"$data") || return 1
     if [ "$sum" != "$(jq -r .body_sha256 "$record")" ]; then
@@ -366,8 +407,8 @@ tehas_issue_images() { # <issue> <dir> [approved] [record]
   fi
   jq -n --argjson issue "$issue" --argjson given "$given" --argjson files "$want_files" --arg context "$context" \
     --slurpfile images "$images/.taken" --slurpfile taken "$images/.files" --slurpfile left "$images/.left" \
-    '{images: $images} + (if $files == 1 then {files: $taken} else {} end) + {leftOut: $left, issue: $issue, approval: $given}
-      + (if $context == "" then {} else {retryContext: $context} end)' \
+    "$(tehas_manifest_cap)"'{images: $images} + (if $files == 1 then {files: $taken} else {} end) + {leftOut: $left, issue: $issue, approval: $given}
+      + (if $context == "" then {} else {retryContext: $context} end) | cap_left' \
     >"$images/manifest.json" || return 1
   rm -f "$images/.part" "$images/.taken" "$images/.files" "$images/.left"
   { chmod 755 "$images" && chmod 644 "$images/manifest.json"; } || return 1
@@ -461,37 +502,82 @@ tehas_issue_images_changed() { # <kept manifest> <dir>
 }
 
 # A cycle given nothing still says what it was not given. The links come from
-# the dispatcher's approval record alone: with no images and no files the
-# instance takes nothing from comments either (lib/config.sh refuses
-# TEHAS_WORK_COMMENTS without one of them), and tehas work asks GitHub for
-# nothing when it gives a cycle nothing. That record is the issue's text as it
-# was when the label was applied, and nothing re-reads the issue, so what this
-# writes is about that approval, not about the text today: a body edited since
-# is not counted here. The manifest names the approval its links came from, so
-# a reader can tell how old they are. An issue never dispatched has no record,
-# and then nothing is said.
-tehas_issue_images_none() { # <issue> <file> [record]
-  local issue=$1 file=$2 record=${3:-} cap=100
-  local reason='This instance gives a cycle no images and no files (TEHAS_WORK_IMAGES=0, TEHAS_WORK_FILES=0).'
+# the dispatcher's approval record alone: tehas work asks GitHub for nothing
+# when it gives a cycle nothing. A record written while the instance took links
+# from comments is still read after it stops taking them, so each entry says
+# where its link came from rather than being called the body's. That record is
+# the issue's text as it was when the label was applied, and nothing re-reads
+# the issue, so what this writes is about that approval, not about the text
+# today: a body edited since is not counted here. The manifest names the
+# approval its links came from, so a reader can tell how old they are. An issue
+# never dispatched has no record, and then nothing is said.
+#
+# The reason is read from the settings here, and so is the line that says the
+# gap, which this composes in $image_gap: a caller prints what this file says
+# instead of writing the same sentence from settings it never read. An earlier
+# manifest of the same approval that lists images or files with their sha256s
+# keeps them: it is what tehas_issue_images_changed holds a later cycle of that
+# approval to, and throwing it away would let a link that now serves other bytes
+# start a cycle undetected.
+# Returns 1 when there is nothing to say, and 2 when a record is there but
+# could not be read, or its manifest could not be written.
+tehas_issue_images_left_out() { # <issue> <file> [record]
+  local issue=$1 file=$2 record=${3:-} args manifest out rc reason given
+  image_gap=""
   [ -f "$record" ] && [ ! -L "$record" ] || return 1
-  [ ! -L "$file" ] || return 1
-  jq -e 'type == "object" and (.links | type) == "array"
-    and (.at | type) == "string" and (.by | type) == "string" and (.how | type) == "string"' \
-    "$record" >/dev/null 2>&1 || return 1
-  # Cap at 100: the improvement loop copies a manifest only up to 256 KB, and
-  # an issue that links thousands of attachments must not leave no record at all.
+  [ ! -L "$file" ] && [ ! -d "$file" ] || return 1
+  case "${TEHAS_WORK_IMAGES:-0}:${TEHAS_WORK_FILES:-0}" in
+    0:0)
+      reason='This instance gives a cycle no images and no files (TEHAS_WORK_IMAGES=0, TEHAS_WORK_FILES=0).'
+      given='TEHAS_WORK_IMAGES=0, TEHAS_WORK_FILES=0' ;;
+    0:1)
+      reason='This instance gives a cycle no images (TEHAS_WORK_IMAGES=0).'
+      given='TEHAS_WORK_IMAGES=0' ;;
+    1:0)
+      reason='This instance gives a cycle no files (TEHAS_WORK_FILES=0).'
+      given='TEHAS_WORK_FILES=0' ;;
+    # Not a cycle given nothing: it is given attachments by tehas_issue_images.
+    *) return 1 ;;
+  esac
+  args=(--argjson issue "$issue" --arg reason "$reason" --arg given "$given")
+  [ ! -f "$file" ] || [ -L "$file" ] || args+=(--slurpfile prevfile "$file")
+  # One jq pass over the record: it errors on a record that is not of the shape
+  # tehas reads, prints nothing for an issue that links nothing, and prints the
+  # manifest and the line that says the gap. A link is cut at 512 characters:
+  # it is data from the approved text, kept for a person to weigh.
   # shellcheck disable=SC2016  # a jq program
-  jq --argjson issue "$issue" --arg reason "$reason" --argjson cap "$cap" "$(tehas_attachment_links)"'
-    ([.links[] | strings | select(links == [.])]
-      | reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end)) as $links
-    | ($links | length) as $n
-    | select($n > 0)
-    | {issue: $issue, images: [], approval: {at: .at, by: .by, how: .how},
-       leftOut: ($links[0:$cap] | map({link: ., reason: $reason, source: "body"})),
-       leftOutMore: (if $n > $cap then $n - $cap else 0 end)}' \
-    "$record" >"$file.new" 2>/dev/null
-  [ -s "$file.new" ] || { rm -f "$file.new"; return 1; }
-  mv "$file.new" "$file" 2>/dev/null || { rm -f "$file.new"; return 1; }
+  out=$(jq -r "${args[@]}" "$(tehas_attachment_links)$(tehas_approval_record)$(tehas_manifest_cap)"'
+    if record_ok | not then error("the approval record is not of the shape tehas reads") else . end
+    | ([.links[] | strings | select(links == [.]) | {link: ., reason: $reason, source: "body"}] +
+       [(.comment_links // [])[] | select(type == "object" and (.link | type) == "string"
+         and (.source | type) == "string" and (.by | type) == "string"
+         and (.link | links == [.]) and (.source | test("^(pr-)?comment:[0-9]+$"))
+         and (.by | test("^[A-Za-z0-9-]+$"))) | {link: .link, reason: $reason, source: .source}]
+       | reduce .[] as $e ({}; if .seen[$e.link] then . else .seen[$e.link] = 1 | .out += [$e] end)) as $d
+    | {issue: $issue, images: [], approval: {at: .at, by: .by, how: .how}, leftOut: ($d.out // [])}
+    | select(.leftOut | length > 0)
+    | cap_left
+    | ($ARGS.named.prevfile[0] // null) as $prev
+    | (if $prev != null and ($prev | type) == "object" and ($prev.approval // null) == .approval
+         and ((($prev.images // []) | length) + (($prev.files // []) | length)) > 0
+       then . + {images: ($prev.images // [])} + (if ($prev | has("files")) then {files: $prev.files} else {} end)
+       else . end)
+    | (.leftOut | length) as $listed | .leftOutMore as $more | ($listed + $more) as $total
+    | (if $total == 1 then "" else "s" end) as $plural
+    | (tojson), ("the approval record of issue \($issue) (approved \(.approval.at) by \(.approval.by)) lists \($total) attachment\($plural) and this instance gives a cycle none (\($given)): no directory is mounted and PI_ENSEMBLE_EXTRA_IMAGE_DIRS is not set"
+       + (if $more > 0 then "; its manifest lists the first \($listed) of them" else "" end))' \
+    "$record" 2>/dev/null)
+  rc=$?
+  [ "$rc" = 0 ] || return 2
+  # jq printed nothing: the record lists no link of GitHub's storage.
+  [ -n "$out" ] || return 1
+  case $out in *$'\n'*) ;; *) return 2 ;; esac
+  manifest=${out%%$'\n'*}
+  image_gap=${out#*$'\n'}
+  [ -n "$image_gap" ] || return 2
+  printf '%s\n' "$manifest" >"$file.new" 2>/dev/null || { rm -f "$file.new"; return 2; }
+  jq -e . "$file.new" >/dev/null 2>&1 || { rm -f "$file.new"; return 2; }
+  mv -T "$file.new" "$file" 2>/dev/null || { rm -f "$file.new"; return 2; }
 }
 
 # The links are of the shape tehas_attachment_links takes and the reasons are
@@ -521,7 +607,8 @@ tehas_issue_images_said() { # <dir> <what> <reads>
     | [($head | select(length > 0) | join(" ")),
        (if $i + ($files | length) > 0 then
           .images + $files | map("- \(.link)\(where): \(.file), sha256 \(.sha256)") | join("\n") else empty end),
-       (if (.leftOut | length) > 0 then "Left out:\n" + (.leftOut | map("- \(.link)\(where): \(.reason)") | join("\n")) else empty end)]
+       (if (.leftOut | length) > 0 then "Left out:\n" + (.leftOut | map("- \(.link)\(where): \(.reason)") | join("\n"))
+          + (if (.leftOutMore // 0) > 0 then "\nand \(.leftOutMore) more, in the manifest" else "" end) else empty end)]
     | join("\n\n")' \
     "$1/manifest.json" 2>/dev/null
 }

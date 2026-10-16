@@ -102,9 +102,9 @@ session.
   the `TEHAS_*` name instead. No instance line gives a cycle the Docker socket
   or SSH keys.
 - `PI_ENSEMBLE_EXTRA_IMAGE_DIRS` names the mounted images directory and is
-  tehas' to set: `tehas work` drops an instance line for it whether or not the
-  cycle is given attachments, so a cycle's container never names a directory
-  tehas did not mount (see [tehas work](#tehas-work)).
+  tehas' to set: `tehas work`, `tehas plan` and `tehas dev` drop an instance
+  line for it whether or not that container is given attachments, so one never
+  names a directory tehas did not mount (see [tehas work](#tehas-work)).
 - `PI_ENSEMBLE_HANDOFF_CHANNEL`, `PI_ENSEMBLE_CYCLE_DEADLINE` and
   `PI_ENSEMBLE_VERIFY_CONCURRENCY` are `tehas work`'s to set for a cycle, and
   `PI_ENSEMBLE_CYCLE_BUDGET_MS` is not passed: an instance line for one of
@@ -598,18 +598,20 @@ and GitHub is asked for nothing. When the dispatcher's approval record lists
 attachment links, that gap is said rather than left for an agent to find from a
 file that is not there: `tehas work` prints a line naming how many links and
 which approval it read (the record's `at` and `by`), writes the same line to
-its own error log (`~/tehas/logs/work-<issue>-<stamp>.jsonl.err`, which is
-`err.txt` of the improvement loop's record), and keeps a manifest at
+`~/tehas/logs/work-<issue>-<stamp>.jsonl.err`, which the improvement loop
+copies into the record as `err.txt` (only this line and a failure to write it
+ever reach that file), and keeps a manifest at
 `~/tehas/state/cycles/<issue>.manifest.json` with no image, that approval, and
 each link left out with that reason. The links are the approved text's: the
 issue is not read again, so a body edited since the label is not what the line
-counts, and the line says which approval it did count. At most 100 links are
-listed and `leftOutMore` counts the rest, 0 when there are none, so the file
-stays small enough for the improvement loop to copy. An issue the
-dispatcher never started has no approval record, and then nothing is said and
-nothing is kept. An instance line for `PI_ENSEMBLE_EXTRA_IMAGE_DIRS` is dropped
-there too: the container is given no variable naming a directory it does not
-have. What an agent downloads for itself is its own doing: tehas
+counts, and the line says which approval it did count. A record written while
+the instance took links from comments keeps them, each with its own `source`.
+At most 100 links are listed and `leftOutMore` counts the rest, 0 when there
+are none, so the file stays small enough for the improvement loop to copy. An
+issue the dispatcher never started has no approval record, and then nothing is
+said and nothing is kept. An instance line for `PI_ENSEMBLE_EXTRA_IMAGE_DIRS`
+is dropped there too: the container is given no variable naming a directory it
+does not have. What an agent downloads for itself is its own doing: tehas
 neither fetches an attachment into the workspace nor keeps an agent's own
 download out of the clone.
 
@@ -667,6 +669,12 @@ that cannot be fetched starts no session: exit 4, said on the issue. With
 `tehas work` does, and every turn's copy holds it. With `TEHAS_WORK_FILES=1`
 the first turn fetches the text files too, by the rules of `tehas work`, into
 the same directory.
+
+With `TEHAS_WORK_IMAGES=0` and `TEHAS_WORK_FILES=0` a turn is given no
+attachments, and an instance line for `PI_ENSEMBLE_EXTRA_IMAGE_DIRS` is dropped
+there too: the container is given no variable naming a directory it does not
+have. A turn given nothing says nothing about what the issue links; that is
+`tehas work`'s report of a cycle (see [tehas work](#tehas-work)).
 
 A later turn given `--comment <id>`, the id of the reply its answer came
 from, fetches the images and files the answer links into that directory
