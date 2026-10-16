@@ -277,18 +277,19 @@ over a gauge of ten blocks, Brass for the filled ones. The power gauge is read
 against the chart's scale, the token gauge against the busiest minute of the
 last half hour. Where the mesh counts no tokens the meter shows power alone. It
 leads to Energy Use. The meter costs width and is given a column of its own:
-336px on a wide screen, which is the column above the monitor; 240px from 900 to
-1439px; below 900px the panel is one column again and the meter lies across its
-foot at full width. Where the two do not fit side by side it is the meter that
+336px where the stage has its monitor column, which is the column above the
+monitor; 240px from 900px up to that same width; below 900px the panel is one
+column again and the meter lies across its foot at full width. Where the two do not fit side by side it is the meter that
 moves, never the text.
 
 ### Station Sign
 A signboard: the station's scene, the name and count in display type, one
 ticket (next up, in work, needs review, latest) with its title held to two
 lines, and a text button that filters the board to that station. The scene's
-frame sits outside the picture so the art fills it edge to edge. From 1280px
-the four signs share the row equally and that row fills the width the stage
-has; below 1280px the scene sits beside the text at its native 240 by 130.
+frame sits outside the picture so the art fills it edge to edge. From 1440px
+the four signs share the stage's first column equally; from 1280 they share the
+whole width of the one-column stage; below 1280px the scene sits beside the text
+at its native 240 by 130.
 
 ### Factory State Tag
 A tag at the far right of the header that says how the factory is. Green (`#8a5`) and
@@ -387,9 +388,9 @@ A Bone Shade panel in the console's style, shown only when the model backend
 reports power: a Steel head with the count of hosts reporting and a tag that
 says LIVE (Brass) or STALE; the mesh's draw now and its kWh in display type; a
 CRT Black screen with the last 30 minutes as a stack of columns; a table of
-machines and a table of models. On the wide stage the models stand beside the
-screen and the machines run beneath both; narrower, the three stack. It spans
-the stage under the monitor's column.
+machines and a table of models. From 1280px the models stand beside the screen
+and the machines run beneath both; below that the three stack. It spans the
+stage under the monitor's column.
 
 - **Chart:** a 480 by 136 canvas at its native size. 120 columns
   of 4 pixels, one per 15 seconds. Each column is flat blocks, one per machine,
