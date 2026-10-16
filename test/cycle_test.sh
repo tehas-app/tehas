@@ -10,6 +10,8 @@ fx=$T/fx
 mkdir -p "$fx"
 checkout=$T/home/tehas/repos/widget
 workdir=$T/home/tehas/work/widget-7
+# How a cycle names that directory in a comment: in ~ form, as HOME is $T/home.
+kept_here="~${workdir#"$T/home"}"
 state=$T/home/tehas/state/cycles
 park_id=$T/home/tehas/state/park-7.id
 
@@ -538,7 +540,8 @@ t_lacks "$(t_calls gh)" "issues/7/comments"
 t_eq "$(find "$park_id" 2>/dev/null | wc -l)" 0
 t_contains "$t_out" "done #7 rc=2 status=merged"
 t_contains "$t_out" "pr=https://github.com/acme/widget/pull/9"
-t_eq "$(find "$workdir" -maxdepth 0 2>/dev/null | wc -l)" 0
+t_eq "$(find "$workdir" -maxdepth 0 2>/dev/null | wc -l)" 1
+t_contains "$(t_calls gh)" "The workspace is kept at \`$kept_here\`"
 t_eq "$(find "$T/home/tehas/state/rukas-proven" 2>/dev/null | wc -l)" 0
 rm -f "$fx/image.label"
 
@@ -553,6 +556,7 @@ t_run "$cycle 7"
 t_eq "$t_rc" 0
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention"
 t_contains "$(t_calls gh)" "Tehas cycle stopped: its pull request https://github.com/acme/widget/pull/9 was closed without being merged"
+t_contains "$(t_calls gh)" "The workspace is kept at \`$kept_here\`"
 t_contains "$(t_calls gh)" 'To retry, apply `tehas:ready`.'
 t_lacks "$(t_calls gh)" "issues/7/comments"
 t_lacks "$(t_calls gh)" "tehas:question"
@@ -615,6 +619,69 @@ ended aborted develop feature/x
 mkdir -p "$workdir.before-retry"
 t_run "$cycle 7"
 t_eq "$(find "$workdir" "$workdir.before-retry" -maxdepth 0 | wc -l)" 2
+
+# A merge someone else made while the cycle still reviewed is not the cycle's
+# own merge: what it had not pushed is only on the host.
+t_case "the workspace of a cycle a merge interrupted is kept, and its comment names it"
+reset
+ended running review feature/x
+merged_pr
+: >"$T/home/tehas/work/.tehas-workspaces"
+echo 'exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(find "$workdir" -maxdepth 0 | wc -l)" 1
+t_contains "$(t_calls gh)" "was merged while the cycle ran"
+t_contains "$(t_calls gh)" "The workspace is kept at \`$kept_here\`"
+t_lacks "$(t_calls gh)" "$T/home/tehas/work"
+t_lacks "$(t_calls gh)" "needs-human-attention"
+
+t_case "and so is the one kept from an earlier stopped cycle of an interrupted merge"
+reset
+ended running review feature/x
+merged_pr
+: >"$T/home/tehas/work/.tehas-workspaces"
+mkdir -p "$workdir.before-retry"
+echo 'exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$(find "$workdir" "$workdir.before-retry" -maxdepth 0 | wc -l)" 2
+t_contains "$(t_calls gh)" "The workspace is kept at \`$kept_here\`"
+
+t_case "a cycle the dispatcher stopped for a closed issue names the workspace it kept"
+reset
+ended running adversarial feature/x
+: >"$T/home/tehas/work/.tehas-workspaces"
+echo 'mkdir -p "$TEHAS_HOME/state/cycles"; echo closed >"$TEHAS_HOME/state/cycles/7.done"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$(find "$workdir" -maxdepth 0 | wc -l)" 1
+t_contains "$(t_calls gh)" "this issue was closed while it ran"
+t_contains "$(t_calls gh)" "The workspace is kept at \`$kept_here\`"
+
+# A run that never cloned a workspace, as one stopped before its images were
+# read, has no directory for its comment to name.
+t_case "a cycle that made no workspace is not said to have kept one"
+reset
+ended interrupted review feature/x
+rm -rf "$workdir"
+t_run "$cycle 7"
+t_eq "$(find "$workdir" -maxdepth 0 2>/dev/null | wc -l)" 0
+t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
+t_contains "$(t_calls gh)" "This cycle left no workspace on this host"
+t_lacks "$(t_calls gh)" "The workspace is kept at \`$kept_here\`"
+
+# A run that moved an earlier attempt aside and then failed before it cloned
+# leaves only that copy, and nothing replaces it: a retry that clones no
+# workspace leaves it beside the new one, until a tidy or the poll's sweep.
+t_case "a cycle that cloned no workspace names the copy an earlier attempt left"
+reset
+ended interrupted review feature/x
+rm -rf "$workdir"
+mkdir -p "$workdir.before-retry"
+t_run "$cycle 7"
+t_eq "$(find "$workdir" -maxdepth 0 2>/dev/null | wc -l)" 0
+t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
+t_contains "$(t_calls gh)" "The workspace is kept at \`$kept_here.before-retry\`"
+t_lacks "$(t_calls gh)" "This cycle left no workspace on this host"
 
 t_case "a directory tehas work did not mark is never removed"
 reset

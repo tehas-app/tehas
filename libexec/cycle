@@ -75,6 +75,11 @@
 # then only loses tehas:running, and tehasbot status labels it shipped. One a
 # person closed without merging parks the issue without the retry boxes.
 #
+# A cycle a merge or a close interrupted keeps its workspace: what it had not
+# pushed is nowhere else, and its comment names the directory. tehas removes a
+# workspace only when the cycle ends with its change merged, or hands off with
+# its pull request open for a human to merge.
+#
 # Only a run that ended as handoff (runner exit 10 or 11) with an open pull
 # request, on the cap awaiting-human-merge, is reported as waiting for a merge,
 # and only while no stable cap-hit of its progress ended the review on its
@@ -255,11 +260,13 @@ post_question() {
   posted=$(gh_call api "repos/$repo/issues/$issue/comments" -f body="$body" --jq .id 2>/dev/null) || return 1
   [ -n "$posted" ]
 }
-# A workspace is kept only while a person may want to read it, and so is the
-# one tehas work moved aside when this issue was retried. Only a directory
-# under one that tehas work marked is removed, as tehas work does. The cycle's
-# own state directory is not named here: it went before this, whether or not
-# the workspace was kept.
+# Removes the workspace of a cycle that ended with its change merged, or that
+# handed off with its pull request open for a human to merge, and with it the
+# one tehas work moved aside when this issue was retried. A cycle stopped by a
+# merge or a close someone else made is not tidied: its work may exist nowhere
+# else. Only a directory under one that tehas work marked is removed, as tehas
+# work does. The cycle's own state directory is not named here: it went before
+# this, whether or not the workspace was kept.
 tidy() {
   if [ -f "$(dirname "$workdir")/.tehas-workspaces" ]; then
     rm -rf "$workdir" "$workdir.before-retry" ||
@@ -559,6 +566,29 @@ ${usage}" | q_clean 60000)"
   rm -f "$TEHAS_HOME/state/park-$issue.json"
 }
 log_where="the run log is \`~/tehas/logs/dispatch-work-$issue.log\` on \`$(hostname)\`"
+# Said wherever a stopped cycle's workspace stayed on the host, with the path a
+# person has to open to read it. Named in ~ form as the manual and the log line
+# name it: these comments go to a public issue. A host whose TEHAS_HOME is not
+# under HOME gets the path as it is. tehas work can move an earlier attempt
+# aside and then fail before it clones, so the only copy left may be the one
+# beside the workspace: name it too, or this comment says there is nothing to
+# recover when there is. Nothing replaces that copy on its own. A retry that
+# clones no workspace leaves it where it is, until a tidy or the poll's sweep.
+if [ -d "$workdir" ]; then
+  kept_at=$workdir
+elif [ -d "$workdir.before-retry" ]; then
+  kept_at=$workdir.before-retry
+else
+  kept_at=""
+fi
+if [ -n "$HOME" ] && [ "$kept_at" != "${kept_at#"$HOME"/}" ]; then
+  kept_at="~${kept_at#"$HOME"}"
+fi
+if [ -n "$kept_at" ]; then
+  kept="The workspace is kept at \`$kept_at\`"
+else
+  kept="This cycle left no workspace on this host"
+fi
 if [ -n "$merged_pr" ]; then
   # A merge ends the cycle, whoever made it and whatever the state file says:
   # a person may merge while the cycle still reviews. tehasbot status labels
@@ -566,18 +596,20 @@ if [ -n "$merged_pr" ]; then
   relabel --remove-label tehas:running && stuck=""
   if [ "$rc" = 0 ] && [ "$status" = merged ]; then
     comment "Tehas cycle finished: $summary. The change was merged: $merged_pr$killed$stuck"
+    tidy
   else
-    comment "Tehas cycle ended: its pull request $merged_pr was merged while the cycle ran (last step \`$step\`, $mins min, runner exit $rc). Nothing more is needed here.$killed$stuck"
+    # The merge came from outside while the cycle still worked. What it pushed
+    # after that reaches nothing, and what it had not pushed is only here.
+    comment "Tehas cycle ended: its pull request $merged_pr was merged while the cycle ran (last step \`$step\`, $mins min, runner exit $rc). Nothing more is needed here. $kept.$killed$stuck"
   fi
   status=merged
   pr=$merged_pr
-  tidy
 elif [ "$unread" = 1 ]; then
   # Whether the cycle left a pull request is not known. The branch stays on
   # record for whoever looks again.
   printf '%s\n' "$(tr -cd 'A-Za-z0-9_./-' <<<"$branch")" >"$cycles/$issue.branch" ||
     log "WARN: could not record the branch of #$issue"
-  park "Tehas cycle stopped, and its pull request could not be looked up: GitHub did not list the pull requests of the branch \`$(tr -cd 'A-Za-z0-9_./-' <<<"$branch")\` ($summary, runner exit $rc). Look for one there before you retry. The workspace is kept; $log_where.$killed"
+  park "Tehas cycle stopped, and its pull request could not be looked up: GitHub did not list the pull requests of the branch \`$(tr -cd 'A-Za-z0-9_./-' <<<"$branch")\` ($summary, runner exit $rc). Look for one there before you retry. $kept; $log_where.$killed"
 elif [ "$rc" = 0 ] && [ "$status" = merged ]; then
   # A claim the container wrote. Without the merge to show for it the
   # workspaces are kept: what they hold may exist nowhere else.
@@ -602,23 +634,23 @@ elif { [ "$rc" = 10 ] || [ "$rc" = 11 ]; } && [ "$status" = handoff ] && [ -n "$
   [ "$review_held" = false ] || [ "$cap" != awaiting-human-merge ] ||
     held=" Its review ran out of rounds with findings still open, so it is not waiting only for a merge."
   [ -n "$cap" ] || why=" The result names no cap, so it is not taken for a pull request that waits only for a merge."
-  park "Tehas cycle handed off with its pull request open: $summary (runner exit $rc).$why$held Read the pull request before you retry: $pr. The workspace is kept; $log_where.$killed$foreign"
+  park "Tehas cycle handed off with its pull request open: $summary (runner exit $rc).$why$held Read the pull request before you retry: $pr. $kept; $log_where.$killed$foreign"
 elif [ "$done_why" = closed ]; then
   # Closed while the cycle ran: nobody is waiting on it, so nothing is asked.
   # The workspace stays for the sweep.
   relabel --remove-label tehas:running && stuck=""
-  comment "Tehas stopped the cycle: this issue was closed while it ran ($summary). Nothing more is needed here.$killed$stuck"
+  comment "Tehas stopped the cycle: this issue was closed while it ran ($summary). Nothing more is needed here. $kept; $log_where.$killed$stuck"
   status=closed
 elif [ -z "$pr" ] && [ -n "$closed_pr" ] && [ "$rc" != 4 ]; then
   # A person closed the pull request without merging it: whether to try again
   # is theirs to say, with the label. No retry box.
   relabel --remove-label tehas:running --add-label needs-human-attention && stuck=""
   comment "${marker:+$marker
-}$(printf '%s' "Tehas cycle stopped: its pull request $closed_pr was closed without being merged ($summary, runner exit $rc).$why The workspace is kept; $log_where.$killed$stuck To retry, apply \`tehas:ready\`.${handoff:+
+}$(printf '%s' "Tehas cycle stopped: its pull request $closed_pr was closed without being merged ($summary, runner exit $rc).$why $kept; $log_where.$killed$stuck To retry, apply \`tehas:ready\`.${handoff:+
 
 $handoff}" | q_clean 60000)"
 else
-  parked="Tehas cycle stopped without a pull request: $summary (runner exit $rc).$why${handoff:+ The handoff of pi-rukas follows.} The workspace is kept; $log_where.$killed${pr:+ Its branch has an open pull request: $pr}$foreign"
+  parked="Tehas cycle stopped without a pull request: $summary (runner exit $rc).$why${handoff:+ The handoff of pi-rukas follows.} $kept; $log_where.$killed${pr:+ Its branch has an open pull request: $pr}$foreign"
   if [ "$rc" = 4 ]; then
     parked="Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit $rc). The comment before this one names it; $log_where."
   elif [ "$provider" = 1 ]; then
