@@ -145,8 +145,8 @@ What the five attempts showed, none of it a fault of the instance's setup:
   dispatcher now checks the name at every poll.
 - **pi-rukas can lose a file an agent left uncommitted** (reported upstream as
   pi-rukas issue 1049). Attempt 4 did the work and failed its gate for that
-  reason. `AGENTS.md` now tells agents to commit their own work, which avoids
-  the faulty code; attempt 5 passed.
+  reason. Attempt 5 passed after `AGENTS.md` told agents to commit their own
+  work. pi-rukas fixed it in v0.12.80, and the rule was dropped.
 - **The pull request was opened against `main`**, not the branch the cycle
   started from, so its review read the whole difference between the two. The
   lens review ended incomplete and the issue carries `needs-human-attention`
