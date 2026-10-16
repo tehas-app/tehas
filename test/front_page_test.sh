@@ -70,6 +70,33 @@ fits() { # <needs this many px> <has this, or no width>
   esac
 }
 
+# The media block whose .stage rule drops the monitor's 336px column: the band
+# where the stage becomes one column, and the width it names. NO_BAND and NO_WIDTH
+# where no block does, so an absent band cannot read as a width of its own.
+NO_BAND="no band"
+stage_band=$(awk -v no="$NO_BAND" '
+  /^@media/ { q = $0 }
+  /^  \.stage \{/ { instage = 1 }
+  instage && !got && /grid-template-columns: minmax\(0, 1fr\);/ { got = q }
+  instage && /^  \}/ { instage = 0 }
+  END { print got == "" ? no : got }' "$game")
+stage_from=$(awk -v no="$NO_WIDTH" 'match($0, /min-width: [0-9]+/) {
+    print substr($0, RSTART + 11, RLENGTH - 11); found = 1
+  } END { if (!found) print no }' <<<"$stage_band")
+
+# The row a panel claims: the area its own rule names it. NO_AREA where none
+# does, which is the shape that lets the grid move a panel.
+NO_AREA="no area"
+area_of() { # <class>
+  awk -v sel=".$1 " -v no="$NO_AREA" '
+    index($0, sel) == 1 || index($0, sel) == 3 { on = 1 }
+    on && match($0, /grid-area: [a-z-]+/) {
+      print substr($0, RSTART + 11, RLENGTH - 11); found = 1; exit
+    }
+    on && index($0, "}") { on = 0 }
+    END { if (!found) print no }' "$game" "$energy" "$hostcss"
+}
+
 t_case "the live meter stands at the right end of the head panel"
 t_contains "$head_panel" '<a class="floor-meter" id="floor-meter" href="#energy"'
 t_eq "$(awk -v a='<p id="floor-summary">' -v b='<a class="floor-meter"' \
@@ -105,18 +132,20 @@ t_case "the meter costs 336px on a wide screen, where the monitor stands below i
 t_eq "$(query_of '--meter-column: 336px' "$energy")" "$NO_QUERY"
 t_contains "$energy_text" 'grid-template-columns: minmax(0, 1fr) var(--meter-column);'
 
-t_case "it costs 240px from 900 to 1279px, where the stage is one column"
-t_eq "$(query_of '--meter-column: 240px' "$energy")" "@media (max-width: 1279px) {"
+t_case "it costs 240px from 900 up to the width where the stage is one column"
+# The band is read out of the stylesheet that gives up the monitor's column: the
+# meter is not given its narrow column at a width of its own.
+t_eq "$(query_of '--meter-column: 240px' "$energy")" "$stage_band"
 
 t_case "below 900px it lies across the foot of the panel at its full width"
 t_eq "$(query_of 'grid-template-areas: "title" "intro" "foot" "meter";' "$energy")" "@media (max-width: 899px) {"
 t_contains "$energy_text" '.floor-meter { border-top: 4px solid var(--outline); border-left: 0; }'
 
 t_case "the meter fits the narrow column it is given, and the panel at 360px"
-# The width the meter's column is given between 900 and 1280px, read out of the
+# The width the meter's column is given between 900 and 1440px, read out of the
 # whole declaration rather than from an offset into it. A declaration that is
 # not there answers NO_WIDTH, which fits nothing.
-narrow=$(awk '/@media/ { q = $0 } !got && match($0, /--meter-column: [0-9]+px/) && index(q, "max-width: 1279px") { got = substr($0, RSTART, RLENGTH) } END { if (got == "") { print "no width"; exit } gsub(/[^0-9]/, "", got); print got }' "$energy")
+narrow=$(awk -v band="$stage_band" '/@media/ { q = $0 } !got && match($0, /--meter-column: [0-9]+px/) && index(q, band) { got = substr($0, RSTART, RLENGTH) } END { if (got == "") { print "no width"; exit } gsub(/[^0-9]/, "", got); print got }' "$energy")
 t_eq "$narrow" 240
 t_eq "$(fits "$meter_widest" "$narrow")" fits
 # At 360px the stage has 16px of padding each side and the panel a 4px border.
@@ -151,6 +180,10 @@ media() { # <opens with this>
 }
 phone=$(media '@media (max-width: 1279px) {')
 phone_small=$(media '@media (max-width: 699px) {')
+medium=$(media "$stage_band") # the band where the stage gives up the monitor column
+# A block without its @media line, which names a width of its own.
+medium_body=$(awk 'NR > 1' <<<"$medium")
+phone_body=$(awk 'NR > 1' <<<"$phone")
 
 # The first rule that opens with this, at the start of its line or after the
 # two spaces of a media block: the rule and its declarations, to the line that
@@ -222,16 +255,98 @@ band() { # <padding px> <wordmark row px> <rows of links>
 
 labels=$(nav_labels "$page")
 
-# The work order is a panel in the column below 1280px, so nothing in the desk
-# travels under the header while the page scrolls. The wide monitor beside the
+# The work order is a panel in the column below 1440px, so nothing in the desk
+# travels under the header while the page scrolls. The monitor beside the
 # stations is the one that sticks, and it is outside every media block.
-t_case "the phone layout pins nothing, and the wide monitor still sticks"
+t_case "the one-column layouts pin nothing, and the wide monitor still sticks"
+t_lacks "$medium" 'position: sticky'
 t_lacks "$phone" 'position: sticky'
 t_contains "$(rule '.monitor { position: static')" 'position: static;'
 t_eq "$(query_of '.monitor {' "$game")" "$NO_QUERY"
 wide=$(rules_holding '.monitor {' 'position: sticky;')
 t_contains "$wide" 'position: sticky;'
 t_contains "$wide" 'top: calc(var(--header) + 16px);'
+
+# Below the width that fits four stations beside the monitor the stage is one
+# column: the monitor's 336px column is gone, so every panel takes the whole
+# width and nothing in the band is held short of it.
+t_case "the medium stage is one column and every panel fills it"
+t_contains "$(rule '.stage {')" 'grid-template-columns: minmax(0, 1fr) 336px;'
+t_contains "$(rule '.stage {')" '"line monitor"'
+t_contains "$medium" 'grid-template-columns: minmax(0, 1fr);'
+t_contains "$medium" '.monitor { position: static; display: block; min-height: 0; }'
+t_lacks "$medium_body" 'max-width:'
+t_lacks "$phone_body" 'max-width:'
+
+# The caps the one-column stage used to carry are gone from the rules as well as
+# from the media blocks. Each case names the rule it looked at.
+t_case "no panel of the stage is capped short of its column"
+t_lacks "$game_text" 'max-width: 720px'
+t_lacks "$(rule '.sign {')" 'max-width'
+t_lacks "$(rule '.doors {')" 'max-width'
+
+# The rows the monitor column named go with it, so the one-column template names
+# them in its own order. A panel that names no area is placed after every named
+# one: on a host that shows the energy and host panels, PROTOLAB and the console
+# would be dropped below the breakroom.
+t_case "every panel of the one-column stage names its row"
+medium_areas=$(awk '/^  \.stage \{/,/^  \}/' <<<"$medium" | grep -o '"[a-z ]*"' | tr '\n' ' ')
+t_eq "$medium_areas" '"floor" "doors" "desk" "lab" "console" "energy" "host" "break" '
+t_lacks "$medium_body" 'grid-area: auto'
+
+# That list is only right while it matches the markup. These are the elements the
+# page puts directly in .stage: where the stage is one column they are its items,
+# and each has to name a row of the template above or the grid puts it after the
+# panels that do.
+t_case "the markup puts these panels directly in the stage"
+stage_children=$(awk '
+  /^  <main class="stage">/ { on = 1; next }
+  on && /^  <\/main>/ { exit }
+  on {
+    line = $0
+    before = depth
+    first = "" # the class of the element this line opens and does not close
+    while (match(line, /<\/?[a-zA-Z][a-zA-Z0-9-]*[^>]*>/)) {
+      t = substr(line, RSTART, RLENGTH); line = substr(line, RSTART + RLENGTH)
+      shut = substr(t, 2, 1) == "/"
+      name = shut ? substr(t, 3) : substr(t, 2)
+      sub(/[^a-zA-Z0-9-].*/, "", name)
+      if (name == "img" || name == "input" || name == "br" || name == "hr" || name == "meta" || name == "link") continue
+      if (shut) { depth--; continue }
+      depth++
+      if (first == "" && match(t, /class="[a-z-]+"/)) first = substr(t, RSTART + 7, RLENGTH - 8)
+    }
+    if (first != "" && depth == before + 1 && depth == 1) print first
+  }' "$page")
+t_eq "$(tr '\n' ' ' <<<"$stage_children")" "floor doors desk energy host break-room "
+t_case "every panel the markup puts in the stage has a row of its own"
+for panel in $stage_children; do
+  t_contains "$medium_areas" "\"$(area_of "$panel")\""
+done
+
+# The row of four is what the complaint asks to keep: only the width that cannot
+# hold four signs turns each one sideways, scene beside text.
+t_case "the row of four survives the medium band and stacks only below 1280"
+t_eq "$(query_of '.stations { grid-template-columns: minmax(0, 1fr); gap: 24px; }' "$game")" \
+  "@media (max-width: 1279px) {"
+t_lacks "$medium_body" '.stations'
+t_lacks "$medium_body" '.sign'
+
+# Centring the first screen and giving the monitor its height is what fills the
+# height the monitor column stands over, so the script's wide width is the width
+# where the stylesheet gives the stage that column. Both numbers come from the
+# place that names one, and are compared to each other: a band that moves in one
+# file has to move in the other.
+t_case "the script is wide exactly where the stage gains its monitor column"
+t_contains "$board_text" 'const wide = window.matchMedia("(min-width: 1440px)");'
+js_wide=$(awk -v no="$NO_WIDTH" '
+  /const wide = window\.matchMedia/ {
+    n++
+    if (!got && match($0, /min-width: [0-9]+/)) got = substr($0, RSTART + 11, RLENGTH - 11)
+  }
+  END { if (n != 1 || got == "") { print no; exit } print got }' "$board")
+t_eq "$stage_from" "$js_wide"
+t_eq "$js_wide" 1440
 
 # A row that scrolls with its scrollbar hidden left the links past the edge
 # reachable only by a swipe nobody could see.
@@ -278,7 +393,7 @@ js_fn() { # <opens with this>
 }
 select_fn=$(js_fn 'function select(number, origin) {')
 
-# Below 1280px the work order is a panel in the column: it can be off screen
+# Below 1440px the work order is a panel in the column: it can be off screen
 # when a row is pressed, and the flying number is skipped there. The press still
 # has to answer where it landed, so the row gets the brass latch the counts use.
 t_case "a pressed row latches, and before the flight is judged"
@@ -356,9 +471,10 @@ t_case "the panel takes a row of its own, between the energy and the breakroom"
 t_contains "$hostcss_text" 'grid-area: host;'
 t_lacks "$hostcss_text" 'grid-column:'
 t_eq "$stage_areas" '"head head" "line monitor" "doors monitor" "board monitor" "lab monitor" "console monitor" "energy energy" "host host" "break break" '
-# The one-column stage names the row too, in its own order.
-t_eq "$(query_of 'grid-template-areas: "floor" "doors" "desk" "energy" "host" "break";' "$game")" \
-  "@media (max-width: 1279px) {"
+# The one-column stage names the row too, in its own order, at the stage's own
+# band.
+t_eq "$(query_of 'grid-template-areas: "floor" "doors" "desk" "lab" "console" "energy" "host" "break";' "$game")" \
+  "$stage_band"
 t_lacks "$game_text" '.host '
 t_lacks "$energy_text" '.host '
 # The chip is part of the head panel only where it is shown.
