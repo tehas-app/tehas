@@ -136,11 +136,15 @@ Run `tehas dispatch --dry-run` and read what it prints.
   `needs-human-attention`. Read `~/tehas/logs/dispatch-work-N.log`.
 - `WARN: the cycle for #N holds its lock but has not been heard from since
   <time>, more than 1200s: stopping tehas-cycle@N.service`: the cycle's live
-  file has not been written for 20 minutes, so the poll stopped its unit.
-  Read `~/tehas/logs/dispatch-work-N.log` and the end of the cycle's
+  file has not been written for 20 minutes, so the poll asked its unit to
+  stop. Read `~/tehas/logs/dispatch-work-N.log` and the end of the cycle's
   `~/tehas/logs/work-N-*.jsonl` for where it hung. `WARN: could not stop
-  tehas-cycle@N.service` after it means the stop did not go through: stop
-  the unit by hand with `systemctl --user stop tehas-cycle@N.service`.
+  tehas-cycle@N.service (exit <code>)` after it means the stop did not go
+  through: the poll asks again, at most once every 10 minutes, and after 6
+  asks it says the episode needs a person. Either way the unit's own
+  `TimeoutStopSec` (300s) is what ends a unit that ignores the stop job. To
+  stop it now: `systemctl --user stop tehas-cycle@N.service`, and read
+  `journalctl --user -u tehas-cycle@N`.
 - `N cycles running, room for M more`, then `would run a cycle for #N ...`:
   the issues the next poll starts. In the log you may also see `the code index
   stays as it is: a cycle is running on #N`. That is no reason an issue waits.
