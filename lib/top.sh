@@ -19,7 +19,9 @@
 #
 # The frame is drawn from the snapshot and from nothing else: it opens no file,
 # asks no command for data and reads no clock. It cuts every line to the width
-# it is given and never gives back more lines than the height it is given.
+# it is given and never gives back more lines than the height it is given. The
+# plan and the lines it draws are one jq program, so a frame with a long console
+# tail costs the same one jq as a frame with two lines.
 #
 # Needs TEHAS_HOME and lib/status.sh beside it.
 
@@ -30,18 +32,26 @@
 tehas_top_max_age=$tehas_health_max_age
 
 # Control characters and escape sequences out of text that came from a file:
-# tab is kept, everything else below 0x20 and 0x7f is dropped. Text that a
-# file holds as a JSON escape is cleaned by tehas_top_safe_defs below, because
-# it only becomes a control character once the JSON is read.
+# tab is kept, everything else below 0x20 and 0x7f is dropped, and so are the
+# C1 controls from 0x80 to 0x9f, which some terminals read as the start of a
+# control sequence. A C1 byte is dropped only where it is the second byte of
+# its own UTF-8 encoding (0xc2 followed by 0x80 to 0x9f): the same byte value
+# is also a continuation byte of a character that is not a control, and cutting
+# that out would break a title written in any language.
+#
+# Text that a file holds as a JSON escape is cleaned by tehas_top_safe_defs
+# below, because it only becomes a control character once the JSON is read.
 tehas_sanitize_text() {
-  LC_ALL=C tr -d '\000-\010\013-\037\177'
+  LC_ALL=C tr -d '\000-\010\013-\037\177' |
+    LC_ALL=C sed 's/\xc2[\x80-\x9f]//g'
 }
 
 # The same rule for every string of a JSON object, applied to the snapshot and
-# to a snapshot handed to the renderer.
+# to a snapshot handed to the renderer. Code points 0x80 to 0x9f go; everything
+# from 0xa0 up is text and stays.
 tehas_top_safe_defs='
   def safe:
-    if type == "string" then (explode | map(select((. >= 32 and . != 127) or . == 9)) | implode)
+    if type == "string" then (explode | map(select((. >= 32 and . <= 126) or . == 9 or . >= 160)) | implode)
     elif type == "array" then map(safe)
     elif type == "object" then with_entries(.value |= safe)
     else . end;
@@ -172,6 +182,13 @@ tehas_top_snapshot() { # <console lines wanted>
   issue=$(jq -r '(if ((.cycles // []) | length) > 0 then .cycles[-1].issue else .last.issue end) // null' <<<"$cycle" 2>/dev/null)
   ended=true
   jq -e '((.cycles // []) | length) > 0' <<<"$cycle" >/dev/null 2>&1 && ended=false
+  # The name came out of a file, and the file it names is opened. Only a plain
+  # name is opened as one: a name that holds a path, or is . or .., or holds a
+  # character outside the set a cycle writes, reads nothing, and the frame says
+  # there is no console file.
+  case "$name" in
+    '' | .* | *..* | *[!A-Za-z0-9._-]*) name='' ;;
+  esac
   file=$live/${name:-}
   if [ -n "$name" ] && [ -s "$file" ]; then
     lines=$(tail -n "$want" "$file" 2>/dev/null | tehas_sanitize_text)
@@ -397,15 +414,18 @@ _tehas_host_section() {
   tehas_top_host "$second" "$first"
 }
 
-# The lines of a frame, one JSON item per line: {"p": <drop priority>, "kind":
-# ..., ...}. Host process rows are dropped first (1), then console lines and
-# unit rows (2, the later row going first), then queue rows (3). Nothing else is
-# dropped, and what is left fits the height.
-tehas_top_plan() { # <snapshot> <width> <height>
-  local snap=$1 cols=${2:-80} rows=${3:-24} now
-  now=$(jq -r '.generatedAt | try fromdateiso8601 catch (now | floor)' <<<"$snap") || return 1
-  jq -c --argjson cols "$cols" --argjson rows "$rows" --argjson now "$now" \
-    "$tehas_top_safe_defs"'
+# The frame as text, in one jq pass. The plan is built first, one item per line
+# with a drop priority: {"p": ..., "kind": ...}. Host process rows are dropped
+# first (1), then console lines and unit rows (2, the later row going first),
+# then queue rows (3). Nothing else is dropped, and what is left fits the
+# height. Every item is then drawn in the same pass, so a frame costs one jq
+# whatever it holds: a long console tail is not one fork per line.
+#
+# The factory's two lines and the cycle line are the jq programs of
+# lib/status.sh spliced into this one, so the frame and `tehas status` say the
+# same thing because they run the same text.
+# shellcheck disable=SC2016  # the jq program below is data, not a shell string
+tehas_top_frame_jq='
     def cut($w): (. // "") | tostring | if length > $w then .[0:$w] else . end;
     def text($t; $p): {p: $p, n: 1, kind: "text", text: ($t | cut($cols))};
     def total: (map(.n // 1) | add) // 0;
@@ -420,14 +440,64 @@ tehas_top_plan() { # <snapshot> <width> <height>
         end)
       end;
 
-    def ago($e; $now): ($now - $e) | if . < 0 then 0 else . end
+    def elapsed($e; $now): ($now - $e) | if . < 0 then 0 else . end
       | if . < 120 then "\(. | floor) s ago" elif . < 7200 then "\(. / 60 | floor) min ago"
         else "\(. / 3600 | floor) h ago" end;
     def stamp($t; $now): ($t | try fromdateiso8601 catch null) as $e
-      | if $e == null then "" else " (" + ago($e; $now) + ")" end;
+      | if $e == null then "" else " (" + elapsed($e; $now) + ")" end;
+
+    # The two lines a health object gives, and one cycle line. $now and $stale
+    # are the names those programs read, so they are passed as parameters.
+    def state_lines($h; $now; $stale):
+      ($h | 
+'"$tehas_state_line_jq"'
+      );
+    def cycle_line($c; $now):
+      ($c | 
+'"$tehas_cycle_line_jq"'
+      );
+
+    def host_line:
+      def q: if . == null then "?" else (. | tostring) end;
+      # Three load averages or none: an absent reading is one "?", never a
+      # line of separators with nothing between them.
+      def three: if type == "array" and length == 3 then [ .[] | q ] | join(" ") else "?" end;
+      "host      " + (.host.cpus | q) + " cpus, load " + (.host.load | three) +
+      ", cpu " + (.host.cpuPercent | q) + "%, mem " +
+      ((.host.memory.usedMb // "?") | tostring) + " of " + ((.host.memory.totalMb // "?") | tostring) + " MB";
+
+    def process_line:
+      def rj($v; $w): (($v // "?") | tostring) as $t
+        | if ($t | length) >= $w then $t[0:$w] else ("          " + $t)[(-$w):] end;
+      "  " + rj(.process.pid; 7) + "  " +
+      (((.process.name // "") + "               ")[0:15]) + "  " +
+      rj(.process.cpuPercent; 5) + "%  " + rj(.process.memPercent; 5) + "%  " +
+      rj(.process.upSeconds; 8) + " s";
+
+    def issue_line:
+      "  " + ((.issue.number | tostring) + "     ")[0:5] +
+      "  " + ((.issue.state // "") + "         ")[0:9] +
+      "  " + (.issue.title // "");
+
+    def unit_line:
+      "  " + ((.unit.id // "") + "                          ")[0:26] +
+      "  " + ((.unit.unitFileState // "-") | if . == "" then "-" else . end) +
+      "  " + (.unit.activeState // "-") +
+      ((.unit.next // "") | if . == "" then "" else "  next " + . end);
+
+    def draw:
+      if .kind == "text" then .text
+      elif .kind == "state" then state_lines(.health; .now; .stale)
+      elif .kind == "cycle" then cycle_line(.cycle; .now)
+      elif .kind == "host" then host_line
+      elif .kind == "process" then process_line
+      elif .kind == "issue" then issue_line
+      elif .kind == "unit" then unit_line
+      else .line end | cut($cols);
 
     . as $s
     | safe as $s
+    | ($s.generatedAt | try fromdateiso8601 catch (now | floor)) as $now
     | [ {p: 9, n: 1, kind: "text",
          text: (("tehas top   snapshot " + (($s.generatedAt // "") | sub("T"; " ") | sub("Z"; " UTC"))) | cut($cols))} ] as $title
 
@@ -439,12 +509,12 @@ tehas_top_plan() { # <snapshot> <width> <height>
         end ) as $factory
 
     # 2. the issues behind the counts.
-    | [ ($s.queue.issues // [])[] | {p: 3, n: 1, kind: "issue", issue: .} ] as $issues
+    | [ ($s.queue.issues // [])[] | select(type == "object") | {p: 3, n: 1, kind: "issue", issue: .} ] as $issues
 
     # 3. the cycles.
     | ( if $s.cycle == null then [ text("cycle     no cycle written yet"; 9) ]
         else ($s.cycle.cycles // []) as $c
-          | (if ($c | length) > 0 then $c else [ $s.cycle.last ] end) | map(select(. != null))
+          | (if ($c | length) > 0 then $c else [ $s.cycle.last ] end) | map(select(type == "object"))
           | if length == 0 then [ {p: 9, n: 1, kind: "cycle", cycle: null, now: $now} ]
             else [ .[] | {p: 9, n: 1, kind: "cycle", cycle: ., now: $now} ] end
         end ) as $cycles
@@ -454,14 +524,14 @@ tehas_top_plan() { # <snapshot> <width> <height>
     # console lines and unit rows when the terminal is short.
     | ( if $s.host == null then [ text("host      no reading of /proc"; 9) ]
         else [ {p: 9, n: 1, kind: "host", host: $s.host} ]
-             + [ ($s.host.processes // [])[] | {p: 1, n: 1, kind: "process", process: .} ]
+             + [ ($s.host.processes // [])[] | select(type == "object") | {p: 1, n: 1, kind: "process", process: .} ]
         end ) as $host
 
     # 5. the units of the factory.
     | ( if $s.units == null then [ text("units     systemctl --user gave no answer"; 9) ]
         elif ($s.units | length) == 0 then [ text("units     no tehas units"; 9) ]
         else [ text("units     \($s.units | length) units, \([$s.units[] | select(.activeState == "active")] | length) active"; 9) ]
-             + [ $s.units[] | {p: 2, n: 1, kind: "unit", unit: .} ]
+             + [ $s.units[] | select(type == "object") | {p: 2, n: 1, kind: "unit", unit: .} ]
         end ) as $units
 
     # 6. what the model mesh draws.
@@ -475,71 +545,17 @@ tehas_top_plan() { # <snapshot> <width> <height>
              + [ ($s.console.lines // [])[] | {p: 2, n: 1, kind: "console", line: .} ]
         end ) as $console
 
-    | ($title + $factory + $issues + $cycles + $host + $units + $energy + $console) | fit($rows) | .[]
-  ' <<<"$snap"
-}
+    | ($title + $factory + $issues + $cycles + $host + $units + $energy + $console)
+    | fit($rows)
+    | .[]
+    | draw
+'
 
-# The frame as text. Everything it prints comes from the snapshot it is given.
+# The frame as text. Everything it prints comes from the snapshot it is given,
+# and the whole of it - the plan, the dropping, and every line - is the one jq
+# program above.
 tehas_top_frame() { # <snapshot> <width> <height>
-  local snap=$1 cols=${2:-80} rows=${3:-24} plan item kind json now stale
-  plan=$(tehas_top_plan "$snap" "$cols" "$rows") || return 1
-  while IFS= read -r item; do
-    kind=$(jq -r '.kind' <<<"$item") || return 1
-    case "$kind" in
-      text)
-        jq -r '.text' <<<"$item"
-        ;;
-      state)
-        json=$(jq -c '.health' <<<"$item")
-        now=$(jq -r '.now' <<<"$item")
-        stale=$(jq -r '.stale' <<<"$item")
-        tehas_state_lines "$json" "$now" "$stale" | cut -c 1-"$cols"
-        ;;
-      cycle)
-        json=$(jq -c '.cycle' <<<"$item")
-        now=$(jq -r '.now' <<<"$item")
-        tehas_cycle_line "$json" "$now" | cut -c 1-"$cols"
-        ;;
-      host)
-        jq -r --argjson cols "$cols" '
-          def q: if . == null then "?" else (. | tostring) end;
-          # Three load averages or none: an absent reading is one "?", never a
-          # line of separators with nothing between them.
-          def three: if type == "array" and length == 3 then [ .[] | q ] | join(" ") else "?" end;
-          "host      " + (.host.cpus | q) + " cpus, load " + (.host.load | three) +
-          ", cpu " + (.host.cpuPercent | q) + "%, mem " +
-          ((.host.memory.usedMb // "?") | tostring) + " of " + ((.host.memory.totalMb // "?") | tostring) + " MB" |
-          .[0:$cols]
-        ' <<<"$item"
-        ;;
-      process)
-        jq -r --argjson cols "$cols" '
-          def rj($v; $w): (($v // "?") | tostring) as $t
-            | if ($t | length) >= $w then $t[0:$w] else ("          " + $t)[(-$w):] end;
-          "  " + rj(.process.pid; 7) + "  " +
-          (((.process.name // "") + "               ")[0:15]) + "  " +
-          rj(.process.cpuPercent; 5) + "%  " + rj(.process.memPercent; 5) + "%  " +
-          rj(.process.upSeconds; 8) + " s" | .[0:$cols]
-        ' <<<"$item"
-        ;;
-      issue)
-        jq -r --argjson cols "$cols" '
-          "  " + ((.issue.number | tostring) + "     ")[0:5] +
-          "  " + ((.issue.state // "") + "         ")[0:9] +
-          "  " + (.issue.title // "") | .[0:$cols]
-        ' <<<"$item"
-        ;;
-      unit)
-        jq -r --argjson cols "$cols" '
-          "  " + ((.unit.id // "") + "                          ")[0:26] +
-          "  " + ((.unit.unitFileState // "-") | if . == "" then "-" else . end) +
-          "  " + (.unit.activeState // "-") +
-          ((.unit.next // "") | if . == "" then "" else "  next " + . end) | .[0:$cols]
-        ' <<<"$item"
-        ;;
-      console)
-        jq -r --argjson cols "$cols" '(.line // "") | .[0:$cols]' <<<"$item"
-        ;;
-    esac
-  done <<<"$plan"
+  local snap=$1 cols=${2:-80} rows=${3:-24}
+  jq -r --argjson cols "$cols" --argjson rows "$rows" \
+    "$tehas_top_safe_defs$tehas_state_defs$tehas_top_frame_jq" <<<"$snap" || return 1
 }

@@ -102,6 +102,11 @@ energy() { # age in seconds
 # Bytes that are not printing characters, tab and newline excepted.
 control_bytes() { printf '%s' "$1" | LC_ALL=C tr -cd '\000-\010\013-\037\177' | wc -c; }
 
+# The C1 controls, U+0080 to U+009F. In UTF-8 they are the pair 0xc2 followed by
+# a byte from 0x80 to 0x9f. A bare byte range would not do: the same byte values
+# are continuation bytes of characters that are not controls.
+c1_bytes() { printf '%s' "$1" | LC_ALL=C grep -o "$(printf '\xc2[\x80-\x9f]')" | wc -l; }
+
 t_case "--json gives one object: generatedAt and one key per section"
 reset
 files
@@ -250,6 +255,25 @@ T_ENV=(TEHAS_PROC_DIR="$proc1" COLUMNS=200 LINES=16)
 t_run "$top --once"
 t_eq "$(printf '%s\n' "$t_out" | awk 'length > 200' | wc -l)" 0
 
+# stty size prints the rows first and the columns after them. A terminal that is
+# not square shows which way round they were read.
+t_case "the rows and the columns of the terminal are not swapped"
+reset
+files "$(printf '%150s' w | tr ' ' w)"
+energy
+t_stub stty 'printf "30 100\n"'
+seq -f 'console line %g' 1 40 >"$live/console-12.txt"
+T_ENV=(TEHAS_PROC_DIR="$proc1")
+t_run "$top --once"
+t_eq "$t_rc" 0
+t_contains "$(t_calls stty)" "size"
+# 30 rows: the frame holds 30 lines, not 100 and not the default 24.
+t_eq "$(printf '%s\n' "$t_out" | wc -l)" 30
+# 100 columns: the longest line is cut at 100, not at 30.
+t_eq "$(printf '%s\n' "$t_out" | awk 'length > 100' | wc -l)" 0
+t_eq "$(printf '%s\n' "$t_out" | awk 'length > max { max = length } END { print max }')" 100
+rm -f "$T/bin/stty"
+
 t_case "a short terminal drops console lines, not the sections"
 reset
 files
@@ -309,6 +333,91 @@ t_eq "$t_rc" 0
 t_eq "$(control_bytes "$t_out")" 0
 t_contains "$t_out" "Red title"
 t_contains "$t_out" "evil console line"
+
+# The C1 controls, U+0080 to U+009F, introduce a control sequence on some
+# terminals. They come in two shapes: bytes in the file, which the byte filter
+# reads, and a \u009b escape, which is only a control once the JSON is read.
+# Text that is not ASCII and is not a control still shows.
+t_case "a C1 control does not reach the output, from bytes in the file"
+reset
+files "Red $(printf '\302\233')title with $(printf '\303\244\303\266')"
+printf '%s\n' "console$(printf '\302\233') line with $(printf '\303\244')" >"$live/console-12.txt"
+t_run "$top --once"
+t_eq "$t_rc" 0
+t_eq "$(c1_bytes "$t_out")" 0
+t_contains "$t_out" "Red title with $(printf '\303\244\303\266')"
+t_contains "$t_out" "console line with $(printf '\303\244')"
+
+t_case "a C1 control does not reach the output, from a JSON escape"
+reset
+files
+esc='Escaped \u009btitle \u00e4\u00f6'   # the escape, not yet a control character
+printf '%s\n' "{\"generatedAt\":\"$(iso 210)\",\"repo\":\"acme/widget\",\"paused\":false,\"running\":[{\"number\":12,\"title\":\"$esc\"}],\"queued\":[],\"awaiting\":[],\"stopped\":[]}" >"$live/status.json"
+t_run "$top --once"
+t_eq "$t_rc" 0
+t_eq "$(c1_bytes "$t_out")" 0
+t_contains "$t_out" "Escaped title $(printf '\303\244\303\266')"
+
+# The byte filter itself: the C1 pair goes, and so does every other control that
+# is not a tab or a newline. A character that merely has a continuation byte in
+# the same range - the 0x82 of a euro sign - stays.
+t_case "the byte filter drops C1 controls and leaves other UTF-8 text alone"
+reset
+printf 'a\007b\011c\302\233d \303\244\303\266 \342\202\254 e\177f\n' >"$T/in"
+printf 'ab\tcd \303\244\303\266 \342\202\254 ef\n' >"$T/want"
+t_run '. "$T_ROOT/lib/top.sh"; tehas_sanitize_text <"$T/in" >"$T/out"'
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/out")" "$(cat "$T/want")"
+t_eq "$(c1_bytes "$(cat "$T/out")")" 0
+
+# The name of the console file is text read out of running.json, and the file it
+# names is opened. A name that is not a plain file name under live/ reads nothing
+# at all, whatever else it might point at.
+t_case "a console name that is not a plain file name reads nothing"
+reset
+files
+printf 'A file outside live/ that must not appear\n' >"$T/home/tehas/secret.txt"
+for name in '../secret' '../../secret' '..' '.secret' 'sub/console-12.txt' 'console 12.txt' 'con$sole'; do
+  jq --arg c "$name" '.cycles[0].console = $c' "$live/running.json" >"$T/r" && mv "$T/r" "$live/running.json"
+  t_run "$top --once"
+  t_eq "$t_rc" 0
+  t_contains "$t_out" "console   no console file"
+  t_lacks "$t_out" "must not appear"
+done
+# The name a cycle actually writes still reads its file.
+jq --arg c 'console-12.txt' '.cycles[0].console = $c' "$live/running.json" >"$T/r" && mv "$T/r" "$live/running.json"
+t_run "$top --once"
+t_eq "$t_rc" 0
+t_contains "$t_out" "console   #12  console-12.txt  live"
+t_contains "$t_out" "[step develop] @developer ran the gate"
+
+# The frame is one jq program: the number of jq processes a redraw costs does not
+# grow with the number of lines the frame draws. The wrapper counts the calls and
+# then runs the real jq.
+t_case "a frame costs the same jq processes whatever it holds"
+reset
+files
+energy
+jqreal=$(command -v jq)
+t_stub jq 'printf "jq\n" >>"$T/calls/jqcount"; exec '"$jqreal"' "$@"'
+T_ENV=(TEHAS_PROC_DIR="$proc1" COLUMNS=80 LINES=200)
+seq -f 'console line %g' 1 2 >"$live/console-12.txt"
+rm -f "$T/calls/jqcount"
+t_run "$top --once"
+t_eq "$t_rc" 0
+short_lines=$(printf '%s\n' "$t_out" | wc -l)
+short_calls=$(wc -l <"$T/calls/jqcount")
+seq -f 'console line %g' 1 60 >"$live/console-12.txt"
+rm -f "$T/calls/jqcount"
+t_run "$top --once"
+t_eq "$t_rc" 0
+long_lines=$(printf '%s\n' "$t_out" | wc -l)
+long_calls=$(wc -l <"$T/calls/jqcount")
+rm -f "$T/bin/jq"
+# The long frame really is 58 lines longer, and both cost the same jq.
+t_eq "$((long_lines - short_lines))" 58
+t_eq "$long_calls" "$short_calls"
+t_eq "$((long_lines > long_calls))" 1
 
 t_case "standard output that is not a terminal gets no escape codes"
 reset

@@ -65,12 +65,15 @@ size() { # -> "<cols> <rows>", clamped so a frame has something to fit in
   local cols=${COLUMNS:-} rows=${LINES:-} wh
   case "$cols" in '' | *[!0-9]*) cols='' ;; esac
   case "$rows" in '' | *[!0-9]*) rows='' ;; esac
-  if { [ -z "$cols" ] || [ -z "$rows" ]; } && [ -t 1 ]; then
+  # stty size prints the rows first and the columns after them.
+  if [ -z "$cols" ] || [ -z "$rows" ]; then
+    # There is no separate question to ask first: stty answers only for a
+    # terminal, and fails for anything else on standard output.
     wh=$(stty size <&1 2>/dev/null) || wh=''
     case "$wh" in
       [0-9]*' '[0-9]*)
-        [ -n "$cols" ] || cols=${wh% *}
-        [ -n "$rows" ] || rows=${wh#* }
+        [ -n "$cols" ] || cols=${wh#* }
+        [ -n "$rows" ] || rows=${wh% *}
         ;;
     esac
   fi
