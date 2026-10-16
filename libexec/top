@@ -60,7 +60,8 @@ while [ "$#" -gt 0 ]; do
 done
 
 : "${TEHAS_HOME:=$HOME/tehas}"
-live=$TEHAS_HOME/live
+: "${TEHAS_PROJECT_HOME:=$TEHAS_HOME}"
+live=$TEHAS_PROJECT_HOME/live
 [ -d "$live" ] || { echo "tehas top: no live directory at $live yet" >&2; exit 1; }
 
 # The size to draw for: COLUMNS and LINES when they are given, the terminal on

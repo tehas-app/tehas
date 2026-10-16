@@ -49,7 +49,7 @@ tehas_load || exit 78
 # shellcheck source=lib/status.sh
 . "$here/../lib/status.sh"
 
-flag=$TEHAS_HOME/state/pause.json
+flag=$TEHAS_PROJECT_HOME/state/pause.json
 reason=${1-}
 # One line before one length: tehas status and the health file are line oriented,
 # so a reason carrying a newline would forge a line of its own. LC_ALL=C keeps

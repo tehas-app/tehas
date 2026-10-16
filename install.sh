@@ -209,7 +209,7 @@ instance=$TEHAS_INSTANCE_DIR
 # other run takes the lock itself. --check changes nothing and takes no lock.
 if [ "$check" != 1 ]; then
   update_lock=$TEHAS_HOME/state/update.lock
-  mkdir -p "$TEHAS_HOME/state"
+  mkdir -p "$TEHAS_HOME/state" # host-level
   if [[ $update_fd =~ ^[0-9]+$ ]] && [ "/dev/fd/$update_fd" -ef "$update_lock" ]; then
     flock -n "$update_fd" || { echo "tehas: another update is running ($update_lock); nothing was installed" >&2; exit 1; }
   else
@@ -221,7 +221,8 @@ fi
 # --- 2. What belongs to this instance ---------------------------------------
 # One line per file: source|destination|mode. A source starting with / is taken
 # as is; anything else is under host/, except bin/, libexec/ and lib/ at the top.
-agent=$HOME/.pi/agent
+agent=$HOME/.pi/agent # mcp.json stays here
+agent_dir=$(tehas_agent_dir)
 units=$HOME/.config/systemd/user
 
 files=(
@@ -275,7 +276,7 @@ files=(
   "systemd/tehas-refresh.timer|$units/tehas-refresh.timer|644"
   "systemd/tehas-top.service|$units/tehas-top.service|644"
   "pi/mcp.json|$agent/mcp.json|644"
-  "$instance/models.json|$agent/models.json|644"
+  "$instance/models.json|$agent_dir/models.json|644"
 )
 # The two commands on PATH, and the scripts behind them.
 for f in tehas tehasbot; do
@@ -287,9 +288,9 @@ done
 # Pi's own settings: the instance may bring its own (default provider and
 # model for interactive use on the host), otherwise the generic ones.
 if [ -r "$instance/settings.json" ]; then
-  files+=("$instance/settings.json|$agent/settings.json|644")
+  files+=("$instance/settings.json|$agent_dir/settings.json|644")
 else
-  files+=("pi/settings.json|$agent/settings.json|644")
+  files+=("pi/settings.json|$agent_dir/settings.json|644")
 fi
 
 changed=()
@@ -623,8 +624,9 @@ fi
 # its clone of the product there, and makes it itself as well. It is made here
 # with the others so that every directory tehas writes to is there after an
 # install, whether previews are on or not.
-mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state" "$TEHAS_HOME/tmp" "$TEHAS_HOME/live" "$TEHAS_HOME/protolab" \
-  "$TEHAS_HOME/preview"
+mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state" "$TEHAS_HOME/tmp" "$TEHAS_HOME/live" # host-level
+mkdir -p "$TEHAS_PROJECT_HOME/logs" "$TEHAS_PROJECT_HOME/state" "$TEHAS_PROJECT_HOME/live" \
+  "$TEHAS_PROJECT_HOME/protolab" "$TEHAS_PROJECT_HOME/preview"
 
 # A cycle used to leave state/cycles/<issue> - one empty file per issue number,
 # the record that this host had run a cycle for it. Nothing read it, and the
@@ -683,7 +685,7 @@ fi
 
 # The code index, once. Called last, so its line follows the image build's.
 first_index() {
-  [ -f "$TEHAS_HOME/state/index.json" ] && return 0
+  [ -f "$TEHAS_PROJECT_HOME/state/index.json" ] && return 0
   if [ -d "$TEHAS_WORK_REPO/.git" ] && docker image inspect "$PI_ENSEMBLE_IMAGE" >/dev/null 2>&1; then
     "$TEHAS_HOME/bin/tehas" index && return 0
     echo "WARN: the code index was not built"
@@ -733,7 +735,7 @@ if [ "${#old[@]}" -gt 0 ]; then
   if ! out=$(systemctl --user daemon-reload 2>&1) || [ -n "$out" ]; then
     retire_later="once systemctl --user daemon-reload works   (systemd still holds the units that name the old commands and server files in $TEHAS_HOME, so they were left)"
   else
-    exec 9>>"$TEHAS_HOME/state/dispatch.lock"
+    exec 9>>"$TEHAS_PROJECT_HOME/state/dispatch.lock"
     if flock -n 9; then
       for to in "${old[@]}"; do
         rm -f "$to" "$to.prev"

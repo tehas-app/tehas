@@ -16,21 +16,9 @@ host_level='TEHAS_HOME\}?"?/state/(update\.lock|update-hold|update-pending|edge-
 # A path built by printf: the format names the directory, TEHAS_HOME is an argument.
 printf_per_project='%s/(state|live|logs|work|dev|protolab|preview|repos/[^p]|repos/\$|tmp/improve)'
 printf_host_level='%s/(state/(update\.lock|update-hold|update-pending|edge-takeover|platform-fetch|improve\.lock|dispatch\.again)|live/(top|energy|platform)\.json)'
-# Files a later task converts.
-pending=(
-  libexec/status libexec/health libexec/summary libexec/top libexec/top-publish
-  libexec/pause libexec/resume libexec/preview libexec/protolab libexec/update
-  install.sh
-)
 
 code() { # every tracked file that is installed or run
   git -C "$T_ROOT" ls-files -- bin libexec lib host install.sh ':!host/docs'
-}
-
-is_pending() {
-  local p
-  for p in "${pending[@]}"; do [ "$p" = "$1" ] && return 0; done
-  return 1
 }
 
 # lines <file>...: the code lines of the files, as file:line:text, without
@@ -54,12 +42,12 @@ violations() {
 
 t_case "installed code names no per-project path under TEHAS_HOME"
 files=()
-while IFS= read -r f; do is_pending "$f" || files+=("$f"); done < <(code)
+mapfile -t files < <(code)
 t_eq "$(lines "${files[@]}" | violations)" ""
 
 t_case "the Pi agent directory is named only through tehas_agent_dir"
 files=()
-while IFS= read -r f; do [ "$f" = lib/config.sh ] || is_pending "$f" || files+=("$f"); done < <(code)
+while IFS= read -r f; do [ "$f" = lib/config.sh ] || files+=("$f"); done < <(code)
 t_eq "$(lines "${files[@]}" | grep -E -- '\$(\{HOME\}|HOME)/\.pi/agent/(models\.json|settings\.json|ensemble-runs)' || true)" ""
 
 t_case "each marked line names TEHAS_HOME"

@@ -42,7 +42,7 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 tehas_load || exit 78
 
-live=$TEHAS_HOME/live
+live=$TEHAS_HOME/live # host-level
 file=$live/top.json
 period=5
 

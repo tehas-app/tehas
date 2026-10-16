@@ -52,10 +52,11 @@ case "$#:${1-}" in
 esac
 
 : "${TEHAS_HOME:=$HOME/tehas}"
+: "${TEHAS_PROJECT_HOME:=$TEHAS_HOME}"
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/status.sh
 . "$here/../lib/status.sh"
-file=$TEHAS_HOME/live/health.json
+file=$TEHAS_PROJECT_HOME/live/health.json
 
 if ! tehas_health_readable "$file"; then
   echo "tehas status: no health file at $file yet: the dispatcher has not run" >&2

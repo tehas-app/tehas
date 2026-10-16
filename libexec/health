@@ -38,7 +38,12 @@
 set -uo pipefail
 
 : "${TEHAS_HOME:=$HOME/tehas}"
-live=$TEHAS_HOME/live
+# No instance is loaded here, so the project home follows TEHAS_HOME as it does
+# in tehas_load; a caller that sets only TEHAS_HOME keeps working.
+TEHAS_PROJECT_HOME=$TEHAS_HOME
+export TEHAS_PROJECT_HOME
+live=$TEHAS_PROJECT_HOME/live
+host_live=$TEHAS_HOME/live # host-level
 mkdir -p "$live"
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/live.sh
@@ -76,7 +81,7 @@ disk=null
 
 # The platform checkout against origin, as tehasbot status last read it.
 platform=null
-[ -s "$live/platform.json" ] && platform=$(jq -c 'select(type == "object" and (.behind | type) == "number")' "$live/platform.json" 2>/dev/null)
+[ -s "$host_live/platform.json" ] && platform=$(jq -c 'select(type == "object" and (.behind | type) == "number")' "$host_live/platform.json" 2>/dev/null)
 [ -n "$platform" ] || platform=null
 
 # What the last poll said about the slice. The poll before this one wrote it,
@@ -117,7 +122,7 @@ queue_max_age=600
 # lifted still holds this host. `label` and `lifted` mean the same here as in the
 # snapshot: the label is on the issue, and the label is off with no allowed
 # account having taken it off. `by` is not carried: the health file is served.
-pause_flag=$(tehas_pause_read "$TEHAS_HOME/state/pause.json")
+pause_flag=$(tehas_pause_read "$TEHAS_PROJECT_HOME/state/pause.json")
 case $? in
   0) pause_flag=$(jq -c '{at, reason}' <<<"$pause_flag") ;;
   1) pause_flag=null ;;

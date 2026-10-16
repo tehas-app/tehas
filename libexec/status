@@ -48,8 +48,9 @@ tehas_load || exit 78
 tehas_require TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS
 repo=$TEHAS_REPO
 control=$TEHAS_CONTROL_ISSUE
-live=$TEHAS_HOME/live
-mkdir -p "$live"
+live=$TEHAS_PROJECT_HOME/live
+host_live=$TEHAS_HOME/live # host-level
+mkdir -p "$live" "$host_live"
 # Whatever happens below, refresh the health file from what is on disk.
 trap '"$here/health" 2>/dev/null || true' EXIT
 
@@ -57,7 +58,7 @@ fetch_every=3600
 fetch_limit=60
 platform() {
   local co=$TEHAS_HOME/platform stamp=$TEHAS_HOME/state/platform-fetch last=0 now upstream head behind since fetched=""
-  [ -e "$co/.git" ] || { rm -f "$live/platform.json"; return 0; }
+  [ -e "$co/.git" ] || { rm -f "$host_live/platform.json"; return 0; }
   now=$(date +%s)
   read -r last fetched 2>/dev/null <"$stamp" || true
   [[ $last =~ ^[0-9]+$ ]] || last=0
@@ -85,7 +86,7 @@ platform() {
      upstream: $upstream, behind: ($behind | num),
      behindSince: ($since | num | if . == null then null else todate end),
      fetchedAt: ($fetched | num | if . == null then null else todate end)}' \
-    >"$live/platform.json.new" 2>/dev/null && mv "$live/platform.json.new" "$live/platform.json"
+    >"$host_live/platform.json.new" 2>/dev/null && mv "$host_live/platform.json.new" "$host_live/platform.json"
 }
 platform
 
@@ -154,7 +155,7 @@ else
 fi
 # The host's own switch, read without asking GitHub anything. A flag that cannot
 # be read counts as paused and has nothing to say for itself beyond that.
-pause_flag=$(tehas_pause_read "$TEHAS_HOME/state/pause.json")
+pause_flag=$(tehas_pause_read "$TEHAS_PROJECT_HOME/state/pause.json")
 case $? in
   0) pause_flag=$(jq -c '{at, reason}' <<<"$pause_flag"); flag_paused=true ;;
   1) pause_flag=null; flag_paused=false ;;

@@ -47,7 +47,7 @@ tehas_require TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS
 
 repo=$TEHAS_REPO
 control=$TEHAS_CONTROL_ISSUE
-flag=$TEHAS_HOME/state/pause.json
+flag=$TEHAS_PROJECT_HOME/state/pause.json
 
 if [ -e "$flag" ] || [ -e "$flag.new" ]; then
   rm -f "$flag" || { echo "tehas resume: could not remove $flag" >&2; exit 1; }

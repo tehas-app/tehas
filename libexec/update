@@ -185,7 +185,7 @@ fi
 # own parent. --check changes nothing on the host and takes no lock.
 if [ "$mode" = update ]; then
   update_lock=$TEHAS_HOME/state/update.lock
-  if ! mkdir -p "$TEHAS_HOME/state" || ! exec 7>>"$update_lock"; then
+  if ! mkdir -p "$TEHAS_HOME/state" || ! exec 7>>"$update_lock"; then # host-level
     echo "tehas update: cannot open $update_lock; nothing was changed" >&2
     exit 1
   fi

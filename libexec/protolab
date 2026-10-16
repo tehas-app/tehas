@@ -77,8 +77,8 @@ max_files=40
 domain=${TEHAS_DOMAIN:-}
 home=/
 [ -z "$domain" ] || home=${TEHAS_PROTOLAB_URL}/
-site=$TEHAS_HOME/protolab
-live=$TEHAS_HOME/live
+site=$TEHAS_PROJECT_HOME/protolab
+live=$TEHAS_PROJECT_HOME/live
 work=$site/.work
 # A changed generator rebuilds every page.
 gen="$(cat "${BASH_SOURCE[0]}" "$here/../lib/attachments.sh" "$here/../lib/labels.sh" "$here/../lib/unzip.sh" | cksum | tr ' ' '-')-${domain:-path}"
