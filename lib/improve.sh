@@ -45,7 +45,7 @@
 
 tehas_improve_on() { [ -n "${TEHAS_IMPROVE_REPO:-}" ]; }
 
-tehas_improve_dir() { printf '%s\n' "$TEHAS_HOME/tmp/improve"; }
+tehas_improve_dir() { printf '%s\n' "$TEHAS_PROJECT_HOME/tmp/improve"; }
 
 # The stream as a model can read it. A line that is not JSON is dropped. The
 # id of a status event differs every time, so it goes, and uniq then keeps a
@@ -66,7 +66,7 @@ tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills>
   [[ $kills =~ ^(0|[1-9][0-9]{0,8})$ ]] || kills=0
   [[ $image =~ ^sha256:[0-9a-f]{64}$ ]] || image=""
   base=$(tehas_improve_dir)
-  raw=$(find "$TEHAS_HOME/logs" -maxdepth 1 -type f -name "work-$issue-*.jsonl" \
+  raw=$(find "$TEHAS_PROJECT_HOME/logs" -maxdepth 1 -type f -name "work-$issue-*.jsonl" \
     -newermt "@$((started - 5))" 2>/dev/null | sort | tail -n 1)
   if [ -z "$raw" ]; then
     tehas_err "improve: no log of issue $issue since the cycle began, no record written"
@@ -79,12 +79,12 @@ tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills>
   # The pi-rukas this cycle ran with: the image's, as its container started,
   # else as tehasbot cycle noted it at the start. What a fix in it is checked
   # against.
-  [[ $rukas =~ ^[0-9a-f]{7,40}$ ]] || rukas=$(head -c 64 "$TEHAS_HOME/state/cycles/$issue.rukas" 2>/dev/null | head -n 1)
+  [[ $rukas =~ ^[0-9a-f]{7,40}$ ]] || rukas=$(head -c 64 "$TEHAS_PROJECT_HOME/state/cycles/$issue.rukas" 2>/dev/null | head -n 1)
   [[ $rukas =~ ^[0-9a-f]{7,40}$ ]] || rukas=""
   # What it ran with: only this cycle's file, and only an object of the shape
   # tehas_improve_settings writes.
   settings=null
-  from=$TEHAS_HOME/state/cycles/$issue.settings
+  from=$TEHAS_PROJECT_HOME/state/cycles/$issue.settings
   if [ -f "$from" ] && [ ! -L "$from" ] && [ "$(stat -c %s "$from" 2>/dev/null || echo 0)" -le 65536 ] &&
     [ -n "$(find "$from" -maxdepth 0 -newermt "@$((started - 5))" 2>/dev/null)" ]; then
     settings=$(jq -c 'if type == "object" and (.container | type == "object") and (.host | type == "object")
@@ -112,7 +112,7 @@ tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills>
     return 1
   fi
   jq -c -R "$_tehas_improve_condense" "$raw" 2>/dev/null | uniq >"$tmp/stream.jsonl"
-  cp "$TEHAS_HOME/live/console-$issue.txt" "$tmp/console.txt" 2>/dev/null || : >"$tmp/console.txt"
+  cp "$TEHAS_PROJECT_HOME/live/console-$issue.txt" "$tmp/console.txt" 2>/dev/null || : >"$tmp/console.txt"
   cp "$raw.err" "$tmp/err.txt" 2>/dev/null || : >"$tmp/err.txt"
   cp "$raw.preflight" "$tmp/preflight.txt" 2>/dev/null || : >"$tmp/preflight.txt"
   # What the cycle was given of the issue's attachments, as tehas work kept it:
@@ -120,7 +120,7 @@ tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills>
   # Never the files themselves. Only this cycle's, only plain files, and none
   # over the bound.
   for f in manifest.json images.md retry-context.md; do
-    from=$TEHAS_HOME/state/cycles/$issue.$f
+    from=$TEHAS_PROJECT_HOME/state/cycles/$issue.$f
     [ -f "$from" ] && [ ! -L "$from" ] || continue
     [ -n "$(find "$from" -maxdepth 0 -newermt "@$((started - 5))" 2>/dev/null)" ] || continue
     [ "$(stat -c %s "$from" 2>/dev/null || echo 0)" -le "$(tehas_manifest_bytes)" ] || continue

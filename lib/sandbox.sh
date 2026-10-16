@@ -41,8 +41,8 @@ tehas_sandbox_cache_dir() { printf '%s\n' /home/vscode/.tehas-cache; }
 
 # Where the host keeps the code index it gives to containers: the one directory
 # the indexer writes and every container is given a copy of. No container is
-# given it itself. Derived from TEHAS_HOME, not a setting.
-tehas_index_dir() { printf '%s\n' "$TEHAS_HOME/state/index"; }
+# given it itself. Derived from TEHAS_PROJECT_HOME, not a setting.
+tehas_index_dir() { printf '%s\n' "$TEHAS_PROJECT_HOME/state/index"; }
 
 # The same variables as the pi-rukas wrapper sets, without the host's whole
 # environment: the bot token by name, the PI_ENSEMBLE_* settings, and git's
@@ -107,13 +107,14 @@ tehas_sandbox_env() { # <tree> <git name> <git email>
 tehas_sandbox_settings_ok() {
   local f
   for f in settings.json models.json; do
-    [ -f "$HOME/.pi/agent/$f" ] || { tehas_err "no $HOME/.pi/agent/$f: run install.sh"; return 1; }
+    [ -f "$(tehas_agent_dir)/$f" ] || { tehas_err "no $(tehas_agent_dir)/$f: run install.sh"; return 1; }
   done
   tehas_model_keys_ok
 }
 
 tehas_sandbox_mounts() { # <tree> <host> <state> <runs>
-  local tree=$1 host=$2 state=$3 runs=$4 agent=$HOME/.pi/agent cache
+  local tree=$1 host=$2 state=$3 runs=$4 agent cache
+  agent=$(tehas_agent_dir)
   [ -n "$tree" ] && [ -n "$host" ] && [ -n "$state" ] && [ -n "$runs" ] || return 1
   tehas_sandbox_settings_ok || return 1
   cache=$(tehas_sandbox_cache_dir)
@@ -134,7 +135,9 @@ tehas_sandbox_mounts() { # <tree> <host> <state> <runs>
 # .pi/settings.json in <host>, merged the way Pi merges them. A value neither
 # sets is Pi's default. For the cycle's log, so a reader of it knows them.
 tehas_sandbox_retry() { # <host>
-  local global=$HOME/.pi/agent/settings.json project=$1/.pi/settings.json
+  local global project
+  global=$(tehas_agent_dir)/settings.json
+  project=$1/.pi/settings.json
   [ -f "$global" ] || { echo "provider retry: unknown, $global is missing"; return 0; }
   [ -r "$project" ] || project=/dev/null
   jq -n -r --slurpfile g "$global" --slurpfile p "$project" '

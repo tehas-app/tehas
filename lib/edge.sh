@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # What tehasbot protolab and tehasbot preview both do with a numbered set
-# under $TEHAS_HOME: a ticket's pages, a pull request's preview. Sourced, not
-# run. The first four need TEHAS_HOME and call nothing but the shell's own
+# under $TEHAS_PROJECT_HOME: a ticket's pages, a pull request's preview. Sourced, not
+# run. The first four need TEHAS_PROJECT_HOME and call nothing but the shell's own
 # tools and flock. The last three ask Docker about the previews' network, and
 # are here so that tehasbot preview and install.sh decide by one rule.
 #
@@ -14,7 +14,7 @@
 #   edge_net_create <network>      make the previews' network
 #   edge_net_fault <network>       why that network does not keep the host out
 
-# edge_lock <name> [<seconds to wait>]: take $TEHAS_HOME/state/<name>.lock
+# edge_lock <name> [<seconds to wait>]: take $TEHAS_PROJECT_HOME/state/<name>.lock
 # until this process ends. Returns 1 when another process holds it.
 # The descriptor is the one bash chose, and edge_lock_fd names it: a fixed
 # number is a number every other command here would have to guess at and step
@@ -24,8 +24,8 @@
 # successful edge_lock sets edge_lock_fd, so a caller that never called one
 # cannot write it (bash: ambiguous redirect).
 edge_lock() {
-  mkdir -p "$TEHAS_HOME/state" || return 1
-  exec {edge_lock_fd}>"$TEHAS_HOME/state/$1.lock" || return 1
+  mkdir -p "$TEHAS_PROJECT_HOME/state" || return 1
+  exec {edge_lock_fd}>"$TEHAS_PROJECT_HOME/state/$1.lock" || return 1
   if [ -n "${2:-}" ]; then flock -w "$2" "$edge_lock_fd"; else flock -n "$edge_lock_fd"; fi
 }
 

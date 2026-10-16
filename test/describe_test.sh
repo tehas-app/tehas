@@ -6,7 +6,7 @@
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
-lib=". $T_ROOT/lib/describe.sh"
+lib=". $T_ROOT/lib/config.sh; . $T_ROOT/lib/describe.sh"
 dir=$T/images
 t_stub curl 'for a; do case "$a" in /dev/fd/*) cat "$a" >>"$T/calls/curl-config" ;; esac; done
 n=$(find "$T/calls" -name "request.*" | wc -l)

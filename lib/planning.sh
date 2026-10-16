@@ -6,7 +6,7 @@
 # lib/fixer.sh.
 #
 # A session is a Pi session that lives across polls. Its record is
-# $TEHAS_HOME/state/plan-<issue>.json:
+# $TEHAS_PROJECT_HOME/state/plan-<issue>.json:
 #   session   the Pi session id, to reopen it
 #   turns     how many turns have run
 #   options   the labels of the choices posted in the open question, in order
@@ -61,7 +61,7 @@
 #   plan_end <issue> <text>        end the session and say why; returns 1,
 #                                  having changed nothing, if the labels stay
 
-plan_state() { printf '%s/state/plan-%s.json\n' "$TEHAS_HOME" "$1"; }
+plan_state() { printf '%s/state/plan-%s.json\n' "$TEHAS_PROJECT_HOME" "$1"; }
 
 # Files in the state directory that are not a session record are left alone.
 # One warning per poll for an unreadable record.
@@ -326,7 +326,7 @@ plan_launch() {
   st=$(plan_state "$n")
   # shellcheck disable=SC2016  # expanded by the shell the unit runs
   set -- /bin/bash -c 'log=$1 rc=$2 again=$3; shift 3; "$@" >>"$log" 2>&1; echo "$?" >"$rc.new" && mv "$rc.new" "$rc"; : >"$again"' \
-    plan-turn "$TEHAS_HOME/logs/dispatch-plan-$n.log" "$st.rc" "$TEHAS_HOME/state/dispatch.again" "$@"
+    plan-turn "$TEHAS_PROJECT_HOME/logs/dispatch-plan-$n.log" "$st.rc" "$TEHAS_PROJECT_HOME/state/dispatch.again" "$@"
   if [ -n "${TEHAS_PLAN_START_CMD:-}" ]; then
     "$TEHAS_PLAN_START_CMD" "$n" "$@" 8>&-
     return

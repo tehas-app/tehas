@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# The live view of the cycles: $TEHAS_HOME/live/running.json, read by the
+# The live view of the cycles: $TEHAS_PROJECT_HOME/live/running.json, read by the
 # factory floor, the plain dashboard, tehasbot health and tehas dev.
 #
 # Each cycle writes a file of its own, live/cycles/<issue>.json, every ten
@@ -22,10 +22,10 @@
 #
 # Called by tehas work each time it writes its own file, and by tehasbot
 # health. Two callers at once can leave the view one tick old; the next tick
-# corrects it. Needs TEHAS_HOME.
+# corrects it. Needs TEHAS_PROJECT_HOME.
 
 tehas_live_assemble() {
-  local live=$TEHAS_HOME/live f files=() now marker tmp view issues i lost lock prev endings
+  local live=$TEHAS_PROJECT_HOME/live f files=() now marker tmp view issues i lost lock prev endings
   now=$(date +%s)
   for f in "$live"/cycles/*.json; do
     [ -e "$f" ] || continue
@@ -35,7 +35,7 @@ tehas_live_assemble() {
     # heartbeat. The temporary names start with a dot and end in .new: the
     # docs server hides those, and the glob above does not match them.
     lock=${f##*/}
-    lock=$TEHAS_HOME/state/cycles/${lock%.json}.lock
+    lock=$TEHAS_PROJECT_HOME/state/cycles/${lock%.json}.lock
     if jq -e --argjson now "$now" '.running == true and ((.updatedAt // 0) < $now - 120)' "$f" >/dev/null 2>&1 &&
       ! { [ -e "$lock" ] && ! flock -n "$lock" true; }; then
       lost=${f%/*}/.${f##*/}.lost.$$.new

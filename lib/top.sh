@@ -6,7 +6,7 @@
 #   tehas_top_published <snapshot>               the part of it that may be published
 #   tehas_sanitize_text                          text in, safe text out
 #
-# The snapshot reads what the factory already writes under $TEHAS_HOME/live/ -
+# The snapshot reads what the factory already writes under $TEHAS_PROJECT_HOME/live/ -
 # health.json, status.json, running.json, energy.json and the console of a
 # cycle - asks systemctl --user about its units - and reads the host itself in
 # /proc. No GitHub call, no model, no Docker call, no instance settings, and
@@ -32,7 +32,7 @@
 # plan and the lines it draws are one jq program, so a frame with a long console
 # tail costs the same one jq as a frame with two lines.
 #
-# Needs TEHAS_HOME and lib/status.sh beside it.
+# Needs TEHAS_PROJECT_HOME and lib/status.sh beside it.
 
 # shellcheck source=lib/status.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/status.sh"
@@ -108,9 +108,10 @@ tehas_top_units() {
 }
 
 tehas_top_snapshot() { # <console lines wanted> [<previous host reading>]
-  local want=${1:-16} live now health factory queue cycle units energy console host
+  local want=${1:-16} live host_live now health factory queue cycle units energy console host
   local name issue ended file lines was reading later
-  live=$TEHAS_HOME/live
+  live=$TEHAS_PROJECT_HOME/live
+  host_live=$TEHAS_HOME/live # host-level
   now=$(date +%s)
 
   # Factory and queue counts: the health file, with the rule tehas status uses.
@@ -188,13 +189,13 @@ tehas_top_snapshot() { # <console lines wanted> [<previous host reading>]
   fi
 
   energy=null
-  if jq -e 'type == "object"' "$live/energy.json" >/dev/null 2>&1; then
+  if jq -e 'type == "object"' "$host_live/energy.json" >/dev/null 2>&1; then
     energy=$(jq -c --argjson now "$now" --argjson max "$tehas_top_max_age" '
       select((.generatedAt | try fromdateiso8601 catch 0) > $now - $max)
       | {time: .generatedAt, watts: (.totals.watts // null), hosts: (.totals.hosts // null),
          slots: ([.models[]?.slots | select(type == "number")] | add),
          busy: ([.models[]?.busy | select(type == "number")] | add)}
-    ' "$live/energy.json" 2>/dev/null) || energy=null
+    ' "$host_live/energy.json" 2>/dev/null) || energy=null
     case "$energy" in '' | null) energy=null ;; esac
   fi
 

@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# The factory's state as one file writes it: $TEHAS_HOME/live/health.json, the
+# The factory's state as one file writes it: $TEHAS_PROJECT_HOME/live/health.json, the
 # health file tehasbot health refreshes at every poll and at the end of a cycle.
 #
 # `tehas status` prints these lines and `tehas top` puts them in a frame. The

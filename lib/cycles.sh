@@ -4,7 +4,7 @@
 # by the dispatcher, by tehasbot cycle, by tehas index, by install.sh, and by
 # the two commands that give a cycle its issue's images.
 #
-# tehasbot cycle holds $TEHAS_HOME/state/cycles/<issue>.lock for as long as it
+# tehasbot cycle holds $TEHAS_PROJECT_HOME/state/cycles/<issue>.lock for as long as it
 # lives. A lock nobody holds is a cycle that ended, however it ended, so a
 # cycle that died is never counted.
 #
@@ -32,17 +32,17 @@
 #                                 record names the commit, failed when the
 #                                 indexer last failed at it, due otherwise
 #
-# Needs TEHAS_HOME. Reads only: it takes each lock for an instant and lets go.
+# Needs TEHAS_PROJECT_HOME. Reads only: it takes each lock for an instant and lets go.
 # The two tehas_rukas_ functions ask Docker about PI_ENSEMBLE_IMAGE, once per
 # command.
 
 tehas_cycle_running() {
-  local lock=$TEHAS_HOME/state/cycles/$1.lock
+  local lock=$TEHAS_PROJECT_HOME/state/cycles/$1.lock
   [ -e "$lock" ] && ! flock -n "$lock" true
 }
 
 tehas_cycle_lock_free() {
-  local lock=$TEHAS_HOME/state/cycles/$1.lock
+  local lock=$TEHAS_PROJECT_HOME/state/cycles/$1.lock
   [ -e "$lock" ] || return 0
   [ -f "$lock" ] && [ ! -L "$lock" ] || return 1
   flock -n "$lock" true
@@ -50,7 +50,7 @@ tehas_cycle_lock_free() {
 
 tehas_cycles_running() {
   local lock n
-  for lock in "$TEHAS_HOME"/state/cycles/*.lock; do
+  for lock in "$TEHAS_PROJECT_HOME"/state/cycles/*.lock; do
     [ -e "$lock" ] || continue
     n=${lock##*/}
     n=${n%.lock}
@@ -61,7 +61,7 @@ tehas_cycles_running() {
 
 tehas_cycle_note_files() {
   local f n
-  for f in "$TEHAS_HOME"/state/cycles/*."$1"; do
+  for f in "$TEHAS_PROJECT_HOME"/state/cycles/*."$1"; do
     [ -e "$f" ] || continue
     n=${f##*/}
     n=${n%."$1"}
@@ -75,7 +75,7 @@ tehas_cycle_note_files() {
 # marker, edit the bot's comments and apply labels. It cannot write here, so
 # this file is what makes a comment the factory's own question. One line, the
 # comment's number. tehasbot cycle writes it, the dispatcher reads it.
-park_id() { printf '%s/state/park-%s.id\n' "$TEHAS_HOME" "$1"; }
+park_id() { printf '%s/state/park-%s.id\n' "$TEHAS_PROJECT_HOME" "$1"; }
 
 # The factory works on open issues only: a closed issue is never taken, and a
 # pull request is never taken, open, merged or closed. What GitHub answers for

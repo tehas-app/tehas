@@ -14,8 +14,9 @@
 #   slice_state / slice_child / slice_id   a scratch cgroup tree for lib/slice.sh
 #   t_done                           print the tally, exit 1 if anything failed
 #
-# Everything lives under $T, a scratch directory removed on exit. HOME and
-# TEHAS_HOME point into it, so a test cannot touch the real ones.
+# Everything lives under $T, a scratch directory removed on exit. HOME,
+# TEHAS_HOME and TEHAS_PROJECT_HOME point into it, so a test cannot touch the
+# real ones.
 set -uo pipefail
 
 T_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -127,7 +128,7 @@ slice_id() { printf "$1%.0s" {1..64}; echo; }
 # HOME and TEHAS_HOME, and only the variables named in T_ENV carried over.
 T_ENV=()
 t_run() {
-  t_out=$(env -i PATH="$T/bin:$PATH" HOME="$T/home" TEHAS_HOME="$T/home/tehas" T="$T" T_ROOT="$T_ROOT" \
+  t_out=$(env -i PATH="$T/bin:$PATH" HOME="$T/home" TEHAS_HOME="$T/home/tehas" TEHAS_PROJECT_HOME="$T/home/tehas" T="$T" T_ROOT="$T_ROOT" \
     CARGO_TARGET_DIR="$T/target" \
     ${TEHAS_INSTANCE_DIR:+TEHAS_INSTANCE_DIR="$TEHAS_INSTANCE_DIR"} "${T_ENV[@]}" \
     bash -c "$1" 2>&1)
