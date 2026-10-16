@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# Build the tehas sandbox image on this host, on pi-rukas at the head of the
-# branch versions.env names.
+# Build the tehas sandbox image on this host, on the pi-rukas commit
+# versions.env follows: the newest release tag, or the head of a branch
+# (lib/rukas.sh).
 #
 # Tags the result both as the name PI_ENSEMBLE_IMAGE points at by default
 # (tehas/pi-rukas:uid<your uid>) and with the build date, so the previous image
 # stays available for a rollback:
 #   docker tag tehas/pi-rukas:<date> tehas/pi-rukas:uid<uid>
 #
-# The base is the image upstream publishes for each commit on its branch,
+# The base is the image upstream publishes for each commit,
 # tagged sha-<first 12 characters>. The commit becomes the label tehas.rukas.
 # Tool versions come from versions.env, one directory up. The build first asks
 # the base image's runner what it supports (pi-rukas-headless --capabilities)
@@ -21,11 +22,11 @@
 # that does not answer removes nothing; the build still counts.
 #
 # Usage: build.sh              build
-#        build.sh --if-moved   build only when the head is not the commit the
-#                              current image was built on
-#        build.sh --check      build nothing; say whether the head moved
+#        build.sh --if-moved   build only when the commit followed is not the
+#                              one the current image was built on
+#        build.sh --check      build nothing; say whether the commit moved
 #
-# Exit: 0 built, or nothing to do; 1 the head moved (--check), or the head,
+# Exit: 0 built, or nothing to do; 1 the commit moved (--check), or the commit,
 #       the base image or the build could not be had, or the base does not
 #       support what tehas work needs; 64 usage
 set -euo pipefail
@@ -48,20 +49,34 @@ case "${1:-}" in
     ;;
 esac
 
-head=$(git ls-remote "$PI_RUKAS_REPO" "refs/heads/$PI_RUKAS_BRANCH" 2>/dev/null | cut -f1) || head=""
-if ! [[ $head =~ ^[0-9a-f]{40}$ ]]; then
-  echo "build: no head of $PI_RUKAS_BRANCH in $PI_RUKAS_REPO" >&2
+# lib/ is beside sandbox/ on a host, and two up in the checkout.
+lib=""
+for d in "$here/../lib" "$here/../../lib"; do
+  [ -f "$d/headless.sh" ] && [ -f "$d/rukas.sh" ] && { lib=$d; break; }
+done
+if [ -z "$lib" ]; then
+  echo "sandbox: no lib/headless.sh and lib/rukas.sh beside $here, the base cannot be checked" >&2
   exit 1
 fi
+# shellcheck source=lib/rukas.sh
+. "$lib/rukas.sh"
+# shellcheck source=lib/headless.sh
+. "$lib/headless.sh"
+
+if ! target=$(tehas_rukas_target); then
+  echo "build: no pi-rukas commit for PI_RUKAS_FOLLOW=${PI_RUKAS_FOLLOW:-} in $PI_RUKAS_REPO" >&2
+  exit 1
+fi
+head=${target%% *} what=${target#* }
 
 if [ "$mode" != build ]; then
   have=$(docker image inspect --format '{{index .Config.Labels "tehas.rukas"}}' "$current" 2>/dev/null) || have=""
   if [ "$have" = "$head" ]; then
-    echo "pi-rukas: $current is on $head, the head of $PI_RUKAS_BRANCH"
+    echo "pi-rukas: $current is on $head, $what"
     exit 0
   fi
   if [ "$mode" = check ]; then
-    echo "pi-rukas: $current is on ${have:-no known commit}, $PI_RUKAS_BRANCH is at $head"
+    echo "pi-rukas: $current is on ${have:-no known commit}, $what is $head"
     exit 1
   fi
 fi
@@ -82,16 +97,6 @@ fi
 # refused. Whether its pi-rukas reads the images a cycle is given goes into the
 # new image as a label, which is what the dispatcher, tehas work and tehas
 # plan read; the Dockerfile asks the base it builds on again.
-headless=""
-for f in "$here/../lib/headless.sh" "$here/../../lib/headless.sh"; do
-  [ -f "$f" ] && { headless=$f; break; }
-done
-if [ -z "$headless" ]; then
-  echo "sandbox: no lib/headless.sh beside $here, the base cannot be checked" >&2
-  exit 1
-fi
-# shellcheck source=lib/headless.sh
-. "$headless"
 rc=0
 caps=$(docker run --rm --init "$base" /opt/pi-rukas/bin/pi-rukas-headless --capabilities 2>/dev/null) || rc=$?
 case "$rc" in
@@ -127,7 +132,7 @@ docker build \
   --build-arg TEHAS_RUKAS_IMAGES="$reads" \
   -t "$image:$stamp" "$here"
 docker tag "$image:$stamp" "$current"
-echo "built $image:$stamp with pi-rukas $head, issue images: $reads, also tagged $current"
+echo "built $image:$stamp with pi-rukas $head ($what), issue images: $reads, also tagged $current"
 
 # The ids of images a container was made from, or a uid tag names.
 images_held() { # <the image's tags, "<tag> <id>" per line>

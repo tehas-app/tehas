@@ -13,8 +13,8 @@
 # A product whose gates need another toolchain adds it here.
 #
 # Build with sandbox/build.sh, which passes the user id, the versions from
-# versions.env and the base: upstream's image for the head of the branch
-# versions.env names. shellcheck is pinned by checksum and Playwright by a
+# versions.env and the base: upstream's image for the pi-rukas commit
+# versions.env follows. shellcheck is pinned by checksum and Playwright by a
 # lockfile beside this file.
 ARG PI_RUKAS_IMAGE
 FROM ${PI_RUKAS_IMAGE}

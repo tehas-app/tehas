@@ -78,7 +78,7 @@
 #                            what the remote has - origin/<branch> moves, and a
 #                            branch the remote deleted stops being reported. It
 #                            runs install.sh --check, which runs the tests.
-#                            It asks for the head of pi-rukas's branch.
+#                            It asks upstream which pi-rukas commit to follow.
 #                            Nothing is merged, installed, built or started, and
 #                            it exits 1 when there is something to update.
 #   tehas update -h|--help   print this text and exit 0
@@ -347,12 +347,12 @@ else
   fi
 fi
 
-# pi-rukas is not pinned: the sandbox image follows the head of the branch the
-# installed versions.env names, so an update looks at the head even when no
-# file of tehas changed. A host whose versions.env names no branch is left as
-# it is.
+# pi-rukas is not pinned: the sandbox image follows the commit the installed
+# versions.env names by PI_RUKAS_FOLLOW, so an update looks upstream even when
+# no file of tehas changed. A host whose versions.env has no PI_RUKAS_FOLLOW is
+# left as it is.
 follows_rukas() {
-  grep -q '^PI_RUKAS_BRANCH=' "$TEHAS_HOME/versions.env" 2>/dev/null && [ -x "$TEHAS_HOME/sandbox/build.sh" ]
+  grep -q '^PI_RUKAS_FOLLOW=' "$TEHAS_HOME/versions.env" 2>/dev/null && [ -x "$TEHAS_HOME/sandbox/build.sh" ]
 }
 rukas_step() { # --if-moved | --check
   local out rc
@@ -777,9 +777,9 @@ if [ "${#steps[@]}" != 0 ] && [ "$ran" -lt "${#steps[@]}" ]; then
     $((${#steps[@]} - ran)) "${#steps[@]}" "$pending_file" >&2
 fi
 
-# A build this run made is already on the head.
+# A build this run made is already on the commit followed.
 if [ "$status" = 0 ] && [ "$built" = 0 ] && follows_rukas && ! rukas_step --if-moved; then
-  echo "pi-rukas: the image was not moved to the head of its branch; tehas update tries again" >&2
+  echo "pi-rukas: the image was not moved to the commit versions.env follows; tehas update tries again" >&2
   status=1
 fi
 

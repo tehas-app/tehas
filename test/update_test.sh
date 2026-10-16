@@ -1363,8 +1363,8 @@ for pair in "docs.compose.yaml tehas-docs" "router.compose.yaml tehas-edge"; do
   t_contains "$(cat "$T_ROOT/host/edge/${pair%% *}")" "name: ${pair#* }"
 done
 
-# --- pi-rukas follows its branch ---------------------------------------------
-# The installed versions.env names a branch, and build.sh is a stub that keeps
+# --- pi-rukas follows upstream ------------------------------------------------
+# The installed versions.env names what to follow, and build.sh is a stub that keeps
 # its arguments and exits with the given status.
 rukas_build() { # <exit status>
   cat >"$th/sandbox/build.sh" <<EOF
@@ -1374,10 +1374,10 @@ echo "pi-rukas: stub"
 exit $1
 EOF
   chmod +x "$th/sandbox/build.sh"
-  echo "PI_RUKAS_BRANCH=main" >"$th/versions.env"
+  echo "PI_RUKAS_FOLLOW=release" >"$th/versions.env"
 }
 
-t_case "an up to date checkout still moves the image to the head of pi-rukas's branch"
+t_case "an up to date checkout still moves the image to the pi-rukas commit it follows"
 instance
 platform 0
 rukas_build 0
@@ -1394,15 +1394,15 @@ t_run "$update"
 t_eq "$t_rc" 0
 t_eq "$(t_calls build)" "build "
 
-t_case "an image that cannot be moved to the head fails the update"
+t_case "an image that cannot be moved fails the update"
 instance
 platform 0
 rukas_build 1
 t_run "$update"
 t_eq "$t_rc" 1
-t_contains "$t_out" "pi-rukas: the image was not moved to the head of its branch"
+t_contains "$t_out" "pi-rukas: the image was not moved to the commit versions.env follows"
 
-t_case "--check says the head moved and builds nothing"
+t_case "--check says the commit moved and builds nothing"
 instance
 platform 0
 rukas_build 1
@@ -1411,7 +1411,7 @@ t_eq "$t_rc" 1
 t_eq "$(t_calls build)" "build --check"
 t_contains "$t_out" "pi-rukas: stub"
 
-t_case "a versions.env that names no branch leaves the image alone"
+t_case "a versions.env with no PI_RUKAS_FOLLOW leaves the image alone"
 instance
 platform 0
 echo "PI_RUKAS_COMMIT=0123456789abcdef0123456789abcdef01234567" >"$th/versions.env"
