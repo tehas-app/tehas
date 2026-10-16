@@ -1691,7 +1691,9 @@ comments 7 "$(park_body x ' ')" alice
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" "7"
-t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label needs-human-attention --remove-label tehas:question"
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:question"
+# The cycle's --restart takes it off, through pi-rukas.
+t_lacks "$(t_calls gh)" "--remove-label needs-human-attention"
 t_contains "$(t_calls gh)" "authorized by @alice's retry tick"
 t_contains "$t_out" "start #7 (retry ticked by alice)"
 
@@ -2482,13 +2484,14 @@ has() { # issue label...: the queue is that one issue, labelled ready by alice, 
   echo "[{\"number\":$n,\"labels\":[$list]}]" >"$fx/ready.json"
 }
 
-t_case "tehas:ready on a parked issue starts a cycle without needs-human-attention being removed first"
+t_case "tehas:ready on a parked issue starts a cycle and leaves needs-human-attention to the cycle's restart"
 reset
 has 7 needs-human-attention
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" "7"
-t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready --remove-label needs-human-attention')" 1
+t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready')" 1
+t_lacks "$(t_calls gh)" "--remove-label needs-human-attention"
 
 t_case "tehas:ready on an issue that awaits a merge starts a cycle and takes that label off"
 reset
@@ -2498,11 +2501,11 @@ t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready --remove-label tehas:awaiting-merge')" 1
 
-t_case "every label of an earlier outcome goes with the start"
+t_case "every label of tehas's of an earlier outcome goes with the start"
 reset
 has 7 needs-human-attention tehas:question tehas:awaiting-merge
 t_run "$dispatch"
-t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready --remove-label needs-human-attention --remove-label tehas:awaiting-merge --remove-label tehas:question')" 1
+t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready --remove-label tehas:awaiting-merge --remove-label tehas:question')" 1
 
 t_case "an issue left marked as running with no cycle is started on tehas:ready"
 reset
@@ -2556,7 +2559,7 @@ comments 7 "$(park_body x ' ')" alice
 echo '[{"number":7,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"},{"name":"tehas:ready"}]}]' >"$fx/asking.json"
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
-t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label tehas:running --remove-label needs-human-attention --remove-label tehas:question --remove-label tehas:ready')" 1
+t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:question --remove-label tehas:ready')" 1
 
 t_case "every list of issues is read to a thousand"
 reset
@@ -3669,7 +3672,8 @@ outage_parked
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" "7"
-t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label needs-human-attention --remove-label tehas:question"
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:question"
+t_lacks "$(t_calls gh)" "--remove-label needs-human-attention"
 t_contains "$(t_calls gh)" "Tehas starts this issue again on its own: its last cycle was parked by a provider outage, and the model endpoint answers again. It does this once."
 t_contains "$(t_calls gh)" "authorized by @alice's start of the cycle a provider outage parked"
 t_contains "$t_out" "start #7 (requeued by alice)"

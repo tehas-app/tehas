@@ -64,7 +64,42 @@ t_case "a cap's evidence is the reason before a failed dispatch's"
 printf '%s\n' '{"v":1,"kind":"dispatch-failed","unstable":true,"event":{"errorTail":"exit 1"}}' \
   '{"v":1,"kind":"cap-hit","event":{"cap":"x","evidence":"git says no"}}' >"$T/p.jsonl"
 t_eq "$(tehas_headless_progress "$T/p.jsonl" | jq -r .reason)" "git says no"
-t_eq "$(tehas_headless_progress /dev/null)" '{"roles":[],"reason":""}'
+t_eq "$(tehas_headless_progress /dev/null)" '{"roles":[],"reason":"","reviewHeld":false}'
+
+t_case "a stable cap-hit that ends the review on its round cap and goes on to ci holds the review"
+t_eq "$(tehas_headless_progress "$fx/progress.jsonl" | jq -c .reviewHeld)" false
+printf '%s\n' '{"v":1,"kind":"cap-hit","key":"7:1:a","event":{"cap":"round-cap","nextStep":"ci"}}' >"$T/p.jsonl"
+t_eq "$(tehas_headless_progress "$T/p.jsonl" | jq -c .reviewHeld)" true
+printf '%s\n' '{"v":1,"kind":"cap-hit","key":"7:1:a","event":{"cap":"round-cap","nextStep":"handoff"}}' \
+  '{"v":1,"kind":"cap-hit","unstable":true,"event":{"cap":"round-cap","nextStep":"ci"}}' >"$T/p.jsonl"
+t_eq "$(tehas_headless_progress "$T/p.jsonl" | jq -c .reviewHeld)" false
+
+t_case "the features this command relies on are checked, and only those asked for"
+t_eq "$(tehas_headless_unsupported "$caps" "--json" "" "handoffChannel cycleDeadline restartClearsAttention")" ""
+t_eq "$(tehas_headless_unsupported "$(jq -c 'del(.features.handoffChannel) | .features.cycleDeadline = "yes"' <<<"$caps")" "--json" "" \
+  "handoffChannel cycleDeadline restartClearsAttention")" "the feature handoffChannel
+the feature cycleDeadline"
+t_eq "$(tehas_headless_unsupported "$(jq -c 'del(.features)' <<<"$caps")" "--json" "" "")" ""
+t_eq "$(tehas_headless_unsupported "$(jq -c '.features = [1]' <<<"$caps")" "--json" "" "handoffChannel")" "the feature handoffChannel"
+
+t_case "a workaround expires at the release that fixes it"
+t_eq "$(tehas_headless_expired "$caps" "")" ""
+t_eq "$(tehas_headless_expired "$caps" "PI_ENSEMBLE_COMMENT_RETENTION@0.12.80 TEHAS_WORK_IMAGES@0.12.81 PI_ENSEMBLE_X@0.9.100")" \
+  "PI_ENSEMBLE_COMMENT_RETENTION works around a pi-rukas defect fixed in 0.12.80, and the image's pi-rukas is 0.12.80
+PI_ENSEMBLE_X works around a pi-rukas defect fixed in 0.9.100, and the image's pi-rukas is 0.12.80"
+t_eq "$(tehas_headless_expired "$(jq -c '.version = "0.13.1"' <<<"$caps")" "TEHAS_WORK_IMAGES@0.12.81")" \
+  "TEHAS_WORK_IMAGES works around a pi-rukas defect fixed in 0.12.81, and the image's pi-rukas is 0.13.1"
+for bad in '.version = null' '.version = "0.12.80; rm"' 'del(.version)'; do
+  t_contains "$(tehas_headless_expired "$(jq -c "$bad" <<<"$caps")" "TEHAS_WORK_IMAGES@0.12.81")" "version could not be read"
+done
+
+t_case "the outcome carries the handoff's body as rendered and an intent park's reason as a word"
+t_contains "$(tehas_headless_outcome "$fx/result.json" 7 | jq -r .handoffBody)" "<!-- pi-rukas:handoff issue=7 cap=explore-bodies-empty -->
+## "
+jq '.issues[0].parkReason = "too-large\n<b>" | .issues[0].handoff.body = 7' "$fx/result.json" >"$T/r.json"
+t_eq "$(tehas_headless_outcome "$T/r.json" 7 | jq -c '[.parkReason, .handoffBody]')" '["too-largeb",""]'
+jq --arg b "$(head -c 40000 /dev/zero | tr '\0' x)" '.issues[0].handoff.body = $b' "$fx/result.json" >"$T/r.json"
+t_eq "$(tehas_headless_outcome "$T/r.json" 7 | jq '.handoffBody | length')" 30000
 
 t_case "the outcome of the fixture is its handoff"
 t_eq "$(tehas_headless_outcome "$fx/result.json" 7 | jq -c '[.status, .cap, .failedStep, .lastStep, .exitCode, .resumable, .buildVersion, .usage.dispatches]')" \

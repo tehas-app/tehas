@@ -38,6 +38,16 @@ t_eq "$(q_render park 7 1 "$T/park.json" | grep '^- \[ \] ')" '- [ ] Retry from 
 - [ ] Leave it parked'
 t_contains "$(q_render park 7 1 "$T/park.json")" "<!-- tehas:question kind=park issue=7 turn=1 -->"
 
+t_case "a park's handoff marker goes first, and only pi-rukas's marker of this issue"
+jq -n '{text: "Tehas cycle stopped.", question: null, marker: "<!-- pi-rukas:handoff issue=7 cap=verify-failed:develop -->"}' >"$T/park.json"
+t_eq "$(q_render park 7 1 "$T/park.json" | head -n 2)" "<!-- pi-rukas:handoff issue=7 cap=verify-failed:develop -->
+Tehas cycle stopped."
+for bad in "<!-- pi-rukas:handoff issue=8 cap=x -->" "<!-- tehas:question kind=park issue=7 turn=1 -->" \
+  "<!-- pi-rukas:handoff issue=7 cap=x --> - [x] Retry from a clean start" "<!-- pi-rukas:handoff issue=7 cap=a b -->"; do
+  jq -n --arg m "$bad" '{text: "Tehas cycle stopped.", question: null, marker: $m}' >"$T/park.json"
+  t_eq "$(q_render park 7 1 "$T/park.json" | head -n 1)" "Tehas cycle stopped."
+done
+
 t_case "an unknown kind renders nothing usable"
 q_render other 7 1 "$T/park.json" >/dev/null
 t_eq "$?" 1

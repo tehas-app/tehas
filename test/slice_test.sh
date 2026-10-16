@@ -196,6 +196,27 @@ t_instance "${T_MINIMAL[@]}"
 t_case "limits makes no call"
 t_eq "$(wc -l <"$T/calls/systemctl" | tr -d ' ') $(wc -l <"$T/calls/docker" | tr -d ' ')" "1 1"
 
+# --- tehas_slice_verify -----------------------------------------------------
+# <host CPUs> <TEHAS_TICKET_CONCURRENCY> <slice max in GiB> <gate runs at once>
+t_case "a container runs a gate for each two whole CPUs and each 2 GiB of its ceiling, at least one"
+for row in "16 4 20 1" "16 1 20 2" "16 1 64 7" "16 2 64 3" "8 1 8 1" "2 1 64 1" "64 1 256 31"; do
+  read -r cpus cycles gib want <<<"$row"
+  good
+  t_stub nproc "echo $cpus"
+  systemd /etc/systemd/system/tehas.slice active $((gib * GIB))
+  t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY="$cycles"
+  t_run "$pre"'tehas_slice_ok && tehas_slice_limits && tehas_slice_verify'
+  t_eq "$t_out" "$want"
+done
+t_instance "${T_MINIMAL[@]}"
+
+t_case "no limits, no count of gate runs"
+good
+t_run "$pre"'TEHAS_SLICE_LIMITS=(); tehas_slice_verify; echo "rc=$?"'
+t_eq "$t_out" "rc=1"
+t_run "$pre"'TEHAS_SLICE_LIMITS=(--cpus x --memory 2048m); tehas_slice_verify; echo "rc=$?"'
+t_eq "$t_out" "rc=1"
+
 t_case "limits carries the reserve as the instance wrote it"
 good
 t_instance "${T_MINIMAL[@]}" TEHAS_CYCLE_RESERVE=512m

@@ -107,7 +107,7 @@ jq -n --argjson issues "$issues" --argjson shipped "$shipped" --argjson paused "
       running: ($open | map(select(has("tehas:running")) | slim)),
       queued: ($open | map(select(has("tehas:ready") and (has("tehas:running") | not)) | slim) | sort_by(.number)),
       awaiting: ($open | map(select(has("tehas:awaiting-merge")) | slim)),
-      stopped: ($open | map(select(has("needs-human-attention")) | slim)),
+      stopped: ($open | map(select(has("needs-human-attention") and (has("tehas:running") | not)) | slim)),
       completed: ($shipped | map(slim) | sort_by(.closedAt) | reverse),
       links: {
         queued: listurl("is:issue is:open label:tehas:ready"),

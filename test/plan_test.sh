@@ -274,7 +274,13 @@ without_expiry() {
 }
 # A turn has a workspace and a transcripts directory of its own on the host.
 # They are mounted at the paths a cycle's are.
-t_case "docker is given what tehas work gives a cycle's container: only the name, the two directories of its own, the plan cache's expiry, the cycle's cid file, the input and what is run differ"
+# The options without the pairs only a cycle is given: who reports its
+# handoff, its deadline and its gate runs at once.
+without_cycle_only() {
+  awk 'held { if ($0 !~ /^PI_ENSEMBLE_(HANDOFF_CHANNEL|CYCLE_DEADLINE|VERIFY_CONCURRENCY)=/) print "-e"; else { held = 0; next } }
+    { held = ($0 == "-e") } !held { print } END { if (held) print "-e" }'
+}
+t_case "docker is given what tehas work gives a cycle's container: only the name, the two directories of its own, the plan cache's expiry, the cycle's cid file, the cycle's own three inputs, the input and what is run differ"
 turn_args | options | without_expiry | grep -v -x -e '-i' |
   sed -e "s|^$tree:|$ws-7:|" -e 's|/ensemble-runs/plan-7:|/ensemble-runs/issue-7:|' -e 's|widget-plan-7\.state|widget-7.state|' >"$T/plan.options"
 rm -f "$T"/calls/*
@@ -282,9 +288,12 @@ rm -f "$T"/calls/*
 jq -n '{contracts: {exitCodes: {version: 1}, resultSchema: {version: 3}, ndjson: {stable: {version: 1}}},
   verbs: {work: {flags: ["--restart", "--json", "--timeout"]}},
   inputs: [("SANDBOX_MODE", "WORKSPACE_ROOT", "MAX_WORKSTREAMS", "VERIFY_TIMEOUT_MS", "INTEGRATION_VERIFY_TIMEOUT_MS",
-    "SUBAGENT_MODEL", "SUBAGENT_PROVIDER") | {name: "PI_ENSEMBLE_\(.)", scope: "cycle"}]}' >"$T/caps.json"
+    "SUBAGENT_MODEL", "SUBAGENT_PROVIDER", "HANDOFF_CHANNEL", "CYCLE_DEADLINE", "VERIFY_CONCURRENCY")
+    | {name: "PI_ENSEMBLE_\(.)", scope: "cycle"}],
+  features: {handoffChannel: true, cycleDeadline: true}}' >"$T/caps.json"
 t_run "$T_ROOT/libexec/work 7"
-turn_args | options >"$T/work.options"
+turn_args | options | without_cycle_only >"$T/work.options"
+t_eq "$(turn_args | grep -c -e '^PI_ENSEMBLE_HANDOFF_CHANNEL=host$' -e '^PI_ENSEMBLE_CYCLE_DEADLINE=' -e '^PI_ENSEMBLE_VERIFY_CONCURRENCY=')" 3
 t_eq "$([ -s "$T/work.options" ] && echo recorded)" recorded
 t_contains "$(turn_args)" "--cidfile"
 t_eq "$(cat "$T/plan.options")" "$(cat "$T/work.options")"
