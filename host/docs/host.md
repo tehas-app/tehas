@@ -360,6 +360,10 @@ models, and a token for each:
   set. `./install.sh --check` reports both. It reads the tokens from
   `~/.config/tehas/env` itself, so a first install, or an update from a
   version that did not know them, finds them there.
+- A running service keeps the tokens it started with. After you change one
+  in `~/.config/tehas/env`, run `systemctl --user restart tehas-energy`; the
+  dispatcher and each cycle read the file afresh. An update that changes
+  `env.sh` restarts the running units itself.
 - `backupApiKey` defaults to `apiKey`.
 - Either endpoint can be any OpenAI-compatible endpoint, a
   [viiwork](https://github.com/janit/viiwork) mesh or not. Both are asked the
