@@ -17,6 +17,11 @@
 #
 # <json> is JSON text given as an argument: nothing here opens a file, loads the
 # instance settings or writes anything.
+#
+# The jq behind the state lines and the cycle line is named - tehas_state_line_jq
+# and tehas_cycle_line_jq - because `tehas top` draws a whole frame in one jq
+# pass and needs those two programs inside it. The words stay here either way:
+# a frame that copied them would drift from these lines.
 
 # shellcheck disable=SC2016  # the jq program below is data, not a shell string
 tehas_health_max_age=600
@@ -40,25 +45,31 @@ tehas_state_defs='
 '
 
 # The two lines a health object gives: is the factory taking work, and what is
-# in the queue.
-tehas_state_lines() { # <health json> <now epoch seconds> <stale true|false>
-  jq -r --argjson now "$2" --argjson stale "$3" "$tehas_state_defs"'
+# in the queue. The program takes the health object as its input and reads the
+# epoch seconds as $now and the ten-minute rule as $stale, which is also how the
+# frame in lib/top.sh calls it.
+tehas_state_line_jq='
     (if $stale then "factory   stale: the dispatcher last reported \(.time | age($now)), is its timer running? It said \(.status): \(.output // "")"
      else "factory   \(.status): \(.output // "") (\(.time | age($now)))" end),
     (.checks.queue // null | if . == null then "queue     no snapshot yet"
      else "queue     \(.inLine) in line, \(.building) building, \(.review) in review, \(.stopped) stopped"
           + (if .paused then ", paused" else "" end) + " (\(.time // "" | age($now)))" end)
-  ' <<<"$1"
+  '
+
+tehas_state_lines() { # <health json> <now epoch seconds> <stale true|false>
+  jq -r --argjson now "$2" --argjson stale "$3" "$tehas_state_defs$tehas_state_line_jq" <<<"$1"
 }
 
 # One cycle as health.json writes it: issue, running, status, step, startedAt,
 # time. null is a factory with no cycle yet.
-tehas_cycle_line() { # <cycle json> <now epoch seconds>
-  jq -r --argjson now "$2" "$tehas_state_defs"'
+tehas_cycle_line_jq='
     if . == null then "cycle     none yet"
     elif .running then "cycle     #\(.issue) running, step \(.step // "-"), started \(.startedAt // "" | age($now))"
     else "cycle     #\(.issue) \(.status // "unknown") at step \(.step // "-"), \(.time // "" | age($now))" end
-  ' <<<"$1"
+  '
+
+tehas_cycle_line() { # <cycle json> <now epoch seconds>
+  jq -r --argjson now "$2" "$tehas_state_defs$tehas_cycle_line_jq" <<<"$1"
 }
 
 # The slice status captured by the dispatcher's last poll.

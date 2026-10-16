@@ -59,7 +59,7 @@ mkdir -p "$T/dockerfile"
 cat >"$T/dockerfile/Dockerfile" <<'EOF'
 FROM base
 RUN given=${X:-unknown}; reads=0;
-    if test -e /opt/pi-rukas/extension/src/work-driver-issue-images.ts; then reads=1; fi;
+    if test -e /opt/x; then reads=1; fi;
     if [ "$given" != "$reads"; then exit 1; fi
 EOF
 t_eq "$(parse "$T/dockerfile/Dockerfile")" \
@@ -70,7 +70,7 @@ t_case "the same RUN with its continuations parses"
 cat >"$T/dockerfile/Dockerfile" <<'EOF'
 FROM base
 RUN given=${X:-unknown}; reads=0; \
-    if test -e /opt/pi-rukas/extension/src/work-driver-issue-images.ts; then reads=1; fi; \
+    if test -e /opt/x; then reads=1; fi; \
     if [ "$given" != "$reads"; then exit 1; fi
 EOF
 t_eq "$(parse "$T/dockerfile/Dockerfile")" ""
@@ -91,15 +91,16 @@ done
 t_contains "$found" "host/sandbox/Dockerfile"
 
 # The label is asked for by the build, declared by the image and written from
-# the same answer about the same file. A drift between them is a label the host
-# reads as something else.
+# the same answer: the base's --capabilities. A drift between them is a label
+# the host reads as something else.
 t_case "the images label is asked for, declared and written by the same names"
 dockerfile=$T_ROOT/host/sandbox/Dockerfile
 build=$T_ROOT/host/sandbox/build.sh
 t_contains "$(cat "$dockerfile")" 'ARG TEHAS_RUKAS_IMAGES=unknown'
 t_contains "$(cat "$dockerfile")" 'LABEL tehas.rukas=$PI_RUKAS_COMMIT tehas.rukas.images=$TEHAS_RUKAS_IMAGES'
 t_contains "$(cat "$build")" '--build-arg TEHAS_RUKAS_IMAGES="$reads"'
-t_eq "$(grep -c -e '/opt/pi-rukas/extension/src/work-driver-issue-images.ts' "$dockerfile" "$build" | tr '\n' ' ')" \
-  "$dockerfile:1 $build:1 "
+t_contains "$(cat "$dockerfile")" '/opt/pi-rukas/bin/pi-rukas-headless --capabilities'
+t_contains "$(cat "$dockerfile")" '.name == "PI_ENSEMBLE_ISSUE_IMAGES" and .manifestVersion == 1'
+t_contains "$(cat "$T_ROOT/lib/headless.sh")" '.name == "PI_ENSEMBLE_ISSUE_IMAGES" and .manifestVersion == 1'
 
 t_done

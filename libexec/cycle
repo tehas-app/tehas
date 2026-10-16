@@ -32,10 +32,12 @@
 #
 # The cycle's outcome is the result of pi-rukas's headless runner, which tehas
 # work leaves in state/cycles/<issue>.result.json (lib/headless.sh reads it):
-# its status, the step it stopped in, its cap, branch and token usage. Nothing
-# is read from the tree the container wrote. The per-role usage and the reason
-# of the last cap come from state/cycles/<issue>.progress.json, which tehas
-# work makes from the runner's progress lines.
+# its status, the step it stopped in, its cap, branch, token usage and the
+# pi-rukas commit it ran (buildCommit). Nothing is read from the tree the
+# container wrote. The per-role usage, the reason of the last cap and the
+# failure's kind come from state/cycles/<issue>.progress.json, which tehas work
+# makes from the result, or from the runner's progress lines for an image whose
+# result does not carry them.
 #
 # A runner that exits 137 with no result had its container killed: the status
 # reported is "killed" and the issue is parked. tehas work leaves in state/cycles/<issue>.oom how many
@@ -99,11 +101,12 @@
 # next poll finds it.
 #
 # The cap that ended a cycle and the failure before it go into the record and
-# into state/cycles/<issue>.park whenever the issue is parked. A cap a
-# provider outage gives (step-failed:* and adversarial-infra-failure whose
-# reason names the provider, a timeout, a connection or a 5xx) is said as one,
-# and the park file asks the dispatcher to start the issue again once, unless
-# this cycle was that start.
+# into state/cycles/<issue>.park whenever the issue is parked. A provider
+# outage is said as one, and the park file asks the dispatcher to start the
+# issue again once, unless this cycle was that start. An outage is a result
+# whose failure kind is "provider". For an image whose result has no failure
+# (v0.12.80) it is a step-failed:* or adversarial-infra-failure cap whose
+# reason names the provider, a timeout, a connection or a 5xx.
 #
 # A cycle that stopped without a pull request asks what to do next, in a
 # comment with boxes. The id of that comment goes on record in
@@ -393,6 +396,10 @@ if [ "$timed" != 0 ]; then
 fi
 [ "$forks" = 0 ] || killed="$killed Its container reached its limit of processes and $forks starts of a process were refused: what the cycle ran after that may not have run."
 branch=$(jq -r '.branch // ""' <<<"$outcome")
+# The pi-rukas commit the runner says it ran, for the improvement loop's check
+# of whether a fix was in it.
+build=$(jq -r '.buildCommit // ""' <<<"$outcome")
+[[ $build =~ ^[0-9a-f]{40}$ ]] || build=""
 # The handoff the runner rendered and left to this command to post: tehas work
 # gives a cycle PI_ENSEMBLE_HANDOFF_CHANNEL=host, so pi-rukas posts none and
 # applies no label. Its first line is pi-rukas's marker, which goes back on top
@@ -402,32 +409,42 @@ park_reason=$(jq -r '.parkReason // ""' <<<"$outcome" | tr -cd 'a-z-' | head -c 
 # A stable cap-hit that ended the review on its round cap and sent the cycle on
 # to ci: the pull request has review findings no round answered.
 review_held=$(head -c 1000000 "$progress" 2>/dev/null | jq -r '.reviewHeld == true' 2>/dev/null)
-# The cap that ended the cycle, from the result's published vocabulary. The
-# failure before it is what tehas work could read of the progress: the result
-# carries no reason. Reduced and cut short as the other fields are.
+# The cap that ended the cycle, from the result's published vocabulary, and
+# why: the result's failure, or for an image without one what tehas work could
+# read of the progress. Reduced and cut short as the other fields are.
 cap=$(jq -r '.cap // ""' <<<"$outcome" | tr -cd 'A-Za-z0-9_.:-' | head -c 80)
 reason=$(head -c 1000000 "$progress" 2>/dev/null | jq -j '.reason // "" | strings' 2>/dev/null |
   tr '\n' ' ' | tr -cd 'A-Za-z0-9 _.,:;/()=+-' | head -c 200)
-# A cap of the kind a provider outage gives: pi-rukas's own, or a failed step
-# whose reason names the provider, a timeout, a connection or a 5xx.
+failure_from=$(head -c 1000000 "$progress" 2>/dev/null | jq -r '.from.failure // "" | strings' 2>/dev/null)
+failure_kind=$(head -c 1000000 "$progress" 2>/dev/null | jq -r '.failure.kind // "" | strings' 2>/dev/null |
+  tr -cd 'a-z-' | head -c 40)
+failure_role=$(head -c 1000000 "$progress" 2>/dev/null | jq -r '.failure.role // "" | strings' 2>/dev/null |
+  tr -cd 'A-Za-z0-9_.-' | head -c 40)
+failure_cause=$(head -c 1000000 "$progress" 2>/dev/null | jq -r '.failure.cause // "" | strings' 2>/dev/null |
+  tr -cd 'A-Za-z0-9_.:-' | head -c 60)
 provider=0
-# TODO(trail-openers/pi-rukas#1367): the reason comes from NDJSON lines the
-# runner marks unstable. Once the result carries a stable reason, read that.
-# Until then a failed step with no reason is said in the log, so a field the
-# runner renamed shows up instead of silently ending the retry.
-case "$cap" in step-failed:*)
-  [ -n "$reason" ] || log "WARN: #$issue ended at $cap and no reason was found in its progress: an outage is not told from a failure (pi-rukas#1367)" ;;
-esac
-case "$cap" in
-  step-failed:* | adversarial-infra-failure)
-    if grep -qiE 'provider|time(d)? ?out|connection|ECONNRE|ETIMEDOUT|(^|[^0-9])5[0-9]{2}([^0-9]|$)' <<<"$reason"; then
-      provider=1
-    fi
-    ;;
-esac
+if [ "$failure_from" = result ]; then
+  [ "$failure_kind" != provider ] || provider=1
+else
+  # TODO(trail-openers/pi-rukas#1367): an image whose result has no failure
+  # (v0.12.80). The reason comes from NDJSON lines the runner marks unstable;
+  # remove this once no host runs such an image. A failed step with no reason
+  # is said in the log, so a field the runner renamed shows up instead of
+  # silently ending the retry.
+  case "$cap" in step-failed:*)
+    [ -n "$reason" ] || log "WARN: #$issue ended at $cap and no reason was found in its progress: an outage is not told from a failure (pi-rukas#1367)" ;;
+  esac
+  case "$cap" in
+    step-failed:* | adversarial-infra-failure)
+      if grep -qiE 'provider|time(d)? ?out|connection|ECONNRE|ETIMEDOUT|(^|[^0-9])5[0-9]{2}([^0-9]|$)' <<<"$reason"; then
+        provider=1
+      fi
+      ;;
+  esac
+fi
 # The token usage: a row per role from the progress, and the result's totals,
-# which count failed dispatches too. Numbers only: anything else counts as
-# nothing.
+# which count failed dispatches too, as the rows do where the result gave
+# them. Numbers only: anything else counts as nothing.
 usage=$(head -c 1000000 "$progress" 2>/dev/null | jq -r --argjson total "$(jq -c '.usage // {}' <<<"$outcome")" '
   def n: if type == "number" and . >= 0 then . else 0 end;
   [.roles[]? | objects] as $r
@@ -492,6 +509,11 @@ summary="status \`$status\`, last step \`$step\`, $mins min"
 why=""
 [ -z "$cap" ] || why=" pi-rukas stopped on the cap \`$cap\`${park_reason:+ (\`$park_reason\`)}."
 [ "$cap" != deadline ] || why="$why It reached its deadline, a quarter of its time limit before the end, and started no new step."
+# The failure behind the cap, where the result gives one. Of kind cap nothing
+# failed: the cap's own rule stopped the cycle, and the cap says that.
+if [ "$failure_from" = result ] && [ -n "$failure_kind" ] && [ "$failure_kind" != cap ] && [ "$provider" != 1 ]; then
+  why="$why It failed: kind \`$failure_kind\`${failure_role:+, role \`$failure_role\`}${failure_cause:+, cause \`$failure_cause\`}${reason:+: $reason}."
+fi
 marker=""
 [ -z "$handoff" ] || marker="<!-- pi-rukas:handoff issue=$issue cap=${cap:-none} -->"
 # Why the dispatcher stopped this cycle, if it did.
@@ -613,7 +635,7 @@ fi
 log "done #$issue rc=$rc status=$status step=$step minutes=$mins pr=${pr:-none} oom_kills=$kills forks_refused=$forks"
 # For the improvement loop, where the instance has one. The cycle is reported
 # by now, and a record that cannot be written is the loop's loss only.
-tehas_improve_record "$issue" "$started" "$rc" "$status" "$step" "$pr" "$kills" "$image_id" "$image_rukas" "$cap" "$reason" || log "WARN: no record of #$issue for the improvement loop"
+tehas_improve_record "$issue" "$started" "$rc" "$status" "$step" "$pr" "$kills" "$image_id" "$image_rukas" "$cap" "$reason" "$build" || log "WARN: no record of #$issue for the improvement loop"
 # The next poll refreshes the status. A stopped cycle leaves it to that poll.
 [ "$signalled" = 1 ] || "$status_cmd"
 # The slot is free now: fill it without waiting for the timer. systemd takes a

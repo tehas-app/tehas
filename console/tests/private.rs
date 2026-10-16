@@ -86,9 +86,9 @@ fn entries_and_the_speaker_are_masked_of_the_names_given() {
     )
     .unwrap();
     fs::write(
-        day.join("aa-bb-coder.json"),
+        day.join("aa-bb-gpu1box.json"),
         concat!(
-            "{\"type\":\"session\",\"cwd\":\"/w/.worktrees/issue-7-gpu1box\"}\n",
+            "{\"type\":\"session\",\"cwd\":\"/w\"}\n",
             "{\"type\":\"message\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"hi\"}]}}\n",
         ),
     )
@@ -122,7 +122,12 @@ fn entries_and_the_speaker_are_masked_of_the_names_given() {
     let _ = console.kill();
     let _ = console.wait();
     assert!(written.contains("asked [private name]"), "{written}");
-    assert!(written.contains("coder[[private name]]"), "{written}");
+    assert!(
+        written
+            .lines()
+            .any(|l| l.contains("[private name]") && l.ends_with(" hi")),
+        "{written}"
+    );
     assert!(
         !written.contains("models.lan") && !written.contains("gpu1box"),
         "{written}"

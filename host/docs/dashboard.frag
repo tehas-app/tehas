@@ -38,7 +38,11 @@
 </section>
 
 <script src="/fun/console-tabs.js"></script>
-<script>
+<script type="module">
+// The figures of the host section, and the words that say how old a reading is:
+// one module, shared with the panel on the factory floor (host/fun/host-view.js).
+import { agoText, dueToRead, layout } from "/fun/host-data.js";
+
 (() => {
   const MAX = 10;
   const $ = (id) => document.getElementById(id);
@@ -48,14 +52,7 @@
     if (text !== undefined) e.textContent = text;
     return e;
   };
-  const ago = (iso) => {
-    if (!iso) return "";
-    const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
-    if (s < 90) return "just now";
-    if (s < 5400) return Math.round(s / 60) + " min ago";
-    if (s < 129600) return Math.round(s / 3600) + " h ago";
-    return Math.round(s / 86400) + " d ago";
-  };
+  const ago = (iso) => agoText((Date.now() - new Date(iso).getTime()) / 1000);
   const dur = (secs) => {
     const m = Math.floor(secs / 60), h = Math.floor(m / 60);
     return h > 0 ? h + " h " + (m % 60) + " min" : m + " min";
@@ -157,73 +154,68 @@
   }
 
   // The host itself: /live/top.json, the snapshot libexec/top builds, written
-  // by tehasbot top when TEHAS_TOP is 1. A host that does not publish it has no
-  // such file and the section stays hidden. Process names come from /proc and
-  // are untrusted text: they reach the page through textContent only.
-  const HOST_STALE = 30;
-  function hostUptime(secs) {
-    if (typeof secs !== "number" || !Number.isFinite(secs) || secs < 0) return "-";
-    if (secs < 60) return Math.round(secs) + " s";
-    if (secs < 3600) return Math.floor(secs / 60) + " min";
-    if (secs < 86400) return Math.floor(secs / 3600) + " h";
-    return Math.floor(secs / 86400) + " d";
-  }
-  const figure = (v) => (typeof v === "number" && Number.isFinite(v) ? Math.round(v * 10) / 10 + "%" : "-");
+  // by tehasbot top when TEHAS_TOP is 1. What the file means - the figures, the
+  // words for how old a reading is, how many rows to draw - is worked out by the
+  // same function the panel on the factory floor uses (host/fun/host-data.js);
+  // here it is a plain list. A host that does not publish it has no such file
+  // and the section stays hidden. Process names come from /proc and are
+  // untrusted text: they reach the page through textContent only.
+  let hostMissedAt = 0;
   async function refreshHost() {
+    // Nothing on screen wants a fresh answer while the page is hidden, and a
+    // file that was not there is not asked for again at every refresh.
+    if (!dueToRead({ hidden: document.hidden, missedAt: hostMissedAt })) return;
     let t = null, servedAt = null;
     try {
       const r = await fetch("/live/top.json", { cache: "no-store" });
-      if (r.ok) {
+      // No file at all: this host publishes no snapshot, so the next question
+      // is asked once a minute rather than at every refresh.
+      if (r.status === 404) hostMissedAt = Date.now();
+      else if (r.ok) {
         t = await r.json();
         // Staleness is judged by the server's clock, not the visitor's. A host
         // whose clock runs behind would else read its own dead file as new.
         const served = Date.parse(r.headers.get("Date") || "");
         servedAt = Number.isNaN(served) ? null : served;
+        hostMissedAt = 0;
       }
-    } catch { /* this host publishes no snapshot */ }
+    } catch { /* no answer: what is on screen stays */ }
+    const view = layout(t, servedAt == null ? Date.now() : servedAt);
     const section = $("host");
-    const h = t && typeof t === "object" && t.host && typeof t.host === "object" ? t.host : null;
-    section.hidden = !h;
-    if (!h) return;
-    const at = Date.parse(t.generatedAt);
-    const age = servedAt == null || Number.isNaN(at) ? null : Math.round((servedAt - at) / 1000);
+    section.hidden = !view.present;
+    if (!view.present) return;
     const note = [];
-    note.push(typeof h.cpus === "number" ? h.cpus + " cpus" : "no cpu count");
-    note.push(Array.isArray(h.load) && h.load.length === 3 ? "load " + h.load.join(" ") : "no load average");
-    note.push(figure(h.cpuPercent) + " of the cpus in use");
-    if (h.memory && typeof h.memory.totalMb === "number" && typeof h.memory.usedMb === "number") {
-      note.push("memory " + Math.round(h.memory.usedMb) + " of " + Math.round(h.memory.totalMb) + " MB");
-    }
+    note.push(view.cpus === "-" ? "no cpu count" : view.cpus);
+    note.push(view.load[0] === "-" ? "no load average" : "load " + view.load.join(" "));
+    note.push(view.cpu === "--" ? "no reading of cpu use" : view.cpu + " of the cpus in use");
+    if (view.memory) note.push("memory " + view.memory.used + " of " + view.memory.total + " MB");
     // The publisher rewrites the file every five seconds: an old time means the
     // unit is not running, and the numbers on screen are not the host's now.
-    note.push(age === null ? "snapshot unreadable" : (age > HOST_STALE ? "snapshot is " + ago(t.generatedAt) : "snapshot written " + ago(t.generatedAt)));
+    note.push(view.ageSeconds == null ? "snapshot unreadable"
+      : (view.state === "stale" ? "snapshot is " + agoText(view.ageSeconds)
+        : "snapshot written " + agoText(view.ageSeconds)));
     $("host-note").textContent = note.join(", ") + ".";
-    const rows = Array.isArray(h.processes) ? h.processes : [];
-    $("n-host").textContent = rows.length ? "(" + rows.length + ")" : "";
+    $("n-host").textContent = view.rows.length ? "(" + view.rows.length + ")" : "";
     const ul = $("host-list");
     ul.replaceChildren();
-    if (!rows.length) ul.append(el("li", "empty", "No process was read from /proc."));
-    for (const p of rows) {
-      if (!p || typeof p.name !== "string" || !p.name) continue;
+    if (!view.rows.length) ul.append(el("li", "empty", "No process was read from /proc."));
+    for (const p of view.rows) {
       const li = el("li");
       li.append(el("span", null, p.name), " ",
-        el("span", "when", "pid " + (Number.isSafeInteger(p.pid) ? p.pid : "-") +
-          "  cpu " + figure(p.cpuPercent) + "  mem " + figure(p.memPercent) + "  up " + hostUptime(p.upSeconds)));
+        el("span", "when", "pid " + (p.pid == null ? "-" : p.pid) +
+          "  cpu " + p.cpu + "  mem " + p.mem + "  up " + p.up));
       ul.append(li);
     }
     // The units of the factory, as tehas top lists them: name, whether systemd
     // has it installed, its state, and when a timer next fires.
-    const units = (Array.isArray(t.units) ? t.units : [])
-      .filter((u) => u && typeof u === "object" && typeof u.id === "string" && u.id).slice(0, 30);
-    $("n-units").textContent = units.length ? "(" + units.length + ")" : "";
+    $("n-units").textContent = view.units.length ? "(" + view.units.length + ")" : "";
     const listed = $("unit-list");
     listed.replaceChildren();
-    if (!units.length) { listed.append(el("li", "empty", "systemctl --user gave no units.")); return; }
-    for (const u of units) {
+    if (!view.units.length) { listed.append(el("li", "empty", "systemctl --user gave no units.")); return; }
+    for (const u of view.units) {
       const li = el("li");
-      li.append(el("span", null, u.id.slice(0, 64)), " ",
-        el("span", "when", (u.unitFileState || "-") + "  " + (u.activeState || "-") +
-          (typeof u.next === "string" && u.next ? "  next " + u.next : "")));
+      li.append(el("span", null, u.name), " ",
+        el("span", "when", u.installed + "  " + u.state + (u.next ? "  next " + u.next : "")));
       listed.append(li);
     }
   }
@@ -337,5 +329,10 @@
   setInterval(refresh, 10000);
   setInterval(tail, 2000);
   setTimeout(tail, 600);
+  // Coming back to the page asks for the host file again at once, whatever the
+  // last answer was.
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) { hostMissedAt = 0; refreshHost(); }
+  });
 })();
 </script>

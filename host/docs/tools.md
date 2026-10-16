@@ -257,9 +257,21 @@ that it took its lock. The poll logs `WARN: the cycle for #N holds its lock but
 has not been heard from since <time>, more than 1200s: stopping
 tehas-cycle@N.service` and stops the unit without waiting for it. The cycle
 reports as it stops; a later poll finds the issue as above. This is said and
-done once for each time the cycle was last heard from, kept in
-`~/tehas/state/cycles/<issue>.quiet`. A dry run says `would stop` and stops
-nothing. A paused factory does not stop it.
+done once for each time the cycle was last heard from. Every ask is recorded in
+`~/tehas/state/cycles/<issue>.quiet`: the time the cycle was last heard from,
+how many times the poll has asked, and when it asks next. Exit 0
+from `systemctl --user --no-block stop` only says systemd accepted the stop
+job, so the note means the stop was asked, not that the unit stopped; what
+ends a unit that ignores the job is the unit's own `TimeoutStopSec` (300s) and
+`RuntimeMaxSec`. A stop that failed or timed out adds `WARN: could not stop
+tehas-cycle@N.service (exit <code>): it holds its slot, and the poll asks
+again`. While the cycle holds its lock the poll asks again, at most once every
+10 minutes (`WARN: ...: the poll asks tehas-cycle@N.service to stop again`),
+and after 6 asks it says the episode needs a person and asks no more, so one
+wedged unit does not hold the poll. The note goes once the
+episode is over: a later poll removes it when it can tell that no cycle holds
+that issue's lock, or the cycle is heard from again. A dry run says `would
+stop`, stops nothing and removes no note. A paused factory does not stop it.
 
 An issue is taken only when an allowed account applied `tehas:ready` and
 nobody else has changed its title or body since, and only while GitHub says the
@@ -346,7 +358,8 @@ Before anything is moved or fetched, it asks the image what it supports,
 exit codes 1, result schema 3 and stable NDJSON 1, the `work` verb takes the
 flags passed, and every `PI_ENSEMBLE_*` variable the container would be given
 is an input the image lists for a host to set (scope `cycle` or `sandbox`; a
-family such as `PI_ENSEMBLE_MODEL_<ROLE>` covers its names), and the answer's
+family such as `PI_ENSEMBLE_MODEL_<ROLE>` covers the members the image lists
+for it, or any name when it lists none, as v0.12.80 does), and the answer's
 `features` say `true` for `handoffChannel`, for `cycleDeadline` when the cycle
 has a deadline and for `restartClearsAttention` with `--restart`. Anything else
 is exit 78, with what is not supported named:
@@ -418,10 +431,13 @@ that works. The runner's NDJSON progress, its error stream, is kept in
 `~/tehas/logs/work-<issue>-<time>.jsonl`. The console and the dashboard's line
 read only the kinds the runner declares stable; a line it marks `unstable` is
 not shown. At the end, `~/tehas/state/cycles/<issue>.progress.json` holds the
-token usage per role of the stable `dispatch-completed` lines, each counted
-once by its key, and the reason of the last cap for `tehasbot cycle`. The
-result has no reason, so that one is read from lines the runner marks
-unstable, and may be empty.
+token usage per role, why the cycle stopped at its cap and the kind of that
+failure, for `tehasbot cycle`. They come from the result (`usage.byRole` and
+`failure`) when the image's `--capabilities` answer says it carries them
+(`features.usageByRole`, `features.failureReason`). An image that does not,
+v0.12.80, gives the usage of the stable `dispatch-completed` lines, each
+counted once by its key, and a reason read from lines the runner marks
+unstable, which may be empty.
 The time limit is `TEHAS_WORK_TIMEOUT`. The push check, the clone and every
 `docker stop` have bounds of their own, listed under
 [time limits](/host#time-limits). [The host](/host#limits-and-concurrency)
@@ -506,8 +522,9 @@ start with exit 4, and the comment names it: the issue is parked, and
 `tehas:ready` tries again.
 
 Whether a cycle was shown them is answered by the sandbox image itself.
-`sandbox/build.sh` asks the base image whether pi-rukas's own source has the
-reader of this manifest, and the build records the answer as the label
+`sandbox/build.sh` asks the base image's `--capabilities` whether its
+pi-rukas reads this manifest (`PI_ENSEMBLE_ISSUE_IMAGES` for manifest format
+1), and the build records the answer as the label
 `tehas.rukas.images`; a build that is given an answer that does not match the
 base it stands on stops. `tehas work`, `tehas plan`, the dispatcher and
 `install.sh` read that label. When it says the pi-rukas does not read the
@@ -914,24 +931,30 @@ files, and every section that has an age prints it. A file older than ten
 minutes is not believed, the same rule `tehas status` uses.
 
 The frame is drawn from one snapshot and from nothing else. `--json` prints that
-snapshot: `generatedAt` and one key per section (`factory`, `queue`, `cycle`,
-`host`, `units`, `energy`, `console`). A section whose source is missing,
+snapshot: `generatedAt`, one key per section (`factory`, `queue`, `cycle`,
+`host`, `units`, `energy`, `console`) and `reading`, the raw reading of `/proc`
+the host section was computed from. A section whose source is missing,
 unreadable or too old to believe is `null`; the frame says so in one line and
 draws the rest. The factory line and the queue counts are the ones `tehas status`
 prints: both commands take them from `lib/status.sh`, so they cannot drift apart.
 A section added to the snapshot appears in `--json` without anything else
 changing.
 
-The host section is a second reading of `/proc`, taken one second after the
-first: the machine's cpu count, its three load averages, what share of its cpus
-and of its memory is in use over that second, and up to fifteen processes with
-their pid, their short name from `/proc/<pid>/stat`, their share of a cpu, their
-share of memory and how long they have been running. A process is named by that
-short name only: the command line, and everything else under `/proc/<pid>/`, is
-never opened. A pid that was reused between the two readings is not shown. The
-figures are what changed in that second, not the average since a process began.
-They sit between the cycle rows and the units; when the terminal is short the
-process rows go first, before the console lines.
+The host section compares two readings of `/proc`: the machine's cpu count, its
+three load averages, what share of its cpus and of its memory is in use between
+them, and up to fifteen processes with their pid, their short name from
+`/proc/<pid>/stat`, their share of a cpu, their share of memory and how long they
+have been running. A view that redraws hands the reading of one frame to the
+next, so a redraw measures the seconds since that frame instead of waiting; only
+a first frame, and `--json`, `--once` and `tehasbot top`, take a second reading a
+second after the first. The reading a snapshot was computed from is in it under
+`reading`, which is how it is handed on; no frame draws it and the published file
+does not hold it. A process is named by that short name only: the command line,
+and everything else under `/proc/<pid>/`, is never opened. A pid that was reused
+between the two readings is not shown. The figures are what changed between the
+readings, not the average since a process began. They sit between the cycle rows
+and the units; when the terminal is short the process rows go first, before the
+console lines.
 
 A frame follows the width and height of the terminal, also after a resize. Long
 lines are cut; nothing wraps and nothing scrolls. When the terminal is short,
@@ -1066,11 +1089,16 @@ could not be looked up and names the branch, and the branch stays in
 
 A parked cycle's cap, from the result, goes into
 `~/tehas/state/cycles/<issue>.park` with the failure before it (the reason
-`tehas work` read of the progress), and into the
+`tehas work` wrote to the progress file), and into the
 record for the improvement loop as `cap` and `capReason`, reduced to plain
-characters. A cap of the kind a provider outage gives is said as one: `Tehas
-cycle parked by a provider outage`, with the cap and the reason. That is
-`step-failed:<step>` or `adversarial-infra-failure` whose reason names the provider, a timeout, a connection or a 5xx status. The
+characters. Where the result gives a failure of another kind than `cap`, the
+park comment names its kind, role, cause and message. The record also holds `buildCommit`, the pi-rukas commit the
+result says the cycle ran; the improvement loop checks a fix against it. A
+provider outage is said as one: `Tehas cycle parked by a provider outage`,
+with the cap and the reason. That is a result whose `failure.kind` is
+`provider`. For an image whose result has no `failure` (v0.12.80) it is
+`step-failed:<step>` or `adversarial-infra-failure` whose reason names the
+provider, a timeout, a connection or a 5xx status. The
 park file then asks [tehas dispatch](#tehas-dispatch) for one retry, unless the
 cycle was that retry.
 
@@ -1105,8 +1133,8 @@ tokens, keys, passwords (also in a URL and after `Bearer`) and private network
 addresses, and writing no control character but the line break and the tab.
 Invisible format characters, direction overrides among them, are dropped
 before the mask looks, so they do not hide a token from it; any that remain
-and the Unicode line and paragraph separators are written as U+FFFD. An agent of a workstream is named
-with it, as in `developer[task-a]`. The mask catches accidents;
+and the Unicode line and paragraph separators are written as U+FFFD. An agent
+is named by its role. The mask catches accidents;
 it cannot stop an agent that sets out to print a secret another way, so treat
 the console of a published dashboard as public. A log line of over 1 MiB is
 left out, and the console says how many were. So is a line not yet ended
@@ -1304,9 +1332,13 @@ systemctl --user enable --now tehas-top.service
 ```
 
 It builds the snapshot with the same `lib/top.sh` the terminal view uses, and
-writes it as one line of JSON with the `console` key removed: `generatedAt`,
-`factory`, `queue`, `cycle`, `host`, `units` and `energy`. The command reads the
-instance settings, so a setting that is missing or malformed stops it with 78;
+writes it as one line of JSON holding the keys the pages draw and nothing else:
+`generatedAt`, `factory`, `queue`, `cycle`, `host`, `units` and `energy`. The
+list is `tehas_top_publish_keys` in `lib/top.sh`. A key added to the snapshot
+later is not in the file until someone puts it on that list, which is how the
+console of a cycle and the raw reading a host section was computed from stay
+out. The command reads the instance settings, so a setting that is missing or
+malformed stops it with 78;
 with `--every` the same 78 ends the loop, and systemd shows the failing service.
 It writes the file only when `TEHAS_TOP` is `1`; with `0`, which is the default,
 it removes the file and exits 0. It writes to `top.json.new` and moves it into
@@ -1327,12 +1359,16 @@ nothing about the sandbox: a cycle's container is one process among those rows,
 and the console of a cycle is not in it.
 
 The factory floor reads it every 5 seconds, the plain dashboard on its own
-10-second refresh. Both show no host panel where the file is not there, and a
-page that gets no answer at all asks again once a minute rather than at every
-period. The panel gives the readings, then the processes, then the units as
-`tehas top` lists them: name, whether systemd has it installed, its state, and
-when a timer next fires. A snapshot older than 30 seconds is called stale rather
-than live.
+10-second refresh. Neither asks while the page is hidden, and both show no host
+section where the file is not there: a host that publishes nothing is asked again
+once a minute rather than at every period. Both pages work out what the file
+means with one module, `host/fun/host-data.js` - the figures, the words for how
+old a reading is, and the rule for when to ask again - so the panel and the plain
+list cannot say different things about the same file. The panel gives the
+readings, then the processes, then the units as `tehas top` lists them: name,
+whether systemd has it installed, its state, and when a timer next fires; the
+plain dashboard gives the same as a list. A snapshot older than 30 seconds is
+called stale rather than live.
 
 ## tehasbot protolab
 

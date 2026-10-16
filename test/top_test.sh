@@ -102,13 +102,18 @@ energy() { # age in seconds
 # Bytes that are not printing characters, tab and newline excepted.
 control_bytes() { printf '%s' "$1" | LC_ALL=C tr -cd '\000-\010\013-\037\177' | wc -c; }
 
+# The C1 controls, U+0080 to U+009F. In UTF-8 they are the pair 0xc2 followed by
+# a byte from 0x80 to 0x9f. A bare byte range would not do: the same byte values
+# are continuation bytes of characters that are not controls.
+c1_bytes() { printf '%s' "$1" | LC_ALL=C grep -o "$(printf '\xc2[\x80-\x9f]')" | wc -l; }
+
 t_case "--json gives one object: generatedAt and one key per section"
 reset
 files
 energy
 t_run "$top --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -r '[(.generatedAt | type), (keys | length)] | join(" ")' <<<"$t_out")" "string 8"
+t_eq "$(jq -r '[(.generatedAt | type), (keys | length)] | join(" ")' <<<"$t_out")" "string 9"
 t_eq "$(jq -r '[.factory, .queue, .cycle, .host, .units, .energy, .console | type] | join(",")' <<<"$t_out")" \
   "object,object,object,object,array,object,object"
 t_eq "$(jq -r '.factory.status, .queue.counts.inLine, .cycle.cycles[0].issue, .console.name' <<<"$t_out")" \
@@ -250,6 +255,25 @@ T_ENV=(TEHAS_PROC_DIR="$proc1" COLUMNS=200 LINES=16)
 t_run "$top --once"
 t_eq "$(printf '%s\n' "$t_out" | awk 'length > 200' | wc -l)" 0
 
+# stty size prints the rows first and the columns after them. A terminal that is
+# not square shows which way round they were read.
+t_case "the rows and the columns of the terminal are not swapped"
+reset
+files "$(printf '%150s' w | tr ' ' w)"
+energy
+t_stub stty 'printf "30 100\n"'
+seq -f 'console line %g' 1 40 >"$live/console-12.txt"
+T_ENV=(TEHAS_PROC_DIR="$proc1")
+t_run "$top --once"
+t_eq "$t_rc" 0
+t_contains "$(t_calls stty)" "size"
+# 30 rows: the frame holds 30 lines, not 100 and not the default 24.
+t_eq "$(printf '%s\n' "$t_out" | wc -l)" 30
+# 100 columns: the longest line is cut at 100, not at 30.
+t_eq "$(printf '%s\n' "$t_out" | awk 'length > 100' | wc -l)" 0
+t_eq "$(printf '%s\n' "$t_out" | awk 'length > max { max = length } END { print max }')" 100
+rm -f "$T/bin/stty"
+
 t_case "a short terminal drops console lines, not the sections"
 reset
 files
@@ -309,6 +333,91 @@ t_eq "$t_rc" 0
 t_eq "$(control_bytes "$t_out")" 0
 t_contains "$t_out" "Red title"
 t_contains "$t_out" "evil console line"
+
+# The C1 controls, U+0080 to U+009F, introduce a control sequence on some
+# terminals. They come in two shapes: bytes in the file, which the byte filter
+# reads, and a \u009b escape, which is only a control once the JSON is read.
+# Text that is not ASCII and is not a control still shows.
+t_case "a C1 control does not reach the output, from bytes in the file"
+reset
+files "Red $(printf '\302\233')title with $(printf '\303\244\303\266')"
+printf '%s\n' "console$(printf '\302\233') line with $(printf '\303\244')" >"$live/console-12.txt"
+t_run "$top --once"
+t_eq "$t_rc" 0
+t_eq "$(c1_bytes "$t_out")" 0
+t_contains "$t_out" "Red title with $(printf '\303\244\303\266')"
+t_contains "$t_out" "console line with $(printf '\303\244')"
+
+t_case "a C1 control does not reach the output, from a JSON escape"
+reset
+files
+esc='Escaped \u009btitle \u00e4\u00f6'   # the escape, not yet a control character
+printf '%s\n' "{\"generatedAt\":\"$(iso 210)\",\"repo\":\"acme/widget\",\"paused\":false,\"running\":[{\"number\":12,\"title\":\"$esc\"}],\"queued\":[],\"awaiting\":[],\"stopped\":[]}" >"$live/status.json"
+t_run "$top --once"
+t_eq "$t_rc" 0
+t_eq "$(c1_bytes "$t_out")" 0
+t_contains "$t_out" "Escaped title $(printf '\303\244\303\266')"
+
+# The byte filter itself: the C1 pair goes, and so does every other control that
+# is not a tab or a newline. A character that merely has a continuation byte in
+# the same range - the 0x82 of a euro sign - stays.
+t_case "the byte filter drops C1 controls and leaves other UTF-8 text alone"
+reset
+printf 'a\007b\011c\302\233d \303\244\303\266 \342\202\254 e\177f\n' >"$T/in"
+printf 'ab\tcd \303\244\303\266 \342\202\254 ef\n' >"$T/want"
+t_run '. "$T_ROOT/lib/top.sh"; tehas_sanitize_text <"$T/in" >"$T/out"'
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/out")" "$(cat "$T/want")"
+t_eq "$(c1_bytes "$(cat "$T/out")")" 0
+
+# The name of the console file is text read out of running.json, and the file it
+# names is opened. A name that is not a plain file name under live/ reads nothing
+# at all, whatever else it might point at.
+t_case "a console name that is not a plain file name reads nothing"
+reset
+files
+printf 'A file outside live/ that must not appear\n' >"$T/home/tehas/secret.txt"
+for name in '../secret' '../../secret' '..' '.secret' 'sub/console-12.txt' 'console 12.txt' 'con$sole'; do
+  jq --arg c "$name" '.cycles[0].console = $c' "$live/running.json" >"$T/r" && mv "$T/r" "$live/running.json"
+  t_run "$top --once"
+  t_eq "$t_rc" 0
+  t_contains "$t_out" "console   no console file"
+  t_lacks "$t_out" "must not appear"
+done
+# The name a cycle actually writes still reads its file.
+jq --arg c 'console-12.txt' '.cycles[0].console = $c' "$live/running.json" >"$T/r" && mv "$T/r" "$live/running.json"
+t_run "$top --once"
+t_eq "$t_rc" 0
+t_contains "$t_out" "console   #12  console-12.txt  live"
+t_contains "$t_out" "[step develop] @developer ran the gate"
+
+# The frame is one jq program: the number of jq processes a redraw costs does not
+# grow with the number of lines the frame draws. The wrapper counts the calls and
+# then runs the real jq.
+t_case "a frame costs the same jq processes whatever it holds"
+reset
+files
+energy
+jqreal=$(command -v jq)
+t_stub jq 'printf "jq\n" >>"$T/calls/jqcount"; exec '"$jqreal"' "$@"'
+T_ENV=(TEHAS_PROC_DIR="$proc1" COLUMNS=80 LINES=200)
+seq -f 'console line %g' 1 2 >"$live/console-12.txt"
+rm -f "$T/calls/jqcount"
+t_run "$top --once"
+t_eq "$t_rc" 0
+short_lines=$(printf '%s\n' "$t_out" | wc -l)
+short_calls=$(wc -l <"$T/calls/jqcount")
+seq -f 'console line %g' 1 60 >"$live/console-12.txt"
+rm -f "$T/calls/jqcount"
+t_run "$top --once"
+t_eq "$t_rc" 0
+long_lines=$(printf '%s\n' "$t_out" | wc -l)
+long_calls=$(wc -l <"$T/calls/jqcount")
+rm -f "$T/bin/jq"
+# The long frame really is 58 lines longer, and both cost the same jq.
+t_eq "$((long_lines - short_lines))" 58
+t_eq "$long_calls" "$short_calls"
+t_eq "$((long_lines > long_calls))" 1
 
 t_case "standard output that is not a terminal gets no escape codes"
 reset
@@ -423,7 +532,8 @@ T_ENV=(TEHAS_PROC_DIR="$T/no-such-tree")
 t_run "$top --json"
 t_eq "$t_rc" 0
 t_eq "$(jq -c '.host' <<<"$t_out")" "null"
-t_eq "$(jq -r 'keys | length' <<<"$t_out")" 8
+t_eq "$(jq -r 'keys | length' <<<"$t_out")" 9
+t_eq "$(jq -c '.reading' <<<"$t_out")" "null"
 t_run "$top --once"
 t_eq "$t_rc" 0
 t_contains "$t_out" "host      no reading of /proc"
@@ -482,6 +592,75 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "host      2 cpus, load ?, cpu ?%, mem ? of ? MB"
 
 published() { [ -f "$live/top.json" ] && echo there || echo gone; }
+published_keys() { jq -r 'keys | join(",")' "$live/top.json"; }
+
+# A sleep that records that it was asked and does nothing, in a directory of its
+# own: only a case that puts it first on PATH gets it, so every other case in
+# this file still sleeps for real.
+nosleep() {
+  mkdir -p "$T/nosleep"
+  cat >"$T/nosleep/sleep" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$T/calls/sleep"
+EOF
+  chmod +x "$T/nosleep/sleep"
+}
+
+# The same tree five seconds on: tehas-cycle used 5 s of CPU in the window, and
+# the aggregate line moved by 1000 ticks of which 500 were idle - 50% over the
+# host, and 100% for that one process.
+proc_ahead() { # <dir>
+  proc_files "$1" 1005 '1500 100 500 8500 200 10 5 20' \
+    '100 systemd 160 300' '200 tehas-cycle 500 800' '300 pi-rukas 735 1200' '400 gh 12 100'
+}
+
+t_case "the snapshot carries the reading its host section was computed from"
+reset
+files
+t_run "$top --json"
+t_eq "$t_rc" 0
+t_eq "$(jq -r '(.reading.clock == 1000), .reading.cpus, (.reading.procs | length), (.reading | type)' <<<"$t_out")" \
+  "true
+2
+4
+object"
+# A tree that cannot be read gives no reading either: the next call has nothing
+# to compare against and takes a pair.
+T_ENV=(TEHAS_PROC_DIR="$T/no-such-tree")
+t_run "$top --json"
+t_eq "$(jq -c '.reading' <<<"$t_out")" "null"
+T_ENV=(TEHAS_PROC_DIR="$proc1")
+
+t_case "a snapshot given the reading of the frame before does not wait for a second one"
+reset
+files
+nosleep
+T_ENV=(TEHAS_PROC_DIR="$proc1" PATH="$T/nosleep:$T/bin:$PATH")
+t_run '. "$T_ROOT/lib/top.sh"; tehas_top_snapshot 16 >"$T/one"'
+t_eq "$t_rc" 0
+# Nothing to compare with: a pair of readings, and the second one a second on.
+t_eq "$(t_calls sleep | tr '\n' ' ')" "1 "
+t_eq "$(jq -r '.reading.clock' "$T/one")" "1000.00"
+t_eq "$(jq -c '[.host.cpuPercent] + [.host.processes[].cpuPercent]' "$T/one")" \
+  '[null,null,null,null,null]'
+# Time passes, as it does between two frames of a view. The reading of the frame
+# before is handed to the next one, and that call takes no sleep at all.
+proc_ahead "$proc1"
+t_run '. "$T_ROOT/lib/top.sh"; tehas_top_snapshot 16 "$(jq -c .reading "$T/one")" >"$T/two"'
+t_eq "$t_rc" 0
+t_eq "$(t_calls sleep | tr '\n' ' ')" "1 "
+t_eq "$(jq -r '.reading.clock' "$T/two")" "1005.00"
+# Measured over the five seconds between the two readings: 50% for the host, and
+# 100% for the process that used them.
+t_eq "$(jq -c '.host.cpuPercent, [.host.processes[] | select(.name == "tehas-cycle") | .cpuPercent]' "$T/two")" \
+  "50
+[100]"
+t_eq "$(jq -r '[.host.processes[] | select(.name == "tehas-cycle") | .upSeconds] | .[0]' "$T/two")" "995"
+# The frame is drawn from the snapshot as it is: the extra key changes nothing
+# that is printed.
+t_run '. "$T_ROOT/lib/top.sh"; tehas_top_frame "$(cat "$T/two")" 80 24'
+t_contains "$t_out" "host      2 cpus, load 0.10 0.20 0.30, cpu 50%, mem 32 of 64 MB"
+t_contains "$t_out" "tehas-cycle"
 
 # Two readings a hundred seconds apart, written by hand: the sleepy one has
 # used a thousand seconds of CPU in its life and one second in this window, the
@@ -524,7 +703,17 @@ t_run '. "$T_ROOT/lib/top.sh"; tehas_top_host "$(cat "$T/r2")" "$(cat "$T/r1")" 
 t_eq "$t_rc" 0
 t_eq "$(jq -c '.processes' "$T/host")" "[]"
 
-t_case "the published file is the snapshot without the console key"
+t_case "the redrawing view hands the reading of one frame to the next"
+reset
+files
+# The live loop is the one thing a test cannot run here: it needs a terminal.
+# What it does with the reading is checked in the script it runs.
+t_contains "$(cat "$T_ROOT/libexec/top")" 'tehas_top_snapshot "$rows" "$prev"'
+t_contains "$(cat "$T_ROOT/libexec/top")" "jq -c '.reading // empty'"
+t_contains "$(cat "$T_ROOT/libexec/top")" "prev=''
+"
+
+t_case "the published file is the snapshot cut to the keys that may be published"
 reset
 files
 energy
@@ -537,12 +726,43 @@ t_eq "$t_out" ""
 t_eq "$(published)" "there"
 # The two snapshots are taken a second apart, so the age of the health file -
 # and the moment stamped on the snapshot - differ by that second. Everything
-# else is the same, and the console key is not in the published file at all.
-t_eq "$(jq -c 'del(.generatedAt, .console, .factory.ageSeconds)' "$live/top.json")" \
-  "$(jq -c 'del(.generatedAt, .console, .factory.ageSeconds)' <<<"$snapshot")"
+# else is the same, and neither the console of a cycle nor the reading the host
+# section was computed from is in the published file at all.
+t_eq "$(jq -c 'del(.generatedAt, .console, .reading, .factory.ageSeconds)' "$live/top.json")" \
+  "$(jq -c 'del(.generatedAt, .console, .reading, .factory.ageSeconds)' <<<"$snapshot")"
 t_eq "$(jq -r '.host | type' "$live/top.json")" "object"
-t_lacks "$(jq -c 'keys' "$live/top.json")" "console"
+t_eq "$(published_keys)" "cycle,energy,factory,generatedAt,host,queue,units"
 t_lacks "$live/top.json" "SecretTokenInACommandLine"
+
+# What is published is a list of keys, not a list of keys to take out: two keys
+# that are in the snapshot today reach the file only because they are named.
+t_case "a key added to the snapshot later does not reach the published file"
+reset
+files
+energy
+t_instance "${T_MINIMAL[@]}" TEHAS_TOP=1
+t_run "$publish"
+t_eq "$(published_keys)" "cycle,energy,factory,generatedAt,host,queue,units"
+# The same snapshot with a key no page draws, and one that holds a token: what
+# comes out of the cut is what it was without them.
+t_run '. "$T_ROOT/lib/top.sh"; snapshot=$(tehas_top_snapshot 16)
+  extended=$(jq -c ". + {token: \"ghp_aStringThatIsASecret\", draft: {note: \"not published\"}}" <<<"$snapshot")
+  tehas_top_published "$extended" >"$T/out"
+  jq -c "del(.generatedAt, .factory.ageSeconds, .console, .reading)" <<<"$snapshot" >"$T/kept"'
+t_eq "$t_rc" 0
+t_eq "$(jq -r 'keys | join(",")' "$T/out")" "cycle,energy,factory,generatedAt,host,queue,units"
+t_lacks "$T/out" "ghp_aStringThatIsASecret"
+t_lacks "$T/out" "not published"
+t_lacks "$T/out" "\"token\""
+t_eq "$(cat "$T/kept")" "$(jq -c 'del(.generatedAt, .factory.ageSeconds)' "$T/out")"
+
+# The cut answers nothing for a snapshot that is not one.
+t_case "the published cut refuses a snapshot that is not an object"
+reset
+t_run '. "$T_ROOT/lib/top.sh"; tehas_top_published "{not json}"'
+t_eq "$t_rc" 1
+t_run '. "$T_ROOT/lib/top.sh"; tehas_top_published ""'
+t_eq "$t_rc" 1
 
 t_case "the publisher writes the file and changes nothing else under live/"
 reset
@@ -586,8 +806,8 @@ t_instance "${T_MINIMAL[@]}" TEHAS_TOP=yes
 t_run "$publish"
 t_eq "$t_rc" 78
 t_contains "$t_out" "TEHAS_TOP is not valid: expected 0 or 1"
-t_eq "$(jq -c 'del(.generatedAt, .console, .factory.ageSeconds)' "$live/top.json")" \
-  "$(jq -c 'del(.generatedAt, .console, .factory.ageSeconds)' <<<"$snapshot")"
+t_eq "$(jq -c 'del(.generatedAt, .console, .reading, .factory.ageSeconds)' "$live/top.json")" \
+  "$(jq -c 'del(.generatedAt, .console, .reading, .factory.ageSeconds)' <<<"$snapshot")"
 
 t_case "with no instance settings the publisher stops with 78 and writes nothing"
 reset

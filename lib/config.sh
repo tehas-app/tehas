@@ -151,11 +151,13 @@ _tehas_valid() {
 }
 
 # The roles an instance may give a model of their own, as the suffix of
-# PI_ENSEMBLE_MODEL_<ROLE> and PI_ENSEMBLE_PROVIDER_<ROLE>. They are the roles
-# the pinned pi-rukas spawns (extension/src/roles.ts at PI_RUKAS_VERSION in
-# host/versions.env). All six lens reviewers are one role,
-# CODE_REVIEW_SPECIALIST. The project manager is the session: its model is the
-# product's .pi/settings.json. Change this list when a new pin changes them.
+# PI_ENSEMBLE_MODEL_<ROLE> and PI_ENSEMBLE_PROVIDER_<ROLE>, checked when the
+# settings load, before any image is asked. They are the members pi-rukas
+# v0.12.80 and later list for that family in --capabilities. tehas work checks
+# a cycle's names against the members its image lists, so a role pi-rukas
+# drops is refused there; one it adds is usable once it is added here. All six
+# lens reviewers are one role, CODE_REVIEW_SPECIALIST. The project manager is
+# the session: its model is the product's .pi/settings.json.
 tehas_model_roles() { printf '%s\n' DEVELOPER OPS EXPLORE ADVERSARIAL_DEVELOPER CODE_REVIEW_SPECIALIST; }
 
 # Check the per-role model settings and give each role model a provider.
