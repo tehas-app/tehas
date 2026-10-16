@@ -12,6 +12,7 @@ game=$T_ROOT/host/fun/game-view.css
 energy=$T_ROOT/host/fun/energy-view.css
 script=$T_ROOT/host/fun/energy-view.js
 hostjs=$T_ROOT/host/fun/host-view.js
+hostdata=$T_ROOT/host/fun/host-data.js
 hostcss=$T_ROOT/host/fun/host-view.css
 board=$T_ROOT/host/fun/game-view.js
 manual=$T_ROOT/host/docs/operating.md
@@ -26,6 +27,7 @@ energy_text=$(cat "$energy")
 script_text=$(cat "$script")
 board_text=$(cat "$board")
 hostjs_text=$(cat "$hostjs")
+hostdata_text=$(cat "$hostdata")
 hostcss_text=$(cat "$hostcss")
 
 # The markup of one element: from the line that opens it to the line that
@@ -482,25 +484,46 @@ t_contains "$hostcss_text" '.floor-host'
 t_contains "$hostcss_text" '.floor-head:has(> .floor-host:not([hidden]))'
 
 t_case "what the host says reaches the page as text, never as markup"
-t_lacks "$hostjs_text" 'innerHTML'
-t_lacks "$hostjs_text" 'insertAdjacentHTML'
-t_lacks "$hostjs_text" 'outerHTML'
+for text in "$hostjs_text" "$hostdata_text" "$frag_text"; do
+  t_lacks "$text" 'innerHTML'
+  t_lacks "$text" 'insertAdjacentHTML'
+  t_lacks "$text" 'outerHTML'
+done
 t_contains "$hostjs_text" 'th.textContent = name;'
-t_contains "$hostjs_text" 'const text = (v) => (typeof v === "string" ? v.slice(0, 64) : "");'
-# The published file is the snapshot of tehas top, and the panel reads it on
-# the publisher's own period.
+t_contains "$hostdata_text" 'const text = (v) => (typeof v === "string" ? v.slice(0, 64) : "");'
+# The published file is the snapshot of tehas top, and both pages read it on the
+# publisher's own period.
 t_contains "$hostjs_text" 'fetch("/live/top.json", { cache: "no-store" })'
-t_contains "$hostjs_text" 'export const PERIOD = 5;'
+t_contains "$frag_text" 'fetch("/live/top.json", { cache: "no-store" })'
+t_contains "$hostdata_text" 'export const PERIOD = 5;'
 # A file older than half a minute of publishes is shown as stale, not as live.
-t_contains "$hostjs_text" 'export const STALE_AFTER = 30;'
-t_contains "$frag_text" 'const HOST_STALE = 30;'
-t_lacks "$hostjs_text" 'STALE_AFTER = 45'
-t_lacks "$frag_text" 'HOST_STALE = 45'
+t_contains "$hostdata_text" 'export const STALE_AFTER = 30;'
+t_lacks "$hostdata_text" 'STALE_AFTER = 45'
+t_lacks "$frag_text" 'HOST_STALE'
 
 # Both pages judge the age of a snapshot by the server's clock: a host whose
 # clock runs behind would else read its own dead file as fresh.
 t_contains "$frag_text" 'Date.parse(r.headers.get("Date") || "")'
 t_contains "$hostjs_text" 'Date.parse(r.headers.get("Date") || "")'
+
+# One copy of what live/top.json means. The panel draws tables and the plain
+# dashboard draws a list, but both ask the same module for the figures, the
+# words for age and the bound on rows: the two cannot drift apart.
+t_case "the plain dashboard draws the host from the module the panel draws from"
+t_contains "$hostjs_text" 'import { MISS_RETRY, PERIOD, dueToRead, layout } from "./host-data.js";'
+t_contains "$frag_text" 'import { agoText, dueToRead, layout } from "/fun/host-data.js";'
+t_contains "$frag_text" '<script type="module">'
+# The dashboard's own copy of the reading is gone: no bound of its own for
+# staleness, no uptime of its own, no rounding of a percentage of its own.
+t_lacks "$frag_text" 'hostUptime'
+t_lacks "$frag_text" 'const figure ='
+t_contains "$frag_text" 'const view = layout(t, servedAt == null ? Date.now() : servedAt);'
+t_contains "$frag_text" 'for (const p of view.rows)'
+t_contains "$frag_text" 'for (const u of view.units)'
+# It is still a plain list: a ul per section, not the panel's tables.
+t_contains "$frag_text" '<ul class="issues" id="host-list"></ul>'
+t_contains "$frag_text" '<ul class="issues" id="unit-list"></ul>'
+t_lacks "$frag_text" 'insertRow'
 
 t_case "the panel lists the units below the processes, as tehas top lists them"
 t_contains "$host_section" '<table class="host-table host-units" id="host-units" aria-label="Units of the factory">'
@@ -508,15 +531,26 @@ t_contains "$host_section" '<tbody id="host-unit-rows"></tbody>'
 for name in UNIT INSTALLED STATE NEXT; do
   t_contains "$host_section" ">$name</th>"
 done
-t_contains "$hostjs_text" 'units: list(file.units)'
+t_contains "$hostdata_text" 'units: list(file.units)'
 t_contains "$hostjs_text" 'unitRows.replaceChildren();'
 # The plain dashboard gives the same as a simple list.
 t_contains "$frag_text" '<ul class="issues" id="unit-list"></ul>'
-t_contains "$frag_text" 'const units = (Array.isArray(t.units) ? t.units : [])'
+t_contains "$frag_text" 'u.installed + "  " + u.state'
 
 t_case "a page that publishes nothing is not asked for every five seconds"
-t_contains "$hostjs_text" 'const MISS_RETRY = 60;'
-t_contains "$hostjs_text" 'if (missedAt && Date.now() - missedAt < MISS_RETRY * 1000) return;'
+t_contains "$hostdata_text" 'export const MISS_RETRY = 60;'
+t_contains "$hostdata_text" 'if (hidden) return false;'
+t_contains "$hostjs_text" 'if (!dueToRead({ hidden: document.hidden, missedAt }, Date.now())) return;'
+t_contains "$frag_text" 'if (!dueToRead({ hidden: document.hidden, missedAt: hostMissedAt })) return;'
+# The plain dashboard notices a publisher that was turned on: coming back to the
+# page asks again at once.
+t_contains "$frag_text" 'hostMissedAt = 0; refreshHost();'
+t_contains "$frag_text" 'if (r.status === 404) hostMissedAt = Date.now();'
+# The rest of what the plain dashboard polls is its own: the queue every ten
+# seconds, and the console of a cycle every two.
+t_contains "$frag_text" 'setInterval(refresh, 10000);'
+t_contains "$frag_text" 'setInterval(tail, 2000);'
+t_lacks "$frag_text" 'setInterval(refreshHost'
 
 t_case "the manual and the feature list say the host panel exists"
 t_contains "$features_text" 'Host panel'

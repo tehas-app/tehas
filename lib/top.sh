@@ -1,8 +1,9 @@
 # shellcheck shell=bash
 # The snapshot behind `tehas top`, and the frame drawn from it.
 #
-#   tehas_top_snapshot <console lines wanted>    one JSON object on standard out
+#   tehas_top_snapshot <lines> [<previous host reading>]  one JSON object on standard out
 #   tehas_top_frame <snapshot> <width> <height>  the frame as plain text
+#   tehas_top_published <snapshot>               the part of it that may be published
 #   tehas_sanitize_text                          text in, safe text out
 #
 # The snapshot reads what the factory already writes under $TEHAS_HOME/live/ -
@@ -11,6 +12,14 @@
 # /proc. No GitHub call, no model, no Docker call, no instance settings, and
 # nothing is written. A section whose source is missing, unreadable or too old
 # to believe is null; the others are there all the same.
+#
+# The host section compares two readings of /proc. Given the reading taken by
+# the call before it, the snapshot takes one reading and waits for nothing: the
+# difference it reports is the time since that call. Given none, it takes a
+# second reading a second later so that its CPU figures measure something. The
+# reading a snapshot was computed from is in the snapshot under `reading`, which
+# is how a view that redraws hands it to the next frame. No page draws it, and
+# tehas_top_published leaves it out of what a page may read.
 #
 # The host section names a process by its short command name (comm) only. The
 # command line is never opened: it can hold tokens, addresses and paths. No
@@ -98,9 +107,9 @@ tehas_top_units() {
   ' | jq -c -s '.'
 }
 
-tehas_top_snapshot() { # <console lines wanted>
-  local want=${1:-16} live now health factory queue cycle units energy console
-  local name issue ended file lines
+tehas_top_snapshot() { # <console lines wanted> [<previous host reading>]
+  local want=${1:-16} live now health factory queue cycle units energy console host
+  local name issue ended file lines was reading later
   live=$TEHAS_HOME/live
   now=$(date +%s)
 
@@ -151,12 +160,26 @@ tehas_top_snapshot() { # <console lines wanted>
     case "$cycle" in '' | null) cycle=null ;; esac
   fi
 
-  # The host itself: two readings a second apart, so CPU use is what changed.
-  host=$(_tehas_host_section)
-  case "$host" in '' | null) host=null ;; esac
-  if [ "$host" != null ] && ! jq -e 'type == "object"' <<<"$host" >/dev/null 2>&1; then
-    host=null
+  # The host itself: a reading now, measured against the one before it. With a
+  # previous reading there is nothing to wait for and the window is the time
+  # since that reading. Without one, take a second reading a second on.
+  was=${2:-}
+  if [ -n "$was" ] && ! jq -e 'type == "object"' <<<"$was" >/dev/null 2>&1; then was=''; fi
+  host=''
+  reading=$(tehas_host_reading) || reading=''
+  if [ -n "$reading" ] && [ -n "$was" ]; then
+    host=$(tehas_top_host "$reading" "$was") || host=''
+  elif [ -n "$reading" ]; then
+    sleep 1
+    later=$(tehas_host_reading) || later=''
+    if [ -n "$later" ]; then
+      was=$reading
+      reading=$later
+      host=$(tehas_top_host "$reading" "$was") || host=''
+    fi
   fi
+  case "$host" in '' | null) host=null ;; esac
+  case "$reading" in '' | null) reading=null ;; esac
 
   units=$(tehas_top_units) || units=null
   case "$units" in '' | null) units=null ;; esac
@@ -201,8 +224,10 @@ tehas_top_snapshot() { # <console lines wanted>
   jq -c -n --arg generatedAt "$(date -u +%FT%TZ)" --argjson factory "$factory" \
     --argjson queue "$queue" --argjson cycle "$cycle" --argjson units "$units" \
     --argjson energy "$energy" --argjson console "$console" --argjson host "$host" \
+    --argjson reading "$reading" \
     "$tehas_top_safe_defs"'{ generatedAt: $generatedAt, factory: $factory, queue: $queue,
-     cycle: $cycle, host: $host, units: $units, energy: $energy, console: $console } | safe'
+     cycle: $cycle, host: $host, units: $units, energy: $energy, console: $console,
+     reading: $reading } | safe'
 }
 
 # --- the host section -------------------------------------------------------
@@ -404,14 +429,20 @@ tehas_top_host() { # <later reading> <earlier reading>
     '
 }
 
-# The host section of one snapshot: two readings, a second apart. A reading that
-# cannot be taken is no section.
-_tehas_host_section() {
-  local first second
-  first=$(tehas_host_reading) || return 1
-  sleep 1
-  second=$(tehas_host_reading) || return 1
-  tehas_top_host "$second" "$first"
+# What of the snapshot may be published: these keys and nothing else. A key
+# added to the snapshot later stays out of live/top.json until someone names it
+# here - the dashboard can be on the internet, and a rule that only removes the
+# keys somebody thought of is not a rule. The console of a cycle and the reading
+# a host section was computed from are in the snapshot and not in this list.
+# What is inside a listed key is fixed by the code that builds it: tehas_top_host
+# and tehas_top_units name every field they give, and the queue, cycle, energy
+# and console sections are cut to the fields the frame draws.
+tehas_top_publish_keys='["generatedAt","factory","queue","cycle","host","units","energy"]'
+
+tehas_top_published() { # <snapshot> -> the part of it that may be published, one line
+  jq -e 'type == "object"' <<<"${1:-}" >/dev/null 2>&1 || return 1
+  jq -c --argjson keep "$tehas_top_publish_keys" \
+    'with_entries(select(.key | IN($keep[])))' <<<"$1"
 }
 
 # The frame as text, in one jq pass. The plan is built first, one item per line
