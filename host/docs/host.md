@@ -357,7 +357,9 @@ models, and a token for each:
   `TEHAS_MODEL_KEY_` stops every command with exit 78.
 - Any other `$` or `!` in an `apiKey` stops every command that starts a
   container, and the dispatcher, with exit 78, and so does a name that is not
-  set. `./install.sh --check` reports both.
+  set. `./install.sh --check` reports both. It reads the tokens from
+  `~/.config/tehas/env` itself, so a first install, or an update from a
+  version that did not know them, finds them there.
 - `backupApiKey` defaults to `apiKey`.
 - Either endpoint can be any OpenAI-compatible endpoint, a
   [viiwork](https://github.com/janit/viiwork) mesh or not. Both are asked the
