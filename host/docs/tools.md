@@ -983,24 +983,30 @@ files, and every section that has an age prints it. A file older than ten
 minutes is not believed, the same rule `tehas status` uses.
 
 The frame is drawn from one snapshot and from nothing else. `--json` prints that
-snapshot: `generatedAt` and one key per section (`factory`, `queue`, `cycle`,
-`host`, `units`, `energy`, `console`). A section whose source is missing,
+snapshot: `generatedAt`, one key per section (`factory`, `queue`, `cycle`,
+`host`, `units`, `energy`, `console`) and `reading`, the raw reading of `/proc`
+the host section was computed from. A section whose source is missing,
 unreadable or too old to believe is `null`; the frame says so in one line and
 draws the rest. The factory line and the queue counts are the ones `tehas status`
 prints: both commands take them from `lib/status.sh`, so they cannot drift apart.
 A section added to the snapshot appears in `--json` without anything else
 changing.
 
-The host section is a second reading of `/proc`, taken one second after the
-first: the machine's cpu count, its three load averages, what share of its cpus
-and of its memory is in use over that second, and up to fifteen processes with
-their pid, their short name from `/proc/<pid>/stat`, their share of a cpu, their
-share of memory and how long they have been running. A process is named by that
-short name only: the command line, and everything else under `/proc/<pid>/`, is
-never opened. A pid that was reused between the two readings is not shown. The
-figures are what changed in that second, not the average since a process began.
-They sit between the cycle rows and the units; when the terminal is short the
-process rows go first, before the console lines.
+The host section compares two readings of `/proc`: the machine's cpu count, its
+three load averages, what share of its cpus and of its memory is in use between
+them, and up to fifteen processes with their pid, their short name from
+`/proc/<pid>/stat`, their share of a cpu, their share of memory and how long they
+have been running. A view that redraws hands the reading of one frame to the
+next, so a redraw measures the seconds since that frame instead of waiting; only
+a first frame, and `--json`, `--once` and `tehasbot top`, take a second reading a
+second after the first. The reading a snapshot was computed from is in it under
+`reading`, which is how it is handed on; no frame draws it and the published file
+does not hold it. A process is named by that short name only: the command line,
+and everything else under `/proc/<pid>/`, is never opened. A pid that was reused
+between the two readings is not shown. The figures are what changed between the
+readings, not the average since a process began. They sit between the cycle rows
+and the units; when the terminal is short the process rows go first, before the
+console lines.
 
 A frame follows the width and height of the terminal, also after a resize. Long
 lines are cut; nothing wraps and nothing scrolls. When the terminal is short,
@@ -1386,9 +1392,13 @@ systemctl --user enable --now tehas-top.service
 ```
 
 It builds the snapshot with the same `lib/top.sh` the terminal view uses, and
-writes it as one line of JSON with the `console` key removed: `generatedAt`,
-`factory`, `queue`, `cycle`, `host`, `units` and `energy`. The command reads the
-instance settings, so a setting that is missing or malformed stops it with 78;
+writes it as one line of JSON holding the keys the pages draw and nothing else:
+`generatedAt`, `factory`, `queue`, `cycle`, `host`, `units` and `energy`. The
+list is `tehas_top_publish_keys` in `lib/top.sh`. A key added to the snapshot
+later is not in the file until someone puts it on that list, which is how the
+console of a cycle and the raw reading a host section was computed from stay
+out. The command reads the instance settings, so a setting that is missing or
+malformed stops it with 78;
 with `--every` the same 78 ends the loop, and systemd shows the failing service.
 It writes the file only when `TEHAS_TOP` is `1`; with `0`, which is the default,
 it removes the file and exits 0. It writes to `top.json.new` and moves it into
@@ -1409,12 +1419,16 @@ nothing about the sandbox: a cycle's container is one process among those rows,
 and the console of a cycle is not in it.
 
 The factory floor reads it every 5 seconds, the plain dashboard on its own
-10-second refresh. Both show no host panel where the file is not there, and a
-page that gets no answer at all asks again once a minute rather than at every
-period. The panel gives the readings, then the processes, then the units as
-`tehas top` lists them: name, whether systemd has it installed, its state, and
-when a timer next fires. A snapshot older than 30 seconds is called stale rather
-than live.
+10-second refresh. Neither asks while the page is hidden, and both show no host
+section where the file is not there: a host that publishes nothing is asked again
+once a minute rather than at every period. Both pages work out what the file
+means with one module, `host/fun/host-data.js` - the figures, the words for how
+old a reading is, and the rule for when to ask again - so the panel and the plain
+list cannot say different things about the same file. The panel gives the
+readings, then the processes, then the units as `tehas top` lists them: name,
+whether systemd has it installed, its state, and when a timer next fires; the
+plain dashboard gives the same as a list. A snapshot older than 30 seconds is
+called stale rather than live.
 
 ## tehasbot protolab
 

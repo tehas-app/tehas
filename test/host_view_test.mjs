@@ -1,10 +1,14 @@
-// Tests the Host section: layout(), the pure step from live/top.json to what is
-// drawn, and the half that fetches and draws, against a page of stubs.
+// Tests the host view: layout(), the pure step from live/top.json to what is
+// drawn, the rule that says when a page asks for the file again, and the half of
+// host-view.js that fetches and draws, against a page of stubs. Both pages that
+// show the host - the panel on the factory floor and the plain dashboard - draw
+// from the same module (host/fun/host-data.js), so these cases are what the two
+// have in common.
 //
 //   node --test test/host_view_test.mjs
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { layout, PERIOD, ROWS, UNITS, uptime } from "../host/fun/host-view.js";
+import { agoText, dueToRead, layout, MISS_RETRY, PERIOD, ROWS, UNITS, uptime } from "../host/fun/host-data.js";
 
 const T = 1791526545;
 const NOW = T * 1000 + 5000; // five seconds after the file was written
@@ -148,6 +152,37 @@ test("how long a process has been running", () => {
   assert.deepEqual([uptime(0), uptime(59.4), uptime(60), uptime(3599), uptime(3600), uptime(86399), uptime(86400), uptime(90000)],
     ["0 s", "59 s", "1 min", "59 min", "1 h", "23 h", "1 d", "1 d"]);
   assert.deepEqual([uptime(null), uptime(-5), uptime("60")], ["-", "-", "-"]);
+});
+
+// The plain dashboard says when the snapshot was written in these words, and the
+// terminal view says how long ago a section is in the same buckets.
+test("how long ago, in the words both pages use", () => {
+  assert.deepEqual(layout(file(), NOW).ageSeconds, 5);
+  assert.deepEqual(agoText(layout(file(), NOW).ageSeconds), "just now");
+  assert.deepEqual([agoText(0), agoText(89), agoText(90), agoText(3600), agoText(5400), agoText(90000), agoText(200000)],
+    ["just now", "just now", "2 min ago", "60 min ago", "2 h ago", "25 h ago", "2 d ago"]);
+  // A snapshot stamped just ahead of the clock it is read with has no negative
+  // age. A figure that is not a number says nothing.
+  assert.deepEqual([agoText(-3), agoText(null), agoText("60")], ["just now", "", ""]);
+  // The age is measured against the moment the page got, which is the server's.
+  assert.deepEqual(layout(file(), T * 1000 + 45000).ageSeconds, 45);
+  assert.deepEqual(layout(file({ generatedAt: undefined }), NOW).ageSeconds, null);
+});
+
+// When a page asks for the file again. Both pages ask with this one rule.
+test("a read is not asked for while the page is hidden or just after a miss", () => {
+  assert.deepEqual(dueToRead({ hidden: false, missedAt: 0 }, NOW), true);
+  // Nothing on screen wants a fresh answer while the page is behind another one.
+  assert.deepEqual(dueToRead({ hidden: true, missedAt: 0 }, NOW), false);
+  assert.deepEqual(dueToRead({ hidden: true, missedAt: 0 }, NOW + 3600 * 1000), false);
+  // A file that was not there: quiet until MISS_RETRY has passed, then once.
+  assert.deepEqual(dueToRead({ hidden: false, missedAt: NOW }, NOW), false);
+  assert.deepEqual(dueToRead({ hidden: false, missedAt: NOW }, NOW + MISS_RETRY * 1000 - 1), false);
+  assert.deepEqual(dueToRead({ hidden: false, missedAt: NOW }, NOW + MISS_RETRY * 1000), true);
+  // A read that got a file asks again at the next period.
+  assert.deepEqual(dueToRead({ hidden: false, missedAt: 0 }, NOW + PERIOD * 1000), true);
+  // What a page that says nothing about itself gets: shown, and no miss.
+  assert.deepEqual(dueToRead(), true);
 });
 
 // The half that fetches and draws. It runs only where there is a document, so a

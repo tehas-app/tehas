@@ -463,7 +463,7 @@
   // then prints the ticket at modem speed. The flight is skipped when
   // motion is reduced or the monitor's number is not on screen.
   // Whatever the flight does, the place that was pressed answers: it latches in
-  // brass for a beat. Below 1280px the work order is a panel in the column and
+  // brass for a beat. Below 1440px the work order is a panel in the column and
   // can be off screen when a row is tapped, so the latch is what the tap gets.
   let flight = 0;
   function select(number, origin) {
@@ -514,21 +514,33 @@
     renderOrder();
   }
 
-  // On wide screens the first screen (the head panel, the stations, the doors)
-  // is centred in the window with equal room above and below, and the board
-  // starts under the fold. Offsets are used, not client rects, so the load
-  // animation does not skew them. The head panel's box is one of the inputs: its
-  // border, its padding and its lines stand above the doors. renderFloor asks
-  // for a refit when that panel changes; so do a resize and the fonts settling.
-  const wide = window.matchMedia("(min-width: 1280px)");
+  // On the widths where the monitor stands beside the stations the first screen
+  // (the head panel, the stations, the doors) is centred in the window with
+  // equal room above and below, and the board starts under the fold. Offsets are
+  // used, not client rects, so the load animation does not skew them. The head
+  // panel's box is one of the inputs: its border, its padding and its lines
+  // stand above the doors. renderFloor asks for a refit when that panel changes;
+  // so do a resize and the fonts settling. The width is the one the band comment
+  // at the head of game-view.css names for the stage's monitor column: centring
+  // the first screen is what fills the height that column stands over.
+  const wide = window.matchMedia("(min-width: 1440px)");
+  // Only a wide pass writes centred values on the root, so only one has any to
+  // take back. Below the monitor column the CSS fallbacks are the same numbers
+  // fold-fit gives when a window has nothing to spare.
+  let centred = false;
   function fitFold() {
     const fold = globalThis.TEHAS_FOLD_FIT;
     if (!fold) return; // fold-fit.js did not load: the CSS fallbacks stand
     const style = document.documentElement.style;
-    style.setProperty("--fold-pad", fold.TOP + "px");
-    style.setProperty("--fold-gap", fold.GAP + "px");
-    style.removeProperty("--monitor-height");
-    if (!wide.matches) return;
+    if (!wide.matches) {
+      if (centred) {
+        style.removeProperty("--fold-pad");
+        style.removeProperty("--fold-gap");
+        style.removeProperty("--monitor-height");
+        centred = false;
+      }
+      return;
+    }
     const doors = document.querySelector(".doors");
     const line = document.querySelector(".line");
     if (!doors || !line) return;
@@ -539,16 +551,17 @@
     const room = fold.fit(window.innerHeight, doors.offsetTop + doors.offsetHeight);
     style.setProperty("--fold-pad", room.foldPad + "px");
     style.setProperty("--fold-gap", room.foldGap + "px");
+    centred = true;
   }
   // fitFold reads offsets, which forces layout, and a render that asks for it has
   // not finished: measured mid-render the numbers come from content that is about
-  // to be replaced. Several renders may ask in one turn, so they get one read,
-  // taken at the end of the turn when every change in it has been made.
+  // to be replaced. A resize drags through many turns, so the read waits for the
+  // frame every change in them lands in: one fit and one layout per frame.
   let foldAsked = false;
   function refitFold() {
     if (foldAsked) return;
     foldAsked = true;
-    queueMicrotask(() => { foldAsked = false; fitFold(); });
+    requestAnimationFrame(() => { foldAsked = false; fitFold(); });
   }
   window.addEventListener("resize", refitFold);
   // Centring the first screen is a nicety: a failure here stops nothing else.
