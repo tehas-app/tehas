@@ -15,15 +15,17 @@
 # container's quota does not change what nproc says]: each keeps everything
 # under a scratch directory of its own
 # (test/lib.sh), and one after another they took about 18 minutes. Each file's
-# output is printed whole, in name order, once all have ended. What failed is
-# named again after all of it: a caller that keeps only the end of the output,
-# as scripts/verify.sh does, still sees every failing file.
+# output is printed whole, in name order, once all have ended. What failed and
+# what never ran is named again after all of it, capped so the block fits the
+# end of the output a caller keeps (scripts/verify.sh): it always gives the
+# count, and the names that do not fit are counted instead.
 #
 # Exit: 0 every check passed, 1 a check failed, 2 nothing could be checked
 set -uo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-bad=()
+bad=()      # checks that failed: shellcheck, or a test file relative to the checkout
+skipped=()  # checks that did not run, with the reason
 ran=0
 
 files=()
@@ -36,6 +38,7 @@ for f in "$root"/bin/* "$root"/libexec/* "$root"/lib/*.sh "$root"/scripts/*.sh "
 done
 if ! command -v shellcheck >/dev/null 2>&1; then
   echo "WARN: shellcheck is not installed, skipping it" >&2
+  skipped+=("shellcheck is not installed")
 elif [ "${#files[@]}" -gt 0 ]; then
   ran=1
   if (cd "$root" && shellcheck -x "${files[@]}"); then
@@ -76,16 +79,37 @@ for t in "${tests[@]}"; do
 done
 wait
 for t in "${tests[@]}"; do
-  cat "$out/${t##*/}.log" 2>/dev/null
-  [ "$(cat "$out/${t##*/}.rc" 2>/dev/null)" = 0 ] || bad+=("${t#"$root"/}")
+  name=${t#"$root"/}
+  cat "$out/${t##*/}.log" 2>/dev/null || echo "$name: its output could not be read"
+  rc=$(cat "$out/${t##*/}.rc" 2>/dev/null)
+  [ "$rc" = 0 ] && continue
+  # A missing .rc means the file never ended. It is a failure, and says so.
+  if [ -z "$rc" ]; then
+    bad+=("$name: it did not finish, no result recorded")
+  else
+    bad+=("$name")
+  fi
 done
-if [ "${#bad[@]}" -gt 0 ]; then
-  echo "test.sh: failed checks (${#bad[@]})"
-  for n in "${bad[@]}"; do
-    echo "    $n"
+
+# scripts/verify.sh keeps the last 40 lines of this step, so the block is capped
+# to fit them whole: header, cap names, the line that counts the rest, and one
+# line per check that did not run.
+cap=36
+failed=${#bad[@]}
+[ "$ran" = 1 ] || { echo "test.sh: nothing could be checked" >&2; exit 2; }
+if [ "$failed" -gt 0 ] || [ "${#skipped[@]}" -gt 0 ]; then
+  printf '\ntest.sh: failed checks (%s), not run (%s)\n' "$failed" "${#skipped[@]}"
+  first=$((failed > cap ? failed - cap : 0))
+  for ((i = first; i < failed; i++)); do
+    # A file name is data from the filesystem: control bytes become ? so the
+    # block cannot print escapes or split one entry into two lines.
+    printf '    %s\n' "${bad[i]//[^[:print:]]/?}"
+  done
+  [ "$first" = 0 ] || echo "    and $first more, in the full log"
+  for s in "${skipped[@]}"; do
+    printf '    skipped: %s\n' "$s"
   done
 fi
 
-[ "$ran" = 1 ] || { echo "test.sh: nothing could be checked" >&2; exit 2; }
-[ "${#bad[@]}" = 0 ] || exit 1
+[ "$failed" -eq 0 ] || exit 1
 exit 0
