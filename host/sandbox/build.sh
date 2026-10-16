@@ -9,9 +9,11 @@
 #
 # The base is the image upstream publishes for each commit on its branch,
 # tagged sha-<first 12 characters>. The commit becomes the label tehas.rukas.
-# Tool versions come from versions.env, one directory up. The build also asks
-# the base image whether its pi-rukas reads the images a cycle is given, and
-# records the answer in the image. See the header of host/sandbox/Dockerfile.
+# Tool versions come from versions.env, one directory up. The build first asks
+# the base image's runner what it supports (pi-rukas-headless --capabilities)
+# and builds nothing on a base whose contract tehas work cannot use. Whether
+# its pi-rukas reads the images a cycle is given is recorded in the image. See
+# the header of host/sandbox/Dockerfile.
 #
 # Each image is several gigabytes. After a build only the newest 3 date
 # tags are kept. An older one is removed unless a container, running or
@@ -24,7 +26,8 @@
 #        build.sh --check      build nothing; say whether the head moved
 #
 # Exit: 0 built, or nothing to do; 1 the head moved (--check), or the head,
-#       the base image or the build could not be had; 64 usage
+#       the base image or the build could not be had, or the base does not
+#       support what tehas work needs; 64 usage
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -72,25 +75,45 @@ if ! docker pull -q "$base" >/dev/null 2>&1; then
   exit 1
 fi
 
-# What the base image's pi-rukas reads. The manifest tehas writes beside a
-# cycle's images is read by one file of pi-rukas's own source, and the base
-# image carries that source, so the base is asked directly. The answer goes
-# into the new image as a label, which is what the dispatcher, tehas work and
-# tehas plan read; the Dockerfile checks it against the base it builds on.
-reader=/opt/pi-rukas/extension/src/work-driver-issue-images.ts
+# What the base image's pi-rukas supports, asked with its own --capabilities
+# answer before anything is built (lib/headless.sh reads it). An image that
+# does not speak the contract versions tehas work reads, or whose runner does
+# not take the flags it passes, is not built: every cycle on it would be
+# refused. Whether its pi-rukas reads the images a cycle is given goes into the
+# new image as a label, which is what the dispatcher, tehas work and tehas
+# plan read; the Dockerfile asks the base it builds on again.
+headless=""
+for f in "$here/../lib/headless.sh" "$here/../../lib/headless.sh"; do
+  [ -f "$f" ] && { headless=$f; break; }
+done
+if [ -z "$headless" ]; then
+  echo "sandbox: no lib/headless.sh beside $here, the base cannot be checked" >&2
+  exit 1
+fi
+# shellcheck source=lib/headless.sh
+. "$headless"
 rc=0
-docker run --rm --entrypoint test "$base" -e "$reader" >/dev/null 2>&1 || rc=$?
+caps=$(docker run --rm --init "$base" /opt/pi-rukas/bin/pi-rukas-headless --capabilities 2>/dev/null) || rc=$?
 case "$rc" in
-  0) reads=1 ;;
-  1) reads=0 ;;
+  0) ;;
   125)
-    # Docker could not start the container at all: no such image, or nothing
-    # to run it with. The build stops rather than label an unknown base.
-    echo "sandbox: $base could not be run to be asked (docker said 125): no such image, or no test binary at its entrypoint" >&2
+    # Docker could not start the container at all. The build stops rather
+    # than label an unknown base.
+    echo "sandbox: $base could not be run to be asked (docker said 125)" >&2
     exit 1
     ;;
-  *) echo "sandbox: could not ask $base whether its pi-rukas reads issue images (docker said $rc)" >&2; exit 1 ;;
+  *) echo "sandbox: $base gave no --capabilities answer (exit $rc)" >&2; exit 1 ;;
 esac
+if ! unsupported=$(tehas_headless_unsupported "$caps" "--timeout --json --restart" ""); then
+  echo "sandbox: the --capabilities answer of $base is not a JSON object" >&2
+  exit 1
+fi
+if [ -n "$unsupported" ]; then
+  echo "sandbox: $base does not support what tehas work needs, not building:" >&2
+  printf '%s\n' "$unsupported" | sed 's/^/    /' >&2
+  exit 1
+fi
+reads=$(tehas_headless_reads_images "$caps")
 
 stamp=$(date -u +%y%m%d-%H%M)
 docker build \

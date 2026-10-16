@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 # Tests for host/sandbox/build.sh, against stub git and docker: it builds on
-# upstream's image for the head of the branch versions.env names, labels the
-# image with that commit and with whether its pi-rukas reads issue images, and
-# with --if-moved or --check looks at the label of the current image first.
+# upstream's image for the head of the branch versions.env names, only when
+# that image's --capabilities answer has the contract tehas work needs, labels
+# the image with that commit and with whether its pi-rukas reads issue images,
+# and with --if-moved or --check looks at the label of the current image first.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh"
 
 home=$T/home/tehas
-mkdir -p "$home/sandbox"
+mkdir -p "$home/sandbox" "$home/lib"
 cp "$T_ROOT/host/sandbox/build.sh" "$home/sandbox/"
+cp "$T_ROOT/lib/headless.sh" "$home/lib/"
 cp "$T_ROOT/host/versions.env" "$home/"
 sed -i 's#^PI_RUKAS_REPO=.*#PI_RUKAS_REPO=https://github.com/Up-Owner/pi-rukas.git#' "$home/versions.env"
 build=$home/sandbox/build.sh
@@ -22,16 +24,19 @@ uid=$(id -u)
 
 # git answers the head in $fx/head, nothing when the file is missing. docker
 # answers the label in $fx/label, a pull fails when $fx/pull-fails exists, and
-# asking the base for the reader exits with $fx/ask-rc, 0 when it is missing.
+# asking the base for its capabilities prints $fx/caps.json and exits with
+# $fx/ask-rc, 0 when it is missing.
 t_stub git '[ -e "$T/fx/head" ] || exit 2; printf "%s\trefs/heads/main\n" "$(cat "$T/fx/head")"'
 t_stub docker 'case "$1" in
   image) [ -e "$T/fx/label" ] || exit 1; cat "$T/fx/label" ;;
   pull) [ ! -e "$T/fx/pull-fails" ] || exit 1 ;;
-  run) exit "$(cat "$T/fx/ask-rc" 2>/dev/null || echo 0)" ;;
+  run) cat "$T/fx/caps.json" 2>/dev/null; exit "$(cat "$T/fx/ask-rc" 2>/dev/null || echo 0)" ;;
 esac'
+caps=$T_ROOT/test/fixtures/headless-1ca933e/capabilities.json
 reset() {
   rm -f "$T"/calls/* "$fx"/*
   echo "$head" >"$fx/head"
+  cp "$caps" "$fx/caps.json"
 }
 
 t_case "a build takes upstream's image for the head and labels it with the commit"
@@ -46,14 +51,51 @@ t_contains "$t_out" "with pi-rukas $head, issue images: 1, also tagged tehas/pi-
 # A plain build does not ask what the current image is on.
 t_lacks "$(t_calls docker)" "image inspect"
 
-t_case "the base of the head is asked whether its pi-rukas reads issue images"
-t_contains "$(t_calls docker)" "run --rm --entrypoint test ghcr.io/up-owner/pi-rukas:sha-aaaaaaaaaaaa -e /opt/pi-rukas/extension/src/work-driver-issue-images.ts"
+t_case "the base of the head is asked for its capabilities, and whether it reads issue images is its answer"
+t_contains "$(t_calls docker)" "run --rm --init ghcr.io/up-owner/pi-rukas:sha-aaaaaaaaaaaa /opt/pi-rukas/bin/pi-rukas-headless --capabilities"
 t_contains "$(t_calls docker)" "--build-arg TEHAS_RUKAS_IMAGES=1"
 t_contains "$t_out" "issue images: 1"
 reset
-echo 1 >"$fx/ask-rc"
+jq 'del(.inputs[] | select(.name == "PI_ENSEMBLE_ISSUE_IMAGES"))' "$caps" >"$fx/caps.json"
+t_run "$build"
+t_eq "$t_rc" 0
+t_contains "$(t_calls docker)" "--build-arg TEHAS_RUKAS_IMAGES=0"
+reset
+jq '(.inputs[] | select(.name == "PI_ENSEMBLE_ISSUE_IMAGES") | .manifestVersion) = 2' "$caps" >"$fx/caps.json"
 t_run "$build"
 t_contains "$(t_calls docker)" "--build-arg TEHAS_RUKAS_IMAGES=0"
+
+t_case "the v0.12.80 image passes the check"
+reset
+cp "$T_ROOT/test/fixtures/headless-0.12.80/capabilities.json" "$fx/caps.json"
+t_run "$build"
+t_eq "$t_rc" 0
+t_contains "$(t_calls docker)" "--build-arg TEHAS_RUKAS_IMAGES=1"
+
+t_case "a base whose contract tehas work cannot use is not built on, and each gap is named"
+reset
+jq '.contracts.resultSchema.version = 4 | .verbs.work.flags -= ["--timeout"]' "$caps" >"$fx/caps.json"
+t_run "$build"
+t_eq "$t_rc" 1
+t_contains "$t_out" "does not support what tehas work needs, not building"
+t_contains "$t_out" "result schema version 4, not 3"
+t_contains "$t_out" "the flag --timeout"
+t_lacks "$(t_calls docker)" "build --build-arg"
+
+t_case "a base with no answer, or one that is not JSON, is not built on"
+reset
+rm -f "$fx/caps.json"
+echo 2 >"$fx/ask-rc"
+t_run "$build"
+t_eq "$t_rc" 1
+t_contains "$t_out" "gave no --capabilities answer (exit 2)"
+t_lacks "$(t_calls docker)" "build --build-arg"
+reset
+echo "pi-rukas-headless: unknown verb" >"$fx/caps.json"
+t_run "$build"
+t_eq "$t_rc" 1
+t_contains "$t_out" "is not a JSON object"
+t_lacks "$(t_calls docker)" "build --build-arg"
 
 t_case "a base that cannot be run stops the build and says why"
 reset
@@ -62,6 +104,15 @@ t_run "$build"
 t_eq "$t_rc" 1
 t_contains "$t_out" "could not be run to be asked (docker said 125)"
 t_lacks "$(t_calls docker)" "build --build-arg"
+
+t_case "without lib/headless.sh beside it nothing is built"
+reset
+mv "$home/lib/headless.sh" "$T/headless.sh"
+t_run "$build"
+t_eq "$t_rc" 1
+t_contains "$t_out" "no lib/headless.sh"
+t_lacks "$(t_calls docker)" "build --build-arg"
+mv "$T/headless.sh" "$home/lib/headless.sh"
 
 t_case "with --if-moved an image already on the head is left alone"
 reset

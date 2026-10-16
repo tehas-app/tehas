@@ -29,7 +29,7 @@ mod render;
 mod tail;
 
 use render::Entry;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
@@ -122,7 +122,6 @@ fn reopened(out: File, path: &str) -> io::Result<File> {
 fn run(args: &Args, stop: &AtomicBool) -> io::Result<()> {
     let mut out = open_out(&args.out)?;
     let mut follower = tail::Follower::default();
-    let mut workstreams: HashMap<String, String> = HashMap::new();
     let mut seen: HashSet<String> = HashSet::new();
     write(
         &mut out,
@@ -149,17 +148,9 @@ fn run(args: &Args, stop: &AtomicBool) -> io::Result<()> {
                 break;
             }
             let role = tail::role(&transcript.path);
+            let who = mask::mask(&role);
             for line in follower.transcript_lines(&transcript) {
-                if let Some(workstream) = render::workstream(&line) {
-                    workstreams.insert(transcript.path.clone(), workstream);
-                }
-                // Parallel agents of one role are told apart as the driver
-                // names them when it starts them.
-                let who = match workstreams.get(&transcript.path) {
-                    Some(workstream) => format!("{role}[{workstream}]"),
-                    None => role.clone(),
-                };
-                for entry in render::transcript_line(&mask::mask(&who), &line) {
+                for entry in render::transcript_line(&who, &line) {
                     write(&mut out, &entry)?;
                 }
             }

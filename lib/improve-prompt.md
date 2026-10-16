@@ -9,8 +9,9 @@ pi-rukas could be better, and to write your findings to one file.
   - `cycle.json`: issue number, seconds, final status and step, exit status,
     the pull request if there is one, `oomKills`, how many processes in
     the cycle's container were killed for memory (0 when none), `rukas`,
-    the commit of pi-rukas the cycle ran, as the sandbox image's label
-    names it, `image`, the id of the sandbox image its container started
+    the commit of pi-rukas the sandbox image's label names, `buildCommit`,
+    the commit pi-rukas's runner reported it ran (the one to trust when the
+    two differ), `image`, the id of the sandbox image its container started
     from, and `cap` and `capReason`, the cap that ended the cycle and the
     failure before it (null when there were none). Also what the cycle ran
     with: `settings.container`, every `PI_ENSEMBLE_*` variable its container
@@ -116,7 +117,8 @@ cycle went through the same place without it. If the cycle never reached that
 place, leave the pair out. Put what you saw in `note`, with the lines that
 show it. A problem that is seen again is a follow-up, not a new finding.
 Say only what the cycle shows. Whether the fix was in the build the cycle
-ran is checked after you, against its `rukas` commit, and the comment says
+ran is checked after you, against its `buildCommit` (else its `rukas`
+commit), and the comment says
 so: a problem seen again in a cycle that ran without the fix is not a sign
 the fix failed.
 

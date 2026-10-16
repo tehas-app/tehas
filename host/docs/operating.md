@@ -637,10 +637,11 @@ stack is filed as an issue of its own in that repository.
   later cycle of a product issue is read and an issue the loop filed rests on
   an earlier cycle of it, the model says whether the problem came back. That
   is a comment on the filed issue, open or closed: `Seen again: yes` or `no`,
-  what the new cycle showed, its whole log, and the pi-rukas commit the host
-  was installed with. Of a closed issue in the repository for pi-rukas, the
-  loop asks GitHub whether the commit that closed it is in that pi-rukas
-  commit, the question `git merge-base --is-ancestor` answers. When it is
+  what the new cycle showed, its whole log, and the pi-rukas commit the cycle
+  ran: the `buildCommit` of its runner's result, or for a record written
+  before tehas kept it, the sandbox image's label. Of a closed issue in the
+  repository for pi-rukas, the loop asks GitHub whether the commit that closed
+  it is in that pi-rukas commit, the question `git merge-base --is-ancestor` answers. When it is
   not, the comment says `not in this build` instead of `yes`. When the
   record names no commit, or GitHub does not answer, it says `build unknown`.
   The record names no commit of the factory, so an issue there that a

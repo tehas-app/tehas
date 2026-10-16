@@ -20,6 +20,7 @@ t_stub docker 'case "$1" in
   inspect) shift 3; for c in "$@"; do awk -v c="$c" "\$1 == c { print \$2 }" "$T/containers"; done ;;
   image) awk "!seen[\$1]++" "$T/images" ;;
   rmi) [ "$2" != "${RMI_FAILS:-}" ] || exit 1 ;;
+  run) cat "$T_ROOT/test/fixtures/headless-1ca933e/capabilities.json" ;;
 esac'
 # Six builds before this one, the oldest first, each its own image. The last
 # also carried the uid tag, which the build moves to the new image.
