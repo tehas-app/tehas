@@ -797,7 +797,7 @@ that cycle ran.
 | Service     | How it runs                                                | Check                                                  |
 | ----------- | ---------------------------------------------------------- | ------------------------------------------------------ |
 | This site   | `docker compose -f ~/tehas/edge/docs.compose.yaml up -d`   | `curl -i http://tehas-tehas:8080/health`               |
-| Dispatcher  | systemd user timer `tehas-dispatch.timer`, every 2 minutes | `tail ~/tehas/logs/dispatch.log`                       |
+| Dispatcher  | systemd user timer `tehas-dispatch.timer`, every 2 minutes, and `tehas-dispatch.path`, a poll as soon as a cycle ends | `tail ~/tehas/logs/dispatch.log`                       |
 | Energy use sampler, optional | systemd user service `tehas-energy.service`, every 15 s. Enable it only when the model backend is a [viiwork](https://github.com/janit/viiwork) mesh | `jq .generatedAt ~/tehas/live/energy.json` |
 | Host snapshot publisher, optional | systemd user service `tehas-top.service`, every 5 s. It writes nothing unless `TEHAS_TOP=1` | `jq '.host.cpus, .host.load' ~/tehas/live/top.json` |
 | Protolab pages | systemd user timer `tehas-protolab.timer`, every 5 minutes | `tail ~/tehas/logs/protolab.log` |
