@@ -171,7 +171,10 @@ must be listed too. The example's, with one provider and one model:
 ```
 
 `gb1` is the model host's name on the private network. The endpoint takes no
-key, so `apiKey` is a placeholder. The example's endpoint is a
+key, so `apiKey` is a placeholder. An endpoint that takes one gets
+`"apiKey": "$TEHAS_MODEL_KEY_MAIN"` and the token in `~/.config/tehas/env`,
+never in `models.json`. A second endpoint for the same models goes in
+`backupBaseUrl`: see [A backup model endpoint](/host#a-backup-model-endpoint). The example's endpoint is a
 [viiwork](https://github.com/janit/viiwork) mesh: a flexible meshed inference platform for both home and enterprise grade hardware.
 That is not required: any OpenAI-compatible endpoint that serves
 your model works, and only the optional Energy use section depends on viiwork.

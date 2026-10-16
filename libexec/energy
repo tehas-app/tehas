@@ -22,13 +22,15 @@
 # copied. Deterministic, no model, one HTTP call.
 #
 # The mesh is the one the factory's model provider points at (models.json),
-# unless TEHAS_ENERGY_URL names a cluster URL. TEHAS_ENERGY=off removes the
-# file, and with it the section.
+# its main endpoint or else its backup, asked with the endpoint's token,
+# unless TEHAS_ENERGY_URL names a cluster URL, which is asked with none.
+# TEHAS_ENERGY=off removes the file, and with it the section.
 #
-#   the mesh answers with a cluster snapshot   the file is rewritten
-#   no answer, a timeout, a server error       the file is left as it is
-#   (5xx) or a busy answer (408, 429)
-#   any other answer                           the file is removed: not viiwork
+#   one answers with a cluster snapshot        the file is rewritten
+#   else one gives no answer, a timeout, a     the file is left as it is
+#   server error (5xx) or a busy answer
+#   (408, 429)
+#   any other answers                          the file is removed: not viiwork
 #
 # Usage: tehasbot energy               one sample
 #        tehasbot energy --every       one sample at every 15-second mark, for ever
@@ -36,6 +38,9 @@
 # Prints nothing; exit 0 unless the file cannot be written.
 set -uo pipefail
 
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/models.sh
+. "$here/../lib/models.sh"
 : "${TEHAS_HOME:=$HOME/tehas}"
 period=15
 window=1800
@@ -58,26 +63,44 @@ if [ "${TEHAS_ENERGY:-}" = off ]; then
   exit 0
 fi
 
-url=${TEHAS_ENERGY_URL:-}
-if [ -z "$url" ]; then
-  base=$(jq -r --arg p "${PI_ENSEMBLE_SUBAGENT_PROVIDER:-fleet}" '.providers[$p].baseUrl // ""' \
-    "${TEHAS_MODELS_FILE:-$HOME/.pi/agent/models.json}" 2>/dev/null) || base=""
-  if [ -z "$base" ]; then
-    rm -f "$file"
-    exit 0
-  fi
-  base=${base%/}
-  url=${base%/v1}/v1/cluster
+# Where to ask: TEHAS_ENERGY_URL, else the provider's endpoint and then its
+# backup, each with its token. The first that answers with a cluster snapshot
+# is sampled. With none, one that did not answer or was busy leaves the file
+# as it is, and otherwise it is removed.
+models_file=${TEHAS_MODELS_FILE:-$HOME/.pi/agent/models.json}
+provider=${PI_ENSEMBLE_SUBAGENT_PROVIDER:-fleet}
+asks=()
+if [ -n "${TEHAS_ENERGY_URL:-}" ]; then
+  asks=("$TEHAS_ENERGY_URL|")
+else
+  for end in main backup; do
+    base=$(tehas_endpoint_url "$provider" "$end" "$models_file")
+    [ -n "$base" ] || continue
+    base=${base%/}
+    asks+=("${base%/v1}/v1/cluster|$(tehas_endpoint_key "$provider" "$end" "$models_file")")
+  done
 fi
-
-# The body, then the HTTP status on a line of its own.
-answer=$(curl -sS -m 5 -w '\n%{http_code}' "$url" 2>/dev/null) || exit 0
-code=${answer##*$'\n'}
-body=${answer%$'\n'*}
-case "$code" in 5* | 408 | 429) exit 0 ;; esac
-if [ "$code" != 200 ] ||
-  ! printf '%s' "$body" | jq -e 'type == "object" and (.members | type == "array")' >/dev/null 2>&1; then
+if [ "${#asks[@]}" = 0 ]; then
   rm -f "$file"
+  exit 0
+fi
+body=""
+later=0
+for ask in "${asks[@]}"; do
+  # The body, then the HTTP status on a line of its own.
+  answer=$(curl -sS -K <(_tehas_endpoint_auth "${ask#*|}") -m 5 -w '\n%{http_code}' "${ask%%|*}" 2>/dev/null) ||
+    { later=1; continue; }
+  code=${answer##*$'\n'}
+  answer=${answer%$'\n'*}
+  case "$code" in 5* | 408 | 429) later=1; continue ;; esac
+  if [ "$code" = 200 ] &&
+    printf '%s' "$answer" | jq -e 'type == "object" and (.members | type == "array")' >/dev/null 2>&1; then
+    body=$answer
+    break
+  fi
+done
+if [ -z "$body" ]; then
+  [ "$later" = 1 ] || rm -f "$file"
   exit 0
 fi
 

@@ -529,6 +529,29 @@ t_contains "$t_out" "models.json does not list model big-model under provider te
 t_lacks "$t_out" "model session-model"
 t_lacks "$t_out" "model test-model"
 
+t_case "a model token models.json names and the host has not set is a finding; one that is set is not"
+fresh
+instance
+jq '.providers."test-provider" += {apiKey: "$TEHAS_MODEL_KEY_MAIN", backupBaseUrl: "https://fleet.test/v1"}' \
+  "$TEHAS_INSTANCE_DIR/models.json" >"$T/m.json" && mv "$T/m.json" "$TEHAS_INSTANCE_DIR/models.json"
+t_run "$install --check"
+t_eq "$t_rc" 78
+t_contains "$t_out" "models.json names TEHAS_MODEL_KEY_MAIN and it is not set"
+T_ENV+=(TEHAS_MODEL_KEY_MAIN=main-secret)
+t_run "$install --check"
+t_lacks "$t_out" "TEHAS_MODEL_KEY_MAIN"
+t_lacks "$t_out" "main-secret"
+T_ENV=("${T_ENV[@]:0:${#T_ENV[@]}-1}")
+
+t_case "an apiKey that names any other variable or a command is a finding"
+fresh
+instance
+jq '.providers."test-provider".apiKey = "!cat ~/.config/tehas/env"' \
+  "$TEHAS_INSTANCE_DIR/models.json" >"$T/m.json" && mv "$T/m.json" "$TEHAS_INSTANCE_DIR/models.json"
+t_run "$install --check"
+t_eq "$t_rc" 78
+t_contains "$t_out" "provider test-provider has an apiKey that is neither a word nor"
+
 t_case "a role pi-rukas does not know installs nothing"
 fresh
 instance PI_ENSEMBLE_MODEL_REVIEWER=test-model
@@ -880,9 +903,15 @@ for name in example tehas-tehas; do
   t_case "the shipped instance '$name' is valid"
   fresh
   export TEHAS_INSTANCE_DIR=$T_ROOT/instances/$name
+  # The tokens are the host's, not the instance's: stand-ins for each it names.
+  keep=("${T_ENV[@]}")
+  while read -r k; do
+    [ -z "$k" ] || T_ENV+=("$k=stand-in")
+  done < <(bash -c ". $T_ROOT/lib/models.sh; tehas_model_key_names $TEHAS_INSTANCE_DIR/models.json")
   t_run "$install --check"
   t_lacks "$t_out" "INVALID"
   t_contains "$t_out" "Instance:     $T_ROOT/instances/$name OK"
+  T_ENV=("${keep[@]}")
 done
 rm -f "$T/bin/nproc"
 

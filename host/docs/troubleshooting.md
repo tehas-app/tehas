@@ -121,7 +121,8 @@ Run `tehas dispatch --dry-run` and read what it prints.
   merged`: the cycle's work was done, so the poll stopped it and gave its slot
   to the next issue. Nothing more is needed.
 - `holding: no resources: the model endpoint ...`: the model endpoint does not
-  answer, offers no models, or does not offer the configured model. Nothing
+  answer, offers no models, or does not offer the configured model, and
+  neither does its backup where `models.json` names one. Nothing
   starts, no cycle, no planning turn and no retry. The issues stay queued and
   are taken as soon as the endpoint answers. See "The model endpoint does not
   answer" below.
@@ -490,7 +491,10 @@ removes the trap.
 curl -s -m 10 "$(jq -r '.providers.fleet.baseUrl' ~/.pi/agent/models.json)/models" | jq -r '.data[].id'
 ```
 
-`fleet` is the provider's name in the example. The dispatcher makes this call
+`fleet` is the provider's name in the example. An endpoint that takes a token
+answers 401 without one: add `-H "Authorization: Bearer $TEHAS_MODEL_KEY_MAIN"`
+from a login shell. For the backup, ask `.providers.fleet.backupBaseUrl` the
+same way. The dispatcher makes this call
 at every poll. While the call fails, or the answer lists no models or not the
 configured one, it starts nothing: `tehas status` says `warn: No resources`,
 the dashboard says `no resources`, and the dispatcher's log has one line that

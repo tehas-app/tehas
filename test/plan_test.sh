@@ -68,6 +68,7 @@ printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitco
 # Pi's settings as install.sh leaves them on a host.
 mkdir -p "$T/home/.pi/agent"
 echo '{"retry":{"provider":{"timeoutMs":600000,"maxRetries":8,"maxRetryDelayMs":60000}}}' >"$T/home/.pi/agent/settings.json"
+echo '{"providers":{}}' >"$T/home/.pi/agent/models.json"
 # A host with the root step done: the slice loaded from its file with 8 GiB,
 # so a container's ceiling is 2048m, Docker on the systemd driver and cgroup
 # v2, and nothing in the slice.
@@ -182,7 +183,7 @@ $state/cache:/home/vscode/.tehas-cache
 $state/memory:/home/vscode/.vipune
 $state/sessions:/home/vscode/.pi/agent/sessions
 $T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
-$T/home/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro
+$state/models.json:/home/vscode/.pi/agent/models.json:ro
 $T/home/.pi/agent/settings.json:/home/vscode/.pi/agent/settings.json:ro"
 t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
 
@@ -853,7 +854,7 @@ rm -f "$T"/calls/*
 t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/brief.md"
 t_eq "$t_rc" 0
 t_eq "$(cat "$T/calls/curl.urls" 2>/dev/null)" ""
-rm -f "$T/home/.pi/agent/models.json"
+echo '{"providers":{}}' >"$T/home/.pi/agent/models.json"
 
 t_case "with files alone a first turn fetches them, and the turn gets the one directory and the one variable"
 images_on

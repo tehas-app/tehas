@@ -275,6 +275,35 @@ t_eq "$t_rc" 0
 t_eq "$(there)" gone
 t_eq "$(asked)" 3
 
+t_case "a main endpoint that is not a mesh is passed over for its backup, asked with the backup's token"
+t_stub curl 'for a; do case "$a" in /dev/fd/*) cat "$a" >>"$T/calls/curl-config" ;; esac; done
+case "$*" in
+  *main.example*) [ ! -e "$T/mesh/main-down" ] || exit 7; printf "%s\n404" "not found" ;;
+  *) cat "$T/mesh/body"; printf "\n%s" "$(cat "$T/mesh/status")" ;;
+esac'
+fresh
+rm -f "$T/calls/curl-config"
+jq -n '{providers: {fleet: {baseUrl: "https://main.example/v1", apiKey: "$TEHAS_MODEL_KEY_MAIN",
+  backupBaseUrl: "http://mesh.example:8086/v1", backupApiKey: "$TEHAS_MODEL_KEY_FLEET"}}}' >"$models"
+T_ENV=(TEHAS_MODELS_FILE="$models" TEHAS_MODEL_KEY_MAIN=main-secret TEHAS_MODEL_KEY_FLEET=fleet-secret TEHAS_ENERGY_NOW="$NOW")
+t_run "$energy"
+t_eq "$(there)" there
+t_eq "$(t_calls curl | awk '{ print $NF }' | tr '\n' ' ')" "https://main.example/v1/cluster $url "
+t_eq "$(cat "$T/calls/curl-config")" 'header = "Authorization: Bearer main-secret"
+header = "Authorization: Bearer fleet-secret"'
+t_lacks "$(t_calls curl)" "secret"
+# The backup busy and the main one not a mesh: the file is kept.
+mesh 503 "busy"
+t_run "$energy"
+t_eq "$(there)" there
+# Neither a mesh: the file goes.
+mesh 404 "not found"
+t_run "$energy"
+t_eq "$(there)" gone
+t_stub curl '[ ! -e "$T/mesh/down" ] || exit 7
+cat "$T/mesh/body"
+printf "\n%s" "$(cat "$T/mesh/status")"'
+
 t_case "a role's own model is a factory model too"
 fresh
 sample 0 PI_ENSEMBLE_SUBAGENT_MODEL=model-large PI_ENSEMBLE_MODEL_REVIEWER=model-small \

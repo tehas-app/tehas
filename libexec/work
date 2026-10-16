@@ -477,6 +477,11 @@ tehas_sandbox_seed "$container" "$index" ||
 mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$repo" "$tree" "$container" "$runs")
 [ "${#mounts[@]}" -gt 0 ] ||
   { echo "tehas work: could not prepare the sandbox, not starting a cycle" >&2; exit 78; }
+while read -r model_provider _; do
+  [ -n "$model_provider" ] || continue
+  echo "model endpoint: provider $model_provider is on its backup" >>"$log.preflight"
+  echo "tehas work: model endpoint: provider $model_provider is on its backup"
+done <"$container/endpoints"
 
 # Docker refuses a cid file that is already there. One is left only by a cycle
 # that was killed outright, and so is a count of kills.
@@ -550,9 +555,8 @@ for pair in "${pairs[@]}"; do
   add_private "${pair%%:*}"
   [ "${pair#*:}" = "$pair" ] || add_private "${pair#*:}"
 done
-# Every provider the agents use, a role's own among them.
-while read -r model_provider _; do
-  model_host=$(jq -r --arg p "$model_provider" '.providers[$p].baseUrl // ""' "$agent/models.json" 2>/dev/null) || model_host=""
+# Every endpoint of every provider the agents use, a role's own among them.
+while read -r model_host; do
   model_host=${model_host#*://}
   model_host=${model_host%%/*}
   model_host=${model_host##*@}
@@ -561,7 +565,9 @@ while read -r model_provider _; do
     *) model_host=${model_host%%:*} ;;
   esac
   add_private "$model_host"
-done < <(tehas_models)
+done < <(tehas_models | while read -r model_provider _; do
+  jq -r --arg p "$model_provider" '.providers[$p] | .baseUrl, .backupBaseUrl | strings' "$agent/models.json" 2>/dev/null
+done)
 add_private "$bot_email"
 "$here/console" --progress "$log" \
   --runs "$runs" --out "$console" --since "$((started - 5))" "${private[@]}" >/dev/null 2>"$log.console" &

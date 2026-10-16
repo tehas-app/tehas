@@ -115,6 +115,7 @@ printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitco
 # Pi's settings as install.sh leaves them, which every container is given.
 mkdir -p "$T/home/.pi/agent"
 echo '{}' >"$T/home/.pi/agent/settings.json"
+echo '{"providers":{}}' >"$T/home/.pi/agent/models.json"
 session_args() { cat "$T"/calls/docker.args.* 2>/dev/null; }
 containers() { find "$T/calls" -name 'docker.args.*' | wc -l; }
 passed() { session_args | awk 'prev == "-e" { print } { prev = $0 }' | sed -n "s/^$1=//p"; }

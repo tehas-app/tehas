@@ -98,6 +98,8 @@ update_fd=${TEHAS_UPDATE_LOCK_FD:-}
 . "$root/lib/edge.sh"
 # shellcheck source=lib/cycles.sh
 . "$root/lib/cycles.sh"
+# shellcheck source=lib/models.sh
+. "$root/lib/models.sh"
 
 # --- 1. Instance settings ---------------------------------------------------
 # Every finding is one line. Any finding stops a real run before it changes
@@ -118,6 +120,8 @@ instance_findings() {
         '.providers[$p].models // [] | any(.id == $m)' "$models" >/dev/null ||
         echo "tehas: models.json does not list model $model under provider $provider"
     done < <(tehas_models)
+    # A token is named, never written: models.json is in a repository.
+    tehas_model_keys_ok "$models" 2>&1
     # The session's model is named by the product, not the instance.
     if [ -r "$TEHAS_WORK_REPO/.pi/settings.json" ]; then
       product_model=$(jq -r '"\(.defaultProvider // "")/\(.defaultModel // "")"' "$TEHAS_WORK_REPO/.pi/settings.json" 2>/dev/null || echo "/")

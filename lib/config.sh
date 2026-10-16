@@ -32,7 +32,10 @@
 #     TEHAS_CYCLE_START_CMD, TEHAS_CYCLE_STOP_CMD, TEHAS_CYCLE_START_WAIT,
 #     TEHAS_CGROUP_ROOT, TEHAS_PREFLIGHT_WAIT, TEHAS_STOP_WAIT, TEHAS_FETCH_WAIT,
 #     TEHAS_CONSOLE_WAIT, TEHAS_WORK_GRACE, TEHAS_CAPS_WAIT,
-#     TEHAS_CYCLE_RETRY_WAIT and TEHAS_CYCLE_STOP_GH_WAIT are kept.
+#     TEHAS_CYCLE_RETRY_WAIT and TEHAS_CYCLE_STOP_GH_WAIT are kept, and from
+#     ~/.config/tehas/env TEHAS_ENERGY, TEHAS_ENERGY_URL and the model
+#     endpoints' tokens TEHAS_MODEL_KEY_*. instance.env that sets a token is
+#     refused: it is in a repository.
 #   - Loading runs no git command, makes no network call and writes nothing.
 #   - TEHAS_IMPROVE_REPO switches the improvement loop on. Unset is valid and
 #     means there is none. TEHAS_IMPROVE_RUKAS_REPO needs it.
@@ -202,25 +205,40 @@ _tehas_role_models() { # <instance.env>
 }
 
 tehas_load() {
-  local dir file v reason
+  local dir file v reason line
   : "${TEHAS_HOME:=$HOME/tehas}"
   export TEHAS_HOME
   dir=$(tehas_instance_dir)
   file=$dir/instance.env
   [ -r "$file" ] || { tehas_err "no instance.env in $dir (copy instances/example and fill it in)"; return 78; }
 
-  # TEHAS_ENERGY and TEHAS_ENERGY_URL are host choices in ~/.config/tehas/env,
-  # which env.sh reads before this.
+  # TEHAS_ENERGY, TEHAS_ENERGY_URL and the model endpoints' tokens,
+  # TEHAS_MODEL_KEY_*, are host choices in ~/.config/tehas/env, which env.sh
+  # reads before this.
   for v in $(compgen -v); do
     case "$v" in
       TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_INDEX_CMD | TEHAS_PLAN_CMD | \
         TEHAS_CYCLE_START_CMD | TEHAS_CYCLE_STOP_CMD | TEHAS_CYCLE_START_WAIT | TEHAS_CGROUP_ROOT | \
         TEHAS_PREFLIGHT_WAIT | TEHAS_STOP_WAIT | TEHAS_FETCH_WAIT | TEHAS_CONSOLE_WAIT | TEHAS_WORK_GRACE | TEHAS_CAPS_WAIT | \
-        TEHAS_CYCLE_RETRY_WAIT | TEHAS_CYCLE_STOP_GH_WAIT | TEHAS_ENERGY | TEHAS_ENERGY_URL) ;;
+        TEHAS_CYCLE_RETRY_WAIT | TEHAS_CYCLE_STOP_GH_WAIT | TEHAS_ENERGY | TEHAS_ENERGY_URL | TEHAS_MODEL_KEY_*) ;;
       TEHAS_* | PI_ENSEMBLE_*) unset "$v" ;;
     esac
   done
   export TEHAS_INSTANCE_DIR=$dir
+
+  # A token in the instance directory would be in its repository. Read with
+  # bash alone: loading runs no other command.
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line#"${line%%[![:space:]]*}"}
+    line=${line#export }
+    line=${line#"${line%%[![:space:]]*}"}
+    case "$line" in
+      TEHAS_MODEL_KEY_*)
+        tehas_err "$file sets a TEHAS_MODEL_KEY_ token: put it in ~/.config/tehas/env"
+        return 78
+        ;;
+    esac
+  done <"$file"
 
   set -a
   # shellcheck disable=SC1090

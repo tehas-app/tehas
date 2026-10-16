@@ -86,6 +86,7 @@ caps_good
 # Pi's settings as install.sh leaves them on a host.
 mkdir -p "$T/home/.pi/agent"
 echo '{"retry":{"maxRetries":10,"baseDelayMs":5000,"maxAgentDelayMs":120000,"provider":{"timeoutMs":600000,"maxRetries":8,"maxRetryDelayMs":60000}}}' >"$T/home/.pi/agent/settings.json"
+echo '{"providers":{}}' >"$T/home/.pi/agent/models.json"
 
 # A host with the root step done: the slice loaded from its file with 8 GiB,
 # so a container's ceiling is 2048m, Docker on the systemd driver and cgroup
@@ -219,9 +220,10 @@ rm -f "$T/calls/console"
 t_run "$work 7"
 t_contains "$(t_calls console | grep -e '^--progress ')" "--private models.lan --private elsewhere.lan --private bot@example.com"
 
-t_case "without models.json or aliases the console is given the bot's email only"
+t_case "without a baseUrl or aliases the console is given the bot's email only"
 t_instance "${T_MINIMAL[@]}"
-rm -f "$T/home/.pi/agent/models.json" "$T/calls/console"
+echo '{"providers":{}}' >"$T/home/.pi/agent/models.json"
+rm -f "$T/calls/console"
 t_run "$work 7"
 t_eq "$(t_calls console | grep -e '^--progress ' | grep -o -e '--private .*')" "--private bot@example.com"
 rm -f "$T/container.sh"
@@ -243,7 +245,7 @@ $state/cache:/home/vscode/.tehas-cache
 $state/memory:/home/vscode/.vipune
 $state/sessions:/home/vscode/.pi/agent/sessions
 $T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
-$T/home/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro
+$state/models.json:/home/vscode/.pi/agent/models.json:ro
 $T/home/.pi/agent/settings.json:/home/vscode/.pi/agent/settings.json:ro"
 t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
 
@@ -323,6 +325,41 @@ t_run "$work 7"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" \
   "$(printf '%s\n' "$want" PI_ENSEMBLE_MODEL_CODE_REVIEW_SPECIALIST PI_ENSEMBLE_PROVIDER_CODE_REVIEW_SPECIALIST | LC_ALL=C sort)"
 t_eq "$(cycle_args | grep -c -e '^PI_ENSEMBLE_MODEL_CODE_REVIEW_SPECIALIST$' -e '^PI_ENSEMBLE_PROVIDER_CODE_REVIEW_SPECIALIST$')" 2
+
+t_case "the tokens models.json names are passed in by name, and the cycle is on the endpoint picked at its start"
+t_instance "${T_MINIMAL[@]}"
+jq -n '{providers: {"test-provider": {baseUrl: "https://main.test/v1", apiKey: "$TEHAS_MODEL_KEY_MAIN",
+  backupBaseUrl: "https://fleet.test/v1", backupApiKey: "$TEHAS_MODEL_KEY_FLEET", models: [{id: "test-model"}]}}}' \
+  >"$T/home/.pi/agent/models.json"
+t_stub curl 'case "$*" in *fleet.test*) echo "{\"data\":[{\"id\":\"test-model\"}]}" ;; *) exit 7 ;; esac'
+T_ENV=("${env_ok[@]}" TEHAS_MODEL_KEY_MAIN=main-secret TEHAS_MODEL_KEY_FLEET=fleet-secret)
+rm -f "$T"/calls/*
+t_run "$work 7"
+t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" TEHAS_MODEL_KEY_FLEET TEHAS_MODEL_KEY_MAIN | LC_ALL=C sort)"
+t_lacks "$(cycle_args)" "secret"
+t_eq "$(jq -c '.providers."test-provider" | [.baseUrl, .apiKey, has("backupBaseUrl")]' "$state/models.json")" \
+  '["https://fleet.test/v1","$TEHAS_MODEL_KEY_FLEET",false]'
+t_contains "$t_out" "tehas work: model endpoint: provider test-provider is on its backup"
+t_contains "$(t_calls console | grep -e '^--progress ')" "--private main.test --private fleet.test"
+
+t_case "a token models.json names and the host has not set stops the cycle before Docker: exit 78"
+T_ENV=("${env_ok[@]}" TEHAS_MODEL_KEY_MAIN=main-secret)
+rm -f "$T"/calls/*
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_contains "$t_out" "models.json names TEHAS_MODEL_KEY_FLEET and it is not set"
+t_eq "$(t_calls docker)$(t_calls curl)" ""
+rm -f "$T/bin/curl"
+echo '{"providers":{}}' >"$T/home/.pi/agent/models.json"
+T_ENV=("${env_ok[@]}")
+
+t_case "without models.json nothing runs: exit 78 and no docker call"
+rm -f "$T/home/.pi/agent/models.json" "$T"/calls/*
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_contains "$t_out" "no $T/home/.pi/agent/models.json: run install.sh"
+t_eq "$(t_calls docker)" ""
+echo '{"providers":{}}' >"$T/home/.pi/agent/models.json"
 
 t_case "a role that pi-rukas does not know stops the cycle before Docker"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_MODEL_REVIEWER=small-model
@@ -1391,7 +1428,7 @@ $state/cache:/home/vscode/.tehas-cache
 $state/memory:/home/vscode/.vipune
 $state/sessions:/home/vscode/.pi/agent/sessions
 $T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
-$T/home/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro
+$state/models.json:/home/vscode/.pi/agent/models.json:ro
 $T/home/.pi/agent/settings.json:/home/vscode/.pi/agent/settings.json:ro"
 manifest() { jq -c "$1" "$imgs/manifest.json" 2>&1; }
 # What the sandbox image says about its own pi-rukas, as host/sandbox/build.sh

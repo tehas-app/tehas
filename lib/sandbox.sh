@@ -25,7 +25,12 @@
 # the environment it leaves.
 #
 # Not given to any container, and not a setting: the Docker socket, SSH keys,
-# ~/.config/tehas, the product checkout, the rest of the host environment.
+# ~/.config/tehas, the product checkout, the rest of the host environment. Of
+# ~/.config/tehas/env a container is given the bot's token and the model
+# endpoints' tokens that models.json names, by name.
+
+# shellcheck source=lib/models.sh
+. "$(dirname "${BASH_SOURCE[0]}")/models.sh"
 
 # Where a container has its own copy of the code index, and the variable that
 # points the indexer and the agents' code search at it. It is a path inside the
@@ -41,7 +46,8 @@ tehas_index_dir() { printf '%s\n' "$TEHAS_HOME/state/index"; }
 
 # The same variables as the pi-rukas wrapper sets, without the host's whole
 # environment: the bot token by name, the PI_ENSEMBLE_* settings, and git's
-# configuration.
+# configuration. And the model endpoints' tokens models.json names, by name:
+# Pi reads "$TEHAS_MODEL_KEY_<NAME>" from its environment.
 #
 # git inside the sandbox has no configuration of its own: no credential helper
 # and no identity. Without the helper the driver commits but cannot push, and
@@ -68,6 +74,9 @@ tehas_sandbox_env() { # <tree> <git name> <git email>
       PI_ENSEMBLE_*) envs+=(-e "$var") ;;
     esac
   done < <(env)
+  while read -r var; do
+    [ -z "$var" ] || [ -z "${!var:-}" ] || envs+=(-e "$var")
+  done < <(tehas_model_key_names)
   printf '%s\0' "${envs[@]}"
 }
 
@@ -88,12 +97,19 @@ tehas_sandbox_env() { # <tree> <git name> <git email>
 # retry and timeout. The image has none, and without it Pi makes no retry of a
 # failed request. A missing file is a failure, not a default: Docker would
 # make a root-owned directory in its place.
-# Whether Pi's settings.json is there to be mounted. The commands ask before
+#
+# models.json is the container's own, <state>/models.json: the host's with
+# each provider on the endpoint picked now (lib/models.sh). <state>/endpoints
+# says which providers are on their backup.
+# Whether Pi's settings.json and models.json are there to be mounted, and
+# the tokens models.json names are set. The commands ask before
 # they call Docker or git or write anything; tehas_sandbox_mounts asks again.
 tehas_sandbox_settings_ok() {
-  [ -f "$HOME/.pi/agent/settings.json" ] && return 0
-  tehas_err "no $HOME/.pi/agent/settings.json: run install.sh"
-  return 1
+  local f
+  for f in settings.json models.json; do
+    [ -f "$HOME/.pi/agent/$f" ] || { tehas_err "no $HOME/.pi/agent/$f: run install.sh"; return 1; }
+  done
+  tehas_model_keys_ok
 }
 
 tehas_sandbox_mounts() { # <tree> <host> <state> <runs>
@@ -102,12 +118,13 @@ tehas_sandbox_mounts() { # <tree> <host> <state> <runs>
   tehas_sandbox_settings_ok || return 1
   cache=$(tehas_sandbox_cache_dir)
   mkdir -p "$runs" "$state/cache" "$state/memory" "$state/sessions" || return 1
+  tehas_models_resolve "$state/models.json" >"$state/endpoints" || return 1
   printf '%s\0' -v "$host:$tree" \
     -v "$state/cache:$cache" \
     -v "$state/memory:/home/vscode/.vipune" \
     -v "$state/sessions:/home/vscode/.pi/agent/sessions" \
     -v "$runs:/home/vscode/.pi/agent/ensemble-runs" \
-    -v "$agent/models.json:/home/vscode/.pi/agent/models.json:ro" \
+    -v "$state/models.json:/home/vscode/.pi/agent/models.json:ro" \
     -v "$agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro" \
     -v "$agent/settings.json:/home/vscode/.pi/agent/settings.json:ro"
 }

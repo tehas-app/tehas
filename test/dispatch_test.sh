@@ -3246,6 +3246,74 @@ t_contains "$(t_calls curl)" "http://other.test/v1/models"
 t_eq "$(grep -c "holding: no resources: the model endpoint does not offer big-model" <<<"$t_out")" 1
 t_lacks "$(cat "$dispatch_json")" "other.test"
 
+# A main endpoint and a backup, each with its own token. The stand-in for curl
+# answers main.test from mesh.json and backup.test from backup.json.
+backed() { # [<the backup's answer>]
+  mkdir -p "$T/home/.pi/agent"
+  jq -n '{providers: {"test-provider": {baseUrl: "http://mesh.test/v1", apiKey: "$TEHAS_MODEL_KEY_MAIN",
+    backupBaseUrl: "http://backup.test/v1", backupApiKey: "$TEHAS_MODEL_KEY_BACKUP"}}}' >"$T/home/.pi/agent/models.json"
+  rm -f "$fx/backup.json"
+  [ "$#" = 0 ] || echo "$1" >"$fx/backup.json"
+}
+t_stub curl 'for a; do case "$a" in /dev/fd/*) cat "$a" >>"$T/calls/curl-config" ;; esac; done
+case "$*" in
+  *"/chat/completions") cat >"$T/calls/curl-body"; [ -e "$T/fx/reads-images" ] ;;
+  *backup.test*) cat "$T/fx/backup.json" 2>/dev/null ;;
+  *) cat "$T/fx/mesh.json" 2>/dev/null ;;
+esac'
+keys=(TEHAS_MODEL_KEY_MAIN=main-secret TEHAS_MODEL_KEY_BACKUP=backup-secret)
+
+t_case "a main endpoint that offers the model is used, with its token, and the backup is not asked"
+reset
+T_ENV+=("${keys[@]}")
+mesh '{"data":[{"id":"test-model"}]}'
+backed '{"data":[{"id":"test-model"}]}'
+rm -f "$T/calls/curl-config"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$(t_calls curl)" "backup.test"
+t_eq "$(cat "$T/calls/curl-config")" 'header = "Authorization: Bearer main-secret"'
+t_lacks "$(t_calls curl)" "secret"
+t_lacks "$t_out" "backup"
+
+t_case "a main endpoint that fails starts the cycle on the backup, and says so"
+for main in none '{"data":[{"id":"other"}]}'; do
+  reset
+  T_ENV+=("${keys[@]}")
+  if [ "$main" = none ]; then mesh; else mesh "$main"; fi
+  backed '{"data":[{"id":"test-model"}]}'
+  rm -f "$T/calls/curl-config"
+  t_run "$dispatch"
+  t_eq "$(t_calls fake-start)" "7"
+  t_contains "$(t_calls curl)" "http://backup.test/v1/models"
+  t_contains "$(cat "$T/calls/curl-config")" "Bearer backup-secret"
+  t_contains "$t_out" "model endpoint: provider test-provider is on its backup"
+  t_eq "$(jq -r .why "$dispatch_json")" ""
+done
+
+t_case "with both endpoints failing the start is held, and both reasons are given"
+reset
+T_ENV+=("${keys[@]}")
+mesh
+backed '{"data":[]}'
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_eq "$(jq -r .hold "$dispatch_json")" "holding: no resources: the model endpoint does not answer, and its backup offers no models"
+t_lacks "$(cat "$dispatch_json")" "test/v1"
+
+t_case "a token models.json names and the host has not set stops the dispatcher: exit 78"
+reset
+T_ENV+=(TEHAS_MODEL_KEY_MAIN=main-secret)
+backed '{"data":[{"id":"test-model"}]}'
+t_run "$dispatch"
+t_eq "$t_rc" 78
+t_contains "$t_out" "models.json names TEHAS_MODEL_KEY_BACKUP and it is not set"
+t_eq "$(t_calls curl)$(t_calls fake-start)" ""
+t_stub curl 'case "$*" in
+  *"/chat/completions") cat >"$T/calls/curl-body"; [ -e "$T/fx/reads-images" ] ;;
+  *) cat "$T/fx/mesh.json" 2>/dev/null ;;
+esac'
+
 # The model as models.json declares it, with the input it takes.
 declares() { # <input list as JSON>
   jq -n --argjson input "$1" '{providers: {"test-provider": {baseUrl: "http://mesh.test/v1",
