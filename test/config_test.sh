@@ -737,4 +737,36 @@ t_run "PI_ENSEMBLE_MODEL_NOPE=x PI_ENSEMBLE_MODEL_DEVELOPER=x; export PI_ENSEMBL
 t_eq "$t_rc" 0
 t_eq "$t_out" "[]"
 
+t_case "the project home is the tehas home, and is set even when the instance does not load"
+t_instance "${T_MINIMAL[@]}"
+t_run "$load && echo \"\$TEHAS_PROJECT_HOME|\$TEHAS_WORK_REPO|\$TEHAS_WORK_DIR\""
+t_eq "$t_out" "$T/home/tehas|$T/home/tehas/repos/widget|$T/home/tehas/work/widget"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_REPO=/elsewhere/widget
+t_run "$load && echo \"\$TEHAS_WORK_REPO\""
+t_eq "$t_out" "/elsewhere/widget"
+t_instance "TEHAS_CLONES=1"
+t_run "$load 2>/dev/null; echo \"rc=\$? \$TEHAS_PROJECT_HOME\""
+t_eq "$t_out" "rc=78 $T/home/tehas"
+t_instance "${T_MINIMAL[@]}"
+
+t_case "every host-global name comes from one helper"
+t_run "$load && for k in 'cycle-unit 12' 'work 12' 'plan 12' 'dev alice' index improve 'preview 12' 'preview-image 12'; do tehas_name \$k; done"
+t_eq "$t_out" "tehas-cycle@12.service
+tehas-work-12
+tehas-plan-12
+tehas-dev-alice
+tehas-index
+tehas-improve
+tehas-preview-12
+tehas-preview:12"
+
+t_case "the names helper refuses an unknown kind and a missing argument"
+t_run "$load && { tehas_name bogus 1; echo rc=\$?; tehas_name work; echo rc=\$?; }"
+t_eq "$t_out" "rc=1
+rc=1"
+
+t_case "the agent directory is Pi's own"
+t_run "$load && tehas_agent_dir"
+t_eq "$t_out" "$T/home/.pi/agent"
+
 t_done

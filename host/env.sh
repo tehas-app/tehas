@@ -4,6 +4,7 @@
 # This file is the same on every host. What differs between instances is in
 # <instance dir>/instance.env, loaded at the end through lib/config.sh.
 export TEHAS_HOME="${TEHAS_HOME:-$HOME/tehas}"
+export TEHAS_PROJECT_HOME="$TEHAS_HOME"
 export BUN_INSTALL="$HOME/.bun"
 export CARGO_HOME="$HOME/.cargo"
 export RUSTUP_HOME="$HOME/.rustup"

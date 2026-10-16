@@ -18,6 +18,8 @@
 #                        returns 78 if not.
 #   tehas_branch         print the branch work lands on; returns 78 if unknown.
 #   tehas_models         print "provider model" for every model the agents use.
+#   tehas_name KIND [ARG] print a host-global unit, container or image name.
+#   tehas_agent_dir      print the directory of this project's Pi agent files.
 #
 # A command starts with:
 #   here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -218,6 +220,9 @@ tehas_load() {
   local dir file v reason line
   : "${TEHAS_HOME:=$HOME/tehas}"
   export TEHAS_HOME
+  # Everything of this project lives under it. Set before any return, so a
+  # command that fails to load still has it.
+  export TEHAS_PROJECT_HOME=$TEHAS_HOME
   dir=$(tehas_instance_dir)
   file=$dir/instance.env
   [ -r "$file" ] || { tehas_err "no instance.env in $dir (copy instances/example and fill it in)"; return 78; }
@@ -227,7 +232,7 @@ tehas_load() {
   # reads before this.
   for v in $(compgen -v); do
     case "$v" in
-      TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_INDEX_CMD | TEHAS_PLAN_CMD | \
+      TEHAS_HOME | TEHAS_PROJECT_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_INDEX_CMD | TEHAS_PLAN_CMD | \
         TEHAS_PLAN_START_CMD | TEHAS_INDEX_START_CMD | TEHAS_INDEX_LOCK_WAIT | TEHAS_CYCLE_START_CMD | TEHAS_CYCLE_STOP_CMD | TEHAS_CYCLE_START_WAIT | TEHAS_CGROUP_ROOT | TEHAS_SLICE_WAIT | \
         TEHAS_PREFLIGHT_WAIT | TEHAS_STOP_WAIT | TEHAS_FETCH_WAIT | TEHAS_CONSOLE_WAIT | TEHAS_WORK_GRACE | TEHAS_CAPS_WAIT | \
         TEHAS_CYCLE_RETRY_WAIT | TEHAS_CYCLE_STOP_GH_WAIT | TEHAS_ENERGY | TEHAS_ENERGY_URL | TEHAS_MODEL_KEY_*) ;;
@@ -254,6 +259,7 @@ tehas_load() {
   # shellcheck disable=SC1090
   . "$file" || { set +a; tehas_err "$file could not be read as shell"; return 78; }
   set +a
+  TEHAS_PROJECT_HOME=$TEHAS_HOME # derived: instance.env does not set it
 
   _tehas_role_models "$file" || return 78
 
@@ -277,11 +283,11 @@ tehas_load() {
 
   # Derived and optional settings.
   if [ -n "${TEHAS_REPO:-}" ]; then
-    export TEHAS_WORK_REPO=${TEHAS_WORK_REPO:-$TEHAS_HOME/repos/${TEHAS_REPO##*/}}
+    export TEHAS_WORK_REPO=${TEHAS_WORK_REPO:-$TEHAS_PROJECT_HOME/repos/${TEHAS_REPO##*/}}
     # Where a cycle works, as its container sees it. On the host the tree is
     # $TEHAS_WORK_DIR-<issue>, a fresh clone that tehas work makes for each
     # cycle and the only tree that cycle's container can write. Not a setting.
-    export TEHAS_WORK_DIR=$TEHAS_HOME/work/${TEHAS_REPO##*/}
+    export TEHAS_WORK_DIR=$TEHAS_PROJECT_HOME/work/${TEHAS_REPO##*/}
   fi
   # Workstreams one cycle runs side by side. One by default: the factory fans
   # out across issues, not inside one. Parts planned apart from one base do
@@ -500,6 +506,28 @@ tehas_edge_name() {
   case "${1:-}" in uat | lab) ;; *) return 1 ;; esac
   [[ ${2:-} =~ ^[1-9][0-9]{0,8}$ ]] || return 1
   printf '%s-%s.%s\n' "$1" "$2" "$TEHAS_DOMAIN"
+}
+
+# tehas_name <kind> [<arg>]: the one definition of every host-global unit,
+# container and image name. Returns 1 for an unknown kind or a missing argument.
+tehas_name() {
+  local kind=${1:-} arg=${2:-}
+  case "$kind" in
+    index | improve) printf 'tehas-%s\n' "$kind"; return 0 ;;
+  esac
+  [ -n "$arg" ] || return 1
+  case "$kind" in
+    cycle-unit) printf 'tehas-cycle@%s.service\n' "$arg" ;;
+    work | plan | dev | preview) printf 'tehas-%s-%s\n' "$kind" "$arg" ;;
+    preview-image) printf 'tehas-preview:%s\n' "$arg" ;;
+    *) return 1 ;;
+  esac
+}
+
+# tehas_agent_dir: where this project's models.json, settings.json and
+# ensemble-runs/ are. mcp.json stays in $HOME/.pi/agent.
+tehas_agent_dir() {
+  printf '%s\n' "$HOME/.pi/agent"
 }
 
 # The settings an instance has to set itself, because nothing here can give
