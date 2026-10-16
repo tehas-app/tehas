@@ -759,6 +759,9 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+# A chat request (no -o) is piped in: read it all first, as curl does, so jq
+# writing it never meets a closed pipe (jq exits 2 then, which reads as curl 2).
+[ -n "$out" ] || cat >/dev/null
 key=$(printf %s "$url" | tr -c "A-Za-z0-9" _)
 printf "%s\n" "$url" >>"$T/calls/curl.urls"
 [ -f "$T/fx/net/$key" ] || exit 22
