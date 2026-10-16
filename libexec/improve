@@ -226,6 +226,8 @@ docker rm -f tehas-improve >/dev/null 2>&1 || true
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
 ask=$(cat "$prompt")
 ask=${ask//@MINUTES@/$((bound / 60))}
+# Not given the lock: a client that outlives a killed run would hold it, and
+# every later run would stand back until the bound.
 timeout -k 60 "$bound" docker run --rm --init --name tehas-improve \
   --cgroup-parent tehas.slice --cpus 1 --memory 2g --memory-swap 2g --pids-limit 1024 --cpu-shares 1024 \
   -e HOME=/home/vscode -w /improve \
@@ -235,7 +237,7 @@ timeout -k 60 "$bound" docker run --rm --init --name tehas-improve \
   pi -p --no-session --no-extensions --no-skills --no-prompt-templates --no-context-files \
   --tools read,grep,find,ls,write \
   --provider "$PI_ENSEMBLE_SUBAGENT_PROVIDER" --model "$PI_ENSEMBLE_SUBAGENT_MODEL" \
-  "$ask" >"$run/analyst.log" 2>&1 </dev/null
+  "$ask" >"$run/analyst.log" 2>&1 </dev/null 9>&-
 arc=$?
 # A client that timeout killed leaves its container working on.
 [ "$arc" = 0 ] || docker rm -f tehas-improve >/dev/null 2>&1 || true
