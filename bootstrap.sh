@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Prepare a fresh host for tehas: everything tehas and pi-rukas need, at the
-# versions in host/versions.env, and pi-rukas at the head of the branch named
-# there. Safe to run again: a tool already at its version is skipped, one at
+# versions in host/versions.env, and pi-rukas at the commit versions.env
+# follows (lib/rukas.sh). Safe to run again: a tool already at its version is skipped, one at
 # another version is replaced. An npm tool counts as present only when its
 # pinned tree is installed too.
 #
@@ -38,6 +38,8 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=host/versions.env
 . "$root/host/versions.env"
+# shellcheck source=lib/rukas.sh
+. "$root/lib/rukas.sh"
 
 os_release=${BOOTSTRAP_OS_RELEASE:-/etc/os-release}
 packages=(docker.io docker-compose-v2 docker-buildx git jq curl openssl rsync util-linux
@@ -219,12 +221,11 @@ found_rukas() {
   [ -e "$HOME/.pi/agent/extensions/pi-rukas" ] || return 0
   git -C "$TEHAS_HOME/repos/pi-rukas" rev-parse HEAD 2>/dev/null || true
 }
-# pi-rukas is not pinned: what is expected is the head of its branch now.
+# pi-rukas is not pinned: what is expected is the commit it follows now.
 rukas_head() {
-  local head
-  head=$(git ls-remote "$PI_RUKAS_REPO" "refs/heads/$PI_RUKAS_BRANCH" 2>/dev/null | cut -f1) || head=""
-  [[ $head =~ ^[0-9a-f]{40}$ ]] || return 1
-  printf '%s\n' "$head"
+  local target
+  target=$(tehas_rukas_target) || return 1
+  printf '%s\n' "${target%% *}"
 }
 
 # --- check --------------------------------------------------------------------
@@ -250,7 +251,7 @@ rust found_rust $RUST_VERSION
 vipune found_vipune $VIPUNE_VERSION
 oo found_oo $OO_VERSION
 codebase-memory-mcp found_cbm $CBM_VERSION
-pi-rukas found_rukas $(rukas_head || echo "no head of $PI_RUKAS_BRANCH")
+pi-rukas found_rukas $(rukas_head || echo "no commit for PI_RUKAS_FOLLOW=$PI_RUKAS_FOLLOW")
 EOF
   # System tools: present is enough, the version is shown for the record.
   for tool in docker git jq curl openssl flock shellcheck unzip; do
@@ -469,7 +470,7 @@ install_rukas() {
   if [ -d "$dir/.git" ]; then
     # A clone made before the repository changed still points at the old one.
     git -C "$dir" remote set-url origin "$PI_RUKAS_REPO"
-    git -C "$dir" fetch -q origin
+    git -C "$dir" fetch -q --tags origin
   else
     mkdir -p "$TEHAS_HOME/repos"
     git clone -q "$PI_RUKAS_REPO" "$dir"
@@ -523,7 +524,7 @@ do_user() {
   step vipune found_vipune "$VIPUNE_VERSION" install_vipune
   step oo found_oo "$OO_VERSION" install_oo
   step codebase-memory-mcp found_cbm "$CBM_VERSION" install_cbm
-  rukas_want=$(rukas_head) || die "no head of $PI_RUKAS_BRANCH in $PI_RUKAS_REPO"
+  rukas_want=$(rukas_head) || die "no pi-rukas commit for PI_RUKAS_FOLLOW=$PI_RUKAS_FOLLOW in $PI_RUKAS_REPO"
   step pi-rukas found_rukas "$rukas_want" install_rukas
   echo "bootstrap: user part done"
 }

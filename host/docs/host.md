@@ -33,7 +33,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/work/tehas-plan-<issue>.images` | With `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, a copy of a planning session's images and files for one turn, read-only in its container at `~/tehas/work/tehas.images`, removed after the turn |
 | `~/tehas/work/tehas-<issue>.state`   | The cycle's own: `cache`, a copy of the code index the host built; `memory`, what its agents learn; `sessions`, Pi's session files. Made fresh for each cycle, mounted in its container, removed with the workspace. `~/tehas/work/tehas-plan-<issue>.state` is a planning turn's, removed after the turn |
 | `~/tehas/dev/<name>`                 | A person's clone for working by hand, named after their account, made and used by `tehas dev`, never removed. `<name>.author` next to it holds whose name its commits carry, `<name>.state` its memory, sessions, transcripts and code index, and `<name>.images` the images and files of the issue named by `--issue`, read-only in the session's container |
-| `~/tehas/repos/pi-rukas`             | pi-rukas, at the head of its branch                                     |
+| `~/tehas/repos/pi-rukas`             | pi-rukas, at the commit `PI_RUKAS_FOLLOW` names                         |
 | `~/tehas/docs/`, `~/tehas/fun/`      | This site's pages and the front page, installed from `host/`            |
 | `~/tehas/sandbox/`, `versions.env`   | Sandbox image definition, build script, the Playwright npm pin, and the pinned tool versions |
 | `~/tehas/edge/`                      | The docs server (`docs.compose.yaml`) and the edge router (`router.compose.yaml`) |
@@ -733,9 +733,9 @@ merged the reader sets `TEHAS_WORK_IMAGES=0` first: putting it back is the
 moment the hold becomes real. `install.sh` reports the answer it read from
 the image, and the dispatch log names each issue it holds.
 
-The build takes pi-rukas at the head of its branch, as described under
-[pi-rukas comes from upstream](#pi-rukas-comes-from-upstream).
-`build.sh --if-moved` builds only when the head is not the commit the current
+The build takes pi-rukas at the commit `PI_RUKAS_FOLLOW` names, as described
+under [pi-rukas comes from upstream](#pi-rukas-comes-from-upstream).
+`build.sh --if-moved` builds only when that is not the commit the current
 image was built on, and `build.sh --check` only says whether it moved. The
 contract test proves the product's gates run inside the image, as the unprivileged user,
 with nothing mounted but a clone:
@@ -758,18 +758,24 @@ counts its memory while it is there.
 ## pi-rukas comes from upstream
 
 tehas takes pi-rukas from [upstream](https://github.com/trail-openers/pi-rukas)
-and does not pin it. `PI_RUKAS_REPO` and `PI_RUKAS_BRANCH` in `versions.env`
-name the repository and the branch, `main`, and a host follows the head of
-that branch:
+and does not pin it. `PI_RUKAS_REPO` in `versions.env` names the repository
+and `PI_RUKAS_FOLLOW` the commit a host follows:
 
-- `tehas update` moves the sandbox image to the head whenever the head is not
+- `release`, the default: the commit of upstream's newest `vX.Y.Z` tag, by
+  version. A tag with a suffix, such as `v1.0.0-rc1`, does not count. Upstream
+  marks its releases as pre-releases; tehas reads the tags, not that mark.
+- `branch:<name>`: the head of that branch, for example `branch:main`.
+
+What follows from it:
+
+- `tehas update` moves the sandbox image to that commit whenever it is not
   the commit the image was built on, also when no file of tehas changed. The
   base is the image upstream publishes for each commit, tagged
-  `sha-<first 12 characters>`. A head whose image upstream has not published
+  `sha-<first 12 characters>`. A commit whose image upstream has not published
   yet fails the update with a message that says so; the next update tries
-  again. `tehas update --check` says whether the head moved.
+  again. `tehas update --check` says whether the commit moved.
 - `./bootstrap.sh user` moves the host's clone in `~/tehas/repos/pi-rukas` to
-  the head and runs its installer. That clone is what `tehas dev` and an
+  that commit and runs its installer. That clone is what `tehas dev` and an
   interactive Pi session on the host load. Cycles run the pi-rukas inside the
   sandbox image.
 
@@ -777,9 +783,9 @@ The shell tests check that every argument the Dockerfile reads comes from
 `versions.env`, except the ones `sandbox/build.sh` works out: the base, the
 commit, the uid and whether the base reads images.
 
-Nothing checks a new head before a cycle runs on it. The dispatcher runs one
-cycle at a time on a commit until one ends with a pull request: see
-[Limits that hold work back](/operating#limits-that-hold-work-back).
+Nothing checks a new commit before a cycle runs on it, beyond the image's
+`--capabilities` answer, and the dispatcher does not hold cycles back for one:
+see [Limits that hold work back](/operating#limits-that-hold-work-back).
 
 ### Rolling back pi-rukas
 
@@ -796,15 +802,15 @@ Each image carries the pi-rukas commit it was built with, as its label
 from there. The loop's record of a cycle has the commit and the image's id as
 the cycle's container started.
 
-That holds until the next `tehas update`, which builds the head again. Hold
-off updates until upstream's head is fixed, or point `PI_RUKAS_BRANCH` at a
-branch that holds the commit you want.
+That holds until the next `tehas update`, which builds the followed commit
+again. Hold off updates until upstream tags a fix, or set `PI_RUKAS_FOLLOW` to
+`branch:<name>` for a branch whose head is the commit you want.
 
 Where the instance sets `TEHAS_IMPROVE_RUKAS_REPO`, the
 [improvement loop](/operating#the-improvement-loop) files what it finds about
 pi-rukas there, each issue naming the product's issues whose cycles showed it.
 No cycle on the product fixes pi-rukas. A fix is made in pi-rukas and reaches
-a host with the next `tehas update` after it lands on the branch. To check it, apply
+a host with the next `tehas update` after upstream tags a release with it. To check it, apply
 `tehas:ready` again to a product issue the filed issue names. The loop's next
 run comments there whether the problem came back, with the pi-rukas commit
 that cycle ran.

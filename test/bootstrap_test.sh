@@ -20,7 +20,7 @@ printf 'ID=debian\nVERSION_ID="13"\n' >"$T/os-debian"
 T_PATH=$T/bin:/usr/bin:/bin
 T_ENV=(BOOTSTRAP_OS_RELEASE="$T/os-ubuntu" PATH="$T_PATH")
 
-# The head of pi-rukas's branch, as git ls-remote answers it.
+# The commit of pi-rukas's newest release tag, as git ls-remote answers it.
 rukas_head=$(printf 'e%.0s' {1..40})
 
 # Every tool at its expected version, the npm ones installed from their pinned
@@ -36,7 +36,7 @@ all_present() {
   t_stub vipune "echo 'vipune $VIPUNE_VERSION'"
   t_stub oo "echo 'oo $OO_VERSION'"
   t_stub codebase-memory-mcp "echo 'codebase-memory-mcp $CBM_VERSION'"
-  t_stub git "case \"\$*\" in *ls-remote*) printf '%s\trefs/heads/$PI_RUKAS_BRANCH\n' $rukas_head ;; *rev-parse*) echo $rukas_head ;; *) echo 'git version 2.53.0' ;; esac"
+  t_stub git "case \"\$*\" in *ls-remote*) printf '%s\trefs/tags/v0.12.80\n' $rukas_head ;; *rev-parse*) echo $rukas_head ;; *) echo 'git version 2.53.0' ;; esac"
   t_stub docker 'echo "Docker version 29.1.3"'
   t_stub loginctl 'echo yes'
   t_stub curl 'echo "curl 8.0.0"'
@@ -175,8 +175,9 @@ t_contains "$t_out" "ctx7 is 0.0.1 after installing, expected $CTX7_VERSION"
 pin_checkout() { # -> the directory holding the copy
   local dir=$T/checkout
   rm -rf "$dir"
-  mkdir -p "$dir/host"
+  mkdir -p "$dir/host" "$dir/lib"
   cp "$bootstrap" "$dir/bootstrap.sh"
+  cp "$T_ROOT/lib/rukas.sh" "$dir/lib/rukas.sh"
   cp "$T_ROOT/host/versions.env" "$dir/host/versions.env"
   cp -R "$T_ROOT/host/npm" "$dir/host/npm"
   echo "$dir"
@@ -396,7 +397,7 @@ t_lacks "$(cat "$T_ROOT/host/sandbox/Dockerfile")" "playwright@"
 t_case "an existing pi-rukas clone is fetched from the repository in versions.env"
 all_present
 behind_head() {
-  t_stub git "case \"\$*\" in *ls-remote*) printf '%s\trefs/heads/$PI_RUKAS_BRANCH\n' $rukas_head ;; *rev-parse*) echo 0000000000000000000000000000000000000000 ;; *) echo 'git version 2.53.0' ;; esac"
+  t_stub git "case \"\$*\" in *ls-remote*) printf '%s\trefs/tags/v0.12.80\n' $rukas_head ;; *rev-parse*) echo 0000000000000000000000000000000000000000 ;; *) echo 'git version 2.53.0' ;; esac"
 }
 behind_head
 mkdir -p "$T/home/tehas/repos/pi-rukas/.git"
@@ -406,21 +407,21 @@ rm -f "$T"/calls/*
 t_run "$bootstrap user"
 t_contains "$(t_calls git)" "remote set-url origin $PI_RUKAS_REPO"
 
-t_case "pi-rukas behind its branch is moved to the head"
+t_case "pi-rukas behind its newest release is moved to it"
 t_contains "$(t_calls git)" "checkout -q $rukas_head"
 
-t_case "check reports a pi-rukas behind the head of its branch"
+t_case "check reports a pi-rukas behind its newest release"
 t_run "$bootstrap check"
 t_eq "$t_rc" 1
 t_contains "$t_out" "$rukas_head"
 t_contains "$t_out" "DIFFERS"
 
-t_case "without the head of its branch the user part stops before pi-rukas"
+t_case "without a commit to follow the user part stops before pi-rukas"
 t_stub git 'case "$*" in *ls-remote*) exit 2 ;; *rev-parse*) echo 0000000000000000000000000000000000000000 ;; *) echo "git version 2.53.0" ;; esac'
 rm -f "$T"/calls/*
 t_run "$bootstrap user"
 t_eq "$t_rc" 1
-t_contains "$t_out" "no head of $PI_RUKAS_BRANCH in $PI_RUKAS_REPO"
+t_contains "$t_out" "no pi-rukas commit for PI_RUKAS_FOLLOW=$PI_RUKAS_FOLLOW in $PI_RUKAS_REPO"
 t_lacks "$(t_calls git)" "fetch"
 behind_head
 

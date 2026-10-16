@@ -10,8 +10,8 @@
 
 build="$T_ROOT/host/sandbox/build.sh"
 uid=$(id -u)
-# The head of pi-rukas's branch, so the build asks no network.
-t_stub git 'printf "%s\trefs/heads/main\n" aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+# pi-rukas's newest release tag, so the build asks no network.
+t_stub git 'printf "%s\trefs/tags/v0.12.80\n" aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 t_stub docker 'case "$1" in
   build)
     while [ "$#" -gt 0 ]; do [ "$1" = -t ] && echo "${2#*:} sha256:new" >>"$T/images"; shift; done ;;

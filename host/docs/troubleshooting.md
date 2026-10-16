@@ -139,8 +139,8 @@ Run `tehas dispatch --dry-run` and read what it prints.
   them`: the sandbox image says, by the label its build wrote, that its
   pi-rukas has no reader for the manifest tehas writes beside the images.
   Only issues that link an attachment wait, and the model is not asked.
-  Run `tehas update`, which rebuilds onto upstream's head, which has the
-  reader, or set `TEHAS_WORK_IMAGES=0` and run `install.sh`. An image put
+  Run `tehas update`, which rebuilds onto upstream's newest release, which has
+  the reader, or set `TEHAS_WORK_IMAGES=0` and run `install.sh`. An image put
   back from before 2026-10-14 is what starts the hold: see
   [Rolling back pi-rukas](/host#rolling-back-pi-rukas).
 - `nothing to do`: the issue is closed, or does not carry `tehas:ready`.

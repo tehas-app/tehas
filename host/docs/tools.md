@@ -542,7 +542,7 @@ image say, and cycles are not held for it.
 
 pi-rukas reads the manifest, and attaches the images to the explore and plan
 prompts each beside its link, from upstream's commit of 2026-10-14. The host
-follows upstream's main, so an image built since then has the reader. The
+follows upstream's newest release, and every release since then has the reader. The
 steps after plan do not see them.
 
 With `TEHAS_WORK_DESCRIBE=1` as well, `tehas work` asks the model to describe
@@ -1877,14 +1877,14 @@ contract - `models.json` readable, valid JSON, listing the models the settings
 name, and the settings directory writable by nobody else - is install.sh's, and
 install.sh answers it with 78 before it copies a file.
 
-After the follow-ups, pi-rukas. It is not pinned: where the installed `versions.env` names
-`PI_RUKAS_BRANCH`, the update runs `sandbox/build.sh --if-moved`, which
-rebuilds the sandbox image only when the head of that branch is not the commit
-the image was built on. It does this also when no file of tehas changed, and
+After the follow-ups, pi-rukas. It is not pinned: where the installed `versions.env` sets
+`PI_RUKAS_FOLLOW`, the update runs `sandbox/build.sh --if-moved`, which
+rebuilds the sandbox image only when the commit it names, the newest release
+tag by default, is not the commit the image was built on. It does this also when no file of tehas changed, and
 skips it when this run built the image already or a step failed. An image that
-cannot be moved, for example because upstream has not published the head's
+cannot be moved, for example because upstream has not published that commit's
 image yet, makes the update exit 1. `--check` runs `build.sh --check` and
-exits 1 when the head moved. See
+exits 1 when the commit moved. See
 [pi-rukas comes from upstream](/host#pi-rukas-comes-from-upstream).
 
 The follow-ups are steps named by id in `lib/update-steps.sh`, which install.sh
