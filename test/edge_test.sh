@@ -5,6 +5,7 @@
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
+export TEHAS_PROJECT_HOME=$T/home/tehas
 lib='. "$T_ROOT/lib/edge.sh"'
 d=$T/home/tehas
 mkdir -p "$d"

@@ -9,9 +9,11 @@
 #                                     manifest. Returns 1 only when the file
 #                                     or the manifest could not be written
 #
+# Needs lib/config.sh sourced first: it calls tehas_agent_dir.
+#
 # One chat request per image, at most 8, to the instance's own model endpoint:
-# the subagent provider's endpoint in ~/.pi/agent/models.json, its backup when
-# the main one fails (lib/models.sh), and PI_ENSEMBLE_SUBAGENT_MODEL, as the
+# the subagent provider's endpoint in models.json in the agent directory, its
+# backup when the main one fails (lib/models.sh), and PI_ENSEMBLE_SUBAGENT_MODEL, as the
 # dispatcher's check of the endpoint asks it. The endpoint's token is sent
 # when models.json names one; the GitHub token never is. Each request may
 # take 60 seconds and each answer is cut at 1500 characters. A request that

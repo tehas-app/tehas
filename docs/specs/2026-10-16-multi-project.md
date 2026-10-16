@@ -158,7 +158,7 @@ what is per project**, and everything inside it keeps today's names.
 `state/`, `logs/` and `live/`.
 
 A new derived variable, `TEHAS_PROJECT_HOME`, holds what is per project:
-`state/`, `live/`, `logs/`, `tmp/`, `work/`, `repos/<repo>`, `dev/`,
+`state/`, `live/`, `logs/`, `tmp/improve/`, `work/`, `repos/<repo>`, `dev/`,
 `protolab/`, `preview/`.
 
 | Mode | `TEHAS_PROJECT_HOME` |
@@ -166,8 +166,8 @@ A new derived variable, `TEHAS_PROJECT_HOME`, holds what is per project:
 | Single | `$TEHAS_HOME`, so every path is what it is today |
 | Multi | `$TEHAS_HOME/projects/<project>` |
 
-Every command that writes `$TEHAS_HOME/state`, `live`, `logs`, `tmp` or
-`work` today writes under `$TEHAS_PROJECT_HOME` instead. Issue-keyed files
+Every command that writes `$TEHAS_HOME/state`, `live`, `logs`, `tmp/improve`
+or `work` today writes under `$TEHAS_PROJECT_HOME` instead. Issue-keyed files
 (`state/cycles/<n>.*`, `state/park-<n>.id`, `state/plan-<n>.json`,
 `logs/work-<n>-*`, `live/cycles/<n>.json`, `live/console-<n>.txt`, the
 workspaces `work/<repo>-<n>`) then cannot collide between projects, because
@@ -175,7 +175,16 @@ they are in different directories. `tehas_cycles_running` and
 `tehas_cycle_note_files` (`lib/cycles.sh:47-68`) keep globbing one
 directory, which is now one project's.
 
-Host-level files stay in `$TEHAS_HOME`: the host dispatch lock,
+`tmp/` stays host scratch (`TMPDIR`), shared by every project, except
+`tmp/improve/`, which is per project and lives under `$TEHAS_PROJECT_HOME`.
+
+`state/dispatch.lock` is per project: the dispatcher's survey and
+`tehas index` serialise on it. The host lock that the allocation needs is a
+separate file under `$TEHAS_HOME/state/`. In multi mode, `install.sh`'s
+retire step, which takes `dispatch.lock` today, must take the host lock and
+every project's lock before it removes the old commands.
+
+Host-level files stay in `$TEHAS_HOME`: the host lock,
 `update.lock`, `update-pending`, `edge-takeover`, `platform-fetch`, the host
 dispatch log, `live/top.json`, `live/energy.json`, and the host's health.
 
@@ -551,7 +560,7 @@ multi-mode version of that step.
   with the factory paused and no cycle running. It writes `host.env` from
   the instance's host-wide keys, moves those keys out of the instance file
   (it prints the edit for an instance directory kept in git instead of
-  making it), moves `state/`, `live/`, `logs/`, `tmp/`, `work/`, `repos/<repo>`,
+  making it), moves `state/`, `live/`, `logs/`, `work/`, `repos/<repo>`,
   `dev/`, `protolab/`, `preview/` into `projects/<name>/`, and moves
   `~/.pi/agent/models.json`, `settings.json` and `ensemble-runs/` into
   `~/.pi/agent/projects/<name>/`. It stops with nothing moved if any check

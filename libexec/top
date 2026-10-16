@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # One screen that shows what the factory is doing, and redraws it.
 #
-# It reads what the factory already writes under $TEHAS_PROJECT_HOME/live/ - the
-# health file, the queue snapshot, the cycles and the console of a cycle - and
-# the energy sample under $TEHAS_HOME/live/, and asks systemctl --user about its units. It writes nothing, calls
-# no GitHub, no model and no Docker, and loads no instance settings. What it
-# shows is as old as those files, and every section that has an age prints it.
+# It reads what the factory already writes: the project's live files under
+# $TEHAS_PROJECT_HOME/live/ (the health file, the queue snapshot, the cycles and
+# the console of a cycle) and the energy sample under $TEHAS_HOME/live/. It asks
+# systemctl --user about its units. It writes nothing, calls no GitHub, no model
+# and no Docker, and loads no instance settings. What it shows is as old as
+# those files, and every section that has an age prints it.
 #
 # The snapshot and the frame are drawn apart from each other: lib/top.sh builds
 # one JSON object, and the frame comes from that object and nothing else.

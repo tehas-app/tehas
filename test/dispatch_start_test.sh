@@ -299,6 +299,7 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "ERROR: the cycle for #7 did not start"
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention"
 t_contains "$(t_calls gh)" "could not start the cycle"
+t_contains "$(t_calls gh)" "See \`journalctl --user -u tehas-cycle@7\` and"
 
 t_case "a cycle that never says it holds its lock is handed to a human"
 reset

@@ -1182,7 +1182,8 @@ start_cycles() {
       log "ERROR: the cycle for #$n did not start"
       gh issue edit "$n" --repo "$repo" --remove-label tehas:running --add-label needs-human-attention >/dev/null 2>&1 ||
         log "WARN: label change on #$n failed"
-      say "$n" "Tehas could not start the cycle for this issue on \`$(hostname)\`: \`$(tehas_name cycle-unit "$n")\` did not come up. See \`journalctl --user -u $(tehas_name cycle-unit "$n")\` and \`~/tehas/logs/dispatch.log\` there. To retry, apply \`tehas:ready\`."
+      unit=$(tehas_name cycle-unit "$n")
+      say "$n" "Tehas could not start the cycle for this issue on \`$(hostname)\`: \`$unit\` did not come up. See \`journalctl --user -u ${unit%.service}\` and \`~/tehas/logs/dispatch.log\` there. To retry, apply \`tehas:ready\`."
       failed=1
     fi
   done

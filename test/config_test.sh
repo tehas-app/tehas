@@ -747,6 +747,13 @@ t_eq "$t_out" "/elsewhere/widget"
 t_instance "TEHAS_CLONES=1"
 t_run "$load 2>/dev/null; echo \"rc=\$? \$TEHAS_PROJECT_HOME\""
 t_eq "$t_out" "rc=78 $T/home/tehas"
+
+t_case "the project home is set and exported before the instance is read"
+rm -rf "$T/noenv" && mkdir -p "$T/noenv" && chmod 700 "$T/noenv"
+export TEHAS_INSTANCE_DIR=$T/noenv
+t_run "TEHAS_PROJECT_HOME=/wrong; $load 2>/dev/null; echo rc=\$?; bash -c 'echo \$TEHAS_PROJECT_HOME'"
+t_eq "$t_out" "rc=78
+$T/home/tehas"
 t_instance "${T_MINIMAL[@]}"
 
 t_case "every host-global name comes from one helper"
