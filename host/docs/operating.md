@@ -576,7 +576,8 @@ not published.
   Docker cannot place containers in it. `tehas status` then says `warn`. See
   [Troubleshooting](/troubleshooting).
 - No cycle, no planning turn and no retry while there are no resources: the
-  model endpoint does not answer, or does not offer the configured model. The
+  model endpoint does not answer, or does not offer the configured model, and
+  nor does its backup where there is one. The
   dispatcher asks it at every poll. `tehas status` says `warn: No resources`
   and the dashboard says `no resources` until it is back.
 - With `TEHAS_WORK_IMAGES=1`, no cycle for an issue whose text links an

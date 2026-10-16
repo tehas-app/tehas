@@ -224,15 +224,23 @@ fail() {
 # A run that was killed leaves its container running under this name.
 docker rm -f tehas-improve >/dev/null 2>&1 || true
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
+# Its own models.json, on the endpoint picked now, and the tokens it names.
+if ! tehas_model_keys_ok || ! tehas_models_resolve "$run/models.json" >/dev/null; then
+  fail "no usable $(tehas_models_file): run install.sh"
+fi
+keys=()
+while read -r k; do
+  [ -z "$k" ] || [ -z "${!k:-}" ] || keys+=(-e "$k")
+done < <(tehas_model_key_names)
 ask=$(cat "$prompt")
 ask=${ask//@MINUTES@/$((bound / 60))}
 # Not given the lock: a client that outlives a killed run would hold it, and
 # every later run would stand back until the bound.
 timeout -k 60 "$bound" docker run --rm --init --name tehas-improve \
   --cgroup-parent tehas.slice --cpus 1 --memory 2g --memory-swap 2g --pids-limit 1024 --cpu-shares 1024 \
-  -e HOME=/home/vscode -w /improve \
+  -e HOME=/home/vscode "${keys[@]}" -w /improve \
   -v "$run/in:/improve/in:ro" -v "$run/out:/improve/out" \
-  -v "$HOME/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro" \
+  -v "$run/models.json:/home/vscode/.pi/agent/models.json:ro" \
   "${hosts[@]}" "$PI_ENSEMBLE_IMAGE" \
   pi -p --no-session --no-extensions --no-skills --no-prompt-templates --no-context-files \
   --tools read,grep,find,ls,write \

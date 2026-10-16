@@ -330,6 +330,65 @@ What the endpoint serves right now:
 curl -s "$(jq -r '.providers.fleet.baseUrl' ~/.pi/agent/models.json)/models" | jq -r '.data[].id'
 ```
 
+An endpoint that needs a token (see below) answers 401 to this. Add
+`-H "Authorization: Bearer $TEHAS_MODEL_KEY_MAIN"`, from a login shell, which
+has the tokens.
+
+## A backup model endpoint
+
+A provider in `models.json` may name a second endpoint that serves the same
+models, and a token for each:
+
+```
+"fleet": {
+  "api": "openai-completions",
+  "baseUrl": "https://llm.example/v1",
+  "apiKey": "$TEHAS_MODEL_KEY_MAIN",
+  "backupBaseUrl": "https://fleet.example/v1",
+  "backupApiKey": "$TEHAS_MODEL_KEY_FLEET",
+  "models": [ ... ]
+}
+```
+
+- An `apiKey` is a word, such as `unused` for an endpoint that takes no key,
+  or `$TEHAS_MODEL_KEY_<NAME>`. The token itself goes in `~/.config/tehas/env`,
+  mode 600, as `TEHAS_MODEL_KEY_MAIN=...`. Never in `models.json` or
+  `instance.env`: both are in a repository. `instance.env` that sets a
+  `TEHAS_MODEL_KEY_` stops every command with exit 78.
+- Any other `$` or `!` in an `apiKey` stops every command that starts a
+  container, and the dispatcher, with exit 78, and so does a name that is not
+  set. `./install.sh --check` reports both.
+- `backupApiKey` defaults to `apiKey`.
+- Either endpoint can be any OpenAI-compatible endpoint, a
+  [viiwork](https://github.com/janit/viiwork) mesh or not. Both are asked the
+  same way: `GET /models`, with the token.
+
+At each poll the dispatcher asks the main endpoint whether it offers the
+models the agents use on that provider. When it does not answer or does not
+offer one, it asks the backup. The poll holds only when both fail:
+
+```
+holding: no resources: the model endpoint does not answer, and its backup offers no models
+```
+
+While the backup is in use, each poll logs
+`model endpoint: provider fleet is on its backup, the main endpoint does not answer`.
+
+`tehas work`, `tehas plan` and `tehas dev` ask again when they start a
+container. They give it a `models.json` of its own,
+`<state directory>/models.json`, on the endpoint that answered and without
+the backup keys, and the tokens it names as variables, by name. `tehas work`
+prints `tehas work: model endpoint: provider fleet is on its backup` and writes
+it to the preflight log. A container stays on its endpoint: when the main one
+fails mid-cycle, Pi retries it as [Provider retry](#provider-retry) says, and
+the next cycle starts on the backup. The improvement loop and the image
+descriptions pick the same way.
+
+The energy sampler asks the main endpoint's cluster URL, then the backup's,
+each with its token, and samples the first that is a viiwork mesh. So a main
+endpoint that is not viiwork and a viiwork backup still give the Energy use
+section.
+
 ## Provider retry
 
 Pi retries a failed model request only as its `settings.json` says. The sandbox
@@ -929,7 +988,9 @@ same `docker compose ... up -d` applies after a change.
 
 ## Secrets and trust
 
-- `~/.config/tehas/env`: the bot's GitHub token (`GH_TOKEN`), mode 600. The
+- `~/.config/tehas/env`: the bot's GitHub token (`GH_TOKEN`) and the model
+  endpoints' tokens (`TEHAS_MODEL_KEY_*`, see
+  [A backup model endpoint](#a-backup-model-endpoint)), mode 600. The
   energy switches `TEHAS_ENERGY` and `TEHAS_ENERGY_URL` go here too
   (see `tehasbot energy` in [Commands](/tools)); loading the instance keeps
   them.
@@ -948,13 +1009,13 @@ Both are outside the repository and the tehas tree.
 | What a planning container is given     | The same token, the same mounts and the same approve-everything mode as a work cycle's. The agent is asked to plan and file issues. Nothing in the container holds it to that |
 | What an agent can do as the bot        | Post comments, edit the bot's comments, edit the description of any pull request and apply labels, with the token. So a comment is the factory's question only if the host has its id on record in `~/tehas/state`, which no cycle or planning container is given, and an answer counts only by who gave it |
 | Where an agent's conversation is kept  | In the container's own sessions directory: `~/tehas/work/<name>-<issue>.state/sessions` for a cycle, `~/tehas/dev/<name>.state/sessions` for a manual session. No other container reads or writes it, and a cycle's goes with its workspace |
-| Does the token enter the cycle         | Yes, as `GH_TOKEN`. pi-rukas pushes the branch and opens the pull request from inside. Agent code can do anything the token can         |
+| Does the token enter the cycle         | Yes, as `GH_TOKEN`. pi-rukas pushes the branch and opens the pull request from inside. Agent code can do anything the token can. So do the model endpoints' tokens that `models.json` names, as `TEHAS_MODEL_KEY_*`: Pi sends them. Agent code can read them and call the endpoints with them |
 | What else enters the container         | `PI_ENSEMBLE_*` settings, the bot's git name and email, the host aliases. Not the rest of the host environment                          |
-| Host paths mounted                     | The cycle's own workspace, `~/tehas/work/<name>-<issue>`, at the same path in every container; its own transcripts, `~/.pi/agent/ensemble-runs/issue-<issue>`; its own state directory, `~/tehas/work/<name>-<issue>.state` (read-write); `models.json`, `mcp.json`, Pi's `settings.json` (read-only). Only the last three are the same host file in every container; nothing one container writes is mounted for another |
+| Host paths mounted                     | The cycle's own workspace, `~/tehas/work/<name>-<issue>`, at the same path in every container; its own transcripts, `~/.pi/agent/ensemble-runs/issue-<issue>`; its own state directory, `~/tehas/work/<name>-<issue>.state` (read-write); its own `models.json` from that directory, `mcp.json`, Pi's `settings.json` (read-only). Only the last two are the same host file in every container; nothing one container writes is mounted for another |
 | Not reachable from the container       | The Docker socket, SSH keys, `~/.config/tehas`, the platform checkout, the product checkout, the instance directory                     |
 | What the host runs from the workspace  | Nothing. The host runs git only in the product checkout, which no container has written. It reads nothing from the workspace: a cycle's outcome is the runner's result, from its standard output |
 | The indexing container                 | `tehas index` runs the indexer, not an agent: a clone of the product read-only, and `~/tehas/state/index` to write, which no other container is given; no network, no token            |
-| The improvement loop's container       | `tehasbot improve` runs plain Pi, not pi-rukas: the records of the cycles read-only, one directory to write its findings in, and `models.json`. No token, no repository, no tool that runs a command. The host makes every GitHub call and checks the findings against a fixed shape before it files one |
+| The improvement loop's container       | `tehasbot improve` runs plain Pi, not pi-rukas: the records of the cycles read-only, one directory to write its findings in, and its own `models.json`. No GitHub token, only the model endpoints' tokens; no repository, no tool that runs a command. The host makes every GitHub call and checks the findings against a fixed shape before it files one |
 | The network                            | Not restricted. The container reaches GitHub, the model endpoint and whatever else the host can route to                                |
 | Merging                                | The token could merge where the repository lets it. Nothing does, because `AGENTS.md` forbids it and the dispatcher never merges        |
 

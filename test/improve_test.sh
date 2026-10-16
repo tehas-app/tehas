@@ -19,6 +19,8 @@ reset() {
   echo '[]' >"$fx/rukas-open.json"
   echo '[]' >"$fx/rukas-closed.json"
   T_ENV=("TEHAS_CGROUP_ROOT=$T_CGROUP")
+  mkdir -p "$T/home/.pi/agent"
+  echo '{"providers":{"test-provider":{"baseUrl":"http://models.test/v1","apiKey":"unused"}}}' >"$T/home/.pi/agent/models.json"
   slice_good
   t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
 }
@@ -490,7 +492,7 @@ run_dir=$(printf '%s\n' "$args" | sed -n 's|:/improve/in:ro$||p')
 t_eq "$(printf '%s\n' "$args" | grep -x -A1 -- '-v' | grep -v -x -e '-v' -e '--')" \
   "$run_dir:/improve/in:ro
 ${run_dir%/in}/out:/improve/out
-$T/home/.pi/agent/models.json:/home/vscode/.pi/agent/models.json:ro"
+${run_dir%/in}/models.json:/home/vscode/.pi/agent/models.json:ro"
 t_eq "$(printf '%s\n' "$args" | grep -x -A1 -- '-e' | grep -v -x -e '-e' -e '--')" "HOME=/home/vscode"
 t_eq "$(printf '%s\n' "$args" | grep -x -A1 -- '--cgroup-parent' | tail -n 1)" tehas.slice
 t_eq "$(printf '%s\n' "$args" | grep -x -A1 -- '--cpus' | tail -n 1)" 1

@@ -8,7 +8,8 @@
 
 lib=". $T_ROOT/lib/describe.sh"
 dir=$T/images
-t_stub curl 'n=$(find "$T/calls" -name "request.*" | wc -l)
+t_stub curl 'for a; do case "$a" in /dev/fd/*) cat "$a" >>"$T/calls/curl-config" ;; esac; done
+n=$(find "$T/calls" -name "request.*" | wc -l)
 cat >"$T/calls/request.$((n + 1))"
 [ "${CURL_RC:-0}" = 0 ] || exit "$CURL_RC"
 cat "$T/answer.json"'
@@ -43,9 +44,10 @@ answer 'A login form with a red button labelled "Sign in".'
 images 2
 t_run "$describe"
 t_eq "$t_rc$t_out" "0"
-t_eq "$(t_calls curl | sort -u)" "-fsS -m 60 -H Content-Type: application/json -d @- http://models.test:8080/v1/chat/completions"
+t_eq "$(t_calls curl | sed 's#-K /dev/fd/[0-9]* ##' | sort -u)" "-fsS -m 60 -H Content-Type: application/json -d @- http://models.test:8080/v1/chat/completions"
 t_eq "$(t_calls curl | wc -l)" 2
 t_lacks "$(t_calls curl)" "Authorization"
+t_eq "$(cat "$T/calls/curl-config" 2>/dev/null)" ""
 
 t_case "the request names the model, carries the fixed prompt and the image's bytes"
 req=$T/calls/request.1
@@ -150,5 +152,12 @@ chmod 555 "$dir"
 t_run "$describe"
 t_eq "$t_rc" 1
 chmod 755 "$dir"
+
+t_case "the endpoint's token goes in the curl config, not on the command line"
+jq -n '{providers: {"test-provider": {baseUrl: "http://models.test:8080/v1", apiKey: "$TEHAS_MODEL_KEY_MAIN"}}}' >"$T/home/.pi/agent/models.json"
+images 1
+t_run "TEHAS_MODEL_KEY_MAIN=main-secret; $describe"
+t_eq "$(cat "$T/calls/curl-config")" 'header = "Authorization: Bearer main-secret"'
+t_lacks "$(t_calls curl)" "secret"
 
 t_done

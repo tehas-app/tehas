@@ -10,7 +10,8 @@ export RUSTUP_HOME="$HOME/.rustup"
 export NPM_CONFIG_PREFIX="$HOME/.local"
 export TMPDIR="$TEHAS_HOME/tmp"
 export PATH="$TEHAS_HOME/bin:$TEHAS_HOME/tools/node/bin:$HOME/.local/bin:$BUN_INSTALL/bin:$CARGO_HOME/bin:$PATH"
-# Bot credentials (GH_TOKEN). File is chmod 600 and stays outside the tehas tree.
+# Bot credentials (GH_TOKEN) and the model endpoints' tokens (TEHAS_MODEL_KEY_*,
+# named by models.json). File is chmod 600 and stays outside the tehas tree.
 # shellcheck disable=SC1091
 if [ -r "$HOME/.config/tehas/env" ]; then set -a; . "$HOME/.config/tehas/env"; set +a; fi
 # Instance settings: the served repository, who may label, limits, the model
