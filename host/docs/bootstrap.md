@@ -151,9 +151,8 @@ too: the lockfile under `~/tehas/tools/npm/<name>` has the SHA-256 that
 `versions.env` records. A host that already had one of these tools at the same
 version, from a bootstrap that installed it into npm's global tree, therefore
 reinstalls it from `host/npm` on the next `./bootstrap.sh user` and drops the
-global copy. `check` does not look at the tree. It compares only the version it
-finds on the `PATH`, so it says `ok` for a tool whose tree `user` would still
-replace.
+global copy. `check` reports such a tool as `DIFFERS`, with "not the pinned
+tree" after the version it finds on the `PATH`, since `user` would replace it.
 
 The last step runs pi-rukas's own installer, which links its
 extension and skills into `~/.pi/agent/` and pulls its own `latest` image. It is
@@ -176,9 +175,9 @@ nothing uses it and `bootstrap.sh` does not remove it.
 
 Changes nothing. Prints each tool with the version found and the one expected,
 then the system tools, Docker's compose and buildx, Docker without sudo, and
-lingering. Exit 1 if anything is missing or at another version. It does not
-check the npm trees, so a changed lockfile at the same version passes it.
-`./install.sh --check` runs it as its `Dependencies` line.
+lingering. Exit 1 if anything is missing, at another version, or an npm tool
+not on its pinned tree. `./install.sh --check` runs it as its `Dependencies`
+line.
 
 The last line is the slice: `tehas.slice: in place`, `missing` or `differs`,
 by comparing the file under `/etc/systemd/system` with the one in the checkout.
