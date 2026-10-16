@@ -45,6 +45,7 @@ fresh() {
 }
 
 files="./.config/systemd/user/tehas-cycle@.service
+./.config/systemd/user/tehas-dispatch.path
 ./.config/systemd/user/tehas-dispatch.service
 ./.config/systemd/user/tehas-dispatch.timer
 ./.config/systemd/user/tehas-energy.service
@@ -122,7 +123,7 @@ host_files() { find "$home" -type f ! -path "$th/state/update.lock"; }
 # The follow-ups a fresh install of this repository asks for, taken from the one
 # place that names them and the sources a fresh host has none of.
 next_steps() {
-  tehas_steps_for systemd/tehas-cycle@.service systemd/tehas-dispatch.service systemd/tehas-dispatch.timer \
+  tehas_steps_for systemd/tehas-cycle@.service systemd/tehas-dispatch.path systemd/tehas-dispatch.service systemd/tehas-dispatch.timer \
     systemd/tehas-energy.service systemd/tehas-improve.service systemd/tehas-improve.timer \
     systemd/tehas-preview.service \
     systemd/tehas-preview.timer systemd/tehas-preview-sweep.service systemd/tehas-preview-sweep.timer systemd/tehas-protolab.service systemd/tehas-protolab.timer systemd/tehas-top.service sandbox/Dockerfile sandbox/build.sh \
@@ -261,7 +262,8 @@ t_case "nothing installed names a file that is absent"
 missing=""
 for unit in "$home"/.config/systemd/user/*; do
   while read -r ref; do
-    case "$ref" in */logs/*) ref=$(dirname "$ref") ;; esac
+    # The path unit watches for a file a cycle leaves and a poll removes.
+    case "$ref" in */logs/* | */state/dispatch.again) ref=$(dirname "$ref") ;; esac
     [ -e "$ref" ] || missing="$missing $ref"
   done < <(grep -o '%h/tehas/[A-Za-z0-9_./-]*' "$unit" | sed "s|%h|$home|")
 done

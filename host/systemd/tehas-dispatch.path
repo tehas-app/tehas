@@ -1,0 +1,12 @@
+[Unit]
+Description=Tehas: a poll as soon as a cycle has ended
+
+# A cycle that ends leaves this file, and the poll removes it as it begins. A
+# file left while a poll runs starts the next one when that poll ends: a start
+# asked of systemd while the poll runs would be taken as the running one.
+[Path]
+PathExists=%h/tehas/state/dispatch.again
+Unit=tehas-dispatch.service
+
+[Install]
+WantedBy=default.target

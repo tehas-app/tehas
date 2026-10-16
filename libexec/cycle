@@ -122,10 +122,12 @@
 # cycle as merged, as above. A cycle stopped because its issue was closed only
 # loses tehas:running, and nothing is asked.
 #
-# When the cycle has been reported it starts one poll of the dispatcher
-# (tehas-dispatch.service, without waiting for it), so that its slot is filled
-# at once and not at the next tick of the timer. A start that fails is a
-# warning: the timer still runs the poll.
+# When the cycle has been reported it leaves state/dispatch.again and starts one
+# poll of the dispatcher (tehas-dispatch.service, without waiting for it), so
+# that its slot is filled at once and not at the next tick of the timer. The
+# file is for tehas-dispatch.path: it starts a poll after one that was already
+# running when the cycle ended. A file or start that fails is a warning: the
+# timer still runs the poll.
 #
 # Where the instance has an improvement loop (TEHAS_IMPROVE_REPO), it leaves
 # the cycle's record for it at the end, in tmp/improve/window (lib/improve.sh),
@@ -636,8 +638,11 @@ log "done #$issue rc=$rc status=$status step=$step minutes=$mins pr=${pr:-none} 
 tehas_improve_record "$issue" "$started" "$rc" "$status" "$step" "$pr" "$kills" "$image_id" "$image_rukas" "$cap" "$reason" "$build" || log "WARN: no record of #$issue for the improvement loop"
 # The next poll refreshes the status. A stopped cycle leaves it to that poll.
 [ "$signalled" = 1 ] || "$status_cmd"
-# The slot is free now: fill it without waiting for the timer. A poll that is
-# running already takes this start as its own.
+# The slot is free now: fill it without waiting for the timer. systemd takes a
+# start asked while a poll runs as that poll, which may have counted this cycle
+# as running, so the file is left too: tehas-dispatch.path starts the next poll
+# when that one ends. The start is for a host where the path unit is not on.
+: >"$TEHAS_HOME/state/dispatch.again" 2>/dev/null || log "WARN: could not write $TEHAS_HOME/state/dispatch.again"
 timeout -k 5 10 systemctl --user start --no-block tehas-dispatch.service 9>&- >/dev/null 2>&1 ||
   log "WARN: could not start a poll of the dispatcher"
 exit 0
