@@ -21,6 +21,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/lib/config.sh`              | Loads and checks the instance settings; sourced by every command        |
 | `~/tehas/lib/sandbox.sh`             | What a sandbox container is given; sourced by the work, plan and dev scripts |
 | `~/tehas/lib/slice.sh`               | Reads the slice: whether it is usable, a container's limits, the room left. Every command that starts a sandbox container reads it |
+| `~/tehas/lib/headless.sh`            | What tehas reads of pi-rukas's headless runner: its `--capabilities` answer, its progress and its result. `tehas work` and `tehasbot cycle` use it |
 | `~/tehas/lib/attachments.sh`         | Which links of an issue are attached files and how one is fetched. The Protolab and `tehas work` use it |
 | `~/tehas/lib/questions.sh`, `planning.sh` | The question and planning steps of the dispatcher. A cycle's report uses the first too |
 | `~/tehas/bin/`                       | The two commands on `PATH`: `tehas` for a person, `tehasbot` for the units. Plus `gh` |
@@ -454,6 +455,13 @@ does not change it. A gate that runs its tests side by side should size
 itself from `/sys/fs/cgroup/cpu.max`, as this repository's `scripts/test.sh`
 does, or it starts more than the quota can run.
 
+The quota also sets how many runs of the gate pi-rukas makes at once inside the
+cycle: `tehas work` passes `PI_ENSEMBLE_VERIFY_CONCURRENCY`, one for each two
+whole CPUs of the quota and each 2 GiB of the memory ceiling, the lower, at
+least 1. That is pi-rukas's own rule for a host, applied to the container. A
+run that waits for another does not count its wait against
+`TEHAS_VERIFY_TIMEOUT`.
+
 The floor is a priority when the slice frees memory, not a guarantee against
 the whole host: when the host itself runs short, the host comes first. With
 the default reserve the host needs about 11 GiB of memory, because the reserve
@@ -519,19 +527,28 @@ as `killed`: `tehas work` exits 137, and the issue is parked with
 `needs-human-attention` and status `killed` in the comment. That is a
 container that ran out of memory, or one that was stopped from outside, for
 example with `docker kill`. It is not `killed` when `tehas work` stopped the
-container itself, at the time limit or on a signal, nor when the cycle's state
-already said how it ended. The record for the improvement loop carries the
+container itself, at the time limit or on a signal, nor when the runner had
+already written its result. The record for the improvement loop carries the
 count as `oomKills`.
 
 #### Time limits
 
 `TEHAS_WORK_TIMEOUT` bounds the cycle itself, and `TEHAS_WORK_STALL` a cycle
-that writes nothing. The steps around it are bounded too, so a dockerd that
+that writes nothing. Before the limit comes the cycle's deadline,
+`PI_ENSEMBLE_CYCLE_DEADLINE`: a quarter of `TEHAS_WORK_TIMEOUT` before the end,
+or one run of the gate and 8 minutes when that is longer. After it pi-rukas
+starts no new step and parks the cycle with the cap `deadline` and a handoff,
+so a cycle that runs long ends at a step boundary with its branch and pull
+request said, not in the middle of a step. A step that started before the
+deadline may run past it; the margin is there for that step. The runner is
+given `TEHAS_WORK_TIMEOUT` in whole minutes and ends the cycle itself, with
+exit 30; `tehas work` stops a runner that is still there 300 seconds later. The steps around it are bounded too, so a dockerd that
 stops answering or a network that swallows packets does not hold a slot for
 ever:
 
 | Step | Bound | After it |
 | --- | --- | --- |
+| The image's `--capabilities` answer before a cycle | 120 s | `tehas work` exits 78, with `gave no --capabilities answer` |
 | The push check before a cycle | 300 s | `tehas work` exits 3, with `the push check did not end within 300s` |
 | The clone of the cycle's workspace | 300 s | `tehas work` exits 78 |
 | `docker stop` at the end of a cycle, and on a signal | 60 s | `docker kill`, bounded the same way, and the line `docker stop of tehas-work-N did not end within 60s, killing it` |
@@ -698,10 +715,14 @@ stopped, was made from, or that a `uid` tag names. On a host that builds
 often the images then take about three times the size of one, plus those
 still in use.
 
-A build asks the base image whether pi-rukas's own source has the reader of the
-manifest tehas writes beside a cycle's images, and records what it found as the
-label `tehas.rukas.images`. The Dockerfile checks that answer against the base
-it stands on and stops when they disagree. `tehas work`, `tehas plan`, the
+A build first asks the base image's runner what it supports,
+`pi-rukas-headless --capabilities`. A base that does not speak the contract
+versions `tehas work` reads (exit codes 1, result schema 3, stable NDJSON 1),
+or whose `work` verb does not take `--timeout`, `--json` and `--restart`, is
+not built on: the build exits 1 and names each gap. Whether the answer lists
+`PI_ENSEMBLE_ISSUE_IMAGES` for manifest format 1, the manifest tehas writes
+beside a cycle's images, is recorded as the label `tehas.rukas.images`. The
+Dockerfile asks the base it stands on again and stops when the two disagree. `tehas work`, `tehas plan`, the
 dispatcher and `install.sh` read the label; an image built without build.sh
 carries `unknown`, which tehas reads as "not said" rather than as an answer.
 
@@ -793,7 +814,7 @@ that cycle ran.
 | Service     | How it runs                                                | Check                                                  |
 | ----------- | ---------------------------------------------------------- | ------------------------------------------------------ |
 | This site   | `docker compose -f ~/tehas/edge/docs.compose.yaml up -d`   | `curl -i http://tehas-tehas:8080/health`               |
-| Dispatcher  | systemd user timer `tehas-dispatch.timer`, every 2 minutes | `tail ~/tehas/logs/dispatch.log`                       |
+| Dispatcher  | systemd user timer `tehas-dispatch.timer`, every 2 minutes, and `tehas-dispatch.path`, a poll as soon as a cycle ends | `tail ~/tehas/logs/dispatch.log`                       |
 | Energy use sampler, optional | systemd user service `tehas-energy.service`, every 15 s. Enable it only when the model backend is a [viiwork](https://github.com/janit/viiwork) mesh | `jq .generatedAt ~/tehas/live/energy.json` |
 | Host snapshot publisher, optional | systemd user service `tehas-top.service`, every 5 s. It writes nothing unless `TEHAS_TOP=1` | `jq '.host.cpus, .host.load' ~/tehas/live/top.json` |
 | Protolab pages | systemd user timer `tehas-protolab.timer`, every 5 minutes | `tail ~/tehas/logs/protolab.log` |
@@ -883,7 +904,7 @@ Both are outside the repository and the tehas tree.
 | What else enters the container         | `PI_ENSEMBLE_*` settings, the bot's git name and email, the host aliases. Not the rest of the host environment                          |
 | Host paths mounted                     | The cycle's own workspace, `~/tehas/work/<name>-<issue>`, at the same path in every container; its own transcripts, `~/.pi/agent/ensemble-runs/issue-<issue>`; its own state directory, `~/tehas/work/<name>-<issue>.state` (read-write); `models.json`, `mcp.json`, Pi's `settings.json` (read-only). Only the last three are the same host file in every container; nothing one container writes is mounted for another |
 | Not reachable from the container       | The Docker socket, SSH keys, `~/.config/tehas`, the platform checkout, the product checkout, the instance directory                     |
-| What the host runs from the workspace  | Nothing. The host runs git only in the product checkout, which no container has written. It reads the cycle's state file from the workspace as data |
+| What the host runs from the workspace  | Nothing. The host runs git only in the product checkout, which no container has written. It reads nothing from the workspace: a cycle's outcome is the runner's result, from its standard output |
 | The indexing container                 | `tehas index` runs the indexer, not an agent: a clone of the product read-only, and `~/tehas/state/index` to write, which no other container is given; no network, no token            |
 | The improvement loop's container       | `tehasbot improve` runs plain Pi, not pi-rukas: the records of the cycles read-only, one directory to write its findings in, and `models.json`. No token, no repository, no tool that runs a command. The host makes every GitHub call and checks the findings against a fixed shape before it files one |
 | The network                            | Not restricted. The container reaches GitHub, the model endpoint and whatever else the host can route to                                |

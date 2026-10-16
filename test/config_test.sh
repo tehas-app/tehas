@@ -25,6 +25,22 @@ t_run "$load && bash -c 'echo \$TEHAS_VERIFY_TIMEOUT \$PI_ENSEMBLE_VERIFY_TIMEOU
 t_eq "$t_out" "600 600000 600000"
 t_instance "${T_MINIMAL[@]}"
 
+t_case "a workaround is named with the release that fixes it, and only a setting the instance has"
+t_run "$load && echo \"[\$TEHAS_RUKAS_WORKAROUNDS]\""
+t_eq "$t_out" "[]"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_COMMENT_RETENTION=0 TEHAS_WORK_IMAGES=0 \
+  "TEHAS_RUKAS_WORKAROUNDS='PI_ENSEMBLE_COMMENT_RETENTION@0.12.80 TEHAS_WORK_IMAGES@0.12.80'"
+t_run "$load && echo \"\$TEHAS_RUKAS_WORKAROUNDS\""
+t_eq "$t_out" "PI_ENSEMBLE_COMMENT_RETENTION@0.12.80 TEHAS_WORK_IMAGES@0.12.80"
+t_instance "${T_MINIMAL[@]}" TEHAS_RUKAS_WORKAROUNDS=PI_ENSEMBLE_COMMENT_RETENTION@0.12.80
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "TEHAS_RUKAS_WORKAROUNDS names PI_ENSEMBLE_COMMENT_RETENTION, which is not set: remove its entry"
+t_instance "${T_MINIMAL[@]}" TEHAS_RUKAS_WORKAROUNDS=TEHAS_RUKAS_WORKAROUNDS@1.2
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_instance "${T_MINIMAL[@]}"
+
 t_case "a cycle may go an hour without a line in its logs unless the instance says otherwise"
 t_run "$load && echo \$TEHAS_WORK_STALL"
 t_eq "$t_out" "3600"
@@ -231,7 +247,9 @@ for bad in "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=0" "TEHAS_TICKET_CONC
   "TEHAS_PREVIEW_MAX=0" "TEHAS_PREVIEW_MAX=100" "TEHAS_PREVIEW_MIN_FREE=lots" \
   "TEHAS_IMPROVE_REPO=not a repo" "TEHAS_IMPROVE_REPO=acme" "TEHAS_IMPROVE_REPO=acme/factory/more" \
   "TEHAS_IMPROVE_RUKAS_REPO=not a repo" "TEHAS_IMPROVE_RUKAS_REPO=acme" \
-  "TEHAS_IMPROVE_MAX_OPEN=0" "TEHAS_IMPROVE_MAX_OPEN=many"; do
+  "TEHAS_IMPROVE_MAX_OPEN=0" "TEHAS_IMPROVE_MAX_OPEN=many" \
+  "TEHAS_RUKAS_WORKAROUNDS=PI_ENSEMBLE_X" "TEHAS_RUKAS_WORKAROUNDS=PI_ENSEMBLE_X@soon" "TEHAS_RUKAS_WORKAROUNDS=PATH@1.2" \
+  "TEHAS_RUKAS_WORKAROUNDS=PI_ENSEMBLE_X@1.2  TEHAS_TOP@1.3" "TEHAS_RUKAS_WORKAROUNDS=PI_ENSEMBLE_X@1"; do
   t_case "loading rejects $bad"
   printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
   t_run "$load; echo rc=\$?"

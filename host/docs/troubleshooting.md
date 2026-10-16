@@ -13,8 +13,8 @@ description: "What each stop in a tehas cycle means, and what to do about it."
 | Is there room for another cycle? | The `slice` line of `tehas status`; `~/tehas/live/dispatch.json`        |
 | What did the dispatcher decide?  | `tehas dispatch --dry-run`, `~/tehas/logs/dispatch.log`                 |
 | What did a cycle's runner print? | `~/tehas/logs/dispatch-work-<issue>.log`                                |
-| What did Pi and the driver say?  | `~/tehas/logs/work-<issue>-<time>.jsonl` and `.jsonl.err`               |
-| Where is the cycle now?          | `jq .pipelineState ~/tehas/work/tehas-<issue>/.pi/work-state/<issue>.json`. The workspace of a cycle that left a pull request is removed; one that stopped is kept, and a retry moves it to `tehas-<issue>.before-retry`. |
+| What did the driver say?         | The runner's NDJSON progress, `~/tehas/logs/work-<issue>-<time>.jsonl`, and its result beside it, `.jsonl.result.json` |
+| Where is the cycle now?          | While it runs, its step on the [dashboard](/dashboard), from `~/tehas/live/cycles/<issue>.json`; once it ended, `jq . ~/tehas/state/cycles/<issue>.result.json`. The workspace of a cycle that left a pull request is removed; one that stopped is kept, and a retry moves it to `tehas-<issue>.before-retry`. |
 | What did one agent do?           | Transcripts under `~/.pi/agent/ensemble-runs/issue-<issue>/<date>/`     |
 | What did the improvement loop do? | `~/tehas/logs/improve.log`, one line per run                           |
 | Is a cycle running?              | `systemctl --user status 'tehas-cycle@*'`, or `docker ps --filter name=tehas-work` |
@@ -152,11 +152,15 @@ Run `tehas dispatch --dry-run` and read what it prints.
   `needs-human-attention`. Read `~/tehas/logs/dispatch-work-N.log`.
 - `WARN: the cycle for #N holds its lock but has not been heard from since
   <time>, more than 1200s: stopping tehas-cycle@N.service`: the cycle's live
-  file has not been written for 20 minutes, so the poll stopped its unit.
-  Read `~/tehas/logs/dispatch-work-N.log` and the end of the cycle's
+  file has not been written for 20 minutes, so the poll asked its unit to
+  stop. Read `~/tehas/logs/dispatch-work-N.log` and the end of the cycle's
   `~/tehas/logs/work-N-*.jsonl` for where it hung. `WARN: could not stop
-  tehas-cycle@N.service` after it means the stop did not go through: stop
-  the unit by hand with `systemctl --user stop tehas-cycle@N.service`.
+  tehas-cycle@N.service (exit <code>)` after it means the stop did not go
+  through: the poll asks again, at most once every 10 minutes, and after 6
+  asks it says the episode needs a person. Either way the unit's own
+  `TimeoutStopSec` (300s) is what ends a unit that ignores the stop job. To
+  stop it now: `systemctl --user stop tehas-cycle@N.service`, and read
+  `journalctl --user -u tehas-cycle@N`.
 - `N cycles running, room for M more`, then `would run a cycle for #N ...`:
   the issues the next poll starts. In the log you may also see `the code index
   stays as it is: a cycle is running on #N`. That is no reason an issue waits.
@@ -189,7 +193,7 @@ Run `tehas dispatch --dry-run` and read what it prints.
 
 ### A cycle stops with `Cannot fork` in its log
 
-The cycle's error stream has `/bin/sh: 1: Cannot fork`, or the RPC log has
+The cycle's progress log has `/bin/sh: 1: Cannot fork`, or a transcript has
 `fork: retry: Resource temporarily unavailable` or `EAGAIN`. The container was
 at its `--pids-limit`. The comment that reports the cycle says how many starts
 were refused, and the kernel log on the host has `fork rejected by pids
@@ -204,8 +208,8 @@ starting processes that stay alive: look at what is running in the container
 
 ### A cycle stops in its first step with `provider-severed`
 
-The cycle's error stream (`~/tehas/logs/work-<issue>-*.jsonl.err`) shows retries
-with `cause=provider-severed` and the RPC log an `errorMessage` starting with
+The cycle's progress log (`~/tehas/logs/work-<issue>-*.jsonl`) shows retries
+with `cause=provider-severed` and an agent's transcript an `errorMessage` starting with
 `429`. The model endpoint listed the model but had no free slot for it. That
 happens when another job is using the model, and also when the model has only
 one slot: a cycle's driving session and its step agents call the model at the
@@ -268,7 +272,8 @@ poll, after a start, and when the reason for a hold changes.
 
 ## The cycle parked (`needs-human-attention`)
 
-Read pi-rukas's handoff comment on the issue first; it names the cap that fired.
+Read the bot's comment on the issue first: it names the cap that fired, and
+pi-rukas's handoff follows in the same comment.
 The common ones:
 
 | Reason                              | What it means                                       | What to do                                               |
@@ -292,8 +297,8 @@ changes nothing for that cycle. See [Operating tehas](/operating).
 
 ## A cycle stops at a cap
 
-pi-rukas's handoff comment has the heading "Cap hit", and its line `**Cap**:`
-names the cap. Under "What this cap means" are pi-rukas's own
+pi-rukas's handoff, in the bot's comment, has the heading "Cap hit", and its
+line `**Cap**:` names the cap. Under "What this cap means" are pi-rukas's own
 words for this stop, and under "Worktree state at handoff" whether the work is
 on a branch and whether that branch was pushed.
 
@@ -314,8 +319,15 @@ Read the rest of the comment with three things in mind:
 A retry approves the issue text as it is then, so change the issue first when
 the cap asks for it. A cap posted on a pull request came from the review
 stage, after the pull request was opened. When that pull request is still open
-at the end of the cycle, the issue gets `tehas:awaiting-merge`, not
-`needs-human-attention`.
+at the end of the cycle, the issue gets `needs-human-attention`, and the
+comment names the cap and the pull request. Only the cap `awaiting-human-merge`
+gives `tehas:awaiting-merge`, and only when the review did not run out of
+rounds with findings open.
+
+The cap `deadline` means the cycle came to the deadline tehas gives it, a
+quarter of `TEHAS_WORK_TIMEOUT` before the end, and started no new step. Its
+branch and pull request are as the handoff says. Retry when the issue can be
+done in the time, or split it.
 
 These are the caps the factory posted on its own issues from 10 to 14 October
 2026, most frequent first.

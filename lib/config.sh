@@ -31,8 +31,8 @@
 #     hooks TEHAS_WORK_CMD, TEHAS_STATUS_CMD, TEHAS_INDEX_CMD, TEHAS_PLAN_CMD,
 #     TEHAS_CYCLE_START_CMD, TEHAS_CYCLE_STOP_CMD, TEHAS_CYCLE_START_WAIT,
 #     TEHAS_CGROUP_ROOT, TEHAS_PREFLIGHT_WAIT, TEHAS_STOP_WAIT, TEHAS_FETCH_WAIT,
-#     TEHAS_CONSOLE_WAIT, TEHAS_CYCLE_RETRY_WAIT and TEHAS_CYCLE_STOP_GH_WAIT
-#     are kept.
+#     TEHAS_CONSOLE_WAIT, TEHAS_WORK_GRACE, TEHAS_CAPS_WAIT,
+#     TEHAS_CYCLE_RETRY_WAIT and TEHAS_CYCLE_STOP_GH_WAIT are kept.
 #   - Loading runs no git command, makes no network call and writes nothing.
 #   - TEHAS_IMPROVE_REPO switches the improvement loop on. Unset is valid and
 #     means there is none. TEHAS_IMPROVE_RUKAS_REPO needs it.
@@ -139,6 +139,10 @@ _tehas_valid() {
         return 1
       fi
       ;;
+    TEHAS_RUKAS_WORKAROUNDS)
+      [[ $v =~ ^(PI_ENSEMBLE|TEHAS)_[A-Z0-9_]+@[0-9]{1,6}(\.[0-9]{1,6}){1,3}(\ (PI_ENSEMBLE|TEHAS)_[A-Z0-9_]+@[0-9]{1,6}(\.[0-9]{1,6}){1,3})*$ ]] ||
+        { echo "expected NAME@VERSION entries separated by single spaces, such as PI_ENSEMBLE_COMMENT_RETENTION@0.12.80"; return 1; }
+      ;;
     PI_ENSEMBLE_SUBAGENT_MODEL | PI_ENSEMBLE_SUBAGENT_PROVIDER | PI_ENSEMBLE_MODEL_* | PI_ENSEMBLE_PROVIDER_* | TEHAS_BRANCH)
       [[ $v =~ ^[^[:space:]]+$ ]] || { echo "expected one word"; return 1; }
       ;;
@@ -147,11 +151,13 @@ _tehas_valid() {
 }
 
 # The roles an instance may give a model of their own, as the suffix of
-# PI_ENSEMBLE_MODEL_<ROLE> and PI_ENSEMBLE_PROVIDER_<ROLE>. They are the roles
-# the pinned pi-rukas spawns (extension/src/roles.ts at PI_RUKAS_VERSION in
-# host/versions.env). All six lens reviewers are one role,
-# CODE_REVIEW_SPECIALIST. The project manager is the session: its model is the
-# product's .pi/settings.json. Change this list when a new pin changes them.
+# PI_ENSEMBLE_MODEL_<ROLE> and PI_ENSEMBLE_PROVIDER_<ROLE>, checked when the
+# settings load, before any image is asked. They are the members pi-rukas
+# v0.12.80 and later list for that family in --capabilities. tehas work checks
+# a cycle's names against the members its image lists, so a role pi-rukas
+# drops is refused there; one it adds is usable once it is added here. All six
+# lens reviewers are one role, CODE_REVIEW_SPECIALIST. The project manager is
+# the session: its model is the product's .pi/settings.json.
 tehas_model_roles() { printf '%s\n' DEVELOPER OPS EXPLORE ADVERSARIAL_DEVELOPER CODE_REVIEW_SPECIALIST; }
 
 # Check the per-role model settings and give each role model a provider.
@@ -209,7 +215,7 @@ tehas_load() {
     case "$v" in
       TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_INDEX_CMD | TEHAS_PLAN_CMD | \
         TEHAS_CYCLE_START_CMD | TEHAS_CYCLE_STOP_CMD | TEHAS_CYCLE_START_WAIT | TEHAS_CGROUP_ROOT | \
-        TEHAS_PREFLIGHT_WAIT | TEHAS_STOP_WAIT | TEHAS_FETCH_WAIT | TEHAS_CONSOLE_WAIT | \
+        TEHAS_PREFLIGHT_WAIT | TEHAS_STOP_WAIT | TEHAS_FETCH_WAIT | TEHAS_CONSOLE_WAIT | TEHAS_WORK_GRACE | TEHAS_CAPS_WAIT | \
         TEHAS_CYCLE_RETRY_WAIT | TEHAS_CYCLE_STOP_GH_WAIT | TEHAS_ENERGY | TEHAS_ENERGY_URL) ;;
       TEHAS_* | PI_ENSEMBLE_*) unset "$v" ;;
     esac
@@ -286,6 +292,10 @@ tehas_load() {
   # files no more there. What it files is a model's reading of text anyone
   # may have written, so nobody reading must not mean an endless stack.
   export TEHAS_IMPROVE_MAX_OPEN=${TEHAS_IMPROVE_MAX_OPEN:-10}
+  # Settings that only work around a pi-rukas defect, each with the release
+  # that fixes it. tehas work refuses a cycle once the image has that release,
+  # so a workaround does not outlive its reason.
+  export TEHAS_RUKAS_WORKAROUNDS=${TEHAS_RUKAS_WORKAROUNDS:-}
   export TEHAS_HOST_ADDR=${TEHAS_HOST_ADDR:-127.0.0.1}
   # Room for every cycle and two pull requests that wait for a review. A fixed
   # number would leave slots that can never be used. A concurrency that is not
@@ -346,9 +356,17 @@ tehas_load() {
     [ -n "${!v:-}" ] || continue
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
-  for v in TEHAS_ANALYTICS_SRC TEHAS_ANALYTICS_SITE TEHAS_IMPROVE_REPO TEHAS_IMPROVE_RUKAS_REPO TEHAS_IMPROVE_MAX_OPEN; do
+  for v in TEHAS_ANALYTICS_SRC TEHAS_ANALYTICS_SITE TEHAS_IMPROVE_REPO TEHAS_IMPROVE_RUKAS_REPO TEHAS_IMPROVE_MAX_OPEN TEHAS_RUKAS_WORKAROUNDS; do
     [ -n "${!v}" ] || continue
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
+  done
+  # An entry for a setting the instance no longer has is a workaround removed
+  # by half.
+  for v in $TEHAS_RUKAS_WORKAROUNDS; do
+    v=${v%@*}
+    [ "$v" != TEHAS_RUKAS_WORKAROUNDS ] && [ -n "${!v:-}" ] && continue
+    tehas_err "TEHAS_RUKAS_WORKAROUNDS names $v, which is not set: remove its entry (see $file)"
+    return 78
   done
   if [ -n "$TEHAS_ANALYTICS_SRC" ] && [ -z "$TEHAS_ANALYTICS_SITE" ]; then
     tehas_err "TEHAS_ANALYTICS_SITE is not set and TEHAS_ANALYTICS_SRC is (see $file)"

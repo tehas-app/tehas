@@ -75,7 +75,8 @@ in the platform repository has every one with a comment.
 | `TEHAS_WORK_DESCRIBE`           | `0`                                      | `1` has the model describe each of those images in words before the cycle or planning session starts, into `images.md` beside them: see [tehas work](#tehas-work). Needs `TEHAS_WORK_IMAGES=1`, else the command stops with 78 |
 | `TEHAS_WORK_FILES`              | `0`                                      | `1` gives a cycle and a planning session the text files its issue text links: md, txt, csv, json, yaml, log, html, css and js, at most 16, 1 MB each and 4 MB together. Needs no model that reads images. See [tehas work](#tehas-work) |
 | `TEHAS_WORK_COMMENTS`           | `0`                                      | `1` takes the images and files of the issue's comments too: those an allowed account wrote and nobody edited after the approval. Needs `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, else the command stops with 78. See [tehas work](#tehas-work) |
-| `TEHAS_VERIFY_TIMEOUT`          | `1800`                                   | Seconds one run of the product's gate may take inside a cycle. A gate that takes longer is stopped and the cycle parks. Passed to pi-rukas as `PI_ENSEMBLE_VERIFY_TIMEOUT_MS` and `PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS`; pi-rukas alone allows ten minutes |
+| `TEHAS_VERIFY_TIMEOUT`          | `1800`                                   | Seconds one run of the product's gate may take inside a cycle. A gate that takes longer is stopped and the cycle parks with the cap `verify-timeout:<step>`. Passed to pi-rukas as `PI_ENSEMBLE_VERIFY_TIMEOUT_MS` and `PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS`; pi-rukas alone allows ten minutes. The bound is for one run under the container's CPU quota: a run that waits for another to end does not count its wait. With a `.pi/verify-cmd-fast`, the fast and the full command share it. The cycle's deadline leaves at least this much and 8 minutes before `TEHAS_WORK_TIMEOUT` |
+| `TEHAS_RUKAS_WORKAROUNDS`       | empty                                    | Optional. The settings of this instance that only work around a pi-rukas defect, as `NAME@VERSION` separated by single spaces, `VERSION` being the pi-rukas release that fixes it. `tehas work` stops a cycle with 78 once the image's pi-rukas is that release or later, naming the setting: remove it and its entry. An entry for a setting the instance does not set stops every command with 78. Write the pi-rukas issue in a comment beside the setting |
 | `TEHAS_PLAN_MAX_TURNS`          | `20`                                     | Turns a planning session may take before it is ended            |
 | `TEHAS_PLAN_TIMEOUT`            | `3600`                                   | Seconds before one planning turn is given up. At most 7200: [the poll's unit](/host#time-limits) stops a poll after 3 hours |
 | `PI_ENSEMBLE_HOST_ALIASES`      | empty                                    | `name:address` pairs the sandbox must resolve, comma separated  |
@@ -89,23 +90,34 @@ session.
 - `PI_ENSEMBLE_IMAGE` and `PI_ENSEMBLE_HOST_ALIASES`: tehas reads these and does
   not pass them on. They pick the image the container runs and its `--add-host`
   lines.
+- `PI_ENSEMBLE_NO_DOCKER_SOCKET` and `PI_ENSEMBLE_NO_SSH`: switches of
+  pi-rukas's own docker wrapper, which tehas does not use. tehas sets both and
+  passes neither on.
 - `PI_ENSEMBLE_SANDBOX_MODE` and `PI_ENSEMBLE_WORKSPACE_ROOT`: tehas sets these
   for every container. An instance line for one of them is a second `-e` for a
   name tehas has already fixed, given after tehas' own.
-- `PI_ENSEMBLE_MAX_WORKSTREAMS`, `PI_ENSEMBLE_VERIFY_TIMEOUT_MS`,
-  `PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS`, `PI_ENSEMBLE_NO_DOCKER_SOCKET`
-  and `PI_ENSEMBLE_NO_SSH`: tehas sets all five after it reads the instance
-  file, the first from `TEHAS_CONCURRENCY` and the two timeouts from
-  `TEHAS_VERIFY_TIMEOUT`. An instance line for one of them is replaced by
-  tehas' value before the container starts, with no message: set the `TEHAS_*`
-  name instead. The last two are not settings at all, and no instance line
-  gives a cycle the Docker socket or SSH keys.
+- `PI_ENSEMBLE_MAX_WORKSTREAMS`, `PI_ENSEMBLE_VERIFY_TIMEOUT_MS` and
+  `PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS`: tehas sets all three after it
+  reads the instance file, the first from `TEHAS_CONCURRENCY` and the two
+  timeouts from `TEHAS_VERIFY_TIMEOUT`. An instance line for one of them is
+  replaced by tehas' value before the container starts, with no message: set
+  the `TEHAS_*` name instead. No instance line gives a cycle the Docker socket
+  or SSH keys.
 - `PI_ENSEMBLE_EXTRA_IMAGE_DIRS` names the mounted images directory and is
   tehas' to set when `TEHAS_WORK_IMAGES=1`, where an instance line for it is
   dropped (see [tehas work](#tehas-work)).
+- `PI_ENSEMBLE_HANDOFF_CHANNEL`, `PI_ENSEMBLE_CYCLE_DEADLINE` and
+  `PI_ENSEMBLE_VERIFY_CONCURRENCY` are `tehas work`'s to set for a cycle, and
+  `PI_ENSEMBLE_CYCLE_BUDGET_MS` is not passed: an instance line for one of
+  them is dropped (see [tehas work](#tehas-work)). A planning session and a
+  `tehas dev` session get none of them.
 
 A lever pi-rukas reads under any other name needs no setting of tehas' own, and
-tehas neither checks its value nor passes it on under another name. Unlike a
+tehas neither checks its value nor passes it on under another name. It does
+check the name: before a cycle starts, `tehas work` asks the image's runner
+(`pi-rukas-headless --capabilities`) which inputs it reads, and a
+`PI_ENSEMBLE_*` name the container would be given that the runner does not list
+as one a host sets stops the cycle with 78, naming it. Unlike a
 `TEHAS_*` setting, a malformed value here is not refused with 78: it reaches
 pi-rukas and pi-rukas decides what to do with it, which for
 `PI_ENSEMBLE_REVIEW_THRESHOLD` is to ignore it. The channel also carries
@@ -251,9 +263,21 @@ that it took its lock. The poll logs `WARN: the cycle for #N holds its lock but
 has not been heard from since <time>, more than 1200s: stopping
 tehas-cycle@N.service` and stops the unit without waiting for it. The cycle
 reports as it stops; a later poll finds the issue as above. This is said and
-done once for each time the cycle was last heard from, kept in
-`~/tehas/state/cycles/<issue>.quiet`. A dry run says `would stop` and stops
-nothing. A paused factory does not stop it.
+done once for each time the cycle was last heard from. Every ask is recorded in
+`~/tehas/state/cycles/<issue>.quiet`: the time the cycle was last heard from,
+how many times the poll has asked, and when it asks next. Exit 0
+from `systemctl --user --no-block stop` only says systemd accepted the stop
+job, so the note means the stop was asked, not that the unit stopped; what
+ends a unit that ignores the job is the unit's own `TimeoutStopSec` (300s) and
+`RuntimeMaxSec`. A stop that failed or timed out adds `WARN: could not stop
+tehas-cycle@N.service (exit <code>): it holds its slot, and the poll asks
+again`. While the cycle holds its lock the poll asks again, at most once every
+10 minutes (`WARN: ...: the poll asks tehas-cycle@N.service to stop again`),
+and after 6 asks it says the episode needs a person and asks no more, so one
+wedged unit does not hold the poll. The note goes once the
+episode is over: a later poll removes it when it can tell that no cycle holds
+that issue's lock, or the cycle is heard from again. A dry run says `would
+stop`, stops nothing and removes no note. A paused factory does not stop it.
 
 An issue is taken only when an allowed account applied `tehas:ready` and
 nobody else has changed its title or body since, and only while GitHub says the
@@ -282,8 +306,9 @@ comment follows the label change: when that change fails nothing is said on the
 issue and the next poll tries again. An issue the poll does not read as a
 candidate keeps its labels as they are, which covers one whose own cycle is
 alive and every issue while a hold applies. No other label holds it
-back: `needs-human-attention`, `tehas:awaiting-merge` and `tehas:question` are
-taken off as the cycle starts. While the issue's own cycle is alive the log
+back: `tehas:awaiting-merge` and `tehas:question` are taken off as the cycle
+starts. `needs-human-attention` is left for the cycle, which starts with
+`--restart` and has pi-rukas take it off. While the issue's own cycle is alive the log
 says `wait #N: its cycle is still running`, and the issue is taken once that
 cycle has ended. Every list of issues is read up to 1000. A cycle starts only once the
 issue is marked `tehas:running`; if that label change fails, the poll stops.
@@ -323,11 +348,50 @@ One pi-rukas `/work` cycle, headless, in the sandbox image.
 tehas work <issue> [--restart]
 ```
 
-It starts `pi --mode rpc --approve` in a container, sends `/work <issue>`
-(`/work <issue> --restart` with `--restart`) and waits until `.pi/work-state/<issue>.json` in the workspace `~/tehas/work/<name>-<issue>` leaves `running`.
-It then gives the driver 20 seconds to post its handoff and ends the session
-by closing Pi's input. Only a Pi that has not gone five seconds later is
-stopped with `docker stop`.
+The container's command is pi-rukas's one-shot runner,
+`/opt/pi-rukas/bin/pi-rukas-headless work <issue> --timeout <minutes> --json`,
+with `--restart` added for `--restart`. The runner is given
+`TEHAS_WORK_TIMEOUT` in whole minutes and stops itself there; a runner that
+has not stopped `TEHAS_WORK_GRACE` seconds (300) later is stopped with
+`docker stop`. `tehas work` waits for the runner to exit and reads nothing
+from the workspace `~/tehas/work/<name>-<issue>`: the outcome is the runner's
+`--json` result, which goes to `~/tehas/state/cycles/<issue>.result.json`, and
+a copy beside the log. The contract is pi-rukas's `docs/headless.md`: exit
+codes v1, result schema 3, NDJSON progress with a stable subset.
+
+Before anything is moved or fetched, it asks the image what it supports,
+`pi-rukas-headless --capabilities`. The cycle starts only when the image speaks
+exit codes 1, result schema 3 and stable NDJSON 1, the `work` verb takes the
+flags passed, and every `PI_ENSEMBLE_*` variable the container would be given
+is an input the image lists for a host to set (scope `cycle` or `sandbox`; a
+family such as `PI_ENSEMBLE_MODEL_<ROLE>` covers the members the image lists
+for it, or any name when it lists none, as v0.12.80 does), and the answer's
+`features` say `true` for `handoffChannel`, for `cycleDeadline` when the cycle
+has a deadline and for `restartClearsAttention` with `--restart`. Anything else
+is exit 78, with what is not supported named:
+
+```
+tehas work: tehas/pi-rukas:uid1000 does not support what this cycle is given, not starting a cycle:
+    the input PI_ENSEMBLE_SOMETHING
+```
+
+Then each entry of `TEHAS_RUKAS_WORKAROUNDS` is checked against the image's
+pi-rukas version: one whose release it has reached, or any entry when the
+version cannot be read, is exit 78:
+
+```
+tehas work: TEHAS_RUKAS_WORKAROUNDS names a workaround this image no longer needs, not starting a cycle:
+    PI_ENSEMBLE_COMMENT_RETENTION works around a pi-rukas defect fixed in 0.12.80, and the image's pi-rukas is 0.12.80
+    Remove the setting and its entry from /home/tehas/.config/tehas/instance.env.
+```
+
+Three inputs are this command's, whatever the instance says:
+
+| Input | Value | Why |
+| --- | --- | --- |
+| `PI_ENSEMBLE_HANDOFF_CHANNEL` | `host` | pi-rukas posts no handoff comment and applies no label. `tehasbot cycle` posts the one comment of the park from the result's handoff, and labels the issue |
+| `PI_ENSEMBLE_CYCLE_DEADLINE` | the start plus `TEHAS_WORK_TIMEOUT` less a margin, in milliseconds | After it the cycle starts no new step and parks with the cap `deadline`, with a handoff. The margin is a quarter of the limit, or one run of the gate (`TEHAS_VERIFY_TIMEOUT`) and 8 minutes when that is longer: a step that started before the deadline may run past it. With the default limit the deadline is 4 h 30 min in. A limit too short for the margin gives no deadline, and the log says so |
+| `PI_ENSEMBLE_VERIFY_CONCURRENCY` | one for each two whole CPUs of the container's quota and each 2 GiB of its memory ceiling, the lower, at least 1 | How many runs of the gate the cycle makes at once. pi-rukas's own rule for a host, applied to the container. On 16 CPUs with four cycles side by side that is 1 |
 
 It holds the issue's lock, `~/tehas/state/cycles/<issue>.lock`, while it runs.
 Run by hand for an issue whose cycle is running, it refuses before it moves
@@ -339,15 +403,28 @@ removed before the new one starts.
 
 | Exit | Meaning                                                          |
 | ---- | ---------------------------------------------------------------- |
-| 0    | The cycle ended as `merged` or `handoff` (parked for a human)    |
-| 1    | The cycle ended as `aborted`                                     |
-| 2    | Pi exited, its session ended, the time limit passed, or the cycle stalled, while it was running |
+| 0    | The runner's: `merged`, or completed with nothing to merge       |
+| 10   | The runner's: `handoff`, parked for a human                      |
+| 11   | The runner's: `handoff` for clarification (`intent-park`, `explore-needs-clarification`) |
+| 20   | The runner's: `aborted`                                          |
+| 21   | The runner's: `interrupted` by a signal, a stop here among them  |
+| 30   | The runner's: the driver crashed, or the runner's own time limit passed |
+| 40   | The runner's: it refused to start the cycle                      |
+| 2    | The cycle was stopped here as stalled or at the time limit and grace, or the runner ended without a result |
 | 3    | The sandbox cannot push to the repository; no cycle was started  |
 | 4    | With `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`: an image or file the issue links could not be fetched, the issue could not be read for them, its text is not the text that was approved, or a file is not the one first fetched for the approval; no cycle was started |
 | 5    | A cycle for this issue is running already: its lock `~/tehas/state/cycles/<issue>.lock` is held. Nothing was moved and no container started |
 | 64   | The issue is not a number, or no bot token or no git identity; no cycle was started |
-| 78   | The instance settings are invalid, or `tehas.slice` is missing, has no memory limit, or cannot be used (the message names `sudo ./bootstrap.sh slice` or the reason); no cycle was started |
-| 137  | The container was killed while the cycle was running: out of memory, or stopped from outside. The cycle is `killed` |
+| 78   | The instance settings are invalid, `tehas.slice` is missing, has no memory limit, or cannot be used (the message names `sudo ./bootstrap.sh slice` or the reason), the image does not support what the cycle is given, or a workaround in `TEHAS_RUKAS_WORKAROUNDS` has expired; no cycle was started |
+| 137  | The container was killed while the cycle was running, and the runner wrote no result: out of memory, or stopped from outside. The cycle is `killed` |
+
+The runner's codes are its own only when it wrote a result for the issue, or a
+result with no issue entry at all (a refusal that carries only an error). A
+docker client that exits otherwise, after a result was written, gives the
+result's `exitCode`; a result without one is exit 2. A runner stopped here at
+the time limit and grace is `timeout`, whatever its result says, and the
+limit's seconds go to `~/tehas/state/cycles/<issue>.timed`, which `tehasbot
+cycle` says on the issue and removes.
 
 The container runs in `tehas.slice` and gets the bot token and the
 `PI_ENSEMBLE_*` settings, a memory ceiling of a quarter of the slice with no
@@ -356,7 +433,17 @@ host's CPUs, a pids limit that follows the quota, a CPU weight and an init, and
 no Docker socket or SSH keys. git inside it is given the
 bot's identity and a credential helper that reads the token, through
 environment-level configuration; before a cycle starts, a dry-run push proves
-that works. The RPC stream is kept in `~/tehas/logs/work-<issue>-<time>.jsonl`.
+that works. The runner's NDJSON progress, its error stream, is kept in
+`~/tehas/logs/work-<issue>-<time>.jsonl`. The console and the dashboard's line
+read only the kinds the runner declares stable; a line it marks `unstable` is
+not shown. At the end, `~/tehas/state/cycles/<issue>.progress.json` holds the
+token usage per role, why the cycle stopped at its cap and the kind of that
+failure, for `tehasbot cycle`. They come from the result (`usage.byRole` and
+`failure`) when the image's `--capabilities` answer says it carries them
+(`features.usageByRole`, `features.failureReason`). An image that does not,
+v0.12.80, gives the usage of the stable `dispatch-completed` lines, each
+counted once by its key, and a reason read from lines the runner marks
+unstable, which may be empty.
 The time limit is `TEHAS_WORK_TIMEOUT`. The push check, the clone and every
 `docker stop` have bounds of their own, listed under
 [time limits](/host#time-limits). [The host](/host#limits-and-concurrency)
@@ -375,8 +462,8 @@ cycle that installs packages fetches them again: for a product whose gates run
 `bun` or `npm install`, that is the download of its dependencies once per
 cycle, minutes on a cold container and nothing afterwards.
 
-A cycle that writes nothing does not wait for its time limit. When Pi's RPC
-stream, its error stream and the agents' transcripts under
+A cycle that writes nothing does not wait for its time limit. When the
+runner's progress and the agents' transcripts under
 `~/.pi/agent/ensemble-runs/issue-<issue>` all stay unchanged for
 `TEHAS_WORK_STALL` seconds, the container is stopped and the cycle is
 `stalled`. A step that hangs on a child process, or a gate that never returns,
@@ -385,14 +472,6 @@ then frees its slot within the hour. The seconds go to
 how long nothing moved and at which step, parks it and removes the file. A
 cycle that keeps writing without getting anywhere is not caught by this: it
 runs until its time limit.
-
-A Pi session that ends while the cycle is still running is not waited for
-either. When pi-rukas writes its `session_shutdown` line to the error stream,
-`<log>.err`, the container is stopped at the next look and the cycle is
-`interrupted`. `~/tehas/state/cycles/<issue>.ended` is left for `tehasbot
-cycle`, which parks the issue, says that the Pi session ended during the step
-the state file names, names the open pull request when there is one, and
-removes the file.
 
 While the container runs, Docker keeps its id in `~/tehas/state/cycles/<issue>.cid`,
 which is how the dispatcher tells a cycle's container from the others in the
@@ -449,8 +528,9 @@ start with exit 4, and the comment names it: the issue is parked, and
 `tehas:ready` tries again.
 
 Whether a cycle was shown them is answered by the sandbox image itself.
-`sandbox/build.sh` asks the base image whether pi-rukas's own source has the
-reader of this manifest, and the build records the answer as the label
+`sandbox/build.sh` asks the base image's `--capabilities` whether its
+pi-rukas reads this manifest (`PI_ENSEMBLE_ISSUE_IMAGES` for manifest format
+1), and the build records the answer as the label
 `tehas.rukas.images`; a build that is given an answer that does not match the
 base it stands on stops. `tehas work`, `tehas plan`, the dispatcher and
 `install.sh` read that label. When it says the pi-rukas does not read the
@@ -953,7 +1033,8 @@ tehasbot preview --sweep      # the second check; what tehas-preview-sweep.timer
 tehasbot improve              # one run of the improvement loop; what tehas-improve.timer runs
 ```
 
-The units are `tehas-dispatch.timer`, `tehas-energy.service`, `tehas-top.service`,
+The units are `tehas-dispatch.timer`, `tehas-dispatch.path` (a poll as soon
+as a cycle ends), `tehas-energy.service`, `tehas-top.service`,
 `tehas-protolab.timer`, the previews' `tehas-preview.timer` and
 `tehas-preview-sweep.timer`, the improvement loop's `tehas-improve.timer`, and one `tehas-cycle@<issue>.service` per running
 cycle. A cycle's container is `tehas-work-<issue>`.
@@ -968,8 +1049,10 @@ systemctl --user status 'tehas-cycle@*'    # the cycles that are running
 systemctl --user stop tehas-cycle@12       # end the cycle for issue 12
 ```
 
-It runs [tehas work](#tehas-work) for the issue, reads the cycle's state file
-from the workspace, finds the pull request the bot opened, and relabels and
+It runs [tehas work](#tehas-work) for the issue, reads the runner's result
+that `tehas work` left in `~/tehas/state/cycles/<issue>.result.json` (status,
+the step it stopped in, cap, branch, token usage), finds the pull request the
+bot opened, and relabels and
 comments: merged, `tehas:awaiting-merge`, or `needs-human-attention`. A cycle
 that stopped gets its comment with two boxes and the label `tehas:question`,
 and the comment's id goes into `~/tehas/state/park-<issue>.id`, which is what
@@ -995,30 +1078,50 @@ that. Because the marker was written first, the poll that started the unit
 takes such a cycle as one that came up: the issue keeps `tehas:running`, and
 the next poll clears it in silence.
 
-`tehas:awaiting-merge` is given only to a run that ended as `handoff` and has
-an open pull request of the bot that names the issue. Any other end with a
-pull request open gets `needs-human-attention`, and the comment names the
-pull request.
+`tehas:awaiting-merge` is given only to a run that ended as `handoff`, with the
+runner's exit 10 or 11, has an open pull request of the bot that names the
+issue, and stopped on the cap `awaiting-human-merge`: only the merge is left to
+a person. Even then it is not given when a stable `cap-hit` line of the
+cycle's progress ended the review on `round-cap` and sent it on to `ci` (the
+review ran out of rounds with findings open), when the progress cannot be
+read, or when the issue carries `needs-human-attention` at the end, as GitHub
+answers, or GitHub does not answer. Any other end with a pull request open gets
+`needs-human-attention` only, and the comment names the cap and the pull
+request. The cap is the result's `cap`, from the vocabulary pi-rukas publishes
+in `--capabilities`.
+
+The cycle posts pi-rukas's handoff: the runner is given
+`PI_ENSEMBLE_HANDOFF_CHANNEL=host`, so it posts none, and its result carries
+the body. It goes into the park comment on the issue, or with the token usage
+on the pull request for a merge that waits. It is cleaned like any agent's
+words (boxes, markers and @-mentions are escaped) and headed by pi-rukas's
+marker `<!-- pi-rukas:handoff issue=N cap=CAP -->`, made from the cap.
+
+An issue that carries `needs-human-attention` when its cycle starts is run with
+`--restart`: the start is a person's answer to the handoff. pi-rukas lets that
+cycle past its check of the label and takes the label off. Neither the cycle
+nor the dispatcher removes it.
 
 The pull request is looked up in every state. One that a person merged while
-the cycle ran ends the cycle as merged, whatever the state file says: the
+the cycle ran ends the cycle as merged, whatever the result says: the
 issue only loses `tehas:running`, the comment says the pull request was merged
 while the cycle ran, nothing is parked, and [tehasbot status](#tehasbot-status-and-the-console)
 labels the closed issue `tehas:shipped`. One that a person closed without
 merging gets `needs-human-attention` and a plain comment that says so, without
 the retry boxes: to try again, apply `tehas:ready`.
 
-The state file is written inside the container, so what it says is checked
-against GitHub. A pull request counts as the cycle's only when the bot opened
-it on the branch the state names and it names the issue: its head is
+What the result says is checked against GitHub. A pull request counts as the
+cycle's only when the bot opened it on the branch the result names and it
+names the issue: its head is
 `feature/issue-<n>-...`, as pi-rukas names a branch, or its body closes `#<n>`
 (`Fixes #<n>`, `Closes #<n>`). A pull request on that branch that names
-another issue is said in the comment and not taken. A state of `merged` is
+another issue is said in the comment and not taken. A result of `merged` is
 reported as merged only when the bot has a merged pull request for the issue
 on that branch. Without one the issue is parked, the comment says that the
 bot has no merged pull request for the issue, and both workspaces are kept. A
-state file reached through a link, or under a linked `.pi` directory, is not
-read: the status is then `unknown`.
+result that is a link, of another schema than 3, or with no entry for the
+issue, is not read: the status is then `unknown`. pi-rukas's state file in
+the workspace is never read.
 
 The label change that ends a cycle is tried three times, five seconds apart,
 and so is the search for the pull request. If GitHub still refuses the label
@@ -1030,13 +1133,18 @@ that left none: the issue is parked with a comment that says the pull request
 could not be looked up and names the branch, and the branch stays in
 `~/tehas/state/cycles/<issue>.branch` until the issue's next cycle starts.
 
-A parked cycle's cap, from the state file, goes into
-`~/tehas/state/cycles/<issue>.park` with the failure before it, and into the
+A parked cycle's cap, from the result, goes into
+`~/tehas/state/cycles/<issue>.park` with the failure before it (the reason
+`tehas work` wrote to the progress file), and into the
 record for the improvement loop as `cap` and `capReason`, reduced to plain
-characters. A cap of the kind a provider outage gives is said as one: `Tehas
-cycle parked by a provider outage`, with the cap and the reason. That is
-`provider-unavailable`, or `step-failed:<step>` or `adversarial-infra-failure`
-whose reason names the provider, a timeout, a connection or a 5xx status. The
+characters. Where the result gives a failure of another kind than `cap`, the
+park comment names its kind, role, cause and message. The record also holds `buildCommit`, the pi-rukas commit the
+result says the cycle ran; the improvement loop checks a fix against it. A
+provider outage is said as one: `Tehas cycle parked by a provider outage`,
+with the cap and the reason. That is a result whose `failure.kind` is
+`provider`. For an image whose result has no `failure` (v0.12.80) it is
+`step-failed:<step>` or `adversarial-infra-failure` whose reason names the
+provider, a timeout, a connection or a 5xx status. The
 park file then asks [tehas dispatch](#tehas-dispatch) for one retry, unless the
 cycle was that retry.
 
@@ -1071,8 +1179,8 @@ tokens, keys, passwords (also in a URL and after `Bearer`) and private network
 addresses, and writing no control character but the line break and the tab.
 Invisible format characters, direction overrides among them, are dropped
 before the mask looks, so they do not hide a token from it; any that remain
-and the Unicode line and paragraph separators are written as U+FFFD. An agent of a workstream is named
-with it, as in `developer[task-a]`. The mask catches accidents;
+and the Unicode line and paragraph separators are written as U+FFFD. An agent
+is named by its role. The mask catches accidents;
 it cannot stop an agent that sets out to print a secret another way, so treat
 the console of a published dashboard as public. A log line of over 1 MiB is
 left out, and the console says how many were. So is a line not yet ended

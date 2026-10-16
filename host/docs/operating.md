@@ -202,7 +202,7 @@ The dispatcher takes issues urgent first, then by the lowest issue number: as ma
 | ----------------------- | --------------------------------- | ---------------------------------------- |
 | `tehas:ready`           | Queued                            | Wait, or remove the label to withdraw it |
 | `tehas:running`         | A cycle owns it                   | Leave the issue and its branch alone     |
-| `tehas:awaiting-merge`  | Pull request is open and reviewed | Review and merge                         |
+| `tehas:awaiting-merge`  | Pull request open, only the merge left | Review and merge                    |
 | `tehas:shipped`         | A merged pull request closed it   | Nothing; the bot gives it                |
 | `needs-human-attention` | The cycle stopped                 | Read the comment; see below              |
 | `tehas:plan`            | A planning session is asked for   | Wait for the first comment               |
@@ -211,7 +211,10 @@ The dispatcher takes issues urgent first, then by the lowest issue number: as ma
 | `tehas:improvement`     | Filed by the improvement loop     | Read it; apply `tehas:ready` if it should be built |
 
 `tehas:ready` from an allowed labeller starts a fresh cycle whatever else the
-issue carries. The labels of the earlier outcome go when the cycle starts. On
+issue carries. tehas's labels of the earlier outcome go when the cycle starts.
+`needs-human-attention` stays until the cycle runs: the cycle starts with
+`--restart`, and pi-rukas takes the label off as it begins. The dashboard
+counts an issue with `tehas:running` as running, whatever else it carries. On
 an issue whose cycle is still running, the label waits: a fresh cycle starts
 when that one has ended. Remove the label before then to withdraw it.
 
@@ -289,9 +292,31 @@ Tehas does not notice a rejected pull request yet.
 
 ## 5. When a cycle stops
 
-`needs-human-attention` means the cycle parked. The bot's comment gives the
-status, the last step and the log file on the host. pi-rukas usually adds its own
-handoff comment with the reason and numbered options.
+`needs-human-attention` means the cycle parked. The bot posts one comment: the
+status, the last step, the cap pi-rukas stopped on, the log file on the host,
+and then pi-rukas's own handoff, with the reason and what to do next. pi-rukas
+posts no handoff of its own: tehas runs it with
+`PI_ENSEMBLE_HANDOFF_CHANNEL=host` and posts the one it renders. The comment's
+first line is pi-rukas's hidden marker, `<!-- pi-rukas:handoff issue=N cap=... -->`.
+
+What a handoff with an open pull request leaves on the issue depends on why
+pi-rukas handed off:
+
+- Only the merge is left (cap `awaiting-human-merge`): `tehas:awaiting-merge`,
+  a short comment on the issue, and pi-rukas's handoff with the token usage on
+  the pull request.
+- Any other cap, no cap, a review that ran out of its rounds with findings
+  still open, or an issue that carries `needs-human-attention` at the end:
+  `needs-human-attention` only. The comment names the cap and links the pull
+  request. Read the pull request before you retry.
+
+An issue never ends a cycle with both labels.
+
+A cycle that reaches its deadline parks with the cap `deadline`. tehas gives
+pi-rukas a deadline a quarter of `TEHAS_WORK_TIMEOUT` before the end (at least
+one run of the gate and 8 minutes): after it, the cycle starts no new step and
+hands off with its branch and pull request, instead of being stopped in the
+middle of one.
 
 To try again after fixing the cause (often: make the issue clearer), tick
 `Retry from a clean start` in the bot's comment. Tick `Leave it parked` to
@@ -346,7 +371,10 @@ On an issue for which the host has no question on record, a box ticked in a
 comment of the bot that looks like a question is unticked, and the bot says
 that the question is not one the factory is waiting on and names the label.
 
-The next cycle starts in a fresh workspace, with `--restart`. Branches and
+The next cycle starts in a fresh workspace, with `--restart` when the issue
+carries `needs-human-attention`. That flag is the answer the label asks for:
+pi-rukas lets the cycle past its check of the label and takes the label off.
+tehas removes it nowhere. Branches and
 commits the earlier attempt pushed are kept on GitHub. What it left only on the
 host, such as commits on worktrees that were never pushed, is moved to
 `~/tehas/work/tehas-<issue>.before-retry` and stays there until a cycle of that
@@ -564,7 +592,11 @@ not published.
   one whose issue was closed only loses `tehas:running`, and one whose pull
   request was closed is parked without the retry boxes. The slot is filled
   on the same poll. And a cycle that ends starts a poll at once
-  (`tehas-dispatch.service`), so its slot does not wait for the timer.
+  (`tehas-dispatch.service`), so its slot does not wait for the timer. If a
+  poll is running then, systemd takes that start as the running poll, which
+  may have counted the cycle as still running. So the cycle also leaves
+  `~/tehas/state/dispatch.again`, and `tehas-dispatch.path` starts the next
+  poll as soon as that one ends. A poll removes the file as it begins.
 - Nothing else. A new pi-rukas commit runs at full concurrency from its first
   cycle, so a bad one can fail up to `TEHAS_TICKET_CONCURRENCY` cycles at
   once. Those issues end labelled `needs-human-attention`, as any failed cycle
@@ -634,10 +666,11 @@ stack is filed as an issue of its own in that repository.
   later cycle of a product issue is read and an issue the loop filed rests on
   an earlier cycle of it, the model says whether the problem came back. That
   is a comment on the filed issue, open or closed: `Seen again: yes` or `no`,
-  what the new cycle showed, its whole log, and the pi-rukas commit the host
-  was installed with. Of a closed issue in the repository for pi-rukas, the
-  loop asks GitHub whether the commit that closed it is in that pi-rukas
-  commit, the question `git merge-base --is-ancestor` answers. When it is
+  what the new cycle showed, its whole log, and the pi-rukas commit the cycle
+  ran: the `buildCommit` of its runner's result, or for a record written
+  before tehas kept it, the sandbox image's label. Of a closed issue in the
+  repository for pi-rukas, the loop asks GitHub whether the commit that closed
+  it is in that pi-rukas commit, the question `git merge-base --is-ancestor` answers. When it is
   not, the comment says `not in this build` instead of `yes`. When the
   record names no commit, or GitHub does not answer, it says `build unknown`.
   The record names no commit of the factory, so an issue there that a
@@ -701,8 +734,8 @@ for that issue.
 ## Watching a running cycle
 
 A cycle cannot be attached to or made interactive. It is pi-rukas run headless:
-Pi in RPC mode with no terminal, given the one prompt `/work <issue>` and set to
-approve its own steps. There is no prompt to type at and nothing waits for an
+its one-shot runner, `pi-rukas-headless work <issue>`, with no terminal and no
+Pi session of its own: it starts a Pi process for each agent. There is no prompt to type at and nothing waits for an
 answer.
 
 What you can do is watch it, on the [factory floor](/) or on the host:
@@ -710,14 +743,14 @@ What you can do is watch it, on the [factory floor](/) or on the host:
 ```
 tail -f ~/tehas/live/console-123.txt     # the console the dashboard shows
 tehas top                                # the same console, with the queue and the cycles
-tail -f ~/tehas/logs/work-123-*.jsonl    # the raw RPC stream
+tail -f ~/tehas/logs/work-123-*.jsonl    # the runner's NDJSON progress
 docker exec -it tehas-work-123 bash      # a shell in the cycle's container
 ```
 
 The shell is beside the session, not in it, and it is in the workspace the
 agents are working in: what you change there changes the cycle. Do not use
-`docker attach`. It shows the raw stream, not a Pi interface, and an interrupt
-typed there is passed to Pi and ends the cycle.
+`docker attach`. It shows the runner's output, not a Pi interface, and an
+interrupt typed there reaches the runner and ends the cycle as interrupted.
 
 To steer a cycle, let it park or stop it, make the issue clearer and apply
 `tehas:ready` again. To work with pi-rukas interactively, start a session of

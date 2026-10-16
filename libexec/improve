@@ -493,8 +493,10 @@ issues=none
 #
 # Before it says "seen again" of a closed issue, the comment says whether the
 # fix was in the build the cycle ran. The fix is the commit GitHub closed the
-# issue with; the build is the record's pi-rukas commit, and only for an issue
-# of TEHAS_IMPROVE_RUKAS_REPO: the record names no commit of the factory.
+# issue with; the build is the commit the runner's result named (buildCommit),
+# else, for a record written before tehas kept it, the image label's. Only for
+# an issue of TEHAS_IMPROVE_RUKAS_REPO: the record names no commit of the
+# factory.
 # Without a build, or without an answer, the comment says the build is
 # unknown rather than claim either.
 
@@ -540,7 +542,7 @@ for ((i = 0; i < n; i++)); do
   rec=$(jq -r .cycle <<<"$f")
   to=$(jq -r '"\(.repo)#\(.number)"' <<<"$f")
   upload "$rec" || fail "could not write under $run"
-  rukas_at=$(jq -r '.rukas // "" | if type == "string" and test("^[0-9a-f]{7,40}$") then . else "" end' \
+  rukas_at=$(jq -r '[.buildCommit, .rukas] | map(strings | select(test("^[0-9a-f]{7,40}$"))) | first // ""' \
     "$run/in/cycles/$rec/cycle.json" 2>/dev/null) || rukas_at=""
   image_at=$(jq -r '.image // "" | if type == "string" and test("^sha256:[0-9a-f]{64}$") then . else "" end' \
     "$run/in/cycles/$rec/cycle.json" 2>/dev/null) || image_at=""

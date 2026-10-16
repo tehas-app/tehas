@@ -62,7 +62,17 @@ esac'
 # on record.
 t_stub docker '[ -e "$T/fx/image.label" ] || exit 1; cat "$T/fx/image.label"'
 # What the runner does is a file a case writes; without one it ends at once.
-t_stub fake-work '[ ! -e "$T/fx/work.sh" ] || . "$T/fx/work.sh"'
+# A result and a progress summary a case wrote are put where tehas work leaves
+# them, and the runner exits as the result says unless work.sh exits first.
+# Without a progress of its own a case gets one with nothing in it, as tehas
+# work writes for a log that has no stable line.
+t_stub fake-work 'for f in result progress; do
+  [ ! -e "$T/fx/$f.json" ] || cp "$T/fx/$f.json" "$TEHAS_HOME/state/cycles/7.$f.json"
+done
+[ -e "$T/fx/progress.json" ] || [ -e "$T/fx/no-progress" ] ||
+  echo "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}" >"$TEHAS_HOME/state/cycles/7.progress.json"
+[ ! -e "$T/fx/work.sh" ] || . "$T/fx/work.sh"
+exit "$(cat "$T/fx/rc" 2>/dev/null || echo 0)"'
 t_stub fake-status
 # The poll a cycle starts when it ends.
 t_stub systemctl
@@ -73,11 +83,18 @@ reset() {
   T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status TEHAS_CYCLE_RETRY_WAIT=0)
   t_instance "${T_MINIMAL[@]}"
 }
-# The state file a cycle leaves in its workspace.
-ended() { # status step [branch]
-  mkdir -p "$workdir/.pi/work-state"
-  printf '{"pipelineState":{"status":"%s","currentStep":"%s","branchName":"%s"}}\n' "$1" "$2" "${3:-}" \
-    >"$workdir/.pi/work-state/7.json"
+# The runner's result for the cycle, and the exit status that goes with it.
+# A handoff's cap is the one of a pull request that waits only for a merge
+# unless a case names another; "-" is none.
+ended() { # status step [branch] [cap]
+  local cap=${4:-}
+  [ -n "$cap" ] || [ "$1" != handoff ] || cap=awaiting-human-merge
+  [ "$cap" != - ] || cap=""
+  mkdir -p "$workdir"
+  jq -n --arg status "$1" --arg step "$2" --arg branch "${3:-}" --arg cap "$cap" \
+    '{schemaVersion: 3, issues: [{issue: 7, status: $status, failedStep: $step, branch: $branch}
+      + (if $cap == "" then {} else {cap: $cap} end)]}' >"$fx/result.json"
+  case "$1" in merged) echo 0 ;; handoff) echo 10 ;; aborted) echo 20 ;; interrupted) echo 21 ;; *) echo 30 ;; esac >"$fx/rc"
 }
 # The bot's pull request on the branch was merged.
 merged_pr() { echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"; echo MERGED >"$fx/pr-state"; }
@@ -171,14 +188,21 @@ t_eq "$t_rc" 0
 t_eq "$(t_calls gh | head -1)" "api repos/acme/widget/issues/7"
 t_eq "$(t_calls fake-work)" "7"
 
-t_case "a first cycle starts plainly, a later one for the same issue restarts"
+# --restart is the answer to a handoff: pi-rukas's attention gate lets it
+# through and takes needs-human-attention off. tehas removes no such label.
+t_case "a cycle restarts only an issue that carries needs-human-attention"
 reset
 t_run "$cycle 7"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-work)" "7"
 rm -f "$T"/calls/*
 t_run "$cycle 7"
+t_eq "$(t_calls fake-work)" "7"
+rm -f "$T"/calls/*
+echo '{"number":7,"state":"open","labels":[{"name":"tehas:running"},{"name":"needs-human-attention"}]}' >"$fx/issue-7.json"
+t_run "$cycle 7"
 t_eq "$(t_calls fake-work)" "7 --restart"
+t_lacks "$(t_calls gh | grep -e '--remove-label needs-human-attention')" "needs-human-attention"
 
 t_case "it says that it holds its lock, and lets go of it at the end"
 t_eq "$(find "$state/7.taken" | wc -l)" 1
@@ -267,15 +291,120 @@ t_contains "$(t_calls gh)" "pr comment https://github.com/acme/widget/pull/9"
 t_contains "$(t_calls gh)" "pr list --repo acme/widget --head feature/x --author @me"
 t_contains "$(t_calls gh)" "No token usage was recorded for this cycle."
 
-t_case "the token usage per role is posted on the pull request"
+# #33: only a pull request that waits for nothing but a merge is labelled so.
+t_case "a handoff with its pull request open on another cap is parked, and names the cap and the pull request"
 reset
-mkdir -p "$workdir/.pi/work-state"
-echo '{"pipelineState":{"status":"handoff","currentStep":"commit-pr","branchName":"feature/x"},
-  "eventLog":[{"role":"developer","usage":{"turns":2,"input":10,"output":5,"cacheRead":1}},
-              {"role":"developer","usage":{"turns":1,"input":20,"output":5,"cacheRead":0}}]}' >"$workdir/.pi/work-state/7.json"
+ended handoff lens-review feature/x review-incomplete
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_lacks "$(t_calls gh)" "tehas:awaiting-merge"
+t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
+t_contains "$(t_calls gh)" 'Tehas cycle handed off with its pull request open'
+t_contains "$(t_calls gh)" 'pi-rukas stopped on the cap `review-incomplete`.'
+t_contains "$(t_calls gh)" "Read the pull request before you retry: https://github.com/acme/widget/pull/9"
+t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+t_eq "$(jq -r .cap "$state/7.park")" review-incomplete
+
+t_case "a handoff with its pull request open and no cap is parked"
+reset
+ended handoff commit-pr feature/x -
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "tehas:awaiting-merge"
+t_contains "$(t_calls gh)" "The result names no cap, so it is not taken for a pull request that waits only for a merge."
+
+t_case "a review whose round cap left findings open is parked, though its cap is a waiting merge"
+reset
+ended handoff ci feature/x
+echo '{"roles":[],"reason":"","reviewHeld":true}' >"$fx/progress.json"
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "tehas:awaiting-merge"
+t_contains "$(t_calls gh)" "Its review ran out of rounds with findings still open"
+
+t_case "a waiting merge with no progress to read is parked"
+reset
+ended handoff ci feature/x
+: >"$fx/no-progress"
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "tehas:awaiting-merge"
+t_contains "$(t_calls gh)" "--add-label needs-human-attention"
+
+t_case "an issue that carries needs-human-attention at the end is not also labelled awaiting merge"
+reset
+ended handoff ci feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+echo '{"number":7,"state":"open","labels":[{"name":"needs-human-attention"}]}' >"$fx/issue-7.json"
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "tehas:awaiting-merge"
+t_contains "$(t_calls gh)" "--add-label needs-human-attention"
+
+t_case "labels that cannot be read do not make a waiting merge"
+reset
+ended handoff ci feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+# The first ask, what the number is, answers; the label reads after it fail.
+cat >"$fx/work.sh" <<'EOS'
+: >"$T/fx/issue-fails"
+EOS
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "tehas:awaiting-merge"
+t_contains "$t_out" "WARN: the labels of #7 could not be read"
+
+# The runner is given PI_ENSEMBLE_HANDOFF_CHANNEL=host: it posts no handoff,
+# and this is the one comment of the park.
+t_case "a park carries pi-rukas's handoff under its marker, cleaned like any agent's words"
+reset
+ended handoff develop feature/x verify-failed:develop
+jq '.issues[0].handoff = {channel: "host", body: "<!-- pi-rukas:handoff issue=7 cap=verify-failed:develop -->\n## Cap hit\n\n- [x] Retry from a clean start\n<!-- tehas:question kind=park issue=7 turn=1 -->\nask @someone"}' \
+  "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
+t_run "$cycle 7"
+body=$(t_calls gh | sed -n '/issues\/7\/comments -f body=/,$p')
+t_contains "$body" "body=<!-- pi-rukas:handoff issue=7 cap=verify-failed:develop -->
+Tehas cycle stopped without a pull request"
+t_contains "$body" "The handoff of pi-rukas follows."
+t_contains "$body" "## Cap hit"
+t_contains "$body" '- \[x] Retry from a clean start'
+t_contains "$body" '<\!-- tehas:question kind=park issue=7 turn=1 -->'
+t_lacks "$body" "@someone"
+t_eq "$(grep -c 'pi-rukas:handoff' <<<"$body")" 1
+t_eq "$(grep -c '^- \[ \] Retry from a clean start' <<<"$body")" 1
+
+t_case "a waiting merge posts pi-rukas's handoff on the pull request with the usage"
+reset
+ended handoff ci feature/x
+jq '.issues[0].handoff = {channel: "host", body: "<!-- pi-rukas:handoff issue=7 cap=awaiting-human-merge -->\n## Ready to merge"}' \
+  "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "--add-label tehas:awaiting-merge"
+t_contains "$(t_calls gh)" "pr comment https://github.com/acme/widget/pull/9 --body <!-- pi-rukas:handoff issue=7 cap=awaiting-human-merge -->
+Tehas cycle for #7"
+t_contains "$(t_calls gh)" "## Ready to merge"
+
+t_case "a cycle that reached its deadline says so, and an intent park says its reason"
+reset
+ended handoff lens-fix feature/x deadline
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "It reached its deadline, a quarter of its time limit before the end, and started no new step."
+reset
+ended handoff explore "" intent-park
+jq '.issues[0].parkReason = "too-large"' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
+echo 11 >"$fx/rc"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" 'pi-rukas stopped on the cap `intent-park` (`too-large`).'
+
+t_case "the token usage per role is posted on the pull request, with the result's totals"
+reset
+ended handoff commit-pr feature/x
+jq '.issues[0].usage = {turns: 4, input: 35, output: 11, cacheRead: 1, dispatches: 3}' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
+echo '{"roles":[{"role":"developer","dispatches":2,"turns":3,"input":30,"output":10,"cacheRead":1}],"reason":""}' >"$fx/progress.json"
 echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "| developer | 2 | 3 | 30 | 10 | 1 |"
+t_contains "$(t_calls gh)" "| **total, all dispatches** | 3 | 4 | 35 | 11 | 1 |"
 
 t_case "a merged cycle only loses its running label"
 reset
@@ -351,25 +480,45 @@ echo "Closes #70" >"$fx/pr-body"
 t_run "$cycle 7"
 t_lacks "$(t_calls gh)" "tehas:awaiting-merge"
 
-t_case "a state file that is a link is not read"
-for link in file dir; do
+t_case "a result that is a link is not read"
+reset
+mkdir -p "$T/elsewhere"
+jq -n '{schemaVersion: 3, issues: [{issue: 7, status: "merged", failedStep: "done", branch: "feature/x"}]}' >"$T/elsewhere/7.json"
+echo 'ln -sf "$T/elsewhere/7.json" "$TEHAS_HOME/state/cycles/7.result.json"' >"$fx/work.sh"
+merged_pr
+t_run "$cycle 7"
+t_contains "$t_out" "WARN: the result of #7 is a link, it is not read"
+t_contains "$(t_calls gh)" 'status `unknown`'
+t_lacks "$(t_calls gh)" "pr list"
+t_lacks "$(t_calls gh)" "The change was merged"
+rm -rf "$T/elsewhere"
+
+t_case "a state file the cycle left in its workspace is not read: only the runner's result is"
+reset
+mkdir -p "$workdir/.pi/work-state"
+echo '{"pipelineState":{"status":"merged","currentStep":"done","branchName":"feature/x"}}' >"$workdir/.pi/work-state/7.json"
+merged_pr
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" 'status `unknown`'
+t_lacks "$(t_calls gh)" "pr list"
+
+t_case "a result of another schema, or of another issue, is no result"
+for change in '.schemaVersion = 2' '.issues[0].issue = 8'; do
   reset
-  mkdir -p "$T/elsewhere/work-state" "$workdir"
-  echo '{"pipelineState":{"status":"merged","currentStep":"done","branchName":"feature/x"}}' >"$T/elsewhere/work-state/7.json"
-  if [ "$link" = file ]; then
-    mkdir -p "$workdir/.pi/work-state"
-    ln -s "$T/elsewhere/work-state/7.json" "$workdir/.pi/work-state/7.json"
-  else
-    ln -s "$T/elsewhere" "$workdir/.pi"
-  fi
+  ended merged "done" feature/x
+  jq "$change" "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
   merged_pr
   t_run "$cycle 7"
-  t_contains "$t_out" "WARN: the state file of #7 is reached through a link, it is not read"
   t_contains "$(t_calls gh)" 'status `unknown`'
-  t_lacks "$(t_calls gh)" "pr list"
-  t_lacks "$(t_calls gh)" "The change was merged"
 done
-rm -rf "$T/elsewhere"
+
+t_case "a result left by an earlier cycle is not this cycle's"
+reset
+mkdir -p "$state"
+jq -n '{schemaVersion: 3, issues: [{issue: 7, status: "merged", branch: "feature/x"}]}' >"$state/7.result.json"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" 'status `unknown`'
+t_eq "$(find "$state/7.result.json" 2>/dev/null | wc -l)" 0
 
 t_case "a pull request a person merged while the cycle ran ends it as merged: no park, no question"
 reset
@@ -816,33 +965,15 @@ echo 'echo 3600 >"$TEHAS_HOME/state/cycles/7.stalled"; exit 1' >"$fx/work.sh"
 t_run "$cycle 7"
 t_contains "$t_out" "status=aborted"
 
-t_case "a cycle whose Pi session ended is interrupted, says the step and its pull request, and is parked"
+t_case "a runner tehas stopped past its time limit is reported as a timeout and parked"
 reset
-ended running lens-fix feature/x
-echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
-echo ': >"$TEHAS_HOME/state/cycles/7.ended"; exit 2' >"$fx/work.sh"
+ended interrupted develop
+echo 'echo 21600 >"$TEHAS_HOME/state/cycles/7.timed"; exit 2' >"$fx/work.sh"
 t_run "$cycle 7"
-t_eq "$t_rc" 0
-t_contains "$(t_calls gh)" "status \`interrupted\`, last step \`lens-fix\`"
-t_contains "$(t_calls gh)" "The Pi session ended during \`lens-fix\`, so tehas stopped the cycle before its time limit."
-t_contains "$(t_calls gh)" "Its branch has an open pull request: https://github.com/acme/widget/pull/9"
-t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
-t_contains "$t_out" "status=interrupted step=lens-fix"
-t_eq "$(find "$state/7.ended" 2>/dev/null | wc -l)" 0
-
-t_case "an ended file left by an earlier cycle is not this cycle's, and one that is a link is not read"
-reset
-mkdir -p "$state"
-: >"$state/7.ended"
-t_run "$cycle 7"
-t_lacks "$(t_calls gh)" "Pi session ended"
-reset
-mkdir -p "$state"
-: >"$T/elsewhere"
-echo 'ln -sf "$T/elsewhere" "$TEHAS_HOME/state/cycles/7.ended"; exit 2' >"$fx/work.sh"
-t_run "$cycle 7"
-t_lacks "$(t_calls gh)" "Pi session ended"
-t_eq "$(find "$state/7.ended" 2>/dev/null | wc -l)" 0
+t_contains "$(t_calls gh)" "status \`timeout\`, last step \`develop\`"
+t_contains "$(t_calls gh)" "It ran past its time limit of 360 min at step \`develop\`"
+t_contains "$(t_calls gh)" "--add-label needs-human-attention"
+t_eq "$(find "$state/7.timed" 2>/dev/null | wc -l)" 0
 
 t_case "a stall file that is not digits is ignored"
 reset
@@ -875,10 +1006,16 @@ t_run "$cycle 7"
 t_contains "$(t_calls gh)" "Pull request waiting for a human"
 t_eq "$(find "$T/home/tehas/state/rukas-proven" 2>/dev/null | wc -l)" 0
 
-t_case "the end of a cycle starts one poll of the dispatcher"
+t_case "the end of a cycle starts one poll of the dispatcher, and leaves the request for the path unit"
 reset
+rm -f "$T/home/tehas/state/dispatch.again"
 t_run "$cycle 7"
 t_eq "$(t_calls systemctl)" "--user start --no-block tehas-dispatch.service"
+t_eq "$(find "$T/home/tehas/state/dispatch.again" 2>/dev/null | wc -l)" 1
+
+t_case "the path unit watches for the file the cycle leaves, and starts a poll"
+t_eq "$(sed -n 's/^PathExists=//p' "$T_ROOT/host/systemd/tehas-dispatch.path")" "%h/tehas/state/dispatch.again"
+t_eq "$(sed -n 's/^Unit=//p' "$T_ROOT/host/systemd/tehas-dispatch.path")" "tehas-dispatch.service"
 
 t_case "a poll that cannot be started is a warning, and the cycle is still reported"
 reset
@@ -1050,11 +1187,11 @@ for name in tehas tehasbot tehas-work tehas-status; do t_eq "$(t_calls "$name")"
 # --- A cap that a provider outage gives ---------------------------------------
 # The state file as pi-rukas leaves it when a step failed for good: the failed
 # dispatch, then the cap.
+# A handoff at <cap>, and the reason tehas work read of the failure before it.
 capped() { # <cap> <failure event as JSON>
-  mkdir -p "$workdir/.pi/work-state"
-  jq -n --arg cap "$1" --argjson f "$2" '{pipelineState: {status: "handoff", currentStep: "handoff", branchName: "feature/issue-7-x"},
-    eventLog: [{kind: "step-started", at: 1}, $f, {kind: "cap-hit", at: 3, cap: $cap, reviewRound: 1, nextStep: "handoff"}]}' \
-    >"$workdir/.pi/work-state/7.json"
+  ended handoff handoff feature/issue-7-x
+  jq --arg cap "$1" '.issues[0].cap = $cap' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
+  jq -n --argjson f "$2" '{roles: [], reason: ($f.providerMessage // $f.errorTail // "")}' >"$fx/progress.json"
 }
 outage='{"kind":"dispatch-failed-provider","step":"adversarial","at":2,"providerMessage":"Connection error."}'
 
@@ -1075,7 +1212,7 @@ t_eq "$(jq -c '[.cap, .reason, .provider, .retry, (.started | type)]' "$state/7.
 t_eq "$(jq -c '[.cap, .capReason]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
   '["step-failed:adversarial","Connection error."]'
 
-t_case "a timeout, a 5xx and pi-rukas's own cap are provider outages too"
+t_case "a timeout and a 5xx are provider outages too"
 for f in '{"kind":"dispatch-failed","at":2,"errorTail":"request timed out after 600s"}' \
   '{"kind":"dispatch-failed","at":2,"errorTail":"502 Bad Gateway"}'; do
   reset
@@ -1083,10 +1220,6 @@ for f in '{"kind":"dispatch-failed","at":2,"errorTail":"request timed out after 
   t_run "$cycle 7"
   t_eq "$(jq -r .provider "$state/7.park")" true
 done
-reset
-capped provider-unavailable '{"kind":"step-started","at":2}'
-t_run "$cycle 7"
-t_eq "$(jq -c '[.provider, .retry]' "$state/7.park")" '[true,true]'
 
 t_case "the retry tehas made on its own, parked by an outage again, waits for a person"
 reset
@@ -1110,6 +1243,84 @@ t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
 t_lacks "$(t_calls gh)" "provider outage"
 t_eq "$(jq -c '[.cap, .provider, .retry]' "$state/7.park")" '["step-failed:develop",false,false]'
 t_eq "$(jq -r .capReason "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" "3 assertions failed in test/x"
+
+t_case "a failed step with no reason is said in the log, and is not taken for an outage"
+reset
+capped step-failed:develop '{"kind":"dispatch-failed","at":2}'
+t_run "$cycle 7"
+t_contains "$t_out" "WARN: #7 ended at step-failed:develop and no reason was found in its progress"
+t_eq "$(jq -r .provider "$state/7.park")" false
+reset
+capped step-failed:develop '{"kind":"dispatch-failed","at":2,"errorTail":"exit 1"}'
+t_run "$cycle 7"
+t_lacks "$t_out" "no reason was found"
+
+# A result that carries its failure (features.failureReason): tehas work wrote
+# the failure into the progress, and its kind is what counts.
+failed() { # <cap> <failure kind> <reason>
+  ended handoff handoff feature/issue-7-x
+  jq --arg cap "$1" '.issues[0].cap = $cap' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
+  jq -n --arg k "$2" --arg r "$3" \
+    '{roles: [], reason: $r, failure: {kind: $k, step: "develop", role: "developer", cause: ""}, from: {roles: "result", failure: "result"}}' \
+    >"$fx/progress.json"
+}
+
+t_case "a failure of kind provider is an outage whatever the cap, and asks for one retry"
+reset
+failed developer-timeout provider "rate limited"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "Tehas cycle parked by a provider outage"
+t_contains "$(t_calls gh)" "cap \`developer-timeout\`: rate limited"
+t_eq "$(jq -c '[.cap, .reason, .provider, .retry]' "$state/7.park")" '["developer-timeout","rate limited",true,true]'
+
+t_case "a failure of another kind is no outage, even when its words look like one"
+for k in process timeout verify cap something-new; do
+  reset
+  failed step-failed:develop "$k" "502 Bad Gateway, connection timed out"
+  t_run "$cycle 7"
+  t_eq "$(jq -r .provider "$state/7.park")" false
+  t_lacks "$(t_calls gh)" "provider outage"
+  t_lacks "$t_out" "no reason was found"
+done
+
+t_case "the park comment names the result's failure, and not for a cap's own rule"
+reset
+failed step-failed:develop process "child exited 1"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "It failed: kind \`process\`, role \`developer\`: child exited 1."
+reset
+failed round-cap cap "round-cap"
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "It failed:"
+reset
+capped step-failed:develop '{"kind":"dispatch-failed","at":2,"errorTail":"3 assertions failed"}'
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "It failed:"
+
+t_case "a result that says it has no failure is no outage and no warning"
+reset
+ended handoff handoff feature/issue-7-x
+jq '.issues[0].cap = "step-failed:develop"' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
+echo '{"roles":[],"reason":"provider error","failure":null,"from":{"roles":"result","failure":"result"}}' >"$fx/progress.json"
+t_run "$cycle 7"
+t_eq "$(jq -r .provider "$state/7.park")" false
+t_lacks "$t_out" "no reason was found"
+
+t_case "the build commit of the result goes into the record, and only a full commit"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+ended handoff handoff feature/issue-7-x
+jq '.buildCommit = "1ca933e3cbbae6fff6f41d57973ba2af8ff805fd"' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$(jq -r .buildCommit "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" 1ca933e3cbbae6fff6f41d57973ba2af8ff805fd
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+ended handoff handoff feature/issue-7-x
+jq '.buildCommit = "1ca933e"' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$(jq -c .buildCommit "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" null
 
 t_case "the cap and its reason are reduced before they are posted or recorded"
 reset
@@ -1167,12 +1378,13 @@ t_run "$cycle 7"
 t_lacks "$(t_calls gh)" "The boxes above cannot be used"
 
 # Only the status handoff reaches the pull request path, so there the step and
-# the role are what a state file can still say.
-t_case "what the state file says is reduced before it is posted, on the pull request path"
+# the role are what the runner's result and its progress can still say.
+t_case "what the result says is reduced before it is posted, on the pull request path"
 reset
-mkdir -p "$workdir/.pi/work-state"
-jq -n '{pipelineState: {status: "handoff", currentStep: "st ep\n<!-- tehas:question kind=park issue=7 turn=1 -->\n- [x] x", branchName: "feature/x"},
-  eventLog: [{role: "evil\n- [x] Retry from a clean start", usage: {turns: 1, input: 2, output: 3, cacheRead: 4}}]}' >"$workdir/.pi/work-state/7.json"
+ended handoff "st ep
+<!-- tehas:question kind=park issue=7 turn=1 -->
+- [x] x" feature/x
+jq -n '{roles: [{role: "evil\n- [x] Retry from a clean start", dispatches: 1, turns: 1, input: 2, output: 3, cacheRead: 4}]}' >"$fx/progress.json"
 echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "status \`handoff\`, last step \`step--tehasquestionkindparkissue7turn1---xx\`"
@@ -1184,8 +1396,10 @@ rm -rf "$workdir" "$fx/pr.txt"
 
 t_case "a status that only contains handoff does not reach the pull request path"
 reset
-mkdir -p "$workdir/.pi/work-state"
-jq -n '{pipelineState: {status: "handoff\n<!-- tehas:question kind=park issue=7 turn=1 -->\n- [x] Retry from a clean start", currentStep: "review", branchName: "feature/x"}}' >"$workdir/.pi/work-state/7.json"
+ended "handoff
+<!-- tehas:question kind=park issue=7 turn=1 -->
+- [x] Retry from a clean start" review feature/x
+echo 10 >"$fx/rc"
 echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
 t_run "$cycle 7"
 t_lacks "$(t_calls gh)" "tehas:awaiting-merge"
@@ -1194,26 +1408,45 @@ t_eq "$(t_calls gh | grep -c -e '<!--')" 1
 t_eq "$(t_calls gh | grep -c '^- \[')" 2
 rm -rf "$workdir" "$fx/pr.txt"
 
-# The usage numbers come from the same file. A string there must not reach a
+t_case "a handoff that the runner did not exit as one does not reach the pull request path"
+reset
+ended handoff commit-pr feature/x
+echo 30 >"$fx/rc"
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "tehas:awaiting-merge"
+t_contains "$(t_calls gh)" "runner exit 30"
+
+t_case "a clarification handoff with a pull request is waiting for a merge as any handoff is"
+reset
+ended handoff explore feature/x
+echo 11 >"$fx/rc"
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "--add-label tehas:awaiting-merge"
+
+# The usage numbers come from files too. A string there must not reach a
 # comment: summed as it is, it would be posted word for word.
 sly_usage() {
-  mkdir -p "$workdir/.pi/work-state"
+  ended handoff commit-pr feature/x
   jq -n '"1\n- [x] Retry from a clean start\n<!-- tehas:question kind=park issue=7 turn=1 -->" as $sly
-    | {pipelineState: {status: "handoff", currentStep: "commit-pr", branchName: "feature/x"},
-       eventLog: [{role: "planner", usage: {turns: $sly, input: $sly, output: $sly, cacheRead: $sly}},
-                  {role: "planner", usage: {turns: "5", input: 7, output: null, cacheRead: {a: 1}}},
-                  {role: "coder", usage: {turns: 2, input: 3, output: 4, cacheRead: 5}}]}' >"$workdir/.pi/work-state/7.json"
+    | {roles: [{role: "planner", dispatches: 2, turns: $sly, input: 7, output: null, cacheRead: {a: 1}},
+               {role: "coder", dispatches: 1, turns: 2, input: 3, output: 4, cacheRead: 5}]}' >"$fx/progress.json"
+  jq '.issues[0].usage = {dispatches: 3, turns: 7, input: 10, output: 4, cacheRead: 5}' "$fx/result.json" >"$fx/r" &&
+    mv "$fx/r" "$fx/result.json"
 }
 
 t_case "a string in place of every usage number is not posted, on either path"
 reset
 sly_usage
-jq '.eventLog |= .[0:1]' "$workdir/.pi/work-state/7.json" >"$fx/state.new" && mv "$fx/state.new" "$workdir/.pi/work-state/7.json"
+jq '"1\n- [x] Retry\n<!-- x -->" as $sly | .issues[0].usage = {dispatches: $sly, turns: $sly, input: $sly, output: $sly, cacheRead: $sly}' \
+  "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
 echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
 t_run "$cycle 7"
 t_lacks "$(t_calls gh)" "<!--"
 t_eq "$(t_calls gh | grep -c '^- \[')" 0
-t_contains "$(t_calls gh)" "| planner | 1 | 0 | 0 | 0 | 0 |"
+t_contains "$(t_calls gh)" "| planner | 2 | 0 | 7 | 0 | 0 |"
+t_contains "$(t_calls gh)" "| **total, all dispatches** | 0 | 0 | 0 | 0 | 0 |"
 rm -f "$T"/calls/* "$fx/pr.txt"
 : >"$fx/post-fails"
 t_run "$cycle 7"
@@ -1230,16 +1463,17 @@ t_run "$cycle 7"
 t_contains "$(t_calls gh)" "pr comment https://github.com/acme/widget/pull/9"
 t_lacks "$(t_calls gh)" "<!--"
 t_eq "$(t_calls gh | grep -c '^- \[')" 0
-t_contains "$(t_calls gh)" "| planner | 2 | 5 | 7 | 0 | 0 |"
+t_contains "$(t_calls gh)" "| planner | 2 | 0 | 7 | 0 | 0 |"
 t_contains "$(t_calls gh)" "| coder | 1 | 2 | 3 | 4 | 5 |"
-t_contains "$(t_calls gh)" "| **total** | 3 | 7 | 10 | 4 | 5 |"
+t_contains "$(t_calls gh)" "| **total, all dispatches** | 3 | 7 | 10 | 4 | 5 |"
 rm -rf "$workdir" "$fx/pr.txt"
 
 t_case "and in the park question, where only the factory's own boxes and marker are posted"
 reset
 sly_usage
+echo 30 >"$fx/rc"
 t_run "$cycle 7"
-t_contains "$(t_calls gh)" "| **total** | 3 | 7 | 10 | 4 | 5 |"
+t_contains "$(t_calls gh)" "| **total, all dispatches** | 3 | 7 | 10 | 4 | 5 |"
 t_eq "$(t_calls gh | grep -c '^- \[')" 2
 t_eq "$(t_calls gh | grep -c -e '<!--')" 1
 rm -rf "$workdir"
@@ -1247,10 +1481,11 @@ rm -rf "$workdir"
 t_case "and in the comment that is used when the question cannot be posted"
 reset
 sly_usage
+echo 30 >"$fx/rc"
 : >"$fx/post-fails"
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "To retry, apply"
-t_eq "$(t_calls gh | grep -c -F '| **total** | 3 | 7 | 10 | 4 | 5 |')" 2
+t_eq "$(t_calls gh | grep -c -F '| **total, all dispatches** | 3 | 7 | 10 | 4 | 5 |')" 2
 # The question that could not be posted is in the record of calls too: its
 # two boxes and its marker are the factory's own.
 t_eq "$(t_calls gh | grep -c '^- \[')" 2

@@ -1145,7 +1145,23 @@ t_lacks "$t_out" "WARN"
 
 t_case "a poll that finds the lock held does not change when it was taken"
 t_eq "$(cat "$taken_file")" "$stamp"
+
+t_case "a poll that finds the lock held still takes the ended cycle's request, so the path unit does not start poll after poll"
+again=$T/home/tehas/state/dispatch.again
+: >"$again"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(find "$again" 2>/dev/null | wc -l)" 0
 exec {lockfd}>&-
+
+t_case "a poll takes the request an ended cycle left, and a dry run leaves it"
+reset
+: >"$again"
+t_run "$dispatch --dry-run"
+t_eq "$(find "$again" 2>/dev/null | wc -l)" 1
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(find "$again" 2>/dev/null | wc -l)" 0
 
 t_case "while a cycle is running nothing is started"
 reset
@@ -1798,7 +1814,9 @@ comments 7 "$(park_body x ' ')" alice
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" "7"
-t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label needs-human-attention --remove-label tehas:question"
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:question"
+# The cycle's --restart takes it off, through pi-rukas.
+t_lacks "$(t_calls gh)" "--remove-label needs-human-attention"
 t_contains "$(t_calls gh)" "authorized by @alice's retry tick"
 t_contains "$t_out" "start #7 (retry ticked by alice)"
 
@@ -2589,13 +2607,14 @@ has() { # issue label...: the queue is that one issue, labelled ready by alice, 
   echo "[{\"number\":$n,\"labels\":[$list]}]" >"$fx/ready.json"
 }
 
-t_case "tehas:ready on a parked issue starts a cycle without needs-human-attention being removed first"
+t_case "tehas:ready on a parked issue starts a cycle and leaves needs-human-attention to the cycle's restart"
 reset
 has 7 needs-human-attention
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" "7"
-t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready --remove-label needs-human-attention')" 1
+t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready')" 1
+t_lacks "$(t_calls gh)" "--remove-label needs-human-attention"
 
 t_case "tehas:ready on an issue that awaits a merge starts a cycle and takes that label off"
 reset
@@ -2605,11 +2624,11 @@ t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready --remove-label tehas:awaiting-merge')" 1
 
-t_case "every label of an earlier outcome goes with the start"
+t_case "every label of tehas's of an earlier outcome goes with the start"
 reset
 has 7 needs-human-attention tehas:question tehas:awaiting-merge
 t_run "$dispatch"
-t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready --remove-label needs-human-attention --remove-label tehas:awaiting-merge --remove-label tehas:question')" 1
+t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready --remove-label tehas:awaiting-merge --remove-label tehas:question')" 1
 
 t_case "an issue left marked as running with no cycle is started on tehas:ready"
 reset
@@ -2663,7 +2682,7 @@ comments 7 "$(park_body x ' ')" alice
 echo '[{"number":7,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"},{"name":"tehas:ready"}]}]' >"$fx/asking.json"
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
-t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label tehas:running --remove-label needs-human-attention --remove-label tehas:question --remove-label tehas:ready')" 1
+t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:question --remove-label tehas:ready')" 1
 
 t_case "every list of issues is read to a thousand"
 reset
@@ -3814,7 +3833,8 @@ outage_parked
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" "7"
-t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label needs-human-attention --remove-label tehas:question"
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:question"
+t_lacks "$(t_calls gh)" "--remove-label needs-human-attention"
 t_contains "$(t_calls gh)" "Tehas starts this issue again on its own: its last cycle was parked by a provider outage, and the model endpoint answers again. It does this once."
 t_contains "$(t_calls gh)" "authorized by @alice's start of the cycle a provider outage parked"
 t_contains "$t_out" "start #7 (requeued by alice)"
@@ -3976,6 +3996,17 @@ quiet_cycle() { # <age> <taken>
   printf '{"issue":9,"running":true,"updatedAt":%s}\n' "$(($(date +%s) - $1))" >"$T/home/tehas/live/cycles/9.json"
   touch -d "@$(($(date +%s) - $2))" "$T/home/tehas/state/cycles/9.taken"
 }
+# The issues with a quiet note on record.
+notes() { find "$T/home/tehas/state/cycles" -maxdepth 1 -name '*.quiet' -printf '%f\n' 2>/dev/null | sed 's/\.quiet$//' | sort | tr '\n' ' '; }
+# How many times the poll has asked that issue's unit to stop.
+note_asks() { awk 'NR == 1 { print $2 }' "$T/home/tehas/state/cycles/$1.quiet" 2>/dev/null; }
+# Time passes: the next ask of that issue's note is due now.
+due() { # issue
+  local f=$T/home/tehas/state/cycles/$1.quiet fields
+  [ -f "$f" ] || return 0
+  fields=$(awk 'NR == 1 { print $1, $2 }' "$f")
+  printf '%s %s\n' "$fields" "$(($(date +%s) - 1))" >"$f"
+}
 
 t_case "a cycle that holds its lock and has not been heard from for 20 minutes is reported and stopped, once"
 reset
@@ -3988,19 +4019,98 @@ t_contains "$t_out" "WARN: the cycle for #9 holds its lock but has not been hear
 t_contains "$t_out" "more than 1200s: stopping tehas-cycle@9.service"
 t_eq "$(t_calls fake-stop)" "9"
 t_eq "$(find "$T/calls/stop.fd8" 2>/dev/null | wc -l)" 0
+t_eq "$(notes)" "9 "
+t_eq "$(note_asks 9)" "1"
 t_run "$dispatch"
 t_lacks "$t_out" "#9 holds its lock"
 t_eq "$(t_calls fake-stop)" "9"
+t_eq "$(notes)" "9 "
+t_eq "$(note_asks 9)" "1"
 release
 
-t_case "a stop that fails is said"
+t_case "a stop that failed is said, recorded, and asked again once the wait has passed"
 reset
 t_stub fake-stop '[ ! -e "/proc/$$/fd/8" ] || : >"$T/calls/stop.fd8"; exit 1'
 T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
 quiet_cycle 1300 3600
 t_run "$dispatch"
-t_contains "$t_out" "WARN: could not stop tehas-cycle@9.service"
+t_contains "$t_out" "WARN: could not stop tehas-cycle@9.service (exit 1)"
+t_contains "$t_out" "it holds its slot, and the poll asks again"
 t_eq "$(find "$T/calls/stop.fd8" 2>/dev/null | wc -l)" 0
+t_eq "$(note_asks 9)" "1"
+# The wait for the next ask has not passed: this poll says nothing.
+t_run "$dispatch"
+t_lacks "$t_out" "holds its lock but"
+t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 "
+# The wait has passed: the same episode is said and the stop asked again.
+due 9
+t_run "$dispatch"
+t_contains "$t_out" "the poll asks tehas-cycle@9.service to stop again"
+t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 9 "
+t_eq "$(note_asks 9)" "2"
+release
+
+t_case "a stop that never works is asked six times, then left to a person"
+reset
+t_stub fake-stop 'exit 1'
+T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+quiet_cycle 1300 3600
+for _ in 1 2 3 4 5 6 7; do
+  due 9
+  t_run "$dispatch"
+done
+t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 9 9 9 9 9 "
+t_eq "$(note_asks 9)" "6"
+t_contains "$t_out" "asked 6 times to stop tehas-cycle@9.service and asks no more"
+t_contains "$t_out" "systemctl --user stop tehas-cycle@9.service"
+release
+
+t_case "a stuck cycle whose last-heard time cannot be read says nothing and keeps its note"
+reset
+t_stub fake-stop
+T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+quiet_cycle 1300 3600
+t_run "$dispatch"
+t_eq "$(notes)" "9 "
+t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 "
+# Neither the live file nor <issue>.taken: nothing is known about this cycle.
+rm -f "$T/home/tehas/live/cycles/9.json" "$T/home/tehas/state/cycles/9.taken"
+t_run "$dispatch"
+t_lacks "$t_out" "holds its lock but"
+t_eq "$(notes)" "9 "
+t_eq "$(note_asks 9)" "1"
+t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 "
+release
+
+t_case "a file in state/cycles that is no issue's note is left alone, and says nothing"
+reset
+t_stub fake-stop
+T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+mkdir -p "$T/home/tehas/state/cycles"
+mkdir "$T/home/tehas/state/cycles/x.quiet"
+: >"$T/home/tehas/state/cycles/9.5.quiet"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "Is a directory"
+t_lacks "$t_out" "could not remove"
+t_eq "$([ -d "$T/home/tehas/state/cycles/x.quiet" ] && echo kept)" "kept"
+t_eq "$([ -f "$T/home/tehas/state/cycles/9.5.quiet" ] && echo kept)" "kept"
+release
+
+t_case "a quiet note that is a link goes, and what it points at is not written"
+reset
+t_stub fake-stop
+T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+quiet_cycle 1300 3600
+printf 'a person reads this\n' >"$T/target"
+ln -s "$T/target" "$T/home/tehas/state/cycles/9.quiet"
+t_run "$dispatch"
+t_contains "$t_out" "state/cycles/9.quiet is not a note file: the poll removed it"
+t_contains "$t_out" "stopping tehas-cycle@9.service"
+t_eq "$(cat "$T/target")" "a person reads this"
+t_eq "$(notes)" "9 "
+t_eq "$(note_asks 9)" "1"
+t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 "
 release
 
 t_case "a cycle heard from lately, or one that took its lock lately, is left alone"
@@ -4028,8 +4138,43 @@ t_contains "$t_out" "would stop tehas-cycle@9.service: the cycle for #9 holds it
 t_run "$dispatch --dry-run"
 t_contains "$t_out" "would stop tehas-cycle@9.service"
 t_eq "$(t_calls fake-stop)" ""
+t_eq "$(notes)" ""
 t_run "$dispatch"
 t_eq "$(t_calls fake-stop)" "9"
+release
+
+t_case "the note of an issue no cycle holds is gone from a later poll"
+reset
+t_stub fake-stop
+T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+quiet_cycle 1300 3600
+t_run "$dispatch"
+t_eq "$(notes)" "9 "
+# The unit stopped: no cycle holds the lock of #9 any more.
+release
+t_run "$dispatch --dry-run"
+t_eq "$(notes)" "9 "
+t_run "$dispatch"
+t_eq "$(notes)" ""
+
+# A note left by hand, for an issue that has never had a cycle here.
+: >"$T/home/tehas/state/cycles/11.quiet"
+t_run "$dispatch"
+t_eq "$(notes)" ""
+
+t_case "a quiet cycle that is heard from again keeps no note"
+reset
+t_stub fake-stop
+T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+quiet_cycle 1300 3600
+t_run "$dispatch"
+t_eq "$(notes)" "9 "
+# The stop was asked, and the cycle went on writing its live file.
+quiet_cycle 20 3600
+t_run "$dispatch"
+t_lacks "$t_out" "holds its lock but"
+t_eq "$(notes)" ""
+t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 "
 release
 
 t_done

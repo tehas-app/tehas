@@ -1,11 +1,13 @@
 //! Turn a running /work cycle into one readable, append-only console file
 //! for the dashboard.
 //!
-//!   console --rpc <work-N.jsonl> --runs <ensemble-runs dir>
+//!   console --progress <work-N.ndjson> --runs <ensemble-runs dir>
 //!     --out <console.txt> --since <epoch seconds> [--private <name>]...
 //!
 //! Follows two sources until it is told to stop (TERM or INT):
-//!   - the cycle's Pi RPC stream: driver notices and step boundaries,
+//!   - the headless runner's NDJSON progress, its stable kinds only: driver
+//!     notices, step boundaries, agents started and done, caps, the handoff,
+//!     CI and the merge,
 //!   - every agent transcript touched since the cycle began: what each agent
 //!     said, the commands it ran and the start of what came back.
 //!
@@ -27,7 +29,7 @@ mod render;
 mod tail;
 
 use render::Entry;
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
@@ -42,7 +44,7 @@ const POLL: Duration = Duration::from_millis(1500);
 const TICK: Duration = Duration::from_millis(100);
 
 struct Args {
-    rpc: String,
+    progress: String,
     runs: String,
     out: String,
     since: SystemTime,
@@ -81,7 +83,7 @@ fn args(given: &[String]) -> Result<Args, String> {
             "console: --since is not a time in seconds: {since}"
         ))?;
     Ok(Args {
-        rpc: value("rpc")?,
+        progress: value("progress")?,
         runs: value("runs")?,
         out: value("out")?,
         since,
@@ -120,7 +122,7 @@ fn reopened(out: File, path: &str) -> io::Result<File> {
 fn run(args: &Args, stop: &AtomicBool) -> io::Result<()> {
     let mut out = open_out(&args.out)?;
     let mut follower = tail::Follower::default();
-    let mut workstreams: HashMap<String, String> = HashMap::new();
+    let mut seen: HashSet<String> = HashSet::new();
     write(
         &mut out,
         &Entry::new("tehas", "console attached, waiting for the cycle", None),
@@ -130,8 +132,13 @@ fn run(args: &Args, stop: &AtomicBool) -> io::Result<()> {
         // followed by one more pass, so the last lines are not lost.
         let stopping = stop.load(Ordering::Relaxed);
         out = reopened(out, &args.out)?;
-        for line in follower.new_lines(&args.rpc) {
-            if let Some(entry) = render::rpc_line(&line) {
+        for line in follower.new_lines(&args.progress) {
+            if let Some(key) = render::progress_key(&line) {
+                if !seen.insert(key) {
+                    continue;
+                }
+            }
+            if let Some(entry) = render::progress_line(&line) {
                 write(&mut out, &entry)?;
             }
         }
@@ -141,17 +148,9 @@ fn run(args: &Args, stop: &AtomicBool) -> io::Result<()> {
                 break;
             }
             let role = tail::role(&transcript.path);
+            let who = mask::mask(&role);
             for line in follower.transcript_lines(&transcript) {
-                if let Some(workstream) = render::workstream(&line) {
-                    workstreams.insert(transcript.path.clone(), workstream);
-                }
-                // Parallel agents of one role are told apart as the driver
-                // names them when it starts them.
-                let who = match workstreams.get(&transcript.path) {
-                    Some(workstream) => format!("{role}[{workstream}]"),
-                    None => role.clone(),
-                };
-                for entry in render::transcript_line(&mask::mask(&who), &line) {
+                for entry in render::transcript_line(&who, &line) {
                     write(&mut out, &entry)?;
                 }
             }

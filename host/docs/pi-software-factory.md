@@ -32,7 +32,7 @@ work is Pi.
 
 | Part           | What it does in tehas                                                                                                                                                              |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Pi             | The coding agent. Tehas starts it as `pi --mode rpc` in a container, so it needs no terminal, and sends it one command: `/work <issue>`.                                           |
+| Pi             | The coding agent. Tehas runs pi-rukas's one-shot runner, `pi-rukas-headless work <issue>`, in a container, so it needs no terminal; the runner starts Pi for each agent.                                           |
 | pi-rukas       | A Pi extension that provides `/work`. It runs the cycle, starts child Pi processes by role (explore, developer, adversarial developer, code review) and keeps them in git worktrees. |
 | Tehas          | The factory: the dispatcher that reads the queue, the check of who applied the label, the sandbox with its limits, the settings, the factory floor and the live console.            |
 | GitHub         | The queue, the state and the results. Issues are the work orders, labels are the state machine, and the outcome is a pull request with comments.                                   |

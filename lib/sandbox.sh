@@ -59,8 +59,14 @@ tehas_sandbox_env() { # <tree> <git name> <git email>
     -e "GIT_CONFIG_KEY_2=user.name" -e "GIT_CONFIG_VALUE_2=$name"
     -e "GIT_CONFIG_KEY_3=user.email" -e "GIT_CONFIG_VALUE_3=$email"
     -e GIT_TERMINAL_PROMPT=0)
+  # Not the settings of pi-rukas's own docker wrapper, which no container
+  # runs: the image, the aliases (given as --add-host) and the socket and SSH
+  # switches. The runner does not list them as inputs.
   while IFS='=' read -r var _; do
-    case "$var" in PI_ENSEMBLE_IMAGE | PI_ENSEMBLE_HOST_ALIASES) ;; PI_ENSEMBLE_*) envs+=(-e "$var") ;; esac
+    case "$var" in
+      PI_ENSEMBLE_IMAGE | PI_ENSEMBLE_HOST_ALIASES | PI_ENSEMBLE_NO_DOCKER_SOCKET | PI_ENSEMBLE_NO_SSH) ;;
+      PI_ENSEMBLE_*) envs+=(-e "$var") ;;
+    esac
   done < <(env)
   printf '%s\0' "${envs[@]}"
 }

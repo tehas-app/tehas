@@ -169,6 +169,7 @@ host.
 | `lib/config.sh` | Loads and checks the instance settings |
 | `lib/attachments.sh` | Files attached to an issue: which links count and how one is fetched |
 | `lib/cycles.sh` | Which cycles are running, from the lock each one holds, and where a parked cycle's question is on record |
+| `lib/headless.sh` | What tehas reads of pi-rukas's headless runner: its `--capabilities` answer, its NDJSON progress and its `--json` result |
 | `lib/edge.sh` | What `tehasbot protolab` and `tehasbot preview` share: numbered sets under `~/tehas` and the previews' network |
 | `lib/improve.sh`, `lib/improve-prompt.md` | The improvement loop's shared parts, and the prompt its analyst reads |
 | `lib/labels.sh` | Who applied a label, read from the label events |
