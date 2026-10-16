@@ -94,11 +94,6 @@ before you say a change is done, and quote its output.
 
 ## Commits
 
-Commit your work before you report a step as done: `git add` every file you
-changed and `git commit`. Never finish with uncommitted changes in your
-worktree. The driver's fallback for uncommitted work can drop a file, and a
-change that is half committed fails the gate.
-
 One logical change per commit. Subject in the imperative or as a short
 statement of what changed, as the existing history does (`Settings library
 with tests`, `install.sh installs by feature from an instance directory`). No
