@@ -2078,8 +2078,20 @@ It runs shellcheck over the shell scripts, then every `test/*_test.sh`. Those
 need bash, git, jq and shellcheck only: no sandbox image, no product checkout
 and no network. The test files run side by side, at most `TEHAS_TEST_JOBS` at
 once: by default the CPU quota of the cgroup it runs in, rounded up, or the
-number of CPUs where there is none. Exit 0 when every check passed, 1 when one
-failed, 2 when nothing could be checked.
+number of CPUs where there is none. Each file's output is printed whole, in name
+order, and the run ends with a block that names every check that failed —
+`shellcheck`, or the path of each failing test file relative to the checkout:
+
+```
+test.sh: failed checks (2)
+    shellcheck
+    test/plan_test.sh
+```
+
+The block comes after all the output, so a run whose log is cut short still
+names what failed. `scripts/verify.sh` prints the last 40 lines of this step.
+Exit 0 when every check passed, 1 when one failed, 2 when nothing could be
+checked.
 
 `scripts/check-generic.sh` is the lint that keeps private network addresses out
 of every file, and product and host names out of platform files. The names

@@ -15,13 +15,15 @@
 # container's quota does not change what nproc says]: each keeps everything
 # under a scratch directory of its own
 # (test/lib.sh), and one after another they took about 18 minutes. Each file's
-# output is printed whole, in name order, once all have ended.
+# output is printed whole, in name order, once all have ended. What failed is
+# named again after all of it: a caller that keeps only the end of the output,
+# as scripts/verify.sh does, still sees every failing file.
 #
 # Exit: 0 every check passed, 1 a check failed, 2 nothing could be checked
 set -uo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-failed=0
+bad=()
 ran=0
 
 files=()
@@ -40,7 +42,7 @@ elif [ "${#files[@]}" -gt 0 ]; then
     echo "shellcheck: ${#files[@]} files, ok"
   else
     echo "shellcheck: failed"
-    failed=1
+    bad+=(shellcheck)
   fi
 fi
 
@@ -75,8 +77,15 @@ done
 wait
 for t in "${tests[@]}"; do
   cat "$out/${t##*/}.log" 2>/dev/null
-  [ "$(cat "$out/${t##*/}.rc" 2>/dev/null)" = 0 ] || failed=1
+  [ "$(cat "$out/${t##*/}.rc" 2>/dev/null)" = 0 ] || bad+=("${t#"$root"/}")
 done
+if [ "${#bad[@]}" -gt 0 ]; then
+  echo "test.sh: failed checks (${#bad[@]})"
+  for n in "${bad[@]}"; do
+    echo "    $n"
+  done
+fi
 
 [ "$ran" = 1 ] || { echo "test.sh: nothing could be checked" >&2; exit 2; }
-exit "$failed"
+[ "${#bad[@]}" = 0 ] || exit 1
+exit 0
