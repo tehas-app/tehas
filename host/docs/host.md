@@ -692,15 +692,45 @@ Another limit for one host goes in
 ## Sandbox image
 
 `tehas/pi-rukas:uid<uid>`: the upstream pi-rukas image plus the in-container
-user remapped to the tehas user's id, shellcheck, and Playwright's
-Chromium with fonts. cargo's registry belongs to that user, so a gate that
-builds Rust can fetch its crates; they go with the container. The base is pinned
-by digest in `sandbox/Dockerfile`, shellcheck by checksum, and Playwright by the
-npm tree beside it (`sandbox/npm/playwright`, whose `package-lock.json` fixes
-every package in that tree by hash). `versions.env` holds the versions and the
+user remapped to the tehas user's id, shellcheck, Playwright's Chromium with
+fonts, `file`, and a Python image library. The last two are in the container
+only: `bootstrap.sh` installs neither and its check does not look for them.
+cargo's registry belongs to that user, so a gate that builds Rust can fetch its
+crates; they go with the container. The base is pinned by digest in
+`sandbox/Dockerfile`, shellcheck by checksum, codebase-memory-mcp by the
+checksum of its installer plus a version read back from the binary
+(`CBM_INSTALLER_SHA256` and `CBM_VERSION`), and Playwright by the npm tree
+beside it (`sandbox/npm/playwright`, whose `package-lock.json` fixes every
+package in that tree by hash). `versions.env` holds the versions and the
 checksums, and the build stops when a pin there does not match the file beside
-the Dockerfile. A product whose gates need another
-toolchain adds it to the Dockerfile.
+the Dockerfile. A product whose gates need another toolchain adds it to the
+Dockerfile.
+
+Two things the base carries are changed on purpose.
+
+- codebase-memory-mcp is put back at the version `versions.env` names, the one
+  `bootstrap.sh` installs on the host. The base installs it from upstream's main,
+  unpinned, so its tool schemas moved under a host between builds and a code
+  search call that worked in one cycle was refused in the next. The index a cycle
+  searches is built by the same program in the same image, by `tehas index`, so
+  pinning it fixes both halves at once.
+- wigolo comes off PATH. The base installs it with npm's scripts off, which skips
+  the native build of its better-sqlite3, so every call died on a missing
+  bindings file and cost a cycle a call each time an agent reached for it.
+  pi-rukas's own recipe preflights `command -v wigolo` and says when it is not
+  installed, so its absence is an answer and not a gap.
+
+A step near the end of the build checks that every command a cycle's
+instructions name, and the commands `libexec/` gives a container (the one after
+`--entrypoint`, or the one directly after the image), answers in the image, and
+it stops when one is missing. Those commands are `pi`, pi-rukas's headless
+runner at `/opt/pi-rukas/bin/pi-rukas-headless`, `git`, and
+codebase-memory-mcp: they are how a cycle, a planning turn, `tehas dev` and
+`tehas index` start. A base image that moved or dropped one of them would fail
+every cycle at container start, which is what this step is for.
+`test/sandbox_test.sh` reads those commands out of the `docker run` lines in
+`libexec/` and fails when the Dockerfile does not check one of them; a unit
+that starts a container some other way is outside what it reads.
 
 ```
 ~/tehas/sandbox/build.sh
