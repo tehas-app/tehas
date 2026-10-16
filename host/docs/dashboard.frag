@@ -263,8 +263,11 @@ import { agoText, dueToRead, layout } from "/fun/host-data.js";
     if (!s) return;
     const v = TABS.view(lastNow, selected);
     const pill = $("state");
-    if (v.running) { pill.className = "pill run"; pill.textContent = v.running > 1 ? "working on " + v.running : "working"; }
-    else if (s.paused) { pill.className = "pill pause"; pill.textContent = "paused"; }
+    // A paused factory still finishes the cycle it has. Saying "working" alone
+    // would hide the pause; saying "paused" alone would hide the cycle.
+    const finishing = v.tabs.filter((t) => t.running).map((t) => t.issue);
+    if (s.paused) { pill.className = "pill pause"; pill.textContent = finishing.length ? "paused, finishing #" + finishing.join(", #") : "paused"; }
+    else if (v.running) { pill.className = "pill run"; pill.textContent = v.running > 1 ? "working on " + v.running : "working"; }
     else if (s.noResources) { pill.className = "pill pause"; pill.textContent = "no resources"; }
     else { pill.className = "pill idle"; pill.textContent = "idle"; }
 

@@ -34,6 +34,16 @@
     return "backlog";
   }
 
+  // The pause, as libexec/status writes it: {flag: {at, reason} or null, label}.
+  // Only the reason is shown, and only on the page: `by` is not in the snapshot.
+  function pauseInfo(raw) {
+    const p = raw && raw.pause;
+    if (!p || typeof p !== "object") return null;
+    const flag = p.flag && typeof p.flag === "object" ? p.flag : null;
+    const reason = flag && typeof flag.reason === "string" ? flag.reason.slice(0, 200) : "";
+    return { reason, flag: Boolean(flag), label: p.label === true };
+  }
+
   // Ticket text is untrusted: it is only ever set through textContent.
   function normalize(raw) {
     const list = Array.isArray(raw) ? raw : raw && Array.isArray(raw.issues) ? raw.issues : null;
@@ -64,6 +74,7 @@
     return {
       tickets,
       paused: Boolean(raw && raw.paused),
+      pause: pauseInfo(raw),
       noResources: Boolean(raw && raw.noResources),
       kw: raw && Number(raw.assumedKw) > 0 ? Number(raw.assumedKw) : DEFAULT_KW,
       sample: Boolean(raw && raw.sampleData),
@@ -100,7 +111,7 @@
 
   // "live" is true while the tickets come from the factory's own queue snapshot.
   // That snapshot lists only tickets on the line, so counts it cannot know stay blank.
-  const state = { tickets: [], paused: false, noResources: false, sample: false, live: false, loaded: false, selected: null, filter: "open", query: "", kw: DEFAULT_KW };
+  const state = { tickets: [], paused: false, pause: null, noResources: false, sample: false, live: false, loaded: false, selected: null, filter: "open", query: "", kw: DEFAULT_KW };
 
   const ago = (iso) => {
     if (!iso) return "";
@@ -117,11 +128,18 @@
   // The tag beside the title is the factory's state at a glance. A cycle that
   // ended as anything but merged or handoff (aborted, died, timed out,
   // interrupted) counts as a failure until the next cycle starts.
+  // A paused factory still finishes the issue a cycle is working on: the gate
+  // says both, rather than "paused" over a floor that is still busy.
+  function finishingIssues() {
+    return state.tickets.filter((t) => t.stage === "running").map((t) => t.number);
+  }
+
   function renderGate() {
     const gate = $("gate");
+    const finishing = finishingIssues();
     const [stateName, text] = failure ? ["failed", "FACTORY FAILED"]
       : !state.loaded ? ["none", "NO DATA"]
-      : state.paused ? ["paused", "FACTORY PAUSED"]
+      : state.paused ? ["paused", finishing.length ? `FACTORY PAUSED, FINISHING #${finishing.join(", #")}` : "FACTORY PAUSED"]
       : state.noResources ? ["starved", "NO RESOURCES"]
       : ["running", "FACTORY RUNNING!"];
     gate.dataset.state = stateName;
@@ -164,10 +182,14 @@
     const open = state.tickets.filter((t) => t.stage !== "shipped");
     const n = (stage) => state.tickets.filter((t) => t.stage === stage).length;
     const summary = $("floor-summary");
+    const finishing = finishingIssues();
+    const why = state.pause && state.pause.reason ? ` (${state.pause.reason})` : "";
+    const pauseNote = state.paused
+      ? `Factory paused${why}${finishing.length ? `, still finishing #${finishing.join(", #")}` : ""}. ` : "";
     const text = !state.loaded
       ? "No ticket data loaded. Use the sample or load an export at the foot of the page."
       : (failure ? `Last cycle failed: #${failure.issue} ended as ${failure.status}. ` : "") +
-        (state.paused ? "Factory paused. " : "") +
+        pauseNote +
         `${open.length} open: ${n("ready")} in line, ${n("running")} building, ${n("review")} in review, ` +
         `${n("stopped")} stopped` + (state.live ? "." : `, ${n("backlog")} not on the line.`) +
         (state.live && queue.readAt ? ` Queue read ${ago(queue.readAt)}.` : "");
@@ -546,7 +568,7 @@
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(refitFold, () => {});
 
   function show(data, sourceText, statusText) {
-    Object.assign(state, { tickets: data.tickets, paused: data.paused, noResources: data.noResources, sample: data.sample, live: Boolean(data.live), loaded: true, filter: "open", query: "", kw: data.kw });
+    Object.assign(state, { tickets: data.tickets, paused: data.paused, pause: data.pause, noResources: data.noResources, sample: data.sample, live: Boolean(data.live), loaded: true, filter: "open", query: "", kw: data.kw });
     $("board-all").hidden = !(state.live && queue.all);
     if (state.live && queue.all) $("board-all").href = queue.all;
     $("energy-basis").textContent = `time spent at an assumed ${state.kw} kW, unless the data carries a measured figure`;
@@ -589,7 +611,7 @@
     };
     for (const key of ["queued", "running", "awaiting", "stopped"]) take(key, false);
     take("completed", true);
-    const data = normalize({ issues: [...byNumber.values()], paused: Boolean(s.paused), noResources: Boolean(s.noResources), buzzwords: s.buzzwords });
+    const data = normalize({ issues: [...byNumber.values()], paused: Boolean(s.paused), pause: s.pause, noResources: Boolean(s.noResources), buzzwords: s.buzzwords });
     data.live = true;
     return data;
   }
@@ -628,7 +650,7 @@
     const data = fromSnapshot(s);
     // The words can change while the tickets on the line stay as they were.
     if (state.live) words = data.words;
-    const signature = JSON.stringify([data.paused, data.noResources, data.tickets.map((t) => [t.number, t.title, t.stage, t.updatedAt, t.closedAt])]);
+    const signature = JSON.stringify([data.paused, data.pause, data.noResources, data.tickets.map((t) => [t.number, t.title, t.stage, t.updatedAt, t.closedAt])]);
     if (!state.live) {
       queue.signature = signature;
       show(data, "LIVE QUEUE", "");
@@ -638,6 +660,7 @@
       const keep = focused && focused.dataset.number ? { list: focused.closest("ul, .slot"), number: focused.dataset.number } : null;
       state.tickets = data.tickets;
       state.paused = data.paused;
+      state.pause = data.pause;
       state.noResources = data.noResources;
       words = data.words;
       if (!state.tickets.some((t) => t.number === state.selected)) {

@@ -15,7 +15,7 @@ cp "$T_ROOT/bin/tehas" "$T_ROOT/bin/tehasbot" "$tree/bin/"
 # The settings library is there to be read, so that not reading it means something.
 cp "$T_ROOT/lib/config.sh" "$tree/lib/config.sh"
 # One line per call: the name, then each argument after a "|".
-for name in dispatch cycle work plan dev index update labels summary status health energy protolab preview improve top top-publish; do
+for name in dispatch cycle work plan dev index update labels summary status health energy protolab preview improve top top-publish pause resume; do
   printf '%s\n' '#!/usr/bin/env bash' "# The text of $name." '#' "# Usage: $name" 'set -u' 'IFS="|"' \
     "printf '%s\\n' \"$name\${*:+|\$*}\" >>\"\$T/calls/libexec\"" 'exit "${RC:-0}"' >"$tree/libexec/$name"
   chmod +x "$tree/libexec/$name"
@@ -55,6 +55,13 @@ reset
 t_run "$tehas update --check && $tehas update"
 t_eq "$(ran)" "update|--check
 update"
+
+t_case "tehas pause passes on the reason and tehas resume takes nothing"
+reset
+t_run "$tehas pause waiting for the gate && $tehas resume"
+t_eq "$t_rc" 0
+t_eq "$(ran)" "pause|waiting|for|the|gate
+resume"
 
 t_case "tehas status prints; it is not the script that writes the snapshot"
 reset
@@ -102,7 +109,7 @@ t_eq "$(ran)" ""
 
 t_case "tehas <command> --help and -h print the same text and run nothing"
 reset
-for name in dispatch work plan dev index update labels status top; do
+for name in dispatch work plan dev index update labels status top pause resume; do
   for flag in --help -h; do
     t_run "$tehas $name $flag 2>/dev/null"
     t_eq "$t_rc" 0
@@ -196,7 +203,7 @@ t_eq "$t_rc" 1
 t_case "every command in the usage of tehas has a script that says how to use it"
 reset
 names=$("$T_ROOT/bin/tehas" help | sed -n 's/^  tehas \([a-z]*\).*/\1/p' | grep -v -x help | tr '\n' ' ')
-t_eq "$names" "dispatch work plan dev index update labels status top "
+t_eq "$names" "dispatch work plan dev index update labels status top pause resume "
 for name in $names; do
   t_run "$T_ROOT/bin/tehas help $name"
   t_eq "$t_rc" 0

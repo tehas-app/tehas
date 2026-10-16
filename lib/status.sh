@@ -9,14 +9,20 @@
 #   tehas_health_readable <file>    0 when the file is there and holds a status
 #   tehas_health_stale <file> <now> 0 when the file is older than the rule
 #                                   (a time that cannot be read counts as old)
-#   tehas_state_lines <json> <now> <stale>   the factory line and the queue line
+#   tehas_state_lines <json> <now> <stale>   the factory line, the queue line,
+#                                            and a line for each pause switch
 #   tehas_cycle_line <json> <now>            one cycle, as health.json writes it
 #   tehas_slice_line <health json> <now>     the last poll's slice check
 #   tehas_platform_line <health json> <now>  the platform checkout against
 #                                            origin; nothing without one
 #
-# <json> is JSON text given as an argument: nothing here opens a file, loads the
-# instance settings or writes anything.
+# And the pause flag itself, which every command that reads it reads through:
+#
+#   tehas_pause_read <file>       the flag tehas pause writes, {by, at, reason}
+#
+# <json> is JSON text given as an argument: nothing here loads the instance
+# settings or writes anything. tehas_pause_read is the one function that reads a
+# file, and it reads only the one its argument names.
 #
 # The jq behind the state lines and the cycle line is named - tehas_state_line_jq
 # and tehas_cycle_line_jq - because `tehas top` draws a whole frame in one jq
@@ -25,6 +31,13 @@
 
 # shellcheck disable=SC2016  # the jq program below is data, not a shell string
 tehas_health_max_age=600
+
+# A pause reason is printed as one line of tehas status and written to files a
+# page may read, so it holds no line of its own: every control character (tab,
+# carriage return, escape, the separators U+2028 and U+2029) becomes a space,
+# and the ends are trimmed. The reader applies it and the line writer applies
+# it again, so a reason that reached a file some other way forges no line.
+tehas_pause_oneline='gsub("[\u0001-\u001f\u007f-\u009f\u2028\u2029]+"; " ") | gsub("^ *| *$"; "")'
 
 # A health file with a status string in it.
 tehas_health_readable() { # <file>
@@ -42,18 +55,54 @@ tehas_state_defs='
   def ago($now): ($now - .) | if . < 0 then 0 else . end
     | if . < 120 then "\(.) s ago" elif . < 7200 then "\(. / 60 | floor) min ago" else "\(. / 3600 | floor) h ago" end;
   def age($now): (try (fromdateiso8601 | ago($now)) catch "at an unknown time");
+  # What holds the factory paused, one line for each switch that is set:
+  # {flag: {at, reason} or null, label: true|false, lifted: true|false}, as
+  # health.json writes it. lifted names the case where the label is off and no
+  # allowed account took it off, so the host stays paused: a stranger removed it,
+  # or the label object itself was deleted.
+  def oneline: '"$tehas_pause_oneline"';
+  def pause_lines($now): if . == null or (.flag == null and .label != true and .lifted != true) then empty else . end
+    | ((if .flag == null then empty
+        else "pause     flag, written \(.flag.at // "" | age($now))"
+             + (if (.flag.reason // "" | oneline) == "" then "" else ": \(.flag.reason | oneline)" end)
+        end),
+       (if .label == true then "pause     label: tehas:pause on the control issue" else empty end),
+       (if .lifted == true then "pause     label: tehas:pause is off the control issue, but no account in TEHAS_ALLOWED_LABELERS took it off" else empty end));
 '
 
-# The two lines a health object gives: is the factory taking work, and what is
-# in the queue. The program takes the health object as its input and reads the
-# epoch seconds as $now and the ten-minute rule as $stale, which is also how the
-# frame in lib/top.sh calls it.
+# tehas_pause_read <file>: the pause flag, as tehas pause writes it.
+#   0  <file> holds {by, at, reason}: the object, compact, on standard output
+#   1  no such file: nothing on standard output
+#   2  something is at <file> and is not a pause flag: nothing on standard output
+# A flag that cannot be understood is never read as no flag: every caller counts
+# 2 as paused, so a damaged flag stops the factory rather than starting it.
+# `at` and `reason` must be strings; `by` may be anything and reads as nobody.
+# Nothing that reaches a page publishes `by`: it names an account on this host.
+# The reason comes back on one line, kept to the 200 characters tehas pause
+# writes, whatever the file holds.
+tehas_pause_read() { # <file>
+  local json
+  [ -e "$1" ] || return 1
+  json=$(jq -ce '
+    select(type == "object")
+    | select((.at | type) == "string")
+    | select((.reason | type) == "string")
+    | {by: (if (.by | type) == "string" then .by else "" end), at,
+       reason: (.reason | '"$tehas_pause_oneline"' | .[:200])}' "$1" 2>/dev/null) || return 2
+  printf '%s\n' "$json"
+}
+
+# The lines a health object gives: is the factory taking work, what is in the
+# queue, and what holds it paused. The program takes the health object as its
+# input and reads the epoch seconds as $now and the ten-minute rule as $stale,
+# which is also how the frame in lib/top.sh calls it.
 tehas_state_line_jq='
     (if $stale then "factory   stale: the dispatcher last reported \(.time | age($now)), is its timer running? It said \(.status): \(.output // "")"
      else "factory   \(.status): \(.output // "") (\(.time | age($now)))" end),
     (.checks.queue // null | if . == null then "queue     no snapshot yet"
      else "queue     \(.inLine) in line, \(.building) building, \(.review) in review, \(.stopped) stopped"
-          + (if .paused then ", paused" else "" end) + " (\(.time // "" | age($now)))" end)
+          + (if .paused then ", paused" else "" end) + " (\(.time // "" | age($now)))" end),
+    (.checks.pause // null | pause_lines($now))
   '
 
 tehas_state_lines() { # <health json> <now epoch seconds> <stale true|false>

@@ -126,7 +126,7 @@ dispatch_json=$T/home/tehas/live/dispatch.json
 
 reset() {
   rm -f "$T"/calls/* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/icomments-* "$fx"/prs.json "$fx"/prlist.json "$fx"/pr-fails "$fx"/issue-* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/slice-* "$fx"/orphan-* "$fx"/prs-*
-  rm -rf "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-* "$T"/home/tehas/state/park-* "$T/home/tehas/live"
+  rm -rf "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-* "$T"/home/tehas/state/park-* "$T/home/tehas/live" "$T/home/tehas/state/pause.json"
   # A slice of 20 GiB with nothing in it: room for ten cycles of the default
   # reserve, so the slots and the review cap decide unless a case says more.
   slice_show $((20 * gib))
@@ -144,6 +144,8 @@ reset() {
   echo '[]' >"$fx/marked.json"
   echo '[{"number":7,"labels":[{"name":"tehas:ready"}]}]' >"$fx/ready.json"
   echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
+  # The control issue has never been paused: no tehas:pause event to read.
+  echo '[]' >"$fx/events-1.json"
   T_ENV=(TEHAS_CYCLE_START_CMD=fake-start TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index TEHAS_PLAN_CMD=fake-plan "$slice_env")
   t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
 }
@@ -681,6 +683,126 @@ echo '{"labels":[{"name":"tehas:pause"}]}' >"$fx/control.json"
 t_run "$dispatch --dry-run"
 t_contains "$t_out" "paused: issue #1 carries tehas:pause"
 
+# The flag tehas pause writes on the host. It decides on its own, and GitHub is
+# asked nothing about it.
+pause_flag() { # <json>: what to write where tehas pause writes it
+  mkdir -p "$T/home/tehas/state"
+  printf '%s\n' "$1" >"$T/home/tehas/state/pause.json"
+}
+
+t_case "the pause flag stops dispatch, and deciding it asks GitHub nothing"
+reset
+pause_flag '{"by":"boss","at":"2026-10-15T10:00:00Z","reason":"waiting for the gate"}'
+t_run "$dispatch --dry-run"
+t_eq "$t_rc" 0
+t_contains "$t_out" "paused: the flag tehas pause wrote at 2026-10-15T10:00:00Z holds this host"
+t_lacks "$t_out" "would run a cycle"
+t_eq "$(t_calls fake-start)" ""
+# The flag decides on its own: the control issue is not asked about at all.
+t_lacks "$(t_calls gh)" "issue view"
+t_lacks "$(t_calls gh)" "issues/1/events"
+
+t_case "a flag that cannot be read starts nothing and is said"
+reset
+pause_flag 'not a flag at all'
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "state/pause.json is not a pause flag: taking it as paused"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+
+t_case "a flag written by hand with no reason still holds the host"
+reset
+pause_flag '{"by":"boss","at":"2026-10-15T10:00:00Z","reason":""}'
+t_run "$dispatch --dry-run"
+t_eq "$t_rc" 0
+t_contains "$t_out" "holds this host"
+t_eq "$(t_calls fake-start)" ""
+
+# The label is a stop anyone may apply and only an allowed account may lift.
+pause_off() { # <login or "">: the control issue's last tehas:pause event is that account's removal
+  local actor
+  [ -z "$1" ] && actor="null" || actor="{\"login\":\"$1\"}"
+  jq -nc --argjson a "$actor" '[{event: "labeled", label: {name: "tehas:pause"}, actor: {login: "alice"}, created_at: "2026-10-15T09:00:00Z"},
+    {event: "unlabeled", label: {name: "tehas:pause"}, actor: $a, created_at: "2026-10-15T10:00:00Z"}]' >"$fx/events-1.json"
+}
+
+t_case "a pause the bot removed leaves the factory paused, and says who"
+reset
+pause_off tehas-bot
+t_run "$dispatch --dry-run"
+t_eq "$t_rc" 0
+t_contains "$t_out" "tehas:pause was taken off #1 by 'tehas-bot'"
+t_lacks "$t_out" "would run a cycle"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+
+t_case "a pause removed by an account GitHub does not name leaves the factory paused"
+reset
+pause_off ''
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "taken off #1 by 'unknown'"
+t_eq "$(t_calls fake-start)" ""
+
+t_case "a pause an allowed account removed resumes the factory"
+reset
+pause_off alice
+t_run "$dispatch --dry-run"
+t_eq "$t_rc" 0
+t_contains "$t_out" "would run a cycle for #7"
+t_lacks "$t_out" "taken off #1"
+
+t_case "a control issue that was never paused is dispatched from as usual"
+reset
+t_run "$dispatch --dry-run"
+t_eq "$t_rc" 0
+t_contains "$t_out" "would run a cycle for #7"
+
+t_case "a pause applied again after an allowed removal holds the host again"
+reset
+pause_off alice
+jq -c '. + [{event: "labeled", label: {name: "tehas:pause"}, actor: {login: "mallory"}, created_at: "2026-10-15T11:00:00Z"}]' "$fx/events-1.json" >"$fx/events-1.json.new"
+mv "$fx/events-1.json.new" "$fx/events-1.json"
+echo '{"labels":[{"name":"tehas:pause"}]}' >"$fx/control.json"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "paused: issue #1 carries tehas:pause"
+t_eq "$(t_calls fake-start)" ""
+
+t_case "a pause whose label was deleted holds the host"
+reset
+echo '[{"event":"labeled","label":{"name":"tehas:pause"},"actor":{"login":"mallory"},"created_at":"2026-10-15T09:00:00Z"}]' >"$fx/events-1.json"
+t_run "$dispatch --dry-run"
+t_eq "$t_rc" 0
+t_contains "$t_out" "its last tehas:pause event only applied it"
+t_lacks "$t_out" "would run a cycle"
+t_eq "$(t_calls fake-start)" ""
+
+t_case "a pause applied and taken off in the same second holds the host"
+reset
+jq -nc '[{event: "unlabeled", label: {name: "tehas:pause"}, actor: {login: "alice"}, created_at: "2026-10-15T10:00:00Z"},
+  {event: "labeled", label: {name: "tehas:pause"}, actor: {login: "mallory"}, created_at: "2026-10-15T10:00:00Z"}]' >"$fx/events-1.json"
+t_run "$dispatch --dry-run"
+t_eq "$t_rc" 0
+t_contains "$t_out" "only applied it"
+t_eq "$(t_calls fake-start)" ""
+
+t_case "events that cannot be read start nothing"
+reset
+rm -f "$fx/events-1.json"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "gh api repos/acme/widget/issues/1/events?per_page=100 failed"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+
+t_case "events that cannot be understood start nothing"
+reset
+echo 'not a list of events' >"$fx/events-1.json"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "unreadable label events of #1"
+t_eq "$(t_calls fake-start)" ""
+
 t_case "an invalid instance makes no call at all and exits 78"
 reset
 rm -rf "$T/home/tehas/state" "$T/home/tehas/logs"
@@ -1193,12 +1315,13 @@ t_run "$dispatch"
 t_lacks "$(t_calls docker)" "rm "
 release
 
-t_case "a paused factory leaves it"
+t_case "a paused factory still clears it"
 reset
 echo '[{"number":9}]' >"$fx/marked.json"
 echo '{"labels":[{"name":"tehas:pause"}]}' >"$fx/control.json"
 t_run "$dispatch"
-t_lacks "$(t_calls gh)" "issue edit"
+t_contains "$t_out" "park #9: it is marked tehas:running and no cycle holds its lock"
+t_contains "$(t_calls gh)" "issue edit 9 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention"
 
 t_case "when the issues marked as running cannot be read nothing is dispatched"
 reset
@@ -3610,6 +3733,44 @@ t_contains "$t_out" "would stop tehas-cycle@9.service: its issue is closed"
 t_eq "$(t_calls fake-stop)" ""
 t_eq "$(find "$T/home/tehas/state/cycles/9.done" 2>/dev/null | wc -l)" 0
 kill "$(cat "$fx/holder-9")"
+
+# The pause switches say what a poll may start, not what it may clean up: a
+# paused factory still gives up the work it has finished and still clears a mark
+# with no cycle behind it.
+t_case "a paused poll stops a cycle whose issue is closed and starts nothing"
+reset
+stop_by_kill
+pause_flag '{"by":"boss","at":"2026-10-15T10:00:00Z","reason":"waiting for the gate"}'
+hold_proc 9
+echo '{"number":9,"state":"closed"}' >"$fx/work-9.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-stop)" "9"
+t_contains "$t_out" "stop #9: its issue is closed"
+t_eq "$(cat "$T/home/tehas/state/cycles/9.done")" closed
+t_eq "$(t_calls fake-start)" ""
+
+t_case "a paused dry run says it would stop a finished cycle and stops nothing"
+reset
+stop_by_kill
+pause_flag '{"by":"boss","at":"2026-10-15T10:00:00Z","reason":""}'
+hold_proc 9
+echo '{"number":9,"state":"closed"}' >"$fx/work-9.json"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would stop tehas-cycle@9.service: its issue is closed"
+t_contains "$t_out" "paused: the flag tehas pause wrote"
+t_eq "$(t_calls fake-stop)" ""
+t_eq "$(t_calls fake-start)" ""
+kill "$(cat "$fx/holder-9")"
+
+t_case "a paused poll still parks an issue marked tehas:running with no cycle behind it"
+reset
+pause_flag '{"by":"boss","at":"2026-10-15T10:00:00Z","reason":""}'
+echo '[{"number":9}]' >"$fx/marked.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "park #9: it is marked tehas:running and no cycle holds its lock"
+t_eq "$(t_calls fake-start)" ""
 
 t_case "with no cycle running the bot's pull requests are not asked for"
 reset

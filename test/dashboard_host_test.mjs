@@ -85,7 +85,7 @@ async function page(key, opt = {}) {
     },
     // The tabs are the plain dashboard's other module. Here they say nothing is
     // running, so what a case sees is the host half.
-    TEHAS_CONSOLE_TABS: { view: () => ({ running: 0, shown: null, cycles: [] }), render: () => {}, keys: () => {}, consoleFile: () => null },
+    TEHAS_CONSOLE_TABS: { view: () => ({ running: 0, shown: null, cycles: [], tabs: [] }), render: () => {}, keys: () => {}, consoleFile: () => null },
     fetch: async (url) => {
       if (url.endsWith("/live/top.json")) topReads++;
       if (unreachable) throw new Error("no route to the host");
