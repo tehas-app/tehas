@@ -15,7 +15,7 @@
 # CPU, 2g of memory and no swap. Without a usable slice a run with records to
 # read stops before it calls GitHub, and the records wait.
 #
-#   records    $TEHAS_HOME/tmp/improve/window/<issue>-<stamp>, written when a
+#   records    $TEHAS_PROJECT_HOME/tmp/improve/window/<issue>-<stamp>, written when a
 #              cycle ends (lib/improve.sh). A run takes the five oldest and
 #              leaves the rest for the next. An analyst stopped at its bound
 #              halves that number for the next run, down to one, in
@@ -103,18 +103,19 @@ chunk=$((5 * 1024 * 1024))
 # so 30 cut off half the runs.
 bound=3600
 max_take=5
-capf=$TEHAS_HOME/state/improve.cap
+capf=$TEHAS_PROJECT_HOME/state/improve.cap
 old=$((7 * 24 * 60)) # minutes
 base=$(tehas_improve_dir)
 window=$base/window
-logs=$TEHAS_HOME/logs
+logs=$TEHAS_PROJECT_HOME/logs
 prompt=$here/../lib/improve-prompt.md
 
 say() { printf '%s improve: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 
 [ -r "$prompt" ] || { say "no prompt at $prompt"; exit 1; }
-mkdir -p "$window" "$TEHAS_HOME/state" "$logs" || exit 1
-exec 9>"$TEHAS_HOME/state/improve.lock"
+mkdir -p "$window" "$TEHAS_PROJECT_HOME/state" "$logs" || exit 1
+mkdir -p "$TEHAS_HOME/state" || exit 1 # host-level
+exec 9>"$TEHAS_HOME/state/improve.lock" # host-level
 flock -n 9 || { say "another run is going, leaving it to that one"; exit 0; }
 
 # The records of a run return to the window; the rest of it goes.
@@ -235,7 +236,7 @@ fail() {
 
 # --- The analyst -------------------------------------------------------------
 # A run that was killed leaves its container running under this name.
-docker rm -f tehas-improve >/dev/null 2>&1 || true
+docker rm -f "$(tehas_name improve)" >/dev/null 2>&1 || true
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
 # Its own models.json, on the endpoint picked now, and the tokens it names.
 if ! tehas_model_keys_ok || ! tehas_models_resolve "$run/models.json" >/dev/null; then
@@ -249,7 +250,7 @@ ask=$(cat "$prompt")
 ask=${ask//@MINUTES@/$((bound / 60))}
 # Not given the lock: a client that outlives a killed run would hold it, and
 # every later run would stand back until the bound.
-timeout -k 60 "$bound" docker run --rm --init --name tehas-improve \
+timeout -k 60 "$bound" docker run --rm --init --name "$(tehas_name improve)" \
   --cgroup-parent tehas.slice --cpus 1 --memory 2g --memory-swap 2g --pids-limit 1024 --cpu-shares 1024 \
   -e HOME=/home/vscode "${keys[@]}" -w /improve \
   -v "$run/in:/improve/in:ro" -v "$run/out:/improve/out" \
@@ -261,7 +262,7 @@ timeout -k 60 "$bound" docker run --rm --init --name tehas-improve \
   "$ask" >"$run/analyst.log" 2>&1 </dev/null 9>&-
 arc=$?
 # A client that timeout killed leaves its container working on.
-[ "$arc" = 0 ] || docker rm -f tehas-improve >/dev/null 2>&1 || true
+[ "$arc" = 0 ] || docker rm -f "$(tehas_name improve)" >/dev/null 2>&1 || true
 notes=()
 # 124 is the bound, 137 the kill that follows it when the client did not stop.
 # Half of what this run took, not of the cap: fewer records than the cap can

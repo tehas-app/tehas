@@ -63,7 +63,7 @@
 #
 # Instance settings (lib/config.sh; defaults in brackets):
 #   TEHAS_WORK_REPO     the product checkout a cycle is cloned from
-#                       [$TEHAS_HOME/repos/<name>]
+#                       [$TEHAS_PROJECT_HOME/repos/<name>]
 #   TEHAS_WORK_TIMEOUT  seconds a cycle may take [21600]. The runner is given
 #                       them in whole minutes, at least 1, and stops itself;
 #                       this command stops the container TEHAS_WORK_GRACE
@@ -121,7 +121,7 @@
 # They are named file-1.md and so on and listed under "files" in the manifest
 # with their original name. The pi-rukas that tehas pins does not read them
 # yet.
-# They go to $TEHAS_HOME/work/<name>-<issue>.images, beside the workspace and
+# They go to $TEHAS_PROJECT_HOME/work/<name>-<issue>.images, beside the workspace and
 # not in it, so a patch cannot commit them, under names made here, with a
 # manifest.json that lists each file, the link it came from, its type, size
 # and sha256, the approval, and what was left out and why. The directory is
@@ -196,10 +196,10 @@
 # runs, so a run by hand and the unit's cycle never share a workspace. Under
 # tehasbot cycle it inherits that lock as fd 9, already held, and goes on.
 #
-# The workspace is $TEHAS_HOME/work/<name>-<issue>, a fresh clone made here for
+# The workspace is $TEHAS_PROJECT_HOME/work/<name>-<issue>, a fresh clone made here for
 # every cycle. What a stopped cycle of the same issue left there is kept
 # beside it as <name>-<issue>.before-retry. Every cycle has its workspace at the same path inside its
-# container, $TEHAS_HOME/work/<name>: the code index is kept under that path,
+# container, $TEHAS_PROJECT_HOME/work/<name>: the code index is kept under that path,
 # so one index serves all cycles. The container never sees the product
 # checkout: an agent can write anything into the tree it works in, hooks and
 # git configuration included, and the host runs git in the product checkout.
@@ -207,7 +207,7 @@
 # nothing from the workspace afterwards.
 #
 # Beside the workspace is <name>-<issue>.state, the cycle's own: cache holds its
-# copy of the code index $TEHAS_HOME/state/index, memory its own store of what
+# copy of the code index $TEHAS_PROJECT_HOME/state/index, memory its own store of what
 # its agents learned, sessions Pi's session files. It is made fresh for every
 # cycle and removed with the workspace by tehasbot cycle. The cycle's agents
 # index nothing of another cycle's and their caches start cold.
@@ -286,25 +286,25 @@ image=$PI_ENSEMBLE_IMAGE
 limit=$TEHAS_WORK_TIMEOUT
 # The runner's NDJSON progress, which it writes to its error stream. Named as
 # the improvement loop looks for it.
-log=$TEHAS_HOME/logs/work-$issue-$(date -u +%y%m%d-%H%M%S).jsonl
-name=tehas-work-$issue
-agent=$HOME/.pi/agent
+log=$TEHAS_PROJECT_HOME/logs/work-$issue-$(date -u +%y%m%d-%H%M%S).jsonl
+name=$(tehas_name work "$issue")
+agent=$(tehas_agent_dir)
 runs=$agent/ensemble-runs/issue-$issue
 # The cycle's own state on the host, beside the workspace and not in it.
 container=$tree.state
 index=$(tehas_index_dir)
-cid_file=$TEHAS_HOME/state/cycles/$issue.cid
-oom_file=$TEHAS_HOME/state/cycles/$issue.oom
-forks_file=$TEHAS_HOME/state/cycles/$issue.forks
-stall_file=$TEHAS_HOME/state/cycles/$issue.stalled
-timed_file=$TEHAS_HOME/state/cycles/$issue.timed
+cid_file=$TEHAS_PROJECT_HOME/state/cycles/$issue.cid
+oom_file=$TEHAS_PROJECT_HOME/state/cycles/$issue.oom
+forks_file=$TEHAS_PROJECT_HOME/state/cycles/$issue.forks
+stall_file=$TEHAS_PROJECT_HOME/state/cycles/$issue.stalled
+timed_file=$TEHAS_PROJECT_HOME/state/cycles/$issue.timed
 # What the dispatcher approved, and the manifest of the last fetch, kept.
-record=$TEHAS_HOME/state/cycles/$issue.approved.json
-kept=$TEHAS_HOME/state/cycles/$issue.manifest.json
-result_file=$TEHAS_HOME/state/cycles/$issue.result.json
-progress_file=$TEHAS_HOME/state/cycles/$issue.progress.json
-image_file=$TEHAS_HOME/state/cycles/$issue.image
-settings_file=$TEHAS_HOME/state/cycles/$issue.settings
+record=$TEHAS_PROJECT_HOME/state/cycles/$issue.approved.json
+kept=$TEHAS_PROJECT_HOME/state/cycles/$issue.manifest.json
+result_file=$TEHAS_PROJECT_HOME/state/cycles/$issue.result.json
+progress_file=$TEHAS_PROJECT_HOME/state/cycles/$issue.progress.json
+image_file=$TEHAS_PROJECT_HOME/state/cycles/$issue.image
+settings_file=$TEHAS_PROJECT_HOME/state/cycles/$issue.settings
 stall=$TEHAS_WORK_STALL
 preflight_wait=${TEHAS_PREFLIGHT_WAIT:-300}
 grace=${TEHAS_WORK_GRACE:-300}
@@ -316,11 +316,11 @@ console_wait=${TEHAS_CONSOLE_WAIT:-30}
 [[ $console_wait =~ ^[1-9][0-9]{0,3}$ ]] || console_wait=30
 
 [ -n "${GH_TOKEN:-}" ] || { echo "tehas work: GH_TOKEN is not set (source ~/tehas/env.sh)" >&2; exit 64; }
-mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state/cycles"
+mkdir -p "$TEHAS_PROJECT_HOME/logs" "$TEHAS_PROJECT_HOME/state/cycles"
 # Before anything is moved: a second run would move the running cycle's tree
 # from under it. tehasbot cycle hands its own lock down as fd 9, and taking it
 # again through that fd succeeds.
-lock=$TEHAS_HOME/state/cycles/$issue.lock
+lock=$TEHAS_PROJECT_HOME/state/cycles/$issue.lock
 [ /dev/fd/9 -ef "$lock" ] 2>/dev/null || exec 9>"$lock"
 flock -n 9 || { echo "tehas work: a cycle for #$issue is running, not starting another" >&2; exit 5; }
 
@@ -583,7 +583,7 @@ started=$(date +%s)
 echo "tehas work: issue $issue started, log $log"
 
 # For the dashboard: a readable console of this cycle and its own "now" file.
-live=$TEHAS_HOME/live
+live=$TEHAS_PROJECT_HOME/live
 mkdir -p "$live/cycles"
 console=$live/console-$issue.txt
 : >"$console"

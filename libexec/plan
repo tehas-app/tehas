@@ -38,7 +38,7 @@
 #   images/         the issue's images, with TEHAS_WORK_IMAGES=1, and its text
 #                   files, with TEHAS_WORK_FILES=1: fetched on the first turn
 #                   as tehas work fetches a cycle's. Each turn
-#                   is given a copy, $TEHAS_HOME/work/<name>-plan-<issue>.images,
+#                   is given a copy, $TEHAS_PROJECT_HOME/work/<name>-plan-<issue>.images,
 #                   read-only, with PI_ENSEMBLE_EXTRA_IMAGE_DIRS, and the copy
 #                   is removed with the workspace. With TEHAS_WORK_DESCRIBE=1
 #                   it holds images.md too, written on the first turn. A
@@ -99,9 +99,9 @@
 # dispatcher counts its memory with the cycles'. Without a usable slice
 # nothing is cloned and nothing starts.
 #
-# The workspace is $TEHAS_HOME/work/<name>-plan-<issue>, a fresh clone made for
+# The workspace is $TEHAS_PROJECT_HOME/work/<name>-plan-<issue>, a fresh clone made for
 # every turn and removed when the turn is over. Inside the container it is at
-# the path every cycle has its own, $TEHAS_HOME/work/<name>. The transcripts go
+# the path every cycle has its own, $TEHAS_PROJECT_HOME/work/<name>. The transcripts go
 # to ~/.pi/agent/ensemble-runs/plan-<issue>, so a turn and a cycle see nothing
 # of each other. Beside the workspace is <name>-plan-<issue>.state, the turn's
 # own copy of the code index, its own memory and its own Pi sessions, removed
@@ -182,9 +182,9 @@ repo=$TEHAS_WORK_DIR
 tree=$TEHAS_WORK_DIR-plan-$issue
 image=$PI_ENSEMBLE_IMAGE
 limit=$TEHAS_PLAN_TIMEOUT
-log=$TEHAS_HOME/logs/plan-$issue-$(date -u +%y%m%d-%H%M%S).jsonl
-name=tehas-plan-$issue
-runs=$HOME/.pi/agent/ensemble-runs/plan-$issue
+log=$TEHAS_PROJECT_HOME/logs/plan-$issue-$(date -u +%y%m%d-%H%M%S).jsonl
+name=$(tehas_name plan "$issue")
+runs=$(tehas_agent_dir)/ensemble-runs/plan-$issue
 # The turn's own state on the host, beside the workspace and not in it.
 container=$tree.state
 index=$(tehas_index_dir)
@@ -196,7 +196,7 @@ images_inside=$repo.images
 cache=$tree/.git/pi-plan-cache
 
 [ -n "${GH_TOKEN:-}" ] || { echo "tehas plan: GH_TOKEN is not set (source ~/tehas/env.sh)" >&2; exit 64; }
-mkdir -p "$TEHAS_HOME/logs"
+mkdir -p "$TEHAS_PROJECT_HOME/logs"
 
 # The bot's identity is the tehas user's own. What the container is given is
 # assembled in lib/sandbox.sh, by the calls tehas work makes.

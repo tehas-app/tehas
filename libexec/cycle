@@ -183,9 +183,9 @@ repo=$TEHAS_REPO
 workdir=$TEHAS_WORK_DIR-$issue
 work=${TEHAS_WORK_CMD:-$here/work}
 status_cmd=${TEHAS_STATUS_CMD:-$here/status}
-cycles=$TEHAS_HOME/state/cycles
+cycles=$TEHAS_PROJECT_HOME/state/cycles
 
-mkdir -p "$cycles" "$TEHAS_HOME/logs"
+mkdir -p "$cycles" "$TEHAS_PROJECT_HOME/logs"
 # The runner and the docker client it starts inherit this lock. If this
 # process is killed outright the place stays taken until they are gone too.
 exec 9>"$cycles/$issue.lock"
@@ -309,7 +309,7 @@ rm -f "${cycles:?}/${issue:?}.oom" "${cycles:?}/${issue:?}.forks" "${cycles:?}/$
 wpid=""
 stopped=0
 trap 'stopped=1 signalled=1; [ -z "$wpid" ] || kill -TERM "$wpid" 2>/dev/null' TERM INT HUP
-"$work" "$issue" ${restart:+"$restart"} >>"$TEHAS_HOME/logs/dispatch-work-$issue.log" 2>&1 &
+"$work" "$issue" ${restart:+"$restart"} >>"$TEHAS_PROJECT_HOME/logs/dispatch-work-$issue.log" 2>&1 &
 wpid=$!
 [ "$stopped" = 0 ] || kill -TERM "$wpid" 2>/dev/null
 wait "$wpid"
@@ -569,8 +569,8 @@ park() {
 $handoff}
 
 ${usage}" --arg marker "$marker" --arg park "$park_marker" '{text: $text, question: null, marker: $marker, park: $park}' \
-    >"$TEHAS_HOME/state/park-$issue.json"
-  if post_question "$TEHAS_HOME/state/park-$issue.json"; then
+    >"$TEHAS_PROJECT_HOME/state/park-$issue.json"
+  if post_question "$TEHAS_PROJECT_HOME/state/park-$issue.json"; then
     # On record before the label shows it: a tick counts only in the comment
     # named here. Without the record a tick starts nothing and says so.
     printf '%s\n' "$posted" >"$(park_id "$issue")" ||
@@ -593,7 +593,7 @@ ${usage}" | q_clean 60000)${park_marker:+
 
 $park_marker}"
   fi
-  rm -f "$TEHAS_HOME/state/park-$issue.json"
+  rm -f "$TEHAS_PROJECT_HOME/state/park-$issue.json"
 }
 log_where="the run log is \`~/tehas/logs/dispatch-work-$issue.log\` on \`$(hostname)\`"
 # Said wherever a stopped cycle's workspace stayed on the host, with the path a
@@ -729,7 +729,7 @@ tehas_improve_record "$issue" "$started" "$rc" "$status" "$step" "$pr" "$kills" 
 # start asked while a poll runs as that poll, which may have counted this cycle
 # as running, so the file is left too: tehas-dispatch.path starts the next poll
 # when that one ends. The start is for a host where the path unit is not on.
-: >"$TEHAS_HOME/state/dispatch.again" 2>/dev/null || log "WARN: could not write $TEHAS_HOME/state/dispatch.again"
+: >"$TEHAS_HOME/state/dispatch.again" 2>/dev/null || log "WARN: could not write $TEHAS_HOME/state/dispatch.again" # host-level
 timeout -k 5 10 systemctl --user start --no-block tehas-dispatch.service 9>&- >/dev/null 2>&1 ||
   log "WARN: could not start a poll of the dispatcher"
 exit 0

@@ -6,7 +6,7 @@
 # Usage: tehas dev [<name>] [--author "Name <email>"] [--issue <number>] [-- <pi arguments>]
 #        tehas dev --help
 #
-#   <name>     names the clone, $TEHAS_HOME/dev/<name>: letters, digits, _ and
+#   <name>     names the clone, $TEHAS_PROJECT_HOME/dev/<name>: letters, digits, _ and
 #              -. Without it the name is "main". The clone is made on first
 #              use, from the product checkout, and never removed or reset.
 #   --author   whose name the commits of this clone carry. Stored next to the
@@ -42,7 +42,7 @@
 # nothing starts.
 #
 # With --issue the container gets two things more, as a cycle does: the
-# issue's images and files in $TEHAS_HOME/dev/<name>.images, read-only at the
+# issue's images and files in $TEHAS_PROJECT_HOME/dev/<name>.images, read-only at the
 # same path, and PI_ENSEMBLE_EXTRA_IMAGE_DIRS, which names it. The directory
 # is remade from the issue's text at every start with --issue, by the rules of
 # tehas work without an approval record. The person running this is not who
@@ -158,7 +158,7 @@ if [ "${#TEHAS_SLICE_LIMITS[@]}" != 14 ] || [ "${TEHAS_SLICE_LIMITS[1]}" != teha
   echo "tehas dev: the container limits could not be made, not starting" >&2
   exit 78
 fi
-devs=$TEHAS_HOME/dev
+devs=$TEHAS_PROJECT_HOME/dev
 tree=$devs/$name
 stored=$devs/$name.author
 # The issue's images, at the same path inside the container as on the host.
@@ -254,7 +254,7 @@ mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
 echo "tehas dev: $tree, commits as $who"
 # The running cycles, from the view or from the one object an earlier version wrote.
 running=$(jq -r '(if has("cycles") then .cycles else [select(.running == true)] end)[] | .issue' \
-  "$TEHAS_HOME/live/running.json" 2>/dev/null | paste -sd, - | sed 's/,/, /g') || running=""
+  "$TEHAS_PROJECT_HOME/live/running.json" 2>/dev/null | paste -sd, - | sed 's/,/, /g') || running=""
 case "$running" in
   '') ;;
   *,*) echo "tehas dev: cycles are running on issues $running; the session shares the model endpoint with them" ;;
@@ -268,7 +268,7 @@ count=0
 while IFS= read -r n; do
   [ -n "$n" ] || continue
   count=$((count + 1))
-  cids+=("$TEHAS_HOME/state/cycles/$n.cid")
+  cids+=("$TEHAS_PROJECT_HOME/state/cycles/$n.cid")
 done < <(tehas_cycles_running)
 room=0
 why=""
@@ -285,7 +285,7 @@ echo "tehas dev: tehas.slice has room for $room more cycles$why"
 
 # TERM and COLORTERM by name: Pi draws a terminal interface, and docker's own
 # default describes a plainer terminal than most people sit at.
-docker run --rm -it --init --name "tehas-dev-$name" \
+docker run --rm -it --init --name "$(tehas_name dev "$name")" \
   "${TEHAS_SLICE_LIMITS[@]}" \
   -w "$tree" "${mounts[@]}" "${image_opts[@]}" \
   "${envs[@]}" -e TERM -e COLORTERM "${hosts[@]}" \

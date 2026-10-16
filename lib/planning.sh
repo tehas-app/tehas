@@ -326,7 +326,7 @@ plan_launch() {
   st=$(plan_state "$n")
   # shellcheck disable=SC2016  # expanded by the shell the unit runs
   set -- /bin/bash -c 'log=$1 rc=$2 again=$3; shift 3; "$@" >>"$log" 2>&1; echo "$?" >"$rc.new" && mv "$rc.new" "$rc"; : >"$again"' \
-    plan-turn "$TEHAS_PROJECT_HOME/logs/dispatch-plan-$n.log" "$st.rc" "$TEHAS_PROJECT_HOME/state/dispatch.again" "$@"
+    plan-turn "$TEHAS_PROJECT_HOME/logs/dispatch-plan-$n.log" "$st.rc" "$TEHAS_HOME/state/dispatch.again" "$@"
   if [ -n "${TEHAS_PLAN_START_CMD:-}" ]; then
     "$TEHAS_PLAN_START_CMD" "$n" "$@" 8>&-
     return

@@ -18,8 +18,6 @@ printf_per_project='%s/(state|live|logs|work|dev|protolab|preview|repos/[^p]|rep
 printf_host_level='%s/(state/(update\.lock|update-hold|update-pending|edge-takeover|platform-fetch|improve\.lock|dispatch\.again)|live/(top|energy|platform)\.json)'
 # Files a later task converts.
 pending=(
-  libexec/dispatch libexec/cycle libexec/work libexec/plan libexec/dev
-  libexec/index libexec/energy libexec/improve
   libexec/status libexec/health libexec/summary libexec/top libexec/top-publish
   libexec/pause libexec/resume libexec/preview libexec/protolab libexec/update
   install.sh

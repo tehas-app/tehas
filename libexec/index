@@ -6,7 +6,7 @@
 # builds it in /start, which a headless cycle never runs. Without an index
 # every search in a cycle fails and the agents fall back to reading files.
 #
-# The index is kept in the host's own directory, $TEHAS_HOME/state/index, under
+# The index is kept in the host's own directory, $TEHAS_PROJECT_HOME/state/index, under
 # the name of the tree it was made from. No container is given that directory:
 # tehas work and tehas plan copy it into the cache directory of the container
 # they start, so a cycle reads the host's index and changes only its own copy.
@@ -30,7 +30,7 @@
 # run that wrote one the leftovers of earlier runs are removed, so what a cycle
 # is copied stays the size of the index.
 #
-# One run at a time, under $TEHAS_HOME/state/index.lock, and none while a
+# One run at a time, under $TEHAS_PROJECT_HOME/state/index.lock, and none while a
 # cycle runs: a cycle copies the index when it starts. A poll does not start a
 # cycle while this lock is held, and a poll that is starting cycles holds the
 # dispatcher's lock, so a run waits for that lock, up to a minute, before it
@@ -89,12 +89,12 @@ branch=$(tehas_branch) || exit 78
 src=$TEHAS_WORK_REPO
 repo=$TEHAS_WORK_DIR
 image=$PI_ENSEMBLE_IMAGE
-marker=$TEHAS_HOME/state/index.json
+marker=$TEHAS_PROJECT_HOME/state/index.json
 # The tip the indexer last failed at. Apart from the marker, which install.sh
 # reads as "an index was built".
-failed=$TEHAS_HOME/state/index.failed
+failed=$TEHAS_PROJECT_HOME/state/index.failed
 index=$(tehas_index_dir)
-log=$TEHAS_HOME/logs/index-$(date -u +%y%m%d-%H%M%S).log
+log=$TEHAS_PROJECT_HOME/logs/index-$(date -u +%y%m%d-%H%M%S).log
 
 base=$(git -C "$src" rev-parse -q --verify "refs/remotes/origin/$branch^{commit}") ||
   { echo "tehas index: $src has no origin/$branch, nothing was indexed" >&2; exit 78; }
@@ -123,12 +123,12 @@ prune_index() { # <dir> <epoch this run started>
   [ "$left" = 0 ] || echo "tehas index: removed $left file(s) an earlier run left in $dir"
 }
 
-mkdir -p "$TEHAS_HOME/state" "$TEHAS_HOME/logs" "$TEHAS_HOME/tmp" "$index"
+mkdir -p "$TEHAS_PROJECT_HOME/state" "$TEHAS_PROJECT_HOME/logs" "$TEHAS_HOME/tmp" "$index"
 # Held to the end, by the indexer's docker client too: a client that outlives
 # this script still writes the index.
-exec 7>>"$TEHAS_HOME/state/index.lock"
+exec 7>>"$TEHAS_PROJECT_HOME/state/index.lock"
 flock -n 7 || { echo "tehas index: another index run holds its lock, nothing was indexed; run it again in a moment" >&2; exit 3; }
-exec 8>>"$TEHAS_HOME/state/dispatch.lock"
+exec 8>>"$TEHAS_PROJECT_HOME/state/dispatch.lock"
 flock -w "$lock_wait" 8 ||
   { echo "tehas index: a poll held the dispatcher's lock for ${lock_wait}s, nothing was indexed; run it again in a moment" >&2; exit 3; }
 running=$(tehas_cycles_running | tr '\n' ' ')
@@ -177,8 +177,8 @@ fi
 started=$(date +%s)
 # A run that was killed leaves its container under this name, and every later
 # run would fail on the name.
-docker rm -f tehas-index >/dev/null 2>&1 || true
-timeout -k 30 "$index_bound" docker run --rm --init --name tehas-index --network none \
+docker rm -f "$(tehas_name index)" >/dev/null 2>&1 || true
+timeout -k 30 "$index_bound" docker run --rm --init --name "$(tehas_name index)" --network none \
   "${TEHAS_SLICE_LIMITS[@]}" \
   --user "$(id -u):$(id -g)" -e HOME=/home/vscode \
   -e "CBM_CACHE_DIR=$(tehas_sandbox_cache_dir)" \
@@ -197,7 +197,7 @@ if [ "$rc" != 0 ] || [ "$(jq -r '.status // empty' <<<"$answer" 2>/dev/null)" !=
   esac
   echo "$base" >"$failed"
   # timeout stops the docker client, not the container.
-  docker rm -f tehas-index >/dev/null 2>&1 || true
+  docker rm -f "$(tehas_name index)" >/dev/null 2>&1 || true
   exit 1
 fi
 

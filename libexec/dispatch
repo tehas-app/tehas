@@ -24,7 +24,7 @@
 # started.
 #
 # Rules, in order:
-#   1. Two pause switches stop all dispatch: the flag $TEHAS_HOME/state/pause.json,
+#   1. Two pause switches stop all dispatch: the flag $TEHAS_PROJECT_HOME/state/pause.json,
 #      which tehas pause writes on this host and which is read before this poll
 #      asks GitHub anything, and the label tehas:pause on the control issue, which
 #      works from away from the host. The label works one way: anyone who may
@@ -65,7 +65,7 @@
 #      parked issue that GitHub still says is open, and it is unticked when it
 #      is used. A tick on an issue closed since its cycle stopped starts
 #      nothing. A comment is a
-#      question only if this host has its id on record, in $TEHAS_HOME/state:
+#      question only if this host has its id on record, in $TEHAS_PROJECT_HOME/state:
 #      the planning record, or park-<issue>.id.
 #   4a. A cycle that tehasbot cycle parked for a provider outage starts again
 #      once, without a tick, when nothing holds cycles back, on the word of the
@@ -152,7 +152,7 @@
 #                             minus one]
 #   TEHAS_CYCLE_RESERVE       memory one container is promised, the unit the
 #                             slice's room is counted in [2g]
-#   TEHAS_WORK_REPO           checkout cycles are cloned from [$TEHAS_HOME/repos/<name>]
+#   TEHAS_WORK_REPO           checkout cycles are cloned from [$TEHAS_PROJECT_HOME/repos/<name>]
 #   TEHAS_BRANCH              branch work lands on [the checkout's origin/HEAD]
 #   TEHAS_PLAN_MAX_TURNS      turns a planning session may take [20]
 #   TEHAS_PLAN_TIMEOUT        seconds before a turn is given up [7200]
@@ -176,7 +176,7 @@
 # (seconds the fetch of the checkout may take [120]).
 #
 # Before a start changes any label, the poll writes what it rests on to
-# $TEHAS_HOME/state/cycles/<issue>.approved.json: {at, by, how, body_sha256,
+# $TEHAS_PROJECT_HOME/state/cycles/<issue>.approved.json: {at, by, how, body_sha256,
 # links}. Who approved and when, by the label or a retry tick, a sha256 of the
 # body that approval was checked against (carriage returns dropped), and the
 # links to GitHub's attachment storage in that body. With TEHAS_WORK_COMMENTS=1
@@ -198,7 +198,7 @@
 # "refresh", the task tehas sets it: no comment text. A record that cannot be
 # written, or comments that cannot be read, start nothing, exit 1.
 #
-# A real poll that gets as far as rule 3 writes $TEHAS_HOME/live/dispatch.json:
+# A real poll that gets as far as rule 3 writes $TEHAS_PROJECT_HOME/live/dispatch.json:
 # what holds cycles back, if anything, and the slice's numbers. Once the model
 # endpoint has been settled it also names the subagent provider's endpoint, as
 # "endpoint": "main" or "backup": the one word the energy sampler asks for,
@@ -206,7 +206,7 @@
 # health copies it for tehas status. A hold is logged once, when its reason
 # changes, and "released" once when it ends; a dry run prints it every time.
 # Every real poll that gets past the bot's login, a paused one too, writes
-# $TEHAS_HOME/live/demand.json, how many issues wait for room (report_demand),
+# $TEHAS_PROJECT_HOME/live/demand.json, how many issues wait for room (report_demand),
 # and refreshes the health file with it.
 set -uo pipefail
 
@@ -291,17 +291,17 @@ start_wait=${TEHAS_CYCLE_START_WAIT:-30}
 tehas_checkout || exit 78
 branch=$(tehas_branch) || exit 78
 
-mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/logs" "$TEHAS_HOME/live"
+mkdir -p "$TEHAS_PROJECT_HOME/state/cycles" "$TEHAS_PROJECT_HOME/logs" "$TEHAS_PROJECT_HOME/live"
 # Held for the poll only. A cycle holds the lock of its own issue. Opened
 # without truncating it: a poll that finds it held changes nothing.
-exec 8>>"$TEHAS_HOME/state/dispatch.lock"
+exec 8>>"$TEHAS_PROJECT_HOME/state/dispatch.lock"
 # A cycle that ended asked for a poll, and this is it. Removed before the lock
 # is tried, so tehas-dispatch.path does not start poll after poll while tehas
 # a poll holds the lock: the timer polls once it is done.
 [ "$dry" = 1 ] || rm -f "$TEHAS_HOME/state/dispatch.again"
 # When the lock was last taken, and the take a hang was last said for.
-taken=$TEHAS_HOME/state/dispatch.taken
-stuck=$TEHAS_HOME/state/dispatch.stuck
+taken=$TEHAS_PROJECT_HOME/state/dispatch.taken
+stuck=$TEHAS_PROJECT_HOME/state/dispatch.stuck
 if ! flock -n 8; then
   [ "$dry" = 0 ] || log "another poll holds the dispatcher's lock"
   # Every later poll stops here while one hangs, so the hang is said, once
@@ -443,7 +443,7 @@ image_ok() {
       :
     elif ! jq -e --arg p "$PI_ENSEMBLE_SUBAGENT_PROVIDER" --arg m "$model" \
       '.providers[$p].models // [] | any(.id == $m and ((.input // []) | index("image") != null))' \
-      "$HOME/.pi/agent/models.json" >/dev/null 2>&1; then
+      "$(tehas_agent_dir)/models.json" >/dev/null 2>&1; then
       image_hold="$model does not declare image input in models.json"
     elif ! jq -n -c --arg m "$model" --arg px "$mesh_pixel" '{model: $m, max_tokens: 1, messages: [{role: "user", content: [
         {type: "text", text: "."}, {type: "image_url", image_url: {url: "data:image/png;base64,\($px)"}}]}]}' |
@@ -485,7 +485,7 @@ gib() { printf '%d.%d GiB' $(($1 / 1073741824)) $(($1 % 1073741824 * 10 / 107374
 # (no provider, or an earlier hold) writes nothing. A file that cannot be
 # written is a warning.
 report_hold() {
-  local file=$TEHAS_HOME/live/dispatch.json before
+  local file=$TEHAS_PROJECT_HOME/live/dispatch.json before
   before=$(jq -r '.why // "" | strings' "$file" 2>/dev/null) || before=""
   if [ -n "$why" ]; then
     [ "$why" = "$before" ] && [ "$short" = 0 ] || log "$hold"
@@ -904,7 +904,7 @@ declare -A refresh_pr=() refresh_url=() refreshes=() refresh_of=()
 # approved_record <issue>: write state/cycles/<issue>.approved.json. Returns 1
 # when it could not be written.
 approved_record() {
-  local n=$1 file=$TEHAS_HOME/state/cycles/$1.approved.json sum from='[]' retry=null
+  local n=$1 file=$TEHAS_PROJECT_HOME/state/cycles/$1.approved.json sum from='[]' retry=null
   [ -n "${text_of[$n]:-}" ] || return 1
   sum=$(jq '.data.repository.issue // {}' <<<"${text_of[$n]}" | tehas_body_sha256) || return 1
   if [ "$TEHAS_WORK_COMMENTS" = 1 ]; then
@@ -1022,7 +1022,7 @@ refresh_note() {
 units_ok() {
   local loadstate
   [ -z "${TEHAS_CYCLE_START_CMD:-}" ] || return 0
-  loadstate=$(systemctl --user show -p LoadState --value "tehas-cycle@$1.service" 2>/dev/null) || loadstate=""
+  loadstate=$(systemctl --user show -p LoadState --value "$(tehas_name cycle-unit "$1")" 2>/dev/null) || loadstate=""
   if [ "$loadstate" != loaded ]; then
     log "ERROR: systemd cannot load tehas-cycle@.service (LoadState: ${loadstate:-no answer}): run install.sh and its units step, and run tehas dispatch as the tehas user's own session"
     return 1
@@ -1033,12 +1033,12 @@ units_ok() {
 # the .taken file. Looking at the lock would miss a cycle that ended within
 # the wait. The poll's own lock is not passed on: a cycle outlives the poll.
 start_cycle() {
-  local n=$1 taken=$TEHAS_HOME/state/cycles/$1.taken i
+  local n=$1 taken=$TEHAS_PROJECT_HOME/state/cycles/$1.taken i
   rm -f "$taken"
   if [ -n "${TEHAS_CYCLE_START_CMD:-}" ]; then
     "$TEHAS_CYCLE_START_CMD" "$n" 8>&- || return 1
   else
-    systemctl --user start "tehas-cycle@$n.service" 8>&- || return 1
+    systemctl --user start "$(tehas_name cycle-unit "$n")" 8>&- || return 1
   fi
   for ((i = 0; i < start_wait * 2; i++)); do
     [ -e "$taken" ] && return 0
@@ -1061,8 +1061,8 @@ start_cycle() {
 # tip is not tried again by a poll. A cycle started while another runs gets
 # the index as it is.
 fetched=0
-index_rc=$TEHAS_HOME/state/index.rc
-index_log=$TEHAS_HOME/logs/dispatch-index.log
+index_rc=$TEHAS_PROJECT_HOME/state/index.rc
+index_log=$TEHAS_PROJECT_HOME/logs/dispatch-index.log
 
 # index_gate: returns when cycles may start now, ends the poll when they wait
 # for the index. Call it after units_ok and before anything changes for the
@@ -1111,7 +1111,7 @@ index_report() {
 # systemd may still show its unit for the instant it asks for this poll.
 index_busy() {
   local state
-  flock -n "$TEHAS_HOME/state/index.lock" true 8>&- || return 0
+  flock -n "$TEHAS_PROJECT_HOME/state/index.lock" true 8>&- || return 0
   [ ! -f "$index_rc" ] || return 1
   state=$(systemctl --user show -p ActiveState --value tehas-index.service 2>/dev/null) || return 1
   case "$state" in active | activating) return 0 ;; esac
@@ -1146,7 +1146,7 @@ start_cycles() {
     log "start #$n (${verb[$n]} by ${starter[$n]})"
     read -ra out <<<"${drop[$n]}"
     if ! approved_record "$n"; then
-      rm -f "$TEHAS_HOME/state/cycles/$n.approved.json.new"
+      rm -f "$TEHAS_PROJECT_HOME/state/cycles/$n.approved.json.new"
       log "ERROR: could not write the approval record of #$n, not starting a cycle"
       exit 1
     fi
@@ -1170,9 +1170,9 @@ start_cycles() {
     rm -f "$(park_id "$n")"
     # So is its park. Who authorised this start is kept for a retry after a
     # provider outage, and the retry itself is marked for its cycle.
-    rm -f "$TEHAS_HOME/state/cycles/$n.park" "$TEHAS_HOME/state/cycles/$n.requeued"
-    printf '%s\n' "${starter[$n]}" >"$TEHAS_HOME/state/cycles/$n.by" || log "WARN: could not record who started #$n"
-    [ "${verb[$n]}" != requeued ] || : >"$TEHAS_HOME/state/cycles/$n.requeued"
+    rm -f "$TEHAS_PROJECT_HOME/state/cycles/$n.park" "$TEHAS_PROJECT_HOME/state/cycles/$n.requeued"
+    printf '%s\n' "${starter[$n]}" >"$TEHAS_PROJECT_HOME/state/cycles/$n.by" || log "WARN: could not record who started #$n"
+    [ "${verb[$n]}" != requeued ] || : >"$TEHAS_PROJECT_HOME/state/cycles/$n.requeued"
     if [ -n "${refresh_pr[$n]:-}" ]; then
       say "$n" "Tehas refresh started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC: ${refresh_url[$n]} conflicts with \`$(jq -r .branch <<<"${refresh_of[$n]}")\`. This cycle merges that branch into it, resolves the conflicts and pushes to the same pull request. It rests on @${starter[$n]}'s ${how[$n]}. This issue is owned by the cycle until \`tehas:running\` is removed."
     else
@@ -1182,7 +1182,7 @@ start_cycles() {
       log "ERROR: the cycle for #$n did not start"
       gh issue edit "$n" --repo "$repo" --remove-label tehas:running --add-label needs-human-attention >/dev/null 2>&1 ||
         log "WARN: label change on #$n failed"
-      say "$n" "Tehas could not start the cycle for this issue on \`$(hostname)\`: \`tehas-cycle@$n.service\` did not come up. See \`journalctl --user -u tehas-cycle@$n\` and \`~/tehas/logs/dispatch.log\` there. To retry, apply \`tehas:ready\`."
+      say "$n" "Tehas could not start the cycle for this issue on \`$(hostname)\`: \`$(tehas_name cycle-unit "$n")\` did not come up. See \`journalctl --user -u $(tehas_name cycle-unit "$n")\` and \`~/tehas/logs/dispatch.log\` there. To retry, apply \`tehas:ready\`."
       failed=1
     fi
   done
@@ -1258,7 +1258,7 @@ refresh_ok() {
     [[ $have != *" $l "* ]] || { refresh_drop "$n" "it carries $l"; return 1; }
   done
   # The person whose approval the pull request's cycle rests on.
-  record=$TEHAS_HOME/state/cycles/$n.approved.json
+  record=$TEHAS_PROJECT_HOME/state/cycles/$n.approved.json
   rests=$(tehas_fixer_base "$record") ||
     { refresh_drop "$n" "this host has no approval of a person's that its pull request rests on"; return 1; }
   by=$(jq -r .by <<<"$rests")
@@ -1329,7 +1329,7 @@ refresh_ok() {
 # nothing.
 refresh_said=0
 report_demand() {
-  local file=$TEHAS_HOME/live/demand.json list n ev line by at waiting=0 oldest="" held
+  local file=$TEHAS_PROJECT_HOME/live/demand.json list n ev line by at waiting=0 oldest="" held
   if ! list=$(gh issue list --repo "$repo" --state open --label tehas:ready --limit 1000 --json number,labels 2>/dev/null) ||
     ! list=$(jq -r '.[] | select((.labels // []) | any(.name == "tehas:running") | not) | .number | tonumber? // empty' <<<"$list" 2>/dev/null); then
     rm -f "$file"
@@ -1393,11 +1393,11 @@ report_demand() {
 # has finished.
 pause_holds=""  # why this poll starts nothing; empty when nothing holds it
 pause_news=0    # 1 when the reason is news, worth a line on a poll as well as a dry run
-pause_flag=$(tehas_pause_read "$TEHAS_HOME/state/pause.json")
+pause_flag=$(tehas_pause_read "$TEHAS_PROJECT_HOME/state/pause.json")
 case $? in
   0) pause_holds="the flag tehas pause wrote at $(jq -r .at <<<"$pause_flag") holds this host" ;;
   2)
-    log "WARN: $TEHAS_HOME/state/pause.json is not a pause flag: taking it as paused"
+    log "WARN: $TEHAS_PROJECT_HOME/state/pause.json is not a pause flag: taking it as paused"
     pause_holds="the pause flag is there and cannot be read"
     ;;
 esac
@@ -1516,12 +1516,12 @@ retire_quiet_notes() {
 
 for n in $(tehas_cycles_running); do
   now=$(date +%s)
-  heard=$(jq -r '.updatedAt | numbers | floor' "$TEHAS_HOME/live/cycles/$n.json" 2>/dev/null) || heard=""
+  heard=$(jq -r '.updatedAt | numbers | floor' "$TEHAS_PROJECT_HOME/live/cycles/$n.json" 2>/dev/null) || heard=""
   [[ $heard =~ ^[0-9]{1,12}$ ]] || heard=0
-  took=$(stat -c %Y "$TEHAS_HOME/state/cycles/$n.taken" 2>/dev/null) || took=0
+  took=$(stat -c %Y "$TEHAS_PROJECT_HOME/state/cycles/$n.taken" 2>/dev/null) || took=0
   [[ $took =~ ^[0-9]{1,12}$ ]] || took=0
   [ "$took" -le "$heard" ] || heard=$took
-  note=$TEHAS_HOME/state/cycles/$n.quiet
+  note=$TEHAS_PROJECT_HOME/state/cycles/$n.quiet
   if [ -L "$note" ] || { [ -e "$note" ] && [ ! -f "$note" ]; }; then
     # Not a plain file: no note. A link goes and what it points at stays; what
     # the poll cannot remove is said, and this cycle keeps no record.
@@ -1543,7 +1543,7 @@ for n in $(tehas_cycles_running); do
   fi
   why="the cycle for #$n holds its lock but has not been heard from since $(date -u -d "@$heard" +%FT%TZ), more than ${quiet_bound}s"
   if [ "$dry" = 1 ]; then
-    log "would stop tehas-cycle@$n.service: $why"
+    log "would stop $(tehas_name cycle-unit "$n"): $why"
     continue
   fi
   noted="" asks=0 next=0
@@ -1553,13 +1553,13 @@ for n in $(tehas_cycles_running); do
   [[ $asks =~ ^[0-9]+$ ]] && [[ $next =~ ^[0-9]+$ ]] || noted=""
   [ "$noted" = "$heard" ] || asks=0
   if [ "$asks" = 0 ]; then
-    log "WARN: $why: stopping tehas-cycle@$n.service"
+    log "WARN: $why: stopping $(tehas_name cycle-unit "$n")"
   elif [ "$now" -lt "$next" ]; then
     continue
   elif [ "$asks" -lt "$quiet_asks" ]; then
-    log "WARN: $why: the poll asks tehas-cycle@$n.service to stop again"
+    log "WARN: $why: the poll asks $(tehas_name cycle-unit "$n") to stop again"
   else
-    log "WARN: $why: the poll asked ${asks} times to stop tehas-cycle@$n.service and asks no more: it needs a person, who can stop it with systemctl --user stop tehas-cycle@$n.service"
+    log "WARN: $why: the poll asked ${asks} times to stop $(tehas_name cycle-unit "$n") and asks no more: it needs a person, who can stop it with systemctl --user stop $(tehas_name cycle-unit "$n")"
     echo "$heard $asks $(( now + quiet_retry * quiet_asks ))" >"$note" || log "WARN: could not write $note"
     continue
   fi
@@ -1569,12 +1569,12 @@ for n in $(tehas_cycles_running); do
   if [ -n "${TEHAS_CYCLE_STOP_CMD:-}" ]; then
     timeout -k 5 30 "$TEHAS_CYCLE_STOP_CMD" "$n" 8>&- || rc=$?
   else
-    timeout -k 5 30 systemctl --user --no-block stop "tehas-cycle@$n.service" 8>&- || rc=$?
+    timeout -k 5 30 systemctl --user --no-block stop "$(tehas_name cycle-unit "$n")" 8>&- || rc=$?
   fi
   echo "$heard $(( asks + 1 )) $(( now + quiet_retry ))" >"$note" ||
     log "WARN: could not write $note"
   [ "$rc" = 0 ] ||
-    log "WARN: could not stop tehas-cycle@$n.service (exit $rc): it holds its slot, and the poll asks again"
+    log "WARN: could not stop $(tehas_name cycle-unit "$n") (exit $rc): it holds its slot, and the poll asks again"
 done
 
 retire_quiet_notes
@@ -1594,7 +1594,7 @@ if [ -n "$running" ]; then
   jq -e 'type == "array"' >/dev/null 2>&1 <<<"$bot_prs" || { log "ERROR: unreadable list of the bot's pull requests"; exit 1; }
 fi
 for n in $running; do
-  took=$(stat -c %Y "$TEHAS_HOME/state/cycles/$n.taken" 2>/dev/null) || continue
+  took=$(stat -c %Y "$TEHAS_PROJECT_HOME/state/cycles/$n.taken" 2>/dev/null) || continue
   gh_json api "repos/$repo/issues/$n"
   if [ "$(jq -r '.state // "" | ascii_downcase' <<<"$json")" = closed ]; then
     done_why=closed
@@ -1613,16 +1613,16 @@ for n in $running; do
     esac
   fi
   if [ "$dry" = 1 ]; then
-    log "would stop tehas-cycle@$n.service: $done_text"
+    log "would stop $(tehas_name cycle-unit "$n"): $done_text"
     continue
   fi
   log "stop #$n: $done_text"
-  echo "$done_why" >"$TEHAS_HOME/state/cycles/$n.done" || log "WARN: could not write the reason for #$n"
+  echo "$done_why" >"$TEHAS_PROJECT_HOME/state/cycles/$n.done" || log "WARN: could not write the reason for #$n"
   if [ -n "${TEHAS_CYCLE_STOP_CMD:-}" ]; then
     timeout -k 5 "$done_wait" "$TEHAS_CYCLE_STOP_CMD" "$n" 8>&-
   else
-    timeout -k 5 "$done_wait" systemctl --user stop "tehas-cycle@$n.service" 8>&-
-  fi || log "WARN: could not stop tehas-cycle@$n.service"
+    timeout -k 5 "$done_wait" systemctl --user stop "$(tehas_name cycle-unit "$n")" 8>&-
+  fi || log "WARN: could not stop $(tehas_name cycle-unit "$n")"
   for ((i = 0; i < 20; i++)); do
     tehas_cycle_running "$n" || break
     sleep 0.5
@@ -1680,7 +1680,7 @@ marked_json=$json
 marked=$(jq -r 'map(.number) | sort | .[]' <<<"$marked_json") || { log "ERROR: unreadable list of issues marked as running"; exit 1; }
 for n in $marked; do
   ! tehas_cycle_running "$n" || continue
-  [ "$dry" = 1 ] || reap "tehas-work-$n" "no cycle holds the lock of #$n"
+  [ "$dry" = 1 ] || reap "$(tehas_name work "$n")" "no cycle holds the lock of #$n"
   # A closed issue is nobody's to retry: the mark goes and nothing is said.
   if [ "$(jq -r --argjson n "$n" '.[] | select(.number == $n) | .state // "OPEN"' <<<"$marked_json")" = CLOSED ]; then
     if [ "$dry" = 1 ]; then
@@ -1718,7 +1718,7 @@ done
 # nobody works on. Asked where refreshes are on, or a refresh was ever started
 # here: a host that never refreshed has no such mark of its own to clear.
 refreshing=""
-if [ "$TEHAS_REFRESH_CONFLICTS" = 1 ] || grep -Elqs '"how": ?"refresh"' "$TEHAS_HOME"/state/cycles/*.approved.json; then
+if [ "$TEHAS_REFRESH_CONFLICTS" = 1 ] || grep -Elqs '"how": ?"refresh"' "$TEHAS_PROJECT_HOME"/state/cycles/*.approved.json; then
   gh_json pr list --repo "$repo" --state open --label tehas:refreshing --limit 1000 --json number,labels
   refreshing=$(jq -r '.[] | select((.labels // []) | any(.name == "tehas:refreshing")) | .number | numbers' <<<"$json") ||
     { log "ERROR: unreadable list of pull requests marked as refreshing"; exit 1; }
@@ -1767,7 +1767,7 @@ sweep_workspaces() {
     [ -z "${seen[$n]+set}" ] || continue
     seen[$n]=1
     [ "$done" -lt 3 ] || return 0
-    lock=$TEHAS_HOME/state/cycles/$n.lock
+    lock=$TEHAS_PROJECT_HOME/state/cycles/$n.lock
     ! tehas_cycle_running "$n" || continue
     [ -z "$(find "$lock" "$works/$base-$n" "$works/$base-$n".{before-retry,images,state} \
       -maxdepth 0 -newermt "-7 days" 2>/dev/null)" ] || continue
@@ -1831,7 +1831,7 @@ committed=0
 slice_max=0
 if tehas_slice_ok; then
   cid_files=()
-  for n in $running; do cid_files+=("$TEHAS_HOME/state/cycles/$n.cid"); done
+  for n in $running; do cid_files+=("$TEHAS_PROJECT_HOME/state/cycles/$n.cid"); done
   if ! read -r room_mem committed slice_max _ mem_why mem_note < <(tehas_slice_room "$count" "${cid_files[@]}") ||
     ! [[ $room_mem =~ ^[0-9]+$ && $committed =~ ^[0-9]+$ && $slice_max =~ ^[0-9]+$ ]]; then
     # An answer that is not the numbers is never read as room.
@@ -1940,7 +1940,7 @@ fi
 # turn. While one turn is in flight no other starts.
 fresh=" "
 plan_busy=""
-for st in "$TEHAS_HOME"/state/plan-*.json; do
+for st in "$TEHAS_PROJECT_HOME"/state/plan-*.json; do
   [ -f "$st" ] || continue
   plan_record_number "$st" || continue
   n=$plan_n
@@ -1961,7 +1961,7 @@ for st in "$TEHAS_HOME"/state/plan-*.json; do
 done
 # A planning turn whose outcome could not be posted is posted first: its
 # session is waiting on a comment nobody has seen.
-for st in "$TEHAS_HOME"/state/plan-*.json; do
+for st in "$TEHAS_PROJECT_HOME"/state/plan-*.json; do
   [ -f "$st" ] || continue
   plan_record_number "$st" || continue
   n=$plan_n
@@ -1983,7 +1983,7 @@ asking=$(jq -r 'map(.number) | sort | .[]' <<<"$asking_json") || { log "ERROR: u
 # hand, is over. Its record goes without a comment. A record that was running
 # or waiting to be posted when this poll began is in $fresh, whatever became
 # of it above, so it is never taken for a session that is over.
-for st in "$TEHAS_HOME"/state/plan-*.json; do
+for st in "$TEHAS_PROJECT_HOME"/state/plan-*.json; do
   [ -f "$st" ] || continue
   plan_record_number "$st" || continue
   n=$plan_n
@@ -2310,7 +2310,7 @@ for pf in $(tehas_cycle_note_files park); do
   ! tehas_cycle_running "$n" || continue
   gh_json issue view "$n" --repo "$repo" --json state,labels
   have=" $(jq -r '[(.labels // [])[].name] | join(" ")' <<<"$json") "
-  by=$(head -c 64 "$TEHAS_HOME/state/cycles/$n.by" 2>/dev/null | head -n 1)
+  by=$(head -c 64 "$TEHAS_PROJECT_HOME/state/cycles/$n.by" 2>/dev/null | head -n 1)
   # A label of a person's decides it, in rule 6 or by waiting.
   [[ $have != *" tehas:ready "* ]] || continue
   if [ "$(jq -r '.state // ""' <<<"$json")" != OPEN ] || [[ $have != *" needs-human-attention "* ]] ||

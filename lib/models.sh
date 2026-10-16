@@ -36,7 +36,7 @@
 #
 # Source lib/config.sh and call tehas_load first. Sourcing this does nothing.
 
-tehas_models_file() { printf '%s\n' "$HOME/.pi/agent/models.json"; }
+tehas_models_file() { printf '%s\n' "$(tehas_agent_dir)/models.json"; }
 
 tehas_model_key_names() { # [<file>]
   jq -r '.providers // {} | .[] | (.apiKey, .backupApiKey) | strings

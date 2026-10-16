@@ -43,12 +43,14 @@
 set -uo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/config.sh
+. "$here/../lib/config.sh"
 # shellcheck source=lib/models.sh
 . "$here/../lib/models.sh"
 : "${TEHAS_HOME:=$HOME/tehas}"
 period=15
 window=1800
-live=$TEHAS_HOME/live
+live=$TEHAS_HOME/live # host-level
 file=$live/energy.json
 
 case "${1:-}" in
@@ -72,7 +74,7 @@ fi
 # then its backup, each with its token. The first that answers with a cluster
 # snapshot is sampled. With none, one that did not answer or was busy leaves
 # the file as it is, and otherwise it is removed.
-models_file=${TEHAS_MODELS_FILE:-$HOME/.pi/agent/models.json}
+models_file=${TEHAS_MODELS_FILE:-$(tehas_agent_dir)/models.json}
 provider=${PI_ENSEMBLE_SUBAGENT_PROVIDER:-fleet}
 # The one word the last poll settled on; anything else is no word at all.
 wanted=$(jq -r '.endpoint // ""' "$live/dispatch.json" 2>/dev/null) || wanted=""
