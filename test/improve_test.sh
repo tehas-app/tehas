@@ -199,6 +199,8 @@ t_eq "$(cd "$base/window/$REC" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' '
 t_case "the analyst is told what the attachment files are and what to look for in them"
 t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "\`manifest.json\`, \`images.md\`, \`retry-context.md\`"
 t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "a cycle given images or files whose plan does not name what they show"
+t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "the instance gives a cycle none"
+t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "this instance gave it no way to see"
 
 # --- What a cycle ran with --------------------------------------------------
 settings() { lib "export $1; tehas_improve_settings \"\$TEHAS_HOME/s.json\" ${2:-3} ${3:-}"; }

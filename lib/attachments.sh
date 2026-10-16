@@ -94,6 +94,20 @@ tehas_attachment_fetch() { # <address> <file> <most bytes> [<token>]
 #                                     returns 1, with the reason in $image_why,
 #                                     when both are of the same approval and a
 #                                     link gave other bytes this time
+#   tehas_issue_images_none <issue> <file> [record]
+#                                     a cycle given no images and no files: a
+#                                     manifest at <file> that gives none and
+#                                     leaves out the links the approval record
+#                                     lists, with the reason, named with that
+#                                     approval. At most 100 entries, and
+#                                     leftOutMore counts the rest (0 when there
+#                                     are none), so the file stays small enough
+#                                     for the improvement loop to copy. It
+#                                     fetches nothing and asks GitHub nothing.
+#                                     Returns 1 when it wrote nothing: no
+#                                     record, a record that cannot be read, a
+#                                     link in place of the file, or an issue
+#                                     that links nothing
 #   tehas_answer_images <dir> <answer file> <comment id>
 #                                     add to a planning session's <dir> what
 #                                     the reply in <answer file> links, source
@@ -444,6 +458,40 @@ tehas_issue_images_changed() { # <kept manifest> <dir>
     | [.images[]?, .files[]? | {(.link): .sha256}] | add // {} | . as $old
     | $new[0] | .images[]?, .files[]? | select($old[.link] != null and $old[.link] != .sha256) | .link' "$1" 2>/dev/null | head -n 1)
   [ -z "$link" ] || { image_why="$link gave other bytes than when this approval was first fetched"; return 1; }
+}
+
+# A cycle given nothing still says what it was not given. The links come from
+# the dispatcher's approval record alone: with no images and no files the
+# instance takes nothing from comments either (lib/config.sh refuses
+# TEHAS_WORK_COMMENTS without one of them), and tehas work asks GitHub for
+# nothing when it gives a cycle nothing. That record is the issue's text as it
+# was when the label was applied, and nothing re-reads the issue, so what this
+# writes is about that approval, not about the text today: a body edited since
+# is not counted here. The manifest names the approval its links came from, so
+# a reader can tell how old they are. An issue never dispatched has no record,
+# and then nothing is said.
+tehas_issue_images_none() { # <issue> <file> [record]
+  local issue=$1 file=$2 record=${3:-} cap=100
+  local reason='This instance gives a cycle no images and no files (TEHAS_WORK_IMAGES=0, TEHAS_WORK_FILES=0).'
+  [ -f "$record" ] && [ ! -L "$record" ] || return 1
+  [ ! -L "$file" ] || return 1
+  jq -e 'type == "object" and (.links | type) == "array"
+    and (.at | type) == "string" and (.by | type) == "string" and (.how | type) == "string"' \
+    "$record" >/dev/null 2>&1 || return 1
+  # Cap at 100: the improvement loop copies a manifest only up to 256 KB, and
+  # an issue that links thousands of attachments must not leave no record at all.
+  # shellcheck disable=SC2016  # a jq program
+  jq --argjson issue "$issue" --arg reason "$reason" --argjson cap "$cap" "$(tehas_attachment_links)"'
+    ([.links[] | strings | select(links == [.])]
+      | reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end)) as $links
+    | ($links | length) as $n
+    | select($n > 0)
+    | {issue: $issue, images: [], approval: {at: .at, by: .by, how: .how},
+       leftOut: ($links[0:$cap] | map({link: ., reason: $reason, source: "body"})),
+       leftOutMore: (if $n > $cap then $n - $cap else 0 end)}' \
+    "$record" >"$file.new" 2>/dev/null
+  [ -s "$file.new" ] || { rm -f "$file.new"; return 1; }
+  mv "$file.new" "$file" 2>/dev/null || { rm -f "$file.new"; return 1; }
 }
 
 # The links are of the shape tehas_attachment_links takes and the reasons are

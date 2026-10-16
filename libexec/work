@@ -143,6 +143,22 @@
 # untrusted, every line quoted, cut at 32000 characters. No mount and no
 # variable more.
 #
+# With neither setting a cycle is given nothing, and GitHub is asked for
+# nothing: no directory is mounted and no PI_ENSEMBLE_EXTRA_IMAGE_DIRS is
+# passed on, whatever the instance file says. When the dispatcher's approval
+# record lists attachment links, that
+# gap is said rather than left for an agent to find from a file that is not
+# there: a line naming how many links and which approval it read (when, by
+# whom), on this command's error stream and in $log.err, which is err.txt of
+# the cycle's improvement record, and a manifest kept as
+# state/cycles/<issue>.manifest.json with no images, that approval, and each
+# link left out with the reason. The links are the approved text's: the issue
+# is not read again, so a body edited since the label is not what is counted.
+# An issue never dispatched has no record, and then nothing is said and nothing
+# is written. Both are written only once the cycle can start: a start that
+# fails at the workspace or the push check leaves no claim about a cycle that
+# never ran.
+#
 # With TEHAS_WORK_DESCRIBE=1 the model endpoint describes each image in words
 # first (lib/describe.sh), into images.md in the same directory, for the steps
 # that are not shown the pixels. It is in the directory already mounted: no
@@ -319,8 +335,10 @@ if [ "$TEHAS_WORK_FILES" = 1 ]; then
   [ "$TEHAS_WORK_IMAGES" != 1 ] || kinds="images and files"
 fi
 [ "$TEHAS_WORK_IMAGES" != 1 ] || give=1
-# Its path is this command's to give, not the instance's.
-[ "$give" != 1 ] || unset PI_ENSEMBLE_EXTRA_IMAGE_DIRS
+# Its path is this command's to give, not the instance's: dropped whether or
+# not this cycle is given attachments, so no container names a directory tehas
+# did not mount.
+unset PI_ENSEMBLE_EXTRA_IMAGE_DIRS
 # So are who reports a handoff, the cycle's deadline and how many gate runs
 # it makes at once.
 unset PI_ENSEMBLE_HANDOFF_CHANNEL PI_ENSEMBLE_CYCLE_DEADLINE PI_ENSEMBLE_CYCLE_BUDGET_MS PI_ENSEMBLE_VERIFY_CONCURRENCY
@@ -477,6 +495,30 @@ tehas_sandbox_seed "$container" "$index" ||
 mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$repo" "$tree" "$container" "$runs")
 [ "${#mounts[@]}" -gt 0 ] ||
   { echo "tehas work: could not prepare the sandbox, not starting a cycle" >&2; exit 78; }
+
+# Nothing is given, but the issue may still link attachments. Say so where the
+# cycle's record is read and keep the manifest that lists them: a cycle that
+# never had a picture the issue relies on must not look like one that was shown
+# it and ignored it. The links come from the approval record, so GitHub is
+# asked for nothing, and the line names which approval was read: the issue's
+# text may have changed since. Nothing is said about a cycle that never got
+# this far.
+if [ "$give" != 1 ] && tehas_issue_images_none "$issue" "$kept" "$record"; then
+  mapfile -t gap < <(jq -r '[(.leftOut | length), (.leftOutMore // 0), .approval.at, .approval.by] | .[]' \
+    "$kept" 2>/dev/null)
+  listed=${gap[0]:-0}
+  more=${gap[1]:-0}
+  if [[ $listed =~ ^[0-9]+$ ]] && [ "$listed" -gt 0 ]; then
+    total=$listed
+    [ "$more" = 0 ] || total=$((listed + more))
+    plural="s"
+    [ "$total" = 1 ] && plural=""
+    gapline="the approval record of issue $issue (approved ${gap[2]:-unknown} by ${gap[3]:-unknown}) lists $total attachment$plural and this instance gives a cycle none (TEHAS_WORK_IMAGES=0, TEHAS_WORK_FILES=0): no directory is mounted and PI_ENSEMBLE_EXTRA_IMAGE_DIRS is not set"
+    [ "$more" = 0 ] || gapline+="; its manifest lists the first $listed of them"
+    echo "tehas work: $gapline" >&2
+    echo "tehas work: $gapline" >>"$log.err" || echo "tehas work: could not write $log.err" >&2
+  fi
+fi
 
 # Docker refuses a cid file that is already there. One is left only by a cycle
 # that was killed outright, and so is a count of kills.
