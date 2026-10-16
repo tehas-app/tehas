@@ -85,7 +85,7 @@ caps_good() {
 caps_good
 # Pi's settings as install.sh leaves them on a host.
 mkdir -p "$T/home/.pi/agent"
-echo '{"retry":{"provider":{"timeoutMs":600000,"maxRetries":8,"maxRetryDelayMs":60000}}}' >"$T/home/.pi/agent/settings.json"
+echo '{"retry":{"maxRetries":10,"baseDelayMs":5000,"maxAgentDelayMs":120000,"provider":{"timeoutMs":600000,"maxRetries":8,"maxRetryDelayMs":60000}}}' >"$T/home/.pi/agent/settings.json"
 
 # A host with the root step done: the slice loaded from its file with 8 GiB,
 # so a container's ceiling is 2048m, Docker on the systemd driver and cgroup
@@ -567,7 +567,7 @@ t_eq "$(preflight_args | awk 'prev == "-e" { print } { prev = $0 }' | sed 's/=.*
 t_eq "$(preflight_args | awk 'prev == "--user" { print } { prev = $0 }')" "$(id -u):$(id -g)"
 
 t_case "the cycle's log names the provider retry its Pi runs with"
-line="provider retry: timeoutMs=600000 maxRetries=8 maxRetryDelayMs=60000 httpIdleTimeoutMs=unset"
+line="provider retry: timeoutMs=600000 maxRetries=8 maxRetryDelayMs=60000 httpIdleTimeoutMs=unset agentMaxRetries=10 agentBaseDelayMs=5000 agentMaxDelayMs=120000"
 t_contains "$t_out" "tehas work: $line"
 cycle_log=$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p')
 t_eq "$(tail -n 1 "$cycle_log.preflight")" "$line"
@@ -576,7 +576,7 @@ t_case "the product's own .pi/settings.json is merged over the host's, as Pi mer
 mkdir -p "$T/prod/.pi"
 echo '{"retry":{"provider":{"maxRetries":2}},"httpIdleTimeoutMs":120000}' >"$T/prod/.pi/settings.json"
 t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; tehas_sandbox_retry '$T/prod'"
-t_eq "$t_out" "provider retry: timeoutMs=600000 maxRetries=2 maxRetryDelayMs=60000 httpIdleTimeoutMs=120000"
+t_eq "$t_out" "provider retry: timeoutMs=600000 maxRetries=2 maxRetryDelayMs=60000 httpIdleTimeoutMs=120000 agentMaxRetries=10 agentBaseDelayMs=5000 agentMaxDelayMs=120000"
 echo '{"retry":' >"$T/prod/.pi/settings.json"
 t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; tehas_sandbox_retry '$T/prod'"
 t_contains "$t_out" "provider retry: unknown"
@@ -586,6 +586,11 @@ t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; tehas_sandbox_retr
 t_eq "$t_out" "provider retry: unknown, $T/home/.pi/agent/settings.json is missing"
 mv "$T/settings.kept" "$T/home/.pi/agent/settings.json"
 rm -rf "$T/prod"
+
+t_case "the generic and example settings let an agent wait out a busy model, not give up after three tries"
+for f in host/pi/settings.json instances/example/settings.json; do
+  t_eq "$(jq -c '.retry | [.maxRetries, .baseDelayMs, .maxAgentDelayMs]' "$T_ROOT/$f")" "[10,5000,120000]"
+done
 
 t_case "without Pi's settings.json nothing runs: no docker call, the workspace and the kept one as they were"
 mv "$T/home/.pi/agent/settings.json" "$T/settings.kept"

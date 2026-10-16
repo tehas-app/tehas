@@ -112,7 +112,7 @@ tehas_sandbox_mounts() { # <tree> <host> <state> <runs>
     -v "$agent/settings.json:/home/vscode/.pi/agent/settings.json:ro"
 }
 
-# The provider retry and timeout a container's Pi runs with: the host's
+# The provider and agent retry and timeout a container's Pi runs with: the host's
 # settings.json that tehas_sandbox_mounts gives it, under the product's own
 # .pi/settings.json in <host>, merged the way Pi merges them. A value neither
 # sets is Pi's default. For the cycle's log, so a reader of it knows them.
@@ -126,7 +126,10 @@ tehas_sandbox_retry() { # <host>
     "provider retry: timeoutMs=\(v($s.retry.provider.timeoutMs))"
     + " maxRetries=\(v($s.retry.provider.maxRetries))"
     + " maxRetryDelayMs=\(v($s.retry.provider.maxRetryDelayMs))"
-    + " httpIdleTimeoutMs=\(v($s.httpIdleTimeoutMs))"' 2>/dev/null ||
+    + " httpIdleTimeoutMs=\(v($s.httpIdleTimeoutMs))"
+    + " agentMaxRetries=\(v($s.retry.maxRetries))"
+    + " agentBaseDelayMs=\(v($s.retry.baseDelayMs))"
+    + " agentMaxDelayMs=\(v($s.retry.maxAgentDelayMs))"' 2>/dev/null ||
     echo "provider retry: unknown, $global or $project is not JSON"
 }
 
