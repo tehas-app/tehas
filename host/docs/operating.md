@@ -563,7 +563,11 @@ reaches them. Remove the label to resume.
   one whose issue was closed only loses `tehas:running`, and one whose pull
   request was closed is parked without the retry boxes. The slot is filled
   on the same poll. And a cycle that ends starts a poll at once
-  (`tehas-dispatch.service`), so its slot does not wait for the timer.
+  (`tehas-dispatch.service`), so its slot does not wait for the timer. If a
+  poll is running then, systemd takes that start as the running poll, which
+  may have counted the cycle as still running. So the cycle also leaves
+  `~/tehas/state/dispatch.again`, and `tehas-dispatch.path` starts the next
+  poll as soon as that one ends. A poll removes the file as it begins.
 - Nothing else. A new pi-rukas commit runs at full concurrency from its first
   cycle, so a bad one can fail up to `TEHAS_TICKET_CONCURRENCY` cycles at
   once. Those issues end labelled `needs-human-attention`, as any failed cycle

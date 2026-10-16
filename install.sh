@@ -213,6 +213,7 @@ files=(
   "edge/router.compose.yaml|$TEHAS_HOME/edge/router.compose.yaml|644"
   "systemd/tehas-cycle@.service|$units/tehas-cycle@.service|644"
   "systemd/tehas-dispatch.service|$units/tehas-dispatch.service|644"
+  "systemd/tehas-dispatch.path|$units/tehas-dispatch.path|644"
   "systemd/tehas-dispatch.timer|$units/tehas-dispatch.timer|644"
   "systemd/tehas-energy.service|$units/tehas-energy.service|644"
   "systemd/tehas-improve.service|$units/tehas-improve.service|644"

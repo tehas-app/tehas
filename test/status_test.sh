@@ -405,6 +405,13 @@ t_eq "$(jq -r .status "$live/health.json")" pass
 t_contains "$t_out" "platform  $(git -C "$T/home/tehas/platform" rev-parse --short=7 HEAD), up to date with origin/main, fetched "
 t_eq "$(jq -r .checks.platform.behind "$live/health.json")" 0
 
+t_case "platform: the first poll, with no record of a fetch, prints nothing"
+reset
+platform_setup
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$t_out" ""
+
 t_case "platform: behind for more than a day is a warning that says how far"
 platform_setup
 origin_ahead 2 "$(date -u -d '-2 days' +%FT%TZ)"

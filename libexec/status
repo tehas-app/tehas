@@ -43,7 +43,7 @@ platform() {
   local co=$TEHAS_HOME/platform stamp=$TEHAS_HOME/state/platform-fetch last=0 now upstream head behind since fetched=""
   [ -e "$co/.git" ] || { rm -f "$live/platform.json"; return 0; }
   now=$(date +%s)
-  read -r last fetched <"$stamp" 2>/dev/null || true
+  read -r last fetched 2>/dev/null <"$stamp" || true
   [[ $last =~ ^[0-9]+$ ]] || last=0
   [[ $fetched =~ ^[0-9]+$ ]] || fetched=""
   if [ $((now - last)) -ge "$fetch_every" ]; then
