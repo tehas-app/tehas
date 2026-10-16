@@ -10,9 +10,12 @@
 . "$(dirname "$0")/lib.sh"
 
 # Per-project paths named under TEHAS_HOME, as extended regular expressions.
-per_project='TEHAS_HOME\}?/(state|live|logs|work|dev|protolab|preview)(/|"|$)|TEHAS_HOME\}?/repos/[^p]|TEHAS_HOME\}?/repos/\$|TEHAS_HOME\}?/tmp/improve'
+per_project='TEHAS_HOME\}?"?/(state|live|logs|work|dev|protolab|preview)(/|"|$)|TEHAS_HOME\}?"?/repos/[^p]|TEHAS_HOME\}?"?/repos/\$|TEHAS_HOME\}?"?/tmp/improve'
 # The host-level files that stay under TEHAS_HOME.
-host_level='TEHAS_HOME\}?/state/(update\.lock|update-hold|update-pending|edge-takeover|platform-fetch|improve\.lock|dispatch\.again)|TEHAS_HOME\}?/live/(top|energy|platform)\.json'
+host_level='TEHAS_HOME\}?"?/state/(update\.lock|update-hold|update-pending|edge-takeover|platform-fetch|improve\.lock|dispatch\.again)|TEHAS_HOME\}?"?/live/(top|energy|platform)\.json'
+# A path built by printf: the format names the directory, TEHAS_HOME is an argument.
+printf_per_project='%s/(state|live|logs|work|dev|protolab|preview|repos/[^p]|repos/\$|tmp/improve)'
+printf_host_level='%s/(state/(update\.lock|update-hold|update-pending|edge-takeover|platform-fetch|improve\.lock|dispatch\.again)|live/(top|energy|platform)\.json)'
 # Files a later task converts.
 pending=(
   libexec/dispatch libexec/cycle libexec/work libexec/plan libexec/dev
@@ -43,9 +46,12 @@ lines() {
 
 # violations: per-project paths that are neither host-level nor marked.
 violations() {
-  grep -E -- "$per_project" |
-    grep -vE -- "$host_level" |
-    grep -vE -- '# host-level[[:space:]]*$' || true
+  local in
+  in=$(cat)
+  {
+    grep -E -- "$per_project" <<<"$in" | grep -vE -- "$host_level"
+    grep -E 'printf' <<<"$in" | grep -E 'TEHAS_HOME' | grep -E -- "$printf_per_project" | grep -vE -- "$printf_host_level"
+  } | grep -vE -- '# host-level[[:space:]]*$' | sort -u || true
 }
 
 t_case "installed code names no per-project path under TEHAS_HOME"
@@ -73,6 +79,12 @@ t_eq "$(hit 'x=$TEHAS_HOME/repos/pi-rukas')" ""
 t_eq "$(hit 'x=$TEHAS_HOME/state/update.lock')" ""
 t_eq "$(hit 'x=$TEHAS_HOME/live/top.json')" ""
 t_eq "$(hit 'x=$TEHAS_PROJECT_HOME/state')" ""
+t_contains "$(hit 'for l in "$TEHAS_HOME"/state/cycles/*.lock; do')" "cycles"
+t_eq "$(hit 'for l in "$TEHAS_PROJECT_HOME"/state/cycles/*.lock; do')" ""
+t_eq "$(hit 'x="$TEHAS_HOME"/state/update.lock')" ""
+t_contains "$(hit "park_id() { printf '%s/state/park-%s.id\\n' \"\$TEHAS_HOME\" \"\$1\"; }")" "park-"
+t_eq "$(hit "park_id() { printf '%s/state/park-%s.id\\n' \"\$TEHAS_PROJECT_HOME\" \"\$1\"; }")" ""
+t_eq "$(hit "f() { printf '%s/state/update-pending\\n' \"\$TEHAS_HOME\"; }")" ""
 t_eq "$(hit 'mkdir -p "$TEHAS_HOME/state" # host-level')" ""
 t_eq "$(hit 'x=$TEHAS_HOME/tmp/scratch')" ""
 
