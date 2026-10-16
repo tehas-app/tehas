@@ -10,11 +10,13 @@
 #
 # The base is the image upstream publishes for each commit,
 # tagged sha-<first 12 characters>. The commit becomes the label tehas.rukas.
-# Tool versions come from versions.env, one directory up. The build first asks
-# the base image's runner what it supports (pi-rukas-headless --capabilities)
-# and builds nothing on a base whose contract tehas work cannot use. Whether
-# its pi-rukas reads the images a cycle is given is recorded in the image. See
-# the header of host/sandbox/Dockerfile.
+# Tool versions come from versions.env, one directory up, the code indexer
+# included: the image carries the same codebase-memory-mcp version bootstrap.sh
+# puts on the host, not the one the base image happened to install. The build
+# first asks the base image's runner what it supports (pi-rukas-headless
+# --capabilities) and builds nothing on a base whose contract tehas work cannot
+# use. Whether its pi-rukas reads the images a cycle is given is recorded in the
+# image. See the header of host/sandbox/Dockerfile.
 #
 # Each image is several gigabytes. After a build only the newest 3 date
 # tags are kept. An older one is removed unless a container, running or
@@ -129,6 +131,8 @@ docker build \
   --build-arg SHELLCHECK_SHA256="$SHELLCHECK_SHA256" \
   --build-arg PLAYWRIGHT_VERSION="$PLAYWRIGHT_VERSION" \
   --build-arg PLAYWRIGHT_LOCK_SHA256="$PLAYWRIGHT_LOCK_SHA256" \
+  --build-arg CBM_VERSION="$CBM_VERSION" \
+  --build-arg CBM_INSTALLER_SHA256="$CBM_INSTALLER_SHA256" \
   --build-arg TEHAS_RUKAS_IMAGES="$reads" \
   -t "$image:$stamp" "$here"
 docker tag "$image:$stamp" "$current"

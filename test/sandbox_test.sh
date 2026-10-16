@@ -96,11 +96,179 @@ t_contains "$found" "host/sandbox/Dockerfile"
 t_case "the images label is asked for, declared and written by the same names"
 dockerfile=$T_ROOT/host/sandbox/Dockerfile
 build=$T_ROOT/host/sandbox/build.sh
+recipe=$(cat "$dockerfile")
 t_contains "$(cat "$dockerfile")" 'ARG TEHAS_RUKAS_IMAGES=unknown'
 t_contains "$(cat "$dockerfile")" 'LABEL tehas.rukas=$PI_RUKAS_COMMIT tehas.rukas.images=$TEHAS_RUKAS_IMAGES'
 t_contains "$(cat "$build")" '--build-arg TEHAS_RUKAS_IMAGES="$reads"'
 t_contains "$(cat "$dockerfile")" '/opt/pi-rukas/bin/pi-rukas-headless --capabilities'
 t_contains "$(cat "$dockerfile")" '.name == "PI_ENSEMBLE_ISSUE_IMAGES" and .manifestVersion == 1'
 t_contains "$(cat "$T_ROOT/lib/headless.sh")" '.name == "PI_ENSEMBLE_ISSUE_IMAGES" and .manifestVersion == 1'
+
+# --- What the image has to carry --------------------------------------------
+# A cycle reaches for the tools its instructions name. Each of these cases is
+# about a tool an agent was seen reaching for and not finding, or one that was
+# found and broken (issue #261).
+
+t_case "a cycle can look at a picture: file and a Python image library are installed"
+t_contains "$recipe" 'apt-get install -y -qq --no-install-recommends file python3-pil'
+t_contains "$recipe" "python3 -c 'import PIL'"
+# The apt lists the step fetched do not stay in the image.
+t_eq "$(grep -c 'rm -rf /var/lib/apt/lists/\*' "$dockerfile")" 2
+
+t_case "the wigolo the base ships broken is off PATH, and no tehas prompt names it"
+t_contains "$recipe" 'rm -rf /usr/lib/node_modules/wigolo'
+t_contains "$recipe" 'if command -v wigolo >/dev/null 2>&1; then'
+# The removal is not complete when a launcher survives somewhere else on PATH.
+t_contains "$(sed -n '/rm -rf \/usr\/lib\/node_modules\/wigolo/,/wigolo is off PATH/p' "$dockerfile")" 'exit 1'
+# Only what a cycle runs is searched: the units and the prompts in lib/ and
+# host/pi. The manual names wigolo to say why it is gone. pi-rukas's own recipe
+# preflights the command and says when it is not there.
+t_eq "$(grep -rl -e wigolo "$T_ROOT/lib" "$T_ROOT/host/pi" 2>/dev/null | wc -l)" 0
+
+t_case "the code indexer in the image is the version versions.env names, not upstream's main"
+versions=$T_ROOT/host/versions.env
+t_eq "$(grep -cE '^CBM_VERSION=[0-9]+\.[0-9]+\.[0-9]+$' "$versions")" 1
+t_eq "$(grep -cE '^CBM_INSTALLER_SHA256=[0-9a-f]{64}$' "$versions")" 1
+t_contains "$recipe" 'raw.githubusercontent.com/DeusData/codebase-memory-mcp/v${CBM_VERSION}/install.sh'
+t_lacks "$recipe" 'codebase-memory-mcp/main/install.sh'
+t_contains "$recipe" 'echo "${CBM_INSTALLER_SHA256}  /tmp/cbm-install.sh" | sha256sum -c -'
+t_contains "$recipe" '--skip-config'
+t_contains "$recipe" '--dir=/usr/local/bin'
+# The pinned copy replaces the one the base put in that directory, and the
+# version is read back from it. The base sets HOME for every user, so this step
+# names its own, and the updater file the installer leaves beside the binary is
+# not something a cycle should find on PATH.
+t_contains "$recipe" 'env HOME=/root CBM_DOWNLOAD_URL='
+t_contains "$recipe" 'rm -f /tmp/cbm-install.sh /usr/local/bin/install.sh'
+t_lacks "$recipe" '/home/vscode/.local'
+t_contains "$recipe" 'codebase-memory-mcp is ${found:-not there}, versions.env names $CBM_VERSION'
+t_contains "$(cat "$build")" '--build-arg CBM_VERSION="$CBM_VERSION"'
+t_contains "$(cat "$build")" '--build-arg CBM_INSTALLER_SHA256="$CBM_INSTALLER_SHA256"'
+
+t_case "the image refuses a build that is missing a tool a cycle reaches for"
+gate=$(sed -n 's/^RUN for tool in \(.*\); do.*$/\1/p' "$dockerfile")
+t_eq "$(wc -w <<<"$gate")" 16
+for tool in file python3 rg git jq curl gh node cargo shellcheck codebase-memory-mcp fd find bash pi /opt/pi-rukas/bin/pi-rukas-headless; do
+  case " $gate " in *" $tool "*) ;; *) t_bad "$tool is not one of the tools the image checks" ;; esac
+done
+t_lacks " $gate " ' wigolo '
+t_contains "$recipe" 'is not in this image'
+
+# The command each unit in <dir> gives its container. In a docker run it is the
+# word after --entrypoint when there is one, and the word after the image itself
+# when there is not: with an --entrypoint, what follows the image is that
+# command's arguments. A line ending with a backslash continues, and the joined
+# line keeps one space between the words, so a command on its own continued line
+# is still seen. Only a docker run counts: a unit that names the image in a
+# message starts no container. A command named through a variable (work's
+# runner) is resolved from its assignment in the same directory; one with no
+# assignment there is reported as the variable itself, so the check below says
+# so rather than passing without it.
+container_cmds() { # <dir of units>
+  local cmd name resolved value
+  awk '
+    function strip(t) { sub(/^"/, "", t); sub(/"$/, "", t); return t }
+    function is_image(t) {
+      t = strip(t)
+      return t == "$image" || t == "${image}" || t == "$PI_ENSEMBLE_IMAGE" || t == "${PI_ENSEMBLE_IMAGE}"
+    }
+    {
+      stmt = $0
+      while (stmt ~ /\\$/) {
+        if ((getline nxt) <= 0) break
+        sub(/\\$/, "", stmt)
+        sub(/^[[:space:]]+/, "", nxt)
+        stmt = stmt " " nxt
+      }
+      if (stmt !~ /(^|[[:space:]])docker run([[:space:]]|$)/) next
+      n = split(stmt, w, /[[:space:]]+/)
+      cmd = ""
+      for (i = 1; i <= n; i++) {
+        if (w[i] == "--entrypoint") { cmd = strip(w[i + 1]); break }
+        if (cmd == "" && is_image(w[i])) cmd = strip(w[i + 1])
+      }
+      if (cmd != "") print cmd
+    }
+  ' "$1"/* |
+    grep -E -- '^[/A-Za-z][A-Za-z0-9_./-]*$|^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$' | LC_ALL=C sort -u |
+    while read -r cmd; do
+      case "$cmd" in
+        '$'*)
+          name=${cmd#'$'}
+          name=${name#'{'}
+          name=${name%'}'}
+          resolved=$(grep -h -oE -- "(^|[[:space:]])${name}=[^[:space:]]+" "$1"/* |
+            while read -r assign; do
+              value=${assign#*=}
+              value=${value#'"'}
+              printf '%s\n' "${value%'"'}"
+            done)
+          printf '%s\n' "${resolved:-$cmd}"
+          ;;
+        *) printf '%s\n' "$cmd" ;;
+      esac
+    done | LC_ALL=C sort -u
+}
+
+# Each of these shapes hid a command from the first version of the scan. They
+# are checked here, in a directory of their own, so a shape that stops matching
+# fails on the shape and not only on the units.
+t_case "the scan reads a container command from a continuation, an --entrypoint and a name"
+mkdir -p "$T/libexec"
+cat >"$T/libexec/one" <<'EOF'
+timeout -k 30 9 docker run --rm --init \
+  -e HOME=/home/vscode \
+  "$image" \
+  fixture-one --flag
+EOF
+cat >"$T/libexec/two" <<'EOF'
+runner_two=/opt/fixture/bin/runner-two
+timeout -k 9 docker run --rm --init \
+  --entrypoint "$runner_two" "$image" \
+  sub --dry-run
+EOF
+cat >"$T/libexec/three" <<'EOF'
+docker run --rm --init "$image" /opt/fixture/bin/three --json
+echo "tehas three: $image gave no answer" >&2
+EOF
+cat >"$T/libexec/four" <<'EOF'
+timeout -k 9 docker run --rm \
+  --entrypoint "${runner_four}" "$image" cli arg
+EOF
+cat >"$T/libexec/five" <<'EOF'
+runner_four=/opt/fixture/bin/four-brace
+docker run --rm --init "$image" "$no_assignment" work 1
+EOF
+cmds=$(container_cmds "$T/libexec")
+t_eq "$cmds" '$no_assignment
+/opt/fixture/bin/four-brace
+/opt/fixture/bin/runner-two
+/opt/fixture/bin/three
+fixture-one'
+# What follows an --entrypoint is arguments, and a message that names the image
+# starts no container.
+found=" $(tr '\n' ' ' <<<"$cmds") "
+t_lacks "$found" ' sub '
+t_lacks "$found" ' cli '
+t_lacks "$found" ' gave '
+
+t_case "every command tehas gives a container is one the image checks"
+cmds=$(container_cmds "$T_ROOT/libexec")
+# The derivation is not vacuous: these are what today's libexec/ names, and a
+# scan that stopped matching would fail here instead of passing with an empty
+# list. improve names pi on its own continued line, so it is found on its own.
+for cmd in /opt/pi-rukas/bin/pi-rukas-headless codebase-memory-mcp git pi; do
+  case "
+$cmds
+" in *"
+$cmd
+"*) ;; *) t_bad "$cmd is not among the container commands the scan found: $cmds" ;; esac
+done
+missing=""
+while read -r cmd; do
+  [ -n "$cmd" ] || continue
+  case " $gate " in *" $cmd "*) ;; *) missing="$missing $cmd" ;; esac
+done <<<"$cmds"
+[ -z "$missing" ] || t_bad "$missing runs in a container and the image does not check it"
 
 t_done
