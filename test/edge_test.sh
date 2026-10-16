@@ -58,12 +58,15 @@ t_eq "$(grep -c -E 'flock (-n|-w [0-9]+) 9' "$T_ROOT/lib/edge.sh")" 0
 t_case "a command the run starts keeps the lock unless it is told to drop the descriptor"
 # What libexec/preview does for every command that can outlive its run: a
 # descriptor a child inherits holds the lock after the parent has ended.
+# The check waits up to a second: the forked subshell holds the descriptor
+# until it starts sleep, and on a busy host that can come after the check.
+# The first child keeps it for 2 seconds, so a second's wait still sees it.
 t_run "$lib; edge_lock demo || exit 9; ( sleep 2 ) & child=\$!; exec {edge_lock_fd}>&-
-if flock -n \"$d/state/demo.lock\" true; then echo free-after-the-parent; else echo held-by-the-child; fi
+if flock -w 1 \"$d/state/demo.lock\" true; then echo free-after-the-parent; else echo held-by-the-child; fi
 wait \$child"
 t_eq "$t_out" "held-by-the-child"
 t_run "$lib; edge_lock demo || exit 9; ( sleep 2 {edge_lock_fd}>&- ) & child=\$!; exec {edge_lock_fd}>&-
-if flock -n \"$d/state/demo.lock\" true; then echo free-after-the-parent; else echo held-by-the-child; fi
+if flock -w 1 \"$d/state/demo.lock\" true; then echo free-after-the-parent; else echo held-by-the-child; fi
 wait \$child"
 t_eq "$t_out" "free-after-the-parent"
 
