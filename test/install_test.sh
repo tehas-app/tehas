@@ -78,6 +78,7 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/lib/improve.sh
 ./tehas/lib/labels.sh
 ./tehas/lib/live.sh
+./tehas/lib/models.sh
 ./tehas/lib/planning.sh
 ./tehas/lib/questions.sh
 ./tehas/lib/rukas.sh
@@ -146,6 +147,8 @@ t_eq "$([ -x "$th/libexec/pause" ] && [ -x "$th/libexec/resume" ] && echo both)"
 # The follow-ups these copies call for are asked for by id and recorded as owed.
 t_eq "$(printf '%s\n' "$t_out" | sed -n 's/^next: //p')" "$(next_steps)"
 t_eq "$(cat "$th/state/update-pending")" "$(next_steps)"
+# Every file in lib/ is installed: the commands source them from there.
+t_eq "$(cd "$T_ROOT" && git ls-files lib | while read -r f; do [ -f "$th/$f" ] || echo "$f"; done)" ""
 # install.sh asks systemd for nothing: a copied unit file is not in effect until
 # the step that restarts the units has reloaded it.
 t_eq "$(t_calls systemctl)" ""
