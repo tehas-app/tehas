@@ -676,8 +676,8 @@ for that issue.
 ## Watching a running cycle
 
 A cycle cannot be attached to or made interactive. It is pi-rukas run headless:
-Pi in RPC mode with no terminal, given the one prompt `/work <issue>` and set to
-approve its own steps. There is no prompt to type at and nothing waits for an
+its one-shot runner, `pi-rukas-headless work <issue>`, with no terminal and no
+Pi session of its own: it starts a Pi process for each agent. There is no prompt to type at and nothing waits for an
 answer.
 
 What you can do is watch it, on the [factory floor](/) or on the host:
@@ -685,14 +685,14 @@ What you can do is watch it, on the [factory floor](/) or on the host:
 ```
 tail -f ~/tehas/live/console-123.txt     # the console the dashboard shows
 tehas top                                # the same console, with the queue and the cycles
-tail -f ~/tehas/logs/work-123-*.jsonl    # the raw RPC stream
+tail -f ~/tehas/logs/work-123-*.jsonl    # the runner's NDJSON progress
 docker exec -it tehas-work-123 bash      # a shell in the cycle's container
 ```
 
 The shell is beside the session, not in it, and it is in the workspace the
 agents are working in: what you change there changes the cycle. Do not use
-`docker attach`. It shows the raw stream, not a Pi interface, and an interrupt
-typed there is passed to Pi and ends the cycle.
+`docker attach`. It shows the runner's output, not a Pi interface, and an
+interrupt typed there reaches the runner and ends the cycle as interrupted.
 
 To steer a cycle, let it park or stop it, make the issue clearer and apply
 `tehas:ready` again. To work with pi-rukas interactively, start a session of

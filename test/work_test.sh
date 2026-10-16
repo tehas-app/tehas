@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Tests for libexec/work: what the cycle's container is given, that nothing
-# starts without the slice, and how a killed container is reported. A stub
-# docker records its arguments, one per line, and exits at once, so no cycle
-# runs.
+# starts without the slice or on an image that does not support it, and how
+# the runner's end is reported. A stub docker records its arguments, one per
+# line, and exits at once, so no cycle runs. It answers --capabilities from
+# $T/caps.json.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh"
@@ -39,6 +40,11 @@ git clone -q "$upstream" "$checkout"
 # start a container whose cid file is already there. Only a run is recorded
 # one argument per line; what the container does is a file a case writes.
 t_stub docker 'if [ "$1" = info ]; then cat "$T/docker.info"; exit; fi
+case " $* " in *" --capabilities "*)
+  printf "%s\n" "$*" >>"$T/calls/docker.caps"
+  [ ! -e "$T/caps.json" ] || cat "$T/caps.json"
+  exit "${CAPS_RC:-0}" ;;
+esac
 if [ "$1" = image ]; then
   case " $* " in *"{{.Id}}"*) cat "$T/image.inspect" ;; *) cat "$T/image.label" ;; esac 2>/dev/null
   exit
@@ -53,7 +59,7 @@ for a in "$@"; do
   prev=$a
 done
 case " $* " in
-  *" --mode "*) [ ! -e "$T/container.sh" ] || . "$T/container.sh" ;;
+  *"pi-rukas-headless work "*) [ ! -e "$T/container.sh" ] || . "$T/container.sh" ;;
   *" push --dry-run "*)
     [ ! -e "$T/push-hangs" ] || exec "$(command -pv sleep)" 30
     [ "${PUSH_RC:-0}" = 0 ] || { echo "docker: could not read from remote repository" >&2; exit "$PUSH_RC"; } ;;
@@ -63,6 +69,18 @@ case " $* " in
   " kill "*) kill "$(cat "$T/sleeper.pid" 2>/dev/null)" 2>/dev/null ;;
 esac'
 printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitconfig"
+# What a v0.12.80 runner answers to --capabilities, cut to what the tests use.
+caps_good() {
+  jq -n '{schemaVersion: 2, version: "0.12.80", commit: null,
+    contracts: {exitCodes: {version: 1}, resultSchema: {version: 3}, ndjson: {version: 1, stable: {version: 1}}},
+    verbs: {work: {flags: ["--restart", "--json", "--timeout"]}},
+    inputs: ([("SANDBOX_MODE", "WORKSPACE_ROOT") | {name: "PI_ENSEMBLE_\(.)", scope: "sandbox"}]
+      + [("MAX_WORKSTREAMS", "VERIFY_TIMEOUT_MS", "INTEGRATION_VERIFY_TIMEOUT_MS", "SUBAGENT_MODEL",
+          "SUBAGENT_PROVIDER", "MODEL_<ROLE>", "PROVIDER_<ROLE>", "EXTRA_IMAGE_DIRS", "COMMENT_RETENTION")
+         | {name: "PI_ENSEMBLE_\(.)", scope: "cycle"}]
+      + [{name: "PI_ENSEMBLE_SUBAGENT_MODE", scope: "internal"}])}' >"$T/caps.json"
+}
+caps_good
 # Pi's settings as install.sh leaves them on a host.
 mkdir -p "$T/home/.pi/agent"
 echo '{"retry":{"provider":{"timeoutMs":600000,"maxRetries":8,"maxRetryDelayMs":60000}}}' >"$T/home/.pi/agent/settings.json"
@@ -84,8 +102,9 @@ t_stub systemctl 'cat "$T/slice.show"'
 slice_good
 env_ok=(GH_TOKEN=test-token "TEHAS_CGROUP_ROOT=$T_CGROUP")
 
+runner=/opt/pi-rukas/bin/pi-rukas-headless
 # The arguments of the docker call that starts the cycle.
-cycle_args() { grep -l -x -e '--mode' "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
+cycle_args() { grep -l -x -e 'pi-rukas-headless' -e "$runner" "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
 # The arguments of the docker call that checks the push before the cycle.
 preflight_args() { grep -l -x -e '--entrypoint' "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
 # Values that follow a flag, e.g. every -v or every -e.
@@ -150,11 +169,11 @@ t_eq "$(find "$cid_file" "$oom_file" 2>/dev/null | wc -l)" 0
 t_lacks "$t_out" "killed"
 
 t_case "the image and the working directory come from the settings"
-t_contains "$(cycle_args | tr '\n' ' ')" "tehas/pi-rukas:uid$(id -u) pi --mode rpc --approve"
+t_contains "$(cycle_args | tr '\n' ' ')" "tehas/pi-rukas:uid$(id -u) $runner work 7 --timeout 360 --json"
 t_eq "$(after -w)" "$inside"
 
 t_case "the console is the program beside this one, given the cycle's log, the transcripts and its file"
-t_contains "$(t_calls console)" "--rpc $T/home/tehas/logs/work-7-"
+t_contains "$(t_calls console)" "--progress $T/home/tehas/logs/work-7-"
 t_contains "$(t_calls console)" ".jsonl --runs $runs --out $T/home/tehas/live/console-7.txt --since "
 
 t_case "a console that fails is named with its exit status and where it wrote why"
@@ -172,7 +191,7 @@ t_run "$work 7"
 t_eq "$t_rc" 2
 t_contains "$t_out" "tehas work: no console at $tree/libexec/console"
 t_lacks "$t_out" "the console ended"
-t_contains "$(cycle_args | tr '\n' ' ')" "pi --mode rpc --approve"
+t_contains "$(cycle_args | tr '\n' ' ')" "$runner work 7 --timeout 360 --json"
 t_stub console
 mv "$T/bin/console" "$tree/libexec/console"
 t_run "$work 7"
@@ -182,10 +201,10 @@ t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=gpu1:192.0.2.9,gb:192.0.2.
 mkdir -p "$T/home/.pi/agent"
 echo '{"providers":{"other":{"baseUrl":"http://elsewhere.lan/v1"},"test-provider":{"baseUrl":"http://models.lan:8086/v1"}}}' \
   >"$T/home/.pi/agent/models.json"
-echo 'echo "{\"statusText\":\"working\"}"' >"$T/container.sh"
+echo 'echo "{\"v\":1,\"kind\":\"log\",\"message\":\"working\"}" >&2' >"$T/container.sh"
 rm -f "$T/calls/console"
 t_run "$work 7"
-given=$(t_calls console | grep -e '^--rpc ')
+given=$(t_calls console | grep -e '^--progress ')
 t_contains "$given" " --private gpu1 --private 192.0.2.9 --private 192.0.2.10 --private v6host --private 2001:db8::1 --private models.lan --private bot@example.com"
 t_lacks "$given" "--private gb "
 t_lacks "$given" "elsewhere"
@@ -196,13 +215,13 @@ t_case "the console masks the host of a role's own provider too"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_MODEL_DEVELOPER=big PI_ENSEMBLE_PROVIDER_DEVELOPER=other
 rm -f "$T/calls/console"
 t_run "$work 7"
-t_contains "$(t_calls console | grep -e '^--rpc ')" "--private models.lan --private elsewhere.lan --private bot@example.com"
+t_contains "$(t_calls console | grep -e '^--progress ')" "--private models.lan --private elsewhere.lan --private bot@example.com"
 
 t_case "without models.json or aliases the console is given the bot's email only"
 t_instance "${T_MINIMAL[@]}"
 rm -f "$T/home/.pi/agent/models.json" "$T/calls/console"
 t_run "$work 7"
-t_eq "$(t_calls console | grep -e '^--rpc ' | grep -o -e '--private .*')" "--private bot@example.com"
+t_eq "$(t_calls console | grep -e '^--progress ' | grep -o -e '--private .*')" "--private bot@example.com"
 rm -f "$T/container.sh"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 
@@ -285,8 +304,6 @@ GIT_TERMINAL_PROMPT
 CBM_CACHE_DIR
 PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS
 PI_ENSEMBLE_MAX_WORKSTREAMS
-PI_ENSEMBLE_NO_DOCKER_SOCKET
-PI_ENSEMBLE_NO_SSH
 PI_ENSEMBLE_SANDBOX_MODE
 PI_ENSEMBLE_SUBAGENT_MODEL
 PI_ENSEMBLE_SUBAGENT_PROVIDER
@@ -316,13 +333,125 @@ t_run "$work 7"
 t_case "the cycle's container gets no option beyond the documented ones"
 image="tehas/pi-rukas:uid$(id -u)"
 t_eq "$(cycle_args | unknown_options "$image" \
-  "--name --cgroup-parent --memory --memory-swap --memory-reservation --cpus --pids-limit --cpu-shares --cidfile -w -v -e" "--rm -i --init")" ""
-t_eq "$(cycle_args | sed -n "/^$(printf '%s' "$image" | sed 's/[\/.]/\\&/g')\$/,\$p" | tr '\n' ' ')" "$image pi --mode rpc --approve "
+  "--name --cgroup-parent --memory --memory-swap --memory-reservation --cpus --pids-limit --cpu-shares --cidfile -w -v -e" "--rm --init")" ""
+t_eq "$(cycle_args | sed -n "/^$(printf '%s' "$image" | sed 's/[\/.]/\\&/g')\$/,\$p" | tr '\n' ' ')" "$image $runner work 7 --timeout 360 --json "
 
-# Pi is no init: without one, a process that outlives its parent is never
+# The runner is no init: without one, a process that outlives its parent is never
 # collected and counts against the pids limit until the container ends.
 t_case "the cycle's container has an init"
 t_eq "$(cycle_args | grep -c -x -e --init)" 1
+
+# --- What the image supports -----------------------------------------------------
+# caps_refused: 78, the image asked, and no workspace made, nothing fetched and
+# no cycle started.
+caps_refused() {
+  t_eq "$t_rc" 78
+  t_eq "$(wc -l <"$T/calls/docker.caps")" 1
+  t_eq "$(cycle_args)" ""
+  t_eq "$(find "$ws" -maxdepth 0 2>/dev/null | wc -l)" 0
+  t_eq "$(t_calls gh)" ""
+}
+caps_fresh() { rm -rf "$T"/calls/* "$ws" "$ws.state" "$ws.before-retry"; }
+
+t_case "the image is asked what it supports, by the runner's path, before the workspace is made"
+caps_fresh
+t_run "$work 7"
+t_eq "$(cat "$T/calls/docker.caps")" "run --rm --init tehas/pi-rukas:uid$(id -u) $runner --capabilities"
+caps_at=$(t_calls docker | grep -n -e '--capabilities' | cut -d: -f1 | head -n 1)
+push_at=$(t_calls docker | grep -n -e 'push --dry-run' | cut -d: -f1 | head -n 1)
+t_eq "$([ -n "$caps_at" ] && [ -n "$push_at" ] && [ "$caps_at" -lt "$push_at" ] && echo before)" before
+
+t_case "an input the container would be given that the image does not list stops the cycle: 78, named"
+caps_fresh
+jq '.inputs |= map(select(.name != "PI_ENSEMBLE_SUBAGENT_MODEL"))' "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
+t_run "$work 7"
+caps_refused
+t_contains "$t_out" "does not support what this cycle is given, not starting a cycle"
+t_contains "$t_out" "the input PI_ENSEMBLE_SUBAGENT_MODEL"
+caps_good
+
+t_case "an instance line for an input the image does not read stops the cycle: 78, named"
+caps_fresh
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_NOT_A_LEVER=1
+t_run "$work 7"
+caps_refused
+t_contains "$t_out" "the input PI_ENSEMBLE_NOT_A_LEVER"
+
+t_case "an input pi-rukas sets on its own children is not one a host may set"
+caps_fresh
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_SUBAGENT_MODE=1
+t_run "$work 7"
+caps_refused
+t_contains "$t_out" "the input PI_ENSEMBLE_SUBAGENT_MODE"
+
+t_case "a role's model is one of the inputs the image lists as a family"
+caps_fresh
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_MODEL_DEVELOPER=big
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_lacks "$t_out" "does not support"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+
+t_case "the switches of pi-rukas's own docker wrapper are not given to the container"
+t_lacks "$(after -e)" "PI_ENSEMBLE_NO_DOCKER_SOCKET"
+t_lacks "$(after -e)" "PI_ENSEMBLE_NO_SSH"
+
+for change in '.contracts.exitCodes.version = 2' '.contracts.resultSchema.version = 4' \
+  '.contracts.ndjson.stable.version = 2' 'del(.contracts)'; do
+  t_case "an image of other contract versions stops the cycle: $change"
+  caps_fresh
+  jq "$change" "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
+  t_run "$work 7"
+  caps_refused
+  t_contains "$t_out" "version"
+  caps_good
+done
+
+t_case "a flag the runner does not take stops the cycle, and only when it is passed"
+caps_fresh
+jq '.verbs.work.flags = ["--json", "--timeout"]' "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
+t_run "$work 7 --restart"
+caps_refused
+t_contains "$t_out" "the flag --restart"
+caps_fresh
+t_run "$work 7"
+t_eq "$t_rc" 2
+caps_good
+
+t_case "with images on, the image must read the images directory's variable"
+caps_fresh
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
+jq '.inputs |= map(select(.name != "PI_ENSEMBLE_EXTRA_IMAGE_DIRS"))' "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
+t_run "$work 7"
+caps_refused
+t_contains "$t_out" "the input PI_ENSEMBLE_EXTRA_IMAGE_DIRS"
+caps_good
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+
+t_case "an image that gives no answer, or not JSON, stops the cycle"
+caps_fresh
+T_ENV=("${env_ok[@]}" CAPS_RC=1)
+t_run "$work 7"
+caps_refused
+t_contains "$t_out" "gave no --capabilities answer (exit 1)"
+T_ENV=("${env_ok[@]}")
+caps_fresh
+echo 'error: Module not found' >"$T/caps.json"
+t_run "$work 7"
+caps_refused
+t_contains "$t_out" "gave no --capabilities answer"
+caps_good
+
+t_case "names in the answer are not run as patterns beyond their own characters"
+caps_fresh
+jq '.inputs += [{name: "PI_ENSEMBLE_.*", scope: "cycle"}] | .inputs |= map(select(.name != "PI_ENSEMBLE_SUBAGENT_MODEL"))' \
+  "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
+t_run "$work 7"
+caps_refused
+t_contains "$t_out" "the input PI_ENSEMBLE_SUBAGENT_MODEL"
+caps_good
+caps_fresh
+t_run "$work 7"
 
 t_case "the push check's container gets the workspace and the same variables, no more"
 t_eq "$(preflight_args | unknown_options "$image" "--user -e -w -v --entrypoint" "--rm")" ""
@@ -377,7 +506,7 @@ t_lacks "$(cycle_args)" "test-token"
 
 t_case "nothing that controls the host is reachable"
 args=$(cat "$T"/calls/docker.args.*)
-t_contains "$args" "--mode"
+t_contains "$args" "pi-rukas-headless"
 t_lacks "$args" "docker.sock"
 t_lacks "$args" ".ssh"
 t_lacks "$args" ".config/tehas"
@@ -459,7 +588,7 @@ t_lacks "$(t_calls docker)" "run "
 t_case "under tehasbot cycle the lock it holds is handed down as fd 9, and the cycle starts"
 t_run "exec 9>'$lockf' && flock -n 9 || exit 99; $work 7"
 t_eq "$t_rc" 2
-t_contains "$(cycle_args | tr '\n' ' ')" "pi --mode rpc --approve"
+t_contains "$(cycle_args | tr '\n' ' ')" "$runner work 7 --timeout 360 --json"
 
 t_case "a run by hand holds the issue's lock while its container runs, and lets go at the end"
 echo "if flock -n '$lockf' true; then echo free; else echo held; fi >\"\$T/lock.seen\"" >"$T/container.sh"
@@ -482,21 +611,27 @@ t_eq "$(cat "$T/home/.pi/agent/ensemble-runs/issue-9/a-1-coder.json")" keep
 t_lacks "$(cat "$T"/calls/docker.args.*)" "widget-9"
 t_lacks "$(cat "$T"/calls/docker.args.*)" "issue-9"
 
-t_case "the cycle's status line is published as the console's mask leaves it"
-echo 'echo "{\"statusText\":\"step 3 of the cycle\"}"' >"$T/container.sh"
+t_case "the cycle's status line is the driver's last notice, published as the console's mask leaves it"
+cat >"$T/container.sh" <<'EOF'
+cat >&2 <<'LINES'
+{"v":1,"kind":"step-started","event":{"step":"develop"}}
+{"v":1,"kind":"log","message":"step 3 of the cycle"}
+{"v":1,"kind":"log","unstable":true,"message":"not this"}
+LINES
+EOF
 t_stub console 'if [ "$1" = --mask ]; then sed "s/cycle/[masked]/"; fi'
 mv "$T/bin/console" "$tree/libexec/console"
 t_run "$work 7"
 t_eq "$(jq -r .last.statusText "$T/home/tehas/live/running.json")" "step 3 of the [masked]"
+t_eq "$(jq -r .last.step "$T/home/tehas/live/running.json")" develop
 
 # Once Pi has gone nobody reads the fifo, and a plain write to it ends the
 # command by SIGPIPE (exit 141) before it reports. The race cannot be timed in
-# a test, so the shape of the one write is pinned.
+# a test, so the shape of the one write is pinned. tehas work has no fifo.
 t_case "every line to Pi goes through send, which ignores SIGPIPE in a subshell"
-for f in work plan; do
-  t_eq "$(grep -c '>&4' "$T_ROOT/libexec/$f")" 1
-  t_contains "$(grep '>&4' "$T_ROOT/libexec/$f")" "(trap '' PIPE;"
-done
+t_eq "$(grep -c '>&4' "$T_ROOT/libexec/work")" 0
+t_eq "$(grep -c '>&4' "$T_ROOT/libexec/plan")" 1
+t_contains "$(grep '>&4' "$T_ROOT/libexec/plan")" "(trap '' PIPE;"
 
 t_case "without a console the status line is not published"
 mv "$tree/libexec/console" "$T/console.kept"
@@ -549,16 +684,18 @@ t_contains "$(t_calls docker)" "stop -t 10 tehas-work-7"
 t_eq "$(jq -c '[.running, .status]' "$live/cycles/7.json")" '[false,"interrupted"]'
 rm -rf "$live/cycles" "$T/container.sh"
 
-# --- A container that is killed ----------------------------------------------
+# --- How the runner ends ---------------------------------------------------------
 # The command sleeps ten seconds between two looks. Here a look costs a tenth
 # of a second. What the container does uses the real sleep, $nap.
 t_stub sleep '"$(command -pv sleep)" 0.1'
-state_file=$ws/.pi/work-state/7.json
-# container <what it does>: the cycle's container. "says <status>" writes the
-# cycle's state file, a second on, so that it is newer than the cycle's start.
+result_file=$T/home/tehas/state/cycles/7.result.json
+progress_file=$T/home/tehas/state/cycles/7.progress.json
+# container <what it does>: the runner. "says <status> [cap]" writes its result
+# to standard output, "progress <line>" one line of its NDJSON.
 container() {
-  printf '%s\n' 'nap=$(command -pv sleep)' "state=$state_file" \
-    'says() { "$nap" 1.2; mkdir -p "${state%/*}"; echo "{\"pipelineState\":{\"status\":\"$1\",\"currentStep\":\"develop\"}}" >"$state"; }' \
+  printf '%s\n' 'nap=$(command -pv sleep)' \
+    'says() { echo "{\"schemaVersion\":3,\"buildCommit\":null,\"exitCode\":10,\"issues\":[{\"issue\":7,\"status\":\"$1\",\"cap\":\"${2:-}\",\"failedStep\":\"develop\",\"branch\":\"feature/issue-7-x\",\"steps\":[{\"step\":\"explore\"},{\"step\":\"develop\"}],\"usage\":{\"input\":5,\"output\":2,\"cacheRead\":1,\"turns\":3,\"dispatches\":2},\"exitCode\":10}]}"; }' \
+    'progress() { printf "%s\n" "$1" >&2; }' \
     "$1" >"$T/container.sh"
 }
 # Alive until docker stop is called, then gone with 137, as a container is.
@@ -566,9 +703,88 @@ hold='"$nap" 60 >/dev/null 2>&1 & echo $! >"$T/sleeper.pid"'
 gone='wait; exit 137'
 fresh() { rm -rf "$T"/calls/* "$live/cycles" "$T/sleeper.pid"; }
 
-t_case "a container that exits 137 while the state says running is reported as killed and the command exits 137"
+t_case "the runner's exit status is the command's when it wrote its result"
+for code in 0 10 11 20 21 30 40; do
+  fresh
+  container "says handoff; exit $code"
+  t_run "$work 7"
+  t_eq "$t_rc" "$code"
+  t_contains "$t_out" "status=handoff step=develop cap=- runner_exit=$code"
+done
+
+t_case "a runner that ends without a result is exit 2, whatever its status"
 fresh
-container 'says running; exit 137'
+container 'exit 10'
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "status=running"
+
+t_case "a result without an exit code of its own is no success: exit 2"
+for code in 1 137; do
+  fresh
+  container "says merged | jq -c 'del(.exitCode, .issues[0].exitCode)'; exit $code"
+  t_run "$work 7"
+  t_eq "$t_rc" 2
+done
+
+t_case "a result with no issue entry keeps the runner's own exit: a refusal is 40, and is no kill"
+for code in 30 40; do
+  fresh
+  container "echo '{\"schemaVersion\":3,\"exitCode\":$code,\"issues\":[],\"error\":{\"code\":\"refused\"}}'; exit $code"
+  t_run "$work 7"
+  t_eq "$t_rc" "$code"
+done
+fresh
+container "echo '{\"schemaVersion\":3,\"issues\":[]}'; exit 137"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_lacks "$t_out" "was killed"
+
+t_case "a result of another schema, or for another issue, is no result"
+fresh
+container 'says merged | sed "s/\"schemaVersion\":3/\"schemaVersion\":2/"; exit 0'
+t_run "$work 7"
+t_eq "$t_rc" 2
+fresh
+container 'says merged | sed "s/\"issue\":7/\"issue\":8/"; exit 0'
+t_run "$work 7"
+t_eq "$t_rc" 2
+
+t_case "the result is kept for tehasbot cycle and beside the log, and the cap is said"
+fresh
+container 'says handoff verify-failed:develop; exit 10'
+t_run "$work 7"
+t_eq "$t_rc" 10
+t_eq "$(jq -r '.issues[0].cap' "$result_file")" verify-failed:develop
+cycle_log=$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p')
+t_eq "$(jq -r '.issues[0].cap' "$cycle_log.result.json")" verify-failed:develop
+t_contains "$t_out" "status=handoff step=develop cap=verify-failed:develop runner_exit=10"
+t_eq "$(jq -c '[.running, .status]' "$live/cycles/7.json")" '[false,"handoff"]'
+
+t_case "a result left by an earlier cycle is gone before the container starts"
+fresh
+echo '{"schemaVersion":3,"issues":[{"issue":7,"status":"merged"}]}' >"$result_file"
+container 'exit 0'
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(cat "$result_file")" ""
+
+t_case "the progress gives the usage per role of the stable dispatch lines, each key once, and the last cap's reason"
+fresh
+done_line() { printf '{"v":1,"kind":"dispatch-completed","key":"%s","event":{"role":"%s","ok":true,"usage":{"turns":2,"input":10,"output":4,"cacheRead":1}}}' "$1" "$2"; }
+container "progress '$(done_line 7:1:1 developer)'; progress '$(done_line 7:1:1 developer)'; progress '$(done_line 7:2:1 developer)'
+progress '$(done_line 7:3:1 'ops x;')'
+progress '{\"v\":1,\"kind\":\"dispatch-completed\",\"unstable\":true,\"key\":\"7:4:1\",\"event\":{\"role\":\"liar\",\"usage\":{\"turns\":99}}}'
+progress 'not json'
+progress '{\"v\":1,\"kind\":\"dispatch-failed-provider\",\"unstable\":true,\"event\":{\"providerMessage\":\"502 Bad Gateway\"}}'
+says handoff step-failed:develop; exit 10"
+t_run "$work 7"
+t_eq "$(jq -c '.roles' "$progress_file")" '[{"role":"developer","dispatches":2,"turns":4,"input":20,"output":8,"cacheRead":2},{"role":"opsx","dispatches":1,"turns":2,"input":10,"output":4,"cacheRead":1}]'
+t_eq "$(jq -r '.reason' "$progress_file")" "502 Bad Gateway"
+
+t_case "a container that exits 137 with no result is reported as killed and the command exits 137"
+fresh
+container 'exit 137'
 t_run "$work 7"
 t_eq "$t_rc" 137
 t_contains "$t_out" "tehas work: the container was killed (137) while the cycle was running: out of memory, or stopped from outside"
@@ -576,100 +792,68 @@ t_contains "$t_out" "status=killed"
 t_eq "$(jq -c '[.running, .status]' "$live/cycles/7.json")" '[false,"killed"]'
 t_lacks "$(t_calls docker)" "stop "
 
-t_case "a container that exits 137 before it wrote a state is killed too"
+t_case "a 137 after the runner wrote its result is the result's end, by the result's exit code"
 fresh
-container 'exit 137'
+container 'says handoff; exit 137'
 t_run "$work 7"
-t_eq "$t_rc" 137
-t_contains "$t_out" "status=killed"
-
-t_case "a 137 after the state says handoff is a handoff, exit 0"
-fresh
-container "$hold; says handoff; $gone"
-t_run "$work 7"
-t_eq "$t_rc" 0
+t_eq "$t_rc" 10
 t_contains "$t_out" "status=handoff"
 t_lacks "$t_out" "was killed"
-t_contains "$(t_calls docker)" "stop -t 20 tehas-work-7"
-# The state turns handoff after the loop read it, and the container is gone
-# before the loop's next look: the command has to read the state once more
-# before it calls the cycle killed. The loop's time check is the one call
-# between its read of the state and its next look, so a date stub makes the
-# window: the first time the loop has read the state's age (the stat stub
-# notes that), date writes the handoff, ends the container and waits until
-# it is gone, then tells the time as the real date does.
-fresh
-container "says running; $hold; $gone"
-t_stub stat '[ "$*" != "-c %Y '"$state_file"'" ] || : >"$T/state.read"
-exec "$(command -pv stat)" "$@"'
-t_stub date 'if [ -e "$T/state.read" ] && [ ! -e "$T/window.done" ]; then
-  : >"$T/window.done"
-  echo "{\"pipelineState\":{\"status\":\"handoff\",\"currentStep\":\"develop\"}}" >"'"$state_file"'"
-  kill "$(cat "$T/sleeper.pid")" 2>/dev/null
-  f=$(grep -l -x -e --mode "$T"/calls/docker.args.*); dpid=${f##*.}
-  for _ in $(seq 100); do kill -0 "$dpid" 2>/dev/null || break; "$(command -pv sleep)" 0.1; done
-fi
-exec "$(command -pv date)" "$@"'
-t_run "$work 7"
-rm -f "$T/bin/stat" "$T/bin/date" "$T/state.read" "$T/window.done"
-t_eq "$t_rc" 0
-t_contains "$t_out" "status=handoff"
-t_lacks "$t_out" "was killed"
-t_lacks "$(t_calls docker)" "stop "
 
-t_case "closing the session ends Pi's input: a container that ends on it is not stopped"
+t_case "a result that says killed is the runner's word, not a kill: no kill line"
 fresh
-container 'says handoff; cat >/dev/null; : >"$T/calls/eof"; exit 0'
+container 'says killed; exit 30'
 t_run "$work 7"
-t_eq "$t_rc" 0
-t_contains "$t_out" "status=handoff"
-t_eq "$(find "$T/calls/eof" 2>/dev/null | wc -l)" 1
-t_lacks "$(t_calls docker)" "stop "
-
-t_case "the container's input is the fifo's read end only, and the console holds neither end"
-fresh
-container 'ls -l /proc/$$/fd/ >"$T/calls/container.fds" 2>&1; says handoff; cat >/dev/null'
-t_stub console '[ "$1" = --mask ] || ls -l /proc/$$/fd/ >>"$T/calls/console.fds" 2>&1'
-mv "$T/bin/console" "$tree/libexec/console"
-t_run "$work 7"
-t_eq "$t_rc" 0
-fifo_path=$(sed -n 's/.* 0 -> \(.*\)$/\1/p' "$T/calls/container.fds")
-t_contains "$fifo_path" "(deleted)"
-t_eq "$(grep -c -F -e "-> $fifo_path" "$T/calls/container.fds")" 1
-t_contains "$(grep ' 0 -> ' "$T/calls/container.fds")" "lr-x"
-t_eq "$(grep -c -F -e "${fifo_path% (deleted)}" "$T/calls/console.fds")" 0
-t_stub console
-mv "$T/bin/console" "$tree/libexec/console"
-
-t_case "a 137 after the state says aborted is aborted, exit 1"
-fresh
-container 'says aborted; exit 137'
-t_run "$work 7"
-t_eq "$t_rc" 1
-t_lacks "$t_out" "was killed"
-
-t_case "a state that says killed is the container's word, not a kill: exit 2 and no kill line"
-# The kill is what this command saw of the container, never what the state
-# file says: the agent in the container writes that file.
-fresh
-container "$hold; says killed; $gone"
-t_run "$work 7"
-t_eq "$t_rc" 2
+t_eq "$t_rc" 30
 t_contains "$t_out" "status=killed"
 t_lacks "$t_out" "was killed"
-t_contains "$(t_calls docker)" "stop -t 20 tehas-work-7"
 
-t_case "our own stop at the time limit is not reported as killed"
+t_case "the container's input is nothing: no fifo, no terminal"
+fresh
+container 'ls -l /proc/$$/fd/ >"$T/calls/container.fds" 2>&1; says handoff; exit 10'
+t_run "$work 7"
+t_eq "$t_rc" 10
+t_contains "$(grep ' 0 -> ' "$T/calls/container.fds")" "/dev/null"
+
+t_case "the runner is given the time limit in whole minutes, at least one"
+fresh
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=61
+t_run "$work 7"
+t_contains "$(cycle_args | tr '\n' ' ')" "work 7 --timeout 2 --json"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=1
+fresh
+t_run "$work 7"
+t_contains "$(cycle_args | tr '\n' ' ')" "work 7 --timeout 1 --json"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+
+t_case "a restart is passed to the runner as its flag"
+fresh
+t_run "$work 7 --restart"
+t_contains "$(cycle_args | tr '\n' ' ')" "work 7 --timeout 360 --json --restart"
+
+t_case "a runner that does not stop at its own limit is stopped after the grace, and not reported as killed"
 fresh
 t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=1
+T_ENV=("${env_ok[@]}" TEHAS_WORK_GRACE=0)
 container "$hold; $gone"
 t_run "$work 7"
 t_eq "$t_rc" 2
 t_contains "$t_out" "time limit of 1s passed"
-t_contains "$t_out" "status=running"
+t_contains "$t_out" "status=timeout"
 t_lacks "$t_out" "was killed"
 t_contains "$(t_calls docker)" "stop -t 20 tehas-work-7"
+t_eq "$(cat "$T/home/tehas/state/cycles/7.timed")" 1
+
+t_case "a runner stopped at the time limit that writes interrupted is a timeout, exit 2"
+fresh
+container "trap 'says interrupted; exit 21' TERM; \"\$nap\" 60 & echo \$! >\"\$T/sleeper.pid\"; wait; wait"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "status=timeout"
+t_eq "$(jq -c '[.running, .status]' "$live/cycles/7.json")" '[false,"timeout"]'
+t_eq "$(cat "$T/home/tehas/state/cycles/7.timed")" 1
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+T_ENV=("${env_ok[@]}")
 
 t_case "a cycle none of whose logs change is stopped as stalled before its time limit"
 fresh
@@ -686,10 +870,18 @@ t_contains "$(t_calls docker)" "stop -t 20 tehas-work-7"
 t_eq "$(cat "$T/home/tehas/state/cycles/7.stalled")" 2
 t_eq "$(jq -c '[.running, .status]' "$live/cycles/7.json")" '[false,"stalled"]'
 
+t_case "a stalled runner that writes its result as it is stopped is still stalled"
+fresh
+container "trap 'says interrupted; exit 21' TERM; \"\$nap\" 60 & echo \$! >\"\$T/sleeper.pid\"; wait; wait"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "status=stalled"
+
 t_case "a cycle whose agents keep writing is not stalled"
 fresh
 rm -f "$T/home/tehas/state/cycles/7.stalled"
 t_instance "${T_MINIMAL[@]}" TEHAS_WORK_STALL=2 TEHAS_VERIFY_TIMEOUT=1 TEHAS_WORK_TIMEOUT=5
+T_ENV=("${env_ok[@]}" TEHAS_WORK_GRACE=0)
 container "( for _ in \$(seq 40); do date >>\"$runs/agent.jsonl\"; \"\$nap\" 0.3; done ) & $hold; $gone"
 t_run "$work 7"
 t_eq "$t_rc" 2
@@ -697,35 +889,31 @@ t_contains "$t_out" "time limit of 5s passed"
 t_lacks "$t_out" "stalled"
 t_eq "$(find "$T/home/tehas/state/cycles/7.stalled" 2>/dev/null | wc -l)" 0
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+T_ENV=("${env_ok[@]}")
 
-t_case "a Pi session that ended while the cycle runs stops it at once as interrupted"
+t_case "progress the runner writes keeps a cycle from being stalled"
 fresh
-rm -f "$T/home/tehas/state/cycles/7.ended"
-# What pi-rukas wrote to the error stream when Pi quit on a real host. The
-# container then idles.
-container "says running; echo '[pi-rukas] session_shutdown (reason: quit): aborted 2 in-flight async jobs' >&2; $hold; $gone"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_STALL=2 TEHAS_VERIFY_TIMEOUT=1 TEHAS_WORK_TIMEOUT=5
+T_ENV=("${env_ok[@]}" TEHAS_WORK_GRACE=0)
+container "( for _ in \$(seq 40); do progress '{\"v\":1,\"kind\":\"log\",\"message\":\"x\"}'; \"\$nap\" 0.3; done ) & $hold; $gone"
 t_run "$work 7"
-t_eq "$t_rc" 2
-t_contains "$t_out" "tehas work: the Pi session ended while the cycle was running, stopping it"
-t_contains "$t_out" "status=interrupted step=develop"
-t_lacks "$t_out" "time limit"
-t_lacks "$t_out" "was killed"
-t_contains "$(t_calls docker)" "stop -t 20 tehas-work-7"
-t_eq "$(find "$T/home/tehas/state/cycles/7.ended" -type f 2>/dev/null | wc -l)" 1
+t_contains "$t_out" "time limit of 5s passed"
+t_lacks "$t_out" "stalled"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+T_ENV=("${env_ok[@]}")
+
+t_case "TERM stops the container, and the runner's result says interrupted"
+fresh
+container "trap 'says interrupted; exit 21' TERM; \"\$nap\" 60 & echo \$! >\"\$T/sleeper.pid\"; wait; wait"
+t_run "$work 7 >\"\$T/work.out\" 2>&1 & pid=\$!
+for _ in \$(seq 100); do [ -e \"\$T/sleeper.pid\" ] && [ \"\$(jq -r .running \"$live/cycles/7.json\" 2>/dev/null)\" = true ] && break; \"\$(command -pv sleep)\" 0.1; done
+kill -TERM \$pid; wait \$pid; echo rc=\$?"
+kill "$(cat "$T/sleeper.pid" 2>/dev/null)" 2>/dev/null
+t_contains "$(t_calls docker)" "stop -t 10 tehas-work-7"
+t_lacks "$(cat "$T/work.out")" "was killed"
 t_eq "$(jq -c '[.running, .status]' "$live/cycles/7.json")" '[false,"interrupted"]'
 
-t_case "a session_shutdown that is not at the start of a line ends nothing, and no ended file is left"
-fresh
-t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=2
-container "says running; echo 'a tool said [pi-rukas] session_shutdown' >&2; $hold; $gone"
-t_run "$work 7"
-t_eq "$t_rc" 2
-t_contains "$t_out" "time limit of 2s passed"
-t_lacks "$t_out" "session ended"
-t_eq "$(find "$T/home/tehas/state/cycles/7.ended" 2>/dev/null | wc -l)" 0
-t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
-
-t_case "TERM still gives interrupted"
+t_case "TERM with no result gives interrupted"
 fresh
 container "$hold; $gone"
 t_run "$work 7 >\"\$T/work.out\" 2>&1 & pid=\$!
@@ -748,7 +936,7 @@ t_contains "$(t_calls docker)" "stop -t 10 tehas-work-7"
 
 t_case "a container left under the issue's name is removed before the cycle's starts"
 rm_at=$(t_calls docker | grep -n -x -e 'rm -f tehas-work-7' | cut -d: -f1 | head -n 1)
-run_at=$(t_calls docker | grep -n -e ' --mode ' | cut -d: -f1 | head -n 1)
+run_at=$(t_calls docker | grep -n -e 'pi-rukas-headless work ' | cut -d: -f1 | head -n 1)
 t_eq "$([ -n "$rm_at" ] && [ -n "$run_at" ] && [ "$rm_at" -lt "$run_at" ] && echo before)" before
 
 t_case "the image's id and the pi-rukas commit of its label are on record, read before the container starts"
@@ -760,7 +948,7 @@ t_run "$work 7"
 t_eq "$(cat "$T/home/tehas/state/cycles/7.image")" "$image_id 0123456789abcdef0123456789abcdef01234567"
 t_contains "$(t_calls docker)" "image inspect --format {{.Id}} {{index .Config.Labels \"tehas.rukas\"}} tehas/pi-rukas:uid$(id -u)"
 at_inspect=$(t_calls docker | grep -n -e '^image inspect' | cut -d: -f1 | head -n 1)
-at_run=$(t_calls docker | grep -n -e ' --mode ' | cut -d: -f1 | head -n 1)
+at_run=$(t_calls docker | grep -n -e 'pi-rukas-headless work ' | cut -d: -f1 | head -n 1)
 t_eq "$([ -n "$at_inspect" ] && [ -n "$at_run" ] && [ "$at_inspect" -lt "$at_run" ] && echo before)" before
 
 t_case "an image without the label is on record by its id alone"
@@ -787,7 +975,7 @@ t_run "$work 7"
 t_eq "$t_rc" 0
 f=$T/home/tehas/state/cycles/7.settings
 t_eq "$(jq -r '.container | keys[]' "$f" | LC_ALL=C sort | tr '\n' ' ')" \
-  "PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS PI_ENSEMBLE_MAX_WORKSTREAMS PI_ENSEMBLE_NO_DOCKER_SOCKET PI_ENSEMBLE_NO_SSH PI_ENSEMBLE_SANDBOX_MODE PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER PI_ENSEMBLE_VERIFY_TIMEOUT_MS PI_ENSEMBLE_WORKSPACE_ROOT "
+  "PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS PI_ENSEMBLE_MAX_WORKSTREAMS PI_ENSEMBLE_SANDBOX_MODE PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER PI_ENSEMBLE_VERIFY_TIMEOUT_MS PI_ENSEMBLE_WORKSPACE_ROOT "
 t_eq "$(jq -r '.container.PI_ENSEMBLE_SUBAGENT_MODEL' "$f")" test-model
 t_eq "$(jq -r '.container.PI_ENSEMBLE_WORKSPACE_ROOT' "$f")" "[withheld]"
 # This command holds the issue's lock, so it counts itself.
@@ -798,11 +986,12 @@ t_lacks "$(cat "$f")" test-token
 t_case "a docker stop that does not end is given up after its bound, said, and the container killed"
 fresh
 : >"$T/stop-hangs"
-T_ENV=("${env_ok[@]}" TEHAS_STOP_WAIT=1)
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=1
+T_ENV=("${env_ok[@]}" TEHAS_STOP_WAIT=1 TEHAS_WORK_GRACE=0)
 container "$hold; says handoff; $gone"
 t_run "$work 7"
 rm -f "$T/stop-hangs"
-t_eq "$t_rc" 0
+t_eq "$t_rc" 2
 t_contains "$t_out" "tehas work: docker stop of tehas-work-7 did not end within 1s, killing it"
 t_contains "$(t_calls docker)" "kill tehas-work-7"
 t_contains "$t_out" "status=handoff"
@@ -811,8 +1000,10 @@ t_case "a stop that ends in time kills nothing"
 fresh
 container "$hold; says handoff; $gone"
 t_run "$work 7"
-t_eq "$t_rc" 0
+t_eq "$t_rc" 2
+t_contains "$t_out" "status=handoff"
 t_lacks "$(t_calls docker)" "kill "
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 T_ENV=("${env_ok[@]}")
 
 t_case "a console that does not stop on TERM is killed after its bound, and said"
@@ -821,10 +1012,10 @@ fresh
 t_stub console '[ "$1" = --mask ] && exit 0; trap "" TERM; exec "$(command -pv sleep)" 30'
 mv "$T/bin/console" "$tree/libexec/console"
 T_ENV=("${env_ok[@]}" TEHAS_CONSOLE_WAIT=1)
-container "$hold; says handoff; $gone"
+container 'says handoff; exit 10'
 start=$(date +%s)
 t_run "$work 7"
-t_eq "$t_rc" 0
+t_eq "$t_rc" 10
 t_contains "$t_out" "tehas work: the console did not stop within 1s, killing it"
 t_contains "$t_out" "status=handoff"
 [ "$(($(date +%s) - start))" -lt 20 ] || t_bad "the console was waited on for $(($(date +%s) - start))s"
@@ -833,7 +1024,7 @@ mv "$T/bin/console" "$tree/libexec/console"
 
 t_case "a console that stops in time is not killed"
 fresh
-container "$hold; says handoff; $gone"
+container 'says handoff; exit 10'
 t_run "$work 7"
 t_lacks "$t_out" "the console did not stop"
 t_lacks "$t_out" "the console ended"
@@ -1224,7 +1415,7 @@ t_eq "$t_rc" 2
 t_eq "$(t_calls curl)" ""
 t_eq "$(manifest '[.images, (.leftOut | map([.link, .reason]))]')" \
   "[[],[[\"$A/1111\",\"The issue was not opened by an owner, member or collaborator, and its label was not applied by an allowed account.\"]]]"
-t_contains "$(cycle_args | tr '\n' ' ')" "pi --mode rpc --approve"
+t_contains "$(cycle_args | tr '\n' ' ')" "$runner work 7 --timeout 360 --json"
 
 # labelled_by <login>: the account that applied tehas:ready last.
 labelled_by() {
@@ -1285,7 +1476,7 @@ issue_is "![big]($A/1111)"
 t_run "$work 7"
 t_eq "$t_rc" 2
 t_eq "$(manifest '.leftOut | map(.reason)')" '["Over the 10 MB limit of an issue."]'
-t_contains "$(cycle_args | tr '\n' ' ')" "pi --mode rpc --approve"
+t_contains "$(cycle_args | tr '\n' ' ')" "$runner work 7 --timeout 360 --json"
 
 for rc in 22 6 28; do
   t_case "an image that cannot be fetched (curl $rc) starts no cycle: exit 4, said on the issue"
@@ -1325,7 +1516,7 @@ issue_is "![shot]($A/1111)"
 : >"$fx/comment-fails"
 t_run "$work 7"
 t_eq "$t_rc" 2
-t_contains "$(cycle_args | tr '\n' ' ')" "pi --mode rpc --approve"
+t_contains "$(cycle_args | tr '\n' ' ')" "$runner work 7 --timeout 360 --json"
 
 t_case "the images are remade for every cycle: what an earlier one left is gone"
 images_on
@@ -1662,7 +1853,7 @@ issue_is "![a]($A/1111)"
 t_run "$work 7"
 t_eq "$t_rc" 2
 t_contains "$(cat "$imgs/images.md")" "> not described: the request to the model failed (curl 22)"
-t_contains "$(cycle_args | tr '\n' ' ')" "pi --mode rpc --approve"
+t_contains "$(cycle_args | tr '\n' ' ')" "$runner work 7 --timeout 360 --json"
 
 t_case "with images alone nothing is described"
 images_on

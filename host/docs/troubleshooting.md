@@ -13,7 +13,7 @@ description: "What each stop in a tehas cycle means, and what to do about it."
 | Is there room for another cycle? | The `slice` line of `tehas status`; `~/tehas/live/dispatch.json`        |
 | What did the dispatcher decide?  | `tehas dispatch --dry-run`, `~/tehas/logs/dispatch.log`                 |
 | What did a cycle's runner print? | `~/tehas/logs/dispatch-work-<issue>.log`                                |
-| What did Pi and the driver say?  | `~/tehas/logs/work-<issue>-<time>.jsonl` and `.jsonl.err`               |
+| What did the driver say?         | The runner's NDJSON progress, `~/tehas/logs/work-<issue>-<time>.jsonl`, and its result beside it, `.jsonl.result.json` |
 | Where is the cycle now?          | `jq .pipelineState ~/tehas/work/tehas-<issue>/.pi/work-state/<issue>.json`. The workspace of a cycle that left a pull request is removed; one that stopped is kept, and a retry moves it to `tehas-<issue>.before-retry`. |
 | What did one agent do?           | Transcripts under `~/.pi/agent/ensemble-runs/issue-<issue>/<date>/`     |
 | What did the improvement loop do? | `~/tehas/logs/improve.log`, one line per run                           |
@@ -173,7 +173,7 @@ Run `tehas dispatch --dry-run` and read what it prints.
 
 ### A cycle stops with `Cannot fork` in its log
 
-The cycle's error stream has `/bin/sh: 1: Cannot fork`, or the RPC log has
+The cycle's progress log has `/bin/sh: 1: Cannot fork`, or a transcript has
 `fork: retry: Resource temporarily unavailable` or `EAGAIN`. The container was
 at its `--pids-limit`. The comment that reports the cycle says how many starts
 were refused, and the kernel log on the host has `fork rejected by pids
@@ -188,8 +188,8 @@ starting processes that stay alive: look at what is running in the container
 
 ### A cycle stops in its first step with `provider-severed`
 
-The cycle's error stream (`~/tehas/logs/work-<issue>-*.jsonl.err`) shows retries
-with `cause=provider-severed` and the RPC log an `errorMessage` starting with
+The cycle's progress log (`~/tehas/logs/work-<issue>-*.jsonl`) shows retries
+with `cause=provider-severed` and an agent's transcript an `errorMessage` starting with
 `429`. The model endpoint listed the model but had no free slot for it. That
 happens when another job is using the model, and also when the model has only
 one slot: a cycle's driving session and its step agents call the model at the

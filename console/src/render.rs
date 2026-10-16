@@ -1,9 +1,11 @@
 //! From one line of a cycle's logs to the entries of the console.
 //!
-//! Two kinds of line are read: Pi's RPC stream, for driver notices and step
-//! boundaries, and an agent's transcript, for what the agent said, the
-//! commands it ran and the start of what came back. A line that is not JSON,
-//! or not one of these, gives no entry.
+//! Two kinds of line are read: the progress the headless runner writes as
+//! NDJSON, for driver notices, step boundaries, agents and caps, and an
+//! agent's transcript, for what the agent said, the commands it ran and the
+//! start of what came back. A line that is not JSON, or not one of these,
+//! gives no entry. Of the progress only the kinds the runner declares stable
+//! are read; a line it marks `unstable` gives no entry.
 
 use crate::mask::{is_format, mask};
 use serde_json::Value;
@@ -115,59 +117,68 @@ fn short(v: &Value) -> String {
     start(&text(v), 200, 1).replace('\n', " ")
 }
 
-// A count from the lifecycle, when it is a whole number in reason.
-fn count(v: &Value) -> Option<u64> {
-    v.as_u64().filter(|n| (1..=1000).contains(n))
-}
-
-// A week, in milliseconds: no step takes longer.
+// A week, in milliseconds: no dispatch takes longer.
 const MAX_ELAPSED: u64 = 7 * 86400 * 1000;
 
-/// A line of the cycle's RPC stream.
-pub fn rpc_line(line: &str) -> Option<Entry> {
+/// The version of the runner's NDJSON this reads, and of its stable subset.
+const NDJSON_VERSION: u64 = 1;
+
+/// The idempotency key of a progress line: a resumed cycle writes its earlier
+/// events again, and a line whose key was seen gives no second entry.
+pub fn progress_key(line: &str) -> Option<String> {
     let r: Value = serde_json::from_str(line).ok()?;
-    if r["type"] == "extension_ui_request" && r["method"] == "notify" {
-        return Some(Entry::new(
-            "driver",
-            start(&text(&r["message"]), 1200, 16),
-            None,
-        ));
-    }
-    let entry = &r["entry"];
-    if r["type"] != "entry_appended" || entry["customType"] != "ensemble:lifecycle" {
+    r["key"].as_str().map(str::to_string)
+}
+
+/// A line of the runner's NDJSON progress.
+pub fn progress_line(line: &str) -> Option<Entry> {
+    let r: Value = serde_json::from_str(line).ok()?;
+    if r["v"].as_u64() != Some(NDJSON_VERSION) || r["unstable"] == true {
         return None;
     }
-    let d = &entry["data"];
-    let step = match (count(&d["stepNumber"]), count(&d["stepTotal"])) {
-        (Some(n), Some(total)) => format!("step {n}/{total} "),
-        (Some(n), None) => format!("step {n} "),
-        _ => String::new(),
-    };
-    let label = short(&d["label"]);
-    let said = match d["kind"].as_str()? {
+    let e = &r["event"];
+    // When the event happened, else when the line was written.
+    let at = clock(&e["at"]).or_else(|| clock(&r["at"]));
+    let said = match r["kind"].as_str()? {
+        "log" => start(&text(&r["message"]), 1200, 16),
         "step-started" => {
-            let round = match &d["round"] {
+            let round = match &e["round"] {
                 Value::Null => "1".to_string(),
-                Value::String(_) => short(&d["round"]),
-                other => count(other).map_or("?".to_string(), |n| n.to_string()),
+                other => other
+                    .as_u64()
+                    .filter(|n| (1..=1000).contains(n))
+                    .map_or("?".to_string(), |n| n.to_string()),
             };
-            format!("--- {step}{label} started (round {round})")
+            format!("--- {} started (round {round})", short(&e["step"]))
         }
-        "step-completed" => match d["elapsedMs"].as_u64().filter(|ms| *ms <= MAX_ELAPSED) {
-            Some(ms) => format!("--- {step}{label} done in {}s", (ms + 500) / 1000),
-            None => format!("--- {step}{label} done"),
+        "dispatch-started" => format!("agent started: {}", short(&e["role"])),
+        "dispatch-completed" => {
+            let how = if e["ok"] == true { "done" } else { "failed" };
+            match e["ms"].as_u64().filter(|ms| *ms <= MAX_ELAPSED) {
+                Some(ms) => format!(
+                    "agent {how}: {} in {}s",
+                    short(&e["role"]),
+                    (ms + 500) / 1000
+                ),
+                None => format!("agent {how}: {}", short(&e["role"])),
+            }
+        }
+        "cap-hit" => match short(&e["nextStep"]) {
+            next if next.is_empty() => format!("cap {}", short(&e["cap"])),
+            next => format!("cap {}, next {next}", short(&e["cap"])),
         },
-        "dispatched" if d["role"] != "work-driver" => {
-            let who = if d["label"].is_null() {
-                short(&d["role"])
-            } else {
-                label
-            };
-            format!("agent started: {who}")
-        }
+        "handoff-emitted" => match short(&e["commentUrl"]) {
+            url if url.is_empty() => "handoff".to_string(),
+            url => format!("handoff: {url}"),
+        },
+        "ci-status" => format!("ci {} {}", short(&e["status"]), short(&e["runUrl"]))
+            .trim()
+            .to_string(),
+        "merged" => format!("merged: pull request {}", short(&e["prNumber"])),
+        "interrupted" => format!("interrupted: {}", short(&e["reason"])),
         _ => return None,
     };
-    Some(Entry::new("driver", said, clock(&entry["timestamp"])))
+    Some(Entry::new("driver", said, at))
 }
 
 fn describe_call(name: &Value, arguments: &Value) -> String {
@@ -352,8 +363,8 @@ mod tests {
     #[test]
     fn a_long_notice_and_a_long_error_are_cut() {
         let long = "word ".repeat(1000);
-        let notice = json!({"type": "extension_ui_request", "method": "notify", "message": long});
-        let text = rpc_line(&notice.to_string()).unwrap().text;
+        let notice = json!({"v": 1, "kind": "log", "message": long});
+        let text = progress_line(&notice.to_string()).unwrap().text;
         assert!(
             text.chars().count() < 1300 && text.ends_with("[...]"),
             "{text}"
@@ -417,112 +428,170 @@ mod tests {
         }
     }
 
-    #[test]
-    fn a_driver_notice_is_an_entry() {
-        let line = json!({"type": "extension_ui_request", "method": "notify", "message": "parked"});
-        assert_eq!(
-            rpc_line(&line.to_string()),
-            Some(Entry::new("driver", "parked", None))
-        );
-        let empty = json!({"type": "extension_ui_request", "method": "notify"});
-        assert_eq!(
-            rpc_line(&empty.to_string()),
-            Some(Entry::new("driver", "", None))
-        );
-    }
-
-    fn lifecycle(data: Value) -> String {
-        json!({"type": "entry_appended", "entry": {
-            "customType": "ensemble:lifecycle", "timestamp": "2026-10-10T00:00:07Z", "data": data,
-        }})
+    fn progress(kind: &str, event: Value) -> String {
+        json!({"v": 1, "kind": kind, "at": "2026-10-10T00:00:07.120Z", "issue": 7,
+               "key": "7:0:1", "event": event})
         .to_string()
     }
 
     #[test]
-    fn step_boundaries_and_started_agents_are_entries() {
-        let said = |data: Value| rpc_line(&lifecycle(data)).map(|e| (e.text, e.at));
+    fn a_driver_notice_is_an_entry() {
+        let line =
+            json!({"v": 1, "kind": "log", "at": "2026-10-10T00:00:07Z", "message": "parked"});
         assert_eq!(
-            said(
-                json!({"kind": "step-started", "stepNumber": 2, "stepTotal": 7, "label": "develop"})
-            ),
-            Some((
-                "--- step 2/7 develop started (round 1)".to_string(),
-                Some(7)
-            ))
+            progress_line(&line.to_string()),
+            Some(Entry::new("driver", "parked", Some(7)))
         );
+        let empty = json!({"v": 1, "kind": "log", "at": "soon"});
         assert_eq!(
-            said(json!({"kind": "step-started", "label": "review", "round": 3})),
-            Some(("--- review started (round 3)".to_string(), Some(7)))
-        );
-        assert_eq!(
-            said(
-                json!({"kind": "step-completed", "stepNumber": 2, "stepTotal": 7, "label": "develop", "elapsedMs": 61500})
-            ),
-            Some(("--- step 2/7 develop done in 62s".to_string(), Some(7)))
-        );
-        assert_eq!(
-            said(json!({"kind": "dispatched", "role": "coder", "label": "coder 1"})),
-            Some(("agent started: coder 1".to_string(), Some(7)))
-        );
-        assert_eq!(
-            said(json!({"kind": "dispatched", "role": "reviewer"})),
-            Some(("agent started: reviewer".to_string(), Some(7)))
+            progress_line(&empty.to_string()),
+            Some(Entry::new("driver", "", None))
         );
     }
 
     #[test]
-    fn lifecycle_names_are_cut_and_odd_numbers_left_out() {
-        let said = |data: Value| rpc_line(&lifecycle(data)).unwrap().text;
+    fn the_stable_kinds_are_entries() {
+        let said = |kind: &str, event: Value| {
+            progress_line(&progress(kind, event)).map(|e| (e.text, e.at))
+        };
+        let at = Some(7);
+        // The event's own time, in milliseconds, comes first.
+        assert_eq!(
+            said(
+                "step-started",
+                json!({"step": "plan", "at": 1_792_089_524_024u64})
+            )
+            .unwrap()
+            .1,
+            Some(18 * 3600 + 38 * 60 + 44)
+        );
+        assert_eq!(
+            said("step-started", json!({"step": "develop", "at": 1})),
+            Some(("--- develop started (round 1)".to_string(), at))
+        );
+        assert_eq!(
+            said("step-started", json!({"step": "review", "round": 3})),
+            Some(("--- review started (round 3)".to_string(), at))
+        );
+        assert_eq!(
+            said(
+                "dispatch-started",
+                json!({"step": "develop", "role": "developer", "jobId": "j"})
+            ),
+            Some(("agent started: developer".to_string(), at))
+        );
+        assert_eq!(
+            said(
+                "dispatch-completed",
+                json!({"role": "developer", "ok": true, "ms": 61500})
+            ),
+            Some(("agent done: developer in 62s".to_string(), at))
+        );
+        assert_eq!(
+            said(
+                "dispatch-completed",
+                json!({"role": "ops", "ok": false, "ms": 1e300})
+            ),
+            Some(("agent failed: ops".to_string(), at))
+        );
+        assert_eq!(
+            said(
+                "cap-hit",
+                json!({"cap": "verify-failed:develop", "nextStep": "handoff"})
+            ),
+            Some(("cap verify-failed:develop, next handoff".to_string(), at))
+        );
+        assert_eq!(
+            said("cap-hit", json!({"cap": "round-cap"})),
+            Some(("cap round-cap".to_string(), at))
+        );
+        assert_eq!(
+            said(
+                "handoff-emitted",
+                json!({"commentUrl": "https://github.com/a/b/issues/7#issuecomment-1"})
+            ),
+            Some((
+                "handoff: https://github.com/a/b/issues/7#issuecomment-1".to_string(),
+                at
+            ))
+        );
+        assert_eq!(
+            said("handoff-emitted", json!({})),
+            Some(("handoff".to_string(), at))
+        );
+        assert_eq!(
+            said(
+                "ci-status",
+                json!({"status": "success", "runUrl": "https://ci/1"})
+            ),
+            Some(("ci success https://ci/1".to_string(), at))
+        );
+        assert_eq!(
+            said("merged", json!({"prNumber": 99})),
+            Some(("merged: pull request 99".to_string(), at))
+        );
+        assert_eq!(
+            said("interrupted", json!({"reason": "SIGTERM"})),
+            Some(("interrupted: SIGTERM".to_string(), at))
+        );
+    }
+
+    #[test]
+    fn names_are_cut_and_odd_numbers_left_out() {
+        let said = |kind: &str, event: Value| progress_line(&progress(kind, event)).unwrap().text;
         let long = "l".repeat(10_000);
-        let text = said(json!({"kind": "step-started", "label": long}));
+        let text = said("step-started", json!({"step": long}));
         assert!(
             text.chars().count() < 260 && text.contains("[...] started"),
             "{text}"
         );
-        let text = said(json!({"kind": "dispatched", "role": long}));
+        let text = said("dispatch-started", json!({"role": long}));
         assert!(
             text.chars().count() < 240 && text.ends_with("[...]"),
             "{text}"
         );
         assert_eq!(
-            said(json!({"kind": "step-started", "label": "review", "round": {"a": [1, 2]}})),
+            said(
+                "step-started",
+                json!({"step": "review", "round": {"a": [1, 2]}})
+            ),
             "--- review started (round ?)"
-        );
-        assert_eq!(
-            said(
-                json!({"kind": "step-completed", "stepNumber": 1e300, "stepTotal": 7, "label": "develop", "elapsedMs": 1e300})
-            ),
-            "--- develop done"
-        );
-        assert_eq!(
-            said(
-                json!({"kind": "step-started", "stepNumber": 2, "stepTotal": {}, "label": "develop"})
-            ),
-            "--- step 2 develop started (round 1)"
         );
     }
 
     #[test]
-    fn the_driver_itself_and_other_lines_give_no_entry() {
-        assert_eq!(
-            rpc_line(&lifecycle(
-                json!({"kind": "dispatched", "role": "work-driver"})
-            )),
-            None
-        );
-        assert_eq!(rpc_line(&lifecycle(json!({"kind": "other"}))), None);
-        assert_eq!(rpc_line(&lifecycle(json!(null))), None);
+    fn unstable_unknown_and_other_lines_give_no_entry() {
+        let unstable = json!({"v": 1, "kind": "dispatch-failed", "unstable": true, "at": "2026-10-10T00:00:07Z",
+                              "event": {"role": "ops"}});
+        assert_eq!(progress_line(&unstable.to_string()), None);
+        let marked =
+            json!({"v": 1, "kind": "step-started", "unstable": true, "event": {"step": "x"}});
+        assert_eq!(progress_line(&marked.to_string()), None);
+        assert_eq!(progress_line(&progress("brand-new-kind", json!({}))), None);
+        let later = json!({"v": 2, "kind": "log", "message": "x"});
+        assert_eq!(progress_line(&later.to_string()), None);
         for line in [
             "",
             "not json",
+            "[WARN  tini (7)] Tini is not running as PID 1",
             "null",
             "7",
             "[]",
-            r#"{"type":"response"}"#,
-            r#"{"type":"entry_appended","entry":null}"#,
+            r#"{"type":"extension_ui_request","method":"notify","message":"x"}"#,
+            r#"{"v":1}"#,
         ] {
-            assert_eq!(rpc_line(line), None, "{line}");
+            assert_eq!(progress_line(line), None, "{line}");
         }
+    }
+
+    #[test]
+    fn the_key_of_a_line_is_read() {
+        assert_eq!(
+            progress_key(&progress("step-started", json!({}))).as_deref(),
+            Some("7:0:1")
+        );
+        assert_eq!(progress_key(r#"{"v":1,"kind":"log"}"#), None);
+        assert_eq!(progress_key("not json"), None);
     }
 
     fn message(m: Value) -> String {

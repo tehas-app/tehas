@@ -195,6 +195,7 @@ files=(
   "lib/live.sh|$TEHAS_HOME/lib/live.sh|644"
   "lib/update-steps.sh|$TEHAS_HOME/lib/update-steps.sh|644"
   "lib/edge.sh|$TEHAS_HOME/lib/edge.sh|644"
+  "lib/headless.sh|$TEHAS_HOME/lib/headless.sh|644"
   "lib/sandbox.sh|$TEHAS_HOME/lib/sandbox.sh|644"
   "lib/slice.sh|$TEHAS_HOME/lib/slice.sh|644"
   "lib/questions.sh|$TEHAS_HOME/lib/questions.sh|644"

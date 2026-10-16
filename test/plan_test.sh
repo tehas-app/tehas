@@ -26,6 +26,8 @@ git clone -q "$upstream" "$checkout"
 # The turn's workspace is gone when the turn is over, so the container notes
 # what it was handed there.
 t_stub docker 'if [ "$1" = info ]; then cat "$T/docker.info"; exit; fi
+# tehas work asks the image what it supports; one case runs it.
+case " $* " in *" --capabilities "*) cat "$T/caps.json" 2>/dev/null; exit ;; esac
 printf "%s\n" "$@" >"$T/calls/docker.args.$$"
 case " $* " in *" --mode "*)
   ws=$T/home/tehas/work/widget-plan-7
@@ -77,7 +79,7 @@ slice_good() {
 }
 limits="--cgroup-parent --memory --memory-swap --memory-reservation --cpus --pids-limit --cpu-shares"
 
-turn_args() { grep -l -x -e '--mode' "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
+turn_args() { grep -l -x -e '--mode' -e /opt/pi-rukas/bin/pi-rukas-headless "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
 after() { turn_args | awk -v flag="$1" 'prev == flag { print } { prev = $0 }'; }
 image="tehas/pi-rukas:uid$(id -u)"
 tail_of() { turn_args | sed -n "/^$(printf '%s' "$image" | sed 's/[\/.]/\\&/g')\$/,\$p" | tr '\n' ' '; }
@@ -205,8 +207,6 @@ GIT_TERMINAL_PROMPT
 CBM_CACHE_DIR
 PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS
 PI_ENSEMBLE_MAX_WORKSTREAMS
-PI_ENSEMBLE_NO_DOCKER_SOCKET
-PI_ENSEMBLE_NO_SSH
 PI_ENSEMBLE_PLAN_CACHE_TTL_MS
 PI_ENSEMBLE_SANDBOX_MODE
 PI_ENSEMBLE_SUBAGENT_MODEL
@@ -274,16 +274,21 @@ without_expiry() {
 }
 # A turn has a workspace and a transcripts directory of its own on the host.
 # They are mounted at the paths a cycle's are.
-t_case "docker is given what tehas work gives a cycle's container: only the name, the two directories of its own, the plan cache's expiry, the cycle's cid file and what pi is told differ"
-turn_args | options | without_expiry |
+t_case "docker is given what tehas work gives a cycle's container: only the name, the two directories of its own, the plan cache's expiry, the cycle's cid file, the input and what is run differ"
+turn_args | options | without_expiry | grep -v -x -e '-i' |
   sed -e "s|^$tree:|$ws-7:|" -e 's|/ensemble-runs/plan-7:|/ensemble-runs/issue-7:|' -e 's|widget-plan-7\.state|widget-7.state|' >"$T/plan.options"
 rm -f "$T"/calls/*
+# What the image says it supports: every input the container is given.
+jq -n '{contracts: {exitCodes: {version: 1}, resultSchema: {version: 3}, ndjson: {stable: {version: 1}}},
+  verbs: {work: {flags: ["--restart", "--json", "--timeout"]}},
+  inputs: [("SANDBOX_MODE", "WORKSPACE_ROOT", "MAX_WORKSTREAMS", "VERIFY_TIMEOUT_MS", "INTEGRATION_VERIFY_TIMEOUT_MS",
+    "SUBAGENT_MODEL", "SUBAGENT_PROVIDER") | {name: "PI_ENSEMBLE_\(.)", scope: "cycle"}]}' >"$T/caps.json"
 t_run "$T_ROOT/libexec/work 7"
 turn_args | options >"$T/work.options"
 t_eq "$([ -s "$T/work.options" ] && echo recorded)" recorded
 t_contains "$(turn_args)" "--cidfile"
 t_eq "$(cat "$T/plan.options")" "$(cat "$T/work.options")"
-t_eq "$(tail_of)" "$image pi --mode rpc --approve "
+t_eq "$(tail_of)" "$image /opt/pi-rukas/bin/pi-rukas-headless work 7 --timeout 360 --json "
 
 t_case "a later turn reopens the session and sends the answer as it was written"
 reset
