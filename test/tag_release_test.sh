@@ -127,9 +127,10 @@ t_eq "$t_rc" 64
 host() {
   t_stub ssh 'case "$*" in
   *rev-parse*) cat "'"$T"'/host_head" ;;
+  *"test -r"*) [ ! -e "'"$T"'/no_env" ] ;;
   *) exit "$(cat "'"$T"'/ssh_rc" 2>/dev/null || echo 0)" ;;
 esac'
-  rm -f "$T/ssh_rc"
+  rm -f "$T/ssh_rc" "$T/no_env"
   head_of >"$T/host_head"
 }
 
@@ -148,7 +149,8 @@ host
 t_run "$work/scripts/tag-deploy.sh tehas-tehas"
 t_eq "$t_rc" 0
 t_contains "$t_out" "tehas-tehas is at v0.1.0"
-t_eq "$(t_calls ssh)" "tehas-tehas . ~/tehas/env.sh && tehas update
+t_eq "$(t_calls ssh)" "tehas-tehas test -r ~/tehas/env.sh
+tehas-tehas . ~/tehas/env.sh && tehas update
 tehas-tehas git -C ~/tehas/platform rev-parse HEAD"
 
 t_case "deploy fails when the host ends up at another commit"
@@ -166,14 +168,15 @@ echo 1 >"$T/ssh_rc"
 t_run "$work/scripts/tag-deploy.sh tehas-tehas"
 t_eq "$t_rc" 1
 t_contains "$t_out" "exited 1"
-t_eq "$(t_calls ssh | wc -l)" 1
+t_eq "$(t_calls ssh | wc -l)" 2
 
 t_case "deploy --check runs the update's check and nothing else"
 fresh
 host
 t_run "$work/scripts/tag-deploy.sh --check tehas-tehas"
 t_eq "$t_rc" 0
-t_eq "$(t_calls ssh)" "tehas-tehas . ~/tehas/env.sh && tehas update --check"
+t_eq "$(t_calls ssh)" "tehas-tehas test -r ~/tehas/env.sh
+tehas-tehas . ~/tehas/env.sh && tehas update --check"
 
 t_case "deploy uses the ssh command TEHAS_SSH names"
 fresh
@@ -181,7 +184,16 @@ host
 T_ENV=(TEHAS_SSH="ssh -o BatchMode=yes")
 t_run "$work/scripts/tag-deploy.sh --check tehas-tehas"
 T_ENV=()
-t_eq "$(t_calls ssh)" "-o BatchMode=yes tehas-tehas . ~/tehas/env.sh && tehas update --check"
+t_eq "$(t_calls ssh | tail -n 1)" "-o BatchMode=yes tehas-tehas . ~/tehas/env.sh && tehas update --check"
+
+t_case "deploy stops with a clear line when the ssh user has no tehas, and updates nothing"
+fresh
+host
+: >"$T/no_env"
+t_run "$work/scripts/tag-deploy.sh tehas-tehas"
+t_eq "$t_rc" 1
+t_contains "$t_out" "tehas-tehas has no ~/tehas/env.sh for the ssh user"
+t_eq "$(t_calls ssh)" "tehas-tehas test -r ~/tehas/env.sh"
 
 t_case "deploy needs one destination"
 t_run "$work/scripts/tag-deploy.sh"

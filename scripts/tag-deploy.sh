@@ -4,8 +4,8 @@
 # The host updates with `tehas update`, which fast-forwards its platform
 # checkout to the head of its branch and installs that. So this deploys the tag
 # only when the tag is the head of the remote's default branch: it checks that
-# first and refuses otherwise, runs the update over ssh, then checks that the
-# host's checkout is at the tag.
+# first and refuses otherwise, checks that the ssh user has tehas, runs the
+# update over ssh, then checks that the host's checkout is at the tag.
 #
 # Usage: scripts/tag-deploy.sh [--check] [--remote <name>] <ssh destination>
 #   --check      run `tehas update --check` on the host: report, change nothing
@@ -16,8 +16,9 @@
 # Example: scripts/tag-deploy.sh tehas-tehas
 #
 # Exit: 0 the host is at the tag, or --check found nothing to do; 1 the tag is
-#       not the branch head, the update failed or --check found work, or the
-#       host ended up elsewhere; 64 a bad argument
+#       not the branch head, the host cannot be reached or the ssh user has no
+#       tehas, the update failed or --check found work, or the host ended up
+#       elsewhere; 64 a bad argument
 set -uo pipefail
 
 check=""
@@ -66,6 +67,17 @@ if [ "$tag_commit" != "$head" ]; then
   exit 1
 fi
 
+# A login as another account gets past ssh and then fails on a missing file,
+# which reads like a broken update.
+"${ssh_cmd[@]}" "$dest" 'test -r ~/tehas/env.sh'
+case $? in
+  0) ;;
+  255) echo "tag-deploy: cannot reach $dest over ssh" >&2; exit 1 ;;
+  *)
+    echo "tag-deploy: $dest has no ~/tehas/env.sh for the ssh user: log in as the account tehas runs as, through ~/.ssh/config or TEHAS_SSH" >&2
+    exit 1
+    ;;
+esac
 echo "tag-deploy: $tag to $dest${check:+ (check only)}" >&2
 "${ssh_cmd[@]}" "$dest" ". ~/tehas/env.sh && tehas update${check:+ --check}"
 rc=$?
