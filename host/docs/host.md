@@ -342,13 +342,25 @@ put in `~/.pi/agent`, read-only: the instance's, or the generic one in
 | `retry.provider.timeoutMs`       | 600000 | the HTTP idle timeout, 300000                |
 | `retry.provider.maxRetries`      | 8      | 0: a failed request is not retried           |
 | `retry.provider.maxRetryDelayMs` | 60000  | 60000                                        |
+| `retry.maxRetries`               | 10     | 3                                            |
+| `retry.baseDelayMs`              | 5000   | 2000                                         |
+| `retry.maxAgentDelayMs`          | 120000 | 60000                                        |
+
+The `retry.provider` keys retry one HTTP request. The other three are Pi's
+second layer: when a turn still ends in a retryable error, such as `429 no
+free slot`, the agent waits and runs the turn again, doubling the wait up to
+`maxAgentDelayMs`. Against a gateway that holds each request 20 s for a slot,
+Pi's defaults give up after about 80 s. These values keep trying for at least
+16 minutes. A busy model is a reason to wait, not to end the cycle. The
+dispatcher does not count model slots before it starts a cycle: how busy the
+model is changes faster than a poll.
 
 A product's own `.pi/settings.json` is merged over it, so a product can change
 these for its cycles. `tehas work` writes the values in effect to the cycle's
 preflight log and prints them:
 
 ```
-tehas work: provider retry: timeoutMs=600000 maxRetries=8 maxRetryDelayMs=60000 httpIdleTimeoutMs=unset
+tehas work: provider retry: timeoutMs=600000 maxRetries=8 maxRetryDelayMs=60000 httpIdleTimeoutMs=unset agentMaxRetries=10 agentBaseDelayMs=5000 agentMaxDelayMs=120000
 ```
 
 `unset` means Pi's default. Without `~/.pi/agent/settings.json`, `tehas work`,

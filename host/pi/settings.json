@@ -1,5 +1,8 @@
 {
   "retry": {
+    "maxRetries": 10,
+    "baseDelayMs": 5000,
+    "maxAgentDelayMs": 120000,
     "provider": {
       "timeoutMs": 600000,
       "maxRetries": 8,
