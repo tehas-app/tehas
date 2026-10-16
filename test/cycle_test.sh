@@ -1255,6 +1255,73 @@ capped step-failed:develop '{"kind":"dispatch-failed","at":2,"errorTail":"exit 1
 t_run "$cycle 7"
 t_lacks "$t_out" "no reason was found"
 
+# A result that carries its failure (features.failureReason): tehas work wrote
+# the failure into the progress, and its kind is what counts.
+failed() { # <cap> <failure kind> <reason>
+  ended handoff handoff feature/issue-7-x
+  jq --arg cap "$1" '.issues[0].cap = $cap' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
+  jq -n --arg k "$2" --arg r "$3" \
+    '{roles: [], reason: $r, failure: {kind: $k, step: "develop", role: "developer", cause: ""}, from: {roles: "result", failure: "result"}}' \
+    >"$fx/progress.json"
+}
+
+t_case "a failure of kind provider is an outage whatever the cap, and asks for one retry"
+reset
+failed developer-timeout provider "rate limited"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "Tehas cycle parked by a provider outage"
+t_contains "$(t_calls gh)" "cap \`developer-timeout\`: rate limited"
+t_eq "$(jq -c '[.cap, .reason, .provider, .retry]' "$state/7.park")" '["developer-timeout","rate limited",true,true]'
+
+t_case "a failure of another kind is no outage, even when its words look like one"
+for k in process timeout verify cap something-new; do
+  reset
+  failed step-failed:develop "$k" "502 Bad Gateway, connection timed out"
+  t_run "$cycle 7"
+  t_eq "$(jq -r .provider "$state/7.park")" false
+  t_lacks "$(t_calls gh)" "provider outage"
+  t_lacks "$t_out" "no reason was found"
+done
+
+t_case "the park comment names the result's failure, and not for a cap's own rule"
+reset
+failed step-failed:develop process "child exited 1"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "It failed: kind \`process\`, role \`developer\`: child exited 1."
+reset
+failed round-cap cap "round-cap"
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "It failed:"
+reset
+capped step-failed:develop '{"kind":"dispatch-failed","at":2,"errorTail":"3 assertions failed"}'
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "It failed:"
+
+t_case "a result that says it has no failure is no outage and no warning"
+reset
+ended handoff handoff feature/issue-7-x
+jq '.issues[0].cap = "step-failed:develop"' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
+echo '{"roles":[],"reason":"provider error","failure":null,"from":{"roles":"result","failure":"result"}}' >"$fx/progress.json"
+t_run "$cycle 7"
+t_eq "$(jq -r .provider "$state/7.park")" false
+t_lacks "$t_out" "no reason was found"
+
+t_case "the build commit of the result goes into the record, and only a full commit"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+ended handoff handoff feature/issue-7-x
+jq '.buildCommit = "1ca933e3cbbae6fff6f41d57973ba2af8ff805fd"' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$(jq -r .buildCommit "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" 1ca933e3cbbae6fff6f41d57973ba2af8ff805fd
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+ended handoff handoff feature/issue-7-x
+jq '.buildCommit = "1ca933e"' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$(jq -c .buildCommit "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" null
+
 t_case "the cap and its reason are reduced before they are posted or recorded"
 reset
 capped 'step-failed:adversarial`@x' '{"kind":"dispatch-failed-provider","at":2,"providerMessage":"provider error `@alice` <!-- #5\nnext line"}'

@@ -508,11 +508,40 @@ its own login stops there and does nothing else.
 
 ## Pause and resume
 
-Apply **`tehas:pause`** to the control issue, the one `TEHAS_CONTROL_ISSUE`
-names (in the example, issue 1). No new cycle starts while it is there. A cycle
-already running finishes. The same label also stops planning turns, answers
-to planning questions and retries by a tick, because the poll ends before it
-reaches them. Remove the label to resume.
+Two switches stop the factory. Either one is enough.
+
+**`tehas pause [reason]`** sets the switch on this host: a flag,
+`~/tehas/state/pause.json`, holding who set it, when and why, in a file only the
+account that ran the command can read. It asks GitHub nothing, so a host can be
+paused when GitHub cannot be reached. `tehas pause` again succeeds and keeps the
+first flag. **`tehas resume`** removes it, and says so when the factory stays
+paused for the other switch.
+
+**`tehas:pause`** on the control issue, the one `TEHAS_CONTROL_ISSUE` names (in
+the example, issue 1), is the switch that works from away from the host. It works
+one way. Anyone who may label the repository may apply it, because stopping is
+the safe direction. Only an account in `TEHAS_ALLOWED_LABELERS` lifts it: when
+the label is gone and the `tehas:pause` event with the latest stamp on the
+control issue is a removal by anyone else, names nobody, or is an application no
+event took back, the poll starts nothing and says what it found. Deleting or
+renaming the label itself is the last of those: no account was asked to lift the
+pause, so it holds. To resume from away, an allowed account applies
+`tehas:pause` and takes it off again. A poll that cannot read the control issue's
+label events starts nothing.
+
+While either switch is set the poll starts nothing: no cycle, no planning turn,
+no answer to a planning question, no retry by a tick. A cycle already running
+finishes, and the poll still gives up work that is finished: it stops a cycle
+whose issue is closed or whose pull request is merged or closed, stops one nobody
+has heard from, and clears an issue marked `tehas:running` with no cycle behind
+it. A paused factory therefore keeps no slot and no model time for work it has
+already done. `tehas status` prints a line for each switch that is set, with when the
+flag was written and why; the dashboard and the front page say the factory is
+paused and, while a cycle is still running, that it is finishing that issue.
+
+The reason is written to the flag and shown on pages that may be public, so write
+nothing in it that should not be read in public. The account that set the flag is
+not published.
 
 ## Limits that hold work back
 
@@ -637,10 +666,11 @@ stack is filed as an issue of its own in that repository.
   later cycle of a product issue is read and an issue the loop filed rests on
   an earlier cycle of it, the model says whether the problem came back. That
   is a comment on the filed issue, open or closed: `Seen again: yes` or `no`,
-  what the new cycle showed, its whole log, and the pi-rukas commit the host
-  was installed with. Of a closed issue in the repository for pi-rukas, the
-  loop asks GitHub whether the commit that closed it is in that pi-rukas
-  commit, the question `git merge-base --is-ancestor` answers. When it is
+  what the new cycle showed, its whole log, and the pi-rukas commit the cycle
+  ran: the `buildCommit` of its runner's result, or for a record written
+  before tehas kept it, the sandbox image's label. Of a closed issue in the
+  repository for pi-rukas, the loop asks GitHub whether the commit that closed
+  it is in that pi-rukas commit, the question `git merge-base --is-ancestor` answers. When it is
   not, the comment says `not in this build` instead of `yes`. When the
   record names no commit, or GitHub does not answer, it says `build unknown`.
   The record names no commit of the factory, so an issue there that a

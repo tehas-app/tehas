@@ -68,15 +68,17 @@ RUN cd /opt/pin/playwright \
 ARG PI_RUKAS_COMMIT=""
 
 # Whether the pi-rukas in the base reads the manifest tehas writes beside the
-# images it mounts for a cycle. The reader is a file of pi-rukas's own source,
-# and the base image carries that source, so the base can be asked directly.
-# build.sh asks it and passes what it found; this checks that answer against
-# the base actually being built on, so the label cannot disagree with the
-# image. An image built without build.sh says nothing, and tehas reads that as
-# "not said" rather than as an answer. Last, like the commit above.
+# images it mounts for a cycle: its --capabilities answer lists
+# PI_ENSEMBLE_ISSUE_IMAGES for manifest format 1. build.sh asks it and passes
+# what it found; this asks the base actually being built on, so the label
+# cannot disagree with the image. An image built without build.sh says
+# nothing, and tehas reads that as "not said" rather than as an answer. Last,
+# like the commit above.
 ARG TEHAS_RUKAS_IMAGES=unknown
-RUN given=${TEHAS_RUKAS_IMAGES:-unknown}; reads=0; \
-    if test -e /opt/pi-rukas/extension/src/work-driver-issue-images.ts; then reads=1; fi; \
+RUN given=${TEHAS_RUKAS_IMAGES:-unknown}; \
+    caps=$(/opt/pi-rukas/bin/pi-rukas-headless --capabilities 2>/dev/null) \
+      && reads=$(printf '%s' "$caps" | jq -e -r 'if any(.inputs[]? | objects; .name == "PI_ENSEMBLE_ISSUE_IMAGES" and .manifestVersion == 1) then 1 else 0 end') \
+      || { echo "sandbox: the base image gave no --capabilities answer" >&2; exit 1; }; \
     echo "sandbox: the base image's pi-rukas $reads issue images"; \
     if [ "$given" = unknown ]; then exit 0; fi; \
     if [ "$given" != "$reads" ]; then \

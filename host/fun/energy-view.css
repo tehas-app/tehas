@@ -59,9 +59,11 @@
 
 /* The live meter: mounted on the head panel at its right end, there only while
    the mesh reports. It costs width, so its column is a number of its own:
-   336px on a wide screen, which is the column above the work order monitor;
-   240px from 900 to 1279px; and below 900px the panel cannot hold the text
-   beside it, so the meter lies across the foot of the panel at its full width.
+   336px where the stage has its monitor column, which is the column above the
+   work order monitor; 240px from 900px up to the width where the stage is one
+   column, the same band game-view.css gives the stage; and below 900px the
+   panel cannot hold the text beside it, so the meter lies across the foot of
+   the panel at its full width.
    Topaz advances half an em, and a token rate under a million a minute shows
    at most five figures, so the widest line needs 212px: 176 of the line
    itself, 32 of padding on its two sides and the 4px rule beside it. Below
@@ -101,9 +103,12 @@
 .floor-head > #floor-summary { grid-area: foot; }
 .floor-meter { grid-area: meter; border-left: 4px solid var(--outline); }
 
-@media (max-width: 1279px) {
-  /* The stage is one column here, so the meter no longer lines up with the
-     monitor. It keeps a column wide enough for its widest line. */
+/* The band where the stage has no monitor column: written as the negation of
+   the width game-view.css gives the stage its column, so no width sits between
+   the two. */
+@media not all and (min-width: 1440px) {
+  /* The stage has no monitor column here, so the meter lines up with nothing.
+     It keeps a column wide enough for its widest line. */
   .floor-head:has(> .floor-meter:not([hidden])) { --meter-column: 240px; }
 }
 
@@ -118,7 +123,8 @@
   .floor-meter { border-top: 4px solid var(--outline); border-left: 0; }
 }
 
-/* Wide: the screen and the models side by side, the machines beneath. */
+/* From 1280px, the width this page's own grid needs: the screen and the models
+   side by side, the machines beneath. */
 @media (min-width: 1280px) {
   .energy-body {
     display: grid;

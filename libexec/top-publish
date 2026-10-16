@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
 # Write the dashboard's host file: $TEHAS_HOME/live/top.json.
 #
-# The snapshot behind `tehas top` (lib/top.sh), with the host section and
-# without the console key: the page already has the console of a cycle from its
-# own file, and a second copy of it here would be one more thing to keep in
-# step. Same function, same format, so the terminal and this file cannot drift.
+# The snapshot behind `tehas top` (lib/top.sh), cut to the keys that may be
+# published (tehas_top_publish_keys in the same library) and nothing else: the
+# page already has the console of a cycle from its own file, and a second copy
+# of it here would be one more thing to keep in step. Same function for the
+# snapshot, so the terminal and this file cannot drift.
 #
 # The dashboard can be on the internet, and so is this file. What it holds: the
 # health line and the queue counts, the issues behind them, the cycles, the
 # units of the factory, the energy sample, and the host - cpus, load averages,
 # cpu use, memory, and the processes that used the most CPU, named by their
 # short command name only. No command line, no user name, no working directory,
-# no environment, no address, nothing read from inside a container.
+# no environment, no address, nothing read from inside a container, and none of
+# the raw figures a host section was computed from. A key added to the snapshot
+# later is not here until someone says it may be.
 #
 # It loads the instance settings first and stops with 78 when they are missing
 # or malformed. TEHAS_TOP=1 in instance.env turns it on; unset or 0 removes the
@@ -71,9 +74,9 @@ fi
 
 mkdir -p "$live" || { echo "tehasbot top: could not create $live" >&2; exit 1; }
 
-# Two readings a second apart, so the CPU figures are what changed between them.
+# No reading from the run before: this one takes two, a second apart.
 snapshot=$(tehas_top_snapshot 0) || { echo "tehasbot top: no snapshot" >&2; exit 1; }
-jq -c 'del(.console)' <<<"$snapshot" >"$file.new" 2>/dev/null ||
+tehas_top_published "$snapshot" >"$file.new" 2>/dev/null ||
   { rm -f "$file.new"; echo "tehasbot top: could not write $file" >&2; exit 1; }
 mv -f "$file.new" "$file" ||
   { rm -f "$file.new"; echo "tehasbot top: could not write $file" >&2; exit 1; }

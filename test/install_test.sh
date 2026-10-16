@@ -96,9 +96,11 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/libexec/improve
 ./tehas/libexec/index
 ./tehas/libexec/labels
+./tehas/libexec/pause
 ./tehas/libexec/plan
 ./tehas/libexec/preview
 ./tehas/libexec/protolab
+./tehas/libexec/resume
 ./tehas/libexec/status
 ./tehas/libexec/summary
 ./tehas/libexec/top
@@ -138,6 +140,8 @@ instance
 t_run "$install"
 t_eq "$t_rc" 0
 t_eq "$(core_files)" "$(sorted "$files")"
+# The two pause commands are installed beside the other commands, ready to run.
+t_eq "$([ -x "$th/libexec/pause" ] && [ -x "$th/libexec/resume" ] && echo both)" "both"
 # The follow-ups these copies call for are asked for by id and recorded as owed.
 t_eq "$(printf '%s\n' "$t_out" | sed -n 's/^next: //p')" "$(next_steps)"
 t_eq "$(cat "$th/state/update-pending")" "$(next_steps)"

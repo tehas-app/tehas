@@ -9,7 +9,16 @@
 # cycle that died is never counted.
 #
 #   tehas_cycle_running <issue>   0 if that issue's cycle holds its lock
+#   tehas_cycle_lock_free <issue> 0 only when the poll can tell the lock is
+#                                 free: no lock file, or one it can take. It is
+#                                 not 0 when the probe could not tell.
 #   tehas_cycles_running          the issues with a running cycle, one per line
+#   tehas_cycle_note_files <ext>  the files state/cycles/<issue>.<ext>, one per
+#                                 line, that name an issue and are plain files
+#                                 and no link: the per-issue leftovers a command
+#                                 may read or remove. A stray name, a directory
+#                                 or a link is no issue's file and is not
+#                                 listed, so nothing acts on it.
 #   park_id <issue>               the path of the file that holds the id of
 #                                 the park question this host posted
 #   tehas_rukas_commit            the pi-rukas commit a cycle started now runs
@@ -28,6 +37,13 @@ tehas_cycle_running() {
   [ -e "$lock" ] && ! flock -n "$lock" true
 }
 
+tehas_cycle_lock_free() {
+  local lock=$TEHAS_HOME/state/cycles/$1.lock
+  [ -e "$lock" ] || return 0
+  [ -f "$lock" ] && [ ! -L "$lock" ] || return 1
+  flock -n "$lock" true
+}
+
 tehas_cycles_running() {
   local lock n
   for lock in "$TEHAS_HOME"/state/cycles/*.lock; do
@@ -35,6 +51,18 @@ tehas_cycles_running() {
     n=${lock##*/}
     n=${n%.lock}
     if tehas_cycle_running "$n"; then printf '%s\n' "$n"; fi
+  done
+  return 0
+}
+
+tehas_cycle_note_files() {
+  local f n
+  for f in "$TEHAS_HOME"/state/cycles/*."$1"; do
+    [ -e "$f" ] || continue
+    n=${f##*/}
+    n=${n%."$1"}
+    [[ $n =~ ^[1-9][0-9]*$ ]] && [ -f "$f" ] && [ ! -L "$f" ] || continue
+    printf '%s\n' "$f"
   done
   return 0
 }

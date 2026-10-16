@@ -82,6 +82,14 @@ lib "tehas_improve_record 7 $started 0 handoff review"
 t_eq "$(jq -c .rukas "$base/window/$REC/cycle.json")" null
 rm -rf "$home/state/cycles" "$home/versions.env"
 
+t_case "the build commit of the runner's result is recorded beside the label's, and only a full commit"
+cycle_log
+lib "tehas_improve_record 7 $started 0 handoff review '' 0 '' aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa '' '' 1ca933e3cbbae6fff6f41d57973ba2af8ff805fd"
+t_eq "$(jq -c '[.rukas, .buildCommit]' "$base/window/$REC/cycle.json")" '["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","1ca933e3cbbae6fff6f41d57973ba2af8ff805fd"]'
+cycle_log
+lib "tehas_improve_record 7 $started 0 handoff review '' 0 '' '' '' '' 1ca933e"
+t_eq "$(jq -c .buildCommit "$base/window/$REC/cycle.json")" null
+
 t_case "the image and its commit, as the container started, win over both"
 mkdir -p "$home/state/cycles"
 echo fedcba9876543210fedcba9876543210fedcba98 >"$home/state/cycles/7.rukas"
@@ -1052,6 +1060,17 @@ for st in ahead identical; do
   t_run "$improve"
   t_contains "$(cat "$T/calls/comment-12")" "**Seen again:** yes, with the fix \`abcdefabcdef\` in this build"
 done
+
+t_case "the fix is checked against the runner's build commit when the record has one, not the label's"
+closed_again
+jq -c '. + {buildCommit: "1ca933e3cbbae6fff6f41d57973ba2af8ff805fd"}' "$base/window/$REC/cycle.json" >"$fx/c.json"
+mv "$fx/c.json" "$base/window/$REC/cycle.json"
+echo behind >"$fx/compare"
+t_run "$improve"
+t_contains "$(t_calls gh)" "api repos/acme/rukas/compare/$FIX...1ca933e3cbbae6fff6f41d57973ba2af8ff805fd"
+t_lacks "$(t_calls gh)" "compare/$FIX...0123456789abcdef"
+t_contains "$(cat "$T/calls/comment-12")" "with pi-rukas at \`1ca933e3cbbae6fff6f41d57973ba2af8ff805fd\`"
+t_contains "$(cat "$T/calls/comment-12")" "not in this build: the fix \`abcdefabcdef\` is not in \`1ca933e3cbba\`"
 
 t_case "not seen in a build without the fix says so"
 closed_again

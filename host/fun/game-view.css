@@ -188,9 +188,16 @@ body[data-factory="live"] .console-state::before {
 .menu a:hover, .repo:hover { text-decoration: underline; text-underline-offset: 4px; }
 .repo { text-decoration: underline; text-underline-offset: 4px; }
 
-/* The stage. Wide: the floor, the doors and the board in one column with the
-   work order monitor fixed beside them, so the first screen is the whole
-   status. Narrow: one column, the stations stacked. */
+/* The stage, and the widths it is read at. The boundary is named once here and
+   written where a rule needs it:
+   1440px and up: wide. The floor, the doors and the board in one column with
+     the work order monitor fixed beside them, so the first screen is the whole
+     status. game-view.js asks for this same width before it centres the first
+     screen, and energy-view.css gives the meter its column at it.
+   below 1440px: one column, every panel filling it, the monitor a panel too.
+   below 1280px: the stations stack, one sign per row.
+   test/front_page_test.sh reads the width out of each place that writes one and
+   fails where they disagree. */
 
 .stage {
   display: grid;
@@ -210,6 +217,9 @@ body[data-factory="live"] .console-state::before {
   margin: 0 auto;
   padding: 0 24px;
 }
+/* Wide only: the floor and the desk are contents, so their children are the
+   stage's items and the areas named below are theirs. A band that makes either
+   one a panel of its own names that panel instead and those areas stand empty. */
 .floor, .desk { display: contents; }
 /* --fold-pad and --fold-gap are set by fitFold() in game-view.js, from the
    numbers in fold-fit.js, so the first screen sits centred in the window and
@@ -621,11 +631,33 @@ body[data-factory="live"] .console-state::before {
 .credit { max-width: 80ch; margin: 16px auto 0; text-align: center; color: var(--slate); }
 .credit a { color: var(--ink); text-underline-offset: 4px; }
 
-/* Below the width that fits four stations and the monitor side by side, the
-   page is one column. */
+/* Below the width that fits four stations and the monitor side by side the
+   stage is one column and every panel fills it. The work order gives up its
+   column here; the stations keep their row until the narrower band below.
+   The band is the negation of the width game-view.js asks for, so no width sits
+   between the stylesheet and the script. */
 
-/* Just above the single-column width the header is tight: close the gaps so it
-   stays on one row. */
+@media not all and (min-width: 1440px) {
+  /* The template names every row it draws, PROTOLAB and the console included.
+     A panel that names no area is placed after the named ones, and on a host
+     that shows the energy and host panels every row up to the breakroom is
+     taken: lab and the console would be dropped below the breakroom. */
+  .stage {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "floor" "doors" "desk" "lab" "console" "energy" "host" "break";
+  }
+  .floor { display: block; grid-area: floor; }
+  /* Here the work order is a panel in the column: it scrolls away with the
+     board instead of travelling under the header, and it fills the column as
+     the board does. */
+  .desk { display: block; grid-area: desk; padding-top: 72px; }
+  .monitor { position: static; display: block; min-height: 0; }
+  .screen { min-height: 0; }
+  .monitor-base { display: none; }
+}
+
+/* Just above the width where the menu takes a row of its own the header is
+   tight: close the gaps so it stays on one row. */
 @media (min-width: 1280px) and (max-width: 1359px) {
   .topbar, .menu { gap: 0 12px; }
   .topbar > .gate { margin-left: 0; }
@@ -646,26 +678,15 @@ body[data-factory="live"] .console-state::before {
   .topbar-short > .menu { overflow-x: auto; scrollbar-width: none; }
   .topbar-short > .menu::-webkit-scrollbar { display: none; }
   .topbar > .gate { margin-left: auto; }
-  .stage {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "floor" "doors" "desk" "energy" "host" "break";
-  }
-  .floor { display: block; grid-area: floor; }
-  .floor-head, .line { grid-area: auto; }
   .floor-head { margin-top: 24px; }
-  /* Here the work order is a panel in the column: it scrolls away with the
-     board instead of travelling under the header. */
-  .desk { display: block; grid-area: desk; padding-top: 72px; }
-  .monitor { position: static; display: block; min-height: 0; max-width: 720px; }
-  .screen { min-height: 0; }
-  .monitor-base { display: none; }
-  .board-wrap { margin-top: 40px; }
-  .lab { grid-area: auto; margin-top: 40px; }
-  .console { grid-area: auto; margin-top: 40px; }
+  /* The stack is read as one run of panels here, so the gaps between them close
+     to one grid step under the wide stage's. */
+  .board-wrap, .lab, .console, .doors { margin-top: 40px; }
 
+  /* Four signs no longer fit side by side: each turns sideways, its scene at the
+     native 240 by 130 beside the text. */
   .stations { grid-template-columns: minmax(0, 1fr); gap: 24px; }
   .sign {
-    max-width: 720px;
     display: grid;
     grid-template-columns: 248px minmax(0, 1fr);
     grid-template-rows: auto auto 1fr auto;
@@ -674,7 +695,6 @@ body[data-factory="live"] .console-state::before {
   .scene { grid-row: 1 / -1; width: 240px; align-self: start; }
   .sign h2 { margin-top: 0; }
   .slot { min-height: 0; }
-  .doors { margin-top: 40px; max-width: 720px; }
 }
 
 @media (max-width: 899px) {
@@ -696,7 +716,7 @@ body[data-factory="live"] .console-state::before {
   .brand img { width: 80px; height: 40px; }
   .brand span { display: none; }
 
-  .sign { display: flex; max-width: none; }
+  .sign { display: flex; }
   .scene { width: calc(100% - 8px); }
   .sign h2 { margin-top: 8px; }
 

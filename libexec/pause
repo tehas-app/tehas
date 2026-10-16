@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# tehas pause: stop this factory from starting new work, from this host.
+#
+# The pause flag is one file, $TEHAS_HOME/state/pause.json, holding who set it,
+# when and why. While it is there the dispatcher does its housekeeping and
+# starts no cycle: a cycle already running finishes. The flag needs no call to
+# GitHub, so a host can be paused when GitHub cannot be reached, and pausing a
+# paused host changes nothing. tehas resume lifts it.
+#
+# The other switch is the label tehas:pause on the control issue, which works
+# from away from the host. Anyone who may label may apply it; only an account in
+# TEHAS_ALLOWED_LABELERS lifts it. Both switches are reported by tehas status
+# and on the dashboard.
+#
+# Usage: tehas pause [reason]
+#        tehas pause -h|--help   print this text and exit 0
+#
+# The reason is one argument, kept to 200 characters on one line: a control
+# character in it becomes a space, because tehas status prints one fact per line
+# and a newline in the reason would print a line that is not there. It is written
+# to the flag and shown by tehas status and on the dashboard, which may be
+# public: write nothing in it that should not be read in public.
+#
+# Exit: 0 the host is paused (this command wrote the flag, or it was already
+# there and is kept as it was); 64 more than one argument; 78 the instance
+# settings are missing or malformed, which writes nothing.
+#
+# Instance settings (lib/config.sh): none beyond a valid instance. The flag is
+# mode 600, so only the account that runs this command reads it.
+set -uo pipefail
+
+show_usage() {
+  sed -n '2,/^[^#]/p' "$0" | sed -n '/^#/s/^# \{0,1\}//p'
+}
+
+case "${1-}" in
+  -h | --help)
+    [ "$#" = 1 ] || { echo "usage: tehas pause [reason]" >&2; exit 64; }
+    show_usage
+    exit 0
+    ;;
+esac
+[ "$#" -le 1 ] || { echo "usage: tehas pause [reason]" >&2; exit 64; }
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/config.sh
+. "$here/../lib/config.sh"
+tehas_load || exit 78
+# shellcheck source=lib/status.sh
+. "$here/../lib/status.sh"
+
+flag=$TEHAS_HOME/state/pause.json
+reason=${1-}
+# One line before one length: tehas status and the health file are line oriented,
+# so a reason carrying a newline would forge a line of its own. LC_ALL=C keeps
+# tr on bytes, which leaves every byte of a UTF-8 character alone.
+reason=$(printf '%s' "$reason" | LC_ALL=C tr '\001-\037\177' '   ')
+reason=$(printf '%s' "$reason" | LC_ALL=C tr -s ' ')
+reason=${reason# }
+reason=${reason:0:200}
+
+# The first pause wins: pausing a paused factory says what is already the case
+# and leaves the flag alone. A file that is not a pause flag holds no flag to
+# keep, so it is replaced with one that can be read.
+have=$(tehas_pause_read "$flag")
+case $? in
+  0)
+    printf 'already paused at %s by %s' "$(jq -r .at <<<"$have")" "$(jq -r .by <<<"$have")"
+    [ -z "$(jq -r .reason <<<"$have")" ] || printf ': %s' "$(jq -r .reason <<<"$have")"
+    printf '\nthe flag is unchanged: %s\n' "$flag"
+    exit 0
+    ;;
+  2) echo "tehas pause: $flag is not a pause flag; writing a new one" >&2 ;;
+esac
+if [ -d "$flag" ]; then
+  echo "tehas pause: $flag is a directory, not a flag" >&2
+  exit 1
+fi
+
+mkdir -p "${flag%/*}" || { echo "tehas pause: could not create ${flag%/*}" >&2; exit 1; }
+now=$(date -u +%FT%TZ)
+by=$(id -un)
+tmp=$flag.new
+# The name is fixed, so clear it first: a leftover from a crash, or something
+# planted in state/, would otherwise be truncated in place with its old mode, or
+# followed as a symlink, or fail as a directory.
+rm -f "$tmp" || { echo "tehas pause: could not remove $tmp" >&2; exit 1; }
+if ! (umask 077; jq -nc --arg by "$by" --arg at "$now" --arg reason "$reason" '{by: $by, at: $at, reason: $reason}' >"$tmp"); then
+  rm -f "$tmp"
+  echo "tehas pause: could not write $tmp" >&2
+  exit 1
+fi
+if ! mv "$tmp" "$flag"; then
+  rm -f "$tmp"
+  echo "tehas pause: could not put $tmp in place as $flag" >&2
+  exit 1
+fi
+
+printf 'paused at %s by %s' "$now" "$by"
+[ -z "$reason" ] || printf ': %s' "$reason"
+printf '\nno new cycle starts on this host: %s\n' "$flag"

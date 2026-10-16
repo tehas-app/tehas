@@ -205,10 +205,13 @@
 # product's gate may take, which can print nothing.
 #
 # The console and the dashboard's line are fed from the stable kinds of the
-# runner's NDJSON only. At the end, the per-role usage of the stable
-# dispatch-completed lines goes to state/cycles/<issue>.progress.json for the
-# report, with the reason of the last cap. The runner's result has no reason, so
-# that one is read from lines the runner marks unstable, and may be empty.
+# runner's NDJSON only. At the end, the per-role usage and why the cycle
+# stopped at its cap go to state/cycles/<issue>.progress.json for the report
+# (tehas_headless_progress). They come from the result where the image's
+# --capabilities answer says it carries them (features.usageByRole,
+# features.failureReason). An image that does not (v0.12.80) gives the usage
+# of the stable dispatch-completed lines and a reason read from lines the
+# runner marks unstable, which may be empty.
 set -uo pipefail
 
 issue=${1:-}
@@ -705,7 +708,7 @@ step=$(jq -r '[.failedStep, .lastStep] | map(strings | select(. != "")) | first 
 step=${step:--}
 now_file false "$status"
 cp "$result_file" "$log.result.json" 2>/dev/null || true
-tehas_headless_progress "$log" >"$progress_file" || echo "tehas work: could not write $progress_file" >&2
+tehas_headless_progress "$log" "$caps" "$result_file" "$issue" >"$progress_file" || echo "tehas work: could not write $progress_file" >&2
 cap=$(jq -r '.cap // ""' <<<"$outcome" 2>/dev/null)
 echo "tehas work: issue=$issue status=$status step=$step cap=${cap:--} runner_exit=$rc seconds=$(($(date +%s) - started))"
 

@@ -397,6 +397,24 @@ t_eq "$t_rc" 2
 t_lacks "$t_out" "does not support"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 
+t_case "a role the image does not list as a member of its family stops the cycle: 78, named"
+caps_fresh
+jq '(.inputs[] | select(.name == "PI_ENSEMBLE_MODEL_<ROLE>" or .name == "PI_ENSEMBLE_PROVIDER_<ROLE>")) += {members: ["OPS"]}' \
+  "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_MODEL_DEVELOPER=big
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_contains "$t_out" "the input PI_ENSEMBLE_MODEL_DEVELOPER"
+t_contains "$t_out" "the input PI_ENSEMBLE_PROVIDER_DEVELOPER"
+t_eq "$(ls "$ws" 2>/dev/null)" ""
+caps_fresh
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_MODEL_OPS=big
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_lacks "$t_out" "does not support"
+caps_good
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+
 t_case "the switches of pi-rukas's own docker wrapper are not given to the container"
 t_lacks "$(after -e)" "PI_ENSEMBLE_NO_DOCKER_SOCKET"
 t_lacks "$(after -e)" "PI_ENSEMBLE_NO_SSH"
@@ -869,6 +887,19 @@ says handoff step-failed:develop; exit 10"
 t_run "$work 7"
 t_eq "$(jq -c '.roles' "$progress_file")" '[{"role":"developer","dispatches":2,"turns":4,"input":20,"output":8,"cacheRead":2},{"role":"opsx","dispatches":1,"turns":2,"input":10,"output":4,"cacheRead":1}]'
 t_eq "$(jq -r '.reason' "$progress_file")" "502 Bad Gateway"
+
+t_case "where the image says its result carries them, the usage per role and the failure come from the result"
+fresh
+jq '.features += {failureReason: true, usageByRole: true}' "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
+container "progress '$(done_line 7:1:1 liar)'
+progress '{\"v\":1,\"kind\":\"dispatch-failed-provider\",\"unstable\":true,\"event\":{\"providerMessage\":\"from the progress\"}}'
+echo '{\"schemaVersion\":3,\"buildCommit\":null,\"exitCode\":10,\"issues\":[{\"issue\":7,\"status\":\"handoff\",\"cap\":\"step-failed:develop\",\"failure\":{\"kind\":\"provider\",\"message\":\"m\",\"providerMessage\":\"503 from the result\"},\"usage\":{\"dispatches\":1,\"byRole\":{\"developer\":{\"input\":3,\"output\":1,\"cacheRead\":0,\"turns\":2,\"dispatches\":1}}},\"exitCode\":10}]}'
+exit 10"
+t_run "$work 7"
+t_eq "$t_rc" 10
+t_eq "$(jq -c '.roles' "$progress_file")" '[{"role":"developer","dispatches":1,"turns":2,"input":3,"output":1,"cacheRead":0}]'
+t_eq "$(jq -c '[.reason, .failure.kind, .from]' "$progress_file")" '["503 from the result","provider",{"roles":"result","failure":"result"}]'
+caps_good
 
 t_case "a container that exits 137 with no result is reported as killed and the command exits 137"
 fresh

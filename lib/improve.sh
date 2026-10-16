@@ -6,7 +6,7 @@
 #
 #   tehas_improve_on       is the loop switched on for this instance?
 #   tehas_improve_dir      print where records wait
-#   tehas_improve_record <issue> <started> <rc> <status> <step> [<pr> [<kills> [<image> [<rukas> [<cap> [<reason>]]]]]]
+#   tehas_improve_record <issue> <started> <rc> <status> <step> [<pr> [<kills> [<image> [<rukas> [<cap> [<reason> [<build>]]]]]]]
 #                          write the record of a cycle that has ended. <kills>
 #                          is how many processes in its container were killed
 #                          for memory, oomKills in cycle.json; anything but a
@@ -14,7 +14,9 @@
 #                          of the image the container started from and the
 #                          pi-rukas commit of its label, image and rukas.
 #                          <cap> and <reason> are what ended the cycle, cap
-#                          and capReason
+#                          and capReason. <build> is the commit the runner's
+#                          result names (buildCommit), the build a fix is
+#                          checked against
 #   tehas_improve_settings <file> <concurrent> <docker options>...
 #                          write what a cycle ran with, for its record: the
 #                          PI_ENSEMBLE_* variables the -e options give the
@@ -49,10 +51,11 @@ _tehas_improve_condense='
   | if .type == "extension_ui_request" then del(.id) else . end
   | walk(if type == "string" and length > 2000 then .[0:2000] + " [cut]" else . end)'
 
-tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills> [<image> [<rukas> [<cap> [<reason>]]]]]]
+tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills> [<image> [<rukas> [<cap> [<reason> [<build>]]]]]]]
   tehas_improve_on || return 0
   local issue=$1 started=$2 rc=$3 status=$4 step=$5 pr=${6:-} kills=${7:-0} image=${8:-} rukas=${9:-} base raw rec tmp f from
-  local cap reason settings retry
+  local cap reason settings retry build=${12:-}
+  [[ $build =~ ^[0-9a-f]{40}$ ]] || build=""
   cap=$(tr -cd 'A-Za-z0-9_.:-' <<<"${10:-}" | head -c 80)
   reason=$(tr -cd 'A-Za-z0-9 _.,:;/()=+-' <<<"${11:-}" | head -c 200)
   [[ $kills =~ ^(0|[1-9][0-9]{0,8})$ ]] || kills=0
@@ -89,10 +92,11 @@ tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills>
   if ! jq -n --argjson issue "$issue" --argjson started "$started" --argjson rc "$rc" \
     --argjson ended "$(date +%s)" --arg status "$status" --arg step "$step" --arg pr "$pr" \
     --arg log "$(basename "$raw")" --argjson kills "$kills" --arg rukas "$rukas" --arg image "$image" \
-    --arg cap "$cap" --arg reason "$reason" --argjson settings "$settings" --arg retry "$retry" '
+    --arg cap "$cap" --arg reason "$reason" --arg build "$build" --argjson settings "$settings" --arg retry "$retry" '
       {issue: $issue, started: $started, seconds: ($ended - $started), status: $status,
        step: $step, rc: $rc, pr: (if $pr == "" then null else $pr end), log: $log,
        oomKills: $kills, rukas: (if $rukas == "" then null else $rukas end),
+       buildCommit: (if $build == "" then null else $build end),
        image: (if $image == "" then null else $image end),
        cap: (if $cap == "" then null else $cap end), capReason: (if $reason == "" then null else $reason end),
        settings: (if $settings == null then null else {container: $settings.container, host: $settings.host} end),
