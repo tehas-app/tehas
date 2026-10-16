@@ -23,7 +23,9 @@
 # and builds nothing. A console that does not build stops a real run before
 # it changes anything.
 #
-# It does not start the dispatcher or the docs server, rebuild the sandbox image or touch secrets (~/.config/tehas/env); the
+# It does not start the dispatcher or the docs server, rebuild the sandbox
+# image or write secrets. It reads the model endpoints' tokens from
+# ~/.config/tehas/env, to check the ones models.json names; the
 # follow-up steps are printed when their inputs changed. A replaced file is
 # kept next to the new one as <name>.prev. Each file is copied to <name>.new
 # and renamed over the installed one.
@@ -89,6 +91,21 @@ check=0
 [ "${1:-}" = "--check" ] && check=1
 # Read before tehas_load, which drops it from the environment.
 update_fd=${TEHAS_UPDATE_LOCK_FD:-}
+# The model endpoints' tokens, from the file env.sh reads them from. The shell
+# that runs this may not have them: a first install has no env.sh yet, and an
+# update runs under the loader of the version before, which may drop them.
+# The file is read as env.sh reads it, in a subshell, and only the
+# TEHAS_MODEL_KEY_ variables are taken from it.
+if [ -r "$HOME/.config/tehas/env" ]; then
+  while IFS= read -r -d '' kv; do
+    export "${kv?}"
+  done < <(
+    set -a
+    # shellcheck disable=SC1091
+    . "$HOME/.config/tehas/env" >/dev/null 2>&1
+    for v in ${!TEHAS_MODEL_KEY_@}; do printf '%s=%s\0' "$v" "${!v}"; done
+  )
+fi
 
 # shellcheck source=lib/config.sh
 . "$root/lib/config.sh"

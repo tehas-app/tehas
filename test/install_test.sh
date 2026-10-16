@@ -543,6 +543,16 @@ t_lacks "$t_out" "TEHAS_MODEL_KEY_MAIN"
 t_lacks "$t_out" "main-secret"
 T_ENV=("${T_ENV[@]:0:${#T_ENV[@]}-1}")
 
+t_case "a model token in ~/.config/tehas/env is found when the shell running install.sh does not have it"
+# A first install has no env.sh, and an update runs under the loader of the
+# version before, which may drop the token.
+mkdir -p "$T/home/.config/tehas"
+printf '%s\n' 'GH_TOKEN=gh-secret' 'export TEHAS_MODEL_KEY_MAIN="main-secret"' >"$T/home/.config/tehas/env"
+t_run "$install --check"
+t_lacks "$t_out" "TEHAS_MODEL_KEY_MAIN"
+t_lacks "$t_out" "secret"
+rm -f "$T/home/.config/tehas/env"
+
 t_case "an apiKey that names any other variable or a command is a finding"
 fresh
 instance
