@@ -1117,4 +1117,9 @@ t_contains "$t_out" "The last cycle failed: #9 ended as lost."
 t_eq "$(jq -c '[.last.issue, .last.status]' "$live/running.json")" '[9,"lost"]'
 t_eq "$(find "$live/cycles" -name '*.json' -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" "9.json "
 
+t_case "summary reads the live directory of TEHAS_HOME even when TEHAS_PROJECT_HOME is inherited"
+mkdir -p "$T/mine/live" "$T/elsewhere/live"
+t_run "export TEHAS_PROJECT_HOME='$T/elsewhere'; export TEHAS_HOME='$T/mine'; '$summary'"
+t_contains "$t_out" "$T/mine/live/health.json"
+
 t_done

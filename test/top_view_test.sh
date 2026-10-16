@@ -119,6 +119,11 @@ t_run "$top --once"
 t_eq "$t_rc" 1
 t_contains "$t_out" "no live directory"
 
+t_case "top reads the live directory of TEHAS_HOME even when TEHAS_PROJECT_HOME is inherited"
+t_run "export TEHAS_PROJECT_HOME='$T/elsewhere'; export TEHAS_HOME='$T/mine'; '$top' --once"
+t_eq "$t_rc" 1
+t_contains "$t_out" "no live directory at $T/mine/live"
+
 t_case "a run changes nothing under TEHAS_HOME"
 reset
 files

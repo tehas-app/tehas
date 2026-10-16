@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # One screen that shows what the factory is doing, and redraws it.
 #
-# It reads what the factory already writes under $TEHAS_HOME/live/ - the health
-# file, the queue snapshot, the cycles, the energy sample and the console of a
-# cycle - and asks systemctl --user about its units. It writes nothing, calls
+# It reads what the factory already writes under $TEHAS_PROJECT_HOME/live/ - the
+# health file, the queue snapshot, the cycles and the console of a cycle - and
+# the energy sample under $TEHAS_HOME/live/, and asks systemctl --user about its units. It writes nothing, calls
 # no GitHub, no model and no Docker, and loads no instance settings. What it
 # shows is as old as those files, and every section that has an age prints it.
 #
@@ -60,7 +60,10 @@ while [ "$#" -gt 0 ]; do
 done
 
 : "${TEHAS_HOME:=$HOME/tehas}"
-: "${TEHAS_PROJECT_HOME:=$TEHAS_HOME}"
+# No instance is loaded here, so the project home follows TEHAS_HOME as it does
+# in tehas_load; a caller that sets only TEHAS_HOME keeps working.
+TEHAS_PROJECT_HOME=$TEHAS_HOME
+export TEHAS_PROJECT_HOME
 live=$TEHAS_PROJECT_HOME/live
 [ -d "$live" ] || { echo "tehas top: no live directory at $live yet" >&2; exit 1; }
 
