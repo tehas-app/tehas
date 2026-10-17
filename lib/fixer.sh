@@ -84,7 +84,7 @@ tehas_fixer_grant() { # <issue> <body sha256>
     return 1
   fi
   had=$(tehas_fixer_starts "$record") || had=""
-  if ! [[ $had =~ ^[0-9]+$ ]]; then
+  if ! [[ $had =~ ^[0-9]{1,6}$ ]]; then
     tehas_fixer_why="its approval record does not say how many cycles the fixer started"
     return 1
   fi

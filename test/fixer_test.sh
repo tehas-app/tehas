@@ -57,6 +57,11 @@ grant
 t_eq "$t_out" "yes 3 alice"
 t_instance "${T_MINIMAL[@]}" TEHAS_FIXER_LOGIN=tehas-fixer
 
+t_case "a count too large to compare is no count"
+record 7 "$(by_fixer 100000000000000000000)"
+grant
+t_eq "$t_out" "no: its approval record does not say how many cycles the fixer started"
+
 t_case "a body that is not the one the person approved starts nothing"
 record 7 "$(person)"
 grant 7 "$OTHER"
