@@ -87,6 +87,7 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/lib/status.sh
 ./tehas/lib/top.sh
 ./tehas/lib/slice.sh
+./tehas/lib/unzip.sh
 ./tehas/lib/update-steps.sh
 ./tehas/libexec/console
 ./tehas/libexec/console.stamp

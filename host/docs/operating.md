@@ -44,15 +44,23 @@ it within about five minutes. It takes:
 - HTML files, shown in a frame with a link to open them full size,
 - the style sheets, scripts and data an HTML file refers to (css, js, mjs,
   json, txt). Attach them to the same ticket and refer to them by name, as
-  `<script src="app.js">`.
+  `<script src="app.js">`,
+- a zip, unpacked into a folder of its own; its files count against the same
+  limits. It takes the types above and md files, kept in their folders, so
+  `index.html` in a zip can refer to `data/sample.json` in it. Links, paths
+  that leave the zip, paths more than six levels deep and locked files are
+  left out.
+
+A prototype zip may carry instructions for language models on what it holds,
+for example a `prototype.md`; the lab serves it like any other file and does
+not define what it says.
 
 The limits:
 
 - **10 megabytes a ticket**, counted in the order the files were attached,
   and at most 40 files. What does not fit is left out, and the page lists it
   under "left out" with the reason.
-- **Static files only.** Nothing is run on the host for a prototype, and an
-  archive is not unpacked.
+- **Static files only.** Nothing is run on the host for a prototype.
 - **Only a label from an allowed account** puts the ticket here, as said
   above: the most recent `tehas:prototype` labelling is by an account in
   `TEHAS_ALLOWED_LABELERS`.
@@ -89,7 +97,8 @@ issue text.
 | The same image linked in a comment          | With `TEHAS_WORK_COMMENTS=1`, when an allowed account wrote it before the label or the retry tick and nobody edited it since | When a reply to its question links it | Shown |
 | md, txt, csv, json, yaml, log, html, css or js linked in the body | Fetched and mounted with `TEHAS_WORK_FILES=1`; pi-rukas does not read them yet | The same | html, css, js, json and txt shown, html in a frame |
 | svg, avif, a video                          | Not given | Not given | Shown |
-| Any other file, such as a zip or a pdf      | Not given | Not given | Left out |
+| A zip                                       | Not given | Not given | Unpacked, its files shown as above |
+| Any other file, such as a pdf               | Not given | Not given | Left out |
 
 The rules behind each column:
 
