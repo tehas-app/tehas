@@ -71,18 +71,19 @@ t_instance "${T_MINIMAL[@]}"
 t_case "the cycle unit's limit is the longest time limit accepted plus an hour"
 t_eq "$(sed -n 's/^RuntimeMaxSec=//p' "$T_ROOT/host/systemd/tehas-cycle@.service")" "8h"
 
-t_case "a planning turn's time limit that the poll's unit would cut is refused"
+t_case "a planning turn's time limit over two hours is refused"
 t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=7201
 t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
-t_contains "$t_out" "TEHAS_PLAN_TIMEOUT (7201) is more than 7200: tehas-dispatch.service stops a poll after 3 hours"
+t_contains "$t_out" "TEHAS_PLAN_TIMEOUT (7201) is more than 7200: a planning turn may take at most two hours"
 t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=7200
 t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=0"
 t_instance "${T_MINIMAL[@]}"
 
-t_case "the poll's unit has a finite limit, an hour above the longest turn accepted"
-t_eq "$(sed -n 's/^TimeoutStartSec=//p' "$T_ROOT/host/systemd/tehas-dispatch.service")" "3h"
+t_case "the poll's unit has a finite limit, twice the lock's age at which a poll warns"
+t_eq "$(sed -n 's/^TimeoutStartSec=//p' "$T_ROOT/host/systemd/tehas-dispatch.service")" "1h"
+t_contains "$(cat "$T_ROOT/libexec/dispatch")" "bound=1800"
 
 t_case "one cycle at a time may run several workstreams, and pi-rukas is told the same number"
 t_instance "${T_MINIMAL[@]}" TEHAS_CONCURRENCY=4 TEHAS_TICKET_CONCURRENCY=1
@@ -490,6 +491,13 @@ t_instance "${T_MINIMAL[@]}"
 T_ENV=(TEHAS_PLAN_CMD=fake-plan TEHAS_PLAN_START_CMD=fake-plan-start TEHAS_PLAN_MAX_TURNS=99)
 t_run '. "$T_ROOT/lib/config.sh"; tehas_load; echo "$TEHAS_PLAN_CMD $TEHAS_PLAN_START_CMD $TEHAS_PLAN_MAX_TURNS"'
 t_eq "$t_out" "fake-plan fake-plan-start 20"
+T_ENV=()
+
+t_case "the index run's test hooks are kept from the environment"
+t_instance "${T_MINIMAL[@]}"
+T_ENV=(TEHAS_INDEX_START_CMD=fake-index-start TEHAS_INDEX_LOCK_WAIT=1)
+t_run '. "$T_ROOT/lib/config.sh"; tehas_load; echo "$TEHAS_INDEX_START_CMD $TEHAS_INDEX_LOCK_WAIT"'
+t_eq "$t_out" "fake-index-start 1"
 T_ENV=()
 
 # The host's CPU count is read with nproc; a stub makes the default the same

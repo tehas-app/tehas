@@ -262,15 +262,16 @@ plan_turn() {
 # plan_launch <issue> <command>...: start the turn as its own unit and return.
 # A poll is a oneshot service, and systemd stops what it leaves behind, so a
 # turn started in the background would die with the poll. The unit writes the
-# command's exit status to <record>.rc when it ends. The poll's lock is not
-# passed on.
+# command's exit status to <record>.rc when it ends, and asks for a poll, which
+# posts the outcome. systemd stops it a quarter of an hour after the turn's own
+# limit. The poll's lock is not passed on.
 plan_launch() {
   local n=$1 st
   shift
   st=$(plan_state "$n")
   # shellcheck disable=SC2016  # expanded by the shell the unit runs
-  set -- /bin/bash -c 'log=$1 rc=$2; shift 2; "$@" >>"$log" 2>&1; echo "$?" >"$rc.new" && mv "$rc.new" "$rc"' \
-    plan-turn "$TEHAS_HOME/logs/dispatch-plan-$n.log" "$st.rc" "$@"
+  set -- /bin/bash -c 'log=$1 rc=$2 again=$3; shift 3; "$@" >>"$log" 2>&1; echo "$?" >"$rc.new" && mv "$rc.new" "$rc"; : >"$again"' \
+    plan-turn "$TEHAS_HOME/logs/dispatch-plan-$n.log" "$st.rc" "$TEHAS_HOME/state/dispatch.again" "$@"
   if [ -n "${TEHAS_PLAN_START_CMD:-}" ]; then
     "$TEHAS_PLAN_START_CMD" "$n" "$@" 8>&-
     return
@@ -278,13 +279,16 @@ plan_launch() {
   # The unit has the user manager's environment, not the poll's: it loads
   # env.sh as the tehas units do.
   # shellcheck disable=SC2016  # expanded by the shell the unit runs
-  systemd-run --user --quiet --collect --unit "tehas-plan-$n" \
+  systemd-run --user --quiet --collect --unit "tehas-plan-$n" -p "RuntimeMaxSec=$((TEHAS_PLAN_TIMEOUT + 900))" \
     /bin/bash -c '[ ! -r "$HOME/tehas/env.sh" ] || . "$HOME/tehas/env.sh"; exec "$@"' env-sh "$@" 8>&- >/dev/null 2>&1
 }
 
-# plan_in_flight <issue>: 0 while the unit of the issue's turn is running.
+# plan_in_flight <issue>: 0 while the unit of the issue's turn is running. A
+# turn that left its exit status has ended, though systemd may still show its
+# unit for the instant it asks for a poll.
 plan_in_flight() {
   local state
+  [ ! -f "$(plan_state "$1").rc" ] || return 1
   state=$(systemctl --user show -p ActiveState --value "tehas-plan-$1.service" 2>/dev/null) || return 1
   case "$state" in active | activating | deactivating | reloading) return 0 ;; esac
   return 1

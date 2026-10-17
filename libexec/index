@@ -15,8 +15,9 @@
 # for. The clone is made at the tip the product checkout last fetched, mounted
 # read-only and removed afterwards. The cycle's workspace is not touched.
 #
-# The index is as fresh as its last run. The dispatcher runs this when it
-# starts cycles and none is running, so those cycles start with an index of the
+# The index is as fresh as its last run. The dispatcher runs this as
+# tehas-index.service when it would start cycles and none is running, and
+# starts them on the poll after it, so those cycles start with an index of the
 # tree they are cloned from. A cycle started while another runs gets the index
 # as it is, which falls behind the branch while cycles overlap. What a cycle
 # changes is never in it.
@@ -29,18 +30,24 @@
 # run that wrote one the leftovers of earlier runs are removed, so what a cycle
 # is copied stays the size of the index.
 #
+# One run at a time, under $TEHAS_HOME/state/index.lock, and none while a
+# cycle runs: a cycle copies the index when it starts. A poll does not start a
+# cycle while this lock is held, and a poll that is starting cycles holds the
+# dispatcher's lock, so a run waits for that lock, up to a minute, before it
+# looks at the cycles, and lets it go again. A poll is never held by a run.
+#
 # Usage: tehas index                  build the index
-#        tehas index --before-cycle   what the dispatcher runs: the caller
-#                                     holds the dispatcher's lock and has
-#                                     seen that no cycle runs, and nothing is
-#                                     done when the index directory already
-#                                     holds the branch's tip
+#        tehas index --before-cycle   what the dispatcher's unit runs: nothing
+#                                     is done when the index directory already
+#                                     holds the branch's tip, or when the
+#                                     indexer failed at that tip before
 #
 # Exit status: 0 the index was built, or was already current,
 #              1 the sandbox image is missing or the indexer failed, did not
 #                finish in time, or, before a cycle, failed at this tip before
-#              3 a cycle is running, or a poll or another index run holds the
-#                dispatcher's lock; nothing was done.
+#              3 a cycle is running, another index run holds its lock, or a
+#                poll held the dispatcher's lock for the whole wait; nothing
+#                was done.
 #             64 an argument this command does not know.
 #             78 the instance settings are invalid, or tehas.slice is not
 #                usable on this host; nothing was done.
@@ -52,10 +59,12 @@
 # cycles'. Without a usable slice nothing is cloned and nothing starts.
 set -uo pipefail
 
-# How long the indexer may run, in seconds. The dispatcher's lock is held for
-# all of it, and no poll is processed meanwhile. Indexing takes minutes; this
-# bounds an indexer that hangs.
+# How long the indexer may run, in seconds. No cycle starts meanwhile.
+# Indexing takes seconds to minutes; this bounds an indexer that hangs.
+# tehas-index.service, which the dispatcher starts, stops after 2400 s.
 index_bound=1800
+# How long to wait for a poll that holds the dispatcher's lock.
+lock_wait=${TEHAS_INDEX_LOCK_WAIT:-60}
 
 cycle=0
 case "$#:${1:-}" in
@@ -90,19 +99,6 @@ log=$TEHAS_HOME/logs/index-$(date -u +%y%m%d-%H%M%S).log
 base=$(git -C "$src" rev-parse -q --verify "refs/remotes/origin/$branch^{commit}") ||
   { echo "tehas index: $src has no origin/$branch, nothing was indexed" >&2; exit 78; }
 
-# Does <dir> hold something a cycle could search? Only a database counts.
-# The indexer's own logs, its configuration and the staging file of a run that
-# was stopped are not something an agent searches.
-has_index_data() { # <dir>
-  local f
-  for f in "$1"/*.db; do
-    [ -e "$f" ] || continue
-    [ "$f" = "$1/_config.db" ] && continue
-    return 0
-  done
-  return 1
-}
-
 # Remove what earlier runs left in <dir>, so the copy a cycle is given stays
 # the size of the index and not of everything the indexer ever wrote. A staging
 # file is how the indexer writes: a run that was stopped leaves one behind,
@@ -127,27 +123,30 @@ prune_index() { # <dir> <epoch this run started>
   [ "$left" = 0 ] || echo "tehas index: removed $left file(s) an earlier run left in $dir"
 }
 
-# The index is written only under the dispatcher's lock and while no cycle is
-# running: a poll holds that lock while it starts cycles, and a cycle reads
-# the index for as long as it lives. Called by the dispatcher, the lock is
-# held by the caller, who has also looked at the cycles.
 mkdir -p "$TEHAS_HOME/state" "$TEHAS_HOME/logs" "$TEHAS_HOME/tmp" "$index"
-if [ "$cycle" = 0 ]; then
-  exec 8>>"$TEHAS_HOME/state/dispatch.lock"
-  flock -n 8 || { echo "tehas index: the dispatcher's lock is held by a poll or another index run, nothing was indexed; run it again in a moment" >&2; exit 3; }
-  # When the lock was taken, as a poll records it: a poll that finds it held
-  # for too long says so.
-  date +%s >"$TEHAS_HOME/state/dispatch.taken" || true
-  running=$(tehas_cycles_running | tr '\n' ' ')
-  [ -z "$running" ] ||
-    { echo "tehas index: a cycle is running (issue ${running% }), nothing was indexed; run it again afterwards" >&2; exit 3; }
-elif has_index_data "$index" && [ "$(jq -r '.commit // empty' "$marker" 2>/dev/null)" = "$base" ]; then
-  echo "tehas index: ${TEHAS_REPO##*/} is already indexed at ${base:0:12}"
-  exit 0
-elif [ "$(cat "$failed" 2>/dev/null)" = "$base" ]; then
-  # Without this every idle poll would run the same failing indexer again.
-  echo "tehas index: the indexer failed at ${base:0:12}, not tried again before the branch moves; run tehas index to try now" >&2
-  exit 1
+# Held to the end, by the indexer's docker client too: a client that outlives
+# this script still writes the index.
+exec 7>>"$TEHAS_HOME/state/index.lock"
+flock -n 7 || { echo "tehas index: another index run holds its lock, nothing was indexed; run it again in a moment" >&2; exit 3; }
+exec 8>>"$TEHAS_HOME/state/dispatch.lock"
+flock -w "$lock_wait" 8 ||
+  { echo "tehas index: a poll held the dispatcher's lock for ${lock_wait}s, nothing was indexed; run it again in a moment" >&2; exit 3; }
+running=$(tehas_cycles_running | tr '\n' ' ')
+exec 8>&-
+[ -z "$running" ] ||
+  { echo "tehas index: a cycle is running (issue ${running% }), nothing was indexed; run it again afterwards" >&2; exit 3; }
+if [ "$cycle" = 1 ]; then
+  case "$(tehas_index_state "$base")" in
+    current)
+      echo "tehas index: ${TEHAS_REPO##*/} is already indexed at ${base:0:12}"
+      exit 0
+      ;;
+    failed)
+      # Without this every idle poll would run the same failing indexer again.
+      echo "tehas index: the indexer failed at ${base:0:12}, not tried again before the branch moves; run tehas index to try now" >&2
+      exit 1
+      ;;
+  esac
 fi
 
 # No container starts outside the slice, and none with half its limits. Asked
