@@ -99,11 +99,18 @@
 #      TEHAS_FIXER_MAX_RETRIES times since (lib/fixer.sh). Otherwise the poll
 #      takes its label off and says why. A start takes tehas:fixer-escalated
 #      off, whoever made it.
-#   7. tehas:urgent first, then the lowest issue number. The urgent label
-#      counts only when its most recent labelling is by an allowed account, as
-#      tehas:ready does: one applied by the bot or anyone else is ignored and
-#      logged, and the issue keeps its place by number. A running cycle is
-#      never stopped to make room.
+#      An issue that carries tehas:blocked waits while any issue it names is
+#      open. The names are in the newest comment with the marker
+#      <!-- tehas:blocked by=12,34 --> by an allowed account or the fixer, one
+#      nobody else edited. A label with no such comment, a malformed marker or
+#      a state GitHub does not give holds it too, and the log says why.
+#   7. tehas:urgent first, then tehas:next, then the lowest issue number. The
+#      urgent label counts only when its most recent labelling is by an allowed
+#      account, as tehas:ready does: one applied by the bot or anyone else is
+#      ignored and logged, and the issue keeps its place by number. tehas:next,
+#      and tehas:blocked in rule 6, count when their latest event applies them
+#      and is by an allowed account or the fixer. A running cycle is never
+#      stopped to make room.
 #
 # Instance settings (lib/config.sh; defaults in brackets):
 #   TEHAS_REPO                owner/name of the product repository, required
@@ -510,6 +517,91 @@ label_actor() {
   fi
   who=${line%%$'\t'*}
   at=${line#*$'\t'}
+}
+
+ev=""
+# label_state <issue> <label>: the label's latest event, as tehas_label_state
+# reads it, in $ev, $who and $at. The issue's events are read unless they are
+# already at hand.
+label_state() {
+  local n=$1 line
+  [ "$events_for" = "$n" ] || issue_events "$n"
+  line=$(tehas_label_state "$2" <<<"$events") || { log "ERROR: unreadable label events of #$n"; exit 1; }
+  ev=${line%%$'\t'*}
+  line=${line#*$'\t'}
+  who=${line%%$'\t'*}
+  at=${line#*$'\t'}
+}
+
+# order_label <issue> <label>: 0 when tehas:next or tehas:blocked stands: an
+# allowed account or the fixer applied it last, and nobody took it off since.
+# Otherwise the poll ignores it and says so.
+order_label() {
+  label_state "$1" "$2"
+  if [ "$ev" = unlabeled ]; then
+    log "ignore #$1: $2 was taken off by '${who:-unknown}' since it was applied"
+    return 1
+  fi
+  tehas_allowed_labeler "$who" || tehas_fixer_is "$who" || { deny_label ignore "$1" "$2"; return 1; }
+}
+
+# blocked_ok <issue>: 0 unless tehas:blocked holds the issue back. The label
+# stands as order_label says. The blockers are named in the newest of the last
+# 100 comments that an allowed account or the fixer wrote with the marker
+#   <!-- tehas:blocked by=12,34 -->
+# up to 20 numbers. The issue waits while any of them is open. What cannot be
+# read holds it too: no such comment, a malformed marker, a comment last edited
+# by another account, a number whose state GitHub does not give. Returns 1 with
+# the reason logged.
+blocked_ok() {
+  # Local, so the blocked label's account does not replace the ready label's.
+  local n=$1 got list b q answer state why="" ev who at
+  order_label "$n" tehas:blocked || return 0
+  # shellcheck disable=SC2016  # $owner, $name and $number are GraphQL variables
+  gh_json api graphql -F owner="${repo%%/*}" -F name="${repo##*/}" -F number="$n" \
+    -f query='query($owner: String!, $name: String!, $number: Int!) {
+      repository(owner: $owner, name: $name) { issue(number: $number) {
+        comments(last: 100) { nodes { databaseId author { login } body createdAt lastEditedAt editor { login } } } } } }'
+  # shellcheck disable=SC2016  # a jq program
+  got=$(jq -r --arg allowed "$TEHAS_ALLOWED_LABELERS" --arg fixer "${TEHAS_FIXER_LOGIN:-}" '
+    .data.repository.issue.comments.nodes | if type == "array" then . else error("no comments") end
+    | ($allowed | split(" ") + [$fixer] | map(select(. != ""))) as $list
+    | map(select(type == "object" and (.body | type) == "string" and (.body | contains("<!-- tehas:blocked"))
+        and ((.author.login // "") as $a | $list | index($a)) != null))
+    | sort_by(.createdAt // "", .databaseId // 0) | last
+    | if . == null then "none\t"
+      elif .lastEditedAt != null and (.editor.login // "") != .author.login then "edited\t\(.editor.login // "")"
+      else ((first(.body | capture("<!-- tehas:blocked by=(?<b>[1-9][0-9]{0,8}(,[1-9][0-9]{0,8}){0,19}) -->")) | .b) // "")
+        | if . == "" then "malformed\t" else "by\t\(.)" end
+      end' <<<"$json") || { log "ERROR: unreadable comments of #$n"; exit 1; }
+  case "${got%%$'\t'*}" in
+    none) why="no comment of an allowed account or the fixer names its blockers" ;;
+    edited) why="the newest comment that names its blockers was edited by '${got#*$'\t'}'" ;;
+    malformed) why="the newest comment that names its blockers cannot be read" ;;
+    by)
+      list=$(tr , '\n' <<<"${got#*$'\t'}" | sort -nu)
+      # shellcheck disable=SC2016  # $owner and $name are GraphQL variables
+      q='query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {'
+      for b in $list; do
+        q+=" b$b: issueOrPullRequest(number: $b) { ... on Issue { state } ... on PullRequest { state } }"
+      done
+      q+=' } }'
+      # GitHub answers a number it does not know with an error beside the data,
+      # and gh then fails: what it printed still names the rest.
+      answer=$(gh api graphql -F owner="${repo%%/*}" -F name="${repo##*/}" -f query="$q" 2>/dev/null) || true
+      for b in $list; do
+        state=$(jq -r --arg k "b$b" '.data.repository[$k].state // "" | strings' <<<"$answer" 2>/dev/null) || state=""
+        case "$state" in
+          CLOSED | MERGED) ;;
+          OPEN) why="#$b is open"; break ;;
+          *) why="the state of #$b could not be read"; break ;;
+        esac
+      done
+      ;;
+  esac
+  [ -n "$why" ] || return 0
+  log "wait #$n: tehas:blocked holds it: $why"
+  return 1
 }
 
 # deny_label <verb> <issue> <label>: the label came from an account outside the
@@ -1769,11 +1861,25 @@ for n in $carrying; do
     deny_label ignore "$n" tehas:urgent
   fi
 done
+carrying=$(jq -r '.[] | select((.labels // []) | any(.name == "tehas:next")) | .number | tonumber? // empty' <<<"$ready_json") ||
+  { log "ERROR: unreadable list of ready issues"; exit 1; }
+next=()
+for n in $carrying; do
+  if [ -e "$(plan_state "$n")" ] || tehas_cycle_running "$n"; then
+    continue
+  fi
+  order_label "$n" tehas:next && next+=("$n")
+done
 urgent_json=$(printf '%s\n' "${urgent[@]}" | jq -sc 'map(tonumber)') ||
   { log "ERROR: unreadable urgent issue list"; exit 1; }
-candidates=$(jq -r --argjson u "$urgent_json" '(reduce $u[] as $x ({}; .[$x | tostring] = true)) as $set
-         | [.[] | .number as $n | {number: $n, urgent: ($set[($n | tonumber | tostring)] == true)}]
-         | sort_by([(.urgent | not), .number]) | .[].number' <<<"$ready_json") ||
+next_json=$(printf '%s\n' "${next[@]}" | jq -sc 'map(tonumber)') ||
+  { log "ERROR: unreadable list of next issues"; exit 1; }
+candidates=$(jq -r --argjson u "$urgent_json" --argjson x "$next_json" '
+           (reduce $u[] as $i ({}; .[$i | tostring] = true)) as $us
+         | (reduce $x[] as $i ({}; .[$i | tostring] = true)) as $xs
+         | [.[] | .number as $n | ($n | tonumber | tostring) as $k
+             | {number: $n, urgent: ($us[$k] == true), next: ($xs[$k] == true)}]
+         | sort_by([(.urgent | not), (.next | not), .number]) | .[].number' <<<"$ready_json") ||
   { log "ERROR: unreadable list of ready issues"; exit 1; }
 
 for n in $candidates; do
@@ -1802,6 +1908,9 @@ for n in $candidates; do
       [ -z "$refused" ] || clear_unauthorised "$n" tehas:ready "$refused"
       continue
     fi
+  fi
+  if [[ $have == *" tehas:blocked "* ]]; then
+    blocked_ok "$n" || continue
   fi
   # Asked after the label approves the issue: an issue no account is allowed
   # to start costs no call, and the label is not changed until start_cycles.
