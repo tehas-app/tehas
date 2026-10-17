@@ -849,7 +849,8 @@ container() {
 # Alive until docker stop is called, then gone with 137, as a container is.
 hold='"$nap" 60 >/dev/null 2>&1 & echo $! >"$T/sleeper.pid"'
 gone='wait; exit 137'
-fresh() { rm -rf "$T"/calls/* "$live/cycles" "$T/sleeper.pid"; }
+# Logs are named to the second, so two cases in one second share a name.
+fresh() { rm -rf "$T"/calls/* "$live/cycles" "$T/sleeper.pid" "$T"/home/tehas/logs/work-7-*; }
 
 t_case "the runner's exit status is the command's when it wrote its result"
 for code in 0 10 11 20 21 30 40; do
