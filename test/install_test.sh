@@ -88,6 +88,7 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/lib/top.sh
 ./tehas/lib/slice.sh
 ./tehas/lib/update-steps.sh
+./tehas/libexec/api
 ./tehas/libexec/console
 ./tehas/libexec/console.stamp
 ./tehas/libexec/cycle
@@ -145,6 +146,10 @@ t_eq "$t_rc" 0
 t_eq "$(core_files)" "$(sorted "$files")"
 # The two pause commands are installed beside the other commands, ready to run.
 t_eq "$([ -x "$th/libexec/pause" ] && [ -x "$th/libexec/resume" ] && echo both)" "both"
+# Every script in libexec/ is installed: a command bin/tehas knows has its script.
+missing=""
+for f in "$T_ROOT"/libexec/*; do [ -x "$th/libexec/${f##*/}" ] || missing="$missing ${f##*/}"; done
+t_eq "$missing" ""
 # The follow-ups these copies call for are asked for by id and recorded as owed.
 t_eq "$(printf '%s\n' "$t_out" | sed -n 's/^next: //p')" "$(next_steps)"
 t_eq "$(cat "$th/state/update-pending")" "$(next_steps)"
