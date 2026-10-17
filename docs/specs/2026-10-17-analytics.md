@@ -1,6 +1,6 @@
 # Spec: analytics, ten days of factory data in SQLite
 
-**Status**: Draft 2026-10-17, for the owner's review. Nothing is built.
+**Status**: Agreed with the owner 2026-10-17. Nothing is built; the build is #318.
 
 ## Purpose
 
@@ -163,7 +163,7 @@ the result's `steps[]`, else from `step-started` lines in the NDJSON.
 and provider are from the run's settings snapshot (`state/cycles/<n>.settings`).
 
 **`issue_events`**: `at`, `issue`, `event`. Events are `ready` (accepted),
-`started`, `ended`, `awaiting`, `merged`, `closed`, `stopped`, `planned`. Lead
+`started`, `ended`, `awaiting`, `merged`, `closed`, `stopped`. Lead
 time and first-pass yield come from here. The dispatcher writes `ready` and
 `started`. The cycle writes `ended`. The status run writes `awaiting`,
 `merged`, `closed` and `stopped` the first time it sees each one, by comparing
@@ -172,7 +172,9 @@ with the last snapshot.
 **`samples`**: one row per dispatcher poll (every 2 minutes, about 7200 rows
 in ten days): `at`, `in_line`, `running`, `awaiting`, `stopped`, `planning`,
 `limit` (cycles allowed), `paused`, `held` (the hold reason word, or empty),
-`watts` (the mesh draw, where `energy.json` has it).
+`watts` (the mesh draw, where `energy.json` has it). `planning` counts open
+issues labelled `tehas:plan` or `tehas:planning`, which `status.json` does not
+list today; `libexec/status` adds that count.
 
 **`meta`**: `key`, `value`. Holds `schema`, `retention_days` (10) and
 `created`. No host name, address or token.
@@ -234,8 +236,8 @@ at each poll. A new section, "Last 10 days", on `/dashboard`
 At a glance, one row of figures:
 
 - **Shipped**: issues merged, with the day-by-day bars beneath.
-- **Planned**: issues accepted into line (`ready` events) and planning turns
-  finished.
+- **Planned**: work the factory is to do in the future: open issues in line
+  and open issues in planning, now, with the ten-day trend from `samples`.
 - **Runs**: total, split into pull request, handoff, parked and failed.
 - **First-pass yield**: share of shipped issues done in one run.
 - **Lead time**: median and 90th percentile, ready to merged.
@@ -349,7 +351,7 @@ One pull request each:
    `event ready`, `event started`, `sample` and `prune`. `TEHAS_ANALYTICS` in
    `lib/config.sh`.
 3. `libexec/status` writes `awaiting`, `merged`, `closed` and `stopped`
-   events. Planning turns call `plan` and `event planned`.
+   events and the planning count. Planning turns call `plan`.
 4. `report --json`, `live/analytics.json` and the dashboard section.
 5. `tehas analytics report` and `export`, the `analytics` feature in
    `tehas api`, and the manual.
@@ -365,14 +367,8 @@ One pull request each:
   writes SQL.
 - The database is fetched with a command, not served over HTTP.
 - The dashboard gets aggregates only.
-
-## For the owner
-
-1. **"Planned".** This spec reads it as issues accepted into line plus
-   planning turns finished. If you meant something else, such as the
-   `tehas:plan` backlog, say so.
-2. **Gate.** Build now with Rust tests that run only where cargo is, or wait
-   for #246 to make cargo required.
-3. **Planning usage.** Planning turns have no token usage today. Recording it
-   needs pi's rpc mode to report usage, which is a pi or pi-rukas change.
-   Leave it out until then?
+- "Planned" is work for the future: issues in line and issues in planning.
+  It is not a count of planning turns.
+- Planning turns are recorded without token usage. pi's rpc mode does not
+  report usage today; adding it is left for later.
+- Not built now. The build is #318.
