@@ -487,9 +487,9 @@ t_eq "$t_out" "5 600"
 
 t_case "the planning test hook is kept from the environment, a setting of that name is not"
 t_instance "${T_MINIMAL[@]}"
-T_ENV=(TEHAS_PLAN_CMD=fake-plan TEHAS_PLAN_MAX_TURNS=99)
-t_run '. "$T_ROOT/lib/config.sh"; tehas_load; echo "$TEHAS_PLAN_CMD $TEHAS_PLAN_MAX_TURNS"'
-t_eq "$t_out" "fake-plan 20"
+T_ENV=(TEHAS_PLAN_CMD=fake-plan TEHAS_PLAN_START_CMD=fake-plan-start TEHAS_PLAN_MAX_TURNS=99)
+t_run '. "$T_ROOT/lib/config.sh"; tehas_load; echo "$TEHAS_PLAN_CMD $TEHAS_PLAN_START_CMD $TEHAS_PLAN_MAX_TURNS"'
+t_eq "$t_out" "fake-plan fake-plan-start 20"
 T_ENV=()
 
 # The host's CPU count is read with nproc; a stub makes the default the same
