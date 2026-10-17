@@ -1,4 +1,4 @@
-# Spec: one factory per project, limited from outside
+# Spec: the factory API, one factory per project
 
 **Status**: Draft 2026-10-17, for the owner's review. Replaces the draft
 `docs/specs/2026-10-16-multi-project.md` (branch `multi-project-design`,
@@ -14,211 +14,312 @@ projects, with a host file, project selection in every command and a
 dispatcher split in two. The owner chose a different shape on 2026-10-17:
 
 - **tehas stays a single-project appliance.** One install, one instance
-  directory, one product repository, as today. It still runs on one machine
-  with `install.sh` and nothing else.
+  directory, one product repository, as today. It runs on one machine with
+  `install.sh` and nothing else.
 - **Several projects are several factories**, each a full tehas install on a
   machine of its own.
 - **A separate project, tehas-industry (industry for short),** owns the
   factories: it creates them, decides priority between them, puts their
-  dashboards behind a login and scales them, on one machine or on
-  Kubernetes. It lives in its own private repository, `janit/tehas-industry`,
-  with its design in `docs/specs/2026-10-17-industry.md`. None of its code
-  lives here.
+  dashboards behind a login, keeps their history and scales them. It lives
+  in its own private repository, `janit/tehas-industry`, with its design in
+  `docs/specs/2026-10-17-industry.md`. None of its code lives here.
 
-This spec is the tehas side: the small, generic contract that lets anything
-outside a factory limit what it starts and see what it wants.
+This spec is the tehas side: **the factory API**, a small set of commands
+with JSON output that make a factory as easy to drive from a program as
+from a terminal. Industry is its first program user. A person on a
+standalone host uses the very same commands.
 
 ## Goals
 
-1. A factory can be told from outside how many cycles it may have running,
-   and whether it may start planning turns and improvement runs.
-2. A factory says, in a file, what it wants: issues waiting, how long the
-   oldest has waited, whether it is paused or all-hands.
-3. `tehas:all-hands` is a label a factory reads and reports, with the same
-   check of who applied it as `tehas:pause`.
-4. A factory with no outside limit behaves exactly as today. tehas-tehas and
-   any install on one machine see no change.
+1. **One API for both.** Everything industry does to a factory, a person can
+   do with the same command and the same flags. No command, flag or
+   behaviour exists only for industry.
+2. **Stable and versioned.** Each command's JSON says its API version. A
+   program can ask a factory which version and which features it has before
+   it relies on them.
+3. **A factory can be limited from outside**: how many cycles it may run and
+   whether it may start planning turns and improvement runs, with an expiry.
+4. **A factory says what it wants and what it did**: work waiting and for
+   how long, pause and all-hands, running cycles, finished cycles and their
+   history, which can be exported.
+5. **A factory with no limit set behaves exactly as today.** tehas-tehas and
+   any standalone install see no change unless a person uses the new
+   commands.
 
 ## Non-goals
 
-- Anything about several projects inside one install. No host file, no
-  `--project`, no project home. One install still means one project.
-- Sharing a Docker daemon, a set of ports or a Unix user between factories.
-  Each factory is a machine of its own (a VM, a system container, a pod that
-  behaves as a machine). That is industry's job, and it is why the
-  name prefix and the port settings of earlier discussion are not needed.
-- Priority, the waiting limit, the login and scaling. All in the
-  industry.
-- Measuring the model server's load. The owner decided on #215 that cycles
-  start without that check; industry's limit is a number of cycles,
-  as `TEHAS_TICKET_CONCURRENCY` is.
+- Several projects inside one install. No host file, no `--project`, no
+  project home.
+- A network API. tehas runs no server that takes commands, so there is no
+  authentication to build or get wrong. A caller runs the command as the
+  factory's user: in a terminal, over SSH, with `incus exec` or `kubectl
+  exec`. Getting there is the caller's business.
+- Sharing a Docker daemon, ports or a Unix user between factories. Each
+  factory is a machine of its own.
+- Priority, the waiting limit, the login, scaling, backups. All in industry.
+- Measuring the model server's load (#215). A limit is a number of cycles.
 
-## The contract
+## Principles of the API
 
-Two files in `$TEHAS_HOME`. The factory reads one and writes the other. How
-they travel between the machine and industry (a shared volume, a
-copy over SSH, the dashboard's HTTP) is industry's business. tehas
-makes no network call for either.
+1. **Commands are the API; files are not.** What is under `$TEHAS_HOME`
+   stays internal and may change in any release. A program calls a command
+   and reads its standard output. The JSON the docs server publishes under
+   `/live/` is for the dashboard, not the API.
+2. **`--json` prints one JSON object** on standard output and nothing else.
+   Messages go to standard error. Without `--json` the same command prints
+   for a person, as today.
+3. **Every object carries `"api": 1`.** Within version 1 fields are only
+   added, never renamed, removed or given a new meaning. A breaking change
+   is version 2, and a release that brings it says so.
+4. **Exit statuses are the existing ones**: 0 done, 1 the command ran and
+   the answer is "no" or "not yet" (as `--check` uses it), 64 a bad
+   argument, 78 a missing or malformed setting (rule 2). Each command's
+   header lists its own.
+5. **Setting is safe to repeat.** Running a set command twice with the same
+   arguments leaves the same state and exits 0 both times.
+6. **Reading makes no network call** and takes no lock a cycle holds, so a
+   program can call it every few seconds. It reports what the last poll saw,
+   with that poll's time.
+7. **Names say what happens in the factory, not who asks.** `tehas limit`,
+   not "allowance from industry".
+8. **The tests pin the shapes.** Each `--json` command has a test that checks
+   its fields and types, so a change that breaks a caller fails the gate.
 
-### The allowance: `state/allowance.json`, read by the factory
+## The commands
 
-Written by something outside the factory, atomically (write a new file and
-rename it). The factory never writes it.
+### `tehas api [--json]` (new)
+
+What this factory speaks. A program calls it first, the way `tehas work`
+asks the sandbox image for its capabilities before a cycle.
 
 ```json
 {
-  "version": 1,
-  "cycles": 1,
-  "plan": true,
-  "until": "2026-10-17T14:05:00Z",
-  "reason": "held for priority: tehas-tehas is high"
+  "api": 1,
+  "tehas": "v0.8.0",
+  "commit": "cb6912a",
+  "repo": "janit/tehas",
+  "features": ["status", "limit", "drain", "history", "export", "all-hands", "update-to"]
 }
 ```
 
-| Field | Meaning |
-| --- | --- |
-| `version` | 1. Any other value is a malformed file. |
-| `cycles` | The most cycles this factory may have running. A whole number, 0 or more. |
-| `plan` | `false` holds new planning turns and improvement-loop runs. |
-| `until` | UTC time after which the file is stale. |
-| `reason` | Optional. Shown as the hold reason when the allowance is what holds a start. At most 200 characters, printable text only; anything else is dropped and a fixed text is shown. |
+`features` names what this release has, so a program can tell a factory
+that predates a feature from one where it failed. It reads the instance's
+`TEHAS_REPO` without calling GitHub, and stops with 78 if the settings are
+missing.
 
-What the factory does with it:
+### `tehas status --json` (new flag)
 
-- **No file**: today's behaviour. Nothing else changes.
-- **A valid, fresh file**: room for new cycles is
-  `min(TEHAS_TICKET_CONCURRENCY, cycles) - running`, then the slice's room
-  and `TEHAS_MAX_AWAITING` as today. A planning turn or an improvement run
-  starts only when `plan` is true.
-- **A stale or malformed file**: the factory starts no cycle, planning turn
-  or improvement run, and its hold reason says why (`allowance expired at
-  ...` or `allowance unreadable`). This is rule 2 of AGENTS.md: a limit that
-  was set and cannot be read does not fall back to no limit. It is not exit
-  78: the poll still does its cleanup, questions and requeues, as it does
-  when it holds for any other reason.
-- **Running cycles are never stopped.** A lower `cycles` only holds new
-  starts. Draining a factory is `cycles: 0` and waiting for `running` to
-  reach 0.
-- Answers to a person waiting on a planning question are not held by
-  `plan: false` *(my call, for the owner to check)*. They are short and a
-  person is waiting. Only new turns are.
+Today's `tehas status` reads `live/health.json` and prints lines. `--json`
+prints the same facts as one object, with the demand added:
 
-The dispatcher reads the file on every poll and `tehasbot improve` before
-each run; nothing is cached. A missing file is
-checked with a plain test, so loading settings stays free of side effects
-(rule 3).
+```json
+{
+  "api": 1,
+  "time": "2026-10-17T13:59:40Z",
+  "age": 40,
+  "stale": false,
+  "state": "pass",
+  "reasons": [],
+  "paused": {"local": false, "label": false},
+  "allHands": false,
+  "limit": {"state": "ok", "cycles": 1, "plan": true, "until": "2026-10-17T14:05:00Z"},
+  "running": [{"issue": 12, "since": "2026-10-17T11:20:00Z", "step": "review"}],
+  "demand": {"waiting": 2, "oldestWait": 5400},
+  "hold": {"why": "limit", "text": "held by the limit: 1 cycle"},
+  "room": {"cycles": 3, "maxAwaiting": 4, "slice": 2}
+}
+```
 
-### The demand: `live/dispatch.json`, written by the factory
+- `stale` is true when the last poll is older than ten minutes, as today;
+  the exit status is then 1, as today.
+- `limit.state` is `none`, `ok`, `expired` or `unreadable`.
+- `demand.waiting` counts issues that would start now if there were room:
+  accepted and through every check a start makes today. `oldestWait` is
+  seconds since the first of them was accepted.
+- `hold` is null when nothing holds.
 
-It exists today (`libexec/dispatch`, `report_hold`) with the hold reason,
-the running count and the slice's numbers, and the docs server already
-serves it at `/live/dispatch.json`. It gains:
+For this the dispatcher writes the demand, pause, all-hands and limit
+state where `tehas status` reads them on **every** poll that gets past the
+settings, a paused poll included. Today some of it is written only by a
+poll that gets as far as the room check.
 
-| Field | Meaning |
-| --- | --- |
-| `waiting` | Issues that would start now if there were room: accepted, and through every check a start makes today. |
-| `oldestWait` | Seconds the first of those has waited since its label was accepted. 0 when none. |
-| `paused` | The local or GitHub pause holds. |
-| `allHands` | `tehas:all-hands` holds (below). |
-| `allowance` | The allowance as read this poll: `none`, `ok`, `expired` or `unreadable`. |
+### `tehas limit` (new)
 
-Today the file is written only by a poll that gets as far as the room
-check. It is to be written by every poll that gets past the settings, a
-paused one included, so `paused` and `allHands` are always current.
-`time` already says when it was written; a reader treats an old file as a
-factory that is down.
+An outside cap on what the factory starts. A person uses it to keep a host
+quiet for a weekend; industry uses it for priority and drains.
 
-### All-hands
+```
+tehas limit [--json]                         show the limit, or "none"
+tehas limit set --cycles N [--plan on|off] [--for SECONDS | --until TIME] [--reason TEXT]
+tehas limit clear
+```
 
-- `tehas labels` creates `tehas:all-hands` beside `tehas:pause`.
-- It holds when the latest event that applied it is by an account in
-  `TEHAS_ALLOWED_LABELERS` and it has not been removed since, read from the
-  label events of the control issue as `tehas_pause_holds` does (rule 5).
-  A label applied by anyone else is ignored and logged once.
-- **On its own it changes nothing in the factory.** The factory reports it.
-  What it means for other projects is industry's rule. A factory
-  with no industry shows it on its dashboard and in `tehas status` and
-  otherwise ignores it.
+- `--cycles N`: the most cycles running at once. Room for new cycles is
+  `min(TEHAS_TICKET_CONCURRENCY, N) - running`, then the slice's room and
+  `TEHAS_MAX_AWAITING` as today.
+- `--plan off`: no new planning turn and no improvement run. Answers to a
+  person waiting on a planning question are not held *(my call, for the
+  owner to check)*: they are short and someone is waiting.
+- `--for` / `--until`: when the limit expires. Without either, it lasts until
+  cleared.
+- `--reason`: shown as the hold reason. At most 200 characters, one line;
+  control characters become spaces, as in `tehas pause`.
+- **An expired or unreadable limit holds everything**: no cycle, planning
+  turn or improvement run starts, and the hold reason says why. A limit that
+  was set and cannot be read does not fall back to no limit (rule 2). This
+  is why a program that refreshes a limit sets an expiry: if the program
+  dies, the factory stops starting work instead of running unlimited. A
+  person sets a limit without an expiry and it simply stays. It is not exit
+  78: the poll still does its cleanup, questions and requeues.
+- **Running cycles are never stopped.** A lower limit only holds new starts.
+- The dispatcher reads it on every poll and `tehasbot improve` before each
+  run. Stored in `state/` (internal), written atomically.
 
-## Dashboard and status
+**Limit and pause stay separate.** `tehas pause` is a person's switch and
+`tehas:pause` the label; industry never uses them. A paused factory stays
+paused whatever its limit says, so a person's pause cannot be lifted by a
+program refreshing a limit.
 
-- `tehas status` and the dashboard show the allowance line when a file
-  exists: `allowance  1 cycle, planning on, until 14:05` or the reason it
-  holds.
-- The hold reason from `reason` goes where the other hold reasons go.
-- Nothing about login. A factory's dashboard behind industry's
-  sign-in proxy is bound to an address only the proxy reaches, with today's
-  `TEHAS_HOST_ADDR`.
+### `tehas drain [--wait SECONDS] [--json]` (new)
 
-## What a factory machine needs
+`tehas limit set --cycles 0 --plan off --reason "draining"`, then, with
+`--wait`, wait up to that long for the running cycles to finish. Exit 0
+when none is running, 1 when some still are at the end of the wait. For a
+person before a reboot or a disk change; for industry before an upgrade or
+a move. `tehas limit clear` ends it.
 
-Industry runs factories as machines that look like today's host.
-The product promises nothing new here, but the manual's host page says what
-a factory needs, so industry has one place to read it:
+### `tehas history --json [--after CURSOR]` (new)
 
-- Linux with systemd, `loginctl enable-linger` for the factory's user, and a
-  Docker daemon of its own.
-- `bootstrap.sh` then `install.sh <instance>` run unattended, and running
-  them again on the same machine is safe.
-- `~/.config/tehas/env` with the tokens; nothing else from outside but the
-  instance directory.
-- Its own `TEHAS_DOMAIN` when it publishes previews and the Protolab.
-- Behind industry's model gateway, a provider's `baseUrl` is the gateway and
-  its `apiKey` the factory's own gateway key, through `$TEHAS_MODEL_KEY_<NAME>`
-  as today. No tehas change; the energy panel then needs `TEHAS_ENERGY_URL`
-  unless the gateway passes `/v1/cluster` through.
+The finished cycles, oldest first, from the results the factory keeps:
 
-Whether `install.sh` really runs unattended in a fresh system container is
-industry's first acceptance test. What it finds broken is fixed here,
-one pull request each.
+```json
+{
+  "api": 1,
+  "cycles": [
+    {"cursor": "1760700000-12", "kind": "work", "issue": 12, "started": "...",
+     "ended": "...", "status": 10, "outcome": "handoff", "pr": "https://github.com/..."}
+  ],
+  "next": "1760700000-12"
+}
+```
+
+`cursor` orders cycles by when they ended; `--after` returns only later
+ones. A program keeps `next` and asks again. Planning turns are listed the
+same way with `"kind": "plan"`.
+
+### `tehas export --after CURSOR <dir>` (new)
+
+Copies everything about the cycles `history` would list into `<dir>`, one
+directory per cycle: its result, its logs, its agent transcripts and its
+Protolab pages. Prints the `history` object of what it copied. Changes
+nothing in the factory. Industry calls it to fill its archive; a person
+calls it to keep a copy before a machine is replaced. It copies what a
+person reading a cycle needs and never a token: files are masked as the
+console masks them.
+
+### `tehas update --to <tag>` (new flag)
+
+Today `tehas update` fast-forwards the platform checkout to the head of its
+branch. `--to <tag>` moves it to a release tag instead, then installs as
+today. `--check --to <tag>` reports what that would change. This lets a
+person pin a host to a release and lets industry upgrade one factory before
+the others. *(Builder's call: how the checkout sits at a tag, since `update`
+today refuses a checkout that is not on a branch.)*
+
+### `tehas pause`, `tehas resume`, `tehas labels` (unchanged)
+
+`tehas labels` also creates `tehas:all-hands`.
+
+## All-hands
+
+- `tehas:all-hands` on the control issue holds when the latest event that
+  applied it is by an account in `TEHAS_ALLOWED_LABELERS` and it has not
+  been removed since, read from the label events as `tehas_pause_holds`
+  does (rule 5). A label applied by anyone else is ignored and logged once.
+- **On its own it changes nothing in the factory.** It is reported in
+  `tehas status`, its JSON and the dashboard. What it means for other
+  projects is industry's rule.
+
+## Installing a factory
+
+Part of the API, because a program installs factories too:
+
+- `bootstrap.sh` then `install.sh <instance>` run unattended on a fresh
+  machine, and running them again is safe.
+- `install.sh --check` exits 0 on a machine that is installed as the
+  instance says.
+- What a factory machine needs (systemd, linger, its own Docker daemon,
+  `~/.config/tehas/env`, its own `TEHAS_DOMAIN`, and pointing `baseUrl` and
+  `$TEHAS_MODEL_KEY_<NAME>` at industry's model gateway when it uses one)
+  goes in the manual's host page, so a person and industry read the same
+  list. Behind the gateway the energy panel needs `TEHAS_ENERGY_URL` unless
+  the gateway passes `/v1/cluster` through.
+- Whether `install.sh` really runs unattended in a fresh system container is
+  industry's first acceptance test. What it finds broken is fixed here.
+
+## The manual
+
+A new page, `host/docs/api.md`: the principles above, each command with its
+flags, JSON and exit statuses, and how a program uses them together (ask
+`api`, poll `status`, set `limit` with an expiry, `drain` before an
+upgrade, `history` and `export` for the archive). `operating.md` gets the
+person's side: `limit`, `drain`, `export`, `update --to`. `features.md`
+marks each as covered by tests until seen on a host.
 
 ## Tests
 
-In `test/dispatch_test.sh`, with GitHub and Docker stubbed as today:
-
-- No allowance file: the same starts as before, for each existing case.
-- `cycles` 0, 1 and above `TEHAS_TICKET_CONCURRENCY`, with 0, 1 and 2
-  running.
-- `plan: false` holds a new planning turn and an improvement run, and not an
-  answer to a waiting question.
-- Stale, malformed, wrong version, negative `cycles`, a `reason` with
-  control characters: nothing starts, the hold reason says why, cleanup
-  still runs.
-- `live/dispatch.json` has the new fields on a paused poll, a held poll and
-  a poll that starts something, and `waiting` and `oldestWait` match the
-  stubbed issues.
-- `tehas:all-hands` by an allowed labeller holds; by anyone else it does
-  not and is logged once; removed, it no longer holds.
-
-In `test/improve_test.sh`: a run waits on `plan: false` and on a stale
-file. In `test/labels_test.sh`: the label is created. In
-`test/status_test.sh`: the allowance line.
+- `test/api_test.sh`: `tehas api --json` fields; 78 without settings.
+- `test/status_test.sh`: `--json` fields and types on a fresh, a stale, a
+  paused, a held and a busy factory; the exit statuses match the text mode.
+- `test/limit_test.sh`: set, show, clear, repeat; bad arguments are 64; the
+  reason is cleaned.
+- `test/dispatch_test.sh`: no limit gives today's starts in every existing
+  case; `cycles` 0, 1 and above `TEHAS_TICKET_CONCURRENCY` with 0, 1 and 2
+  running; `plan off` holds a new turn and not an answer; expired,
+  unreadable, wrong version: nothing starts, the hold says why, cleanup
+  still runs; a paused factory stays paused under any limit; the demand and
+  all-hands fields on every kind of poll.
+- `test/improve_test.sh`: a run waits on `plan off` and on an expired limit.
+- `test/drain_test.sh`: exit 0 with none running, 1 when the wait ends with
+  cycles running.
+- `test/history_test.sh`, `test/export_test.sh`: order, cursors, nothing
+  repeated or skipped, nothing written in the factory, no token in an
+  exported file.
+- `test/update_test.sh`: `--to` a tag, `--check --to`, a tag that does not
+  exist.
+- `test/labels_test.sh`: the all-hands label is created.
 
 ## Order of work
 
-Each step is one pull request, the fast gate passes after each, and an
-install with no allowance file behaves as today after every one.
+Each step is one pull request, the fast gate passes after each, and a
+factory nobody limits behaves as today after every one.
 
-1. **The demand fields** in `live/dispatch.json`, written on every poll.
-2. **`tehas:all-hands`**: the label, the rule 5 check, the report, status.
-3. **The allowance**: the read, the room, `plan`, the hold reasons, status,
-   the manual (`host/docs/` page on running under industry, and
-   `features.md` marked covered by tests only).
-4. **The factory machine page** in the manual, and whatever the
+1. **`tehas api` and `tehas status --json`**, with the demand written on
+   every poll, and `host/docs/api.md` started.
+2. **`tehas:all-hands`**: the label, the rule 5 check, the report.
+3. **`tehas limit` and `tehas drain`**: the command, the dispatcher and
+   improvement loop honouring it, the hold reasons.
+4. **`tehas history` and `tehas export`.**
+5. **`tehas update --to`.**
+6. **The host page** on what a factory machine needs, and whatever
    industry's first install test finds.
+
+Industry can start on its side after step 3: priority needs only `api`,
+`status` and `limit`.
 
 ## What happens to the earlier work
 
 - The spec branch `multi-project-design` is kept for its decisions, which
-  industry spec carries over: priority levels, the waiting limit,
+  the industry spec carries over: priority levels, the waiting limit,
   all-hands, dashboards per project with a GitHub login, tehas-tehas public.
 - Branch `multi-project-1` (the project home and `tehas_name`) is not needed
-  and is parked, not merged *(my call)*. It changes no behaviour, so nothing
-  waits on it; it can be revived as a cleanup if wanted.
+  and is parked, not merged. It changes no behaviour; it can be revived as a
+  cleanup if wanted.
 
 ## What is left to the builder
 
-- The exact text of the hold reasons and the status line.
-- How `oldestWait` is measured. The time of the accepted `tehas:ready`
-  event is the natural start; the label events give it.
+- The exact text of hold reasons and status lines.
+- How `oldestWait` is measured; the accepted `tehas:ready` event is the
+  natural start.
+- The cursor's format, as long as it orders and never repeats.
 - Test helper names.
