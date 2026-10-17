@@ -905,10 +905,10 @@ with `tehas work` refreshes nothing.
 tehas labels        # one line per label
 ```
 
-Creates the eleven labels tehas uses in the product repository: `tehas:ready`,
+Creates the thirteen labels tehas uses in the product repository: `tehas:ready`,
 `tehas:urgent`, `tehas:running`, `tehas:awaiting-merge`, `tehas:shipped`, `tehas:pause`,
-`needs-human-attention`, `tehas:question`, `tehas:plan`, `tehas:planning` and
-`tehas:fixer-escalated`.
+`needs-human-attention`, `tehas:question`, `tehas:plan`, `tehas:planning`,
+`tehas:fixer-escalated`, `tehas:next` and `tehas:blocked`.
 Run it once for a new product, and again after pulling a version that adds a
 label. Run again, it puts their colours and descriptions back. It needs `TEHAS_REPO` and no other
 setting. Exit 0 when every label is there, 1 when one could not be made, 64 on
