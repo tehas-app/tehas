@@ -1812,7 +1812,7 @@ and `/data` in memory, every capability dropped but the one to bind a port,
 network has the router and the other previews on it, and neither the internet
 nor the host. What it prints is kept by Docker in at most two files of 10 MB
 (`--log-opt max-size=10m --log-opt max-file=2`).
-`test/preview_test.sh` pins these arguments.
+`test/preview_build_test.sh` pins these arguments.
 
 It writes nothing else to the host's disk. A `VOLUME` line in a recipe would
 have Docker make a volume there, which a read-only root does not stop and the
