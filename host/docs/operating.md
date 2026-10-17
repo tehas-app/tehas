@@ -453,7 +453,7 @@ dispatcher's log says so.
    continues the session with your answer, and the issue carries
    `tehas:planning` while the turn runs. The turn runs as its own unit,
    `tehas-plan-<issue>.service`, and the polls go on meanwhile: cycles start
-   as usual, and the first poll after the turn ends posts its outcome. One
+   as usual, and the turn's end starts the poll that posts its outcome. One
    planning turn runs at a time, so while another runs, your answer waits
    until it ends, which can be an hour. A running work cycle does not hold
    an answer back. A poll also handles one answer or one planning start and
@@ -615,6 +615,11 @@ not published.
   model with a one-pixel image only when such an issue could start now, at
   most once a poll. The issue stays queued, the log says `hold #N: ...`, and
   issues without images start as usual. A planning turn is not held by it.
+- No cycle while the code index is rebuilt. On a host where no cycle runs and
+  the branch has moved, the poll that would start cycles starts the index run
+  as `tehas-index.service` instead, and the log says `holding: the code index
+  is refreshed first`. It takes seconds to minutes. Its end starts the poll
+  that starts the cycles. Planning turns are not held by it.
 - A slot is never kept by work that is done. Each poll stops a running
   cycle whose issue is closed, or whose pull request, opened by the bot since
   the cycle began, is merged or closed. It is stopped as stopping its unit

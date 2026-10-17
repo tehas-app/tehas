@@ -203,10 +203,15 @@ under [Troubleshooting](/troubleshooting). Log:
 cycle's runner output: `~/tehas/logs/dispatch-work-<issue>.log`.
 
 When it has an issue to start, it puts the product checkout on the default
-branch and fast-forwards it, then, if no cycle is running, refreshes the code index with
-[tehas index](#tehas-index) when the branch has moved since the last indexing.
-An index that cannot be refreshed is a warning in the log; the cycle still
-runs. It then marks each issue `tehas:running` and starts
+branch and fast-forwards it. If no cycle is running and the branch has moved
+since the last indexing, it starts [tehas index](#tehas-index) as its own unit,
+`tehas-index.service`, and ends: the log says `holding: the code index is
+refreshed first`. The unit asks for a poll when it ends, and that poll starts
+the cycles. Nothing about the issues changes in the poll that holds them, so a
+ticked retry stays ticked. While the index runs, polls say `holding: the cycles
+wait for the code index`, and planning turns and sweeps go on. An index that
+could not be refreshed is a warning in the next poll's log; the cycles still
+start. It then marks each issue `tehas:running` and starts
 `tehas-cycle@<issue>.service`, which runs [tehasbot cycle](#tehasbot-cycle).
 It does not wait for the cycle. If the unit does not come up within 30
 seconds, the issue gets `needs-human-attention`, the poll goes on to the
@@ -859,15 +864,18 @@ mounted at the path a cycle works in, so what it writes is the index a cycle
 looks for. The clone is made at the tip the product checkout last fetched and
 is removed afterwards. The cycle's workspace is not touched.
 
-It refuses, with exit 3, while a cycle is running or while a poll or another
-index run holds the dispatcher's lock. The index is only ever written when
-nothing is reading it.
+One run at a time: it holds `~/tehas/state/index.lock` while it runs, and a
+poll starts no cycle while that lock is held. It refuses, with exit 3, while a
+cycle is running or another index run holds that lock. Before it looks at the
+cycles it waits, up to a minute, for a poll that holds the dispatcher's lock,
+because that poll may be starting a cycle; then it lets that lock go. The index
+is only ever written when nothing is reading it, and no poll waits for it.
 
 | Exit | Meaning                                                |
 | ---- | ------------------------------------------------------ |
 | 0    | The index was built, or was already current            |
 | 1    | The sandbox image is missing, or the indexer failed or did not finish in 30 minutes |
-| 3    | A cycle is running, or a poll or another index run holds the dispatcher's lock; nothing was done |
+| 3    | A cycle is running, another index run holds its lock, or a poll held the dispatcher's lock for a minute; nothing was done |
 | 64   | An argument this command does not know                 |
 | 78   | The instance settings are invalid, or `tehas.slice` cannot be used; nothing was done |
 
@@ -888,9 +896,10 @@ agents search by reading files, which is slower and finds less.
 
 `install.sh` runs it once, the first time it finds the sandbox image and the
 product checkout and no index. After that the dispatcher runs the script with
-`--before-cycle` when it starts cycles and no cycle is running: the lock is the
-dispatcher's own then, and nothing is done when `~/tehas/state/index` already
-holds what the record says is the branch's tip. An empty directory counts as
+`--before-cycle`, as `tehas-index.service`, when it would start cycles and no
+cycle is running, and only when `~/tehas/state/index` does not already hold
+what the record says is the branch's tip. Its output goes to
+`~/tehas/logs/dispatch-index.log`. An empty directory counts as
 no index, so a host upgraded from the version that kept the index in a cache
 volume builds it into the new one at its next idle start rather than reporting
 an index that no cycle is given. Cycles started then begin with an index of
@@ -900,16 +909,16 @@ a cycle is running on #<issue>`. On a host that is never idle the index falls
 behind the branch. What a cycle changes, in its workspace or its worktrees, is
 never in the index.
 
-The indexer may run for 30 minutes. The dispatcher's lock is held all that
-time, so a hung indexer is stopped there and the poll goes on. A container
+The indexer may run for 30 minutes, and `tehas-index.service` for 40, so a hung
+indexer is stopped and the next poll starts the cycles. A container
 named `tehas-index` that a killed run left behind is removed before each run.
 When the indexer fails, `~/tehas/state/index.json` stays as it was and
 `~/tehas/state/index.failed` holds the tip that failed. Before a cycle that tip
-is not tried again: the command exits 1 and the dispatcher's log says the index
-was not refreshed, until the branch moves.
+is not tried again: the dispatcher does not start the unit for it, and the
+cycles start with the index as it is, until the branch moves.
 
-Run by hand it always rebuilds, a failed tip too, and it holds the dispatcher's
-lock while it does, so no cycle starts in the middle. A cycle started by hand
+Run by hand it always rebuilds, a failed tip too, and it holds the index's lock
+while it does, so no cycle starts in the middle. A cycle started by hand
 with `tehas work` refreshes nothing.
 
 ## tehas labels
