@@ -515,7 +515,7 @@ t_lacks "$args" "$home/logs"
 
 t_case "the analyst's container gets no option beyond these, and its limits are its own"
 # Every option up to the image that is not one this command is known to pass,
-# read the way docker reads them. See test/work_test.sh.
+# read the way docker reads them. See test/work_lib.sh.
 t_eq "$(printf '%s\n' "$args" | awk -v image="tehas/pi-rukas:uid$(id -u)" \
   -v valued=" --name --cgroup-parent --cpus --memory --memory-swap --pids-limit --cpu-shares -e -w -v " -v plain=" --rm --init " '
     NR == 1 { next } # "run"

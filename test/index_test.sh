@@ -68,7 +68,7 @@ root="TEHAS_CGROUP_ROOT=$T_CGROUP"
 run_args() { grep -l -x -e index_repository "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
 after() { run_args | awk -v flag="$1" 'prev == flag { print } { prev = $0 }'; }
 # Every option that is not one this command is known to pass, up to the image
-# name, read the way docker reads them. See test/work_test.sh.
+# name, read the way docker reads them. See test/work_lib.sh.
 unknown_options() { # <image> <options that take a value> <options that take none>
   awk -v image="$1" -v valued=" $2 " -v plain=" $3 " '
     NR == 1 { next } # "run"
