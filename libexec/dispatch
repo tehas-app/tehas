@@ -228,6 +228,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/fixer.sh"
 # shellcheck source=lib/status.sh
 . "$here/../lib/status.sh"
+# shellcheck source=lib/limit.sh
+. "$here/../lib/limit.sh"
 # shellcheck source=lib/attachments.sh
 . "$here/../lib/attachments.sh"
 # shellcheck source=lib/models.sh
@@ -439,8 +441,9 @@ report_hold() {
   fi
   if jq -n --arg time "$(date -u +%FT%TZ)" --arg why "$why" --arg hold "$hold" --arg reserve "$TEHAS_CYCLE_RESERVE" \
     --argjson count "$count" --argjson room "$room_mem" --argjson committed "$committed" --argjson max "$slice_max" \
-    --argjson free "$free" --argjson awaitRoom "${room:-null}" \
-    '{$time, $why, $hold, $count, $room, $committed, $max, $reserve, $free, $awaitRoom}' >"$file.new" 2>/dev/null; then
+    --argjson free "$free" --argjson awaitRoom "${room:-null}" --argjson limitRoom "${limit_room:-null}" \
+    '{$time, $why, $hold, $count, $room, $committed, $max, $reserve, $free, $awaitRoom}
+     + (if $limitRoom == null then {} else {$limitRoom} end)' >"$file.new" 2>/dev/null; then
     mv "$file.new" "$file" || log "WARN: could not write $file"
   else
     rm -f "$file.new"
@@ -1395,6 +1398,30 @@ count=$(wc -w <<<"$running")
 count=$((count))
 free=$((TEHAS_TICKET_CONCURRENCY - count))
 
+# The limit tehas limit sets, read on every poll that gets this far: the room
+# under its cap of cycles, empty without a limit. One that expired or cannot
+# be read holds every start, a planning turn and an answer included, and never
+# counts as no limit. It holds starts only: rules 2 and 3 still clean up.
+limit=$(tehas_limit_read)
+limit_state=$(jq -r .state <<<"$limit")
+limit_room=""
+case "$limit_state" in
+  ok)
+    limit_room=$(($(jq -r .cycles <<<"$limit") - count))
+    [ "$limit_room" -ge 0 ] || limit_room=0
+    ;;
+  expired | unreadable) limit_room=0 ;;
+esac
+limit_reason=$(jq -r '.reason // ""' <<<"$limit")
+limit_cycles() { # the cap as words: "1 cycle", "3 cycles"
+  local n
+  n=$(jq -r .cycles <<<"$limit")
+  if [ "$n" = 1 ]; then echo "1 cycle"; else echo "$n cycles"; fi
+}
+# limit_ok: the limit lets anything start. limit_plan_ok: a new planning turn too.
+limit_ok() { [ "$limit_state" != expired ] && [ "$limit_state" != unreadable ]; }
+limit_plan_ok() { limit_ok && [ "$(jq -r .plan <<<"$limit")" != false ]; }
+
 # reap <container> <why>: remove a container whose command is gone. Its
 # client died, so nothing else stops it: it would work on with the bot's
 # token, count in the slice, and the next start under its name would fail.
@@ -1543,6 +1570,7 @@ mesh_check
 hold=""
 why=""
 want=0
+cut=""
 if [ -n "$slice_hold" ]; then
   why=slice
   hold=$slice_hold
@@ -1554,6 +1582,15 @@ elif [ "$mem_why" = unreadable ]; then
 elif [ -n "$mesh_hold" ]; then
   why=resources
   hold=$mesh_hold
+elif [ "$limit_state" = expired ]; then
+  why=limit
+  hold="holding: the limit expired at $(jq -r .until <<<"$limit"): nothing starts until it is set again or cleared"
+elif [ "$limit_state" = unreadable ]; then
+  why=limit
+  hold="holding: the limit cannot be read: nothing starts until it is set again or cleared ($(tehas_limit_file))"
+elif [ -n "$limit_room" ] && [ "$limit_room" -le 0 ]; then
+  why=limit
+  hold="holding: the limit allows $(limit_cycles) at once and $count $([ "$count" = 1 ] && echo is || echo are) running${limit_reason:+: $limit_reason}"
 elif [ "$free" -le 0 ]; then
   why=count
   hold="holding: $count cycles are running (limit $TEHAS_TICKET_CONCURRENCY)"
@@ -1576,8 +1613,17 @@ else
       full) hold="holding: tehas.slice holds as many containers as their ceilings fit ($((slice_max / (TEHAS_SLICE_CEILING_MB * 1048576))) of ${TEHAS_SLICE_CEILING_MB}m)" ;;
     esac
   else
+    # $cut names the cap that cut the free slots, when one did.
     want=$((free < room ? free : room))
-    [ "$want" -le "$room_mem" ] || want=$room_mem
+    cut=awaiting
+    if [ -n "$limit_room" ] && [ "$limit_room" -lt "$want" ]; then
+      want=$limit_room
+      cut=limit
+    fi
+    if [ "$room_mem" -lt "$want" ]; then
+      want=$room_mem
+      cut=room
+    fi
   fi
 fi
 # Fewer start than there are free slots and issues waiting: the reason is
@@ -1589,13 +1635,12 @@ if [ "$free" -gt 0 ] && [ "$want" -lt "$free" ]; then
   [ "$waiting" -le "$want" ] || short=1
 fi
 if [ "$short" = 1 ] && [ "$want" -gt 0 ]; then
-  if [ "$want" = "$room" ]; then
-    why=awaiting
-    hold="holding: $want of $free free slots start: $awaiting issues await merge and $count cycles are running (limit $max_awaiting)"
-  else
-    why=room
-    hold="holding: $want of $free free slots start: tehas.slice has room for $want more ($(gib "$committed") of $(gib "$slice_max") promised, each cycle is given $TEHAS_CYCLE_RESERVE)"
-  fi
+  why=$cut
+  case "$cut" in
+    awaiting) hold="holding: $want of $free free slots start: $awaiting issues await merge and $count cycles are running (limit $max_awaiting)" ;;
+    limit) hold="holding: $want of $free free slots start: the limit allows $(limit_cycles) at once${limit_reason:+: $limit_reason}" ;;
+    *) hold="holding: $want of $free free slots start: tehas.slice has room for $want more ($(gib "$committed") of $(gib "$slice_max") promised, each cycle is given $TEHAS_CYCLE_RESERVE)" ;;
+  esac
   [ "$dry" = 0 ] || log "$hold"
 fi
 [ "$dry" = 1 ] || report_hold
@@ -1904,6 +1949,7 @@ A box was also ticked, by $(jq -r .tick.by <<<"$ans"): $choice"
       work_ok "$n" || continue
       # Checked after the way out above, which runs no turn.
       slice_ok || continue
+      limit_ok || continue
       mesh_ok || exit 0
       from=$by
       [ -z "$fixer_said" ] || from="$by, the fixer"
@@ -1933,6 +1979,10 @@ for n in $plans; do
     break
   fi
   slice_ok || break
+  if ! limit_plan_ok; then
+    [ "$dry" = 0 ] || log "planning #$n waits: the limit holds new planning turns"
+    break
+  fi
   gh_json issue view "$n" --repo "$repo" --json title,body
   brief=$json
   if ! approval "$n" tehas:plan; then

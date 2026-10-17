@@ -25,11 +25,14 @@
 # label, lifted}`, where `flag` is {at, reason} written by tehas pause or null,
 # `label` is tehas:pause on the control issue, and `lifted` says the label is
 # off but the account that took it off may not authorise work, which holds this
-# host paused just as much. The flag is read from this host, so pausing needs no
+# host paused just as much. `allHands` is true while tehas:all-hands on the
+# control issue was applied by an allowed account, null when that could not be
+# read. The flag is read from this host, so pausing needs no
 # answer from GitHub. `by`, the account that set the flag, stays out of the file:
 # the page that reads it can be public.
 #
-# Usage: tehasbot status          (prints nothing; exit 0 even when GitHub is down,
+# Usage: tehasbot status          (prints nothing but an ignored all-hands label,
+#                                 once; exit 0 even when GitHub is down,
 #                                 the previous file is then left in place;
 #                                 exit 78 when the instance settings are invalid)
 set -uo pipefail
@@ -100,18 +103,54 @@ shipped=$(gh api graphql -f q="repo:$repo is:issue is:closed linked:pr sort:upda
       closer { ... on PullRequest { merged } } } } } } } } }' 2>/dev/null) || exit 0
 shipped=$(jq -ce '.data.search.nodes | map(select(.number != null and .timelineItems.nodes[0].closer.merged == true)
   | {number, title, url, updatedAt, closedAt, labels: [.labels.nodes[].name]})' <<<"$shipped" 2>/dev/null) || exit 0
-paused=$(gh issue view "$control" --repo "$repo" --json labels \
-  --jq '.labels | any(.name == "tehas:pause")' 2>/dev/null || echo false)
+# The control issue's labels, read once for both of its switches.
+control_read=true
+control_labels=" $(gh issue view "$control" --repo "$repo" --json labels \
+  --jq '[.labels[].name] | join(" ")' 2>/dev/null) " || control_read=false
+paused=false
+[[ $control_labels != *" tehas:pause "* ]] || paused=true
 # The label works one way, so its absence is not always a resume. The poll
 # decides that from lib/labels.sh before it starts anything; this reports the
 # same verdict, so that a factory held by a pause a stranger lifted is not
 # published as taking work. An answer that cannot be read reports nothing extra:
 # the poll, which acts on it, ends when it cannot read the events.
 lifted=false
+events=""
+events_read=false
+control_events() {
+  [ "$events_read" = false ] || return 0
+  events_read=true
+  events=$(gh api "repos/$repo/issues/$control/events?per_page=100" --paginate 2>/dev/null) || events=""
+}
 if [ "$paused" = false ]; then
-  if events=$(gh api "repos/$repo/issues/$control/events?per_page=100" --paginate 2>/dev/null); then
+  control_events
+  if [ -n "$events" ]; then
     tehas_pause_holds <<<"$events" >/dev/null && lifted=true
   fi
+fi
+# tehas:all-hands on the control issue holds while it is on the issue and the
+# account that applied it is allowed (rule 5). It is reported and changes
+# nothing in the factory. A label anyone else applied is said once, here on
+# standard error, which the dispatcher's log keeps; state/all-hands.ignored
+# remembers which application was said. null is a label that could not be read.
+all_hands=false
+ignored=$TEHAS_HOME/state/all-hands.ignored
+if [ "$control_read" = false ]; then
+  all_hands=null
+elif [[ $control_labels == *" tehas:all-hands "* ]]; then
+  control_events
+  if [ -z "$events" ] || ! line=$(tehas_label_actor tehas:all-hands <<<"$events"); then
+    all_hands=null
+  elif tehas_allowed_labeler "${line%%$'\t'*}"; then
+    all_hands=true
+    rm -f "$ignored"
+  elif [ "$(cat "$ignored" 2>/dev/null)" != "$line" ]; then
+    echo "tehasbot status: tehas:all-hands on #$control was applied by '${line%%$'\t'*}', not an allowed account: ignored" >&2
+    mkdir -p "${ignored%/*}"
+    printf '%s\n' "$line" >"$ignored"
+  fi
+else
+  rm -f "$ignored"
 fi
 # The host's own switch, read without asking GitHub anything. A flag that cannot
 # be read counts as paused and has nothing to say for itself beyond that.
@@ -129,7 +168,7 @@ no_resources=$(jq -s 'length == 1 and (.[0] | type == "object" and .why == "reso
 
 jq -n --argjson issues "$issues" --argjson shipped "$shipped" --argjson paused "$paused" --argjson everything "$everything" \
   --argjson noResources "${no_resources:-false}" --argjson pauseFlag "$pause_flag" --argjson flagPaused "$flag_paused" \
-  --argjson lifted "$lifted" \
+  --argjson lifted "$lifted" --argjson allHands "$all_hands" \
   --arg repo "$repo" --arg now "$(date -u +%FT%TZ)" '
   def has($l): (.labels | map(.name) | index($l)) != null;
   def slim: {number, title, url, updatedAt, closedAt};
@@ -139,6 +178,7 @@ jq -n --argjson issues "$issues" --argjson shipped "$shipped" --argjson paused "
       generatedAt: $now, repo: $repo,
       paused: ($paused or $flagPaused or $lifted),
       pause: {flag: $pauseFlag, label: $paused, lifted: $lifted},
+      allHands: $allHands,
       noResources: $noResources,
       running: ($open | map(select(has("tehas:running")) | slim)),
       queued: ($open | map(select(has("tehas:ready") and (has("tehas:running") | not)) | slim) | sort_by(.number)),

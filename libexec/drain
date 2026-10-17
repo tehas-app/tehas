@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# tehas drain: start no new work, and wait for the running cycles to end.
+#
+# The same as `tehas limit set --cycles 0 --plan off --reason draining`: no
+# cycle, planning turn or improvement run starts until the limit is cleared
+# (tehas limit clear). It replaces any limit there was, with one that does not
+# expire. Running cycles are not stopped. With --wait it then waits up to that
+# many seconds for them to end. For a person before a reboot or a disk change,
+# for a program before an upgrade or a move.
+#
+# Usage: tehas drain [--wait SECONDS] [--json]
+#
+#   limit     0 cycles at once, planning off, until cleared: draining
+#   drained: no cycle is running
+#
+# With --json, {"api": 1, "drained": true, "running": [], "limit": {...}}:
+# running lists the issues whose cycles still run, limit is as tehas limit
+# --json prints it.
+#
+# Exit: 0 no cycle is running; 1 some still are at the end of the wait; 64 a
+# bad argument, which writes nothing; 78 the instance settings are missing or
+# malformed, which writes nothing.
+set -uo pipefail
+
+usage() { echo "usage: tehas drain [--wait SECONDS] [--json]" >&2; exit 64; }
+
+wait_for="" json=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --wait) [ -z "$wait_for" ] && [ "$#" -ge 2 ] || usage; [[ $2 =~ ^(0|[1-9][0-9]{0,6})$ ]] || usage; wait_for=$2; shift ;;
+    --json) [ "$json" = 0 ] || usage; json=1 ;;
+    *) usage ;;
+  esac
+  shift
+done
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/config.sh
+. "$here/../lib/config.sh"
+tehas_load || exit 78
+# shellcheck source=lib/cycles.sh
+. "$here/../lib/cycles.sh"
+
+said=$("$here/limit" set --cycles 0 --plan off --reason draining) || exit $?
+deadline=$(($(date +%s) + ${wait_for:-0}))
+while :; do
+  running=$(tehas_cycles_running | sort -n | tr '\n' ' ')
+  running=${running% }
+  [ -n "$running" ] && [ "$(date +%s)" -lt "$deadline" ] || break
+  sleep 1
+done
+
+if [ "$json" = 1 ]; then
+  jq -nc --arg running "$running" --argjson limit "$("$here/limit" --json)" '
+    ($running | split(" ") | map(select(. != "") | tonumber)) as $r
+    | {api: 1, drained: ($r == []), running: $r, limit: ($limit | del(.api))}'
+else
+  printf '%s\n' "$said"
+  if [ -z "$running" ]; then
+    echo "drained: no cycle is running"
+  else
+    echo "still running: #${running// /, #}"
+  fi
+fi
+[ -z "$running" ]
