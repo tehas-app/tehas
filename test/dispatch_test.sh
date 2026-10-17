@@ -116,15 +116,20 @@ t_stub fake-index 'git -C "$T/home/tehas/repos/widget" rev-parse HEAD >"$T/calls
 [ ! -e "/proc/$$/fd/8" ] || : >"$T/calls/index.fd8"
 [ ! -e "$T/calls/fake-start" ] || : >"$T/calls/index.late"
 [ ! -e "$T/fx/index-fails" ] || exit 1'
+# Runs the index at once, as a unit that ends before the poll looks again,
+# unless the fixture leaves it running: then it starts nothing.
+t_stub fake-index-start '[ ! -e "$T/fx/index-runs" ] || exit 0
+"$@"'
 # The slice as systemd and Docker describe it, from fixture files. Its use is
 # the scratch cgroup tree of test/lib.sh.
-t_stub systemctl 'case "$1 $2" in
+systemctl_stub='case "$1 $2" in
   "show tehas.slice")
     [ ! -e "$T/fx/slice-hangs" ] || exec sleep 20
     cat "$T/fx/slice.show" ;;
   "--user show")
     if [ -e "$T/fx/plan-runs" ] && [ "${6:-}" = "tehas-plan-$(cat "$T/fx/plan-runs").service" ]; then echo active; else echo inactive; fi ;;
 esac'
+t_stub systemctl "$systemctl_stub"
 t_stub docker 'case "$1" in
   info) cat "$T/fx/docker.info" ;;
   image) [ -e "$T/fx/image.label" ] || exit 1; cat "$T/fx/image.label" ;;
@@ -168,7 +173,7 @@ reset() {
   echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
   # The control issue has never been paused: no tehas:pause event to read.
   echo '[]' >"$fx/events-1.json"
-  T_ENV=(TEHAS_CYCLE_START_CMD=fake-start TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index TEHAS_PLAN_CMD=fake-plan TEHAS_PLAN_START_CMD=fake-plan-start "$slice_env")
+  T_ENV=(TEHAS_CYCLE_START_CMD=fake-start TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index TEHAS_INDEX_START_CMD=fake-index-start TEHAS_PLAN_CMD=fake-plan TEHAS_PLAN_START_CMD=fake-plan-start "$slice_env")
   t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
 }
 # A cycle that is running: its lock, held by this shell until release.
@@ -883,6 +888,66 @@ t_contains "$t_out" "WARN: the code index was not refreshed"
 t_eq "$(t_calls fake-start)" "7"
 rm "$fx/index-fails"
 
+t_case "an index that runs as its own unit holds the cycles until the poll after it"
+reset
+: >"$fx/index-runs"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "holding: the code index is refreshed first, as tehas-index.service; the cycles start on the poll after it"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$(t_calls fake-index-start)" "$T/home/tehas/logs/dispatch-index.log $T/home/tehas/state/index.rc $T/home/tehas/state/dispatch.again"
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "issue comment"
+rm "$fx/index-runs"
+
+t_case "the poll after the index run says how it ended and starts the cycles"
+base=$(git -C "$checkout" rev-parse origin/main)
+mkdir -p "$T/home/tehas/state/index"
+: >"$T/home/tehas/state/index/widget.db"
+jq -n --arg c "$base" '{commit: $c}' >"$T/home/tehas/state/index.json"
+echo 1 >"$T/home/tehas/state/index.rc"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN: the code index was not refreshed, see $T/home/tehas/logs/dispatch-index.log"
+t_eq "$(t_calls fake-index)" ""
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(find "$T/home/tehas/state/index.rc" 2>/dev/null | wc -l)" 0
+rm -rf "$T/home/tehas/state/index" "$T/home/tehas/state/index.json"
+
+t_case "an index run that left its exit status has ended, though systemd still shows its unit"
+reset
+echo 0 >"$T/home/tehas/state/index.rc"
+t_stub systemctl 'case "$1 $2" in
+  "show tehas.slice") cat "$T/fx/slice.show" ;;
+  "--user show") echo active ;;
+esac'
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "holding: the cycles wait for the code index"
+t_eq "$(t_calls fake-start)" "7"
+t_stub systemctl "$systemctl_stub"
+
+t_case "an index the indexer failed at this tip is not run again by a poll"
+reset
+git -C "$checkout" rev-parse origin/main >"$T/home/tehas/state/index.failed"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-index)" ""
+t_eq "$(t_calls fake-start)" "7"
+rm -f "$T/home/tehas/state/index.failed"
+
+t_case "while an index run holds its lock no cycle starts, and the poll says why"
+reset
+exec {ixfd}>>"$T/home/tehas/state/index.lock"
+flock -n "$ixfd"
+t_run "$dispatch"
+exec {ixfd}>&-
+t_eq "$t_rc" 0
+t_contains "$t_out" "holding: the cycles wait for the code index, which tehas-index.service is refreshing"
+t_eq "$(t_calls fake-index)" ""
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+
 t_case "a dry run refreshes no index"
 reset
 t_run "$dispatch --dry-run"
@@ -1105,7 +1170,7 @@ reset
 t_stub fake-order 'grep -q -e "--add-label tehas:running" "$T/calls/gh" && : >"$T/calls/order.label"
 grep -q "^issue comment $1 " "$T/calls/gh" && : >"$T/calls/order.comment"
 : >"$TEHAS_HOME/state/cycles/$1.taken"'
-T_ENV=(TEHAS_CYCLE_START_CMD=fake-order TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index "$slice_env")
+T_ENV=(TEHAS_CYCLE_START_CMD=fake-order TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index TEHAS_INDEX_START_CMD=fake-index-start "$slice_env")
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(find "$T/calls/order.label" "$T/calls/order.comment" 2>/dev/null | wc -l)" 2
@@ -1120,7 +1185,7 @@ reset
 t_stub fake-live '( exec 9>"$TEHAS_HOME/state/cycles/$1.lock"; flock -n 9; exec sleep 8 ) >/dev/null 2>&1 &
 echo $! >"$T/live.pid"
 : >"$TEHAS_HOME/state/cycles/$1.taken"'
-T_ENV=(TEHAS_CYCLE_START_CMD=fake-live TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index "$slice_env")
+T_ENV=(TEHAS_CYCLE_START_CMD=fake-live TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index TEHAS_INDEX_START_CMD=fake-index-start "$slice_env")
 t_run "$dispatch"
 alive=no
 kill -0 "$(cat "$T/live.pid")" 2>/dev/null && alive=yes
@@ -1149,7 +1214,7 @@ flock -n "$lockfd"
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_contains "$t_out" "WARN: the dispatcher's lock has been held since"
-t_contains "$t_out" "more than 5400s: a poll or tehas index hangs, and no poll runs until it ends"
+t_contains "$t_out" "more than 1800s: a poll hangs, and no poll runs until it ends"
 t_eq "$(t_calls gh)" ""
 t_run "$dispatch"
 t_eq "$t_rc" 0
@@ -1162,7 +1227,7 @@ t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$t_out" ""
 t_run "$dispatch --dry-run"
-t_contains "$t_out" "another poll, or tehas index, holds the dispatcher's lock"
+t_contains "$t_out" "another poll holds the dispatcher's lock"
 t_lacks "$t_out" "WARN"
 
 t_case "a poll that finds the lock held does not change when it was taken"
@@ -1391,7 +1456,7 @@ reset
 # so the stub returns at once and the test's pipe is not held open.
 t_stub fake-late '( exec 9>"$TEHAS_HOME/state/cycles/$1.lock"; flock -n 9; exec sleep 5 ) >/dev/null 2>&1 &
 echo $! >"$T/late.pid"'
-T_ENV=(TEHAS_CYCLE_START_CMD=fake-late TEHAS_CYCLE_START_WAIT=1 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index "$slice_env")
+T_ENV=(TEHAS_CYCLE_START_CMD=fake-late TEHAS_CYCLE_START_WAIT=1 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index TEHAS_INDEX_START_CMD=fake-index-start "$slice_env")
 t_run "$dispatch"
 kill "$(cat "$T/late.pid")" 2>/dev/null
 t_eq "$t_rc" 0
@@ -2821,8 +2886,7 @@ t_eq "$(jq -r .running "$record")" true
 t_lacks "$(t_calls gh)" "kind=plan"
 t_eq "$(plan_calls)" ""
 
-t_case "the poll after a turn ends posts its outcome, once"
-rm -f "$fx/plan-runs"
+t_case "the poll after a turn ends posts its outcome, once, though systemd still shows its unit"
 echo '[]' >"$fx/ready.json"
 # The first poll took tehas:plan off the issue.
 echo '[]' >"$fx/plans.json"
@@ -2834,6 +2898,7 @@ t_eq "$t_rc" 0
 t_contains "$(t_calls gh)" "<!-- tehas:question kind=plan issue=7 turn=1 -->"
 t_eq "$(jq -r '[.session, .turns, .running] | @tsv' "$record")" "abc-123	1	false"
 t_eq "$([ -e "$record.rc" ] && echo left)" ""
+rm -f "$fx/plan-runs"
 rm -f "$T"/calls/*
 t_run "$dispatch"
 t_lacks "$(t_calls gh)" "kind=plan"
@@ -3757,7 +3822,7 @@ bare_tree() {
   for name in status index plan; do cp "$T/bin/fake-$name" "$tree/libexec/$name"; done
   for name in tehas tehasbot tehas-work tehas-status tehas-index tehas-plan; do t_stub "$name"; done
   # Runs the unit's command at once, after its own options.
-  t_stub systemd-run 'while [ "$#" -gt 0 ]; do case "$1" in --unit) shift 2 ;; -*) shift ;; *) break ;; esac; done
+  t_stub systemd-run 'while [ "$#" -gt 0 ]; do case "$1" in --unit | -p) shift 2 ;; -*) shift ;; *) break ;; esac; done
 "$@"'
 }
 
@@ -3774,9 +3839,12 @@ t_run "$tree/libexec/dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls systemctl)" "show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax
 --user show -p LoadState --value tehas-cycle@7.service
+--user show -p ActiveState --value tehas-index.service
 --user start tehas-cycle@7.service"
 t_eq "$(t_calls docker)" "info --format {{.CgroupDriver}} {{.CgroupVersion}}"
 t_contains "$(t_calls fake-index)" "--before-cycle"
+t_contains "$(t_calls systemd-run)" "--user --quiet --collect --unit tehas-index -p RuntimeMaxSec=2400 /bin/bash -c"
+t_eq "$(find "$T/home/tehas/state/dispatch.again" 2>/dev/null | wc -l)" 0
 t_eq "$(t_calls fake-status | wc -l)" 2
 for name in tehas tehasbot tehas-work tehas-status tehas-index tehas-plan; do t_eq "$(t_calls "$name")" ""; done
 
@@ -3786,7 +3854,7 @@ bare_tree
 t_run "$tree/libexec/dispatch"
 t_eq "$t_rc" 0
 t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --brief $record.brief"
-t_contains "$(t_calls systemd-run)" "--user --quiet --collect --unit tehas-plan-7 /bin/bash -c"
+t_contains "$(t_calls systemd-run)" "--user --quiet --collect --unit tehas-plan-7 -p RuntimeMaxSec=4500 /bin/bash -c"
 t_contains "$(t_calls gh)" "- [ ] Adopt all"
 for name in tehas tehasbot tehas-plan; do t_eq "$(t_calls "$name")" ""; done
 
