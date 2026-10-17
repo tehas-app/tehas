@@ -2,7 +2,7 @@
 # Tests for lib/fixer.sh: the fixer's grant and the cycle history it reads.
 # shellcheck disable=SC2016  # stub bodies and snippets are expanded when they run
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 home=$T/home/tehas
 cycles=$home/state/cycles

@@ -3,7 +3,7 @@
 # and for the router's files in host/edge.
 # shellcheck disable=SC2016  # snippets and patterns are expanded later, or never
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 lib='. "$T_ROOT/lib/edge.sh"'
 d=$T/home/tehas

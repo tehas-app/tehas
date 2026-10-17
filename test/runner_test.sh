@@ -7,7 +7,7 @@
 # checkout with fake test files of its own and a stub lint, so what the block
 # says does not depend on whether this host has shellcheck installed.
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 repo=$T/checkout
 recs=$T/records

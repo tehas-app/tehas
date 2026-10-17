@@ -9,7 +9,7 @@
 # their arguments.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 # The one place the follow-ups are named. Every case that needs install.sh's
 # "next:" lines takes them from here, so the fixture is the text install.sh
 # produces rather than a copy of it someone could keep out of step.
