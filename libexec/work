@@ -153,6 +153,10 @@
 # state/cycles/<issue>.manifest.json. What the line and the manifest say, and
 # why, is tehas_issue_images_left_out.
 #
+# A cycle that ended at a cap with nothing in $log.err gets one line there
+# naming the cap and saying the driver wrote no reason, so its record does not
+# read as if nothing went wrong.
+#
 # With TEHAS_WORK_DESCRIBE=1 the model endpoint describes each image in words
 # first (lib/describe.sh), into images.md in the same directory, for the steps
 # that are not shown the pixels. It is in the directory already mounted: no
@@ -757,6 +761,11 @@ echo "tehas work: issue=$issue status=$status step=$step cap=${cap:--} runner_ex
 [ "$killed" = 0 ] || exit 137
 [ "$stalled" = 0 ] && [ "$timed" = 0 ] || exit 2
 if [ "$have" = 1 ]; then
+  # It reaches err.txt of the cycle's improvement record.
+  if [ -n "$cap" ] && [ ! -s "$log.err" ]; then
+    printf '%s\n' "tehas work: issue $issue ended at the cap $cap and $(basename "$log").err holds nothing: the driver wrote no diagnostic for the refusal, so the cap is all the record says about why the step was refused" \
+      >>"$log.err" || echo "tehas work: could not write $log.err" >&2
+  fi
   # A result without an exit code of its own gives null here, which is none.
   for code in "$rc" "$(jq -r .exitCode <<<"$outcome")"; do
     case "$code" in 0 | 10 | 11 | 20 | 21 | 30 | 40) exit "$code" ;; esac

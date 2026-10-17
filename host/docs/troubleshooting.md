@@ -337,7 +337,7 @@ These are the caps the factory posted on its own issues from 10 to 14 October
 
 After the develop step, the driver ran the checks itself, and they did not
 back the developer's claim that the work is done. The lines under "What this
-cap means" say which check. Three kinds were seen:
+cap means" say which check. Four kinds were seen:
 
 - `touched out-of-scope path <file> - declared fence violated
   (issue-fenced)`. The plan marked that file as out of scope for the work,
@@ -356,6 +356,16 @@ cap means" say which check. Three kinds were seen:
   code the cycle did not touch" below.
 - The fix pass after the adversarial review did not clear: it changed
   nothing, or it removed lines it should not have.
+- `consolidated verify was refused  repoRoot is dirty (...)`. Not a gate
+  failure: the driver would not run the consolidated gate at all because it
+  found files in the checkout that git does not ignore. When the names are
+  under `target/` they are cargo's own build output and lock files, left by a
+  gate that built Rust with the repository as its workspace root, sometimes by
+  the driver's own earlier pass. The repository's `.gitignore` now ignores
+  `/target/` at the root, so these no longer count. Check the names in the cap
+  before you delete anything: dirt the gate did not make may be work. When the
+  driver wrote no reason, the cycle's `err.txt` says so in one line naming the
+  cap. (#248, #285.)
 
 The work is committed on a local branch in the workspace and was not pushed.
 There is no pull request. Change the issue where the cause is in it, then
