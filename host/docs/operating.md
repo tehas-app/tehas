@@ -209,9 +209,10 @@ The dispatcher takes issues urgent first, then by the lowest issue number: as ma
 | `tehas:planning`        | A planning turn is running        | Wait                                     |
 | `tehas:question`        | The factory asked something       | Tick a box; in a planning session you may reply instead |
 | `tehas:improvement`     | Filed by the improvement loop     | Read it; apply `tehas:ready` if it should be built |
+| `tehas:fixer-escalated` | The fixer left it to a person     | Read the fixer's note; decide, or take the label off to hand it back |
 
 `tehas:ready` from an allowed labeller starts a fresh cycle whatever else the
-issue carries. tehas's labels of the earlier outcome go when the cycle starts.
+issue carries. So does one from [the fixer](#the-fixers-grant), within its grant. tehas's labels of the earlier outcome go when the cycle starts.
 `needs-human-attention` stays until the cycle runs: the cycle starts with
 `--restart`, and pi-rukas takes the label off as it begins. The dashboard
 counts an issue with `tehas:running` as running, whatever else it carries. On
@@ -716,6 +717,45 @@ was filed, and the two cycles it named nowhere wait for a later run.
 To turn the loop off, remove `TEHAS_IMPROVE_REPO` from `instance.env`: cycles
 stop leaving records and a run does nothing. Or stop the timer with
 `systemctl --user disable --now tehas-improve.timer`.
+
+## The fixer's grant
+
+Optional. The fixer is an account that decides on parked issues from outside
+the factory: start one again, start it again working differently, or leave it
+to a person. What runs as that account is not part of tehas. The factory says
+what the account may do, and this section is that.
+
+- **It is an account of its own**, named by `TEHAS_FIXER_LOGIN`. It is never
+  the bot, because every agent posts as the bot: a poll stops with 78 when
+  the two are one. It is never one of `TEHAS_ALLOWED_LABELERS`: loading the
+  settings stops with 78. Unset, there is no fixer, and the account's labels
+  count as any outsider's.
+- **Its `tehas:ready` starts a cycle only within its grant**: a person
+  approved an earlier cycle of the issue, the body is still the body that
+  person approved, nobody outside the list changed the title or text since,
+  and the fixer has started fewer than `TEHAS_FIXER_MAX_RETRIES` cycles on it
+  since that approval (2 unless the instance says otherwise). Otherwise the
+  label comes off and the issue says why. So the fixer never starts work
+  nobody asked for: it never readies a `tehas:improvement` proposal.
+- **The approval record says so.** A fixer start has `how: "fixer"`,
+  `rests_on`, the person's approval it rests on, and `fixer_starts`. A
+  person's start counts again from none. Its other limits are the
+  dispatcher's as for any start: the slots, the cap of waiting merges and
+  the slice's room.
+- **Its comment reaches the cycle.** The fixer's newest comment on the issue
+  that starts with `<!-- tehas:fixer issue=<n> action=retry -->` or
+  `action=change`, written in the ten minutes before its label and edited by
+  nobody after, goes into the record as `retry_context`. Where the instance
+  gives a cycle images or files, `tehas work` writes it to
+  `retry-context.md` beside them, quoted, under a head that says a model
+  wrote it. No mount and no variable more: elsewhere it reaches no cycle.
+- **`tehas:fixer-escalated`** is the fixer's word that a person decides.
+  The factory does nothing on it; a start takes it off.
+- **Each cycle's end leaves a line** in
+  `~/tehas/state/cycles/<issue>.history.jsonl`, the last 50: when, its
+  status, last step, cap, park reason, failure, whether a provider outage
+  stopped it, whether it parked, its pull request and who started it. It is
+  what a fixer reads to tell a park that will pass from one that will not.
 
 ## Run one issue by hand
 
