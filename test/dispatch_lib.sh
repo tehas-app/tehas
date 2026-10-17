@@ -116,15 +116,20 @@ t_stub fake-index 'git -C "$T/home/tehas/repos/widget" rev-parse HEAD >"$T/calls
 [ ! -e "/proc/$$/fd/8" ] || : >"$T/calls/index.fd8"
 [ ! -e "$T/calls/fake-start" ] || : >"$T/calls/index.late"
 [ ! -e "$T/fx/index-fails" ] || exit 1'
+# Runs the index at once, as a unit that ends before the poll looks again,
+# unless the fixture leaves it running: then it starts nothing.
+t_stub fake-index-start '[ ! -e "$T/fx/index-runs" ] || exit 0
+"$@"'
 # The slice as systemd and Docker describe it, from fixture files. Its use is
 # the scratch cgroup tree of test/lib.sh.
-t_stub systemctl 'case "$1 $2" in
+systemctl_stub='case "$1 $2" in
   "show tehas.slice")
     [ ! -e "$T/fx/slice-hangs" ] || exec sleep 20
     cat "$T/fx/slice.show" ;;
   "--user show")
     if [ -e "$T/fx/plan-runs" ] && [ "${6:-}" = "tehas-plan-$(cat "$T/fx/plan-runs").service" ]; then echo active; else echo inactive; fi ;;
 esac'
+t_stub systemctl "$systemctl_stub"
 t_stub docker 'case "$1" in
   info) cat "$T/fx/docker.info" ;;
   image) [ -e "$T/fx/image.label" ] || exit 1; cat "$T/fx/image.label" ;;
@@ -148,7 +153,7 @@ dispatch_json=$T/home/tehas/live/dispatch.json
 
 reset() {
   rm -f "$T"/calls/* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/icomments-* "$fx"/prs.json "$fx"/prlist.json "$fx"/pr-fails "$fx"/issue-* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/plan-runs "$fx"/slice-* "$fx"/orphan-* "$fx"/prs-* "$fx"/blockers*
-  rm -rf "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-* "$T"/home/tehas/state/park-* "$T/home/tehas/live" "$T/home/tehas/state/pause.json"
+  rm -rf "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-* "$T"/home/tehas/state/park-* "$T/home/tehas/live" "$T/home/tehas/state/pause.json" "$T/home/tehas/state/limit.json"
   # A slice of 20 GiB with nothing in it: room for ten cycles of the default
   # reserve, so the slots and the review cap decide unless a case says more.
   slice_show $((20 * gib))
@@ -168,7 +173,7 @@ reset() {
   echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
   # The control issue has never been paused: no tehas:pause event to read.
   echo '[]' >"$fx/events-1.json"
-  T_ENV=(TEHAS_CYCLE_START_CMD=fake-start TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index TEHAS_PLAN_CMD=fake-plan TEHAS_PLAN_START_CMD=fake-plan-start "$slice_env")
+  T_ENV=(TEHAS_CYCLE_START_CMD=fake-start TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index TEHAS_INDEX_START_CMD=fake-index-start TEHAS_PLAN_CMD=fake-plan TEHAS_PLAN_START_CMD=fake-plan-start "$slice_env")
   t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
 }
 # A cycle that is running: its lock, held by this shell until release.

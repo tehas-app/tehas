@@ -16,6 +16,7 @@ t_eq "$([ -x "$th/libexec/pause" ] && [ -x "$th/libexec/resume" ] && echo both)"
 # Every script in libexec/ is installed: a command bin/tehas knows has its script.
 missing=""
 for f in "$T_ROOT"/libexec/*; do [ -x "$th/libexec/${f##*/}" ] || missing="$missing ${f##*/}"; done
+for f in "$T_ROOT"/lib/*.sh; do [ -f "$th/lib/${f##*/}" ] || missing="$missing ${f##*/}"; done
 t_eq "$missing" ""
 # The follow-ups these copies call for are asked for by id and recorded as owed.
 t_eq "$(printf '%s\n' "$t_out" | sed -n 's/^next: //p')" "$(next_steps)"
