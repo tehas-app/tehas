@@ -909,6 +909,22 @@ t_eq "$(jq -r '.issues[0].cap' "$cycle_log.result.json")" verify-failed:develop
 t_contains "$t_out" "status=handoff step=develop cap=verify-failed:develop runner_exit=10"
 t_eq "$(jq -c '[.running, .status]' "$live/cycles/7.json")" '[false,"handoff"]'
 
+t_case "a cycle that ended at a cap with nothing in its error stream leaves a line naming the cap there"
+fresh
+container 'says handoff verify-failed:develop; exit 10'
+t_run "$work 7"
+t_eq "$t_rc" 10
+cycle_log=$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p')
+t_eq "$(cat "$cycle_log.err")" "tehas work: issue 7 ended at the cap verify-failed:develop and $(basename "$cycle_log").err holds nothing: the driver wrote no diagnostic for the refusal, so the cap is all the record says about why the step was refused"
+
+t_case "a cycle that ended with no cap leaves its error stream as it is"
+fresh
+container 'says handoff; exit 10'
+t_run "$work 7"
+t_eq "$t_rc" 10
+cycle_log=$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p')
+t_eq "$(find "$cycle_log.err" 2>/dev/null | wc -l)" 0
+
 t_case "a result left by an earlier cycle is gone before the container starts"
 fresh
 echo '{"schemaVersion":3,"issues":[{"issue":7,"status":"merged"}]}' >"$result_file"
