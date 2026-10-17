@@ -4542,6 +4542,19 @@ t_eq "$(started)" "7 "
 t_contains "$(t_calls gh)" "b12: issueOrPullRequest(number: 12)"
 t_contains "$(t_calls gh)" "b34: issueOrPullRequest(number: 34)"
 
+t_case "a blocked issue that starts is recorded as the ready label's, not the blocked label's"
+reset
+slots 1 TEHAS_FIXER_LOGIN=tehas-fixer
+queue "7 tehas:blocked"
+label_events 7 tehas:blocked=tehas-fixer
+notes 7 "$(bnote 10 tehas-fixer '<!-- tehas:blocked by=12 -->')"
+states 12=CLOSED
+t_run "$dispatch"
+t_eq "$(started)" "7 "
+t_eq "$(cat "$cycles_dir/7.by")" alice
+t_eq "$(jq -r '"\(.by) \(.at)"' "$approved_file")" "alice 2026-10-01T00:00:00Z"
+t_lacks "$t_out" "authorized by @tehas-fixer"
+
 t_case "one open blocker of two holds the issue"
 reset
 queue "7 tehas:blocked"

@@ -549,7 +549,8 @@ order_label() {
 # by another account, a number whose state GitHub does not give. Returns 1 with
 # the reason logged.
 blocked_ok() {
-  local n=$1 got list b q answer state why=""
+  # Local, so the blocked label's account does not replace the ready label's.
+  local n=$1 got list b q answer state why="" ev who at
   order_label "$n" tehas:blocked || return 0
   # shellcheck disable=SC2016  # $owner, $name and $number are GraphQL variables
   gh_json api graphql -F owner="${repo%%/*}" -F name="${repo##*/}" -F number="$n" \
