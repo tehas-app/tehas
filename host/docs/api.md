@@ -52,6 +52,34 @@ listed here when a release has it.
 4. Before an upgrade or a move, [`tehas drain --wait`](#tehas-drain), then
    `tehas limit clear` once it is done.
 
+## Creating a factory
+
+A factory is a machine of its own: its own Docker daemon, its own published
+ports, its own Unix user, its own `TEHAS_DOMAIN`. Nothing is shared with
+another factory, because sharing any of those puts one factory's containers,
+units or names under another's control. What such a machine needs is the list
+on [The host](/host#what-a-factory-machine-needs), which is the same list a
+person reads.
+
+A program creates one by running the two installers a person runs, in this
+order, and asking one question afterwards:
+
+```
+sudo ./bootstrap.sh root <user>   # packages, Docker, the docker group, linger, the slice
+./bootstrap.sh user               # the pinned tools, as the tehas user
+./install.sh --check              # must exit 0 once the instance is in place
+```
+
+Neither asks a question, so both run with nothing on standard input. An
+instance that will not load stops `install.sh` with exit 78 and one line
+naming the setting, and installs nothing; a machine that still owes a
+follow-up from an earlier run keeps `--check` at exit 1. So the test of a
+factory is not that the commands ran, it is that `install.sh --check` returns
+0 twice in a row, and that [`tehas api --json`](#tehas-api) then names the
+release, the commit and the repository it was installed for. The steps, what
+each one refuses, and what an unattended run has to get past are on
+[Installing a factory](/host#installing-a-factory).
+
 ## tehas api
 
 ```
