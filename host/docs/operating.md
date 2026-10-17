@@ -768,6 +768,16 @@ what the account may do, and this section is that.
   stopped it, whether it parked, its pull request and who started it.
   Nothing in tehas reads it yet; it is the record a later `tehas history`
   lists. A fixer reads GitHub, not this file.
+- **The park comment carries the park's facts.** The bot's park comment,
+  with boxes or without, has the line
+  `<!-- tehas:park issue=<n> step=<step> kind=<failure kind> provider=<0|1> sig=<sha256> -->`.
+  `step` and `kind` are the history line's, cut to `[a-z0-9-]`, and empty
+  when the cycle had none. `provider` is 1 when a provider outage stopped
+  it. `sig` is the sha256 of the history line's
+  `step|cap|park_reason|failure_kind|failure_cause`: two parks with the same
+  `sig` stopped the same way. The free text of a park stays out of the
+  marker. Only the bot's comments count: a reader ignores the line in
+  anyone else's.
 
 ## Run one issue by hand
 
