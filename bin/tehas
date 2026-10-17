@@ -9,7 +9,8 @@
 #   tehas index                      build the code index the agents search
 #   tehas update [--check]           bring this host up to date with the platform
 #   tehas labels                     create the tehas labels in the repository
-#   tehas status                     print the state of the factory
+#   tehas status [--json]            print the state of the factory
+#   tehas api [--json]               what this factory speaks, for a program
 #   tehas top [--once|--json]        one screen of what the factory is doing
 #   tehas pause [reason]             stop this host from starting new work
 #   tehas resume                     lift this host's pause flag
@@ -35,7 +36,7 @@ usage_of() {
 # script <command>: the file behind a command, or nothing.
 script() {
   case "$1" in
-    dispatch | work | plan | dev | index | update | labels | top | pause | resume) echo "$libexec/$1" ;;
+    dispatch | work | plan | dev | index | update | labels | top | pause | resume | api) echo "$libexec/$1" ;;
     status) echo "$libexec/summary" ;;
   esac
 }

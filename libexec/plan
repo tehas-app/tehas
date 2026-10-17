@@ -338,7 +338,7 @@ fi
 # later turn gets it too: after a compaction the agent reads it again.
 if [ -f "$keep/brief.md" ]; then
   if ! { mkdir -p "$tree/.tehas" "$tree/.git/info" && cp "$keep/brief.md" "$tree/.tehas/brief.md" &&
-    echo ".tehas/" >>"$tree/.git/info/exclude"; }; then
+    echo "/.tehas/brief.md" >>"$tree/.git/info/exclude"; }; then
     echo "tehas plan: could not put the brief into $tree" >&2
     exit 78
   fi

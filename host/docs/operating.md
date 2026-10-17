@@ -232,6 +232,7 @@ a poll by hand on the host:
 
 ```
 tehas status                 # taking work? the queue, the current or last cycle, the slice's room
+tehas status --json          # the same for a program, with the demand (see the factory API)
 tehas top                    # the same overview, on one screen that redraws itself
 tehas dispatch --dry-run     # what would it do?
 tehas dispatch               # do it (returns once the cycle is started)

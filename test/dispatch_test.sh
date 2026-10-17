@@ -1550,9 +1550,9 @@ slots 2
 ready 3 8!
 t_run "$dispatch"
 t_eq "$t_rc" 0
-# Once for the order, once when #8 is picked: no start rests on the read that
-# settled the order.
-t_eq "$(grep -c -e 'api repos/acme/widget/issues/8/events' <<<"$(t_calls gh)")" "2"
+# Once for the demand, once for the order, once when #8 is picked: no start
+# rests on the reads before the decision.
+t_eq "$(grep -c -e 'api repos/acme/widget/issues/8/events' <<<"$(t_calls gh)")" "3"
 
 t_case "an urgent issue this poll cannot start is not asked about"
 reset
@@ -1626,7 +1626,9 @@ hold 10
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" ""
-t_lacks "$(t_calls gh)" "tehas:ready"
+# The demand reads the list and who labelled each issue; nothing else is asked.
+t_eq "$(grep -c -e 'tehas:ready' <<<"$(t_calls gh)")" 1
+t_eq "$(grep -c -x -e 'api repos/acme/widget/issues/[78]' -e 'issue view [78] .*' <<<"$(t_calls gh)")" 0
 t_lacks "$(t_calls gh)" "awaiting-merge"
 t_run "$dispatch --dry-run"
 t_contains "$t_out" "holding: 2 cycles are running (limit 2)"
@@ -2731,7 +2733,7 @@ t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label 
 t_case "every list of issues is read to a thousand"
 reset
 t_run "$dispatch"
-t_eq "$(t_calls gh | grep -c -e '^issue list .* --limit 1000 ')" 5
+t_eq "$(t_calls gh | grep -c -e '^issue list .* --limit 1000 ')" 6
 t_lacks "$(t_calls gh)" "--limit 100 "
 
 t_case "an answer on a question the session is not waiting on runs no turn"
@@ -4720,5 +4722,120 @@ comments 7 "$(park_body x ' ')" tehas-fixer
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
 t_contains "$t_out" "boxes ticked by 'tehas-fixer' are no answer (stranger)"
+
+# The demand: how many issues would start if there were room, written on every
+# poll for tehas status.
+demand_file=$T/home/tehas/live/demand.json
+ready_at() { # <issue> <login> <time>: tehas:ready applied by <login> at <time>
+  jq -nc --arg w "$2" --arg at "$3" '[{event: "labeled", label: {name: "tehas:ready"}, actor: {login: $w}, created_at: $at}]' >"$fx/events-$1.json"
+}
+
+t_case "demand: a poll with no room counts the waiting issues and the oldest acceptance"
+reset
+ready 7 8
+ready_at 7 alice 2026-10-17T10:00:00Z
+ready_at 8 alice 2026-10-17T09:00:00Z
+hold 5
+t_run "$dispatch"
+release
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_eq "$(jq -c '{waiting, oldest}' "$demand_file")" '{"waiting":2,"oldest":"2026-10-17T09:00:00Z"}'
+t_eq "$(jq -r '.time | fromdateiso8601 | type' "$demand_file")" number
+
+t_case "demand: the health file carries it after the poll"
+reset
+ready_at 7 alice 2026-10-17T10:00:00Z
+hold 5
+t_run "$dispatch"
+release
+t_eq "$(jq -c '.checks.demand | {waiting, oldest}' "$T/home/tehas/live/health.json")" '{"waiting":1,"oldest":"2026-10-17T10:00:00Z"}'
+
+t_case "demand: a renamed repository is not asked for it"
+reset
+echo '{"nameWithOwner":"acme/gadget"}' >"$fx/repo.json"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_eq "$([ -e "$demand_file" ] && echo there)" ""
+
+t_case "demand: a poll paused by the flag or the label still writes it"
+reset
+ready_at 7 alice 2026-10-17T10:00:00Z
+mkdir -p "$T/home/tehas/state"
+jq -nc '{by: "boss", at: "2026-10-15T10:00:00Z", reason: "weekend"}' >"$T/home/tehas/state/pause.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_eq "$(jq -c '{waiting, oldest}' "$demand_file")" '{"waiting":1,"oldest":"2026-10-17T10:00:00Z"}'
+reset
+ready_at 7 alice 2026-10-17T10:00:00Z
+echo '{"labels":[{"name":"tehas:pause"}]}' >"$fx/control.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_eq "$(jq -r .waiting "$demand_file")" 1
+
+t_case "demand: a stranger's label, a running cycle and a planning session do not wait"
+reset
+ready 7 8 9 10
+ready_at 7 mallory 2026-10-17T08:00:00Z
+ready_at 8 alice 2026-10-17T08:30:00Z
+ready_at 9 alice 2026-10-17T09:00:00Z
+ready_at 10 alice 2026-10-17T10:00:00Z
+mkdir -p "$T/home/tehas/state"
+echo '{"comment":1}' >"$T/home/tehas/state/plan-9.json"
+slots 2
+hold 8
+hold 5
+t_run "$dispatch"
+release
+t_eq "$(jq -c '{waiting, oldest}' "$demand_file")" '{"waiting":1,"oldest":"2026-10-17T10:00:00Z"}'
+
+t_case "demand: the fixer's label waits like a person's"
+reset
+slots 1 TEHAS_FIXER_LOGIN=tehas-fixer
+ready_at 7 tehas-fixer 2026-10-17T10:00:00Z
+hold 5
+t_run "$dispatch"
+release
+t_eq "$(jq -r .waiting "$demand_file")" 1
+
+t_case "demand: nothing waiting is a count of none and no oldest"
+reset
+echo '[]' >"$fx/ready.json"
+t_run "$dispatch"
+t_eq "$(jq -c '{waiting, has: has("oldest")}' "$demand_file")" '{"waiting":0,"has":false}'
+
+t_case "demand: events that cannot be read leave no count, and do not end a paused poll"
+reset
+ready 7
+rm -f "$fx/events-7.json"
+mkdir -p "$T/home/tehas/live" "$T/home/tehas/state"
+echo '{"time":"2026-10-17T10:00:00Z","waiting":3}' >"$demand_file"
+jq -nc '{by: "boss", at: "2026-10-15T10:00:00Z", reason: "weekend"}' >"$T/home/tehas/state/pause.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$demand_file" ] && echo there)" ""
+
+t_case "demand: a dry run writes nothing"
+reset
+hold 5
+t_run "$dispatch --dry-run"
+release
+t_eq "$([ -e "$demand_file" ] && echo there)" ""
+
+t_case "the slots and the room under the review cap reach live/dispatch.json"
+reset
+slots 3
+echo '[{"number":20},{"number":21}]' >"$fx/awaiting.json"
+echo '[]' >"$fx/ready.json"
+hold 5
+t_run "$dispatch"
+release
+t_eq "$(jq -c '{free, awaitRoom}' "$dispatch_json")" '{"free":2,"awaitRoom":2}'
+reset
+hold 5
+t_run "$dispatch"
+release
+t_eq "$(jq -c '{free, awaitRoom}' "$dispatch_json")" '{"free":0,"awaitRoom":null}'
 
 t_done
