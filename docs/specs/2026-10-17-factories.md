@@ -190,7 +190,7 @@ when none is running, 1 when some still are at the end of the wait. For a
 person before a reboot or a disk change; for industry before an upgrade or
 a move. `tehas limit clear` ends it.
 
-### `tehas history --json [--after CURSOR]` (new)
+### `tehas history --json [--after CURSOR] [--issue N]` (new)
 
 The finished cycles, oldest first, from the results the factory keeps:
 
@@ -199,15 +199,24 @@ The finished cycles, oldest first, from the results the factory keeps:
   "api": 1,
   "cycles": [
     {"cursor": "1760700000-12", "kind": "work", "issue": 12, "started": "...",
-     "ended": "...", "status": 10, "outcome": "handoff", "pr": "https://github.com/..."}
+     "ended": "...", "status": 10, "outcome": "handoff", "pr": "https://github.com/...",
+     "step": "review", "cap": "...", "parkReason": "...", "failureKind": "...",
+     "failureCause": "...", "provider": false, "parked": true,
+     "by": "alice", "how": "label"}
   ],
   "next": "1760700000-12"
 }
 ```
 
 `cursor` orders cycles by when they ended; `--after` returns only later
-ones. A program keeps `next` and asks again. Planning turns are listed the
-same way with `"kind": "plan"`.
+ones. A program keeps `next` and asks again. `--issue N` lists one issue's
+cycles. Planning turns are listed the same way with `"kind": "plan"`.
+
+The fields after `pr` are what a fixer needs to tell a park that a retry
+can pass from one it cannot: the last step, the cap and park reason, the
+failure, whether a provider outage stopped it, and who started it and how
+(`label`, `retry-tick`, `outage-retry` or `fixer`). A field the cycle did
+not have is left out.
 
 ### `tehas export --after CURSOR <dir>` (new)
 
@@ -302,8 +311,8 @@ marks each as covered by tests until seen on a host.
 - `test/drain_test.sh`: exit 0 with none running, 1 when the wait ends with
   cycles running.
 - `test/history_test.sh`, `test/export_test.sh`: order, cursors, nothing
-  repeated or skipped, nothing written in the factory, no token in an
-  exported file.
+  repeated or skipped, `--issue`, the park fields, nothing written in the
+  factory, no token in an exported file.
 - `test/update_test.sh`: `--to` a tag, `--check --to`, a tag that does not
   exist.
 - `test/labels_test.sh`: the all-hands label is created.
