@@ -21,6 +21,8 @@ tehas update [--check]           # bring this host up to date with the platform
 tehas labels                     # create the tehas labels in the repository
 tehas status [--json]            # print the state of the factory
 tehas api [--json]               # what this factory speaks, for a program
+tehas limit [set ...|clear]      # an outside cap on what this factory starts
+tehas drain [--wait S] [--json]  # start nothing new, wait for running cycles
 tehas top [--once|--json]        # one screen of what the factory is doing
 tehas pause [reason]             # stop this host from starting new work
 tehas resume                     # lift this host's pause flag
@@ -203,10 +205,15 @@ under [Troubleshooting](/troubleshooting). Log:
 cycle's runner output: `~/tehas/logs/dispatch-work-<issue>.log`.
 
 When it has an issue to start, it puts the product checkout on the default
-branch and fast-forwards it, then, if no cycle is running, refreshes the code index with
-[tehas index](#tehas-index) when the branch has moved since the last indexing.
-An index that cannot be refreshed is a warning in the log; the cycle still
-runs. It then marks each issue `tehas:running` and starts
+branch and fast-forwards it. If no cycle is running and the branch has moved
+since the last indexing, it starts [tehas index](#tehas-index) as its own unit,
+`tehas-index.service`, and ends: the log says `holding: the code index is
+refreshed first`. The unit asks for a poll when it ends, and that poll starts
+the cycles. Nothing about the issues changes in the poll that holds them, so a
+ticked retry stays ticked. While the index runs, polls say `holding: the cycles
+wait for the code index`, and planning turns and sweeps go on. An index that
+could not be refreshed is a warning in the next poll's log; the cycles still
+start. It then marks each issue `tehas:running` and starts
 `tehas-cycle@<issue>.service`, which runs [tehasbot cycle](#tehasbot-cycle).
 It does not wait for the cycle. If the unit does not come up within 30
 seconds, the issue gets `needs-human-attention`, the poll goes on to the
@@ -859,15 +866,18 @@ mounted at the path a cycle works in, so what it writes is the index a cycle
 looks for. The clone is made at the tip the product checkout last fetched and
 is removed afterwards. The cycle's workspace is not touched.
 
-It refuses, with exit 3, while a cycle is running or while a poll or another
-index run holds the dispatcher's lock. The index is only ever written when
-nothing is reading it.
+One run at a time: it holds `~/tehas/state/index.lock` while it runs, and a
+poll starts no cycle while that lock is held. It refuses, with exit 3, while a
+cycle is running or another index run holds that lock. Before it looks at the
+cycles it waits, up to a minute, for a poll that holds the dispatcher's lock,
+because that poll may be starting a cycle; then it lets that lock go. The index
+is only ever written when nothing is reading it, and no poll waits for it.
 
 | Exit | Meaning                                                |
 | ---- | ------------------------------------------------------ |
 | 0    | The index was built, or was already current            |
 | 1    | The sandbox image is missing, or the indexer failed or did not finish in 30 minutes |
-| 3    | A cycle is running, or a poll or another index run holds the dispatcher's lock; nothing was done |
+| 3    | A cycle is running, another index run holds its lock, or a poll held the dispatcher's lock for a minute; nothing was done |
 | 64   | An argument this command does not know                 |
 | 78   | The instance settings are invalid, or `tehas.slice` cannot be used; nothing was done |
 
@@ -888,9 +898,10 @@ agents search by reading files, which is slower and finds less.
 
 `install.sh` runs it once, the first time it finds the sandbox image and the
 product checkout and no index. After that the dispatcher runs the script with
-`--before-cycle` when it starts cycles and no cycle is running: the lock is the
-dispatcher's own then, and nothing is done when `~/tehas/state/index` already
-holds what the record says is the branch's tip. An empty directory counts as
+`--before-cycle`, as `tehas-index.service`, when it would start cycles and no
+cycle is running, and only when `~/tehas/state/index` does not already hold
+what the record says is the branch's tip. Its output goes to
+`~/tehas/logs/dispatch-index.log`. An empty directory counts as
 no index, so a host upgraded from the version that kept the index in a cache
 volume builds it into the new one at its next idle start rather than reporting
 an index that no cycle is given. Cycles started then begin with an index of
@@ -900,16 +911,16 @@ a cycle is running on #<issue>`. On a host that is never idle the index falls
 behind the branch. What a cycle changes, in its workspace or its worktrees, is
 never in the index.
 
-The indexer may run for 30 minutes. The dispatcher's lock is held all that
-time, so a hung indexer is stopped there and the poll goes on. A container
+The indexer may run for 30 minutes, and `tehas-index.service` for 40, so a hung
+indexer is stopped and the next poll starts the cycles. A container
 named `tehas-index` that a killed run left behind is removed before each run.
 When the indexer fails, `~/tehas/state/index.json` stays as it was and
 `~/tehas/state/index.failed` holds the tip that failed. Before a cycle that tip
-is not tried again: the command exits 1 and the dispatcher's log says the index
-was not refreshed, until the branch moves.
+is not tried again: the dispatcher does not start the unit for it, and the
+cycles start with the index as it is, until the branch moves.
 
-Run by hand it always rebuilds, a failed tip too, and it holds the dispatcher's
-lock while it does, so no cycle starts in the middle. A cycle started by hand
+Run by hand it always rebuilds, a failed tip too, and it holds the index's lock
+while it does, so no cycle starts in the middle. A cycle started by hand
 with `tehas work` refreshes nothing.
 
 ## tehas labels
@@ -918,14 +929,48 @@ with `tehas work` refreshes nothing.
 tehas labels        # one line per label
 ```
 
-Creates the thirteen labels tehas uses in the product repository: `tehas:ready`,
+Creates the fourteen labels tehas uses in the product repository: `tehas:ready`,
 `tehas:urgent`, `tehas:running`, `tehas:awaiting-merge`, `tehas:shipped`, `tehas:pause`,
 `needs-human-attention`, `tehas:question`, `tehas:plan`, `tehas:planning`,
-`tehas:fixer-escalated`, `tehas:next` and `tehas:blocked`.
+`tehas:fixer-escalated`, `tehas:next`, `tehas:blocked` and `tehas:all-hands`.
 Run it once for a new product, and again after pulling a version that adds a
 label. Run again, it puts their colours and descriptions back. It needs `TEHAS_REPO` and no other
 setting. Exit 0 when every label is there, 1 when one could not be made, 64 on
 any argument, 78 when the repository is not set.
+
+## tehas limit
+
+```
+tehas limit [--json]
+tehas limit set --cycles N [--plan on|off] [--for SECONDS | --until TIME] [--reason TEXT]
+tehas limit clear
+```
+
+```
+limit     1 cycle at once, planning off, until 2026-10-17T14:05:00Z: held for alpha
+```
+
+Sets, shows or clears the limit in `~/tehas/state/limit.json` (mode 600). The
+dispatcher reads it on every poll: room for new cycles is the smaller of
+`--cycles` and `TEHAS_TICKET_CONCURRENCY`, less the cycles running, and its
+hold is `limit`. With `--plan off` no new planning session starts, and
+[tehasbot improve](#tehasbot-improve) waits; an answer to a planning question
+still runs. One that expired or cannot be read holds every start, answers and
+retry ticks included, while the poll goes on cleaning up. See
+[Limit and drain](/operating#limit-and-drain) and
+[the factory API](/api#tehas-limit) for the JSON. Exit 0; 64 on a bad
+argument, which writes nothing; 78 without an instance.
+
+## tehas drain
+
+```
+tehas drain [--wait SECONDS] [--json]
+```
+
+Sets the limit `--cycles 0 --plan off --reason draining`, which does not
+expire, then with `--wait` waits up to that long for the running cycles to
+end. Exit 0 when none is running, 1 when some still are. `tehas limit clear`
+ends it.
 
 ## tehas pause
 
@@ -990,6 +1035,12 @@ is paused it adds one line for each switch that is set:
 pause     flag, written 4 min ago: waiting for the gate
 pause     label: tehas:pause on the control issue
 pause     label: tehas:pause is off the control issue, but no account in TEHAS_ALLOWED_LABELERS took it off
+```
+
+And while [`tehas:all-hands`](/operating#all-hands) holds:
+
+```
+all-hands tehas:all-hands is on the control issue, applied by an allowed account
 ```
 
 It reads
@@ -1335,6 +1386,10 @@ recorded as ended with the status `lost`, which is a failure. While
 `checks.platform` is `live/platform.json`, or `null` on a host without a
 platform checkout.
 
+`checks.allHands` is the snapshot's `allHands`: true while
+[`tehas:all-hands`](/operating#all-hands) holds, false when it does not, and
+`null` when the snapshot is older than ten minutes or could not read it.
+
 `checks.demand` is what the dispatcher's last poll wrote to
 `live/demand.json`: `{time, waiting, oldest}`, the issues that would start if
 there were room and when the oldest was labelled. It is `null` when no poll
@@ -1574,7 +1629,9 @@ systemctl --user enable --now tehas-improve.timer
 One run of the improvement loop. It is off, and prints that it is, unless
 `TEHAS_IMPROVE_REPO` is set. [Operating](/operating) says what it files and how
 to read its line; the timer runs it every three hours, on the hour, and the log is
-`~/tehas/logs/improve.log`.
+`~/tehas/logs/improve.log`. A [limit](#tehas-limit) with planning off, or one
+that expired or cannot be read, holds a run: it says `held by the limit`, exits
+0, and the records wait for a later run.
 
 When a cycle ends, `tehasbot cycle` leaves a record of it in
 `~/tehas/tmp/improve/window/<issue>-<time>/`: how it ended, the stream without

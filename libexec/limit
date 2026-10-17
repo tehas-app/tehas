@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+# tehas limit: an outside cap on what this factory starts.
+#
+# A limit caps the cycles running at once and may turn off planning turns and
+# improvement runs, until it expires or is cleared. A person uses it to keep a
+# host quiet for a weekend; a program uses it to share model time between
+# factories. Running cycles are never stopped: a lower limit only holds new
+# starts. A limit that has expired, or a file that cannot be read, holds every
+# start until the limit is set again or cleared, so a program that sets a
+# limit with an expiry and then dies leaves a factory that starts nothing,
+# not one that runs unlimited. tehas pause is a separate switch: a paused
+# factory stays paused under any limit.
+#
+# Usage:
+#   tehas limit [--json]          show the limit, or "none"
+#   tehas limit set --cycles N [--plan on|off] [--for SECONDS | --until TIME] [--reason TEXT]
+#   tehas limit clear
+#
+#   --cycles N     the most cycles running at once, 0 to 9999. Room for a new
+#                  cycle is the smaller of N and TEHAS_TICKET_CONCURRENCY,
+#                  less the cycles running, then the slice and
+#                  TEHAS_MAX_AWAITING as always
+#   --plan off     no new planning turn and no improvement run; an answer to a
+#                  planning question still runs [on]
+#   --for SECONDS  expire that long from now
+#   --until TIME   expire then, as 2026-10-17T14:05:00Z
+#   --reason TEXT  shown as the hold's reason: one line of at most 200
+#                  characters, control characters become spaces. It is shown
+#                  on pages that may be public
+#
+# Setting replaces the whole limit; setting it twice the same way leaves the
+# same file. Each command prints the limit as it then is:
+#
+#   limit     1 cycle at once, planning off, until 2026-10-17T14:05:00Z: held for alpha
+#
+# With --json, {"api": 1, "state": "ok", "cycles": 1, "plan": false,
+# "until": "...", "reason": "..."}: state is none, ok, expired or unreadable,
+# and a field without a value is left out.
+#
+# Exit: 0 shown, set or cleared; 64 a bad argument, which writes nothing; 78
+# the instance settings are missing or malformed, which writes nothing.
+set -uo pipefail
+
+usage() {
+  echo "usage: tehas limit [--json] | set --cycles N [--plan on|off] [--for SECONDS | --until TIME] [--reason TEXT] | clear" >&2
+  exit 64
+}
+
+action=show json=0
+cycles="" plan=true for="" until="" reason="" have_reason=0 have_plan=0
+case "${1-}" in
+  "") ;;
+  --json) [ "$#" = 1 ] || usage; json=1 ;;
+  clear) [ "$#" = 1 ] || usage; action=clear ;;
+  set)
+    action="set"
+    shift
+    while [ "$#" -gt 0 ]; do
+      [ "$#" -ge 2 ] || usage
+      case "$1" in
+        --cycles) [ -z "$cycles" ] || usage; [[ $2 =~ ^(0|[1-9][0-9]{0,3})$ ]] || usage; cycles=$2 ;;
+        --plan)
+          [ "$have_plan" = 0 ] || usage
+          have_plan=1
+          case "$2" in on) plan=true ;; off) plan=false ;; *) usage ;; esac
+          ;;
+        --for) [ -z "$for$until" ] || usage; [[ $2 =~ ^[1-9][0-9]{0,8}$ ]] || usage; for=$2 ;;
+        --until)
+          [ -z "$for$until" ] || usage
+          [[ $2 =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || usage
+          at=$(jq -nr --arg t "$2" '$t | fromdateiso8601' 2>/dev/null) || usage
+          [ "$at" -gt "$(date +%s)" ] || usage
+          until=$2
+          ;;
+        --reason) [ "$have_reason" = 0 ] || usage; have_reason=1; reason=$2 ;;
+        *) usage ;;
+      esac
+      shift 2
+    done
+    [ -n "$cycles" ] || usage
+    ;;
+  *) usage ;;
+esac
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/config.sh
+. "$here/../lib/config.sh"
+tehas_load || exit 78
+# shellcheck source=lib/status.sh
+. "$here/../lib/status.sh"
+# shellcheck source=lib/limit.sh
+. "$here/../lib/limit.sh"
+file=$(tehas_limit_file)
+
+case "$action" in
+  set)
+    [ -z "$for" ] || until=$(date -u -d "@$(($(date +%s) + for))" +%FT%TZ)
+    mkdir -p "${file%/*}" || { echo "tehas limit: could not create ${file%/*}" >&2; exit 1; }
+    tmp=$file.new
+    # Cleared first: a leftover or something planted under that name is not
+    # written through.
+    rm -f "$tmp" || { echo "tehas limit: could not remove $tmp" >&2; exit 1; }
+    if ! (umask 077; jq -nc --argjson cycles "$cycles" --argjson plan "$plan" --arg until "$until" --arg reason "$reason" \
+      '{v: 1, $cycles, $plan, until: (if $until == "" then null else $until end),
+        reason: ($reason | '"$tehas_pause_oneline"' | .[:200])}' >"$tmp") || ! mv -f "$tmp" "$file"; then
+      rm -f "$tmp"
+      echo "tehas limit: could not write $file" >&2
+      exit 1
+    fi
+    ;;
+  clear)
+    if [ -e "$file" ] || [ -L "$file" ]; then
+      rm -rf "$file" || { echo "tehas limit: could not remove $file" >&2; exit 1; }
+    fi
+    ;;
+esac
+
+limit=$(tehas_limit_read)
+if [ "$json" = 1 ]; then
+  jq -c '{api: 1} + .' <<<"$limit"
+else
+  tehas_limit_line "$limit"
+fi
