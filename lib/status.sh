@@ -15,6 +15,8 @@
 #   tehas_slice_line <health json> <now>     the last poll's slice check
 #   tehas_platform_line <health json> <now>  the platform checkout against
 #                                            origin; nothing without one
+#   tehas_status_json <health json> <now> <stale>
+#                                            the object of tehas status --json
 #
 # And the pause flag itself, which every command that reads it reads through:
 #
@@ -140,5 +142,35 @@ tehas_platform_line() { # <health json> <now epoch seconds>
       + (if .behind > 0 then "\(.behind) commits behind \(.upstream) since \(.behindSince // "" | .[:10])"
          else "up to date with \(.upstream)" end)
       + (if .fetchedAt == null then ", never fetched" else ", fetched \(.fetchedAt | age($now))" end)
+  ' <<<"$1"
+}
+
+# The object tehas status --json prints, from the health object. A field
+# without a value is left out, never null; host/docs/api.md has the rest.
+# allHands and limit are what a factory without those features reports.
+tehas_status_json() { # <health json> <now epoch seconds> <stale true|false>
+  jq -c --argjson now "$2" --argjson stale "$3" '
+    def since: try (fromdateiso8601 | $now - . | if . < 0 then 0 else . end) catch null;
+    def oneline: '"$tehas_pause_oneline"';
+    (.checks.pause // {}) as $p
+    | (.checks.slice // null) as $s
+    | {api: 1, time, age: (.time | since), stale: $stale, state: .status,
+       reasons: (if .status == "pass" then [] else [.output // ""] end),
+       paused: {local: ($p.flag != null), label: ($p.label == true or $p.lifted == true)},
+       allHands: false,
+       limit: {state: "none"},
+       running: [(.checks.cycles // [])[] | {issue, since: .startedAt} + (if .step == null then {} else {step} end)],
+       demand: (.checks.demand // null
+                | if . == null then null
+                  else {waiting} + (if .oldest == null then {} else {oldestWait: (.oldest | since)} end) end),
+       hold: (if $p.flag != null then
+                {why: "pause", text: ("paused by the flag tehas pause wrote"
+                  + (if ($p.flag.reason // "" | oneline) == "" then "" else ": \($p.flag.reason | oneline)" end))}
+              elif $p.label == true then {why: "pause", text: "paused by tehas:pause on the control issue"}
+              elif $p.lifted == true then {why: "pause", text: "paused: tehas:pause was taken off by an account that may not lift it"}
+              elif $s != null and ($s.why // "") != "" then {why: $s.why, text: ($s.hold // "")}
+              else null end),
+       room: (if $s == null then null
+              else {cycles: $s.free, maxAwaiting: $s.awaitRoom, slice: $s.room} | with_entries(select(.value != null)) end)}
   ' <<<"$1"
 }
