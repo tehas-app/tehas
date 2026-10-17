@@ -159,9 +159,11 @@ t_eq "$(jq -r .last.issue "$live/running.json")" 7
 
 t_case "a cycle that has written nothing for two minutes is no longer shown as running"
 other 9 true running "$(($(date +%s) - 300))"
-# Cycle 9 counts as ended when it is found, as cycle 7 starts. Cycle 7 ends a
-# second later, so it is the one that finished last.
-echo 's=$(date +%s); while [ "$(date +%s)" = "$s" ]; do "$nap" 0.1; done' >"$T/container.sh"
+# Cycle 9 counts as ended when it is found, as cycle 7 starts. The container
+# waits until it sees cycle 9 marked lost, then for the next second, so cycle 7
+# is the one that finished last however slow the host is.
+echo 'for _ in $(seq 300); do [ "$(jq -r .status "'"$live"'/cycles/9.json" 2>/dev/null)" = lost ] && break; "$nap" 0.1; done
+s=$(date +%s); while [ "$(date +%s)" = "$s" ]; do "$nap" 0.1; done' >"$T/container.sh"
 t_run "$work 7"
 rm -f "$T/container.sh"
 t_eq "$(jq -c '[(.cycles | length), .last.issue]' "$live/running.json")" "[0,7]"
