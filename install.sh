@@ -5,9 +5,13 @@
 #
 #   ./install.sh            copy changed files into place
 #   ./install.sh --check    change nothing; report settings, dependencies,
-#                           the slice, installed files, the command the other
-#                           accounts type when root's copy is stale, and tests,
+#                           the slice, installed files and the command the
+#                           other accounts type when root's copy is stale,
 #                           each on its own line
+#   ./install.sh --check --tests
+#                           the same, and run the shell tests too. They take
+#                           most of a check's time, so tehas update --check,
+#                           which has a time limit, leaves them out
 #
 # What is installed: the commands and units (issue to pull request), the
 # sandbox files, the docs server, the edge router, the Protolab, the
@@ -88,7 +92,13 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")" && pwd)
 host=$root/host
 check=0
+tests=0
 [ "${1:-}" = "--check" ] && check=1
+[ "$check" = 1 ] && [ "${2:-}" = "--tests" ] && tests=1
+# The tests give a stand-in for the suite: a check inside the tests never runs
+# the real one, which would run these tests again. Read before tehas_load,
+# which drops it from the environment.
+suite=${TEHAS_TEST_SUITE:-}
 # Read before tehas_load, which drops it from the environment.
 update_fd=${TEHAS_UPDATE_LOCK_FD:-}
 # The model endpoints' tokens, from the file env.sh reads them from. The shell
@@ -559,9 +569,11 @@ if [ "$check" = 1 ]; then
     rc=1
   fi
 
-  if [ -n "${T_IN_TEST:-}" ]; then
+  if [ "$tests" = 0 ]; then
+    echo "Tests:        not run (./install.sh --check --tests runs them)"
+  elif [ -n "${T_IN_TEST:-}" ] && [ -z "$suite" ]; then
     echo "Tests:        not checked (running inside the tests)"
-  elif out=$("$root/scripts/test.sh" 2>&1); then
+  elif out=$("${suite:-$root/scripts/test.sh}" 2>&1); then
     echo "Tests:        OK"
   else
     echo "Tests:        FAILED"
