@@ -38,6 +38,8 @@ case "$1 $2" in
       # It carries tehas:running when the list of marked issues names it.
       *)
         [ ! -e "$T/fx/work-fails" ] || exit 1
+        # One number alone, for a poll that cannot read that issue.
+        [ ! -e "$T/fx/work-$n-fails" ] || exit 1
         if [ -e "$T/fx/work-$n.json" ]; then cat "$T/fx/work-$n.json"; else
           jq -c --argjson n "$n" "{number: \$n, state: \"open\", labels: (if any(.[]?; type == \"object\" and .number == \$n)
             then [{name: \"tehas:running\"}] else [] end)}" "$T/fx/marked.json" 2>/dev/null || echo "{\"number\":$n,\"state\":\"open\"}"
@@ -63,7 +65,16 @@ case "$1 $2" in
     if [ -s "$T/fx/edit-fails-on" ]; then
       case "$*" in *"$(cat "$T/fx/edit-fails-on")"*) exit 1 ;; esac
     fi ;;
-  "pr list") [ ! -e "$T/fx/pr-fails" ] || exit 1; cat "$T/fx/prlist.json" 2>/dev/null || echo "[]" ;;
+  "pr list") [ ! -e "$T/fx/pr-fails" ] || exit 1
+    # gh filters by --author before it prints, and what --json lists names no
+    # author at all. A fixture that does name one stands for a pull request
+    # GitHub left out: one of another account, or one with no account behind
+    # it (a deleted one), which --author matches no name of.
+    if [ -e "$T/fx/prlist.json" ]; then
+      au=$(printf "%s\n" "$@" | sed -n "/^--author$/{n;p;}")
+      jq -c --arg au "$au" "[.[] | select((has(\"author\") | not)
+        or ((.author.login // \"\") == \$au))]" "$T/fx/prlist.json"
+    else echo "[]"; fi ;;
 esac'
 # Stands in for systemctl --user start tehas-cycle@<issue>.service. A real
 # cycle says it holds its lock by writing the .taken file. This one fails or
@@ -3735,9 +3746,19 @@ stop_by_kill() {
   t_stub fake-stop 'kill "$(cat "$T/fx/holder-$1")"'
   T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
 }
-bot_pr() { # <issue> <state> <created at>
-  jq -n --arg n "$1" --arg st "$2" --arg at "$3" '[{url: "https://github.com/acme/widget/pull/90", state: $st,
-    body: "Fixes #\($n)", headRefName: "feature/issue-\($n)-x", createdAt: $at}]' >"$fx/prlist.json"
+# The bot's own pull request unless an author is named; - for one GitHub
+# reports no author for.
+bot_pr() { # <issue> <state> <created at> [<author login>]
+  jq -n --arg n "$1" --arg st "$2" --arg at "$3" --arg au "${4:-}" '[{url: "https://github.com/acme/widget/pull/90", state: $st,
+    body: "Fixes #\($n)", headRefName: "feature/issue-\($n)-x", createdAt: $at}
+    + (if $au == "" then {} elif $au == "-" then {author: null}
+       else {author: {login: $au}} end)]' >"$fx/prlist.json"
+}
+# The cycle's lock is still held: nothing stopped it, and its slot is still taken.
+still_holding() { # <issue>
+  if flock -n "$T/home/tehas/state/cycles/$1.lock" true; then
+    t_bad "the cycle for #$1 no longer holds its lock"
+  fi
 }
 
 t_case "a running cycle whose issue is closed is stopped, and its slot is filled on the same poll"
@@ -3789,6 +3810,56 @@ t_run "$dispatch"
 t_eq "$(t_calls fake-stop)" ""
 t_eq "$(t_calls fake-start)" ""
 t_contains "$(t_calls gh)" "pr list --repo acme/widget --author tehas-bot --state all"
+kill "$(cat "$fx/holder-9")"
+
+# A poll that cannot ask stops nothing: a cycle is never given up on a guess.
+t_case "a poll that cannot read the bot's pull requests stops nothing and leaves the cycle holding its lock"
+reset
+stop_by_kill
+ready 7
+hold_proc 9
+bot_pr 9 MERGED 2099-01-01T00:00:00Z
+: >"$fx/pr-fails"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: gh pr list failed"
+t_lacks "$t_out" "stop #9"
+t_eq "$(t_calls fake-stop)" ""
+t_eq "$(find "$T/home/tehas/state/cycles/9.done" 2>/dev/null | wc -l)" 0
+still_holding 9
+kill "$(cat "$fx/holder-9")"
+
+t_case "a poll that cannot read the issue stops nothing and leaves the cycle holding its lock"
+reset
+stop_by_kill
+ready 7
+hold_proc 9
+echo '{"number":9,"state":"closed"}' >"$fx/work-9.json"
+: >"$fx/work-9-fails"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: gh api repos/acme/widget/issues/9 failed"
+t_lacks "$t_out" "stop #9"
+t_eq "$(t_calls fake-stop)" ""
+t_eq "$(find "$T/home/tehas/state/cycles/9.done" 2>/dev/null | wc -l)" 0
+still_holding 9
+kill "$(cat "$fx/holder-9")"
+
+t_case "a merged pull request of another account, or one with no author, stops nothing; the bot's own stops it"
+reset
+stop_by_kill
+ready 7
+hold_proc 9
+for au in someone-else -; do
+  bot_pr 9 MERGED 2099-01-01T00:00:00Z "$au"
+  t_run "$dispatch --dry-run"
+  t_lacks "$t_out" "would stop"
+  t_eq "$(t_calls fake-stop)" ""
+done
+bot_pr 9 MERGED 2099-01-01T00:00:00Z tehas-bot
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would stop tehas-cycle@9.service: its pull request https://github.com/acme/widget/pull/90 is merged"
+t_eq "$(t_calls fake-stop)" ""
 kill "$(cat "$fx/holder-9")"
 
 t_case "a dry run says it would stop a finished cycle, and stops nothing"

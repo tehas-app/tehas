@@ -378,11 +378,14 @@ tehas removes it nowhere. Branches and
 commits the earlier attempt pushed are kept on GitHub. What it left only on the
 host, such as commits on worktrees that were never pushed, is moved to
 `~/tehas/work/tehas-<issue>.before-retry` and stays there until a cycle of that
-issue merges or leaves a pull request. Only the latest stopped attempt is kept:
-a second retry replaces it. Recover what you need from a stopped cycle before
-you retry twice. Nothing is kept for ever: the dispatcher's poll removes an
-issue's kept workspaces once no cycle has run on it for 7 days, three issues a
-poll at most, and logs each removal.
+issue ends with its own merge, or hands off waiting only for a human to merge.
+A merge or a close someone else makes while the cycle runs keeps both the
+workspace and that copy, for the poll's 7-day removal. Only the latest stopped
+attempt is kept: a second retry replaces it, unless the attempt before cloned
+no workspace, which leaves the older copy beside the new one. Recover what you
+need from a stopped cycle before you retry twice. Nothing is kept for ever: the
+dispatcher's poll removes an issue's kept workspaces once no cycle has run on
+it for 7 days, three issues a poll at most, and logs each removal.
 
 A label or a tick approves the text of the issue as it was at that moment. If
 someone other than an allowed labeller changes the title or the body
@@ -591,8 +594,16 @@ not published.
   does: the container goes, the lock is released and `tehas:running` comes
   off. The log says `stop #N: <reason>`. A merged one is reported as merged,
   one whose issue was closed only loses `tehas:running`, and one whose pull
-  request was closed is parked without the retry boxes. The slot is filled
-  on the same poll. And a cycle that ends starts a poll at once
+  request was closed is parked without the retry boxes. What the cycle had not
+  pushed is nowhere else, so a cycle stopped this way keeps its workspace, and
+  its comment names the workspace it left (`~/tehas/work/tehas-<issue>`) when
+  there is one, and says the cycle left none when there is not. tehas removes a
+  workspace only when the cycle ends with its change merged, or hands off with
+  its pull request open for a human to merge. A poll that cannot read the
+  issue or the pull requests ends there: it stops nothing, starts no cycle and
+  sweeps no kept workspace, so a cycle is never given up on a guess and holds
+  its slot until a later poll can ask. The slot is filled on the same poll.
+  And a cycle that ends starts a poll at once
   (`tehas-dispatch.service`), so its slot does not wait for the timer. If a
   poll is running then, systemd takes that start as the running poll, which
   may have counted the cycle as still running. So the cycle also leaves
