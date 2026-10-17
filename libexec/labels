@@ -39,4 +39,5 @@ mk needs-human-attention b60205 "Cycle parked; the handoff comment says what to 
 mk tehas:question 5319e7 "Tehas: a question on this issue waits for an answer"
 mk tehas:plan 0e8a16 "Tehas: start a planning session on this issue (apply by hand)"
 mk tehas:planning 1d76db "Tehas: a planning turn is running for this issue"
+mk tehas:fixer-escalated c5def5 "Tehas: the fixer left this issue to a person"
 exit "$failed"
