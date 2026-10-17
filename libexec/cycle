@@ -539,7 +539,10 @@ parked_now=false
 park() {
   parked_now=true
   relabel --remove-label tehas:running --add-label needs-human-attention && stuck=""
-  local parked="$1$stuck"
+  local parked="$1$stuck" park_marker
+  # The fields of the history line written below, for a fixer that reads GitHub.
+  park_marker=$(tehas_park_marker "$issue" "$step" "$cap" "$park_reason" "$failure_kind" "$failure_cause" "$provider") ||
+    park_marker=""
   jq -n --arg cap "$cap" --arg reason "$reason" --argjson provider "$([ "$provider" = 1 ] && echo true || echo false)" \
     --argjson retry "$retry" --argjson started "$started" '{$cap, $reason, $provider, $retry, $started}' \
     >"$cycles/$issue.park" 2>/dev/null || log "WARN: could not record the park of #$issue"
@@ -547,7 +550,8 @@ park() {
 
 $handoff}
 
-${usage}" --arg marker "$marker" '{text: $text, question: null, marker: $marker}' >"$TEHAS_HOME/state/park-$issue.json"
+${usage}" --arg marker "$marker" --arg park "$park_marker" '{text: $text, question: null, marker: $marker, park: $park}' \
+    >"$TEHAS_HOME/state/park-$issue.json"
   if post_question "$TEHAS_HOME/state/park-$issue.json"; then
     # On record before the label shows it: a tick counts only in the comment
     # named here. Without the record a tick starts nothing and says so.
@@ -567,7 +571,9 @@ ${usage}" --arg marker "$marker" '{text: $text, question: null, marker: $marker}
 
 $handoff}
 
-${usage}" | q_clean 60000)"
+${usage}" | q_clean 60000)${park_marker:+
+
+$park_marker}"
   fi
   rm -f "$TEHAS_HOME/state/park-$issue.json"
 }
