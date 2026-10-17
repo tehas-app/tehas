@@ -884,13 +884,16 @@ t_eq "$(after -v | grep -c -x "$tree.images:$ws.images:ro")" 1
 t_lacks "$(cat "$T/calls/gh.comments")" "Tehas gave this planning session"
 t_contains "$(cat "$T/calls/gh.comments")" "Tehas fetched 1 image from the issue text and mounted it read-only in the container of this planning session. The pi-rukas in the sandbox image does not read them, so no agent was shown one."
 
-t_case "with images off nothing is fetched or mounted"
+t_case "with images off nothing is fetched or mounted, and no instance line names a directory the turn does not have"
 reset
 t_instance "${T_MINIMAL[@]}" "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=/elsewhere"
 t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 0
 t_eq "$(cat "$T/calls/curl.urls" "$T/calls/gh.args" 2>/dev/null)" ""
 t_eq "$(after -v | grep -c images)" 0
+t_eq "$(after -e | grep -c '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" 0
+t_lacks "$(after -e)" "/elsewhere"
+t_lacks "$(cat "$T"/calls/docker.args.*)" "/elsewhere"
 
 t_case "with images off a reply's links are not fetched and the turn is not told the issue, whatever the instance says"
 reset

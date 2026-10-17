@@ -143,6 +143,16 @@
 # untrusted, every line quoted, cut at 32000 characters. No mount and no
 # variable more.
 #
+# With neither setting a cycle is given nothing, and GitHub is asked for
+# nothing: no directory is mounted and no PI_ENSEMBLE_EXTRA_IMAGE_DIRS is
+# passed on, whatever the instance file says. When the dispatcher's approval
+# record lists attachment links, the gap is said rather than left for an agent
+# to find from a file that is not there: one line naming how many links and
+# which approval it read, on this command's error stream and in $log.err,
+# which is err.txt of the cycle's improvement record, and a manifest kept as
+# state/cycles/<issue>.manifest.json. What the line and the manifest say, and
+# why, is tehas_issue_images_left_out.
+#
 # With TEHAS_WORK_DESCRIBE=1 the model endpoint describes each image in words
 # first (lib/describe.sh), into images.md in the same directory, for the steps
 # that are not shown the pixels. It is in the directory already mounted: no
@@ -319,8 +329,10 @@ if [ "$TEHAS_WORK_FILES" = 1 ]; then
   [ "$TEHAS_WORK_IMAGES" != 1 ] || kinds="images and files"
 fi
 [ "$TEHAS_WORK_IMAGES" != 1 ] || give=1
-# Its path is this command's to give, not the instance's.
-[ "$give" != 1 ] || unset PI_ENSEMBLE_EXTRA_IMAGE_DIRS
+# Its path is this command's to give, not the instance's: dropped whether or
+# not this cycle is given attachments, so no container names a directory tehas
+# did not mount.
+unset PI_ENSEMBLE_EXTRA_IMAGE_DIRS
 # So are who reports a handoff, the cycle's deadline and how many gate runs
 # it makes at once.
 unset PI_ENSEMBLE_HANDOFF_CHANNEL PI_ENSEMBLE_CYCLE_DEADLINE PI_ENSEMBLE_CYCLE_BUDGET_MS PI_ENSEMBLE_VERIFY_CONCURRENCY
@@ -482,6 +494,22 @@ while read -r model_provider _; do
   echo "model endpoint: provider $model_provider is on its backup" >>"$log.preflight"
   echo "tehas work: model endpoint: provider $model_provider is on its backup"
 done <"$container/endpoints"
+
+# Said only once the cycle can start: a start that fails at the workspace or
+# the push check leaves no claim about a cycle that never ran. The line is the
+# library's, so this command prints what it composed.
+if [ "$give" != 1 ]; then
+  tehas_issue_images_left_out "$issue" "$kept" "$record"
+  case $? in
+    0) gap_said="tehas work: $image_gap" ;;
+    2) gap_said="tehas work: the approval record of issue $issue, or the manifest kept for it, could not be read: nothing is said about what this cycle was not given" ;;
+    *) gap_said="" ;;
+  esac
+  if [ -n "$gap_said" ]; then
+    printf '%s\n' "$gap_said" >&2
+    printf '%s\n' "$gap_said" >>"$log.err" || echo "tehas work: could not write $log.err" >&2
+  fi
+fi
 
 # Docker refuses a cid file that is already there. One is left only by a cycle
 # that was killed outright, and so is a count of kills.

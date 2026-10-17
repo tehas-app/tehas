@@ -2025,6 +2025,217 @@ t_eq "$(find "$imgs/images.md" 2>/dev/null | wc -l)" 0
 t_lacks "$(t_calls curl)" "chat/completions"
 t_eq "$(manifest .described)" null
 
+# --- An issue that links what the cycle is not given -------------------------
+# With both settings off tehas work reads nothing of the issue. What the
+# dispatcher's approval record lists is enough to say the gap, and it is a file
+# this host already has.
+images_off() {
+  rm -rf "$fx" "$T"/calls/* "$T/home/tehas/work" "$T/home/tehas/logs" \
+    "$T/home/tehas/state/cycles/7.manifest.json" "$T/home/tehas/state/cycles/7.approved.json"
+  mkdir -p "$fx/net"
+  slice_good
+  reads_image 1
+  T_ENV=("${env_ok[@]}")
+  t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=0 TEHAS_WORK_FILES=0
+}
+gapline() { cat "$T"/home/tehas/logs/work-7-*.jsonl.err 2>/dev/null; }
+kept_manifests() { find "$T/home/tehas/state/cycles" -name '7.manifest.json*' 2>/dev/null | wc -l; }
+
+t_case "with nothing given, the links of the approval record are said and kept, and GitHub is not asked"
+images_off
+record_is alice "![shot]($A/1111) [spec.md]($F/31/spec.md)" "$A/1111" "$F/31/spec.md"
+issue_is "![shot]($A/1111) [spec.md]($F/31/spec.md)" NONE
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(t_calls gh)$(t_calls curl)" ""
+t_eq "$(find "$imgs" -maxdepth 0 2>/dev/null | wc -l)" 0
+t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$mounts_off" | LC_ALL=C sort)"
+t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
+t_contains "$t_out" "tehas work: the approval record of issue 7 (approved 2026-10-14T00:00:00Z by alice) lists 2 attachments and this instance gives a cycle none"
+t_eq "$(gapline)" "tehas work: the approval record of issue 7 (approved 2026-10-14T00:00:00Z by alice) lists 2 attachments and this instance gives a cycle none (TEHAS_WORK_IMAGES=0, TEHAS_WORK_FILES=0): no directory is mounted and PI_ENSEMBLE_EXTRA_IMAGE_DIRS is not set"
+t_eq "$(jq -c '{images, approval}' "$kept")" '{"images":[],"approval":{"at":"2026-10-14T00:00:00Z","by":"alice","how":"label"}}'
+t_eq "$(jq -c '[.leftOut[] | [.link, .source]]' "$kept")" "[[\"$A/1111\",\"body\"],[\"$F/31/spec.md\",\"body\"]]"
+t_contains "$(jq -r '.leftOut[0].reason' "$kept")" "no images and no files"
+t_eq "$(kept_manifests)" 1
+
+t_case "with nothing given an instance line for the images variable is not passed on, as the line says"
+images_off
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=0 TEHAS_WORK_FILES=0 PI_ENSEMBLE_EXTRA_IMAGE_DIRS=/elsewhere
+record_is alice "![shot]($A/1111)" "$A/1111"
+issue_is "![shot]($A/1111)" NONE
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(after -e | grep -c '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" 0
+t_lacks "$(after -e)" "/elsewhere"
+t_lacks "$(cat "$T"/calls/docker.args.*)" "/elsewhere"
+t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
+t_contains "$(gapline)" "PI_ENSEMBLE_EXTRA_IMAGE_DIRS is not set"
+
+t_case "one link is said as one attachment"
+images_off
+record_is alice "![shot]($A/1111)" "$A/1111"
+issue_is "![shot]($A/1111)" NONE
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "lists 1 attachment and this instance gives a cycle none"
+t_eq "$(jq '.leftOut | length' "$kept")" 1
+
+t_case "the links named are the approved text's: what the body gained since is not counted, and GitHub is not asked"
+images_off
+record_is alice "![shot]($A/1111)" "$A/1111"
+issue_is "![shot]($A/1111) ![added since]($A/2222)" NONE
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(gapline)" "tehas work: the approval record of issue 7 (approved 2026-10-14T00:00:00Z by alice) lists 1 attachment and this instance gives a cycle none (TEHAS_WORK_IMAGES=0, TEHAS_WORK_FILES=0): no directory is mounted and PI_ENSEMBLE_EXTRA_IMAGE_DIRS is not set"
+t_lacks "$t_out" "the text of issue 7 links"
+t_lacks "$(gapline)" "2222"
+t_eq "$(jq -c '[.leftOut[].link]' "$kept")" "[\"$A/1111\"]"
+t_eq "$(t_calls gh)$(t_calls curl)" ""
+
+t_case "the manifest lists at most 100 links and says how many more the record lists"
+images_off
+links=() body=""
+for i in $(seq 1 130); do
+  links+=("$A/$i")
+  body+="![x$i]($A/$i) "
+done
+record_is alice "$body" "${links[@]}"
+issue_is "$body" NONE
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "lists 130 attachments and this instance gives a cycle none"
+t_contains "$t_out" "its manifest lists the first 100 of them"
+t_eq "$(jq '.leftOut | length' "$kept")" 100
+t_eq "$(jq '.leftOutMore' "$kept")" 30
+t_eq "$(jq -r '.leftOut[99].link' "$kept")" "$A/100"
+t_lacks "$(jq -r '.leftOut[].link' "$kept")" "$A/101"
+t_eq "$([ "$(wc -c <"$kept")" -lt 262144 ] && echo under)" "under"
+t_contains "$(gapline)" "its manifest lists the first 100 of them"
+t_lacks "$(gapline)" "could not write"
+
+t_case "a manifest path that is a link is not written through, and the cycle starts"
+images_off
+record_is alice "![shot]($A/1111)" "$A/1111"
+issue_is "![shot]($A/1111)" NONE
+mkdir -p "$(dirname "$kept")"
+printf '{"images": [], "leftOut": []}' >"$T/elsewhere"
+ln -s "$T/elsewhere" "$kept"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_lacks "$t_out" "gives a cycle none"
+t_eq "$(jq -c . "$T/elsewhere")" '{"images":[],"leftOut":[]}'
+t_eq "$(find "$kept.new" 2>/dev/null | wc -l)" 0
+
+t_case "an issue never dispatched has no record, so nothing is said and nothing is written"
+images_off
+issue_is "![shot]($A/1111)" OWNER
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_lacks "$t_out" "gives a cycle none"
+t_eq "$(gapline)" ""
+t_eq "$(kept_manifests)" 0
+t_eq "$(t_calls gh)$(t_calls curl)" ""
+
+t_case "an issue that links nothing is given nothing and says nothing"
+images_off
+record_is alice "Words only."
+issue_is "Words only." NONE
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_lacks "$t_out" "gives a cycle none"
+t_eq "$(kept_manifests)" 0
+
+t_case "a record that is not of the shape tehas work reads says so once, and the cycle starts"
+images_off
+mkdir -p "$(dirname "$record")"
+echo '{"at": 1, "links": ["x"]}' >"$record"
+issue_is "![shot]($A/1111)" NONE
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_lacks "$t_out" "gives a cycle none"
+t_contains "$t_out" "the approval record of issue 7, or the manifest kept for it, could not be read"
+t_eq "$(gapline)" "tehas work: the approval record of issue 7, or the manifest kept for it, could not be read: nothing is said about what this cycle was not given"
+t_eq "$(kept_manifests)" 0
+
+t_case "an approval that is not one line is not read, so the line cannot name the wrong approval"
+images_off
+mkdir -p "$(dirname "$record")"
+jq -n '{at: "2026-10-14T00:00:00Z\nby someone", by: "alice", how: "label",
+  links: ["'"$A"'/1111"]}' >"$record"
+issue_is "![shot]($A/1111)" NONE
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_lacks "$t_out" "gives a cycle none"
+t_contains "$t_out" "could not be read"
+t_eq "$(kept_manifests)" 0
+
+t_case "a link of the record that is not of GitHub's storage is not counted"
+images_off
+record_is alice "see https://example.com/x.png" "https://example.com/x.png"
+issue_is "see https://example.com/x.png" NONE
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_lacks "$t_out" "gives a cycle none"
+t_eq "$(kept_manifests)" 0
+
+t_case "a record written while the instance took links from comments keeps them, each with its source"
+images_off
+mkdir -p "$(dirname "$record")"
+jq -n '{at: "2026-10-14T00:00:00Z", by: "alice", how: "label", links: ["'"$A"'/1111"],
+  comment_links: [{link: "'"$A"'/2222", source: "comment:51", by: "alice"},
+    {link: "https://example.com/y.png", source: "comment:52", by: "alice"}]}' >"$record"
+issue_is "![shot]($A/1111)" NONE
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "lists 2 attachments"
+t_eq "$(jq -c '[.leftOut[] | [.link, .source]]' "$kept")" "[[\"$A/1111\",\"body\"],[\"$A/2222\",\"comment:51\"]]"
+
+t_case "the manifest of a cycle given nothing does not hold a later cycle that is given the image"
+images_off
+record_is alice "![shot]($A/1111)" "$A/1111"
+issue_is "![shot]($A/1111)" NONE
+t_run "$work 7"
+t_eq "$t_rc" 2
+cp "$kept" "$T/gap.manifest"
+images_on
+net "$A/1111" "$png"
+issue_is "![shot]($A/1111)" NONE
+record_is alice "![shot]($A/1111)" "$A/1111"
+cp "$T/gap.manifest" "$kept"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(manifest '.images | map(.link)')" "[\"$A/1111\"]"
+
+t_case "the manifest of a cycle given nothing keeps what an earlier cycle of the same approval recorded"
+images_on
+net "$A/1111" "$png"
+record_is alice "![shot]($A/1111)" "$A/1111"
+issue_is "![shot]($A/1111)" NONE
+t_run "$work 7"
+t_eq "$t_rc" 2
+sum=$(sha256sum "$fx/net/$(printf %s "$A/1111" | tr -c 'A-Za-z0-9' _)" | cut -d' ' -f1)
+cp "$kept" "$T/give1.manifest"
+images_off
+cp "$T/give1.manifest" "$kept"
+record_is alice "![shot]($A/1111)" "$A/1111"
+issue_is "![shot]($A/1111)" NONE
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "lists 1 attachment and this instance gives a cycle none"
+t_eq "$(jq -c '[.images[] | [.file, .link, .sha256]]' "$kept")" "[[\"image-1.png\",\"$A/1111\",\"$sum\"]]"
+t_eq "$(jq -c '[.leftOut[].link]' "$kept")" "[\"$A/1111\"]"
+cp "$kept" "$T/gap.manifest"
+# The bytes an earlier cycle fetched are still held against this approval: a
+# cycle given the image again is stopped when the link serves other bytes.
+images_on
+net "$A/1111" "$gif"
+record_is alice "![shot]($A/1111)" "$A/1111"
+issue_is "![shot]($A/1111)" NONE
+cp "$T/gap.manifest" "$kept"
+t_run "$work 7"
+t_eq "$t_rc" 4
+t_contains "$t_out" "$A/1111 gave other bytes than when this approval was first fetched"
+
 # --- The issue's text files ----------------------------------------------------
 files_on() {
   images_on "$@"

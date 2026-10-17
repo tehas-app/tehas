@@ -197,8 +197,10 @@ if [ "$TEHAS_WORK_FILES" = 1 ]; then
   [ "$TEHAS_WORK_IMAGES" != 1 ] || kinds="images and files"
 fi
 [ "$TEHAS_WORK_IMAGES" != 1 ] || give=1
-# Its path is this command's to give, not the instance's. So is the issue.
-[ "$give" != 1 ] || unset PI_ENSEMBLE_EXTRA_IMAGE_DIRS
+# Its path is this command's to give, not the instance's: dropped whether or
+# not this turn is given attachments, so no container names a directory tehas
+# did not mount. So is the issue.
+unset PI_ENSEMBLE_EXTRA_IMAGE_DIRS
 unset PI_ENSEMBLE_PLAN_ISSUE
 # So is the expiry of the plan cache: 0 is none. An operator answers hours
 # later as a rule, and a plan the cache has lost is drafted again.

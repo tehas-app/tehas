@@ -35,8 +35,13 @@
 # state/cycles/<issue>.settings, when this cycle wrote it, and the provider
 # retry line of the preflight log. With the issue's attachments given, it also holds what
 # tehas work kept of them: manifest.json, images.md and retry-context.md, each
-# when the cycle had it, at most 256 KB. Never an image or a file. It is built beside the window and renamed into it, so a
+# when the cycle had it, none over tehas_manifest_bytes, which is the bound
+# both writers of a manifest keep one under. Never an image or a file. It is
+# built beside the window and renamed into it, so a
 # run never sees half of one and cycles that end together do not collide.
+
+# shellcheck source=lib/attachments.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/attachments.sh"
 
 tehas_improve_on() { [ -n "${TEHAS_IMPROVE_REPO:-}" ]; }
 
@@ -118,7 +123,7 @@ tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills>
     from=$TEHAS_HOME/state/cycles/$issue.$f
     [ -f "$from" ] && [ ! -L "$from" ] || continue
     [ -n "$(find "$from" -maxdepth 0 -newermt "@$((started - 5))" 2>/dev/null)" ] || continue
-    [ "$(stat -c %s "$from" 2>/dev/null || echo 0)" -le 262144 ] || continue
+    [ "$(stat -c %s "$from" 2>/dev/null || echo 0)" -le "$(tehas_manifest_bytes)" ] || continue
     cp "$from" "$tmp/$f" 2>/dev/null || rm -f "$tmp/$f"
   done
   rm -rf "${base:?}/window/$rec"
