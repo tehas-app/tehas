@@ -8,7 +8,7 @@
 #   q_render <kind> <issue> <turn> <result.json>
 #                                    the body of a question comment; a
 #                                    "marker" of pi-rukas's handoff goes on top
-#   q_answer <bot> <allowed logins> [comment id]
+#   q_answer <bot> <allowed logins> [comment id] [fixer login]
 #                                    stdin: the issue's comments as GraphQL
 #                                    answers them; stdout: what was answered
 #   q_untick                         stdin to stdout: a body with every box empty
@@ -97,8 +97,13 @@ q_render() {
 # itself has on record. Without an id it is the newest comment of the bot
 # with a marker: good enough to tell a person something, never to start work.
 # The marker's issue number is reported for the caller to compare.
+#
+# With a fixer login, a tick the fixer saved has the status "fixer", and the
+# fixer's newest reply, edited by nobody else, is fixer_reply: marked when its
+# first line is <!-- tehas:fixer issue=<n> action=answer -->, which its text
+# then leaves out. Whether either counts is the caller's to decide.
 q_answer() {
-  jq -c --arg bot "$1" --arg allowed "$2" --arg id "${3:-}" '
+  jq -c --arg bot "$1" --arg allowed "$2" --arg id "${3:-}" --arg fixer "${4:-}" '
     ($allowed | split(" ")) as $list
     | (.data.repository.issue.comments.nodes // []) as $c
     | "<!-- tehas:question kind=(?<kind>[a-z]+) issue=(?<issue>[0-9]+) turn=(?<turn>[0-9]+) -->" as $re
@@ -114,10 +119,21 @@ q_answer() {
         | {asked: true, comment: $q.value.databaseId, asked_at: ($q.value.createdAt // ""), body: $q.value.body, kind: $m.kind,
            issue: ($m.issue | tonumber), turn: ($m.turn | tonumber), boxes: ($boxes | length),
            tick: (if ($ticks | length) == 0 then {status: "none"}
-                  elif ($list | index($ed)) == null then {status: "stranger", by: $ed}
+                  elif $fixer != "" and $ed == $fixer and ($ticks | length) == 1
+                    then {status: "fixer", by: $ed, index: $ticks[0], at: ($q.value.lastEditedAt // "")}
+                  elif ($list | index($ed)) == null and ($fixer == "" or $ed != $fixer) then {status: "stranger", by: $ed}
                   elif ($ticks | length) > 1 then {status: "many", by: $ed}
                   else {status: "one", by: $ed, index: $ticks[0], at: ($q.value.lastEditedAt // "")} end),
            reply: (if $r == null then null else {by: $r.author.login, text: $r.body, at: $r.createdAt, id: $r.databaseId} end)}
+        + if $fixer == "" then {} else
+            ($c[($q.key + 1):] | map(select((.author.login // "") == $fixer
+                  and ((.editor.login // "") as $e | $e == "" or $e == $fixer))) | last) as $f
+            | ("<!-- tehas:fixer issue=\($m.issue) action=answer -->") as $mark
+            | {fixer_reply: (if $f == null then null else
+                (($f.body | split("\n"))[0] | sub("\r$"; "") == $mark) as $marked
+                | {by: $f.author.login, text: (if $marked then $f.body | sub("^[^\n]*\n?"; "") else $f.body end),
+                   at: $f.createdAt, id: $f.databaseId, marked: $marked} end)}
+          end
       end'
 }
 
