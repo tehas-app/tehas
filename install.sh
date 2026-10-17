@@ -208,6 +208,7 @@ files=(
   "env.sh|$TEHAS_HOME/env.sh|644"
   "lib/config.sh|$TEHAS_HOME/lib/config.sh|644"
   "lib/attachments.sh|$TEHAS_HOME/lib/attachments.sh|644"
+  "lib/unzip.sh|$TEHAS_HOME/lib/unzip.sh|644"
   "lib/describe.sh|$TEHAS_HOME/lib/describe.sh|644"
   "lib/cycles.sh|$TEHAS_HOME/lib/cycles.sh|644"
   "lib/labels.sh|$TEHAS_HOME/lib/labels.sh|644"
