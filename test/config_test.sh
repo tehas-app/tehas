@@ -480,7 +480,7 @@ t_eq "$t_out" "$T/home/tehas/work/widget"
 t_case "the planning limits have defaults"
 t_instance "${T_MINIMAL[@]}"
 t_run '. "$T_ROOT/lib/config.sh"; tehas_load; echo "$TEHAS_PLAN_MAX_TURNS $TEHAS_PLAN_TIMEOUT"'
-t_eq "$t_out" "20 3600"
+t_eq "$t_out" "20 7200"
 
 t_case "the planning limits can be set in the instance"
 t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_MAX_TURNS=5 TEHAS_PLAN_TIMEOUT=600

@@ -356,8 +356,11 @@ tehas_load() {
   # approval, are taken too. Off unless the instance says so.
   export TEHAS_WORK_COMMENTS=${TEHAS_WORK_COMMENTS:-0}
   # A planning session: how many turns it may take, and how long one turn may.
+  # The turn's bound is the generous one: pi-rukas bounds each investigation
+  # child at half an hour and runs two gate rounds plus a strict retry, so one
+  # turn can take 90 to 120 minutes.
   export TEHAS_PLAN_MAX_TURNS=${TEHAS_PLAN_MAX_TURNS:-20}
-  export TEHAS_PLAN_TIMEOUT=${TEHAS_PLAN_TIMEOUT:-3600}
+  export TEHAS_PLAN_TIMEOUT=${TEHAS_PLAN_TIMEOUT:-7200}
   # Previews of pull requests and the names of the edge. Off, and no names,
   # unless the instance says so.
   export TEHAS_DOMAIN=${TEHAS_DOMAIN:-}
@@ -444,7 +447,8 @@ tehas_load() {
     return 78
   fi
   # A planning turn runs as its own unit, which systemd stops a quarter of an
-  # hour after this limit. One turn runs at a time, and a session waits on it.
+  # hour after this limit. One turn runs at a time, and no second turn starts
+  # while one is running.
   if [ "$TEHAS_PLAN_TIMEOUT" -gt 7200 ]; then
     tehas_err "TEHAS_PLAN_TIMEOUT ($TEHAS_PLAN_TIMEOUT) is more than 7200: a planning turn may take at most two hours, and while one runs no other planning turn starts (see $file)"
     return 78
