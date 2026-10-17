@@ -2113,8 +2113,35 @@ It runs shellcheck over the shell scripts, then every `test/*_test.sh`. Those
 need bash, git, jq and shellcheck only: no sandbox image, no product checkout
 and no network. The test files run side by side, at most `TEHAS_TEST_JOBS` at
 once: by default the CPU quota of the cgroup it runs in, rounded up, or the
-number of CPUs where there is none. Exit 0 when every check passed, 1 when one
-failed, 2 when nothing could be checked.
+number of CPUs where there is none. Each file's output is printed whole, in name
+order, and the run ends with a block that says what did not pass:
+
+```
+test.sh: failed checks (2), not run (0)
+    shellcheck
+    test/plan_test.sh
+```
+
+Its first line counts the checks that failed and the checks that did not run.
+Each line after it names one of them: `shellcheck`, or the path of a failing
+test file relative to the checkout, with a reason after it when there is more to
+say than the exit status: `it did not finish, no result recorded` for a file
+that never ended, `its recorded result could not be read` for a record that is
+not a number, `its output could not be read` for a log the run cannot show.
+Control bytes in a file name become `?`. A line starting `skipped:` gives a
+check that did not run, with its reason.
+
+The block is the last thing the run prints, and its size is derived from the
+lines `scripts/verify.sh` keeps at the end of this step, so it fits inside them
+with two lines to spare: past the cap it names the last failing test files and
+counts the rest, as in `and 7 more, in the full log`, and it still names the
+lint when the lint failed. A log cut short therefore still says how many checks
+failed and whether the shell scripts were among them. The block appears only for
+a run that ends: a test file that hangs holds the whole run up, with no block and
+no name. Exit 0 when every check passed, 1 when one failed, 2 when nothing could
+be checked. `scripts/verify.sh` prints what a step wrote only for a step that
+failed, so a run that ends with checks not run shows them in the gate only when
+something else failed too.
 
 `scripts/check-generic.sh` is the lint that keeps private network addresses out
 of every file, and product and host names out of platform files. The names
