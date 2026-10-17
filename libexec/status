@@ -29,6 +29,10 @@
 # answer from GitHub. `by`, the account that set the flag, stays out of the file:
 # the page that reads it can be public.
 #
+# The control issue that carries `tehas:pause` is not work, so it is left out of
+# every count and every list: no label makes it count in line, being worked on,
+# waiting for a human or waiting to be merged.
+#
 # Usage: tehasbot status          (prints nothing; exit 0 even when GitHub is down,
 #                                 the previous file is then left in place;
 #                                 exit 78 when the instance settings are invalid)
@@ -130,11 +134,16 @@ no_resources=$(jq -s 'length == 1 and (.[0] | type == "object" and .why == "reso
 jq -n --argjson issues "$issues" --argjson shipped "$shipped" --argjson paused "$paused" --argjson everything "$everything" \
   --argjson noResources "${no_resources:-false}" --argjson pauseFlag "$pause_flag" --argjson flagPaused "$flag_paused" \
   --argjson lifted "$lifted" \
+  --arg control "$control" \
   --arg repo "$repo" --arg now "$(date -u +%FT%TZ)" '
   def has($l): (.labels | map(.name) | index($l)) != null;
   def slim: {number, title, url, updatedAt, closedAt};
   def listurl($q): "https://github.com/\($repo)/issues?q=" + ($q | @uri);
-  ($issues | map(select(.state == "OPEN"))) as $open
+  # The control issue holds the pause label and no outcome. It is not work, so
+  # it is never counted in line, being worked on, waiting for a human or waiting
+  # to be merged, whatever label someone gives it. The dispatcher starts nothing
+  # on the same number.
+  ($issues | map(select(.state == "OPEN" and (.number | tostring) != $control))) as $open
   | {
       generatedAt: $now, repo: $repo,
       paused: ($paused or $flagPaused or $lifted),

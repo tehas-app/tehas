@@ -4245,4 +4245,139 @@ t_eq "$(notes)" ""
 t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 "
 release
 
+
+# The control issue is the pause switch, not work. A label on it asks for
+# nothing, whoever applied it, and the poll leaves its labels alone. The stub
+# reads the events of an issue from events-<issue>, so a case that does not
+# want them read removes that file.
+
+# The queue is the control issue, labelled ready and carrying these labels.
+control_queue() { # label...: the control issue in the queue, ready, carrying these labels
+  local l list='{"name":"tehas:ready"}'
+  for l in "$@"; do list="$list,{\"name\":\"$l\"}"; done
+  echo '[{"number":1,"labels":['"$list"']}]' >"$fx/ready.json"
+}
+# The control issue parked with a question this host has on record, whose
+# retry box an allowed account ticked.
+control_parked() {
+  echo '[]' >"$fx/ready.json"
+  echo '[{"number":1,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}]' >"$fx/asking.json"
+  mkdir -p "$T/home/tehas/state"
+  echo 4001 >"$T/home/tehas/state/park-1.id"
+  comments 1 "$(printf 'Tehas cycle stopped.\n\n- [%s] Retry from a clean start\n- [%s] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=1 turn=1 -->\n' x ' ')" alice
+}
+
+t_case "the control issue labelled tehas:ready by an allowed account starts no cycle"
+reset
+control_queue tehas:ready
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "issue comment"
+t_contains "$t_out" 'skip #1: the control issue is never worked on (`tehas:ready`)'
+
+t_case "and the dry run says the same and changes nothing"
+reset
+control_queue tehas:ready
+t_run "$dispatch --dry-run"
+t_eq "$t_rc" 0
+t_contains "$t_out" 'skip #1: the control issue is never worked on (`tehas:ready`)'
+t_lacks "$t_out" "would run a cycle"
+t_lacks "$(t_calls gh)" "issue edit"
+
+t_case "the events of the control issue are read once, for the pause, and not for its work"
+reset
+control_queue tehas:ready
+t_run "$dispatch"
+t_eq "$(t_calls gh | grep -c -x -e 'api repos/acme/widget/issues/1/events?per_page=100 --paginate')" "1"
+t_contains "$t_out" 'skip #1: the control issue is never worked on (`tehas:ready`)'
+
+t_case "a tehas:ready from the bot or a stranger is refused as the control issue, not cleared"
+for other in tehas-bot mallory; do
+  reset
+  control_queue tehas:ready
+  echo "[{\"event\":\"labeled\",\"label\":{\"name\":\"tehas:ready\"},\"actor\":{\"login\":\"$other\"}}]" >"$fx/events-1.json"
+  t_run "$dispatch"
+  t_eq "$t_rc" 0
+  t_eq "$(t_calls fake-start)" ""
+  t_lacks "$(t_calls gh)" "issue edit"
+  t_lacks "$t_out" "not an allowed account"
+  t_contains "$t_out" 'skip #1: the control issue is never worked on (`tehas:ready`)'
+done
+
+t_case "the control issue in the queue holds no slot from a real issue"
+reset
+slots 2
+ready 7 8 1
+t_run "$dispatch --dry-run"
+t_eq "$(printf '%s\n' "$t_out" | sed -n 's/.*would run a cycle for #\([0-9]*\).*/\1/p' | tr '\n' ' ')" "7 8 "
+t_contains "$t_out" 'skip #1: the control issue is never worked on (`tehas:ready`)'
+
+t_case "the control issue labelled tehas:plan by an allowed account starts no planning turn"
+reset
+echo '[]' >"$fx/ready.json"
+echo '[{"number":1,"labels":[{"name":"tehas:plan"}]}]' >"$fx/plans.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(plan_calls)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "issue comment"
+t_contains "$t_out" 'skip #1: the control issue is never worked on (`tehas:plan`)'
+
+t_case "the text of the control issue is not read for its tehas:plan"
+reset
+echo '[]' >"$fx/ready.json"
+echo '[]' >"$fx/events-1.json"
+echo '[{"number":1,"labels":[{"name":"tehas:plan"}]}]' >"$fx/plans.json"
+rm -f "$fx/issue-1.json"
+t_run "$dispatch"
+t_eq "$(t_calls gh | grep -c -e '^issue view 1 --repo acme/widget --json title,body')" "0"
+t_eq "$(t_calls gh | grep -c -x -e 'api repos/acme/widget/issues/1/events?per_page=100 --paginate')" "1"
+t_contains "$t_out" 'skip #1: the control issue is never worked on (`tehas:plan`)'
+
+t_case "a tehas:plan from a stranger is refused as the control issue, not cleared"
+reset
+echo '[]' >"$fx/ready.json"
+echo '[{"number":1,"labels":[{"name":"tehas:plan"}]}]' >"$fx/plans.json"
+echo '[{"event":"labeled","label":{"name":"tehas:plan"},"actor":{"login":"mallory"}}]' >"$fx/events-1.json"
+t_run "$dispatch"
+t_eq "$(plan_calls)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$t_out" "not an allowed account"
+t_contains "$t_out" 'skip #1: the control issue is never worked on (`tehas:plan`)'
+
+t_case "a retry ticked on the control issue's question starts nothing and stays ticked"
+reset
+control_parked
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+# The tick is not spent on a start that will never come, as a tick held back
+# by a hold is not.
+t_lacks "$(t_calls gh)" "api -X PATCH"
+t_contains "$t_out" 'skip #1: the control issue is never worked on (its question was answered)'
+
+t_case "the retry of a cycle a provider outage parked is not asked of the control issue"
+reset
+echo '[]' >"$fx/ready.json"
+mkdir -p "$T/home/tehas/state/cycles"
+jq -cn '{retry: true, started: 1767225600}' >"$T/home/tehas/state/cycles/1.park"
+echo alice >"$T/home/tehas/state/cycles/1.by"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "--add-label tehas:running"
+t_lacks "$(t_calls gh)" "issue comment"
+t_contains "$t_out" 'skip #1: the control issue is never worked on (a cycle its provider outage parked asked to start again)'
+
+t_case "one ask of the control issue is one line, whatever else the poll finds on it"
+reset
+control_queue tehas:ready
+control_parked
+echo '[{"number":1,"labels":[{"name":"tehas:ready"},{"name":"tehas:plan"}]}]' >"$fx/plans.json"
+slots 2
+t_run "$dispatch --dry-run"
+t_eq "$(grep -c 'the control issue is never worked on' <<<"$t_out")" 1
+
 t_done

@@ -173,6 +173,16 @@ that mark off without a word. The queue
 and the dashboard list open issues, so a closed one that still carries a
 factory label is not counted in line or as being worked on.
 
+The control issue, the one `TEHAS_CONTROL_ISSUE` names and the one that carries
+`tehas:pause`, is never worked on. It holds the pause switch and no outcome, so
+a cycle on it would spend a slot and model time on the switch itself. Whoever
+applies `tehas:ready` or `tehas:plan` to it, and whoever ticks a retry box on
+its question, starts nothing: no cycle, no planning turn, no retry. The poll
+changes no label of it, and says so once, in one line of `logs/dispatch.log`
+as it says a label from an account that is not allowed: `skip #N: the control
+issue is never worked on`. The dashboard and `tehas status` do not count it in
+line.
+
 ## 3. What happens next
 
 Watch it on the [factory floor](/) or the [plain dashboard](/dashboard): the queue, the issue being worked on with its
