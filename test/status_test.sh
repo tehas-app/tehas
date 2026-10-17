@@ -4,7 +4,7 @@
 # libexec/summary prints the health file for `tehas status`.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 status="$T_ROOT/libexec/status"
 health="$T_ROOT/libexec/health"

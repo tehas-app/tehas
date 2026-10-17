@@ -8,7 +8,7 @@
 # tells a person where to look.
 # shellcheck disable=SC2016  # the sample is lines of code, not expanded
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 # What a host must not read, as extended regular expressions.
 internals=(

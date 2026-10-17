@@ -3,7 +3,7 @@
 # its containers and images, a stub df, and a real git with a local upstream.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 preview="$T_ROOT/libexec/preview"
 fx=$T/fx

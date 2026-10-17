@@ -5,7 +5,7 @@
 # Docker, systemctl, sudo and cargo are stubs.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 # The one place the follow-ups are named: install.sh prints what it defines here,
 # and tehas update runs the same ids, so a case can pin both sides to it.
 # shellcheck source=lib/update-steps.sh

@@ -2,7 +2,7 @@
 # Tests for libexec/api: what this factory speaks, for a program to read first.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 api="$T_ROOT/libexec/api"
 t_stub gh
