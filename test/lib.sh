@@ -5,6 +5,7 @@
 #   t_case "what is being checked"   start a case; later failures name it
 #   t_run '<bash snippet>'           run it in a clean environment; sets t_out, t_rc
 #   t_eq / t_contains / t_lacks      assertions, they record a failure and go on
+#   t_skip <reason>                  say a case ran only in part, and count it
 #   t_instance KEY=VALUE...          write a scratch instance directory
 #   t_stub NAME ['<bash body>']      a stub command that records its arguments
 #   t_calls NAME                     what the stub was called with, one call per line
@@ -23,6 +24,7 @@ trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/bin" "$T/calls" "$T/home"
 t_count=0
 t_failed=0
+t_skipped=0
 t_name=""
 t_out=""
 t_rc=0
@@ -40,6 +42,12 @@ t_bad() {
   echo "FAIL: $t_name: $*" >&2
 }
 t_eq() { [ "$1" = "$2" ] || t_bad "expected '$2', got '$1'"; }
+# A case that cannot run every half of itself on this host says so here, so the
+# tally names the part that was never checked instead of reading as a pass.
+t_skip() {
+  t_skipped=$((t_skipped + 1))
+  echo "SKIP: $t_name: $*"
+}
 t_contains() { case "$1" in *"$2"*) ;; *) t_bad "'$2' is not in: $1" ;; esac; }
 t_lacks() { case "$1" in *"$2"*) t_bad "'$2' should not be in: $1" ;; esac; }
 
@@ -127,7 +135,10 @@ t_run() {
 }
 
 t_done() {
-  echo "$(basename "$0"): $t_count cases, $t_failed failed"
+  local line
+  line="$(basename "$0"): $t_count cases, "
+  [ "$t_skipped" = 0 ] || line=$line"$t_skipped skipped, "
+  echo "$line$t_failed failed"
   [ "$t_failed" = 0 ]
   exit $?
 }
