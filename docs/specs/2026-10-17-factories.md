@@ -213,6 +213,16 @@ when none is running, 1 when some still are at the end of the wait. For a
 person before a reboot or a disk change; for industry before an upgrade or
 a move. `tehas limit clear` ends it.
 
+*(Built in #301.)* `--json` prints:
+
+```json
+{"api": 1, "drained": false, "running": [12], "limit": {"state": "ok", "cycles": 0, "plan": false, "reason": "draining"}}
+```
+
+`drained` is true when no cycle is running. `running` lists the issue
+numbers whose cycles still run. `limit` is what `tehas limit --json` prints,
+without `api`. Exit 0 when drained, 1 when cycles still run.
+
 ### `tehas history --json [--after CURSOR] [--issue N]` (new)
 
 The finished cycles, oldest first, from the results the factory keeps:
