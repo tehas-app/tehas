@@ -47,6 +47,9 @@ case " $* " in *" --mode "*)
     echo "$?" >"$T/calls/push.rc"
   fi
   cat "$ws/.git/pi-plan-cache/"*.json >"$T/calls/cache.read" 2>/dev/null
+  # The Pi sessions the turn was given, and what Pi writes there when a case says.
+  find "$ws.state/sessions" -type f -printf "%P\n" 2>/dev/null | sort >"$T/calls/sessions.seen"
+  [ ! -e "$T/fx/session" ] || . "$T/fx/session"
   # What the agent leaves in the plan cache, when a case says.
   [ ! -e "$T/fx/cache" ] || . "$T/fx/cache"
   IFS= read -r line
@@ -679,6 +682,21 @@ t_eq "$(ls -A "$T/keep")" "brief.md
 commit"
 t_eq "$(cat "$T/keep/brief.md")" "$(cat "$T/brief.md")"
 
+t_case "the Pi sessions of a turn are kept for the next: session files only, no link, no other file"
+reset
+cat >"$fx/session" <<'EOF'
+mkdir -p "$ws.state/sessions/--home-tehas-work-widget--" "$ws.state/sessions/other"
+echo '{"type":"session","id":"abc-123"}' >"$ws.state/sessions/--home-tehas-work-widget--/t1_abc-123.jsonl"
+echo note >"$ws.state/sessions/--home-tehas-work-widget--/notes.txt"
+ln -s /etc/passwd "$ws.state/sessions/--home-tehas-work-widget--/link.jsonl"
+ln -s "$ws.state/sessions/--home-tehas-work-widget--" "$ws.state/sessions/linked"
+EOF
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(cd "$T/keep/sessions" && find . -mindepth 1 \( -type f -o -type l \) -printf '%P\n' | sort)" "--home-tehas-work-widget--/t1_abc-123.jsonl"
+t_eq "$(cat "$T/calls/sessions.seen")" ""
+rm -f "$fx/session"
+
 t_case "the plan cache the agent leaves is kept: plain .json files and the .filed and .claim markers only"
 reset
 cat >"$fx/cache" <<'EOF'
@@ -692,6 +710,8 @@ ln -s /etc/passwd "$ws/.git/pi-plan-cache/link.json"
 ln -s /etc/passwd "$ws/.git/pi-plan-cache/link.filed"
 head -c 1048577 /dev/zero >"$ws/.git/pi-plan-cache/big.json"
 head -c 1048577 /dev/zero >"$ws/.git/pi-plan-cache/big.claim"
+mkdir -p "$ws.state/sessions/--home-tehas-work-widget--"
+echo '{"type":"session","id":"abc-123"}' >"$ws.state/sessions/--home-tehas-work-widget--/t1_abc-123.jsonl"
 EOF
 t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 0
@@ -718,6 +738,9 @@ t_eq "$(git -C "$checkout" rev-parse origin/main | grep -c -x "$pinned")" 0
 t_eq "$(tr '\n' ' ' <"$T/calls/cache.seen")" "a1.claim a1.filed a1.json "
 t_eq "$(cat "$T/calls/cache.read")" '{"spec":"one"}'
 t_eq "$(cat "$T/keep/commit")" "$pinned"
+t_eq "$(cat "$T/calls/sessions.seen")" "--home-tehas-work-widget--/t1_abc-123.jsonl"
+t_eq "$(cat "$T/keep/sessions/--home-tehas-work-widget--/t1_abc-123.jsonl")" '{"type":"session","id":"abc-123"}'
+
 
 t_case "a fetch inside a later turn leaves origin/main at the session's commit, and a push still works"
 rm -f "$T"/calls/*

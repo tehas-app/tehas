@@ -746,7 +746,10 @@ SSH keys or `~/.config/tehas`. It works in a workspace of its own,
 `~/tehas/work/<name>-plan-<issue>`, made fresh for the turn and removed after
 it, its cache, memory and sessions go in `<name>-plan-<issue>.state` beside it
 and are removed with it, and its transcripts go to
-`~/.pi/agent/ensemble-runs/plan-<issue>`. There is no dry-run push
+`~/.pi/agent/ensemble-runs/plan-<issue>`. Pi's sessions are kept first in
+`~/tehas/state/plan-<issue>.json.keep/sessions`, plain `.jsonl` files only, and
+the next turn's container is given a copy, so it can open the session the
+first turn began. There is no dry-run push
 before a turn. The agent files issues with the token. The RPC stream is
 kept in `~/tehas/logs/plan-<issue>-<time>.jsonl`. The limit is
 `TEHAS_PLAN_TIMEOUT`, and the session record is

@@ -26,6 +26,10 @@
 #   pi-plan-cache/  pi-rukas's record of the plans it showed (it keeps it in
 #                   the clone's git directory), from a release that has one.
 #                   Only plain .json files are carried, at most 1 MB each.
+#   sessions/       Pi's sessions, as the turn left them in its own state
+#                   directory. A later turn opens the session from here: the
+#                   state directory goes with the workspace. Only plain
+#                   .jsonl files, one directory deep, at most 64 MB each.
 #   images/         the issue's images, with TEHAS_WORK_IMAGES=1, and its text
 #                   files, with TEHAS_WORK_FILES=1: fetched on the first turn
 #                   as tehas work fetches a cycle's. Each turn
@@ -90,7 +94,7 @@
 # to ~/.pi/agent/ensemble-runs/plan-<issue>, so a turn and a cycle see nothing
 # of each other. Beside the workspace is <name>-plan-<issue>.state, the turn's
 # own copy of the code index, its own memory and its own Pi sessions, removed
-# with the workspace.
+# with the workspace. The sessions are kept in <dir> first.
 set -uo pipefail
 
 usage() {
@@ -309,6 +313,19 @@ carry() {
     cp "$f" "$2/" || return 1
   done
 }
+# carry_sessions <from> <to>: Pi's session files. Pi keeps them as .jsonl in a
+# directory named for the workspace's path. Plain files only: what a container
+# wrote is given to the next container and read by nothing else here.
+carry_sessions() {
+  local f rel
+  mkdir -p "$2" || return 1
+  for f in "$1"/*/*.jsonl; do
+    [ -f "$f" ] && [ ! -L "$f" ] && [ ! -L "${f%/*}" ] || continue
+    [ "$(stat -c %s "$f" 2>/dev/null || echo 0)" -le 67108864 ] || continue
+    rel=${f#"$1"/}
+    mkdir -p "$2/${rel%/*}" && cp "$f" "$2/$rel" || return 1
+  done
+}
 if [ -n "$brief" ]; then
   if ! git -C "$tree" rev-parse HEAD >"$keep/commit"; then
     echo "tehas plan: could not note the commit of $tree, not starting a turn" >&2
@@ -369,6 +386,11 @@ tehas_sandbox_seed "$container" "$index" ||
   echo "tehas plan: the code index could not be copied into $container/cache, this turn searches without one"
 # The mounts name directories that only exist now.
 mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$repo" "$tree" "$container" "$runs")
+# A later turn opens its session from what the turn before kept. Without it Pi
+# has no session to open, and the turn ends as lost.
+if [ -z "$brief" ] && [ -d "$keep/sessions" ] && ! carry_sessions "$keep/sessions" "$container/sessions"; then
+  echo "tehas plan: could not carry the session's Pi sessions into $container" >&2
+fi
 [ "${#mounts[@]}" -gt 0 ] ||
   { echo "tehas plan: could not prepare the sandbox, not starting a turn" >&2; exit 78; }
 
@@ -522,12 +544,22 @@ fi
 wait "$pid" 2>/dev/null
 scan all
 # The turn's outcome is read from the log. Of the workspace only the plan
-# cache is needed again: the next turn gets a new one.
+# cache and Pi's sessions are needed again: the next turn gets a new one.
 if [ -d "$cache" ]; then
   if ! { rm -rf "$keep/pi-plan-cache.new" && carry "$cache" "$keep/pi-plan-cache.new" &&
     rm -rf "$keep/pi-plan-cache" && mv "$keep/pi-plan-cache.new" "$keep/pi-plan-cache"; }; then
     echo "tehas plan: could not keep the plan cache of $tree" >&2
   fi
+fi
+# A turn that left no session file keeps what the turn before kept.
+if [ -d "$container/sessions" ]; then
+  if ! { rm -rf "$keep/sessions.new" && carry_sessions "$container/sessions" "$keep/sessions.new"; }; then
+    echo "tehas plan: could not keep the Pi sessions of $tree, the next turn cannot open its session" >&2
+  elif [ -n "$(find "$keep/sessions.new" -type f -print -quit)" ]; then
+    rm -rf "$keep/sessions" && mv "$keep/sessions.new" "$keep/sessions" ||
+      echo "tehas plan: could not keep the Pi sessions of $tree, the next turn cannot open its session" >&2
+  fi
+  rm -rf "$keep/sessions.new"
 fi
 rm -rf "$tree" "$container" "$images_given" || echo "tehas plan: could not remove the workspace $tree" >&2
 
