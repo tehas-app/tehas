@@ -64,6 +64,8 @@ slice_good() {
 slice_good
 limits="--cgroup-parent --memory --memory-swap --memory-reservation --cpus --pids-limit --cpu-shares"
 root="TEHAS_CGROUP_ROOT=$T_CGROUP"
+# A run waits this long for a poll that holds the dispatcher's lock.
+wait="TEHAS_INDEX_LOCK_WAIT=1"
 
 run_args() { grep -l -x -e index_repository "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
 after() { run_args | awk -v flag="$1" 'prev == flag { print } { prev = $0 }'; }
@@ -82,7 +84,7 @@ runs() { grep -l -x -e index_repository "$T"/calls/docker.args.* 2>/dev/null | w
 reset() { rm -f "$T"/calls/*; }
 
 t_case "an invalid instance starts no container"
-T_ENV=("$root")
+T_ENV=("$root" "$wait")
 t_instance TEHAS_CONTROL_ISSUE=1
 t_run "$index"
 t_eq "$t_rc" 78
@@ -105,27 +107,64 @@ t_eq "$(t_calls docker)" ""
 git -C "$checkout" remote set-url origin "$upstream"
 
 t_case "without the sandbox image nothing is indexed and the build is named"
-T_ENV=(IMAGE_RC=1 "$root")
+T_ENV=(IMAGE_RC=1 "$root" "$wait")
 t_run "$index"
 t_eq "$t_rc" 1
 t_contains "$t_out" "sandbox/build.sh"
 t_eq "$(runs)" 0
 t_eq "$(find "$marker" 2>/dev/null | wc -l)" 0
-T_ENV=("$root")
+T_ENV=("$root" "$wait")
 
-t_case "while the dispatcher's lock is held nothing is indexed"
+t_case "while a poll holds the dispatcher's lock for all of the wait nothing is indexed"
 reset
 mkdir -p "$T/home/tehas/state"
 exec 9>"$T/home/tehas/state/dispatch.lock"
 flock -n 9
 t_run "$index"
 t_eq "$t_rc" 3
-t_contains "$t_out" "the dispatcher's lock is held"
+t_contains "$t_out" "a poll held the dispatcher's lock for 1s, nothing was indexed"
+t_eq "$(t_calls docker)" ""
+exec 9>&-
+
+t_case "a run waits for a poll that lets the dispatcher's lock go, and lets it go itself"
+reset
+mkdir -p "$T/home/tehas/state"
+( exec 9>"$T/home/tehas/state/dispatch.lock"; flock -n 9; sleep 0.5 ) &
+sleep 0.2
+T_ENV=("$root" TEHAS_INDEX_LOCK_WAIT=5)
+t_run "$index"
+T_ENV=("$root" "$wait")
+wait
+t_eq "$t_rc" 0
+t_eq "$(runs)" 1
+t_eq "$(flock -n "$T/home/tehas/state/dispatch.lock" echo free)" free
+
+t_case "while another index run holds its lock nothing is indexed"
+reset
+exec 9>"$T/home/tehas/state/index.lock"
+flock -n 9
+t_run "$index --before-cycle"
+t_eq "$t_rc" 3
+t_contains "$t_out" "another index run holds its lock"
+t_eq "$(t_calls docker)" ""
+exec 9>&-
+
+t_case "before a cycle, a cycle that runs is not indexed under"
+reset
+commit cycle
+git -C "$checkout" fetch -q
+mkdir -p "$T/home/tehas/state/cycles"
+exec 9>"$T/home/tehas/state/cycles/12.lock"
+flock -n 9
+t_run "$index --before-cycle"
+t_eq "$t_rc" 3
+t_contains "$t_out" "a cycle is running (issue 12)"
 t_eq "$(t_calls docker)" ""
 exec 9>&-
 
 t_case "while a cycle holds its lock nothing is indexed, and the issue is named"
 reset
+mkdir -p "$T/home/tehas/state/cycles"
 mkdir -p "$T/home/tehas/state/cycles"
 exec 9>"$T/home/tehas/state/cycles/12.lock"
 flock -n 9
@@ -143,7 +182,7 @@ rm -rf "$T/home/tehas/state/cycles"
 
 t_case "the index is built in the sandbox image, at the path a cycle works in"
 reset
-T_ENV=(GH_TOKEN=test-token "$root")
+T_ENV=(GH_TOKEN=test-token "$root" "$wait")
 t_run "$index"
 t_eq "$t_rc" 0
 t_eq "$(run_args | sed -n "/^$(printf '%s' "$image" | sed 's/[\/.]/\\&/g')\$/,\$p" | tr '\n' ' ')" \
@@ -176,7 +215,7 @@ t_lacks "$args" "docker.sock"
 t_lacks "$args" ".ssh"
 t_lacks "$args" ".config/tehas"
 t_lacks "$args" "$checkout"
-T_ENV=("$root")
+T_ENV=("$root" "$wait")
 
 t_case "what was indexed is reported and recorded"
 t_contains "$t_out" "5 nodes, 7 edges"
@@ -287,15 +326,15 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "already indexed"
 t_eq "$(t_calls docker)" ""
 
-t_case "before a cycle, a branch that moved is indexed while the caller holds the lock"
+t_case "before a cycle, a branch that moved is indexed"
 commit third
 git -C "$checkout" fetch -q
-exec 9>"$T/home/tehas/state/dispatch.lock"
-flock -n 9
 t_run "$index --before-cycle"
 t_eq "$t_rc" 0
 t_eq "$(runs)" 1
 t_eq "$(jq -r .commit "$marker")" "$(git -C "$upstream" rev-parse main)"
+exec 9>"$T/home/tehas/state/dispatch.lock"
+flock -n 9
 t_run "$index"
 t_eq "$t_rc" 3
 exec 9>&-
@@ -356,10 +395,7 @@ t_lacks "$t_out" "removed "
 t_eq "$(find "$indexdir" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" "widget.db "
 commit prune
 git -C "$checkout" fetch -q
-exec 9>"$T/home/tehas/state/dispatch.lock"
-flock -n 9
 t_run "$index --before-cycle"
-exec 9>&-
 t_eq "$t_rc" 0
 t_lacks "$t_out" "removed "
 t_eq "$(cat "$indexdir/widget.db")" index
@@ -370,19 +406,19 @@ rm -rf "$indexdir"
 mkdir -p "$indexdir/logs"
 echo old >"$indexdir/other-tree.db"
 echo left >"$indexdir/widget.db.stage.abc123.tmp.945328.0x200002bc000"
-T_ENV=(RUN_RC=1 "$root")
+T_ENV=(RUN_RC=1 "$root" "$wait")
 t_run "$index"
 t_eq "$t_rc" 1
 t_lacks "$t_out" "removed "
 t_eq "$(find "$indexdir" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" \
   "logs other-tree.db widget.db.stage.abc123.tmp.945328.0x200002bc000 "
-T_ENV=("$root")
+T_ENV=("$root" "$wait")
 
 t_case "a failed indexer exits 1, leaves the record as it was and notes the tip"
 reset
 before=$(cat "$marker")
 tip=$(git -C "$upstream" rev-parse main)
-T_ENV=(RUN_RC=1 "$root")
+T_ENV=(RUN_RC=1 "$root" "$wait")
 t_run "$index"
 t_eq "$t_rc" 1
 t_contains "$t_out" "$T/home/tehas/logs/index-"
@@ -391,12 +427,12 @@ t_eq "$(cat "$failed")" "$tip"
 
 t_case "an answer that does not say indexed counts as failed"
 rm -f "$failed"
-T_ENV=('RUN_OUT={"error":"no such path"}' "$root")
+T_ENV=('RUN_OUT={"error":"no such path"}' "$root" "$wait")
 t_run "$index"
 t_eq "$t_rc" 1
 t_eq "$(cat "$marker")" "$before"
 t_eq "$(cat "$failed")" "$tip"
-T_ENV=("$root")
+T_ENV=("$root" "$wait")
 
 t_case "a container left by a killed run is removed before the run, under timeout"
 reset
@@ -409,13 +445,13 @@ t_eq "$(find "$failed" 2>/dev/null | wc -l)" 0
 t_case "an indexer that hangs is stopped at the bound, and its container removed"
 reset
 began=$(date +%s)
-T_ENV=(RUN_SLEEP=60 TIMEOUT_BOUND=1 "$root")
+T_ENV=(RUN_SLEEP=60 TIMEOUT_BOUND=1 "$root" "$wait")
 t_run "$index"
 t_eq "$t_rc" 1
 [ "$(($(date +%s) - began))" -lt 20 ] || t_bad "the run was not stopped at the bound"
 t_contains "$t_out" "the indexer did not finish within"
 t_eq "$(t_calls docker | grep -c '^rm -f tehas-index$')" 2
-T_ENV=("$root")
+T_ENV=("$root" "$wait")
 
 t_case "before a cycle, two failures at one tip give one run"
 commit fails
@@ -423,7 +459,7 @@ git -C "$checkout" fetch -q
 tip=$(git -C "$upstream" rev-parse main)
 before=$(jq -r .commit "$marker")
 reset
-T_ENV=(RUN_RC=1 "$root")
+T_ENV=(RUN_RC=1 "$root" "$wait")
 t_run "$index --before-cycle"
 t_eq "$t_rc" 1
 t_run "$index --before-cycle"
@@ -438,7 +474,7 @@ reset
 t_run "$index"
 t_eq "$t_rc" 1
 t_eq "$(runs)" 1
-T_ENV=("$root")
+T_ENV=("$root" "$wait")
 commit mended
 git -C "$checkout" fetch -q
 reset

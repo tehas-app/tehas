@@ -80,6 +80,7 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/lib/improve-prompt.md
 ./tehas/lib/improve.sh
 ./tehas/lib/labels.sh
+./tehas/lib/limit.sh
 ./tehas/lib/live.sh
 ./tehas/lib/models.sh
 ./tehas/lib/planning.sh
@@ -98,11 +99,13 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/libexec/dev
 ./tehas/libexec/dev-login
 ./tehas/libexec/dispatch
+./tehas/libexec/drain
 ./tehas/libexec/energy
 ./tehas/libexec/health
 ./tehas/libexec/improve
 ./tehas/libexec/index
 ./tehas/libexec/labels
+./tehas/libexec/limit
 ./tehas/libexec/pause
 ./tehas/libexec/plan
 ./tehas/libexec/preview

@@ -169,15 +169,20 @@ Run `tehas dispatch --dry-run` and read what it prints.
   cannot start units, so it changed no label. Run `install.sh` on the host so
   its units step installs the cycle unit. Run `tehas dispatch` in the tehas
   user's own session, not in a `sudo -iu` shell, which has no user bus.
-- `another poll, or tehas index, holds the dispatcher's lock`: a poll or an
-  index run is under way. Try again in a minute. A running cycle does not hold
+- `another poll holds the dispatcher's lock`: a poll is under way. Try again
+  in a minute. A running cycle, a planning turn and an index run do not hold
   this lock.
+- `holding: the code index is refreshed first, as tehas-index.service`, then
+  `holding: the cycles wait for the code index`: no cycle was running and the
+  branch had moved, so the index is rebuilt before cycles start. It takes
+  seconds to minutes; its end starts the poll that starts them. See
+  `journalctl --user -u tehas-index` and `~/tehas/logs/dispatch-index.log`.
 - `WARN: the dispatcher's lock has been held since <time>, more than Ns: a
-  poll or tehas index hangs, and no poll runs until it ends`: logged once by
-  the first poll that finds the lock held longer than `TEHAS_PLAN_TIMEOUT`
-  plus half an hour. No sweep, start or planning turn runs meanwhile. Look for
-  the hung process with `systemctl --user status tehas-dispatch.service`; the
-  unit stops a poll after 3 hours by itself. `~/tehas/state/dispatch.taken`
+  poll hangs, and no poll runs until it ends`: logged once by the first poll
+  that finds the lock held longer than half an hour. No sweep, start or
+  planning turn runs meanwhile. Look for the hung process with
+  `systemctl --user status tehas-dispatch.service`; the unit stops a poll
+  after an hour by itself. `~/tehas/state/dispatch.taken`
   holds when the lock was taken, in seconds since 1970.
 - `ERROR: gh ... failed`: a GitHub call did not answer, or the control issue
   does not exist. The poll ends there on purpose: the pause switch, the limit

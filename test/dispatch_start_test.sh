@@ -25,7 +25,7 @@ reset
 t_stub fake-order 'grep -q -e "--add-label tehas:running" "$T/calls/gh" && : >"$T/calls/order.label"
 grep -q "^issue comment $1 " "$T/calls/gh" && : >"$T/calls/order.comment"
 : >"$TEHAS_HOME/state/cycles/$1.taken"'
-T_ENV=(TEHAS_CYCLE_START_CMD=fake-order TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index "$slice_env")
+T_ENV=(TEHAS_CYCLE_START_CMD=fake-order TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index TEHAS_INDEX_START_CMD=fake-index-start "$slice_env")
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(find "$T/calls/order.label" "$T/calls/order.comment" 2>/dev/null | wc -l)" 2
@@ -40,7 +40,7 @@ reset
 t_stub fake-live '( exec 9>"$TEHAS_HOME/state/cycles/$1.lock"; flock -n 9; exec sleep 8 ) >/dev/null 2>&1 &
 echo $! >"$T/live.pid"
 : >"$TEHAS_HOME/state/cycles/$1.taken"'
-T_ENV=(TEHAS_CYCLE_START_CMD=fake-live TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index "$slice_env")
+T_ENV=(TEHAS_CYCLE_START_CMD=fake-live TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index TEHAS_INDEX_START_CMD=fake-index-start "$slice_env")
 t_run "$dispatch"
 alive=no
 kill -0 "$(cat "$T/live.pid")" 2>/dev/null && alive=yes
@@ -69,7 +69,7 @@ flock -n "$lockfd"
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_contains "$t_out" "WARN: the dispatcher's lock has been held since"
-t_contains "$t_out" "more than 5400s: a poll or tehas index hangs, and no poll runs until it ends"
+t_contains "$t_out" "more than 1800s: a poll hangs, and no poll runs until it ends"
 t_eq "$(t_calls gh)" ""
 t_run "$dispatch"
 t_eq "$t_rc" 0
@@ -82,7 +82,7 @@ t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$t_out" ""
 t_run "$dispatch --dry-run"
-t_contains "$t_out" "another poll, or tehas index, holds the dispatcher's lock"
+t_contains "$t_out" "another poll holds the dispatcher's lock"
 t_lacks "$t_out" "WARN"
 
 t_case "a poll that finds the lock held does not change when it was taken"
@@ -311,7 +311,7 @@ reset
 # so the stub returns at once and the test's pipe is not held open.
 t_stub fake-late '( exec 9>"$TEHAS_HOME/state/cycles/$1.lock"; flock -n 9; exec sleep 5 ) >/dev/null 2>&1 &
 echo $! >"$T/late.pid"'
-T_ENV=(TEHAS_CYCLE_START_CMD=fake-late TEHAS_CYCLE_START_WAIT=1 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index "$slice_env")
+T_ENV=(TEHAS_CYCLE_START_CMD=fake-late TEHAS_CYCLE_START_WAIT=1 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index TEHAS_INDEX_START_CMD=fake-index-start "$slice_env")
 t_run "$dispatch"
 kill "$(cat "$T/late.pid")" 2>/dev/null
 t_eq "$t_rc" 0

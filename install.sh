@@ -226,6 +226,7 @@ files=(
   "lib/improve-prompt.md|$TEHAS_HOME/lib/improve-prompt.md|644"
   "lib/fixer.sh|$TEHAS_HOME/lib/fixer.sh|644"
   "lib/live.sh|$TEHAS_HOME/lib/live.sh|644"
+  "lib/limit.sh|$TEHAS_HOME/lib/limit.sh|644"
   "lib/models.sh|$TEHAS_HOME/lib/models.sh|644"
   "lib/update-steps.sh|$TEHAS_HOME/lib/update-steps.sh|644"
   "lib/edge.sh|$TEHAS_HOME/lib/edge.sh|644"
@@ -267,7 +268,7 @@ files=(
 for f in tehas tehasbot; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
-for f in api cycle dev dev-login dispatch energy health improve index labels pause plan preview protolab resume status summary top top-publish update work; do
+for f in api cycle dev dev-login dispatch drain energy health improve index labels limit pause plan preview protolab resume status summary top top-publish update work; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
 # Pi's own settings: the instance may bring its own (default provider and

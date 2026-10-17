@@ -29,7 +29,8 @@
 #   - instance.env is authoritative. Settings of the same name in the
 #     environment are dropped; only TEHAS_HOME, TEHAS_INSTANCE_DIR and the test
 #     hooks TEHAS_WORK_CMD, TEHAS_STATUS_CMD, TEHAS_INDEX_CMD, TEHAS_PLAN_CMD,
-#     TEHAS_PLAN_START_CMD, TEHAS_CYCLE_START_CMD, TEHAS_CYCLE_STOP_CMD, TEHAS_CYCLE_START_WAIT,
+#     TEHAS_PLAN_START_CMD, TEHAS_INDEX_START_CMD, TEHAS_INDEX_LOCK_WAIT,
+#     TEHAS_CYCLE_START_CMD, TEHAS_CYCLE_STOP_CMD, TEHAS_CYCLE_START_WAIT,
 #     TEHAS_CGROUP_ROOT, TEHAS_SLICE_WAIT, TEHAS_PREFLIGHT_WAIT, TEHAS_STOP_WAIT, TEHAS_FETCH_WAIT,
 #     TEHAS_CONSOLE_WAIT, TEHAS_WORK_GRACE, TEHAS_CAPS_WAIT,
 #     TEHAS_CYCLE_RETRY_WAIT and TEHAS_CYCLE_STOP_GH_WAIT are kept, and from
@@ -225,7 +226,7 @@ tehas_load() {
   for v in $(compgen -v); do
     case "$v" in
       TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_INDEX_CMD | TEHAS_PLAN_CMD | \
-        TEHAS_PLAN_START_CMD | TEHAS_CYCLE_START_CMD | TEHAS_CYCLE_STOP_CMD | TEHAS_CYCLE_START_WAIT | TEHAS_CGROUP_ROOT | TEHAS_SLICE_WAIT | \
+        TEHAS_PLAN_START_CMD | TEHAS_INDEX_START_CMD | TEHAS_INDEX_LOCK_WAIT | TEHAS_CYCLE_START_CMD | TEHAS_CYCLE_STOP_CMD | TEHAS_CYCLE_START_WAIT | TEHAS_CGROUP_ROOT | TEHAS_SLICE_WAIT | \
         TEHAS_PREFLIGHT_WAIT | TEHAS_STOP_WAIT | TEHAS_FETCH_WAIT | TEHAS_CONSOLE_WAIT | TEHAS_WORK_GRACE | TEHAS_CAPS_WAIT | \
         TEHAS_CYCLE_RETRY_WAIT | TEHAS_CYCLE_STOP_GH_WAIT | TEHAS_ENERGY | TEHAS_ENERGY_URL | TEHAS_MODEL_KEY_*) ;;
       TEHAS_* | PI_ENSEMBLE_*) unset "$v" ;;
@@ -442,10 +443,10 @@ tehas_load() {
     tehas_err "TEHAS_WORK_TIMEOUT ($TEHAS_WORK_TIMEOUT) is more than 25200: tehas-cycle@.service stops a cycle after 8 hours, and the stop and the report need the hour after the limit (see $file)"
     return 78
   fi
-  # tehas-dispatch.service stops a poll after 3 hours (TimeoutStartSec). A
-  # poll runs one planning turn or refreshes the index, and calls GitHub.
+  # A planning turn runs as its own unit, which systemd stops a quarter of an
+  # hour after this limit. One turn runs at a time, and a session waits on it.
   if [ "$TEHAS_PLAN_TIMEOUT" -gt 7200 ]; then
-    tehas_err "TEHAS_PLAN_TIMEOUT ($TEHAS_PLAN_TIMEOUT) is more than 7200: tehas-dispatch.service stops a poll after 3 hours, and a poll needs time around its planning turn (see $file)"
+    tehas_err "TEHAS_PLAN_TIMEOUT ($TEHAS_PLAN_TIMEOUT) is more than 7200: a planning turn may take at most two hours, and while one runs no other planning turn starts (see $file)"
     return 78
   fi
   if [ "$TEHAS_PREVIEWS" = 1 ] && [ -z "$TEHAS_DOMAIN" ]; then

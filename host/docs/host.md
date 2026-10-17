@@ -635,17 +635,19 @@ ever:
 | A call to GitHub in the report of a cycle that was stopped | 20 s, tried once | The call counts as refused. A label change that never happened leaves the issue `tehas:running` for the next poll |
 | The stop of a cycle, its container and its report | 300 s (`TimeoutStopSec` of `tehas-cycle@.service`) | systemd kills the unit. The worst stop within the bounds above is about 265 s |
 | The dispatcher's fetch of the product checkout | 120 s | `WARN: could not fast-forward`, and the poll goes on |
-| A poll of the dispatcher | 3 hours (`TimeoutStartSec` of `tehas-dispatch.service`) | systemd stops it. A planning turn it cut off is reported by the next poll |
+| A poll of the dispatcher | 1 hour (`TimeoutStartSec` of `tehas-dispatch.service`) | systemd stops it. A poll runs no planning turn and no index run, so it has none to cut off |
+| A planning turn | `TEHAS_PLAN_TIMEOUT`, then a quarter of an hour (`RuntimeMaxSec` of `tehas-plan-<issue>.service`) | The next poll reports the turn as cut off |
+| The code index | 30 minutes for the indexer, then 40 minutes for the unit (`RuntimeMaxSec` of `tehas-index.service`) | The index stays as it was. The next poll starts the cycles |
 
 `tehas-cycle@.service` stops a cycle after 8 hours (`RuntimeMaxSec`), as the
 last bound for a hang that none of these reaches. The stop is a TERM, and the
 cycle is reported as one that stopped. A unit cannot read the instance's
 settings, so `TEHAS_WORK_TIMEOUT` may be at most 25200, 7 hours: a longer one
 is refused with exit 78. The hour between is for the stop and the report.
-`TEHAS_PLAN_TIMEOUT` may be at most 7200. A planning turn runs as its own
-unit, not inside a poll, so it holds no poll and no lock. A poll that finds the
-dispatcher's lock held for longer than `TEHAS_PLAN_TIMEOUT` plus half an hour
-says so once in the log, as [troubleshooting](/troubleshooting) shows.
+`TEHAS_PLAN_TIMEOUT` may be at most 7200. A planning turn and the index run
+each run as their own unit, not inside a poll, so they hold no poll and not its
+lock. A poll that finds the dispatcher's lock held for longer than half an
+hour says so once in the log, as [troubleshooting](/troubleshooting) shows.
 
 `TEHAS_TICKET_CONCURRENCY` sets the most issues worked on side by side, each
 in a cycle, a container and a workspace of its own. It defaults to the host's
@@ -930,7 +932,9 @@ that cycle ran.
 | Service     | How it runs                                                | Check                                                  |
 | ----------- | ---------------------------------------------------------- | ------------------------------------------------------ |
 | This site   | `docker compose -f ~/tehas/edge/docs.compose.yaml up -d`   | `curl -i http://tehas-tehas:8080/health`               |
-| Dispatcher  | systemd user timer `tehas-dispatch.timer`, every 2 minutes, and `tehas-dispatch.path`, a poll as soon as a cycle ends | `tail ~/tehas/logs/dispatch.log`                       |
+| Dispatcher  | systemd user timer `tehas-dispatch.timer`, every 2 minutes, and `tehas-dispatch.path`, a poll as soon as a cycle, a planning turn or an index run ends | `tail ~/tehas/logs/dispatch.log`                       |
+| Planning turn | a unit the poll starts, `tehas-plan-<issue>.service`, one at a time. systemd stops it a quarter of an hour after `TEHAS_PLAN_TIMEOUT` | `tail ~/tehas/logs/dispatch-plan-<issue>.log` |
+| Code index | a unit the poll starts, `tehas-index.service`, before cycles start on an idle host. systemd stops it after 40 minutes | `tail ~/tehas/logs/dispatch-index.log` |
 | Energy use sampler, optional | systemd user service `tehas-energy.service`, every 15 s. Enable it only when the model backend is a [viiwork](https://github.com/janit/viiwork) mesh | `jq .generatedAt ~/tehas/live/energy.json` |
 | Host snapshot publisher, optional | systemd user service `tehas-top.service`, every 5 s. It writes nothing unless `TEHAS_TOP=1` | `jq '.host.cpus, .host.load' ~/tehas/live/top.json` |
 | Protolab pages | systemd user timer `tehas-protolab.timer`, every 5 minutes | `tail ~/tehas/logs/protolab.log` |

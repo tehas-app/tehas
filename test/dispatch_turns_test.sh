@@ -194,8 +194,7 @@ t_eq "$(jq -r .running "$record")" true
 t_lacks "$(t_calls gh)" "kind=plan"
 t_eq "$(plan_calls)" ""
 
-t_case "the poll after a turn ends posts its outcome, once"
-rm -f "$fx/plan-runs"
+t_case "the poll after a turn ends posts its outcome, once, though systemd still shows its unit"
 echo '[]' >"$fx/ready.json"
 # The first poll took tehas:plan off the issue.
 echo '[]' >"$fx/plans.json"
@@ -207,6 +206,7 @@ t_eq "$t_rc" 0
 t_contains "$(t_calls gh)" "<!-- tehas:question kind=plan issue=7 turn=1 -->"
 t_eq "$(jq -r '[.session, .turns, .running] | @tsv' "$record")" "abc-123	1	false"
 t_eq "$([ -e "$record.rc" ] && echo left)" ""
+rm -f "$fx/plan-runs"
 rm -f "$T"/calls/*
 t_run "$dispatch"
 t_lacks "$(t_calls gh)" "kind=plan"

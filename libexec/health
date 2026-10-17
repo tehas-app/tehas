@@ -45,6 +45,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/live.sh"
 # shellcheck source=lib/status.sh
 . "$here/../lib/status.sh"
+# shellcheck source=lib/limit.sh
+. "$here/../lib/limit.sh"
 # A cycle that died without a word stops being shown as running here.
 tehas_live_assemble 2>/dev/null || true
 
@@ -86,7 +88,7 @@ slice=null
 [ -s "$dispatch_file" ] && slice=$(jq -cs '
   select(length == 1) | .[0]
   | select(type == "object" and (.why | type) == "string" and (now - (.time | fromdateiso8601)) < 600)
-  | {time, why, hold, count, room, committed, max, reserve} + ({free, awaitRoom} | with_entries(select(.value != null)))' "$dispatch_file" 2>/dev/null)
+  | {time, why, hold, count, room, committed, max, reserve} + ({free, awaitRoom, limitRoom} | with_entries(select(.value != null)))' "$dispatch_file" 2>/dev/null)
 [ -n "$slice" ] || slice=null
 
 # How many issues wait for room, and since when the oldest, as the last poll
@@ -99,6 +101,9 @@ demand=null
   | select(type == "object" and (.waiting | type) == "number" and (now - (.time | fromdateiso8601)) < 600)
   | {time, waiting} + (if (.oldest | type) == "string" then {oldest} else {} end)' "$live/demand.json" 2>/dev/null)
 [ -n "$demand" ] || demand=null
+
+# The limit tehas limit sets, read here as the dispatcher reads it.
+limit=$(tehas_limit_read)
 
 # tehasbot status keeps the old snapshot when GitHub does not answer. Older
 # than this, its counts and its pause are not news.
@@ -123,7 +128,7 @@ lifted=$(jq -rc 'if (.pause.lifted | type) == "boolean" then .pause.lifted else 
 pause=$(jq -nc --argjson flag "$pause_flag" --argjson label "$label_paused" --argjson lifted "$lifted" \
   '{flag: $flag, label: $label, lifted: $lifted}')
 
-jq -n --argjson queue "$queue" --argjson view "$view" --argjson disk "$disk" --argjson slice "$slice" --argjson demand "$demand" --arg now "$(date -u +%FT%TZ)" \
+jq -n --argjson queue "$queue" --argjson view "$view" --argjson disk "$disk" --argjson slice "$slice" --argjson demand "$demand" --argjson limit "$limit" --arg now "$(date -u +%FT%TZ)" \
   --argjson queueMaxAge "$queue_max_age" --argjson endings "$endings" --argjson platform "$platform" --argjson pause "$pause" '
   def iso: if type == "number" then todate else null end;
   def ago: if . < 120 then "\(.) s" elif . < 7200 then "\(. / 60 | floor) min" else "\(. / 3600 | floor) h" end;
@@ -153,10 +158,13 @@ jq -n --argjson queue "$queue" --argjson view "$view" --argjson disk "$disk" --a
      else ($now | fromdateiso8601) - ($queue.generatedAt | try fromdateiso8601 catch 0) end) as $queue_age
   | ($queue_age != null and $queue_age > $queueMaxAge) as $old_queue
   | ($pause.flag != null or $pause.label == true or $pause.lifted == true) as $paused
+  # A limit that expired or cannot be read holds every start.
+  | ($limit.state | IN("expired", "unreadable")) as $limit_holds
   | (if $queue == null then "fail"
      elif $failed then "fail"
      elif $old_queue then "warn"
      elif $paused then "warn"
+     elif $limit_holds then "warn"
      elif $no_slice then "warn"
      elif $no_resources then "warn"
      elif $disk != null and $disk.low then "warn"
@@ -170,6 +178,9 @@ jq -n --argjson queue "$queue" --argjson view "$view" --argjson disk "$disk" --a
                elif $old_queue then
                  "The queue snapshot is \($queue_age | ago) old: GitHub did not answer the last polls."
                elif $paused then "The factory is paused."
+               elif $limit_holds then
+                 (if $limit.state == "expired" then "Nothing starts: the limit expired at \($limit.until). Set it again or clear it (tehas limit)."
+                  else "Nothing starts: the limit cannot be read. Set it again or clear it (tehas limit)." end)
                elif $no_slice then ($slice.hold // "holding")
                elif $no_resources then (($slice.hold // "") | sub("^holding: no resources: "; "No resources: ") + ".")
                elif $disk != null and $disk.low then
@@ -197,6 +208,10 @@ jq -n --argjson queue "$queue" --argjson view "$view" --argjson disk "$disk" --a
         disk: (if $disk == null then null else ($disk | {time, freeBytes, minFreeBytes, low}) end),
         slice: $slice,
         demand: $demand,
+        limit: $limit,
+        # tehas:all-hands, from a snapshot young enough to be news; null when
+        # it is not, or the snapshot could not read it.
+        allHands: (if $queue == null or $old_queue then null else $queue.allHands end),
         pause: $pause,
         platform: $platform
       }

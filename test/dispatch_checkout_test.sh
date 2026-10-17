@@ -45,6 +45,66 @@ t_contains "$t_out" "WARN: the code index was not refreshed"
 t_eq "$(t_calls fake-start)" "7"
 rm "$fx/index-fails"
 
+t_case "an index that runs as its own unit holds the cycles until the poll after it"
+reset
+: >"$fx/index-runs"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "holding: the code index is refreshed first, as tehas-index.service; the cycles start on the poll after it"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$(t_calls fake-index-start)" "$T/home/tehas/logs/dispatch-index.log $T/home/tehas/state/index.rc $T/home/tehas/state/dispatch.again"
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "issue comment"
+rm "$fx/index-runs"
+
+t_case "the poll after the index run says how it ended and starts the cycles"
+base=$(git -C "$checkout" rev-parse origin/main)
+mkdir -p "$T/home/tehas/state/index"
+: >"$T/home/tehas/state/index/widget.db"
+jq -n --arg c "$base" '{commit: $c}' >"$T/home/tehas/state/index.json"
+echo 1 >"$T/home/tehas/state/index.rc"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN: the code index was not refreshed, see $T/home/tehas/logs/dispatch-index.log"
+t_eq "$(t_calls fake-index)" ""
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(find "$T/home/tehas/state/index.rc" 2>/dev/null | wc -l)" 0
+rm -rf "$T/home/tehas/state/index" "$T/home/tehas/state/index.json"
+
+t_case "an index run that left its exit status has ended, though systemd still shows its unit"
+reset
+echo 0 >"$T/home/tehas/state/index.rc"
+t_stub systemctl 'case "$1 $2" in
+  "show tehas.slice") cat "$T/fx/slice.show" ;;
+  "--user show") echo active ;;
+esac'
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "holding: the cycles wait for the code index"
+t_eq "$(t_calls fake-start)" "7"
+t_stub systemctl "$systemctl_stub"
+
+t_case "an index the indexer failed at this tip is not run again by a poll"
+reset
+git -C "$checkout" rev-parse origin/main >"$T/home/tehas/state/index.failed"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-index)" ""
+t_eq "$(t_calls fake-start)" "7"
+rm -f "$T/home/tehas/state/index.failed"
+
+t_case "while an index run holds its lock no cycle starts, and the poll says why"
+reset
+exec {ixfd}>>"$T/home/tehas/state/index.lock"
+flock -n "$ixfd"
+t_run "$dispatch"
+exec {ixfd}>&-
+t_eq "$t_rc" 0
+t_contains "$t_out" "holding: the cycles wait for the code index, which tehas-index.service is refreshing"
+t_eq "$(t_calls fake-index)" ""
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+
 t_case "a dry run refreshes no index"
 reset
 t_run "$dispatch --dry-run"

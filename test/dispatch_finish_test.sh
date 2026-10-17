@@ -21,7 +21,7 @@ bare_tree() {
   for name in status index plan; do cp "$T/bin/fake-$name" "$tree/libexec/$name"; done
   for name in tehas tehasbot tehas-work tehas-status tehas-index tehas-plan; do t_stub "$name"; done
   # Runs the unit's command at once, after its own options.
-  t_stub systemd-run 'while [ "$#" -gt 0 ]; do case "$1" in --unit) shift 2 ;; -*) shift ;; *) break ;; esac; done
+  t_stub systemd-run 'while [ "$#" -gt 0 ]; do case "$1" in --unit | -p) shift 2 ;; -*) shift ;; *) break ;; esac; done
 "$@"'
 }
 
@@ -38,9 +38,12 @@ t_run "$tree/libexec/dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls systemctl)" "show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax
 --user show -p LoadState --value tehas-cycle@7.service
+--user show -p ActiveState --value tehas-index.service
 --user start tehas-cycle@7.service"
 t_eq "$(t_calls docker)" "info --format {{.CgroupDriver}} {{.CgroupVersion}}"
 t_contains "$(t_calls fake-index)" "--before-cycle"
+t_contains "$(t_calls systemd-run)" "--user --quiet --collect --unit tehas-index -p RuntimeMaxSec=2400 /bin/bash -c"
+t_eq "$(find "$T/home/tehas/state/dispatch.again" 2>/dev/null | wc -l)" 0
 t_eq "$(t_calls fake-status | wc -l)" 2
 for name in tehas tehasbot tehas-work tehas-status tehas-index tehas-plan; do t_eq "$(t_calls "$name")" ""; done
 
@@ -50,7 +53,7 @@ bare_tree
 t_run "$tree/libexec/dispatch"
 t_eq "$t_rc" 0
 t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --brief $record.brief"
-t_contains "$(t_calls systemd-run)" "--user --quiet --collect --unit tehas-plan-7 /bin/bash -c"
+t_contains "$(t_calls systemd-run)" "--user --quiet --collect --unit tehas-plan-7 -p RuntimeMaxSec=4500 /bin/bash -c"
 t_contains "$(t_calls gh)" "- [ ] Adopt all"
 for name in tehas tehasbot tehas-plan; do t_eq "$(t_calls "$name")" ""; done
 
