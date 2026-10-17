@@ -13,3 +13,7 @@
 /scripts/check-generic.names
 # The console's build: install.sh compiles it here.
 /console/target/
+# What a cargo build whose workspace root is this repository leaves behind.
+# The gate builds the console, so an unignored target/ at the root reads as
+# dirt to a gate that checks the tree is clean.
+/target/

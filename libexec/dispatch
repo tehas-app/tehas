@@ -4,11 +4,11 @@
 # Deterministic, no model. It picks the open issues labelled tehas:ready that
 # there is room for, marks each tehas:running and starts its cycle as
 # tehas-cycle@<issue>.service. It does not wait for a cycle: tehasbot cycle
-# runs it and reports the outcome. The poll also runs one turn of a planning
-# session, when an answer is waiting, and it does wait for that turn. A systemd
-# timer runs a poll every two minutes, whatever the cycles are doing, and a
-# cycle that ends starts one; a planning turn in progress makes the following
-# polls wait.
+# runs it and reports the outcome. The poll also starts one turn of a planning
+# session, when an answer is waiting, as tehas-plan-<issue>.service, and does
+# not wait for it either: a later poll posts its outcome. One planning turn
+# runs at a time. A systemd timer runs a poll every two minutes, whatever the
+# cycles are doing, and a cycle that ends starts one.
 #
 # Usage:
 #   tehas dispatch               one poll
@@ -132,8 +132,9 @@
 #   TEHAS_FIXER_MAX_PLAN_ANSWERS
 #                             the fixer's answers in one planning session [3]
 # From the environment, for tests: TEHAS_STATUS_CMD, TEHAS_INDEX_CMD,
-# TEHAS_PLAN_CMD, TEHAS_CYCLE_START_CMD and TEHAS_CYCLE_STOP_CMD (in place of
-# systemctl, called with the issue), TEHAS_CYCLE_START_WAIT (seconds to wait for a started cycle
+# TEHAS_PLAN_CMD, TEHAS_PLAN_START_CMD (in place of systemd-run, called with
+# the issue and the turn's command line), TEHAS_CYCLE_START_CMD and
+# TEHAS_CYCLE_STOP_CMD (in place of systemctl, called with the issue), TEHAS_CYCLE_START_WAIT (seconds to wait for a started cycle
 # [30]), TEHAS_CYCLE_DONE_WAIT (seconds the stop of a finished cycle may take
 # [330]), TEHAS_CGROUP_ROOT (in place of /sys/fs/cgroup) and TEHAS_FETCH_WAIT
 # (seconds the fetch of the checkout may take [120]).
@@ -731,18 +732,6 @@ refresh_checkout() {
     ! git -C "$checkout" merge -q --ff-only "origin/$branch"; then
     log "WARN: could not fast-forward $checkout"
   fi
-}
-
-# wait_for <pid>: wait for a background run and return its exit status. Keep
-# the dashboard's queue current while it runs.
-wait_for() {
-  local pid=$1 ticks=0
-  while kill -0 "$pid" 2>/dev/null; do
-    [ $((ticks % 12)) = 0 ] && "$status_cmd"
-    ticks=$((ticks + 1))
-    sleep 10
-  done
-  wait "$pid"
 }
 
 # What a poll will start, and on whose word: the issues in $picked and, for
@@ -1399,18 +1388,27 @@ fi
 # 4. Questions that wait for an answer. An answer is a box ticked in the
 # bot's question comment, or for a planning session a reply after it, and it
 # counts only from an allowed account.
-# A planning turn that was running when the last poll ended was cut off, for
-# example by a restart of the host: this poll holds the lock, so nothing runs.
-# It is reported first, as a failed turn.
+# A planning turn runs as its own unit, tehas-plan-<issue>.service, and the
+# poll does not wait for it. A running record is a turn still in flight, one
+# that ended and left its exit status, which is posted now, or one that was
+# cut off, for example by a restart of the host, which is reported as a failed
+# turn. While one turn is in flight no other starts.
 fresh=" "
+plan_busy=""
 for st in "$TEHAS_HOME"/state/plan-*.json; do
   [ -f "$st" ] || continue
   plan_record_number "$st" || continue
   n=$plan_n
   [ "$(jq -r '.running // false' "$st" 2>/dev/null)" = true ] || continue
-  if [ "$dry" = 1 ]; then
-    log "would report the cut-off planning turn of #$n"
-  else
+  if plan_in_flight "$n"; then
+    plan_busy=$n
+  elif [ "$dry" = 1 ]; then
+    if [ -f "$st.rc" ]; then
+      log "would post the planning turn of #$n that ended"
+    else
+      log "would report the cut-off planning turn of #$n"
+    fi
+  elif ! plan_collect "$n"; then
     reap "tehas-plan-$n" "the planning turn of #$n was cut off"
     plan_recover "$n" || true
   fi
@@ -1683,6 +1681,10 @@ A box was also ticked, by $(jq -r .tick.by <<<"$ans"): $choice"
       fi
       # An answer on an issue that is no longer work is discussion, not an
       # order: a closed issue runs no planning turn.
+      if [ -n "$plan_busy" ]; then
+        log "planning #$n waits: the turn of #$plan_busy is still running"
+        continue
+      fi
       work_ok "$n" || continue
       # Checked after the way out above, which runs no turn.
       slice_ok || continue
@@ -1710,6 +1712,10 @@ plans=$(jq -r '[.[] | (.labels | map(.name)) as $l
         | select((["tehas:planning", "tehas:question", "tehas:running"] - $l | length) == 3) | .number]
         | sort | .[]' <<<"$json") || { log "ERROR: unreadable list of issues to plan"; exit 1; }
 for n in $plans; do
+  if [ -n "$plan_busy" ]; then
+    log "planning #$n waits: the turn of #$plan_busy is still running"
+    break
+  fi
   slice_ok || break
   gh_json issue view "$n" --repo "$repo" --json title,body
   brief=$json

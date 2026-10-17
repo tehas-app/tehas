@@ -41,6 +41,13 @@
 #                                 state/cycles/<issue>.history.jsonl, keeping
 #                                 the last 50
 #   tehas_cycle_history <issue>   that file's lines that are JSON objects
+#   tehas_park_marker <issue> <step> <cap> <park reason> <failure kind>
+#                     <failure cause> <provider 0|1>
+#                                 the marker line of a park comment, for a
+#                                 fixer that reads GitHub: step and kind as the
+#                                 history line has them, cut to [a-z0-9-], and
+#                                 sig, the sha256 of the history line's
+#                                 step|cap|park_reason|failure_kind|failure_cause
 #
 # Sourcing this file does nothing.
 
@@ -150,4 +157,17 @@ tehas_cycle_history() { # <issue>
   local file=$TEHAS_HOME/state/cycles/$1.history.jsonl
   [ -f "$file" ] && [ ! -L "$file" ] || return 0
   jq -cR 'fromjson? | objects' "$file" 2>/dev/null || true
+}
+
+# The free text is in the sig only, so nothing of it reaches the marker.
+tehas_park_marker() { # <issue> <step> <cap> <park reason> <failure kind> <failure cause> <provider>
+  local step kind sig provider=0
+  [[ $1 =~ ^[1-9][0-9]*$ ]] || return 1
+  step=$2
+  [ "$step" != - ] || step=""
+  step=$(printf '%s' "$step" | tr -cd 'a-z0-9-' | head -c 40)
+  kind=$(printf '%s' "$5" | tr -cd 'a-z0-9-' | head -c 40)
+  [ "$7" != 1 ] || provider=1
+  sig=$(printf '%s|%s|%s|%s|%s' "$2" "$3" "$4" "$5" "$6" | sha256sum | cut -c1-64) || return 1
+  printf '<!-- tehas:park issue=%s step=%s kind=%s provider=%s sig=%s -->\n' "$1" "$step" "$kind" "$provider" "$sig"
 }

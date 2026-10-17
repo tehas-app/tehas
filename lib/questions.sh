@@ -7,7 +7,9 @@
 #                                    post, cut at the limit [60000]
 #   q_render <kind> <issue> <turn> <result.json>
 #                                    the body of a question comment; a
-#                                    "marker" of pi-rukas's handoff goes on top
+#                                    "marker" of pi-rukas's handoff goes on top,
+#                                    a "park" marker of tehas_park_marker above
+#                                    the question's own
 #   q_answer <bot> <allowed logins> [comment id] [fixer login]
 #                                    stdin: the issue's comments as GraphQL
 #                                    answers them; stdout: what was answered
@@ -84,7 +86,12 @@ q_render() {
       ;;
     *) return 1 ;;
   esac
-  printf '\n<!-- tehas:question kind=%s issue=%s turn=%s -->\n' "$kind" "$issue" "$turn"
+  printf '\n'
+  marker=$(jq -r '.park // "" | strings' "$file") || return 1
+  if [[ $marker =~ ^\<!--\ tehas:park\ issue=$issue\ step=[a-z0-9-]{0,40}\ kind=[a-z0-9-]{0,40}\ provider=[01]\ sig=[0-9a-f]{64}\ --\>$ ]]; then
+    printf '%s\n' "$marker"
+  fi
+  printf '<!-- tehas:question kind=%s issue=%s turn=%s -->\n' "$kind" "$issue" "$turn"
 }
 
 # The question the bot asked, the boxes ticked in it and the newest reply
