@@ -210,6 +210,17 @@ t_case "it says that it holds its lock, and lets go of it at the end"
 t_eq "$(find "$state/7.taken" | wc -l)" 1
 t_eq "$(flock -n "$state/7.lock" echo free)" "free"
 
+# Nothing writes state/cycles/<issue> any more: nothing read it, and the
+# workspace is a fresh clone every time, so no later cycle needed its record of
+# an earlier one. A run makes none and leaves the directory as the lock files
+# and the suffixed notes made it.
+t_case "a cycle writes no file named for its issue alone"
+reset
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(find "$state" -maxdepth 1 ! -name cycles -printf '%P\n' | LC_ALL=C sort | tr '\n' ' ')" \
+  "7.lock 7.park 7.progress.json 7.rukas 7.taken "
+
 t_case "the runner's output is in the issue's log"
 reset
 echo 'echo "from the runner"' >"$fx/work.sh"

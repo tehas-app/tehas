@@ -277,9 +277,6 @@ tidy() {
 }
 
 started=$(date +%s)
-# The workspace is new every time, so the record of an earlier cycle is kept
-# here, on the host.
-: >"$cycles/$issue"
 # An issue a handoff left with needs-human-attention starts again only on a
 # person's answer: the label or the tick that started this cycle, or the one
 # start after a provider outage the dispatcher makes for the account that
