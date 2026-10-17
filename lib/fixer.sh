@@ -28,6 +28,14 @@
 #                                 $tehas_fixer_rests_on (JSON) and
 #                                 $tehas_fixer_count (the starts with this
 #                                 one). On 1, $tehas_fixer_why says why not.
+#   tehas_fixer_answer <planning record>
+#                                 0 when the fixer may answer the open question
+#                                 of that session (lib/planning.sh): a person
+#                                 allowed now started it, the fixer gave fewer
+#                                 than TEHAS_FIXER_MAX_PLAN_ANSWERS of its
+#                                 answers and not the last one. On 1,
+#                                 $tehas_fixer_why says why not. What the
+#                                 answer is, the caller checks.
 #   tehas_cycle_history_add <issue> <JSON object>
 #                                 append one line to
 #                                 state/cycles/<issue>.history.jsonl, keeping
@@ -100,6 +108,41 @@ tehas_fixer_grant() { # <issue> <body sha256>
     return 1
   fi
   tehas_fixer_count=$((had + 1))
+}
+
+# shellcheck disable=SC2034  # the caller reads what this sets
+tehas_fixer_answer() { # <planning record>
+  local by got had last
+  tehas_fixer_why=""
+  if ! tehas_fixer_on; then
+    tehas_fixer_why="there is no fixer"
+    return 1
+  fi
+  if [ ! -f "$1" ] || [ -L "$1" ]; then
+    tehas_fixer_why="the session has no record on this host"
+    return 1
+  fi
+  by=$(jq -r '.by | if type == "string" then . else "" end' "$1" 2>/dev/null) || by=""
+  if [ -z "$by" ] || ! tehas_allowed_labeler "$by"; then
+    tehas_fixer_why="no person's tehas:plan started this session, as far as its record says"
+    return 1
+  fi
+  got=$(jq -r '.answers // [] | if type == "array" and all(.[]; type == "object" and (.fixer | type) == "boolean")
+      then "\(map(select(.fixer)) | length) \(last.fixer // false)" else error("no list") end' "$1" 2>/dev/null) || got=""
+  if ! [[ $got =~ ^([0-9]{1,6})\ (true|false)$ ]]; then
+    tehas_fixer_why="its record does not say who answered its turns"
+    return 1
+  fi
+  had=${BASH_REMATCH[1]}
+  last=${BASH_REMATCH[2]}
+  if [ "$last" = true ]; then
+    tehas_fixer_why="the fixer answered the question before this one; a person answers this one"
+    return 1
+  fi
+  if [ "$had" -ge "${TEHAS_FIXER_MAX_PLAN_ANSWERS:-3}" ]; then
+    tehas_fixer_why="the fixer has answered $had questions in this session, the limit"
+    return 1
+  fi
 }
 
 tehas_cycle_history_add() { # <issue> <JSON object>

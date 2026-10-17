@@ -69,7 +69,13 @@
 #      once, without a tick, when nothing holds cycles back, on the word of the
 #      account that started the parked one. A second such park waits.
 #   5. A reply or a ticked option on a planning question runs the next turn
-#      of that session. An issue whose tehas:plan label was applied by an
+#      of that session. The fixer's reply or tick counts only when no
+#      person answered, in a session an allowed account's tehas:plan
+#      started, fewer than TEHAS_FIXER_MAX_PLAN_ANSWERS times in the session,
+#      never for two turns in a row and never as the way out; its reply
+#      starts with <!-- tehas:fixer issue=<n> action=answer -->. Otherwise
+#      a tick is undone and a reply is said once on the issue. An issue
+#      whose tehas:plan label was applied by an
 #      allowed account starts a session. Neither waits for rule 2, the cap of
 #      rule 3 or the slice's room: a planning turn opens no pull request. A
 #      slice that cannot be used holds them too, before a label or a comment
@@ -130,6 +136,8 @@
 #   TEHAS_FIXER_LOGIN         the fixer's account, none when unset
 #   TEHAS_FIXER_MAX_RETRIES   the fixer's starts on one issue since a person's
 #                             approval [2]
+#   TEHAS_FIXER_MAX_PLAN_ANSWERS
+#                             the fixer's answers in one planning session [3]
 # From the environment, for tests: TEHAS_STATUS_CMD, TEHAS_INDEX_CMD,
 # TEHAS_PLAN_CMD, TEHAS_PLAN_START_CMD (in place of systemd-run, called with
 # the issue and the turn's command line), TEHAS_CYCLE_START_CMD and
@@ -711,6 +719,58 @@ fixer_ok() {
     log "WARN: label change on #$n failed: --remove-label tehas:ready"
   fi
   return 1
+}
+
+# fixer_answer_ok <issue> <record> <answer> tick|reply: the fixer answered a
+# planning question. 0 when the answer may run the turn (tehas_fixer_answer in
+# lib/fixer.sh, a marked reply, never the way out). Otherwise it is an
+# outsider's: a tick is undone with a note, as a stranger's is, and a reply is
+# logged and said on the issue once, its id kept in the record's fixer_refused.
+fixer_answer_ok() {
+  local n=$1 st=$2 ans=$3 said=$4 why="" id
+  # The way out is a person's, whether the fixer's tick or its reply is used.
+  if [ "$(jq -r .tick.status <<<"$ans")" = fixer ] && [ "$(jq -r .tick.index <<<"$ans")" = "$(($(jq -r .boxes <<<"$ans") - 1))" ]; then
+    why="it ticked End this planning session, which only a person may"
+  elif [ "$said" = reply ] && [ "$(jq -r .fixer_reply.marked <<<"$ans")" != true ]; then
+    why="its reply does not start with <!-- tehas:fixer issue=$n action=answer -->"
+  elif ! tehas_fixer_answer "$st"; then
+    why=$tehas_fixer_why
+  else
+    return 0
+  fi
+  if [ "$said" = tick ]; then
+    log "skip #$n: the fixer's answer runs no turn: $why"
+    [ "$dry" = 1 ] || untick "$n" "$ans" "The fixer's tick was not taken as an answer: $why. It was unticked. A person answers this question." ||
+      log "WARN: could not untick the question on #$n"
+    return 1
+  fi
+  id=$(jq -r '.fixer_reply.id | tostring' <<<"$ans")
+  jq -e --argjson id "$id" '(.fixer_refused // []) | type == "array" and index($id) == null' "$st" >/dev/null 2>&1 || return 1
+  log "skip #$n: the fixer's answer runs no turn: $why"
+  [ "$dry" = 0 ] || return 1
+  if jq -c --argjson id "$id" '.fixer_refused = (.fixer_refused // []) + [$id]' "$st" >"$st.new" && mv "$st.new" "$st"; then
+    say "$n" "Tehas did not take the fixer's reply as an answer: $why. A person answers this question."
+  else
+    log "WARN: the record of #$n could not be updated"
+  fi
+  return 1
+}
+
+# fixer_held <issue> <record> <answer>: the fixer saved the ticked question
+# after someone else edited it, so the tick may be a person's. It is neither
+# used nor undone: a person ticks again or replies. Said once a question, its
+# id kept in the record's held.
+fixer_held() {
+  local n=$1 st=$2 ans=$3 id
+  id=$(jq -r .comment <<<"$ans")
+  jq -e --argjson id "$id" '(.held // []) | type == "array" and index($id) == null' "$st" >/dev/null 2>&1 || return 0
+  log "skip #$n: the fixer saved the question after another account did, so who ticked it is not known"
+  [ "$dry" = 0 ] || return 0
+  if jq -c --argjson id "$id" '.held = (.held // []) + [$id]' "$st" >"$st.new" && mv "$st.new" "$st"; then
+    say "$n" "Tehas did not take the box ticked in this question as an answer: the fixer saved the comment after another account did, and GitHub does not say who ticked it. A person ticks the box again or replies."
+  else
+    log "WARN: the record of #$n could not be updated"
+  fi
 }
 
 # unchanged_since <issue> <time> <what happened then> [how to approve again]
@@ -1555,10 +1615,11 @@ for n in $asking; do
   gh_json api graphql -F owner="${repo%%/*}" -F name="${repo##*/}" -F number="$n" \
     -f query='query($owner: String!, $name: String!, $number: Int!) {
       repository(owner: $owner, name: $name) { issue(number: $number) {
-        comments(last: 100) { nodes { databaseId author { login } body createdAt lastEditedAt editor { login } } } } } }'
+        comments(last: 100) { nodes { databaseId author { login } body createdAt lastEditedAt editor { login }
+          userContentEdits(last: 100) { totalCount nodes { editor { login } } } } } } } }'
   # With nothing on record the newest question of the bot is still read, only
   # to be able to tell a person that their answer starts nothing.
-  ans=$(q_answer "$bot" "$TEHAS_ALLOWED_LABELERS" "$qid" <<<"$json") || { log "ERROR: unreadable comments of #$n"; exit 1; }
+  ans=$(q_answer "$bot" "$TEHAS_ALLOWED_LABELERS" "$qid" "$TEHAS_FIXER_LOGIN" <<<"$json") || { log "ERROR: unreadable comments of #$n"; exit 1; }
   if [ "$(jq -r .asked <<<"$ans")" != true ]; then
     [ -z "$qid" ] || log "skip #$n: its question is not among the last 100 comments"
     continue
@@ -1573,6 +1634,8 @@ for n in $asking; do
     continue
   fi
 
+  # The fixer answers planning questions only.
+  [ "$tick" != fixer ] || [ "$kind" = plan ] || tick=stranger
   # A tick that is no answer is undone, so the boxes show what was accepted.
   if [ "$tick" = stranger ] || [ "$tick" = many ]; then
     log "skip #$n: boxes ticked by '${by:-unknown}' are no answer ($tick)"
@@ -1678,13 +1741,24 @@ for n in $asking; do
     plan)
       # A reply says more than a box, so it wins when both are there, and the
       # answer says what was ticked.
+      # A person's answer wins over the fixer's, whichever came first.
       reply=$(jq -r '.reply.text // ""' <<<"$ans")
       reply_id=""
+      fixer_said=""
       if [ -n "$reply" ]; then
         by=$(jq -r .reply.by <<<"$ans")
         reply_id=$(jq -r '.reply.id // "" | tostring' <<<"$ans")
         case "$reply_id" in *[!0-9]*) reply_id="" ;; esac
-      elif [ "$tick" != one ]; then
+      elif [ "$tick" = one ]; then
+        :
+      elif [ "$tick" = held ]; then
+        fixer_held "$n" "$st" "$ans"
+        continue
+      elif [ "$(jq -r '.fixer_reply != null' <<<"$ans")" = true ]; then
+        fixer_said=reply
+      elif [ "$tick" = fixer ]; then
+        fixer_said=tick
+      else
         continue
       fi
       if [ ! -f "$st" ]; then
@@ -1699,8 +1773,19 @@ for n in $asking; do
         log "skip #$n: the question answered is not the one this session is waiting on"
         continue
       fi
+      speaker="The operator"
+      if [ -n "$fixer_said" ]; then
+        fixer_answer_ok "$n" "$st" "$ans" "$fixer_said" || continue
+        speaker="The fixer"
+        by=$TEHAS_FIXER_LOGIN
+        if [ "$fixer_said" = reply ]; then
+          reply=$(jq -r '.fixer_reply.text' <<<"$ans")
+          reply_id=$(jq -r '.fixer_reply.id // "" | tostring' <<<"$ans")
+          case "$reply_id" in *[!0-9]*) reply_id="" ;; esac
+        fi
+      fi
       if [ -n "$reply" ]; then
-        text="The operator replied on the issue:
+        text="$speaker replied on the issue:
 
 $reply"
         # The tick is not used, but it is not dropped without a word either.
@@ -1720,6 +1805,10 @@ A box was also ticked, by $(jq -r .tick.by <<<"$ans"): $choice"
         idx=$(jq -r .tick.index <<<"$ans")
         # The last box is always the way out.
         if [ "$idx" = "$(($(jq -r .boxes <<<"$ans") - 1))" ]; then
+          if [ -n "$fixer_said" ]; then
+            log "skip #$n: the fixer's answer runs no turn: it would end the session, which only a person may"
+            continue
+          fi
           [ "$dry" = 1 ] || plan_end "$n" "Planning session ended by $by."
           continue
         fi
@@ -1728,7 +1817,7 @@ A box was also ticked, by $(jq -r .tick.by <<<"$ans"): $choice"
           log "skip #$n: the ticked box matches no option on record"
           continue
         fi
-        text="The operator chose: $choice"
+        text="$speaker chose: $choice"
       fi
       # An answer on an issue that is no longer work is discussion, not an
       # order: a closed issue runs no planning turn.
@@ -1740,13 +1829,15 @@ A box was also ticked, by $(jq -r .tick.by <<<"$ans"): $choice"
       # Checked after the way out above, which runs no turn.
       slice_ok || continue
       mesh_ok || exit 0
+      from=$by
+      [ -z "$fixer_said" ] || from="$by, the fixer"
       if [ "$dry" = 1 ]; then
-        log "would run a planning turn for #$n (answer from $by)"
+        log "would run a planning turn for #$n (answer from $from)"
         exit 0
       fi
       printf '%s\n' "$text" >"$st.answer"
-      log "planning #$n continues (answer from $by)"
-      plan_turn "$n" next "$st.answer" "$reply_id"
+      log "planning #$n continues (answer from $from)"
+      plan_turn "$n" next "$st.answer" "$reply_id" "$by"
       "$status_cmd"
       exit 0
       ;;
