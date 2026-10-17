@@ -454,7 +454,8 @@ The conversation of a session is kept by Pi on the host, in
 the session cannot go on: the bot ends it, says so, and your answer is not
 sent. Apply `tehas:plan` again to start a new session.
 
-Only answers from allowed labellers count. A box ticked by anyone else, or
+Only answers from allowed labellers count, and the fixer's within its grant
+(see [The fixer's grant](#the-fixers-grant)). A box ticked by anyone else, or
 more than one box, is unticked and the bot says so. A reply counts only if its
 author is an allowed account and, when it was edited, its last editor is too.
 Replies from others are ignored. Only the question the session is waiting on
@@ -733,7 +734,7 @@ stop leaving records and a run does nothing. Or stop the timer with
 
 Optional. The fixer is an account that decides on parked issues from outside
 the factory: start one again, start it again working differently, or leave it
-to a person. What runs as that account is not part of tehas. The factory says
+to a person. It may also answer some planning questions. What runs as that account is not part of tehas. The factory says
 what the account may do, and this section is that.
 
 - **It is an account of its own**, named by `TEHAS_FIXER_LOGIN`. It is never
@@ -760,6 +761,21 @@ what the account may do, and this section is that.
   gives a cycle images or files, `tehas work` writes it to
   `retry-context.md` beside them, quoted, under a head that says a model
   wrote it. No mount and no variable more: elsewhere it reaches no cycle.
+- **It may answer a planning question**, by a tick or a reply, only when
+  no person has answered the same question: a person's tick or reply wins,
+  whichever came first. And only in a session an allowed account's
+  `tehas:plan` started, fewer than `TEHAS_FIXER_MAX_PLAN_ANSWERS` times in
+  the session (3 unless the instance says otherwise), and never for two
+  turns in a row, so a person sees every second question at most. It may
+  not tick `End this planning session`. Its reply starts with the line
+  `<!-- tehas:fixer issue=<n> action=answer -->`, and the agent is told
+  the answer is the fixer's. Any other answer of the fixer's is an
+  outsider's: a tick is unticked and the bot says why, a reply is ignored
+  and the bot says why once. To overrule it, reply or tick before the next
+  poll, or reply to the next question. The planning record,
+  `~/tehas/state/plan-<issue>.json`, keeps who started the session (`by`)
+  and who answered each turn (`answers`). A session started before tehas
+  kept these takes no answer from the fixer.
 - **`tehas:fixer-escalated`** is the fixer's word that a person decides.
   The factory does nothing on it; a start takes it off.
 - **Each cycle's end leaves a line** in
