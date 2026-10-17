@@ -244,6 +244,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/describe.sh"
 # shellcheck source=lib/labels.sh
 . "$here/../lib/labels.sh"
+# shellcheck source=lib/fixer.sh
+. "$here/../lib/fixer.sh"
 # shellcheck source=lib/cycles.sh
 . "$here/../lib/cycles.sh"
 # shellcheck source=lib/improve.sh
@@ -415,7 +417,11 @@ if [ "$give" = 1 ]; then
   if [ -f "$record" ] && [ ! -L "$record" ]; then
     # The dispatcher's record of the start: who approved and which links.
     from=$record
-    tehas_allowed_labeler "$(jq -r '.by // ""' "$record" 2>/dev/null)" && approved=approved
+    # A start of the fixer's counts on the person's approval it rests on.
+    if tehas_allowed_labeler "$(jq -r '.by // ""' "$record" 2>/dev/null)" ||
+      { tehas_fixer_is "$(jq -r '.by // ""' "$record" 2>/dev/null)" && tehas_fixer_base "$record" >/dev/null; }; then
+      approved=approved
+    fi
   else
     # By hand. The label approved the text, links and all.
     from=""
