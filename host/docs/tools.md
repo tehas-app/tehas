@@ -47,7 +47,7 @@ in the platform repository has every one with a comment.
 | ------------------------------- | ---------------------------------------- | --------------------------------------------------------------- |
 | `TEHAS_REPO`                    | required                                 | `owner/name` of the repository whose issues are the queue       |
 | `TEHAS_CONTROL_ISSUE`           | required                                 | Issue that carries `tehas:pause`                                |
-| `TEHAS_ALLOWED_LABELERS`        | required                                 | Logins whose labels count, space separated: `tehas:ready`, `tehas:plan` and `tehas:urgent` for the dispatcher, `tehas:prototype` for the Protolab |
+| `TEHAS_ALLOWED_LABELERS`        | required                                 | Logins whose labels count, space separated: `tehas:ready`, `tehas:plan`, `tehas:urgent`, `tehas:next` and `tehas:blocked` for the dispatcher, `tehas:prototype` for the Protolab |
 | `PI_ENSEMBLE_SUBAGENT_MODEL`    | required                                 | Model for every subagent role without one of its own            |
 | `PI_ENSEMBLE_SUBAGENT_PROVIDER` | required                                 | Its provider, as named in `models.json`                         |
 | `PI_ENSEMBLE_MODEL_<ROLE>`      | `PI_ENSEMBLE_SUBAGENT_MODEL`             | Model for one role: `EXPLORE`, `DEVELOPER`, `ADVERSARIAL_DEVELOPER`, `CODE_REVIEW_SPECIALIST` (the six lens reviewers) or `OPS`. Another name is refused. See [A model per role](/host#a-model-per-role) |
@@ -177,15 +177,19 @@ there. For a factory that is not paused it goes on: a usable `tehas.slice`,
 a model endpoint that answers and offers the model, the free slots
 (`TEHAS_TICKET_CONCURRENCY` less the running cycles, after that housekeeping),
 the cap on issues awaiting merge or being worked on, the room, the containers'
-ceilings and the memory pressure in the slice, who applied `tehas:urgent`,
-then who applied `tehas:ready`, then
-urgent first and lowest number. A `tehas:urgent` counts only when an allowed
-account applied it most recently: one applied by the bot or anyone else is
-ignored and logged, and the issue keeps its place by number. The urgent check
-runs for every ready issue that carries the label and this poll could still
-start, before the free slots cut the queue; who applied `tehas:ready` is read
-at the decision, when the issue is picked. A poll never asks GitHub the same
-question twice.
+ceilings and the memory pressure in the slice, who applied `tehas:urgent`
+and `tehas:next`, then who applied `tehas:ready`, then whether `tehas:blocked`
+holds it, then urgent first, next second and lowest number. A `tehas:urgent`
+counts only when an allowed account applied it most recently: one applied by
+the bot or anyone else is ignored and logged, and the issue keeps its place by
+number. A `tehas:next` counts when its latest event applies it and is by an
+allowed account or the fixer. The urgent and next checks run for every ready
+issue that carries the label and this poll could still start, before the free
+slots cut the queue; who applied `tehas:ready` is read at the decision, when
+the issue is picked. A `tehas:blocked` is checked then too, and costs two
+GraphQL calls: the issue's last 100 comments, and the states of the issues
+they name (see [What happens next](/operating#3-what-happens-next)). A poll never asks
+GitHub the same question twice.
 What holds cycles back is one `holding:` line: at every dry run, and in the
 log once when its reason changes, with `released: cycles may start again`
 when it ends. A real poll also writes it to `~/tehas/live/dispatch.json` with
@@ -914,10 +918,10 @@ with `tehas work` refreshes nothing.
 tehas labels        # one line per label
 ```
 
-Creates the eleven labels tehas uses in the product repository: `tehas:ready`,
+Creates the thirteen labels tehas uses in the product repository: `tehas:ready`,
 `tehas:urgent`, `tehas:running`, `tehas:awaiting-merge`, `tehas:shipped`, `tehas:pause`,
-`needs-human-attention`, `tehas:question`, `tehas:plan`, `tehas:planning` and
-`tehas:fixer-escalated`.
+`needs-human-attention`, `tehas:question`, `tehas:plan`, `tehas:planning`,
+`tehas:fixer-escalated`, `tehas:next` and `tehas:blocked`.
 Run it once for a new product, and again after pulling a version that adds a
 label. Run again, it puts their colours and descriptions back. It needs `TEHAS_REPO` and no other
 setting. Exit 0 when every label is there, 1 when one could not be made, 64 on

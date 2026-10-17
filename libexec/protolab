@@ -21,7 +21,9 @@
 #                   text and its comments, written by an owner, member or
 #                   collaborator of the repository. Nothing else is fetched.
 #   which types     png jpg gif webp svg avif, mp4 webm mov, html htm, and
-#                   css js mjs json txt. An archive is not unpacked.
+#                   css js mjs json txt. A zip is unpacked into a folder of
+#                   its own by lib/unzip.sh, which takes the same types and md;
+#                   its files count against the same limits.
 #   how much        10 megabytes a ticket, counted in the order the files were
 #                   attached, and at most 40 files. What does not fit is left
 #                   out and the page says so.
@@ -63,6 +65,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/attachments.sh"
 # shellcheck source=lib/labels.sh
 . "$here/../lib/labels.sh"
+# shellcheck source=lib/unzip.sh
+. "$here/../lib/unzip.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO TEHAS_ALLOWED_LABELERS
 repo=$TEHAS_REPO
@@ -77,7 +81,7 @@ site=$TEHAS_HOME/protolab
 live=$TEHAS_HOME/live
 work=$site/.work
 # A changed generator rebuilds every page.
-gen="$(cat "${BASH_SOURCE[0]}" "$here/../lib/attachments.sh" "$here/../lib/labels.sh" | cksum | tr ' ' '-')-${domain:-path}"
+gen="$(cat "${BASH_SOURCE[0]}" "$here/../lib/attachments.sh" "$here/../lib/labels.sh" "$here/../lib/unzip.sh" | cksum | tr ' ' '-')-${domain:-path}"
 
 mkdir -p "$site" "$live" || exit 1
 edge_lock protolab || { echo "another tehasbot protolab is running"; exit 0; }
@@ -103,7 +107,7 @@ find_refs=$(tehas_attachment_links)'
 # --- The pages ---------------------------------------------------------------
 # One program for both: $mode "ticket" reads one ticket, "index" a list of them.
 # Every value from GitHub goes through @html; file names are already reduced to
-# letters, digits, dot, dash and underscore.
+# letters, digits, dot, dash and underscore, and a slash for a file from a zip.
 # shellcheck disable=SC2016  # a jq program: the variables are jq's
 render='
   def h: tostring | @html;
@@ -164,8 +168,10 @@ render='
     + "<span class=\"asset-fact\">\($kind), \(.bytes | size | ascii_upcase)</span>"
     + "<a href=\"\($src)\" target=\"_blank\" rel=\"noopener noreferrer\" aria-label=\"Open \(.name | h) by itself\">\($open)</a></figcaption>";
 
+  def src: "files/" + (.name | split("/") | map(@uri) | join("/"));
+
   def asset:
-    ("files/" + (.name | @uri)) as $src
+    src as $src
     | if .kind == "image" then
         "        <figure class=\"asset\"><a class=\"asset-view\" href=\"\($src)\"><img src=\"\($src)\" alt=\"Image \(.name | h), attached to the ticket\" loading=\"lazy\"></a>"
         + caption("IMAGE"; $src; "OPEN") + "</figure>\n"
@@ -178,7 +184,7 @@ render='
       end;
 
   def part:
-    ("files/" + (.name | @uri)) as $src
+    src as $src
     | "          <li><span>\(.name | h)</span><span class=\"asset-fact\">\(.bytes | size | ascii_upcase)</span>"
       + "<a href=\"\($src)\" target=\"_blank\" rel=\"noopener noreferrer\">OPEN</a></li>\n";
 
@@ -253,6 +259,34 @@ build() {
   : >"$dir/.files"
   : >"$dir/.skipped"
   skip() { jq -n -c --arg name "$1" --arg reason "$2" '{name: $name, reason: $reason}' >>"$dir/.skipped"; }
+  # unpack <folder name>: the zip in .part, into files/<folder name>. Its files
+  # and what it leaves out are listed under that folder.
+  unpack() {
+    local base=$1 lines rc i=2
+    [ -n "$base" ] || base=zip
+    while [ -e "$dir/files/$base" ]; do
+      base=$i-${base#[0-9]-}
+      i=$((i + 1))
+    done
+    lines=$(tehas_unzip_into "$dir/.part" "$dir/files/$base" "$left" "$((max_files - count))")
+    rc=$?
+    rm -f "$dir/.part"
+    if [ "$rc" != 0 ]; then
+      rm -rf "${dir:?}/files/$base"
+      skip "$name" "Not a zip the lab can read."
+      return 0
+    fi
+    rmdir "$dir/files/$base" 2>/dev/null
+    # shellcheck disable=SC2016  # a jq program
+    jq -c --arg b "$base" 'select(.name) | {name: "\($b)/\(.name)", kind, bytes}' <<<"$lines" >>"$dir/.files" || return 1
+    # shellcheck disable=SC2016  # a jq program
+    jq -c --arg b "$base" --arg max "$max_files" 'select(.skip)
+      | {name: "\($b)/\(.skip)",
+         reason: (if .reason | startswith("More than ") and endswith(" files.") then "More than \($max) files." else .reason end)}' \
+      <<<"$lines" >>"$dir/.skipped" || return 1
+    used=$((used + $(jq -n '[inputs | .bytes // 0] | add // 0' <<<"$lines")))
+    count=$((count + $(jq -n '[inputs | select(.name)] | length' <<<"$lines")))
+  }
 
   if [ "$(jq -r '.comments // 0' <<<"$ticket")" != 0 ]; then
     comments=$(gh api "repos/$repo/issues/$n/comments?per_page=100" 2>/dev/null) || return 1
@@ -273,7 +307,11 @@ build() {
       ext=""
       case "$name" in *.*) ext=${name##*.} ;; esac
       ext=${ext,,}
-      kind=$(tehas_attachment_kind "$ext") || { skip "$name" "Not a type the lab hosts."; continue; }
+      if [ "$ext" = zip ]; then
+        kind=zip
+      else
+        kind=$(tehas_attachment_kind "$ext") || { skip "$name" "Not a type the lab hosts."; continue; }
+      fi
     fi
     if [ "$count" -ge "$max_files" ]; then skip "$name" "More than $max_files files."; continue; fi
     left=$((limit - used))
@@ -296,6 +334,10 @@ build() {
       kind=$(tehas_attachment_kind "$ext")
       unnamed=$((unnamed + 1))
       name=$kind-$unnamed.$ext
+    fi
+    if [ "$kind" = zip ]; then
+      unpack "${name%.*}" || return 1
+      continue
     fi
     # Two attachments may carry one name.
     i=2
