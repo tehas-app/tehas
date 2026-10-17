@@ -133,6 +133,7 @@
 #   TEHAS_WORK_REPO           checkout cycles are cloned from [$TEHAS_HOME/repos/<name>]
 #   TEHAS_BRANCH              branch work lands on [the checkout's origin/HEAD]
 #   TEHAS_PLAN_MAX_TURNS      turns a planning session may take [20]
+#   TEHAS_PLAN_TIMEOUT        seconds before a turn is given up [7200]
 #   TEHAS_WORK_COMMENTS       1 adds the links of comments to the approval
 #                             record [0]
 #   TEHAS_FIXER_LOGIN         the fixer's account, none when unset
