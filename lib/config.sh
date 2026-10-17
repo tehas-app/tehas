@@ -39,6 +39,10 @@
 #   - Loading runs no git command, makes no network call and writes nothing.
 #   - TEHAS_IMPROVE_REPO switches the improvement loop on. Unset is valid and
 #     means there is none. TEHAS_IMPROVE_RUKAS_REPO needs it.
+#   - TEHAS_FIXER_LOGIN names the fixer: an account whose tehas:ready the
+#     dispatcher takes within a narrower grant than a person's
+#     (lib/fixer.sh). Unset is valid and means there is none. It is never
+#     one of TEHAS_ALLOWED_LABELERS.
 #   - Nothing falls back to a project: a setting with no generic default stays
 #     unset until tehas_require asks for it.
 
@@ -84,7 +88,7 @@ _tehas_valid() {
     TEHAS_REPO | TEHAS_IMPROVE_REPO | TEHAS_IMPROVE_RUKAS_REPO)
       [[ $v =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "expected owner/name"; return 1; }
       ;;
-    TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_IMPROVE_MAX_OPEN | TEHAS_WORK_TIMEOUT | TEHAS_WORK_STALL | TEHAS_CONCURRENCY | TEHAS_TICKET_CONCURRENCY | \
+    TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_IMPROVE_MAX_OPEN | TEHAS_FIXER_MAX_RETRIES | TEHAS_WORK_TIMEOUT | TEHAS_WORK_STALL | TEHAS_CONCURRENCY | TEHAS_TICKET_CONCURRENCY | \
       TEHAS_PLAN_MAX_TURNS | TEHAS_PLAN_TIMEOUT | TEHAS_VERIFY_TIMEOUT)
       _tehas_is_count "$v" || { echo "expected a positive whole number"; return 1; }
       ;;
@@ -94,6 +98,9 @@ _tehas_valid() {
       # empty name match.
       [[ $v =~ ^[A-Za-z0-9][A-Za-z0-9-]*(\ [A-Za-z0-9][A-Za-z0-9-]*)*$ ]] ||
         { echo "expected GitHub logins separated by single spaces"; return 1; }
+      ;;
+    TEHAS_FIXER_LOGIN)
+      [[ $v =~ ^[A-Za-z0-9][A-Za-z0-9-]*$ ]] || { echo "expected one GitHub login"; return 1; }
       ;;
     TEHAS_INDEXING | TEHAS_ANALYTICS_COOKIE | TEHAS_WORK_IMAGES | TEHAS_WORK_DESCRIBE | TEHAS_WORK_FILES | TEHAS_WORK_COMMENTS | TEHAS_TOP)
       case "$v" in 0 | 1) ;; *) echo "expected 0 or 1"; return 1 ;; esac
@@ -310,6 +317,12 @@ tehas_load() {
   # files no more there. What it files is a model's reading of text anyone
   # may have written, so nobody reading must not mean an endless stack.
   export TEHAS_IMPROVE_MAX_OPEN=${TEHAS_IMPROVE_MAX_OPEN:-10}
+  # The account whose tehas:ready the dispatcher takes on the fixer's grant.
+  # Unset, there is no fixer.
+  export TEHAS_FIXER_LOGIN=${TEHAS_FIXER_LOGIN:-}
+  # How many cycles the fixer may start on one issue since a person last
+  # approved it.
+  export TEHAS_FIXER_MAX_RETRIES=${TEHAS_FIXER_MAX_RETRIES:-2}
   # Settings that only work around a pi-rukas defect, each with the release
   # that fixes it. tehas work refuses a cycle once the image has that release,
   # so a workaround does not outlive its reason.
@@ -367,14 +380,14 @@ tehas_load() {
   export PI_ENSEMBLE_NO_DOCKER_SOCKET=1 PI_ENSEMBLE_NO_SSH=1
 
   for v in TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_WORK_DESCRIBE TEHAS_WORK_FILES TEHAS_WORK_COMMENTS TEHAS_ANALYTICS_COOKIE TEHAS_TOP TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
-    TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_RESERVE; do
+    TEHAS_FIXER_MAX_RETRIES TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_RESERVE; do
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
   for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL; do
     [ -n "${!v:-}" ] || continue
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
-  for v in TEHAS_ANALYTICS_SRC TEHAS_ANALYTICS_SITE TEHAS_IMPROVE_REPO TEHAS_IMPROVE_RUKAS_REPO TEHAS_IMPROVE_MAX_OPEN TEHAS_RUKAS_WORKAROUNDS; do
+  for v in TEHAS_ANALYTICS_SRC TEHAS_ANALYTICS_SITE TEHAS_IMPROVE_REPO TEHAS_IMPROVE_RUKAS_REPO TEHAS_IMPROVE_MAX_OPEN TEHAS_FIXER_LOGIN TEHAS_RUKAS_WORKAROUNDS; do
     [ -n "${!v}" ] || continue
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
@@ -394,6 +407,14 @@ tehas_load() {
     tehas_err "TEHAS_IMPROVE_REPO is not set and TEHAS_IMPROVE_RUKAS_REPO is (see $file)"
     return 78
   fi
+  case " ${TEHAS_ALLOWED_LABELERS:-} " in
+    *" ${TEHAS_FIXER_LOGIN:-} "*)
+      [ -z "$TEHAS_FIXER_LOGIN" ] || {
+        tehas_err "TEHAS_FIXER_LOGIN ($TEHAS_FIXER_LOGIN) is in TEHAS_ALLOWED_LABELERS: the fixer works within its own grant, never as a person (see $file)"
+        return 78
+      }
+      ;;
+  esac
   if [ "$TEHAS_WORK_DESCRIBE" = 1 ] && [ "$TEHAS_WORK_IMAGES" != 1 ]; then
     tehas_err "TEHAS_WORK_DESCRIBE is 1 and TEHAS_WORK_IMAGES is not: there are no images to describe (see $file)"
     return 78

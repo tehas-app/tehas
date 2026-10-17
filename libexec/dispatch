@@ -92,7 +92,13 @@
 #      A tehas:ready from an account outside the list authorises nothing, so
 #      the poll takes it off and says so once on the issue: left in place it
 #      reads as a request for a cycle to everyone who reads the issue. A
-#      tehas:plan from such an account is taken off the same way.
+#      tehas:plan from such an account is taken off the same way. The one
+#      exception is the fixer, TEHAS_FIXER_LOGIN, which is never the bot: its
+#      tehas:ready starts a cycle on an issue an allowed account approved
+#      before, whose body is still the body that account approved, at most
+#      TEHAS_FIXER_MAX_RETRIES times since (lib/fixer.sh). Otherwise the poll
+#      takes its label off and says why. A start takes tehas:fixer-escalated
+#      off, whoever made it.
 #   7. tehas:urgent first, then the lowest issue number. The urgent label
 #      counts only when its most recent labelling is by an allowed account, as
 #      tehas:ready does: one applied by the bot or anyone else is ignored and
@@ -114,6 +120,9 @@
 #   TEHAS_PLAN_MAX_TURNS      turns a planning session may take [20]
 #   TEHAS_WORK_COMMENTS       1 adds the links of comments to the approval
 #                             record [0]
+#   TEHAS_FIXER_LOGIN         the fixer's account, none when unset
+#   TEHAS_FIXER_MAX_RETRIES   the fixer's starts on one issue since a person's
+#                             approval [2]
 # From the environment, for tests: TEHAS_STATUS_CMD, TEHAS_INDEX_CMD,
 # TEHAS_PLAN_CMD, TEHAS_CYCLE_START_CMD and TEHAS_CYCLE_STOP_CMD (in place of
 # systemctl, called with the issue), TEHAS_CYCLE_START_WAIT (seconds to wait for a started cycle
@@ -132,7 +141,11 @@
 # accounts wrote on the parked cycle's pull request between the park and the
 # tick, source "pr-comment:<id>", and their text as retry_context, [{source,
 # by, at, text}]. tehas work fetches those links and no others, and only while
-# the body still has that hash. A record that cannot be written, or comments
+# the body still has that hash. A start of the fixer's has how "fixer", the
+# person's approval it rests on as rests_on {at, by, how, body_sha256}, the
+# fixer's starts since that approval as fixer_starts, and, whatever
+# TEHAS_WORK_COMMENTS says, the fixer's marked comment on the issue written in
+# the ten minutes before its label as retry_context, source "fixer:<id>". A record that cannot be written, or comments
 # that cannot be read, start nothing, exit 1.
 #
 # A real poll that gets as far as rule 3 writes $TEHAS_HOME/live/dispatch.json:
@@ -189,6 +202,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/slice.sh"
 # shellcheck source=lib/labels.sh
 . "$here/../lib/labels.sh"
+# shellcheck source=lib/fixer.sh
+. "$here/../lib/fixer.sh"
 # shellcheck source=lib/status.sh
 . "$here/../lib/status.sh"
 # shellcheck source=lib/attachments.sh
@@ -511,7 +526,10 @@ approval() {
   refused=""
   label_actor "$n" "$name"
   if ! tehas_allowed_labeler "$who"; then
-    deny_label skip "$n" "$name"
+    # The fixer's label is the caller's to weigh, and fixer_ok logs it.
+    if [ "$name" != tehas:ready ] || ! tehas_fixer_is "$who"; then
+      deny_label skip "$n" "$name"
+    fi
     refused=${who:-unknown}
     return 1
   fi
@@ -566,6 +584,36 @@ clear_pr_open() {
   else
     log "WARN: label change on #$n failed: --remove-label tehas:ready"
   fi
+}
+
+# fixer_ok <issue>: the fixer applied tehas:ready, at $at. 0 when its grant
+# covers the start (lib/fixer.sh): the person's approval it rests on is left in
+# $tehas_fixer_rests_on and the count of fixer starts in $tehas_fixer_count.
+# Otherwise the label comes off and the issue says why, on the same terms as
+# clear_unauthorised; a text changed since the label waits, as for anyone.
+fixer_ok() {
+  local n=$1 sum
+  unchanged_since "$n" "$at" "the fixer applied tehas:ready" "the fixer or a person applies it again" || return 1
+  sum=$(jq '.data.repository.issue // {}' <<<"${text_of[$n]}" | tehas_body_sha256) ||
+    { log "ERROR: the text of #$n could not be read for its hash"; exit 1; }
+  if tehas_fixer_grant "$n" "$sum"; then
+    # The body hash does not cover the title: a rename since the person's
+    # approval was not approved either.
+    unchanged_since "$n" "$(jq -r .at <<<"$tehas_fixer_rests_on")" "$(jq -r .by <<<"$tehas_fixer_rests_on") approved it" \
+      "a person applies tehas:ready" && return 0
+    tehas_fixer_why="its title or text was changed since $(jq -r .by <<<"$tehas_fixer_rests_on") approved it"
+  fi
+  log "skip #$n: tehas:ready from the fixer starts nothing: $tehas_fixer_why"
+  if [ "$dry" = 1 ]; then
+    log "would take tehas:ready off #$n"
+    return 1
+  fi
+  if gh issue edit "$n" --repo "$repo" --remove-label tehas:ready >/dev/null 2>&1; then
+    say "$n" "Tehas took \`tehas:ready\` off this issue and started nothing. The fixer applied it, and the fixer may not start this issue: $tehas_fixer_why. A person decides now: an account named in \`TEHAS_ALLOWED_LABELERS\` applies \`tehas:ready\` to start a cycle."
+  else
+    log "WARN: label change on #$n failed: --remove-label tehas:ready"
+  fi
+  return 1
 }
 
 # unchanged_since <issue> <time> <what happened then> [how to approve again]
@@ -642,7 +690,7 @@ wait_for() {
 # the gh issue edit options that take it out of the queue it came from. For
 # the approval record: when it was given and how, in one word.
 picked=()
-declare -A starter=() verb=() how=() drop=() given_at=() given_how=() given_since=()
+declare -A starter=() verb=() how=() drop=() given_at=() given_how=() given_since=() rests_on=() fixer_starts=()
 
 # approved_record <issue>: write state/cycles/<issue>.approved.json. Returns 1
 # when it could not be written.
@@ -657,12 +705,17 @@ approved_record() {
         { log "ERROR: the comments on the pull request of #$n could not be read"; return 1; }
     fi
   fi
+  if [ "${given_how[$n]}" = fixer ]; then
+    retry=$(fixer_note "$n" "${given_at[$n]}") || { log "ERROR: the comments of #$n could not be read for the fixer's"; return 1; }
+  fi
   jq --arg at "${given_at[$n]}" --arg by "${starter[$n]}" --arg how "${given_how[$n]}" --arg sum "$sum" \
     --argjson comments "$TEHAS_WORK_COMMENTS" --argjson from "$from" --argjson retry "$retry" \
+    --argjson rests "${rests_on[$n]:-null}" --argjson starts "${fixer_starts[$n]:-0}" \
     "$(tehas_attachment_links)"'{at: $at, by: $by, how: $how, body_sha256: $sum,
       links: (.data.repository.issue.body // "" | links | reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end))}
       + if $comments == 1 then {comment_links: ($from + ($retry.links // []))} else {} end
-      + if $retry == null then {} else {retry_context: $retry.context} end' \
+      + if $retry == null or ($retry.context | length) == 0 then {} else {retry_context: $retry.context} end
+      + if $how == "fixer" then {rests_on: $rests, fixer_starts: $starts} else {} end' \
     <<<"${text_of[$n]}" >"$file.new" 2>/dev/null && mv "$file.new" "$file"
 }
 
@@ -717,6 +770,27 @@ pr_comments() {
     | {links: ([.[] | .id as $id | .user.login as $by | .body | links[] | {link: ., source: "pr-comment:\($id)", by: $by}] | dedupe),
        context: [.[0:20][] | {source: "pr-comment:\(.id)", by: .user.login, at: .created_at, text: (.body | gsub("\r"; "") | .[0:4000])}]}' \
     <<<"$all" 2>/dev/null
+}
+
+# fixer_note <issue> <label time>: the fixer's comment behind its tehas:ready,
+# as {links: [], context}: the newest comment of TEHAS_FIXER_LOGIN with the
+# fixer's marker for this issue, written in the ten minutes before the label
+# and edited by nobody after it. The fixer comments and then labels, so an
+# older one is an earlier decision's. context is [] when there is none. Fails
+# when the comments cannot be read.
+fixer_note() {
+  local list since
+  list=$(gh api "repos/$repo/issues/$1/comments?per_page=100" --paginate 2>/dev/null) || return 1
+  since=$(date -u -d "$2 - 10 minutes" +%FT%TZ 2>/dev/null) || return 1
+  jq -cs --arg n "$1" --arg since "$since" --arg at "$2" --arg fixer "$TEHAS_FIXER_LOGIN" '
+    if any(.[]; type != "array") then error("not a list of comments") else . end
+    | [add // [] | .[] | select(type == "object" and (.id | type) == "number" and (.body | type) == "string"
+        and (.user.login // "") == $fixer and (.created_at | type) == "string" and (.updated_at | type) == "string"
+        and .created_at >= $since and .created_at <= $at and .updated_at <= $at
+        and (.body | test("<!-- tehas:fixer issue=" + $n + " action=(retry|change) -->")))]
+    | sort_by(.created_at, .id) | .[-1:]
+    | {links: [], context: map({source: "fixer:\(.id)", by: .user.login, at: .created_at,
+        text: (.body | gsub("\r"; "") | .[0:4000])})}' <<<"$list" 2>/dev/null
 }
 
 # Without systemd's answer every picked issue would be marked running and then
@@ -849,6 +923,10 @@ bot=$(jq -r '.login // ""' <<<"$json") || bot=""
 [ -n "$bot" ] || { log "ERROR: the bot's own login could not be read"; exit 1; }
 if tehas_allowed_labeler "$bot"; then
   log "ERROR: the bot account $bot is in TEHAS_ALLOWED_LABELERS; the bot never authorises work"
+  exit 78
+fi
+if tehas_fixer_is "$bot"; then
+  log "ERROR: the bot account $bot is TEHAS_FIXER_LOGIN; every agent posts as the bot, so the fixer must be an account of its own"
   exit 78
 fi
 
@@ -1448,6 +1526,7 @@ for n in $asking; do
       # A tehas:ready left on the issue would start a second cycle after this
       # one: one start uses up every request for it.
       [[ $have == *" tehas:ready "* ]] && drop[$n]+=" --remove-label tehas:ready"
+      [[ $have == *" tehas:fixer-escalated "* ]] && drop[$n]+=" --remove-label tehas:fixer-escalated"
       # One tick is one start. The issue is marked first: when that fails the
       # poll ends here and the tick stays, so the next poll tries again. Once
       # it is marked the start has removed the question from the record, so
@@ -1660,9 +1739,15 @@ for n in $candidates; do
     log "wait #$n: its cycle is still running"
     continue
   fi
+  by_fixer=0
   if ! approval "$n" tehas:ready; then
-    [ -z "$refused" ] || clear_unauthorised "$n" tehas:ready "$refused"
-    continue
+    if [ -n "$refused" ] && tehas_fixer_is "$refused"; then
+      fixer_ok "$n" || continue
+      by_fixer=1
+    else
+      [ -z "$refused" ] || clear_unauthorised "$n" tehas:ready "$refused"
+      continue
+    fi
   fi
   # Asked after the label approves the issue: an issue no account is allowed
   # to start costs no call, and the label is not changed until start_cycles.
@@ -1679,12 +1764,19 @@ for n in $candidates; do
   how[$n]="\`tehas:ready\` label"
   given_at[$n]=$at
   given_how[$n]=label
+  if [ "$by_fixer" = 1 ]; then
+    verb[$n]="labelled by the fixer"
+    how[$n]="\`tehas:ready\` label as the fixer, on $(jq -r .by <<<"$tehas_fixer_rests_on")'s approval of $(jq -r .at <<<"$tehas_fixer_rests_on")"
+    given_how[$n]=fixer
+    rests_on[$n]=$tehas_fixer_rests_on
+    fixer_starts[$n]=$tehas_fixer_count
+  fi
   drop[$n]="--remove-label tehas:ready"
   # What an earlier cycle left on the issue goes with the start. Only what
   # is there: gh refuses to remove a label the repository does not have.
   # needs-human-attention is not tehas's to take off: the cycle starts with
   # --restart, and pi-rukas clears it.
-  for l in tehas:awaiting-merge tehas:question; do
+  for l in tehas:awaiting-merge tehas:question tehas:fixer-escalated; do
     [[ $have == *" $l "* ]] && drop[$n]+=" --remove-label $l"
   done
 done

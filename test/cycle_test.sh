@@ -398,6 +398,23 @@ echo 11 >"$fx/rc"
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" 'pi-rukas stopped on the cap `intent-park` (`too-large`).'
 
+t_case "each end of a cycle leaves a line of history for the fixer: a park and its reason, a waiting merge"
+reset
+mkdir -p "$state"
+echo alice >"$state/7.by"
+echo '{"how":"label","by":"alice"}' >"$state/7.approved.json"
+ended handoff explore "" intent-park
+jq '.issues[0].parkReason = "too-large"' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
+echo 11 >"$fx/rc"
+t_run "$cycle 7"
+t_eq "$(jq -c '[.parked, .status, .step, .cap, .park_reason, .provider, .by, .how, .rc]' "$state/7.history.jsonl")" \
+  '[true,"handoff","explore","intent-park","too-large",false,"alice","label",11]'
+ended handoff commit-pr feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$cycle 7"
+t_eq "$(wc -l <"$state/7.history.jsonl")" 2
+t_eq "$(tail -n 1 "$state/7.history.jsonl" | jq -c '[.parked, .pr, (.at | test("^[0-9]{4}-"))]')" '[false,"https://github.com/acme/widget/pull/9",true]'
+
 t_case "the token usage per role is posted on the pull request, with the result's totals"
 reset
 ended handoff commit-pr feature/x
