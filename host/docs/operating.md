@@ -584,8 +584,39 @@ its JSON says `"allHands": true` and the dashboard shows "all hands". What it
 means for other factories is up to the program that runs them, such as
 tehas-industry. Take the label off to end it.
 
+## Limit and drain
+
+A limit caps what this factory starts, until it expires or is cleared. It
+keeps a host quiet for a weekend, or leaves the models to another project:
+
+```
+tehas limit set --cycles 1 --plan off --for 7200 --reason "the models are busy"
+tehas limit                  # what is set
+tehas limit clear            # back to no limit
+```
+
+`--cycles` is the most cycles at once; `--plan off` also holds new planning
+sessions and improvement runs, though an answer to a planning question still
+runs. Without `--for` or `--until` the limit stays until cleared. Running
+cycles are never stopped. A limit that has expired, or a file that cannot be
+read, holds every start until it is set again or cleared, and `tehas status`
+says so. Pause is a separate switch: a paused factory stays paused under any
+limit.
+
+Before a reboot or a disk change:
+
+```
+tehas drain --wait 3600      # start nothing new, wait up to an hour for the cycles
+tehas limit clear            # afterwards
+```
+
+A program that drives factories uses the same commands: see
+[the factory API](/api).
+
 ## Limits that hold work back
 
+- A limit set with `tehas limit`, when there is one: see
+  [Limit and drain](#limit-and-drain).
 - At most `TEHAS_TICKET_CONCURRENCY` cycles at a time. It is a ceiling, not
   a promise: the dispatcher starts fewer when the slice has no room.
 - Room in `tehas.slice`, the systemd slice every sandbox container runs in.

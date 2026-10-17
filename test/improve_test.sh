@@ -554,6 +554,45 @@ refused() {
   t_eq "$(find "$base" -mindepth 1 -maxdepth 1 ! -name window | wc -l)" 0
 }
 
+# held: the run waits on the limit. 0, no GitHub call, no container, and the
+# record still in the window.
+held() {
+  t_eq "$t_rc" 0
+  t_eq "$(t_calls gh)$(t_calls docker)" ""
+  [ -f "$base/window/$REC/cycle.json" ] || t_bad "the record is gone"
+  t_contains "$t_out" "held by the limit"
+}
+
+t_case "a limit with planning off holds a run, and the records wait"
+ready
+mkdir -p "$T/home/tehas/state"
+echo '{"v":1,"cycles":3,"plan":false,"until":null,"reason":"quiet"}' >"$T/home/tehas/state/limit.json"
+t_run "$improve"
+held
+t_contains "$t_out" "planning off"
+
+t_case "an expired limit holds a run, and one that cannot be read does too"
+ready
+mkdir -p "$T/home/tehas/state"
+echo '{"v":1,"cycles":3,"plan":true,"until":"2020-01-01T00:00:00Z","reason":""}' >"$T/home/tehas/state/limit.json"
+t_run "$improve"
+held
+t_contains "$t_out" "expired"
+ready
+mkdir -p "$T/home/tehas/state"
+echo 'not a limit' >"$T/home/tehas/state/limit.json"
+t_run "$improve"
+held
+
+t_case "a limit with planning on lets a run go"
+ready
+mkdir -p "$T/home/tehas/state"
+echo '{"v":1,"cycles":0,"plan":true,"until":null,"reason":""}' >"$T/home/tehas/state/limit.json"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "held by the limit"
+t_contains "$(t_calls docker)" "run"
+
 t_case "refuses with 78 without the slice, before any docker run"
 ready
 printf '%s\n' FragmentPath= ActiveState=inactive MemoryMax=infinity >"$T/slice.show"

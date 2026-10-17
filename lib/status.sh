@@ -63,6 +63,15 @@ tehas_state_defs='
   # allowed account took it off, so the host stays paused: a stranger removed it,
   # or the label object itself was deleted.
   def oneline: '"$tehas_pause_oneline"';
+  # The limit tehas limit sets, as lib/limit.sh reads it.
+  def limit_line: "limit     " + (
+      if .state == "none" then "none"
+      elif .state == "unreadable" then "unreadable: nothing starts until it is set again or cleared"
+      elif .state == "expired" then "expired at \(.until): nothing starts until it is set again or cleared"
+      else "\(.cycles) cycle\(if .cycles == 1 then "" else "s" end) at once, planning \(if .plan then "on" else "off" end), "
+        + (if .until == null then "until cleared" else "until \(.until)" end)
+        + (if .reason == null then "" else ": \(.reason | oneline)" end)
+      end);
   def pause_lines($now): if . == null or (.flag == null and .label != true and .lifted != true) then empty else . end
     | ((if .flag == null then empty
         else "pause     flag, written \(.flag.at // "" | age($now))"
@@ -105,6 +114,7 @@ tehas_state_line_jq='
      else "queue     \(.inLine) in line, \(.building) building, \(.review) in review, \(.stopped) stopped"
           + (if .paused then ", paused" else "" end) + " (\(.time // "" | age($now)))" end),
     (.checks.pause // null | pause_lines($now)),
+    (.checks.limit // null | if . == null or .state == "none" then empty else limit_line end),
     (if .checks.allHands == true then "all-hands tehas:all-hands is on the control issue, applied by an allowed account" else empty end)
   '
 
@@ -148,7 +158,6 @@ tehas_platform_line() { # <health json> <now epoch seconds>
 
 # The object tehas status --json prints, from the health object. A field
 # without a value is left out, never null; host/docs/api.md has the rest.
-# limit is what a factory without that feature reports.
 tehas_status_json() { # <health json> <now epoch seconds> <stale true|false>
   jq -c --argjson now "$2" --argjson stale "$3" '
     def since: try (fromdateiso8601 | $now - . | if . < 0 then 0 else . end) catch null;
@@ -159,7 +168,7 @@ tehas_status_json() { # <health json> <now epoch seconds> <stale true|false>
        reasons: (if .status == "pass" then [] else [.output // ""] end),
        paused: {local: ($p.flag != null), label: ($p.label == true or $p.lifted == true)},
        allHands: .checks.allHands,
-       limit: {state: "none"},
+       limit: (.checks.limit // null | if . == null then null else del(.reason) end),
        running: [(.checks.cycles // [])[] | {issue, since: .startedAt} + (if .step == null then {} else {step} end)],
        demand: (.checks.demand // null
                 | if . == null then null
@@ -172,7 +181,8 @@ tehas_status_json() { # <health json> <now epoch seconds> <stale true|false>
               elif $s != null and ($s.why // "") != "" then {why: $s.why, text: ($s.hold // "")}
               else null end),
        room: (if $s == null then null
-              else {cycles: $s.free, maxAwaiting: $s.awaitRoom, slice: $s.room} | with_entries(select(.value != null)) end)}
-    | if .allHands == null then del(.allHands) else . end
+              else {cycles: $s.free, maxAwaiting: $s.awaitRoom, slice: $s.room, limit: $s.limitRoom}
+                   | with_entries(select(.value != null)) end)}
+    | with_entries(select((.key | IN("allHands", "limit") | not) or .value != null))
   ' <<<"$1"
 }
