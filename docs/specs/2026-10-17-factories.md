@@ -322,4 +322,8 @@ Industry can start on its side after step 3: priority needs only `api`,
 - How `oldestWait` is measured; the accepted `tehas:ready` event is the
   natural start.
 - The cursor's format, as long as it orders and never repeats.
+- Where `tehas history` reads from. The fixer's grant (#294, branch
+  `fixer`) adds one line per cycle end to
+  `state/cycles/<issue>.history.jsonl`; when that is merged first, history
+  builds on it rather than adding a second record.
 - Test helper names.
