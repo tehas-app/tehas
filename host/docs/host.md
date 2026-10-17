@@ -392,10 +392,13 @@ fails mid-cycle, Pi retries it as [Provider retry](#provider-retry) says, and
 the next cycle starts on the backup. The improvement loop and the image
 descriptions pick the same way.
 
-The energy sampler asks the main endpoint's cluster URL, then the backup's,
-each with its token, and samples the first that is a viiwork mesh. So a main
-endpoint that is not viiwork and a viiwork backup still give the Energy use
-section.
+The energy sampler asks the endpoint the dispatcher settled on for the
+subagent provider, the one word in `~/tehas/live/dispatch.json`, and samples
+it only when it is a viiwork mesh. The cycles and the meter are then the same
+endpoint. With no word in that file, because the dispatcher has not settled
+one yet, it asks the main endpoint and then the backup as before, so an update
+of the dispatcher never blanks the floor. An endpoint that is not viiwork gives
+no meter, even when the backup is one: the section hides.
 
 ## Provider retry
 
@@ -935,7 +938,7 @@ that cycle ran.
 | Dispatcher  | systemd user timer `tehas-dispatch.timer`, every 2 minutes, and `tehas-dispatch.path`, a poll as soon as a cycle, a planning turn or an index run ends | `tail ~/tehas/logs/dispatch.log`                       |
 | Planning turn | a unit the poll starts, `tehas-plan-<issue>.service`, one at a time. systemd stops it a quarter of an hour after `TEHAS_PLAN_TIMEOUT` | `tail ~/tehas/logs/dispatch-plan-<issue>.log` |
 | Code index | a unit the poll starts, `tehas-index.service`, before cycles start on an idle host. systemd stops it after 40 minutes | `tail ~/tehas/logs/dispatch-index.log` |
-| Energy use sampler, optional | systemd user service `tehas-energy.service`, every 15 s. Enable it only when the model backend is a [viiwork](https://github.com/janit/viiwork) mesh | `jq .generatedAt ~/tehas/live/energy.json` |
+| Energy use sampler, optional | systemd user service `tehas-energy.service`, every 15 s. It asks the endpoint the dispatcher settled on, the word in `~/tehas/live/dispatch.json`. Enable it only when the model backend is a [viiwork](https://github.com/janit/viiwork) mesh | `jq .generatedAt ~/tehas/live/energy.json` |
 | Host snapshot publisher, optional | systemd user service `tehas-top.service`, every 5 s. It writes nothing unless `TEHAS_TOP=1` | `jq '.host.cpus, .host.load' ~/tehas/live/top.json` |
 | Protolab pages | systemd user timer `tehas-protolab.timer`, every 5 minutes | `tail ~/tehas/logs/protolab.log` |
 | Improvement loop, optional | systemd user timer `tehas-improve.timer`, every 3 hours. It does nothing unless `TEHAS_IMPROVE_REPO` is set | `tail ~/tehas/logs/improve.log` |
