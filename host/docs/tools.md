@@ -19,7 +19,8 @@ tehas dev [<name>]               # an interactive session on the host, by hand
 tehas index                      # build the code index the agents search
 tehas update [--check]           # bring this host up to date with the platform
 tehas labels                     # create the tehas labels in the repository
-tehas status                     # print the state of the factory
+tehas status [--json]            # print the state of the factory
+tehas api [--json]               # what this factory speaks, for a program
 tehas top [--once|--json]        # one screen of what the factory is doing
 tehas pause [reason]             # stop this host from starting new work
 tehas resume                     # lift this host's pause flag
@@ -187,7 +188,11 @@ question twice.
 What holds cycles back is one `holding:` line: at every dry run, and in the
 log once when its reason changes, with `released: cycles may start again`
 when it ends. A real poll also writes it to `~/tehas/live/dispatch.json` with
-the slice's numbers, for [tehas status](#tehas-status). The holds are listed
+the slice's numbers, for [tehas status](#tehas-status). Every real poll that
+gets past the settings and the bot's login, a paused one too, writes
+`~/tehas/live/demand.json`: how many issues would start if there were room,
+and when the oldest of them was accepted. It reads the `tehas:ready` list and
+who labelled each issue for that, apart from what a start rests on. The holds are listed
 under [Troubleshooting](/troubleshooting). Log:
 `~/tehas/logs/dispatch.log` when run by systemd, the terminal otherwise. Each
 cycle's runner output: `~/tehas/logs/dispatch-work-<issue>.log`.
@@ -957,7 +962,7 @@ when the instance settings are missing or malformed.
 ## tehas status
 
 ```
-tehas status
+tehas status [--json]
 ```
 
 ```
@@ -991,8 +996,34 @@ A stopped dispatcher cannot report itself: its file just stops changing. A
 file older than ten minutes is therefore not believed. The first line then
 starts `factory   stale:` and asks whether the timer is running.
 
+With `--json` it prints the same facts as one object for a program, with
+the demand, the pause switches, the running cycles, what holds cycles back
+and the room under each cap. [The factory API](/api#tehas-status---json) has
+every field. Without a health file it prints nothing on standard output.
+
 Exit 0 on `pass` and `warn`. Exit 1 on `fail`, on a stale file, or when there
-is no health file yet. Exit 64 on any argument.
+is no health file yet. Exit 64 on any argument but `--json`.
+
+## tehas api
+
+```
+tehas api [--json]
+```
+
+```
+api       1
+tehas     v0.8.0 (cb6912a)
+repo      janit/tehas
+features  status fixer-grant
+fixer     none
+```
+
+What this factory speaks: the API version, the release and commit it was
+installed from, its repository, what this release can do and the fixer's
+login. A program asks it first. See [the factory API](/api#tehas-api). It
+reads the instance settings and the version file `install.sh` writes; no
+network, no git, and it writes nothing. Exit 0, 64 on an argument it does not
+know, 78 when the settings are missing or malformed.
 
 ## tehas top
 
@@ -1265,7 +1296,7 @@ curl -i http://tehas-tehas:8080/health
 
 Writes the factory's health from what is already on disk: the queue snapshot,
 the running cycles, the last one that finished, what the dispatcher's
-last poll wrote about the slice, and this host's pause flag. The status script
+last poll wrote about the slice and the demand, and this host's pause flag. The status script
 runs it on exit, so it is
 refreshed at every poll and at the end of every cycle. The docs server
 serves the file at `/health` and `/healthz` as `application/health+json`.
@@ -1298,6 +1329,13 @@ recorded as ended with the status `lost`, which is a failure. While
 
 `checks.platform` is `live/platform.json`, or `null` on a host without a
 platform checkout.
+
+`checks.demand` is what the dispatcher's last poll wrote to
+`live/demand.json`: `{time, waiting, oldest}`, the issues that would start if
+there were room and when the oldest was labelled. It is `null` when no poll
+wrote it in the last ten minutes. `checks.slice` also carries `free`, the free
+slots, and `awaitRoom`, the room under `TEHAS_MAX_AWAITING` when that poll
+read it. [`tehas status --json`](/api#tehas-status---json) is built from these.
 
 `checks.failed` lists the cycles among the last ten that ended, newest first,
 that ended as anything but `merged` or `handoff`: `issue`, `status`, `step`,
