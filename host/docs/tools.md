@@ -2228,6 +2228,23 @@ test.sh: failed checks (2), not run (0)
     test/plan_test.sh
 ```
 
+Every severity of shellcheck note fails the run: error, warning, info and style.
+The lint is called with no `-S` floor, so a style note on a shell script is as
+much a failed check as an error, and a platform checkout is kept clean at that
+level. The one accepted suppression is a note shellcheck gets wrong: on a line
+whose single quotes are the point, an assertion that some text is a literal, it
+says an expansion was meant (`SC2016 (info)`). Silence it for the one code, with
+the reason beside it, and nothing else:
+
+```bash
+# shellcheck disable=SC2016  # snippets are expanded by the shell under test
+```
+
+Write that line above the code it speaks for, or at the top of the file when
+the whole file is built from snippets, as the test files in this checkout do.
+A blanket disable, one that names no code, is not accepted: it silences the
+notes a person has not read yet.
+
 Its first line counts the checks that failed and the checks that did not run.
 Each line after it names one of them: `shellcheck`, or the path of a failing
 test file relative to the checkout, with a reason after it when there is more to

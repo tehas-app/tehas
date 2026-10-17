@@ -31,6 +31,8 @@ broken=
 
 fresh() {
   rm -rf "$repo"
+  # One case reads what the lint was called with, so its record starts empty.
+  rm -f "$T/calls/shellcheck"
   mkdir -p "$repo/runner" "$repo/test" "$recs"
   # The runner sits where the lint's globs do not read, and its lint is stubbed
   # to pass: no case turns on what a real shellcheck makes of a scratch checkout
@@ -336,6 +338,43 @@ else
   t_contains "$(tail_of "$keep")" "    shellcheck"
   t_lacks "$(tail_of "$keep")" "test/f01_test.sh"
   t_fits
+fi
+
+# The lint's severity floor, pinned two ways: what the runner asks the lint for
+# (the stub that keeps the other cases off the host's tools records its
+# arguments), and what a lint with no floor makes of a file whose only note is an
+# info one (the host's shellcheck, which is what knows a note's severity).
+t_case "the lint runs with no floor, so an info note fails the run"
+fresh
+fake a_test.sh 0 2
+run
+# One lint call over the checkout's files: the stubs that make a file fail pass
+# no arguments, so a call with arguments is the lint.
+lintcalls=$(t_calls shellcheck)
+if [ "$(printf '%s\n' "$lintcalls" | grep -c -- '-x ')" -ne 1 ]; then
+  t_bad "expected one lint call over the checkout's files, got: $lintcalls"
+else
+  t_contains "$lintcalls" "-x "
+  t_lacks "$lintcalls" "-S"
+  t_lacks "$lintcalls" "--severity"
+fi
+
+fresh
+mkdir -p "$repo/lib"
+# An info note on its own: a literal in single quotes, the false positive that
+# a cycle met once. The host's lint is what knows it is an info note.
+rm -f "$T/bin/shellcheck"
+if ! command -v shellcheck >/dev/null 2>&1; then
+  echo "no shellcheck on this host: the gate's own run covers the severity floor"
+else
+  # shellcheck disable=SC2016  # the quotes are a literal for the lint to note on, not expanded here
+  printf "echo 'a literal \$(not expanded)'\n" >"$repo/lib/literal.sh"
+  fake a_test.sh 0 2
+  run
+  t_eq "$t_rc" 1
+  t_contains "$t_out" "SC2016"
+  t_eq "$(tail_of 2)" "test.sh: failed checks (1), not run (0)
+    shellcheck"
 fi
 
 t_case "a checkout with nothing to check is exit 2, not a pass"

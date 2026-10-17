@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 # Run the checks of the tehas platform itself.
 #
-#   1. shellcheck over the shell scripts
+#   1. shellcheck over the shell scripts, at every severity: no -S floor, so an
+#      info note fails the run like any other note
 #   2. the shell tests in test/*_test.sh
+#
+# Where a single quote is the point of a line - an assertion that some text is
+# a literal - SC2016 is wrong about it. The accepted suppression is one code
+# with the reason beside it, the form used in test/runner_test.sh; the manual
+# states the policy (host/docs/tools.md, scripts/test.sh).
 #
 # Both need bash, git, jq and shellcheck: no sandbox image, no product
 # checkout and no network. It belongs to a checkout of the platform and is not
