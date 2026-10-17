@@ -44,15 +44,24 @@ it within about five minutes. It takes:
 - HTML files, shown in a frame with a link to open them full size,
 - the style sheets, scripts and data an HTML file refers to (css, js, mjs,
   json, txt). Attach them to the same ticket and refer to them by name, as
-  `<script src="app.js">`.
+  `<script src="app.js">`,
+- a zip, unpacked into a folder of its own; its files count against the same
+  limits. It takes the types above and md files, kept in their folders, so
+  `index.html` in a zip can refer to `data/sample.json` in it. Links, paths
+  that leave the zip, paths more than six levels deep and locked files are
+  left out. At most 200 entries of a zip are read, and once a file of it is
+  over the 10 MB, nothing more of it is unpacked.
+
+A prototype zip may carry instructions for language models on what it holds,
+for example a `prototype.md`; the lab serves it like any other file and does
+not define what it says.
 
 The limits:
 
 - **10 megabytes a ticket**, counted in the order the files were attached,
   and at most 40 files. What does not fit is left out, and the page lists it
   under "left out" with the reason.
-- **Static files only.** Nothing is run on the host for a prototype, and an
-  archive is not unpacked.
+- **Static files only.** Nothing is run on the host for a prototype.
 - **Only a label from an allowed account** puts the ticket here, as said
   above: the most recent `tehas:prototype` labelling is by an account in
   `TEHAS_ALLOWED_LABELERS`.
@@ -89,7 +98,8 @@ issue text.
 | The same image linked in a comment          | With `TEHAS_WORK_COMMENTS=1`, when an allowed account wrote it before the label or the retry tick and nobody edited it since | When a reply to its question links it | Shown |
 | md, txt, csv, json, yaml, log, html, css or js linked in the body | Fetched and mounted with `TEHAS_WORK_FILES=1`; pi-rukas does not read them yet | The same | html, css, js, json and txt shown, html in a frame |
 | svg, avif, a video                          | Not given | Not given | Shown |
-| Any other file, such as a zip or a pdf      | Not given | Not given | Left out |
+| A zip                                       | Not given | Not given | Unpacked, its files shown as above |
+| Any other file, such as a pdf               | Not given | Not given | Left out |
 
 The rules behind each column:
 
@@ -196,7 +206,17 @@ With any other backend the section and the meter are simply not there, and
 nothing else changes. To turn them off on a viiwork mesh, see
 [the energy sampler](/tools).
 
-The dispatcher takes issues urgent first, then by the lowest issue number: as many at a time as the host's ceiling and the slice's room allow (see [Limits that hold work back](#limits-that-hold-work-back)). A running cycle is never stopped to make room for an urgent one. The dashboard lists the queue by issue number, not the order the dispatcher will work it in: whether a `tehas:urgent` moves the queue is decided by who applied the label, not by its being there.
+The dispatcher takes issues `tehas:urgent` first, then `tehas:next`, then by the lowest issue number: as many at a time as the host's ceiling and the slice's room allow (see [Limits that hold work back](#limits-that-hold-work-back)). A running cycle is never stopped to make room for an urgent one. The dashboard lists the queue by issue number, not the order the dispatcher will work it in: whether a `tehas:urgent` or `tehas:next` moves the queue is decided by who applied the label, not by its being there. `tehas:urgent` counts from an allowed labeller. `tehas:next` counts from an allowed labeller or [the fixer](#the-fixers-grant), when the latest event of the label applies it; one taken off since, or applied by anyone else, is ignored and logged.
+
+An issue with `tehas:blocked` is not started while an issue it names is open, so its slot goes to work that can move. The label counts on the same terms as `tehas:next`. The blockers are named in a comment by an allowed labeller or the fixer that holds the marker:
+
+```
+Blocked by #12 and #34.
+
+<!-- tehas:blocked by=12,34 -->
+```
+
+Up to 20 numbers, separated by commas and no spaces. The newest such comment among the last 100 counts; one by anyone else is ignored. The issue also waits, and the log says why, when the label counts and no such comment is there, when the newest one does not hold a marker that reads, when it was last edited by another account, or when GitHub does not give the state of a number it names. Once every blocker is closed the issue may start. The dispatcher leaves the label on; take it off when it no longer applies. To start a blocked issue anyway, take the label off.
 
 | Label on the issue      | Meaning                           | Your move                                |
 | ----------------------- | --------------------------------- | ---------------------------------------- |
@@ -210,6 +230,8 @@ The dispatcher takes issues urgent first, then by the lowest issue number: as ma
 | `tehas:question`        | The factory asked something       | Tick a box; in a planning session you may reply instead |
 | `tehas:improvement`     | Filed by the improvement loop     | Read it; apply `tehas:ready` if it should be built |
 | `tehas:fixer-escalated` | The fixer left it to a person     | Read the fixer's note; decide, or take the label off to hand it back |
+| `tehas:next`            | Started after urgent issues, before the rest | Take it off to give the issue its place by number back |
+| `tehas:blocked`         | Not started while a blocker it names is open | Close the blocker, or take the label off to start it anyway |
 
 `tehas:ready` from an allowed labeller starts a fresh cycle whatever else the
 issue carries. So does one from [the fixer](#the-fixers-grant), within its grant. tehas's labels of the earlier outcome go when the cycle starts.
@@ -784,6 +806,11 @@ what the account may do, and this section is that.
   kept these takes no answer from the fixer.
 - **`tehas:fixer-escalated`** is the fixer's word that a person decides.
   The factory does nothing on it; a start takes it off.
+- **It may order the queue** with `tehas:next` and `tehas:blocked`, and
+  name the blockers in a marked comment, as an allowed labeller may (see
+  [What happens next](#3-what-happens-next)). Neither starts anything: an
+  issue still needs a `tehas:ready` that counts. When to apply them, and how
+  many, is the fixer's to decide, not the factory's.
 - **Each cycle's end leaves a line** in
   `~/tehas/state/cycles/<issue>.history.jsonl`, the last 50: when, its
   status, last step, cap, park reason, failure, whether a provider outage
