@@ -826,6 +826,50 @@ echo true >"$T/paused"
 t_run "$status && $summary --json"
 t_eq "$(jq -c '[.allHands, .paused.label]' <<<"$t_out")" '[true,true]'
 
+# The limit tehas limit sets, as health reads it from state/limit.json.
+set_limit() { # <json>
+  mkdir -p "$T/home/tehas/state"
+  printf '%s\n' "$1" >"$T/home/tehas/state/limit.json"
+}
+
+t_case "limit: a limit is reported in the lines and in --json, its reason only in the lines"
+reset
+set_limit '{"v":1,"cycles":2,"plan":false,"until":"2036-01-01T00:00:00Z","reason":"held for alpha"}'
+t_run "$status && $summary"
+t_eq "$t_rc" 0
+t_contains "$t_out" "limit     2 cycles at once, planning off, until 2036-01-01T00:00:00Z: held for alpha"
+t_eq "$(jq -r .status "$live/health.json")" pass
+t_run "$summary --json"
+t_eq "$(jq -c .limit <<<"$t_out")" '{"state":"ok","cycles":2,"plan":false,"until":"2036-01-01T00:00:00Z"}'
+
+t_case "limit: no limit prints no line, and --json says none"
+reset
+t_run "$status && $summary"
+t_lacks "$t_out" "limit "
+t_run "$summary --json"
+t_eq "$(jq -c .limit <<<"$t_out")" '{"state":"none"}'
+
+t_case "limit: expired or unreadable is a warning that says nothing starts"
+reset
+set_limit '{"v":1,"cycles":2,"plan":true,"until":"2020-01-01T00:00:00Z","reason":""}'
+t_run "$status && $summary --json"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[.state, .limit.state]' <<<"$t_out")" '["warn","expired"]'
+t_contains "$(jq -r '.reasons[0]' <<<"$t_out")" "Nothing starts: the limit expired at 2020-01-01T00:00:00Z"
+reset
+set_limit 'not a limit'
+t_run "$status && $summary --json"
+t_eq "$(jq -c '[.state, .limit]' <<<"$t_out")" '["warn",{"state":"unreadable"}]'
+t_contains "$(jq -r '.reasons[0]' <<<"$t_out")" "Nothing starts: the limit cannot be read"
+
+t_case "limit: the room under it, from the last poll"
+reset
+held limit "holding: the limit allows 1 cycle at once and 1 is running" 1 2
+jq '.limitRoom = 0' "$live/dispatch.json" >"$live/dispatch.json.new" && mv "$live/dispatch.json.new" "$live/dispatch.json"
+t_run "$status && $summary --json"
+t_eq "$(jq -c .room <<<"$t_out")" '{"cycles":1,"maxAwaiting":2,"slice":3,"limit":0}'
+t_eq "$(jq -c .hold <<<"$t_out")" '{"why":"limit","text":"holding: the limit allows 1 cycle at once and 1 is running"}'
+
 disk() { # low [age in seconds]
   mkdir -p "$live"
   jq -n --argjson low "$1" --arg at "$(date -u -d "@$(($(date +%s) - ${2:-60}))" +%FT%TZ)" \

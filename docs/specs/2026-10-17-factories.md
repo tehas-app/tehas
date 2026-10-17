@@ -151,8 +151,9 @@ prints the same facts as one object, with the demand added:
   under `TEHAS_TICKET_CONCURRENCY` alone, `maxAwaiting` under
   `TEHAS_MAX_AWAITING`, `slice` in `tehas.slice`. A figure the poll did not
   read is left out. The limit never enters these: a program that sets the
-  limit reads them as what the factory could start without it. Step 3 adds
-  the room under the limit as a field of its own, `room.limit`.
+  limit reads them as what the factory could start without it. *(Built in
+  #301.)* `room.limit` is the room under the limit: its cycles less those
+  running, 0 when it expired or cannot be read, left out without a limit.
 - *(Built in #299.)* `demand.waiting` counts `tehas:ready` applied last by an
   allowed account or the fixer, with no cycle or planning session open. The
   checks a start makes on top (text unchanged, no open pull request, the
