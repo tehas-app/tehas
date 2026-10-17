@@ -296,7 +296,37 @@ t_eq "$t_out" "Instance:     $T/instance OK
 Dependencies: not checked (running inside the tests)
 Slice:        not checked (running inside the tests)
 Installed:    OK
-Tests:        not checked (running inside the tests)"
+Tests:        not run (./install.sh --check --tests runs them)"
+
+t_case "--check --tests runs the suite and reports it"
+# A stand-in for the suite: these tests never start the real one, which would
+# run them again.
+printf '#!/usr/bin/env bash\n: >"%s/suite-ran"\nexit "$(cat "%s/suite-rc")"\n' "$T" "$T" >"$T/bin/suite"
+chmod +x "$T/bin/suite"
+echo 0 >"$T/suite-rc"
+t_env TEHAS_TEST_SUITE="$T/bin/suite"
+rm -f "$T/suite-ran"
+t_run "$install --check"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$T/suite-ran" ] && echo ran)" ""
+t_run "$install --check --tests"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$T/suite-ran" ] && echo ran)" ran
+t_contains "$t_out" "Tests:        OK"
+
+t_case "--check --tests with a failing suite says FAILED and exits 1"
+echo 1 >"$T/suite-rc"
+t_run "$install --check --tests"
+t_eq "$t_rc" 1
+t_contains "$t_out" "Tests:        FAILED"
+
+t_case "--check --tests inside the tests with no stand-in runs nothing"
+t_env
+rm -f "$T/suite-ran"
+t_run "$install --check --tests"
+t_eq "$t_rc" 0
+t_contains "$t_out" "Tests:        not checked (running inside the tests)"
+t_eq "$([ -e "$T/suite-ran" ] && echo ran)" ""
 
 # The slice is root's to install (sudo ./bootstrap.sh slice). install.sh only
 # compares the checkout's file with the one under /etc and says what it found.

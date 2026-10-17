@@ -154,6 +154,7 @@ the first time, before `tehas update` exists there:
 ```
 cd ~/tehas/platform && git pull
 ./install.sh --check     # change nothing, report up to eight results
+./install.sh --check --tests   # the same, and run the shell tests
 ./install.sh             # copy changed files into place, keep <name>.prev
 ```
 
@@ -164,7 +165,8 @@ an issue and the retry tick, are not in a repository until it has been.
 `--check` prints one line each for the instance settings, the host's tools, the
 slice, whether the sandbox image reads a cycle's images (`Images:`), the
 installed files, the command the other accounts type where root installed one,
-the follow-ups an earlier run left undone, and the tests. Three of the eight
+the follow-ups an earlier run left undone, and the tests. The tests run only
+with `--tests`; otherwise the line says `not run`. Three of the eight
 appear only where there is something to say, so a current host prints five
 lines, each `OK`. The sample below is a host with a follow-up owed and no
 root-installed copy:
@@ -176,7 +178,7 @@ Slice:        MISSING (sudo ./bootstrap.sh slice)
 Installed:    DRIFT (1 files)
   differs: /home/boss/tehas/libexec/dispatch
 Follow-ups:   NOT DONE (2 from an earlier run, see /home/boss/tehas/state/update-pending)
-Tests:        OK
+Tests:        not run (./install.sh --check --tests runs them)
 ```
 
 The `Follow-ups:` line appears only while `~/tehas/state/update-pending` still
