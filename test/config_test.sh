@@ -76,9 +76,19 @@ t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=7201
 t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
 t_contains "$t_out" "TEHAS_PLAN_TIMEOUT (7201) is more than 7200: a planning turn may take at most two hours"
+t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=9223372036854775808
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "TEHAS_PLAN_TIMEOUT (9223372036854775808) is not a number of seconds within 7200"
 t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=7200
 t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=0"
+t_instance "${T_MINIMAL[@]}"
+
+t_case "an empty planning turn's time limit takes the default"
+t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=
+t_run "$load; echo rc=\$? \$TEHAS_PLAN_TIMEOUT"
+t_eq "$t_out" "rc=0 7200"
 t_instance "${T_MINIMAL[@]}"
 
 t_case "the poll's unit has a finite limit, twice the lock's age at which a poll warns"
