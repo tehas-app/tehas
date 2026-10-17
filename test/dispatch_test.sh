@@ -105,6 +105,12 @@ if [ -e "$T/fx/plan-fails" ]; then
   exit 2
 fi
 cp "$T/fx/plan-result.json" "$out"'
+# Runs the turn at once, as a unit that ends before the poll looks again, unless
+# the fixture leaves it running: then it starts nothing, and systemctl says the
+# unit is active.
+t_stub fake-plan-start 'n=$1; shift
+[ ! -e "$T/fx/plan-runs" ] || exit 0
+"$@"'
 # Notes what the checkout was at and whether a cycle had already started.
 t_stub fake-index 'git -C "$T/home/tehas/repos/widget" rev-parse HEAD >"$T/calls/index.head"
 [ ! -e "/proc/$$/fd/8" ] || : >"$T/calls/index.fd8"
@@ -116,6 +122,8 @@ t_stub systemctl 'case "$1 $2" in
   "show tehas.slice")
     [ ! -e "$T/fx/slice-hangs" ] || exec sleep 20
     cat "$T/fx/slice.show" ;;
+  "--user show")
+    if [ -e "$T/fx/plan-runs" ] && [ "${6:-}" = "tehas-plan-$(cat "$T/fx/plan-runs").service" ]; then echo active; else echo inactive; fi ;;
 esac'
 t_stub docker 'case "$1" in
   info) cat "$T/fx/docker.info" ;;
@@ -139,7 +147,7 @@ cid() { # <issue> <hex digit> <bytes in use>
 dispatch_json=$T/home/tehas/live/dispatch.json
 
 reset() {
-  rm -f "$T"/calls/* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/icomments-* "$fx"/prs.json "$fx"/prlist.json "$fx"/pr-fails "$fx"/issue-* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/slice-* "$fx"/orphan-* "$fx"/prs-* "$fx"/blockers*
+  rm -f "$T"/calls/* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/icomments-* "$fx"/prs.json "$fx"/prlist.json "$fx"/pr-fails "$fx"/issue-* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/plan-runs "$fx"/slice-* "$fx"/orphan-* "$fx"/prs-* "$fx"/blockers*
   rm -rf "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-* "$T"/home/tehas/state/park-* "$T/home/tehas/live" "$T/home/tehas/state/pause.json"
   # A slice of 20 GiB with nothing in it: room for ten cycles of the default
   # reserve, so the slots and the review cap decide unless a case says more.
@@ -160,7 +168,7 @@ reset() {
   echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
   # The control issue has never been paused: no tehas:pause event to read.
   echo '[]' >"$fx/events-1.json"
-  T_ENV=(TEHAS_CYCLE_START_CMD=fake-start TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index TEHAS_PLAN_CMD=fake-plan "$slice_env")
+  T_ENV=(TEHAS_CYCLE_START_CMD=fake-start TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index TEHAS_PLAN_CMD=fake-plan TEHAS_PLAN_START_CMD=fake-plan-start "$slice_env")
   t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
 }
 # A cycle that is running: its lock, held by this shell until release.
@@ -2768,6 +2776,76 @@ t_eq "$(plan_calls)" ""
 
 t_case "the container of a cut-off turn is removed before the turn is reported"
 t_contains "$(t_calls docker)" "rm -f tehas-plan-7"
+t_case "a poll does not wait for a planning turn: a ready issue starts while it runs"
+to_plan
+echo 7 >"$fx/plan-runs"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "planning #7: turn 1 runs as tehas-plan-7.service"
+t_eq "$(jq -r .running "$record")" true
+t_lacks "$(t_calls gh)" "kind=plan"
+echo '[{"number":8,"labels":[{"name":"tehas:ready"}]}]' >"$fx/ready.json"
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}}]' >"$fx/events-8.json"
+rm -f "$T"/calls/*
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "8"
+t_eq "$(jq -r .running "$record")" true
+t_lacks "$(t_calls gh)" "kind=plan"
+t_eq "$(plan_calls)" ""
+
+t_case "the poll after a turn ends posts its outcome, once"
+rm -f "$fx/plan-runs"
+echo '[]' >"$fx/ready.json"
+# The first poll took tehas:plan off the issue.
+echo '[]' >"$fx/plans.json"
+cp "$fx/plan-result.json" "$record.out"
+echo 0 >"$record.rc"
+rm -f "$T"/calls/*
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "<!-- tehas:question kind=plan issue=7 turn=1 -->"
+t_eq "$(jq -r '[.session, .turns, .running] | @tsv' "$record")" "abc-123	1	false"
+t_eq "$([ -e "$record.rc" ] && echo left)" ""
+rm -f "$T"/calls/*
+t_run "$dispatch"
+t_lacks "$(t_calls gh)" "kind=plan"
+t_eq "$(plan_calls)" ""
+
+t_case "a turn's exit status other than 0 is reported as a failed turn"
+planning
+echo '[]' >"$fx/asking.json"
+jq '.running = true' "$record" >"$record.new" && mv "$record.new" "$record"
+echo 2 >"$record.rc"
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "This planning turn did not finish: it exited with status 2"
+t_eq "$(jq -r '[.turns, .failed, .running] | @tsv' "$record")" "2	true	false"
+t_lacks "$(t_calls docker)" "rm -f tehas-plan-7"
+
+t_case "an answer waits while another session's turn runs"
+planning
+comments 7 "$(plan_body ' ' x ' ')" alice
+echo '{"session":"xyz","turns":1,"options":[],"pending":false,"failed":false,"running":true}' >"$T/home/tehas/state/plan-9.json"
+echo 9 >"$fx/plan-runs"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "planning #7 waits: the turn of #9 is still running"
+t_eq "$(plan_calls)" ""
+t_eq "$(jq -r .turns "$record")" 1
+rm -f "$T/home/tehas/state/plan-9.json"
+
+t_case "a turn whose unit cannot start is reported as a failed turn"
+planning
+comments 7 "$(plan_body ' ' x ' ')" alice
+t_stub fake-plan-start 'exit 1'
+t_run "$dispatch"
+t_contains "$t_out" "ERROR: could not start the planning turn of #7"
+t_contains "$(t_calls gh)" "This planning turn did not finish: it could not be started as a unit"
+t_eq "$(jq -r '[.failed, .running] | @tsv' "$record")" "true	false"
+t_stub fake-plan-start 'n=$1; shift
+[ ! -e "$T/fx/plan-runs" ] || exit 0
+"$@"'
+
 t_case "a first turn cut off by a restart ends visibly"
 planning
 echo '[]' >"$fx/asking.json"
@@ -3651,6 +3729,9 @@ bare_tree() {
   cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/cycles.sh" "$T_ROOT/lib/labels.sh" "$T_ROOT/lib/questions.sh" "$T_ROOT/lib/planning.sh" "$T_ROOT/lib/slice.sh" "$T_ROOT/lib/attachments.sh" "$tree/lib/"
   for name in status index plan; do cp "$T/bin/fake-$name" "$tree/libexec/$name"; done
   for name in tehas tehasbot tehas-work tehas-status tehas-index tehas-plan; do t_stub "$name"; done
+  # Runs the unit's command at once, after its own options.
+  t_stub systemd-run 'while [ "$#" -gt 0 ]; do case "$1" in --unit) shift 2 ;; -*) shift ;; *) break ;; esac; done
+"$@"'
 }
 
 t_case "without the test seams it runs the scripts beside it and starts the unit"
@@ -3678,6 +3759,8 @@ bare_tree
 t_run "$tree/libexec/dispatch"
 t_eq "$t_rc" 0
 t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --brief $record.brief"
+t_contains "$(t_calls systemd-run)" "--user --quiet --collect --unit tehas-plan-7 /bin/bash -c"
+t_contains "$(t_calls gh)" "- [ ] Adopt all"
 for name in tehas tehasbot tehas-plan; do t_eq "$(t_calls "$name")" ""; done
 
 t_case "a unit systemd cannot load changes no label and starts nothing, exit 1"

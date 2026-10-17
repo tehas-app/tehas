@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # The steps of a planning session. Sourced by libexec/dispatch, and written
 # for it: these functions use the dispatcher's own helpers (log, say,
-# post_question, refresh_checkout, wait_for), its variables (repo, plan_cmd,
+# post_question, refresh_checkout), its variables (repo, plan_cmd,
 # who, posted) and Q_MAX_OPTIONS of lib/questions.sh.
 #
 # A session is a Pi session that lives across polls. Its record is
@@ -19,9 +19,11 @@
 # approved text in <record>.brief; both go with the record.
 #
 # A turn is written down as running before it starts, and before the issue is
-# marked as planning. The dispatcher holds the one dispatch lock, so a running
-# record found at the start of a poll is a turn that was cut off, for example
-# by a restart of the host. plan_recover turns it into a failed turn that asks
+# marked as planning. It runs as its own unit, tehas-plan-<issue>.service, which
+# leaves the turn's exit status in <record>.rc. A running record found at the
+# start of a poll is a turn still in flight, one that ended (plan_collect posts
+# it), or, with no unit and no status, one that was cut off, for example by a
+# restart of the host. plan_recover turns that into a failed turn that asks
 # again, or ends a first turn that never produced a session.
 #
 # Each change on GitHub is checked, and the record only moves on once it has
@@ -32,13 +34,18 @@
 #   plan_record_number <file>      put the issue of a record file in $plan_n, or
 #                                  return 1 for a file that is not a readable record
 #   plan_turn <issue> first|next <file> [<comment id>]
-#                                  run one turn and post its outcome; the id
+#                                  start one turn as its own unit; its outcome
+#                                  is posted when it has ended; the id
 #                                  is that of the reply <file> holds, whose
 #                                  attachments the turn is given
 #   plan_finish <issue> <rc> <turns before> <session before>
 #                                  record how a turn went and post it; a failed
 #                                  first turn takes its session from the
 #                                  outcome file, if the runner left one there
+#   plan_launch <issue> <command>...
+#                                  start the turn's unit and return
+#   plan_in_flight <issue>         0 while the turn's unit runs
+#   plan_collect <issue>           post a turn that ended; 1 when none did
 #   plan_recover <issue>           finish a turn that was cut off, or end a
 #                                  session found lost that could not be ended
 #   plan_post <issue>              post the outcome kept in the record
@@ -124,6 +131,10 @@ plan_finish() {
   out=$st.out
   if [ "$rc" = interrupted ]; then
     why="was cut off, for example by a restart of the host"
+  elif [ "$rc" = "not started" ]; then
+    why="could not be started as a unit"
+  elif [ "$rc" = "not readable" ]; then
+    why="left an exit status that cannot be read"
   else
     why="exited with status $rc"
   fi
@@ -190,7 +201,7 @@ plan_recover() {
 }
 
 plan_turn() {
-  local n=$1 mode=$2 input=$3 comment=${4:-} st out turns sid rc was written
+  local n=$1 mode=$2 input=$3 comment=${4:-} st out turns sid was written
   local -a args
   st=$(plan_state "$n")
   out=$st.out
@@ -239,11 +250,55 @@ plan_turn() {
     [ -z "$comment" ] || args+=(--comment "$comment")
   fi
   refresh_checkout
-  rm -f "$out"
-  # The poll's lock is not passed on: a turn's children that outlive a poll
-  # killed outright must not stop every later poll.
-  "${plan_cmd:?}" "$n" --out "$out" --keep "$st.keep" "${args[@]}" >>"$TEHAS_HOME/logs/dispatch-plan-$n.log" 2>&1 8>&- &
-  wait_for $!
-  rc=$?
-  plan_finish "$n" "$rc" "$turns" "$sid"
+  rm -f "$out" "$st.rc"
+  if ! plan_launch "$n" "${plan_cmd:?}" "$n" --out "$out" --keep "$st.keep" "${args[@]}"; then
+    log "ERROR: could not start the planning turn of #$n"
+    plan_finish "$n" "not started" "$turns" "$sid"
+    return
+  fi
+  plan_collect "$n" || log "planning #$n: turn $((turns + 1)) runs as tehas-plan-$n.service"
+}
+
+# plan_launch <issue> <command>...: start the turn as its own unit and return.
+# A poll is a oneshot service, and systemd stops what it leaves behind, so a
+# turn started in the background would die with the poll. The unit writes the
+# command's exit status to <record>.rc when it ends. The poll's lock is not
+# passed on.
+plan_launch() {
+  local n=$1 st
+  shift
+  st=$(plan_state "$n")
+  # shellcheck disable=SC2016  # expanded by the shell the unit runs
+  set -- /bin/bash -c 'log=$1 rc=$2; shift 2; "$@" >>"$log" 2>&1; echo "$?" >"$rc.new" && mv "$rc.new" "$rc"' \
+    plan-turn "$TEHAS_HOME/logs/dispatch-plan-$n.log" "$st.rc" "$@"
+  if [ -n "${TEHAS_PLAN_START_CMD:-}" ]; then
+    "$TEHAS_PLAN_START_CMD" "$n" "$@" 8>&-
+    return
+  fi
+  # The unit has the user manager's environment, not the poll's: it loads
+  # env.sh as the tehas units do.
+  # shellcheck disable=SC2016  # expanded by the shell the unit runs
+  systemd-run --user --quiet --collect --unit "tehas-plan-$n" \
+    /bin/bash -c '[ ! -r "$HOME/tehas/env.sh" ] || . "$HOME/tehas/env.sh"; exec "$@"' env-sh "$@" 8>&- >/dev/null 2>&1
+}
+
+# plan_in_flight <issue>: 0 while the unit of the issue's turn is running.
+plan_in_flight() {
+  local state
+  state=$(systemctl --user show -p ActiveState --value "tehas-plan-$1.service" 2>/dev/null) || return 1
+  case "$state" in active | activating | deactivating | reloading) return 0 ;; esac
+  return 1
+}
+
+# plan_collect <issue>: finish a turn whose unit wrote its exit status, and
+# post its outcome. Returns 1, changing nothing, when there is no status yet.
+plan_collect() {
+  local n=$1 st rc
+  st=$(plan_state "$n")
+  [ -f "$st.rc" ] || return 1
+  rc=$(cat "$st.rc" 2>/dev/null) || rc=""
+  [[ $rc =~ ^[0-9]+$ ]] || rc="not readable"
+  rm -f "$st.rc"
+  plan_finish "$n" "$rc" "$(jq -r '.turns // 0' "$st" 2>/dev/null)" "$(jq -r '.session // ""' "$st" 2>/dev/null)"
+  return 0
 }

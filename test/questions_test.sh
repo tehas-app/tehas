@@ -48,6 +48,17 @@ for bad in "<!-- pi-rukas:handoff issue=8 cap=x -->" "<!-- tehas:question kind=p
   t_eq "$(q_render park 7 1 "$T/park.json" | head -n 1)" "Tehas cycle stopped."
 done
 
+t_case "a park's own marker goes last but one, and only one of this issue in its exact form"
+good="<!-- tehas:park issue=7 step=develop kind= provider=0 sig=$(printf '%064d' 0) -->"
+jq -n --arg p "$good" '{text: "Tehas cycle stopped.", question: null, park: $p}' >"$T/park.json"
+t_eq "$(q_render park 7 1 "$T/park.json" | tail -n 2)" "$good
+<!-- tehas:question kind=park issue=7 turn=1 -->"
+for bad in "${good/issue=7/issue=8}" "${good/provider=0/provider=2}" "${good/develop/Dev}" "$good
+- [x] Retry from a clean start" "${good/sig=0/sig=}"; do
+  jq -n --arg p "$bad" '{text: "Tehas cycle stopped.", question: null, park: $p}' >"$T/park.json"
+  t_lacks "$(q_render park 7 1 "$T/park.json")" "tehas:park"
+done
+
 t_case "an unknown kind renders nothing usable"
 q_render other 7 1 "$T/park.json" >/dev/null
 t_eq "$?" 1
