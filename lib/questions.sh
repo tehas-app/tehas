@@ -101,7 +101,8 @@ q_render() {
 # With a fixer login, a tick the fixer saved has the status "fixer", and the
 # fixer's newest reply, edited by nobody else, is fixer_reply: marked when its
 # first line is <!-- tehas:fixer issue=<n> action=answer -->, which its text
-# then leaves out. Whether either counts is the caller's to decide.
+# then leaves out; a marked reply with nothing after the marker is none.
+# Whether either counts is the caller's to decide.
 q_answer() {
   jq -c --arg bot "$1" --arg allowed "$2" --arg id "${3:-}" --arg fixer "${4:-}" '
     ($allowed | split(" ")) as $list
@@ -131,8 +132,10 @@ q_answer() {
             | ("<!-- tehas:fixer issue=\($m.issue) action=answer -->") as $mark
             | {fixer_reply: (if $f == null then null else
                 (($f.body | split("\n"))[0] | sub("\r$"; "") == $mark) as $marked
-                | {by: $f.author.login, text: (if $marked then $f.body | sub("^[^\n]*\n?"; "") else $f.body end),
-                   at: $f.createdAt, id: $f.databaseId, marked: $marked} end)}
+                | (if $marked then $f.body | sub("^[^\n]*\n?"; "") else $f.body end) as $text
+                # A marker alone answers nothing.
+                | if $marked and ($text | test("^\\s*$")) then null
+                  else {by: $f.author.login, text: $text, at: $f.createdAt, id: $f.databaseId, marked: $marked} end end)}
           end
       end'
 }

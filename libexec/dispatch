@@ -631,7 +631,8 @@ fixer_ok() {
 # logged and said on the issue once, its id kept in the record's fixer_refused.
 fixer_answer_ok() {
   local n=$1 st=$2 ans=$3 said=$4 why="" id
-  if [ "$said" = tick ] && [ "$(jq -r .tick.index <<<"$ans")" = "$(($(jq -r .boxes <<<"$ans") - 1))" ]; then
+  # The way out is a person's, whether the fixer's tick or its reply is used.
+  if [ "$(jq -r .tick.status <<<"$ans")" = fixer ] && [ "$(jq -r .tick.index <<<"$ans")" = "$(($(jq -r .boxes <<<"$ans") - 1))" ]; then
     why="it ticked End this planning session, which only a person may"
   elif [ "$said" = reply ] && [ "$(jq -r .fixer_reply.marked <<<"$ans")" != true ]; then
     why="its reply does not start with <!-- tehas:fixer issue=$n action=answer -->"
@@ -1645,6 +1646,10 @@ A box was also ticked, by $(jq -r .tick.by <<<"$ans"): $choice"
         idx=$(jq -r .tick.index <<<"$ans")
         # The last box is always the way out.
         if [ "$idx" = "$(($(jq -r .boxes <<<"$ans") - 1))" ]; then
+          if [ -n "$fixer_said" ]; then
+            log "skip #$n: the fixer's answer runs no turn: it would end the session, which only a person may"
+            continue
+          fi
           [ "$dry" = 1 ] || plan_end "$n" "Planning session ended by $by."
           continue
         fi

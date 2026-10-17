@@ -4545,6 +4545,24 @@ t_contains "$t_out" "it ticked End this planning session, which only a person ma
 t_contains "$(t_calls gh)" "api -X PATCH"
 t_eq "$([ -e "$record" ] && echo kept)" kept
 
+t_case "the fixer cannot end a session with an empty marked reply beside its tick on the way out"
+fixer_planning
+comments 7 "$(plan_body ' ' ' ' x)" tehas-fixer "$(freply "$fmark")"
+t_run "$dispatch"
+t_eq "$(plan_calls)" ""
+t_lacks "$(t_calls gh)" "Planning session ended"
+t_lacks "$(t_calls gh)" "--remove-label tehas:plan"
+t_contains "$t_out" "it ticked End this planning session, which only a person may"
+t_eq "$([ -e "$record" ] && echo kept)" kept
+
+t_case "nor with a marked reply that says something beside that tick"
+fixer_planning
+comments 7 "$(plan_body ' ' ' ' x)" tehas-fixer "$(freply "$fmark"$'\nDone, end it.')"
+t_run "$dispatch"
+t_eq "$(plan_calls)" ""
+t_contains "$t_out" "it ticked End this planning session, which only a person may"
+t_eq "$([ -e "$record" ] && echo kept)" kept
+
 t_case "a reply of the fixer's without its marker runs no turn"
 fixer_planning
 comments 7 "$(plan_body ' ' ' ' ' ')" "" "$(freply 'Adopt all.')"
