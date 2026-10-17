@@ -317,7 +317,7 @@ else
   # The count line and the last names survive the cut; the earliest ones do not.
   t_contains "$(tail_of "$keep")" "test.sh: failed checks ($many), not run (0)"
   t_contains "$(tail_of "$keep")" "    test/$last"
-  t_lacks "$(tail_of "$keep")" "test/f01_test.sh"
+  t_lacks "$(block)" "test/f01_test.sh"
   t_contains "$(tail_of 1)" "more, in the full log"
   t_fits
 fi
@@ -338,7 +338,7 @@ else
   # file's own output says the shell scripts were refused.
   t_contains "$(tail_of "$keep")" "test.sh: failed checks ($((many + 1))), not run (0)"
   t_contains "$(tail_of "$keep")" "    shellcheck"
-  t_lacks "$(tail_of "$keep")" "test/f01_test.sh"
+  t_lacks "$(block)" "test/f01_test.sh"
   t_fits
 fi
 
