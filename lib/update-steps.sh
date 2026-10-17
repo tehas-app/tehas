@@ -67,8 +67,9 @@ tehas_steps_for() { # changed source paths -> one step per line
   local units
   case "$list" in
     # bin/tehas-energy is the sampler of the layout before bin/tehas. A running
-    # one is that file calling itself, and it moves on only when restarted.
-    *" systemd/"* | *" bin/tehas-energy "*)
+    # one is that file calling itself, and it moves on only when restarted. A
+    # running service keeps the environment env.sh gave it at its start.
+    *" systemd/"* | *" bin/tehas-energy "* | *" env.sh "*)
       units=$(tehas_units | tr '\n' ' ')
       echo "units ${units% }"
       ;;
