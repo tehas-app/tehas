@@ -580,6 +580,17 @@ fi
 mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state" "$TEHAS_HOME/tmp" "$TEHAS_HOME/live" "$TEHAS_HOME/protolab" \
   "$TEHAS_HOME/preview"
 
+# A cycle used to leave state/cycles/<issue> - one empty file per issue number,
+# the record that this host had run a cycle for it. Nothing read it, and the
+# workspace is a fresh clone every time, so the record and the flag it fed are
+# gone. The files of a host that ran cycles then are removed here; the lock,
+# the taken mark and every file with a suffix stay.
+for left in "$TEHAS_HOME"/state/cycles/[0-9]*; do
+  [ -f "$left" ] && [ ! -L "$left" ] || continue
+  case "${left##*/}" in *[!0-9]*) continue ;; esac
+  rm -f "$left" && echo "removed: $left"
+done
+
 # The previews' network keeps a preview from the host: it reaches the router
 # and the other previews and nothing else. What that takes is in lib/edge.sh,
 # and `tehasbot preview` decides by the same functions before every run. The
