@@ -197,6 +197,9 @@ jq -n --argjson queue "$queue" --argjson view "$view" --argjson disk "$disk" --a
         disk: (if $disk == null then null else ($disk | {time, freeBytes, minFreeBytes, low}) end),
         slice: $slice,
         demand: $demand,
+        # tehas:all-hands, from a snapshot young enough to be news; null when
+        # it is not, or the snapshot could not read it.
+        allHands: (if $queue == null or $old_queue then null else $queue.allHands end),
         pause: $pause,
         platform: $platform
       }

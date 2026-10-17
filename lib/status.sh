@@ -104,7 +104,8 @@ tehas_state_line_jq='
     (.checks.queue // null | if . == null then "queue     no snapshot yet"
      else "queue     \(.inLine) in line, \(.building) building, \(.review) in review, \(.stopped) stopped"
           + (if .paused then ", paused" else "" end) + " (\(.time // "" | age($now)))" end),
-    (.checks.pause // null | pause_lines($now))
+    (.checks.pause // null | pause_lines($now)),
+    (if .checks.allHands == true then "all-hands tehas:all-hands is on the control issue, applied by an allowed account" else empty end)
   '
 
 tehas_state_lines() { # <health json> <now epoch seconds> <stale true|false>
@@ -147,7 +148,7 @@ tehas_platform_line() { # <health json> <now epoch seconds>
 
 # The object tehas status --json prints, from the health object. A field
 # without a value is left out, never null; host/docs/api.md has the rest.
-# allHands and limit are what a factory without those features reports.
+# limit is what a factory without that feature reports.
 tehas_status_json() { # <health json> <now epoch seconds> <stale true|false>
   jq -c --argjson now "$2" --argjson stale "$3" '
     def since: try (fromdateiso8601 | $now - . | if . < 0 then 0 else . end) catch null;
@@ -157,7 +158,7 @@ tehas_status_json() { # <health json> <now epoch seconds> <stale true|false>
     | {api: 1, time, age: (.time | since), stale: $stale, state: .status,
        reasons: (if .status == "pass" then [] else [.output // ""] end),
        paused: {local: ($p.flag != null), label: ($p.label == true or $p.lifted == true)},
-       allHands: false,
+       allHands: .checks.allHands,
        limit: {state: "none"},
        running: [(.checks.cycles // [])[] | {issue, since: .startedAt} + (if .step == null then {} else {step} end)],
        demand: (.checks.demand // null
@@ -172,5 +173,6 @@ tehas_status_json() { # <health json> <now epoch seconds> <stale true|false>
               else null end),
        room: (if $s == null then null
               else {cycles: $s.free, maxAwaiting: $s.awaitRoom, slice: $s.room} | with_entries(select(.value != null)) end)}
+    | if .allHands == null then del(.allHands) else . end
   ' <<<"$1"
 }

@@ -918,10 +918,10 @@ with `tehas work` refreshes nothing.
 tehas labels        # one line per label
 ```
 
-Creates the thirteen labels tehas uses in the product repository: `tehas:ready`,
+Creates the fourteen labels tehas uses in the product repository: `tehas:ready`,
 `tehas:urgent`, `tehas:running`, `tehas:awaiting-merge`, `tehas:shipped`, `tehas:pause`,
 `needs-human-attention`, `tehas:question`, `tehas:plan`, `tehas:planning`,
-`tehas:fixer-escalated`, `tehas:next` and `tehas:blocked`.
+`tehas:fixer-escalated`, `tehas:next`, `tehas:blocked` and `tehas:all-hands`.
 Run it once for a new product, and again after pulling a version that adds a
 label. Run again, it puts their colours and descriptions back. It needs `TEHAS_REPO` and no other
 setting. Exit 0 when every label is there, 1 when one could not be made, 64 on
@@ -990,6 +990,12 @@ is paused it adds one line for each switch that is set:
 pause     flag, written 4 min ago: waiting for the gate
 pause     label: tehas:pause on the control issue
 pause     label: tehas:pause is off the control issue, but no account in TEHAS_ALLOWED_LABELERS took it off
+```
+
+And while [`tehas:all-hands`](/operating#all-hands) holds:
+
+```
+all-hands tehas:all-hands is on the control issue, applied by an allowed account
 ```
 
 It reads
@@ -1334,6 +1340,10 @@ recorded as ended with the status `lost`, which is a failure. While
 
 `checks.platform` is `live/platform.json`, or `null` on a host without a
 platform checkout.
+
+`checks.allHands` is the snapshot's `allHands`: true while
+[`tehas:all-hands`](/operating#all-hands) holds, false when it does not, and
+`null` when the snapshot is older than ten minutes or could not read it.
 
 `checks.demand` is what the dispatcher's last poll wrote to
 `live/demand.json`: `{time, waiting, oldest}`, the issues that would start if

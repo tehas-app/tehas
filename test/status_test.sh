@@ -16,7 +16,9 @@ t_stub gh '
 case "$*" in
   "issue list"*--search*) cat "$T/issues.json" ;;
   "issue list"*) [ ! -e "$T/all-down" ] || exit 1; cat "$T/all.json" ;;
-  "issue view"*) cat "$T/paused" ;;
+  # The names of the labels of the control issue, as --jq joins them.
+  "issue view"*) [ ! -e "$T/control-down" ] || exit 1
+    { [ "$(cat "$T/paused")" != true ] || echo tehas:pause; [ ! -e "$T/allhands" ] || echo tehas:all-hands; } | paste -sd " " ;;
   "issue edit"*) [ -z "${GH_EDIT_FAILS:-}" ] || exit 1 ;;
   "api repos/acme/widget/issues/"*"/events"*) cat "$T/events.json" 2>/dev/null || exit 1 ;;
   "api graphql"*) [ ! -e "$T/shipped-down" ] || exit 1; cat "$T/shipped.json" ;;
@@ -35,7 +37,7 @@ issue() { # number label state
   printf '{"number":%s,"title":"t","url":"u","state":"%s","labels":[{"name":"%s"}],"updatedAt":"2026-01-01T00:00:00Z","closedAt":null}' "$1" "${3:-OPEN}" "$2"
 }
 reset() {
-  rm -rf "$T"/calls/* "$T/gh-down" "$T/all-down" "$T/shipped-down" "$live" "$T/home/tehas/state"
+  rm -rf "$T"/calls/* "$T/gh-down" "$T/all-down" "$T/shipped-down" "$T/control-down" "$T/allhands" "$live" "$T/home/tehas/state"
   echo "[]" >"$T/all.json"
   shipped
   T_ENV=()
@@ -754,6 +756,75 @@ t_eq "$t_rc" 0
 t_lacks "$t_out" "settings were read"
 t_eq "$(t_calls gh)" ""
 t_eq "$(cd "$live" && cksum ./*)" "$before"
+
+# tehas:all-hands on the control issue: reported, and nothing else.
+all_hands() { # <login or ""> [labeled|unlabeled]: the label's last event, and the label on the issue
+  [ "${2:-labeled}" = unlabeled ] || : >"$T/allhands"
+  jq -nc --arg w "$1" --arg e "${2:-labeled}" '[{event: $e, label: {name: "tehas:all-hands"},
+    actor: (if $w == "" then null else {login: $w} end), created_at: "2026-10-17T10:00:00Z"}]' >"$T/events.json"
+}
+
+t_case "all-hands: applied by an allowed account, it is reported and changes nothing else"
+reset
+all_hands alice
+t_run "$status && $summary"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .allHands "$live/status.json")" true
+t_eq "$(jq -r .checks.allHands "$live/health.json")" true
+t_eq "$(jq -r .status "$live/health.json")" pass
+t_contains "$t_out" "all-hands tehas:all-hands is on the control issue"
+t_run "$summary --json"
+t_eq "$(jq -c '[.allHands, .state, .hold]' <<<"$t_out")" '[true,"pass",null]'
+
+t_case "all-hands: applied by anyone else it is ignored, and said once"
+reset
+all_hands mallory
+t_run "$status"
+t_eq "$(jq -r .allHands "$live/status.json")" false
+t_contains "$t_out" "tehas:all-hands on #1 was applied by 'mallory', not an allowed account: ignored"
+t_run "$status"
+t_eq "$t_out" ""
+t_run "$summary"
+t_lacks "$t_out" "all-hands"
+
+t_case "all-hands: not on the issue is off, whatever its last event says"
+reset
+all_hands alice unlabeled
+t_run "$status"
+t_eq "$(jq -r .allHands "$live/status.json")" false
+reset
+all_hands alice
+rm "$T/allhands"
+t_run "$status"
+t_eq "$(jq -r .allHands "$live/status.json")" false
+
+t_case "all-hands: on the issue with events that cannot be read is unknown, and left out of --json"
+reset
+all_hands alice
+rm "$T/events.json"
+t_run "$status && $summary --json"
+t_eq "$(jq -r .allHands "$live/status.json")" null
+t_eq "$(jq -c 'has("allHands")' <<<"$t_out")" false
+reset
+: >"$T/control-down"
+t_run "$status"
+t_eq "$(jq -r .allHands "$live/status.json")" null
+
+t_case "all-hands: a snapshot older than ten minutes does not say it"
+reset
+all_hands alice
+t_run "$status"
+jq --arg t "$(date -u -d '-20 minutes' +%FT%TZ)" '.generatedAt = $t' "$live/status.json" >"$live/status.json.old"
+mv "$live/status.json.old" "$live/status.json"
+t_run "$health"
+t_eq "$(jq -r .checks.allHands "$live/health.json")" null
+
+t_case "all-hands: a paused factory still reports it"
+reset
+all_hands alice
+echo true >"$T/paused"
+t_run "$status && $summary --json"
+t_eq "$(jq -c '[.allHands, .paused.label]' <<<"$t_out")" '[true,true]'
 
 disk() { # low [age in seconds]
   mkdir -p "$live"
