@@ -98,12 +98,14 @@ asks the sandbox image for its capabilities before a cycle.
   "tehas": "v0.8.0",
   "commit": "cb6912a",
   "repo": "janit/tehas",
-  "features": ["status", "limit", "drain", "history", "export", "all-hands", "update-to"]
+  "features": ["status", "limit", "drain", "history", "export", "all-hands", "update-to", "fixer-grant"],
+  "fixer": "tehas-fixer"
 }
 ```
 
 `features` names what this release has, so a program can tell a factory
-that predates a feature from one where it failed. It reads the instance's
+that predates a feature from one where it failed. `fixer` is
+`TEHAS_FIXER_LOGIN`, or null when the instance has no fixer. It reads the instance's
 `TEHAS_REPO` without calling GitHub, and stops with 78 if the settings are
 missing.
 
@@ -226,6 +228,22 @@ person pin a host to a release and lets industry upgrade one factory before
 the others. *(Builder's call: how the checkout sits at a tag, since `update`
 today refuses a checkout that is not on a branch.)*
 
+### The fixer's grant (#294, PR #297)
+
+Not a command, but part of what a program relies on, so it is versioned
+here too. A program acting as `TEHAS_FIXER_LOGIN` may apply `tehas:ready`,
+and the dispatcher starts a cycle only within the grant described in
+`host/docs/operating.md`, "The fixer's grant". The program's side of it:
+
+- the marked comment `<!-- tehas:fixer issue=<n> action=retry|change -->`,
+  written in the ten minutes before the label and not edited after, reaches
+  the cycle as `retry_context`;
+- a refused label comes off with a comment that says why;
+- `tehas:fixer-escalated` is the program's label; a start takes it off.
+
+`api --json` lists `fixer-grant` when the release has it. A change to the
+marker, the label or the grant's conditions is an API change.
+
 ### `tehas pause`, `tehas resume`, `tehas labels` (unchanged)
 
 `tehas labels` also creates `tehas:all-hands`.
@@ -268,7 +286,8 @@ marks each as covered by tests until seen on a host.
 
 ## Tests
 
-- `test/api_test.sh`: `tehas api --json` fields; 78 without settings.
+- `test/api_test.sh`: `tehas api --json` fields, `fixer` set and null; 78
+  without settings.
 - `test/status_test.sh`: `--json` fields and types on a fresh, a stale, a
   paused, a held and a busy factory; the exit statuses match the text mode.
 - `test/limit_test.sh`: set, show, clear, repeat; bad arguments are 64; the
@@ -322,8 +341,8 @@ Industry can start on its side after step 3: priority needs only `api`,
 - How `oldestWait` is measured; the accepted `tehas:ready` event is the
   natural start.
 - The cursor's format, as long as it orders and never repeats.
-- Where `tehas history` reads from. The fixer's grant (#294, branch
-  `fixer`) adds one line per cycle end to
-  `state/cycles/<issue>.history.jsonl`; when that is merged first, history
+- Where `tehas history` reads from. The fixer's grant (PR #297) adds one
+  line per cycle end to `state/cycles/<issue>.history.jsonl`, the last 50
+  per issue, with fields only added; when that is merged first, history
   builds on it rather than adding a second record.
 - Test helper names.
