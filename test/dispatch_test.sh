@@ -3475,6 +3475,56 @@ for main in none '{"data":[{"id":"other"}]}'; do
   t_eq "$(jq -r .why "$dispatch_json")" ""
 done
 
+# Which endpoint the subagent provider is on, as the energy sampler reads it:
+# the one word in live/dispatch.json. The endpoint itself is never written.
+t_case "the poll publishes the subagent provider's endpoint as one word"
+reset
+T_ENV+=("${keys[@]}")
+mesh '{"data":[{"id":"test-model"}]}'
+backed '{"data":[{"id":"test-model"}]}'
+t_run "$dispatch"
+t_eq "$(jq -r .endpoint "$dispatch_json")" main
+t_lacks "$(cat "$dispatch_json")" "mesh.test"
+
+reset
+T_ENV+=("${keys[@]}")
+mesh '{"data":[{"id":"other"}]}'
+backed '{"data":[{"id":"test-model"}]}'
+t_run "$dispatch"
+t_eq "$(jq -r .endpoint "$dispatch_json")" backup
+t_lacks "$(cat "$dispatch_json")" "backup.test"
+
+# The endpoint is settled only when a poll asks of it, so the word is missing
+# whenever the poll asks nothing or gets no answer: the sampler then asks both
+# endpoints, as it did before the field existed. A provider with no backup is
+# still main; a poll that cannot reach either endpoint holds and writes no word.
+reset
+T_ENV+=("${keys[@]}")
+mesh '{"data":[{"id":"test-model"}]}'
+rm -f "$fx/backup.json"
+t_run "$dispatch"
+t_eq "$(jq -r .endpoint "$dispatch_json")" main
+t_eq "$(jq -c 'has("endpoint")' "$dispatch_json")" true
+
+reset
+T_ENV+=("${keys[@]}")
+mesh
+backed '{"data":[]}'
+t_run "$dispatch"
+t_eq "$(jq -r .why "$dispatch_json")" resources
+t_eq "$(jq -c 'has("endpoint")' "$dispatch_json")" false
+
+# A role on another provider does not move the word: the subagent's own
+# endpoint is the one published.
+reset
+T_ENV+=("${keys[@]}" TEHAS_TICKET_CONCURRENCY=1 PI_ENSEMBLE_MODEL_DEVELOPER=big-model PI_ENSEMBLE_PROVIDER_DEVELOPER=other)
+mesh '{"data":[{"id":"test-model"}]}'
+backed '{"data":[{"id":"test-model"}]}'
+echo '{"providers":{"test-provider":{"baseUrl":"http://mesh.test/v1"},"other":{"baseUrl":"http://other.test/v1"}}}' >"$T/home/.pi/agent/models.json"
+t_run "$dispatch"
+t_eq "$(jq -r .endpoint "$dispatch_json")" main
+t_lacks "$(cat "$dispatch_json")" "other.test"
+
 t_case "with both endpoints failing the start is held, and both reasons are given"
 reset
 T_ENV+=("${keys[@]}")
