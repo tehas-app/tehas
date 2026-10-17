@@ -1604,7 +1604,7 @@ A box was also ticked, by $(jq -r .tick.by <<<"$ans"): $choice"
       fi
       printf '%s\n' "$text" >"$st.answer"
       log "planning #$n continues (answer from $by)"
-      plan_turn "$n" next "$st.answer" "$reply_id"
+      plan_turn "$n" next "$st.answer" "$reply_id" "$by"
       "$status_cmd"
       exit 0
       ;;

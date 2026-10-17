@@ -2209,7 +2209,7 @@ t_contains "$(t_calls gh)" "authorized by @alice's \`tehas:plan\` label"
 t_contains "$(t_calls gh)" "- [ ] Adopt all"
 t_contains "$(t_calls gh)" "<!-- tehas:question kind=plan issue=7 turn=1 -->"
 t_contains "$(t_calls gh)" "--remove-label tehas:planning --add-label tehas:question"
-t_eq "$(jq -c . "$record")" '{"session":"abc-123","turns":1,"options":["Adopt all","Change some"],"pending":false,"failed":false,"running":false,"comment":4002}'
+t_eq "$(jq -c . "$record")" '{"session":"abc-123","turns":1,"options":["Adopt all","Change some"],"pending":false,"failed":false,"running":false,"by":"alice","comment":4002}'
 t_eq "$([ -e "$record.out" ] && echo left)" ""
 t_eq "$(t_calls fake-start)" ""
 
@@ -2282,7 +2282,7 @@ rm -f "$fx/edit-fails"
 t_case "the turn is on record as running before the issue is marked"
 to_plan
 t_run "$dispatch"
-t_eq "$(jq -c . "$T/calls/record.at-mark")" '{"session":"","turns":0,"options":[],"pending":false,"failed":false,"running":true}'
+t_eq "$(jq -c . "$T/calls/record.at-mark")" '{"session":"","turns":0,"options":[],"pending":false,"failed":false,"running":true,"by":"alice"}'
 
 t_case "a session does not start when its record cannot be written, and the issue is not marked"
 to_plan
@@ -2313,7 +2313,32 @@ t_case "while a later turn runs the record names no question"
 planning
 comments 7 "$(plan_body ' ' x ' ')" alice
 t_run "$dispatch"
-t_eq "$(jq -c . "$T/calls/record.at-turn")" '{"session":"abc-123","turns":1,"options":["Adopt all","Change some"],"pending":false,"failed":false,"running":true}'
+t_eq "$(jq -c . "$T/calls/record.at-turn")" '{"session":"abc-123","turns":1,"options":["Adopt all","Change some"],"pending":false,"failed":false,"running":true,"answers":[{"turn":2,"by":"alice","fixer":false}]}'
+
+t_case "who started a session and who answered each turn stay on record after the turn"
+planning
+jq '.by = "alice" | .answers = [{"turn": 1, "by": "bob", "fixer": false}]' "$record" >"$record.new" && mv "$record.new" "$record"
+comments 7 "$(plan_body ' ' x ' ')" alice
+t_run "$dispatch"
+t_eq "$(jq -c '[.turns, .by, .answers]' "$record")" '[2,"alice",[{"turn":1,"by":"bob","fixer":false},{"turn":2,"by":"alice","fixer":false}]]'
+
+t_case "a turn that fails keeps them too"
+planning
+jq '.by = "alice"' "$record" >"$record.new" && mv "$record.new" "$record"
+comments 7 "$(plan_body ' ' x ' ')" alice
+: >"$fx/plan-fails"
+echo '{"session":"abc-123"}' >"$fx/plan-fails"
+t_run "$dispatch"
+t_eq "$(jq -c '[.failed, .by, .answers]' "$record")" '[true,"alice",[{"turn":2,"by":"alice","fixer":false}]]'
+rm -f "$fx/plan-fails"
+
+t_case "answers on record that are not a list stay as they are"
+planning
+jq '.answers = "lots"' "$record" >"$record.new" && mv "$record.new" "$record"
+comments 7 "$(plan_body ' ' x ' ')" alice
+t_run "$dispatch"
+t_contains "$(plan_calls)" "--answer $record.answer"
+t_eq "$(jq -c .answers "$record")" '"lots"'
 
 t_case "a turn cut off before the issue was marked is reported like any cut-off turn"
 planning
@@ -2354,7 +2379,7 @@ t_contains "$(t_calls gh)" "This planning turn did not finish: it exited with st
 t_contains "$(t_calls gh)" "Reply in a comment to run the turn again"
 t_lacks "$(t_calls gh)" "could not start"
 t_contains "$(t_calls gh)" "--remove-label tehas:planning --add-label tehas:question --add-label needs-human-attention"
-t_eq "$(jq -c . "$record")" '{"session":"abc-123","turns":1,"options":[],"pending":false,"failed":true,"running":false,"comment":4002}'
+t_eq "$(jq -c . "$record")" '{"session":"abc-123","turns":1,"options":[],"pending":false,"failed":true,"running":false,"by":"alice","comment":4002}'
 
 t_case "and a reply runs the turn again in that session"
 rm -f "$T"/calls/* "$fx/plan-fails"
