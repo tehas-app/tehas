@@ -38,6 +38,8 @@ case "$1 $2" in
       # It carries tehas:running when the list of marked issues names it.
       *)
         [ ! -e "$T/fx/work-fails" ] || exit 1
+        # One number alone, for a poll that cannot read that issue.
+        [ ! -e "$T/fx/work-$n-fails" ] || exit 1
         if [ -e "$T/fx/work-$n.json" ]; then cat "$T/fx/work-$n.json"; else
           jq -c --argjson n "$n" "{number: \$n, state: \"open\", labels: (if any(.[]?; type == \"object\" and .number == \$n)
             then [{name: \"tehas:running\"}] else [] end)}" "$T/fx/marked.json" 2>/dev/null || echo "{\"number\":$n,\"state\":\"open\"}"
@@ -63,7 +65,16 @@ case "$1 $2" in
     if [ -s "$T/fx/edit-fails-on" ]; then
       case "$*" in *"$(cat "$T/fx/edit-fails-on")"*) exit 1 ;; esac
     fi ;;
-  "pr list") [ ! -e "$T/fx/pr-fails" ] || exit 1; cat "$T/fx/prlist.json" 2>/dev/null || echo "[]" ;;
+  "pr list") [ ! -e "$T/fx/pr-fails" ] || exit 1
+    # gh filters by --author before it prints, and what --json lists names no
+    # author at all. A fixture that does name one stands for a pull request
+    # GitHub left out: one of another account, or one with no account behind
+    # it (a deleted one), which --author matches no name of.
+    if [ -e "$T/fx/prlist.json" ]; then
+      au=$(printf "%s\n" "$@" | sed -n "/^--author$/{n;p;}")
+      jq -c --arg au "$au" "[.[] | select((has(\"author\") | not)
+        or ((.author.login // \"\") == \$au))]" "$T/fx/prlist.json"
+    else echo "[]"; fi ;;
 esac'
 # Stands in for systemctl --user start tehas-cycle@<issue>.service. A real
 # cycle says it holds its lock by writing the .taken file. This one fails or
@@ -91,6 +102,12 @@ if [ -e "$T/fx/plan-fails" ]; then
   exit 2
 fi
 cp "$T/fx/plan-result.json" "$out"'
+# Runs the turn at once, as a unit that ends before the poll looks again, unless
+# the fixture leaves it running: then it starts nothing, and systemctl says the
+# unit is active.
+t_stub fake-plan-start 'n=$1; shift
+[ ! -e "$T/fx/plan-runs" ] || exit 0
+"$@"'
 # Notes what the checkout was at and whether a cycle had already started.
 t_stub fake-index 'git -C "$T/home/tehas/repos/widget" rev-parse HEAD >"$T/calls/index.head"
 [ ! -e "/proc/$$/fd/8" ] || : >"$T/calls/index.fd8"
@@ -102,6 +119,8 @@ t_stub systemctl 'case "$1 $2" in
   "show tehas.slice")
     [ ! -e "$T/fx/slice-hangs" ] || exec sleep 20
     cat "$T/fx/slice.show" ;;
+  "--user show")
+    if [ -e "$T/fx/plan-runs" ] && [ "${6:-}" = "tehas-plan-$(cat "$T/fx/plan-runs").service" ]; then echo active; else echo inactive; fi ;;
 esac'
 t_stub docker 'case "$1" in
   info) cat "$T/fx/docker.info" ;;
@@ -125,7 +144,7 @@ cid() { # <issue> <hex digit> <bytes in use>
 dispatch_json=$T/home/tehas/live/dispatch.json
 
 reset() {
-  rm -f "$T"/calls/* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/icomments-* "$fx"/prs.json "$fx"/prlist.json "$fx"/pr-fails "$fx"/issue-* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/slice-* "$fx"/orphan-* "$fx"/prs-*
+  rm -f "$T"/calls/* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/icomments-* "$fx"/prs.json "$fx"/prlist.json "$fx"/pr-fails "$fx"/issue-* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/plan-runs "$fx"/slice-* "$fx"/orphan-* "$fx"/prs-*
   rm -rf "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-* "$T"/home/tehas/state/park-* "$T/home/tehas/live" "$T/home/tehas/state/pause.json"
   # A slice of 20 GiB with nothing in it: room for ten cycles of the default
   # reserve, so the slots and the review cap decide unless a case says more.
@@ -146,7 +165,7 @@ reset() {
   echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
   # The control issue has never been paused: no tehas:pause event to read.
   echo '[]' >"$fx/events-1.json"
-  T_ENV=(TEHAS_CYCLE_START_CMD=fake-start TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index TEHAS_PLAN_CMD=fake-plan "$slice_env")
+  T_ENV=(TEHAS_CYCLE_START_CMD=fake-start TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index TEHAS_PLAN_CMD=fake-plan TEHAS_PLAN_START_CMD=fake-plan-start "$slice_env")
   t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
 }
 # A cycle that is running: its lock, held by this shell until release.
@@ -2754,6 +2773,76 @@ t_eq "$(plan_calls)" ""
 
 t_case "the container of a cut-off turn is removed before the turn is reported"
 t_contains "$(t_calls docker)" "rm -f tehas-plan-7"
+t_case "a poll does not wait for a planning turn: a ready issue starts while it runs"
+to_plan
+echo 7 >"$fx/plan-runs"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "planning #7: turn 1 runs as tehas-plan-7.service"
+t_eq "$(jq -r .running "$record")" true
+t_lacks "$(t_calls gh)" "kind=plan"
+echo '[{"number":8,"labels":[{"name":"tehas:ready"}]}]' >"$fx/ready.json"
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}}]' >"$fx/events-8.json"
+rm -f "$T"/calls/*
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "8"
+t_eq "$(jq -r .running "$record")" true
+t_lacks "$(t_calls gh)" "kind=plan"
+t_eq "$(plan_calls)" ""
+
+t_case "the poll after a turn ends posts its outcome, once"
+rm -f "$fx/plan-runs"
+echo '[]' >"$fx/ready.json"
+# The first poll took tehas:plan off the issue.
+echo '[]' >"$fx/plans.json"
+cp "$fx/plan-result.json" "$record.out"
+echo 0 >"$record.rc"
+rm -f "$T"/calls/*
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "<!-- tehas:question kind=plan issue=7 turn=1 -->"
+t_eq "$(jq -r '[.session, .turns, .running] | @tsv' "$record")" "abc-123	1	false"
+t_eq "$([ -e "$record.rc" ] && echo left)" ""
+rm -f "$T"/calls/*
+t_run "$dispatch"
+t_lacks "$(t_calls gh)" "kind=plan"
+t_eq "$(plan_calls)" ""
+
+t_case "a turn's exit status other than 0 is reported as a failed turn"
+planning
+echo '[]' >"$fx/asking.json"
+jq '.running = true' "$record" >"$record.new" && mv "$record.new" "$record"
+echo 2 >"$record.rc"
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "This planning turn did not finish: it exited with status 2"
+t_eq "$(jq -r '[.turns, .failed, .running] | @tsv' "$record")" "2	true	false"
+t_lacks "$(t_calls docker)" "rm -f tehas-plan-7"
+
+t_case "an answer waits while another session's turn runs"
+planning
+comments 7 "$(plan_body ' ' x ' ')" alice
+echo '{"session":"xyz","turns":1,"options":[],"pending":false,"failed":false,"running":true}' >"$T/home/tehas/state/plan-9.json"
+echo 9 >"$fx/plan-runs"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "planning #7 waits: the turn of #9 is still running"
+t_eq "$(plan_calls)" ""
+t_eq "$(jq -r .turns "$record")" 1
+rm -f "$T/home/tehas/state/plan-9.json"
+
+t_case "a turn whose unit cannot start is reported as a failed turn"
+planning
+comments 7 "$(plan_body ' ' x ' ')" alice
+t_stub fake-plan-start 'exit 1'
+t_run "$dispatch"
+t_contains "$t_out" "ERROR: could not start the planning turn of #7"
+t_contains "$(t_calls gh)" "This planning turn did not finish: it could not be started as a unit"
+t_eq "$(jq -r '[.failed, .running] | @tsv' "$record")" "true	false"
+t_stub fake-plan-start 'n=$1; shift
+[ ! -e "$T/fx/plan-runs" ] || exit 0
+"$@"'
+
 t_case "a first turn cut off by a restart ends visibly"
 planning
 echo '[]' >"$fx/asking.json"
@@ -3637,6 +3726,9 @@ bare_tree() {
   cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/cycles.sh" "$T_ROOT/lib/labels.sh" "$T_ROOT/lib/questions.sh" "$T_ROOT/lib/planning.sh" "$T_ROOT/lib/slice.sh" "$T_ROOT/lib/attachments.sh" "$tree/lib/"
   for name in status index plan; do cp "$T/bin/fake-$name" "$tree/libexec/$name"; done
   for name in tehas tehasbot tehas-work tehas-status tehas-index tehas-plan; do t_stub "$name"; done
+  # Runs the unit's command at once, after its own options.
+  t_stub systemd-run 'while [ "$#" -gt 0 ]; do case "$1" in --unit) shift 2 ;; -*) shift ;; *) break ;; esac; done
+"$@"'
 }
 
 t_case "without the test seams it runs the scripts beside it and starts the unit"
@@ -3664,6 +3756,8 @@ bare_tree
 t_run "$tree/libexec/dispatch"
 t_eq "$t_rc" 0
 t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --brief $record.brief"
+t_contains "$(t_calls systemd-run)" "--user --quiet --collect --unit tehas-plan-7 /bin/bash -c"
+t_contains "$(t_calls gh)" "- [ ] Adopt all"
 for name in tehas tehasbot tehas-plan; do t_eq "$(t_calls "$name")" ""; done
 
 t_case "a unit systemd cannot load changes no label and starts nothing, exit 1"
@@ -3735,9 +3829,19 @@ stop_by_kill() {
   t_stub fake-stop 'kill "$(cat "$T/fx/holder-$1")"'
   T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
 }
-bot_pr() { # <issue> <state> <created at>
-  jq -n --arg n "$1" --arg st "$2" --arg at "$3" '[{url: "https://github.com/acme/widget/pull/90", state: $st,
-    body: "Fixes #\($n)", headRefName: "feature/issue-\($n)-x", createdAt: $at}]' >"$fx/prlist.json"
+# The bot's own pull request unless an author is named; - for one GitHub
+# reports no author for.
+bot_pr() { # <issue> <state> <created at> [<author login>]
+  jq -n --arg n "$1" --arg st "$2" --arg at "$3" --arg au "${4:-}" '[{url: "https://github.com/acme/widget/pull/90", state: $st,
+    body: "Fixes #\($n)", headRefName: "feature/issue-\($n)-x", createdAt: $at}
+    + (if $au == "" then {} elif $au == "-" then {author: null}
+       else {author: {login: $au}} end)]' >"$fx/prlist.json"
+}
+# The cycle's lock is still held: nothing stopped it, and its slot is still taken.
+still_holding() { # <issue>
+  if flock -n "$T/home/tehas/state/cycles/$1.lock" true; then
+    t_bad "the cycle for #$1 no longer holds its lock"
+  fi
 }
 
 t_case "a running cycle whose issue is closed is stopped, and its slot is filled on the same poll"
@@ -3789,6 +3893,56 @@ t_run "$dispatch"
 t_eq "$(t_calls fake-stop)" ""
 t_eq "$(t_calls fake-start)" ""
 t_contains "$(t_calls gh)" "pr list --repo acme/widget --author tehas-bot --state all"
+kill "$(cat "$fx/holder-9")"
+
+# A poll that cannot ask stops nothing: a cycle is never given up on a guess.
+t_case "a poll that cannot read the bot's pull requests stops nothing and leaves the cycle holding its lock"
+reset
+stop_by_kill
+ready 7
+hold_proc 9
+bot_pr 9 MERGED 2099-01-01T00:00:00Z
+: >"$fx/pr-fails"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: gh pr list failed"
+t_lacks "$t_out" "stop #9"
+t_eq "$(t_calls fake-stop)" ""
+t_eq "$(find "$T/home/tehas/state/cycles/9.done" 2>/dev/null | wc -l)" 0
+still_holding 9
+kill "$(cat "$fx/holder-9")"
+
+t_case "a poll that cannot read the issue stops nothing and leaves the cycle holding its lock"
+reset
+stop_by_kill
+ready 7
+hold_proc 9
+echo '{"number":9,"state":"closed"}' >"$fx/work-9.json"
+: >"$fx/work-9-fails"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: gh api repos/acme/widget/issues/9 failed"
+t_lacks "$t_out" "stop #9"
+t_eq "$(t_calls fake-stop)" ""
+t_eq "$(find "$T/home/tehas/state/cycles/9.done" 2>/dev/null | wc -l)" 0
+still_holding 9
+kill "$(cat "$fx/holder-9")"
+
+t_case "a merged pull request of another account, or one with no author, stops nothing; the bot's own stops it"
+reset
+stop_by_kill
+ready 7
+hold_proc 9
+for au in someone-else -; do
+  bot_pr 9 MERGED 2099-01-01T00:00:00Z "$au"
+  t_run "$dispatch --dry-run"
+  t_lacks "$t_out" "would stop"
+  t_eq "$(t_calls fake-stop)" ""
+done
+bot_pr 9 MERGED 2099-01-01T00:00:00Z tehas-bot
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would stop tehas-cycle@9.service: its pull request https://github.com/acme/widget/pull/90 is merged"
+t_eq "$(t_calls fake-stop)" ""
 kill "$(cat "$fx/holder-9")"
 
 t_case "a dry run says it would stop a finished cycle, and stops nothing"
@@ -4245,7 +4399,6 @@ t_eq "$(notes)" ""
 t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 "
 release
 
-
 # The control issue is the pause switch, not work. A label on it asks for
 # nothing, whoever applied it, and the poll leaves its labels alone. The stub
 # reads the events of an issue from events-<issue>, so a case that does not
@@ -4379,5 +4532,118 @@ echo '[{"number":1,"labels":[{"name":"tehas:ready"},{"name":"tehas:plan"}]}]' >"
 slots 2
 t_run "$dispatch --dry-run"
 t_eq "$(grep -c 'the control issue is never worked on' <<<"$t_out")" 1
+# --- The fixer ---------------------------------------------------------------
+# Issue 7 is labelled by the fixer, its body is "Words.", and alice approved
+# its last cycle on that body.
+WSUM=$(printf 'Words.' | sha256sum | cut -d' ' -f1)
+fixer_ready() { # [<approval record of the last start>]
+  reset
+  t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_FIXER_LOGIN=tehas-fixer
+  echo '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"needs-human-attention"},{"name":"tehas:question"},{"name":"tehas:fixer-escalated"}]}]' >"$fx/ready.json"
+  echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"tehas-fixer"},"created_at":"2026-10-02T00:00:00Z"}]' >"$fx/events-7.json"
+  jq -n '{data: {repository: {issue: {lastEditedAt: null, editor: null, body: "Words."}}}}' >"$fx/edit-7.json"
+  echo '[]' >"$fx/icomments-7.json"
+  mkdir -p "$T/home/tehas/state/cycles"
+  printf '%s\n' "${1:-{\"at\":\"2026-10-01T00:00:00Z\",\"by\":\"alice\",\"how\":\"label\",\"body_sha256\":\"$WSUM\",\"links\":[]\}}" >"$approved_file"
+}
+
+t_case "the fixer's tehas:ready on an issue alice approved starts a cycle that rests on her approval"
+fixer_ready
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(jq -c '[.by, .how, .fixer_starts, .rests_on.by, .rests_on.at, .rests_on.how, (.rests_on.body_sha256 == .body_sha256)]' "$approved_file")" \
+  '["tehas-fixer","fixer",1,"alice","2026-10-01T00:00:00Z","label",true]'
+t_contains "$t_out" "start #7 (labelled by the fixer by tehas-fixer)"
+t_contains "$(t_calls gh)" "authorized by @tehas-fixer's \`tehas:ready\` label as the fixer, on alice's approval of 2026-10-01T00:00:00Z"
+
+t_case "the start takes tehas:fixer-escalated off with the rest of the earlier outcome"
+t_contains "$(t_calls gh)" "--remove-label tehas:ready --remove-label tehas:question --remove-label tehas:fixer-escalated"
+
+t_case "a second fixer start counts on from the first and keeps the person's approval"
+fixer_ready "$(jq -c '.' "$approved_file")"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(jq -c '[.how, .fixer_starts, .rests_on.by]' "$approved_file")" '["fixer",2,"alice"]'
+
+t_case "at the limit the fixer's label comes off, and the issue says a person decides"
+fixer_ready "$(jq -c '.fixer_starts = 2' "$approved_file")"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "skip #7: tehas:ready from the fixer starts nothing: the fixer has started 2 cycles on it since alice approved it, the limit"
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:ready"
+t_contains "$(t_calls gh)" "The fixer applied it, and the fixer may not start this issue"
+t_lacks "$t_out" "not an allowed account"
+
+t_case "no approval by a person before: the fixer's label starts nothing"
+fixer_ready
+rm -f "$approved_file"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "no person approved an earlier cycle of it"
+
+t_case "a body changed since the person's approval: the fixer's label starts nothing"
+fixer_ready
+jq -n '{data: {repository: {issue: {lastEditedAt: null, editor: null, body: "Other words."}}}}' >"$fx/edit-7.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "its text is not the text alice approved"
+
+t_case "the fixer's label on the control issue starts nothing"
+fixer_ready
+echo '[{"number":1,"labels":[{"name":"tehas:ready"}]}]' >"$fx/ready.json"
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"tehas-fixer"},"created_at":"2026-10-02T00:00:00Z"}]' >"$fx/events-1.json"
+cp "$approved_file" "$T/home/tehas/state/cycles/1.approved.json"
+cp "$fx/edit-7.json" "$fx/edit-1.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" 'skip #1: the control issue is never worked on (`tehas:ready`)'
+
+t_case "with no fixer on the instance, its account is an outsider like any other"
+fixer_ready
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "clear #7: tehas:ready off, applied by 'tehas-fixer' who may not authorise work here"
+
+t_case "a bot that is the fixer stops the poll: exit 78"
+fixer_ready
+echo '{"login":"tehas-fixer"}' >"$fx/user.json"
+t_run "$dispatch"
+t_eq "$t_rc" 78
+t_contains "$t_out" "the bot account tehas-fixer is TEHAS_FIXER_LOGIN"
+t_eq "$(t_calls fake-start)" ""
+
+t_case "the fixer's marked comment before its label is the retry's context, whatever the comments setting"
+fixer_ready
+{
+  echo '['
+  icomment 81 tehas-fixer 2026-10-01T23:55:00Z 2026-10-01T23:55:00Z $'<!-- tehas:fixer issue=7 action=change -->\nRun the gate first.'
+  echo ','
+  icomment 80 tehas-fixer 2026-10-01T20:00:00Z 2026-10-01T20:00:00Z $'<!-- tehas:fixer issue=7 action=change -->\nAn older decision.'
+  echo ','
+  icomment 82 mallory 2026-10-01T23:58:00Z 2026-10-01T23:58:00Z $'<!-- tehas:fixer issue=7 action=change -->\nNot the fixer.'
+  echo ','
+  icomment 83 tehas-fixer 2026-10-01T23:59:00Z 2026-10-02T01:00:00Z $'<!-- tehas:fixer issue=7 action=change -->\nEdited after the label.'
+  echo ']'
+} >"$fx/icomments-7.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(jq -c '.retry_context' "$approved_file")" \
+  '[{"source":"fixer:81","by":"tehas-fixer","at":"2026-10-01T23:55:00Z","text":"<!-- tehas:fixer issue=7 action=change -->\nRun the gate first."}]'
+t_eq "$(jq -c 'has("comment_links")' "$approved_file")" false
+
+t_case "a title changed by an outsider since the person's approval: the fixer's label starts nothing"
+fixer_ready
+echo '[{"event":"renamed","actor":{"login":"mallory"},"created_at":"2026-10-01T12:00:00Z"},{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"tehas-fixer"},"created_at":"2026-10-02T00:00:00Z"}]' >"$fx/events-7.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "its title or text was changed since alice approved it"
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:ready"
+
+t_case "without such a comment the record has no context"
+fixer_ready
+t_run "$dispatch"
+t_eq "$(jq -c 'has("retry_context")' "$approved_file")" false
 
 t_done

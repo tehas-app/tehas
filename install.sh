@@ -213,6 +213,7 @@ files=(
   "lib/labels.sh|$TEHAS_HOME/lib/labels.sh|644"
   "lib/improve.sh|$TEHAS_HOME/lib/improve.sh|644"
   "lib/improve-prompt.md|$TEHAS_HOME/lib/improve-prompt.md|644"
+  "lib/fixer.sh|$TEHAS_HOME/lib/fixer.sh|644"
   "lib/live.sh|$TEHAS_HOME/lib/live.sh|644"
   "lib/models.sh|$TEHAS_HOME/lib/models.sh|644"
   "lib/update-steps.sh|$TEHAS_HOME/lib/update-steps.sh|644"

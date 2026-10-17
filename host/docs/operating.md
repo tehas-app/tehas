@@ -219,9 +219,10 @@ The dispatcher takes issues urgent first, then by the lowest issue number: as ma
 | `tehas:planning`        | A planning turn is running        | Wait                                     |
 | `tehas:question`        | The factory asked something       | Tick a box; in a planning session you may reply instead |
 | `tehas:improvement`     | Filed by the improvement loop     | Read it; apply `tehas:ready` if it should be built |
+| `tehas:fixer-escalated` | The fixer left it to a person     | Read the fixer's note; decide, or take the label off to hand it back |
 
 `tehas:ready` from an allowed labeller starts a fresh cycle whatever else the
-issue carries. tehas's labels of the earlier outcome go when the cycle starts.
+issue carries. So does one from [the fixer](#the-fixers-grant), within its grant. tehas's labels of the earlier outcome go when the cycle starts.
 `needs-human-attention` stays until the cycle runs: the cycle starts with
 `--restart`, and pi-rukas takes the label off as it begins. The dashboard
 counts an issue with `tehas:running` as running, whatever else it carries. On
@@ -388,11 +389,14 @@ tehas removes it nowhere. Branches and
 commits the earlier attempt pushed are kept on GitHub. What it left only on the
 host, such as commits on worktrees that were never pushed, is moved to
 `~/tehas/work/tehas-<issue>.before-retry` and stays there until a cycle of that
-issue merges or leaves a pull request. Only the latest stopped attempt is kept:
-a second retry replaces it. Recover what you need from a stopped cycle before
-you retry twice. Nothing is kept for ever: the dispatcher's poll removes an
-issue's kept workspaces once no cycle has run on it for 7 days, three issues a
-poll at most, and logs each removal.
+issue ends with its own merge, or hands off waiting only for a human to merge.
+A merge or a close someone else makes while the cycle runs keeps both the
+workspace and that copy, for the poll's 7-day removal. Only the latest stopped
+attempt is kept: a second retry replaces it, unless the attempt before cloned
+no workspace, which leaves the older copy beside the new one. Recover what you
+need from a stopped cycle before you retry twice. Nothing is kept for ever: the
+dispatcher's poll removes an issue's kept workspaces once no cycle has run on
+it for 7 days, three issues a poll at most, and logs each removal.
 
 A label or a tick approves the text of the issue as it was at that moment. If
 someone other than an allowed labeller changes the title or the body
@@ -434,11 +438,13 @@ dispatcher's log says so.
    boxes fits. If you do both, the reply counts, and the agent is told
    which box was ticked as well. The next poll that is free
    continues the session with your answer, and the issue carries
-   `tehas:planning` while the turn runs. A poll waits for a planning turn,
-   so while another planning turn runs, your answer waits until it ends,
-   which can be an hour, and no new cycle starts either. A running work
-   cycle does not hold an answer back. A poll also handles one answer or one
-   planning start and then stops, and it does nothing while the model
+   `tehas:planning` while the turn runs. The turn runs as its own unit,
+   `tehas-plan-<issue>.service`, and the polls go on meanwhile: cycles start
+   as usual, and the first poll after the turn ends posts its outcome. One
+   planning turn runs at a time, so while another runs, your answer waits
+   until it ends, which can be an hour. A running work cycle does not hold
+   an answer back. A poll also handles one answer or one planning start and
+   then stops, and it does nothing while the model
    endpoint does not list the model.
 5. The agent shows you a plan before it files it, and files it when you
    confirm. Every turn of a session works on the commit the session started
@@ -601,8 +607,16 @@ not published.
   does: the container goes, the lock is released and `tehas:running` comes
   off. The log says `stop #N: <reason>`. A merged one is reported as merged,
   one whose issue was closed only loses `tehas:running`, and one whose pull
-  request was closed is parked without the retry boxes. The slot is filled
-  on the same poll. And a cycle that ends starts a poll at once
+  request was closed is parked without the retry boxes. What the cycle had not
+  pushed is nowhere else, so a cycle stopped this way keeps its workspace, and
+  its comment names the workspace it left (`~/tehas/work/tehas-<issue>`) when
+  there is one, and says the cycle left none when there is not. tehas removes a
+  workspace only when the cycle ends with its change merged, or hands off with
+  its pull request open for a human to merge. A poll that cannot read the
+  issue or the pull requests ends there: it stops nothing, starts no cycle and
+  sweeps no kept workspace, so a cycle is never given up on a guess and holds
+  its slot until a later poll can ask. The slot is filled on the same poll.
+  And a cycle that ends starts a poll at once
   (`tehas-dispatch.service`), so its slot does not wait for the timer. If a
   poll is running then, systemd takes that start as the running poll, which
   may have counted the cycle as still running. So the cycle also leaves
@@ -726,6 +740,56 @@ was filed, and the two cycles it named nowhere wait for a later run.
 To turn the loop off, remove `TEHAS_IMPROVE_REPO` from `instance.env`: cycles
 stop leaving records and a run does nothing. Or stop the timer with
 `systemctl --user disable --now tehas-improve.timer`.
+
+## The fixer's grant
+
+Optional. The fixer is an account that decides on parked issues from outside
+the factory: start one again, start it again working differently, or leave it
+to a person. What runs as that account is not part of tehas. The factory says
+what the account may do, and this section is that.
+
+- **It is an account of its own**, named by `TEHAS_FIXER_LOGIN`. It is never
+  the bot, because every agent posts as the bot: a poll stops with 78 when
+  the two are one. It is never one of `TEHAS_ALLOWED_LABELERS`: loading the
+  settings stops with 78. Unset, there is no fixer, and the account's labels
+  count as any outsider's.
+- **Its `tehas:ready` starts a cycle only within its grant**: a person
+  approved an earlier cycle of the issue, the body is still the body that
+  person approved, nobody outside the list changed the title or text since,
+  and the fixer has started fewer than `TEHAS_FIXER_MAX_RETRIES` cycles on it
+  since that approval (2 unless the instance says otherwise). Otherwise the
+  label comes off and the issue says why. So the fixer never starts work
+  nobody asked for: it never readies a `tehas:improvement` proposal.
+- **The approval record says so.** A fixer start has `how: "fixer"`,
+  `rests_on`, the person's approval it rests on, and `fixer_starts`. A
+  person's start counts again from none. Its other limits are the
+  dispatcher's as for any start: the slots, the cap of waiting merges and
+  the slice's room.
+- **Its comment reaches the cycle.** The fixer's newest comment on the issue
+  that starts with `<!-- tehas:fixer issue=<n> action=retry -->` or
+  `action=change`, written in the ten minutes before its label and edited by
+  nobody after, goes into the record as `retry_context`. Where the instance
+  gives a cycle images or files, `tehas work` writes it to
+  `retry-context.md` beside them, quoted, under a head that says a model
+  wrote it. No mount and no variable more: elsewhere it reaches no cycle.
+- **`tehas:fixer-escalated`** is the fixer's word that a person decides.
+  The factory does nothing on it; a start takes it off.
+- **Each cycle's end leaves a line** in
+  `~/tehas/state/cycles/<issue>.history.jsonl`, the last 50: when, its
+  status, last step, cap, park reason, failure, whether a provider outage
+  stopped it, whether it parked, its pull request and who started it.
+  Nothing in tehas reads it yet; it is the record a later `tehas history`
+  lists. A fixer reads GitHub, not this file.
+- **The park comment carries the park's facts.** The bot's park comment,
+  with boxes or without, has the line
+  `<!-- tehas:park issue=<n> step=<step> kind=<failure kind> provider=<0|1> sig=<sha256> -->`.
+  `step` and `kind` are the history line's, cut to `[a-z0-9-]`, and empty
+  when the cycle had none. `provider` is 1 when a provider outage stopped
+  it. `sig` is the sha256 of the history line's
+  `step|cap|park_reason|failure_kind|failure_cause`: two parks with the same
+  `sig` stopped the same way. The free text of a park stays out of the
+  marker. Only the bot's comments count: a reader ignores the line in
+  anyone else's.
 
 ## Run one issue by hand
 

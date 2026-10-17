@@ -629,8 +629,9 @@ ever:
 | The push check before a cycle | 300 s | `tehas work` exits 3, with `the push check did not end within 300s` |
 | The clone of the cycle's workspace | 300 s | `tehas work` exits 78 |
 | `docker stop` at the end of a cycle, and on a signal | 60 s | `docker kill`, bounded the same way, and the line `docker stop of tehas-work-N did not end within 60s, killing it` |
+| The console at the end of a cycle | 3 s, then 30 s after it is asked to stop (`TEHAS_CONSOLE_WAIT`) | The console is killed, with `the console did not stop within 30s, killing it` |
 | A call to GitHub in the report of a cycle that was stopped | 20 s, tried once | The call counts as refused. A label change that never happened leaves the issue `tehas:running` for the next poll |
-| The stop of a cycle, its container and its report | 300 s (`TimeoutStopSec` of `tehas-cycle@.service`) | systemd kills the unit. The worst stop within the bounds above is about 230 s |
+| The stop of a cycle, its container and its report | 300 s (`TimeoutStopSec` of `tehas-cycle@.service`) | systemd kills the unit. The worst stop within the bounds above is about 265 s |
 | The dispatcher's fetch of the product checkout | 120 s | `WARN: could not fast-forward`, and the poll goes on |
 | A poll of the dispatcher | 3 hours (`TimeoutStartSec` of `tehas-dispatch.service`) | systemd stops it. A planning turn it cut off is reported by the next poll |
 
@@ -639,8 +640,8 @@ last bound for a hang that none of these reaches. The stop is a TERM, and the
 cycle is reported as one that stopped. A unit cannot read the instance's
 settings, so `TEHAS_WORK_TIMEOUT` may be at most 25200, 7 hours: a longer one
 is refused with exit 78. The hour between is for the stop and the report.
-`TEHAS_PLAN_TIMEOUT` may be at most 7200 for the same reason: a poll that runs
-a planning turn also fetches, and calls GitHub. A poll that finds the
+`TEHAS_PLAN_TIMEOUT` may be at most 7200. A planning turn runs as its own
+unit, not inside a poll, so it holds no poll and no lock. A poll that finds the
 dispatcher's lock held for longer than `TEHAS_PLAN_TIMEOUT` plus half an hour
 says so once in the log, as [troubleshooting](/troubleshooting) shows.
 

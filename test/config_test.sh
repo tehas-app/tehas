@@ -285,6 +285,28 @@ printf '%s\n' "${T_MINIMAL[@]}" TEHAS_IMPROVE_MAX_OPEN=30 >"$TEHAS_INSTANCE_DIR/
 t_run "$load && echo \"[\$TEHAS_IMPROVE_MAX_OPEN]\""
 t_eq "$t_out" "[30]"
 
+t_case "the fixer is off unless the instance names its account, and may retry twice by default"
+printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && set -u && echo \"[\$TEHAS_FIXER_LOGIN][\$TEHAS_FIXER_MAX_RETRIES]\""
+t_eq "$t_out" "[][2]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_FIXER_LOGIN=tehas-fixer TEHAS_FIXER_MAX_RETRIES=3 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_FIXER_LOGIN][\$TEHAS_FIXER_MAX_RETRIES]\""
+t_eq "$t_out" "[tehas-fixer][3]"
+
+for bad in "TEHAS_FIXER_LOGIN=two words" "TEHAS_FIXER_LOGIN=-x" "TEHAS_FIXER_MAX_RETRIES=0" "TEHAS_FIXER_MAX_RETRIES=many"; do
+  t_case "loading rejects $bad"
+  printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  t_contains "$t_out" "tehas: ${bad%%=*} is not valid"
+done
+
+t_case "the fixer is never one of the accounts that authorise work"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_FIXER_LOGIN=alice >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "TEHAS_FIXER_LOGIN (alice) is in TEHAS_ALLOWED_LABELERS"
+
 t_case "analytics is off unless the instance names a script and a site"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && echo \"[\$TEHAS_ANALYTICS_SRC][\$TEHAS_ANALYTICS_SITE][\$TEHAS_ANALYTICS_COOKIE]\""
@@ -465,9 +487,9 @@ t_eq "$t_out" "5 600"
 
 t_case "the planning test hook is kept from the environment, a setting of that name is not"
 t_instance "${T_MINIMAL[@]}"
-T_ENV=(TEHAS_PLAN_CMD=fake-plan TEHAS_PLAN_MAX_TURNS=99)
-t_run '. "$T_ROOT/lib/config.sh"; tehas_load; echo "$TEHAS_PLAN_CMD $TEHAS_PLAN_MAX_TURNS"'
-t_eq "$t_out" "fake-plan 20"
+T_ENV=(TEHAS_PLAN_CMD=fake-plan TEHAS_PLAN_START_CMD=fake-plan-start TEHAS_PLAN_MAX_TURNS=99)
+t_run '. "$T_ROOT/lib/config.sh"; tehas_load; echo "$TEHAS_PLAN_CMD $TEHAS_PLAN_START_CMD $TEHAS_PLAN_MAX_TURNS"'
+t_eq "$t_out" "fake-plan fake-plan-start 20"
 T_ENV=()
 
 # The host's CPU count is read with nproc; a stub makes the default the same

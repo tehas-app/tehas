@@ -63,6 +63,8 @@ in the platform repository has every one with a comment.
 | `TEHAS_IMPROVE_REPO`            | empty                                    | Optional. `owner/name` of the repository the [improvement loop](#tehasbot-improve) files its findings in. Empty: no loop |
 | `TEHAS_IMPROVE_RUKAS_REPO`      | empty                                    | Optional. `owner/name` of the repository the loop files in what only a change in pi-rukas can fix. Empty: those findings go to `TEHAS_IMPROVE_REPO` with the rest. Needs `TEHAS_IMPROVE_REPO` |
 | `TEHAS_IMPROVE_MAX_OPEN`        | `10`                                     | How many issues labelled `tehas:improvement` may be open in one repository before the loop files no more there |
+| `TEHAS_FIXER_LOGIN`             | empty                                    | Optional. The account whose `tehas:ready` the dispatcher takes on [the fixer's grant](/operating#the-fixers-grant). Never the bot and never one of `TEHAS_ALLOWED_LABELERS`. Empty: no fixer |
+| `TEHAS_FIXER_MAX_RETRIES`       | `2`                                      | How many cycles the fixer may start on one issue since a person last approved it |
 | `TEHAS_WORK_REPO`               | `~/tehas/repos/<name>`                   | The product checkout cycles are cloned from. Must be a clone of `TEHAS_REPO`. A cycle works in `~/tehas/work/<name>-<issue>`, which is not a setting |
 | `TEHAS_BRANCH`                  | the checkout's `origin/HEAD`             | Branch cycles start from and pull requests target               |
 | `TEHAS_CONCURRENCY`             | `1`                                      | Workstreams side by side inside one cycle. Above 1 only with `TEHAS_TICKET_CONCURRENCY=1`: with both above 1 a command stops with 78 (see [The host](/host#limits-and-concurrency)) |
@@ -78,7 +80,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_VERIFY_TIMEOUT`          | `1800`                                   | Seconds one run of the product's gate may take inside a cycle. A gate that takes longer is stopped and the cycle parks with the cap `verify-timeout:<step>`. Passed to pi-rukas as `PI_ENSEMBLE_VERIFY_TIMEOUT_MS` and `PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS`; pi-rukas alone allows ten minutes. The bound is for one run under the container's CPU quota: a run that waits for another to end does not count its wait. With a `.pi/verify-cmd-fast`, the fast and the full command share it. The cycle's deadline leaves at least this much and 8 minutes before `TEHAS_WORK_TIMEOUT` |
 | `TEHAS_RUKAS_WORKAROUNDS`       | empty                                    | Optional. The settings of this instance that only work around a pi-rukas defect, as `NAME@VERSION` separated by single spaces, `VERSION` being the pi-rukas release that fixes it. `tehas work` stops a cycle with 78 once the image's pi-rukas is that release or later, naming the setting: remove it and its entry. An entry for a setting the instance does not set stops every command with 78. Write the pi-rukas issue in a comment beside the setting |
 | `TEHAS_PLAN_MAX_TURNS`          | `20`                                     | Turns a planning session may take before it is ended            |
-| `TEHAS_PLAN_TIMEOUT`            | `3600`                                   | Seconds before one planning turn is given up. At most 7200: [the poll's unit](/host#time-limits) stops a poll after 3 hours |
+| `TEHAS_PLAN_TIMEOUT`            | `3600`                                   | Seconds before one planning turn is given up. At most 7200 |
 | `PI_ENSEMBLE_HOST_ALIASES`      | empty                                    | `name:address` pairs the sandbox must resolve, comma separated  |
 | `PI_ENSEMBLE_REVIEW_THRESHOLD`  | unset                                    | Optional. The code-review severity that blocks a change in a cycle: `CRITICAL`, `HIGH`, `MEDIUM` or `LOW`. Read by pi-rukas, not by tehas, and it wins over the severity the product's doctrine (`AGENTS.md` or `CLAUDE.md`) states. Unset, or anything other than those four words: pi-rukas ignores it and uses the severity that doctrine states, and MEDIUM when it states none. tehas does not check this value and does not stop with 78 over it. A `CRITICAL` finding blocks whatever this says |
 | `PI_ENSEMBLE_IMAGE`             | `tehas/pi-rukas:uid<uid>`                | The sandbox image                                               |
@@ -214,8 +216,11 @@ Beside the queue, a poll also reads two kinds of answer. A box ticked by an
 allowed account in the bot's comment on a stopped cycle can start a fresh
 cycle, and a reply or a ticked box on a planning question runs the next turn of
 that session. A retry waits for a free slot and for the cap, as any cycle does.
-A planning turn waits for neither. The poll waits for a planning turn to end,
-so no cycle starts while one runs; cycles that are already running go on. A comment is a question only if the host has its id on record:
+A planning turn waits for neither. It runs as its own unit,
+`tehas-plan-<issue>.service`, started with `systemd-run`, and the poll does not
+wait for it: cycles start while it runs, and the first poll after it ends posts
+its outcome from the exit status it left in `~/tehas/state/plan-<issue>.json.rc`.
+One planning turn runs at a time. A comment is a question only if the host has its id on record:
 in `~/tehas/state/plan-<issue>.json` for a planning session, in
 `~/tehas/state/park-<issue>.id` for a stopped cycle. Only the last 100
 comments of an issue are read; a question further back than that is skipped
@@ -903,9 +908,10 @@ with `tehas work` refreshes nothing.
 tehas labels        # one line per label
 ```
 
-Creates the ten labels tehas uses in the product repository: `tehas:ready`,
+Creates the eleven labels tehas uses in the product repository: `tehas:ready`,
 `tehas:urgent`, `tehas:running`, `tehas:awaiting-merge`, `tehas:shipped`, `tehas:pause`,
-`needs-human-attention`, `tehas:question`, `tehas:plan` and `tehas:planning`.
+`needs-human-attention`, `tehas:question`, `tehas:plan`, `tehas:planning` and
+`tehas:fixer-escalated`.
 Run it once for a new product, and again after pulling a version that adds a
 label. Run again, it puts their colours and descriptions back. It needs `TEHAS_REPO` and no other
 setting. Exit 0 when every label is there, 1 when one could not be made, 64 on
@@ -2115,8 +2121,35 @@ It runs shellcheck over the shell scripts, then every `test/*_test.sh`. Those
 need bash, git, jq and shellcheck only: no sandbox image, no product checkout
 and no network. The test files run side by side, at most `TEHAS_TEST_JOBS` at
 once: by default the CPU quota of the cgroup it runs in, rounded up, or the
-number of CPUs where there is none. Exit 0 when every check passed, 1 when one
-failed, 2 when nothing could be checked.
+number of CPUs where there is none. Each file's output is printed whole, in name
+order, and the run ends with a block that says what did not pass:
+
+```
+test.sh: failed checks (2), not run (0)
+    shellcheck
+    test/plan_test.sh
+```
+
+Its first line counts the checks that failed and the checks that did not run.
+Each line after it names one of them: `shellcheck`, or the path of a failing
+test file relative to the checkout, with a reason after it when there is more to
+say than the exit status: `it did not finish, no result recorded` for a file
+that never ended, `its recorded result could not be read` for a record that is
+not a number, `its output could not be read` for a log the run cannot show.
+Control bytes in a file name become `?`. A line starting `skipped:` gives a
+check that did not run, with its reason.
+
+The block is the last thing the run prints, and its size is derived from the
+lines `scripts/verify.sh` keeps at the end of this step, so it fits inside them
+with two lines to spare: past the cap it names the last failing test files and
+counts the rest, as in `and 7 more, in the full log`, and it still names the
+lint when the lint failed. A log cut short therefore still says how many checks
+failed and whether the shell scripts were among them. The block appears only for
+a run that ends: a test file that hangs holds the whole run up, with no block and
+no name. Exit 0 when every check passed, 1 when one failed, 2 when nothing could
+be checked. `scripts/verify.sh` prints what a step wrote only for a step that
+failed, so a run that ends with checks not run shows them in the gate only when
+something else failed too.
 
 `scripts/check-generic.sh` is the lint that keeps private network addresses out
 of every file, and product and host names out of platform files. The names
