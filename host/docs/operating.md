@@ -455,10 +455,10 @@ dispatcher's log says so.
    `tehas-plan-<issue>.service`, and the polls go on meanwhile: cycles start
    as usual, and the turn's end starts the poll that posts its outcome. One
    planning turn runs at a time, so while another runs, your answer waits
-   until it ends, which can be an hour. A running work cycle does not hold
-   an answer back. A poll also handles one answer or one planning start and
-   then stops, and it does nothing while the model
-   endpoint does not list the model.
+   until it ends, which is up to the turn's limit (`TEHAS_PLAN_TIMEOUT`). A
+   running work cycle does not hold an answer back. A poll also handles one
+   answer or one planning start and then stops, and it does nothing while the
+   model endpoint does not list the model.
 5. The agent shows you a plan before it files it, and files it when you
    confirm. Every turn of a session works on the commit the session started
    on. Whether what is filed is what you saw depends on pi-rukas. The release
