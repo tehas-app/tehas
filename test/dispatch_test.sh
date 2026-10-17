@@ -3854,7 +3854,7 @@ bare_tree
 t_run "$tree/libexec/dispatch"
 t_eq "$t_rc" 0
 t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --brief $record.brief"
-t_contains "$(t_calls systemd-run)" "--user --quiet --collect --unit tehas-plan-7 -p RuntimeMaxSec=4500 /bin/bash -c"
+t_contains "$(t_calls systemd-run)" "--user --quiet --collect --unit tehas-plan-7 -p RuntimeMaxSec=8100 /bin/bash -c"
 t_contains "$(t_calls gh)" "- [ ] Adopt all"
 for name in tehas tehasbot tehas-plan; do t_eq "$(t_calls "$name")" ""; done
 
