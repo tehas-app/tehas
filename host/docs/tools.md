@@ -669,10 +669,11 @@ first form makes it anew. It holds the approved title and body, which every
 turn's workspace gets as `.tehas/brief.md`, so a later turn never plans from
 the issue as it is now, the commit the first turn's workspace was
 at, pi-rukas's record of the plans the agent showed (its plain `.json` files
-and its `.filed` and `.claim` markers, at most 1 MB each), and with
-`TEHAS_WORK_IMAGES=1` the issue's images. Every later turn's workspace is at
-that commit and gets that record back. A later turn whose commit is missing or
-gone starts at the tip of the branch and says so.
+and its `.filed` and `.claim` markers, at most 1 MB each), `sessions/`, the Pi
+sessions of the last turn, and with `TEHAS_WORK_IMAGES=1` the issue's images.
+Every later turn's workspace is at that commit and gets that record back. A
+later turn whose commit is missing or gone starts at the tip of the branch and
+says so.
 
 pi-rukas keys that record on `origin/<branch>` after a fetch of its own, and
 on what the agent asks for. In a turn's workspace `origin/<branch>` is the
@@ -745,7 +746,10 @@ same mounts, token and settings, from `lib/sandbox.sh`, and no Docker socket,
 SSH keys or `~/.config/tehas`. It works in a workspace of its own,
 `~/tehas/work/<name>-plan-<issue>`, made fresh for the turn and removed after
 it, its cache, memory and sessions go in `<name>-plan-<issue>.state` beside it
-and are removed with it, and its transcripts go to
+and are removed with it, except the sessions, which are copied into
+`<keep>/sessions` when the turn ends and copied back into the next turn's state
+directory before it starts: that copy is what lets `--session <id>` find a real
+session. Its transcripts go to
 `~/.pi/agent/ensemble-runs/plan-<issue>`. There is no dry-run push
 before a turn. The agent files issues with the token. The RPC stream is
 kept in `~/tehas/logs/plan-<issue>-<time>.jsonl`. The limit is
