@@ -72,7 +72,8 @@
 #                usable on this host; nothing ran.
 #
 # Instance settings (lib/config.sh; defaults in brackets):
-#   TEHAS_PLAN_TIMEOUT  seconds before a turn is given up [7200]
+#   TEHAS_PLAN_TIMEOUT  seconds before a turn is given up [7200, the ceiling
+#                       TEHAS_PLAN_TIMEOUT_MAX in lib/config.sh]
 #   and those of tehas work for the checkout and the container's limits.
 #
 # The container is given exactly what a cycle's container is given: the same
@@ -428,9 +429,9 @@ if [ -z "$brief" ]; then
 fi
 if [ -z "$refused" ]; then
   send "$(jq -cn --arg m "$message" '{id: "plan", type: "prompt", message: $m}')"
-  # Asked for now and again at the end: a first turn that runs for the whole
-  # limit and then fails must still leave the session it made, so a reply can
-  # continue it.
+  # Asked for now and again at the end: a first turn that runs for its whole
+  # limit (`TEHAS_PLAN_TIMEOUT`, 7200 seconds at most) and then fails must
+  # still leave the session it made, so a reply can continue it.
   send '{"id":"state","type":"get_state"}'
 fi
 
@@ -445,8 +446,8 @@ fi
 # it as "(job <id>)" or "(batch <id>)". A job that never reports holds the turn
 # until the time limit.
 #
-# The log can grow large over a turn's whole limit, so it is never read again
-# from the top:
+# The log can grow large over a turn's limit, up to 7200 seconds, so it is
+# never read again from the top:
 # scan reads what was appended since the last call and keeps the last start or
 # settle event it has seen. While the container runs, the last line may be
 # half written; only whole lines are taken, the rest waits for the next call.
