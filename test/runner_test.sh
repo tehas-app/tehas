@@ -224,7 +224,7 @@ fresh
 # The host's own lint, where it has one: this is the one case that wants it.
 rm -f "$T/bin/shellcheck"
 if ! command -v shellcheck >/dev/null 2>&1; then
-  echo "no shellcheck on this host: the gate's own run covers a real lint"
+  t_skip "no shellcheck on this host: the gate's own run covers a real lint"
 else
   mkdir -p "$repo/lib"
   # shellcheck disable=SC2016  # the line is shell for the lint to refuse, not expanded here
@@ -320,6 +320,13 @@ else
   t_fits
 fi
 
+# The header of scripts/test.sh says what the lint is called with. Read the
+# sentence out of the script itself, as the bound above is read from
+# scripts/verify.sh: a header that stops saying the call carries no floor fails
+# here, and the manual in host/docs/tools.md stays the one statement of the
+# policy - this file is not the authority for the form of a suppression.
+header_lint=$(sed -n '/shellcheck over the shell scripts/,/^# *2\./p' "$T_ROOT/scripts/test.sh" | tr '\n#' ' ' | tr -s ' ')
+
 t_case "the lint is named even when failing test files are capped"
 if ! [[ $keep =~ ^[1-9][0-9]*$ ]] || [ "$keep" -gt 100 ]; then
   t_bad "scripts/verify.sh has no usable 'tail -n <number>' to build a run past it"
@@ -344,20 +351,32 @@ fi
 # (the stub that keeps the other cases off the host's tools records its
 # arguments), and what a lint with no floor makes of a file whose only note is an
 # info one (the host's shellcheck, which is what knows a note's severity).
+#
+#   1. the runner's one lint call over the scratch checkout: an exact match
+#      against the call the runner builds for the same files, so an added option
+#      is refused rather than only the two spellings of the severity flag
+#   2. what a lint with no floor makes of a file whose only note is an info one
+#      (the host's shellcheck, which is what knows a note's severity)
 t_case "the lint runs with no floor, so an info note fails the run"
+t_contains "$header_lint" "no -S floor"
 fresh
 fake a_test.sh 0 2
 run
-# One lint call over the checkout's files: the stubs that make a file fail pass
-# no arguments, so a call with arguments is the lint.
+# The call the runner makes: -x and the files its own globs find, with nothing
+# else. Built here from the same globs, so an option that changes what the lint
+# reports (-S or --severity for a floor, -e or --exclude to drop codes,
+# --enable or --source-path to change what is read) makes the two differ. The
+# runner passes the paths as it built them, with $root resolved to the checkout.
+lintglobs=()
+for g in "$repo"/bin/* "$repo"/libexec/* "$repo"/lib/*.sh "$repo"/scripts/*.sh "$repo"/test/*.sh \
+  "$repo"/install.sh "$repo"/bootstrap.sh "$repo"/host/env.sh "$repo"/host/sandbox/build.sh \
+  "$repo"/host/login/tehas; do
+  [ -f "$g" ] || continue
+  case "$g" in */scripts/publish-lib.sh) continue ;; esac
+  lintglobs+=("$g")
+done
 lintcalls=$(t_calls shellcheck)
-if [ "$(printf '%s\n' "$lintcalls" | grep -c -- '-x ')" -ne 1 ]; then
-  t_bad "expected one lint call over the checkout's files, got: $lintcalls"
-else
-  t_contains "$lintcalls" "-x "
-  t_lacks "$lintcalls" "-S"
-  t_lacks "$lintcalls" "--severity"
-fi
+t_eq "$lintcalls" "-x ${lintglobs[*]}"
 
 fresh
 mkdir -p "$repo/lib"
@@ -365,7 +384,7 @@ mkdir -p "$repo/lib"
 # a cycle met once. The host's lint is what knows it is an info note.
 rm -f "$T/bin/shellcheck"
 if ! command -v shellcheck >/dev/null 2>&1; then
-  echo "no shellcheck on this host: the gate's own run covers the severity floor"
+  t_skip "no shellcheck on this host: the gate's own run covers the severity floor"
 else
   # shellcheck disable=SC2016  # the quotes are a literal for the lint to note on, not expanded here
   printf "echo 'a literal \$(not expanded)'\n" >"$repo/lib/literal.sh"
