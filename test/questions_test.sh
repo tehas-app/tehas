@@ -243,6 +243,23 @@ t_eq "$(ask "$(tick 'Change some')" tehas-fixer | q_answer tehas-bot "alice bob"
   '{"status":"fixer","by":"tehas-fixer","index":1,"at":"2026-01-01T02:00:00Z"}'
 t_eq "$(ask "$both" tehas-fixer | q_answer tehas-bot "alice bob" "" tehas-fixer | got .tick)" '{"status":"many","by":"tehas-fixer"}'
 
+# edits <logins>: the question's edit history, oldest first, as GitHub lists it.
+edits() { jq --arg e "$1" '.data.repository.issue.comments.nodes[1].userContentEdits = {totalCount: ($e | split(" ") | length),
+  nodes: ($e | split(" ") | map({editor: {login: .}}))}'; }
+t_case "a tick saved by the fixer after a person edited the question is held: either may have ticked it"
+t_eq "$(ask "$(tick 'Change some')" tehas-fixer | edits "tehas-bot alice tehas-fixer" | q_answer tehas-bot "alice bob" "" tehas-fixer | got .tick)" \
+  '{"status":"held","by":"tehas-fixer"}'
+
+t_case "edits by the bot and the fixer alone leave the tick the fixer's"
+t_eq "$(ask "$(tick 'Change some')" tehas-fixer | edits "tehas-bot tehas-fixer tehas-bot tehas-fixer" | q_answer tehas-bot "alice bob" "" tehas-fixer | got .tick.status)" '"fixer"'
+
+t_case "an edit history longer than what was read is held"
+t_eq "$(ask "$(tick 'Change some')" tehas-fixer | edits "tehas-fixer" | jq '.data.repository.issue.comments.nodes[1].userContentEdits.totalCount = 101' |
+  q_answer tehas-bot "alice bob" "" tehas-fixer | got .tick.status)" '"held"'
+
+t_case "a person who saved the tick last keeps it"
+t_eq "$(ask "$(tick 'Change some')" alice | edits "tehas-fixer alice" | q_answer tehas-bot "alice bob" "" tehas-fixer | got .tick.status)" '"one"'
+
 t_case "a person's tick is still a person's with a fixer named"
 t_eq "$(ask "$(tick 'Change some')" alice | q_answer tehas-bot "alice bob" "" tehas-fixer | got .tick.status)" '"one"'
 

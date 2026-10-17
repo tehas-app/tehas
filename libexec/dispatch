@@ -659,6 +659,23 @@ fixer_answer_ok() {
   return 1
 }
 
+# fixer_held <issue> <record> <answer>: the fixer saved the ticked question
+# after someone else edited it, so the tick may be a person's. It is neither
+# used nor undone: a person ticks again or replies. Said once a question, its
+# id kept in the record's held.
+fixer_held() {
+  local n=$1 st=$2 ans=$3 id
+  id=$(jq -r .comment <<<"$ans")
+  jq -e --argjson id "$id" '(.held // []) | type == "array" and index($id) == null' "$st" >/dev/null 2>&1 || return 0
+  log "skip #$n: the fixer saved the question after another account did, so who ticked it is not known"
+  [ "$dry" = 0 ] || return 0
+  if jq -c --argjson id "$id" '.held = (.held // []) + [$id]' "$st" >"$st.new" && mv "$st.new" "$st"; then
+    say "$n" "Tehas did not take the box ticked in this question as an answer: the fixer saved the comment after another account did, and GitHub does not say who ticked it. A person ticks the box again or replies."
+  else
+    log "WARN: the record of #$n could not be updated"
+  fi
+}
+
 # unchanged_since <issue> <time> <what happened then> [how to approve again]
 # Needs the label events of $n in $events; they are read when they are not
 # already at hand. An approval covers the text that was there when it was given.
@@ -1460,7 +1477,8 @@ for n in $asking; do
   gh_json api graphql -F owner="${repo%%/*}" -F name="${repo##*/}" -F number="$n" \
     -f query='query($owner: String!, $name: String!, $number: Int!) {
       repository(owner: $owner, name: $name) { issue(number: $number) {
-        comments(last: 100) { nodes { databaseId author { login } body createdAt lastEditedAt editor { login } } } } } }'
+        comments(last: 100) { nodes { databaseId author { login } body createdAt lastEditedAt editor { login }
+          userContentEdits(last: 100) { totalCount nodes { editor { login } } } } } } } }'
   # With nothing on record the newest question of the bot is still read, only
   # to be able to tell a person that their answer starts nothing.
   ans=$(q_answer "$bot" "$TEHAS_ALLOWED_LABELERS" "$qid" "$TEHAS_FIXER_LOGIN" <<<"$json") || { log "ERROR: unreadable comments of #$n"; exit 1; }
@@ -1595,6 +1613,9 @@ for n in $asking; do
         case "$reply_id" in *[!0-9]*) reply_id="" ;; esac
       elif [ "$tick" = one ]; then
         :
+      elif [ "$tick" = held ]; then
+        fixer_held "$n" "$st" "$ans"
+        continue
       elif [ "$(jq -r '.fixer_reply != null' <<<"$ans")" = true ]; then
         fixer_said=reply
       elif [ "$tick" = fixer ]; then

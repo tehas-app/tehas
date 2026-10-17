@@ -4563,6 +4563,38 @@ t_eq "$(plan_calls)" ""
 t_contains "$t_out" "it ticked End this planning session, which only a person may"
 t_eq "$([ -e "$record" ] && echo kept)" kept
 
+t_case "a tick the fixer saved after alice edited the question is held for a person, not unticked"
+fixer_planning
+comments 7 "$(plan_body ' ' x ' ')" tehas-fixer "$(freply "$fmark"$'\nAdopt all.')"
+jq '.data.repository.issue.comments.nodes[0].userContentEdits = {totalCount: 2, nodes: [{editor: {login: "alice"}}, {editor: {login: "tehas-fixer"}}]}' \
+  "$fx/comments-7.json" >"$fx/c.json" && mv "$fx/c.json" "$fx/comments-7.json"
+t_run "$dispatch"
+t_eq "$(plan_calls)" ""
+t_lacks "$(t_calls gh)" "api -X PATCH"
+t_contains "$t_out" "skip #7: the fixer saved the question after another account did, so who ticked it is not known"
+t_eq "$(t_calls gh | grep -c '^issue comment 7 ')" 1
+t_contains "$(t_calls gh)" "A person ticks the box again or replies"
+t_eq "$(jq -c .held "$record")" '[4001]'
+rm -f "$T"/calls/*
+t_run "$dispatch"
+t_eq "$(plan_calls)" ""
+t_lacks "$(t_calls gh)" "issue comment"
+
+t_case "and alice's tick saved again runs the turn as hers"
+jq '.data.repository.issue.comments.nodes[0].editor.login = "alice"' "$fx/comments-7.json" >"$fx/c.json" && mv "$fx/c.json" "$fx/comments-7.json"
+t_run "$dispatch"
+t_eq "$(cat "$record.answer")" "The operator chose: Change some"
+
+t_case "a held tick on a parked cycle's question starts nothing and stays"
+parked
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_FIXER_LOGIN=tehas-fixer
+comments 7 "$(park_body x ' ')" tehas-fixer
+jq '.data.repository.issue.comments.nodes[0].userContentEdits = {totalCount: 2, nodes: [{editor: {login: "alice"}}, {editor: {login: "tehas-fixer"}}]}' \
+  "$fx/comments-7.json" >"$fx/c.json" && mv "$fx/c.json" "$fx/comments-7.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "api -X PATCH"
+
 t_case "a reply of the fixer's without its marker runs no turn"
 fixer_planning
 comments 7 "$(plan_body ' ' ' ' ' ')" "" "$(freply 'Adopt all.')"

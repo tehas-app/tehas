@@ -771,7 +771,10 @@ what the account may do, and this section is that.
   `<!-- tehas:fixer issue=<n> action=answer -->`, and the agent is told
   the answer is the fixer's. Any other answer of the fixer's is an
   outsider's: a tick is unticked and the bot says why, a reply is ignored
-  and the bot says why once. To overrule it, reply or tick before the next
+  and the bot says why once. GitHub says who last saved a comment, not who
+  ticked a box, so a tick the fixer saved after another account edited the
+  question is held: it is neither used nor unticked, and the bot asks a
+  person, once, to tick again or reply. To overrule it, reply or tick before the next
   poll, or reply to the next question. The planning record,
   `~/tehas/state/plan-<issue>.json`, keeps who started the session (`by`)
   and who answered each turn (`answers`). A session started before tehas

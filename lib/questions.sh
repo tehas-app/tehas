@@ -98,7 +98,11 @@ q_render() {
 # with a marker: good enough to tell a person something, never to start work.
 # The marker's issue number is reported for the caller to compare.
 #
-# With a fixer login, a tick the fixer saved has the status "fixer", and the
+# With a fixer login, a tick the fixer saved has the status "fixer", or
+# "held" when anyone but the bot and the fixer edited the question too, or
+# the edits read (userContentEdits) are not all of them: GitHub names who
+# saved a comment, not who ticked which box, so the tick may be a person's.
+# And the
 # fixer's newest reply, edited by nobody else, is fixer_reply: marked when its
 # first line is <!-- tehas:fixer issue=<n> action=answer -->, which its text
 # then leaves out; a marked reply with nothing after the marker is none.
@@ -120,8 +124,12 @@ q_answer() {
         | {asked: true, comment: $q.value.databaseId, asked_at: ($q.value.createdAt // ""), body: $q.value.body, kind: $m.kind,
            issue: ($m.issue | tonumber), turn: ($m.turn | tonumber), boxes: ($boxes | length),
            tick: (if ($ticks | length) == 0 then {status: "none"}
-                  elif $fixer != "" and $ed == $fixer and ($ticks | length) == 1
-                    then {status: "fixer", by: $ed, index: $ticks[0], at: ($q.value.lastEditedAt // "")}
+                  elif $fixer != "" and $ed == $fixer and ($ticks | length) == 1 then
+                    ($q.value.userContentEdits // {}) as $h
+                    | if (($h.totalCount // 0) > ($h.nodes // [] | length))
+                         or any($h.nodes[]?; (.editor.login // "") as $e | $e != $fixer and $e != $bot)
+                      then {status: "held", by: $ed}
+                      else {status: "fixer", by: $ed, index: $ticks[0], at: ($q.value.lastEditedAt // "")} end
                   elif ($list | index($ed)) == null and ($fixer == "" or $ed != $fixer) then {status: "stranger", by: $ed}
                   elif ($ticks | length) > 1 then {status: "many", by: $ed}
                   else {status: "one", by: $ed, index: $ticks[0], at: ($q.value.lastEditedAt // "")} end),
