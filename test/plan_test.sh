@@ -33,6 +33,9 @@ case " $* " in *" --mode "*)
   ws=$T/home/tehas/work/widget-plan-7
   cat "$ws/.tehas/brief.md" >"$T/calls/brief.seen" 2>/dev/null
   git -C "$ws" status --porcelain >"$T/calls/tree.status" 2>&1
+  cp "$ws/.git/info/exclude" "$T/calls/exclude.seen" 2>/dev/null
+  mkdir -p "$ws/.tehas/definition" && echo "{}" >"$ws/.tehas/definition/app.json"
+  git -C "$ws" status --porcelain -uall >"$T/calls/tree.status.definition" 2>&1
   git -C "$ws" rev-parse HEAD >"$T/calls/head.seen" 2>&1
   ls -A "$ws/.git/pi-plan-cache" >"$T/calls/cache.seen" 2>/dev/null
   cat "$ws.images/manifest.json" >"$T/calls/manifest.seen" 2>/dev/null
@@ -158,6 +161,11 @@ t_eq "$(jq -c '.question.options' "$T/out.json")" '[{"label":"Adopt all","descri
 t_case "the approved text is in the workspace as a file git ignores, and the prompt points at it"
 t_eq "$(cat "$T/calls/brief.seen")" "$(cat "$T/brief.md")"
 t_eq "$(cat "$T/calls/tree.status")" ""
+
+t_case "only the brief is hidden from git; the rest of .tehas stays visible"
+t_contains "$(cat "$T/calls/exclude.seen")" "/.tehas/brief.md"
+t_lacks "$(grep -x '.tehas/' "$T/calls/exclude.seen")" ".tehas/"
+t_contains "$(cat "$T/calls/tree.status.definition")" ".tehas/definition/"
 
 t_case "the workspace is the turn's own, and it is gone when the turn is over"
 t_eq "$([ -e "$tree" ] && echo left)" ""
