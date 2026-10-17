@@ -1,6 +1,7 @@
 <h1>Tehas dashboard</h1>
 <div class="dash-top">
   <span id="state" class="pill idle">loading</span>
+  <span id="allhands" class="pill pause" title="tehas:all-hands is on the control issue" hidden>all hands</span>
   <span id="fresh" class="muted"></span>
   <a id="all" class="muted" href="#">all issues on GitHub</a>
 </div>
@@ -270,6 +271,8 @@ import { agoText, dueToRead, layout } from "/fun/host-data.js";
     else if (v.running) { pill.className = "pill run"; pill.textContent = v.running > 1 ? "working on " + v.running : "working"; }
     else if (s.noResources) { pill.className = "pill pause"; pill.textContent = "no resources"; }
     else { pill.className = "pill idle"; pill.textContent = "idle"; }
+    // Reported only: all-hands changes nothing in this factory.
+    $("allhands").hidden = s.allHands !== true;
 
     TABS.render($("tabs"), v, select);
     const tab = v.shown;

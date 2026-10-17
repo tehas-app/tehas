@@ -453,7 +453,7 @@ dispatcher's log says so.
    continues the session with your answer, and the issue carries
    `tehas:planning` while the turn runs. The turn runs as its own unit,
    `tehas-plan-<issue>.service`, and the polls go on meanwhile: cycles start
-   as usual, and the first poll after the turn ends posts its outcome. One
+   as usual, and the turn's end starts the poll that posts its outcome. One
    planning turn runs at a time, so while another runs, your answer waits
    until it ends, which can be an hour. A running work cycle does not hold
    an answer back. A poll also handles one answer or one planning start and
@@ -573,8 +573,50 @@ The reason is written to the flag and shown on pages that may be public, so writ
 nothing in it that should not be read in public. The account that set the flag is
 not published.
 
+## All hands
+
+**`tehas:all-hands`** on the control issue asks for all hands on this project.
+It counts while it is on the issue and the account that applied it last is in
+`TEHAS_ALLOWED_LABELERS`. A label anyone else applies is ignored and said once
+in the dispatcher's log. On its own it changes nothing in this factory: no
+cycle starts or waits because of it. `tehas status` prints an `all-hands` line,
+its JSON says `"allHands": true` and the dashboard shows "all hands". What it
+means for other factories is up to the program that runs them, such as
+tehas-industry. Take the label off to end it.
+
+## Limit and drain
+
+A limit caps what this factory starts, until it expires or is cleared. It
+keeps a host quiet for a weekend, or leaves the models to another project:
+
+```
+tehas limit set --cycles 1 --plan off --for 7200 --reason "the models are busy"
+tehas limit                  # what is set
+tehas limit clear            # back to no limit
+```
+
+`--cycles` is the most cycles at once; `--plan off` also holds new planning
+sessions and improvement runs, though an answer to a planning question still
+runs. Without `--for` or `--until` the limit stays until cleared. Running
+cycles are never stopped. A limit that has expired, or a file that cannot be
+read, holds every start until it is set again or cleared, and `tehas status`
+says so. Pause is a separate switch: a paused factory stays paused under any
+limit.
+
+Before a reboot or a disk change:
+
+```
+tehas drain --wait 3600      # start nothing new, wait up to an hour for the cycles
+tehas limit clear            # afterwards
+```
+
+A program that drives factories uses the same commands: see
+[the factory API](/api).
+
 ## Limits that hold work back
 
+- A limit set with `tehas limit`, when there is one: see
+  [Limit and drain](#limit-and-drain).
 - At most `TEHAS_TICKET_CONCURRENCY` cycles at a time. It is a ceiling, not
   a promise: the dispatcher starts fewer when the slice has no room.
 - Room in `tehas.slice`, the systemd slice every sandbox container runs in.
@@ -615,6 +657,11 @@ not published.
   model with a one-pixel image only when such an issue could start now, at
   most once a poll. The issue stays queued, the log says `hold #N: ...`, and
   issues without images start as usual. A planning turn is not held by it.
+- No cycle while the code index is rebuilt. On a host where no cycle runs and
+  the branch has moved, the poll that would start cycles starts the index run
+  as `tehas-index.service` instead, and the log says `holding: the code index
+  is refreshed first`. It takes seconds to minutes. Its end starts the poll
+  that starts the cycles. Planning turns are not held by it.
 - A slot is never kept by work that is done. Each poll stops a running
   cycle whose issue is closed, or whose pull request, opened by the bot since
   the cycle began, is merged or closed. It is stopped as stopping its unit

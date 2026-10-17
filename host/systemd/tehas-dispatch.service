@@ -4,8 +4,8 @@ Description=Tehas: one poll of the issue queue, starts the cycles
 [Service]
 Type=oneshot
 ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot dispatch >> %h/tehas/logs/dispatch.log 2>&1"
-# A poll that refreshes the code index can take minutes. A planning turn runs
-# as its own unit, tehas-plan-<issue>.service, and no poll waits for it. A poll
-# that hangs past this is stopped: while it lives, every later poll stops at
-# its lock.
-TimeoutStartSec=3h
+# A planning turn runs as its own unit, tehas-plan-<issue>.service, and the
+# code index as tehas-index.service; no poll waits for either. A poll that
+# hangs past this is stopped: while it lives, every later poll stops at its
+# lock.
+TimeoutStartSec=1h
