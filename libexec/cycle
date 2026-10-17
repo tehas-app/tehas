@@ -639,7 +639,7 @@ else
   park "$parked"
 fi
 log "done #$issue rc=$rc status=$status step=$step minutes=$mins pr=${pr:-none} oom_kills=$kills forks_refused=$forks"
-# For the fixer: one line for each end, parked or not, in
+# One line of history for each end, parked or not, in
 # state/cycles/<issue>.history.jsonl. A person closing the pull request is a
 # park too: it needs a person.
 [ -z "$closed_pr" ] || [ -n "$pr" ] || [ -n "$merged_pr" ] || [ "$status" = closed ] || parked_now=true
@@ -650,7 +650,7 @@ tehas_cycle_history_add "$issue" "$(jq -n -c --arg at "$(date -u +%FT%TZ)" --arg
   --arg by "$(head -c 64 "$cycles/$issue.by" 2>/dev/null | head -n 1 | tr -cd 'A-Za-z0-9-')" \
   --arg how "$(jq -r '.how // "" | strings' "$cycles/$issue.approved.json" 2>/dev/null | tr -cd 'a-z-')" \
   '{$at, $started, $rc, $status, $step, $cap, $park_reason, $failure_kind, $failure_cause, $provider, $parked, $pr, $by, $how}
-   | with_entries(select(.value != ""))')" || log "WARN: no line of history of #$issue for the fixer"
+   | with_entries(select(.value != ""))')" || log "WARN: no line of history of #$issue"
 # For the improvement loop, where the instance has one. The cycle is reported
 # by now, and a record that cannot be written is the loop's loss only.
 tehas_improve_record "$issue" "$started" "$rc" "$status" "$step" "$pr" "$kills" "$image_id" "$image_rukas" "$cap" "$reason" "$build" || log "WARN: no record of #$issue for the improvement loop"

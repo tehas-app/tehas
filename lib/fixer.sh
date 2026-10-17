@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # The fixer's grant, as the dispatcher reads it, and the history of a cycle's
-# ends a fixer decides from. Sourced by libexec/dispatch, libexec/cycle and
-# libexec/work. Needs lib/labels.sh.
+# ends. Sourced by libexec/dispatch, libexec/cycle and libexec/work. Needs
+# lib/labels.sh.
 #
 # The fixer is an account of its own, TEHAS_FIXER_LOGIN, that decides on
 # parked issues from outside this factory: whatever runs as that account, the
@@ -33,8 +33,6 @@
 #                                 state/cycles/<issue>.history.jsonl, keeping
 #                                 the last 50
 #   tehas_cycle_history <issue>   that file's lines that are JSON objects
-#   tehas_park_signature          print a jq definition, `park_signature`:
-#                                 what makes two parks the same park
 #
 # Sourcing this file does nothing.
 
@@ -109,9 +107,4 @@ tehas_cycle_history() { # <issue>
   local file=$TEHAS_HOME/state/cycles/$1.history.jsonl
   [ -f "$file" ] && [ ! -L "$file" ] || return 0
   jq -cR 'fromjson? | objects' "$file" 2>/dev/null || true
-}
-
-tehas_park_signature() {
-  # shellcheck disable=SC2016  # a jq program
-  printf '%s\n' 'def park_signature: [.step, .cap, .park_reason, .failure_kind, .failure_cause] | map(. // "" | tostring) | join("|");'
 }

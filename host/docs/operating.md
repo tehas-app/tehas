@@ -754,8 +754,9 @@ what the account may do, and this section is that.
 - **Each cycle's end leaves a line** in
   `~/tehas/state/cycles/<issue>.history.jsonl`, the last 50: when, its
   status, last step, cap, park reason, failure, whether a provider outage
-  stopped it, whether it parked, its pull request and who started it. It is
-  what a fixer reads to tell a park that will pass from one that will not.
+  stopped it, whether it parked, its pull request and who started it.
+  Nothing in tehas reads it yet; it is the record a later `tehas history`
+  lists. A fixer reads GitHub, not this file.
 
 ## Run one issue by hand
 

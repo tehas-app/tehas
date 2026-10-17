@@ -91,8 +91,4 @@ lib 'for i in $(seq 1 55); do tehas_cycle_history_add 7 "{\"n\":$i}"; done; teha
 t_eq "$t_out" "refused
 [50,6,55]"
 
-t_case "two parks are the same park when step, cap, park reason and failure agree"
-lib 'jq -n -c "$(tehas_park_signature)"'\''[{step: "review", cap: "x", park_reason: null}, {step: "review", cap: "x", reason: "other words"}, {step: "plan", cap: "x"}] | map(park_signature) | [.[0] == .[1], .[0] == .[2]]'\'
-t_eq "$t_out" "[true,false]"
-
 t_done
