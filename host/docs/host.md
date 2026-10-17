@@ -640,8 +640,8 @@ last bound for a hang that none of these reaches. The stop is a TERM, and the
 cycle is reported as one that stopped. A unit cannot read the instance's
 settings, so `TEHAS_WORK_TIMEOUT` may be at most 25200, 7 hours: a longer one
 is refused with exit 78. The hour between is for the stop and the report.
-`TEHAS_PLAN_TIMEOUT` may be at most 7200 for the same reason: a poll that runs
-a planning turn also fetches, and calls GitHub. A poll that finds the
+`TEHAS_PLAN_TIMEOUT` may be at most 7200. A planning turn runs as its own
+unit, not inside a poll, so it holds no poll and no lock. A poll that finds the
 dispatcher's lock held for longer than `TEHAS_PLAN_TIMEOUT` plus half an hour
 says so once in the log, as [troubleshooting](/troubleshooting) shows.
 
