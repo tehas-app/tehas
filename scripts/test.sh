@@ -10,12 +10,13 @@
 #
 # Usage: scripts/test.sh
 #
-# The test files run side by side, at most TEHAS_TEST_JOBS at once [the CPU
-# quota of the cgroup it runs in, rounded up, or else the number of CPUs; a
-# container's quota does not change what nproc says]: each keeps everything
-# under a scratch directory of its own
-# (test/lib.sh), and one after another they took about 18 minutes. Each file's
-# output is printed whole, in name order, once all have ended. What failed and
+# The test files and the lint of each shell script run side by side, at most
+# TEHAS_TEST_JOBS at once [the CPUs nproc counts, or the CPU quota of the
+# cgroup it runs in, rounded up, when that is less]: each test file keeps
+# everything under a scratch directory of its own (test/lib.sh). Each task is
+# stopped after TEHAS_TEST_FILE_TIMEOUT seconds [300] and counts as failed,
+# named with "timed out". Each file's output is printed whole, in name order,
+# once all have ended, then the number of cases and the five slowest files. What failed and
 # what never ran is named again after all of it, sized so the block fits the
 # end of the output a caller keeps (scripts/verify.sh): it always gives the
 # count, always names the lint when it failed, and the test file names that do
@@ -39,53 +40,109 @@ for f in "$root"/bin/* "$root"/libexec/* "$root"/lib/*.sh "$root"/scripts/*.sh "
   case "$f" in */scripts/publish-lib.sh) continue ;; esac
   files+=("$f")
 done
+lint=0
 if ! command -v shellcheck >/dev/null 2>&1; then
   echo "WARN: shellcheck is not installed, skipping it" >&2
   skipped+=("shellcheck is not installed")
 elif [ "${#files[@]}" -gt 0 ]; then
   ran=1
-  if (cd "$root" && shellcheck -x "${files[@]}"); then
-    echo "shellcheck: ${#files[@]} files, ok"
-  else
-    echo "shellcheck: failed"
-    lintbad+=(shellcheck)
-  fi
+  lint=1
 fi
 
+# The CPUs this run may use: the cgroup's quota, rounded up, when it is less
+# than the CPUs nproc counts. A container's quota does not change what nproc
+# says.
 cpus() {
-  local quota period
+  local quota period n
+  n=$(nproc 2>/dev/null) || n=1
   if read -r quota period 2>/dev/null </sys/fs/cgroup/cpu.max &&
-    [[ $quota =~ ^[1-9][0-9]*$ && $period =~ ^[1-9][0-9]*$ ]]; then
-    echo $(((quota + period - 1) / period))
-  else
-    nproc 2>/dev/null || echo 1
+    [[ $quota =~ ^[1-9][0-9]*$ && $period =~ ^[1-9][0-9]*$ ]] &&
+    [ $(((quota + period - 1) / period)) -lt "$n" ]; then
+    n=$(((quota + period - 1) / period))
   fi
+  echo "$n"
 }
 jobs=${TEHAS_TEST_JOBS:-$(cpus)}
 [[ $jobs =~ ^[1-9][0-9]*$ ]] || jobs=1
+limit=${TEHAS_TEST_FILE_TIMEOUT:-300}
+[[ $limit =~ ^[1-9][0-9]*$ ]] || limit=300
 out=$(mktemp -d "${TMPDIR:-/tmp}/tehas-tests.XXXXXX") || exit 2
 trap 'rm -rf "$out"' EXIT
+
+# The slowest files first, so none of them starts last and holds the run. A
+# fixed list, the same on every host; the rest follow in name order, and the
+# lint of each file after them, to fill the gaps.
+first=(work_ dispatch_ install_ preview_ cycle_ top_ improve_ update_ plan_)
 tests=()
-for t in "$root"/test/*_test.sh; do
-  [ -f "$t" ] && tests+=("$t")
+for p in "${first[@]}"; do
+  for t in "$root"/test/"$p"*_test.sh; do
+    [ -f "$t" ] && tests+=("$t")
+  done
 done
+for t in "$root"/test/*_test.sh; do
+  [ -f "$t" ] || continue
+  [[ " ${tests[*]} " == *" $t "* ]] || tests+=("$t")
+done
+
+now_ms() { local t=${EPOCHREALTIME/[.,]/}; echo $((10#$t / 1000)); }
+
+# run <record> <command>...: one task of the pool, bounded by $limit. Its
+# status is written only when it ends, so a missing one is a failure; so is
+# its time.
 running=0
-for t in "${tests[@]}"; do
-  ran=1
-  # One record per test file, under the same identity the block reports: the
-  # path relative to the checkout, so no two files share a record.
-  name=${t#"$root"/}
-  key=$out/$name
-  mkdir -p "${key%/*}" || { echo "test.sh: no record directory for $name" >&2; exit 2; }
-  # A file's status is written only when it ends, so a missing one is a failure.
-  (bash "$t" >"$key.log" 2>&1; echo "$?" >"$key.rc") &
+run() {
+  local key=$1
+  shift
+  mkdir -p "${key%/*}" || { echo "test.sh: no record directory for ${key#"$out"/}" >&2; exit 2; }
+  # From the checkout: shellcheck -x finds sourced files from there.
+  (
+    cd "$root" || exit
+    s=$(now_ms)
+    timeout -k 10 "$limit" "$@" >"$key.log" 2>&1
+    echo "$?" >"$key.rc"
+    echo $(($(now_ms) - s)) >"$key.ms"
+  ) &
   running=$((running + 1))
   if [ "$running" -ge "$jobs" ]; then
     wait -n
     running=$((running - 1))
   fi
+}
+for t in "${tests[@]}"; do
+  ran=1
+  # One record per test file, under the same identity the block reports: the
+  # path relative to the checkout, so no two files share a record.
+  run "$out/${t#"$root"/}" bash "$t"
 done
+if [ "$lint" = 1 ]; then
+  for f in "${files[@]}"; do
+    run "$out/lint/${f#"$root"/}" shellcheck -x "$f"
+  done
+fi
 wait
+
+if [ "$lint" = 1 ]; then
+  refused=0
+  for f in "${files[@]}"; do
+    key=$out/lint/${f#"$root"/}
+    rc=$(cat "$key.rc" 2>/dev/null) || rc=""
+    [ "$rc" = 0 ] && continue
+    refused=$((refused + 1))
+    cat "$key.log" 2>/dev/null
+    case "$rc" in
+      124 | 137) echo "shellcheck: ${f#"$root"/} timed out after ${limit}s" ;;
+    esac
+  done
+  if [ "$refused" = 0 ]; then
+    echo "shellcheck: ${#files[@]} files, ok"
+  else
+    echo "shellcheck: failed, $refused of ${#files[@]} files"
+    lintbad+=(shellcheck)
+  fi
+fi
+
+cases=0
+slow=()
 for t in "${tests[@]}"; do
   name=${t#"$root"/}
   key=$out/$name
@@ -95,7 +152,12 @@ for t in "${tests[@]}"; do
   if ! cat "$key.log" 2>/dev/null; then
     echo "${name//[[:cntrl:]]/?}: its output could not be read"
     reason="its output could not be read"
+  else
+    n=$(sed -n 's/^.*: \([0-9][0-9]*\) cases, [0-9][0-9]* failed$/\1/p' "$key.log" 2>/dev/null | tail -n 1)
+    [ -z "$n" ] || cases=$((cases + n))
   fi
+  ms=$(cat "$key.ms" 2>/dev/null) || ms=""
+  [[ $ms =~ ^[0-9]+$ ]] && slow+=("$ms $name")
   rc=
   ok=1
   if [ ! -f "$key.rc" ]; then
@@ -107,6 +169,7 @@ for t in "${tests[@]}"; do
     rc=$(cat "$key.rc" 2>/dev/null)
     if [[ $rc =~ ^[0-9]+$ ]]; then
       [ "$rc" -eq 0 ] || ok=0
+      if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then reason="timed out after ${limit}s"; fi
     else
       ok=0
       reason="its recorded result could not be read"
@@ -117,6 +180,22 @@ for t in "${tests[@]}"; do
     why+=("$reason")
   fi
 done
+
+# What the run covered and where its time went: the count of cases goes down
+# only when cases were removed, and the slowest files are the ones to split.
+if [ "${#tests[@]}" -gt 0 ]; then
+  echo "test.sh: $cases cases in ${#tests[@]} files, $jobs at a time"
+  echo "test.sh: the slowest files:"
+  for ((i = 0; i < 5 && i < ${#slow[@]}; i++)); do
+    top=0
+    for ((j = 1; j < ${#slow[@]}; j++)); do
+      [ "${slow[j]%% *}" -le "${slow[top]%% *}" ] || top=$j
+    done
+    ms=${slow[top]%% *}
+    printf '    %3d.%d s  %s\n' "$((ms / 1000))" "$((ms % 1000 / 100))" "${slow[top]#* }"
+    slow[top]="-1 ${slow[top]#* }"
+  done
+fi
 
 # scripts/verify.sh keeps the last 40 lines of this step, and the block is what
 # a person of that gate sees of a failing run, so its size is derived from that

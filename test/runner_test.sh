@@ -6,6 +6,7 @@
 # fit; the last cases measure it. Each case runs the runner over a scratch
 # checkout with fake test files of its own and a stub lint, so what the block
 # says does not depend on whether this host has shellcheck installed.
+# shellcheck disable=SC2016  # fake files and stubs are expanded when they run
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh"
 
@@ -69,13 +70,14 @@ fake() { # name rc [lines]
   chmod +x "$repo/test/$n"
 }
 
-# A fake test file that kills the shell meant to record its status: the runner
-# sees a file that never finished.
+# A fake test file that kills the shell meant to record its status, the parent
+# of the timeout it runs under: the runner sees a file that never finished.
 killed() { # name
   {
     echo '#!/usr/bin/env bash'
     echo 'echo ran '"$1"' part way'
-    echo "kill -9 \$PPID"
+    echo 'read -r _ _ _ pp _ </proc/$PPID/stat'
+    echo 'kill -9 "$pp"'
   } >"$repo/test/$1"
   chmod +x "$repo/test/$1"
 }
@@ -83,7 +85,6 @@ killed() { # name
 # Where a scratch run keeps each test file's record: one run, one directory, so
 # a fake test file can name its own record. The pattern is left for the fake
 # file to expand, with the directory quoted and the pattern not.
-# shellcheck disable=SC2016  # the quotes and the braces are for the fake file to run, not here
 recpat='"${TMPDIR:-/tmp}"/tehas-tests.*'
 
 # A fake test file that removes its own log and puts a directory where it was:
@@ -123,6 +124,10 @@ lint_refused() {
 exit 1'
 }
 
+# The block that names what did not pass, the end of the run just made. The
+# lines above it name every file, among the slowest.
+block() { printf '%s\n' "$t_out" | sed -n '/^test\.sh: failed checks/,$p'; }
+
 tail_of() { # n: the last n lines of the run just made
   if ! [[ ${1:-} =~ ^[0-9]+$ ]]; then
     # Printed where an assertion can see it: the case fails naming this, and the
@@ -149,7 +154,7 @@ no_shellcheck() {
   local c p
   rm -rf "$nobin"
   mkdir -p "$nobin"
-  for c in bash cat dirname mkdir mktemp nproc rm; do
+  for c in bash cat dirname mkdir mktemp nproc rm sed tail timeout; do
     p=$(command -v "$c") || continue
     ln -s "$p" "$nobin/$c"
   done
@@ -194,8 +199,8 @@ t_eq "$t_rc" 1
 t_eq "$(tail_of 3)" "test.sh: failed checks (2), not run (0)
     test/a_test.sh
     test/c_test.sh"
-t_lacks "$t_out" "test/b_test.sh"
-t_lacks "$t_out" "test/d_test.sh"
+t_lacks "$(block)" "test/b_test.sh"
+t_lacks "$(block)" "test/d_test.sh"
 
 t_case "a shellcheck failure is named beside a failing test file"
 fresh
@@ -215,7 +220,7 @@ run
 t_eq "$t_rc" 1
 t_eq "$(tail_of 2)" "test.sh: failed checks (1), not run (0)
     shellcheck"
-t_lacks "$t_out" "test/a_test.sh"
+t_lacks "$(block)" "test/a_test.sh"
 
 t_case "a real lint complaint in the checkout is named"
 fresh
@@ -225,7 +230,6 @@ if ! command -v shellcheck >/dev/null 2>&1; then
   echo "no shellcheck on this host: the gate's own run covers a real lint"
 else
   mkdir -p "$repo/lib"
-  # shellcheck disable=SC2016  # the line is shell for the lint to refuse, not expanded here
   printf 'echo $unquoted\n' >"$repo/lib/bad.sh"
   fake a_test.sh 0 2
   run
@@ -337,6 +341,54 @@ else
   t_lacks "$(tail_of "$keep")" "test/f01_test.sh"
   t_fits
 fi
+
+t_case "a test file that runs past its time is stopped and named as timed out"
+fresh
+fake a_test.sh 0 1
+printf '#!/usr/bin/env bash\necho ran b_test.sh part way\nexec sleep 30\n' >"$repo/test/b_test.sh"
+began=$SECONDS
+T_ENV=(TEHAS_TEST_JOBS=1 TMPDIR="$recs" TEHAS_TEST_FILE_TIMEOUT=1)
+run
+T_ENV=(TEHAS_TEST_JOBS=1 TMPDIR="$recs")
+t_eq "$t_rc" 1
+t_eq "$(tail_of 2)" "test.sh: failed checks (1), not run (0)
+    test/b_test.sh: timed out after 1s"
+t_eq "$((SECONDS - began < 15))" 1
+
+t_case "the run counts the cases of every file and names the slowest"
+fresh
+printf '#!/usr/bin/env bash\necho "a_test.sh: 3 cases, 0 failed"\n' >"$repo/test/a_test.sh"
+printf '#!/usr/bin/env bash\nsleep 1\necho "b_test.sh: 4 cases, 0 failed"\n' >"$repo/test/b_test.sh"
+run
+t_eq "$t_rc" 0
+t_contains "$t_out" "test.sh: 7 cases in 2 files, 1 at a time"
+t_eq "$(printf '%s\n' "$t_out" | sed -n '/the slowest files/{n;p}' | sed 's/.* s  //')" "test/b_test.sh"
+
+t_case "the slowest files run first, from the list, the others after in name order"
+fresh
+for n in a_test.sh work_x_test.sh dispatch_y_test.sh; do
+  printf '#!/usr/bin/env bash\necho "%s" >>"$1"\n' "$n" >"$repo/test/$n"
+done
+# Each file notes itself in the order it ran: the jobs are one at a time.
+sed -i "s|\"\$1\"|$T/order|" "$repo"/test/*.sh
+rm -f "$T/order"
+run
+t_eq "$(cat "$T/order" 2>/dev/null | tr '\n' ' ')" "work_x_test.sh dispatch_y_test.sh a_test.sh "
+
+t_case "the lint runs once for each file, and names the file it refused"
+fresh
+t_stub shellcheck 'echo "$@" >>"$T/linted"
+case "$2" in */bad.sh) echo "In $2: refused"; exit 1 ;; esac'
+mkdir -p "$repo/lib"
+: >"$repo/lib/good.sh"
+: >"$repo/lib/bad.sh"
+fake a_test.sh 0 1
+rm -f "$T/linted"
+run
+t_eq "$t_rc" 1
+t_eq "$(wc -l <"$T/linted")" 3
+t_contains "$t_out" "In $repo/lib/bad.sh: refused"
+t_contains "$t_out" "shellcheck: failed, 1 of 3 files"
 
 t_case "a checkout with nothing to check is exit 2, not a pass"
 fresh
