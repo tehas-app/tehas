@@ -147,10 +147,12 @@ prints the same facts as one object, with the demand added:
   expired one keeps what was set; `running[].step` and `demand.oldestWait`
   are left out when unknown or when nothing waits. `demand` is null when no
   poll counted it in ten minutes, `room` when no poll got to the room check.
-- `room` is the room left under each cap: `cycles` under
-  `TEHAS_TICKET_CONCURRENCY` (and the limit, with step 3), `maxAwaiting`
-  under `TEHAS_MAX_AWAITING`, `slice` in `tehas.slice`. A figure the poll did
-  not read is left out.
+- `room` is the room left under each of the factory's own caps: `cycles`
+  under `TEHAS_TICKET_CONCURRENCY` alone, `maxAwaiting` under
+  `TEHAS_MAX_AWAITING`, `slice` in `tehas.slice`. A figure the poll did not
+  read is left out. The limit never enters these: a program that sets the
+  limit reads them as what the factory could start without it. Step 3 adds
+  the room under the limit as a field of its own, `room.limit`.
 - *(Built in #299.)* `demand.waiting` counts `tehas:ready` applied last by an
   allowed account or the fixer, with no cycle or planning session open. The
   checks a start makes on top (text unchanged, no open pull request, the
