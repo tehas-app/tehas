@@ -28,6 +28,7 @@ t_eq "$(jq -r '.features | type' <<<"$t_out")" array
 t_eq "$(jq -r '.features | all(type == "string")' <<<"$t_out")" true
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "status"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "fixer-grant"
+t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "all-hands"
 t_eq "$(t_calls gh)$(t_calls git)" ""
 
 t_case "api --json: the fixer is its login when the instance has one"

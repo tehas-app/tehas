@@ -573,6 +573,17 @@ The reason is written to the flag and shown on pages that may be public, so writ
 nothing in it that should not be read in public. The account that set the flag is
 not published.
 
+## All hands
+
+**`tehas:all-hands`** on the control issue asks for all hands on this project.
+It counts while it is on the issue and the account that applied it last is in
+`TEHAS_ALLOWED_LABELERS`. A label anyone else applies is ignored and said once
+in the dispatcher's log. On its own it changes nothing in this factory: no
+cycle starts or waits because of it. `tehas status` prints an `all-hands` line,
+its JSON says `"allHands": true` and the dashboard shows "all hands". What it
+means for other factories is up to the program that runs them, such as
+tehas-industry. Take the label off to end it.
+
 ## Limits that hold work back
 
 - At most `TEHAS_TICKET_CONCURRENCY` cycles at a time. It is a ceiling, not

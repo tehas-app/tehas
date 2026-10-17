@@ -5100,4 +5100,13 @@ t_run "$dispatch"
 release
 t_eq "$(jq -c '{free, awaitRoom}' "$dispatch_json")" '{"free":0,"awaitRoom":null}'
 
+
+t_case "all-hands on the control issue starts nothing and holds nothing"
+reset
+echo '{"labels":[{"name":"tehas:all-hands"}]}' >"$fx/control.json"
+echo '[{"event":"labeled","label":{"name":"tehas:all-hands"},"actor":{"login":"alice"}}]' >"$fx/events-1.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+
 t_done
