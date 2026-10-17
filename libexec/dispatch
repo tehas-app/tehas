@@ -153,6 +153,9 @@
 # what holds cycles back, if anything, and the slice's numbers. tehasbot
 # health copies it for tehas status. A hold is logged once, when its reason
 # changes, and "released" once when it ends; a dry run prints it every time.
+# Every real poll that gets past the bot's login, a paused one too, writes
+# $TEHAS_HOME/live/demand.json, how many issues wait for room (report_demand),
+# and refreshes the health file with it.
 set -uo pipefail
 
 # The usage is this file's own header comment: every line from the second to the
@@ -418,7 +421,8 @@ report_hold() {
   fi
   if jq -n --arg time "$(date -u +%FT%TZ)" --arg why "$why" --arg hold "$hold" --arg reserve "$TEHAS_CYCLE_RESERVE" \
     --argjson count "$count" --argjson room "$room_mem" --argjson committed "$committed" --argjson max "$slice_max" \
-    '{$time, $why, $hold, $count, $room, $committed, $max, $reserve}' >"$file.new" 2>/dev/null; then
+    --argjson free "$free" --argjson awaitRoom "${room:-null}" \
+    '{$time, $why, $hold, $count, $room, $committed, $max, $reserve, $free, $awaitRoom}' >"$file.new" 2>/dev/null; then
     mv "$file.new" "$file" || log "WARN: could not write $file"
   else
     rm -f "$file.new"
@@ -873,6 +877,43 @@ start_cycles() {
   return "$failed"
 }
 
+# report_demand: write live/demand.json for tehas status, {time, waiting,
+# oldest}: how many open issues would start if there were room, and when the
+# oldest of them was accepted. That is a tehas:ready applied last by an
+# allowed account or the fixer, on an issue with no cycle and no planning
+# session open. It is written on every poll that gets this far, a paused one
+# too. It is a report and decides nothing: its reads are its own, kept out of
+# what a start rests on, and a read that fails removes the file and ends
+# nothing.
+report_demand() {
+  local file=$TEHAS_HOME/live/demand.json list n ev line by at waiting=0 oldest=""
+  if ! list=$(gh issue list --repo "$repo" --state open --label tehas:ready --limit 1000 --json number,labels 2>/dev/null) ||
+    ! list=$(jq -r '.[] | select((.labels // []) | any(.name == "tehas:running") | not) | .number | tonumber? // empty' <<<"$list" 2>/dev/null); then
+    rm -f "$file"
+    return 0
+  fi
+  for n in $list; do
+    if [ -e "$(plan_state "$n")" ] || tehas_cycle_running "$n"; then continue; fi
+    if ! ev=$(gh api "repos/$repo/issues/$n/events?per_page=100" --paginate 2>/dev/null) ||
+      ! line=$(tehas_label_actor tehas:ready <<<"$ev"); then
+      rm -f "$file"
+      return 0
+    fi
+    by=${line%%$'\t'*}
+    at=${line#*$'\t'}
+    tehas_allowed_labeler "$by" || tehas_fixer_is "$by" || continue
+    waiting=$((waiting + 1))
+    if [ -n "$at" ] && { [ -z "$oldest" ] || [[ $at < $oldest ]]; }; then oldest=$at; fi
+  done
+  if jq -n --arg time "$(date -u +%FT%TZ)" --argjson waiting "$waiting" --arg oldest "$oldest" \
+    '{$time, $waiting} + (if $oldest == "" then {} else {$oldest} end)' >"$file.new" 2>/dev/null; then
+    mv "$file.new" "$file" || log "WARN: could not write $file"
+  else
+    rm -f "$file.new"
+    log "WARN: could not write $file"
+  fi
+}
+
 [ "$dry" = 0 ] && "$status_cmd"
 
 # 1. Pause switches: what this poll may start. This host's flag is read first,
@@ -917,6 +958,13 @@ fi
 if tehas_fixer_is "$bot"; then
   log "ERROR: the bot account $bot is TEHAS_FIXER_LOGIN; every agent posts as the bot, so the fixer must be an account of its own"
   exit 78
+fi
+
+# The demand is read from a repository that answers to its name, and the
+# health file the snapshot above wrote is written again with it.
+if [ "$dry" = 0 ]; then
+  report_demand
+  "$here/health" || log "WARN: the health file could not be written"
 fi
 
 # The label, when the flag has not already decided: it asks GitHub, so it comes
