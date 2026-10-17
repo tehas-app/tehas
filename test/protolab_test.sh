@@ -520,6 +520,65 @@ t_run "$protolab"
 t_contains "$(cat "$site/47/index.html")" '<iframe src="files/good/index.html"'
 t_contains "$(cat "$site/47/index.html")" '<iframe src="files/2-good/index.html"'
 
+t_case "a zip entry with no Unix file type is taken as a file"
+reset
+net_file "$F/13/edge.zip" "$zips/edge.zip"
+issues "$(issue 49 'Edges' "[edge.zip]($F/13/edge.zip)")"
+t_run "$protolab"
+t_eq "$t_rc" 0
+t_eq "$(files_of 49)" "./edge/a-b.txt ./edge/d.txt ./edge/plain.txt "
+t_eq "$(cat "$site/49/files/edge/plain.txt")" "plain"
+page=$(cat "$site/49/index.html")
+
+t_case "a locked file in a zip is left out"
+t_contains "$page" "$(left_out edge/locked.txt 'A locked file.')"
+
+t_case "two names in a zip that clean to one: the second is left out"
+t_contains "$page" "$(left_out edge/a-b.txt 'A second file of that name.')"
+t_eq "$(cat "$site/49/files/edge/a-b.txt")" "first"
+
+t_case "a file of a zip standing where another needs a folder leaves that one out"
+t_contains "$page" "$(left_out edge/d.txt/inner.txt 'A name the lab cannot use.')"
+
+t_case "a damaged file in a zip is left out and nothing of it kept"
+t_contains "$page" "$(left_out edge/bad.txt 'Could not be unpacked.')"
+t_eq "$(find "$site/49" -name 'bad*' | wc -l)" 0
+
+t_case "a zip is read only up to 200 entries"
+reset
+net_file "$F/14/entries.zip" "$zips/entries.zip"
+issues "$(issue 50 'Entries' "[entries.zip]($F/14/entries.zip)")"
+t_run "$protolab"
+page=$(cat "$site/50/index.html")
+t_eq "$(find "$site/50/files" -type f | wc -l)" 40
+t_eq "$(grep -o 'More than 40 files.' <<<"$page" | wc -l)" 160
+t_eq "$(grep -o 'More than 200 entries in the zip.' <<<"$page" | wc -l)" 1
+t_lacks "$page" "e201.txt"
+
+t_case "small files of a zip together are held to what is left, and unpacking stops there"
+reset
+real_unzip=$(command -v unzip)
+t_stub unzip "exec $real_unzip \"\$@\""
+net_file "$F/15/sizes.zip" "$zips/sizes.zip"
+issues "$(issue 51 'Sizes' "[sizes.zip]($F/15/sizes.zip)")"
+t_run "$protolab"
+page=$(cat "$site/51/index.html")
+t_eq "$(files_of 51)" "./sizes/a.txt ./sizes/b.txt "
+t_contains "$page" "$(left_out sizes/c.txt 'Over the 10 MB limit of a ticket.')"
+t_contains "$page" "$(left_out sizes/d.txt 'Over the 10 MB limit of a ticket.')"
+t_eq "$(t_calls unzip | wc -l)" 3
+rm -f "$T/bin/unzip"
+
+t_case "a line of the zip's listing that is not an entry is left out and said"
+reset
+t_stub zipinfo 'printf "%s\n" "Archive:  x.zip" "Zip file size: 1 bytes, number of entries: 1" "this is not an entry" "1 file, 1 bytes uncompressed, 1 bytes compressed:  0.0%"'
+net_file "$F/16/good.zip" "$zips/good.zip"
+issues "$(issue 52 'Odd listing' "[good.zip]($F/16/good.zip)")"
+t_run "$protolab"
+t_contains "$(cat "$site/52/index.html")" "$(left_out 'good/this is not an entry' 'Not an entry the lab can read.')"
+t_eq "$(files_of 52)" ""
+rm -f "$T/bin/zipinfo"
+
 t_case "a name with no slash keeps the same address as before"
 reset
 net "$F/11/solo.html" "<h1>solo</h1>"

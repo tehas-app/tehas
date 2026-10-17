@@ -49,7 +49,8 @@ it within about five minutes. It takes:
   limits. It takes the types above and md files, kept in their folders, so
   `index.html` in a zip can refer to `data/sample.json` in it. Links, paths
   that leave the zip, paths more than six levels deep and locked files are
-  left out.
+  left out. At most 200 entries of a zip are read, and once a file of it is
+  over the 10 MB, nothing more of it is unpacked.
 
 A prototype zip may carry instructions for language models on what it holds,
 for example a `prototype.md`; the lab serves it like any other file and does

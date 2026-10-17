@@ -12,8 +12,11 @@
 #       be read
 #
 # Every entry goes through these rules, in this order:
-#   1. only regular files; a directory is passed over, a link or any other
-#      kind is left out, and so is an encrypted file
+#   0. at most 200 entries are read; a line of the listing that is not an
+#      entry is left out
+#   1. only regular files, and entries with no Unix file type, which zip
+#      libraries write for plain files; a directory is passed over, a link or
+#      any other kind is left out, and so is an encrypted file
 #   2. no path that starts with /, has a .. part, has a backslash, or is more
 #      than six levels deep
 #   3. each part of the path cleaned as protolab cleans a name; a part that
@@ -21,51 +24,60 @@
 #   4. only the types protolab hosts, and md
 #   5. at most <most files> files
 #   6. at most <most bytes> in all, counted on what unzip writes and not on
-#      what the zip says
+#      what the zip says; after the first file over it, nothing more is
+#      unpacked and the rest are left out for the same reason
 # Files are written by this function alone, with unzip -p into a pipe, so
-# nothing outside <dest dir> is touched and no link is ever made. Mode 644.
+# nothing outside <dest dir> is touched and no link is ever made, whatever
+# type an entry claims. Mode 644.
 #
 # Sourcing it does nothing. It needs lib/attachments.sh, zipinfo and unzip.
 
 # More entries than this and the rest of the zip is not read.
-tehas_unzip_entries=1000
+tehas_unzip_entries=200
+
+_tehas_unzip_skip() { jq -n -c --arg n "${1:0:200}" --arg r "$2" '{skip: $n, reason: $r}'; }
 
 tehas_unzip_into() {
   local zip=$1 dest=$2 left=$3 files=$4 listing line mode tx name rel part clean
-  local kind ext depth size n=0 pattern
+  local kind ext depth size n=0 pattern full=0
   local -a parts st
   local re='^([^ ]+) +[^ ]+ +[^ ]+ +[0-9]+ +([^ ]+) +[0-9]+ +[^ ]+ +[^ ]+ +[0-9]+:[0-9]+ (.*)$'
+  # zipinfo's own lines before and after the entries.
+  local frame='^(Archive: |Zip file size: |[0-9]+ files?, )'
 
   listing=$(zipinfo -l "$zip" 2>/dev/null) || return 2
   mkdir -p "$dest" || return 2
 
-  out_skip() { jq -n -c --arg n "${1:0:200}" --arg r "$2" '{skip: $n, reason: $r}'; }
-
   while IFS= read -r line; do
-    [[ $line =~ $re ]] || continue
-    mode=${BASH_REMATCH[1]} tx=${BASH_REMATCH[2]} name=${BASH_REMATCH[3]}
+    [ -n "$line" ] || continue
+    [[ $line =~ $frame ]] && continue
     n=$((n + 1))
     if [ "$n" -gt "$tehas_unzip_entries" ]; then
-      out_skip "..." "More than $tehas_unzip_entries entries in the zip."
+      _tehas_unzip_skip "..." "More than $tehas_unzip_entries entries in the zip."
       break
     fi
+    if ! [[ $line =~ $re ]]; then
+      _tehas_unzip_skip "$line" "Not an entry the lab can read."
+      continue
+    fi
+    mode=${BASH_REMATCH[1]} tx=${BASH_REMATCH[2]} name=${BASH_REMATCH[3]}
     case "$mode" in
       d*) continue ;;
-      -*) ;;
-      *) out_skip "$name" "A link or a special file."; continue ;;
+      -* | \?*) ;;
+      *) _tehas_unzip_skip "$name" "A link or a special file."; continue ;;
     esac
     # zipinfo writes an encrypted entry's text/binary mark in capitals.
-    case "$tx" in [A-Z]*) out_skip "$name" "A locked file."; continue ;; esac
+    case "$tx" in [A-Z]*) _tehas_unzip_skip "$name" "A locked file."; continue ;; esac
 
     IFS=/ read -r -a parts <<<"$name"
     depth=${#parts[@]}
     case "$name" in
-      /* | *\\*) out_skip "$name" "A path outside the archive."; continue ;;
+      /* | *\\*) _tehas_unzip_skip "$name" "A path outside the archive."; continue ;;
     esac
     case "/$name/" in
-      */../*) out_skip "$name" "A path outside the archive."; continue ;;
+      */../*) _tehas_unzip_skip "$name" "A path outside the archive."; continue ;;
     esac
-    if [ "$depth" -gt 6 ]; then out_skip "$name" "A path outside the archive."; continue; fi
+    if [ "$depth" -gt 6 ]; then _tehas_unzip_skip "$name" "A path outside the archive."; continue; fi
 
     rel=""
     for part in "${parts[@]}"; do
@@ -73,7 +85,7 @@ tehas_unzip_into() {
       if [ -z "$clean" ]; then rel=""; break; fi
       rel=${rel:+$rel/}$clean
     done
-    if [ -z "$rel" ]; then out_skip "$name" "A name the lab cannot use."; continue; fi
+    if [ -z "$rel" ]; then _tehas_unzip_skip "$name" "A name the lab cannot use."; continue; fi
 
     ext=""
     case "${rel##*/}" in *.*) ext=${rel##*.} ;; esac
@@ -81,13 +93,14 @@ tehas_unzip_into() {
     if [ "$ext" = md ]; then
       kind=part
     else
-      kind=$(tehas_attachment_kind "$ext") || { out_skip "$name" "Not a type the lab hosts."; continue; }
+      kind=$(tehas_attachment_kind "$ext") || { _tehas_unzip_skip "$name" "Not a type the lab hosts."; continue; }
     fi
-    if [ "$files" -le 0 ]; then out_skip "$name" "More than $4 files."; continue; fi
-    if [ -e "$dest/$rel" ]; then out_skip "$name" "A second file of that name."; continue; fi
+    if [ "$files" -le 0 ]; then _tehas_unzip_skip "$name" "More than $4 files."; continue; fi
+    if [ "$full" = 1 ]; then _tehas_unzip_skip "$name" "Over the 10 MB limit of a ticket."; continue; fi
+    if [ -e "$dest/$rel" ]; then _tehas_unzip_skip "$name" "A second file of that name."; continue; fi
     # A file of the zip may already stand where this one needs a folder.
     if [[ $rel == */* ]] && ! mkdir -p "$dest/${rel%/*}" 2>/dev/null; then
-      out_skip "$name" "A name the lab cannot use."
+      _tehas_unzip_skip "$name" "A name the lab cannot use."
       continue
     fi
 
@@ -99,12 +112,13 @@ tehas_unzip_into() {
     size=$(stat -c %s "$dest/$rel" 2>/dev/null) || size=0
     if [ "$size" -gt "$left" ]; then
       rm -f "$dest/$rel"
-      out_skip "$name" "Over the 10 MB limit of a ticket."
+      full=1
+      _tehas_unzip_skip "$name" "Over the 10 MB limit of a ticket."
       continue
     fi
     if [ "${st[0]}" != 0 ] || [ "${st[1]}" != 0 ]; then
       rm -f "$dest/$rel"
-      out_skip "$name" "Could not be unpacked."
+      _tehas_unzip_skip "$name" "Could not be unpacked."
       continue
     fi
     chmod 644 "$dest/$rel"
