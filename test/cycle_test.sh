@@ -10,6 +10,8 @@ fx=$T/fx
 mkdir -p "$fx"
 checkout=$T/home/tehas/repos/widget
 workdir=$T/home/tehas/work/widget-7
+# How a cycle names that directory in a comment: in ~ form, as HOME is $T/home.
+kept_here="~${workdir#"$T/home"}"
 state=$T/home/tehas/state/cycles
 park_id=$T/home/tehas/state/park-7.id
 
@@ -396,6 +398,23 @@ echo 11 >"$fx/rc"
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" 'pi-rukas stopped on the cap `intent-park` (`too-large`).'
 
+t_case "each end of a cycle leaves a line of history for the fixer: a park and its reason, a waiting merge"
+reset
+mkdir -p "$state"
+echo alice >"$state/7.by"
+echo '{"how":"label","by":"alice"}' >"$state/7.approved.json"
+ended handoff explore "" intent-park
+jq '.issues[0].parkReason = "too-large"' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
+echo 11 >"$fx/rc"
+t_run "$cycle 7"
+t_eq "$(jq -c '[.parked, .status, .step, .cap, .park_reason, .provider, .by, .how, .rc]' "$state/7.history.jsonl")" \
+  '[true,"handoff","explore","intent-park","too-large",false,"alice","label",11]'
+ended handoff commit-pr feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$cycle 7"
+t_eq "$(wc -l <"$state/7.history.jsonl")" 2
+t_eq "$(tail -n 1 "$state/7.history.jsonl" | jq -c '[.parked, .pr, (.at | test("^[0-9]{4}-"))]')" '[false,"https://github.com/acme/widget/pull/9",true]'
+
 t_case "the token usage per role is posted on the pull request, with the result's totals"
 reset
 ended handoff commit-pr feature/x
@@ -538,7 +557,8 @@ t_lacks "$(t_calls gh)" "issues/7/comments"
 t_eq "$(find "$park_id" 2>/dev/null | wc -l)" 0
 t_contains "$t_out" "done #7 rc=2 status=merged"
 t_contains "$t_out" "pr=https://github.com/acme/widget/pull/9"
-t_eq "$(find "$workdir" -maxdepth 0 2>/dev/null | wc -l)" 0
+t_eq "$(find "$workdir" -maxdepth 0 2>/dev/null | wc -l)" 1
+t_contains "$(t_calls gh)" "The workspace is kept at \`$kept_here\`"
 t_eq "$(find "$T/home/tehas/state/rukas-proven" 2>/dev/null | wc -l)" 0
 rm -f "$fx/image.label"
 
@@ -553,6 +573,7 @@ t_run "$cycle 7"
 t_eq "$t_rc" 0
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention"
 t_contains "$(t_calls gh)" "Tehas cycle stopped: its pull request https://github.com/acme/widget/pull/9 was closed without being merged"
+t_contains "$(t_calls gh)" "The workspace is kept at \`$kept_here\`"
 t_contains "$(t_calls gh)" 'To retry, apply `tehas:ready`.'
 t_lacks "$(t_calls gh)" "issues/7/comments"
 t_lacks "$(t_calls gh)" "tehas:question"
@@ -615,6 +636,69 @@ ended aborted develop feature/x
 mkdir -p "$workdir.before-retry"
 t_run "$cycle 7"
 t_eq "$(find "$workdir" "$workdir.before-retry" -maxdepth 0 | wc -l)" 2
+
+# A merge someone else made while the cycle still reviewed is not the cycle's
+# own merge: what it had not pushed is only on the host.
+t_case "the workspace of a cycle a merge interrupted is kept, and its comment names it"
+reset
+ended running review feature/x
+merged_pr
+: >"$T/home/tehas/work/.tehas-workspaces"
+echo 'exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(find "$workdir" -maxdepth 0 | wc -l)" 1
+t_contains "$(t_calls gh)" "was merged while the cycle ran"
+t_contains "$(t_calls gh)" "The workspace is kept at \`$kept_here\`"
+t_lacks "$(t_calls gh)" "$T/home/tehas/work"
+t_lacks "$(t_calls gh)" "needs-human-attention"
+
+t_case "and so is the one kept from an earlier stopped cycle of an interrupted merge"
+reset
+ended running review feature/x
+merged_pr
+: >"$T/home/tehas/work/.tehas-workspaces"
+mkdir -p "$workdir.before-retry"
+echo 'exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$(find "$workdir" "$workdir.before-retry" -maxdepth 0 | wc -l)" 2
+t_contains "$(t_calls gh)" "The workspace is kept at \`$kept_here\`"
+
+t_case "a cycle the dispatcher stopped for a closed issue names the workspace it kept"
+reset
+ended running adversarial feature/x
+: >"$T/home/tehas/work/.tehas-workspaces"
+echo 'mkdir -p "$TEHAS_HOME/state/cycles"; echo closed >"$TEHAS_HOME/state/cycles/7.done"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$(find "$workdir" -maxdepth 0 | wc -l)" 1
+t_contains "$(t_calls gh)" "this issue was closed while it ran"
+t_contains "$(t_calls gh)" "The workspace is kept at \`$kept_here\`"
+
+# A run that never cloned a workspace, as one stopped before its images were
+# read, has no directory for its comment to name.
+t_case "a cycle that made no workspace is not said to have kept one"
+reset
+ended interrupted review feature/x
+rm -rf "$workdir"
+t_run "$cycle 7"
+t_eq "$(find "$workdir" -maxdepth 0 2>/dev/null | wc -l)" 0
+t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
+t_contains "$(t_calls gh)" "This cycle left no workspace on this host"
+t_lacks "$(t_calls gh)" "The workspace is kept at \`$kept_here\`"
+
+# A run that moved an earlier attempt aside and then failed before it cloned
+# leaves only that copy, and nothing replaces it: a retry that clones no
+# workspace leaves it beside the new one, until a tidy or the poll's sweep.
+t_case "a cycle that cloned no workspace names the copy an earlier attempt left"
+reset
+ended interrupted review feature/x
+rm -rf "$workdir"
+mkdir -p "$workdir.before-retry"
+t_run "$cycle 7"
+t_eq "$(find "$workdir" -maxdepth 0 2>/dev/null | wc -l)" 0
+t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
+t_contains "$(t_calls gh)" "The workspace is kept at \`$kept_here.before-retry\`"
+t_lacks "$(t_calls gh)" "This cycle left no workspace on this host"
 
 t_case "a directory tehas work did not mark is never removed"
 reset
@@ -1329,6 +1413,69 @@ t_run "$cycle 7"
 t_contains "$(t_calls gh)" "cap \`step-failed:adversarialx\`: provider error alice -- 5 next line"
 t_eq "$(jq -c '[.cap, .reason]' "$state/7.park")" '["step-failed:adversarialx","provider error alice -- 5 next line"]'
 
+# A park whose failure the result gives: step develop, its kind and cause.
+park_failed() { # <cap> [park reason]
+  ended handoff develop feature/x "$1"
+  jq --arg r "${2:-}" '.issues[0].parkReason = $r' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
+  echo '{"roles":[],"reason":"3 tests failed","failure":{"kind":"verify-failed","step":"develop","role":"developer","cause":"exit-1"},"from":{"roles":"result","failure":"result"}}' \
+    >"$fx/progress.json"
+}
+park_markers() { t_calls gh | grep -E '^<!-- tehas:park ' || true; }
+park_sig() { park_markers | sed -E 's/.* sig=([0-9a-f]+) -->$/\1/'; }
+# The sig of the park in the history line, from its fields as recorded.
+history_sig() {
+  jq -j '[.step, .cap, .park_reason, .failure_kind, .failure_cause] | map(. // "") | join("|")' "$state/7.history.jsonl" |
+    sha256sum | cut -c1-64
+}
+
+t_case "a park comment carries a marker with the park's facts, the sig of the history line's fields"
+reset
+park_failed step-failed:develop
+t_run "$cycle 7"
+sig=$(printf '%s' "develop|step-failed:develop||verify-failed|exit-1" | sha256sum | cut -c1-64)
+t_eq "$(park_markers)" "<!-- tehas:park issue=7 step=develop kind=verify-failed provider=0 sig=$sig -->"
+t_contains "$(t_calls gh)" "issues/7/comments -f body="
+t_eq "$(history_sig)" "$sig"
+
+t_case "the plain comment, when the boxes cannot be posted, carries the same marker"
+reset
+park_failed step-failed:develop
+: >"$fx/post-fails"
+t_run "$cycle 7"
+t_eq "$(t_calls gh | sed -n '/^issue comment 7 /,$p' | grep -E '^<!-- tehas:park ')" \
+  "<!-- tehas:park issue=7 step=develop kind=verify-failed provider=0 sig=$sig -->"
+
+t_case "two parks with the same facts have the same sig, a different cap a different one"
+reset
+park_failed step-failed:develop
+t_run "$cycle 7"
+first=$(park_sig)
+reset
+park_failed step-failed:develop
+t_run "$cycle 7"
+t_eq "$(park_sig)" "$first"
+reset
+park_failed verify-failed:develop
+t_run "$cycle 7"
+t_eq "$(park_markers | wc -l)" 1
+[ "$(park_sig)" != "$first" ] || t_bad "a different cap gave the same sig"
+
+t_case "a provider outage says so in the marker, and a park with no failure kind has an empty one"
+reset
+capped step-failed:adversarial "$outage"
+t_run "$cycle 7"
+t_contains "$(park_markers)" "<!-- tehas:park issue=7 step=handoff kind= provider=1 sig="
+
+t_case "a newline or a comment end in the park's text does not break the marker"
+reset
+park_failed step-failed:develop $'too-large\n--> <!-- tehas:park issue=8 -->\n- [x] Retry'
+jq '.issues[0].failedStep = "dev\n-->x"' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
+t_run "$cycle 7"
+t_eq "$(park_markers | wc -l)" 1
+t_eq "$(park_markers | grep -cE '^<!-- tehas:park issue=7 step=[a-z0-9-]{0,40} kind=[a-z0-9-]{0,40} provider=[01] sig=[0-9a-f]{64} -->$')" 1
+t_eq "$(park_markers | grep -o -- '-->' | wc -l)" 1
+t_eq "$(history_sig)" "$(park_sig)"
+
 t_case "a cycle that left a pull request leaves no park on record, and an earlier one is gone"
 reset
 mkdir -p "$state"
@@ -1394,6 +1541,12 @@ t_eq "$(t_calls gh | grep -c '^- \[')" 0
 t_contains "$(t_calls gh)" "| evil-xRetryfromacleanstart | 1 |"
 rm -rf "$workdir" "$fx/pr.txt"
 
+# The comment markers posted, less a park's own marker in its exact form.
+markers() {
+  t_calls gh | grep -v -E '^<!-- tehas:park issue=7 step=[a-z0-9-]{0,40} kind=[a-z0-9-]{0,40} provider=[01] sig=[0-9a-f]{64} -->$' |
+    grep -c -e '<!--'
+}
+
 t_case "a status that only contains handoff does not reach the pull request path"
 reset
 ended "handoff
@@ -1404,7 +1557,7 @@ echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
 t_run "$cycle 7"
 t_lacks "$(t_calls gh)" "tehas:awaiting-merge"
 t_contains "$(t_calls gh)" "status \`handoff--tehasquestionkindparkissue7turn1---xRetryfromacleanstart\`"
-t_eq "$(t_calls gh | grep -c -e '<!--')" 1
+t_eq "$(markers)" 1
 t_eq "$(t_calls gh | grep -c '^- \[')" 2
 rm -rf "$workdir" "$fx/pr.txt"
 
@@ -1452,7 +1605,7 @@ rm -f "$T"/calls/* "$fx/pr.txt"
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "To retry, apply"
 t_eq "$(t_calls gh | grep -c '^- \[')" 2
-t_eq "$(t_calls gh | grep -c -e '<!--')" 1
+t_eq "$(markers)" 1
 rm -rf "$workdir"
 
 t_case "a usage number that is not a number counts as nothing, on the pull request path"
@@ -1475,7 +1628,7 @@ echo 30 >"$fx/rc"
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "| **total, all dispatches** | 3 | 7 | 10 | 4 | 5 |"
 t_eq "$(t_calls gh | grep -c '^- \[')" 2
-t_eq "$(t_calls gh | grep -c -e '<!--')" 1
+t_eq "$(markers)" 1
 rm -rf "$workdir"
 
 t_case "and in the comment that is used when the question cannot be posted"
@@ -1489,7 +1642,7 @@ t_eq "$(t_calls gh | grep -c -F '| **total, all dispatches** | 3 | 7 | 10 | 4 | 
 # The question that could not be posted is in the record of calls too: its
 # two boxes and its marker are the factory's own.
 t_eq "$(t_calls gh | grep -c '^- \[')" 2
-t_eq "$(t_calls gh | grep -c -e '<!--')" 1
+t_eq "$(markers)" 1
 rm -rf "$workdir"
 
 t_done
