@@ -21,6 +21,8 @@ tehas update [--check]           # bring this host up to date with the platform
 tehas labels                     # create the tehas labels in the repository
 tehas status [--json]            # print the state of the factory
 tehas api [--json]               # what this factory speaks, for a program
+tehas limit [set ...|clear]      # an outside cap on what this factory starts
+tehas drain [--wait S] [--json]  # start nothing new, wait for running cycles
 tehas top [--once|--json]        # one screen of what the factory is doing
 tehas pause [reason]             # stop this host from starting new work
 tehas resume                     # lift this host's pause flag
@@ -927,14 +929,48 @@ with `tehas work` refreshes nothing.
 tehas labels        # one line per label
 ```
 
-Creates the thirteen labels tehas uses in the product repository: `tehas:ready`,
+Creates the fourteen labels tehas uses in the product repository: `tehas:ready`,
 `tehas:urgent`, `tehas:running`, `tehas:awaiting-merge`, `tehas:shipped`, `tehas:pause`,
 `needs-human-attention`, `tehas:question`, `tehas:plan`, `tehas:planning`,
-`tehas:fixer-escalated`, `tehas:next` and `tehas:blocked`.
+`tehas:fixer-escalated`, `tehas:next`, `tehas:blocked` and `tehas:all-hands`.
 Run it once for a new product, and again after pulling a version that adds a
 label. Run again, it puts their colours and descriptions back. It needs `TEHAS_REPO` and no other
 setting. Exit 0 when every label is there, 1 when one could not be made, 64 on
 any argument, 78 when the repository is not set.
+
+## tehas limit
+
+```
+tehas limit [--json]
+tehas limit set --cycles N [--plan on|off] [--for SECONDS | --until TIME] [--reason TEXT]
+tehas limit clear
+```
+
+```
+limit     1 cycle at once, planning off, until 2026-10-17T14:05:00Z: held for alpha
+```
+
+Sets, shows or clears the limit in `~/tehas/state/limit.json` (mode 600). The
+dispatcher reads it on every poll: room for new cycles is the smaller of
+`--cycles` and `TEHAS_TICKET_CONCURRENCY`, less the cycles running, and its
+hold is `limit`. With `--plan off` no new planning session starts, and
+[tehasbot improve](#tehasbot-improve) waits; an answer to a planning question
+still runs. One that expired or cannot be read holds every start, answers and
+retry ticks included, while the poll goes on cleaning up. See
+[Limit and drain](/operating#limit-and-drain) and
+[the factory API](/api#tehas-limit) for the JSON. Exit 0; 64 on a bad
+argument, which writes nothing; 78 without an instance.
+
+## tehas drain
+
+```
+tehas drain [--wait SECONDS] [--json]
+```
+
+Sets the limit `--cycles 0 --plan off --reason draining`, which does not
+expire, then with `--wait` waits up to that long for the running cycles to
+end. Exit 0 when none is running, 1 when some still are. `tehas limit clear`
+ends it.
 
 ## tehas pause
 
@@ -999,6 +1035,12 @@ is paused it adds one line for each switch that is set:
 pause     flag, written 4 min ago: waiting for the gate
 pause     label: tehas:pause on the control issue
 pause     label: tehas:pause is off the control issue, but no account in TEHAS_ALLOWED_LABELERS took it off
+```
+
+And while [`tehas:all-hands`](/operating#all-hands) holds:
+
+```
+all-hands tehas:all-hands is on the control issue, applied by an allowed account
 ```
 
 It reads
@@ -1344,6 +1386,10 @@ recorded as ended with the status `lost`, which is a failure. While
 `checks.platform` is `live/platform.json`, or `null` on a host without a
 platform checkout.
 
+`checks.allHands` is the snapshot's `allHands`: true while
+[`tehas:all-hands`](/operating#all-hands) holds, false when it does not, and
+`null` when the snapshot is older than ten minutes or could not read it.
+
 `checks.demand` is what the dispatcher's last poll wrote to
 `live/demand.json`: `{time, waiting, oldest}`, the issues that would start if
 there were room and when the oldest was labelled. It is `null` when no poll
@@ -1583,7 +1629,9 @@ systemctl --user enable --now tehas-improve.timer
 One run of the improvement loop. It is off, and prints that it is, unless
 `TEHAS_IMPROVE_REPO` is set. [Operating](/operating) says what it files and how
 to read its line; the timer runs it every three hours, on the hour, and the log is
-`~/tehas/logs/improve.log`.
+`~/tehas/logs/improve.log`. A [limit](#tehas-limit) with planning off, or one
+that expired or cannot be read, holds a run: it says `held by the limit`, exits
+0, and the records wait for a later run.
 
 When a cycle ends, `tehasbot cycle` leaves a record of it in
 `~/tehas/tmp/improve/window/<issue>-<time>/`: how it ended, the stream without

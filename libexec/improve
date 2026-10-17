@@ -51,7 +51,8 @@
 # Usage: tehasbot improve     (one line per run on standard output)
 #
 # Exit: 0 the run finished, also with an analyst stopped at its bound that left
-#         a good file, or there was nothing to do, or the loop is off;
+#         a good file, or there was nothing to do, or the loop is off, or a
+#         limit holds runs (tehas limit: planning off, expired or unreadable);
 #       1 the analyst or GitHub failed and the records were kept; what a
 #         failed analyst printed is in logs/improve-analyst-<stamp>.log;
 #      64 an argument, this command takes none;
@@ -77,6 +78,10 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/improve.sh"
 # shellcheck source=lib/slice.sh
 . "$here/../lib/slice.sh"
+# shellcheck source=lib/status.sh
+. "$here/../lib/status.sh"
+# shellcheck source=lib/limit.sh
+. "$here/../lib/limit.sh"
 tehas_load || exit 78
 if ! tehas_improve_on; then
   echo "tehas improve: TEHAS_IMPROVE_REPO is not set, the improvement loop is off"
@@ -152,6 +157,14 @@ look() { # <directory>
 }
 look "$window"
 [ "${#recs[@]}" -gt 0 ] || { say "cycles=0, nothing to read"; exit 0; }
+
+# A run is held, as a planning turn is, by a limit with planning off and by
+# one that expired or cannot be read (tehas limit). The records wait.
+limit=$(tehas_limit_read)
+if tehas_limit_holds "$limit" || [ "$(jq -r .plan <<<"$limit")" = false ]; then
+  say "cycles=${#recs[@]}, held by the limit: $(tehas_limit_line "$limit" | sed 's/^limit *//')"
+  exit 0
+fi
 
 # The analyst runs in the slice or not at all. Asked before GitHub is, and
 # only now: a run with nothing to read starts no container.
