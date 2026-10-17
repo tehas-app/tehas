@@ -4346,6 +4346,14 @@ t_eq "$(jq -c '.retry_context' "$approved_file")" \
   '[{"source":"fixer:81","by":"tehas-fixer","at":"2026-10-01T23:55:00Z","text":"<!-- tehas:fixer issue=7 action=change -->\nRun the gate first."}]'
 t_eq "$(jq -c 'has("comment_links")' "$approved_file")" false
 
+t_case "a title changed by an outsider since the person's approval: the fixer's label starts nothing"
+fixer_ready
+echo '[{"event":"renamed","actor":{"login":"mallory"},"created_at":"2026-10-01T12:00:00Z"},{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"tehas-fixer"},"created_at":"2026-10-02T00:00:00Z"}]' >"$fx/events-7.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "its title or text was changed since alice approved it"
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:ready"
+
 t_case "without such a comment the record has no context"
 fixer_ready
 t_run "$dispatch"

@@ -527,7 +527,9 @@ approval() {
   label_actor "$n" "$name"
   if ! tehas_allowed_labeler "$who"; then
     # The fixer's label is the caller's to weigh, and fixer_ok logs it.
-    [ "$name" = tehas:ready ] && tehas_fixer_is "$who" || deny_label skip "$n" "$name"
+    if [ "$name" != tehas:ready ] || ! tehas_fixer_is "$who"; then
+      deny_label skip "$n" "$name"
+    fi
     refused=${who:-unknown}
     return 1
   fi
@@ -594,7 +596,13 @@ fixer_ok() {
   unchanged_since "$n" "$at" "the fixer applied tehas:ready" "the fixer or a person applies it again" || return 1
   sum=$(jq '.data.repository.issue // {}' <<<"${text_of[$n]}" | tehas_body_sha256) ||
     { log "ERROR: the text of #$n could not be read for its hash"; exit 1; }
-  tehas_fixer_grant "$n" "$sum" && return 0
+  if tehas_fixer_grant "$n" "$sum"; then
+    # The body hash does not cover the title: a rename since the person's
+    # approval was not approved either.
+    unchanged_since "$n" "$(jq -r .at <<<"$tehas_fixer_rests_on")" "$(jq -r .by <<<"$tehas_fixer_rests_on") approved it" \
+      "a person applies tehas:ready" && return 0
+    tehas_fixer_why="its title or text was changed since $(jq -r .by <<<"$tehas_fixer_rests_on") approved it"
+  fi
   log "skip #$n: tehas:ready from the fixer starts nothing: $tehas_fixer_why"
   if [ "$dry" = 1 ]; then
     log "would take tehas:ready off #$n"
