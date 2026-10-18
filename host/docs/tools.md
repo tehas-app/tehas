@@ -245,6 +245,10 @@ A planning turn waits for neither. It runs as its own unit,
 `tehas-plan-<issue>.service`, started with `systemd-run`, and the poll does not
 wait for it: cycles start while it runs, and the first poll after it ends posts
 its outcome from the exit status it left in `~/tehas/state/plan-<issue>.json.rc`.
+While the turn runs its unit holds `~/tehas/state/plan-<issue>.json.lock`, as a
+cycle holds `state/cycles/<issue>.lock`; a poll that finds it held starts no
+other turn. When the turn ends the unit leaves `state/dispatch.again`, which
+starts a poll, as the end of a cycle does.
 One planning turn runs at a time. A comment is a question only if the host has its id on record:
 in `~/tehas/state/plan-<issue>.json` for a planning session, in
 `~/tehas/state/park-<issue>.id` for a stopped cycle. Only the last 100
@@ -1039,14 +1043,15 @@ tehas status [--json]
 factory   pass: Idle, taking work. (40 s ago)
 queue     2 in line, 0 building, 1 in review, 0 stopped (40 s ago)
 cycle     #12 handoff at step review, 3 min ago
+plan      #7 turn 2 running, started 12 min ago
 slice     room for 2 cycles (4 GiB of 20 GiB promised, reserve 2g, 40 s ago)
 platform  cb6912a, 19 commits behind origin/main since 2026-10-13, fetched 20 min ago
 ```
 
 Prints the state of the factory from the [health file](#tehasbot-health): is
 it taking work, what is in the queue and how old that snapshot is, how far
-the platform checkout is behind origin (on a host that has one), the current or last cycle, and what the
-dispatcher's last poll read of `tehas.slice`. The `slice` line reads
+the platform checkout is behind origin (on a host that has one), the current or last cycle, each
+planning turn in flight, and what the dispatcher's last poll read of `tehas.slice`. The `slice` line reads
 `holding: ...` when that poll held cycles back, and `unknown: no poll has
 reported in 10 min` when no poll read the slice in that time. While the factory
 is paused it adds one line for each switch that is set:
@@ -1382,8 +1387,9 @@ curl -i http://tehas-tehas:8080/health
 ```
 
 Writes the factory's health from what is already on disk: the queue snapshot,
-the running cycles, the last one that finished, what the dispatcher's
-last poll wrote about the slice and the demand, and this host's pause flag. The status script
+the running cycles, the last one that finished, the planning turns in flight,
+what the dispatcher's last poll wrote about the slice and the demand, and this
+host's pause flag. The status script
 runs it on exit, so it is
 refreshed at every poll and at the end of every cycle. The docs server
 serves the file at `/health` and `/healthz` as `application/health+json`.
@@ -1406,6 +1412,9 @@ file is served.
 the counts in line, building, in review and stopped. `checks.cycles` has the
 issue, status, step and times of every running cycle; `checks.cycle` is the
 first of them, or the cycle that finished last when none is running.
+`checks.plans` has the issue, the turn and `startedAt` of every planning turn
+in flight: a session record marked running whose lock
+(`state/plan-<issue>.json.lock`) its unit holds.
 
 `fail` is about the cycle that finished most recently. It lasts until a cycle
 starts after that one ended. A cycle that was already running when the other
