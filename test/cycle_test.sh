@@ -1048,7 +1048,31 @@ t_contains "$t_out" "status=stalled"
 t_contains "$(t_calls gh)" "None of its logs changed for 60 min at step \`lens-fix\`"
 t_contains "$(t_calls gh)" "needs-human-attention"
 t_eq "$(jq -c '[.status, .rc]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" '["stalled",2]'
+t_eq "$(jq -r .cap "$state/7.park")" stall
+t_contains "$(t_calls gh)" 'cap `stall`'
 t_eq "$(find "$state/7.stalled" 2>/dev/null | wc -l)" 0
+
+t_case "a cycle tehas stopped at its time limit with no cap from the runner is on record as cycle-time-limit"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+ended running develop -
+echo '{}' >"$fx/progress.json"
+jq '.issues[0].handoff = {channel: "host", body: "<!-- pi-rukas:handoff issue=7 cap=none -->\n## Cap hit"}' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; echo 21600 >"$TEHAS_HOME/state/cycles/7.timed"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$(jq -r .cap "$state/7.park")" cycle-time-limit
+t_contains "$(t_calls gh)" 'cap `cycle-time-limit`'
+t_contains "$(t_calls gh)" 'pi-rukas:handoff issue=7 cap=cycle-time-limit -->'
+t_eq "$(jq -r .cap "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" cycle-time-limit
+
+t_case "a cap the runner named is kept when tehas also stopped the cycle"
+reset
+ended handoff develop feature/x deadline
+echo 'echo 21600 >"$TEHAS_HOME/state/cycles/7.timed"; exit 2' >"$fx/work.sh"
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$cycle 7"
+t_eq "$(jq -r .cap "$state/7.park")" deadline
+t_contains "$(t_calls gh)" 'pi-rukas stopped on the cap `deadline`.'
 
 t_case "a stall file beside a state that names an end leaves the end as it is"
 reset
