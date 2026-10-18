@@ -196,6 +196,24 @@ the issue is picked. A `tehas:blocked` is checked then too, and costs two
 GraphQL calls: the issue's last 100 comments, and the states of the issues
 they name (see [What happens next](/operating#3-what-happens-next)). A poll never asks
 GitHub the same question twice.
+
+Every poll that gets past the bot's login ends by running `libexec/tidy`,
+however the poll ends; the poll's exit status stays its own. It takes tehas's
+state labels off closed issues: `tehas:running`, `tehas:awaiting-merge`,
+`tehas:question`, `tehas:planning`, `tehas:refreshing`, `tehas:blocked`,
+`tehas:ready` and `tehas:plan`. Not `tehas:shipped`, not
+`needs-human-attention`, and not the labels a person chooses (`tehas:urgent`,
+`tehas:next`, `tehas:prototype`). It makes one search, for the closed issues
+that carry one of those labels, up to 100 a poll, the most recently updated
+first, and gives it 60 seconds. It takes all of an issue's state labels off in
+one edit and logs `tidy #N: removed <labels>`. An open issue is never
+touched, and a closed one whose cycle still holds its lock on this host waits
+for that cycle. A dry run passes `--dry-run` and logs `tidy #N: would remove
+<labels>` instead. A search that fails, times out or cannot be read is logged
+as `WARN: tidy: the search for closed issues with state labels failed`, a
+label change that fails as `WARN: tidy #N: could not remove <labels>`, and
+neither stops the poll.
+
 What holds cycles back is one `holding:` line: at every dry run, and in the
 log once when its reason changes, with `released: cycles may start again`
 when it ends. A real poll also writes it to `~/tehas/live/dispatch.json` with
