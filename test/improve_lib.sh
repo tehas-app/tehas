@@ -115,7 +115,8 @@ finding() { # <title> [<jq object to merge in>]
   local more=${2:-}
   [ -n "$more" ] || more='{}'
   jq -n -c --arg t "$1" --arg rec "$REC" --argjson more "$more" '
-    {title: $t, category: "cycle", body: "The gate ran twice.", evidence: "gate: ok",
+    {title: $t, category: "cycle", body: "The gate ran twice.\n\n## Done when\n\n- test/gate_test.sh covers the second run.",
+     evidence: "gate: ok",
      cycles: [$rec], duplicate_of: null} + $more'
 }
 findings() { printf '%s\n' "$@" | jq -s '{findings: .}' >"$fx/findings.json"; }
