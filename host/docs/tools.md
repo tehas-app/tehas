@@ -1385,6 +1385,19 @@ lists the same issues; run `tehas labels` once so the label exists. The control
 issue, the one `TEHAS_CONTROL_ISSUE` names, is left out of every list and every
 count: it holds the pause label and is not work, whatever label it carries.
 
+`tehasbot status` also records issue events in the factory's analytics,
+`~/tehas/state/analytics.db`, by comparing the snapshot it writes with the one
+it replaces: `awaiting` and `stopped` for an issue new in that list, at the
+time of the run; `merged` for an issue new in completed, and `closed` for one
+of the lists before that is now closed and not completed, both at the time
+GitHub says it was closed. The program keeps the first of each per issue. A
+snapshot before that is missing, not one, or more than an hour old counts as
+none: the run then records only `merged` and `closed`. Nothing older than ten
+days is recorded. Each call may take 5 seconds, and the run stops calling
+after three such limits. One that fails is a line `WARN analytics event: exit
+N` on standard error and changes nothing in the snapshot.
+`TEHAS_ANALYTICS=off` makes no call.
+
 `tehasbot status` also writes `~/tehas/live/platform.json`: the commit the
 platform checkout `~/tehas/platform` is at, `upstream` (origin's default
 branch), how many commits it is `behind`, `behindSince` (when the oldest of
