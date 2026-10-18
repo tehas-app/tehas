@@ -85,9 +85,18 @@
 # A real run holds $TEHAS_HOME/state/update.lock, the lock tehas update holds,
 # and stops when another run has it.
 #
+# Before its first write it also asks whether $TEHAS_HOME is tehas's at all, by
+# the marker .tehas-home it leaves there. A home that exists, is not empty and
+# holds no marker is refused, and so is a path that is not absolute or that
+# holds `..`: the loader takes TEHAS_HOME from the environment as it is, and
+# this script removes what it takes for stale under it, so a wrong path would
+# lose files that were never tehas's. A home that already has env.sh and
+# libexec/dispatch is taken as one installed before the marker, and gets it on
+# this run.
+#
 # Exit: 0 done or nothing to report, 1 --check found something, a step failed
-# or another update is running, 78 the instance settings are invalid (nothing
-# was changed).
+# or another update is running, 78 the instance settings are invalid or
+# TEHAS_HOME is not provably tehas's (nothing was changed).
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")" && pwd)
@@ -203,12 +212,91 @@ fi
 tehas_load
 instance=$TEHAS_INSTANCE_DIR
 
+# --- 1b. The home is tehas's -------------------------------------------------
+# The loader takes TEHAS_HOME from the environment as it is (AGENTS.md rule 3
+# keeps loading free of side effects), and this script removes what it takes for
+# stale under it: every file of $TEHAS_HOME/docs and $TEHAS_HOME/fun this
+# checkout does not have, and the commands of an earlier layout. So a home that
+# is not tehas's is refused before the lock, the build and the first copy, and
+# --check says the same thing.
+#
+# The proof is the marker .tehas-home, which a run leaves there and nothing
+# removes: an existing host has one as soon as it has been installed once. A run
+# that makes the home, or finds the marker, goes on and leaves the marker there.
+# A home with no marker is known another way, by what an install of tehas leaves
+# and nothing else puts beside it: env.sh with libexec/dispatch, or the manual
+# with the front page. Otherwise it is tehas's only when everything under it is
+# one of the directories tehas makes - no docs/ or fun/ of its own, which is what
+# this run would empty - or versions.env. Anything else is refused, as is a path
+# that is not absolute or that names a parent.
+home_marker=.tehas-home
+# The top-level directories of a home tehas makes: the ones install.sh puts
+# there, the ones bootstrap.sh user makes (tools/, repos/ and tmp/, the tools
+# under tools/node and tools/npm/<name>), and .cargo, which bootstrap.sh leaves
+# for cargo but does not make. docs and fun are not among them: a home that has
+# them without the marker is not known to be tehas's, and this run would remove
+# the pages of someone else from them.
+home_dirs=(bin libexec lib live logs platform preview protolab repos sandbox state
+  tmp tools work target .cargo)
+
+home_refusal() { # the reason $TEHAS_HOME is not provably tehas's, or nothing
+  local path=${TEHAS_HOME:-} entry part rest
+  [ -n "$path" ] || { echo "TEHAS_HOME is not set"; return; }
+  case "$path" in
+    /*) ;;
+    *) echo "TEHAS_HOME is not an absolute path: $path"; return ;;
+  esac
+  # A component, not a substring: a directory of someone else may be named
+  # a..b, and only a component of `..` moves the path out of where it says it is.
+  rest=${path#/}
+  while [ -n "$rest" ]; do
+    part=${rest%%/*}
+    [ "$rest" = "$part" ] && rest= || rest=${rest#*/}
+    [ "$part" != ".." ] || { echo "TEHAS_HOME names a parent directory: $path"; return; }
+  done
+  [ -d "$path" ] || return
+  [ -e "$path/$home_marker" ] && return
+  # An existing host has no marker yet, so the home of an earlier install has to
+  # be known another way: env.sh beside libexec/dispatch, and the manual and the
+  # front page beside the rest, are what an install of tehas leaves and nothing
+  # else puts there.
+  if [ -f "$path/env.sh" ] && [ -f "$path/libexec/dispatch" ]; then return; fi
+  if [ -f "$path/docs/host.md" ] && [ -f "$path/fun/index.html" ]; then return; fi
+  while IFS= read -r entry; do
+    [ -n "$entry" ] || continue
+    case " ${home_dirs[*]} " in *" $entry "*) continue ;; esac
+    case "$entry" in versions.env) continue ;; esac
+    echo "TEHAS_HOME is not empty and holds no $home_marker: $path"
+    return
+  done < <(ls -A "$path" 2>/dev/null)
+}
+
+if refusal=$(home_refusal) && [ -n "$refusal" ]; then
+  if [ "$check" = 1 ]; then
+    # The report's first line, before any of the others: nothing beyond it is
+    # looked at, because a home this script cannot trust makes every answer
+    # about it meaningless. `tehas update --check` reads this line by its prefix.
+    echo "Home:         REFUSED"
+    echo "  tehas: $refusal"
+    echo "Dependencies: not checked"
+    echo "Installed:    not checked"
+    echo "Tests:        not checked"
+    exit 1
+  fi
+  echo "tehas: $refusal" >&2
+  echo "tehas: nothing was installed" >&2
+  exit 78
+fi
+
 # One update at a time. Two runs side by side would build the image twice and
 # each rewrite the record of steps owed with its own view. tehas update holds the
 # lock while it runs this script and names the descriptor it holds it on; any
 # other run takes the lock itself. --check changes nothing and takes no lock.
 if [ "$check" != 1 ]; then
   update_lock=$TEHAS_HOME/state/update.lock
+  # The state directory the lock is in is made here: a home with nothing in it
+  # yet has none, and a run that has not been given the lock by tehas update
+  # opens the file itself.
   mkdir -p "$TEHAS_HOME/state"
   if [[ $update_fd =~ ^[0-9]+$ ]] && [ "/dev/fd/$update_fd" -ef "$update_lock" ]; then
     flock -n "$update_fd" || { echo "tehas: another update is running ($update_lock); nothing was installed" >&2; exit 1; }
@@ -432,6 +520,19 @@ fi
 # versions.env that replaces another one asks for it again.
 had_versions=0
 [ -f "$TEHAS_HOME/versions.env" ] && had_versions=1
+# The home's own directories are made here, before the first copy: the servers
+# mount live/ and protolab/, preview/ is where `tehasbot preview` keeps each pull
+# request, and an empty home has none of them yet. Making them here rather than
+# after the copies is what lets the marker go into a home that is not yet there.
+# --check changes nothing, so it makes neither.
+if [ "$check" != 1 ]; then
+  mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state" "$TEHAS_HOME/tmp" "$TEHAS_HOME/live" "$TEHAS_HOME/protolab" \
+    "$TEHAS_HOME/preview"
+  # The proof that this home is tehas's, written once.
+  if [ ! -f "$TEHAS_HOME/$home_marker" ]; then
+    printf 'tehas\n' | write_file "$TEHAS_HOME/$home_marker"
+  fi
+fi
 for e in "${files[@]}"; do put "$e"; done
 
 # The operating manual and the front page are directories; pages come and go.
@@ -443,6 +544,15 @@ sync_dir() { # name: host/<name>/* -> $TEHAS_HOME/<name>/
   [ -d "$TEHAS_HOME/$name" ] || return 0
   for to in "$TEHAS_HOME/$name"/*; do
     [ -e "$to" ] || continue
+    # A file an earlier run of this script left beside the pages and did not
+    # rename over. It is removed with the rest, and a --check names it.
+    case "$to" in
+      *.new)
+        changed+=("$name/$(basename "$to")")
+        if [ "$check" = 1 ]; then note "stale: $to"; else rm -f "$to" && echo "removed: $to"; fi
+        continue
+        ;;
+    esac
     case "$to" in *.prev | */version.txt) continue ;; esac
     [ -e "$host/$name/$(basename "$to")" ] && continue
     changed+=("$name/$(basename "$to")")
@@ -618,13 +728,8 @@ if [ "$check" = 1 ]; then
 fi
 
 # --- 5. After a real run ------------------------------------------------------
-# The servers mount live/ and protolab/: they have to be there, and ours.
-# preview/ is no mount: `tehasbot preview` keeps each pull request's state and
-# its clone of the product there, and makes it itself as well. It is made here
-# with the others so that every directory tehas writes to is there after an
-# install, whether previews are on or not.
-mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state" "$TEHAS_HOME/tmp" "$TEHAS_HOME/live" "$TEHAS_HOME/protolab" \
-  "$TEHAS_HOME/preview"
+# The directories of a home are made in step 3, before the marker and the first
+# copy.
 
 # A cycle used to leave state/cycles/<issue> - one empty file per issue number,
 # the record that this host had run a cycle for it. Nothing read it, and the

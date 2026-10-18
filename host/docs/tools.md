@@ -2220,14 +2220,17 @@ so it is named as a line rather than run as a step.
 
 When `install.sh --check` exits 1, `--check` says which kind it found.
 `Installed: DRIFT` and `Follow-ups: NOT DONE` are `something to update`.
-`Dependencies: NOT OK`, `Slice: MISSING` or `DIFFERS`, `Login: NOT CURRENT` and
-`Tests: FAILED` are `something tehas update does not fix`: running the update
-leaves them as they are.
+`Dependencies: NOT OK`, `Slice: MISSING` or `DIFFERS`, `Login: NOT CURRENT`,
+`Home: REFUSED` and `Tests: FAILED` are `something tehas update does not fix`:
+running the update
+leaves them as they are. A refused home prints `Dependencies:`, `Installed:`
+and `Tests:` as `not checked` under it, and nothing else: the script trusts
+nothing under a home it cannot prove is tehas's.
 
 | Exit | Meaning                                                                       |
 | ---- | ----------------------------------------------------------------------------- |
 | 0    | Updated, or already up to date                                                 |
-| 1    | Another update is running, the checkout has local changes, is not on a branch, cannot fast-forward, has no commit yet, a step failed or ran out of its limit, `install.sh` ran out of its limit or gave no answer, a follow-up install.sh asked for is one this command does not know, systemd did not reload the unit files, a container or unit gave no answer, the record of steps owed exists but cannot be read, a status of `install.sh` this command does not know (named in the message), or `--check` found something to update (a checkout behind, files that differ, steps left over from an earlier run) or something an update does not fix (the host's tools, the slice, a host's `/usr/local/bin/tehas` that is not the checkout's, the tests) |
+| 1    | Another update is running, the checkout has local changes, is not on a branch, cannot fast-forward, has no commit yet, a step failed or ran out of its limit, `install.sh` ran out of its limit or gave no answer, a follow-up install.sh asked for is one this command does not know, systemd did not reload the unit files, a container or unit gave no answer, the record of steps owed exists but cannot be read, a status of `install.sh` this command does not know (named in the message), or `--check` found something to update (a checkout behind, files that differ, steps left over from an earlier run) or something an update does not fix (the host's tools, the slice, a host's `/usr/local/bin/tehas` that is not the checkout's, a `TEHAS_HOME` that is not provably tehas's, the tests) |
 | 64   | More than one argument, or an argument this command does not know              |
 | 78   | The instance settings are missing or malformed, or there is no platform checkout |
 
@@ -2238,12 +2241,15 @@ host points at. See [The host](/host).
 
 ```
 cd ~/tehas/platform
-./install.sh --check     # change nothing; Instance, Dependencies, Slice, Installed, Login, Follow-ups, Tests
+./install.sh --check     # change nothing; Home, Instance, Dependencies, Slice, Installed, Login, Follow-ups, Tests
 ./install.sh
 ```
 
 Exit 0 when done or nothing to report, 1 when `--check` found something, a
-step failed or another update is running, 78 when the instance settings are invalid (nothing was changed).
+step failed or another update is running, 78 when the instance settings are
+invalid or the home is not provably tehas's (nothing was changed).
+`Home: REFUSED` is what `--check` says for the last of those: one line for the
+home, the reason under it, and `not checked` for what a home cannot be asked.
 `Slice: MISSING` and `Slice: DIFFERS` are something found: `--check` exits 1
 until root has run `sudo ./bootstrap.sh slice`, because every sandbox container
 runs in the slice and none starts without it. A real run installs either way and
