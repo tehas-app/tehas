@@ -32,10 +32,11 @@
 //!   by, how, ...}. how, and at, when tehas:ready was accepted (ISO 8601).
 //! - state/cycles/<n>.rukas (libexec/cycle): one line, the pi-rukas commit of
 //!   the image's tehas.rukas label as the cycle started.
-//! - state/cycles/<n>.image (libexec/work): one line, "<image id> <commit>".
-//!   libexec/cycle removes it before the history line, as it does .oom and
-//!   .forks, so these three are read only if they are still there.
-//! - state/cycles/<n>.oom, <n>.forks (libexec/work): one line of digits each.
+//!
+//! The image, its tehas.rukas commit and the counts of processes killed for
+//! memory and of refused forks are given on the command line (Given):
+//! libexec/cycle reads and removes .image, .oom and .forks before it writes
+//! the history line, so they are not read here.
 //! - logs/work-<n>-<stamp>.jsonl (libexec/work): the runner's NDJSON progress,
 //!   the newest one written since the run started. Its stable step-started
 //!   lines give the steps where the result has none.
@@ -131,9 +132,19 @@ pub struct Role {
 /// The result schemas whose fields this reads.
 const RESULT_SCHEMAS: [i64; 2] = [3, 4];
 
+/// What libexec/cycle passes on: the image the container started from, the
+/// pi-rukas commit of its label, and its counts of kills and refused forks.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct Given {
+    pub image: Option<String>,
+    pub rukas_image: Option<String>,
+    pub oom: Option<i64>,
+    pub forks: Option<i64>,
+}
+
 /// Reads the run of `issue` that ended last. Err when there is no history
 /// line for it.
-pub fn read(home: &Path, issue: i64) -> Result<Run, String> {
+pub fn read(home: &Path, issue: i64, given: &Given) -> Result<Run, String> {
     let cycles = home.join("state").join("cycles");
     let note = |ext: &str| cycles.join(format!("{issue}.{ext}"));
 
@@ -265,21 +276,16 @@ pub fn read(home: &Path, issue: i64) -> Result<Run, String> {
         r.provider = pick("PI_ENSEMBLE_PROVIDER_", "PI_ENSEMBLE_SUBAGENT_PROVIDER");
     }
 
+    // The image's label as the container started, else as the cycle began.
     if run.rukas_commit.is_none() {
-        run.rukas_commit = first_line(&note("rukas")).filter(|c| is_hex(c, 7, 40));
+        run.rukas_commit = given
+            .rukas_image
+            .clone()
+            .or_else(|| first_line(&note("rukas")).filter(|c| is_hex(c, 7, 40)));
     }
-    if let Some(line) = first_line(&note("image")) {
-        let mut words = line.split_whitespace();
-        run.image = words
-            .next()
-            .filter(|id| id.len() == 71 && id.starts_with("sha256:") && is_hex(&id[7..], 64, 64))
-            .map(str::to_string);
-        if run.rukas_commit.is_none() {
-            run.rukas_commit = words.next().filter(|c| is_hex(c, 7, 40)).map(str::to_string);
-        }
-    }
-    run.oom_kills = first_line(&note("oom")).and_then(|l| count(&l));
-    run.forks_refused = first_line(&note("forks")).and_then(|l| count(&l));
+    run.image = given.image.clone();
+    run.oom_kills = given.oom;
+    run.forks_refused = given.forks;
 
     if let Some(v) = first_line(&home.join("docs").join("version.txt")) {
         let (version, commit) = match v.split_once('+') {
@@ -328,8 +334,9 @@ fn read_entry(run: &mut Run, e: &Map<String, Value>) {
         if run.failure_kind.is_none() {
             run.failure_kind = word(f, "kind", 40);
         }
-        if let Some(c) = text(f, "cause") {
-            run.failure_cause = Some(cause(&c));
+        // The history's cause is reduced already; the raw one only without it.
+        if run.failure_cause.is_none() {
+            run.failure_cause = text(f, "cause").map(|c| cause(&c));
         }
     }
     if let Some(u) = e.get("usage").and_then(Value::as_object) {
@@ -622,12 +629,6 @@ fn first_line(p: &Path) -> Option<String> {
     (!line.is_empty()).then_some(line)
 }
 
-fn count(s: &str) -> Option<i64> {
-    (s.len() <= 9 && s.bytes().all(|b| b.is_ascii_digit()))
-        .then(|| s.parse().ok())
-        .flatten()
-}
-
 fn text(o: &Map<String, Value>, key: &str) -> Option<String> {
     o.get(key)
         .and_then(Value::as_str)
@@ -666,30 +667,94 @@ fn number(o: &Map<String, Value>, key: &str) -> Option<i64> {
     o.get(key).and_then(Value::as_i64).filter(|n| *n >= 0)
 }
 
-fn is_hex(s: &str, min: usize, max: usize) -> bool {
+pub fn is_hex(s: &str, min: usize, max: usize) -> bool {
     (min..=max).contains(&s.len()) && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
-// The host of an address and any IPv4 address the console's mask leaves, so
-// that no column of the database names a host.
-static URL_HOST: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)\b([a-z][a-z0-9+.-]*://)[^/\s]+").expect("a pattern"));
-static IPV4: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\b[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\b").expect("a pattern")
-});
+fn pattern(p: &str) -> Regex {
+    Regex::new(p).expect("a pattern of the cause's mask is not a regular expression")
+}
 
-/// The failure's cause masked as the console masks, its hosts and addresses
-/// taken out, then cut, so a cut never leaves part of a secret the mask
-/// would have known whole.
-fn cause(c: &str) -> String {
+// What the console's mask leaves and a failure cause may hold: the secret
+// shapes lib/improve.sh knows (tehas_improve_secret), JWTs, addresses with a
+// user, the host of a URL, IPv4 and IPv6 addresses, and host names. So no
+// column of the database names a host or holds a token.
+static PRIVATE_KEY: LazyLock<Regex> = LazyLock::new(|| {
+    pattern(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)")
+});
+static API_KEY: LazyLock<Regex> = LazyLock::new(|| {
+    pattern(r"(^|[^A-Za-z0-9])(sk-)[A-Za-z0-9_-]{6,}|(xox[abprs]-)[A-Za-z0-9-]{4,}|(AKIA)[0-9A-Z]{16}")
+});
+static JWT: LazyLock<Regex> =
+    LazyLock::new(|| pattern(r"eyJ[A-Za-z0-9_-]{4,}(?:\.[A-Za-z0-9_-]+)*"));
+static URL_HOST: LazyLock<Regex> =
+    LazyLock::new(|| pattern(r"(?i)\b([a-z][a-z0-9+.-]*://)[^/\s]+"));
+static USER_AT_HOST: LazyLock<Regex> =
+    LazyLock::new(|| pattern(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*"));
+static IPV4: LazyLock<Regex> =
+    LazyLock::new(|| pattern(r"\b[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\b"));
+static IPV6: LazyLock<Regex> =
+    LazyLock::new(|| pattern(r"(?i)\b[0-9a-f]{1,4}(?::[0-9a-f]{0,4}){2,7}\b"));
+static HOST_NAME: LazyLock<Regex> =
+    LazyLock::new(|| pattern(r"\b[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+(?::[0-9]+)?\b"));
+
+// The last part of a file name: a dotted word ending in one of these is
+// a file, not a host.
+const FILE_EXTENSIONS: [&str; 30] = [
+    "json", "jsonl", "md", "txt", "log", "yaml", "yml", "toml", "lock", "html", "css", "js",
+    "mjs", "ts", "tsx", "rs", "sh", "py", "go", "sql", "db", "gz", "zip", "tar", "png", "jpg",
+    "svg", "csv", "diff", "patch",
+];
+
+/// Whether a dotted word is a host name: it has a port, or its last part is
+/// letters that are no file extension. A version such as v0.7.22 ends in
+/// digits and is kept.
+fn is_host(found: &str) -> bool {
+    if found.contains(':') {
+        return true;
+    }
+    let last = found.rsplit('.').next().unwrap_or("");
+    last.len() >= 2
+        && last.bytes().all(|b| b.is_ascii_alphabetic())
+        && !FILE_EXTENSIONS.contains(&last.to_ascii_lowercase().as_str())
+}
+
+/// An IPv6 address, not a time: two non-empty groups at least, and :: or
+/// three colons. 18:38:44 has two.
+fn is_ipv6(found: &str) -> bool {
+    let groups = found.split(':').filter(|g| !g.is_empty()).count();
+    groups >= 2 && (found.contains("::") || found.matches(':').count() >= 3)
+}
+
+/// The failure's cause masked as the console masks and as above, then cut,
+/// so a cut never leaves part of a secret the mask would have known whole.
+pub fn cause(c: &str) -> String {
     let one_line: String = c
         .chars()
         .map(|ch| if ch.is_control() { ' ' } else { ch })
         .collect();
-    let masked = mask::mask(&one_line);
-    let masked = URL_HOST.replace_all(&masked, "${1}[host]");
-    let masked = IPV4.replace_all(&masked, "[address]");
-    masked.chars().take(CAUSE_CHARS).collect()
+    let s = PRIVATE_KEY.replace_all(&one_line, "[private key]");
+    let s = API_KEY.replace_all(&s, "${1}${2}${3}${4}***");
+    let s = JWT.replace_all(&s, "[jwt]");
+    let s = mask::mask(&s);
+    let s = URL_HOST.replace_all(&s, "${1}[host]");
+    let s = USER_AT_HOST.replace_all(&s, "[address]");
+    let s = IPV4.replace_all(&s, "[address]");
+    let s = IPV6.replace_all(&s, |m: &regex::Captures| {
+        if is_ipv6(&m[0]) {
+            "[address]".to_string()
+        } else {
+            m[0].to_string()
+        }
+    });
+    let s = HOST_NAME.replace_all(&s, |m: &regex::Captures| {
+        if is_host(&m[0]) {
+            "[host]".to_string()
+        } else {
+            m[0].to_string()
+        }
+    });
+    s.chars().take(CAUSE_CHARS).collect()
 }
 
 /// The number of a pull request from its address, .../pull/<n>.

@@ -2,16 +2,23 @@
 //! versions, for the dashboard's report and for a program that fetches the
 //! database. All of tehas's SQL is here; the bash commands only call this.
 //!
-//!   analytics run <issue>
+//!   analytics run <issue> [--image <id>] [--rukas-image <commit>]
+//!                 [--oom <n>] [--forks <n>]
 //!     Records the run of the issue that ended last: its row in runs, its
 //!     steps and its roles, from what the cycle left on the host (run.rs
 //!     lists the files). Call it after libexec/cycle wrote the history line.
+//!     The options are what libexec/cycle read and removed before that: the
+//!     image the container started from (sha256:<64 hex>), the pi-rukas
+//!     commit of its label (7 to 40 hex), and how many processes were killed
+//!     for memory and how many forks were refused. A value of another shape
+//!     is a usage error.
 //!   analytics event <issue> <event>
 //!     Records an event of the issue, the first time only. The events are
 //!     ready, started, ended, awaiting, merged, closed and stopped.
 //!   analytics prune
 //!     Deletes what is older than ten days, then runs PRAGMA optimize. run
-//!     and event prune too, after their write.
+//!     and event prune too, after their write. The events of an issue that
+//!     started and never ended are kept at most a day longer.
 //!   analytics export <file>
 //!     Writes a consistent copy of the database to <file>, mode 0600, with
 //!     VACUUM INTO. <file> must not exist.
@@ -19,7 +26,8 @@
 //! The database is $TEHAS_HOME/state/analytics.db, mode 0600, in WAL mode,
 //! its schema version in PRAGMA user_version (schema.sql). A file that is
 //! not a database of that schema is moved to analytics.db.broken and a new
-//! one is made, said on standard error. TEHAS_HOME comes from the
+//! one is made, said on standard error. Any other failure leaves the file
+//! as it is. TEHAS_HOME comes from the
 //! environment and has no default.
 //!
 //! Exit: 0 done; 64 usage; 65 nothing to record: the issue has no history
@@ -40,7 +48,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const USAGE: &str = "usage: analytics run <issue> | event <issue> <event> | prune | export <file>";
+const USAGE: &str = "usage: analytics run <issue> [--image <id>] [--rukas-image <commit>] [--oom <n>] [--forks <n>] | event <issue> <event> | prune | export <file>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -66,7 +74,7 @@ fn main() -> ExitCode {
 
 #[derive(Debug, PartialEq)]
 pub enum Cmd {
-    Run(i64),
+    Run(i64, run::Given),
     Event(i64, String),
     Prune,
     Export(PathBuf),
@@ -79,7 +87,7 @@ fn parse(args: &[String]) -> Option<Cmd> {
             .flatten()
     };
     match args {
-        [c, n] if c == "run" => Some(Cmd::Run(issue(n)?)),
+        [c, n, rest @ ..] if c == "run" => Some(Cmd::Run(issue(n)?, given(rest)?)),
         [c, n, e] if c == "event" && db::EVENTS.contains(&e.as_str()) => {
             Some(Cmd::Event(issue(n)?, e.clone()))
         }
@@ -87,6 +95,35 @@ fn parse(args: &[String]) -> Option<Cmd> {
         [c, f] if c == "export" && !f.is_empty() => Some(Cmd::Export(PathBuf::from(f))),
         _ => None,
     }
+}
+
+// The options of run, each at most once.
+fn given(args: &[String]) -> Option<run::Given> {
+    let count = |s: &str| {
+        (s == "0" || (!s.starts_with('0') && s.len() <= 9 && s.bytes().all(|b| b.is_ascii_digit())))
+            .then(|| s.parse::<i64>().ok())
+            .flatten()
+    };
+    let mut g = run::Given::default();
+    for pair in args.chunks(2) {
+        let [flag, value] = pair else { return None };
+        let v = value.as_str();
+        match flag.as_str() {
+            "--image" if g.image.is_none() => {
+                let hex = v.strip_prefix("sha256:")?;
+                run::is_hex(hex, 64, 64).then_some(())?;
+                g.image = Some(v.to_string());
+            }
+            "--rukas-image" if g.rukas_image.is_none() => {
+                run::is_hex(v, 7, 40).then_some(())?;
+                g.rukas_image = Some(v.to_string());
+            }
+            "--oom" if g.oom.is_none() => g.oom = Some(count(v)?),
+            "--forks" if g.forks.is_none() => g.forks = Some(count(v)?),
+            _ => return None,
+        }
+    }
+    Some(g)
 }
 
 fn now() -> i64 {
@@ -100,7 +137,7 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
     // The run is read before the database is touched: nothing to record
     // leaves the file as it was.
     let run = match cmd {
-        Cmd::Run(issue) => Some(run::read(home, *issue).map_err(|e| (65, e))?),
+        Cmd::Run(issue, given) => Some(run::read(home, *issue, given).map_err(|e| (65, e))?),
         _ => None,
     };
     if let Cmd::Export(to) = cmd {
@@ -119,7 +156,7 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
         );
     }
     match cmd {
-        Cmd::Run(_) => {
+        Cmd::Run(..) => {
             if let Some(run) = &run {
                 run::insert(&conn, run).map_err(db_err)?;
             }
