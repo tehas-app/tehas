@@ -3,7 +3,7 @@
 # is read. No stub is needed: the library calls nothing.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=lib/questions.sh
 . "$T_ROOT/lib/questions.sh"
 
@@ -242,6 +242,66 @@ t_eq "$(echo '{"data":{"repository":{"issue":{"comments":{"nodes":[]}}}}}' | q_a
 
 t_case "an answer that is not JSON is an error, not an empty answer"
 if echo 'not json' | q_answer tehas-bot alice >/dev/null 2>&1; then t_bad "it was accepted"; fi
+
+# --- The fixer's answers ------------------------------------------------------
+mark='<!-- tehas:fixer issue=7 action=answer -->'
+t_case "without a fixer named, nothing is said of one, and its tick is a stranger's"
+t_eq "$(ask "$(tick 'Adopt all')" tehas-fixer | q_answer tehas-bot "alice bob" | got '[.tick.status, has("fixer_reply")]')" '["stranger",false]'
+t_eq "$(ask "$(tick 'Adopt all')" tehas-fixer | q_answer tehas-bot "alice bob" "" "" | got 'has("fixer_reply")')" false
+
+t_case "a box ticked by the fixer is the fixer's tick, never a person's"
+t_eq "$(ask "$(tick 'Change some')" tehas-fixer | q_answer tehas-bot "alice bob" "" tehas-fixer | got .tick)" \
+  '{"status":"fixer","by":"tehas-fixer","index":1,"at":"2026-01-01T02:00:00Z"}'
+t_eq "$(ask "$both" tehas-fixer | q_answer tehas-bot "alice bob" "" tehas-fixer | got .tick)" '{"status":"many","by":"tehas-fixer"}'
+
+# edits <logins>: the question's edit history, oldest first, as GitHub lists it.
+edits() { jq --arg e "$1" '.data.repository.issue.comments.nodes[1].userContentEdits = {totalCount: ($e | split(" ") | length),
+  nodes: ($e | split(" ") | map({editor: {login: .}}))}'; }
+t_case "a tick saved by the fixer after a person edited the question is held: either may have ticked it"
+t_eq "$(ask "$(tick 'Change some')" tehas-fixer | edits "tehas-bot alice tehas-fixer" | q_answer tehas-bot "alice bob" "" tehas-fixer | got .tick)" \
+  '{"status":"held","by":"tehas-fixer"}'
+
+t_case "edits by the bot and the fixer alone leave the tick the fixer's"
+t_eq "$(ask "$(tick 'Change some')" tehas-fixer | edits "tehas-bot tehas-fixer tehas-bot tehas-fixer" | q_answer tehas-bot "alice bob" "" tehas-fixer | got .tick.status)" '"fixer"'
+
+t_case "an edit history longer than what was read is held"
+t_eq "$(ask "$(tick 'Change some')" tehas-fixer | edits "tehas-fixer" | jq '.data.repository.issue.comments.nodes[1].userContentEdits.totalCount = 101' |
+  q_answer tehas-bot "alice bob" "" tehas-fixer | got .tick.status)" '"held"'
+
+t_case "a person who saved the tick last keeps it"
+t_eq "$(ask "$(tick 'Change some')" alice | edits "tehas-fixer alice" | q_answer tehas-bot "alice bob" "" tehas-fixer | got .tick.status)" '"one"'
+
+t_case "a person's tick is still a person's with a fixer named"
+t_eq "$(ask "$(tick 'Change some')" alice | q_answer tehas-bot "alice bob" "" tehas-fixer | got .tick.status)" '"one"'
+
+t_case "the fixer's newest reply is reported apart from the people's, with its marker taken off"
+freplies=$(jq -nc --arg m "$mark" '[
+  {databaseId: 6, author: {login: "tehas-fixer"}, body: ($m + "\nolder"), createdAt: "2026-01-01T03:00:00Z"},
+  {databaseId: 7, author: {login: "alice"}, body: "mine", createdAt: "2026-01-01T04:00:00Z"},
+  {databaseId: 8, author: {login: "tehas-fixer"}, body: ($m + "\nAdopt all, as in #12."), createdAt: "2026-01-01T05:00:00Z"}]')
+t_eq "$(ask "$body" "" "$freplies" | q_answer tehas-bot "alice bob" "" tehas-fixer | got '[.reply.by, .fixer_reply]')" \
+  '["alice",{"by":"tehas-fixer","text":"Adopt all, as in #12.","at":"2026-01-01T05:00:00Z","id":8,"marked":true}]'
+
+t_case "a marked reply of the fixer's with nothing after the marker is no reply"
+for b in "$mark" "$mark"$'\n' "$mark"$'\n  \n\t'; do
+  one=$(jq -nc --arg b "$b" '[{databaseId: 8, author: {login: "tehas-fixer"}, body: $b, createdAt: "t"}]')
+  t_eq "$(ask "$body" "" "$one" | q_answer tehas-bot "alice bob" "" tehas-fixer | got .fixer_reply)" 'null'
+done
+
+t_case "a fixer reply without the marker of this issue, or with it later in the text, is not marked"
+for b in "Adopt all." "<!-- tehas:fixer issue=8 action=answer -->"$'\nAdopt all.' $'Adopt all.\n'"$mark" "<!-- tehas:fixer issue=7 action=retry -->"$'\nAdopt all.'; do
+  one=$(jq -nc --arg b "$b" '[{databaseId: 8, author: {login: "tehas-fixer"}, body: $b, createdAt: "2026-01-01T05:00:00Z"}]')
+  t_eq "$(ask "$body" "" "$one" | q_answer tehas-bot "alice bob" "" tehas-fixer | got '[.fixer_reply.marked, .fixer_reply.text]')" "[false,$(jq -nc --arg b "$b" '$b')]"
+done
+
+t_case "a fixer reply edited by anyone but the fixer is not the fixer's"
+one=$(jq -nc --arg m "$mark" '[{databaseId: 8, author: {login: "tehas-fixer"}, body: ($m + "\nx"), createdAt: "t", editor: {login: "alice"}}]')
+t_eq "$(ask "$body" "" "$one" | q_answer tehas-bot "alice bob" "" tehas-fixer | got .fixer_reply)" 'null'
+one=$(jq -c '.[0].editor.login = "tehas-fixer"' <<<"$one")
+t_eq "$(ask "$body" "" "$one" | q_answer tehas-bot "alice bob" "" tehas-fixer | got .fixer_reply.id)" 8
+
+t_case "a fixer reply is not a person's reply"
+t_eq "$(ask "$body" "" "$one" | q_answer tehas-bot "alice bob" "" tehas-fixer | got .reply)" 'null'
 
 t_case "unticking empties every box and nothing else"
 t_eq "$(printf '%s\n' "$both" | q_untick)" "$body"

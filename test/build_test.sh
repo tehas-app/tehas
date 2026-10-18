@@ -6,7 +6,7 @@
 # "<container id> <image id>" per line.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 build="$T_ROOT/host/sandbox/build.sh"
 uid=$(id -u)

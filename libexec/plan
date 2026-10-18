@@ -26,6 +26,15 @@
 #   pi-plan-cache/  pi-rukas's record of the plans it showed (it keeps it in
 #                   the clone's git directory), from a release that has one.
 #                   Only plain .json files are carried, at most 1 MB each.
+#   sessions/       the Pi sessions of the last turn, so a later turn reopens
+#                   the session it was given. A turn's container writes them
+#                   under the turn's own state directory, which is removed
+#                   with the workspace; when the turn ends they are copied
+#                   here, replacing what an earlier turn left, and before a
+#                   later turn starts they are copied back into its state
+#                   directory. Nothing new is mounted and the container is
+#                   given nothing new: it sees only the copy beside its own
+#                   workspace.
 #   images/         the issue's images, with TEHAS_WORK_IMAGES=1, and its text
 #                   files, with TEHAS_WORK_FILES=1: fetched on the first turn
 #                   as tehas work fetches a cycle's. Each turn
@@ -51,7 +60,12 @@
 #
 # On exit 0 the --out file holds
 #   {"session": "<id>", "text": "<the agent's last message>",
-#    "question": null | {"question": "...", "options": [{"label", "description"}]}}
+#    "question": null | {"question": "...", "options": [{"label", "description"}]},
+#    "filed": ["<issue address>", ...]}
+# "filed" holds the issues this turn filed, the addresses the stream shows
+# gh issue create printed; with none there is no such key. The dispatcher
+# posts them on the issue and names them to the next turn, so a filing whose
+# result never reached the model is not filed again.
 # When the agent left two or more questions open, "question" holds them all,
 # numbered, with their choices as text, and "options" is empty.
 # On exit 2 it holds only {"session": "<id>"} when the session is known: the
@@ -72,7 +86,8 @@
 #                usable on this host; nothing ran.
 #
 # Instance settings (lib/config.sh; defaults in brackets):
-#   TEHAS_PLAN_TIMEOUT  seconds before a turn is given up [3600]
+#   TEHAS_PLAN_TIMEOUT  seconds before a turn is given up [7200, the ceiling
+#                       TEHAS_PLAN_TIMEOUT_MAX in lib/config.sh]
 #   and those of tehas work for the checkout and the container's limits.
 #
 # The container is given exactly what a cycle's container is given: the same
@@ -90,7 +105,9 @@
 # to ~/.pi/agent/ensemble-runs/plan-<issue>, so a turn and a cycle see nothing
 # of each other. Beside the workspace is <name>-plan-<issue>.state, the turn's
 # own copy of the code index, its own memory and its own Pi sessions, removed
-# with the workspace.
+# with the workspace. What a turn wrote there is kept in <keep>/sessions for
+# the next turn, which is what lets a later turn reopen the session it is
+# given.
 set -uo pipefail
 
 usage() {
@@ -309,6 +326,27 @@ carry() {
     cp "$f" "$2/" || return 1
   done
 }
+# carry_sessions <from> <to> / keep_sessions <from> <to>: the whole of a
+# sessions directory into another, with what was there before dropped. The
+# trailing slash takes the contents, not the directory itself. A turn that
+# wrote no session leaves none, so what an earlier turn kept is dropped too.
+carry_sessions() {
+  rm -rf "$2" || return 1
+  [ -d "$1" ] || return 0
+  mkdir -p "$2" || return 1
+  cp -a "$1"/. "$2/" || { rm -rf "$2"; return 1; }
+}
+# The copy is made beside the destination and moved into place, so a failure
+# leaves what an earlier turn kept there.
+keep_sessions() {
+  rm -rf "$2.new" || return 1
+  if [ -n "$(ls -A "$1" 2>/dev/null)" ] && ! { mkdir -p "$2.new" && cp -a "$1"/. "$2.new/"; }; then
+    rm -rf "$2.new"
+    return 1
+  fi
+  rm -rf "$2" || { rm -rf "$2.new"; return 1; }
+  mv "$2.new" "$2" || return 1
+}
 if [ -n "$brief" ]; then
   if ! git -C "$tree" rev-parse HEAD >"$keep/commit"; then
     echo "tehas plan: could not note the commit of $tree, not starting a turn" >&2
@@ -371,6 +409,13 @@ tehas_sandbox_seed "$container" "$index" ||
 mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$repo" "$tree" "$container" "$runs")
 [ "${#mounts[@]}" -gt 0 ] ||
   { echo "tehas plan: could not prepare the sandbox, not starting a turn" >&2; exit 78; }
+# The sessions the last turn left, put where the container has Pi's sessions:
+# without them Pi makes the session anew with no messages and the answer goes
+# unsent, which is how a session whose history is gone ends. Losing them is no
+# reason to stop the turn. A first turn has none to carry.
+[ -n "$brief" ] || [ ! -d "$keep/sessions" ] ||
+  carry_sessions "$keep/sessions" "$container/sessions" ||
+  echo "tehas plan: could not carry the sessions into $container/sessions, the answer may go unsent" >&2
 
 # Pi's input, as tehas work gives it: the container reads fd 3, the host
 # writes fd 4, so closing fd 4 ends the session.
@@ -428,8 +473,9 @@ if [ -z "$brief" ]; then
 fi
 if [ -z "$refused" ]; then
   send "$(jq -cn --arg m "$message" '{id: "plan", type: "prompt", message: $m}')"
-  # Asked for now and again at the end: a first turn that runs for an hour and
-  # then fails must still leave the session it made, so a reply can continue it.
+  # Asked for now and again at the end: a first turn that runs for its whole
+  # limit (`TEHAS_PLAN_TIMEOUT`, 7200 seconds at most) and then fails must
+  # still leave the session it made, so a reply can continue it.
   send '{"id":"state","type":"get_state"}'
 fi
 
@@ -444,7 +490,8 @@ fi
 # it as "(job <id>)" or "(batch <id>)". A job that never reports holds the turn
 # until the time limit.
 #
-# The log can grow large over an hour, so it is never read again from the top:
+# The log can grow large over a turn's limit, up to 7200 seconds, so it is
+# never read again from the top:
 # scan reads what was appended since the last call and keeps the last start or
 # settle event it has seen. While the container runs, the last line may be
 # half written; only whole lines are taken, the rest waits for the next call.
@@ -529,6 +576,12 @@ if [ -d "$cache" ]; then
     echo "tehas plan: could not keep the plan cache of $tree" >&2
   fi
 fi
+# The sessions, before the state directory goes: they are all a later turn has
+# of what this turn's agent was told. A turn that wrote none leaves none, and
+# replaces what an earlier turn kept with nothing.
+if ! keep_sessions "$container/sessions" "$keep/sessions"; then
+  echo "tehas plan: could not keep the sessions of $container/sessions" >&2
+fi
 rm -rf "$tree" "$container" "$images_given" || echo "tehas plan: could not remove the workspace $tree" >&2
 
 # pick <text>: the lines of the log that hold the text, as JSON values. The
@@ -581,6 +634,22 @@ n_asked=$(jq 'length' <<<"${asked:-[]}" 2>/dev/null) || n_asked=0
 [ "${n_asked:-0}" -le 1 ] ||
   echo "tehas plan: WARN: the turn asked $n_asked questions; they are posted as one, to be answered by a reply"
 
+# What the turn filed. The stream holds gh's own output for the call, so the
+# addresses it printed are read from there: the whole of a line of what a
+# successful bash call wrote, never a number quoted in prose, in another
+# tool's output or in a failed call. A line is taken with its spaces around it
+# and cut to the address, because gh writes more than the address and jq's $ is
+# the end of the string, not of a line. With none the outcome carries no filed
+# key at all.
+filed=$(pick '"toolName":"bash"' | jq -cs '
+  "^[[:space:]]*https://github\\.com/[^/[:space:]]+/[^/[:space:]]+/issues/[0-9]+[[:space:]]*$" as $bare
+  | [.[] | select(.type == "tool_execution_end" and .toolName == "bash" and .isError != true)
+      | (.result.content // [])
+      | (if type == "string" then . else map(select(.type == "text") | .text) | join("\n") end)
+      | split("\n")[] | select(test($bare))]
+  | map(gsub("[[:space:]]+$"; "") | sub("^[[:space:]]+"; "")) | unique')
+[ "$(jq 'length' <<<"${filed:-[]}" 2>/dev/null)" != 0 ] || filed="[]"
+
 if [ -z "$sid" ]; then
   give_up "the session id is unknown"
 fi
@@ -588,8 +657,8 @@ if [ -z "$text" ] && [ "$question" = null ]; then
   give_up "the turn said and asked nothing"
 fi
 
-if ! jq -n --arg session "$sid" --arg text "$text" --argjson question "$question" \
-  '{session: $session, text: $text, question: $question}' >"$out.new" || ! mv "$out.new" "$out"; then
+if ! jq -n --arg session "$sid" --arg text "$text" --argjson question "$question" --argjson filed "$filed" \
+  '{session: $session, text: $text, question: $question} + (if $filed == [] then {} else {filed: $filed} end)' >"$out.new" || ! mv "$out.new" "$out"; then
   echo "tehas plan: could not write $out" >&2
   exit 2
 fi

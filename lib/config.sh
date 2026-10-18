@@ -29,19 +29,22 @@
 #   - instance.env is authoritative. Settings of the same name in the
 #     environment are dropped; only TEHAS_HOME, TEHAS_INSTANCE_DIR and the test
 #     hooks TEHAS_WORK_CMD, TEHAS_STATUS_CMD, TEHAS_INDEX_CMD, TEHAS_PLAN_CMD,
-#     TEHAS_PLAN_START_CMD, TEHAS_CYCLE_START_CMD, TEHAS_CYCLE_STOP_CMD, TEHAS_CYCLE_START_WAIT,
-#     TEHAS_CGROUP_ROOT, TEHAS_PREFLIGHT_WAIT, TEHAS_STOP_WAIT, TEHAS_FETCH_WAIT,
+#     TEHAS_PLAN_START_CMD, TEHAS_INDEX_START_CMD, TEHAS_INDEX_LOCK_WAIT,
+#     TEHAS_CYCLE_START_CMD, TEHAS_CYCLE_STOP_CMD, TEHAS_CYCLE_START_WAIT,
+#     TEHAS_CGROUP_ROOT, TEHAS_SLICE_WAIT, TEHAS_PREFLIGHT_WAIT, TEHAS_STOP_WAIT, TEHAS_FETCH_WAIT,
 #     TEHAS_CONSOLE_WAIT, TEHAS_WORK_GRACE, TEHAS_CAPS_WAIT,
 #     TEHAS_CYCLE_RETRY_WAIT and TEHAS_CYCLE_STOP_GH_WAIT are kept, and from
 #     ~/.config/tehas/env TEHAS_ENERGY, TEHAS_ENERGY_URL and the model
 #     endpoints' tokens TEHAS_MODEL_KEY_*. instance.env that sets a token is
 #     refused: it is in a repository.
 #   - Loading runs no git command, makes no network call and writes nothing.
+#     TEHAS_PLAN_TIMEOUT_MAX, the ceiling of one planning turn, is local to
+#     tehas_load: nothing sources this file and reads it from the environment.
 #   - TEHAS_IMPROVE_REPO switches the improvement loop on. Unset is valid and
 #     means there is none. TEHAS_IMPROVE_RUKAS_REPO needs it.
 #   - TEHAS_FIXER_LOGIN names the fixer: an account whose tehas:ready the
-#     dispatcher takes within a narrower grant than a person's
-#     (lib/fixer.sh). Unset is valid and means there is none. It is never
+#     dispatcher takes, and whose answer to a planning question it takes,
+#     within a narrower grant than a person's (lib/fixer.sh). Unset is valid and means there is none. It is never
 #     one of TEHAS_ALLOWED_LABELERS.
 #   - Nothing falls back to a project: a setting with no generic default stays
 #     unset until tehas_require asks for it.
@@ -88,7 +91,7 @@ _tehas_valid() {
     TEHAS_REPO | TEHAS_IMPROVE_REPO | TEHAS_IMPROVE_RUKAS_REPO)
       [[ $v =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "expected owner/name"; return 1; }
       ;;
-    TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_IMPROVE_MAX_OPEN | TEHAS_FIXER_MAX_RETRIES | TEHAS_WORK_TIMEOUT | TEHAS_WORK_STALL | TEHAS_CONCURRENCY | TEHAS_TICKET_CONCURRENCY | \
+    TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_IMPROVE_MAX_OPEN | TEHAS_FIXER_MAX_RETRIES | TEHAS_FIXER_MAX_PLAN_ANSWERS | TEHAS_REFRESH_MAX | TEHAS_WORK_TIMEOUT | TEHAS_WORK_STALL | TEHAS_CONCURRENCY | TEHAS_TICKET_CONCURRENCY | \
       TEHAS_PLAN_MAX_TURNS | TEHAS_PLAN_TIMEOUT | TEHAS_VERIFY_TIMEOUT)
       _tehas_is_count "$v" || { echo "expected a positive whole number"; return 1; }
       ;;
@@ -102,7 +105,7 @@ _tehas_valid() {
     TEHAS_FIXER_LOGIN)
       [[ $v =~ ^[A-Za-z0-9][A-Za-z0-9-]*$ ]] || { echo "expected one GitHub login"; return 1; }
       ;;
-    TEHAS_INDEXING | TEHAS_ANALYTICS_COOKIE | TEHAS_WORK_IMAGES | TEHAS_WORK_DESCRIBE | TEHAS_WORK_FILES | TEHAS_WORK_COMMENTS | TEHAS_TOP)
+    TEHAS_INDEXING | TEHAS_ANALYTICS_COOKIE | TEHAS_WORK_IMAGES | TEHAS_WORK_DESCRIBE | TEHAS_WORK_FILES | TEHAS_WORK_COMMENTS | TEHAS_TOP | TEHAS_REFRESH_CONFLICTS)
       case "$v" in 0 | 1) ;; *) echo "expected 0 or 1"; return 1 ;; esac
       ;;
     # Both end up in an HTML attribute of every page, so no quote, space or
@@ -225,7 +228,7 @@ tehas_load() {
   for v in $(compgen -v); do
     case "$v" in
       TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_INDEX_CMD | TEHAS_PLAN_CMD | \
-        TEHAS_PLAN_START_CMD | TEHAS_CYCLE_START_CMD | TEHAS_CYCLE_STOP_CMD | TEHAS_CYCLE_START_WAIT | TEHAS_CGROUP_ROOT | \
+        TEHAS_PLAN_START_CMD | TEHAS_INDEX_START_CMD | TEHAS_INDEX_LOCK_WAIT | TEHAS_CYCLE_START_CMD | TEHAS_CYCLE_STOP_CMD | TEHAS_CYCLE_START_WAIT | TEHAS_CGROUP_ROOT | TEHAS_SLICE_WAIT | \
         TEHAS_PREFLIGHT_WAIT | TEHAS_STOP_WAIT | TEHAS_FETCH_WAIT | TEHAS_CONSOLE_WAIT | TEHAS_WORK_GRACE | TEHAS_CAPS_WAIT | \
         TEHAS_CYCLE_RETRY_WAIT | TEHAS_CYCLE_STOP_GH_WAIT | TEHAS_ENERGY | TEHAS_ENERGY_URL | TEHAS_MODEL_KEY_*) ;;
       TEHAS_* | PI_ENSEMBLE_*) unset "$v" ;;
@@ -323,6 +326,14 @@ tehas_load() {
   # How many cycles the fixer may start on one issue since a person last
   # approved it.
   export TEHAS_FIXER_MAX_RETRIES=${TEHAS_FIXER_MAX_RETRIES:-2}
+  # How many planning questions the fixer may answer in one session.
+  export TEHAS_FIXER_MAX_PLAN_ANSWERS=${TEHAS_FIXER_MAX_PLAN_ANSWERS:-3}
+  # Whether the factory refreshes its own pull requests that conflict with the
+  # branch. Off unless the instance says so: it starts cycles with no fresh
+  # label. And how many times one pull request may be refreshed since the
+  # person's approval its cycle rests on.
+  export TEHAS_REFRESH_CONFLICTS=${TEHAS_REFRESH_CONFLICTS:-0}
+  export TEHAS_REFRESH_MAX=${TEHAS_REFRESH_MAX:-2}
   # Settings that only work around a pi-rukas defect, each with the release
   # that fixes it. tehas work refuses a cycle once the image has that release,
   # so a workaround does not outlive its reason.
@@ -353,8 +364,15 @@ tehas_load() {
   # approval, are taken too. Off unless the instance says so.
   export TEHAS_WORK_COMMENTS=${TEHAS_WORK_COMMENTS:-0}
   # A planning session: how many turns it may take, and how long one turn may.
+  # TEHAS_PLAN_TIMEOUT_MAX is the one place the ceiling of a turn is written:
+  # the default below is that ceiling, the check further down refuses more, and
+  # the tests pin the copies in libexec/plan, libexec/dispatch and
+  # instances/example/instance.env against it. The unit of a turn gets
+  # RuntimeMaxSec = the limit + 900 (lib/planning.sh).
+  local TEHAS_PLAN_TIMEOUT_MAX=7200
+  # The default is the ceiling: a turn gets the whole of it.
   export TEHAS_PLAN_MAX_TURNS=${TEHAS_PLAN_MAX_TURNS:-20}
-  export TEHAS_PLAN_TIMEOUT=${TEHAS_PLAN_TIMEOUT:-3600}
+  export TEHAS_PLAN_TIMEOUT=${TEHAS_PLAN_TIMEOUT:-$TEHAS_PLAN_TIMEOUT_MAX}
   # Previews of pull requests and the names of the edge. Off, and no names,
   # unless the instance says so.
   export TEHAS_DOMAIN=${TEHAS_DOMAIN:-}
@@ -380,7 +398,7 @@ tehas_load() {
   export PI_ENSEMBLE_NO_DOCKER_SOCKET=1 PI_ENSEMBLE_NO_SSH=1
 
   for v in TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_WORK_DESCRIBE TEHAS_WORK_FILES TEHAS_WORK_COMMENTS TEHAS_ANALYTICS_COOKIE TEHAS_TOP TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
-    TEHAS_FIXER_MAX_RETRIES TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_RESERVE; do
+    TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_RESERVE; do
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
   for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL; do
@@ -440,10 +458,13 @@ tehas_load() {
     tehas_err "TEHAS_WORK_TIMEOUT ($TEHAS_WORK_TIMEOUT) is more than 25200: tehas-cycle@.service stops a cycle after 8 hours, and the stop and the report need the hour after the limit (see $file)"
     return 78
   fi
-  # tehas-dispatch.service stops a poll after 3 hours (TimeoutStartSec). A
-  # poll runs one planning turn or refreshes the index, and calls GitHub.
-  if [ "$TEHAS_PLAN_TIMEOUT" -gt 7200 ]; then
-    tehas_err "TEHAS_PLAN_TIMEOUT ($TEHAS_PLAN_TIMEOUT) is more than 7200: tehas-dispatch.service stops a poll after 3 hours, and a poll needs time around its planning turn (see $file)"
+  # The unit gets RuntimeMaxSec = this + 900 (lib/planning.sh); 7200 + 900 is
+  # 2h15, inside the unit's own bound. Beyond it a turn outlives its unit. The
+  # length is bounded with the value: a count longer than the ceiling's digits
+  # cannot be compared by [ ], and would wrap in that arithmetic.
+  if [ "${#TEHAS_PLAN_TIMEOUT}" -gt "${#TEHAS_PLAN_TIMEOUT_MAX}" ] ||
+    [ "$TEHAS_PLAN_TIMEOUT" -gt "$TEHAS_PLAN_TIMEOUT_MAX" ]; then
+    tehas_err "TEHAS_PLAN_TIMEOUT ($TEHAS_PLAN_TIMEOUT) is more than $TEHAS_PLAN_TIMEOUT_MAX: a planning turn may take at most two hours, and while one runs no other planning turn starts (see $file)"
     return 78
   fi
   if [ "$TEHAS_PREVIEWS" = 1 ] && [ -z "$TEHAS_DOMAIN" ]; then
@@ -471,7 +492,7 @@ tehas_require() {
 # Protolab ticket (lab) under TEHAS_DOMAIN. It is the one definition of such a
 # name. The jq programs of libexec/protolab and libexec/preview put the same
 # name together themselves, because jq cannot call a shell function, and
-# test/protolab_test.sh and test/preview_test.sh pin that theirs is this one.
+# test/protolab_test.sh and test/preview_build_test.sh pin that theirs is this one.
 # Fails without a domain, for another kind, and for anything but a number of
 # one to nine digits that does not start with a zero.
 tehas_edge_name() {

@@ -99,7 +99,7 @@ async function page(key, opt = {}) {
       if (url.endsWith("/live/previews.json") || url.endsWith("/live/running.json")) {
         return { ok: false, status: 404, json: async () => ({}), headers: { get: () => "" } };
       }
-      return { ok: true, status: 200, json: async () => status(), headers: { get: () => "" } };
+      return { ok: true, status: 200, json: async () => ({ ...status(), ...opt.status }), headers: { get: () => "" } };
     },
     // The page's own clock: the refresh it schedules is turned by a case, so no
     // timer outlives one.
@@ -120,7 +120,7 @@ async function page(key, opt = {}) {
     return {
       errors, text, items, topReads: () => topReads,
       periods: () => timers.map((t) => t.ms),
-      hidden: () => byId.get("host")?.hidden,
+      hidden: (id = "host") => byId.get(id)?.hidden,
       hide: () => { hidden = true; },
       show: () => { hidden = false; },
       tick: async (n) => { install(); for (let i = 0; i < n; i++) { for (const t of timers) await t.fn(); await settle(); } },
@@ -184,4 +184,14 @@ test("a host that cannot be reached keeps what was on screen", async () => {
   const p = await page("down", { unreachable: true });
   assert.deepEqual(p.errors, []); // the script caught it rather than rejecting
   assert.equal(p.hidden(), true); // nothing was ever drawn
+});
+
+test("all-hands is shown beside the state only while the snapshot says so", async () => {
+  const on = await page("allhands-on", { top: 404, status: { allHands: true } });
+  assert.deepEqual(on.errors, []);
+  assert.equal(on.hidden("allhands"), false);
+  for (const allHands of [false, null, undefined]) {
+    const off = await page("allhands-off-" + allHands, { top: 404, status: { allHands } });
+    assert.equal(off.hidden("allhands"), true);
+  }
 });

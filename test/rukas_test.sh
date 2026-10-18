@@ -3,7 +3,7 @@
 # git whose ls-remote prints $T/refs.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 t_stub git '[ -e "$T/refs" ] || exit 2; cat "$T/refs"'
 a=$(printf 'a%.0s' {1..40})

@@ -1,8 +1,9 @@
 # shellcheck shell=bash
 # The steps of a planning session. Sourced by libexec/dispatch, and written
 # for it: these functions use the dispatcher's own helpers (log, say,
-# post_question, refresh_checkout), its variables (repo, plan_cmd,
-# who, posted) and Q_MAX_OPTIONS of lib/questions.sh.
+# post_question, refresh_checkout), its variables (repo, plan_cmd, who,
+# posted), Q_MAX_OPTIONS of lib/questions.sh and tehas_fixer_is of
+# lib/fixer.sh.
 #
 # A session is a Pi session that lives across polls. Its record is
 # $TEHAS_HOME/state/plan-<issue>.json:
@@ -14,6 +15,13 @@
 #   running   true while a turn is in flight
 #   comment   the id of the open question comment, once it is posted
 #   lost      true when Pi no longer has the session; it is then ended
+#   by        the account whose tehas:plan started the session
+#   answers   one {turn, by, fixer} per answer that ran a turn: the turn it
+#             started, who gave it, and whether that was the fixer
+#   filed     the issues the session's turns filed, oldest first: the addresses
+#             of the issues the agent made, read from the turn's stream.
+#             Kept when the record is rewritten, and named to the next turn.
+# A record written before by, answers and filed were kept has none of them.
 # While pending, the outcome is kept next to the record as <record>.out. What
 # the runner carries from one turn to the next is in <record>.keep, and the
 # approved text in <record>.brief; both go with the record.
@@ -33,11 +41,12 @@
 #   plan_state <issue>             print the path of the record
 #   plan_record_number <file>      put the issue of a record file in $plan_n, or
 #                                  return 1 for a file that is not a readable record
-#   plan_turn <issue> first|next <file> [<comment id>]
+#   plan_turn <issue> first|next <file> [<comment id>] [<login>]
 #                                  start one turn as its own unit; its outcome
 #                                  is posted when it has ended; the id
 #                                  is that of the reply <file> holds, whose
-#                                  attachments the turn is given
+#                                  attachments the turn is given, and the
+#                                  login is who answered
 #   plan_finish <issue> <rc> <turns before> <session before>
 #                                  record how a turn went and post it; a failed
 #                                  first turn takes its session from the
@@ -87,13 +96,28 @@ plan_end() {
   log "planning #$n ended"
 }
 
+# plan_filed <record>: the issues its turns filed, as one line of addresses
+# separated by ", ". An empty line when the session has filed none, which is
+# what a record of a turn that filed nothing, or one written before this was
+# kept, gives. A filed that is not a list of strings is none.
+plan_filed() {
+  jq -r 'if (.filed | type) == "array" then
+      [.filed[] | select(type == "string") | select(test("^https://github\\.com/[^/]+/[^/]+/issues/[0-9]+$"))]
+      | unique | join(", ")
+    else "" end' "$1" 2>/dev/null
+}
+
 plan_post() {
-  local n=$1 st turns
+  local n=$1 st turns what
   st=$(plan_state "$n")
   turns=$(jq -r '.turns // 0' "$st" 2>/dev/null) || turns=0
+  # What the turn filed is said once, under the agent's own words, and kept on
+  # the record so the next turn's answer can name it: an issue the agent never
+  # saw the result of would otherwise be filed again.
+  what=$(plan_filed "$st.out") || what=""
   # Step one: the question. Once its id is on record it is never posted again.
   if [ -z "$(jq -r '.comment // ""' "$st" 2>/dev/null)" ]; then
-    if ! post_question plan "$n" "$turns" "$st.out"; then
+    if ! post_question plan "$n" "$turns" "$st.out" "${what:+Filed in this turn: $what}"; then
       log "WARN: the planning turn of #$n could not be posted; the next poll tries again"
       return 1
     fi
@@ -126,9 +150,12 @@ plan_lost() {
 }
 
 plan_finish() {
-  local n=$1 rc=$2 turns=$(($3 + 1)) sid=$4 st out why ok
+  local n=$1 rc=$2 turns=$(($3 + 1)) sid=$4 st out why ok kept
   st=$(plan_state "$n")
   out=$st.out
+  # Rewritten below from the outcome, so the session's own fields are carried.
+  kept=$(jq -c '{by, answers} | with_entries(select(.value != null))' "$st" 2>/dev/null) || kept=""
+  [ -n "$kept" ] || kept='{}'
   if [ "$rc" = interrupted ]; then
     why="was cut off, for example by a restart of the host"
   elif [ "$rc" = "not started" ]; then
@@ -161,13 +188,24 @@ plan_finish() {
   fi
   if [ "$ok" = 1 ]; then
     # The options on record are the ones q_render posts, in the same order.
-    jq -c --argjson turns "$turns" --argjson max "${Q_MAX_OPTIONS:?}" \
-      '{session, turns: $turns, options: [(.question.options // [])[0:$max][]?.label], pending: true, failed: false, running: false}' "$out" >"$st.new" &&
+    # What the turn filed is noted with them, and the issues the session
+    # filed before are noted too: the record is rewritten from the outcome
+    # alone, and the next turn's answer is made from what is left on record
+    # once the outcome file is posted and removed.
+    before=$(plan_filed "$st") || before=""
+    jq -c --argjson turns "$turns" --argjson max "${Q_MAX_OPTIONS:?}" --argjson kept "$kept" \
+      --arg before "$before" \
+      '{session, turns: $turns, options: [(.question.options // [])[0:$max][]?.label], pending: true, failed: false, running: false}
+       + $kept
+       + (( ($before | split(", ") | map(select(. != ""))) +
+             ((.filed // []) | if type == "array" then . else [] end
+               | map(select(type == "string") | select(test("^https://github\\.com/[^/]+/[^/]+/issues/[0-9]+$"))))
+           | unique) as $f | if ($f | length) == 0 then {} else {filed: $f} end)' "$out" >"$st.new" &&
       mv "$st.new" "$st"
   elif [ -n "$sid" ]; then
     # The session exists, so a reply can run the turn again.
-    jq -cn --arg session "$sid" --argjson turns "$turns" \
-      '{session: $session, turns: $turns, options: [], pending: true, failed: true, running: false}' >"$st.new" && mv "$st.new" "$st"
+    jq -cn --arg session "$sid" --argjson turns "$turns" --argjson kept "$kept" \
+      '{session: $session, turns: $turns, options: [], pending: true, failed: true, running: false} + $kept' >"$st.new" && mv "$st.new" "$st"
     jq -n --arg text "This planning turn did not finish: it $why. The log is \`~/tehas/logs/dispatch-plan-$n.log\` on \`$(hostname)\`. Reply in a comment to run the turn again with your reply as the next message, or end the session and apply \`tehas:plan\` to start a new one." \
       '{text: $text, question: null}' >"$out"
   else
@@ -201,7 +239,7 @@ plan_recover() {
 }
 
 plan_turn() {
-  local n=$1 mode=$2 input=$3 comment=${4:-} st out turns sid was written
+  local n=$1 mode=$2 input=$3 comment=${4:-} by=${5:-} st out turns sid rc was written fixer=false
   local -a args
   st=$(plan_state "$n")
   out=$st.out
@@ -219,10 +257,16 @@ plan_turn() {
   written=1
   if [ "$mode" = first ]; then
     was=""
-    echo '{"session":"","turns":0,"options":[],"pending":false,"failed":false,"running":true}' >"$st.new" || written=0
+    jq -cn --arg by "${who:?}" '{session: "", turns: 0, options: [], pending: false, failed: false, running: true, by: $by}' >"$st.new" || written=0
   else
     was=$(cat "$st" 2>/dev/null) || was=""
-    jq -c '.running = true | .pending = false | del(.comment)' "$st" >"$st.new" || written=0
+    ! tehas_fixer_is "$by" || fixer=true
+    # Answers on record that are not a list stay so: the fixer's grant then
+    # refuses it, where a fresh list would count its answers from none.
+    jq -c --argjson turn "$((turns + 1))" --arg by "$by" --argjson fixer "$fixer" \
+      '.running = true | .pending = false | del(.comment)
+       | if (.answers // []) | type == "array" then .answers = (.answers // []) + [{turn: $turn, by: $by, fixer: $fixer}] else . end' \
+      "$st" >"$st.new" || written=0
   fi
   # An empty record would read as a session with no turns and no question.
   if ! { [ "$written" = 1 ] && [ -s "$st.new" ] && mv "$st.new" "$st"; }; then
@@ -246,6 +290,17 @@ plan_turn() {
     say "$n" "Tehas planning session started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC (authorized by @${who:?}'s \`tehas:plan\` label). Each turn ends in a comment here. Answer by ticking a box or by replying."
     args=(--brief "$input")
   else
+    # The issues the session has filed go at the top of the answer: a filing
+    # whose result never reached the model would otherwise be done again.
+    # Written beside the answer the caller made, so that file stays the text as
+    # it came and the turn is given the one with the line on it.
+    what=$(plan_filed "$st") || what=""
+    if [ -n "$what" ] && ! printf 'Already filed in this session: %s\n\n%s\n' "$what" "$(cat "$input")" >"$st.answer.new"; then
+      rm -f "$st.answer.new"
+      log "ERROR: could not write the answer for #$n, not starting a turn"
+      exit 1
+    fi
+    [ -z "$what" ] || input=$st.answer.new
     args=(--session "$sid" --answer "$input")
     [ -z "$comment" ] || args+=(--comment "$comment")
   fi
@@ -262,15 +317,16 @@ plan_turn() {
 # plan_launch <issue> <command>...: start the turn as its own unit and return.
 # A poll is a oneshot service, and systemd stops what it leaves behind, so a
 # turn started in the background would die with the poll. The unit writes the
-# command's exit status to <record>.rc when it ends. The poll's lock is not
-# passed on.
+# command's exit status to <record>.rc when it ends, and asks for a poll, which
+# posts the outcome. systemd stops it a quarter of an hour after the turn's own
+# limit. The poll's lock is not passed on.
 plan_launch() {
   local n=$1 st
   shift
   st=$(plan_state "$n")
   # shellcheck disable=SC2016  # expanded by the shell the unit runs
-  set -- /bin/bash -c 'log=$1 rc=$2; shift 2; "$@" >>"$log" 2>&1; echo "$?" >"$rc.new" && mv "$rc.new" "$rc"' \
-    plan-turn "$TEHAS_HOME/logs/dispatch-plan-$n.log" "$st.rc" "$@"
+  set -- /bin/bash -c 'log=$1 rc=$2 again=$3; shift 3; "$@" >>"$log" 2>&1; echo "$?" >"$rc.new" && mv "$rc.new" "$rc"; : >"$again"' \
+    plan-turn "$TEHAS_HOME/logs/dispatch-plan-$n.log" "$st.rc" "$TEHAS_HOME/state/dispatch.again" "$@"
   if [ -n "${TEHAS_PLAN_START_CMD:-}" ]; then
     "$TEHAS_PLAN_START_CMD" "$n" "$@" 8>&-
     return
@@ -278,13 +334,16 @@ plan_launch() {
   # The unit has the user manager's environment, not the poll's: it loads
   # env.sh as the tehas units do.
   # shellcheck disable=SC2016  # expanded by the shell the unit runs
-  systemd-run --user --quiet --collect --unit "tehas-plan-$n" \
+  systemd-run --user --quiet --collect --unit "tehas-plan-$n" -p "RuntimeMaxSec=$((TEHAS_PLAN_TIMEOUT + 900))" \
     /bin/bash -c '[ ! -r "$HOME/tehas/env.sh" ] || . "$HOME/tehas/env.sh"; exec "$@"' env-sh "$@" 8>&- >/dev/null 2>&1
 }
 
-# plan_in_flight <issue>: 0 while the unit of the issue's turn is running.
+# plan_in_flight <issue>: 0 while the unit of the issue's turn is running. A
+# turn that left its exit status has ended, though systemd may still show its
+# unit for the instant it asks for a poll.
 plan_in_flight() {
   local state
+  [ ! -f "$(plan_state "$1").rc" ] || return 1
   state=$(systemctl --user show -p ActiveState --value "tehas-plan-$1.service" 2>/dev/null) || return 1
   case "$state" in active | activating | deactivating | reloading) return 0 ;; esac
   return 1

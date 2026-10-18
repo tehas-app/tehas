@@ -169,15 +169,20 @@ Run `tehas dispatch --dry-run` and read what it prints.
   cannot start units, so it changed no label. Run `install.sh` on the host so
   its units step installs the cycle unit. Run `tehas dispatch` in the tehas
   user's own session, not in a `sudo -iu` shell, which has no user bus.
-- `another poll, or tehas index, holds the dispatcher's lock`: a poll or an
-  index run is under way. Try again in a minute. A running cycle does not hold
+- `another poll holds the dispatcher's lock`: a poll is under way. Try again
+  in a minute. A running cycle, a planning turn and an index run do not hold
   this lock.
+- `holding: the code index is refreshed first, as tehas-index.service`, then
+  `holding: the cycles wait for the code index`: no cycle was running and the
+  branch had moved, so the index is rebuilt before cycles start. It takes
+  seconds to minutes; its end starts the poll that starts them. See
+  `journalctl --user -u tehas-index` and `~/tehas/logs/dispatch-index.log`.
 - `WARN: the dispatcher's lock has been held since <time>, more than Ns: a
-  poll or tehas index hangs, and no poll runs until it ends`: logged once by
-  the first poll that finds the lock held longer than `TEHAS_PLAN_TIMEOUT`
-  plus half an hour. No sweep, start or planning turn runs meanwhile. Look for
-  the hung process with `systemctl --user status tehas-dispatch.service`; the
-  unit stops a poll after 3 hours by itself. `~/tehas/state/dispatch.taken`
+  poll hangs, and no poll runs until it ends`: logged once by the first poll
+  that finds the lock held longer than half an hour. No sweep, start or
+  planning turn runs meanwhile. Look for the hung process with
+  `systemctl --user status tehas-dispatch.service`; the unit stops a poll
+  after an hour by itself. `~/tehas/state/dispatch.taken`
   holds when the lock was taken, in seconds since 1970.
 - `ERROR: gh ... failed`: a GitHub call did not answer, or the control issue
   does not exist. The poll ends there on purpose: the pause switch, the limit
@@ -285,6 +290,7 @@ The common ones:
 | protected paths                     | The patch touched `.pi/`, `.github/`, `CODEOWNERS` or `agents.json` | By design. Make that change yourself                     |
 | review round cap                    | The review kept finding problems                    | Read the review on the pull request                      |
 | developer timeout                   | An agent ran out of wall-clock                      | Usually model endpoint capacity; retry later             |
+| `cycle-time-limit`, `stall`         | tehas stopped the cycle: its time limit, or no log moved for `TEHAS_WORK_STALL` | Read the run log the comment names; see [a cycle stops at a cap](#a-cycle-stops-at-a-cap) |
 
 The caps this factory has posted are explained one by one in the next
 section.
@@ -330,6 +336,14 @@ quarter of `TEHAS_WORK_TIMEOUT` before the end, and started no new step. Its
 branch and pull request are as the handoff says. Retry when the issue can be
 done in the time, or split it.
 
+Two caps are tehas's own, not pi-rukas's, and are set when the runner's result
+names none: `cycle-time-limit` when the runner ran past `TEHAS_WORK_TIMEOUT`
+without stopping and tehas stopped the container, and `stall` when none of the
+cycle's logs changed for `TEHAS_WORK_STALL` seconds and tehas stopped it. Both
+say the step the cycle was in. A cycle stopped this way has usually done less
+than its comment claims; read the run log named there before you retry, and
+retry when the cause of the stall is gone.
+
 These are the caps the factory posted on its own issues from 10 to 14 October
 2026, most frequent first.
 
@@ -353,7 +367,9 @@ cap means" say which check. Four kinds were seen:
   10-min timeout`. The product's gate failed on the change, or ran past its
   time. The gate's output follows in the comment. Often a real defect. If the
   failure is in code the cycle did not touch, see "The verify gate fails on
-  code the cycle did not touch" below.
+  code the cycle did not touch" below. When the failing line is a shellcheck
+  note, the severity the lint runs at and the one suppression it accepts are
+  under `scripts/test.sh` in [Tools](/tools).
 - The fix pass after the adversarial review did not clear: it changed
   nothing, or it removed lines it should not have.
 - `consolidated verify was refused  repoRoot is dirty (...)`. Not a gate
@@ -539,6 +555,10 @@ scripts/verify.sh --full
 ```
 
 Fix the default branch first; every cycle will fail the same way until then.
+
+When the gate stops on a shellcheck note, the severity floor the lint runs at
+and the one suppression it accepts (`SC2016`, for the line whose single quotes
+are the point) are under `scripts/test.sh` in [Tools](/tools).
 
 ## The improvement loop files nothing
 

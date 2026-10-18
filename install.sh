@@ -5,9 +5,14 @@
 #
 #   ./install.sh            copy changed files into place
 #   ./install.sh --check    change nothing; report settings, dependencies,
-#                           the slice, installed files, the command the other
-#                           accounts type when root's copy is stale, and tests,
+#                           the slice, installed files (content and mode) and
+#                           the command the other accounts type when root's
+#                           copy is stale,
 #                           each on its own line
+#   ./install.sh --check --tests
+#                           the same, and run the shell tests too. They take
+#                           most of a check's time, so tehas update --check,
+#                           which has a time limit, leaves them out
 #
 # What is installed: the commands and units (issue to pull request), the
 # sandbox files, the docs server, the edge router, the Protolab, the
@@ -88,7 +93,13 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")" && pwd)
 host=$root/host
 check=0
+tests=0
 [ "${1:-}" = "--check" ] && check=1
+[ "$check" = 1 ] && [ "${2:-}" = "--tests" ] && tests=1
+# The tests give a stand-in for the suite: a check inside the tests never runs
+# the real one, which would run these tests again. Read before tehas_load,
+# which drops it from the environment.
+suite=${TEHAS_TEST_SUITE:-}
 # Read before tehas_load, which drops it from the environment.
 update_fd=${TEHAS_UPDATE_LOCK_FD:-}
 # The model endpoints' tokens, from the file env.sh reads them from. The shell
@@ -123,8 +134,32 @@ fi
 # anything.
 instance_findings() {
   local dir file models product_model mode owner group provider model
+  # The settings are shell that every command runs: nobody else may write them.
+  # A group-writable file is accepted only for the user's own primary group.
+  # Checked before tehas_load, which sources instance.env: a file another
+  # account can write is refused, not run.
+  dir=$(tehas_instance_dir)
+  # Only a file that exists has permissions to check: a missing directory or a
+  # missing instance.env is tehas_load's to name. A file that is there is
+  # judged here, before anything is sourced.
+  for file in "$dir" "$dir/instance.env"; do
+    [ -e "$file" ] || [ -L "$file" ] || continue
+    # -L: a symlink is judged by the file it points at.
+    mode=$(stat -L -c %a "$file" 2>/dev/null) || mode=0
+    owner=$(stat -L -c %u "$file" 2>/dev/null) || owner=-1
+    group=$(stat -L -c %g "$file" 2>/dev/null) || group=-1
+    if [ "$owner" != "$(id -u)" ]; then
+      echo "tehas: $file is not owned by $(id -un)"
+      return 0
+    elif [ $((8#$mode & 2)) != 0 ]; then
+      echo "tehas: $file is writable by everyone (chmod o-w)"
+      return 0
+    elif [ $((8#$mode & 16)) != 0 ] && [ "$group" != "$(id -g)" ]; then
+      echo "tehas: $file is writable by another group (chmod g-w)"
+      return 0
+    fi
+  done
   tehas_load 2>&1 || return 0
-  dir=$TEHAS_INSTANCE_DIR
   (tehas_require_instance_settings 2>&1) || return 0
   models=$dir/models.json
   if [ ! -r "$models" ]; then
@@ -149,21 +184,6 @@ instance_findings() {
       fi
     fi
   fi
-  # The settings are shell that every command runs: nobody else may write them.
-  # A group-writable file is accepted only for the user's own primary group.
-  for file in "$dir" "$dir/instance.env"; do
-    # -L: a symlink is judged by the file it points at.
-    mode=$(stat -L -c %a "$file")
-    owner=$(stat -L -c %u "$file")
-    group=$(stat -L -c %g "$file")
-    if [ "$owner" != "$(id -u)" ]; then
-      echo "tehas: $file is not owned by $(id -un)"
-    elif [ $((8#$mode & 2)) != 0 ]; then
-      echo "tehas: $file is writable by everyone (chmod o-w)"
-    elif [ $((8#$mode & 16)) != 0 ] && [ "$group" != "$(id -g)" ]; then
-      echo "tehas: $file is writable by another group (chmod g-w)"
-    fi
-  done
 }
 
 findings=$(instance_findings)
@@ -208,6 +228,7 @@ files=(
   "env.sh|$TEHAS_HOME/env.sh|644"
   "lib/config.sh|$TEHAS_HOME/lib/config.sh|644"
   "lib/attachments.sh|$TEHAS_HOME/lib/attachments.sh|644"
+  "lib/unzip.sh|$TEHAS_HOME/lib/unzip.sh|644"
   "lib/describe.sh|$TEHAS_HOME/lib/describe.sh|644"
   "lib/cycles.sh|$TEHAS_HOME/lib/cycles.sh|644"
   "lib/labels.sh|$TEHAS_HOME/lib/labels.sh|644"
@@ -215,6 +236,7 @@ files=(
   "lib/improve-prompt.md|$TEHAS_HOME/lib/improve-prompt.md|644"
   "lib/fixer.sh|$TEHAS_HOME/lib/fixer.sh|644"
   "lib/live.sh|$TEHAS_HOME/lib/live.sh|644"
+  "lib/limit.sh|$TEHAS_HOME/lib/limit.sh|644"
   "lib/models.sh|$TEHAS_HOME/lib/models.sh|644"
   "lib/update-steps.sh|$TEHAS_HOME/lib/update-steps.sh|644"
   "lib/edge.sh|$TEHAS_HOME/lib/edge.sh|644"
@@ -226,6 +248,7 @@ files=(
   "lib/status.sh|$TEHAS_HOME/lib/status.sh|644"
   "lib/top.sh|$TEHAS_HOME/lib/top.sh|644"
   "lib/planning.sh|$TEHAS_HOME/lib/planning.sh|644"
+  "lib/refresh.sh|$TEHAS_HOME/lib/refresh.sh|644"
   "versions.env|$TEHAS_HOME/versions.env|644"
   "sandbox/Dockerfile|$TEHAS_HOME/sandbox/Dockerfile|644"
   "sandbox/build.sh|$TEHAS_HOME/sandbox/build.sh|755"
@@ -248,6 +271,8 @@ files=(
   "systemd/tehas-preview.timer|$units/tehas-preview.timer|644"
   "systemd/tehas-preview-sweep.service|$units/tehas-preview-sweep.service|644"
   "systemd/tehas-preview-sweep.timer|$units/tehas-preview-sweep.timer|644"
+  "systemd/tehas-refresh.service|$units/tehas-refresh.service|644"
+  "systemd/tehas-refresh.timer|$units/tehas-refresh.timer|644"
   "systemd/tehas-top.service|$units/tehas-top.service|644"
   "pi/mcp.json|$agent/mcp.json|644"
   "$instance/models.json|$agent/models.json|644"
@@ -256,7 +281,7 @@ files=(
 for f in tehas tehasbot; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
-for f in cycle dev dev-login dispatch energy health improve index labels pause plan preview protolab resume status summary top top-publish update work; do
+for f in api cycle dev dev-login dispatch drain energy health improve index labels limit pause plan preview protolab refresh resume status summary top top-publish update work; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
 # Pi's own settings: the instance may bring its own (default provider and
@@ -279,13 +304,33 @@ source_of() {
   esac
 }
 
-# put <entry>: install one file if it differs.
+# put <entry>: install one file if its content or its mode differs.
 put() {
-  local src to mode from
+  local src to mode from on_disk
   IFS='|' read -r src to mode <<<"$1"
   from=$(source_of "$src")
   [ -f "$from" ] || { echo "tehas: $from is missing from this checkout" >&2; exit 1; }
-  if [ -f "$to" ] && cmp -s "$from" "$to"; then return 0; fi
+  if [ -f "$to" ] && cmp -s "$from" "$to"; then
+    # Content alone is not enough: a command that matches but is not executable,
+    # or a unit file that has picked up a wider mode, is not what this checkout
+    # installs. -L: a symlink is judged by the file it points at.
+    # A mode the list cannot name stops here, before it reaches chmod.
+    [[ $mode =~ ^[0-7]{3,4}$ ]] || { echo "tehas: the mode $mode for $src is not a number" >&2; exit 1; }
+    on_disk=$(stat -L -c %a "$to") || { echo "tehas: could not read $to" >&2; exit 1; }
+    # 0644 and 644 are the same mode written two ways.
+    on_disk=$((8#$on_disk))
+    if [ "$on_disk" = "$((8#$mode))" ]; then return 0; fi
+    changed+=("$src")
+    if [ "$check" = 1 ]; then
+      note "mode: $to is $(printf '%o' "$on_disk"), wants $mode"
+      return 0
+    fi
+    # The mode is owed, not the copy: chmod on the file in place, so no .new,
+    # no rename and no .prev beside a file whose content is already this one's.
+    chmod "$mode" "$to" || { echo "tehas: could not set mode $mode on $to" >&2; exit 1; }
+    echo "mode: $to -> $mode"
+    return 0
+  fi
   changed+=("$src")
   if [ "$check" = 1 ]; then
     if [ -f "$to" ]; then note "differs: $to"; else note "missing: $to"; fi
@@ -558,9 +603,11 @@ if [ "$check" = 1 ]; then
     rc=1
   fi
 
-  if [ -n "${T_IN_TEST:-}" ]; then
+  if [ "$tests" = 0 ]; then
+    echo "Tests:        not run (./install.sh --check --tests runs them)"
+  elif [ -n "${T_IN_TEST:-}" ] && [ -z "$suite" ]; then
     echo "Tests:        not checked (running inside the tests)"
-  elif out=$("$root/scripts/test.sh" 2>&1); then
+  elif out=$("${suite:-$root/scripts/test.sh}" 2>&1); then
     echo "Tests:        OK"
   else
     echo "Tests:        FAILED"
@@ -578,6 +625,17 @@ fi
 # install, whether previews are on or not.
 mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state" "$TEHAS_HOME/tmp" "$TEHAS_HOME/live" "$TEHAS_HOME/protolab" \
   "$TEHAS_HOME/preview"
+
+# A cycle used to leave state/cycles/<issue> - one empty file per issue number,
+# the record that this host had run a cycle for it. Nothing read it, and the
+# workspace is a fresh clone every time, so the record and the flag it fed are
+# gone. The files of a host that ran cycles then are removed here; the lock,
+# the taken mark and every file with a suffix stay.
+for left in "$TEHAS_HOME"/state/cycles/[0-9]*; do
+  [ -f "$left" ] && [ ! -L "$left" ] || continue
+  case "${left##*/}" in *[!0-9]*) continue ;; esac
+  rm -f "$left" && echo "removed: $left"
+done
 
 # The previews' network keeps a preview from the host: it reaches the router
 # and the other previews and nothing else. What that takes is in lib/edge.sh,

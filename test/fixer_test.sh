@@ -2,7 +2,7 @@
 # Tests for lib/fixer.sh: the fixer's grant and the cycle history it reads.
 # shellcheck disable=SC2016  # stub bodies and snippets are expanded when they run
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 home=$T/home/tehas
 cycles=$home/state/cycles
@@ -57,6 +57,44 @@ grant
 t_eq "$t_out" "yes 3 alice"
 t_instance "${T_MINIMAL[@]}" TEHAS_FIXER_LOGIN=tehas-fixer
 
+# A refresh's record, resting on alice's approval.
+by_refresh() { # <refreshes> [<fixer starts>]
+  echo "{\"at\":\"2026-10-01T00:00:00Z\",\"by\":\"alice\",\"how\":\"refresh\",\"body_sha256\":\"$SUM\",\"links\":[],\"refreshes\":$1,\"fixer_starts\":${2:-0},\"rests_on\":$(person)}"
+}
+
+t_case "a refresh rests on the person's approval, and carries the fixer's count on"
+record 7 "$(by_refresh 1 1)"
+lib "tehas_fixer_base $cycles/7.approved.json | jq -c '[.by, .how]'; tehas_fixer_starts $cycles/7.approved.json"
+t_eq "$t_out" '["alice","label"]
+1'
+grant
+t_eq "$t_out" "yes 2 alice"
+record 7 "$(by_refresh 1)"
+lib "tehas_fixer_starts $cycles/7.approved.json"
+t_eq "$t_out" 0
+
+t_case "the refreshes a record counts since an approval"
+record 7 "$(by_refresh 2)"
+lib ". \"\$T_ROOT/lib/refresh.sh\"; tehas_refresh_count $cycles/7.approved.json '$(person)'; tehas_refresh_count $cycles/7.approved.json '$(person bob)'"
+t_eq "$t_out" "2
+0"
+record 7 "$(person)"
+lib ". \"\$T_ROOT/lib/refresh.sh\"; tehas_refresh_count $cycles/7.approved.json '$(person)'"
+t_eq "$t_out" 0
+
+t_case "a refresh parked since an approval, by the history; one before it, or no refresh, does not count"
+rm -rf "$cycles"
+mkdir -p "$cycles"
+printf '%s\n' '{"how":"refresh","parked":true,"started":1790726400}' >"$cycles/7.history.jsonl"
+lib ". \"\$T_ROOT/lib/refresh.sh\"; tehas_refresh_parked 7 '$(person)' && echo parked"
+t_eq "$t_out" ""
+printf '%s\n' '{"how":"label","parked":true,"started":1791590400}' '{"how":"refresh","parked":false,"started":1791590400}' >"$cycles/7.history.jsonl"
+lib ". \"\$T_ROOT/lib/refresh.sh\"; tehas_refresh_parked 7 '$(person)' && echo parked"
+t_eq "$t_out" ""
+printf '%s\n' '{"how":"refresh","parked":true,"started":1791590400}' >>"$cycles/7.history.jsonl"
+lib ". \"\$T_ROOT/lib/refresh.sh\"; tehas_refresh_parked 7 '$(person)' && echo parked"
+t_eq "$t_out" "parked"
+
 t_case "a count too large to compare is no count"
 record 7 "$(by_fixer 100000000000000000000)"
 grant
@@ -87,6 +125,69 @@ ln -s "$T/elsewhere.json" "$cycles/7.approved.json"
 grant
 t_contains "$t_out" "no: no person approved"
 rm -f "$cycles/7.approved.json"
+
+# --- Planning answers --------------------------------------------------------
+# session <JSON>: the planning record of issue 7.
+session() { mkdir -p "$home/state"; printf '%s\n' "$1" >"$home/state/plan-7.json"; }
+answer() { lib "if tehas_fixer_answer \"\$TEHAS_HOME/state/plan-7.json\"; then echo yes; else echo \"no: \$tehas_fixer_why\"; fi"; }
+p=false
+f=true
+turns() { # fixer flags of the answers so far, oldest first
+  local a="" x i=1
+  for x in "$@"; do a="$a,{\"turn\":$((i += 1)),\"by\":\"$([ "$x" = true ] && echo tehas-fixer || echo alice)\",\"fixer\":$x}"; done
+  echo "{\"session\":\"s\",\"turns\":$i,\"by\":\"alice\",\"answers\":[${a#,}]}"
+}
+
+t_case "the fixer may answer in a session a person started"
+session '{"session":"s","turns":1,"by":"alice"}'
+answer
+t_eq "$t_out" "yes"
+session "$(turns $p $f $p)"
+answer
+t_eq "$t_out" "yes"
+
+t_case "a session with no starter on record, or one no longer allowed, takes no fixer answer"
+for bad in '{"session":"s","turns":1}' '{"session":"s","turns":1,"by":"mallory"}' '{"session":"s","turns":1,"by":7}' 'not json'; do
+  session "$bad"
+  answer
+  t_contains "$t_out" "no: no person's tehas:plan started this session"
+done
+
+t_case "never two turns in a row"
+session "$(turns $p $f)"
+answer
+t_eq "$t_out" "no: the fixer answered the question before this one; a person answers this one"
+
+t_case "at the limit the fixer answers no more in the session"
+session "$(turns $f $p $f $p $f $p)"
+answer
+t_eq "$t_out" "no: the fixer has answered 3 questions in this session, the limit"
+t_instance "${T_MINIMAL[@]}" TEHAS_FIXER_LOGIN=tehas-fixer TEHAS_FIXER_MAX_PLAN_ANSWERS=4
+answer
+t_eq "$t_out" "yes"
+t_instance "${T_MINIMAL[@]}" TEHAS_FIXER_LOGIN=tehas-fixer
+
+t_case "answers on record of a shape tehas does not know take no fixer answer"
+for bad in '"lots"' '[{"turn":2,"by":"alice"}]' '[1]' '{}'; do
+  session "{\"session\":\"s\",\"turns\":1,\"by\":\"alice\",\"answers\":$bad}"
+  answer
+  t_eq "$t_out" "no: its record does not say who answered its turns"
+done
+
+t_case "a record that is a link, or none, takes no fixer answer; nor does an instance with no fixer"
+rm -f "$home/state/plan-7.json"
+answer
+t_contains "$t_out" "no: "
+echo '{"session":"s","turns":1,"by":"alice"}' >"$T/elsewhere-plan.json"
+ln -s "$T/elsewhere-plan.json" "$home/state/plan-7.json"
+answer
+t_contains "$t_out" "no: "
+rm -f "$home/state/plan-7.json"
+session '{"session":"s","turns":1,"by":"alice"}'
+t_instance "${T_MINIMAL[@]}"
+answer
+t_eq "$t_out" "no: there is no fixer"
+t_instance "${T_MINIMAL[@]}" TEHAS_FIXER_LOGIN=tehas-fixer
 
 # --- History -----------------------------------------------------------------
 t_case "the history keeps one line per call, the last 50, and skips what is not an object"

@@ -3,9 +3,11 @@
 # and validated.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 load='. "$T_ROOT/lib/config.sh"; tehas_load'
+# The ceiling as lib/config.sh writes it, so a test never hand-copies it.
+plan_max=$(sed -n 's/^[[:space:]]*local TEHAS_PLAN_TIMEOUT_MAX=//p' "$T_ROOT/lib/config.sh")
 
 t_case "a minimal instance loads and derives the checkout path"
 t_instance "${T_MINIMAL[@]}"
@@ -71,18 +73,46 @@ t_instance "${T_MINIMAL[@]}"
 t_case "the cycle unit's limit is the longest time limit accepted plus an hour"
 t_eq "$(sed -n 's/^RuntimeMaxSec=//p' "$T_ROOT/host/systemd/tehas-cycle@.service")" "8h"
 
-t_case "a planning turn's time limit that the poll's unit would cut is refused"
-t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=7201
+t_case "the plan unit's limit is the longest turn's limit accepted plus the grace"
+# The pair that has to fit together: the ceiling tehas_load accepts, and the
+# grace lib/planning.sh adds to make the unit's RuntimeMaxSec.
+t_eq "$plan_max" "7200"
+t_contains "$(cat "$T_ROOT/lib/planning.sh")" "TEHAS_PLAN_TIMEOUT + 900"
+t_contains "$(cat "$T_ROOT/host/docs/host.md")" "may be at most $plan_max, 2 hours"
+t_contains "$(grep 'at most' "$T_ROOT/instances/example/instance.env")" "at most $plan_max"
+# Read from the config the same way tehas does: the largest value accepted, at
+# the ceiling, gets a unit bound that is the ceiling plus the grace.
+t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT="$plan_max"
+t_run "$load; echo rc=\$? \$((TEHAS_PLAN_TIMEOUT + 900))"
+t_eq "$t_out" "rc=0 $((plan_max + 900))"
+t_instance "${T_MINIMAL[@]}"
+
+t_case "a planning turn's time limit over the ceiling is refused"
+t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=$((plan_max + 1))
 t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
-t_contains "$t_out" "TEHAS_PLAN_TIMEOUT (7201) is more than 7200: tehas-dispatch.service stops a poll after 3 hours"
-t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=7200
+t_contains "$t_out" "TEHAS_PLAN_TIMEOUT ($((plan_max + 1))) is more than $plan_max: a planning turn may take at most two hours"
+t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT="$plan_max"
 t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=0"
 t_instance "${T_MINIMAL[@]}"
 
-t_case "the poll's unit has a finite limit, an hour above the longest turn accepted"
-t_eq "$(sed -n 's/^TimeoutStartSec=//p' "$T_ROOT/host/systemd/tehas-dispatch.service")" "3h"
+t_case "a planning turn's time limit too long for the arithmetic is refused"
+# Past the largest number bash compares, and past any count the ceiling
+# allows: the value test has to refuse it rather than wrap.
+t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=9223372036854775808
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "TEHAS_PLAN_TIMEOUT (9223372036854775808) is more than $plan_max"
+t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=10000000
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "TEHAS_PLAN_TIMEOUT (10000000) is more than $plan_max"
+t_instance "${T_MINIMAL[@]}"
+
+t_case "the poll's unit has a finite limit, twice the lock's age at which a poll warns"
+t_eq "$(sed -n 's/^TimeoutStartSec=//p' "$T_ROOT/host/systemd/tehas-dispatch.service")" "1h"
+t_contains "$(cat "$T_ROOT/libexec/dispatch")" "bound=1800"
 
 t_case "one cycle at a time may run several workstreams, and pi-rukas is told the same number"
 t_instance "${T_MINIMAL[@]}" TEHAS_CONCURRENCY=4 TEHAS_TICKET_CONCURRENCY=1
@@ -285,15 +315,31 @@ printf '%s\n' "${T_MINIMAL[@]}" TEHAS_IMPROVE_MAX_OPEN=30 >"$TEHAS_INSTANCE_DIR/
 t_run "$load && echo \"[\$TEHAS_IMPROVE_MAX_OPEN]\""
 t_eq "$t_out" "[30]"
 
-t_case "the fixer is off unless the instance names its account, and may retry twice by default"
+t_case "the fixer is off unless the instance names its account, may retry twice and answer three planning questions by default"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && set -u && echo \"[\$TEHAS_FIXER_LOGIN][\$TEHAS_FIXER_MAX_RETRIES]\""
-t_eq "$t_out" "[][2]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_FIXER_LOGIN=tehas-fixer TEHAS_FIXER_MAX_RETRIES=3 >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_FIXER_LOGIN][\$TEHAS_FIXER_MAX_RETRIES]\""
-t_eq "$t_out" "[tehas-fixer][3]"
+t_run "$load && set -u && echo \"[\$TEHAS_FIXER_LOGIN][\$TEHAS_FIXER_MAX_RETRIES][\$TEHAS_FIXER_MAX_PLAN_ANSWERS]\""
+t_eq "$t_out" "[][2][3]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_FIXER_LOGIN=tehas-fixer TEHAS_FIXER_MAX_RETRIES=3 TEHAS_FIXER_MAX_PLAN_ANSWERS=1 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_FIXER_LOGIN][\$TEHAS_FIXER_MAX_RETRIES][\$TEHAS_FIXER_MAX_PLAN_ANSWERS]\""
+t_eq "$t_out" "[tehas-fixer][3][1]"
 
-for bad in "TEHAS_FIXER_LOGIN=two words" "TEHAS_FIXER_LOGIN=-x" "TEHAS_FIXER_MAX_RETRIES=0" "TEHAS_FIXER_MAX_RETRIES=many"; do
+t_case "refreshes are off unless the instance turns them on, two of one pull request by default"
+printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && set -u && echo \"[\$TEHAS_REFRESH_CONFLICTS][\$TEHAS_REFRESH_MAX]\""
+t_eq "$t_out" "[0][2]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_REFRESH_CONFLICTS=1 TEHAS_REFRESH_MAX=5 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_REFRESH_CONFLICTS][\$TEHAS_REFRESH_MAX]\""
+t_eq "$t_out" "[1][5]"
+
+for bad in "TEHAS_REFRESH_CONFLICTS=yes" "TEHAS_REFRESH_CONFLICTS=2" "TEHAS_REFRESH_MAX=0" "TEHAS_REFRESH_MAX=-1" "TEHAS_REFRESH_MAX=many"; do
+  t_case "loading rejects $bad"
+  printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+done
+
+for bad in "TEHAS_FIXER_LOGIN=two words" "TEHAS_FIXER_LOGIN=-x" "TEHAS_FIXER_MAX_RETRIES=0" "TEHAS_FIXER_MAX_RETRIES=many" \
+  "TEHAS_FIXER_MAX_PLAN_ANSWERS=0" "TEHAS_FIXER_MAX_PLAN_ANSWERS=-1" "TEHAS_FIXER_MAX_PLAN_ANSWERS=lots"; do
   t_case "loading rejects $bad"
   printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
   t_run "$load; echo rc=\$?"
@@ -478,7 +524,19 @@ t_eq "$t_out" "$T/home/tehas/work/widget"
 t_case "the planning limits have defaults"
 t_instance "${T_MINIMAL[@]}"
 t_run '. "$T_ROOT/lib/config.sh"; tehas_load; echo "$TEHAS_PLAN_MAX_TURNS $TEHAS_PLAN_TIMEOUT"'
-t_eq "$t_out" "20 3600"
+t_eq "$t_out" "20 $plan_max"
+
+# The two hand-copied defaults, the header of the command and the commented
+# example an operator copies, are pinned against the config.
+t_contains "$(grep 'TEHAS_PLAN_TIMEOUT  seconds' "$T_ROOT/libexec/plan")" "[$plan_max, the ceiling"
+t_contains "$(grep 'TEHAS_PLAN_TIMEOUT        seconds' "$T_ROOT/libexec/dispatch")" "[$plan_max]"
+t_contains "$(grep '^#TEHAS_PLAN_TIMEOUT=' "$T_ROOT/instances/example/instance.env")" "$plan_max"
+
+t_case "a planning limit set empty takes its default"
+t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT= TEHAS_WORK_TIMEOUT= TEHAS_VERIFY_TIMEOUT=
+t_run "$load; echo rc=\$? \$TEHAS_PLAN_TIMEOUT \$TEHAS_WORK_TIMEOUT \$TEHAS_VERIFY_TIMEOUT"
+t_eq "$t_out" "rc=0 $plan_max 21600 1800"
+t_instance "${T_MINIMAL[@]}"
 
 t_case "the planning limits can be set in the instance"
 t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_MAX_TURNS=5 TEHAS_PLAN_TIMEOUT=600
@@ -490,6 +548,13 @@ t_instance "${T_MINIMAL[@]}"
 T_ENV=(TEHAS_PLAN_CMD=fake-plan TEHAS_PLAN_START_CMD=fake-plan-start TEHAS_PLAN_MAX_TURNS=99)
 t_run '. "$T_ROOT/lib/config.sh"; tehas_load; echo "$TEHAS_PLAN_CMD $TEHAS_PLAN_START_CMD $TEHAS_PLAN_MAX_TURNS"'
 t_eq "$t_out" "fake-plan fake-plan-start 20"
+T_ENV=()
+
+t_case "the index run's test hooks are kept from the environment"
+t_instance "${T_MINIMAL[@]}"
+T_ENV=(TEHAS_INDEX_START_CMD=fake-index-start TEHAS_INDEX_LOCK_WAIT=1)
+t_run '. "$T_ROOT/lib/config.sh"; tehas_load; echo "$TEHAS_INDEX_START_CMD $TEHAS_INDEX_LOCK_WAIT"'
+t_eq "$t_out" "fake-index-start 1"
 T_ENV=()
 
 # The host's CPU count is read with nproc; a stub makes the default the same

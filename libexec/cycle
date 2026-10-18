@@ -118,6 +118,10 @@
 # state/park-<issue>.id: the dispatcher takes a tick only in the comment named
 # there.
 #
+# A refresh, a start whose approval record has how "refresh", put
+# tehas:refreshing on its pull request; it comes off when the cycle has been
+# reported, whatever the outcome.
+#
 # The pi-rukas commit of the sandbox image when the cycle starts goes to
 # state/cycles/<issue>.rukas.
 #
@@ -281,9 +285,6 @@ tidy() {
 }
 
 started=$(date +%s)
-# The workspace is new every time, so the record of an earlier cycle is kept
-# here, on the host.
-: >"$cycles/$issue"
 # An issue a handoff left with needs-human-attention starts again only on a
 # person's answer: the label or the tick that started this cycle, or the one
 # start after a provider outage the dispatcher makes for the account that
@@ -453,6 +454,18 @@ else
       ;;
   esac
 fi
+# When the runner named no cap and tehas stopped the cycle itself, the cap is
+# tehas's own: the time limit or the stall. The runner's word is kept where it
+# named one. Both are read of the outcome, so a stop tehas made still says who
+# made it wherever cap is used: the park record, the comment's marker, the
+# history line and the improvement record.
+if [ -z "$cap" ]; then
+  if [ "$timed" != 0 ]; then
+    cap=cycle-time-limit
+  elif [ "$stalled" != 0 ]; then
+    cap=stall
+  fi
+fi
 # The token usage: a row per role from the progress, and the result's totals,
 # which count failed dispatches too, as the rows do where the result gave
 # them. Numbers only: anything else counts as nothing.
@@ -515,10 +528,15 @@ fi
 stuck=" The label of this issue could not be changed. The next poll of the dispatcher hands it to a human."
 
 summary="status \`$status\`, last step \`$step\`, $mins min"
-# Why pi-rukas stopped, for a comment: its cap and, for an intent park, the
-# reason. A cap is a word of the runner's published vocabulary.
+# Why the cycle stopped, for a comment: its cap and, for an intent park, the
+# reason. A cap is a word of the runner's published vocabulary, or one of
+# `cycle-time-limit` / `stall` that tehas sets for a stop it made itself.
 why=""
-[ -z "$cap" ] || why=" pi-rukas stopped on the cap \`$cap\`${park_reason:+ (\`$park_reason\`)}."
+if [ "$cap" = cycle-time-limit ] || [ "$cap" = stall ]; then
+  why=" tehas stopped the cycle: the cap \`$cap\`."
+else
+  [ -z "$cap" ] || why=" pi-rukas stopped on the cap \`$cap\`${park_reason:+ (\`$park_reason\`)}."
+fi
 [ "$cap" != deadline ] || why="$why It reached its deadline, a quarter of its time limit before the end, and started no new step."
 # The failure behind the cap, where the result gives one. Of kind cap nothing
 # failed: the cap's own rule stopped the cycle, and the cap says that.
@@ -675,6 +693,19 @@ else
     fi
   fi
   park "$parked"
+fi
+# A refresh marked its pull request tehas:refreshing as it started. The mark
+# goes whatever the outcome; one that stays is the dispatcher's to clear.
+refreshed=$(jq -r 'select(.how == "refresh") | .refresh_of.pr | numbers' "$cycles/$issue.approved.json" 2>/dev/null) || refreshed=""
+if [ -n "$refreshed" ]; then
+  for ((try = 1; try <= tries; try++)); do
+    gh_call pr edit "$refreshed" --repo "$repo" --remove-label tehas:refreshing >/dev/null 2>&1 && break
+    if [ "$try" = "$tries" ]; then
+      log "WARN: label change on pull request #$refreshed failed: --remove-label tehas:refreshing"
+    else
+      sleep "$retry_wait"
+    fi
+  done
 fi
 log "done #$issue rc=$rc status=$status step=$step minutes=$mins pr=${pr:-none} oom_kills=$kills forks_refused=$forks"
 # One line of history for each end, parked or not, in

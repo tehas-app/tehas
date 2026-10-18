@@ -4,7 +4,7 @@
 # and what resume says about the other switch, tehas:pause on the control issue.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 pause="$T_ROOT/libexec/pause"
 resume="$T_ROOT/libexec/resume"

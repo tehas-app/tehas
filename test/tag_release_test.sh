@@ -3,7 +3,7 @@
 # repository as the remote and a stub ssh as the host.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 origin=$T/origin.git
 work=$T/work

@@ -15,7 +15,7 @@
 # The lines themselves come from lib/status.sh, which `tehas top` uses for the
 # same two sections of its frame.
 #
-# Usage: tehas status
+# Usage: tehas status [--json]
 #
 #   factory   pass: Idle, taking work. (40 s ago)
 #   queue     2 in line, 0 building, 1 in review, 0 stopped (40 s ago)
@@ -28,12 +28,28 @@
 # reading the slice in that time, as while the factory is paused. The
 # platform line is there only on a host with a platform checkout.
 #
+# With --json the same facts as one object on standard output, for a program
+# (host/docs/api.md has every field):
+#   {"api": 1, "time": "...", "age": 40, "stale": false, "state": "pass",
+#    "reasons": [], "paused": {"local": false, "label": false},
+#    "allHands": false, "limit": {"state": "none"},
+#    "running": [{"issue": 12, "since": "...", "step": "review"}],
+#    "demand": {"waiting": 2, "oldestWait": 5400},
+#    "hold": {"why": "count", "text": "holding: ..."},
+#    "room": {"cycles": 0, "maxAwaiting": 3, "slice": 2}}
+# Without a health file it prints nothing on standard output.
+#
 # Exit: 0 the factory is taking work or is paused (pass, warn); 1 it is not
 # (fail), the file is older than ten minutes, or there is no health file yet;
-# 64 an argument, this command takes none.
+# 64 an argument other than --json.
 set -uo pipefail
 
-[ "$#" = 0 ] || { echo "usage: tehas status" >&2; exit 64; }
+json=0
+case "$#:${1-}" in
+  0:) ;;
+  1:--json) json=1 ;;
+  *) echo "usage: tehas status [--json]" >&2; exit 64 ;;
+esac
 
 : "${TEHAS_HOME:=$HOME/tehas}"
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -51,6 +67,12 @@ stale=false
 tehas_health_stale "$file" "$now" || stale=true
 
 health=$(jq -c . "$file" 2>/dev/null) || { echo "tehas status: $file is not JSON" >&2; exit 1; }
+
+if [ "$json" = 1 ]; then
+  tehas_status_json "$health" "$now" "$stale" || exit 1
+  [ "$stale" = false ] && [ "$(jq -r .status <<<"$health")" != fail ]
+  exit
+fi
 tehas_state_lines "$health" "$now" "$stale" || exit 1
 
 # The current or last cycle. Two cycles at once are two lines, as the health

@@ -4,14 +4,14 @@
 # line rather than text, the order the steps run in, and the record of steps owed.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=lib/update-steps.sh
 . "$T_ROOT/lib/update-steps.sh"
 
 t_case "the changed sources ask for the steps, systemd first"
 t_eq "$(tehas_steps_for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env \
   edge/docs.compose.yaml edge/router.compose.yaml libexec/dispatch)" \
-  "units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer
+  "units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer
 sandbox
 docs --force-recreate
 edge --force-recreate"
