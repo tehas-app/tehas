@@ -11,14 +11,14 @@ t_case "a runner that does not stop at its own limit is stopped after the grace,
 fresh
 t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=1
 T_ENV=("${env_ok[@]}" TEHAS_WORK_GRACE=0)
-container "$hold; $gone"
+container "progress '{\"v\":1,\"kind\":\"step-started\",\"event\":{\"step\":\"lens-review\"}}'; $hold; $gone"
 t_run "$work 7"
 t_eq "$t_rc" 2
 t_contains "$t_out" "time limit of 1s passed"
 t_contains "$t_out" "status=timeout"
 t_lacks "$t_out" "was killed"
 t_contains "$(t_calls docker)" "stop -t 20 tehas-work-7"
-t_eq "$(cat "$T/home/tehas/state/cycles/7.timed")" 1
+t_eq "$(cat "$T/home/tehas/state/cycles/7.timed")" "1 tehas lens-review"
 
 t_case "a runner stopped at the time limit that writes interrupted is a timeout, exit 2"
 fresh
@@ -27,7 +27,36 @@ t_run "$work 7"
 t_eq "$t_rc" 2
 t_contains "$t_out" "status=timeout"
 t_eq "$(jq -c '[.running, .status]' "$live/cycles/7.json")" '[false,"timeout"]'
-t_eq "$(cat "$T/home/tehas/state/cycles/7.timed")" 1
+t_eq "$(cat "$T/home/tehas/state/cycles/7.timed")" "1 tehas -"
+
+# Grace enough that the runner ends before tehas would stop it.
+T_ENV=("${env_ok[@]}" TEHAS_WORK_GRACE=30)
+t_case "a runner that stops itself at the time limit with a result that names no end is a timeout, its own exit kept"
+fresh
+container '"$nap" 1.2; says running; exit 30'
+t_run "$work 7"
+t_eq "$t_rc" 30
+t_contains "$t_out" "status=timeout"
+t_lacks "$t_out" "time limit of 1s passed"
+t_eq "$(cat "$T/home/tehas/state/cycles/7.timed")" "1 runner develop"
+
+t_case "a runner that stops itself at the time limit with no result is a timeout at the last step it started"
+fresh
+container "progress '{\"v\":1,\"kind\":\"step-started\",\"event\":{\"step\":\"adversarial\"}}'; \"\$nap\" 1.2; exit 30"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "status=timeout"
+t_eq "$(cat "$T/home/tehas/state/cycles/7.timed")" "1 runner adversarial"
+
+t_case "a runner that ends at the time limit on a cap of its own, or with an end, is not a timeout"
+for end in 'says handoff deadline; exit 10' 'says merged; exit 0'; do
+  fresh
+  rm -f "$T/home/tehas/state/cycles/7.timed"
+  container "\"\$nap\" 1.2; $end"
+  t_run "$work 7"
+  t_lacks "$t_out" "status=timeout"
+  t_eq "$(find "$T/home/tehas/state/cycles/7.timed" 2>/dev/null | wc -l)" 0
+done
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 T_ENV=("${env_ok[@]}")
 

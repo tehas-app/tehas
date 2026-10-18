@@ -45,6 +45,11 @@
 #              2 the cycle was stopped here as stalled or at the time limit
 #                (status "timeout", state/cycles/<issue>.timed),
 #                or the runner ended without a result.
+#              A runner that stopped itself at the time limit, its result
+#              naming no cap and no end, keeps its own exit status; its status
+#              is "timeout" and it leaves state/cycles/<issue>.timed too.
+#              That file holds the limit in seconds, who stopped the cycle
+#              (tehas or runner) and the step it was in.
 #              3 the sandbox cannot push to the repository; no cycle was started.
 #              4 the instance gives a cycle the issue's images or files and one
 #                could not be fetched, the issue could not be read for them, or
@@ -723,7 +728,23 @@ else
   [ "$stalled" = 0 ] || status=stalled
   [ "$timed" = 0 ] || status=timeout
 fi
-[ "$timed" = 0 ] || echo "$limit" >"$timed_file" || echo "tehas work: could not write $timed_file" >&2
+# The runner stops itself at the --timeout it is given, which is this
+# command's time limit. Its result then names no cap and no end, so the time
+# limit ended the cycle as surely as a stop made here.
+ran_out=0
+if [ "$timed" = 0 ] && [ "$stalled" = 0 ] && [ "$interrupted" = 0 ] && [ "$rc" != 137 ] &&
+  [ $(($(date +%s) - started)) -ge "$limit" ] && [ -z "$(jq -r '.cap // ""' <<<"$outcome" 2>/dev/null)" ]; then
+  case "$status" in running | unknown | interrupted) ran_out=1 status=timeout ;; esac
+fi
+if [ "$timed" = 1 ] || [ "$ran_out" = 1 ]; then
+  # The limit, who stopped the cycle and the step it was in.
+  by=tehas
+  [ "$ran_out" = 0 ] || by=runner
+  inflight=$(jq -r '[.failedStep, .lastStep] | map(strings | select(. != "")) | first // ""' <<<"$outcome" 2>/dev/null)
+  [ -n "$inflight" ] || inflight=$(tehas_headless_now "$log" | head -n 1)
+  inflight=$(printf '%s' "$inflight" | tr -cd 'A-Za-z0-9_.:-' | head -c 40)
+  echo "$limit $by ${inflight:--}" >"$timed_file" || echo "tehas work: could not write $timed_file" >&2
+fi
 [ "$stalled" = 0 ] || echo "$stall" >"$stall_file" || echo "tehas work: could not write $stall_file" >&2
 # A container that ended with 137 was killed. It is this cycle's end only when
 # nobody here stopped it and the runner wrote no result.
