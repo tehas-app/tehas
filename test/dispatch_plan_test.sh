@@ -92,7 +92,8 @@ rm -f "$fx/edit-fails"
 t_case "the turn is on record as running before the issue is marked"
 to_plan
 t_run "$dispatch"
-t_eq "$(jq -c . "$T/calls/record.at-mark")" '{"session":"","turns":0,"options":[],"pending":false,"failed":false,"running":true,"by":"alice"}'
+t_eq "$(jq -c 'del(.startedAt)' "$T/calls/record.at-mark")" '{"session":"","turns":0,"options":[],"pending":false,"failed":false,"running":true,"by":"alice"}'
+t_eq "$(jq -r '.startedAt | test("^[0-9-]+T[0-9:]+Z$")' "$T/calls/record.at-mark")" true
 
 t_case "a session does not start when its record cannot be written, and the issue is not marked"
 to_plan
@@ -123,7 +124,8 @@ t_case "while a later turn runs the record names no question"
 planning
 comments 7 "$(plan_body ' ' x ' ')" alice
 t_run "$dispatch"
-t_eq "$(jq -c . "$T/calls/record.at-turn")" '{"session":"abc-123","turns":1,"options":["Adopt all","Change some"],"pending":false,"failed":false,"running":true,"answers":[{"turn":2,"by":"alice","fixer":false}]}'
+t_eq "$(jq -c 'del(.startedAt)' "$T/calls/record.at-turn")" '{"session":"abc-123","turns":1,"options":["Adopt all","Change some"],"pending":false,"failed":false,"running":true,"answers":[{"turn":2,"by":"alice","fixer":false}]}'
+t_eq "$(jq -r '.startedAt | test("^[0-9-]+T[0-9:]+Z$")' "$T/calls/record.at-turn")" true
 
 t_case "who started a session and who answered each turn stay on record after the turn"
 planning
