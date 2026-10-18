@@ -34,6 +34,10 @@
 # `planning` is how many open issues carry tehas:plan or tehas:planning: the
 # work being planned, a count only. The same search as the lists finds them.
 #
+# It writes live/analytics.json, the ten-day report of the factory's
+# analytics (analytics_report below), at every run, the runs that end early
+# when GitHub does not answer too. TEHAS_ANALYTICS=off removes it.
+#
 # Unless TEHAS_ANALYTICS=off, it records the issue events awaiting, stopped,
 # merged and closed in the factory's analytics, state/analytics.db, by
 # comparing the snapshot with the one it replaces (record_events below). Each
@@ -67,8 +71,41 @@ control=$TEHAS_CONTROL_ISSUE
 live=$TEHAS_HOME/live
 mkdir -p "$live"
 log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*" >&2; }
-# Whatever happens below, refresh the health file from what is on disk.
-trap '"$here/health" 2>/dev/null || true' EXIT
+
+# The ten-day report of the factory's analytics, live/analytics.json, for
+# the dashboard. Public, so only the keys named here reach it; what each
+# holds is pinned by the program's tests. Off, or no program: no file. A
+# report that fails or does not parse keeps the file there while it is less
+# than analytics_keep seconds old: one poll that meets a locked database
+# does not empty the section, and a database that keeps failing does not
+# show old figures for long.
+analytics_keep=600
+analytics_keys='["report","from","to","shipped","planned","runs","planningTurns","handoffRate",
+  "firstPassYield","leadTime","cycleTime","machineTime","tokens","availability","energy","daily",
+  "stopReasons","stations","versions"]'
+# shellcheck disable=SC2329  # the EXIT trap below calls it
+analytics_report() {
+  local file=$live/analytics.json rc written
+  tehas_analytics_to "$file.raw.new" report --json
+  rc=$?
+  if [ "$rc" = 0 ] && jq -ce --argjson keys "$analytics_keys" '
+      select(type == "object" and .report == 1) | with_entries(select(.key as $k | $keys | index($k)))' \
+      "$file.raw.new" >"$file.new" 2>/dev/null && mv -f "$file.new" "$file"; then
+    rm -f "$file.raw.new"
+    return 0
+  fi
+  rm -f "$file.raw.new" "$file.new"
+  if [ "$rc" = 2 ]; then
+    rm -f "$file"
+    return 0
+  fi
+  [ "$rc" = 1 ] || log "WARN analytics report: not a report"
+  written=$(stat -c %Y "$file" 2>/dev/null) || return 0
+  [ $(($(date +%s) - written)) -lt "$analytics_keep" ] || rm -f "$file"
+}
+# Whatever happens below, write the report, and refresh the health file
+# from what is on disk.
+trap 'analytics_report; "$here/health" 2>/dev/null || true' EXIT
 
 fetch_every=3600
 fetch_limit=60
