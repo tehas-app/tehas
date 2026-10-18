@@ -1042,7 +1042,7 @@ fn export_writes_a_copy_that_opens_with_the_same_version_mode_0600_and_nothing_p
     execute(&home, &Cmd::Run(7, Given::default()), now).unwrap();
     execute(&home, &Cmd::Event(7, "ready".into(), None), now).unwrap();
     let out = home.join("copy.db");
-    execute(&home, &Cmd::Export(out.clone()), now).unwrap();
+    execute(&home, &Cmd::Export(out.clone(), false), now).unwrap();
     assert_eq!(
         fs::metadata(&out).unwrap().permissions().mode() & 0o777,
         0o600
@@ -1086,7 +1086,21 @@ fn export_writes_a_copy_that_opens_with_the_same_version_mode_0600_and_nothing_p
     }
     assert!(seen > 10);
     // An export never replaces a file.
-    assert_eq!(execute(&home, &Cmd::Export(out), now).unwrap_err().0, 73);
+    assert_eq!(
+        execute(&home, &Cmd::Export(out.clone(), true), now)
+            .unwrap_err()
+            .0,
+        73
+    );
+    // What the copy holds, read from the copy.
+    assert_eq!(
+        db::copy_summary(&out).unwrap(),
+        format!(
+            r#"{{"api":1,"schema":{},"from":{started},"to":{},"runs":1}}"#,
+            db::SCHEMA_VERSION,
+            started + 30
+        )
+    );
 }
 
 #[test]
@@ -1253,9 +1267,14 @@ fn the_arguments_are_checked() {
     }
     assert_eq!(
         parse(&args("export /tmp/x.db")),
-        Some(Cmd::Export("/tmp/x.db".into()))
+        Some(Cmd::Export("/tmp/x.db".into(), false))
+    );
+    assert_eq!(
+        parse(&args("export /tmp/x.db --json")),
+        Some(Cmd::Export("/tmp/x.db".into(), true))
     );
     assert_eq!(parse(&args("report --json")), Some(Cmd::Report));
+    assert_eq!(parse(&args("report")), Some(Cmd::ReportText));
     for bad in [
         "run",
         "run 0",
@@ -1265,10 +1284,14 @@ fn the_arguments_are_checked() {
         "event 12 shipped",
         "prune now",
         "sample now",
-        "report",
         "report --text",
         "report --json now",
         "export",
+        "export --json",
+        "export -x.db",
+        "export x.db --yaml",
+        "export x.db --json --json",
+        "export x.db --json now",
     ] {
         assert_eq!(parse(&args(bad)), None, "{bad}");
     }
@@ -2162,4 +2185,94 @@ fn ten_days_of_data_report_well_inside_the_time_limit() {
     // The limit is 5 s; an unoptimised build on a busy machine is well
     // inside 2.
     assert!(took.as_secs_f64() < 2.0, "the report took {took:?}");
+}
+
+#[test]
+fn an_export_of_no_runs_leaves_out_from_and_to() {
+    let home = scratch("export-empty");
+    let now = 1_792_022_400;
+    let out = home.join("copy.db");
+    execute(&home, &Cmd::Export(out.clone(), true), now).unwrap();
+    assert_eq!(
+        db::copy_summary(&out).unwrap(),
+        format!(r#"{{"api":1,"schema":{},"runs":0}}"#, db::SCHEMA_VERSION)
+    );
+    // From and to span the runs: the oldest start, the newest end, and the
+    // start of a run that has no end.
+    let (conn, _) = db::open(&db::path(&home), now).unwrap();
+    for (id, started, ended) in [
+        ("a", now - 500, Some(now - 400)),
+        ("b", now - 900, None),
+        ("c", now - 100, Some(now - 50)),
+    ] {
+        conn.execute(
+            "INSERT INTO runs (id, kind, issue, started, ended) VALUES (?1, 'work', 1, ?2, ?3)",
+            rusqlite::params![id, started, ended],
+        )
+        .unwrap();
+    }
+    let out = home.join("copy2.db");
+    execute(&home, &Cmd::Export(out.clone(), true), now).unwrap();
+    assert_eq!(
+        db::copy_summary(&out).unwrap(),
+        format!(
+            r#"{{"api":1,"schema":{},"from":{},"to":{},"runs":3}}"#,
+            db::SCHEMA_VERSION,
+            now - 900,
+            now - 50
+        )
+    );
+}
+
+#[test]
+fn the_text_report_says_the_figures_with_their_counts() {
+    let home = scratch("report-text");
+    let day0 = 1_792_022_400; // 2026-10-15T00:00:00Z
+    let to = day0 + 9 * DAY + 43_200;
+    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+    report_data(&conn, day0, to);
+    let text = crate::report::text(&crate::report::build(&conn, to).unwrap());
+    for want in [
+        "Last 10 days, 2026-10-15 to 2026-10-24 (UTC)\n",
+        "\nShipped            3 issues\n",
+        "\nPlanned            6 now: 5 in line, 1 in planning\n",
+        "\nRuns               6: 1 pr, 1 merged, 1 handoff, 0 parked, 2 failed, 1 refused, 0 stopped\n",
+        "\nHandoff rate       16.7%  (n=6)\n",
+        "\nFirst-pass yield   50%  (n=2)\n",
+        "\nLead time          median 12h03m, p90 23h13m  (n=2)\n",
+        "\nCycle time         median 12m30s, p90 30m  (n=6)\n",
+        "\nMachine time       1h20m, 26m40s per shipped issue  (n=6)\n",
+        "\nTokens             6650: 6100 input, 500 output, 50 cache read, 2217 per shipped issue  (n=4)\n",
+        "\nAvailability       0.2% of 8d12h  (n=5)\n",
+        "\nEnergy             0.075 kWh, 0.025 kWh per shipped issue  (n=4)\n",
+        "\n2026-10-16         1     2       2       20\n",
+        "\nStop reasons  (n=4)\n  explore-bodies-empty              1\n",
+        "\n  implement                         2 of 3     66.7%\n",
+        "\n  v1                  0.13.0                  4      50%     15m      1750\n",
+        "\n  v2                  -                       1\n",
+    ] {
+        assert!(text.contains(want), "{want:?} in\n{text}");
+    }
+    assert!(!text.contains("cause no page"));
+}
+
+#[test]
+fn the_text_report_of_an_empty_database_says_none() {
+    let home = scratch("report-text-empty");
+    let to = 1_792_022_400 + 3600;
+    let (conn, _) = db::open(&db::path(&home), to).unwrap();
+    let text = crate::report::text(&crate::report::build(&conn, to).unwrap());
+    for want in [
+        "\nShipped            0 issues\n",
+        "\nPlanned            -\n",
+        "\nFirst-pass yield   -  (n=0)\n",
+        "\nLead time          median -, p90 -  (n=0)\n",
+        "\nMachine time       0s  (n=0)\n",
+        "\nAvailability       -  (n=0)\n",
+        "\nStop reasons  (n=0)\n  none\n",
+        "\nVersions  (fewer than 3 runs: the count only)\n  none\n",
+    ] {
+        assert!(text.contains(want), "{want:?} in\n{text}");
+    }
+    assert!(!text.contains("Energy"));
 }
