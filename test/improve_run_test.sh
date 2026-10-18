@@ -100,6 +100,9 @@ t_contains "$body" "**Category:** cycle"
 t_contains "$body" "**Issues:** acme/widget#7"
 t_contains "$body" "**Working on it:** This is a problem in the factory. It is fixed in this repository: a cycle builds the fix once a person applies \`tehas:ready\`."
 t_contains "$body" "The gate ran twice."
+t_contains "$body" "## Done when
+
+- test/gate_test.sh covers the second run."
 t_contains "$body" '````text'
 t_contains "$body" "https://github.com/acme/factory/releases/download/tehas-improve-logs/ticket-$REC.log.gz"
 t_eq "$(cat "$T/calls/assets")" "ticket-$REC.log.gz"
@@ -300,6 +303,79 @@ t_run "$improve"
 t_eq "$t_rc" 0
 t_eq "$(titles)" "Good"
 t_contains "$t_out" "findings=9 invalid=8"
+
+t_case "a finding whose body has no Done-when section is invalid and not filed"
+ready
+findings "$(finding NoHeading '{"body":"What happened, and why it matters."}')"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_eq "$(titles)" ""
+t_eq "$(grep -c '^issue create' <<<"$(t_calls gh)")" 0
+t_contains "$t_out" "findings=1 invalid=1 duplicates=0 of=none over=0 filed=0 issues=none"
+
+t_case "a Done-when heading with nothing under it is invalid"
+ready
+findings "$(finding EmptySection '{"body":"What happened.\n\n## Done when"}')" \
+  "$(finding OnlyBlanks '{"body":"What happened.\n\n## Done when\n   \n\t\n"}')" \
+  "$(finding WordsAfterHeading '{"body":"What happened.\n\n## Done when, eventually\n\n- test/gate_test.sh passes."}')"
+t_run "$improve"
+t_eq "$(titles)" ""
+t_contains "$t_out" "findings=3 invalid=3"
+
+t_case "a Done-when section that is not the last thing in the body is invalid"
+ready
+findings "$(finding AfterProse '{"body":"What happened.\n\n## Done when\n\n- test/gate_test.sh passes.\n\nThe gate ran twice."}')" \
+  "$(finding AfterOther '{"body":"What happened.\n\n## Done when\n\n- test/gate_test.sh passes.\n\n## Notes\n\n- later"}')" \
+  "$(finding SecondEmpty '{"body":"What happened.\n\n## Done when\n\n- test/gate_test.sh passes.\n\n## Done when"}')" \
+  "$(finding NoItem '{"body":"What happened.\n\n## Done when\n\nThe gate ran twice."}')"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_eq "$(titles)" ""
+t_contains "$t_out" "findings=4 invalid=4"
+
+t_case "a Done-when heading hidden in a fence or a comment is invalid"
+ready
+findings "$(finding InFence '{"body":"What happened.\n\n```text\n## Done when\n\n- test/gate_test.sh passes.\n```\n\nThe gate ran twice."}')" \
+  "$(finding InTilde '{"body":"What happened.\n\n~~~ text\n## Done when\n\n- test/gate_test.sh passes.\n~~~\n\nThe gate ran twice."}')" \
+  "$(finding InComment '{"body":"What happened.\n\n<!--\n## Done when\n\n- test/gate_test.sh passes.\n-->\n\nThe gate ran twice."}')" \
+  "$(finding OnlyBlanksAfter '{"body":"What happened.\n\n## Done when\n\n\u00a0\n\n\u200b"}')"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_eq "$(titles)" ""
+t_contains "$t_out" "findings=4 invalid=4"
+
+t_case "a Done-when section keeps a fence after it and invisible blanks around it"
+ready
+findings "$(finding FenceAfter '{"body":"What happened.\n\n## Done when\n\n- test/gate_test.sh passes.\n\n```text\nbash scripts/verify.sh\n```"}')" \
+  "$(finding BlanksAfter '{"body":"What happened.\n\n## Done when\n\n- test/gate_test.sh passes.\n\n\u00a0\n\n   "}')" \
+  "$(finding ProseBefore '{"body":"The gate ran twice.\n\n## Done when\n\n- test/gate_test.sh covers the second run."}')"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_eq "$(titles | sort | tr '\n' ' ')" "BlanksAfter FenceAfter ProseBefore "
+t_contains "$t_out" "findings=3 invalid=0 duplicates=0 of=none over=0 filed=3"
+
+t_case "a Done-when section accepts a numbered list and an asterisk list"
+ready
+findings "$(finding Numbered '{"body":"What happened.\n\n## Done when\n\n- 1. scripts/verify.sh passes.\n- 2. test/improve_test.sh passes."}')" \
+  "$(finding Starred '{"body":"What happened.\n\n## Done when\n\n* scripts/verify.sh passes.\n* test/improve_test.sh passes."}')" \
+  "$(finding TwoItems '{"body":"What happened.\n\n## Done when\n\n- test/gate_test.sh passes.\n- scripts/verify.sh passes."}')"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_eq "$(titles | sort | tr '\n' ' ')" "Numbered Starred TwoItems "
+t_contains "$t_out" "findings=3 invalid=0 duplicates=0 of=none over=0 filed=3"
+
+t_case "a finding with a Done-when section is filed among ones without it"
+ready
+findings "$(finding Without '{"body":"What happened."}')" \
+  "$(finding With '{"body":"What happened.\n\n## Done when\n\n- test/gate_test.sh covers the second run.\n- scripts/verify.sh passes."}')"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_eq "$(titles)" "With"
+t_contains "$t_out" "findings=2 invalid=1 duplicates=0 of=none over=0 filed=1 issues=#101"
+t_contains "$(cat "$T/calls/body-101")" "## Done when
+
+- test/gate_test.sh covers the second run.
+- scripts/verify.sh passes."
 
 t_case "a finding the model names a duplicate of is dropped"
 ready

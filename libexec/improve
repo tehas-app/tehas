@@ -301,7 +301,12 @@ if [ -L "$found" ] || [ ! -f "$found" ]; then blame "${why}the analyst left no f
 # One program decides what is filed. A finding that is not the shape asked
 # for is dropped; a file that is not is an error. A title is compared in lower
 # case without punctuation, with the open issues and with the findings before
-# it.
+# it. A body without a Done-when section is the wrong shape too: a cycle that
+# is given a proposal with no bar to check itself against spends its rounds
+# inventing one, so such a finding is counted invalid and not filed. The model's
+# body is untrusted, so the section has to hold up when read as markdown: text
+# in a code fence or an HTML comment is not a heading and not a bar, and the
+# section is the last thing in the body, as the prompt asks.
 #
 # A recheck is taken only for an issue this loop filed, named by a cycle of
 # the same product issue as the new one: the model cannot have a comment put
@@ -311,13 +316,47 @@ check='
   def clean($allow): explode | all(.[]; . as $c | ($c >= 32 and $c != 127) or ($allow | index($c) != null));
   def norm: (ascii_downcase | gsub("[^a-z0-9 ]"; "") | gsub(" +"; " ") | sub("^ "; "") | sub(" $"; "")) as $n
     | if $n == "" then . else $n end;
+  # Nothing a person can read: spaces, tabs, and the blanks a copy-pasted
+  # line or a model can leave behind that no one can see.
+  def blank: test("^[ \t\u00a0\u2000-\u200f\u2800\u3000]*$");
+  # The line that is "## Done when" and nothing else but spaces around it.
+  def heading: test("^[ \t]*##[ ]+Done[ ]+when[ ]*$");
+  # Three of either kind, with nothing before them but spaces. A fence holds
+  # the text a model pasted in, so what it holds is not markdown: a heading or
+  # an item inside one is not a bar. What a fence hides becomes a blank line,
+  # so a section hidden by one is not found and text hidden by one is not a
+  # bar.
+  def fence: test("^[ \t]*(`{3,}|~{3,})");
+  def scrub: reduce .[] as $l ({in: false, out: []};
+      (if .in then (if ($l | fence) then { in: false, line: "" } else { in: true, line: "" } end)
+       else (if ($l | fence) then { in: true, line: "" } else { in: false, line: $l } end) end)
+      as $s | { in: $s.in, out: (.out + [$s.line]) }) | .out;
+  # The lines a person can read, in $v, and for each one whether it is the
+  # heading or an item. The bar is real when there is one heading, the line
+  # under it is an item, the last line of the body is an item, and nothing
+  # between them is prose or another heading. Counts and index lists only: an
+  # and over a filter that can yield nothing reads as true, so each side is a
+  # number first.
+  def item: test("^[ \t]*[-*][ ]|^[ \t]*[0-9]+[.] ");
+  def done_when: gsub("\r"; "") | split("\n") | map(sub("<!--.*$"; "")) | scrub
+    | [ .[] | select(blank | not) ] as $v
+    | ($v | length) as $n
+    | ([ range(0; $n) as $i | ($v[$i] | heading) ]) as $hd
+    | (([ $hd[] | select(.) ]) | length) as $heads
+    | ([ $hd | to_entries[] | select(.value) | .key ]) as $hi
+    | ([ $hd | to_entries[] | select((.value | not) and ($v[.key] | item)) | .key ]) as $all
+    | ([ $all[] | select(. > $hi[0]) ]) as $ii
+    | (([ range(($hi[0] + 1); $n) as $j
+         | ($v[$j] | item) | if . then 0 else 1 end ] | add) // 0) as $stray
+    | ($heads == 1) and (($ii | length) >= 1) and ($ii[0] == ($hi[0] + 1))
+      and ($ii[-1] == ($n - 1)) and ($stray == 0);
   def valid($numbers):
     type == "object"
     and (.title | type == "string" and length >= 1 and length <= 100 and clean([]))
     and (.category | type == "string" and IN("dispatcher", "cycle", "pi-rukas", "console", "gate", "docs", "boundary"))
     and (.category != "boundary" or all(.factory_part, .rukas_part;
       type == "string" and length >= 1 and length <= 3000 and clean([9, 10, 13])))
-    and (.body | type == "string" and length >= 1 and length <= 6000 and clean([9, 10, 13]))
+    and (.body | type == "string" and length >= 1 and length <= 6000 and clean([9, 10, 13]) and done_when)
     and (.evidence | type == "string" and length <= 3000 and clean([9, 10, 13]))
     and (.cycles | type == "array" and length >= 1 and all(.[]; type == "string" and IN($cycles[])))
     and (.duplicate_of == null or (.duplicate_of | IN($numbers[])));
