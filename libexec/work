@@ -22,16 +22,26 @@
 # Anything else is exit 78. So is an entry of TEHAS_RUKAS_WORKAROUNDS whose
 # release the image's pi-rukas has reached: the workaround has expired.
 #
-# Three PI_ENSEMBLE_* values are this command's, whatever the instance says:
+# Four PI_ENSEMBLE_* values are this command's, whatever the instance says:
 #   PI_ENSEMBLE_HANDOFF_CHANNEL=host  pi-rukas posts no handoff comment and
 #                       applies no label; tehasbot cycle posts the one comment
 #                       from the result's handoff and labels the issue.
+#   PI_ENSEMBLE_HANDOFF_TIMEOUT_MS  the handoff allowance, 480000 (8 minutes,
+#                       pi-rukas's own default): the time the cycle's handoff
+#                       may take. It is the one allowance: the margin below
+#                       is sized from it, so the handoff never lands on the
+#                       container's stop.
 #   PI_ENSEMBLE_CYCLE_DEADLINE   the time after which the cycle starts no new
-#                       step and parks with cap "deadline": TEHAS_WORK_TIMEOUT
-#                       less a quarter of it, or less one run of the gate and
-#                       8 minutes when that is longer. None when that leaves
-#                       no time at all. PI_ENSEMBLE_CYCLE_BUDGET_MS is not
-#                       passed.
+#                       step and parks with cap "deadline", in milliseconds
+#                       since the epoch: the start, plus TEHAS_WORK_TIMEOUT,
+#                       less a margin. With an image whose --capabilities has
+#                       features.cycleDeadlineHandoffAllowance the margin is
+#                       the handoff allowance: that runner bounds every step
+#                       by the deadline. Otherwise it is a quarter of the
+#                       limit, or one run of the gate and the handoff
+#                       allowance when that is longer, for a step that runs
+#                       past the deadline. None when that leaves no time.
+#                       PI_ENSEMBLE_CYCLE_BUDGET_MS is not passed.
 #   PI_ENSEMBLE_VERIFY_CONCURRENCY  runs of the gate at once, from the
 #                       container's CPU quota and memory ceiling
 #                       (tehas_slice_verify).
@@ -44,7 +54,11 @@
 #              40 refused to start.
 #              2 the cycle was stopped here as stalled or at the time limit
 #                (status "timeout", state/cycles/<issue>.timed),
-#                or the runner ended without a result.
+#                or the runner ended without a result. The file holds the
+#                seconds and, on a second line, the step in flight as the
+#                runner's progress last said it, or "-". tehasbot cycle
+#                records the stop as tehas's own cap, cycle-time-limit or
+#                stall, naming that step.
 #              3 the sandbox cannot push to the repository; no cycle was started.
 #              4 the instance gives a cycle the issue's images or files and one
 #                could not be fetched, the issue could not be read for them, or
@@ -220,8 +234,9 @@
 # they are for TEHAS_WORK_STALL seconds, the cycle is taken as stalled: a step
 # that hangs on a child process, or a gate that never returns, does not hold a
 # slot for hours. The status is then "stalled", and state/cycles/<issue>.stalled
-# holds the seconds for tehasbot cycle. The limit is longer than one run of the
-# product's gate may take, which can print nothing.
+# holds the seconds and the step in flight for tehasbot cycle, as .timed does.
+# The limit is longer than one run of the product's gate may take, which can
+# print nothing.
 #
 # The console and the dashboard's line are fed from the stable kinds of the
 # runner's NDJSON only. At the end, the per-role usage and why the cycle
@@ -344,24 +359,43 @@ fi
 # not this cycle is given attachments, so no container names a directory tehas
 # did not mount.
 unset PI_ENSEMBLE_EXTRA_IMAGE_DIRS
-# So are who reports a handoff, the cycle's deadline and how many gate runs
-# it makes at once.
-unset PI_ENSEMBLE_HANDOFF_CHANNEL PI_ENSEMBLE_CYCLE_DEADLINE PI_ENSEMBLE_CYCLE_BUDGET_MS PI_ENSEMBLE_VERIFY_CONCURRENCY
+# So are who reports a handoff, the time it may take, the cycle's deadline and
+# how many gate runs it makes at once.
+unset PI_ENSEMBLE_HANDOFF_CHANNEL PI_ENSEMBLE_HANDOFF_TIMEOUT_MS PI_ENSEMBLE_CYCLE_DEADLINE PI_ENSEMBLE_CYCLE_BUDGET_MS PI_ENSEMBLE_VERIFY_CONCURRENCY
 mapfile -d '' -t envs < <(tehas_sandbox_env "$repo" "$bot_name" "$bot_email")
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
 [ "${#envs[@]}" -gt 0 ] ||
   { echo "tehas work: could not prepare the sandbox, not starting a cycle" >&2; exit 78; }
 verify_at_once=$(tehas_slice_verify) ||
   { echo "tehas work: the container limits could not be made, not starting" >&2; exit 78; }
+# The handoff allowance, in seconds: the one budget the cycle's handoff has,
+# given to pi-rukas and kept clear of the stop by the margin below.
+handoff=480
 # tehasbot cycle posts the one comment of a handoff and labels the issue.
-envs+=(-e PI_ENSEMBLE_HANDOFF_CHANNEL=host -e "PI_ENSEMBLE_VERIFY_CONCURRENCY=$verify_at_once")
+envs+=(-e PI_ENSEMBLE_HANDOFF_CHANNEL=host -e "PI_ENSEMBLE_HANDOFF_TIMEOUT_MS=$((handoff * 1000))"
+  -e "PI_ENSEMBLE_VERIFY_CONCURRENCY=$verify_at_once")
 features=handoffChannel
+# The runner by its path in the image: the link to it on PATH does not find
+# its own source (pi-rukas v0.12.80).
+runner=/opt/pi-rukas/bin/pi-rukas-headless
+# What the image supports, asked before anything is moved or fetched. The
+# answer is checked below, once everything the cycle is given is known.
+caps=$(timeout -k 10 "$caps_wait" docker run --rm --init "$image" "$runner" --capabilities 2>/dev/null)
+caps_rc=$?
 # No step starts after the deadline: the cycle parks with a handoff instead.
-# A step that started before it may run past it, so the margin holds the
-# longest step there is room for: a quarter of the limit, and never less than
-# one run of the gate and the handoff's 8 minutes.
-margin=$((limit / 4))
-[ "$margin" -ge $((TEHAS_VERIFY_TIMEOUT + 480)) ] || margin=$((TEHAS_VERIFY_TIMEOUT + 480))
+# A runner whose answer has features.cycleDeadlineHandoffAllowance bounds
+# every step by the deadline and keeps its handoff inside the allowance
+# (pi-rukas#1603), so the deadline is the limit less the allowance. With any
+# other runner a step that started before the deadline may run past it, so
+# the margin holds the longest step there is room for and then the handoff:
+# a quarter of the limit, and never less than one run of the gate and the
+# handoff allowance.
+if [ "$(jq -r '.features.cycleDeadlineHandoffAllowance == true' <<<"$caps" 2>/dev/null)" = true ]; then
+  margin=$handoff
+else
+  margin=$((limit / 4))
+  [ "$margin" -ge $((TEHAS_VERIFY_TIMEOUT + handoff)) ] || margin=$((TEHAS_VERIFY_TIMEOUT + handoff))
+fi
 if [ "$margin" -lt "$limit" ]; then
   envs+=(-e "PI_ENSEMBLE_CYCLE_DEADLINE=$((($(date +%s) + limit - margin) * 1000))")
   features+=" cycleDeadline"
@@ -381,22 +415,17 @@ if [ -e "$works" ] && [ ! -f "$works/.tehas-workspaces" ]; then
   echo "tehas work: $works exists and was not made by tehas, not touching it" >&2
   exit 78
 fi
-# The runner by its path in the image: the link to it on PATH does not find
-# its own source (pi-rukas v0.12.80).
-runner=/opt/pi-rukas/bin/pi-rukas-headless
 run_flags=(--timeout "$(((limit + 59) / 60))" --json)
 [ -z "$flags" ] || { run_flags+=(--restart); features+=" restartClearsAttention"; }
 if [ -f "$record" ] && [ ! -L "$record" ] && [ "$(jq -r '.how // "" | strings' "$record" 2>/dev/null)" = refresh ]; then
   run_flags+=(--continue-pr)
 fi
-# What the image supports, asked before anything is moved or fetched.
+# What the image supports, against what this cycle is given.
 names=""
 for e in "${envs[@]}"; do
   case "$e" in PI_ENSEMBLE_*) names+=" ${e%%=*}" ;; esac
 done
 [ "$give" != 1 ] || names+=" PI_ENSEMBLE_EXTRA_IMAGE_DIRS"
-caps=$(timeout -k 10 "$caps_wait" docker run --rm --init "$image" "$runner" --capabilities 2>/dev/null)
-caps_rc=$?
 if [ "$caps_rc" != 0 ] || ! unsupported=$(tehas_headless_unsupported "$caps" "${run_flags[*]}" "$names" "$features"); then
   echo "tehas work: $image gave no --capabilities answer (exit $caps_rc), not starting a cycle" >&2
   exit 78
@@ -723,8 +752,12 @@ else
   [ "$stalled" = 0 ] || status=stalled
   [ "$timed" = 0 ] || status=timeout
 fi
-[ "$timed" = 0 ] || echo "$limit" >"$timed_file" || echo "tehas work: could not write $timed_file" >&2
-[ "$stalled" = 0 ] || echo "$stall" >"$stall_file" || echo "tehas work: could not write $stall_file" >&2
+# The step in flight when this command stopped the container, as the runner's
+# progress last said it: a runner stopped mid-step may write no result.
+inflight=$(tehas_headless_now "$log" | head -n 1 | tr -cd 'A-Za-z0-9_.-' | head -c 40)
+inflight=${inflight:--}
+[ "$timed" = 0 ] || printf '%s\n%s\n' "$limit" "$inflight" >"$timed_file" || echo "tehas work: could not write $timed_file" >&2
+[ "$stalled" = 0 ] || printf '%s\n%s\n' "$stall" "$inflight" >"$stall_file" || echo "tehas work: could not write $stall_file" >&2
 # A container that ended with 137 was killed. It is this cycle's end only when
 # nobody here stopped it and the runner wrote no result.
 if [ "$rc" = 137 ] && [ "$have" = 0 ] && [ "$error_only" = 0 ] && [ "$interrupted" = 0 ] && [ "$stopped" = 0 ]; then
@@ -758,10 +791,16 @@ crc=$?
 
 step=$(jq -r '[.failedStep, .lastStep] | map(strings | select(. != "")) | first // "-"' <<<"$outcome" 2>/dev/null)
 step=${step:--}
+[ "$step" != - ] || { [ "$timed" = 0 ] && [ "$stalled" = 0 ]; } || step=$inflight
 now_file false "$status"
 cp "$result_file" "$log.result.json" 2>/dev/null || true
 tehas_headless_progress "$log" "$caps" "$result_file" "$issue" >"$progress_file" || echo "tehas work: could not write $progress_file" >&2
 cap=$(jq -r '.cap // ""' <<<"$outcome" 2>/dev/null)
+# A stop this command made is its own cap, unless the runner had ended first.
+case "$status" in
+  timeout) cap=cycle-time-limit ;;
+  stalled) cap=stall ;;
+esac
 echo "tehas work: issue=$issue status=$status step=$step cap=${cap:--} runner_exit=$rc seconds=$(($(date +%s) - started))"
 
 # The kill is what this command saw of the container. A runner that wrote its

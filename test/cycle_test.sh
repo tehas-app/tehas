@@ -1066,6 +1066,43 @@ t_contains "$(t_calls gh)" 'cap `cycle-time-limit`'
 t_contains "$(t_calls gh)" 'pi-rukas:handoff issue=7 cap=cycle-time-limit -->'
 t_eq "$(jq -r .cap "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" cycle-time-limit
 
+t_case "a stop at the time limit names the step tehas work saw in flight when the result names none"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+ended running -
+printf "%s\n" 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; printf "21600\nadversarial\n" >"$TEHAS_HOME/state/cycles/7.timed"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+rec=$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json
+t_eq "$(jq -c '[.status, .step, .cap]' "$rec")" '["timeout","adversarial","cycle-time-limit"]'
+t_eq "$(jq -r .capReason "$rec")" "tehas work stopped the container at the time limit of 21600s, step adversarial in flight"
+t_contains "$(t_calls gh)" "It ran past its time limit of 360 min at step \`adversarial\`"
+t_eq "$(find "$state/7.timed" 2>/dev/null | wc -l)" 0
+
+t_case "a runner stopped mid-step at the time limit is on record with tehas's cap, its own last cap in the reason"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+ended interrupted develop - verify-failed:develop
+echo '{"reason": "fence violated"}' >"$fx/progress.json"
+printf "%s\n" 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; printf "21600\ndevelop\n" >"$TEHAS_HOME/state/cycles/7.timed"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+rec=$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json
+t_eq "$(jq -c '[.status, .step, .cap]' "$rec")" '["timeout","develop","cycle-time-limit"]'
+t_eq "$(jq -r .capReason "$rec")" "tehas work stopped the container at the time limit of 21600s, step develop in flight; the runner had named the cap verify-failed:develop; fence violated"
+t_eq "$(jq -r .cap "$state/7.park")" cycle-time-limit
+t_contains "$(t_calls gh)" 'tehas stopped the cycle: the cap `cycle-time-limit`.'
+t_lacks "$(t_calls gh)" 'pi-rukas stopped on the cap'
+
+t_case "a stall names the step in flight and is tehas's cap over a runner's mid-step cap"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+ended interrupted - - step-failed:lens-fix
+printf "%s\n" 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; printf "3600\nlens-fix\n" >"$TEHAS_HOME/state/cycles/7.stalled"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+rec=$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json
+t_eq "$(jq -c '[.status, .step, .cap]' "$rec")" '["stalled","lens-fix","stall"]'
+t_contains "$(jq -r .capReason "$rec")" "tehas work stopped the container when no log changed for 3600s, step lens-fix in flight; the runner had named the cap step-failed:lens-fix"
+t_contains "$(t_calls gh)" "None of its logs changed for 60 min at step \`lens-fix\`"
+
 t_case "a cap the runner named is kept when tehas also stopped the cycle"
 reset
 ended handoff develop feature/x deadline

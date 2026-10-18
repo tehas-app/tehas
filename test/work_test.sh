@@ -77,7 +77,7 @@ caps_good() {
     inputs: ([("SANDBOX_MODE", "WORKSPACE_ROOT") | {name: "PI_ENSEMBLE_\(.)", scope: "sandbox"}]
       + [("MAX_WORKSTREAMS", "VERIFY_TIMEOUT_MS", "INTEGRATION_VERIFY_TIMEOUT_MS", "SUBAGENT_MODEL",
           "SUBAGENT_PROVIDER", "MODEL_<ROLE>", "PROVIDER_<ROLE>", "EXTRA_IMAGE_DIRS", "COMMENT_RETENTION",
-          "HANDOFF_CHANNEL", "CYCLE_DEADLINE", "VERIFY_CONCURRENCY")
+          "HANDOFF_CHANNEL", "HANDOFF_TIMEOUT_MS", "CYCLE_DEADLINE", "VERIFY_CONCURRENCY")
          | {name: "PI_ENSEMBLE_\(.)", scope: "cycle"}]
       + [{name: "PI_ENSEMBLE_SUBAGENT_MODE", scope: "internal"}]),
     features: {resultFromMemory: true, cycleDeadline: true, handoffChannel: true, restartClearsAttention: true}}' >"$T/caps.json"
@@ -308,6 +308,7 @@ GIT_TERMINAL_PROMPT
 CBM_CACHE_DIR
 PI_ENSEMBLE_CYCLE_DEADLINE
 PI_ENSEMBLE_HANDOFF_CHANNEL
+PI_ENSEMBLE_HANDOFF_TIMEOUT_MS
 PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS
 PI_ENSEMBLE_MAX_WORKSTREAMS
 PI_ENSEMBLE_SANDBOX_MODE
@@ -543,14 +544,17 @@ t_run "$work 7"
 t_eq "$t_rc" 2
 caps_good
 
-t_case "the handoff channel, the deadline and the gate runs at once are this command's, not the instance's"
+t_case "the handoff channel and allowance, the deadline and the gate runs at once are this command's, not the instance's"
 caps_fresh
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 PI_ENSEMBLE_HANDOFF_CHANNEL=forge \
-  PI_ENSEMBLE_CYCLE_BUDGET_MS=60000 PI_ENSEMBLE_VERIFY_CONCURRENCY=9 PI_ENSEMBLE_CYCLE_DEADLINE=1
+  PI_ENSEMBLE_CYCLE_BUDGET_MS=60000 PI_ENSEMBLE_VERIFY_CONCURRENCY=9 PI_ENSEMBLE_CYCLE_DEADLINE=1 \
+  PI_ENSEMBLE_HANDOFF_TIMEOUT_MS=5000
 before=$(date +%s)
 t_run "$work 7"
 t_eq "$(after -e | grep -c '^PI_ENSEMBLE_HANDOFF_CHANNEL')" 1
 t_contains "$(after -e)" "PI_ENSEMBLE_HANDOFF_CHANNEL=host"
+# The one handoff allowance, 8 minutes in milliseconds, that the margin holds.
+t_eq "$(after -e | grep '^PI_ENSEMBLE_HANDOFF_TIMEOUT_MS')" "PI_ENSEMBLE_HANDOFF_TIMEOUT_MS=480000"
 t_lacks "$(after -e)" "PI_ENSEMBLE_CYCLE_BUDGET_MS"
 # A container of a 2048m ceiling runs one gate at a time.
 t_eq "$(after -e | grep '^PI_ENSEMBLE_VERIFY_CONCURRENCY')" "PI_ENSEMBLE_VERIFY_CONCURRENCY=1"
@@ -568,9 +572,24 @@ t_run "$work 7"
 deadline=$(after -e | sed -n 's/^PI_ENSEMBLE_CYCLE_DEADLINE=//p')
 # 7200 - (2400 + 480)
 t_eq "$([ "$deadline" -ge $(((before + 4320) * 1000)) ] && [ "$deadline" -le $(((before + 4320 + 60) * 1000)) ] && echo in-range)" in-range
+# The handoff allowance given is the one the margin holds.
+t_eq "$(after -e | grep '^PI_ENSEMBLE_HANDOFF_TIMEOUT_MS')" "PI_ENSEMBLE_HANDOFF_TIMEOUT_MS=480000"
+
+t_case "a runner that bounds its steps by the deadline gets the limit less the handoff allowance"
+caps_fresh
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+jq '.features.cycleDeadlineHandoffAllowance = true' "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
+before=$(date +%s)
+t_run "$work 7"
+deadline=$(after -e | sed -n 's/^PI_ENSEMBLE_CYCLE_DEADLINE=//p')
+# 21600 - 480
+t_eq "$([ "$deadline" -ge $(((before + 21120) * 1000)) ] && [ "$deadline" -le $(((before + 21120 + 60) * 1000)) ] && echo in-range)" in-range
+t_eq "$(after -e | grep '^PI_ENSEMBLE_HANDOFF_TIMEOUT_MS')" "PI_ENSEMBLE_HANDOFF_TIMEOUT_MS=480000"
+caps_good
 
 t_case "a time limit with no room for a deadline gives none, says so, and does not need the feature"
 caps_fresh
+# 120 + 480 is the whole limit: the handoff allowance leaves no time for a step.
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_WORK_TIMEOUT=600 TEHAS_VERIFY_TIMEOUT=120
 jq 'del(.features.cycleDeadline)' "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
 t_run "$work 7"
@@ -1065,14 +1084,16 @@ t_case "a runner that does not stop at its own limit is stopped after the grace,
 fresh
 t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=1
 T_ENV=("${env_ok[@]}" TEHAS_WORK_GRACE=0)
-container "$hold; $gone"
+container "progress '{\"v\":1,\"kind\":\"step-started\",\"event\":{\"step\":\"adversarial\"}}'; $hold; $gone"
 t_run "$work 7"
 t_eq "$t_rc" 2
 t_contains "$t_out" "time limit of 1s passed"
-t_contains "$t_out" "status=timeout"
+t_contains "$t_out" "status=timeout step=adversarial cap=cycle-time-limit"
 t_lacks "$t_out" "was killed"
 t_contains "$(t_calls docker)" "stop -t 20 tehas-work-7"
-t_eq "$(cat "$T/home/tehas/state/cycles/7.timed")" 1
+# The seconds, and the step in flight as the runner's progress last said it.
+t_eq "$(cat "$T/home/tehas/state/cycles/7.timed")" "1
+adversarial"
 
 t_case "a runner stopped at the time limit that writes interrupted is a timeout, exit 2"
 fresh
@@ -1080,8 +1101,10 @@ container "trap 'says interrupted; exit 21' TERM; \"\$nap\" 60 & echo \$! >\"\$T
 t_run "$work 7"
 t_eq "$t_rc" 2
 t_contains "$t_out" "status=timeout"
+t_contains "$t_out" "cap=cycle-time-limit"
 t_eq "$(jq -c '[.running, .status]' "$live/cycles/7.json")" '[false,"timeout"]'
-t_eq "$(cat "$T/home/tehas/state/cycles/7.timed")" 1
+t_eq "$(cat "$T/home/tehas/state/cycles/7.timed")" "1
+-"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 T_ENV=("${env_ok[@]}")
 
@@ -1093,11 +1116,12 @@ container "$hold; $gone"
 t_run "$work 7"
 t_eq "$t_rc" 2
 t_contains "$t_out" "none of the cycle's logs changed for 2s, stopping it as stalled"
-t_contains "$t_out" "status=stalled"
+t_contains "$t_out" "status=stalled step=- cap=stall"
 t_lacks "$t_out" "time limit"
 t_lacks "$t_out" "was killed"
 t_contains "$(t_calls docker)" "stop -t 20 tehas-work-7"
-t_eq "$(cat "$T/home/tehas/state/cycles/7.stalled")" 2
+t_eq "$(cat "$T/home/tehas/state/cycles/7.stalled")" "2
+-"
 t_eq "$(jq -c '[.running, .status]' "$live/cycles/7.json")" '[false,"stalled"]'
 
 t_case "a stalled runner that writes its result as it is stopped is still stalled"
@@ -1205,7 +1229,7 @@ t_run "$work 7"
 t_eq "$t_rc" 0
 f=$T/home/tehas/state/cycles/7.settings
 t_eq "$(jq -r '.container | keys[]' "$f" | LC_ALL=C sort | tr '\n' ' ')" \
-  "PI_ENSEMBLE_CYCLE_DEADLINE PI_ENSEMBLE_HANDOFF_CHANNEL PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS PI_ENSEMBLE_MAX_WORKSTREAMS PI_ENSEMBLE_SANDBOX_MODE PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER PI_ENSEMBLE_VERIFY_CONCURRENCY PI_ENSEMBLE_VERIFY_TIMEOUT_MS PI_ENSEMBLE_WORKSPACE_ROOT "
+  "PI_ENSEMBLE_CYCLE_DEADLINE PI_ENSEMBLE_HANDOFF_CHANNEL PI_ENSEMBLE_HANDOFF_TIMEOUT_MS PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS PI_ENSEMBLE_MAX_WORKSTREAMS PI_ENSEMBLE_SANDBOX_MODE PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER PI_ENSEMBLE_VERIFY_CONCURRENCY PI_ENSEMBLE_VERIFY_TIMEOUT_MS PI_ENSEMBLE_WORKSPACE_ROOT "
 t_eq "$(jq -r '.container.PI_ENSEMBLE_SUBAGENT_MODEL' "$f")" test-model
 t_eq "$(jq -r '.container.PI_ENSEMBLE_WORKSPACE_ROOT' "$f")" "[withheld]"
 # This command holds the issue's lock, so it counts itself.
