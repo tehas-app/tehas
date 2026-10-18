@@ -181,6 +181,12 @@ Follow-ups:   NOT DONE (2 from an earlier run, see /home/boss/tehas/state/update
 Tests:        not run (./install.sh --check --tests runs them)
 ```
 
+The installed files are compared by content and by mode: a command that matches
+the checkout byte for byte but is mode 644 where the file list says 755 is not
+installed. `--check` says `mode: <path> is 644, wants 755` and exits 1; a real
+run sets the mode with `chmod` and copies the file again only when its content
+differs too.
+
 The `Follow-ups:` line appears only while `~/tehas/state/update-pending` still
 holds steps that were asked for and never ran. While it does, `--check`
 exits 1, because a host with files matching and a step unapplied is not current.
