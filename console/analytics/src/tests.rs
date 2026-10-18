@@ -681,7 +681,7 @@ fn programs_that_open_a_new_database_at_once_all_get_it() {
         })
         .collect();
     for o in openers {
-        assert!(!o.join().unwrap(), "a valid database was moved aside");
+        assert!(o.join().unwrap().is_none(), "a valid database was moved aside");
     }
     assert!(!home.join("state/analytics.db.broken").exists());
     let conn = Connection::open(&file).unwrap();
@@ -763,7 +763,6 @@ fn a_broken_file_is_moved_aside_and_a_new_database_made() {
     for (name, content) in [
         ("garbage", b"this is not a database at all, but it is long enough to be read as a header. ".repeat(20)),
         ("tables", Vec::new()),
-        ("version", Vec::new()),
     ] {
         let home = scratch(name);
         let file = db::path(&home);
@@ -771,10 +770,6 @@ fn a_broken_file_is_moved_aside_and_a_new_database_made() {
             "tables" => {
                 let c = Connection::open(&file).unwrap();
                 c.execute_batch("CREATE TABLE other (x)").unwrap();
-            }
-            "version" => {
-                let c = Connection::open(&file).unwrap();
-                c.execute_batch("CREATE TABLE runs (x); PRAGMA user_version = 99").unwrap();
             }
             _ => fs::write(&file, &content).unwrap(),
         }
@@ -786,6 +781,57 @@ fn a_broken_file_is_moved_aside_and_a_new_database_made() {
         assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), db::SCHEMA_VERSION, "{name}");
         assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 1, "{name}");
     }
+}
+
+#[test]
+fn a_database_of_another_schema_is_kept_aside_under_its_version() {
+    let home = scratch("foreign");
+    let file = db::path(&home);
+    {
+        let c = Connection::open(&file).unwrap();
+        c.execute_batch(
+            "PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0;
+             CREATE TABLE runs (x); INSERT INTO runs VALUES (42); PRAGMA user_version = 99",
+        )
+        .unwrap();
+        // The row is still in the -wal when the file is moved.
+        std::mem::forget(c);
+    }
+    execute(&home, &Cmd::Event(1, "ready".into()), 1_792_000_000).unwrap();
+    assert!(!home.join("state/analytics.db.broken").exists());
+    let kept = Connection::open(home.join("state/analytics.db.schema-99")).unwrap();
+    assert_eq!(one::<i64>(&kept, "PRAGMA user_version"), 99);
+    assert_eq!(one::<i64>(&kept, "SELECT x FROM runs"), 42);
+    let conn = Connection::open(&file).unwrap();
+    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), db::SCHEMA_VERSION);
+    assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 1);
+}
+
+#[test]
+fn prune_deletes_a_kept_schema_ten_days_after_its_last_write() {
+    let home = scratch("aside");
+    let state = home.join("state");
+    let now = 1_792_000_000;
+    let at = |secs: i64| std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs as u64);
+    for (name, written) in [
+        ("analytics.db.schema-7", now - 11 * 86_400),
+        ("analytics.db.schema-7-wal", now - 11 * 86_400),
+        ("analytics.db.schema-8", now - 9 * 86_400),
+        ("analytics.db.broken", now - 30 * 86_400),
+        ("other.schema-1", now - 30 * 86_400),
+    ] {
+        fs::create_dir_all(&state).unwrap();
+        let f = fs::File::create(state.join(name)).unwrap();
+        f.set_modified(at(written)).unwrap();
+    }
+    execute(&home, &Cmd::Prune, now).unwrap();
+    let mut left: Vec<String> = fs::read_dir(&state)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .filter(|n| !["analytics.db", "analytics.db-wal", "analytics.db-shm", "cycles"].contains(&n.as_str()))
+        .collect();
+    left.sort();
+    assert_eq!(left, ["analytics.db.broken", "analytics.db.schema-8", "other.schema-1"]);
 }
 
 #[test]
