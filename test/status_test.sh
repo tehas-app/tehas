@@ -386,6 +386,52 @@ t_contains "$t_out" "cycle     #12 running, step develop"
 t_contains "$t_out" "cycle     #14 running, step plan"
 t_eq "$(jq -c '[.checks.cycle.issue, (.checks.cycles | map(.issue))]' "$live/health.json")" "[12,[12,14]]"
 
+# A planning turn in flight: its record, and its lock held by this shell until
+# let_go, as the turn's unit holds it.
+turn_fd=""
+turn() { # <issue> <turns before> <started seconds ago>
+  local st=$T/home/tehas/state/plan-$1.json
+  mkdir -p "${st%/*}"
+  jq -n --argjson t "$2" --arg at "$(date -u -d "-$3 seconds" +%FT%TZ)" \
+    '{session: "abc", turns: $t, options: [], pending: false, failed: false, running: true, startedAt: $at}' >"$st"
+  exec {turn_fd}>>"$st.lock"
+  flock -n "$turn_fd"
+}
+let_go() { [ -z "$turn_fd" ] || exec {turn_fd}>&-; turn_fd=""; }
+
+t_case "summary: a planning turn in flight has its own line"
+reset
+turn 7 1 720
+t_run "$status && $summary"
+t_eq "$t_rc" 0
+t_contains "$t_out" "plan      #7 turn 2 running, started 12 min ago"
+t_eq "$(jq -c '.checks.plans | map([.issue, .turn])' "$live/health.json")" "[[7,2]]"
+t_run "$summary --json"
+t_eq "$(jq -c '.planning | map([.issue, .turn, (.since | type)])' <<<"$t_out")" '[[7,2,"string"]]'
+let_go
+
+t_case "summary: a turn whose lock is free, or that left its status, is not shown as running"
+reset
+turn 7 1 720
+let_go
+t_run "$status && $summary"
+t_lacks "$t_out" "plan      "
+t_run "$summary --json"
+t_eq "$(jq -c .planning <<<"$t_out")" "[]"
+turn 7 1 720
+echo 0 >"$T/home/tehas/state/plan-7.json.rc"
+t_run "$status && $summary"
+t_lacks "$t_out" "plan      "
+let_go
+jq '.running = false' "$T/home/tehas/state/plan-7.json" >"$T/home/tehas/state/plan-7.new" && mv "$T/home/tehas/state/plan-7.new" "$T/home/tehas/state/plan-7.json"
+rm -f "$T/home/tehas/state/plan-7.json.rc"
+turn_fd=""
+exec {turn_fd}>>"$T/home/tehas/state/plan-7.json.lock"
+flock -n "$turn_fd"
+t_run "$status && $summary"
+t_lacks "$t_out" "plan      "
+let_go
+
 t_case "summary: the last cycle failed and the cycle beside it started earlier: still failed"
 reset
 mkdir -p "$live"
@@ -674,6 +720,8 @@ shape='(.api == 1) and (.time | type) == "string" and (.age | type) == "number" 
   and (.allHands | type) == "boolean" and (.limit.state | type) == "string"
   and (.running | type) == "array"
   and (.running | all((.issue | type) == "number" and (.since | type) == "string"))
+  and (.planning | type) == "array"
+  and (.planning | all((.issue | type) == "number" and (.turn | type) == "number"))
   and (.demand | . == null or ((.waiting | type) == "number"))
   and (.hold | . == null or ((.why | type) == "string" and (.text | type) == "string"))
   and (.room | . == null or type == "object")'

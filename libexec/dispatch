@@ -1956,10 +1956,11 @@ fi
 # bot's question comment, or for a planning session a reply after it, and it
 # counts only from an allowed account.
 # A planning turn runs as its own unit, tehas-plan-<issue>.service, and the
-# poll does not wait for it. A running record is a turn still in flight, one
-# that ended and left its exit status, which is posted now, or one that was
-# cut off, for example by a restart of the host, which is reported as a failed
-# turn. While one turn is in flight no other starts.
+# poll does not wait for it. A running record is a turn still in flight (its
+# unit holds state/plan-<issue>.json.lock), one that ended and left its exit
+# status, which is posted now, or one that was cut off, for example by a
+# restart of the host, which is reported as a failed turn. While one turn is
+# in flight no other starts.
 fresh=" "
 plan_busy=""
 for st in "$TEHAS_HOME"/state/plan-*.json; do
