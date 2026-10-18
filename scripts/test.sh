@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
 # Run the checks of the tehas platform itself.
 #
-#   1. shellcheck over the shell scripts
+#   1. shellcheck over the shell scripts, at every severity: the call carries no
+#      -S floor and excludes no code, so an info note fails the run like any
+#      other note. Without shellcheck installed the step is a skipped line and
+#      the run passes on the test files alone.
 #   2. the shell tests in test/*_test.sh
+#
+# Where a single quote is the point of a line - an assertion that some text is
+# a literal - SC2016 is wrong about it. The manual states the policy for
+# suppressions: host/docs/tools.md, under scripts/test.sh.
 #
 # Both need bash, git, jq and shellcheck: no sandbox image, no product
 # checkout and no network. It belongs to a checkout of the platform and is not

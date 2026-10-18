@@ -358,7 +358,9 @@ cap means" say which check. Four kinds were seen:
   10-min timeout`. The product's gate failed on the change, or ran past its
   time. The gate's output follows in the comment. Often a real defect. If the
   failure is in code the cycle did not touch, see "The verify gate fails on
-  code the cycle did not touch" below.
+  code the cycle did not touch" below. When the failing line is a shellcheck
+  note, the severity the lint runs at and the one suppression it accepts are
+  under `scripts/test.sh` in [Tools](/tools).
 - The fix pass after the adversarial review did not clear: it changed
   nothing, or it removed lines it should not have.
 - `consolidated verify was refused  repoRoot is dirty (...)`. Not a gate
@@ -544,6 +546,10 @@ scripts/verify.sh --full
 ```
 
 Fix the default branch first; every cycle will fail the same way until then.
+
+When the gate stops on a shellcheck note, the severity floor the lint runs at
+and the one suppression it accepts (`SC2016`, for the line whose single quotes
+are the point) are under `scripts/test.sh` in [Tools](/tools).
 
 ## The improvement loop files nothing
 

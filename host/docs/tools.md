@@ -2014,6 +2014,10 @@ scripts/verify.sh          # fast: the lint, shellcheck, the shell tests, the co
 scripts/verify.sh --full   # plus the console's format and lints (rustfmt, clippy) and the front page's tests (node)
 ```
 
+When the shellcheck step refuses a file, the severity floor it runs at and the
+one suppression it accepts are under
+[`scripts/test.sh`](#scriptstestsh) below.
+
 ## tehas update
 
 Bring this host up to date with the platform repository in one command.
@@ -2266,6 +2270,27 @@ test.sh: failed checks (2), not run (0)
     shellcheck
     test/plan_test.sh
 ```
+
+Every severity of shellcheck note fails the run: error, warning, info and style.
+The lint is called with no `-S` floor and no codes excluded, so a style note on a
+shell script is as much a failed check as an error, and a platform checkout is
+kept clean at that level when shellcheck is installed: without it the lint is a
+`skipped:` line and the run still passes on the test files. The one accepted
+suppression is a note shellcheck gets wrong: on a line whose single quotes are
+the point, an assertion that some text is a literal, it says an expansion was
+meant (`SC2016 (info)`). Silence that one code, with the reason beside it, and
+nothing else:
+
+```bash
+# shellcheck disable=SC2016  # snippets are expanded by the shell under test
+```
+
+Write that line above the code it speaks for, or at the top of the file when
+the whole file is built from snippets, as the test files in this checkout do.
+Nothing else is accepted: not a directive that names no code, not a second
+directive beside that one, and no `-e` or `--exclude`, `--enable` or
+`--source-path` on the lint's call. Each of them silences notes a person has not
+read yet.
 
 Its first line counts the checks that failed and the checks that did not run.
 Each line after it names one of them: `shellcheck`, or the path of a failing
