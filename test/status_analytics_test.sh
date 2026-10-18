@@ -58,6 +58,18 @@ t_eq "$(find "$live" -name '*.new' | wc -l)" 0
 # Readable by the docs server, as status.json is.
 t_eq "$(stat -c %a "$file")" "$(stat -c %a "$live/status.json")"
 
+t_case "the report goes through names of this run: a cycle's end and a poll may run status at once"
+reset
+t_stub_analytics '[ "$1" != report ] || { readlink /proc/$$/fd/1 >"$T/report-to"; cat "$T/report.json"; }'
+mkdir -p "$live"
+echo partial >"$file.1.raw.new"
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$(jq -r 'keys | join(",")' "$file")" "$keys"
+to=$(cat "$T/report-to")
+[[ $to =~ ^$live/analytics\.json\.[0-9]+\.raw\.new$ ]] || t_bad "the report went to $to"
+t_eq "$(cat "$file.1.raw.new")" partial
+
 t_case "the report is asked for after the run's events, so it holds them"
 reset
 t_run "$status"
