@@ -242,10 +242,14 @@ done
 # The issue events of the factory's analytics, from what changed since the
 # snapshot before: newly awaiting a merge or stopped, now; newly completed,
 # merged at the time it was closed; closed and not completed, having been in
-# one of the lists before, closed at that time. A run with no snapshot before
-# it records only the merged and closed, which carry their own time. Nothing
-# older than ten days, which the program would prune. Three calls' time
-# limits at most, so a database that hangs delays the run only that long.
+# line, running or stopped before, closed at that time. One that was awaiting
+# a merge is not closed: the search for completed work lags, and its merged
+# comes when it catches up. A run with no snapshot before it records only the
+# merged and closed, which carry their own time. Nothing older than ten days,
+# which the program would prune. No call starts after three calls' time
+# limits, so a database that hangs delays the run by four at most (about 21
+# seconds). An event whose call fails or runs out of time is lost: the next
+# run compares with this snapshot and does not try it again.
 record_events() {
   local list n event at stop
   list=$(jq -r --argjson before "$before" --argjson issues "$issues" --arg control "$control" '
@@ -255,7 +259,7 @@ record_events() {
     def new($k; $s): ($s | nums($k)) - ($before | nums($k)) | .[] | "\(.) \($k)";
     . as $s
     | ($s | nums("completed")) as $done
-    | (if $before == null then [] else $before | nums("queued") + nums("running") + nums("awaiting") + nums("stopped") end) as $was
+    | (if $before == null then [] else $before | (nums("queued") + nums("running") + nums("stopped")) - nums("awaiting") end) as $was
     | (if $before == null then empty else new("awaiting"; $s), new("stopped"; $s) end),
       ($s.completed[] | . as $i
         | select($before == null or ($before | nums("completed") | any(. == $i.number) | not))
