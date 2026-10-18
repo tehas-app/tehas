@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# Take tehas's state labels off closed issues. A label that says a closed issue
+# awaits a merge, or waits for a cycle, is wrong on the issue page, in label
+# searches and on the dashboard's links. tehas dispatch runs this once a poll,
+# after the rest of the poll, and passes on --dry-run.
+#
+# Usage:
+#   tidy               remove the state labels from closed issues
+#   tidy --dry-run     say what it would remove, change nothing
+#   tidy -h|--help     print this text and exit 0
+#
+# Exit: 0 nothing was left to remove, or all of it came off; 1 the search
+# failed, timed out or could not be read, or a label change failed (each is
+# logged, and the issues after it are still tidied); 64 an argument this
+# command does not know; 78 instance settings are missing or malformed.
+#
+# The state labels are those that say work is in progress or waiting:
+# tehas:running, tehas:awaiting-merge, tehas:question, tehas:planning,
+# tehas:refreshing, tehas:blocked, tehas:ready and tehas:plan. Not
+# tehas:shipped, which is the record of a merge, not the labels a person
+# chooses (tehas:urgent, tehas:next, tehas:prototype and the like), and not
+# needs-human-attention, which nothing in tehas removes. A new state label is
+# added to the list on purpose, and test/tidy_test.sh pins it.
+#
+# One search a poll: the closed issues that carry a state label, up to 100,
+# the most recently updated first; the rest come on later polls. The search may
+# take TEHAS_TIDY_WAIT seconds [60, from the environment], and each label
+# change as long. A closed issue whose cycle still holds its lock on this host
+# waits for that cycle.
+# Each removal is logged as "tidy #N: removed <labels>".
+#
+# Instance settings (lib/config.sh): TEHAS_REPO, required.
+set -uo pipefail
+
+show_usage() {
+  sed -n '2,/^[^#]/p' "$0" | sed -n '/^#/s/^# \{0,1\}//p'
+}
+unknown_argument() {
+  printf 'tehas tidy: unknown argument: %s\n' "$1" >&2
+  show_usage >&2
+  exit 64
+}
+
+dry=0
+if [ "$#" -gt 0 ]; then
+  case "$1" in
+    -h | --help)
+      [ "$#" = 1 ] || unknown_argument "$2"
+      show_usage
+      exit 0
+      ;;
+    --dry-run) dry=1 ;;
+    *) unknown_argument "$1" ;;
+  esac
+fi
+[ "$#" -le 1 ] || unknown_argument "$2"
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/config.sh
+. "$here/../lib/config.sh"
+# shellcheck source=lib/cycles.sh
+. "$here/../lib/cycles.sh"
+tehas_load || exit 78
+tehas_require TEHAS_REPO
+repo=$TEHAS_REPO
+wait=${TEHAS_TIDY_WAIT:-60}
+[[ $wait =~ ^[1-9][0-9]{0,4}$ ]] || { tehas_err "TEHAS_TIDY_WAIT is not a number of seconds: $wait"; exit 78; }
+
+states=(tehas:running tehas:awaiting-merge tehas:question tehas:planning tehas:refreshing tehas:blocked tehas:ready tehas:plan)
+
+log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*"; }
+
+# GitHub's search reads labels joined by commas as any of them.
+query="label:$(printf '"%s",' "${states[@]}")"
+query=${query%,}
+# An empty answer is a failure too, not a list of no issues: jq -e fails on it.
+search_failed() { log "WARN: tidy: the search for closed issues with state labels failed"; exit 1; }
+found=$(timeout "$wait" gh issue list --repo "$repo" --state closed --search "$query" \
+  --limit 100 --json number,state,labels 2>/dev/null) || search_failed
+# The state is checked again: an open issue is never touched.
+todo=$(jq -er --args '
+  ($ARGS.positional) as $states
+  | if type != "array" then error("not a list") else . end
+  | ([.[] | select(.state == "CLOSED")
+    | [(.labels // [])[].name] as $have
+    | [$states[] | select(. as $s | any($have[]; . == $s))] as $off
+    | select($off | length > 0)
+    | "\(.number) \($off | join(" "))"] | join("\n"))' "${states[@]}" <<<"$found" 2>/dev/null) || search_failed
+
+rc=0
+while read -r n off; do
+  [[ $n =~ ^[0-9]+$ ]] || continue
+  ! tehas_cycle_running "$n" || continue
+  if [ "$dry" = 1 ]; then
+    log "tidy #$n: would remove $off"
+    continue
+  fi
+  args=()
+  for l in $off; do args+=(--remove-label "$l"); done
+  if timeout "$wait" gh issue edit "$n" --repo "$repo" "${args[@]}" >/dev/null 2>&1; then
+    log "tidy #$n: removed $off"
+  else
+    log "WARN: tidy #$n: could not remove $off"
+    rc=1
+  fi
+done <<<"$todo"
+exit "$rc"
