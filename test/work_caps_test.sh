@@ -80,7 +80,7 @@ t_case "the switches of pi-rukas's own docker wrapper are not given to the conta
 t_lacks "$(after -e)" "PI_ENSEMBLE_NO_DOCKER_SOCKET"
 t_lacks "$(after -e)" "PI_ENSEMBLE_NO_SSH"
 
-for change in '.contracts.exitCodes.version = 2' '.contracts.resultSchema.version = 4' \
+for change in '.contracts.exitCodes.version = 2' '.contracts.resultSchema.version = 3' \
   '.contracts.ndjson.stable.version = 2' 'del(.contracts)'; do
   t_case "an image of other contract versions stops the cycle: $change"
   caps_fresh
