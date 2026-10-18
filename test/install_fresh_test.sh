@@ -7,6 +7,12 @@
 # shellcheck source=test/install_lib.sh
 . "$(dirname "$0")/install_lib.sh" || exit 1
 
+t_case "--check on a home not made yet makes nothing, the marker neither"
+fresh
+instance
+t_run "$install --check"
+t_eq "$([ -e "$th" ] && echo made)" ""
+
 t_case "a fresh install: exactly these files"
 fresh
 instance
@@ -34,6 +40,8 @@ t_lacks "$t_out" "tehas-previews"
 t_eq "$([ -d "$th/preview" ] && echo there)" "there"
 # A host gets its tools from bootstrap.sh before its first install.
 t_lacks "$t_out" "bootstrap.sh user"
+# The run that makes the home leaves the mark that says it is tehas's.
+t_eq "$([ -f "$th/$install_marker" ] && echo there)" "there"
 
 t_case "another update holding the lock stops a real run before it installs anything"
 fresh

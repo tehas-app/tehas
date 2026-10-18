@@ -136,7 +136,14 @@ files="./.config/systemd/user/tehas-cycle@.service
 # exact comparison and check them separately. So is state/, which is what the host
 # keeps for itself - the record of follow-ups owed among it - not a file install.sh
 # puts.
-core_files() { installed_files | grep -v -e '^./tehas/docs/' -e '^./tehas/fun/' -e '^./tehas/state/'; }
+# The marker that says the home is tehas's: the host's own, like state/, so it
+# is left out of the exact comparison and checked by its own cases. Nothing
+# removes it, so a host installed before the marker keeps it once a run gave it
+# one.
+install_marker=.tehas-home
+core_files() {
+  installed_files | grep -v -e '^./tehas/docs/' -e '^./tehas/fun/' -e '^./tehas/state/' -e "^./tehas/$install_marker"
+}
 sorted() { printf '%s\n' "$@" | LC_ALL=C sort; }
 # Every file under the scratch home but the update lock, which a real run takes
 # before it builds or copies anything.
