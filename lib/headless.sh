@@ -36,19 +36,21 @@
 #       dispatch-completed lines, each counted once by its key, and for the
 #       reason lines the runner marks unstable.
 #   tehas_headless_outcome <result> <issue>
-#       the issue's entry of a schema 3 result as one JSON object, its text
+#       the issue's entry of a schema 4 result as one JSON object, its text
 #       fields reduced to plain characters, its exitCode null unless a number.
 #       handoffBody is the handoff's markdown as the runner rendered it, cut
 #       at 30000 characters and not cleaned: it is for a comment, through
 #       q_clean. Returns 1 when there is none.
 #   tehas_headless_error_only <result>
-#       whether <result> is a schema 3 result with no issue entry at all, as a
+#       whether <result> is a schema 4 result with no issue entry at all, as a
 #       refusal that carries only an error may be.
 
 # The contract versions this file and the console read. Lower case: tehas_load
-# unsets every TEHAS_* name.
+# unsets every TEHAS_* name. Result schema 4 renamed pi-rukas's review-loop cap
+# wall-clock to lens-review-timeout, so wall-clock is tehas's own: its time
+# limit. A schema 3 result could mean either.
 tehas_headless_exit_codes=1
-tehas_headless_result=3
+tehas_headless_result=4
 tehas_headless_ndjson_stable=1
 
 tehas_headless_unsupported() { # <caps> <flags> <names> [features]
