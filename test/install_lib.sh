@@ -100,6 +100,8 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/lib/slice.sh
 ./tehas/lib/unzip.sh
 ./tehas/lib/update-steps.sh
+./tehas/libexec/analytics
+./tehas/libexec/analytics.stamp
 ./tehas/libexec/api
 ./tehas/libexec/console
 ./tehas/libexec/console.stamp

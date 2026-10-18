@@ -329,19 +329,27 @@ One file is written, not copied: `version.txt`, beside the pages in
 the commit it was at when `install.sh` last ran, as `v0.1.1+11b669d`, and the
 footer of every page shows it. `--check` does not look at it.
 
-One installed file is compiled, not copied: the console of a running cycle, a
-Rust program in `console/`. A real run builds it with `cargo` in the checkout
-and installs it as `~/tehas/libexec/console`. Beside it, `console.stamp`
-holds two checksums: of the source it was built from and of the program. It
-is built again only when the source has changed or the program on the host is
-not the one that was installed. The first build fetches its crates from the
-network and takes a minute. `--check` compares the checksums and builds
-nothing, so a console replaced on the host shows up as drift like any other
-file. A console that does not build stops the install before it has changed
-anything, and so does a host without `cargo`. The build is given no
-environment variable whose name holds TOKEN, SECRET, PASSWORD or API_KEY. The Deno
-script it replaces, `~/tehas/libexec/console.ts`, is removed the way the old
-commands below are.
+Two installed files are compiled, not copied: the console of a running cycle
+and the analytics program, Rust programs in the Cargo workspace `console/`
+(analytics is in `console/analytics/`). A real run builds each with `cargo`
+in the checkout and installs them as `~/tehas/libexec/console` and
+`~/tehas/libexec/analytics`. Beside each, `<name>.stamp` holds two checksums:
+of the source it was built from and of the program. A program is built again
+only when its source has changed or the program on the host is not the one
+that was installed. The console's source is `console/` without its tests and
+without `console/analytics/`, so a change to analytics alone builds analytics
+alone. The analytics source is `console/analytics/` without its tests, the
+workspace's `Cargo.toml` and `Cargo.lock`, and the console's mask
+(`console/src/mask.rs`), which it shares. The first build fetches the crates
+from the network and takes a minute or two: analytics compiles SQLite. `--check`
+compares the checksums and builds nothing, so a program replaced on the host
+shows up as drift like any other file. Every program that is due is built
+before any is installed, so one that does not build stops the install before
+it has changed anything, and so does a host without `cargo`. The build is
+given no environment variable whose name holds TOKEN, SECRET, PASSWORD or
+API_KEY. Nothing calls `~/tehas/libexec/analytics` yet. The Deno
+script the console replaced, `~/tehas/libexec/console.ts`, is removed the way
+the old commands below are.
 
 Before there was a `tehas` command, `~/tehas/bin` held one file for each
 command (`tehas-dispatch`, `tehas-work` and so on). `install.sh` removes those
