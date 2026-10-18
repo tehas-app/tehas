@@ -2276,3 +2276,13 @@ fn the_text_report_of_an_empty_database_says_none() {
     }
     assert!(!text.contains("Energy"));
 }
+
+#[test]
+fn an_export_to_a_path_that_is_not_utf8_leaves_no_file() {
+    use std::os::unix::ffi::OsStrExt;
+    let home = scratch("export-utf8");
+    let out = home.join(std::ffi::OsStr::from_bytes(b"copy-\xff.db"));
+    let err = execute(&home, &Cmd::Export(out.clone(), false), 1_792_022_400).unwrap_err();
+    assert_eq!(err.0, 73, "{err:?}");
+    assert!(!out.exists());
+}

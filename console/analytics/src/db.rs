@@ -237,6 +237,8 @@ pub fn prune(conn: &Connection, now: i64) -> rusqlite::Result<()> {
 
 /// Writes a consistent copy to `to`, mode 0600. `to` must not exist.
 pub fn export(conn: &Connection, to: &Path) -> Result<(), String> {
+    // Before the file is made: a path SQLite cannot be given leaves none.
+    let name = to.to_str().ok_or("the export path is not UTF-8")?;
     // SQLite's VACUUM INTO takes an empty file, so it is made here first, with
     // its mode, and never replaces anything.
     OpenOptions::new()
@@ -245,7 +247,6 @@ pub fn export(conn: &Connection, to: &Path) -> Result<(), String> {
         .mode(0o600)
         .open(to)
         .map_err(|e| format!("cannot create {}: {e}", to.display()))?;
-    let name = to.to_str().ok_or("the export path is not UTF-8")?;
     conn.execute("VACUUM INTO ?1", [name]).map_err(|e| {
         let _ = fs::remove_file(to);
         format!("the export failed: {e}")
