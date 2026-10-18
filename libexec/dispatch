@@ -61,7 +61,12 @@
 #      no limit or cannot be read starts nothing. A poll that starts fewer
 #      cycles than there are free slots and waiting issues names the one
 #      reason: the awaiting-merge limit, the slice's room, its memory
-#      pressure or no resources.
+#      pressure or no resources. With TEHAS_BRANCH_CHECK set, no cycle starts
+#      while that check failed on the head commit of the branch work lands
+#      on: every cycle would find the gate red on its base. One call to
+#      GitHub a poll asks for it. A check that is pending, missing or cannot
+#      be read holds nothing, and the log says so when that changes.
+#      Running cycles go on, and planning turns are not held.
 #   4. A box ticked by an allowed account in the bot's question comment is an
 #      answer: on a parked cycle, "Retry from a clean start" starts a fresh
 #      cycle. Rules 2 and 3 hold that back too. The tick counts only on a
@@ -171,6 +176,8 @@
 #   TEHAS_FIXER_MAX_PLAN_ANSWERS
 #                             the fixer's answers in one planning session [3]
 #   TEHAS_REFRESH_CONFLICTS   1 lets refresh requests start cycles [0]
+#   TEHAS_BRANCH_CHECK        the check whose failure on the branch's head
+#                             commit holds new cycles back, none when unset
 #   TEHAS_REFRESH_MAX         refreshes of one pull request since the
 #                             person's approval [2]
 # From the environment, for tests: TEHAS_STATUS_CMD, TEHAS_INDEX_CMD,
@@ -180,8 +187,9 @@
 # systemd-run, called with the index run's command line), TEHAS_CYCLE_START_CMD and
 # TEHAS_CYCLE_STOP_CMD (in place of systemctl, called with the issue), TEHAS_CYCLE_START_WAIT (seconds to wait for a started cycle
 # [30]), TEHAS_CYCLE_DONE_WAIT (seconds the stop of a finished cycle may take
-# [330]), TEHAS_CGROUP_ROOT (in place of /sys/fs/cgroup) and TEHAS_FETCH_WAIT
-# (seconds the fetch of the checkout may take [120]).
+# [330]), TEHAS_CGROUP_ROOT (in place of /sys/fs/cgroup), TEHAS_FETCH_WAIT
+# (seconds the fetch of the checkout may take [120]) and TEHAS_CHECK_WAIT
+# (seconds the read of TEHAS_BRANCH_CHECK may take [30]).
 #
 # Before a start changes any label, the poll writes what it rests on to
 # $TEHAS_HOME/state/cycles/<issue>.approved.json: {at, by, how, body_sha256,
@@ -479,6 +487,54 @@ slice_hold=""
 mem_why=""
 mem_note=""
 slice_ok() { [ -z "$slice_hold" ] && [ "$mem_why" != unreadable ]; }
+
+# branch_check: is the branch red? Asks GitHub once for the latest runs of
+# TEHAS_BRANCH_CHECK on the branch's head commit. A run that failed, timed out
+# or could not start sets $red_hold. Anything else holds nothing: a check that
+# has not finished, is not there or cannot be read must not stop the factory,
+# so the poll starts cycles and says why it could not tell (branch_note).
+red_hold=""
+branch_check() {
+  local name=$TEHAS_BRANCH_CHECK answer state
+  red_hold=""
+  [ -n "$name" ] || return 0
+  if answer=$(timeout -k 5 "${TEHAS_CHECK_WAIT:-30}" gh api \
+    "repos/$repo/commits/$branch/check-runs?check_name=$(jq -rn --arg n "$name" '$n | @uri')&filter=latest" 2>/dev/null 8>&-); then
+    state=$(jq -r '.check_runs | if type == "array" then . else error end
+      | if length == 0 then "none"
+        elif all(.[]; .head_sha | type == "string" and test("^[0-9a-f]{40}$")) | not then error
+        else .[0].head_sha[0:12] as $sha
+          | if any(.[]; .status == "completed" and (.conclusion | IN("failure", "timed_out", "startup_failure"))) then "red \($sha)"
+            elif all(.[]; .status == "completed") then "done \($sha)"
+            else "pending \($sha)" end end' <<<"$answer" 2>/dev/null) || state=""
+  else
+    state=""
+  fi
+  case "$state" in
+    red\ *)
+      red_hold="holding: $branch is red at ${state#red }"
+      branch_note ""
+      ;;
+    done\ *) branch_note "" ;;
+    pending\ *) branch_note "the check $name on $branch at ${state#pending } has not finished: cycles start" ;;
+    none) branch_note "$branch has no check named $name on its head commit: cycles start" ;;
+    *) branch_note "the check $name on $branch could not be read: cycles start" ;;
+  esac
+}
+# branch_note <text>: log it when it is not what the last poll said, kept in
+# state/branch-check. Empty says nothing and forgets it. A dry run says it
+# every time and keeps nothing.
+branch_note() {
+  local file=$TEHAS_HOME/state/branch-check last
+  if [ "$dry" = 1 ]; then
+    [ -z "$1" ] || log "$1"
+    return 0
+  fi
+  last=$(head -c 1000 "$file" 2>/dev/null) || last=""
+  [ "$last" != "$1" ] || return 0
+  [ -z "$1" ] || log "$1"
+  printf '%s\n' "$1" >"$file" 2>/dev/null || log "WARN: could not write $file"
+}
 
 # gib <bytes>: the size for a person, to a tenth of a GiB, rounded down.
 gib() { printf '%d.%d GiB' $(($1 / 1073741824)) $(($1 % 1073741824 * 10 / 1073741824)); }
@@ -1847,8 +1903,8 @@ count_waiting() {
 # not have. A running cycle is a pull request on its way, so it counts:
 # otherwise the slots could overshoot the cap. Rules 2 and 3 hold back new
 # cycles only; a question is still read while they hold. $hold says why and
-# $why is the one word for it: slice, unreadable, resources, count,
-# awaiting, pressure, room or full, the first that applies. resources is a model
+# $why is the one word for it: slice, unreadable, resources, limit, red,
+# count, awaiting, pressure, room or full, the first that applies. resources is a model
 # endpoint that does not answer or does not offer the model: it holds
 # planning turns and retries as well.
 #
@@ -1902,6 +1958,10 @@ elif [ "$limit_state" = unreadable ]; then
 elif [ -n "$limit_room" ] && [ "$limit_room" -le 0 ]; then
   why=limit
   hold="holding: the limit allows $(limit_cycles) at once and $count $([ "$count" = 1 ] && echo is || echo are) running${limit_reason:+: $limit_reason}"
+elif branch_check && [ -n "$red_hold" ]; then
+  # Before the count, so tehas status says it while the slots are full.
+  why=red
+  hold=$red_hold
 elif [ "$free" -le 0 ]; then
   why=count
   hold="holding: $count cycles are running (limit $TEHAS_TICKET_CONCURRENCY)"
