@@ -2,8 +2,10 @@
 # Tests for libexec/dispatch: refreshes of pull requests that conflict, and the
 # tehas:refreshing mark.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/dispatch_lib.sh
-. "$(dirname "$0")/dispatch_lib.sh"
+. "$(dirname "$0")/dispatch_lib.sh" || exit 1
 
 # --- Refreshes (rule 4b) -------------------------------------------------------
 # Issue 7 waits for a merge of pull request 50, which conflicts with main. Its

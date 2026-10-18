@@ -2,8 +2,10 @@
 # Tests for tehas top: the snapshot --json gives, and the host section and the
 # reading it is computed from.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/top_lib.sh
-. "$(dirname "$0")/top_lib.sh"
+. "$(dirname "$0")/top_lib.sh" || exit 1
 
 t_case "--json gives one object: generatedAt and one key per section"
 reset

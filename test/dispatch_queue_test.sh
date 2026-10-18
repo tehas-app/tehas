@@ -2,8 +2,10 @@
 # Tests for libexec/dispatch: tehas:next and tehas:blocked, the demand
 # written for tehas status, and live/dispatch.json.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/dispatch_lib.sh
-. "$(dirname "$0")/dispatch_lib.sh"
+. "$(dirname "$0")/dispatch_lib.sh" || exit 1
 
 # --- Ordering the queue: tehas:next and tehas:blocked -----------------------
 # bnote <id 10-59> <author> <body> [<editor>]: one comment, written at second <id>.

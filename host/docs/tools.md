@@ -86,7 +86,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_VERIFY_TIMEOUT`          | `1800`                                   | Seconds one run of the product's gate may take inside a cycle. A gate that takes longer is stopped and the cycle parks with the cap `verify-timeout:<step>`. Passed to pi-rukas as `PI_ENSEMBLE_VERIFY_TIMEOUT_MS` and `PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS`; pi-rukas alone allows ten minutes. The bound is for one run under the container's CPU quota: a run that waits for another to end does not count its wait. With a `.pi/verify-cmd-fast`, the fast and the full command share it. The cycle's deadline leaves at least this much and 8 minutes before `TEHAS_WORK_TIMEOUT` |
 | `TEHAS_RUKAS_WORKAROUNDS`       | empty                                    | Optional. The settings of this instance that only work around a pi-rukas defect, as `NAME@VERSION` separated by single spaces, `VERSION` being the pi-rukas release that fixes it. `tehas work` stops a cycle with 78 once the image's pi-rukas is that release or later, naming the setting: remove it and its entry. An entry for a setting the instance does not set stops every command with 78. Write the pi-rukas issue in a comment beside the setting |
 | `TEHAS_PLAN_MAX_TURNS`          | `20`                                     | Turns a planning session may take before it is ended            |
-| `TEHAS_PLAN_TIMEOUT`            | `3600`                                   | Seconds before one planning turn is given up. At most 7200 |
+| `TEHAS_PLAN_TIMEOUT`            | `7200`                                   | Seconds before one planning turn is given up. At most 7200, 2 hours: the unit of a turn runs to that limit plus a quarter of an hour (see [the host manual](/host#time-limits)) |
 | `PI_ENSEMBLE_HOST_ALIASES`      | empty                                    | `name:address` pairs the sandbox must resolve, comma separated  |
 | `PI_ENSEMBLE_REVIEW_THRESHOLD`  | unset                                    | Optional. The code-review severity that blocks a change in a cycle: `CRITICAL`, `HIGH`, `MEDIUM` or `LOW`. Read by pi-rukas, not by tehas, and it wins over the severity the product's doctrine (`AGENTS.md` or `CLAUDE.md`) states. Unset, or anything other than those four words: pi-rukas ignores it and uses the severity that doctrine states, and MEDIUM when it states none. tehas does not check this value and does not stop with 78 over it. A `CRITICAL` finding blocks whatever this says |
 | `PI_ENSEMBLE_IMAGE`             | `tehas/pi-rukas:uid<uid>`                | The sandbox image                                               |
@@ -199,7 +199,10 @@ GitHub the same question twice.
 What holds cycles back is one `holding:` line: at every dry run, and in the
 log once when its reason changes, with `released: cycles may start again`
 when it ends. A real poll also writes it to `~/tehas/live/dispatch.json` with
-the slice's numbers, for [tehas status](#tehas-status). Every real poll that
+the slice's numbers, for [tehas status](#tehas-status), and, once the model
+endpoint has been settled, the subagent provider's endpoint as one word
+(`"endpoint": "main"` or `"backup"`), which is what
+[`tehasbot energy`](#tehasbot-energy) asks. Every real poll that
 gets past the settings and the bot's login, a paused one too, writes
 `~/tehas/live/demand.json`: how many issues would start if there were room,
 and when the oldest of them was accepted, refresh requests included, with
@@ -1446,7 +1449,10 @@ are also given, with cycles starting, when the awaiting-merge limit or the
 slice's room let fewer start than there are free slots and issues waiting;
 `hold` then starts `holding: <n> of <free> free slots start:`. `full` is a slice that holds as
 many containers as their ceilings fit. `room` is how many more reserves fit in the slice;
-`committed` and `max` are bytes. With `slice` or `unreadable` the status is
+`committed` and `max` are bytes. The file also holds `endpoint` once the poll
+has settled the model endpoint: `main` or `backup`, which endpoint of the
+subagent provider the cycles are on. It is not in the health file, and names
+no address. With `slice` or `unreadable` the status is
 `warn` and `output` is the hold. With `resources` the status is `warn` and
 `output` starts with `No resources:`. It is `null` when the file is more than ten
 minutes old. `tehasbot health` calls neither `systemctl` nor `docker`.
@@ -1485,10 +1491,14 @@ mesh, which it recognises by the answer.
 | Nothing, a timeout, a server error or a busy answer (408, 429) | Left as it is; the page calls it stale |
 | Anything else                          | Removed, and the section with it           |
 
-The mesh is the one the factory's model provider points at: its main
-endpoint, or its backup when the main one is not a mesh, each asked with its
-token. The file is removed only when neither is a mesh and neither was just
-down or busy. Set `TEHAS_ENERGY_URL` in `~/.config/tehas/env` to ask another
+The mesh is the endpoint the factory's cycles are on. The dispatcher settles
+that endpoint every poll and writes `"endpoint": "main"` or `"endpoint":
+"backup"` in `~/tehas/live/dispatch.json`; the sampler asks only that one,
+with its token. With no such word in the file, because the dispatcher has not
+settled one yet, it asks the main endpoint and then the backup, each with its
+token, and samples the first that answers. The file is removed only when the
+endpoint it asks is not a mesh and was not just down or busy. Set
+`TEHAS_ENERGY_URL` in `~/.config/tehas/env` to ask another
 cluster URL, which is asked with no token, and
 `TEHAS_ENERGY=off` to remove the file. The file is readable by anyone who can
 open the dashboard and names the machines, their draw and their models. It
@@ -2014,6 +2024,10 @@ scripts/verify.sh          # fast: the lint, shellcheck, the shell tests, the co
 scripts/verify.sh --full   # plus the console's format and lints (rustfmt, clippy) and the front page's tests (node)
 ```
 
+When the shellcheck step refuses a file, the severity floor it runs at and the
+one suppression it accepts are under
+[`scripts/test.sh`](#scriptstestsh) below.
+
 ## tehas update
 
 Bring this host up to date with the platform repository in one command.
@@ -2266,6 +2280,27 @@ test.sh: failed checks (2), not run (0)
     shellcheck
     test/plan_test.sh
 ```
+
+Every severity of shellcheck note fails the run: error, warning, info and style.
+The lint is called with no `-S` floor and no codes excluded, so a style note on a
+shell script is as much a failed check as an error, and a platform checkout is
+kept clean at that level when shellcheck is installed: without it the lint is a
+`skipped:` line and the run still passes on the test files. The one accepted
+suppression is a note shellcheck gets wrong: on a line whose single quotes are
+the point, an assertion that some text is a literal, it says an expansion was
+meant (`SC2016 (info)`). Silence that one code, with the reason beside it, and
+nothing else:
+
+```bash
+# shellcheck disable=SC2016  # snippets are expanded by the shell under test
+```
+
+Write that line above the code it speaks for, or at the top of the file when
+the whole file is built from snippets, as the test files in this checkout do.
+Nothing else is accepted: not a directive that names no code, not a second
+directive beside that one, and no `-e` or `--exclude`, `--enable` or
+`--source-path` on the lint's call. Each of them silences notes a person has not
+read yet.
 
 Its first line counts the checks that failed and the checks that did not run.
 Each line after it names one of them: `shellcheck`, or the path of a failing

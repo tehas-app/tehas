@@ -2,8 +2,10 @@
 # Tests for install.sh: the previews' network made where there is none, and
 # not asked for of a Docker older than 27.1 or one whose version cannot be read.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/install_lib.sh
-. "$(dirname "$0")/install_lib.sh"
+. "$(dirname "$0")/install_lib.sh" || exit 1
 
 t_case "a host without the previews' network gets it, internal and with no address for the host"
 fresh

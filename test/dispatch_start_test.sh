@@ -2,8 +2,10 @@
 # Tests for libexec/dispatch: starting a cycle, the poll's own lock, issues
 # marked as running with no cycle, left containers and start markers.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/dispatch_lib.sh
-. "$(dirname "$0")/dispatch_lib.sh"
+. "$(dirname "$0")/dispatch_lib.sh" || exit 1
 
 t_case "the cycle is started for the issue and told the labeller in a comment"
 reset

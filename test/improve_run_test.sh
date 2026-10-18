@@ -2,8 +2,10 @@
 # Tests for libexec/improve: a run, what holds or refuses it, and the findings
 # file the analyst leaves.
 # shellcheck disable=SC2016  # stub bodies and snippets are expanded when they run
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/improve_lib.sh
-. "$(dirname "$0")/improve_lib.sh"
+. "$(dirname "$0")/improve_lib.sh" || exit 1
 
 t_case "with the loop off the command says so and calls nothing"
 reset

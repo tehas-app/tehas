@@ -2,8 +2,10 @@
 # Tests for install.sh: a stale copy of the command root installed for
 # the other accounts is reported and left alone.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/install_lib.sh
-. "$(dirname "$0")/install_lib.sh"
+. "$(dirname "$0")/install_lib.sh" || exit 1
 
 # --- the command root installed for the accounts that are not the tehas user ---
 # bootstrap.sh dev copies host/login/tehas to /usr/local/bin/tehas and leaves

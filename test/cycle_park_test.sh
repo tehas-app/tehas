@@ -2,8 +2,10 @@
 # Tests for libexec/cycle: a park by a provider outage or a failure, the marker
 # of a park, the park question, and what is reduced before it is posted.
 # shellcheck disable=SC2016  # snippets and stub bodies are expanded later
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/cycle_lib.sh
-. "$(dirname "$0")/cycle_lib.sh"
+. "$(dirname "$0")/cycle_lib.sh" || exit 1
 
 # --- A cap that a provider outage gives ---------------------------------------
 # The state file as pi-rukas leaves it when a step failed for good: the failed

@@ -2,8 +2,10 @@
 # Tests for libexec/dispatch: the checkout and the code index, edits after the
 # label, pull requests that close the issue, and the branch.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/dispatch_lib.sh
-. "$(dirname "$0")/dispatch_lib.sh"
+. "$(dirname "$0")/dispatch_lib.sh" || exit 1
 
 t_case "a real poll puts the checkout on main and fast-forwards it"
 reset

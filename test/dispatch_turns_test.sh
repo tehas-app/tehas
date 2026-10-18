@@ -2,8 +2,10 @@
 # Tests for libexec/dispatch: labels on parked and planning issues, planning
 # turns run as units, and a bot account in the allowed list.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/dispatch_lib.sh
-. "$(dirname "$0")/dispatch_lib.sh"
+. "$(dirname "$0")/dispatch_lib.sh" || exit 1
 
 t_case "a parked issue retried by its labels starts a cycle, and its old question goes"
 parked

@@ -2,8 +2,10 @@
 # Tests for libexec/cycle: the runner's output, a handoff with or without a
 # pull request, the park comment and the usage posted.
 # shellcheck disable=SC2016  # snippets and stub bodies are expanded later
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/cycle_lib.sh
-. "$(dirname "$0")/cycle_lib.sh"
+. "$(dirname "$0")/cycle_lib.sh" || exit 1
 
 t_case "the runner's output is in the issue's log"
 reset

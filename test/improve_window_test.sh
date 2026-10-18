@@ -2,8 +2,10 @@
 # Tests for libexec/improve: the body and the log of an issue, the window of
 # records, how many a run takes, its container, the sweep and the lock.
 # shellcheck disable=SC2016  # stub bodies and snippets are expanded when they run
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/improve_lib.sh
-. "$(dirname "$0")/improve_lib.sh"
+. "$(dirname "$0")/improve_lib.sh" || exit 1
 
 t_case "a mention does not reach the body and a comment reaches it as text"
 ready

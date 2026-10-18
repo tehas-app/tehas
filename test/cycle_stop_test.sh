@@ -2,8 +2,10 @@
 # Tests for libexec/cycle: a stop or a hangup while it runs, and the calls to
 # GitHub it makes again when they are refused.
 # shellcheck disable=SC2016  # snippets and stub bodies are expanded later
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/cycle_lib.sh
-. "$(dirname "$0")/cycle_lib.sh"
+. "$(dirname "$0")/cycle_lib.sh" || exit 1
 
 t_case "a stop is passed on to the runner, and the cycle is still reported"
 reset

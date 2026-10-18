@@ -5,7 +5,7 @@
 # platform guard. No download and no install happens here.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 bootstrap="$T_ROOT/bootstrap.sh"
 # shellcheck source=host/versions.env

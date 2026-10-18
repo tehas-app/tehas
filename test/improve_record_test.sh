@@ -2,8 +2,10 @@
 # Tests for the improvement loop: the record a cycle leaves (lib/improve.sh),
 # what a cycle ran with, and how a whole log is packed.
 # shellcheck disable=SC2016  # stub bodies and snippets are expanded when they run
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/improve_lib.sh
-. "$(dirname "$0")/improve_lib.sh"
+. "$(dirname "$0")/improve_lib.sh" || exit 1
 
 # lib <snippet>: run it with the settings and the loop's library loaded.
 lib() { t_run '. "$T_ROOT/lib/config.sh"; . "$T_ROOT/lib/improve.sh"; tehas_load || exit 78; '"$1"; }

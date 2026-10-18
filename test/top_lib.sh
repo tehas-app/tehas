@@ -6,8 +6,7 @@
 # Everything runs against files written here under $TEHAS_HOME/live/ and a
 # tree of host numbers written here, with systemctl stubbed. Nothing here calls
 # GitHub, a model or Docker, and no case reads the machine that runs it.
-# shellcheck source=test/lib.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# The part has sourced test/lib.sh before this.
 
 top=$T_ROOT/libexec/top
 publish=$T_ROOT/libexec/top-publish

@@ -2,8 +2,10 @@
 # Tests for install.sh: the slice, drift reported and repaired, a changed
 # versions.env, and the console built once and again.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/install_lib.sh
-. "$(dirname "$0")/install_lib.sh"
+. "$(dirname "$0")/install_lib.sh" || exit 1
 
 # The cases below start from a host that is installed and owes nothing.
 fresh

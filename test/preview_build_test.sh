@@ -2,8 +2,10 @@
 # Tests for libexec/preview: settings, the first build and run, a new
 # commit, a failed build, the volumes a recipe declares, and no recipe.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/preview_lib.sh
-. "$(dirname "$0")/preview_lib.sh"
+. "$(dirname "$0")/preview_lib.sh" || exit 1
 
 t_case "invalid settings: exit 78 before GitHub or Docker is asked"
 reset

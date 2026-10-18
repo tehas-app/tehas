@@ -2,8 +2,10 @@
 # Tests for libexec/dispatch: running without the test seams, filling the
 # slots, stopping finished cycles, and the retry after a provider outage.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/dispatch_lib.sh
-. "$(dirname "$0")/dispatch_lib.sh"
+. "$(dirname "$0")/dispatch_lib.sh" || exit 1
 
 mesh_curl
 
@@ -53,7 +55,9 @@ bare_tree
 t_run "$tree/libexec/dispatch"
 t_eq "$t_rc" 0
 t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --brief $record.brief"
-t_contains "$(t_calls systemd-run)" "--user --quiet --collect --unit tehas-plan-7 -p RuntimeMaxSec=4500 /bin/bash -c"
+# The unit of a turn is the whole limit plus the grace of lib/planning.sh; the
+# bound itself, and the pair it has to fit, are pinned in config_test.sh.
+t_contains "$(t_calls systemd-run)" "--unit tehas-plan-7 -p RuntimeMaxSec="
 t_contains "$(t_calls gh)" "- [ ] Adopt all"
 for name in tehas tehasbot tehas-plan; do t_eq "$(t_calls "$name")" ""; done
 

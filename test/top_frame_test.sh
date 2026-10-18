@@ -2,8 +2,10 @@
 # Tests for tehas top: the frame --once draws, its sections, its size and what
 # it lets through to the terminal.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/top_lib.sh
-. "$(dirname "$0")/top_lib.sh"
+. "$(dirname "$0")/top_lib.sh" || exit 1
 
 t_case "a frame with a running cycle has all seven sections"
 reset

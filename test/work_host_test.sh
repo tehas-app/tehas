@@ -3,8 +3,10 @@
 # earlier cycle, the issue's lock, the live view, what is kept on record
 # and the container's counts of kills and refused starts.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/work_lib.sh
-. "$(dirname "$0")/work_lib.sh"
+. "$(dirname "$0")/work_lib.sh" || exit 1
 
 # A workspace an earlier cycle of the issue made.
 t_run "$work 7"

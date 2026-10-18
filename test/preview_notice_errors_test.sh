@@ -2,8 +2,10 @@
 # Tests for libexec/preview: the notice when GitHub does not answer or take
 # it, when there is no preview, and the list a stopped run still writes.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/preview_lib.sh
-. "$(dirname "$0")/preview_lib.sh"
+. "$(dirname "$0")/preview_lib.sh" || exit 1
 
 for odd in '{}' '{"number":13,"body":"x"}' '{"number":12,"body":7}' '[]' '"acme/widget"' 'not json' ''; do
   t_case "an answer about the pull request that is not one ('${odd:0:24}') writes nothing, and the next run asks again"

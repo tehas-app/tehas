@@ -3,8 +3,10 @@
 # variables, limits and console, and that nothing starts without a usable
 # slice.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/work_lib.sh
-. "$(dirname "$0")/work_lib.sh"
+. "$(dirname "$0")/work_lib.sh" || exit 1
 
 t_case "a work directory tehas did not make is left alone"
 t_instance "${T_MINIMAL[@]}"

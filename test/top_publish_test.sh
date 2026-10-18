@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Tests for libexec/top-publish: the snapshot it writes for the dashboard.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/top_lib.sh
-. "$(dirname "$0")/top_lib.sh"
+. "$(dirname "$0")/top_lib.sh" || exit 1
 
 published() { [ -f "$live/top.json" ] && echo there || echo gone; }
 published_keys() { jq -r 'keys | join(",")' "$live/top.json"; }

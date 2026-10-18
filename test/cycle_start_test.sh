@@ -2,8 +2,10 @@
 # Tests for libexec/cycle: what it refuses to start, its lock and the notes it
 # leaves.
 # shellcheck disable=SC2016  # snippets and stub bodies are expanded later
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/cycle_lib.sh
-. "$(dirname "$0")/cycle_lib.sh"
+. "$(dirname "$0")/cycle_lib.sh" || exit 1
 
 for bad in "" "abc" "07" "0" "7 8" "7x" "-7"; do
   t_case "'$bad' is not an issue: nothing runs and nothing is written"

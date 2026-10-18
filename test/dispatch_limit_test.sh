@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Tests for libexec/dispatch: the limit tehas limit writes.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/dispatch_lib.sh
-. "$(dirname "$0")/dispatch_lib.sh"
+. "$(dirname "$0")/dispatch_lib.sh" || exit 1
 
 # --- The limit (tehas limit) --------------------------------------------------
 t_case "limit: cycles 0, 1 and above the slots, with 0, 1 and 2 running"

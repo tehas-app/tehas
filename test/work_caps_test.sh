@@ -2,8 +2,10 @@
 # Tests for libexec/work: what the image says it supports, and what a cycle
 # is refused or given because of it; the push check and Pi's settings.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/work_lib.sh
-. "$(dirname "$0")/work_lib.sh"
+. "$(dirname "$0")/work_lib.sh" || exit 1
 
 # --- What the image supports -----------------------------------------------------
 # caps_refused: 78, the image asked, and no workspace made, nothing fetched and

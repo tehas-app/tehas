@@ -4,7 +4,7 @@
 # for names. Each case runs the lint in a scratch repository.
 # shellcheck disable=SC2016  # one case feeds the lint a line of shell, unexpanded
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 # Built here, not written out: this file is linted too.
 addr="100.$((60 + 40)).2.3"

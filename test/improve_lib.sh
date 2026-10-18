@@ -2,8 +2,7 @@
 # shellcheck disable=SC2016,SC2034  # stub bodies and snippets are expanded when they run; the parts read the variables
 # What the tests of the improvement loop share: test/improve_*_test.sh source
 # this. A run of libexec/improve goes against a stub docker and a stub gh.
-# shellcheck source=test/lib.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# The part has sourced test/lib.sh before this.
 
 home=$T/home/tehas
 base=$home/tmp/improve

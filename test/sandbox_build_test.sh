@@ -6,7 +6,7 @@
 # and with --if-moved or --check looks at the label of the current image first.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 home=$T/home/tehas
 mkdir -p "$home/sandbox" "$home/lib"

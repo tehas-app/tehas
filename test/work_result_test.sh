@@ -2,8 +2,10 @@
 # Tests for libexec/work: how the runner's end is reported, from its exit
 # status, its result and its progress.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/work_lib.sh
-. "$(dirname "$0")/work_lib.sh"
+. "$(dirname "$0")/work_lib.sh" || exit 1
 
 t_case "the runner's exit status is the command's when it wrote its result"
 for code in 0 10 11 20 21 30 40; do
