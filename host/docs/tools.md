@@ -1303,7 +1303,8 @@ what the copy holds, read from the copy:
 `schema` is the copy's schema version, `from` and `to` the oldest start and the
 newest end of its runs in Unix seconds, both left out when it has none, and
 `runs` how many there are. It takes no lock a cycle holds and makes no network
-call. See [the factory API](/api#tehas-analytics-export).
+call. See [the factory API](/api#tehas-analytics-export), and
+[Analytics](/analytics) for what the database holds.
 
 Exit 0; 64 on a bad argument; 69 when `TEHAS_ANALYTICS=off`, or the program is
 not installed, which reads and writes nothing; 70 when the database cannot be
