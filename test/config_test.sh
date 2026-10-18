@@ -197,9 +197,9 @@ t_instance "${T_MINIMAL[@]}"
 T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index
   TEHAS_CYCLE_START_CMD=fake-start TEHAS_CYCLE_START_WAIT=2 TEHAS_PREFLIGHT_WAIT=3 TEHAS_STOP_WAIT=4 TEHAS_FETCH_WAIT=5
   TEHAS_CYCLE_RETRY_WAIT=6 TEHAS_CYCLE_STOP_GH_WAIT=7 TEHAS_CONSOLE_WAIT=8 TEHAS_CYCLE_STOP_CMD=fake-stop
-  TEHAS_TIDY_CMD=fake-tidy TEHAS_TIDY_WAIT=9)
-t_run "$load && echo \"\$TEHAS_WORK_CMD \$TEHAS_STATUS_CMD \$TEHAS_INDEX_CMD \$TEHAS_CYCLE_START_CMD \$TEHAS_CYCLE_START_WAIT \$TEHAS_PREFLIGHT_WAIT \$TEHAS_STOP_WAIT \$TEHAS_FETCH_WAIT \$TEHAS_CYCLE_RETRY_WAIT \$TEHAS_CYCLE_STOP_GH_WAIT \$TEHAS_CONSOLE_WAIT \$TEHAS_CYCLE_STOP_CMD \$TEHAS_TIDY_CMD \$TEHAS_TIDY_WAIT\""
-t_eq "$t_out" "fake-work fake-status fake-index fake-start 2 3 4 5 6 7 8 fake-stop fake-tidy 9"
+  TEHAS_TIDY_CMD=fake-tidy TEHAS_TIDY_WAIT=9 TEHAS_ANALYTICS_WAIT=1)
+t_run "$load && echo \"\$TEHAS_WORK_CMD \$TEHAS_STATUS_CMD \$TEHAS_INDEX_CMD \$TEHAS_CYCLE_START_CMD \$TEHAS_CYCLE_START_WAIT \$TEHAS_PREFLIGHT_WAIT \$TEHAS_STOP_WAIT \$TEHAS_FETCH_WAIT \$TEHAS_CYCLE_RETRY_WAIT \$TEHAS_CYCLE_STOP_GH_WAIT \$TEHAS_CONSOLE_WAIT \$TEHAS_CYCLE_STOP_CMD \$TEHAS_TIDY_CMD \$TEHAS_TIDY_WAIT \$TEHAS_ANALYTICS_WAIT\""
+t_eq "$t_out" "fake-work fake-status fake-index fake-start 2 3 4 5 6 7 8 fake-stop fake-tidy 9 1"
 T_ENV=()
 
 t_case "a missing instance.env returns 78 and names the directory"
@@ -371,6 +371,47 @@ printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ANALYTICS_SRC=https://stats.example/ea.js
 t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
 t_contains "$t_out" "TEHAS_ANALYTICS_SITE is not set"
+
+t_case "the factory's own analytics are on unless the instance says off"
+printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_ANALYTICS]\""
+t_eq "$t_out" "[on]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_ANALYTICS=off >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_ANALYTICS]\""
+t_eq "$t_out" "[off]"
+
+t_case "TEHAS_ANALYTICS from the environment is dropped, as every setting is"
+printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+T_ENV=(TEHAS_ANALYTICS=off)
+t_run "$load && echo \"[\$TEHAS_ANALYTICS]\""
+t_eq "$t_out" "[on]"
+T_ENV=()
+
+for bad in TEHAS_ANALYTICS=1 TEHAS_ANALYTICS=0 TEHAS_ANALYTICS=On TEHAS_ANALYTICS=yes "TEHAS_ANALYTICS=on off"; do
+  t_case "loading rejects $bad, and says what it takes"
+  printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  t_contains "$t_out" "tehas: TEHAS_ANALYTICS is not valid: expected on or off"
+done
+
+t_case "the switch of the factory's analytics and the visitor analytics' cookie are checked apart"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_ANALYTICS=off TEHAS_ANALYTICS_COOKIE=1 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_ANALYTICS][\$TEHAS_ANALYTICS_COOKIE]\""
+t_eq "$t_out" "[off][1]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_ANALYTICS_COOKIE=off >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "TEHAS_ANALYTICS_COOKIE is not valid: expected 0 or 1"
+
+t_case "a command fails closed on a bad TEHAS_ANALYTICS before it calls GitHub"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_ANALYTICS=maybe >"$TEHAS_INSTANCE_DIR/instance.env"
+t_stub gh
+for cmd in "cycle 7" dispatch; do
+  t_run "\"\$T_ROOT/libexec/\"$cmd"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "TEHAS_ANALYTICS is not valid"
+  t_eq "$(t_calls gh)" ""
+done
 
 t_case "several labellers separated by single spaces are accepted"
 printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ALLOWED_LABELERS='alice bob-2 carol'" >"$TEHAS_INSTANCE_DIR/instance.env"
