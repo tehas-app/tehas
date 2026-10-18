@@ -706,7 +706,12 @@ count as `oomKills`.
 `TEHAS_WORK_TIMEOUT` bounds the cycle itself, and `TEHAS_WORK_STALL` a cycle
 that writes nothing. Before the limit comes the cycle's deadline,
 `PI_ENSEMBLE_CYCLE_DEADLINE`: a quarter of `TEHAS_WORK_TIMEOUT` before the end,
-or one run of the gate and 8 minutes when that is longer. After it pi-rukas
+or one run of the gate and the handoff allowance when that is longer. The
+allowance is 8 minutes, and pi-rukas is given it as
+`PI_ENSEMBLE_HANDOFF_TIMEOUT_MS`, so both sides count the same time for the
+handoff. An image whose `--capabilities` has the feature
+`cycleDeadlineHandoffAllowance` bounds every step by the deadline, so its
+deadline is `TEHAS_WORK_TIMEOUT` less the allowance alone. After it pi-rukas
 starts no new step and parks the cycle with the cap `deadline` and a handoff,
 so a cycle that runs long ends at a step boundary with its branch and pull
 request said, not in the middle of a step. A step that started before the

@@ -359,7 +359,7 @@ An issue never ends a cycle with both labels.
 
 A cycle that reaches its deadline parks with the cap `deadline`. tehas gives
 pi-rukas a deadline a quarter of `TEHAS_WORK_TIMEOUT` before the end (at least
-one run of the gate and 8 minutes): after it, the cycle starts no new step and
+one run of the gate and the handoff's 8 minutes): after it, the cycle starts no new step and
 hands off with its branch and pull request, instead of being stopped in the
 middle of one.
 
