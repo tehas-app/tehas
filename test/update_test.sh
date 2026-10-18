@@ -1235,7 +1235,7 @@ t_contains "$t_out" "docs: updating the container"
 t_eq "$(owed_steps)" ""
 
 # The one file of the host install.sh reports and never touches: root's copy of
-# host/login/tehas. Checked here rather than in install_test.sh, because this is
+# host/login/tehas. Checked here rather than in the install tests, because this is
 # the fixture with a checkout of its own that holds the real install.sh.
 t_case "tehas update prints install.sh's later line for a stale login copy and runs nothing for it"
 instance_models

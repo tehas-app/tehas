@@ -307,7 +307,10 @@ if ! flock -n 8; then
   # Every later poll stops here while one hangs, so the hang is said, once
   # for each take of the lock. A poll runs no planning turn and no index: it
   # calls GitHub, fetches, and waits for the cycles it starts.
-  at=$(head -c 16 "$taken" 2>/dev/null | head -n 1) || at=""
+  # Read without a pipe: under pipefail the first head can die of SIGPIPE when
+  # the second has its line, and the hang would go unsaid.
+  at=$(head -c 16 "$taken" 2>/dev/null) || at=""
+  at=${at%%$'\n'*}
   bound=1800
   if [[ $at =~ ^[0-9]{1,12}$ ]] && [ $(($(date +%s) - at)) -gt "$bound" ] &&
     { [ "$dry" = 1 ] || [ "$(head -c 16 "$stuck" 2>/dev/null)" != "$at" ]; }; then
