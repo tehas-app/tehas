@@ -717,7 +717,18 @@ A program that drives factories uses the same commands: see
 - A self-hosted model endpoint has few real slots per model, so a cycle takes
   a while; the six-pass review is the slowest part.
 
-The review cap, the new pi-rukas, the room and the pressure hold back cycles
+- No new cycle while the branch is red, when the instance sets
+  `TEHAS_BRANCH_CHECK`: each poll asks GitHub, in one call that may take 30
+  seconds, for that check on the head commit of the branch work lands on.
+  When it failed, timed out or could not start, the poll starts no cycle, no
+  retry and no refresh, and says `holding: main is red at <sha>`, with the
+  branch's name and the first 12 characters of the commit. A cycle started
+  then would find the gate red on its base and park hours later. Running
+  cycles go on. When the check is pending, missing or cannot be read, cycles
+  start as before, so an outage at GitHub does not stop the factory; the log
+  says why it could not tell, once each time that changes.
+
+The review cap, the new pi-rukas, the room, the pressure and a red branch hold back cycles
 only. Planning
 turns still run. `tehas status` shows the room in its `slice` line, as the
 dispatcher's last poll read it, and `tehas dispatch --dry-run` reads it

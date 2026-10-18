@@ -117,6 +117,17 @@ Run `tehas dispatch --dry-run` and read what it prints.
   one limit that cut it: issues awaiting merge (`TEHAS_MAX_AWAITING`), or the
   slice's room. It is said on every such poll. See
   [Limits that hold work back](/operating#limits-that-hold-work-back).
+- `holding: main is red at <sha>`: the check `TEHAS_BRANCH_CHECK` names
+  failed on the head commit of the branch. No cycle, retry or refresh
+  starts; running cycles and planning turns go on. Fix the branch: once the
+  check passes on a new head, or is run again and passes, the next poll
+  starts cycles and logs `released: cycles may start again`.
+- `the check <name> on main could not be read: cycles start`, `main has no
+  check named <name> on its head commit: cycles start` or `the check <name>
+  on main at <sha> has not finished: cycles start`: the poll could not tell
+  whether the branch is red, so it did not hold. Said once each time it
+  changes. A name that is never found is a wrong `TEHAS_BRANCH_CHECK`, or a
+  product repository that runs no such check.
 - `stop #N: its issue is closed` or `stop #N: its pull request <url> is
   merged`: the cycle's work was done, so the poll stopped it and gave its slot
   to the next issue. Nothing more is needed.

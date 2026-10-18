@@ -150,7 +150,7 @@ tehas status --json
 | `demand.oldestWait` | Seconds since the oldest of them was labelled or asked for; left out when none waits |
 | `demand.refreshHold` | Why refresh requests start nothing on this host, for a person: refreshes are off, or the sandbox image cannot continue a pull request. Left out when nothing holds them or there are none |
 | `demand` | `null` when no poll counted it in the last ten minutes, or the last poll could not read the queue |
-| `hold.why` | One word for what holds new cycles back: `pause`, `slice`, `unreadable`, `resources`, `limit`, `count`, `awaiting`, `pressure`, `room` or `full`. Treat it as an open list: later releases add words |
+| `hold.why` | One word for what holds new cycles back: `pause`, `slice`, `unreadable`, `resources`, `limit`, `red`, `count`, `awaiting`, `pressure`, `room` or `full`. Treat it as an open list: later releases add words |
 | `hold.text` | The same for a person. Do not parse it |
 | `hold` | `null` when nothing holds |
 | `room.cycles` | Free slots under `TEHAS_TICKET_CONCURRENCY` |

@@ -740,6 +740,14 @@ t_eq "$(jq -c .hold <<<"$t_out")" '{"why":"count","text":"holding: 1 cycles are 
 t_eq "$(jq -c .room <<<"$t_out")" '{"cycles":0,"maxAwaiting":3,"slice":3}'
 t_eq "$(jq "$shape" <<<"$t_out")" true
 
+t_case "status: a red branch is the hold, in the text and in --json"
+reset
+held red "holding: main is red at 0123456789ab" 1 3
+t_run "$status && $summary"
+t_contains "$t_out" "slice     holding: main is red at 0123456789ab ("
+t_run "$status && $summary --json"
+t_eq "$(jq -c .hold <<<"$t_out")" '{"why":"red","text":"holding: main is red at 0123456789ab"}'
+
 t_case "status --json: room the last poll did not read is left out"
 reset
 held "" "" 1 null
