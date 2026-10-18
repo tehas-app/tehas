@@ -717,10 +717,12 @@ last bound for a hang that none of these reaches. The stop is a TERM, and the
 cycle is reported as one that stopped. A unit cannot read the instance's
 settings, so `TEHAS_WORK_TIMEOUT` may be at most 25200, 7 hours: a longer one
 is refused with exit 78. The hour between is for the stop and the report.
-`TEHAS_PLAN_TIMEOUT` may be at most 7200. A planning turn and the index run
-each run as their own unit, not inside a poll, so they hold no poll and not its
-lock. A poll that finds the dispatcher's lock held for longer than half an
-hour says so once in the log, as [troubleshooting](/troubleshooting) shows.
+`TEHAS_PLAN_TIMEOUT` may be at most 7200, 2 hours: the unit of a turn runs to
+the limit plus a quarter of an hour, and one turn runs at a time. A planning
+turn and the index run each run as their own unit, not inside a poll, so they
+hold no poll and not its lock. A poll that finds the dispatcher's lock held
+for longer than half an hour says so once in the log, as
+[troubleshooting](/troubleshooting) shows.
 
 `TEHAS_TICKET_CONCURRENCY` sets the most issues worked on side by side, each
 in a cycle, a container and a workspace of its own. It defaults to the host's
