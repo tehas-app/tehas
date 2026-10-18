@@ -80,6 +80,30 @@ t_eq "$(jq -r '.awaiting | length' "$live/status.json")" 1
 t_eq "$(jq -r '[.queued[].number] | join(",")' "$live/status.json")" "3"
 t_eq "$(jq -r .status "$live/health.json")" pass
 
+# The control issue holds the pause switch and no outcome: whoever labels it,
+# it is not work, so it is not counted in line, worked on, stopped or awaiting.
+t_case "the control issue is not counted in line, worked on, stopped or awaiting, whatever label it carries"
+reset
+echo "[$(issue 1 tehas:ready),$(issue 3 tehas:ready),$(issue 1 tehas:running),$(issue 1 needs-human-attention),$(issue 1 tehas:awaiting-merge),$(issue 3 tehas:awaiting-merge),$(issue 6 needs-human-attention)]" >"$T/issues.json"
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[.queued, .running, .stopped, .awaiting] | map(length)' "$live/status.json")" "[1,0,1,1]"
+t_eq "$(jq -r '[.running[]?.number] | join(",")' "$live/status.json")" ""
+t_eq "$(jq -r '[.queued[].number] | join(",")' "$live/status.json")" "3"
+t_eq "$(jq -r '[.stopped[].number] | join(",")' "$live/status.json")" "6"
+t_eq "$(jq -r '[.awaiting[].number] | join(",")' "$live/status.json")" "3"
+
+# The same numbers with the switch labelled tehas:pause, which is how the
+# control issue is normally seen: the pause is reported, the issue is not.
+t_case "and it stays out of the counts while the factory is paused by its label"
+reset
+echo "[$(issue 1 tehas:ready),$(issue 3 tehas:ready)]" >"$T/issues.json"
+echo true >"$T/paused"
+t_run "$status"
+t_eq "$(jq -r '.paused' "$live/status.json")" true
+t_eq "$(jq -c '[.queued, .running, .stopped, .awaiting] | map(length)' "$live/status.json")" "[1,0,0,0]"
+t_eq "$(jq -r '[.queued[].number] | join(",")' "$live/status.json")" "3"
+
 # A cycle starts with --restart and pi-rukas takes needs-human-attention off
 # once it runs: until then the issue carries both labels.
 t_case "an issue a cycle is running on is not stopped, whatever else it carries"
