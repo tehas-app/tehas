@@ -1,0 +1,1396 @@
+{
+  "schemaVersion": 2,
+  "version": "0.12.80",
+  "commit": "316134eab4e69582945cc40f25eac9ebe7c5efc7",
+  "contracts": {
+    "exitCodes": {
+      "version": 1,
+      "values": {
+        "merged": 0,
+        "handoff": 10,
+        "clarification": 11,
+        "aborted": 20,
+        "interrupted": 21,
+        "crash": 30,
+        "refused": 40
+      }
+    },
+    "resultSchema": {
+      "version": 4,
+      "caps": {
+        "fixed": [
+          "adversarial-infra-failure",
+          "adversarial-loop",
+          "awaiting-human-merge",
+          "ci-retry",
+          "commit-pr-incomplete-consolidation",
+          "consolidated-verify-conflict",
+          "consolidated-verify-consolidation-created",
+          "consolidation-incomplete",
+          "cross-group-conflict",
+          "deadline",
+          "deferred-creation:develop",
+          "dependency-cycle",
+          "dependency-parked",
+          "dependency-timeout",
+          "develop-child-crash",
+          "develop-incomplete-deliverables",
+          "developer-timeout",
+          "draft-rearm-failed",
+          "existing-pr-detected",
+          "explore-already-complete",
+          "explore-bodies-empty",
+          "explore-needs-clarification",
+          "fence-violation:develop",
+          "fix-pass-park",
+          "integration-verify-failed",
+          "integration-worktree-violation",
+          "intent-park",
+          "lens-diff-unreadable",
+          "lens-fix-not-integrated",
+          "lens-fix-reposition",
+          "lens-review-timeout",
+          "loop-detected",
+          "no-review-outcome",
+          "ops-merge-base-mismatch",
+          "plan-spec-mismatch",
+          "plan-timeout",
+          "provider-unavailable",
+          "queue-stranded",
+          "repeat-finding-seam",
+          "repo-root-residue",
+          "review-incomplete",
+          "round-cap",
+          "step-back-revise-spec",
+          "token-budget",
+          "worktree-listing-unreadable"
+        ],
+        "templates": [
+          {
+            "prefix": "verify-failed:",
+            "parameter": "step",
+            "values": [
+              "explore",
+              "plan",
+              "branch",
+              "develop",
+              "adversarial",
+              "commit-pr",
+              "lens-review",
+              "lens-fix",
+              "step-back",
+              "handoff",
+              "ci",
+              "merged"
+            ]
+          },
+          {
+            "prefix": "verify-timeout:",
+            "parameter": "step",
+            "values": [
+              "explore",
+              "plan",
+              "branch",
+              "develop",
+              "adversarial",
+              "commit-pr",
+              "lens-review",
+              "lens-fix",
+              "step-back",
+              "handoff",
+              "ci",
+              "merged"
+            ]
+          },
+          {
+            "prefix": "verify-env:",
+            "parameter": "step",
+            "values": [
+              "explore",
+              "plan",
+              "branch",
+              "develop",
+              "adversarial",
+              "commit-pr",
+              "lens-review",
+              "lens-fix",
+              "step-back",
+              "handoff",
+              "ci",
+              "merged"
+            ]
+          },
+          {
+            "prefix": "verify-baseline-red:",
+            "parameter": "step",
+            "values": [
+              "explore",
+              "plan",
+              "branch",
+              "develop",
+              "adversarial",
+              "commit-pr",
+              "lens-review",
+              "lens-fix",
+              "step-back",
+              "handoff",
+              "ci",
+              "merged"
+            ]
+          },
+          {
+            "prefix": "pr-not-open:",
+            "parameter": "step",
+            "values": [
+              "explore",
+              "plan",
+              "branch",
+              "develop",
+              "adversarial",
+              "commit-pr",
+              "lens-review",
+              "lens-fix",
+              "step-back",
+              "handoff",
+              "ci",
+              "merged"
+            ]
+          },
+          {
+            "prefix": "step-failed:",
+            "parameter": "step",
+            "values": [
+              "explore",
+              "plan",
+              "branch",
+              "develop",
+              "adversarial",
+              "commit-pr",
+              "lens-review",
+              "lens-fix",
+              "step-back",
+              "handoff",
+              "ci",
+              "merged"
+            ]
+          },
+          {
+            "prefix": "driver-crash:",
+            "parameter": "step",
+            "values": [
+              "explore",
+              "plan",
+              "branch",
+              "develop",
+              "adversarial",
+              "commit-pr",
+              "lens-review",
+              "lens-fix",
+              "step-back",
+              "handoff",
+              "ci",
+              "merged"
+            ]
+          },
+          {
+            "prefix": "branch-ahead:",
+            "parameter": "count"
+          }
+        ]
+      },
+      "failureKinds": [
+        "provider",
+        "timeout",
+        "guard",
+        "process",
+        "crashed",
+        "verify",
+        "environment",
+        "driver",
+        "cap"
+      ]
+    },
+    "ndjson": {
+      "version": 1,
+      "stable": {
+        "version": 1,
+        "kinds": {
+          "step-started": [
+            "step",
+            "at",
+            "round"
+          ],
+          "dispatch-started": [
+            "step",
+            "role",
+            "jobId",
+            "at"
+          ],
+          "dispatch-completed": [
+            "step",
+            "role",
+            "jobId",
+            "ok",
+            "ms",
+            "at",
+            "usage"
+          ],
+          "verify-started": [
+            "step",
+            "command",
+            "at"
+          ],
+          "verify-completed": [
+            "step",
+            "command",
+            "ok",
+            "ms",
+            "at"
+          ],
+          "cap-hit": [
+            "cap",
+            "at",
+            "nextStep"
+          ],
+          "handoff-emitted": [
+            "at",
+            "commentUrl",
+            "labelApplied"
+          ],
+          "ci-status": [
+            "at",
+            "status",
+            "runUrl"
+          ],
+          "merged": [
+            "at",
+            "prNumber",
+            "mergeCommit"
+          ],
+          "interrupted": [
+            "at",
+            "reason",
+            "step"
+          ]
+        }
+      }
+    }
+  },
+  "verbs": {
+    "work": {
+      "flags": [
+        "--restart",
+        "--json",
+        "--timeout"
+      ]
+    },
+    "plan": {
+      "flags": [
+        "--dry-run",
+        "--file",
+        "--type",
+        "--context",
+        "--reviewed-digest",
+        "--json"
+      ]
+    },
+    "research": {
+      "flags": [
+        "--tier",
+        "--context",
+        "--json"
+      ]
+    },
+    "agents-md": {
+      "flags": [
+        "--deep",
+        "--json"
+      ]
+    },
+    "lens-review": {
+      "flags": [
+        "--base",
+        "--head",
+        "--since",
+        "--full",
+        "--context",
+        "--pr",
+        "--json"
+      ]
+    }
+  },
+  "inputs": [
+    {
+      "name": "PI_ENSEMBLE_ACCEPTANCE_COVERAGE",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_ADVERSARIAL_EMPTY_SKIP",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_ADVERSARIAL_PHASE_BUDGET_MS",
+      "type": "duration-ms",
+      "default": 1800000,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_ALLOW_DESTRUCTIVE_GIT",
+      "type": "boolean",
+      "default": false,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_ALLOW_DIRECT_ISSUE_CREATE",
+      "type": "boolean",
+      "default": false,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_ALLOW_LIVE_SPAWN",
+      "type": "boolean",
+      "default": false,
+      "scope": "test"
+    },
+    {
+      "name": "PI_ENSEMBLE_ALLOW_UNREVIEWED_MERGE",
+      "type": "boolean",
+      "default": false,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_ALLOWED_ROOTS",
+      "type": "list",
+      "default": null,
+      "scope": "sandbox",
+      "separator": ":"
+    },
+    {
+      "name": "PI_ENSEMBLE_AUTO_STEER",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_AUTOSAVE",
+      "type": "boolean",
+      "default": false,
+      "scope": "interactive"
+    },
+    {
+      "name": "PI_ENSEMBLE_CAP_KILL_GRACE_MS",
+      "type": "duration-ms",
+      "default": 300000,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_CHILD_CODEMODE",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_CI_WATCH_TIMEOUT_MS",
+      "type": "duration-ms",
+      "default": 1800000,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_CLAIM_SCAN",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_CLAIM_STALE_MS",
+      "type": "duration-ms",
+      "default": 3600000,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_COMMENT_RETENTION",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_COMMENT_RETENTION_PATHS",
+      "type": "list",
+      "default": "extension/src,extension/smoke-tests,agents-base",
+      "scope": "cycle",
+      "separator": ","
+    },
+    {
+      "name": "PI_ENSEMBLE_CONSOLIDATED_VERIFY_SKIP",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_CONVERGE",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_CROSS_GROUP_CONFLICTS",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_CYCLE_BUDGET_MS",
+      "type": "duration-ms",
+      "default": null,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_CYCLE_DEADLINE",
+      "type": "integer",
+      "default": null,
+      "scope": "cycle",
+      "unit": "epoch-ms"
+    },
+    {
+      "name": "PI_ENSEMBLE_DEBUG",
+      "type": "boolean",
+      "default": false,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_DECISION_BUDGET_<SEAM>",
+      "type": "integer",
+      "default": null,
+      "scope": "cycle",
+      "unit": "tokens",
+      "members": [
+        "FAILURE_CAUSE"
+      ]
+    },
+    {
+      "name": "PI_ENSEMBLE_DECISION_MODE_<SEAM>",
+      "type": "enum",
+      "default": "shadow",
+      "scope": "cycle",
+      "values": [
+        "off",
+        "shadow",
+        "enforce"
+      ],
+      "members": [
+        "FAILURE_CAUSE"
+      ]
+    },
+    {
+      "name": "PI_ENSEMBLE_DECISION_MODEL",
+      "type": "string",
+      "default": null,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_DECISION_TIMEOUT_MS_<SEAM>",
+      "type": "duration-ms",
+      "default": null,
+      "scope": "cycle",
+      "members": [
+        "FAILURE_CAUSE"
+      ]
+    },
+    {
+      "name": "PI_ENSEMBLE_DECISIONS",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_DECK_MAX_ROWS",
+      "type": "integer",
+      "default": 20,
+      "scope": "interactive"
+    },
+    {
+      "name": "PI_ENSEMBLE_DIR",
+      "type": "path",
+      "default": null,
+      "scope": "install"
+    },
+    {
+      "name": "PI_ENSEMBLE_DISABLE_EXTENSION_FORWARD",
+      "type": "boolean",
+      "default": false,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_DISABLE_SUBAGENT_GUARD",
+      "type": "boolean",
+      "default": false,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_DISPATCH_CAPS",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_DRAFT_PR",
+      "type": "boolean",
+      "default": null,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_EXTRA_IMAGE_DIRS",
+      "type": "list",
+      "default": null,
+      "scope": "cycle",
+      "separator": ":",
+      "manifestVersion": 1
+    },
+    {
+      "name": "PI_ENSEMBLE_FORBID_LIVE_SPAWN",
+      "type": "boolean",
+      "default": false,
+      "scope": "test"
+    },
+    {
+      "name": "PI_ENSEMBLE_FORGE",
+      "type": "enum",
+      "default": null,
+      "scope": "cycle",
+      "values": [
+        "github",
+        "gitlab"
+      ]
+    },
+    {
+      "name": "PI_ENSEMBLE_FORGE_PROBE",
+      "type": "boolean",
+      "default": null,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_FRONTEND_ONLY_GLOBS",
+      "type": "list",
+      "default": null,
+      "scope": "cycle",
+      "separator": ","
+    },
+    {
+      "name": "PI_ENSEMBLE_GIT_NET_TIMEOUT_MS",
+      "type": "duration-ms",
+      "default": 300000,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_HANDOFF_CHANNEL",
+      "type": "enum",
+      "default": "forge",
+      "scope": "cycle",
+      "values": [
+        "forge",
+        "host"
+      ]
+    },
+    {
+      "name": "PI_ENSEMBLE_HANDOFF_CONSOLIDATE",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_HANDOFF_POST_RETRY",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_HANDOFF_POST_RETRY_BACKOFF_MS",
+      "type": "duration-ms",
+      "default": 1000,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_HANDOFF_TIMEOUT_MS",
+      "type": "duration-ms",
+      "default": 480000,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_HOST_ALIASES",
+      "type": "list",
+      "default": "models:192.0.2.9",
+      "scope": "wrapper",
+      "separator": ","
+    },
+    {
+      "name": "PI_ENSEMBLE_IMAGE",
+      "type": "string",
+      "default": "ghcr.io/trail-openers/pi-rukas:latest",
+      "scope": "wrapper"
+    },
+    {
+      "name": "PI_ENSEMBLE_IMAGE_DIRS",
+      "type": "list",
+      "default": "~/Downloads:~/Desktop:~/Pictures",
+      "scope": "wrapper",
+      "separator": ":"
+    },
+    {
+      "name": "PI_ENSEMBLE_INACTIVITY_TIMEOUT_MS",
+      "type": "duration-ms",
+      "default": 1800000,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_INTEGRATION_VERIFY_BASELINE_PROBE",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS",
+      "type": "duration-ms",
+      "default": 900000,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_INTENT",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_INTENT_CRITICALITY",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_INVARIANT_MEMORY",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_ISSUE_IMAGES",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle",
+      "manifestVersion": 1
+    },
+    {
+      "name": "PI_ENSEMBLE_LENS_EVIDENCE",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_LENS_MODEL_CONCURRENCY",
+      "type": "integer",
+      "default": null,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_LENS_ROUND_CAP",
+      "type": "integer",
+      "default": 3,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_LENS_ROUND_CAP_MERGE",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_LENS_ROUND_CAP_OVERRIDE",
+      "type": "boolean",
+      "default": false,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_LOOP_DETECTOR",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_MAX_WORKSTREAMS",
+      "type": "integer",
+      "default": 6,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_MERGE_AUTHORITY",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_MODEL_<ROLE>",
+      "type": "string",
+      "default": null,
+      "scope": "cycle",
+      "members": [
+        "DEVELOPER",
+        "OPS",
+        "EXPLORE",
+        "ADVERSARIAL_DEVELOPER",
+        "CODE_REVIEW_SPECIALIST"
+      ]
+    },
+    {
+      "name": "PI_ENSEMBLE_MODEL_LENS_<LENS>",
+      "type": "string",
+      "default": null,
+      "scope": "cycle",
+      "members": [
+        "SECURITY",
+        "ERROR_HANDLING",
+        "TYPE_SAFETY",
+        "PERFORMANCE",
+        "ARCHITECTURE",
+        "SIMPLICITY"
+      ]
+    },
+    {
+      "name": "PI_ENSEMBLE_MODELS_CONFIG",
+      "type": "path",
+      "default": "~/.pi/agent/ensemble-models.json",
+      "scope": "install"
+    },
+    {
+      "name": "PI_ENSEMBLE_NO_DOCKER_SOCKET",
+      "type": "boolean",
+      "default": false,
+      "scope": "wrapper"
+    },
+    {
+      "name": "PI_ENSEMBLE_NO_SSH",
+      "type": "boolean",
+      "default": false,
+      "scope": "wrapper"
+    },
+    {
+      "name": "PI_ENSEMBLE_NOTIFY_CMD",
+      "type": "string",
+      "default": null,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_PARALLEL_GROUPS",
+      "type": "integer",
+      "default": 3,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_PARALLEL_WORK",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_PENDING_SHUTDOWN_MS",
+      "type": "duration-ms",
+      "default": 1000,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_PERM_SOCKET",
+      "type": "path",
+      "default": null,
+      "scope": "internal"
+    },
+    {
+      "name": "PI_ENSEMBLE_PI_BIN",
+      "type": "path",
+      "default": null,
+      "scope": "install"
+    },
+    {
+      "name": "PI_ENSEMBLE_PI_PROMPTS_DIR",
+      "type": "path",
+      "default": null,
+      "scope": "install"
+    },
+    {
+      "name": "PI_ENSEMBLE_PLAN_CACHE",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_PLAN_CACHE_DIR",
+      "type": "path",
+      "default": null,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_PLAN_CACHE_TTL_MS",
+      "type": "duration-ms",
+      "default": 7200000,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_PLAN_CONTRACT",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_PLAN_ISSUE",
+      "type": "integer",
+      "default": null,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_PLAN_QUALITY",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_PLAN_TIMEOUT_MS",
+      "type": "duration-ms",
+      "default": 1800000,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_PLAN_UNFENCE",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_PM_BASH_GUARD",
+      "type": "boolean",
+      "default": true,
+      "scope": "interactive"
+    },
+    {
+      "name": "PI_ENSEMBLE_PM_PROMPT",
+      "type": "path",
+      "default": null,
+      "scope": "install"
+    },
+    {
+      "name": "PI_ENSEMBLE_POLICY_JUDGE",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_PR_PREFLIGHT",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_PROMPTS_DIR",
+      "type": "path",
+      "default": null,
+      "scope": "install"
+    },
+    {
+      "name": "PI_ENSEMBLE_PROTECTED_PATHS",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_PROVIDER_<ROLE>",
+      "type": "string",
+      "default": null,
+      "scope": "cycle",
+      "members": [
+        "DEVELOPER",
+        "OPS",
+        "EXPLORE",
+        "ADVERSARIAL_DEVELOPER",
+        "CODE_REVIEW_SPECIALIST"
+      ]
+    },
+    {
+      "name": "PI_ENSEMBLE_PROVIDER_LENS_<LENS>",
+      "type": "string",
+      "default": null,
+      "scope": "cycle",
+      "members": [
+        "SECURITY",
+        "ERROR_HANDLING",
+        "TYPE_SAFETY",
+        "PERFORMANCE",
+        "ARCHITECTURE",
+        "SIMPLICITY"
+      ]
+    },
+    {
+      "name": "PI_ENSEMBLE_PROVIDER_RETRY_FLOOR_MS",
+      "type": "duration-ms",
+      "default": 60000,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_PROVIDER_RETRY_MAX_WAIT_MS",
+      "type": "duration-ms",
+      "default": 1800000,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_QUEUE_DEFER_CAP_MS",
+      "type": "duration-ms",
+      "default": 1800000,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_QUEUE_HALT_ON_FAILURE",
+      "type": "boolean",
+      "default": false,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_QUEUE_ORDERING",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_QUIET_LIFECYCLE",
+      "type": "boolean",
+      "default": false,
+      "scope": "interactive"
+    },
+    {
+      "name": "PI_ENSEMBLE_QUIET_STATUS",
+      "type": "boolean",
+      "default": false,
+      "scope": "interactive"
+    },
+    {
+      "name": "PI_ENSEMBLE_RATE_LIMIT_BURST_MAX_S",
+      "type": "number",
+      "default": 300,
+      "scope": "cycle",
+      "unit": "s"
+    },
+    {
+      "name": "PI_ENSEMBLE_RESEARCH_FALLBACK",
+      "type": "boolean",
+      "default": true,
+      "scope": "interactive"
+    },
+    {
+      "name": "PI_ENSEMBLE_RESUME",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_REVIEW_CAP_MS",
+      "type": "duration-ms",
+      "default": 5400000,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_REVIEW_ENFORCE",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_REVIEW_LEDGER_FILE",
+      "type": "path",
+      "default": null,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_REVIEW_THRESHOLD",
+      "type": "enum",
+      "default": null,
+      "scope": "cycle",
+      "values": [
+        "CRITICAL",
+        "HIGH",
+        "MEDIUM",
+        "LOW"
+      ]
+    },
+    {
+      "name": "PI_ENSEMBLE_REVIEW_WALL_CLOCK_MS",
+      "type": "duration-ms",
+      "default": 5400000,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_ROLE",
+      "type": "string",
+      "default": null,
+      "scope": "internal"
+    },
+    {
+      "name": "PI_ENSEMBLE_RUNS_DIR",
+      "type": "path",
+      "default": "~/.pi/agent/ensemble-runs",
+      "scope": "install"
+    },
+    {
+      "name": "PI_ENSEMBLE_SAFETY_NET_COMMIT",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_SANDBOX_MODE",
+      "type": "boolean",
+      "default": false,
+      "scope": "sandbox"
+    },
+    {
+      "name": "PI_ENSEMBLE_SCOPE_FANOUT_FACTOR",
+      "type": "number",
+      "default": 3,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_SCOPE_FANOUT_MIN",
+      "type": "integer",
+      "default": 6,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_SCOPE_GATE",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_SEAM_ESCALATION",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_SESSION_REATTACH",
+      "type": "boolean",
+      "default": false,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_SKILLS_DIR",
+      "type": "path",
+      "default": "~/.pi/agent/skills",
+      "scope": "install"
+    },
+    {
+      "name": "PI_ENSEMBLE_SKIP_RATCHET",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_SLOW_NOTICE",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_SLOW_NOTICE_MS",
+      "type": "duration-ms",
+      "default": 1200000,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_SLOW_NOTICE_TOKENS",
+      "type": "integer",
+      "default": 20000000,
+      "scope": "cycle",
+      "unit": "tokens"
+    },
+    {
+      "name": "PI_ENSEMBLE_SLOW_NOTICE_TURNS",
+      "type": "integer",
+      "default": 150,
+      "scope": "cycle",
+      "unit": "turns"
+    },
+    {
+      "name": "PI_ENSEMBLE_SMOKE",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_SPAWN_CAP",
+      "type": "integer",
+      "default": 64,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_SPAWN_TIMEOUT_MS",
+      "type": "duration-ms",
+      "default": 7200000,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_SPECULATIVE_EXPLORE",
+      "type": "boolean",
+      "default": false,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_STALE_THRESHOLD_MS",
+      "type": "duration-ms",
+      "default": 900000,
+      "scope": "interactive"
+    },
+    {
+      "name": "PI_ENSEMBLE_STEP_NOTICE_MS",
+      "type": "duration-ms",
+      "default": 5400000,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_STRICT_PERMISSIONS",
+      "type": "boolean",
+      "default": false,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_SUBAGENT_MODE",
+      "type": "boolean",
+      "default": false,
+      "scope": "internal"
+    },
+    {
+      "name": "PI_ENSEMBLE_SUBAGENT_MODEL",
+      "type": "string",
+      "default": null,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_SUBAGENT_PROVIDER",
+      "type": "string",
+      "default": null,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_SYMBOL_MERGE_RETRY",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_TEST_CLAIMS_LOCK_BLOCKED",
+      "type": "boolean",
+      "default": false,
+      "scope": "internal"
+    },
+    {
+      "name": "PI_ENSEMBLE_TEST_CLAIMS_WINDOW_MS",
+      "type": "duration-ms",
+      "default": 0,
+      "scope": "internal"
+    },
+    {
+      "name": "PI_ENSEMBLE_TEST_DELETE_TOLERANCE",
+      "type": "integer",
+      "default": 0,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_TOKEN_BUDGET_<ROLE>",
+      "type": "integer",
+      "default": null,
+      "scope": "cycle",
+      "unit": "tokens",
+      "members": [
+        "DEVELOPER",
+        "OPS",
+        "EXPLORE",
+        "ADVERSARIAL_DEVELOPER",
+        "CODE_REVIEW_SPECIALIST"
+      ]
+    },
+    {
+      "name": "PI_ENSEMBLE_TOOL_INACTIVITY_TIMEOUT_MS",
+      "type": "duration-ms",
+      "default": 3600000,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_TRANSCRIPT_RETENTION_DAYS",
+      "type": "number",
+      "default": 5,
+      "scope": "cycle",
+      "unit": "days"
+    },
+    {
+      "name": "PI_ENSEMBLE_TRANSIENT_RETRY",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_TRANSIENT_RETRY_BACKOFF_MS",
+      "type": "duration-ms",
+      "default": 5000,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_TRUST_MODE",
+      "type": "boolean",
+      "default": false,
+      "scope": "internal"
+    },
+    {
+      "name": "PI_ENSEMBLE_TURN_NUDGE",
+      "type": "integer",
+      "default": 0,
+      "scope": "cycle",
+      "unit": "turns"
+    },
+    {
+      "name": "PI_ENSEMBLE_USER_EXTENSION",
+      "type": "string",
+      "default": null,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_VERIFY",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_VERIFY_CONCURRENCY",
+      "type": "integer",
+      "default": null,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_VERIFY_FULL",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_VERIFY_FULL_TIMEOUT_MS",
+      "type": "duration-ms",
+      "default": 1800000,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_VERIFY_TIMEOUT_MS",
+      "type": "duration-ms",
+      "default": 600000,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_VOLUME_MOUNTS",
+      "type": "list",
+      "default": null,
+      "scope": "internal",
+      "separator": ":"
+    },
+    {
+      "name": "PI_ENSEMBLE_WIDENING_SCAN",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_WORKSPACE_ROOT",
+      "type": "path",
+      "default": "/workspace",
+      "scope": "sandbox"
+    },
+    {
+      "name": "PI_ENSEMBLE_WORKTREE_SWEEP",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    },
+    {
+      "name": "PI_ENSEMBLE_WORKTREE_TEARDOWN",
+      "type": "boolean",
+      "default": true,
+      "scope": "cycle"
+    }
+  ],
+  "files": [
+    {
+      "path": ".pi/forge",
+      "kind": "config",
+      "whenAbsent": "forge detected from the git remote"
+    },
+    {
+      "path": ".pi/permissions.json",
+      "kind": "config",
+      "whenAbsent": "~/.pi/agent/permissions.json"
+    },
+    {
+      "path": ".pi/smoke-cmd",
+      "kind": "command",
+      "whenAbsent": "no product smoke gate"
+    },
+    {
+      "path": ".pi/verify-cmd",
+      "kind": "command",
+      "whenAbsent": "verify command derived from the repo"
+    },
+    {
+      "path": ".pi/verify-cmd-fast",
+      "kind": "command",
+      "whenAbsent": "no fast verify tier"
+    },
+    {
+      "path": ".pi/verify-cmd-full",
+      "kind": "command",
+      "whenAbsent": "verify-full tier skipped"
+    },
+    {
+      "path": ".pi/worktree-setup",
+      "kind": "hook",
+      "whenAbsent": "dependencies are symlinked into each worktree"
+    }
+  ],
+  "features": {
+    "resultFromMemory": true,
+    "cycleDeadline": true,
+    "handoffChannel": true,
+    "restartClearsAttention": true,
+    "failureReason": true,
+    "usageByRole": true
+  },
+  "resources": {
+    "host": {
+      "cpus": 16,
+      "cpuSource": "os",
+      "memoryBytes": 265548251136,
+      "memorySource": "os",
+      "cgroup": "v2"
+    },
+    "budget": {
+      "workstreamSlots": 32,
+      "verifyConcurrency": 8
+    },
+    "limits": {
+      "parallelGroups": {
+        "value": 3,
+        "source": "default"
+      },
+      "maxWorkstreams": {
+        "value": 6,
+        "source": "default"
+      },
+      "verifyConcurrency": {
+        "value": 8,
+        "source": "budget"
+      }
+    }
+  }
+}

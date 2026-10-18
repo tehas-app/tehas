@@ -84,7 +84,7 @@ t_lacks "$(t_calls gh)" "tehas:awaiting-merge"
 t_case "a result that is a link is not read"
 reset
 mkdir -p "$T/elsewhere"
-jq -n '{schemaVersion: 3, issues: [{issue: 7, status: "merged", failedStep: "done", branch: "feature/x"}]}' >"$T/elsewhere/7.json"
+jq -n '{schemaVersion: 4, issues: [{issue: 7, status: "merged", failedStep: "done", branch: "feature/x"}]}' >"$T/elsewhere/7.json"
 echo 'ln -sf "$T/elsewhere/7.json" "$TEHAS_HOME/state/cycles/7.result.json"' >"$fx/work.sh"
 merged_pr
 t_run "$cycle 7"
@@ -104,7 +104,7 @@ t_contains "$(t_calls gh)" 'status `unknown`'
 t_lacks "$(t_calls gh)" "pr list"
 
 t_case "a result of another schema, or of another issue, is no result"
-for change in '.schemaVersion = 2' '.issues[0].issue = 8'; do
+for change in '.schemaVersion = 3' '.issues[0].issue = 8'; do
   reset
   ended merged "done" feature/x
   jq "$change" "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
@@ -116,7 +116,7 @@ done
 t_case "a result left by an earlier cycle is not this cycle's"
 reset
 mkdir -p "$state"
-jq -n '{schemaVersion: 3, issues: [{issue: 7, status: "merged", branch: "feature/x"}]}' >"$state/7.result.json"
+jq -n '{schemaVersion: 4, issues: [{issue: 7, status: "merged", branch: "feature/x"}]}' >"$state/7.result.json"
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" 'status `unknown`'
 t_eq "$(find "$state/7.result.json" 2>/dev/null | wc -l)" 0

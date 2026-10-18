@@ -356,7 +356,7 @@ turn_args | options | without_expiry | grep -v -x -e '-i' |
   sed -e "s|^$tree:|$ws-7:|" -e 's|/ensemble-runs/plan-7:|/ensemble-runs/issue-7:|' -e 's|widget-plan-7\.state|widget-7.state|' >"$T/plan.options"
 rm -f "$T"/calls/*
 # What the image says it supports: every input the container is given.
-jq -n '{contracts: {exitCodes: {version: 1}, resultSchema: {version: 3}, ndjson: {stable: {version: 1}}},
+jq -n '{contracts: {exitCodes: {version: 1}, resultSchema: {version: 4}, ndjson: {stable: {version: 1}}},
   verbs: {work: {flags: ["--restart", "--json", "--timeout"]}},
   inputs: [("SANDBOX_MODE", "WORKSPACE_ROOT", "MAX_WORKSTREAMS", "VERIFY_TIMEOUT_MS", "INTEGRATION_VERIFY_TIMEOUT_MS",
     "SUBAGENT_MODEL", "SUBAGENT_PROVIDER", "HANDOFF_CHANNEL", "CYCLE_DEADLINE", "VERIFY_CONCURRENCY")

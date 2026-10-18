@@ -34,19 +34,19 @@ done
 t_case "a result with no issue entry keeps the runner's own exit: a refusal is 40, and is no kill"
 for code in 30 40; do
   fresh
-  container "echo '{\"schemaVersion\":3,\"exitCode\":$code,\"issues\":[],\"error\":{\"code\":\"refused\"}}'; exit $code"
+  container "echo '{\"schemaVersion\":4,\"exitCode\":$code,\"issues\":[],\"error\":{\"code\":\"refused\"}}'; exit $code"
   t_run "$work 7"
   t_eq "$t_rc" "$code"
 done
 fresh
-container "echo '{\"schemaVersion\":3,\"issues\":[]}'; exit 137"
+container "echo '{\"schemaVersion\":4,\"issues\":[]}'; exit 137"
 t_run "$work 7"
 t_eq "$t_rc" 2
 t_lacks "$t_out" "was killed"
 
 t_case "a result of another schema, or for another issue, is no result"
 fresh
-container 'says merged | sed "s/\"schemaVersion\":3/\"schemaVersion\":2/"; exit 0'
+container 'says merged | sed "s/\"schemaVersion\":4/\"schemaVersion\":3/"; exit 0'
 t_run "$work 7"
 t_eq "$t_rc" 2
 fresh
@@ -86,7 +86,7 @@ t_eq "$(find "$cycle_log.err" 2>/dev/null | wc -l)" 0
 
 t_case "a result left by an earlier cycle is gone before the container starts"
 fresh
-echo '{"schemaVersion":3,"issues":[{"issue":7,"status":"merged"}]}' >"$result_file"
+echo '{"schemaVersion":4,"issues":[{"issue":7,"status":"merged"}]}' >"$result_file"
 container 'exit 0'
 t_run "$work 7"
 t_eq "$t_rc" 2
@@ -110,7 +110,7 @@ fresh
 jq '.features += {failureReason: true, usageByRole: true}' "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
 container "progress '$(done_line 7:1:1 liar)'
 progress '{\"v\":1,\"kind\":\"dispatch-failed-provider\",\"unstable\":true,\"event\":{\"providerMessage\":\"from the progress\"}}'
-echo '{\"schemaVersion\":3,\"buildCommit\":null,\"exitCode\":10,\"issues\":[{\"issue\":7,\"status\":\"handoff\",\"cap\":\"step-failed:develop\",\"failure\":{\"kind\":\"provider\",\"message\":\"m\",\"providerMessage\":\"503 from the result\"},\"usage\":{\"dispatches\":1,\"byRole\":{\"developer\":{\"input\":3,\"output\":1,\"cacheRead\":0,\"turns\":2,\"dispatches\":1}}},\"exitCode\":10}]}'
+echo '{\"schemaVersion\":4,\"buildCommit\":null,\"exitCode\":10,\"issues\":[{\"issue\":7,\"status\":\"handoff\",\"cap\":\"step-failed:develop\",\"failure\":{\"kind\":\"provider\",\"message\":\"m\",\"providerMessage\":\"503 from the result\"},\"usage\":{\"dispatches\":1,\"byRole\":{\"developer\":{\"input\":3,\"output\":1,\"cacheRead\":0,\"turns\":2,\"dispatches\":1}}},\"exitCode\":10}]}'
 exit 10"
 t_run "$work 7"
 t_eq "$t_rc" 10
