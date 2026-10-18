@@ -220,7 +220,7 @@ neither stops the poll.
 Every real poll that holds the dispatcher's lock, a paused, held or failed one
 too, ends with one sample in the factory's analytics,
 `~/tehas/state/analytics.db`: `~/tehas/libexec/analytics sample` reads the
-issues in line, running, awaiting a merge and stopped from
+issues in line, running, awaiting a merge, stopped and in planning from
 `~/tehas/live/status.json`, the hold and the cycles allowed from
 `~/tehas/live/dispatch.json`, and the mesh's draw from
 `~/tehas/live/energy.json`. A file older than ten minutes gives no value, and a
@@ -1379,7 +1379,8 @@ call.
 Feed the [factory floor](/) and the [plain dashboard](/dashboard). `tehasbot status` writes the queue snapshot to
 `~/tehas/live/status.json`; the dispatcher runs it at every poll, and a cycle when it ends.
 Completed means closed by a merged pull request, whatever labels the issue was
-left with. `tehasbot status` gives each such issue `tehas:shipped`, so GitHub
+left with. `planning` is a count, not a list: the open issues labelled
+`tehas:plan` or `tehas:planning`, found by the same search as the lists. `tehasbot status` gives each such issue `tehas:shipped`, so GitHub
 lists the same issues; run `tehas labels` once so the label exists. The control
 issue, the one `TEHAS_CONTROL_ISSUE` names, is left out of every list and every
 count: it holds the pause label and is not work, whatever label it carries.
