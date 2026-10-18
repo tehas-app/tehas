@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for install.sh: a console build that is given no secret or fails,
-# a host without cargo, the footers' version, and a checkout without the
-# console's source.
+# a host without cargo, the footers' version, a checkout without the
+# console's source, and the analytics program built beside the console.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -11,8 +11,8 @@
 t_case "the build is given no variable named like a secret"
 fresh
 instance
-t_stub cargo 'env >"$T/cargo.env"
-mkdir -p "$CARGO_TARGET_DIR/release" && echo built >"$CARGO_TARGET_DIR/release/console"'
+t_stub cargo 'env >>"$T/cargo.env"
+mkdir -p "$CARGO_TARGET_DIR/release" && echo built >"$CARGO_TARGET_DIR/release/${*: -1}"'
 t_env GH_TOKEN=hidden-token DEPLOY_SECRET=hidden-secret DB_PASSWORD=hidden-word SOME_API_KEY=hidden-key PLAIN=kept
 t_run "$install"
 t_eq "$t_rc" 0
@@ -91,5 +91,79 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "$bare/console is missing from this checkout"
 t_eq "$(host_files | wc -l)" 0
 
+# A checkout of its own, so a case can change the source.
+checkout() {
+  part=$T/part
+  rm -rf "$part"
+  mkdir -p "$part"
+  cp -R "$T_ROOT/install.sh" "$T_ROOT/lib" "$T_ROOT/host" "$T_ROOT/bin" "$T_ROOT/libexec" "$part/"
+  t_console_source "$part"
+}
+
+t_case "analytics is built and installed beside the console, with its own stamp"
+fresh
+instance
+checkout
+t_run "$part/install.sh"
+t_eq "$t_rc" 0
+t_eq "$(cat "$th/libexec/analytics")" "an analytics built from source"
+t_eq "$(stat -c %a "$th/libexec/analytics")" 755
+t_eq "$(cut -d' ' -f2 "$th/libexec/analytics.stamp")" "$(sha256sum <"$th/libexec/analytics" | cut -d' ' -f1)"
+[ "$(cut -d' ' -f1 "$th/libexec/analytics.stamp")" != "$(cut -d' ' -f1 "$th/libexec/console.stamp")" ] ||
+  t_bad "analytics and the console have the same source checksum"
+t_run "$part/install.sh --check"
+t_contains "$t_out" "Installed:    OK"
+
+t_case "a change to analytics alone builds analytics alone, and the console's stamp stays"
+console_stamp=$(cat "$th/libexec/console.stamp")
+echo "// changed" >>"$part/console/analytics/src/main.rs"
+t_run "$part/install.sh --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "differs: $th/libexec/analytics"
+t_lacks "$t_out" "differs: $th/libexec/console"
+rm -f "$T/calls/cargo"
+t_env CONSOLE_BUILD="new source"
+t_run "$part/install.sh"
+t_eq "$t_rc" 0
+t_eq "$(t_calls cargo)" "build --release --locked --quiet --manifest-path $part/console/Cargo.toml --target-dir $T/target -p analytics"
+t_eq "$(cat "$th/libexec/analytics")" "an analytics built from new source"
+t_eq "$(cat "$th/libexec/console")" "a console built from source"
+t_eq "$(cat "$th/libexec/console.stamp")" "$console_stamp"
+t_env
+
+t_case "a change to the console alone builds the console alone"
+echo "// changed" >>"$part/console/src/main.rs"
+rm -f "$T/calls/cargo"
+t_run "$part/install.sh"
+t_eq "$(t_calls cargo)" "build --release --locked --quiet --manifest-path $part/console/Cargo.toml --target-dir $T/target -p console"
+
+t_case "the mask the two share builds both"
+echo "// changed" >>"$part/console/src/mask.rs"
+rm -f "$T/calls/cargo"
+t_run "$part/install.sh"
+t_eq "$(t_calls cargo | wc -l)" 2
+
+t_case "an analytics that does not build installs nothing, the console's build included"
+fresh
+instance
+t_env CARGO_FAIL=analytics
+t_run "$install"
+t_eq "$t_rc" 1
+t_contains "$t_out" "the analytics program did not build"
+t_eq "$(host_files | wc -l)" 0
+t_env
+
+t_case "on an installed host, a failed analytics build leaves the new console uninstalled"
+fresh
+instance
+checkout
+t_run "$part/install.sh"
+echo "// changed" >>"$part/console/src/mask.rs"
+t_env CARGO_FAIL=analytics CONSOLE_BUILD="new source"
+t_run "$part/install.sh"
+t_eq "$t_rc" 1
+t_eq "$(cat "$th/libexec/console")" "a console built from source"
+t_eq "$(cat "$th/libexec/analytics")" "an analytics built from source"
+t_env
 
 t_done
