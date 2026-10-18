@@ -5,7 +5,7 @@
 # It reads the markup, the stylesheets and the scripts that draw into the
 # markup as they are in the checkout: no browser, no server, no rendering.
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 page=$T_ROOT/host/fun/index.html
 game=$T_ROOT/host/fun/game-view.css

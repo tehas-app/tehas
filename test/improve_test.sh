@@ -4,7 +4,7 @@
 # docker and a stub gh.
 # shellcheck disable=SC2016  # stub bodies and snippets are expanded when they run
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 home=$T/home/tehas
 base=$home/tmp/improve

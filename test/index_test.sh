@@ -4,7 +4,7 @@
 # records its arguments, one per line, and answers as the indexer would.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 # The CPU quota and the ticket ceiling follow the host's CPUs: the same on
 # every test machine.
 t_stub nproc 'echo 16'

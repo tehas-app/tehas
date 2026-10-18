@@ -4,7 +4,7 @@
 # its arguments and what it is given on standard input.
 # shellcheck disable=SC2016  # stub bodies and snippets are expanded when they run
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 lib=". $T_ROOT/lib/attachments.sh"
 t_stub curl 'prev=""

@@ -5,7 +5,7 @@
 # against the real tree to see that every command has its script.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 # A scratch tree: the two commands, and a libexec/ whose scripts record their
 # name and arguments and exit with $RC.

@@ -3,7 +3,7 @@
 # curl plays the mesh: it answers with the status and the body the case set.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 energy="$T_ROOT/libexec/energy"
 file=$T/home/tehas/live/energy.json

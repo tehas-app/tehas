@@ -3,7 +3,7 @@
 # is reported about it.
 # shellcheck disable=SC2016  # snippets and stub bodies are expanded later
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 cycle="$T_ROOT/libexec/cycle"
 fx=$T/fx

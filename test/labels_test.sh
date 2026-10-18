@@ -4,7 +4,7 @@
 # tehas_label_allowed in lib/labels.sh: who applied a label, asked of GitHub.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 labels="$T_ROOT/libexec/labels"
 t_stub gh 'case "$*" in *"${FAIL_ON:-no label fails}"*) exit 1 ;; esac'
