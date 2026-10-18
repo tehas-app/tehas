@@ -269,18 +269,24 @@ station, counting stopped and not on the line) and says when no ticket data is
 loaded, when the factory is paused, or when the last cycle failed. The room
 above the panel belongs to the field, not to its face.
 
-On the right of the panel stands the live meter, over the height of the Steel
-head and the lines under it, there only while the model mesh reports (see Energy
-Use). It is a Bone Shade band closed off from the text by a 4px Outline rule:
-the draw now in watts and the tokens of the last minute, each in display type
-over a gauge of ten blocks, Brass for the filled ones. The power gauge is read
-against the chart's scale, the token gauge against the busiest minute of the
-last half hour. Where the mesh counts no tokens the meter shows power alone. It
-leads to Energy Use. The meter costs width and is given a column of its own:
-336px where the stage has its monitor column, which is the column above the
-monitor; 240px from 900px up to that same width; below 900px the panel is one
-column again and the meter lies across its foot at full width. Where the two do not fit side by side it is the meter that
-moves, never the text.
+At the head panel stands the live meter, there only while the model
+mesh reports (see Energy Use): the draw now in watts and the tokens of the last
+minute, each in display type over a gauge of ten blocks, Brass for the filled
+ones. The power gauge is read against the chart's scale, the token gauge against
+the busiest minute of the last half hour. Where the mesh counts no tokens the
+meter shows power alone. It leads to Energy Use.
+The meter costs width and is given a column of its own, 336px where the stage
+has its monitor column. From 1440px it stands in that column as a card of its
+own beside the panel, over the work order monitor: Bone Shade, a 4px Outline,
+the sign shadow, the same left and right edges as the monitor column below it,
+its top and bottom edges the panel's own whatever rows the panel holds, and the
+field in the 24px between them. The panel gives up that room, so its
+face ends at the stage's first column. Below 1440px the meter is a Bone Shade
+band inside the panel again, over the height of the Steel head and the lines
+under it, closed off from the text by a 4px Outline rule in a column of 240px;
+below 900px the panel is one column and the meter lies across its foot at full
+width. Where the two do not fit side by side it is the meter that moves, never
+the text.
 
 ### Station Sign
 A signboard: the station's scene, the name and count in display type, one
@@ -302,7 +308,8 @@ else on the page.
 Six Steel tiles in three columns (two on narrow screens): a name, a line of
 status beneath it, and a count in display type where there is one. The stopped
 door turns Brass when anything is stopped. A pressed door moves onto its
-shadow. The live meter is not one of the doors: it stands on the head panel.
+shadow. The live meter is not one of the doors: it stands at the head panel,
+as a card beside it where the stage has its monitor column.
 
 ### Monitor
 The selected work order on a cream-cased screen: number in display type, then
