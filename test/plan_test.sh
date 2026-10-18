@@ -126,6 +126,31 @@ slice_good() {
   slice_state 0.00
 }
 limits="--cgroup-parent --memory --memory-swap --memory-reservation --cpus --pids-limit --cpu-shares"
+# The security options of lib/sandbox.sh, the same eight words a cycle is given
+# (test/work_lib.sh holds the same pair for the cycle's tests).
+security_opts="--cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true"
+# The words after one option, read the way docker reads them.
+security_of() { # <flag> (reads the arguments on standard input)
+  awk -v flag="$1" 'prev == flag { print } { prev = $0 }'
+}
+# The same eight words, in order, as one line; empty when given another way.
+security_line() {
+  awk '
+    { arg[NR] = $0 }
+    END {
+      want[1] = "--cap-drop"; want[2] = "ALL"
+      want[3] = "--cap-add"; want[4] = "CHOWN"
+      want[5] = "--cap-add"; want[6] = "FOWNER"
+      want[7] = "--security-opt"; want[8] = "no-new-privileges:true"
+      for (i = 1; i <= NR; i++) {
+        if (seen >= 8) break
+        if (arg[i] != want[seen + 1]) continue
+        for (j = 1; j <= 8; j++) if (arg[i + j - 1] != want[j]) break
+        if (j > 8) { seen = 8; start = i }
+      }
+      if (seen == 8) for (i = start; i < start + 8; i++) printf "%s ", arg[i]
+    }'
+}
 
 turn_args() { grep -l -x -e '--mode' -e /opt/pi-rukas/bin/pi-rukas-headless "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
 after() { turn_args | awk -v flag="$1" 'prev == flag { print } { prev = $0 }'; }
@@ -298,7 +323,7 @@ reset
 t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 
 t_case "the planning container gets no option beyond the documented ones"
-t_eq "$(turn_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -i --init")" ""
+t_eq "$(turn_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt -w -v -e" "--rm -i --init")" ""
 t_eq "$(turn_args | grep -c -x -e --init)" 1
 t_eq "$(after --name)" "tehas-plan-7"
 t_eq "$(after -w)" "$ws"
@@ -318,7 +343,7 @@ rm_at=$(t_calls docker | grep -n -x -e 'rm -f tehas-plan-7' | cut -d: -f1 | head
 run_at=$(t_calls docker | grep -n -e ' --mode ' | cut -d: -f1 | head -n 1)
 t_eq "$([ -n "$rm_at" ] && [ -n "$run_at" ] && [ "$rm_at" -lt "$run_at" ] && echo before)" before
 
-t_case "the turn gets the slice and a cycle's limits, and the host aliases from the settings"
+t_case "the turn gets the slice, a cycle's limits and no privileges, and the host aliases from the settings"
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_CYCLE_RESERVE=1g PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
@@ -330,9 +355,13 @@ t_eq "$(after --memory-reservation)" "1g"
 t_eq "$(after --pids-limit)" "4096"
 t_eq "$(after --cpu-shares)" "1024"
 t_eq "$(after --cpus)" "3.75"
+t_eq "$(turn_args | security_line)" "$security_opts "
+t_eq "$(turn_args | security_of --cap-add | LC_ALL=C sort)" "CHOWN
+FOWNER"
+t_eq "$(turn_args | security_of --security-opt)" "no-new-privileges:true"
 t_lacks "$(turn_args)" "--cidfile"
 t_contains "$(turn_args)" "--add-host=models:192.0.2.9"
-t_eq "$(turn_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -i --init")" ""
+t_eq "$(turn_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt -w -v -e" "--rm -i --init")" ""
 
 t_case "the slice is read once: one systemctl call, one docker info"
 t_eq "$(t_calls systemctl)" "show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax"
@@ -986,7 +1015,7 @@ t_eq "$t_rc" 0
 t_eq "$(jq -c '[.issue, (.images | map(.file))]' "$T/keep/images/manifest.json")" '[7,["image-1.png"]]'
 t_eq "$(after -v | grep -c -x "$tree.images:$ws.images:ro")" 1
 t_eq "$(after -e | grep '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$ws.images"
-t_eq "$(turn_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -i --init")" ""
+t_eq "$(turn_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt -w -v -e" "--rm -i --init")" ""
 t_contains "$(cat "$T/calls/gh.comments")" "Tehas gave this planning session 1 image from the issue text."
 t_eq "$([ -e "$tree.images" ] && echo left)" ""
 
@@ -1039,7 +1068,7 @@ t_eq "$(jq -r .described "$T/keep/images/manifest.json")" images.md
 t_eq "$(after -v | grep -c images)" 1
 t_eq "$(after -v | grep -c -x "$tree.images:$ws.images:ro")" 1
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_ENSEMBLE_EXTRA_IMAGE_DIRS PI_ENSEMBLE_PLAN_ISSUE | LC_ALL=C sort)"
-t_eq "$(turn_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -i --init")" ""
+t_eq "$(turn_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt -w -v -e" "--rm -i --init")" ""
 
 t_case "a later turn describes nothing again"
 agent_leaves abc-123 '{"session":"abc-123","turn":1}'
@@ -1066,7 +1095,7 @@ t_eq "$(after -v | grep -c images)" 1
 t_eq "$(after -v | grep -c -x "$tree.images:$ws.images:ro")" 1
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_ENSEMBLE_EXTRA_IMAGE_DIRS PI_ENSEMBLE_PLAN_ISSUE | LC_ALL=C sort)"
 t_eq "$(after -e | grep '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$ws.images"
-t_eq "$(turn_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -i --init")" ""
+t_eq "$(turn_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt -w -v -e" "--rm -i --init")" ""
 t_lacks "$(cat "$T/calls/curl.urls")" "$A/1111"
 t_contains "$(cat "$T/calls/gh.comments")" "Tehas fetched 1 file from the issue text for this planning session"
 
@@ -1137,7 +1166,7 @@ t_eq "$(after -e | grep '^PI_ENSEMBLE_PLAN_ISSUE')" "PI_ENSEMBLE_PLAN_ISSUE=7"
 t_eq "$(after -v | grep -c images)" 1
 t_eq "$(after -v | grep -c -x "$tree.images:$ws.images:ro")" 1
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_ENSEMBLE_EXTRA_IMAGE_DIRS PI_ENSEMBLE_PLAN_ISSUE | LC_ALL=C sort)"
-t_eq "$(turn_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -i --init")" ""
+t_eq "$(turn_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt -w -v -e" "--rm -i --init")" ""
 
 t_case "a reply over the limits leaves the link out and says so on the issue"
 first_turn

@@ -225,7 +225,8 @@ unset PI_ENSEMBLE_PLAN_CACHE_TTL_MS
 cache_opts=(-e PI_ENSEMBLE_PLAN_CACHE_TTL_MS=0)
 mapfile -d '' -t envs < <(tehas_sandbox_env "$repo" "$bot_name" "$bot_email")
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
-[ "${#envs[@]}" -gt 0 ] ||
+mapfile -d '' -t sec < <(tehas_sandbox_security)
+[ "${#envs[@]}" -gt 0 ] && [ "${#sec[@]}" -eq 8 ] ||
   { echo "tehas plan: could not prepare the sandbox, not starting a turn" >&2; exit 78; }
 
 # A fresh workspace for this turn, as a cycle gets one. Only a directory tehas
@@ -436,7 +437,7 @@ send() { (trap '' PIPE; printf '%s\n' "$1" >&4) 2>/dev/null; }
 # ever and Docker would refuse the name.
 docker rm -f "$name" >/dev/null 2>&1
 docker run --rm -i --init --name "$name" \
-  "${TEHAS_SLICE_LIMITS[@]}" \
+  "${TEHAS_SLICE_LIMITS[@]}" "${sec[@]}" \
   -w "$repo" "${mounts[@]}" "${image_opts[@]}" \
   "${envs[@]}" "${cache_opts[@]}" "${hosts[@]}" \
   "$image" pi --mode rpc --approve "${args[@]}" <&3 >"$log" 2>"$log.err" 3<&- 4>&- &

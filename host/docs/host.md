@@ -642,7 +642,43 @@ The analyst is a batch job with limits of its own: the slice, one CPU
 (`--cpus 1`), `--memory 2g`, the same for `--memory-swap`, `--pids-limit 1024`
 and the same CPU weight. The check that the sandbox can push, which `tehas
 work` runs for a few seconds before a cycle, is not in the slice and has no
-limits. Previews, image builds and the edge router are outside the slice too.
+limits. It is given the security options below. Previews, image builds and the
+edge router are outside the slice too.
+
+### What a container may not do
+
+A cycle, a planning turn, a `tehas dev` session and the push check before a
+cycle all get these eight words, from `tehas_sandbox_security` in
+`lib/sandbox.sh`, beside the mounts and the variables. The indexer and the
+analyst are not given them yet (issue #54 leaves them to a follow-up).
+
+| Option | Value | What it does |
+| --- | --- | --- |
+| `--cap-drop` | `ALL` | Takes away every capability Docker grants by default: `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `FSETID`, `KILL`, `NET_BIND_SERVICE`, `SETFCAP`, `SETGID`, `SETPCAP`, `SETUID`, `SYS_CHROOT`, `MKNOD`, `AUDIT_WRITE`, `NET_RAW` |
+| `--cap-add` | `CHOWN` | `npm install` drops a package to its owner with `chown(2)`, and Playwright's install of Chromium copies a cache tree that way. Both run in a gate of the product. Without it the gate fails with `EPERM` |
+| `--cap-add` | `FOWNER` | `npm` moves its staging directory onto its destination with `rename`, which is refused for a file one does not own even when the directory is writable. `tar`'s unpack, `cargo install` of a built crate and a gate's own `mv` do the same |
+| `--security-opt` | `no-new-privileges:true` | No process in the container gains rights through its mode bits or file capabilities, whatever it runs |
+
+What is left off the list on purpose: `SETUID` and `SETGID`, because nothing a
+cycle runs becomes another user (the image has no `sudo`, the container runs as
+one uid, and tehas gives it no setuid program to reach another); `SYS_ADMIN`,
+the one capability that would let a container mount anything, which Chromium's
+own sandbox would want, and Playwright's Chromium is run with `--no-sandbox`
+instead; and `NET_RAW`, which nothing needs: the agents reach GitHub and the
+models over HTTP with `curl`, `git`, `npm` and `cargo`, none of which opens a
+raw socket. `no-new-privileges:true` breaks `sudo` inside the image, and
+nothing in `host/sandbox/Dockerfile` installs it or relies on it.
+
+The root filesystem stays writable, unlike a preview's: a cycle's gate installs
+into its own tree and its caches, and a read-only root would need one `--tmpfs`
+for every directory a tool writes in. The process table is bounded by
+`--pids-limit`, in the table above.
+
+`test/work_test.sh`, `test/plan_test.sh` and `test/dev_test.sh` pin each of
+these words on the `docker run` line of their own container, and
+`test/work_caps_test.sh` pins the function that prints them. Whether a whole
+cycle still builds, tests and drives a headless browser with them is not yet
+seen on a host: see the sandbox row of the [features page](/features).
 
 Nothing starts outside the slice. `tehas work`, `tehas plan`, `tehas dev`,
 `tehas index` and `tehasbot improve` ask once whether the slice is usable:
@@ -1157,7 +1193,8 @@ Two recommendations follow from that table:
 
 `test/work_test.sh` in the platform repository pins what the container is
 given: the mounts, the variables and every other option of both `docker run`
-calls.
+calls, the security options of [What a container may not
+do](#what-a-container-may-not-do) among them.
 
 ### A session by hand
 
