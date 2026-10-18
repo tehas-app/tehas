@@ -9,7 +9,7 @@
 #
 # Before anything is moved or fetched, the image is asked what it supports
 # (`pi-rukas-headless --capabilities`). The cycle starts only when the image
-# speaks the contract versions read here (exit codes 1, result schema 3, stable
+# speaks the contract versions read here (exit codes 1, result schema 4, stable
 # NDJSON 1), takes the flags passed, lists every PI_ENSEMBLE_* variable the
 # container is given as an input a host may set, and has the features this
 # command relies on: the host handoff channel, the cycle deadline when one is
@@ -54,11 +54,14 @@
 #              40 refused to start.
 #              2 the cycle was stopped here as stalled or at the time limit
 #                (status "timeout", state/cycles/<issue>.timed),
-#                or the runner ended without a result. The file holds the
-#                seconds and, on a second line, the step in flight as the
-#                runner's progress last said it, or "-". tehasbot cycle
-#                records the stop as tehas's own cap, cycle-time-limit or
-#                stall, naming that step.
+#                or the runner ended without a result.
+#              A stall file holds the seconds and, on a second line, the step
+#              in flight as the runner's progress last said it, or "-".
+#              A runner that stopped itself at the time limit, its result
+#              naming no cap and no end, keeps its own exit status; its status
+#              is "timeout" and it leaves state/cycles/<issue>.timed too.
+#              That file holds the limit in seconds, who stopped the cycle
+#              (tehas or runner) and the step it was in.
 #              3 the sandbox cannot push to the repository; no cycle was started.
 #              4 the instance gives a cycle the issue's images or files and one
 #                could not be fetched, the issue could not be read for them, or
@@ -752,11 +755,24 @@ else
   [ "$stalled" = 0 ] || status=stalled
   [ "$timed" = 0 ] || status=timeout
 fi
-# The step in flight when this command stopped the container, as the runner's
-# progress last said it: a runner stopped mid-step may write no result.
-inflight=$(tehas_headless_now "$log" | head -n 1 | tr -cd 'A-Za-z0-9_.-' | head -c 40)
+# The runner stops itself at the --timeout it is given, which is this
+# command's time limit. Its result then names no cap and no end, so the time
+# limit ended the cycle as surely as a stop made here.
+ran_out=0
+if [ "$timed" = 0 ] && [ "$stalled" = 0 ] && [ "$interrupted" = 0 ] && [ "$rc" != 137 ] &&
+  [ $(($(date +%s) - started)) -ge "$limit" ] && [ -z "$(jq -r '.cap // ""' <<<"$outcome" 2>/dev/null)" ]; then
+  case "$status" in running | unknown | interrupted) ran_out=1 status=timeout ;; esac
+fi
+inflight=$(jq -r '[.failedStep, .lastStep] | map(strings | select(. != "")) | first // ""' <<<"$outcome" 2>/dev/null)
+[ -n "$inflight" ] || inflight=$(tehas_headless_now "$log" | head -n 1)
+inflight=$(printf '%s' "$inflight" | tr -cd 'A-Za-z0-9_.:-' | head -c 40)
 inflight=${inflight:--}
-[ "$timed" = 0 ] || printf '%s\n%s\n' "$limit" "$inflight" >"$timed_file" || echo "tehas work: could not write $timed_file" >&2
+if [ "$timed" = 1 ] || [ "$ran_out" = 1 ]; then
+  # The limit, who stopped the cycle and the step it was in.
+  by=tehas
+  [ "$ran_out" = 0 ] || by=runner
+  echo "$limit $by ${inflight:--}" >"$timed_file" || echo "tehas work: could not write $timed_file" >&2
+fi
 [ "$stalled" = 0 ] || printf '%s\n%s\n' "$stall" "$inflight" >"$stall_file" || echo "tehas work: could not write $stall_file" >&2
 # A container that ended with 137 was killed. It is this cycle's end only when
 # nobody here stopped it and the runner wrote no result.
@@ -791,14 +807,14 @@ crc=$?
 
 step=$(jq -r '[.failedStep, .lastStep] | map(strings | select(. != "")) | first // "-"' <<<"$outcome" 2>/dev/null)
 step=${step:--}
-[ "$step" != - ] || { [ "$timed" = 0 ] && [ "$stalled" = 0 ]; } || step=$inflight
+[ "$step" != - ] || { [ "$timed" = 0 ] && [ "$stalled" = 0 ] && [ "$ran_out" = 0 ]; } || step=$inflight
 now_file false "$status"
 cp "$result_file" "$log.result.json" 2>/dev/null || true
 tehas_headless_progress "$log" "$caps" "$result_file" "$issue" >"$progress_file" || echo "tehas work: could not write $progress_file" >&2
 cap=$(jq -r '.cap // ""' <<<"$outcome" 2>/dev/null)
 # A stop this command made is its own cap, unless the runner had ended first.
 case "$status" in
-  timeout) cap=cycle-time-limit ;;
+  timeout) cap=wall-clock ;;
   stalled) cap=stall ;;
 esac
 echo "tehas work: issue=$issue status=$status step=$step cap=${cap:--} runner_exit=$rc seconds=$(($(date +%s) - started))"

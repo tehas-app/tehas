@@ -10,7 +10,7 @@
 # to, and nothing else: no token, no repository, no tool that runs a command
 # or opens a connection. This script makes every GitHub call, checks the one
 # file the analyst leaves against a fixed shape, and writes the issue itself.
-# test/improve_test.sh pins what the container is given. It runs in
+# test/improve_run_test.sh pins what the container is given. It runs in
 # tehas.slice, as every sandbox container does, with limits of its own: one
 # CPU, 2g of memory and no swap. Without a usable slice a run with records to
 # read stops before it calls GitHub, and the records wait.

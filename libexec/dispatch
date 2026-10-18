@@ -121,9 +121,13 @@
 #      A tehas:ready from an account outside the list authorises nothing, so
 #      the poll takes it off and says so once on the issue: left in place it
 #      reads as a request for a cycle to everyone who reads the issue. A
-#      tehas:plan from such an account is taken off the same way. The one
-#      exception is the fixer, TEHAS_FIXER_LOGIN, which is never the bot: its
-#      tehas:ready starts a cycle on an issue an allowed account approved
+#      tehas:plan from such an account is taken off the same way. The control
+#      issue that carries tehas:pause is never work: whoever applies
+#      tehas:ready or tehas:plan to the number TEHAS_CONTROL_ISSUE names, or
+#      ticks a retry box on it, starts nothing, and the label stays where it
+#      is. The poll says so once, as it says a label of an account that is not
+#      allowed. The one exception is TEHAS_FIXER_LOGIN, which is never the bot:
+#      its tehas:ready starts a cycle on an issue an allowed account approved
 #      before, whose body is still the body that account approved, at most
 #      TEHAS_FIXER_MAX_RETRIES times since (lib/fixer.sh). Otherwise the poll
 #      takes its label off and says why. A start takes tehas:fixer-escalated
@@ -307,7 +311,10 @@ if ! flock -n 8; then
   # Every later poll stops here while one hangs, so the hang is said, once
   # for each take of the lock. A poll runs no planning turn and no index: it
   # calls GitHub, fetches, and waits for the cycles it starts.
-  at=$(head -c 16 "$taken" 2>/dev/null | head -n 1) || at=""
+  # Read without a pipe: under pipefail the first head can die of SIGPIPE when
+  # the second has its line, and the hang would go unsaid.
+  at=$(head -c 16 "$taken" 2>/dev/null) || at=""
+  at=${at%%$'\n'*}
   bound=1800
   if [[ $at =~ ^[0-9]{1,12}$ ]] && [ $(($(date +%s) - at)) -gt "$bound" ] &&
     { [ "$dry" = 1 ] || [ "$(head -c 16 "$stuck" 2>/dev/null)" != "$at" ]; }; then
@@ -568,6 +575,23 @@ issue_events() {
 
 who=""
 at=""
+
+# The control issue is the pause switch, not work. It holds no outcome, so a
+# cycle on it spends a slot, model time and an issue's worth of tokens on the
+# label that stops the factory. Every ask to work on it is refused at the
+# earliest moment this poll can tell that the issue is the control one and that
+# nothing else holds the ask back. Whoever applied the label, and whether or not
+# the account is allowed, the number of TEHAS_CONTROL_ISSUE is never picked, and
+# the poll changes no label of it: it does not clear a switch. One line a poll at
+# most, as the refusal of a label from an account outside the list is, so a
+# control issue that keeps a label nobody will take off says itself once.
+control_skipped=0
+control_ask() { # <issue> <what was asked of it>: 0 when the issue is the control one
+  [ "$1" = "$control" ] || return 1
+  [ "$control_skipped" = 1 ] ||
+    { log "skip #$1: the control issue is never worked on ($2)"; control_skipped=1; }
+  return 0
+}
 
 # label_actor <issue> <label>: the account that applied the label most recently,
 # and when, in $who and $at; both empty when no event applies to that label.
@@ -1333,6 +1357,7 @@ report_demand() {
     return 0
   fi
   for n in $list; do
+    [ "$n" = "$control" ] && continue
     if [ -e "$(plan_state "$n")" ] || tehas_cycle_running "$n"; then continue; fi
     if ! ev=$(gh api "repos/$repo/issues/$n/events?per_page=100" --paginate 2>/dev/null) ||
       ! line=$(tehas_label_actor tehas:ready <<<"$ev"); then
@@ -1991,6 +2016,9 @@ for st in "$TEHAS_HOME"/state/plan-*.json; do
   esac
 done
 for n in $asking; do
+  # The pause switch before its comments are read: a box ticked on the
+  # control issue's question starts no cycle, runs no turn and spends no tick.
+  control_ask "$n" "its question was answered" && continue
   have=" $(jq -r --argjson n "$n" '[.[] | select(.number == $n) | (.labels // [])[].name] | join(" ")' <<<"$asking_json") "
   # Which comment is the question is decided here, from this host's own
   # files, before a comment is read: the planning record's, else the parked
@@ -2261,6 +2289,9 @@ for n in $plans; do
     break
   fi
   slice_ok || break
+  # Before the label is read: the control issue starts no planning session,
+  # whoever applied the label, and no label of it is changed.
+  control_ask "$n" "\`tehas:plan\`" && continue
   if ! limit_plan_ok; then
     [ "$dry" = 0 ] || log "planning #$n waits: the limit holds new planning turns"
     break
@@ -2310,6 +2341,7 @@ for pf in $(tehas_cycle_note_files park); do
   by=$(head -c 64 "$TEHAS_HOME/state/cycles/$n.by" 2>/dev/null | head -n 1)
   # A label of a person's decides it, in rule 6 or by waiting.
   [[ $have != *" tehas:ready "* ]] || continue
+  control_ask "$n" "a cycle its provider outage parked asked to start again" && continue
   if [ "$(jq -r '.state // ""' <<<"$json")" != OPEN ] || [[ $have != *" needs-human-attention "* ]] ||
     [[ $have == *" tehas:running "* ]] || [ -e "$(plan_state "$n")" ] || ! tehas_allowed_labeler "$by" ||
     ! unchanged_since "$n" "$(date -u -d "@$(jq -r .started "$pf")" +%FT%TZ)" "its last cycle began" "apply tehas:ready"; then
@@ -2409,6 +2441,10 @@ while read -r kind n; do
     log "skip #$n: a planning session is open on it; end it first"
     continue
   fi
+  # The pause switch, whatever label it carries and whoever applied one: said
+  # before the events of the issue are read, so it costs no call to GitHub and
+  # no change of its labels.
+  control_ask "$n" "\`tehas:ready\`" && continue
   # The label asks for a fresh cycle. It gets one when this one has ended, and
   # stays on the issue until then. A running cycle is never stopped for it.
   if tehas_cycle_running "$n"; then

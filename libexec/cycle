@@ -54,10 +54,12 @@
 # nothing moved and at which step. A runner that did not stop at its own time
 # limit is stopped by tehas work, which leaves the limit's seconds in
 # state/cycles/<issue>.timed: the status is then "timeout", said the same way.
-# A second line of either file is the step that was in flight, used where the
-# result names none. Such a stop is on record as tehas's own cap,
-# cycle-time-limit or stall, with capReason naming the step and any cap the
+# The stop files name the step in flight, used where the result names none.
+# Such a stop is on record as tehas's own cap,
+# wall-clock or stall, with capReason naming the step and any cap the
 # runner had named, unless the result names an end the runner reached first.
+# So is a runner that stopped itself at the time limit and named no cap. Both
+# go on record with tehas's own cap wall-clock and the step the cycle was in.
 #
 # A runner that exits 4 started no cycle: the instance gives a cycle the
 # images or files its issue links (TEHAS_WORK_IMAGES, TEHAS_WORK_FILES) and one
@@ -378,7 +380,7 @@ if [ -f "$forks_file" ] && [ ! -L "$forks_file" ]; then
   [[ $forks =~ ^(0|[1-9][0-9]{0,8})$ ]] || forks=0
 fi
 rm -f "${cycles:?}/${issue:?}.forks"
-# The stop files of tehas work: the seconds, and on a second line the step
+# The stall file of tehas work: the seconds, and on a second line the step
 # that was in flight, which stands in for a step the result does not name.
 stop_secs=0 stop_step=""
 stop_read() { # <file>: set stop_secs and, when it names one, stop_step
@@ -394,11 +396,6 @@ stall_file=${cycles:?}/${issue:?}.stalled
 stop_read "$stall_file"
 stalled=$stop_secs
 rm -f "$stall_file"
-# tehas work stopped a runner that did not stop at its own time limit.
-timed_file=${cycles:?}/${issue:?}.timed
-stop_read "$timed_file"
-timed=$stop_secs
-rm -f "$timed_file"
 [ "$step" != - ] || [ -z "$stop_step" ] || step=$stop_step
 # The image the container started from, as tehas work saw it, for the record.
 image_id="" image_rukas=""
@@ -413,9 +410,25 @@ if [ "$stalled" != 0 ]; then
   case "$status" in running | unknown | interrupted) status=stalled ;; esac
   killed="$killed None of its logs changed for $((stalled / 60)) min at step \`$step\`, so tehas stopped it before its time limit."
 fi
+# The cycle ended at its time limit: tehas work stopped a runner that did not
+# stop at it, or the runner stopped itself there. The file says the limit, who
+# stopped it and the step it was in, for a result that names none.
+timed=0 timed_by="" timed_step=""
+timed_file=${cycles:?}/${issue:?}.timed
+if [ -f "$timed_file" ] && [ ! -L "$timed_file" ]; then
+  read -r timed timed_by timed_step _ < <(head -c 200 "$timed_file" 2>/dev/null | head -n 1)
+  [[ $timed =~ ^(0|[1-9][0-9]{0,8})$ ]] || timed=0
+  [[ $timed_step =~ ^[A-Za-z0-9_.:-]{1,40}$ ]] && [ "$timed_step" != - ] || timed_step=""
+fi
+rm -f "$timed_file"
 if [ "$timed" != 0 ]; then
   case "$status" in running | unknown | interrupted) status=timeout ;; esac
-  killed="$killed It ran past its time limit of $((timed / 60)) min at step \`$step\`, and the runner did not stop on its own, so tehas stopped it."
+  [ "$step" != - ] || [ -z "$timed_step" ] || step=$timed_step
+  if [ "$timed_by" = runner ]; then
+    killed="$killed It reached its time limit of $((timed / 60)) min at step \`$step\`, and the runner stopped there."
+  else
+    killed="$killed It ran past its time limit of $((timed / 60)) min at step \`$step\`, and the runner did not stop on its own, so tehas stopped it."
+  fi
 fi
 [ "$forks" = 0 ] || killed="$killed Its container reached its limit of processes and $forks starts of a process were refused: what the cycle ran after that may not have run."
 branch=$(jq -r '.branch // ""' <<<"$outcome")
@@ -474,14 +487,18 @@ fi
 # record.
 own=""
 if [ "$timed" != 0 ] && { [ -z "$cap" ] || [ "$status" = timeout ]; }; then
-  own=cycle-time-limit
-  stop_why="tehas work stopped the container at the time limit of ${timed}s"
+  own=wall-clock
+  if [ "$timed_by" = runner ]; then
+    stop_why="the cycle reached its time limit, TEHAS_WORK_TIMEOUT=${timed}s, at step $step"
+  else
+    stop_why="tehas work stopped the container at the time limit of ${timed}s"
+  fi
 elif [ "$stalled" != 0 ] && { [ -z "$cap" ] || [ "$status" = stalled ]; }; then
   own=stall
   stop_why="tehas work stopped the container when no log changed for ${stalled}s"
 fi
 if [ -n "$own" ]; then
-  stop_why="$stop_why, step $step in flight"
+  [ "$own" = wall-clock ] && [ "$timed_by" = runner ] || stop_why="$stop_why, step $step in flight"
   [ -z "$cap" ] || stop_why="$stop_why; the runner had named the cap $cap"
   reason=$(printf '%s' "$stop_why${reason:+; $reason}" | head -c 200)
   cap=$own
@@ -550,9 +567,9 @@ stuck=" The label of this issue could not be changed. The next poll of the dispa
 summary="status \`$status\`, last step \`$step\`, $mins min"
 # Why the cycle stopped, for a comment: its cap and, for an intent park, the
 # reason. A cap is a word of the runner's published vocabulary, or one of
-# `cycle-time-limit` / `stall` that tehas sets for a stop it made itself.
+# `wall-clock` / `stall` that tehas sets for a stop at its own bound.
 why=""
-if [ "$cap" = cycle-time-limit ] || [ "$cap" = stall ]; then
+if [ "$cap" = wall-clock ] || [ "$cap" = stall ]; then
   why=" tehas stopped the cycle: the cap \`$cap\`."
 else
   [ -z "$cap" ] || why=" pi-rukas stopped on the cap \`$cap\`${park_reason:+ (\`$park_reason\`)}."

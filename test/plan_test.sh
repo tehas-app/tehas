@@ -49,12 +49,56 @@ case " $* " in *" --mode "*)
   cat "$ws/.git/pi-plan-cache/"*.json >"$T/calls/cache.read" 2>/dev/null
   # What the agent leaves in the plan cache, when a case says.
   [ ! -e "$T/fx/cache" ] || . "$T/fx/cache"
+  # The host directory the container has at /home/vscode/.pi/agent/sessions,
+  # read from the mounts of this call: the state directory of the turn, made
+  # anew for it, so what it holds was put there by tehas. The id is the
+  # argument after --session, empty for a first turn. A later turn has the
+  # file only when tehas carried the sessions of the last turn across.
+  container=/home/vscode/.pi/agent/sessions
+  mount=$(grep -F -e "$container" "$T/calls/docker.args.$$" | head -n 1)
+  mount_at=:$container
+  pstate=${mount%$mount_at}
+  sid=$(grep -F -A 1 -x -- --session "$T/calls/docker.args.$$" |
+    grep -v -F -x -- --session | head -n 1)
+  # What the turn was given to reopen, then what its agent leaves there: the
+  # text of the session, when a case says, as the agent would leave it.
+  ls -A "$pstate" >"$T/calls/sessions.given" 2>/dev/null
+  head -n 1 "$pstate/$sid.jsonl" >"$T/calls/sessions.first" 2>/dev/null
+  cat "$pstate/nested/part.json" >"$T/calls/sessions.nested" 2>/dev/null
+  # What the agent of this turn writes, when a case says the container wrote
+  # anything at all: the file of the session, a directory beside it, or both
+  # or neither. The state directory belongs to the turn alone, so the stub
+  # makes it anew first: what it finds there was carried across by tehas.
+  if [ -e "$T/fx/session.any" ]; then
+    rm -rf "$pstate"
+    mkdir -p "$pstate"
+    sid=$(cat "$T/fx/session.id")
+    [ ! -e "$T/fx/session.text" ] || cp "$T/fx/session.text" "$pstate/$sid.jsonl"
+    if [ -e "$T/fx/session.part" ]; then
+      mkdir -p "$pstate/nested"
+      cp "$T/fx/session.part" "$pstate/nested/part.json"
+    fi
+    ls -A "$pstate" >"$T/calls/sessions.wrote" 2>/dev/null
+    # A turn whose agent wrote nothing leaves an empty directory, which tehas
+    # keeps as nothing: what an earlier turn left is then gone.
+    keep_dir=$pstate
+    ls -A "$pstate" | head -n 1 | grep -q . || rm -rf "$keep_dir"
+  fi
+  # Pi has a session only when its file is under the directory it was given,
+  # so a later turn with nothing to reopen is told of one with no messages. A
+  # case that wants the session itself gone, whatever the directory holds,
+  # says so with $T/fx/no_session.
+  messages=6
+  if [ -n "$sid" ]; then
+    [ -e "$T/fx/no_session" ] && messages=0
+    [ -e "$pstate/$sid.jsonl" ] || messages=0
+  fi
   IFS= read -r line
   # A later turn first asks what is in the session it opened.
   case "$line" in *"\"id\":\"opened\""*)
     printf "%s\n" "$line" >"$T/calls/docker.opened"
     if [ -e "$T/fx/opened" ]; then . "$T/fx/opened"
-    else echo "{\"id\":\"opened\",\"type\":\"response\",\"command\":\"get_state\",\"success\":true,\"data\":{\"sessionId\":\"abc-123\",\"messageCount\":6}}"; fi
+    else echo "{\"id\":\"opened\",\"type\":\"response\",\"command\":\"get_state\",\"success\":true,\"data\":{\"sessionId\":\"abc-123\",\"messageCount\":$messages}}"; fi
     IFS= read -r -t 5 line ;;
   esac
   printf "%s\n" "$line" >"$T/calls/docker.stdin"
@@ -88,7 +132,7 @@ after() { turn_args | awk -v flag="$1" 'prev == flag { print } { prev = $0 }'; }
 image="tehas/pi-rukas:uid$(id -u)"
 tail_of() { turn_args | sed -n "/^$(printf '%s' "$image" | sed 's/[\/.]/\\&/g')\$/,\$p" | tr '\n' ' '; }
 # Every option that is not one this command is known to pass, up to the image
-# name, read the way docker reads them. See test/work_test.sh.
+# name, read the way docker reads them. See test/work_lib.sh.
 unknown_options() { # <image> <options that take a value> <options that take none>
   awk -v image="$1" -v valued=" $2 " -v plain=" $3 " '
     NR == 1 { next } # "run"
@@ -116,8 +160,26 @@ asked() {
 {"id":"text","type":"response","command":"get_last_assistant_text","success":true,"data":{"text":"Two ways.\nPick one."}}
 EOF
 }
+# What the agent of a turn leaves in the sessions directory of its turn: the
+# host directory behind /home/vscode/.pi/agent/sessions, which tehas keeps for
+# the next turn. The case writes the text of the session; the stub copies it
+# in under the id of the turn, as the agent would leave it. The second form
+# leaves the file alone, as a container that wrote nothing does.
+agent_leaves() { # <the id of the session> <what it holds>
+  : >"$fx/session.any"
+  printf '%s\n' "$2" >"$fx/session.text"
+  printf '%s\n' '{"part":2}' >"$fx/session.part"
+  printf '%s\n' "$1" >"$fx/session.id"
+}
+# A container whose agent wrote no session at all.
+agent_leaves_nothing() {
+  : >"$fx/session.any"
+  rm -f "$fx/session.text" "$fx/session.part" "$fx/session.id"
+}
 reset() {
-  rm -rf "$T"/calls/* "$T/out.json" "$fx/live" "$fx/cache" "$fx/fetch" "$fx/opened" "$T/keep"
+  rm -rf "$T"/calls/* "$T/out.json" "$fx/live" "$fx/cache" "$fx/fetch" "$fx/opened" \
+    "$fx/session.any" "$fx/session.text" "$fx/session.part" "$fx/session.id" \
+    "$fx/no_session" "$T/keep"
   asked
   t_instance "${T_MINIMAL[@]}"
   T_ENV=(GH_TOKEN=test-token "TEHAS_CGROUP_ROOT=$T_CGROUP")
@@ -294,7 +356,7 @@ turn_args | options | without_expiry | grep -v -x -e '-i' |
   sed -e "s|^$tree:|$ws-7:|" -e 's|/ensemble-runs/plan-7:|/ensemble-runs/issue-7:|' -e 's|widget-plan-7\.state|widget-7.state|' >"$T/plan.options"
 rm -f "$T"/calls/*
 # What the image says it supports: every input the container is given.
-jq -n '{contracts: {exitCodes: {version: 1}, resultSchema: {version: 3}, ndjson: {stable: {version: 1}}},
+jq -n '{contracts: {exitCodes: {version: 1}, resultSchema: {version: 4}, ndjson: {stable: {version: 1}}},
   verbs: {work: {flags: ["--restart", "--json", "--timeout"]}},
   inputs: [("SANDBOX_MODE", "WORKSPACE_ROOT", "MAX_WORKSTREAMS", "VERIFY_TIMEOUT_MS", "INTEGRATION_VERIFY_TIMEOUT_MS",
     "SUBAGENT_MODEL", "SUBAGENT_PROVIDER", "HANDOFF_CHANNEL", "HANDOFF_TIMEOUT_MS", "CYCLE_DEADLINE", "VERIFY_CONCURRENCY")
@@ -310,6 +372,11 @@ t_eq "$(tail_of)" "$image /opt/pi-rukas/bin/pi-rukas-headless work 7 --timeout 3
 
 t_case "a later turn reopens the session and sends the answer as it was written"
 reset
+agent_leaves abc-123 '{"session":"abc-123","turn":1}'
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+agent_leaves_nothing
+rm -f "$T"/calls/*
 printf '%s\n' '- "Adopt all", but keep `tagged-at` open' '' "second line with 'quotes' and \$HOME" >"$T/answer.md"
 t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
 t_eq "$t_rc" 0
@@ -450,6 +517,7 @@ t_eq "$([ -e "$T/out.json" ] && echo written)" ""
 
 t_case "a later turn that never settled leaves the session it was given"
 reset
+agent_leaves abc-123 '{"session":"abc-123","turn":1}'
 grep -v -e agent_settled -e get_state "$fx/turn.jsonl" >"$fx/turn.new" && mv "$fx/turn.new" "$fx/turn.jsonl"
 t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/brief.md"
 t_eq "$t_rc" 2
@@ -726,6 +794,11 @@ t_eq "$(cat "$T/keep/pi-plan-cache/a1.filed")" "filed"
 t_eq "$([ -e "$tree" ] && echo left)" ""
 
 t_case "a later turn is at the session's commit after the branch moved on, with the cache it left and the approved text"
+agent_leaves abc-123 '{"session":"abc-123","turn":1}'
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+agent_leaves_nothing
+rm -f "$T"/calls/*
 pinned=$(cat "$T/keep/commit")
 rm -f "$fx/cache" "$T"/calls/*
 git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m second
@@ -745,6 +818,12 @@ t_eq "$(cat "$T/calls/cache.read")" '{"spec":"one"}'
 t_eq "$(cat "$T/keep/commit")" "$pinned"
 
 t_case "a fetch inside a later turn leaves origin/main at the session's commit, and a push still works"
+agent_leaves abc-123 '{"session":"abc-123","turn":1}'
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+agent_leaves_nothing
+rm -f "$T"/calls/*
+pinned=$(cat "$T/keep/commit")
 rm -f "$T"/calls/*
 : >"$fx/fetch"
 t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
@@ -756,6 +835,11 @@ t_eq "$(git -C "$upstream" rev-parse plan-push)" "$pinned"
 rm -f "$fx/fetch"
 
 t_case "a later turn whose commit is gone, or was never noted, starts at the tip and says so"
+agent_leaves abc-123 '{"session":"abc-123","turn":1}'
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+agent_leaves_nothing
+rm -f "$T"/calls/*
 for pin in 0123456789abcdef0123456789abcdef01234567 "not a commit"; do
   rm -f "$T"/calls/*
   echo "$pin" >"$T/keep/commit"
@@ -765,8 +849,78 @@ for pin in 0123456789abcdef0123456789abcdef01234567 "not a commit"; do
   t_contains "$t_out" "the turn starts at the tip of main"
 done
 
+t_case "a first turn keeps no sessions and leaves no sessions of another session"
+reset
+mkdir -p "$T/keep/sessions"
+echo kept >"$T/keep/sessions/abc-123.jsonl"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/sessions.given" 2>/dev/null | tr '\n' ' ')" ""
+t_eq "$(cat "$T/calls/sessions.wrote" 2>/dev/null | tr '\n' ' ')" ""
+t_eq "$([ -e "$T/keep/sessions/abc-123.jsonl" ] && echo kept)" ""
+
+t_case "the sessions a turn's agent wrote are kept, and the next turn is seeded from them"
+reset
+agent_leaves abc-123 '{"session":"abc-123","turn":1}'
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+# What the agent wrote under the state directory of the turn is gone with the
+# turn; only the copy in the session's own directory stays.
+t_eq "$([ -e "$state" ] && echo left)" ""
+t_eq "$(cat "$T/calls/sessions.wrote" | sort | tr '\n' ' ')" "abc-123.jsonl nested "
+t_eq "$(cd "$T/keep/sessions" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" \
+  "./abc-123.jsonl ./nested ./nested/part.json "
+t_eq "$(cat "$T/keep/sessions/abc-123.jsonl")" '{"session":"abc-123","turn":1}'
+# The next turn finds them where it has Pi's sessions: the file and the
+# directory the agent of the last turn wrote.
+agent_leaves_nothing
+rm -f "$T"/calls/*
+printf 'Adopt all\n' >"$T/answer.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/sessions.given" | sort | tr '\n' ' ')" "abc-123.jsonl nested "
+t_eq "$(cat "$T/calls/sessions.first")" '{"session":"abc-123","turn":1}'
+t_eq "$(cat "$T/calls/sessions.nested")" '{"part":2}'
+
+t_case "the sessions an earlier turn left are replaced by what the last turn wrote"
+reset
+agent_leaves abc-123 '{"session":"abc-123","turn":1}'
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+# This turn leaves the file of the session and nothing beside it.
+printf '%s\n' '{"session":"abc-123","turn":2}' >"$fx/session.text"
+rm -f "$fx/session.part" "$T"/calls/*
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
+t_eq "$t_rc" 0
+t_eq "$(cd "$T/keep/sessions" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" "./abc-123.jsonl "
+t_eq "$(cat "$T/keep/sessions/abc-123.jsonl")" '{"session":"abc-123","turn":2}'
+
+t_case "a turn whose container wrote no session keeps none, and what an earlier turn left goes"
+reset
+agent_leaves abc-123 '{"session":"abc-123","turn":1}'
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+agent_leaves_nothing
+rm -f "$T"/calls/*
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$T/keep/sessions" ] && echo left)" ""
+
+t_case "a later turn whose sessions were never kept finds nothing to reopen and sends no answer"
+reset
+# tehas carried no sessions into the turn, so the stub answers as Pi does for
+# a session it made anew: no messages, so no answer is sent.
+: >"$fx/no_session"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/brief.md"
+t_eq "$t_rc" 2
+t_contains "$t_out" "the session abc-123 is gone: Pi opened it with no messages, so the answer was not sent"
+t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123","lost":true}'
+t_eq "$(cat "$T/calls/docker.stdin" 2>/dev/null)" ""
+t_eq "$([ -e "$T/keep/sessions" ] && echo left)" ""
+
 t_case "a later turn of a session that has no directory yet makes one and goes on"
 reset
+agent_leaves abc-123 '{"session":"abc-123","turn":1}'
 t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/brief.md"
 t_eq "$t_rc" 0
 t_contains "$t_out" "no commit on record for this session"
@@ -837,6 +991,11 @@ t_contains "$(cat "$T/calls/gh.comments")" "Tehas gave this planning session 1 i
 t_eq "$([ -e "$tree.images" ] && echo left)" ""
 
 t_case "a later turn mounts the same images and fetches nothing"
+agent_leaves abc-123 '{"session":"abc-123","turn":1}'
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+agent_leaves_nothing
+rm -f "$T"/calls/*
 rm -f "$T"/calls/*
 t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/brief.md"
 t_eq "$t_rc" 0
@@ -883,6 +1042,11 @@ t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_E
 t_eq "$(turn_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -i --init")" ""
 
 t_case "a later turn describes nothing again"
+agent_leaves abc-123 '{"session":"abc-123","turn":1}'
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+agent_leaves_nothing
+rm -f "$T"/calls/*
 rm -f "$T"/calls/*
 t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/brief.md"
 t_eq "$t_rc" 0
@@ -930,6 +1094,7 @@ t_lacks "$(cat "$T"/calls/docker.args.*)" "/elsewhere"
 
 t_case "with images off a reply's links are not fetched and the turn is not told the issue, whatever the instance says"
 reset
+agent_leaves abc-123 '{"session":"abc-123","turn":1}'
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_PLAN_ISSUE=99
 net "$A/2222" '\x89PNG\r\n\x1a\nPNGDATA'
 printf 'The operator replied on the issue:\n\n![b](%s/2222)\n' "$A" >"$T/answer.md"
@@ -946,6 +1111,7 @@ first_turn() {
   images_on
   net "$A/1111" '\x89PNG\r\n\x1a\nPNGDATA'
   issue_is "Look ![shot]($A/1111)"
+agent_leaves abc-123 '{"session":"abc-123","turn":1}'
   t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
   rm -f "$T"/calls/*
 }
@@ -992,7 +1158,7 @@ t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/an
 t_eq "$t_rc" 4
 t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
 t_eq "$(cmp "$T/manifest.before" "$T/keep/images/manifest.json" && echo same)" same
-t_eq "$(cd "$T/keep" && find . -mindepth 1 -maxdepth 1 | LC_ALL=C sort | tr '\n' ' ')" "./brief.md ./commit ./images "
+t_eq "$(cd "$T/keep" && find . -mindepth 1 -maxdepth 1 | LC_ALL=C sort | tr '\n' ' ')" "./brief.md ./commit ./images ./sessions "
 t_contains "$(cat "$T/calls/gh.comments")" "Tehas ran no planning turn: $A/9999 could not be fetched."
 
 t_case "without --comment a reply's links are not read"
