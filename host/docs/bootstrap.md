@@ -132,7 +132,11 @@ Installs under the user's home, each tool in its own place:
 | pi-rukas                          | `~/tehas/repos/pi-rukas`, its branch's head | Its repository, then its `install.sh` |
 
 Every release archive is checked against a SHA-256 in `versions.env` before it
-is unpacked. The three npm tools are pinned the same way, by a tree beside
+is unpacked. The directories it makes under the home are `bin/`, `tools/`,
+`repos/` and `tmp/`, and `install.sh` counts them, beside the ones it makes
+itself, as a home tehas owns: a home prepared by `bootstrap.sh user` and not yet
+installed is accepted rather than refused. `tools/` is one of them for the same
+reason `bin/` is: `env.sh` puts `tools/node/bin` first on the `PATH`. The three npm tools are pinned the same way, by a tree beside
 `versions.env` rather than by a download: `host/npm/<name>/package.json` names
 one version and `host/npm/<name>/package-lock.json` fixes every package in that
 tree by hash. `bootstrap.sh` copies the two files to `~/tehas/tools/npm/<name>`

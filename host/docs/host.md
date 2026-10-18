@@ -121,6 +121,12 @@ Whether this really works on a machine no one has prepared by hand is proven
 on the [features page](/features); the test there is industry's first
 acceptance test, and what it finds broken is fixed here.
 
+`install.sh` refuses a `TEHAS_HOME` it cannot prove is tehas's, because it
+removes what it takes for stale under it: the home carries the marker
+`.tehas-home`, which a run leaves and nothing removes, and a home that exists,
+is not empty and holds no marker is refused with exit 78 and one line naming the
+path (`--check` says the same and exits 1).
+
 ## Instance settings
 
 Everything that differs between instances is in the instance directory:
@@ -222,7 +228,7 @@ the first time, before `tehas update` exists there:
 
 ```
 cd ~/tehas/platform && git pull
-./install.sh --check     # change nothing, report up to eight results
+./install.sh --check     # change nothing, report up to nine results
 ./install.sh --check --tests   # the same, and run the shell tests
 ./install.sh             # copy changed files into place, keep <name>.prev
 ```
@@ -231,11 +237,12 @@ A version that adds labels needs `tehas labels` run again after the install.
 The labels `tehas:plan`, `tehas:planning` and `tehas:question`, for planning on
 an issue and the retry tick, are not in a repository until it has been.
 
-`--check` prints one line each for the instance settings, the host's tools, the
+`--check` prints one line each for the home itself, the instance settings, the
+host's tools, the
 slice, whether the sandbox image reads a cycle's images (`Images:`), the
 installed files, the command the other accounts type where root installed one,
 the follow-ups an earlier run left undone, and the tests. The tests run only
-with `--tests`; otherwise the line says `not run`. Three of the eight
+with `--tests`; otherwise the line says `not run`. Three of the nine
 appear only where there is something to say, so a current host prints five
 lines, each `OK`. The sample below is a host with a follow-up owed and no
 root-installed copy:
@@ -255,6 +262,12 @@ the checkout byte for byte but is mode 644 where the file list says 755 is not
 installed. `--check` says `mode: <path> is 644, wants 755` and exits 1; a real
 run sets the mode with `chmod` and copies the file again only when its content
 differs too.
+
+A home the script cannot prove is tehas's answers with a `Home: REFUSED` line,
+the reason under it, and `not checked` for the three lines that would have read
+the home; it exits 1 and looks at nothing else. `tehas update --check` reports
+that as something an update does not fix: a person fixes the home or the setting
+that named it.
 
 The `Follow-ups:` line appears only while `~/tehas/state/update-pending` still
 holds steps that were asked for and never ran. While it does, `--check`
