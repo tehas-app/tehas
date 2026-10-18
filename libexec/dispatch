@@ -199,7 +199,10 @@
 # written, or comments that cannot be read, start nothing, exit 1.
 #
 # A real poll that gets as far as rule 3 writes $TEHAS_HOME/live/dispatch.json:
-# what holds cycles back, if anything, and the slice's numbers. tehasbot
+# what holds cycles back, if anything, and the slice's numbers. Once the model
+# endpoint has been settled it also names the subagent provider's endpoint, as
+# "endpoint": "main" or "backup": the one word the energy sampler asks for,
+# never an address, because live/ is public. tehasbot
 # health copies it for tehas status. A hold is logged once, when its reason
 # changes, and "released" once when it ends; a dry run prints it every time.
 # Every real poll that gets past the bot's login, a paused one too, writes
@@ -357,32 +360,40 @@ untick() {
 # asked at its backup, and the cycle that starts goes there (lib/models.sh).
 # Only when both fail is the first reason left in $mesh_hold. A provider with
 # no baseUrl is not asked. $mesh_url and $mesh_key are the subagent
-# provider's endpoint and token. The text names no address: tehas status and
-# the health file carry it, and they are served to whoever can read the
-# dashboard.
+# provider's endpoint and token; $mesh_end is which of them it is, main or
+# backup, the one word report_hold publishes. The text names no address: tehas
+# status and the health file carry it, and they are served to whoever can read
+# the dashboard.
 mesh_hold=""
 mesh_url=""
 mesh_key=""
+mesh_end=""
 mesh_check() {
   local p url backup why why2
   local -a models
   mesh_hold=""
   mesh_url=""
   mesh_key=""
+  # The word is set only when an endpoint is asked and answers. A poll that
+  # asks nothing, or gets no answer, writes no word: the sampler then asks both
+  # endpoints as it did before this field existed.
+  mesh_end=""
   [ -n "$(tehas_endpoint_url "$PI_ENSEMBLE_SUBAGENT_PROVIDER" main)" ] && [ -n "$PI_ENSEMBLE_SUBAGENT_MODEL" ] || return 0
   while read -r p; do
     url=$(tehas_endpoint_url "$p" main)
     [ -n "$url" ] || continue
     mapfile -t models < <(tehas_models | awk -v p="$p" '$1 == p { print $2 }')
     if why=$(tehas_endpoint_ask "$url" "$(tehas_endpoint_key "$p" main)" "${models[@]}"); then
-      [ "$p" != "$PI_ENSEMBLE_SUBAGENT_PROVIDER" ] || { mesh_url=$url; mesh_key=$(tehas_endpoint_key "$p" main); }
+      [ "$p" != "$PI_ENSEMBLE_SUBAGENT_PROVIDER" ] ||
+        { mesh_url=$url; mesh_key=$(tehas_endpoint_key "$p" main); mesh_end=main; }
       continue
     fi
     backup=$(tehas_endpoint_url "$p" backup)
     if [ -n "$backup" ]; then
       if why2=$(tehas_endpoint_ask "$backup" "$(tehas_endpoint_key "$p" backup)" "${models[@]}"); then
         log "model endpoint: provider $p is on its backup, the main endpoint $why"
-        [ "$p" != "$PI_ENSEMBLE_SUBAGENT_PROVIDER" ] || { mesh_url=$backup; mesh_key=$(tehas_endpoint_key "$p" backup); }
+        [ "$p" != "$PI_ENSEMBLE_SUBAGENT_PROVIDER" ] ||
+          { mesh_url=$backup; mesh_key=$(tehas_endpoint_key "$p" backup); mesh_end=backup; }
         continue
       fi
       mesh_hold="holding: no resources: the model endpoint $why, and its backup $why2"
@@ -465,7 +476,11 @@ gib() { printf '%d.%d GiB' $(($1 / 1073741824)) $(($1 % 1073741824 * 10 / 107374
 # its reason is not the one the last poll wrote, or when it keeps waiting
 # issues from free slots ($short). The numbers in the text move between polls,
 # so the one word in $why is compared. Needs $why, $hold, $short and the
-# slice's numbers. A file that cannot be written is a warning.
+# slice's numbers. $mesh_end, when mesh_check settled one, is which endpoint
+# the subagent provider is on: main or backup. It is the one word the energy
+# sampler asks, never an address: live/ is public. A poll that never asked
+# (no provider, or an earlier hold) writes nothing. A file that cannot be
+# written is a warning.
 report_hold() {
   local file=$TEHAS_HOME/live/dispatch.json before
   before=$(jq -r '.why // "" | strings' "$file" 2>/dev/null) || before=""
@@ -477,8 +492,10 @@ report_hold() {
   if jq -n --arg time "$(date -u +%FT%TZ)" --arg why "$why" --arg hold "$hold" --arg reserve "$TEHAS_CYCLE_RESERVE" \
     --argjson count "$count" --argjson room "$room_mem" --argjson committed "$committed" --argjson max "$slice_max" \
     --argjson free "$free" --argjson awaitRoom "${room:-null}" --argjson limitRoom "${limit_room:-null}" \
+    --arg endpoint "$mesh_end" \
     '{$time, $why, $hold, $count, $room, $committed, $max, $reserve, $free, $awaitRoom}
-     + (if $limitRoom == null then {} else {$limitRoom} end)' >"$file.new" 2>/dev/null; then
+     + (if $limitRoom == null then {} else {$limitRoom} end)
+     + (if $endpoint == "" then {} else {$endpoint} end)' >"$file.new" 2>/dev/null; then
     mv "$file.new" "$file" || log "WARN: could not write $file"
   else
     rm -f "$file.new"
