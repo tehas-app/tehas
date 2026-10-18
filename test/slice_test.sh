@@ -102,10 +102,12 @@ t_case "a silent systemctl is no answer"
 good
 t_stub systemctl "sleep 20"
 started=$SECONDS
+T_ENV+=(TEHAS_SLICE_WAIT=1)
 t_run "$ok"
+unset 'T_ENV[-1]'
 t_contains "$t_out" "rc=1 "
 t_contains "$t_out" "why=[systemctl gave no answer]"
-[ $((SECONDS - started)) -lt 16 ] || t_bad "the probe took $((SECONDS - started)) s"
+[ $((SECONDS - started)) -lt 6 ] || t_bad "the probe took $((SECONDS - started)) s"
 
 t_case "a docker that fails is no answer"
 good

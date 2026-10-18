@@ -37,7 +37,7 @@ T_ENV=(BOOTSTRAP_ETC="$dev_etc" BOOTSTRAP_BIN="$dev_bin" T_IN_TEST=1)
 # A sandbox build asks the base for its capabilities: the answer of the image
 # of pi-rukas main.
 docker_up() { t_stub docker 'if [ "$1" = ps ]; then case "$4" in *tehas-protolab) ;; *) printf "c1\n" ;; esac; fi
-if [ "$1" = run ]; then cat "$T_ROOT/test/fixtures/headless-1ca933e/capabilities.json"; fi'; }
+if [ "$1" = run ]; then cat "$T_ROOT/test/fixtures/headless-316134e/capabilities.json"; fi'; }
 systemctl_active() { t_stub systemctl 'if [ "$2" = is-active ]; then echo active; fi'; }
 real_timeout=$(command -v timeout)
 bound_calls() { t_stub timeout "exec $real_timeout \"\$@\""; }
@@ -1235,7 +1235,7 @@ t_contains "$t_out" "docs: updating the container"
 t_eq "$(owed_steps)" ""
 
 # The one file of the host install.sh reports and never touches: root's copy of
-# host/login/tehas. Checked here rather than in install_test.sh, because this is
+# host/login/tehas. Checked here rather than in the install tests, because this is
 # the fixture with a checkout of its own that holds the real install.sh.
 t_case "tehas update prints install.sh's later line for a stale login copy and runs nothing for it"
 instance_models

@@ -136,7 +136,7 @@ Write `/improve/out/findings.json` and nothing else, in this shape:
     {"findings": [{
       "title": "one line, up to 100 characters, says what is wrong",
       "category": "dispatcher | cycle | pi-rukas | console | gate | docs | boundary",
-      "body": "up to 6000 characters of markdown: what happened, why it matters, what could change",
+      "body": "up to 6000 characters of markdown: what happened, why it matters, what could change, and a `## Done when` section last",
       "evidence": "up to 3000 characters quoted from the files, with the file each quote is from",
       "cycles": ["<issue>-<stamp> of every cycle the finding rests on"],
       "duplicate_of": null,
@@ -155,3 +155,24 @@ Write `/improve/out/findings.json` and nothing else, in this shape:
 `rukas_part` unless the category is `boundary`. `cycles` holds directory names
 from `/improve/in/cycles`, at least one. At most five findings. With nothing
 to report, write `{"findings": [], "followups": []}`.
+
+## The Done when section
+
+The body of a finding ends with a section whose heading line is exactly
+`## Done when`. Below it, one item per line, the finding says what a cycle
+has to leave behind so a person can see it is done: the files the change
+touches, the test file that proves it, and what can be observed afterwards.
+The section is the last thing in the body: nothing a person can read comes
+after it, and what is inside a code fence or an HTML comment does not count
+as either the heading or an item. One deliverable per finding: when a finding
+needs two changes in two subsystems, make it two findings. A body with no
+such section is a proposal a cycle cannot check itself against, and the host
+does not file it. For example, a body ending:
+
+    What happened, why it matters and what could change go above.
+
+    ## Done when
+
+    - `libexec/dispatch` skips a closed issue and says `skip #<n>: closed`.
+    - `test/dispatch_test.sh` has a case for a closed issue under the label.
+    - `scripts/verify.sh` passes.

@@ -43,7 +43,10 @@ tehas_require TEHAS_REPO
 features='["status", "fixer-grant", "all-hands", "limit", "drain", "refresh-conflicts"]'
 
 # "v0.8.0+cb6912a", or "cb6912a" from a checkout with no tag.
-version=$(head -c 200 "$TEHAS_HOME/docs/version.txt" 2>/dev/null | head -n 1) || version=""
+# Read without a pipe: under pipefail the first head can die of SIGPIPE when
+# the second has its line, and the version would be lost.
+version=$(head -c 200 "$TEHAS_HOME/docs/version.txt" 2>/dev/null) || version=""
+version=${version%%$'\n'*}
 object=$(jq -nc --arg v "$version" --arg repo "$TEHAS_REPO" --arg fixer "${TEHAS_FIXER_LOGIN:-}" --argjson features "$features" '
   ($v | split("+")) as $p
   | {api: 1,
