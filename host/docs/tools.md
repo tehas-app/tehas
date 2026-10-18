@@ -388,11 +388,11 @@ has not stopped `TEHAS_WORK_GRACE` seconds (300) later is stopped with
 from the workspace `~/tehas/work/<name>-<issue>`: the outcome is the runner's
 `--json` result, which goes to `~/tehas/state/cycles/<issue>.result.json`, and
 a copy beside the log. The contract is pi-rukas's `docs/headless.md`: exit
-codes v1, result schema 3, NDJSON progress with a stable subset.
+codes v1, result schema 4, NDJSON progress with a stable subset.
 
 Before anything is moved or fetched, it asks the image what it supports,
 `pi-rukas-headless --capabilities`. The cycle starts only when the image speaks
-exit codes 1, result schema 3 and stable NDJSON 1, the `work` verb takes the
+exit codes 1, result schema 4 and stable NDJSON 1, the `work` verb takes the
 flags passed, and every `PI_ENSEMBLE_*` variable the container would be given
 is an input the image lists for a host to set (scope `cycle` or `sandbox`; a
 family such as `PI_ENSEMBLE_MODEL_<ROLE>` covers the members the image lists
@@ -453,9 +453,13 @@ The runner's codes are its own only when it wrote a result for the issue, or a
 result with no issue entry at all (a refusal that carries only an error). A
 docker client that exits otherwise, after a result was written, gives the
 result's `exitCode`; a result without one is exit 2. A runner stopped here at
-the time limit and grace is `timeout`, whatever its result says, and the
-limit's seconds go to `~/tehas/state/cycles/<issue>.timed`, which `tehasbot
-cycle` says on the issue and removes.
+the time limit and grace is `timeout`, whatever its result says. So is a
+runner that stopped itself at the time limit with a result that names no cap
+and no end, or with no result; it keeps its own exit status. In both cases
+`~/tehas/state/cycles/<issue>.timed` holds the limit's seconds, who stopped
+the cycle (`tehas` or `runner`) and the step it was in. `tehasbot cycle` says
+it on the issue, records the cap `wall-clock` with that step, and removes the
+file.
 
 The container runs in `tehas.slice` and gets the bot token and the
 `PI_ENSEMBLE_*` settings, a memory ceiling of a quarter of the slice with no
@@ -1277,7 +1281,7 @@ another issue is said in the comment and not taken. A result of `merged` is
 reported as merged only when the bot has a merged pull request for the issue
 on that branch. Without one the issue is parked, the comment says that the
 bot has no merged pull request for the issue, and both workspaces are kept. A
-result that is a link, of another schema than 3, or with no entry for the
+result that is a link, of another schema than 4, or with no entry for the
 issue, is not read: the status is then `unknown`. pi-rukas's state file in
 the workspace is never read.
 
@@ -1295,7 +1299,9 @@ A parked cycle's cap, from the result, goes into
 `~/tehas/state/cycles/<issue>.park` with the failure before it (the reason
 `tehas work` wrote to the progress file), and into the
 record for the improvement loop as `cap` and `capReason`, reduced to plain
-characters. Where the result gives a failure of another kind than `cap`, the
+characters. A cycle that ended at tehas's own bound with no cap from the
+runner gets tehas's cap: `wall-clock` for the time limit, `stall` for the
+stall, and a `capReason` that names the setting and the step. Where the result gives a failure of another kind than `cap`, the
 park comment names its kind, role, cause and message. The record also holds `buildCommit`, the pi-rukas commit the
 result says the cycle ran; the improvement loop checks a fix against it. A
 provider outage is said as one: `Tehas cycle parked by a provider outage`,

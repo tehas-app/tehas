@@ -129,18 +129,47 @@ t_eq "$(jq -r .cap "$state/7.park")" stall
 t_contains "$(t_calls gh)" 'cap `stall`'
 t_eq "$(find "$state/7.stalled" 2>/dev/null | wc -l)" 0
 
-t_case "a cycle tehas stopped at its time limit with no cap from the runner is on record as cycle-time-limit"
+t_case "a cycle tehas stopped at its time limit with no cap from the runner is on record as wall-clock"
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
 ended running develop -
 echo '{}' >"$fx/progress.json"
 jq '.issues[0].handoff = {channel: "host", body: "<!-- pi-rukas:handoff issue=7 cap=none -->\n## Cap hit"}' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
-echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; echo 21600 >"$TEHAS_HOME/state/cycles/7.timed"; exit 2' >"$fx/work.sh"
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; echo 21600 tehas develop >"$TEHAS_HOME/state/cycles/7.timed"; exit 2' >"$fx/work.sh"
 t_run "$cycle 7"
-t_eq "$(jq -r .cap "$state/7.park")" cycle-time-limit
-t_contains "$(t_calls gh)" 'cap `cycle-time-limit`'
-t_contains "$(t_calls gh)" 'pi-rukas:handoff issue=7 cap=cycle-time-limit -->'
-t_eq "$(jq -r .cap "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" cycle-time-limit
+t_eq "$(jq -r .cap "$state/7.park")" wall-clock
+t_contains "$(t_calls gh)" 'cap `wall-clock`'
+t_contains "$(t_calls gh)" 'pi-rukas:handoff issue=7 cap=wall-clock -->'
+t_eq "$(jq -c '[.status, .step, .cap, .capReason]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
+  '["timeout","develop","wall-clock","the cycle reached its time limit, TEHAS_WORK_TIMEOUT=21600s, at step develop"]'
+
+t_case "a runner that stopped itself at the time limit with no result is on record as wall-clock at the step it was in, not running"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+rm -f "$fx/result.json"
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; echo 21600 runner adversarial >"$TEHAS_HOME/state/cycles/7.timed"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_contains "$t_out" "status=timeout step=adversarial"
+t_contains "$(t_calls gh)" "It reached its time limit of 360 min at step \`adversarial\`, and the runner stopped there."
+t_lacks "$(t_calls gh)" "did not stop on its own"
+t_eq "$(jq -c '[.status, .step, .cap, .capReason]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
+  '["timeout","adversarial","wall-clock","the cycle reached its time limit, TEHAS_WORK_TIMEOUT=21600s, at step adversarial"]'
+
+t_case "a runner that stopped itself at the time limit with a result that names no end is on record as wall-clock"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+ended running commit-pr -
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; echo 21600 runner commit-pr >"$TEHAS_HOME/state/cycles/7.timed"; exit 30' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$(jq -c '[.status, .step, .cap, .rc]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" '["timeout","commit-pr","wall-clock",30]'
+t_eq "$(jq -r .cap "$state/7.park")" wall-clock
+
+t_case "the step in the time limit's file is read as a word"
+reset
+rm -f "$fx/result.json"
+echo 'echo "21600 runner \`rm\`;x" >"$TEHAS_HOME/state/cycles/7.timed"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_contains "$t_out" "status=timeout step=- "
 
 t_case "a cap the runner named is kept when tehas also stopped the cycle"
 reset

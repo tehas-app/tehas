@@ -38,7 +38,7 @@ t_stub docker 'case "$1" in
   pull) [ ! -e "$T/fx/pull-fails" ] || exit 1 ;;
   run) cat "$T/fx/caps.json" 2>/dev/null; exit "$(cat "$T/fx/ask-rc" 2>/dev/null || echo 0)" ;;
 esac'
-caps=$T_ROOT/test/fixtures/headless-1ca933e/capabilities.json
+caps=$T_ROOT/test/fixtures/headless-316134e/capabilities.json
 reset() {
   rm -f "$T"/calls/* "$fx"/*
   echo "$head" >"$fx/head"
@@ -71,20 +71,27 @@ jq '(.inputs[] | select(.name == "PI_ENSEMBLE_ISSUE_IMAGES") | .manifestVersion)
 t_run "$build"
 t_contains "$(t_calls docker)" "--build-arg TEHAS_RUKAS_IMAGES=0"
 
-t_case "the v0.12.80 image passes the check"
+t_case "a base on result schema 4 passes the check, and one on schema 3 is not built on"
 reset
-cp "$T_ROOT/test/fixtures/headless-0.12.80/capabilities.json" "$fx/caps.json"
 t_run "$build"
 t_eq "$t_rc" 0
-t_contains "$(t_calls docker)" "--build-arg TEHAS_RUKAS_IMAGES=1"
+t_lacks "$t_out" "does not support"
+for old in headless-0.12.80 headless-1ca933e; do
+  reset
+  cp "$T_ROOT/test/fixtures/$old/capabilities.json" "$fx/caps.json"
+  t_run "$build"
+  t_eq "$t_rc" 1
+  t_contains "$t_out" "result schema version 3, not 4"
+  t_lacks "$(t_calls docker)" "build --build-arg"
+done
 
 t_case "a base whose contract tehas work cannot use is not built on, and each gap is named"
 reset
-jq '.contracts.resultSchema.version = 4 | .verbs.work.flags -= ["--timeout"]' "$caps" >"$fx/caps.json"
+jq '.contracts.resultSchema.version = 5 | .verbs.work.flags -= ["--timeout"]' "$caps" >"$fx/caps.json"
 t_run "$build"
 t_eq "$t_rc" 1
 t_contains "$t_out" "does not support what tehas work needs, not building"
-t_contains "$t_out" "result schema version 4, not 3"
+t_contains "$t_out" "result schema version 5, not 4"
 t_contains "$t_out" "the flag --timeout"
 t_lacks "$(t_calls docker)" "build --build-arg"
 
