@@ -290,6 +290,7 @@ The common ones:
 | protected paths                     | The patch touched `.pi/`, `.github/`, `CODEOWNERS` or `agents.json` | By design. Make that change yourself                     |
 | review round cap                    | The review kept finding problems                    | Read the review on the pull request                      |
 | developer timeout                   | An agent ran out of wall-clock                      | Usually model endpoint capacity; retry later             |
+| `cycle-time-limit`, `stall`         | tehas stopped the cycle: its time limit, or no log moved for `TEHAS_WORK_STALL` | Read the run log the comment names; see [a cycle stops at a cap](#a-cycle-stops-at-a-cap) |
 
 The caps this factory has posted are explained one by one in the next
 section.
@@ -334,6 +335,14 @@ The cap `deadline` means the cycle came to the deadline tehas gives it, a
 quarter of `TEHAS_WORK_TIMEOUT` before the end, and started no new step. Its
 branch and pull request are as the handoff says. Retry when the issue can be
 done in the time, or split it.
+
+Two caps are tehas's own, not pi-rukas's, and are set when the runner's result
+names none: `cycle-time-limit` when the runner ran past `TEHAS_WORK_TIMEOUT`
+without stopping and tehas stopped the container, and `stall` when none of the
+cycle's logs changed for `TEHAS_WORK_STALL` seconds and tehas stopped it. Both
+say the step the cycle was in. A cycle stopped this way has usually done less
+than its comment claims; read the run log named there before you retry, and
+retry when the cause of the stall is gone.
 
 These are the caps the factory posted on its own issues from 10 to 14 October
 2026, most frequent first.
