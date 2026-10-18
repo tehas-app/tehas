@@ -199,7 +199,10 @@ GitHub the same question twice.
 What holds cycles back is one `holding:` line: at every dry run, and in the
 log once when its reason changes, with `released: cycles may start again`
 when it ends. A real poll also writes it to `~/tehas/live/dispatch.json` with
-the slice's numbers, for [tehas status](#tehas-status). Every real poll that
+the slice's numbers, for [tehas status](#tehas-status), and, once the model
+endpoint has been settled, the subagent provider's endpoint as one word
+(`"endpoint": "main"` or `"backup"`), which is what
+[`tehasbot energy`](#tehasbot-energy) asks. Every real poll that
 gets past the settings and the bot's login, a paused one too, writes
 `~/tehas/live/demand.json`: how many issues would start if there were room,
 and when the oldest of them was accepted, refresh requests included, with
@@ -1446,7 +1449,10 @@ are also given, with cycles starting, when the awaiting-merge limit or the
 slice's room let fewer start than there are free slots and issues waiting;
 `hold` then starts `holding: <n> of <free> free slots start:`. `full` is a slice that holds as
 many containers as their ceilings fit. `room` is how many more reserves fit in the slice;
-`committed` and `max` are bytes. With `slice` or `unreadable` the status is
+`committed` and `max` are bytes. The file also holds `endpoint` once the poll
+has settled the model endpoint: `main` or `backup`, which endpoint of the
+subagent provider the cycles are on. It is not in the health file, and names
+no address. With `slice` or `unreadable` the status is
 `warn` and `output` is the hold. With `resources` the status is `warn` and
 `output` starts with `No resources:`. It is `null` when the file is more than ten
 minutes old. `tehasbot health` calls neither `systemctl` nor `docker`.
@@ -1485,10 +1491,14 @@ mesh, which it recognises by the answer.
 | Nothing, a timeout, a server error or a busy answer (408, 429) | Left as it is; the page calls it stale |
 | Anything else                          | Removed, and the section with it           |
 
-The mesh is the one the factory's model provider points at: its main
-endpoint, or its backup when the main one is not a mesh, each asked with its
-token. The file is removed only when neither is a mesh and neither was just
-down or busy. Set `TEHAS_ENERGY_URL` in `~/.config/tehas/env` to ask another
+The mesh is the endpoint the factory's cycles are on. The dispatcher settles
+that endpoint every poll and writes `"endpoint": "main"` or `"endpoint":
+"backup"` in `~/tehas/live/dispatch.json`; the sampler asks only that one,
+with its token. With no such word in the file, because the dispatcher has not
+settled one yet, it asks the main endpoint and then the backup, each with its
+token, and samples the first that answers. The file is removed only when the
+endpoint it asks is not a mesh and was not just down or busy. Set
+`TEHAS_ENERGY_URL` in `~/.config/tehas/env` to ask another
 cluster URL, which is asked with no token, and
 `TEHAS_ENERGY=off` to remove the file. The file is readable by anyone who can
 open the dashboard and names the machines, their draw and their models. It
