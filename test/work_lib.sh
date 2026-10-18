@@ -117,6 +117,33 @@ runner=/opt/pi-rukas/bin/pi-rukas-headless
 cycle_args() { grep -l -x -e 'pi-rukas-headless' -e "$runner" "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
 # The arguments of the docker call that checks the push before the cycle.
 preflight_args() { grep -l -x -e '--entrypoint' "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
+# The security options of a container, as lib/sandbox.sh prints them: the same
+# eight words for a cycle, a planning turn, a session and the push check.
+security_opts="--cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true"
+# How many times an option is given, and with what value: the words after it,
+# read the way docker reads them. <flag> is one word, as it stands on the line.
+security_of() { # <flag> (reads the arguments on standard input)
+  awk -v flag="$1" 'prev == flag { print } { prev = $0 }'
+}
+# The same eight words, in order, as one line. Empty when a container is given
+# them another way or not at all. Reads the arguments on standard input.
+security_line() {
+  awk '
+    { arg[NR] = $0 }
+    END {
+      want[1] = "--cap-drop"; want[2] = "ALL"
+      want[3] = "--cap-add"; want[4] = "CHOWN"
+      want[5] = "--cap-add"; want[6] = "FOWNER"
+      want[7] = "--security-opt"; want[8] = "no-new-privileges:true"
+      for (i = 1; i <= NR; i++) {
+        if (seen >= 8) break
+        if (arg[i] != want[seen + 1]) continue
+        for (j = 1; j <= 8; j++) if (arg[i + j - 1] != want[j]) break
+        if (j > 8) { seen = 8; start = i }
+      }
+      if (seen == 8) for (i = start; i < start + 8; i++) printf "%s ", arg[i]
+    }'
+}
 # Values that follow a flag, e.g. every -v or every -e.
 after() { cycle_args | awk -v flag="$1" 'prev == flag { print } { prev = $0 }'; }
 # Every option of a docker call that is not one this command is known to

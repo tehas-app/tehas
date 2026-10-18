@@ -29,7 +29,7 @@ t_run "$work 7"
 t_eq "$t_rc" 78
 t_eq "$(t_calls docker)$(t_calls systemctl)" ""
 
-t_case "the cycle gets the slice, a ceiling of a quarter of it, no swap, a floor, a pids limit and a CPU weight"
+t_case "the cycle gets the slice, a ceiling of a quarter of it, no swap, a floor, a pids limit, a CPU weight and no privileges"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 rm -f "$T"/calls/*
 t_run "$work 7"
@@ -42,6 +42,13 @@ t_eq "$(after --pids-limit)" "4096"
 t_eq "$(after --cpu-shares)" "1024"
 t_eq "$(after --cidfile)" "$cid_file"
 t_eq "$(after --cpus)" "3.75"
+# Every capability of Docker's default list is taken away, and only what a
+# gate needs is given back: see tehas_sandbox_security.
+t_eq "$(cycle_args | security_line)" "$security_opts "
+t_eq "$(cycle_args | security_of --cap-drop | LC_ALL=C sort)" "ALL"
+t_eq "$(cycle_args | security_of --cap-add | LC_ALL=C sort)" "CHOWN
+FOWNER"
+t_eq "$(cycle_args | security_of --security-opt)" "no-new-privileges:true"
 
 t_case "the slice is read once: one systemctl call, one docker info"
 t_eq "$(t_calls systemctl)" "show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax"
@@ -256,7 +263,7 @@ t_run "$work 7"
 t_case "the cycle's container gets no option beyond the documented ones"
 image="tehas/pi-rukas:uid$(id -u)"
 t_eq "$(cycle_args | unknown_options "$image" \
-  "--name --cgroup-parent --memory --memory-swap --memory-reservation --cpus --pids-limit --cpu-shares --cidfile -w -v -e" "--rm --init")" ""
+  "--name --cgroup-parent --memory --memory-swap --memory-reservation --cpus --pids-limit --cpu-shares --cap-drop --cap-add --security-opt --cidfile -w -v -e" "--rm --init")" ""
 t_eq "$(cycle_args | sed -n "/^$(printf '%s' "$image" | sed 's/[\/.]/\\&/g')\$/,\$p" | tr '\n' ' ')" "$image $runner work 7 --timeout 360 --json "
 
 # The runner is no init: without one, a process that outlives its parent is never

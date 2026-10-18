@@ -367,6 +367,9 @@ unset PI_ENSEMBLE_EXTRA_IMAGE_DIRS
 unset PI_ENSEMBLE_HANDOFF_CHANNEL PI_ENSEMBLE_HANDOFF_TIMEOUT_MS PI_ENSEMBLE_CYCLE_DEADLINE PI_ENSEMBLE_CYCLE_BUDGET_MS PI_ENSEMBLE_VERIFY_CONCURRENCY
 mapfile -d '' -t envs < <(tehas_sandbox_env "$repo" "$bot_name" "$bot_email")
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
+mapfile -d '' -t sec < <(tehas_sandbox_security)
+[ "${#sec[@]}" -eq 8 ] ||
+  { echo "tehas work: could not prepare the sandbox, not starting a cycle" >&2; exit 78; }
 [ "${#envs[@]}" -gt 0 ] ||
   { echo "tehas work: could not prepare the sandbox, not starting a cycle" >&2; exit 78; }
 verify_at_once=$(tehas_slice_verify) ||
@@ -516,7 +519,7 @@ fi
 # Before spending an hour of model time: can the sandbox push at all? A dry
 # run needs the same credentials a real push does and creates nothing. The
 # client passes the timeout's TERM on to git in the container.
-timeout -k 10 "$preflight_wait" docker run --rm --user "$(id -u):$(id -g)" -e HOME=/home/vscode "${envs[@]}" \
+timeout -k 10 "$preflight_wait" docker run --rm "${sec[@]}" --user "$(id -u):$(id -g)" -e HOME=/home/vscode "${envs[@]}" \
   -w "$repo" -v "$tree:$repo" --entrypoint git "$image" \
   push --dry-run origin HEAD:refs/heads/tehas-preflight >"$log.preflight" 2>&1
 pushed=$?
@@ -605,7 +608,7 @@ live_on=0
 trap 'interrupted=1; [ -z "$cpid" ] || kill "$cpid" 2>/dev/null; stop_container 10
 [ "$live_on" = 0 ] || now_file false interrupted' TERM INT
 docker run --rm --init --name "$name" \
-  "${TEHAS_SLICE_LIMITS[@]}" --cidfile "$cid_file" \
+  "${TEHAS_SLICE_LIMITS[@]}" "${sec[@]}" --cidfile "$cid_file" \
   -w "$repo" "${mounts[@]}" "${image_opts[@]}" \
   "${envs[@]}" "${hosts[@]}" \
   "$image" "$runner" work "$issue" "${run_flags[@]}" </dev/null >"$result_file" 2>"$log" &

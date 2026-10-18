@@ -4,7 +4,9 @@
 # tehas dev (a manual session) and tehas index (the indexer). It is in one
 # place so they cannot drift apart; test/work_test.sh, test/plan_test.sh and
 # test/dev_test.sh pin the result option by option. The container's limits and
-# the slice it runs in are not made here: they come from lib/slice.sh.
+# the slice it runs in are not made here: they come from lib/slice.sh. The
+# security options go to the cycle, the turn, the session and the push check
+# before a cycle; the indexer is not given them.
 #
 #   tehas_sandbox_env <tree> <name> <email>   the -e options
 #   tehas_sandbox_settings_ok                 is Pi's settings.json there
@@ -16,9 +18,12 @@
 #   tehas_sandbox_cache_dir                   where a container has that copy
 #   tehas_index_dir                           where the host keeps the index
 #   tehas_sandbox_hosts                       the --add-host options
+#   tehas_sandbox_security                    the options that take privileges
+#                                             away from a container
 #   tehas_sandbox_clone <src> <tree> <branch> make <tree>, a clone of <src>
 #
-# The first three print docker options separated by NUL bytes. Read them with
+# env, mounts, hosts and the security options print docker options separated
+# by NUL bytes. Read them with
 #   mapfile -d '' -t envs < <(tehas_sandbox_env "$tree" "$name" "$email")
 #
 # Source lib/config.sh and call tehas_load first: the settings are read from
@@ -172,6 +177,52 @@ tehas_sandbox_seed() { # <state> [<index dir>]
       return 1
     }
   done
+}
+
+# What a container is not allowed to do, so that an agent's code cannot give
+# itself more of the host than it was given: every capability Docker grants by
+# default is taken away, and a program cannot gain rights through its mode or
+# file capabilities. The same options for the four containers tehas starts an
+# agent in: a cycle, a planning turn, a manual session and the push check
+# before a cycle. They print eight words.
+#
+# Only CHOWN and FOWNER are given back:
+#
+#   CHOWN    npm's install drops a package to the unprivileged user with
+#            chown(2) and lchown(2), and Playwright's install of Chromium
+#            copies a cache tree that way. Both run in a gate of the product.
+#            Without it the gate fails on EPERM.
+#   FOWNER   npm moves its staging directory onto its destination with rename,
+#            and rename of a file one does not own is refused even when the
+#            directory is writable. tar's unpack, cargo's install of a built
+#            crate and a gate's own mv do the same.
+#
+# Nothing else in the list is named. In particular:
+#
+#   SETUID, SETGID   nothing a cycle runs becomes another user. The image has
+#                    no sudo, the container runs as one uid and tehas gives it
+#                    no setuid program to reach another. Playwright's Chromium
+#                    runs its own sandbox only with a capability that would
+#                    let it make a setuid helper, and it is run with
+#                    --no-sandbox instead, which pi-rukas's browser tool
+#                    passes. no-new-privileges does not break anything a cycle
+#                    does: it stops a program gaining rights, and nothing in
+#                    the image is meant to have any.
+#   NET_RAW          the agents answer over HTTP with curl and fetch through
+#                    git, npm and cargo, none of which opens a raw socket. It
+#                    is off Docker's own default list too.
+#   SYS_ADMIN        the one capability that matters for a container's escape,
+#                    and the one Chromium's sandbox would want. Nothing here
+#                    mounts anything: tehas makes every mount on the host
+#                    before it starts a container.
+#
+# The root filesystem stays writable, unlike a preview's: a cycle's gate
+# installs into its own tree and its caches, and a read-only root would need
+# one --tmpfs per directory a tool writes in, which is a list nobody can pin.
+# The process table is bounded by --pids-limit, which comes from lib/slice.sh.
+tehas_sandbox_security() {
+  printf '%s\0' --cap-drop ALL --cap-add CHOWN --cap-add FOWNER \
+    --security-opt no-new-privileges:true
 }
 
 # Names the sandbox cannot resolve by itself, from PI_ENSEMBLE_HOST_ALIASES.

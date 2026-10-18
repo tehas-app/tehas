@@ -248,7 +248,8 @@ fi
 mapfile -d '' -t envs < <(tehas_sandbox_env "$tree" "$git_name" "$git_email")
 mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$tree" "$tree" "$state" "$runs")
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
-[ "${#envs[@]}" -gt 0 ] && [ "${#mounts[@]}" -gt 0 ] ||
+mapfile -d '' -t sec < <(tehas_sandbox_security)
+[ "${#envs[@]}" -gt 0 ] && [ "${#mounts[@]}" -gt 0 ] && [ "${#sec[@]}" -eq 8 ] ||
   { echo "tehas dev: could not prepare the sandbox, not starting a session" >&2; exit 78; }
 
 echo "tehas dev: $tree, commits as $who"
@@ -286,7 +287,7 @@ echo "tehas dev: tehas.slice has room for $room more cycles$why"
 # TERM and COLORTERM by name: Pi draws a terminal interface, and docker's own
 # default describes a plainer terminal than most people sit at.
 docker run --rm -it --init --name "tehas-dev-$name" \
-  "${TEHAS_SLICE_LIMITS[@]}" \
+  "${TEHAS_SLICE_LIMITS[@]}" "${sec[@]}" \
   -w "$tree" "${mounts[@]}" "${image_opts[@]}" \
   "${envs[@]}" -e TERM -e COLORTERM "${hosts[@]}" \
   "$PI_ENSEMBLE_IMAGE" pi "${pi_args[@]}"
