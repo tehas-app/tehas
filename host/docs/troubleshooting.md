@@ -404,13 +404,20 @@ and "Resolver's rationale" says why.
 
 The last one is in pi-rukas and was not seen here. After the change, retry.
 
-### `wall-clock`
+### `lens-review-timeout`
 
-The review stage's rounds of review and fix ran past pi-rukas's limit of 90
-minutes. The comment is on the pull request. The pull request is open, with
-what was pushed before. The comment names the worktrees in the workspace that
-hold the cycle's commits; what was not pushed is only there. Read the review on the pull request, then merge
-it, finish it by hand, or close it. Nothing in the issue needs to change. Close
+The review stage's rounds of review and fix ran past pi-rukas's budget for
+them, `PI_ENSEMBLE_REVIEW_WALL_CLOCK_MS` (90 minutes by default). It is the
+review loop's own clock, not the cycle's time limit: raising
+`TEHAS_WORK_TIMEOUT` does not change it. A `PI_ENSEMBLE_REVIEW_WALL_CLOCK_MS`
+line in `instance.env` does. The record's `capReason` says how long the loop
+ran, in which round, and the budget. Until result schema 4 (pi-rukas, 18
+October 2026) pi-rukas called this cap `wall-clock`.
+
+The comment is on the pull request. The pull request is open, with what was
+pushed before. The comment names the worktrees in the workspace that hold the
+cycle's commits; what was not pushed is only there. Read the review on the
+pull request, then merge it, finish it by hand, or close it. Nothing in the issue needs to change. Close
 the pull request before you retry: while it is open, a new cycle stops at
 `existing-pr-detected`.
 
@@ -443,7 +450,7 @@ not possible because you have unmerged files`. The comment is on the pull
 request. The pull request is open with the code from before that round; the
 fixes are only in the workspace. Read the review's findings on the pull
 request, then merge it, fix it by hand, or close it. Close it before you
-retry, as for `wall-clock`.
+retry, as for `lens-review-timeout`.
 
 ### `lens-fix-reposition`
 

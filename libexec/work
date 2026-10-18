@@ -9,7 +9,7 @@
 #
 # Before anything is moved or fetched, the image is asked what it supports
 # (`pi-rukas-headless --capabilities`). The cycle starts only when the image
-# speaks the contract versions read here (exit codes 1, result schema 3, stable
+# speaks the contract versions read here (exit codes 1, result schema 4, stable
 # NDJSON 1), takes the flags passed, lists every PI_ENSEMBLE_* variable the
 # container is given as an input a host may set, and has the features this
 # command relies on: the host handoff channel, the cycle deadline when one is
