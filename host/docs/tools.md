@@ -453,9 +453,13 @@ The runner's codes are its own only when it wrote a result for the issue, or a
 result with no issue entry at all (a refusal that carries only an error). A
 docker client that exits otherwise, after a result was written, gives the
 result's `exitCode`; a result without one is exit 2. A runner stopped here at
-the time limit and grace is `timeout`, whatever its result says, and the
-limit's seconds go to `~/tehas/state/cycles/<issue>.timed`, which `tehasbot
-cycle` says on the issue and removes.
+the time limit and grace is `timeout`, whatever its result says. So is a
+runner that stopped itself at the time limit with a result that names no cap
+and no end, or with no result; it keeps its own exit status. In both cases
+`~/tehas/state/cycles/<issue>.timed` holds the limit's seconds, who stopped
+the cycle (`tehas` or `runner`) and the step it was in. `tehasbot cycle` says
+it on the issue, records the cap `wall-clock` with that step, and removes the
+file.
 
 The container runs in `tehas.slice` and gets the bot token and the
 `PI_ENSEMBLE_*` settings, a memory ceiling of a quarter of the slice with no
@@ -1295,7 +1299,9 @@ A parked cycle's cap, from the result, goes into
 `~/tehas/state/cycles/<issue>.park` with the failure before it (the reason
 `tehas work` wrote to the progress file), and into the
 record for the improvement loop as `cap` and `capReason`, reduced to plain
-characters. Where the result gives a failure of another kind than `cap`, the
+characters. A cycle that ended at tehas's own bound with no cap from the
+runner gets tehas's cap: `wall-clock` for the time limit, `stall` for the
+stall, and a `capReason` that names the setting and the step. Where the result gives a failure of another kind than `cap`, the
 park comment names its kind, role, cause and message. The record also holds `buildCommit`, the pi-rukas commit the
 result says the cycle ran; the improvement loop checks a fix against it. A
 provider outage is said as one: `Tehas cycle parked by a provider outage`,

@@ -699,9 +699,11 @@ so a cycle that runs long ends at a step boundary with its branch and pull
 request said, not in the middle of a step. A step that started before the
 deadline may run past it; the margin is there for that step. The runner is
 given `TEHAS_WORK_TIMEOUT` in whole minutes and ends the cycle itself, with
-exit 30; `tehas work` stops a runner that is still there 300 seconds later. The steps around it are bounded too, so a dockerd that
-stops answering or a network that swallows packets does not hold a slot for
-ever:
+exit 30; `tehas work` stops a runner that is still there 300 seconds later.
+Either way the cycle is `timeout` and goes on record with the cap
+`wall-clock` and the step it was in. The steps around it are bounded too, so
+a dockerd that stops answering or a network that swallows packets does not
+hold a slot for ever:
 
 | Step | Bound | After it |
 | --- | --- | --- |
