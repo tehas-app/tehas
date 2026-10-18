@@ -38,6 +38,8 @@
 #     endpoints' tokens TEHAS_MODEL_KEY_*. instance.env that sets a token is
 #     refused: it is in a repository.
 #   - Loading runs no git command, makes no network call and writes nothing.
+#     TEHAS_PLAN_TIMEOUT_MAX, the ceiling of one planning turn, is local to
+#     tehas_load: nothing sources this file and reads it from the environment.
 #   - TEHAS_IMPROVE_REPO switches the improvement loop on. Unset is valid and
 #     means there is none. TEHAS_IMPROVE_RUKAS_REPO needs it.
 #   - TEHAS_FIXER_LOGIN names the fixer: an account whose tehas:ready the
@@ -362,8 +364,15 @@ tehas_load() {
   # approval, are taken too. Off unless the instance says so.
   export TEHAS_WORK_COMMENTS=${TEHAS_WORK_COMMENTS:-0}
   # A planning session: how many turns it may take, and how long one turn may.
+  # TEHAS_PLAN_TIMEOUT_MAX is the one place the ceiling of a turn is written:
+  # the default below is that ceiling, the check further down refuses more, and
+  # the tests pin the copies in libexec/plan, libexec/dispatch and
+  # instances/example/instance.env against it. The unit of a turn gets
+  # RuntimeMaxSec = the limit + 900 (lib/planning.sh).
+  local TEHAS_PLAN_TIMEOUT_MAX=7200
+  # The default is the ceiling: a turn gets the whole of it.
   export TEHAS_PLAN_MAX_TURNS=${TEHAS_PLAN_MAX_TURNS:-20}
-  export TEHAS_PLAN_TIMEOUT=${TEHAS_PLAN_TIMEOUT:-3600}
+  export TEHAS_PLAN_TIMEOUT=${TEHAS_PLAN_TIMEOUT:-$TEHAS_PLAN_TIMEOUT_MAX}
   # Previews of pull requests and the names of the edge. Off, and no names,
   # unless the instance says so.
   export TEHAS_DOMAIN=${TEHAS_DOMAIN:-}
@@ -449,10 +458,13 @@ tehas_load() {
     tehas_err "TEHAS_WORK_TIMEOUT ($TEHAS_WORK_TIMEOUT) is more than 25200: tehas-cycle@.service stops a cycle after 8 hours, and the stop and the report need the hour after the limit (see $file)"
     return 78
   fi
-  # A planning turn runs as its own unit, which systemd stops a quarter of an
-  # hour after this limit. One turn runs at a time, and a session waits on it.
-  if [ "$TEHAS_PLAN_TIMEOUT" -gt 7200 ]; then
-    tehas_err "TEHAS_PLAN_TIMEOUT ($TEHAS_PLAN_TIMEOUT) is more than 7200: a planning turn may take at most two hours, and while one runs no other planning turn starts (see $file)"
+  # The unit gets RuntimeMaxSec = this + 900 (lib/planning.sh); 7200 + 900 is
+  # 2h15, inside the unit's own bound. Beyond it a turn outlives its unit. The
+  # length is bounded with the value: a count longer than the ceiling's digits
+  # cannot be compared by [ ], and would wrap in that arithmetic.
+  if [ "${#TEHAS_PLAN_TIMEOUT}" -gt "${#TEHAS_PLAN_TIMEOUT_MAX}" ] ||
+    [ "$TEHAS_PLAN_TIMEOUT" -gt "$TEHAS_PLAN_TIMEOUT_MAX" ]; then
+    tehas_err "TEHAS_PLAN_TIMEOUT ($TEHAS_PLAN_TIMEOUT) is more than $TEHAS_PLAN_TIMEOUT_MAX: a planning turn may take at most two hours, and while one runs no other planning turn starts (see $file)"
     return 78
   fi
   if [ "$TEHAS_PREVIEWS" = 1 ] && [ -z "$TEHAS_DOMAIN" ]; then
