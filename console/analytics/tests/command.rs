@@ -119,7 +119,10 @@ impl Host {
         let mut result: Value =
             serde_json::from_str(&fs::read_to_string(fixture.join("result.json")).unwrap())
                 .unwrap();
-        result["issues"][0]["failure"] = json!({"kind": "provider",
+        result["issues"][0]["failedStep"] = json!("handoff");
+        result["issues"][0]["cap"] = json!("explore-bodies-empty");
+        result["issues"][0]["parkReason"] = json!("cap");
+        result["issues"][0]["failure"] = json!({"kind": "provider", "step": "handoff",
             "cause": format!("GET https://user:hunter2@models.example/v1 from {} and {} with Bearer abcdefghijklmnopqrstuvwxyz; \
                 connect ECONNREFUSED models.example:8000; git@host.tld:org/repo; token=ghp_abcdefghijklmnopqrstuvwxyz123456; \
                 Incorrect API key provided: sk-abc123def456ghi789jkl0; dial fe80::1%eth0 and 2001:db8::7",
@@ -135,6 +138,45 @@ impl Host {
             &json!({"at": iso(started - 90), "by": "someone", "how": "label"}).to_string(),
         );
         self.put("state/cycles/7.rukas", "abcdef1\n");
+        // The settings snapshot as lib/improve.sh writes it: a model with
+        // dots, a provider word, and a host value it withheld.
+        self.put(
+            "state/cycles/7.settings",
+            &json!({"container": {"PI_ENSEMBLE_SUBAGENT_MODEL": "qwen3.5-coder-32b",
+                                  "PI_ENSEMBLE_SUBAGENT_PROVIDER": "fleet",
+                                  "PI_ENSEMBLE_MODEL_OPS": "[withheld]"},
+                    "host": {"TEHAS_WORK_TIMEOUT": "21600"}, "concurrentCycles": 2})
+            .to_string(),
+        );
+        self.put(
+            "state/cycles/7.progress.json",
+            &json!({"roles": [{"role": "ops", "dispatches": 1, "turns": 3, "input": 100,
+                               "output": 10, "cacheRead": 5},
+                              {"role": "explore", "dispatches": 1, "turns": 2, "input": 50,
+                               "output": 5, "cacheRead": 0}],
+                    "reason": "", "failure": null, "reviewHeld": false})
+            .to_string(),
+        );
+        self.put(
+            "logs/work-7-261015-183834.jsonl.preflight",
+            "Everything up-to-date\n",
+        );
+        // The live files of a poll that was held.
+        fs::create_dir_all(self.home.join("live")).unwrap();
+        self.put(
+            "live/status.json",
+            &json!({"generatedAt": iso(now), "paused": false, "queued": [{"number": 8}],
+                    "running": [], "awaiting": [], "stopped": [], "planning": 0})
+            .to_string(),
+        );
+        self.put(
+            "live/dispatch.json",
+            &json!({"time": iso(now), "why": "resources", "count": 0, "free": 2}).to_string(),
+        );
+        self.put(
+            "live/energy.json",
+            &json!({"generatedAt": iso(now), "totals": {"watts": 250.0}}).to_string(),
+        );
         self.put("docs/version.txt", "v0.7.22+1234abc\n");
         self.put(
             "state/cycles/7.history.jsonl",
@@ -144,7 +186,21 @@ impl Host {
                        "parked": true, "pr": "https://github.com/o/r/pull/3"})
             ),
         );
-        for args in [vec!["run", "7"], vec!["event", "7", "ready"]] {
+        let image = format!("sha256:{}", "ab".repeat(32));
+        for args in [
+            vec![
+                "run",
+                "7",
+                "--image",
+                image.as_str(),
+                "--oom",
+                "0",
+                "--forks",
+                "0",
+            ],
+            vec!["event", "7", "ready"],
+            vec!["sample"],
+        ] {
             let out = Command::new(ANALYTICS)
                 .args(&args)
                 .env("TEHAS_HOME", &self.home)
@@ -198,6 +254,29 @@ fn an_export_through_tehas_analytics_holds_no_token_host_or_address() {
         .map(Result::unwrap)
         .collect();
     assert_eq!(tables.len(), 6, "{tables:?}");
+    // Every text column holds a value, so every one is scanned.
+    for t in &tables {
+        let cols: Vec<String> = db
+            .prepare(&format!(
+                "SELECT name FROM pragma_table_info('{t}') WHERE type = 'TEXT'"
+            ))
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert!(!cols.is_empty(), "{t}");
+        for c in cols {
+            let n: i64 = db
+                .query_row(
+                    &format!("SELECT count(*) FROM {t} WHERE {c} IS NOT NULL"),
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert!(n > 0, "{t}.{c} is never set");
+        }
+    }
     let mut seen = 0;
     for t in &tables {
         let mut q = db.prepare(&format!("SELECT * FROM {t}")).unwrap();
