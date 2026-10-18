@@ -252,6 +252,12 @@ counts an issue with `tehas:running` as running, whatever else it carries. On
 an issue whose cycle is still running, the label waits: a fresh cycle starts
 when that one has ended. Remove the label before then to withdraw it.
 
+Once an issue is closed, the next poll takes tehas's state labels off it:
+`tehas:running`, `tehas:awaiting-merge`, `tehas:question`, `tehas:planning`,
+`tehas:refreshing`, `tehas:blocked`, `tehas:ready` and `tehas:plan`.
+`tehas:shipped` stays, and so do `needs-human-attention` and the labels a
+person chooses, such as `tehas:urgent` and `tehas:next`.
+
 When the cycle starts and when it ends, the bot comments on the issue. The token
 usage per agent role is posted on the pull request.
 

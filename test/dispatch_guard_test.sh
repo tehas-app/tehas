@@ -329,4 +329,47 @@ t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" "7"
 
 
+t_case "a poll runs tidy once, after the cycles it starts"
+reset
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(t_calls fake-tidy | wc -l)" 1
+t_eq "$(t_calls fake-tidy)" ""
+t_eq "$([ -e "$T/calls/tidy.after-start" ] && echo after)" "after"
+
+t_case "a dry run runs tidy with --dry-run"
+reset
+t_run "$dispatch --dry-run"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-tidy)" "--dry-run"
+
+t_case "a paused poll still tidies"
+reset
+pause_flag '{"by":"boss","at":"2026-10-15T10:00:00Z","reason":"waiting for the gate"}'
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-tidy | wc -l)" 1
+
+t_case "a poll that fails after the bot's login still tidies, and keeps its exit status"
+reset
+rm "$fx/control.json"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_eq "$(t_calls fake-tidy | wc -l)" 1
+
+t_case "a failed tidy does not change the poll's exit status"
+reset
+t_stub fake-tidy 'exit 1'
+t_run "$dispatch --dry-run"
+t_eq "$t_rc" 0
+t_stub fake-tidy '[ ! -e "$T/calls/fake-start" ] || : >"$T/calls/tidy.after-start"'
+
+t_case "a poll that stops before the bot's login runs no tidy"
+reset
+echo '{"nameWithOwner":"acme/gadget"}' >"$fx/repo.json"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_eq "$(t_calls fake-tidy)" ""
+
 t_done
