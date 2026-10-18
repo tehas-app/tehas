@@ -18,7 +18,10 @@
 #   by        the account whose tehas:plan started the session
 #   answers   one {turn, by, fixer} per answer that ran a turn: the turn it
 #             started, who gave it, and whether that was the fixer
-# A record written before by and answers were kept has neither.
+#   filed     the issues the session's turns filed, oldest first: the addresses
+#             of the issues the agent made, read from the turn's stream.
+#             Kept when the record is rewritten, and named to the next turn.
+# A record written before by, answers and filed were kept has none of them.
 # While pending, the outcome is kept next to the record as <record>.out. What
 # the runner carries from one turn to the next is in <record>.keep, and the
 # approved text in <record>.brief; both go with the record.
@@ -93,13 +96,28 @@ plan_end() {
   log "planning #$n ended"
 }
 
+# plan_filed <record>: the issues its turns filed, as one line of addresses
+# separated by ", ". An empty line when the session has filed none, which is
+# what a record of a turn that filed nothing, or one written before this was
+# kept, gives. A filed that is not a list of strings is none.
+plan_filed() {
+  jq -r 'if (.filed | type) == "array" then
+      [.filed[] | select(type == "string") | select(test("^https://github\\.com/[^/]+/[^/]+/issues/[0-9]+$"))]
+      | unique | join(", ")
+    else "" end' "$1" 2>/dev/null
+}
+
 plan_post() {
-  local n=$1 st turns
+  local n=$1 st turns what
   st=$(plan_state "$n")
   turns=$(jq -r '.turns // 0' "$st" 2>/dev/null) || turns=0
+  # What the turn filed is said once, under the agent's own words, and kept on
+  # the record so the next turn's answer can name it: an issue the agent never
+  # saw the result of would otherwise be filed again.
+  what=$(plan_filed "$st.out") || what=""
   # Step one: the question. Once its id is on record it is never posted again.
   if [ -z "$(jq -r '.comment // ""' "$st" 2>/dev/null)" ]; then
-    if ! post_question plan "$n" "$turns" "$st.out"; then
+    if ! post_question plan "$n" "$turns" "$st.out" "${what:+Filed in this turn: $what}"; then
       log "WARN: the planning turn of #$n could not be posted; the next poll tries again"
       return 1
     fi
@@ -170,8 +188,19 @@ plan_finish() {
   fi
   if [ "$ok" = 1 ]; then
     # The options on record are the ones q_render posts, in the same order.
+    # What the turn filed is noted with them, and the issues the session
+    # filed before are noted too: the record is rewritten from the outcome
+    # alone, and the next turn's answer is made from what is left on record
+    # once the outcome file is posted and removed.
+    before=$(plan_filed "$st") || before=""
     jq -c --argjson turns "$turns" --argjson max "${Q_MAX_OPTIONS:?}" --argjson kept "$kept" \
-      '{session, turns: $turns, options: [(.question.options // [])[0:$max][]?.label], pending: true, failed: false, running: false} + $kept' "$out" >"$st.new" &&
+      --arg before "$before" \
+      '{session, turns: $turns, options: [(.question.options // [])[0:$max][]?.label], pending: true, failed: false, running: false}
+       + $kept
+       + (( ($before | split(", ") | map(select(. != ""))) +
+             ((.filed // []) | if type == "array" then . else [] end
+               | map(select(type == "string") | select(test("^https://github\\.com/[^/]+/[^/]+/issues/[0-9]+$"))))
+           | unique) as $f | if ($f | length) == 0 then {} else {filed: $f} end)' "$out" >"$st.new" &&
       mv "$st.new" "$st"
   elif [ -n "$sid" ]; then
     # The session exists, so a reply can run the turn again.
@@ -261,6 +290,17 @@ plan_turn() {
     say "$n" "Tehas planning session started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC (authorized by @${who:?}'s \`tehas:plan\` label). Each turn ends in a comment here. Answer by ticking a box or by replying."
     args=(--brief "$input")
   else
+    # The issues the session has filed go at the top of the answer: a filing
+    # whose result never reached the model would otherwise be done again.
+    # Written beside the answer the caller made, so that file stays the text as
+    # it came and the turn is given the one with the line on it.
+    what=$(plan_filed "$st") || what=""
+    if [ -n "$what" ] && ! printf 'Already filed in this session: %s\n\n%s\n' "$what" "$(cat "$input")" >"$st.answer.new"; then
+      rm -f "$st.answer.new"
+      log "ERROR: could not write the answer for #$n, not starting a turn"
+      exit 1
+    fi
+    [ -z "$what" ] || input=$st.answer.new
     args=(--session "$sid" --answer "$input")
     [ -z "$comment" ] || args+=(--comment "$comment")
   fi

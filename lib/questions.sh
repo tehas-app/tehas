@@ -5,11 +5,13 @@
 #
 #   q_clean [max characters]         stdin to stdout: an agent's words, safe to
 #                                    post, cut at the limit [60000]
-#   q_render <kind> <issue> <turn> <result.json>
+#   q_render <kind> <issue> <turn> <result.json> [line]
 #                                    the body of a question comment; a
 #                                    "marker" of pi-rukas's handoff goes on top,
 #                                    a "park" marker of tehas_park_marker above
-#                                    the question's own
+#                                    the question's own; <line>, when it is
+#                                    given, is the host's own and says what the
+#                                    turn did, between the question and the boxes
 #   q_answer <bot> <allowed logins> [comment id] [fixer login]
 #                                    stdin: the issue's comments as GraphQL
 #                                    answers them; stdout: what was answered
@@ -50,7 +52,7 @@ q_clean() {
 Q_MAX_OPTIONS=20
 
 q_render() {
-  local kind=$1 issue=$2 turn=$3 file=$4 n i label desc marker
+  local kind=$1 issue=$2 turn=$3 file=$4 line=${5:-} n i label desc marker
   # A park may carry pi-rukas's handoff marker, put back as its first line.
   # Only that marker of only this issue: the text is an agent's, the marker
   # is made by the caller.
@@ -62,6 +64,11 @@ q_render() {
   if [ "$(jq -r '.question != null' "$file")" = true ]; then
     printf '\n'
     jq -r '.question.question // ""' "$file" | q_clean 4000
+  fi
+  # The host's own line, so it is not run through the masking an agent's words
+  # go through. It holds no address of the host and no box.
+  if [ -n "$line" ]; then
+    printf '\n%s\n' "$line"
   fi
   printf '\n'
   n=$(jq '(.question.options // []) | length' "$file") || return 1
