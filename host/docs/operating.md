@@ -206,11 +206,13 @@ with their busy slots. The figures are the mesh's own and are good to about
 15%. Only machines that are online and serve a model the factory uses are
 counted; other machines of the mesh and other models are left out. A counted
 machine's draw is all of it, including any other model it serves.
-While the section is there, a live meter stands at the right end of the panel
-that opens the first screen, over its title and the lines under it: the draw
-now, and the tokens the mesh produced for the factory's models in the last
-minute. The tokens are the mesh's count for those models, so other users of the
-same models are in it. Below 900px the meter lies across the foot of that panel
+While the section is there, the panel that opens the first screen carries a
+live meter: the draw now, and the tokens the mesh produced for the factory's
+models in the last minute. The tokens are the mesh's count for those models, so
+other users of the same models are in it. On a wide screen, 1440px and up, it
+is a card of its own beside that panel, over the column the work order monitor
+stands in; below 1440px it stands at the right end of the panel, over its title
+and the lines under it, and below 900px it lies across the foot of that panel
 instead. It leads to Energy use.
 With any other backend the section and the meter are simply not there, and
 nothing else changes. To turn them off on a viiwork mesh, see
