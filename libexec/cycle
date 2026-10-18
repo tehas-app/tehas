@@ -54,6 +54,10 @@
 # nothing moved and at which step. A runner that did not stop at its own time
 # limit is stopped by tehas work, which leaves the limit's seconds in
 # state/cycles/<issue>.timed: the status is then "timeout", said the same way.
+# The stop files name the step in flight, used where the result names none.
+# Such a stop is on record as tehas's own cap,
+# wall-clock or stall, with capReason naming the step and any cap the
+# runner had named, unless the result names an end the runner reached first.
 # So is a runner that stopped itself at the time limit and named no cap. Both
 # go on record with tehas's own cap wall-clock and the step the cycle was in.
 #
@@ -376,13 +380,23 @@ if [ -f "$forks_file" ] && [ ! -L "$forks_file" ]; then
   [[ $forks =~ ^(0|[1-9][0-9]{0,8})$ ]] || forks=0
 fi
 rm -f "${cycles:?}/${issue:?}.forks"
-stalled=0
+# The stall file of tehas work: the seconds, and on a second line the step
+# that was in flight, which stands in for a step the result does not name.
+stop_secs=0 stop_step=""
+stop_read() { # <file>: set stop_secs and, when it names one, stop_step
+  local at=""
+  stop_secs=0
+  [ -f "$1" ] && [ ! -L "$1" ] || return 0
+  { read -r stop_secs; read -r at; } < <(head -c 100 "$1" 2>/dev/null)
+  [[ $stop_secs =~ ^(0|[1-9][0-9]{0,8})$ ]] || stop_secs=0
+  at=$(tr -cd 'A-Za-z0-9_.-' <<<"$at" | head -c 40)
+  [ "$stop_secs" = 0 ] || [ -z "$at" ] || [ "$at" = - ] || stop_step=$at
+}
 stall_file=${cycles:?}/${issue:?}.stalled
-if [ -f "$stall_file" ] && [ ! -L "$stall_file" ]; then
-  stalled=$(head -c 16 "$stall_file" 2>/dev/null | head -n 1)
-  [[ $stalled =~ ^(0|[1-9][0-9]{0,8})$ ]] || stalled=0
-fi
+stop_read "$stall_file"
+stalled=$stop_secs
 rm -f "$stall_file"
+[ "$step" != - ] || [ -z "$stop_step" ] || step=$stop_step
 # The image the container started from, as tehas work saw it, for the record.
 image_id="" image_rukas=""
 image_file=${cycles:?}/${issue:?}.image
@@ -464,20 +478,30 @@ else
       ;;
   esac
 fi
-# When the runner named no cap and the cycle ended at tehas's own bound, the
-# cap is tehas's: wall-clock for the time limit, stall for the stall, with the
-# step in its reason. Result schema 4 has no wall-clock of pi-rukas's. The
-# runner's word is kept where it named one. Both are read of the outcome, so a
-# stop tehas made still says who made it wherever cap is used: the park
-# record, the comment's marker, the history line and the improvement record.
-if [ -z "$cap" ]; then
-  if [ "$timed" != 0 ]; then
-    cap=wall-clock
-    [ -n "$reason" ] || reason="the cycle reached its time limit, TEHAS_WORK_TIMEOUT=${timed}s, at step $step"
-  elif [ "$stalled" != 0 ]; then
-    cap=stall
-    [ -n "$reason" ] || reason="no log of the cycle changed for TEHAS_WORK_STALL=${stalled}s, at step $step"
+# When tehas stopped the cycle itself, the cap is tehas's own: the time limit
+# or the stall. The runner's cap is kept only where its result names an end it
+# reached first, such as a handoff; the cap of a runner stopped mid-step is the
+# last verdict of a step, not why the cycle ended, and goes in the reason. So a
+# stop tehas made says who made it, and at which step, wherever cap is used:
+# the park record, the comment's marker, the history line and the improvement
+# record.
+own=""
+if [ "$timed" != 0 ] && { [ -z "$cap" ] || [ "$status" = timeout ]; }; then
+  own=wall-clock
+  if [ "$timed_by" = runner ]; then
+    stop_why="the cycle reached its time limit, TEHAS_WORK_TIMEOUT=${timed}s, at step $step"
+  else
+    stop_why="tehas work stopped the container at the time limit of ${timed}s"
   fi
+elif [ "$stalled" != 0 ] && { [ -z "$cap" ] || [ "$status" = stalled ]; }; then
+  own=stall
+  stop_why="tehas work stopped the container when no log changed for ${stalled}s"
+fi
+if [ -n "$own" ]; then
+  [ "$own" = wall-clock ] && [ "$timed_by" = runner ] || stop_why="$stop_why, step $step in flight"
+  [ -z "$cap" ] || stop_why="$stop_why; the runner had named the cap $cap"
+  reason=$(printf '%s' "$stop_why${reason:+; $reason}" | head -c 200)
+  cap=$own
 fi
 # The token usage: a row per role from the progress, and the result's totals,
 # which count failed dispatches too, as the rows do where the result gave
@@ -553,7 +577,7 @@ fi
 [ "$cap" != deadline ] || why="$why It reached its deadline, a quarter of its time limit before the end, and started no new step."
 # The failure behind the cap, where the result gives one. Of kind cap nothing
 # failed: the cap's own rule stopped the cycle, and the cap says that.
-if [ "$failure_from" = result ] && [ -n "$failure_kind" ] && [ "$failure_kind" != cap ] && [ "$provider" != 1 ]; then
+if [ -z "$own" ] && [ "$failure_from" = result ] && [ -n "$failure_kind" ] && [ "$failure_kind" != cap ] && [ "$provider" != 1 ]; then
   why="$why It failed: kind \`$failure_kind\`${failure_role:+, role \`$failure_role\`}${failure_cause:+, cause \`$failure_cause\`}${reason:+: $reason}."
 fi
 marker=""

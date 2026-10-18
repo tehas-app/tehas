@@ -16,6 +16,7 @@ t_run "$work 7"
 t_eq "$t_rc" 2
 t_contains "$t_out" "time limit of 1s passed"
 t_contains "$t_out" "status=timeout"
+t_contains "$t_out" "step=lens-review cap=wall-clock"
 t_lacks "$t_out" "was killed"
 t_contains "$(t_calls docker)" "stop -t 20 tehas-work-7"
 t_eq "$(cat "$T/home/tehas/state/cycles/7.timed")" "1 tehas lens-review"
@@ -26,6 +27,7 @@ container "trap 'says interrupted; exit 21' TERM; \"\$nap\" 60 & echo \$! >\"\$T
 t_run "$work 7"
 t_eq "$t_rc" 2
 t_contains "$t_out" "status=timeout"
+t_contains "$t_out" "cap=wall-clock"
 t_eq "$(jq -c '[.running, .status]' "$live/cycles/7.json")" '[false,"timeout"]'
 t_eq "$(cat "$T/home/tehas/state/cycles/7.timed")" "1 tehas -"
 
@@ -72,7 +74,9 @@ t_contains "$t_out" "status=stalled"
 t_lacks "$t_out" "time limit"
 t_lacks "$t_out" "was killed"
 t_contains "$(t_calls docker)" "stop -t 20 tehas-work-7"
-t_eq "$(cat "$T/home/tehas/state/cycles/7.stalled")" 2
+t_eq "$(cat "$T/home/tehas/state/cycles/7.stalled")" "2
+-"
+t_contains "$t_out" "status=stalled step=- cap=stall"
 t_eq "$(jq -c '[.running, .status]' "$live/cycles/7.json")" '[false,"stalled"]'
 
 t_case "a stalled runner that writes its result as it is stopped is still stalled"

@@ -164,14 +164,16 @@ t_run "$work 7"
 t_eq "$t_rc" 2
 caps_good
 
-t_case "the handoff channel, the deadline and the gate runs at once are this command's, not the instance's"
+t_case "the handoff channel and allowance, the deadline and the gate runs at once are this command's, not the instance's"
 caps_fresh
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 PI_ENSEMBLE_HANDOFF_CHANNEL=forge \
-  PI_ENSEMBLE_CYCLE_BUDGET_MS=60000 PI_ENSEMBLE_VERIFY_CONCURRENCY=9 PI_ENSEMBLE_CYCLE_DEADLINE=1
+  PI_ENSEMBLE_CYCLE_BUDGET_MS=60000 PI_ENSEMBLE_VERIFY_CONCURRENCY=9 PI_ENSEMBLE_CYCLE_DEADLINE=1 \
+  PI_ENSEMBLE_HANDOFF_TIMEOUT_MS=5000
 before=$(date +%s)
 t_run "$work 7"
 t_eq "$(after -e | grep -c '^PI_ENSEMBLE_HANDOFF_CHANNEL')" 1
 t_contains "$(after -e)" "PI_ENSEMBLE_HANDOFF_CHANNEL=host"
+t_eq "$(after -e | grep '^PI_ENSEMBLE_HANDOFF_TIMEOUT_MS')" "PI_ENSEMBLE_HANDOFF_TIMEOUT_MS=480000"
 t_lacks "$(after -e)" "PI_ENSEMBLE_CYCLE_BUDGET_MS"
 # A container of a 2048m ceiling runs one gate at a time.
 t_eq "$(after -e | grep '^PI_ENSEMBLE_VERIFY_CONCURRENCY')" "PI_ENSEMBLE_VERIFY_CONCURRENCY=1"
@@ -189,6 +191,19 @@ t_run "$work 7"
 deadline=$(after -e | sed -n 's/^PI_ENSEMBLE_CYCLE_DEADLINE=//p')
 # 7200 - (2400 + 480)
 t_eq "$([ "$deadline" -ge $(((before + 4320) * 1000)) ] && [ "$deadline" -le $(((before + 4320 + 60) * 1000)) ] && echo in-range)" in-range
+t_eq "$(after -e | grep '^PI_ENSEMBLE_HANDOFF_TIMEOUT_MS')" "PI_ENSEMBLE_HANDOFF_TIMEOUT_MS=480000"
+
+t_case "a runner that bounds its steps by the deadline gets the limit less the handoff allowance"
+caps_fresh
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+jq '.features.cycleDeadlineHandoffAllowance = true' "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
+before=$(date +%s)
+t_run "$work 7"
+deadline=$(after -e | sed -n 's/^PI_ENSEMBLE_CYCLE_DEADLINE=//p')
+# 21600 - 480
+t_eq "$([ "$deadline" -ge $(((before + 21120) * 1000)) ] && [ "$deadline" -le $(((before + 21120 + 60) * 1000)) ] && echo in-range)" in-range
+t_eq "$(after -e | grep '^PI_ENSEMBLE_HANDOFF_TIMEOUT_MS')" "PI_ENSEMBLE_HANDOFF_TIMEOUT_MS=480000"
+caps_good
 
 t_case "a time limit with no room for a deadline gives none, says so, and does not need the feature"
 caps_fresh
