@@ -681,6 +681,20 @@ reached a log does not reach the copy. An export is never written under
 everything: an export is still a copy of what a cycle wrote, so where it goes is
 still a decision.
 
+## The last ten days
+
+The factory records every run it makes, with the tehas and pi-rukas versions
+it ran, and keeps ten days of them. Two commands read them:
+
+```
+tehas analytics report                    # the ten-day report in the terminal
+tehas analytics export copy.db --json     # a copy of the database, to fetch
+```
+
+The report is the one on the plain dashboard. The copy is for deeper analysis
+elsewhere; it holds no token, host or address. `TEHAS_ANALYTICS=off` stops the
+recording, and both commands then say so and exit 69.
+
 ## Limits that hold work back
 
 - A limit set with `tehas limit`, when there is one: see

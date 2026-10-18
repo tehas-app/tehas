@@ -26,6 +26,7 @@ tehas drain [--wait S] [--json]  # start nothing new, wait for running cycles
 tehas history [--json] [--after C] [--issue N]  # what ended, oldest first
 tehas export [--json] --after C <dir>  # copy a cycle's records, masked
 tehas top [--once|--json]        # one screen of what the factory is doing
+tehas analytics report|export    # the factory's last ten days of runs
 tehas pause [reason]             # stop this host from starting new work
 tehas resume                     # lift this host's pause flag
 tehas help [command]             # this list, or the text of one command
@@ -1264,6 +1265,50 @@ a `fail` or a stale health file is shown here, not returned - that is what
 `tehas status` is for. Exit 1 when there is no `~/tehas/live/` directory at all.
 Exit 64 on an unknown argument, or on a `--every` that is not a whole number
 from 1 to 64.
+
+## tehas analytics
+
+```
+tehas analytics report                    # the ten-day report, for a person
+tehas analytics export <file> [--json]    # a copy of the database
+```
+
+The factory's own record of its last ten days: runs, their steps and roles,
+issue events and poll samples, in `~/tehas/state/analytics.db`. Both read it
+through `~/tehas/libexec/analytics`, which holds all of its SQL.
+
+`report` prints what the plain dashboard's "Last 10 days" shows, as text: one
+line per figure with its count `n`, a table of the ten days, the five most
+common stop reasons, the share of runs that got through each step, and one row
+per tehas and pi-rukas version pair. A figure that has no value, such as a
+yield of no shipped issues, is `-`.
+
+```
+Last 10 days, 2026-10-09 to 2026-10-18 (UTC)
+
+Shipped            0 issues
+Runs               1: 0 pr, 0 merged, 1 handoff, 0 parked, 0 failed, 0 refused, 0 stopped
+Handoff rate       100%  (n=1)
+Cycle time         median 30s, p90 30s  (n=1)
+```
+
+`export` writes a consistent copy of the database to `<file>` with SQLite's
+`VACUUM INTO`, mode 600. It never replaces a file. With `--json` it then prints
+what the copy holds, read from the copy:
+
+```json
+{"api":1,"schema":1,"from":1792022400,"to":1792800000,"runs":42}
+```
+
+`schema` is the copy's schema version, `from` and `to` the oldest start and the
+newest end of its runs in Unix seconds, both left out when it has none, and
+`runs` how many there are. It takes no lock a cycle holds and makes no network
+call. See [the factory API](/api#tehas-analytics-export).
+
+Exit 0; 64 on a bad argument; 69 when `TEHAS_ANALYTICS=off`, or the program is
+not installed, which reads and writes nothing; 70 when the database cannot be
+read; 73 when `<file>` exists or cannot be made; 78 when the settings are
+missing or malformed.
 
 ## tehasbot
 
