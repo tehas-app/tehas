@@ -85,7 +85,9 @@ Rules that hold for every command:
 - Loading settings runs no git command, makes no network call and writes
   nothing.
 - `instance.env` is shell, sourced as written. Keep it writable by the tehas
-  user only. `./install.sh --check` reports it if it is not.
+  user only. `./install.sh --check` reports it if it is not, and reads the
+  file no further once it has a finding: the owner and mode of the instance
+  directory and of `instance.env` are checked before the settings are read.
 
 The settings and their defaults are listed on the [commands page](/tools) and,
 with comments, in `instances/example/instance.env`.
