@@ -73,14 +73,19 @@ RUN rm -rf /usr/lib/node_modules/wigolo /usr/local/lib/node_modules/wigolo \
 # builds and a call that worked in one cycle is refused in the next. Here it is
 # the version versions.env names, the one bootstrap.sh puts on the host: the
 # installer is checked by checksum as there, and the version the image ends
-# with is read back from the binary. It installs into /usr/local/bin, where the
-# base's copy already is: the installer configures PATH for a directory that is
-# not on it, and fails when it cannot.
-RUN curl -fsSL "https://raw.githubusercontent.com/DeusData/codebase-memory-mcp/v${CBM_VERSION}/install.sh" -o /tmp/cbm-install.sh \
+# with is read back from the binary. The installer's own activation cannot
+# publish onto the image's overlayfs when Docker runs inside an unprivileged
+# Incus container, as a factory's does: it stops with cleanup_timeout. So it
+# installs into a tmpfs, made 755 because it refuses a directory others can
+# write, and only the binary is copied over the base's copy in /usr/local/bin.
+RUN --mount=type=tmpfs,target=/cbm \
+    chmod 755 /cbm \
+ && curl -fsSL "https://raw.githubusercontent.com/DeusData/codebase-memory-mcp/v${CBM_VERSION}/install.sh" -o /tmp/cbm-install.sh \
  && echo "${CBM_INSTALLER_SHA256}  /tmp/cbm-install.sh" | sha256sum -c - \
  && env HOME=/root CBM_DOWNLOAD_URL="https://github.com/DeusData/codebase-memory-mcp/releases/download/v${CBM_VERSION}" \
-     bash /tmp/cbm-install.sh --skip-config --dir=/usr/local/bin \
- && rm -f /tmp/cbm-install.sh /usr/local/bin/install.sh \
+     bash /tmp/cbm-install.sh --skip-config --dir=/cbm \
+ && install -m 755 /cbm/codebase-memory-mcp /usr/local/bin/codebase-memory-mcp \
+ && rm -f /tmp/cbm-install.sh \
  && found=$(codebase-memory-mcp --version 2>/dev/null | grep -o -E '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1) \
  && if [ "${found:-}" != "$CBM_VERSION" ]; then echo "sandbox: codebase-memory-mcp is ${found:-not there}, versions.env names $CBM_VERSION" >&2; exit 1; fi \
  && echo "sandbox: codebase-memory-mcp $CBM_VERSION"
