@@ -25,8 +25,10 @@
 //!
 //! The database is $TEHAS_HOME/state/analytics.db, mode 0600, in WAL mode,
 //! its schema version in PRAGMA user_version (schema.sql). A file that is
-//! not a database of that schema is moved to analytics.db.broken and a new
-//! one is made, said on standard error. Any other failure leaves the file
+//! not a database is moved to analytics.db.broken, a database of another
+//! schema version to analytics.db.schema-<version>, and a new one is made,
+//! said on standard error. prune deletes a schema-<version> file ten days
+//! after its last write. Any other failure leaves the file
 //! as it is. TEHAS_HOME comes from the
 //! environment and has no default.
 //!
@@ -147,12 +149,12 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
     }
     let file = db::path(home);
     let (conn, moved) = db::open(&file, now).map_err(|e| (70, e))?;
-    if moved {
+    if let Some(to) = moved {
         eprintln!(
-            "analytics: {} was not a database of schema {}; it was moved to {}.broken and a new one made",
+            "analytics: {} was not a database of schema {}; it was moved to {} and a new one made",
             file.display(),
             db::SCHEMA_VERSION,
-            file.display()
+            to.display()
         );
     }
     match cmd {
@@ -168,6 +170,7 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
         }
         Cmd::Prune => {
             db::prune(&conn, now).map_err(db_err)?;
+            db::prune_aside(&file, now);
             conn.execute_batch("PRAGMA optimize").map_err(db_err)
         }
         Cmd::Export(to) => db::export(&conn, to).map_err(|e| (73, e)),
