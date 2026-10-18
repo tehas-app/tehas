@@ -292,12 +292,14 @@ gh_json() { json=$(gh "$@" 2>/dev/null) || { log "ERROR: gh $1 $2 failed"; exit 
 # not the end of the poll.
 say() { gh issue comment "$1" --repo "$repo" --body "$2" >/dev/null 2>&1 || log "WARN: comment on #$1 failed"; }
 
-# post_question <kind> <issue> <turn> <result.json>: post a question comment.
-# Its id is left in $posted. Returns 1 when it could not be posted.
+# post_question <kind> <issue> <turn> <result.json> [line under the agent's
+# words]: post a question comment. The line, when it is given, is the host's
+# own and goes after the question and before the boxes. Its id is left in
+# $posted. Returns 1 when it could not be posted.
 posted=""
 post_question() {
   local body
-  body=$(q_render "$1" "$2" "$3" "$4") || return 1
+  body=$(q_render "$1" "$2" "$3" "$4" "${5:-}") || return 1
   posted=$(gh api "repos/$repo/issues/$2/comments" -f body="$body" --jq .id 2>/dev/null) || return 1
   [ -n "$posted" ]
 }

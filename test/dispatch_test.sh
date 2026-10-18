@@ -241,8 +241,15 @@ parked() {
   echo 4001 >"$park_id"
 }
 
-plan_body() { # <box 1> <box 2> <end box>
-  printf 'Two ways.\n\nAdopt?\n\n- [%s] Adopt all\n  Apply all five\n- [%s] Change some\n- [%s] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->\n' "$1" "$2" "$3"
+plan_body() { # <box 1> <box 2> <end box> [<turn> [<line of the host's own>]]
+  # printf makes the blank line around the host's line: what a caller builds
+  # with $( ) arrives without the line ends it held.
+  local extra=
+  [ -z "${5:-}" ] || extra="${5}
+
+"
+  printf 'Two ways.\n\nAdopt?\n\n%s- [%s] Adopt all\n  Apply all five\n- [%s] Change some\n- [%s] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=%s -->\n' \
+    "$extra" "$1" "$2" "$3" "${4:-1}"
 }
 record=$T/home/tehas/state/plan-7.json
 # Issue 7 is labelled for planning by alice and nothing else is queued.
@@ -262,7 +269,26 @@ planning() {
   echo '{"session":"abc-123","turns":1,"options":["Adopt all","Change some"],"pending":false,"failed":false,"comment":4001}' >"$record"
 }
 plan_calls() { t_calls fake-plan; }
-
+# What the fake runner writes for the turn it is asked to run: the agent's
+# words and its question, beside the issues the turn filed. With no url the
+# turn filed nothing and the outcome has no filed key.
+plan_files() { # <url>...
+  rm -f "$fx/plan-fails" "$fx/plan-result.json"
+  jq -cn --arg text "Two ways." \
+    --argjson urls "$(printf '%s\n' "$@" | jq -Rs 'split("\n") | map(select(. != ""))')" '
+    {session: "abc-123", text: $text,
+     question: {question: "Adopt?", options: [
+       {label: "Adopt all", description: "Apply all five"},
+       {label: "Change some", description: ""}]}}
+    + (if ($urls | length) == 0 then {} else {filed: $urls} end)' >"$fx/plan-result.json"
+}
+# The question of a session whose last turn filed <url>..., as the host posted
+# it: plan_body with the line naming them between the question and the boxes.
+plan_filed_body() { # <turn> <url>...
+  local n=$1 urls=""
+  [ "$#" = 1 ] || urls=$(printf '%s\n' "${@:2}" | jq -Rrs 'split("\n") | map(select(. != "")) | join(", ")')
+  plan_body ' ' x ' ' "$n" "${urls:+Filed in this turn: $urls}"
+}
 # A product repository whose default branch is main, and the instance's clone.
 upstream=$T/git/acme/widget
 mkdir -p "$upstream"
@@ -2494,6 +2520,54 @@ t_contains "$(t_calls gh)" "1. Which?"
 t_contains "$(t_calls gh)" "2. Where?"
 t_eq "$(t_calls gh | grep -c '^- \[ \] ')" 1
 t_contains "$(t_calls gh)" "- [ ] End this planning session"
+
+t_case "a turn that filed issues says so under its words and keeps them on record"
+to_plan
+plan_files https://github.com/acme/widget/issues/42 https://github.com/acme/widget/issues/43
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls gh | grep -c -F -e 'Filed in this turn: https://github.com/acme/widget/issues/42, https://github.com/acme/widget/issues/43')" 1
+t_eq "$(jq -c .filed "$record")" '["https://github.com/acme/widget/issues/42","https://github.com/acme/widget/issues/43"]'
+
+t_case "the next turn of a session that filed is told not to file them again"
+planning
+jq '.filed = ["https://github.com/acme/widget/issues/42", "https://github.com/acme/widget/issues/43"]' "$record" >"$record.new" && mv "$record.new" "$record"
+plan_files
+comments 7 "$(plan_filed_body 1 https://github.com/acme/widget/issues/42 https://github.com/acme/widget/issues/43)" alice
+t_run "$dispatch"
+t_eq "$(plan_calls)" "7 --out $record.out --keep $record.keep --session abc-123 --answer $record.answer.new"
+t_eq "$(cat "$record.answer.new")" "Already filed in this session: https://github.com/acme/widget/issues/42, https://github.com/acme/widget/issues/43
+
+The operator chose: Change some"
+t_eq "$(cat "$record.answer")" "The operator chose: Change some"
+
+t_case "what a later turn files is added to what the session filed before"
+planning
+jq '.filed = ["https://github.com/acme/widget/issues/41"]' "$record" >"$record.new" && mv "$record.new" "$record"
+plan_files https://github.com/acme/widget/issues/43 https://github.com/acme/widget/issues/42
+comments 7 "$(plan_filed_body 1 https://github.com/acme/widget/issues/41)" alice
+t_run "$dispatch"
+t_eq "$(jq -c .filed "$record")" '["https://github.com/acme/widget/issues/41","https://github.com/acme/widget/issues/42","https://github.com/acme/widget/issues/43"]'
+t_eq "$(t_calls gh | grep -c -F -e 'Filed in this turn: https://github.com/acme/widget/issues/42, https://github.com/acme/widget/issues/43')" 1
+
+t_case "a turn that filed nothing names none, and the next answer says nothing of filings"
+planning
+plan_files
+comments 7 "$(plan_filed_body 1)" alice
+t_run "$dispatch"
+t_eq "$(plan_calls)" "7 --out $record.out --keep $record.keep --session abc-123 --answer $record.answer"
+t_eq "$(cat "$record.answer")" "The operator chose: Change some"
+t_lacks "$(t_calls gh)" "Filed in this turn"
+jq -e 'has("filed") | not' "$record" >/dev/null || t_bad "the record has a filed key"
+
+t_case "of what the record says was filed, only GitHub issue addresses are named, each once"
+planning
+jq '.filed = ["https://github.com/acme/widget/issues/42", 7, "https://evil.example/acme/widget/issues/8", "https://github.com/acme/widget/issues/42"]' "$record" >"$record.new" && mv "$record.new" "$record"
+plan_files
+comments 7 "$(plan_filed_body 1 https://github.com/acme/widget/issues/42)" alice
+t_run "$dispatch"
+t_eq "$(head -n 1 "$record.answer.new")" "Already filed in this session: https://github.com/acme/widget/issues/42"
+t_lacks "$(cat "$record.answer.new")" "evil.example"
 
 t_case "a ticked option goes to the session as the next message"
 planning

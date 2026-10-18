@@ -674,6 +674,13 @@ and its `.filed` and `.claim` markers, at most 1 MB each), and with
 that commit and gets that record back. A later turn whose commit is missing or
 gone starts at the tip of the branch and says so.
 
+The issues a turn files are read from its stream: the addresses `gh issue
+create` printed in a bash call that succeeded. The turn's comment names them in
+one line, `Filed in this turn: <address>, ...`, and the session's record keeps
+them. Every later turn's answer then begins with `Already filed in this session:
+<address>, ...`, so a filing whose result never reached the agent is not made
+again.
+
 pi-rukas keys that record on `origin/<branch>` after a fetch of its own, and
 on what the agent asks for. In a turn's workspace `origin/<branch>` is the
 session's commit, and the clone has no fetch refspec, so a fetch inside the
