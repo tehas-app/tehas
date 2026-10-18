@@ -21,28 +21,74 @@ pub fn path(home: &Path) -> PathBuf {
 }
 
 /// Opens the database, making it when there is none. A file that is not a
-/// database of this schema is moved to analytics.db.broken and a new one is
-/// made: the data is only ten days deep. Any other failure, a full disk, a
-/// file it may not write, a lock held too long, is an error and leaves the
-/// file as it is. The second value says whether a file was moved aside.
-pub fn open(file: &Path, now: i64) -> Result<(Connection, bool), String> {
+/// database is moved to analytics.db.broken and a new one is made: the data
+/// is only ten days deep. A database of another schema version is moved,
+/// with its -wal and -shm, to analytics.db.schema-<version>, where a reader
+/// can still fetch it, and prune_aside deletes it ten days after its last
+/// write. Any other failure, a full disk, a file it may not write, a lock
+/// held too long, is an error and leaves the file as it is. The second value
+/// is where a file was moved, if one was.
+pub fn open(file: &Path, now: i64) -> Result<(Connection, Option<PathBuf>), String> {
     if let Some(dir) = file.parent() {
         fs::create_dir_all(dir).map_err(|e| format!("cannot make {}: {e}", dir.display()))?;
     }
-    match try_open(file, now) {
-        Ok(conn) => Ok((conn, false)),
-        Err(Unusable::Failed(e)) => Err(e),
-        Err(Unusable::Broken(why)) => {
-            let broken = file.with_extension("db.broken");
-            fs::rename(file, &broken)
-                .map_err(|e| format!("{why}, and it cannot be moved aside: {e}"))?;
-            for side in ["db-wal", "db-shm"] {
-                let _ = fs::remove_file(file.with_extension(side));
-            }
-            let conn = try_open(file, now).map_err(|e| match e {
-                Unusable::Failed(e) | Unusable::Broken(e) => e,
-            })?;
-            Ok((conn, true))
+    let (to, why, keep_sides) = match try_open(file, now) {
+        Ok(conn) => return Ok((conn, None)),
+        Err(Unusable::Failed(e)) => return Err(e),
+        Err(Unusable::Broken(why)) => (file.with_extension("db.broken"), why, false),
+        Err(Unusable::Foreign(version, why)) => {
+            (file.with_extension(format!("db.schema-{version}")), why, true)
+        }
+    };
+    fs::rename(file, &to).map_err(|e| format!("{why}, and it cannot be moved aside: {e}"))?;
+    for side in ["-wal", "-shm"] {
+        let from = side_file(file, side);
+        if keep_sides && from.exists() {
+            let _ = fs::rename(&from, side_file(&to, side));
+        } else {
+            let _ = fs::remove_file(&from);
+        }
+    }
+    let conn = try_open(file, now).map_err(|e| match e {
+        Unusable::Failed(e) | Unusable::Broken(e) | Unusable::Foreign(_, e) => e,
+    })?;
+    Ok((conn, Some(to)))
+}
+
+// SQLite names a database's side files by appending to its name.
+fn side_file(file: &Path, side: &str) -> PathBuf {
+    let mut name = file.as_os_str().to_owned();
+    name.push(side);
+    PathBuf::from(name)
+}
+
+/// Deletes the databases of other schema versions, and their side files,
+/// whose last write is more than ten days old: by then every row in them is.
+pub fn prune_aside(file: &Path, now: i64) {
+    let (Some(dir), Some(name)) = (file.parent(), file.file_name().and_then(|n| n.to_str()))
+    else {
+        return;
+    };
+    let prefix = format!("{name}.schema-");
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let ours = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.starts_with(&prefix));
+        let Ok(meta) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        let written = meta
+            .modified()
+            .ok()
+            .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as i64);
+        if ours && meta.is_file() && written.is_some_and(|w| w < now - RETENTION_DAYS * DAY) {
+            let _ = fs::remove_file(&path);
         }
     }
 }
@@ -52,6 +98,8 @@ pub(crate) enum Unusable {
     Failed(String),
     // The file is not a database of this schema.
     Broken(String),
+    // A database of another schema version: kept aside, not discarded.
+    Foreign(i64, String),
 }
 
 fn classify(e: rusqlite::Error) -> Unusable {
@@ -106,11 +154,12 @@ pub(crate) fn settle(conn: &mut Connection, seen: i64, now: i64) -> Result<(), U
         return Ok(());
     }
     if seen != 0 {
-        // No migration exists yet: a schema this program does not know is
-        // moved aside, as a broken file is.
-        return Err(Unusable::Broken(format!(
-            "the database has schema {seen}, this program writes {SCHEMA_VERSION}"
-        )));
+        // No migration exists: a schema this program does not write is kept
+        // aside under its version.
+        return Err(Unusable::Foreign(
+            seen,
+            format!("the database has schema {seen}, this program writes {SCHEMA_VERSION}"),
+        ));
     }
     let tx = conn
         .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -122,9 +171,10 @@ pub(crate) fn settle(conn: &mut Connection, seen: i64, now: i64) -> Result<(), U
         return Ok(());
     }
     if version != 0 {
-        return Err(Unusable::Broken(format!(
-            "the database has schema {version}, this program writes {SCHEMA_VERSION}"
-        )));
+        return Err(Unusable::Foreign(
+            version,
+            format!("the database has schema {version}, this program writes {SCHEMA_VERSION}"),
+        ));
     }
     let tables: i64 = tx
         .query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get(0))
