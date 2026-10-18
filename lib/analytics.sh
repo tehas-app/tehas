@@ -8,9 +8,11 @@
 #       Run the program with TEHAS_HOME, for at most tehas_analytics_limit
 #       seconds. Always returns 0: analytics never changes how a cycle or a
 #       poll ends. A failure, the time limit included, is one line in the
-#       caller's log, "WARN analytics <subcommand>: exit N". Does nothing
-#       unless TEHAS_ANALYTICS is on, and nothing, silently, on a host with no
-#       program: install.sh builds none where cargo is missing.
+#       caller's log, "WARN analytics <subcommand>: exit N": 124 at the
+#       limit, 137 a second later for a program that ignores TERM, as what
+#       libexec/cycle starts during its report does. Does nothing
+#       unless TEHAS_ANALYTICS is on, and nothing, silently, where the
+#       program is not installed.
 #
 # What the program says on standard error goes to the caller's. Its standard
 # input and output are not the caller's.

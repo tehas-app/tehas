@@ -1340,6 +1340,15 @@ provider, a timeout, a connection or a 5xx status. The
 park file then asks [tehas dispatch](#tehas-dispatch) for one retry, unless the
 cycle was that retry.
 
+Once its history line is written, the cycle records the run in the factory's
+analytics, `~/tehas/state/analytics.db`: `~/tehas/libexec/analytics run` with
+the image, its pi-rukas commit and the counts of kills and refused forks it
+read, then `analytics event <issue> ended`. Each call may take 5 seconds. One
+that fails or runs out of time is a line `WARN analytics <subcommand>: exit N`
+in the log and changes nothing in the report. A stopped cycle is recorded too.
+`TEHAS_ANALYTICS=off`, or a host where the program is not installed, makes no
+call.
+
 | Exit | Meaning                                              |
 | ---- | ---------------------------------------------------- |
 | 0    | The cycle ran and was reported, whatever its outcome |
