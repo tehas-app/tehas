@@ -24,7 +24,7 @@ what changed in which file. It is not the visitor analytics of
 | The issue events `ready` and `started` | the dispatcher | `ready` with the time `tehas:ready` was accepted, `started` as a cycle starts |
 | The issue event `ended` | `tehasbot cycle` | As a cycle ends |
 | The issue events `awaiting`, `merged`, `closed` and `stopped` | `tehasbot status` | The first time a run of it sees the issue in that state, by comparing with its last snapshot |
-| A sample | the dispatcher | Once a poll, every two minutes: about 7200 rows in ten days |
+| A sample | the dispatcher | At the end of each poll: about every two minutes, and also when a cycle ends. Some 7200 rows in ten days |
 | `meta` | the program | When it makes the file |
 
 Each event is stored once per issue, the first time. A second run of an issue
@@ -88,7 +88,7 @@ its times. A planning turn reads its record `state/plan-<n>.json`.
 | `id` | `<kind>-<issue>-<started>`, unique | 1 |
 | `kind` | `work` or `plan` | 1 |
 | `issue` | The issue number | 1 |
-| `attempt` | The run's number for this issue: its line in the history, counting from 1. Work runs only | 1 |
+| `attempt` | The run's number for this issue: its line in the history, counting from 1. The history keeps 50 lines, so it is at most 50. Work runs only | 1 |
 | `how` | What started it: `label`, `retry-tick`, `outage-retry` or `fixer`, from `approved.json`, else the history line. A planning turn: `label` for the first turn, `answer` or `fixer` for a later one | 1 |
 | `started`, `ended`, `seconds` | The run's start, its end and the wall time between: the history line's `started` and `at`. A planning turn ends when the poll collects it | 1 |
 | `queue_wait` | `started` less when `tehas:ready` was accepted (`approved.json`) | 1 |
@@ -224,7 +224,13 @@ tehas analytics export copy.db --json
 writes a consistent copy with SQLite's `VACUUM INTO`, mode 600, and prints
 `{"api":1,"schema":1,"from":...,"to":...,"runs":N}`, read from the copy. It
 takes no lock a cycle holds and makes no network call. It never replaces a
-file. See [the factory API](/api#tehas-analytics-export) for the fields.
+file. A file name may not start with `-`: write `./-name` for one that does.
+See [the factory API](/api#tehas-analytics-export) for the fields.
+
+`tehas analytics report` and `export` open the database as the other
+commands do, so either may make an empty one where there is none, or move a
+broken file or one of another schema version aside, as [The file](#the-file)
+says.
 
 A program fetches it the way it runs any factory command, then copies the file:
 
