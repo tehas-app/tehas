@@ -7,7 +7,6 @@
 # --- The fixer ---------------------------------------------------------------
 # Issue 7 is labelled by the fixer, its body is "Words.", and alice approved
 # its last cycle on that body.
-WSUM=$(printf 'Words.' | sha256sum | cut -d' ' -f1)
 fixer_ready() { # [<approval record of the last start>]
   reset
   t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_FIXER_LOGIN=tehas-fixer

@@ -206,7 +206,7 @@ With any other backend the section and the meter are simply not there, and
 nothing else changes. To turn them off on a viiwork mesh, see
 [the energy sampler](/tools).
 
-The dispatcher takes issues `tehas:urgent` first, then `tehas:next`, then by the lowest issue number: as many at a time as the host's ceiling and the slice's room allow (see [Limits that hold work back](#limits-that-hold-work-back)). A running cycle is never stopped to make room for an urgent one. The dashboard lists the queue by issue number, not the order the dispatcher will work it in: whether a `tehas:urgent` or `tehas:next` moves the queue is decided by who applied the label, not by its being there. `tehas:urgent` counts from an allowed labeller. `tehas:next` counts from an allowed labeller or [the fixer](#the-fixers-grant), when the latest event of the label applies it; one taken off since, or applied by anyone else, is ignored and logged.
+The dispatcher takes issues `tehas:urgent` first, then [refreshes](#refreshes) of its own pull requests, then `tehas:next`, then by the lowest issue number: as many at a time as the host's ceiling and the slice's room allow (see [Limits that hold work back](#limits-that-hold-work-back)). A running cycle is never stopped to make room for an urgent one. The dashboard lists the queue by issue number, not the order the dispatcher will work it in: whether a `tehas:urgent` or `tehas:next` moves the queue is decided by who applied the label, not by its being there. `tehas:urgent` counts from an allowed labeller. `tehas:next` counts from an allowed labeller or [the fixer](#the-fixers-grant), when the latest event of the label applies it; one taken off since, or applied by anyone else, is ignored and logged.
 
 An issue with `tehas:blocked` is not started while an issue it names is open, so its slot goes to work that can move. The label counts on the same terms as `tehas:next`. The blockers are named in a comment by an allowed labeller or the fixer that holds the marker:
 
@@ -232,6 +232,7 @@ Up to 20 numbers, separated by commas and no spaces. The newest such comment amo
 | `tehas:fixer-escalated` | The fixer left it to a person     | Read the fixer's note; decide, or take the label off to hand it back |
 | `tehas:next`            | Started after urgent issues, before the rest | Take it off to give the issue its place by number back |
 | `tehas:blocked`         | Not started while a blocker it names is open | Close the blocker, or take the label off to start it anyway |
+| `tehas:refreshing`      | On a pull request: a [refresh](#refreshes) works on it | Do not merge or push to it now; it comes off when the cycle ends |
 
 `tehas:ready` from an allowed labeller starts a fresh cycle whatever else the
 issue carries. So does one from [the fixer](#the-fixers-grant), within its grant. tehas's labels of the earlier outcome go when the cycle starts.
@@ -309,6 +310,10 @@ adversarial review, and those findings posted as a comment on the pull request,
 carries on to the gate with the findings named on the pull request instead of
 parking; a post that fails parks. A review that runs out of its time budget
 parks whatever the findings are.
+
+A pull request that waits while other work merges may start to conflict with
+the branch. Where the instance turns [refreshes](#refreshes) on, the factory
+merges the branch into it on its own.
 
 After merging, the issue closes and leaves the queue. If you close a pull
 request without merging, remove `tehas:awaiting-merge` from the issue by hand;
@@ -874,6 +879,90 @@ what the account may do, and this section is that.
   `sig` stopped the same way. The free text of a park stays out of the
   marker. Only the bot's comments count: a reader ignores the line in
   anyone else's.
+
+## Refreshes
+
+Optional, off unless `TEHAS_REFRESH_CONFLICTS=1`. A pull request the factory
+opened waits in `tehas:awaiting-merge` for a person. While it waits, other work
+merges, and it may start to conflict with the branch. A refresh is a cycle that
+merges the branch into that pull request, resolves the conflicts and pushes to
+the same branch: the same pull request, its review kept. Never a rebase, a
+force-push or a second pull request. It needs a sandbox image whose pi-rukas
+takes `--continue-pr` (pi-rukas#1468); until then a refresh starts nothing and
+the dispatcher says so.
+
+**What it reads.** `tehasbot refresh`, from `tehas-refresh.timer` once an hour,
+lists the open pull requests of the repository. It keeps the bot's that close
+exactly one open issue carrying `tehas:awaiting-merge`, not the control issue,
+are the only open pull request that closes it, come from a branch of the
+repository and are no draft. Those GitHub says are `CONFLICTING` get a request,
+`~/tehas/state/refresh/<issue>.json`. `UNKNOWN` is read again next hour. A
+request whose pull request no longer qualifies goes. Each run writes one line
+to `~/tehas/logs/refresh.log`:
+
+```
+2026-10-18T09:00:00Z read 6 pull requests, 1 conflict, wrote 1 requests
+```
+
+**When it starts.** The dispatcher checks each request again at the start,
+and starts it on the word of the person whose approval the pull request's cycle
+rests on (the approval record's `by`, or its `rests_on.by` after the fixer):
+
+- the issue is open, carries `tehas:awaiting-merge` and none of
+  `tehas:running`, `tehas:question`, `tehas:fixer-escalated`, `tehas:plan`,
+  and no cycle or planning session is open on it;
+- its body is the body that person approved, and nobody outside
+  `TEHAS_ALLOWED_LABELERS` renamed or edited it since;
+- the pull request is still the bot's, the one open pull request that closes
+  the issue, at the head the request named, and GitHub still says
+  `CONFLICTING`. A person who pushed to it since is handling it;
+- fewer than `TEHAS_REFRESH_MAX` refreshes of it since that approval (2 unless
+  the instance says otherwise), and none that parked.
+
+A request that fails a check goes, and the dispatcher's log says why. At the
+cap or after a parked refresh the bot says so on the issue, once: a person
+resolves the conflict or applies `tehas:ready`. A pull request that carries
+`tehas:refreshing` waits.
+
+Pause, the limit, the slots and the slice's room hold a refresh as they hold
+any start. `TEHAS_MAX_AWAITING` does not: the start takes
+`tehas:awaiting-merge` off, so it moves one pull request from waiting to
+running and adds none. A refresh goes after `tehas:urgent` and before
+`tehas:next`. A refresh that waits for room counts in the demand of
+`tehas status`.
+
+**While it runs** the pull request carries `tehas:refreshing`: do not merge or
+push to it. The dispatcher applies it before it marks the issue, and a start
+whose label change fails starts nothing. `tehasbot cycle` takes it off when the
+cycle ends, whatever the outcome. The dispatcher takes it off a pull request
+whose issue has no cycle running, and one applied by any account but the bot.
+
+**The record and the cycle.** The approval record has `how: "refresh"`, the
+person's `by` and `at`, `rests_on`, `refreshes` (the count since that
+approval), `refresh_of` (`pr`, `head_sha`, `base_sha`, `branch`) and one
+`retry_context` entry, source `refresh`, that tehas writes itself:
+
+> This pull request conflicts with `main`. Merge `main` into its branch,
+> resolve the conflicts so the change still does what the issue asks, run the
+> gate, and push to the same branch. Do no other work.
+
+No comment text reaches the cycle this way. As with the fixer's note, it
+reaches `retry-context.md` only where the instance gives a cycle images or
+files. `tehas work` passes `--continue-pr` for a refresh, and refuses a refresh
+with 78 on an image that does not take it. Nothing else about the container
+changes. The outcome is read as any cycle's: a refresh that pushed goes back to
+`tehas:awaiting-merge` with the same pull request, one that parks parks the
+issue, and no refresh of it starts again on its own.
+
+**What it does not do.** Failing checks and requested changes, pull requests
+the bot did not open, from forks or closing several issues, and conflicts
+between two open pull requests of the factory: each is resolved against the
+branch when the other merges.
+
+**To turn it off**, set `TEHAS_REFRESH_CONFLICTS=0` (or remove it) in
+`instance.env`: `tehasbot refresh` then exits at once and the dispatcher starts
+no refresh. `systemctl --user disable --now tehas-refresh.timer` stops the
+hourly run as well.
 
 ## Run one issue by hand
 

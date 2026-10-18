@@ -1,0 +1,9 @@
+[Unit]
+Description=Tehas: look for conflicting pull requests every hour
+
+[Timer]
+OnBootSec=15min
+OnUnitInactiveSec=1h
+
+[Install]
+WantedBy=timers.target

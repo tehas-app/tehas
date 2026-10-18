@@ -65,6 +65,53 @@ t_contains "$t_out" "Installed:    DRIFT (1 files)"
 t_contains "$t_out" "differs: $th/libexec/dispatch"
 t_eq "$(installed_files | xargs -I{} sh -c "cd '$home' && cksum '{}'")" "$before"
 
+t_case "--check reports a command whose mode is wrong, changes nothing and exits 1"
+# Only the mode is wrong here, so the content edit of the case before this one
+# is put back from the checkout first. The edit is restored below, where the
+# cases that need it come again.
+cp "$T_ROOT/libexec/dispatch" "$th/libexec/dispatch"
+chmod 644 "$th/libexec/dispatch"
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "Installed:    DRIFT (1 files)"
+t_contains "$t_out" "mode: $th/libexec/dispatch is 644, wants 755"
+t_eq "$(stat -c %a "$th/libexec/dispatch")" 644
+
+t_case "a real run sets the mode of a command whose content already matches"
+# The content is already the checkout's, so the only thing owed is the mode: no
+# copy is owed either, so no .prev appears beside it.
+before=$(cksum <"$th/libexec/dispatch")
+t_run "$install"
+t_eq "$t_rc" 0
+t_eq "$(stat -c %a "$th/libexec/dispatch")" 755
+t_eq "$(cksum <"$th/libexec/dispatch")" "$before"
+t_eq "$([ -e "$th/libexec/dispatch.prev" ] && echo there)" ""
+t_run "$install --check"
+t_contains "$t_out" "Installed:    OK"
+t_eq "$t_rc" 0
+
+t_case "a file installed with the mode the list says is not reported"
+t_eq "$(stat -c %a "$th/bin/tehas")" 755
+t_eq "$(stat -c %a "$th/env.sh")" 644
+t_run "$install --check"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "mode:"
+
+t_case "a unit file with the wrong mode is drift, and a real run puts it right"
+unit=$T/home/.config/systemd/user/tehas-dispatch.service
+before=$(cksum <"$unit")
+chmod 600 "$unit"
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "mode: $unit is 600, wants 644"
+t_run "$install"
+t_eq "$(stat -c %a "$unit")" 644
+t_eq "$(cksum <"$unit")" "$before"
+
+# The content edit the mode cases below displaced is put back for the cases
+# after this block, which install dispatch and expect a copy to be owed.
+echo "# edited on the host" >>"$th/libexec/dispatch"
+
 t_case "a copy that fails halfway leaves the installed file as it was"
 before=$(cksum <"$th/libexec/dispatch")
 # An install that writes part of the file where it was told to, then fails.

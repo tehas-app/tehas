@@ -86,6 +86,10 @@ caps_good() {
     features: {resultFromMemory: true, cycleDeadline: true, handoffChannel: true, restartClearsAttention: true}}' >"$T/caps.json"
 }
 caps_good
+# The flag a runner that can continue a pull request adds to work.
+caps_continue() {
+  jq '.verbs.work.flags += ["--continue-pr"]' "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
+}
 # Pi's settings as install.sh leaves them on a host.
 mkdir -p "$T/home/.pi/agent"
 echo '{"retry":{"maxRetries":10,"baseDelayMs":5000,"maxAgentDelayMs":120000,"provider":{"timeoutMs":600000,"maxRetries":8,"maxRetryDelayMs":60000}}}' >"$T/home/.pi/agent/settings.json"

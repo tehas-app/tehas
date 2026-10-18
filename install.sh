@@ -5,8 +5,9 @@
 #
 #   ./install.sh            copy changed files into place
 #   ./install.sh --check    change nothing; report settings, dependencies,
-#                           the slice, installed files and the command the
-#                           other accounts type when root's copy is stale,
+#                           the slice, installed files (content and mode) and
+#                           the command the other accounts type when root's
+#                           copy is stale,
 #                           each on its own line
 #   ./install.sh --check --tests
 #                           the same, and run the shell tests too. They take
@@ -238,6 +239,7 @@ files=(
   "lib/status.sh|$TEHAS_HOME/lib/status.sh|644"
   "lib/top.sh|$TEHAS_HOME/lib/top.sh|644"
   "lib/planning.sh|$TEHAS_HOME/lib/planning.sh|644"
+  "lib/refresh.sh|$TEHAS_HOME/lib/refresh.sh|644"
   "versions.env|$TEHAS_HOME/versions.env|644"
   "sandbox/Dockerfile|$TEHAS_HOME/sandbox/Dockerfile|644"
   "sandbox/build.sh|$TEHAS_HOME/sandbox/build.sh|755"
@@ -260,6 +262,8 @@ files=(
   "systemd/tehas-preview.timer|$units/tehas-preview.timer|644"
   "systemd/tehas-preview-sweep.service|$units/tehas-preview-sweep.service|644"
   "systemd/tehas-preview-sweep.timer|$units/tehas-preview-sweep.timer|644"
+  "systemd/tehas-refresh.service|$units/tehas-refresh.service|644"
+  "systemd/tehas-refresh.timer|$units/tehas-refresh.timer|644"
   "systemd/tehas-top.service|$units/tehas-top.service|644"
   "pi/mcp.json|$agent/mcp.json|644"
   "$instance/models.json|$agent/models.json|644"
@@ -268,7 +272,7 @@ files=(
 for f in tehas tehasbot; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
-for f in api cycle dev dev-login dispatch drain energy health improve index labels limit pause plan preview protolab resume status summary top top-publish update work; do
+for f in api cycle dev dev-login dispatch drain energy health improve index labels limit pause plan preview protolab refresh resume status summary top top-publish update work; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
 # Pi's own settings: the instance may bring its own (default provider and
@@ -291,13 +295,33 @@ source_of() {
   esac
 }
 
-# put <entry>: install one file if it differs.
+# put <entry>: install one file if its content or its mode differs.
 put() {
-  local src to mode from
+  local src to mode from on_disk
   IFS='|' read -r src to mode <<<"$1"
   from=$(source_of "$src")
   [ -f "$from" ] || { echo "tehas: $from is missing from this checkout" >&2; exit 1; }
-  if [ -f "$to" ] && cmp -s "$from" "$to"; then return 0; fi
+  if [ -f "$to" ] && cmp -s "$from" "$to"; then
+    # Content alone is not enough: a command that matches but is not executable,
+    # or a unit file that has picked up a wider mode, is not what this checkout
+    # installs. -L: a symlink is judged by the file it points at.
+    # A mode the list cannot name stops here, before it reaches chmod.
+    [[ $mode =~ ^[0-7]{3,4}$ ]] || { echo "tehas: the mode $mode for $src is not a number" >&2; exit 1; }
+    on_disk=$(stat -L -c %a "$to") || { echo "tehas: could not read $to" >&2; exit 1; }
+    # 0644 and 644 are the same mode written two ways.
+    on_disk=$((8#$on_disk))
+    if [ "$on_disk" = "$((8#$mode))" ]; then return 0; fi
+    changed+=("$src")
+    if [ "$check" = 1 ]; then
+      note "mode: $to is $(printf '%o' "$on_disk"), wants $mode"
+      return 0
+    fi
+    # The mode is owed, not the copy: chmod on the file in place, so no .new,
+    # no rename and no .prev beside a file whose content is already this one's.
+    chmod "$mode" "$to" || { echo "tehas: could not set mode $mode on $to" >&2; exit 1; }
+    echo "mode: $to -> $mode"
+    return 0
+  fi
   changed+=("$src")
   if [ "$check" = 1 ]; then
     if [ -f "$to" ]; then note "differs: $to"; else note "missing: $to"; fi

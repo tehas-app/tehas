@@ -59,6 +59,8 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./.config/systemd/user/tehas-preview.timer
 ./.config/systemd/user/tehas-protolab.service
 ./.config/systemd/user/tehas-protolab.timer
+./.config/systemd/user/tehas-refresh.service
+./.config/systemd/user/tehas-refresh.timer
 ./.config/systemd/user/tehas-top.service
 ./.pi/agent/mcp.json
 ./.pi/agent/models.json
@@ -85,6 +87,7 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/lib/models.sh
 ./tehas/lib/planning.sh
 ./tehas/lib/questions.sh
+./tehas/lib/refresh.sh
 ./tehas/lib/rukas.sh
 ./tehas/lib/sandbox.sh
 ./tehas/lib/status.sh
@@ -110,6 +113,7 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/libexec/plan
 ./tehas/libexec/preview
 ./tehas/libexec/protolab
+./tehas/libexec/refresh
 ./tehas/libexec/resume
 ./tehas/libexec/status
 ./tehas/libexec/summary
@@ -138,7 +142,7 @@ next_steps() {
   tehas_steps_for systemd/tehas-cycle@.service systemd/tehas-dispatch.path systemd/tehas-dispatch.service systemd/tehas-dispatch.timer \
     systemd/tehas-energy.service systemd/tehas-improve.service systemd/tehas-improve.timer \
     systemd/tehas-preview.service \
-    systemd/tehas-preview.timer systemd/tehas-preview-sweep.service systemd/tehas-preview-sweep.timer systemd/tehas-protolab.service systemd/tehas-protolab.timer systemd/tehas-top.service sandbox/Dockerfile sandbox/build.sh \
+    systemd/tehas-preview.timer systemd/tehas-preview-sweep.service systemd/tehas-preview-sweep.timer systemd/tehas-protolab.service systemd/tehas-protolab.timer systemd/tehas-refresh.service systemd/tehas-refresh.timer systemd/tehas-top.service sandbox/Dockerfile sandbox/build.sh \
     sandbox/npm/playwright/package.json sandbox/npm/playwright/package-lock.json versions.env \
     edge/docs.Caddyfile edge/docs.compose.yaml edge/router.Caddyfile \
     edge/router.compose.yaml

@@ -5,13 +5,6 @@
 . "$(dirname "$0")/dispatch_lib.sh"
 
 # --- The limit (tehas limit) --------------------------------------------------
-limit_file=$T/home/tehas/state/limit.json
-limit() { # <cycles> [<plan true|false>] [<until or "">] [<reason>]: the limit tehas limit writes
-  mkdir -p "${limit_file%/*}"
-  jq -nc --argjson c "$1" --argjson p "${2:-true}" --arg u "${3:-}" --arg r "${4:-}" \
-    '{v: 1, cycles: $c, plan: $p, until: (if $u == "" then null else $u end), reason: $r}' >"$limit_file"
-}
-
 t_case "limit: cycles 0, 1 and above the slots, with 0, 1 and 2 running"
 for c in 0 1 3; do
   for r in 0 1 2; do

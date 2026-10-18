@@ -99,7 +99,8 @@ demand=null
 [ -s "$live/demand.json" ] && demand=$(jq -cs '
   select(length == 1) | .[0]
   | select(type == "object" and (.waiting | type) == "number" and (now - (.time | fromdateiso8601)) < 600)
-  | {time, waiting} + (if (.oldest | type) == "string" then {oldest} else {} end)' "$live/demand.json" 2>/dev/null)
+  | {time, waiting} + (if (.oldest | type) == "string" then {oldest} else {} end)
+    + (if (.refreshHold | type) == "string" then {refreshHold: (.refreshHold | .[0:300])} else {} end)' "$live/demand.json" 2>/dev/null)
 [ -n "$demand" ] || demand=null
 
 # The limit tehas limit sets, read here as the dispatcher reads it.

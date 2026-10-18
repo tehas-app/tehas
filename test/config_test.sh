@@ -294,6 +294,21 @@ printf '%s\n' "${T_MINIMAL[@]}" TEHAS_FIXER_LOGIN=tehas-fixer TEHAS_FIXER_MAX_RE
 t_run "$load && echo \"[\$TEHAS_FIXER_LOGIN][\$TEHAS_FIXER_MAX_RETRIES][\$TEHAS_FIXER_MAX_PLAN_ANSWERS]\""
 t_eq "$t_out" "[tehas-fixer][3][1]"
 
+t_case "refreshes are off unless the instance turns them on, two of one pull request by default"
+printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && set -u && echo \"[\$TEHAS_REFRESH_CONFLICTS][\$TEHAS_REFRESH_MAX]\""
+t_eq "$t_out" "[0][2]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_REFRESH_CONFLICTS=1 TEHAS_REFRESH_MAX=5 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_REFRESH_CONFLICTS][\$TEHAS_REFRESH_MAX]\""
+t_eq "$t_out" "[1][5]"
+
+for bad in "TEHAS_REFRESH_CONFLICTS=yes" "TEHAS_REFRESH_CONFLICTS=2" "TEHAS_REFRESH_MAX=0" "TEHAS_REFRESH_MAX=-1" "TEHAS_REFRESH_MAX=many"; do
+  t_case "loading rejects $bad"
+  printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+done
+
 for bad in "TEHAS_FIXER_LOGIN=two words" "TEHAS_FIXER_LOGIN=-x" "TEHAS_FIXER_MAX_RETRIES=0" "TEHAS_FIXER_MAX_RETRIES=many" \
   "TEHAS_FIXER_MAX_PLAN_ANSWERS=0" "TEHAS_FIXER_MAX_PLAN_ANSWERS=-1" "TEHAS_FIXER_MAX_PLAN_ANSWERS=lots"; do
   t_case "loading rejects $bad"

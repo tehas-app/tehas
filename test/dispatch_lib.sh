@@ -50,6 +50,8 @@ case "$1 $2" in
     case "$*" in
       *"comments(last"*) cat "$T/fx/comments-$n.json" || exit 1 ;;
       # The states of the issues a tehas:blocked comment names.
+      # One pull request, as a refresh reads it at the start.
+      *"pullRequest(number"*) cat "$T/fx/pull-$n.json" || exit 1 ;;
       *issueOrPullRequest*) [ ! -e "$T/fx/blockers-fail" ] || exit 1
         cat "$T/fx/blockers.json" || exit 1 ;;
       # The pull requests that close the issue: none, unless a case writes them.
@@ -68,7 +70,10 @@ case "$1 $2" in
     if [ -s "$T/fx/edit-fails-on" ]; then
       case "$*" in *"$(cat "$T/fx/edit-fails-on")"*) exit 1 ;; esac
     fi ;;
+  "pr edit") [ ! -e "$T/fx/pr-edit-fails" ] || exit 1 ;;
   "pr list") [ ! -e "$T/fx/pr-fails" ] || exit 1
+    # The pull requests marked tehas:refreshing.
+    case "$*" in *tehas:refreshing*) cat "$T/fx/refreshing.json" 2>/dev/null || echo "[]"; exit 0 ;; esac
     # gh filters by --author before it prints, and what --json lists names no
     # author at all. A fixture that does name one stands for a pull request
     # GitHub left out: one of another account, or one with no account behind
@@ -134,6 +139,7 @@ t_stub docker 'case "$1" in
   info) cat "$T/fx/docker.info" ;;
   image) [ -e "$T/fx/image.label" ] || exit 1; cat "$T/fx/image.label" ;;
   rm) [ ! -e "$T/fx/orphan-$3" ] || echo "$3" ;;
+  run) [ -e "$T/fx/caps.json" ] || exit 1; cat "$T/fx/caps.json" ;;
 esac'
 gib=1073741824
 slice_env=TEHAS_CGROUP_ROOT=$T_CGROUP
@@ -241,8 +247,15 @@ parked() {
   echo 4001 >"$park_id"
 }
 
-plan_body() { # <box 1> <box 2> <end box>
-  printf 'Two ways.\n\nAdopt?\n\n- [%s] Adopt all\n  Apply all five\n- [%s] Change some\n- [%s] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->\n' "$1" "$2" "$3"
+plan_body() { # <box 1> <box 2> <end box> [<turn> [<line of the host's own>]]
+  # printf makes the blank line around the host's line: what a caller builds
+  # with $( ) arrives without the line ends it held.
+  local extra=
+  [ -z "${5:-}" ] || extra="${5}
+
+"
+  printf 'Two ways.\n\nAdopt?\n\n%s- [%s] Adopt all\n  Apply all five\n- [%s] Change some\n- [%s] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=%s -->\n' \
+    "$extra" "$1" "$2" "$3" "${4:-1}"
 }
 record=$T/home/tehas/state/plan-7.json
 # Issue 7 is labelled for planning by alice and nothing else is queued.
@@ -262,7 +275,26 @@ planning() {
   echo '{"session":"abc-123","turns":1,"options":["Adopt all","Change some"],"pending":false,"failed":false,"comment":4001}' >"$record"
 }
 plan_calls() { t_calls fake-plan; }
-
+# What the fake runner writes for the turn it is asked to run: the agent's
+# words and its question, beside the issues the turn filed. With no url the
+# turn filed nothing and the outcome has no filed key.
+plan_files() { # <url>...
+  rm -f "$fx/plan-fails" "$fx/plan-result.json"
+  jq -cn --arg text "Two ways." \
+    --argjson urls "$(printf '%s\n' "$@" | jq -Rs 'split("\n") | map(select(. != ""))')" '
+    {session: "abc-123", text: $text,
+     question: {question: "Adopt?", options: [
+       {label: "Adopt all", description: "Apply all five"},
+       {label: "Change some", description: ""}]}}
+    + (if ($urls | length) == 0 then {} else {filed: $urls} end)' >"$fx/plan-result.json"
+}
+# The question of a session whose last turn filed <url>..., as the host posted
+# it: plan_body with the line naming them between the question and the boxes.
+plan_filed_body() { # <turn> <url>...
+  local n=$1 urls=""
+  [ "$#" = 1 ] || urls=$(printf '%s\n' "${@:2}" | jq -Rrs 'split("\n") | map(select(. != "")) | join(", ")')
+  plan_body ' ' x ' ' "$n" "${urls:+Filed in this turn: $urls}"
+}
 # A product repository whose default branch is main, and the instance's clone.
 upstream=$T/git/acme/widget
 mkdir -p "$upstream"
@@ -305,3 +337,43 @@ esac'
 
 # Where a cycle's files are kept.
 cycles_dir=$T/home/tehas/state/cycles
+
+# queue "<issue> [label...]"...: the ready list, each issue labelled ready by
+# alice unless its events are written after.
+queue() {
+  local arg list=""
+  for arg in "$@"; do
+    list+=$(jq -nc --arg a "$arg" '($a | split(" ")) as $w | {number: ($w[0] | tonumber),
+      labels: ([{name: "tehas:ready"}] + [$w[1:][] | {name: .}])}')$'\n'
+    jq -n '[{event: "labeled", label: {name: "tehas:ready"}, actor: {login: "alice"}, created_at: "2026-10-01T00:00:00Z"}]' \
+      >"$fx/events-${arg%% *}.json"
+  done
+  jq -s . <<<"$list" >"$fx/ready.json"
+}
+# label_events <issue> <label>=<login>...: tehas:ready by alice, then each
+# label applied in turn, a minute apart. "-<label>=<login>" takes it off.
+label_events() {
+  local n=$1
+  shift
+  printf '%s\n' "$@" | jq -Rn '[{event: "labeled", label: {name: "tehas:ready"}, actor: {login: "alice"}, created_at: "2026-10-01T00:00:00Z"}]
+    + [[inputs] | to_entries[] | .value as $v | ($v | ltrimstr("-") | split("=")) as $p
+       | {event: (if ($v | startswith("-")) then "unlabeled" else "labeled" end), label: {name: $p[0]},
+          actor: (if $p[1] == "" then null else {login: $p[1]} end), created_at: "2026-10-01T00:0\(.key + 1):00Z"}]' \
+    >"$fx/events-$n.json"
+}
+started() { t_calls fake-start | tr '\n' ' '; }
+
+# The demand: how many issues would start if there were room, written on every
+# poll for tehas status.
+demand_file=$T/home/tehas/live/demand.json
+
+# The limit tehas limit writes.
+limit_file=$T/home/tehas/state/limit.json
+limit() { # <cycles> [<plan true|false>] [<until or "">] [<reason>]: the limit tehas limit writes
+  mkdir -p "${limit_file%/*}"
+  jq -nc --argjson c "$1" --argjson p "${2:-true}" --arg u "${3:-}" --arg r "${4:-}" \
+    '{v: 1, cycles: $c, plan: $p, until: (if $u == "" then null else $u end), reason: $r}' >"$limit_file"
+}
+
+# Issue 7's body is "Words." in the fixer's and the refresh's cases.
+WSUM=$(printf 'Words.' | sha256sum | cut -d' ' -f1)
