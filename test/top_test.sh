@@ -7,7 +7,7 @@
 # model or Docker, and no case reads the machine that runs it.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 top=$T_ROOT/libexec/top
 publish=$T_ROOT/libexec/top-publish

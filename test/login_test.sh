@@ -5,7 +5,7 @@
 # asked to run; a stub docker records the session's container.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 front="$T_ROOT/host/login/tehas"
 entry="$T_ROOT/libexec/dev-login"

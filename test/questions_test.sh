@@ -3,7 +3,7 @@
 # is read. No stub is needed: the library calls nothing.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=lib/questions.sh
 . "$T_ROOT/lib/questions.sh"
 

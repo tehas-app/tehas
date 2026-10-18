@@ -3,7 +3,7 @@
 # running cycles to end.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 drain="$T_ROOT/libexec/drain"
 file=$T/home/tehas/state/limit.json

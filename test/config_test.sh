@@ -3,7 +3,7 @@
 # and validated.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 load='. "$T_ROOT/lib/config.sh"; tehas_load'
 
