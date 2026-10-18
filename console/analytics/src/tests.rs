@@ -695,19 +695,19 @@ fn a_database_that_cannot_be_written_is_an_error_and_stays() {
     // A file of its own that may not be written.
     let home = scratch("readonly-file");
     let file = db::path(&home);
-    execute(&home, &Cmd::Event(1, "ready".into()), now).unwrap();
+    execute(&home, &Cmd::Event(1, "ready".into(), None), now).unwrap();
     let before = fs::read(&file).unwrap();
     fs::set_permissions(&file, fs::Permissions::from_mode(0o400)).unwrap();
-    assert_eq!(execute(&home, &Cmd::Event(2, "ready".into()), now).unwrap_err().0, 70);
+    assert_eq!(execute(&home, &Cmd::Event(2, "ready".into(), None), now).unwrap_err().0, 70);
     assert!(fs::read(&file).unwrap() == before);
     assert!(!home.join("state/analytics.db.broken").exists());
     // A directory it may not write in, with the database in it.
     let home = scratch("readonly-dir");
     let file = db::path(&home);
-    execute(&home, &Cmd::Event(1, "ready".into()), now).unwrap();
+    execute(&home, &Cmd::Event(1, "ready".into(), None), now).unwrap();
     let state = home.join("state");
     fs::set_permissions(&state, fs::Permissions::from_mode(0o500)).unwrap();
-    let err = execute(&home, &Cmd::Event(2, "ready".into()), now);
+    let err = execute(&home, &Cmd::Event(2, "ready".into(), None), now);
     fs::set_permissions(&state, fs::Permissions::from_mode(0o700)).unwrap();
     assert_eq!(err.unwrap_err().0, 70);
     assert!(file.is_file());
@@ -718,8 +718,8 @@ fn a_database_that_cannot_be_written_is_an_error_and_stays() {
 fn a_write_prunes_too() {
     let home = scratch("writeprune");
     let now = 1_792_000_000;
-    execute(&home, &Cmd::Event(4, "ready".into()), now - 11 * DAY).unwrap();
-    execute(&home, &Cmd::Event(5, "ready".into()), now).unwrap();
+    execute(&home, &Cmd::Event(4, "ready".into(), None), now - 11 * DAY).unwrap();
+    execute(&home, &Cmd::Event(5, "ready".into(), None), now).unwrap();
     let conn = Connection::open(db::path(&home)).unwrap();
     assert_eq!(one::<String>(&conn, "SELECT group_concat(issue) FROM issue_events"), "5");
 }
@@ -728,10 +728,10 @@ fn a_write_prunes_too() {
 fn each_event_is_stored_once_per_issue() {
     let home = scratch("events");
     let now = 1_792_000_000;
-    execute(&home, &Cmd::Event(8, "ready".into()), now).unwrap();
-    execute(&home, &Cmd::Event(8, "ready".into()), now + 100).unwrap();
-    execute(&home, &Cmd::Event(8, "started".into()), now + 200).unwrap();
-    execute(&home, &Cmd::Event(9, "ready".into()), now + 300).unwrap();
+    execute(&home, &Cmd::Event(8, "ready".into(), None), now).unwrap();
+    execute(&home, &Cmd::Event(8, "ready".into(), None), now + 100).unwrap();
+    execute(&home, &Cmd::Event(8, "started".into(), None), now + 200).unwrap();
+    execute(&home, &Cmd::Event(9, "ready".into(), None), now + 300).unwrap();
     let conn = Connection::open(db::path(&home)).unwrap();
     assert_eq!(
         one::<String>(
@@ -774,7 +774,7 @@ fn a_broken_file_is_moved_aside_and_a_new_database_made() {
             _ => fs::write(&file, &content).unwrap(),
         }
         let before = fs::read(&file).unwrap();
-        execute(&home, &Cmd::Event(1, "ready".into()), 1_792_000_000).unwrap();
+        execute(&home, &Cmd::Event(1, "ready".into(), None), 1_792_000_000).unwrap();
         let aside = fs::read(home.join("state/analytics.db.broken")).unwrap();
         assert!(aside == before, "{name}: the file moved aside is not the one found");
         let conn = Connection::open(&file).unwrap();
@@ -855,7 +855,7 @@ fn export_writes_a_copy_that_opens_with_the_same_version_mode_0600_and_nothing_p
     fs::write(&path, r.to_string()).unwrap();
     let now = started + 60;
     execute(&home, &Cmd::Run(7, Given::default()), now).unwrap();
-    execute(&home, &Cmd::Event(7, "ready".into()), now).unwrap();
+    execute(&home, &Cmd::Event(7, "ready".into(), None), now).unwrap();
     let out = home.join("copy.db");
     execute(&home, &Cmd::Export(out.clone()), now).unwrap();
     assert_eq!(fs::metadata(&out).unwrap().permissions().mode() & 0o777, 0o600);
@@ -1013,10 +1013,28 @@ fn the_arguments_are_checked() {
     ] {
         assert_eq!(parse(&args(&bad)), None, "{bad}");
     }
-    assert_eq!(parse(&args("event 12 merged")), Some(Cmd::Event(12, "merged".into())));
+    assert_eq!(parse(&args("event 12 merged")), Some(Cmd::Event(12, "merged".into(), None)));
     assert_eq!(parse(&args("prune")), Some(Cmd::Prune));
+    assert_eq!(parse(&args("sample")), Some(Cmd::Sample));
+    assert_eq!(
+        parse(&args("event 12 ready --at 1792000000")),
+        Some(Cmd::Event(12, "ready".into(), Some(1_792_000_000)))
+    );
+    assert_eq!(parse(&args("event 12 ready --at 0")), Some(Cmd::Event(12, "ready".into(), Some(0))));
+    for bad in [
+        "event 12 ready --at",
+        "event 12 ready --at -5",
+        "event 12 ready --at 01",
+        "event 12 ready --at 12.5",
+        "event 12 ready --at 1234567890123",
+        "event 12 ready --at 1 --at 2",
+        "event 12 ready --when 1",
+        "event 12 ready 1792000000",
+    ] {
+        assert_eq!(parse(&args(bad)), None, "{bad}");
+    }
     assert_eq!(parse(&args("export /tmp/x.db")), Some(Cmd::Export("/tmp/x.db".into())));
-    for bad in ["run", "run 0", "run 012", "run -1", "run x", "event 12 shipped", "prune now", "report", "export"] {
+    for bad in ["run", "run 0", "run 012", "run -1", "run x", "event 12 shipped", "prune now", "sample now", "report", "export"] {
         assert_eq!(parse(&args(bad)), None, "{bad}");
     }
 }
@@ -1072,4 +1090,159 @@ fn run_reads_nothing_through_a_link() {
     let r = run::read(&home, 7, &Given::default()).unwrap();
     assert_eq!(r.result_schema, None);
     assert_eq!(r.runner_ms, None);
+}
+
+// The live files of one poll, as libexec/status, libexec/dispatch and
+// libexec/energy write them, at `at`.
+fn live(home: &Path, at: i64, why: &str, limit_room: Option<i64>) {
+    fs::create_dir_all(home.join("live")).unwrap();
+    let issue = |n: i64| json!({"number": n, "title": "t", "url": "u"});
+    put(
+        home,
+        "live/status.json",
+        &json!({"generatedAt": iso(at), "repo": "acme/widget", "paused": true,
+                "running": [issue(1), issue(2)], "queued": [issue(3), issue(4), issue(5)],
+                "awaiting": [issue(6)], "stopped": [], "completed": [issue(9)]})
+        .to_string(),
+    );
+    let mut d = json!({"time": iso(at), "why": why, "hold": "holding: ...", "count": 2,
+                       "room": 1, "committed": 0, "max": 0, "reserve": "2g", "free": 3,
+                       "awaitRoom": null});
+    if let Some(r) = limit_room {
+        d["limitRoom"] = json!(r);
+    }
+    put(home, "live/dispatch.json", &d.to_string());
+    put(
+        home,
+        "live/energy.json",
+        &json!({"generatedAt": iso(at), "totals": {"watts": 412.5, "hosts": 2}}).to_string(),
+    );
+}
+
+fn sample_row(home: &Path) -> String {
+    let conn = Connection::open(db::path(home)).unwrap();
+    one::<String>(
+        &conn,
+        "SELECT group_concat(row, ' | ') FROM (SELECT at || ' ' || coalesce(in_line, '-') || ' ' ||
+           coalesce(running, '-') || ' ' || coalesce(awaiting, '-') || ' ' || coalesce(stopped, '-') || ' ' ||
+           coalesce(planning, '-') || ' ' || coalesce(cycle_limit, '-') || ' ' || coalesce(paused, '-') || ' ' ||
+           coalesce('[' || held || ']', '-') || ' ' || coalesce(watts, '-') AS row FROM samples ORDER BY at)",
+    )
+}
+
+#[test]
+fn a_sample_reads_the_live_files_of_the_poll() {
+    let home = scratch("sample");
+    let now = 1_792_000_000;
+    live(&home, now - 30, "awaiting", None);
+    execute(&home, &Cmd::Sample, now).unwrap();
+    // Five slots: two running and three free. Planning stays NULL until
+    // status.json counts it.
+    assert_eq!(sample_row(&home), format!("{now} 3 2 1 0 - 5 1 [awaiting] 412.5"));
+
+    // The limit of tehas limit allows fewer; nothing holds.
+    live(&home, now + 90, "", Some(1));
+    execute(&home, &Cmd::Sample, now + 100).unwrap();
+    assert!(sample_row(&home).ends_with(&format!(" | {} 3 2 1 0 - 3 1 [] 412.5", now + 100)));
+}
+
+#[test]
+fn a_live_file_that_is_missing_stale_a_link_or_malformed_gives_null_columns() {
+    let now = 1_792_000_000;
+    let nothing = |at: i64| format!("{at} - - - - - - - - -");
+
+    let home = scratch("sample-none");
+    execute(&home, &Cmd::Sample, now).unwrap();
+    assert_eq!(sample_row(&home), nothing(now));
+
+    // An earlier poll's files: a paused poll writes no dispatch.json.
+    let home = scratch("sample-stale");
+    live(&home, now - 601, "count", None);
+    execute(&home, &Cmd::Sample, now).unwrap();
+    assert_eq!(sample_row(&home), nothing(now));
+    live(&home, now - 30, "count", None);
+    // A poll runs every two minutes: a dispatch.json older than that is an
+    // earlier poll's, though status.json still counts.
+    put(&home, "live/dispatch.json", &json!({"time": iso(now - 200), "why": "count", "count": 1, "free": 0}).to_string());
+    execute(&home, &Cmd::Sample, now + 1).unwrap();
+    assert!(sample_row(&home).ends_with(&format!(" | {} 3 2 1 0 - - 1 - 412.5", now + 1)));
+
+    let home = scratch("sample-links");
+    live(&home, now - 30, "count", None);
+    for name in ["status.json", "dispatch.json", "energy.json"] {
+        let p = home.join("live").join(name);
+        let moved = home.join(name);
+        fs::rename(&p, &moved).unwrap();
+        std::os::unix::fs::symlink(&moved, &p).unwrap();
+    }
+    execute(&home, &Cmd::Sample, now).unwrap();
+    assert_eq!(sample_row(&home), nothing(now));
+
+    let home = scratch("sample-bad");
+    fs::create_dir_all(home.join("live")).unwrap();
+    put(&home, "live/status.json", "not json");
+    put(
+        &home,
+        "live/dispatch.json",
+        &json!({"time": "yesterday", "why": "count", "count": 1, "free": 0}).to_string(),
+    );
+    put(
+        &home,
+        "live/energy.json",
+        &json!({"generatedAt": iso(now), "totals": {"watts": null}}).to_string(),
+    );
+    execute(&home, &Cmd::Sample, now).unwrap();
+    assert_eq!(sample_row(&home), nothing(now));
+
+    // Fields of the wrong type, and a hold that is not one word.
+    let home = scratch("sample-types");
+    fs::create_dir_all(home.join("live")).unwrap();
+    put(
+        &home,
+        "live/status.json",
+        &json!({"generatedAt": iso(now), "paused": "no", "queued": 3, "running": [], "awaiting": {}, "stopped": null})
+            .to_string(),
+    );
+    put(
+        &home,
+        "live/dispatch.json",
+        &json!({"time": iso(now), "why": "holding: <b>", "count": "2", "free": 1}).to_string(),
+    );
+    execute(&home, &Cmd::Sample, now).unwrap();
+    assert_eq!(sample_row(&home), format!("{now} - 0 - - - - - - -"));
+}
+
+#[test]
+fn a_sample_prunes_too_and_two_in_one_second_keep_the_last() {
+    let home = scratch("sample-prune");
+    let now = 1_792_000_000;
+    execute(&home, &Cmd::Event(4, "ready".into(), None), now - 11 * DAY).unwrap();
+    execute(&home, &Cmd::Sample, now - 11 * DAY).unwrap();
+    live(&home, now, "count", None);
+    execute(&home, &Cmd::Sample, now).unwrap();
+    live(&home, now, "", None);
+    execute(&home, &Cmd::Sample, now).unwrap();
+    assert_eq!(sample_row(&home), format!("{now} 3 2 1 0 - 5 1 [] 412.5"));
+    let conn = Connection::open(db::path(&home)).unwrap();
+    assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 0);
+}
+
+#[test]
+fn an_event_is_stored_at_the_time_given_and_one_ahead_of_now_is_refused() {
+    let home = scratch("event-at");
+    let now = 1_792_000_000;
+    execute(&home, &Cmd::Event(8, "ready".into(), Some(now - 3600)), now).unwrap();
+    execute(&home, &Cmd::Event(8, "started".into(), None), now).unwrap();
+    execute(&home, &Cmd::Event(9, "ready".into(), Some(now + 60)), now).unwrap();
+    let err = execute(&home, &Cmd::Event(10, "ready".into(), Some(now + 61)), now).unwrap_err();
+    assert_eq!(err.0, 64);
+    let conn = Connection::open(db::path(&home)).unwrap();
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT group_concat(issue || ':' || event || ':' || (at - 1792000000), ' ')
+             FROM (SELECT * FROM issue_events ORDER BY issue, event)"
+        ),
+        "8:ready:-3600 8:started:0 9:ready:60"
+    );
 }

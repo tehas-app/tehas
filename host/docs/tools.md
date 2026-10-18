@@ -58,6 +58,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_INDEXING`                | `0`                                      | `1` lets search engines index the dashboard and the manual      |
 | `TEHAS_ANALYTICS_SRC`, `_SITE`  | empty                                    | Optional. The https address of a visitor analytics script and the site name it reports under. Both set: every page loads it |
 | `TEHAS_ANALYTICS_COOKIE`        | `0`                                      | `1` adds `data-cookie="true"` to that script tag                |
+| `TEHAS_ANALYTICS`               | `on`                                     | The factory's own analytics, not the visitor analytics above: ten days of runs, issue events and poll samples in `~/tehas/state/analytics.db`. `off` stops every write and leaves the file as it is. Anything but `on` or `off` stops every command with 78 |
 | `TEHAS_PROTOLAB_URL`            | `https://lab.<domain>`, or port 8081     | Address people reach the Protolab at, when it is published elsewhere, as `https://lab.example`. The dashboard links to it. Without it: `https://lab.<domain>` when `TEHAS_DOMAIN` is set, else port 8081 of the dashboard's host |
 | `TEHAS_DOMAIN`                  | none                                     | The domain the edge's names are made under, as `tehas.app`: `uat-<pr>.` for a preview, `lab-<issue>.` for a ticket of the Protolab, `lab.` for its list |
 | `TEHAS_PREVIEWS`                | `0`                                      | `1` builds a preview of every open pull request whose branch is in the product repository and that an owner, member or collaborator opened. Needs `TEHAS_DOMAIN` |
@@ -215,6 +216,23 @@ for that cycle. A dry run passes `--dry-run` and logs `tidy #N: would remove
 as `WARN: tidy: the search for closed issues with state labels failed`, a
 label change that fails as `WARN: tidy #N: could not remove <labels>`, and
 neither stops the poll.
+
+Every real poll that holds the dispatcher's lock, a paused, held or failed one
+too, ends with one sample in the factory's analytics,
+`~/tehas/state/analytics.db`: `~/tehas/libexec/analytics sample` reads the
+issues in line, running, awaiting a merge and stopped from
+`~/tehas/live/status.json`, the hold and the cycles allowed from
+`~/tehas/live/dispatch.json`, and the mesh's draw from
+`~/tehas/live/energy.json`. A file older than ten minutes gives no value, and a
+`dispatch.json` older than two and a half, an earlier poll's, neither. Then
+`analytics prune` removes what is older than ten days. A start records the
+events `ready`, as its approval record is written and at the time that record
+says `tehas:ready` was accepted (`at`), and `started`, once its cycle came up,
+the first time for each issue. Each call may take 5 seconds.
+One that fails or runs out of time is a line `WARN analytics <subcommand>:
+exit N` in the log and changes nothing in the poll. A dry run, a host with
+`TEHAS_ANALYTICS=off` and a host where the program is not installed make no
+call.
 
 What holds cycles back is one `holding:` line: at every dry run, and in the
 log once when its reason changes, with `released: cycles may start again`
@@ -1338,6 +1356,15 @@ with the cap and the reason. That is a result whose `failure.kind` is
 provider, a timeout, a connection or a 5xx status. The
 park file then asks [tehas dispatch](#tehas-dispatch) for one retry, unless the
 cycle was that retry.
+
+Once its history line is written, the cycle records the run in the factory's
+analytics, `~/tehas/state/analytics.db`: `~/tehas/libexec/analytics run` with
+the image, its pi-rukas commit and the counts of kills and refused forks it
+read, then `analytics event <issue> ended`. Each call may take 5 seconds. One
+that fails or runs out of time is a line `WARN analytics <subcommand>: exit N`
+in the log and changes nothing in the report. A stopped cycle is recorded too.
+`TEHAS_ANALYTICS=off`, or a host where the program is not installed, makes no
+call.
 
 | Exit | Meaning                                              |
 | ---- | ---------------------------------------------------- |
