@@ -797,7 +797,7 @@ fn a_database_of_another_schema_is_kept_aside_under_its_version() {
         // The row is still in the -wal when the file is moved.
         std::mem::forget(c);
     }
-    execute(&home, &Cmd::Event(1, "ready".into()), 1_792_000_000).unwrap();
+    execute(&home, &Cmd::Event(1, "ready".into(), None), 1_792_000_000).unwrap();
     assert!(!home.join("state/analytics.db.broken").exists());
     let kept = Connection::open(home.join("state/analytics.db.schema-99")).unwrap();
     assert_eq!(one::<i64>(&kept, "PRAGMA user_version"), 99);
