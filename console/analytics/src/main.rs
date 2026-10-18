@@ -15,10 +15,15 @@
 //!   analytics event <issue> <event>
 //!     Records an event of the issue, the first time only. The events are
 //!     ready, started, ended, awaiting, merged, closed and stopped.
+//!   analytics sample
+//!     Records one sample of the factory: the issues in line, running,
+//!     awaiting a merge and stopped, the cycles allowed, the pause, the hold
+//!     and the mesh's draw, from the live files the poll wrote (sample.rs
+//!     lists them). The dispatcher calls it once a poll.
 //!   analytics prune
-//!     Deletes what is older than ten days, then runs PRAGMA optimize. run
-//!     and event prune too, after their write. The events of an issue that
-//!     started and never ended are kept at most a day longer.
+//!     Deletes what is older than ten days, then runs PRAGMA optimize. run,
+//!     event and sample prune too, after their write. The events of an
+//!     issue that started and never ended are kept at most a day longer.
 //!   analytics export <file>
 //!     Writes a consistent copy of the database to <file>, mode 0600, with
 //!     VACUUM INTO. <file> must not exist.
@@ -40,6 +45,7 @@ mod mask;
 
 mod db;
 mod run;
+mod sample;
 
 #[cfg(test)]
 mod tests;
@@ -48,7 +54,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const USAGE: &str = "usage: analytics run <issue> [--image <id>] [--rukas-image <commit>] [--oom <n>] [--forks <n>] | event <issue> <event> | prune | export <file>";
+const USAGE: &str = "usage: analytics run <issue> [--image <id>] [--rukas-image <commit>] [--oom <n>] [--forks <n>] | event <issue> <event> | sample | prune | export <file>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -76,6 +82,7 @@ fn main() -> ExitCode {
 pub enum Cmd {
     Run(i64, run::Given),
     Event(i64, String),
+    Sample,
     Prune,
     Export(PathBuf),
 }
@@ -91,6 +98,7 @@ fn parse(args: &[String]) -> Option<Cmd> {
         [c, n, e] if c == "event" && db::EVENTS.contains(&e.as_str()) => {
             Some(Cmd::Event(issue(n)?, e.clone()))
         }
+        [c] if c == "sample" => Some(Cmd::Sample),
         [c] if c == "prune" => Some(Cmd::Prune),
         [c, f] if c == "export" && !f.is_empty() => Some(Cmd::Export(PathBuf::from(f))),
         _ => None,
@@ -164,6 +172,10 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
         }
         Cmd::Event(issue, event) => {
             db::event(&conn, *issue, event, now).map_err(db_err)?;
+            db::prune(&conn, now).map_err(db_err)
+        }
+        Cmd::Sample => {
+            sample::insert(&conn, now, &sample::read(home, now)).map_err(db_err)?;
             db::prune(&conn, now).map_err(db_err)
         }
         Cmd::Prune => {
