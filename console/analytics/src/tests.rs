@@ -1102,7 +1102,7 @@ fn live(home: &Path, at: i64, why: &str, limit_room: Option<i64>) {
         "live/status.json",
         &json!({"generatedAt": iso(at), "repo": "acme/widget", "paused": true,
                 "running": [issue(1), issue(2)], "queued": [issue(3), issue(4), issue(5)],
-                "awaiting": [issue(6)], "stopped": [], "completed": [issue(9)]})
+                "awaiting": [issue(6)], "stopped": [], "planning": 2, "completed": [issue(9)]})
         .to_string(),
     );
     let mut d = json!({"time": iso(at), "why": why, "hold": "holding: ...", "count": 2,
@@ -1136,14 +1136,13 @@ fn a_sample_reads_the_live_files_of_the_poll() {
     let now = 1_792_000_000;
     live(&home, now - 30, "awaiting", None);
     execute(&home, &Cmd::Sample, now).unwrap();
-    // Five slots: two running and three free. Planning stays NULL until
-    // status.json counts it.
-    assert_eq!(sample_row(&home), format!("{now} 3 2 1 0 - 5 1 [awaiting] 412.5"));
+    // Five slots: two running and three free.
+    assert_eq!(sample_row(&home), format!("{now} 3 2 1 0 2 5 1 [awaiting] 412.5"));
 
     // The limit of tehas limit allows fewer; nothing holds.
     live(&home, now + 90, "", Some(1));
     execute(&home, &Cmd::Sample, now + 100).unwrap();
-    assert!(sample_row(&home).ends_with(&format!(" | {} 3 2 1 0 - 3 1 [] 412.5", now + 100)));
+    assert!(sample_row(&home).ends_with(&format!(" | {} 3 2 1 0 2 3 1 [] 412.5", now + 100)));
 }
 
 #[test]
@@ -1165,7 +1164,7 @@ fn a_live_file_that_is_missing_stale_a_link_or_malformed_gives_null_columns() {
     // earlier poll's, though status.json still counts.
     put(&home, "live/dispatch.json", &json!({"time": iso(now - 200), "why": "count", "count": 1, "free": 0}).to_string());
     execute(&home, &Cmd::Sample, now + 1).unwrap();
-    assert!(sample_row(&home).ends_with(&format!(" | {} 3 2 1 0 - - 1 - 412.5", now + 1)));
+    assert!(sample_row(&home).ends_with(&format!(" | {} 3 2 1 0 2 - 1 - 412.5", now + 1)));
 
     let home = scratch("sample-links");
     live(&home, now - 30, "count", None);
@@ -1200,7 +1199,8 @@ fn a_live_file_that_is_missing_stale_a_link_or_malformed_gives_null_columns() {
     put(
         &home,
         "live/status.json",
-        &json!({"generatedAt": iso(now), "paused": "no", "queued": 3, "running": [], "awaiting": {}, "stopped": null})
+        &json!({"generatedAt": iso(now), "paused": "no", "queued": 3, "running": [], "awaiting": {}, "stopped": null,
+                "planning": "2"})
             .to_string(),
     );
     put(
@@ -1210,6 +1210,40 @@ fn a_live_file_that_is_missing_stale_a_link_or_malformed_gives_null_columns() {
     );
     execute(&home, &Cmd::Sample, now).unwrap();
     assert_eq!(sample_row(&home), format!("{now} - 0 - - - - - - -"));
+}
+
+// A status.json written before it counted planning has no such field.
+#[test]
+fn planning_is_the_count_status_json_gives_and_null_without_one() {
+    let home = scratch("sample-planning");
+    let now = 1_792_000_000;
+    let status = |planning: Option<Value>| {
+        let mut s = json!({"generatedAt": iso(now), "paused": false, "queued": [],
+                           "running": [], "awaiting": [], "stopped": []});
+        if let Some(p) = planning {
+            s["planning"] = p;
+        }
+        put(&home, "live/status.json", &s.to_string());
+    };
+    fs::create_dir_all(home.join("live")).unwrap();
+    for (at, planning) in [
+        (now, Some(json!(0))),
+        (now + 1, Some(json!(4))),
+        (now + 2, None),
+        (now + 3, Some(json!(-1))),
+        (now + 4, Some(json!(1.5))),
+    ] {
+        status(planning);
+        execute(&home, &Cmd::Sample, at).unwrap();
+    }
+    let conn = Connection::open(db::path(&home)).unwrap();
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT group_concat(coalesce(planning, '-'), ' ') FROM (SELECT planning FROM samples ORDER BY at)"
+        ),
+        "0 4 - - -"
+    );
 }
 
 #[test]
@@ -1222,7 +1256,7 @@ fn a_sample_prunes_too_and_two_in_one_second_keep_the_last() {
     execute(&home, &Cmd::Sample, now).unwrap();
     live(&home, now, "", None);
     execute(&home, &Cmd::Sample, now).unwrap();
-    assert_eq!(sample_row(&home), format!("{now} 3 2 1 0 - 5 1 [] 412.5"));
+    assert_eq!(sample_row(&home), format!("{now} 3 2 1 0 2 5 1 [] 412.5"));
     let conn = Connection::open(db::path(&home)).unwrap();
     assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 0);
 }
