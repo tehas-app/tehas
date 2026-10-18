@@ -18,6 +18,13 @@
 //!     when it happened, now when not given: the dispatcher records ready at
 //!     the start, with the time tehas:ready was accepted. A time more than a
 //!     minute ahead of now is a usage error.
+//!   analytics plan <issue> --rc <rc> [--rukas-image <commit>]
+//!     Records the planning turn of the issue that ended: its row in runs,
+//!     kind plan, from its record (plan.rs lists the files), with no usage.
+//!     lib/planning.sh calls it as plan_finish begins, before the record is
+//!     rewritten. <rc> is how the turn's unit ended: its exit status, or
+//!     interrupted, not-started or not-readable. The commit is that of the
+//!     sandbox image's label. A turn recorded again keeps its first row.
 //!   analytics sample
 //!     Records one sample of the factory: the issues in line, running,
 //!     awaiting a merge and stopped, the cycles allowed, the pause, the hold
@@ -41,7 +48,7 @@
 //! environment and has no default.
 //!
 //! Exit: 0 done; 64 usage; 65 nothing to record: the issue has no history
-//! line; 70 the database could not be opened or written; 73 the export file
+//! line, or no planning turn in flight; 70 the database could not be opened or written; 73 the export file
 //! exists or cannot be made; 78 TEHAS_HOME is unset or not a directory.
 
 #[path = "../../src/mask.rs"]
@@ -49,6 +56,7 @@
 mod mask;
 
 mod db;
+mod plan;
 mod run;
 mod sample;
 
@@ -59,7 +67,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const USAGE: &str = "usage: analytics run <issue> [--image <id>] [--rukas-image <commit>] [--oom <n>] [--forks <n>] | event <issue> <event> [--at <epoch seconds>] | sample | prune | export <file>";
+const USAGE: &str = "usage: analytics run <issue> [--image <id>] [--rukas-image <commit>] [--oom <n>] [--forks <n>] | plan <issue> --rc <rc> [--rukas-image <commit>] | event <issue> <event> [--at <epoch seconds>] | sample | prune | export <file>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -86,6 +94,7 @@ fn main() -> ExitCode {
 #[derive(Debug, PartialEq)]
 pub enum Cmd {
     Run(i64, run::Given),
+    Plan(i64, plan::Given),
     Event(i64, String, Option<i64>),
     Sample,
     Prune,
@@ -100,6 +109,7 @@ fn parse(args: &[String]) -> Option<Cmd> {
     };
     match args {
         [c, n, rest @ ..] if c == "run" => Some(Cmd::Run(issue(n)?, given(rest)?)),
+        [c, n, rest @ ..] if c == "plan" => Some(Cmd::Plan(issue(n)?, plan_given(rest)?)),
         [c, n, e, rest @ ..] if c == "event" && db::EVENTS.contains(&e.as_str()) => {
             let at = match rest {
                 [] => None,
@@ -154,6 +164,31 @@ fn given(args: &[String]) -> Option<run::Given> {
     Some(g)
 }
 
+// The options of plan: --rc once and required, --rukas-image at most once.
+fn plan_given(args: &[String]) -> Option<plan::Given> {
+    let mut rc: Option<String> = None;
+    let mut g = plan::Given::default();
+    for pair in args.chunks(2) {
+        let [flag, value] = pair else { return None };
+        let v = value.as_str();
+        match flag.as_str() {
+            "--rc" if rc.is_none() => {
+                let code = v == "0"
+                    || (!v.starts_with('0') && v.len() <= 3 && v.bytes().all(|b| b.is_ascii_digit()));
+                (code || plan::RC_WORDS.contains(&v)).then_some(())?;
+                rc = Some(v.to_string());
+            }
+            "--rukas-image" if g.rukas_image.is_none() => {
+                run::is_hex(v, 7, 40).then_some(())?;
+                g.rukas_image = Some(v.to_string());
+            }
+            _ => return None,
+        }
+    }
+    g.rc = rc?;
+    Some(g)
+}
+
 fn now() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -166,6 +201,7 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
     // leaves the file as it was.
     let run = match cmd {
         Cmd::Run(issue, given) => Some(run::read(home, *issue, given).map_err(|e| (65, e))?),
+        Cmd::Plan(issue, given) => Some(plan::read(home, *issue, given, now).map_err(|e| (65, e))?),
         _ => None,
     };
     if let Cmd::Export(to) = cmd {
@@ -192,6 +228,12 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
         Cmd::Run(..) => {
             if let Some(run) = &run {
                 run::insert(&conn, run).map_err(db_err)?;
+            }
+            db::prune(&conn, now).map_err(db_err)
+        }
+        Cmd::Plan(..) => {
+            if let Some(run) = &run {
+                plan::insert(&conn, run).map_err(db_err)?;
             }
             db::prune(&conn, now).map_err(db_err)
         }
