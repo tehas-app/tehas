@@ -19,9 +19,10 @@
 #                                 when a person gave it, its rests_on when the
 #                                 fixer did. Fails for a missing record, a link,
 #                                 a shape it does not know, or an account that
-#                                 is not allowed now.
+#                                 is not allowed now. A refresh's rests_on too.
 #   tehas_fixer_starts <record>   the fixer starts the record counts: its
-#                                 fixer_starts when the fixer gave it, else 0
+#                                 fixer_starts when the fixer gave it or a
+#                                 refresh carried them on, else 0
 #   tehas_fixer_grant <issue> <body sha256>
 #                                 0 when a tehas:ready of the fixer's on the
 #                                 issue may start a cycle now. Sets
@@ -63,7 +64,7 @@ tehas_fixer_base() { # <record>
       and (.by | type) == "string" and (.by | test("^[A-Za-z0-9-]+$"))
       and (.how | type) == "string" and (.how | test("^(label|retry-tick|outage-retry)$"))
       and (.body_sha256 | type) == "string" and (.body_sha256 | test("^[0-9a-f]{64}$"));
-    (if .how == "fixer" then .rests_on else . end) | {at, by, how, body_sha256}
+    (if .how == "fixer" or .how == "refresh" then .rests_on else . end) | {at, by, how, body_sha256}
     | if ok then . else error("not an approval") end' "$1" 2>/dev/null) || return 1
   by=$(jq -r .by <<<"$base") || return 1
   tehas_allowed_labeler "$by" || return 1
@@ -72,6 +73,7 @@ tehas_fixer_base() { # <record>
 
 tehas_fixer_starts() { # <record>
   jq -r 'if .how == "fixer" then (.fixer_starts | if type == "number" and . >= 1 and . == floor then . else error("no count") end)
+    elif .how == "refresh" then (.fixer_starts // 0 | if type == "number" and . >= 0 and . == floor then . else error("no count") end)
     else 0 end' "$1" 2>/dev/null
 }
 

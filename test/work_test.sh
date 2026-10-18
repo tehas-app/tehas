@@ -478,6 +478,54 @@ t_run "$work 7"
 t_eq "$t_rc" 2
 caps_good
 
+# A refresh's record, as the dispatcher writes it, or another start's.
+refresh_record() { # <how>
+  mkdir -p "$T/home/tehas/state/cycles"
+  jq -n --arg how "$1" '{at: "2026-10-01T00:00:00Z", by: "alice", how: $how, body_sha256: ("0" * 64), links: []}' \
+    >"$T/home/tehas/state/cycles/7.approved.json"
+}
+caps_continue() {
+  jq '.verbs.work.flags += ["--continue-pr"]' "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
+}
+
+t_case "a refresh passes --continue-pr when the image takes it, with the same mounts and variables as any start"
+caps_fresh
+caps_continue
+t_run "$work 7"
+plain_v=$(after -v | LC_ALL=C sort)
+plain_e=$(after -e | sed 's/=.*//' | LC_ALL=C sort)
+t_lacks "$(cycle_args | tr '\n' ' ')" "--continue-pr"
+caps_fresh
+refresh_record refresh
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(cycle_args | sed -n "/^$(printf '%s' "tehas/pi-rukas:uid$(id -u)" | sed 's/[\/.]/\\&/g')\$/,\$p" | tr '\n' ' ')" \
+  "tehas/pi-rukas:uid$(id -u) $runner work 7 --timeout 360 --json --continue-pr "
+t_eq "$(after -v | LC_ALL=C sort)" "$plain_v"
+t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$plain_e"
+rm -f "$T/home/tehas/state/cycles/7.approved.json"
+caps_good
+
+t_case "a refresh on an image that does not take --continue-pr starts nothing"
+caps_fresh
+refresh_record refresh
+t_run "$work 7"
+caps_refused
+t_contains "$t_out" "the flag --continue-pr"
+rm -f "$T/home/tehas/state/cycles/7.approved.json"
+
+for how in label retry-tick outage-retry fixer; do
+  t_case "a start of how $how never passes --continue-pr, also when the image takes it"
+  caps_fresh
+  caps_continue
+  refresh_record "$how"
+  t_run "$work 7"
+  t_eq "$t_rc" 2
+  t_lacks "$(cycle_args | tr '\n' ' ')" "--continue-pr"
+  rm -f "$T/home/tehas/state/cycles/7.approved.json"
+  caps_good
+done
+
 t_case "an image without the host handoff channel stops the cycle, and one without a restart that clears the label stops a restart"
 caps_fresh
 jq '.features.handoffChannel = false' "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
@@ -2023,6 +2071,24 @@ Written on the issue by the fixer, the account that decided to start this cycle 
 
 > Run the gate before review.
 > ## Not a section"
+
+t_case "a refresh's task reaches retry-context.md as tehas wrote it, and only a refresh's"
+images_on
+caps_continue
+issue_is "Words." NONE
+record_is alice "Words."
+jq '.how = "refresh" | .rests_on = {at, by, how: "label", body_sha256} | .refreshes = 1
+  | .retry_context = [{source: "refresh", by: "tehas", at: "2026-10-18T00:00:00Z", text: "This pull request conflicts with `main`. Do no other work."}]' \
+  "$record" >"$record.new" && mv "$record.new" "$record"
+t_run "$work 7"
+t_eq "$(manifest .retryContext)" '"retry-context.md"'
+t_eq "$(cat "$imgs/retry-context.md")" "# This refresh
+
+This pull request conflicts with \`main\`. Do no other work."
+jq '.how = "label"' "$record" >"$record.new" && mv "$record.new" "$record"
+t_run "$work 7"
+t_eq "$(manifest .retryContext)" null
+caps_good
 
 t_case "comments add no mount and no variable"
 images_on TEHAS_WORK_COMMENTS=1

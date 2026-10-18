@@ -239,6 +239,7 @@ files=(
   "lib/status.sh|$TEHAS_HOME/lib/status.sh|644"
   "lib/top.sh|$TEHAS_HOME/lib/top.sh|644"
   "lib/planning.sh|$TEHAS_HOME/lib/planning.sh|644"
+  "lib/refresh.sh|$TEHAS_HOME/lib/refresh.sh|644"
   "versions.env|$TEHAS_HOME/versions.env|644"
   "sandbox/Dockerfile|$TEHAS_HOME/sandbox/Dockerfile|644"
   "sandbox/build.sh|$TEHAS_HOME/sandbox/build.sh|755"
@@ -261,6 +262,8 @@ files=(
   "systemd/tehas-preview.timer|$units/tehas-preview.timer|644"
   "systemd/tehas-preview-sweep.service|$units/tehas-preview-sweep.service|644"
   "systemd/tehas-preview-sweep.timer|$units/tehas-preview-sweep.timer|644"
+  "systemd/tehas-refresh.service|$units/tehas-refresh.service|644"
+  "systemd/tehas-refresh.timer|$units/tehas-refresh.timer|644"
   "systemd/tehas-top.service|$units/tehas-top.service|644"
   "pi/mcp.json|$agent/mcp.json|644"
   "$instance/models.json|$agent/models.json|644"
@@ -269,7 +272,7 @@ files=(
 for f in tehas tehasbot; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
-for f in api cycle dev dev-login dispatch drain energy health improve index labels limit pause plan preview protolab resume status summary top top-publish update work; do
+for f in api cycle dev dev-login dispatch drain energy health improve index labels limit pause plan preview protolab refresh resume status summary top top-publish update work; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
 # Pi's own settings: the instance may bring its own (default provider and

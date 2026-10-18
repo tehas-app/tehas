@@ -118,6 +118,10 @@
 # state/park-<issue>.id: the dispatcher takes a tick only in the comment named
 # there.
 #
+# A refresh, a start whose approval record has how "refresh", put
+# tehas:refreshing on its pull request; it comes off when the cycle has been
+# reported, whatever the outcome.
+#
 # The pi-rukas commit of the sandbox image when the cycle starts goes to
 # state/cycles/<issue>.rukas.
 #
@@ -672,6 +676,19 @@ else
     fi
   fi
   park "$parked"
+fi
+# A refresh marked its pull request tehas:refreshing as it started. The mark
+# goes whatever the outcome; one that stays is the dispatcher's to clear.
+refreshed=$(jq -r 'select(.how == "refresh") | .refresh_of.pr | numbers' "$cycles/$issue.approved.json" 2>/dev/null) || refreshed=""
+if [ -n "$refreshed" ]; then
+  for ((try = 1; try <= tries; try++)); do
+    gh_call pr edit "$refreshed" --repo "$repo" --remove-label tehas:refreshing >/dev/null 2>&1 && break
+    if [ "$try" = "$tries" ]; then
+      log "WARN: label change on pull request #$refreshed failed: --remove-label tehas:refreshing"
+    else
+      sleep "$retry_wait"
+    fi
+  done
 fi
 log "done #$issue rc=$rc status=$status step=$step minutes=$mins pr=${pr:-none} oom_kills=$kills forks_refused=$forks"
 # One line of history for each end, parked or not, in
