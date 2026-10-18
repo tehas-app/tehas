@@ -11,6 +11,9 @@
 # before cycles start, as tehas-index.service, and the cycles start on the
 # poll after it. A systemd timer runs a poll every two minutes, whatever the
 # cycles are doing, and a cycle that ends starts one.
+# Every poll that gets past the bot's login ends by running libexec/tidy,
+# which takes tehas's state labels off closed issues, with --dry-run on a dry
+# run.
 #
 # Usage:
 #   tehas dispatch               one poll
@@ -178,6 +181,7 @@
 #   TEHAS_REFRESH_MAX         refreshes of one pull request since the
 #                             person's approval [2]
 # From the environment, for tests: TEHAS_STATUS_CMD, TEHAS_INDEX_CMD,
+# TEHAS_TIDY_CMD (in place of libexec/tidy),
 # TEHAS_PLAN_CMD, TEHAS_PLAN_START_CMD (in place of systemd-run, called with
 # the issue and the turn's command line), TEHAS_INDEX_START_CMD (in place of
 # systemd-run, called with the index run's command line), TEHAS_CYCLE_START_CMD and
@@ -1506,6 +1510,9 @@ if tehas_fixer_is "$bot"; then
   log "ERROR: the bot account $bot is TEHAS_FIXER_LOGIN; every agent posts as the bot, so the fixer must be an account of its own"
   exit 78
 fi
+# Closed issues lose tehas's state labels once a poll, after the rest of it,
+# however it ends. The poll's exit status stays its own.
+trap 'if [ "$dry" = 1 ]; then "${TEHAS_TIDY_CMD:-$here/tidy}" --dry-run; else "${TEHAS_TIDY_CMD:-$here/tidy}"; fi' EXIT
 
 # The demand is read from a repository that answers to its name, and the
 # health file the snapshot above wrote is written again with it.
