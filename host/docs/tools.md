@@ -217,6 +217,21 @@ as `WARN: tidy: the search for closed issues with state labels failed`, a
 label change that fails as `WARN: tidy #N: could not remove <labels>`, and
 neither stops the poll.
 
+Every real poll that holds the dispatcher's lock, a paused, held or failed one
+too, ends with one sample in the factory's analytics,
+`~/tehas/state/analytics.db`: `~/tehas/libexec/analytics sample` reads the
+issues in line, running, awaiting a merge and stopped from
+`~/tehas/live/status.json`, the hold and the cycles allowed from
+`~/tehas/live/dispatch.json`, and the mesh's draw from
+`~/tehas/live/energy.json`. A file older than ten minutes gives no value. Then
+`analytics prune` removes what is older than ten days. A start records the
+events `ready`, as its approval record is written, and `started`, once its
+cycle came up, the first time for each issue. Each call may take 5 seconds.
+One that fails or runs out of time is a line `WARN analytics <subcommand>:
+exit N` in the log and changes nothing in the poll. A dry run, a host with
+`TEHAS_ANALYTICS=off` and a host where the program is not installed make no
+call.
+
 What holds cycles back is one `holding:` line: at every dry run, and in the
 log once when its reason changes, with `released: cycles may start again`
 when it ends. A real poll also writes it to `~/tehas/live/dispatch.json` with
