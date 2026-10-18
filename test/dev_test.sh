@@ -43,6 +43,31 @@ slice_good() {
 }
 slice_good
 limits="--cgroup-parent --memory --memory-swap --memory-reservation --cpus --pids-limit --cpu-shares"
+# The security options of lib/sandbox.sh, the same eight words a cycle is given
+# (test/work_lib.sh holds the same pair for the cycle's tests).
+security_opts="--cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true"
+# The words after one option, read the way docker reads them.
+security_of() { # <flag> (reads the arguments on standard input)
+  awk -v flag="$1" 'prev == flag { print } { prev = $0 }'
+}
+# The same eight words, in order, as one line; empty when given another way.
+security_line() {
+  awk '
+    { arg[NR] = $0 }
+    END {
+      want[1] = "--cap-drop"; want[2] = "ALL"
+      want[3] = "--cap-add"; want[4] = "CHOWN"
+      want[5] = "--cap-add"; want[6] = "FOWNER"
+      want[7] = "--security-opt"; want[8] = "no-new-privileges:true"
+      for (i = 1; i <= NR; i++) {
+        if (seen >= 8) break
+        if (arg[i] != want[seen + 1]) continue
+        for (j = 1; j <= 8; j++) if (arg[i + j - 1] != want[j]) break
+        if (j > 8) { seen = 8; start = i }
+      }
+      if (seen == 8) for (i = start; i < start + 8; i++) printf "%s ", arg[i]
+    }'
+}
 root="TEHAS_CGROUP_ROOT=$T_CGROUP"
 
 # The arguments of the docker call that starts the session.
@@ -153,7 +178,7 @@ t_contains "$t_out" "Test Bot"
 t_eq "$(passed GIT_CONFIG_VALUE_2)" "Test Bot"
 t_eq "$(passed GIT_CONFIG_VALUE_3)" "bot@example.com"
 
-t_case "the session gets the slice and a cycle's limits, the image and the clone as its directory"
+t_case "the session gets the slice, a cycle's limits and no privileges, the image and the clone as its directory"
 image="tehas/pi-rukas:uid$(id -u)"
 t_eq "$(after --cgroup-parent)" "tehas.slice"
 t_eq "$(after --memory)" "2048m"
@@ -162,6 +187,10 @@ t_eq "$(after --memory-reservation)" "2g"
 t_eq "$(after --pids-limit)" "4096"
 t_eq "$(after --cpu-shares)" "1024"
 t_eq "$(after --cpus)" "3.75"
+t_eq "$(session_args | security_line)" "$security_opts "
+t_eq "$(session_args | security_of --cap-add | LC_ALL=C sort)" "CHOWN
+FOWNER"
+t_eq "$(session_args | security_of --security-opt)" "no-new-privileges:true"
 t_lacks "$(session_args)" "--cidfile"
 
 t_case "the slice is read once: one systemctl call, one docker info"
@@ -221,7 +250,7 @@ t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC
 t_eq "$(passed PI_ENSEMBLE_WORKSPACE_ROOT)" "$clone"
 
 t_case "the session's container gets no option beyond the documented ones"
-t_eq "$(session_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -it --init")" ""
+t_eq "$(session_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt -w -v -e" "--rm -it --init")" ""
 t_eq "$(session_args | grep -c -x -e --init)" 1
 t_contains "$(session_args)" "--add-host=models:192.0.2.9"
 
@@ -502,7 +531,7 @@ t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$mounts_base" "$imgs:$imgs:
 t_eq "$(after -e | grep -c '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" 1
 t_eq "$(passed PI_ENSEMBLE_EXTRA_IMAGE_DIRS)" "$imgs"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_ENSEMBLE_EXTRA_IMAGE_DIRS | LC_ALL=C sort)"
-t_eq "$(session_args | unknown_options "$image" "--name $limits -w -v -e" "--rm -it --init")" ""
+t_eq "$(session_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt -w -v -e" "--rm -it --init")" ""
 t_eq "$(cd "$imgs" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" "./image-1.png ./manifest.json "
 t_contains "$t_out" "tehas dev: Tehas gave this session 1 image from the issue text."
 rm -f "$T/image.label"

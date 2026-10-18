@@ -280,8 +280,11 @@ caps_good
 caps_fresh
 t_run "$work 7"
 
-t_case "the push check's container gets the workspace and the same variables, no more"
-t_eq "$(preflight_args | unknown_options "$image" "--user -e -w -v --entrypoint" "--rm")" ""
+t_case "the push check's container gets the workspace, the same variables and the security options, no more"
+t_eq "$(preflight_args | unknown_options "$image" "--user -e -w -v --entrypoint --cap-drop --cap-add --security-opt" "--rm")" ""
+t_eq "$(preflight_args | security_line)" "$security_opts "
+t_eq "$(preflight_args | security_of --cap-add | LC_ALL=C sort)" "CHOWN
+FOWNER"
 t_eq "$(preflight_args | awk 'prev == "-v" { print } { prev = $0 }')" "$ws:$inside"
 t_eq "$(preflight_args | awk 'prev == "-e" { print } { prev = $0 }' | sed 's/=.*//' | LC_ALL=C sort)" \
   "$(printf '%s\n' "$want" HOME | LC_ALL=C sort)"
@@ -343,6 +346,22 @@ t_lacks "$args" "docker.sock"
 t_lacks "$args" ".ssh"
 t_lacks "$args" ".config/tehas"
 t_lacks "$args" "--privileged"
+
+# The options themselves, as lib/sandbox.sh prints them: the one function the
+# cycle, the planning turn, the session and the push check are all given them
+# from. The units pin them on the docker line; this pins the source of them.
+t_case "the security options drop every capability and take privileges away"
+t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; tehas_sandbox_security | tr '\0' '\n'"
+t_eq "$t_rc" 0
+t_eq "$(printf '%s\n' "$t_out" | tr '\n' ' ')" "$security_opts "
+# No capability is left in the default list by name, and nothing is added
+# beyond the two a gate needs: a wider list here is a change of the contract.
+t_eq "$(printf '%s\n' "$t_out" | sed -n 's/^--cap-add=//p')" ""
+
+t_case "no container of a cycle, a turn, a session or the push check is started privileged or with the host's network"
+t_lacks "$(cat "$T"/calls/docker.args.*)" "--privileged"
+t_lacks "$(cat "$T"/calls/docker.args.*)" "--net=host"
+t_lacks "$(cat "$T"/calls/docker.args.*)" "--network host"
 
 t_case "host aliases become --add-host entries"
 t_contains "$(cycle_args)" "--add-host=models:192.0.2.9"
