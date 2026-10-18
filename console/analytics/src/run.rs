@@ -44,6 +44,7 @@
 //!   log, with a line "model endpoint: provider <p> is on its backup" for
 //!   each provider that was on its backup endpoint.
 //! - docs/version.txt (install.sh): one line, "vX.Y.Z+<sha7>" or "<sha7>".
+//!   `analytics plan` reads it too.
 
 use crate::mask;
 use regex::Regex;
@@ -287,14 +288,7 @@ pub fn read(home: &Path, issue: i64, given: &Given) -> Result<Run, String> {
     run.oom_kills = given.oom;
     run.forks_refused = given.forks;
 
-    if let Some(v) = first_line(&home.join("docs").join("version.txt")) {
-        let (version, commit) = match v.split_once('+') {
-            Some((tag, sha)) => (Some(tag), sha),
-            None => (None, v.as_str()),
-        };
-        run.tehas_version = version.and_then(plain40);
-        run.tehas_commit = Some(commit).filter(|c| is_hex(c, 7, 40)).map(str::to_string);
-    }
+    (run.tehas_version, run.tehas_commit) = tehas_version(home);
 
     let stream = work_log(home, issue, started);
     if let Some(log) = &stream {
@@ -312,6 +306,21 @@ pub fn read(home: &Path, issue: i64, given: &Given) -> Result<Run, String> {
 
     run.outcome = Some(outcome(&run, parked).to_string());
     Ok(run)
+}
+
+/// The tehas version and commit of docs/version.txt.
+pub fn tehas_version(home: &Path) -> (Option<String>, Option<String>) {
+    let Some(v) = first_line(&home.join("docs").join("version.txt")) else {
+        return (None, None);
+    };
+    let (version, commit) = match v.split_once('+') {
+        Some((tag, sha)) => (Some(tag), sha),
+        None => (None, v.as_str()),
+    };
+    (
+        version.and_then(plain40),
+        Some(commit).filter(|c| is_hex(c, 7, 40)).map(str::to_string),
+    )
 }
 
 /// The issue's entry of the result: what tehas_headless_outcome drops too.

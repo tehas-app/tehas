@@ -3,7 +3,8 @@
 # for it: these functions use the dispatcher's own helpers (log, say,
 # post_question, refresh_checkout), its variables (repo, plan_cmd, who,
 # posted), Q_MAX_OPTIONS of lib/questions.sh and tehas_fixer_is of
-# lib/fixer.sh.
+# lib/fixer.sh, tehas_analytics of lib/analytics.sh and tehas_rukas_commit of
+# lib/cycles.sh.
 #
 # A session is a Pi session that lives across polls. Its record is
 # $TEHAS_HOME/state/plan-<issue>.json:
@@ -52,7 +53,11 @@
 #   plan_finish <issue> <rc> <turns before> <session before>
 #                                  record how a turn went and post it; a failed
 #                                  first turn takes its session from the
-#                                  outcome file, if the runner left one there
+#                                  outcome file, if the runner left one there.
+#                                  It first records the turn in the factory's
+#                                  analytics, `analytics plan`, from the record
+#                                  as the turn left it; a failure there is a
+#                                  warning
 #   plan_launch <issue> <command>...
 #                                  start the turn's unit and return
 #   plan_in_flight <issue>         0 while the turn's unit runs or its lock
@@ -153,12 +158,18 @@ plan_lost() {
 }
 
 plan_finish() {
-  local n=$1 rc=$2 turns=$(($3 + 1)) sid=$4 st out why ok kept
+  local n=$1 rc=$2 turns=$(($3 + 1)) sid=$4 st out why ok kept commit
   st=$(plan_state "$n")
   out=$st.out
   # Rewritten below from the outcome, so the session's own fields are carried.
   kept=$(jq -c '{by, answers} | with_entries(select(.value != null))' "$st" 2>/dev/null) || kept=""
   [ -n "$kept" ] || kept='{}'
+  # In the factory's analytics, before the record is rewritten below: how the
+  # unit ended, as one word, and the image's pi-rukas commit.
+  if [ "${TEHAS_ANALYTICS:-}" = on ]; then
+    commit=$(tehas_rukas_commit)
+    tehas_analytics plan "$n" --rc "${rc// /-}" ${commit:+--rukas-image "$commit"}
+  fi
   if [ "$rc" = interrupted ]; then
     why="was cut off, for example by a restart of the host"
   elif [ "$rc" = "not started" ]; then

@@ -287,6 +287,15 @@ While the turn runs its unit holds `~/tehas/state/plan-<issue>.json.lock`, as a
 cycle holds `state/cycles/<issue>.lock`; a poll that finds it held starts no
 other turn. When the turn ends the unit leaves `state/dispatch.again`, which
 starts a poll, as the end of a cycle does.
+As the poll takes up a turn that ended, it records it in the factory's
+analytics: `~/tehas/libexec/analytics plan <issue> --rc <how it ended>` reads
+the record before it is rewritten and stores one run of kind `plan`, with its
+start, its end (when the poll took it up), its number in the session and its
+outcome: `handoff` for a turn that asked its question, `stopped` for a session
+Pi no longer has, `refused` for a turn that ran nothing, `failed` for any
+other. pi's rpc mode reports no token usage, so a planning turn has none. A
+call that fails is a line `WARN analytics plan: exit N` in the log and
+changes nothing in the turn.
 One planning turn runs at a time. A comment is a question only if the host has its id on record:
 in `~/tehas/state/plan-<issue>.json` for a planning session, in
 `~/tehas/state/park-<issue>.id` for a stopped cycle. Only the last 100
