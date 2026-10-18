@@ -121,6 +121,13 @@ fewer than three finished runs.
 not served. Times are UTC Unix seconds, durations are seconds, as integers.
 `PRAGMA user_version` is the schema version. Within one version columns are
 only added. A release that changes a column's meaning raises the version.
+There are no migrations: a database of another version is moved, with its
+side files, to `analytics.db.schema-<version>`, a new one is made, and the old
+file is deleted ten days after its last write. A reader fetches it before the
+factory is upgraded (see "Agreed with tehas-industry").
+
+The schema is `console/analytics/src/schema.sql`, version 1; a test compares it
+with the pinned copy `schema.pinned` beside it, which a reader may pin too.
 
 It is a file of its own, separate from the `state/tehas.db` planned in #244.
 It has a different lifetime (ten days), a different reader (a program
@@ -152,6 +159,8 @@ Tables:
 | `rukas_version`, `rukas_commit` | the result's `buildVersion` and `buildCommit`; else the image label |
 | `image` | the sandbox image id |
 | `input`, `output`, `cache_read`, `cache_write`, `turns`, `dispatches`, `cost` | the result's `usage` |
+| `runner_ms` | the result's `durationMs`, in milliseconds: the one column not in seconds |
+| `result_schema` | the pi-rukas result's schema number, 3 or 4 |
 | `oom_kills`, `forks_refused` | as `libexec/cycle` reads them |
 | `concurrent` | how many other cycles ran when it started |
 
@@ -159,19 +168,20 @@ Tables:
 the result's `steps[]`, else from `step-started` lines in the NDJSON.
 
 **`run_roles`**: `run_id`, `role`, `model`, `provider`, `dispatches`, `turns`,
-`input`, `output`, `cache_read`, `ms`. Usage is from `usage.byRole`. The model
+`input`, `output`, `cache_read`, `cache_write`, `cost`, `ms`. Usage is from `usage.byRole`. The model
 and provider are from the run's settings snapshot (`state/cycles/<n>.settings`).
 
 **`issue_events`**: `at`, `issue`, `event`. Events are `ready` (accepted),
-`started`, `ended`, `awaiting`, `merged`, `closed`, `stopped`. Lead
-time and first-pass yield come from here. The dispatcher writes `ready` and
+`started`, `ended`, `awaiting`, `merged`, `closed`, `stopped`, each stored
+once per issue: the first time. A second run of an issue adds no event; every
+run is in `runs`. Lead time and first-pass yield come from here. The dispatcher writes `ready` and
 `started`. The cycle writes `ended`. The status run writes `awaiting`,
 `merged`, `closed` and `stopped` the first time it sees each one, by comparing
 with the last snapshot.
 
 **`samples`**: one row per dispatcher poll (every 2 minutes, about 7200 rows
 in ten days): `at`, `in_line`, `running`, `awaiting`, `stopped`, `planning`,
-`limit` (cycles allowed), `paused`, `held` (the hold reason word, or empty),
+`cycle_limit` (cycles allowed; `limit` is an SQL keyword), `paused`, `held` (the hold reason word, or empty),
 `watts` (the mesh draw, where `energy.json` has it). `planning` counts open
 issues labelled `tehas:plan` or `tehas:planning`, which `status.json` does not
 list today; `libexec/status` adds that count.
@@ -207,7 +217,8 @@ Every caller runs it with a time limit and ignores its exit status, after a
 `WARN` line in its own log. A locked or broken database costs a missing row,
 never a cycle. When the file is not a valid database, `analytics` moves it
 aside to `analytics.db.broken` and starts a new one: the data is only ten
-days deep.
+days deep. A database of another schema version is kept aside instead, as
+"The database" says.
 
 `analytics run` reads the cycle's files before `libexec/cycle` cleans up, so
 it is called before the cleanup and after the outcome is known. It adds no
@@ -285,6 +296,25 @@ factory API's JSON shapes.
 
 `tehas analytics report` prints the same report as the dashboard, for a
 person in a terminal.
+
+### Agreed with tehas-industry
+
+Decided by the owner on 2026-10-18 (tehas #377, tehas-industry #26):
+
+1. Schema 1 stands as built, with `cycle_limit` and the columns `runner_ms`,
+   `result_schema`, `run_roles.cache_write` and `run_roles.cost` that this
+   spec did not have at first.
+2. No migrations. Most changes add columns and need no new version. On a new
+   version the old file is kept aside under its version for ten days, and
+   industry's archive job fetches the analytics copy before it runs
+   `tehas update --to` on a factory.
+3. Events stay once per issue. Lead time runs from the first accepted `ready`
+   to the merge. An issue older than ten days has lost its `ready` in the
+   window and has no lead time here; industry's long-term copy keeps it.
+4. Industry's `archive` job fetches the copy daily per factory, beside
+   `tehas export`, and upserts into its own store on `runs.id`,
+   `(run_id, step, round)`, `(run_id, role)`, `(issue, event)` and
+   `samples.at`. A fetch repeated is harmless, so there is no cursor.
 
 ## Relation to other work
 
