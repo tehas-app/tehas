@@ -12,6 +12,8 @@
 #   tehas_state_lines <json> <now> <stale>   the factory line, the queue line,
 #                                            and a line for each pause switch
 #   tehas_cycle_line <json> <now>            one cycle, as health.json writes it
+#   tehas_plan_lines <health json> <now>     a line for each planning turn in
+#                                            flight; nothing without one
 #   tehas_slice_line <health json> <now>     the last poll's slice check
 #   tehas_platform_line <health json> <now>  the platform checkout against
 #                                            origin; nothing without one
@@ -135,6 +137,15 @@ tehas_cycle_line() { # <cycle json> <now epoch seconds>
   jq -r --argjson now "$2" "$tehas_state_defs$tehas_cycle_line_jq" <<<"$1"
 }
 
+# The planning turns in flight, as health.json lists them: issue, turn,
+# startedAt.
+tehas_plan_lines() { # <health json> <now epoch seconds>
+  jq -r --argjson now "$2" "$tehas_state_defs"'
+    (.checks.plans // [])[]
+    | "plan      #\(.issue) turn \(.turn) running, started \(.startedAt // "" | age($now))"
+  ' <<<"$1"
+}
+
 # The slice status captured by the dispatcher's last poll.
 tehas_slice_line() { # <health json> <now epoch seconds>
   jq -r --argjson now "$2" "$tehas_state_defs"'
@@ -171,6 +182,7 @@ tehas_status_json() { # <health json> <now epoch seconds> <stale true|false>
        allHands: .checks.allHands,
        limit: (.checks.limit // null | if . == null then null else del(.reason) end),
        running: [(.checks.cycles // [])[] | {issue, since: .startedAt} + (if .step == null then {} else {step} end)],
+       planning: [(.checks.plans // [])[] | {issue, turn} + (if .startedAt == null then {} else {since: .startedAt} end)],
        demand: (.checks.demand // null
                 | if . == null then null
                   else {waiting} + (if .oldest == null then {} else {oldestWait: (.oldest | since)} end)

@@ -13,6 +13,7 @@
 #   pending   true while a turn's outcome has not been posted yet
 #   failed    true when the last turn did not finish
 #   running   true while a turn is in flight
+#   startedAt when the turn in flight started, UTC
 #   comment   the id of the open question comment, once it is posted
 #   lost      true when Pi no longer has the session; it is then ended
 #   by        the account whose tehas:plan started the session
@@ -28,10 +29,11 @@
 #
 # A turn is written down as running before it starts, and before the issue is
 # marked as planning. It runs as its own unit, tehas-plan-<issue>.service, which
-# leaves the turn's exit status in <record>.rc. A running record found at the
-# start of a poll is a turn still in flight, one that ended (plan_collect posts
-# it), or, with no unit and no status, one that was cut off, for example by a
-# restart of the host. plan_recover turns that into a failed turn that asks
+# holds the lock <record>.lock while the turn runs, as a cycle holds
+# state/cycles/<issue>.lock, and leaves the turn's exit status in <record>.rc.
+# A running record found at the start of a poll is a turn still in flight, one
+# that ended (plan_collect posts it), or, with no lock held, no unit and no
+# status, one that was cut off, for example by a restart of the host. plan_recover turns that into a failed turn that asks
 # again, or ends a first turn that never produced a session.
 #
 # Each change on GitHub is checked, and the record only moves on once it has
@@ -53,7 +55,8 @@
 #                                  outcome file, if the runner left one there
 #   plan_launch <issue> <command>...
 #                                  start the turn's unit and return
-#   plan_in_flight <issue>         0 while the turn's unit runs
+#   plan_in_flight <issue>         0 while the turn's unit runs or its lock
+#                                  is held
 #   plan_collect <issue>           post a turn that ended; 1 when none did
 #   plan_recover <issue>           finish a turn that was cut off, or end a
 #                                  session found lost that could not be ended
@@ -257,14 +260,15 @@ plan_turn() {
   written=1
   if [ "$mode" = first ]; then
     was=""
-    jq -cn --arg by "${who:?}" '{session: "", turns: 0, options: [], pending: false, failed: false, running: true, by: $by}' >"$st.new" || written=0
+    jq -cn --arg by "${who:?}" --arg at "$(date -u +%FT%TZ)" \
+      '{session: "", turns: 0, options: [], pending: false, failed: false, running: true, startedAt: $at, by: $by}' >"$st.new" || written=0
   else
     was=$(cat "$st" 2>/dev/null) || was=""
     ! tehas_fixer_is "$by" || fixer=true
     # Answers on record that are not a list stay so: the fixer's grant then
     # refuses it, where a fresh list would count its answers from none.
-    jq -c --argjson turn "$((turns + 1))" --arg by "$by" --argjson fixer "$fixer" \
-      '.running = true | .pending = false | del(.comment)
+    jq -c --argjson turn "$((turns + 1))" --arg by "$by" --argjson fixer "$fixer" --arg at "$(date -u +%FT%TZ)" \
+      '.running = true | .startedAt = $at | .pending = false | del(.comment)
        | if (.answers // []) | type == "array" then .answers = (.answers // []) + [{turn: $turn, by: $by, fixer: $fixer}] else . end' \
       "$st" >"$st.new" || written=0
   fi
@@ -316,17 +320,21 @@ plan_turn() {
 
 # plan_launch <issue> <command>...: start the turn as its own unit and return.
 # A poll is a oneshot service, and systemd stops what it leaves behind, so a
-# turn started in the background would die with the poll. The unit writes the
-# command's exit status to <record>.rc when it ends, and asks for a poll, which
-# posts the outcome. systemd stops it a quarter of an hour after the turn's own
-# limit. The poll's lock is not passed on.
+# turn started in the background would die with the poll. The unit holds
+# <record>.lock until the turn has ended, writes the command's exit status to
+# <record>.rc, and asks for a poll, which posts the outcome. A unit that finds
+# the lock held runs nothing. systemd stops it a quarter of an hour after the
+# turn's own limit. The poll's lock is not passed on, and the turn's lock stays
+# with the unit's shell.
 plan_launch() {
   local n=$1 st
   shift
   st=$(plan_state "$n")
   # shellcheck disable=SC2016  # expanded by the shell the unit runs
-  set -- /bin/bash -c 'log=$1 rc=$2 again=$3; shift 3; "$@" >>"$log" 2>&1; echo "$?" >"$rc.new" && mv "$rc.new" "$rc"; : >"$again"' \
-    plan-turn "$TEHAS_HOME/logs/dispatch-plan-$n.log" "$st.rc" "$TEHAS_HOME/state/dispatch.again" "$@"
+  set -- /bin/bash -c 'log=$1 rc=$2 again=$3 lock=$4; shift 4
+    exec 9>>"$lock" && flock -n 9 || { echo "a planning turn of this issue is already running" >>"$log"; exit 75; }
+    "$@" 9>&- >>"$log" 2>&1; echo "$?" >"$rc.new" && mv "$rc.new" "$rc"; : >"$again"' \
+    plan-turn "$TEHAS_HOME/logs/dispatch-plan-$n.log" "$st.rc" "$TEHAS_HOME/state/dispatch.again" "$st.lock" "$@"
   if [ -n "${TEHAS_PLAN_START_CMD:-}" ]; then
     "$TEHAS_PLAN_START_CMD" "$n" "$@" 8>&-
     return
@@ -335,15 +343,24 @@ plan_launch() {
   # env.sh as the tehas units do.
   # shellcheck disable=SC2016  # expanded by the shell the unit runs
   systemd-run --user --quiet --collect --unit "tehas-plan-$n" -p "RuntimeMaxSec=$((TEHAS_PLAN_TIMEOUT + 900))" \
-    /bin/bash -c '[ ! -r "$HOME/tehas/env.sh" ] || . "$HOME/tehas/env.sh"; exec "$@"' env-sh "$@" 8>&- >/dev/null 2>&1
+    /bin/bash -c '[ ! -r "$HOME/tehas/env.sh" ] || . "$HOME/tehas/env.sh"; exec "$@"' env-sh "$@" 8>&- >/dev/null 2>&1 || return 1
+  # A moment for the unit to take its lock, so the status this poll writes
+  # next shows the turn.
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    [ ! -f "$st.rc" ] && flock -n "$st.lock" true 8>&- 2>/dev/null || return 0
+    sleep 0.5
+  done
 }
 
-# plan_in_flight <issue>: 0 while the unit of the issue's turn is running. A
-# turn that left its exit status has ended, though systemd may still show its
-# unit for the instant it asks for a poll.
+# plan_in_flight <issue>: 0 while the issue's turn holds its lock, or its unit
+# is running: a turn started before the lock was kept holds none. A turn that
+# left its exit status has ended, though systemd may still show its unit for
+# the instant it asks for a poll.
 plan_in_flight() {
-  local state
-  [ ! -f "$(plan_state "$1").rc" ] || return 1
+  local st state
+  st=$(plan_state "$1")
+  [ ! -f "$st.rc" ] || return 1
+  if [ -f "$st.lock" ] && ! flock -n "$st.lock" true 8>&- 2>/dev/null; then return 0; fi
   state=$(systemctl --user show -p ActiveState --value "tehas-plan-$1.service" 2>/dev/null) || return 1
   case "$state" in active | activating | deactivating | reloading) return 0 ;; esac
   return 1

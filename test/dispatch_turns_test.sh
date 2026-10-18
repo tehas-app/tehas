@@ -248,6 +248,51 @@ t_stub fake-plan-start 'n=$1; shift
 [ ! -e "$T/fx/plan-runs" ] || exit 0
 "$@"'
 
+t_case "a turn that does not end: the poll returns, the turn holds its lock, and a second poll starts no second turn"
+to_plan
+# The turn waits for a file; the launcher runs it in the background, as
+# systemd-run leaves a unit running.
+cp "$T/bin/fake-plan" "$T/bin/fake-plan.keep"
+t_stub fake-plan 'out=""
+while [ "$#" -gt 0 ]; do [ "$1" = --out ] && out=$2; shift; done
+[ ! -e "/proc/$$/fd/9" ] || : >"$T/calls/plan.fd9"
+while [ ! -e "$T/fx/plan-done" ]; do sleep 0.1; done
+cp "$T/fx/plan-result.json" "$out"'
+t_stub fake-plan-start 'n=$1; shift
+setsid "$@" </dev/null >/dev/null 2>&1 &'
+rm -f "$fx/plan-done"
+began=$(date +%s)
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(( $(date +%s) - began < 20 ))" 1
+t_contains "$t_out" "planning #7: turn 1 runs as tehas-plan-7.service"
+for _ in $(seq 50); do ! flock -n "$record.lock" true 2>/dev/null && break; sleep 0.1; done
+t_eq "$(flock -n "$record.lock" true 2>/dev/null && echo free || echo held)" held
+t_eq "$(jq -r '.running, (.startedAt | test("^[0-9-]+T[0-9:]+Z$"))' "$record" | paste -sd ' ')" "true true"
+# The first poll took tehas:plan off; a label put back by hand finds the turn running.
+rm -f "$T"/calls/*
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-plan-start)" ""
+t_lacks "$(t_calls gh)" "kind=plan"
+t_eq "$(jq -r .running "$record")" true
+t_case "a turn that ends writes its status and asks for a poll, which posts its outcome"
+rm -f "$T/home/tehas/state/dispatch.again"
+: >"$fx/plan-done"
+for _ in $(seq 50); do [ -e "$record.rc" ] && [ -e "$T/home/tehas/state/dispatch.again" ] && break; sleep 0.1; done
+t_eq "$(cat "$record.rc" 2>/dev/null)" 0
+t_eq "$([ -e "$T/home/tehas/state/dispatch.again" ] && echo asked)" asked
+t_eq "$(t_calls plan.fd9)" ""
+echo '[]' >"$fx/plans.json"
+rm -f "$T"/calls/*
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "<!-- tehas:question kind=plan issue=7 turn=1 -->"
+t_eq "$(jq -r '[.turns, .running] | @tsv' "$record")" "1	false"
+t_stub fake-plan-start 'n=$1; shift
+[ ! -e "$T/fx/plan-runs" ] || exit 0
+"$@"'
+mv "$T/bin/fake-plan.keep" "$T/bin/fake-plan"
+
 t_case "a first turn cut off by a restart ends visibly"
 planning
 echo '[]' >"$fx/asking.json"

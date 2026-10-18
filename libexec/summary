@@ -20,10 +20,12 @@
 #   factory   pass: Idle, taking work. (40 s ago)
 #   queue     2 in line, 0 building, 1 in review, 0 stopped (40 s ago)
 #   cycle     #12 handoff at step review, 3 min ago
+#   plan      #7 turn 2 running, started 12 min ago
 #   slice     room for 2 cycles (4 GiB of 20 GiB promised, reserve 2g, 40 s ago)
 #   platform  cb6912a, 19 commits behind origin/main since 2026-10-13, fetched 20 min ago
 #
-# The slice line reads "holding: ..." when the last poll held cycles back,
+# A plan line is there for each planning turn in flight. The slice line reads
+# "holding: ..." when the last poll held cycles back,
 # and "unknown: no poll has reported in 10 min" when no poll got as far as
 # reading the slice in that time, as while the factory is paused. The
 # platform line is there only on a host with a platform checkout.
@@ -34,6 +36,7 @@
 #    "reasons": [], "paused": {"local": false, "label": false},
 #    "allHands": false, "limit": {"state": "none"},
 #    "running": [{"issue": 12, "since": "...", "step": "review"}],
+#    "planning": [{"issue": 7, "turn": 2, "since": "..."}],
 #    "demand": {"waiting": 2, "oldestWait": 5400},
 #    "hold": {"why": "count", "text": "holding: ..."},
 #    "room": {"cycles": 0, "maxAwaiting": 3, "slice": 2}}
@@ -80,6 +83,7 @@ tehas_state_lines "$health" "$now" "$stale" || exit 1
 while IFS= read -r cycle; do
   tehas_cycle_line "$cycle" "$now" || exit 1
 done < <(jq -c 'if ((.checks.cycles // []) | length) > 1 then .checks.cycles[] else (.checks.cycle // null) end' "$file")
+tehas_plan_lines "$health" "$now" || exit 1
 tehas_slice_line "$health" "$now" || exit 1
 tehas_platform_line "$health" "$now" || exit 1
 

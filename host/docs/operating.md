@@ -468,7 +468,10 @@ dispatcher's log says so.
    continues the session with your answer, and the issue carries
    `tehas:planning` while the turn runs. The turn runs as its own unit,
    `tehas-plan-<issue>.service`, and the polls go on meanwhile: cycles start
-   as usual, and the turn's end starts the poll that posts its outcome. One
+   as usual, and the turn's end starts the poll that posts its outcome. The
+   unit holds `~/tehas/state/plan-<issue>.json.lock` while the turn runs, so
+   no poll starts a second turn on the issue, and `tehas status` shows the
+   turn on a `plan` line. One
    planning turn runs at a time, so while another runs, your answer waits
    until it ends, which is up to two hours (`TEHAS_PLAN_TIMEOUT`). A
    running work cycle does not hold an answer back. A poll also handles one
