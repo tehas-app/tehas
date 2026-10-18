@@ -122,10 +122,10 @@ issues "$(issue 5 tehas:awaiting-merge)" "$(issue 6 needs-human-attention)" "$(i
 again
 issues "$(issue 5 tehas:awaiting-merge CLOSED 60)" "$(issue 6 needs-human-attention CLOSED 60)"
 again
-t_eq "$(t_calls analytics)" ""
+t_eq "$(events)" ""
 shipped "$(merged 5 60)" "$(merged 6 60)"
 again
-t_eq "$(t_calls analytics | sort)" "event 5 merged --at $((now - 60))
+t_eq "$(events | sort)" "event 5 merged --at $((now - 60))
 event 6 merged --at $((now - 60))"
 
 t_case "a first run records the closed issues it is shown, with their times"
