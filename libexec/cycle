@@ -144,12 +144,19 @@
 # running when the cycle ended. A file or start that fails is a warning: the
 # timer still runs the poll.
 #
+# After the history line it records the run and its end in the factory's
+# analytics, state/analytics.db, with `analytics run` and `analytics event
+# <issue> ended` (lib/analytics.sh). Each call has a time limit, and one that
+# fails or runs out of time is a WARN line: it changes nothing in the report.
+# TEHAS_ANALYTICS=off makes no call.
+#
 # Where the instance has an improvement loop (TEHAS_IMPROVE_REPO), it leaves
 # the cycle's record for it at the end, in tmp/improve/window (lib/improve.sh),
 # with the image and the pi-rukas commit tehas work left in
 # state/cycles/<issue>.image.
 #
-# Instance settings (lib/config.sh): TEHAS_REPO, TEHAS_IMPROVE_REPO.
+# Instance settings (lib/config.sh): TEHAS_REPO, TEHAS_IMPROVE_REPO,
+# TEHAS_ANALYTICS.
 # From the environment, for tests: TEHAS_WORK_CMD, TEHAS_STATUS_CMD,
 # TEHAS_CYCLE_RETRY_WAIT (seconds between two tries of a GitHub call [5]) and
 # TEHAS_CYCLE_STOP_GH_WAIT (seconds a GitHub call may take after a stop [20]).
@@ -174,6 +181,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/labels.sh"
 # shellcheck source=lib/fixer.sh
 . "$here/../lib/fixer.sh"
+# shellcheck source=lib/analytics.sh
+. "$here/../lib/analytics.sh"
 tehas_load || exit 78
 # shellcheck source=lib/questions.sh
 . "$here/../lib/questions.sh"
@@ -757,6 +766,12 @@ tehas_cycle_history_add "$issue" "$(jq -n -c --arg at "$(date -u +%FT%TZ)" --arg
   --arg how "$(jq -r '.how // "" | strings' "$cycles/$issue.approved.json" 2>/dev/null | tr -cd 'a-z-')" \
   '{$at, $started, $rc, $status, $step, $cap, $park_reason, $failure_kind, $failure_cause, $provider, $parked, $pr, $by, $how}
    | with_entries(select(.value != ""))')" || log "WARN: no line of history of #$issue"
+# The run and its end in the factory's analytics, from the history line and
+# what the cycle left in state/cycles; the image and the counts were read and
+# removed above, so they are passed. A failure is a warning (lib/analytics.sh).
+tehas_analytics run "$issue" ${image_id:+--image "$image_id"} ${image_rukas:+--rukas-image "$image_rukas"} \
+  ${kills:+--oom "$kills"} ${forks:+--forks "$forks"}
+tehas_analytics event "$issue" ended
 # For the improvement loop, where the instance has one. The cycle is reported
 # by now, and a record that cannot be written is the loop's loss only.
 tehas_improve_record "$issue" "$started" "$rc" "$status" "$step" "$pr" "$kills" "$image_id" "$image_rukas" "$cap" "$reason" "$build" || log "WARN: no record of #$issue for the improvement loop"

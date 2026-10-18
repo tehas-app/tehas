@@ -81,6 +81,7 @@ t_stub systemctl
 
 reset() {
   rm -rf "$T"/calls/* "${fx:?}"/* "$state" "$workdir" "$T/home/tehas/work" "$T/home/tehas/logs" "$T/home/tehas/tmp" \
+    "$T/home/tehas/libexec" \
     "$T"/home/tehas/state/park-*
   T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status TEHAS_CYCLE_RETRY_WAIT=0)
   t_instance "${T_MINIMAL[@]}"
