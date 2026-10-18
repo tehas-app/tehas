@@ -14,6 +14,11 @@
 # container is given as an input a host may set, and has the features this
 # command relies on: the host handoff channel, the cycle deadline when one is
 # given and, with --restart, a restart that clears needs-human-attention.
+# A refresh, a start whose approval record has how "refresh", passes
+# --continue-pr (pi-rukas#1468): the cycle checks out the issue's open pull
+# request, merges the branch into it and pushes to the same branch. An image
+# that does not take the flag refuses the refresh with 78, before anything is
+# moved; no other start passes it.
 # Anything else is exit 78. So is an entry of TEHAS_RUKAS_WORKAROUNDS whose
 # release the image's pi-rukas has reached: the workaround has expired.
 #
@@ -381,6 +386,9 @@ fi
 runner=/opt/pi-rukas/bin/pi-rukas-headless
 run_flags=(--timeout "$(((limit + 59) / 60))" --json)
 [ -z "$flags" ] || { run_flags+=(--restart); features+=" restartClearsAttention"; }
+if [ -f "$record" ] && [ ! -L "$record" ] && [ "$(jq -r '.how // "" | strings' "$record" 2>/dev/null)" = refresh ]; then
+  run_flags+=(--continue-pr)
+fi
 # What the image supports, asked before anything is moved or fetched.
 names=""
 for e in "${envs[@]}"; do

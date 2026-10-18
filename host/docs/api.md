@@ -64,7 +64,7 @@ tehas api [--json]
   "tehas": "v0.8.0",
   "commit": "cb6912a",
   "repo": "janit/tehas",
-  "features": ["status", "fixer-grant", "all-hands", "limit", "drain"],
+  "features": ["status", "fixer-grant", "all-hands", "limit", "drain", "refresh-conflicts"],
   "fixer": null
 }
 ```
@@ -75,7 +75,7 @@ tehas api [--json]
 | `tehas` | The release tag the factory was installed from; `null` when the install came from a checkout with no tag, or not from a git checkout |
 | `commit` | The commit it was installed from, seven characters; `null` when not from a git checkout |
 | `repo` | `TEHAS_REPO`, the product repository |
-| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `fixer-grant`, `all-hands`, `limit` and `drain` |
+| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `fixer-grant`, `all-hands`, `limit`, `drain` and `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)) |
 | `fixer` | `TEHAS_FIXER_LOGIN`, or `null` when the instance has no fixer |
 
 It reads the instance settings and `~/tehas/docs/version.txt`, which
@@ -118,8 +118,9 @@ tehas status --json
 | `allHands` | `tehas:all-hands` holds on the control issue: it is on the issue and an allowed account applied it. It changes nothing in this factory. Left out when the last snapshot could not read it or is more than ten minutes old |
 | `limit` | The limit, as [`tehas limit --json`](#tehas-limit) prints it without `api` and `reason`: `{"state": "none"}` when none is set |
 | `running` | The running cycles: `issue`, `since` (when it started) and `step` (left out when not known yet) |
-| `demand.waiting` | Open issues that would start if there were room: `tehas:ready` applied last by an account in `TEHAS_ALLOWED_LABELERS` or the fixer, with no cycle and no planning session open |
-| `demand.oldestWait` | Seconds since the oldest of them was labelled; left out when none waits |
+| `demand.waiting` | Open issues that would start if there were room: `tehas:ready` applied last by an account in `TEHAS_ALLOWED_LABELERS` or the fixer, with no cycle and no planning session open, and the refresh requests waiting, unless refreshes are held |
+| `demand.oldestWait` | Seconds since the oldest of them was labelled or asked for; left out when none waits |
+| `demand.refreshHold` | Why refresh requests start nothing on this host, for a person: refreshes are off, or the sandbox image cannot continue a pull request. Left out when nothing holds them or there are none |
 | `demand` | `null` when no poll counted it in the last ten minutes, or the last poll could not read the queue |
 | `hold.why` | One word for what holds new cycles back: `pause`, `slice`, `unreadable`, `resources`, `limit`, `count`, `awaiting`, `pressure`, `room` or `full`. Treat it as an open list: later releases add words |
 | `hold.text` | The same for a person. Do not parse it |
