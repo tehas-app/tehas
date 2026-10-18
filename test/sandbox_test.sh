@@ -133,13 +133,21 @@ t_contains "$recipe" 'raw.githubusercontent.com/DeusData/codebase-memory-mcp/v${
 t_lacks "$recipe" 'codebase-memory-mcp/main/install.sh'
 t_contains "$recipe" 'echo "${CBM_INSTALLER_SHA256}  /tmp/cbm-install.sh" | sha256sum -c -'
 t_contains "$recipe" '--skip-config'
-t_contains "$recipe" '--dir=/usr/local/bin'
-# The pinned copy replaces the one the base put in that directory, and the
+# The installer's own activation cannot publish onto the image's overlayfs when
+# Docker runs inside an unprivileged Incus container, as a factory's does. It
+# installs into a tmpfs instead, made 755 because the installer refuses a
+# directory others can write, and only the binary is copied into place. So the
+# updater file it leaves beside the binary never reaches PATH.
+t_contains "$recipe" 'RUN --mount=type=tmpfs,target=/cbm'
+t_contains "$recipe" 'chmod 755 /cbm'
+t_contains "$recipe" '--dir=/cbm'
+t_lacks "$recipe" '--dir=/usr/local/bin'
+t_contains "$recipe" 'install -m 755 /cbm/codebase-memory-mcp /usr/local/bin/codebase-memory-mcp'
+# The pinned copy replaces the one the base put in /usr/local/bin, and the
 # version is read back from it. The base sets HOME for every user, so this step
-# names its own, and the updater file the installer leaves beside the binary is
-# not something a cycle should find on PATH.
+# names its own.
 t_contains "$recipe" 'env HOME=/root CBM_DOWNLOAD_URL='
-t_contains "$recipe" 'rm -f /tmp/cbm-install.sh /usr/local/bin/install.sh'
+t_contains "$recipe" 'rm -f /tmp/cbm-install.sh'
 t_lacks "$recipe" '/home/vscode/.local'
 t_contains "$recipe" 'codebase-memory-mcp is ${found:-not there}, versions.env names $CBM_VERSION'
 t_contains "$(cat "$build")" '--build-arg CBM_VERSION="$CBM_VERSION"'
