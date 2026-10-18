@@ -426,6 +426,90 @@ t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human
 t_eq "$(t_calls fake-status | wc -l)" 1
 t_eq "$(find "$T/home/tehas/tmp/improve/window" -mindepth 1 2>/dev/null | wc -l)" 0
 
+# The analytics program, where install.sh puts it. Each call notes how many
+# history lines the issue had and whether the status was refreshed yet.
+analytics_stub() { # [<bash body>]
+  t_stub_analytics 'printf "%s %s\n" "$(wc -l <"$TEHAS_HOME/state/cycles/7.history.jsonl" 2>/dev/null || echo 0)" \
+  "$([ -e "$T/calls/fake-status" ] && echo late || echo early)" >>"$T/calls/analytics.moment"
+'"${1:-}"
+}
+
+t_case "the cycle records its run and its end in analytics after the history line, with what it read and removed"
+reset
+analytics_stub
+image_id=sha256:$(printf 'e%.0s' {1..64})
+echo 'echo "'"$image_id"' 0123456789abcdef0123456789abcdef01234567" >"$TEHAS_HOME/state/cycles/7.image"
+echo 3 >"$TEHAS_HOME/state/cycles/7.oom"; echo 2 >"$TEHAS_HOME/state/cycles/7.forks"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(t_calls analytics)" "run 7 --image $image_id --rukas-image 0123456789abcdef0123456789abcdef01234567 --oom 3 --forks 2
+event 7 ended"
+t_eq "$(cat "$T/calls/analytics.moment")" "1 early
+1 early"
+t_lacks "$t_out" "analytics"
+
+t_case "an option with no value is left out of the run"
+reset
+analytics_stub
+ended handoff commit-pr feature/x
+t_run "$cycle 7"
+t_eq "$(t_calls analytics)" "run 7 --oom 0 --forks 0
+event 7 ended"
+
+t_case "a cycle stopped by a signal is recorded too"
+reset
+analytics_stub
+echo 'kill -TERM "$PPID"; sleep 1; exit 143' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(t_calls analytics)" "run 7 --oom 0 --forks 0
+event 7 ended"
+
+t_case "with TEHAS_ANALYTICS off the cycle calls no analytics"
+reset
+analytics_stub
+t_instance "${T_MINIMAL[@]}" TEHAS_ANALYTICS=off
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(t_calls analytics)" ""
+
+t_case "a failing analytics is a warning, and the cycle is reported as without it"
+reset
+ended handoff commit-pr feature/x
+t_run "$cycle 7"
+without=$(t_calls gh)
+reset
+ended handoff commit-pr feature/x
+analytics_stub 'exit 70'
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN analytics run: exit 70"
+t_contains "$t_out" "WARN analytics event: exit 70"
+t_contains "$t_out" "done #7 rc=10 status=handoff"
+t_eq "$(t_calls gh)" "$without"
+t_eq "$(t_calls fake-status | wc -l)" 1
+t_eq "$(wc -l <"$state/7.history.jsonl")" 1
+
+t_case "an analytics that hangs is cut off, and the cycle is reported"
+reset
+analytics_stub 'exec sleep 30'
+T_ENV+=(TEHAS_ANALYTICS_WAIT=1)
+before=$(date +%s)
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(($(date +%s) - before < 15))" 1
+# The report ignores TERM, and so does what it starts: the kill a second
+# after the limit ends it.
+t_contains "$t_out" "WARN analytics run: exit 137"
+t_contains "$t_out" "WARN analytics event: exit 137"
+t_eq "$(t_calls fake-status | wc -l)" 1
+
+t_case "a host without the analytics program is silent"
+reset
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "analytics"
+
 # Outside the tests nothing names the two scripts: the cycle runs the ones in
 # its own directory, whatever PATH holds.
 t_case "without the test seams it runs the scripts beside it, not names on PATH"
@@ -434,7 +518,7 @@ T_ENV=()
 tree=$T/tree
 mkdir -p "$tree/libexec" "$tree/lib"
 cp "$cycle" "$tree/libexec/cycle"
-cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/cycles.sh" "$T_ROOT/lib/improve.sh" "$tree/lib/"
+cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/cycles.sh" "$T_ROOT/lib/improve.sh" "$T_ROOT/lib/analytics.sh" "$tree/lib/"
 for name in work status; do cp "$T/bin/fake-$name" "$tree/libexec/$name"; done
 for name in tehas tehasbot tehas-work tehas-status; do t_stub "$name"; done
 t_run "$tree/libexec/cycle 7"

@@ -224,6 +224,15 @@
 # Every real poll that gets past the bot's login, a paused one too, writes
 # $TEHAS_HOME/live/demand.json, how many issues wait for room (report_demand),
 # and refreshes the health file with it.
+#
+# The factory's analytics, state/analytics.db, unless TEHAS_ANALYTICS=off: a
+# start records the events ready, at the approval record's time, and started
+# of its issue, and every real poll that holds the lock, a paused, held or
+# failed one too, ends with
+# `analytics sample` (the counts of live/status.json, the hold and the cycles
+# allowed of live/dispatch.json, the draw of live/energy.json) and `analytics
+# prune`. Each call has a time limit, and one that fails or runs out of time is
+# a WARN line: it changes nothing in the poll (lib/analytics.sh).
 set -uo pipefail
 
 # The usage is this file's own header comment: every line from the second to the
@@ -286,6 +295,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/models.sh"
 # shellcheck source=lib/refresh.sh
 . "$here/../lib/refresh.sh"
+# shellcheck source=lib/analytics.sh
+. "$here/../lib/analytics.sh"
 tehas_load || exit 78
 # shellcheck source=lib/questions.sh
 . "$here/../lib/questions.sh"
@@ -336,6 +347,16 @@ if ! flock -n 8; then
   exit 0
 fi
 date +%s >"$taken" || log "WARN: could not write $taken"
+
+# Every real poll that holds the lock ends with one sample of the factory and
+# a prune in its analytics, after its live files are written, however it
+# ends: a paused, held or failed poll too. A poll that got past the bot's
+# login runs libexec/tidy before them. The poll's exit status stays its own.
+tidy_on=0
+trap 'if [ "$tidy_on" = 1 ]; then
+    if [ "$dry" = 1 ]; then "${TEHAS_TIDY_CMD:-$here/tidy}" --dry-run; else "${TEHAS_TIDY_CMD:-$here/tidy}"; fi
+  fi
+  [ "$dry" = 1 ] || { tehas_analytics sample; tehas_analytics prune; }' EXIT
 
 # gh_json <gh arguments>: the answer in $json. A failed call ends the poll:
 # no rule below may be decided on an answer that never came. Always call it as
@@ -1219,7 +1240,7 @@ index_launch() {
 # start_cycles: start a cycle for every issue in $picked. Returns 1 if one did
 # not start.
 start_cycles() {
-  local n failed=0
+  local n failed=0 accepted
   local -a out
   [ "$fetched" = 1 ] || refresh_checkout
 
@@ -1231,6 +1252,13 @@ start_cycles() {
       log "ERROR: could not write the approval record of #$n, not starting a cycle"
       exit 1
     fi
+    # In the factory's analytics: ready, at the time the record says it was
+    # accepted, and without one at all when the record has no time. The
+    # program keeps the first one of each issue. A failure is a warning.
+    accepted=$(jq -r '.at | strings | fromdateiso8601? | floor | tostring' \
+      "$TEHAS_HOME/state/cycles/$n.approved.json" 2>/dev/null) || accepted=""
+    [[ $accepted =~ ^[0-9]{1,12}$ ]] || accepted=""
+    tehas_analytics event "$n" ready ${accepted:+--at "$accepted"}
     # A refresh marks its pull request first, so a person sees not to merge
     # or push to it. A mark left by a start that fails below is rule 2's.
     if [ -n "${refresh_pr[$n]:-}" ] &&
@@ -1259,7 +1287,9 @@ start_cycles() {
     else
       say "$n" "Tehas cycle started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC (authorized by @${starter[$n]}'s ${how[$n]}). This issue is owned by the cycle until \`tehas:running\` is removed."
     fi
-    if ! start_cycle "$n"; then
+    if start_cycle "$n"; then
+      tehas_analytics event "$n" started
+    else
       log "ERROR: the cycle for #$n did not start"
       gh issue edit "$n" --repo "$repo" --remove-label tehas:running --add-label needs-human-attention >/dev/null 2>&1 ||
         log "WARN: label change on #$n failed"
@@ -1511,8 +1541,8 @@ if tehas_fixer_is "$bot"; then
   exit 78
 fi
 # Closed issues lose tehas's state labels once a poll, after the rest of it,
-# however it ends. The poll's exit status stays its own.
-trap 'if [ "$dry" = 1 ]; then "${TEHAS_TIDY_CMD:-$here/tidy}" --dry-run; else "${TEHAS_TIDY_CMD:-$here/tidy}"; fi' EXIT
+# however it ends: the trap above runs libexec/tidy from here on.
+tidy_on=1
 
 # The demand is read from a repository that answers to its name, and the
 # health file the snapshot above wrote is written again with it.
