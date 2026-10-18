@@ -88,7 +88,7 @@ after() { turn_args | awk -v flag="$1" 'prev == flag { print } { prev = $0 }'; }
 image="tehas/pi-rukas:uid$(id -u)"
 tail_of() { turn_args | sed -n "/^$(printf '%s' "$image" | sed 's/[\/.]/\\&/g')\$/,\$p" | tr '\n' ' '; }
 # Every option that is not one this command is known to pass, up to the image
-# name, read the way docker reads them. See test/work_test.sh.
+# name, read the way docker reads them. See test/work_lib.sh.
 unknown_options() { # <image> <options that take a value> <options that take none>
   awk -v image="$1" -v valued=" $2 " -v plain=" $3 " '
     NR == 1 { next } # "run"
