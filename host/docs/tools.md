@@ -1398,13 +1398,17 @@ count: it holds the pause label and is not work, whatever label it carries.
 `~/tehas/state/analytics.db`, by comparing the snapshot it writes with the one
 it replaces: `awaiting` and `stopped` for an issue new in that list, at the
 time of the run; `merged` for an issue new in completed, and `closed` for one
-of the lists before that is now closed and not completed, both at the time
-GitHub says it was closed. The program keeps the first of each per issue. A
+that was in line, running or stopped before and is now closed and not
+completed, both at the time GitHub says it was closed. An issue that was
+awaiting a merge is not recorded as closed: GitHub's search for completed work
+can lag, and its `merged` comes when it catches up. The program keeps the first of each per issue. A
 snapshot before that is missing, not one, or more than an hour old counts as
 none: the run then records only `merged` and `closed`. Nothing older than ten
-days is recorded. Each call may take 5 seconds, and the run stops calling
-after three such limits. One that fails is a line `WARN analytics event: exit
-N` on standard error and changes nothing in the snapshot.
+days is recorded. Each call may take 5 seconds, and no call starts after
+three such limits, so the calls take about 21 seconds at most. One that fails
+or runs out of time is a line `WARN analytics event: exit N` on standard error
+and changes nothing in the snapshot. Its event is lost: the next run compares
+with the new snapshot and does not try it again.
 `TEHAS_ANALYTICS=off` makes no call.
 
 `tehasbot status` also writes `~/tehas/live/platform.json`: the commit the
