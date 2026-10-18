@@ -83,7 +83,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_WORK_DESCRIBE`           | `0`                                      | `1` has the model describe each of those images in words before the cycle or planning session starts, into `images.md` beside them: see [tehas work](#tehas-work). Needs `TEHAS_WORK_IMAGES=1`, else the command stops with 78 |
 | `TEHAS_WORK_FILES`              | `0`                                      | `1` gives a cycle and a planning session the text files its issue text links: md, txt, csv, json, yaml, log, html, css and js, at most 16, 1 MB each and 4 MB together. Needs no model that reads images. See [tehas work](#tehas-work) |
 | `TEHAS_WORK_COMMENTS`           | `0`                                      | `1` takes the images and files of the issue's comments too: those an allowed account wrote and nobody edited after the approval. Needs `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, else the command stops with 78. See [tehas work](#tehas-work) |
-| `TEHAS_VERIFY_TIMEOUT`          | `1800`                                   | Seconds one run of the product's gate may take inside a cycle. A gate that takes longer is stopped and the cycle parks with the cap `verify-timeout:<step>`. Passed to pi-rukas as `PI_ENSEMBLE_VERIFY_TIMEOUT_MS` and `PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS`; pi-rukas alone allows ten minutes. The bound is for one run under the container's CPU quota: a run that waits for another to end does not count its wait. With a `.pi/verify-cmd-fast`, the fast and the full command share it. The cycle's deadline leaves at least this much and 8 minutes before `TEHAS_WORK_TIMEOUT` |
+| `TEHAS_VERIFY_TIMEOUT`          | `1800`                                   | Seconds one run of the product's gate may take inside a cycle. A gate that takes longer is stopped and the cycle parks with the cap `verify-timeout:<step>`. Passed to pi-rukas as `PI_ENSEMBLE_VERIFY_TIMEOUT_MS` and `PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS`; pi-rukas alone allows ten minutes. The bound is for one run under the container's CPU quota: a run that waits for another to end does not count its wait. With a `.pi/verify-cmd-fast`, the fast and the full command share it. The cycle's deadline leaves at least this much and the handoff allowance, 8 minutes, before `TEHAS_WORK_TIMEOUT` |
 | `TEHAS_RUKAS_WORKAROUNDS`       | empty                                    | Optional. The settings of this instance that only work around a pi-rukas defect, as `NAME@VERSION` separated by single spaces, `VERSION` being the pi-rukas release that fixes it. `tehas work` stops a cycle with 78 once the image's pi-rukas is that release or later, naming the setting: remove it and its entry. An entry for a setting the instance does not set stops every command with 78. Write the pi-rukas issue in a comment beside the setting |
 | `TEHAS_PLAN_MAX_TURNS`          | `20`                                     | Turns a planning session may take before it is ended            |
 | `TEHAS_PLAN_TIMEOUT`            | `7200`                                   | Seconds before one planning turn is given up. At most 7200, 2 hours: the unit of a turn runs to that limit plus a quarter of an hour (see [the host manual](/host#time-limits)) |
@@ -115,8 +115,9 @@ session.
   tehas' to set: `tehas work`, `tehas plan` and `tehas dev` drop an instance
   line for it whether or not that container is given attachments, so one never
   names a directory tehas did not mount (see [tehas work](#tehas-work)).
-- `PI_ENSEMBLE_HANDOFF_CHANNEL`, `PI_ENSEMBLE_CYCLE_DEADLINE` and
-  `PI_ENSEMBLE_VERIFY_CONCURRENCY` are `tehas work`'s to set for a cycle, and
+- `PI_ENSEMBLE_HANDOFF_CHANNEL`, `PI_ENSEMBLE_HANDOFF_TIMEOUT_MS`,
+  `PI_ENSEMBLE_CYCLE_DEADLINE` and `PI_ENSEMBLE_VERIFY_CONCURRENCY` are
+  `tehas work`'s to set for a cycle, and
   `PI_ENSEMBLE_CYCLE_BUDGET_MS` is not passed: an instance line for one of
   them is dropped (see [tehas work](#tehas-work)). A planning session and a
   `tehas dev` session get none of them.
@@ -416,12 +417,13 @@ tehas work: TEHAS_RUKAS_WORKAROUNDS names a workaround this image no longer need
     Remove the setting and its entry from /home/tehas/.config/tehas/instance.env.
 ```
 
-Three inputs are this command's, whatever the instance says:
+Four inputs are this command's, whatever the instance says:
 
 | Input | Value | Why |
 | --- | --- | --- |
 | `PI_ENSEMBLE_HANDOFF_CHANNEL` | `host` | pi-rukas posts no handoff comment and applies no label. `tehasbot cycle` posts the one comment of the park from the result's handoff, and labels the issue |
-| `PI_ENSEMBLE_CYCLE_DEADLINE` | the start plus `TEHAS_WORK_TIMEOUT` less a margin, in milliseconds | After it the cycle starts no new step and parks with the cap `deadline`, with a handoff. The margin is a quarter of the limit, or one run of the gate (`TEHAS_VERIFY_TIMEOUT`) and 8 minutes when that is longer: a step that started before the deadline may run past it. With the default limit the deadline is 4 h 30 min in. A limit too short for the margin gives no deadline, and the log says so |
+| `PI_ENSEMBLE_HANDOFF_TIMEOUT_MS` | `480000`, 8 minutes | The handoff allowance: the time the cycle's handoff may take. It is the one allowance tehas and pi-rukas share. The deadline's margin holds it, so the handoff is written before the container is stopped, not as it is stopped |
+| `PI_ENSEMBLE_CYCLE_DEADLINE` | the start plus `TEHAS_WORK_TIMEOUT` less a margin, in milliseconds since the epoch | After it the cycle starts no new step and parks with the cap `deadline`, with a handoff. When the image's `--capabilities` answer has the feature `cycleDeadlineHandoffAllowance`, its runner bounds every step by the deadline, and the margin is the handoff allowance alone: with the default limit the deadline is 5 h 52 min in. Otherwise the margin is a quarter of the limit, or one run of the gate (`TEHAS_VERIFY_TIMEOUT`) and the handoff allowance when that is longer: a step that started before the deadline may run past it, and the handoff comes after that step. With the default limit the deadline is 4 h 30 min in. A limit too short for the margin gives no deadline, and the log says so |
 | `PI_ENSEMBLE_VERIFY_CONCURRENCY` | one for each two whole CPUs of the container's quota and each 2 GiB of its memory ceiling, the lower, at least 1 | How many runs of the gate the cycle makes at once. pi-rukas's own rule for a host, applied to the container. On 16 CPUs with four cycles side by side that is 1 |
 
 It holds the issue's lock, `~/tehas/state/cycles/<issue>.lock`, while it runs.

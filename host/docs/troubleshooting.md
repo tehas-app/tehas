@@ -336,11 +336,17 @@ quarter of `TEHAS_WORK_TIMEOUT` before the end, and started no new step. Its
 branch and pull request are as the handoff says. Retry when the issue can be
 done in the time, or split it.
 
-Two caps are tehas's own, not pi-rukas's, and are set when the runner's result
-names none: `cycle-time-limit` when the runner ran past `TEHAS_WORK_TIMEOUT`
-without stopping and tehas stopped the container, and `stall` when none of the
-cycle's logs changed for `TEHAS_WORK_STALL` seconds and tehas stopped it. Both
-say the step the cycle was in. A cycle stopped this way has usually done less
+Two caps are tehas's own, not pi-rukas's: `cycle-time-limit` when the runner
+ran past `TEHAS_WORK_TIMEOUT` without stopping and tehas stopped the container,
+and `stall` when none of the cycle's logs changed for `TEHAS_WORK_STALL`
+seconds and tehas stopped it. `cycle-time-limit` is the factory's time limit;
+pi-rukas's `wall-clock` is a budget of its own review stage, not this. A stop
+tehas made takes the place of a cap the runner named for the step it was
+stopped in, and the record's `capReason` says so: `tehas work stopped the
+container at the time limit of 21600s, step develop in flight; the runner had
+named the cap verify-failed:develop`. Only a cap of an end the runner reached
+before the stop, such as a handoff, is kept. Both say the step the cycle was
+in, from the runner's progress where its result names none. A cycle stopped this way has usually done less
 than its comment claims; read the run log named there before you retry, and
 retry when the cause of the stall is gone.
 
