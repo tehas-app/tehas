@@ -225,6 +225,54 @@ t_contains "$(t_calls gh)" "2. Where?"
 t_eq "$(t_calls gh | grep -c '^- \[ \] ')" 1
 t_contains "$(t_calls gh)" "- [ ] End this planning session"
 
+t_case "a turn that filed issues says so under its words and keeps them on record"
+to_plan
+plan_files https://github.com/acme/widget/issues/42 https://github.com/acme/widget/issues/43
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls gh | grep -c -F -e 'Filed in this turn: https://github.com/acme/widget/issues/42, https://github.com/acme/widget/issues/43')" 1
+t_eq "$(jq -c .filed "$record")" '["https://github.com/acme/widget/issues/42","https://github.com/acme/widget/issues/43"]'
+
+t_case "the next turn of a session that filed is told not to file them again"
+planning
+jq '.filed = ["https://github.com/acme/widget/issues/42", "https://github.com/acme/widget/issues/43"]' "$record" >"$record.new" && mv "$record.new" "$record"
+plan_files
+comments 7 "$(plan_filed_body 1 https://github.com/acme/widget/issues/42 https://github.com/acme/widget/issues/43)" alice
+t_run "$dispatch"
+t_eq "$(plan_calls)" "7 --out $record.out --keep $record.keep --session abc-123 --answer $record.answer.new"
+t_eq "$(cat "$record.answer.new")" "Already filed in this session: https://github.com/acme/widget/issues/42, https://github.com/acme/widget/issues/43
+
+The operator chose: Change some"
+t_eq "$(cat "$record.answer")" "The operator chose: Change some"
+
+t_case "what a later turn files is added to what the session filed before"
+planning
+jq '.filed = ["https://github.com/acme/widget/issues/41"]' "$record" >"$record.new" && mv "$record.new" "$record"
+plan_files https://github.com/acme/widget/issues/43 https://github.com/acme/widget/issues/42
+comments 7 "$(plan_filed_body 1 https://github.com/acme/widget/issues/41)" alice
+t_run "$dispatch"
+t_eq "$(jq -c .filed "$record")" '["https://github.com/acme/widget/issues/41","https://github.com/acme/widget/issues/42","https://github.com/acme/widget/issues/43"]'
+t_eq "$(t_calls gh | grep -c -F -e 'Filed in this turn: https://github.com/acme/widget/issues/42, https://github.com/acme/widget/issues/43')" 1
+
+t_case "a turn that filed nothing names none, and the next answer says nothing of filings"
+planning
+plan_files
+comments 7 "$(plan_filed_body 1)" alice
+t_run "$dispatch"
+t_eq "$(plan_calls)" "7 --out $record.out --keep $record.keep --session abc-123 --answer $record.answer"
+t_eq "$(cat "$record.answer")" "The operator chose: Change some"
+t_lacks "$(t_calls gh)" "Filed in this turn"
+jq -e 'has("filed") | not' "$record" >/dev/null || t_bad "the record has a filed key"
+
+t_case "of what the record says was filed, only GitHub issue addresses are named, each once"
+planning
+jq '.filed = ["https://github.com/acme/widget/issues/42", 7, "https://evil.example/acme/widget/issues/8", "https://github.com/acme/widget/issues/42"]' "$record" >"$record.new" && mv "$record.new" "$record"
+plan_files
+comments 7 "$(plan_filed_body 1 https://github.com/acme/widget/issues/42)" alice
+t_run "$dispatch"
+t_eq "$(head -n 1 "$record.answer.new")" "Already filed in this session: https://github.com/acme/widget/issues/42"
+t_lacks "$(cat "$record.answer.new")" "evil.example"
+
 t_case "a ticked option goes to the session as the next message"
 planning
 comments 7 "$(plan_body ' ' x ' ')" alice

@@ -51,7 +51,12 @@
 #
 # On exit 0 the --out file holds
 #   {"session": "<id>", "text": "<the agent's last message>",
-#    "question": null | {"question": "...", "options": [{"label", "description"}]}}
+#    "question": null | {"question": "...", "options": [{"label", "description"}]},
+#    "filed": ["<issue address>", ...]}
+# "filed" holds the issues this turn filed, the addresses the stream shows
+# gh issue create printed; with none there is no such key. The dispatcher
+# posts them on the issue and names them to the next turn, so a filing whose
+# result never reached the model is not filed again.
 # When the agent left two or more questions open, "question" holds them all,
 # numbered, with their choices as text, and "options" is empty.
 # On exit 2 it holds only {"session": "<id>"} when the session is known: the
@@ -581,6 +586,22 @@ n_asked=$(jq 'length' <<<"${asked:-[]}" 2>/dev/null) || n_asked=0
 [ "${n_asked:-0}" -le 1 ] ||
   echo "tehas plan: WARN: the turn asked $n_asked questions; they are posted as one, to be answered by a reply"
 
+# What the turn filed. The stream holds gh's own output for the call, so the
+# addresses it printed are read from there: the whole of a line of what a
+# successful bash call wrote, never a number quoted in prose, in another
+# tool's output or in a failed call. A line is taken with its spaces around it
+# and cut to the address, because gh writes more than the address and jq's $ is
+# the end of the string, not of a line. With none the outcome carries no filed
+# key at all.
+filed=$(pick '"toolName":"bash"' | jq -cs '
+  "^[[:space:]]*https://github\\.com/[^/[:space:]]+/[^/[:space:]]+/issues/[0-9]+[[:space:]]*$" as $bare
+  | [.[] | select(.type == "tool_execution_end" and .toolName == "bash" and .isError != true)
+      | (.result.content // [])
+      | (if type == "string" then . else map(select(.type == "text") | .text) | join("\n") end)
+      | split("\n")[] | select(test($bare))]
+  | map(gsub("[[:space:]]+$"; "") | sub("^[[:space:]]+"; "")) | unique')
+[ "$(jq 'length' <<<"${filed:-[]}" 2>/dev/null)" != 0 ] || filed="[]"
+
 if [ -z "$sid" ]; then
   give_up "the session id is unknown"
 fi
@@ -588,8 +609,8 @@ if [ -z "$text" ] && [ "$question" = null ]; then
   give_up "the turn said and asked nothing"
 fi
 
-if ! jq -n --arg session "$sid" --arg text "$text" --argjson question "$question" \
-  '{session: $session, text: $text, question: $question}' >"$out.new" || ! mv "$out.new" "$out"; then
+if ! jq -n --arg session "$sid" --arg text "$text" --argjson question "$question" --argjson filed "$filed" \
+  '{session: $session, text: $text, question: $question} + (if $filed == [] then {} else {filed: $filed} end)' >"$out.new" || ! mv "$out.new" "$out"; then
   echo "tehas plan: could not write $out" >&2
   exit 2
 fi

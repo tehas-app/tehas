@@ -46,6 +46,7 @@ case "$1 $2" in
     if [ -s "$T/fx/edit-fails-on" ]; then
       case "$*" in *"$(cat "$T/fx/edit-fails-on")"*) exit 1 ;; esac
     fi ;;
+  "pr edit") [ ! -e "$T/fx/pr-edit-fails" ] || exit 1 ;;
   # The park question, posted through the API so that its id comes back.
   "api repos/acme/widget/issues/"*"/comments") [ ! -e "$T/fx/post-fails" ] || exit 1; echo 4002 ;;
   # What the number is. An open issue, unless a case writes the fixture.

@@ -6,29 +6,6 @@
 . "$(dirname "$0")/dispatch_lib.sh"
 
 # --- Ordering the queue: tehas:next and tehas:blocked -----------------------
-# queue "<issue> [label...]"...: the ready list, each issue labelled ready by
-# alice unless its events are written after.
-queue() {
-  local arg list=""
-  for arg in "$@"; do
-    list+=$(jq -nc --arg a "$arg" '($a | split(" ")) as $w | {number: ($w[0] | tonumber),
-      labels: ([{name: "tehas:ready"}] + [$w[1:][] | {name: .}])}')$'\n'
-    jq -n '[{event: "labeled", label: {name: "tehas:ready"}, actor: {login: "alice"}, created_at: "2026-10-01T00:00:00Z"}]' \
-      >"$fx/events-${arg%% *}.json"
-  done
-  jq -s . <<<"$list" >"$fx/ready.json"
-}
-# label_events <issue> <label>=<login>...: tehas:ready by alice, then each
-# label applied in turn, a minute apart. "-<label>=<login>" takes it off.
-label_events() {
-  local n=$1
-  shift
-  printf '%s\n' "$@" | jq -Rn '[{event: "labeled", label: {name: "tehas:ready"}, actor: {login: "alice"}, created_at: "2026-10-01T00:00:00Z"}]
-    + [[inputs] | to_entries[] | .value as $v | ($v | ltrimstr("-") | split("=")) as $p
-       | {event: (if ($v | startswith("-")) then "unlabeled" else "labeled" end), label: {name: $p[0]},
-          actor: (if $p[1] == "" then null else {login: $p[1]} end), created_at: "2026-10-01T00:0\(.key + 1):00Z"}]' \
-    >"$fx/events-$n.json"
-}
 # bnote <id 10-59> <author> <body> [<editor>]: one comment, written at second <id>.
 bnote() {
   jq -nc --argjson id "$1" --arg a "$2" --arg b "$3" --arg e "${4:-}" '{databaseId: $id, author: {login: $a}, body: $b,
@@ -44,7 +21,6 @@ states() { # <number>=<state>...: the blockers as GitHub gives them; an empty st
   printf '%s\n' "$@" | jq -Rn '{data: {repository: (reduce (inputs | split("=")) as $p ({};
     .["b\($p[0])"] = (if $p[1] == "" then null else {state: $p[1]} end)))}}' >"$fx/blockers.json"
 }
-started() { t_calls fake-start | tr '\n' ' '; }
 
 t_case "tehas:next from an allowed account comes after urgent and before lower numbers"
 reset
@@ -265,9 +241,7 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "wait #7: tehas:blocked holds it: #12 is open"
 t_lacks "$t_out" "would run a cycle for #7"
 
-# The demand: how many issues would start if there were room, written on every
-# poll for tehas status.
-demand_file=$T/home/tehas/live/demand.json
+# The demand, written on every poll for tehas status ($demand_file).
 ready_at() { # <issue> <login> <time>: tehas:ready applied by <login> at <time>
   jq -nc --arg w "$2" --arg at "$3" '[{event: "labeled", label: {name: "tehas:ready"}, actor: {login: $w}, created_at: $at}]' >"$fx/events-$1.json"
 }

@@ -672,6 +672,25 @@ t_run "$status && $summary --json"
 t_eq "$(jq -r .demand.waiting <<<"$t_out")" 2
 t_eq "$(jq -r '.demand.oldestWait | . >= 5400 and . < 5460' <<<"$t_out")" true
 
+t_case "status: a hold on refreshes is in the demand and in the text"
+reset
+demand 0
+jq '. + {refreshHold: "the pi-rukas in the sandbox image does not take --continue-pr"}' "$live/demand.json" >"$live/demand.new" &&
+  mv "$live/demand.new" "$live/demand.json"
+t_run "$status && $summary --json"
+t_eq "$(jq -r .demand.refreshHold <<<"$t_out")" "the pi-rukas in the sandbox image does not take --continue-pr"
+t_eq "$(jq "$shape" <<<"$t_out")" true
+t_run "$status && $summary"
+t_contains "$t_out" "refresh   held: the pi-rukas in the sandbox image does not take --continue-pr"
+
+t_case "status: no hold on refreshes, no line and no field"
+reset
+demand 0
+t_run "$status && $summary"
+t_lacks "$t_out" "refresh   "
+t_run "$summary --json"
+t_eq "$(jq -c '.demand | has("refreshHold")' <<<"$t_out")" false
+
 t_case "status --json: no demand from the last ten minutes is null"
 reset
 demand 2 5400 700

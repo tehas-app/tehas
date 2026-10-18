@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# Find the factory's own pull requests that conflict with the branch, and ask
+# the dispatcher to refresh them.
+#
+# Deterministic, no model, no container. tehas-refresh.service runs it once an
+# hour from tehas-refresh.timer. With TEHAS_REFRESH_CONFLICTS other than 1 it
+# exits 0 at once and calls nothing.
+#
+# It lists the open pull requests of TEHAS_REPO and keeps the bot's that close
+# exactly one open issue carrying tehas:awaiting-merge, not the control issue,
+# and are the only open pull request that closes it; whose branch is in the
+# repository and that are no draft (lib/refresh.sh). Of those, the ones GitHub
+# says are CONFLICTING get a request, $TEHAS_HOME/state/refresh/<issue>.json:
+# {at, pr, head_sha, base_sha}. A request for the same pull request at the
+# same head keeps its time. UNKNOWN is skipped this run, and a request it has
+# stays: GitHub computes the state lazily and the next run reads it again. Any
+# other request is removed. One line per run goes to logs/refresh.log.
+#
+# It decides only that a pull request conflicts. Whether a refresh starts is
+# the dispatcher's, which checks each request again at the start.
+#
+# Usage:
+#   tehasbot refresh             one run
+#   tehasbot refresh -h|--help   print this text and exit 0
+#
+# Exit: 0 the run ended, or the setting is off; 64 an argument this command
+# does not know; 78 instance settings are missing or malformed; 1 a call to
+# GitHub failed or its answer could not be read: no request was written or
+# removed.
+set -uo pipefail
+
+show_usage() {
+  sed -n '2,/^[^#]/p' "$0" | sed -n '/^#/s/^# \{0,1\}//p'
+}
+
+case "${1-}" in
+  -h | --help) show_usage; exit 0 ;;
+esac
+if [ "$#" -gt 0 ]; then
+  printf 'tehasbot refresh: unknown argument: %s\n' "$1" >&2
+  show_usage >&2
+  exit 64
+fi
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/config.sh
+. "$here/../lib/config.sh"
+# shellcheck source=lib/refresh.sh
+. "$here/../lib/refresh.sh"
+tehas_load || exit 78
+[ "$TEHAS_REFRESH_CONFLICTS" = 1 ] || exit 0
+tehas_require_instance_settings
+
+repo=$TEHAS_REPO
+dir=$(tehas_refresh_dir)
+logfile=$TEHAS_HOME/logs/refresh.log
+mkdir -p "$dir" "$TEHAS_HOME/logs"
+
+fail() {
+  printf '%s ERROR: %s\n' "$(date -u +%FT%TZ)" "$1" | tee -a "$logfile" >&2
+  exit 1
+}
+
+bot=$(gh api user --jq .login 2>/dev/null) || bot=""
+[ -n "$bot" ] || fail "the bot's own login could not be read"
+prs=$(gh api graphql -F owner="${repo%%/*}" -F name="${repo##*/}" -f query="$(tehas_refresh_query)" 2>/dev/null) ||
+  fail "GitHub did not list the open pull requests of $repo"
+# One line per pull request the bot could refresh: issue, pr, mergeable,
+# head, base.
+found=$(jq -r --arg bot "$bot" --arg repo "$repo" --argjson control "$TEHAS_CONTROL_ISSUE" "$(tehas_refresh_rule)"'
+  .data.repository.pullRequests.nodes | if type == "array" then . else error("no list") end
+  | (length | tostring),
+    (.[] | select(refresh_why == "")
+     | [.closingIssuesReferences.nodes[0].number, .number, (.mergeable // ""), (.headRefOid // ""), (.baseRefOid // "")]
+     | map(tostring) | join(" "))' <<<"$prs" 2>/dev/null) ||
+  fail "the open pull requests of $repo could not be read"
+read_count=$(head -n 1 <<<"$found")
+
+conflict=0 wrote=0
+keep=" "
+while read -r n pr state head base; do
+  [ -n "${n:-}" ] || continue
+  [[ $head =~ ^[0-9a-f]{40}$ && $base =~ ^[0-9a-f]{40}$ ]] || continue
+  case "$state" in
+    CONFLICTING) ;;
+    UNKNOWN) keep="$keep$n "; continue ;;
+    *) continue ;;
+  esac
+  conflict=$((conflict + 1))
+  keep="$keep$n "
+  file=$dir/$n.json
+  at=$(jq -r --argjson pr "$pr" --arg head "$head" 'select(.pr == $pr and .head_sha == $head) | .at | strings' "$file" 2>/dev/null) || at=""
+  [ -n "$at" ] || at=$(date -u +%FT%TZ)
+  if jq -n --arg at "$at" --argjson pr "$pr" --arg head "$head" --arg base "$base" \
+    '{$at, $pr, head_sha: $head, base_sha: $base}' >"$file.new" 2>/dev/null && mv "$file.new" "$file"; then
+    wrote=$((wrote + 1))
+  else
+    rm -f "$file.new"
+    printf '%s WARN: could not write %s\n' "$(date -u +%FT%TZ)" "$file" >>"$logfile"
+  fi
+done < <(tail -n +2 <<<"$found")
+
+# A request whose pull request no longer qualifies, or no longer conflicts.
+for file in "$dir"/*.json; do
+  [ -e "$file" ] || continue
+  n=${file##*/}
+  n=${n%.json}
+  [[ $n =~ ^[1-9][0-9]*$ ]] || continue
+  case "$keep" in *" $n "*) continue ;; esac
+  rm -f "$file"
+done
+
+printf '%s read %s pull requests, %s conflict, wrote %s requests\n' "$(date -u +%FT%TZ)" "$read_count" "$conflict" "$wrote" >>"$logfile"

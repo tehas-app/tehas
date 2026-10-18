@@ -368,6 +368,31 @@ t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 0
 t_eq "$(jq -r .question "$T/out.json")" "null"
 
+t_case "a turn that filed two issues names both in the outcome"
+reset
+cat >>"$fx/turn.jsonl" <<'EOF'
+{"type":"tool_execution_end","toolCallId":"b1","toolName":"bash","result":{"content":[{"type":"text","text":"Creating issue in acme/widget\nhttps://github.com/acme/widget/issues/42\n"}],"details":{}},"isError":false}
+{"type":"tool_execution_end","toolCallId":"b2","toolName":"bash","result":{"content":[{"type":"text","text":"https://github.com/acme/widget/issues/43"}],"details":{}},"isError":false}
+EOF
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(jq -c .filed "$T/out.json")" '["https://github.com/acme/widget/issues/42","https://github.com/acme/widget/issues/43"]'
+
+t_case "what a turn filed is what gh printed: another tool's output, a failed call and a number quoted in prose are none"
+reset
+cat >>"$fx/turn.jsonl" <<'EOF'
+{"type":"tool_execution_end","toolCallId":"b3","toolName":"bash","result":{"content":[{"type":"text","text":"https://github.com/acme/widget/issues/44"}],"details":{}},"isError":true}
+{"type":"tool_execution_end","toolCallId":"b4","toolName":"bash","result":{"content":[{"type":"text","text":"File 3 is https://github.com/acme/widget/issues/45, as the brief says."}],"details":{}},"isError":false}
+{"type":"tool_execution_end","toolCallId":"b5","toolName":"read","result":{"content":[{"type":"text","text":"https://github.com/acme/widget/issues/46"}],"details":{}},"isError":false}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"I will file https://github.com/acme/widget/issues/47 next."}]}}
+EOF
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(jq -r 'has("filed")' "$T/out.json")" "false"
+
+t_case "a turn that filed nothing writes no filed key"
+t_eq "$(jq -r 'has("filed")' "$T/out.json")" "false"
+
 t_case "two open questions in one turn are both posted, numbered, and answered by a reply"
 reset
 cat >>"$fx/turn.jsonl" <<'EOF'

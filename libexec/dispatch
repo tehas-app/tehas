@@ -70,6 +70,27 @@
 #   4a. A cycle that tehasbot cycle parked for a provider outage starts again
 #      once, without a tick, when nothing holds cycles back, on the word of the
 #      account that started the parked one. A second such park waits.
+#   4b. A refresh request, state/refresh/<issue>.json from tehasbot refresh,
+#      starts a cycle that merges the branch into the bot's pull request of
+#      that issue and pushes to the same branch, on the word of the person
+#      whose approval the pull request's cycle rests on. Only with
+#      TEHAS_REFRESH_CONFLICTS=1 and a sandbox image whose pi-rukas takes
+#      --continue-pr; otherwise it starts nothing, said once. Read again at the
+#      start: the issue is open, carries tehas:awaiting-merge and none of
+#      tehas:running, tehas:question, tehas:fixer-escalated, tehas:plan, and
+#      no cycle or planning session is open on it; its text is the text that
+#      person approved, renamed or edited by nobody else since; the pull
+#      request is still the one open pull request that closes it, the bot's,
+#      at the head the request names, and GitHub says it is CONFLICTING.
+#      Fewer than TEHAS_REFRESH_MAX refreshes of it since that approval, and
+#      none that parked. A request that fails a check goes, and the log says
+#      why; one held by its cap or a park says so on the issue once. A pull
+#      request that carries tehas:refreshing waits. The start puts
+#      tehas:refreshing on the pull request before it marks the issue; rule 2
+#      takes it off a pull request whose issue has no cycle, and one that the
+#      bot did not apply. Rules 1 and 2, the limit and the slice's room hold a
+#      refresh; the cap of rule 3 does not: the start takes
+#      tehas:awaiting-merge off, so it adds no pull request.
 #   5. A reply or a ticked option on a planning question runs the next turn
 #      of that session. The fixer's reply or tick counts only when no
 #      person answered, in a session an allowed account's tehas:plan
@@ -112,7 +133,8 @@
 #      <!-- tehas:blocked by=12,34 --> by an allowed account or the fixer, one
 #      nobody else edited. A label with no such comment, a malformed marker or
 #      a state GitHub does not give holds it too, and the log says why.
-#   7. tehas:urgent first, then tehas:next, then the lowest issue number. The
+#   7. tehas:urgent first, then refreshes, then tehas:next, then the lowest
+#      issue number. The
 #      urgent label counts only when its most recent labelling is by an allowed
 #      account, as tehas:ready does: one applied by the bot or anyone else is
 #      ignored and logged, and the issue keeps its place by number. tehas:next,
@@ -140,6 +162,9 @@
 #                             approval [2]
 #   TEHAS_FIXER_MAX_PLAN_ANSWERS
 #                             the fixer's answers in one planning session [3]
+#   TEHAS_REFRESH_CONFLICTS   1 lets refresh requests start cycles [0]
+#   TEHAS_REFRESH_MAX         refreshes of one pull request since the
+#                             person's approval [2]
 # From the environment, for tests: TEHAS_STATUS_CMD, TEHAS_INDEX_CMD,
 # TEHAS_PLAN_CMD, TEHAS_PLAN_START_CMD (in place of systemd-run, called with
 # the issue and the turn's command line), TEHAS_INDEX_START_CMD (in place of
@@ -164,8 +189,13 @@
 # person's approval it rests on as rests_on {at, by, how, body_sha256}, the
 # fixer's starts since that approval as fixer_starts, and, whatever
 # TEHAS_WORK_COMMENTS says, the fixer's marked comment on the issue written in
-# the ten minutes before its label as retry_context, source "fixer:<id>". A record that cannot be written, or comments
-# that cannot be read, start nothing, exit 1.
+# the ten minutes before its label as retry_context, source "fixer:<id>". A
+# refresh has how "refresh", by and at of the person's approval it rests on,
+# that approval as rests_on, the refreshes since it as refreshes, what it
+# refreshes as refresh_of {pr, head_sha, base_sha, branch}, the fixer's starts
+# carried on as fixer_starts, and one fixed retry_context entry, source
+# "refresh", the task tehas sets it: no comment text. A record that cannot be
+# written, or comments that cannot be read, start nothing, exit 1.
 #
 # A real poll that gets as far as rule 3 writes $TEHAS_HOME/live/dispatch.json:
 # what holds cycles back, if anything, and the slice's numbers. tehasbot
@@ -234,6 +264,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/attachments.sh"
 # shellcheck source=lib/models.sh
 . "$here/../lib/models.sh"
+# shellcheck source=lib/refresh.sh
+. "$here/../lib/refresh.sh"
 tehas_load || exit 78
 # shellcheck source=lib/questions.sh
 . "$here/../lib/questions.sh"
@@ -295,12 +327,14 @@ gh_json() { json=$(gh "$@" 2>/dev/null) || { log "ERROR: gh $1 $2 failed"; exit 
 # not the end of the poll.
 say() { gh issue comment "$1" --repo "$repo" --body "$2" >/dev/null 2>&1 || log "WARN: comment on #$1 failed"; }
 
-# post_question <kind> <issue> <turn> <result.json>: post a question comment.
-# Its id is left in $posted. Returns 1 when it could not be posted.
+# post_question <kind> <issue> <turn> <result.json> [line under the agent's
+# words]: post a question comment. The line, when it is given, is the host's
+# own and goes after the question and before the boxes. Its id is left in
+# $posted. Returns 1 when it could not be posted.
 posted=""
 post_question() {
   local body
-  body=$(q_render "$1" "$2" "$3" "$4") || return 1
+  body=$(q_render "$1" "$2" "$3" "$4" "${5:-}") || return 1
   posted=$(gh api "repos/$repo/issues/$2/comments" -f body="$body" --jq .id 2>/dev/null) || return 1
   [ -n "$posted" ]
 }
@@ -845,6 +879,9 @@ refresh_checkout() {
 # the approval record: when it was given and how, in one word.
 picked=()
 declare -A starter=() verb=() how=() drop=() given_at=() given_how=() given_since=() rests_on=() fixer_starts=()
+# A refresh's: the pull request to mark, its address, and the record's
+# refreshes and refresh_of.
+declare -A refresh_pr=() refresh_url=() refreshes=() refresh_of=()
 
 # approved_record <issue>: write state/cycles/<issue>.approved.json. Returns 1
 # when it could not be written.
@@ -862,14 +899,17 @@ approved_record() {
   if [ "${given_how[$n]}" = fixer ]; then
     retry=$(fixer_note "$n" "${given_at[$n]}") || { log "ERROR: the comments of #$n could not be read for the fixer's"; return 1; }
   fi
+  [ "${given_how[$n]}" != refresh ] || retry=$(refresh_note "$n") || return 1
   jq --arg at "${given_at[$n]}" --arg by "${starter[$n]}" --arg how "${given_how[$n]}" --arg sum "$sum" \
     --argjson comments "$TEHAS_WORK_COMMENTS" --argjson from "$from" --argjson retry "$retry" \
     --argjson rests "${rests_on[$n]:-null}" --argjson starts "${fixer_starts[$n]:-0}" \
+    --argjson refreshes "${refreshes[$n]:-0}" --argjson of "${refresh_of[$n]:-null}" \
     "$(tehas_attachment_links)"'{at: $at, by: $by, how: $how, body_sha256: $sum,
       links: (.data.repository.issue.body // "" | links | reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end))}
       + if $comments == 1 then {comment_links: ($from + ($retry.links // []))} else {} end
       + if $retry == null or ($retry.context | length) == 0 then {} else {retry_context: $retry.context} end
-      + if $how == "fixer" then {rests_on: $rests, fixer_starts: $starts} else {} end' \
+      + if $how == "fixer" then {rests_on: $rests, fixer_starts: $starts} else {} end
+      + if $how == "refresh" then {rests_on: $rests, fixer_starts: $starts, $refreshes, refresh_of: $of} else {} end' \
     <<<"${text_of[$n]}" >"$file.new" 2>/dev/null && mv "$file.new" "$file"
 }
 
@@ -945,6 +985,16 @@ fixer_note() {
     | sort_by(.created_at, .id) | .[-1:]
     | {links: [], context: map({source: "fixer:\(.id)", by: .user.login, at: .created_at,
         text: (.body | gsub("\r"; "") | .[0:4000])})}' <<<"$list" 2>/dev/null
+}
+
+# refresh_note <issue>: the one retry_context entry of a refresh, as {links:
+# [], context}. tehas writes it, so no comment reaches a cycle this way.
+refresh_note() {
+  local b
+  b=$(jq -r .branch <<<"${refresh_of[$1]}") || return 1
+  jq -n -c --arg at "$(date -u +%FT%TZ)" \
+    --arg text "This pull request conflicts with \`$b\`. Merge \`$b\` into its branch, resolve the conflicts so the change still does what the issue asks, run the gate, and push to the same branch. Do no other work." \
+    '{links: [], context: [{source: "refresh", by: "tehas", $at, $text}]}'
 }
 
 # Without systemd's answer every picked issue would be marked running and then
@@ -1082,6 +1132,13 @@ start_cycles() {
       log "ERROR: could not write the approval record of #$n, not starting a cycle"
       exit 1
     fi
+    # A refresh marks its pull request first, so a person sees not to merge
+    # or push to it. A mark left by a start that fails below is rule 2's.
+    if [ -n "${refresh_pr[$n]:-}" ] &&
+      ! gh pr edit "${refresh_pr[$n]}" --repo "$repo" --add-label tehas:refreshing >/dev/null 2>&1; then
+      log "ERROR: could not mark pull request #${refresh_pr[$n]} as refreshing, not starting a cycle"
+      exit 1
+    fi
     # The cycle starts only once the issue is marked as taken. If the label
     # cannot be changed, the issue would stay in its queue and every later
     # poll would start the same issue again.
@@ -1089,6 +1146,7 @@ start_cycles() {
       log "ERROR: could not mark #$n as running, not starting a cycle"
       exit 1
     fi
+    [ -z "${refresh_pr[$n]:-}" ] || rm -f "$(tehas_refresh_dir)/$n.json"
     # A park question of an earlier cycle is used up by this start, whichever
     # way it came about. Its boxes must not answer for the new cycle.
     rm -f "$(park_id "$n")"
@@ -1097,7 +1155,11 @@ start_cycles() {
     rm -f "$TEHAS_HOME/state/cycles/$n.park" "$TEHAS_HOME/state/cycles/$n.requeued"
     printf '%s\n' "${starter[$n]}" >"$TEHAS_HOME/state/cycles/$n.by" || log "WARN: could not record who started #$n"
     [ "${verb[$n]}" != requeued ] || : >"$TEHAS_HOME/state/cycles/$n.requeued"
-    say "$n" "Tehas cycle started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC (authorized by @${starter[$n]}'s ${how[$n]}). This issue is owned by the cycle until \`tehas:running\` is removed."
+    if [ -n "${refresh_pr[$n]:-}" ]; then
+      say "$n" "Tehas refresh started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC: ${refresh_url[$n]} conflicts with \`$(jq -r .branch <<<"${refresh_of[$n]}")\`. This cycle merges that branch into it, resolves the conflicts and pushes to the same pull request. It rests on @${starter[$n]}'s ${how[$n]}. This issue is owned by the cycle until \`tehas:running\` is removed."
+    else
+      say "$n" "Tehas cycle started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC (authorized by @${starter[$n]}'s ${how[$n]}). This issue is owned by the cycle until \`tehas:running\` is removed."
+    fi
     if ! start_cycle "$n"; then
       log "ERROR: the cycle for #$n did not start"
       gh issue edit "$n" --repo "$repo" --remove-label tehas:running --add-label needs-human-attention >/dev/null 2>&1 ||
@@ -1110,6 +1172,135 @@ start_cycles() {
   return "$failed"
 }
 
+# refresh_requests: the issues with a refresh request, lowest first. Only
+# plain files named for an issue: nothing else in the directory is one.
+refresh_requests() {
+  local f n
+  for f in "$(tehas_refresh_dir)"/*.json; do
+    [ -f "$f" ] && [ ! -L "$f" ] || continue
+    n=${f##*/}
+    n=${n%.json}
+    [[ $n =~ ^[1-9][0-9]{0,9}$ ]] && printf '%s\n' "$n"
+  done | sort -n
+}
+
+# refresh_held: why no refresh may start on this host, empty when one may.
+refresh_held() {
+  if [ "$TEHAS_REFRESH_CONFLICTS" != 1 ]; then
+    echo "TEHAS_REFRESH_CONFLICTS is not 1"
+  elif ! tehas_refresh_continues; then
+    echo "the pi-rukas in the sandbox image $PI_ENSEMBLE_IMAGE does not take --continue-pr"
+  fi
+}
+
+# refresh_drop <issue> <why>: the request starts nothing and goes.
+refresh_drop() {
+  log "drop the refresh of #$1: $2"
+  [ "$dry" = 1 ] || rm -f "$(tehas_refresh_dir)/$1.json"
+}
+
+# refresh_say <issue> <key> <text>: a hold a person can act on, said on the
+# issue once for each key. The request goes: tehasbot refresh writes it again
+# while the pull request conflicts, and it is said no more.
+refresh_say() {
+  local note
+  note=$(tehas_refresh_dir)/$1.said
+  refresh_drop "$1" "$3"
+  [ "$dry" = 0 ] || return 0
+  [ "$(head -c 200 "$note" 2>/dev/null)" != "$2" ] || return 0
+  say "$1" "Tehas does not refresh this issue's pull request on its own: $3. It conflicts with the branch, and a person resolves it or applies \`tehas:ready\` to start a fresh cycle."
+  printf '%s' "$2" >"$note" || log "WARN: could not write $note"
+}
+
+# refresh_ok <issue>: 0 when its refresh request starts a cycle now, with
+# what the start needs set for it. Otherwise 1: the request waits, or goes
+# with the reason logged (refresh_drop).
+refresh_ok() {
+  local n=$1 file req pr head base record rests by at have sum node why count b
+  file=$(tehas_refresh_dir)/$n.json
+  why=$(refresh_held)
+  if [ -n "$why" ]; then
+    # A real poll has said it in report_demand, once; a dry run says it here.
+    [ "$refresh_said" = 1 ] || log "hold refreshes: $why"
+    refresh_said=1
+    return 1
+  fi
+  req=$(jq -c 'select(type == "object" and (.pr | type) == "number" and (.head_sha | strings | test("^[0-9a-f]{40}$"))
+      and (.base_sha | strings | test("^[0-9a-f]{40}$")))' "$file" 2>/dev/null) || req=""
+  [ -n "$req" ] || { refresh_drop "$n" "its request cannot be read"; return 1; }
+  pr=$(jq -r .pr <<<"$req")
+  head=$(jq -r .head_sha <<<"$req")
+  base=$(jq -r .base_sha <<<"$req")
+  if tehas_cycle_running "$n"; then refresh_drop "$n" "a cycle runs on it"; return 1; fi
+  if [ -e "$(plan_state "$n")" ]; then refresh_drop "$n" "a planning session is open on it"; return 1; fi
+  work_ok "$n" || { refresh_drop "$n" "it is not an open issue"; return 1; }
+  have=" $(jq -r '[(.labels // [])[].name] | join(" ")' <<<"${work_answer[$n]}") "
+  [[ $have == *" tehas:awaiting-merge "* ]] || { refresh_drop "$n" "it does not carry tehas:awaiting-merge"; return 1; }
+  for l in tehas:running tehas:question tehas:fixer-escalated tehas:plan tehas:planning; do
+    [[ $have != *" $l "* ]] || { refresh_drop "$n" "it carries $l"; return 1; }
+  done
+  # The person whose approval the pull request's cycle rests on.
+  record=$TEHAS_HOME/state/cycles/$n.approved.json
+  rests=$(tehas_fixer_base "$record") ||
+    { refresh_drop "$n" "this host has no approval of a person's that its pull request rests on"; return 1; }
+  by=$(jq -r .by <<<"$rests")
+  at=$(jq -r .at <<<"$rests")
+  issue_events "$n"
+  unchanged_since "$n" "$at" "$by approved it" "a person applies tehas:ready" ||
+    { refresh_drop "$n" "its title or text was changed since $by approved it"; return 1; }
+  sum=$(jq '.data.repository.issue // {}' <<<"${text_of[$n]}" | tehas_body_sha256) ||
+    { log "ERROR: the text of #$n could not be read for its hash"; exit 1; }
+  [ "$sum" = "$(jq -r .body_sha256 <<<"$rests")" ] ||
+    { refresh_drop "$n" "its text is not the text $by approved"; return 1; }
+  # The pull request as GitHub has it now. A person who pushed to it since
+  # the request is handling it.
+  gh_json api graphql -F owner="${repo%%/*}" -F name="${repo##*/}" -F number="$pr" -f query="$(tehas_refresh_pr_query)"
+  node=$(jq -c '.data.repository.pullRequest | objects' <<<"$json" 2>/dev/null) || node=""
+  [ -n "$node" ] || { refresh_drop "$n" "pull request #$pr cannot be read"; return 1; }
+  why=$(jq -r --arg bot "$bot" --arg repo "$repo" --argjson control "$control" --argjson n "$n" --arg head "$head" "$(tehas_refresh_rule)"'
+    if .state != "OPEN" then "pull request #\(.number) is not open"
+    elif refresh_why != "" then "pull request #\(.number): \(refresh_why)"
+    elif .closingIssuesReferences.nodes[0].number != $n then "pull request #\(.number) does not close #\($n)"
+    elif .headRefOid != $head then "pull request #\(.number) moved since the request"
+    elif .mergeable == "UNKNOWN" then "wait"
+    elif .mergeable != "CONFLICTING" then "pull request #\(.number) no longer conflicts"
+    elif [(.labels.nodes // [])[]?.name] | index("tehas:refreshing") then "busy"
+    else "" end' <<<"$node" 2>/dev/null) || why="pull request #$pr cannot be read"
+  case "$why" in
+    "") ;;
+    wait) log "wait #$n: GitHub has not said yet whether pull request #$pr conflicts"; return 1 ;;
+    busy) log "wait #$n: pull request #$pr carries tehas:refreshing"; return 1 ;;
+    *) refresh_drop "$n" "$why"; return 1 ;;
+  esac
+  count=$(tehas_refresh_count "$record" "$rests")
+  [[ $count =~ ^[0-9]{1,6}$ ]] ||
+    { refresh_drop "$n" "its approval record does not say how many refreshes there were"; return 1; }
+  if [ "$count" -ge "$TEHAS_REFRESH_MAX" ]; then
+    refresh_say "$n" "cap $at $count" "it was refreshed $count times since $by approved it, the limit"
+    return 1
+  fi
+  if tehas_refresh_parked "$n" "$rests"; then
+    refresh_say "$n" "park $at" "a refresh of it since $by approved it parked"
+    return 1
+  fi
+  image_ok "$n" || return 1
+  b=$(jq -r '.baseRefName | strings' <<<"$node" | tr -cd 'A-Za-z0-9._/-')
+  starter[$n]=$by
+  verb[$n]=refresh
+  how[$n]="approval of $at"
+  given_at[$n]=$at
+  given_how[$n]=refresh
+  rests_on[$n]=$rests
+  fixer_starts[$n]=$(tehas_fixer_starts "$record") || fixer_starts[$n]=0
+  refreshes[$n]=$((count + 1))
+  refresh_pr[$n]=$pr
+  refresh_url[$n]=$(jq -r '.url | strings | select(test("^https://[A-Za-z0-9./_-]+$"))' <<<"$node")
+  refresh_of[$n]=$(jq -n -c --argjson pr "$pr" --arg head "$head" --arg base "$base" --arg branch "${b:-$branch}" \
+    '{$pr, head_sha: $head, base_sha: $base, $branch}')
+  drop[$n]="--remove-label tehas:awaiting-merge"
+  [[ $have != *" tehas:ready "* ]] || drop[$n]+=" --remove-label tehas:ready"
+}
+
 # report_demand: write live/demand.json for tehas status, {time, waiting,
 # oldest}: how many open issues would start if there were room, and when the
 # oldest of them was accepted. That is a tehas:ready applied last by an
@@ -1118,8 +1309,9 @@ start_cycles() {
 # too. It is a report and decides nothing: its reads are its own, kept out of
 # what a start rests on, and a read that fails removes the file and ends
 # nothing.
+refresh_said=0
 report_demand() {
-  local file=$TEHAS_HOME/live/demand.json list n ev line by at waiting=0 oldest=""
+  local file=$TEHAS_HOME/live/demand.json list n ev line by at waiting=0 oldest="" held
   if ! list=$(gh issue list --repo "$repo" --state open --label tehas:ready --limit 1000 --json number,labels 2>/dev/null) ||
     ! list=$(jq -r '.[] | select((.labels // []) | any(.name == "tehas:running") | not) | .number | tonumber? // empty' <<<"$list" 2>/dev/null); then
     rm -f "$file"
@@ -1138,8 +1330,34 @@ report_demand() {
     waiting=$((waiting + 1))
     if [ -n "$at" ] && { [ -z "$oldest" ] || [[ $at < $oldest ]]; }; then oldest=$at; fi
   done
-  if jq -n --arg time "$(date -u +%FT%TZ)" --argjson waiting "$waiting" --arg oldest "$oldest" \
-    '{$time, $waiting} + (if $oldest == "" then {} else {$oldest} end)' >"$file.new" 2>/dev/null; then
+  # A refresh request waits as a ready issue does, unless refreshes are held.
+  # The hold is in the file for tehas status, and the log has it once.
+  held=""
+  list=$(refresh_requests)
+  if [ -n "$list" ]; then
+    held=$(refresh_held)
+    if [ "$(head -c 300 "$(tehas_refresh_dir)/.held" 2>/dev/null)" != "$held" ]; then
+      if [ -n "$held" ]; then
+        log "hold refreshes: $held"
+        printf '%s' "$held" >"$(tehas_refresh_dir)/.held" || log "WARN: could not write $(tehas_refresh_dir)/.held"
+      else
+        rm -f "$(tehas_refresh_dir)/.held"
+      fi
+    fi
+    refresh_said=1
+  else
+    rm -f "$(tehas_refresh_dir)/.held"
+  fi
+  if [ -z "$held" ]; then
+    for n in $list; do
+      if [ -e "$(plan_state "$n")" ] || tehas_cycle_running "$n"; then continue; fi
+      at=$(jq -r '.at | strings' "$(tehas_refresh_dir)/$n.json" 2>/dev/null) || at=""
+      waiting=$((waiting + 1))
+      if [ -n "$at" ] && { [ -z "$oldest" ] || [[ $at < $oldest ]]; }; then oldest=$at; fi
+    done
+  fi
+  if jq -n --arg time "$(date -u +%FT%TZ)" --argjson waiting "$waiting" --arg oldest "$oldest" --arg held "$held" \
+    '{$time, $waiting} + (if $oldest == "" then {} else {$oldest} end) + (if $held == "" then {} else {refreshHold: $held} end)' >"$file.new" 2>/dev/null; then
     mv "$file.new" "$file" || log "WARN: could not write $file"
   else
     rm -f "$file.new"
@@ -1476,6 +1694,46 @@ for n in $marked; do
   fi
 done
 
+# A pull request marked tehas:refreshing whose refresh is not running: its
+# issue has no cycle, or no refresh of this host names it, or the bot did not
+# apply the label. Left in place it tells a person not to merge a pull request
+# nobody works on. Asked where refreshes are on, or a refresh was ever started
+# here: a host that never refreshed has no such mark of its own to clear.
+refreshing=""
+if [ "$TEHAS_REFRESH_CONFLICTS" = 1 ] || grep -Elqs '"how": ?"refresh"' "$TEHAS_HOME"/state/cycles/*.approved.json; then
+  gh_json pr list --repo "$repo" --state open --label tehas:refreshing --limit 1000 --json number,labels
+  refreshing=$(jq -r '.[] | select((.labels // []) | any(.name == "tehas:refreshing")) | .number | numbers' <<<"$json") ||
+    { log "ERROR: unreadable list of pull requests marked as refreshing"; exit 1; }
+fi
+for pr in $refreshing; do
+  owner=""
+  for f in $(tehas_cycle_note_files approved.json); do
+    if [ "$(jq -r --argjson pr "$pr" '.how == "refresh" and .refresh_of.pr == $pr' "$f" 2>/dev/null)" = true ]; then
+      owner=${f##*/}
+      owner=${owner%.approved.json}
+    fi
+  done
+  why=""
+  if [ -z "$owner" ]; then
+    why="no refresh on this host names it"
+  elif ! tehas_cycle_running "$owner"; then
+    why="no cycle runs on #$owner"
+  else
+    label_actor "$pr" tehas:refreshing
+    [ "$who" = "$bot" ] || why="it was applied by '${who:-unknown}', not by tehas"
+  fi
+  [ -n "$why" ] || continue
+  if [ "$dry" = 1 ]; then
+    log "would take tehas:refreshing off pull request #$pr: $why"
+    continue
+  fi
+  if gh pr edit "$pr" --repo "$repo" --remove-label tehas:refreshing >/dev/null 2>&1; then
+    log "clear pull request #$pr: tehas:refreshing off, $why"
+  else
+    log "WARN: label change on pull request #$pr failed: --remove-label tehas:refreshing"
+  fi
+done
+
 # A parked cycle keeps its workspace for a person to read, and the one before
 # it as .before-retry. Those of an issue go together once no cycle has used
 # any of them, or taken the issue's lock, for 7 days. The issue's lock is held
@@ -1573,6 +1831,9 @@ mesh_check
 hold=""
 why=""
 want=0
+# A refresh takes a pull request out of awaiting-merge as it starts, so the
+# cap of rule 3 does not hold it: $want_all is the room without that cap.
+want_all=0
 cut=""
 if [ -n "$slice_hold" ]; then
   why=slice
@@ -1598,6 +1859,9 @@ elif [ "$free" -le 0 ]; then
   why=count
   hold="holding: $count cycles are running (limit $TEHAS_TICKET_CONCURRENCY)"
 else
+  want_all=$free
+  [ -z "$limit_room" ] || [ "$limit_room" -ge "$want_all" ] || want_all=$limit_room
+  [ "$room_mem" -ge "$want_all" ] || want_all=$room_mem
   gh_json issue list --repo "$repo" --state open --label tehas:awaiting-merge --limit 1000 --json number
   awaiting=$(jq length <<<"$json") || { log "ERROR: unreadable list of issues awaiting merge"; exit 1; }
   room=$((max_awaiting - awaiting - count))
@@ -2008,9 +2272,10 @@ for n in $plans; do
   exit 0
 done
 
+# With no room for new work, a refresh may still have room.
 if [ "$want" = 0 ]; then
   [ "$dry" = 1 ] && log "$hold"
-  exit 0
+  { [ "$want_all" -gt 0 ] && [ -n "$(refresh_requests)" ]; } || exit 0
 fi
 
 # 4a. A cycle a provider outage parked starts again once, without a tick, now
@@ -2072,6 +2337,7 @@ carrying=$(jq -r '.[] | select((.labels // []) | any(.name == "tehas:urgent")) |
   { log "ERROR: unreadable list of ready issues"; exit 1; }
 urgent=()
 for n in $carrying; do
+  [ "$want" -gt 0 ] || break
   if [ -e "$(plan_state "$n")" ] || tehas_cycle_running "$n"; then
     continue
   fi
@@ -2086,6 +2352,7 @@ carrying=$(jq -r '.[] | select((.labels // []) | any(.name == "tehas:next")) | .
   { log "ERROR: unreadable list of ready issues"; exit 1; }
 next=()
 for n in $carrying; do
+  [ "$want" -gt 0 ] || break
   if [ -e "$(plan_state "$n")" ] || tehas_cycle_running "$n"; then
     continue
   fi
@@ -2100,11 +2367,24 @@ candidates=$(jq -r --argjson u "$urgent_json" --argjson x "$next_json" '
          | (reduce $x[] as $i ({}; .[$i | tostring] = true)) as $xs
          | [.[] | .number as $n | ($n | tonumber | tostring) as $k
              | {number: $n, urgent: ($us[$k] == true), next: ($xs[$k] == true)}]
-         | sort_by([(.urgent | not), (.next | not), .number]) | .[].number' <<<"$ready_json") ||
+         | sort_by([(.urgent | not), (.next | not), .number]) | .[] | "\(if .urgent then "u" else "x" end) \(.number)"' <<<"$ready_json") ||
   { log "ERROR: unreadable list of ready issues"; exit 1; }
+# The refreshes go after the urgent issues and before the rest.
+order=$(printf '%s\n' "$candidates" | grep '^u ')
+for n in $(refresh_requests); do order+=$'\n'"r $n"; done
+order+=$'\n'$(printf '%s\n' "$candidates" | grep '^x ')
+ready_picked=0
 
-for n in $candidates; do
-  [ "${#picked[@]}" -lt "$want" ] || break
+while read -r kind n; do
+  [ -n "${n:-}" ] || continue
+  [ "${#picked[@]}" -lt "$want_all" ] || break
+  case " ${picked[*]} " in *" $n "*) continue ;; esac
+  if [ "$kind" = r ]; then
+    refresh_ok "$n" || continue
+    picked+=("$n")
+    continue
+  fi
+  [ "$ready_picked" -lt "$want" ] || continue
   have=" $(jq -r --argjson n "$n" '[.[] | select(.number == $n) | (.labels // [])[].name] | join(" ")' <<<"$ready_json") "
   # One issue is in one flow at a time. A cycle's park question would hide the
   # session's question, and the session would then end with nobody told. The
@@ -2143,6 +2423,7 @@ for n in $candidates; do
   fi
   image_ok "$n" || continue
   picked+=("$n")
+  ready_picked=$((ready_picked + 1))
   starter[$n]=$who
   verb[$n]=labelled
   how[$n]="\`tehas:ready\` label"
@@ -2163,7 +2444,7 @@ for n in $candidates; do
   for l in tehas:awaiting-merge tehas:question tehas:fixer-escalated; do
     [[ $have == *" $l "* ]] && drop[$n]+=" --remove-label $l"
   done
-done
+done <<<"$order"
 
 if [ "$dry" = 1 ]; then
   log "$count cycles running, room for $want more"
@@ -2173,7 +2454,7 @@ if [ "${#picked[@]}" = 0 ]; then
   exit 0
 fi
 if [ "$dry" = 1 ]; then
-  for n in "${picked[@]}"; do log "would run a cycle for #$n (labelled by ${starter[$n]})"; done
+  for n in "${picked[@]}"; do log "would run a cycle for #$n (${verb[$n]} by ${starter[$n]})"; done
   exit 0
 fi
 

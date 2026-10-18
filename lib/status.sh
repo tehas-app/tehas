@@ -115,6 +115,7 @@ tehas_state_line_jq='
           + (if .paused then ", paused" else "" end) + " (\(.time // "" | age($now)))" end),
     (.checks.pause // null | pause_lines($now)),
     (.checks.limit // null | if . == null or .state == "none" then empty else limit_line end),
+    (.checks.demand.refreshHold // null | strings | "refresh   held: \(.)"),
     (if .checks.allHands == true then "all-hands tehas:all-hands is on the control issue, applied by an allowed account" else empty end)
   '
 
@@ -172,7 +173,8 @@ tehas_status_json() { # <health json> <now epoch seconds> <stale true|false>
        running: [(.checks.cycles // [])[] | {issue, since: .startedAt} + (if .step == null then {} else {step} end)],
        demand: (.checks.demand // null
                 | if . == null then null
-                  else {waiting} + (if .oldest == null then {} else {oldestWait: (.oldest | since)} end) end),
+                  else {waiting} + (if .oldest == null then {} else {oldestWait: (.oldest | since)} end)
+                       + (if .refreshHold == null then {} else {refreshHold: (.refreshHold | oneline)} end) end),
        hold: (if $p.flag != null then
                 {why: "pause", text: ("paused by the flag tehas pause wrote"
                   + (if ($p.flag.reason // "" | oneline) == "" then "" else ": \($p.flag.reason | oneline)" end))}

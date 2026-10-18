@@ -73,6 +73,9 @@ t_eq "$(cat "$cycle_log.err")" "tehas work: issue 7 ended at the cap verify-fail
 
 t_case "a cycle that ended with no cap leaves its error stream as it is"
 fresh
+# A log is named by the second it started in: the case above may have left one
+# of the same name.
+rm -f "$T"/home/tehas/logs/work-7-*
 container 'says handoff; exit 10'
 t_run "$work 7"
 t_eq "$t_rc" 10

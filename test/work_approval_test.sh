@@ -301,6 +301,24 @@ Written on the issue by the fixer, the account that decided to start this cycle 
 > Run the gate before review.
 > ## Not a section"
 
+t_case "a refresh's task reaches retry-context.md as tehas wrote it, and only a refresh's"
+images_on
+caps_continue
+issue_is "Words." NONE
+record_is alice "Words."
+jq '.how = "refresh" | .rests_on = {at, by, how: "label", body_sha256} | .refreshes = 1
+  | .retry_context = [{source: "refresh", by: "tehas", at: "2026-10-18T00:00:00Z", text: "This pull request conflicts with `main`. Do no other work."}]' \
+  "$record" >"$record.new" && mv "$record.new" "$record"
+t_run "$work 7"
+t_eq "$(manifest .retryContext)" '"retry-context.md"'
+t_eq "$(cat "$imgs/retry-context.md")" "# This refresh
+
+This pull request conflicts with \`main\`. Do no other work."
+jq '.how = "label"' "$record" >"$record.new" && mv "$record.new" "$record"
+t_run "$work 7"
+t_eq "$(manifest .retryContext)" null
+caps_good
+
 t_case "comments add no mount and no variable"
 images_on TEHAS_WORK_COMMENTS=1
 issue_is "Words." NONE
