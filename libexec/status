@@ -85,16 +85,19 @@ analytics_keys='["report","from","to","shipped","planned","runs","planningTurns"
   "stopReasons","stations","versions"]'
 # shellcheck disable=SC2329  # the EXIT trap below calls it
 analytics_report() {
+  # Names of this run: a cycle's end and a poll may run status at once. The
+  # edge serves no *.new, so the unfiltered report is never public.
   local file=$live/analytics.json rc written
-  tehas_analytics_to "$file.raw.new" report --json
+  local raw=$file.$$.raw.new new=$file.$$.new
+  tehas_analytics_to "$raw" report --json
   rc=$?
   if [ "$rc" = 0 ] && jq -ce --argjson keys "$analytics_keys" '
       select(type == "object" and .report == 1) | with_entries(select(.key as $k | $keys | index($k)))' \
-      "$file.raw.new" >"$file.new" 2>/dev/null && mv -f "$file.new" "$file"; then
-    rm -f "$file.raw.new"
+      "$raw" >"$new" 2>/dev/null && mv -f "$new" "$file"; then
+    rm -f "$raw"
     return 0
   fi
-  rm -f "$file.raw.new" "$file.new"
+  rm -f "$raw" "$new"
   if [ "$rc" = 2 ]; then
     rm -f "$file"
     return 0
