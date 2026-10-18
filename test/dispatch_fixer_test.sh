@@ -70,7 +70,7 @@ cp "$approved_file" "$T/home/tehas/state/cycles/1.approved.json"
 cp "$fx/edit-7.json" "$fx/edit-1.json"
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
-t_contains "$t_out" "skip #1: tehas:ready from the fixer starts nothing: it is the control issue"
+t_contains "$t_out" 'skip #1: the control issue is never worked on (`tehas:ready`)'
 
 t_case "with no fixer on the instance, its account is an outsider like any other"
 fixer_ready

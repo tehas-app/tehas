@@ -1320,7 +1320,9 @@ Feed the [factory floor](/) and the [plain dashboard](/dashboard). `tehasbot sta
 `~/tehas/live/status.json`; the dispatcher runs it at every poll, and a cycle when it ends.
 Completed means closed by a merged pull request, whatever labels the issue was
 left with. `tehasbot status` gives each such issue `tehas:shipped`, so GitHub
-lists the same issues; run `tehas labels` once so the label exists.
+lists the same issues; run `tehas labels` once so the label exists. The control
+issue, the one `TEHAS_CONTROL_ISSUE` names, is left out of every list and every
+count: it holds the pause label and is not work, whatever label it carries.
 
 `tehasbot status` also writes `~/tehas/live/platform.json`: the commit the
 platform checkout `~/tehas/platform` is at, `upstream` (origin's default
