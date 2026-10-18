@@ -1115,7 +1115,9 @@ fn a_live_file_that_is_missing_stale_a_link_or_malformed_gives_null_columns() {
     execute(&home, &Cmd::Sample, now).unwrap();
     assert_eq!(sample_row(&home), nothing(now));
     live(&home, now - 30, "count", None);
-    put(&home, "live/dispatch.json", &json!({"time": iso(now - 900), "why": "count", "count": 1, "free": 0}).to_string());
+    // A poll runs every two minutes: a dispatch.json older than that is an
+    // earlier poll's, though status.json still counts.
+    put(&home, "live/dispatch.json", &json!({"time": iso(now - 200), "why": "count", "count": 1, "free": 0}).to_string());
     execute(&home, &Cmd::Sample, now + 1).unwrap();
     assert!(sample_row(&home).ends_with(&format!(" | {} 3 2 1 0 - - 1 - 412.5", now + 1)));
 

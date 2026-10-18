@@ -223,7 +223,8 @@ too, ends with one sample in the factory's analytics,
 issues in line, running, awaiting a merge and stopped from
 `~/tehas/live/status.json`, the hold and the cycles allowed from
 `~/tehas/live/dispatch.json`, and the mesh's draw from
-`~/tehas/live/energy.json`. A file older than ten minutes gives no value. Then
+`~/tehas/live/energy.json`. A file older than ten minutes gives no value, and a
+`dispatch.json` older than two and a half, an earlier poll's, neither. Then
 `analytics prune` removes what is older than ten days. A start records the
 events `ready`, as its approval record is written and at the time that record
 says `tehas:ready` was accepted (`at`), and `started`, once its cycle came up,

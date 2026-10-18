@@ -13,10 +13,11 @@
 //! - live/energy.json (libexec/energy): {generatedAt, totals: {watts}}.
 //!   watts is the mesh's draw, where it reports one.
 //!
-//! A file that is missing, a link, not JSON, or older than ten minutes by
-//! its own time gives NULL columns: a paused poll writes no dispatch.json,
-//! and the one an earlier poll left does not describe this one. So does a
-//! field of the wrong type.
+//! A file that is missing, a link, not JSON, or too old by its own time
+//! gives NULL columns, and so does a field of the wrong type. Too old is ten
+//! minutes, and for dispatch.json two and a half: a poll runs every two
+//! minutes, and a paused one writes none, so an older one is an earlier
+//! poll's.
 
 use crate::run::{iso_ms, read_json};
 use rusqlite::{params, Connection};
@@ -25,6 +26,7 @@ use std::path::Path;
 
 /// Seconds after which a live file no longer describes the poll.
 const STALE: i64 = 600;
+const STALE_DISPATCH: i64 = 150;
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Sample {
@@ -41,13 +43,13 @@ pub struct Sample {
 
 pub fn read(home: &Path, now: i64) -> Sample {
     let live = home.join("live");
-    let fresh = |name: &str, key: &str| {
+    let fresh = |name: &str, key: &str, stale: i64| {
         let v = read_json(&live.join(name))?;
         let at = iso_ms(v.get(key)?.as_str()?)? / 1000;
-        (now - at <= STALE).then_some(v)
+        (now - at <= stale).then_some(v)
     };
     let mut s = Sample::default();
-    if let Some(st) = fresh("status.json", "generatedAt") {
+    if let Some(st) = fresh("status.json", "generatedAt", STALE) {
         let len = |k: &str| st.get(k).and_then(Value::as_array).map(|a| a.len() as i64);
         s.in_line = len("queued");
         s.running = len("running");
@@ -57,7 +59,7 @@ pub fn read(home: &Path, now: i64) -> Sample {
         // status.json has no count of the issues in planning yet; part 3 of
         // the analytics work adds it, and planning stays NULL until then.
     }
-    if let Some(d) = fresh("dispatch.json", "time") {
+    if let Some(d) = fresh("dispatch.json", "time", STALE_DISPATCH) {
         let n = |k: &str| d.get(k).and_then(Value::as_i64);
         s.held = d.get("why").and_then(Value::as_str).and_then(|w| {
             let ok = w.len() <= 40 && w.bytes().all(|b| b.is_ascii_lowercase() || b == b'-');
@@ -71,7 +73,7 @@ pub fn read(home: &Path, now: i64) -> Sample {
             s.cycle_limit = Some(limit.max(0));
         }
     }
-    if let Some(e) = fresh("energy.json", "generatedAt") {
+    if let Some(e) = fresh("energy.json", "generatedAt", STALE) {
         s.watts = e
             .get("totals")
             .and_then(|t| t.get("watts"))
