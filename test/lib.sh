@@ -9,8 +9,10 @@
 #   t_instance KEY=VALUE...          write a scratch instance directory
 #   t_stub NAME ['<bash body>']      a stub command that records its arguments
 #   t_calls NAME                     what the stub was called with, one call per line
-#   t_stub_cargo                     a cargo that compiles nothing and leaves a console
-#   t_console_source DIR             copy the console's source into a scratch checkout
+#   t_stub_cargo                     a cargo that compiles nothing and leaves the
+#                                    package it was asked for (-p)
+#   t_console_source DIR             copy the source of the console and of
+#                                    analytics into a scratch checkout
 #   slice_state / slice_child / slice_id   a scratch cgroup tree for lib/slice.sh
 #   t_done                           print the tally, exit 1 if anything failed
 #
@@ -69,22 +71,29 @@ t_stub() {
   chmod +x "$T/bin/$name"
 }
 t_calls() { cat "$T/calls/$1" 2>/dev/null || true; }
-# install.sh builds the console with cargo. This one writes a file where the
-# build would leave the program: in $CARGO_TARGET_DIR, which t_run points into
-# the scratch directory, so no test builds into this checkout. CARGO_RC makes
-# the build fail, CONSOLE_BUILD tells one build from another, and NO_CONSOLE
-# is a build that succeeds and leaves nothing.
+# install.sh builds the console and analytics with cargo, one package (-p) a
+# call. This one writes a file where the build would leave the program: in
+# $CARGO_TARGET_DIR, which t_run points into the scratch directory, so no test
+# builds into this checkout. CARGO_RC makes the build fail, CARGO_FAIL names
+# the one package whose build fails, CONSOLE_BUILD tells one build from
+# another, and NO_CONSOLE is a build that succeeds and leaves nothing.
 t_stub_cargo() {
   # shellcheck disable=SC2016  # the stub's body is expanded when the stub runs
-  t_stub cargo 'if [ "${CARGO_RC:-0}" != 0 ]; then echo "error: could not compile console" >&2; exit "$CARGO_RC"; fi
+  t_stub cargo 'pkg=console prev=""
+for a in "$@"; do [ "$prev" != -p ] || pkg=$a; prev=$a; done
+if [ "${CARGO_RC:-0}" != 0 ]; then echo "error: could not compile $pkg" >&2; exit "$CARGO_RC"; fi
+if [ "${CARGO_FAIL:-}" = "$pkg" ]; then echo "error: could not compile $pkg" >&2; exit 101; fi
 [ -z "${NO_CONSOLE:-}" ] || exit 0
 mkdir -p "${CARGO_TARGET_DIR:?}/release"
-echo "a console built from ${CONSOLE_BUILD:-source}" >"$CARGO_TARGET_DIR/release/console"'
+case $pkg in analytics) art=an ;; *) art=a ;; esac
+echo "$art $pkg built from ${CONSOLE_BUILD:-source}" >"$CARGO_TARGET_DIR/release/$pkg"'
 }
-# The console's source without what a build here left beside it.
+# The source of the console and of analytics without what a build here left
+# beside it.
 t_console_source() {
-  mkdir -p "$1/console"
+  mkdir -p "$1/console/analytics"
   cp -R "$T_ROOT/console/Cargo.toml" "$T_ROOT/console/Cargo.lock" "$T_ROOT/console/src" "$1/console/"
+  cp -R "$T_ROOT/console/analytics/Cargo.toml" "$T_ROOT/console/analytics/src" "$1/console/analytics/"
 }
 
 # A scratch cgroup tree for lib/slice.sh, under $T_CGROUP. A test that uses

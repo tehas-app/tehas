@@ -18,15 +18,17 @@
 # sandbox files, the docs server, the edge router, the Protolab, the
 # improvement loop and the manual, plus the instance's own models.json and, if it has one, settings.json.
 #
-# It copies files, and compiles one: the console of a running cycle is a Rust
-# program in console/. A real run builds it with cargo in this checkout
-# (console/target, which git ignores) and installs it as libexec/console.
-# Beside it, console.stamp holds two checksums: of the source it was built
-# from and of the program itself. It is built again only when the source has
-# changed or the program is not the one that was installed, and the first
-# build fetches its crates from the network. --check compares the checksums
-# and builds nothing. A console that does not build stops a real run before
-# it changes anything.
+# It copies files, and compiles two: the console of a running cycle and the
+# analytics program, Rust programs in the Cargo workspace console/ (analytics
+# in console/analytics). A real run builds each with cargo in this checkout
+# (console/target, which git ignores) and installs them as libexec/console
+# and libexec/analytics. Beside each, <name>.stamp holds two checksums: of the
+# source it was built from and of the program itself. A program is built
+# again only when its source has changed or it is not the one that was
+# installed, and the first build fetches the crates from the network. The
+# console's source leaves out console/analytics, so a change there builds
+# analytics alone. --check compares the checksums and builds nothing. A
+# program that does not build stops a real run before it changes anything.
 #
 # It does not start the dispatcher or the docs server, rebuild the sandbox
 # image or write secrets. It reads the model endpoints' tokens from
@@ -476,44 +478,72 @@ if [ -r "$login_manager" ]; then
 fi
 
 # --- 3. Install ---------------------------------------------------------------
-# The console first: a build that fails must leave the host as it was. What is
+# The compiled programs first, the console and analytics, the two members of the
+# Cargo workspace in console/: a build that fails must leave the host as it was,
+# so every program that is due is built before any is installed. What is
 # installed is judged without building: by the checksum of every file the
-# build reads, and by the checksum of the program that was installed.
-console_to=$TEHAS_HOME/libexec/console
+# program's build reads, and by the checksum of the program that was installed.
 [ -d "$root/console" ] || { echo "tehas: $root/console is missing from this checkout" >&2; exit 1; }
-console_source=$(cd "$root/console" && find . -type f ! -path './target/*' ! -path './tests/*' -print0 |
-  LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1) ||
+# source_sum <find tests>: one checksum of the files under console/ that the
+# tests select, the build's own output left out.
+source_sum() {
+  (cd "$root/console" && find . -type f ! -path './target/*' ! -path './analytics/target/*' "$@" -print0 |
+    LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+}
+# The console's source is all of console/ but its tests and analytics/, so a
+# change to analytics alone does not build the console again. analytics reads
+# its own directory, the workspace's manifest and lock, and the console's mask.
+console_source=$(source_sum ! -path './tests/*' ! -path './analytics/*') ||
   { echo "tehas: could not read the console's source in $root/console" >&2; exit 1; }
-console_sum() { sha256sum <"$1" | cut -d' ' -f1; }
-if [ ! -x "$console_to" ] || [ "$(cat "$console_to.stamp" 2>/dev/null)" != "$console_source $(console_sum "$console_to")" ]; then
+analytics_source=$(source_sum \( \( -path './analytics/*' ! -path './analytics/tests/*' \) \
+  -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path ./src/mask.rs \)) ||
+  { echo "tehas: could not read the analytics program's source in $root/console" >&2; exit 1; }
+program_sum() { sha256sum <"$1" | cut -d' ' -f1; }
+# program_label <name>: how a message names it.
+program_label() { if [ "$1" = console ]; then echo "the console"; else echo "the $1 program"; fi; }
+due=()
+for entry in "console $console_source" "analytics $analytics_source"; do
+  read -r prog sum <<<"$entry"
+  to=$TEHAS_HOME/libexec/$prog
+  [ ! -x "$to" ] || [ "$(cat "$to.stamp" 2>/dev/null)" != "$sum $(program_sum "$to")" ] || continue
   if [ "$check" = 1 ]; then
-    changed+=("libexec/console")
-    if [ -f "$console_to" ]; then note "differs: $console_to"; else note "missing: $console_to"; fi
+    changed+=("libexec/$prog")
+    if [ -f "$to" ]; then note "differs: $to"; else note "missing: $to"; fi
   else
-    # The target directory is named, so the program is where this looks for
-    # it whatever cargo's own configuration says, and the old one is removed
-    # first, so what is installed is what this build made. The build scripts
-    # of the crates run here: they are given no variable that is named like a
-    # secret, the bot's token among them.
-    target=${CARGO_TARGET_DIR:-$root/console/target}
-    built=$target/release/console
+    due+=("$entry")
+  fi
+done
+if [ "${#due[@]}" != 0 ]; then
+  # The target directory is named, so a program is where this looks for it
+  # whatever cargo's own configuration says, and the old one is removed first,
+  # so what is installed is what this build made. The build scripts of the
+  # crates run here: they are given no variable that is named like a secret,
+  # the bot's token among them.
+  target=${CARGO_TARGET_DIR:-$root/console/target}
+  hidden=()
+  while IFS= read -r name; do hidden+=(-u "$name"); done < <(compgen -e | grep -E 'TOKEN|SECRET|PASSWORD|API_KEY')
+  for entry in "${due[@]}"; do
+    read -r prog _ <<<"$entry"
+    built=$target/release/$prog
     rm -f "$built"
-    hidden=()
-    while IFS= read -r name; do hidden+=(-u "$name"); done < <(compgen -e | grep -E 'TOKEN|SECRET|PASSWORD|API_KEY')
     out=$(env "${hidden[@]}" cargo build --release --locked --quiet \
-      --manifest-path "$root/console/Cargo.toml" --target-dir "$target" 2>&1) && rc=0 || rc=$?
+      --manifest-path "$root/console/Cargo.toml" --target-dir "$target" -p "$prog" 2>&1) && rc=0 || rc=$?
     if [ "$rc" != 0 ] || [ ! -f "$built" ]; then
       printf '%s\n' "$out" | tail -n 20 >&2
       if [ "$rc" = 127 ]; then
-        echo "tehas: cargo is not installed, so the console cannot be built (bootstrap.sh installs it); nothing was installed" >&2
+        echo "tehas: cargo is not installed, so $(program_label "$prog") cannot be built (bootstrap.sh installs it); nothing was installed" >&2
       else
-        echo "tehas: the console did not build (cargo build --release --locked in $root/console); nothing was installed" >&2
+        echo "tehas: $(program_label "$prog") did not build (cargo build --release --locked -p $prog in $root/console); nothing was installed" >&2
       fi
       exit 1
     fi
-    put "$built|$console_to|755"
-    echo "$console_source $(console_sum "$console_to")" | write_file "$console_to.stamp"
-  fi
+  done
+  for entry in "${due[@]}"; do
+    read -r prog sum <<<"$entry"
+    to=$TEHAS_HOME/libexec/$prog
+    put "$target/release/$prog|$to|755"
+    echo "$sum $(program_sum "$to")" | write_file "$to.stamp"
+  done
 fi
 
 # A host has its tools from bootstrap.sh before its first install, so only a
