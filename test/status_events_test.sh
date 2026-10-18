@@ -113,6 +113,21 @@ again
 t_eq "$(events | sort)" "event 5 merged --at $((now - 60))
 event 6 merged --at $((now - 60))"
 
+t_case "an issue that was awaiting a merge and is closed, not yet completed, is not recorded as closed"
+reset
+issues "$(issue 5 tehas:awaiting-merge)" "$(issue 6 needs-human-attention)"
+t_run "$status"
+# 6 is awaiting and stopped at once, as a handoff with a pull request can be.
+issues "$(issue 5 tehas:awaiting-merge)" "$(issue 6 needs-human-attention)" "$(issue 6 tehas:awaiting-merge)"
+again
+issues "$(issue 5 tehas:awaiting-merge CLOSED 60)" "$(issue 6 needs-human-attention CLOSED 60)"
+again
+t_eq "$(t_calls analytics)" ""
+shipped "$(merged 5 60)" "$(merged 6 60)"
+again
+t_eq "$(t_calls analytics | sort)" "event 5 merged --at $((now - 60))
+event 6 merged --at $((now - 60))"
+
 t_case "a first run records the closed issues it is shown, with their times"
 reset
 issues "$(issue 3 tehas:ready CLOSED 120)" "$(issue 1 tehas:ready CLOSED 60)" "$(issue 4 tehas:ready CLOSED $((11 * 86400)))"
