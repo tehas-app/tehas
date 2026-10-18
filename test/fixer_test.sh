@@ -57,6 +57,44 @@ grant
 t_eq "$t_out" "yes 3 alice"
 t_instance "${T_MINIMAL[@]}" TEHAS_FIXER_LOGIN=tehas-fixer
 
+# A refresh's record, resting on alice's approval.
+by_refresh() { # <refreshes> [<fixer starts>]
+  echo "{\"at\":\"2026-10-01T00:00:00Z\",\"by\":\"alice\",\"how\":\"refresh\",\"body_sha256\":\"$SUM\",\"links\":[],\"refreshes\":$1,\"fixer_starts\":${2:-0},\"rests_on\":$(person)}"
+}
+
+t_case "a refresh rests on the person's approval, and carries the fixer's count on"
+record 7 "$(by_refresh 1 1)"
+lib "tehas_fixer_base $cycles/7.approved.json | jq -c '[.by, .how]'; tehas_fixer_starts $cycles/7.approved.json"
+t_eq "$t_out" '["alice","label"]
+1'
+grant
+t_eq "$t_out" "yes 2 alice"
+record 7 "$(by_refresh 1)"
+lib "tehas_fixer_starts $cycles/7.approved.json"
+t_eq "$t_out" 0
+
+t_case "the refreshes a record counts since an approval"
+record 7 "$(by_refresh 2)"
+lib ". \"\$T_ROOT/lib/refresh.sh\"; tehas_refresh_count $cycles/7.approved.json '$(person)'; tehas_refresh_count $cycles/7.approved.json '$(person bob)'"
+t_eq "$t_out" "2
+0"
+record 7 "$(person)"
+lib ". \"\$T_ROOT/lib/refresh.sh\"; tehas_refresh_count $cycles/7.approved.json '$(person)'"
+t_eq "$t_out" 0
+
+t_case "a refresh parked since an approval, by the history; one before it, or no refresh, does not count"
+rm -rf "$cycles"
+mkdir -p "$cycles"
+printf '%s\n' '{"how":"refresh","parked":true,"started":1790726400}' >"$cycles/7.history.jsonl"
+lib ". \"\$T_ROOT/lib/refresh.sh\"; tehas_refresh_parked 7 '$(person)' && echo parked"
+t_eq "$t_out" ""
+printf '%s\n' '{"how":"label","parked":true,"started":1791590400}' '{"how":"refresh","parked":false,"started":1791590400}' >"$cycles/7.history.jsonl"
+lib ". \"\$T_ROOT/lib/refresh.sh\"; tehas_refresh_parked 7 '$(person)' && echo parked"
+t_eq "$t_out" ""
+printf '%s\n' '{"how":"refresh","parked":true,"started":1791590400}' >>"$cycles/7.history.jsonl"
+lib ". \"\$T_ROOT/lib/refresh.sh\"; tehas_refresh_parked 7 '$(person)' && echo parked"
+t_eq "$t_out" "parked"
+
 t_case "a count too large to compare is no count"
 record 7 "$(by_fixer 100000000000000000000)"
 grant

@@ -69,6 +69,8 @@ in the platform repository has every one with a comment.
 | `TEHAS_FIXER_LOGIN`             | empty                                    | Optional. The account whose `tehas:ready`, and whose answer to a planning question, the dispatcher takes on [the fixer's grant](/operating#the-fixers-grant). Never the bot and never one of `TEHAS_ALLOWED_LABELERS`. Empty: no fixer |
 | `TEHAS_FIXER_MAX_RETRIES`       | `2`                                      | How many cycles the fixer may start on one issue since a person last approved it |
 | `TEHAS_FIXER_MAX_PLAN_ANSWERS`  | `3`                                      | How many planning questions the fixer may answer in one session. It never answers two in a row (see [the fixer's grant](/operating#the-fixers-grant)) |
+| `TEHAS_REFRESH_CONFLICTS`      | `0`                                      | 1 has the factory resolve conflicts in its own pull requests that wait for a merge (see [refreshes](/operating#refreshes)). Anything but 0 or 1 stops every command with 78 |
+| `TEHAS_REFRESH_MAX`            | `2`                                      | Refreshes of one pull request since the person's approval its cycle rests on. A positive whole number |
 | `TEHAS_WORK_REPO`               | `~/tehas/repos/<name>`                   | The product checkout cycles are cloned from. Must be a clone of `TEHAS_REPO`. A cycle works in `~/tehas/work/<name>-<issue>`, which is not a setting |
 | `TEHAS_BRANCH`                  | the checkout's `origin/HEAD`             | Branch cycles start from and pull requests target               |
 | `TEHAS_CONCURRENCY`             | `1`                                      | Workstreams side by side inside one cycle. Above 1 only with `TEHAS_TICKET_CONCURRENCY=1`: with both above 1 a command stops with 78 (see [The host](/host#limits-and-concurrency)) |
@@ -181,7 +183,9 @@ a model endpoint that answers and offers the model, the free slots
 the cap on issues awaiting merge or being worked on, the room, the containers'
 ceilings and the memory pressure in the slice, who applied `tehas:urgent`
 and `tehas:next`, then who applied `tehas:ready`, then whether `tehas:blocked`
-holds it, then urgent first, next second and lowest number. A `tehas:urgent`
+holds it, then urgent first, [refreshes](/operating#refreshes) second, next
+third and lowest number. The cap on issues awaiting merge holds no refresh:
+it takes a pull request out of awaiting merge as it starts. A `tehas:urgent`
 counts only when an allowed account applied it most recently: one applied by
 the bot or anyone else is ignored and logged, and the issue keeps its place by
 number. A `tehas:next` counts when its latest event applies it and is by an
@@ -198,7 +202,8 @@ when it ends. A real poll also writes it to `~/tehas/live/dispatch.json` with
 the slice's numbers, for [tehas status](#tehas-status). Every real poll that
 gets past the settings and the bot's login, a paused one too, writes
 `~/tehas/live/demand.json`: how many issues would start if there were room,
-and when the oldest of them was accepted. It reads the `tehas:ready` list and
+and when the oldest of them was accepted, refresh requests included, with
+`refreshHold` when refreshes are held. It reads the `tehas:ready` list and
 who labelled each issue for that, apart from what a start rests on. The holds are listed
 under [Troubleshooting](/troubleshooting). Log:
 `~/tehas/logs/dispatch.log` when run by systemd, the terminal otherwise. Each
@@ -936,10 +941,11 @@ with `tehas work` refreshes nothing.
 tehas labels        # one line per label
 ```
 
-Creates the fourteen labels tehas uses in the product repository: `tehas:ready`,
+Creates the fifteen labels tehas uses in the product repository: `tehas:ready`,
 `tehas:urgent`, `tehas:running`, `tehas:awaiting-merge`, `tehas:shipped`, `tehas:pause`,
 `needs-human-attention`, `tehas:question`, `tehas:plan`, `tehas:planning`,
-`tehas:fixer-escalated`, `tehas:next`, `tehas:blocked` and `tehas:all-hands`.
+`tehas:fixer-escalated`, `tehas:next`, `tehas:blocked`, `tehas:refreshing` (on a
+pull request a [refresh](/operating#refreshes) works on) and `tehas:all-hands`.
 Run it once for a new product, and again after pulling a version that adds a
 label. Run again, it puts their colours and descriptions back. It needs `TEHAS_REPO` and no other
 setting. Exit 0 when every label is there, 1 when one could not be made, 64 on
@@ -1042,6 +1048,13 @@ is paused it adds one line for each switch that is set:
 pause     flag, written 4 min ago: waiting for the gate
 pause     label: tehas:pause on the control issue
 pause     label: tehas:pause is off the control issue, but no account in TEHAS_ALLOWED_LABELERS took it off
+```
+
+While [refreshes](/operating#refreshes) are held on this host, with requests
+waiting:
+
+```
+refresh   held: the pi-rukas in the sandbox image tehas/pi-rukas:uid1000 does not take --continue-pr
 ```
 
 And while [`tehas:all-hands`](/operating#all-hands) holds:
@@ -1167,12 +1180,14 @@ tehasbot protolab             # build the Protolab; what tehas-protolab.timer ru
 tehasbot preview              # keep the previews; what tehas-preview.timer runs
 tehasbot preview --sweep      # the second check; what tehas-preview-sweep.timer runs
 tehasbot improve              # one run of the improvement loop; what tehas-improve.timer runs
+tehasbot refresh              # ask for refreshes of conflicting pull requests; what tehas-refresh.timer runs
 ```
 
 The units are `tehas-dispatch.timer`, `tehas-dispatch.path` (a poll as soon
 as a cycle ends), `tehas-energy.service`, `tehas-top.service`,
 `tehas-protolab.timer`, the previews' `tehas-preview.timer` and
-`tehas-preview-sweep.timer`, the improvement loop's `tehas-improve.timer`, and one `tehas-cycle@<issue>.service` per running
+`tehas-preview-sweep.timer`, the improvement loop's `tehas-improve.timer`, the refreshes'
+`tehas-refresh.timer`, and one `tehas-cycle@<issue>.service` per running
 cycle. A cycle's container is `tehas-work-<issue>`.
 
 ## tehasbot cycle
@@ -1709,6 +1724,23 @@ that one.
 Each run also removes the per-cycle files and the kept analyst output in
 `~/tehas/logs/`, and the records under `~/tehas/tmp/improve/`, older than seven
 days, read or not.
+## tehasbot refresh
+
+```
+tehasbot refresh            # one run; one line in ~/tehas/logs/refresh.log
+systemctl --user enable --now tehas-refresh.timer
+tail ~/tehas/logs/refresh.log
+```
+
+Finds the factory's own pull requests that conflict with the branch and
+writes a request for each, `~/tehas/state/refresh/<issue>.json`, for the
+dispatcher to start (see [refreshes](/operating#refreshes)). Deterministic, no
+model, no container. `tehas-refresh.timer` runs it once an hour, the first
+time 15 minutes after boot. With `TEHAS_REFRESH_CONFLICTS` other than 1 it
+exits 0 at once and calls nothing. Exit 1 when a call to GitHub fails: no
+request is written or removed, and the dispatcher checks the old ones again
+before it starts any.
+
 ## tehasbot preview
 
 ```
