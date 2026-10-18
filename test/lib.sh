@@ -9,6 +9,9 @@
 #   t_instance KEY=VALUE...          write a scratch instance directory
 #   t_stub NAME ['<bash body>']      a stub command that records its arguments
 #   t_calls NAME                     what the stub was called with, one call per line
+#   t_stub_analytics ['<bash body>'] a stub of the analytics program where the
+#                                    commands look for it, in the scratch
+#                                    TEHAS_HOME; t_calls analytics
 #   t_stub_cargo                     a cargo that compiles nothing and leaves the
 #                                    package it was asked for (-p)
 #   t_console_source DIR             copy the source of the console and of
@@ -71,6 +74,11 @@ t_stub() {
   chmod +x "$T/bin/$name"
 }
 t_calls() { cat "$T/calls/$1" 2>/dev/null || true; }
+t_stub_analytics() {
+  t_stub analytics "${1:-}"
+  mkdir -p "$T/home/tehas/libexec"
+  mv "$T/bin/analytics" "$T/home/tehas/libexec/analytics"
+}
 # install.sh builds the console and analytics with cargo, one package (-p) a
 # call. This one writes a file where the build would leave the program: in
 # $CARGO_TARGET_DIR, which t_run points into the scratch directory, so no test
