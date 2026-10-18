@@ -23,7 +23,7 @@
 # Needs lib/status.sh for the one-line rule of a reason. Reads one file and
 # writes nothing.
 
-tehas_limit_file() { printf '%s/state/limit.json\n' "$TEHAS_HOME"; }
+tehas_limit_file() { printf '%s/state/limit.json\n' "$TEHAS_PROJECT_HOME"; }
 
 tehas_limit_read() { # [<now epoch seconds>]
   local file now=${1:-} json

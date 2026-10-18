@@ -1131,7 +1131,7 @@ index_launch() {
     return
   fi
   # shellcheck disable=SC2016  # expanded by the shell the unit runs
-  systemd-run --user --quiet --collect --unit tehas-index -p RuntimeMaxSec=2400 \
+  systemd-run --user --quiet --collect --unit "$(tehas_name index)" -p RuntimeMaxSec=2400 \
     /bin/bash -c '[ ! -r "$HOME/tehas/env.sh" ] || . "$HOME/tehas/env.sh"; exec "$@"' env-sh "$@" 8>&- >/dev/null 2>&1
 }
 
@@ -1955,7 +1955,7 @@ for st in "$TEHAS_PROJECT_HOME"/state/plan-*.json; do
       log "would report the cut-off planning turn of #$n"
     fi
   elif ! plan_collect "$n"; then
-    reap "tehas-plan-$n" "the planning turn of #$n was cut off"
+    reap "$(tehas_name plan "$n")" "the planning turn of #$n was cut off"
     plan_recover "$n" || true
   fi
   fresh="$fresh$n "

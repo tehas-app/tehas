@@ -83,7 +83,7 @@ tehas_fixer_count=0
 tehas_fixer_why=""
 # shellcheck disable=SC2034  # the caller reads what this sets
 tehas_fixer_grant() { # <issue> <body sha256>
-  local record=$TEHAS_HOME/state/cycles/$1.approved.json had
+  local record=$TEHAS_PROJECT_HOME/state/cycles/$1.approved.json had
   tehas_fixer_rests_on=""
   tehas_fixer_count=0
   tehas_fixer_why=""
@@ -148,7 +148,7 @@ tehas_fixer_answer() { # <planning record>
 }
 
 tehas_cycle_history_add() { # <issue> <JSON object>
-  local file=$TEHAS_HOME/state/cycles/$1.history.jsonl
+  local file=$TEHAS_PROJECT_HOME/state/cycles/$1.history.jsonl
   [ ! -L "$file" ] || return 1
   jq -ec 'objects' <<<"$2" >>"$file" 2>/dev/null || return 1
   [ "$(wc -l <"$file")" -le 50 ] && return 0
@@ -156,7 +156,7 @@ tehas_cycle_history_add() { # <issue> <JSON object>
 }
 
 tehas_cycle_history() { # <issue>
-  local file=$TEHAS_HOME/state/cycles/$1.history.jsonl
+  local file=$TEHAS_PROJECT_HOME/state/cycles/$1.history.jsonl
   [ -f "$file" ] && [ ! -L "$file" ] || return 0
   jq -cR 'fromjson? | objects' "$file" 2>/dev/null || true
 }

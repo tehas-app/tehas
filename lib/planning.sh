@@ -311,7 +311,7 @@ plan_turn() {
     plan_finish "$n" "not started" "$turns" "$sid"
     return
   fi
-  plan_collect "$n" || log "planning #$n: turn $((turns + 1)) runs as tehas-plan-$n.service"
+  plan_collect "$n" || log "planning #$n: turn $((turns + 1)) runs as $(tehas_name plan "$n").service"
 }
 
 # plan_launch <issue> <command>...: start the turn as its own unit and return.
@@ -334,7 +334,7 @@ plan_launch() {
   # The unit has the user manager's environment, not the poll's: it loads
   # env.sh as the tehas units do.
   # shellcheck disable=SC2016  # expanded by the shell the unit runs
-  systemd-run --user --quiet --collect --unit "tehas-plan-$n" -p "RuntimeMaxSec=$((TEHAS_PLAN_TIMEOUT + 900))" \
+  systemd-run --user --quiet --collect --unit "$(tehas_name plan "$n")" -p "RuntimeMaxSec=$((TEHAS_PLAN_TIMEOUT + 900))" \
     /bin/bash -c '[ ! -r "$HOME/tehas/env.sh" ] || . "$HOME/tehas/env.sh"; exec "$@"' env-sh "$@" 8>&- >/dev/null 2>&1
 }
 
@@ -344,7 +344,7 @@ plan_launch() {
 plan_in_flight() {
   local state
   [ ! -f "$(plan_state "$1").rc" ] || return 1
-  state=$(systemctl --user show -p ActiveState --value "tehas-plan-$1.service" 2>/dev/null) || return 1
+  state=$(systemctl --user show -p ActiveState --value "$(tehas_name plan "$1").service" 2>/dev/null) || return 1
   case "$state" in active | activating | deactivating | reloading) return 0 ;; esac
   return 1
 }

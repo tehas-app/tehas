@@ -30,7 +30,7 @@
 #
 # Needs TEHAS_HOME, and lib/fixer.sh for the history. Sourcing it does nothing.
 
-tehas_refresh_dir() { printf '%s/state/refresh\n' "$TEHAS_HOME"; }
+tehas_refresh_dir() { printf '%s/state/refresh\n' "$TEHAS_PROJECT_HOME"; }
 
 # The fields of a pull request the rule reads.
 _tehas_refresh_fields='number url isDraft isCrossRepository headRefOid baseRefName baseRefOid mergeable

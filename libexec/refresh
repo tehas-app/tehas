@@ -10,7 +10,7 @@
 # exactly one open issue carrying tehas:awaiting-merge, not the control issue,
 # and are the only open pull request that closes it; whose branch is in the
 # repository and that are no draft (lib/refresh.sh). Of those, the ones GitHub
-# says are CONFLICTING get a request, $TEHAS_HOME/state/refresh/<issue>.json:
+# says are CONFLICTING get a request, $TEHAS_PROJECT_HOME/state/refresh/<issue>.json:
 # {at, pr, head_sha, base_sha}. A request for the same pull request at the
 # same head keeps its time. UNKNOWN is skipped this run, and a request it has
 # stays: GitHub computes the state lazily and the next run reads it again. Any
@@ -53,8 +53,8 @@ tehas_require_instance_settings
 
 repo=$TEHAS_REPO
 dir=$(tehas_refresh_dir)
-logfile=$TEHAS_HOME/logs/refresh.log
-mkdir -p "$dir" "$TEHAS_HOME/logs"
+logfile=$TEHAS_PROJECT_HOME/logs/refresh.log
+mkdir -p "$dir" "$TEHAS_PROJECT_HOME/logs"
 
 fail() {
   printf '%s ERROR: %s\n' "$(date -u +%FT%TZ)" "$1" | tee -a "$logfile" >&2

@@ -633,7 +633,7 @@ mkdir -p "$TEHAS_PROJECT_HOME/logs" "$TEHAS_PROJECT_HOME/state" "$TEHAS_PROJECT_
 # workspace is a fresh clone every time, so the record and the flag it fed are
 # gone. The files of a host that ran cycles then are removed here; the lock,
 # the taken mark and every file with a suffix stay.
-for left in "$TEHAS_HOME"/state/cycles/[0-9]*; do
+for left in "$TEHAS_PROJECT_HOME"/state/cycles/[0-9]*; do
   [ -f "$left" ] && [ ! -L "$left" ] || continue
   case "${left##*/}" in *[!0-9]*) continue ;; esac
   rm -f "$left" && echo "removed: $left"

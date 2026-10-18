@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Write the dashboard's data file: $TEHAS_HOME/live/status.json.
+# Write the dashboard's data file: $TEHAS_PROJECT_HOME/live/status.json.
 #
 # One snapshot of the queue as GitHub sees it (which issues are in line, being
 # worked on, waiting for a human, stopped, completed), whether the last poll
@@ -135,7 +135,7 @@ fi
 # standard error, which the dispatcher's log keeps; state/all-hands.ignored
 # remembers which application was said. null is a label that could not be read.
 all_hands=false
-ignored=$TEHAS_HOME/state/all-hands.ignored
+ignored=$TEHAS_PROJECT_HOME/state/all-hands.ignored
 if [ "$control_read" = false ]; then
   all_hands=null
 elif [[ $control_labels == *" tehas:all-hands "* ]]; then

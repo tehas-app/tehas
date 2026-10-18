@@ -154,11 +154,11 @@ tehas_names_issue() {
 tehas_index_state() {
   # The directory is tehas_index_dir of lib/sandbox.sh. Only a database counts
   # as index data, not the indexer's configuration.
-  local dir=$TEHAS_HOME/state/index f
-  if [ "$(jq -r '.commit // empty' "$TEHAS_HOME/state/index.json" 2>/dev/null)" = "$1" ]; then
+  local dir=$TEHAS_PROJECT_HOME/state/index f
+  if [ "$(jq -r '.commit // empty' "$TEHAS_PROJECT_HOME/state/index.json" 2>/dev/null)" = "$1" ]; then
     for f in "$dir"/*.db; do
       [ -f "$f" ] && [ "$f" != "$dir/_config.db" ] && { echo current; return 0; }
     done
   fi
-  if [ "$(head -c 64 "$TEHAS_HOME/state/index.failed" 2>/dev/null)" = "$1" ]; then echo failed; else echo due; fi
+  if [ "$(head -c 64 "$TEHAS_PROJECT_HOME/state/index.failed" 2>/dev/null)" = "$1" ]; then echo failed; else echo due; fi
 }
