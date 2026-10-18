@@ -133,6 +133,30 @@
    reason after it needs a mark to stand apart as a link's "when" does. */
 .page #previews .when::before { content: "- "; }
 
+/* Last 10 days: the factory's report (live/analytics.json). */
+.page .an-figures { display: grid; grid-template-columns: repeat(auto-fill, minmax(144px, 1fr)); gap: 16px; margin-top: 16px; }
+.an-figure { padding: 8px 16px; background: var(--bone-shade); border: 4px solid var(--outline); }
+.an-label { color: var(--slate); text-transform: uppercase; }
+.an-value { font-size: 32px; line-height: 40px; }
+.an-note { color: var(--slate); overflow-wrap: anywhere; }
+.an-spark { display: flex; align-items: flex-end; gap: 2px; height: 24px; margin-top: 8px; }
+.an-spark span { flex: 1; min-height: 2px; background: var(--verdigris); }
+.page .an-chart { position: relative; display: flex; gap: 4px; height: 176px; margin-top: 16px; padding: 8px; background: var(--bone-shade); border: 4px solid var(--outline); }
+.an-day { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.an-bars { display: flex; flex: 1; align-items: flex-end; gap: 2px; }
+.an-bars span { flex: 1; min-height: 2px; overflow: hidden; color: var(--bone); font-size: 12px; line-height: 16px; text-align: center; }
+.an-bars .shipped, .an-key.shipped { background: var(--go); }
+.an-bars .failed, .an-key.failed { background: var(--fail); }
+.an-date { color: var(--slate); font-size: 12px; line-height: 16px; text-align: center; white-space: nowrap; overflow: hidden; }
+/* The line spans the bars' area: the chart's padding above, the dates below. */
+.an-line { position: absolute; top: 8px; left: 8px; width: calc(100% - 16px); height: calc(100% - 32px); overflow: visible; pointer-events: none; }
+.an-line polyline { fill: none; stroke: var(--brass); stroke-width: 3; }
+.an-key { display: inline-block; width: 16px; height: 12px; margin-left: 8px; border: 2px solid var(--outline); }
+.an-key.minutes { height: 4px; background: var(--brass); border-color: var(--brass); }
+.page ul.issues li.an-step { display: grid; grid-template-columns: minmax(0, 10ch) minmax(64px, 1fr) auto; align-items: center; gap: 8px; }
+.an-yield { display: block; height: 12px; background: var(--bone-shade); border: 2px solid var(--outline); }
+.an-yield span { display: block; height: 100%; background: var(--go); }
+
 @media (max-width: 899px) {
   .manual { grid-template-columns: minmax(0, 1fr); }
   .contents { position: static; display: flex; flex-wrap: wrap; box-shadow: none; }

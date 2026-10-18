@@ -198,6 +198,19 @@ line.
 Watch it on the [factory floor](/) or the [plain dashboard](/dashboard): the queue, the issue being worked on with its
 console streaming live, and what is waiting for you.
 
+Unless `TEHAS_ANALYTICS=off`, the plain dashboard also has a section **Last 10
+days**, from `live/analytics.json` (see [tehasbot status](/tools#tehasbot-status-and-the-console)):
+a row of figures (shipped, with a bar a day; planned, with its trend; runs by
+how they ended; first-pass yield; lead time; cycle time; machine time; tokens;
+availability; and energy per shipped issue where the mesh reports it), a chart
+of shipped issues and failed runs per day with the cycle-minutes as a line, the
+five most common stop reasons, the share of runs that got through each step,
+and one row per tehas and pi-rukas version pair. Every figure says its count as
+`n=`: ten days make small numbers. A pair with fewer than three runs shows its
+count only. The section is hidden where there is no file, and the page reads it
+at most once a minute. What the file means is worked out by one module,
+`host/fun/analytics-data.js`.
+
 Optional, and only when the model backend is a [viiwork](https://github.com/janit/viiwork) mesh with
 `tehas-energy.service` enabled: the factory floor also has a section
 **Energy use**: what the machines serving the factory draw now, their kWh over
