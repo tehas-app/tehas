@@ -365,6 +365,25 @@ sample: approved started tidied status=2
 prune: approved started tidied status=2"
 t_lacks "$t_out" "analytics"
 
+t_case "ready is recorded at the time tehas:ready was accepted, as the approval record says it"
+reset
+analytics_stub
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-01-01T00:00:00Z"}]' >"$fx/events-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .at "$approved_file")" "2026-01-01T00:00:00Z"
+t_eq "$(t_calls analytics)" "event 7 ready --at 1767225600
+event 7 started
+sample
+prune"
+
+t_case "an approval record with no time records ready without one"
+reset
+analytics_stub
+t_run "$dispatch"
+t_eq "$(jq -r .at "$approved_file")" ""
+t_eq "$(t_calls analytics | head -n 1)" "event 7 ready"
+
 t_case "a cycle that does not start is ready and not started"
 reset
 analytics_stub

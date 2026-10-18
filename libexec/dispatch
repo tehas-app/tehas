@@ -226,8 +226,9 @@
 # and refreshes the health file with it.
 #
 # The factory's analytics, state/analytics.db, unless TEHAS_ANALYTICS=off: a
-# start records the events ready and started of its issue, and every real poll
-# that holds the lock, a paused, held or failed one too, ends with
+# start records the events ready, at the approval record's time, and started
+# of its issue, and every real poll that holds the lock, a paused, held or
+# failed one too, ends with
 # `analytics sample` (the counts of live/status.json, the hold and the cycles
 # allowed of live/dispatch.json, the draw of live/energy.json) and `analytics
 # prune`. Each call has a time limit, and one that fails or runs out of time is
@@ -1239,7 +1240,7 @@ index_launch() {
 # start_cycles: start a cycle for every issue in $picked. Returns 1 if one did
 # not start.
 start_cycles() {
-  local n failed=0
+  local n failed=0 accepted
   local -a out
   [ "$fetched" = 1 ] || refresh_checkout
 
@@ -1251,9 +1252,13 @@ start_cycles() {
       log "ERROR: could not write the approval record of #$n, not starting a cycle"
       exit 1
     fi
-    # In the factory's analytics: ready, at the start that rests on it. The
+    # In the factory's analytics: ready, at the time the record says it was
+    # accepted, and without one at all when the record has no time. The
     # program keeps the first one of each issue. A failure is a warning.
-    tehas_analytics event "$n" ready
+    accepted=$(jq -r '.at | strings | fromdateiso8601? | floor | tostring' \
+      "$TEHAS_HOME/state/cycles/$n.approved.json" 2>/dev/null) || accepted=""
+    [[ $accepted =~ ^[0-9]{1,12}$ ]] || accepted=""
+    tehas_analytics event "$n" ready ${accepted:+--at "$accepted"}
     # A refresh marks its pull request first, so a person sees not to merge
     # or push to it. A mark left by a start that fails below is rule 2's.
     if [ -n "${refresh_pr[$n]:-}" ] &&

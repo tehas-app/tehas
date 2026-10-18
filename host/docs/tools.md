@@ -225,8 +225,9 @@ issues in line, running, awaiting a merge and stopped from
 `~/tehas/live/dispatch.json`, and the mesh's draw from
 `~/tehas/live/energy.json`. A file older than ten minutes gives no value. Then
 `analytics prune` removes what is older than ten days. A start records the
-events `ready`, as its approval record is written, and `started`, once its
-cycle came up, the first time for each issue. Each call may take 5 seconds.
+events `ready`, as its approval record is written and at the time that record
+says `tehas:ready` was accepted (`at`), and `started`, once its cycle came up,
+the first time for each issue. Each call may take 5 seconds.
 One that fails or runs out of time is a line `WARN analytics <subcommand>:
 exit N` in the log and changes nothing in the poll. A dry run, a host with
 `TEHAS_ANALYTICS=off` and a host where the program is not installed make no
