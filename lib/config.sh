@@ -31,7 +31,7 @@
 #     hooks TEHAS_WORK_CMD, TEHAS_STATUS_CMD, TEHAS_INDEX_CMD, TEHAS_PLAN_CMD,
 #     TEHAS_PLAN_START_CMD, TEHAS_INDEX_START_CMD, TEHAS_INDEX_LOCK_WAIT,
 #     TEHAS_CYCLE_START_CMD, TEHAS_CYCLE_STOP_CMD, TEHAS_CYCLE_START_WAIT,
-#     TEHAS_CGROUP_ROOT, TEHAS_PREFLIGHT_WAIT, TEHAS_STOP_WAIT, TEHAS_FETCH_WAIT,
+#     TEHAS_CGROUP_ROOT, TEHAS_SLICE_WAIT, TEHAS_PREFLIGHT_WAIT, TEHAS_STOP_WAIT, TEHAS_FETCH_WAIT,
 #     TEHAS_CONSOLE_WAIT, TEHAS_WORK_GRACE, TEHAS_CAPS_WAIT,
 #     TEHAS_CYCLE_RETRY_WAIT and TEHAS_CYCLE_STOP_GH_WAIT are kept, and from
 #     ~/.config/tehas/env TEHAS_ENERGY, TEHAS_ENERGY_URL and the model
@@ -228,7 +228,7 @@ tehas_load() {
   for v in $(compgen -v); do
     case "$v" in
       TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_INDEX_CMD | TEHAS_PLAN_CMD | \
-        TEHAS_PLAN_START_CMD | TEHAS_INDEX_START_CMD | TEHAS_INDEX_LOCK_WAIT | TEHAS_CYCLE_START_CMD | TEHAS_CYCLE_STOP_CMD | TEHAS_CYCLE_START_WAIT | TEHAS_CGROUP_ROOT | \
+        TEHAS_PLAN_START_CMD | TEHAS_INDEX_START_CMD | TEHAS_INDEX_LOCK_WAIT | TEHAS_CYCLE_START_CMD | TEHAS_CYCLE_STOP_CMD | TEHAS_CYCLE_START_WAIT | TEHAS_CGROUP_ROOT | TEHAS_SLICE_WAIT | \
         TEHAS_PREFLIGHT_WAIT | TEHAS_STOP_WAIT | TEHAS_FETCH_WAIT | TEHAS_CONSOLE_WAIT | TEHAS_WORK_GRACE | TEHAS_CAPS_WAIT | \
         TEHAS_CYCLE_RETRY_WAIT | TEHAS_CYCLE_STOP_GH_WAIT | TEHAS_ENERGY | TEHAS_ENERGY_URL | TEHAS_MODEL_KEY_*) ;;
       TEHAS_* | PI_ENSEMBLE_*) unset "$v" ;;
@@ -492,7 +492,7 @@ tehas_require() {
 # Protolab ticket (lab) under TEHAS_DOMAIN. It is the one definition of such a
 # name. The jq programs of libexec/protolab and libexec/preview put the same
 # name together themselves, because jq cannot call a shell function, and
-# test/protolab_test.sh and test/preview_test.sh pin that theirs is this one.
+# test/protolab_test.sh and test/preview_build_test.sh pin that theirs is this one.
 # Fails without a domain, for another kind, and for anything but a number of
 # one to nine digits that does not start with a zero.
 tehas_edge_name() {

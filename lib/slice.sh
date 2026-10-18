@@ -5,8 +5,8 @@
 # docker, and loading settings must not.
 #
 # Every function here only reads. Nothing is written, started or changed, and
-# both outside calls run under "timeout 10" so a silent one cannot block a
-# poll. A fault is never read as "no limit" or "an empty slice": the answer is
+# both outside calls run under "timeout 10" (TEHAS_SLICE_WAIT, for tests) so a
+# silent one cannot block a poll. A fault is never read as "no limit" or "an empty slice": the answer is
 # then "not ok" or "no room".
 #
 #   tehas_slice_ok       is the slice on this host usable? One systemctl call,
@@ -102,7 +102,7 @@ tehas_slice_ok() {
   local root=${TEHAS_CGROUP_ROOT:-/sys/fs/cgroup}
   TEHAS_SLICE_WHY="" TEHAS_SLICE_MAX="" TEHAS_SLICE_ACTIVE="" TEHAS_SLICE_CEILING_MB="" TEHAS_SLICE_CPUS=""
 
-  if ! out=$(timeout 10 systemctl show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax 2>/dev/null </dev/null) ||
+  if ! out=$(timeout "${TEHAS_SLICE_WAIT:-10}" systemctl show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax 2>/dev/null </dev/null) ||
     [ -z "$out" ]; then
     TEHAS_SLICE_WHY="systemctl gave no answer"
     return 1
@@ -124,7 +124,7 @@ tehas_slice_ok() {
     return 1
   fi
 
-  if ! out=$(timeout 10 docker info --format '{{.CgroupDriver}} {{.CgroupVersion}}' 2>/dev/null </dev/null); then
+  if ! out=$(timeout "${TEHAS_SLICE_WAIT:-10}" docker info --format '{{.CgroupDriver}} {{.CgroupVersion}}' 2>/dev/null </dev/null); then
     out=""
   fi
   read -r driver version <<<"$out" || true

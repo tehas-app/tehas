@@ -289,8 +289,8 @@ The common ones:
 | verify or smoke failure             | The gates failed on the developer's change          | Read the gate output in the handoff; often a real defect |
 | protected paths                     | The patch touched `.pi/`, `.github/`, `CODEOWNERS` or `agents.json` | By design. Make that change yourself                     |
 | review round cap                    | The review kept finding problems                    | Read the review on the pull request                      |
-| developer timeout                   | An agent ran out of wall-clock                      | Usually model endpoint capacity; retry later             |
-| `cycle-time-limit`, `stall`         | tehas stopped the cycle: its time limit, or no log moved for `TEHAS_WORK_STALL` | Read the run log the comment names; see [a cycle stops at a cap](#a-cycle-stops-at-a-cap) |
+| developer timeout                   | An agent ran out of time                            | Usually model endpoint capacity; retry later             |
+| `wall-clock`, `stall`               | tehas ended the cycle: its time limit `TEHAS_WORK_TIMEOUT`, or no log moved for `TEHAS_WORK_STALL` | Read the run log the comment names; see [a cycle stops at a cap](#a-cycle-stops-at-a-cap) |
 
 The caps this factory has posted are explained one by one in the next
 section.
@@ -336,11 +336,10 @@ quarter of `TEHAS_WORK_TIMEOUT` before the end, and started no new step. Its
 branch and pull request are as the handoff says. Retry when the issue can be
 done in the time, or split it.
 
-Two caps are tehas's own, not pi-rukas's: `cycle-time-limit` when the runner
-ran past `TEHAS_WORK_TIMEOUT` without stopping and tehas stopped the container,
+Two caps are tehas's own, not pi-rukas's: `wall-clock` when the cycle reached
+`TEHAS_WORK_TIMEOUT`, whether the runner stopped itself or tehas stopped it,
 and `stall` when none of the cycle's logs changed for `TEHAS_WORK_STALL`
-seconds and tehas stopped it. `cycle-time-limit` is the factory's time limit;
-pi-rukas's `wall-clock` is a budget of its own review stage, not this. A stop
+seconds and tehas stopped it. See [`wall-clock`](#wall-clock) below. A stop
 tehas made takes the place of a cap the runner named for the step it was
 stopped in, and the record's `capReason` says so: `tehas work stopped the
 container at the time limit of 21600s, step develop in flight; the runner had
@@ -412,11 +411,36 @@ The last one is in pi-rukas and was not seen here. After the change, retry.
 
 ### `wall-clock`
 
-The review stage's rounds of review and fix ran past pi-rukas's limit of 90
-minutes. The comment is on the pull request. The pull request is open, with
-what was pushed before. The comment names the worktrees in the workspace that
-hold the cycle's commits; what was not pushed is only there. Read the review on the pull request, then merge
-it, finish it by hand, or close it. Nothing in the issue needs to change. Close
+The cycle reached the host's own time limit, `TEHAS_WORK_TIMEOUT` (6 hours by
+default), and nothing else stopped it first. This cap is tehas's, not
+pi-rukas's: the runner stopped itself at the limit with no cap of its own, or
+it did not stop and tehas stopped its container 300 seconds later. The status
+is `timeout`, and the comment says which of the two happened and the step the
+cycle was in. That step was cut off in the middle, so what it wrote may be
+half done. The deadline before the limit should have parked the cycle at a
+step boundary with the cap `deadline`; a cycle that reaches `wall-clock` was in
+one step that outlasted the margin. Read the run log the comment names for
+what that step was doing. Raise `TEHAS_WORK_TIMEOUT` only when the work was
+progressing and needs more time; when the step was stuck, find out why, or
+split the issue.
+
+Until result schema 4 (pi-rukas, 18 October 2026) pi-rukas used the name
+`wall-clock` for its review loop's budget. An older comment on a pull request
+that names `wall-clock` is the cap below.
+
+### `lens-review-timeout`
+
+The review stage's rounds of review and fix ran past pi-rukas's budget for
+them, `PI_ENSEMBLE_REVIEW_WALL_CLOCK_MS` (90 minutes by default). It is the
+review loop's own clock, not the cycle's time limit: raising
+`TEHAS_WORK_TIMEOUT` does not change it. A `PI_ENSEMBLE_REVIEW_WALL_CLOCK_MS`
+line in `instance.env` does. The record's `capReason` says how long the loop
+ran, in which round, and the budget.
+
+The comment is on the pull request. The pull request is open, with what was
+pushed before. The comment names the worktrees in the workspace that hold the
+cycle's commits; what was not pushed is only there. Read the review on the
+pull request, then merge it, finish it by hand, or close it. Nothing in the issue needs to change. Close
 the pull request before you retry: while it is open, a new cycle stops at
 `existing-pr-detected`.
 
@@ -449,7 +473,7 @@ not possible because you have unmerged files`. The comment is on the pull
 request. The pull request is open with the code from before that round; the
 fixes are only in the workspace. Read the review's findings on the pull
 request, then merge it, fix it by hand, or close it. Close it before you
-retry, as for `wall-clock`.
+retry, as for `lens-review-timeout`.
 
 ### `lens-fix-reposition`
 
