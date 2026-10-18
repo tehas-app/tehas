@@ -31,7 +31,7 @@
 #     hooks TEHAS_WORK_CMD, TEHAS_STATUS_CMD, TEHAS_INDEX_CMD, TEHAS_PLAN_CMD,
 #     TEHAS_PLAN_START_CMD, TEHAS_INDEX_START_CMD, TEHAS_INDEX_LOCK_WAIT,
 #     TEHAS_CYCLE_START_CMD, TEHAS_CYCLE_STOP_CMD, TEHAS_CYCLE_START_WAIT,
-#     TEHAS_CGROUP_ROOT, TEHAS_SLICE_WAIT, TEHAS_PREFLIGHT_WAIT, TEHAS_STOP_WAIT, TEHAS_FETCH_WAIT,
+#     TEHAS_CGROUP_ROOT, TEHAS_SLICE_WAIT, TEHAS_PREFLIGHT_WAIT, TEHAS_STOP_WAIT, TEHAS_FETCH_WAIT, TEHAS_CHECK_WAIT,
 #     TEHAS_CONSOLE_WAIT, TEHAS_WORK_GRACE, TEHAS_CAPS_WAIT,
 #     TEHAS_CYCLE_RETRY_WAIT, TEHAS_CYCLE_STOP_GH_WAIT, TEHAS_TIDY_CMD and
 #     TEHAS_TIDY_WAIT are kept, and from
@@ -157,6 +157,11 @@ _tehas_valid() {
       [[ $v =~ ^(PI_ENSEMBLE|TEHAS)_[A-Z0-9_]+@[0-9]{1,6}(\.[0-9]{1,6}){1,3}(\ (PI_ENSEMBLE|TEHAS)_[A-Z0-9_]+@[0-9]{1,6}(\.[0-9]{1,6}){1,3})*$ ]] ||
         { echo "expected NAME@VERSION entries separated by single spaces, such as PI_ENSEMBLE_COMMENT_RETENTION@0.12.80"; return 1; }
       ;;
+    TEHAS_BRANCH_CHECK)
+      # A check run's name goes into a URL and into the log.
+      [[ $v =~ ^[A-Za-z0-9._()/-]+(\ [A-Za-z0-9._()/-]+)*$ ]] ||
+        { echo "expected the name of a check, words of letters, digits and ._()/- separated by single spaces"; return 1; }
+      ;;
     PI_ENSEMBLE_SUBAGENT_MODEL | PI_ENSEMBLE_SUBAGENT_PROVIDER | PI_ENSEMBLE_MODEL_* | PI_ENSEMBLE_PROVIDER_* | TEHAS_BRANCH)
       [[ $v =~ ^[^[:space:]]+$ ]] || { echo "expected one word"; return 1; }
       ;;
@@ -230,7 +235,7 @@ tehas_load() {
     case "$v" in
       TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_INDEX_CMD | TEHAS_PLAN_CMD | \
         TEHAS_PLAN_START_CMD | TEHAS_INDEX_START_CMD | TEHAS_INDEX_LOCK_WAIT | TEHAS_CYCLE_START_CMD | TEHAS_CYCLE_STOP_CMD | TEHAS_CYCLE_START_WAIT | TEHAS_CGROUP_ROOT | TEHAS_SLICE_WAIT | \
-        TEHAS_PREFLIGHT_WAIT | TEHAS_STOP_WAIT | TEHAS_FETCH_WAIT | TEHAS_CONSOLE_WAIT | TEHAS_WORK_GRACE | TEHAS_CAPS_WAIT | \
+        TEHAS_PREFLIGHT_WAIT | TEHAS_STOP_WAIT | TEHAS_FETCH_WAIT | TEHAS_CHECK_WAIT | TEHAS_CONSOLE_WAIT | TEHAS_WORK_GRACE | TEHAS_CAPS_WAIT | \
         TEHAS_CYCLE_RETRY_WAIT | TEHAS_CYCLE_STOP_GH_WAIT | TEHAS_TIDY_CMD | TEHAS_TIDY_WAIT | TEHAS_ENERGY | TEHAS_ENERGY_URL | TEHAS_MODEL_KEY_*) ;;
       TEHAS_* | PI_ENSEMBLE_*) unset "$v" ;;
     esac
@@ -335,6 +340,9 @@ tehas_load() {
   # person's approval its cycle rests on.
   export TEHAS_REFRESH_CONFLICTS=${TEHAS_REFRESH_CONFLICTS:-0}
   export TEHAS_REFRESH_MAX=${TEHAS_REFRESH_MAX:-2}
+  # The check on the branch's head commit whose failure holds new cycles back.
+  # Unset, the poll does not ask.
+  export TEHAS_BRANCH_CHECK=${TEHAS_BRANCH_CHECK:-}
   # Settings that only work around a pi-rukas defect, each with the release
   # that fixes it. tehas work refuses a cycle once the image has that release,
   # so a workaround does not outlive its reason.
@@ -406,7 +414,7 @@ tehas_load() {
     [ -n "${!v:-}" ] || continue
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
-  for v in TEHAS_ANALYTICS_SRC TEHAS_ANALYTICS_SITE TEHAS_IMPROVE_REPO TEHAS_IMPROVE_RUKAS_REPO TEHAS_IMPROVE_MAX_OPEN TEHAS_FIXER_LOGIN TEHAS_RUKAS_WORKAROUNDS; do
+  for v in TEHAS_ANALYTICS_SRC TEHAS_ANALYTICS_SITE TEHAS_IMPROVE_REPO TEHAS_IMPROVE_RUKAS_REPO TEHAS_IMPROVE_MAX_OPEN TEHAS_FIXER_LOGIN TEHAS_RUKAS_WORKAROUNDS TEHAS_BRANCH_CHECK; do
     [ -n "${!v}" ] || continue
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
