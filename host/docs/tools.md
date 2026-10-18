@@ -1711,11 +1711,16 @@ reads holds issue text and model output, which can be written to steer it, so:
 | 1 CPU, 2 GiB, no swap, 1024 processes, 60 minutes, in `tehas.slice` | A cycle's limits: it is a batch job with a quota of its own, counted in the slice's room like any other container |
 
 The host makes every GitHub call. A finding is filed only if it is the shape
-asked for: a title of at most 100 characters, one of six categories, a body, an
-excerpt as evidence, and cycles that were in this run. A title that matches an
-open issue is a duplicate. In the issue the model's text has every mention
-broken and its evidence inside a fence it cannot close. The label is
-`tehas:improvement` and no other.
+asked for: a title of at most 100 characters, one of six categories, a body,
+an excerpt as evidence, and cycles that were in this run. A filed issue's body
+ends with a `## Done when` section naming the files the change touches, the
+test file that proves it, and what can be observed afterwards; the section has
+to be the last thing in the body and its heading and items have to be real
+markdown, not text inside a code fence or an HTML comment. A finding whose body
+has no such heading, or nothing under it, or anything a person can read after
+it, is counted in `invalid=` and not filed. A title that matches an open issue is a duplicate. In the issue the
+model's text has every mention broken and its evidence inside a fence it
+cannot close. The label is `tehas:improvement` and no other.
 
 Limits: 3 issues a run; no run files in a repository while
 `TEHAS_IMPROVE_MAX_OPEN` (10 by default) open issues there carry the label. The

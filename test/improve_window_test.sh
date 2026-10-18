@@ -9,7 +9,7 @@
 
 t_case "a mention does not reach the body and a comment reaches it as text"
 ready
-findings "$(finding Mention '{"body":"Ask @alice. <!-- hidden --> And ```fence```.","evidence":"a ``` b"}')"
+findings "$(finding Mention '{"body":"Ask @alice. <!-- hidden --> And ```fence```.\n\n## Done when\n\n- test/improve_test.sh passes.","evidence":"a ``` b"}')"
 t_run "$improve"
 body=$(cat "$T/calls/body-101")
 t_lacks "$body" "@alice"
