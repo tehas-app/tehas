@@ -2,8 +2,10 @@
 # Tests for libexec/cycle: the improvement record it leaves, a killed, stalled
 # or timed out runner, the poll it starts, and the counts it reads.
 # shellcheck disable=SC2016  # snippets and stub bodies are expanded later
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/cycle_lib.sh
-. "$(dirname "$0")/cycle_lib.sh"
+. "$(dirname "$0")/cycle_lib.sh" || exit 1
 
 t_case "with the improvement loop on, a cycle that ended leaves its record"
 reset

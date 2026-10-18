@@ -2,8 +2,10 @@
 # Tests for install.sh: an invalid instance or model list installs
 # nothing, and an instance gives Pi its own settings.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/install_lib.sh
-. "$(dirname "$0")/install_lib.sh"
+. "$(dirname "$0")/install_lib.sh" || exit 1
 
 t_case "an instance with a missing setting installs nothing and exits 78"
 fresh
@@ -128,6 +130,17 @@ t_run "$install --check"
 t_eq "$t_rc" 78
 t_contains "$t_out" "is writable by everyone"
 chmod o-w "$TEHAS_INSTANCE_DIR/instance.env"
+
+# The check comes before the file is sourced: a file another account can
+# write is refused, not run.
+t_case "instance.env that anyone can write is never sourced"
+instance
+printf '%s\n' "touch $T/sourced-marker" >"$TEHAS_INSTANCE_DIR/instance.env"
+chmod 666 "$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$install --check"
+t_eq "$t_rc" 78
+t_contains "$t_out" "is writable by everyone"
+t_eq "$(find "$T" -name sourced-marker | wc -l)" 0
 
 t_case "settings reached through a symlink are judged by the file they point at"
 fresh

@@ -2,8 +2,10 @@
 # Tests for libexec/dispatch: kept workspaces that are removed, and cycles
 # that have gone quiet.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/dispatch_lib.sh
-. "$(dirname "$0")/dispatch_lib.sh"
+. "$(dirname "$0")/dispatch_lib.sh" || exit 1
 
 # Kept workspaces. Issue 5's were last used eight days ago, issue 6's today.
 works=$T/home/tehas/work

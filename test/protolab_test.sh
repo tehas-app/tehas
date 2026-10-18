@@ -5,7 +5,7 @@
 # lab when it is closed or unlabelled, and how an attached zip is unpacked.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 protolab="$T_ROOT/libexec/protolab"
 fx=$T/fx

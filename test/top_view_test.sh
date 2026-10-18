@@ -2,8 +2,10 @@
 # Tests for tehas top: the console a frame opens, what a redraw costs, systemd
 # without an answer, the arguments, and a run that changes nothing.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/top_lib.sh
-. "$(dirname "$0")/top_lib.sh"
+. "$(dirname "$0")/top_lib.sh" || exit 1
 
 # The name of the console file is text read out of running.json, and the file it
 # names is opened. A name that is not a plain file name under live/ reads nothing

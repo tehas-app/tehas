@@ -2,8 +2,10 @@
 # Tests for libexec/dispatch: who may label an issue, and the approval record
 # a start writes.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/dispatch_lib.sh
-. "$(dirname "$0")/dispatch_lib.sh"
+. "$(dirname "$0")/dispatch_lib.sh" || exit 1
 
 t_case "a dry run picks the issue an allowed account labelled"
 reset

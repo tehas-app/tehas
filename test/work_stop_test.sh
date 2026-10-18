@@ -2,8 +2,10 @@
 # Tests for libexec/work: a cycle stopped at its time limit, as stalled or
 # by TERM, and the bounds on the docker stop, the console and the push check.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/work_lib.sh
-. "$(dirname "$0")/work_lib.sh"
+. "$(dirname "$0")/work_lib.sh" || exit 1
 
 t_case "a runner that does not stop at its own limit is stopped after the grace, and not reported as killed"
 fresh

@@ -5,7 +5,7 @@
 # was handed, where the token is.
 # shellcheck disable=SC2016  # stub bodies and snippets are expanded when they run
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 mkdir -p "$T/fx" "$T/home/.pi/agent"
 t_stub curl 'while [ "$#" -gt 0 ]; do

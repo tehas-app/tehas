@@ -2,8 +2,10 @@
 # Tests for libexec/preview --sweep: a closed pull request's leftovers go,
 # an open one's stay, and leftovers of no pull request go.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/preview_lib.sh
-. "$(dirname "$0")/preview_lib.sh"
+. "$(dirname "$0")/preview_lib.sh" || exit 1
 
 t_case "sweep: a merged pull request's leftovers are removed, an open one's are kept"
 reset

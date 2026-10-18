@@ -2,8 +2,10 @@
 # Tests for libexec/work: the text files an issue links, and an issue that
 # links what the cycle is not given.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/work_lib.sh
-. "$(dirname "$0")/work_lib.sh"
+. "$(dirname "$0")/work_lib.sh" || exit 1
 stub_github
 
 # --- An issue that links what the cycle is not given -------------------------

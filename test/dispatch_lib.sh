@@ -2,8 +2,7 @@
 # shellcheck disable=SC2016,SC2034  # snippets are expanded by the shell under test; the parts read the variables
 # Shared setup of the dispatch_*_test.sh files: libexec/dispatch against a stub
 # gh and a scratch checkout whose default branch is main. Sourced, not run.
-# shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+# The part has sourced test/lib.sh before this.
 
 dispatch="$T_ROOT/libexec/dispatch"
 fx=$T/fx

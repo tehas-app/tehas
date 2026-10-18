@@ -2,8 +2,10 @@
 # Tests for libexec/work: the dispatcher's approval record and the comments
 # it names, as what the cycle is given of the issue.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/work_lib.sh
-. "$(dirname "$0")/work_lib.sh"
+. "$(dirname "$0")/work_lib.sh" || exit 1
 stub_github
 
 t_case "with a record the links are the record's: one the body gained since is not fetched, and no events are read"

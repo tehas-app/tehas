@@ -3,7 +3,7 @@
 # a container is started with, and how much room the slice has left.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 GIB=1073741824
 MIB=1048576

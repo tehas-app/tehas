@@ -3,8 +3,7 @@
 # What the tests of libexec/work share: test/work_*_test.sh source this. A
 # stub docker records its arguments, one per line, and exits at once, so no
 # cycle runs. It answers --capabilities from $T/caps.json.
-# shellcheck source=test/lib.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# The part has sourced test/lib.sh before this.
 # The CPU quota and the ticket ceiling follow the host's CPUs: the same on
 # every test machine.
 t_stub nproc 'echo 16'

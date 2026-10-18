@@ -2,8 +2,10 @@
 # Tests for install.sh: a previews' network that does not keep the host
 # out is left, and the run says why and that it has to be remade.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/install_lib.sh
-. "$(dirname "$0")/install_lib.sh"
+. "$(dirname "$0")/install_lib.sh" || exit 1
 
 t_case "a network that does not keep the host out is left, and the run says why and that it has to be remade"
 while IFS='|' read -r answer reason; do

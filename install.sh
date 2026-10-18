@@ -134,8 +134,32 @@ fi
 # anything.
 instance_findings() {
   local dir file models product_model mode owner group provider model
+  # The settings are shell that every command runs: nobody else may write them.
+  # A group-writable file is accepted only for the user's own primary group.
+  # Checked before tehas_load, which sources instance.env: a file another
+  # account can write is refused, not run.
+  dir=$(tehas_instance_dir)
+  # Only a file that exists has permissions to check: a missing directory or a
+  # missing instance.env is tehas_load's to name. A file that is there is
+  # judged here, before anything is sourced.
+  for file in "$dir" "$dir/instance.env"; do
+    [ -e "$file" ] || [ -L "$file" ] || continue
+    # -L: a symlink is judged by the file it points at.
+    mode=$(stat -L -c %a "$file" 2>/dev/null) || mode=0
+    owner=$(stat -L -c %u "$file" 2>/dev/null) || owner=-1
+    group=$(stat -L -c %g "$file" 2>/dev/null) || group=-1
+    if [ "$owner" != "$(id -u)" ]; then
+      echo "tehas: $file is not owned by $(id -un)"
+      return 0
+    elif [ $((8#$mode & 2)) != 0 ]; then
+      echo "tehas: $file is writable by everyone (chmod o-w)"
+      return 0
+    elif [ $((8#$mode & 16)) != 0 ] && [ "$group" != "$(id -g)" ]; then
+      echo "tehas: $file is writable by another group (chmod g-w)"
+      return 0
+    fi
+  done
   tehas_load 2>&1 || return 0
-  dir=$TEHAS_INSTANCE_DIR
   (tehas_require_instance_settings 2>&1) || return 0
   models=$dir/models.json
   if [ ! -r "$models" ]; then
@@ -160,21 +184,6 @@ instance_findings() {
       fi
     fi
   fi
-  # The settings are shell that every command runs: nobody else may write them.
-  # A group-writable file is accepted only for the user's own primary group.
-  for file in "$dir" "$dir/instance.env"; do
-    # -L: a symlink is judged by the file it points at.
-    mode=$(stat -L -c %a "$file")
-    owner=$(stat -L -c %u "$file")
-    group=$(stat -L -c %g "$file")
-    if [ "$owner" != "$(id -u)" ]; then
-      echo "tehas: $file is not owned by $(id -un)"
-    elif [ $((8#$mode & 2)) != 0 ]; then
-      echo "tehas: $file is writable by everyone (chmod o-w)"
-    elif [ $((8#$mode & 16)) != 0 ] && [ "$group" != "$(id -g)" ]; then
-      echo "tehas: $file is writable by another group (chmod g-w)"
-    fi
-  done
 }
 
 findings=$(instance_findings)

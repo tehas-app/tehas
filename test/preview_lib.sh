@@ -5,8 +5,7 @@
 # preview_*_test.sh file.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck disable=SC2034  # the variables here are read by the test files
-# shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+# The part has sourced test/lib.sh before this.
 
 preview="$T_ROOT/libexec/preview"
 fx=$T/fx

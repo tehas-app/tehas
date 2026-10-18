@@ -2,8 +2,10 @@
 # Tests for libexec/work: the images an issue links, fetched for the cycle,
 # and their descriptions.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/work_lib.sh
-. "$(dirname "$0")/work_lib.sh"
+. "$(dirname "$0")/work_lib.sh" || exit 1
 stub_github
 
 t_case "with images off GitHub is not asked, nothing is fetched and no directory is made"

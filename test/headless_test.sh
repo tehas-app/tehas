@@ -10,7 +10,7 @@
 # One default in its answer named a private address and is replaced by a
 # documentation one.
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=lib/headless.sh
 . "$T_ROOT/lib/headless.sh"
 fx=$T_ROOT/test/fixtures/headless-0.12.80

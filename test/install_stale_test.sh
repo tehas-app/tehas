@@ -2,8 +2,10 @@
 # Tests for install.sh: the Protolab server's files of before the edge
 # router, and the markers a cycle used to leave, are removed.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/install_lib.sh
-. "$(dirname "$0")/install_lib.sh"
+. "$(dirname "$0")/install_lib.sh" || exit 1
 
 t_case "the Protolab server's files of before the edge router are named, then removed"
 fresh

@@ -3,7 +3,7 @@
 # curl plays the mesh: it answers with the status and the body the case set.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 energy="$T_ROOT/libexec/energy"
 file=$T/home/tehas/live/energy.json
@@ -252,6 +252,162 @@ t_eq "$t_rc" 0
 t_eq "$(there)" gone
 t_eq "$(asked)" 1
 
+# What the dispatcher's last poll settled on: the one word in the file the
+# sampler reads. No argument removes the file, so the case says no endpoint.
+dispatched() {
+  mkdir -p "$T/home/tehas/live"
+  if [ "$#" = 0 ]; then
+    rm -f "$T/home/tehas/live/dispatch.json"
+  else
+    printf '%s' "$1" >"$T/home/tehas/live/dispatch.json"
+  fi
+}
+
+models=$T/models.json
+# A main endpoint and a backup, as models.json names them. The main one is not
+# a mesh unless mainmesh says what it answers.
+bothends() {
+  printf '%s' '{"providers": {"fleet": {"baseUrl": "https://main.example/v1", "apiKey": "$TEHAS_MODEL_KEY_MAIN", "backupBaseUrl": "http://mesh.example:8086/v1", "backupApiKey": "$TEHAS_MODEL_KEY_FLEET"}}}' >"$models"
+  rm -f "$T/mesh/main-status" "$T/mesh/main-body"
+}
+# What the main endpoint answers from now on, or nothing when it is not there.
+mainmesh() { # <status> <body or @file>
+  printf '%s' "$1" >"$T/mesh/main-status"
+  case "$2" in @*) cp "${2#@}" "$T/mesh/main-body" ;; *) printf '%s' "$2" >"$T/mesh/main-body" ;; esac
+}
+# The two stand-ins: the main endpoint answers from main-status and main-body,
+# the backup from status and body, and is down when down is there.
+t_stub curl 'for a; do case "$a" in /dev/fd/*) cat "$a" >>"$T/calls/curl-config" ;; esac; done
+case "$*" in
+  *main.example*) [ -e "$T/mesh/main-status" ] || exit 7
+    cat "$T/mesh/main-body" 2>/dev/null
+    printf "\n%s" "$(cat "$T/mesh/main-status")" ;;
+  *) [ ! -e "$T/mesh/down" ] || exit 7
+    cat "$T/mesh/body"
+    printf "\n%s" "$(cat "$T/mesh/status")" ;;
+esac'
+# One sample with the instance's models.json and these settings. The stand-ins
+# count their calls, because a case asks how often the mesh was knocked at.
+endsample() { # <after> [<more settings>...]
+  local after=$1
+  shift
+  rm -f "$T/calls/curl"
+  T_ENV=(TEHAS_MODELS_FILE="$models" TEHAS_ENERGY_NOW="$((NOW + after))" "$@")
+  t_run "$energy"
+}
+# The fixture with its first host renamed, so a case tells the two meshes apart.
+label() { # <word> <out file>
+  jq --arg w "$1" '(.members[] | select(.node == "node-b") | .node) = $w' "$fixture" >"$2"
+}
+label main-endpoint "$T/main-mesh.json"
+label backup-endpoint "$T/backup-mesh.json"
+
+t_case "the endpoint the dispatcher names is the only one asked"
+fresh
+bothends
+dispatched '{"time": "2026-10-09T06:15:00Z", "why": "", "endpoint": "main"}'
+mainmesh 200 "@$T/main-mesh.json"
+mesh 200 "@$T/backup-mesh.json"
+endsample 0 PI_ENSEMBLE_SUBAGENT_MODEL=model-large
+t_eq "$t_rc" 0
+t_eq "$(asked)" 1
+t_eq "$(t_calls curl | awk '{ print $NF }')" "https://main.example/v1/cluster"
+t_json '[.hosts[].name]' '["main-endpoint"]'
+
+t_case "with backup named only the backup is asked, and the main endpoint never"
+fresh
+bothends
+dispatched '{"endpoint": "backup"}'
+mainmesh 200 "@$T/main-mesh.json"
+mesh 200 "@$T/backup-mesh.json"
+endsample 0 PI_ENSEMBLE_SUBAGENT_MODEL=model-large
+t_eq "$(asked)" 1
+t_lacks "$(t_calls curl)" "main.example"
+t_eq "$(t_calls curl | awk '{ print $NF }')" "$url"
+t_json '[.hosts[].name]' '["backup-endpoint"]'
+
+t_case "a main endpoint that is not a mesh gives no meter while main is named"
+# The bug: the factory's cycles are on the main endpoint, which is not viiwork,
+# and the backup's meter must not be shown for them.
+fresh
+bothends
+dispatched '{"endpoint": "main"}'
+mainmesh 404 "404 page not found"
+mesh 200 "@$T/backup-mesh.json"
+endsample 0 PI_ENSEMBLE_SUBAGENT_MODEL=model-large
+t_eq "$t_rc" 0
+t_eq "$(there)" gone
+t_lacks "$(t_calls curl)" "backup"
+
+t_case "with the named endpoint down the file is left as it is"
+fresh
+bothends
+dispatched '{"endpoint": "backup"}'
+mesh 200 "@$T/backup-mesh.json"
+endsample 0 PI_ENSEMBLE_SUBAGENT_MODEL=model-large
+before=$(cat "$file")
+mainmesh 200 "@$T/main-mesh.json"
+mesh 503 "busy"
+endsample 15 PI_ENSEMBLE_SUBAGENT_MODEL=model-large
+t_eq "$t_rc" 0
+t_eq "$(cat "$file")" "$before"
+# The last poll asked the backup alone; the main endpoint was given nothing.
+t_eq "$(t_calls curl | tail -n 1 | awk '{ print $NF }')" "$url"
+
+t_case "without a word in the file both endpoints are asked, main first"
+fresh
+bothends
+dispatched '{"time": "2026-10-09T06:15:00Z", "why": ""}'
+mainmesh 404 "not a mesh"
+mesh 200 "@$T/backup-mesh.json"
+endsample 0 PI_ENSEMBLE_SUBAGENT_MODEL=model-large
+t_eq "$(asked)" 2
+t_eq "$(t_calls curl | awk '{ print $NF }' | tr '\n' ' ')" "https://main.example/v1/cluster $url "
+t_eq "$(there) there" "there there"
+
+t_case "an endpoint that is no word, or a file that cannot be read, asks both"
+fresh
+bothends
+mainmesh 404 "not a mesh"
+mesh 200 "@$T/backup-mesh.json"
+for odd in '{"endpoint": "other.test"}' '{"endpoint": "MAIN"}' '{"endpoint": ""}' '{"endpoint": null}' \
+  '{"endpoint": 7}' '{"endpoint": ["main"]}' '{"endpoint": {"u": "http://main.example/v1"}}' \
+  '{"why": ""}' 'not json' $'\n' ''; do
+  dispatched "$odd"
+  endsample 0 PI_ENSEMBLE_SUBAGENT_MODEL=model-large
+  t_eq "$t_rc" 0
+  t_eq "$(asked) for $odd" "2 for $odd"
+  t_eq "$(there) for $odd" "there for $odd"
+done
+# The file itself missing asks both as well.
+dispatched
+endsample 0 PI_ENSEMBLE_SUBAGENT_MODEL=model-large
+t_eq "$(asked)" 2
+t_eq "$(there) there" "there there"
+
+t_case "the named endpoint is asked with its own token, and the other never"
+fresh
+bothends
+rm -f "$T/calls/curl-config"
+dispatched '{"endpoint": "backup"}'
+mesh 200 "@$T/backup-mesh.json"
+endsample 0 PI_ENSEMBLE_SUBAGENT_MODEL=model-large \
+  TEHAS_MODEL_KEY_MAIN=main-secret TEHAS_MODEL_KEY_FLEET=fleet-secret
+t_eq "$(cat "$T/calls/curl-config")" 'header = "Authorization: Bearer fleet-secret"'
+t_lacks "$(t_calls curl)" "secret"
+
+t_case "TEHAS_ENERGY_URL is asked whatever the dispatcher names"
+fresh
+bothends
+dispatched '{"endpoint": "main"}'
+mainmesh 404 "not a mesh"
+mesh 200 "@$T/backup-mesh.json"
+T_ENV=(TEHAS_MODELS_FILE="$models" TEHAS_ENERGY_URL="$url" TEHAS_ENERGY_NOW="$NOW")
+t_run "$energy"
+t_eq "$(asked)" 1
+t_eq "$(t_calls curl | awk '{ print $NF }')" "$url"
+t_eq "$(there) there" "there there"
+
 t_case "the mesh address comes from the model provider"
 fresh
 models=$T/models.json
@@ -273,6 +429,8 @@ T_ENV=(TEHAS_MODELS_FILE="$T/none.json")
 t_run "$energy"
 t_eq "$t_rc" 0
 t_eq "$(there)" gone
+# The runs above asked the two endpoints of the provider that has them, and
+# nothing at all for the last two.
 t_eq "$(asked)" 3
 
 t_case "a main endpoint that is not a mesh is passed over for its backup, asked with the backup's token"

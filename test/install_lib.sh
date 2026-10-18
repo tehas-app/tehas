@@ -4,8 +4,7 @@
 # install puts. Source this from an install_*_test.sh file.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck disable=SC2034  # the variables here are read by the test files
-# shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+# The part has sourced test/lib.sh before this.
 # The one place the follow-ups are named: install.sh prints what it defines here,
 # and tehas update runs the same ids, so a case can pin both sides to it.
 # shellcheck source=lib/update-steps.sh
@@ -41,6 +40,12 @@ EOF
 }
 # Everything install.sh put on the host, relative to the scratch home.
 installed_files() { (cd "$home" && find . -type f ! -name '*.prev' | LC_ALL=C sort); }
+# The host facts a program reads back after an install, as one JSON object: the
+# same answer `tehas api --json` gives, from the files install.sh put there.
+# Read in a clean environment, as the factory's user would run it.
+# shellcheck disable=SC2154  # t_out is set by test/lib.sh, which the part sources first
+api_json() { t_run "'$th/bin/tehas' api --json"; printf '%s\n' "$t_out"; }
+
 fresh() {
   rm -rf "$home" "$T"/calls/*
   mkdir -p "$home"

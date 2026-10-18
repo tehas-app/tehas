@@ -2,8 +2,10 @@
 # Tests for libexec/cycle: a merge, the result it reads, the pull requests of
 # the branch, and the workspace it removes or keeps.
 # shellcheck disable=SC2016  # snippets and stub bodies are expanded later
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/cycle_lib.sh
-. "$(dirname "$0")/cycle_lib.sh"
+. "$(dirname "$0")/cycle_lib.sh" || exit 1
 
 t_case "a merged cycle only loses its running label"
 reset

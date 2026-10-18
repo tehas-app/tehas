@@ -2,8 +2,10 @@
 # Tests for install.sh: the commands of the earlier layout are named by
 # --check and removed by a real run, and when they stay.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/install_lib.sh
-. "$(dirname "$0")/install_lib.sh"
+. "$(dirname "$0")/install_lib.sh" || exit 1
 
 # Before bin/tehas there was one file for each command in ~/tehas/bin.
 old_layout() {

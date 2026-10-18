@@ -2,8 +2,10 @@
 # Tests for install.sh: the code index a real run builds when it finds the
 # sandbox image and the product checkout, and never --check.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/install_lib.sh
-. "$(dirname "$0")/install_lib.sh"
+. "$(dirname "$0")/install_lib.sh" || exit 1
 
 # The code index: built by the first real run that finds both the sandbox
 # image and the product checkout, and never by --check.

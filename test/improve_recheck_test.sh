@@ -2,8 +2,10 @@
 # Tests for libexec/improve: an issue worked on again, and the comment a recheck
 # posts on the issue the loop filed.
 # shellcheck disable=SC2016  # stub bodies and snippets are expanded when they run
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/improve_lib.sh
-. "$(dirname "$0")/improve_lib.sh"
+. "$(dirname "$0")/improve_lib.sh" || exit 1
 
 # --- An issue worked on again ------------------------------------------------
 OLD=7-261009-100000

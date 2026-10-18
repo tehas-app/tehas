@@ -2,8 +2,10 @@
 # Tests for libexec/preview: forks and who opened a pull request, and
 # reading every page of the open pull requests.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/preview_lib.sh
-. "$(dirname "$0")/preview_lib.sh"
+. "$(dirname "$0")/preview_lib.sh" || exit 1
 
 t_case "a pull request from a fork is never built"
 reset

@@ -2,8 +2,10 @@
 # Tests for libexec/preview: the previews' network and Docker's version,
 # a new title, git's log, and the free-space floor.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/preview_lib.sh
-. "$(dirname "$0")/preview_lib.sh"
+. "$(dirname "$0")/preview_lib.sh" || exit 1
 
 # unsafe <fixture> <content> <reason>: with that one thing wrong, nothing is
 # built or run, GitHub is not asked, and the line names what is wrong.

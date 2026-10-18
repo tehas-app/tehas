@@ -2,8 +2,7 @@
 # shellcheck disable=SC2016,SC2034  # snippets and stub bodies are expanded later; the parts read the variables
 # What the tests of libexec/cycle share: test/cycle_*_test.sh source this. One
 # cycle for one issue against a stub gh, and what is reported about it.
-# shellcheck source=test/lib.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# The part has sourced test/lib.sh before this.
 
 cycle="$T_ROOT/libexec/cycle"
 fx=$T/fx

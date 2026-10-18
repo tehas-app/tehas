@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Tests for libexec/dispatch: the fixer's labels and its planning answers.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/dispatch_lib.sh
-. "$(dirname "$0")/dispatch_lib.sh"
+. "$(dirname "$0")/dispatch_lib.sh" || exit 1
 
 # --- The fixer ---------------------------------------------------------------
 # Issue 7 is labelled by the fixer, its body is "Words.", and alice approved

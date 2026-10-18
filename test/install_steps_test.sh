@@ -2,8 +2,10 @@
 # Tests for install.sh: the shipped instances are valid, and the
 # follow-ups a run asks for are recorded and reported.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/install_lib.sh
-. "$(dirname "$0")/install_lib.sh"
+. "$(dirname "$0")/install_lib.sh" || exit 1
 
 t_stub nproc 'echo 12'
 for name in example tehas-tehas; do
@@ -116,5 +118,90 @@ t_contains "$t_out" "cannot read the follow-up record"
 chmod 644 "$th/state/update-pending"
 t_eq "$(cat "$th/state/update-pending")" "sandbox"
 
+# Installing a factory unattended: `bootstrap.sh` then `install.sh` run on a
+# machine nobody has prepared by hand, with nothing to answer, and again
+# afterwards. `--check` exits 0 on a machine installed as the instance says.
+# The cases here are the parts a shell test can prove: the run takes no
+# answer, the facts of the machine come back on one line, a machine that owes
+# a follow-up is not called installed, and what an install refuses is said
+# with the name of the thing to fix.
+t_case "a fresh install takes no answer"
+fresh
+instance
+# No terminal and nothing on standard input: a program runs it from a pipe, or
+# with </dev/null, and the run must end by itself rather than stop for a
+# question. A prompt would leave this hanging and fail on the timeout.
+t_run "$install </dev/null"
+t_eq "$t_rc" 0
+# The report of a real run: one line per thing it did, and the follow-ups it
+# leaves for tehas update. None of it asks for anything.
+t_contains "$t_out" "installed: $th/libexec/dispatch"
+t_contains "$t_out" "next: units"
+
+t_case "the machine reads back as one JSON object, with no secret in it"
+fresh
+instance TEHAS_FIXER_LOGIN=bob
+t_run "$install </dev/null"
+t_eq "$t_rc" 0
+# The token file is what holds them, and a value written into the report would
+# be a secret in a file a person may put anywhere.
+mkdir -p "$home/.config/tehas"
+printf 'TEHAS_MODEL_KEY_MAIN=sekret-main\n' >"$home/.config/tehas/env"
+chmod 600 "$home/.config/tehas/env"
+json=$(api_json)
+t_eq "$t_rc" 0
+# One object, one line, and valid JSON: what a program keeps is what it read.
+t_eq "$(printf '%s\n' "$json" | wc -l)" 1
+t_eq "$(printf '%s' "$json" | jq -e '.api == 1 and .repo == "acme/widget" and
+  .fixer == "bob" and (.features | index("limit")) != null' >/dev/null && echo ok)" "ok"
+# A model token is named, never written: the file that carries these facts is
+# the one a person may put anywhere, so no value of a TEHAS_MODEL_KEY_ name
+# appears in it.
+t_lacks "$json" "TEHAS_MODEL_KEY_"
+
+t_case "a machine that still owes a follow-up is not reported as installed"
+fresh
+instance
+t_run "$install </dev/null"
+t_eq "$t_rc" 0
+# The copies of this run have not had their follow-ups run: `tehas update` does
+# that. Until they have, --check says the machine is not current.
+t_contains "$t_out" "next: units"
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "Follow-ups:   NOT DONE"
+t_run "$install --check"
+t_eq "$t_rc" 1
+# The record read, the steps run: only then does the check go green, and twice
+# in a row, which is what "installed as the instance says" has to mean.
+rm -f "$th/state/update-pending"
+t_run "$install --check"
+t_eq "$t_rc" 0
+t_run "$install --check"
+t_eq "$t_rc" 0
+
+t_case "a machine missing one model token says the name and installs nothing"
+fresh
+instance
+cat >"$TEHAS_INSTANCE_DIR/models.json" <<'EOF'
+{"providers": {"test-provider": {"apiKey": "$TEHAS_MODEL_KEY_MAIN",
+  "models": [{"id": "test-model"}, {"id": "session-model"}]}}}
+EOF
+rm -f "$home/.config/tehas/env"
+t_run "$install </dev/null"
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_MODEL_KEY_MAIN"
+# The finding names the file to put the token in, so the person is not left
+# guessing where that file is. Spelled with the tilde the command prints, not
+# expanded by the test: SC2088 would only ask for that.
+# shellcheck disable=SC2088
+t_contains "$t_out" "~/.config/tehas/env"
+# Nothing changed, and no host to inspect afterwards: an unattended run that
+# cannot go on leaves the machine as it found it. The token file is removed
+# again here: a case after this one reads it, and a leftover would hide what
+# that case is checking.
+t_eq "$(core_files)" ""
+t_eq "$(t_calls cargo)" ""
+rm -f "$home/.config/tehas/env"
 
 t_done

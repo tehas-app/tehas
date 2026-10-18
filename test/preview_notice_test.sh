@@ -2,8 +2,10 @@
 # Tests for libexec/preview: the notice at the top of a pull request's
 # description, and the text around it that is left alone.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/preview_lib.sh
-. "$(dirname "$0")/preview_lib.sh"
+. "$(dirname "$0")/preview_lib.sh" || exit 1
 
 t_case "a serving preview is said once, at the top of the description"
 reset

@@ -2,8 +2,10 @@
 # Tests for libexec/preview: a container that does not start or stops,
 # and the moment a run waits before it asks.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/preview_lib.sh
-. "$(dirname "$0")/preview_lib.sh"
+. "$(dirname "$0")/preview_lib.sh" || exit 1
 
 t_case "a container that did not start is marked, and tried again at the next run"
 reset
