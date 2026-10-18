@@ -347,7 +347,8 @@ shows up as drift like any other file. Every program that is due is built
 before any is installed, so one that does not build stops the install before
 it has changed anything, and so does a host without `cargo`. The build is
 given no environment variable whose name holds TOKEN, SECRET, PASSWORD or
-API_KEY. Nothing calls `~/tehas/libexec/analytics` yet. The Deno
+API_KEY. The cycle and the dispatcher call `~/tehas/libexec/analytics`
+([tehasbot cycle](/tools#tehasbot-cycle), [tehas dispatch](/tools#tehas-dispatch)). The Deno
 script the console replaced, `~/tehas/libexec/console.ts`, is removed the way
 the old commands below are.
 
@@ -739,7 +740,8 @@ hold a slot for ever:
 | `docker stop` at the end of a cycle, and on a signal | 60 s | `docker kill`, bounded the same way, and the line `docker stop of tehas-work-N did not end within 60s, killing it` |
 | The console at the end of a cycle | 3 s, then 30 s after it is asked to stop (`TEHAS_CONSOLE_WAIT`) | The console is killed, with `the console did not stop within 30s, killing it` |
 | A call to GitHub in the report of a cycle that was stopped | 20 s, tried once | The call counts as refused. A label change that never happened leaves the issue `tehas:running` for the next poll |
-| The stop of a cycle, its container and its report | 300 s (`TimeoutStopSec` of `tehas-cycle@.service`) | systemd kills the unit. The worst stop within the bounds above is about 265 s |
+| A call of `~/tehas/libexec/analytics` from a cycle or a poll | 5 s, then a kill 1 s later | `WARN analytics <subcommand>: exit N`, and the cycle or the poll goes on as without it |
+| The stop of a cycle, its container and its report | 300 s (`TimeoutStopSec` of `tehas-cycle@.service`) | systemd kills the unit. The worst stop within the bounds above is about 277 s |
 | The dispatcher's fetch of the product checkout | 120 s | `WARN: could not fast-forward`, and the poll goes on |
 | A poll of the dispatcher | 1 hour (`TimeoutStartSec` of `tehas-dispatch.service`) | systemd stops it. A poll runs no planning turn and no index run, so it has none to cut off |
 | A planning turn | `TEHAS_PLAN_TIMEOUT`, then a quarter of an hour (`RuntimeMaxSec` of `tehas-plan-<issue>.service`) | The next poll reports the turn as cut off |

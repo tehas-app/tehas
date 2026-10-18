@@ -337,4 +337,115 @@ t_eq "$t_rc" 0
 t_lacks "$(t_calls gh)" "needs-human-attention"
 t_lacks "$t_out" "did not start"
 
+# The analytics program, where install.sh puts it. Each call notes what the
+# poll had done when it came: the approval record, the start, the tidy, and
+# how many times the status was refreshed.
+analytics_stub() { # [<bash body>]
+  t_stub_analytics 'printf "%s:%s%s%s%s\n" "$*" \
+  "$([ -e "$TEHAS_HOME/state/cycles/7.approved.json" ] && echo " approved")" \
+  "$([ -e "$T/calls/fake-start" ] && echo " started")" \
+  "$([ -e "$T/calls/fake-tidy" ] && echo " tidied")" \
+  " status=$(wc -l <"$T/calls/fake-status" 2>/dev/null || echo 0)" >>"$T/calls/analytics.moment"
+'"${1:-}"
+}
+
+t_case "a start records ready once the approval is written and started once the cycle runs; the poll ends with a sample and a prune"
+reset
+analytics_stub
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(t_calls analytics)" "event 7 ready
+event 7 started
+sample
+prune"
+t_eq "$(cat "$T/calls/analytics.moment")" "event 7 ready: approved status=1
+event 7 started: approved started status=1
+sample: approved started tidied status=2
+prune: approved started tidied status=2"
+t_lacks "$t_out" "analytics"
+
+t_case "a cycle that does not start is ready and not started"
+reset
+analytics_stub
+: >"$fx/start-fails"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_eq "$(t_calls analytics)" "event 7 ready
+sample
+prune"
+
+t_case "a poll that starts nothing, a held poll, a paused poll and a poll GitHub fails still sample"
+reset
+analytics_stub
+echo '[]' >"$fx/ready.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls analytics)" "sample
+prune"
+reset
+analytics_stub
+no_slice
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_eq "$(t_calls analytics)" "sample
+prune"
+reset
+analytics_stub
+echo '{"labels":[{"name":"tehas:pause"}]}' >"$fx/control.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_eq "$(t_calls analytics)" "sample
+prune"
+reset
+analytics_stub
+rm -f "$fx/repo.json"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_eq "$(t_calls analytics)" "sample
+prune"
+
+t_case "a dry run and TEHAS_ANALYTICS=off call no analytics"
+reset
+analytics_stub
+t_run "$dispatch --dry-run"
+t_eq "$t_rc" 0
+t_eq "$(t_calls analytics)" ""
+reset
+analytics_stub
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_ANALYTICS=off
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(t_calls analytics)" ""
+
+t_case "a failing analytics is a warning, and the poll starts its cycle and ends as without it"
+reset
+analytics_stub 'exit 70'
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_contains "$t_out" "WARN analytics event: exit 70"
+t_contains "$t_out" "WARN analytics sample: exit 70"
+t_contains "$t_out" "WARN analytics prune: exit 70"
+t_eq "$(grep -c "WARN analytics" <<<"$t_out")" 4
+reset
+analytics_stub 'exit 70'
+rm -f "$fx/repo.json"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+
+t_case "an analytics that hangs is cut off, and the poll goes on"
+reset
+analytics_stub 'exec sleep 30'
+T_ENV+=(TEHAS_ANALYTICS_WAIT=1)
+before=$(date +%s)
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(($(date +%s) - before < 20))" 1
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(grep -c "WARN analytics .*: exit 124" <<<"$t_out")" 4
+
 t_done
