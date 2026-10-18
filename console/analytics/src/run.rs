@@ -615,7 +615,7 @@ fn read_plain(p: &Path, limit: u64) -> Option<String> {
     Some(s)
 }
 
-fn read_json(p: &Path) -> Option<Value> {
+pub(crate) fn read_json(p: &Path) -> Option<Value> {
     serde_json::from_str(&read_plain(p, MAX_FILE)?).ok()
 }
 
