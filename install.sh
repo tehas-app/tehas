@@ -5,8 +5,9 @@
 #
 #   ./install.sh            copy changed files into place
 #   ./install.sh --check    change nothing; report settings, dependencies,
-#                           the slice, installed files and the command the
-#                           other accounts type when root's copy is stale,
+#                           the slice, installed files (content and mode) and
+#                           the command the other accounts type when root's
+#                           copy is stale,
 #                           each on its own line
 #   ./install.sh --check --tests
 #                           the same, and run the shell tests too. They take
@@ -291,13 +292,33 @@ source_of() {
   esac
 }
 
-# put <entry>: install one file if it differs.
+# put <entry>: install one file if its content or its mode differs.
 put() {
-  local src to mode from
+  local src to mode from on_disk
   IFS='|' read -r src to mode <<<"$1"
   from=$(source_of "$src")
   [ -f "$from" ] || { echo "tehas: $from is missing from this checkout" >&2; exit 1; }
-  if [ -f "$to" ] && cmp -s "$from" "$to"; then return 0; fi
+  if [ -f "$to" ] && cmp -s "$from" "$to"; then
+    # Content alone is not enough: a command that matches but is not executable,
+    # or a unit file that has picked up a wider mode, is not what this checkout
+    # installs. -L: a symlink is judged by the file it points at.
+    # A mode the list cannot name stops here, before it reaches chmod.
+    [[ $mode =~ ^[0-7]{3,4}$ ]] || { echo "tehas: the mode $mode for $src is not a number" >&2; exit 1; }
+    on_disk=$(stat -L -c %a "$to") || { echo "tehas: could not read $to" >&2; exit 1; }
+    # 0644 and 644 are the same mode written two ways.
+    on_disk=$((8#$on_disk))
+    if [ "$on_disk" = "$((8#$mode))" ]; then return 0; fi
+    changed+=("$src")
+    if [ "$check" = 1 ]; then
+      note "mode: $to is $(printf '%o' "$on_disk"), wants $mode"
+      return 0
+    fi
+    # The mode is owed, not the copy: chmod on the file in place, so no .new,
+    # no rename and no .prev beside a file whose content is already this one's.
+    chmod "$mode" "$to" || { echo "tehas: could not set mode $mode on $to" >&2; exit 1; }
+    echo "mode: $to -> $mode"
+    return 0
+  fi
   changed+=("$src")
   if [ "$check" = 1 ]; then
     if [ -f "$to" ]; then note "differs: $to"; else note "missing: $to"; fi
