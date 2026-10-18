@@ -12,9 +12,12 @@
 //!     commit of its label (7 to 40 hex), and how many processes were killed
 //!     for memory and how many forks were refused. A value of another shape
 //!     is a usage error.
-//!   analytics event <issue> <event>
+//!   analytics event <issue> <event> [--at <epoch seconds>]
 //!     Records an event of the issue, the first time only. The events are
-//!     ready, started, ended, awaiting, merged, closed and stopped.
+//!     ready, started, ended, awaiting, merged, closed and stopped. --at is
+//!     when it happened, now when not given: the dispatcher records ready at
+//!     the start, with the time tehas:ready was accepted. A time more than a
+//!     minute ahead of now is a usage error.
 //!   analytics sample
 //!     Records one sample of the factory: the issues in line, running,
 //!     awaiting a merge and stopped, the cycles allowed, the pause, the hold
@@ -54,7 +57,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const USAGE: &str = "usage: analytics run <issue> [--image <id>] [--rukas-image <commit>] [--oom <n>] [--forks <n>] | event <issue> <event> | sample | prune | export <file>";
+const USAGE: &str = "usage: analytics run <issue> [--image <id>] [--rukas-image <commit>] [--oom <n>] [--forks <n>] | event <issue> <event> [--at <epoch seconds>] | sample | prune | export <file>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -81,7 +84,7 @@ fn main() -> ExitCode {
 #[derive(Debug, PartialEq)]
 pub enum Cmd {
     Run(i64, run::Given),
-    Event(i64, String),
+    Event(i64, String, Option<i64>),
     Sample,
     Prune,
     Export(PathBuf),
@@ -95,8 +98,13 @@ fn parse(args: &[String]) -> Option<Cmd> {
     };
     match args {
         [c, n, rest @ ..] if c == "run" => Some(Cmd::Run(issue(n)?, given(rest)?)),
-        [c, n, e] if c == "event" && db::EVENTS.contains(&e.as_str()) => {
-            Some(Cmd::Event(issue(n)?, e.clone()))
+        [c, n, e, rest @ ..] if c == "event" && db::EVENTS.contains(&e.as_str()) => {
+            let at = match rest {
+                [] => None,
+                [flag, t] if flag == "--at" => Some(epoch(t)?),
+                _ => return None,
+            };
+            Some(Cmd::Event(issue(n)?, e.clone(), at))
         }
         [c] if c == "sample" => Some(Cmd::Sample),
         [c] if c == "prune" => Some(Cmd::Prune),
@@ -104,6 +112,16 @@ fn parse(args: &[String]) -> Option<Cmd> {
         _ => None,
     }
 }
+
+// Epoch seconds: digits, no leading zero, at most twelve of them.
+fn epoch(s: &str) -> Option<i64> {
+    (s == "0" || (!s.starts_with('0') && s.len() <= 12 && s.bytes().all(|b| b.is_ascii_digit())))
+        .then(|| s.parse::<i64>().ok())
+        .flatten()
+}
+
+/// How far ahead of now an event's --at may be: clocks differ a little.
+const AT_AHEAD: i64 = 60;
 
 // The options of run, each at most once.
 fn given(args: &[String]) -> Option<run::Given> {
@@ -153,6 +171,11 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
             return Err((73, format!("{} exists already", to.display())));
         }
     }
+    if let Cmd::Event(_, _, Some(at)) = cmd {
+        if *at > now + AT_AHEAD {
+            return Err((64, format!("--at {at} is more than {AT_AHEAD}s ahead of now")));
+        }
+    }
     let file = db::path(home);
     let (conn, moved) = db::open(&file, now).map_err(|e| (70, e))?;
     if moved {
@@ -170,8 +193,8 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
             }
             db::prune(&conn, now).map_err(db_err)
         }
-        Cmd::Event(issue, event) => {
-            db::event(&conn, *issue, event, now).map_err(db_err)?;
+        Cmd::Event(issue, event, at) => {
+            db::event(&conn, *issue, event, at.unwrap_or(now)).map_err(db_err)?;
             db::prune(&conn, now).map_err(db_err)
         }
         Cmd::Sample => {
