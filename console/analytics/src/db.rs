@@ -1,6 +1,6 @@
 //! The database file: opening it, the schema, events, pruning and the export.
 
-use rusqlite::{params, Connection, OpenFlags};
+use rusqlite::{params, Connection, OpenFlags, Transaction, TransactionBehavior};
 use std::fs::{self, OpenOptions};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
@@ -22,15 +22,16 @@ pub fn path(home: &Path) -> PathBuf {
 
 /// Opens the database, making it when there is none. A file that is not a
 /// database of this schema is moved to analytics.db.broken and a new one is
-/// made: the data is only ten days deep. The second value says whether that
-/// happened.
+/// made: the data is only ten days deep. Any other failure, a full disk, a
+/// file it may not write, a lock held too long, is an error and leaves the
+/// file as it is. The second value says whether a file was moved aside.
 pub fn open(file: &Path, now: i64) -> Result<(Connection, bool), String> {
     if let Some(dir) = file.parent() {
         fs::create_dir_all(dir).map_err(|e| format!("cannot make {}: {e}", dir.display()))?;
     }
     match try_open(file, now) {
         Ok(conn) => Ok((conn, false)),
-        Err(Unusable::Locked(e)) => Err(e),
+        Err(Unusable::Failed(e)) => Err(e),
         Err(Unusable::Broken(why)) => {
             let broken = file.with_extension("db.broken");
             fs::rename(file, &broken)
@@ -39,25 +40,26 @@ pub fn open(file: &Path, now: i64) -> Result<(Connection, bool), String> {
                 let _ = fs::remove_file(file.with_extension(side));
             }
             let conn = try_open(file, now).map_err(|e| match e {
-                Unusable::Locked(e) | Unusable::Broken(e) => e,
+                Unusable::Failed(e) | Unusable::Broken(e) => e,
             })?;
             Ok((conn, true))
         }
     }
 }
 
-enum Unusable {
-    // Busy or locked: another writer has it. Not a reason to move it aside.
-    Locked(String),
+pub(crate) enum Unusable {
+    // The file may be a good database: it is left alone.
+    Failed(String),
+    // The file is not a database of this schema.
     Broken(String),
 }
 
 fn classify(e: rusqlite::Error) -> Unusable {
     match e.sqlite_error_code() {
-        Some(rusqlite::ErrorCode::DatabaseBusy) | Some(rusqlite::ErrorCode::DatabaseLocked) => {
-            Unusable::Locked(format!("the database is busy: {e}"))
+        Some(rusqlite::ErrorCode::NotADatabase) | Some(rusqlite::ErrorCode::DatabaseCorrupt) => {
+            Unusable::Broken(format!("the database is not usable: {e}"))
         }
-        _ => Unusable::Broken(format!("the database is not usable: {e}")),
+        _ => Unusable::Failed(format!("the database could not be opened: {e}")),
     }
 }
 
@@ -68,9 +70,9 @@ fn try_open(file: &Path, now: i64) -> Result<Connection, Unusable> {
         .append(true)
         .mode(0o600)
         .open(file)
-        .map_err(|e| Unusable::Locked(format!("cannot open {}: {e}", file.display())))?;
+        .map_err(|e| Unusable::Failed(format!("cannot open {}: {e}", file.display())))?;
     let _ = fs::set_permissions(file, fs::Permissions::from_mode(0o600));
-    let conn = Connection::open_with_flags(
+    let mut conn = Connection::open_with_flags(
         file,
         OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
@@ -87,35 +89,56 @@ fn try_open(file: &Path, now: i64) -> Result<Connection, Unusable> {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .map_err(classify)?;
-    if version == 0 {
-        let tables: i64 = conn
-            .query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get(0))
-            .map_err(classify)?;
-        if tables != 0 {
-            return Err(Unusable::Broken(
-                "the database has tables but no schema version".to_string(),
-            ));
-        }
-    } else if version != SCHEMA_VERSION {
-        // No migration exists yet: a schema this program does not know is
-        // moved aside, as a broken file is.
-        return Err(Unusable::Broken(format!(
-            "the database has schema {version}, this program writes {SCHEMA_VERSION}"
-        )));
-    }
+    settle(&mut conn, version, now)?;
     // Only now: a file that is moved aside is moved as it was found.
     conn.pragma_update(None, "journal_mode", "WAL")
         .map_err(classify)?;
     conn.pragma_update(None, "foreign_keys", "ON")
         .map_err(classify)?;
-    if version == 0 {
-        create(&conn, now).map_err(classify)?;
-    }
     Ok(conn)
 }
 
-fn create(conn: &Connection, now: i64) -> rusqlite::Result<()> {
-    let tx = conn.unchecked_transaction()?;
+/// Makes the schema of a database whose user_version read `seen`. The
+/// version is read again under a write lock: another program may have made
+/// the schema since, and its database is not a broken one.
+pub(crate) fn settle(conn: &mut Connection, seen: i64, now: i64) -> Result<(), Unusable> {
+    if seen == SCHEMA_VERSION {
+        return Ok(());
+    }
+    if seen != 0 {
+        // No migration exists yet: a schema this program does not know is
+        // moved aside, as a broken file is.
+        return Err(Unusable::Broken(format!(
+            "the database has schema {seen}, this program writes {SCHEMA_VERSION}"
+        )));
+    }
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(classify)?;
+    let version: i64 = tx
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .map_err(classify)?;
+    if version == SCHEMA_VERSION {
+        return Ok(());
+    }
+    if version != 0 {
+        return Err(Unusable::Broken(format!(
+            "the database has schema {version}, this program writes {SCHEMA_VERSION}"
+        )));
+    }
+    let tables: i64 = tx
+        .query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get(0))
+        .map_err(classify)?;
+    if tables != 0 {
+        return Err(Unusable::Broken(
+            "the database has tables but no schema version".to_string(),
+        ));
+    }
+    create(&tx, now).map_err(classify)?;
+    tx.commit().map_err(classify)
+}
+
+fn create(tx: &Transaction, now: i64) -> rusqlite::Result<()> {
     tx.execute_batch(SCHEMA)?;
     for (key, value) in [
         ("schema", SCHEMA_VERSION.to_string()),
@@ -127,8 +150,7 @@ fn create(conn: &Connection, now: i64) -> rusqlite::Result<()> {
             params![key, value],
         )?;
     }
-    tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
-    tx.commit()
+    tx.pragma_update(None, "user_version", SCHEMA_VERSION)
 }
 
 /// Records an issue's event, the first time only. Returns whether it was new.
@@ -141,7 +163,9 @@ pub fn event(conn: &Connection, issue: i64, event: &str, at: i64) -> rusqlite::R
 }
 
 /// Deletes what is older than ten days. A run is as old as its end. The
-/// events of an issue that started and has not ended stay until it ends.
+/// events of an issue that started and has not ended stay past the cutoff
+/// while the start is less than a day older than it: no cycle runs a day, so
+/// an issue whose end was never recorded does not keep its events for ever.
 pub fn prune(conn: &Connection, now: i64) -> rusqlite::Result<()> {
     let cutoff = now - RETENTION_DAYS * DAY;
     let tx = conn.unchecked_transaction()?;
@@ -151,9 +175,9 @@ pub fn prune(conn: &Connection, now: i64) -> rusqlite::Result<()> {
     )?;
     tx.execute(
         "DELETE FROM issue_events WHERE at < ?1 AND issue NOT IN (
-           SELECT issue FROM issue_events WHERE event = 'started'
+           SELECT issue FROM issue_events WHERE event = 'started' AND at >= ?2
            EXCEPT SELECT issue FROM issue_events WHERE event = 'ended')",
-        [cutoff],
+        [cutoff, cutoff - DAY],
     )?;
     tx.execute("DELETE FROM samples WHERE at < ?1", [cutoff])?;
     tx.commit()

@@ -1,7 +1,7 @@
 //! The program against the headless runner's fixtures, in scratch homes.
 
 use crate::db;
-use crate::run::{self, iso_ms};
+use crate::run::{self, iso_ms, Given};
 use crate::{execute, parse, Cmd};
 use rusqlite::Connection;
 use serde_json::{json, Value};
@@ -60,7 +60,7 @@ fn history(home: &Path, issue: i64, lines: &[Value]) {
 }
 
 fn record(home: &Path, issue: i64, now: i64) -> Connection {
-    execute(home, &Cmd::Run(issue), now).unwrap();
+    execute(home, &Cmd::Run(issue, Given::default()), now).unwrap();
     Connection::open(db::path(home)).unwrap()
 }
 
@@ -369,8 +369,21 @@ fn a_run_with_no_result_is_stored_with_tehas_s_status_and_times() {
             &[json!({"at": iso(started + 3600), "started": started, "rc": rc, "status": status,
                      "step": "implement", "cap": cap, "parked": true, "provider": false})],
         );
-        put(&home, "state/cycles/12.oom", "4\n");
-        let conn = record(&home, 12, started + 3700);
+        // What libexec/cycle passes on. The files it removed are not read.
+        put(&home, "state/cycles/12.oom", "9\n");
+        put(&home, "state/cycles/12.image", &format!("sha256:{} 1111111\n", "e".repeat(64)));
+        let given = Given {
+            image: Some(format!("sha256:{}", "a".repeat(64))),
+            rukas_image: Some("abc1234".into()),
+            oom: Some(4),
+            forks: Some(2),
+        };
+        execute(&home, &Cmd::Run(12, given), started + 3700).unwrap();
+        let conn = Connection::open(db::path(&home)).unwrap();
+        assert_eq!(
+            one::<String>(&conn, "SELECT image || ' ' || rukas_commit || ' ' || forks_refused FROM runs"),
+            format!("sha256:{} abc1234 2", "a".repeat(64))
+        );
         let row: (String, i64, i64, i64, i64, String, String, Option<String>, i64) = conn
             .query_row(
                 "SELECT status, exit_code, started, ended, seconds, outcome, last_step, cap,
@@ -437,7 +450,7 @@ fn attempt_counts_earlier_runs_and_how_is_kept() {
         "3 fixer 100"
     );
     // Recorded again, it replaces itself.
-    execute(&home, &Cmd::Run(9), t + 3000).unwrap();
+    execute(&home, &Cmd::Run(9, Given::default()), t + 3000).unwrap();
     assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM runs"), 1);
 }
 
@@ -499,6 +512,58 @@ fn a_failure_cause_is_masked_and_cut() {
 }
 
 #[test]
+fn the_history_s_cause_is_taken_before_the_result_s() {
+    let home = scratch("historycause");
+    let started = secs("2026-10-18T10:16:39Z");
+    cycle(
+        &home,
+        "headless-316134e",
+        started,
+        json!({"at": iso(started + 30), "started": started, "rc": 10, "status": "handoff",
+               "failure_kind": "provider", "failure_cause": "ECONNREFUSED"}),
+    );
+    let path = home.join("state/cycles/7.result.json");
+    let mut r: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    r["issues"][0]["failure"] = json!({"kind": "provider", "cause": "a long raw text"});
+    fs::write(&path, r.to_string()).unwrap();
+    let conn = record(&home, 7, started + 60);
+    assert_eq!(one::<String>(&conn, "SELECT failure_cause FROM runs"), "ECONNREFUSED");
+}
+
+#[test]
+fn a_raw_cause_loses_its_hosts_addresses_and_keys() {
+    let cases = [
+        ("connect ECONNREFUSED models.example:8000", "connect ECONNREFUSED [host]"),
+        ("git@host.tld:org/repo not found", "[address]:org/repo not found"),
+        (
+            "Incorrect API key provided: sk-abc123def456ghi789jkl0",
+            "Incorrect API key provided: sk-***",
+        ),
+        ("slack xoxb-1234-abcdefgh said no", "slack xoxb-*** said no"),
+        ("aws AKIAABCDEFGHIJKLMNOP denied", "aws AKIA*** denied"),
+        (
+            "jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl expired",
+            "jwt [jwt] expired",
+        ),
+        (
+            "key -----BEGIN RSA PRIVATE KEY-----\nMIIBOgIBAAJB\n-----END RSA PRIVATE KEY----- leaked",
+            "key [private key] leaked",
+        ),
+        ("dial [2001:db8::1]:443 failed", "dial [[address]]:443 failed"),
+        ("GET https://api.example.com/v1 503", "GET https://[host]/v1 503"),
+        ("lookup api.example.com: no such host", "lookup [host]: no such host"),
+        // Not hosts: a version, a file, a time.
+        (
+            "tehas v0.7.22 could not read result.json at 18:38:44",
+            "tehas v0.7.22 could not read result.json at 18:38:44",
+        ),
+    ];
+    for (raw, want) in cases {
+        assert_eq!(run::cause(raw), want, "{raw}");
+    }
+}
+
+#[test]
 fn a_backup_endpoint_is_read_from_the_preflight_log() {
     let home = scratch("backup");
     let started = secs("2026-10-18T10:16:39Z");
@@ -520,13 +585,13 @@ fn a_backup_endpoint_is_read_from_the_preflight_log() {
 #[test]
 fn an_issue_without_history_records_nothing() {
     let home = scratch("nohistory");
-    assert_eq!(execute(&home, &Cmd::Run(5), 1_792_000_000).unwrap_err().0, 65);
+    assert_eq!(execute(&home, &Cmd::Run(5, Given::default()), 1_792_000_000).unwrap_err().0, 65);
     assert!(!db::path(&home).exists());
     // A link is not read.
     let target = home.join("elsewhere.jsonl");
     fs::write(&target, "{\"started\": 1, \"at\": \"2026-10-18T10:16:39Z\"}\n").unwrap();
     std::os::unix::fs::symlink(&target, home.join("state/cycles/5.history.jsonl")).unwrap();
-    assert_eq!(execute(&home, &Cmd::Run(5), 1_792_000_000).unwrap_err().0, 65);
+    assert_eq!(execute(&home, &Cmd::Run(5, Given::default()), 1_792_000_000).unwrap_err().0, 65);
 }
 
 #[test]
@@ -556,6 +621,10 @@ fn prune_removes_rows_older_than_ten_days_and_keeps_a_running_run_s_events() {
         (1, "ended", old),
         (3, "ready", old),
         (3, "started", old),
+        // Started a day and more before the cutoff, never ended: no cycle
+        // runs that long, so it goes like any other.
+        (6, "ready", now - 12 * DAY),
+        (6, "started", now - 11 * DAY - 1),
         (2, "ready", now - DAY),
     ] {
         db::event(&conn, issue, event, at).unwrap();
@@ -581,6 +650,68 @@ fn prune_removes_rows_older_than_ten_days_and_keeps_a_running_run_s_events() {
         one::<String>(&conn, "SELECT group_concat(issue || ':' || event, ' ') FROM issue_events"),
         "2:ready 3:ended"
     );
+}
+
+#[test]
+fn a_database_another_program_made_meanwhile_is_not_moved_aside() {
+    let home = scratch("race");
+    let file = db::path(&home);
+    let now = 1_792_000_000;
+    // Both read user_version 0; the other made the schema before this one
+    // took the write lock.
+    let mut late = Connection::open(&file).unwrap();
+    db::open(&file, now).unwrap();
+    assert!(db::settle(&mut late, 0, now + 5).is_ok());
+    assert_eq!(one::<String>(&late, "SELECT value FROM meta WHERE key = 'created'"), "1792000000");
+    assert!(!home.join("state/analytics.db.broken").exists());
+}
+
+#[test]
+fn programs_that_open_a_new_database_at_once_all_get_it() {
+    let home = scratch("concurrent");
+    let file = db::path(&home);
+    let openers: Vec<_> = (0..8)
+        .map(|i| {
+            let file = file.clone();
+            std::thread::spawn(move || {
+                let (conn, moved) = db::open(&file, 1_792_000_000).unwrap();
+                db::event(&conn, i, "ready", 1_792_000_000).unwrap();
+                moved
+            })
+        })
+        .collect();
+    for o in openers {
+        assert!(!o.join().unwrap(), "a valid database was moved aside");
+    }
+    assert!(!home.join("state/analytics.db.broken").exists());
+    let conn = Connection::open(&file).unwrap();
+    assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 8);
+    assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM meta"), 3);
+}
+
+#[test]
+fn a_database_that_cannot_be_written_is_an_error_and_stays() {
+    let now = 1_792_000_000;
+    // A file of its own that may not be written.
+    let home = scratch("readonly-file");
+    let file = db::path(&home);
+    execute(&home, &Cmd::Event(1, "ready".into()), now).unwrap();
+    let before = fs::read(&file).unwrap();
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o400)).unwrap();
+    assert_eq!(execute(&home, &Cmd::Event(2, "ready".into()), now).unwrap_err().0, 70);
+    assert!(fs::read(&file).unwrap() == before);
+    assert!(!home.join("state/analytics.db.broken").exists());
+    // A directory it may not write in, with the database in it.
+    let home = scratch("readonly-dir");
+    let file = db::path(&home);
+    execute(&home, &Cmd::Event(1, "ready".into()), now).unwrap();
+    let state = home.join("state");
+    fs::set_permissions(&state, fs::Permissions::from_mode(0o500)).unwrap();
+    let err = execute(&home, &Cmd::Event(2, "ready".into()), now);
+    fs::set_permissions(&state, fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(err.unwrap_err().0, 70);
+    assert!(file.is_file());
+    assert!(!home.join("state/analytics.db.broken").exists());
 }
 
 #[test]
@@ -671,11 +802,13 @@ fn export_writes_a_copy_that_opens_with_the_same_version_mode_0600_and_nothing_p
     let path = home.join("state/cycles/7.result.json");
     let mut r: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
     r["issues"][0]["failure"] = json!({"kind": "provider",
-        "cause": format!("GET https://user:hunter2@models.example/v1 from {} and {} with Bearer abcdefghijklmnopqrstuvwxyz",
+        "cause": format!("GET https://user:hunter2@models.example/v1 from {} and {} with Bearer abcdefghijklmnopqrstuvwxyz; \
+            connect ECONNREFUSED models.example:8000; git@host.tld:org/repo; \
+            Incorrect API key provided: sk-abc123def456ghi789jkl0; dial fe80::1%eth0 and 2001:db8::7",
             ip([10, 0, 0, 7]), ip([203, 0, 113, 9]))});
     fs::write(&path, r.to_string()).unwrap();
     let now = started + 60;
-    execute(&home, &Cmd::Run(7), now).unwrap();
+    execute(&home, &Cmd::Run(7, Given::default()), now).unwrap();
     execute(&home, &Cmd::Event(7, "ready".into()), now).unwrap();
     let out = home.join("copy.db");
     execute(&home, &Cmd::Export(out.clone()), now).unwrap();
@@ -686,9 +819,13 @@ fn export_writes_a_copy_that_opens_with_the_same_version_mode_0600_and_nothing_p
     assert_eq!(one::<i64>(&copy, "SELECT count(*) FROM run_steps"), 2);
     // Every text value of every table: no token, no URL with a host, no
     // address.
-    let token = regex::Regex::new(r"gh[pousr]_[A-Za-z0-9]{8}|github_pat_|(?i)bearer [A-Za-z0-9]{8}|:[^@/\s]+@").unwrap();
-    let url = regex::Regex::new(r"(?i)[a-z]+://[A-Za-z0-9.-]+").unwrap();
-    let address = regex::Regex::new(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b").unwrap();
+    let token = regex::Regex::new(
+        r"gh[pousr]_[A-Za-z0-9]{8}|github_pat_|(?i)bearer [A-Za-z0-9]{8}|:[^@/\s]+@|sk-[A-Za-z0-9]{6}|@",
+    )
+    .unwrap();
+    let url = regex::Regex::new(r"(?i)[a-z]+://[A-Za-z0-9.-]+|models\.example|host\.tld").unwrap();
+    let address =
+        regex::Regex::new(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b|(?i)[0-9a-f]+::[0-9a-f]+").unwrap();
     let tables: Vec<String> = copy
         .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
         .unwrap()
@@ -798,7 +935,38 @@ fn iso_times_are_read_as_utc() {
 #[test]
 fn the_arguments_are_checked() {
     let args = |s: &str| s.split(' ').map(str::to_string).collect::<Vec<_>>();
-    assert_eq!(parse(&args("run 12")), Some(Cmd::Run(12)));
+    assert_eq!(parse(&args("run 12")), Some(Cmd::Run(12, Given::default())));
+    let image = format!("sha256:{}", "0f".repeat(32));
+    assert_eq!(
+        parse(&args(&format!(
+            "run 12 --oom 0 --image {image} --forks 3 --rukas-image 1234abc"
+        ))),
+        Some(Cmd::Run(
+            12,
+            Given {
+                image: Some(image.clone()),
+                rukas_image: Some("1234abc".into()),
+                oom: Some(0),
+                forks: Some(3),
+            }
+        ))
+    );
+    for bad in [
+        "run 12 --oom".to_string(),
+        "run 12 --oom -1".into(),
+        "run 12 --oom 01".into(),
+        "run 12 --forks 1234567890".into(),
+        "run 12 --forks x".into(),
+        "run 12 --image sha256:abc".into(),
+        format!("run 12 --image {}", "0f".repeat(32)),
+        format!("run 12 --image sha256:{}", "0F".repeat(32)),
+        "run 12 --rukas-image 123456".into(),
+        "run 12 --rukas-image xyz1234".into(),
+        "run 12 --oom 1 --oom 2".into(),
+        "run 12 --other 1".into(),
+    ] {
+        assert_eq!(parse(&args(&bad)), None, "{bad}");
+    }
     assert_eq!(parse(&args("event 12 merged")), Some(Cmd::Event(12, "merged".into())));
     assert_eq!(parse(&args("prune")), Some(Cmd::Prune));
     assert_eq!(parse(&args("export /tmp/x.db")), Some(Cmd::Export("/tmp/x.db".into())));
@@ -855,7 +1023,7 @@ fn run_reads_nothing_through_a_link() {
     let moved = home.join("result.json");
     fs::rename(&result, &moved).unwrap();
     std::os::unix::fs::symlink(&moved, &result).unwrap();
-    let r = run::read(&home, 7).unwrap();
+    let r = run::read(&home, 7, &Given::default()).unwrap();
     assert_eq!(r.result_schema, None);
     assert_eq!(r.runner_ms, None);
 }
