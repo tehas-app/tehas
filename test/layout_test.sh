@@ -7,7 +7,7 @@
 # any path.
 # shellcheck disable=SC2016  # the samples are lines of code, not expanded
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 # Per-project paths named under TEHAS_HOME, as extended regular expressions.
 per_project='TEHAS_HOME\}?"?/(state|live|logs|work|dev|protolab|preview)(/|"|$)|TEHAS_HOME\}?"?/repos/[^p]|TEHAS_HOME\}?"?/repos/\$|TEHAS_HOME\}?"?/tmp/improve'
