@@ -54,6 +54,73 @@ In the example the platform and the product are the same repository. They are
 still two clones. A merged pull request changes the running factory only when a
 person pulls `~/tehas/platform` and runs `install.sh`.
 
+## What a factory machine needs
+
+A factory is one machine. Nothing of it is shared with another factory: not
+the Docker daemon, not the ports the edge publishes, not the Unix user, not
+the name it is known by. A program that creates factories, such as
+[tehas-industry](/api), gets one machine per factory and runs the same two
+commands a person does.
+
+| Needs                                          | Why                                                                                                                    |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| systemd, and lingering on for the tehas user    | The dispatcher is a systemd user timer. `loginctl enable-linger` is what lets it poll when nobody is logged in. `sudo ./bootstrap.sh root` enables it |
+| A Docker daemon of its own                     | Every cycle, planning turn and index run is a container here. Sharing a daemon with another factory would put its containers in this factory's slice, and let one factory stop another's cycles |
+| The published ports to itself                  | The docs server answers on port 8080 of `TEHAS_HOST_ADDR` and the edge router on 8081. Two factories on one host would want the same ports |
+| One Unix user who is in the `docker` group     | Everything tehas runs belongs to that user. The group makes it root-equivalent on this host, which is why the host is not shared |
+| `~/.config/tehas/env`, mode 600                | The bot's GitHub token, the model endpoints' tokens, and the energy switches. Never in git. See [Secrets and trust](#secrets-and-trust) |
+| An instance directory of its own               | `instance.env` and `models.json`, found through `~/.config/tehas/instance-dir`. See [Instance settings](#instance-settings) |
+| Its own `TEHAS_DOMAIN`                         | The edge makes `uat-<pr>.` and `lab-<issue>.` names under it. Two factories under one domain answer each other's previews |
+| The model gateway's `baseUrl` and key, when it uses one | `baseUrl` of the provider in `models.json`, with the token as `$TEHAS_MODEL_KEY_<NAME>` in `~/.config/tehas/env`. See [A backup model endpoint](#a-backup-model-endpoint) |
+| `TEHAS_ENERGY_URL`, when the model is behind a gateway | The energy sampler asks `<baseUrl>/v1/cluster` with the model's token. A gateway that does not pass that path through needs the cluster URL named here, asked with no token. See [`tehasbot energy`](/tools#tehasbot-energy) |
+| Disk for the sandbox image                     | About 10 GB once built, plus the product's own needs. [Bootstrap](/bootstrap#what-the-machine-needs) has the rest |
+
+## Installing a factory
+
+Two commands, run in this order, and run again as often as the platform
+changes. Neither asks a question, so a program can run them with nothing on
+standard input and nothing to answer:
+
+```
+sudo ./bootstrap.sh root <user>   # packages, Docker, the docker group, linger, the slice
+./bootstrap.sh user               # the pinned tools, as the tehas user
+./bootstrap.sh check              # one line per tool, and one for the slice
+# the instance's instance.env and models.json are in place, and
+# ~/.config/tehas/instance-dir names the directory, or instance.env sits in
+# ~/.config/tehas itself; the bot's token and the model tokens are in
+# ~/.config/tehas/env, mode 600
+./install.sh                      # copy what this checkout has that the host lacks
+./install.sh --check              # must exit 0 on a machine installed as the instance says
+```
+
+`install.sh` takes the instance from the host, as every command does: from
+`TEHAS_INSTANCE_DIR`, else the one-line `~/.config/tehas/instance-dir`, else
+`~/.config/tehas` itself. It takes no argument, so the first install and the
+hundredth are the same command. See [Instance settings](#instance-settings).
+
+Re-running them is safe. `install.sh` copies only the files that differ, keeps
+the old one as `<name>.prev`, and takes `~/tehas/state/update.lock` so two runs
+cannot overlap; a run that dies partway leaves its follow-ups owed and
+`--check` says so. `bootstrap.sh` leaves a tool it did not install alone.
+
+What an unattended run refuses to get past, and what each one means:
+
+| The run stops with                             | What the machine is missing                                                      |
+| ---------------------------------------------- | -------------------------------------------------------------------------------- |
+| `tehas: <NAME> is not set (see …/instance.env)`, exit 78 | The instance directory, or a setting of it. Nothing is installed and nothing is written |
+| `tehas: cargo is not installed…`               | `bootstrap.sh root` has not run, so the build tools are not there                |
+| `tehas: no slice file on this host`            | `sudo ./bootstrap.sh slice`, which is root's, and `--check` stays red until it has run |
+| a model key finding                            | `~/.config/tehas/env` does not hold a `TEHAS_MODEL_KEY_<NAME>` that `models.json` names |
+
+`--check` exits 0 only when the instance loads, the slice file is the one this
+checkout ships, the installed files match it, and no follow-up is still owed.
+The lines it prints and what each one reports are in
+[Configuration comes from git](#configuration-comes-from-git).
+
+Whether this really works on a machine no one has prepared by hand is proven
+on the [features page](/features); the test there is industry's first
+acceptance test, and what it finds broken is fixed here.
+
 ## Instance settings
 
 Everything that differs between instances is in the instance directory:
@@ -85,7 +152,9 @@ Rules that hold for every command:
 - Loading settings runs no git command, makes no network call and writes
   nothing.
 - `instance.env` is shell, sourced as written. Keep it writable by the tehas
-  user only. `./install.sh --check` reports it if it is not.
+  user only. `./install.sh --check` reports it if it is not, and reads the
+  file no further once it has a finding: the owner and mode of the instance
+  directory and of `instance.env` are checked before the settings are read.
 
 The settings and their defaults are listed on the [commands page](/tools) and,
 with comments, in `instances/example/instance.env`.
@@ -154,6 +223,7 @@ the first time, before `tehas update` exists there:
 ```
 cd ~/tehas/platform && git pull
 ./install.sh --check     # change nothing, report up to eight results
+./install.sh --check --tests   # the same, and run the shell tests
 ./install.sh             # copy changed files into place, keep <name>.prev
 ```
 
@@ -164,7 +234,8 @@ an issue and the retry tick, are not in a repository until it has been.
 `--check` prints one line each for the instance settings, the host's tools, the
 slice, whether the sandbox image reads a cycle's images (`Images:`), the
 installed files, the command the other accounts type where root installed one,
-the follow-ups an earlier run left undone, and the tests. Three of the eight
+the follow-ups an earlier run left undone, and the tests. The tests run only
+with `--tests`; otherwise the line says `not run`. Three of the eight
 appear only where there is something to say, so a current host prints five
 lines, each `OK`. The sample below is a host with a follow-up owed and no
 root-installed copy:
@@ -176,8 +247,14 @@ Slice:        MISSING (sudo ./bootstrap.sh slice)
 Installed:    DRIFT (1 files)
   differs: /home/boss/tehas/libexec/dispatch
 Follow-ups:   NOT DONE (2 from an earlier run, see /home/boss/tehas/state/update-pending)
-Tests:        OK
+Tests:        not run (./install.sh --check --tests runs them)
 ```
+
+The installed files are compared by content and by mode: a command that matches
+the checkout byte for byte but is mode 644 where the file list says 755 is not
+installed. `--check` says `mode: <path> is 644, wants 755` and exits 1; a real
+run sets the mode with `chmod` and copies the file again only when its content
+differs too.
 
 The `Follow-ups:` line appears only while `~/tehas/state/update-pending` still
 holds steps that were asked for and never ran. While it does, `--check`
@@ -390,10 +467,13 @@ fails mid-cycle, Pi retries it as [Provider retry](#provider-retry) says, and
 the next cycle starts on the backup. The improvement loop and the image
 descriptions pick the same way.
 
-The energy sampler asks the main endpoint's cluster URL, then the backup's,
-each with its token, and samples the first that is a viiwork mesh. So a main
-endpoint that is not viiwork and a viiwork backup still give the Energy use
-section.
+The energy sampler asks the endpoint the dispatcher settled on for the
+subagent provider, the one word in `~/tehas/live/dispatch.json`, and samples
+it only when it is a viiwork mesh. The cycles and the meter are then the same
+endpoint. With no word in that file, because the dispatcher has not settled
+one yet, it asks the main endpoint and then the backup as before, so an update
+of the dispatcher never blanks the floor. An endpoint that is not viiwork gives
+no meter, even when the backup is one: the section hides.
 
 ## Provider retry
 
@@ -633,17 +713,21 @@ ever:
 | A call to GitHub in the report of a cycle that was stopped | 20 s, tried once | The call counts as refused. A label change that never happened leaves the issue `tehas:running` for the next poll |
 | The stop of a cycle, its container and its report | 300 s (`TimeoutStopSec` of `tehas-cycle@.service`) | systemd kills the unit. The worst stop within the bounds above is about 265 s |
 | The dispatcher's fetch of the product checkout | 120 s | `WARN: could not fast-forward`, and the poll goes on |
-| A poll of the dispatcher | 3 hours (`TimeoutStartSec` of `tehas-dispatch.service`) | systemd stops it. A planning turn it cut off is reported by the next poll |
+| A poll of the dispatcher | 1 hour (`TimeoutStartSec` of `tehas-dispatch.service`) | systemd stops it. A poll runs no planning turn and no index run, so it has none to cut off |
+| A planning turn | `TEHAS_PLAN_TIMEOUT`, then a quarter of an hour (`RuntimeMaxSec` of `tehas-plan-<issue>.service`) | The next poll reports the turn as cut off |
+| The code index | 30 minutes for the indexer, then 40 minutes for the unit (`RuntimeMaxSec` of `tehas-index.service`) | The index stays as it was. The next poll starts the cycles |
 
 `tehas-cycle@.service` stops a cycle after 8 hours (`RuntimeMaxSec`), as the
 last bound for a hang that none of these reaches. The stop is a TERM, and the
 cycle is reported as one that stopped. A unit cannot read the instance's
 settings, so `TEHAS_WORK_TIMEOUT` may be at most 25200, 7 hours: a longer one
 is refused with exit 78. The hour between is for the stop and the report.
-`TEHAS_PLAN_TIMEOUT` may be at most 7200. A planning turn runs as its own
-unit, not inside a poll, so it holds no poll and no lock. A poll that finds the
-dispatcher's lock held for longer than `TEHAS_PLAN_TIMEOUT` plus half an hour
-says so once in the log, as [troubleshooting](/troubleshooting) shows.
+`TEHAS_PLAN_TIMEOUT` may be at most 7200, 2 hours: the unit of a turn runs to
+the limit plus a quarter of an hour, and one turn runs at a time. A planning
+turn and the index run each run as their own unit, not inside a poll, so they
+hold no poll and not its lock. A poll that finds the dispatcher's lock held
+for longer than half an hour says so once in the log, as
+[troubleshooting](/troubleshooting) shows.
 
 `TEHAS_TICKET_CONCURRENCY` sets the most issues worked on side by side, each
 in a cycle, a container and a workspace of its own. It defaults to the host's
@@ -928,8 +1012,10 @@ that cycle ran.
 | Service     | How it runs                                                | Check                                                  |
 | ----------- | ---------------------------------------------------------- | ------------------------------------------------------ |
 | This site   | `docker compose -f ~/tehas/edge/docs.compose.yaml up -d`   | `curl -i http://tehas-tehas:8080/health`               |
-| Dispatcher  | systemd user timer `tehas-dispatch.timer`, every 2 minutes, and `tehas-dispatch.path`, a poll as soon as a cycle ends | `tail ~/tehas/logs/dispatch.log`                       |
-| Energy use sampler, optional | systemd user service `tehas-energy.service`, every 15 s. Enable it only when the model backend is a [viiwork](https://github.com/janit/viiwork) mesh | `jq .generatedAt ~/tehas/live/energy.json` |
+| Dispatcher  | systemd user timer `tehas-dispatch.timer`, every 2 minutes, and `tehas-dispatch.path`, a poll as soon as a cycle, a planning turn or an index run ends | `tail ~/tehas/logs/dispatch.log`                       |
+| Planning turn | a unit the poll starts, `tehas-plan-<issue>.service`, one at a time. systemd stops it a quarter of an hour after `TEHAS_PLAN_TIMEOUT` | `tail ~/tehas/logs/dispatch-plan-<issue>.log` |
+| Code index | a unit the poll starts, `tehas-index.service`, before cycles start on an idle host. systemd stops it after 40 minutes | `tail ~/tehas/logs/dispatch-index.log` |
+| Energy use sampler, optional | systemd user service `tehas-energy.service`, every 15 s. It asks the endpoint the dispatcher settled on, the word in `~/tehas/live/dispatch.json`. Enable it only when the model backend is a [viiwork](https://github.com/janit/viiwork) mesh | `jq .generatedAt ~/tehas/live/energy.json` |
 | Host snapshot publisher, optional | systemd user service `tehas-top.service`, every 5 s. It writes nothing unless `TEHAS_TOP=1` | `jq '.host.cpus, .host.load' ~/tehas/live/top.json` |
 | Protolab pages | systemd user timer `tehas-protolab.timer`, every 5 minutes | `tail ~/tehas/logs/protolab.log` |
 | Improvement loop, optional | systemd user timer `tehas-improve.timer`, every 3 hours. It does nothing unless `TEHAS_IMPROVE_REPO` is set | `tail ~/tehas/logs/improve.log` |

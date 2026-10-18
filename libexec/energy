@@ -21,10 +21,14 @@
 # and . + _ -, at most 40 characters. Addresses, node ids and GPUs are not
 # copied. Deterministic, no model, one HTTP call.
 #
-# The mesh is the one the factory's model provider points at (models.json),
-# its main endpoint or else its backup, asked with the endpoint's token,
-# unless TEHAS_ENERGY_URL names a cluster URL, which is asked with none.
-# TEHAS_ENERGY=off removes the file, and with it the section.
+# The mesh is the one the factory's subagent provider is on. The dispatcher
+# settles that endpoint every poll and writes the word main or backup in
+# live/dispatch.json; the sampler asks only that endpoint, with the endpoint's
+# token. With no word there, because the dispatcher has not settled one yet,
+# it asks main and then its backup as before, so an update of the dispatcher
+# never blanks the floor. TEHAS_ENERGY_URL names a cluster URL instead, which
+# is asked with none. TEHAS_ENERGY=off removes the file, and with it the
+# section.
 #
 #   one answers with a cluster snapshot        the file is rewritten
 #   else one gives no answer, a timeout, a     the file is left as it is
@@ -63,17 +67,25 @@ if [ "${TEHAS_ENERGY:-}" = off ]; then
   exit 0
 fi
 
-# Where to ask: TEHAS_ENERGY_URL, else the provider's endpoint and then its
-# backup, each with its token. The first that answers with a cluster snapshot
-# is sampled. With none, one that did not answer or was busy leaves the file
-# as it is, and otherwise it is removed.
+# Where to ask: TEHAS_ENERGY_URL, else the endpoint the dispatcher named for
+# the subagent provider, and with none named, the provider's main endpoint and
+# then its backup, each with its token. The first that answers with a cluster
+# snapshot is sampled. With none, one that did not answer or was busy leaves
+# the file as it is, and otherwise it is removed.
 models_file=${TEHAS_MODELS_FILE:-$HOME/.pi/agent/models.json}
 provider=${PI_ENSEMBLE_SUBAGENT_PROVIDER:-fleet}
+# The one word the last poll settled on; anything else is no word at all.
+wanted=$(jq -r '.endpoint // ""' "$live/dispatch.json" 2>/dev/null) || wanted=""
+case "$wanted" in main | backup) ;; *) wanted="" ;; esac
 asks=()
 if [ -n "${TEHAS_ENERGY_URL:-}" ]; then
   asks=("$TEHAS_ENERGY_URL|")
 else
-  for end in main backup; do
+  ends=(main backup)
+  # The named endpoint alone, so an endpoint the cycles are not on cannot
+  # answer for the factory's draw. When no endpoint is named, both are asked.
+  [ -z "$wanted" ] || ends=("$wanted")
+  for end in "${ends[@]}"; do
     base=$(tehas_endpoint_url "$provider" "$end" "$models_file")
     [ -n "$base" ] || continue
     base=${base%/}

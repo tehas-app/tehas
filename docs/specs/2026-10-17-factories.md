@@ -138,7 +138,27 @@ prints the same facts as one object, with the demand added:
 - `demand.waiting` counts issues that would start now if there were room:
   accepted and through every check a start makes today. `oldestWait` is
   seconds since the first of them was accepted.
-- `hold` is null when nothing holds.
+- `hold` is null when nothing holds. `hold.why` is an open list of words
+  (`pause`, `slice`, `unreadable`, `resources`, `count`, `awaiting`,
+  `pressure`, `room`, `full`, and `limit` with step 3); `hold.text` is for a
+  person and not parsed.
+- A field without a value is left out, never null: `limit` with no limit is
+  `{"state": "none"}`, an unreadable one `{"state": "unreadable"}`, an
+  expired one keeps what was set; `running[].step` and `demand.oldestWait`
+  are left out when unknown or when nothing waits. `demand` is null when no
+  poll counted it in ten minutes, `room` when no poll got to the room check.
+- `room` is the room left under each of the factory's own caps: `cycles`
+  under `TEHAS_TICKET_CONCURRENCY` alone, `maxAwaiting` under
+  `TEHAS_MAX_AWAITING`, `slice` in `tehas.slice`. A figure the poll did not
+  read is left out. The limit never enters these: a program that sets the
+  limit reads them as what the factory could start without it. *(Built in
+  #301.)* `room.limit` is the room under the limit: its cycles less those
+  running, 0 when it expired or cannot be read, left out without a limit.
+- *(Built in #299.)* `demand.waiting` counts `tehas:ready` applied last by an
+  allowed account or the fixer, with no cycle or planning session open. The
+  checks a start makes on top (text unchanged, no open pull request, the
+  fixer's grant) are not repeated for the count: they cost a call each per
+  poll.
 
 For this the dispatcher writes the demand, pause, all-hands and limit
 state where `tehas status` reads them on **every** poll that gets past the
@@ -155,6 +175,9 @@ tehas limit [--json]                         show the limit, or "none"
 tehas limit set --cycles N [--plan on|off] [--for SECONDS | --until TIME] [--reason TEXT]
 tehas limit clear
 ```
+
+`tehas limit --json` prints status's `limit` object with `"api": 1` and
+`reason` added.
 
 - `--cycles N`: the most cycles running at once. Room for new cycles is
   `min(TEHAS_TICKET_CONCURRENCY, N) - running`, then the slice's room and
@@ -189,6 +212,16 @@ program refreshing a limit.
 when none is running, 1 when some still are at the end of the wait. For a
 person before a reboot or a disk change; for industry before an upgrade or
 a move. `tehas limit clear` ends it.
+
+*(Built in #301.)* `--json` prints:
+
+```json
+{"api": 1, "drained": false, "running": [12], "limit": {"state": "ok", "cycles": 0, "plan": false, "reason": "draining"}}
+```
+
+`drained` is true when no cycle is running. `running` lists the issue
+numbers whose cycles still run. `limit` is what `tehas limit --json` prints,
+without `api`. Exit 0 when drained, 1 when cycles still run.
 
 ### `tehas history --json [--after CURSOR] [--issue N]` (new)
 

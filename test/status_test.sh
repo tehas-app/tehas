@@ -4,7 +4,7 @@
 # libexec/summary prints the health file for `tehas status`.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 
 status="$T_ROOT/libexec/status"
 health="$T_ROOT/libexec/health"
@@ -16,7 +16,9 @@ t_stub gh '
 case "$*" in
   "issue list"*--search*) cat "$T/issues.json" ;;
   "issue list"*) [ ! -e "$T/all-down" ] || exit 1; cat "$T/all.json" ;;
-  "issue view"*) cat "$T/paused" ;;
+  # The names of the labels of the control issue, as --jq joins them.
+  "issue view"*) [ ! -e "$T/control-down" ] || exit 1
+    { [ "$(cat "$T/paused")" != true ] || echo tehas:pause; [ ! -e "$T/allhands" ] || echo tehas:all-hands; } | paste -sd " " ;;
   "issue edit"*) [ -z "${GH_EDIT_FAILS:-}" ] || exit 1 ;;
   "api repos/acme/widget/issues/"*"/events"*) cat "$T/events.json" 2>/dev/null || exit 1 ;;
   "api graphql"*) [ ! -e "$T/shipped-down" ] || exit 1; cat "$T/shipped.json" ;;
@@ -35,7 +37,7 @@ issue() { # number label state
   printf '{"number":%s,"title":"t","url":"u","state":"%s","labels":[{"name":"%s"}],"updatedAt":"2026-01-01T00:00:00Z","closedAt":null}' "$1" "${3:-OPEN}" "$2"
 }
 reset() {
-  rm -rf "$T"/calls/* "$T/gh-down" "$T/all-down" "$T/shipped-down" "$live" "$T/home/tehas/state"
+  rm -rf "$T"/calls/* "$T/gh-down" "$T/all-down" "$T/shipped-down" "$T/control-down" "$T/allhands" "$live" "$T/home/tehas/state"
   echo "[]" >"$T/all.json"
   shipped
   T_ENV=()
@@ -644,11 +646,272 @@ t_lacks "$t_out" "settings were read"
 t_eq "$(t_calls gh)" ""
 t_eq "$(cd "$live" && cksum ./*)" "$before"
 
-t_case "summary takes no argument"
+t_case "summary takes no argument but --json"
 reset
-t_run "$summary --json"
+t_run "$summary --jsn"
 t_eq "$t_rc" 64
-t_contains "$t_out" "usage: tehas status"
+t_contains "$t_out" "usage: tehas status [--json]"
+t_run "$summary --json --json"
+t_eq "$t_rc" 64
+
+# What the dispatcher's last poll wrote: the demand, and what held cycles back.
+demand() { # <waiting> [<seconds since the oldest was accepted> [<age of the file>]]
+  mkdir -p "$live"
+  jq -n --argjson w "$1" --arg at "$(date -u -d "-${3:-30} seconds" +%FT%TZ)" \
+    --arg oldest "$(date -u -d "-${2:-0} seconds" +%FT%TZ)" \
+    '{time: $at, waiting: $w} + (if $w > 0 then {oldest: $oldest} else {} end)' >"$live/demand.json"
+}
+held() { # <why> <text> <free> <await room>
+  mkdir -p "$live"
+  jq -n --arg why "$1" --arg hold "$2" --argjson free "$3" --argjson aw "$4" --arg at "$(date -u -d '-30 seconds' +%FT%TZ)" \
+    '{time: $at, why: $why, hold: $hold, count: 1, room: 3, committed: 2147483648, max: 21474836480, reserve: "2g",
+      free: $free, awaitRoom: $aw}' >"$live/dispatch.json"
+}
+# The types status --json promises, for every object it prints.
+shape='(.api == 1) and (.time | type) == "string" and (.age | type) == "number" and (.stale | type) == "boolean"
+  and (.state | IN("pass", "warn", "fail")) and (.reasons | type) == "array" and (.reasons | all(type == "string"))
+  and (.paused | (.local | type) == "boolean" and (.label | type) == "boolean")
+  and (.allHands | type) == "boolean" and (.limit.state | type) == "string"
+  and (.running | type) == "array"
+  and (.running | all((.issue | type) == "number" and (.since | type) == "string"))
+  and (.demand | . == null or ((.waiting | type) == "number"))
+  and (.hold | . == null or ((.why | type) == "string" and (.text | type) == "string"))
+  and (.room | . == null or type == "object")'
+
+t_case "status --json: a fresh idle factory, one object of the promised shape"
+reset
+demand 0
+t_run "$status && $summary --json"
+t_eq "$t_rc" 0
+t_eq "$(jq -s length <<<"$t_out")" 1
+t_eq "$(jq "$shape" <<<"$t_out")" true
+t_eq "$(jq -c '{state, stale, reasons, paused, allHands, limit, running, demand, hold}' <<<"$t_out")" \
+  '{"state":"pass","stale":false,"reasons":[],"paused":{"local":false,"label":false},"allHands":false,"limit":{"state":"none"},"running":[],"demand":{"waiting":0},"hold":null}'
+t_eq "$(jq -r '.age < 60' <<<"$t_out")" true
+
+t_case "status --json: the demand, with how long the oldest has waited"
+reset
+demand 2 5400
+t_run "$status && $summary --json"
+t_eq "$(jq -r .demand.waiting <<<"$t_out")" 2
+t_eq "$(jq -r '.demand.oldestWait | . >= 5400 and . < 5460' <<<"$t_out")" true
+
+t_case "status: a hold on refreshes is in the demand and in the text"
+reset
+demand 0
+jq '. + {refreshHold: "the pi-rukas in the sandbox image does not take --continue-pr"}' "$live/demand.json" >"$live/demand.new" &&
+  mv "$live/demand.new" "$live/demand.json"
+t_run "$status && $summary --json"
+t_eq "$(jq -r .demand.refreshHold <<<"$t_out")" "the pi-rukas in the sandbox image does not take --continue-pr"
+t_eq "$(jq "$shape" <<<"$t_out")" true
+t_run "$status && $summary"
+t_contains "$t_out" "refresh   held: the pi-rukas in the sandbox image does not take --continue-pr"
+
+t_case "status: no hold on refreshes, no line and no field"
+reset
+demand 0
+t_run "$status && $summary"
+t_lacks "$t_out" "refresh   "
+t_run "$summary --json"
+t_eq "$(jq -c '.demand | has("refreshHold")' <<<"$t_out")" false
+
+t_case "status --json: no demand from the last ten minutes is null"
+reset
+demand 2 5400 700
+t_run "$status && $summary --json"
+t_eq "$(jq -c .demand <<<"$t_out")" null
+t_eq "$(jq "$shape" <<<"$t_out")" true
+
+t_case "status --json: a busy factory lists its running cycles"
+reset
+cycle true running develop
+t_run "$status && $summary --json"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '.running | map({issue, step})' <<<"$t_out")" '[{"issue":12,"step":"develop"}]'
+t_eq "$(jq -r '.running[0].since | fromdateiso8601 | type' <<<"$t_out")" number
+t_eq "$(jq "$shape" <<<"$t_out")" true
+
+t_case "status --json: a held factory says why, and the room under each cap"
+reset
+held count "holding: 1 cycles are running (limit 1)" 0 3
+t_run "$status && $summary --json"
+t_eq "$t_rc" 0
+t_eq "$(jq -c .hold <<<"$t_out")" '{"why":"count","text":"holding: 1 cycles are running (limit 1)"}'
+t_eq "$(jq -c .room <<<"$t_out")" '{"cycles":0,"maxAwaiting":3,"slice":3}'
+t_eq "$(jq "$shape" <<<"$t_out")" true
+
+t_case "status --json: room the last poll did not read is left out"
+reset
+held "" "" 1 null
+t_run "$status && $summary --json"
+t_eq "$(jq -c .hold <<<"$t_out")" null
+t_eq "$(jq -c .room <<<"$t_out")" '{"cycles":1,"slice":3}'
+
+t_case "status --json: a paused factory, by the flag or by the label, is held by the pause"
+reset
+mkdir -p "$T/home/tehas/state"
+jq -nc '{by: "boss", at: "2026-10-15T10:00:00Z", reason: "waiting for the gate"}' >"$T/home/tehas/state/pause.json"
+t_run "$status && $summary --json"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[.state, .paused, .hold.why]' <<<"$t_out")" '["warn",{"local":true,"label":false},"pause"]'
+t_contains "$(jq -r .hold.text <<<"$t_out")" "waiting for the gate"
+t_lacks "$t_out" "boss"
+t_eq "$(jq -r '.reasons | length' <<<"$t_out")" 1
+t_eq "$(jq "$shape" <<<"$t_out")" true
+reset
+echo true >"$T/paused"
+t_run "$status && $summary --json"
+t_eq "$(jq -c '[.paused, .hold.why]' <<<"$t_out")" '[{"local":false,"label":true},"pause"]'
+
+t_case "status --json: a failed cycle is exit 1, as the text is"
+reset
+cycle false aborted develop
+t_run "$status && $summary --json"
+t_eq "$t_rc" 1
+t_eq "$(jq -r .state <<<"$t_out")" fail
+t_contains "$(jq -r '.reasons[0]' <<<"$t_out")" "#12 ended as aborted"
+
+t_case "status --json: a stale health file is exit 1 and says so"
+reset
+t_run "$status"
+jq --arg t "$(date -u -d '-3 hours' +%FT%TZ)" '.time = $t' "$live/health.json" >"$live/health.json.old"
+mv "$live/health.json.old" "$live/health.json"
+t_run "$summary --json"
+t_eq "$t_rc" 1
+t_eq "$(jq -c '[.stale, .age >= 10800]' <<<"$t_out")" '[true,true]'
+t_eq "$(jq "$shape" <<<"$t_out")" true
+
+t_case "status --json: no health file is exit 1 with nothing on standard output"
+reset
+t_run "$summary --json 2>/dev/null"
+t_eq "$t_rc" 1
+t_eq "$t_out" ""
+
+t_case "status --json reads nothing but the health file: no settings, no gh, no write"
+reset
+demand 1 60
+t_run "$status"
+rm -f "$T"/calls/*
+t_instance 'echo "settings were read" >&2; exit 9'
+before=$(cd "$live" && cksum ./*)
+t_run "$summary --json"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "settings were read"
+t_eq "$(t_calls gh)" ""
+t_eq "$(cd "$live" && cksum ./*)" "$before"
+
+# tehas:all-hands on the control issue: reported, and nothing else.
+all_hands() { # <login or ""> [labeled|unlabeled]: the label's last event, and the label on the issue
+  [ "${2:-labeled}" = unlabeled ] || : >"$T/allhands"
+  jq -nc --arg w "$1" --arg e "${2:-labeled}" '[{event: $e, label: {name: "tehas:all-hands"},
+    actor: (if $w == "" then null else {login: $w} end), created_at: "2026-10-17T10:00:00Z"}]' >"$T/events.json"
+}
+
+t_case "all-hands: applied by an allowed account, it is reported and changes nothing else"
+reset
+all_hands alice
+t_run "$status && $summary"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .allHands "$live/status.json")" true
+t_eq "$(jq -r .checks.allHands "$live/health.json")" true
+t_eq "$(jq -r .status "$live/health.json")" pass
+t_contains "$t_out" "all-hands tehas:all-hands is on the control issue"
+t_run "$summary --json"
+t_eq "$(jq -c '[.allHands, .state, .hold]' <<<"$t_out")" '[true,"pass",null]'
+
+t_case "all-hands: applied by anyone else it is ignored, and said once"
+reset
+all_hands mallory
+t_run "$status"
+t_eq "$(jq -r .allHands "$live/status.json")" false
+t_contains "$t_out" "tehas:all-hands on #1 was applied by 'mallory', not an allowed account: ignored"
+t_run "$status"
+t_eq "$t_out" ""
+t_run "$summary"
+t_lacks "$t_out" "all-hands"
+
+t_case "all-hands: not on the issue is off, whatever its last event says"
+reset
+all_hands alice unlabeled
+t_run "$status"
+t_eq "$(jq -r .allHands "$live/status.json")" false
+reset
+all_hands alice
+rm "$T/allhands"
+t_run "$status"
+t_eq "$(jq -r .allHands "$live/status.json")" false
+
+t_case "all-hands: on the issue with events that cannot be read is unknown, and left out of --json"
+reset
+all_hands alice
+rm "$T/events.json"
+t_run "$status && $summary --json"
+t_eq "$(jq -r .allHands "$live/status.json")" null
+t_eq "$(jq -c 'has("allHands")' <<<"$t_out")" false
+reset
+: >"$T/control-down"
+t_run "$status"
+t_eq "$(jq -r .allHands "$live/status.json")" null
+
+t_case "all-hands: a snapshot older than ten minutes does not say it"
+reset
+all_hands alice
+t_run "$status"
+jq --arg t "$(date -u -d '-20 minutes' +%FT%TZ)" '.generatedAt = $t' "$live/status.json" >"$live/status.json.old"
+mv "$live/status.json.old" "$live/status.json"
+t_run "$health"
+t_eq "$(jq -r .checks.allHands "$live/health.json")" null
+
+t_case "all-hands: a paused factory still reports it"
+reset
+all_hands alice
+echo true >"$T/paused"
+t_run "$status && $summary --json"
+t_eq "$(jq -c '[.allHands, .paused.label]' <<<"$t_out")" '[true,true]'
+
+# The limit tehas limit sets, as health reads it from state/limit.json.
+set_limit() { # <json>
+  mkdir -p "$T/home/tehas/state"
+  printf '%s\n' "$1" >"$T/home/tehas/state/limit.json"
+}
+
+t_case "limit: a limit is reported in the lines and in --json, its reason only in the lines"
+reset
+set_limit '{"v":1,"cycles":2,"plan":false,"until":"2036-01-01T00:00:00Z","reason":"held for alpha"}'
+t_run "$status && $summary"
+t_eq "$t_rc" 0
+t_contains "$t_out" "limit     2 cycles at once, planning off, until 2036-01-01T00:00:00Z: held for alpha"
+t_eq "$(jq -r .status "$live/health.json")" pass
+t_run "$summary --json"
+t_eq "$(jq -c .limit <<<"$t_out")" '{"state":"ok","cycles":2,"plan":false,"until":"2036-01-01T00:00:00Z"}'
+
+t_case "limit: no limit prints no line, and --json says none"
+reset
+t_run "$status && $summary"
+t_lacks "$t_out" "limit "
+t_run "$summary --json"
+t_eq "$(jq -c .limit <<<"$t_out")" '{"state":"none"}'
+
+t_case "limit: expired or unreadable is a warning that says nothing starts"
+reset
+set_limit '{"v":1,"cycles":2,"plan":true,"until":"2020-01-01T00:00:00Z","reason":""}'
+t_run "$status && $summary --json"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[.state, .limit.state]' <<<"$t_out")" '["warn","expired"]'
+t_contains "$(jq -r '.reasons[0]' <<<"$t_out")" "Nothing starts: the limit expired at 2020-01-01T00:00:00Z"
+reset
+set_limit 'not a limit'
+t_run "$status && $summary --json"
+t_eq "$(jq -c '[.state, .limit]' <<<"$t_out")" '["warn",{"state":"unreadable"}]'
+t_contains "$(jq -r '.reasons[0]' <<<"$t_out")" "Nothing starts: the limit cannot be read"
+
+t_case "limit: the room under it, from the last poll"
+reset
+held limit "holding: the limit allows 1 cycle at once and 1 is running" 1 2
+jq '.limitRoom = 0' "$live/dispatch.json" >"$live/dispatch.json.new" && mv "$live/dispatch.json.new" "$live/dispatch.json"
+t_run "$status && $summary --json"
+t_eq "$(jq -c .room <<<"$t_out")" '{"cycles":1,"maxAwaiting":2,"slice":3,"limit":0}'
+t_eq "$(jq -c .hold <<<"$t_out")" '{"why":"limit","text":"holding: the limit allows 1 cycle at once and 1 is running"}'
 
 disk() { # low [age in seconds]
   mkdir -p "$live"

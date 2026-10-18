@@ -44,15 +44,24 @@ it within about five minutes. It takes:
 - HTML files, shown in a frame with a link to open them full size,
 - the style sheets, scripts and data an HTML file refers to (css, js, mjs,
   json, txt). Attach them to the same ticket and refer to them by name, as
-  `<script src="app.js">`.
+  `<script src="app.js">`,
+- a zip, unpacked into a folder of its own; its files count against the same
+  limits. It takes the types above and md files, kept in their folders, so
+  `index.html` in a zip can refer to `data/sample.json` in it. Links, paths
+  that leave the zip, paths more than six levels deep and locked files are
+  left out. At most 200 entries of a zip are read, and once a file of it is
+  over the 10 MB, nothing more of it is unpacked.
+
+A prototype zip may carry instructions for language models on what it holds,
+for example a `prototype.md`; the lab serves it like any other file and does
+not define what it says.
 
 The limits:
 
 - **10 megabytes a ticket**, counted in the order the files were attached,
   and at most 40 files. What does not fit is left out, and the page lists it
   under "left out" with the reason.
-- **Static files only.** Nothing is run on the host for a prototype, and an
-  archive is not unpacked.
+- **Static files only.** Nothing is run on the host for a prototype.
 - **Only a label from an allowed account** puts the ticket here, as said
   above: the most recent `tehas:prototype` labelling is by an account in
   `TEHAS_ALLOWED_LABELERS`.
@@ -89,7 +98,8 @@ issue text.
 | The same image linked in a comment          | With `TEHAS_WORK_COMMENTS=1`, when an allowed account wrote it before the label or the retry tick and nobody edited it since | When a reply to its question links it | Shown |
 | md, txt, csv, json, yaml, log, html, css or js linked in the body | Fetched and mounted with `TEHAS_WORK_FILES=1`; pi-rukas does not read them yet | The same | html, css, js, json and txt shown, html in a frame |
 | svg, avif, a video                          | Not given | Not given | Shown |
-| Any other file, such as a zip or a pdf      | Not given | Not given | Left out |
+| A zip                                       | Not given | Not given | Unpacked, its files shown as above |
+| Any other file, such as a pdf               | Not given | Not given | Left out |
 
 The rules behind each column:
 
@@ -206,7 +216,17 @@ With any other backend the section and the meter are simply not there, and
 nothing else changes. To turn them off on a viiwork mesh, see
 [the energy sampler](/tools).
 
-The dispatcher takes issues urgent first, then by the lowest issue number: as many at a time as the host's ceiling and the slice's room allow (see [Limits that hold work back](#limits-that-hold-work-back)). A running cycle is never stopped to make room for an urgent one. The dashboard lists the queue by issue number, not the order the dispatcher will work it in: whether a `tehas:urgent` moves the queue is decided by who applied the label, not by its being there.
+The dispatcher takes issues `tehas:urgent` first, then [refreshes](#refreshes) of its own pull requests, then `tehas:next`, then by the lowest issue number: as many at a time as the host's ceiling and the slice's room allow (see [Limits that hold work back](#limits-that-hold-work-back)). A running cycle is never stopped to make room for an urgent one. The dashboard lists the queue by issue number, not the order the dispatcher will work it in: whether a `tehas:urgent` or `tehas:next` moves the queue is decided by who applied the label, not by its being there. `tehas:urgent` counts from an allowed labeller. `tehas:next` counts from an allowed labeller or [the fixer](#the-fixers-grant), when the latest event of the label applies it; one taken off since, or applied by anyone else, is ignored and logged.
+
+An issue with `tehas:blocked` is not started while an issue it names is open, so its slot goes to work that can move. The label counts on the same terms as `tehas:next`. The blockers are named in a comment by an allowed labeller or the fixer that holds the marker:
+
+```
+Blocked by #12 and #34.
+
+<!-- tehas:blocked by=12,34 -->
+```
+
+Up to 20 numbers, separated by commas and no spaces. The newest such comment among the last 100 counts; one by anyone else is ignored. The issue also waits, and the log says why, when the label counts and no such comment is there, when the newest one does not hold a marker that reads, when it was last edited by another account, or when GitHub does not give the state of a number it names. Once every blocker is closed the issue may start. The dispatcher leaves the label on; take it off when it no longer applies. To start a blocked issue anyway, take the label off.
 
 | Label on the issue      | Meaning                           | Your move                                |
 | ----------------------- | --------------------------------- | ---------------------------------------- |
@@ -220,6 +240,9 @@ The dispatcher takes issues urgent first, then by the lowest issue number: as ma
 | `tehas:question`        | The factory asked something       | Tick a box; in a planning session you may reply instead |
 | `tehas:improvement`     | Filed by the improvement loop     | Read it; apply `tehas:ready` if it should be built |
 | `tehas:fixer-escalated` | The fixer left it to a person     | Read the fixer's note; decide, or take the label off to hand it back |
+| `tehas:next`            | Started after urgent issues, before the rest | Take it off to give the issue its place by number back |
+| `tehas:blocked`         | Not started while a blocker it names is open | Close the blocker, or take the label off to start it anyway |
+| `tehas:refreshing`      | On a pull request: a [refresh](#refreshes) works on it | Do not merge or push to it now; it comes off when the cycle ends |
 
 `tehas:ready` from an allowed labeller starts a fresh cycle whatever else the
 issue carries. So does one from [the fixer](#the-fixers-grant), within its grant. tehas's labels of the earlier outcome go when the cycle starts.
@@ -242,6 +265,7 @@ a poll by hand on the host:
 
 ```
 tehas status                 # taking work? the queue, the current or last cycle, the slice's room
+tehas status --json          # the same for a program, with the demand (see the factory API)
 tehas top                    # the same overview, on one screen that redraws itself
 tehas dispatch --dry-run     # what would it do?
 tehas dispatch               # do it (returns once the cycle is started)
@@ -296,6 +320,10 @@ adversarial review, and those findings posted as a comment on the pull request,
 carries on to the gate with the findings named on the pull request instead of
 parking; a post that fails parks. A review that runs out of its time budget
 parks whatever the findings are.
+
+A pull request that waits while other work merges may start to conflict with
+the branch. Where the instance turns [refreshes](#refreshes) on, the factory
+merges the branch into it on its own.
 
 After merging, the issue closes and leaves the queue. If you close a pull
 request without merging, remove `tehas:awaiting-merge` from the issue by hand;
@@ -440,16 +468,17 @@ dispatcher's log says so.
    continues the session with your answer, and the issue carries
    `tehas:planning` while the turn runs. The turn runs as its own unit,
    `tehas-plan-<issue>.service`, and the polls go on meanwhile: cycles start
-   as usual, and the first poll after the turn ends posts its outcome. One
+   as usual, and the turn's end starts the poll that posts its outcome. One
    planning turn runs at a time, so while another runs, your answer waits
-   until it ends, which can be an hour. A running work cycle does not hold
-   an answer back. A poll also handles one answer or one planning start and
-   then stops, and it does nothing while the model
-   endpoint does not list the model.
+   until it ends, which is up to two hours (`TEHAS_PLAN_TIMEOUT`). A
+   running work cycle does not hold an answer back. A poll also handles one
+   answer or one planning start and then stops, and it does nothing while the
+   model endpoint does not list the model.
 5. The agent shows you a plan before it files it, and files it when you
    confirm. Every turn of a session works on the commit the session started
    on. Whether what is filed is what you saw depends on pi-rukas. The release
-   tehas installs, v0.12.79, keeps no record of the plans it showed, so read
+   the host follows keeps no record of the plans it showed (see [the queue
+   and dispatch](/features#queue-and-dispatch)), so read
    the issues it files. A later release keeps one, and a confirmed plan is
    then filed as it was shown when it is found there: with no time limit
    from a release that reads `PI_ENSEMBLE_PLAN_CACHE_TTL_MS`, within two
@@ -466,7 +495,8 @@ The conversation of a session is kept by Pi on the host, in
 the session cannot go on: the bot ends it, says so, and your answer is not
 sent. Apply `tehas:plan` again to start a new session.
 
-Only answers from allowed labellers count. A box ticked by anyone else, or
+Only answers from allowed labellers count, and the fixer's within its grant
+(see [The fixer's grant](#the-fixers-grant)). A box ticked by anyone else, or
 more than one box, is unticked and the bot says so. A reply counts only if its
 author is an allowed account and, when it was edited, its last editor is too.
 Replies from others are ignored. Only the question the session is waiting on
@@ -559,8 +589,50 @@ The reason is written to the flag and shown on pages that may be public, so writ
 nothing in it that should not be read in public. The account that set the flag is
 not published.
 
+## All hands
+
+**`tehas:all-hands`** on the control issue asks for all hands on this project.
+It counts while it is on the issue and the account that applied it last is in
+`TEHAS_ALLOWED_LABELERS`. A label anyone else applies is ignored and said once
+in the dispatcher's log. On its own it changes nothing in this factory: no
+cycle starts or waits because of it. `tehas status` prints an `all-hands` line,
+its JSON says `"allHands": true` and the dashboard shows "all hands". What it
+means for other factories is up to the program that runs them, such as
+tehas-industry. Take the label off to end it.
+
+## Limit and drain
+
+A limit caps what this factory starts, until it expires or is cleared. It
+keeps a host quiet for a weekend, or leaves the models to another project:
+
+```
+tehas limit set --cycles 1 --plan off --for 7200 --reason "the models are busy"
+tehas limit                  # what is set
+tehas limit clear            # back to no limit
+```
+
+`--cycles` is the most cycles at once; `--plan off` also holds new planning
+sessions and improvement runs, though an answer to a planning question still
+runs. Without `--for` or `--until` the limit stays until cleared. Running
+cycles are never stopped. A limit that has expired, or a file that cannot be
+read, holds every start until it is set again or cleared, and `tehas status`
+says so. Pause is a separate switch: a paused factory stays paused under any
+limit.
+
+Before a reboot or a disk change:
+
+```
+tehas drain --wait 3600      # start nothing new, wait up to an hour for the cycles
+tehas limit clear            # afterwards
+```
+
+A program that drives factories uses the same commands: see
+[the factory API](/api).
+
 ## Limits that hold work back
 
+- A limit set with `tehas limit`, when there is one: see
+  [Limit and drain](#limit-and-drain).
 - At most `TEHAS_TICKET_CONCURRENCY` cycles at a time. It is a ceiling, not
   a promise: the dispatcher starts fewer when the slice has no room.
 - Room in `tehas.slice`, the systemd slice every sandbox container runs in.
@@ -601,6 +673,11 @@ not published.
   model with a one-pixel image only when such an issue could start now, at
   most once a poll. The issue stays queued, the log says `hold #N: ...`, and
   issues without images start as usual. A planning turn is not held by it.
+- No cycle while the code index is rebuilt. On a host where no cycle runs and
+  the branch has moved, the poll that would start cycles starts the index run
+  as `tehas-index.service` instead, and the log says `holding: the code index
+  is refreshed first`. It takes seconds to minutes. Its end starts the poll
+  that starts the cycles. Planning turns are not held by it.
 - A slot is never kept by work that is done. Each poll stops a running
   cycle whose issue is closed, or whose pull request, opened by the bot since
   the cycle began, is merged or closed. It is stopped as stopping its unit
@@ -745,7 +822,7 @@ stop leaving records and a run does nothing. Or stop the timer with
 
 Optional. The fixer is an account that decides on parked issues from outside
 the factory: start one again, start it again working differently, or leave it
-to a person. What runs as that account is not part of tehas. The factory says
+to a person. It may also answer some planning questions. What runs as that account is not part of tehas. The factory says
 what the account may do, and this section is that.
 
 - **It is an account of its own**, named by `TEHAS_FIXER_LOGIN`. It is never
@@ -772,8 +849,31 @@ what the account may do, and this section is that.
   gives a cycle images or files, `tehas work` writes it to
   `retry-context.md` beside them, quoted, under a head that says a model
   wrote it. No mount and no variable more: elsewhere it reaches no cycle.
+- **It may answer a planning question**, by a tick or a reply, only when
+  no person has answered the same question: a person's tick or reply wins,
+  whichever came first. And only in a session an allowed account's
+  `tehas:plan` started, fewer than `TEHAS_FIXER_MAX_PLAN_ANSWERS` times in
+  the session (3 unless the instance says otherwise), and never for two
+  turns in a row, so a person sees every second question at most. It may
+  not tick `End this planning session`. Its reply starts with the line
+  `<!-- tehas:fixer issue=<n> action=answer -->`, and the agent is told
+  the answer is the fixer's. Any other answer of the fixer's is an
+  outsider's: a tick is unticked and the bot says why, a reply is ignored
+  and the bot says why once. GitHub says who last saved a comment, not who
+  ticked a box, so a tick the fixer saved after another account edited the
+  question is held: it is neither used nor unticked, and the bot asks a
+  person, once, to tick again or reply. To overrule it, reply or tick before the next
+  poll, or reply to the next question. The planning record,
+  `~/tehas/state/plan-<issue>.json`, keeps who started the session (`by`)
+  and who answered each turn (`answers`). A session started before tehas
+  kept these takes no answer from the fixer.
 - **`tehas:fixer-escalated`** is the fixer's word that a person decides.
   The factory does nothing on it; a start takes it off.
+- **It may order the queue** with `tehas:next` and `tehas:blocked`, and
+  name the blockers in a marked comment, as an allowed labeller may (see
+  [What happens next](#3-what-happens-next)). Neither starts anything: an
+  issue still needs a `tehas:ready` that counts. When to apply them, and how
+  many, is the fixer's to decide, not the factory's.
 - **Each cycle's end leaves a line** in
   `~/tehas/state/cycles/<issue>.history.jsonl`, the last 50: when, its
   status, last step, cap, park reason, failure, whether a provider outage
@@ -790,6 +890,90 @@ what the account may do, and this section is that.
   `sig` stopped the same way. The free text of a park stays out of the
   marker. Only the bot's comments count: a reader ignores the line in
   anyone else's.
+
+## Refreshes
+
+Optional, off unless `TEHAS_REFRESH_CONFLICTS=1`. A pull request the factory
+opened waits in `tehas:awaiting-merge` for a person. While it waits, other work
+merges, and it may start to conflict with the branch. A refresh is a cycle that
+merges the branch into that pull request, resolves the conflicts and pushes to
+the same branch: the same pull request, its review kept. Never a rebase, a
+force-push or a second pull request. It needs a sandbox image whose pi-rukas
+takes `--continue-pr` (pi-rukas#1468); until then a refresh starts nothing and
+the dispatcher says so.
+
+**What it reads.** `tehasbot refresh`, from `tehas-refresh.timer` once an hour,
+lists the open pull requests of the repository. It keeps the bot's that close
+exactly one open issue carrying `tehas:awaiting-merge`, not the control issue,
+are the only open pull request that closes it, come from a branch of the
+repository and are no draft. Those GitHub says are `CONFLICTING` get a request,
+`~/tehas/state/refresh/<issue>.json`. `UNKNOWN` is read again next hour. A
+request whose pull request no longer qualifies goes. Each run writes one line
+to `~/tehas/logs/refresh.log`:
+
+```
+2026-10-18T09:00:00Z read 6 pull requests, 1 conflict, wrote 1 requests
+```
+
+**When it starts.** The dispatcher checks each request again at the start,
+and starts it on the word of the person whose approval the pull request's cycle
+rests on (the approval record's `by`, or its `rests_on.by` after the fixer):
+
+- the issue is open, carries `tehas:awaiting-merge` and none of
+  `tehas:running`, `tehas:question`, `tehas:fixer-escalated`, `tehas:plan`,
+  and no cycle or planning session is open on it;
+- its body is the body that person approved, and nobody outside
+  `TEHAS_ALLOWED_LABELERS` renamed or edited it since;
+- the pull request is still the bot's, the one open pull request that closes
+  the issue, at the head the request named, and GitHub still says
+  `CONFLICTING`. A person who pushed to it since is handling it;
+- fewer than `TEHAS_REFRESH_MAX` refreshes of it since that approval (2 unless
+  the instance says otherwise), and none that parked.
+
+A request that fails a check goes, and the dispatcher's log says why. At the
+cap or after a parked refresh the bot says so on the issue, once: a person
+resolves the conflict or applies `tehas:ready`. A pull request that carries
+`tehas:refreshing` waits.
+
+Pause, the limit, the slots and the slice's room hold a refresh as they hold
+any start. `TEHAS_MAX_AWAITING` does not: the start takes
+`tehas:awaiting-merge` off, so it moves one pull request from waiting to
+running and adds none. A refresh goes after `tehas:urgent` and before
+`tehas:next`. A refresh that waits for room counts in the demand of
+`tehas status`.
+
+**While it runs** the pull request carries `tehas:refreshing`: do not merge or
+push to it. The dispatcher applies it before it marks the issue, and a start
+whose label change fails starts nothing. `tehasbot cycle` takes it off when the
+cycle ends, whatever the outcome. The dispatcher takes it off a pull request
+whose issue has no cycle running, and one applied by any account but the bot.
+
+**The record and the cycle.** The approval record has `how: "refresh"`, the
+person's `by` and `at`, `rests_on`, `refreshes` (the count since that
+approval), `refresh_of` (`pr`, `head_sha`, `base_sha`, `branch`) and one
+`retry_context` entry, source `refresh`, that tehas writes itself:
+
+> This pull request conflicts with `main`. Merge `main` into its branch,
+> resolve the conflicts so the change still does what the issue asks, run the
+> gate, and push to the same branch. Do no other work.
+
+No comment text reaches the cycle this way. As with the fixer's note, it
+reaches `retry-context.md` only where the instance gives a cycle images or
+files. `tehas work` passes `--continue-pr` for a refresh, and refuses a refresh
+with 78 on an image that does not take it. Nothing else about the container
+changes. The outcome is read as any cycle's: a refresh that pushed goes back to
+`tehas:awaiting-merge` with the same pull request, one that parks parks the
+issue, and no refresh of it starts again on its own.
+
+**What it does not do.** Failing checks and requested changes, pull requests
+the bot did not open, from forks or closing several issues, and conflicts
+between two open pull requests of the factory: each is resolved against the
+branch when the other merges.
+
+**To turn it off**, set `TEHAS_REFRESH_CONFLICTS=0` (or remove it) in
+`instance.env`: `tehasbot refresh` then exits at once and the dispatcher starts
+no refresh. `systemctl --user disable --now tehas-refresh.timer` stops the
+hourly run as well.
 
 ## Run one issue by hand
 

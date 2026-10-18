@@ -4,7 +4,7 @@
 # arguments, one per line, and exits at once, so no session runs.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/lib.sh" || exit 1
 # The CPU quota and the ticket ceiling follow the host's CPUs: the same on
 # every test machine.
 t_stub nproc 'echo 16'
@@ -53,7 +53,7 @@ after() { session_args | awk -v flag="$1" 'prev == flag { print } { prev = $0 }'
 # The value of one variable passed as NAME=value.
 passed() { after -e | sed -n "s/^$1=//p"; }
 # Every option that is not one this command is known to pass, up to the image
-# name, read the way docker reads them. See test/work_test.sh.
+# name, read the way docker reads them. See test/work_lib.sh.
 unknown_options() { # <image> <options that take a value> <options that take none>
   awk -v image="$1" -v valued=" $2 " -v plain=" $3 " '
     NR == 1 { next } # "run"

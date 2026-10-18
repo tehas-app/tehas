@@ -104,6 +104,7 @@ be ignored for a first install.
 - [The host]({{ $base }}/host.md): layout on the machine and the sandbox contract test
 - [Previews and the Protolab on the internet]({{ $base }}/edge.md): a preview of every pull request, and how the names were published
 - [Commands]({{ $base }}/tools.md): `tehas`, `tehasbot` and what each of their commands does
+- [The factory API]({{ $base }}/api.md): the commands a program drives a factory with, and their JSON
 
 ## Live data
 
