@@ -38,8 +38,11 @@ reset() {
   t_instance "${T_MINIMAL[@]}"
   issues "$(issue 3 tehas:ready)" "$(issue 5 tehas:awaiting-merge)"
   shipped
-  t_stub_analytics
+  t_stub_analytics '[ "$1" != report ] || echo "{\"report\":1}"'
 }
+# The calls that record events: every run also asks for the report
+# (status_analytics_test.sh).
+events() { t_calls analytics | grep -v '^report --json$' || true; }
 # The snapshot of the run before, written by status itself, then the calls
 # of the next run only.
 again() { rm -f "$T/calls/analytics"; t_run "$status"; }
@@ -50,7 +53,7 @@ issues "$(issue 5 tehas:awaiting-merge)" "$(issue 6 needs-human-attention)"
 t_run "$status"
 t_eq "$t_rc" 0
 t_eq "$(jq -r '.awaiting | length' "$live/status.json")" 1
-t_eq "$(t_calls analytics)" ""
+t_eq "$(events)" ""
 
 t_case "an issue that is newly awaiting or newly stopped is recorded once, at the time of the run"
 reset
@@ -58,29 +61,29 @@ t_run "$status"
 issues "$(issue 3 tehas:awaiting-merge)" "$(issue 5 tehas:awaiting-merge)" "$(issue 6 needs-human-attention)"
 again
 t_eq "$t_rc" 0
-t_eq "$(t_calls analytics | sort)" "event 3 awaiting
+t_eq "$(events | sort)" "event 3 awaiting
 event 6 stopped"
 t_eq "$t_out" ""
 
 t_case "an unchanged snapshot records nothing"
 again
-t_eq "$(t_calls analytics)" ""
+t_eq "$(events)" ""
 
 t_case "a merge is recorded at the time the issue was closed, the first time it is completed"
 reset
 t_run "$status"
 shipped "$(merged 20 3600)"
 again
-t_eq "$(t_calls analytics)" "event 20 merged --at $((now - 3600))"
+t_eq "$(events)" "event 20 merged --at $((now - 3600))"
 shipped "$(merged 21 60)" "$(merged 20 3600)"
 again
-t_eq "$(t_calls analytics)" "event 21 merged --at $((now - 60))"
+t_eq "$(events)" "event 21 merged --at $((now - 60))"
 
 t_case "a first run records the merges of the last ten days, with their times, and none older"
 reset
 shipped "$(merged 20 3600)" "$(merged 19 $((11 * 86400)))"
 t_run "$status"
-t_eq "$(t_calls analytics)" "event 20 merged --at $((now - 3600))"
+t_eq "$(events)" "event 20 merged --at $((now - 3600))"
 
 t_case "an issue of the snapshot before that is closed and not merged is recorded as closed, at its time"
 reset
@@ -90,10 +93,10 @@ issues "$(issue 3 tehas:ready CLOSED 120)" "$(issue 6 needs-human-attention CLOS
   "$(issue 9 tehas:ready CLOSED 30)"
 shipped "$(merged 6 60)"
 again
-t_eq "$(t_calls analytics | sort)" "event 3 closed --at $((now - 120))
+t_eq "$(events | sort)" "event 3 closed --at $((now - 120))
 event 6 merged --at $((now - 60))"
 again
-t_eq "$(t_calls analytics)" ""
+t_eq "$(events)" ""
 
 t_case "an issue that was awaiting a merge and is closed, not yet completed, is not recorded as closed"
 reset
@@ -104,17 +107,17 @@ issues "$(issue 5 tehas:awaiting-merge)" "$(issue 6 needs-human-attention)" "$(i
 again
 issues "$(issue 5 tehas:awaiting-merge CLOSED 60)" "$(issue 6 needs-human-attention CLOSED 60)"
 again
-t_eq "$(t_calls analytics)" ""
+t_eq "$(events)" ""
 shipped "$(merged 5 60)" "$(merged 6 60)"
 again
-t_eq "$(t_calls analytics | sort)" "event 5 merged --at $((now - 60))
+t_eq "$(events | sort)" "event 5 merged --at $((now - 60))
 event 6 merged --at $((now - 60))"
 
 t_case "a first run records the closed issues it is shown, with their times"
 reset
 issues "$(issue 3 tehas:ready CLOSED 120)" "$(issue 1 tehas:ready CLOSED 60)" "$(issue 4 tehas:ready CLOSED $((11 * 86400)))"
 t_run "$status"
-t_eq "$(t_calls analytics)" "event 3 closed --at $((now - 120))"
+t_eq "$(events)" "event 3 closed --at $((now - 120))"
 
 t_case "a snapshot before more than an hour old counts as none"
 reset
@@ -122,7 +125,7 @@ t_run "$status"
 jq --arg at "$(ago 3601)" '.generatedAt = $at' "$live/status.json" >"$T/old.json" && mv "$T/old.json" "$live/status.json"
 issues "$(issue 3 tehas:awaiting-merge)" "$(issue 5 tehas:awaiting-merge)"
 again
-t_eq "$(t_calls analytics)" ""
+t_eq "$(events)" ""
 
 t_case "a snapshot before that is not one counts as none"
 reset
@@ -132,14 +135,14 @@ issues "$(issue 3 tehas:awaiting-merge)"
 t_run "$status"
 t_eq "$t_rc" 0
 t_eq "$(jq -r '.awaiting | length' "$live/status.json")" 1
-t_eq "$(t_calls analytics)" ""
+t_eq "$(events)" ""
 
 t_case "the control issue is never recorded"
 reset
 t_run "$status"
 issues "$(issue 1 tehas:awaiting-merge)" "$(issue 1 needs-human-attention)"
 again
-t_eq "$(t_calls analytics)" ""
+t_eq "$(events)" ""
 
 t_case "with TEHAS_ANALYTICS off nothing is recorded"
 reset
@@ -150,7 +153,7 @@ shipped "$(merged 20 60)"
 again
 t_eq "$t_rc" 0
 t_eq "$(jq -r '.awaiting | length' "$live/status.json")" 1
-t_eq "$(t_calls analytics)" ""
+t_eq "$(events)" ""
 
 t_case "a snapshot that is not written records nothing"
 reset
@@ -161,7 +164,7 @@ echo '{"errors": [{"message": "rate limited"}]}' >"$T/shipped.json"
 again
 t_eq "$t_rc" 0
 t_eq "$(jq -r '.awaiting | length' "$live/status.json")" 0
-t_eq "$(t_calls analytics)" ""
+t_eq "$(events)" ""
 
 t_case "a failing analytics is a warning on standard error, and the snapshot is written"
 reset

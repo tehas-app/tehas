@@ -1411,6 +1411,52 @@ and changes nothing in the snapshot. Its event is lost: the next run compares
 with the new snapshot and does not try it again.
 `TEHAS_ANALYTICS=off` makes no call.
 
+At the end of every run, also one that ends early because GitHub does not
+answer, `tehasbot status` writes `~/tehas/live/analytics.json`, the ten-day
+report of the factory's analytics, from `~/tehas/libexec/analytics report
+--json`. It writes `analytics.json.new` and moves it into place, and keeps only
+the top-level keys it names, so a key the program adds later is not published
+until someone adds it to that list in `libexec/status`. The call has the same
+5-second limit. A report that fails or is not one is a line `WARN analytics
+report: ...` on standard error; the file that is there stays while it is less
+than ten minutes old, so one poll that meets a locked database does not empty
+the dashboard's section, and is removed after that, so a database that keeps
+failing does not show old figures. With `TEHAS_ANALYTICS=off`, or where the
+program is not installed, there is no file.
+
+The file is public, as `status.json` is. It holds counts, durations, token
+sums, version strings and the words of stop reasons and steps: no issue
+number, title, failure cause, account, model or provider. A stop reason or a
+step that is not a plain word (`a-z`, `0-9`, `:`, `_`, `-`, up to 60
+characters) is counted as `other`. Every figure carries its count `n`, and a
+value that cannot be worked out, such as a share of nothing, is left out
+rather than written as null. Durations are seconds, times Unix seconds.
+
+The window is ten UTC days: from midnight nine days before today to the time
+of the report. Run figures count the work runs that ended in it; planning
+turns are only counted.
+
+| Key | What it is |
+| --- | --- |
+| `report` | The version of this shape, `1` |
+| `from`, `to` | The window |
+| `shipped` | `n`: issues whose merge is in the window, by their `merged` event or a run that merged |
+| `planned` | Work to do, from the latest sample: `n` is `inLine` plus `planning`; `trend` is one `{day, n}` per day, the day's last sample, `n` left out on a day with none. Left out with no sample |
+| `runs` | `n` work runs, and how many ended as `pr`, `merged`, `handoff`, `parked`, `failed`, `refused` and `stopped` |
+| `planningTurns` | `n` planning turns that ended |
+| `handoffRate` | `share` of the `n` runs that ended needing a person: handed off or parked |
+| `firstPassYield` | `share` of the `n` shipped issues with a run here that took exactly one work run |
+| `leadTime` | `median` and `p90` seconds from the first accepted `tehas:ready` to the merge, over `n` shipped issues whose `ready` is still in the database |
+| `cycleTime` | `median` and `p90` seconds of the `n` runs |
+| `machineTime` | `seconds` of all `n` runs, and `perShipped` |
+| `tokens` | `total`, `input`, `output` and `cacheRead` of the `n` runs that reported usage, and `perShipped` (of the total) |
+| `availability` | `share` of the `seconds` since the first sample in the window that the factory could take work, from `n` samples. A sample counts for the time to the next, at most ten minutes, and only when it says not paused and no hold; a stretch with no samples counts as not available |
+| `energy` | `kwh` and `perShipped`, from the `n` samples with the mesh's draw: each draw over the time to the next sample, at most ten minutes. Left out where no sample has one |
+| `daily` | Ten `{day, shipped, runs, failed, minutes}`, oldest first: issues shipped, runs ended and of them failed, and their minutes |
+| `stopReasons` | `top`: the five most common `{reason, n}` among the `n` runs that ended without a pull request, not counting those a person stopped. The reason is the failure kind, the cap for a failure that is a cap, else the park reason, else how the run ended |
+| `stations` | `steps`: per step, in the order runs reach it, the `n` runs that reached it, how many `passed` and the `share`. A run that reached a pull request passed every step it ran; one handed off, parked or failed stopped in its failed step, else its last. `n` is the runs counted: refused and stopped runs are not |
+| `versions` | One `{tehas, rukas, n}` per version pair, the pair that ran last first, at most ten. With three runs or more also `prShare` (reached a pull request), `medianSeconds` and `medianTokens` (input, output and cache read). A version that is not known is left out |
+
 `tehasbot status` also writes `~/tehas/live/platform.json`: the commit the
 platform checkout `~/tehas/platform` is at, `upstream` (origin's default
 branch), how many commits it is `behind`, `behindSince` (when the oldest of
