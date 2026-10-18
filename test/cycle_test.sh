@@ -46,6 +46,7 @@ case "$1 $2" in
     if [ -s "$T/fx/edit-fails-on" ]; then
       case "$*" in *"$(cat "$T/fx/edit-fails-on")"*) exit 1 ;; esac
     fi ;;
+  "pr edit") [ ! -e "$T/fx/pr-edit-fails" ] || exit 1 ;;
   # The park question, posted through the API so that its id comes back.
   "api repos/acme/widget/issues/"*"/comments") [ ! -e "$T/fx/post-fails" ] || exit 1; echo 4002 ;;
   # What the number is. An open issue, unless a case writes the fixture.
@@ -1652,5 +1653,45 @@ t_eq "$(t_calls gh | grep -c -F '| **total, all dispatches** | 3 | 7 | 10 | 4 | 
 t_eq "$(t_calls gh | grep -c '^- \[')" 2
 t_eq "$(markers)" 1
 rm -rf "$workdir"
+
+# A refresh's approval record, as the dispatcher writes it before the start.
+refresh_started() {
+  mkdir -p "$state"
+  jq -n '{at: "2026-10-01T00:00:00Z", by: "alice", how: "refresh", body_sha256: ("0" * 64), links: [],
+    rests_on: {at: "2026-10-01T00:00:00Z", by: "alice", how: "label", body_sha256: ("0" * 64)},
+    refreshes: 1, refresh_of: {pr: 9, head_sha: ("a" * 40), base_sha: ("b" * 40), branch: "main"}}' >"$state/7.approved.json"
+}
+for outcome in pushed parked failed; do
+  t_case "a refresh takes tehas:refreshing off its pull request when it ends: $outcome"
+  reset
+  refresh_started
+  case "$outcome" in
+    pushed) ended handoff commit-pr feature/issue-7-x; echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt" ;;
+    parked) ended handoff develop feature/issue-7-x verify-failed:develop ;;
+    failed) ended crash develop ;;
+  esac
+  t_run "$cycle 7"
+  t_eq "$t_rc" 0
+  t_contains "$(t_calls gh)" "pr edit 9 --repo acme/widget --remove-label tehas:refreshing"
+  [ "$outcome" != pushed ] || t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label tehas:awaiting-merge"
+  [ "$outcome" = pushed ] || t_contains "$(t_calls gh)" "--add-label needs-human-attention"
+  t_eq "$(jq -r .how "$state/7.history.jsonl")" refresh
+done
+
+t_case "a cycle that is no refresh leaves the labels of pull requests alone"
+reset
+ended handoff commit-pr feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "tehas:refreshing"
+
+t_case "a mark that cannot be taken off is tried three times and said"
+reset
+refresh_started
+: >"$fx/pr-edit-fails"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(t_calls gh | grep -c 'pr edit 9 --repo acme/widget --remove-label tehas:refreshing')" 3
+t_contains "$t_out" "WARN: label change on pull request #9 failed"
 
 t_done

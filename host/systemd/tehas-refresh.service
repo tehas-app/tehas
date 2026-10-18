@@ -1,0 +1,7 @@
+[Unit]
+Description=Tehas: find the factory's pull requests that conflict with the branch
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot refresh"
+TimeoutStartSec=10min
