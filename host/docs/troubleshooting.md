@@ -561,7 +561,7 @@ log and asked GitHub for the bot's pull request of the branch that
   change is then either unpushed or pushed without a pull request. The
   commits are in the cycle's workspace, on the local branch
   `feature/issue-<N>-...` there: `git -C ~/tehas/work/<product>-<N> log
-  --oneline feature/issue-<N>-...`, then push it and open the pull request by
+  feature/issue-<N>-...`, then push it and open the pull request by
   hand, or retry for a fresh cycle.
 - The step is `-` when the run log has no step for this cycle at all, which is
   what says `tehas work` stopped before it started the container. Read
