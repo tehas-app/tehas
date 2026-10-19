@@ -191,6 +191,9 @@ t_eq "$(session_args | security_line)" "$security_opts "
 t_eq "$(session_args | security_of --cap-add | LC_ALL=C sort)" "CHOWN
 FOWNER"
 t_eq "$(session_args | security_of --security-opt)" "no-new-privileges:true"
+# The image's entrypoint drops from root with setpriv, which the dropped
+# SETUID and SETGID refuse: the container starts as the host's user instead.
+t_eq "$(after --user)" "$(id -u):$(id -g)"
 t_lacks "$(session_args)" "--cidfile"
 
 t_case "the slice is read once: one systemctl call, one docker info"
@@ -250,7 +253,7 @@ t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC
 t_eq "$(passed PI_ENSEMBLE_WORKSPACE_ROOT)" "$clone"
 
 t_case "the session's container gets no option beyond the documented ones"
-t_eq "$(session_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt -w -v -e" "--rm -it --init")" ""
+t_eq "$(session_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt --user -w -v -e" "--rm -it --init")" ""
 t_eq "$(session_args | grep -c -x -e --init)" 1
 t_contains "$(session_args)" "--add-host=models:192.0.2.9"
 
@@ -531,7 +534,7 @@ t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$mounts_base" "$imgs:$imgs:
 t_eq "$(after -e | grep -c '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" 1
 t_eq "$(passed PI_ENSEMBLE_EXTRA_IMAGE_DIRS)" "$imgs"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_ENSEMBLE_EXTRA_IMAGE_DIRS | LC_ALL=C sort)"
-t_eq "$(session_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt -w -v -e" "--rm -it --init")" ""
+t_eq "$(session_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt --user -w -v -e" "--rm -it --init")" ""
 t_eq "$(cd "$imgs" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" "./image-1.png ./manifest.json "
 t_contains "$t_out" "tehas dev: Tehas gave this session 1 image from the issue text."
 rm -f "$T/image.label"
