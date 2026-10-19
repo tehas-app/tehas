@@ -345,12 +345,12 @@ t_case "the token is passed by name, never written into the arguments"
 t_lacks "$(cycle_args)" "test-token"
 
 t_case "nothing that controls the host is reachable"
-args=$(cat "$T"/calls/docker.args.*)
-t_contains "$args" "pi-rukas-headless"
-t_lacks "$args" "docker.sock"
-t_lacks "$args" ".ssh"
-t_lacks "$args" ".config/tehas"
-t_lacks "$args" "--privileged"
+given=$(cat "$T"/calls/docker.args.*)
+t_contains "$given" "pi-rukas-headless"
+t_lacks "$given" "docker.sock"
+t_lacks "$given" ".ssh"
+t_lacks "$given" ".config/tehas"
+t_lacks "$given" "--privileged"
 
 # The options themselves, as lib/sandbox.sh prints them: the one function the
 # cycle, the planning turn, the session and the push check are all given them
