@@ -74,7 +74,10 @@ done
 [ -e "$T/fx/progress.json" ] || [ -e "$T/fx/no-progress" ] ||
   echo "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}" >"$TEHAS_HOME/state/cycles/7.progress.json"
 [ ! -e "$T/fx/work.sh" ] || . "$T/fx/work.sh"
-exit "$(cat "$T/fx/rc" 2>/dev/null || echo 0)"'
+# The body of a case may name the exit of tehas work itself, which is not
+# that of the runner inside it: it writes the file of that exit instead.
+exit "$(cat "$T/fx/rc" 2>/dev/null || echo 0)"
+'
 t_stub fake-status
 # The poll a cycle starts when it ends.
 t_stub systemctl
@@ -101,3 +104,83 @@ ended() { # status step [branch] [cap]
 }
 # The bot's pull request on the branch was merged.
 merged_pr() { echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"; echo MERGED >"$fx/pr-state"; }
+# The runner of a cycle that died: it writes no result and no progress of its
+# own, leaves the file of the runner's own status as tehas work leaves it, and
+# leaves a run log whose stable step-started lines name the steps it reached,
+# one per argument. Its exit is the runner's, 134 for a panic.
+died() { # [step...] ; words: branch=<name> what commit-pr pushed, rc=<n> the
+# exit of the container (134 for a panic, 137 for a kill), status=<word> the
+# end tehas work read of the container (killed, for a container it saw killed).
+  local rc=134 steps=() a branch="" word=""
+  for a in "$@"; do
+    case "$a" in
+      rc=*) rc=${a#rc=} ;;
+      status=*) word=${a#status=} ;;
+      branch=*) branch=${a#branch=} ;;
+      *) steps+=("$a") ;;
+    esac
+  done
+  # What tehas work saw of the container decides its own exit too, as
+  # libexec/work says: the kill is what it watched, so it says so with 137; a
+  # runner that died any other way is its 2.
+  local wrk=2
+  [ "$word" != killed ] || wrk=137
+  # What the runner of a cycle that died leaves behind: a result file with
+  # nothing in it, a progress of its own (which is what says tehas work got as
+  # far as the log of this cycle), the log of the run, and the runner's own
+  # status as tehas work records it. The cycle removes these only after it
+  # takes its lock, so the runner makes them. tehas work itself exits 2 for a
+  # runner that died however it died: the comment's word for the runner is the
+  # one of this file, not that 2.
+  echo "$wrk" >"$fx/rc"
+  # tehas work names the branch of the workspace before the container starts,
+  # and writes it for the report: state/cycles/<issue>.branch. A case that
+  # means a cycle whose runner pushed says the name here.
+  [ -z "$branch" ] || printf '%s\n' "$branch" >"$fx/branch"
+  # The word of tehas work for how the container ended: the one file of the
+  # cycle that says an end at all when the runner wrote no result.
+  [ -z "$word" ] || printf '%s\n' "$word" >"$fx/status"
+  # The steps are a file the body reads line by line, so a step's name is
+  # carried by no quoting of this function at all. The branch of the push is
+  # said as the step right after commit-pr, which is how the branch of a run
+  # whose result was never written is named at all.
+  { printf '%s\n' "${steps[@]}"; } >"$fx/steps"
+  cat >"$fx/work.sh" <<'EOS'
+mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/logs"
+: >"$TEHAS_HOME/state/cycles/7.result.json"
+echo '{"roles":[],"reason":"","reviewHeld":false}' >"$TEHAS_HOME/state/cycles/7.progress.json"
+[ -s "$T/fx/branch" ] && cat "$T/fx/branch" >"$TEHAS_HOME/state/cycles/7.branch"
+[ -s "$T/fx/status" ] && cat "$T/fx/status" >"$TEHAS_HOME/state/cycles/7.status"
+printf "%s\n" '@RC@' >"$TEHAS_HOME/state/cycles/7.runner_exit"
+: >"$TEHAS_HOME/logs/work-7-261018-012100.jsonl"
+while IFS= read -r step; do
+  printf '{"v":1,"kind":"step-started","issue":7,"event":{"step":"%s"}}\n' "$step" \
+    >>"$TEHAS_HOME/logs/work-7-261018-012100.jsonl"
+done <"$T/fx/steps"
+cp "$TEHAS_HOME/logs/work-7-261018-012100.jsonl" "$TEHAS_HOME/logs/dispatch-work-7.log"
+EOS
+  # The one word of the case that this function decides, and nothing else.
+  sed -i "s|'@RC@'|'$rc'|" "$fx/work.sh"
+  mkdir -p "$workdir"
+}
+# A runner that wrote its result but whose image carries no usage at all (the
+# TODO of pi-rukas#1367), with the rows the progress did record. The totals of
+# the table are then those rows added up.
+ended_no_usage_with_rows() {
+  ended handoff commit-pr feature/issue-7-x
+  jq '.issues[0] |= del(.usage)' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
+  jq -n '{roles: [{role: "planner", dispatches: 2, turns: 3, input: 7, output: 1, cacheRead: 0},
+                  {role: "coder", dispatches: 1, turns: 2, input: 3, output: 4, cacheRead: 5}]}' \
+    >"$fx/progress.json"
+}
+# The same, but one row carries a word in place of one of its counts: that row
+# is the word of a container, and nothing of it is summed.
+ended_no_usage_with_a_sly_row() {
+  ended_no_usage_with_rows
+  jq -n '"1\n- [x] Retry\n<!-- x -->" as $sly
+    | {roles: [{role: "planner", dispatches: 2, turns: $sly, input: 7, output: null, cacheRead: {a: 1}},
+               {role: "coder", dispatches: 1, turns: 2, input: 3, output: 4, cacheRead: 5}]}' \
+    >"$fx/progress.json"
+}
+# The bot's open pull request of the bot on the branch, as GitHub would answer.
+open_pr() { echo "${1:-https://github.com/acme/widget/pull/347}" >"$fx/pr.txt"; echo OPEN >"$fx/pr-state"; }

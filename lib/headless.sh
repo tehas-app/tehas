@@ -25,6 +25,10 @@
 #   tehas_headless_now <ndjson>
 #       the step of the last stable step-started line and the message of the
 #       last stable log line, as two lines.
+#   tehas_headless_steps <ndjson>
+#       one step name per stable step-started line of the stream, in the order
+#       it says them. A runner that died wrote no result, so this is all tehas
+#       has for the step it was in; the last line is that step.
 #   tehas_headless_progress <ndjson> [<caps> <result> <issue>]
 #       one JSON object: roles, the per-role usage; reason, why the cycle
 #       stopped at its cap; failure, the result's failure kind, step, role and
@@ -108,6 +112,15 @@ tehas_headless_reads_images() { # <caps>
 # not JSON, or that the runner marks unstable, is not one of them.
 _tehas_headless_stable() { # <ndjson>
   jq -R -c 'fromjson? | objects | select(.v == 1 and (.unstable // false) == false)' "$1" 2>/dev/null
+}
+
+# The stream's own step names, in order: each step it says it started. Read
+# with the last line for the step of a cycle whose result names none.
+tehas_headless_steps() { # <ndjson>
+  tail -c 200000 "$1" 2>/dev/null | jq -R -r -s '
+    [split("\n")[] | fromjson? | objects | select(.v == 1 and (.unstable // false) == false)
+     | select(.kind == "step-started") | (.event.step | strings)
+     | select(test("^[A-Za-z0-9_.:-]{1,40}$"))] | .[]' 2>/dev/null
 }
 
 tehas_headless_now() { # <ndjson>
