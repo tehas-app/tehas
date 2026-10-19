@@ -498,10 +498,11 @@ before=$(date +%s)
 t_run "$cycle 7"
 t_eq "$t_rc" 0
 t_eq "$(($(date +%s) - before < 15))" 1
-# The report ignores TERM, and so does what it starts: the kill a second
-# after the limit ends it.
-t_contains "$t_out" "WARN analytics run: exit 137"
-t_contains "$t_out" "WARN analytics event: exit 137"
+# GNU timeout reports the TERM as 124; uutils reports the kill that follows
+# as 137.
+for sub in run event; do
+  [[ $t_out =~ "WARN analytics $sub: exit "(124|137) ]] || t_bad "no time limit warning for $sub in: $t_out"
+done
 t_eq "$(t_calls fake-status | wc -l)" 1
 
 t_case "a host without the analytics program is silent"
