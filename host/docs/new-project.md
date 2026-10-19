@@ -13,7 +13,7 @@ What you get is issue to pull request: the queue, cycles, gates, the dashboard
 and the live console. The effort is settings, plus your toolchain in the
 sandbox image. This page walks through it with the instance that works on
 tehas itself: host `tehas-tehas`, user `boss`, product
-`janit/tehas`. Its settings are in `instances/tehas-tehas/` in this
+`tehas-org/tehas`. Its settings are in `instances/tehas-tehas/` in this
 repository.
 
 ## What the product repository must provide
@@ -100,7 +100,7 @@ it turns on optional parts: previews, the improvement loop and limits of its
 own.
 
 ```
-TEHAS_REPO=janit/tehas
+TEHAS_REPO=tehas-org/tehas
 TEHAS_CONTROL_ISSUE=1
 TEHAS_ALLOWED_LABELERS="janit"
 
