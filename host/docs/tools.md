@@ -1192,7 +1192,7 @@ tehas api [--json]
 api       1
 tehas     v0.8.0 (cb6912a)
 repo      tehas-org/tehas
-features  status fixer-grant
+features  status fixer-grant all-hands limit drain history export refresh-conflicts analytics
 fixer     none
 ```
 
@@ -1533,7 +1533,7 @@ turns are only counted.
 | `cycleTime` | `median` and `p90` seconds of the `n` runs |
 | `machineTime` | `seconds` of all `n` runs, and `perShipped` |
 | `tokens` | `total`, `input`, `output` and `cacheRead` of the `n` runs that reported usage, and `perShipped` (of the total) |
-| `availability` | `share` of the `seconds` since the first sample in the window that the factory could take work, from `n` samples. A sample counts for the time to the next, at most ten minutes, and only when it says not paused and no hold; a stretch with no samples counts as not available |
+| `availability` | `share` of the `seconds` since the first sample in the window that the factory could take work, from `n` samples. A sample counts for the time to the next, at most ten minutes, and only when it says not paused and either no hold or cycles running (slots that are full are not down time); a stretch with no samples counts as not available |
 | `energy` | `kwh` and `perShipped`, from the `n` samples with the mesh's draw: each draw over the time to the next sample, at most ten minutes. Left out where no sample has one |
 | `daily` | Ten `{day, shipped, runs, failed, minutes}`, oldest first: issues shipped, runs ended and of them failed, and their minutes |
 | `stopReasons` | `top`: the five most common `{reason, n}` among the `n` runs that ended without a pull request, not counting those a person stopped. The reason is the failure kind, the cap for a failure that is a cap, else the park reason, else how the run ended |
