@@ -41,7 +41,12 @@ fn without_tehas_home_it_stops_with_78_and_writes_nothing() {
 fn a_wrong_argument_is_a_usage_error() {
     let home = scratch("usage");
     let h = home.to_str().unwrap();
-    for args in [&[][..], &["run"], &["event", "3", "shipped"], &["report"]] {
+    for args in [
+        &[][..],
+        &["run"],
+        &["event", "3", "shipped"],
+        &["report", "--text"],
+    ] {
         let (code, err) = status(Some(h), args);
         assert_eq!(code, 64, "{args:?}");
         assert!(err.starts_with("usage: analytics"), "{args:?}");

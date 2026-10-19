@@ -34,13 +34,17 @@
 //!     Deletes what is older than ten days, then runs PRAGMA optimize. run,
 //!     event and sample prune too, after their write. The events of an
 //!     issue that started and never ended are kept at most a day longer.
-//!   analytics report --json
-//!     Prints the ten-day report the dashboard shows, one JSON object of
-//!     aggregates only (report.rs says what is in it). libexec/status writes
-//!     it to live/analytics.json.
-//!   analytics export <file>
+//!   analytics report [--json]
+//!     Prints the ten-day report the dashboard shows, aggregates only
+//!     (report.rs says what is in it): as plain text for a person, or with
+//!     --json as one JSON object, which libexec/status writes to
+//!     live/analytics.json.
+//!   analytics export <file> [--json]
 //!     Writes a consistent copy of the database to <file>, mode 0600, with
-//!     VACUUM INTO. <file> must not exist.
+//!     VACUUM INTO. <file> must not exist. With --json it then prints what
+//!     the copy holds, read from the copy: {"api":1,"schema":N,"from":T,
+//!     "to":T,"runs":N}, from and to the oldest start and the newest end of
+//!     its runs, both left out when it has none.
 //!
 //! The database is $TEHAS_HOME/state/analytics.db, mode 0600, in WAL mode,
 //! its schema version in PRAGMA user_version (schema.sql). A file that is
@@ -72,7 +76,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const USAGE: &str = "usage: analytics run <issue> [--image <id>] [--rukas-image <commit>] [--oom <n>] [--forks <n>] | plan <issue> --rc <rc> [--rukas-image <commit>] | event <issue> <event> [--at <epoch seconds>] | sample | prune | report --json | export <file>";
+const USAGE: &str = "usage: analytics run <issue> [--image <id>] [--rukas-image <commit>] [--oom <n>] [--forks <n>] | plan <issue> --rc <rc> [--rukas-image <commit>] | event <issue> <event> [--at <epoch seconds>] | sample | prune | report [--json] | export <file> [--json]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -104,7 +108,8 @@ pub enum Cmd {
     Sample,
     Prune,
     Report,
-    Export(PathBuf),
+    ReportText,
+    Export(PathBuf, bool),
 }
 
 fn parse(args: &[String]) -> Option<Cmd> {
@@ -127,7 +132,15 @@ fn parse(args: &[String]) -> Option<Cmd> {
         [c] if c == "sample" => Some(Cmd::Sample),
         [c] if c == "prune" => Some(Cmd::Prune),
         [c, f] if c == "report" && f == "--json" => Some(Cmd::Report),
-        [c, f] if c == "export" && !f.is_empty() => Some(Cmd::Export(PathBuf::from(f))),
+        [c] if c == "report" => Some(Cmd::ReportText),
+        [c, f, rest @ ..] if c == "export" && !f.is_empty() && !f.starts_with('-') => {
+            let json = match rest {
+                [] => false,
+                [j] if j == "--json" => true,
+                _ => return None,
+            };
+            Some(Cmd::Export(PathBuf::from(f), json))
+        }
         _ => None,
     }
 }
@@ -213,7 +226,7 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
         Cmd::Plan(issue, given) => Some(plan::read(home, *issue, given, now).map_err(|e| (65, e))?),
         _ => None,
     };
-    if let Cmd::Export(to) = cmd {
+    if let Cmd::Export(to, _) = cmd {
         if to.exists() || to.is_symlink() {
             return Err((73, format!("{} exists already", to.display())));
         }
@@ -262,12 +275,22 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
             db::prune_aside(&file, now);
             conn.execute_batch("PRAGMA optimize").map_err(db_err)
         }
-        Cmd::Report => {
+        Cmd::Report | Cmd::ReportText => {
             let report =
                 report::build(&conn, now).map_err(|e| (70, format!("the report failed: {e}")))?;
-            println!("{report}");
+            if matches!(cmd, Cmd::Report) {
+                println!("{report}");
+            } else {
+                print!("{}", report::text(&report));
+            }
             Ok(())
         }
-        Cmd::Export(to) => db::export(&conn, to).map_err(|e| (73, e)),
+        Cmd::Export(to, json) => {
+            db::export(&conn, to).map_err(|e| (73, e))?;
+            if *json {
+                println!("{}", db::copy_summary(to).map_err(|e| (70, e))?);
+            }
+            Ok(())
+        }
     }
 }
