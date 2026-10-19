@@ -544,6 +544,37 @@ retry, so the review did not finish. That is not a rejection. The comment is
 on the pull request, which is open with the work pushed. Review the change
 yourself, then merge or close it.
 
+### The runner died and wrote no result
+
+The bot's comment says `Tehas cycle handed off with its pull request open and
+its review unfinished`, or `Tehas cycle stopped without a pull request`, with
+`last step` followed by `read from its run log` and a `runner exit` that is not
+one of the ends of the contract (10, 11, 20, 21). The runner of that cycle died
+before it could write its result, so tehas read the step it was in from its run
+log and asked GitHub for the bot's pull request of the branch that
+`commit-pr` pushed.
+
+- The comment names the pull request when GitHub lists one. Read it: the change
+  is up for review, and a clean retry redoes what it already holds. That
+  comment has no retry boxes, and the issue carries `needs-human-attention`.
+- The comment says no pull request was found when GitHub lists none. The
+  change is then either unpushed or pushed without a pull request. The
+  commits are in the cycle's workspace, on the local branch
+  `feature/issue-<N>-...` there: `git -C ~/tehas/work/<product>-<N> log
+  --oneline feature/issue-<N>-...`, then push it and open the pull request by
+  hand, or retry for a fresh cycle.
+- The step is `-` when the run log has no step for this cycle at all, which is
+  what says `tehas work` stopped before it started the container. Read
+  `~/tehas/logs/dispatch-work-<N>.log`.
+
+```
+jq . ~/tehas/state/cycles/<N>.result.json      # empty, or missing: no result
+tail -n 40 ~/tehas/logs/work-<N>-*.jsonl        # the steps the runner reached
+```
+
+The log of the run says what the runner was doing; the comment says what tehas
+made of it, and the two are read in that order.
+
 ## A provider error about context length
 
 ```
