@@ -577,8 +577,10 @@ if [ "$give" != 1 ]; then
 fi
 
 # Docker refuses a cid file that is already there. One is left only by a cycle
-# that was killed outright, and so is a count of kills.
-rm -f "$cid_file" "$oom_file" "$forks_file" "$stall_file" "$timed_file" "$image_file" "$settings_file" "$result_file" "$progress_file" "$runner_exit_file" "$status_file"
+# that was killed outright, and so is a count of kills, and so is the name a
+# write of one of these files was made beside before it was moved into place.
+rm -f "$cid_file" "$oom_file" "$forks_file" "$stall_file" "$timed_file" "$image_file" "$settings_file" "$result_file" "$progress_file" "$runner_exit_file" "$status_file" \
+  "$runner_exit_file.new" "$status_file.new"
 # A container under this name outlived the client that started it: this
 # command holds the issue's lock, so no cycle owns it. It would work on with
 # the bot's token, and Docker would refuse the name below.
@@ -762,9 +764,24 @@ outcome=$(tehas_headless_outcome "$result_file" "$issue") && have=1 || outcome='
 # What the runner ended with, whatever this command goes on to exit with. Said
 # in the cycle's comment, which otherwise names only this command's status.
 # Written once, as soon as the runner has ended: what the report makes of the
-# run after this point may fail, and this word must not go with it.
-printf '%s\n' "${rc:-2}" >"$runner_exit_file" 2>/dev/null ||
-  echo "tehas work: could not write $runner_exit_file" >&2
+# run after this point may fail, and this word must not go with it. Written by
+# a name beside it and moved into place, so tehasbot cycle sees either the word
+# whole or no file at all: a file of the protocol that is there says this
+# command watched the run, and one that a write lost is said of on the unit's
+# error stream, where a person reads it, as much as in the cycle's own log.
+write_note() { # <file> <text>: one file of the protocol, whole or not at all
+  if ! printf '%s\n' "$2" >"$1.new" 2>/dev/null; then
+    rm -f "$1.new" 2>/dev/null
+  elif ! mv "$1.new" "$1" 2>/dev/null; then
+    rm -f "$1.new" 2>/dev/null
+    echo "tehas work: could not write $1" >&2
+    printf '%s\n' "tehas work: could not write $1" >>"$log.err" 2>/dev/null ||
+      echo "tehas work: could not say of $log.err that $1 was lost" >&2
+    return 1
+  fi
+  return 0
+}
+write_note "$runner_exit_file" "${rc:-2}"
 if [ "$have" = 1 ]; then
   status=$(jq -r .status <<<"$outcome")
   status=${status:-unknown}
@@ -804,9 +821,11 @@ if [ "$rc" = 137 ] && [ "$have" = 0 ] && [ "$error_only" = 0 ] && [ "$interrupte
   killed=1
   # Said with the summary, for the report of tehasbot cycle: a cycle that
   # writes no result has no word of its own for how it ended, and this is the
-  # word of the one that watched the container.
-  printf 'killed\n' >"$status_file" 2>/dev/null ||
-    echo "tehas work: could not write $status_file" >&2
+  # word of the one that watched the container. Lost with no other account of
+  # the kill left behind, so it is said of twice: once to a person reading the
+  # unit, once to the cycle's own record.
+  write_note "$status_file" killed ||
+    echo "tehas work: the account of the killed container is lost with it"
   echo "tehas work: the container was killed (137) while the cycle was running: out of memory, or stopped from outside"
 fi
 if [ "$ooms" -gt 0 ]; then

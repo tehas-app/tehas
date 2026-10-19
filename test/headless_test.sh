@@ -14,6 +14,8 @@
 # a private address and is replaced by a documentation one.
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
+# shellcheck source=lib/cycles.sh
+. "$T_ROOT/lib/cycles.sh"
 # shellcheck source=lib/headless.sh
 . "$T_ROOT/lib/headless.sh"
 fx=$T_ROOT/test/fixtures/headless-0.12.80
@@ -135,6 +137,73 @@ t_case "the live line is the last stable step and the driver's last notice, with
 t_eq "$(tehas_headless_now "$fx/progress.jsonl" | head -n 1)" handoff
 t_eq "$(tehas_headless_now "$fx/progress.jsonl" | sed -n 2p)" "⚠ pi-rukas /work for issue #7 — HANDOFF DISPATCH INCOMPLETE"
 t_eq "$(tehas_headless_now /dev/null | tr '\n' ,)" ",,"
+
+# The log of a run whose runner died: one line per stable step-started line, in
+# the order the runner wrote them. A file of them, so a case names the steps.
+steps_log() { # <name> <step...>: the path of a log of those steps
+  local f=$T/$1.jsonl
+  shift
+  : >"$f"
+  local s
+  for s in "$@"; do
+    printf '{"v":1,"kind":"step-started","issue":7,"event":{"step":"%s"}}\n' "$s" >>"$f"
+  done
+  printf '%s\n' "$f"
+}
+run_of() { # <issue> <step...>: the three lines the helper answers of that run
+  local f
+  f=$(steps_log run "$@" | tail -n 1)
+  tehas_headless_run "$f" "$1" | tr '\n' '|'
+}
+
+t_case "the run's last step, its pushed branch, and whether its log was read whole"
+# The step of the last step-started line, and the step right after commit-pr as
+# the branch, which is this issue's own and so is said.
+t_eq "$(run_of 7 explore plan develop commit-pr feature/issue-7-checks-instance)" \
+  "feature/issue-7-checks-instance|feature/issue-7-checks-instance|whole|"
+# No commit-pr at all: the step of the run stands, and GitHub is asked nothing.
+t_eq "$(run_of 7 explore plan develop)" "develop||whole|"
+# A run whose steps stop at commit-pr pushed nothing, so its last step is no
+# branch of a push.
+t_eq "$(run_of 7 explore develop commit-pr)" "commit-pr||whole|"
+t_case "the branch of the LAST commit-pr, so a run that pushed twice ends on its last push"
+t_eq "$(run_of 7 commit-pr feature/issue-7-first develop commit-pr feature/issue-7-second)" \
+  "feature/issue-7-second|feature/issue-7-second|whole|"
+t_case "a branch of another issue, one of no slug, and a step that is no branch"
+t_eq "$(run_of 7 commit-pr feature/issue-8-other)" "feature/issue-8-other||whole|"
+t_eq "$(run_of 7 commit-pr develop)" "develop||whole|"
+t_case "a step name over the bound of 100 characters is no step of a run"
+# The bound is the one tehas_headless_step_chars holds, and it is wider than the
+# grammar of tehas_branch_pattern in one way and narrower in another. A name of
+# 101 characters is no step at all, whatever its shape, so the run says only its
+# commit-pr. A name of the most characters a step may be, but with a slug past
+# 80, is a step and no branch of this issue, so GitHub is asked about nothing. A
+# name of the widest branch the grammar takes is both at once.
+t_eq "$(run_of 7 commit-pr "$(printf 'x%.0s' {1..101})")" "commit-pr||whole|"
+t_eq "$(run_of 7 commit-pr "$(printf 'z%.0s' {1..100})")" \
+  "$(printf 'z%.0s' {1..100})||whole|"
+t_eq "$(run_of 7 commit-pr "feature/issue-7-$(printf 'y%.0s' {1..84})")" \
+  "feature/issue-7-$(printf 'y%.0s' {1..84})||whole|"
+t_eq "$(run_of 7 commit-pr "feature/issue-7-$(printf 'y%.0s' {1..80})")" \
+  "feature/issue-7-$(printf 'y%.0s' {1..80})|feature/issue-7-$(printf 'y%.0s' {1..80})|whole|"
+t_case "an empty log, an unreadable one and no issue number say nothing"
+: >"$T/empty.jsonl"
+t_eq "$(tehas_headless_run "$T/empty.jsonl" 7 | tr '\n' '|')" "||whole|"
+# Not a number: no issue's branch is asked about, and nothing of the run is
+# said for it. A missing file is answered the same way, and said of in the log.
+t_eq "$(tehas_headless_run "$T/empty.jsonl" abc; echo "rc=$?")" "rc=1"
+t_eq "$(tehas_headless_run "$T/nothing.jsonl" 7; echo "rc=$?")" "rc=1"
+ln -s "$fx/progress.jsonl" "$T/run-link.jsonl"
+t_eq "$(tehas_headless_run "$T/run-link.jsonl" 7; echo "rc=$?")" "rc=1"
+t_case "a log bigger than the 200 KB tehas reads says it was read from its end"
+python3 -c 'import json,sys
+with open(sys.argv[1],"w") as f:
+    for _ in range(2500):
+        f.write(json.dumps({"v":1,"kind":"log","message":"y"*100})+"\n")
+    for s in ["commit-pr","feature/issue-7-late"]:
+        f.write(json.dumps({"v":1,"kind":"step-started","event":{"step":s}})+"\n")' "$T/big.jsonl"
+t_eq "$(tehas_headless_run "$T/big.jsonl" 7 | tr '\n' '|')" \
+  "feature/issue-7-late|feature/issue-7-late|truncated|"
 
 t_case "the progress of the fixture has no completed dispatch and the reason of its one failed dispatch"
 t_eq "$(tehas_headless_progress "$fx/progress.jsonl" | jq -c .roles)" "[]"

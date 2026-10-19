@@ -131,10 +131,12 @@ died() { # [step...] ; words: rc=<n> the exit of the container (134 for a
   # nothing in it, a progress of its own (which is what says tehas work got as
   # far as the log of this cycle), the log of the run, and the runner's own
   # status as tehas work records it. The cycle removes these only after it
-  # takes its lock, so the runner makes them. tehas work itself exits 2 for a
-  # runner that died however it died: the comment's word for the runner is the
-  # of this file, not that 2. A case may name tehas work's own exit; the
-  # kill of a container is the 137 tehas work exits with.
+  # takes its lock, so the runner makes them. What each of the three files is
+  # proof of is written beside tehas_cycle_note_files in lib/cycles.sh, which
+  # is where a change to this setup has to agree with the code. tehas work
+  # itself exits 2 for a runner that died however it died: the comment's word
+  # for the runner is the of this file, not that 2. A case may name tehas work's
+  # own exit; the kill of a container is the 137 tehas work exits with.
   [ -n "$wrk" ] || { [ "$word" != killed ] || wrk=137; }
   [ -n "$wrk" ] || wrk=2
   echo "$wrk" >"$fx/rc"

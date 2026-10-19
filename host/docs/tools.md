@@ -575,7 +575,13 @@ which `tehasbot cycle` names in its comment: this command exits 2 for a runner
 that died however it died, and 137 only for a container it saw killed. A
 container it saw killed leaves the word `killed` in
 `~/tehas/state/cycles/<issue>.status`, which is the only account of the end when
-the runner wrote no result at all. The cycle reads both files and removes them.
+the runner wrote no result at all. The three files `tehasbot cycle` reads and
+removes for a cycle say three things: `runner_exit` is there when this command
+watched the run and holds the runner's own exit, `status` carries the one word
+`killed` when it saw the container killed, and `progress.json`, the summary this
+command made of the run, is what says the log of the run is this cycle's own and
+may be read for its steps. Each is written by a name beside it and moved into
+place, so the cycle sees a file whole or does not see it.
 
 The bot's git identity is the tehas user's global `user.name` and `user.email`
 on the host.
@@ -1388,13 +1394,18 @@ and is never left as `tehas:running`. Its last step is the last step its run log
 `~/tehas/logs/work-<issue>-<time>.jsonl` says it started, and the comment says
 `read from its run log`, which is the runner's own word and not the verdict of a
 result. Only a cycle `tehas work` watched is read this way, and only its own
-newest log: the file `state/cycles/<issue>.runner_exit`, which `tehas work`
-writes with the runner's own exit, is what says the log is of this cycle. The
+newest log: the summary `tehas work` wrote of the run, in
+`state/cycles/<issue>.progress.json`, is what says the log is of this cycle, and
+`state/cycles/<issue>.runner_exit`, which it writes with the runner's own exit,
+is what says the run was watched at all. The
 comment names that exit, because `tehas work` exits 2 for a runner that died
 however it died and 137 only for a container it saw killed.
 
-When those steps reach `commit-pr`, the step name right after it is the branch
-pi-rukas pushed, and GitHub is asked for the bot's pull request of that branch.
+When those steps reach `commit-pr`, the step name right after the last of them
+is the branch pi-rukas pushed, and GitHub is asked for the bot's pull request of
+that branch. The last, because a run that pushed twice (a retry round, or a
+refresh that pushes to the same pull request) ends on its last push, and that is
+the branch GitHub holds.
 Only a name of this issue's own branch, `feature/issue-<issue>-...`, is asked
 about: a step of any other shape is a step and not a branch, and asks GitHub
 nothing. GitHub decides whether one exists; a line of a log only says which

@@ -23,10 +23,16 @@
 #       One line each. A version that cannot be read expires them all, said
 #       once: whether the fix is there is not known.
 #   tehas_headless_run <ndjson> <issue>
-#       two lines: the step of the last stable step-started line, and the step
-#       right after commit-pr as the branch pi-rukas pushed, said only when it
-#       is this issue's own branch name. A runner that died wrote no result, so
-#       these are all tehas has of the step it was in and the branch it pushed.
+#       three lines: the step of the last stable step-started line; the step
+#       right after the LAST commit-pr line as the branch pi-rukas pushed, said
+#       only when it matches tehas_branch_pattern for this issue (the last push
+#       is the one GitHub holds, so a retry round or a refresh that pushed twice
+#       is read from its last push); and `whole` or `truncated` for whether the
+#       log is no bigger than the 200 KB read here. A runner that died wrote no
+#       result, so these are all tehas has of the step it was in and the branch
+#       it pushed. Prints nothing and returns 1 when <issue> is not a number or
+#       <ndjson> is no file it can read; an empty log gives three lines, the
+#       first two empty and `whole`.
 #   tehas_headless_now <ndjson>
 #       the step of the last stable step-started line and the message of the
 #       last stable log line, as two lines.
@@ -117,29 +123,63 @@ _tehas_headless_stable() { # <ndjson>
 
 # A step name this platform accepts, and the one the step right after commit-pr
 # must be: pi-rukas's branch words the branch it pushed, and a branch name holds
-# a solidus and runs to 100 characters.
+# a solidus and runs to 100 characters. Which of those names is this issue's
+# branch is tehas_branch_pattern of lib/cycles.sh.
 tehas_headless_step_chars='^[A-Za-z0-9_./:-]{1,100}$'
 
-# What the step-started lines of a run say of it, in one pass over its log:
-# first the last step the runner says it started, which is the step of a cycle
-# whose result names none, and second the step right after commit-pr, the branch
-# pi-rukas pushed. The branch is said only when it is this issue's own, as
-# pi-rukas names a branch; any other name, and a run that never got to
-# commit-pr, give an empty second line.
-tehas_headless_run() { # <ndjson> <issue>
-  tail -c 200000 "$1" 2>/dev/null | jq -R -r -s --argjson issue "$2" \
-    --arg chars "$tehas_headless_step_chars" '
+# The step-started names of a stream, in the order the runner wrote them, one
+# per line: its stable lines only, and of those only the ones named by <what>
+# (`step-started` or `log`) whose field <field> is a string the platform
+# accepts as a name. Both readers of a run's NDJSON take their steps from here,
+# so the two cannot disagree about which lines of a stream count.
+_tehas_headless_steps() { # <ndjson> <kind> <field> [<chars>]
+  jq -R -r -s --arg kind "$2" --arg field "$3" --arg chars "${4:-}" '
     [split("\n")[] | fromjson? | objects
      | select(.v == 1 and (.unstable // false) == false)
-     | select(.kind == "step-started") | (.event.step | strings)
-     | select(test($chars))] as $s
-    | ([$s | to_entries[] | select(.value == "commit-pr") | .key] | last // -1) as $at
-    | (($s | length) as $n | if $at < 0 or $at + 1 >= $n then ""
-       else $s[$at + 1] end) as $after
-    | ($s | last // ""),
-      (if $after != "" and
-          ($after | test("^feature/issue-" + ($issue | tostring) + "(-[A-Za-z0-9._-]{1,80})?$"))
-       then $after else "" end)' 2>/dev/null | head -n 2
+     | select(.kind == $kind) | (.event[$field] | strings)
+     | select(if $chars == "" then true else test($chars) end)]
+    | .[]' "$1" 2>/dev/null
+}
+
+# What the step-started lines of a run say of it, in one pass over its log:
+# three lines, or nothing and status 1 when <issue> is not a number or <ndjson>
+# is no file tehas can read. First the last step the runner says it started,
+# which is the step of a cycle whose result names none. Second the step right
+# after the LAST commit-pr line, the branch pi-rukas pushed: the last, because
+# a run that pushed twice (a retry round, a refresh) ends on its last push, and
+# that is the branch GitHub holds. It is said only when it matches
+# tehas_branch_pattern for this issue (lib/cycles.sh), the one grammar the
+# caller holds too; any other name, a run whose steps stop at commit-pr, and a
+# run that never got there all give an empty second line. Third `whole` when
+# tehas read the log from its first line, or `truncated` when the log is bigger
+# than the 200 KB read here, so a caller can tell a log it read from one it only
+# saw the end of.
+#
+# The issue is checked as digits and then matched, not spliced into a pattern it
+# builds: a value that is not a number is no issue's, and answers nothing
+# rather than failing the two lines that could still be told.
+tehas_headless_run() { # <ndjson> <issue>
+  local log=$1 issue=$2 size cut last="" branch="" line at=-1 want=-1 n=0
+  local pattern
+  pattern=$(tehas_branch_pattern "$issue") || return 1
+  [ -f "$log" ] && [ ! -L "$log" ] || return 1
+  size=$(wc -c <"$log" 2>/dev/null) || return 1
+  [[ $size =~ ^[0-9]+$ ]] || size=0
+  cut=whole
+  [ "$size" -le 200000 ] || cut=truncated
+  while IFS= read -r line; do
+    n=$((n + 1))
+    last=$line
+    # The line right after the last commit-pr is the branch of that push.
+    [ "$want" -ne "$n" ] || branch=$line
+    [ "$line" != commit-pr ] || { at=$n; want=$((n + 1)); }
+  done < <(_tehas_headless_steps "$log" step-started step "$tehas_headless_step_chars") 2>/dev/null
+  # A run whose steps stop at commit-pr pushed nothing, so its last step is no
+  # branch of a push.
+  [ "$branch" != commit-pr ] || branch=""
+  [ "$at" -lt "$n" ] || branch=""
+  [[ $branch =~ $pattern ]] || branch=""
+  printf '%s\n%s\n%s\n' "$last" "$branch" "$cut"
 }
 
 tehas_headless_now() { # <ndjson>

@@ -112,14 +112,6 @@ t_run "$cycle 7"
 t_lacks "$(t_calls gh)" "pr list --repo"
 t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
 
-t_case "the runner's own status is named, and the poll's line keeps the status of tehas work"
-reset
-died explore plan develop commit-pr "$BRANCH" rc=134
-open_pr
-t_run "$cycle 7"
-t_contains "$(t_calls gh)" "(runner exit 134)"
-t_contains "$t_out" "done #7 rc=2 "
-
 t_case "GitHub refusing the list is said as the unknown it is, with the branch on record"
 reset
 died explore plan develop commit-pr "$BRANCH"
@@ -203,39 +195,135 @@ t_eq "$(find "$state/7.status" 2>/dev/null | wc -l)" 0
 
 t_case "a runner_exit and a status of an earlier cycle are not this cycle's end"
 reset
-# The two files are cleared when the cycle takes its lock, before tehas work
-# starts, so neither reaches the report of a later cycle: the words here are the
+# The three files are cleared when the cycle takes its lock, before tehas work
+# starts, so none reaches the report of a later cycle: the words here are the
 # earlier run's, and its log names a step this cycle never reached. The files go
-# where tehas work leaves them, because this cycle starts no tehas work.
+# where tehas work leaves them, because this cycle starts no tehas work. The
+# summary of the run is the file that says a log may be read at all, so it is
+# seeded too: a log of the earlier run is no log of this one, and no pull
+# request is asked for on the strength of its branch.
 mkdir -p "$state" "$T/home/tehas/logs"
 printf '134\n' >"$state/7.runner_exit"
 printf 'killed\n' >"$state/7.status"
 : >"$state/7.result.json"
-echo '{"roles":[],"reason":"","reviewHeld":false}' >"$state/7.progress.json"
+printf '{"roles":[],"reason":"","reviewHeld":false}\n' >"$state/7.progress.json"
+touch -d '2 days ago' "$state/7.progress.json"
 printf '%s\n' '{"v":1,"kind":"step-started","issue":7,"event":{"step":"lied-step"}}' \
   >"$T/home/tehas/logs/work-7-261019-012100.jsonl"
+printf '%s\n' '{"v":1,"kind":"step-started","issue":7,"event":{"step":"feature/issue-7-from-an-earlier-run"}}' \
+  >>"$T/home/tehas/logs/work-7-261019-012100.jsonl"
 mkdir -p "$workdir"
+open_pr
 t_run "$cycle 7"
 t_lacks "$(t_calls gh)" "lied-step"
 t_lacks "$(t_calls gh)" "read from its run log"
 t_lacks "$(t_calls gh)" "(runner exit 134)"
 t_lacks "$(t_calls gh)" "pr list --repo"
+t_lacks "$(t_calls gh)" "handed off with its pull request open"
 t_eq "$(find "$state/7.runner_exit" 2>/dev/null | wc -l)" 0
 t_eq "$(find "$state/7.status" 2>/dev/null | wc -l)" 0
+
+# The same three files left by a cycle that did report, and a progress file of
+# this cycle's own, are read as they stand: the point of the case above is the
+# summary's date, not its presence.
 
 t_case "of several run logs of the issue only the newest is read"
 reset
 died explore plan develop commit-pr "$BRANCH"
 # tehas work names the log for the UTC time of its start to the second, so the
 # file of an earlier run has the earlier name and its steps are not this
-# cycle's. A name a day old is earlier than any log of this second.
+# cycle's. Two earlier ones, one of them a day old: the newest name decides,
+# and no step of the others is said.
 printf '%s\n' '{"v":1,"kind":"step-started","issue":7,"event":{"step":"lied-step"}}' \
   >"$T/home/tehas/logs/work-7-$(date -u -d yesterday +%y%m%d-%H%M%S).jsonl"
+printf '%s\n' '{"v":1,"kind":"step-started","issue":7,"event":{"step":"another-lied-step"}}' \
+  >"$T/home/tehas/logs/work-7-$(date -u -d '2 days ago' +%y%m%d-%H%M%S).jsonl"
 open_pr
 t_run "$cycle 7"
 t_lacks "$(t_calls gh)" "lied-step"
+t_lacks "$(t_calls gh)" "another-lied-step"
 t_contains "$(t_calls gh)" "last step \`$BRANCH\` read from its run log"
 t_contains "$(t_calls gh)" "pr list --repo acme/widget --head $BRANCH --author @me --state all"
+
+t_case "a step name over the bound of 100 characters is no step of a run"
+reset
+# The one bound a step name of a log carries: tehas_headless_step_chars holds
+# it at 100 characters, so a name past it is not a step at all and says neither
+# the step of the cycle nor its branch. The step before it is what the run
+# reached.
+long=$(printf 'x%.0s' {1..101})
+died commit-pr "$long"
+open_pr
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "$long"
+t_lacks "$(t_calls gh)" "pr list --repo"
+t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
+
+t_case "the step tehas work saw in flight is said as its own word, not the runner's"
+reset
+# A step of tehas work's timed file stands in where the result names none, and
+# the comment says who saw it: `tehas work saw in flight`, never `read from its
+# run log`, which is the runner's own word from its log. The run wrote a log of
+# steps it never got to, so a cycle that reads only the host's file says none
+# of them.
+died explore plan develop timed-step rc=2 work=2 status=-
+cat >"$fx/work.sh" <<'EOS'
+mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/logs"
+: >"$TEHAS_HOME/state/cycles/7.result.json"
+echo '{"roles":[],"reason":"","reviewHeld":false}' >"$TEHAS_HOME/state/cycles/7.progress.json"
+printf '3600 runner timed-step\n' >"$TEHAS_HOME/state/cycles/7.timed"
+printf '%s\n' '3600' >"$TEHAS_HOME/state/cycles/7.runner_exit"
+log=$TEHAS_HOME/logs/work-7-$(date -u +%y%m%d-%H%M%S).jsonl
+printf '{"v":1,"kind":"step-started","event":{"step":"a-later-step"}}\n' >"$log"
+exit 2
+EOS
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "last step \`timed-step\` tehas work saw in flight"
+t_lacks "$(t_calls gh)" "read from its run log"
+t_lacks "$(t_calls gh)" "a-later-step"
+
+t_case "the step of a stalled cycle is said as what tehas work saw"
+reset
+cat >"$fx/work.sh" <<'EOS'
+mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/logs"
+: >"$TEHAS_HOME/state/cycles/7.result.json"
+echo '{"roles":[],"reason":"","reviewHeld":false}' >"$TEHAS_HOME/state/cycles/7.progress.json"
+printf '%s\n%s\n' 1800 stall-step >"$TEHAS_HOME/state/cycles/7.stalled"
+printf '%s\n' '3600' >"$TEHAS_HOME/state/cycles/7.runner_exit"
+exit 2
+EOS
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "last step \`stall-step\` tehas work saw in flight"
+t_lacks "$(t_calls gh)" "read from its run log"
+
+t_case "a run log past the 200 KB tehas reads is not taken for a clean handoff"
+reset
+# The window is the whole of what tehas reads of a log, so the commit-pr line
+# of a big run may have gone at the cut and the branch of the run and the pull
+# request GitHub lists may then name two things. Such a cycle is not answered as
+# the handoff of a log read whole: it is parked with the pull request named, and
+# told to look for one before it is retried.
+died explore plan develop commit-pr "$BRANCH"
+open_pr
+cat >"$fx/work.sh" <<'EOS'
+mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/logs"
+: >"$TEHAS_HOME/state/cycles/7.result.json"
+echo '{"roles":[],"reason":"","reviewHeld":false}' >"$TEHAS_HOME/state/cycles/7.progress.json"
+printf '%s\n' '134' >"$TEHAS_HOME/state/cycles/7.runner_exit"
+log=$TEHAS_HOME/logs/work-7-$(date -u +%y%m%d-%H%M%S).jsonl
+# Past 200 KB of lines the report ignores, then the steps of the run: the push
+# of this run, and the name of its branch, are the first thing the cut removes.
+head -c 210000 /dev/zero | tr '\0' 'y' | fold -w 100 | sed 's/.*/{"v":1,"kind":"log","message":"&"}/' >"$log"
+for step in explore plan develop commit-pr feature/issue-7-installed; do
+  printf '{"v":1,"kind":"step-started","event":{"step":"%s"}}\n' "$step" >>"$log"
+done
+exit 2
+EOS
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
+t_contains "$(t_calls gh)" "Its branch has an open pull request: https://github.com/acme/widget/pull/347"
+t_lacks "$(t_calls gh)" "handed off with its pull request open"
+t_lacks "$(t_calls gh)" "its review unfinished"
 
 t_case "the table of a run whose result carries no usage totals the rows it did write"
 reset
