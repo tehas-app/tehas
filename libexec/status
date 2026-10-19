@@ -31,12 +31,22 @@
 # answer from GitHub. `by`, the account that set the flag, stays out of the file:
 # the page that reads it can be public.
 #
+# `planning` is how many open issues carry tehas:plan or tehas:planning: the
+# work being planned, a count only. The same search as the lists finds them.
+#
+# Unless TEHAS_ANALYTICS=off, it records the issue events awaiting, stopped,
+# merged and closed in the factory's analytics, state/analytics.db, by
+# comparing the snapshot with the one it replaces (record_events below). Each
+# call has a time limit, and one that fails is a WARN line on standard error:
+# it changes nothing in the snapshot (lib/analytics.sh).
+#
 # The control issue that carries `tehas:pause` is not work, so it is left out of
 # every count and every list: no label makes it count in line, being worked on,
 # waiting for a human or waiting to be merged.
 #
 # Usage: tehasbot status          (prints nothing but an ignored all-hands label,
-#                                 once; exit 0 even when GitHub is down,
+#                                 once, and analytics warnings, on standard
+#                                 error; exit 0 even when GitHub is down,
 #                                 the previous file is then left in place;
 #                                 exit 78 when the instance settings are invalid)
 set -uo pipefail
@@ -48,12 +58,15 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/labels.sh"
 # shellcheck source=lib/status.sh
 . "$here/../lib/status.sh"
+# shellcheck source=lib/analytics.sh
+. "$here/../lib/analytics.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS
 repo=$TEHAS_REPO
 control=$TEHAS_CONTROL_ISSUE
 live=$TEHAS_HOME/live
 mkdir -p "$live"
+log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*" >&2; }
 # Whatever happens below, refresh the health file from what is on disk.
 trap '"$here/health" 2>/dev/null || true' EXIT
 
@@ -94,7 +107,7 @@ platform() {
 platform
 
 issues=$(gh issue list --repo "$repo" --state all --limit 200 \
-  --search 'label:"tehas:ready","tehas:running","tehas:awaiting-merge","needs-human-attention" sort:updated-desc' \
+  --search 'label:"tehas:ready","tehas:running","tehas:awaiting-merge","needs-human-attention","tehas:plan","tehas:planning" sort:updated-desc' \
   --json number,title,url,state,labels,updatedAt,closedAt 2>/dev/null) || exit 0
 everything=$(gh issue list --repo "$repo" --state all --limit 1000 --json title,labels 2>/dev/null) || everything=null
 jq -e 'type == "array"' <<<"$everything" >/dev/null 2>&1 || everything=null
@@ -170,6 +183,17 @@ esac
 no_resources=$(jq -s 'length == 1 and (.[0] | type == "object" and .why == "resources"
   and (now - (.time | fromdateiso8601)) < 600)' "$live/dispatch.json" 2>/dev/null) || no_resources=false
 
+# The snapshot this one replaces, for the events below: none when it is not
+# one, or older than an hour, so a change it missed is not dated now.
+before=null
+if [ "$TEHAS_ANALYTICS" = on ]; then
+  before=$(jq -cs 'if length == 1 and (.[0] | type == "object")
+      and (now - (.[0].generatedAt | try fromdateiso8601 catch 0)) < 3600 then .[0] else null end' \
+    "$live/status.json" 2>/dev/null) || before=null
+  [ -n "$before" ] || before=null
+fi
+
+written=0
 jq -n --argjson issues "$issues" --argjson shipped "$shipped" --argjson paused "$paused" --argjson everything "$everything" \
   --argjson noResources "${no_resources:-false}" --argjson pauseFlag "$pause_flag" --argjson flagPaused "$flag_paused" \
   --argjson lifted "$lifted" --argjson allHands "$all_hands" \
@@ -193,6 +217,7 @@ jq -n --argjson issues "$issues" --argjson shipped "$shipped" --argjson paused "
       queued: ($open | map(select(has("tehas:ready") and (has("tehas:running") | not)) | slim) | sort_by(.number)),
       awaiting: ($open | map(select(has("tehas:awaiting-merge")) | slim)),
       stopped: ($open | map(select(has("needs-human-attention") and (has("tehas:running") | not)) | slim)),
+      planning: ($open | map(select(has("tehas:plan") or has("tehas:planning"))) | length),
       completed: ($shipped | map(slim) | sort_by(.closedAt) | reverse),
       links: {
         queued: listurl("is:issue is:open label:tehas:ready"),
@@ -208,9 +233,50 @@ jq -n --argjson issues "$issues" --argjson shipped "$shipped" --argjson paused "
                    | scan("[a-z][a-z0-9-]{2,}")]
                   | group_by(.) | map({word: .[0], count: length})
                   | sort_by(-.count, .word) | .[:100])
-    } end)' >"$live/status.json.new" 2>/dev/null && mv "$live/status.json.new" "$live/status.json"
+    } end)' >"$live/status.json.new" 2>/dev/null && mv "$live/status.json.new" "$live/status.json" && written=1
 
 for n in $(jq -r '.[] | select(.labels | index("tehas:shipped") | not) | .number' <<<"$shipped"); do
   gh issue edit "$n" --repo "$repo" --add-label tehas:shipped >/dev/null 2>&1 || true
 done
+
+# The issue events of the factory's analytics, from what changed since the
+# snapshot before: newly awaiting a merge or stopped, now; newly completed,
+# merged at the time it was closed; closed and not completed, having been in
+# line, running or stopped before, closed at that time. One that was awaiting
+# a merge is not closed: the search for completed work lags, and its merged
+# comes when it catches up. A run with no snapshot before it records only the
+# merged and closed, which carry their own time. Nothing older than ten days,
+# which the program would prune. No call starts after three calls' time
+# limits, so a database that hangs delays the run by four at most (about 21
+# seconds). An event whose call fails or runs out of time is lost: the next
+# run compares with this snapshot and does not try it again.
+record_events() {
+  local list n event at stop
+  list=$(jq -r --argjson before "$before" --argjson issues "$issues" --arg control "$control" '
+    def nums($k): [.[$k] | arrays | .[] | objects | .number | numbers];
+    def recent: .closedAt | strings | (try fromdateiso8601 catch null) | numbers
+      | select(. >= now - 864000) | floor;
+    def new($k; $s): ($s | nums($k)) - ($before | nums($k)) | .[] | "\(.) \($k)";
+    . as $s
+    | ($s | nums("completed")) as $done
+    | (if $before == null then [] else $before | (nums("queued") + nums("running") + nums("stopped")) - nums("awaiting") end) as $was
+    | (if $before == null then empty else new("awaiting"; $s), new("stopped"; $s) end),
+      ($s.completed[] | . as $i
+        | select($before == null or ($before | nums("completed") | any(. == $i.number) | not))
+        | "\(.number) merged \(recent)"),
+      ($issues[] | . as $i
+        | select(.state == "CLOSED" and (.number | tostring) != $control and ($done | any(. == $i.number) | not))
+        | select($before == null or ($was | any(. == $i.number)))
+        | "\(.number) closed \(recent)")' "$live/status.json" 2>/dev/null) || return 0
+  stop=$((SECONDS + 3 * $(tehas_analytics_wait)))
+  while read -r n event at; do
+    [ -n "$n" ] || continue
+    if [ "$SECONDS" -ge "$stop" ]; then
+      log "WARN analytics: out of time, the other events of this run are left out"
+      break
+    fi
+    tehas_analytics event "$n" "$event" ${at:+--at "$at"}
+  done <<<"$list"
+}
+[ "$written" = 0 ] || [ "$TEHAS_ANALYTICS" != on ] || record_events
 exit 0

@@ -3,8 +3,10 @@
 //!
 //! - live/status.json (libexec/status, run at the start of every poll):
 //!   {generatedAt, paused, queued: [..], running: [..], awaiting: [..],
-//!   stopped: [..], ...}. in_line, running, awaiting and stopped are the
-//!   lengths of those lists; paused is 1 or 0.
+//!   stopped: [..], planning, ...}. in_line, running, awaiting and stopped
+//!   are the lengths of those lists; planning is the count of open issues
+//!   labelled tehas:plan or tehas:planning, left out by a status.json from
+//!   before it was kept; paused is 1 or 0.
 //! - live/dispatch.json (libexec/dispatch, report_hold, on a poll that gets
 //!   as far as rule 3): {time, why, count, free, limitRoom, ...}. held is
 //!   why: the one word of the hold, empty when nothing holds. cycle_limit is
@@ -56,8 +58,10 @@ pub fn read(home: &Path, now: i64) -> Sample {
         s.awaiting = len("awaiting");
         s.stopped = len("stopped");
         s.paused = st.get("paused").and_then(Value::as_bool);
-        // status.json has no count of the issues in planning yet; part 3 of
-        // the analytics work adds it, and planning stays NULL until then.
+        s.planning = st
+            .get("planning")
+            .and_then(Value::as_i64)
+            .filter(|n| *n >= 0);
     }
     if let Some(d) = fresh("dispatch.json", "time", STALE_DISPATCH) {
         let n = |k: &str| d.get(k).and_then(Value::as_i64);
