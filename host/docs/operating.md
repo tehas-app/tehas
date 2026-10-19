@@ -653,6 +653,34 @@ tehas limit clear            # afterwards
 A program that drives factories uses the same commands: see
 [the factory API](/api).
 
+## Reading what ended
+
+The records of a finished cycle stay on the host. Two commands read them; both
+take a cursor, so a program that keeps what it was last given reads each line
+once.
+
+```
+tehas history                    # what ended, oldest first
+tehas history --json --after 1760700000-12
+```
+
+One line for each cycle and each planning turn, `kind` telling them apart: when
+it ran, how it ended, where it stopped, who asked for it. The same lines in
+JSON with `--json`. It reads only what the units wrote, takes no lock a running
+cycle holds, and writes nothing, so it is safe to run while the factory works.
+
+```
+tehas export --after 1760700000-12 ~/archive
+```
+
+Copies the result, the logs, the agents' transcripts and the Protolab page of
+every cycle since that cursor into `~/archive`, one directory each. Every text
+file goes through the console's mask, so a token or a private address that
+reached a log does not reach the copy. An export is never written under
+`~/tehas`, not even through a link, and the mask catches accidents rather than
+everything: an export is still a copy of what a cycle wrote, so where it goes is
+still a decision.
+
 ## Limits that hold work back
 
 - A limit set with `tehas limit`, when there is one: see
@@ -912,9 +940,11 @@ what the account may do, and this section is that.
 - **Each cycle's end leaves a line** in
   `~/tehas/state/cycles/<issue>.history.jsonl`, the last 50: when, its
   status, last step, cap, park reason, failure, whether a provider outage
-  stopped it, whether it parked, its pull request and who started it.
-  Nothing in tehas reads it yet; it is the record a later `tehas history`
-  lists. A fixer reads GitHub, not this file.
+  stopped it, whether it parked, its pull request and who started it. A
+  planning turn leaves one of its own in
+  `~/tehas/state/plan-<issue>.history.jsonl`, with `kind` `plan`. `tehas
+  history` lists both, oldest first, and `tehas export` copies what a cycle
+  left behind. A fixer reads GitHub, not these files.
 - **The park comment carries the park's facts.** The bot's park comment,
   with boxes or without, has the line
   `<!-- tehas:park issue=<n> step=<step> kind=<failure kind> provider=<0|1> sig=<sha256> -->`.

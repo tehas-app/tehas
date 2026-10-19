@@ -183,6 +183,28 @@ t_contains "$(t_calls gh)" "--remove-label tehas:planning --add-label needs-huma
 t_contains "$(t_calls gh)" "could not start"
 t_eq "$([ -e "$record" ] && echo kept)" ""
 
+# The record goes, and with it the session file a person's export of this turn
+# would read. lib/planning.sh leaves a copy of the record as the turn left it,
+# under a name of its own, so the archive of a turn that made no session is not
+# the line of history alone. tehas export_test.sh checks what tehas export does
+# with that name; here is the turn that leaves it.
+t_case "a first turn that fails leaves the copy of the record an export reads"
+to_plan
+: >"$fx/plan-fails"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '{session,turns,running}' "$T/home/tehas/state/plan-7.turn")" '{"session":"","turns":0,"running":true}'
+t_eq "$([ -e "$record" ] && echo kept)" ""
+
+# A turn of a session that went on leaves no copy of its own: the live record is
+# the whole session, so there is nothing else to take.
+t_case "a turn of a session that went on leaves no copy of the record"
+to_plan
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$T/home/tehas/state/plan-7.turn" ] && echo left)" ""
+t_eq "$(jq -r .session "$record")" abc-123
+
 t_case "a first turn that fails after its session came into being keeps the session"
 to_plan
 echo '{"session":"abc-123"}' >"$fx/plan-fails"
