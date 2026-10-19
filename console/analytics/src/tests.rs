@@ -1102,7 +1102,7 @@ fn live(home: &Path, at: i64, why: &str, limit_room: Option<i64>) {
         "live/status.json",
         &json!({"generatedAt": iso(at), "repo": "acme/widget", "paused": true,
                 "running": [issue(1), issue(2)], "queued": [issue(3), issue(4), issue(5)],
-                "awaiting": [issue(6)], "stopped": [], "completed": [issue(9)]})
+                "awaiting": [issue(6)], "stopped": [], "planning": 2, "completed": [issue(9)]})
         .to_string(),
     );
     let mut d = json!({"time": iso(at), "why": why, "hold": "holding: ...", "count": 2,
@@ -1136,14 +1136,13 @@ fn a_sample_reads_the_live_files_of_the_poll() {
     let now = 1_792_000_000;
     live(&home, now - 30, "awaiting", None);
     execute(&home, &Cmd::Sample, now).unwrap();
-    // Five slots: two running and three free. Planning stays NULL until
-    // status.json counts it.
-    assert_eq!(sample_row(&home), format!("{now} 3 2 1 0 - 5 1 [awaiting] 412.5"));
+    // Five slots: two running and three free.
+    assert_eq!(sample_row(&home), format!("{now} 3 2 1 0 2 5 1 [awaiting] 412.5"));
 
     // The limit of tehas limit allows fewer; nothing holds.
     live(&home, now + 90, "", Some(1));
     execute(&home, &Cmd::Sample, now + 100).unwrap();
-    assert!(sample_row(&home).ends_with(&format!(" | {} 3 2 1 0 - 3 1 [] 412.5", now + 100)));
+    assert!(sample_row(&home).ends_with(&format!(" | {} 3 2 1 0 2 3 1 [] 412.5", now + 100)));
 }
 
 #[test]
@@ -1165,7 +1164,7 @@ fn a_live_file_that_is_missing_stale_a_link_or_malformed_gives_null_columns() {
     // earlier poll's, though status.json still counts.
     put(&home, "live/dispatch.json", &json!({"time": iso(now - 200), "why": "count", "count": 1, "free": 0}).to_string());
     execute(&home, &Cmd::Sample, now + 1).unwrap();
-    assert!(sample_row(&home).ends_with(&format!(" | {} 3 2 1 0 - - 1 - 412.5", now + 1)));
+    assert!(sample_row(&home).ends_with(&format!(" | {} 3 2 1 0 2 - 1 - 412.5", now + 1)));
 
     let home = scratch("sample-links");
     live(&home, now - 30, "count", None);
@@ -1200,7 +1199,8 @@ fn a_live_file_that_is_missing_stale_a_link_or_malformed_gives_null_columns() {
     put(
         &home,
         "live/status.json",
-        &json!({"generatedAt": iso(now), "paused": "no", "queued": 3, "running": [], "awaiting": {}, "stopped": null})
+        &json!({"generatedAt": iso(now), "paused": "no", "queued": 3, "running": [], "awaiting": {}, "stopped": null,
+                "planning": "2"})
             .to_string(),
     );
     put(
@@ -1210,6 +1210,40 @@ fn a_live_file_that_is_missing_stale_a_link_or_malformed_gives_null_columns() {
     );
     execute(&home, &Cmd::Sample, now).unwrap();
     assert_eq!(sample_row(&home), format!("{now} - 0 - - - - - - -"));
+}
+
+// A status.json written before it counted planning has no such field.
+#[test]
+fn planning_is_the_count_status_json_gives_and_null_without_one() {
+    let home = scratch("sample-planning");
+    let now = 1_792_000_000;
+    let status = |planning: Option<Value>| {
+        let mut s = json!({"generatedAt": iso(now), "paused": false, "queued": [],
+                           "running": [], "awaiting": [], "stopped": []});
+        if let Some(p) = planning {
+            s["planning"] = p;
+        }
+        put(&home, "live/status.json", &s.to_string());
+    };
+    fs::create_dir_all(home.join("live")).unwrap();
+    for (at, planning) in [
+        (now, Some(json!(0))),
+        (now + 1, Some(json!(4))),
+        (now + 2, None),
+        (now + 3, Some(json!(-1))),
+        (now + 4, Some(json!(1.5))),
+    ] {
+        status(planning);
+        execute(&home, &Cmd::Sample, at).unwrap();
+    }
+    let conn = Connection::open(db::path(&home)).unwrap();
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT group_concat(coalesce(planning, '-'), ' ') FROM (SELECT planning FROM samples ORDER BY at)"
+        ),
+        "0 4 - - -"
+    );
 }
 
 #[test]
@@ -1222,7 +1256,7 @@ fn a_sample_prunes_too_and_two_in_one_second_keep_the_last() {
     execute(&home, &Cmd::Sample, now).unwrap();
     live(&home, now, "", None);
     execute(&home, &Cmd::Sample, now).unwrap();
-    assert_eq!(sample_row(&home), format!("{now} 3 2 1 0 - 5 1 [] 412.5"));
+    assert_eq!(sample_row(&home), format!("{now} 3 2 1 0 2 5 1 [] 412.5"));
     let conn = Connection::open(db::path(&home)).unwrap();
     assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 0);
 }
@@ -1245,4 +1279,135 @@ fn an_event_is_stored_at_the_time_given_and_one_ahead_of_now_is_refused() {
         ),
         "8:ready:-3600 8:started:0 9:ready:60"
     );
+}
+
+// A planning turn of issue 7 in flight, as lib/planning.sh leaves its record
+// when the turn has ended, and what libexec/plan wrote beside it.
+fn turn(home: &Path, record: Value, out: Option<Value>) {
+    put(home, "state/plan-7.json", &record.to_string());
+    if let Some(o) = out {
+        put(home, "state/plan-7.json.out", &o.to_string());
+    }
+    put(home, "docs/version.txt", "v0.7.22+1234abc\n");
+}
+
+fn plan_cmd(rc: &str) -> Cmd {
+    Cmd::Plan(
+        7,
+        crate::plan::Given {
+            rc: rc.into(),
+            rukas_image: Some("abcdef1".into()),
+        },
+    )
+}
+
+#[test]
+fn plan_stores_the_turn_with_its_times_turn_and_outcome_and_no_usage() {
+    let home = scratch("plan");
+    let now = 1_792_000_000;
+    let started = now - 300;
+    turn(
+        &home,
+        json!({"session": "s1", "turns": 1, "options": [], "pending": false, "failed": false,
+               "running": true, "startedAt": iso(started), "by": "alice",
+               "answers": [{"turn": 2, "by": "alice", "fixer": false}]}),
+        Some(json!({"session": "s1", "text": "Which one?", "question": null})),
+    );
+    execute(&home, &plan_cmd("0"), now).unwrap();
+    let conn = Connection::open(db::path(&home)).unwrap();
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT id || ' ' || kind || ' ' || issue || ' ' || how || ' ' || started || ' ' || ended || ' ' ||
+               seconds || ' ' || outcome || ' ' || coalesce(status, '-') || ' ' || exit_code || ' ' || turns || ' ' ||
+               tehas_version || ' ' || tehas_commit || ' ' || rukas_commit FROM runs"
+        ),
+        format!("plan-7-{started} plan 7 answer {started} {now} 300 handoff - 0 2 v0.7.22 1234abc abcdef1")
+    );
+    let usage: i64 = one(
+        &conn,
+        "SELECT count(*) FROM runs WHERE coalesce(input, output, cache_read, cache_write, dispatches, cost,
+           attempt, queue_wait) IS NOT NULL",
+    );
+    assert_eq!(usage, 0);
+    // No account and nothing the agent said is kept.
+    let dump: String = one(&conn, "SELECT group_concat(quote(r.id) || quote(r.how) || quote(r.status), '') FROM runs r");
+    assert!(!dump.contains("alice") && !dump.contains("s1"));
+
+    // plan_finish again for the same turn keeps the first row.
+    execute(&home, &plan_cmd("interrupted"), now + 600).unwrap();
+    assert_eq!(one::<String>(&conn, "SELECT outcome || ' ' || ended FROM runs"), format!("handoff {now}"));
+}
+
+#[test]
+fn plan_outcomes_follow_how_the_turn_ended_and_how_it_was_started() {
+    let now = 1_792_000_000;
+    let at = iso(now - 60);
+    let rec = |turns: i64, answers: Value| {
+        json!({"session": "s", "turns": turns, "running": true, "startedAt": at, "answers": answers})
+    };
+    let fixer = json!([{"turn": 3, "by": "fixer-bot", "fixer": true}]);
+    for (rc, record, out, outcome, status, how) in [
+        ("0", rec(0, json!([])), Some(json!({"session": "s", "text": "t"})), "handoff", "-", "label"),
+        ("0", rec(0, json!([])), Some(json!({"text": "t"})), "failed", "-", "label"),
+        ("2", rec(2, fixer.clone()), Some(json!({"session": "s"})), "failed", "-", "fixer"),
+        ("2", rec(1, json!([])), Some(json!({"session": "s", "lost": true})), "stopped", "lost", "answer"),
+        ("4", rec(0, json!([])), None, "refused", "-", "label"),
+        ("64", rec(0, json!([])), None, "refused", "-", "label"),
+        ("not-started", rec(1, json!([])), None, "refused", "not-started", "answer"),
+        ("interrupted", rec(1, json!([])), None, "failed", "interrupted", "answer"),
+        ("not-readable", rec(1, json!([])), None, "failed", "not-readable", "answer"),
+    ] {
+        let home = scratch("plan-outcome");
+        turn(&home, record, out);
+        execute(&home, &plan_cmd(rc), now).unwrap();
+        let conn = Connection::open(db::path(&home)).unwrap();
+        assert_eq!(
+            one::<String>(&conn, "SELECT outcome || ' ' || coalesce(status, '-') || ' ' || how FROM runs"),
+            format!("{outcome} {status} {how}"),
+            "rc {rc}"
+        );
+    }
+}
+
+#[test]
+fn a_planning_turn_not_in_flight_records_nothing() {
+    let now = 1_792_000_000;
+    let home = scratch("plan-none");
+    let err = execute(&home, &plan_cmd("0"), now).unwrap_err();
+    assert_eq!(err.0, 65);
+    assert!(!db::path(&home).exists());
+    for record in [
+        json!({"session": "s", "turns": 1, "running": false, "startedAt": iso(now - 60)}),
+        json!({"session": "s", "turns": 1, "running": true}),
+        json!([1, 2]),
+    ] {
+        turn(&home, record, None);
+        assert_eq!(execute(&home, &plan_cmd("0"), now).unwrap_err().0, 65);
+    }
+    assert!(!db::path(&home).exists());
+}
+
+#[test]
+fn plan_s_arguments_are_checked() {
+    let args = |s: &str| s.split(' ').map(str::to_string).collect::<Vec<_>>();
+    assert_eq!(
+        parse(&args("plan 7 --rc 0")),
+        Some(Cmd::Plan(7, crate::plan::Given { rc: "0".into(), rukas_image: None }))
+    );
+    assert_eq!(parse(&args("plan 7 --rukas-image abcdef1 --rc not-started")), Some(plan_cmd("not-started")));
+    for bad in [
+        "plan 7",
+        "plan 7 --rc",
+        "plan 7 --rc 01",
+        "plan 7 --rc 1000",
+        "plan 7 --rc -1",
+        "plan 7 --rc gone",
+        "plan 7 --rc 0 --rc 2",
+        "plan 7 --rc 0 --rukas-image xyz",
+        "plan 07 --rc 0",
+        "plan 7 --rc 0 --oom 1",
+    ] {
+        assert_eq!(parse(&args(bad)), None, "{bad}");
+    }
 }

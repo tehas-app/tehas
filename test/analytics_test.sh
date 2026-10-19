@@ -65,7 +65,7 @@ rmdir "$bin"
 
 t_case "sourcing it defines and runs nothing else"
 t_run '. "$T_ROOT/lib/analytics.sh"; declare -F | wc -l; ls "$T/calls" | wc -l'
-t_eq "$t_out" "1
+t_eq "$t_out" "2
 0"
 
 t_done
