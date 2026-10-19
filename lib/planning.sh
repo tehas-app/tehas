@@ -152,18 +152,68 @@ plan_post() {
   fi
 }
 
+# plan_history <issue> <rc> <turn> <kept> [<record>]: the line tehas history
+# lists for a planning turn, in state/plan-<issue>.history.jsonl, through the
+# same helper a cycle's end uses. status is the word tehasbot cycle would have
+# put there, and is what tehas history publishes as `outcome`; rc is the unit's
+# exit status, a number, or the word that says why there was none, and is what
+# it publishes as `status`. The empty fields are dropped. A line that cannot be
+# written is the archive's loss only, and says so. <record> is the session
+# record as the turn left it, taken by the caller before it rewrites or removes
+# that file: the line has to say what the turn was, whatever becomes of the
+# record afterwards.
+plan_history() {
+  local n=$1 rc=$2 turn=$3 kept=$4 rec started outcome
+  rec=${5:-$(plan_state "$n")}
+  # The turn's start as an epoch number, as a cycle's line has it. The record
+  # of a session written before startedAt was kept has none, and so has no
+  # start on its line.
+  started=$(jq -r 'if (.startedAt | type) == "string" then (.startedAt | try fromdateiso8601 catch null) else null end
+    | if . == null then "" else tostring end' "$rec" 2>/dev/null) || started=""
+  case "$rc" in
+    0) outcome=finished ;;
+    interrupted) outcome=interrupted ;;
+    "not started") outcome=not-started ;;
+    "not readable") outcome=not-readable ;;
+    *) outcome=failed ;;
+  esac
+  tehas_cycle_history_add "plan-$n" "$(jq -n -c --arg at "$(date -u +%FT%TZ)" \
+    --arg started "$started" --arg rc "$rc" --arg status "$outcome" \
+    --argjson turn "$turn" --arg by "$(jq -r 'if (.by | type) == "string" then .by else "" end' <<<"$kept" 2>/dev/null)" \
+    '{kind: "plan", $at, $started, $rc, $status, $turn, $by}
+     | with_entries(select(.value != ""))')" ||
+    log "WARN: no line of history of the planning turn of #$n"
+}
+
 # A session Pi no longer has cannot go on: what was said in it is gone.
 plan_lost() {
   plan_end "$1" "Tehas ended this planning session: its conversation is no longer on \`$(hostname)\` (\`~/.pi/agent/sessions\`), so the last answer was not sent to the agent. Apply \`tehas:plan\` again to start a new session."
 }
 
 plan_finish() {
-  local n=$1 rc=$2 turns=$(($3 + 1)) sid=$4 st out why ok kept commit
+  local n=$1 rc=$2 turns=$(($3 + 1)) sid=$4 st out why ok kept commit rec
   st=$(plan_state "$n")
   out=$st.out
   # Rewritten below from the outcome, so the session's own fields are carried.
   kept=$(jq -c '{by, answers} | with_entries(select(.value != null))' "$st" 2>/dev/null) || kept=""
   [ -n "$kept" ] || kept='{}'
+  # The record as the turn left it, copied before anything below rewrites it or
+  # removes it, so both the line of history and the copy tehas export takes of
+  # this turn's session come from one file. It is a file of its own name, beside
+  # the record, so no reader of the record can mistake a copy for the live one.
+  # A first turn that never came into being has its record removed below, and
+  # without this copy its export would hold the line of history and nothing of
+  # the session it names.
+  if [ -f "$st" ] && [ ! -L "$st" ]; then
+    rec=$st.turn
+    cp -- "$st" "$rec" || rec=$st
+  else
+    rec=$st
+  fi
+  # One line of history for this end, as a cycle's end leaves one. tehas history
+  # lists it with "kind": "plan". The record is read as the turn left it, before
+  # it is rewritten below.
+  plan_history "$n" "$rc" "$turns" "$kept" "$rec"
   # In the factory's analytics, before the record is rewritten below: how the
   # unit ended, as one word, and the image's pi-rukas commit.
   if [ "${TEHAS_ANALYTICS:-}" = on ]; then
@@ -201,6 +251,9 @@ plan_finish() {
     fi
   fi
   if [ "$ok" = 1 ]; then
+    # The session came into being, so the live record goes on and the copy of it
+    # made above has served its turn.
+    [ "$rec" = "$st" ] || rm -f -- "$rec"
     # The options on record are the ones q_render posts, in the same order.
     # What the turn filed is noted with them, and the issues the session
     # filed before are noted too: the record is rewritten from the outcome
@@ -232,6 +285,13 @@ plan_finish() {
       return 1
     fi
     say "$n" "The planning session could not start (the runner $why). The log is \`~/tehas/logs/dispatch-plan-$n.log\` on \`$(hostname)\`. Apply \`tehas:plan\` again to retry."
+    # The record itself goes, and with it the live session file. The copy of it
+    # that the turn leaves stays beside it, under the name an export reads, so
+    # an export of this turn still holds the session it names.
+    if [ "$rec" != "$st" ]; then
+      mkdir -p "${st%/*}"
+      mv -f -- "$rec" "${st%/*}/plan-$n.turn" 2>/dev/null || true
+    fi
     rm -rf "$st" "$out" "$st.answer" "$st.brief" "$st.keep"
     log "done planning #$n turn=$turns rc=$rc, no session"
     return 0

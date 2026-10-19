@@ -23,6 +23,8 @@ tehas status [--json]            # print the state of the factory
 tehas api [--json]               # what this factory speaks, for a program
 tehas limit [set ...|clear]      # an outside cap on what this factory starts
 tehas drain [--wait S] [--json]  # start nothing new, wait for running cycles
+tehas history [--json] [--after C] [--issue N]  # what ended, oldest first
+tehas export [--json] --after C <dir>  # copy a cycle's records, masked
 tehas top [--once|--json]        # one screen of what the factory is doing
 tehas pause [reason]             # stop this host from starting new work
 tehas resume                     # lift this host's pause flag
@@ -1047,6 +1049,41 @@ Sets the limit `--cycles 0 --plan off --reason draining`, which does not
 expire, then with `--wait` waits up to that long for the running cycles to
 end. Exit 0 when none is running, 1 when some still are. `tehas limit clear`
 ends it.
+
+## tehas history
+
+```
+tehas history [--json] [--after CURSOR] [--issue N]
+```
+
+What has ended, oldest first: one line for each cycle and each planning turn,
+with `kind` telling them apart. It reads the history files the units write, so
+it needs no network, takes no lock a running cycle holds, and writes nothing. A
+line it cannot read is left out, not an error.
+
+`--after` takes the `next` the command printed before, so a program that keeps
+it reads each line once. `--issue` takes one issue's lines, its cycle and its
+planning turns together. Every field and the line it comes from are in
+[the factory API](/api#tehas-history).
+
+## tehas export
+
+```
+tehas export [--json] --after CURSOR <dir>
+```
+
+Copies what a person reading a cycle needs into `<dir>`: the cycle's result,
+its logs, its agents' transcripts and its Protolab page, each cycle in a
+directory of its own named by its cursor. `--after` is required, so a program
+that keeps the cursor it is given copies each cycle once.
+
+Every text file goes through the console's mask, so a token or a private address
+that reached a log does not reach the copy; only a file the mask itself will not
+read is copied as it is, and one over 32 MiB is left out. The mask catches
+accidents and cannot stop what no pattern knows, so an export is still a copy of
+what a cycle wrote. An export is never written under the factory's home, not
+even through a link. See
+[the factory API](/api#tehas-export).
 
 ## tehas pause
 

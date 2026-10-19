@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+# tehas history: the cycles and planning turns that ended, oldest first, for a
+# program to read.
+#
+# One line per end: state/cycles/<issue>.history.jsonl, which tehasbot cycle
+# writes when a cycle ends, and state/plan-<issue>.history.jsonl, which
+# lib/planning.sh writes when a planning turn ends. tehas history reads those
+# files, puts the lines in the order they ended, and prints the ones after a
+# cursor. It reads only: no network, no lock a cycle holds, and nothing under
+# $TEHAS_HOME is written. A line it cannot read is left out, not an error.
+#
+# Usage: tehas history [--json] [--after CURSOR] [--issue N]
+#
+#   --after CURSOR   what this command printed as "next" before: only the lines
+#                    that ended after it, as 1760700000-12. A cursor the shape
+#                    of none this command could have printed is a bad argument,
+#                    which reads nothing: a mangled cursor does not become an
+#                    empty listing the caller would keep
+#   --issue N        one issue's lines; N is a number that does not start with
+#                    a zero and is at most nine digits
+#
+# Without --json, one line each, oldest first:
+#
+#   1760700000-12  work  #12  handoff  rc 10  step review  parked  pr https://github.com/...
+#   1760700300-7   plan  #7   finished  turn 3
+#
+# With --json, one object on standard output and nothing else:
+#
+#   {"api": 1, "cycles": [
+#      {"cursor": "1760700000-12", "kind": "work", "issue": 12,
+#       "started": "2026-10-17T11:20:00Z", "ended": "2026-10-17T13:20:00Z",
+#       "status": 0, "outcome": "handoff", "pr": "https://github.com/...",
+#       "step": "review", "cap": "awaiting-human-merge", "parkReason": "merge",
+#       "failureKind": "review", "failureCause": "...", "provider": false,
+#       "parked": true, "by": "alice", "how": "label"},
+#      {"cursor": "1760700300-7", "kind": "plan", "issue": 7,
+#       "started": "2026-10-17T13:20:00Z", "ended": "2026-10-17T13:25:00Z",
+#       "status": 0, "outcome": "finished", "turn": 3, "by": "alice"}],
+#    "next": "1760700300-7"}
+#
+# host/docs/api.md has every field and the line it comes from. A field the line
+# does not have is left out, never null.
+#
+# cursor orders the lines by when they ended: the seconds of the end, then the
+# issue, which is what gives two lines that ended in the same second an order
+# of their own. --after takes a cursor this command printed and lists what
+# ended after it, so a program that keeps "next" and asks again neither misses
+# a line nor reads one twice.
+#
+# Exit: 0 printed, also with nothing to list; 64 an argument this command does
+# not know, which reads nothing; 78 the instance settings are missing or
+# malformed, which reads nothing.
+set -uo pipefail
+
+usage() {
+  echo "usage: tehas history [--json] [--after CURSOR] [--issue N]" >&2
+  exit 64
+}
+
+json=0 after="" issue=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --json)
+      [ "$json" = 0 ] || usage
+      json=1
+      shift
+      ;;
+    --after)
+      [ -z "$after" ] || usage
+      [ "$#" -ge 2 ] || usage
+      # The widths this command can print: at most 10 digits of seconds and at
+      # most 9 digits of issue. A wider cursor belongs to no listing, and 10
+      # digits are also the most jq compares as a number without error.
+      [[ $2 =~ ^[0-9]{1,10}-[1-9][0-9]{0,8}$ ]] || usage
+      after=$2
+      shift 2
+      ;;
+    --issue)
+      [ -z "$issue" ] || usage
+      [ "$#" -ge 2 ] || usage
+      [[ $2 =~ ^[1-9][0-9]{0,8}$ ]] || usage
+      issue=$2
+      shift 2
+      ;;
+    *) usage ;;
+  esac
+done
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/config.sh
+. "$here/../lib/config.sh"
+tehas_load || exit 78
+
+# A cycle's line does not name its issue, its file does; the issue is put on
+# each line as it is read.
+if [ -n "$issue" ]; then
+  files=("$TEHAS_HOME/state/cycles/$issue.history.jsonl" "$TEHAS_HOME/state/plan-$issue.history.jsonl")
+else
+  files=("$TEHAS_HOME"/state/cycles/*.history.jsonl "$TEHAS_HOME"/state/plan-*.history.jsonl)
+fi
+
+# The lines that are wanted, one JSON object each. A cycle's line does not name
+# its issue, its file does, so each line is read with its issue put on it. The
+# loop is one command, not a pipeline: a function called on the left of a pipe
+# runs in a subshell and its output would be lost.
+lines=$(  for f in "${files[@]}"; do
+  [ -f "$f" ] && [ ! -L "$f" ] || continue
+  n=${f##*/}
+  n=${n%.history.jsonl}
+  n=${n#plan-}
+  [[ $n =~ ^[1-9][0-9]{0,8}$ ]] || continue
+  jq -c --argjson n "$n" 'select(type == "object") | . + {issue: $n}' "$f" 2>/dev/null || true
+done)
+
+# An empty cursor is JSON null: a program reads the absence of one, so no
+# special case for it is needed inside the program.
+after_json=null
+[ -z "$after" ] || after_json="\"$after\""
+
+# An empty $lines would be one empty line, and jq -s reads the stream as one
+# value, so that one line would be the whole listing and would fail to parse.
+{
+  [ -n "$lines" ] || printf '\n'
+  printf '%s\n' "$lines"
+} | jq -cs --argjson after "$after_json" '
+    # jq turns a whole number over 2^53 into a decimal, where |floor is an
+    # error and comparison is unreliable. `whole` is the test that holds for
+    # every number this command writes and reads back, and the number is then
+    # taken as the text it was read as, which compares as a number does.
+    def whole($v): (($v | type) == "number") and ((("\($v)") | test("^[0-9]+$")) == true);
+    def iso_of($e): (if whole($e) then ($e | tostring | tonumber | todate) else null end);
+    def word($v): (if ($v | type) == "string" and $v != "" then $v else null end);
+    def bool($v): (if ($v | type) == "boolean" then $v else null end);
+    def num($v): (if whole($v) then ($v | tostring | tonumber) else null end);
+    def is_line: (type) == "object" and ((.kind | type) == "string")
+      and ((.kind | test("^(work|plan)$")) == true)
+      and whole(.issue) and ((.issue | tostring | tonumber) >= 1)
+      and ((.at | type) == "string")
+      and ((.at | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")) == true)
+      and ((.rc | type) == "number" or (.rc | type) == "string")
+      and ((.status | type) == "string");
+    # A line is listed when its end is strictly after the cursor, compared on
+    # the pair (the seconds of the end, the issue): that is what gives two lines
+    # that ended in one second an order of their own.
+    def after_cursor($c; $s): ($c | split("-")) as $p
+      | ($s > ($p[0] | tonumber)) or
+        (($s == ($p[0] | tonumber)) and ((.issue | tostring | tonumber) > ($p[1] | tonumber)));
+    # What a caller reads. A release that adds a field to a line adds it here
+    # too; nothing here renames or removes one. A line this release cannot read
+    # is left out, so an older or a newer file breaks no listing.
+    def publish($s): {cursor: "\($s)-\(.issue)", kind, issue, ended: .at,
+       started: iso_of(.started), status: num(.rc), outcome: .status, turn: num(.turn),
+       step: word(.step), cap: word(.cap), parkReason: word(.park_reason),
+       failureKind: word(.failure_kind), failureCause: word(.failure_cause),
+       provider: bool(.provider), parked: bool(.parked), pr: word(.pr),
+       by: word(.by), how: word(.how)}
+      | with_entries(select(.value != null));
+    [ .[] | select(is_line) | (.at | try fromdateiso8601 catch null) as $s
+      | select($s != null)
+      | select(if $after == null then true else after_cursor($after; $s) end)
+      | publish($s) ]
+    # Oldest first: the seconds of the end, then the issue, then the order of a
+    # unit within its turn. Three cycles that ended in one second keep an order
+    # of their own, which is the same order --after reads, so a program that
+    # keeps "next" and asks again is given each line once.
+    #
+    # The key is the negation of what is wanted and the list is reversed, because
+    # jq 1.7 sorts an array key that holds a negated expression as if it were
+    # absent. Reversing a list sorted by the negated pair gives the pair itself,
+    # ascending, which is what a caller reads.
+    | map(. + {e: (0 - (.ended | try fromdateiso8601 catch 0)), i: (0 - .issue)})
+    | sort_by([.e, .i, (.seq // 0)]) | reverse
+    | map(del(.e, .i, .seq)) as $c
+    | {api: 1, cycles: $c,
+       next: (if ($c | length) == 0 then $after else $c[-1].cursor end)}' |
+  if [ "$json" = 1 ]; then
+    cat
+  else
+    jq -r '.cycles[] |
+      "\(.cursor)  \(.kind)  #\(.issue)  \(.outcome)  " +
+      (if .kind == "plan" then
+         "turn \(.turn // "?")"
+       else
+         "rc \(.status // "?")" +
+         (if .step then "  step \(.step)" else "" end) +
+         (if .parked == true then "  parked" else "" end) +
+         (if .pr then "  pr \(.pr)" else "" end)
+       end)'
+  fi
