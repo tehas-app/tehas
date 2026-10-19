@@ -51,7 +51,11 @@ pub fn read(home: &Path, issue: i64, given: &Given, now: i64) -> Result<Run, Str
         .unwrap_or(0);
     let turn = before + 1;
     let out = read_json(&state.join(format!("plan-{issue}.json.out")));
-    let lost = out.as_ref().and_then(|o| o.get("lost")).and_then(Value::as_bool) == Some(true);
+    let lost = out
+        .as_ref()
+        .and_then(|o| o.get("lost"))
+        .and_then(Value::as_bool)
+        == Some(true);
     let session = out
         .as_ref()
         .and_then(|o| o.get("session"))
