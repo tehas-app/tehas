@@ -95,7 +95,7 @@ tehas api [--json]
   "tehas": "v0.8.0",
   "commit": "cb6912a",
   "repo": "tehas-org/tehas",
-  "features": ["status", "fixer-grant", "all-hands", "limit", "drain", "refresh-conflicts"],
+  "features": ["status", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics"],
   "fixer": null
 }
 ```
@@ -106,7 +106,7 @@ tehas api [--json]
 | `tehas` | The release tag the factory was installed from; `null` when the install came from a checkout with no tag, or not from a git checkout |
 | `commit` | The commit it was installed from, seven characters; `null` when not from a git checkout |
 | `repo` | `TEHAS_REPO`, the product repository |
-| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `fixer-grant`, `all-hands`, `limit`, `drain`, `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)) and `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)) |
+| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)) and `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)) |
 | `fixer` | `TEHAS_FIXER_LOGIN`, or `null` when the instance has no fixer |
 
 It reads the instance settings and `~/tehas/docs/version.txt`, which
