@@ -13,7 +13,9 @@ machine is the caller's business.
 
 What exists today: [`tehas api`](#tehas-api),
 [`tehas status --json`](#tehas-status---json), [`tehas limit`](#tehas-limit),
-[`tehas drain`](#tehas-drain) and [`tehas:all-hands`](/operating#all-hands). The design of the rest is in
+[`tehas drain`](#tehas-drain), [`tehas history`](#tehas-history),
+[`tehas export`](#tehas-export) and
+[`tehas:all-hands`](/operating#all-hands). The design of the rest is in
 the spec, `docs/specs/2026-10-17-factories.md` in the source; a command is
 listed here when a release has it.
 
@@ -221,3 +223,91 @@ the running cycles to end. `running` lists the issues whose cycles still run.
 
 Exit 0 when no cycle is running; 1 when some still are at the end of the
 wait; 64 on a bad argument; 78 without an instance.
+
+## tehas history
+
+```
+tehas history [--json] [--after CURSOR] [--issue N]
+```
+
+```json
+{"api": 1, "cycles": [
+   {"cursor": "1760700000-12", "kind": "work", "issue": 12,
+    "started": "2026-10-17T11:20:00Z", "ended": "2026-10-17T13:20:00Z",
+    "status": 10, "outcome": "handoff", "pr": "https://github.com/acme/widget/pull/9",
+    "step": "review", "cap": "awaiting-human-merge", "parkReason": "merge",
+    "failureKind": "review", "failureCause": "findings open",
+    "provider": false, "parked": true, "by": "alice", "how": "label"},
+   {"cursor": "1760700300-7", "kind": "plan", "issue": 7,
+    "started": "2026-10-17T13:20:00Z", "ended": "2026-10-17T13:25:00Z",
+    "status": 0, "outcome": "finished", "turn": 3, "by": "alice"}],
+ "next": "1760700300-7"}
+```
+
+What has ended, oldest first: one line for each cycle and each planning turn.
+`kind` is `work` for a cycle and `plan` for a planning turn, so a program reads
+the two the same way. It reads the history files the units write and nothing
+else: no network, no lock a running cycle holds, and it writes nothing. A line
+it cannot read is left out, not an error, so an older or a newer file breaks no
+listing.
+
+`cursor` is the seconds of the end and the issue, as `1760700000-12`. Keep
+`next` and pass it as `--after` to read what ended since: each line is then
+offered once, and two lines that ended in the same second have an order of
+their own. `--after` takes a cursor this command printed: one shaped any other
+way is a bad argument rather than an empty listing, so a cursor that was
+mangled in transit is said instead of read as "nothing has ended". `--issue`
+takes one issue's lines, from its cycle and its planning turns together.
+
+`ended` and `started` are when the unit ran and ended. `status` is its exit
+status, `outcome` what it reported, and the rest are the fields of the line:
+the step and cap it stopped at, why it was parked, the failure the fixer named,
+whether its provider was asked, the pull request, and who asked for it and how.
+A planning turn has `turn`, its number in the issue. A field the line does not
+have is left out, never null.
+
+Without `--json`, one line each, oldest first.
+
+Exit 0 when it printed, also with nothing to list; 64 on a bad argument, which
+reads nothing; 78 without an instance.
+
+## tehas export
+
+```
+tehas export [--json] --after CURSOR <dir>
+```
+
+```json
+{"api": 1, "cycles": [{"cursor": "1760700000-12", "kind": "work", "issue": 12,
+  "ended": "2026-10-17T13:20:00Z", "status": 0, "outcome": "merged"}],
+ "next": "1760700000-12", "to": "/home/boss/archive"}
+```
+
+The copy a person reads afterwards. For every line `tehas history` gives after
+`CURSOR`, it writes `<dir>/cycles/<cursor>/`: the cycle's `result.json`, its
+`logs/`, its agents' `transcripts/`, its Protolab page under `protolab/`, and
+`history.json`, the line as `tehas history` publishes it. A planning turn brings
+`plan.json` and no cycle files: the session record as that turn left it, which
+outlives a session that never came into being, since it is copied to
+`~/tehas/state/plan-<issue>.turn` before the record is rewritten or removed. A
+turn of a session that went on has no copy of its own, and brings the record as
+it stands. A cycle whose logs the improvement loop has already removed is not an
+error: those files are simply not there.
+
+Every text file goes through the console's mask, the one masker tehas has, with
+the same names of the host a cycle is given (the host aliases, the model hosts
+and the bot's email), so a token or a private address that reached a log does not
+reach the copy. Only a file the mask itself will not read is copied as it is, and
+one over 32 MiB is left out: an export is for reading. The mask catches accidents;
+it cannot stop what no pattern knows, so an export is still a copy of what a
+cycle wrote.
+
+`--after` is required, so a program that keeps the `next` it was given and calls
+again copies each cycle once. `<dir>` is required and may not be the factory's
+home, a directory in it, or a link to one, which is where the dashboard and the
+units look for the originals; it is made if it is not there, readable by anyone,
+so the person who opens the archive can be someone else.
+
+Exit 0 when it copied, also when there was nothing to copy; 64 on a bad
+argument, an export into the factory's home, or a directory it cannot make,
+which copies nothing; 78 without an instance; 1 with no console to mask with.

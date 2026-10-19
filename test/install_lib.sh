@@ -112,7 +112,9 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/libexec/dispatch
 ./tehas/libexec/drain
 ./tehas/libexec/energy
+./tehas/libexec/export
 ./tehas/libexec/health
+./tehas/libexec/history
 ./tehas/libexec/improve
 ./tehas/libexec/index
 ./tehas/libexec/labels
