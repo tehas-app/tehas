@@ -237,6 +237,8 @@ pub fn prune(conn: &Connection, now: i64) -> rusqlite::Result<()> {
 
 /// Writes a consistent copy to `to`, mode 0600. `to` must not exist.
 pub fn export(conn: &Connection, to: &Path) -> Result<(), String> {
+    // Before the file is made: a path SQLite cannot be given leaves none.
+    let name = to.to_str().ok_or("the export path is not UTF-8")?;
     // SQLite's VACUUM INTO takes an empty file, so it is made here first, with
     // its mode, and never replaces anything.
     OpenOptions::new()
@@ -245,11 +247,36 @@ pub fn export(conn: &Connection, to: &Path) -> Result<(), String> {
         .mode(0o600)
         .open(to)
         .map_err(|e| format!("cannot create {}: {e}", to.display()))?;
-    let name = to.to_str().ok_or("the export path is not UTF-8")?;
     conn.execute("VACUUM INTO ?1", [name]).map_err(|e| {
         let _ = fs::remove_file(to);
         format!("the export failed: {e}")
     })?;
     fs::set_permissions(to, fs::Permissions::from_mode(0o600))
         .map_err(|e| format!("cannot set the mode of {}: {e}", to.display()))
+}
+
+/// What an export holds, read from the copy itself, as the one line
+/// `analytics export --json` prints: {"api":1,"schema":N,"from":T,"to":T,
+/// "runs":N}. from is the oldest start of a run and to the newest end (a
+/// start where a run has none); both are left out when there is no run.
+pub fn copy_summary(copy: &Path) -> Result<String, String> {
+    let conn = Connection::open_with_flags(copy, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|e| format!("cannot open the copy {}: {e}", copy.display()))?;
+    let read = |e: rusqlite::Error| format!("cannot read the copy {}: {e}", copy.display());
+    let schema: i64 = conn
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .map_err(read)?;
+    let (runs, from, to): (i64, Option<i64>, Option<i64>) = conn
+        .query_row(
+            "SELECT count(*), min(started), max(coalesce(ended, started)) FROM runs",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .map_err(read)?;
+    let mut line = format!("{{\"api\":1,\"schema\":{schema}");
+    if let (Some(from), Some(to)) = (from, to) {
+        line.push_str(&format!(",\"from\":{from},\"to\":{to}"));
+    }
+    line.push_str(&format!(",\"runs\":{runs}}}"));
+    Ok(line)
 }

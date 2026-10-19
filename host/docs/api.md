@@ -14,7 +14,8 @@ machine is the caller's business.
 What exists today: [`tehas api`](#tehas-api),
 [`tehas status --json`](#tehas-status---json), [`tehas limit`](#tehas-limit),
 [`tehas drain`](#tehas-drain), [`tehas history`](#tehas-history),
-[`tehas export`](#tehas-export) and
+[`tehas export`](#tehas-export),
+[`tehas analytics export`](#tehas-analytics-export) and
 [`tehas:all-hands`](/operating#all-hands). The design of the rest is in
 the spec, `docs/specs/2026-10-17-factories.md` in the source; a command is
 listed here when a release has it.
@@ -105,7 +106,7 @@ tehas api [--json]
 | `tehas` | The release tag the factory was installed from; `null` when the install came from a checkout with no tag, or not from a git checkout |
 | `commit` | The commit it was installed from, seven characters; `null` when not from a git checkout |
 | `repo` | `TEHAS_REPO`, the product repository |
-| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `fixer-grant`, `all-hands`, `limit`, `drain` and `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)) |
+| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `fixer-grant`, `all-hands`, `limit`, `drain`, `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)) and `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)) |
 | `fixer` | `TEHAS_FIXER_LOGIN`, or `null` when the instance has no fixer |
 
 It reads the instance settings and `~/tehas/docs/version.txt`, which
@@ -311,3 +312,39 @@ so the person who opens the archive can be someone else.
 Exit 0 when it copied, also when there was nothing to copy; 64 on a bad
 argument, an export into the factory's home, or a directory it cannot make,
 which copies nothing; 78 without an instance; 1 with no console to mask with.
+
+## tehas analytics export
+
+```
+tehas analytics export <file> [--json]
+```
+
+```json
+{"api": 1, "schema": 1, "from": 1792022400, "to": 1792800000, "runs": 42}
+```
+
+Writes a consistent copy of the factory's analytics database to `<file>`, mode
+600: ten days of runs, their steps and roles, issue events and poll samples.
+The schema, every column and how a reader keeps up with it are on
+[Analytics](/analytics). The copy is masked: it holds no token, no URL with a
+host and no address. A program runs the command, then copies the file, over
+SSH, `incus exec` or `kubectl exec`, as it runs any other.
+
+| Field | Meaning |
+| --- | --- |
+| `schema` | The copy's schema version, `PRAGMA user_version`. A program that knows another version does not read it |
+| `from` | The oldest start of a run in the copy, Unix seconds; left out when it has no run |
+| `to` | The newest end of a run in the copy (its start for a run that has no end), Unix seconds; left out when it has no run |
+| `runs` | How many runs the copy holds |
+
+The fields are read from the copy, not from the factory's database, so they
+describe the file the program fetches. The command takes no lock a cycle holds
+and makes no network call. It never replaces a file: name a new one each time.
+A copy fetched again holds the same rows, and more: rows are keyed so that
+storing them twice is harmless (see [Analytics](/analytics#fetching-it)).
+
+The feature `analytics` in [`tehas api`](#tehas-api) says the command exists.
+It does not say analytics is on: exit 0; 64 on a bad argument; 69 when the
+instance has `TEHAS_ANALYTICS=off` or the program is not installed, which
+writes nothing; 70 when the database cannot be read; 73 when `<file>` exists or
+cannot be made; 78 without an instance.

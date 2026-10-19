@@ -591,3 +591,250 @@ fn versions(runs: &[WorkRun]) -> Value {
             .collect(),
     )
 }
+
+/// The report as `analytics report` prints it for a person: the figures of
+/// `build`, one to a line, then the days, the stop reasons, the steps and
+/// the versions. A figure that is left out of the JSON is shown as "-".
+pub fn text(report: &Value) -> String {
+    let int = |v: &Value| v.as_i64();
+    let at = |path: &[&str]| path.iter().fold(report, |v, k| &v[*k]).clone();
+    let n = |key: &str| format!("(n={})", int(&report[key]["n"]).unwrap_or(0));
+    let pct = |v: &Value| v.as_f64().map_or("-".to_string(), percent);
+    let dur = |v: &Value| int(v).map_or("-".to_string(), duration);
+    let num = |v: &Value| int(v).map_or("-".to_string(), |x| x.to_string());
+    let from = int(&report["from"]).unwrap_or(0);
+    let to = int(&report["to"]).unwrap_or(0);
+
+    let mut lines = vec![
+        format!(
+            "Last {DAYS} days, {} to {} (UTC)",
+            date(from.div_euclid(DAY)),
+            date(to.div_euclid(DAY))
+        ),
+        String::new(),
+    ];
+    let mut row = |name: &str, value: String, count: String| {
+        let line = format!("{name:<18} {value}");
+        lines.push(if count.is_empty() {
+            line
+        } else {
+            format!("{line}  {count}")
+        });
+    };
+    row(
+        "Shipped",
+        format!("{} issues", num(&at(&["shipped", "n"]))),
+        String::new(),
+    );
+    let planned = &report["planned"];
+    row(
+        "Planned",
+        if planned.is_object() {
+            format!(
+                "{} now: {} in line, {} in planning",
+                num(&planned["n"]),
+                num(&planned["inLine"]),
+                num(&planned["planning"])
+            )
+        } else {
+            "-".to_string()
+        },
+        String::new(),
+    );
+    let runs = &report["runs"];
+    let split: Vec<String> = [
+        "pr", "merged", "handoff", "parked", "failed", "refused", "stopped",
+    ]
+    .iter()
+    .map(|o| format!("{} {o}", num(&runs[*o])))
+    .collect();
+    row(
+        "Runs",
+        format!("{}: {}", num(&runs["n"]), split.join(", ")),
+        String::new(),
+    );
+    row(
+        "Planning turns",
+        num(&at(&["planningTurns", "n"])),
+        String::new(),
+    );
+    row(
+        "Handoff rate",
+        pct(&at(&["handoffRate", "share"])),
+        n("handoffRate"),
+    );
+    row(
+        "First-pass yield",
+        pct(&at(&["firstPassYield", "share"])),
+        n("firstPassYield"),
+    );
+    for (name, key) in [("Lead time", "leadTime"), ("Cycle time", "cycleTime")] {
+        row(
+            name,
+            format!(
+                "median {}, p90 {}",
+                dur(&report[key]["median"]),
+                dur(&report[key]["p90"])
+            ),
+            n(key),
+        );
+    }
+    let per = |v: &Value, f: &dyn Fn(&Value) -> String| match v {
+        Value::Null => String::new(),
+        v => format!(", {} per shipped issue", f(v)),
+    };
+    let machine = &report["machineTime"];
+    row(
+        "Machine time",
+        format!(
+            "{}{}",
+            dur(&machine["seconds"]),
+            per(&machine["perShipped"], &dur)
+        ),
+        n("machineTime"),
+    );
+    let tokens = &report["tokens"];
+    row(
+        "Tokens",
+        format!(
+            "{}: {} input, {} output, {} cache read{}",
+            num(&tokens["total"]),
+            num(&tokens["input"]),
+            num(&tokens["output"]),
+            num(&tokens["cacheRead"]),
+            per(&tokens["perShipped"], &num)
+        ),
+        n("tokens"),
+    );
+    let avail = &report["availability"];
+    row(
+        "Availability",
+        match int(&avail["seconds"]) {
+            Some(s) => format!("{} of {}", pct(&avail["share"]), duration(s)),
+            None => "-".to_string(),
+        },
+        n("availability"),
+    );
+    let energy = &report["energy"];
+    if energy.is_object() {
+        let kwh = |v: &Value| v.as_f64().map_or("-".to_string(), |k| format!("{k} kWh"));
+        row(
+            "Energy",
+            format!(
+                "{}{}",
+                kwh(&energy["kwh"]),
+                per(&energy["perShipped"], &kwh)
+            ),
+            n("energy"),
+        );
+    }
+
+    lines.push(String::new());
+    lines.push(format!(
+        "{:<12}{:>8}{:>6}{:>8}{:>9}",
+        "Day", "Shipped", "Runs", "Failed", "Minutes"
+    ));
+    for d in report["daily"].as_array().into_iter().flatten() {
+        lines.push(format!(
+            "{:<12}{:>8}{:>6}{:>8}{:>9}",
+            d["day"].as_str().unwrap_or("-"),
+            num(&d["shipped"]),
+            num(&d["runs"]),
+            num(&d["failed"]),
+            num(&d["minutes"])
+        ));
+    }
+
+    lines.push(String::new());
+    lines.push(format!("Stop reasons  {}", n("stopReasons")));
+    let top = report["stopReasons"]["top"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    if top.is_empty() {
+        lines.push("  none".to_string());
+    }
+    for r in &top {
+        lines.push(format!(
+            "  {:<30}{:>5}",
+            r["reason"].as_str().unwrap_or("-"),
+            num(&r["n"])
+        ));
+    }
+
+    lines.push(String::new());
+    lines.push(format!("Steps passed  {}", n("stations")));
+    let steps = report["stations"]["steps"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    if steps.is_empty() {
+        lines.push("  none".to_string());
+    }
+    for s in &steps {
+        lines.push(format!(
+            "  {:<30}{:>5} of {:<5}{:>6}",
+            s["step"].as_str().unwrap_or("-"),
+            num(&s["passed"]),
+            num(&s["n"]),
+            pct(&s["share"])
+        ));
+    }
+
+    lines.push(String::new());
+    lines.push(format!(
+        "Versions  (fewer than {VERSION_FLOOR} runs: the count only)"
+    ));
+    let versions = report["versions"].as_array().cloned().unwrap_or_default();
+    if versions.is_empty() {
+        lines.push("  none".to_string());
+    } else {
+        lines.push(format!(
+            "  {:<20}{:<20}{:>5}{:>9}{:>8}{:>10}",
+            "tehas", "pi-rukas", "runs", "to a PR", "median", "tokens"
+        ));
+    }
+    for v in &versions {
+        let name = |k: &str| v[k].as_str().unwrap_or("-").to_string();
+        let mut line = format!(
+            "  {:<20}{:<20}{:>5}",
+            name("tehas"),
+            name("rukas"),
+            num(&v["n"])
+        );
+        if v["prShare"].is_number() {
+            line.push_str(&format!(
+                "{:>9}{:>8}{:>10}",
+                pct(&v["prShare"]),
+                dur(&v["medianSeconds"]),
+                num(&v["medianTokens"])
+            ));
+        }
+        lines.push(line);
+    }
+    let mut out = lines.join("\n");
+    out.push('\n');
+    out
+}
+
+/// A share as a percentage: whole where it is whole, else one decimal.
+fn percent(share: f64) -> String {
+    let p = (share * 1000.0).round() / 10.0;
+    if p.fract() == 0.0 {
+        format!("{p:.0}%")
+    } else {
+        format!("{p:.1}%")
+    }
+}
+
+/// Seconds for a person: 45s, 12m30s, 3h05m, 2d04h.
+fn duration(secs: i64) -> String {
+    let s = secs.max(0);
+    match s {
+        0..=59 => format!("{s}s"),
+        60..=3599 if s % 60 == 0 => format!("{}m", s / 60),
+        60..=3599 => format!("{}m{:02}s", s / 60, s % 60),
+        3600..=86_399 => format!("{}h{:02}m", s / 3600, s % 3600 / 60),
+        _ => format!("{}d{:02}h", s / DAY, s % DAY / 3600),
+    }
+}

@@ -372,7 +372,7 @@ files=(
 for f in tehas tehasbot; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
-for f in api cycle dev dev-login dispatch drain energy export health history improve index labels limit pause plan preview protolab refresh resume status summary tidy top top-publish update work; do
+for f in analytics-cmd api cycle dev dev-login dispatch drain energy export health history improve index labels limit pause plan preview protolab refresh resume status summary tidy top top-publish update work; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
 # Pi's own settings: the instance may bring its own (default provider and
