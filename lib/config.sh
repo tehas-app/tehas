@@ -49,7 +49,10 @@
 #     one of TEHAS_ALLOWED_LABELERS.
 #   - TEHAS_LOW_GATE names a command the dispatcher runs before it starts the
 #     lowest issues (libexec/dispatch, rule 7). Unset is valid and means there
-#     is no gate, and the dispatcher behaves as it did before the setting.
+#     is no gate, and the dispatcher behaves as it did before the setting. It is
+#     asked with nothing of the poll's environment but PATH, and it may not name
+#     a file under TEHAS_HOME or the instance directory: those are the trees a
+#     merged pull request writes, and the gate runs as the tehas user.
 #     TEHAS_LOW_GATE_WAIT is how many seconds that command gets, at most 600:
 #     the poll holds its own lock while it waits, so a longer bound only delays
 #     every later poll.
@@ -93,7 +96,7 @@ _tehas_is_count() { case "$1" in '' | *[!0-9]* | 0*) return 1 ;; esac; }
 
 # Print why a value is not acceptable for a setting; return 1 if it is not.
 _tehas_valid() {
-  local name=$1 v=$2 mb
+  local name=$1 v=$2 mb base
   case "$name" in
     TEHAS_REPO | TEHAS_IMPROVE_REPO | TEHAS_IMPROVE_RUKAS_REPO)
       [[ $v =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "expected owner/name"; return 1; }
@@ -181,8 +184,32 @@ _tehas_valid() {
         { echo "expected the name of a check, words of letters, digits and ._()/- separated by single spaces"; return 1; }
       ;;
     TEHAS_LOW_GATE)
-      # Run by the dispatcher as one word, with no shell between.
-      [[ $v =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "expected an absolute path"; return 1; }
+      # Run by the dispatcher as one word, with no shell between. Every segment
+      # is named: //, /./ and /../ would let one file be named another way,
+      # which is how a check on where a path sits is defeated.
+      [[ $v =~ ^/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$ ]] ||
+        { echo "expected an absolute path of /, letters, digits and ._-, with no empty or dot segment"; return 1; }
+      case "/$v/" in
+        *"/./"* | *"/../"*)
+          echo "expected an absolute path of /, letters, digits and ._-, with no empty or dot segment"
+          return 1
+          ;;
+      esac
+      # The gate is run as the tehas user by every poll. A merged pull request
+      # writes the trees under the host's tehas home and the instance directory,
+      # and install.sh puts a new bin/ or libexec/ file there from the same
+      # change, so a gate named by an instance setting must be a program no pull
+      # request can put in place.
+      for base in "${TEHAS_HOME:-}" "${TEHAS_INSTANCE_DIR:-}" "${TEHAS_WORK_REPO:-}"; do
+        base=${base%/}
+        [ -n "$base" ] || continue
+        case "$v/" in
+          "$base/"*)
+            echo "expected a command outside $base, which a merged pull request can change"
+            return 1
+            ;;
+        esac
+      done
       ;;
     PI_ENSEMBLE_SUBAGENT_MODEL | PI_ENSEMBLE_SUBAGENT_PROVIDER | PI_ENSEMBLE_MODEL_* | PI_ENSEMBLE_PROVIDER_* | TEHAS_BRANCH)
       [[ $v =~ ^[^[:space:]]+$ ]] || { echo "expected one word"; return 1; }

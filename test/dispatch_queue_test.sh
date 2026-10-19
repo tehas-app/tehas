@@ -358,31 +358,38 @@ t_eq "$(jq -c '{free, awaitRoom}' "$dispatch_json")" '{"free":0,"awaitRoom":null
 
 # --- The gate of the lowest issues (TEHAS_LOW_GATE) -------------------------
 # The gate is an instance's own command. The stub answers <status> and writes
-# one line for every run, so a case can say how often the poll asked it.
+# one line for every run, so a case can say how often the poll asked it. The
+# paths are written into the stub: the poll hands the gate nothing of its
+# environment but PATH, so a stub cannot name them through a variable.
 gate_answer() { # <status>: what the gate answers from now on
-  t_stub gate-run 'echo ran >>"$T/calls/gate-runs"
-exit '"$1"
+  t_stub gate-run "echo ran >>\"$T/calls/gate-runs\"
+exit $1"
 }
 gate_runs() { t_calls gate-runs | wc -l; }
 gate_held=$T/home/tehas/state/low-gate.held
+gate_log=$T/home/tehas/logs/low-gate.log
 gate_there() { [ -e "$gate_held" ] && echo there; }
-# gate <status>: the instance names the stub. It also clears the held file,
-# which reset leaves alone, and sets the line to give to slots.
-gate() {
+# gate_path: the instance names the stub, and the case puts the stub there or
+# leaves it out. It also clears the held file, which reset leaves alone, and
+# sets the line to give to slots.
+gate_path() {
   rm -f "$gate_held"
-  gate_answer "$1"
   gate_setting=TEHAS_LOW_GATE=$T/bin/gate-run
+}
+# gate <status>: the instance names a stub that answers <status>.
+gate() {
+  gate_answer "$1"
+  gate_path
 }
 # gate_up <seconds up> [ignore]: a gate that stays up instead of answering.
 # With ignore it takes no notice of being asked to end at the end of its seconds.
 gate_up() { # <seconds to stay up> [ignore]
-  rm -f "$gate_held"
   local body="exec sleep $1"
   if [ "${2:-}" = ignore ]; then
     body=$(printf 'trap "" TERM\n%s' "$body")
   fi
   t_stub gate-run "$body"
-  gate_setting=TEHAS_LOW_GATE=$T/bin/gate-run
+  gate_path
 }
 
 t_case "with no gate on the instance, the lowest issues start as they did before it"
@@ -426,7 +433,7 @@ t_lacks "$(t_calls gh)" "issue edit 12 "
 
 t_case "a gate the host does not have holds the lowest issues, and the poll ends 0"
 reset
-gate 0
+gate_path
 rm -f "$T/bin/gate-run"
 slots 2 "$gate_setting"
 queue 7
@@ -437,7 +444,7 @@ t_contains "$t_out" "wait #7: the low-priority gate is closed (exit 127)"
 
 t_case "a gate that is not executable holds the lowest issues, and the poll ends 0"
 reset
-gate 0
+gate_path
 rm -f "$T/bin/gate-run"
 : >"$T/bin/gate-run"
 chmod 644 "$T/bin/gate-run"
@@ -558,5 +565,76 @@ t_eq "$t_rc" 0
 t_eq "$(started)" ""
 t_contains "$t_out" "wait #7: the low-priority gate is closed (exit 137)"
 t_contains "$t_out" "low issues wait: TEHAS_LOW_GATE answered 137"
+
+t_case "the gate is asked with nothing of the poll's environment but PATH"
+reset
+t_stub gate-run "env >\"$T/calls/gate.env\"
+exit 0"
+gate_path
+# What the host's own environment holds: the bot's token and the model
+# endpoints' keys. The gate is the instance's command, not a party to the poll.
+T_ENV+=(GH_TOKEN=gh-secret-token TEHAS_MODEL_KEY_TEST=key-for-the-model)
+slots 2 "$gate_setting"
+queue 7
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(started)" "7 "
+gate_env=$(cat "$T/calls/gate.env")
+t_contains "$gate_env" "PATH="
+t_lacks "$gate_env" "gh-secret-token"
+t_lacks "$gate_env" "key-for-the-model"
+t_lacks "$gate_env" "TEHAS_REPO"
+t_lacks "$gate_env" "TEHAS_LOW_GATE_WAIT"
+
+t_case "what the gate prints is kept where the person can read it, and read by nothing else"
+reset
+t_stub gate-run 'echo "the price feed would not answer"
+exit 3'
+gate_path
+slots 2 "$gate_setting"
+queue 7
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(started)" ""
+t_contains "$t_out" "wait #7: the low-priority gate is closed (exit 3)"
+t_contains "$t_out" "low issues wait: TEHAS_LOW_GATE answered 3"
+t_lacks "$t_out" "the price feed would not answer"
+t_eq "$(cat "$gate_log")" "the price feed would not answer"
+# Every ask rewrites it: the file holds the last ask's words, not a day of them.
+t_run "$dispatch"
+t_eq "$(cat "$gate_log")" "the price feed would not answer"
+t_eq "$(wc -l <"$gate_log")" 1
+
+t_case "a closed gate holds the rest of the lowest issues with no call about them"
+reset
+gate 1
+slots 4 "$gate_setting"
+queue 7 8 11 12
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(started)" ""
+t_eq "$(gate_runs)" 1
+t_contains "$t_out" "wait #7: the low-priority gate is closed (exit 1)"
+t_contains "$t_out" "wait #12: the low-priority gate is closed (exit 1)"
+# The first issue of the kind paid the checks of the rules above and asked; the
+# rest are held by that answer alone. The per-issue calls of those checks name
+# the issue in the question this poll asks GitHub.
+t_contains "$(t_calls gh)" "number=7"
+t_eq "$(t_calls gh | grep -c -e number=8 -e number=11 -e number=12)" 0
+
+t_case "a held marker that is not a regular file is neither read nor written"
+reset
+gate 1
+mkdir -p "$T/home/tehas/state"
+echo kept >"$T/home/keep"
+ln -s "$T/home/keep" "$gate_held"
+slots 2 "$gate_setting"
+queue 7
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(started)" ""
+t_contains "$t_out" "wait #7: the low-priority gate is closed (exit 1)"
+t_contains "$t_out" "low-gate.held is not a regular file"
+t_eq "$(cat "$T/home/keep")" "kept"
 
 t_done
