@@ -13,6 +13,8 @@
 #   tehas api [--json]               what this factory speaks, for a program
 #   tehas limit [set ...|clear]      an outside cap on what this factory starts
 #   tehas drain [--wait S] [--json]  start nothing new, wait for running cycles
+#   tehas history [--json] [--after C] [--issue N]  the cycles that ended
+#   tehas export --after C <dir>     copy them elsewhere, masked
 #   tehas top [--once|--json]        one screen of what the factory is doing
 #   tehas pause [reason]             stop this host from starting new work
 #   tehas resume                     lift this host's pause flag
@@ -38,7 +40,7 @@ usage_of() {
 # script <command>: the file behind a command, or nothing.
 script() {
   case "$1" in
-    dispatch | work | plan | dev | index | update | labels | top | pause | resume | api | limit | drain) echo "$libexec/$1" ;;
+    dispatch | work | plan | dev | index | update | labels | top | pause | resume | api | limit | drain | history | export) echo "$libexec/$1" ;;
     status) echo "$libexec/summary" ;;
   esac
 }
