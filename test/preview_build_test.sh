@@ -84,6 +84,14 @@ t_contains "$(t_calls docker)" "rm -f -v tehas-preview-12"
 t_contains "$(t_calls docker)" "image rm $old"
 t_lacks "$t_out" "No such file"
 
+t_case "the fetch follows the product checkout's origin after the repository moved"
+git -C "$root/repo.git" remote set-url origin "$T/moved-away"
+a3=$(commit feature)
+pulls "$(pull 12 "$a3")"
+t_run "$preview"
+t_eq "$(git -C "$root/repo.git" config --get remote.origin.url)" "$upstream"
+t_eq "$(cat "$fx/docker/container-12")" "$a3"
+
 t_case "the label is the commit that was fetched, when the branch moved after GitHub answered"
 reset
 a=$(commit feature)
