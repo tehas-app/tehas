@@ -24,13 +24,14 @@ images_off() {
 gapline() { cat "$T"/home/tehas/logs/work-7-*.jsonl.err 2>/dev/null; }
 kept_manifests() { find "$T/home/tehas/state/cycles" -name '7.manifest.json*' 2>/dev/null | wc -l; }
 
-t_case "with nothing given, the links of the approval record are said and kept, and GitHub is not asked"
+t_case "with nothing given, the links of the approval record are said and kept, and only the issue's text is asked for"
 images_off
 record_is alice "![shot]($A/1111) [spec.md]($F/31/spec.md)" "$A/1111" "$F/31/spec.md"
 issue_is "![shot]($A/1111) [spec.md]($F/31/spec.md)" NONE
 t_run "$work 7"
 t_eq "$t_rc" 2
-t_eq "$(t_calls gh)$(t_calls curl)" ""
+t_eq "$(t_calls gh)" "api repos/acme/widget/issues/7"
+t_eq "$(t_calls curl)" ""
 t_eq "$(find "$imgs" -maxdepth 0 2>/dev/null | wc -l)" 0
 t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$mounts_off" | LC_ALL=C sort)"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
@@ -63,17 +64,17 @@ t_eq "$t_rc" 2
 t_contains "$t_out" "lists 1 attachment and this instance gives a cycle none"
 t_eq "$(jq '.leftOut | length' "$kept")" 1
 
-t_case "the links named are the approved text's: what the body gained since is not counted, and GitHub is not asked"
+t_case "what the body gained since the approval is not counted as attachments: the start stops, and nothing is said about a cycle given none"
 images_off
 record_is alice "![shot]($A/1111)" "$A/1111"
 issue_is "![shot]($A/1111) ![added since]($A/2222)" NONE
 t_run "$work 7"
-t_eq "$t_rc" 2
-t_eq "$(gapline)" "tehas work: the approval record of issue 7 (approved 2026-10-14T00:00:00Z by alice) lists 1 attachment and this instance gives a cycle none (TEHAS_WORK_IMAGES=0, TEHAS_WORK_FILES=0): no directory is mounted and PI_ENSEMBLE_EXTRA_IMAGE_DIRS is not set"
-t_lacks "$t_out" "the text of issue 7 links"
-t_lacks "$(gapline)" "2222"
-t_eq "$(jq -c '[.leftOut[].link]' "$kept")" "[\"$A/1111\"]"
-t_eq "$(t_calls gh)$(t_calls curl)" ""
+t_eq "$t_rc" 4
+t_contains "$t_out" "the issue's text is not the text that was approved: it changed after the approval"
+t_eq "$(gapline)" ""
+t_eq "$(kept_manifests)" 0
+t_lacks "$(t_calls gh)" "2222"
+t_eq "$(t_calls curl)" ""
 
 t_case "the manifest lists at most 100 links and says how many more the record lists"
 images_off
@@ -109,12 +110,13 @@ t_lacks "$t_out" "gives a cycle none"
 t_eq "$(jq -c . "$T/elsewhere")" '{"images":[],"leftOut":[]}'
 t_eq "$(find "$kept.new" 2>/dev/null | wc -l)" 0
 
-t_case "an issue never dispatched has no record, so nothing is said and nothing is written"
+t_case "an issue never dispatched has no record, so nothing is said, nothing is written, and the run says it is its own approval"
 images_off
 issue_is "![shot]($A/1111)" OWNER
 t_run "$work 7"
 t_eq "$t_rc" 2
 t_lacks "$t_out" "gives a cycle none"
+t_contains "$t_out" "tehas work: no approval is recorded on this host for #7; a run by hand is its own approval"
 t_eq "$(gapline)" ""
 t_eq "$(kept_manifests)" 0
 t_eq "$(t_calls gh)$(t_calls curl)" ""
@@ -128,29 +130,43 @@ t_eq "$t_rc" 2
 t_lacks "$t_out" "gives a cycle none"
 t_eq "$(kept_manifests)" 0
 
-t_case "a record that is not of the shape tehas work reads says so once, and the cycle starts"
+t_case "a record that is not of the shape tehas work reads starts no cycle: exit 4, nothing kept, and the issue is told"
 images_off
 mkdir -p "$(dirname "$record")"
 echo '{"at": 1, "links": ["x"]}' >"$record"
 issue_is "![shot]($A/1111)" NONE
 t_run "$work 7"
-t_eq "$t_rc" 2
+t_eq "$t_rc" 4
 t_lacks "$t_out" "gives a cycle none"
-t_contains "$t_out" "the approval record of issue 7, or the manifest kept for it, could not be read"
-t_eq "$(gapline)" "tehas work: the approval record of issue 7, or the manifest kept for it, could not be read: nothing is said about what this cycle was not given"
+t_contains "$t_out" "tehas work: the approval record $record could not be read, not starting a cycle"
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+t_eq "$(gapline)" ""
 t_eq "$(kept_manifests)" 0
 
-t_case "an approval that is not one line is not read, so the line cannot name the wrong approval"
+t_case "an approval whose at is not one line is not read, so no line can name the wrong approval"
 images_off
 mkdir -p "$(dirname "$record")"
 jq -n '{at: "2026-10-14T00:00:00Z\nby someone", by: "alice", how: "label",
   links: ["'"$A"'/1111"]}' >"$record"
 issue_is "![shot]($A/1111)" NONE
 t_run "$work 7"
-t_eq "$t_rc" 2
+t_eq "$t_rc" 4
 t_lacks "$t_out" "gives a cycle none"
 t_contains "$t_out" "could not be read"
 t_eq "$(kept_manifests)" 0
+
+t_case "a manifest kept for the issue that is not JSON says so once, and the cycle starts"
+images_off
+record_is alice "![shot]($A/1111)" "$A/1111"
+issue_is "![shot]($A/1111)" NONE
+mkdir -p "$(dirname "$kept")"
+echo '{images' >"$kept"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_lacks "$t_out" "gives a cycle none"
+t_contains "$t_out" "the approval record of issue 7, or the manifest kept for it, could not be read"
+t_eq "$(gapline)" "tehas work: the approval record of issue 7, or the manifest kept for it, could not be read: nothing is said about what this cycle was not given"
+t_eq "$(kept_manifests)" 1
 
 t_case "a link of the record that is not of GitHub's storage is not counted"
 images_off
@@ -163,10 +179,10 @@ t_eq "$(kept_manifests)" 0
 
 t_case "a record written while the instance took links from comments keeps them, each with its source"
 images_off
-mkdir -p "$(dirname "$record")"
-jq -n '{at: "2026-10-14T00:00:00Z", by: "alice", how: "label", links: ["'"$A"'/1111"],
-  comment_links: [{link: "'"$A"'/2222", source: "comment:51", by: "alice"},
-    {link: "https://example.com/y.png", source: "comment:52", by: "alice"}]}' >"$record"
+record_is alice "![shot]($A/1111)" "$A/1111"
+jq '.comment_links = [{link: "'"$A"'/2222", source: "comment:51", by: "alice"},
+  {link: "https://example.com/y.png", source: "comment:52", by: "alice"}]' "$record" >"$record.new" &&
+  mv "$record.new" "$record"
 issue_is "![shot]($A/1111)" NONE
 t_run "$work 7"
 t_eq "$t_rc" 2

@@ -63,10 +63,13 @@
 #              That file holds the limit in seconds, who stopped the cycle
 #              (tehas or runner) and the step it was in.
 #              3 the sandbox cannot push to the repository; no cycle was started.
-#              4 the instance gives a cycle the issue's images or files and one
-#                could not be fetched, the issue could not be read for them, or
-#                its text or a file is not what was approved; no cycle was
-#                started.
+#              4 no cycle was started. Where the dispatcher left its approval
+#                record: the issue's text is not the text that record approved,
+#                the record could not be read, or the issue could not be read
+#                for its text. Where the instance gives a cycle the issue's
+#                images or files: one could not be fetched, the issue could not
+#                be read for them, or a file is not the one first fetched for
+#                that approval.
 #              5 a cycle for this issue is running already; nothing was
 #                touched.
 #
@@ -165,9 +168,12 @@
 # untrusted, every line quoted, cut at 32000 characters. No mount and no
 # variable more.
 #
-# With neither setting a cycle is given nothing, and GitHub is asked for
-# nothing: no directory is mounted and no PI_ENSEMBLE_EXTRA_IMAGE_DIRS is
-# passed on, whatever the instance file says. When the dispatcher's approval
+# With neither setting a cycle is given nothing: no directory is mounted and
+# no PI_ENSEMBLE_EXTRA_IMAGE_DIRS is passed on, whatever the instance file
+# says. The issue is still read once, for its text, and compared with the
+# dispatcher's record (exit 4). By hand, where this host holds no record, the
+# run is its own approval and GitHub is asked for nothing.
+# When the dispatcher's approval
 # record lists attachment links, the gap is said rather than left for an agent
 # to find from a file that is not there: one line naming how many links and
 # which approval it read, on this command's error stream and in $log.err,
@@ -457,6 +463,45 @@ fi
 if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces"; }; then
   echo "tehas work: could not make $works, not starting a cycle" >&2
   exit 78
+fi
+# The words a cycle works on are the words somebody approved. The dispatcher
+# wrote what it approved into its record; read the issue again here and hold
+# it to that, so a body edited after the label starts no cycle. This is the
+# last place on the host that can still compare them. By hand there is no
+# record, and the person who ran this command is the approval: say which, and
+# never say the text changed.
+text_why=""
+if [ -f "$record" ] && [ ! -L "$record" ]; then
+  if jq -e "$(tehas_approval_record)"'record_ok and (.body_sha256 | type) == "string"' "$record" >/dev/null 2>&1; then
+    # Bounded like every other call before the container: a network that
+    # swallows this read must not hold the issue's lock and its slot.
+    issue_now=$(timeout -k 10 60 gh api "repos/$TEHAS_REPO/issues/$issue" 2>/dev/null)
+    if [ -z "$issue_now" ] || ! jq -e 'type == "object" and (.body == null or (.body | type) == "string")' <<<"$issue_now" >/dev/null 2>&1; then
+      text_why="the issue could not be read for its text"
+    else
+      now_sum=$(tehas_body_sha256 <<<"$issue_now") || now_sum=""
+      if [ -z "$now_sum" ]; then
+        text_why="the issue's text could not be read for its hash"
+      elif [ "$now_sum" != "$(jq -r .body_sha256 "$record")" ]; then
+        text_why="the issue's text is not the text that was approved: it changed after the approval"
+      fi
+    fi
+  else
+    text_why="the approval record $record could not be read"
+  fi
+  if [ -n "$text_why" ]; then
+    echo "tehas work: $text_why, not starting a cycle" >&2
+    gh issue comment "$issue" --repo "$TEHAS_REPO" --body "Tehas started no cycle: $text_why. To retry, apply \`tehas:ready\`." >/dev/null 2>&1 ||
+      echo "tehas work: the comment on #$issue failed" >&2
+    exit 4
+  fi
+elif [ -L "$record" ] || [ -e "$record" ]; then
+  # Something sits at the record's path and it is not a plain file: a link or
+  # a directory. It is read as no record, which is how the images are read too
+  # (see the give branch below), but it would be wrong to say nothing is here.
+  echo "tehas work: $record is not a record this command can read; a run by hand is its own approval" >&2
+else
+  echo "tehas work: no approval is recorded on this host for #$issue; a run by hand is its own approval" >&2
 fi
 image_opts=()
 if [ "$give" = 1 ]; then

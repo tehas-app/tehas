@@ -8,6 +8,80 @@
 . "$(dirname "$0")/work_lib.sh" || exit 1
 stub_github
 
+# --- The text a cycle works on -------------------------------------------------
+# A cycle is given nothing of the issue here, and still checks its text against
+# what the dispatcher approved: the words a cycle works on are the words
+# somebody approved. By hand this host holds no record, and the run is its own
+# approval.
+nothing_given() {
+  images_on
+  t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=0 TEHAS_WORK_FILES=0
+}
+
+t_case "with nothing given, a record whose hash matches the issue starts the cycle, and the issue is read for its text alone"
+nothing_given
+issue_is "Words only." NONE
+record_is alice "Words only."
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(t_calls gh)" "api repos/acme/widget/issues/7"
+t_eq "$(t_calls curl)" ""
+
+t_case "with nothing given, a body changed after the approval starts no cycle: exit 4, no container, and the issue says what changed"
+nothing_given
+issue_is "Words only, edited after the label." NONE
+record_is alice "Words only."
+t_run "$work 7"
+t_eq "$t_rc" 4
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+t_eq "$(find "$imgs" -maxdepth 0 2>/dev/null | wc -l)" 0
+t_contains "$t_out" "tehas work: the issue's text is not the text that was approved: it changed after the approval, not starting a cycle"
+t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body Tehas started no cycle: the issue's text is not the text that was approved: it changed after the approval. To retry, apply \`tehas:ready\`."
+
+t_case "with nothing given, a record that is not JSON starts no cycle: exit 4, and nothing falls back to running anyway"
+nothing_given
+issue_is "Words only." NONE
+mkdir -p "$(dirname "$record")"
+echo '{by: alice' >"$record"
+t_run "$work 7"
+t_eq "$t_rc" 4
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+t_contains "$t_out" "tehas work: the approval record $record could not be read, not starting a cycle"
+t_contains "$(t_calls gh)" "Tehas started no cycle: the approval record $record could not be read. To retry, apply \`tehas:ready\`."
+
+t_case "with nothing given, something that is not a plain record at the record's path is read as no record, and the line names what is there"
+nothing_given
+issue_is "Words only." NONE
+mkdir -p "$(dirname "$record")"
+printf 'x' >"$T/record.target"
+ln -s "$T/record.target" "$record"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "tehas work: $record is not a record this command can read; a run by hand is its own approval"
+t_lacks "$t_out" "no approval is recorded on this host"
+t_lacks "$t_out" "changed"
+t_eq "$(t_calls gh)" ""
+
+t_case "with nothing given, an issue that cannot be read starts no cycle: exit 4, and it is not said as a change"
+nothing_given
+record_is alice "Words only."
+rm -f "$fx/issue.json"
+t_run "$work 7"
+t_eq "$t_rc" 4
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+t_contains "$t_out" "tehas work: the issue could not be read for its text, not starting a cycle"
+t_lacks "$t_out" "changed after the approval"
+t_contains "$(t_calls gh)" "Tehas started no cycle: the issue could not be read for its text. To retry, apply \`tehas:ready\`."
+
+t_case "with nothing given and no record the cycle starts, and the line says a run by hand is its own approval"
+nothing_given
+issue_is "Words only." NONE
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "tehas work: no approval is recorded on this host for #7; a run by hand is its own approval"
+t_lacks "$t_out" "changed"
+t_eq "$(t_calls gh)" ""
+
 t_case "with a record the links are the record's: one the body gained since is not fetched, and no events are read"
 images_on
 net "$A/1111" "$png"
@@ -118,6 +192,8 @@ t_run "$work 7"
 t_eq "$t_rc" 2
 t_eq "$(manifest '[(.images | map(.link)), .approval]')" "[[\"$A/1111\"],null]"
 t_contains "$(t_calls gh)" "events"
+t_contains "$t_out" "is not a record this command can read"
+t_lacks "$t_out" "no approval is recorded on this host"
 rm -f "$record"
 
 # --- Comments -------------------------------------------------------------------
