@@ -63,9 +63,43 @@ t_run "$call; tehas_analytics sample; echo rc=\$?"
 t_eq "$t_out" "rc=0"
 rmdir "$bin"
 
+t_case "a call to a file writes what the program prints there and returns 0"
+rm -f "$T"/calls/*
+t_stub_analytics 'echo "{\"report\":1}"'
+T_ENV=(TEHAS_ANALYTICS=on)
+t_run "$call; tehas_analytics_to \"\$T/out\" report --json; echo rc=\$?"
+t_eq "$t_out" "rc=0"
+t_eq "$(cat "$T/out")" '{"report":1}'
+t_eq "$(t_calls analytics)" "report --json"
+
+t_case "a call to a file that fails or hangs is one WARN line and returns 1"
+t_stub_analytics 'echo partial; exit 70'
+t_run "$call; tehas_analytics_to \"\$T/out\" report --json; echo rc=\$?"
+t_contains "$t_out" "WARN analytics report: exit 70"
+t_contains "$t_out" "rc=1"
+t_stub_analytics 'exec sleep 30'
+T_ENV=(TEHAS_ANALYTICS=on TEHAS_ANALYTICS_WAIT=1)
+t_run "$call; tehas_analytics_to \"\$T/out\" report --json; echo rc=\$?"
+t_contains "$t_out" "WARN analytics report: exit 124"
+t_contains "$t_out" "rc=1"
+
+t_case "a call to a file with analytics off or not installed returns 2 and writes nothing"
+rm -f "$T/out" "$T"/calls/*
+t_stub_analytics
+T_ENV=(TEHAS_ANALYTICS=off)
+t_run "$call; tehas_analytics_to \"\$T/out\" report --json; echo rc=\$?"
+t_eq "$t_out" "rc=2"
+rm -f "$bin"
+T_ENV=(TEHAS_ANALYTICS=on)
+t_run "$call; tehas_analytics_to \"\$T/out\" report --json; echo rc=\$?"
+t_eq "$t_out" "rc=2"
+t_eq "$(t_calls analytics)" ""
+t_eq "$([ -e "$T/out" ] && echo there || echo none)" none
+T_ENV=()
+
 t_case "sourcing it defines and runs nothing else"
 t_run '. "$T_ROOT/lib/analytics.sh"; declare -F | wc -l; ls "$T/calls" | wc -l'
-t_eq "$t_out" "2
+t_eq "$t_out" "3
 0"
 
 t_done

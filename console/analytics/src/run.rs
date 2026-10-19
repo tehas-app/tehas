@@ -174,7 +174,9 @@ pub fn read(home: &Path, issue: i64, given: &Given) -> Result<Run, String> {
         attempt: Some(lines.len() as i64),
         ..Run::default()
     };
-    run.ended = text(last, "at").and_then(|at| iso_ms(&at)).map(|ms| ms / 1000);
+    run.ended = text(last, "at")
+        .and_then(|at| iso_ms(&at))
+        .map(|ms| ms / 1000);
     run.seconds = run.ended.map(|e| (e - started).max(0));
     run.status = word(last, "status", 40);
     run.exit_code = last.get("rc").and_then(Value::as_i64);
@@ -189,10 +191,7 @@ pub fn read(home: &Path, issue: i64, given: &Given) -> Result<Run, String> {
     let parked = last.get("parked").and_then(Value::as_bool).unwrap_or(false);
 
     if let Some(approved) = read_json(&note("approved.json")) {
-        if let Some(how) = approved
-            .as_object()
-            .and_then(|o| word(o, "how", 40))
-        {
+        if let Some(how) = approved.as_object().and_then(|o| word(o, "how", 40)) {
             run.how = Some(how);
         }
         if let Some(at) = approved.get("at").and_then(Value::as_str).and_then(iso_ms) {
@@ -216,7 +215,10 @@ pub fn read(home: &Path, issue: i64, given: &Given) -> Result<Run, String> {
     });
     if let Some(r) = &result {
         run.result_schema = schema;
-        run.rukas_version = r.get("buildVersion").and_then(Value::as_str).and_then(plain40);
+        run.rukas_version = r
+            .get("buildVersion")
+            .and_then(Value::as_str)
+            .and_then(plain40);
         run.rukas_commit = r
             .get("buildCommit")
             .and_then(Value::as_str)
@@ -263,7 +265,13 @@ pub fn read(home: &Path, issue: i64, given: &Given) -> Result<Run, String> {
         let suffix: String = r
             .role
             .chars()
-            .map(|c| if c == '-' { '_' } else { c.to_ascii_uppercase() })
+            .map(|c| {
+                if c == '-' {
+                    '_'
+                } else {
+                    c.to_ascii_uppercase()
+                }
+            })
             .collect();
         let pick = |own: &str, all: &str| {
             container.and_then(|c| {
@@ -319,7 +327,9 @@ pub fn tehas_version(home: &Path) -> (Option<String>, Option<String>) {
     };
     (
         version.and_then(plain40),
-        Some(commit).filter(|c| is_hex(c, 7, 40)).map(str::to_string),
+        Some(commit)
+            .filter(|c| is_hex(c, 7, 40))
+            .map(str::to_string),
     )
 }
 
@@ -331,7 +341,10 @@ fn read_entry(run: &mut Run, e: &Map<String, Value>) {
     if let Some(code) = e.get("exitCode").and_then(Value::as_i64) {
         run.exit_code = Some(code);
     }
-    run.runner_ms = e.get("durationMs").and_then(Value::as_i64).filter(|n| *n >= 0);
+    run.runner_ms = e
+        .get("durationMs")
+        .and_then(Value::as_i64)
+        .filter(|n| *n >= 0);
     run.failed_step = word(e, "failedStep", 80);
     if run.cap.is_none() {
         run.cap = word(e, "cap", 80);
@@ -547,7 +560,10 @@ fn stream_steps(log: &Path, issue: i64, ended: Option<i64>) -> Vec<Step> {
         if !stable || o.get("kind").and_then(Value::as_str) != Some("step-started") {
             continue;
         }
-        if o.get("issue").and_then(Value::as_i64).is_some_and(|n| n != issue) {
+        if o.get("issue")
+            .and_then(Value::as_i64)
+            .is_some_and(|n| n != issue)
+        {
             continue;
         }
         let Some(ev) = o.get("event").and_then(Value::as_object) else {
@@ -692,7 +708,9 @@ static PRIVATE_KEY: LazyLock<Regex> = LazyLock::new(|| {
     pattern(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)")
 });
 static API_KEY: LazyLock<Regex> = LazyLock::new(|| {
-    pattern(r"(^|[^A-Za-z0-9])(sk-)[A-Za-z0-9_-]{6,}|(xox[abprs]-)[A-Za-z0-9-]{4,}|(AKIA)[0-9A-Z]{16}")
+    pattern(
+        r"(^|[^A-Za-z0-9])(sk-)[A-Za-z0-9_-]{6,}|(xox[abprs]-)[A-Za-z0-9-]{4,}|(AKIA)[0-9A-Z]{16}",
+    )
 });
 static JWT: LazyLock<Regex> =
     LazyLock::new(|| pattern(r"eyJ[A-Za-z0-9_-]{4,}(?:\.[A-Za-z0-9_-]+)*"));
@@ -710,9 +728,9 @@ static HOST_NAME: LazyLock<Regex> =
 // The last part of a file name: a dotted word ending in one of these is
 // a file, not a host.
 const FILE_EXTENSIONS: [&str; 30] = [
-    "json", "jsonl", "md", "txt", "log", "yaml", "yml", "toml", "lock", "html", "css", "js",
-    "mjs", "ts", "tsx", "rs", "sh", "py", "go", "sql", "db", "gz", "zip", "tar", "png", "jpg",
-    "svg", "csv", "diff", "patch",
+    "json", "jsonl", "md", "txt", "log", "yaml", "yml", "toml", "lock", "html", "css", "js", "mjs",
+    "ts", "tsx", "rs", "sh", "py", "go", "sql", "db", "gz", "zip", "tar", "png", "jpg", "svg",
+    "csv", "diff", "patch",
 ];
 
 /// Whether a dotted word is a host name: it has a port, or its last part is

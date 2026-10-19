@@ -34,6 +34,10 @@
 //!     Deletes what is older than ten days, then runs PRAGMA optimize. run,
 //!     event and sample prune too, after their write. The events of an
 //!     issue that started and never ended are kept at most a day longer.
+//!   analytics report --json
+//!     Prints the ten-day report the dashboard shows, one JSON object of
+//!     aggregates only (report.rs says what is in it). libexec/status writes
+//!     it to live/analytics.json.
 //!   analytics export <file>
 //!     Writes a consistent copy of the database to <file>, mode 0600, with
 //!     VACUUM INTO. <file> must not exist.
@@ -48,7 +52,7 @@
 //! environment and has no default.
 //!
 //! Exit: 0 done; 64 usage; 65 nothing to record: the issue has no history
-//! line, or no planning turn in flight; 70 the database could not be opened or written; 73 the export file
+//! line, or no planning turn in flight; 70 the database could not be opened, written or read; 73 the export file
 //! exists or cannot be made; 78 TEHAS_HOME is unset or not a directory.
 
 #[path = "../../src/mask.rs"]
@@ -57,6 +61,7 @@ mod mask;
 
 mod db;
 mod plan;
+mod report;
 mod run;
 mod sample;
 
@@ -67,7 +72,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const USAGE: &str = "usage: analytics run <issue> [--image <id>] [--rukas-image <commit>] [--oom <n>] [--forks <n>] | plan <issue> --rc <rc> [--rukas-image <commit>] | event <issue> <event> [--at <epoch seconds>] | sample | prune | export <file>";
+const USAGE: &str = "usage: analytics run <issue> [--image <id>] [--rukas-image <commit>] [--oom <n>] [--forks <n>] | plan <issue> --rc <rc> [--rukas-image <commit>] | event <issue> <event> [--at <epoch seconds>] | sample | prune | report --json | export <file>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -98,6 +103,7 @@ pub enum Cmd {
     Event(i64, String, Option<i64>),
     Sample,
     Prune,
+    Report,
     Export(PathBuf),
 }
 
@@ -120,6 +126,7 @@ fn parse(args: &[String]) -> Option<Cmd> {
         }
         [c] if c == "sample" => Some(Cmd::Sample),
         [c] if c == "prune" => Some(Cmd::Prune),
+        [c, f] if c == "report" && f == "--json" => Some(Cmd::Report),
         [c, f] if c == "export" && !f.is_empty() => Some(Cmd::Export(PathBuf::from(f))),
         _ => None,
     }
@@ -174,7 +181,9 @@ fn plan_given(args: &[String]) -> Option<plan::Given> {
         match flag.as_str() {
             "--rc" if rc.is_none() => {
                 let code = v == "0"
-                    || (!v.starts_with('0') && v.len() <= 3 && v.bytes().all(|b| b.is_ascii_digit()));
+                    || (!v.starts_with('0')
+                        && v.len() <= 3
+                        && v.bytes().all(|b| b.is_ascii_digit()));
                 (code || plan::RC_WORDS.contains(&v)).then_some(())?;
                 rc = Some(v.to_string());
             }
@@ -211,7 +220,10 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
     }
     if let Cmd::Event(_, _, Some(at)) = cmd {
         if *at > now + AT_AHEAD {
-            return Err((64, format!("--at {at} is more than {AT_AHEAD}s ahead of now")));
+            return Err((
+                64,
+                format!("--at {at} is more than {AT_AHEAD}s ahead of now"),
+            ));
         }
     }
     let file = db::path(home);
@@ -249,6 +261,12 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
             db::prune(&conn, now).map_err(db_err)?;
             db::prune_aside(&file, now);
             conn.execute_batch("PRAGMA optimize").map_err(db_err)
+        }
+        Cmd::Report => {
+            let report =
+                report::build(&conn, now).map_err(|e| (70, format!("the report failed: {e}")))?;
+            println!("{report}");
+            Ok(())
         }
         Cmd::Export(to) => db::export(&conn, to).map_err(|e| (73, e)),
     }
