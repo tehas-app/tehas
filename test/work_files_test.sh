@@ -9,18 +9,9 @@
 stub_github
 
 # --- An issue that links what the cycle is not given -------------------------
-# With both settings off tehas work reads nothing of the issue. What the
-# dispatcher's approval record lists is enough to say the gap, and it is a file
-# this host already has.
-images_off() {
-  rm -rf "$fx" "$T"/calls/* "$T/home/tehas/work" "$T/home/tehas/logs" \
-    "$T/home/tehas/state/cycles/7.manifest.json" "$T/home/tehas/state/cycles/7.approved.json"
-  mkdir -p "$fx/net"
-  slice_good
-  reads_image 1
-  T_ENV=("${env_ok[@]}")
-  t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=0 TEHAS_WORK_FILES=0
-}
+# With both settings off tehas work fetches nothing of the issue for its
+# attachments. What the dispatcher's approval record lists is enough to say the
+# gap, and it is a file this host already has. images_off is the shared reset.
 gapline() { cat "$T"/home/tehas/logs/work-7-*.jsonl.err 2>/dev/null; }
 kept_manifests() { find "$T/home/tehas/state/cycles" -name '7.manifest.json*' 2>/dev/null | wc -l; }
 
@@ -138,7 +129,7 @@ issue_is "![shot]($A/1111)" NONE
 t_run "$work 7"
 t_eq "$t_rc" 4
 t_lacks "$t_out" "gives a cycle none"
-t_contains "$t_out" "tehas work: the approval record $record could not be read, not starting a cycle"
+t_contains "$t_out" "tehas work: the approval record could not be read ($record), not starting a cycle"
 t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
 t_eq "$(gapline)" ""
 t_eq "$(kept_manifests)" 0
