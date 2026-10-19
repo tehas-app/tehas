@@ -22,13 +22,14 @@
 #       the image's pi-rukas no longer needs: its version is VERSION or later.
 #       One line each. A version that cannot be read expires them all, said
 #       once: whether the fix is there is not known.
+#   tehas_headless_run <ndjson> <issue>
+#       two lines: the step of the last stable step-started line, and the step
+#       right after commit-pr as the branch pi-rukas pushed, said only when it
+#       is this issue's own branch name. A runner that died wrote no result, so
+#       these are all tehas has of the step it was in and the branch it pushed.
 #   tehas_headless_now <ndjson>
 #       the step of the last stable step-started line and the message of the
 #       last stable log line, as two lines.
-#   tehas_headless_steps <ndjson>
-#       one step name per stable step-started line of the stream, in the order
-#       it says them. A runner that died wrote no result, so this is all tehas
-#       has for the step it was in; the last line is that step.
 #   tehas_headless_progress <ndjson> [<caps> <result> <issue>]
 #       one JSON object: roles, the per-role usage; reason, why the cycle
 #       stopped at its cap; failure, the result's failure kind, step, role and
@@ -114,13 +115,31 @@ _tehas_headless_stable() { # <ndjson>
   jq -R -c 'fromjson? | objects | select(.v == 1 and (.unstable // false) == false)' "$1" 2>/dev/null
 }
 
-# The stream's own step names, in order: each step it says it started. Read
-# with the last line for the step of a cycle whose result names none.
-tehas_headless_steps() { # <ndjson>
-  tail -c 200000 "$1" 2>/dev/null | jq -R -r -s '
-    [split("\n")[] | fromjson? | objects | select(.v == 1 and (.unstable // false) == false)
+# A step name this platform accepts, and the one the step right after commit-pr
+# must be: pi-rukas's branch words the branch it pushed, and a branch name holds
+# a solidus and runs to 100 characters.
+tehas_headless_step_chars='^[A-Za-z0-9_./:-]{1,100}$'
+
+# What the step-started lines of a run say of it, in one pass over its log:
+# first the last step the runner says it started, which is the step of a cycle
+# whose result names none, and second the step right after commit-pr, the branch
+# pi-rukas pushed. The branch is said only when it is this issue's own, as
+# pi-rukas names a branch; any other name, and a run that never got to
+# commit-pr, give an empty second line.
+tehas_headless_run() { # <ndjson> <issue>
+  tail -c 200000 "$1" 2>/dev/null | jq -R -r -s --argjson issue "$2" \
+    --arg chars "$tehas_headless_step_chars" '
+    [split("\n")[] | fromjson? | objects
+     | select(.v == 1 and (.unstable // false) == false)
      | select(.kind == "step-started") | (.event.step | strings)
-     | select(test("^[A-Za-z0-9_.:-]{1,40}$"))] | .[]' 2>/dev/null
+     | select(test($chars))] as $s
+    | ([$s | to_entries[] | select(.value == "commit-pr") | .key] | last // -1) as $at
+    | (($s | length) as $n | if $at < 0 or $at + 1 >= $n then ""
+       else $s[$at + 1] end) as $after
+    | ($s | last // ""),
+      (if $after != "" and
+          ($after | test("^feature/issue-" + ($issue | tostring) + "(-[A-Za-z0-9._-]{1,80})?$"))
+       then $after else "" end)' 2>/dev/null | head -n 2
 }
 
 tehas_headless_now() { # <ndjson>

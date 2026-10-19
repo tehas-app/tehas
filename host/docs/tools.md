@@ -1395,17 +1395,16 @@ however it died and 137 only for a container it saw killed.
 
 When those steps reach `commit-pr`, the step name right after it is the branch
 pi-rukas pushed, and GitHub is asked for the bot's pull request of that branch.
-GitHub decides whether one exists; a line of a log only says which branch to ask
-about, so no log can report a pull request GitHub does not list. With one found
-the cycle is reported as a handoff whose review did not finish:
+Only a name of this issue's own branch, `feature/issue-<issue>-...`, is asked
+about: a step of any other shape is a step and not a branch, and asks GitHub
+nothing. GitHub decides whether one exists; a line of a log only says which
+branch to ask about, so no log can report a pull request GitHub does not list.
+With one found the cycle is reported as a handoff whose review did not finish:
 `needs-human-attention`, the pull request named, and no box for a clean retry,
 which would redo what the open pull request already holds. With none found, or
 with no branch to ask about, the cycle is parked as any other that stopped
-without a pull request. Where `tehas work` wrote the branch of the cycle in
-`state/cycles/<issue>.branch` before it started the container, that is the
-branch asked about, whatever a log says after `commit-pr`. Nothing of a log is
-read for a cycle that wrote a result: that result names its step and its
-branch, and the two are not mixed.
+without a pull request. Nothing of a log is read for a cycle that wrote a
+result: that result names its step and its branch, and the two are not mixed.
 
 The label change that ends a cycle is tried three times, five seconds apart,
 and so is the search for the pull request. If GitHub still refuses the label

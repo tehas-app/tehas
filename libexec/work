@@ -328,8 +328,11 @@ record=$TEHAS_HOME/state/cycles/$issue.approved.json
 kept=$TEHAS_HOME/state/cycles/$issue.manifest.json
 result_file=$TEHAS_HOME/state/cycles/$issue.result.json
 progress_file=$TEHAS_HOME/state/cycles/$issue.progress.json
-# The runner's own exit status, written below for tehasbot cycle to report.
+# The runner's own exit status, written below for tehasbot cycle to report, and
+# the word of the end this command saw of the container: `killed` for one it saw
+# killed. Both are read and removed by tehasbot cycle.
 runner_exit_file=$TEHAS_HOME/state/cycles/$issue.runner_exit
+status_file=$TEHAS_HOME/state/cycles/$issue.status
 image_file=$TEHAS_HOME/state/cycles/$issue.image
 settings_file=$TEHAS_HOME/state/cycles/$issue.settings
 stall=$TEHAS_WORK_STALL
@@ -575,7 +578,7 @@ fi
 
 # Docker refuses a cid file that is already there. One is left only by a cycle
 # that was killed outright, and so is a count of kills.
-rm -f "$cid_file" "$oom_file" "$forks_file" "$stall_file" "$timed_file" "$image_file" "$settings_file" "$result_file" "$progress_file"
+rm -f "$cid_file" "$oom_file" "$forks_file" "$stall_file" "$timed_file" "$image_file" "$settings_file" "$result_file" "$progress_file" "$runner_exit_file" "$status_file"
 # A container under this name outlived the client that started it: this
 # command holds the issue's lock, so no cycle owns it. It would work on with
 # the bot's token, and Docker would refuse the name below.
@@ -664,12 +667,11 @@ add_private "$bot_email"
 cpid=$!
 now_file() { # running? status
   local step="" text=""
-  # The step and the driver's last notice, from the stable progress lines.
-  # The notice is the driver's words and the file is served by the dashboard:
-  # it goes through the console's mask, and without a console it is not
-  # published at all.
-  step=$(tehas_headless_steps "$log" | tail -n 1)
-  { read -r text; } < <(tehas_headless_now "$log" | tail -n 1)
+  # The step and the driver's last notice, from the stable progress lines, in
+  # one pass over the log. The notice is the driver's words and the file is
+  # served by the dashboard: it goes through the console's mask, and without a
+  # console it is not published at all.
+  { read -r step; read -r text; } < <(tehas_headless_now "$log")
   [ -n "$step" ] || step=starting
   text=$(printf '%s' "$text" | "$here/console" --mask "${private[@]}" 2>/dev/null)
   jq -n --argjson issue "$issue" --argjson running "$1" --arg status "$2" --arg step "$step" \
@@ -759,6 +761,8 @@ outcome=$(tehas_headless_outcome "$result_file" "$issue") && have=1 || outcome='
 [ "$have" = 1 ] || ! tehas_headless_error_only "$result_file" || error_only=1
 # What the runner ended with, whatever this command goes on to exit with. Said
 # in the cycle's comment, which otherwise names only this command's status.
+# Written once, as soon as the runner has ended: what the report makes of the
+# run after this point may fail, and this word must not go with it.
 printf '%s\n' "${rc:-2}" >"$runner_exit_file" 2>/dev/null ||
   echo "tehas work: could not write $runner_exit_file" >&2
 if [ "$have" = 1 ]; then
@@ -781,7 +785,9 @@ if [ "$timed" = 0 ] && [ "$stalled" = 0 ] && [ "$interrupted" = 0 ] && [ "$rc" !
   case "$status" in running | unknown | interrupted) ran_out=1 status=timeout ;; esac
 fi
 inflight=$(jq -r '[.failedStep, .lastStep] | map(strings | select(. != "")) | first // ""' <<<"$outcome" 2>/dev/null)
-[ -n "$inflight" ] || inflight=$(tehas_headless_steps "$log" | tail -n 1)
+# A result that names no step leaves the log to say which step the runner was
+# in: one pass over it gives the last step it says it started.
+[ -n "$inflight" ] || { read -r inflight; } < <(tehas_headless_now "$log")
 inflight=$(printf '%s' "$inflight" | tr -cd 'A-Za-z0-9_.:-' | head -c 40)
 inflight=${inflight:--}
 if [ "$timed" = 1 ] || [ "$ran_out" = 1 ]; then
@@ -799,8 +805,8 @@ if [ "$rc" = 137 ] && [ "$have" = 0 ] && [ "$error_only" = 0 ] && [ "$interrupte
   # Said with the summary, for the report of tehasbot cycle: a cycle that
   # writes no result has no word of its own for how it ended, and this is the
   # word of the one that watched the container.
-  printf 'killed\n' >"$TEHAS_HOME/state/cycles/$issue.status" 2>/dev/null ||
-    echo "tehas work: could not write $TEHAS_HOME/state/cycles/$issue.status" >&2
+  printf 'killed\n' >"$status_file" 2>/dev/null ||
+    echo "tehas work: could not write $status_file" >&2
   echo "tehas work: the container was killed (137) while the cycle was running: out of memory, or stopped from outside"
 fi
 if [ "$ooms" -gt 0 ]; then
@@ -830,10 +836,6 @@ crc=$?
 step=$(jq -r '[.failedStep, .lastStep] | map(strings | select(. != "")) | first // "-"' <<<"$outcome" 2>/dev/null)
 step=${step:--}
 [ "$step" != - ] || { [ "$timed" = 0 ] && [ "$stalled" = 0 ] && [ "$ran_out" = 0 ]; } || step=$inflight
-# The runner's own status, for the report: what the runner ended with, read
-# above as soon as it had ended, before anything of the report could fail.
-printf '%s\n' "${rc:-2}" >"$runner_exit_file" 2>/dev/null ||
-  echo "tehas work: could not write $runner_exit_file" >&2
 now_file false "$status"
 cp "$result_file" "$log.result.json" 2>/dev/null || true
 tehas_headless_progress "$log" "$caps" "$result_file" "$issue" >"$progress_file" || echo "tehas work: could not write $progress_file" >&2

@@ -86,6 +86,10 @@ reset() {
   rm -rf "$T"/calls/* "${fx:?}"/* "$state" "$workdir" "$T/home/tehas/work" "$T/home/tehas/logs" "$T/home/tehas/tmp" \
     "$T/home/tehas/libexec" \
     "$T"/home/tehas/state/park-*
+  # A case writes a log of an earlier run beside the one of this cycle, and
+  # does so before tehas work has run: the directory is made here so the file
+  # has somewhere to go.
+  mkdir -p "$T/home/tehas/logs"
   T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status TEHAS_CYCLE_RETRY_WAIT=0)
   t_instance "${T_MINIMAL[@]}"
 }
@@ -108,34 +112,35 @@ merged_pr() { echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"; echo M
 # own, leaves the file of the runner's own status as tehas work leaves it, and
 # leaves a run log whose stable step-started lines name the steps it reached,
 # one per argument. Its exit is the runner's, 134 for a panic.
-died() { # [step...] ; words: branch=<name> what commit-pr pushed, rc=<n> the
-# exit of the container (134 for a panic, 137 for a kill), status=<word> the
-# end tehas work read of the container (killed, for a container it saw killed).
-  local rc=134 steps=() a branch="" word=""
+died() { # [step...] ; words: rc=<n> the exit of the container (134 for a
+# panic, 137 for a kill), work=<n> the exit of tehas work itself [2, or 137 for
+# a container it saw killed], status=<word> the end tehas work read of the
+# container (killed, for a container it saw killed), branch=<name> a branch
+# file to leave in state/cycles, which tehas work never writes.
+  local rc=134 steps=() a branch="" word="" wrk=""
   for a in "$@"; do
     case "$a" in
       rc=*) rc=${a#rc=} ;;
+      work=*) wrk=${a#work=} ;;
       status=*) word=${a#status=} ;;
       branch=*) branch=${a#branch=} ;;
       *) steps+=("$a") ;;
     esac
   done
-  # What tehas work saw of the container decides its own exit too, as
-  # libexec/work says: the kill is what it watched, so it says so with 137; a
-  # runner that died any other way is its 2.
-  local wrk=2
-  [ "$word" != killed ] || wrk=137
   # What the runner of a cycle that died leaves behind: a result file with
   # nothing in it, a progress of its own (which is what says tehas work got as
   # far as the log of this cycle), the log of the run, and the runner's own
   # status as tehas work records it. The cycle removes these only after it
   # takes its lock, so the runner makes them. tehas work itself exits 2 for a
   # runner that died however it died: the comment's word for the runner is the
-  # one of this file, not that 2.
+  # of this file, not that 2. A case may name tehas work's own exit; the
+  # kill of a container is the 137 tehas work exits with.
+  [ -n "$wrk" ] || { [ "$word" != killed ] || wrk=137; }
+  [ -n "$wrk" ] || wrk=2
   echo "$wrk" >"$fx/rc"
-  # tehas work names the branch of the workspace before the container starts,
-  # and writes it for the report: state/cycles/<issue>.branch. A case that
-  # means a cycle whose runner pushed says the name here.
+  # tehas work writes no branch for a cycle, so the branch of one that wrote
+  # no result comes only from its log. A case that means a file to be there
+  # anyway says the name here, and checks the cycle keeps the log's name.
   [ -z "$branch" ] || printf '%s\n' "$branch" >"$fx/branch"
   # The word of tehas work for how the container ended: the one file of the
   # cycle that says an end at all when the runner wrote no result.
@@ -152,12 +157,14 @@ echo '{"roles":[],"reason":"","reviewHeld":false}' >"$TEHAS_HOME/state/cycles/7.
 [ -s "$T/fx/branch" ] && cat "$T/fx/branch" >"$TEHAS_HOME/state/cycles/7.branch"
 [ -s "$T/fx/status" ] && cat "$T/fx/status" >"$TEHAS_HOME/state/cycles/7.status"
 printf "%s\n" '@RC@' >"$TEHAS_HOME/state/cycles/7.runner_exit"
-: >"$TEHAS_HOME/logs/work-7-261018-012100.jsonl"
+# The name tehas work gives its log: the UTC time of its start, to the second.
+log=$TEHAS_HOME/logs/work-7-$(date -u +%y%m%d-%H%M%S).jsonl
+: >"$log"
 while IFS= read -r step; do
   printf '{"v":1,"kind":"step-started","issue":7,"event":{"step":"%s"}}\n' "$step" \
-    >>"$TEHAS_HOME/logs/work-7-261018-012100.jsonl"
+    >>"$log"
 done <"$T/fx/steps"
-cp "$TEHAS_HOME/logs/work-7-261018-012100.jsonl" "$TEHAS_HOME/logs/dispatch-work-7.log"
+cp "$log" "$TEHAS_HOME/logs/dispatch-work-7.log"
 EOS
   # The one word of the case that this function decides, and nothing else.
   sed -i "s|'@RC@'|'$rc'|" "$fx/work.sh"
