@@ -436,8 +436,12 @@ send() { (trap '' PIPE; printf '%s\n' "$1" >&4) 2>/dev/null; }
 # dispatcher runs one turn at a time, so it is no turn's: left, it idles for
 # ever and Docker would refuse the name.
 docker rm -f "$name" >/dev/null 2>&1
+# Emptied here, not by the container's redirection: the loop below reads the
+# log at once, and an earlier turn in the same second left its answers there.
+user="$(id -u):$(id -g)"
+: >"$log"
 docker run --rm -i --init --name "$name" \
-  "${TEHAS_SLICE_LIMITS[@]}" "${sec[@]}" --user "$(id -u):$(id -g)" \
+  "${TEHAS_SLICE_LIMITS[@]}" "${sec[@]}" --user "$user" \
   -w "$repo" "${mounts[@]}" "${image_opts[@]}" \
   "${envs[@]}" "${cache_opts[@]}" "${hosts[@]}" \
   "$image" pi --mode rpc --approve "${args[@]}" <&3 >"$log" 2>"$log.err" 3<&- 4>&- &

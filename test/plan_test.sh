@@ -950,6 +950,24 @@ t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123","lost":true}'
 t_eq "$(cat "$T/calls/docker.stdin" 2>/dev/null)" ""
 t_eq "$([ -e "$T/keep/sessions" ] && echo left)" ""
 
+t_case "a turn reads none of an earlier turn's log of the same second"
+reset
+: >"$fx/no_session"
+# The log is named by the second. Left as an earlier turn left it, it holds
+# that turn's answer to how many messages the session has. A slow id holds the
+# container's start, which is when the log was emptied before.
+real_id=$(command -v id)
+t_stub id "sleep 2; exec $real_id \"\$@\""
+now=$(date +%s)
+for s in 0 1 2 3; do
+  printf '%s\n' '{"id":"opened","type":"response","command":"get_state","success":true,"data":{"sessionId":"abc-123","messageCount":6}}' \
+    >"$T/home/tehas/logs/plan-7-$(date -u -d "@$((now + s))" +%y%m%d-%H%M%S).jsonl"
+done
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/brief.md"
+rm -f "$T/bin/id"
+t_eq "$t_rc" 2
+t_contains "$t_out" "the session abc-123 is gone"
+
 t_case "a later turn of a session that has no directory yet makes one and goes on"
 reset
 agent_leaves abc-123 '{"session":"abc-123","turn":1}'
