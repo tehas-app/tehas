@@ -661,6 +661,12 @@ cycle all get these eight words, from `tehas_sandbox_security` in
 `lib/sandbox.sh`, beside the mounts and the variables. The indexer and the
 analyst are not given them yet (issue #54 leaves them to a follow-up).
 
+Each of these containers also starts as the tehas user, with
+`--user "$(id -u):$(id -g)"`, not as root. The image's entrypoint drops from
+root to its own user with `setpriv`, which needs `SETUID` and `SETGID`; started
+as that user it skips the drop. The image is built with the tehas user's uid
+(`tehas/pi-rukas:uid<uid>`), so the uid has a name and a home inside it.
+
 | Option | Value | What it does |
 | --- | --- | --- |
 | `--cap-drop` | `ALL` | Takes away every capability Docker grants by default: `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `FSETID`, `KILL`, `NET_BIND_SERVICE`, `SETFCAP`, `SETGID`, `SETPCAP`, `SETUID`, `SYS_CHROOT`, `MKNOD`, `AUDIT_WRITE`, `NET_RAW` |

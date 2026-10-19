@@ -437,7 +437,7 @@ send() { (trap '' PIPE; printf '%s\n' "$1" >&4) 2>/dev/null; }
 # ever and Docker would refuse the name.
 docker rm -f "$name" >/dev/null 2>&1
 docker run --rm -i --init --name "$name" \
-  "${TEHAS_SLICE_LIMITS[@]}" "${sec[@]}" \
+  "${TEHAS_SLICE_LIMITS[@]}" "${sec[@]}" --user "$(id -u):$(id -g)" \
   -w "$repo" "${mounts[@]}" "${image_opts[@]}" \
   "${envs[@]}" "${cache_opts[@]}" "${hosts[@]}" \
   "$image" pi --mode rpc --approve "${args[@]}" <&3 >"$log" 2>"$log.err" 3<&- 4>&- &

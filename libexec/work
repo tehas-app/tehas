@@ -608,7 +608,7 @@ live_on=0
 trap 'interrupted=1; [ -z "$cpid" ] || kill "$cpid" 2>/dev/null; stop_container 10
 [ "$live_on" = 0 ] || now_file false interrupted' TERM INT
 docker run --rm --init --name "$name" \
-  "${TEHAS_SLICE_LIMITS[@]}" "${sec[@]}" --cidfile "$cid_file" \
+  "${TEHAS_SLICE_LIMITS[@]}" "${sec[@]}" --user "$(id -u):$(id -g)" --cidfile "$cid_file" \
   -w "$repo" "${mounts[@]}" "${image_opts[@]}" \
   "${envs[@]}" "${hosts[@]}" \
   "$image" "$runner" work "$issue" "${run_flags[@]}" </dev/null >"$result_file" 2>"$log" &

@@ -49,6 +49,9 @@ t_eq "$(cycle_args | security_of --cap-drop | LC_ALL=C sort)" "ALL"
 t_eq "$(cycle_args | security_of --cap-add | LC_ALL=C sort)" "CHOWN
 FOWNER"
 t_eq "$(cycle_args | security_of --security-opt)" "no-new-privileges:true"
+# The image's entrypoint drops from root with setpriv, which the dropped
+# SETUID and SETGID refuse: the container starts as the host's user instead.
+t_eq "$(after --user)" "$(id -u):$(id -g)"
 
 t_case "the slice is read once: one systemctl call, one docker info"
 t_eq "$(t_calls systemctl)" "show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax"
@@ -263,7 +266,7 @@ t_run "$work 7"
 t_case "the cycle's container gets no option beyond the documented ones"
 image="tehas/pi-rukas:uid$(id -u)"
 t_eq "$(cycle_args | unknown_options "$image" \
-  "--name --cgroup-parent --memory --memory-swap --memory-reservation --cpus --pids-limit --cpu-shares --cap-drop --cap-add --security-opt --cidfile -w -v -e" "--rm --init")" ""
+  "--name --cgroup-parent --memory --memory-swap --memory-reservation --cpus --pids-limit --cpu-shares --cap-drop --cap-add --security-opt --user --cidfile -w -v -e" "--rm --init")" ""
 t_eq "$(cycle_args | sed -n "/^$(printf '%s' "$image" | sed 's/[\/.]/\\&/g')\$/,\$p" | tr '\n' ' ')" "$image $runner work 7 --timeout 360 --json "
 
 # The runner is no init: without one, a process that outlives its parent is never

@@ -323,7 +323,7 @@ reset
 t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 
 t_case "the planning container gets no option beyond the documented ones"
-t_eq "$(turn_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt -w -v -e" "--rm -i --init")" ""
+t_eq "$(turn_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt --user -w -v -e" "--rm -i --init")" ""
 t_eq "$(turn_args | grep -c -x -e --init)" 1
 t_eq "$(after --name)" "tehas-plan-7"
 t_eq "$(after -w)" "$ws"
@@ -359,9 +359,12 @@ t_eq "$(turn_args | security_line)" "$security_opts "
 t_eq "$(turn_args | security_of --cap-add | LC_ALL=C sort)" "CHOWN
 FOWNER"
 t_eq "$(turn_args | security_of --security-opt)" "no-new-privileges:true"
+# The image's entrypoint drops from root with setpriv, which the dropped
+# SETUID and SETGID refuse: the container starts as the host's user instead.
+t_eq "$(after --user)" "$(id -u):$(id -g)"
 t_lacks "$(turn_args)" "--cidfile"
 t_contains "$(turn_args)" "--add-host=models:192.0.2.9"
-t_eq "$(turn_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt -w -v -e" "--rm -i --init")" ""
+t_eq "$(turn_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt --user -w -v -e" "--rm -i --init")" ""
 
 t_case "the slice is read once: one systemctl call, one docker info"
 t_eq "$(t_calls systemctl)" "show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax"
@@ -1015,7 +1018,7 @@ t_eq "$t_rc" 0
 t_eq "$(jq -c '[.issue, (.images | map(.file))]' "$T/keep/images/manifest.json")" '[7,["image-1.png"]]'
 t_eq "$(after -v | grep -c -x "$tree.images:$ws.images:ro")" 1
 t_eq "$(after -e | grep '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$ws.images"
-t_eq "$(turn_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt -w -v -e" "--rm -i --init")" ""
+t_eq "$(turn_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt --user -w -v -e" "--rm -i --init")" ""
 t_contains "$(cat "$T/calls/gh.comments")" "Tehas gave this planning session 1 image from the issue text."
 t_eq "$([ -e "$tree.images" ] && echo left)" ""
 
@@ -1068,7 +1071,7 @@ t_eq "$(jq -r .described "$T/keep/images/manifest.json")" images.md
 t_eq "$(after -v | grep -c images)" 1
 t_eq "$(after -v | grep -c -x "$tree.images:$ws.images:ro")" 1
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_ENSEMBLE_EXTRA_IMAGE_DIRS PI_ENSEMBLE_PLAN_ISSUE | LC_ALL=C sort)"
-t_eq "$(turn_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt -w -v -e" "--rm -i --init")" ""
+t_eq "$(turn_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt --user -w -v -e" "--rm -i --init")" ""
 
 t_case "a later turn describes nothing again"
 agent_leaves abc-123 '{"session":"abc-123","turn":1}'
@@ -1095,7 +1098,7 @@ t_eq "$(after -v | grep -c images)" 1
 t_eq "$(after -v | grep -c -x "$tree.images:$ws.images:ro")" 1
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_ENSEMBLE_EXTRA_IMAGE_DIRS PI_ENSEMBLE_PLAN_ISSUE | LC_ALL=C sort)"
 t_eq "$(after -e | grep '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$ws.images"
-t_eq "$(turn_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt -w -v -e" "--rm -i --init")" ""
+t_eq "$(turn_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt --user -w -v -e" "--rm -i --init")" ""
 t_lacks "$(cat "$T/calls/curl.urls")" "$A/1111"
 t_contains "$(cat "$T/calls/gh.comments")" "Tehas fetched 1 file from the issue text for this planning session"
 
@@ -1166,7 +1169,7 @@ t_eq "$(after -e | grep '^PI_ENSEMBLE_PLAN_ISSUE')" "PI_ENSEMBLE_PLAN_ISSUE=7"
 t_eq "$(after -v | grep -c images)" 1
 t_eq "$(after -v | grep -c -x "$tree.images:$ws.images:ro")" 1
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_ENSEMBLE_EXTRA_IMAGE_DIRS PI_ENSEMBLE_PLAN_ISSUE | LC_ALL=C sort)"
-t_eq "$(turn_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt -w -v -e" "--rm -i --init")" ""
+t_eq "$(turn_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt --user -w -v -e" "--rm -i --init")" ""
 
 t_case "a reply over the limits leaves the link out and says so on the issue"
 first_turn
