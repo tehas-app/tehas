@@ -1192,7 +1192,7 @@ tehas api [--json]
 api       1
 tehas     v0.8.0 (cb6912a)
 repo      tehas-org/tehas
-features  status fixer-grant
+features  status fixer-grant all-hands limit drain history export refresh-conflicts analytics
 fixer     none
 ```
 
