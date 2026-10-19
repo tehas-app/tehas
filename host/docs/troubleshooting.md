@@ -376,7 +376,7 @@ cap means" say which check. Four kinds were seen:
   sheets (`host/fun/*.css`), and in one cycle scripts as well. Tests and
   manual pages are what the repository's rules require a change to touch, so
   the plan's fence and the rules disagree
-  (janit/tehas#159, trail-openers/pi-rukas#1250). Name in the issue every file
+  (tehas-org/tehas#159, trail-openers/pi-rukas#1250). Name in the issue every file
   the change will touch, the test file and the manual page included, as
   step 1 of [Operating](/operating) says.
 - `verify command ... failed on the CONSOLIDATED tree`, or `exceeded its
@@ -459,7 +459,7 @@ the pull request before you retry: while it is open, a new cycle stops at
 
 The adversarial review could not run: its dispatch failed twice. It says
 nothing about the code. All three times it was seen here, on 14 October, the
-model endpoint was timing out (janit/tehas#147,
+model endpoint was timing out (tehas-org/tehas#147,
 trail-openers/pi-rukas#1243). The work is committed on a local branch in the
 workspace and was not pushed. There is no pull request. Check the endpoint,
 as in "The model endpoint does not answer" below, and retry once it answers.
