@@ -109,7 +109,7 @@ caps_good
 refresh_record() { # <how>
   mkdir -p "$fx/net" "$T/home/tehas/state/cycles"
   issue_is "" NONE
-  jq -n --arg how "$1" --arg sum "$(printf '' | sha256sum | cut -d' ' -f1)" \
+  jq -n --arg how "$1" --arg sum "$(jq -n '{body: ""}' | tehas_body_sha256)" \
     '{at: "2026-10-01T00:00:00Z", by: "alice", how: $how, body_sha256: $sum, links: []}' \
     >"$T/home/tehas/state/cycles/7.approved.json"
 }

@@ -41,6 +41,53 @@ tehas_approval_record() {
     and (.comment_links == null or (.comment_links | type) == "array");'
 }
 
+# tehas_record_is_file <path>: what counts as the dispatcher's approval record,
+# said once. Every reader of state/cycles/<issue>.approved.json asks the same
+# question, and a link or a directory at that path is read as no record.
+tehas_record_is_file() {
+  [ -f "$1" ] && [ ! -L "$1" ]
+}
+
+# The body of the record, held to the shape tehas compares: 64 lower-case hex
+# characters, and nothing else. The shape is asserted, not only the type, and
+# the comparison is jq's own, so a value with a newline on the end is refused
+# as the malformed record it is instead of trimmed to a match by a shell
+# substitution.
+# shellcheck disable=SC2016  # a jq program
+tehas_approval_body() {
+  printf '%s\n' 'record_ok and (.body_sha256 | type) == "string"
+    and (.body_sha256 | length) == 64 and (.body_sha256 | test("^[0-9a-f]+$"))'
+}
+
+# tehas_approval_text <record> <issue>: the issue's text against what the
+# dispatcher approved. <issue> is the answer for the issue, which the caller
+# read once and does not read again here. $text_why is empty when they match
+# and names which rule failed when they do not; $text_path is the record that
+# could not be read, empty for every other reason. No reason names a host path,
+# so any of them may be put on the issue; the caller that says it to an operator
+# adds $text_path. A record that cannot be read is never said as a change.
+# shellcheck disable=SC2034  # the caller reads text_why and text_path
+tehas_approval_text() { # <record> <issue>
+  local rec=$1 data=$2 sum prog
+  text_why=""
+  text_path=""
+  prog="$(tehas_approval_record)$(tehas_approval_body)"
+  jq -e "$prog" "$rec" >/dev/null 2>&1 || {
+    text_why="the approval record could not be read"
+    text_path=$rec
+    return 1
+  }
+  sum=$(tehas_body_sha256 <<<"$data") || {
+    text_why="the issue's text could not be read for its hash"
+    return 1
+  }
+  jq -e --arg sum "$sum" "$prog and .body_sha256 == \$sum" "$rec" >/dev/null 2>&1 || {
+    text_why="the issue's text is not the text that was approved: it changed after the approval"
+    return 1
+  }
+  return 0
+}
+
 # The most bytes the improvement loop copies of a manifest into the analyst's
 # record (lib/improve.sh). A manifest over it is left out whole, so both
 # writers of state/cycles/<issue>.manifest.json keep this instead.
@@ -108,7 +155,7 @@ tehas_attachment_fetch() { # <address> <file> <most bytes> [<token>]
 # them: tehas work and tehas plan. The rules are written in libexec/work's
 # header.
 #
-#   tehas_issue_images <issue> <dir> [approved] [record]
+#   tehas_issue_images <issue> <dir> [approved] [record] [issue]
 #                                     remake <dir> from the issue's text, with
 #                                     a manifest.json; uses TEHAS_REPO and
 #                                     GH_TOKEN. Returns 1, with the reason in
@@ -121,7 +168,18 @@ tehas_attachment_fetch() { # <address> <file> <most bytes> [<token>]
 #                                     member or collaborator opened it. With
 #                                     the dispatcher's approval record, the
 #                                     links are the record's, and only while
-#                                     the body has the hash it approved
+#                                     the body has the hash it approved (see
+#                                     tehas_approval_text). With <issue>, the
+#                                     answer the caller already read for the
+#                                     issue, it is not read a second time
+#   tehas_approval_text <record> <issue>
+#                                     hold the issue's text to what <record>
+#                                     approved: $text_why empty when they match,
+#                                     and naming which rule failed when they do
+#                                     not, with $text_path the record that could
+#                                     not be read. No reason names a host path
+#   tehas_record_is_file <path>     a plain file at <path>, not a link and not
+#                                     a directory: what counts as the record
 #   tehas_issue_images_changed <kept manifest> <dir>
 #                                     returns 1, with the reason in $image_why,
 #                                     when both are of the same approval and a
@@ -347,8 +405,8 @@ _tehas_take() {
 # What is taken follows the settings: images unless TEHAS_WORK_IMAGES is 0,
 # text files when TEHAS_WORK_FILES is 1. Each kind has its own limits.
 # shellcheck disable=SC2034  # the caller reads what this sets
-tehas_issue_images() { # <issue> <dir> [approved] [record]
-  local issue=$1 images=$2 approved=${3:-} record=${4:-} data who sum given=null
+tehas_issue_images() { # <issue> <dir> [approved] [record] [issue]
+  local issue=$1 images=$2 approved=${3:-} record=${4:-} data=${5:-} who given=null
   local want_images=1 want_files=0 want_comments=0 used=0 count=0 fused=0 fcount=0
   local limit max flimit fmax fone other over fover fbig notext
   [ "${TEHAS_WORK_IMAGES:-1}" != 0 ] || want_images=0
@@ -361,21 +419,15 @@ tehas_issue_images() { # <issue> <dir> [approved] [record]
   : >"$images/.files"
   : >"$images/.left"
   image_why="the issue could not be read for its images"
-  data=$(gh api "repos/$TEHAS_REPO/issues/$issue" 2>/dev/null) || return 1
+  # The caller may have read the issue already, for its text alone: one start
+  # asks GitHub for it once, whatever it is asked for.
+  [ -n "$data" ] || { data=$(gh api "repos/$TEHAS_REPO/issues/$issue" 2>/dev/null) || return 1; }
   jq -e 'type == "object" and (.body == null or (.body | type) == "string")' <<<"$data" >/dev/null 2>&1 || return 1
   who=$(jq -r '.author_association // ""' <<<"$data")
   # The links as the approval saw them. A body changed since was not approved,
   # and no record of which links were approved is no ground to fetch any.
   if [ -n "$record" ]; then
-    image_why="the approval record $record could not be read"
-    jq -e "$(tehas_approval_record)"'record_ok and (.body_sha256 | type) == "string"' \
-      "$record" >/dev/null 2>&1 || return 1
-    image_why="the issue's text could not be read for its hash"
-    sum=$(tehas_body_sha256 <<<"$data") || return 1
-    if [ "$sum" != "$(jq -r .body_sha256 "$record")" ]; then
-      image_why="the issue's text is not the text that was approved: it changed after the approval"
-      return 1
-    fi
+    tehas_approval_text "$record" "$data" || { image_why=$text_why; return 1; }
     given=$(jq -c '{at, by, how}' "$record") || return 1
   fi
 
@@ -539,7 +591,7 @@ tehas_issue_images_changed() { # <kept manifest> <dir>
 tehas_issue_images_left_out() { # <issue> <file> [record]
   local issue=$1 file=$2 record=${3:-} args manifest out rc reason given
   image_gap=""
-  [ -f "$record" ] && [ ! -L "$record" ] || return 1
+  tehas_record_is_file "$record" || return 1
   [ ! -L "$file" ] && [ ! -d "$file" ] || return 1
   case "${TEHAS_WORK_IMAGES:-0}:${TEHAS_WORK_FILES:-0}" in
     0:0)
