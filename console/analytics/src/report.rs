@@ -323,7 +323,7 @@ struct Sample {
 
 fn samples(conn: &Connection, from: i64, to: i64) -> rusqlite::Result<Vec<Sample>> {
     let mut q = conn.prepare(
-        "SELECT at, in_line, planning, paused, held, watts FROM samples
+        "SELECT at, in_line, planning, paused, held, watts, running FROM samples
          WHERE at >= ?1 AND at <= ?2 ORDER BY at",
     )?;
     let rows = q.query_map(params![from, to], |r| {
@@ -331,11 +331,14 @@ fn samples(conn: &Connection, from: i64, to: i64) -> rusqlite::Result<Vec<Sample
         let planning: Option<i64> = r.get(2)?;
         let paused: Option<i64> = r.get(3)?;
         let held: Option<String> = r.get(4)?;
+        let running: Option<i64> = r.get(6)?;
         Ok(Sample {
             at: r.get(0)?,
             planned: in_line.map(|n| (n, planning)),
-            // Could take work: known not to be paused, and nothing held it.
-            available: paused == Some(0) && held.as_deref().unwrap_or("").is_empty(),
+            // Known not to be paused, and either nothing held the next
+            // start or cycles were running: full slots are not down time.
+            available: paused == Some(0)
+                && (held.as_deref().unwrap_or("").is_empty() || running.is_some_and(|n| n > 0)),
             watts: r.get(5)?,
         })
     })?;
