@@ -6,6 +6,7 @@
 . "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/work_lib.sh
 . "$(dirname "$0")/work_lib.sh" || exit 1
+stub_github
 
 # --- What the image supports -----------------------------------------------------
 # caps_refused: 78, the image asked, and no workspace made, nothing fetched and
@@ -102,10 +103,14 @@ t_run "$work 7"
 t_eq "$t_rc" 2
 caps_good
 
-# A refresh's record, as the dispatcher writes it, or another start's.
+# A refresh's record, as the dispatcher writes it, or another start's. The
+# body it approved is the one the stub answers with, so the text check of a
+# start that carries a record is met.
 refresh_record() { # <how>
-  mkdir -p "$T/home/tehas/state/cycles"
-  jq -n --arg how "$1" '{at: "2026-10-01T00:00:00Z", by: "alice", how: $how, body_sha256: ("0" * 64), links: []}' \
+  mkdir -p "$fx/net" "$T/home/tehas/state/cycles"
+  issue_is "" NONE
+  jq -n --arg how "$1" --arg sum "$(printf '' | sha256sum | cut -d' ' -f1)" \
+    '{at: "2026-10-01T00:00:00Z", by: "alice", how: $how, body_sha256: $sum, links: []}' \
     >"$T/home/tehas/state/cycles/7.approved.json"
 }
 
