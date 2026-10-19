@@ -146,13 +146,28 @@
 #      nobody else edited. A label with no such comment, a malformed marker or
 #      a state GitHub does not give holds it too, and the log says why.
 #   7. tehas:urgent first, then refreshes, then tehas:next, then the lowest
-#      issue number. The
+#      issue number. An issue the poll puts on neither the urgent list nor the
+#      tehas:next list is of the lowest kind, so one whose tehas:next came from
+#      an account it does not count is of that kind too. The
 #      urgent label counts only when its most recent labelling is by an allowed
 #      account, as tehas:ready does: one applied by the bot or anyone else is
 #      ignored and logged, and the issue keeps its place by number. tehas:next,
 #      and tehas:blocked in rule 6, count when their latest event applies them
 #      and is by an allowed account or the fixer. A running cycle is never
-#      stopped to make room.
+#      stopped to make room. With TEHAS_LOW_GATE set, the poll runs that command
+#      at most once, and only when an issue of the lowest kind would otherwise
+#      start: it reads the exit status and nothing the command prints, and only
+#      0 lets those issues start. A missing file, one that is not executable, a
+#      run that outlives TEHAS_LOW_GATE_WAIT and any other status all hold them,
+#      and the poll still ends 0. The run gets TEHAS_LOW_GATE_WAIT seconds, at
+#      most 600 because the poll holds state/dispatch.lock while it waits, and
+#      ten more to end after being asked to; one that ignores that is killed.
+#      Each held issue is skipped with its own line, the hold is marked by
+#      state/low-gate.held, which carries nothing but its existence, and its
+#      beginning and its end are said once each, however the command's status
+#      changes while the hold lasts. Urgent issues,
+#      tehas:next issues, refreshes and a poll with no issue of the lowest kind
+#      ask nothing. Unset, nothing here changes.
 #
 # Instance settings (lib/config.sh; defaults in brackets):
 #   TEHAS_REPO                owner/name of the product repository, required
@@ -180,6 +195,11 @@
 #                             commit holds new cycles back, none when unset
 #   TEHAS_REFRESH_MAX         refreshes of one pull request since the
 #                             person's approval [2]
+#   TEHAS_LOW_GATE            a command the poll asks before it starts the
+#                             issues of the lowest kind, an absolute path, none
+#                             when unset
+#   TEHAS_LOW_GATE_WAIT       seconds that command gets before its answer is a
+#                             closed gate, 1 to 600 [60]
 # From the environment, for tests: TEHAS_STATUS_CMD, TEHAS_INDEX_CMD,
 # TEHAS_TIDY_CMD (in place of libexec/tidy),
 # TEHAS_PLAN_CMD, TEHAS_PLAN_START_CMD (in place of systemd-run, called with
@@ -510,6 +530,50 @@ slice_hold=""
 mem_why=""
 mem_note=""
 slice_ok() { [ -z "$slice_hold" ] && [ "$mem_why" != unreadable ]; }
+
+# The gate of the lowest issues (TEHAS_LOW_GATE): the instance's own command
+# that decides whether the issues on neither the urgent list nor the tehas:next
+# list may start now. Asked at most once a poll, and only when such an issue
+# would otherwise start, so an urgent issue, a tehas:next issue, a refresh and a
+# poll with none of the kind ask nothing. Only its exit status is read, and only
+# 0 opens it: a missing file, one that is not executable, a run that outlives
+# TEHAS_LOW_GATE_WAIT and any other status all hold those issues, and the poll
+# still ends 0. The run gets TEHAS_LOW_GATE_WAIT seconds, ten more to end after
+# being asked to at the end of that, no input and no output of its own: one that
+# ignores the ask is killed, which is an answer like any other. The wait runs
+# under the poll's own lock (state/dispatch.lock), so lib/config.sh caps
+# TEHAS_LOW_GATE_WAIT at 600: a longer one would hold every later poll too.
+# $gate_answer is its answer for this poll, empty until it is asked. A hold is
+# marked by state/low-gate.held, which carries nothing but its existence: the
+# answer of each poll is in the log line alone. The hold is said once when it
+# begins and once when it ends, however the status changes while it lasts; a dry
+# run says it every time and writes nothing.
+# low_gate <issue> says why the issue waits and returns 1.
+gate_answer=""
+low_gate() {
+  local n=$1 file held
+  [ -n "$TEHAS_LOW_GATE" ] || return 0
+  if [ -z "$gate_answer" ]; then
+    gate_answer=0
+    timeout -k 10 "${TEHAS_LOW_GATE_WAIT:-60}" "$TEHAS_LOW_GATE" 8>&- </dev/null >/dev/null 2>&1 ||
+      gate_answer=$?
+    file=$TEHAS_HOME/state/low-gate.held
+    held=yes
+    [ -e "$file" ] || held=no
+    if [ "$gate_answer" != 0 ]; then
+      if [ "$dry" = 1 ] || [ "$held" = no ]; then
+        log "low issues wait: TEHAS_LOW_GATE answered $gate_answer"
+        [ "$dry" = 1 ] || : >"$file" || log "WARN: could not write $file"
+      fi
+    elif [ "$held" = yes ]; then
+      [ "$dry" = 1 ] || rm -f "$file"
+      log "low issues may start: TEHAS_LOW_GATE answered 0"
+    fi
+  fi
+  [ "$gate_answer" = 0 ] ||
+    { log "wait #$n: the low-priority gate is closed (exit $gate_answer)"; return 1; }
+  return 0
+}
 
 # branch_check: is the branch red? Asks GitHub once for the latest runs of
 # TEHAS_BRANCH_CHECK on the branch's head commit. A run that failed, timed out
@@ -2470,7 +2534,8 @@ for pf in $(tehas_cycle_note_files park); do
   exit
 done
 
-# 6. and 7. Candidates: urgent first, then by number. The order is needed
+# 6. and 7. Candidates: urgent first, then the tehas:next issues the poll
+# counts, then the rest of them, each by number. The order is needed
 # before the candidates are cut to the free slots, so whose urgent label counts
 # is settled for every issue that carries one and could still be picked. An
 # issue with an open planning session or a live cycle is out of contention for
@@ -2514,12 +2579,14 @@ candidates=$(jq -r --argjson u "$urgent_json" --argjson x "$next_json" '
          | (reduce $x[] as $i ({}; .[$i | tostring] = true)) as $xs
          | [.[] | .number as $n | ($n | tonumber | tostring) as $k
              | {number: $n, urgent: ($us[$k] == true), next: ($xs[$k] == true)}]
-         | sort_by([(.urgent | not), (.next | not), .number]) | .[] | "\(if .urgent then "u" else "x" end) \(.number)"' <<<"$ready_json") ||
+         | sort_by([(.urgent | not), (.next | not), .number]) | .[] | "\(if .urgent then "u" elif .next then "n" else "x" end) \(.number)"' <<<"$ready_json") ||
   { log "ERROR: unreadable list of ready issues"; exit 1; }
-# The refreshes go after the urgent issues and before the rest.
+# The refreshes go after the urgent issues and before the rest: tehas:next
+# first of those, and the issues of neither label last, which is the order the
+# candidates were sorted into.
 order=$(printf '%s\n' "$candidates" | grep '^u ')
 for n in $(refresh_requests); do order+=$'\n'"r $n"; done
-order+=$'\n'$(printf '%s\n' "$candidates" | grep '^x ')
+order+=$'\n'$(printf '%s\n' "$candidates" | grep -e '^n ' -e '^x ')
 ready_picked=0
 
 while read -r kind n; do
@@ -2573,6 +2640,9 @@ while read -r kind n; do
     continue
   fi
   image_ok "$n" || continue
+  # The gate of rule 7, asked for an issue of the lowest kind only, and after
+  # every other check: an issue that waits for another reason asks nothing.
+  if [ "$kind" = x ] && ! low_gate "$n"; then continue; fi
   picked+=("$n")
   ready_picked=$((ready_picked + 1))
   starter[$n]=$who
