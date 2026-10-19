@@ -70,12 +70,16 @@ fn one<T: rusqlite::types::FromSql>(conn: &Connection, sql: &str) -> T {
 
 fn steps(conn: &Connection) -> Vec<(String, i64, i64, i64, i64)> {
     let mut q = conn
-        .prepare("SELECT step, round, started, ended, seconds FROM run_steps ORDER BY started, step")
+        .prepare(
+            "SELECT step, round, started, ended, seconds FROM run_steps ORDER BY started, step",
+        )
         .unwrap();
-    q.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))
-        .unwrap()
-        .map(Result::unwrap)
-        .collect()
+    q.query_map([], |r| {
+        Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+    })
+    .unwrap()
+    .map(Result::unwrap)
+    .collect()
 }
 
 // A cycle of issue 7 from a fixture, as libexec/cycle and libexec/work leave
@@ -83,7 +87,11 @@ fn steps(conn: &Connection) -> Vec<(String, i64, i64, i64, i64)> {
 // image's commit and the version, and the history line `line`.
 fn cycle(home: &Path, name: &str, started: i64, line: Value) {
     let dir = fixture(name);
-    fs::copy(dir.join("result.json"), home.join("state/cycles/7.result.json")).unwrap();
+    fs::copy(
+        dir.join("result.json"),
+        home.join("state/cycles/7.result.json"),
+    )
+    .unwrap();
     fs::copy(
         dir.join("progress.jsonl"),
         home.join("logs/work-7-261015-183834.jsonl"),
@@ -125,9 +133,30 @@ fn each_fixture_result_is_stored_with_what_the_outcome_drops() {
     // durationMs, and the status, cap and exit tehas wrote: for schema 3
     // lib/headless.sh reads no outcome, so the history says unknown.
     let cases = [
-        ("headless-0.12.80", "2026-10-15T18:38:44Z", 64974, 3, 61, "unknown"),
-        ("headless-1ca933e", "2026-10-15T20:59:05Z", 64061, 11, 52, "unknown"),
-        ("headless-316134e", "2026-10-18T10:16:49Z", 8108, 8, 0, "handoff"),
+        (
+            "headless-0.12.80",
+            "2026-10-15T18:38:44Z",
+            64974,
+            3,
+            61,
+            "unknown",
+        ),
+        (
+            "headless-1ca933e",
+            "2026-10-15T20:59:05Z",
+            64061,
+            11,
+            52,
+            "unknown",
+        ),
+        (
+            "headless-316134e",
+            "2026-10-18T10:16:49Z",
+            8108,
+            8,
+            0,
+            "handoff",
+        ),
     ];
     for (name, first, ms, explore, handoff, status) in cases {
         let home = scratch(name);
@@ -239,8 +268,16 @@ fn each_fixture_result_is_stored_with_what_the_outcome_drops() {
         let s = steps(&conn);
         let first = secs(first);
         assert_eq!(s.len(), 2, "{name}");
-        assert_eq!(s[0], ("explore".into(), 1, first, first + explore, explore), "{name}");
-        assert_eq!((s[1].0.as_str(), s[1].1, s[1].4), ("handoff", 1, handoff), "{name}");
+        assert_eq!(
+            s[0],
+            ("explore".into(), 1, first, first + explore, explore),
+            "{name}"
+        );
+        assert_eq!(
+            (s[1].0.as_str(), s[1].1, s[1].4),
+            ("handoff", 1, handoff),
+            "{name}"
+        );
         let roles: Vec<(String, String, String, i64)> = conn
             .prepare("SELECT role, model, provider, dispatches FROM run_roles")
             .unwrap()
@@ -309,7 +346,13 @@ fn cache_write_cost_and_role_usage_are_kept() {
     assert_eq!(
         roles,
         vec![
-            ("code-review-specialist".into(), "sub-model".into(), 600, 200, 0.125),
+            (
+                "code-review-specialist".into(),
+                "sub-model".into(),
+                600,
+                200,
+                0.125
+            ),
             ("ops".into(), "ops-model".into(), 400, 100, 0.125),
         ]
     );
@@ -338,7 +381,10 @@ fn roles_come_from_the_progress_and_steps_from_the_stream_when_the_result_has_no
     let conn = record(&home, 7, ended);
     assert_eq!(one::<i64>(&conn, "SELECT review_held FROM runs"), 1);
     assert_eq!(
-        one::<String>(&conn, "SELECT role || ' ' || model || ' ' || turns || ' ' || cache_read FROM run_roles"),
+        one::<String>(
+            &conn,
+            "SELECT role || ' ' || model || ' ' || turns || ' ' || cache_read FROM run_roles"
+        ),
         "ops ops-model 3 30"
     );
     // The stream's step-started lines: explore at 18:38:44.024, handoff at
@@ -366,12 +412,18 @@ fn a_run_with_no_result_is_stored_with_tehas_s_status_and_times() {
         history(
             &home,
             12,
-            &[json!({"at": iso(started + 3600), "started": started, "rc": rc, "status": status,
-                     "step": "implement", "cap": cap, "parked": true, "provider": false})],
+            &[
+                json!({"at": iso(started + 3600), "started": started, "rc": rc, "status": status,
+                     "step": "implement", "cap": cap, "parked": true, "provider": false}),
+            ],
         );
         // What libexec/cycle passes on. The files it removed are not read.
         put(&home, "state/cycles/12.oom", "9\n");
-        put(&home, "state/cycles/12.image", &format!("sha256:{} 1111111\n", "e".repeat(64)));
+        put(
+            &home,
+            "state/cycles/12.image",
+            &format!("sha256:{} 1111111\n", "e".repeat(64)),
+        );
         let given = Given {
             image: Some(format!("sha256:{}", "a".repeat(64))),
             rukas_image: Some("abc1234".into()),
@@ -381,10 +433,23 @@ fn a_run_with_no_result_is_stored_with_tehas_s_status_and_times() {
         execute(&home, &Cmd::Run(12, given), started + 3700).unwrap();
         let conn = Connection::open(db::path(&home)).unwrap();
         assert_eq!(
-            one::<String>(&conn, "SELECT image || ' ' || rukas_commit || ' ' || forks_refused FROM runs"),
+            one::<String>(
+                &conn,
+                "SELECT image || ' ' || rukas_commit || ' ' || forks_refused FROM runs"
+            ),
             format!("sha256:{} abc1234 2", "a".repeat(64))
         );
-        let row: (String, i64, i64, i64, i64, String, String, Option<String>, i64) = conn
+        let row: (
+            String,
+            i64,
+            i64,
+            i64,
+            i64,
+            String,
+            String,
+            Option<String>,
+            i64,
+        ) = conn
             .query_row(
                 "SELECT status, exit_code, started, ended, seconds, outcome, last_step, cap,
                         oom_kills FROM runs",
@@ -437,7 +502,11 @@ fn attempt_counts_earlier_runs_and_how_is_kept() {
     history(
         &home,
         9,
-        &[line(t, "label"), line(t + 1000, "retry-tick"), line(t + 2000, "fixer")],
+        &[
+            line(t, "label"),
+            line(t + 1000, "retry-tick"),
+            line(t + 2000, "fixer"),
+        ],
     );
     put(
         &home,
@@ -446,7 +515,10 @@ fn attempt_counts_earlier_runs_and_how_is_kept() {
     );
     let conn = record(&home, 9, t + 3000);
     assert_eq!(
-        one::<String>(&conn, "SELECT attempt || ' ' || how || ' ' || queue_wait FROM runs"),
+        one::<String>(
+            &conn,
+            "SELECT attempt || ' ' || how || ' ' || queue_wait FROM runs"
+        ),
         "3 fixer 100"
     );
     // Recorded again, it replaces itself.
@@ -459,14 +531,42 @@ fn outcomes_follow_how_the_cycle_ended() {
     let home = scratch("outcomes");
     let t = 1_792_000_000;
     let cases = [
-        (json!({"status": "merged", "rc": 0, "pr": "https://github.com/o/r/pull/41"}), "merged", Some(41)),
-        (json!({"status": "handoff", "rc": 10, "pr": "https://github.com/o/r/pull/42", "parked": false}), "pr", Some(42)),
-        (json!({"status": "handoff", "rc": 10, "pr": "https://github.com/o/r/pull/43", "parked": true}), "handoff", Some(43)),
+        (
+            json!({"status": "merged", "rc": 0, "pr": "https://github.com/o/r/pull/41"}),
+            "merged",
+            Some(41),
+        ),
+        (
+            json!({"status": "handoff", "rc": 10, "pr": "https://github.com/o/r/pull/42", "parked": false}),
+            "pr",
+            Some(42),
+        ),
+        (
+            json!({"status": "handoff", "rc": 10, "pr": "https://github.com/o/r/pull/43", "parked": true}),
+            "handoff",
+            Some(43),
+        ),
         (json!({"status": "closed", "rc": 10}), "stopped", None),
-        (json!({"status": "unknown", "rc": 4, "parked": true}), "refused", None),
-        (json!({"status": "aborted", "rc": 20, "cap": "deadline", "parked": true}), "failed", None),
-        (json!({"status": "handoff", "rc": 10, "failure_kind": "provider", "provider": true, "parked": true}), "handoff", None),
-        (json!({"status": "parked", "rc": 10, "cap": "intent-park", "failure_kind": "cap", "parked": true}), "parked", None),
+        (
+            json!({"status": "unknown", "rc": 4, "parked": true}),
+            "refused",
+            None,
+        ),
+        (
+            json!({"status": "aborted", "rc": 20, "cap": "deadline", "parked": true}),
+            "failed",
+            None,
+        ),
+        (
+            json!({"status": "handoff", "rc": 10, "failure_kind": "provider", "provider": true, "parked": true}),
+            "handoff",
+            None,
+        ),
+        (
+            json!({"status": "parked", "rc": 10, "cap": "intent-park", "failure_kind": "cap", "parked": true}),
+            "parked",
+            None,
+        ),
     ];
     for (i, (fields, want, pr)) in cases.into_iter().enumerate() {
         let issue = 100 + i as i64;
@@ -506,9 +606,15 @@ fn a_failure_cause_is_masked_and_cut() {
     fs::write(&path, r.to_string()).unwrap();
     let conn = record(&home, 7, started + 60);
     let cause: String = one(&conn, "SELECT failure_cause FROM runs");
-    assert!(cause.starts_with("connect [private address]:8080 refused token=***"), "{cause}");
+    assert!(
+        cause.starts_with("connect [private address]:8080 refused token=***"),
+        "{cause}"
+    );
     assert_eq!(cause.chars().count(), 200);
-    assert_eq!(one::<String>(&conn, "SELECT failure_kind FROM runs"), "provider");
+    assert_eq!(
+        one::<String>(&conn, "SELECT failure_kind FROM runs"),
+        "provider"
+    );
 }
 
 #[test]
@@ -527,7 +633,10 @@ fn the_history_s_cause_is_taken_before_the_result_s() {
     r["issues"][0]["failure"] = json!({"kind": "provider", "cause": "a long raw text"});
     fs::write(&path, r.to_string()).unwrap();
     let conn = record(&home, 7, started + 60);
-    assert_eq!(one::<String>(&conn, "SELECT failure_cause FROM runs"), "ECONNREFUSED");
+    assert_eq!(
+        one::<String>(&conn, "SELECT failure_cause FROM runs"),
+        "ECONNREFUSED"
+    );
 }
 
 #[test]
@@ -585,13 +694,27 @@ fn a_backup_endpoint_is_read_from_the_preflight_log() {
 #[test]
 fn an_issue_without_history_records_nothing() {
     let home = scratch("nohistory");
-    assert_eq!(execute(&home, &Cmd::Run(5, Given::default()), 1_792_000_000).unwrap_err().0, 65);
+    assert_eq!(
+        execute(&home, &Cmd::Run(5, Given::default()), 1_792_000_000)
+            .unwrap_err()
+            .0,
+        65
+    );
     assert!(!db::path(&home).exists());
     // A link is not read.
     let target = home.join("elsewhere.jsonl");
-    fs::write(&target, "{\"started\": 1, \"at\": \"2026-10-18T10:16:39Z\"}\n").unwrap();
+    fs::write(
+        &target,
+        "{\"started\": 1, \"at\": \"2026-10-18T10:16:39Z\"}\n",
+    )
+    .unwrap();
     std::os::unix::fs::symlink(&target, home.join("state/cycles/5.history.jsonl")).unwrap();
-    assert_eq!(execute(&home, &Cmd::Run(5, Given::default()), 1_792_000_000).unwrap_err().0, 65);
+    assert_eq!(
+        execute(&home, &Cmd::Run(5, Given::default()), 1_792_000_000)
+            .unwrap_err()
+            .0,
+        65
+    );
 }
 
 #[test]
@@ -611,8 +734,11 @@ fn prune_removes_rows_older_than_ten_days_and_keeps_a_running_run_s_events() {
             [id],
         )
         .unwrap();
-        conn.execute("INSERT INTO run_roles (run_id, role) VALUES (?1, 'ops')", [id])
-            .unwrap();
+        conn.execute(
+            "INSERT INTO run_roles (run_id, role) VALUES (?1, 'ops')",
+            [id],
+        )
+        .unwrap();
     }
     // Issue 1 ended long ago; issue 3 started eleven days ago and runs still.
     for (issue, event, at) in [
@@ -629,10 +755,16 @@ fn prune_removes_rows_older_than_ten_days_and_keeps_a_running_run_s_events() {
     ] {
         db::event(&conn, issue, event, at).unwrap();
     }
-    conn.execute("INSERT INTO samples (at) VALUES (?1), (?2)", [old, now - 60])
-        .unwrap();
+    conn.execute(
+        "INSERT INTO samples (at) VALUES (?1), (?2)",
+        [old, now - 60],
+    )
+    .unwrap();
     execute(&home, &Cmd::Prune, now).unwrap();
-    assert_eq!(one::<String>(&conn, "SELECT group_concat(id) FROM runs"), "new");
+    assert_eq!(
+        one::<String>(&conn, "SELECT group_concat(id) FROM runs"),
+        "new"
+    );
     assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM run_steps"), 1);
     assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM run_roles"), 1);
     assert_eq!(
@@ -647,7 +779,10 @@ fn prune_removes_rows_older_than_ten_days_and_keeps_a_running_run_s_events() {
     db::event(&conn, 3, "ended", now).unwrap();
     execute(&home, &Cmd::Prune, now).unwrap();
     assert_eq!(
-        one::<String>(&conn, "SELECT group_concat(issue || ':' || event, ' ') FROM issue_events"),
+        one::<String>(
+            &conn,
+            "SELECT group_concat(issue || ':' || event, ' ') FROM issue_events"
+        ),
         "2:ready 3:ended"
     );
 }
@@ -662,7 +797,10 @@ fn a_database_another_program_made_meanwhile_is_not_moved_aside() {
     let mut late = Connection::open(&file).unwrap();
     db::open(&file, now).unwrap();
     assert!(db::settle(&mut late, 0, now + 5).is_ok());
-    assert_eq!(one::<String>(&late, "SELECT value FROM meta WHERE key = 'created'"), "1792000000");
+    assert_eq!(
+        one::<String>(&late, "SELECT value FROM meta WHERE key = 'created'"),
+        "1792000000"
+    );
     assert!(!home.join("state/analytics.db.broken").exists());
 }
 
@@ -681,7 +819,10 @@ fn programs_that_open_a_new_database_at_once_all_get_it() {
         })
         .collect();
     for o in openers {
-        assert!(o.join().unwrap().is_none(), "a valid database was moved aside");
+        assert!(
+            o.join().unwrap().is_none(),
+            "a valid database was moved aside"
+        );
     }
     assert!(!home.join("state/analytics.db.broken").exists());
     let conn = Connection::open(&file).unwrap();
@@ -698,7 +839,12 @@ fn a_database_that_cannot_be_written_is_an_error_and_stays() {
     execute(&home, &Cmd::Event(1, "ready".into(), None), now).unwrap();
     let before = fs::read(&file).unwrap();
     fs::set_permissions(&file, fs::Permissions::from_mode(0o400)).unwrap();
-    assert_eq!(execute(&home, &Cmd::Event(2, "ready".into(), None), now).unwrap_err().0, 70);
+    assert_eq!(
+        execute(&home, &Cmd::Event(2, "ready".into(), None), now)
+            .unwrap_err()
+            .0,
+        70
+    );
     assert!(fs::read(&file).unwrap() == before);
     assert!(!home.join("state/analytics.db.broken").exists());
     // A directory it may not write in, with the database in it.
@@ -721,7 +867,10 @@ fn a_write_prunes_too() {
     execute(&home, &Cmd::Event(4, "ready".into(), None), now - 11 * DAY).unwrap();
     execute(&home, &Cmd::Event(5, "ready".into(), None), now).unwrap();
     let conn = Connection::open(db::path(&home)).unwrap();
-    assert_eq!(one::<String>(&conn, "SELECT group_concat(issue) FROM issue_events"), "5");
+    assert_eq!(
+        one::<String>(&conn, "SELECT group_concat(issue) FROM issue_events"),
+        "5"
+    );
 }
 
 #[test]
@@ -748,12 +897,18 @@ fn a_new_database_is_0600_in_wal_mode_with_its_schema_version() {
     let home = scratch("new");
     execute(&home, &Cmd::Prune, 1_792_000_000).unwrap();
     let file = db::path(&home);
-    assert_eq!(fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
+    assert_eq!(
+        fs::metadata(&file).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
     let conn = Connection::open(&file).unwrap();
     assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), db::SCHEMA_VERSION);
     assert_eq!(one::<String>(&conn, "PRAGMA journal_mode"), "wal");
     assert_eq!(
-        one::<String>(&conn, "SELECT group_concat(key || '=' || value, ' ') FROM (SELECT * FROM meta ORDER BY key)"),
+        one::<String>(
+            &conn,
+            "SELECT group_concat(key || '=' || value, ' ') FROM (SELECT * FROM meta ORDER BY key)"
+        ),
         "created=1792000000 retention_days=10 schema=1"
     );
 }
@@ -761,7 +916,11 @@ fn a_new_database_is_0600_in_wal_mode_with_its_schema_version() {
 #[test]
 fn a_broken_file_is_moved_aside_and_a_new_database_made() {
     for (name, content) in [
-        ("garbage", b"this is not a database at all, but it is long enough to be read as a header. ".repeat(20)),
+        (
+            "garbage",
+            b"this is not a database at all, but it is long enough to be read as a header. "
+                .repeat(20),
+        ),
         ("tables", Vec::new()),
     ] {
         let home = scratch(name);
@@ -776,10 +935,21 @@ fn a_broken_file_is_moved_aside_and_a_new_database_made() {
         let before = fs::read(&file).unwrap();
         execute(&home, &Cmd::Event(1, "ready".into(), None), 1_792_000_000).unwrap();
         let aside = fs::read(home.join("state/analytics.db.broken")).unwrap();
-        assert!(aside == before, "{name}: the file moved aside is not the one found");
+        assert!(
+            aside == before,
+            "{name}: the file moved aside is not the one found"
+        );
         let conn = Connection::open(&file).unwrap();
-        assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), db::SCHEMA_VERSION, "{name}");
-        assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 1, "{name}");
+        assert_eq!(
+            one::<i64>(&conn, "PRAGMA user_version"),
+            db::SCHEMA_VERSION,
+            "{name}"
+        );
+        assert_eq!(
+            one::<i64>(&conn, "SELECT count(*) FROM issue_events"),
+            1,
+            "{name}"
+        );
     }
 }
 
@@ -797,7 +967,7 @@ fn a_database_of_another_schema_is_kept_aside_under_its_version() {
         // The row is still in the -wal when the file is moved.
         std::mem::forget(c);
     }
-    execute(&home, &Cmd::Event(1, "ready".into()), 1_792_000_000).unwrap();
+    execute(&home, &Cmd::Event(1, "ready".into(), None), 1_792_000_000).unwrap();
     assert!(!home.join("state/analytics.db.broken").exists());
     let kept = Connection::open(home.join("state/analytics.db.schema-99")).unwrap();
     assert_eq!(one::<i64>(&kept, "PRAGMA user_version"), 99);
@@ -828,10 +998,25 @@ fn prune_deletes_a_kept_schema_ten_days_after_its_last_write() {
     let mut left: Vec<String> = fs::read_dir(&state)
         .unwrap()
         .map(|e| e.unwrap().file_name().into_string().unwrap())
-        .filter(|n| !["analytics.db", "analytics.db-wal", "analytics.db-shm", "cycles"].contains(&n.as_str()))
+        .filter(|n| {
+            ![
+                "analytics.db",
+                "analytics.db-wal",
+                "analytics.db-shm",
+                "cycles",
+            ]
+            .contains(&n.as_str())
+        })
         .collect();
     left.sort();
-    assert_eq!(left, ["analytics.db.broken", "analytics.db.schema-8", "other.schema-1"]);
+    assert_eq!(
+        left,
+        [
+            "analytics.db.broken",
+            "analytics.db.schema-8",
+            "other.schema-1"
+        ]
+    );
 }
 
 #[test]
@@ -858,7 +1043,10 @@ fn export_writes_a_copy_that_opens_with_the_same_version_mode_0600_and_nothing_p
     execute(&home, &Cmd::Event(7, "ready".into(), None), now).unwrap();
     let out = home.join("copy.db");
     execute(&home, &Cmd::Export(out.clone()), now).unwrap();
-    assert_eq!(fs::metadata(&out).unwrap().permissions().mode() & 0o777, 0o600);
+    assert_eq!(
+        fs::metadata(&out).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
     let copy = Connection::open(&out).unwrap();
     assert_eq!(one::<i64>(&copy, "PRAGMA user_version"), db::SCHEMA_VERSION);
     assert_eq!(one::<i64>(&copy, "SELECT count(*) FROM runs"), 1);
@@ -871,7 +1059,8 @@ fn export_writes_a_copy_that_opens_with_the_same_version_mode_0600_and_nothing_p
     .unwrap();
     let url = regex::Regex::new(r"(?i)[a-z]+://[A-Za-z0-9.-]+|models\.example|host\.tld").unwrap();
     let address =
-        regex::Regex::new(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b|(?i)[0-9a-f]+::[0-9a-f]+").unwrap();
+        regex::Regex::new(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b|(?i)[0-9a-f]+::[0-9a-f]+")
+            .unwrap();
     let tables: Vec<String> = copy
         .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
         .unwrap()
@@ -918,7 +1107,16 @@ fn the_views_answer_for_a_known_data_set() {
             "INSERT INTO runs (id, kind, issue, started, ended, seconds, outcome, input,
                                tehas_version, rukas_version)
              VALUES (?1, 'work', ?2, ?3, ?4, ?5, ?6, ?7, ?8, '0.13.0')",
-            rusqlite::params![id, issue, started, started + secs, secs, outcome, tokens, tv],
+            rusqlite::params![
+                id,
+                issue,
+                started,
+                started + secs,
+                secs,
+                outcome,
+                tokens,
+                tv
+            ],
         )
         .unwrap();
     }
@@ -936,7 +1134,14 @@ fn the_views_answer_for_a_known_data_set() {
         .prepare("SELECT day, shipped, runs, failed, minutes, tokens FROM v_daily ORDER BY day")
         .unwrap()
         .query_map([], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+            ))
         })
         .unwrap()
         .map(Result::unwrap)
@@ -955,7 +1160,14 @@ fn the_views_answer_for_a_known_data_set() {
         )
         .unwrap()
         .query_map([], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+            ))
         })
         .unwrap()
         .map(Result::unwrap)
@@ -1013,14 +1225,20 @@ fn the_arguments_are_checked() {
     ] {
         assert_eq!(parse(&args(&bad)), None, "{bad}");
     }
-    assert_eq!(parse(&args("event 12 merged")), Some(Cmd::Event(12, "merged".into(), None)));
+    assert_eq!(
+        parse(&args("event 12 merged")),
+        Some(Cmd::Event(12, "merged".into(), None))
+    );
     assert_eq!(parse(&args("prune")), Some(Cmd::Prune));
     assert_eq!(parse(&args("sample")), Some(Cmd::Sample));
     assert_eq!(
         parse(&args("event 12 ready --at 1792000000")),
         Some(Cmd::Event(12, "ready".into(), Some(1_792_000_000)))
     );
-    assert_eq!(parse(&args("event 12 ready --at 0")), Some(Cmd::Event(12, "ready".into(), Some(0))));
+    assert_eq!(
+        parse(&args("event 12 ready --at 0")),
+        Some(Cmd::Event(12, "ready".into(), Some(0)))
+    );
     for bad in [
         "event 12 ready --at",
         "event 12 ready --at -5",
@@ -1033,8 +1251,25 @@ fn the_arguments_are_checked() {
     ] {
         assert_eq!(parse(&args(bad)), None, "{bad}");
     }
-    assert_eq!(parse(&args("export /tmp/x.db")), Some(Cmd::Export("/tmp/x.db".into())));
-    for bad in ["run", "run 0", "run 012", "run -1", "run x", "event 12 shipped", "prune now", "sample now", "report", "export"] {
+    assert_eq!(
+        parse(&args("export /tmp/x.db")),
+        Some(Cmd::Export("/tmp/x.db".into()))
+    );
+    assert_eq!(parse(&args("report --json")), Some(Cmd::Report));
+    for bad in [
+        "run",
+        "run 0",
+        "run 012",
+        "run -1",
+        "run x",
+        "event 12 shipped",
+        "prune now",
+        "sample now",
+        "report",
+        "report --text",
+        "report --json now",
+        "export",
+    ] {
         assert_eq!(parse(&args(bad)), None, "{bad}");
     }
 }
@@ -1051,10 +1286,18 @@ fn schema_is_pinned() {
         one::<i64>(&conn, "PRAGMA user_version")
     );
     let mut q = conn
-        .prepare("SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type, name")
+        .prepare(
+            "SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type, name",
+        )
         .unwrap();
     let rows = q
-        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })
         .unwrap();
     for row in rows {
         let (kind, name, sql) = row.unwrap();
@@ -1102,7 +1345,7 @@ fn live(home: &Path, at: i64, why: &str, limit_room: Option<i64>) {
         "live/status.json",
         &json!({"generatedAt": iso(at), "repo": "acme/widget", "paused": true,
                 "running": [issue(1), issue(2)], "queued": [issue(3), issue(4), issue(5)],
-                "awaiting": [issue(6)], "stopped": [], "completed": [issue(9)]})
+                "awaiting": [issue(6)], "stopped": [], "planning": 2, "completed": [issue(9)]})
         .to_string(),
     );
     let mut d = json!({"time": iso(at), "why": why, "hold": "holding: ...", "count": 2,
@@ -1136,14 +1379,16 @@ fn a_sample_reads_the_live_files_of_the_poll() {
     let now = 1_792_000_000;
     live(&home, now - 30, "awaiting", None);
     execute(&home, &Cmd::Sample, now).unwrap();
-    // Five slots: two running and three free. Planning stays NULL until
-    // status.json counts it.
-    assert_eq!(sample_row(&home), format!("{now} 3 2 1 0 - 5 1 [awaiting] 412.5"));
+    // Five slots: two running and three free.
+    assert_eq!(
+        sample_row(&home),
+        format!("{now} 3 2 1 0 2 5 1 [awaiting] 412.5")
+    );
 
     // The limit of tehas limit allows fewer; nothing holds.
     live(&home, now + 90, "", Some(1));
     execute(&home, &Cmd::Sample, now + 100).unwrap();
-    assert!(sample_row(&home).ends_with(&format!(" | {} 3 2 1 0 - 3 1 [] 412.5", now + 100)));
+    assert!(sample_row(&home).ends_with(&format!(" | {} 3 2 1 0 2 3 1 [] 412.5", now + 100)));
 }
 
 #[test]
@@ -1163,9 +1408,13 @@ fn a_live_file_that_is_missing_stale_a_link_or_malformed_gives_null_columns() {
     live(&home, now - 30, "count", None);
     // A poll runs every two minutes: a dispatch.json older than that is an
     // earlier poll's, though status.json still counts.
-    put(&home, "live/dispatch.json", &json!({"time": iso(now - 200), "why": "count", "count": 1, "free": 0}).to_string());
+    put(
+        &home,
+        "live/dispatch.json",
+        &json!({"time": iso(now - 200), "why": "count", "count": 1, "free": 0}).to_string(),
+    );
     execute(&home, &Cmd::Sample, now + 1).unwrap();
-    assert!(sample_row(&home).ends_with(&format!(" | {} 3 2 1 0 - - 1 - 412.5", now + 1)));
+    assert!(sample_row(&home).ends_with(&format!(" | {} 3 2 1 0 2 - 1 - 412.5", now + 1)));
 
     let home = scratch("sample-links");
     live(&home, now - 30, "count", None);
@@ -1200,7 +1449,8 @@ fn a_live_file_that_is_missing_stale_a_link_or_malformed_gives_null_columns() {
     put(
         &home,
         "live/status.json",
-        &json!({"generatedAt": iso(now), "paused": "no", "queued": 3, "running": [], "awaiting": {}, "stopped": null})
+        &json!({"generatedAt": iso(now), "paused": "no", "queued": 3, "running": [], "awaiting": {}, "stopped": null,
+                "planning": "2"})
             .to_string(),
     );
     put(
@@ -1210,6 +1460,40 @@ fn a_live_file_that_is_missing_stale_a_link_or_malformed_gives_null_columns() {
     );
     execute(&home, &Cmd::Sample, now).unwrap();
     assert_eq!(sample_row(&home), format!("{now} - 0 - - - - - - -"));
+}
+
+// A status.json written before it counted planning has no such field.
+#[test]
+fn planning_is_the_count_status_json_gives_and_null_without_one() {
+    let home = scratch("sample-planning");
+    let now = 1_792_000_000;
+    let status = |planning: Option<Value>| {
+        let mut s = json!({"generatedAt": iso(now), "paused": false, "queued": [],
+                           "running": [], "awaiting": [], "stopped": []});
+        if let Some(p) = planning {
+            s["planning"] = p;
+        }
+        put(&home, "live/status.json", &s.to_string());
+    };
+    fs::create_dir_all(home.join("live")).unwrap();
+    for (at, planning) in [
+        (now, Some(json!(0))),
+        (now + 1, Some(json!(4))),
+        (now + 2, None),
+        (now + 3, Some(json!(-1))),
+        (now + 4, Some(json!(1.5))),
+    ] {
+        status(planning);
+        execute(&home, &Cmd::Sample, at).unwrap();
+    }
+    let conn = Connection::open(db::path(&home)).unwrap();
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT group_concat(coalesce(planning, '-'), ' ') FROM (SELECT planning FROM samples ORDER BY at)"
+        ),
+        "0 4 - - -"
+    );
 }
 
 #[test]
@@ -1222,7 +1506,7 @@ fn a_sample_prunes_too_and_two_in_one_second_keep_the_last() {
     execute(&home, &Cmd::Sample, now).unwrap();
     live(&home, now, "", None);
     execute(&home, &Cmd::Sample, now).unwrap();
-    assert_eq!(sample_row(&home), format!("{now} 3 2 1 0 - 5 1 [] 412.5"));
+    assert_eq!(sample_row(&home), format!("{now} 3 2 1 0 2 5 1 [] 412.5"));
     let conn = Connection::open(db::path(&home)).unwrap();
     assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 0);
 }
@@ -1245,4 +1529,637 @@ fn an_event_is_stored_at_the_time_given_and_one_ahead_of_now_is_refused() {
         ),
         "8:ready:-3600 8:started:0 9:ready:60"
     );
+}
+
+// A planning turn of issue 7 in flight, as lib/planning.sh leaves its record
+// when the turn has ended, and what libexec/plan wrote beside it.
+fn turn(home: &Path, record: Value, out: Option<Value>) {
+    put(home, "state/plan-7.json", &record.to_string());
+    if let Some(o) = out {
+        put(home, "state/plan-7.json.out", &o.to_string());
+    }
+    put(home, "docs/version.txt", "v0.7.22+1234abc\n");
+}
+
+fn plan_cmd(rc: &str) -> Cmd {
+    Cmd::Plan(
+        7,
+        crate::plan::Given {
+            rc: rc.into(),
+            rukas_image: Some("abcdef1".into()),
+        },
+    )
+}
+
+#[test]
+fn plan_stores_the_turn_with_its_times_turn_and_outcome_and_no_usage() {
+    let home = scratch("plan");
+    let now = 1_792_000_000;
+    let started = now - 300;
+    turn(
+        &home,
+        json!({"session": "s1", "turns": 1, "options": [], "pending": false, "failed": false,
+               "running": true, "startedAt": iso(started), "by": "alice",
+               "answers": [{"turn": 2, "by": "alice", "fixer": false}]}),
+        Some(json!({"session": "s1", "text": "Which one?", "question": null})),
+    );
+    execute(&home, &plan_cmd("0"), now).unwrap();
+    let conn = Connection::open(db::path(&home)).unwrap();
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT id || ' ' || kind || ' ' || issue || ' ' || how || ' ' || started || ' ' || ended || ' ' ||
+               seconds || ' ' || outcome || ' ' || coalesce(status, '-') || ' ' || exit_code || ' ' || turns || ' ' ||
+               tehas_version || ' ' || tehas_commit || ' ' || rukas_commit FROM runs"
+        ),
+        format!("plan-7-{started} plan 7 answer {started} {now} 300 handoff - 0 2 v0.7.22 1234abc abcdef1")
+    );
+    let usage: i64 = one(
+        &conn,
+        "SELECT count(*) FROM runs WHERE coalesce(input, output, cache_read, cache_write, dispatches, cost,
+           attempt, queue_wait) IS NOT NULL",
+    );
+    assert_eq!(usage, 0);
+    // No account and nothing the agent said is kept.
+    let dump: String = one(
+        &conn,
+        "SELECT group_concat(quote(r.id) || quote(r.how) || quote(r.status), '') FROM runs r",
+    );
+    assert!(!dump.contains("alice") && !dump.contains("s1"));
+
+    // plan_finish again for the same turn keeps the first row.
+    execute(&home, &plan_cmd("interrupted"), now + 600).unwrap();
+    assert_eq!(
+        one::<String>(&conn, "SELECT outcome || ' ' || ended FROM runs"),
+        format!("handoff {now}")
+    );
+}
+
+#[test]
+fn plan_outcomes_follow_how_the_turn_ended_and_how_it_was_started() {
+    let now = 1_792_000_000;
+    let at = iso(now - 60);
+    let rec = |turns: i64, answers: Value| json!({"session": "s", "turns": turns, "running": true, "startedAt": at, "answers": answers});
+    let fixer = json!([{"turn": 3, "by": "fixer-bot", "fixer": true}]);
+    for (rc, record, out, outcome, status, how) in [
+        (
+            "0",
+            rec(0, json!([])),
+            Some(json!({"session": "s", "text": "t"})),
+            "handoff",
+            "-",
+            "label",
+        ),
+        (
+            "0",
+            rec(0, json!([])),
+            Some(json!({"text": "t"})),
+            "failed",
+            "-",
+            "label",
+        ),
+        (
+            "2",
+            rec(2, fixer.clone()),
+            Some(json!({"session": "s"})),
+            "failed",
+            "-",
+            "fixer",
+        ),
+        (
+            "2",
+            rec(1, json!([])),
+            Some(json!({"session": "s", "lost": true})),
+            "stopped",
+            "lost",
+            "answer",
+        ),
+        ("4", rec(0, json!([])), None, "refused", "-", "label"),
+        ("64", rec(0, json!([])), None, "refused", "-", "label"),
+        (
+            "not-started",
+            rec(1, json!([])),
+            None,
+            "refused",
+            "not-started",
+            "answer",
+        ),
+        (
+            "interrupted",
+            rec(1, json!([])),
+            None,
+            "failed",
+            "interrupted",
+            "answer",
+        ),
+        (
+            "not-readable",
+            rec(1, json!([])),
+            None,
+            "failed",
+            "not-readable",
+            "answer",
+        ),
+    ] {
+        let home = scratch("plan-outcome");
+        turn(&home, record, out);
+        execute(&home, &plan_cmd(rc), now).unwrap();
+        let conn = Connection::open(db::path(&home)).unwrap();
+        assert_eq!(
+            one::<String>(
+                &conn,
+                "SELECT outcome || ' ' || coalesce(status, '-') || ' ' || how FROM runs"
+            ),
+            format!("{outcome} {status} {how}"),
+            "rc {rc}"
+        );
+    }
+}
+
+#[test]
+fn a_planning_turn_not_in_flight_records_nothing() {
+    let now = 1_792_000_000;
+    let home = scratch("plan-none");
+    let err = execute(&home, &plan_cmd("0"), now).unwrap_err();
+    assert_eq!(err.0, 65);
+    assert!(!db::path(&home).exists());
+    for record in [
+        json!({"session": "s", "turns": 1, "running": false, "startedAt": iso(now - 60)}),
+        json!({"session": "s", "turns": 1, "running": true}),
+        json!([1, 2]),
+    ] {
+        turn(&home, record, None);
+        assert_eq!(execute(&home, &plan_cmd("0"), now).unwrap_err().0, 65);
+    }
+    assert!(!db::path(&home).exists());
+}
+
+#[test]
+fn plan_s_arguments_are_checked() {
+    let args = |s: &str| s.split(' ').map(str::to_string).collect::<Vec<_>>();
+    assert_eq!(
+        parse(&args("plan 7 --rc 0")),
+        Some(Cmd::Plan(
+            7,
+            crate::plan::Given {
+                rc: "0".into(),
+                rukas_image: None
+            }
+        ))
+    );
+    assert_eq!(
+        parse(&args("plan 7 --rukas-image abcdef1 --rc not-started")),
+        Some(plan_cmd("not-started"))
+    );
+    for bad in [
+        "plan 7",
+        "plan 7 --rc",
+        "plan 7 --rc 01",
+        "plan 7 --rc 1000",
+        "plan 7 --rc -1",
+        "plan 7 --rc gone",
+        "plan 7 --rc 0 --rc 2",
+        "plan 7 --rc 0 --rukas-image xyz",
+        "plan 07 --rc 0",
+        "plan 7 --rc 0 --oom 1",
+    ] {
+        assert_eq!(parse(&args(bad)), None, "{bad}");
+    }
+}
+
+// The known data set of the report's tests: six work runs in the window on
+// three version pairs, one before it, a planning turn, three shipped issues
+// and six samples, one of them before the window.
+fn report_data(conn: &Connection, day0: i64, to: i64) {
+    #[allow(clippy::type_complexity)]
+    let runs: [(
+        &str,
+        i64,
+        i64,
+        i64,
+        &str,
+        Option<i64>,
+        Option<i64>,
+        Option<i64>,
+        Option<&str>,
+        Option<&str>,
+        Option<&str>,
+        Option<&str>,
+        &str,
+        Option<&str>,
+    ); 7] = [
+        (
+            "a",
+            1,
+            day0 + 100,
+            600,
+            "handoff",
+            Some(1000),
+            None,
+            None,
+            Some("cap"),
+            Some("explore-bodies-empty"),
+            Some("explore"),
+            Some("handoff"),
+            "v1",
+            Some("0.13.0"),
+        ),
+        (
+            "b",
+            1,
+            day0 + 2000,
+            1200,
+            "merged",
+            Some(3000),
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some("review"),
+            "v1",
+            Some("0.13.0"),
+        ),
+        (
+            "c",
+            2,
+            day0 + 3000,
+            1800,
+            "pr",
+            Some(2000),
+            Some(500),
+            None,
+            None,
+            None,
+            None,
+            Some("implement"),
+            "v1",
+            Some("0.13.0"),
+        ),
+        (
+            "d",
+            3,
+            day0 + DAY + 10,
+            300,
+            "failed",
+            None,
+            None,
+            None,
+            Some("timeout"),
+            None,
+            None,
+            Some("explore"),
+            "v2",
+            Some("0.13.0"),
+        ),
+        (
+            "e",
+            4,
+            day0 + DAY + 1000,
+            900,
+            "failed",
+            Some(100),
+            None,
+            Some(50),
+            Some("Weird Cause!"),
+            None,
+            None,
+            Some("implement"),
+            "v2",
+            None,
+        ),
+        (
+            "f",
+            5,
+            day0 + 2 * DAY,
+            0,
+            "refused",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            "v1",
+            Some("0.13.0"),
+        ),
+        (
+            "old",
+            9,
+            day0 - 1000,
+            100,
+            "failed",
+            Some(5),
+            None,
+            None,
+            Some("timeout"),
+            None,
+            None,
+            None,
+            "v0",
+            Some("0.12.0"),
+        ),
+    ];
+    for (
+        id,
+        issue,
+        started,
+        secs,
+        outcome,
+        input,
+        output,
+        cache,
+        kind,
+        cap,
+        failed,
+        last,
+        tv,
+        rv,
+    ) in runs
+    {
+        conn.execute(
+            "INSERT INTO runs (id, kind, issue, started, ended, seconds, outcome, input, output,
+                               cache_read, failure_kind, cap, failed_step, last_step,
+                               tehas_version, rukas_version, failure_cause)
+             VALUES (?1, 'work', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
+                     'a cause no page may show')",
+            rusqlite::params![
+                id,
+                issue,
+                started,
+                started + secs,
+                secs,
+                outcome,
+                input,
+                output,
+                cache,
+                kind,
+                cap,
+                failed,
+                last,
+                tv,
+                rv
+            ],
+        )
+        .unwrap();
+    }
+    conn.execute(
+        "INSERT INTO runs (id, kind, issue, started, ended, seconds, outcome)
+         VALUES ('p', 'plan', 6, ?1, ?2, 400, 'handoff')",
+        [day0 + 100, day0 + 500],
+    )
+    .unwrap();
+    let steps = [
+        ("a", "explore", 0),
+        ("a", "handoff", 300),
+        ("b", "explore", 0),
+        ("b", "implement", 300),
+        ("b", "review", 900),
+        ("c", "explore", 0),
+        ("c", "implement", 400),
+        ("d", "explore", 0),
+        ("e", "explore", 0),
+        ("e", "implement", 200),
+    ];
+    for (id, step, offset) in steps {
+        conn.execute(
+            "INSERT INTO run_steps (run_id, step, round, started)
+             SELECT id, ?2, 1, started + ?3 FROM runs WHERE id = ?1",
+            rusqlite::params![id, step, offset],
+        )
+        .unwrap();
+    }
+    db::event(conn, 1, "ready", day0).unwrap();
+    db::event(conn, 2, "ready", day0 + 2900).unwrap();
+    db::event(conn, 2, "merged", day0 + DAY + 100).unwrap();
+    db::event(conn, 7, "merged", day0 + 2 * DAY).unwrap();
+    db::event(conn, 3, "stopped", day0 + DAY + 400).unwrap();
+    #[allow(clippy::type_complexity)]
+    let samples: [(
+        i64,
+        Option<i64>,
+        Option<i64>,
+        Option<i64>,
+        Option<&str>,
+        Option<f64>,
+    ); 6] = [
+        (day0 - 60, Some(9), Some(9), Some(0), Some(""), Some(999.0)),
+        (day0 + DAY, Some(1), Some(0), Some(0), Some(""), Some(100.0)),
+        (to - 1800, Some(2), Some(1), Some(0), Some(""), Some(100.0)),
+        (to - 1200, Some(3), None, Some(1), None, Some(200.0)),
+        (to - 600, Some(4), Some(2), Some(0), Some("resources"), None),
+        (to - 300, Some(5), Some(1), Some(0), Some(""), Some(100.0)),
+    ];
+    for (at, in_line, planning, paused, held, watts) in samples {
+        conn.execute(
+            "INSERT INTO samples (at, in_line, planning, paused, held, watts)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![at, in_line, planning, paused, held, watts],
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn the_report_gives_the_figures_of_a_known_data_set() {
+    let home = scratch("report");
+    let day0 = 1_792_022_400; // 2026-10-15T00:00:00Z
+    let to = day0 + 9 * DAY + 43_200;
+    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+    report_data(&conn, day0, to);
+    let got = crate::report::build(&conn, to).unwrap();
+    let day = |d: &str, shipped: i64, runs: i64, failed: i64, minutes: i64| json!({"day": d, "shipped": shipped, "runs": runs, "failed": failed, "minutes": minutes});
+    let mut trend: Vec<Value> = (15..=24)
+        .map(|d| json!({"day": format!("2026-10-{d}")}))
+        .collect();
+    trend[1] = json!({"day": "2026-10-16", "n": 1});
+    trend[9] = json!({"day": "2026-10-24", "n": 6});
+    let want = json!({
+        "report": 1,
+        "from": day0,
+        "to": to,
+        "shipped": {"n": 3},
+        "planned": {"n": 6, "inLine": 5, "planning": 1, "trend": trend},
+        "runs": {"n": 6, "pr": 1, "merged": 1, "handoff": 1, "parked": 0, "failed": 2,
+                 "refused": 1, "stopped": 0},
+        "planningTurns": {"n": 1},
+        "handoffRate": {"n": 6, "share": 0.167},
+        // Issues 1 (two runs) and 2 (one); issue 7 has no run here.
+        "firstPassYield": {"n": 2, "share": 0.5},
+        "leadTime": {"n": 2, "median": 43_400, "p90": 83_600},
+        "cycleTime": {"n": 6, "median": 750, "p90": 1800},
+        "machineTime": {"n": 6, "seconds": 4800, "perShipped": 1600},
+        "tokens": {"n": 4, "total": 6650, "input": 6100, "output": 500, "cacheRead": 50,
+                   "perShipped": 2217},
+        // 1500 seconds of 734400 since the first sample: 600 + 600 + 300.
+        "availability": {"n": 5, "seconds": 734_400, "share": 0.002},
+        // 100 W for 600 s, 100 W for 600 s, 200 W for 600 s, 100 W for 300 s.
+        "energy": {"n": 4, "kwh": 0.075, "perShipped": 0.025},
+        "daily": [
+            day("2026-10-15", 1, 3, 0, 60),
+            day("2026-10-16", 1, 2, 2, 20),
+            day("2026-10-17", 1, 1, 0, 0),
+            day("2026-10-18", 0, 0, 0, 0),
+            day("2026-10-19", 0, 0, 0, 0),
+            day("2026-10-20", 0, 0, 0, 0),
+            day("2026-10-21", 0, 0, 0, 0),
+            day("2026-10-22", 0, 0, 0, 0),
+            day("2026-10-23", 0, 0, 0, 0),
+            day("2026-10-24", 0, 0, 0, 0),
+        ],
+        "stopReasons": {"n": 4, "top": [
+            {"reason": "explore-bodies-empty", "n": 1},
+            {"reason": "other", "n": 1},
+            {"reason": "refused", "n": 1},
+            {"reason": "timeout", "n": 1},
+        ]},
+        "stations": {"n": 5, "steps": [
+            {"step": "explore", "n": 5, "passed": 3, "share": 0.6},
+            {"step": "handoff", "n": 1, "passed": 1, "share": 1.0},
+            {"step": "implement", "n": 3, "passed": 2, "share": 0.667},
+            {"step": "review", "n": 1, "passed": 1, "share": 1.0},
+        ]},
+        // Three runs or more show their figures; fewer, the count only.
+        "versions": [
+            {"tehas": "v1", "rukas": "0.13.0", "n": 4, "prShare": 0.5, "medianSeconds": 900,
+             "medianTokens": 1750},
+            {"tehas": "v2", "n": 1},
+            {"tehas": "v2", "rukas": "0.13.0", "n": 1},
+        ],
+    });
+    assert_eq!(got, want, "{}", serde_json::to_string_pretty(&got).unwrap());
+    let text = got.to_string();
+    assert!(!text.contains("cause no page"));
+    assert!(!text.contains("Weird"));
+}
+
+#[test]
+fn a_version_pair_reaches_its_figures_at_three_runs() {
+    let home = scratch("report-floor");
+    let day0 = 1_792_022_400;
+    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+    let pair =
+        |conn: &Connection| crate::report::build(conn, day0 + DAY).unwrap()["versions"][0].clone();
+    for (i, outcome) in ["pr", "failed", "pr"].iter().enumerate() {
+        conn.execute(
+            "INSERT INTO runs (id, kind, issue, started, ended, seconds, outcome, input,
+                               tehas_version, rukas_version)
+             VALUES (?1, 'work', 1, ?2, ?3, 60, ?4, 10, 'v0.7.22', '0.13.0')",
+            rusqlite::params![
+                format!("r{i}"),
+                day0 + i as i64,
+                day0 + i as i64 + 60,
+                outcome
+            ],
+        )
+        .unwrap();
+        let want = if i < 2 {
+            json!({"tehas": "v0.7.22", "rukas": "0.13.0", "n": i + 1})
+        } else {
+            json!({"tehas": "v0.7.22", "rukas": "0.13.0", "n": 3, "prShare": 0.667,
+                   "medianSeconds": 60, "medianTokens": 10})
+        };
+        assert_eq!(pair(&conn), want);
+    }
+}
+
+#[test]
+fn an_empty_database_reports_counts_of_nothing_and_leaves_out_what_has_no_value() {
+    let home = scratch("report-empty");
+    let to = 1_792_022_400 + 3600;
+    let (conn, _) = db::open(&db::path(&home), to).unwrap();
+    let got = crate::report::build(&conn, to).unwrap();
+    let keys: Vec<&str> = got
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        keys,
+        [
+            "availability",
+            "cycleTime",
+            "daily",
+            "firstPassYield",
+            "from",
+            "handoffRate",
+            "leadTime",
+            "machineTime",
+            "planningTurns",
+            "report",
+            "runs",
+            "shipped",
+            "stations",
+            "stopReasons",
+            "to",
+            "tokens",
+            "versions"
+        ]
+    );
+    assert_eq!(got["availability"], json!({"n": 0}));
+    assert_eq!(got["firstPassYield"], json!({"n": 0}));
+    assert_eq!(got["leadTime"], json!({"n": 0}));
+    assert_eq!(got["machineTime"], json!({"n": 0, "seconds": 0}));
+    assert_eq!(got["daily"].as_array().unwrap().len(), 10);
+    assert_eq!(got["from"], json!(to - 3600 - 9 * DAY));
+    assert!(!got.to_string().contains("null"));
+}
+
+#[test]
+fn ten_days_of_data_report_well_inside_the_time_limit() {
+    let home = scratch("report-load");
+    let to = 1_792_022_400 + 10 * DAY;
+    let (mut conn, _) = db::open(&db::path(&home), to).unwrap();
+    let tx = conn.transaction().unwrap();
+    // A sample every two minutes, and a run every fifteen with three steps.
+    for i in 0..7200 {
+        tx.execute(
+            "INSERT INTO samples (at, in_line, planning, paused, held, watts)
+             VALUES (?1, 3, 1, 0, '', 250.0)",
+            [to - 10 * DAY + i * 120],
+        )
+        .unwrap();
+    }
+    for i in 0..960_i64 {
+        let started = to - 10 * DAY + i * 900;
+        let id = format!("work-{i}-{started}");
+        tx.execute(
+            "INSERT INTO runs (id, kind, issue, started, ended, seconds, outcome, input, output,
+                               tehas_version, rukas_version, failure_kind, last_step)
+             VALUES (?1, 'work', ?2, ?3, ?4, 600, ?5, 1000, 100, 'v1', ?6, 'timeout', 'review')",
+            rusqlite::params![
+                id,
+                i / 2,
+                started,
+                started + 600,
+                if i % 3 == 0 { "failed" } else { "pr" },
+                format!("0.{}.0", i % 7)
+            ],
+        )
+        .unwrap();
+        for (k, step) in ["explore", "implement", "review"].iter().enumerate() {
+            tx.execute(
+                "INSERT INTO run_steps (run_id, step, round, started) VALUES (?1, ?2, 1, ?3)",
+                rusqlite::params![id, step, started + k as i64 * 100],
+            )
+            .unwrap();
+        }
+        if i % 2 == 1 {
+            db::event(&tx, i / 2, "ready", started - 300).unwrap();
+            db::event(&tx, i / 2, "merged", started + 700).unwrap();
+        }
+    }
+    tx.commit().unwrap();
+    let t = std::time::Instant::now();
+    let got = execute(&home, &Cmd::Report, to);
+    let took = t.elapsed();
+    assert_eq!(got, Ok(()));
+    let report = crate::report::build(&conn, to).unwrap();
+    assert!(report["runs"]["n"].as_i64().unwrap() > 800);
+    assert!(report["shipped"]["n"].as_i64().unwrap() > 400);
+    // The limit is 5 s; an unoptimised build on a busy machine is well
+    // inside 2.
+    assert!(took.as_secs_f64() < 2.0, "the report took {took:?}");
 }

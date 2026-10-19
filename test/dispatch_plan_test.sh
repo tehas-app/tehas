@@ -479,4 +479,68 @@ t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "8"
 rm -f "$fx/events-8.json"
 
+# The analytics program, where install.sh puts it. A call notes the record as
+# the program would read it.
+plan_analytics() { # [<bash body>]
+  t_stub_analytics '[ "$1" != plan ] || cp "$TEHAS_HOME/state/plan-7.json" "$T/calls/record.at-analytics" 2>/dev/null
+'"${1:-}"
+}
+plan_analytics_calls() { t_calls analytics | grep '^plan' || true; }
+
+t_case "a planning turn that ends is recorded in analytics, from its record before it is rewritten"
+to_plan
+rm -f "$fx/image.label"
+plan_analytics
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(plan_analytics_calls)" "plan 7 --rc 0"
+t_eq "$(jq -c '[.running, .turns, (.startedAt | type)]' "$T/calls/record.at-analytics")" '[true,0,"string"]'
+t_eq "$(jq -c .turns "$record")" 1
+
+t_case "with the pi-rukas commit of the image's label"
+to_plan
+echo 'abcdef1|1' >"$fx/image.label"
+plan_analytics
+t_run "$dispatch"
+t_eq "$(plan_analytics_calls)" "plan 7 --rc 0 --rukas-image abcdef1"
+rm -f "$fx/image.label"
+
+t_case "a turn that fails and a turn cut off are recorded with how they ended"
+to_plan
+: >"$fx/plan-fails"
+plan_analytics
+t_run "$dispatch"
+t_eq "$(plan_analytics_calls)" "plan 7 --rc 2"
+rm -f "$fx/plan-fails"
+planning
+jq '.running = true | .startedAt = "2026-01-01T00:00:00Z" | del(.comment)' "$record" >"$record.new" && mv "$record.new" "$record"
+plan_analytics
+t_run "$dispatch"
+t_eq "$(plan_analytics_calls)" "plan 7 --rc interrupted"
+
+t_case "with TEHAS_ANALYTICS off a planning turn is not recorded"
+to_plan
+plan_analytics
+t_instance "${T_MINIMAL[@]}" TEHAS_ANALYTICS=off
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls analytics)" ""
+t_contains "$(t_calls gh)" "--remove-label tehas:planning --add-label tehas:question"
+
+t_case "a failing or hanging analytics changes nothing in the turn"
+to_plan
+t_run "$dispatch"
+without_gh=$(t_calls gh)
+without_record=$(jq -c . "$record")
+for body in 'exit 70' 'exec sleep 30'; do
+  to_plan
+  plan_analytics "[ \"\$1\" != plan ] || $body"
+  T_ENV+=(TEHAS_ANALYTICS_WAIT=1)
+  t_run "$dispatch"
+  t_eq "$t_rc" 0
+  t_contains "$t_out" "WARN analytics plan: exit"
+  t_eq "$(t_calls gh)" "$without_gh"
+  t_eq "$(jq -c . "$record")" "$without_record"
+done
+
 t_done

@@ -24,6 +24,25 @@
   <section><h2>Completed <span class="n" id="n-completed"></span></h2><ul class="issues" id="completed"></ul></section>
 </div>
 
+<section id="analytics" hidden>
+  <h2>Last 10 days</h2>
+  <p class="muted" id="analytics-note"></p>
+  <div class="an-figures" id="an-figures"></div>
+  <h3>Per day</h3>
+  <div class="an-chart" id="an-chart"></div>
+  <p class="muted an-legend"><span class="an-key shipped"></span> shipped <span class="an-key failed"></span> failed runs <span class="an-key minutes"></span> cycle-minutes</p>
+  <div class="cols">
+    <section><h3>Top stop reasons</h3><p class="muted" id="an-reasons-note"></p><ul class="issues" id="an-reasons"></ul></section>
+    <section><h3>Station yield</h3><p class="muted" id="an-steps-note"></p><ul class="issues" id="an-steps"></ul></section>
+  </div>
+  <h3>Versions</h3>
+  <p class="muted" id="an-versions-note"></p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>tehas</th><th>pi-rukas</th><th>runs</th><th>to a PR</th><th>median time</th><th>median tokens</th></tr></thead>
+    <tbody id="an-versions"></tbody>
+  </table></div>
+</section>
+
 <section id="previews" hidden>
   <h2>Previews <span class="n" id="n-previews"></span></h2>
   <p class="muted" id="previews-note"></p>
@@ -43,6 +62,9 @@
 // The figures of the host section, and the words that say how old a reading is:
 // one module, shared with the panel on the factory floor (host/fun/host-view.js).
 import { agoText, dueToRead, layout } from "/fun/host-data.js";
+// The "Last 10 days" section: what live/analytics.json means, worked out by one
+// module (host/fun/analytics-data.js); here it is drawn.
+import { analyticsView, dueToRead as dueAnalytics } from "/fun/analytics-data.js";
 
 (() => {
   const MAX = 10;
@@ -221,6 +243,104 @@ import { agoText, dueToRead, layout } from "/fun/host-data.js";
     }
   }
 
+  // The factory's ten-day report: /live/analytics.json, written by tehasbot
+  // status at every poll unless TEHAS_ANALYTICS is off. A host without it has
+  // no file and the section stays hidden. It changes once a poll, so it is
+  // read at most once a minute. Every word in it reaches the page through
+  // textContent only.
+  let analyticsReadAt = 0;
+  const SVG = "http://www.w3.org/2000/svg";
+  async function refreshAnalytics() {
+    if (!dueAnalytics({ hidden: document.hidden, readAt: analyticsReadAt })) return;
+    analyticsReadAt = Date.now();
+    let a = null;
+    try {
+      const r = await fetch("/live/analytics.json", { cache: "no-store" });
+      if (r.ok) a = await r.json();
+    } catch { return; /* no answer: what is on screen stays */ }
+    const v = analyticsView(a);
+    const section = $("analytics");
+    section.hidden = !v.present;
+    if (!v.present) return;
+    $("analytics-note").textContent = v.window;
+
+    const figures = $("an-figures");
+    figures.replaceChildren();
+    for (const f of v.figures) {
+      const box = el("div", "an-figure");
+      box.append(el("div", "an-label", f.label), el("div", "an-value", f.value), el("div", "an-note", f.note));
+      if (f.bars) {
+        const spark = el("div", "an-spark");
+        for (const h of f.bars) {
+          const b = el("span");
+          b.style.height = Math.round(h * 100) + "%";
+          spark.append(b);
+        }
+        box.append(spark);
+      }
+      figures.append(box);
+    }
+
+    // Two bars a day on one scale, and the cycle-minutes as a line on its own.
+    const chart = $("an-chart");
+    chart.replaceChildren();
+    for (const d of v.chart) {
+      const col = el("div", "an-day");
+      col.title = d.title;
+      const bars = el("div", "an-bars");
+      for (const [cls, h, n] of [["shipped", d.shippedHeight, d.shipped], ["failed", d.failedHeight, d.failed]]) {
+        const b = el("span", cls, n ? String(n) : "");
+        b.style.height = Math.round(h * 100) + "%";
+        bars.append(b);
+      }
+      col.append(bars, el("div", "an-date", d.label));
+      chart.append(col);
+    }
+    if (v.chart.length) {
+      const svg = document.createElementNS(SVG, "svg");
+      svg.setAttribute("class", "an-line");
+      svg.setAttribute("viewBox", "0 0 " + v.chart.length * 10 + " 100");
+      svg.setAttribute("preserveAspectRatio", "none");
+      svg.setAttribute("aria-hidden", "true");
+      const line = document.createElementNS(SVG, "polyline");
+      line.setAttribute("points", v.chart.map((d, i) => (i * 10 + 5) + "," + (100 - d.minutesHeight * 100).toFixed(1)).join(" "));
+      line.setAttribute("vector-effect", "non-scaling-stroke");
+      svg.append(line);
+      chart.append(svg);
+    }
+
+    $("an-reasons-note").textContent = v.reasonsNote;
+    const reasons = $("an-reasons");
+    reasons.replaceChildren();
+    for (const r of v.reasons) {
+      const li = el("li");
+      li.append(el("span", "num", String(r.n)), el("span", null, r.reason));
+      reasons.append(li);
+    }
+
+    $("an-steps-note").textContent = v.stepsNote;
+    const steps = $("an-steps");
+    steps.replaceChildren();
+    for (const st of v.steps) {
+      const li = el("li", "an-step");
+      const bar = el("span", "an-yield");
+      const fill = el("span");
+      fill.style.width = Math.round(st.share * 100) + "%";
+      bar.append(fill);
+      li.append(el("span", null, st.step), " ", bar, " ", el("span", "when", st.text));
+      steps.append(li);
+    }
+
+    $("an-versions-note").textContent = v.versionsNote;
+    const rows = $("an-versions");
+    rows.replaceChildren();
+    for (const ver of v.versions) {
+      const tr = el("tr");
+      for (const cell of [ver.tehas, ver.rukas, ver.runs, ver.pr, ver.minutes, ver.tokens]) tr.append(el("td", null, cell));
+      rows.append(tr);
+    }
+  }
+
   // Several cycles can run side by side: console-tabs.js says which there are
   // and which one is shown. running is the shown cycle while it runs.
   const TABS = globalThis.TEHAS_CONSOLE_TABS;
@@ -229,6 +349,7 @@ import { agoText, dueToRead, layout } from "/fun/host-data.js";
   async function refresh() {
     refreshPreviews();
     refreshHost();
+    refreshAnalytics();
     let s, now;
     try {
       s = await (await fetch("/live/status.json", { cache: "no-store" })).json();
@@ -338,7 +459,7 @@ import { agoText, dueToRead, layout } from "/fun/host-data.js";
   // Coming back to the page asks for the host file again at once, whatever the
   // last answer was.
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) { hostMissedAt = 0; refreshHost(); }
+    if (!document.hidden) { hostMissedAt = 0; refreshHost(); analyticsReadAt = 0; refreshAnalytics(); }
   });
 })();
 </script>

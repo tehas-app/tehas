@@ -36,9 +36,11 @@ pub fn open(file: &Path, now: i64) -> Result<(Connection, Option<PathBuf>), Stri
         Ok(conn) => return Ok((conn, None)),
         Err(Unusable::Failed(e)) => return Err(e),
         Err(Unusable::Broken(why)) => (file.with_extension("db.broken"), why, false),
-        Err(Unusable::Foreign(version, why)) => {
-            (file.with_extension(format!("db.schema-{version}")), why, true)
-        }
+        Err(Unusable::Foreign(version, why)) => (
+            file.with_extension(format!("db.schema-{version}")),
+            why,
+            true,
+        ),
     };
     fs::rename(file, &to).map_err(|e| format!("{why}, and it cannot be moved aside: {e}"))?;
     for side in ["-wal", "-shm"] {
@@ -65,8 +67,7 @@ fn side_file(file: &Path, side: &str) -> PathBuf {
 /// Deletes the databases of other schema versions, and their side files,
 /// whose last write is more than ten days old: by then every row in them is.
 pub fn prune_aside(file: &Path, now: i64) {
-    let (Some(dir), Some(name)) = (file.parent(), file.file_name().and_then(|n| n.to_str()))
-    else {
+    let (Some(dir), Some(name)) = (file.parent(), file.file_name().and_then(|n| n.to_str())) else {
         return;
     };
     let prefix = format!("{name}.schema-");
@@ -125,7 +126,8 @@ fn try_open(file: &Path, now: i64) -> Result<Connection, Unusable> {
         OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
     .map_err(classify)?;
-    conn.busy_timeout(Duration::from_secs(5)).map_err(classify)?;
+    conn.busy_timeout(Duration::from_secs(5))
+        .map_err(classify)?;
     let check: String = conn
         .query_row("PRAGMA quick_check", [], |r| r.get(0))
         .map_err(classify)?;

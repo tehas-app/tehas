@@ -134,6 +134,121 @@ t_case "the meter costs 336px on a wide screen, where the monitor stands below i
 t_eq "$(query_of '--meter-column: 336px' "$energy")" "$NO_QUERY"
 t_contains "$energy_text" 'grid-template-columns: minmax(0, 1fr) var(--meter-column);'
 
+# The last width on the first line that holds this: the px a declaration ends
+# in, as a number. NO_WIDTH where no line does, so an absent declaration cannot
+# read as a zero a card would fit into.
+last_px() { # <line holds this> <file>
+  awk -v p="$1" -v no="$NO_WIDTH" '
+    !got && index($0, p) {
+      rest = $0
+      while (match(rest, /[0-9]+px/)) {
+        n = substr(rest, RSTART, RLENGTH - 2)
+        rest = substr(rest, RSTART + RLENGTH)
+      }
+      if (n != "") got = n
+    }
+    END { print got == "" ? no : got }' "$2"
+}
+
+# The first px a declaration is written with: the first number on the first
+# line of this text that holds the pattern. NO_WIDTH where no line does.
+first_px() { # <line holds this> <text>
+  awk -v p="$1" -v no="$NO_WIDTH" '
+    !got && index($0, p) {
+      if (match($0, /[0-9]+px/)) got = substr($0, RSTART, RLENGTH - 2)
+    }
+    END { print got == "" ? no : got }' <<<"$2"
+}
+
+# The whole rule that opens with this line, in a stylesheet of your choosing:
+# the opening line to the line that closes it, indented ones included.
+rule_in() { # <opens with this> <file>
+  awk -v hold="$1" '!on && (index($0, hold) == 1 || index($0, hold) == 3) { on = 1 }
+    on { print } on && index($0, "}") { exit }' "$2"
+}
+
+# Every rule that opens with this selector and holds this declaration, printed
+# whole. A stylesheet names a selector more than once; only one of those rules
+# draws the face. The page's own stylesheet unless another is named.
+rules_holding() { # <opens with this> <declaration line holds this> [in this file]
+  awk -v sel="$1" -v want="$2" '
+    index($0, sel) == 1 || index($0, sel) == 3 { on = 1; body = "" }
+    on { body = body $0 "\n" }
+    on && index($0, "}") {
+      on = 0
+      if (index(body, want)) printf "%s", body
+    }
+  ' "${3:-$game}"
+}
+
+t_case "at 1440px and up the meter is a card of its own over the monitor column"
+# The width where it becomes a card comes from the stylesheet that gives the
+# stage its monitor column, so the two bands cannot drift apart.
+card_band=$(query_of 'margin-right: var(--meter-room)' "$energy")
+t_eq "$(awk -v no="$NO_WIDTH" 'match($0, /min-width: [0-9]+/) {
+  print substr($0, RSTART + 11, RLENGTH - 11); found = 1 } END { if (!found) print no }' <<<"$card_band")" "$stage_from"
+t_eq "$(query_of 'grid-template-columns: minmax(0, 1fr) 0;' "$energy")" "$card_band"
+# The card is as wide as the column it stands over, and the panel gives up that
+# column plus the gutter between the stage's panels: so the card's edges are the
+# monitor column's, and the room between the card and the panel is what every
+# other pair of panels gets.
+monitor_col=$(last_px 'grid-template-columns: minmax(0, 1fr) ' "$game")
+stage_gap=$(last_px 'column-gap: ' "$game")
+meter_col=$(last_px '--meter-column: ' "$energy")
+room_gap=$(last_px '--meter-room: calc(var(--meter-column) + ' "$energy")
+case "$monitor_col $stage_gap $meter_col $room_gap" in
+  *"$NO_WIDTH"*) t_skip "a width is not in the stylesheets: $monitor_col $stage_gap $meter_col $room_gap" ;;
+  *)
+    t_eq "$meter_col" "$monitor_col"
+    t_eq "$room_gap" "$stage_gap"
+    ;;
+esac
+# Drawn like the other cards, and standing outside the panel: the meter gives up
+# the area it used to fill, that column narrows to nothing so the panel keeps
+# its whole width, and the card is measured against the panel's own edges rather
+# than against its rows -- it spans the panel whatever the panel holds.
+card=$(rule_in '.floor-head > .floor-meter {' "$energy")
+t_contains "$card" 'position: absolute;'
+t_contains "$card" 'grid-area: auto;'
+t_contains "$card" 'width: var(--meter-column);'
+t_contains "$card" 'border: 4px solid var(--outline);'
+t_contains "$card" 'box-shadow: var(--shadow-sign);'
+# The card's edges are the panel's outer edges: the 4px it steps out by, at the
+# top, the bottom and the right, is the panel's own border. The two are read
+# together because the coincidence is what stands the card on the monitor column
+# -- a border that moves and offsets that do not would drift the card off it
+# while every width above still matched.
+head_face=$(rules_holding '.floor-head {' 'border: ' "$game")
+panel_edge=$(first_px 'border: ' "$head_face")
+card_top=$(first_px 'top: -' "$card")
+card_bottom=$(first_px 'bottom: -' "$card")
+card_right=$(first_px 'right: calc(-1 * (var(--meter-room) +' "$card")
+case "$panel_edge" in
+  *"$NO_WIDTH"*) t_skip "the panel's border is not in the page's stylesheet" ;;
+  *)
+    t_eq "$card_top" "$panel_edge"
+    t_eq "$card_bottom" "$panel_edge"
+    t_eq "$card_right" "$panel_edge"
+    ;;
+esac
+# Below that band the meter is still a band inside the panel, closed off from
+# the text by a rule beside it rather than an outline all round.
+t_eq "$(query_of '.floor-meter { grid-area: meter; border-left: 4px solid var(--outline); }' "$energy")" "$NO_QUERY"
+
+# The head panel holds a third element on a host that publishes the host
+# snapshot: the host line, which names no area of its own. An out-of-flow meter
+# holds no cell, so the grid's own rules would put the line in the column the
+# meter gave up, against a track of nothing. Its column is named where the card
+# is.
+t_case "the host line keeps the column of the text beside the card"
+chip=$(rule_in '.floor-head > .floor-host {' "$energy")
+t_contains "$chip" 'grid-column: 1;'
+# The pin is in the same band as the card and in the stylesheet that moves the
+# meter: the column the card gave up and the column the line is kept out of are
+# one decision, read as one.
+t_eq "$(query_of 'grid-column: 1;' "$energy")" "$card_band"
+t_eq "$(query_of 'grid-column: 1;' "$energy")" "$(query_of 'grid-template-columns: minmax(0, 1fr) 0;' "$energy")"
+
 t_case "it costs 240px from 900 up to the width where the stage is one column"
 # The band is read out of the stylesheet that gives up the monitor's column: the
 # meter is not given its narrow column at a width of its own.
@@ -163,7 +278,10 @@ t_lacks "$energy_text" '.topbar'
 t_lacks "$energy_text" '.door.meter'
 
 t_case "the manual says the meter stands on the head panel, not among the doors"
-t_contains "$manual_text" 'live meter stands at the right end of the panel'
+t_contains "$manual_text" 'the panel that opens the first screen carries a'
+t_contains "$manual_text" 'live meter: the draw now'
+t_contains "$manual_text" 'it stands at the right end of the panel'
+t_contains "$manual_text" 'a card of its own beside that panel'
 t_lacks "$manual_text" 'meter stands among the doors'
 t_contains "$features_text" 'live meter on the head panel'
 t_lacks "$features_text" 'meter among the doors'
@@ -193,20 +311,6 @@ phone_body=$(awk 'NR > 1' <<<"$phone")
 rule() { # <opening line starts with this>
   awk -v hold="$1" '!on && (index($0, hold) == 1 || index($0, hold) == 3) { on = 1 }
     on { print } on && index($0, "}") { exit }' "$game"
-}
-
-# Every rule that opens with this selector and holds this declaration, printed
-# whole. The stylesheet names .monitor more than once; only one of those rules
-# is the wide sticky one.
-rules_holding() { # <opens with this> <declaration line holds this>
-  awk -v sel="$1" -v want="$2" '
-    index($0, sel) == 1 || index($0, sel) == 3 { on = 1; body = "" }
-    on { body = body $0 "\n" }
-    on && index($0, "}") {
-      on = 0
-      if (index(body, want)) printf "%s", body
-    }
-  ' "$game"
 }
 
 # What :root:has(.desk) sets the header clearance to inside a media block.
