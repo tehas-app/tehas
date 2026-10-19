@@ -1190,7 +1190,7 @@ tehas api [--json]
 ```
 api       1
 tehas     v0.8.0 (cb6912a)
-repo      janit/tehas
+repo      tehas-org/tehas
 features  status fixer-grant
 fixer     none
 ```

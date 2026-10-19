@@ -596,13 +596,16 @@ volume_fault() {
 # build <number>: fetch the pull request's head, build its recipe, replace the
 # container. The commit is the one fetched, which is the one built.
 build() {
-  local n=$1 sha log=$logs/preview-$1.log old retry=$root/$1/.retry tries=0 mark_sha mark_n fault
+  local n=$1 sha log=$logs/preview-$1.log old retry=$root/$1/.retry tries=0 mark_sha mark_n fault url
+  # The product checkout knows the address and how to sign in to it. Read on
+  # every build, so a repository that moved is followed here too.
+  url=$(git -C "${TEHAS_WORK_REPO:-/nonexistent}" config --get remote.origin.url 2>/dev/null) ||
+    url="https://github.com/$repo.git"
   if [ ! -d "$bare" ]; then
     git init -q --bare "$bare" || return 1
-    # The product checkout knows the address and how to sign in to it.
-    git -C "$bare" remote add origin \
-      "$(git -C "${TEHAS_WORK_REPO:-/nonexistent}" config --get remote.origin.url 2>/dev/null ||
-        echo "https://github.com/$repo.git")" || return 1
+    git -C "$bare" remote add origin "$url" || return 1
+  elif [ "$(git -C "$bare" config --get remote.origin.url)" != "$url" ]; then
+    git -C "$bare" remote set-url origin "$url" || return 1
   fi
   : >"$log"
   # Close the lock's descriptor on every command that can outlive the run: a
