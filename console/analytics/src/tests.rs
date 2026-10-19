@@ -2286,3 +2286,33 @@ fn an_export_to_a_path_that_is_not_utf8_leaves_no_file() {
     assert_eq!(err.0, 73, "{err:?}");
     assert!(!out.exists());
 }
+
+#[test]
+fn a_factory_whose_cycles_run_is_available_whatever_holds_the_next_start() {
+    let home = scratch("report-available");
+    let to = 1_792_022_400 + 10 * DAY;
+    let (conn, _) = db::open(&db::path(&home), to).unwrap();
+    // Ten minutes each: full slots, a hold with nothing running, a pause,
+    // nothing held, and a hold with running unknown.
+    for (i, (running, paused, held)) in [
+        (Some(4), 0, "count"),
+        (Some(0), 0, "awaiting"),
+        (Some(2), 1, ""),
+        (Some(0), 0, ""),
+        (None, 0, "count"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        conn.execute(
+            "INSERT INTO samples (at, running, paused, held) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![to - 3000 + i as i64 * 600, running, paused, held],
+        )
+        .unwrap();
+    }
+    let report = crate::report::build(&conn, to).unwrap();
+    assert_eq!(
+        report["availability"],
+        json!({"n": 5, "seconds": 3000, "share": 0.4})
+    );
+}
