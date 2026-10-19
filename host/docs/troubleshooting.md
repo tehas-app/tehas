@@ -199,11 +199,15 @@ Run `tehas dispatch --dry-run` and read what it prints.
   does not exist. The poll ends there on purpose: the pause switch, the limit
   and the labeller check are never decided on an answer that did not come.
 - `ERROR: <repo> is now <other> on GitHub`: the repository was renamed or
-  moved. Set `TEHAS_REPO` to the new name, point the product checkout's
-  `origin` at it, move the checkout if its directory was named after the old
-  one, and run `install.sh`. The dispatcher checks this at every poll because
-  GitHub answers a list call under the old name with an empty list, not an
-  error.
+  moved. Until it is put right the factory floor shows an empty board. Set
+  `TEHAS_REPO` to the new name, and `TEHAS_IMPROVE_REPO` too if it named the
+  same repository. Point the product checkout's `origin` at it, move the
+  checkout if its directory was named after the old one, and run
+  `install.sh`. When the product is tehas itself, point the platform
+  checkout's `origin` at it as well, or `tehas update` pulls from the old
+  name. Previews follow the product checkout on their next run. The
+  dispatcher checks this at every poll because GitHub answers a list call
+  under the old name with an empty list, not an error.
 - `tehas: ... is a checkout of ..., not of ...` or `no product checkout at ...`:
   the product checkout is missing or is a clone of another repository than
   `TEHAS_REPO`. Nothing is polled until that is put right.
@@ -376,7 +380,7 @@ cap means" say which check. Four kinds were seen:
   sheets (`host/fun/*.css`), and in one cycle scripts as well. Tests and
   manual pages are what the repository's rules require a change to touch, so
   the plan's fence and the rules disagree
-  (janit/tehas#159, trail-openers/pi-rukas#1250). Name in the issue every file
+  (tehas-org/tehas#159, trail-openers/pi-rukas#1250). Name in the issue every file
   the change will touch, the test file and the manual page included, as
   step 1 of [Operating](/operating) says.
 - `verify command ... failed on the CONSOLIDATED tree`, or `exceeded its
@@ -459,7 +463,7 @@ the pull request before you retry: while it is open, a new cycle stops at
 
 The adversarial review could not run: its dispatch failed twice. It says
 nothing about the code. All three times it was seen here, on 14 October, the
-model endpoint was timing out (janit/tehas#147,
+model endpoint was timing out (tehas-org/tehas#147,
 trail-openers/pi-rukas#1243). The work is committed on a local branch in the
 workspace and was not pushed. There is no pull request. Check the endpoint,
 as in "The model endpoint does not answer" below, and retry once it answers.

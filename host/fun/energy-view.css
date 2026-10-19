@@ -57,13 +57,19 @@
 .energy-gauge i { width: 6px; height: 16px; background: var(--bone); }
 .energy-gauge .is-used { background: var(--slate); }
 
-/* The live meter: mounted on the head panel at its right end, there only while
-   the mesh reports. It costs width, so its column is a number of its own:
-   336px where the stage has its monitor column, which is the column above the
-   work order monitor; 240px from 900px up to the width where the stage is one
-   column, the same band game-view.css gives the stage; and below 900px the
+/* The live meter: the reading at the right end of the head panel, there only
+   while the mesh reports. It costs width, so its column is a number of its
+   own: 336px where the stage has its monitor column, which is the column above
+   the work order monitor; 240px from 900px up to the width where the stage is
+   one column, the same band game-view.css gives the stage; and below 900px the
    panel cannot hold the text beside it, so the meter lies across the foot of
    the panel at its full width.
+   From 1440px, where that monitor column is, it is a card of its own beside
+   the panel rather than a band inside it: the panel gives up --meter-room, the
+   meter's column and the gutter the stage keeps between its panels, and the
+   meter stands in that room with the outline and the shadow every other card
+   has. The room is measured from the panel's outer edge, and the space it
+   leaves is the field, not the panel's face.
    Topaz advances half an em, and a token rate under a million a minute shows
    at most five figures, so the widest line needs 212px: 176 of the line
    itself, 32 of padding on its two sides and the 4px rule beside it. Below
@@ -94,6 +100,9 @@
 .floor-head:has(> .floor-meter:not([hidden])) {
   display: grid;
   --meter-column: 336px;
+  /* What the panel gives up at its right end where the meter is a card of its
+     own: the meter's column and the stage's gutter. */
+  --meter-room: calc(var(--meter-column) + 24px);
   grid-template-columns: minmax(0, 1fr) var(--meter-column);
   grid-template-rows: auto auto auto;
   grid-template-areas: "title meter" "intro meter" "foot meter";
@@ -102,6 +111,40 @@
 .floor-head > .floor-intro { grid-area: intro; }
 .floor-head > #floor-summary { grid-area: foot; }
 .floor-meter { grid-area: meter; border-left: 4px solid var(--outline); }
+
+/* Wide only: the meter is a card beside the panel, not a band inside it. The
+   panel gives up --meter-room at its right end, so its face ends at the stage's
+   first column and the meter stands in the room over the monitor column, with
+   the outline and the shadow the other cards carry.
+   The meter leaves the flow: an out-of-flow child of a grid measures itself
+   against the container's own edges, not against its rows, so the card spans
+   the panel however many rows the panel holds. --meter-room is counted from the
+   panel's outer edge, and the 4px it steps out at the top, the bottom and the
+   right is the panel's border, inside which the card's own edges would else
+   fall. The column the meter used to fill narrows to nothing, so the panel
+   keeps its whole width for the text. */
+@media (min-width: 1440px) {
+  .floor-head:has(> .floor-meter:not([hidden])) {
+    position: relative;
+    margin-right: var(--meter-room);
+    grid-template-columns: minmax(0, 1fr) 0;
+  }
+  /* The host line is the panel's third element and names no area of its own.
+     With the meter out of the flow nothing holds the column it gave up, so the
+     grid's own rules would place the line there, against a track of nothing. It
+     belongs under the summary, in the column of the text. */
+  .floor-head > .floor-host { grid-column: 1; }
+  .floor-head > .floor-meter {
+    position: absolute;
+    grid-area: auto;
+    top: -4px;
+    bottom: -4px;
+    right: calc(-1 * (var(--meter-room) + 4px));
+    width: var(--meter-column);
+    border: 4px solid var(--outline);
+    box-shadow: var(--shadow-sign);
+  }
+}
 
 /* The band where the stage has no monitor column: written as the negation of
    the width game-view.css gives the stage its column, so no width sits between
