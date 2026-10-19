@@ -47,6 +47,12 @@
 #     dispatcher takes, and whose answer to a planning question it takes,
 #     within a narrower grant than a person's (lib/fixer.sh). Unset is valid and means there is none. It is never
 #     one of TEHAS_ALLOWED_LABELERS.
+#   - TEHAS_LOW_GATE names a command the dispatcher runs before it starts the
+#     lowest issues (libexec/dispatch, rule 7). Unset is valid and means there
+#     is no gate, and the dispatcher behaves as it did before the setting.
+#     TEHAS_LOW_GATE_WAIT is how many seconds that command gets, at most 600:
+#     the poll holds its own lock while it waits, so a longer bound only delays
+#     every later poll.
 #   - Nothing falls back to a project: a setting with no generic default stays
 #     unset until tehas_require asks for it.
 
@@ -95,6 +101,15 @@ _tehas_valid() {
     TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_IMPROVE_MAX_OPEN | TEHAS_FIXER_MAX_RETRIES | TEHAS_FIXER_MAX_PLAN_ANSWERS | TEHAS_REFRESH_MAX | TEHAS_WORK_TIMEOUT | TEHAS_WORK_STALL | TEHAS_CONCURRENCY | TEHAS_TICKET_CONCURRENCY | \
       TEHAS_PLAN_MAX_TURNS | TEHAS_PLAN_TIMEOUT | TEHAS_VERIFY_TIMEOUT)
       _tehas_is_count "$v" || { echo "expected a positive whole number"; return 1; }
+      ;;
+    TEHAS_LOW_GATE_WAIT)
+      # The dispatcher waits for the gate while it holds state/dispatch.lock, so
+      # these seconds delay every later poll too: that is the ceiling. Its length
+      # is checked before the value, so a number no comparison can hold is
+      # refused by the length instead of by a failing comparison.
+      _tehas_is_count "$v" || { echo "expected a positive whole number"; return 1; }
+      [ "${#v}" -le 3 ] && [ "$v" -le 600 ] ||
+        { echo "expected at most 600 seconds"; return 1; }
       ;;
     TEHAS_ALLOWED_LABELERS)
       # Exactly one space between logins and none around them: the dispatcher
@@ -164,6 +179,10 @@ _tehas_valid() {
       # A check run's name goes into a URL and into the log.
       [[ $v =~ ^[A-Za-z0-9._()/-]+(\ [A-Za-z0-9._()/-]+)*$ ]] ||
         { echo "expected the name of a check, words of letters, digits and ._()/- separated by single spaces"; return 1; }
+      ;;
+    TEHAS_LOW_GATE)
+      # Run by the dispatcher as one word, with no shell between.
+      [[ $v =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "expected an absolute path"; return 1; }
       ;;
     PI_ENSEMBLE_SUBAGENT_MODEL | PI_ENSEMBLE_SUBAGENT_PROVIDER | PI_ENSEMBLE_MODEL_* | PI_ENSEMBLE_PROVIDER_* | TEHAS_BRANCH)
       [[ $v =~ ^[^[:space:]]+$ ]] || { echo "expected one word"; return 1; }
@@ -350,6 +369,11 @@ tehas_load() {
   # The check on the branch's head commit whose failure holds new cycles back.
   # Unset, the poll does not ask.
   export TEHAS_BRANCH_CHECK=${TEHAS_BRANCH_CHECK:-}
+  # The command that decides whether the lowest issues may start. Unset, there
+  # is no gate and every ready issue is started as before. How many seconds it
+  # gets before its answer is a closed gate.
+  export TEHAS_LOW_GATE=${TEHAS_LOW_GATE:-}
+  export TEHAS_LOW_GATE_WAIT=${TEHAS_LOW_GATE_WAIT:-60}
   # Settings that only work around a pi-rukas defect, each with the release
   # that fixes it. tehas work refuses a cycle once the image has that release,
   # so a workaround does not outlive its reason.
@@ -414,14 +438,14 @@ tehas_load() {
   export PI_ENSEMBLE_NO_DOCKER_SOCKET=1 PI_ENSEMBLE_NO_SSH=1
 
   for v in TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_WORK_DESCRIBE TEHAS_WORK_FILES TEHAS_WORK_COMMENTS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_TOP TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
-    TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_RESERVE; do
+    TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_LOW_GATE_WAIT; do
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
   for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL; do
     [ -n "${!v:-}" ] || continue
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
-  for v in TEHAS_ANALYTICS_SRC TEHAS_ANALYTICS_SITE TEHAS_IMPROVE_REPO TEHAS_IMPROVE_RUKAS_REPO TEHAS_IMPROVE_MAX_OPEN TEHAS_FIXER_LOGIN TEHAS_RUKAS_WORKAROUNDS TEHAS_BRANCH_CHECK; do
+  for v in TEHAS_ANALYTICS_SRC TEHAS_ANALYTICS_SITE TEHAS_IMPROVE_REPO TEHAS_IMPROVE_RUKAS_REPO TEHAS_IMPROVE_MAX_OPEN TEHAS_FIXER_LOGIN TEHAS_RUKAS_WORKAROUNDS TEHAS_BRANCH_CHECK TEHAS_LOW_GATE; do
     [ -n "${!v}" ] || continue
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done

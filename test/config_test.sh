@@ -281,7 +281,8 @@ for bad in "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=0" "TEHAS_TICKET_CONC
   "TEHAS_IMPROVE_MAX_OPEN=0" "TEHAS_IMPROVE_MAX_OPEN=many" \
   "TEHAS_RUKAS_WORKAROUNDS=PI_ENSEMBLE_X" "TEHAS_RUKAS_WORKAROUNDS=PI_ENSEMBLE_X@soon" "TEHAS_RUKAS_WORKAROUNDS=PATH@1.2" \
   "TEHAS_RUKAS_WORKAROUNDS=PI_ENSEMBLE_X@1.2  TEHAS_TOP@1.3" "TEHAS_RUKAS_WORKAROUNDS=PI_ENSEMBLE_X@1" \
-  "TEHAS_BRANCH_CHECK=verify&x=1" "TEHAS_BRANCH_CHECK=two  spaces" "TEHAS_BRANCH_CHECK= verify" "TEHAS_BRANCH_CHECK=a\"b"; do
+  "TEHAS_BRANCH_CHECK=verify&x=1" "TEHAS_BRANCH_CHECK=two  spaces" "TEHAS_BRANCH_CHECK= verify" "TEHAS_BRANCH_CHECK=a\"b" \
+  "TEHAS_LOW_GATE=gate" "TEHAS_LOW_GATE=./x/gate" "TEHAS_LOW_GATE=/x/cheap power" "TEHAS_LOW_GATE=/x/gate "; do
   t_case "loading rejects $bad"
   printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
   t_run "$load; echo rc=\$?"
@@ -557,6 +558,52 @@ t_eq "$t_out" "[]"
 printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_BRANCH_CHECK='build / verify (linux)'" >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && echo \"[\$TEHAS_BRANCH_CHECK]\""
 t_eq "$t_out" "[build / verify (linux)]"
+
+t_case "TEHAS_LOW_GATE: unset is none, an absolute path is kept"
+t_instance "${T_MINIMAL[@]}"
+t_run "$load && set -u && echo \"[\$TEHAS_LOW_GATE]\""
+t_eq "$t_out" "[]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_LOW_GATE=/x/gate >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_LOW_GATE]\""
+t_eq "$t_out" "[/x/gate]"
+
+for bad in "gate" "bin/gate" "/x/cheap power" "/x/gate "; do
+  t_case "loading rejects a TEHAS_LOW_GATE of '$bad'"
+  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_LOW_GATE='$bad'" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "TEHAS_LOW_GATE is not valid: expected an absolute path"
+done
+t_case "TEHAS_LOW_GATE_WAIT: 60 seconds unless the instance says otherwise"
+t_instance "${T_MINIMAL[@]}"
+t_run "$load && set -u && echo \"[\$TEHAS_LOW_GATE_WAIT]\""
+t_eq "$t_out" "[60]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_LOW_GATE=/x/gate TEHAS_LOW_GATE_WAIT=5 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_LOW_GATE_WAIT]\""
+t_eq "$t_out" "[5]"
+for bad in "soon" "0" "-5" "1.5" "60 "; do
+  t_case "loading rejects a TEHAS_LOW_GATE_WAIT of '$bad'"
+  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_LOW_GATE_WAIT='$bad'" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "TEHAS_LOW_GATE_WAIT is not valid: expected a positive whole number"
+done
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_LOW_GATE_WAIT=600 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_LOW_GATE_WAIT]\""
+t_eq "$t_out" "[600]"
+# The poll waits for the gate while it holds state/dispatch.lock, so every later
+# poll is held up by these seconds too: a mistyped huge value must stop loading,
+# not wait for a day. A digit string no comparison can hold is refused by its
+# length, with no complaint from the comparison itself.
+for bad in "601" "9999" "99999999999999999999"; do
+  t_case "loading rejects a TEHAS_LOW_GATE_WAIT of '$bad'"
+  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_LOW_GATE_WAIT='$bad'" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "TEHAS_LOW_GATE_WAIT is not valid: expected at most 600 seconds"
+  t_lacks "$t_out" "integer expression"
+done
+printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
 
 t_case "a checkout without origin/HEAD fails with both remedies"
 t_instance "${T_MINIMAL[@]}"

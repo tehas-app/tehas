@@ -178,7 +178,12 @@ repository's contract files were on a work branch when the instance was set up.
 ## Not built
 
 - Monitoring: availability probes, incident issues, weekly report.
-- Electricity price scheduling. `tehas:urgent` only changes ordering today.
+- Electricity price command (#410). The gate for the lowest issues exists:
+  `TEHAS_LOW_GATE` names a command the dispatcher asks before it starts an issue
+  it puts on neither the urgent list nor the `tehas:next` list, and only exit 0
+  lets them start (see [tehas dispatch](/tools#tehas-dispatch)). Nothing on a host
+  fills it yet, and no command reads prices yet. `tehas:urgent` and `tehas:next`
+  change ordering only.
 - Model evaluation; every role uses the same model by default, by decision,
   not by measurement.
 - Watching tehas itself: a failed refresh. A full disk is seen where previews
