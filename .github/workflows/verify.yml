@@ -15,8 +15,10 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   verify:
-    runs-on: ubuntu-24.04
-    # A passing run takes 7 to 15 minutes on a hosted runner.
+    # tehas-runner, the organization's own runner: it holds cargo (the
+    # RUST_VERSION of host/versions.env), bash, git, jq and Docker, and gives
+    # the job no sudo. A passing run took 7 to 15 minutes on a hosted runner.
+    runs-on: [self-hosted, tehas]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -29,8 +31,8 @@ jobs:
             "https://github.com/koalaman/shellcheck/releases/download/v$SHELLCHECK_VERSION/shellcheck-v$SHELLCHECK_VERSION.linux.x86_64.tar.xz"
           echo "$SHELLCHECK_SHA256  $RUNNER_TEMP/shellcheck.tar.xz" | sha256sum -c -
           tar -xJf "$RUNNER_TEMP/shellcheck.tar.xz" -C "$RUNNER_TEMP"
-          sudo install -m 755 "$RUNNER_TEMP/shellcheck-v$SHELLCHECK_VERSION/shellcheck" /usr/local/bin/shellcheck
-          shellcheck --version
-      # bash, git, jq and cargo come with the runner image.
+          # On the job's PATH, not in /usr/local/bin: the runner gives no sudo.
+          echo "$RUNNER_TEMP/shellcheck-v$SHELLCHECK_VERSION" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/shellcheck-v$SHELLCHECK_VERSION/shellcheck" --version
       - name: scripts/verify.sh
         run: scripts/verify.sh

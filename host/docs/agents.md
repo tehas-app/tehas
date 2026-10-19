@@ -22,7 +22,7 @@ Read http://<this host>/llms.txt, then set tehas up for this repository. Ask me 
 ```
 
 Away from this host, start from the README of the
-[public repository](https://github.com/janit/tehas) instead. A running factory
+[public repository](https://github.com/tehas-org/tehas) instead. A running factory
 to look at is the public dashboard at <https://tehas.app/>.
 
 ## What an agent can read here
@@ -32,7 +32,7 @@ to look at is the public dashboard at <https://tehas.app/>.
 | `/llms.txt`                             | The entry point: a summary and links, as plain text            |
 | `/<page>.md`                            | Any manual page as Markdown, for example `/new-project.md`     |
 | `/health`                               | Factory health as JSON; 503 when unhealthy                     |
-| `/live/status.json`                     | The queue snapshot: repository, issues by state, paused or not, and the most used words of all its issues |
+| `/live/status.json`                     | The queue snapshot: repository, issues by state, how many are in planning, paused or not, and the most used words of all its issues |
 | `/live/running.json`                    | The running cycles and the one that finished last              |
 | `/live/endings.json`                    | The last ten cycles that ended, oldest first                   |
 | `/live/console-<issue>.txt`             | That cycle's console, with tokens and passwords masked         |

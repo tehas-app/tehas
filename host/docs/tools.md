@@ -220,7 +220,7 @@ neither stops the poll.
 Every real poll that holds the dispatcher's lock, a paused, held or failed one
 too, ends with one sample in the factory's analytics,
 `~/tehas/state/analytics.db`: `~/tehas/libexec/analytics sample` reads the
-issues in line, running, awaiting a merge and stopped from
+issues in line, running, awaiting a merge, stopped and in planning from
 `~/tehas/live/status.json`, the hold and the cycles allowed from
 `~/tehas/live/dispatch.json`, and the mesh's draw from
 `~/tehas/live/energy.json`. A file older than ten minutes gives no value, and a
@@ -287,6 +287,15 @@ While the turn runs its unit holds `~/tehas/state/plan-<issue>.json.lock`, as a
 cycle holds `state/cycles/<issue>.lock`; a poll that finds it held starts no
 other turn. When the turn ends the unit leaves `state/dispatch.again`, which
 starts a poll, as the end of a cycle does.
+As the poll takes up a turn that ended, it records it in the factory's
+analytics: `~/tehas/libexec/analytics plan <issue> --rc <how it ended>` reads
+the record before it is rewritten and stores one run of kind `plan`, with its
+start, its end (when the poll took it up), its number in the session and its
+outcome: `handoff` for a turn that asked its question, `stopped` for a session
+Pi no longer has, `refused` for a turn that ran nothing, `failed` for any
+other. pi's rpc mode reports no token usage, so a planning turn has none. A
+call that fails is a line `WARN analytics plan: exit N` in the log and
+changes nothing in the turn.
 One planning turn runs at a time. A comment is a question only if the host has its id on record:
 in `~/tehas/state/plan-<issue>.json` for a planning session, in
 `~/tehas/state/park-<issue>.id` for a stopped cycle. Only the last 100
@@ -1144,7 +1153,7 @@ tehas api [--json]
 ```
 api       1
 tehas     v0.8.0 (cb6912a)
-repo      janit/tehas
+repo      tehas-org/tehas
 features  status fixer-grant
 fixer     none
 ```
@@ -1379,10 +1388,74 @@ call.
 Feed the [factory floor](/) and the [plain dashboard](/dashboard). `tehasbot status` writes the queue snapshot to
 `~/tehas/live/status.json`; the dispatcher runs it at every poll, and a cycle when it ends.
 Completed means closed by a merged pull request, whatever labels the issue was
-left with. `tehasbot status` gives each such issue `tehas:shipped`, so GitHub
+left with. `planning` is a count, not a list: the open issues labelled
+`tehas:plan` or `tehas:planning`, found by the same search as the lists. `tehasbot status` gives each such issue `tehas:shipped`, so GitHub
 lists the same issues; run `tehas labels` once so the label exists. The control
 issue, the one `TEHAS_CONTROL_ISSUE` names, is left out of every list and every
 count: it holds the pause label and is not work, whatever label it carries.
+
+`tehasbot status` also records issue events in the factory's analytics,
+`~/tehas/state/analytics.db`, by comparing the snapshot it writes with the one
+it replaces: `awaiting` and `stopped` for an issue new in that list, at the
+time of the run; `merged` for an issue new in completed, and `closed` for one
+that was in line, running or stopped before and is now closed and not
+completed, both at the time GitHub says it was closed. An issue that was
+awaiting a merge is not recorded as closed: GitHub's search for completed work
+can lag, and its `merged` comes when it catches up. The program keeps the first of each per issue. A
+snapshot before that is missing, not one, or more than an hour old counts as
+none: the run then records only `merged` and `closed`. Nothing older than ten
+days is recorded. Each call may take 5 seconds, and no call starts after
+three such limits, so the calls take about 21 seconds at most. One that fails
+or runs out of time is a line `WARN analytics event: exit N` on standard error
+and changes nothing in the snapshot. Its event is lost: the next run compares
+with the new snapshot and does not try it again.
+`TEHAS_ANALYTICS=off` makes no call.
+
+At the end of every run, also one that ends early because GitHub does not
+answer, `tehasbot status` writes `~/tehas/live/analytics.json`, the ten-day
+report of the factory's analytics, from `~/tehas/libexec/analytics report
+--json`. It writes `analytics.json.new` and moves it into place, and keeps only
+the top-level keys it names, so a key the program adds later is not published
+until someone adds it to that list in `libexec/status`. The call has the same
+5-second limit. A report that fails or is not one is a line `WARN analytics
+report: ...` on standard error; the file that is there stays while it is less
+than ten minutes old, so one poll that meets a locked database does not empty
+the dashboard's section, and is removed after that, so a database that keeps
+failing does not show old figures. With `TEHAS_ANALYTICS=off`, or where the
+program is not installed, there is no file.
+
+The file is public, as `status.json` is. It holds counts, durations, token
+sums, version strings and the words of stop reasons and steps: no issue
+number, title, failure cause, account, model or provider. A stop reason or a
+step that is not a plain word (`a-z`, `0-9`, `:`, `_`, `-`, up to 60
+characters) is counted as `other`. Every figure carries its count `n`, and a
+value that cannot be worked out, such as a share of nothing, is left out
+rather than written as null. Durations are seconds, times Unix seconds.
+
+The window is ten UTC days: from midnight nine days before today to the time
+of the report. Run figures count the work runs that ended in it; planning
+turns are only counted.
+
+| Key | What it is |
+| --- | --- |
+| `report` | The version of this shape, `1` |
+| `from`, `to` | The window |
+| `shipped` | `n`: issues whose merge is in the window, by their `merged` event or a run that merged |
+| `planned` | Work to do, from the latest sample: `n` is `inLine` plus `planning`; `trend` is one `{day, n}` per day, the day's last sample, `n` left out on a day with none. Left out with no sample |
+| `runs` | `n` work runs, and how many ended as `pr`, `merged`, `handoff`, `parked`, `failed`, `refused` and `stopped` |
+| `planningTurns` | `n` planning turns that ended |
+| `handoffRate` | `share` of the `n` runs that ended needing a person: handed off or parked |
+| `firstPassYield` | `share` of the `n` shipped issues with a run here that took exactly one work run |
+| `leadTime` | `median` and `p90` seconds from the first accepted `tehas:ready` to the merge, over `n` shipped issues whose `ready` is still in the database |
+| `cycleTime` | `median` and `p90` seconds of the `n` runs |
+| `machineTime` | `seconds` of all `n` runs, and `perShipped` |
+| `tokens` | `total`, `input`, `output` and `cacheRead` of the `n` runs that reported usage, and `perShipped` (of the total) |
+| `availability` | `share` of the `seconds` since the first sample in the window that the factory could take work, from `n` samples. A sample counts for the time to the next, at most ten minutes, and only when it says not paused and no hold; a stretch with no samples counts as not available |
+| `energy` | `kwh` and `perShipped`, from the `n` samples with the mesh's draw: each draw over the time to the next sample, at most ten minutes. Left out where no sample has one |
+| `daily` | Ten `{day, shipped, runs, failed, minutes}`, oldest first: issues shipped, runs ended and of them failed, and their minutes |
+| `stopReasons` | `top`: the five most common `{reason, n}` among the `n` runs that ended without a pull request, not counting those a person stopped. The reason is the failure kind, the cap for a failure that is a cap, else the park reason, else how the run ended |
+| `stations` | `steps`: per step, in the order runs reach it, the `n` runs that reached it, how many `passed` and the `share`. A run that reached a pull request passed every step it ran; one handed off, parked or failed stopped in its failed step, else its last. `n` is the runs counted: refused and stopped runs are not |
+| `versions` | One `{tehas, rukas, n}` per version pair, the pair that ran last first, at most ten. With three runs or more also `prShare` (reached a pull request), `medianSeconds` and `medianTokens` (input, output and cache read). A version that is not known is left out |
 
 `tehasbot status` also writes `~/tehas/live/platform.json`: the commit the
 platform checkout `~/tehas/platform` is at, `upstream` (origin's default

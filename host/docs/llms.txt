@@ -32,7 +32,7 @@
   platform for both home and enterprise grade hardware. It is the model
   backend of the example instance. Tehas does not require it: any
   OpenAI-compatible endpoint works.
-- Source: https://github.com/janit/tehas
+- Source: https://github.com/tehas-org/tehas
 
 - [Pi software factory]({{ $base }}/pi-software-factory.md): who does what, the path of an issue, and what tehas adds to running Pi by hand
 - [Features]({{ $base }}/features.md): every part, with how far it has been proven
@@ -80,7 +80,7 @@ starting a session; a push from a session is not yet seen.
 
 ## Set tehas up for another repository
 
-The source is at https://github.com/janit/tehas, and a running example with
+The source is at https://github.com/tehas-org/tehas, and a running example with
 this same manual is at https://tehas.app/. Be honest with your human about its
 state: issue to pull request is the supported contract and needs settings only.
 A running preview of every pull request has been seen working on one host,
