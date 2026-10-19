@@ -287,7 +287,7 @@ echo "tehas dev: tehas.slice has room for $room more cycles$why"
 # TERM and COLORTERM by name: Pi draws a terminal interface, and docker's own
 # default describes a plainer terminal than most people sit at.
 docker run --rm -it --init --name "tehas-dev-$name" \
-  "${TEHAS_SLICE_LIMITS[@]}" "${sec[@]}" \
+  "${TEHAS_SLICE_LIMITS[@]}" "${sec[@]}" --user "$(id -u):$(id -g)" \
   -w "$tree" "${mounts[@]}" "${image_opts[@]}" \
   "${envs[@]}" -e TERM -e COLORTERM "${hosts[@]}" \
   "$PI_ENSEMBLE_IMAGE" pi "${pi_args[@]}"
