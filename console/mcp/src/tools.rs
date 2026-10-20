@@ -304,20 +304,27 @@ fn console(live: &Path, args: &Value) -> Result<Map<String, Value>, ToolError> {
     // The only file name this opens, and only when running.json gives it.
     let name = format!("console-{issue}.txt");
     if cycle["console"].as_str() == Some(name.as_str()) {
-        if let Ok(text) = std::fs::read(live.join(&name)) {
-            out.insert("console".into(), json!(tail(&text, bytes as usize)));
+        if let Some(text) = read_tail(&live.join(&name), bytes) {
+            out.insert("console".into(), json!(text));
         }
     }
     Ok(out)
 }
 
-/// The last `n` bytes, cut forward to the start of a character.
-fn tail(text: &[u8], n: usize) -> String {
-    let mut start = text.len().saturating_sub(n);
-    while start < text.len() && (text[start] & 0b1100_0000) == 0b1000_0000 {
-        start += 1;
-    }
-    String::from_utf8_lossy(&text[start..]).into_owned()
+/// The last `n` bytes of a file, cut forward to the start of a character.
+/// Only those bytes are read: a console only grows.
+fn read_tail(path: &Path, n: u64) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(path).ok()?;
+    let len = f.metadata().ok()?.len();
+    f.seek(SeekFrom::Start(len.saturating_sub(n))).ok()?;
+    let mut text = Vec::with_capacity(n.min(len) as usize);
+    f.take(n).read_to_end(&mut text).ok()?;
+    let start = text
+        .iter()
+        .position(|b| b & 0b1100_0000 != 0b1000_0000)
+        .unwrap_or(text.len());
+    Some(String::from_utf8_lossy(&text[start..]).into_owned())
 }
 
 fn stats(live: &Path) -> Result<Map<String, Value>, ToolError> {
