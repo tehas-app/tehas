@@ -102,7 +102,7 @@ ended() { # status step [branch] [cap]
   [ "$cap" != - ] || cap=""
   mkdir -p "$workdir"
   jq -n --arg status "$1" --arg step "$2" --arg branch "${3:-}" --arg cap "$cap" \
-    '{schemaVersion: 4, issues: [{issue: 7, status: $status, failedStep: $step, branch: $branch}
+    '{schemaVersion: 5, issues: [{issue: 7, status: $status, failedStep: $step, branch: $branch}
       + (if $cap == "" then {} else {cap: $cap} end)]}' >"$fx/result.json"
   case "$1" in merged) echo 0 ;; handoff) echo 10 ;; aborted) echo 20 ;; interrupted) echo 21 ;; *) echo 30 ;; esac >"$fx/rc"
 }

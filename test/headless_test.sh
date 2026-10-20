@@ -8,10 +8,12 @@
 # whose --capabilities lists family members and features.failureReason and
 # features.usageByRole, and whose result carries failure and usage.byRole.
 # test/fixtures/headless-316134e is the same from the image of pi-rukas main at
-# 316134e (still version 0.12.80), the first on result schema 4: its result is
-# the one tehas reads. The two before it are on schema 3 and are kept for the
-# progress lines and for the refusal. One default in each answer from main named
-# a private address and is replaced by a documentation one.
+# 316134e (still version 0.12.80), the first on result schema 4.
+# test/fixtures/headless-c5ddc0a is the same from the v0.14.0 release (c5ddc0a),
+# the first on result schema 5: its result is the one tehas reads. The ones
+# before it are kept for the progress lines and for the refusal. One default in
+# each answer from main named a private address and is replaced by a
+# documentation one.
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=lib/cycles.sh
@@ -22,20 +24,20 @@ fx=$T_ROOT/test/fixtures/headless-0.12.80
 caps=$(cat "$fx/capabilities.json")
 nx=$T_ROOT/test/fixtures/headless-1ca933e
 ncaps=$(cat "$nx/capabilities.json")
-sx=$T_ROOT/test/fixtures/headless-316134e
+sx=$T_ROOT/test/fixtures/headless-c5ddc0a
 scaps=$(cat "$sx/capabilities.json")
 # What tehas work gives a cycle's container, of PI_ENSEMBLE_* names.
 given="PI_ENSEMBLE_SANDBOX_MODE PI_ENSEMBLE_WORKSPACE_ROOT PI_ENSEMBLE_MAX_WORKSTREAMS PI_ENSEMBLE_VERIFY_TIMEOUT_MS
   PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER"
 
-t_case "the runner of 316134e, on result schema 4, supports what tehas gives a cycle"
+t_case "the runner of v0.14.0, on result schema 5, supports what tehas gives a cycle"
 t_eq "$(tehas_headless_unsupported "$scaps" "--timeout 360 --json --restart" "$given PI_ENSEMBLE_EXTRA_IMAGE_DIRS")" ""
 
 t_case "a runner on result schema 3 is refused for that alone"
 t_eq "$(tehas_headless_unsupported "$caps" "--timeout 360 --json --restart" "$given PI_ENSEMBLE_EXTRA_IMAGE_DIRS")" \
-  "result schema version 3, not 4"
+  "result schema version 3, not 5"
 t_eq "$(tehas_headless_unsupported "$ncaps" "--timeout 360 --json --restart" "$given PI_ENSEMBLE_EXTRA_IMAGE_DIRS")" \
-  "result schema version 3, not 4"
+  "result schema version 3, not 5"
 
 t_case "a role's model and provider are inputs of their family"
 t_eq "$(tehas_headless_unsupported "$scaps" "--json" "PI_ENSEMBLE_MODEL_DEVELOPER PI_ENSEMBLE_PROVIDER_CODE_REVIEW_SPECIALIST")" ""
@@ -50,9 +52,9 @@ t_case "only the flags are checked, not their values"
 t_eq "$(tehas_headless_unsupported "$scaps" "--timeout 360 --json --bogus" "")" "the flag --bogus"
 
 t_case "each contract version is checked"
-t_eq "$(tehas_headless_unsupported "$(jq -c '.contracts.exitCodes.version = 2 | .contracts.resultSchema.version = 5 | .contracts.ndjson.stable.version = 9' <<<"$scaps")" "" "")" \
+t_eq "$(tehas_headless_unsupported "$(jq -c '.contracts.exitCodes.version = 2 | .contracts.resultSchema.version = 6 | .contracts.ndjson.stable.version = 9' <<<"$scaps")" "" "")" \
   "exit codes version 2, not 1
-result schema version 5, not 4
+result schema version 6, not 5
 stable NDJSON version 9, not 1"
 t_contains "$(tehas_headless_unsupported '{}' "" "")" "exit codes version null"
 
@@ -63,7 +65,7 @@ for bad in "" "not json" "[]" "7" "null"; do
 done
 
 t_case "a name in the answer is a pattern only of name characters"
-t_eq "$(tehas_headless_unsupported '{"contracts":{"exitCodes":{"version":1},"resultSchema":{"version":4},"ndjson":{"stable":{"version":1}}},
+t_eq "$(tehas_headless_unsupported '{"contracts":{"exitCodes":{"version":1},"resultSchema":{"version":5},"ndjson":{"stable":{"version":1}}},
   "inputs":[{"name":"PI_ENSEMBLE_.*","scope":"cycle"},{"name":"PI_ENSEMBLE_A|PI_ENSEMBLE_B","scope":"cycle"}]}' "" "PI_ENSEMBLE_A")" \
   "the input PI_ENSEMBLE_A"
 
@@ -82,7 +84,7 @@ t_eq "$(tehas_headless_unsupported "$(jq -c 'del(.inputs[] | select(.name == "PI
   "--json" "PI_ENSEMBLE_MODEL_REVIEWER")" ""
 
 t_case "a member is only of name characters"
-t_eq "$(tehas_headless_unsupported '{"contracts":{"exitCodes":{"version":1},"resultSchema":{"version":4},"ndjson":{"stable":{"version":1}}},
+t_eq "$(tehas_headless_unsupported '{"contracts":{"exitCodes":{"version":1},"resultSchema":{"version":5},"ndjson":{"stable":{"version":1}}},
   "inputs":[{"name":"PI_ENSEMBLE_MODEL_<ROLE>","scope":"cycle","members":["A|.*","OPS"]}]}' "" "PI_ENSEMBLE_MODEL_A PI_ENSEMBLE_MODEL_X PI_ENSEMBLE_MODEL_OPS")" \
   "the input PI_ENSEMBLE_MODEL_A
 the input PI_ENSEMBLE_MODEL_X"
@@ -234,8 +236,9 @@ t_eq "$(tehas_headless_unsupported "$(jq -c '.features = [1]' <<<"$scaps")" "--j
 t_case "a workaround expires at the release that fixes it"
 t_eq "$(tehas_headless_expired "$scaps" "")" ""
 t_eq "$(tehas_headless_expired "$scaps" "PI_ENSEMBLE_COMMENT_RETENTION@0.12.80 TEHAS_WORK_IMAGES@0.12.81 PI_ENSEMBLE_X@0.9.100")" \
-  "PI_ENSEMBLE_COMMENT_RETENTION works around a pi-rukas defect fixed in 0.12.80, and the image's pi-rukas is 0.12.80
-PI_ENSEMBLE_X works around a pi-rukas defect fixed in 0.9.100, and the image's pi-rukas is 0.12.80"
+  "PI_ENSEMBLE_COMMENT_RETENTION works around a pi-rukas defect fixed in 0.12.80, and the image's pi-rukas is 0.14.0
+TEHAS_WORK_IMAGES works around a pi-rukas defect fixed in 0.12.81, and the image's pi-rukas is 0.14.0
+PI_ENSEMBLE_X works around a pi-rukas defect fixed in 0.9.100, and the image's pi-rukas is 0.14.0"
 t_eq "$(tehas_headless_expired "$(jq -c '.version = "0.13.1"' <<<"$scaps")" "TEHAS_WORK_IMAGES@0.12.81")" \
   "TEHAS_WORK_IMAGES works around a pi-rukas defect fixed in 0.12.81, and the image's pi-rukas is 0.13.1"
 for bad in '.version = null' '.version = "0.12.80; rm"' 'del(.version)'; do
@@ -252,13 +255,13 @@ t_eq "$(tehas_headless_outcome "$T/r.json" 7 | jq '.handoffBody | length')" 3000
 
 t_case "the outcome of the fixture is its handoff"
 t_eq "$(tehas_headless_outcome "$sx/result.json" 7 | jq -c '[.status, .cap, .failedStep, .lastStep, .exitCode, .resumable, .buildVersion, .usage.dispatches]')" \
-  '["handoff","explore-bodies-empty","explore","handoff",10,false,"0.12.80",0]'
-t_eq "$(tehas_headless_outcome "$sx/result.json" 7 | jq -r .buildCommit)" 316134eab4e69582945cc40f25eac9ebe7c5efc7
+  '["handoff","explore-bodies-empty","explore","handoff",10,false,"0.14.0",0]'
+t_eq "$(tehas_headless_outcome "$sx/result.json" 7 | jq -r .buildCommit)" c5ddc0ab9de62edeaac948263d7f8a8f5b123066
 
 t_case "another issue, another schema or no file is no outcome"
 tehas_headless_outcome "$sx/result.json" 8 >/dev/null
 t_eq "$?" 4
-for v in 2 3 5; do
+for v in 2 3 4 6; do
   jq --argjson v "$v" '.schemaVersion = $v' "$sx/result.json" >"$T/r.json"
   t_eq "$(tehas_headless_outcome "$T/r.json" 7)" ""
 done
@@ -272,16 +275,16 @@ t_eq "$(tehas_headless_outcome "$T/r.json" 7 | jq -c .exitCode)" null
 jq '.issues[0].exitCode = "0"' "$sx/result.json" >"$T/r.json"
 t_eq "$(tehas_headless_outcome "$T/r.json" 7 | jq -c .exitCode)" null
 
-t_case "a schema 4 result with no issue entry is error only, and one with entries is not"
-echo '{"schemaVersion":4,"issues":[],"error":{"code":"refused"}}' >"$T/r.json"
+t_case "a schema 5 result with no issue entry is error only, and one with entries is not"
+echo '{"schemaVersion":5,"issues":[],"error":{"code":"refused"}}' >"$T/r.json"
 tehas_headless_error_only "$T/r.json"
 t_eq "$?" 0
-echo '{"schemaVersion":4,"error":{"code":"refused"}}' >"$T/r.json"
+echo '{"schemaVersion":5,"error":{"code":"refused"}}' >"$T/r.json"
 tehas_headless_error_only "$T/r.json"
 t_eq "$?" 0
 tehas_headless_error_only "$sx/result.json"
 t_eq "$?" 1
-for bad in '{"schemaVersion":3,"issues":[]}' '{"schemaVersion":4,"issues":{}}' '[]' 'not json'; do
+for bad in '{"schemaVersion":3,"issues":[]}' '{"schemaVersion":5,"issues":{}}' '[]' 'not json'; do
   echo "$bad" >"$T/r.json"
   tehas_headless_error_only "$T/r.json"
   t_eq "$?" 1
