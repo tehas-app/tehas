@@ -933,6 +933,59 @@ clear_unauthorised() {
   fi
 }
 
+# epic_ok <issue>: is that number work this factory starts? An issue with open
+# sub-issues is an epic: a plan broken into issues, not a change one cycle can
+# make. Starting one spends a slot and a stack of tokens and parks as too
+# large, so it never starts.
+#
+# The count comes from the answer work_ok already read, so this asks GitHub
+# nothing: a GitHub Enterprise without sub-issues answers without the field and
+# the issue starts as any other. A total of no open sub-issue starts too, and so
+# does an answer whose two numbers are not numbers, or one where the completed
+# count is above the total.
+#
+# An epic that carries tehas:ready loses that label and says why on the issue
+# once, as clear_unauthorised does, the comment following the label change. A
+# retry tick is no label of tehas's to take off, and an epic need not carry
+# tehas:ready at all, so on that path nothing of the issue is changed and
+# nothing is said on it: its tick stays, as a tick a hold leaves, and a poll
+# that finds it again says the one line in the log rather than comment on the
+# issue every two minutes.
+#
+# Call it where a cycle is about to start, after work_ok, on the `tehas:ready`
+# path and on the retry tick of a park question. A planning session on an epic
+# is allowed: planning an epic is what planning is for.
+# Returns 1 when the issue is an epic.
+epic_ok() {
+  local n=$1 open word
+  open=$(jq -r 'if ((.sub_issues_summary // null) | type) == "object" and
+                  ((.sub_issues_summary.total | type) == "number") and
+                  ((.sub_issues_summary.completed | type) == "number")
+                then (.sub_issues_summary.total - .sub_issues_summary.completed)
+                else "" end' <<<"${work_answer[$n]:-}" 2>/dev/null) || open=""
+  [[ $open =~ ^[0-9]+$ ]] || return 0
+  # An answer where completed exceeds total does not add up: it starts as any
+  # other, as one that cannot be read does.
+  [ "$open" -gt 0 ] || return 0
+  word=sub-issue
+  [ "$open" = 1 ] || word=${word}s
+  log "skip #$n: it is an epic with $open $word open, and an epic is never started"
+  # tehas:ready is the only label an epic loses: it is the one that asked for
+  # the cycle. Where the start was a retry tick, the issue need not carry it,
+  # and no other label of tehas's is taken from an issue this refuses.
+  [[ $have == *" tehas:ready "* ]] || return 1
+  if [ "$dry" = 1 ]; then
+    log "would take tehas:ready off #$n: it is an epic"
+    return 1
+  fi
+  if gh issue edit "$n" --repo "$repo" --remove-label tehas:ready >/dev/null 2>&1; then
+    say "$n" "Tehas took \`tehas:ready\` off this issue and started nothing. It has $open $word open, so it is an epic: a plan, not a change. An epic is never started. Apply \`tehas:ready\` to one of its sub-issues instead."
+  else
+    log "WARN: label change on #$n failed: --remove-label tehas:ready"
+  fi
+  return 1
+}
+
 # open_pr <issue>: the url of an open pull request that GitHub says closes
 # the issue, in $pr_url; empty when there is none. A cycle on such an issue
 # would find the work done, after its explore and plan were paid for.
@@ -2334,6 +2387,9 @@ for n in $asking; do
       # An issue closed since its cycle stopped is not work: the tick starts
       # nothing, and it stays as it is, as a tick held back by a hold does.
       work_ok "$n" || continue
+      # An epic is not a change either: the tick starts nothing, and, as for a
+      # hold, the issue and its tick stay as they are for a person.
+      epic_ok "$n" || continue
       # The tick approves the text as it was at that moment, as the label does.
       issue_events "$n"
       unchanged_since "$n" "$(jq -r .tick.at <<<"$ans")" "$by ticked retry" "untick the box and tick it again" || continue
@@ -2687,6 +2743,8 @@ while read -r kind n; do
   # Asked after the label approves the issue: an issue no account is allowed
   # to start costs no call, and the label is not changed until start_cycles.
   work_ok "$n" || continue
+  # An epic is a plan, not a change: it never starts a cycle.
+  epic_ok "$n" || continue
   open_pr "$n"
   if [ -n "$pr_url" ]; then
     clear_pr_open "$n"
