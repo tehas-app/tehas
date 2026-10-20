@@ -40,8 +40,21 @@ hostindex=$T/home/tehas/state/index
 upstream=$T/git/acme/widget
 mkdir -p "$upstream"
 git init -q -b main "$upstream"
+# The product names its gate in .pi/verify-cmd, and tehas work parks a cycle of
+# a product that has neither that file nor a stack whose gate pi-rukas can guess
+# (libexec/work), so a fixture of no gate would start no container at all. The
+# gate is a file of the product's worktree and of the host's checkout, in no
+# commit of the branch: the work_host cases read the tree of the product's one
+# commit as the cycle's own and expect nothing in it, so a tracked gate would
+# read as a product file a cycle had to keep, and tehas work reads the tree a
+# clone of the checkout makes, which is the checkout's worktree. The path is
+# named to git nowhere: the host these tests run in ignores what it keeps under
+# .pi/.
+mkdir -p "$upstream/.pi"
+printf 'scripts/verify.sh\n' >"$upstream/.pi/verify-cmd"
 git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m first
 git clone -q "$upstream" "$checkout"
+cp -a "$upstream/.pi" "$checkout/"
 
 # docker answers the slice's question from a file and, like docker, refuses to
 # start a container whose cid file is already there. Only a run is recorded
