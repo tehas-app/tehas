@@ -153,6 +153,31 @@ t_contains "$recipe" 'codebase-memory-mcp is ${found:-not there}, versions.env n
 t_contains "$(cat "$build")" '--build-arg CBM_VERSION="$CBM_VERSION"'
 t_contains "$(cat "$build")" '--build-arg CBM_INSTALLER_SHA256="$CBM_INSTALLER_SHA256"'
 
+t_case "the image carries vipune's embedding model, pinned, and proves vipune reads it offline"
+t_eq "$(grep -cE '^VIPUNE_MODEL=[A-Za-z0-9_-]+/[A-Za-z0-9._-]+$' "$versions")" 1
+t_eq "$(grep -cE '^VIPUNE_MODEL_REVISION=[0-9a-f]{40}$' "$versions")" 1
+t_eq "$(grep -cE '^VIPUNE_MODEL_SHA256_ONNX=[0-9a-f]{64}$' "$versions")" 1
+t_eq "$(grep -cE '^VIPUNE_MODEL_SHA256_TOKENIZER=[0-9a-f]{64}$' "$versions")" 1
+t_contains "$recipe" 'url="https://huggingface.co/$VIPUNE_MODEL/resolve/$VIPUNE_MODEL_REVISION"'
+t_contains "$recipe" 'echo "${VIPUNE_MODEL_SHA256_ONNX}  $snap/onnx/model.onnx" | sha256sum -c -'
+t_contains "$recipe" 'echo "${VIPUNE_MODEL_SHA256_TOKENIZER}  $snap/tokenizer.json" | sha256sum -c -'
+# hf_hub finds the snapshot through the ref named after the revision asked for.
+t_contains "$recipe" 'printf %s "$VIPUNE_MODEL_REVISION" >"$repo/refs/$VIPUNE_MODEL_REVISION"'
+t_contains "$recipe" '/home/vscode/.cache/huggingface/hub/models--'
+# The gate runs as the container's user with the network shut off, and fails on
+# an error or an empty answer rather than only on an exit status.
+gate_step=$(sed -n '/^USER vscode$/,/^USER root$/p' "$dockerfile")
+t_contains "$gate_step" 'export HF_HUB_OFFLINE=1 HF_ENDPOINT=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9'
+t_contains "$gate_step" "jq -e '.status == \"added\"'"
+t_contains "$gate_step" "jq -e '.results | length > 0'"
+t_contains "$gate_step" 'versions.env names $VIPUNE_VERSION'
+# Each vipune call names the scratch store: one in ~/.vipune would be left in
+# the image, under the directory a cycle mounts its own store on.
+calls=$(grep -E 'vipune (version|add|search) ' <<<"$gate_step")
+t_eq "$(wc -l <<<"$calls")" 3
+t_eq "$(grep -c -- '--db-path "$db/gate.db"' <<<"$calls")" 3
+t_contains "$(cat "$build")" '--build-arg VIPUNE_MODEL_SHA256_ONNX="$VIPUNE_MODEL_SHA256_ONNX"'
+
 t_case "the image refuses a build that is missing a tool a cycle reaches for"
 gate=$(sed -n 's/^RUN for tool in \(.*\); do.*$/\1/p' "$dockerfile")
 t_eq "$(wc -w <<<"$gate")" 16
