@@ -4,6 +4,11 @@
 # stub docker records its arguments, one per line, and exits at once, so no
 # cycle runs. It answers --capabilities from $T/caps.json.
 # The part has sourced test/lib.sh before this.
+# The library's own rule for the hash of a body, so that a fixture records what
+# the dispatcher would have recorded and not an approximation of it. Sourcing
+# attachments.sh runs nothing.
+# shellcheck source=lib/attachments.sh
+. "$T_ROOT/lib/attachments.sh" || exit 1
 # The CPU quota and the ticket ceiling follow the host's CPUs: the same on
 # every test machine.
 t_stub nproc 'echo 16'
@@ -265,9 +270,11 @@ png='\x89PNG\r\n\x1a\nPNGDATA'
 jpg='\xff\xd8\xff\xe0JPGDATA'
 gif='GIF89aGIFDATA'
 webp='RIFF\x10\x00\x00\x00WEBPVP8 '
-# issue_is <body> [association]
+# issue_is <body> [association]: the answer for issue 7 as REST gives it. A
+# start is held to an answer that names an open issue, so the fixture carries
+# the state the real answer carries.
 issue_is() {
-  jq -n --arg body "$1" --arg who "${2:-OWNER}" '{number: 7, body: $body, author_association: $who}' >"$fx/issue.json"
+  jq -n --arg body "$1" --arg who "${2:-OWNER}" '{number: 7, state: "open", body: $body, author_association: $who}' >"$fx/issue.json"
 }
 images_on() {
   rm -rf "$fx" "$T"/calls/* "$T/home/tehas/work" "$T/home/tehas/state/cycles/7.manifest.json" "$T/home/tehas/state/cycles/7.approved.json"
@@ -277,7 +284,21 @@ images_on() {
   T_ENV=("${env_ok[@]}")
   t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1 "$@"
 }
+# images_off: the same instance with nothing given to the cycle. A test of what
+# a start asks GitHub for, with attachments or without them, starts here.
+images_off() {
+  rm -rf "$fx" "$T"/calls/* "$T/home/tehas/work" "$T/home/tehas/logs" \
+    "$T/home/tehas/state/cycles/7.manifest.json" "$T/home/tehas/state/cycles/7.approved.json"
+  mkdir -p "$fx/net"
+  slice_good
+  reads_image 1
+  T_ENV=("${env_ok[@]}")
+  t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=0 TEHAS_WORK_FILES=0
+}
 manifest() { jq -c "$1" "$imgs/manifest.json" 2>&1; }
+# issue_reads: how many times a start asked GitHub for the issue itself. One
+# read serves the text check and the attachments of the same start.
+issue_reads() { grep -c -x -e 'api repos/acme/widget/issues/7' "$T/calls/gh" 2>/dev/null || true; }
 # What the sandbox image says about its own pi-rukas, as host/sandbox/build.sh
 # writes it: <commit>|<reads>. reads_image says it for one case.
 img_commit=$(printf 'c%.0s' {1..40})
@@ -292,12 +313,14 @@ labelled_by() {
 }
 record=$T/home/tehas/state/cycles/7.approved.json
 kept=$T/home/tehas/state/cycles/7.manifest.json
-# record_is <by> <body it approved> <link>...: the record of a start.
+# record_is <by> <body it approved> <link>...: the record of a start. The hash
+# is tehas_body_sha256's own, the one the dispatcher records and tehas work
+# compares, so a body that differs only in line ends differs in nothing.
 record_is() {
   local by=$1 body=$2
   shift 2
   mkdir -p "$(dirname "$record")"
-  jq -n --arg by "$by" --arg sum "$(printf %s "$body" | sha256sum | cut -d' ' -f1)" '{at: "2026-10-14T00:00:00Z", by: $by,
+  jq -n --arg by "$by" --arg sum "$(jq -n --arg body "$body" '{body: $body}' | tehas_body_sha256)" '{at: "2026-10-14T00:00:00Z", by: $by,
     how: "label", body_sha256: $sum, links: $ARGS.positional}' --args "$@" >"$record"
 }
 

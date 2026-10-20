@@ -63,10 +63,14 @@
 #              That file holds the limit in seconds, who stopped the cycle
 #              (tehas or runner) and the step it was in.
 #              3 the sandbox cannot push to the repository; no cycle was started.
-#              4 the instance gives a cycle the issue's images or files and one
-#                could not be fetched, the issue could not be read for them, or
-#                its text or a file is not what was approved; no cycle was
-#                started.
+#              4 no cycle was started. Where the dispatcher left its approval
+#                record: the issue's text is not the text that record approved,
+#                the record could not be read, or the issue could not be read
+#                for its text. Where the instance gives a cycle the issue's
+#                images or files: one could not be fetched, the issue could not
+#                be read for them, or a file is not the one first fetched for
+#                that approval. In both cases the issue is told which, with no
+#                host path in what it is told.
 #              5 a cycle for this issue is running already; nothing was
 #                touched.
 #
@@ -104,8 +108,10 @@
 # From the environment, for tests: TEHAS_PREFLIGHT_WAIT (seconds the push check
 # may take [300]), TEHAS_WORK_GRACE (seconds past the time limit [300]),
 # TEHAS_STOP_WAIT (seconds a docker stop may take before
-# the container is killed [60]) and TEHAS_CONSOLE_WAIT (seconds the console
-# may take to stop before it is killed [30]).
+# the container is killed [60]), TEHAS_CONSOLE_WAIT (seconds the console
+# may take to stop before it is killed [30]) and TEHAS_TEXT_WAIT (seconds the
+# read of the issue's text may take, and every comment that names why a start
+# stopped [60]).
 #
 # TEHAS_WORK_TIMEOUT bounds the watch loop. Every call to Docker or git
 # outside it is bounded too: a dockerd that stops answering, or a network
@@ -172,9 +178,14 @@
 # untrusted, every line quoted, cut at 32000 characters. No mount and no
 # variable more.
 #
-# With neither setting a cycle is given nothing, and GitHub is asked for
-# nothing: no directory is mounted and no PI_ENSEMBLE_EXTRA_IMAGE_DIRS is
-# passed on, whatever the instance file says. When the dispatcher's approval
+# With neither setting a cycle is given nothing: no directory is mounted and
+# no PI_ENSEMBLE_EXTRA_IMAGE_DIRS is passed on, whatever the instance file
+# says. The issue is still read once, for its text, and held to the
+# dispatcher's record (exit 4). That one read is the one the images and the
+# files are fetched from too, so a start asks GitHub for the issue once
+# whatever it is given. By hand, where this host holds no record, the run is
+# its own approval and GitHub is asked for nothing.
+# When the dispatcher's approval
 # record lists attachment links, the gap is said rather than left for an agent
 # to find from a file that is not there: one line naming how many links and
 # which approval it read, on this command's error stream and in $log.err,
@@ -344,6 +355,8 @@ caps_wait=${TEHAS_CAPS_WAIT:-120}
 stop_wait=${TEHAS_STOP_WAIT:-60}
 console_wait=${TEHAS_CONSOLE_WAIT:-30}
 [[ $console_wait =~ ^[1-9][0-9]{0,3}$ ]] || console_wait=30
+text_wait=${TEHAS_TEXT_WAIT:-60}
+[[ $text_wait =~ ^[1-9][0-9]{0,3}$ ]] || text_wait=60
 
 [ -n "${GH_TOKEN:-}" ] || { echo "tehas work: GH_TOKEN is not set (source ~/tehas/env.sh)" >&2; exit 64; }
 mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state/cycles"
@@ -435,7 +448,7 @@ if [ -e "$works" ] && [ ! -f "$works/.tehas-workspaces" ]; then
 fi
 run_flags=(--timeout "$(((limit + 59) / 60))" --json)
 [ -z "$flags" ] || { run_flags+=(--restart); features+=" restartClearsAttention"; }
-if [ -f "$record" ] && [ ! -L "$record" ] && [ "$(jq -r '.how // "" | strings' "$record" 2>/dev/null)" = refresh ]; then
+if tehas_record_is_file "$record" && [ "$(jq -r '.how // "" | strings' "$record" 2>/dev/null)" = refresh ]; then
   run_flags+=(--continue-pr)
 fi
 # What the image supports, against what this cycle is given.
@@ -463,6 +476,58 @@ if [ -n "$expired" ]; then
   exit 78
 fi
 
+# The words a cycle works on are the words somebody approved. The dispatcher
+# wrote what it approved into its record; read the issue once here, before
+# anything of this cycle is written, and hold it to that, so a body edited
+# after the label starts no cycle. This is the last place on the host that can
+# still compare them, and it compares as it starts: what the container reads
+# afterwards is the issue as it is then. The title is held to the approval by
+# the dispatcher, which reads the label events; what is bound here is the body.
+# Where this host holds no record the run is by hand, and the person who ran
+# this command is the approval.
+text_why="" # why this start stops, empty when the text is the approved one
+text_path="" # the record that could not be read, when that is the reason
+issue_now="" # the issue as GitHub answers for it now, read once for all of it
+if tehas_record_is_file "$record"; then
+  # Bounded like every other call before the container: a network that swallows
+  # this read must not hold the issue's lock and its slot for ever. gh's own
+  # words go to $log.err, where a person can see which failure it was.
+  issue_now=$(timeout -k 10 "$text_wait" gh api "repos/$TEHAS_REPO/issues/$issue" 2>>"$log.err")
+  issue_rc=$?
+  case $issue_rc in
+    0) ;;
+    124 | 137) text_why="the issue could not be read for its text: no answer within ${text_wait}s" ;;
+    *) text_why="the issue could not be read for its text: GitHub refused the read" ;;
+  esac
+  if [ -z "$text_why" ]; then
+    # An answer that is a pull request, or an issue nobody can start a cycle
+    # on, is refused before its text is hashed or anything is said on it.
+    case $(jq -r 'if type != "object" or (.body != null and (.body | type) != "string") then "unread"
+        elif .pull_request != null or ((.state // "") != "open") then "wrong" else "ok" end' \
+      <<<"$issue_now" 2>/dev/null) in
+      ok) tehas_approval_text "$record" "$issue_now" ;;
+      wrong) text_why="#${issue} is not an open issue, as GitHub answers for it" ;;
+      *) text_why="the issue could not be read for its text" ;;
+    esac
+  fi
+else
+  # No record, or something at that path that is not a plain file: a link or a
+  # directory. Both are read as no record, which is how the images below read
+  # them too, but it would be wrong to say nothing is here when something is.
+  said="tehas work: no approval is recorded on this host for #$issue; a run by hand is its own approval"
+  [ ! -e "$record" ] || said+=" ($record is not a record this command can read)"
+  echo "$said" >&2
+fi
+if [ -n "$text_why" ]; then
+  # The path of the record stays on the host. What the issue is told names which
+  # rule stopped the start, and nothing of where this instance keeps its state.
+  echo "tehas work: $text_why${text_path:+ ($text_path)}, not starting a cycle" >&2
+  timeout -k 10 "$text_wait" gh issue comment "$issue" --repo "$TEHAS_REPO" \
+    --body "Tehas started no cycle: $text_why. To retry, apply \`tehas:ready\`." >/dev/null 2>&1 ||
+    echo "tehas work: the comment on #$issue failed" >&2
+  exit 4
+fi
+
 # The issue's images, where the instance gives a cycle any. Before the
 # workspace: a start that fails here must not move aside what the last cycle
 # left.
@@ -473,7 +538,7 @@ fi
 image_opts=()
 if [ "$give" = 1 ]; then
   approved=""
-  if [ -f "$record" ] && [ ! -L "$record" ]; then
+  if tehas_record_is_file "$record"; then
     # The dispatcher's record of the start: who approved and which links.
     from=$record
     # A start of the fixer's counts on the person's approval it rests on.
@@ -491,11 +556,11 @@ if [ "$give" = 1 ]; then
     esac
   fi
   image_why="the issue's label events could not be read for its images"
-  if [ "$approved" = unread ] || ! tehas_issue_images "$issue" "$images" "$approved" "$from" ||
+  if [ "$approved" = unread ] || ! tehas_issue_images "$issue" "$images" "$approved" "$from" "$issue_now" ||
     ! tehas_issue_images_changed "$kept" "$images"; then
     rm -rf "$images"
     echo "tehas work: $image_why, not starting a cycle" >&2
-    gh issue comment "$issue" --repo "$TEHAS_REPO" --body "Tehas started no cycle: $image_why. This instance gives a cycle the $kinds an issue links, and a cycle that works without one of them may build the wrong thing. To retry, apply \`tehas:ready\`." >/dev/null 2>&1 ||
+    timeout -k 10 "$text_wait" gh issue comment "$issue" --repo "$TEHAS_REPO" --body "Tehas started no cycle: $image_why. This instance gives a cycle the $kinds an issue links, and a cycle that works without one of them may build the wrong thing. To retry, apply \`tehas:ready\`." >/dev/null 2>&1 ||
       echo "tehas work: the comment on #$issue failed" >&2
     exit 4
   fi
