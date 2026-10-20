@@ -19,6 +19,7 @@
 #   tehas analytics report|export    the factory's last ten days of runs
 #   tehas pause [reason]             stop this host from starting new work
 #   tehas resume                     lift this host's pause flag
+#   tehas stop <issue> [--keep-workspace]  end a cycle by hand, clear what it left
 #   tehas help [command]             this text, or the text of one command
 #
 # Each command is a script in ../libexec, and this only chooses one and runs
@@ -41,7 +42,7 @@ usage_of() {
 # script <command>: the file behind a command, or nothing.
 script() {
   case "$1" in
-    dispatch | work | plan | dev | index | update | labels | top | pause | resume | api | limit | drain | history | export) echo "$libexec/$1" ;;
+    dispatch | work | plan | dev | index | update | labels | top | pause | resume | stop | api | limit | drain | history | export) echo "$libexec/$1" ;;
     status) echo "$libexec/summary" ;;
     analytics) echo "$libexec/analytics-cmd" ;;
   esac

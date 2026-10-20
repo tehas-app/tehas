@@ -127,6 +127,7 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/libexec/refresh
 ./tehas/libexec/resume
 ./tehas/libexec/status
+./tehas/libexec/stop
 ./tehas/libexec/summary
 ./tehas/libexec/tidy
 ./tehas/libexec/top
