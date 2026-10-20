@@ -33,7 +33,7 @@ pub struct Response {
 }
 
 impl Response {
-    fn empty(status: u16) -> Self {
+    pub fn empty(status: u16) -> Self {
         Response {
             status,
             headers: vec![],
@@ -82,25 +82,35 @@ fn unsupported(id: &Value, requested: &str) -> Response {
 }
 
 pub fn handle(req: &Request, keys: &Keys, live: &Path, server_version: &str) -> Response {
-    // No browser is a client of this server: an Origin means a page is
-    // trying to reach it (DNS rebinding), whatever the origin is.
-    if header(req, "Origin").is_some() {
-        return Response::empty(403);
-    }
-    if req.method != "POST" {
-        return Response::empty(405);
-    }
-    let Some(key) = keys.check(header(req, "Authorization")) else {
-        let mut r = Response::empty(401);
-        r.headers.push(("WWW-Authenticate".into(), "Bearer".into()));
-        return r;
+    let key = match gate(req, keys) {
+        Ok(k) => k,
+        Err(r) => return r,
     };
     let mut r = answer(req, live, server_version);
     r.key = Some(key);
     r
 }
 
-fn answer(req: &Request, live: &Path, server_version: &str) -> Response {
+/// What is decided from the headers alone, before any byte of the body is
+/// read: the fingerprint of the request's key, or the answer that refuses it.
+pub fn gate(req: &Request, keys: &Keys) -> Result<String, Response> {
+    // No browser is a client of this server: an Origin means a page is
+    // trying to reach it (DNS rebinding), whatever the origin is.
+    if header(req, "Origin").is_some() {
+        return Err(Response::empty(403));
+    }
+    if req.method != "POST" {
+        return Err(Response::empty(405));
+    }
+    keys.check(header(req, "Authorization")).ok_or_else(|| {
+        let mut r = Response::empty(401);
+        r.headers.push(("WWW-Authenticate".into(), "Bearer".into()));
+        r
+    })
+}
+
+/// The answer to a request that passed the gate.
+pub fn answer(req: &Request, live: &Path, server_version: &str) -> Response {
     if req.body.len() > MAX_BODY {
         return Response::empty(413);
     }

@@ -6,19 +6,30 @@
 //! argument. One line per request on stderr names the key by fingerprint.
 //! Exit 78 when the keys or the arguments are wrong, 1 when it cannot listen.
 
-use mcp::keys::parse_keys;
-use mcp::rpc::{handle, Request, MAX_BODY};
-use std::io::Read;
+use mcp::keys::{parse_keys, Keys};
+use std::net::TcpListener;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
 
-const WORKERS: usize = 4;
+/// Connections served at once; one more is answered 503 and closed. Each is a
+/// thread, and the container allows 64 processes.
+const MAX_CONNECTIONS: usize = 32;
 
 fn usage(why: &str) -> ! {
     eprintln!("tehas-mcp: {why}");
     eprintln!("usage: tehas-mcp --live <dir> --listen <addr:port> --server-version <v>");
     std::process::exit(78);
+}
+
+// A place among the connections, given back when its thread ends, a panic
+// included.
+struct Slot(Arc<AtomicUsize>);
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 fn main() {
@@ -44,8 +55,8 @@ fn main() {
         Err(why) => usage(&why),
     };
 
-    let server = match tiny_http::Server::http(&listen) {
-        Ok(s) => Arc::new(s),
+    let listener = match TcpListener::bind(&listen) {
+        Ok(l) => l,
         Err(e) => {
             eprintln!("tehas-mcp: cannot listen on {listen}: {e}");
             std::process::exit(1);
@@ -55,68 +66,22 @@ fn main() {
         "tehas-mcp: {version} listening on {listen}, {} keys",
         keys.len()
     );
-    let shared = Arc::new((keys, live, version));
-    let workers: Vec<_> = (0..WORKERS)
-        .map(|_| {
-            let server = Arc::clone(&server);
-            let shared = Arc::clone(&shared);
-            std::thread::spawn(move || {
-                for req in server.incoming_requests() {
-                    serve(req, &shared.0, &shared.1, &shared.2);
-                }
-            })
-        })
-        .collect();
-    for w in workers {
-        let _ = w.join();
-    }
-}
-
-fn serve(
-    mut req: tiny_http::Request,
-    keys: &mcp::keys::Keys,
-    live: &std::path::Path,
-    version: &str,
-) {
-    let started = Instant::now();
-    let method = req.method().as_str().to_string();
-    let headers: Vec<(String, String)> = req
-        .headers()
-        .iter()
-        .map(|h| {
-            (
-                h.field.as_str().as_str().to_string(),
-                h.value.as_str().to_string(),
-            )
-        })
-        .collect();
-    // One byte more than allowed is enough to know a body is too big.
-    let mut body = Vec::new();
-    let _ = req
-        .as_reader()
-        .take(MAX_BODY as u64 + 1)
-        .read_to_end(&mut body);
-    let r = handle(
-        &Request {
-            method: &method,
-            headers,
-            body: &body,
-        },
-        keys,
-        live,
-        version,
-    );
-    let mut resp = tiny_http::Response::from_data(r.body).with_status_code(r.status);
-    for (k, v) in &r.headers {
-        if let Ok(h) = tiny_http::Header::from_bytes(k.as_bytes(), v.as_bytes()) {
-            resp.add_header(h);
+    let shared: Arc<(Keys, PathBuf, String)> = Arc::new((keys, live, version));
+    let active = Arc::new(AtomicUsize::new(0));
+    for stream in listener.incoming() {
+        let Ok(stream) = stream else { continue };
+        if active.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
+            active.fetch_sub(1, Ordering::SeqCst);
+            mcp::http::refuse(stream, 503);
+            continue;
         }
+        let slot = Slot(Arc::clone(&active));
+        let shared = Arc::clone(&shared);
+        // A thread that cannot start drops its closure, and the slot with it.
+        let _ = std::thread::Builder::new().spawn(move || {
+            let _slot = slot;
+            let line = mcp::http::serve(stream, &shared.0, &shared.1, &shared.2);
+            eprintln!("{line}");
+        });
     }
-    eprintln!(
-        "{method} {} {}ms key={}",
-        r.status,
-        started.elapsed().as_millis(),
-        r.key.as_deref().unwrap_or("-")
-    );
-    let _ = req.respond(resp);
 }
