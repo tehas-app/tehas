@@ -193,9 +193,11 @@
 # state/cycles/<issue>.manifest.json. What the line and the manifest say, and
 # why, is tehas_issue_images_left_out.
 #
-# A cycle that ended at a cap with nothing in $log.err gets one line there
-# naming the cap and saying the driver wrote no reason, so its record does not
-# read as if nothing went wrong.
+# A cycle that ended at a cap with nothing in $log.err gets that account there:
+# the cap with the reason the progress read for it, the lines of the cycle's own
+# stream that carry the driver's own warning, kill or failure, and the name of
+# the file that holds them all. Never a claim that the record says nothing more
+# without looking at the stream first.
 #
 # With TEHAS_WORK_DESCRIBE=1 the model endpoint describes each image in words
 # first (lib/describe.sh), into images.md in the same directory, for the steps
@@ -939,7 +941,27 @@ echo "tehas work: issue=$issue status=$status step=$step cap=${cap:--} runner_ex
 if [ "$have" = 1 ]; then
   # It reaches err.txt of the cycle's improvement record.
   if [ -n "$cap" ] && [ ! -s "$log.err" ]; then
-    printf '%s\n' "tehas work: issue $issue ended at the cap $cap and $(basename "$log").err holds nothing: the driver wrote no diagnostic for the refusal, so the cap is all the record says about why the step was refused" \
+    # Why the runner stopped, as tehasbot cycle reads it for the park comment:
+    # the reason of the last cap the progress holds, cut short as cycle cuts it.
+    reason=$(head -c 1000000 "$progress_file" 2>/dev/null |
+      jq -j '.reason // "" | strings' 2>/dev/null | tr '\n' ' ' |
+      tr -cd 'A-Za-z0-9 _.,:;/()=+-' | head -c 200)
+    printf '%s\n' "tehas work: issue $issue ended at the cap $cap${reason:+: $reason}" \
+      >>"$log.err" || echo "tehas work: could not write $log.err" >&2
+    # The driver's own words for the refusal, as they stand in the cycle's
+    # stream: the warning, kill and failure lines. The last 20 of them, because
+    # a stream that repeats one says it over and over, each line cut to 1000
+    # characters and the whole to 64 KiB: a line of a stream can carry an error
+    # tail of any size, and this file goes into the record the analyst reads.
+    # Each bound is applied twice, so no line of it is broken: the one that
+    # keeps the last 20 of a long stream, the one that cuts a line too long.
+    diag=$(grep -a '\[pi-rukas\]' "$log" 2>/dev/null | grep -a -E 'WARN|killed|FAILED' |
+      tail -n 20 | cut -c 1-1000 | tail -c 65536 | tail -n 20 | cut -c 1-1000)
+    [ -z "$diag" ] || printf '%s\n' "$diag" >>"$log.err" 2>/dev/null ||
+      echo "tehas work: could not write $log.err" >&2
+    # The stream is the file with the rest of it, whether or not a line of it
+    # came here: say where it is rather than what the record does not hold.
+    printf '%s\n' "tehas work: the driver's diagnostics are in $(basename "$log")" \
       >>"$log.err" || echo "tehas work: could not write $log.err" >&2
   fi
   # A result without an exit code of its own gives null here, which is none.
