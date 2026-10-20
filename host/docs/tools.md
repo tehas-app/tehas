@@ -76,6 +76,8 @@ in the platform repository has every one with a comment.
 | `TEHAS_REFRESH_CONFLICTS`      | `0`                                      | 1 has the factory resolve conflicts in its own pull requests that wait for a merge (see [refreshes](/operating#refreshes)). Anything but 0 or 1 stops every command with 78 |
 | `TEHAS_REFRESH_MAX`            | `2`                                      | Refreshes of one pull request since the person's approval its cycle rests on. A positive whole number |
 | `TEHAS_BRANCH_CHECK`           | empty                                    | Optional. The name of a check that runs on every push to `TEHAS_BRANCH`, as `verify`. While it failed on the branch's head commit no new cycle starts (see [Limits that hold work back](/operating#limits-that-hold-work-back)). Words of letters, digits and `._()/-` separated by single spaces, else every command stops with 78. Empty: the poll does not ask |
+| `TEHAS_LOW_GATE`               | empty                                    | Optional. A command the dispatcher asks before it starts an issue it puts on neither the urgent list nor the `tehas:next` list. An absolute path of `/`, letters, digits and `._-` with no empty or dot segment, and not under `~/tehas` or the instance directory, else every command stops with 78. Empty: there is no gate, and every ready issue is started as before (see [tehas dispatch](#tehas-dispatch)) |
+| `TEHAS_LOW_GATE_WAIT`          | `60`                                     | Optional. Seconds `TEHAS_LOW_GATE` gets before its answer is a closed gate. A whole number from 1 to 600, else every command stops with 78. The poll holds `~/tehas/state/dispatch.lock` while it waits, so a long value delays every later poll (see [tehas dispatch](#tehas-dispatch)) |
 | `TEHAS_WORK_REPO`               | `~/tehas/repos/<name>`                   | The product checkout cycles are cloned from. Must be a clone of `TEHAS_REPO`. A cycle works in `~/tehas/work/<name>-<issue>`, which is not a setting |
 | `TEHAS_BRANCH`                  | the checkout's `origin/HEAD`             | Branch cycles start from and pull requests target               |
 | `TEHAS_CONCURRENCY`             | `1`                                      | Workstreams side by side inside one cycle. Above 1 only with `TEHAS_TICKET_CONCURRENCY=1`: with both above 1 a command stops with 78 (see [The host](/host#limits-and-concurrency)) |
@@ -202,6 +204,51 @@ the issue is picked. A `tehas:blocked` is checked then too, and costs two
 GraphQL calls: the issue's last 100 comments, and the states of the issues
 they name (see [What happens next](/operating#3-what-happens-next)). A poll never asks
 GitHub the same question twice.
+
+An issue the poll puts on neither the urgent list nor the `tehas:next` list is
+of the lowest kind, so one whose `tehas:next` came from an account the poll does
+not count is of that kind too. With `TEHAS_LOW_GATE` set, the poll runs that
+command once at most, and only when an issue of the lowest kind would otherwise
+start, after every other check of that issue. It gets `TEHAS_LOW_GATE_WAIT`
+seconds (60 by default, at most 600), is asked to end at the end of those
+seconds and killed ten seconds after that if it does not, which is an answer
+like any other. It is given no input and nothing of the poll's environment but
+`PATH`. The poll reads only its exit status: whatever the command prints goes to
+`~/tehas/logs/low-gate.log`, rewritten by every ask, which is where a gate that
+closes for a reason says that reason. The gate is not a sandbox: it runs as the
+tehas user, and what bounds it is that `lib/config.sh` refuses a command under
+`~/tehas` or the instance directory, the trees a merged pull request writes and
+`install.sh` fills. Changing `TEHAS_LOW_GATE` in a real instance directory is a
+security change. It gets no memory or CPU ceiling of its own: a cycle runs in
+`tehas.slice`, the gate does not. Being asked to end reaches the whole process
+group it was started in, so work it leaves in the background ends with it, and
+only a command that starts a session of its own outlives its seconds. Make it
+short, cheap and one that leaves nothing running.
+
+The wait runs while the poll holds `~/tehas/state/dispatch.lock`, so a bound
+above 600 is refused. The timer polls two minutes after a poll ends, and a poll
+asked for when a cycle ends finds the lock held and waits for that timer, so a
+slow gate can leave a freed slot idle for its seconds plus the two minutes. A
+`tehas dispatch --dry-run` waits for the gate too, and holds the lock while it
+does.
+
+Only exit 0 lets those issues start: a missing file, one that is not executable,
+a run that outlives its seconds and any other status hold them for the rest of
+the poll, each skipped with `wait #N: the low-priority gate is closed (exit S)`
+and no call to GitHub about it, so a held issue says only that line and nothing
+else the poll would have said about it: an unauthorised `tehas:ready` on it is
+cleared by a later poll where the gate opens. The poll still ends 0. The hold is
+marked by
+`~/tehas/state/low-gate.held`, which carries nothing but its existence and names
+no command, said once when it begins as `low issues wait: TEHAS_LOW_GATE
+answered S` and once when it ends as `low issues may start: TEHAS_LOW_GATE
+answered 0`, whatever the command answers while it lasts; a hold already on
+record is said by each issue's line, not again as a beginning. A dry run says it
+every time and writes nothing. Urgent issues, `tehas:next` issues, refresh
+requests and a poll with no issue of the lowest kind run nothing. It stops no
+cycle that already runs, and it is not a hold in `live/dispatch.json`: [tehas
+status](#tehas-status) does not show it, so a gate that will not open is seen in
+`~/tehas/logs/dispatch.log` and `~/tehas/logs/low-gate.log`.
 
 Every poll that gets past the bot's login ends by running `libexec/tidy`,
 however the poll ends; the poll's exit status stays its own. It takes tehas's
