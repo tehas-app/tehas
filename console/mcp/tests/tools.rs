@@ -426,3 +426,17 @@ fn every_key_is_listed() {
         assert_eq!(got, want, "{name}");
     }
 }
+
+// Only the tail is read: a console far larger than the container's memory is
+// answered with its last bytes.
+#[test]
+fn a_huge_console_is_read_from_its_end_only() {
+    let c = Copy::new("huge");
+    let f = std::fs::OpenOptions::new()
+        .write(true)
+        .open(c.0.join("console-7.txt"))
+        .unwrap();
+    f.set_len(1 << 40).unwrap();
+    let out = call(&c.0, "factory_console", &json!({"issue": 7, "bytes": 100})).unwrap();
+    assert_eq!(out["console"].as_str().unwrap().len(), 100);
+}
