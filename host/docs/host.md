@@ -17,8 +17,9 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 
 | Path                                 | Content                                                                 |
 | ------------------------------------ | ----------------------------------------------------------------------- |
-| `~/tehas/env.sh`                     | Environment for every tehas process; sourced from `~/.bashrc`           |
+| `~/tehas/env.sh`                     | Environment for every tehas process, its tool directories taken from `lib/paths.sh`; sourced from `~/.bashrc`           |
 | `~/tehas/lib/config.sh`              | Loads and checks the instance settings; sourced by every command        |
+| `~/tehas/lib/paths.sh`               | The home of each tool this host installs, and the `PATH` that finds them. `env.sh`, `bootstrap.sh` and `install.sh` all take the list from here |
 | `~/tehas/lib/sandbox.sh`             | What a sandbox container is given; sourced by the work, plan and dev scripts |
 | `~/tehas/lib/slice.sh`               | Reads the slice: whether it is usable, a container's limits, the room left. Every command that starts a sandbox container reads it |
 | `~/tehas/lib/headless.sh`            | What tehas reads of pi-rukas's headless runner: its `--capabilities` answer, its progress and its result. `tehas work` and `tehasbot cycle` use it |
@@ -108,8 +109,9 @@ What an unattended run refuses to get past, and what each one means:
 | The run stops with                             | What the machine is missing                                                      |
 | ---------------------------------------------- | -------------------------------------------------------------------------------- |
 | `tehas: <NAME> is not set (see …/instance.env)`, exit 78 | The instance directory, or a setting of it. Nothing is installed and nothing is written |
-| `tehas: cargo is not installed…`               | `bootstrap.sh root` has not run, so the build tools are not there. `install.sh` also looks in `~/.cargo/bin` when `cargo` is not on PATH |
+| `tehas: cargo is not installed…`               | `./bootstrap.sh user` has not run, so the build tools are not there. `install.sh` puts the tool directories `bootstrap.sh user` used on `PATH` itself, so it finds them without a login shell |
 | `tehas: no slice file on this host`            | `sudo ./bootstrap.sh slice`, which is root's, and `--check` stays red until it has run |
+| a tool directory named as writable by everyone or not owned by the user | One of the directories the tools live in (`~/.cargo/bin` among them). The run builds nothing until its mode is fixed (`chmod o-w`), because what cargo builds there is installed where every cycle runs it |
 | a model key finding                            | `~/.config/tehas/env` does not hold a `TEHAS_MODEL_KEY_<NAME>` that `models.json` names |
 
 `--check` exits 0 only when the instance loads, the slice file is the one this

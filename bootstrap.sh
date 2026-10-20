@@ -198,6 +198,7 @@ RULE
 
 # --- shared -------------------------------------------------------------------
 home_paths() {
+  [ -f "$root/lib/paths.sh" ] || die "lib/paths.sh is missing from this checkout"
   # shellcheck source=lib/paths.sh
   . "$root/lib/paths.sh"
   tehas_tool_paths
