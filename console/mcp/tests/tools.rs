@@ -1,0 +1,428 @@
+// The tools against live files with planted keys that must never come out.
+
+use mcp::tools::{call, list, ToolError};
+use serde_json::{json, Value};
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
+
+fn live() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/live")
+}
+
+// A copy of the fixtures to change, removed when dropped.
+struct Copy(PathBuf);
+
+impl Copy {
+    fn new(name: &str) -> Self {
+        let dir = std::env::temp_dir().join(format!("mcp-tools-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for e in std::fs::read_dir(live()).unwrap() {
+            let e = e.unwrap();
+            std::fs::copy(e.path(), dir.join(e.file_name())).unwrap();
+        }
+        Copy(dir)
+    }
+}
+
+impl Drop for Copy {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+fn paths(v: &Value, prefix: &str, out: &mut BTreeSet<String>) {
+    match v {
+        Value::Object(m) => {
+            for (k, x) in m {
+                let p = if prefix.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{prefix}.{k}")
+                };
+                out.insert(p.clone());
+                paths(x, &p, out);
+            }
+        }
+        Value::Array(a) => {
+            for x in a {
+                paths(x, &format!("{prefix}[]"), out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn key_paths(v: &Value) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    paths(v, "", &mut out);
+    out
+}
+
+const NAMES: [&str; 5] = [
+    "factory_status",
+    "factory_issues",
+    "factory_endings",
+    "factory_console",
+    "factory_stats",
+];
+
+fn args(name: &str) -> Value {
+    if name == "factory_console" {
+        json!({"issue": 7})
+    } else {
+        json!({})
+    }
+}
+
+#[test]
+fn the_five_tools_are_listed_in_order_with_their_schemas() {
+    let tools = list();
+    let names: Vec<&str> = tools
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, NAMES);
+    for t in tools.as_array().unwrap() {
+        assert_eq!(t["inputSchema"]["type"], "object", "{}", t["name"]);
+        assert_eq!(t["outputSchema"]["type"], "object", "{}", t["name"]);
+        assert!(t["description"].as_str().unwrap().len() > 10);
+    }
+}
+
+#[test]
+fn no_tool_returns_a_planted_key() {
+    for name in NAMES {
+        let out = call(&live(), name, &args(name)).unwrap();
+        let text = out.to_string();
+        for bad in ["SECRET", "/home/x", "labels", "buzzwords", "disk", "slice"] {
+            assert!(!text.contains(bad), "{name} returned {bad}: {text}");
+        }
+        assert_eq!(out["api"], 1, "{name}");
+    }
+}
+
+#[test]
+fn status_says_the_queue_and_that_an_old_poll_is_stale() {
+    let out = call(&live(), "factory_status", &json!({})).unwrap();
+    assert_eq!(out["queue"]["inLine"], 2);
+    assert_eq!(out["status"], "pass");
+    assert_eq!(out["stale"], true);
+    assert_eq!(out["cycles"][0]["issue"], 7);
+    assert_eq!(out["platform"]["behind"], 0);
+}
+
+#[test]
+fn issues_by_stage() {
+    let all = call(&live(), "factory_issues", &json!({})).unwrap();
+    assert_eq!(all["queued"][0]["title"], "Queued issue");
+    assert_eq!(all["planning"], json!({"count": 1, "issues": [6]}));
+    assert_eq!(all["completed"][0]["closedAt"], "2026-10-19T18:00:00Z");
+    let q = call(&live(), "factory_issues", &json!({"stage": "queued"})).unwrap();
+    assert!(q.get("queued").is_some());
+    for other in ["running", "awaiting", "stopped", "completed", "planning"] {
+        assert!(q.get(other).is_none(), "{other}");
+    }
+    assert!(matches!(
+        call(&live(), "factory_issues", &json!({"stage": "nope"})),
+        Err(ToolError::BadArgs(_))
+    ));
+}
+
+#[test]
+fn endings_and_failures() {
+    let out = call(&live(), "factory_endings", &json!({})).unwrap();
+    assert_eq!(out["endings"].as_array().unwrap().len(), 2);
+    assert_eq!(out["failed"][0]["issue"], 4);
+}
+
+#[test]
+fn the_console_of_a_running_cycle() {
+    let out = call(&live(), "factory_console", &json!({"issue": 7})).unwrap();
+    assert_eq!(out["step"], "develop");
+    assert!(out["console"].as_str().unwrap().contains("last line"));
+    let short = call(&live(), "factory_console", &json!({"issue": 7, "bytes": 5})).unwrap();
+    assert!(short["console"].as_str().unwrap().len() <= 5);
+    assert!("last line\n".ends_with(short["console"].as_str().unwrap()));
+}
+
+#[test]
+fn a_cut_never_splits_a_character() {
+    // "✓\nlast line\n" is 13 bytes; asking for 12 cuts inside the check mark.
+    let out = call(
+        &live(),
+        "factory_console",
+        &json!({"issue": 7, "bytes": 12}),
+    )
+    .unwrap();
+    assert_eq!(out["console"], "\nlast line\n");
+}
+
+#[test]
+fn a_console_file_is_opened_only_by_its_own_name() {
+    for name in [
+        "../status.json",
+        "console-8.txt",
+        "/etc/passwd",
+        "console-7.txt/..",
+    ] {
+        let c = Copy::new("console");
+        let p = c.0.join("running.json");
+        let mut r: Value = serde_json::from_slice(&std::fs::read(&p).unwrap()).unwrap();
+        r["cycles"][0]["console"] = json!(name);
+        std::fs::write(&p, r.to_string()).unwrap();
+        let out = call(&c.0, "factory_console", &json!({"issue": 7})).unwrap();
+        assert!(out.get("console").is_none(), "{name}");
+        assert_eq!(out["step"], "develop");
+    }
+}
+
+#[test]
+fn console_arguments_are_checked() {
+    for a in [
+        json!({}),
+        json!({"issue": "7"}),
+        json!({"issue": -1}),
+        json!({"issue": 7, "bytes": 0}),
+        json!({"issue": 7, "bytes": 65537}),
+        json!({"issue": 99}),
+    ] {
+        assert!(
+            matches!(
+                call(&live(), "factory_console", &a),
+                Err(ToolError::BadArgs(_))
+            ),
+            "{a}"
+        );
+    }
+}
+
+#[test]
+fn a_missing_or_broken_file_is_named() {
+    let c = Copy::new("files");
+    std::fs::remove_file(c.0.join("analytics.json")).unwrap();
+    match call(&c.0, "factory_stats", &json!({})) {
+        Err(ToolError::File { file, .. }) => assert_eq!(file, "analytics.json"),
+        other => panic!("{other:?}"),
+    }
+    std::fs::write(c.0.join("status.json"), "{\"repo\":").unwrap();
+    match call(&c.0, "factory_issues", &json!({})) {
+        Err(ToolError::File { file, .. }) => assert_eq!(file, "status.json"),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn an_unknown_tool_is_unknown() {
+    assert!(matches!(
+        call(&live(), "factory_delete", &json!({})),
+        Err(ToolError::Unknown(_))
+    ));
+}
+
+// Adding a key to what a tool returns is a change someone makes on purpose:
+// it shows up here.
+#[test]
+fn every_key_is_listed() {
+    let expected: [(&str, &[&str]); 5] = [
+        (
+            "factory_status",
+            &[
+                "api",
+                "status",
+                "output",
+                "time",
+                "stale",
+                "generatedAt",
+                "repo",
+                "paused",
+                "planning",
+                "limit",
+                "limit.state",
+                "queue",
+                "queue.inLine",
+                "queue.building",
+                "queue.review",
+                "queue.stopped",
+                "queue.time",
+                "cycles",
+                "cycles[].issue",
+                "cycles[].running",
+                "cycles[].status",
+                "cycles[].step",
+                "cycles[].startedAt",
+                "cycles[].time",
+                "demand",
+                "demand.waiting",
+                "demand.oldest",
+                "demand.time",
+                "platform",
+                "platform.commit",
+                "platform.behind",
+                "platform.upstream",
+                "platform.fetchedAt",
+            ],
+        ),
+        (
+            "factory_issues",
+            &[
+                "api",
+                "generatedAt",
+                "queued",
+                "queued[].number",
+                "queued[].title",
+                "queued[].url",
+                "queued[].updatedAt",
+                "running",
+                "running[].number",
+                "running[].title",
+                "running[].url",
+                "running[].updatedAt",
+                "awaiting",
+                "awaiting[].number",
+                "awaiting[].title",
+                "awaiting[].url",
+                "awaiting[].updatedAt",
+                "stopped",
+                "stopped[].number",
+                "stopped[].title",
+                "stopped[].url",
+                "stopped[].updatedAt",
+                "completed",
+                "completed[].number",
+                "completed[].title",
+                "completed[].url",
+                "completed[].updatedAt",
+                "completed[].closedAt",
+                "planning",
+                "planning.count",
+                "planning.issues",
+            ],
+        ),
+        (
+            "factory_endings",
+            &[
+                "api",
+                "endings",
+                "endings[].issue",
+                "endings[].status",
+                "endings[].step",
+                "endings[].startedAt",
+                "endings[].updatedAt",
+                "failed",
+                "failed[].issue",
+                "failed[].status",
+                "failed[].step",
+                "failed[].startedAt",
+                "failed[].time",
+            ],
+        ),
+        (
+            "factory_console",
+            &[
+                "api",
+                "issue",
+                "step",
+                "status",
+                "statusText",
+                "startedAt",
+                "updatedAt",
+                "console",
+            ],
+        ),
+        (
+            "factory_stats",
+            &[
+                "api",
+                "from",
+                "to",
+                "report",
+                "runs",
+                "runs.n",
+                "runs.merged",
+                "runs.pr",
+                "runs.handoff",
+                "runs.parked",
+                "runs.failed",
+                "runs.refused",
+                "runs.stopped",
+                "shipped",
+                "shipped.n",
+                "cycleTime",
+                "cycleTime.n",
+                "cycleTime.median",
+                "cycleTime.p90",
+                "leadTime",
+                "leadTime.n",
+                "leadTime.median",
+                "leadTime.p90",
+                "firstPassYield",
+                "firstPassYield.n",
+                "firstPassYield.share",
+                "handoffRate",
+                "handoffRate.n",
+                "handoffRate.share",
+                "availability",
+                "availability.n",
+                "availability.seconds",
+                "availability.share",
+                "machineTime",
+                "machineTime.n",
+                "machineTime.seconds",
+                "machineTime.perShipped",
+                "energy",
+                "energy.n",
+                "energy.kwh",
+                "energy.perShipped",
+                "tokens",
+                "tokens.n",
+                "tokens.input",
+                "tokens.output",
+                "tokens.cacheRead",
+                "tokens.total",
+                "tokens.perShipped",
+                "planned",
+                "planned.n",
+                "planned.inLine",
+                "planned.planning",
+                "planned.trend",
+                "planned.trend[].day",
+                "planned.trend[].n",
+                "planningTurns",
+                "planningTurns.n",
+                "stations",
+                "stations.n",
+                "stations.steps",
+                "stations.steps[].step",
+                "stations.steps[].n",
+                "stations.steps[].passed",
+                "stations.steps[].share",
+                "stopReasons",
+                "stopReasons.n",
+                "stopReasons.top",
+                "stopReasons.top[].reason",
+                "stopReasons.top[].n",
+                "versions",
+                "versions[].tehas",
+                "versions[].rukas",
+                "versions[].n",
+                "versions[].medianSeconds",
+                "versions[].medianTokens",
+                "versions[].prShare",
+                "daily",
+                "daily[].day",
+                "daily[].runs",
+                "daily[].shipped",
+                "daily[].failed",
+                "daily[].minutes",
+            ],
+        ),
+    ];
+    for (name, keys) in expected {
+        let got = key_paths(&call(&live(), name, &args(name)).unwrap());
+        let want: BTreeSet<String> = keys.iter().map(|s| s.to_string()).collect();
+        assert_eq!(got, want, "{name}");
+    }
+}
