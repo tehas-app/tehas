@@ -106,6 +106,7 @@ be ignored for a first install.
 - [Commands]({{ $base }}/tools.md): `tehas`, `tehasbot` and what each of their commands does
 - [The factory API]({{ $base }}/api.md): the commands a program drives a factory with, and their JSON
 - [Analytics]({{ $base }}/analytics.md): the factory's ten days of runs in SQLite, its schema, and how to fetch a copy
+- [The MCP server]({{ $base }}/mcp.md): a read-only view of the factory for agents outside the host, behind API keys
 
 ## Live data
 
