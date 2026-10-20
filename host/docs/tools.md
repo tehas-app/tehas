@@ -489,11 +489,11 @@ has not stopped `TEHAS_WORK_GRACE` seconds (300) later is stopped with
 from the workspace `~/tehas/work/<name>-<issue>`: the outcome is the runner's
 `--json` result, which goes to `~/tehas/state/cycles/<issue>.result.json`, and
 a copy beside the log. The contract is pi-rukas's `docs/headless.md`: exit
-codes v1, result schema 4, NDJSON progress with a stable subset.
+codes v1, result schema 5, NDJSON progress with a stable subset.
 
 Before anything is moved or fetched, it asks the image what it supports,
 `pi-rukas-headless --capabilities`. The cycle starts only when the image speaks
-exit codes 1, result schema 4 and stable NDJSON 1, the `work` verb takes the
+exit codes 1, result schema 5 and stable NDJSON 1, the `work` verb takes the
 flags passed, and every `PI_ENSEMBLE_*` variable the container would be given
 is an input the image lists for a host to set (scope `cycle` or `sandbox`; a
 family such as `PI_ENSEMBLE_MODEL_<ROLE>` covers the members the image lists

@@ -90,11 +90,11 @@ failed() { # <cap> <failure kind> <reason>
 
 t_case "a failure of kind provider is an outage whatever the cap, and asks for one retry"
 reset
-failed developer-timeout provider "rate limited"
+failed spawn-backstop provider "rate limited"
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "Tehas cycle parked by a provider outage"
-t_contains "$(t_calls gh)" "cap \`developer-timeout\`: rate limited"
-t_eq "$(jq -c '[.cap, .reason, .provider, .retry]' "$state/7.park")" '["developer-timeout","rate limited",true,true]'
+t_contains "$(t_calls gh)" "cap \`spawn-backstop\`: rate limited"
+t_eq "$(jq -c '[.cap, .reason, .provider, .retry]' "$state/7.park")" '["spawn-backstop","rate limited",true,true]'
 
 t_case "a failure of another kind is no outage, even when its words look like one"
 for k in process timeout verify cap something-new; do
