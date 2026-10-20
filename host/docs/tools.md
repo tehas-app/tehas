@@ -2696,6 +2696,78 @@ in that command is the marker's; a marker holding something other than an accoun
 name leaves `<tehas user>` for the person to fill in. A host where
 `bootstrap.sh dev` never ran reports nothing. See [The host](/host).
 
+## Releases
+
+A release of tehas is one tarball an adopter can install without git and
+without a Rust toolchain. GitHub publishes it for each `vX.Y.Z` tag; a person
+gets it from the release's list of files.
+
+`scripts/pack-release.sh` makes it, and the release workflow for a tag is a
+thin wrapper around the same arguments:
+
+```
+scripts/pack-release.sh <tag> <out dir> --console <path> \
+  [--rukas-commit <40 hex> --rukas-digest sha256:<64 hex>]
+```
+
+It reads the working tree and its arguments and nothing else: no network, no
+git, no cargo. It builds no console of its own; the workflow compiles it for
+linux x86_64 and hands the binary over, which is why the pack script needs no
+toolchain. Exit 0 with the tarball's path and its hash on two lines, 64 on a
+bad argument, 1 when a pin has the wrong shape or the tree is missing a file
+`install.sh` reads.
+
+What it writes is `tehas-<tag>-linux-x86_64.tar.gz` and one `.sha256` file
+beside it. Unpacked, the tarball is a single `tehas-<tag>/` directory holding
+what `install.sh` reads: `bin/`, `libexec/`, `lib/`, `host/`, `install.sh`,
+`bootstrap.sh`, `LICENSE`, `NOTICE`, `AGENTS.md`, the console as
+`libexec/console`, a `VERSION` file with the tag, and `host/versions.env`. An
+adopter unpacks it and runs `./install.sh` from inside, as they would from a
+checkout. `console/`, `instances/`, `preview/` and the git record are not
+packed: there is nothing in the tarball to build from and nothing to check out.
+
+The two pins, given together or not at all, are appended to the copy of
+`versions.env` inside the tarball:
+
+```
+PI_RUKAS_FOLLOW=commit:<sha>         the pi-rukas commit the sandbox builds from
+PI_RUKAS_IMAGE_DIGEST=sha256:<hex>   the base image that sandbox starts from
+```
+
+The rest of the file is the checkout's own, so a release names one pi-rukas
+commit and one base image and keeps every other version where it is. A release
+packed without pins follows pi-rukas's newest tag, as a checkout does today.
+`commit:<sha>` is the third value `PI_RUKAS_FOLLOW` takes, beside `release` and
+`branch:<name>`; `lib/rukas.sh` is taught it, together with the tag-time pins,
+by the work that writes them (#463).
+
+### Verifying a download
+
+The `.sha256` beside the tarball is in the format `sha256sum -c` reads, and
+names the tarball alone, so both commands run in the directory the two files
+are in:
+
+```
+sha256sum -c tehas-v0.7.6-linux-x86_64.tar.gz.sha256
+minisign -Vm tehas-v0.7.6-linux-x86_64.tar.gz -p host/release/minisign.pub
+```
+
+The public key is `host/release/minisign.pub`, in this repository and in the
+tarball, so the signature is checked against a key that came from the source
+rather than from the same download. A release also carries `.minisig`, made by
+the owner's secret key; a release without it is unsigned, and `sha256sum -c`
+alone proves only that the file is the one published beside that hash.
+
+### What the gate covers, and what a person adds
+
+The pack script is in the fast gate, with `test/pack_release_test.sh`: it
+packs from the test's own tree with a stub console and checks the file list,
+`VERSION`, the pin lines, that the `.sha256` passes `sha256sum -c`, and what a
+bad argument costs. The release workflow that builds the console, resolves the
+pins and uploads the three files to the tag is not run by the gate and is not
+written by a work cycle: CI files are protected, so a person adds
+`.github/workflows/release.yml` against the interface above.
+
 ## bootstrap.sh
 
 Prepares a fresh host with everything tehas and pi-rukas need, at the versions
