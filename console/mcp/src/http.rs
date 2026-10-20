@@ -1,10 +1,10 @@
 //! One HTTP/1.1 request per connection, read with limits.
 //!
 //! The server is on the internet behind a proxy, so nothing here waits on a
-//! client for long or reads more than it must: the head is at most 8 KB, every
-//! read and write times out, the key is checked before any byte of the body is
-//! read, the body needs a Content-Length of at most 64 KB, and every answer
-//! closes the connection.
+//! client for long or reads more than it must: the head is at most 8 KB, the
+//! whole request must arrive within 10 seconds however it trickles in, the key
+//! is checked before any byte of the body is read, the body needs a
+//! Content-Length of at most 64 KB, and every answer closes the connection.
 
 use crate::keys::Keys;
 use crate::rpc::{self, Request, Response, MAX_BODY};
@@ -20,9 +20,9 @@ const ENDPOINT: &str = "/mcp";
 /// Serves the one request on `stream` and returns its access-log line.
 pub fn serve(mut stream: TcpStream, keys: &Keys, live: &Path, version: &str) -> String {
     let started = Instant::now();
-    let _ = stream.set_read_timeout(Some(IO_TIMEOUT));
     let _ = stream.set_write_timeout(Some(IO_TIMEOUT));
-    let (method, r) = exchange(&mut stream, keys, live, version);
+    let deadline = started + IO_TIMEOUT;
+    let (method, r) = exchange(&mut stream, deadline, keys, live, version);
     write(&mut stream, &r);
     format!(
         "{method} {} {}ms key={}",
@@ -39,8 +39,14 @@ pub fn refuse(mut stream: TcpStream, status: u16) {
     write(&mut stream, &Response::empty(status));
 }
 
-fn exchange(stream: &mut TcpStream, keys: &Keys, live: &Path, version: &str) -> (String, Response) {
-    let (head, mut body) = match read_head(stream) {
+fn exchange(
+    stream: &mut TcpStream,
+    deadline: Instant,
+    keys: &Keys,
+    live: &Path,
+    version: &str,
+) -> (String, Response) {
+    let (head, mut body) = match read_head(stream, deadline) {
         Ok(v) => v,
         Err(status) => return ("-".into(), Response::empty(status)),
     };
@@ -80,11 +86,11 @@ fn exchange(stream: &mut TcpStream, keys: &Keys, live: &Path, version: &str) -> 
         return refuse(413);
     }
     let len = len as usize;
-    if body.len() < len {
-        let have = body.len();
-        body.resize(len, 0);
-        if stream.read_exact(&mut body[have..]).is_err() {
-            return refuse(408);
+    while body.len() < len {
+        let mut chunk = vec![0u8; len - body.len()];
+        match read_by(stream, deadline, &mut chunk) {
+            Some(n) => body.extend_from_slice(&chunk[..n]),
+            None => return refuse(408),
         }
     }
     body.truncate(len);
@@ -95,7 +101,20 @@ fn exchange(stream: &mut TcpStream, keys: &Keys, live: &Path, version: &str) -> 
 }
 
 /// The head up to its blank line, and whatever of the body came with it.
-fn read_head(stream: &mut TcpStream) -> Result<(Vec<u8>, Vec<u8>), u16> {
+/// One read that ends by the deadline: the bytes read, or None at the end of
+/// the stream, an error or the deadline.
+fn read_by(stream: &mut TcpStream, deadline: Instant, buf: &mut [u8]) -> Option<usize> {
+    let left = deadline.checked_duration_since(Instant::now())?;
+    stream
+        .set_read_timeout(Some(left.max(Duration::from_millis(1))))
+        .ok()?;
+    match stream.read(buf) {
+        Ok(0) | Err(_) => None,
+        Ok(n) => Some(n),
+    }
+}
+
+fn read_head(stream: &mut TcpStream, deadline: Instant) -> Result<(Vec<u8>, Vec<u8>), u16> {
     let mut buf = Vec::with_capacity(1024);
     let mut chunk = [0u8; 2048];
     loop {
@@ -107,9 +126,9 @@ fn read_head(stream: &mut TcpStream) -> Result<(Vec<u8>, Vec<u8>), u16> {
         if buf.len() > MAX_HEAD {
             return Err(431);
         }
-        match stream.read(&mut chunk) {
-            Ok(0) | Err(_) => return Err(408),
-            Ok(n) => buf.extend_from_slice(&chunk[..n]),
+        match read_by(stream, deadline, &mut chunk) {
+            Some(n) => buf.extend_from_slice(&chunk[..n]),
+            None => return Err(408),
         }
     }
 }
@@ -121,7 +140,9 @@ fn parse_head(head: &[u8]) -> Option<Head> {
     let mut lines = text.split("\r\n");
     let mut first = lines.next()?.split(' ');
     let (method, path, proto) = (first.next()?, first.next()?, first.next()?);
-    if first.next().is_some() || !proto.starts_with("HTTP/1.") {
+    // A method is a short word of capitals: it goes into the access log.
+    let word = (1..=16).contains(&method.len()) && method.bytes().all(|b| b.is_ascii_uppercase());
+    if first.next().is_some() || !proto.starts_with("HTTP/1.") || !word {
         return None;
     }
     let mut headers = vec![];

@@ -1,9 +1,9 @@
 // The binary: settings, the HTTP loop and the access log.
 
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::TcpStream;
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ChildStderr, Command, Stdio};
 use std::time::Duration;
 
 const BIN: &str = env!("CARGO_BIN_EXE_tehas-mcp");
@@ -14,14 +14,6 @@ fn live() -> String {
         .join("tests/fixtures/live")
         .display()
         .to_string()
-}
-
-fn free_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
 }
 
 fn run_once(keys: Option<&str>, args: &[&str]) -> (i32, String) {
@@ -40,18 +32,20 @@ fn run_once(keys: Option<&str>, args: &[&str]) -> (i32, String) {
 struct Server {
     child: Child,
     port: u16,
+    log: BufReader<ChildStderr>,
+    first: String,
 }
 
 impl Server {
+    // Port 0: the server says which port it was given, so tests that run
+    // side by side never race for one.
     fn start() -> Self {
-        let port = free_port();
-        let listen = format!("127.0.0.1:{port}");
         let mut child = Command::new(BIN)
             .args([
                 "--live",
                 &live(),
                 "--listen",
-                &listen,
+                "127.0.0.1:0",
                 "--server-version",
                 "v1.2.3",
             ])
@@ -59,15 +53,26 @@ impl Server {
             .stderr(Stdio::piped())
             .spawn()
             .unwrap();
-        for _ in 0..100 {
-            if TcpStream::connect(&listen).is_ok() {
-                return Server { child, port };
-            }
-            std::thread::sleep(Duration::from_millis(20));
+        let mut log = BufReader::new(child.stderr.take().unwrap());
+        let mut first = String::new();
+        log.read_line(&mut first).unwrap();
+        let port = first
+            .split(" listening on ")
+            .nth(1)
+            .and_then(|s| s.split(',').next())
+            .and_then(|a| a.rsplit(':').next())
+            .and_then(|p| p.parse().ok());
+        let Some(port) = port else {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("the server did not start: {first}");
+        };
+        Server {
+            child,
+            port,
+            log,
+            first,
         }
-        let _ = child.kill();
-        let _ = child.wait();
-        panic!("the server did not start");
     }
 
     fn post(&self, auth: Option<&str>, body: &[u8]) -> (u16, String) {
@@ -114,13 +119,8 @@ impl Server {
 
     fn stop(mut self) -> String {
         self.child.kill().unwrap();
-        let mut err = String::new();
-        self.child
-            .stderr
-            .take()
-            .unwrap()
-            .read_to_string(&mut err)
-            .unwrap();
+        let mut err = std::mem::take(&mut self.first);
+        self.log.read_to_string(&mut err).unwrap();
         let _ = self.child.wait();
         err
     }
@@ -294,4 +294,47 @@ fn a_flood_of_idle_connections_is_answered_and_survived() {
     std::thread::sleep(Duration::from_millis(300));
     assert_eq!(keyed_list(&s), 200);
     s.stop();
+}
+
+// A client that sends a byte now and then is cut off at the deadline for the
+// whole request, not kept for as long as it keeps sending.
+#[test]
+fn a_request_has_a_deadline_however_it_trickles() {
+    let s = Server::start();
+    let mut c = TcpStream::connect(("127.0.0.1", s.port)).unwrap();
+    c.write_all(b"POST /mcp HTTP/1.1\r\nX: ").unwrap();
+    let started = std::time::Instant::now();
+    let mut closed = false;
+    while started.elapsed() < Duration::from_secs(20) {
+        std::thread::sleep(Duration::from_secs(2));
+        if c.write_all(b"a").is_err() {
+            closed = true;
+            break;
+        }
+        c.set_read_timeout(Some(Duration::from_millis(10))).unwrap();
+        let mut buf = [0; 64];
+        if let Ok(n) = c.read(&mut buf) {
+            closed = true;
+            assert!(n == 0 || String::from_utf8_lossy(&buf[..n]).starts_with("HTTP/1.1 408"));
+            break;
+        }
+    }
+    assert!(closed, "still open after 20 s");
+    assert!(started.elapsed() < Duration::from_secs(15));
+    s.stop();
+}
+
+// The log takes the method as a word of letters only: what a client puts there
+// cannot start a line of its own or reach a terminal as a control sequence.
+#[test]
+fn a_method_cannot_write_into_the_log() {
+    let s = Server::start();
+    let (status, _) = s.raw(
+        b"POST\nFORGED\x1b[31m /mcp HTTP/1.1\r\nContent-Length: 0\r\n\r\n",
+        Duration::from_secs(3),
+    );
+    assert_eq!(status, 400);
+    let log = s.stop();
+    assert!(!log.contains("FORGED"), "{log}");
+    assert!(!log.contains('\x1b'), "{log}");
 }
