@@ -342,6 +342,10 @@ files=(
   "lib/top.sh|$TEHAS_HOME/lib/top.sh|644"
   "lib/planning.sh|$TEHAS_HOME/lib/planning.sh|644"
   "lib/refresh.sh|$TEHAS_HOME/lib/refresh.sh|644"
+  # What a release packs, read by scripts/pack-release.sh and its test. It is
+  # not a command's source; it is here so one list answers the question on a
+  # host as it does in a checkout.
+  "lib/release.sh|$TEHAS_HOME/lib/release.sh|644"
   "versions.env|$TEHAS_HOME/versions.env|644"
   "sandbox/Dockerfile|$TEHAS_HOME/sandbox/Dockerfile|644"
   "sandbox/build.sh|$TEHAS_HOME/sandbox/build.sh|755"

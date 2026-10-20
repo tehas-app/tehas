@@ -333,7 +333,9 @@ Two installed files are compiled, not copied: the console of a running cycle
 and the analytics program, Rust programs in the Cargo workspace `console/`
 (analytics is in `console/analytics/`). A real run builds each with `cargo`
 in the checkout and installs them as `~/tehas/libexec/console` and
-`~/tehas/libexec/analytics`. Beside each, `<name>.stamp` holds two checksums:
+`~/tehas/libexec/analytics`. A host installed from a release tarball has neither
+`cargo` nor `console/`: its console is the one the release packed
+([Releases](/tools#releases)). Beside each, `<name>.stamp` holds two checksums:
 of the source it was built from and of the program. A program is built again
 only when its source has changed or the program on the host is not the one
 that was installed. The console's source is `console/` without its tests and

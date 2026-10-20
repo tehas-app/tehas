@@ -1,35 +1,23 @@
 #!/usr/bin/env bash
-# Pack a release tarball for a tag, from this checkout and the arguments.
+# Pack a release tarball for a tag, from the tree it is given and the arguments.
 #
 # An adopter downloads one tarball, unpacks it and runs install.sh from it, so
-# what is packed is what install.sh reads: bin/, libexec/, lib/, host/,
-# install.sh, bootstrap.sh, LICENSE, NOTICE and AGENTS.md, the console binary
-# it was given as libexec/console, a VERSION file with the tag, and
-# host/versions.env, to which the pins are appended when they are given. The
-# tarball holds one top directory, tehas-<tag>/, so unpacking it leaves that
-# and nothing beside it.
+# what is packed is what install.sh reads: the directories and the top-level
+# files named in lib/release.sh, the console binary it was given as
+# libexec/console, a VERSION file with the tag, and host/versions.env, to which
+# the pins are put when they are given. The tarball holds one top directory,
+# tehas-<tag>/, so unpacking it leaves that and nothing beside it.
 #
-# The pins name what this release builds the sandbox from, so a host can tell
-# which pi-rukas commit and which base image a release means:
-# PI_RUKAS_FOLLOW=commit:<sha> and PI_RUKAS_IMAGE_DIGEST=sha256:<hex>, both
-# lines after the file's own content. A release with no pins keeps pi-rukas's
-# newest tag, as the checkout does today: passing none is allowed.
+# The pins name what this release builds the sandbox from: PI_RUKAS_FOLLOW and
+# PI_RUKAS_IMAGE_DIGEST, one line each at the end of versions.env. A release
+# with no pins keeps pi-rukas's newest tag, as the checkout does today: passing
+# none is allowed. Neither key has a reader yet: host/sandbox/build.sh derives
+# the base image from the commit it follows, and lib/rukas.sh knows only
+# release and branch:<name>, so a host that is given commit:<sha> stops on the
+# setting until #463 teaches it that form and gives the digest a reader.
 #
-# commit:<sha> is the third form PI_RUKAS_FOLLOW takes, beside release and
-# branch:<name> (see lib/rukas.sh), and is what a release pins pi-rukas to
-# rather than letting it move. lib/rukas.sh learns it in #463, which also
-# writes these two lines at tag time; until that lands a host reading a pinned
-# tarball stops on the setting, as it stops on any value it does not know.
-#
-# It reads the tree and the arguments and nothing else: no network, no git and
-# no cargo. It does not build the console and does not touch the tree it packs.
-# What it writes is <out dir>/tehas-<tag>-linux-x86_64.tar.gz and its .sha256
-# beside it, in the format sha256sum -c reads (<two spaces> between the hash
-# and the bare tarball's name, so it checks from that directory). It prints the
-# tarball's path and its sha256 on two lines.
-#
-# The two pins are given together: two releases of one version that differ in
-# only one of them are not two releases, so half a pin is a bad argument.
+# The stage is a copy of the packed tree plus the console, in TMPDIR, taken
+# down when the script ends.
 #
 # Usage: scripts/pack-release.sh <tag> <out dir> --console <path>
 #                               [--rukas-commit <40 hex>]
@@ -41,14 +29,24 @@
 #   --rukas-commit   the pi-rukas commit this release's sandbox is built from
 #   --rukas-digest   the base image's digest, as sha256:<64 hex>
 #
+# The tree it packs is the working directory, or TEHAS_PACK_ROOT when that
+# names one: the release workflow checks a tag out into its own workspace and
+# points the script at it. It reads that tree and its arguments and nothing
+# else: no network, no git and no cargo. It builds no console and writes nothing
+# into the tree; what it writes is <out dir>/tehas-<tag>-linux-x86_64.tar.gz and
+# its .sha256 beside it, each named only by its own name, so sha256sum -c checks
+# them from that directory.
+#
 # Example:
 #   scripts/pack-release.sh v0.7.6 dist --console console/target/release/console
 #
-# Exit: 0 the tarball and its .sha256 are written; 64 a bad argument (the tag
-#       is not vX.Y.Z, --console is missing or is not a file, only one of the
-#       two pins is given, an out dir cannot be made); 1 a pin whose value has
-#       the wrong shape, the console cannot be read, a file install.sh needs is
-#       missing from the tree, or tar or sha256sum failed.
+# Exit: 0 the tarball and its .sha256 are written, their paths on two lines;
+#       64 a bad argument (the tag is not vX.Y.Z, --console is missing, is not
+#       a file or is the tree's own build, only one of the two pins is given,
+#       the tree does not answer to TEHAS_PACK_ROOT, or an out dir cannot be
+#       made or already holds that tarball); 1 the tree is missing something
+#       install.sh reads, a pin's value has the wrong shape, or staging, tar or
+#       sha256sum failed.
 set -uo pipefail
 
 tag=""
@@ -122,13 +120,25 @@ if [ -z "$rukas_commit" ] && [ -n "$rukas_digest" ]; then
   exit 64
 fi
 
-root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-cd "$root" || exit 1
-# What install.sh reads, so a tarball that packs all of it installs. The
-# console/ directory is not among them: the console comes from --console, and
-# an adopter has no toolchain to build its source with.
-dirs=(bin libexec lib host)
-plain=(install.sh bootstrap.sh LICENSE NOTICE AGENTS.md)
+# The tree, and nothing else: the script's own directory says where the copy of
+# these files was installed, which is not where the release is.
+root=${TEHAS_PACK_ROOT:-$PWD}
+if [ ! -f "$root/install.sh" ]; then
+  echo "pack-release: no install.sh in the tree to pack: $root" >&2
+  exit 64
+fi
+cd "$root" || { echo "pack-release: cannot read the tree: $root" >&2; exit 64; }
+root=$PWD
+
+# What install.sh reads, so a tarball that packs all of it installs.
+if [ ! -f lib/release.sh ]; then
+  echo "pack-release: lib/release.sh is missing from $root" >&2
+  exit 1
+fi
+# shellcheck source=lib/release.sh
+. lib/release.sh
+mapfile -t dirs < <(tehas_release_dirs)
+mapfile -t plain < <(tehas_release_plain)
 for d in "${dirs[@]}"; do
   if [ ! -d "$d" ]; then
     echo "pack-release: $d is missing from $root" >&2
@@ -141,18 +151,35 @@ for f in "${plain[@]}"; do
     exit 1
   fi
 done
-# The console is not in the tree's libexec/: install.sh builds it, and a
-# checkout that has run install.sh or the gate may hold one. It is removed from
-# the stage below, so what an adopter gets is the --console build and nothing
-# else.
+# The console is not in the tree's libexec/: install.sh builds it, and a tree
+# that has run install.sh or the gate may hold one. What is packed is the
+# --console build and nothing else, so the given file has to be that build and
+# not the tree's own, which is decided from the two paths before anything is
+# copied.
 cached_console=
 if [ -e libexec/console ]; then
   cached_console=$PWD/libexec/console
 fi
+if [ -n "$cached_console" ] && {
+  [ "$console" -ef "$cached_console" ] || cmp -s "$console" "$cached_console"
+}; then
+  echo "pack-release: --console is the tree's own build of it: $cached_console" >&2
+  exit 64
+fi
 
 name=tehas-$tag
 tarball=$name-linux-x86_64.tar.gz
-stage=$(mktemp -d "${TMPDIR:-/tmp}/pack-release.XXXXXX") || exit 1
+# The two files are written by the last two steps and are not made before then,
+# so a run that fails leaves no tarball for the next one to be refused against.
+if [ -e "$out_dir/$tarball" ] || [ -e "$out_dir/$tarball.sha256" ]; then
+  echo "pack-release: $out_dir/$tarball already exists; remove it to repack" >&2
+  exit 1
+fi
+
+stage=$(mktemp -d "${TMPDIR:-/tmp}/pack-release.XXXXXX") || {
+  echo "pack-release: cannot make a staging directory" >&2
+  exit 1
+}
 trap 'rm -rf "$stage"' EXIT
 stage_dir=$stage/$name
 mkdir -p "$stage_dir" "$out_dir" || {
@@ -180,57 +207,84 @@ chmod 755 "$stage_dir/libexec/console" || {
   echo "pack-release: cannot make the console executable" >&2
   exit 1
 }
-if [ -n "$cached_console" ] && cmp -s "$console" "$stage_dir/libexec/console"; then
-  echo "pack-release: --console is the checkout's own build of it: $cached_console" >&2
-  exit 64
-fi
-# A tarball that has already been released is never overwritten: two tags of
-# one version, or a rerun with different arguments, would leave an adopter
-# checking one file against another.
-if [ -e "$out_dir/$tarball" ]; then
-  echo "pack-release: $out_dir/$tarball already exists; remove it to repack" >&2
-  exit 1
-fi
-# The pins are appended rather than substituted: the checkout's versions.env
-# stays the record of every other version, and these two lines say what this
-# release pins pi-rukas and the base image to. The last matching line is what
-# a reader of the file sees, so a line the checkout already carries for either
-# key is removed first and the release's value takes its place.
+
+pin_env() { # pin_env <key> <value>: one line, the release's, at the end
+  local key=$1 value=$2 file=$stage_dir/host/versions.env
+  grep -v "^$key=" "$file" >"$file.strip" || {
+    echo "pack-release: cannot rewrite host/versions.env" >&2
+    exit 1
+  }
+  # A source with no newline on its last line would have the pin glued to it.
+  if [ -s "$file.strip" ] && [ "$(tail -c1 "$file.strip" | wc -l)" = 0 ]; then
+    printf '\n' >>"$file.strip" || exit 1
+  fi
+  mv "$file.strip" "$file" || exit 1
+  printf '%s=%s\n' "$key" "$value" >>"$file" || exit 1
+}
+# The checkout's versions.env stays the record of every other version; these
+# two lines say what this release pins pi-rukas and the base image to, and a
+# line the tree already carries for either key is removed first so the release's
+# is the only one a reader of the file sees.
 if [ -n "$rukas_commit" ]; then
   grep -q '^PI_RUKAS_FOLLOW=' host/versions.env || {
     echo "pack-release: host/versions.env has no PI_RUKAS_FOLLOW line to pin" >&2
     exit 1
   }
-  grep -v '^PI_RUKAS_FOLLOW=' "$stage_dir/host/versions.env" >"$stage_dir/host/versions.env.strip" ||
-    {
-      echo "pack-release: cannot rewrite host/versions.env" >&2
-      exit 1
-    }
-  mv "$stage_dir/host/versions.env.strip" "$stage_dir/host/versions.env" || exit 1
-  printf 'PI_RUKAS_FOLLOW=commit:%s\n' "$rukas_commit" >>"$stage_dir/host/versions.env" || exit 1
+  pin_env PI_RUKAS_FOLLOW "commit:$rukas_commit"
 fi
 if [ -n "$rukas_digest" ]; then
-  grep -v '^PI_RUKAS_IMAGE_DIGEST=' "$stage_dir/host/versions.env" >"$stage_dir/host/versions.env.strip" ||
-    {
-      echo "pack-release: cannot rewrite host/versions.env" >&2
-      exit 1
-    }
-  mv "$stage_dir/host/versions.env.strip" "$stage_dir/host/versions.env" || exit 1
-  printf 'PI_RUKAS_IMAGE_DIGEST=%s\n' "$rukas_digest" >>"$stage_dir/host/versions.env" || exit 1
+  pin_env PI_RUKAS_IMAGE_DIGEST "$rukas_digest"
 fi
-# The tag this release is, where a person and install.sh can both read it.
+# The tag this release is, for a person to read beside the tarball. install.sh
+# does not read it: the version a host reports is the version.txt it writes from
+# git, which a tree with no git leaves unset.
 printf '%s\n' "$tag" >"$stage_dir/VERSION" || exit 1
 
 # The tree is copied, tarred and removed before the hash line is made: the
 # tarball's contents are fixed by then, and the .sha256 names only itself.
-tar -czf "$out_dir/$tarball" -C "$stage" "$name" || {
+tar -czf "$stage/$tarball.partial" -C "$stage" "$name" || {
   echo "pack-release: tar failed" >&2
   exit 1
 }
-(cd "$out_dir" && sha256sum "$tarball") >"$out_dir/$tarball.sha256" || {
+# In the format sha256sum -c reads: the hash, two spaces, the bare tarball's
+# name. The name the hash is taken under is replaced by the tarball's own, so
+# the line names the file the adopter holds. Written in the stage and moved into
+# place only once it reads back as one line with a hash for a first field.
+(cd "$stage" && sha256sum "$tarball.partial" | cut -d' ' -f1) >"$stage/hash" || {
   echo "pack-release: sha256sum failed" >&2
+  exit 1
+}
+printf '%s  %s\n' "$(cat "$stage/hash")" "$tarball" >"$stage/$tarball.sha256" || {
+  echo "pack-release: cannot write the hash line" >&2
+  exit 1
+}
+line=$(cat "$stage/$tarball.sha256") || {
+  echo "pack-release: cannot read back the hash line" >&2
+  exit 1
+}
+[ "$(wc -l <<<"$line")" = 1 ] || {
+  echo "pack-release: the hash line is not one line" >&2
+  exit 1
+}
+[[ ${line%% *} =~ ^[0-9a-f]{64}$ ]] || {
+  echo "pack-release: the hash line has no sha256 for a first field" >&2
+  exit 1
+}
+[ "$(tail -c1 "$stage/$tarball.sha256" | wc -l)" = 1 ] || {
+  echo "pack-release: the hash line does not end with a newline" >&2
+  exit 1
+}
+mv "$stage/$tarball.partial" "$out_dir/$tarball" || {
+  echo "pack-release: cannot put the tarball in $out_dir" >&2
+  exit 1
+}
+mv "$stage/$tarball.sha256" "$out_dir/$tarball.sha256" || {
+  echo "pack-release: cannot put the .sha256 in $out_dir" >&2
   exit 1
 }
 
 echo "$out_dir/$tarball"
-cat "$out_dir/$tarball.sha256"
+cat "$out_dir/$tarball.sha256" || {
+  echo "pack-release: cannot read $out_dir/$tarball.sha256" >&2
+  exit 1
+}
