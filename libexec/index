@@ -22,6 +22,18 @@
 # as it is, which falls behind the branch while cycles overlap. What a cycle
 # changes is never in it.
 #
+# The record names the sandbox image that built the index, by the id Docker
+# gives that image. An index written by another image is not updated: what one
+# indexer wrote is not data the next one can add to. What that image wrote is
+# set aside outside the index, the run builds from scratch, and it says which
+# two images it compared. A run that did not write its index puts them back, so
+# a failed rebuild leaves cycles the index they had instead of nothing, and a
+# run that wrote a database keeps what it wrote instead. A run that was killed
+# never gets that far: the next run takes what it left set aside back into the
+# index, or removes it when the index already holds a database. The id is read
+# from the image, not from the pin in host/versions.env, because a host that
+# pulled a new pin has not necessarily rebuilt the image.
+#
 # Called before a cycle, it is done only when the directory holds index data
 # and its record names the branch's tip. The record alone is not enough: on a
 # host upgraded from the version that kept the index in a cache volume, the
@@ -44,7 +56,8 @@
 #
 # Exit status: 0 the index was built, or was already current,
 #              1 the sandbox image is missing or the indexer failed, did not
-#                finish in time, or, before a cycle, failed at this tip before
+#                finish in time, or what another sandbox image wrote could not
+#                be set aside, or, before a cycle, failed at this tip before
 #              3 a cycle is running, another index run holds its lock, or a
 #                poll held the dispatcher's lock for the whole wait; nothing
 #                was done.
@@ -98,6 +111,107 @@ log=$TEHAS_HOME/logs/index-$(date -u +%y%m%d-%H%M%S).log
 
 base=$(git -C "$src" rev-parse -q --verify "refs/remotes/origin/$branch^{commit}") ||
   { echo "tehas index: $src has no origin/$branch, nothing was indexed" >&2; exit 78; }
+
+# An index written by another sandbox image is not updated: what one indexer
+# wrote is not data the next one can add to. When the record names another
+# image, or none, what that one wrote waits outside the index while this run
+# builds from nothing, and the run says which two images it compared. Nothing
+# is said when the directory holds no database, which is what a host that has
+# never been indexed looks like. The indexer's own configuration and its logs
+# stay.
+# Where what another image wrote waits. Empty when nothing is waiting, which is
+# what every run that does not rebuild looks like.
+stale=
+
+# Move what another sandbox image wrote out of <dir>, so this run finds nothing
+# to add to. The files wait outside the index rather than being deleted: the
+# run that replaces them can fail, and the index they hold is the only one a
+# cycle has until a run succeeds. <dir> <image that built the index>
+# <image this run uses>.
+rebuild_index() { # <dir> <image that built the index> <image this run uses>
+  local dir=$1 built=$2 now=$3 f moved=0
+  [ "$built" = "$now" ] && return 0
+  stale=$(mktemp -d "$TEHAS_HOME/tmp/index.stale.XXXXXX") || {
+    echo "tehas index: could not make a place for the index of another sandbox image, nothing was indexed" >&2
+    return 1
+  }
+  for f in "$dir"/*; do
+    [ -f "$f" ] || continue
+    case "$f" in
+      *_config.db) continue ;;
+    esac
+    # A file that cannot be moved would stay and mix two images' data, which is
+    # what this is for. The run stops instead of doing it halfway.
+    mv -f "$f" "$stale" || {
+      echo "tehas index: could not set aside $f, nothing was indexed" >&2
+      return 1
+    }
+    moved=$((moved + 1))
+  done
+  [ "$moved" = 0 ] ||
+    echo "tehas index: the index was built by sandbox image ${built:-unknown}, this run uses $now: $moved file(s) it wrote are set aside and the index is built from scratch"
+}
+
+# Put back what this run set aside, so a run that did not write its index leaves
+# the host the index it found. Called by the EXIT trap, and does nothing for a
+# run that succeeded or never rebuilt. A run whose indexer did write a database
+# keeps what it wrote and drops the set-aside instead: the answer can fail this
+# command's check for a reason that has nothing to do with the write, and putting
+# the other image's files back over them would lose the index this run made and
+# mix two images' data. <dir> <epoch this run started, empty when it never got
+# that far>.
+restore_index() { # <dir> <epoch this run started>
+  local dir=$1 started=$2 f wrote=0
+  [ -n "$stale" ] && [ -d "$stale" ] || return 0
+  if [ -n "$started" ]; then
+    for f in "$dir"/*.db; do
+      [ -f "$f" ] || continue
+      case "$f" in *_config.db) continue ;; esac
+      [ "$(stat -c %Y "$f")" -ge "$started" ] && { wrote=1; break; }
+    done
+  fi
+  if [ "$wrote" = 1 ]; then
+    echo "tehas index: this run wrote index data, what the other sandbox image wrote was dropped" >&2
+    rm -rf "$stale"
+    stale=
+    return 0
+  fi
+  for f in "$stale"/*; do
+    [ -f "$f" ] || continue
+    mv -f "$f" "$dir" || echo "tehas index: could not put $f back in $dir" >&2
+  done
+  rmdir "$stale" 2>/dev/null || true
+  stale=
+}
+
+# Take back what a run that was killed set aside: its EXIT trap never ran, so
+# those files wait in $TEHAS_HOME/tmp and no later run looks at them. Only this
+# run holds the index's lock, so what is set aside there belongs to no run in
+# progress. When the index holds no database the cycles have nothing to search,
+# so the files go back where a run can use them; when it does, they are what
+# this run would only set aside again, and they are removed. <dir>.
+reclaim_index() { # <dir>
+  local dir=$1 d f empty=1 back=0 gone=0
+  for f in "$dir"/*.db; do
+    [ -f "$f" ] || continue
+    case "$f" in *_config.db) continue ;; esac
+    empty=0
+  done
+  for d in "$TEHAS_HOME"/tmp/index.stale.*; do
+    [ -d "$d" ] || continue
+    for f in "$d"/*; do
+      [ -f "$f" ] || continue
+      if [ "$empty" = 1 ]; then
+        mv -f "$f" "$dir" && back=$((back + 1))
+      else
+        rm -f "$f" && gone=$((gone + 1))
+      fi
+    done
+    rmdir "$d" 2>/dev/null || true
+  done
+  [ "$back" = 0 ] && [ "$gone" = 0 ] ||
+    echo "tehas index: a run that was killed left index data set aside: $back file(s) put back in $dir, $gone removed"
+}
 
 # Remove what earlier runs left in <dir>, so the copy a cycle is given stays
 # the size of the index and not of everything the indexer ever wrote. A staging
@@ -160,19 +274,30 @@ if [ "${#TEHAS_SLICE_LIMITS[@]}" != 14 ] || [ "${TEHAS_SLICE_LIMITS[1]}" != teha
   exit 78
 fi
 
-if ! docker image inspect "$image" >/dev/null 2>&1; then
+# One call answers both questions: is the image there, and which image is it.
+image_id=$(docker image inspect "$image" -f '{{.Id}}' 2>/dev/null) || {
   echo "tehas index: no sandbox image $image, nothing was indexed; build it with $TEHAS_HOME/sandbox/build.sh" >&2
   exit 1
-fi
+}
+# The image that built the index, as the run that wrote it recorded one. Empty
+# when none is recorded: an index built before this was recorded, or none.
+recorded=$(jq -r '.indexer_image // empty' "$marker" 2>/dev/null)
 
 tree=$(mktemp -d "$TEHAS_HOME/tmp/index.XXXXXX") || exit 1
-trap 'rm -rf "$tree"' EXIT
+trap 'restore_index "$index" "${started:-}"; rm -rf "$tree"' EXIT
 if ! { git init -q -b "$branch" "$tree" &&
   git -C "$tree" fetch -q --no-tags "$src" "+refs/remotes/origin/$branch:refs/remotes/origin/$branch" &&
   git -C "$tree" checkout -q -B "$branch" "$base"; }; then
   echo "tehas index: could not clone $src, nothing was indexed" >&2
   exit 1
 fi
+
+# Asked after the clone: a run that could not clone keeps the index it has, and
+# so does one that could not set aside what another image wrote.
+# What a killed run left set aside is dealt with first: it is index data no
+# cycle can search, and this run would only move it out again.
+reclaim_index "$index"
+rebuild_index "$index" "$recorded" "$image_id" || exit 1
 
 started=$(date +%s)
 # A run that was killed leaves its container under this name, and every later
@@ -203,10 +328,16 @@ fi
 
 nodes=$(jq -r '.nodes // 0' <<<"$answer")
 edges=$(jq -r '.edges // 0' <<<"$answer")
-jq -n --arg commit "$base" --arg branch "$branch" --argjson nodes "$nodes" --argjson edges "$edges" \
-  --argjson at "$(date +%s)" '{commit: $commit, branch: $branch, nodes: $nodes, edges: $edges, at: $at}' \
+jq -n --arg commit "$base" --arg branch "$branch" --arg image "$image_id" \
+  --argjson nodes "$nodes" --argjson edges "$edges" --argjson at "$(date +%s)" \
+  '{commit: $commit, branch: $branch, nodes: $nodes, edges: $edges, at: $at, indexer_image: $image}' \
   >"$marker.new" && mv "$marker.new" "$marker"
 rm -f "$failed"
+# This run wrote its index, so what the other image wrote is no longer needed.
+# An exit that wrote no index puts it back, through the trap; an exit that wrote
+# one drops it the same way.
+rm -rf "$stale"
+stale=
 # Only a run that wrote its index prunes. A failed one may have left the half
 # written database where a later run can still find it.
 prune_index "$index" "$started"
