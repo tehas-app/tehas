@@ -947,7 +947,13 @@ Two things the base carries are changed on purpose.
   unpinned, so its tool schemas moved under a host between builds and a code
   search call that worked in one cycle was refused in the next. The index a cycle
   searches is built by the same program in the same image, by `tehas index`, so
-  pinning it fixes both halves at once.
+  pinning it fixes both halves at once. What `tehas index` records beside the
+  commit is the id of the image that ran, not the pin it was told to use, because
+  a host that pulled a new pin has not necessarily rebuilt the image. A run that
+  finds a different id there, or none, sets aside what the other image wrote and
+  builds from scratch, and puts it back unless this run wrote an index of its
+  own, so rebuilding the sandbox image is enough on its own and no indexer ever
+  updates an index it did not build.
 - wigolo comes off PATH. The base installs it with npm's scripts off, which skips
   the native build of its better-sqlite3, so every call died on a missing
   bindings file and cost a cycle a call each time an agent reached for it.

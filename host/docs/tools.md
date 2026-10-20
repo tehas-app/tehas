@@ -1064,7 +1064,7 @@ is only ever written when nothing is reading it, and no poll waits for it.
 | Exit | Meaning                                                |
 | ---- | ------------------------------------------------------ |
 | 0    | The index was built, or was already current            |
-| 1    | The sandbox image is missing, or the indexer failed or did not finish in 30 minutes |
+| 1    | The sandbox image is missing, the indexer failed or did not finish in 30 minutes, or what another sandbox image wrote could not be set aside |
 | 3    | A cycle is running, another index run holds its lock, or a poll held the dispatcher's lock for a minute; nothing was done |
 | 64   | An argument this command does not know                 |
 | 78   | The instance settings are invalid, or `tehas.slice` cannot be used; nothing was done |
@@ -1073,7 +1073,15 @@ The container gets the clone, read-only, and `~/tehas/state/index`, which is
 the only thing it may write: no network, no token and none of the settings. It
 runs in `tehas.slice` with a cycle's limits. The indexer's answer is kept in
 `~/tehas/logs/index-<time>.log`, and `~/tehas/state/index.json` records the
-commit that was indexed.
+commit that was indexed and the id of the sandbox image that built it. A run
+that finds a different id there, or none, sets aside what that image wrote and
+builds from scratch, and says which two images it compared; the same image
+leaves the index where it is for the indexer to update. What it set aside waits
+in `~/tehas/tmp`: it goes back when the run wrote no index, and is dropped when
+the run wrote one, so a rebuild that fails still leaves the cycles an index to
+search and never buries the one a run just wrote. A run that was killed leaves
+its set-aside there, and the next run puts those files back when the index
+holds no database, or removes them when it does.
 
 A cycle is given a copy, not the directory: the databases and the indexer's own
 configuration, not its logs and not the staging file of an index run that was
@@ -1088,7 +1096,10 @@ agents search by reading files, which is slower and finds less.
 product checkout and no index. After that the dispatcher runs the script with
 `--before-cycle`, as `tehas-index.service`, when it would start cycles and no
 cycle is running, and only when `~/tehas/state/index` does not already hold
-what the record says is the branch's tip. Its output goes to
+what the record says is the branch's tip. A run that finds the record naming
+the tip says so and does nothing, even when the sandbox image has been rebuilt
+since: the new image indexes the tree at the next commit, or at once when a
+person runs `tehas index`. Its output goes to
 `~/tehas/logs/dispatch-index.log`. An empty directory counts as
 no index, so a host upgraded from the version that kept the index in a cache
 volume builds it into the new one at its next idle start rather than reporting
@@ -1105,11 +1116,12 @@ named `tehas-index` that a killed run left behind is removed before each run.
 When the indexer fails, `~/tehas/state/index.json` stays as it was and
 `~/tehas/state/index.failed` holds the tip that failed. Before a cycle that tip
 is not tried again: the dispatcher does not start the unit for it, and the
-cycles start with the index as it is, until the branch moves.
+cycles start with the index as it is, an index written by another sandbox image
+included, until the branch moves.
 
-Run by hand it always rebuilds, a failed tip too, and it holds the index's lock
-while it does, so no cycle starts in the middle. A cycle started by hand
-with `tehas work` refreshes nothing.
+Run by hand it does the work even when the record says the index is current, a
+failed tip too, and it holds the index's lock while it does, so no cycle starts
+in the middle. A cycle started by hand with `tehas work` refreshes nothing.
 
 ## tehas labels
 
