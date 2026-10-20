@@ -1261,16 +1261,35 @@ It prints one line for each thing it stopped or removed, and
 `nothing to stop for #12` when there is nothing to do, so running it twice is
 safe. It names only paths for the number it was given: stopping 12 touches
 nothing of 120. Nothing is removed while a cycle holds that issue's lock, and a
-cycle that still holds it after the stop is left whole and said. It makes no
-GitHub call and changes no label, so `tehas:running` stays on the issue: you
-take it off, or the next poll finds the issue marked with no cycle behind it and
-parks it.
+cycle that still holds it after the stop is left whole and said.
+
+Its last step is the issue's own. When it stopped or removed something on this
+host, and nothing of that failed, it reads the labels of issue 12
+(`gh issue view 12 --repo <repo> --json labels --jq '.labels[].name'`) and takes
+`tehas:running` off when it is there and no cycle of issue 12 holds its lock
+again (`gh issue edit 12 --repo <repo> --remove-label tehas:running`), said as
+`removed tehas:running from #12`. It adds no other label and writes no comment.
+A run that found nothing to do here makes no GitHub call, and a stop whose host
+part failed leaves the label where it is: while a container still works on with
+the bot's token, `tehas:running` is what the poll needs to park the issue. Each
+call gets 10 seconds. A label it cannot read is said as `WARN: the labels of #12
+could not be read, so tehas:running stays on the issue`, one it cannot take off
+as `WARN: tehas:running could not be taken off #12`, and a cycle that took this
+issue's lock again while the host was cleared as `WARN: a cycle for #12 holds
+its lock again, so tehas:running stays on the issue`. For the first two the
+host is already cleared, and a second run finds nothing to clear here and asks
+GitHub for nothing: the label then goes by hand, or the poll parks the issue.
+For the third there is a cycle of issue 12 on this host, and that cycle owns
+`tehas:running`: it takes the label off when it ends, and taking it off by hand
+while it runs takes the label out from under it. Running this again ends that
+cycle too, as stopping any other cycle does.
 
 Exit 0 when the leftovers are gone or there was nothing to do, 1 when the cycle
-still holds its lock after the stop or something could not be removed, 64 with
-no issue number, an issue that is not a positive number, or an argument it does
-not know, 78 when the instance settings are missing or malformed, which changes
-nothing.
+still holds its lock after the stop, something could not be removed,
+`tehas:running` could not be read or taken off the issue, or a cycle of that
+issue took its lock again before the label was read, 64 with no issue
+number, an issue that is not a positive number, or an argument it does not know,
+78 when the instance settings are missing or malformed, which changes nothing.
 
 ## tehas status
 

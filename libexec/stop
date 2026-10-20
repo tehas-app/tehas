@@ -5,9 +5,11 @@
 # unit, remove the container, take away the lock and the markers that make this
 # host think a cycle still runs, remove the workspace, its transcripts and its
 # console file, and take tehas:running off the issue. This does the host's half
-# at once. It calls GitHub for nothing and changes no label: taking
-# tehas:running off the issue is follow-up #416, and it says so when it has
-# taken something away.
+# at once, then the issue's: when it stopped or removed something here and
+# nothing of that failed, it reads the issue's labels and takes tehas:running
+# off when it is there and no cycle of this issue holds its lock again. It adds
+# no other label and writes no comment. A run that found nothing to do on this
+# host asks GitHub for nothing, so a second run is a no-op twice.
 #
 # What goes is only what says a cycle runs, is owed, or is parked:
 #
@@ -37,12 +39,14 @@
 #
 # Exit: 0 the cycle is stopped and its leftovers are gone, or there was nothing
 # to do, which makes a second run safe; 1 the cycle still holds its lock after
-# the stop, or a stop or a removal failed; 64 no issue number, an issue that is
-# not a positive number, or an argument this does not know; 78 the instance
-# settings are missing or malformed, which changes nothing.
+# the stop, or a stop or a removal failed, or tehas:running could not be read
+# off the issue or taken off it, or a cycle of that issue took its lock again
+# before the label was read; 64 no issue number, an issue that is not a
+# positive number, or an argument this does not know; 78 the instance settings
+# are missing or malformed, which changes nothing.
 #
 # Instance settings (lib/config.sh): TEHAS_REPO, for the name libexec/work gives
-# the workspace.
+# the workspace and for the issue this reads its labels from and relabels.
 set -uo pipefail
 
 show_usage() {
@@ -213,9 +217,39 @@ else
 fi
 exec 9>&-
 
-if [ "$unit_live" = 1 ] || [ "$lock_held" = 1 ] || [ "$container_live" = 1 ] ||
-  [ "${#present[@]}" != 0 ]; then
-  echo "no label was changed: tehas:running stays on the issue until something takes it off."
+# The last step, the issue's half. A run with nothing to do here exited above,
+# so reaching it means this stopped or removed something, and it runs only when
+# nothing of that failed, because tehas:running comes off an issue whose cycle
+# really ended. Each call is bounded, as the cycle bounds its own: gh reads an
+# issue's labels as an object, so the filter is .labels[].name.
+if [ "$rc" = 0 ]; then
+  if ! labels=$(timeout 10 gh issue view "$n" --repo "$TEHAS_REPO" --json labels \
+    --jq '.labels[].name' 2>/dev/null); then
+    printf 'WARN: the labels of #%s could not be read, so tehas:running stays on the issue\n' "$n" >&2
+    rc=1
+  else
+    # A label name is matched as a whole line: tehas:running is not a longer
+    # name that starts with it.
+    running=0
+    case $'\n'"$labels"$'\n' in
+      *$'\n'tehas:running$'\n'*) running=1 ;;
+    esac
+    if [ "$running" = 1 ]; then
+      # The lock is checked before the edit, as tidy checks it before its own:
+      # a cycle that took this issue's lock again while the host was cleared
+      # owns tehas:running now.
+      if tehas_cycle_running "$n"; then
+        printf 'WARN: a cycle for #%s holds its lock again, so tehas:running stays on the issue\n' "$n" >&2
+        rc=1
+      elif timeout 10 gh issue edit "$n" --repo "$TEHAS_REPO" \
+        --remove-label tehas:running >/dev/null 2>&1; then
+        printf 'removed tehas:running from #%s\n' "$n"
+      else
+        printf 'WARN: tehas:running could not be taken off #%s\n' "$n" >&2
+        rc=1
+      fi
+    fi
+  fi
 fi
 
 exit "$rc"
