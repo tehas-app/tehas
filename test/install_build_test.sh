@@ -146,6 +146,8 @@ t_eq "$(t_calls cargo | wc -l)" 2
 # A crate that is not in cargo's cache: the offline build says so in cargo's own
 # words, the retry without --offline builds, and the program is installed.
 t_case "a build whose crate is missing from the cache is retried online once, and installs"
+fresh
+instance
 checkout
 rm -f "$T/calls/cargo"
 t_env CARGO_OFFLINE=miss
@@ -154,6 +156,7 @@ t_eq "$t_rc" 0
 t_eq "$(t_calls cargo | wc -l)" 4
 t_contains "$(t_calls cargo | head -n 1)" "--offline"
 t_lacks "$(t_calls cargo | tail -n 1)" "--offline"
+t_contains "$t_out" "cargo's cache has no crate for"
 t_eq "$(cat "$th/libexec/console")" "a console built from source"
 t_eq "$(cat "$th/libexec/analytics")" "an analytics built from source"
 t_run "$part/install.sh --check"
@@ -161,20 +164,75 @@ t_contains "$t_out" "Installed:    OK"
 t_eq "$(t_calls cargo | wc -l)" 4
 t_env
 
-# The other half of the rule: only a cache miss retries. A build that fails for
-# another reason is reported from the offline call alone, so a compile error
-# does not cost a second build.
-t_case "a build that fails for a reason other than the cache is not retried"
+# The retry is reported from both attempts: the offline miss is not lost behind
+# the online failure that followed it, and the note says the second build ran.
+t_case "a cache miss that the fetch does not fix is reported from both attempts and installs nothing"
 fresh
 instance
+checkout
 rm -f "$T/calls/cargo"
-t_env CARGO_RC=101
+t_env CARGO_OFFLINE=fail
+t_run "$part/install.sh"
+t_eq "$t_rc" 1
+t_eq "$(t_calls cargo | wc -l)" 2
+t_contains "$(t_calls cargo)" "--offline"
+t_contains "$t_out" "cargo's cache has no crate for"
+t_contains "$t_out" "offline build:"
+t_contains "$t_out" "online build:"
+t_contains "$t_out" "could not compile"
+t_eq "$(host_files | wc -l)" 0
+t_env
+
+# The two halves of the classifier: cargo's words for a missing crate send the
+# retry, and words that merely quote --offline do not. A build script that
+# echoes its own command line is the second kind.
+t_case "words that only quote --offline are not a cache miss, so the build is not retried"
+fresh
+instance
+checkout
+rm -f "$T/calls/cargo"
+t_env CARGO_OFFLINE=noise
 t_run "$part/install.sh"
 t_eq "$t_rc" 1
 t_eq "$(t_calls cargo | wc -l)" 1
 t_contains "$(t_calls cargo)" "--offline"
-t_contains "$t_out" "could not compile"
+t_lacks "$t_out" "building it again with the network"
 t_eq "$(host_files | wc -l)" 0
+t_env
+
+# The other half of the rule: only a cache miss retries. The one package whose
+# build fails fails for a reason the cache has nothing to do with, so that one
+# call answers it and no second build is asked.
+t_case "a build that fails for a reason other than the cache is not retried"
+fresh
+instance
+checkout
+t_env CARGO_FAIL=analytics
+rm -f "$T/calls/cargo"
+t_run "$part/install.sh"
+t_eq "$t_rc" 1
+t_eq "$(t_calls cargo | wc -l)" 2
+t_eq "$(t_calls cargo | grep -c -- --offline)" 2
+t_contains "$t_out" "could not compile"
+t_lacks "$t_out" "building it again with the network"
+t_eq "$(host_files | wc -l)" 0
+t_env
+
+# The same bound holds for the retry: a fetch that never answers is cut off
+# rather than left to hang, and the message says so. The stub is the build, so
+# a timeout in place of the real cargo is the whole case.
+t_case "a build that outlives the timeout is cut off and named as cut off"
+fresh
+instance
+checkout
+rm -f "$T/calls/cargo"
+t_stub cargo 'sleep 20'
+t_env TEHAS_BUILD_TIMEOUT=1
+t_run "$part/install.sh"
+t_eq "$t_rc" 1
+t_contains "$t_out" "was cut off after 1s"
+t_eq "$(host_files | wc -l)" 0
+t_stub_cargo
 t_env
 
 t_case "an analytics that does not build installs nothing, the console's build included"
