@@ -340,9 +340,13 @@ that was installed. The console's source is `console/` without its tests and
 without `console/analytics/`, so a change to analytics alone builds analytics
 alone. The analytics source is `console/analytics/` without its tests, the
 workspace's `Cargo.toml` and `Cargo.lock`, and the console's mask
-(`console/src/mask.rs`), which it shares. The first build fetches the crates
-from the network and takes a minute or two: analytics compiles SQLite. `--check`
-compares the checksums and builds nothing, so a program replaced on the host
+(`console/src/mask.rs`), which it shares. Each build asks `cargo` for
+`--offline` first, so a host that has fetched once installs with no network.
+When a crate is missing from cargo's cache the build is run once more without
+`--offline` and fetches, which takes a minute or two: analytics compiles
+SQLite. A build that fails for any other reason, a compile error among it, is
+reported from the offline attempt and not tried again. `--check` compares the
+checksums and builds nothing, so a program replaced on the host
 shows up as drift like any other file. Every program that is due is built
 before any is installed, so one that does not build stops the install before
 it has changed anything, and so does a host without `cargo`. The build is

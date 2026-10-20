@@ -125,7 +125,7 @@ rm -f "$T/calls/cargo"
 t_env CONSOLE_BUILD="new source"
 t_run "$part/install.sh"
 t_eq "$t_rc" 0
-t_eq "$(t_calls cargo)" "build --release --locked --quiet --manifest-path $part/console/Cargo.toml --target-dir $T/target -p analytics"
+t_eq "$(t_calls cargo)" "build --release --locked --offline --quiet --manifest-path $part/console/Cargo.toml --target-dir $T/target -p analytics"
 t_eq "$(cat "$th/libexec/analytics")" "an analytics built from new source"
 t_eq "$(cat "$th/libexec/console")" "a console built from source"
 t_eq "$(cat "$th/libexec/console.stamp")" "$console_stamp"
@@ -135,13 +135,47 @@ t_case "a change to the console alone builds the console alone"
 echo "// changed" >>"$part/console/src/main.rs"
 rm -f "$T/calls/cargo"
 t_run "$part/install.sh"
-t_eq "$(t_calls cargo)" "build --release --locked --quiet --manifest-path $part/console/Cargo.toml --target-dir $T/target -p console"
+t_eq "$(t_calls cargo)" "build --release --locked --offline --quiet --manifest-path $part/console/Cargo.toml --target-dir $T/target -p console"
 
 t_case "the mask the two share builds both"
 echo "// changed" >>"$part/console/src/mask.rs"
 rm -f "$T/calls/cargo"
 t_run "$part/install.sh"
 t_eq "$(t_calls cargo | wc -l)" 2
+
+# A crate that is not in cargo's cache: the offline build says so in cargo's own
+# words, the retry without --offline builds, and the program is installed.
+t_case "a build whose crate is missing from the cache is retried online once, and installs"
+checkout
+rm -f "$T/calls/cargo"
+t_env CARGO_OFFLINE=miss
+t_run "$part/install.sh"
+t_eq "$t_rc" 0
+t_eq "$(t_calls cargo | wc -l)" 4
+t_contains "$(t_calls cargo | head -n 1)" "--offline"
+t_lacks "$(t_calls cargo | tail -n 1)" "--offline"
+t_eq "$(cat "$th/libexec/console")" "a console built from source"
+t_eq "$(cat "$th/libexec/analytics")" "an analytics built from source"
+t_run "$part/install.sh --check"
+t_contains "$t_out" "Installed:    OK"
+t_eq "$(t_calls cargo | wc -l)" 4
+t_env
+
+# The other half of the rule: only a cache miss retries. A build that fails for
+# another reason is reported from the offline call alone, so a compile error
+# does not cost a second build.
+t_case "a build that fails for a reason other than the cache is not retried"
+fresh
+instance
+rm -f "$T/calls/cargo"
+t_env CARGO_RC=101
+t_run "$part/install.sh"
+t_eq "$t_rc" 1
+t_eq "$(t_calls cargo | wc -l)" 1
+t_contains "$(t_calls cargo)" "--offline"
+t_contains "$t_out" "could not compile"
+t_eq "$(host_files | wc -l)" 0
+t_env
 
 t_case "an analytics that does not build installs nothing, the console's build included"
 fresh

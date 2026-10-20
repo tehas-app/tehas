@@ -13,7 +13,10 @@
 #                                    commands look for it, in the scratch
 #                                    TEHAS_HOME; t_calls analytics
 #   t_stub_cargo                     a cargo that compiles nothing and leaves the
-#                                    package it was asked for (-p)
+#                                    package it was asked for (-p); CARGO_OFFLINE
+#                                    fails only the build that asked for --offline,
+#                                    in cargo's own words for a crate missing
+#                                    from the cache
 #   t_console_source DIR             copy the source of the console and of
 #                                    analytics into a scratch checkout
 #   slice_state / slice_child / slice_id   a scratch cgroup tree for lib/slice.sh
@@ -84,11 +87,22 @@ t_stub_analytics() {
 # $CARGO_TARGET_DIR, which t_run points into the scratch directory, so no test
 # builds into this checkout. CARGO_RC makes the build fail, CARGO_FAIL names
 # the one package whose build fails, CONSOLE_BUILD tells one build from
-# another, and NO_CONSOLE is a build that succeeds and leaves nothing.
+# another, and NO_CONSOLE is a build that succeeds and leaves nothing. A build
+# that asks for --offline is a build from the cache alone: CARGO_OFFLINE=miss
+# answers it the way cargo does when a crate is not there, so the caller's
+# retry without --offline is the call that succeeds.
 t_stub_cargo() {
   # shellcheck disable=SC2016  # the stub's body is expanded when the stub runs
   t_stub cargo 'pkg=console prev=""
 for a in "$@"; do [ "$prev" != -p ] || pkg=$a; prev=$a; done
+if [ "${CARGO_OFFLINE:-}" = miss ]; then
+  for a in "$@"; do
+    [ "$a" != --offline ] || {
+      echo "error: no matching package named \"$pkg\" found: attempting to make an HTTP request, but --offline was specified" >&2
+      exit 101
+    }
+  done
+fi
 if [ "${CARGO_RC:-0}" != 0 ]; then echo "error: could not compile $pkg" >&2; exit "$CARGO_RC"; fi
 if [ "${CARGO_FAIL:-}" = "$pkg" ]; then echo "error: could not compile $pkg" >&2; exit 101; fi
 [ -z "${NO_CONSOLE:-}" ] || exit 0
