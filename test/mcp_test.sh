@@ -125,13 +125,15 @@ t_lacks "$(t_calls docker)" "run "
 
 t_case "a key is 43 characters of the URL-safe alphabet, new each time, and nothing is written"
 reset
+sleep 0.01
+touch "$T/before-key"
 t_run "$mcp key"
 t_eq "$t_rc" 0
 first=$t_out
 [[ $first =~ ^[A-Za-z0-9_-]{43}$ ]] || t_bad "not a key: $first"
 t_run "$mcp key"
 [ "$t_out" != "$first" ] || t_bad "the same key twice"
-t_eq "$(find "$th" -newer "$th/versions.env" -type f | wc -l)" 0
+t_eq "$(find "$th" -newer "$T/before-key" -type f | wc -l)" 0
 
 t_case "an unknown argument is 64"
 reset
