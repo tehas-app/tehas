@@ -76,7 +76,8 @@ there too: it shows the same things.
    ```
 
    Rate limiting by address belongs there too: the server has none of its own.
-   It serves `/mcp` only and answers any other path with 404.
+   It serves `/mcp` only and answers any other path with 404. This page is at
+   `/mcp-server`, so the route takes no page of the manual with it.
 
 To remove a key, take it out of the list and run
 `systemctl --user restart tehas-mcp.service`. The journal names each request's
