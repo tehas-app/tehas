@@ -29,6 +29,7 @@ tehas top [--once|--json]        # one screen of what the factory is doing
 tehas analytics report|export    # the factory's last ten days of runs
 tehas pause [reason]             # stop this host from starting new work
 tehas resume                     # lift this host's pause flag
+tehas stop <issue> [--keep-workspace]  # end a cycle by hand, clear what it left
 tehas help [command]             # this list, or the text of one command
 ```
 
@@ -1223,6 +1224,45 @@ label.
 
 Exit 0 when the flag is gone, whatever the label says, 64 on any argument, 78
 when the instance settings are missing or malformed.
+
+## tehas stop
+
+```
+tehas stop 12                      # end the cycle for issue 12, take its workspace too
+tehas stop 12 --keep-workspace     # end it and keep the workspace to read
+```
+
+Ends a cycle by hand and clears what it left on this host. It asks
+`tehas-cycle@12.service` to stop, waits up to 10 seconds for the cycle to let go
+of its lock, and removes the container `tehas-work-12` when it is still there.
+Then it removes what says a cycle runs, owes something, or is parked:
+`~/tehas/state/cycles/12.lock` with `.taken`, `.cid`, `.park`, `.requeued`,
+`.done`, `.stalled`, `.timed`, `.quiet`, `.oom`, `.forks`, `.branch`, `.image`,
+`.progress.json` and `.result.json`, `~/tehas/state/park-12.id`,
+`~/tehas/live/console-12.txt`, `~/.pi/agent/ensemble-runs/issue-12`, and the
+workspace `~/tehas/work/<name>-12` with its `.state`, `.before-retry` and
+`.images` beside it. `--keep-workspace` keeps the workspace for you to read.
+
+It keeps the cycle's record and every log: `state/cycles/12.json`,
+`.history.jsonl`, `.by`, `.settings`, `.manifest.json`, `.approved.json`,
+`.rukas`, `.runner_exit` and `.status`, and everything under `~/tehas/logs/`. A
+cycle stopped by hand did not end well, and nothing here records its pi-rukas as
+proven.
+
+It prints one line for each thing it stopped or removed, and
+`nothing to stop for #12` when there is nothing to do, so running it twice is
+safe. It names only paths for the number it was given: stopping 12 touches
+nothing of 120. Nothing is removed while a cycle holds that issue's lock, and a
+cycle that still holds it after the stop is left whole and said. It makes no
+GitHub call and changes no label, so `tehas:running` stays on the issue: you
+take it off, or the next poll finds the issue marked with no cycle behind it and
+parks it.
+
+Exit 0 when the leftovers are gone or there was nothing to do, 1 when the cycle
+still holds its lock after the stop or something could not be removed, 64 with
+no issue number, an issue that is not a positive number, or an argument it does
+not know, 78 when the instance settings are missing or malformed, which changes
+nothing.
 
 ## tehas status
 
