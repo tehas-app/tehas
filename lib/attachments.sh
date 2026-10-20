@@ -18,7 +18,12 @@
 #
 # Sourcing it does nothing. Which of the known types protolab takes, and how
 # much, is its own rule; the images a container is given follow the rule at
-# the end of this file.
+# the end of this file. The unpacking of a zip is lib/unzip.sh, written for
+# the Protolab and read here for the archives a cycle is given; it is sourced
+# below rather than by the commands, so its one reader stays the same.
+
+# shellcheck source=lib/unzip.sh
+. "$(dirname "${BASH_SOURCE[0]}")/unzip.sh"
 
 # Only GitHub's own storage: nothing else is ever fetched for an issue. A
 # function and not a variable: tehas_load drops every TEHAS_ variable.
@@ -216,30 +221,88 @@ tehas_text_ok() {
   [ "$(tr -d '\000' <"$1" | wc -c)" = "$(wc -c <"$1")" ] && iconv -f UTF-8 -t UTF-8 "$1" >/dev/null 2>&1
 }
 
+# tehas_zip_type <file>: 0 for the four bytes that start a zip archive, and
+# nothing for any other file. The bytes say it, never the name: a file linked
+# as .zip that is not one is left out. It prints nothing: a caller meets it in
+# an if, and what it prints would go to the caller's own standard output.
+tehas_zip_type() {
+  case "$(head -c 4 "$1" 2>/dev/null | od -An -v -tx1 | tr -d ' \n')" in
+    504b0304) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# tehas_path_clean <path>: the characters a stored name keeps, so a path that
+# is only said, in a manifest or in a comment on the issue, carries nothing a
+# taken name would not. The characters of lib/unzip.sh's own cleaning, applied
+# to a whole path, with '/' kept so a folder still reads as one and the path
+# still says what the archive named; a run of anything else becomes '-', and
+# each part keeps its leading dots, which say more of the name than they hide
+# now that no file is written from it. A part longer than the 80 bytes of one
+# name says its beginning, as a name cut at 80 does, and the whole says as much
+# as 200 bytes of it does: no character of what is kept is a character the
+# archive did not give, and the kept bytes are the first of the cleaned path.
+tehas_path_clean() { # <path>
+  local clean part out=""
+  # The characters of lib/unzip.sh's own cleaning, listed with the - at the end
+  # of the set as it lists its own, so tr reads no range. '/' is kept, so a
+  # folder still reads as one and the path still says what the archive named.
+  # '-' is listed at the end of the set, where tr reads it as itself, and the
+  # leading dot, slash and dash of the whole path are dropped, as they are of
+  # a name a cycle is given: a path that says only where it was is no name.
+  clean=$(printf '%s' "$1" | tr -c 'A-Za-z0-9._/-' '-' | sed 's|^[/.-]*||')
+  while [ -n "$clean" ]; do
+    part=${clean%%/*}
+    [ "$part" != "$clean" ] && clean=${clean#*/} || clean=
+    # Each part keeps its own bytes to the 200 of the whole; a name of its own
+    # beyond the 80 a taken name keeps says its beginning, as that name does.
+    out=${out:+$out/}${part:0:200}
+  done
+  printf '%s' "${out:0:200}"
+}
+
 # _tehas_take_rules and _tehas_take are the part tehas_issue_images and
 # tehas_answer_images share. They set and read their caller's locals: the
-# settings (want_images, want_files), the limits, the counts so far (count,
-# used, fcount, fused), the approval (approved, who) and the directory
-# (images). One set of rules for both.
+# settings (want_images, want_files, want_zips), the limits, the counts so far
+# (count, used, fcount, fused, zcount), the approval (approved, who) and the
+# directory (images). One set of rules for both.
 # shellcheck disable=SC2034  # the caller's locals
 _tehas_take_rules() {
   limit=$((10 * 1024 * 1024)) max=8 flimit=$((4 * 1024 * 1024)) fmax=16 fone=$((1024 * 1024))
+  # Archives per issue and bytes per download. What comes out of one counts
+  # against the limits of the images and the files above, not new ones.
+  zmax=2
+  # The most bytes an archive costs to read at all: the 4 MB of an issue's
+  # files, which is also the most one download of one is given.
+  zlimit=$flimit
+  # The 4 MB of an issue's files is the most an archive costs to read at all;
+  # no file of it is given more than the 1 MB of one file, so $fone caps the
+  # download and the unpacking alike.
   other="Not a png, jpg, webp or gif image." over="Over the 10 MB limit of an issue."
   fover="Over the 4 MB limit of an issue's files." fbig="Over the 1 MB limit of a file."
   notext="Not valid UTF-8 text, or it holds a NUL byte."
+  toobig="Over the 10 MB limit of a ticket."
   [ "$want_files" = 0 ] || other="Not a png, jpg, webp or gif image, nor a md, txt, csv, json, yaml, log, html, css or js file."
   [ "$want_images" = 1 ] || other="Not a md, txt, csv, json, yaml, log, html, css or js file. This instance gives a cycle no images."
+  # Why a link named .zip is not taken when it is not an archive. The types
+  # the instance gives a cycle are named, as they are in $other.
+  notzip="Not a zip archive."
+  [ "$want_images" = 1 ] || [ "$want_files" = 0 ] ||
+    notzip="Not a zip archive, nor a png, jpg, webp or gif image, nor a md, txt, csv, json, yaml, log, html, css or js file."
 }
 
 # _tehas_take: fetch the links on standard input into the directory. One line
 # per link: where it was written, the link, and for a comment who wrote it. A
 # tab parts them; none of the three can hold one. Appends to .taken, .files and
-# .left there. Returns 1, with the reason in $image_why, when a link could not
-# be fetched or written.
+# .left there, and unpacks the archives it is told to take. Returns 1, with the
+# reason in $image_why, when a link could not be fetched or written.
 # shellcheck disable=SC2154  # the caller's locals
 _tehas_take() {
-  local src ref by name ext kind type size rc left sum
-  leave() { jq -n -c --arg link "$1" --arg reason "$2" --arg source "$src" '{link: $link, reason: $reason, source: $source}' >>"$images/.left"; }
+  local src ref by name ext kind type size rc left sum zbytes zfiles n
+  leave() {
+    jq -n -c --arg link "$1" --arg reason "$2" --arg source "$src" --arg path "${3:-}" \
+      '{link: $link, reason: $reason, source: $source} + (if $path == "" then {} else {path: $path} end)' >>"$images/.left"
+  }
   while IFS=$'\t' read -r src ref by; do
     [ -n "$ref" ] || continue
     case "$src" in
@@ -285,6 +348,40 @@ _tehas_take() {
         ;;
     esac
     if [ "$kind" = image ] && [ "$want_images" = 0 ]; then leave "$ref" "$other"; continue; fi
+    # A link named .zip is an archive only if its first bytes say so, and only
+    # where the instance takes archives at all. What is downloaded is paid for
+    # as the files it holds are paid for: no more than the room left of the 4 MB
+    # of an issue's files, and no more than the 4 MB of one download. What is
+    # unpacked from it is paid for file by file, at the 1 MB of one file.
+    if [ "$kind" = text ] && [ "$ext" = zip ] && [ "$want_zips" = 1 ]; then
+      if [ "$zcount" -ge "$zmax" ]; then leave "$ref" "More than $zmax archives."; continue; fi
+      left=$((flimit - fused))
+      if [ "$left" -le 0 ]; then leave "$ref" "$fover"; continue; fi
+      [ "$left" -le "$zlimit" ] || left=$zlimit
+      rm -f "$images/.part"
+      tehas_attachment_fetch "$ref" "$images/.part" "$left" "$GH_TOKEN" >/dev/null
+      rc=$?
+      case "$rc" in
+        0) ;;
+        63) leave "$ref" "A zip of more than $((zlimit / 1024 / 1024)) MB, or of more than is left of the 4 MB of an issue's files."; continue ;;
+        *) image_why="$ref could not be fetched"
+          return 1 ;;
+      esac
+      # No file of an archive is given more than a link of the issue is, so an
+      # archive of five files of 1 MB gives the cycle four of them and the fifth
+      # is left out by the limit, as a link over it is.
+      zbytes=$fone
+      if ! tehas_zip_type "$images/.part"; then
+        rm -f "$images/.part"
+        leave "$ref" "$notzip"
+        continue
+      fi
+      zcount=$((zcount + 1))
+      zfiles=$((fmax - fcount))
+      [ "$zfiles" -le "$tehas_unzip_entries" ] || zfiles=$tehas_unzip_entries
+      _tehas_unpack "$ref" || return 1
+      continue
+    fi
     if [ "$kind" = text ] && { [ "$want_files" = 0 ] || ! type=$(tehas_text_type "$ext"); }; then
       leave "$ref" "$other"
       continue
@@ -344,16 +441,155 @@ _tehas_take() {
   done
 }
 
+# _tehas_unpack: the archive in $images/.part, into a scratch directory beside
+# it, then one file at a time through the checks of a fetched one: an image by
+# its first bytes, a text file by its extension and tehas_text_ok. Named on
+# from what the directory holds. The archive itself is never kept and the
+# scratch directory is removed whatever it held. The caller's locals are read
+# and set as _tehas_take's are; <link> is the link the archive came from.
+# shellcheck disable=SC2154  # the caller's locals
+_tehas_unpack() {
+  local ref=$1 zdir lines rc f rel reason kind type name size sum got zleft
+  n=2
+  zdir=$images/.unzip-$zcount
+  # The archive is read to the room its own download took: an archive of
+  # five files of 1 MB gives the cycle four of them and the fifth is left
+  # out by the room, as a link over it is. The 1 MB of one file is the
+  # ceiling of one entry, which no file of an issue's links passes either.
+  zleft=$((zlimit - fused))
+  [ "$zbytes" -le "$zleft" ] || zleft=$zbytes
+  lines=$(tehas_unzip_into "$images/.part" "$zdir" "$zleft" "$zfiles")
+  rc=$?
+  rm -f "$images/.part"
+  if [ "$rc" != 0 ]; then
+    rm -rf "$zdir"
+    leave "$ref" "$notzip"
+    return 0
+  fi
+  # What the archive gave, by its path: how many bytes of the files' budget it
+  # took, so the 4 MB of an issue holds for an archive as it does for a link.
+  got=$(jq -n -c '[inputs | select(.name) | {key: .name, value: .bytes}] | from_entries' <<<"$lines")
+  while IFS=$'\t' read -r f skip; do
+    [ -n "$f" ] || continue
+    rel=$f
+    if [ -n "$skip" ]; then
+      # An entry tehas_unzip_into refused, named as the archive named it, dots
+      # and all: nothing was ever written for it, and tehas_path_clean would
+      # turn '../escape.md' into the harmless 'escape.md' and say nothing of
+      # where it was. An entry of more than the room it was read at is said of
+      # that room, which is the 1 MB of one file here and not the 10 MB of the
+      # lab's own ticket.
+      reason=$(_tehas_left_reason "$lines" "$f")
+      [ "$reason" != "$toobig" ] || reason=$fbig
+      leave "$ref" "$reason" "$f"
+      continue
+    fi
+    # What the archive gave for this path, read before the branch below, which
+    # writes $size of its own: the bytes the entry took of the files' budget.
+    size=$(jq -r --arg n "$f" '.[$n] // 0' <<<"$got")
+    [[ $size =~ ^[0-9]+$ ]] || size=$(stat -c %s "$zdir/$f" 2>/dev/null)
+    [[ $size =~ ^[0-9]+$ ]] || size=0
+    ext=""
+    case "$f" in *.*) ext=${f##*.} ;; esac
+    ext=${ext,,}
+    if [ -n "$ext" ] && type=$(tehas_image_type "$zdir/$f"); then
+      kind=image
+      type=image/${ext/jpg/jpeg}
+      name=image-$((count + 1)).${ext/jpeg/jpg}
+    elif [ -n "$ext" ] && type=$(tehas_text_type "$ext") && tehas_text_ok "$zdir/$f"; then
+      kind=text
+      name=file-$((fcount + 1)).$ext
+    else
+      leave "$ref" "$(_tehas_left_reason "$lines" "$f")" "$f"
+      continue
+    fi
+    if [ "$kind" = image ]; then
+      if [ "$count" -ge "$max" ]; then leave "$ref" "More than $max images."; continue; fi
+      if [ "$((limit - used))" -le 0 ]; then leave "$ref" "$over"; continue; fi
+    elif [ "$fcount" -ge "$fmax" ]; then
+      leave "$ref" "More than $fmax files."
+      continue
+    elif [ "$((flimit - fused))" -le 0 ] || [ "$size" -gt "$((flimit - fused))" ]; then
+      # The archive was unpacked within what was left when it was fetched; a
+      # file of it that no longer fits the budget is left out, as a link over
+      # it is. The files before it stand.
+      leave "$ref" "$fover"
+      continue
+    fi
+    # tehas_unzip_into kept the whole archive inside what it was given, so a
+    # file it wrote is inside the budget that is left. An image pays the
+    # image's limits and a text file the files', the same as a fetched one.
+    # A name the directory already holds, from a link or from an earlier file
+    # of this archive, keeps its file: this one goes in front of it with a
+    # number, as a second file of one name does elsewhere.
+    while [ -e "$images/$name" ]; do
+      name=${n}-${name#[0-9]-}
+      n=$((n + 1))
+    done
+    if ! { cp "$zdir/$f" "$images/$name" && chmod 644 "$images/$name"; }; then
+      image_why="the issue's images could not be written"
+      rm -rf "$zdir"
+      return 1
+    fi
+    sum=$(sha256sum "$images/$name") || {
+      image_why="the issue's images could not be read back"
+      rm -rf "$zdir"
+      return 1
+    }
+    # The manifest says where in the archive the file stood, so a reader can
+    # tell a file of an archive from one the issue linked on its own.
+    if [ "$kind" = image ]; then
+      count=$((count + 1))
+      used=$((used + size))
+      jq -n -c --arg file "$name" --arg link "$ref" --arg type "$type" --argjson bytes "$size" \
+        --arg sum "${sum%% *}" --arg source "$src" --arg zip "$ref" --arg path "$rel" \
+        '{file: $file, link: $link, type: $type, bytes: $bytes, sha256: $sum, source: $source, zip: $zip, path: $path}' >>"$images/.taken"
+    else
+      fcount=$((fcount + 1))
+      fused=$((fused + size))
+      jq -n -c --arg file "$name" --arg link "$ref" --arg name "${f##*/}" --arg type "$type" --argjson bytes "$size" \
+        --arg sum "${sum%% *}" --arg source "$src" --arg zip "$ref" --arg path "$rel" \
+        '{file: $file, link: $link, name: $name, type: $type, bytes: $bytes, sha256: $sum, source: $source, zip: $zip, path: $path}' >>"$images/.files"
+    fi
+  done < <(jq -r '[.name // .skip // "", (if .skip then "skip" else "" end)] | @tsv' <<<"$lines")
+  rm -rf "$zdir"
+}
+
+# _tehas_left_reason <lines> <path>: why this file of an archive was not given
+# to the cycle. tehas_unzip_into's own words when it left it out, and the
+# reason of the caller when the file was written and is still not a type a
+# cycle is given: an svg, a nested archive, a binary.
+_tehas_left_reason() {
+  local lines=$1 f=$2 reason ext kind
+  reason=$(jq -r --arg n "$f" 'select(.skip == $n) | .reason' <<<"$lines" | head -n 1)
+  [ -z "$reason" ] || { printf '%s\n' "$reason"; return 0; }
+  ext=""
+  case "$f" in *.*) ext=${f##*.} ;; esac
+  kind=$(tehas_attachment_kind "${ext,,}") || kind=""
+  case "$kind" in
+    image) printf '%s\n' "$other" ;;
+    *) printf 'Not a text file a cycle is given, and not an image.\n' ;;
+  esac
+}
+
 # What is taken follows the settings: images unless TEHAS_WORK_IMAGES is 0,
 # text files when TEHAS_WORK_FILES is 1. Each kind has its own limits.
 # shellcheck disable=SC2034  # the caller reads what this sets
 tehas_issue_images() { # <issue> <dir> [approved] [record]
   local issue=$1 images=$2 approved=${3:-} record=${4:-} data who sum given=null
-  local want_images=1 want_files=0 want_comments=0 used=0 count=0 fused=0 fcount=0
-  local limit max flimit fmax fone other over fover fbig notext
+  local limit max flimit fmax fone zmax zlimit other over fover fbig notext toobig notzip
+  local want_images=1 want_files=0 want_comments=0 want_zips=0 used=0 count=0 fused=0 fcount=0 zcount=0
   [ "${TEHAS_WORK_IMAGES:-1}" != 0 ] || want_images=0
   [ "${TEHAS_WORK_FILES:-0}" != 1 ] || want_files=1
   [ "${TEHAS_WORK_COMMENTS:-0}" != 1 ] || want_comments=1
+  # An archive holds anything, so it is taken only where the instance already
+  # gives a cycle images or files: with neither there is no directory for what
+  # comes out of it. The settings load refuses that pairing; here it is off.
+  # A test and an assignment are two commands here: one line ending in a false
+  # test would end the command under set -e.
+  if [ "${TEHAS_WORK_ZIPS:-0}" = 1 ] && { [ "$want_files" = 1 ] || [ "$want_images" = 1 ]; }; then
+    want_zips=1
+  fi
   _tehas_take_rules
   image_why="the directory for the issue's images could not be made"
   { rm -rf "$images" && mkdir -p "$images"; } || return 1
@@ -426,10 +662,13 @@ tehas_issue_images() { # <issue> <dir> [approved] [record]
 # shellcheck disable=SC2034  # the caller reads what this sets
 tehas_answer_images() { # <dir> <answer file> <comment id>
   local dir=$1 text=$2 id=$3 images=$1.new approved=approved who=""
-  local want_images=1 want_files=0 used count fused fcount
-  local limit max flimit fmax fone other over fover fbig notext
+  local want_images=1 want_files=0 want_zips=0 used count fused fcount zcount
+  local limit max flimit fmax fone zmax other over fover fbig notext notzip
   [ "${TEHAS_WORK_IMAGES:-1}" != 0 ] || want_images=0
   [ "${TEHAS_WORK_FILES:-0}" != 1 ] || want_files=1
+  if [ "${TEHAS_WORK_ZIPS:-0}" = 1 ] && { [ "$want_files" = 1 ] || [ "$want_images" = 1 ]; }; then
+    want_zips=1
+  fi
   _tehas_take_rules
   answer_new=""
   answer_left=""
@@ -440,6 +679,11 @@ tehas_answer_images() { # <dir> <answer file> <comment id>
   used=$(jq '[.images[].bytes | numbers] | add // 0' "$dir/manifest.json") || return 1
   fcount=$(jq '(.files // []) | length' "$dir/manifest.json") || return 1
   fused=$(jq '[(.files // [])[].bytes | numbers] | add // 0' "$dir/manifest.json") || return 1
+  # The archives already unpacked into the session's directory. A reply that
+  # links one more needs the count: libexec/plan runs with set -u, and a
+  # variable never set here would end the turn.
+  zcount=$(jq '[(.images // [])[], (.files // [])[] | select(.zip != null) | .zip] | unique | length' "$dir/manifest.json" 2>/dev/null) || zcount=0
+  [[ $zcount =~ ^[0-9]+$ ]] || zcount=0
   image_why="the session's images could not be copied"
   { rm -rf "$images" && cp -r "$dir" "$images"; } || return 1
   jq -c '.images[]' "$dir/manifest.json" >"$images/.taken" &&

@@ -98,7 +98,7 @@ issue text.
 | The same image linked in a comment          | With `TEHAS_WORK_COMMENTS=1`, when an allowed account wrote it before the label or the retry tick and nobody edited it since | When a reply to its question links it | Shown |
 | md, txt, csv, json, yaml, log, html, css or js linked in the body | Fetched and mounted with `TEHAS_WORK_FILES=1`; pi-rukas does not read them yet | The same | html, css, js, json and txt shown, html in a frame |
 | svg, avif, a video                          | Not given | Not given | Shown |
-| A zip                                       | Not given | Not given | Unpacked, its files shown as above |
+| A zip                                       | Unpacked with `TEHAS_WORK_ZIPS=1`, its files given as above | The same | Unpacked, its files shown as above |
 | Any other file, such as a pdf               | Not given | Not given | Left out |
 
 The rules behind each column:
@@ -120,6 +120,17 @@ The rules behind each column:
   them; with `TEHAS_WORK_FILES=1` the text files come too. pi-rukas reads
   neither yet. `TEHAS_WORK_COMMENTS=1` adds the attachments of comments, by
   the rule in the table.
+- **A zip** reaches a cycle with `TEHAS_WORK_ZIPS=1`, and needs
+  `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`: what comes out of an archive
+  goes into the directory of one of those. It is taken by its first bytes, not
+  by a name ending in `.zip`: a link named `.zip` that holds something else is
+  left out and said. At most 2 archives per issue, each downloaded at most
+  4 MB. Every file inside one then goes through the same checks as a file the
+  issue links, an image by its first bytes and a text file by its extension
+  and its encoding, and counts against the same limits. An svg, a nested
+  archive or any other binary is left out with its path in the archive and the
+  reason. The files are named on from the linked ones, and the archive is not
+  kept. See [tehas work](/tools#tehas-work).
 - **A planning session** is given the same images and files by the same
   rules, once at its start, and is shown the images when the same label says
   so. A reply to its question can carry more. See
