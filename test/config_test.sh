@@ -271,7 +271,7 @@ done
 for bad in "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=two" "TEHAS_MAX_AWAITING=-1" "TEHAS_WORK_TIMEOUT=soon" "TEHAS_WORK_STALL=0" "TEHAS_WORK_STALL=1h" "TEHAS_HOST_ADDR=not an address" \
   "TEHAS_BRANCH=two words" "TEHAS_INDEXING=yes" "TEHAS_WORK_IMAGES=yes" "TEHAS_WORK_IMAGES=2" "TEHAS_WORK_DESCRIBE=yes" "TEHAS_WORK_FILES=yes" "TEHAS_WORK_FILES=2" "TEHAS_WORK_COMMENTS=yes" "TEHAS_TOP=yes" "TEHAS_TOP=2" "TEHAS_ANALYTICS_SRC=http://plain.example/ea.js" \
   "TEHAS_ANALYTICS_SRC=https://a.example/x.js\" onload=\"x" "TEHAS_ANALYTICS_SITE=two words" \
-  "TEHAS_ANALYTICS_COOKIE=yes" "TEHAS_PROTOLAB_URL=https://lab.example/" "TEHAS_PROTOLAB_URL=lab.example" \
+  "TEHAS_ANALYTICS_COOKIE=yes" "TEHAS_THEME=neon" "TEHAS_THEME=../pixel" "TEHAS_PROTOLAB_URL=https://lab.example/" "TEHAS_PROTOLAB_URL=lab.example" \
   "TEHAS_PLAN_MAX_TURNS=0" "TEHAS_PLAN_TIMEOUT=1h" "TEHAS_VERIFY_TIMEOUT=30m" "TEHAS_VERIFY_TIMEOUT=0" \
   "TEHAS_DOMAIN=https://example.org" "TEHAS_DOMAIN=example.org/" "TEHAS_DOMAIN=Example.org" \
   "TEHAS_DOMAIN=localhost" "TEHAS_DOMAIN=-a.example.org" "TEHAS_PREVIEWS=yes" \
@@ -366,6 +366,18 @@ printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ANALYTICS_SRC=https://stats.example/ea.js
   "TEHAS_ANALYTICS_COOKIE=1" >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && echo \"[\$TEHAS_ANALYTICS_SRC][\$TEHAS_ANALYTICS_SITE][\$TEHAS_ANALYTICS_COOKIE]\""
 t_eq "$t_out" "[https://stats.example/ea.js][widget][1]"
+
+t_case "the pages are pixel unless the instance names another theme"
+printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_THEME]\""
+t_eq "$t_out" "[pixel]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_THEME=paper >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_THEME]\""
+t_eq "$t_out" "[paper]"
+
+t_case "every theme the settings accept ships, and every theme that ships is accepted"
+t_eq "$(sed -n '/TEHAS_THEME)/{n;p}' "$T_ROOT/lib/config.sh" | sed 's/^ *case "\$v" in \(.*\)) ;; \*).*/\1/' | tr -d ' ' | tr '|' '\n' | sort | xargs)" \
+  "$(for f in "$T_ROOT"/host/fun/theme-*.css; do f=${f##*/theme-}; echo "${f%.css}"; done | sort | xargs)"
 
 t_case "an analytics script without a site is refused"
 printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ANALYTICS_SRC=https://stats.example/ea.js" >"$TEHAS_INSTANCE_DIR/instance.env"

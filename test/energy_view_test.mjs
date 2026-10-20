@@ -108,8 +108,8 @@ test("bands follow the rows, and the ninth is the first colour again", () => {
   assert.deepEqual(v.rows.map((r) => r.band), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
   assert.deepEqual(v.columns[119].map((p) => p.band), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
   assert.deepEqual(BANDS.length, 8);
-  // Every band colour is a 12-bit colour (the Twelve Bit Rule).
-  for (const c of BANDS) assert.deepEqual(/^#[0-9a-f]{3}$/.test(c), true);
+  // Every band is a theme token (test/theme_test.sh checks every theme sets it).
+  assert.deepEqual(BANDS, Array.from({ length: 8 }, (_, i) => `band-${i + 1}`));
 });
 
 test("a machine that has left keeps its band in the window, above the rest", () => {
