@@ -59,19 +59,32 @@ tehas_approval_body() {
     and (.body_sha256 | length) == 64 and (.body_sha256 | test("^[0-9a-f]+$"))'
 }
 
+# The title's hash, held to the body's shape. A record written before titles
+# were bound names none, and stays a valid record: it is checked on the body
+# alone. Extends tehas_approval_body.
+# shellcheck disable=SC2016  # a jq program
+tehas_approval_title() {
+  printf '%s\n' ' and (.title_sha256 == null or ((.title_sha256 | type) == "string")
+    and (.title_sha256 | length) == 64 and (.title_sha256 | test("^[0-9a-f]+$")))'
+}
+
 # tehas_approval_text <record> <issue>: the issue's text against what the
 # dispatcher approved. <issue> is the answer for the issue, which the caller
 # read once and does not read again here. $text_why is empty when they match
 # and names which rule failed when they do not; $text_path is the record that
 # could not be read, empty for every other reason. No reason names a host path,
 # so any of them may be put on the issue; the caller that says it to an operator
-# adds $text_path. A record that cannot be read is never said as a change.
+# adds $text_path. A record that cannot be read is never said as a change. A
+# record that names a title is held to that title as it is held to the body, and
+# the reason says which of the two changed; an answer that names no title is a
+# failed read. A record that names no title binds none: it is checked on the
+# body alone, as every record written before titles were bound is.
 # shellcheck disable=SC2034  # the caller reads text_why and text_path
 tehas_approval_text() { # <record> <issue>
   local rec=$1 data=$2 sum prog
   text_why=""
   text_path=""
-  prog="$(tehas_approval_record)$(tehas_approval_body)"
+  prog="$(tehas_approval_record)$(tehas_approval_body)$(tehas_approval_title)"
   jq -e "$prog" "$rec" >/dev/null 2>&1 || {
     text_why="the approval record could not be read"
     text_path=$rec
@@ -83,6 +96,15 @@ tehas_approval_text() { # <record> <issue>
   }
   jq -e --arg sum "$sum" "$prog and .body_sha256 == \$sum" "$rec" >/dev/null 2>&1 || {
     text_why="the issue's text is not the text that was approved: it changed after the approval"
+    return 1
+  }
+  [ "$(jq -r 'if .title_sha256 == null then "" else "bound" end' "$rec")" = bound ] || return 0
+  sum=$(tehas_title_sha256 <<<"$data") || {
+    text_why="the issue's text could not be read for its title"
+    return 1
+  }
+  jq -e --arg sum "$sum" "$prog and .title_sha256 == \$sum" "$rec" >/dev/null 2>&1 || {
+    text_why="the issue's title is not the title that was approved: it changed after the approval"
     return 1
   }
   return 0
@@ -174,10 +196,11 @@ tehas_attachment_fetch() { # <address> <file> <most bytes> [<token>]
 #                                     issue, it is not read a second time
 #   tehas_approval_text <record> <issue>
 #                                     hold the issue's text to what <record>
-#                                     approved: $text_why empty when they match,
-#                                     and naming which rule failed when they do
-#                                     not, with $text_path the record that could
-#                                     not be read. No reason names a host path
+#                                     approved, its title as well as its body:
+#                                     $text_why empty when they match, and
+#                                     naming which rule failed when they do not,
+#                                     with $text_path the record that could not
+#                                     be read. No reason names a host path
 #   tehas_record_is_file <path>     a plain file at <path>, not a link and not
 #                                     a directory: what counts as the record
 #   tehas_issue_images_changed <kept manifest> <dir>
@@ -252,7 +275,21 @@ tehas_body_sha256() {
   echo "$sum"
 }
 
-# tehas_text_type <extension>: the type of a text file a cycle may be given;
+# tehas_title_sha256: the sha256 of an issue's title, given the issue as JSON on
+# standard input. Line ends are dropped as they are for the body. It fails when
+# the answer names no title: a read that gives no title is a failed read, not a
+# title of nothing.
+tehas_title_sha256() {
+  local sum title
+  title=$(jq -r 'if (.title | type) == "string" then (.title | gsub("\r"; "") | gsub("\n"; ""))
+      else error("no title") end' 2>/dev/null) || return 1
+  sum=$(printf '%s' "$title" | sha256sum) || return 1
+  sum=${sum%% *}
+  [[ $sum =~ ^[0-9a-f]{64}$ ]] || return 1
+  echo "$sum"
+}
+
+# tehas_text_type <extension>: the type of a text file a cycle may be given; 
 # fails for any other extension. Not svg: as an image it is code, and no step
 # wants it as text yet.
 tehas_text_type() {

@@ -270,11 +270,13 @@ png='\x89PNG\r\n\x1a\nPNGDATA'
 jpg='\xff\xd8\xff\xe0JPGDATA'
 gif='GIF89aGIFDATA'
 webp='RIFF\x10\x00\x00\x00WEBPVP8 '
-# issue_is <body> [association]: the answer for issue 7 as REST gives it. A
-# start is held to an answer that names an open issue, so the fixture carries
-# the state the real answer carries.
+# issue_is <body> [association] [title]: the answer for issue 7 as REST gives
+# it. A start is held to an answer that names an open issue, so the fixture
+# carries the state the real answer carries. With <title> it carries a title
+# too, which is what a start that binds one compares.
 issue_is() {
-  jq -n --arg body "$1" --arg who "${2:-OWNER}" '{number: 7, state: "open", body: $body, author_association: $who}' >"$fx/issue.json"
+  jq -n --arg body "$1" --arg who "${2:-OWNER}" --arg title "${3:-}" '{number: 7, state: "open", body: $body,
+    author_association: $who} + (if $title == "" then {} else {title: $title} end)' >"$fx/issue.json"
 }
 images_on() {
   rm -rf "$fx" "$T"/calls/* "$T/home/tehas/work" "$T/home/tehas/state/cycles/7.manifest.json" "$T/home/tehas/state/cycles/7.approved.json"
@@ -322,6 +324,12 @@ record_is() {
   mkdir -p "$(dirname "$record")"
   jq -n --arg by "$by" --arg sum "$(jq -n --arg body "$body" '{body: $body}' | tehas_body_sha256)" '{at: "2026-10-14T00:00:00Z", by: $by,
     how: "label", body_sha256: $sum, links: $ARGS.positional}' --args "$@" >"$record"
+}
+# record_binds_title <title>: add the title's hash to the record record_is
+# wrote, as the dispatcher writes it next to the body's.
+record_binds_title() {
+  jq --arg sum "$(jq -n --arg t "$1" '{title: $t}' | tehas_title_sha256)" '.title_sha256 = $sum' \
+    "$record" >"$record.new" && mv "$record.new" "$record"
 }
 
 # Most cases run with this instance and environment.
