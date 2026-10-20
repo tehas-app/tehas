@@ -124,7 +124,12 @@
 #      closes, as GitHub links them, is work already done: the poll takes
 #      tehas:ready off and says so once on the issue. With TEHAS_WORK_IMAGES=1
 #      an issue whose text links an attachment waits while the model does not
-#      read images; the rest start. While the
+#      read images; the rest start. An issue whose text says a file goes there
+#      ("SCREENSHOT GOES HERE", "IMAGE_GOES_HERE") while its text and its
+#      approved record link no attachment at all waits for its owner on every
+#      instance, with the setting off included: the cycle would be given no
+#      file and no word of the gap. The hold is a line of the dispatch log;
+#      nothing on the issue changes and no label is touched. While the
 #      issue's own cycle is alive it waits, and starts when that cycle ended.
 #      A tehas:ready from an account outside the list authorises nothing, so
 #      the poll takes it off and says so once on the issue: left in place it
@@ -519,6 +524,27 @@ image_ok() {
   fi
   [ -n "$image_hold" ] || return 0
   log "hold #$n: its text links an attachment and TEHAS_WORK_IMAGES is 1, but $image_hold"
+  return 1
+}
+
+# image_missing_ok <issue>: does the issue hold back no attachment it promises?
+# A body written around a picture ("SCREENSHOT GOES HERE") that links no
+# attachment at all is a handover that stopped short: what is left of it is the
+# owner's step, attach it, and a cycle cannot say so from what it is given --
+# the manifest holds no entry for a file nobody linked, so the cycle spends its
+# explore on a premise it cannot check and parks. The rule asks nothing of
+# GitHub and nothing of the instance's settings: the text is the one work_ok
+# already read, and a promised file holds whether or not this instance gives a
+# cycle images. It is asked where a cycle would otherwise start and before
+# units_ok, so a held issue has no label changed and no comment of the bot's
+# posted: the hold is one line of the dispatch log. A planning turn is not held
+# by it, as it is not held by image_ok. Returns 1, with the reason logged, when
+# the issue waits for its owner.
+image_missing_ok() {
+  local n=$1
+  [ -n "${work_answer[$n]:-}" ] || return 0
+  tehas_texts_hold_attachment "${work_answer[$n]}" || return 0
+  log "hold #$n: its text says $attach_promise and links no attachment, so the cycle would be given none; attach the file or write out what it shows, before applying \`tehas:ready\`"
   return 1
 }
 # A real poll has logged the hold at rule 3; a dry run says it where it ends.
@@ -1495,6 +1521,7 @@ refresh_ok() {
     return 1
   fi
   image_ok "$n" || return 1
+  image_missing_ok "$n" || return 1
   b=$(jq -r '.baseRefName | strings' <<<"$node" | tr -cd 'A-Za-z0-9._/-')
   starter[$n]=$by
   verb[$n]=refresh
@@ -2316,6 +2343,7 @@ for n in $asking; do
       fi
       mesh_ok || exit 0
       image_ok "$n" || exit 0
+      image_missing_ok "$n" || exit 0
       if [ "$dry" = 1 ]; then
         log "would run a cycle for #$n (retry ticked by $by)"
         exit 0
@@ -2665,6 +2693,10 @@ while read -r kind n; do
     continue
   fi
   image_ok "$n" || continue
+  # Asked of the text the label approved, with no call of its own: an issue
+  # that says a file goes there and links nothing waits for its owner instead
+  # of spending a cycle on a premise it cannot see.
+  image_missing_ok "$n" || continue
   # The gate of rule 7, asked for the first issue of the lowest kind that
   # reached this point: an issue that waits for another reason asks nothing.
   if [ "$kind" = x ] && ! low_gate "$n"; then continue; fi

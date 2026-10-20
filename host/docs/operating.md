@@ -82,6 +82,11 @@ means:
 - the issue body has a good description, written as in step 1 below,
 - reference material is attached where it helps: images, or a zip of a
   prototype built elsewhere,
+- no line of it says a file goes there. A body left with `SCREENSHOT GOES
+  HERE`, or `IMAGE_GOES_HERE`, where the picture should be, is a handover that
+  stopped short: the dispatcher holds such an issue and says so in one line of
+  `logs/dispatch.log` rather than spend a cycle on something no container was
+  given. Attach the file, or write out what it shows, and then label.
 - someone applies `tehas:ready`, as in step 2.
 
 ## Attachments
@@ -130,6 +135,11 @@ The rules behind each column:
 
 So for a picture, write the words too: name the element by its selector and
 its visible title, and say where in it the thing goes.
+
+And when the picture is not there yet, do not leave its place marked. A body
+that says `SCREENSHOT GOES HERE`, or `IMAGE_GOES_HERE`, while its text links no
+attachment at all is held by the dispatcher: the same line of
+`logs/dispatch.log` says the words it found. Nothing on the issue changes.
 
 ## 1. Write an issue tehas can build
 
@@ -753,6 +763,16 @@ recording, and both commands then say so and exit 69.
   model with a one-pixel image only when such an issue could start now, at
   most once a poll. The issue stays queued, the log says `hold #N: ...`, and
   issues without images start as usual. A planning turn is not held by it.
+- No cycle for an issue whose text says a file goes there (`SCREENSHOT GOES
+  HERE`, `IMAGE_GOES_HERE`, `the image goes here`) while its text links no
+  attachment at all. The instance giving a cycle images or not makes no
+  difference: either way the cycle would be given no file and no word of the
+  gap, and would spend its explore on a premise it cannot see. The log says
+  `hold #N: its text says <the words> and links no attachment, so the cycle
+  would be given none`; the issue keeps every label it has and gets no comment,
+  because what is left to do is the owner's: attach the file, or write out what
+  it shows. A planning turn is not held by it, and neither is a retry tick or a
+  refresh held by anything else about it.
 - No cycle while the code index is rebuilt. On a host where no cycle runs and
   the branch has moved, the poll that would start cycles starts the index run
   as `tehas-index.service` instead, and the log says `holding: the code index

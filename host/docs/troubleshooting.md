@@ -155,6 +155,21 @@ Run `tehas dispatch --dry-run` and read what it prints.
   the reader, or set `TEHAS_WORK_IMAGES=0` and run `install.sh`. An image put
   back from before 2026-10-14 is what starts the hold: see
   [Rolling back pi-rukas](/host#rolling-back-pi-rukas).
+- `hold #N: its text says <the words> and links no attachment, so the cycle
+  would be given none; attach the file or write out what it shows, before
+  applying tehas:ready`: the issue was written around a file nobody attached.
+  Its text says `SCREENSHOT GOES HERE`, `IMAGE_GOES_HERE`, `the image goes
+  here` or the like, and no text of the issue links a file at all. The
+  dispatcher started no container: the cycle would have been given no image and
+  no word of the gap, and would have parked after a full explore with the park
+  looking like a problem with the issue's premise. Nothing on the issue changed
+  and no label was touched, so the queue is as it was. Attach the file, or write
+  out in words what it shows and remove the line, and the next poll starts the
+  cycle. `TEHAS_WORK_IMAGES` makes no difference: with the setting off the
+  instance gives a cycle no attachments at all, which is the same gap. The
+  words of prose are no reason to hold: "the value goes here in the code" starts
+  as any other issue does, because the name of a file is what stands before
+  `goes here`. See [Attachments](/operating#attachments).
 - `nothing to do`: the issue is closed, or does not carry `tehas:ready`.
 - `wait #N: its cycle is still running`: `tehas:ready` was applied while the
   issue's cycle runs. A fresh cycle starts when that one has ended.
