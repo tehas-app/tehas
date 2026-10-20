@@ -225,9 +225,11 @@
 #
 # Before a start changes any label, the poll writes what it rests on to
 # $TEHAS_HOME/state/cycles/<issue>.approved.json: {at, by, how, body_sha256,
-# links}. Who approved and when, by the label or a retry tick, a sha256 of the
-# body that approval was checked against (carriage returns dropped), and the
-# links to GitHub's attachment storage in that body. With TEHAS_WORK_COMMENTS=1
+# title_sha256, links}. Who approved and when, by the label or a retry tick, a
+# sha256 of the body that approval was checked against (carriage returns
+# dropped), a sha256 of the issue's title held the same way, and the
+# links to GitHub's attachment storage in that body. An answer that names no
+# title records no title_sha256, and tehas work then checks the body alone. With TEHAS_WORK_COMMENTS=1
 # it adds comment_links, [{link, source, by}]: the links in the issue's comments
 # that an allowed account wrote and nobody edited after the approval, source
 # "comment:<id>". On a retry tick it adds the links of the comments allowed
@@ -1116,7 +1118,7 @@ unchanged_since() {
   # shellcheck disable=SC2016  # $owner, $name and $number are GraphQL variables
   gh_json api graphql -F owner="${repo%%/*}" -F name="${repo##*/}" -F number="$n" \
     -f query='query($owner: String!, $name: String!, $number: Int!) {
-      repository(owner: $owner, name: $name) { issue(number: $number) { lastEditedAt editor { login } body } } }'
+      repository(owner: $owner, name: $name) { issue(number: $number) { lastEditedAt editor { login } body title } } }'
   text_of[$n]=$json
   edited=$(jq -r '.data.repository.issue | "\(.editor.login // "") \(.lastEditedAt // "")"' <<<"$json") ||
     { log "ERROR: unreadable edit record of #$n"; exit 1; }
@@ -1167,9 +1169,12 @@ declare -A refresh_pr=() refresh_url=() refreshes=() refresh_of=()
 # approved_record <issue>: write state/cycles/<issue>.approved.json. Returns 1
 # when it could not be written.
 approved_record() {
-  local n=$1 file=$TEHAS_HOME/state/cycles/$1.approved.json sum from='[]' retry=null
+  local n=$1 file=$TEHAS_HOME/state/cycles/$1.approved.json sum tsum from='[]' retry=null
   [ -n "${text_of[$n]:-}" ] || return 1
   sum=$(jq '.data.repository.issue // {}' <<<"${text_of[$n]}" | tehas_body_sha256) || return 1
+  # The title of the same answer. An answer that names none binds none, which is
+  # the shape of every record written before titles were bound.
+  tsum=$(jq '.data.repository.issue // {}' <<<"${text_of[$n]}" | tehas_title_sha256 2>/dev/null) || tsum=""
   if [ "$TEHAS_WORK_COMMENTS" = 1 ]; then
     from=$(comment_links "$n" "${given_at[$n]}") || { log "ERROR: the comments of #$n could not be read"; return 1; }
     if [ "${given_how[$n]}" = retry-tick ]; then
@@ -1182,11 +1187,13 @@ approved_record() {
   fi
   [ "${given_how[$n]}" != refresh ] || retry=$(refresh_note "$n") || return 1
   jq --arg at "${given_at[$n]}" --arg by "${starter[$n]}" --arg how "${given_how[$n]}" --arg sum "$sum" \
+    --arg title "$tsum" \
     --argjson comments "$TEHAS_WORK_COMMENTS" --argjson from "$from" --argjson retry "$retry" \
     --argjson rests "${rests_on[$n]:-null}" --argjson starts "${fixer_starts[$n]:-0}" \
     --argjson refreshes "${refreshes[$n]:-0}" --argjson of "${refresh_of[$n]:-null}" \
     "$(tehas_attachment_links)"'{at: $at, by: $by, how: $how, body_sha256: $sum,
       links: (.data.repository.issue.body // "" | links | reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end))}
+      + (if $title == "" then {} else {title_sha256: $title} end)
       + if $comments == 1 then {comment_links: ($from + ($retry.links // []))} else {} end
       + if $retry == null or ($retry.context | length) == 0 then {} else {retry_context: $retry.context} end
       + if $how == "fixer" then {rests_on: $rests, fixer_starts: $starts} else {} end

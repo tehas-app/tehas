@@ -478,11 +478,12 @@ fi
 
 # The words a cycle works on are the words somebody approved. The dispatcher
 # wrote what it approved into its record; read the issue once here, before
-# anything of this cycle is written, and hold it to that, so a body edited
-# after the label starts no cycle. This is the last place on the host that can
-# still compare them, and it compares as it starts: what the container reads
-# afterwards is the issue as it is then. The title is held to the approval by
-# the dispatcher, which reads the label events; what is bound here is the body.
+# anything of this cycle is written, and hold it to that, so a body or a title
+# edited after the label starts no cycle. This is the last place on the host that
+# can still compare them, and it compares as it starts: what the container reads
+# afterwards is the issue as it is then. The title is bound here as well as by
+# the dispatcher's read of the label events: the record carries its hash, and a
+# record that carries none is checked on the body alone.
 # Where this host holds no record the run is by hand, and the person who ran
 # this command is the approval.
 text_why="" # why this start stops, empty when the text is the approved one
