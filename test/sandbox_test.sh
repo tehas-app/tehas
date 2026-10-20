@@ -215,6 +215,11 @@ container_cmds() { # <dir of units>
       }
       if (stmt !~ /(^|[[:space:]])docker run([[:space:]]|$)/) next
       n = split(stmt, w, /[[:space:]]+/)
+      # Only a container of the sandbox image counts: the MCP server runs in
+      # another image, which has nothing of a cycle in it to check.
+      sandbox = 0
+      for (i = 1; i <= n; i++) if (is_image(w[i])) sandbox = 1
+      if (!sandbox) next
       cmd = ""
       for (i = 1; i <= n; i++) {
         if (w[i] == "--entrypoint") { cmd = strip(w[i + 1]); break }

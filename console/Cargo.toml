@@ -3,8 +3,8 @@
 # of the workspace, so the gate's cargo commands on this manifest cover the
 # analytics program in analytics/ as well.
 [workspace]
-members = ["analytics"]
-default-members = [".", "analytics"]
+members = ["analytics", "mcp"]
+default-members = [".", "analytics", "mcp"]
 
 [package]
 name = "console"
