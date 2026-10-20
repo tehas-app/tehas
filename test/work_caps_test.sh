@@ -20,6 +20,75 @@ caps_refused() {
 }
 caps_fresh() { rm -rf "$T"/calls/* "$ws" "$ws.state" "$ws.before-retry"; }
 
+# --- What the product's clone holds -------------------------------------------
+# The clone is read on the host before any container starts: its .pi/verify-cmd
+# is the gate pi-rukas runs, and pi-rukas guesses a gate from package.json or
+# Cargo.toml, so only a product with none of the three parks. The host's
+# checkout is read too, because a clone holds what a commit holds and the
+# checkout is the product's tree as the host last fetched it. These cases build
+# the product of their own files and remake the checkout at it, so they come
+# first: the last of them leaves the gate in place for the cases that follow,
+# which take the product as they find it.
+# The product of one commit that holds just these files, and the checkout remade
+# at it. A file is named, then holds the lines given for it: a case says what the
+# product holds in its own words, and the product is built from those words
+# alone, so rebuilding it for the next case loses nothing. The empty commit is
+# the first one, so a product of no files at all is the tree work_lib.sh makes.
+product_commit() { # <name> <line>...
+  local f=$1
+  shift
+  rm -rf "$upstream" "$checkout" "$ws" "$ws.before-retry" "$ws.state" "$T"/calls/*
+  mkdir -p "$upstream"
+  git init -q -b main "$upstream"
+  if [ "$#" -gt 0 ]; then
+    case $f in
+      */*) mkdir -p "$upstream/$(dirname "$f")" ;;
+    esac
+    : >"$upstream/$f"
+    while [ "$#" -gt 0 ]; do
+      printf '%s\n' "$1" >>"$upstream/$f"
+      shift
+    done
+  fi
+  # The files are added by name: .pi/ is ignored by the checkout these run in.
+  [ -f "$upstream/$f" ] && git -C "$upstream" add -f -- "$f"
+  git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m first
+  git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q -m product
+  git clone -q "$upstream" "$checkout"
+}
+
+t_case "a product with no gate and no stack the runner can guess parks the cycle: 78, named, and no container"
+product_commit Makefile 'all:' 
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_contains "$t_out" "acme/widget has no .pi/verify-cmd and no package.json or Cargo.toml"
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+t_eq "$(find "$ws" -maxdepth 0 2>/dev/null | wc -l)" 0
+
+t_case "a gate of comments and blank lines only is no gate: the cycle parks"
+product_commit .pi/verify-cmd '# scripts/verify.sh' '' '   ' 
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_contains "$t_out" "has no .pi/verify-cmd and no package.json or Cargo.toml"
+t_eq "$(find "$ws" -maxdepth 0 2>/dev/null | wc -l)" 0
+
+t_case "a product whose gate names the script runs, and the clone of it holds the gate"
+product_commit .pi/verify-cmd 'scripts/verify.sh'
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(cat "$ws/.pi/verify-cmd")" "scripts/verify.sh"
+
+t_case "a product of package.json and no gate runs: pi-rukas guesses the stack"
+product_commit package.json '{"name":"widget"}' 
+t_run "$work 7"
+t_eq "$t_rc" 2
+
+t_case "a product of Cargo.toml and no gate runs"
+product_commit Cargo.toml '[package]' 'name = "widget"' 
+t_run "$work 7"
+t_eq "$t_rc" 2
+product_commit .pi/verify-cmd 'scripts/verify.sh'
+
 t_case "the image is asked what it supports, by the runner's path, before the workspace is made"
 caps_fresh
 t_run "$work 7"

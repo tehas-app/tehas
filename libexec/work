@@ -594,6 +594,25 @@ if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces" && aside &&
   echo "tehas work: could not make the workspace $tree, not starting a cycle" >&2
   exit 78
 fi
+# The product names its gate in .pi/verify-cmd: the first line that is not
+# empty and not a comment. pi-rukas reads that file; nothing here read it, so a
+# product on a stack it cannot guess - neither package.json nor Cargo.toml -
+# ran cycles that verified nothing and still opened a pull request. Read the
+# clone on the host: the tree is a container's to write, not to run, and one
+# that has not started has written nothing. The checkout is read too, because a
+# clone holds what a commit holds and the checkout holds the product as the host
+# last fetched it, the tree a person works in. With no gate tehas still runs a
+# cycle when the stack is one pi-rukas can guess a gate for, so only a product
+# with none of the three parks, and the line that says so is what the issue's
+# comment reads.
+gate=$(sed -n '/^[[:space:]]*[#]/d; /^[[:space:]]*$/d; p; q' "$tree/.pi/verify-cmd" 2>/dev/null)
+[ -n "$gate" ] || gate=$(sed -n '/^[[:space:]]*[#]/d; /^[[:space:]]*$/d; p; q' "$src/.pi/verify-cmd" 2>/dev/null)
+if [ -z "$gate" ] && [ ! -f "$tree/package.json" ] && [ ! -f "$tree/Cargo.toml" ] &&
+  [ ! -f "$src/package.json" ] && [ ! -f "$src/Cargo.toml" ]; then
+  echo "tehas work: $TEHAS_REPO has no .pi/verify-cmd and no package.json or Cargo.toml, so a cycle could verify nothing" >&2
+  rm -rf "$tree"
+  exit 78
+fi
 # Before spending an hour of model time: can the sandbox push at all? A dry
 # run needs the same credentials a real push does and creates nothing. The
 # client passes the timeout's TERM on to git in the container.

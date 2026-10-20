@@ -22,6 +22,12 @@ mkdir -p "$upstream"
 git init -q -b main "$upstream"
 git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m first
 git clone -q "$upstream" "$checkout"
+# One case runs tehas work, which parks a cycle of a product that names no gate
+# and holds no stack it can guess a gate from (libexec/work). The gate is a file
+# of the two worktrees, in no commit: the work files hold the same pair.
+mkdir -p "$upstream/.pi" "$checkout/.pi"
+printf 'scripts/verify.sh\n' >"$upstream/.pi/verify-cmd"
+printf 'scripts/verify.sh\n' >"$checkout/.pi/verify-cmd"
 
 # The turn's workspace is gone when the turn is over, so the container notes
 # what it was handed there.
