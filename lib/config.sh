@@ -93,7 +93,7 @@ _tehas_valid() {
       [[ $v =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "expected owner/name"; return 1; }
       ;;
     TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_IMPROVE_MAX_OPEN | TEHAS_FIXER_MAX_RETRIES | TEHAS_FIXER_MAX_PLAN_ANSWERS | TEHAS_REFRESH_MAX | TEHAS_WORK_TIMEOUT | TEHAS_WORK_STALL | TEHAS_CONCURRENCY | TEHAS_TICKET_CONCURRENCY | \
-      TEHAS_PLAN_MAX_TURNS | TEHAS_PLAN_TIMEOUT | TEHAS_VERIFY_TIMEOUT)
+      TEHAS_PLAN_MAX_TURNS | TEHAS_PLAN_TIMEOUT | TEHAS_VERIFY_TIMEOUT | TEHAS_BUILD_TIMEOUT)
       _tehas_is_count "$v" || { echo "expected a positive whole number"; return 1; }
       ;;
     TEHAS_ALLOWED_LABELERS)
@@ -413,10 +413,20 @@ tehas_load() {
   # Agents get neither the host Docker socket nor SSH keys. Not a setting.
   export PI_ENSEMBLE_NO_DOCKER_SOCKET=1 PI_ENSEMBLE_NO_SSH=1
 
+  # The settings an instance may write, each with the rule for its value. An
+  # optional one an instance left out is checked only when it is there, as
+  # TEHAS_BUILD_TIMEOUT is: its default belongs to the command that reads it.
   for v in TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_WORK_DESCRIBE TEHAS_WORK_FILES TEHAS_WORK_COMMENTS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_TOP TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
     TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_RESERVE; do
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
+  # The bound install.sh puts on one cargo build. Its default belongs to
+  # install.sh, so an instance that leaves it out is checked only when it wrote
+  # one.
+  if [ -n "${TEHAS_BUILD_TIMEOUT:-}" ]; then
+    reason=$(_tehas_valid TEHAS_BUILD_TIMEOUT "$TEHAS_BUILD_TIMEOUT") ||
+      { tehas_err "TEHAS_BUILD_TIMEOUT is not valid: $reason (see $file)"; return 78; }
+  fi
   for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL; do
     [ -n "${!v:-}" ] || continue
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }

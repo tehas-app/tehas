@@ -151,12 +151,16 @@ instance
 checkout
 rm -f "$T/calls/cargo"
 t_env CARGO_OFFLINE=miss
+# The note the retry prints goes to stdout while the host is still uninstalled,
+# so this case pins the line itself. A full run prints its follow-ups as
+# "next:", which update reads as steps: the note is not one of them.
 t_run "$part/install.sh"
 t_eq "$t_rc" 0
 t_eq "$(t_calls cargo | wc -l)" 4
 t_contains "$(t_calls cargo | head -n 1)" "--offline"
 t_lacks "$(t_calls cargo | tail -n 1)" "--offline"
 t_contains "$t_out" "cargo's cache has no crate for"
+t_eq "$(printf '%s\n' "$t_out" | sed -n '/^note: cargo.s cache has no crate/{s/^note: /STEP/;p}' | wc -l)" 2
 t_eq "$(cat "$th/libexec/console")" "a console built from source"
 t_eq "$(cat "$th/libexec/analytics")" "an analytics built from source"
 t_run "$part/install.sh --check"
@@ -218,6 +222,49 @@ t_lacks "$t_out" "building it again with the network"
 t_eq "$(host_files | wc -l)" 0
 t_env
 
+# The other wording for a missing crate, the one a locked build prints when the
+# fetch itself is refused, sends the retry too. Deleting either of the words
+# install.sh matches would leave one of these two cases red.
+t_case "cargo's other words for a crate it could not fetch are a cache miss too"
+fresh
+instance
+checkout
+rm -f "$T/calls/cargo"
+t_env CARGO_OFFLINE=fetch_miss
+t_run "$part/install.sh"
+t_eq "$t_rc" 0
+t_eq "$(t_calls cargo | wc -l)" 4
+t_contains "$(t_calls cargo)" "--offline"
+t_contains "$t_out" "cargo's cache has no crate for"
+t_eq "$(cat "$th/libexec/analytics")" "an analytics built from source"
+t_env
+
+# The retry can be cut off where the offline attempt was not: the miss is
+# answered in cargo's own words, and the fetch that follows never ends. The
+# message names the attempt that was cut off, which is the one without
+# --offline, and reports both attempts.
+t_case "the online retry that outlives the timeout is cut off and named as cut off"
+fresh
+instance
+checkout
+rm -f "$T/calls/cargo"
+t_stub cargo 'offline=""
+for a in "$@"; do [ "$a" != --offline ] || offline=1; done
+if [ -n "$offline" ]; then
+  echo "error: no matching package named \"analytics\" found" >&2
+  exit 101
+fi
+sleep 20'
+t_env TEHAS_BUILD_TIMEOUT=1
+t_run "$part/install.sh"
+t_eq "$t_rc" 1
+t_contains "$t_out" "was cut off after 1s"
+t_contains "$t_out" "offline build:"
+t_contains "$t_out" "online build:"
+t_lacks "$t_out" "--offline -p" # the offline argv, which was not the build cut off
+t_eq "$(host_files | wc -l)" 0
+t_env
+
 # The same bound holds for the retry: a fetch that never answers is cut off
 # rather than left to hang, and the message says so. The stub is the build, so
 # a timeout in place of the real cargo is the whole case.
@@ -225,13 +272,18 @@ t_case "a build that outlives the timeout is cut off and named as cut off"
 fresh
 instance
 checkout
-rm -f "$T/calls/cargo"
-t_stub cargo 'sleep 20'
-t_env TEHAS_BUILD_TIMEOUT=1
-t_run "$part/install.sh"
-t_eq "$t_rc" 1
-t_contains "$t_out" "was cut off after 1s"
-t_eq "$(host_files | wc -l)" 0
+if ! command -v timeout >/dev/null; then
+  t_skip "no timeout on this host"
+else
+  rm -f "$T/calls/cargo"
+  t_stub cargo 'sleep 3'
+  t_env TEHAS_BUILD_TIMEOUT=1
+  t_run "$part/install.sh"
+  t_eq "$t_rc" 1
+  t_contains "$t_out" "was cut off after 1s"
+  t_eq "$(host_files | wc -l)" 0
+  t_env
+fi
 t_stub_cargo
 t_env
 

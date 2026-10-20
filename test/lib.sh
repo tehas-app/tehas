@@ -89,19 +89,26 @@ t_stub_analytics() {
 # another, and NO_CONSOLE is a build that succeeds and leaves nothing. A build
 # that asks for --offline is a build from the cache alone: CARGO_OFFLINE names
 # what such a build answers, in cargo's own words, and the build without it is
-# the retry install.sh makes. The answer is one of:
+# The answer is one of miss, fetch_miss, noise or fail, and no other word is
+# accepted: an unknown one stops the stub at once rather than answering as a
+# cache miss. The knobs compose, so CARGO_RC, CARGO_FAIL and NO_CONSOLE still
+# answer the build that goes online.
 #   miss  a crate that is not in the cache. The words are what cargo prints for
 #         it, captured from a real run against console/Cargo.lock with an empty
 #         CARGO_HOME: "error: no matching package named ... found" with its
 #         note that offline mode caused it. install.sh retries on this
+#   fetch_miss the same miss in cargo's other wording, the one a locked build
+#         prints when the fetch itself is refused: "error: ... attempting to
+#         make an HTTP request, but --offline was specified". install.sh
+#         retries on this too
 #   noise words that quote --offline but are no cache miss: a build script that
 #         echoes its own command line, as cargo's own usage dump does. install.sh
 #         is not to take these for a miss
 #   fail a cache miss the fetch does not fix: the offline attempt misses and the
-#         retry fails for its own reason, so both are reported. Any value other
-#         than miss or noise is a cache miss too, so a case can name its own
-#         wording and pin the classifier against it
-# Any other build, and any other value, is an ordinary build.
+#         retry fails for its own reason, so both are reported. The retry's own
+#         words are invented here, not captured from a real cargo: they only
+#         exercise the report of both attempts
+# Any other build is an ordinary build.
 t_stub_cargo() {
   # shellcheck disable=SC2016  # the stub's body is expanded when the stub runs
   t_stub cargo 'pkg=console prev="" offline=""
@@ -112,13 +119,19 @@ done
 if [ -n "$offline" ] && [ -n "${CARGO_OFFLINE:-}" ]; then
   # The cache miss in the words cargo uses, one line each. The second line of
   # the miss names offline mode without being an error, so a line that does not
-  # open with error: is no miss.
+  # open with error: is no miss. The words install.sh matches for a miss are
+  # these, named once there in cargo_miss_words and copied here.
   case $CARGO_OFFLINE in
     miss) echo "error: no matching package named \"$pkg\" found" >&2
       echo "note: offline mode (via --offline) can sometimes cause surprising resolution failures" >&2 ;;
+    fetch_miss) echo "error: failed to get \"$pkg\": attempting to make an HTTP request, but --offline was specified" >&2 ;;
     noise) echo "error: failed to run custom build command for $pkg" >&2
       echo "  process did not exit successfully: build-script-build --offline" >&2 ;;
-    *) echo "error: no matching package named \"$pkg\" found" >&2 ;;
+    fail) echo "error: no matching package named \"$pkg\" found" >&2 ;;
+    *)
+      echo "test stub: unknown CARGO_OFFLINE=$CARGO_OFFLINE" >&2
+      exit 99
+      ;;
   esac
   exit 101
 fi
