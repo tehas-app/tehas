@@ -487,6 +487,41 @@ as the issue's cycle and starts no other for the issue. With the lock held, a
 container left under the name `tehas-work-<issue>` is no cycle's: it is
 removed before the new one starts.
 
+Before it clones a workspace, and before it writes anything of its own, it
+compares the issue with what was approved. The
+dispatcher wrote that into `~/tehas/state/cycles/<issue>.approved.json` before
+it labelled the issue `tehas:running`; `tehas work` reads the issue once, whatever
+the instance gives the cycle, and holds its body to the record's `body_sha256`.
+That one read is also the one its images and text files are fetched from, so a
+start asks GitHub for the issue once.
+The read may take `TEHAS_TEXT_WAIT` seconds (60), and every comment that names
+why a start stopped is bounded the same way: a read that did not end in time is
+said as a timeout and one GitHub refused is said as that, with gh's own words
+in `work-<issue>-<stamp>.jsonl.err`.
+A body that is not the approved one, a record that cannot be read,
+an answer that is a pull request or a closed issue, and an issue that cannot be
+read each stop the start with 4, and the issue is
+told which and that `tehas:ready` records a fresh approval. What the issue is
+told names nothing of this host: the path of a record that could not be read is
+said on the command's error stream only.
+
+What is bound here is the body. The title is held to the approval by the
+dispatcher, which reads the label events and refuses an issue renamed since the
+label. The check is one made as the cycle starts: the container is given the
+bot token and its runner reads the issue as it is then, so an edit that lands
+after the check is not caught by it. `tehas plan` is the command that pins the
+approved text as `.tehas/brief.md` instead.
+
+With no record there is nothing here to compare against and the run is by hand:
+the command says `no approval is recorded on this host for #<issue>; a run by
+hand is its own approval` on its error stream, and goes on. Something else at
+that path, a link or a directory, is read as no record too, and the same line
+adds `(<path> is not a record this command can read)`. Neither line ever says
+the text changed. Nothing on the host removes a record, so a person who runs
+`tehas work` by hand on an issue this host dispatched is held to that record
+too: text edited since the approval needs a fresh `tehas:ready` from an allowed
+account before it starts a cycle.
+
 | Exit | Meaning                                                          |
 | ---- | ---------------------------------------------------------------- |
 | 0    | The runner's: `merged`, or completed with nothing to merge       |
@@ -498,7 +533,7 @@ removed before the new one starts.
 | 40   | The runner's: it refused to start the cycle                      |
 | 2    | The cycle was stopped here as stalled or at the time limit and grace, or the runner ended without a result |
 | 3    | The sandbox cannot push to the repository; no cycle was started  |
-| 4    | With `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`: an image or file the issue links could not be fetched, the issue could not be read for them, its text is not the text that was approved, or a file is not the one first fetched for the approval; no cycle was started |
+| 4    | No cycle was started. On every start that finds the dispatcher's approval record, whatever the settings: the issue's body is not the body that record approved, the record cannot be read or is not of the shape tehas reads, the answer is a pull request or a closed issue, or the issue cannot be read for its text (within `TEHAS_TEXT_WAIT`); the issue is told which and that a fresh `tehas:ready` is needed. With `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, also: an image or file the issue links could not be fetched, the issue could not be read for them, or a file is not the one first fetched for the approval |
 | 5    | A cycle for this issue is running already: its lock `~/tehas/state/cycles/<issue>.lock` is held. Nothing was moved and no container started |
 | 64   | The issue is not a number, or no bot token or no git identity; no cycle was started |
 | 78   | The instance settings are invalid, `tehas.slice` is missing, has no memory limit, or cannot be used (the message names `sudo ./bootstrap.sh slice` or the reason), the image does not support what the cycle is given, or a workaround in `TEHAS_RUKAS_WORKAROUNDS` has expired; no cycle was started |
@@ -702,8 +737,12 @@ the whole at 32000, and the manifest gets `"retryContext":
 `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, else the command stops with
 78.
 
-With `TEHAS_WORK_IMAGES=0` and `TEHAS_WORK_FILES=0` a cycle is given nothing,
-and GitHub is asked for nothing. When the dispatcher's approval record lists
+With `TEHAS_WORK_IMAGES=0` and `TEHAS_WORK_FILES=0` a cycle is given nothing:
+no directory is mounted and no `PI_ENSEMBLE_EXTRA_IMAGE_DIRS` is passed on,
+whatever the instance file says. The issue's text is still read once, to
+compare it with the dispatcher's record, and a body that is not the approved
+one stops the start with 4 like anywhere else; with no record GitHub is asked
+for nothing at all. When the dispatcher's approval record lists
 attachment links, that gap is said rather than left for an agent to find from a
 file that is not there: `tehas work` prints a line naming how many links and
 which approval it read (the record's `at` and `by`), writes the same line to
@@ -712,13 +751,15 @@ copies into the record as `err.txt` (only this line and a failure to write it
 ever reach that file), and keeps a manifest at
 `~/tehas/state/cycles/<issue>.manifest.json` with no image, that approval, and
 each link left out with that reason. The links are the approved text's: the
-issue is not read again, so a body edited since the label is not what the line
-counts, and the line says which approval it did count. A record written while
+line counts what the record lists, not what the issue links, and it says which
+approval it did count. A record written while
 the instance took links from comments keeps them, each with its own `source`.
 At most 100 links are listed and `leftOutMore` counts the rest, 0 when there
 are none, so the file stays small enough for the improvement loop to copy. An
-issue the dispatcher never started has no approval record, and then nothing is
-said and nothing is kept. An instance line for `PI_ENSEMBLE_EXTRA_IMAGE_DIRS`
+issue the dispatcher never started has no approval record, and then nothing of
+that gap is said and nothing is kept; the run says on its error stream that no
+approval is recorded on this host for the issue and that a run by hand is its
+own approval. An instance line for `PI_ENSEMBLE_EXTRA_IMAGE_DIRS`
 is dropped there too: the container is given no variable naming a directory it
 does not have. What an agent downloads for itself is its own doing: tehas
 neither fetches an attachment into the workspace nor keeps an agent's own
@@ -1370,8 +1411,12 @@ and the comment's id goes into `~/tehas/state/park-<issue>.id`, which is what
 lets the dispatcher take a tick there. It
 then removes the workspace of a cycle that merged or left a pull request, and
 keeps the workspace of one that stopped. The images `tehas work` fetched for
-the cycle are removed in every case. A runner that started no cycle over an
-image (exit 4) is parked with a comment that says so. A retry moves a stopped workspace to
+the cycle are removed in every case. A runner that started no cycle (exit 4) is
+parked; `tehas work` has already said on the issue which reason it was (an image
+or file it could not be given, or an issue whose text is not the approved one),
+while tehasbot cycle's own line for a runner that started no cycle names images
+and files only.
+A retry moves a stopped workspace to
 `<name>-<issue>.before-retry`, which is removed and kept by the same rule.
 The dispatcher removes a kept workspace once no cycle has run on its issue for
 7 days. A
