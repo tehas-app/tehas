@@ -523,12 +523,24 @@ if [ "${#due[@]}" != 0 ]; then
   target=${CARGO_TARGET_DIR:-$root/console/target}
   hidden=()
   while IFS= read -r name; do hidden+=(-u "$name"); done < <(compgen -e | grep -E 'TOKEN|SECRET|PASSWORD|API_KEY')
+  # The build asks cargo to work from its own cache first: a host that fetched
+  # once needs no network to install. Only cargo's own words for a crate that is
+  # not in the cache (--offline, offline mode) send a second run without
+  # --offline. A compile error or a stale lock fails the first time and is
+  # reported as it is, with no second run to repeat a minute of work. The retry
+  # is asked the same way, so a cache miss that outlives the fetch is reported
+  # rather than asked again.
+  cache_miss() { case "$1" in *--offline* | *"offline mode"*) return 0 ;; esac; return 1; }
   for entry in "${due[@]}"; do
     read -r prog _ <<<"$entry"
     built=$target/release/$prog
     rm -f "$built"
-    out=$(env "${hidden[@]}" cargo build --release --locked --quiet \
+    out=$(env "${hidden[@]}" cargo build --release --locked --offline --quiet \
       --manifest-path "$root/console/Cargo.toml" --target-dir "$target" -p "$prog" 2>&1) && rc=0 || rc=$?
+    if [ "$rc" != 0 ] && cache_miss "$out"; then
+      out=$(env "${hidden[@]}" cargo build --release --locked --quiet \
+        --manifest-path "$root/console/Cargo.toml" --target-dir "$target" -p "$prog" 2>&1) && rc=0 || rc=$?
+    fi
     if [ "$rc" != 0 ] || [ ! -f "$built" ]; then
       printf '%s\n' "$out" | tail -n 20 >&2
       if [ "$rc" = 127 ]; then
