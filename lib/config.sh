@@ -282,15 +282,15 @@ tehas_load() {
   file=$dir/instance.env
   [ -r "$file" ] || { tehas_err "no instance.env in $dir (copy instances/example and fill it in)"; return 78; }
 
-  # TEHAS_ENERGY, TEHAS_ENERGY_URL and the model endpoints' tokens,
-  # TEHAS_MODEL_KEY_*, are host choices in ~/.config/tehas/env, which env.sh
-  # reads before this.
+  # TEHAS_ENERGY, TEHAS_ENERGY_URL, the model endpoints' tokens,
+  # TEHAS_MODEL_KEY_*, and the MCP server's TEHAS_MCP and TEHAS_MCP_KEYS are
+  # host choices in ~/.config/tehas/env, which env.sh reads before this.
   for v in $(compgen -v); do
     case "$v" in
       TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_INDEX_CMD | TEHAS_PLAN_CMD | \
         TEHAS_PLAN_START_CMD | TEHAS_INDEX_START_CMD | TEHAS_INDEX_LOCK_WAIT | TEHAS_CYCLE_START_CMD | TEHAS_CYCLE_STOP_CMD | TEHAS_CYCLE_START_WAIT | TEHAS_CGROUP_ROOT | TEHAS_SLICE_WAIT | \
         TEHAS_PREFLIGHT_WAIT | TEHAS_STOP_WAIT | TEHAS_FETCH_WAIT | TEHAS_CHECK_WAIT | TEHAS_CONSOLE_WAIT | TEHAS_WORK_GRACE | TEHAS_CAPS_WAIT | TEHAS_TEXT_WAIT | \
-        TEHAS_CYCLE_RETRY_WAIT | TEHAS_CYCLE_STOP_GH_WAIT | TEHAS_TIDY_CMD | TEHAS_TIDY_WAIT | TEHAS_ANALYTICS_WAIT | TEHAS_ENERGY | TEHAS_ENERGY_URL | TEHAS_MODEL_KEY_*) ;;
+        TEHAS_CYCLE_RETRY_WAIT | TEHAS_CYCLE_STOP_GH_WAIT | TEHAS_TIDY_CMD | TEHAS_TIDY_WAIT | TEHAS_ANALYTICS_WAIT | TEHAS_ENERGY | TEHAS_ENERGY_URL | TEHAS_MODEL_KEY_* | TEHAS_MCP | TEHAS_MCP_KEYS) ;;
       TEHAS_* | PI_ENSEMBLE_*) unset "$v" ;;
     esac
   done
@@ -305,6 +305,10 @@ tehas_load() {
     case "$line" in
       TEHAS_MODEL_KEY_*)
         tehas_err "$file sets a TEHAS_MODEL_KEY_ token: put it in ~/.config/tehas/env"
+        return 78
+        ;;
+      TEHAS_MCP_KEYS=*)
+        tehas_err "$file sets TEHAS_MCP_KEYS: put the keys in ~/.config/tehas/env"
         return 78
         ;;
     esac

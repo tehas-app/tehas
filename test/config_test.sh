@@ -863,4 +863,18 @@ t_run "PI_ENSEMBLE_MODEL_NOPE=x PI_ENSEMBLE_MODEL_DEVELOPER=x; export PI_ENSEMBL
 t_eq "$t_rc" 0
 t_eq "$t_out" "[]"
 
+t_case "the MCP server's settings come from the host's environment and are kept"
+t_instance "${T_MINIMAL[@]}"
+T_ENV=(TEHAS_MCP=1 TEHAS_MCP_KEYS="abcdefghijklmnopqrstuvwxyz012345 second")
+t_run "$load && echo \"\$TEHAS_MCP [\$TEHAS_MCP_KEYS]\""
+t_eq "$t_out" "1 [abcdefghijklmnopqrstuvwxyz012345 second]"
+T_ENV=()
+
+t_case "keys for the MCP server in the instance directory are refused"
+t_instance "${T_MINIMAL[@]}" TEHAS_MCP_KEYS=abcdefghijklmnopqrstuvwxyz012345
+t_run "$load"
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_MCP_KEYS"
+t_lacks "$t_out" "abcdefghijklmnopqrstuvwxyz012345"
+
 t_done
