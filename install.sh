@@ -25,7 +25,8 @@
 # and libexec/analytics. Beside each, <name>.stamp holds two checksums: of the
 # source it was built from and of the program itself. A program is built
 # again only when its source has changed or it is not the one that was
-# installed, and the first build fetches the crates from the network. The
+# installed, and the build that fetches the crates from the network is the
+# first one on a host that has never fetched. The
 # console's source leaves out console/analytics, so a change there builds
 # analytics alone. --check compares the checksums and builds nothing. A
 # program that does not build stops a real run before it changes anything.
@@ -502,6 +503,32 @@ analytics_source=$(source_sum \( \( -path './analytics/*' ! -path './analytics/t
 program_sum() { sha256sum <"$1" | cut -d' ' -f1; }
 # program_label <name>: how a message names it.
 program_label() { if [ "$1" = console ]; then echo "the console"; else echo "the $1 program"; fi; }
+# The build asks cargo for --offline first, so a host that has fetched once needs
+# no network, and asks again without it when cargo says a crate is missing from
+# its cache. The words that mean a crate is missing, and the words that do not,
+# are named once in t_stub_cargo's CARGO_OFFLINE, and a line counts only when it
+# opens with cargo's own `error:`: clap's usage dumps quote the flags of the
+# command, and a build script can echo anything, so neither sends a second run
+# on its own. cargo_build <prog> <offline|online> runs one build and leaves its
+# words in $out and its exit status in $rc, cut off after TEHAS_BUILD_TIMEOUT
+# seconds (124, as timeout(1) reports).
+cargo_build() {
+  local args=(build --release --locked)
+  [ "$2" = offline ] && args+=(--offline)
+  args+=(--quiet --manifest-path "$root/console/Cargo.toml" --target-dir "$target" -p "$1")
+  out=$(timeout "${TEHAS_BUILD_TIMEOUT:-1800}" env "${hidden[@]}" cargo "${args[@]}" 2>&1) && rc=0 || rc=$?
+}
+# cache_miss <cargo's words>: true when one line is cargo's own report that a
+# crate it needs is not in its cache.
+cache_miss() {
+  local line
+  while IFS= read -r line; do
+    case "$line" in
+      error:*"no matching package named"* | error:*"attempting to make an HTTP request"*) return 0 ;;
+    esac
+  done <<<"$1"
+  return 1
+}
 due=()
 for entry in "console $console_source" "analytics $analytics_source"; do
   read -r prog sum <<<"$entry"
@@ -523,30 +550,32 @@ if [ "${#due[@]}" != 0 ]; then
   target=${CARGO_TARGET_DIR:-$root/console/target}
   hidden=()
   while IFS= read -r name; do hidden+=(-u "$name"); done < <(compgen -e | grep -E 'TOKEN|SECRET|PASSWORD|API_KEY')
-  # The build asks cargo to work from its own cache first: a host that fetched
-  # once needs no network to install. Only cargo's own words for a crate that is
-  # not in the cache (--offline, offline mode) send a second run without
-  # --offline. A compile error or a stale lock fails the first time and is
-  # reported as it is, with no second run to repeat a minute of work. The retry
-  # is asked the same way, so a cache miss that outlives the fetch is reported
-  # rather than asked again.
-  cache_miss() { case "$1" in *--offline* | *"offline mode"*) return 0 ;; esac; return 1; }
   for entry in "${due[@]}"; do
     read -r prog _ <<<"$entry"
     built=$target/release/$prog
     rm -f "$built"
-    out=$(env "${hidden[@]}" cargo build --release --locked --offline --quiet \
-      --manifest-path "$root/console/Cargo.toml" --target-dir "$target" -p "$prog" 2>&1) && rc=0 || rc=$?
+    cargo_build "$prog" offline
     if [ "$rc" != 0 ] && cache_miss "$out"; then
-      out=$(env "${hidden[@]}" cargo build --release --locked --quiet \
-        --manifest-path "$root/console/Cargo.toml" --target-dir "$target" -p "$prog" 2>&1) && rc=0 || rc=$?
+      # The crate is not in the cache, so this one build goes online. The words
+      # of the offline attempt are kept in $out under the retry's own: a build
+      # that fails again is reported from both, so the miss is not lost behind
+      # the fetch that followed it.
+      note "note: cargo's cache has no crate for $prog; building it again with the network"
+      offline_words=$out
+      cargo_build "$prog" online
+      out="offline build:
+$offline_words
+online build:
+${out:-cargo printed nothing}"
     fi
     if [ "$rc" != 0 ] || [ ! -f "$built" ]; then
-      printf '%s\n' "$out" | tail -n 20 >&2
+      printf '%s\n' "${out:-cargo printed nothing}" | tail -n 20 >&2
       if [ "$rc" = 127 ]; then
         echo "tehas: cargo is not installed, so $(program_label "$prog") cannot be built (bootstrap.sh installs it); nothing was installed" >&2
+      elif [ "$rc" = 124 ]; then
+        echo "tehas: $(program_label "$prog") did not build (cargo build --release --locked --offline -p $prog in $root/console was cut off after ${TEHAS_BUILD_TIMEOUT:-1800}s); nothing was installed" >&2
       else
-        echo "tehas: $(program_label "$prog") did not build (cargo build --release --locked -p $prog in $root/console); nothing was installed" >&2
+        echo "tehas: $(program_label "$prog") did not build (cargo build --release --locked --offline -p $prog in $root/console); nothing was installed" >&2
       fi
       exit 1
     fi
