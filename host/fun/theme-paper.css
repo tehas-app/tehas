@@ -8,6 +8,10 @@
   --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-code: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --font-smoothing: auto;
+  --type-small: 12px;
+  --type-body: 14px;
+  --type-big: 24px;
+  --radius: 4px;
 
   --field: #e9e6df;
   --field-pattern: none;
@@ -49,6 +53,19 @@
   --lift: translate(0, -1px);
   --press: translate(0, 1px);
   --press-sign: translate(0, 1px);
+
+  --stage-proto: #6b4fa0;
+  --stage-proto-soft: #ece6f6;
+  --stage-line: #4f5d6e;
+  --stage-line-soft: #e6eaef;
+  --stage-build: #2f7d4a;
+  --stage-build-soft: #e1efe5;
+  --stage-review: #8a5a00;
+  --stage-review-soft: #f6ead0;
+  --stage-stop: #b3261e;
+  --stage-stop-soft: #f7e0dd;
+  --stage-ship: #2c5d8f;
+  --stage-ship-soft: #e0eaf5;
 
   --prototype-ground: #fff;
 

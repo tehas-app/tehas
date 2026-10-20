@@ -154,6 +154,10 @@ body[data-factory="live"] .console-state::before {
 /* The fresh live queue is the normal case and needs no tag. */
 .source[data-kind="live"] { display: none; }
 .menu { display: flex; align-items: center; gap: 0 16px; margin-left: auto; }
+/* A typeface wider than Topaz would push the state tag past the edge: the
+   menu gives way and scrolls instead, and the tag stays in view. */
+.topbar > .menu { min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.topbar > .menu::-webkit-scrollbar { display: none; }
 /* The factory state tag closes the header, at the far right. */
 .topbar > .gate { flex: none; margin-left: 8px; white-space: nowrap; }
 .menu a, .repo { padding: 12px 0; text-decoration: none; white-space: nowrap; }
