@@ -88,6 +88,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_WORK_DESCRIBE`           | `0`                                      | `1` has the model describe each of those images in words before the cycle or planning session starts, into `images.md` beside them: see [tehas work](#tehas-work). Needs `TEHAS_WORK_IMAGES=1`, else the command stops with 78 |
 | `TEHAS_WORK_FILES`              | `0`                                      | `1` gives a cycle and a planning session the text files its issue text links: md, txt, csv, json, yaml, log, html, css and js, at most 16, 1 MB each and 4 MB together. Needs no model that reads images. See [tehas work](#tehas-work) |
 | `TEHAS_WORK_COMMENTS`           | `0`                                      | `1` takes the images and files of the issue's comments too: those an allowed account wrote and nobody edited after the approval. Needs `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, else the command stops with 78. See [tehas work](#tehas-work) |
+| `TEHAS_WORK_ZIPS`               | `0`                                      | `1` unpacks a zip the issue's text links into the same read-only directory, at most 2 archives and 4 MB each. A zip is taken by its first bytes, not its name; every file in it goes through the checks of a linked one and counts against the same limits, and the archive is not kept. Needs `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, else the command stops with 78. See [tehas work](#tehas-work) |
 | `TEHAS_VERIFY_TIMEOUT`          | `1800`                                   | Seconds one run of the product's gate may take inside a cycle. A gate that takes longer is stopped and the cycle parks with the cap `verify-timeout:<step>`. Passed to pi-rukas as `PI_ENSEMBLE_VERIFY_TIMEOUT_MS` and `PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS`; pi-rukas alone allows ten minutes. The bound is for one run under the container's CPU quota: a run that waits for another to end does not count its wait. With a `.pi/verify-cmd-fast`, the fast and the full command share it. The cycle's deadline leaves at least this much and the handoff allowance, 8 minutes, before `TEHAS_WORK_TIMEOUT` |
 | `TEHAS_RUKAS_WORKAROUNDS`       | empty                                    | Optional. The settings of this instance that only work around a pi-rukas defect, as `NAME@VERSION` separated by single spaces, `VERSION` being the pi-rukas release that fixes it. `tehas work` stops a cycle with 78 once the image's pi-rukas is that release or later, naming the setting: remove it and its entry. An entry for a setting the instance does not set stops every command with 78. Write the pi-rukas issue in a comment beside the setting |
 | `TEHAS_PLAN_MAX_TURNS`          | `20`                                     | Turns a planning session may take before it is ended            |
@@ -661,7 +662,8 @@ approval are those of the images. A file is taken by its name's extension,
 md, txt, csv, json, yaml, yml, log, html, css or js, and then checked: valid
 UTF-8 and no NUL byte, else it is left out with the reason. html is text here;
 rendering it is the [Protolab](#tehasbot-protolab)'s job. svg, pdf and
-archives are left out. At most 16 files, 1 MB each and 4 MB together, apart
+archives are left out, unless the instance takes archives: see below. At most
+16 files, 1 MB each and 4 MB together, apart
 from the images' limits. They are named `file-1.md`, `file-2.csv` and so on,
 and `manifest.json` lists them under `files`, each with its link, its original
 name, its type, its size and its sha256; `images` is as before. With images
@@ -669,6 +671,29 @@ off, an image the issue links is left out and said. The comment on the issue
 says how many files were fetched, with each hash, and that the pi-rukas that
 tehas pins does not read them yet: the manifest is ready for a release that
 does.
+
+With `TEHAS_WORK_ZIPS=1` a zip the issue links is unpacked into the same
+directory, which adds no mount and no variable more, and the setting needs
+`TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, else the command stops with 78:
+what comes out of an archive goes into the directory of one of those kinds.
+Which links, whose approval and what is fetched are as above. A link is an
+archive only when its first four bytes are those of a zip, never because its
+name ends in `.zip`: a link named `.zip` that holds something else is left out
+with `Not a zip archive.` At most 2 archives per issue, each downloaded at most
+4 MB, and the download is refused over that with a reason. The archive is
+unpacked into a scratch directory beside the others, with `tehas_unzip_into`,
+the Protolab's own unpacker, which reads the listing first and refuses an
+absolute path, a `..` part, a backslash, a link, a locked file and more than
+200 entries. Every file it writes then goes through the checks of a file the
+issue links: an image by its first bytes, a text file by its extension and by
+being valid UTF-8 with no NUL byte. Anything else, an svg, a nested archive or
+a binary, is left out with its path inside the archive under `path` and the
+reason. The unpacked files count against the limits above, the images' and the
+files', as the linked ones do; a file over what is left of them is left out and
+the ones before it are kept. They are named on from the linked ones,
+`image-1.png`, `file-1.md`, and each entry carries `"zip": "<the link>"` and
+`"path": "<its path in the archive>"`. The archive itself is not kept, and the
+scratch directory is removed whatever the archive held.
 
 With `TEHAS_WORK_COMMENTS=1` the links in the issue's comments are taken as
 well, by an approval record only: a comment is taken when an allowed account

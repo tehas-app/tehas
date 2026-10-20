@@ -1,20 +1,96 @@
 #!/usr/bin/env bash
-# Tests for lib/attachments.sh: which links count as attached files, the type
-# table, and where the token goes when a file is fetched. A stub curl records
-# its arguments and what it is given on standard input.
+# Tests for lib/attachments.sh: which links of an issue or an answer are the
+# files a cycle is given, the table of kinds a fetched file is named by, where
+# the token goes when a file is fetched, and the archives a cycle may be given.
+# A stub curl records its arguments and what it is given on standard input, and
+# hands out the bytes a case put at the address of a fetch, so a case says what
+# one link of an issue is and every other link of it stays the png below.
 # shellcheck disable=SC2016  # stub bodies and snippets are expanded when they run
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
 lib=". $T_ROOT/lib/attachments.sh"
-t_stub curl 'prev=""
+fx=$T/fx
+mkdir -p "$fx/net"
+# The png a link with no bytes of its own is answered with, written here so the
+# stub has it from the first fetch of the file, whoever its link is.
+printf '\x89PNG\r\n\x1a\nPNGDATA' >"$T/png"
+
+# The stub reads two names of its own, which the two helpers below write into it:
+# the directory of the bytes kept by the address of a link, and the directory the
+# calls are recorded in. The bytes of a link live at the address of it, so a case
+# says what one link of an issue is by writing its bytes there, and every other
+# link of it stays the png. Neither name carries a dollar of its own, so a helper
+# writes it with sed, whose pattern this file expands.
+# The stub, written by a here-document nothing expands. Its own shell has $T; the
+# three names of the bytes it hands out are written into it by the two helpers
+# below, the only ones to rewrite it. The line that records the arguments of a
+# call is the one t_stub writes for every other stub, so its path is named here.
+# callsat: the directory the stub records its calls in, written into it by
+# the first of the two helpers below, which is the one that names a path.
+# shellcheck disable=SC2034  # the name the stub's $callsat is rewritten from
+calls_at=$T/calls
+stub_calls() { sed -i "s|[$]callsat|$T/calls|g" "$T/bin/curl"; }
+cat >"$T/bin/curl" <<'STUB'
+#!/usr/bin/env bash
+printf "%s\n" "$*" >>"$callsat/curl"
+out="" prev="" addr="" cap=1
 for a in "$@"; do
-  [ "$a" != "@-" ] || { printf "stdin: "; cat; } >>"$T/calls/curl-stdin"
-  [ "$prev" != -o ] || [ ! -e "$T/png" ] || cp "$T/png" "$a"
+  [ "$a" != "@-" ] || { printf "stdin: "; cat; } >>"$callsat/curl-stdin"
+  [ "$prev" != -o ] || out=$a
+  [ "${a#https}" != "$a" ] && addr=$a
+  [ "$prev" != --max-filesize ] || cap=$a
   prev=$a
 done
+# The bytes a fetch gets are those the cases put at the address of the fetch:
+# a case says what a link of an issue is and every other link of it stays the png
+# written below, which also stands for a link no case filled. An address with a
+# .rc beside it is answered with that exit status, as a fetch that fails is
+# answered on the host.
+# By the name of the link, and by the room its own fetch was given: an
+# archive is answered in full to the fetch that unpacks it and in part to the
+# one that only looks, which is how the room of a fetch says which bytes to
+# hand out. The cycle asks for one link more than once, of a kind it took it
+# for first and of the kind its bytes turn out to be, and the answer of one
+# fetch must not be that of another.
+key=$(printf %s "${addr##*/}" | tr -c "A-Za-z0-9" _)
+[ -f "$fx/net/$key.rc" ] && exit "$(cat "$fx/net/$key.rc")"
+# The room of the fetch says which bytes of a link to hand out: at the 1 MB
+# of one file, the file the link's name says it is; at more, what the link
+# holds, which for an archive is the archive itself.
+bytes=$fx/net/$key
+[ "$cap" -le 1048576 ] && [ -f "$fx/net/${key}_file" ] && bytes=$fx/net/${key}_file
+if [ -f "$bytes" ]; then
+  cp "$bytes" "$out"
+  # The bytes a host answers with those of a fixture: an image by its magic,
+  # anything else with a type no extension of ours matches, which is how a
+  # text file and an archive are answered on the host.
+  case "$(od -An -N4 -tx1 <"$out" | tr -cd '0-9a-f')" in
+    89504e47*) printf image/png ;;
+    *) printf application/octet-stream ;;
+  esac
+  exit "${CURL_RC:-0}"
+fi
+# A link no case filled is the png, answered as a host answers a png.
+[ -n "$out" ] && [ -e "$T/png" ] && cp "$T/png" "$out"
 printf image/png
-exit "${CURL_RC:-0}"'
+exit "${CURL_RC:-0}"
+STUB
+chmod +x "$T/bin/curl"
+# stub_dir <directory>: where the bytes kept by the address of a link live. The
+# path is one this file makes under $T, so a slash is the only separator it holds.
+stub_dir() { sed -i "s|[$]fx/net|$1/net|g" "$T/bin/curl"; }
+stub_calls
+stub_dir "$fx"
+
+# The three names of the bytes a fetch is answered with are written once, here,
+# and by every case of its own before it runs a snippet: the directory of the
+# bytes kept by the address of a link, and the two names of the archive and of
+# the file of the case.
+
+
+# stub_dir <directory>: where the bytes kept by the address of a link live. The
+# path is one this file makes under $T, so a slash is the only separator it holds.
 
 t_case "sourcing it prints nothing and writes nothing"
 before=$(find "$T" | LC_ALL=C sort)
@@ -198,5 +274,192 @@ jq '.approval = {at: "t", by: "alice", how: "label"}' "$T/both/manifest.json" >"
 jq '.files[1].sha256 = "dd"' "$T/both/manifest.json" >"$T/kept.json"
 t_run "$lib; tehas_issue_images_changed $T/kept.json $T/both || echo \"\$image_why\""
 t_eq "$t_out" "L3 gave other bytes than when this approval was first fetched"
+
+
+# --- An archive the issue links ----------------------------------------------
+# A zip is taken by its first bytes, not its name. The fixtures are written by
+# hand and committed under test/fixtures/work-zips, so these cases ask no zip
+# tool, as the Protolab's do.
+zips=$T_ROOT/test/fixtures/work-zips
+anyzip=https://github.com/user-attachments/files/9/any.zip
+bzip=https://github.com/user-attachments/files/8/b.zip
+czip=https://github.com/user-attachments/files/7/c.zip
+pnglink=https://github.com/user-attachments/assets/1111
+evilzip=https://github.com/user-attachments/files/13/evil.zip
+evil_body="[evil.zip]($evilzip)"
+bigzip=https://github.com/user-attachments/files/11/big.zip
+zipdir=$T/zipdir
+
+# zip_case <dir> <body> [setting=VALUE]...: that issue, and its images in a
+# clean shell, with the instance's settings and the case's own after them. The
+# stub answers the .zip link with NET_ZIP's bytes and every other link with the
+# png, so a case says what the archive is and nothing else about the issue.
+zip_case() {
+  local dir=$1 body=$2 nm key
+  shift 2
+  rm -rf "$dir"
+  jq -n --arg b "$body" '{number: 7, author_association: "OWNER", body: $b}' >"$T/issue.json"
+  # The instance's settings and the case's own: a case that names none of the
+  # three kinds is one where the instance gives a cycle images, files and
+  # archives alike, which is what most of these cases read.
+  T_ENV=(TEHAS_REPO=acme/widget GH_TOKEN=tok "$@")
+  local has_images=0 has_files=0 has_zips=0 setting
+  for setting in "$@"; do
+    case "$setting" in
+      TEHAS_WORK_IMAGES=*) has_images=1 ;;
+      TEHAS_WORK_FILES=*) has_files=1 ;;
+      TEHAS_WORK_ZIPS=*) has_zips=1 ;;
+    esac
+  done
+  [ "$has_images" = 1 ] || T_ENV+=(TEHAS_WORK_IMAGES=1)
+  [ "$has_files" = 1 ] || T_ENV+=(TEHAS_WORK_FILES=1)
+  [ "$has_zips" = 1 ] || T_ENV+=(TEHAS_WORK_ZIPS=1)
+  # Nothing of a case is kept from one to the next: the bytes it put at the
+  # address of a link, and the png that answers the links it left alone.
+  rm -rf "$fx/net"
+  mkdir -p "$fx/net"
+  printf '\x89PNG\r\n\x1a\nPNGDATA' >"$T/png"
+  # The png answers every link but those the case filled, so a case that says
+  # the instance gives a cycle no image has one link left: the archive, and the
+  # bytes of none of its entries are a png.
+  for setting in "$@"; do
+    case "$setting" in
+      TEHAS_WORK_IMAGES=0) printf 'not a png at all\n' >"$T/png" ;;
+    esac
+  done
+  # Every link of the body that ends in .zip is answered with the bytes of the
+  # one archive the case named, so a case of three links named .zip is a case of
+  # three archives of those bytes. Any other link is answered with the bytes the
+  # case named for a file, or with the png when it named none. An archive bigger
+  # than the 1 MB of one file is answered only at the room of the fetch that can
+  # hold it, so the cycle reading one link twice - once as the kind its name
+  # says and once as the kind its bytes turn out to be - is answered both times.
+  local zip_bytes=${NET_ZIP:-} file_bytes=${NET_FILE:-} nm key
+  # The bytes of a link answer that link alone: an archive under the name it is
+  # linked by, and one text file of an archive under the name the issue links
+  # it by. A link no case filled stays the png below. The names are read into a
+  # variable first, as the loop's own process substitution is not open while
+  # this shell runs the call below it.
+  local links
+  links=$(jq -r .body "$T/issue.json" | grep -o -e 'https://[^ )]*' || true)
+  for nm in $links; do
+    key=$(printf %s "${nm##*/}" | tr -c 'A-Za-z0-9' _)
+    case "${nm##*/}" in
+      *.zip)
+        [ -n "$zip_bytes" ] || continue
+        cp "$zip_bytes" "$fx/net/$key"
+        # The cycle reads an archive twice: once for the file its name says,
+        # at the 1 MB of one file, and once for the archive, at the 4 MB of an
+        # issue's files. The bytes it gets are the same both times.
+        [ -n "$file_bytes" ] && cp "$file_bytes" "$fx/net/${key}_file"
+        ;;
+      *) [ -n "$file_bytes" ] && cp "$file_bytes" "$fx/net/$key" ;;
+    esac
+  done
+  t_run "$lib; tehas_issue_images 7 $dir approved || echo \"FAILED \$image_why\""
+  T_ENV=()
+  return 0
+}
+# The body of these cases: the one .zip and one png, and the three archives
+# and one png of the case of the third one left out.
+zip_body="[any.zip]($anyzip) ![shot]($pnglink)"
+three_body="[a.zip]($anyzip) [b.zip]($bzip) [c.zip]($czip) ![shot]($pnglink)"
+# The archive of five files of 1 MB, under a name of its own: the bytes of a
+# link answer that link alone, so the archive is never answered with the
+# bytes of a file of the issue, nor the other way about.
+big_body="[big.zip]($bigzip)"
+# The files of a directory, in order, as one line.
+ls_imgs() { (cd "$1" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' '); }
+
+t_case "a zip is known by its first bytes, and a file named .zip that is not one is not"
+printf 'not a zip at all\n' >"$T/fake.zip"
+for f in "$zips/good.zip" "$zips/big.zip" "$zips/evil.zip"; do
+  t_run "$lib; tehas_zip_type '$f' && echo yes || echo no"
+  t_eq "$f $t_out" "$f yes"
+done
+for f in "$T/fake.zip" "$T/png" "$T/no-such-file"; do
+  t_run "$lib; tehas_zip_type '$f' && echo yes || echo no"
+  t_eq "$f $t_out" "$f no"
+done
+
+t_case "the name of a file an archive did not give keeps the characters a taken name would, cut at 200 bytes"
+t_run "$lib; tehas_path_clean 'a/../b.txt'"
+t_eq "$t_out" "a/../b.txt"
+t_run "$lib; tehas_path_clean 'img/x[1].txt'"
+t_eq "$t_out" "img/x-1-.txt"
+# 300 letters in 150 parts of 2 bytes: the whole keeps its first 200 bytes, and
+# never its beginning cut short at the 80 of one part, which is what an IFS left
+# over from a caller would give.
+t_run "$lib; tehas_path_clean \"\$(printf 'a,%.0s' {1..150})\" | wc -c"
+t_eq "$t_out" "200"
+# Each part of a path is kept in full to the 200 bytes of the whole, so a
+# manifest says the path an archive gave and not only its last name.
+t_run "$lib; tehas_path_clean 'deep/down/inside/the/archive/name.txt'"
+t_eq "$t_out" "deep/down/inside/the/archive/name.txt"
+# A path of 1000 bytes keeps the 200 first of the cleaned one, so what is said
+# of it is only ever the beginning of it.
+t_run "$lib; tehas_path_clean \"\$(printf 'ab-%.0s' {1..500} | sed 's/.\$//')\" | wc -c"
+t_eq "$t_out" "200"
+# Each folder of a path keeps its own 80 bytes, so a deep one still reads.
+t_run "$lib; tehas_path_clean \"\$(printf 'ab-%.0s' {1..20} | sed 's/.\$//')/name.txt\" | wc -c"
+t_eq "$t_out" "68"
+
+t_case "a cycle given an archive gets its image and its file, each saying the archive and the path"
+NET_ZIP=$zips/good.zip zip_case "$zipdir" "$zip_body"
+t_eq "$t_out" ""
+t_eq "$(ls_imgs "$zipdir")" "./file-1.md ./image-1.png ./image-2.png ./manifest.json "
+t_eq "$(jq -c '[.images[] | [.file, .zip, .path]]' "$zipdir/manifest.json")" \
+  "[[\"image-1.png\",\"$anyzip\",\"img/b.png\"],[\"image-2.png\",null,null]]"
+t_eq "$(jq -c '[.files[] | [.file, .name, .zip, .path, .type]]' "$zipdir/manifest.json")" \
+  "[[\"file-1.md\",\"a.md\",\"$anyzip\",\"a.md\",\"text/markdown\"]]"
+t_eq "$(jq -c '[.leftOut[] | [.link, .path, .reason]]' "$zipdir/manifest.json")" \
+  "[[\"$anyzip\",\"c.svg\",\"Not a png, jpg, webp or gif image, nor a md, txt, csv, json, yaml, log, html, css or js file.\"]]"
+t_eq "$(jq -r '.files[0].bytes' "$zipdir/manifest.json")" 4
+t_eq "$(find "$zipdir" -name '.unzip-*' -o -name '.part' | wc -l)" 0
+
+t_case "a file named .zip that is not one is left out with the reason, and nothing of it is kept"
+NET_ZIP=$T/fake.zip zip_case "$zipdir" "$zip_body"
+t_eq "$t_out" ""
+t_eq "$(ls_imgs "$zipdir")" "./image-1.png ./manifest.json "
+t_eq "$(jq -c '[.leftOut[] | [.link, .reason]]' "$zipdir/manifest.json")" \
+  "[[\"$anyzip\",\"Not a zip archive.\"]]"
+
+t_case "an entry that escapes the archive, or is a link, writes nothing and is left out by its cleaned name"
+NET_ZIP=$zips/evil.zip zip_case "$zipdir" "$evil_body"
+t_eq "$t_out" ""
+t_eq "$(find "$T" \( -name 'escape.md' -o -name link \) ! -path '*/fixtures/*' | wc -l)" 0
+t_eq "$(ls_imgs "$zipdir")" "./file-1.md ./manifest.json "
+t_eq "$(jq -c '[.leftOut[] | [.path, .reason]]' "$zipdir/manifest.json")" \
+  '[["../escape.md","A path outside the archive."],["link","A link or a special file."]]'
+
+t_case "what of an archive runs over the 1 MB of one file is left out, the files before it kept"
+NET_ZIP=$zips/big.zip NET_FILE=$T/ok.txt zip_case "$zipdir" "$big_body" TEHAS_WORK_IMAGES=0
+t_eq "$t_out" ""
+t_eq "$(jq -c '[.files[] | .file]' "$zipdir/manifest.json")" \
+  '["file-1.txt","file-2.txt","file-3.txt","file-4.txt"]'
+t_eq "$(jq -c '[.leftOut[] | [.path, .reason]]' "$zipdir/manifest.json")" \
+  "[[\"e.txt\",\"Over the 1 MB limit of a file.\"]]"
+t_eq "$(find "$zipdir" -name '.unzip-*' -o -name '.part' | wc -l)" 0
+
+t_case "with the setting off a zip the issue links is left out as before, and never unpacked"
+NET_ZIP=$zips/good.zip zip_case "$zipdir" "$zip_body" TEHAS_WORK_ZIPS=0
+t_eq "$t_out" ""
+t_eq "$(ls_imgs "$zipdir")" "./image-1.png ./manifest.json "
+t_eq "$(jq -r '.leftOut | length' "$zipdir/manifest.json")" 1
+t_contains "$(jq -r '.leftOut[0].reason' "$zipdir/manifest.json")" \
+  "Not a png, jpg, webp or gif image, nor a md, txt, csv, json, yaml, log, html, css or js file."
+t_eq "$(jq -c '.leftOut[0] | has("path")' "$zipdir/manifest.json")" "false"
+
+t_case "the third archive of one issue is left out, and the two before it are taken"
+NET_ZIP=$zips/good.zip zip_case "$zipdir" "$three_body"
+t_eq "$t_out" ""
+# Of the two archives that were taken, only the svg each holds is left out: the
+# archive of the link that was not read at all has no file to name.
+t_eq "$(jq -c '[.leftOut[] | select(.path == null) | [.link, .reason]]' "$zipdir/manifest.json")" \
+  "[[\"$czip\",\"More than 2 archives.\"]]"
+t_eq "$(jq -r '[.leftOut[] | select(.path) | .link] | unique | .[]' "$zipdir/manifest.json" | sort | tr '\n' ' ')" \
+  "$(printf '%s\n' "$anyzip" "$bzip" | LC_ALL=C sort | tr '\n' ' ')"
+t_eq "$(jq -c '[.files[] | .file]' "$zipdir/manifest.json")" '["file-1.md","file-2.md"]'
+t_eq "$(jq -c '[.images[] | .file]' "$zipdir/manifest.json")" '["image-1.png","image-2.png","image-3.png"]'
 
 t_done
