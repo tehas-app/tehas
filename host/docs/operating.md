@@ -313,7 +313,9 @@ console shows the cycle as interrupted.
 `tehas stop 12` asks that unit to stop and takes away what the cycle left on the
 host: its container, its workspace, its transcripts, and the files in
 `~/tehas/state` that make this host think the cycle still runs, is owed, or is
-parked. It keeps the cycle's record and its logs, and changes no label. See
+parked. It keeps the cycle's record and its logs. Its last step is the issue's
+own: when the host part went clean, `tehas:running` comes off it, with no other
+label added and nothing written there. See
 [`tehas stop`](/tools#tehas-stop).
 
 `tehas` is the one command to type on the host; `tehas help` lists what it
