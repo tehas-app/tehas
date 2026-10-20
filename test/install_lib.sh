@@ -95,6 +95,7 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/lib/planning.sh
 ./tehas/lib/questions.sh
 ./tehas/lib/refresh.sh
+./tehas/lib/release.sh
 ./tehas/lib/rukas.sh
 ./tehas/lib/sandbox.sh
 ./tehas/lib/status.sh
