@@ -140,4 +140,10 @@ reset
 t_run "$mcp nope"
 t_eq "$t_rc" 64
 
+t_case "the manual leaves /mcp to the server: no page there, and no link to it"
+docs=$T_ROOT/host/docs
+[ ! -e "$docs/mcp.md" ] || t_bad "host/docs/mcp.md would be served at /mcp"
+[ -f "$docs/mcp-server.md" ] || t_bad "host/docs/mcp-server.md is missing"
+t_eq "$(grep -rlE '\]\(/mcp\)|href="/mcp"|/mcp\.md\)' "$docs" | wc -l)" 0
+
 t_done

@@ -12,7 +12,7 @@ that takes commands. There is nothing to authenticate, and getting to the
 machine is the caller's business.
 
 An agent that is not on the machine can read how the factory is doing through
-[the MCP server](/mcp), behind API keys. It is read only and shows what the
+[the MCP server](/mcp-server), behind API keys. It is read only and shows what the
 dashboard shows; the commands here remain the way to change anything.
 
 What exists today: [`tehas api`](#tehas-api),
