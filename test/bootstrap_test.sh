@@ -265,6 +265,17 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "host/npm/parallel-web-cli is missing from this checkout: cannot install parallel-web-cli $PARALLEL_CLI_VERSION"
 t_eq "$(t_calls npm)$(t_calls curl)" ""
 
+# The tool directories come from lib/paths.sh. A copy without it names the file
+# that is gone, rather than reporting the host's tools as missing ones.
+t_case "a checkout without lib/paths.sh names the missing file"
+all_present
+dir=$(pin_checkout)
+rm -f "$dir/lib/paths.sh"
+t_run "$dir/bootstrap.sh check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "bootstrap: lib/paths.sh is missing from this checkout"
+t_lacks "$t_out" "MISSING"
+
 t_case "an npm tool is installed from the pinned tree, not from a registry range"
 all_present
 t_stub pi 'echo 0.0.1'
