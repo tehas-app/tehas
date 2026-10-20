@@ -6,7 +6,9 @@
 # install.sh builds as libexec/tehas-mcp, run in a container that is given
 # live/ read-only, the binary, its port and the keys, and nothing else: no
 # other part of the home, no settings, no token, no Docker socket, no
-# capability. That container is a security boundary; do not widen it.
+# capability, not root. Its network, tehas-mcp, has no masquerade, so the
+# container reaches nothing beyond the host. That container is a security
+# boundary; do not widen it.
 #
 # TEHAS_MCP and TEHAS_MCP_KEYS are host choices in ~/.config/tehas/env, never
 # in the instance directory, which is in a repository. TEHAS_MCP=1 turns the
@@ -19,7 +21,8 @@
 #        tehas mcp key         print a new key; writes nothing
 #
 # Exit: 0 the server ended, or it is off; or a key was printed;
-#       1 the binary or the image's digest is missing (run install.sh);
+#       1 the binary or the image's digest is missing (run install.sh), or a
+#         network named tehas-mcp exists that lets the container out;
 #       64 an unknown argument;
 #       78 the instance settings, TEHAS_MCP or TEHAS_MCP_KEYS are missing or
 #          malformed.
@@ -63,9 +66,19 @@ serve() {
   [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]] || { tehas_err "no CADDY_DIGEST in $TEHAS_HOME/versions.env: run install.sh"; exit 1; }
   version=$(head -n 1 "$TEHAS_HOME/docs/version.txt" 2>/dev/null | tr -cd 'A-Za-z0-9._+-')
 
+  # A network made by hand under this name is used only if it lets nothing out.
+  local masq
+  if masq=$(docker network inspect --format '{{index .Options "com.docker.network.bridge.enable_ip_masquerade"}}' tehas-mcp 2>/dev/null); then
+    [ "$masq" = false ] ||
+      { tehas_err "the network tehas-mcp lets the container out (masquerade is not false): remove it and start again"; exit 1; }
+  else
+    docker network create --driver bridge -o com.docker.network.bridge.enable_ip_masquerade=false tehas-mcp >/dev/null ||
+      { tehas_err "could not make the network tehas-mcp"; exit 1; }
+  fi
+
   docker rm -f tehas-mcp >/dev/null 2>&1
   export TEHAS_MCP_KEYS
-  exec docker run --rm --init --name tehas-mcp --read-only --cap-drop ALL \
+  exec docker run --rm --init --name tehas-mcp --user "$(id -u):$(id -g)" --network tehas-mcp --read-only --cap-drop ALL \
     --security-opt no-new-privileges:true --memory 64m --pids-limit 64 \
     -p "${TEHAS_HOST_ADDR:-127.0.0.1}:8082:8082" \
     -v "$TEHAS_HOME/live:/live:ro" -v "$bin:/tehas-mcp:ro" \
