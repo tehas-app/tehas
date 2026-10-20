@@ -149,7 +149,8 @@ test("pieces of different words that touch have different colours", () => {
     const wall = build(pool(40), seeded(seed));
     const at = new Map();
     for (const piece of wall) {
-      assert.match(piece.color, /^#[0-9a-f]{3}$/);
+      // A theme token (test/theme_test.sh checks every theme sets it).
+      assert.match(piece.color, /^piece-[0-9]$/);
       assert.ok(COLORS.includes(piece.color), `${piece.color} is not in the palette`);
       for (const cell of piece.cells) at.set(String(cell), piece);
     }

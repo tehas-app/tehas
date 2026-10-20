@@ -81,6 +81,7 @@ the factory works the same without it.
 | Previews             | `TEHAS_PREVIEWS=1` with `TEHAS_DOMAIN`, and a `preview/Dockerfile` in the product. See [Previews](/edge) | A pull request is read on GitHub only          |
 | Search indexing      | `TEHAS_INDEXING=1`, for an instance published on the internet                                    | Every page says noindex                                |
 | Visitor analytics    | `TEHAS_ANALYTICS_SRC` and `TEHAS_ANALYTICS_SITE`, for an instance that wants to count visits     | No script is loaded                                    |
+| Theme                | `TEHAS_THEME=paper`, for plain type on a light page instead of the 16-bit look                    | The pages are pixel                                    |
 | Factory floor        | The game view on the front page. The [plain dashboard](/dashboard) shows the same queue          | Use `/dashboard`                                       |
 
 ## Start here

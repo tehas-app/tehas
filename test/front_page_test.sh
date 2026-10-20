@@ -178,16 +178,6 @@ last_px() { # <line holds this> <file>
     END { print got == "" ? no : got }' "$2"
 }
 
-# The first px a declaration is written with: the first number on the first
-# line of this text that holds the pattern. NO_WIDTH where no line does.
-first_px() { # <line holds this> <text>
-  awk -v p="$1" -v no="$NO_WIDTH" '
-    !got && index($0, p) {
-      if (match($0, /[0-9]+px/)) got = substr($0, RSTART, RLENGTH - 2)
-    }
-    END { print got == "" ? no : got }' <<<"$2"
-}
-
 # The whole rule that opens with this line, in a stylesheet of your choosing:
 # the opening line to the line that closes it, indented ones included.
 rule_in() { # <opens with this> <file>
@@ -239,29 +229,22 @@ card=$(rule_in '.floor-head > .floor-meter {' "$energy")
 t_contains "$card" 'position: absolute;'
 t_contains "$card" 'grid-area: auto;'
 t_contains "$card" 'width: var(--meter-column);'
-t_contains "$card" 'border: 4px solid var(--outline);'
+t_contains "$card" 'border: var(--frame);'
 t_contains "$card" 'box-shadow: var(--shadow-sign);'
-# The card's edges are the panel's outer edges: the 4px it steps out by, at the
+# The card's edges are the panel's outer edges: what it steps out by, at the
 # top, the bottom and the right, is the panel's own border. The two are read
 # together because the coincidence is what stands the card on the monitor column
 # -- a border that moves and offsets that do not would drift the card off it
-# while every width above still matched.
+# while every width above still matched. Both are the theme's --edge, whatever
+# width a theme gives it: every theme draws --frame at --edge (theme_test.sh).
 head_face=$(rules_holding '.floor-head {' 'border: ' "$game")
-panel_edge=$(first_px 'border: ' "$head_face")
-card_top=$(first_px 'top: -' "$card")
-card_bottom=$(first_px 'bottom: -' "$card")
-card_right=$(first_px 'right: calc(-1 * (var(--meter-room) +' "$card")
-case "$panel_edge" in
-  *"$NO_WIDTH"*) t_skip "the panel's border is not in the page's stylesheet" ;;
-  *)
-    t_eq "$card_top" "$panel_edge"
-    t_eq "$card_bottom" "$panel_edge"
-    t_eq "$card_right" "$panel_edge"
-    ;;
-esac
+t_contains "$head_face" 'border: var(--frame);'
+t_contains "$card" 'top: calc(-1 * var(--edge));'
+t_contains "$card" 'bottom: calc(-1 * var(--edge));'
+t_contains "$card" 'right: calc(-1 * (var(--meter-room) + var(--edge)));'
 # Below that band the meter is still a band inside the panel, closed off from
 # the text by a rule beside it rather than an outline all round.
-t_eq "$(query_of '.floor-meter { grid-area: meter; border-left: 4px solid var(--outline); }' "$energy")" "$NO_QUERY"
+t_eq "$(query_of '.floor-meter { grid-area: meter; border-left: var(--frame); }' "$energy")" "$NO_QUERY"
 
 # The head panel holds a third element on a host that publishes the host
 # snapshot: the host line, which names no area of its own. An out-of-flow meter
@@ -284,7 +267,7 @@ t_eq "$(query_of '--meter-column: 240px' "$energy")" "$stage_band"
 
 t_case "below 900px it lies across the foot of the panel at its full width"
 t_eq "$(query_of 'grid-template-areas: "title" "intro" "foot" "meter";' "$energy")" "@media (max-width: 899px) {"
-t_contains "$energy_text" '.floor-meter { border-top: 4px solid var(--outline); border-left: 0; }'
+t_contains "$energy_text" '.floor-meter { border-top: var(--frame); border-left: 0; }'
 
 t_case "the meter fits the narrow column it is given, and the panel at 360px"
 # The width the meter's column is given between 900 and 1440px, read out of the
@@ -544,8 +527,8 @@ t_case "the row is marked as well, which is the half a calm browser keeps"
 t_contains "$select_fn" 'markCurrent();'
 t_contains "$board_text" 'node.classList.toggle("is-current", current);'
 t_contains "$board_text" 'node.setAttribute("aria-current", current ? "true" : "false");'
-t_contains "$game_text" '.row.is-current { background: var(--brass-light); }'
-t_contains "$game_text" '.ticket:hover, .ticket.is-current { background: var(--brass-light); }'
+t_contains "$game_text" '.row.is-current { background: var(--accent-soft); }'
+t_contains "$game_text" '.ticket:hover, .ticket.is-current { background: var(--accent-soft); }'
 
 t_case "the answer stays where it was pressed: selecting moves nothing on the page"
 t_lacks "$select_fn" 'scrollIntoView'
