@@ -138,7 +138,7 @@ a day.
 ## The example instance
 
 The instance on the host `tehas-tehas` works on this repository, product
-`tehas-org/tehas`, with the settings in `instances/tehas-tehas/`. Each row
+`tehas-app/tehas`, with the settings in `instances/tehas-tehas/`. Each row
 is what was seen there or in the tests, with its date.
 
 | Check                                  | Result                                                                                                                                              | Status                   |
