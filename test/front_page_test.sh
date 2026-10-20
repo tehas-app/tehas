@@ -39,6 +39,8 @@ block() { # <opens with> <closes with>
 head_panel=$(block '<div class="floor-head">' '</div>')
 topbar=$(block '<header class="topbar">' '</header>')
 doors=$(block '<nav class="doors"' '</nav>')
+footer_band=$(block '<footer class="footer">' '</footer>')
+floor_intro=$(block '<p class="floor-intro">' '</p>')
 
 # The media query a line of a stylesheet sits in: the last @media above it, and
 # of the lines that hold the pattern, the first one. NO_QUERY when the line is
@@ -542,6 +544,21 @@ t_eq "$unbalanced" ""
 t_contains "$head_panel" 'id="floor-host"'
 t_lacks "$head_panel" '<div class="line">'
 t_lacks "$head_panel" 'class="stations"'
+
+# The way into the manual's page on writing an issue, beside the way into the
+# page on how the factory works. It is one link of the head panel's own text and
+# takes the style .floor-intro a already gives a link, so it belongs nowhere else
+# on the page.
+t_case "the head panel asks a person how to write an issue"
+t_contains "$floor_intro" '<a href="/operating#1-write-an-issue-tehas-can-build">HOW TO WRITE AN ISSUE</a>'
+t_eq "$(awk '!how && index($0, ">HOW IT WORKS</a>") { how = index($0, ">HOW IT WORKS</a>") } !puts && index($0, ">HOW TO WRITE AN ISSUE</a>") { puts = index($0, ">HOW TO WRITE AN ISSUE</a>") } END { print (how && puts && puts > how) ? "after" : "wrong" }' "$page")" after
+t_eq "$(grep -o 'HOW TO WRITE AN ISSUE' <<<"$page_text" | wc -l)" 1
+# Nowhere else: the top bar's menu, the doors and the footer hold no copy of it,
+# and no link of their own gains it.
+t_lacks "$topbar" 'HOW TO WRITE AN ISSUE'
+t_lacks "$doors" 'HOW TO WRITE AN ISSUE'
+t_lacks "$footer_band" 'HOW TO WRITE AN ISSUE'
+t_lacks "$topbar" '/operating#1-write-an-issue-tehas-can-build'
 
 # The Host panel: what the page holds for host-view.js, and the row of the
 # stage it stands in.
