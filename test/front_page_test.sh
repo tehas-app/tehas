@@ -39,6 +39,16 @@ block() { # <opens with> <closes with>
 head_panel=$(block '<div class="floor-head">' '</div>')
 topbar=$(block '<header class="topbar">' '</header>')
 doors=$(block '<nav class="doors"' '</nav>')
+footer_band=$(block '<footer class="footer">' '</footer>')
+floor_intro=$(block '<p class="floor-intro">' '</p>')
+
+# The deep link into the manual, named once: the target and the words of it, and
+# the heading of the manual section they open. The slug in the target is generated
+# by the docs server from that heading, so the case derives it from the heading
+# rather than trusting a copy: a renumbered or reworded section changes it there.
+how_to_write='/operating#1-write-an-issue-tehas-can-build'
+how_to_write_label='HOW TO WRITE AN ISSUE'
+manual_heading='## 1. Write an issue tehas can build'
 
 # The media query a line of a stylesheet sits in: the last @media above it, and
 # of the lines that hold the pattern, the first one. NO_QUERY when the line is
@@ -50,6 +60,24 @@ query_of() { # <holds this> <file>
 }
 NO_QUERY="no media query" # a line of the file with no @media around it
 NO_LINE="not in the file" # the pattern is not in the file at all
+NO_SLUG="no slug" # the manual holds no heading to derive the deep link's anchor from
+NO_ORDER="no link" # one of the two links of the intro is not on the page at all
+
+# The anchor the docs server makes from a heading: lower case, spaces for hyphens,
+# the punctuation of the number gone. Read from its standard input, so a caller
+# that has the text at hand (a file, a variable) can say where the heading lives.
+# NO_SLUG where the input holds no such heading, so an absent one cannot read as
+# the empty anchor of a page that opens at its top.
+slug_of() { # <heading>
+  awk -v h="$1" -v no="$NO_SLUG" '$0 == h {
+      slug = tolower(h)
+      sub(/^## /, "", slug)
+      gsub(/[^a-z0-9 ]/, "", slug)
+      gsub(/ /, "-", slug)
+      found = 1
+    }
+    END { print found ? slug : no }'
+}
 
 # How much room the meter needs, in the three parts the header comment of
 # host/fun/energy-view.css names: the line itself, its padding, and the rule
@@ -542,6 +570,43 @@ t_eq "$unbalanced" ""
 t_contains "$head_panel" 'id="floor-host"'
 t_lacks "$head_panel" '<div class="line">'
 t_lacks "$head_panel" 'class="stations"'
+
+# The way into the manual's page on writing an issue, beside the way into the
+# page on how the factory works. It is one link of the head panel's own text and
+# takes the style .floor-intro a already gives a link, so it belongs nowhere else
+# on the page.
+t_case "the head panel asks a person how to write an issue"
+# The words a person reads, and the heading they open: t_lacks cannot fail on an
+# empty string, so each band is shown to be there before it is negated over.
+t_contains "$manual_text" "$manual_heading"
+# The anchor of the target, read out of the href itself and compared with the
+# anchor the docs server makes from the manual's own heading: reword the heading
+# and the two differ, which is the dead link this case exists to catch.
+href_anchor=${how_to_write##*#}
+t_eq "$(slug_of "$manual_heading" <<<"$manual_text")" "$href_anchor"
+t_contains "$floor_intro" "<p class=\"floor-intro\">"
+t_contains "$head_panel" "<a href=\"$how_to_write\">$how_to_write_label</a>"
+t_contains "$floor_intro" "<a href=\"$how_to_write\">$how_to_write_label</a>"
+# After the way into how the factory works. Both links are on the page's one
+# line, so the needle's offset in that line is the order, read over the head
+# panel the link belongs to. NO_ORDER when either link is gone, so an absent
+# link is not read as a reordered one.
+t_eq "$(awk -v a='>HOW IT WORKS</a>' -v b=">$how_to_write_label</a>" -v no="$NO_ORDER" \
+  'index($0, a) { how = NR * 10000 + index($0, a) } index($0, b) { puts = NR * 10000 + index($0, b) } \
+  END { print (!how || !puts) ? no : (puts > how ? "after" : "wrong") }' <<<"$head_panel")" after
+# Nowhere else: the top bar's menu, the doors and the footer hold no copy of it,
+# and no link of their own gains it. Each band is shown to be there first.
+t_contains "$topbar" '<header class="topbar">'
+t_contains "$doors" '<nav class="doors"'
+t_contains "$footer_band" '<footer class="footer">'
+t_lacks "$topbar" "$how_to_write_label"
+t_lacks "$doors" "$how_to_write_label"
+t_lacks "$footer_band" "$how_to_write_label"
+t_lacks "$topbar" "$how_to_write"
+# The one line of words under the title is given a width to wrap inside; beyond
+# it the paragraph takes a line more and the fold moves. The bound is read from
+# the stylesheet, not copied here.
+t_eq "$(awk -v no="$NO_WIDTH" '/^\.floor-intro \{/ { on = 1 } on && match($0, /max-width: [0-9]+ch/) { print substr($0, RSTART + 11, RLENGTH - 11); found = 1 } on && /\}/ { on = 0 } END { if (!found) print no }' "$game")" 110ch
 
 # The Host panel: what the page holds for host-view.js, and the row of the
 # stage it stands in.
