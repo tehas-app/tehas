@@ -12,6 +12,7 @@
 #   - `file` and a Python image library, so a cycle can look at a picture,
 #   - the code indexer the agents' code search answers from, at the version
 #     versions.env names rather than whatever upstream's main carried,
+#   - the embedding model vipune searches with, which a cycle cannot download,
 #   - no wigolo: the base ships one that fails on every call.
 #
 # A product whose gates need another toolchain adds it here.
@@ -33,6 +34,11 @@ ARG PLAYWRIGHT_VERSION
 ARG PLAYWRIGHT_LOCK_SHA256
 ARG CBM_VERSION
 ARG CBM_INSTALLER_SHA256
+ARG VIPUNE_VERSION
+ARG VIPUNE_MODEL
+ARG VIPUNE_MODEL_REVISION
+ARG VIPUNE_MODEL_SHA256_ONNX
+ARG VIPUNE_MODEL_SHA256_TOKENIZER
 
 USER root
 
@@ -96,6 +102,43 @@ RUN curl -fsSL "https://github.com/koalaman/shellcheck/releases/download/v${SHEL
  && install -m 755 "/tmp/shellcheck-v${SHELLCHECK_VERSION}/shellcheck" /usr/local/bin/shellcheck \
  && rm -rf /tmp/shellcheck.tar.xz "/tmp/shellcheck-v${SHELLCHECK_VERSION}" \
  && shellcheck --version
+
+# vipune downloads its embedding model on its first search. A cycle has no
+# route to the publisher, so the download failed and every later search answered
+# an empty store, which reads as a host that recorded nothing. The model is put
+# where hf_hub looks for it, in the home of the user a container runs as: the
+# ref names the revision, and the snapshot holds the files. hf_hub reads a file
+# from the snapshot without asking the network.
+RUN repo="/home/vscode/.cache/huggingface/hub/models--$(printf %s "$VIPUNE_MODEL" | sed 's#/#--#g')" \
+ && snap="$repo/snapshots/$VIPUNE_MODEL_REVISION" \
+ && url="https://huggingface.co/$VIPUNE_MODEL/resolve/$VIPUNE_MODEL_REVISION" \
+ && mkdir -p "$repo/refs" "$snap/onnx" \
+ && curl -fsSL "$url/onnx/model.onnx" -o "$snap/onnx/model.onnx" \
+ && curl -fsSL "$url/tokenizer.json" -o "$snap/tokenizer.json" \
+ && echo "${VIPUNE_MODEL_SHA256_ONNX}  $snap/onnx/model.onnx" | sha256sum -c - \
+ && echo "${VIPUNE_MODEL_SHA256_TOKENIZER}  $snap/tokenizer.json" | sha256sum -c - \
+ && printf %s "$VIPUNE_MODEL_REVISION" >"$repo/refs/$VIPUNE_MODEL_REVISION" \
+ && chown -R vscode:vscode /home/vscode/.cache
+
+# The model is read as a cycle reads it: as that user, with the network shut
+# off, by adding a memory to a scratch store and searching it back. A model
+# vipune cannot find fails the build here, not in the next cycle. The vipune in
+# the base has to be the version versions.env names, since that version picks
+# the revision. Every call names the scratch store: any vipune call, version
+# included, otherwise creates one in ~/.vipune, where a cycle mounts its own.
+USER vscode
+RUN db=$(mktemp -d) \
+ && found=$(vipune version --db-path "$db/gate.db" | grep -o -E '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1) \
+ && if [ "${found:-}" != "$VIPUNE_VERSION" ]; then echo "sandbox: vipune is ${found:-not there}, versions.env names $VIPUNE_VERSION" >&2; exit 1; fi \
+ && export HF_HUB_OFFLINE=1 HF_ENDPOINT=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9 \
+ && added=$(vipune add 'the sandbox image carries the embedding model' --json --db-path "$db/gate.db") \
+ && answer=$(vipune search 'embedding model of the sandbox image' --json --limit 1 --db-path "$db/gate.db") \
+ && rm -rf "$db" \
+ && printf '%s' "$added" | jq -e '.status == "added"' >/dev/null \
+ && printf '%s' "$answer" | jq -e '.results | length > 0' >/dev/null \
+ || { echo "sandbox: vipune cannot embed with $VIPUNE_MODEL: $added $answer" >&2; exit 1; }; \
+    echo "sandbox: vipune $VIPUNE_VERSION embeds and searches with $VIPUNE_MODEL"
+USER root
 
 # Playwright comes from the npm tree pinned beside this file, npm/playwright:
 # package.json names one version and package-lock.json fixes every package in

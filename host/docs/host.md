@@ -954,6 +954,31 @@ Two things the base carries are changed on purpose.
   pi-rukas's own recipe preflights `command -v wigolo` and says when it is not
   installed, so its absence is an answer and not a gap.
 
+The image also carries the embedding model `vipune` searches with,
+`BAAI/bge-small-en-v1.5`. vipune downloads it on its first search, and a cycle
+cannot reach the publisher: the download failed and every search after it
+answered an empty store. The build fetches the model's two files,
+`onnx/model.onnx` and `tokenizer.json`, from huggingface.co at the revision
+vipune asks for, and checks each against its sha256. `versions.env` holds the
+model (`VIPUNE_MODEL`), the revision (`VIPUNE_MODEL_REVISION`) and the two
+checksums. The files go where vipune reads them, `~/.cache/huggingface/hub` of
+the user a container runs as. The build then checks that the model works: as
+that user, with the network shut off, it adds a memory to a scratch store and
+searches it back. It stops when either step errors or the search finds nothing,
+and when the base's vipune is not `VIPUNE_VERSION`, because the version picks
+the revision. When vipune is bumped, bump the model pins with it: a vipune that
+cannot find its model names the revision it wants.
+
+To check an image by hand, with an empty store mounted where a cycle mounts
+its own:
+
+```
+mem=$(mktemp -d)
+docker run --rm --network none --user "$(id -u):$(id -g)" -e HOME=/home/vscode \
+  -v "$mem:/home/vscode/.vipune" tehas/pi-rukas:uid$(id -u) \
+  sh -c 'vipune add "tehas dispatch reads label events" && vipune search "tehas dispatch" --json'
+```
+
 A step near the end of the build checks that every command a cycle's
 instructions name, and the commands `libexec/` gives a container (the one after
 `--entrypoint`, or the one directly after the image), answers in the image, and
