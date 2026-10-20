@@ -19,6 +19,11 @@
   --font: Topaz, "Courier New", monospace;
   --font-code: Topaz, "Courier New", monospace;
   --font-smoothing: none;
+  /* The business page's sizes. Pixel keeps Topaz at its two sizes. */
+  --type-small: 16px;
+  --type-body: 16px;
+  --type-big: 32px;
+  --radius: 0;
 
   /* The ground everything stands on. */
   --field: #694;
@@ -69,6 +74,21 @@
   --lift: translate(-4px, -4px);
   --press: translate(4px, 4px);
   --press-sign: translate(8px, 8px);
+
+  /* The stages of the line on the business page, each with a pale face
+     for the ticket box behind text. */
+  --stage-proto: #758;
+  --stage-proto-soft: #dcd;
+  --stage-line: #445;
+  --stage-line-soft: #ccd;
+  --stage-build: #276;
+  --stage-build-soft: #bdb;
+  --stage-review: #a62;
+  --stage-review-soft: #fc6;
+  --stage-stop: #a32;
+  --stage-stop-soft: #ecb;
+  --stage-ship: #357;
+  --stage-ship-soft: #bce;
 
   /* A prototype keeps a page's white ground: it is the prototype's own. */
   --prototype-ground: #fff;
