@@ -186,7 +186,8 @@ Run `tehas dispatch --dry-run` and read what it prints.
   through: the poll asks again, at most once every 10 minutes, and after 6
   asks it says the episode needs a person. Either way the unit's own
   `TimeoutStopSec` (300s) is what ends a unit that ignores the stop job. To
-  stop it now: `systemctl --user stop tehas-cycle@N.service`, and read
+  stop it now: `tehas stop N`, which clears what the cycle left on the host as
+  well, or `systemctl --user stop tehas-cycle@N.service` on its own, and read
   `journalctl --user -u tehas-cycle@N`.
 - `N cycles running, room for M more`, then `would run a cycle for #N ...`:
   the issues the next poll starts. In the log you may also see `the code index

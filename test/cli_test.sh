@@ -15,7 +15,7 @@ cp "$T_ROOT/bin/tehas" "$T_ROOT/bin/tehasbot" "$tree/bin/"
 # The settings library is there to be read, so that not reading it means something.
 cp "$T_ROOT/lib/config.sh" "$tree/lib/config.sh"
 # One line per call: the name, then each argument after a "|".
-for name in dispatch cycle work plan dev index update labels summary status health energy protolab preview improve refresh top top-publish pause resume api limit drain analytics-cmd; do
+for name in dispatch cycle work plan dev index update labels summary status health energy protolab preview improve refresh top top-publish pause resume stop api limit drain analytics-cmd; do
   printf '%s\n' '#!/usr/bin/env bash' "# The text of $name." '#' "# Usage: $name" 'set -u' 'IFS="|"' \
     "printf '%s\\n' \"$name\${*:+|\$*}\" >>\"\$T/calls/libexec\"" 'exit "${RC:-0}"' >"$tree/libexec/$name"
   chmod +x "$tree/libexec/$name"
@@ -62,6 +62,13 @@ t_run "$tehas pause waiting for the gate && $tehas resume"
 t_eq "$t_rc" 0
 t_eq "$(ran)" "pause|waiting|for|the|gate
 resume"
+
+t_case "tehas stop passes on the issue and --keep-workspace"
+reset
+t_run "$tehas stop 7 && $tehas stop 7 --keep-workspace"
+t_eq "$t_rc" 0
+t_eq "$(ran)" "stop|7
+stop|7|--keep-workspace"
 
 t_case "tehas status prints; it is not the script that writes the snapshot"
 reset
@@ -128,7 +135,7 @@ t_eq "$(ran)" ""
 
 t_case "tehas <command> --help and -h print the same text and run nothing"
 reset
-for name in dispatch work plan dev index update labels status api limit drain top analytics pause resume; do
+for name in dispatch work plan dev index update labels status api limit drain top analytics pause resume stop; do
   for flag in --help -h; do
     t_run "$tehas $name $flag 2>/dev/null"
     t_eq "$t_rc" 0
@@ -222,7 +229,7 @@ t_eq "$t_rc" 1
 t_case "every command in the usage of tehas has a script that says how to use it"
 reset
 names=$("$T_ROOT/bin/tehas" help | sed -n 's/^  tehas \([a-z]*\).*/\1/p' | grep -v -x help | tr '\n' ' ')
-t_eq "$names" "dispatch work plan dev index update labels status api limit drain history export top analytics pause resume "
+t_eq "$names" "dispatch work plan dev index update labels status api limit drain history export top analytics pause resume stop "
 for name in $names; do
   t_run "$T_ROOT/bin/tehas help $name"
   t_eq "$t_rc" 0
