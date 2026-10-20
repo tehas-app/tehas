@@ -115,8 +115,10 @@ A request with no key, a wrong key or another scheme gets 401 and an empty
 body, before any of its body is read. A request with an `Origin` header gets
 403: no browser is a client of this server. A body needs a `Content-Length`
 (411 without one, or when chunked), and over 64 KB gets 413. A head over 8 KB
-gets 431. Every read and write times out after 10 seconds, every answer closes
-the connection, and past 32 connections at once the next one gets 503. No
+gets 431. A request must arrive whole within 10 seconds, however slowly it
+trickles in, every answer closes the connection, and past 32 connections at
+once the next one gets 503. A method that is not a word of capitals gets 400,
+so nothing a client sends there reaches the log as a line of its own. No
 session is kept.
 
 The `2025-11-25` handshake is there because neither Hermes nor OpenClaw says
@@ -133,7 +135,7 @@ the same JSON as text.
 | `factory_status` | none | `status` (pass, warn, fail), `output`, `time`, `stale` (no report for ten minutes), `generatedAt`, `repo`, `paused`, `planning`, `limit.state`, `queue` (`inLine`, `building`, `review`, `stopped`, `time`), `cycles` (issue, running, status, step, startedAt, time), `demand` (waiting, oldest, time), `platform` (commit, behind, upstream, fetchedAt) |
 | `factory_issues` | `stage`, optional: `queued`, `planning`, `running`, `awaiting`, `stopped` or `completed` | Per stage, the issues the dashboard lists: number, title, url, updatedAt, and closedAt when closed. `planning` is a count and issue numbers, without titles |
 | `factory_endings` | none | `endings`, the cycles that ended last (issue, status, step, startedAt, updatedAt), and `failed`, the failed ones among them (issue, status, step, startedAt, time) |
-| `factory_console` | `issue`, and `bytes` from 1 to 65536 | One running cycle's issue, step, status, statusText, startedAt, updatedAt, and the last `bytes` of its console, 64 KB without it |
+| `factory_console` | `issue`, and `bytes` from 1 to 65536 | One running cycle's issue, step, status, statusText, startedAt, updatedAt, and the last `bytes` of its console, 64 KB without it. Only those bytes are read, however large the console |
 | `factory_stats` | none | The ten-day report the dashboard shows. See [Analytics](/analytics) for what each figure means |
 
 A file that is missing or half written gives a tool error that names it, and

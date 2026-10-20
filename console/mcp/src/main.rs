@@ -62,8 +62,12 @@ fn main() {
             std::process::exit(1);
         }
     };
+    let bound = listener
+        .local_addr()
+        .map(|a| a.to_string())
+        .unwrap_or(listen);
     eprintln!(
-        "tehas-mcp: {version} listening on {listen}, {} keys",
+        "tehas-mcp: {version} listening on {bound}, {} keys",
         keys.len()
     );
     let shared: Arc<(Keys, PathBuf, String)> = Arc::new((keys, live, version));
