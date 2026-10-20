@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Tests for install.sh: a console build that is given no secret or fails,
-# a host without cargo, the footers' version, a checkout without the
+# a host without cargo, cargo found in ~/.cargo/bin when PATH does not name it,
+# the footers' version, a checkout without the
 # console's source, and the analytics program built beside the console.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
@@ -45,6 +46,23 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "cargo is not installed"
 t_lacks "$t_out" "the console did not build"
 t_eq "$(host_files | wc -l)" 0
+t_env
+
+# bootstrap.sh installs Rust with --no-modify-path, so cargo is only where it
+# was put. A run that is not a login shell has no env.sh yet to name it.
+t_case "cargo in ~/.cargo/bin is found when PATH does not name that directory"
+fresh
+instance
+mkdir -p "$home/.cargo/bin"
+mv "$T/bin/cargo" "$home/.cargo/bin/cargo"
+t_env PATH="$T/bin:/usr/bin:/bin"
+t_run "$install"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "cargo is not installed"
+t_eq "$(t_calls cargo | wc -l)" 2
+t_eq "$(cat "$th/libexec/console")" "a console built from source"
+t_eq "$(cat "$th/libexec/analytics")" "an analytics built from source"
+t_stub_cargo
 t_env
 
 t_case "the footers are given the checkout's newest tag and its commit"

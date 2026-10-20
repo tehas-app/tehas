@@ -108,7 +108,7 @@ What an unattended run refuses to get past, and what each one means:
 | The run stops with                             | What the machine is missing                                                      |
 | ---------------------------------------------- | -------------------------------------------------------------------------------- |
 | `tehas: <NAME> is not set (see …/instance.env)`, exit 78 | The instance directory, or a setting of it. Nothing is installed and nothing is written |
-| `tehas: cargo is not installed…`               | `bootstrap.sh root` has not run, so the build tools are not there                |
+| `tehas: cargo is not installed…`               | `bootstrap.sh root` has not run, so the build tools are not there. `install.sh` also looks in `~/.cargo/bin` when `cargo` is not on PATH |
 | `tehas: no slice file on this host`            | `sudo ./bootstrap.sh slice`, which is root's, and `--check` stays red until it has run |
 | a model key finding                            | `~/.config/tehas/env` does not hold a `TEHAS_MODEL_KEY_<NAME>` that `models.json` names |
 

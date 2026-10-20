@@ -139,6 +139,8 @@ fi
 . "$root/lib/cycles.sh"
 # shellcheck source=lib/models.sh
 . "$root/lib/models.sh"
+# shellcheck source=lib/paths.sh
+. "$root/lib/paths.sh"
 
 # --- 1. Instance settings ---------------------------------------------------
 # Every finding is one line. Any finding stops a real run before it changes
@@ -317,6 +319,7 @@ units=$HOME/.config/systemd/user
 files=(
   "env.sh|$TEHAS_HOME/env.sh|644"
   "lib/config.sh|$TEHAS_HOME/lib/config.sh|644"
+  "lib/paths.sh|$TEHAS_HOME/lib/paths.sh|644"
   "lib/analytics.sh|$TEHAS_HOME/lib/analytics.sh|644"
   "lib/attachments.sh|$TEHAS_HOME/lib/attachments.sh|644"
   "lib/unzip.sh|$TEHAS_HOME/lib/unzip.sh|644"
@@ -484,6 +487,10 @@ fi
 # so every program that is due is built before any is installed. What is
 # installed is judged without building: by the checksum of every file the
 # program's build reads, and by the checksum of the program that was installed.
+# A run that is not a login shell has no env.sh yet - this script is what
+# installs it - so the tool directories bootstrap.sh put in the home are named
+# here, from the same list bootstrap.sh uses.
+tehas_tool_paths
 [ -d "$root/console" ] || { echo "tehas: $root/console is missing from this checkout" >&2; exit 1; }
 # source_sum <find tests>: one checksum of the files under console/ that the
 # tests select, the build's own output left out.

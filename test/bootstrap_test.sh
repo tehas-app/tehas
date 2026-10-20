@@ -102,6 +102,18 @@ before=$(find "$T/home" | sort)
 t_run "$bootstrap check"
 t_eq "$(find "$T/home" | sort)" "$before"
 
+# The PATH a run of bootstrap.sh gets is the one lib/paths.sh names, the same
+# list install.sh uses: a tool under one of those directories is found.
+t_case "check looks in the tool directories lib/paths.sh names"
+all_present
+t_stub rustc "printf '%s\n' \"\$PATH\" >\"\$T/rustc-path\"
+printf '%s\n' \"\$TEHAS_HOME \$NPM_CONFIG_PREFIX \$CARGO_HOME \$RUSTUP_HOME\" >\"\$T/rustc-homes\"
+echo 'rustc $RUST_VERSION'"
+t_run "$bootstrap check"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/rustc-path")" "$T/home/tehas/bin:$T/home/tehas/tools/node/bin:$T/home/.local/bin:$T/home/.bun/bin:$T/home/.cargo/bin:$T_PATH"
+t_eq "$(cat "$T/rustc-homes")" "$T/home/tehas $T/home/.local $T/home/.cargo $T/home/.rustup"
+
 t_case "check reports a tool at another version and exits 1"
 t_stub gh 'echo "gh version 2.0.0 (2022-01-01)"'
 t_run "$bootstrap check"
@@ -192,6 +204,7 @@ pin_checkout() { # -> the directory holding the copy
   mkdir -p "$dir/host" "$dir/lib"
   cp "$bootstrap" "$dir/bootstrap.sh"
   cp "$T_ROOT/lib/rukas.sh" "$dir/lib/rukas.sh"
+  cp "$T_ROOT/lib/paths.sh" "$dir/lib/paths.sh"
   cp "$T_ROOT/host/versions.env" "$dir/host/versions.env"
   cp -R "$T_ROOT/host/npm" "$dir/host/npm"
   echo "$dir"
