@@ -981,7 +981,7 @@ still in use.
 
 A build first asks the base image's runner what it supports,
 `pi-rukas-headless --capabilities`. A base that does not speak the contract
-versions `tehas work` reads (exit codes 1, result schema 4, stable NDJSON 1),
+versions `tehas work` reads (exit codes 1, result schema 5, stable NDJSON 1),
 or whose `work` verb does not take `--timeout`, `--json` and `--restart`, is
 not built on: the build exits 1 and names each gap. Whether the answer lists
 `PI_ENSEMBLE_ISSUE_IMAGES` for manifest format 1, the manifest tehas writes

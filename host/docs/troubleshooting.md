@@ -459,6 +459,18 @@ pull request, then merge it, finish it by hand, or close it. Nothing in the issu
 the pull request before you retry: while it is open, a new cycle stops at
 `existing-pr-detected`.
 
+### `child-timeout:<step>` and `spawn-backstop`
+
+`child-timeout:develop` or `child-timeout:explore`: one child of that step ran
+past its own run bound. pi-rukas told it to wrap up at the bound and ended it
+10 minutes later. Read the run log for what the child was doing. When it was
+progressing, split the issue; when it was stuck, find out why.
+
+`spawn-backstop`: a child ran past pi-rukas's 2-hour backstop,
+`PI_ENSEMBLE_SPAWN_TIMEOUT_MS`, which only catches a child nothing else ended.
+Until result schema 5 (pi-rukas v0.14.0) this cap was named
+`developer-timeout`.
+
 ### `step-failed:adversarial`
 
 The adversarial review could not run: its dispatch failed twice. It says
