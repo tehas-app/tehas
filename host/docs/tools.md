@@ -571,6 +571,19 @@ killed for memory, the count is printed and left in
 issue comment and removes the file. The starts of a process that the pids
 limit refused go the same way, through `~/tehas/state/cycles/<issue>.forks`.
 
+The runner's own exit status goes to `~/tehas/state/cycles/<issue>.runner_exit`,
+which `tehasbot cycle` names in its comment: this command exits 2 for a runner
+that died however it died, and 137 only for a container it saw killed. A
+container it saw killed leaves the word `killed` in
+`~/tehas/state/cycles/<issue>.status`, which is the only account of the end when
+the runner wrote no result at all. The three files `tehasbot cycle` reads and
+removes for a cycle say three things: `runner_exit` is there when this command
+watched the run and holds the runner's own exit, `status` carries the one word
+`killed` when it saw the container killed, and `progress.json`, the summary this
+command made of the run, is what says the log of the run is this cycle's own and
+may be read for its steps. Each is written by a name beside it and moved into
+place, so the cycle sees a file whole or does not see it.
+
 The bot's git identity is the tehas user's global `user.name` and `user.email`
 on the host.
 
@@ -1420,6 +1433,35 @@ bot has no merged pull request for the issue, and both workspaces are kept. A
 result that is a link, of another schema than 4, or with no entry for the
 issue, is not read: the status is then `unknown`. pi-rukas's state file in
 the workspace is never read.
+
+A result file with nothing in it is no result: the runner died before it could
+write one. Such a cycle is still reported, from what the host has of its own,
+and is never left as `tehas:running`. Its last step is the last step its run log
+`~/tehas/logs/work-<issue>-<time>.jsonl` says it started, and the comment says
+`read from its run log`, which is the runner's own word and not the verdict of a
+result. Only a cycle `tehas work` watched is read this way, and only its own
+newest log: the summary `tehas work` wrote of the run, in
+`state/cycles/<issue>.progress.json`, is what says the log is of this cycle, and
+`state/cycles/<issue>.runner_exit`, which it writes with the runner's own exit,
+is what says the run was watched at all. The
+comment names that exit, because `tehas work` exits 2 for a runner that died
+however it died and 137 only for a container it saw killed.
+
+When those steps reach `commit-pr`, the step name right after the last of them
+is the branch pi-rukas pushed, and GitHub is asked for the bot's pull request of
+that branch. The last, because a run that pushed twice (a retry round, or a
+refresh that pushes to the same pull request) ends on its last push, and that is
+the branch GitHub holds.
+Only a name of this issue's own branch, `feature/issue-<issue>-...`, is asked
+about: a step of any other shape is a step and not a branch, and asks GitHub
+nothing. GitHub decides whether one exists; a line of a log only says which
+branch to ask about, so no log can report a pull request GitHub does not list.
+With one found the cycle is reported as a handoff whose review did not finish:
+`needs-human-attention`, the pull request named, and no box for a clean retry,
+which would redo what the open pull request already holds. With none found, or
+with no branch to ask about, the cycle is parked as any other that stopped
+without a pull request. Nothing of a log is read for a cycle that wrote a
+result: that result names its step and its branch, and the two are not mixed.
 
 The label change that ends a cycle is tried three times, five seconds apart,
 and so is the search for the pull request. If GitHub still refuses the label

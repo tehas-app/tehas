@@ -370,6 +370,17 @@ pi-rukas handed off:
   `needs-human-attention` only. The comment names the cap and links the pull
   request. Read the pull request before you retry.
 
+A runner that died before it wrote its result leaves no verdict of its own, so
+tehas reads the cycle's own run log for the step it reached and asks GitHub for
+the bot's pull request of the branch `commit-pr` pushed. With one there the
+comment is `Tehas cycle handed off with its pull request open and its review
+unfinished`: `needs-human-attention`, the pull request named, and no boxes,
+because a clean retry redoes what the open pull request already holds. With
+none, the issue is parked as any other that stopped without a pull request. The
+comment names the runner's own exit, not the exit of `tehas work`, and says the
+step was read from the log. See [the runner died and wrote no
+result](/troubleshooting).
+
 An issue never ends a cycle with both labels.
 
 A cycle that reaches its deadline parks with the cap `deadline`. tehas gives

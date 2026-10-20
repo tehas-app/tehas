@@ -24,6 +24,9 @@
 #   tehas_rukas_commit            the pi-rukas commit a cycle started now runs
 #   tehas_names_issue             print a jq definition, `mine`: whether a pull
 #                                 request of gh pr list names the issue $n
+#   tehas_branch_pattern <issue>  the one grammar for the branch pi-rukas makes
+#                                 for that issue, as an extended regular
+#                                 expression: ^feature/issue-<n>...$
 #   tehas_rukas_reads_images      whether that pi-rukas reads the issue image
 #                                 manifest: 1, 0, or nothing when the image
 #                                 does not say
@@ -70,6 +73,28 @@ tehas_cycle_note_files() {
   done
   return 0
 }
+
+# The three files of a cycle's end, and what each one is proof of. tehas work
+# writes them and tehasbot cycle reads and removes them, and a cycle that was
+# killed outright leaves them for the next cycle of the issue: both commands
+# clear them before they start. What each says is not interchangeable, so it is
+# written here rather than only where the tests set the files up.
+#
+#   <issue>.runner_exit   0 when tehas work watched the container to its end,
+#                         and the runner's own exit status for the comment.
+#                         Its existence, not its content, is the proof: a file
+#                         with no line in it still says the run was watched.
+#   <issue>.status        the one word `killed`, and only when tehas work saw
+#                         the container end with 137. The only account of the
+#                         end a cycle has when the runner wrote no result: a
+#                         payload read for its word, not a marker of anything.
+#   <issue>.progress.json the summary tehas work made of the run's NDJSON. This
+#                         is what says the run log of the issue is this cycle's
+#                         and may be read for its steps and its branch: tehas
+#                         work writes no other file after the container has
+#                         ended, so a file no older than the cycle's own start
+#                         was written by this cycle. An older one is a cycle
+#                         that never reported, and its log is read for nothing.
 
 # An agent in a container holds the bot's token: it can post a comment with a
 # marker, edit the bot's comments and apply labels. It cannot write here, so
@@ -140,6 +165,17 @@ tehas_rukas_commit() {
 tehas_rukas_reads_images() {
   tehas_rukas_ask
   printf '%s\n' "$tehas_rukas_images_label"
+}
+
+# The one grammar for a branch pi-rukas makes for an issue: feature/issue-<n>
+# with an optional slug of up to 80 characters. tehas_headless_run (lib/
+# headless.sh) asks whether a name read out of a cycle's run log is this
+# issue's branch, and tehasbot cycle holds the same grammar before it asks
+# GitHub about a branch; both take it from here so the two cannot drift.
+tehas_branch_pattern() { # <issue>
+  local n=$1
+  [[ $n =~ ^[1-9][0-9]*$ ]] || return 1
+  printf '%s\n' "^feature/issue-$n(-[A-Za-z0-9._-]{1,80})?$"
 }
 
 # A pull request names an issue when its head is the issue's branch as pi-rukas
