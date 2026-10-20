@@ -130,7 +130,12 @@ _tehas_valid() {
     # The look of every page: host/fun/theme-<name>.css. The servers write the
     # name into a path, so only a theme that ships is let through.
     TEHAS_THEME)
-      case "$v" in pixel | paper) ;; *) echo "expected pixel or paper"; return 1 ;; esac
+      case "$v" in pixel | paper | beesknees) ;; *) echo "expected pixel, paper or beesknees"; return 1 ;; esac
+      ;;
+    # What the front page is: host/fun/index.html for the floor, host/fun/<name>.html
+    # for another. The docs server picks the page by this name.
+    TEHAS_LAYOUT)
+      case "$v" in floor | business) ;; *) echo "expected floor or business"; return 1 ;; esac
       ;;
     TEHAS_INDEXING | TEHAS_ANALYTICS_COOKIE | TEHAS_WORK_IMAGES | TEHAS_WORK_DESCRIBE | TEHAS_WORK_FILES | TEHAS_WORK_COMMENTS | TEHAS_TOP | TEHAS_REFRESH_CONFLICTS)
       case "$v" in 0 | 1) ;; *) echo "expected 0 or 1"; return 1 ;; esac
@@ -375,6 +380,7 @@ tehas_load() {
   export TEHAS_ANALYTICS_SITE=${TEHAS_ANALYTICS_SITE:-}
   export TEHAS_ANALYTICS_COOKIE=${TEHAS_ANALYTICS_COOKIE:-0}
   export TEHAS_THEME=${TEHAS_THEME:-pixel}
+  export TEHAS_LAYOUT=${TEHAS_LAYOUT:-floor}
   # The factory's own ten days of runs, events and samples in
   # state/analytics.db (lib/analytics.sh), not the visitor analytics above.
   # On unless the instance says off, which stops every write.
@@ -474,7 +480,7 @@ tehas_load() {
   # Agents get neither the host Docker socket nor SSH keys. Not a setting.
   export PI_ENSEMBLE_NO_DOCKER_SOCKET=1 PI_ENSEMBLE_NO_SSH=1
 
-  for v in TEHAS_THEME TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_WORK_DESCRIBE TEHAS_WORK_FILES TEHAS_WORK_COMMENTS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_TOP TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
+  for v in TEHAS_THEME TEHAS_LAYOUT TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_WORK_DESCRIBE TEHAS_WORK_FILES TEHAS_WORK_COMMENTS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_TOP TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
     TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_LOW_GATE_WAIT; do
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done

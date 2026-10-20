@@ -153,9 +153,14 @@ role tokens, and a theme is the file that gives them values:
 `host/fun/theme-<name>.css`, served as `/fun/theme.css` for the theme the
 instance names in `TEHAS_THEME`. The stylesheets, the scripts and the markup
 name no colour, typeface or shadow of their own; `test/theme_test.sh` holds
-them to that. The second theme, paper, keeps the layout, the two text sizes and
-the sprites and changes the rest: the system typeface, 1px rules, light
-screens and soft shadows. The rules below that are about pixels (Topaz, the
+them to that. Paper keeps the layout, the two text sizes and the sprites and changes the
+rest: the system typeface, 1px rules, light screens and soft shadows.
+Beesknees is a business look, drawn for the business page
+(`host/fun/business.html`, `TEHAS_LAYOUT=business`): near-black and muted
+green on white, thin rules, no motion, and a dark set where the viewer's
+system asks. The business page takes its sizes and corners from the theme too
+(`--type-*`, `--radius`) and its stage colours from `--stage-*`, so pixel
+draws it in Topaz at 16px with square corners. The rules below that are about pixels (Topaz, the
 Twelve Bit Rule, no blur, stepped lifts) bind the pixel theme only.
 
 The colours below by the role token that carries them:

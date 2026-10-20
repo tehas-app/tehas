@@ -11,15 +11,15 @@ fun=$T_ROOT/host/fun
 themes=$(cd "$fun" && ls theme-*.css)
 # The stylesheets that draw the pages, and the files that write their markup or
 # paint their canvases.
-sheets=(game-view.css manual.css protolab.css energy-view.css host-view.css)
-markup=("$fun/index.html" "$T_ROOT/host/docs/_layout.html" "$T_ROOT/host/docs/dashboard.frag" "$T_ROOT/libexec/protolab")
+sheets=(game-view.css manual.css protolab.css energy-view.css host-view.css business.css)
+markup=("$fun/index.html" "$fun/business.html" "$T_ROOT/host/docs/_layout.html" "$T_ROOT/host/docs/dashboard.frag" "$T_ROOT/libexec/protolab")
 
 # The tokens a file sets: every custom property declared in it.
 sets() { grep -oE '^ *--[a-z0-9-]+:' "$1" | tr -d ' :' | sort -u; }
 
 t_case "there are at least two themes, pixel among them"
 t_contains "$themes" theme-pixel.css
-t_eq "$(wc -w <<<"$themes" | tr -d ' ')" 2
+[ "$(wc -w <<<"$themes")" -ge 2 ] || t_bad "fewer than two themes: $themes"
 
 t_case "every theme sets the same tokens"
 pixel=$(sets "$fun/theme-pixel.css")
@@ -90,5 +90,24 @@ for f in docs router; do
   t_contains "$(cat "$T_ROOT/host/edge/$f.Caddyfile")" 'rewrite /theme.css /theme-{$TEHAS_THEME:pixel}.css'
   t_contains "$(cat "$T_ROOT/host/edge/$f.compose.yaml")" 'TEHAS_THEME: "${TEHAS_THEME:-pixel}"'
 done
+
+t_case "the docs server answers / with the instance's layout, the floor without one, and both by name"
+caddy=$(cat "$T_ROOT/host/edge/docs.Caddyfile")
+# The server's own syntax, kept literal.
+business=$(cat <<'EOF'
+@business expression `path('/business') || (path('/') && "{$TEHAS_LAYOUT:floor}" == "business")`
+EOF
+)
+t_contains "$caddy" "$business"
+t_contains "$caddy" 'rewrite * /business.html'
+t_contains "$caddy" '@front path / /floor'
+# shellcheck disable=SC2016  # compose's own syntax, kept literal
+t_contains "$(cat "$T_ROOT/host/edge/docs.compose.yaml")" 'TEHAS_LAYOUT: "${TEHAS_LAYOUT:-floor}"'
+
+t_case "the business page reads the dispatcher's files and loads its sample first"
+order=$(grep -oE 'src="/fun/[a-z-]+\.js"' "$fun/business.html" | sed 's/src="\/fun\///; s/"//' | xargs)
+t_eq "$order" "sample-issues.js business-view.js"
+t_contains "$(cat "$fun/business.html")" '<script type="module" src="/fun/business-view.js">'
+t_eq "$(grep -oE '"/live/[a-z]+\.json"' "$fun/business-view.js" | tr -d '"' | sort -u | xargs)" '/live/analytics.json /live/energy.json /live/protolab.json /live/status.json'
 
 t_done

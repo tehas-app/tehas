@@ -56,11 +56,20 @@
             header Cache-Control "no-store"
             file_server
         }
-        # The front page is the game view: a static page, outside the layout.
-        # Its assets stay under /fun/. The plain dashboard is at /dashboard.
+        # The front page is the instance's layout (TEHAS_LAYOUT): the game view
+        # by default, or the business page. Both are always at /floor and
+        # /business too. Static pages, outside the layout; their assets stay
+        # under /fun/. The plain dashboard is at /dashboard.
         redir /fun /
         redir /fun/ /
-        @front path /
+        @business expression `path('/business') || (path('/') && "{$TEHAS_LAYOUT:floor}" == "business")`
+        handle @business {
+            root * /srv/fun
+            rewrite * /business.html
+            templates
+            file_server
+        }
+        @front path / /floor
         handle @front {
             root * /srv/fun
             rewrite * /index.html
