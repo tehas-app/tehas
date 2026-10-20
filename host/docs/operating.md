@@ -303,11 +303,18 @@ tehas top                    # the same overview, on one screen that redraws its
 tehas dispatch --dry-run     # what would it do?
 tehas dispatch               # do it (returns once the cycle is started)
 systemctl --user status 'tehas-cycle@*'   # which cycles are running
+tehas stop 12                             # end the cycle for issue 12, clear what it left
 systemctl --user stop tehas-cycle@12      # stop the cycle for issue 12
 ```
 
 A stop ends the container. The issue gets `needs-human-attention`, and the
 console shows the cycle as interrupted.
+
+`tehas stop 12` asks that unit to stop and takes away what the cycle left on the
+host: its container, its workspace, its transcripts, and the files in
+`~/tehas/state` that make this host think the cycle still runs, is owed, or is
+parked. It keeps the cycle's record and its logs, and changes no label. See
+[`tehas stop`](/tools#tehas-stop).
 
 `tehas` is the one command to type on the host; `tehas help` lists what it
 does. See [Commands](/tools).

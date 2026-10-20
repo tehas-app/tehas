@@ -1,0 +1,221 @@
+#!/usr/bin/env bash
+# tehas stop <issue>: end a cycle by hand and clear what it left on this host.
+#
+# A cycle that outlived its work takes six steps to clear by hand: stop the
+# unit, remove the container, take away the lock and the markers that make this
+# host think a cycle still runs, remove the workspace, its transcripts and its
+# console file, and take tehas:running off the issue. This does the host's half
+# at once. It calls GitHub for nothing and changes no label: taking
+# tehas:running off the issue is follow-up #416, and it says so when it has
+# taken something away.
+#
+# What goes is only what says a cycle runs, is owed, or is parked:
+#
+#   state/cycles/<issue>.lock .taken .cid .park .requeued .done .stalled
+#                  .timed .quiet .oom .forks .branch .image .progress.json
+#                  .result.json
+#   state/park-<issue>.id
+#   live/console-<issue>.txt
+#   ~/.pi/agent/ensemble-runs/issue-<issue>
+#   work/<repo>-<issue>, with its .state, .before-retry and .images beside it,
+#                  unless --keep-workspace
+#
+# What stays is the cycle's record and every log: state/cycles/<issue>.json,
+# .history.jsonl, .by, .settings, .manifest.json, .approved.json, .rukas,
+# .runner_exit and .status, and everything under logs/. A cycle stopped by hand
+# did not end well, and nothing here records its pi-rukas as proven.
+#
+# Usage:
+#   tehas stop <issue>                    end the cycle, take its workspace too
+#   tehas stop <issue> --keep-workspace   end it and keep the workspace to read
+#   tehas stop -h|--help                  print this text and exit 0
+#
+# Each path is built from TEHAS_HOME, the repository name in the settings and
+# the issue number, never from a glob: stopping #5 touches nothing of #51 or
+# #55. Nothing is removed while a cycle holds that issue's lock, and the lock is
+# held for as long as the removals take, so no cycle starts among them.
+#
+# Exit: 0 the cycle is stopped and its leftovers are gone, or there was nothing
+# to do, which makes a second run safe; 1 the cycle still holds its lock after
+# the stop, or a stop or a removal failed; 64 no issue number, an issue that is
+# not a positive number, or an argument this does not know; 78 the instance
+# settings are missing or malformed, which changes nothing.
+#
+# Instance settings (lib/config.sh): TEHAS_REPO, for the name libexec/work gives
+# the workspace.
+set -uo pipefail
+
+show_usage() {
+  sed -n '2,/^[^#]/p' "$0" | sed -n '/^#/s/^# \{0,1\}//p'
+}
+
+issue=""
+keep=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -h | --help)
+      show_usage
+      exit 0
+      ;;
+    --keep-workspace) keep=1 ;;
+    -*)
+      printf 'tehas stop: unknown argument: %s\n' "$1" >&2
+      show_usage >&2
+      exit 64
+      ;;
+    *)
+      [ -z "$issue" ] || { echo "tehas stop: one issue number at most" >&2; exit 64; }
+      issue=$1
+      ;;
+  esac
+  shift
+done
+if [ -z "$issue" ]; then
+  echo "tehas stop: it needs an issue number" >&2
+  show_usage >&2
+  exit 64
+fi
+[[ $issue =~ ^[1-9][0-9]{0,9}$ ]] || {
+  printf 'tehas stop: not an issue number: %s\n' "$issue" >&2
+  exit 64
+}
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/config.sh
+. "$here/../lib/config.sh"
+# shellcheck source=lib/cycles.sh
+. "$here/../lib/cycles.sh"
+tehas_load || exit 78
+tehas_require TEHAS_REPO
+
+n=$issue
+unit=tehas-cycle@$n.service
+container=tehas-work-$n
+state=$TEHAS_HOME/state/cycles
+lock=$state/$n.lock
+# The workspace libexec/work clones for this issue and what it leaves beside
+# it, named the way libexec/work names them, so this removes what a cycle made.
+ws=$TEHAS_WORK_DIR-$n
+runs=$HOME/.pi/agent/ensemble-runs/issue-$n
+# The markers that say this issue's cycle runs, owes something, or is parked.
+notes=(lock taken cid park requeued "done" stalled timed quiet oom forks branch image progress.json result.json)
+
+# said <path>: one line for a thing that went, in the shape a person types.
+said() {
+  local p=$1
+  case "$p" in
+    "$TEHAS_HOME"/*) printf 'removed %s\n' "${p#"$TEHAS_HOME"/}" ;;
+    "$HOME"/*) printf 'removed ~/%s\n' "${p#"$HOME"/}" ;;
+    *) printf 'removed %s\n' "$p" ;;
+  esac
+}
+
+# What is here, read before anything changes: a run that has nothing to do says
+# so and touches nothing, so running this twice is safe.
+present=()
+for e in "${notes[@]}"; do
+  [ -e "$state/$n.$e" ] && present+=("$state/$n.$e")
+done
+for f in "$(park_id "$n")" "$TEHAS_HOME/live/console-$n.txt" "$runs"; do
+  [ -e "$f" ] && present+=("$f")
+done
+if [ "$keep" = 0 ]; then
+  for f in "$ws" "$ws.state" "$ws.before-retry" "$ws.images"; do
+    [ -e "$f" ] && present+=("$f")
+  done
+fi
+
+# The unit and the container, read the same way. A container name is matched as
+# a whole line: tehas-work-5 is not tehas-work-51.
+unit_state=$(timeout 10 systemctl --user show -p ActiveState --value "$unit" 2>/dev/null) || unit_state=""
+case "$unit_state" in active | activating) unit_live=1 ;; *) unit_live=0 ;; esac
+names=$(timeout 10 docker ps -a --format '{{.Names}}' 2>/dev/null) || names=""
+container_live=0
+case $'\n'"$names"$'\n' in
+  *$'\n'"$container"$'\n'*) container_live=1 ;;
+esac
+lock_held=0
+tehas_cycle_running "$n" && lock_held=1
+
+if [ "$unit_live" = 0 ] && [ "$container_live" = 0 ] && [ "$lock_held" = 0 ] &&
+  [ "${#present[@]}" = 0 ]; then
+  printf 'nothing to stop for #%s\n' "$n"
+  exit 0
+fi
+
+rc=0
+# Stop the unit and wait for its cycle to let go of its lock, as the poll does
+# when it stops a cycle whose work is done: the runner reports as it stops.
+if [ "$unit_live" = 1 ] || [ "$lock_held" = 1 ]; then
+  if timeout -k 5 30 systemctl --user stop "$unit" 2>&1; then
+    printf 'stopped %s\n' "$unit"
+  else
+    printf 'tehas stop: could not stop %s\n' "$unit" >&2
+    rc=1
+  fi
+  for ((i = 0; i < 20; i++)); do
+    tehas_cycle_running "$n" || break
+    sleep 0.5
+  done
+  if tehas_cycle_running "$n"; then
+    printf 'tehas stop: the cycle for #%s still holds its lock after the stop, so nothing was removed. It needs a person: stop it with systemctl --user stop %s and run this again.\n' \
+      "$n" "$unit" >&2
+    exit 1
+  fi
+fi
+
+# The container of a cycle whose client died works on with the bot's token, and
+# the next start under its name would fail.
+if [ "$container_live" = 1 ]; then
+  if timeout 30 docker rm -f "$container" >/dev/null 2>&1; then
+    printf 'removed the container %s\n' "$container"
+  else
+    printf 'tehas stop: could not remove the container %s\n' "$container" >&2
+    rc=1
+  fi
+fi
+
+# A lock that is not a plain file says nothing about this issue, and taking it
+# would write through it. Nothing is removed for such a file.
+if [ -e "$lock" ] && { [ -L "$lock" ] || [ ! -f "$lock" ]; }; then
+  printf 'tehas stop: %s is not a lock file, so nothing was removed.\n' "${lock#"$TEHAS_HOME"/}" >&2
+  exit 1
+fi
+
+# The lock is held for the removals, as the workspace sweep holds it: no cycle
+# of this issue starts while its leftovers go. It goes with them, so a later
+# cycle takes a fresh one, and the file this opened is removed whatever it was
+# before, which is why its line is said only when it was here to begin with.
+mkdir -p "$state" || { echo "tehas stop: $state could not be created" >&2; exit 1; }
+exec 9>"$lock"
+if ! flock -n 9; then
+  printf 'tehas stop: a cycle for #%s holds its lock, so nothing was removed.\n' "$n" >&2
+  exit 1
+fi
+had_lock=0
+for f in "${present[@]}"; do
+  if [ "$f" = "$lock" ]; then
+    had_lock=1
+    continue
+  fi
+  if rm -rf -- "$f" 2>/dev/null; then
+    said "$f"
+  else
+    printf 'tehas stop: could not remove %s\n' "$f" >&2
+    rc=1
+  fi
+done
+if rm -f -- "$lock" 2>/dev/null; then
+  [ "$had_lock" = 1 ] && said "$lock"
+else
+  printf 'tehas stop: could not remove %s\n' "$lock" >&2
+  rc=1
+fi
+exec 9>&-
+
+if [ "$unit_live" = 1 ] || [ "$lock_held" = 1 ] || [ "$container_live" = 1 ] ||
+  [ "${#present[@]}" != 0 ]; then
+  echo "no label was changed: tehas:running stays on the issue until something takes it off."
+fi
+
+exit "$rc"
