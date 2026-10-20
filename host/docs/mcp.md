@@ -67,12 +67,16 @@ there too: it shows the same things.
    8082, next to the dashboard's 8080. For Caddy:
 
    ```
-   handle /mcp* {
+   handle /mcp {
+       request_body {
+           max_size 64KB
+       }
        reverse_proxy <host address>:8082
    }
    ```
 
    Rate limiting by address belongs there too: the server has none of its own.
+   It serves `/mcp` only and answers any other path with 404.
 
 To remove a key, take it out of the list and run
 `systemctl --user restart tehas-mcp.service`. The journal names each request's
@@ -83,11 +87,15 @@ tell which agent is calling.
 
 `tehasbot mcp serve`, run by `tehas-mcp.service`, checks the settings and runs
 the server, `~/tehas/libexec/tehas-mcp`, in a container of its own. The
-container has a read-only root, no capabilities, `no-new-privileges`, 64 MB of
-memory and 64 processes. It is given `~/tehas/live` read only, the binary, the
-keys as an environment variable and port 8082 on `TEHAS_HOST_ADDR` (the
-loopback address without it), and nothing else: no Docker socket, no SSH key,
-no token, nothing from `~/.config/tehas` but the keys. Its image is the Caddy
+container runs as the tehas user, not root, with a read-only root, no
+capabilities, `no-new-privileges`, 64 MB of memory and 64 processes. It is
+given `~/tehas/live` read only, the binary, the keys as an environment variable
+and port 8082 on `TEHAS_HOST_ADDR` (the loopback address without it), and
+nothing else: no Docker socket, no SSH key, no token, nothing from
+`~/.config/tehas` but the keys. It is on a network of its own, `tehas-mcp`,
+made without masquerade, so it cannot reach the internet; the host itself is
+still one hop away. The command makes the network, and refuses to start on a
+network of that name that lets the container out. Its image is the Caddy
 image the docs server runs, pinned by the same digest in `versions.env`; the
 binary is static and needs nothing from it.
 
@@ -104,8 +112,12 @@ exits 0, and the unit stays stopped.
 | Versions | `2026-07-28`, and `2025-11-25` for clients that start with `initialize` |
 
 A request with no key, a wrong key or another scheme gets 401 and an empty
-body. A request with an `Origin` header gets 403: no browser is a client of
-this server. A body over 64 KB gets 413. No session is kept.
+body, before any of its body is read. A request with an `Origin` header gets
+403: no browser is a client of this server. A body needs a `Content-Length`
+(411 without one, or when chunked), and over 64 KB gets 413. A head over 8 KB
+gets 431. Every read and write times out after 10 seconds, every answer closes
+the connection, and past 32 connections at once the next one gets 503. No
+session is kept.
 
 The `2025-11-25` handshake is there because neither Hermes nor OpenClaw says
 yet which version it speaks. It goes once both speak `2026-07-28`.
