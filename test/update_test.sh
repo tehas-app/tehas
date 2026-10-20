@@ -37,7 +37,7 @@ T_ENV=(BOOTSTRAP_ETC="$dev_etc" BOOTSTRAP_BIN="$dev_bin" T_IN_TEST=1)
 # A sandbox build asks the base for its capabilities: the answer of the image
 # of pi-rukas main.
 docker_up() { t_stub docker 'if [ "$1" = ps ]; then case "$4" in *tehas-protolab) ;; *) printf "c1\n" ;; esac; fi
-if [ "$1" = run ]; then cat "$T_ROOT/test/fixtures/headless-316134e/capabilities.json"; fi'; }
+if [ "$1" = run ]; then cat "$T_ROOT/test/fixtures/headless-c5ddc0a/capabilities.json"; fi'; }
 systemctl_active() { t_stub systemctl 'if [ "$2" = is-active ]; then echo active; fi'; }
 real_timeout=$(command -v timeout)
 bound_calls() { t_stub timeout "exec $real_timeout \"\$@\""; }

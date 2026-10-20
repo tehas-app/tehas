@@ -80,7 +80,7 @@ printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitco
 # tests use.
 caps_good() {
   jq -n '{schemaVersion: 2, version: "0.12.80", commit: null,
-    contracts: {exitCodes: {version: 1}, resultSchema: {version: 4}, ndjson: {version: 1, stable: {version: 1}}},
+    contracts: {exitCodes: {version: 1}, resultSchema: {version: 5}, ndjson: {version: 1, stable: {version: 1}}},
     verbs: {work: {flags: ["--restart", "--json", "--timeout"]}},
     inputs: ([("SANDBOX_MODE", "WORKSPACE_ROOT") | {name: "PI_ENSEMBLE_\(.)", scope: "sandbox"}]
       + [("MAX_WORKSTREAMS", "VERIFY_TIMEOUT_MS", "INTEGRATION_VERIFY_TIMEOUT_MS", "SUBAGENT_MODEL",
@@ -209,7 +209,7 @@ progress_file=$T/home/tehas/state/cycles/7.progress.json
 # to standard output, "progress <line>" one line of its NDJSON.
 container() {
   printf '%s\n' 'nap=$(command -pv sleep)' \
-    'says() { echo "{\"schemaVersion\":4,\"buildCommit\":null,\"exitCode\":10,\"issues\":[{\"issue\":7,\"status\":\"$1\",\"cap\":\"${2:-}\",\"failedStep\":\"develop\",\"branch\":\"feature/issue-7-x\",\"steps\":[{\"step\":\"explore\"},{\"step\":\"develop\"}],\"usage\":{\"input\":5,\"output\":2,\"cacheRead\":1,\"turns\":3,\"dispatches\":2},\"exitCode\":10}]}"; }' \
+    'says() { echo "{\"schemaVersion\":5,\"buildCommit\":null,\"exitCode\":10,\"issues\":[{\"issue\":7,\"status\":\"$1\",\"cap\":\"${2:-}\",\"failedStep\":\"develop\",\"branch\":\"feature/issue-7-x\",\"steps\":[{\"step\":\"explore\"},{\"step\":\"develop\"}],\"usage\":{\"input\":5,\"output\":2,\"cacheRead\":1,\"turns\":3,\"dispatches\":2},\"exitCode\":10}]}"; }' \
     'progress() { printf "%s\n" "$1" >&2; }' \
     "$1" >"$T/container.sh"
 }
