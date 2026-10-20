@@ -202,14 +202,30 @@ t_case "a start writes the approval record before the label changes: who, when, 
 reset
 echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-01-01T00:00:00Z"}]' >"$fx/events-7.json"
 jq -n --arg body "See ![a]($A/1111)"$'\r\n'"and ![b]($A/2222) and again $A/1111, not https://example.com/c.png" \
-  '{data: {repository: {issue: {lastEditedAt: null, editor: null, body: $body}}}}' >"$fx/edit-7.json"
+  '{data: {repository: {issue: {lastEditedAt: null, editor: null, body: $body, title: "Faster search"}}}}' >"$fx/edit-7.json"
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" "7"
 sum=$(printf 'See ![a](%s/1111)\nand ![b](%s/2222) and again %s/1111, not https://example.com/c.png' "$A" "$A" "$A" | sha256sum | cut -d' ' -f1)
+tsum=$(printf '%s' "Faster search" | sha256sum | cut -d' ' -f1)
 t_eq "$(jq -c . "$T/calls/approved.at-mark" 2>&1)" \
-  "{\"at\":\"2026-01-01T00:00:00Z\",\"by\":\"alice\",\"how\":\"label\",\"body_sha256\":\"$sum\",\"links\":[\"$A/1111\",\"$A/2222\"]}"
+  "{\"at\":\"2026-01-01T00:00:00Z\",\"by\":\"alice\",\"how\":\"label\",\"body_sha256\":\"$sum\",\"links\":[\"$A/1111\",\"$A/2222\"],\"title_sha256\":\"$tsum\"}"
 t_eq "$(cmp "$approved_file" "$T/calls/approved.at-mark" && echo same)" same
+
+t_case "the title's hash drops line ends as the body's does"
+reset
+jq -n --arg body "Words." '{data: {repository: {issue: {lastEditedAt: null, editor: null, body: $body,
+  title: "Faster\r\nsearch"}}}}' >"$fx/edit-7.json"
+t_run "$dispatch"
+t_eq "$(jq -r .title_sha256 "$approved_file")" "$(printf '%s' "Fastersearch" | sha256sum | cut -d' ' -f1)"
+
+t_case "an answer that names no title records no title hash, the shape of a record written before titles were bound"
+reset
+jq -n --arg body "Words." '{data: {repository: {issue: {lastEditedAt: null, editor: null, body: $body}}}}' >"$fx/edit-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(jq -c 'has("title_sha256")' "$approved_file")" false
 
 t_case "without the comments setting the record names no comment and none are read"
 t_eq "$(jq -c 'has("comment_links")' "$approved_file")" false

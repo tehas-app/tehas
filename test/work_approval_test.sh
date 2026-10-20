@@ -33,6 +33,59 @@ t_eq "$(find "$imgs" -maxdepth 0 2>/dev/null | wc -l)" 0
 t_contains "$t_out" "tehas work: the issue's text is not the text that was approved: it changed after the approval, not starting a cycle"
 t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body Tehas started no cycle: the issue's text is not the text that was approved: it changed after the approval. To retry, apply \`tehas:ready\`."
 
+# --- The title of the issue -------------------------------------------------
+# The approval binds the title as it binds the body: the dispatcher records its
+# hash, tehas work recomputes it from the same read, and a rename after the
+# label starts no cycle. A record that carries no title hash is the record a
+# host wrote before titles were bound, and binds nothing.
+t_case "with nothing given, a record that binds the title starts the cycle, on the one read of the issue"
+images_off
+issue_is "Words only." NONE "Faster search"
+record_is alice "Words only."
+record_binds_title "Faster search"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(issue_reads)" "1"
+
+t_case "with nothing given, a title renamed after the approval starts no cycle: exit 4, no container, and the issue is told it was the title"
+images_off
+issue_is "Words only." NONE "Faster search, renamed"
+record_is alice "Words only."
+record_binds_title "Faster search"
+t_run "$work 7"
+t_eq "$t_rc" 4
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+t_contains "$t_out" "tehas work: the issue's title is not the title that was approved: it changed after the approval, not starting a cycle"
+t_lacks "$t_out" "the issue's text is not the text"
+t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body Tehas started no cycle: the issue's title is not the title that was approved: it changed after the approval. To retry, apply \`tehas:ready\`."
+
+t_case "with nothing given, an answer that names no title is a failed read: exit 4, not said as a rename"
+images_off
+issue_is "Words only." NONE
+record_is alice "Words only."
+record_binds_title "Faster search"
+t_run "$work 7"
+t_eq "$t_rc" 4
+t_contains "$t_out" "tehas work: the issue's text could not be read for its title, not starting a cycle"
+t_lacks "$t_out" "changed after the approval"
+
+t_case "with nothing given, a record that names no title is checked on the body alone: a rename starts the cycle"
+images_off
+issue_is "Words only." NONE "Renamed after the label"
+record_is alice "Words only."
+t_run "$work 7"
+t_eq "$t_rc" 2
+
+t_case "with nothing given, a title hash that is not 64 hex characters is the malformed record it is"
+images_off
+issue_is "Words only." NONE "Faster search"
+record_is alice "Words only."
+jq '.title_sha256 = "0123"' "$record" >"$record.new" && mv "$record.new" "$record"
+t_run "$work 7"
+t_eq "$t_rc" 4
+t_contains "$t_out" "tehas work: the approval record could not be read ($record), not starting a cycle"
+t_lacks "$t_out" "changed after the approval"
+
 t_case "with nothing given, a record that is not JSON starts no cycle: exit 4, and nothing falls back to running anyway"
 images_off
 issue_is "Words only." NONE
