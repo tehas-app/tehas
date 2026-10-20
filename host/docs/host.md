@@ -347,11 +347,13 @@ compiles SQLite. When cargo says a crate is missing from its cache the build
 is run once more without `--offline`, with a line that says so; a build that
 fails again is reported from both attempts. A build that fails for any other
 reason, a compile error among it, is reported as it is and not tried again.
-One build that outlives `TEHAS_BUILD_TIMEOUT` is cut off and named as cut off.
-`--check` compares the checksums and builds nothing, so a program replaced on
-the host shows up as drift like any other file. Every program that is due is
-built before any is installed, so one that does not build stops the install before
-it has changed anything, and so does a host without `cargo`. The build is
+One build that outlives `TEHAS_BUILD_TIMEOUT` is cut off and named as cut off;
+the remedy is `./bootstrap.sh user`, which installs cargo and its crate cache,
+or a longer `TEHAS_BUILD_TIMEOUT`. `--check` compares the checksums and builds
+nothing, so a program replaced on the host shows up as drift like any other
+file. Every program that is due is built before any is installed, so one that
+does not build stops the install before it has changed anything, and so does a
+host without `cargo`. The build is
 given no environment variable whose name holds TOKEN, SECRET, PASSWORD or
 API_KEY. The cycle and the dispatcher call `~/tehas/libexec/analytics`
 ([tehasbot cycle](/tools#tehasbot-cycle), [tehas dispatch](/tools#tehas-dispatch)). The Deno
