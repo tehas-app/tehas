@@ -94,7 +94,7 @@ tehas api [--json]
   "api": 1,
   "tehas": "v0.8.0",
   "commit": "cb6912a",
-  "repo": "tehas-org/tehas",
+  "repo": "tehas-app/tehas",
   "features": ["status", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics"],
   "fixer": null
 }

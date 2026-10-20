@@ -27,7 +27,7 @@ The examples on this site come from the instance that works on tehas itself:
 | Thing            | Value in the example                                    |
 | ---------------- | ------------------------------------------------------- |
 | Host             | `tehas-tehas`, Unix user `boss` (`ssh boss@tehas-tehas`) |
-| Product          | `tehas-org/tehas`, default branch `main`                     |
+| Product          | `tehas-app/tehas`, default branch `main`                     |
 | Product checkout | `~/tehas/repos/tehas`                                        |
 | Platform checkout | `~/tehas/platform`, pulled with a read-only deploy key |
 | Settings         | `instances/tehas-tehas/` in the platform checkout       |
