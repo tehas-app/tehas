@@ -1176,6 +1176,28 @@ to the tag; a script that then sets a persistent cookie usually needs the
 visitor's consent. The example instance uses this for its public pages. The
 same `docker compose ... up -d` applies after a change.
 
+### Themes
+
+Every page, the factory floor, the manual and the Protolab, takes its look
+from one theme: its colours, typefaces, outlines and shadows, and the colours
+the canvases paint with. `TEHAS_THEME` in `instance.env` names it:
+
+| Theme   | Look                                                                    |
+| ------- | ----------------------------------------------------------------------- |
+| `pixel` | The default: the factory as a 16-bit game, in the Topaz bitmap typeface |
+| `paper` | Plain type on a light page, thin rules and light screens                |
+
+A page asks for `/fun/theme.css`, and the docs server and the edge router
+answer with `~/tehas/fun/theme-<name>.css`. Both read the setting when their
+container is created: run the two `docker compose ... up -d` lines again after
+changing it. The sprites and scenes are pictures and stay the same in every
+theme.
+
+A theme is one file in `host/fun/`, `theme-<name>.css`, that sets every token
+`theme-pixel.css` sets; its name is added to the list in `lib/config.sh`.
+`test/theme_test.sh` fails when a theme leaves a token out or a page names a
+colour or a typeface of its own.
+
 ## Secrets and trust
 
 - `~/.config/tehas/env`: the bot's GitHub token (`GH_TOKEN`) and the model

@@ -146,6 +146,33 @@ colours the original chipset could show.
 - Hard offset shadows with no blur.
 - One typeface, Topaz, at two sizes.
 
+## Themes
+
+This file describes the pixel theme, the default. The pages are drawn from
+role tokens, and a theme is the file that gives them values:
+`host/fun/theme-<name>.css`, served as `/fun/theme.css` for the theme the
+instance names in `TEHAS_THEME`. The stylesheets, the scripts and the markup
+name no colour, typeface or shadow of their own; `test/theme_test.sh` holds
+them to that. The second theme, paper, keeps the layout, the two text sizes and
+the sprites and changes the rest: the system typeface, 1px rules, light
+screens and soft shadows. The rules below that are about pixels (Topaz, the
+Twelve Bit Rule, no blur, stepped lifts) bind the pixel theme only.
+
+The colours below by the role token that carries them:
+
+| Pixel colour | Token | Pixel colour | Token |
+| --- | --- | --- | --- |
+| Moss, its texture | `--field`, `--field-pattern` | Ink | `--text` |
+| Bone | `--surface` | Slate | `--text-quiet` |
+| Bone Shade | `--surface-quiet` | Verdigris | `--text-cool` |
+| Steel | `--surface-head` | Rust | `--text-warm` |
+| Brass | `--accent` | Outline | `--line` (outlines are `--frame`, `--edge` wide) |
+| Brass Light | `--accent-soft` | Hairline | `--rule` |
+| CRT Black, Amber, Dim | `--screen`, `--screen-text`, `--screen-quiet` | Green, red tag | `--good`, `--bad` |
+
+The canvases cannot use `var()`: `host/fun/theme.js` reads their tokens
+(`--band-*`, `--piece-*`, `--game-*`) from the theme.
+
 ## 2. Colors
 
 A 32-colour palette in the manner of The Chaos Engine: steel greys, brass,
@@ -404,7 +431,7 @@ stage under the monitor's column.
   in the order of the rows beneath. No lines, no curves, nothing translucent.
   A missed sample is an empty column. Scale labels are page text beside the
   canvas, in CRT Dim.
-- **Band colours:** `#ea3`, `#4a9`, `#c53`, `#7cb`, `#ccd`, `#b97`, `#694`,
+- **Band colours** (`--band-1` to `--band-8`): `#ea3`, `#4a9`, `#c53`, `#7cb`, `#ccd`, `#b97`, `#694`,
   `#fc6`, in that order. From the ninth machine the list starts again as a
   one-pixel checker with CRT Black. A row's swatch is drawn the same way.
 - **Tables:** 1px Hairline between rows, figures right-aligned, a missing
