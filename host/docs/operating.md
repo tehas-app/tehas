@@ -1085,6 +1085,16 @@ the bot did not open, from forks or closing several issues, and conflicts
 between two open pull requests of the factory: each is resolved against the
 branch when the other merges.
 
+**To turn it on**, set `TEHAS_REFRESH_CONFLICTS=1` in `instance.env` and
+enable the timer, which `install.sh` and `tehas update` install but do not
+start:
+
+```
+systemctl --user enable --now tehas-refresh.timer
+```
+
+The first run is at once. `~/tehas/logs/refresh.log` says what it found.
+
 **To turn it off**, set `TEHAS_REFRESH_CONFLICTS=0` (or remove it) in
 `instance.env`: `tehasbot refresh` then exits at once and the dispatcher starts
 no refresh. `systemctl --user disable --now tehas-refresh.timer` stops the
