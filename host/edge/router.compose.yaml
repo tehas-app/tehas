@@ -16,13 +16,16 @@
 #
 # TEHAS_HOST_ADDR is the address it binds to, from the instance settings
 # (source env.sh before running docker compose). Without it the server stays on
-# the loopback address, reachable from the host only.
+# the loopback address, reachable from the host only. TEHAS_THEME names the
+# look of the Protolab's pages, as it does the dashboard's.
 name: tehas-edge
 services:
   router:
     # caddy 2.8.4, named by digest so a moved tag cannot change what runs.
     # host/versions.env records the version and this digest together.
     image: caddy@sha256:226d1f059b75399fe19182893c7184591c07b97afc8dfcf44eeb80c9a77a530f
+    environment:
+      TEHAS_THEME: "${TEHAS_THEME:-pixel}"
     volumes:
       - "./router.Caddyfile:/etc/caddy/Caddyfile:ro"
       - "../protolab:/srv/protolab:ro"
