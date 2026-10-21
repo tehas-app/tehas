@@ -4,6 +4,8 @@
 name = "tehas-mcp"
 version = "0.1.0"
 edition = "2021"
+# The oldest compiler that knows what the source uses (Option::is_none_or).
+rust-version = "1.82"
 publish = false
 
 [lib]
@@ -15,5 +17,7 @@ name = "tehas-mcp"
 path = "src/main.rs"
 
 [dependencies]
+flate2 = "1"
+regex = "1"
 serde_json = "1"
 sha2 = "0.10"

@@ -193,11 +193,14 @@ t_eq "$(cat "$th/libexec/tehas-mcp")" "a tehas-mcp built from source"
 t_eq "$(stat -c %a "$th/libexec/tehas-mcp")" 755
 t_eq "$(cut -d' ' -f2 "$th/libexec/tehas-mcp.stamp")" "$(sha256sum <"$th/libexec/tehas-mcp" | cut -d' ' -f1)"
 
-t_case "the mask the two share builds both"
+t_case "the mask the three share builds all three"
 echo "// changed" >>"$part/console/src/mask.rs"
 rm -f "$T/calls/cargo"
 t_run "$part/install.sh"
-t_eq "$(t_calls cargo | wc -l)" 2
+t_eq "$(t_calls cargo | wc -l)" 3
+t_contains "$(t_calls cargo)" "-p console"
+t_contains "$(t_calls cargo)" "-p analytics"
+t_contains "$(t_calls cargo)" "-p tehas-mcp"
 
 # A crate that is not in cargo's cache: the offline build says so in cargo's own
 # words, the retry without --offline builds, and the program is installed.
