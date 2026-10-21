@@ -27,7 +27,7 @@
     # A uat- or lab- name that is neither of the above: no number, or one
     # that starts with a zero.
     @odd header_regexp odd Host ^(uat|lab)-
-    @look path /fun/*.css /fun/*.ttf /fun/*.svg
+    @look path /fun/*.css /fun/*.ttf /fun/*.woff2 /fun/*.svg
     @kept path */.*
     @hostfiles path /files/*
     @pathfiles path_regexp ^/[0-9]+/files/.

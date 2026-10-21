@@ -12,6 +12,7 @@
   --type-body: 14px;
   --type-big: 24px;
   --radius: 4px;
+  --modes: light;
 
   --field: #e9e6df;
   --field-pattern: none;
@@ -24,6 +25,7 @@
 
   --text: #1d1c1a;
   --text-quiet: #5c5850;
+  --text-faint: var(--text-quiet);
   --text-cool: #1e6b5a;
   --text-warm: #a1321f;
   --text-on-good: #fff;
@@ -39,6 +41,9 @@
   --screen: #f6f4ef;
   --screen-text: #1d1c1a;
   --screen-quiet: #6b665d;
+  --bar: var(--screen);
+  --bar-text: var(--screen-text);
+  --bar-quiet: var(--screen-quiet);
 
   --good: #2f7d4a;
   --bad: #b3261e;
