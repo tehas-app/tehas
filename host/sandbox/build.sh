@@ -113,10 +113,10 @@ if [ "$mode" != build ]; then
   fi
 fi
 
-# ghcr.io/<owner>/<name> for https://github.com/<owner>/<name>.git, lowercased.
-repo=${PI_RUKAS_REPO#https://github.com/}
-repo=${repo%.git}
-base=ghcr.io/$(tr '[:upper:]' '[:lower:]' <<<"$repo"):sha-${head:0:12}
+base=$(tehas_rukas_image "$head") || {
+  echo "build: PI_RUKAS_REPO is not a GitHub repository, so upstream's image cannot be named" >&2
+  exit 1
+}
 if ! docker pull -q "$base" >/dev/null 2>&1; then
   echo "build: no image $base yet; upstream publishes one for each commit, try again when it has" >&2
   exit 1
