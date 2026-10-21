@@ -80,12 +80,19 @@
 # same two paths it writes to (BOOTSTRAP_ETC, BOOTSTRAP_BIN), so the pair cannot
 # end up looking in different places. A host that never ran it reports nothing.
 #
-# It asks systemd for nothing, with one exception. A copied unit file is not in
+# It asks systemd for nothing, with two exceptions. A copied unit file is not in
 # effect until systemd has reloaded it, and that reload belongs to the step
 # that restarts the units, so no command can report a changed unit as applied
-# when it was not. The exception is the earlier layout: its commands are
+# when it was not. The first exception is the earlier layout: its commands are
 # removed only after systemd has reloaded, because the units it still holds
-# name them.
+# name them. The second is a first install, into a home with no env.sh: it
+# makes the labels (tehas labels) and enables the dispatch timer and path, and
+# the optional units whose setting is on. Until both are done
+# state/first-install says they are owed, --check reports it, and the next run
+# tries again.
+#
+# A real run also puts the line that reads env.sh at the top of ~/.bashrc when
+# the file does not read it already, and --check says whether it does.
 #
 # A real run holds $TEHAS_HOME/state/update.lock, the lock tehas update holds,
 # and stops when another run has it.
@@ -518,6 +525,23 @@ write_file() {
   mv -f "$1.new" "$1" || { rm -f "$1.new"; echo "tehas: could not write $1" >&2; exit 1; }
 }
 
+# The line that puts the tehas environment in every shell of the tehas user,
+# ssh host '<command>' too. It has to come before the check many distributions
+# have at the top of ~/.bashrc that returns early for a shell that is not
+# interactive. A line that sources env.sh already, as the manual once had it
+# written by hand, counts.
+bashrc=$HOME/.bashrc
+bashrc_line="[ -f $TEHAS_HOME/env.sh ] && . $TEHAS_HOME/env.sh"
+bashrc_ok() {
+  [ -f "$bashrc" ] || return 1
+  grep -qF "$TEHAS_HOME/env.sh" "$bashrc" && return 0
+  [ "$TEHAS_HOME" = "$HOME/tehas" ] && grep -q '^[^#]*~/tehas/env\.sh' "$bashrc"
+}
+
+# A first install owes the labels and the core units, recorded in this file
+# until both are done, so a run that stops partway still owes them.
+first_owed=$TEHAS_HOME/state/first-install
+
 # The step this source calls for, added to the record of steps owed. One call per
 # copied file, so the record is never behind what the host has already been given.
 record_step() { # one source path from the file table
@@ -704,6 +728,12 @@ had_versions=0
 if [ "$check" != 1 ]; then
   mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state" "$TEHAS_HOME/tmp" "$TEHAS_HOME/live" "$TEHAS_HOME/protolab" \
     "$TEHAS_HOME/preview"
+  # A home with no env.sh has never been installed.
+  [ -f "$TEHAS_HOME/env.sh" ] || : >"$first_owed"
+  if ! bashrc_ok; then
+    { echo "$bashrc_line"; [ ! -f "$bashrc" ] || cat "$bashrc"; } | write_file "$bashrc"
+    echo "installed: the env.sh line at the top of $bashrc"
+  fi
   # The proof that this home is tehas's, written once.
   if [ ! -f "$TEHAS_HOME/$home_marker" ]; then
     printf 'tehas\n' | write_file "$TEHAS_HOME/$home_marker"
@@ -913,6 +943,17 @@ if [ "$check" = 1 ]; then
   # The command the other accounts type is root's to install, so it is not part
   # of the drift above: no run of this script can clear it. It is named apart,
   # with the command that does clear it.
+  if bashrc_ok; then
+    echo "Shell:        OK"
+  else
+    echo "Shell:        MISSING ($bashrc does not source $TEHAS_HOME/env.sh; ./install.sh puts the line at its top)"
+    rc=1
+  fi
+  if [ -f "$first_owed" ]; then
+    echo "First install: NOT DONE (labels and core units; ./install.sh does them)"
+    rc=1
+  fi
+
   if [ -n "$login_fix" ]; then
     echo "Login:        NOT CURRENT"
     if [ -e "$login_bin" ]; then
@@ -1019,6 +1060,34 @@ first_index() {
   echo "later: $TEHAS_HOME/bin/tehas index   (needs the sandbox image and the product checkout)"
 }
 
+# The labels and the core units, once, on a first install. The optional units
+# only when their setting is on. Every later change to a unit file is the units
+# step's, which `tehas update` runs.
+first_install() {
+  [ -f "$first_owed" ] || return 0
+  local units=(tehas-dispatch.timer tehas-dispatch.path) why="" energy
+  [ -z "${TEHAS_IMPROVE_REPO:-}" ] || units+=(tehas-improve.timer)
+  [ -z "${TEHAS_DOMAIN:-}" ] || units+=(tehas-protolab.timer)
+  [ "${TEHAS_PREVIEWS:-}" != 1 ] || units+=(tehas-preview.timer tehas-preview-sweep.timer)
+  # A first install runs before any shell has read env.sh, which exports this
+  # from the host's private file, so it is read from that file too.
+  energy=${TEHAS_ENERGY:-}
+  [ -n "$energy" ] || [ ! -r "$HOME/.config/tehas/env" ] ||
+    energy=$(sed -n 's/^TEHAS_ENERGY=//p' "$HOME/.config/tehas/env" | tail -n 1)
+  case "${energy:-off}" in off) ;; *) units+=(tehas-energy.service) ;; esac
+  if ! "$TEHAS_HOME/bin/tehas" labels >/dev/null; then
+    why="tehas labels failed"
+  elif ! systemctl --user daemon-reload || ! systemctl --user enable --now "${units[@]}"; then
+    why="systemctl --user enable failed"
+  fi
+  if [ -n "$why" ]; then
+    echo "later: ./install.sh again   (the first install's labels or units are not done: $why)"
+    return 0
+  fi
+  rm -f "$first_owed"
+  echo "first install: labels made in $TEHAS_REPO, enabled ${units[*]}"
+}
+
 # The one file of the host this run cannot bring current, because it belongs to
 # root: said as a later line, naming the command that does it. Not a step - no
 # command runs sudo - so it is never printed as "next:".
@@ -1030,6 +1099,7 @@ report_login() {
 
 if [ "${#changed[@]}" = 0 ] && [ "$sandbox_changed" != 1 ]; then
   echo "tehas is up to date"
+  first_install
   report_login
   first_index
   exit 0
@@ -1087,6 +1157,7 @@ if [ "${#old[@]}" -gt 0 ]; then
   fi
 fi
 [ -z "$retire_later" ] || echo "later: ./install.sh again $retire_later"
+first_install
 report_login
 first_index
 exit 0
