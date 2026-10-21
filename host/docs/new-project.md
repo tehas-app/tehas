@@ -30,7 +30,7 @@ are on; pi-rukas reads the rest of it.
 | `.pi/verify-cmd-full`                                    | Full gate, same format; stands in for CI                                                                                                                                                                         | Recommended                             |
 | `.pi/smoke-cmd`                                          | Proves the built product starts, same format                                                                                                                                                                     | Recommended                             |
 | `.pi/worktree-setup`                                     | Shell script run in each new worktree with no arguments and no environment: install dependencies. Must exit 0                                                                                                    | If a bare checkout cannot run the gates |
-| `.pi/settings.json`                                      | `defaultProvider` and `defaultModel` for the session                                                                                                                                                             | Yes                                     |
+| `.pi/settings.json`                                      | Provider and model of the session, when they are not the instance's                                                                                                                                              | Optional                                |
 | `.gitignore` entries                                     | `.pi/work-state/`, `.pi/permissions.json`, `.pi/decisions.json`                                                                                                                                                  | Yes                                     |
 | `.agents/skills/`                                        | Project skills: short instructions plus scripts for things agents get wrong                                                                                                                                      | Optional                                |
 
@@ -155,8 +155,13 @@ is not public.
 
 `models.json` next to it names the provider's `baseUrl` and the models it
 serves. List the model you use first: an agent that loses its model setting
-falls back to the first entry. The model in the product's `.pi/settings.json`
-must be listed too. The example's, with one provider and one model:
+falls back to the first entry. A model needs only its `id`: `install.sh` fills
+`name` (the id), `input` (`["text"]`), `reasoning` (false) and a cost of zero,
+and gives a provider with no `compat` today's (`supportsDeveloperRole` and
+`supportsReasoningEffort` false). A key you give is kept. The session model is
+`PI_ENSEMBLE_SUBAGENT_MODEL` under `_PROVIDER`, unless the product's
+`.pi/settings.json` names another; that one must be listed too. The example's,
+with one provider and one model and every key written out:
 
 ```
 {
