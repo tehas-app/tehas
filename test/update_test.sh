@@ -439,7 +439,8 @@ t_eq "$(t_calls systemctl)" "--user daemon-reload
 --user is-active tehas-protolab.timer
 --user is-active tehas-improve.timer
 --user is-active tehas-refresh.timer
---user restart tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer"
+--user is-active tehas-clean.timer
+--user restart tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer tehas-clean.timer"
 # Every call outside the command went through a timeout, install.sh included,
 # and nothing is owed now.
 t_eq "$(t_calls timeout | sed 's/^[0-9]* //')" "git -C $checkout fetch --prune origin
@@ -454,7 +455,8 @@ systemctl --user is-active tehas-preview-sweep.timer
 systemctl --user is-active tehas-protolab.timer
 systemctl --user is-active tehas-improve.timer
 systemctl --user is-active tehas-refresh.timer
-systemctl --user restart tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer
+systemctl --user is-active tehas-clean.timer
+systemctl --user restart tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer tehas-clean.timer
 $th/sandbox/build.sh
 docker ps --quiet --filter label=com.docker.compose.project=tehas-docs
 docker compose -f $th/edge/docs.compose.yaml up -d --force-recreate
@@ -488,7 +490,8 @@ t_eq "$(t_calls systemctl)" "--user daemon-reload
 --user is-active tehas-protolab.timer
 --user is-active tehas-improve.timer
 --user is-active tehas-refresh.timer
---user restart tehas-dispatch.timer tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer"
+--user is-active tehas-clean.timer
+--user restart tehas-dispatch.timer tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer tehas-clean.timer"
 t_eq "$(owed_steps)" ""
 
 t_case "a running server of the old project is taken over by the edge router"
@@ -656,7 +659,7 @@ t_stub systemctl 'if [ "$2" = is-active ]; then
 fi'
 t_run "$update"
 t_eq "$t_rc" 0
-t_contains "$t_out" "systemd: restarted tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer"
+t_contains "$t_out" "systemd: restarted tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer tehas-clean.timer"
 t_lacks "$t_out" "no unit was restarted"
 
 t_case "a unit systemd does not know is an answer, and leaves that unit alone"
@@ -669,7 +672,7 @@ t_stub systemctl 'if [ "$2" = is-active ]; then
 fi'
 t_run "$update"
 t_eq "$t_rc" 0
-t_contains "$t_out" "systemd: restarted tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer"
+t_contains "$t_out" "systemd: restarted tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer tehas-clean.timer"
 t_lacks "$t_out" "no unit was restarted"
 
 t_case "a docker query that fails stops the update instead of reading as not running"
@@ -702,7 +705,7 @@ t_lacks "$t_out" "none of them runs on this host"
 # four steps are still owed.
 t_eq "$(t_calls docker)" ""
 t_eq "$(t_calls build)" ""
-t_eq "$(owed_steps)" "units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer
+t_eq "$(owed_steps)" "units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer tehas-clean.timer
 sandbox
 docs --force-recreate
 edge --force-recreate"
@@ -1194,7 +1197,7 @@ real_platform
 t_run "$update"
 t_eq "$t_rc" 0
 t_contains "$t_out" "installed: $th/libexec/update"
-t_contains "$t_out" "systemd: restarted tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer"
+t_contains "$t_out" "systemd: restarted tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer tehas-clean.timer"
 t_contains "$t_out" "docs: updating the container"
 t_contains "$t_out" "edge: updating the container"
 # The order install.sh prints is the order an update runs, and nothing is left
@@ -1233,7 +1236,7 @@ t_stub systemctl 'if [ "$2" = is-active ]; then echo active; fi'
 t_run "$update"
 t_eq "$t_rc" 0
 t_contains "$t_out" "follow-up(s) an earlier run did not finish (see $owed_file)"
-t_contains "$t_out" "systemd: restarted tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer"
+t_contains "$t_out" "systemd: restarted tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer tehas-clean.timer"
 t_contains "$t_out" "docs: updating the container"
 t_eq "$(owed_steps)" ""
 

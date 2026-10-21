@@ -28,10 +28,10 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/libexec/`                   | The scripts behind the two commands, one for each thing they do. Not on `PATH` |
 | `~/tehas/platform`                   | Checkout of this repository; `install.sh` runs from it and `tehas update` pulls it |
 | `~/tehas/repos/tehas`                | The product checkout, on the default branch. Cycles are cloned from it; no container is given it |
-| `~/tehas/work/tehas-<issue>`         | The cycle's workspace: a fresh clone made for each cycle. Removed after a cycle that merged or left a pull request, otherwise kept, and moved to `tehas-<issue>.before-retry` when that issue is retried. A kept workspace, its `.before-retry` and what else is left beside it go once no cycle has run on the issue for 7 days. `~/tehas/work/tehas` is only its path inside the container |
+| `~/tehas/work/tehas-<issue>`         | The cycle's workspace: a fresh clone made for each cycle. Removed after a cycle that merged or left a pull request, otherwise kept, and moved to `tehas-<issue>.before-retry` when that issue is retried. A kept workspace, its `.before-retry` and what else is left beside it go once no cycle has run on the issue for 7 days. Its build output goes sooner: `tehasbot clean` removes what it names as build output once nothing of the issue has been touched for `TEHAS_CLEAN_AFTER` hours, and the 7-day sweep still takes the rest. `~/tehas/work/tehas` is only its path inside the container |
+| `~/tehas/work/tehas-<issue>.state`   | The cycle's own: `cache`, a copy of the code index the host built; `memory`, what its agents learn; `sessions`, Pi's session files. Made fresh for each cycle, mounted in its container, removed with the workspace. `~/tehas/work/tehas-plan-<issue>.state` is a planning turn's, removed after the turn. Of these, only `cache` is build output: `tehasbot clean` removes it when the issue has been idle for `TEHAS_CLEAN_AFTER` hours, and `memory` and `sessions` stay |
 | `~/tehas/work/tehas-<issue>.images`  | With `TEHAS_WORK_IMAGES=1`, the images of the cycle's issue and their `manifest.json`, and with `TEHAS_WORK_DESCRIBE=1` the model's descriptions of them, `images.md`. With `TEHAS_WORK_FILES=1`, the issue's text files too, `file-<n>.<ext>`, with or without the images. Made for each cycle, read-only in its container at `~/tehas/work/tehas.images`, removed when the cycle is over |
 | `~/tehas/work/tehas-plan-<issue>.images` | With `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, a copy of a planning session's images and files for one turn, read-only in its container at `~/tehas/work/tehas.images`, removed after the turn |
-| `~/tehas/work/tehas-<issue>.state`   | The cycle's own: `cache`, a copy of the code index the host built; `memory`, what its agents learn; `sessions`, Pi's session files. Made fresh for each cycle, mounted in its container, removed with the workspace. `~/tehas/work/tehas-plan-<issue>.state` is a planning turn's, removed after the turn |
 | `~/tehas/dev/<name>`                 | A person's clone for working by hand, named after their account, made and used by `tehas dev`, never removed. `<name>.author` next to it holds whose name its commits carry, `<name>.state` its memory, sessions, transcripts and code index, and `<name>.images` the images and files of the issue named by `--issue`, read-only in the session's container |
 | `~/tehas/repos/pi-rukas`             | pi-rukas, at the commit `PI_RUKAS_FOLLOW` names                         |
 | `~/tehas/docs/`, `~/tehas/fun/`      | This site's pages and the front page, installed from `host/`            |
@@ -49,6 +49,36 @@ Where the improvement loop is on, each of its runs removes the per-cycle files
 in `~/tehas/logs/` that are older than seven days (`work-*`, `dispatch-work-*`,
 `index-*`), and the records that old under `~/tehas/tmp/improve/`. Nothing else
 removes logs.
+
+**The cleaner.** `tehasbot clean`, from `tehas-clean.timer` once an hour, removes
+what the host can make again once nothing has touched it for
+`TEHAS_CLEAN_AFTER` hours (24 unless the instance says otherwise): the build
+output of a kept workspace - every directory anywhere under it whose name is one
+of `TEHAS_CLEAN_DIRS`, the toolchain names listed in [Commands](/tools) - and the
+cycle's `cache`, its copy of the code index. What the workspace keeps is what a
+person reads: `.git`, the sources, what the agents wrote there, uncommitted
+changes, and the `memory` and `sessions` of its `.state`. The cleaner runs no git
+command in a workspace, follows no symlink, and enters no dot-name, which is what
+keeps those trees out of the removal. It holds the issue's lock while it removes,
+so no cycle starts under it, and it removes nothing for an issue whose lock file
+is not there to hold. The 7-day sweep of the dispatcher still takes the workspace
+itself.
+
+The same run prunes Docker's build cache of that age with `docker builder prune`.
+That is the build cache of the whole host's Docker daemon, not only tehas's:
+tehas is one project on one host, and the cache of anything else on it is made
+again too. It removes no image and no volume. Images go with the sandbox build,
+which keeps its newest three date tags, and with `tehasbot preview`; volumes are
+a person's call.
+
+The third step is the host's scratch: old files under `~/tehas/tmp/dl`, where
+`bootstrap.sh` keeps what it downloads, and under `~/tehas/tmp/node-compile-cache`,
+and old `~/tehas/tmp/tehas-test.*` directories a run left behind. Nothing else
+under `~/tehas` is touched, and nothing outside it: not `~/tehas/tmp/improve`,
+`state`, `logs`, `dev`, `repos`, `preview` or `protolab`. One line per removal and
+a closing line with the bytes freed go to `~/tehas/logs/clean.log`; `tehasbot
+clean --dry-run` logs what it would remove and removes nothing. The cleaner starts
+no work, so the pause label does not hold it.
 
 In the example the platform and the product are the same repository. They are
 still two clones. A merged pull request changes the running factory only when a
@@ -1122,6 +1152,7 @@ that cycle ran.
 | Host snapshot publisher, optional | systemd user service `tehas-top.service`, every 5 s. It writes nothing unless `TEHAS_TOP=1` | `jq '.host.cpus, .host.load' ~/tehas/live/top.json` |
 | Protolab pages | systemd user timer `tehas-protolab.timer`, every 5 minutes | `tail ~/tehas/logs/protolab.log` |
 | Improvement loop, optional | systemd user timer `tehas-improve.timer`, every 3 hours. It does nothing unless `TEHAS_IMPROVE_REPO` is set | `tail ~/tehas/logs/improve.log` |
+| Cleaner | systemd user timer `tehas-clean.timer`, every hour, the first time 15 minutes after boot. It removes build output, Docker's build cache and host scratch older than `TEHAS_CLEAN_AFTER` hours. `install.sh` copies the unit; a person enables it | `tail ~/tehas/logs/clean.log` |
 | Edge router | `docker compose -f ~/tehas/edge/router.compose.yaml up -d` | `curl -i http://tehas-tehas:8081/` |
 | Previews | systemd user timer `tehas-preview.timer`, every 5 minutes | `tail ~/tehas/logs/preview.log`, `jq . ~/tehas/live/previews.json` |
 | Preview sweep | systemd user timer `tehas-preview-sweep.timer`, every 3 hours | `jq .lastSweep ~/tehas/live/previews.json` |
