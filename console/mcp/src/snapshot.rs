@@ -60,15 +60,18 @@ impl Snapshot {
     }
 
     /// The sessions within the window, one line read at a time. A line that is
-    /// not an object, or has no time in the window, is skipped.
+    /// not a JSON object, or has no time in the window, is skipped. A read
+    /// error ends the sessions.
     pub fn sessions(&self) -> impl Iterator<Item = Value> {
         let from = self.now - self.days * 86400;
         File::open(&self.path)
             .ok()
             .into_iter()
-            .flat_map(|f| BufReader::new(f).lines().skip(1))
+            // Bytes, not lines of text: a line that is not UTF-8 is skipped
+            // like any other bad line instead of ending the reading.
+            .flat_map(|f| BufReader::new(f).split(b'\n').skip(1))
             .map_while(Result::ok)
-            .filter_map(|l| serde_json::from_str::<Value>(&l).ok())
+            .filter_map(|l| serde_json::from_slice::<Value>(&l).ok())
             .filter(move |v| {
                 v.is_object()
                     && v["started"]

@@ -565,10 +565,16 @@ fn snapshot_sessions_skip_bad_lines_and_the_old() {
         run(4, t - 31 * 86400),
     ];
     let dir = snapshot_dir("lines", &lines);
+    // A line that is not UTF-8, then a session that must still come out.
+    let mut bytes = std::fs::read(dir.0.join("sessions.jsonl")).unwrap();
+    bytes.extend_from_slice(b"{\"id\": 5, \"x\": \"\xff\xfe\"}\n");
+    bytes.extend_from_slice(run(6, t - 120).as_bytes());
+    bytes.push(b'\n');
+    std::fs::write(dir.0.join("sessions.jsonl"), bytes).unwrap();
     let ids: Vec<i64> = Snapshot::open(&dir.0, t)
         .unwrap()
         .sessions()
         .map(|v| v["id"].as_i64().unwrap())
         .collect();
-    assert_eq!(ids, [1, 3]);
+    assert_eq!(ids, [1, 3, 6]);
 }
