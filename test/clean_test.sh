@@ -215,6 +215,19 @@ t_contains "$t_out" "WARN: clean: docker builder prune failed"
 t_eq "$([ -e "$workdir-7/target" ] && echo there)" ""
 t_eq "$([ -e "$tmp/dl/tool.tar.gz" ] && echo there)" ""
 
+t_case "a prune that does not finish in time is a warning, and the scratch step still runs"
+reset
+workspace
+echo old >"$tmp/dl/tool.tar.gz"
+age "$tmp/dl/tool.tar.gz"
+# A docker that answers as timeout(1) does when it ran out.
+T_ENV=(DOCKER_RC=124)
+t_run "$clean"
+T_ENV=()
+t_eq "$t_rc" 1
+t_contains "$t_out" "WARN: clean: docker builder prune did not finish in 600 seconds"
+t_eq "$([ -e "$tmp/dl/tool.tar.gz" ] && echo there)" ""
+
 t_case "a bad TEHAS_CLEAN_AFTER stops the run before any docker call"
 reset
 workspace

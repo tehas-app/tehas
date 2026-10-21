@@ -933,6 +933,11 @@ for bad in "." ".." ".git" ".pi" "a/target" "/target" "target;rm -rf" "target *"
   t_contains "$t_out" "TEHAS_CLEAN_DIRS is not valid"
 done
 
+t_case "a TEHAS_CLEAN_DIRS with .git among other names is refused whatever IFS is"
+t_run ". \"$T_ROOT/lib/config.sh\"; IFS=x; _tehas_valid TEHAS_CLEAN_DIRS 'target .git'; echo rc=\$?"
+t_contains "$t_out" "refuses .git: that is not build output"
+t_contains "$t_out" "rc=1"
+
 # The default the example instance copies by hand is pinned against the
 # config's own list, so the two cannot drift apart.
 t_case "the example instance documents the defaults the cleaner runs with"

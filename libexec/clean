@@ -280,9 +280,14 @@ clean_workspaces() {
 # on one host, and the cache of anything else on it is made again too.
 clean_build_cache() {
   local out rc2
-  out=$(docker builder prune -f --filter "until=${after}h" 2>&1)
+  # Bounded well inside the unit's own limit, so a slow prune ends this step
+  # and the scratch cleaning after it still runs.
+  out=$(timeout -k 30 600 docker builder prune -f --filter "until=${after}h" 2>&1)
   rc2=$?
-  if [ "$rc2" != 0 ]; then
+  if [ "$rc2" = 124 ]; then
+    warn "docker builder prune did not finish in 600 seconds"
+    return 1
+  elif [ "$rc2" != 0 ]; then
     warn "docker builder prune failed ($rc2): $(head -n 1 <<<"${out:-docker gave no reason}")"
     return 1
   fi
