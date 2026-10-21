@@ -18,13 +18,15 @@ repository.
 
 ## What the product repository must provide
 
-This is the contract. It lives in the product repository, is written by people,
-and is the only thing tehas reads from it.
+This is the contract. It lives in the product repository and is written by
+people. Tehas reads the gate in `.pi/verify-cmd` of a cycle's clone before the
+cycle starts, and `preview/Dockerfile` of a pull request's commit when previews
+are on; pi-rukas reads the rest of it.
 
 | File                                                     | Purpose                                                                                                                                                                                                          | Required                                |
 | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
 | `AGENTS.md`                                              | The rules agents work under: architecture rules, how to verify, commit style, what never to touch. No sentence granting merge rights, unless you want auto-merge                                                 | Yes                                     |
-| `.pi/verify-cmd`                                         | Fast gate. The first line that is not empty or a comment is run in the cycle's worktree, 30 minute limit by default (`TEHAS_VERIFY_TIMEOUT`). Without it pi-rukas guesses from `package.json` or `Cargo.toml`, and for other stacks verifies nothing | Yes                                     |
+| `.pi/verify-cmd`                                         | Fast gate. The first line that is not empty or a comment is run in the cycle's worktree, 30 minute limit by default (`TEHAS_VERIFY_TIMEOUT`). Without it pi-rukas guesses from `package.json` or `Cargo.toml`, and for other stacks verifies nothing. `tehas work` checks the commit the cycle's clone was made at before the cycle starts: with no gate and neither `package.json` nor `Cargo.toml` there the cycle parks and nothing is pushed | Yes                                     |
 | `.pi/verify-cmd-full`                                    | Full gate, same format; stands in for CI                                                                                                                                                                         | Recommended                             |
 | `.pi/smoke-cmd`                                          | Proves the built product starts, same format                                                                                                                                                                     | Recommended                             |
 | `.pi/worktree-setup`                                     | Shell script run in each new worktree with no arguments and no environment: install dependencies. Must exit 0                                                                                                    | If a bare checkout cannot run the gates |
@@ -36,6 +38,22 @@ This repository is a product too, so its own `AGENTS.md`, `.pi/` and
 `.gitignore` are a small working example to copy from. Make the gates print one
 line per step and exit non-zero on failure. Before going further, prove them by
 hand in a clean checkout.
+
+A repository with no gate is caught before any model time is spent. `tehas
+work` reads `.pi/verify-cmd` at the commit the cycle's clone was made at; when
+its first line that is not empty or a comment is missing, and that commit holds
+neither `package.json` nor `Cargo.toml`, the cycle parks with 78, prints one
+line naming the missing file, and pushes nothing. The clone it made stays on the
+host beside the workspace of the cycle before it, and neither is removed. With
+either of those two files a cycle runs as it did before, because pi-rukas
+derives a gate from them.
+
+Two things follow. Only what is in the commit is read, so a file a person leaves
+uncommitted or untracked in the product checkout decides nothing about whether a
+cycle starts. And the check is one of presence, not of validity: pi-rukas takes
+any file at those paths for a gate, so a stub `package.json` or a one-line
+`.pi/verify-cmd` clears it while the cycle still verifies nothing. It is a guard
+on the cost of a start, not proof that a real gate exists at merge time.
 
 Work lands on the repository's default branch: pi-rukas branches from it and
 the pull request targets it. tehas reads the default branch from the checkout.
