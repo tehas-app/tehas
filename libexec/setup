@@ -231,7 +231,7 @@ put() { # <file> <key> <value> [quoted]
   if [ "$1" = "$env_file" ]; then echo "tehas setup: $2 written to $1"; else echo "tehas setup: $line written to $1"; fi
 }
 [ -f "$inst" ] || printf '%s\n' "# Written by tehas setup: the settings this instance must have. The" \
-  "# optional ones are in instances/example/instance.env of the platform." "" >"$inst"
+  "# optional ones are in instances/example/optional.env of the release." "" >"$inst"
 put "$inst" TEHAS_REPO "$repo"
 put "$inst" TEHAS_CONTROL_ISSUE "$control"
 put "$inst" TEHAS_ALLOWED_LABELERS "$labellers" quoted

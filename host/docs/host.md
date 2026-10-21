@@ -108,7 +108,14 @@ commands a person does.
 
 ## Installing a factory
 
-Two commands, run in this order, and run again as often as the platform
+A new host installs from a release: the installer, then `tehas setup`, as
+[A new project](/new-project#the-install) describes. The installer unpacks the
+release into `~/tehas/versions/<version>`, points `~/tehas/current` at it and
+runs that release's `bootstrap.sh root <user>`; `tehas setup` writes the
+instance and runs `~/tehas/current/install.sh`.
+
+Underneath are the two commands below, the same from a release and from a
+platform checkout, run in this order, and run again as often as the platform
 changes. Neither asks a question, so a program can run them with nothing on
 standard input and nothing to answer:
 
@@ -171,7 +178,7 @@ Everything that differs between instances is in the instance directory:
                    with the session model filled in from instance.env
   sandbox.Dockerfile  optional: a layer the sandbox image is built on top of,
                       by sandbox/build.sh. See
-                      [the sandbox image](/new-project#6-the-sandbox-image)
+                      [the sandbox image](/new-project#5-the-sandbox-image)
 ```
 
 The directory is found in this order: `TEHAS_INSTANCE_DIR` in the environment,
@@ -1026,7 +1033,7 @@ checksums, and the build stops when a pin there does not match the file beside
 the Dockerfile. A product whose gates need another toolchain adds it to the
 instance's own `sandbox.Dockerfile`, which `build.sh` builds on top of this
 image and gives the tag cycles run: see
-[the sandbox image](/new-project#6-the-sandbox-image). The platform's file stays
+[the sandbox image](/new-project#5-the-sandbox-image). The platform's file stays
 as this checkout has it, because a changed one makes `tehas update` refuse.
 
 Two things the base carries are changed on purpose.
