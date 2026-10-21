@@ -10,8 +10,8 @@
 # The console/ directory is in neither: the console comes from pack-release.sh's
 # --console, and an adopter has no toolchain to build its source with. If
 # install.sh reads a file outside these, a release packed without it is broken
-# on the adopter's host, so both lists are checked against install.sh by
-# test/pack_release_test.sh.
+# on the adopter's host, so test/pack_release_test.sh reads the sources of
+# install.sh's own file table and refuses one that no list of this file covers.
 
 tehas_release_dirs() {
   printf '%s\n' bin libexec lib host
