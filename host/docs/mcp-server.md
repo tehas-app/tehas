@@ -100,8 +100,9 @@ the server, `~/tehas/libexec/tehas-mcp`, in a container of its own. The
 container runs as the tehas user, not root, with a read-only root, no
 capabilities, `no-new-privileges`, 256 MB of memory and 64 processes. It is
 given `~/tehas/live`, `~/tehas/mcp` and `~/tehas/logs` read only, the binary,
-the keys as an environment variable and port 8082 on `TEHAS_HOST_ADDR` (the
-loopback address without it), and nothing else: no Docker socket, no SSH key, no token, nothing from
+the keys as an environment variable, the host's names to mask as arguments
+(names, not secrets) and port 8082 on `TEHAS_HOST_ADDR` (the loopback address
+without it), and nothing else: no Docker socket, no SSH key, no token, nothing from
 `~/.config/tehas` but the keys. It is on a network of its own, `tehas-mcp`,
 made without masquerade, so it cannot reach the internet; the host itself is
 still one hop away. The command makes the network, and refuses to start on a
@@ -219,8 +220,10 @@ generated 9 MB file, not a real transcript, kept the server under 40 MB of
 memory.
 
 The mask takes out the tokens, keys, passwords and private addresses it
-knows. It is a net for accidents, not a wall: a log can hold a secret in a
-form the mask does not know.
+knows, and the host's names the dashboard's console hides: the host aliases,
+the host of every model endpoint and the bot's email. It is a net for
+accidents, not a wall: a log can hold a secret in a form the mask does not
+know.
 
 A file that is missing or half written gives a tool error that names it, and
 the server keeps answering. `factory_stats` with analytics off says that
