@@ -9,6 +9,11 @@
 #       one. branch:<name> takes the head of that branch. Prints nothing and
 #       returns 1 when upstream does not answer, has no such tag or branch, or
 #       PI_RUKAS_FOLLOW is neither.
+#
+#   tehas_rukas_image <commit>
+#       the image upstream publishes for that commit of PI_RUKAS_REPO:
+#       ghcr.io/<owner>/<name>:sha-<first 12>, lower case. Returns 1 when
+#       PI_RUKAS_REPO is not a GitHub URL or <commit> is not 40 hex digits.
 
 tehas_rukas_target() {
   local refs name commit=""
@@ -32,4 +37,13 @@ tehas_rukas_target() {
   esac
   [[ $commit =~ ^[0-9a-f]{40}$ ]] || return 1
   printf '%s %s\n' "$commit" "$name"
+}
+
+tehas_rukas_image() { # <commit>
+  local repo=${PI_RUKAS_REPO:-}
+  [[ $1 =~ ^[0-9a-f]{40}$ ]] || return 1
+  [[ $repo =~ ^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || return 1
+  repo=${repo#https://github.com/}
+  repo=${repo%.git}
+  printf 'ghcr.io/%s:sha-%s\n' "$(tr '[:upper:]' '[:lower:]' <<<"$repo")" "${1:0:12}"
 }
