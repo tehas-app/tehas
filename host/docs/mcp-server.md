@@ -152,6 +152,7 @@ the same JSON as text.
 | `factory_stats` | none | The ten-day report the dashboard shows, with `refine`: refining sessions, the issues they filed, how many started and shipped, the lead time of the shipped ones and, to compare, the same counts for the other issues made ready. Counts only. See [Analytics](/analytics) for what each figure means |
 | `factory_sessions` | all optional: `outcome` (`pr`, `merged`, `handoff`, `parked`, `failed`, `refused`, `stopped`), `failureKind`, `tehasVersion`, `rukasVersion` (also matches the commit), `kind` (`work`, `plan`), `how` (`label`, `retry-tick`, `outage-retry`, `fixer`, `answer`, `refine`), `issue`, `limit` from 1 to 200 (50 without it), `before` | The runs of the last 30 days, newest first, filters combined: id, kind, issue, attempt, how, started, ended, seconds, outcome, failedStep, failureKind, failureCause, parkReason, tehasVersion, rukasVersion, and links to the issue and pull request (`issueUrl`, `prUrl`). `next` is the last id when more remain: pass it as `before`. A version or failure kind is matched exactly |
 | `factory_session` | `id`, like `work-12-1792485967` | One run of the last 30 days: every figure of the session, its `steps`, its `roles` (model, provider, tokens), its `logs` as a word and a size in bytes (never a file name), `filed` for a planning session, and `issueUrl` and `prUrl` |
+| `factory_log` | `id`, `file` (a word below), optional `gzip` (false without it), and for a plain read `offset` (0 without it) and `bytes` from 1 to 1048576 (1 MiB without it) | One log file of the session, masked. Plain: `id`, `file`, `size`, `offset`, `text`, and `next`, the offset of the rest, when more remains. With `gzip: true`: the whole masked file compressed, as an embedded resource of type `application/gzip` at `tehas://sessions/<id>/<file>.gz`, and `id`, `file`, `size` and `gzipBytes` as the structured content |
 | `factory_failures` | none | The work runs of the last 30 days per tehas and pi-rukas version pair, the most runs first: `runs`, `outcomes` and `failureKinds` as counts, and `causes`, the five most common as cause, kind, count and up to ten issue links, newest first. Planning sessions are not counted |
 
 The links are built from the `repo` the dashboard publishes, and only when it
@@ -159,6 +160,51 @@ is `owner/name`. Without a valid repo a session has no links and a cause has no
 issues. The session tools read `sessions.jsonl`, which `tehasbot status`
 rewrites on each poll; `stale` is true when it is more than ten minutes old. A
 session older than 30 days, or an id that is not in it, is a tool error.
+
+### Logs
+
+`factory_log` names a file by a word, never by a path. The words a session
+has depend on its kind:
+
+| Kind | Word | File |
+| --- | --- | --- |
+| work | `transcript` | `work-<n>-<stamp>.jsonl`, the runner's event stream |
+| work | `err` | `<transcript>.err`, the runner's standard error |
+| work | `preflight` | `<transcript>.preflight`, the preflight check's output |
+| work | `console` | `<transcript>.console`, the console as written during the run |
+| work | `result` | `<transcript>.result.json`, the runner's result |
+| work | `dispatch` | `dispatch-work-<n>.log` |
+| plan | `progress` | `plan-<n>-<stamp>.jsonl`, the runner's standard error and progress |
+| plan | `result` | `plan-<n>-<stamp>.json`, the runner's result |
+| plan | `dispatch` | `dispatch-plan-<n>.log` |
+
+`dispatch` is per issue: every run of the issue appends to it, and it is
+served whole. A word the session does not have is a tool error that lists the
+ones it has; `factory_session` lists them with their sizes.
+
+The server opens only a file name the sessions snapshot gives for that
+session, and only when the name is the one pattern its word allows for the
+session's kind and issue. The logs directory also holds the host's own logs,
+and nothing else in it can be named. A file that is now a link, or is gone,
+is a tool error that names the word.
+
+Limits:
+
+- A file over 16 MiB is not served, plain or gzipped.
+- A plain read returns at most 1 MiB. Read a larger file in pieces: pass the
+  `next` of one answer as the `offset` of the next. A piece starts and ends
+  on a whole character.
+- Two logs are sent at a time. A third call meanwhile gets a tool error that
+  asks to try again in a few seconds.
+
+Every line is masked before it is sent, so `size`, `offset` and `next` count
+bytes of the masked text, not of the file on the host. The size
+`factory_session` gives is the file's. Two gzip answers of a 9 MB transcript
+at once kept the server under 40 MB of memory.
+
+The mask takes out the tokens, keys, passwords and private addresses it
+knows. It is a net for accidents, not a wall: a log can hold a secret in a
+form the mask does not know.
 
 A file that is missing or half written gives a tool error that names it, and
 the server keeps answering. `factory_stats` with analytics off says that
