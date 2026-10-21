@@ -196,7 +196,9 @@ has depend on its kind:
 | plan | `dispatch` | `dispatch-plan-<n>.log` |
 
 `dispatch` is per issue: every run of the issue appends to it, and it is
-served whole. A word the session does not have is a tool error that lists the
+served whole. Where the improvement loop is on, it removes the `work-*` and
+`dispatch-work-*` logs after seven days (see [the host](/host)), so a work
+session older than that is listed with no logs. A word the session does not have is a tool error that lists the
 ones it has; `factory_session` lists them with their sizes.
 
 The server opens only a file name the sessions snapshot gives for that
