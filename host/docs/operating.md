@@ -616,7 +616,10 @@ issue's approved text, the planner is given the refine brief,
 to plan the request into one issue that a single `/work` cycle finishes: one
 behaviour change, its files by exact path, a named test file for each
 acceptance criterion, what is out of scope, and nothing under `.github/` or
-`.pi/`. A session files one issue, so for a larger request the planner files
+`.pi/`. The part's title starts with its classification as a conventional-commit
+type, `feat:`, `fix:`, `chore:`, `docs:`, `test:` or `refactor:`, keeping one
+the request already has; pi-rukas gives the cycle's pull request the same
+type, where a title without one becomes `chore(work):`. A session files one issue, so for a larger request the planner files
 the first part and lists the rest under "Later parts". Apply `tehas:refine`
 again to the original issue to plan the next part. The label is checked like
 `tehas:plan`: only an allowed account's counts. An issue with both labels is
