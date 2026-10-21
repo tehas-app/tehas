@@ -3,14 +3,20 @@
 
 use mcp::keys::parse_keys;
 use mcp::rpc::{handle, Request, Response};
+use mcp::tools::Dirs;
 use serde_json::{json, Value};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 const K1: &str = "abcdefghijklmnopqrstuvwxyz012345";
 const MODERN: &str = "2026-07-28";
 
-fn live() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/live")
+fn dirs() -> Dirs {
+    let f = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    Dirs {
+        live: f.join("live"),
+        sessions: f.join("sessions"),
+        logs: f.join("logs"),
+    }
 }
 
 fn send(method: &str, headers: &[(&str, &str)], body: &[u8]) -> Response {
@@ -23,7 +29,7 @@ fn send(method: &str, headers: &[(&str, &str)], body: &[u8]) -> Response {
             .collect(),
         body,
     };
-    handle(&req, &keys, &live(), "v9.9.9")
+    handle(&req, &keys, &dirs(), "v9.9.9")
 }
 
 fn json_of(r: &Response) -> Value {
@@ -317,4 +323,29 @@ fn a_legacy_request_on_an_older_version_is_unsupported() {
     );
     assert_eq!(r.status, 400);
     assert_eq!(json_of(&r)["error"]["code"], -32022);
+}
+
+#[test]
+fn instructions_name_the_tools_and_the_window() {
+    let auth = format!("Bearer {K1}");
+    let init = json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": {"protocolVersion": "2025-11-25", "capabilities": {},
+                   "clientInfo": {"name": "old", "version": "1"}}})
+    .to_string();
+    let legacy = json_of(&send("POST", &[("Authorization", &auth)], init.as_bytes()));
+    let modern = json_of(&modern("server/discover", json!({})));
+    for res in [&legacy["result"], &modern["result"]] {
+        let text = res["instructions"].as_str().unwrap();
+        for word in [
+            "factory_failures",
+            "factory_sessions",
+            "factory_session",
+            "factory_log",
+            "30 days",
+            "gzip",
+        ] {
+            assert!(text.contains(word), "{word}: {text}");
+        }
+        assert!(text.len() < 600, "{}", text.len());
+    }
 }

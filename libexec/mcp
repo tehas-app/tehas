@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # The read-only MCP server: run it, or make a key for it.
 #
-# The server answers agents outside this host with what the dashboard already
-# publishes under live/, behind the keys in TEHAS_MCP_KEYS. It is the binary
-# install.sh builds as libexec/tehas-mcp, run in a container that is given
-# live/ read-only, the binary, its port and the keys, and nothing else: no
+# The server answers agents outside this host with what the dashboard
+# publishes under live/, and the sessions of the last 30 days and their logs,
+# behind the keys in TEHAS_MCP_KEYS. It is the binary install.sh builds as
+# libexec/tehas-mcp, run in a container that is given live/, mcp/ (the
+# sessions snapshot) and logs/ read-only, the binary, its port and the keys,
+# and nothing else: no
 # other part of the home, no settings, no token, no Docker socket, no
 # capability, not root. Its network, tehas-mcp, has no masquerade, so the
 # container reaches nothing beyond the host. That container is a security
@@ -21,8 +23,9 @@
 #        tehas mcp key         print a new key; writes nothing
 #
 # Exit: 0 the server ended, or it is off; or a key was printed;
-#       1 the binary or the image's digest is missing (run install.sh), or a
-#         network named tehas-mcp exists that lets the container out;
+#       1 the binary or the image's digest is missing (run install.sh), a
+#         network named tehas-mcp exists that lets the container out, or
+#         ~/tehas/mcp cannot be made;
 #       64 an unknown argument;
 #       78 the instance settings, TEHAS_MCP or TEHAS_MCP_KEYS are missing or
 #          malformed.
@@ -76,14 +79,21 @@ serve() {
       { tehas_err "could not make the network tehas-mcp"; exit 1; }
   fi
 
+  # Made here, so Docker does not make it as root. The snapshot in it is
+  # private: it holds what the agents saw.
+  if ! mkdir -p "$TEHAS_HOME/mcp" || ! chmod 700 "$TEHAS_HOME/mcp"; then
+    tehas_err "could not make $TEHAS_HOME/mcp"; exit 1
+  fi
+
   docker rm -f tehas-mcp >/dev/null 2>&1
   export TEHAS_MCP_KEYS
   exec docker run --rm --init --name tehas-mcp --user "$(id -u):$(id -g)" --network tehas-mcp --read-only --cap-drop ALL \
-    --security-opt no-new-privileges:true --memory 64m --pids-limit 64 \
+    --security-opt no-new-privileges:true --memory 256m --pids-limit 64 \
     -p "${TEHAS_HOST_ADDR:-127.0.0.1}:8082:8082" \
-    -v "$TEHAS_HOME/live:/live:ro" -v "$bin:/tehas-mcp:ro" \
+    -v "$TEHAS_HOME/live:/live:ro" -v "$TEHAS_HOME/mcp:/sessions:ro" -v "$TEHAS_HOME/logs:/logs:ro" \
+    -v "$bin:/tehas-mcp:ro" \
     -e TEHAS_MCP_KEYS --entrypoint /tehas-mcp "caddy@$digest" \
-    --live /live --listen 0.0.0.0:8082 --server-version "${version:-unknown}"
+    --live /live --sessions /sessions --logs /logs --listen 0.0.0.0:8082 --server-version "${version:-unknown}"
 }
 
 case "${1-}" in

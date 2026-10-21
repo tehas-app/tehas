@@ -7,9 +7,8 @@
 //! `MCP-Protocol-Version: 2025-11-25`. No session is kept for either.
 
 use crate::keys::Keys;
-use crate::tools::{self, ToolError};
+use crate::tools::{self, Dirs, Output, ToolError};
 use serde_json::{json, Value};
-use std::path::Path;
 
 pub const MODERN: &str = "2026-07-28";
 pub const LEGACY: &str = "2025-11-25";
@@ -17,6 +16,15 @@ pub const MAX_BODY: usize = 65536;
 const VERSION_KEY: &str = "io.modelcontextprotocol/protocolVersion";
 const SERVER_INFO_KEY: &str = "io.modelcontextprotocol/serverInfo";
 const LIST_TTL_MS: u64 = 30000;
+
+/// Sent in both handshakes: how to use the tools.
+pub const INSTRUCTIONS: &str =
+    "This is a tehas software factory, read only: no tool changes anything. \
+To see what went wrong, call factory_failures, then factory_sessions with outcome \"failed\", \
+then factory_session for one of them, then factory_log for one of its logs. \
+Sessions cover the last 30 days, and logs are masked. \
+Ask for gzip: true to get a transcript whole; read a plain log in pieces with offset. \
+The manual is at /mcp-server on the factory's site.";
 
 pub struct Request<'a> {
     pub method: &'a str,
@@ -81,12 +89,12 @@ fn unsupported(id: &Value, requested: &str) -> Response {
     )
 }
 
-pub fn handle(req: &Request, keys: &Keys, live: &Path, server_version: &str) -> Response {
+pub fn handle(req: &Request, keys: &Keys, dirs: &Dirs, server_version: &str) -> Response {
     let key = match gate(req, keys) {
         Ok(k) => k,
         Err(r) => return r,
     };
-    let mut r = answer(req, live, server_version);
+    let mut r = answer(req, dirs, server_version);
     r.key = Some(key);
     r
 }
@@ -99,18 +107,23 @@ pub fn gate(req: &Request, keys: &Keys) -> Result<String, Response> {
     if header(req, "Origin").is_some() {
         return Err(Response::empty(403));
     }
-    if req.method != "POST" {
-        return Err(Response::empty(405));
-    }
-    keys.check(header(req, "Authorization")).ok_or_else(|| {
+    // The key before the method: without one, nothing about the server is
+    // said, not even which methods it takes.
+    let key = keys.check(header(req, "Authorization")).ok_or_else(|| {
         let mut r = Response::empty(401);
         r.headers.push(("WWW-Authenticate".into(), "Bearer".into()));
         r
-    })
+    })?;
+    if req.method != "POST" {
+        let mut r = Response::empty(405);
+        r.key = Some(key);
+        return Err(r);
+    }
+    Ok(key)
 }
 
 /// The answer to a request that passed the gate.
-pub fn answer(req: &Request, live: &Path, server_version: &str) -> Response {
+pub fn answer(req: &Request, dirs: &Dirs, server_version: &str) -> Response {
     if req.body.len() > MAX_BODY {
         return Response::empty(413);
     }
@@ -146,6 +159,7 @@ pub fn answer(req: &Request, live: &Path, server_version: &str) -> Response {
             "resultType": "complete",
             "supportedVersions": [MODERN, LEGACY],
             "capabilities": {"tools": {}},
+            "instructions": INSTRUCTIONS,
             "ttlMs": LIST_TTL_MS,
             "cacheScope": "private",
         }),
@@ -156,6 +170,7 @@ pub fn answer(req: &Request, live: &Path, server_version: &str) -> Response {
                     "protocolVersion": LEGACY,
                     "capabilities": {"tools": {}},
                     "serverInfo": info,
+                    "instructions": INSTRUCTIONS,
                 }}),
             )
         }
@@ -169,11 +184,24 @@ pub fn answer(req: &Request, live: &Path, server_version: &str) -> Response {
         ("tools/call", _) => {
             let name = params["name"].as_str().unwrap_or("");
             let args = params.get("arguments").cloned().unwrap_or(json!({}));
-            match tools::call(live, name, &args) {
-                Ok(v) => json!({
+            match tools::call(dirs, name, &args) {
+                Ok(Output::Json(v)) => json!({
                     "resultType": "complete",
                     "content": [{"type": "text", "text": v.to_string()}],
                     "structuredContent": v,
+                }),
+                Ok(Output::Blob {
+                    meta,
+                    uri,
+                    mime,
+                    blob,
+                }) => json!({
+                    "resultType": "complete",
+                    "content": [
+                        {"type": "text", "text": meta.to_string()},
+                        {"type": "resource", "resource": {"uri": uri, "mimeType": mime, "blob": blob}},
+                    ],
+                    "structuredContent": meta,
                 }),
                 Err(ToolError::Unknown(n)) => {
                     return error(200, &id, -32602, &format!("Unknown tool: {n}"), None)

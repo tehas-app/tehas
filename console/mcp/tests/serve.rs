@@ -9,9 +9,10 @@ use std::time::Duration;
 const BIN: &str = env!("CARGO_BIN_EXE_tehas-mcp");
 const K1: &str = "abcdefghijklmnopqrstuvwxyz012345";
 
-fn live() -> String {
+fn fixture(name: &str) -> String {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/live")
+        .join("tests/fixtures")
+        .join(name)
         .display()
         .to_string()
 }
@@ -43,7 +44,11 @@ impl Server {
         let mut child = Command::new(BIN)
             .args([
                 "--live",
-                &live(),
+                &fixture("live"),
+                "--sessions",
+                &fixture("sessions"),
+                "--logs",
+                &fixture("logs"),
                 "--listen",
                 "127.0.0.1:0",
                 "--server-version",
@@ -126,6 +131,14 @@ impl Server {
     }
 }
 
+// A test that panics still stops its server, which holds the test's output.
+impl Drop for Server {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
 const LEGACY_LIST: &[u8] = br#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}"#;
 
 #[test]
@@ -134,6 +147,10 @@ fn no_keys_is_78_naming_the_setting() {
         None,
         &[
             "--live",
+            "/x",
+            "--sessions",
+            "/x",
+            "--logs",
             "/x",
             "--listen",
             "127.0.0.1:1",
@@ -153,6 +170,10 @@ fn a_bad_key_is_78_and_not_printed() {
         &[
             "--live",
             "/x",
+            "--sessions",
+            "/x",
+            "--logs",
+            "/x",
             "--listen",
             "127.0.0.1:1",
             "--server-version",
@@ -167,7 +188,13 @@ fn a_bad_key_is_78_and_not_printed() {
 fn a_missing_argument_is_78() {
     let (rc, err) = run_once(Some(K1), &["--live", "/x"]);
     assert_eq!(rc, 78);
-    assert!(err.contains("--listen"), "{err}");
+    assert!(err.contains("--sessions is missing"), "{err}");
+    let (rc, err) = run_once(
+        Some(K1),
+        &["--live", "/x", "--sessions", "/x", "--logs", "/x"],
+    );
+    assert_eq!(rc, 78);
+    assert!(err.contains("--listen is missing"), "{err}");
 }
 
 #[test]
@@ -337,4 +364,95 @@ fn a_method_cannot_write_into_the_log() {
     let log = s.stop();
     assert!(!log.contains("FORGED"), "{log}");
     assert!(!log.contains('\x1b'), "{log}");
+}
+
+fn post_raw(
+    method: &str,
+    path: &str,
+    auth: Option<&str>,
+    headers: &[(&str, &str)],
+    body: &str,
+) -> Vec<u8> {
+    let mut req = format!(
+        "{method} {path} HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: {}\r\n",
+        body.len()
+    );
+    if let Some(a) = auth {
+        req.push_str(&format!("Authorization: {a}\r\n"));
+    }
+    for (k, v) in headers {
+        req.push_str(&format!("{k}: {v}\r\n"));
+    }
+    req.push_str("\r\n");
+    req.push_str(body);
+    req.into_bytes()
+}
+
+fn assert_refused(out: &str, what: &str) {
+    let (head, body) = out.split_once("\r\n\r\n").unwrap_or((out, ""));
+    let head = format!("{head}\r\n");
+    assert!(head.starts_with("HTTP/1.1 401 "), "{what}: {out}");
+    assert!(
+        head.contains("\r\nWWW-Authenticate: Bearer\r\n"),
+        "{what}: {out}"
+    );
+    assert!(head.contains("\r\nContent-Length: 0\r\n"), "{what}: {out}");
+    assert!(body.is_empty(), "{what}: {out}");
+}
+
+// What it is, its body and its headers beyond the version.
+type Unkeyed = (String, String, Vec<(&'static str, String)>);
+
+// The sessions and logs are behind the key: no method and no tool answers
+// without one, and the tools are taken from the list so a new one is covered.
+#[test]
+fn every_method_and_tool_needs_a_key() {
+    let s = Server::start();
+    let wait = Duration::from_secs(3);
+    let meta = serde_json::json!({"io.modelcontextprotocol/protocolVersion": "2026-07-28"});
+    let mut requests: Vec<Unkeyed> = vec![];
+    for method in ["server/discover", "initialize", "ping", "tools/list"] {
+        let body = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": method,
+            "params": {"_meta": meta}});
+        requests.push((
+            method.to_string(),
+            body.to_string(),
+            vec![("Mcp-Method", method.to_string())],
+        ));
+    }
+    let tools = mcp::tools::list();
+    let names: Vec<&str> = tools
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap())
+        .collect();
+    assert!(!names.is_empty());
+    for name in names {
+        let body = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": name, "arguments": {}, "_meta": meta}});
+        requests.push((
+            name.to_string(),
+            body.to_string(),
+            vec![
+                ("Mcp-Method", "tools/call".to_string()),
+                ("Mcp-Name", name.to_string()),
+            ],
+        ));
+    }
+    let wrong = format!("Bearer {}x", &K1[..31]);
+    let basic = format!("Basic {K1}");
+    for (what, body, extra) in &requests {
+        let mut h: Vec<(&str, &str)> = vec![("MCP-Protocol-Version", "2026-07-28")];
+        h.extend(extra.iter().map(|(k, v)| (*k, v.as_str())));
+        for auth in [None, Some(wrong.as_str()), Some(basic.as_str())] {
+            let (_, out) = s.raw(&post_raw("POST", "/mcp", auth, &h, body), wait);
+            assert_refused(&out, &format!("{what} with {auth:?}"));
+        }
+    }
+    let (_, out) = s.raw(&post_raw("GET", "/mcp", None, &[], ""), wait);
+    assert_refused(&out, "GET /mcp");
+    let (_, out) = s.raw(&post_raw("POST", "/other", None, &[], "{}"), wait);
+    assert_refused(&out, "POST /other");
+    s.stop();
 }
