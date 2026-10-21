@@ -5,8 +5,8 @@
 //! issue number, title, failure cause, account, model or provider.
 //!
 //! The window is ten UTC days: from the midnight nine days before `to`'s
-//! day, to `to`, the time of the report. Prune keeps ten days back from now,
-//! so all of it is in the database.
+//! day, to `to`, the time of the report. Prune keeps 365 days back from
+//! now, so all of it is in the database.
 //!
 //! Every figure carries its count `n`. A value that cannot be worked out,
 //! such as a share of nothing, is left out, never null. Work runs (kind

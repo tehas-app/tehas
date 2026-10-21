@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # The calls of the analytics program, $TEHAS_HOME/libexec/analytics, which
-# keeps the factory's ten days of runs, issue events and samples in
+# keeps the factory's 365 days of runs, issue events and samples in
 # state/analytics.db. Sourced by libexec/cycle, libexec/dispatch and
 # libexec/status, and written for them: it uses their log().
 #

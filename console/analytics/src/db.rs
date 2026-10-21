@@ -9,7 +9,7 @@ use std::time::Duration;
 /// PRAGMA user_version of the schema in schema.sql.
 pub const SCHEMA_VERSION: i64 = 1;
 pub const SCHEMA: &str = include_str!("schema.sql");
-pub const RETENTION_DAYS: i64 = 10;
+pub const RETENTION_DAYS: i64 = 365;
 const DAY: i64 = 86_400;
 
 pub const EVENTS: [&str; 7] = [
@@ -65,7 +65,7 @@ fn side_file(file: &Path, side: &str) -> PathBuf {
 }
 
 /// Deletes the databases of other schema versions, and their side files,
-/// whose last write is more than ten days old: by then every row in them is.
+/// whose last write is more than 365 days old: by then every row in them is.
 pub fn prune_aside(file: &Path, now: i64) {
     let (Some(dir), Some(name)) = (file.parent(), file.file_name().and_then(|n| n.to_str())) else {
         return;
@@ -214,7 +214,7 @@ pub fn event(conn: &Connection, issue: i64, event: &str, at: i64) -> rusqlite::R
     Ok(n == 1)
 }
 
-/// Deletes what is older than ten days. A run is as old as its end. The
+/// Deletes what is older than 365 days. A run is as old as its end. The
 /// events of an issue that started and has not ended stay past the cutoff
 /// while the start is less than a day older than it: no cycle runs a day, so
 /// an issue whose end was never recorded does not keep its events for ever.
@@ -232,6 +232,11 @@ pub fn prune(conn: &Connection, now: i64) -> rusqlite::Result<()> {
         [cutoff, cutoff - DAY],
     )?;
     tx.execute("DELETE FROM samples WHERE at < ?1", [cutoff])?;
+    // A database made when retention was shorter says what it is now.
+    tx.execute(
+        "UPDATE meta SET value = ?1 WHERE key = 'retention_days' AND value <> ?1",
+        [RETENTION_DAYS.to_string()],
+    )?;
     tx.commit()
 }
 
