@@ -67,6 +67,32 @@
   "planningTurns": {
     "n": 0
   },
+  "refine": {
+    "filedIssues": [
+      12,
+      13
+    ],
+    "leadTime": {
+      "issues": [
+        12
+      ],
+      "median": 43400,
+      "n": 1,
+      "p90": 43400
+    },
+    "n": 3,
+    "others": {
+      "buzzwords": "x",
+      "n": 5,
+      "shipped": 2,
+      "shippedShare": 0.4,
+      "started": 4
+    },
+    "sessions": 4,
+    "shipped": 1,
+    "shippedShare": 0.333,
+    "started": 2
+  },
   "report": 1,
   "runs": {
     "failed": 9,
@@ -78,6 +104,7 @@
     "refused": 0,
     "stopped": 3
   },
+  "secretKey": "SECRET",
   "shipped": {
     "n": 8
   },
@@ -129,6 +156,5 @@
       "rukas": "76bac4c8a8903abb55e93b1bdd80f12d13304be9",
       "tehas": "v0.7.27"
     }
-  ],
-  "secretKey": "SECRET"
+  ]
 }
