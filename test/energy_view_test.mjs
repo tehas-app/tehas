@@ -108,8 +108,8 @@ test("bands follow the rows, and the ninth is the first colour again", () => {
   assert.deepEqual(v.rows.map((r) => r.band), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
   assert.deepEqual(v.columns[119].map((p) => p.band), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
   assert.deepEqual(BANDS.length, 8);
-  // Every band colour is a 12-bit colour (the Twelve Bit Rule).
-  for (const c of BANDS) assert.deepEqual(/^#[0-9a-f]{3}$/.test(c), true);
+  // Every band is a theme token (test/theme_test.sh checks every theme sets it).
+  assert.deepEqual(BANDS, Array.from({ length: 8 }, (_, i) => `band-${i + 1}`));
 });
 
 test("a machine that has left keeps its band in the window, above the rest", () => {
@@ -368,9 +368,14 @@ for (const drop of VIEW) {
   test(`a page with no ${drop} throws nothing and draws nothing`, async () => {
     const p = await page([drop], `no-${drop}`);
     assert.deepEqual(p.errors, []);
-    assert.equal(p.reads, 1); // the read happened; the guard stopped the draw
+    // Without the section nothing runs at all: a page that imports layout()
+    // alone, as the business page does, reads nothing. Without the menu link or
+    // the meter the read happens and the guard stops the draw.
+    assert.equal(p.reads, drop === "energy" ? 0 : 1);
     assert.equal(p.hidden[VIEW.indexOf(drop)], "absent"); // the element the page lacks
-    assert.deepEqual(p.hidden.filter((v, i) => VIEW[i] !== drop), [false, false]); // the rest untouched
+    // The rest untouched; without the section, not even looked up.
+    const rest = drop === "energy" ? ["absent", "absent"] : [false, false];
+    assert.deepEqual(p.hidden.filter((v, i) => VIEW[i] !== drop), rest);
     assert.deepEqual(p.drawn, {}); // not the chart, not a swatch
   });
 }

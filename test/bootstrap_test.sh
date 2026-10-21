@@ -33,6 +33,7 @@ all_present() {
   t_stub ctx7 "echo $CTX7_VERSION"
   t_stub parallel-cli "echo 'parallel-cli, version $PARALLEL_CLI_VERSION'"
   t_stub rustc "echo 'rustc $RUST_VERSION (abc 2026-09-28)'"
+  t_stub rustup 'printf "%s\n" x86_64-unknown-linux-gnu x86_64-unknown-linux-musl'
   t_stub vipune "echo 'vipune $VIPUNE_VERSION'"
   t_stub oo "echo 'oo $OO_VERSION'"
   t_stub codebase-memory-mcp "echo 'codebase-memory-mcp $CBM_VERSION'"
@@ -130,6 +131,30 @@ rm "$T/bin/vipune"
 t_run "$bootstrap check"
 t_eq "$t_rc" 1
 t_contains "$(grep '^vipune ' <<<"$t_out")" "MISSING"
+
+t_case "rust without the static target the MCP server is built for is reported missing"
+all_present
+t_stub rustup 'echo x86_64-unknown-linux-gnu'
+t_run "$bootstrap check"
+t_eq "$t_rc" 1
+t_contains "$(grep '^rust ' <<<"$t_out")" "MISSING"
+
+t_case "user adds the static target to the pinned toolchain"
+all_present
+t_stub rustup 'case "$*" in
+  "target add"*) touch "$T/musl" ;;
+  "target list"*) echo x86_64-unknown-linux-gnu; [ ! -f "$T/musl" ] || echo x86_64-unknown-linux-musl ;;
+esac'
+t_stub npm
+t_stub cargo
+t_stub tar
+rm -f "$T"/calls/* "$T/musl"
+t_run "$bootstrap user"
+t_eq "$t_rc" 0
+t_contains "$(t_calls rustup)" "target add x86_64-unknown-linux-musl --toolchain $RUST_VERSION"
+t_run "$bootstrap check"
+t_lacks "$(grep '^rust ' <<<"$t_out")" "MISSING"
+all_present
 
 t_case "pi-rukas at another commit is reported"
 all_present

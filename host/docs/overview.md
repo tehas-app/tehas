@@ -27,7 +27,7 @@ The examples on this site come from the instance that works on tehas itself:
 | Thing            | Value in the example                                    |
 | ---------------- | ------------------------------------------------------- |
 | Host             | `tehas-tehas`, Unix user `boss` (`ssh boss@tehas-tehas`) |
-| Product          | `tehas-org/tehas`, default branch `main`                     |
+| Product          | `tehas-app/tehas`, default branch `main`                     |
 | Product checkout | `~/tehas/repos/tehas`                                        |
 | Platform checkout | `~/tehas/platform`, pulled with a read-only deploy key |
 | Settings         | `instances/tehas-tehas/` in the platform checkout       |
@@ -81,6 +81,8 @@ the factory works the same without it.
 | Previews             | `TEHAS_PREVIEWS=1` with `TEHAS_DOMAIN`, and a `preview/Dockerfile` in the product. See [Previews](/edge) | A pull request is read on GitHub only          |
 | Search indexing      | `TEHAS_INDEXING=1`, for an instance published on the internet                                    | Every page says noindex                                |
 | Visitor analytics    | `TEHAS_ANALYTICS_SRC` and `TEHAS_ANALYTICS_SITE`, for an instance that wants to count visits     | No script is loaded                                    |
+| Theme                | `TEHAS_THEME=paper` or `beesknees`, for plain type or a business look instead of the 16-bit one   | The pages are pixel                                    |
+| Front page           | `TEHAS_LAYOUT=business`, for the business page at `/` instead of the factory floor               | The front page is the floor                            |
 | Factory floor        | The game view on the front page. The [plain dashboard](/dashboard) shows the same queue          | Use `/dashboard`                                       |
 
 ## Start here

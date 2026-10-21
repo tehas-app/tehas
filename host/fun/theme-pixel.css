@@ -1,0 +1,116 @@
+/* Pixel: the factory as a 16-bit overworld, the look DESIGN.md describes.
+   Square corners, flat fills, hard shadows, one bitmap typeface.
+
+   A theme is one file, theme-<name>.css beside this one, that sets every token
+   below; nothing else on the site names a colour, a typeface or a shadow. The
+   instance picks one with TEHAS_THEME (lib/config.sh lists the names), and the
+   servers answer /fun/theme.css with it.
+   test/theme_test.sh checks that every theme sets the same tokens and that the
+   pages use no others. Every colour here is twelve bits (#RGB). */
+
+@font-face {
+  font-family: Topaz;
+  src: url("/fun/TopazPlus_a1200_v1.0.ttf") format("truetype");
+  font-display: block;
+}
+
+:root {
+  /* Type. Text is 16px and 32px in every theme: the layout counts on it. */
+  --font: Topaz, "Courier New", monospace;
+  --font-code: Topaz, "Courier New", monospace;
+  --font-smoothing: none;
+  /* The business page's sizes. Pixel keeps Topaz at its two sizes. */
+  --type-small: 16px;
+  --type-body: 16px;
+  --type-big: 32px;
+  --radius: 0;
+
+  /* The ground everything stands on. */
+  --field: #694;
+  --field-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='128' height='128' shape-rendering='crispEdges'%3E%3Cpath fill='%238a5' d='M16 24h8v8h-8zM24 16h8v8h-8zM88 80h8v8h-8zM96 72h8v8h-8zM64 8h8v8h-8zM32 104h8v8h-8z'/%3E%3C/svg%3E");
+
+  /* Faces of the objects on it. */
+  --surface: #eec;
+  --surface-quiet: #dca;
+  --surface-head: #ccd;
+  --accent: #ea3;
+  --accent-soft: #fc6;
+
+  /* Text. */
+  --text: #222;
+  --text-quiet: #445;
+  --text-cool: #276;
+  --text-warm: #712;
+  --text-on-good: #222;
+  --text-on-bad: #eec;
+
+  /* Lines. --edge is the width of every outline; layout that steps over an
+     outline counts in it. */
+  --line: #111;
+  --rule: #aab;
+  --edge: 4px;
+  --frame: var(--edge) solid var(--line);
+  --focus: 4px solid var(--text);
+
+  /* The dark screens: the monitor, the console, the charts and the game. */
+  --screen: #111;
+  --screen-text: #fc6;
+  --screen-quiet: #aab;
+
+  /* State, used only by the factory state tag and the analytics bars. */
+  --good: #8a5;
+  --bad: #a32;
+
+  /* Depth: hard offset shadows, no blur. -up is the same object lifted. */
+  --shadow-card: 4px 4px 0 #333;
+  --shadow-card-up: 8px 8px 0 #333;
+  --shadow-sign: 8px 8px 0 #352;
+  --shadow-sign-up: 12px 12px 0 #352;
+  --ring: 0 0 0 4px var(--accent);
+  --stripe: 0 8px 0 var(--accent);
+
+  /* Movement of what is pressed: lifted when pointed at, onto its shadow when
+     pressed. A sign stands further off than a button. */
+  --lift: translate(-4px, -4px);
+  --press: translate(4px, 4px);
+  --press-sign: translate(8px, 8px);
+
+  /* The stages of the line on the business page, each with a pale face
+     for the ticket box behind text. */
+  --stage-proto: #758;
+  --stage-proto-soft: #dcd;
+  --stage-line: #445;
+  --stage-line-soft: #ccd;
+  --stage-build: #276;
+  --stage-build-soft: #bdb;
+  --stage-review: #a62;
+  --stage-review-soft: #fc6;
+  --stage-stop: #a32;
+  --stage-stop-soft: #ecb;
+  --stage-ship: #357;
+  --stage-ship-soft: #bce;
+
+  /* A prototype keeps a page's white ground: it is the prototype's own. */
+  --prototype-ground: #fff;
+
+  /* Canvas colours. A canvas cannot read var(), so theme.js reads these. */
+  --band-1: #ea3;
+  --band-2: #4a9;
+  --band-3: #c53;
+  --band-4: #7cb;
+  --band-5: #ccd;
+  --band-6: #b97;
+  --band-7: #694;
+  --band-8: #fc6;
+  --piece-1: #fc6;
+  --piece-2: #ea3;
+  --piece-3: #7cb;
+  --piece-4: #ccd;
+  --piece-text: #144;
+  --game-ground: #222;
+  --game-floor: #445;
+  --game-shadow: #111;
+  --game-ball: #eec;
+  --game-paddle: #fc6;
+  --game-flash: #eec;
+}

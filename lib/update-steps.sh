@@ -55,7 +55,7 @@
 # named here is not restarted, because restarting it would run the job off
 # schedule; its changed definition reaches it when the units step asks systemd to
 # reload.
-tehas_units() { printf '%s\n' tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer; }
+tehas_units() { printf '%s\n' tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer; }
 
 tehas_step_ids() { printf '%s\n' units sandbox docs edge; }
 
@@ -73,6 +73,9 @@ tehas_steps_for() { # changed source paths -> one step per line
       units=$(tehas_units | tr '\n' ' ')
       echo "units ${units% }"
       ;;
+    # The MCP server's container mounts its binary: a new one reaches it only
+    # when the unit starts the container again.
+    *" libexec/mcp "* | *"/tehas-mcp "*) echo "units tehas-mcp.service" ;;
   esac
   case "$list" in
     *" sandbox/"* | *" versions.env "*) echo sandbox ;;
@@ -250,6 +253,23 @@ tehas_record_steps() { # one step line per argument
     if [ "$seen" = 0 ]; then merged+=("$line"); fi
   done
   if [ "${#merged[@]}" = 0 ]; then return 0; fi
+  # A units step whose units another units step names too is done by that one.
+  local kept=() unit covered
+  for line in "${merged[@]}"; do
+    covered=0
+    if [ "${line%% *}" = units ]; then
+      for have in "${merged[@]}"; do
+        [ "${have%% *}" = units ] && [ "$have" != "$line" ] || continue
+        covered=1
+        for unit in ${line#units }; do
+          case " ${have#units } " in *" $unit "*) ;; *) covered=0 ;; esac
+        done
+        [ "$covered" = 0 ] || break
+      done
+    fi
+    [ "$covered" = 1 ] || kept+=("$line")
+  done
+  merged=("${kept[@]}")
   # Sorted as whole lines: a units step carries spaces, so it is read back one
   # line at a time rather than word-split.
   while IFS= read -r line; do sorted+=("$line"); done < <(tehas_sort_steps "${merged[@]}")
