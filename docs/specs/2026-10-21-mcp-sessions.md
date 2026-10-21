@@ -140,13 +140,9 @@ in the tool description; cutting it to one run is not attempted.
 
 The `<stamp>` is `date -u +%y%m%d-%H%M%S` at the start of `libexec/work`,
 close to but not equal to the run's `started`. The run row does not name its
-transcript today. The builder adds that: a new column (for example `log`, the
-transcript's base name) written when the run is recorded. Within schema 1
-columns may only be added, so this is allowed, and the analytics page and
-`schema.pinned` change with it. For rows written before the column exists, the
-server may find it as the analytics program already does when it records a
-run (`work_log` in `console/analytics/src/run.rs`), or leave the logs out.
-Builder's call; say which in the manual.
+transcript, and no column is added for it: the snapshot finds a run's files by
+the stamp in their names, the latest in `[started - 300, ended]`. That works
+for rows written before this change too (decided in the plan).
 
 ## Tools
 
@@ -229,11 +225,10 @@ The console's mask (`console/src/mask.rs`) runs over every log byte the
 server sends, the same mask the dashboard's console uses. It is a net for
 accidents, not a guarantee, and the manual says so.
 
-- The mask runs on text. It is applied line by line so a 9 MB file is not
-  held twice. A line longer than a bound the builder sets is masked in
-  pieces with overlap, so a token across the cut is still caught.
-- Plain reads with `offset` mask from the start of the line that holds
-  `offset`, so a token cut by the caller's offset is still masked.
+- The mask runs on whole lines. Files over 16 MiB are not served, so no line
+  is cut and no token falls across a cut.
+- Plain `offset` and `bytes` count bytes of the masked text, so a token is
+  masked before the caller's offset can cut it.
 - The mask moves into a small shared crate, or the MCP crate depends on the
   console crate's mask. Builder's call; the console and the server must use
   the same code, not a copy.
@@ -280,7 +275,6 @@ without a key, 2026-10-21).
 ## Left to the builder
 
 - Choice A or B for where the data comes from.
-- The log column's name and how older rows find their transcript.
 - The container's memory limit.
 - Where the shared mask lives.
 - The top-causes count in `factory_failures`, and the tool descriptions.
