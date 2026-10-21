@@ -2798,6 +2798,79 @@ protected, so a person adds it against the interface above, and the statuses
 above are the two it branches on. Until they do, the only releases are the ones
 made by hand with the command above.
 
+## Polyfills of pi-rukas features
+
+A polyfill is what tehas does itself for a pi-rukas feature that no release has
+yet, so tehas need not wait for the release. It ends when pi-rukas has the
+feature. It is only for work pi-rukas has taken on: an issue that asks for the
+feature and a pull request that builds it. A feature with no pull request
+upstream gets no polyfill; it is asked for upstream first. Each check of a pi-rukas feature asks one function,
+`tehas_headless_mode <caps> <feature>` in `lib/headless.sh`, where `<feature>`
+is a key of `features` in the runner's `--capabilities` answer. It says one of
+three things:
+
+| Answer     | When                                                    |
+| ---------- | ------------------------------------------------------- |
+| `native`   | the answer sets the feature to `true`                    |
+| `polyfill` | it does not, and tehas carries `lib/polyfill-<feature>.sh` |
+| `off`      | neither                                                 |
+
+`native` wins, so a host stops using a polyfill the moment its sandbox image
+has the feature, before the code is removed. The refresh (`continuePr`), the
+planning turns (`planTurns`) and the cycle deadline (`cycleDeadlineHandoffAllowance`)
+are read this way. None of them has a polyfill.
+
+A polyfill of the feature `<f>` is three things, and nothing else may use it:
+
+- `lib/polyfill-<f>.sh`, with two header lines naming where pi-rukas adds the
+  feature: `# Upstream issue: <owner>/<repo>#<n>` and
+  `# Upstream PR: <owner>/<repo>#<n>`
+- `test/polyfill_<f>_test.sh`, its test
+- the lines that call it, each a line of its own ending in `# polyfill <f>`,
+  such as the `polyfill)` arm of a `case` on the mode
+
+A polyfill gives the container nothing a cycle does not already get: the
+mounts and variables of `tehas work` stay as `test/work_test.sh` pins them.
+What cannot be done that way is not a polyfill; it waits for pi-rukas.
+
+`scripts/polyfills.sh` reads a tree and a `--capabilities` answer and nothing
+else:
+
+```
+scripts/polyfills.sh list               # each polyfill, its upstream issue and pull request
+scripts/polyfills.sh check              # each names both and has its test, each marker a polyfill
+scripts/polyfills.sh expired caps.json  # the ones the answer makes unnecessary
+scripts/polyfills.sh prune caps.json    # remove those: their files and marked lines
+```
+
+`prune` checks that each shell file it changed still parses, and exits 1 when
+one does not: a marked line that was part of a larger statement. The fast gate
+runs `check` on this checkout.
+
+### Removed before a release
+
+`scripts/tag-release.sh` does this when the head carries any polyfill. It asks
+the pi-rukas that `host/versions.env` follows for its `--capabilities`, in the
+image upstream publishes for that commit, or reads the answer from
+`--rukas-caps <file>`. When the answer has the feature of a polyfill, it
+removes that polyfill on a branch `remove-polyfills-<tag>`, runs the gate there,
+pushes the branch, opens a pull request and exits 2 without tagging. A person
+merges it and runs the script again. While a pull request from a
+`remove-polyfills-` branch is open, the script names it and exits 2 again.
+Nothing merges on its own.
+
+A pi-rukas that cannot be asked stops the release with 1: whether a polyfill
+is still needed is not known.
+
+Each polyfill it keeps is checked against GitHub. When its upstream issue or
+pull request cannot be found, or the pull request was closed without a merge,
+the release stops with 1 and names it: nothing upstream will replace it, so it
+is no longer a polyfill. Name a live pull request in it, or remove it. A
+polyfill whose pull request is merged while the answer still lacks the feature
+is named and kept: the feature is not released yet, or came under another
+name, and a person decides. `check` reads only the tree, so the gate checks
+that both lines are there, not that GitHub has them.
+
 ## bootstrap.sh
 
 Prepares a fresh host with everything tehas and pi-rukas need, at the versions

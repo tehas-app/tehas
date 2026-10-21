@@ -212,7 +212,11 @@ its lock to the `install.sh` it runs. `--check` takes no lock.
 From a checkout of tehas on another machine, two scripts release and deploy.
 `scripts/tag-release.sh` runs the gate on the head of the remote's default
 branch in a temporary worktree, tags that commit as the next `vX.Y.Z` with an
-annotated tag, and pushes the tag. `scripts/tag-deploy.sh tehas-tehas` refuses
+annotated tag, and pushes the tag. When the head carries a polyfill that the
+newest pi-rukas no longer needs, it opens a pull request that removes it and
+tags nothing until that is merged
+([Polyfills](/tools#polyfills-of-pi-rukas-features)).
+`scripts/tag-deploy.sh tehas-tehas` refuses
 unless the newest tag is the head of that branch, runs
 `. ~/tehas/env.sh && tehas update` on the host over ssh, then checks that the
 host's checkout is at the tag. With `--check` it runs `tehas update --check`
