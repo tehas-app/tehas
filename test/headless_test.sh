@@ -95,6 +95,26 @@ t_eq "$(tehas_headless_reads_images "$(jq -c '(.inputs[] | select(.name == "PI_E
 t_eq "$(tehas_headless_reads_images "$(jq -c 'del(.inputs[] | select(.name == "PI_ENSEMBLE_ISSUE_IMAGES"))' <<<"$scaps")")" 0
 for bad in "" "not json" "[]"; do t_eq "$(tehas_headless_reads_images "$bad")" 0; done
 
+t_case "an image that says it runs planning turns is asked to plan"
+tehas_headless_plans "$scaps"
+t_eq "$?" 0
+# The build before v0.14.0: no planTurns in its features, whatever its schema.
+for c in "$caps" "$ncaps"; do
+  tehas_headless_plans "$c"
+  t_eq "$?" 1
+done
+# A build that names the feature and says no.
+tehas_headless_plans "$(jq -c '.features.planTurns = false' <<<"$scaps")"
+t_eq "$?" 1
+tehas_headless_plans "$(jq -c 'del(.features)' <<<"$scaps")"
+t_eq "$?" 1
+tehas_headless_plans "$(jq -c '.features.planTurns = "yes"' <<<"$scaps")"
+t_eq "$?" 1
+for bad in "" "not json" "[]" "7" "null"; do
+  tehas_headless_plans "$bad"
+  t_eq "$?" 1
+done
+
 t_case "where the image says its result carries them, usage per role and the failure come from the result"
 jq '.issues[0].usage.byRole = {ops: {input: 0, output: 0, cacheRead: 0, turns: 0, dispatches: 1}}' "$sx/result.json" >"$T/r.json"
 p=$(tehas_headless_progress "$sx/progress.jsonl" "$scaps" "$T/r.json" 7)

@@ -17,6 +17,10 @@
 #   tehas_headless_reads_images <caps>
 #       1 when the answer lists PI_ENSEMBLE_ISSUE_IMAGES for the manifest
 #       format tehas writes (manifestVersion 1), else 0.
+#   tehas_headless_plans <caps>
+#       0 when the answer's features say it runs planning turns
+#       (features.planTurns is true), else 1: false, missing, or an answer
+#       that is not JSON.
 #   tehas_headless_expired <caps> <workarounds>
 #       the workarounds in <workarounds> (NAME@VERSION, space separated) that
 #       the image's pi-rukas no longer needs: its version is VERSION or later.
@@ -90,6 +94,10 @@ tehas_headless_unsupported() { # <caps> <flags> <names> [features]
        | "the input \(.)"),
       (.features as $f | $features | words[] | select(($f | type) != "object" or $f[.] != true)
        | "the feature \(.)")' <<<"$1" 2>/dev/null | tr -cd 'A-Za-z0-9_ .,<>\n-'
+}
+
+tehas_headless_plans() { # <caps>
+  jq -e 'type == "object" and .features.planTurns == true' >/dev/null 2>&1 <<<"$1" || return 1
 }
 
 tehas_headless_expired() { # <caps> <workarounds>
