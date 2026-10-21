@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Build the tehas sandbox image on this host, on the pi-rukas commit
-# versions.env follows: the newest release tag, or the head of a branch
-# (lib/rukas.sh).
+# PI_RUKAS_FOLLOW names: the newest release tag, the head of a branch, or one
+# commit (lib/rukas.sh). A value in the instance's instance.env wins over the
+# one in versions.env.
 #
 # Tags the result both as the name PI_ENSEMBLE_IMAGE points at by default
 # (tehas/pi-rukas:uid<your uid>) and with the build date, so the previous image
@@ -22,8 +23,10 @@
 # layer that does not build, or a build stopped partway, leaves the tag where it
 # was.
 #
-# The base is the image upstream publishes for each commit,
-# tagged sha-<first 12 characters>. The commit becomes the label tehas.rukas.
+# The base is the image upstream publishes for each commit, tagged
+# sha-<first 12 characters>, or, when PI_RUKAS_IMAGE_DIGEST (sha256:<64 hex>)
+# is set, that digest: a release builds on the image it was packed with, not on
+# whatever the tag points at now. The commit becomes the label tehas.rukas.
 # Tool versions come from versions.env, one directory up, the code indexer
 # included: the image carries the same codebase-memory-mcp version bootstrap.sh
 # puts on the host, not the one the base image happened to install. The build
@@ -47,7 +50,8 @@
 #
 # Exit: 0 built, or nothing to do; 1 the commit moved (--check), or the commit,
 #       the base image or the build could not be had, or the base does not
-#       support what tehas work needs; 64 usage
+#       support what tehas work needs; 64 usage; 78 the instance's settings
+#       do not load, or PI_RUKAS_IMAGE_DIGEST is not sha256:<64 hex>
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -94,6 +98,25 @@ fi
 # shellcheck source=lib/config.sh
 . "$lib/config.sh"
 instance_file=$(tehas_instance_dir)/sandbox.Dockerfile
+# A host with an instance may follow another pi-rukas than its release names
+# (PI_RUKAS_FOLLOW in instance.env). Its settings are loaded and checked as
+# every command loads them, and a broken instance builds nothing. The release's
+# base digest belongs to the release's commit, so it goes when the commit does,
+# unless the instance names a digest of its own.
+if [ -f "$(tehas_instance_dir)/instance.env" ]; then
+  release_follow=${PI_RUKAS_FOLLOW:-} release_digest=${PI_RUKAS_IMAGE_DIGEST:-}
+  tehas_load || exit 78
+  if [ "${PI_RUKAS_FOLLOW:-}" != "$release_follow" ] && [ "${PI_RUKAS_IMAGE_DIGEST:-}" = "$release_digest" ]; then
+    unset PI_RUKAS_IMAGE_DIGEST
+  fi
+fi
+
+# Checked before git or docker is asked anything.
+digest=${PI_RUKAS_IMAGE_DIGEST:-}
+if [ -n "$digest" ] && ! [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]]; then
+  echo "build: PI_RUKAS_IMAGE_DIGEST=$digest is not sha256: and 64 hex digits" >&2
+  exit 78
+fi
 
 if ! target=$(tehas_rukas_target); then
   echo "build: no pi-rukas commit for PI_RUKAS_FOLLOW=${PI_RUKAS_FOLLOW:-} in $PI_RUKAS_REPO" >&2
@@ -116,7 +139,12 @@ fi
 # ghcr.io/<owner>/<name> for https://github.com/<owner>/<name>.git, lowercased.
 repo=${PI_RUKAS_REPO#https://github.com/}
 repo=${repo%.git}
-base=ghcr.io/$(tr '[:upper:]' '[:lower:]' <<<"$repo"):sha-${head:0:12}
+repo=ghcr.io/$(tr '[:upper:]' '[:lower:]' <<<"$repo")
+if [ -n "$digest" ]; then
+  base=$repo@$digest
+else
+  base=$repo:sha-${head:0:12}
+fi
 if ! docker pull -q "$base" >/dev/null 2>&1; then
   echo "build: no image $base yet; upstream publishes one for each commit, try again when it has" >&2
   exit 1
