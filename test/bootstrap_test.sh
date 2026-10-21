@@ -42,7 +42,7 @@ all_present() {
   t_stub loginctl 'echo yes'
   t_stub curl 'echo "curl 8.0.0"'
   t_stub uname 'echo x86_64'
-  for tool in jq openssl flock shellcheck unzip; do t_stub "$tool" 'echo "1.2.3"'; done
+  for tool in jq openssl flock minisign shellcheck unzip; do t_stub "$tool" 'echo "1.2.3"'; done
   t_stub jq "exec $jq_real \"\$@\""
   mkdir -p "$T/home/.pi/agent/extensions"
   ln -sfn "$T" "$T/home/.pi/agent/extensions/pi-rukas"
@@ -774,6 +774,7 @@ t_contains "$(t_calls systemctl)" "start tehas.slice"
 t_contains "$t_out" "bootstrap: slice part done"
 t_contains "$t_out" "bootstrap: root part done"
 t_eq "$(t_calls runuser)" "-l boss -c $T_ROOT/bootstrap.sh user"
+t_contains "$(t_calls apt-get)" "minisign"
 t_eq "$(t_calls useradd)" ""
 t_lacks "$t_out" "must log in again"
 

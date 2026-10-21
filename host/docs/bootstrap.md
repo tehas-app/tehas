@@ -40,8 +40,8 @@ credentials section first; create that key by hand and come back.
 
 Makes the user when it is missing (`useradd -m`, bash as its shell). Installs
 from Ubuntu's packages: Docker with compose and buildx, git, jq, curl,
-openssl, rsync, shellcheck, unzip and the build tools that compiling two of the
-tools needs. Adds the user to the `docker` group, enables lingering for it (so
+openssl, rsync, minisign (`tehas update` checks release signatures with it),
+shellcheck, unzip and the build tools that compiling two of the tools needs. Adds the user to the `docker` group, enables lingering for it (so
 the dispatcher timer runs without a login) and enables the Docker service.
 
 System packages are not pinned. You get what the distribution offers.

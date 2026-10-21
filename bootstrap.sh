@@ -46,7 +46,7 @@ root=$(cd "$(dirname "$0")" && pwd)
 
 os_release=${BOOTSTRAP_OS_RELEASE:-/etc/os-release}
 packages=(docker.io docker-compose-v2 docker-buildx git jq curl openssl rsync util-linux
-  shellcheck unzip xz-utils build-essential pkg-config libssl-dev)
+  minisign shellcheck unzip xz-utils build-essential pkg-config libssl-dev)
 
 die() { echo "bootstrap: $*" >&2; exit 1; }
 
@@ -319,7 +319,7 @@ codebase-memory-mcp found_cbm $CBM_VERSION
 pi-rukas found_rukas $(rukas_head || echo "no commit for PI_RUKAS_FOLLOW=$PI_RUKAS_FOLLOW")
 EOF
   # System tools: present is enough, the version is shown for the record.
-  for tool in docker git jq curl openssl flock shellcheck unzip; do
+  for tool in docker git jq curl openssl flock minisign shellcheck unzip; do
     if command -v "$tool" >/dev/null 2>&1; then
       printf '%-22s %-42s %-42s %s\n' "$tool" "$(version_of "$tool" --version)" "(any)" ok
     else
