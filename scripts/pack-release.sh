@@ -2,8 +2,8 @@
 # Pack a release tarball for a tag, from the tree it is given and the arguments.
 #
 # An adopter downloads one tarball, unpacks it and runs install.sh from it, so
-# what is packed is what install.sh reads: the directories and the top-level
-# files named in lib/release.sh, the console binary it was given as
+# what is packed is what install.sh reads: the directories, the top-level
+# files and the example instance named in lib/release.sh, the console binary it was given as
 # libexec/console, a VERSION file with the tag, and host/versions.env, to which
 # the pins are put when they are given. The tarball holds one top directory,
 # tehas-<tag>/, so unpacking it leaves that and nothing beside it.
@@ -168,6 +168,7 @@ fi
 . lib/release.sh
 mapfile -t dirs < <(tehas_release_dirs)
 mapfile -t plain < <(tehas_release_plain)
+mapfile -t extra < <(tehas_release_extra)
 # Two empty lists pass every check below without checking anything, so a list
 # that names nothing is a refusal rather than a release of nothing.
 if [ "${#dirs[@]}" = 0 ] || [ "${#plain[@]}" = 0 ]; then
@@ -183,6 +184,12 @@ done
 for f in "${plain[@]}"; do
   if [ ! -f "$f" ]; then
     echo "pack-release: $f is missing from $root" >&2
+    exit 1
+  fi
+done
+for d in "${extra[@]}"; do
+  if [ ! -d "$d" ]; then
+    echo "pack-release: $d is missing from $root" >&2
     exit 1
   fi
 done
@@ -208,7 +215,7 @@ tarball=$name-linux-x86_64.tar.gz
 # what it points at, so a link out of the tree would put a file that is not in
 # the tree inside a published release. The tarball holds only what the tree
 # holds, so the guard is on the tree and not on the archive.
-if links=$(find "${dirs[@]}" -type l -print 2>/dev/null) && [ -n "$links" ]; then
+if links=$(find "${dirs[@]}" "${extra[@]}" -type l -print 2>/dev/null) && [ -n "$links" ]; then
   echo "pack-release: $root holds a symbolic link, which would be packed as the file it points at:" >&2
   printf '%s\n' "$links" | head -n 10 >&2
   exit 1
@@ -246,6 +253,12 @@ cp "${plain[@]}" "$stage_dir/" || {
   echo "pack-release: cannot copy the files" >&2
   exit 1
 }
+if [ "${#extra[@]}" != 0 ]; then
+  cp -R -P --parents "${extra[@]}" "$stage_dir/" || {
+    echo "pack-release: cannot copy ${extra[*]}" >&2
+    exit 1
+  }
+fi
 # The build's output, packed as the program install.sh expects to find.
 cp "$console" "$stage_dir/libexec/console" || {
   echo "pack-release: cannot copy the console" >&2

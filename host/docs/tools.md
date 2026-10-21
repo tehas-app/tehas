@@ -2518,20 +2518,75 @@ one suppression it accepts are under
 
 ## tehas update
 
-Bring this host up to date with the platform repository in one command.
+Bring this host up to date in one command, from a release or from the platform
+checkout.
 
 ```
-tehas update             # pull, install, run the follow-ups that apply
-tehas update --check     # report what would change; changes no file of the
-                         # checkout or of the host (origin/ refs do move)
-tehas update --help      # print the usage of the command, touch nothing
+tehas update                  # the newest release, or pull the checkout;
+                              # install, run the follow-ups that apply
+tehas update --to v0.8.1      # that release, an older one too
+tehas update --check          # report what would change; change nothing
+tehas update --help           # print the usage of the command, touch nothing
 ```
+
+Where the new code comes from is `TEHAS_UPDATE_FROM` in `instance.env`:
+`release` or `git`. Without it, a host with `~/tehas/current` updates from
+releases and a host with a platform checkout from the checkout, so a host
+installed before the setting existed goes on as it did. A host with neither
+stops with 78 and names the setting. `--to` on a host that updates from its
+checkout is refused with 64.
+
+### From a release
+
+Releases are read from `TEHAS_RELEASE_REPO`, owner/name on GitHub. The
+platform's own is the line in `versions.env`; an instance may name another in
+`instance.env`. The list and the download use `gh` when it is signed in, which
+reaches a private repository with the bot's token, and `curl` from the public
+address otherwise.
+
+`tehas update --check` prints the version installed, the newest, and the notes
+of each release between them: its section of the changelog, with its
+`Adopter action`. Going back with `--to`, it prints the notes of the releases
+that would be undone. Then it runs `install.sh --check` of the version
+installed. It downloads nothing, changes nothing, and exits 1 when there is a
+version to move to.
+
+`tehas update` and `tehas update --to vX.Y.Z` then:
+
+1. download `tehas-<version>-linux-x86_64.tar.gz`, its `.sha256` and its
+   `.minisig`, unless that version is still on the host;
+2. check the tarball against the `.sha256` and the signature against
+   `~/tehas/release/minisign.pub`, the key `install.sh` installed, never a key
+   in the download. A download that fails either check is not unpacked. With
+   no `minisign` on the host it stops (`sudo apt-get install minisign`);
+3. unpack it into `~/tehas/versions/<version>`, refusing a tarball that holds
+   anything but files and directories under `tehas-<version>/`;
+4. check the instance against that version's own `lib/config.sh`. A setting it
+   requires and the instance lacks is named with the value of the release's
+   `instances/example/instance.env`, and the update stops with 78 with nothing
+   switched. A `TEHAS_` key in `instance.env` that the version never names is
+   warned about;
+5. point `~/tehas/current` at the version, and run `install.sh` and its
+   follow-ups from there, as an update from the checkout does. The commands and
+   units are the copies `install.sh` makes from that tree.
+
+The sandbox image a version ran with keeps the tag
+`tehas/pi-rukas:release-<version>`. Going back to a version that still has one
+puts that image back under the uid tag and builds nothing. The version
+`current` names and the two switched to before it stay in `~/tehas/versions`,
+in the order `~/tehas/state/release-history` records; older ones are removed
+with their image tags.
+
+`~/tehas/state/update-hold` stops a plain `tehas update`. `--to` names its
+version and runs with the hold there.
+
+### From the checkout
 
 It runs, in order and one line per step: a `git fetch` and a fast-forward of
 the platform checkout (`$TEHAS_HOME/platform`, in the example
 `~/tehas/platform`), then `install.sh`, then the follow-ups install.sh asks for.
-It takes at most one argument; anything else is refused with exit 64 before the
-settings are read. The settings are checked next against the required list in
+An argument it does not know, or `--help` with another one, is refused with
+exit 64 before the settings are read. The settings are checked next against the required list in
 `lib/config.sh` (`tehas_require_instance_settings`), the same one install.sh and
 the dispatcher check, so an instance with a required line still commented out
 stops with 78 before git runs. After a fast-forward it checks them again with
@@ -2776,9 +2831,12 @@ beside it, and it writes neither before both are ready, so a run that fails
 leaves no tarball for the next one to be refused against. Unpacked, the tarball
 is a single `tehas-<tag>/` directory holding what `install.sh` reads: its
 `bin/`, `libexec/`, `lib/` and `host/`, the top-level files an install needs,
-the console as `libexec/console` and the other two programs when they were
-given, a `VERSION` file with the tag, `CHANGELOG.md`, and
-`host/versions.env`. The list is `lib/release.sh`, the one place it is written
+`instances/example/`, the console as `libexec/console` and the other two
+programs when they were given, a `VERSION` file with the tag, `CHANGELOG.md`,
+and `host/versions.env`. `install.sh` run from such a tree has no `console/` to
+build from: it installs the programs the release carries as they are, with
+`release <sha256>` as the stamp, asks cargo nothing, and keeps the installed
+copy of a program the release does not carry. The list is `lib/release.sh`, the one place it is written
 down, and the gate checks the script and the test against it. An adopter
 unpacks it and runs `./install.sh` from inside, as they would from a checkout.
 `console/`, the instance directories and the git record are not packed: there
@@ -2871,6 +2929,32 @@ The signing key is the Actions secret `MINISIGN_SECRET_KEY`, the whole secret
 key file, and its password, if it has one, is `MINISIGN_PASSWORD`. A run that
 cannot sign, or whose signature the key in the tree does not check, publishes
 nothing.
+
+### The installer
+
+`host/release/install` is the first install of a host, a POSIX shell script
+run as root. A release publishes it as the asset `install`, beside the tarball,
+its `.sha256` and its `.minisig`, which are the three names `tehas update`
+downloads:
+
+```
+curl -fsSL https://github.com/tehas-app/tehas/releases/latest/download/install | sudo sh -s -- boss
+```
+
+It downloads the newest release (or `--version vX.Y.Z`), checks the `.sha256`
+and the signature with the key written into the script, which
+`test/release_install_test.sh` keeps equal to `host/release/minisign.pub`, and
+unpacks it. It installs `minisign` with apt-get when the host has none. It runs
+that release's `bootstrap.sh root <user>` (not with `--no-bootstrap`), then
+puts the release in `~<user>/tehas/versions/<version>`, points
+`~<user>/tehas/current` at it, gives both to the user and says to run
+`tehas setup` as that user. A failed check or a failed `bootstrap.sh` puts
+nothing in the user's home. The script cannot check itself: to check it before
+running it, download `install` and `install.minisig` and run
+`minisign -Vm install -p host/release/minisign.pub` with the key from the
+repository. While the repository is private the download needs
+a token: download the three files with `gh release download <tag> --pattern
+'tehas-*'` and pass their directory with `--from <dir> --version <tag>`.
 
 ### What the gate covers, and what a person adds
 

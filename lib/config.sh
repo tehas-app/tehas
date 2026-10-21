@@ -110,7 +110,7 @@ _tehas_valid() {
   local name=$1 v=$2 mb base clean_dir
   local -a clean_dirs
   case "$name" in
-    TEHAS_REPO | TEHAS_IMPROVE_REPO | TEHAS_IMPROVE_RUKAS_REPO)
+    TEHAS_REPO | TEHAS_IMPROVE_REPO | TEHAS_IMPROVE_RUKAS_REPO | TEHAS_RELEASE_REPO)
       [[ $v =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "expected owner/name"; return 1; }
       ;;
     TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_IMPROVE_MAX_OPEN | TEHAS_FIXER_MAX_RETRIES | TEHAS_FIXER_MAX_PLAN_ANSWERS | TEHAS_REFRESH_MAX | TEHAS_WORK_TIMEOUT | TEHAS_WORK_STALL | TEHAS_CONCURRENCY | TEHAS_TICKET_CONCURRENCY | \
@@ -138,6 +138,9 @@ _tehas_valid() {
       ;;
     TEHAS_ANALYTICS)
       case "$v" in on | off) ;; *) echo "expected on or off"; return 1 ;; esac
+      ;;
+    TEHAS_UPDATE_FROM)
+      case "$v" in git | release) ;; *) echo "expected git or release"; return 1 ;; esac
       ;;
     # The look of every page: host/fun/theme-<name>.css. The servers write the
     # name into a path, so only a theme that ships is let through.
@@ -552,7 +555,7 @@ tehas_load() {
   if [ -n "${PI_RUKAS_FOLLOW+x}" ]; then
     reason=$(_tehas_valid PI_RUKAS_FOLLOW "$PI_RUKAS_FOLLOW") || { tehas_err "PI_RUKAS_FOLLOW is not valid: $reason (see $file)"; return 78; }
   fi
-  for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL; do
+  for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL TEHAS_UPDATE_FROM TEHAS_RELEASE_REPO; do
     [ -n "${!v:-}" ] || continue
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done

@@ -1178,6 +1178,16 @@ The first run is at once. `~/tehas/logs/refresh.log` says what it found.
 no refresh. `systemctl --user disable --now tehas-refresh.timer` stops the
 hourly run as well.
 
+## Updating tehas
+
+An update is a person's choice: nothing updates tehas on its own. Run
+`tehas update --check` to see the version installed, the newest release and
+the `Adopter action` of each release between, do what they ask, then run
+`tehas update`. `tehas update --to <version>` goes back. An update that changes a unit
+restarts the units that run, and that can end a running cycle: pause and let
+the cycles finish first (see [Pause and resume](#pause-and-resume)). How it works is in
+[Updating tehas](/host#updating-tehas).
+
 ## Run one issue by hand
 
 Skips the queue, the labels and the comments:
