@@ -117,6 +117,13 @@ _tehas_valid() {
       TEHAS_PLAN_MAX_TURNS | TEHAS_PLAN_TIMEOUT | TEHAS_VERIFY_TIMEOUT)
       _tehas_is_count "$v" || { echo "expected a positive whole number"; return 1; }
       ;;
+    TEHAS_SIZE_MAX_FILES)
+      # libexec/dispatch compares this count with the files of a body, so its
+      # length is checked before its value: a number no comparison can hold is
+      # refused by the length instead of by a failing comparison.
+      _tehas_is_count "$v" || { echo "expected a positive whole number"; return 1; }
+      [ "${#v}" -le 9 ] || { echo "expected at most 9 digits"; return 1; }
+      ;;
     TEHAS_LOW_GATE_WAIT)
       # The dispatcher waits for the gate while it holds state/dispatch.lock, so
       # these seconds delay every later poll too: that is the ceiling. Its length
@@ -548,6 +555,12 @@ tehas_load() {
     export PI_ENSEMBLE_VERIFY_TIMEOUT_MS=$((TEHAS_VERIFY_TIMEOUT * 1000))
     export PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS=$PI_ENSEMBLE_VERIFY_TIMEOUT_MS
   fi
+  # The most files an issue's own body may name before the dispatcher holds it
+  # back instead of starting a cycle on it (libexec/dispatch, lib/sizing.sh).
+  # Unset: the dispatcher never asks the measure and nothing changes. Read from
+  # the instance file alone: the loader has already dropped TEHAS_* from the
+  # environment, and an empty value stays empty rather than become a ceiling.
+  export TEHAS_SIZE_MAX_FILES="${TEHAS_SIZE_MAX_FILES-}"
   # Agents get neither the host Docker socket nor SSH keys. Not a setting.
   export PI_ENSEMBLE_NO_DOCKER_SOCKET=1 PI_ENSEMBLE_NO_SSH=1
 
@@ -558,7 +571,7 @@ tehas_load() {
   if [ -n "${PI_RUKAS_FOLLOW+x}" ]; then
     reason=$(_tehas_valid PI_RUKAS_FOLLOW "$PI_RUKAS_FOLLOW") || { tehas_err "PI_RUKAS_FOLLOW is not valid: $reason (see $file)"; return 78; }
   fi
-  for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL TEHAS_UPDATE_FROM TEHAS_RELEASE_REPO; do
+  for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL TEHAS_UPDATE_FROM TEHAS_RELEASE_REPO TEHAS_SIZE_MAX_FILES; do
     [ -n "${!v:-}" ] || continue
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
