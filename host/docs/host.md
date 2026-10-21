@@ -20,7 +20,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/env.sh`                     | Environment for every tehas process, its tool directories taken from `lib/paths.sh`; sourced from `~/.bashrc`           |
 | `~/tehas/lib/config.sh`              | Loads and checks the instance settings; sourced by every command        |
 | `~/tehas/lib/paths.sh`               | The home of each tool this host installs, and the `PATH` that finds them. `env.sh`, `bootstrap.sh` and `install.sh` all take the list from here |
-| `~/tehas/lib/sandbox.sh`             | What a sandbox container is given; sourced by the work, plan and dev scripts |
+| `~/tehas/lib/sandbox.sh`             | What a sandbox container is given, and the one name of the sandbox and base images; sourced by the work, plan and dev scripts, and beside `lib/rukas.sh` by `tehasbot clean` |
 | `~/tehas/lib/slice.sh`               | Reads the slice: whether it is usable, a container's limits, the room left. Every command that starts a sandbox container reads it |
 | `~/tehas/lib/headless.sh`            | What tehas reads of pi-rukas's headless runner: its `--capabilities` answer, its progress and its result. `tehas work` and `tehasbot cycle` use it |
 | `~/tehas/lib/attachments.sh`         | Which links of an issue are attached files and how one is fetched. The Protolab and `tehas work` use it |
@@ -1121,7 +1121,7 @@ stopped, was made from, or that a `uid` tag names. On a host that builds
 often the images then take about three times the size of one, plus those
 still in use. `tehasbot clean` is what takes the rest: the dated tags past
 `TEHAS_CLEAN_AFTER` hours, keeping the newest, and then the pulled base image
-and the images left with no tag of that age (see [tehasbot
+of that age, removed by its own name (see [tehasbot
 clean](/tools#tehasbot-clean)). The base is upstream's image for the commit
 `versions.env` follows, and the puller names it one way only, by that commit.
 
@@ -1262,7 +1262,7 @@ that cycle ran.
 | Host snapshot publisher, optional | systemd user service `tehas-top.service`, every 5 s. It writes nothing unless `TEHAS_TOP=1` | `jq '.host.cpus, .host.load' ~/tehas/live/top.json` |
 | Protolab pages | systemd user timer `tehas-protolab.timer`, every 5 minutes | `tail ~/tehas/logs/protolab.log` |
 | Improvement loop, optional | systemd user timer `tehas-improve.timer`, every 3 hours. It does nothing unless `TEHAS_IMPROVE_REPO` is set | `tail ~/tehas/logs/improve.log` |
-| Cleaner | systemd user timer `tehas-clean.timer`, every hour, the first time 15 minutes after boot. It removes build output, Docker's build cache, host scratch, the sandbox image's old dated tags and the pulled base image and untagged images older than `TEHAS_CLEAN_AFTER` hours. `install.sh` copies the unit; a person enables it | `tail ~/tehas/logs/clean.log` |
+| Cleaner | systemd user timer `tehas-clean.timer`, every hour, the first time 15 minutes after boot. It removes build output, Docker's build cache, host scratch, the sandbox image's old dated tags and the pulled base image of that age, removed by its own name. `install.sh` copies the unit; a person enables it | `tail ~/tehas/logs/clean.log` |
 | Edge router | `docker compose -f ~/tehas/edge/router.compose.yaml up -d` | `curl -i http://tehas-tehas:8081/` |
 | Previews | systemd user timer `tehas-preview.timer`, every 5 minutes | `tail ~/tehas/logs/preview.log`, `jq . ~/tehas/live/previews.json` |
 | Preview sweep | systemd user timer `tehas-preview-sweep.timer`, every 3 hours | `jq .lastSweep ~/tehas/live/previews.json` |
