@@ -277,6 +277,15 @@ relabel() {
   log "WARN: label change on #$issue failed: $*"
   return 1
 }
+# gh_label_off <path>: take one label off a pull request through the REST
+# issues endpoint. `gh pr edit` is not used: it asks GitHub a GraphQL question
+# the bot's token may not answer (issue #120), so it fails on every pull
+# request. A 404 says the label is not there, which is the state wanted.
+gh_label_off() {
+  local out
+  out=$(gh_call api -X DELETE "$1" 2>&1) && return 0
+  [[ $out == *"Not Found"* ]]
+}
 # attention_off: the issue does not carry needs-human-attention now, as GitHub
 # answers. No answer counts as carrying it: a pull request is said to wait only
 # for a merge only when that is known.
@@ -1132,7 +1141,12 @@ fi
 refreshed=$(jq -r 'select(.how == "refresh") | .refresh_of.pr | numbers' "$cycles/$issue.approved.json" 2>/dev/null) || refreshed=""
 if [ -n "$refreshed" ]; then
   for ((try = 1; try <= tries; try++)); do
-    gh_call pr edit "$refreshed" --repo "$repo" --remove-label tehas:refreshing >/dev/null 2>&1 && break
+    # The REST issues endpoint: `gh pr edit` asks GitHub a GraphQL question
+    # the bot's token may not answer (issue #120). A 404 says the label is not
+    # there, which is what this wants, so it counts as done.
+    if gh_label_off "repos/$repo/issues/$refreshed/labels/tehas:refreshing"; then
+      break
+    fi
     if [ "$try" = "$tries" ]; then
       log "WARN: label change on pull request #$refreshed failed: --remove-label tehas:refreshing"
     else
