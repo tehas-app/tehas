@@ -36,6 +36,17 @@ pictured() { # <issue>
   jq -nc --argjson n "$1" '{number: $n, state: "open",
     body: "It looks like this:\n\n![shot](https://github.com/user-attachments/assets/0f3e-41)"}' >"$fx/work-$1.json"
 }
+# An issue whose text says a file goes there and links no attachment: the words
+# an issue is left with when the file was never attached.
+worded() { # <issue> [<the words of the gap>]
+  jq -nc --argjson n "$1" --arg w "${2:-SCREENSHOT GOES HERE}" '{number: $n, state: "open",
+    body: ("The screenshot is the place; this text deliberately does not say it. \($w).")}' >"$fx/work-$1.json"
+}
+# The same words with the file attached as well.
+worded_pictured() { # <issue> [<the words of the gap>]
+  jq -nc --argjson n "$1" --arg w "${2:-SCREENSHOT GOES HERE}" '{number: $n, state: "open",
+    body: ("\($w):\n\n![shot](https://github.com/user-attachments/assets/0f3e-41)")}' >"$fx/work-$1.json"
+}
 image_asks() { t_calls curl | grep -c 'chat/completions'; }
 
 t_case "with images for a cycle, an issue that links one starts when the model declares image input and answers one"
@@ -145,6 +156,160 @@ t_run "$dispatch"
 t_eq "$t_rc" 1
 t_eq "$(t_calls fake-start)" ""
 t_contains "$t_out" "ERROR: the text of #7 could not be read for its links"
+
+# --- A file the text promises and no attachment answers for -------------------
+# The hold asks nothing of GitHub, nothing of the model and nothing of the
+# sandbox image, so it is the same poll on every instance: the setting off
+# included, because then the cycle is given no file at all.
+
+# An instance that gives a cycle nothing of what an issue attaches.
+offline() {
+  reset
+  t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=0 TEHAS_WORK_FILES=0
+  mesh '{"data":[{"id":"test-model"}]}'
+}
+
+t_case "an issue whose text says a screenshot goes there and links no attachment starts no cycle, and nothing on it changes"
+for imaging_on in 1 0; do
+  imaging '["text","image"]'
+  [ "$imaging_on" = 1 ] || t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=0 TEHAS_WORK_FILES=0
+  worded 7
+  : >"$fx/reads-images"
+  t_run "$dispatch"
+  t_eq "$t_rc" 0
+  t_eq "$(t_calls fake-start)" ""
+  t_lacks "$(t_calls gh)" "issue edit"
+  t_lacks "$(t_calls gh)" "issue comment"
+  t_contains "$t_out" "hold #7: its text says SCREENSHOT GOES HERE and links no attachment, so the cycle would be given none"
+  t_eq "$(jq -r .why "$dispatch_json")" ""
+done
+
+t_case "the same issue with the file attached starts"
+imaging '["text","image"]'
+worded_pictured 7
+: >"$fx/reads-images"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$t_out" "hold #7:"
+t_eq "$(jq -r .why "$dispatch_json")" ""
+
+t_case "an issue with no placeholder and no images starts"
+imaging '["text","image"]'
+: >"$fx/reads-images"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$t_out" "hold #7:"
+
+t_case "the hold needs neither images for a cycle nor a model that reads one"
+offline
+worded 7
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_eq "$(image_asks)" 0
+t_contains "$t_out" "hold #7: its text says SCREENSHOT GOES HERE and links no attachment"
+
+for words in 'SCREENSHOT_GOES_HERE' 'the image goes here' 'IMAGE GOES HERE' 'the mockup goes here'; do
+  t_case "the words '$words' of a body that links nothing hold the issue"
+  offline
+  worded 7 "$words"
+  t_run "$dispatch"
+  t_eq "$(t_calls fake-start)" ""
+  t_contains "$t_out" "hold #7: its text says"
+done
+
+for words in 'the value goes here in the code' 'goes here' 'WORDS GOES HERE' 'the plan goes here, then the build' 'Nothing is missing.'; do
+  t_case "'$words' is prose, not a missing file, and the issue starts"
+  offline
+  worded 7 "$words"
+  t_run "$dispatch"
+  t_eq "$(t_calls fake-start)" "7"
+  t_lacks "$t_out" "hold #7:"
+done
+
+t_case "an issue that links an attachment says nothing of a file it promises"
+imaging '["text","image"]'
+worded_pictured 7
+: >"$fx/reads-images"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$t_out" "its text says"
+
+t_case "one issue held by the placeholder does not hold the next one back"
+offline
+slots 3 TEHAS_WORK_IMAGES=0 TEHAS_WORK_FILES=0
+ready 7 8
+worded 7
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "8"
+t_contains "$t_out" "hold #7:"
+t_lacks "$t_out" "hold #8:"
+
+t_case "a retry of an issue whose text promises a file waits, and the tick stays"
+parked
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
+mesh '{"data":[{"id":"test-model"}]}'
+declares '["text","image"]'
+comments 7 "$(park_body x ' ')" alice
+worded 7
+: >"$fx/reads-images"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "api -X PATCH"
+t_contains "$t_out" "hold #7: its text says SCREENSHOT GOES HERE"
+
+t_case "a refresh of an issue whose text promises a file starts nothing"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1 TEHAS_REFRESH_CONFLICTS=1
+mesh '{"data":[{"id":"test-model"}]}'
+declares '["text","image"]'
+: >"$fx/reads-images"
+# The image's pi-rukas takes --continue-pr, so a refresh is asked for at all.
+jq -nc '{verbs: {work: {flags: ["--json", "--timeout", "--restart", "--continue-pr"]}}}' >"$fx/caps.json"
+jq -n '{data: {repository: {issue: {lastEditedAt: null, editor: null, body: "The screenshot is the place. SCREENSHOT GOES HERE."}}}}' >"$fx/edit-7.json"
+mkdir -p "$T/home/tehas/state/refresh" "$T/home/tehas/state/cycles"
+jq -nc '{at: "2026-10-17T09:00:00Z", pr: 50,
+  head_sha: "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+  base_sha: "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1"}' >"$T/home/tehas/state/refresh/7.json"
+jq -nc --arg sum "$WSUM" '{at: "2026-01-01T00:00:00Z", by: "alice", how: "label", body_sha256: $sum, links: []}' >"$approved_file"
+queue 7
+echo '[]' >"$fx/ready.json"
+echo '[{"number":7,"labels":[{"name":"tehas:awaiting-merge"}]}]' >"$fx/awaiting.json"
+jq -nc '{number: 7, state: "open", labels: [{name: "tehas:awaiting-merge"}]}' >"$fx/work-7.json"
+head_sha=$(printf 'a%.0s' {1..40})
+base_sha=$(printf 'c%.0s' {1..40})
+jq -n --arg head "$head_sha" --arg base "$base_sha" '{data: {repository: {pullRequest: {state: "OPEN", number: 50,
+  url: "https://github.com/acme/widget/pull/50", isDraft: false, isCrossRepository: false,
+  headRefOid: $head, baseRefName: "main", baseRefOid: $base, mergeable: "CONFLICTING",
+  author: {login: "tehas-bot"}, headRepository: {nameWithOwner: "acme/widget"}, labels: {nodes: []},
+  closingIssuesReferences: {totalCount: 1, nodes: [{number: 7, state: "OPEN",
+    labels: {nodes: [{name: "tehas:awaiting-merge"}]},
+    closedByPullRequestsReferences: {nodes: [{number: 50, state: "OPEN"}]}}]}}}}}' >"$fx/pull-50.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "--add-label tehas:running"
+t_lacks "$(t_calls gh)" "--add-label tehas:refreshing"
+
+t_case "a planning turn is not held by the promised file"
+imaging '["text"]'
+echo '[]' >"$fx/ready.json"
+echo '[{"number":7,"labels":[{"name":"tehas:plan"}]}]' >"$fx/plans.json"
+echo '[{"event":"labeled","label":{"name":"tehas:plan"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
+worded 7
+: >"$fx/reads-images"
+t_run "$dispatch"
+t_eq "$(t_calls fake-plan | wc -l)" 1
+t_lacks "$t_out" "hold #7:"
+
+t_case "a dry run says the hold and changes nothing"
+offline
+worded 7
+t_run "$dispatch --dry-run"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_contains "$t_out" "hold #7: its text says SCREENSHOT GOES HERE and links no attachment"
 
 # What the sandbox image says about its own pi-rukas, as its build writes it:
 # <commit>|<reads>.

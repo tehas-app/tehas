@@ -58,6 +58,7 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./.config/systemd/user/tehas-energy.service
 ./.config/systemd/user/tehas-improve.service
 ./.config/systemd/user/tehas-improve.timer
+./.config/systemd/user/tehas-mcp.service
 ./.config/systemd/user/tehas-preview-sweep.service
 ./.config/systemd/user/tehas-preview-sweep.timer
 ./.config/systemd/user/tehas-preview.service
@@ -120,6 +121,7 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/libexec/index
 ./tehas/libexec/labels
 ./tehas/libexec/limit
+./tehas/libexec/mcp
 ./tehas/libexec/pause
 ./tehas/libexec/plan
 ./tehas/libexec/preview
@@ -127,7 +129,10 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/libexec/refresh
 ./tehas/libexec/resume
 ./tehas/libexec/status
+./tehas/libexec/stop
 ./tehas/libexec/summary
+./tehas/libexec/tehas-mcp
+./tehas/libexec/tehas-mcp.stamp
 ./tehas/libexec/tidy
 ./tehas/libexec/top
 ./tehas/libexec/top-publish

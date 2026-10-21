@@ -1,0 +1,91 @@
+/* Paper: the same pages as a quiet printed sheet. The system's own typeface,
+   thin rules, light screens and soft shadows; no bitmap font and no field
+   texture. For a host whose viewers want the figures more than the game.
+
+   Sets the same tokens as pixel.css, which says what each one is for. */
+
+:root {
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-code: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-smoothing: auto;
+  --type-small: 12px;
+  --type-body: 14px;
+  --type-big: 24px;
+  --radius: 4px;
+
+  --field: #e9e6df;
+  --field-pattern: none;
+
+  --surface: #fdfcf9;
+  --surface-quiet: #f3f1ec;
+  --surface-head: #e4e0d8;
+  --accent: #f0c24b;
+  --accent-soft: #fbeab8;
+
+  --text: #1d1c1a;
+  --text-quiet: #5c5850;
+  --text-cool: #1e6b5a;
+  --text-warm: #a1321f;
+  --text-on-good: #fff;
+  --text-on-bad: #fff;
+
+  --line: #8a857b;
+  --rule: #dedad2;
+
+  --edge: 1px;
+  --frame: var(--edge) solid var(--line);
+  --focus: 2px solid var(--text);
+
+  --screen: #f6f4ef;
+  --screen-text: #1d1c1a;
+  --screen-quiet: #6b665d;
+
+  --good: #2f7d4a;
+  --bad: #b3261e;
+
+  --shadow-card: 0 1px 2px rgba(29, 28, 26, 0.12);
+  --shadow-card-up: 0 3px 8px rgba(29, 28, 26, 0.16);
+  --shadow-sign: 0 1px 3px rgba(29, 28, 26, 0.1), 0 4px 12px rgba(29, 28, 26, 0.06);
+  --shadow-sign-up: 0 2px 4px rgba(29, 28, 26, 0.12), 0 8px 20px rgba(29, 28, 26, 0.1);
+  --ring: 0 0 0 3px var(--accent);
+  --stripe: 0 3px 0 var(--accent);
+
+  --lift: translate(0, -1px);
+  --press: translate(0, 1px);
+  --press-sign: translate(0, 1px);
+
+  --stage-proto: #6b4fa0;
+  --stage-proto-soft: #ece6f6;
+  --stage-line: #4f5d6e;
+  --stage-line-soft: #e6eaef;
+  --stage-build: #2f7d4a;
+  --stage-build-soft: #e1efe5;
+  --stage-review: #8a5a00;
+  --stage-review-soft: #f6ead0;
+  --stage-stop: #b3261e;
+  --stage-stop-soft: #f7e0dd;
+  --stage-ship: #2c5d8f;
+  --stage-ship-soft: #e0eaf5;
+
+  --prototype-ground: #fff;
+
+  --band-1: #c98a1a;
+  --band-2: #2f8f6f;
+  --band-3: #b5452f;
+  --band-4: #3f7fb0;
+  --band-5: #7a7f8c;
+  --band-6: #8d6a4f;
+  --band-7: #5f8a3a;
+  --band-8: #d4a72c;
+  --piece-1: #f0c24b;
+  --piece-2: #e9a23b;
+  --piece-3: #9cc7d8;
+  --piece-4: #d6d3cc;
+  --piece-text: #1d1c1a;
+  --game-ground: #f6f4ef;
+  --game-floor: #d9d4ca;
+  --game-shadow: #cfc9bd;
+  --game-ball: #1d1c1a;
+  --game-paddle: #3f7fb0;
+  --game-flash: #f0c24b;
+}

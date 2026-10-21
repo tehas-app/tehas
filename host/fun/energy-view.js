@@ -13,9 +13,11 @@ export const COLUMN = 4;
 export const WIDTH = SLOTS * COLUMN;
 export const HEIGHT = 136;
 export const STALE_AFTER = 45;
-// Band colours, all already on the page (the Thirty-Two Rule). From the ninth
-// band on the list starts again as a checker with CRT Black.
-export const BANDS = ["#ea3", "#4a9", "#c53", "#7cb", "#ccd", "#b97", "#694", "#fc6"];
+// Band colours: the theme's tokens, read by theme.js. From the ninth band on
+// the list starts again as a checker in the screen's colour.
+export const BANDS = ["band-1", "band-2", "band-3", "band-4", "band-5", "band-6", "band-7", "band-8"];
+// The page loads theme.js first; without it (the tests) nothing is painted.
+const paint = (name) => globalThis.TEHAS_THEME?.token(name) ?? "";
 
 const list = (v) => (Array.isArray(v) ? v : []);
 const amount = (v) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null);
@@ -170,13 +172,14 @@ export function layout(data, nowMs) {
 
 // One block of a band: a flat fill, or a one-pixel checker from the ninth on.
 export function fillBand(ctx, band, x, y, w, h) {
-  ctx.fillStyle = BANDS[band % BANDS.length];
+  ctx.fillStyle = paint(BANDS[band % BANDS.length]);
   ctx.fillRect(x, y, w, h);
   if (band < BANDS.length) return;
-  ctx.fillStyle = "#111";
+  ctx.fillStyle = paint("screen");
   for (let dy = 0; dy < h; dy++) for (let dx = (x + y + dy) % 2; dx < w; dx += 2) ctx.fillRect(x + dx, y + dy, 1, 1);
 }
-if (typeof document !== "undefined") {
+// Only on a page with the section: the business page imports layout() alone.
+if (typeof document !== "undefined" && document.getElementById("energy")) {
   const $ = (id) => document.getElementById(id);
   const clock = (t) => new Date(t * 1000).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
   let data = null, serverAt = 0, localAt = 0, drawn = "";
@@ -206,13 +209,13 @@ if (typeof document !== "undefined") {
 
   function draw(view) {
     const ctx = $("energy-canvas").getContext("2d");
-    ctx.fillStyle = "#111";
+    ctx.fillStyle = paint("screen");
     ctx.fillRect(0, 0, WIDTH, HEIGHT);
     view.columns.forEach((parts, i) => {
       for (const p of parts || []) fillBand(ctx, p.band, i * COLUMN, HEIGHT - p.to, COLUMN, p.to - p.from);
     });
     // The top and the half of the scale: a dotted rule, one pixel on, three off.
-    ctx.fillStyle = "#aab";
+    ctx.fillStyle = paint("screen-quiet");
     for (const y of [0, HEIGHT / 2]) for (let x = 0; x < WIDTH; x += 4) ctx.fillRect(x, y, 1, 1);
   }
 
@@ -298,7 +301,7 @@ if (typeof document !== "undefined") {
       swatch.className = "energy-swatch";
       const sctx = swatch.getContext("2d");
       if (r.band == null) {
-        sctx.fillStyle = "#eec";
+        sctx.fillStyle = paint("surface");
         sctx.fillRect(0, 0, 4, 4);
       } else fillBand(sctx, r.band, 0, 0, 4, 4);
       tr.insertCell().append(swatch);

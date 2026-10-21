@@ -6,6 +6,7 @@
 . "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/work_lib.sh
 . "$(dirname "$0")/work_lib.sh" || exit 1
+stub_github
 
 # --- What the image supports -----------------------------------------------------
 # caps_refused: 78, the image asked, and no workspace made, nothing fetched and
@@ -102,10 +103,14 @@ t_run "$work 7"
 t_eq "$t_rc" 2
 caps_good
 
-# A refresh's record, as the dispatcher writes it, or another start's.
+# A refresh's record, as the dispatcher writes it, or another start's. The
+# body it approved is the one the stub answers with, so the text check of a
+# start that carries a record is met.
 refresh_record() { # <how>
-  mkdir -p "$T/home/tehas/state/cycles"
-  jq -n --arg how "$1" '{at: "2026-10-01T00:00:00Z", by: "alice", how: $how, body_sha256: ("0" * 64), links: []}' \
+  mkdir -p "$fx/net" "$T/home/tehas/state/cycles"
+  issue_is "" NONE
+  jq -n --arg how "$1" --arg sum "$(jq -n '{body: ""}' | tehas_body_sha256)" \
+    '{at: "2026-10-01T00:00:00Z", by: "alice", how: $how, body_sha256: $sum, links: []}' \
     >"$T/home/tehas/state/cycles/7.approved.json"
 }
 
@@ -340,12 +345,12 @@ t_case "the token is passed by name, never written into the arguments"
 t_lacks "$(cycle_args)" "test-token"
 
 t_case "nothing that controls the host is reachable"
-args=$(cat "$T"/calls/docker.args.*)
-t_contains "$args" "pi-rukas-headless"
-t_lacks "$args" "docker.sock"
-t_lacks "$args" ".ssh"
-t_lacks "$args" ".config/tehas"
-t_lacks "$args" "--privileged"
+given=$(cat "$T"/calls/docker.args.*)
+t_contains "$given" "pi-rukas-headless"
+t_lacks "$given" "docker.sock"
+t_lacks "$given" ".ssh"
+t_lacks "$given" ".config/tehas"
+t_lacks "$given" "--privileged"
 
 # The options themselves, as lib/sandbox.sh prints them: the one function the
 # cycle, the planning turn, the session and the push check are all given them

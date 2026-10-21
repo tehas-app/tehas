@@ -43,7 +43,8 @@
   // cuts every word to ten letters); taking the same limit here keeps a word that
   // no wall was designed for from emptying a whole round.
   const MAX_LETTERS = 10;
-  const COLORS = ["#fc6", "#ea3", "#7cb", "#ccd"];
+  // Theme tokens, painted by game-view.js through theme.js.
+  const COLORS = ["piece-1", "piece-2", "piece-3", "piece-4"];
   // How much rougher than the flattest place a piece may take, in cells. Zero
   // leaves only the two flat shapes; one lets the other five in too, and is as
   // rough as the packer can be and still fill a wall on its own: at two or three

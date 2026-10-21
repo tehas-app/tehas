@@ -1,0 +1,137 @@
+/* Beesknees: the pages as a business application. Near-black and one muted
+   green on white, thin rules, soft shadows, and no motion at all. Light, and
+   dark where the viewer's system asks for it. The colours were checked for
+   contrast: text is at least 4.5:1 on every face it sits on, and the edges of
+   panels, chips and bars at least 3:1.
+
+   Sets the same tokens as pixel.css, which says what each one is for. The
+   business layout (TEHAS_LAYOUT=business) was drawn for this theme. */
+
+:root {
+  --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-code: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-smoothing: antialiased;
+  --type-small: 12px;
+  --type-body: 14px;
+  --type-big: 24px;
+  --radius: 5px;
+
+  --field: #e8ece9;
+  --field-pattern: none;
+
+  --surface: #fff;
+  --surface-quiet: #f2f5f3;
+  --surface-head: #dce3de;
+  --accent: #dcebe2;
+  --accent-soft: #eef4f0;
+
+  --text: #0b100d;
+  --text-quiet: #4a554f;
+  --text-cool: #1b5e3f;
+  --text-warm: #8a2d1f;
+  --text-on-good: #fff;
+  --text-on-bad: #fff;
+
+  --line: #7b887f;
+  --rule: #c4cdc7;
+
+  --edge: 1px;
+  --frame: var(--edge) solid var(--line);
+  --focus: 2px solid var(--text-cool);
+
+  --screen: #0f1512;
+  --screen-text: #e4eae6;
+  --screen-quiet: #9aa59f;
+
+  --good: #1b5e3f;
+  --bad: #8a2d1f;
+
+  --shadow-card: 0 1px 2px rgb(15 21 18 / 0.08);
+  --shadow-card-up: 0 2px 8px rgb(15 21 18 / 0.14);
+  --shadow-sign: 0 1px 2px rgb(15 21 18 / 0.08);
+  --shadow-sign-up: 0 2px 8px rgb(15 21 18 / 0.14);
+  --ring: 0 0 0 2px var(--text-cool);
+  --stripe: 0 1px 0 var(--line);
+
+  --lift: none;
+  --press: none;
+  --press-sign: none;
+
+  --stage-proto: #5a4688;
+  --stage-proto-soft: #e9e4f4;
+  --stage-line: #42536a;
+  --stage-line-soft: #e1e7ee;
+  --stage-build: #1b5e3f;
+  --stage-build-soft: #dcebe2;
+  --stage-review: #855400;
+  --stage-review-soft: #f1e2bd;
+  --stage-stop: #8a2d1f;
+  --stage-stop-soft: #f5e0db;
+  --stage-ship: #244f7e;
+  --stage-ship-soft: #dae6f2;
+
+  --prototype-ground: #fff;
+
+  /* The canvases draw on the dark screen: light, muted marks. */
+  --band-1: #4fae80;
+  --band-2: #7aa7d6;
+  --band-3: #d9a443;
+  --band-4: #ad9be6;
+  --band-5: #9aa8b6;
+  --band-6: #e0806c;
+  --band-7: #86cfa8;
+  --band-8: #b8cce6;
+  --piece-1: #dcebe2;
+  --piece-2: #4fae80;
+  --piece-3: #d9a443;
+  --piece-4: #9aa8b6;
+  --piece-text: #0b100d;
+  --game-ground: #0f1512;
+  --game-floor: #1a231f;
+  --game-shadow: #060908;
+  --game-ball: #e4eae6;
+  --game-paddle: #4fae80;
+  --game-flash: #e4eae6;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --field: #0b0f0d;
+    --surface: #121715;
+    --surface-quiet: #18201c;
+    --surface-head: #1d2622;
+    --accent: #15291f;
+    --accent-soft: #112019;
+    --text: #e4eae6;
+    --text-quiet: #a7b1ac;
+    --text-cool: #86cfa8;
+    --text-warm: #e0806c;
+    --text-on-good: #0b0f0d;
+    --text-on-bad: #0b0f0d;
+    --line: #5b6862;
+    --rule: #2a332e;
+    --screen: #060908;
+    --good: #4fae80;
+    --bad: #e0806c;
+    --stage-proto: #ad9be6;
+    --stage-proto-soft: #231d35;
+    --stage-line: #9aa8b6;
+    --stage-line-soft: #1a2026;
+    --stage-build: #4fae80;
+    --stage-build-soft: #15291f;
+    --stage-review: #d9a443;
+    --stage-review-soft: #2b2414;
+    --stage-stop: #e0806c;
+    --stage-stop-soft: #2e1b17;
+    --stage-ship: #7aa7d6;
+    --stage-ship-soft: #16212d;
+    --prototype-ground: #fff;
+  }
+}
+
+/* No motion: nothing pops in, blinks or lifts. */
+*, *::before, *::after {
+  animation: none !important;
+  transition: none !important;
+}

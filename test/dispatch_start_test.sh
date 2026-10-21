@@ -163,6 +163,118 @@ t_eq "$(t_calls gh | grep -c -x -e 'issue edit 9 --repo acme/widget --remove-lab
 t_lacks "$(t_calls gh)" "issue comment 9"
 t_contains "$t_out" "clear #9: it is closed, marked tehas:running, and no cycle holds its lock"
 
+# An epic: an issue with open sub-issues. GitHub answers the count on the issue
+# the poll reads anyway, in sub_issues_summary. The stub gives the work answer
+# alone, so an epic's fixture names its labels and its text too: tehas:ready as
+# the queue lists it, and the body alice's label approved.
+epic() { # <total> <completed>
+  jq -cn --argjson t "$1" --argjson c "$2" '{number: 7, state: "open", title: "Faster search", body: "Make it fast.",
+    labels: [{name: "tehas:ready"}], sub_issues_summary: {total: $t, completed: $c}}' >"$fx/work-7.json"
+}
+
+t_case "an issue with open sub-issues is not started: its tehas:ready comes off and the issue says why once"
+reset
+epic 13 0
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "skip #7: it is an epic with 13 sub-issues open, and an epic is never started"
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:ready"
+t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body Tehas took \`tehas:ready\` off this issue and started nothing. It has 13 sub-issues open"
+t_contains "$(t_calls gh)" "An epic is never started. Apply \`tehas:ready\` to one of its sub-issues instead."
+t_eq "$(grep -c '^issue comment 7 ' <<<"$(t_calls gh)")" 1
+
+t_case "and the ask costs no call to GitHub beyond the issue it already read"
+t_eq "$(grep -c -x 'api repos/acme/widget/issues/7' <<<"$(t_calls gh)")" 1
+
+t_case "when its label cannot be changed nothing is said on it, and the poll goes on"
+reset
+epic 3 1
+echo "issue edit 7" >"$fx/edit-fails-on"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN: label change on #7 failed: --remove-label tehas:ready"
+t_lacks "$(t_calls gh)" "issue comment 7"
+t_eq "$(t_calls fake-start)" ""
+rm -f "$fx/edit-fails-on"
+
+t_case "one open sub-issue is said in the one"
+reset
+epic 2 1
+t_run "$dispatch"
+t_contains "$t_out" "skip #7: it is an epic with 1 sub-issue open, and an epic is never started"
+t_contains "$(t_calls gh)" "It has 1 sub-issue open"
+
+t_case "an issue whose sub-issues are all closed starts as any other"
+reset
+epic 13 13
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$(t_calls gh)" "An epic is never started"
+t_lacks "$t_out" "it is an epic"
+
+t_case "an issue with no sub-issues at all starts too"
+reset
+epic 0 0
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$t_out" "it is an epic"
+
+t_case "a GitHub without sub-issues: an answer with no such field starts as any other"
+reset
+jq -cn '{number: 7, state: "open", title: "Faster search", body: "Make it fast.",
+  labels: [{name: "tehas:ready"}]}' >"$fx/work-7.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$t_out" "it is an epic"
+
+t_case "and an answer that is no object at all ends the poll as any unreadable one does"
+reset
+printf '%s' '[]' >"$fx/work-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: GitHub's answer for #7 could not be read"
+t_eq "$(t_calls fake-start)" ""
+
+t_case "and an answer whose counts are not numbers starts too"
+for junk in '"abc"' 'null' '"13"' '[]' '{"total":3}' '{"total":null,"completed":null}'; do
+  reset
+  jq -cn --argjson s "$junk" '{number: 7, state: "open", title: "Faster search", body: "Make it fast.",
+    labels: [{name: "tehas:ready"}], sub_issues_summary: $s}' >"$fx/work-7.json"
+  t_run "$dispatch"
+  t_eq "$(t_calls fake-start)" "7"
+  t_lacks "$t_out" "it is an epic"
+done
+
+t_case "and an answer where more are completed than there are in all starts too"
+reset
+epic 3 5
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$t_out" "it is an epic"
+
+t_case "a dry run says it and changes nothing"
+reset
+epic 13 0
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "skip #7: it is an epic with 13 sub-issues open, and an epic is never started"
+t_contains "$t_out" "would take tehas:ready off #7: it is an epic"
+t_lacks "$(t_calls gh)" "issue edit 7"
+t_lacks "$(t_calls gh)" "issue comment 7"
+
+t_case "a planning session on an epic is allowed"
+reset
+jq -cn '{number: 7, state: "open", title: "Faster search", body: "Make it fast.",
+  labels: [{name: "tehas:plan"}], sub_issues_summary: {total: 4, completed: 0}}' >"$fx/work-7.json"
+echo '[]' >"$fx/ready.json"
+echo '[{"number":7,"labels":[{"name":"tehas:plan"}]}]' >"$fx/plans.json"
+echo '[{"event":"labeled","label":{"name":"tehas:plan"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
+echo '{"title":"Faster search","body":"Make it fast."}' >"$fx/issue-7.json"
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "--add-label tehas:planning"
+t_lacks "$t_out" "it is an epic"
+
 t_case "a closed issue whose cycle still holds its lock is left alone"
 reset
 slots 2

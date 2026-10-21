@@ -29,6 +29,7 @@ tehas top [--once|--json]        # one screen of what the factory is doing
 tehas analytics report|export    # the factory's last ten days of runs
 tehas pause [reason]             # stop this host from starting new work
 tehas resume                     # lift this host's pause flag
+tehas stop <issue> [--keep-workspace]  # end a cycle by hand, clear what it left
 tehas help [command]             # this list, or the text of one command
 ```
 
@@ -61,6 +62,8 @@ in the platform repository has every one with a comment.
 | `TEHAS_INDEXING`                | `0`                                      | `1` lets search engines index the dashboard and the manual      |
 | `TEHAS_ANALYTICS_SRC`, `_SITE`  | empty                                    | Optional. The https address of a visitor analytics script and the site name it reports under. Both set: every page loads it |
 | `TEHAS_ANALYTICS_COOKIE`        | `0`                                      | `1` adds `data-cookie="true"` to that script tag                |
+| `TEHAS_THEME`                   | `pixel`                                  | The look of every page: `pixel`, `paper` or `beesknees`. Another name stops every command with 78. See [The host](/host#themes-and-layouts) |
+| `TEHAS_LAYOUT`                  | `floor`                                  | The front page: `floor`, the game view, or `business`. Both are always at `/floor` and `/business`. Another name stops every command with 78. See [The host](/host#themes-and-layouts) |
 | `TEHAS_ANALYTICS`               | `on`                                     | The factory's own analytics, not the visitor analytics above: ten days of runs, issue events and poll samples in `~/tehas/state/analytics.db`. `off` stops every write and leaves the file as it is. Anything but `on` or `off` stops every command with 78 |
 | `TEHAS_PROTOLAB_URL`            | `https://lab.<domain>`, or port 8081     | Address people reach the Protolab at, when it is published elsewhere, as `https://lab.example`. The dashboard links to it. Without it: `https://lab.<domain>` when `TEHAS_DOMAIN` is set, else port 8081 of the dashboard's host |
 | `TEHAS_DOMAIN`                  | none                                     | The domain the edge's names are made under, as `tehas.app`: `uat-<pr>.` for a preview, `lab-<issue>.` for a ticket of the Protolab, `lab.` for its list |
@@ -76,6 +79,8 @@ in the platform repository has every one with a comment.
 | `TEHAS_REFRESH_CONFLICTS`      | `0`                                      | 1 has the factory resolve conflicts in its own pull requests that wait for a merge (see [refreshes](/operating#refreshes)). Anything but 0 or 1 stops every command with 78 |
 | `TEHAS_REFRESH_MAX`            | `2`                                      | Refreshes of one pull request since the person's approval its cycle rests on. A positive whole number |
 | `TEHAS_BRANCH_CHECK`           | empty                                    | Optional. The name of a check that runs on every push to `TEHAS_BRANCH`, as `verify`. While it failed on the branch's head commit no new cycle starts (see [Limits that hold work back](/operating#limits-that-hold-work-back)). Words of letters, digits and `._()/-` separated by single spaces, else every command stops with 78. Empty: the poll does not ask |
+| `TEHAS_LOW_GATE`               | empty                                    | Optional. A command the dispatcher asks before it starts an issue it puts on neither the urgent list nor the `tehas:next` list. An absolute path of `/`, letters, digits and `._-` with no empty or dot segment, and not under `~/tehas` or the instance directory, else every command stops with 78. Empty: there is no gate, and every ready issue is started as before (see [tehas dispatch](#tehas-dispatch)) |
+| `TEHAS_LOW_GATE_WAIT`          | `60`                                     | Optional. Seconds `TEHAS_LOW_GATE` gets before its answer is a closed gate. A whole number from 1 to 600, else every command stops with 78. The poll holds `~/tehas/state/dispatch.lock` while it waits, so a long value delays every later poll (see [tehas dispatch](#tehas-dispatch)) |
 | `TEHAS_WORK_REPO`               | `~/tehas/repos/<name>`                   | The product checkout cycles are cloned from. Must be a clone of `TEHAS_REPO`. A cycle works in `~/tehas/work/<name>-<issue>`, which is not a setting |
 | `TEHAS_BRANCH`                  | the checkout's `origin/HEAD`             | Branch cycles start from and pull requests target               |
 | `TEHAS_CONCURRENCY`             | `1`                                      | Workstreams side by side inside one cycle. Above 1 only with `TEHAS_TICKET_CONCURRENCY=1`: with both above 1 a command stops with 78 (see [The host](/host#limits-and-concurrency)) |
@@ -203,6 +208,51 @@ the issue is picked. A `tehas:blocked` is checked then too, and costs two
 GraphQL calls: the issue's last 100 comments, and the states of the issues
 they name (see [What happens next](/operating#3-what-happens-next)). A poll never asks
 GitHub the same question twice.
+
+An issue the poll puts on neither the urgent list nor the `tehas:next` list is
+of the lowest kind, so one whose `tehas:next` came from an account the poll does
+not count is of that kind too. With `TEHAS_LOW_GATE` set, the poll runs that
+command once at most, and only when an issue of the lowest kind would otherwise
+start, after every other check of that issue. It gets `TEHAS_LOW_GATE_WAIT`
+seconds (60 by default, at most 600), is asked to end at the end of those
+seconds and killed ten seconds after that if it does not, which is an answer
+like any other. It is given no input and nothing of the poll's environment but
+`PATH`. The poll reads only its exit status: whatever the command prints goes to
+`~/tehas/logs/low-gate.log`, rewritten by every ask, which is where a gate that
+closes for a reason says that reason. The gate is not a sandbox: it runs as the
+tehas user, and what bounds it is that `lib/config.sh` refuses a command under
+`~/tehas` or the instance directory, the trees a merged pull request writes and
+`install.sh` fills. Changing `TEHAS_LOW_GATE` in a real instance directory is a
+security change. It gets no memory or CPU ceiling of its own: a cycle runs in
+`tehas.slice`, the gate does not. Being asked to end reaches the whole process
+group it was started in, so work it leaves in the background ends with it, and
+only a command that starts a session of its own outlives its seconds. Make it
+short, cheap and one that leaves nothing running.
+
+The wait runs while the poll holds `~/tehas/state/dispatch.lock`, so a bound
+above 600 is refused. The timer polls two minutes after a poll ends, and a poll
+asked for when a cycle ends finds the lock held and waits for that timer, so a
+slow gate can leave a freed slot idle for its seconds plus the two minutes. A
+`tehas dispatch --dry-run` waits for the gate too, and holds the lock while it
+does.
+
+Only exit 0 lets those issues start: a missing file, one that is not executable,
+a run that outlives its seconds and any other status hold them for the rest of
+the poll, each skipped with `wait #N: the low-priority gate is closed (exit S)`
+and no call to GitHub about it, so a held issue says only that line and nothing
+else the poll would have said about it: an unauthorised `tehas:ready` on it is
+cleared by a later poll where the gate opens. The poll still ends 0. The hold is
+marked by
+`~/tehas/state/low-gate.held`, which carries nothing but its existence and names
+no command, said once when it begins as `low issues wait: TEHAS_LOW_GATE
+answered S` and once when it ends as `low issues may start: TEHAS_LOW_GATE
+answered 0`, whatever the command answers while it lasts; a hold already on
+record is said by each issue's line, not again as a beginning. A dry run says it
+every time and writes nothing. Urgent issues, `tehas:next` issues, refresh
+requests and a poll with no issue of the lowest kind run nothing. It stops no
+cycle that already runs, and it is not a hold in `live/dispatch.json`: [tehas
+status](#tehas-status) does not show it, so a gate that will not open is seen in
+`~/tehas/logs/dispatch.log` and `~/tehas/logs/low-gate.log`.
 
 Every poll that gets past the bot's login ends by running `libexec/tidy`,
 however the poll ends; the poll's exit status stays its own. It takes tehas's
@@ -404,10 +454,12 @@ Before it marks an issue, the poll writes what the start rests on to
 it was approved, `how` (`label`, `retry-tick`, or `outage-retry` for the one
 start after a provider outage, whose `at` is when the parked cycle began),
 `body_sha256`, the sha256 of the body that approval was checked against with
-carriage returns dropped, and
-`links`, the links to GitHub's attachment storage in that body. The body is
-read in the same call as the record of who last edited it, so it is the text
-the check passed. With `TEHAS_WORK_COMMENTS=1` the poll also lists the
+carriage returns dropped, `title_sha256`, the sha256 of the issue's title held
+the same way (line ends dropped), and
+`links`, the links to GitHub's attachment storage in that body. The body, the
+title and the record of who last edited it come in the same call, so the record
+is the text the check passed. An answer that names no title records no
+`title_sha256`, and `tehas work` then checks the body alone. With `TEHAS_WORK_COMMENTS=1` the poll also lists the
 issue's comments and adds `comment_links`: the links of each comment an
 allowed account wrote whose `created_at` and `updated_at` are at or before
 `at`, in the order written, each as `{link, source, by}` with `source`
@@ -443,11 +495,11 @@ has not stopped `TEHAS_WORK_GRACE` seconds (300) later is stopped with
 from the workspace `~/tehas/work/<name>-<issue>`: the outcome is the runner's
 `--json` result, which goes to `~/tehas/state/cycles/<issue>.result.json`, and
 a copy beside the log. The contract is pi-rukas's `docs/headless.md`: exit
-codes v1, result schema 4, NDJSON progress with a stable subset.
+codes v1, result schema 5, NDJSON progress with a stable subset.
 
 Before anything is moved or fetched, it asks the image what it supports,
 `pi-rukas-headless --capabilities`. The cycle starts only when the image speaks
-exit codes 1, result schema 4 and stable NDJSON 1, the `work` verb takes the
+exit codes 1, result schema 5 and stable NDJSON 1, the `work` verb takes the
 flags passed, and every `PI_ENSEMBLE_*` variable the container would be given
 is an input the image lists for a host to set (scope `cycle` or `sandbox`; a
 family such as `PI_ENSEMBLE_MODEL_<ROLE>` covers the members the image lists
@@ -488,6 +540,46 @@ as the issue's cycle and starts no other for the issue. With the lock held, a
 container left under the name `tehas-work-<issue>` is no cycle's: it is
 removed before the new one starts.
 
+Before it clones a workspace, and before it writes anything of its own, it
+compares the issue with what was approved. The
+dispatcher wrote that into `~/tehas/state/cycles/<issue>.approved.json` before
+it labelled the issue `tehas:running`; `tehas work` reads the issue once, whatever
+the instance gives the cycle, and holds its body to the record's `body_sha256`.
+That one read is also the one its images and text files are fetched from, so a
+start asks GitHub for the issue once.
+The read may take `TEHAS_TEXT_WAIT` seconds (60), and every comment that names
+why a start stopped is bounded the same way: a read that did not end in time is
+said as a timeout and one GitHub refused is said as that, with gh's own words
+in `work-<issue>-<stamp>.jsonl.err`.
+A body that is not the approved one, a record that cannot be read,
+an answer that is a pull request or a closed issue, and an issue that cannot be
+read each stop the start with 4, and the issue is
+told which and that `tehas:ready` records a fresh approval. What the issue is
+told names nothing of this host: the path of a record that could not be read is
+said on the command's error stream only.
+
+What is bound here is the body and the title: the record carries the hash of
+each, and a start is refused when either is not the approved one. The
+dispatcher also reads the label events and refuses an issue renamed since the
+label. A record written before titles were bound carries no `title_sha256` and
+is checked on the body alone. The check is one made as the cycle starts: the container is given the
+bot token and its runner reads the issue as it is then, so an edit that lands
+after the check is not caught by it. `tehas plan` is the command that pins the
+approved text as `.tehas/brief.md` instead.
+
+With no record there is nothing here to compare against and the run is by hand:
+the command says `no approval is recorded on this host for #<issue>; a run by
+hand is its own approval` on its error stream, and goes on. Something else at
+that path, a link or a directory, is read as no record too, and the same line
+adds `(<path> is not a record this command can read)`. Neither line ever says
+the text changed. A record stays on the host until the cycle that was started
+from it reports, and `tehasbot cycle` removes the record of a start that never
+ran (exit 4): an approval that started no cycle is no approval a later start
+can rest on. So a person who runs
+`tehas work` by hand on an issue this host dispatched is held to that record
+too: text edited since the approval needs a fresh `tehas:ready` from an allowed
+account before it starts a cycle.
+
 | Exit | Meaning                                                          |
 | ---- | ---------------------------------------------------------------- |
 | 0    | The runner's: `merged`, or completed with nothing to merge       |
@@ -499,7 +591,7 @@ removed before the new one starts.
 | 40   | The runner's: it refused to start the cycle                      |
 | 2    | The cycle was stopped here as stalled or at the time limit and grace, or the runner ended without a result |
 | 3    | The sandbox cannot push to the repository; no cycle was started  |
-| 4    | With `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`: an image or file the issue links could not be fetched, the issue could not be read for them, its text is not the text that was approved, or a file is not the one first fetched for the approval; no cycle was started |
+| 4    | No cycle was started. On every start that finds the dispatcher's approval record, whatever the settings: the issue's body is not the body that record approved, its title is not the title it approved, the record cannot be read or is not of the shape tehas reads, the answer is a pull request or a closed issue, or the issue cannot be read for its text (within `TEHAS_TEXT_WAIT`); the issue is told which and that a fresh `tehas:ready` is needed. With `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, also: an image or file the issue links could not be fetched, the issue could not be read for them, or a file is not the one first fetched for the approval |
 | 5    | A cycle for this issue is running already: its lock `~/tehas/state/cycles/<issue>.lock` is held. Nothing was moved and no container started |
 | 64   | The issue is not a number, or no bot token or no git identity; no cycle was started |
 | 78   | The instance settings are invalid, `tehas.slice` is missing, has no memory limit, or cannot be used (the message names `sudo ./bootstrap.sh slice` or the reason), the image does not support what the cycle is given, or a workaround in `TEHAS_RUKAS_WORKAROUNDS` has expired; no cycle was started |
@@ -571,6 +663,19 @@ killed for memory, the count is printed and left in
 `~/tehas/state/cycles/<issue>.oom` for `tehasbot cycle`, which says it in the
 issue comment and removes the file. The starts of a process that the pids
 limit refused go the same way, through `~/tehas/state/cycles/<issue>.forks`.
+
+The runner's own exit status goes to `~/tehas/state/cycles/<issue>.runner_exit`,
+which `tehasbot cycle` names in its comment: this command exits 2 for a runner
+that died however it died, and 137 only for a container it saw killed. A
+container it saw killed leaves the word `killed` in
+`~/tehas/state/cycles/<issue>.status`, which is the only account of the end when
+the runner wrote no result at all. The three files `tehasbot cycle` reads and
+removes for a cycle say three things: `runner_exit` is there when this command
+watched the run and holds the runner's own exit, `status` carries the one word
+`killed` when it saw the container killed, and `progress.json`, the summary this
+command made of the run, is what says the log of the run is this cycle's own and
+may be read for its steps. Each is written by a name beside it and moved into
+place, so the cycle sees a file whole or does not see it.
 
 The bot's git identity is the tehas user's global `user.name` and `user.email`
 on the host.
@@ -714,8 +819,12 @@ the whole at 32000, and the manifest gets `"retryContext":
 `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, else the command stops with
 78.
 
-With `TEHAS_WORK_IMAGES=0` and `TEHAS_WORK_FILES=0` a cycle is given nothing,
-and GitHub is asked for nothing. When the dispatcher's approval record lists
+With `TEHAS_WORK_IMAGES=0` and `TEHAS_WORK_FILES=0` a cycle is given nothing:
+no directory is mounted and no `PI_ENSEMBLE_EXTRA_IMAGE_DIRS` is passed on,
+whatever the instance file says. The issue's text is still read once, to
+compare it with the dispatcher's record, and a body that is not the approved
+one stops the start with 4 like anywhere else; with no record GitHub is asked
+for nothing at all. When the dispatcher's approval record lists
 attachment links, that gap is said rather than left for an agent to find from a
 file that is not there: `tehas work` prints a line naming how many links and
 which approval it read (the record's `at` and `by`), writes the same line to
@@ -724,13 +833,15 @@ copies into the record as `err.txt` (only this line and a failure to write it
 ever reach that file), and keeps a manifest at
 `~/tehas/state/cycles/<issue>.manifest.json` with no image, that approval, and
 each link left out with that reason. The links are the approved text's: the
-issue is not read again, so a body edited since the label is not what the line
-counts, and the line says which approval it did count. A record written while
+line counts what the record lists, not what the issue links, and it says which
+approval it did count. A record written while
 the instance took links from comments keeps them, each with its own `source`.
 At most 100 links are listed and `leftOutMore` counts the rest, 0 when there
 are none, so the file stays small enough for the improvement loop to copy. An
-issue the dispatcher never started has no approval record, and then nothing is
-said and nothing is kept. An instance line for `PI_ENSEMBLE_EXTRA_IMAGE_DIRS`
+issue the dispatcher never started has no approval record, and then nothing of
+that gap is said and nothing is kept; the run says on its error stream that no
+approval is recorded on this host for the issue and that a run by hand is its
+own approval. An instance line for `PI_ENSEMBLE_EXTRA_IMAGE_DIRS`
 is dropped there too: the container is given no variable naming a directory it
 does not have. What an agent downloads for itself is its own doing: tehas
 neither fetches an attachment into the workspace nor keeps an agent's own
@@ -979,7 +1090,7 @@ is only ever written when nothing is reading it, and no poll waits for it.
 | Exit | Meaning                                                |
 | ---- | ------------------------------------------------------ |
 | 0    | The index was built, or was already current            |
-| 1    | The sandbox image is missing, or the indexer failed or did not finish in 30 minutes |
+| 1    | The sandbox image is missing, the indexer failed or did not finish in 30 minutes, or what another sandbox image wrote could not be set aside |
 | 3    | A cycle is running, another index run holds its lock, or a poll held the dispatcher's lock for a minute; nothing was done |
 | 64   | An argument this command does not know                 |
 | 78   | The instance settings are invalid, or `tehas.slice` cannot be used; nothing was done |
@@ -988,7 +1099,15 @@ The container gets the clone, read-only, and `~/tehas/state/index`, which is
 the only thing it may write: no network, no token and none of the settings. It
 runs in `tehas.slice` with a cycle's limits. The indexer's answer is kept in
 `~/tehas/logs/index-<time>.log`, and `~/tehas/state/index.json` records the
-commit that was indexed.
+commit that was indexed and the id of the sandbox image that built it. A run
+that finds a different id there, or none, sets aside what that image wrote and
+builds from scratch, and says which two images it compared; the same image
+leaves the index where it is for the indexer to update. What it set aside waits
+in `~/tehas/tmp`: it goes back when the run wrote no index, and is dropped when
+the run wrote one, so a rebuild that fails still leaves the cycles an index to
+search and never buries the one a run just wrote. A run that was killed leaves
+its set-aside there, and the next run puts those files back when the index
+holds no database, or removes them when it does.
 
 A cycle is given a copy, not the directory: the databases and the indexer's own
 configuration, not its logs and not the staging file of an index run that was
@@ -1003,7 +1122,10 @@ agents search by reading files, which is slower and finds less.
 product checkout and no index. After that the dispatcher runs the script with
 `--before-cycle`, as `tehas-index.service`, when it would start cycles and no
 cycle is running, and only when `~/tehas/state/index` does not already hold
-what the record says is the branch's tip. Its output goes to
+what the record says is the branch's tip. A run that finds the record naming
+the tip says so and does nothing, even when the sandbox image has been rebuilt
+since: the new image indexes the tree at the next commit, or at once when a
+person runs `tehas index`. Its output goes to
 `~/tehas/logs/dispatch-index.log`. An empty directory counts as
 no index, so a host upgraded from the version that kept the index in a cache
 volume builds it into the new one at its next idle start rather than reporting
@@ -1020,11 +1142,12 @@ named `tehas-index` that a killed run left behind is removed before each run.
 When the indexer fails, `~/tehas/state/index.json` stays as it was and
 `~/tehas/state/index.failed` holds the tip that failed. Before a cycle that tip
 is not tried again: the dispatcher does not start the unit for it, and the
-cycles start with the index as it is, until the branch moves.
+cycles start with the index as it is, an index written by another sandbox image
+included, until the branch moves.
 
-Run by hand it always rebuilds, a failed tip too, and it holds the index's lock
-while it does, so no cycle starts in the middle. A cycle started by hand
-with `tehas work` refreshes nothing.
+Run by hand it does the work even when the record says the index is current, a
+failed tip too, and it holds the index's lock while it does, so no cycle starts
+in the middle. A cycle started by hand with `tehas work` refreshes nothing.
 
 ## tehas labels
 
@@ -1148,6 +1271,64 @@ label.
 Exit 0 when the flag is gone, whatever the label says, 64 on any argument, 78
 when the instance settings are missing or malformed.
 
+## tehas stop
+
+```
+tehas stop 12                      # end the cycle for issue 12, take its workspace too
+tehas stop 12 --keep-workspace     # end it and keep the workspace to read
+```
+
+Ends a cycle by hand and clears what it left on this host. It asks
+`tehas-cycle@12.service` to stop, waits up to 10 seconds for the cycle to let go
+of its lock, and removes the container `tehas-work-12` when it is still there.
+Then it removes what says a cycle runs, owes something, or is parked:
+`~/tehas/state/cycles/12.lock` with `.taken`, `.cid`, `.park`, `.requeued`,
+`.done`, `.stalled`, `.timed`, `.quiet`, `.oom`, `.forks`, `.branch`, `.image`,
+`.progress.json` and `.result.json`, `~/tehas/state/park-12.id`,
+`~/tehas/live/console-12.txt`, `~/.pi/agent/ensemble-runs/issue-12`, and the
+workspace `~/tehas/work/<name>-12` with its `.state`, `.before-retry` and
+`.images` beside it. `--keep-workspace` keeps the workspace for you to read.
+
+It keeps the cycle's record and every log: `state/cycles/12.json`,
+`.history.jsonl`, `.by`, `.settings`, `.manifest.json`, `.approved.json`,
+`.rukas`, `.runner_exit` and `.status`, and everything under `~/tehas/logs/`. A
+cycle stopped by hand did not end well, and nothing here records its pi-rukas as
+proven.
+
+It prints one line for each thing it stopped or removed, and
+`nothing to stop for #12` when there is nothing to do, so running it twice is
+safe. It names only paths for the number it was given: stopping 12 touches
+nothing of 120. Nothing is removed while a cycle holds that issue's lock, and a
+cycle that still holds it after the stop is left whole and said.
+
+Its last step is the issue's own. When it stopped or removed something on this
+host, and nothing of that failed, it reads the labels of issue 12
+(`gh issue view 12 --repo <repo> --json labels --jq '.labels[].name'`) and takes
+`tehas:running` off when it is there and no cycle of issue 12 holds its lock
+again (`gh issue edit 12 --repo <repo> --remove-label tehas:running`), said as
+`removed tehas:running from #12`. It adds no other label and writes no comment.
+A run that found nothing to do here makes no GitHub call, and a stop whose host
+part failed leaves the label where it is: while a container still works on with
+the bot's token, `tehas:running` is what the poll needs to park the issue. Each
+call gets 10 seconds. A label it cannot read is said as `WARN: the labels of #12
+could not be read, so tehas:running stays on the issue`, one it cannot take off
+as `WARN: tehas:running could not be taken off #12`, and a cycle that took this
+issue's lock again while the host was cleared as `WARN: a cycle for #12 holds
+its lock again, so tehas:running stays on the issue`. For the first two the
+host is already cleared, and a second run finds nothing to clear here and asks
+GitHub for nothing: the label then goes by hand, or the poll parks the issue.
+For the third there is a cycle of issue 12 on this host, and that cycle owns
+`tehas:running`: it takes the label off when it ends, and taking it off by hand
+while it runs takes the label out from under it. Running this again ends that
+cycle too, as stopping any other cycle does.
+
+Exit 0 when the leftovers are gone or there was nothing to do, 1 when the cycle
+still holds its lock after the stop, something could not be removed,
+`tehas:running` could not be read or taken off the issue, or a cycle of that
+issue took its lock again before the label was read, 64 with no issue
+number, an issue that is not a positive number, or an argument it does not know,
+78 when the instance settings are missing or malformed, which changes nothing.
+
 ## tehas status
 
 ```
@@ -1216,7 +1397,7 @@ tehas api [--json]
 ```
 api       1
 tehas     v0.8.0 (cb6912a)
-repo      tehas-org/tehas
+repo      tehas-app/tehas
 features  status fixer-grant all-hands limit drain history export refresh-conflicts analytics
 fixer     none
 ```
@@ -1382,8 +1563,14 @@ and the comment's id goes into `~/tehas/state/park-<issue>.id`, which is what
 lets the dispatcher take a tick there. It
 then removes the workspace of a cycle that merged or left a pull request, and
 keeps the workspace of one that stopped. The images `tehas work` fetched for
-the cycle are removed in every case. A runner that started no cycle over an
-image (exit 4) is parked with a comment that says so. A retry moves a stopped workspace to
+the cycle are removed in every case. A runner that started no cycle (exit 4) is
+parked as a cycle that never ran: `tehas work` has already said on the issue which reason it was (an image
+or file it could not be given, or an issue whose text or title is not the approved one),
+and tehasbot cycle's own line names the exit status, who approved the start and
+when from `~/tehas/state/cycles/<issue>.approved.json`, and where the run log
+is, naming no status, step, duration or token usage as that cycle's. The
+approval record of such a start is removed with the report.
+A retry moves a stopped workspace to
 `<name>-<issue>.before-retry`, which is removed and kept by the same rule.
 The dispatcher removes a kept workspace once no cycle has run on its issue for
 7 days. A
@@ -1445,6 +1632,35 @@ bot has no merged pull request for the issue, and both workspaces are kept. A
 result that is a link, of another schema than 4, or with no entry for the
 issue, is not read: the status is then `unknown`. pi-rukas's state file in
 the workspace is never read.
+
+A result file with nothing in it is no result: the runner died before it could
+write one. Such a cycle is still reported, from what the host has of its own,
+and is never left as `tehas:running`. Its last step is the last step its run log
+`~/tehas/logs/work-<issue>-<time>.jsonl` says it started, and the comment says
+`read from its run log`, which is the runner's own word and not the verdict of a
+result. Only a cycle `tehas work` watched is read this way, and only its own
+newest log: the summary `tehas work` wrote of the run, in
+`state/cycles/<issue>.progress.json`, is what says the log is of this cycle, and
+`state/cycles/<issue>.runner_exit`, which it writes with the runner's own exit,
+is what says the run was watched at all. The
+comment names that exit, because `tehas work` exits 2 for a runner that died
+however it died and 137 only for a container it saw killed.
+
+When those steps reach `commit-pr`, the step name right after the last of them
+is the branch pi-rukas pushed, and GitHub is asked for the bot's pull request of
+that branch. The last, because a run that pushed twice (a retry round, or a
+refresh that pushes to the same pull request) ends on its last push, and that is
+the branch GitHub holds.
+Only a name of this issue's own branch, `feature/issue-<issue>-...`, is asked
+about: a step of any other shape is a step and not a branch, and asks GitHub
+nothing. GitHub decides whether one exists; a line of a log only says which
+branch to ask about, so no log can report a pull request GitHub does not list.
+With one found the cycle is reported as a handoff whose review did not finish:
+`needs-human-attention`, the pull request named, and no box for a clean retry,
+which would redo what the open pull request already holds. With none found, or
+with no branch to ask about, the cycle is parked as any other that stopped
+without a pull request. Nothing of a log is read for a cycle that wrote a
+result: that result names its step and its branch, and the two are not mixed.
 
 The label change that ends a cycle is tried three times, five seconds apart,
 and so is the search for the pull request. If GitHub still refuses the label
@@ -2531,18 +2747,36 @@ installed on a host.
 scripts/test.sh
 ```
 
-It runs shellcheck over the shell scripts, then every `test/*_test.sh`. Those
-need bash, git, jq and shellcheck only: no sandbox image, no product checkout
-and no network. The test files run side by side, at most `TEHAS_TEST_JOBS` at
-once: by default the CPU quota of the cgroup it runs in, rounded up, or the
-number of CPUs where there is none. Each file's output is printed whole, in name
-order, and the run ends with a block that says what did not pass:
+It runs shellcheck over the shell scripts, one process per file, together with
+every `test/*_test.sh` in the same pool: nothing waits for the lint to finish.
+Those need bash, git, jq and shellcheck only: no sandbox image, no product
+checkout and no network. At most `TEHAS_TEST_JOBS` tasks run at once: by
+default the smaller of the CPUs `nproc` counts and the CPU quota of the cgroup
+it runs in, rounded up. The slowest files start first, from a short fixed list
+in the script, so none of them starts last and holds the run; the rest follow
+in name order and the lint of each file after them.
+
+Each task is stopped after `TEHAS_TEST_FILE_TIMEOUT` seconds (300 by default)
+and counts as a failure, named with `timed out`. A file that hangs therefore
+costs the timeout and nothing more, and the run still prints its block.
+
+Each file's output is printed whole, in name order, once all the tasks have
+ended. The run then says what it covered, the total number of cases over all
+the files and the five slowest of them with their times, and ends with a block
+that says what did not pass:
 
 ```
+test.sh: 431 cases in 96 files, 16 at a time
+test.sh: the slowest files:
+      8.4 s  test/work_test.sh
+      6.1 s  test/dispatch_queue_test.sh
 test.sh: failed checks (2), not run (0)
     shellcheck
     test/plan_test.sh
 ```
+
+The case total is the number to compare between runs: it does not go down
+unless cases were removed. The slowest files are the ones to split.
 
 Every severity of shellcheck note fails the run: error, warning, info and style.
 The lint is called with no `-S` floor and no codes excluded, so a style note on a
@@ -2569,7 +2803,8 @@ Its first line counts the checks that failed and the checks that did not run.
 Each line after it names one of them: `shellcheck`, or the path of a failing
 test file relative to the checkout, with a reason after it when there is more to
 say than the exit status: `it did not finish, no result recorded` for a file
-that never ended, `its recorded result could not be read` for a record that is
+that never ended, `timed out after 300s` for one the timeout stopped, `its
+recorded result could not be read` for a record that is
 not a number, `its output could not be read` for a log the run cannot show.
 Control bytes in a file name become `?`. A line starting `skipped:` gives a
 check that did not run, with its reason.
@@ -2579,9 +2814,8 @@ lines `scripts/verify.sh` keeps at the end of this step, so it fits inside them
 with two lines to spare: past the cap it names the last failing test files and
 counts the rest, as in `and 7 more, in the full log`, and it still names the
 lint when the lint failed. A log cut short therefore still says how many checks
-failed and whether the shell scripts were among them. The block appears only for
-a run that ends: a test file that hangs holds the whole run up, with no block and
-no name. Exit 0 when every check passed, 1 when one failed, 2 when nothing could
+failed and whether the shell scripts were among them. Exit 0 when every check
+passed, 1 when one failed, 2 when nothing could
 be checked. `scripts/verify.sh` prints what a step wrote only for a step that
 failed, so a run that ends with checks not run shows them in the gate only when
 something else failed too.

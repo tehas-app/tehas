@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 5,
+  "buildCommit": "c5ddc0ab9de62edeaac948263d7f8a8f5b123066",
+  "buildVersion": "0.14.0",
+  "exitCode": 10,
+  "issues": [
+    {
+      "issue": 7,
+      "status": "handoff",
+      "stateFile": "/workspace/demo/.pi/work-state/7.json",
+      "durationMs": 9683,
+      "steps": [
+        {
+          "step": "explore",
+          "startedAt": "2026-10-20T07:33:33.027Z",
+          "endedAt": "2026-10-20T07:33:44.981Z"
+        },
+        {
+          "step": "handoff",
+          "startedAt": "2026-10-20T07:33:44.981Z",
+          "endedAt": "2026-10-20T07:33:45.008Z"
+        }
+      ],
+      "exitCode": 10,
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": 0,
+        "turns": 0,
+        "dispatches": 0,
+        "byRole": {}
+      },
+      "resumable": false,
+      "cap": "explore-bodies-empty",
+      "failedStep": "explore",
+      "failure": {
+        "kind": "cap",
+        "message": "explore-bodies-empty",
+        "step": "explore"
+      },
+      "causeClass": "environment",
+      "causeReason": "the issue body could not be fetched on any attempt",
+      "causeEvidence": [
+        "explore-bodies-empty"
+      ],
+      "userAction": "fix the gh setup (`gh auth status`), then re-run `/work 7`",
+      "handoff": {
+        "channel": "host",
+        "marker": "<!-- pi-rukas:handoff issue=7 cap=explore-bodies-empty -->",
+        "labelApplied": false,
+        "body": "<!-- pi-rukas:handoff issue=7 cap=explore-bodies-empty -->\n## ⏸ Cap hit — needs human attention\n\n### Cause: **environment** — the issue body could not be fetched on any attempt\n\nEvidence:\n\n- ` explore-bodies-empty `\n\n**What you can do:** fix the gh setup (`gh auth status`), then re-run `/work 7`\n\n**Cap**: explore-bodies-empty\n**Rounds**: 0 of 3 review rounds (six-lens review)\n**Branch**: `(branch not captured)`\n**Issues**: `#7`\n**State file**: `.pi/work-state/7.json`\n\n### What this cap means\n\n`gh issue view` returned empty/error for #7 on every attempt (the fetch is retried with backoff, so a one-off blip is already ruled out) — the driver cannot reliably classify work that hasn't been read. Most likely causes: gh version with projectCards GraphQL deprecation, gh extension hijacking stdout, expired auth (`gh auth status`), or a persistent network fault. Fix the gh setup and re-run /work; the body fetch is a load-bearing pre-condition\n\n### What was attempted\n\n### Worktree state at handoff\n\n- repo-root HEAD: `f33eef0`\n- branch repo-root HEAD `f33eef0`\n- branch exists locally: no\n- branch pushed to origin: no (local only)\n- 1 file(s) modified (0 staged, 1 unstaged)\n- modified files (first 1 of 1):\n    - `.pi/`\n\n### Empty / failed issue-body fetches\n\n- **#7** — gh issue view rejected on every attempt: Command failed: gh issue view 7 --json number,title,body,state,url,author,labels,createdAt,updatedAt\nTo get started with GitHub CLI, please run:  gh auth login\nAlternatively, populate the GH_TOKEN env\n\n<details>\n<summary>Host-local recovery commands (for the machine that ran the cycle)</summary>\n\n### Concrete recovery commands\n\nPick one:\n\n```bash\n\n# 1. Confirm gh auth + version (most common cause: projectCards GraphQL deprecation in older gh):\ngh auth status\ngh --version\n\n# 2. Probe a failing issue via REST (works when `gh issue view` is broken):\ngh api repos/<owner>/<repo>/issues/7 --jq .body | head\n\n# 3. If gh issue view is hijacked, check for a misbehaving gh extension:\ngh extension list\n\n# 4. Once fixed, re-run /work — the cycle halts cleanly with no code written for #7:\nrm .pi/work-state/7.json\n# then restart Pi\n```\n\n\n</details>\n\n### Inspect further\n\n- Rich state + full event log: `.pi/work-state/7.json`\n- Per-subagent transcripts (preserved on handoff): `tmp/issue-7/`\n- This body file: `tmp/issue-7/handoff-comment.md`",
+        "bodyFile": "/workspace/demo/tmp/issue-7/handoff-comment.md"
+      }
+    }
+  ],
+  "resources": {
+    "host": {
+      "cpus": 16,
+      "cpuSource": "os",
+      "memoryBytes": 265548251136,
+      "memorySource": "os",
+      "cgroup": "v2",
+      "pidsMax": 272331
+    },
+    "budget": {
+      "workstreamSlots": 32,
+      "verifyConcurrency": 8,
+      "lensSlots": 32
+    },
+    "limits": {
+      "parallelGroups": {
+        "value": 3,
+        "source": "default"
+      },
+      "maxWorkstreams": {
+        "value": 6,
+        "source": "default"
+      },
+      "verifyConcurrency": {
+        "value": 8,
+        "source": "budget"
+      },
+      "lensConcurrency": {
+        "value": 32,
+        "source": "budget"
+      },
+      "spawnCap": {
+        "value": 64,
+        "source": "default",
+        "scope": "process"
+      },
+      "hostSpawnCap": {
+        "value": 64,
+        "source": "default",
+        "scope": "host"
+      }
+    }
+  }
+}

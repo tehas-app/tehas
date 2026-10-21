@@ -90,11 +90,11 @@ failed() { # <cap> <failure kind> <reason>
 
 t_case "a failure of kind provider is an outage whatever the cap, and asks for one retry"
 reset
-failed developer-timeout provider "rate limited"
+failed spawn-backstop provider "rate limited"
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "Tehas cycle parked by a provider outage"
-t_contains "$(t_calls gh)" "cap \`developer-timeout\`: rate limited"
-t_eq "$(jq -c '[.cap, .reason, .provider, .retry]' "$state/7.park")" '["developer-timeout","rate limited",true,true]'
+t_contains "$(t_calls gh)" "cap \`spawn-backstop\`: rate limited"
+t_eq "$(jq -c '[.cap, .reason, .provider, .retry]' "$state/7.park")" '["spawn-backstop","rate limited",true,true]'
 
 t_case "a failure of another kind is no outage, even when its words look like one"
 for k in process timeout verify cap something-new; do
@@ -383,5 +383,49 @@ t_eq "$(t_calls gh | grep -c -F '| **total, all dispatches** | 3 | 7 | 10 | 4 | 
 t_eq "$(t_calls gh | grep -c '^- \[')" 2
 t_eq "$(markers)" 1
 rm -rf "$workdir"
+
+# A runner that refused to start (tehas work exit 4): the park is for a cycle
+# that never ran, so it is said from the dispatcher's record of the start, and
+# the record goes with it.
+never_ran() { # [record as jq, none for no record]
+  reset
+  echo 4 >"$fx/rc"
+  [ -z "${1:-}" ] || { mkdir -p "$state"; jq -c -n "$1" >"$state/7.approved.json"; }
+}
+approved_start='{at: "2026-01-01T00:00:00Z", by: "alice", how: "label", body_sha256: "0", links: []}'
+
+t_case "a start that never ran is parked as one that never ran, named from the record"
+never_ran "$approved_start"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit 4)."
+t_contains "$(t_calls gh)" "alice approved this start at 2026-01-01T00:00:00Z"
+t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+t_lacks "$(t_calls gh)" "stopped without a pull request"
+t_lacks "$(t_calls gh)" "status \`unknown\`"
+t_lacks "$(t_calls gh)" "last step"
+t_eq "$(jq -c '[.cap, .provider, .retry]' "$state/7.park")" '["",false,false]'
+
+t_case "a start that never ran leaves no approval record, and its line of history still names how it was authorised"
+never_ran "$approved_start"
+t_run "$cycle 7"
+t_eq "$([ -e "$state/7.approved.json" ] && echo left)" ""
+t_eq "$(jq -c '[.rc, .status, .step, .how, .parked]' "$state/7.history.jsonl")" '[4,"unknown","-","label",true]'
+
+t_case "a cycle that ran keeps its approval record"
+reset
+mkdir -p "$state"
+jq -c -n "$approved_start" >"$state/7.approved.json"
+ended handoff commit-pr feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+t_run "$cycle 7"
+t_eq "$([ -e "$state/7.approved.json" ] && echo left)" "left"
+rm -rf "$workdir" "$fx/pr.txt"
+
+t_case "a start that never ran with no record on this host says so, and still asks for the label"
+never_ran
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "No approval of this start is recorded on this host: a fresh \`tehas:ready\` is needed."
+t_contains "$(t_calls gh)" "--add-label needs-human-attention"
+t_eq "$(find "$state/7.park" 2>/dev/null | wc -l)" 1
 
 t_done

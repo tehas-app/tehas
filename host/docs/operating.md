@@ -82,6 +82,11 @@ means:
 - the issue body has a good description, written as in step 1 below,
 - reference material is attached where it helps: images, or a zip of a
   prototype built elsewhere,
+- no line of it says a file goes there. A body left with `SCREENSHOT GOES
+  HERE`, or `IMAGE_GOES_HERE`, where the picture should be, is a handover that
+  stopped short: the dispatcher holds such an issue and says so in one line of
+  `logs/dispatch.log` rather than spend a cycle on something no container was
+  given. Attach the file, or write out what it shows, and then label.
 - someone applies `tehas:ready`, as in step 2.
 
 ## Attachments
@@ -141,6 +146,11 @@ The rules behind each column:
 
 So for a picture, write the words too: name the element by its selector and
 its visible title, and say where in it the thing goes.
+
+And when the picture is not there yet, do not leave its place marked. A body
+that says `SCREENSHOT GOES HERE`, or `IMAGE_GOES_HERE`, while its text links no
+attachment at all is held by the dispatcher: the same line of
+`logs/dispatch.log` says the words it found. Nothing on the issue changes.
 
 ## 1. Write an issue tehas can build
 
@@ -244,6 +254,8 @@ nothing else changes. To turn them off on a viiwork mesh, see
 
 The dispatcher takes issues `tehas:urgent` first, then [refreshes](#refreshes) of its own pull requests, then `tehas:next`, then by the lowest issue number: as many at a time as the host's ceiling and the slice's room allow (see [Limits that hold work back](#limits-that-hold-work-back)). A running cycle is never stopped to make room for an urgent one. The dashboard lists the queue by issue number, not the order the dispatcher will work it in: whether a `tehas:urgent` or `tehas:next` moves the queue is decided by who applied the label, not by its being there. `tehas:urgent` counts from an allowed labeller. `tehas:next` counts from an allowed labeller or [the fixer](#the-fixers-grant), when the latest event of the label applies it; one taken off since, or applied by anyone else, is ignored and logged.
 
+An issue the poll puts on neither the urgent list nor the `tehas:next` list is the lowest kind, so one whose `tehas:next` came from an account the poll does not count is of that kind too. With `TEHAS_LOW_GATE` on the instance (see [tehas dispatch](/tools#tehas-dispatch)) the poll runs one command of yours before it starts any of them, once a poll at most, and only when such an issue would otherwise start. Only its exit status is read: 0 lets them start, and anything else holds them for that poll, a command that is missing, one that is not executable or one that outlives `TEHAS_LOW_GATE_WAIT` included, while urgent and `tehas:next` issues go ahead. What the command prints is kept in `~/tehas/logs/low-gate.log`, rewritten each time it is asked, so a gate that closes for a reason says that reason there. The log says `low issues wait: TEHAS_LOW_GATE answered S` once when the hold begins and `low issues may start: TEHAS_LOW_GATE answered 0` once when it ends, whatever the command answers while the hold lasts; after that each held issue says it on its own line. No cycle that already runs is stopped by it. A closed gate is not one of the holds [tehas status](/tools#tehas-status) shows, so a factory that starts nothing for it reads healthy elsewhere: look in `~/tehas/logs/dispatch.log`. With no setting there is no gate, and every ready issue is started as before.
+
 An issue with `tehas:blocked` is not started while an issue it names is open, so its slot goes to work that can move. The label counts on the same terms as `tehas:next`. The blockers are named in a comment by an allowed labeller or the fixer that holds the marker:
 
 ```
@@ -253,6 +265,8 @@ Blocked by #12 and #34.
 ```
 
 Up to 20 numbers, separated by commas and no spaces. The newest such comment among the last 100 counts; one by anyone else is ignored. The issue also waits, and the log says why, when the label counts and no such comment is there, when the newest one does not hold a marker that reads, when it was last edited by another account, or when GitHub does not give the state of a number it names. Once every blocker is closed the issue may start. The dispatcher leaves the label on; take it off when it no longer applies. To start a blocked issue anyway, take the label off.
+
+An epic is never started: an issue with open sub-issues is a plan broken into issues, not a change one cycle can make, and a cycle on it spends a slot and its tokens before it parks as too large. When `tehas:ready` is applied to such an issue, the dispatcher takes the label off, says so in one comment and starts nothing; a retry ticked on one starts nothing and the log says why. The count comes from the issue GitHub already answers for, so a GitHub without sub-issues is unaffected. Read the plan and apply `tehas:ready` to one of its sub-issues instead; a sub-issue with no open sub-issues of its own is started as any other issue. A `tehas:plan` session on an epic is allowed: planning an epic is what it is for.
 
 | Label on the issue      | Meaning                           | Your move                                |
 | ----------------------- | --------------------------------- | ---------------------------------------- |
@@ -302,11 +316,20 @@ tehas top                    # the same overview, on one screen that redraws its
 tehas dispatch --dry-run     # what would it do?
 tehas dispatch               # do it (returns once the cycle is started)
 systemctl --user status 'tehas-cycle@*'   # which cycles are running
+tehas stop 12                             # end the cycle for issue 12, clear what it left
 systemctl --user stop tehas-cycle@12      # stop the cycle for issue 12
 ```
 
 A stop ends the container. The issue gets `needs-human-attention`, and the
 console shows the cycle as interrupted.
+
+`tehas stop 12` asks that unit to stop and takes away what the cycle left on the
+host: its container, its workspace, its transcripts, and the files in
+`~/tehas/state` that make this host think the cycle still runs, is owed, or is
+parked. It keeps the cycle's record and its logs. Its last step is the issue's
+own: when the host part went clean, `tehas:running` comes off it, with no other
+label added and nothing written there. See
+[`tehas stop`](/tools#tehas-stop).
 
 `tehas` is the one command to type on the host; `tehas help` lists what it
 does. See [Commands](/tools).
@@ -380,6 +403,17 @@ pi-rukas handed off:
   still open, or an issue that carries `needs-human-attention` at the end:
   `needs-human-attention` only. The comment names the cap and links the pull
   request. Read the pull request before you retry.
+
+A runner that died before it wrote its result leaves no verdict of its own, so
+tehas reads the cycle's own run log for the step it reached and asks GitHub for
+the bot's pull request of the branch `commit-pr` pushed. With one there the
+comment is `Tehas cycle handed off with its pull request open and its review
+unfinished`: `needs-human-attention`, the pull request named, and no boxes,
+because a clean retry redoes what the open pull request already holds. With
+none, the issue is parked as any other that stopped without a pull request. The
+comment names the runner's own exit, not the exit of `tehas work`, and says the
+step was read from the log. See [the runner died and wrote no
+result](/troubleshooting).
 
 An issue never ends a cycle with both labels.
 
@@ -751,6 +785,16 @@ recording, and both commands then say so and exit 69.
   model with a one-pixel image only when such an issue could start now, at
   most once a poll. The issue stays queued, the log says `hold #N: ...`, and
   issues without images start as usual. A planning turn is not held by it.
+- No cycle for an issue whose text says a file goes there (`SCREENSHOT GOES
+  HERE`, `IMAGE_GOES_HERE`, `the image goes here`) while its text links no
+  attachment at all. The instance giving a cycle images or not makes no
+  difference: either way the cycle would be given no file and no word of the
+  gap, and would spend its explore on a premise it cannot see. The log says
+  `hold #N: its text says <the words> and links no attachment, so the cycle
+  would be given none`; the issue keeps every label it has and gets no comment,
+  because what is left to do is the owner's: attach the file, or write out what
+  it shows. A planning turn is not held by it, and neither is a retry tick or a
+  refresh held by anything else about it.
 - No cycle while the code index is rebuilt. On a host where no cycle runs and
   the branch has moved, the poll that would start cycles starts the index run
   as `tehas-index.service` instead, and the log says `holding: the code index
@@ -811,7 +855,9 @@ only. Planning
 turns still run. `tehas status` shows the room in its `slice` line, as the
 dispatcher's last poll read it, and `tehas dispatch --dry-run` reads it
 afresh. A hold is written to `~/tehas/logs/dispatch.log` once, when its reason
-changes, and `released: cycles may start again` once when it ends.
+changes, and `released: cycles may start again` once when it ends. The gate of
+the lowest issues is not one of these holds: it reaches neither `tehas status`
+nor `/health`, and is seen in `logs/dispatch.log` and `logs/low-gate.log`.
 
 ## The improvement loop
 
@@ -1060,6 +1106,16 @@ issue, and no refresh of it starts again on its own.
 the bot did not open, from forks or closing several issues, and conflicts
 between two open pull requests of the factory: each is resolved against the
 branch when the other merges.
+
+**To turn it on**, set `TEHAS_REFRESH_CONFLICTS=1` in `instance.env` and
+enable the timer, which `install.sh` and `tehas update` install but do not
+start:
+
+```
+systemctl --user enable --now tehas-refresh.timer
+```
+
+The first run is at once. `~/tehas/logs/refresh.log` says what it found.
 
 **To turn it off**, set `TEHAS_REFRESH_CONFLICTS=0` (or remove it) in
 `instance.env`: `tehasbot refresh` then exits at once and the dispatcher starts
