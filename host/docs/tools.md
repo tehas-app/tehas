@@ -26,7 +26,7 @@ tehas drain [--wait S] [--json]  # start nothing new, wait for running cycles
 tehas history [--json] [--after C] [--issue N]  # what ended, oldest first
 tehas export [--json] --after C <dir>  # copy a cycle's records, masked
 tehas top [--once|--json]        # one screen of what the factory is doing
-tehas analytics report|export    # the factory's last ten days of runs
+tehas analytics report|export    # the factory's last 365 days of runs
 tehas pause [reason]             # stop this host from starting new work
 tehas resume                     # lift this host's pause flag
 tehas stop <issue> [--keep-workspace]  # end a cycle by hand, clear what it left
@@ -64,7 +64,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_ANALYTICS_COOKIE`        | `0`                                      | `1` adds `data-cookie="true"` to that script tag                |
 | `TEHAS_THEME`                   | `pixel`                                  | The look of every page: `pixel`, `paper` or `beesknees`. Another name stops every command with 78. See [The host](/host#themes-and-layouts) |
 | `TEHAS_LAYOUT`                  | `floor`                                  | The front page: `floor`, the game view, or `business`. Both are always at `/floor` and `/business`. Another name stops every command with 78. See [The host](/host#themes-and-layouts) |
-| `TEHAS_ANALYTICS`               | `on`                                     | The factory's own analytics, not the visitor analytics above: ten days of runs, issue events and poll samples in `~/tehas/state/analytics.db`. `off` stops every write and leaves the file as it is. Anything but `on` or `off` stops every command with 78 |
+| `TEHAS_ANALYTICS`               | `on`                                     | The factory's own analytics, not the visitor analytics above: 365 days of runs, issue events and poll samples in `~/tehas/state/analytics.db`. `off` stops every write and leaves the file as it is. Anything but `on` or `off` stops every command with 78 |
 | `TEHAS_PROTOLAB_URL`            | `https://lab.<domain>`, or port 8081     | Address people reach the Protolab at, when it is published elsewhere, as `https://lab.example`. The dashboard links to it. Without it: `https://lab.<domain>` when `TEHAS_DOMAIN` is set, else port 8081 of the dashboard's host |
 | `TEHAS_DOMAIN`                  | none                                     | The domain the edge's names are made under, as `tehas.app`: `uat-<pr>.` for a preview, `lab-<issue>.` for a ticket of the Protolab, `lab.` for its list |
 | `TEHAS_PREVIEWS`                | `0`                                      | `1` builds a preview of every open pull request whose branch is in the product repository and that an owner, member or collaborator opened. Needs `TEHAS_DOMAIN` |
@@ -278,7 +278,7 @@ issues in line, running, awaiting a merge, stopped and in planning from
 `~/tehas/live/dispatch.json`, and the mesh's draw from
 `~/tehas/live/energy.json`. A file older than ten minutes gives no value, and a
 `dispatch.json` older than two and a half, an earlier poll's, neither. Then
-`analytics prune` removes what is older than ten days. A start records the
+`analytics prune` removes what is older than 365 days. A start records the
 events `ready`, as its approval record is written and at the time that record
 says `tehas:ready` was accepted (`at`), and `started`, once its cycle came up,
 the first time for each issue. Each call may take 5 seconds.
@@ -1454,7 +1454,7 @@ tehas analytics report                    # the ten-day report, for a person
 tehas analytics export <file> [--json]    # a copy of the database
 ```
 
-The factory's own record of its last ten days: runs, their steps and roles,
+The factory's own record of its last 365 days: runs, their steps and roles,
 issue events and poll samples, in `~/tehas/state/analytics.db`. Both read it
 through `~/tehas/libexec/analytics`, which holds all of its SQL.
 

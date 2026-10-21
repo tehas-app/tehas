@@ -31,7 +31,7 @@
 //!     and the mesh's draw, from the live files the poll wrote (sample.rs
 //!     lists them). The dispatcher calls it once a poll.
 //!   analytics prune
-//!     Deletes what is older than ten days, then runs PRAGMA optimize. run,
+//!     Deletes what is older than 365 days, then runs PRAGMA optimize. run,
 //!     event and sample prune too, after their write. The events of an
 //!     issue that started and never ended are kept at most a day longer.
 //!   analytics report [--json]
@@ -50,7 +50,7 @@
 //! its schema version in PRAGMA user_version (schema.sql). A file that is
 //! not a database is moved to analytics.db.broken, a database of another
 //! schema version to analytics.db.schema-<version>, and a new one is made,
-//! said on standard error. prune deletes a schema-<version> file ten days
+//! said on standard error. prune deletes a schema-<version> file 365 days
 //! after its last write. Any other failure leaves the file
 //! as it is. TEHAS_HOME comes from the
 //! environment and has no default.
