@@ -24,7 +24,8 @@ fx=$T_ROOT/test/fixtures/headless-0.12.80
 caps=$(cat "$fx/capabilities.json")
 nx=$T_ROOT/test/fixtures/headless-1ca933e
 ncaps=$(cat "$nx/capabilities.json")
-caps316134e=$(cat "$T_ROOT/test/fixtures/headless-316134e/capabilities.json")
+px=$T_ROOT/test/fixtures/headless-316134e
+pcaps=$(cat "$px/capabilities.json")
 sx=$T_ROOT/test/fixtures/headless-c5ddc0a
 scaps=$(cat "$sx/capabilities.json")
 # What tehas work gives a cycle's container, of PI_ENSEMBLE_* names.
@@ -100,32 +101,34 @@ t_case "an image reads as planning only when its answer says planTurns is true"
 tehas_headless_plans "$scaps"
 t_eq "$?" 0
 # The builds before v0.14.0: no planTurns in their features, whatever their
-# schema, and 316134e, later than 1ca933e and still without it.
-for c in "$caps" "$ncaps" "$caps316134e"; do
+# schema.
+for c in "$caps" "$ncaps" "$pcaps"; do
   tehas_headless_plans "$c"
   t_eq "$?" 1
 done
-# A build that names the feature and says no.
-tehas_headless_plans "$(jq -c '.features.planTurns = false' <<<"$scaps")"
+# A build that names the feature and says no, or names it as something other
+# than the boolean true.
+tehas_headless_plans '{"features":{"planTurns":false}}'
+t_eq "$?" 1
+tehas_headless_plans '{"features":{"planTurns":"yes"}}'
+t_eq "$?" 1
+tehas_headless_plans '{"a":1}'
 t_eq "$?" 1
 tehas_headless_plans "$(jq -c 'del(.features)' <<<"$scaps")"
-t_eq "$?" 1
-tehas_headless_plans "$(jq -c '.features.planTurns = "yes"' <<<"$scaps")"
 t_eq "$?" 1
 for bad in "" "not json" "[]" "7" "null"; do
   tehas_headless_plans "$bad"
   t_eq "$?" 1
 done
-# The 1 of "does not plan" is also the 1 of an answer tehas could not read:
-# a cut-off one, and one that is more than a single document. jq reads every
-# document of an answer, so these are the shapes that would read as planning
-# if only the first were looked at, or none were.
+# The 1 of "does not plan" is also the 1 of an answer tehas could not read: a
+# cut-off one, and one of more than a single document. Each of these is the
+# same text that says yes on its own, so only the second document is refused.
+pl=$(jq -c '{features:{planTurns:true}}' <<<"$scaps")
+tehas_headless_plans "$pl"
+t_eq "$?" 0
 tehas_headless_plans "$(head -c 4096 "$sx/capabilities.json")"
 t_eq "$?" 1
-for two in "1 $(jq -c '{features:{planTurns:true}}' <<<"$scaps")" \
-  "null $(jq -c '{features:{planTurns:true}}' <<<"$scaps")" \
-  "[] $(jq -c '{features:{planTurns:true}}' <<<"$scaps")" \
-  "$(jq -c '{features:{planTurns:true}}' <<<"$scaps") { }"; do
+for two in "1 $pl" "null $pl" "[] $pl" "true $pl" "[[1]] $pl" "1 $pl 2" "$pl { }" "$pl 1" "$pl null" "1 2"; do
   tehas_headless_plans "$two"
   t_eq "$?" 1
 done

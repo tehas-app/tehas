@@ -20,19 +20,22 @@
 #   tehas_headless_plans <caps>
 #       0 when the answer's features say it runs planning turns
 #       (features.planTurns is true), else 1. One 1 covers three events: the
-#       feature false or missing, and an answer that cannot be read. A caller
-#       that must tell a genuine no from not knowing calls
-#       tehas_headless_unsupported <caps> "" "" planTurns instead, which says
-#       "the feature planTurns" for the first and returns 1 for the last.
+#       feature false, missing, or not the boolean true, and an answer that
+#       cannot be read. The third is not told apart from the first two here:
+#       tehas_headless_unsupported <caps> "" "" planTurns says "the feature
+#       planTurns" for any feature that is not the boolean true and prints
+#       nothing when it can read no object at all, which is what "not known"
+#       reads as from here too. A caller that must know whether the answer was
+#       readable records that where it asks for the answer: the
+#       "docker run --capabilities" of libexec/work, whose caps_rc beside
+#       its caps already says whether the image answered.
 #       The answer must be exactly one JSON document: one that carries a
 #       second document is no answer.
-#       Nothing calls it yet: the planned planning turns of #283 will, on the
-#       features.planTurns pi-rukas added for its plan verb
-#       (trail-openers/pi-rukas#1605). When that lands, the caller takes the
-#       fetch path of tehas_rukas_ask (lib/cycles.sh), which asks the image
-#       once per command and keeps what it heard: not another docker call per
-#       question, uncached. Remove this with the caller, or when no host
-#       image is left without the feature.
+#       Nothing calls it yet: the planned planning turns of #283 will. When it
+#       lands, the answer is read once, kept, and its size bounded before it
+#       reaches jq: tehas_headless_run bounds the log it reads at 200 KB, and
+#       the caps fetch is bounded by timeout alone. Remove this with the
+#       caller, or when no host image is left without the feature.
 #   tehas_headless_expired <caps> <workarounds>
 #       the workarounds in <workarounds> (NAME@VERSION, space separated) that
 #       the image's pi-rukas no longer needs: its version is VERSION or later.
@@ -109,12 +112,11 @@ tehas_headless_unsupported() { # <caps> <flags> <names> [features]
 }
 
 tehas_headless_plans() { # <caps>
-  # Slurped: jq reads every top-level document, so without the length test an
-  # answer of a scalar and a planning object second would read as one that
-  # plans. Any jq failure is the 1 of "does not plan", and the answer is the
-  # only thing read, so nothing is lost by dropping the diagnostic: the
-  # caller that needs the reason asks tehas_headless_unsupported for it.
-  jq -es '(length == 1) and (.[0] | type == "object" and .features.planTurns == true)' \
+  # Slurped, with the length test: a second document makes it no answer.
+  # The guard reads the answer, so the pipe target is parenthesised: bare,
+  # jq's pipe takes the whole conjunction and the type test lands on the
+  # feature set instead. Any other jq failure is the 1 of "does not plan".
+  jq -es '(length == 1) and (.[0] | (type == "object" and .features.planTurns == true))' \
     >/dev/null 2>&1 <<<"$1" || return 1
 }
 
