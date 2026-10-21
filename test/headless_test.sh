@@ -24,6 +24,7 @@ fx=$T_ROOT/test/fixtures/headless-0.12.80
 caps=$(cat "$fx/capabilities.json")
 nx=$T_ROOT/test/fixtures/headless-1ca933e
 ncaps=$(cat "$nx/capabilities.json")
+caps316134e=$(cat "$T_ROOT/test/fixtures/headless-316134e/capabilities.json")
 sx=$T_ROOT/test/fixtures/headless-c5ddc0a
 scaps=$(cat "$sx/capabilities.json")
 # What tehas work gives a cycle's container, of PI_ENSEMBLE_* names.
@@ -95,11 +96,12 @@ t_eq "$(tehas_headless_reads_images "$(jq -c '(.inputs[] | select(.name == "PI_E
 t_eq "$(tehas_headless_reads_images "$(jq -c 'del(.inputs[] | select(.name == "PI_ENSEMBLE_ISSUE_IMAGES"))' <<<"$scaps")")" 0
 for bad in "" "not json" "[]"; do t_eq "$(tehas_headless_reads_images "$bad")" 0; done
 
-t_case "an image that says it runs planning turns is asked to plan"
+t_case "an image reads as planning only when its answer says planTurns is true"
 tehas_headless_plans "$scaps"
 t_eq "$?" 0
-# The build before v0.14.0: no planTurns in its features, whatever its schema.
-for c in "$caps" "$ncaps"; do
+# The builds before v0.14.0: no planTurns in their features, whatever their
+# schema, and 316134e, later than 1ca933e and still without it.
+for c in "$caps" "$ncaps" "$caps316134e"; do
   tehas_headless_plans "$c"
   t_eq "$?" 1
 done
@@ -112,6 +114,19 @@ tehas_headless_plans "$(jq -c '.features.planTurns = "yes"' <<<"$scaps")"
 t_eq "$?" 1
 for bad in "" "not json" "[]" "7" "null"; do
   tehas_headless_plans "$bad"
+  t_eq "$?" 1
+done
+# The 1 of "does not plan" is also the 1 of an answer tehas could not read:
+# a cut-off one, and one that is more than a single document. jq reads every
+# document of an answer, so these are the shapes that would read as planning
+# if only the first were looked at, or none were.
+tehas_headless_plans "$(head -c 4096 "$sx/capabilities.json")"
+t_eq "$?" 1
+for two in "1 $(jq -c '{features:{planTurns:true}}' <<<"$scaps")" \
+  "null $(jq -c '{features:{planTurns:true}}' <<<"$scaps")" \
+  "[] $(jq -c '{features:{planTurns:true}}' <<<"$scaps")" \
+  "$(jq -c '{features:{planTurns:true}}' <<<"$scaps") { }"; do
+  tehas_headless_plans "$two"
   t_eq "$?" 1
 done
 
