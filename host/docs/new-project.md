@@ -69,9 +69,8 @@ One Linux machine, reachable over a private network, that can reach GitHub and
 an OpenAI-compatible model endpoint. [Bootstrap a host](/bootstrap) prepares it:
 
 ```
-sudo ./bootstrap.sh root boss
-./bootstrap.sh user
-./bootstrap.sh check
+sudo ./bootstrap.sh root boss     # runs the user part as boss too, no logout
+./bootstrap.sh check              # as boss
 ```
 
 The tehas user ends up in the `docker` group, which makes it root-equivalent on
@@ -105,6 +104,13 @@ the same repository: the factory then changes only when a person pulls the
 platform checkout and installs.
 
 ### 4. An instance directory
+
+`tehas setup` does steps 2 to 8 for a new instance in `~/.config/tehas`: it
+asks for the repository, the labellers, the bot token and the model endpoint,
+checks them, writes the instance and the secrets, sets the bot's git identity,
+clones the product, installs, makes the control issue and the labels, builds the
+sandbox and starts the dispatcher. See [tehas setup](/tools#tehas-setup). The
+steps below are what it does, for an instance set up by hand or kept elsewhere.
 
 Copy `instances/example/` and fill it in. It can live anywhere the tehas user
 can read: next to the secrets in `~/.config/tehas` (the default place), in a
