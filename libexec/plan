@@ -265,13 +265,16 @@ fi
 image_opts=()
 if [ "$give" = 1 ]; then
   if [ -n "$brief" ]; then
-    # tehas:plan approved the text, links and all, as tehas:ready does a cycle's.
+    # tehas:plan or tehas:refine approved the text, links and all, as
+    # tehas:ready does a cycle's.
     approved=""
-    tehas_label_allowed "$issue" tehas:plan
-    case $? in
-      0) approved=approved ;;
-      2) approved=unread ;;
-    esac
+    for label in tehas:plan tehas:refine; do
+      tehas_label_allowed "$issue" "$label"
+      case $? in
+        0) approved=approved; break ;;
+        2) approved=unread; break ;;
+      esac
+    done
     image_why="the issue's label events could not be read for its images"
     if [ "$approved" = unread ] || ! tehas_issue_images "$issue" "$images" "$approved"; then
       rm -rf "$images"

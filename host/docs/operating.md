@@ -265,6 +265,7 @@ An epic is never started: an issue with open sub-issues is a plan broken into is
 | `tehas:shipped`         | A merged pull request closed it   | Nothing; the bot gives it                |
 | `needs-human-attention` | The cycle stopped                 | Read the comment; see below              |
 | `tehas:plan`            | A planning session is asked for   | Wait for the first comment               |
+| `tehas:refine`          | A refining session is asked for: planning with the refine brief | Wait for the first comment |
 | `tehas:planning`        | A planning turn is running        | Wait                                     |
 | `tehas:question`        | The factory asked something       | Tick a box; in a planning session you may reply instead |
 | `tehas:improvement`     | Filed by the improvement loop     | Read it; apply `tehas:ready` if it should be built |
@@ -603,6 +604,22 @@ the bot approve its own work: every poll reads its own login first, before it
 reads a label or changes one. The Protolab refuses the same list, with an error
 before it reads, builds or removes a page. A poll or a pass that cannot read
 its own login stops there and does nothing else.
+
+### Refining a request
+
+`tehas:refine` starts the same planning session with one difference: after the
+issue's approved text, the planner is given the refine brief,
+`~/tehas/lib/refine-brief.md`. It tells the planner to read the code first and
+to plan the request into one issue that a single `/work` cycle finishes: one
+behaviour change, its files by exact path, a named test file for each
+acceptance criterion, what is out of scope, and nothing under `.github/` or
+`.pi/`. A session files one issue, so for a larger request the planner files
+the first part and lists the rest under "Later parts". Apply `tehas:refine`
+again to the original issue to plan the next part. The label is checked like
+`tehas:plan`: only an allowed account's counts. An issue with both labels is
+planned, not refined. The filed part is never started on its own: read it and
+apply `tehas:ready`. Run `tehas labels` once after an update that brings this
+label.
 
 ## Pause and resume
 
