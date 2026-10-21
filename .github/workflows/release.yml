@@ -33,7 +33,6 @@ jobs:
     timeout-minutes: 45
     env:
       TAG: ${{ github.ref_name }}
-      DIST: ${{ runner.temp }}/dist
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -42,6 +41,8 @@ jobs:
         run: |
           [ "$(uname -s) $(uname -m)" = "Linux x86_64" ] || { echo "not a linux x86_64 runner: $(uname -sm)" >&2; exit 1; }
           [[ $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "not a release tag: $TAG" >&2; exit 1; }
+          # The runner context is not available in the job's env, so DIST is set here.
+          echo "DIST=$RUNNER_TEMP/dist" >>"$GITHUB_ENV"
       - name: minisign at a pinned version
         run: |
           # 0.12, checked against its author's signature when it was pinned.

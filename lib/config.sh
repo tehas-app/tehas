@@ -152,7 +152,7 @@ _tehas_valid() {
     TEHAS_LAYOUT)
       case "$v" in floor | business) ;; *) echo "expected floor or business"; return 1 ;; esac
       ;;
-    TEHAS_INDEXING | TEHAS_ANALYTICS_COOKIE | TEHAS_WORK_IMAGES | TEHAS_WORK_DESCRIBE | TEHAS_WORK_FILES | TEHAS_WORK_COMMENTS | TEHAS_TOP | TEHAS_REFRESH_CONFLICTS)
+    TEHAS_INDEXING | TEHAS_ANALYTICS_COOKIE | TEHAS_WORK_IMAGES | TEHAS_WORK_DESCRIBE | TEHAS_WORK_FILES | TEHAS_WORK_COMMENTS | TEHAS_WORK_ZIPS | TEHAS_TOP | TEHAS_REFRESH_CONFLICTS)
       case "$v" in 0 | 1) ;; *) echo "expected 0 or 1"; return 1 ;; esac
       ;;
     # Both end up in an HTML attribute of every page, so no quote, space or
@@ -514,6 +514,9 @@ tehas_load() {
   # Whether the links in comments by allowed accounts, written before the
   # approval, are taken too. Off unless the instance says so.
   export TEHAS_WORK_COMMENTS=${TEHAS_WORK_COMMENTS:-0}
+  # Whether a zip the issue links is unpacked into the same directory. An
+  # archive holds anything, so it is opt-in on top of the images or the files.
+  export TEHAS_WORK_ZIPS=${TEHAS_WORK_ZIPS:-0}
   # A planning session: how many turns it may take, and how long one turn may.
   # TEHAS_PLAN_TIMEOUT_MAX is the one place the ceiling of a turn is written:
   # the default below is that ceiling, the check further down refuses more, and
@@ -551,7 +554,7 @@ tehas_load() {
   # The settings an instance may write, each with the rule for its value. An
   # optional one an instance left out is checked only when it is there, as
   # TEHAS_BUILD_TIMEOUT is: its default belongs to the command that reads it.
-  for v in TEHAS_THEME TEHAS_LAYOUT TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_WORK_DESCRIBE TEHAS_WORK_FILES TEHAS_WORK_COMMENTS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_TOP TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
+  for v in TEHAS_THEME TEHAS_LAYOUT TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_WORK_DESCRIBE TEHAS_WORK_FILES TEHAS_WORK_COMMENTS TEHAS_WORK_ZIPS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_TOP TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
     TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_LOW_GATE_WAIT TEHAS_CLEAN_AFTER; do
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
@@ -603,6 +606,10 @@ tehas_load() {
   fi
   if [ "$TEHAS_WORK_COMMENTS" = 1 ] && [ "$TEHAS_WORK_IMAGES" != 1 ] && [ "$TEHAS_WORK_FILES" != 1 ]; then
     tehas_err "TEHAS_WORK_COMMENTS is 1 and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is: nothing is taken from comments (see $file)"
+    return 78
+  fi
+  if [ "$TEHAS_WORK_ZIPS" = 1 ] && [ "$TEHAS_WORK_IMAGES" != 1 ] && [ "$TEHAS_WORK_FILES" != 1 ]; then
+    tehas_err "TEHAS_WORK_ZIPS is 1 and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is: an unpacked file goes to the directory of one of them (see $file)"
     return 78
   fi
   # One axis of parallelism: several cycles of one workstream, or one cycle of
