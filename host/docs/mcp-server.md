@@ -123,6 +123,20 @@ exits 0, and the unit stays stopped.
 | Header | `Authorization: Bearer <key>` |
 | Versions | `2026-07-28`, and `2025-11-25` for clients that start with `initialize` |
 
+A client config for a Streamable HTTP server looks like this. It is an
+example: your client's file and field names may differ.
+
+```json
+{
+  "mcpServers": {
+    "tehas": {
+      "url": "https://<domain>/mcp",
+      "headers": { "Authorization": "Bearer <key>" }
+    }
+  }
+}
+```
+
 Every request needs a key, whatever its method, path or tool. A request with
 no key, a wrong key or another scheme gets 401 and an empty body, before any
 of its body is read. A request with a key that is not a POST gets 405. A request with an `Origin` header gets
