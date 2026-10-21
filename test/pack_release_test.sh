@@ -68,6 +68,8 @@ make_tree() {
   cp "$T_ROOT/libexec/work" "$tree/libexec/"
   cp "$T_ROOT/lib/config.sh" "$tree/lib/"
   cp "$T_ROOT/host/sandbox/build.sh" "$tree/host/sandbox/"
+  mkdir -p "$tree/instances"
+  cp -R "$T_ROOT/instances/example" "$tree/instances/"
 }
 
 t_case "a pack writes the tarball, its .sha256 and nothing else, and says both"
@@ -126,11 +128,14 @@ t_eq "$t_rc" 0
 list=$(tar -tzf "$dist/$tar_gz" | LC_ALL=C sort)
 # These sit under the repository root, which is not among the directories
 # lib/release.sh names, so no copy could bring them: named to say so.
-for absent in console/ instances/ preview/ docs/; do
+for absent in console/ preview/ docs/; do
   case $list in
     *"tehas-v9.9.9/$absent"*) t_bad "$absent is in the tarball" ;;
   esac
 done
+# The example instance is packed, and no instance of a running factory with it.
+t_contains "$list" "tehas-v9.9.9/instances/example/instance.env"
+t_eq "$(grep '^tehas-v9.9.9/instances/[^/]*/' <<<"$list" | grep -v '^tehas-v9.9.9/instances/example/')" ""
 
 # The git record is the one thing beside those directories that the copy could
 # have carried with the tree, so the tree is made to look like a checkout: a
@@ -526,7 +531,7 @@ cp "$T_ROOT/bootstrap.sh" "$tree/bootstrap.sh"
 TEHAS_PACK_ROOT=$tree t_pack
 t_eq "$t_rc" 0
 t_eq "$(tar -tzf "$dist/$tar_gz" | cut -d/ -f2 | grep -v '^$' | LC_ALL=C sort -u | tr '\n' ' ')" \
-  "AGENTS.md CHANGELOG.md LICENSE NOTICE VERSION bin bootstrap.sh host install.sh lib libexec "
+  "AGENTS.md CHANGELOG.md LICENSE NOTICE VERSION bin bootstrap.sh host install.sh instances lib libexec "
 
 t_case "the tree's own build of the console is refused, by path and by content"
 t_pack_reset
