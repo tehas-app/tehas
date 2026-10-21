@@ -17,7 +17,7 @@
 #   startedAt when the turn in flight started, UTC
 #   comment   the id of the open question comment, once it is posted
 #   lost      true when Pi no longer has the session; it is then ended
-#   by        the account whose tehas:plan started the session
+#   by        the account whose tehas:plan or tehas:refine started the session
 #   answers   one {turn, by, fixer} per answer that ran a turn: the turn it
 #             started, who gave it, and whether that was the fixer
 #   filed     the issues the session's turns filed, oldest first: the addresses
@@ -187,7 +187,7 @@ plan_history() {
 
 # A session Pi no longer has cannot go on: what was said in it is gone.
 plan_lost() {
-  plan_end "$1" "Tehas ended this planning session: its conversation is no longer on \`$(hostname)\` (\`~/.pi/agent/sessions\`), so the last answer was not sent to the agent. Apply \`tehas:plan\` again to start a new session."
+  plan_end "$1" "Tehas ended this planning session: pi-rukas has no record of it on \`$(hostname)\` any more, so the last answer was not given to the planner. Apply \`tehas:plan\` again to start a new session."
 }
 
 plan_finish() {
@@ -349,7 +349,9 @@ plan_turn() {
     exit 1
   fi
   # The turn runs only once the issue is marked as taken, as a cycle does.
-  if ! gh issue edit "$n" --repo "${repo:?}" --add-label tehas:planning --remove-label tehas:plan \
+  # Only the label that started the session is taken off: removing a label the
+  # repository does not have yet would fail the edit.
+  if ! gh issue edit "$n" --repo "${repo:?}" --add-label tehas:planning --remove-label "${plabel:-tehas:plan}" \
     --remove-label tehas:question --remove-label needs-human-attention >/dev/null 2>&1; then
     # Nothing started: the record goes back to what it was, so a first turn
     # leaves none and a later one can still be answered.
@@ -362,7 +364,7 @@ plan_turn() {
     exit 1
   fi
   if [ "$mode" = first ]; then
-    say "$n" "Tehas planning session started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC (authorized by @${who:?}'s \`tehas:plan\` label). Each turn ends in a comment here. Answer by ticking a box or by replying."
+    say "$n" "Tehas planning session started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC (authorized by @${who:?}'s \`${plabel:-tehas:plan}\` label). Each turn ends in a comment here. Answer by ticking a box or by replying."
     args=(--brief "$input")
   else
     # The issues the session has filed go at the top of the answer: a filing

@@ -94,11 +94,12 @@
 #      none that parked. A request that fails a check goes, and the log says
 #      why; one held by its cap or a park says so on the issue once. A pull
 #      request that carries tehas:refreshing waits. The start puts
-#      tehas:refreshing on the pull request before it marks the issue; rule 2
-#      takes it off a pull request whose issue has no cycle, and one that the
-#      bot did not apply. Rules 1 and 2, the limit and the slice's room hold a
-#      refresh; the cap of rule 3 does not: the start takes
-#      tehas:awaiting-merge off, so it adds no pull request.
+#      tehas:refreshing on the pull request before it writes the approval
+#      record or marks the issue, so a start whose label change fails leaves
+#      no refresh in the count; rule 2 takes it off a pull request whose issue
+#      has no cycle, and one that the bot did not apply. Rules 1 and 2, the
+#      limit and the slice's room hold a refresh; the cap of rule 3 does not:
+#      the start takes tehas:awaiting-merge off, so it adds no pull request.
 #   5. A reply or a ticked option on a planning question runs the next turn
 #      of that session. The fixer's reply or tick counts only when no
 #      person answered, in a session an allowed account's tehas:plan
@@ -1285,6 +1286,43 @@ refresh_note() {
     '{links: [], context: [{source: "refresh", by: "tehas", $at, $text}]}'
 }
 
+# The label that says a refresh works on a pull request.
+refreshing_label=tehas:refreshing
+
+# refresh_mark <pr>: put tehas:refreshing on a pull request. The REST issues
+# endpoint, not `gh pr edit`: that one asks GitHub a GraphQL question the
+# bot's token may not answer (issue #120), so a mark would fail on every
+# pull request. Adding a label GitHub already has is not an error, so this is
+# safe to call again.
+refresh_mark() {
+  gh api -X POST "repos/$repo/issues/$1/labels" -f "labels[]=$refreshing_label" \
+    >/dev/null 2>&1
+}
+
+# refresh_unmark <pr>: take tehas:refreshing off a pull request. A 404 says
+# the label is not there, which is the state wanted, so it counts as done.
+refresh_unmark() {
+  local out
+  out=$(gh api -X DELETE "repos/$repo/issues/$1/labels/$refreshing_label" 2>&1) && return 0
+  [[ $out == *"Not Found"* ]]
+}
+
+# restore_record <issue> <json>: put the approval record back as it was. A
+# start that gives up after writing it must leave the count of refreshes it
+# found there, not one for a refresh that never ran. With nothing to put back
+# the record goes: a host that had none has none still.
+restore_record() {
+  local file=$TEHAS_HOME/state/cycles/$1.approved.json
+  if [ -n "$2" ]; then
+    if printf '%s\n' "$2" >"$file.new" 2>/dev/null && mv "$file.new" "$file"; then
+      return 0
+    fi
+    log "WARN: could not put back the approval record of #$1"
+  else
+    rm -f "$file"
+  fi
+}
+
 # Without systemd's answer every picked issue would be marked running and then
 # parked, at every poll. A shell without the user's bus gets none.
 # units_ok <issue>: returns 1, with the reason logged. Call it before any
@@ -1405,20 +1443,42 @@ index_launch() {
     /bin/bash -c '[ ! -r "$HOME/tehas/env.sh" ] || . "$HOME/tehas/env.sh"; exec "$@"' env-sh "$@" 8>&- >/dev/null 2>&1
 }
 
-# start_cycles: start a cycle for every issue in $picked. Returns 1 if one did
-# not start.
+# start_cycles: start a cycle for every issue in $picked. Returns 1 when a
+# start gave up. A start that gave up is cleaned up as it goes, and the issues
+# after it in the queue are for the next poll: each caller ends the poll on
+# this call, so a later step of a caller cannot act as the start had worked.
 start_cycles() {
-  local n failed=0 accepted
+  local n failed=0 accepted previous
   local -a out
   [ "$fetched" = 1 ] || refresh_checkout
 
   for n in "${picked[@]}"; do
     log "start #$n (${verb[$n]} by ${starter[$n]})"
     read -ra out <<<"${drop[$n]}"
+    # A refresh marks its pull request before the approval record is written,
+    # so a start that cannot mark it leaves no record for tehas_refresh_count
+    # to read as a refresh: the limit is not spent on starts that never were.
+    # A mark a person cannot see is worse than no refresh: it tells them to
+    # merge or push to a pull request a cycle is about to rewrite.
+    if [ -n "${refresh_pr[$n]:-}" ] && ! refresh_mark "${refresh_pr[$n]}"; then
+      log "ERROR: could not mark pull request #${refresh_pr[$n]} as refreshing, not starting a cycle"
+      failed=1
+      continue
+    fi
+    # The record a refresh is about to replace, so a start that fails after
+    # this point puts back the count it had rather than leave one for a
+    # refresh that never ran. The refresh request file goes only once the
+    # cycle has started, which is what makes a start at all.
+    previous=""
+    if [ -n "${refresh_pr[$n]:-}" ] && [ -e "$TEHAS_HOME/state/cycles/$n.approved.json" ]; then
+      previous=$(cat "$TEHAS_HOME/state/cycles/$n.approved.json" 2>/dev/null) || previous=""
+    fi
     if ! approved_record "$n"; then
       rm -f "$TEHAS_HOME/state/cycles/$n.approved.json.new"
+      restore_record "$n" "$previous"
       log "ERROR: could not write the approval record of #$n, not starting a cycle"
-      exit 1
+      failed=1
+      continue
     fi
     # In the factory's analytics: ready, at the time the record says it was
     # accepted, and without one at all when the record has no time. The
@@ -1427,19 +1487,14 @@ start_cycles() {
       "$TEHAS_HOME/state/cycles/$n.approved.json" 2>/dev/null) || accepted=""
     [[ $accepted =~ ^[0-9]{1,12}$ ]] || accepted=""
     tehas_analytics event "$n" ready ${accepted:+--at "$accepted"}
-    # A refresh marks its pull request first, so a person sees not to merge
-    # or push to it. A mark left by a start that fails below is rule 2's.
-    if [ -n "${refresh_pr[$n]:-}" ] &&
-      ! gh pr edit "${refresh_pr[$n]}" --repo "$repo" --add-label tehas:refreshing >/dev/null 2>&1; then
-      log "ERROR: could not mark pull request #${refresh_pr[$n]} as refreshing, not starting a cycle"
-      exit 1
-    fi
     # The cycle starts only once the issue is marked as taken. If the label
     # cannot be changed, the issue would stay in its queue and every later
     # poll would start the same issue again.
     if ! gh issue edit "$n" --repo "$repo" --add-label tehas:running "${out[@]}" >/dev/null 2>&1; then
+      restore_record "$n" "$previous"
       log "ERROR: could not mark #$n as running, not starting a cycle"
-      exit 1
+      failed=1
+      continue
     fi
     [ -z "${refresh_pr[$n]:-}" ] || rm -f "$(tehas_refresh_dir)/$n.json"
     # A park question of an earlier cycle is used up by this start, whichever
@@ -1458,6 +1513,7 @@ start_cycles() {
     if start_cycle "$n"; then
       tehas_analytics event "$n" started
     else
+      restore_record "$n" "$previous"
       log "ERROR: the cycle for #$n did not start"
       gh issue edit "$n" --repo "$repo" --remove-label tehas:running --add-label needs-human-attention >/dev/null 2>&1 ||
         log "WARN: label change on #$n failed"
@@ -2029,7 +2085,7 @@ for pr in $refreshing; do
     log "would take tehas:refreshing off pull request #$pr: $why"
     continue
   fi
-  if gh pr edit "$pr" --repo "$repo" --remove-label tehas:refreshing >/dev/null 2>&1; then
+  if refresh_unmark "$pr"; then
     log "clear pull request #$pr: tehas:refreshing off, $why"
   else
     log "WARN: label change on pull request #$pr failed: --remove-label tehas:refreshing"
@@ -2435,8 +2491,11 @@ for n in $asking; do
       # it is marked the start has removed the question from the record, so
       # the tick can start nothing more. It is unticked then, so the comment
       # shows it was taken; a failure there is only a warning.
+      # A start that failed before the issue was marked has spent nothing: the
+      # tick stays, and the next poll tries again, as the comment above says.
       start_cycles
       started=$?
+      [ "$started" = 0 ] || exit "$started"
       untick "$n" "$ans" || log "WARN: could not untick the retry on #$n; its question is no longer on record, so it starts nothing more"
       exit "$started"
       ;;
@@ -2549,12 +2608,20 @@ done
 
 # 5. New planning sessions. The label approves the text, as tehas:ready does,
 # so the text is read before the approval is checked: an edit made in between
-# is then seen by the check.
+# is then seen by the check. tehas:refine starts the same session with the
+# refine brief (lib/refine-brief.md) after the issue's text: plan the request
+# into one issue sized for one cycle. An issue with both labels is planned.
 gh_json issue list --repo "$repo" --state open --label tehas:plan --limit 1000 --json number,labels
-plans=$(jq -r '[.[] | (.labels | map(.name)) as $l
-        | select((["tehas:planning", "tehas:question", "tehas:running"] - $l | length) == 3) | .number]
-        | sort | .[]' <<<"$json") || { log "ERROR: unreadable list of issues to plan"; exit 1; }
-for n in $plans; do
+plan_list=$json
+gh_json issue list --repo "$repo" --state open --label tehas:refine --limit 1000 --json number,labels
+plans=$(jq -rs 'add | map((.labels | map(.name)) as $l
+        | select((["tehas:planning", "tehas:question", "tehas:running"] - $l | length) == 3)
+        | {number, label: (if $l | index("tehas:plan") then "tehas:plan" else "tehas:refine" end)})
+        | unique_by(.number) | .[] | "\(.number):\(.label)"' <<<"$plan_list
+$json") || { log "ERROR: unreadable list of issues to plan"; exit 1; }
+for entry in $plans; do
+  n=${entry%%:*}
+  plabel=${entry#*:}
   if [ -n "$plan_busy" ]; then
     log "planning #$n waits: the turn of #$plan_busy is still running"
     break
@@ -2562,28 +2629,42 @@ for n in $plans; do
   slice_ok || break
   # Before the label is read: the control issue starts no planning session,
   # whoever applied the label, and no label of it is changed.
-  control_ask "$n" "\`tehas:plan\`" && continue
+  control_ask "$n" "\`$plabel\`" && continue
   if ! limit_plan_ok; then
     [ "$dry" = 0 ] || log "planning #$n waits: the limit holds new planning turns"
     break
   fi
   gh_json issue view "$n" --repo "$repo" --json title,body
   brief=$json
-  if ! approval "$n" tehas:plan; then
-    [ -z "$refused" ] || clear_unauthorised "$n" tehas:plan "$refused"
+  if ! approval "$n" "$plabel"; then
+    [ -z "$refused" ] || clear_unauthorised "$n" "$plabel" "$refused"
     continue
   fi
   work_ok "$n" || continue
   mesh_ok || exit 0
+  refine=""
+  if [ "$plabel" = tehas:refine ]; then
+    refine=$here/../lib/refine-brief.md
+    if [ ! -s "$refine" ]; then
+      log "ERROR: no refine brief at $refine, not refining #$n"
+      continue
+    fi
+  fi
   if [ "$dry" = 1 ]; then
-    log "would start a planning session for #$n (labelled by $who)"
+    log "would start a planning session for #$n (labelled by $who${refine:+, to refine it})"
     exit 0
   fi
   st=$(plan_state "$n")
   rm -rf "$st" "$st.out" "$st.answer" "$st.keep"
   jq -r '"# \(.title // "")\n\n\(.body // "")"' <<<"$brief" >"$st.brief" ||
     { log "ERROR: unreadable text of #$n"; exit 1; }
-  log "start planning #$n (labelled by $who)"
+  # The brief goes after the issue's text, so the first line is still the title
+  # the planner is asked to plan.
+  if [ -n "$refine" ] && ! printf '\n\n---\n\n%s\n' "$(cat "$refine")" >>"$st.brief"; then
+    log "ERROR: could not write the brief of #$n"
+    exit 1
+  fi
+  log "start planning #$n (labelled by $who${refine:+, to refine it})"
   plan_turn "$n" first "$st.brief"
   "$status_cmd"
   exit 0
@@ -2638,7 +2719,7 @@ for pf in $(tehas_cycle_note_files park); do
   [[ $have != *" tehas:question "* ]] || drop[$n]="--remove-label tehas:question"
   say "$n" "Tehas starts this issue again on its own: its last cycle was parked by a provider outage, and the model endpoint answers again. It does this once. If the new cycle is parked the same way, it waits for a person."
   start_cycles
-  exit
+  exit $?
 done
 
 # 6. and 7. Candidates: urgent first, then the tehas:next issues the poll
@@ -2804,4 +2885,4 @@ fi
 units_ok "${picked[0]}" || exit 1
 index_gate
 start_cycles
-exit
+exit $?

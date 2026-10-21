@@ -105,6 +105,7 @@ _tehas_clean_dirs_default() {
 # Print why a value is not acceptable for a setting; return 1 if it is not.
 _tehas_valid() {
   local name=$1 v=$2 mb base clean_dir
+  local -a clean_dirs
   case "$name" in
     TEHAS_REPO | TEHAS_IMPROVE_REPO | TEHAS_IMPROVE_RUKAS_REPO)
       [[ $v =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "expected owner/name"; return 1; }
@@ -209,7 +210,10 @@ _tehas_valid() {
       # removing.
       [[ $v =~ ^[A-Za-z0-9._-]+(\ [A-Za-z0-9._-]+)*$ ]] ||
         { echo "expected directory names of letters, digits and ._-, separated by single spaces"; return 1; }
-      for clean_dir in $v; do
+      # Split on the single spaces the pattern above allows, whatever IFS the
+      # instance file set.
+      IFS=' ' read -r -a clean_dirs <<<"$v"
+      for clean_dir in "${clean_dirs[@]}"; do
         case "$clean_dir" in
           */*)
             echo "expected names and no path: $clean_dir has a slash"
@@ -420,7 +424,7 @@ tehas_load() {
   # its name to this list, it does not replace it.
   export TEHAS_CLEAN_AFTER=${TEHAS_CLEAN_AFTER:-24}
   export TEHAS_CLEAN_DIRS=${TEHAS_CLEAN_DIRS:-$(_tehas_clean_dirs_default)}
-  # The factory's own ten days of runs, events and samples in
+  # The factory's own 365 days of runs, events and samples in
   # state/analytics.db (lib/analytics.sh), not the visitor analytics above.
   # On unless the instance says off, which stops every write.
   export TEHAS_ANALYTICS=${TEHAS_ANALYTICS:-on}

@@ -14,7 +14,7 @@ description: "What each stop in a tehas cycle means, and what to do about it."
 | What did the dispatcher decide?  | `tehas dispatch --dry-run`, `~/tehas/logs/dispatch.log`                 |
 | What did a cycle's runner print? | `~/tehas/logs/dispatch-work-<issue>.log`                                |
 | What did the driver say?         | The runner's NDJSON progress, `~/tehas/logs/work-<issue>-<time>.jsonl`, and its result beside it, `.jsonl.result.json` |
-| Where is the cycle now?          | While it runs, its step on the [dashboard](/dashboard), from `~/tehas/live/cycles/<issue>.json`; once it ended, `jq . ~/tehas/state/cycles/<issue>.result.json`. The workspace of a cycle that left a pull request is removed; one that stopped is kept, and a retry moves it to `tehas-<issue>.before-retry`. |
+| Where is the cycle now?          | While it runs, its step on the [dashboard](/dashboard), from `~/tehas/live/cycles/<issue>.json`; once it ended, `jq . ~/tehas/state/cycles/<issue>.result.json`. The workspace of a cycle that left a pull request is removed; one that stopped is kept, and a retry moves it to `tehas-<issue>.before-retry`. A start that parked before the container ran keeps the clone it made and the one before it: neither is removed. |
 | What did one agent do?           | Transcripts under `~/.pi/agent/ensemble-runs/issue-<issue>/<date>/`     |
 | What did the improvement loop do? | `~/tehas/logs/improve.log`, one line per run                           |
 | Is a cycle running?              | `systemctl --user status 'tehas-cycle@*'`, or `docker ps --filter name=tehas-work` |
@@ -593,7 +593,10 @@ log and asked GitHub for the bot's pull request of the branch that
   hand, or retry for a fresh cycle.
 - The step is `-` when the run log has no step for this cycle at all, which is
   what says `tehas work` stopped before it started the container. Read
-  `~/tehas/logs/dispatch-work-<N>.log`.
+  `~/tehas/logs/dispatch-work-<N>.log`. A run that stopped for want of a gate is
+  of that kind: the log has the line naming `.pi/verify-cmd`, and the issue has
+  no comment, because a cycle that never began has nothing to hand off. See
+  [A new project](/new-project) for what the product has to hold.
 
 ```
 jq . ~/tehas/state/cycles/<N>.result.json      # empty, or missing: no result
