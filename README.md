@@ -160,7 +160,9 @@ scripts/tag-deploy.sh tehas-tehas   # run tehas update on that host, check it la
 Both run unattended. `tag-release.sh` runs the gate on the head of main before
 it tags, does nothing when the head is already tagged, and prints the tag on
 stdout; `--minor`, `--major`, `--message`, `--no-verify` and `--dry-run` are
-there too. `tag-deploy.sh` refuses when main has
+there too. Before it tags, it removes the polyfills the newest pi-rukas no
+longer needs (`scripts/polyfills.sh`): it opens a pull request for that, exits
+2 and tags once that is merged. `tag-deploy.sh` refuses when main has
 moved past the newest tag, because `tehas update` installs the head of the
 branch, not a tag. It also stops when the ssh user has no `~/tehas/env.sh`:
 log in as the account tehas runs as, through `~/.ssh/config` or `TEHAS_SSH`.
@@ -180,7 +182,8 @@ host.
 | `lib/config.sh` | Loads and checks the instance settings |
 | `lib/attachments.sh` | Files attached to an issue: which links count and how one is fetched |
 | `lib/cycles.sh` | Which cycles are running, from the lock each one holds, and where a parked cycle's question is on record |
-| `lib/headless.sh` | What tehas reads of pi-rukas's headless runner: its `--capabilities` answer, its NDJSON progress and its `--json` result |
+| `lib/headless.sh` | What tehas reads of pi-rukas's headless runner: its `--capabilities` answer, its NDJSON progress and its `--json` result. Every check of a pi-rukas feature asks its `tehas_headless_mode` |
+| `lib/polyfill-<feature>.sh` | What tehas does itself for a pi-rukas feature no release has yet, until one has it. Each names the upstream issue and pull request. None today |
 | `lib/edge.sh` | What `tehasbot protolab` and `tehasbot preview` share: numbered sets under `~/tehas` and the previews' network |
 | `lib/improve.sh`, `lib/improve-prompt.md` | The improvement loop's shared parts, and the prompt its analyst reads |
 | `lib/labels.sh` | Who applied a label, read from the label events |
@@ -195,7 +198,7 @@ host.
 | `install.sh`, `bootstrap.sh` | Install tehas on a host, and prepare a host's tools |
 | `instances/` | `example/` to copy, and `tehas-tehas/`, the settings of the example instance |
 | `test/` | Shell tests, one file per unit, and the front page's node tests |
-| `scripts/` | The gate, the lint, the test runner, the pi-rukas pin, and the release and deploy scripts |
+| `scripts/` | The gate, the lint, the test runner, the pi-rukas pin, the polyfills' list and removal, and the release and deploy scripts |
 | `docs/adr/` | Decisions, with their reasons |
 
 ## Licence
