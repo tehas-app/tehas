@@ -345,6 +345,12 @@ files=(
   "lib/top.sh|$TEHAS_HOME/lib/top.sh|644"
   "lib/planning.sh|$TEHAS_HOME/lib/planning.sh|644"
   "lib/refresh.sh|$TEHAS_HOME/lib/refresh.sh|644"
+  # The key a release signature is checked with. It is here so the copy an
+  # adopter verifies against is the one the repository holds and not one that
+  # came inside the download it is checking.
+  "release/minisign.pub|$TEHAS_HOME/release/minisign.pub|644"
+  # What a release packs, so the list is on a host as it is in a checkout.
+  "lib/release.sh|$TEHAS_HOME/lib/release.sh|644"
   "versions.env|$TEHAS_HOME/versions.env|644"
   "sandbox/Dockerfile|$TEHAS_HOME/sandbox/Dockerfile|644"
   "sandbox/build.sh|$TEHAS_HOME/sandbox/build.sh|755"
@@ -672,14 +678,22 @@ sync_dir fun
 
 # The version in the footer of every page: the newest tag this checkout holds
 # and the commit it is at, in a file beside the pages, which read it. Only a
-# checkout that is a git repository of its own has one. It is no part of
-# --check: a host is as current as its files are.
+# checkout that is a git repository of its own has one; a tree that came from a
+# release tarball has no git and no commit, and its VERSION file, written by
+# scripts/pack-release.sh, names the release instead. It is no part of --check:
+# a host is as current as its files are.
 checkout_version() {
   local tag hash
-  [ -z "$(git -C "$root" rev-parse --show-prefix 2>/dev/null || echo none)" ] || return 0
-  hash=$(git -C "$root" rev-parse --short=7 HEAD 2>/dev/null) || return 0
-  tag=$(git -C "$root" describe --tags --abbrev=0 2>/dev/null) || tag=""
-  printf '%s\n' "${tag:+$tag+}$hash" | tr -cd 'A-Za-z0-9._+\n-'
+  if [ -z "$(git -C "$root" rev-parse --show-prefix 2>/dev/null || echo none)" ]; then
+    hash=$(git -C "$root" rev-parse --short=7 HEAD 2>/dev/null) || return 0
+    tag=$(git -C "$root" describe --tags --abbrev=0 2>/dev/null) || tag=""
+    printf '%s\n' "${tag:+$tag+}$hash" | tr -cd 'A-Za-z0-9._+\n-'
+    return 0
+  fi
+  # One line, vX.Y.Z. Read as it is: what a tarball carries is this script's
+  # own bytes, and tehas api and the footers bound what they take from it.
+  [ -f "$root/VERSION" ] || return 0
+  head -n 1 "$root/VERSION"
 }
 if [ "$check" != 1 ]; then
   version=$(checkout_version)
