@@ -27,7 +27,8 @@ uid=$(id -u)
 # answers the same commit as its head. docker
 # answers the label in $fx/label, a pull fails when $fx/pull-fails exists, and
 # asking the base for its capabilities prints $fx/caps.json and exits with
-# $fx/ask-rc, 0 when it is missing.
+# $fx/ask-rc, 0 when it is missing. A build given the file named in
+# $fx/build-fails - the instance's own, by its path - fails.
 t_stub git '[ -e "$T/fx/head" ] || exit 2
 case "$*" in
   *--tags*) printf "%s\trefs/tags/v0.12.9\n%s\trefs/tags/v0.12.80\n" "$(printf "c%.0s" {1..40})" "$(cat "$T/fx/head")" ;;
@@ -37,12 +38,22 @@ t_stub docker 'case "$1" in
   image) [ -e "$T/fx/label" ] || exit 1; cat "$T/fx/label" ;;
   pull) [ ! -e "$T/fx/pull-fails" ] || exit 1 ;;
   run) cat "$T/fx/caps.json" 2>/dev/null; exit "$(cat "$T/fx/ask-rc" 2>/dev/null || echo 0)" ;;
+  build) found=0
+    for a in "$@"; do [ "$a" = "$(cat "$T/fx/build-fails" 2>/dev/null)" ] && found=1; done
+    [ "$found" = 0 ] || exit 1 ;;
 esac'
 caps=$T_ROOT/test/fixtures/headless-c5ddc0a/capabilities.json
 reset() {
   rm -f "$T"/calls/* "$fx"/*
   echo "$head" >"$fx/head"
   cp "$caps" "$fx/caps.json"
+}
+# The instance directory build.sh looks in for its own sandbox.Dockerfile. Made
+# once, below, because t_run carries TEHAS_INSTANCE_DIR over only when it is
+# already set in this file's environment.
+t_env_instance() {
+  export TEHAS_INSTANCE_DIR=$T/instance
+  mkdir -p "$TEHAS_INSTANCE_DIR"
 }
 
 t_case "a build takes upstream's image for the newest release and labels it with the commit"
@@ -211,5 +222,63 @@ t_case "the Dockerfile takes its base from the build, not from a pin"
 t_contains "$(cat "$T_ROOT/host/sandbox/Dockerfile")" 'FROM ${PI_RUKAS_IMAGE}'
 t_lacks "$(cat "$T_ROOT/host/versions.env")" "PI_RUKAS_COMMIT"
 t_contains "$(cat "$T_ROOT/host/versions.env")" "PI_RUKAS_FOLLOW=release"
+
+# The instance's own sandbox.Dockerfile, when it has one, is built on the image
+# above and takes the tag cycles run. TEHAS_INSTANCE_DIR names the directory; the
+# cases that do not want a second build remove the file, and build.sh passes the
+# path of the file it builds as its last two arguments.
+t_case "without an instance sandbox.Dockerfile there is one build and the uid tag is that image"
+reset
+rm -f "$T/instance/sandbox.Dockerfile"
+t_run "$build"
+t_eq "$t_rc" 0
+t_eq "$(t_calls docker | grep -c -e '^build ')" 1
+t_contains "$(t_calls docker)" "tag tehas/pi-rukas:"
+t_lacks "$(t_calls docker)" "TEHAS_BASE"
+
+t_case "an instance sandbox.Dockerfile is built on that image and takes the tag cycles run"
+reset
+t_env_instance
+instance_file=$TEHAS_INSTANCE_DIR/sandbox.Dockerfile
+printf 'ARG TEHAS_BASE\nFROM $TEHAS_BASE\n' >"$instance_file"
+rm -f "$T/instance/instance.env"
+t_run "$build"
+t_eq "$t_rc" 0
+# Two builds, the tehas image first and the instance's on top of it. The second
+# names the image the first made as its base, so the file itself names no tag,
+# and the result is what carries the uid tag.
+t_eq "$(t_calls docker | grep -c -e '^build ')" 2
+t_eq "$(t_calls docker | sed -n "s|^build .* $instance_file $TEHAS_INSTANCE_DIR\$|instance|p")" "instance"
+t_eq "$(t_calls docker | sed -n "s|^build .* $TEHAS_INSTANCE_DIR\$|tehas|p")" "tehas"
+second=$(t_calls docker | grep -e "^build -t ")
+t_contains "$second" "--build-arg=TEHAS_BASE=tehas/pi-rukas:"
+t_contains "$second" "-f $instance_file"
+product=$(sed -n 's/^build -t \([^ ]*\)-product .*/\1/p' <<<"$second")
+t_eq "$(t_calls docker | grep -e '^tag tehas/pi-rukas:[0-9]\{6\}-[0-9]\{4\}-product ')" "tag $product-product tehas/pi-rukas:uid$uid"
+t_lacks "$(cat "$instance_file")" "tehas/pi-rukas"
+t_contains "$t_out" "from $instance_file, also tagged tehas/pi-rukas:uid$uid"
+
+t_case "an instance file that does not build fails the build and says which file"
+reset
+printf 'ARG TEHAS_BASE\nFROM $TEHAS_BASE\nRUN false\n' >"$T/instance/sandbox.Dockerfile"
+printf '%s\n' "$T/instance/sandbox.Dockerfile" >"$fx/build-fails"
+t_run "$build"
+t_eq "$t_rc" 1
+t_contains "$t_out" "$T/instance/sandbox.Dockerfile did not build"
+# The tehas image and its uid tag are there as they were; only the layer that
+# did not build is missing.
+t_eq "$(t_calls docker | grep -c -e '^tag ')" 1
+rm -f "$T/instance/sandbox.Dockerfile" "$fx/build-fails"
+
+t_case "an instance directory with no sandbox.Dockerfile in it is no second build"
+reset
+# TEHAS_INSTANCE_DIR is set for every case in this file, so the directory being
+# there with nothing to add has to be the build above and nothing more.
+printf 'TEHAS_REPO=acme/widget\n' >"$T/instance/instance.env"
+t_run "$build"
+t_eq "$t_rc" 0
+t_eq "$(t_calls docker | grep -c -e '^build ')" 1
+t_lacks "$(t_calls docker)" "TEHAS_BASE"
+t_contains "$t_out" "also tagged tehas/pi-rukas:uid$uid"
 
 t_done

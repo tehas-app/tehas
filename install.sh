@@ -386,6 +386,17 @@ else
   files+=("pi/settings.json|$agent/settings.json|644")
 fi
 
+# What the instance's own sandbox file was at the last install, or nothing when
+# the host has never had one, or has one no install has seen yet. Read before the
+# record of follow-ups below, so a host that changed the file is not called
+# current and its build step is owed before any copy is made.
+sandbox_changed=0
+sandbox_at_file=$TEHAS_HOME/state/sandbox.Dockerfile.sha256
+if [ -f "$instance/sandbox.Dockerfile" ]; then
+  hash=$(sha256sum "$instance/sandbox.Dockerfile" 2>/dev/null) || hash=unreadable
+  [ "${hash:0:64}" != "$(cat "$sandbox_at_file" 2>/dev/null)" ] && sandbox_changed=1
+fi
+
 changed=()
 report=()
 note() { if [ "$check" = 1 ]; then report+=("$1"); else echo "$1"; fi; }
@@ -581,6 +592,29 @@ if [ "$check" != 1 ]; then
     printf 'tehas\n' | write_file "$TEHAS_HOME/$home_marker"
   fi
 fi
+# The instance's own sandbox file is not copied anywhere: the build reads it from
+# the instance directory, so a copy would never see the change. What it owes is the
+# same follow-up a change to the tracked Dockerfile owes, recorded here before any
+# copy is made and printed with the rest below. In --check it is drift: the file is
+# the instance's to keep, so nothing here can bring it current, and a run says so
+# until the copy that saw the same content recorded it below.
+if [ "$sandbox_changed" = 1 ]; then
+  changed+=("sandbox/sandbox.Dockerfile (the instance's)")
+  if [ "$check" = 1 ]; then
+    note "changed: $instance/sandbox.Dockerfile since the last install"
+  else
+    record_step "sandbox/Dockerfile"
+    # What this install saw, so a later run owes the build only when the file
+    # changed again. Written where the step is taken, and not after the copies:
+    # a run that had nothing else to do prints "tehas is up to date" and ends
+    # before then. A run that died with the step still in the record leaves the
+    # file unseen, so tehas update owes the build and the next install sees it.
+    mkdir -p "$TEHAS_HOME/state"
+    sha256sum "$instance/sandbox.Dockerfile" | cut -d' ' -f1 | write_file \
+      "$sandbox_at_file"
+  fi
+fi
+
 for e in "${files[@]}"; do put "$e"; done
 
 # The operating manual and the front page are directories; pages come and go.

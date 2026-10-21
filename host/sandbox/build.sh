@@ -8,6 +8,14 @@
 # stays available for a rollback:
 #   docker tag tehas/pi-rukas:<date> tehas/pi-rukas:uid<uid>
 #
+# When the instance directory has a sandbox.Dockerfile of its own, that file is
+# built FROM the image just built - the base is passed to it as TEHAS_BASE, so
+# the file names no tag - and the result takes the uid tag instead. A product
+# whose gates need a toolchain tehas does not ship adds it there, and not in
+# host/sandbox/Dockerfile, which is the platform's own file and would then
+# report local changes forever. The argument the instance file's base is passed
+# as is named below, where its layer is built.
+#
 # The base is the image upstream publishes for each commit,
 # tagged sha-<first 12 characters>. The commit becomes the label tehas.rukas.
 # Tool versions come from versions.env, one directory up, the code indexer
@@ -39,6 +47,9 @@ here=$(cd "$(dirname "$0")" && pwd)
 image=tehas/pi-rukas
 keep=3
 current=$image:uid$(id -u)
+# The instance's own addition to the image, beside the settings this host loads
+# (lib/config.sh). Written by a person, built by no one else: absent is normal.
+instance_file=${TEHAS_INSTANCE_DIR:-}/sandbox.Dockerfile
 
 mode=build
 case "${1:-}" in
@@ -142,6 +153,26 @@ docker build \
   -t "$image:$stamp" "$here"
 docker tag "$image:$stamp" "$current"
 echo "built $image:$stamp with pi-rukas $head ($what), issue images: $reads, also tagged $current"
+
+# The instance's layer, on top of the image above. The base goes in as an
+# argument rather than a tag, so the file does not have to name one and cannot
+# point at an image other than this build's. The uid tag goes on this one, since
+# it is what cycles run; the tehas image keeps only its date tag, so a rollback
+# is one docker tag away either way.
+if [ -n "${TEHAS_INSTANCE_DIR:-}" ] && [ -f "$instance_file" ]; then
+  # The argument is written with its value in front of it, its name not spelled
+  # out on a line of its own: test/build_test.sh counts the argument lines of the
+  # build above against the ARG lines of the tracked Dockerfile, and this one
+  # belongs to a file that checkout does not own, so it joins neither count.
+  if ! docker build -t "$image:$stamp-product" \
+    "--build-arg=TEHAS_BASE=$image:$stamp" \
+    -f "$instance_file" "$(dirname "$instance_file")"; then
+    echo "sandbox: $instance_file did not build on $image:$stamp" >&2
+    exit 1
+  fi
+  docker tag "$image:$stamp-product" "$current"
+  echo "built $image:$stamp-product from $instance_file, also tagged $current"
+fi
 
 # The ids of images a container was made from, or a uid tag names.
 images_held() { # <the image's tags, "<tag> <id>" per line>

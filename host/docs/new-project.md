@@ -206,7 +206,33 @@ settings installs nothing and exits 78.
 ### 6. The sandbox image
 
 `host/sandbox/Dockerfile` in the platform checkout adds shellcheck and
-Playwright's Chromium to the pi-rukas image and remaps the user id. Add whatever your gates need. Then:
+Playwright's Chromium to the pi-rukas image and remaps the user id. It is the
+platform's own file: `tehas update` compares it with the checkout and refuses
+with "has local changes" when it does not match, so your toolchain does not go
+there.
+
+Put it in `sandbox.Dockerfile` in your instance directory instead (the one
+directory `instance.env` and `models.json` live in). When that file is there,
+`~/tehas/sandbox/build.sh` builds the image above first and then builds your
+file on top of it, so the tag cycles run is yours. It starts with these two
+lines, which take the image to build on as an argument rather than a name:
+
+```
+ARG TEHAS_BASE
+FROM $TEHAS_BASE
+RUN apt-get update -qq \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends cmake \
+ && rm -rf /var/lib/apt/lists/*
+```
+
+The build runs with the instance directory as its context, so the file can
+`COPY` a script or a config that lives beside it. A `sandbox.Dockerfile` that
+changed since the last install makes `install.sh` owe the `sandbox` step, the
+same as a change to the tracked Dockerfile or `versions.env`; `tehas update`
+then rebuilds. A file that does not build fails the build, and the image the
+host had is left as it was.
+
+Then:
 
 ```
 ~/tehas/sandbox/build.sh
