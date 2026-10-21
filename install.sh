@@ -18,16 +18,19 @@
 # sandbox files, the docs server, the edge router, the Protolab, the
 # improvement loop and the manual, plus the instance's own models.json and, if it has one, settings.json.
 #
-# It copies files, and compiles two: the console of a running cycle and the
-# analytics program, Rust programs in the Cargo workspace console/ (analytics
-# in console/analytics). A real run builds each with cargo in this checkout
-# (console/target, which git ignores) and installs them as libexec/console
-# and libexec/analytics. Beside each, <name>.stamp holds two checksums: of the
+# It copies files, and compiles three: the console of a running cycle, the
+# analytics program and the MCP server, Rust programs in the Cargo workspace
+# console/ (the other two in console/analytics and console/mcp). A real run
+# builds each with cargo in this checkout (console/target, which git ignores)
+# and installs them as libexec/console, libexec/analytics and
+# libexec/tehas-mcp; the MCP server is built static (musl), because it runs in
+# a container that has none of the host's libraries. Beside each, <name>.stamp holds two checksums: of the
 # source it was built from and of the program itself. A program is built
 # again only when its source has changed or it is not the one that was
 # installed, and the build that fetches the crates from the network is the
 # first one on a host that has never fetched. The console's source leaves out
-# console/analytics, so a change there builds analytics alone. --check compares the checksums and builds nothing. A
+# console/analytics and console/mcp, so a change there builds that program
+# alone. --check compares the checksums and builds nothing. A
 # program that does not build stops a real run before it changes anything.
 #
 # It does not start the dispatcher or the docs server, rebuild the sandbox
@@ -356,6 +359,7 @@ files=(
   "systemd/tehas-energy.service|$units/tehas-energy.service|644"
   "systemd/tehas-improve.service|$units/tehas-improve.service|644"
   "systemd/tehas-improve.timer|$units/tehas-improve.timer|644"
+  "systemd/tehas-mcp.service|$units/tehas-mcp.service|644"
   "systemd/tehas-protolab.service|$units/tehas-protolab.service|644"
   "systemd/tehas-protolab.timer|$units/tehas-protolab.timer|644"
   "systemd/tehas-preview.service|$units/tehas-preview.service|644"
@@ -372,7 +376,7 @@ files=(
 for f in tehas tehasbot; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
-for f in analytics-cmd api cycle dev dev-login dispatch drain energy export health history improve index labels limit pause plan preview protolab refresh resume status summary tidy top top-publish update work; do
+for f in analytics-cmd api cycle dev dev-login dispatch drain energy export health history improve index labels limit mcp pause plan preview protolab refresh resume status stop summary tidy top top-publish update work; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
 # Pi's own settings: the instance may bring its own (default provider and
@@ -479,8 +483,8 @@ if [ -r "$login_manager" ]; then
 fi
 
 # --- 3. Install ---------------------------------------------------------------
-# The compiled programs first, the console and analytics, the two members of the
-# Cargo workspace in console/: a build that fails must leave the host as it was,
+# The compiled programs first, the console, analytics and the MCP server, the
+# members of the Cargo workspace in console/: a build that fails must leave the host as it was,
 # so every program that is due is built before any is installed. What is
 # installed is judged without building: by the checksum of every file the
 # program's build reads, and by the checksum of the program that was installed.
@@ -491,17 +495,29 @@ source_sum() {
   (cd "$root/console" && find . -type f ! -path './target/*' ! -path './analytics/target/*' "$@" -print0 |
     LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
 }
-# The console's source is all of console/ but its tests and analytics/, so a
-# change to analytics alone does not build the console again. analytics reads
-# its own directory, the workspace's manifest and lock, and the console's mask.
-console_source=$(source_sum ! -path './tests/*' ! -path './analytics/*') ||
+# The console's source is all of console/ but its tests, analytics/ and mcp/,
+# so a change to either alone does not build the console again. analytics reads
+# its own directory, the workspace's manifest and lock, and the console's mask;
+# the MCP server its own directory and the manifest and lock.
+console_source=$(source_sum ! -path './tests/*' ! -path './analytics/*' ! -path './mcp/*') ||
   { echo "tehas: could not read the console's source in $root/console" >&2; exit 1; }
 analytics_source=$(source_sum \( \( -path './analytics/*' ! -path './analytics/tests/*' \) \
   -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path ./src/mask.rs \)) ||
   { echo "tehas: could not read the analytics program's source in $root/console" >&2; exit 1; }
+mcp_source=$(source_sum \( \( -path './mcp/*' ! -path './mcp/tests/*' ! -path './mcp/target/*' \) \
+  -o -path ./Cargo.toml -o -path ./Cargo.lock \)) ||
+  { echo "tehas: could not read the MCP server's source in $root/console" >&2; exit 1; }
 program_sum() { sha256sum <"$1" | cut -d' ' -f1; }
 # program_label <name>: how a message names it.
-program_label() { if [ "$1" = console ]; then echo "the console"; else echo "the $1 program"; fi; }
+program_label() {
+  case $1 in
+    console) echo "the console" ;;
+    tehas-mcp) echo "the MCP server" ;;
+    *) echo "the $1 program" ;;
+  esac
+}
+# program_triple <name>: the target a program is built for, empty for the host's.
+program_triple() { [ "$1" != tehas-mcp ] || echo x86_64-unknown-linux-musl; }
 # The build asks cargo for --offline first, so a host that has fetched once needs
 # no network, and asks again without it when cargo says a crate is missing from
 # its cache. cargo_miss_words is the one list of what cargo prints for that: a
@@ -510,9 +526,9 @@ program_label() { if [ "$1" = console ]; then echo "the console"; else echo "the
 # second run on its own. t_stub_cargo's CARGO_OFFLINE answers in these words.
 cargo_miss_words=('no matching package named' 'attempting to make an HTTP request')
 # cargo_build <prog> <offline|online>: one build, cut off after build_timeout
-# seconds (124, as timeout(1) reports). It reads $root, $target and $hidden
-# from the build loop below, and leaves the build's words in $out, the command
-# it ran in $build_cmd and its exit status in $rc.
+# seconds (124, as timeout(1) reports). It reads $root, $target, $triple and
+# $hidden from the build loop below, and leaves the build's words in $out, the
+# command it ran in $build_cmd and its exit status in $rc.
 cargo_build() {
   local args=(build --release --locked)
   case "$2" in
@@ -523,7 +539,7 @@ cargo_build() {
       return 2
       ;;
   esac
-  args+=(--quiet --manifest-path "$root/console/Cargo.toml" --target-dir "$target" -p "$1")
+  args+=(--quiet --manifest-path "$root/console/Cargo.toml" --target-dir "$target" ${triple:+--target "$triple"} -p "$1")
   build_cmd="cargo ${args[*]}"
   out=$(timeout "$build_timeout" env "${hidden[@]}" cargo "${args[@]}" 2>&1) && rc=0 || rc=$?
 }
@@ -543,7 +559,7 @@ cache_miss() {
   return 1
 }
 due=()
-for entry in "console $console_source" "analytics $analytics_source"; do
+for entry in "console $console_source" "analytics $analytics_source" "tehas-mcp $mcp_source"; do
   read -r prog sum <<<"$entry"
   to=$TEHAS_HOME/libexec/$prog
   [ ! -x "$to" ] || [ "$(cat "$to.stamp" 2>/dev/null)" != "$sum $(program_sum "$to")" ] || continue
@@ -572,7 +588,8 @@ if [ "${#due[@]}" != 0 ]; then
   build_timeout=${TEHAS_BUILD_TIMEOUT:-1800}
   for entry in "${due[@]}"; do
     read -r prog _ <<<"$entry"
-    built=$target/release/$prog
+    triple=$(program_triple "$prog")
+    built=$target/${triple:+$triple/}release/$prog
     rm -f "$built"
     cargo_build "$prog" offline
     offline_out=$out
@@ -606,7 +623,8 @@ ${out:-cargo printed nothing}"
   for entry in "${due[@]}"; do
     read -r prog sum <<<"$entry"
     to=$TEHAS_HOME/libexec/$prog
-    put "$target/release/$prog|$to|755"
+    triple=$(program_triple "$prog")
+    put "$target/${triple:+$triple/}release/$prog|$to|755"
     echo "$sum $(program_sum "$to")" | write_file "$to.stamp"
   done
 fi

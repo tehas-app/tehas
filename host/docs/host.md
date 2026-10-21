@@ -955,12 +955,43 @@ Two things the base carries are changed on purpose.
   unpinned, so its tool schemas moved under a host between builds and a code
   search call that worked in one cycle was refused in the next. The index a cycle
   searches is built by the same program in the same image, by `tehas index`, so
-  pinning it fixes both halves at once.
+  pinning it fixes both halves at once. What `tehas index` records beside the
+  commit is the id of the image that ran, not the pin it was told to use, because
+  a host that pulled a new pin has not necessarily rebuilt the image. A run that
+  finds a different id there, or none, sets aside what the other image wrote and
+  builds from scratch, and puts it back unless this run wrote an index of its
+  own, so rebuilding the sandbox image is enough on its own and no indexer ever
+  updates an index it did not build.
 - wigolo comes off PATH. The base installs it with npm's scripts off, which skips
   the native build of its better-sqlite3, so every call died on a missing
   bindings file and cost a cycle a call each time an agent reached for it.
   pi-rukas's own recipe preflights `command -v wigolo` and says when it is not
   installed, so its absence is an answer and not a gap.
+
+The image also carries the embedding model `vipune` searches with,
+`BAAI/bge-small-en-v1.5`. vipune downloads it on its first search, and a cycle
+cannot reach the publisher: the download failed and every search after it
+answered an empty store. The build fetches the model's two files,
+`onnx/model.onnx` and `tokenizer.json`, from huggingface.co at the revision
+vipune asks for, and checks each against its sha256. `versions.env` holds the
+model (`VIPUNE_MODEL`), the revision (`VIPUNE_MODEL_REVISION`) and the two
+checksums. The files go where vipune reads them, `~/.cache/huggingface/hub` of
+the user a container runs as. The build then checks that the model works: as
+that user, with the network shut off, it adds a memory to a scratch store and
+searches it back. It stops when either step errors or the search finds nothing,
+and when the base's vipune is not `VIPUNE_VERSION`, because the version picks
+the revision. When vipune is bumped, bump the model pins with it: a vipune that
+cannot find its model names the revision it wants.
+
+To check an image by hand, with an empty store mounted where a cycle mounts
+its own:
+
+```
+mem=$(mktemp -d)
+docker run --rm --network none --user "$(id -u):$(id -g)" -e HOME=/home/vscode \
+  -v "$mem:/home/vscode/.vipune" tehas/pi-rukas:uid$(id -u) \
+  sh -c 'vipune add "tehas dispatch reads label events" && vipune search "tehas dispatch" --json'
+```
 
 A step near the end of the build checks that every command a cycle's
 instructions name, and the commands `libexec/` gives a container (the one after
@@ -989,7 +1020,7 @@ still in use.
 
 A build first asks the base image's runner what it supports,
 `pi-rukas-headless --capabilities`. A base that does not speak the contract
-versions `tehas work` reads (exit codes 1, result schema 4, stable NDJSON 1),
+versions `tehas work` reads (exit codes 1, result schema 5, stable NDJSON 1),
 or whose `work` verb does not take `--timeout`, `--json` and `--restart`, is
 not built on: the build exits 1 and names each gap. Whether the answer lists
 `PI_ENSEMBLE_ISSUE_IMAGES` for manifest format 1, the manifest tehas writes
@@ -1159,6 +1190,46 @@ to the tag; a script that then sets a persistent cookie usually needs the
 visitor's consent. The example instance uses this for its public pages. The
 same `docker compose ... up -d` applies after a change.
 
+### Themes and layouts
+
+Every page, the factory floor, the business page, the manual and the Protolab,
+takes its look from one theme: its colours, typefaces, sizes, outlines and
+shadows, and the colours the canvases paint with. `TEHAS_THEME` in
+`instance.env` names it:
+
+| Theme       | Look                                                                    |
+| ----------- | ----------------------------------------------------------------------- |
+| `pixel`     | The default: the factory as a 16-bit game, in the Topaz bitmap typeface |
+| `paper`     | Plain type on a light page, thin rules and light screens                |
+| `beesknees` | A business application: near-black and muted green on white, thin rules, no motion. Dark where the viewer's system is |
+
+`TEHAS_LAYOUT` names what the front page is:
+
+| Layout     | Front page                                                                          |
+| ---------- | ----------------------------------------------------------------------------------- |
+| `floor`    | The default: the factory floor, the game view                                       |
+| `business` | The business page: live power and tokens, the production line from prototypes to shipped, the last 10 days and the issue board |
+
+Both pages are always there, at `/floor` and `/business`, in whatever theme
+the instance has; the setting only picks the one at `/`. The business page was
+drawn for beesknees, and the floor for pixel. The business page reads the
+same files as the floor: `live/status.json`, `live/protolab.json`,
+`live/analytics.json` and `live/energy.json`. Its live strip shows only where
+the host publishes power, and its 10 days only once there is a report. With no
+queue file it shows the floor's sample tickets and says so. Its live charts
+cover the last 30 minutes, which is what `energy.json` holds.
+
+A page asks for `/fun/theme.css`, and the docs server and the edge router
+answer with `~/tehas/fun/theme-<name>.css`. Both read the settings when their
+container is created: run the two `docker compose ... up -d` lines again after
+changing either. The sprites and scenes are pictures and stay the same in every
+theme.
+
+A theme is one file in `host/fun/`, `theme-<name>.css`, that sets every token
+`theme-pixel.css` sets; its name is added to the list in `lib/config.sh`.
+`test/theme_test.sh` fails when a theme leaves a token out or a page names a
+colour or a typeface of its own.
+
 ## Secrets and trust
 
 - `~/.config/tehas/env`: the bot's GitHub token (`GH_TOKEN`) and the model
@@ -1274,6 +1345,6 @@ nothing an earlier cycle could have left in it remains:
 
 ```
 mv ~/tehas/repos/tehas ~/tehas/repos/tehas.old
-git clone https://github.com/tehas-org/tehas.git ~/tehas/repos/tehas
+git clone https://github.com/tehas-app/tehas.git ~/tehas/repos/tehas
 ./install.sh
 ```

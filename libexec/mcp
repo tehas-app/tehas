@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# The read-only MCP server: run it, or make a key for it.
+#
+# The server answers agents outside this host with what the dashboard already
+# publishes under live/, behind the keys in TEHAS_MCP_KEYS. It is the binary
+# install.sh builds as libexec/tehas-mcp, run in a container that is given
+# live/ read-only, the binary, its port and the keys, and nothing else: no
+# other part of the home, no settings, no token, no Docker socket, no
+# capability, not root. Its network, tehas-mcp, has no masquerade, so the
+# container reaches nothing beyond the host. That container is a security
+# boundary; do not widen it.
+#
+# TEHAS_MCP and TEHAS_MCP_KEYS are host choices in ~/.config/tehas/env, never
+# in the instance directory, which is in a repository. TEHAS_MCP=1 turns the
+# server on; unset or 0 removes a container left running and exits 0. The keys
+# are separated by spaces, each at least 32 characters of A-Za-z0-9_-. They
+# reach the container by name from the environment, so no command line holds
+# them. The port is 8082 on TEHAS_HOST_ADDR, the loopback address without it.
+#
+# Usage: tehasbot mcp serve    run the server in the foreground (the service)
+#        tehas mcp key         print a new key; writes nothing
+#
+# Exit: 0 the server ended, or it is off; or a key was printed;
+#       1 the binary or the image's digest is missing (run install.sh), or a
+#         network named tehas-mcp exists that lets the container out;
+#       64 an unknown argument;
+#       78 the instance settings, TEHAS_MCP or TEHAS_MCP_KEYS are missing or
+#          malformed.
+set -uo pipefail
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+
+key() {
+  # 32 random bytes, base64url without padding.
+  head -c 32 /dev/urandom | base64 -w0 | tr '+/' '-_' | tr -d '='
+  echo
+}
+
+serve() {
+  # shellcheck source=lib/config.sh
+  . "$here/../lib/config.sh"
+  tehas_load || exit 78
+
+  case "${TEHAS_MCP:-0}" in
+    0)
+      docker rm -f tehas-mcp >/dev/null 2>&1
+      exit 0
+      ;;
+    1) ;;
+    *) tehas_err "TEHAS_MCP is 0 or 1 (in ~/.config/tehas/env)"; exit 78 ;;
+  esac
+  local keys=() k n=0
+  read -r -a keys <<<"${TEHAS_MCP_KEYS:-}"
+  [ "${#keys[@]}" != 0 ] || { tehas_err "TEHAS_MCP_KEYS is empty: give at least one key (tehas mcp key makes one)"; exit 78; }
+  for k in "${keys[@]}"; do
+    n=$((n + 1))
+    [[ $k =~ ^[A-Za-z0-9_-]{32,}$ ]] ||
+      { tehas_err "TEHAS_MCP_KEYS: key $n is not at least 32 characters of A-Za-z0-9_-"; exit 78; }
+  done
+
+  local bin=$TEHAS_HOME/libexec/tehas-mcp digest version
+  [ -x "$bin" ] || { tehas_err "no $bin: run install.sh"; exit 1; }
+  # The image is only a root file system for a static binary. The Caddy image
+  # the docs server runs is pinned already, so no other image is trusted here.
+  digest=$(sed -n 's/^CADDY_DIGEST=//p' "$TEHAS_HOME/versions.env" 2>/dev/null | head -n 1)
+  [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]] || { tehas_err "no CADDY_DIGEST in $TEHAS_HOME/versions.env: run install.sh"; exit 1; }
+  version=$(head -n 1 "$TEHAS_HOME/docs/version.txt" 2>/dev/null | tr -cd 'A-Za-z0-9._+-')
+
+  # A network made by hand under this name is used only if it lets nothing out.
+  local masq
+  if masq=$(docker network inspect --format '{{index .Options "com.docker.network.bridge.enable_ip_masquerade"}}' tehas-mcp 2>/dev/null); then
+    [ "$masq" = false ] ||
+      { tehas_err "the network tehas-mcp lets the container out (masquerade is not false): remove it and start again"; exit 1; }
+  else
+    docker network create --driver bridge -o com.docker.network.bridge.enable_ip_masquerade=false tehas-mcp >/dev/null ||
+      { tehas_err "could not make the network tehas-mcp"; exit 1; }
+  fi
+
+  docker rm -f tehas-mcp >/dev/null 2>&1
+  export TEHAS_MCP_KEYS
+  exec docker run --rm --init --name tehas-mcp --user "$(id -u):$(id -g)" --network tehas-mcp --read-only --cap-drop ALL \
+    --security-opt no-new-privileges:true --memory 64m --pids-limit 64 \
+    -p "${TEHAS_HOST_ADDR:-127.0.0.1}:8082:8082" \
+    -v "$TEHAS_HOME/live:/live:ro" -v "$bin:/tehas-mcp:ro" \
+    -e TEHAS_MCP_KEYS --entrypoint /tehas-mcp "caddy@$digest" \
+    --live /live --listen 0.0.0.0:8082 --server-version "${version:-unknown}"
+}
+
+case "${1-}" in
+  serve) serve ;;
+  key) key ;;
+  *)
+    echo "usage: tehasbot mcp serve | tehas mcp key" >&2
+    exit 64
+    ;;
+esac

@@ -7,8 +7,8 @@
   grid-area: host;
   margin-top: 72px;
   scroll-margin-top: calc(var(--header) + 16px);
-  background: var(--bone-shade);
-  border: 4px solid var(--outline);
+  background: var(--surface-quiet);
+  border: var(--frame);
   box-shadow: var(--shadow-sign);
 }
 .host-head {
@@ -17,13 +17,13 @@
   align-items: center;
   gap: 8px 24px;
   padding: 12px 16px;
-  background: var(--steel);
-  border-bottom: 4px solid var(--outline);
+  background: var(--surface-head);
+  border-bottom: var(--frame);
 }
 .host-head h2 { margin: 0; }
 .host-scope { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0; }
-.host-state { padding: 0 8px; background: var(--bone-shade); border: 4px solid var(--outline); }
-.host-state[data-state="live"] { background: var(--brass); }
+.host-state { padding: 0 8px; background: var(--surface-quiet); border: var(--frame); }
+.host-state[data-state="live"] { background: var(--accent); }
 .host-body { padding: 16px; }
 .host-readings {
   display: flex;
@@ -34,8 +34,8 @@
 }
 .host-readings span { display: inline-flex; align-items: center; gap: 8px; }
 .host-gauge { display: inline-flex; gap: 2px; vertical-align: -2px; }
-.host-gauge i { width: 6px; height: 16px; background: var(--bone); }
-.host-gauge .is-used { background: var(--slate); }
+.host-gauge i { width: 6px; height: 16px; background: var(--surface); }
+.host-gauge .is-used { background: var(--text-quiet); }
 .host-table { width: 100%; border-collapse: collapse; }
 .host-table th, .host-table td {
   padding: 8px 16px 8px 0;
@@ -45,8 +45,8 @@
   overflow-wrap: anywhere;
 }
 .host-table th:last-child, .host-table td:last-child { padding-right: 0; }
-.host-table thead th { color: var(--slate); }
-.host-table tbody tr { border-top: 1px solid var(--hairline); }
+.host-table thead th { color: var(--text-quiet); }
+.host-table tbody tr { border-top: 1px solid var(--rule); }
 .host-table .num { text-align: right; white-space: nowrap; }
 /* The units come after the processes, in a table of their own. */
 .host-units { margin-top: 24px; }
@@ -59,8 +59,8 @@
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  background: var(--bone);
-  border: 4px solid var(--outline);
+  background: var(--surface);
+  border: var(--frame);
   color: inherit;
   text-decoration: none;
 }

@@ -133,6 +133,11 @@ docker build \
   --build-arg PLAYWRIGHT_LOCK_SHA256="$PLAYWRIGHT_LOCK_SHA256" \
   --build-arg CBM_VERSION="$CBM_VERSION" \
   --build-arg CBM_INSTALLER_SHA256="$CBM_INSTALLER_SHA256" \
+  --build-arg VIPUNE_VERSION="$VIPUNE_VERSION" \
+  --build-arg VIPUNE_MODEL="$VIPUNE_MODEL" \
+  --build-arg VIPUNE_MODEL_REVISION="$VIPUNE_MODEL_REVISION" \
+  --build-arg VIPUNE_MODEL_SHA256_ONNX="$VIPUNE_MODEL_SHA256_ONNX" \
+  --build-arg VIPUNE_MODEL_SHA256_TOKENIZER="$VIPUNE_MODEL_SHA256_TOKENIZER" \
   --build-arg TEHAS_RUKAS_IMAGES="$reads" \
   -t "$image:$stamp" "$here"
 docker tag "$image:$stamp" "$current"

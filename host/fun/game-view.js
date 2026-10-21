@@ -830,23 +830,24 @@
   }
 
   function drawGame() {
-    ctx.fillStyle = "#222";
+    const paint = window.TEHAS_THEME.token;
+    ctx.fillStyle = paint("game-ground");
     ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = "#445";
+    ctx.fillStyle = paint("game-floor");
     ctx.fillRect(0, H - 16, W, 16);
-    ctx.font = "16px Topaz, monospace";
+    ctx.font = "16px " + paint("font-code");
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     for (const b of game.bricks) {
       if (!b.alive) continue;
       // Every shadow first, so no part of a piece lies in its own shade.
-      ctx.fillStyle = "#111";
+      ctx.fillStyle = paint("game-shadow");
       for (const r of b.rects) ctx.fillRect(r.x + 4, r.y + 4, r.w, r.h);
-      ctx.fillStyle = b.color;
+      ctx.fillStyle = paint(b.color);
       for (const r of b.rects) ctx.fillRect(r.x, r.y, r.w, r.h);
       // One letter in each cell it has one. The gap between the cells is drawn
       // inside a word too, so its pieces can still be told apart.
-      ctx.fillStyle = "#144";
+      ctx.fillStyle = paint("piece-text");
       for (const [i, letter] of b.letters.entries()) {
         if (!letter) continue;
         const cell = b.rects[i];
@@ -854,21 +855,21 @@
       }
     }
     const left = Math.round(game.paddleX - game.paddleW / 2);
-    ctx.fillStyle = "#111";
+    ctx.fillStyle = paint("game-shadow");
     ctx.fillRect(left + 4, H - 28, game.paddleW, 8);
-    ctx.fillStyle = paddleFlash > 0 ? "#eec" : "#fc6";
+    ctx.fillStyle = paint(paddleFlash > 0 ? "game-flash" : "game-paddle");
     ctx.fillRect(left, H - 32, game.paddleW, 8);
     for (const d of debris) {
-      ctx.fillStyle = d.color;
+      ctx.fillStyle = paint(d.color);
       ctx.fillRect(Math.round(d.x / 4) * 4, Math.round(d.y / 4) * 4, 4, 4);
     }
-    ctx.fillStyle = "#eec";
+    ctx.fillStyle = paint("game-ball");
     ctx.fillRect(Math.round(game.x) - 4, Math.round(game.y) - 4, 8, 8);
     if (game.mode !== "playing") {
       const label = game.mode === "over" ? "ROUND OVER" : game.mode === "paused" ? "PAUSED" : words.length ? "BUZZWORD BUSTER" : "NO TICKET DATA";
-      ctx.fillStyle = "#222";
+      ctx.fillStyle = paint("game-ground");
       ctx.fillRect(W / 2 - 136, H / 2 + 28, 272, 40);
-      ctx.fillStyle = "#fc6";
+      ctx.fillStyle = paint("game-paddle");
       ctx.fillText(label, W / 2, H / 2 + 49);
     }
   }

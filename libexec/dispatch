@@ -124,7 +124,12 @@
 #      closes, as GitHub links them, is work already done: the poll takes
 #      tehas:ready off and says so once on the issue. With TEHAS_WORK_IMAGES=1
 #      an issue whose text links an attachment waits while the model does not
-#      read images; the rest start. While the
+#      read images; the rest start. An issue whose text says a file goes there
+#      ("SCREENSHOT GOES HERE", "IMAGE_GOES_HERE") while its text and its
+#      approved record link no attachment at all waits for its owner on every
+#      instance, with the setting off included: the cycle would be given no
+#      file and no word of the gap. The hold is a line of the dispatch log;
+#      nothing on the issue changes and no label is touched. While the
 #      issue's own cycle is alive it waits, and starts when that cycle ended.
 #      A tehas:ready from an account outside the list authorises nothing, so
 #      the poll takes it off and says so once on the issue: left in place it
@@ -146,13 +151,35 @@
 #      nobody else edited. A label with no such comment, a malformed marker or
 #      a state GitHub does not give holds it too, and the log says why.
 #   7. tehas:urgent first, then refreshes, then tehas:next, then the lowest
-#      issue number. The
+#      issue number. An issue the poll puts on neither the urgent list nor the
+#      tehas:next list is of the lowest kind, so one whose tehas:next came from
+#      an account it does not count is of that kind too. The
 #      urgent label counts only when its most recent labelling is by an allowed
 #      account, as tehas:ready does: one applied by the bot or anyone else is
 #      ignored and logged, and the issue keeps its place by number. tehas:next,
 #      and tehas:blocked in rule 6, count when their latest event applies them
 #      and is by an allowed account or the fixer. A running cycle is never
-#      stopped to make room.
+#      stopped to make room. With TEHAS_LOW_GATE set, the poll runs that command
+#      at most once, and only when an issue of the lowest kind would otherwise
+#      start: it reads the exit status alone, and only
+#      0 lets those issues start. A missing file, one that is not executable, a
+#      run that outlives TEHAS_LOW_GATE_WAIT and any other status all hold them,
+#      and the poll still ends 0. The run gets TEHAS_LOW_GATE_WAIT seconds, at
+#      most 600 because the poll holds state/dispatch.lock while it waits, and
+#      ten more to end after being asked to; one that ignores that is killed. It
+#      is asked with nothing of the poll's environment but PATH, no input, and
+#      with whatever it prints kept in logs/low-gate.log for the person, who is
+#      the only reader of why a gate closed: it is not a sandbox, it runs as the
+#      tehas user, and what keeps it small is that lib/config.sh refuses a
+#      command under the trees a merged pull request writes. Once the answer is
+#      known, every later issue of the lowest kind is held by that answer alone,
+#      with its own line and no call to GitHub about it. The hold is marked by
+#      state/low-gate.held, which carries nothing but its existence and names no
+#      command, and its beginning and its end are said once each, however the
+#      command's status changes while the hold lasts; a hold already on record
+#      is said by each issue's line, not again as a beginning. Urgent issues,
+#      tehas:next issues, refreshes and a poll with no issue of the lowest kind
+#      ask nothing. Unset, nothing here changes.
 #
 # Instance settings (lib/config.sh; defaults in brackets):
 #   TEHAS_REPO                owner/name of the product repository, required
@@ -180,6 +207,11 @@
 #                             commit holds new cycles back, none when unset
 #   TEHAS_REFRESH_MAX         refreshes of one pull request since the
 #                             person's approval [2]
+#   TEHAS_LOW_GATE            a command the poll asks before it starts the
+#                             issues of the lowest kind, an absolute path, none
+#                             when unset
+#   TEHAS_LOW_GATE_WAIT       seconds that command gets before its answer is a
+#                             closed gate, 1 to 600 [60]
 # From the environment, for tests: TEHAS_STATUS_CMD, TEHAS_INDEX_CMD,
 # TEHAS_TIDY_CMD (in place of libexec/tidy),
 # TEHAS_PLAN_CMD, TEHAS_PLAN_START_CMD (in place of systemd-run, called with
@@ -193,9 +225,11 @@
 #
 # Before a start changes any label, the poll writes what it rests on to
 # $TEHAS_HOME/state/cycles/<issue>.approved.json: {at, by, how, body_sha256,
-# links}. Who approved and when, by the label or a retry tick, a sha256 of the
-# body that approval was checked against (carriage returns dropped), and the
-# links to GitHub's attachment storage in that body. With TEHAS_WORK_COMMENTS=1
+# title_sha256, links}. Who approved and when, by the label or a retry tick, a
+# sha256 of the body that approval was checked against (carriage returns
+# dropped), a sha256 of the issue's title held the same way, and the
+# links to GitHub's attachment storage in that body. An answer that names no
+# title records no title_sha256, and tehas work then checks the body alone. With TEHAS_WORK_COMMENTS=1
 # it adds comment_links, [{link, source, by}]: the links in the issue's comments
 # that an allowed account wrote and nobody edited after the approval, source
 # "comment:<id>". On a retry tick it adds the links of the comments allowed
@@ -494,6 +528,27 @@ image_ok() {
   log "hold #$n: its text links an attachment and TEHAS_WORK_IMAGES is 1, but $image_hold"
   return 1
 }
+
+# image_missing_ok <issue>: does the issue hold back no attachment it promises?
+# A body written around a picture ("SCREENSHOT GOES HERE") that links no
+# attachment at all is a handover that stopped short: what is left of it is the
+# owner's step, attach it, and a cycle cannot say so from what it is given --
+# the manifest holds no entry for a file nobody linked, so the cycle spends its
+# explore on a premise it cannot check and parks. The rule asks nothing of
+# GitHub and nothing of the instance's settings: the text is the one work_ok
+# already read, and a promised file holds whether or not this instance gives a
+# cycle images. It is asked where a cycle would otherwise start and before
+# units_ok, so a held issue has no label changed and no comment of the bot's
+# posted: the hold is one line of the dispatch log. A planning turn is not held
+# by it, as it is not held by image_ok. Returns 1, with the reason logged, when
+# the issue waits for its owner.
+image_missing_ok() {
+  local n=$1
+  [ -n "${work_answer[$n]:-}" ] || return 0
+  tehas_texts_hold_attachment "${work_answer[$n]}" || return 0
+  log "hold #$n: its text says $attach_promise and links no attachment, so the cycle would be given none; attach the file or write out what it shows, before applying \`tehas:ready\`"
+  return 1
+}
 # A real poll has logged the hold at rule 3; a dry run says it where it ends.
 mesh_ok() {
   [ -n "$mesh_hold" ] || return 0
@@ -510,6 +565,59 @@ slice_hold=""
 mem_why=""
 mem_note=""
 slice_ok() { [ -z "$slice_hold" ] && [ "$mem_why" != unreadable ]; }
+
+# The gate of the lowest issues (TEHAS_LOW_GATE): rule 7. low_gate <issue>
+# answers whether an issue of that kind may start now, and says why it may not.
+# What the code below cannot say:
+#   - The wait runs under the poll's own lock, so lib/config.sh caps
+#     TEHAS_LOW_GATE_WAIT at 600. A longer one holds every later poll too,
+#     urgent issues and libexec/tidy included, and the timer polls two minutes
+#     after this poll ends.
+#   - state/low-gate.held carries nothing but its existence, and only says that
+#     a hold was announced: it names no command, so one left by another
+#     TEHAS_LOW_GATE is read as this gate's hold. A poll that runs no gate
+#     leaves it alone.
+#   - The poll reads only the exit status. What the command prints goes to
+#     logs/low-gate.log, rewritten by every ask, which is where a gate says why
+#     it answered what it did.
+gate_asked=0
+gate_answer=0
+low_gate() { # <issue>
+  local n=$1 file=$TEHAS_HOME/state/low-gate.held held marker
+  [ -n "$TEHAS_LOW_GATE" ] || return 0
+  if [ "$gate_asked" = 0 ]; then
+    gate_asked=1
+    held=no
+    marker=yes
+    if [ -L "$file" ]; then
+      log "WARN: $file is not a regular file: no hold is read from it or written to it"
+      marker=no
+    elif [ -e "$file" ]; then
+      held=yes
+    fi
+    gate_answer=0
+    env -i PATH="$PATH" timeout -k 10 "$TEHAS_LOW_GATE_WAIT" "$TEHAS_LOW_GATE" 8>&- </dev/null \
+      >"$TEHAS_HOME/logs/low-gate.log" 2>&1 || gate_answer=$?
+    if [ "$gate_answer" != 0 ]; then
+      # A hold already on record was announced by the poll that made it; a dry
+      # run says it again because it writes nothing.
+      if [ "$held" = no ] || [ "$dry" = 1 ]; then
+        log "low issues wait: TEHAS_LOW_GATE answered $gate_answer"
+      fi
+      if [ "$dry" != 1 ] && [ "$marker" = yes ] && [ "$held" = no ]; then
+        : >"$file" || log "WARN: could not write $file"
+      fi
+    elif [ "$held" = yes ]; then
+      log "low issues may start: TEHAS_LOW_GATE answered 0"
+      if [ "$dry" != 1 ]; then
+        rm -f "$file" || log "WARN: could not remove $file"
+      fi
+    fi
+  fi
+  [ "$gate_answer" = 0 ] ||
+    { log "wait #$n: the low-priority gate is closed (exit $gate_answer)"; return 1; }
+  return 0
+}
 
 # branch_check: is the branch red? Asks GitHub once for the latest runs of
 # TEHAS_BRANCH_CHECK on the branch's head commit. A run that failed, timed out
@@ -827,6 +935,59 @@ clear_unauthorised() {
   fi
 }
 
+# epic_ok <issue>: is that number work this factory starts? An issue with open
+# sub-issues is an epic: a plan broken into issues, not a change one cycle can
+# make. Starting one spends a slot and a stack of tokens and parks as too
+# large, so it never starts.
+#
+# The count comes from the answer work_ok already read, so this asks GitHub
+# nothing: a GitHub Enterprise without sub-issues answers without the field and
+# the issue starts as any other. A total of no open sub-issue starts too, and so
+# does an answer whose two numbers are not numbers, or one where the completed
+# count is above the total.
+#
+# An epic that carries tehas:ready loses that label and says why on the issue
+# once, as clear_unauthorised does, the comment following the label change. A
+# retry tick is no label of tehas's to take off, and an epic need not carry
+# tehas:ready at all, so on that path nothing of the issue is changed and
+# nothing is said on it: its tick stays, as a tick a hold leaves, and a poll
+# that finds it again says the one line in the log rather than comment on the
+# issue every two minutes.
+#
+# Call it where a cycle is about to start, after work_ok, on the `tehas:ready`
+# path and on the retry tick of a park question. A planning session on an epic
+# is allowed: planning an epic is what planning is for.
+# Returns 1 when the issue is an epic.
+epic_ok() {
+  local n=$1 open word
+  open=$(jq -r 'if ((.sub_issues_summary // null) | type) == "object" and
+                  ((.sub_issues_summary.total | type) == "number") and
+                  ((.sub_issues_summary.completed | type) == "number")
+                then (.sub_issues_summary.total - .sub_issues_summary.completed)
+                else "" end' <<<"${work_answer[$n]:-}" 2>/dev/null) || open=""
+  [[ $open =~ ^[0-9]+$ ]] || return 0
+  # An answer where completed exceeds total does not add up: it starts as any
+  # other, as one that cannot be read does.
+  [ "$open" -gt 0 ] || return 0
+  word=sub-issue
+  [ "$open" = 1 ] || word=${word}s
+  log "skip #$n: it is an epic with $open $word open, and an epic is never started"
+  # tehas:ready is the only label an epic loses: it is the one that asked for
+  # the cycle. Where the start was a retry tick, the issue need not carry it,
+  # and no other label of tehas's is taken from an issue this refuses.
+  [[ $have == *" tehas:ready "* ]] || return 1
+  if [ "$dry" = 1 ]; then
+    log "would take tehas:ready off #$n: it is an epic"
+    return 1
+  fi
+  if gh issue edit "$n" --repo "$repo" --remove-label tehas:ready >/dev/null 2>&1; then
+    say "$n" "Tehas took \`tehas:ready\` off this issue and started nothing. It has $open $word open, so it is an epic: a plan, not a change. An epic is never started. Apply \`tehas:ready\` to one of its sub-issues instead."
+  else
+    log "WARN: label change on #$n failed: --remove-label tehas:ready"
+  fi
+  return 1
+}
+
 # open_pr <issue>: the url of an open pull request that GitHub says closes
 # the issue, in $pr_url; empty when there is none. A cycle on such an issue
 # would find the work done, after its explore and plan were paid for.
@@ -957,7 +1118,7 @@ unchanged_since() {
   # shellcheck disable=SC2016  # $owner, $name and $number are GraphQL variables
   gh_json api graphql -F owner="${repo%%/*}" -F name="${repo##*/}" -F number="$n" \
     -f query='query($owner: String!, $name: String!, $number: Int!) {
-      repository(owner: $owner, name: $name) { issue(number: $number) { lastEditedAt editor { login } body } } }'
+      repository(owner: $owner, name: $name) { issue(number: $number) { lastEditedAt editor { login } body title } } }'
   text_of[$n]=$json
   edited=$(jq -r '.data.repository.issue | "\(.editor.login // "") \(.lastEditedAt // "")"' <<<"$json") ||
     { log "ERROR: unreadable edit record of #$n"; exit 1; }
@@ -1008,9 +1169,12 @@ declare -A refresh_pr=() refresh_url=() refreshes=() refresh_of=()
 # approved_record <issue>: write state/cycles/<issue>.approved.json. Returns 1
 # when it could not be written.
 approved_record() {
-  local n=$1 file=$TEHAS_HOME/state/cycles/$1.approved.json sum from='[]' retry=null
+  local n=$1 file=$TEHAS_HOME/state/cycles/$1.approved.json sum tsum from='[]' retry=null
   [ -n "${text_of[$n]:-}" ] || return 1
   sum=$(jq '.data.repository.issue // {}' <<<"${text_of[$n]}" | tehas_body_sha256) || return 1
+  # The title of the same answer. An answer that names none binds none, which is
+  # the shape of every record written before titles were bound.
+  tsum=$(jq '.data.repository.issue // {}' <<<"${text_of[$n]}" | tehas_title_sha256 2>/dev/null) || tsum=""
   if [ "$TEHAS_WORK_COMMENTS" = 1 ]; then
     from=$(comment_links "$n" "${given_at[$n]}") || { log "ERROR: the comments of #$n could not be read"; return 1; }
     if [ "${given_how[$n]}" = retry-tick ]; then
@@ -1023,11 +1187,13 @@ approved_record() {
   fi
   [ "${given_how[$n]}" != refresh ] || retry=$(refresh_note "$n") || return 1
   jq --arg at "${given_at[$n]}" --arg by "${starter[$n]}" --arg how "${given_how[$n]}" --arg sum "$sum" \
+    --arg title "$tsum" \
     --argjson comments "$TEHAS_WORK_COMMENTS" --argjson from "$from" --argjson retry "$retry" \
     --argjson rests "${rests_on[$n]:-null}" --argjson starts "${fixer_starts[$n]:-0}" \
     --argjson refreshes "${refreshes[$n]:-0}" --argjson of "${refresh_of[$n]:-null}" \
     "$(tehas_attachment_links)"'{at: $at, by: $by, how: $how, body_sha256: $sum,
       links: (.data.repository.issue.body // "" | links | reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end))}
+      + (if $title == "" then {} else {title_sha256: $title} end)
       + if $comments == 1 then {comment_links: ($from + ($retry.links // []))} else {} end
       + if $retry == null or ($retry.context | length) == 0 then {} else {retry_context: $retry.context} end
       + if $how == "fixer" then {rests_on: $rests, fixer_starts: $starts} else {} end
@@ -1415,6 +1581,7 @@ refresh_ok() {
     return 1
   fi
   image_ok "$n" || return 1
+  image_missing_ok "$n" || return 1
   b=$(jq -r '.baseRefName | strings' <<<"$node" | tr -cd 'A-Za-z0-9._/-')
   starter[$n]=$by
   verb[$n]=refresh
@@ -2227,6 +2394,9 @@ for n in $asking; do
       # An issue closed since its cycle stopped is not work: the tick starts
       # nothing, and it stays as it is, as a tick held back by a hold does.
       work_ok "$n" || continue
+      # An epic is not a change either: the tick starts nothing, and, as for a
+      # hold, the issue and its tick stay as they are for a person.
+      epic_ok "$n" || continue
       # The tick approves the text as it was at that moment, as the label does.
       issue_events "$n"
       unchanged_since "$n" "$(jq -r .tick.at <<<"$ans")" "$by ticked retry" "untick the box and tick it again" || continue
@@ -2236,6 +2406,7 @@ for n in $asking; do
       fi
       mesh_ok || exit 0
       image_ok "$n" || exit 0
+      image_missing_ok "$n" || exit 0
       if [ "$dry" = 1 ]; then
         log "would run a cycle for #$n (retry ticked by $by)"
         exit 0
@@ -2470,7 +2641,8 @@ for pf in $(tehas_cycle_note_files park); do
   exit
 done
 
-# 6. and 7. Candidates: urgent first, then by number. The order is needed
+# 6. and 7. Candidates: urgent first, then the tehas:next issues the poll
+# counts, then the rest of them, each by number. The order is needed
 # before the candidates are cut to the free slots, so whose urgent label counts
 # is settled for every issue that carries one and could still be picked. An
 # issue with an open planning session or a live cycle is out of contention for
@@ -2514,21 +2686,32 @@ candidates=$(jq -r --argjson u "$urgent_json" --argjson x "$next_json" '
          | (reduce $x[] as $i ({}; .[$i | tostring] = true)) as $xs
          | [.[] | .number as $n | ($n | tonumber | tostring) as $k
              | {number: $n, urgent: ($us[$k] == true), next: ($xs[$k] == true)}]
-         | sort_by([(.urgent | not), (.next | not), .number]) | .[] | "\(if .urgent then "u" else "x" end) \(.number)"' <<<"$ready_json") ||
+         | sort_by([(.urgent | not), (.next | not), .number]) | .[] | "\(if .urgent then "u" elif .next then "n" else "x" end) \(.number)"' <<<"$ready_json") ||
   { log "ERROR: unreadable list of ready issues"; exit 1; }
-# The refreshes go after the urgent issues and before the rest.
+# The groups are put in order here, one grep each, rather than left to the
+# sort's key: urgent, then the refreshes, then the tehas:next issues the poll
+# counts, then the rest of them.
 order=$(printf '%s\n' "$candidates" | grep '^u ')
 for n in $(refresh_requests); do order+=$'\n'"r $n"; done
+order+=$'\n'$(printf '%s\n' "$candidates" | grep '^n ')
 order+=$'\n'$(printf '%s\n' "$candidates" | grep '^x ')
 ready_picked=0
 
 while read -r kind n; do
   [ -n "${n:-}" ] || continue
+  case "$kind" in u | r | n | x) ;; *) log "ERROR: candidate $n carries no kind"; exit 1 ;; esac
   [ "${#picked[@]}" -lt "$want_all" ] || break
   case " ${picked[*]} " in *" $n "*) continue ;; esac
   if [ "$kind" = r ]; then
     refresh_ok "$n" || continue
     picked+=("$n")
+    continue
+  fi
+  # The gate's answer is this poll's answer: the issues of the lowest kind
+  # after the one that asked are held by it alone, with no call to GitHub about
+  # them.
+  if [ "$kind" = x ] && [ "$gate_asked" = 1 ] && [ "$gate_answer" != 0 ]; then
+    log "wait #$n: the low-priority gate is closed (exit $gate_answer)"
     continue
   fi
   [ "$ready_picked" -lt "$want" ] || continue
@@ -2567,12 +2750,21 @@ while read -r kind n; do
   # Asked after the label approves the issue: an issue no account is allowed
   # to start costs no call, and the label is not changed until start_cycles.
   work_ok "$n" || continue
+  # An epic is a plan, not a change: it never starts a cycle.
+  epic_ok "$n" || continue
   open_pr "$n"
   if [ -n "$pr_url" ]; then
     clear_pr_open "$n"
     continue
   fi
   image_ok "$n" || continue
+  # Asked of the text the label approved, with no call of its own: an issue
+  # that says a file goes there and links nothing waits for its owner instead
+  # of spending a cycle on a premise it cannot see.
+  image_missing_ok "$n" || continue
+  # The gate of rule 7, asked for the first issue of the lowest kind that
+  # reached this point: an issue that waits for another reason asks nothing.
+  if [ "$kind" = x ] && ! low_gate "$n"; then continue; fi
   picked+=("$n")
   ready_picked=$((ready_picked + 1))
   starter[$n]=$who

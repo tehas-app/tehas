@@ -53,6 +53,8 @@
         handle @look {
             uri strip_prefix /fun
             root * /srv/fun
+            # The instance's theme, as the docs server picks it.
+            rewrite /theme.css /theme-{$TEHAS_THEME:pixel}.css
             file_server
         }
         # One ticket under a name of its own, so one prototype's script is a

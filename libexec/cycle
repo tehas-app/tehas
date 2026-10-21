@@ -39,6 +39,19 @@
 # makes from the result, or from the runner's progress lines for an image whose
 # result does not carry them.
 #
+# A result file that holds nothing is no result: the runner died before it
+# could write one. Such a cycle is still reported, from what the host has of
+# its own: the step its run log says it reached, the word tehas work left for
+# how the container ended, and GitHub's answer for the bot's pull request of
+# its branch. What each part means, and what is said from it, is the manual's
+# (host/docs/tools.md, the section of tehasbot cycle on a runner that died).
+#
+# state/cycles/<issue>.runner_exit, which tehas work writes, gives the
+# runner's own status for the comment: this command's own is 2 for a runner
+# that died however it died. tehas work and tehasbot cycle each clear the files
+# of this protocol before they start, so a cycle never reports an earlier
+# one's end.
+#
 # A runner that exits 137 with no result had its container killed: the status
 # reported is "killed" and the issue is parked. tehas work leaves in state/cycles/<issue>.oom how many
 # processes in the container were killed for memory. The file is read here as
@@ -61,10 +74,15 @@
 # So is a runner that stopped itself at the time limit and named no cap. Both
 # go on record with tehas's own cap wall-clock and the step the cycle was in.
 #
-# A runner that exits 4 started no cycle: the instance gives a cycle the
-# images or files its issue links (TEHAS_WORK_IMAGES, TEHAS_WORK_FILES) and one
-# could not be given. The issue is parked and the comment says that, not that
-# a cycle stopped. The
+# A runner that exits 4 started no cycle: tehas work refused the start, over
+# text that is not the text the dispatcher approved (its body or its title), a
+# record it could not read, an issue it could not read, or an image or file the
+# instance gives a cycle (TEHAS_WORK_IMAGES, TEHAS_WORK_FILES) that could not be
+# given. Nothing ran, so the comment names no status, step, duration or usage as
+# this cycle's: it names the exit status, who approved the start and when from
+# the dispatcher's record, and where the log is. The record itself is removed
+# with the report: an approval that started nothing is no approval a later start
+# can rest on. The issue is parked, not reported as a cycle that stopped. The
 # images of a cycle that ran are removed here when it is over: only the
 # container read them. So is the cycle's own state directory, the copy of the
 # code index, the memory and the sessions its agents wrote: no later cycle
@@ -300,6 +318,13 @@ tidy() {
 }
 
 started=$(date +%s)
+# When this cycle took its lock and started tehas work, in whole seconds. The
+# files tehas work leaves for a cycle it watched are this cycle's own only when
+# they are no older than this: they were removed before tehas work started, and
+# one older is what a cycle that was killed outright left behind. The whole
+# second counts, not only a time strictly after it: a tehas work that ends in
+# the second it was started in writes its files at this second, not after it.
+lock_taken=$started
 # An issue a handoff left with needs-human-attention starts again only on a
 # person's answer: the label or the tick that started this cycle, or the one
 # start after a provider outage the dispatcher makes for the account that
@@ -319,7 +344,8 @@ requeued=0
 rm -f "${cycles:?}/${issue:?}.oom" "${cycles:?}/${issue:?}.forks" "${cycles:?}/${issue:?}.stalled" "${cycles:?}/${issue:?}.timed" \
   "${cycles:?}/${issue:?}.result.json" "${cycles:?}/${issue:?}.progress.json" \
   "${cycles:?}/${issue:?}.branch" "${cycles:?}/${issue:?}.image" \
-  "${cycles:?}/${issue:?}.park" "${cycles:?}/${issue:?}.requeued" "${cycles:?}/${issue:?}.done"
+  "${cycles:?}/${issue:?}.park" "${cycles:?}/${issue:?}.requeued" "${cycles:?}/${issue:?}.done" \
+  "${cycles:?}/${issue:?}.runner_exit" "${cycles:?}/${issue:?}.status"
 # The trap is set before the runner starts, so no signal falls between.
 wpid=""
 stopped=0
@@ -361,14 +387,225 @@ if [ -L "$result" ]; then
   result=/dev/null
 fi
 [ ! -L "$progress" ] || progress=/dev/null
+# A runner that died halfway wrote no result at all, leaving this file empty.
+# An empty file is no result, and says nothing of its own, so the log is read
+# instead (below): nothing of a cycle that did write a result is taken from a
+# log, where the two could disagree. A file that is not empty and not this
+# schema is a result all the same, and still none, and said as one.
+no_result=0
+if [ ! -s "$result" ]; then
+  result=/dev/null
+  no_result=1
+fi
+# Said once a cycle, not twice: the comment of the park names it too, and a
+# reader of the poll's log wants the one line that says what could not be read.
+[ "$no_result" = 0 ] ||
+  log "WARN: the result of #$issue holds nothing, so its step is read from its run log"
 outcome=$(tehas_headless_outcome "$result" "$issue") || outcome='{}'
 status=$(jq -r '.status // "unknown"' <<<"$outcome" | tr -cd 'A-Za-z0-9_.-')
 step=$(jq -r '[.failedStep, .lastStep] | map(strings | select(. != "")) | first // "-"' <<<"$outcome" | tr -cd 'A-Za-z0-9_.-')
 status=${status:-unknown}
 step=${step:--}
+# A cycle that wrote no result has no word of its own for how it ended. The
+# word of tehas work, the one that watched the container, stands in: it is the
+# only account of the end, and it names what it saw rather than what the report
+# would prefer. `killed` is the only word tehas work writes to that file.
+if [ "$no_result" = 1 ]; then
+  work_status=""
+  [ ! -f "${cycles:?}/${issue:?}.status" ] ||
+    [ -L "${cycles:?}/${issue:?}.status" ] ||
+    read -r work_status <"${cycles:?}/${issue:?}.status" 2>/dev/null
+  case "$work_status" in killed) status=killed ;; esac
+fi
+# The files tehas work leaves for a cycle it watched, and what each proves, are
+# written beside tehas_cycle_note_files in lib/cycles.sh. The two of the
+# runner's end are there when the container was started and given its time, and
+# both are absent when tehas work stopped before that, in which case nothing of
+# this issue's earlier runs is read for this one.
+runner_exit_file=${cycles:?}/${issue:?}.runner_exit
+watched=0
+if [ -f "$runner_exit_file" ] && [ ! -L "$runner_exit_file" ]; then
+  watched=1
+fi
+progress_seen=0
+[ -e "$progress" ] && [ ! -L "$progress" ] && progress_seen=1
+# The branch tehas work wrote for this cycle, if it wrote one. Read before the
+# files of the cycle are cleared of the protocol's own, and never later: it is
+# what says whether the branch of a log is still wanted at all.
+host_branch=""
+[ ! -f "${cycles:?}/${issue:?}.branch" ] || [ -L "${cycles:?}/${issue:?}.branch" ] ||
+  read -r host_branch <"${cycles:?}/${issue:?}.branch" 2>/dev/null
+host_branch=${host_branch:-}
+# The one grammar decides whether the host named a branch: the branch of this
+# issue as tehas_branch_pattern makes it, or a name of the container's own
+# reduced to what GitHub can be asked about. Held to the same two arms as the
+# branch of the result below, so the answer to "is a branch already known" does
+# not depend on which of the two named it.
+host_branch_pattern=$(tehas_branch_pattern "$issue") || host_branch_pattern='^$'
+[[ $host_branch =~ $host_branch_pattern ]] ||
+  [[ $host_branch =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,79}$ ]] || host_branch=""
+# A step is read from the run log only where the cycle wrote no result at all:
+# there the runner died before it could name one, and the log's own
+# step-started lines are all there is. Where a result was written, that result
+# names the step and nothing of a log is read for it, so the two cannot
+# disagree. Only a cycle tehas work watched has a log of its own, and the
+# summary it wrote of that log is what says so: only such a cycle is read for
+# one. The summary is this cycle's own as well: the cycle removed it when it
+# took its lock, and tehas work writes no progress of its own before the
+# container runs, so a file that is newer than the start of this cycle was
+# written by it. An older one is what a cycle that was killed outright before
+# it could report left behind, and a log of that run is no log of this one.
+read_log_steps=$no_result
+[ "$watched" = 1 ] && [ "$progress_seen" = 1 ] || read_log_steps=0
+if [ "$read_log_steps" = 1 ] && [ ! "$progress" -nt "$lock_taken" ] &&
+  [ "$(stat -c %Y "$progress" 2>/dev/null)" != "$lock_taken" ]; then
+  read_log_steps=0
+fi
+# Where the step now on record was read is said below, beside the words the
+# comment uses for it.
+# A step of tehas work's own files: the step it saw in flight when it stopped
+# the container at the stall or the time limit. Read here, before the log is
+# opened, because the two files answer the question the log is read for: where
+# one of them names a step, the run log is not read at all, so a step of a log
+# cannot stand in for a step tehas work itself saw. The two files are read for
+# their seconds below, and for the step here, from the same lines.
+stall_step=""
+stall_secs=""
+stall_file=${cycles:?}/${issue:?}.stalled
+if [ -f "$stall_file" ] && [ ! -L "$stall_file" ]; then
+  { read -r stall_secs; read -r stall_step; } < <(head -c 100 "$stall_file" 2>/dev/null)
+  stall_step=$(tr -cd 'A-Za-z0-9_.-' <<<"${stall_step:-}" | head -c 40)
+  [ "$stall_step" != - ] || stall_step=""
+fi
+timed_step_file=""
+timed_secs=""
+timed_file=${cycles:?}/${issue:?}.timed
+if [ -f "$timed_file" ] && [ ! -L "$timed_file" ]; then
+  # Its one line: the limit, who stopped the cycle, the step it was in.
+  read -r timed_secs _ timed_step_file _ < <(head -c 200 "$timed_file" 2>/dev/null | head -n 1)
+  [[ $timed_step_file =~ ^[A-Za-z0-9_.:-]{1,40}$ ]] && [ "$timed_step_file" != - ] ||
+    timed_step_file=""
+fi
+# Whether a step is still wanted from the run log: the result names none, and
+# neither of tehas work's two files names one either. The files hold their step
+# only with a stop of their own: the seconds of the stall, the limit of the
+# time. Without those the step they name is the last verdict of a step, not what
+# ended the cycle, and it goes in the reason rather than on record. Their own
+# words are read once here, and the seconds go with them, so the report of the
+# stop below and this answer cannot disagree about what the files say.
+step_wanted=1
+[ "$step" = - ] || step_wanted=0
+[[ $stall_secs =~ ^(0|[1-9][0-9]{0,8})$ ]] || stall_step=""
+[[ $timed_secs =~ ^(0|[1-9][0-9]{0,8})$ ]] || timed_step_file=""
+[ -z "$stall_step" ] && [ -z "$timed_step_file" ] || step_wanted=0
+# The status of the runner itself, as tehas work saw it (libexec/work). This
+# command's own status is 2 for a runner that died however it died, so the
+# comment would otherwise say 2 for a runner that panicked with 134, and 137
+# only for a container tehas work saw killed. Where tehas work wrote the file
+# of the runner's own status, that is the word to name; with none, the status
+# this command's own wait saw stands.
+if [ "$watched" = 1 ]; then
+  # The file is read, then the word it holds is checked: a read that finds no
+  # line at all (a truncated or empty write by tehas work) ends with the
+  # variable empty and answers nothing, so the check is made after it and not
+  # on it.
+  read -r runner_rc <"$runner_exit_file" 2>/dev/null
+  runner_rc=${runner_rc:-}
+  # The shape every other state file of tehas work is read with, and
+  # normalised the same way: the comment names a number, not the bytes of one.
+  [[ $runner_rc =~ ^(0|[1-9][0-9]{0,2})$ ]] || runner_rc=$rc
+  runner_rc=$((10#$runner_rc))
+else
+  runner_rc=$rc
+fi
+# Both words of the run are read once: they are of this cycle, and a cycle that
+# is killed outright leaves them for the next one of the issue to report as its
+# own. The cycle's own start clears them too; this is the other half.
+rm -f "$runner_exit_file" "${cycles:?}/${issue:?}.status"
+# A runner that died wrote no result, so neither the step it was in nor the
+# branch commit-pr pushed is known. The log it left is: its stable
+# step-started lines name the steps it reached. GitHub decides whether a pull
+# request exists; these names only say which branch to ask about, so no line of
+# a log can make this report a pull request there is none of. Only a cycle tehas
+# work watched has a log of its own, and the log is read only when one of the
+# two words is still wanted: the step, when nothing else named it, and the
+# branch, when the host named none. A branch of a log goes with the step of the
+# same run, so both come of the one pass.
+ran_log=""
+if [ "$read_log_steps" = 1 ] && { [ "$step_wanted" = 0 ] || [ -z "$host_branch" ]; }; then
+  # The newest by its own name: tehas work names the file for the UTC time of
+  # its start, so the newest cycle of this issue has the last name, and the
+  # names of a directory sort in that order by themselves. Nothing read out of
+  # the file decides which log is the one to read, and no other log of
+  # the issue is read at all when none is there: this command writes no log.
+  for ran in "$TEHAS_HOME/logs/work-$issue"-*.jsonl; do
+    [ -f "$ran" ] && [ ! -L "$ran" ] || continue
+    [ -z "$ran_log" ] && ran_log=$ran
+    [[ $ran > $ran_log ]] && ran_log=$ran
+  done
+fi
+log_step=""
+log_branch=""
+log_read=""
+log_words=0
+log_from=result
+if [ -n "$ran_log" ]; then
+  # One pass over the log gives both words: the last step the runner says it
+  # started, and the step right after its last commit-pr. pi-rukas names the
+  # branch it pushed as the step of the push, so that one name, and no other
+  # step of the log, is this issue's branch. A step of any other shape, a run
+  # whose steps stop at commit-pr, and a run that never got there all leave it
+  # empty, so GitHub is asked about no branch of its own. tehas work writes no
+  # branch of its own, so nothing else says it for a cycle that wrote no result.
+  { read -r log_step; read -r log_branch; read -r log_read; } < <(tehas_headless_run "$ran_log" "$issue")
+  # A log the helper answered nothing at all for (no file, no number for the
+  # issue) is no log whose words were read, and says nothing of the cycle. The
+  # third line is the only place its answer says that, and the one word the
+  # comment can name it by: `read from its run log` is said only of a log the
+  # helper read whole or from its end, never of one it could not open.
+  case "$log_read" in
+    whole | truncated) log_words=1 ;;
+    *)
+      log "WARN: the run log $ran_log of #$issue could not be read, so its step and its branch are not known"
+      ;;
+  esac
+  # The log is read for the step only where nothing else names one, so its word
+  # is taken only then: a step of tehas work's own file has the last word, and a
+  # log opened for the branch alone does not say the step of the cycle. The
+  # words the helper gave are kept either way, so the comment can name the log
+  # as the source of a step that was taken, and a log it could not open at all
+  # is no source of anything.
+  if [ "$log_words" = 1 ] && [ "$step_wanted" = 1 ] && [ -n "$log_step" ]; then
+    step=$log_step
+    log_from=log
+  elif [ "$log_words" != 1 ]; then
+    log_branch=""
+  fi
+fi
+step=${step:--}
+# Where the step now on record was read: `result` named it; `log` is a
+# step-started line of the runner itself, said only of a step the block above
+# took from a log the helper opened and read whole or from its end. The two
+# other words, `stalled` and `timed`, name a step tehas work itself saw in
+# flight when it stopped the container, and are set where its files are read,
+# below: a step of a host file is never said as the runner's word from its log,
+# and a result that named the step keeps `result`, which is said in no wording
+# of its own.
+step_from=$log_from
+[ "$step" != - ] || step_from=result
+step=${step:--}
+# The step of tehas work's stall file stands in where the result and the log
+# name none, as the one its timed file names does: each was written by tehas
+# work, which watched this cycle, so neither is a name read out of a log. Held
+# to a stop of its own: the seconds must be there, as the report of the stop
+# below makes the same test.
+[ "$step" != - ] || [ -z "$stall_step" ] || { step=$stall_step; step_from=stalled; }
 # The runner says 137 only for a container that was killed under it with no
 # result written. A result that names an end has the last word.
-if [ "$rc" = 137 ]; then
+# The word of tehas work for a container it watched has the last word already; this
+# is for a cycle whose runner was killed under tehas work itself, with no file
+# of the runner's status behind it.
+if [ "$rc" = 137 ] && [ "$watched" = 0 ]; then
   case "$status" in running | unknown) status=killed ;; esac
 fi
 # How many processes in the container were killed for memory, as tehas work
@@ -405,7 +642,10 @@ stall_file=${cycles:?}/${issue:?}.stalled
 stop_read "$stall_file"
 stalled=$stop_secs
 rm -f "$stall_file"
-[ "$step" != - ] || [ -z "$stop_step" ] || step=$stop_step
+# The step of the stall file stands in where the result and the log name none:
+# it was written by tehas work, which watched this cycle, so it is tehas work's
+# own word for what it saw in flight.
+[ "$step" != - ] || [ -z "$stop_step" ] || { step=$stop_step; step_from=stalled; }
 # The image the container started from, as tehas work saw it, for the record.
 image_id="" image_rukas=""
 image_file=${cycles:?}/${issue:?}.image
@@ -432,7 +672,10 @@ fi
 rm -f "$timed_file"
 if [ "$timed" != 0 ]; then
   case "$status" in running | unknown | interrupted) status=timeout ;; esac
-  [ "$step" != - ] || [ -z "$timed_step" ] || step=$timed_step
+  # The step of tehas work's own file stands in for a step the result names
+  # none, as the one the stall file names does: each was written by tehas work,
+  # which watched this cycle, so neither is a name read out of a log.
+  [ "$step" != - ] || [ -z "$timed_step" ] || { step=$timed_step; step_from=timed; }
   if [ "$timed_by" = runner ]; then
     killed="$killed It reached its time limit of $((timed / 60)) min at step \`$step\`, and the runner stopped there."
   else
@@ -441,6 +684,21 @@ if [ "$timed" != 0 ]; then
 fi
 [ "$forks" = 0 ] || killed="$killed Its container reached its limit of processes and $forks starts of a process were refused: what the cycle ran after that may not have run."
 branch=$(jq -r '.branch // ""' <<<"$outcome")
+# Two arms, and they are not the same question. The first is the branch of this
+# issue, as pi-rukas names it: the one grammar of tehas_branch_pattern, which
+# the helper holds for the log's name and this command holds for the result's.
+# The second is the container's own branch name, reduced to the characters
+# GitHub can be asked about at all: a handoff that pushed to a branch of its own
+# naming is said by that name, and a name of that shape is no one's issue's
+# branch. A log's name never reaches the second arm: the helper already held it
+# to the first.
+branch_pattern=$(tehas_branch_pattern "$issue") || branch_pattern='^$'
+[[ $branch =~ $branch_pattern ]] ||
+  [[ $branch =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,79}$ ]] || branch=""
+# No result to name the branch: the runner's own step names do, when it reached
+# commit-pr. That branch is then the one GitHub is asked about, and the branch on
+# record when the answer cannot be read.
+[ -n "$branch" ] || branch=$log_branch
 # The pi-rukas commit the runner says it ran, for the improvement loop's check
 # of whether a fix was in it.
 build=$(jq -r '.buildCommit // ""' <<<"$outcome")
@@ -512,16 +770,80 @@ if [ -n "$own" ]; then
   reason=$(printf '%s' "$stop_why${reason:+; $reason}" | head -c 200)
   cap=$own
 fi
-# The token usage: a row per role from the progress, and the result's totals,
-# which count failed dispatches too, as the rows do where the result gave
-# them. Numbers only: anything else counts as nothing.
-usage=$(head -c 1000000 "$progress" 2>/dev/null | jq -r --argjson total "$(jq -c '.usage // {}' <<<"$outcome")" '
+# The token usage: a row per role from the progress, and the totals, which
+# count failed dispatches too. Numbers only: anything else counts as nothing,
+# on either line. The two lines are read from the two files of the cycle and
+# can disagree, which is what the zero below is for: where the result names no
+# dispatches at all (an image whose result carries no usage, the TODO of
+# pi-rukas#1367) the rows are the progress' own and the totals are the same rows
+# added up, so the table does not close with a row of zeros under rows that are
+# not zeros. The one decision of which totals to print is made once, by
+# `usage_totals`, and handed to the table as one JSON value: it answers the two
+# questions the table needs together, whether any row of the progress tells of
+# work at all, and what their sum is. A row is a record of numbers only when all
+# five of its counts are numbers: one that holds a word, an object or a null is
+# the word of a container, and where any row is such a one the totals stay the
+# result's own, zeros and all. No sum is ever of anything the progress did not
+# say, and no count of a row that could not be read is added to anything.
+
+# usage_totals <rows.json>: one JSON object, the answer of the rows to both of
+# the table's questions, read from standard input. `told` says what the rows
+# are: true when a row records work, false when there is no row or one of them
+# holds a word in place of a count, and "unreadable" when the stream is no
+# array of them at all. `total` is the five counts added up, or null when no row
+# tells of work. A progress that could not be parsed is told apart from one that
+# holds no rows, and neither the one nor the other is summed into anything.
+usage_totals() { # < rows.json
+  jq -c '
+    def n: if type == "number" and . >= 0 then . else 0 end;
+    # A row tells of work only when all five of its counts are numbers: one
+    # that holds a word, an object or a null is the word of a container.
+    def told: [.dispatches, .turns, .input, .output, .cacheRead]
+      | map(type) | all(.[]; . == "number");
+    if type != "array" then {told: "unreadable", total: null}
+    else ([.[] | objects]) as $r
+    | if ($r | length) == 0 or ($r | map(told) | any(.[]; . == false))
+      then {told: false, total: null}
+      else {told: true,
+            total: {dispatches: ([$r[].dispatches] | map(n) | add // 0),
+                    turns: ([$r[].turns] | map(n) | add // 0),
+                    input: ([$r[].input] | map(n) | add // 0),
+                    output: ([$r[].output] | map(n) | add // 0),
+                    cacheRead: ([$r[].cacheRead] | map(n) | add // 0)}}
+      end
+    end' 2>/dev/null
+}
+
+usage_total_own=$(jq -c '.usage // {}' <<<"$outcome" 2>/dev/null) || usage_total_own='{}'
+[ -n "$usage_total_own" ] || usage_total_own='{}'
+# Whether the result speaks of dispatches at all. The outcome always carries
+# the five counts, with nothing in place of one the image never named, so a
+# count that is no number is the word for a result that says nothing of work.
+# A file jq cannot read is one that says nothing either: the rows still go up
+# on their own, which is what the table can say with no totals of its own.
+usage_total_said=$(jq -c '
+  if type != "object" then false
+  else [.dispatches, .turns, .input, .output, .cacheRead]
+       | any(.[]; . != 0 and . != null) end
+' <<<"$usage_total_own" 2>/dev/null) || usage_total_said=false
+[ -n "$usage_total_said" ] || usage_total_said=false
+# The one answer of the progress's rows, read once and passed whole: no shell
+# value re-tests it, and the table below only asks which totals to print.
+usage_rows=$(jq -c '[.roles[]? | objects]' "$progress" 2>/dev/null | usage_totals) ||
+  usage_rows=""
+[ -n "$usage_rows" ] || usage_rows='{"told":"unreadable","total":null}'
+[ "$(jq -r '.told | tostring' <<<"$usage_rows" 2>/dev/null)" != unreadable ] ||
+  log "WARN: the progress of #$issue could not be read, so its rows are not summed into the totals"
+usage=$(head -c 1000000 "$progress" 2>/dev/null | jq -r \
+  --argjson rows "$usage_rows" --argjson total "$usage_total_own" \
+  --arg told "$usage_total_said" '
   def n: if type == "number" and . >= 0 then . else 0 end;
   [.roles[]? | objects] as $r
-  | if ($r | length) == 0 and ($total.dispatches | n) == 0 then "" else
+  | (if ($rows.total | type) == "object" and $told == "false" then $rows.total else $total end) as $t
+  | if ($r | length) == 0 and ($t.dispatches | n) == 0 then "" else
       (["| Role | Dispatches | Turns | Input | Output | Cache read |", "|---|---|---|---|---|---|"]
        + ($r | map("| \(.role | tostring | gsub("[^A-Za-z0-9_.-]"; "")) | \(.dispatches | n) | \(.turns | n) | \(.input | n) | \(.output | n) | \(.cacheRead | n) |"))
-       + ["| **total, all dispatches** | \($total.dispatches | n) | \($total.turns | n) | \($total.input | n) | \($total.output | n) | \($total.cacheRead | n) |"])
+       + ["| **total, all dispatches** | \($t.dispatches | n) | \($t.turns | n) | \($t.input | n) | \($t.output | n) | \($t.cacheRead | n) |"])
       | join("\n") end' 2>/dev/null || echo "")
 
 # The pull requests of the bot on the cycle's branch, in any state. The state
@@ -574,6 +896,15 @@ fi
 stuck=" The label of this issue could not be changed. The next poll of the dispatcher hands it to a human."
 
 summary="status \`$status\`, last step \`$step\`, $mins min"
+# A reader of the comment is told where the step came from: only the log of a
+# runner that wrote no result can name the step it died in, and a step read
+# from a log is the runner's own word, not the verdict of its result.
+[ "$step_from" = log ] && [ "$step" != - ] &&
+  summary="status \`$status\`, last step \`$step\` read from its run log, $mins min"
+[ "$step_from" = stalled ] && [ "$step" != - ] &&
+  summary="status \`$status\`, last step \`$step\` tehas work saw in flight, $mins min"
+[ "$step_from" = timed ] && [ "$step" != - ] &&
+  summary="status \`$status\`, last step \`$step\` tehas work saw in flight, $mins min"
 # Why the cycle stopped, for a comment: its cap and, for an intent park, the
 # reason. A cap is a word of the runner's published vocabulary, or one of
 # `wall-clock` / `stall` that tehas sets for a stop at its own bound.
@@ -600,6 +931,29 @@ rm -f "$cycles/$issue.done"
 # outage on a cycle that was not itself the dispatcher's retry of one.
 retry=false
 parked_now=false
+# A runner that refused to start (tehas work exit 4): no clone, no container,
+# no step. Its report names only what the dispatcher recorded, and its approval
+# record is removed below with the report.
+never_ran=0
+# A runner that wrote no result, whose branch GitHub says carries the bot's
+# open pull request: commit-pr got that far and the review after it did not.
+# Said with the pull request rather than as a cycle that left nothing. The one
+# decision is made here, where the log was read and its words are still in
+# scope: `log_words` is 1 only for a log the helper opened and read, and
+# `log_read` says whether it read the whole of it. A run whose log is bigger
+# than the 200 KB tehas reads may have lost its `commit-pr` line at the cut, so
+# the branch of the run and the pull request GitHub lists may then name two
+# things: such a cycle keeps the park's own wording, which tells a person to
+# look for the pull request before they retry. A result that was written, a
+# cycle tehas work never watched, and a cycle whose log the helper could not
+# open are each reported the way they were before. GitHub said the pull request
+# is here; the log only named the branch to ask about, so no line of a log
+# reports one GitHub does not list.
+died_with_open_pr=0
+if [ "$log_words" = 1 ] && [ "$log_read" = whole ] && [ -n "$pr" ] &&
+  [ -z "$merged_pr" ] && [ -z "$closed_pr" ]; then
+  died_with_open_pr=1
+fi
 park() {
   parked_now=true
   relabel --remove-label tehas:running --add-label needs-human-attention && stuck=""
@@ -676,7 +1030,7 @@ if [ -n "$merged_pr" ]; then
   else
     # The merge came from outside while the cycle still worked. What it pushed
     # after that reaches nothing, and what it had not pushed is only here.
-    comment "Tehas cycle ended: its pull request $merged_pr was merged while the cycle ran (last step \`$step\`, $mins min, runner exit $rc). Nothing more is needed here. $kept.$killed$stuck"
+    comment "Tehas cycle ended: its pull request $merged_pr was merged while the cycle ran (last step \`$step\`, $mins min, runner exit $runner_rc). Nothing more is needed here. $kept.$killed$stuck"
   fi
   status=merged
   pr=$merged_pr
@@ -685,7 +1039,7 @@ elif [ "$unread" = 1 ]; then
   # record for whoever looks again.
   printf '%s\n' "$(tr -cd 'A-Za-z0-9_./-' <<<"$branch")" >"$cycles/$issue.branch" ||
     log "WARN: could not record the branch of #$issue"
-  park "Tehas cycle stopped, and its pull request could not be looked up: GitHub did not list the pull requests of the branch \`$(tr -cd 'A-Za-z0-9_./-' <<<"$branch")\` ($summary, runner exit $rc). Look for one there before you retry. $kept; $log_where.$killed"
+  park "Tehas cycle stopped, and its pull request could not be looked up: GitHub did not list the pull requests of the branch \`$(tr -cd 'A-Za-z0-9_./-' <<<"$branch")\` ($summary, runner exit $runner_rc). Look for one there before you retry. $kept; $log_where.$killed"
 elif [ "$rc" = 0 ] && [ "$status" = merged ]; then
   # A claim the container wrote. Without the merge to show for it the
   # workspaces are kept: what they hold may exist nowhere else.
@@ -710,7 +1064,7 @@ elif { [ "$rc" = 10 ] || [ "$rc" = 11 ]; } && [ "$status" = handoff ] && [ -n "$
   [ "$review_held" = false ] || [ "$cap" != awaiting-human-merge ] ||
     held=" Its review ran out of rounds with findings still open, so it is not waiting only for a merge."
   [ -n "$cap" ] || why=" The result names no cap, so it is not taken for a pull request that waits only for a merge."
-  park "Tehas cycle handed off with its pull request open: $summary (runner exit $rc).$why$held Read the pull request before you retry: $pr. $kept; $log_where.$killed$foreign"
+  park "Tehas cycle handed off with its pull request open: $summary (runner exit $runner_rc).$why$held Read the pull request before you retry: $pr. $kept; $log_where.$killed$foreign"
 elif [ "$done_why" = closed ]; then
   # Closed while the cycle ran: nobody is waiting on it, so nothing is asked.
   # The workspace stays for the sweep.
@@ -722,15 +1076,48 @@ elif [ -z "$pr" ] && [ -n "$closed_pr" ] && [ "$rc" != 4 ]; then
   # is theirs to say, with the label. No retry box.
   relabel --remove-label tehas:running --add-label needs-human-attention && stuck=""
   comment "${marker:+$marker
-}$(printf '%s' "Tehas cycle stopped: its pull request $closed_pr was closed without being merged ($summary, runner exit $rc).$why $kept; $log_where.$killed$stuck To retry, apply \`tehas:ready\`.${handoff:+
+}$(printf '%s' "Tehas cycle stopped: its pull request $closed_pr was closed without being merged ($summary, runner exit $runner_rc).$why $kept; $log_where.$killed$stuck To retry, apply \`tehas:ready\`.${handoff:+
 
 $handoff}" | q_clean 60000)"
+elif [ "$died_with_open_pr" = 1 ]; then
+  # The runner wrote no result for this cycle - it died before it could - but
+  # its branch has the bot's open pull request, so commit-pr got that far and
+  # the review after it did not finish. This is a handoff to a person, not a
+  # cycle that left nothing: the change is up for review, and a clean retry
+  # would redo what an open pull request already holds. Named as such, with the
+  # pull request, and parked: needs-human-attention, and no retry box, which a
+  # park's boxes would offer. GitHub decided that the pull request is here; the
+  # log only named the branch to ask about, so no line of a log reports one
+  # GitHub does not list. The step names itself in the summary above, so the
+  # comment adds no word of its own about which step it was.
+  relabel --remove-label tehas:running --add-label needs-human-attention && stuck=""
+  comment "${marker:+$marker
+}$(printf '%s' "Tehas cycle handed off with its pull request open and its review unfinished: $summary (runner exit $runner_rc). Its runner wrote no result, so tehas read its run log for the step it was in and GitHub for the bot's pull request on its branch: $pr. Read the pull request before you retry: a clean start redoes what it already holds. $kept; $log_where.$killed$stuck" | q_clean 60000)"
+  # On record as the handoff it was reported as, with the pull request found.
+  status=handoff
 else
-  parked="Tehas cycle stopped without a pull request: $summary (runner exit $rc).$why${handoff:+ The handoff of pi-rukas follows.} $kept; $log_where.$killed${pr:+ Its branch has an open pull request: $pr}$foreign"
+  parked="Tehas cycle stopped without a pull request: $summary (runner exit $runner_rc).$why${handoff:+ The handoff of pi-rukas follows.} $kept; $log_where.$killed${pr:+ Its branch has an open pull request: $pr}$foreign"
   if [ "$rc" = 4 ]; then
-    parked="Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit $rc). The comment before this one names it; $log_where."
+    # A cycle that never ran has no status, no step, no duration and no usage of
+    # its own to report: none of those are this issue's to name. What is known
+    # is the dispatcher's record of the start it authorised, and the log tehas
+    # work wrote its reason into.
+    never_ran=1
+    approved_by=$(jq -r 'select((.by | type) == "string" and (.by | test("^[A-Za-z0-9-]+$"))) | .by' \
+      "$cycles/$issue.approved.json" 2>/dev/null) || approved_by=""
+    approved_at=$(jq -r 'select((.at | type) == "string" and (.at | test("^[0-9T:.Z-]+$"))) | .at' \
+      "$cycles/$issue.approved.json" 2>/dev/null) || approved_at=""
+    never_ran_said=""
+    if [ -n "$approved_by" ] && [ -n "$approved_at" ]; then
+      never_ran_said=" @${approved_by} approved this start at ${approved_at}; tehas keeps no record of an approval that started nothing, so a fresh \`tehas:ready\` asks for another start."
+    elif [ -n "$approved_by" ]; then
+      never_ran_said=" @${approved_by} approved this start; tehas keeps no record of an approval that started nothing, so a fresh \`tehas:ready\` asks for another start."
+    else
+      never_ran_said=" No approval of this start is recorded on this host: a fresh \`tehas:ready\` is needed."
+    fi
+    parked="Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit $runner_rc). Nothing of it ran: no workspace, no container, no step, no usage.$never_ran_said The comment before this one names it; $log_where."
   elif [ "$provider" = 1 ]; then
-    parked="Tehas cycle parked by a provider outage: $summary (runner exit $rc), cap \`$cap\`${reason:+: $reason}; $log_where.$killed${pr:+ Its branch has an open pull request: $pr}$foreign"
+    parked="Tehas cycle parked by a provider outage: $summary (runner exit $runner_rc), cap \`$cap\`${reason:+: $reason}; $log_where.$killed${pr:+ Its branch has an open pull request: $pr}$foreign"
     if [ "$requeued" = 0 ]; then
       retry=true
       parked="$parked Tehas starts it again once on its own, when the model endpoint answers."
@@ -766,6 +1153,13 @@ tehas_cycle_history_add "$issue" "$(jq -n -c --arg at "$(date -u +%FT%TZ)" --arg
   --arg how "$(jq -r '.how // "" | strings' "$cycles/$issue.approved.json" 2>/dev/null | tr -cd 'a-z-')" \
   '{$at, $started, $rc, $status, $step, $cap, $park_reason, $failure_kind, $failure_cause, $provider, $parked, $pr, $by, $how}
    | with_entries(select(.value != ""))')" || log "WARN: no line of history of #$issue"
+# The record of a start that never ran goes with its report: the fixer, a
+# refresh and a run by hand each read a record as one whose cycle happened. Its
+# `how` is already in the line of history above, and its time is not read for a
+# run that never started.
+if [ "$never_ran" = 1 ]; then
+  rm -f "$cycles/$issue.approved.json"
+fi
 # The run and its end in the factory's analytics, from the history line and
 # what the cycle left in state/cycles; the image and the counts were read and
 # removed above, so they are passed. A failure is a warning (lib/analytics.sh).
