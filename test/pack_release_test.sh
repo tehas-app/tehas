@@ -166,6 +166,32 @@ for f in libexec/console bin/tehas host/sandbox/build.sh; do
 done
 t_eq "$(stat -c '%a' "$T/tehas-v9.9.9/libexec/console")" 755
 
+t_case "the analytics program and the MCP server are packed when given, executable"
+t_pack_reset
+printf 'analytics of this release\n' >"$build/analytics"
+printf 'mcp of this release\n' >"$build/tehas-mcp"
+chmod 755 "$build/analytics" "$build/tehas-mcp"
+t_pack --analytics "'$build/analytics'" --mcp "'$build/tehas-mcp'"
+t_eq "$t_rc" 0
+rm -rf "$T/tehas-v9.9.9"
+tar -xzf "$dist/$tar_gz" -C "$T"
+t_eq "$(cat "$T/tehas-v9.9.9/libexec/analytics")" "analytics of this release"
+t_eq "$(cat "$T/tehas-v9.9.9/libexec/tehas-mcp")" "mcp of this release"
+t_eq "$(stat -c '%a' "$T/tehas-v9.9.9/libexec/analytics" "$T/tehas-v9.9.9/libexec/tehas-mcp" | tr '\n' ' ')" "755 755 "
+
+t_case "an --analytics or --mcp that is not a program is a bad argument, and writes nothing"
+t_pack_reset
+chmod 644 "$build/analytics"
+t_pack --analytics "'$build/analytics'"
+t_eq "$t_rc" 64
+t_contains "$t_out" "not a program the pack can run"
+t_pack --mcp "'$build/missing'"
+t_eq "$t_rc" 64
+t_run "\"$pack\" v9.9.9 '$dist' --console '$stub' --mcp"
+t_eq "$t_rc" 64
+t_contains "$t_out" "--mcp needs a path"
+t_eq "$(find "$dist" -maxdepth 1 -type f 2>/dev/null | wc -l)" 0
+
 t_case "the tarball holds CHANGELOG.md, the checkout's own"
 t_pack_reset
 t_pack

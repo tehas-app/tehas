@@ -2747,8 +2747,12 @@ thin wrapper around the same arguments:
 
 ```
 TEHAS_PACK_ROOT='<checkout>' scripts/pack-release.sh <tag> <out dir> --console <path> \
-  --rukas-commit <40 hex> --rukas-digest <64 hex>
+  --analytics <path> --mcp <path> --rukas-commit <40 hex> --rukas-digest <64 hex>
 ```
+
+`--analytics` and `--mcp` are the other two programs `install.sh` puts in
+`libexec`, packed as `libexec/analytics` and `libexec/tehas-mcp`. Each is
+optional, and a tarball packed without one has none.
 
 The two pins are given together or not at all, so a release that does not pin
 pi-rukas leaves both off. The digest is written as `sha256:` and 64 hex digits.
@@ -2772,7 +2776,8 @@ beside it, and it writes neither before both are ready, so a run that fails
 leaves no tarball for the next one to be refused against. Unpacked, the tarball
 is a single `tehas-<tag>/` directory holding what `install.sh` reads: its
 `bin/`, `libexec/`, `lib/` and `host/`, the top-level files an install needs,
-the console as `libexec/console`, a `VERSION` file with the tag, and
+the console as `libexec/console` and the other two programs when they were
+given, a `VERSION` file with the tag, `CHANGELOG.md`, and
 `host/versions.env`. The list is `lib/release.sh`, the one place it is written
 down, and the gate checks the script and the test against it. An adopter
 unpacks it and runs `./install.sh` from inside, as they would from a checkout.
@@ -2800,13 +2805,11 @@ PI_RUKAS_IMAGE_DIGEST=sha256:<hex>   the base image that sandbox starts from
 The rest of the file is the checkout's own, so a release names one pi-rukas
 commit and one base image and keeps every other version where it is. A release
 packed without pins follows pi-rukas's newest tag, as a checkout does today.
-Neither key has a reader yet: `lib/rukas.sh` knows `release` and
-`branch:<name>` and refuses anything else, and `host/sandbox/build.sh` derives
-the base image from the commit it follows. The workflow that writes these two
-lines at tag time, and the work that teaches `lib/rukas.sh` `commit:<sha>` and
-gives the digest a reader (#463), are both still to come; until they do, a host
-given a pinned tarball stops on the setting, as it stops on any value it does
-not know.
+The release workflow pins a tag only when that tag's `lib/rukas.sh` reads
+`commit:<sha>` (#463): a host given a pin it cannot read stops on the setting,
+as it stops on any value it does not know. It resolves the commit from the
+tag's own `PI_RUKAS_FOLLOW`, and the digest from the registry for the base
+image `host/sandbox/build.sh` would pull for that commit.
 
 ### Verifying a download
 
@@ -2830,14 +2833,12 @@ that fingerprint before `minisign` is asked anything:
 minisign -Vm tehas-v0.7.6-linux-x86_64.tar.gz -p ~/tehas/release/minisign.pub
 ```
 
-No release carries `.minisig` yet: nothing in this tree signs one, and no
-release has been published, so until the workflow that signs exists there is
-nothing for that command to check. Today `sha256sum -c` above is the only check,
-and it proves only that the file is the one published beside that hash: a
-download and its hash arrive together, so a `sha256sum -c` that passes on a
-tampered pair says nothing about where they came from. When releases are
-published, the digest of the `.sha256` is named on the release's own page as
-well as in the file, so the two can be compared.
+The release workflow signs the tarball and the installer, and checks each
+signature with the key in the tagged tree before it uploads anything. The
+`sha256sum -c` above proves only that the file is the one published beside that
+hash: a download and its hash arrive together, so a check that passes on a
+tampered pair says nothing about where they came from. The signature is the
+check that does.
 
 ### Release notes and the Adopter action
 
@@ -2857,6 +2858,24 @@ It does not edit the file.
 exits 1 when the file has none for that tag. The workflow makes the release's
 page from it, from the `Unreleased` section when the tag has none of its own.
 
+### The release workflow
+
+`.github/workflows/release.yml` runs on the push of a `vX.Y.Z` tag, on the
+organisation's own runner as the gate does. It builds the console, the
+analytics program and the MCP server (static, musl) with `cargo build
+--release --locked`, checks each is an x86_64 program, resolves the pins, runs
+the pack command above, signs the tarball and `host/release/install` (when the
+tag has one) with minisign, checks both signatures against
+`host/release/minisign.pub`, and publishes the release with the tarball named
+above, its `.sha256` and `.minisig` beside it, and `install` with
+`install.minisig`.
+
+The release is made as a draft and published only when every file is on it.
+The signing key is the Actions secret `MINISIGN_SECRET_KEY`, the whole secret
+key file, and its password, if it has one, is `MINISIGN_PASSWORD`. A run that
+cannot sign, or whose signature the key in the tree does not check, publishes
+nothing.
+
 ### What the gate covers, and what a person adds
 
 The pack script is in the fast gate, with `test/pack_release_test.sh`: it packs
@@ -2864,12 +2883,10 @@ from the test's own tree with a stub console and checks the file list, `VERSION`
 the pin lines, that the `.sha256` passes `sha256sum -c`, what a bad argument
 costs, that a tree holding a symbolic link is refused, that the sources
 `install.sh` reads are covered by `lib/release.sh`, and that the command line
-above is a command that works. The release workflow that builds the console,
-resolves the pins and uploads the tarball and its `.sha256` named above to the
-tag is not run by the gate and is not written by a work cycle: CI files are
-protected, so a person adds it against the interface above, and the statuses
-above are the two it branches on. Until they do, the only releases are the ones
-made by hand with the command above.
+above is a command that works. `test/tag_release_test.sh` checks the Adopter
+action rule and `test/pack_release_test.sh` the release notes. The release
+workflow is not run by the gate and is not written by a work cycle: CI files are
+protected, so a person changes it against the interface above.
 
 ## bootstrap.sh
 

@@ -246,6 +246,7 @@ From a checkout of tehas on another machine, two scripts release and deploy.
 branch in a temporary worktree, tags that commit as the next `vX.Y.Z` with an
 annotated tag, and pushes the tag. It refuses a commit whose `CHANGELOG.md`
 has no "Adopter action" for the release ([Releases](/tools#release-notes-and-the-adopter-action)).
+The pushed tag starts the release workflow, which publishes the signed tarball.
 `scripts/tag-deploy.sh tehas-tehas` refuses
 unless the newest tag is the head of that branch, runs
 `. ~/tehas/env.sh && tehas update` on the host over ssh, then checks that the
@@ -373,7 +374,8 @@ and the analytics program, Rust programs in the Cargo workspace `console/`
 (analytics is in `console/analytics/`). A real run builds each with `cargo`
 in the checkout and installs them as `~/tehas/libexec/console` and
 `~/tehas/libexec/analytics`. A host installed from a release tarball has neither
-`cargo` nor `console/`: its console is the one the release packed
+`cargo` nor `console/`: its console, analytics program and MCP server are the
+ones the release packed
 ([Releases](/tools#releases)). Beside each, `<name>.stamp` holds two checksums:
 of the source it was built from and of the program. A program is built again
 only when its source has changed or the program on the host is not the one
