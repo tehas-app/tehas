@@ -505,7 +505,10 @@ pub(crate) fn list(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Tool
         }
     }
     if !passed {
-        return Err(bad("before is not a session of the last 30 days"));
+        return Err(bad(&format!(
+            "before is not a session of the last {} days",
+            snap.days
+        )));
     }
     let more = found.len() > limit;
     found.truncate(limit);

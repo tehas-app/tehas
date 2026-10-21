@@ -227,6 +227,21 @@ fn paging() {
 }
 
 #[test]
+fn a_missing_before_names_the_snapshot_days() {
+    let env = Env::new("before-days", Some("a/b"), &[sess("work", 1, 60, json!({}))]);
+    let path = env.dirs.sessions.join("sessions.jsonl");
+    let text = std::fs::read_to_string(&path).unwrap();
+    std::fs::write(&path, text.replacen("\"days\":30", "\"days\":7", 1)).unwrap();
+    let missing = format!("work-9-{}", now() - 5);
+    match env.call("factory_sessions", json!({"before": missing})) {
+        Err(ToolError::BadArgs(why)) => {
+            assert_eq!(why, "before is not a session of the last 7 days")
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
 fn window() {
     let old = sess("work", 1, 31 * 86400, json!({}));
     let env = Env::new(
