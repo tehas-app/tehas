@@ -36,8 +36,10 @@
 #     TEHAS_CYCLE_RETRY_WAIT, TEHAS_CYCLE_STOP_GH_WAIT, TEHAS_TIDY_CMD,
 #     TEHAS_TIDY_WAIT and TEHAS_ANALYTICS_WAIT are kept, and from
 #     ~/.config/tehas/env TEHAS_ENERGY, TEHAS_ENERGY_URL and the model
-#     endpoints' tokens TEHAS_MODEL_KEY_*. instance.env that sets a token is
-#     refused: it is in a repository.
+#     endpoints' tokens TEHAS_MODEL_KEY_*. PI_ENSEMBLE_* names are dropped, all
+#     but PI_RUKAS_FOLLOW, which is the instance's pin of the pi-rukas commit the
+#     sandbox builds from and the one the build reads (lib/rukas.sh). instance.env
+#     that sets a token is refused: it is in a repository.
 #   - Loading runs no git command, makes no network call and writes nothing.
 #     TEHAS_PLAN_TIMEOUT_MAX, the ceiling of one planning turn, is local to
 #     tehas_load: nothing sources this file and reads it from the environment.
@@ -188,6 +190,29 @@ _tehas_valid() {
       [[ $v =~ ^(PI_ENSEMBLE|TEHAS)_[A-Z0-9_]+@[0-9]{1,6}(\.[0-9]{1,6}){1,3}(\ (PI_ENSEMBLE|TEHAS)_[A-Z0-9_]+@[0-9]{1,6}(\.[0-9]{1,6}){1,3})*$ ]] ||
         { echo "expected NAME@VERSION entries separated by single spaces, such as PI_ENSEMBLE_COMMENT_RETENTION@0.12.80"; return 1; }
       ;;
+    # What pi-rukas commit the sandbox is built from, for a host that follows
+    # something other than what the release it installed names (lib/rukas.sh).
+    # Named like a pi-rukas setting because the container is given it. It is
+    # kept across tehas_load, unlike the other names of that family, because it
+    # is the instance's answer to a line of versions.env and build.sh has to see
+    # it: the instance value is what decides which commit the sandbox builds on. A commit is the whole 40 hex digits of one,
+    # so a host cannot follow an abbreviation that names another commit tomorrow.
+    PI_RUKAS_FOLLOW)
+      case "$v" in
+        release)
+          [[ $v =~ ^[^[:space:]]+$ ]] || { echo "expected the one word release"; return 1; }
+          ;;
+        branch:*)
+          [[ ${v#branch:} =~ ^[A-Za-z0-9._/-]+$ ]] ||
+            { echo "expected branch:<name>, a name of letters, digits and ._/-"; return 1; }
+          ;;
+        commit:*)
+          [[ ${v#commit:} =~ ^[0-9a-f]{40}$ ]] ||
+            { echo "expected commit: and 40 lower-case hex digits, the whole pi-rukas commit"; return 1; }
+          ;;
+        *) echo "expected release, branch:<name> or commit:<40 hex>"; return 1 ;;
+      esac
+      ;;
     TEHAS_BRANCH_CHECK)
       # A check run's name goes into a URL and into the log.
       [[ $v =~ ^[A-Za-z0-9._()/-]+(\ [A-Za-z0-9._()/-]+)*$ ]] ||
@@ -292,7 +317,7 @@ tehas_load() {
   # host choices in ~/.config/tehas/env, which env.sh reads before this.
   for v in $(compgen -v); do
     case "$v" in
-      TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_INDEX_CMD | TEHAS_PLAN_CMD | \
+      TEHAS_HOME | TEHAS_INSTANCE_DIR | PI_RUKAS_FOLLOW | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_INDEX_CMD | TEHAS_PLAN_CMD | \
         TEHAS_PLAN_START_CMD | TEHAS_INDEX_START_CMD | TEHAS_INDEX_LOCK_WAIT | TEHAS_CYCLE_START_CMD | TEHAS_CYCLE_STOP_CMD | TEHAS_CYCLE_START_WAIT | TEHAS_CGROUP_ROOT | TEHAS_SLICE_WAIT | \
         TEHAS_PREFLIGHT_WAIT | TEHAS_STOP_WAIT | TEHAS_FETCH_WAIT | TEHAS_CHECK_WAIT | TEHAS_CONSOLE_WAIT | TEHAS_WORK_GRACE | TEHAS_CAPS_WAIT | TEHAS_TEXT_WAIT | \
         TEHAS_CYCLE_RETRY_WAIT | TEHAS_CYCLE_STOP_GH_WAIT | TEHAS_TIDY_CMD | TEHAS_TIDY_WAIT | TEHAS_ANALYTICS_WAIT | TEHAS_ENERGY | TEHAS_ENERGY_URL | TEHAS_MODEL_KEY_* | TEHAS_MCP | TEHAS_MCP_KEYS) ;;
@@ -484,7 +509,13 @@ tehas_load() {
     TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_LOW_GATE_WAIT; do
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
-  for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL; do
+  # A pin the instance set is what build.sh follows, so an empty line is no
+  # answer: it would stop the build with the message of a setting nobody set.
+  if [ -n "${PI_RUKAS_FOLLOW+x}" ] && [ -z "${PI_RUKAS_FOLLOW:-}" ]; then
+    tehas_err "PI_RUKAS_FOLLOW is set and empty: remove the line to follow what versions.env names (see $file)"
+    return 78
+  fi
+  for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL PI_RUKAS_FOLLOW; do
     [ -n "${!v:-}" ] || continue
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done

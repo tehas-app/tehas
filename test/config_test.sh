@@ -894,4 +894,90 @@ t_eq "$t_rc" 78
 t_contains "$t_out" "TEHAS_MCP_KEYS"
 t_lacks "$t_out" "abcdefghijklmnopqrstuvwxyz012345"
 
+# The instance's pin of the pi-rukas commit the sandbox builds from. The name
+# survives tehas_load when every other PI_ENSEMBLE_/* pi-rukas name is dropped,
+# because host/sandbox/build.sh reads the instance's value over versions.env
+# (lib/rukas.sh).
+commit40=$(printf 'a%.0s' {1..40})
+
+t_case "the instance's PI_RUKAS_FOLLOW is kept where the other pi-rukas names are dropped"
+t_instance "${T_MINIMAL[@]}" "PI_RUKAS_FOLLOW=commit:$commit40"
+T_ENV=(PI_ENSEMBLE_DEBUG=1)
+t_run "$load && bash -c 'echo \$PI_RUKAS_FOLLOW \${PI_ENSEMBLE_DEBUG:-dropped}'"
+t_eq "$t_rc" 0
+t_eq "$t_out" "commit:$commit40 dropped"
+T_ENV=()
+t_instance "${T_MINIMAL[@]}"
+
+t_case "an instance that sets no PI_RUKAS_FOLLOW leaves the name as the release set it"
+# The shape of a host installed from a release tarball: the line of versions.env
+# is in the environment, the instance has no say, and the load keeps it.
+t_instance "${T_MINIMAL[@]}"
+T_ENV=(PI_RUKAS_FOLLOW=release)
+t_run "$load && echo \$PI_RUKAS_FOLLOW"
+t_eq "$t_rc" 0
+t_eq "$t_out" "release"
+T_ENV=()
+
+t_case "each form of PI_RUKAS_FOLLOW the instance may give is accepted"
+for good in release branch:main "branch:feature/one" "commit:$commit40"; do
+  t_instance "${T_MINIMAL[@]}" "PI_RUKAS_FOLLOW=$good"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=0"
+done
+t_instance "${T_MINIMAL[@]}"
+
+t_case "a PI_RUKAS_FOLLOW that is none of the three forms is 78, and says which half is wrong"
+# One case per value, each naming the message its own arm of the check gives:
+# a bad commit says the commit, not the whole list of forms.
+bad_commit=$(printf 'c%.0s' {1..40})
+bad_commit_msg="PI_RUKAS_FOLLOW is not valid: expected commit: and 40 lower-case hex digits, the whole pi-rukas commit"
+bad_branch_msg="PI_RUKAS_FOLLOW is not valid: expected branch:<name>, a name of letters, digits and ._/-"
+for bad in main latest "release candidate" "commit:${bad_commit:0:39}" "commit:${bad_commit}0" \
+  "commit:$(printf 'A%.0s' {1..40})" "commit:$(printf 'g%.0s' {1..40})" "commit:" "commit:$bad_commit extra" \
+  "branch:" "branch:two words" "branch:main;rm"; do
+  t_case "the PI_RUKAS_FOLLOW '$bad' is refused"
+  t_instance "${T_MINIMAL[@]}" "PI_RUKAS_FOLLOW='$bad'"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  case "$bad" in
+    commit:*) t_contains "$t_out" "$bad_commit_msg" ;;
+    branch:*) t_contains "$t_out" "$bad_branch_msg" ;;
+    *) t_contains "$t_out" "PI_RUKAS_FOLLOW is not valid: expected release, branch:<name> or commit:<40 hex>" ;;
+  esac
+done
+t_instance "${T_MINIMAL[@]}"
+
+t_case "an empty PI_RUKAS_FOLLOW is 78 rather than no commit at all"
+t_instance "${T_MINIMAL[@]}" PI_RUKAS_FOLLOW=
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "PI_RUKAS_FOLLOW is set and empty: remove the line to follow what versions.env names"
+t_instance "${T_MINIMAL[@]}"
+
+t_case "a bad PI_RUKAS_FOLLOW is refused by the load, the way every bad setting is"
+# tehas_require is the command that stops a unit with 78, and it is reached only
+# after tehas_load, so the load's own refusal is what keeps a bad pin from
+# reaching the build; the name is not one an instance has to set, so requiring
+# it would stop every instance that follows its release.
+t_instance "${T_MINIMAL[@]}" PI_RUKAS_FOLLOW=main
+t_case "a bad PI_RUKAS_FOLLOW stops the load with 78, as every bad setting does"
+# tehas_load reports it and answers 78, so the command that asked for the
+# settings stops before it calls GitHub, Docker or git. The name is not one an
+# instance has to set, so tehas_require_instance_settings does not name it: an
+# instance that follows its release's line has no reason to write one.
+t_instance "${T_MINIMAL[@]}" PI_RUKAS_FOLLOW=main
+t_run "$load; echo load-rc=\$?"
+t_eq "$t_rc" 0
+t_contains "$t_out" "load-rc=78"
+t_contains "$t_out" "PI_RUKAS_FOLLOW is not valid"
+t_instance "${T_MINIMAL[@]}"
+
+t_case "the pin the instance set is what a required check answers for"
+t_instance "${T_MINIMAL[@]}" "PI_RUKAS_FOLLOW=commit:$commit40"
+t_run "$load && tehas_require PI_RUKAS_FOLLOW && echo ok"
+t_eq "$t_rc" 0
+t_contains "$t_out" "ok"
+t_instance "${T_MINIMAL[@]}"
+
 t_done

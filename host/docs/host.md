@@ -1065,22 +1065,36 @@ counts its memory while it is there.
 
 ## pi-rukas comes from upstream
 
-tehas takes pi-rukas from [upstream](https://github.com/trail-openers/pi-rukas)
-and does not pin it. `PI_RUKAS_REPO` in `versions.env` names the repository
-and `PI_RUKAS_FOLLOW` the commit a host follows:
+tehas takes pi-rukas from [upstream](https://github.com/trail-openers/pi-rukas).
+`PI_RUKAS_REPO` in `versions.env` names the repository and `PI_RUKAS_FOLLOW` the
+commit a host follows:
 
-- `release`, the default: the commit of upstream's newest `vX.Y.Z` tag, by
-  version. A tag with a suffix, such as `v1.0.0-rc1`, does not count. Upstream
-  marks its releases as pre-releases; tehas reads the tags, not that mark.
+- `release`, the default of a checkout: the commit of upstream's newest `vX.Y.Z`
+  tag, by version. A tag with a suffix, such as `v1.0.0-rc1`, does not count.
+  Upstream marks its releases as pre-releases; tehas reads the tags, not that mark.
 - `branch:<name>`: the head of that branch, for example `branch:main`.
+- `commit:<40 hex>`: that commit, asked of no one. A release tarball writes this
+  line for the commit its build was made from, so a release keeps building the
+  sandbox it was tested with while upstream moves on. A commit that is not 40
+  lower-case hex digits is refused with 78.
+
+Either line may go in the instance's `instance.env`, where it wins over the one in
+`versions.env`: a host installed from a release can follow another commit than the
+release names, and one that sets nothing follows what it was shipped with.
+`lib/config.sh` checks the value when the settings load and stops the command with
+78 naming the setting, as it does for any other malformed setting.
 
 What follows from it:
 
 - `tehas update` moves the sandbox image to that commit whenever it is not
   the commit the image was built on, also when no file of tehas changed. The
-  base is the image upstream publishes for each commit, tagged
-  `sha-<first 12 characters>`. A commit whose image upstream has not published
-  yet fails the update with a message that says so; the next update tries
+  base is the image upstream publishes for each commit, named by its tag
+  `sha-<first 12 characters>`, or by its digest when `PI_RUKAS_IMAGE_DIGEST`
+  (`sha256:<64 hex>`, from the release's `versions.env` or from `instance.env`) is
+  set: a release then starts from the one image its packer saw rather than from
+  whatever that tag points at now. A digest of any other shape stops the build with
+  78 before docker is asked anything. A commit whose image upstream has not
+  published yet fails the update with a message that says so; the next update tries
   again. `tehas update --check` says whether the commit moved.
 - `./bootstrap.sh user` moves the host's clone in `~/tehas/repos/pi-rukas` to
   that commit and runs its installer. That clone is what `tehas dev` and an
@@ -1116,8 +1130,10 @@ from there. The loop's record of a cycle has the commit and the image's id as
 the cycle's container started.
 
 That holds until the next `tehas update`, which builds the followed commit
-again. Hold off updates until upstream tags a fix, or set `PI_RUKAS_FOLLOW` to
-`branch:<name>` for a branch whose head is the commit you want.
+again. Hold off updates until upstream tags a fix, or set `PI_RUKAS_FOLLOW` in
+`instance.env` to `branch:<name>` for a branch whose head is the commit you want,
+or to `commit:<sha>` for one commit, with `PI_RUKAS_IMAGE_DIGEST` beside it when
+the base image is to be pinned too.
 
 Where the instance sets `TEHAS_IMPROVE_RUKAS_REPO`, the
 [improvement loop](/operating#the-improvement-loop) files what it finds about

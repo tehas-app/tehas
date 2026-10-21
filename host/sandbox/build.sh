@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Build the tehas sandbox image on this host, on the pi-rukas commit
-# versions.env follows: the newest release tag, or the head of a branch
-# (lib/rukas.sh).
+# PI_RUKAS_FOLLOW names: the newest release tag, the head of a branch, or one
+# commit written down (lib/rukas.sh). The instance directory's own value wins
+# over the one in versions.env, so a host follows a commit its release does not
+# name (lib/config.sh checks the value before this command is reached).
 #
 # Tags the result both as the name PI_ENSEMBLE_IMAGE points at by default
 # (tehas/pi-rukas:uid<your uid>) and with the build date, so the previous image
@@ -22,9 +24,14 @@
 # layer that does not build, or a build stopped partway, leaves the tag where it
 # was.
 #
-# The base is the image upstream publishes for each commit,
-# tagged sha-<first 12 characters>. The commit becomes the label tehas.rukas.
-# Tool versions come from versions.env, one directory up, the code indexer
+# The base is the image upstream publishes for each commit. By default it is
+# named by tag, sha-<first 12 characters>; when PI_RUKAS_IMAGE_DIGEST
+# (sha256:<64 hex>) is set - versions.env, or the instance's settings above it -
+# the base is named by that digest instead, so a release builds on the one image
+# its packer saw rather than on whatever a moving tag now points at. The commit
+# becomes the label tehas.rukas. A digest of any other shape stops the build
+# with 78 before docker is asked anything. Tool versions come from
+# versions.env, one directory up, the code indexer
 # included: the image carries the same codebase-memory-mcp version bootstrap.sh
 # puts on the host, not the one the base image happened to install. The build
 # first asks the base image's runner what it supports (pi-rukas-headless
@@ -47,7 +54,8 @@
 #
 # Exit: 0 built, or nothing to do; 1 the commit moved (--check), or the commit,
 #       the base image or the build could not be had, or the base does not
-#       support what tehas work needs; 64 usage
+#       support what tehas work needs; 64 usage; 78 the instance's
+#       PI_RUKAS_IMAGE_DIGEST is not sha256:<64 hex>
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -93,7 +101,92 @@ fi
 # otherwise read.
 # shellcheck source=lib/config.sh
 . "$lib/config.sh"
-instance_file=$(tehas_instance_dir)/sandbox.Dockerfile
+# The instance's settings, read for two names alone: PI_RUKAS_FOLLOW and
+# PI_RUKAS_IMAGE_DIGEST. versions.env is sourced above and the instance's file
+# over it, so an instance that names either wins over the file the release
+# shipped; one that names neither leaves those pins standing, and a host
+# installed from a checkout keeps following upstream.
+# tehas_load is not asked for them. It reads the same file, and the rules it
+# applies to these two names are its own (lib/config.sh), but its answer when the
+# host has no instance anywhere is 78 - and that host is the ordinary shape of
+# this command, which a person runs by hand from a checkout and which needs
+# nothing else of the settings. The rules of the instance file are this command's
+# to check too, because tehas work, tehas plan and the dispatcher apply them
+# before starting anything: a digest of another shape stops the build with 78
+# below, before docker is asked anything, and a follow value of another shape is
+# refused by the target below with 1, as any unknown value is. A file that is not
+# the shell the person meant stops the build with 78 below, before anything is
+# asked of git or docker: it is the settings of the host, and a host whose
+# settings cannot be read has no known commit and no known base. The two names are
+# read from that file by line and not by sourcing it, for the same reason only two
+# names are read at all: the file is a script, and what a build pulls must not
+# depend on what running it does. A pin written by anything but a line of its own
+# is no pin this command acts on, and the release's stands, which is what every
+# other command on that host does with a file it cannot load.
+instance_dir=$(tehas_instance_dir)
+instance_file=$instance_dir/sandbox.Dockerfile
+instance_env=$instance_dir/instance.env
+if [ -r "$instance_env" ]; then
+  # The lines of the two pins, taken by hand rather than by sourcing the file:
+  # one assignment on its own line each, with the quotes an instance writes round
+  # a value removed as bash would remove them. The file is a script a person wrote,
+  # and what a build pulls must not depend on what running it does. A pin written
+  # another way is no pin this command acts on and the release's stands, which is
+  # the answer every other command gives for a file tehas_load cannot read as
+  # settings - and a value that is not one word stops the build here, because a
+  # commit and a digest never hold a space and a line that reads as two words is a
+  # broken pin rather than an absent one.
+  pin_follow="" pin_digest="" value=""
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line#"${line%%[![:space:]]*}"}
+    case "$line" in
+      export[[:space:]]*) line=${line#export} ;;
+    esac
+    line=${line#"${line%%[![:space:]]*}"}
+    case "$line" in
+      PI_RUKAS_FOLLOW=*) pin=PI_RUKAS_FOLLOW ;;
+      PI_RUKAS_IMAGE_DIGEST=*) pin=PI_RUKAS_IMAGE_DIGEST ;;
+      *) continue ;;
+    esac
+    # The name of a setting is letters, digits and underscore, so what stands after
+    # the first = is the value. It is one word, quoted or not: the quotes are not
+    # part of it, and neither is a comment that follows it - a pin that ends in one
+    # names no commit, and a build must not pull behind a pin it cannot read.
+    value=${line#*=}
+    case "$value" in
+      '"'*'"' | "'"*"'") value=${value#?} value=${value%?} ;;
+      *) case "$value" in *[$' \t']#*) value=${value%%[$' \t']#*} ;; esac ;;
+    esac
+    # The blanks a quote or a comment can leave at either end.
+    value=${value#"${value%%[![:space:]]*}"}
+    value=${value%"${value##*[![:space:]]}"}
+    case "$value" in
+      *[$' \t']*)
+        echo "build: $instance_env sets $pin of more than one word: a pi-rukas commit and an image digest are one word each" >&2
+        exit 78
+        ;;
+    esac
+    case "$pin" in
+      PI_RUKAS_IMAGE_DIGEST) pin_digest=$value ;;
+      *) pin_follow=$value ;;
+    esac
+  done <"$instance_env"
+  # An instance that sets a name to nothing sets no pin: tehas_load refuses that
+  # line, so this command takes no answer from it and the release's stands.
+  [ -n "$pin_follow" ] || pin_follow=${PI_RUKAS_FOLLOW-}
+  [ -n "$pin_digest" ] || pin_digest=${PI_RUKAS_IMAGE_DIGEST-}
+  PI_RUKAS_FOLLOW=$pin_follow
+  PI_RUKAS_IMAGE_DIGEST=$pin_digest
+fi
+
+# The base's shape is settled before anything is asked of git, docker or the
+# instance's file, so a release whose digest line got mangled stops with 78 and
+# one line, and no pull, no ask and no build follows it.
+digest=${PI_RUKAS_IMAGE_DIGEST:-}
+if [ -n "$digest" ] && ! [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]]; then
+  echo "build: PI_RUKAS_IMAGE_DIGEST=$digest is not sha256: and 64 hex digits" >&2
+  exit 78
+fi
 
 if ! target=$(tehas_rukas_target); then
   echo "build: no pi-rukas commit for PI_RUKAS_FOLLOW=${PI_RUKAS_FOLLOW:-} in $PI_RUKAS_REPO" >&2
@@ -116,7 +209,16 @@ fi
 # ghcr.io/<owner>/<name> for https://github.com/<owner>/<name>.git, lowercased.
 repo=${PI_RUKAS_REPO#https://github.com/}
 repo=${repo%.git}
-base=ghcr.io/$(tr '[:upper:]' '[:lower:]' <<<"$repo"):sha-${head:0:12}
+repo=ghcr.io/$(tr '[:upper:]' '[:lower:]' <<<"$repo")
+# The base by digest when a release pinned one, so the build starts from the
+# image its packer saw rather than from whatever the tag of this commit points
+# at now; by tag otherwise, as a host that follows upstream has always done. Its
+# shape was checked above, before anything was asked of git.
+if [ -n "$digest" ]; then
+  base=$repo@$digest
+else
+  base=$repo:sha-${head:0:12}
+fi
 if ! docker pull -q "$base" >/dev/null 2>&1; then
   echo "build: no image $base yet; upstream publishes one for each commit, try again when it has" >&2
   exit 1
