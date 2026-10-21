@@ -1115,9 +1115,9 @@ in the middle. A cycle started by hand with `tehas work` refreshes nothing.
 tehas labels        # one line per label
 ```
 
-Creates the fifteen labels tehas uses in the product repository: `tehas:ready`,
+Creates the sixteen labels tehas uses in the product repository: `tehas:ready`,
 `tehas:urgent`, `tehas:running`, `tehas:awaiting-merge`, `tehas:shipped`, `tehas:pause`,
-`needs-human-attention`, `tehas:question`, `tehas:plan`, `tehas:planning`,
+`needs-human-attention`, `tehas:question`, `tehas:plan`, `tehas:refine`, `tehas:planning`,
 `tehas:fixer-escalated`, `tehas:next`, `tehas:blocked`, `tehas:refreshing` (on a
 pull request a [refresh](/operating#refreshes) works on) and `tehas:all-hands`.
 Run it once for a new product, and again after pulling a version that adds a

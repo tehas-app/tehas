@@ -764,6 +764,15 @@ for who in alice mallory; do
   t_eq "$who $(jq -c '.images | length' "$T/keep/images/manifest.json")" "$who $([ "$who" = alice ] && echo 1 || echo 0)"
 done
 
+t_case "tehas:refine from an allowed account approves an outsider's images as tehas:plan does"
+images_on
+net "$A/1111" '\x89PNG\r\n\x1a\nPNGDATA'
+issue_is "Look ![shot]($A/1111)" NONE
+jq -n '[{event: "labeled", label: {name: "tehas:refine"}, actor: {login: "alice"}, created_at: "2026-10-11T00:00:00Z"}]' >"$fx/events.json"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '.images | length' "$T/keep/images/manifest.json")" 1
+
 t_case "with descriptions on the first turn writes images.md beside the images, and the turn gets the same mounts and variables"
 images_on
 t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1 TEHAS_WORK_DESCRIBE=1
