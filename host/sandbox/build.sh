@@ -54,8 +54,10 @@
 #
 # Exit: 0 built, or nothing to do; 1 the commit moved (--check), or the commit,
 #       the base image or the build could not be had, or the base does not
-#       support what tehas work needs; 64 usage; 78 the instance's
-#       PI_RUKAS_IMAGE_DIGEST is not sha256:<64 hex>
+#       support what tehas work needs; 64 usage; 78 an instance pin - the
+#       PI_RUKAS_FOLLOW or the PI_RUKAS_IMAGE_DIGEST of its instance.env - is not
+#       a word this command can read, or PI_RUKAS_IMAGE_DIGEST is not
+#       sha256:<64 hex>
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -106,77 +108,64 @@ fi
 # over it, so an instance that names either wins over the file the release
 # shipped; one that names neither leaves those pins standing, and a host
 # installed from a checkout keeps following upstream.
-# tehas_load is not asked for them. It reads the same file, and the rules it
-# applies to these two names are its own (lib/config.sh), but its answer when the
-# host has no instance anywhere is 78 - and that host is the ordinary shape of
-# this command, which a person runs by hand from a checkout and which needs
-# nothing else of the settings. The rules of the instance file are this command's
-# to check too, because tehas work, tehas plan and the dispatcher apply them
-# before starting anything: a digest of another shape stops the build with 78
-# below, before docker is asked anything, and a follow value of another shape is
-# refused by the target below with 1, as any unknown value is. A file that is not
-# the shell the person meant stops the build with 78 below, before anything is
-# asked of git or docker: it is the settings of the host, and a host whose
-# settings cannot be read has no known commit and no known base. The two names are
-# read from that file by line and not by sourcing it, for the same reason only two
-# names are read at all: the file is a script, and what a build pulls must not
-# depend on what running it does. A pin written by anything but a line of its own
-# is no pin this command acts on, and the release's stands, which is what every
-# other command on that host does with a file it cannot load.
+# tehas_load is not asked for them. Its answer when the host has no instance
+# anywhere is 78, and that host is the ordinary shape of this command, which a
+# person runs by hand from a checkout and which needs nothing else of the
+# settings. tehas_read_pin is asked instead, so the line a build follows is read
+# by the same code that checks it (lib/config.sh), and the file is still not
+# sourced: it is a script, and what a build pulls must not depend on running it.
+# A name the file does not set keeps the value versions.env sourced. A name it
+# sets on a line no shell would read as one assignment stops the build with 78
+# and the file's name, before anything is asked of git or docker: a pin that
+# cannot be read is a broken pin rather than an absent one, and tehas work, tehas
+# plan and the dispatcher refuse that file before they start anything, so a build
+# that followed upstream behind it would be the one command on the host that did
+# not notice. A file that is present and not readable says one line and the
+# release's pins stand, which is what this command can tell the operator.
 instance_dir=$(tehas_instance_dir)
 instance_file=$instance_dir/sandbox.Dockerfile
 instance_env=$instance_dir/instance.env
-if [ -r "$instance_env" ]; then
-  # The lines of the two pins, taken by hand rather than by sourcing the file:
-  # one assignment on its own line each, with the quotes an instance writes round
-  # a value removed as bash would remove them. The file is a script a person wrote,
-  # and what a build pulls must not depend on what running it does. A pin written
-  # another way is no pin this command acts on and the release's stands, which is
-  # the answer every other command gives for a file tehas_load cannot read as
-  # settings - and a value that is not one word stops the build here, because a
-  # commit and a digest never hold a space and a line that reads as two words is a
-  # broken pin rather than an absent one.
-  pin_follow="" pin_digest="" value=""
-  while IFS= read -r line || [ -n "$line" ]; do
-    line=${line#"${line%%[![:space:]]*}"}
-    case "$line" in
-      export[[:space:]]*) line=${line#export} ;;
-    esac
-    line=${line#"${line%%[![:space:]]*}"}
-    case "$line" in
-      PI_RUKAS_FOLLOW=*) pin=PI_RUKAS_FOLLOW ;;
-      PI_RUKAS_IMAGE_DIGEST=*) pin=PI_RUKAS_IMAGE_DIGEST ;;
-      *) continue ;;
-    esac
-    # The name of a setting is letters, digits and underscore, so what stands after
-    # the first = is the value. It is one word, quoted or not: the quotes are not
-    # part of it, and neither is a comment that follows it - a pin that ends in one
-    # names no commit, and a build must not pull behind a pin it cannot read.
-    value=${line#*=}
-    case "$value" in
-      '"'*'"' | "'"*"'") value=${value#?} value=${value%?} ;;
-      *) case "$value" in *[$' \t']#*) value=${value%%[$' \t']#*} ;; esac ;;
-    esac
-    # The blanks a quote or a comment can leave at either end.
-    value=${value#"${value%%[![:space:]]*}"}
-    value=${value%"${value##*[![:space:]]}"}
-    case "$value" in
-      *[$' \t']*)
-        echo "build: $instance_env sets $pin of more than one word: a pi-rukas commit and an image digest are one word each" >&2
-        exit 78
-        ;;
-    esac
-    case "$pin" in
-      PI_RUKAS_IMAGE_DIGEST) pin_digest=$value ;;
-      *) pin_follow=$value ;;
-    esac
-  done <"$instance_env"
-  # An instance that sets a name to nothing sets no pin: tehas_load refuses that
-  # line, so this command takes no answer from it and the release's stands.
-  [ -n "$pin_follow" ] || pin_follow=${PI_RUKAS_FOLLOW-}
-  [ -n "$pin_digest" ] || pin_digest=${PI_RUKAS_IMAGE_DIGEST-}
-  PI_RUKAS_FOLLOW=$pin_follow
-  PI_RUKAS_IMAGE_DIGEST=$pin_digest
+if [ -f "$instance_env" ]; then
+  if [ ! -r "$instance_env" ]; then
+    # A file the person wrote and this command cannot open. The release's pins
+    # stand, because they are all that is known, and the reason is said: a host
+    # whose own settings were not read must not learn that from a cycle's logs.
+    # Nothing is read from it, so the pins versions.env sourced keep standing.
+    echo "build: $instance_env cannot be read, so this build follows the pins of versions.env" >&2
+  fi
+  if [ -r "$instance_env" ]; then
+    for setting in PI_RUKAS_FOLLOW PI_RUKAS_IMAGE_DIGEST; do
+      # Three answers, and each is read once: 0 names one pin the file gives, 2
+      # names a pin the file gives and the reader cannot read, and 1 is a name the
+      # file does not set, where the value versions.env sourced stands. The one
+      # reader gives all three, so no second walk of the file is needed to tell a
+      # broken pin from an absent one. rc is set on both paths, never defaulted,
+      # so the answer of one name is never read as the answer of the next.
+      if value=$(tehas_read_pin "$instance_env" "$setting"); then
+        rc=0
+      else
+        rc=$?
+      fi
+      case $rc in
+        0) ;;
+        2)
+          # A pin the host was given and this command cannot read: broken, not
+          # absent. The release's value must not be followed behind it, and the
+          # file has to be named for the operator to have anything to open.
+          echo "build: $instance_env sets $setting on a line that is not one assignment: a pi-rukas commit and an image digest are one word each, quoted or not" >&2
+          exit 78
+          ;;
+        *) continue ;;
+      esac
+      # A name set to nothing sets no pin: tehas_load refuses that line, so no
+      # answer is taken from it and the release's stands beside the other name.
+      [ -n "$value" ] || continue
+      case $setting in
+        PI_RUKAS_FOLLOW) export PI_RUKAS_FOLLOW=$value ;;
+        *) export PI_RUKAS_IMAGE_DIGEST=$value ;;
+      esac
+    done
+  fi
 fi
 
 # The base's shape is settled before anything is asked of git, docker or the

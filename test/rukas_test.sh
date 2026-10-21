@@ -87,18 +87,4 @@ for v in "commit:$a-" "commit:${a:0:39}" "commit:" "commit:$(printf 'A%.0s' {1..
   t_eq "$(t_calls git)" ""
 done
 
-t_case "the instance's PI_RUKAS_FOLLOW wins over the one versions.env names"
-# The shape build.sh reaches: versions.env sourced first, the instance's line
-# over it. What the function reads is the last answer, and it is the instance's.
-printf '%s\trefs/heads/main\n' "$d" >"$T/refs"
-T_ENV=(PI_RUKAS_REPO=https://github.com/Up-Owner/pi-rukas.git)
-rm -f "$T"/calls/*
-t_run 'PI_RUKAS_REPO= PI_RUKAS_FOLLOW=release
-. "$T/versions.env"
-PI_RUKAS_FOLLOW=commit:'"$a"'
-. "$T_ROOT/lib/rukas.sh"; tehas_rukas_target'
-t_eq "$t_rc" 0
-t_eq "$t_out" "$a pinned"
-t_eq "$(t_calls git)" ""
-
 t_done

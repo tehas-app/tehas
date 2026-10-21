@@ -16,6 +16,17 @@
 #                        checks it before changing anything has its own copy.
 #   tehas_checkout       check the product checkout is a clone of TEHAS_REPO;
 #                        returns 78 if not.
+#   tehas_read_pin FILE NAME
+#                        print the pin NAME is given by a `NAME=value` line of
+#                        FILE, and return 0; return 2 when FILE sets NAME on a
+#                        line that is not one assignment (two words, or a quote
+#                        at one end only), and 1 when no line of FILE sets it. The
+#                        one reader of the two pins a host may set
+#                        (PI_RUKAS_FOLLOW, PI_RUKAS_IMAGE_DIGEST), used by
+#                        host/sandbox/build.sh: it reads the line and never
+#                        sources the file, which is a script. A value quoted, or
+#                        written with `export `, or followed by a comment reads
+#                        here as the same pin it is to tehas_load.
 #   tehas_branch         print the branch work lands on; returns 78 if unknown.
 #   tehas_models         print "provider model" for every model the agents use.
 #
@@ -37,9 +48,12 @@
 #     TEHAS_TIDY_WAIT and TEHAS_ANALYTICS_WAIT are kept, and from
 #     ~/.config/tehas/env TEHAS_ENERGY, TEHAS_ENERGY_URL and the model
 #     endpoints' tokens TEHAS_MODEL_KEY_*. PI_ENSEMBLE_* names are dropped, all
-#     but PI_RUKAS_FOLLOW, which is the instance's pin of the pi-rukas commit the
-#     sandbox builds from and the one the build reads (lib/rukas.sh). instance.env
-#     that sets a token is refused: it is in a repository.
+#     but the two pins of the sandbox image: PI_RUKAS_FOLLOW, the pi-rukas commit
+#     it is built from, and PI_RUKAS_IMAGE_DIGEST, the base image it starts from.
+#     Both are kept because host/sandbox/build.sh reads them (lib/rukas.sh), and
+#     both are checked only when the instance sets them, as a checkout has neither
+#     and follows upstream. tehas_read_pin is the one reader of the line that names
+#     either. instance.env that sets a token is refused: it is in a repository.
 #   - Loading runs no git command, makes no network call and writes nothing.
 #     TEHAS_PLAN_TIMEOUT_MAX, the ceiling of one planning turn, is local to
 #     tehas_load: nothing sources this file and reads it from the environment.
@@ -73,6 +87,98 @@ tehas_instance_dir() {
     read -r dir <"$pointer" || true
   fi
   printf '%s\n' "${dir:-$HOME/.config/tehas}"
+}
+
+# The pin one name is given by one file of `NAME=value` lines, printed without
+# the quotes or the comment a person may have written round it; return 1 when no
+# line of the file sets it. The one answer for a pin, so build.sh and tehas_load
+# cannot disagree about a spelling: what comes off here is the quote pair or the
+# comment a value survives when the file is sourced, so a value handed back and
+# the value the sourced file gives are the same word. A line that is no assignment
+# the file could run - a value of two words, or a quote at one end only - sets no
+# pin, so a caller that must not follow a pin it cannot read says so rather than
+# taking the release's value.
+tehas_read_pin() {
+  local _rp_file=$1 _rp_name=$2 _rp_line _rp_value _rp_pair _rp_word _rp_named
+  # The names above belong to this function alone: a caller's variable of the
+  # same word would be written over by the strips below.
+  _rp_word="" _rp_named=""
+  while IFS= read -r _rp_line || [ -n "$_rp_line" ]; do
+    _rp_line=${_rp_line#"${_rp_line%%[![:space:]]*}"}
+    _rp_line=${_rp_line#export }
+    _rp_line=${_rp_line#"${_rp_line%%[![:space:]]*}"}
+    case "$_rp_line" in
+      "$_rp_name"=*) _rp_named=yes ;;
+      *) continue ;;
+    esac
+    _rp_value=${_rp_line#*=}
+    # A value in one pair of quotes holds what the quotes round it: the pair comes
+    # off first, and a space inside it is then the value and not a second word. A
+    # quote at one end only is not a pair, and the value keeps it, which the word
+    # test below refuses. Each pattern is written quoted, so it is the characters it
+    # shows and not the name of something.
+    _rp_pair=""
+    case "$_rp_value" in
+      $'\42'*$'\42') _rp_pair=dq ;;
+    esac
+    case "$_rp_value" in
+      $'\47'*$'\47') _rp_pair=${_rp_pair:+no}sq ;;
+    esac
+    # A pair counts only when the other quote is nowhere in the value, so a line
+    # that opens with one kind and closes with the other is no pair at all. These
+    # tests may only refuse a pair, never undo one already recognised.
+    case "$_rp_pair" in
+      dq)
+        case "$_rp_value" in
+          *$'\47'*) _rp_pair=no ;;
+        esac
+        ;;
+      sq)
+        case "$_rp_value" in
+          *$'\42'*) _rp_pair=no ;;
+        esac
+        ;;
+    esac
+    case "$_rp_pair" in
+      dq | sq)
+        _rp_value=${_rp_value#?}
+        _rp_value=${_rp_value%?}
+        ;;
+      *)
+        # No pair to take off, so what stands is the value the shell would set: the
+        # word, and nothing a comment puts behind it.
+        case "$_rp_value" in
+          *" #"*) _rp_value=${_rp_value%% #*} ;;
+        esac
+        ;;
+    esac
+    _rp_value=${_rp_value#"${_rp_value%%[![:space:]]*}"}
+    _rp_value=${_rp_value%"${_rp_value##*[![:space:]]}"}
+    # A word, or nothing at all. A value that holds a space, or a quote the shell
+    # could not have matched, is not the one word a commit and a digest are, so it
+    # is no answer and the caller is told by the exit status. An empty value is an
+    # answer: tehas_load refuses that line, so the caller must see that the host
+    # wrote it and take no pin from it, which it does by testing the word itself.
+    _rp_word=yes
+    case $_rp_value in
+      *[[:space:]]*) _rp_word="" ;;
+    esac
+    case $_rp_value in
+      *$'\42'* | *$'\47'*) _rp_word="" ;;
+    esac
+  done <"$_rp_file"
+  # Three answers, not two: the name is nowhere in the file, the file gives it and
+  # the word is read, or the file gives it on a line no shell would run as this
+  # assignment. The last is a broken pin rather than an absent one, and a caller
+  # that must not build behind a pin it cannot read needs to tell the two apart.
+  # The last line of the file is the one the shell would honour, so it is that
+  # word which is printed, and the reason a value is refused is not passed over
+  # for an earlier line a person has since written over.
+  [ -n "$_rp_word" ] || {
+    [ -n "$_rp_named" ] && return 2
+    return 1
+  }
+  printf '%s\n' "$_rp_value"
 }
 
 _tehas_host_cpus() { nproc 2>/dev/null || echo 1; }
@@ -197,11 +303,13 @@ _tehas_valid() {
     # is the instance's answer to a line of versions.env and build.sh has to see
     # it: the instance value is what decides which commit the sandbox builds on. A commit is the whole 40 hex digits of one,
     # so a host cannot follow an abbreviation that names another commit tomorrow.
+    # Nothing is valid: a host that names no pin follows what versions.env names,
+    # and tehas_load refuses an empty value of its own, with the line that says so.
     PI_RUKAS_FOLLOW)
       case "$v" in
-        release)
-          [[ $v =~ ^[^[:space:]]+$ ]] || { echo "expected the one word release"; return 1; }
-          ;;
+        '') ;;
+        # The pattern is exact: the arm is reached only for that one word.
+        release) ;;
         branch:*)
           [[ ${v#branch:} =~ ^[A-Za-z0-9._/-]+$ ]] ||
             { echo "expected branch:<name>, a name of letters, digits and ._/-"; return 1; }
@@ -210,6 +318,8 @@ _tehas_valid() {
           [[ ${v#commit:} =~ ^[0-9a-f]{40}$ ]] ||
             { echo "expected commit: and 40 lower-case hex digits, the whole pi-rukas commit"; return 1; }
           ;;
+        # `branch:` and `commit:` with nothing after them are shapeless: they
+        # name no branch and no commit, so the list of forms is the answer.
         *) echo "expected release, branch:<name> or commit:<40 hex>"; return 1 ;;
       esac
       ;;
@@ -509,13 +619,22 @@ tehas_load() {
     TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_LOW_GATE_WAIT; do
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
-  # A pin the instance set is what build.sh follows, so an empty line is no
-  # answer: it would stop the build with the message of a setting nobody set.
+  # A pin the instance set is what build.sh follows. An empty line is a setting
+  # the instance wrote and refused, not a setting nobody set: build.sh would stop
+  # with the message of the second. So the name is checked whenever instance.env
+  # gave it, where the names below are checked only when they hold something.
   if [ -n "${PI_RUKAS_FOLLOW+x}" ] && [ -z "${PI_RUKAS_FOLLOW:-}" ]; then
     tehas_err "PI_RUKAS_FOLLOW is set and empty: remove the line to follow what versions.env names (see $file)"
     return 78
   fi
-  for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL PI_RUKAS_FOLLOW; do
+  # Its shape, as every other setting gets it: tehas_require's own check of a
+  # required name calls the validator directly, so it comes here too rather than
+  # resting on the load that usually precedes it.
+  reason=$(_tehas_valid PI_RUKAS_FOLLOW "${PI_RUKAS_FOLLOW:-}") || {
+    tehas_err "PI_RUKAS_FOLLOW is not valid: $reason (see $file)"
+    return 78
+  }
+  for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL; do
     [ -n "${!v:-}" ] || continue
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
