@@ -212,10 +212,15 @@ with "has local changes" when it does not match, so your toolchain does not go
 there.
 
 Put it in `sandbox.Dockerfile` in your instance directory instead (the one
-directory `instance.env` and `models.json` live in). When that file is there,
-`~/tehas/sandbox/build.sh` builds the image above first and then builds your
-file on top of it, so the tag cycles run is yours. It starts with these two
-lines, which take the image to build on as an argument rather than a name:
+directory `instance.env` and `models.json` live in, which you keep writable by
+the tehas user alone: `install.sh --check` reports it if `instance.env` is not).
+When that file is there, `~/tehas/sandbox/build.sh` builds the image above first
+and then builds your file on top of it, so the tag cycles run is yours. What the
+file says is run as root inside the image, and the image is what every cycle
+runs with the bot's token: the file is trusted exactly as much as the platform's
+own Dockerfile is, so it belongs to the tehas user and nowhere else. It starts
+with these two lines, which take the image to build on as an argument rather
+than a name:
 
 ```
 ARG TEHAS_BASE
@@ -225,12 +230,20 @@ RUN apt-get update -qq \
  && rm -rf /var/lib/apt/lists/*
 ```
 
+An `apt-get install` with no version takes whatever the mirror served that day,
+so the image then depends on a mirror you do not control. The platform's own
+Dockerfile pins what it fetches and checks each download by checksum; for a tool
+your gates depend on, name the version (`cmake=3.31.6-1`) or add an apt pin file
+beside the file and `COPY` it in.
+
 The build runs with the instance directory as its context, so the file can
 `COPY` a script or a config that lives beside it. A `sandbox.Dockerfile` that
 changed since the last install makes `install.sh` owe the `sandbox` step, the
 same as a change to the tracked Dockerfile or `versions.env`; `tehas update`
-then rebuilds. A file that does not build fails the build, and the image the
-host had is left as it was.
+then rebuilds. A file that does not build fails the build and the tag cycles run
+is left where it was, on the image the host had; a build that is killed partway
+leaves it on the platform image, without your layer, so re-run
+`~/tehas/sandbox/build.sh` after fixing the file.
 
 Then:
 
