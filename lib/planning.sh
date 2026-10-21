@@ -187,7 +187,7 @@ plan_history() {
 
 # A session Pi no longer has cannot go on: what was said in it is gone.
 plan_lost() {
-  plan_end "$1" "Tehas ended this planning session: its conversation is no longer on \`$(hostname)\` (\`~/.pi/agent/sessions\`), so the last answer was not sent to the agent. Apply \`tehas:plan\` again to start a new session."
+  plan_end "$1" "Tehas ended this planning session: pi-rukas has no record of it on \`$(hostname)\` any more, so the last answer was not given to the planner. Apply \`tehas:plan\` again to start a new session."
 }
 
 plan_finish() {

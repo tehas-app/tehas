@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Run one turn of a pi-rukas planning session headless, in the sandbox image.
 #
-# A planning session is a conversation with the project manager agent that
-# ends in filed issues. It asks its operator questions on the way. Nobody is
-# at a terminal here, so a turn ends when the agent has asked: this command
-# writes what the agent said and asked to a file and stops. The dispatcher
-# posts it on the issue and, when an answer has come, runs the next turn in
-# the same Pi session.
+# A planning session is a conversation with pi-rukas's planner that ends in a
+# filed issue. It asks its operator questions on the way. Nobody is at a
+# terminal here, so each turn is one run of pi-rukas's headless runner,
+# `pi-rukas-headless plan`, which exits when it has something for the
+# operator: questions, or a drafted plan to confirm. This command writes what
+# the turn said and asked to a file and stops. The dispatcher posts it on the
+# issue and, when an answer has come, runs the next turn in the same session.
+# A tick on "File this plan" after a drafted plan files it.
 #
 # Usage:
 #   tehas plan <issue-number> --out <file> --keep <dir> --brief <file>
@@ -18,23 +20,20 @@
 # <dir> is what the session carries from one turn to the next. The first turn
 # makes it anew; the caller removes it when the session ends. It holds:
 #   brief.md        the approved text of the issue. Every turn's workspace has
-#                   it as .tehas/brief.md, so the agent never needs the issue
-#                   as it is now, which anyone may have edited since.
+#                   it as .tehas/brief.md. The first turn gives it to the
+#                   planner: its first line, less the "# ", as what to plan,
+#                   and the whole text as the context.
 #   commit          the commit the first turn's workspace was at. Every later
-#                   turn's workspace is at the same one, so the agent plans
+#                   turn's workspace is at the same one, so the planner plans
 #                   against the code it began with.
-#   pi-plan-cache/  pi-rukas's record of the plans it showed (it keeps it in
-#                   the clone's git directory), from a release that has one.
-#                   Only plain .json files are carried, at most 1 MB each.
-#   sessions/       the Pi sessions of the last turn, so a later turn reopens
-#                   the session it was given. A turn's container writes them
-#                   under the turn's own state directory, which is removed
-#                   with the workspace; when the turn ends they are copied
-#                   here, replacing what an earlier turn left, and before a
-#                   later turn starts they are copied back into its state
-#                   directory. Nothing new is mounted and the container is
-#                   given nothing new: it sees only the copy beside its own
-#                   workspace.
+#   plan-sessions/  pi-rukas's record of the session, which it keeps in the
+#                   clone's git directory (.git/pi-plan-sessions). It is copied
+#                   here when a turn ends and back before the next one starts.
+#                   Only plain files are carried, at most 1 MB each. Nothing
+#                   new is mounted and the container is given nothing new.
+#   exit            the runner's exit status of the last turn. After 12, a
+#                   drafted plan, an answer that chose "File this plan" runs
+#                   the confirm.
 #   images/         the issue's images, with TEHAS_WORK_IMAGES=1, and its text
 #                   files, with TEHAS_WORK_FILES=1: fetched on the first turn
 #                   as tehas work fetches a cycle's. Each turn
@@ -45,45 +44,49 @@
 #                   later turn with --comment adds what the reply links, by
 #                   the same rules and limits, numbered on from the files
 #                   there, source "answer:<id>", and the answer sent to the
-#                   agent names the new files. The turn's container is then
+#                   planner names the new files. The turn's container is then
 #                   also told PI_ENSEMBLE_PLAN_ISSUE, the issue's number.
 #                   The comment that says what a session was given says
 #                   whether it was shown them, which is what the sandbox
 #                   image's own label answers.
 #
-# A confirm in a later turn files the plan that was shown only when pi-rukas
-# finds it in that record. The record is keyed on origin/<branch>, which this
-# command holds at the session's commit, and on what the agent asks for, and
-# its expiry is turned off with PI_ENSEMBLE_PLAN_CACHE_TTL_MS=0 (a release
-# without the setting expires it after two hours). When the plan is not found
-# the agent drafts it again, and the draft may differ from what was shown.
+# What a turn runs, by the runner's own flags (docs/headless.md in pi-rukas):
+#   first turn                    plan "<what to plan>" --start --context <brief>
+#   after a plan was shown (12),
+#     an answer "File this plan"  plan --resume <id> --confirm
+#   any other answer              plan --resume <id> --answer <file>
+# The runner writes one JSON document to stdout and NDJSON progress to stderr.
 #
 # On exit 0 the --out file holds
-#   {"session": "<id>", "text": "<the agent's last message>",
+#   {"session": "<id>", "text": "<what the turn says>",
 #    "question": null | {"question": "...", "options": [{"label", "description"}]},
 #    "filed": ["<issue address>", ...]}
-# "filed" holds the issues this turn filed, the addresses the stream shows
-# gh issue create printed; with none there is no such key. The dispatcher
-# posts them on the issue and names them to the next turn, so a filing whose
-# result never reached the model is not filed again.
-# When the agent left two or more questions open, "question" holds them all,
-# numbered, with their choices as text, and "options" is empty.
-# On exit 2 it holds only {"session": "<id>"} when the session is known: the
-# one the turn was given, or the one Pi named after the prompt. The caller can
-# then run the turn again in that session. When no session is known, nothing
-# is written. A later turn whose session Pi no longer has sends no answer and
-# writes {"session": "<id>", "lost": true}: the session cannot go on.
+# for each runner exit as follows:
+#   11 questions      the planner's questions; one is asked as it is, two or
+#                     more as one numbered text. Answered by a reply.
+#   12 shown          the drafted plan, its title and spec, after the turn's
+#                     text; its open points with the planner's proposed
+#                     resolutions; one option, "File this plan".
+#   10 duplicate-risk the turn's text; answered by a reply.
+#    0 filed          the issue the confirm filed, under "filed".
+# "filed" holds the issues this session filed; with none there is no such key.
+# The dispatcher posts them on the issue and names them to the next turn.
+# On exit 2 it holds only {"session": "<id>"} when the session is known, and
+# {"session": "<id>", "lost": true} when the runner says the session is gone
+# (exit 41): the session cannot go on. When no session is known, nothing is
+# written.
 #
-# Exit status: 0 the turn settled and said or asked something,
-#              2 it did not settle, timed out, said and asked nothing, its
-#                session is gone, or its session or outcome could not be
-#                written down,
+# Exit status: 0 the turn ended with something to say or ask, or it filed,
+#              2 the runner failed, ran out of time, refused the turn, said
+#                and asked nothing, its session is gone, or its outcome could
+#                not be written down,
 #              4 the instance gives images or files and one could not be
 #                fetched, for a first turn or from a reply; said on the issue,
 #                nothing ran,
 #             64 a usage error, no bot token or no git identity; nothing ran,
-#             78 the instance settings are invalid, or tehas.slice is not
-#                usable on this host; nothing ran.
+#             78 the instance settings are invalid, tehas.slice is not usable
+#                on this host, or the image runs no planning turns (its
+#                --capabilities has no features.planTurns); nothing ran.
 #
 # Instance settings (lib/config.sh; defaults in brackets):
 #   TEHAS_PLAN_TIMEOUT  seconds before a turn is given up [7200, the ceiling
@@ -93,21 +96,17 @@
 # The container is given exactly what a cycle's container is given: the same
 # image, limits, mounts and variables, assembled by lib/sandbox.sh and
 # lib/slice.sh and pinned by test/plan_test.sh, and the issue's images as a
-# cycle gets them. It differs in its name, in what pi is told, in the plan
-# cache's expiry, and in having no cid file. Not the Docker socket, SSH keys
-# or ~/.config/tehas. It runs in tehas.slice with a cycle's limits, so the
-# dispatcher counts its memory with the cycles'. Without a usable slice
-# nothing is cloned and nothing starts.
+# cycle gets them. It differs in its name, in its command and in having no cid
+# file. Not the Docker socket, SSH keys or ~/.config/tehas. It runs in
+# tehas.slice with a cycle's limits, so the dispatcher counts its memory with
+# the cycles'. Without a usable slice nothing is cloned and nothing starts.
 #
 # The workspace is $TEHAS_HOME/work/<name>-plan-<issue>, a fresh clone made for
 # every turn and removed when the turn is over. Inside the container it is at
 # the path every cycle has its own, $TEHAS_HOME/work/<name>. The transcripts go
 # to ~/.pi/agent/ensemble-runs/plan-<issue>, so a turn and a cycle see nothing
 # of each other. Beside the workspace is <name>-plan-<issue>.state, the turn's
-# own copy of the code index, its own memory and its own Pi sessions, removed
-# with the workspace. What a turn wrote there is kept in <keep>/sessions for
-# the next turn, which is what lets a later turn reopen the session it is
-# given.
+# own copy of the code index and its own memory, removed with the workspace.
 set -uo pipefail
 
 usage() {
@@ -162,6 +161,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/labels.sh"
 # shellcheck source=lib/cycles.sh
 . "$here/../lib/cycles.sh"
+# shellcheck source=lib/headless.sh
+. "$here/../lib/headless.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
 tehas_sandbox_settings_ok || exit 78
@@ -183,6 +184,9 @@ tree=$TEHAS_WORK_DIR-plan-$issue
 image=$PI_ENSEMBLE_IMAGE
 limit=$TEHAS_PLAN_TIMEOUT
 log=$TEHAS_HOME/logs/plan-$issue-$(date -u +%y%m%d-%H%M%S).jsonl
+# The runner's one JSON document, beside its NDJSON progress.
+doc=${log%.jsonl}.json
+runner=/opt/pi-rukas/bin/pi-rukas-headless
 name=tehas-plan-$issue
 runs=$HOME/.pi/agent/ensemble-runs/plan-$issue
 # The turn's own state on the host, beside the workspace and not in it.
@@ -193,7 +197,9 @@ images=$keep/images
 # container sees the state directory.
 images_given=$tree.images
 images_inside=$repo.images
-cache=$tree/.git/pi-plan-cache
+# pi-rukas keeps a session in the clone's git directory when
+# PI_ENSEMBLE_PLAN_SESSION_DIR is unset, which is how it is left here.
+sessions=$tree/.git/pi-plan-sessions
 
 [ -n "${GH_TOKEN:-}" ] || { echo "tehas plan: GH_TOKEN is not set (source ~/tehas/env.sh)" >&2; exit 64; }
 mkdir -p "$TEHAS_HOME/logs"
@@ -219,15 +225,22 @@ fi
 # did not mount. So is the issue.
 unset PI_ENSEMBLE_EXTRA_IMAGE_DIRS
 unset PI_ENSEMBLE_PLAN_ISSUE
-# So is the expiry of the plan cache: 0 is none. An operator answers hours
-# later as a rule, and a plan the cache has lost is drafted again.
-unset PI_ENSEMBLE_PLAN_CACHE_TTL_MS
-cache_opts=(-e PI_ENSEMBLE_PLAN_CACHE_TTL_MS=0)
+# So is where the session lives: in the clone, carried between turns below.
+unset PI_ENSEMBLE_PLAN_SESSION_DIR PI_ENSEMBLE_PLAN_CACHE_TTL_MS
 mapfile -d '' -t envs < <(tehas_sandbox_env "$repo" "$bot_name" "$bot_email")
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
 mapfile -d '' -t sec < <(tehas_sandbox_security)
 [ "${#envs[@]}" -gt 0 ] && [ "${#sec[@]}" -eq 8 ] ||
   { echo "tehas plan: could not prepare the sandbox, not starting a turn" >&2; exit 78; }
+# An image whose runner does not take planning turns runs none, before anything
+# is fetched or cloned.
+caps_wait=${TEHAS_CAPS_WAIT:-120}
+[[ $caps_wait =~ ^[1-9][0-9]{0,3}$ ]] || caps_wait=120
+caps=$(timeout -k 10 "$caps_wait" docker run --rm --init "$image" "$runner" --capabilities 2>/dev/null) || caps=""
+if ! tehas_headless_plans "$caps"; then
+  echo "tehas plan: $image runs no planning turns (its --capabilities has no features.planTurns), not starting a turn" >&2
+  exit 78
+fi
 
 # A fresh workspace for this turn, as a cycle gets one. Only a directory tehas
 # made is ever removed.
@@ -310,43 +323,24 @@ if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces" && rm -rf "$tree" "$co
   echo "tehas plan: could not make the workspace $tree, not starting a turn" >&2
   exit 78
 fi
-# pi-rukas keys its plan cache on origin/<branch> after a fetch of its own. A
-# fetch with no refspec writes only FETCH_HEAD, so the key stays the commit
-# this command puts there. Pushing does not need the refspec.
-git -C "$tree" config --unset-all remote.origin.fetch ||
-  echo "tehas plan: could not hold origin/$branch in $tree, a confirmed plan may be drafted again"
-# carry <from> <to>: the plain files of one plan cache into another: the
-# .json entries, and the .filed and .claim markers pi-rukas leaves so a later
-# turn does not file the same plan twice.
+# carry <from> <to>: the plain files of one session directory into another,
+# under the same relative paths, with what <to> held before dropped. A symlink
+# or a file over 1 MB is left out. The copy is made beside <to> and moved into
+# place, so a failure leaves what was there.
 carry() {
   local f
-  mkdir -p "$2" || return 1
-  for f in "$1"/*.json "$1"/*.filed "$1"/*.claim; do
-    [ -f "$f" ] && [ ! -L "$f" ] || continue
-    [ "$(stat -c %s "$f" 2>/dev/null || echo 0)" -le 1048576 ] || continue
-    cp "$f" "$2/" || return 1
-  done
-}
-# carry_sessions <from> <to> / keep_sessions <from> <to>: the whole of a
-# sessions directory into another, with what was there before dropped. The
-# trailing slash takes the contents, not the directory itself. A turn that
-# wrote no session leaves none, so what an earlier turn kept is dropped too.
-carry_sessions() {
-  rm -rf "$2" || return 1
-  [ -d "$1" ] || return 0
-  mkdir -p "$2" || return 1
-  cp -a "$1"/. "$2/" || { rm -rf "$2"; return 1; }
-}
-# The copy is made beside the destination and moved into place, so a failure
-# leaves what an earlier turn kept there.
-keep_sessions() {
   rm -rf "$2.new" || return 1
-  if [ -n "$(ls -A "$1" 2>/dev/null)" ] && ! { mkdir -p "$2.new" && cp -a "$1"/. "$2.new/"; }; then
-    rm -rf "$2.new"
-    return 1
+  if [ -d "$1" ]; then
+    mkdir -p "$2.new" || return 1
+    while IFS= read -r -d '' f; do
+      if ! { mkdir -p "$2.new/$(dirname "$f")" && cp "$1/$f" "$2.new/$f"; }; then
+        rm -rf "$2.new"
+        return 1
+      fi
+    done < <(cd "$1" && find . -type f ! -size +1024k -print0)
   fi
   rm -rf "$2" || { rm -rf "$2.new"; return 1; }
-  mv "$2.new" "$2" || return 1
+  [ ! -d "$2.new" ] || mv "$2.new" "$2"
 }
 if [ -n "$brief" ]; then
   if ! git -C "$tree" rev-parse HEAD >"$keep/commit"; then
@@ -354,30 +348,27 @@ if [ -n "$brief" ]; then
     exit 78
   fi
 else
-  # Moving on without the commit or the cache is safe: pi-rukas then reviews
-  # the plan again before it files it.
+  # Moving on without the commit is safe: the planner then plans against the
+  # tip, and a confirm files the plan that was shown, whatever the code.
   pin=$(cat "$keep/commit" 2>/dev/null) || pin=""
   case "$pin" in
     '' | *[!0-9a-f]*) echo "tehas plan: no commit on record for this session, the turn starts at the tip of $branch" ;;
     *)
-      if git -C "$tree" checkout -q -B "$branch" "$pin" 2>/dev/null; then
-        git -C "$tree" update-ref "refs/remotes/origin/$branch" "$pin" ||
-          echo "tehas plan: could not put origin/$branch at $pin, a confirmed plan may be drafted again"
-      else
+      git -C "$tree" checkout -q -B "$branch" "$pin" 2>/dev/null ||
         echo "tehas plan: the session's commit $pin is not in the checkout, the turn starts at the tip of $branch"
-      fi
       ;;
   esac
-  [ ! -d "$keep/pi-plan-cache" ] || carry "$keep/pi-plan-cache" "$cache" ||
-    echo "tehas plan: could not carry the plan cache into $tree" >&2
+  # Without the record the runner says the session is lost, and the session
+  # ends: that is what a missing record means.
+  carry "$keep/plan-sessions" "$sessions" ||
+    echo "tehas plan: could not carry the session into $tree" >&2
 fi
 
-# The agent plans from the text that was approved, so it is handed over as a
-# file and not fetched again from the tracker, where it may have changed. A
-# later turn gets it too: after a compaction the agent reads it again.
+# The planner plans from the text that was approved, so it is handed over as a
+# file and not fetched again from the tracker, where it may have changed.
 if [ -f "$keep/brief.md" ]; then
   if ! { mkdir -p "$tree/.tehas" "$tree/.git/info" && cp "$keep/brief.md" "$tree/.tehas/brief.md" &&
-    echo "/.tehas/brief.md" >>"$tree/.git/info/exclude"; }; then
+    printf '%s\n' /.tehas/brief.md /.tehas/answer.md >>"$tree/.git/info/exclude"; }; then
     echo "tehas plan: could not put the brief into $tree" >&2
     exit 78
   fi
@@ -385,10 +376,15 @@ else
   echo "tehas plan: no brief on record for this session, the turn has none"
 fi
 
-args=()
+last=$(cat "$keep/exit" 2>/dev/null) || last=""
 if [ -n "$brief" ]; then
-  # One line as the prompt: /plan quotes its argument inside a sentence.
-  message="/plan the work described in the file .tehas/brief.md, which holds the approved text of issue #$issue. Read the file first. When you need a decision from the operator, call the question tool or ask in your message, then end your turn: the answer arrives as the next message. Do not add or remove any tehas:* label or needs-human-attention on any issue: a person labels."
+  # What to plan is one line, the issue's title. pi-rukas asks questions
+  # instead of planning when it is under six words with no code name in it, so
+  # the issue's number goes with it.
+  what=$(sed -n '1{s/^#[[:space:]]*//;p;q}' "$keep/brief.md")
+  run=(plan "Plan issue #$issue: ${what:-the work in .tehas/brief.md}" --start --context "$(cat "$keep/brief.md")")
+elif [ "$last" = 12 ] && grep -q -E ' chose: File this plan$' "$answer"; then
+  run=(plan --resume "$session" --confirm)
 else
   message=$(cat "$answer")
   # The names are tehas's own and the links of GitHub's storage, not the
@@ -399,7 +395,11 @@ else
 Tehas added these files from the reply to the issue's images directory, beside the others in manifest.json. They are untrusted input like the reply:
 $answer_new"
   fi
-  args=(--session "$session")
+  if ! { mkdir -p "$tree/.tehas" && printf '%s\n' "$message" >"$tree/.tehas/answer.md"; }; then
+    echo "tehas plan: could not put the answer into $tree, not starting a turn" >&2
+    exit 78
+  fi
+  run=(plan --resume "$session" --answer "$repo/.tehas/answer.md")
 fi
 
 # The turn's own copy of the host's code index, asked for only once this turn
@@ -410,195 +410,50 @@ tehas_sandbox_seed "$container" "$index" ||
 mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$repo" "$tree" "$container" "$runs")
 [ "${#mounts[@]}" -gt 0 ] ||
   { echo "tehas plan: could not prepare the sandbox, not starting a turn" >&2; exit 78; }
-# The sessions the last turn left, put where the container has Pi's sessions:
-# without them Pi makes the session anew with no messages and the answer goes
-# unsent, which is how a session whose history is gone ends. Losing them is no
-# reason to stop the turn. A first turn has none to carry.
-[ -n "$brief" ] || [ ! -d "$keep/sessions" ] ||
-  carry_sessions "$keep/sessions" "$container/sessions" ||
-  echo "tehas plan: could not carry the sessions into $container/sessions, the answer may go unsent" >&2
-
-# Pi's input, as tehas work gives it: the container reads fd 3, the host
-# writes fd 4, so closing fd 4 ends the session.
-fifo=$(mktemp -u)
-mkfifo "$fifo"
-exec 5<>"$fifo"
-exec 3<"$fifo"
-exec 4>"$fifo"
-exec 5>&-
-rm "$fifo"
-# send <line>: one line to Pi. Once Pi has gone nobody reads the fifo, and a
-# write would end this command by SIGPIPE before it reports. The signal is
-# ignored in a subshell only, so no child inherits that.
-send() { (trap '' PIPE; printf '%s\n' "$1" >&4) 2>/dev/null; }
 
 # A container under this name outlived the client that started it. The
 # dispatcher runs one turn at a time, so it is no turn's: left, it idles for
 # ever and Docker would refuse the name.
 docker rm -f "$name" >/dev/null 2>&1
-# Emptied here, not by the container's redirection: the loop below reads the
-# log at once, and an earlier turn in the same second left its answers there.
 user="$(id -u):$(id -g)"
-: >"$log"
-docker run --rm -i --init --name "$name" \
+docker run --rm --init --name "$name" \
   "${TEHAS_SLICE_LIMITS[@]}" "${sec[@]}" --user "$user" \
   -w "$repo" "${mounts[@]}" "${image_opts[@]}" \
-  "${envs[@]}" "${cache_opts[@]}" "${hosts[@]}" \
-  "$image" pi --mode rpc --approve "${args[@]}" <&3 >"$log" 2>"$log.err" 3<&- 4>&- &
+  "${envs[@]}" "${hosts[@]}" \
+  "$image" "$runner" "${run[@]}" </dev/null >"$doc" 2>"$log" &
 pid=$!
-exec 3<&-
-
 started=$(date +%s)
-trap 'exec 4>&- 2>/dev/null; docker stop -t 10 "$name" 2>/dev/null' TERM INT
+trap 'docker stop -t 10 "$name" >/dev/null 2>&1' TERM INT
 echo "tehas plan: issue $issue turn started, log $log"
 
-# Pi opens --session <id>, or makes it anew when its file is gone. One made
-# anew has no messages, and the answer would reach an agent that knows
-# nothing of the session, so it is not sent. Asked before the prompt, so the
-# count cannot include it.
-refused=""
-if [ -z "$brief" ]; then
-  send '{"id":"opened","type":"get_state"}'
-  # Looked at once more after the container is gone: it may have answered
-  # and then exited.
-  while :; do
-    alive=0
-    kill -0 "$pid" 2>/dev/null && alive=1
-    count=$(grep -a -F '"id":"opened"' "$log" 2>/dev/null | jq -r -R 'fromjson? | select(type == "object"
-        and .type == "response" and .command == "get_state" and .id == "opened")
-      | .data.messageCount | if type == "number" then tostring else "unknown" end' 2>/dev/null | head -n 1)
-    [ -z "$count" ] && [ "$alive" = 1 ] && [ $(($(date +%s) - started)) -lt "$limit" ] || break
-    sleep 1
-  done
-  case "$count" in
-    0) refused=lost ;;
-    '') refused=silent ;;
-    unknown) echo "tehas plan: Pi did not say how many messages session $session has, going on" ;;
-  esac
-fi
-if [ -z "$refused" ]; then
-  send "$(jq -cn --arg m "$message" '{id: "plan", type: "prompt", message: $m}')"
-  # Asked for now and again at the end: a first turn that runs for its whole
-  # limit (`TEHAS_PLAN_TIMEOUT`, 7200 seconds at most) and then fails must
-  # still leave the session it made, so a reply can continue it.
-  send '{"id":"state","type":"get_state"}'
-fi
-
-# Settled: the last start or settle event in the stream is a settle, and no
-# background job the agent started is still out. The agent ends its turn after
-# it dispatches a subagent, and the subagent's report starts a new run minutes
-# later. A run can also start again soon after it settled, so the state has to
-# hold for a while before the turn is taken as over.
-#
-# A job is out from the tool result that started it (details.async, with a
-# jobId or a batchId) until a user message starting "[ensemble:async]" names
-# it as "(job <id>)" or "(batch <id>)". A job that never reports holds the turn
-# until the time limit.
-#
-# The log can grow large over a turn's limit, up to 7200 seconds, so it is
-# never read again from the top:
-# scan reads what was appended since the last call and keeps the last start or
-# settle event it has seen. While the container runs, the last line may be
-# half written; only whole lines are taken, the rest waits for the next call.
-# `scan all` takes everything, for when nothing more will be written.
-last=""
-offset=0
-out_jobs=" "
-scan() {
-  local lines seen ev
-  if [ "${1:-}" = all ]; then
-    lines=$(tail -c "+$((offset + 1))" "$log" 2>/dev/null | grep -a -c '') || true
-  else
-    lines=$(tail -c "+$((offset + 1))" "$log" 2>/dev/null | wc -l) || true
-  fi
-  # Some wc pad their count with spaces.
-  lines=${lines//[[:space:]]/}
-  case "$lines" in '' | 0 | *[!0-9]*) return 0 ;; esac
-  # The log only grows, so the first $lines lines from the offset are the same
-  # in every reading.
-  seen=$(tail -c "+$((offset + 1))" "$log" 2>/dev/null | head -n "$lines" |
-    grep -a -o -E '"type":"(agent_start|agent_settled)"' | tail -n 1) || true
-  [ -z "$seen" ] || last=$seen
-  # shellcheck disable=SC2016  # a jq program
-  while IFS= read -r ev; do
-    case "$ev" in
-      +*) out_jobs="$out_jobs${ev#+} " ;;
-      -*) out_jobs=${out_jobs// ${ev#-} / } ;;
-    esac
-  done < <(tail -c "+$((offset + 1))" "$log" 2>/dev/null | head -n "$lines" |
-    grep -a -F -e '"async":true' -e 'ensemble:async' |
-    jq -r -R 'fromjson? | select(type == "object")
-      | if .type == "tool_execution_end" and .result.details.async? == true then
-          (.result.details.jobId // .result.details.batchId // "") | strings
-          | select(test("^[A-Za-z0-9_-]+$")) | "+\(.)"
-        elif .type == "message_end" and .message.role? == "user" then
-          .message.content | (if type == "string" then . elif type == "array" then map(select(.type? == "text") | .text) | join("\n") else "" end)
-          | select(startswith("[ensemble:async]"))
-          | capture("\\((?:job|batch) (?<id>[A-Za-z0-9_-]+)\\)").id | "-\(.)"
-        else empty end' 2>/dev/null)
-  offset=$((offset + $(tail -c "+$((offset + 1))" "$log" 2>/dev/null | head -n "$lines" | wc -c)))
-}
-settled() { [ "$last" = '"type":"agent_settled"' ] && [ "$out_jobs" = " " ]; }
-quiet=0
 timed_out=0
-while [ -z "$refused" ] && kill -0 "$pid" 2>/dev/null; do
-  sleep 1
-  scan
-  if settled; then quiet=$((quiet + 1)); else quiet=0; fi
-  [ "$quiet" -ge 20 ] && break
+while kill -0 "$pid" 2>/dev/null; do
   if [ $(($(date +%s) - started)) -ge "$limit" ]; then
     echo "tehas plan: time limit of ${limit}s passed"
     timed_out=1
+    docker stop -t 20 "$name" >/dev/null 2>&1
     break
   fi
+  sleep 1
 done
-
-if kill -0 "$pid" 2>/dev/null; then
-  if [ "$timed_out" = 0 ] && [ -z "$refused" ]; then
-    send '{"id":"state","type":"get_state"}'
-    send '{"id":"text","type":"get_last_assistant_text"}'
-    # The answer comes after everything read so far.
-    for _ in 1 2 3 4 5 6 7 8 9 10; do
-      [ "$(tail -c "+$((offset + 1))" "$log" 2>/dev/null | grep -a -c -F '"command":"get_last_assistant_text"')" = 0 ] || break
-      sleep 1
-    done
-  fi
-  # Pi sees the end of its input. The stop is for a Pi that does not go.
-  exec 4>&-
-  for _ in 1 2 3 4; do
-    kill -0 "$pid" 2>/dev/null || break
-    sleep 0.5
-  done
-  ! kill -0 "$pid" 2>/dev/null || docker stop -t 20 "$name" >/dev/null 2>&1
-fi
 wait "$pid" 2>/dev/null
-scan all
-# The turn's outcome is read from the log. Of the workspace only the plan
-# cache is needed again: the next turn gets a new one.
-if [ -d "$cache" ]; then
-  if ! { rm -rf "$keep/pi-plan-cache.new" && carry "$cache" "$keep/pi-plan-cache.new" &&
-    rm -rf "$keep/pi-plan-cache" && mv "$keep/pi-plan-cache.new" "$keep/pi-plan-cache"; }; then
-    echo "tehas plan: could not keep the plan cache of $tree" >&2
-  fi
-fi
-# The sessions, before the state directory goes: they are all a later turn has
-# of what this turn's agent was told. A turn that wrote none leaves none, and
-# replaces what an earlier turn kept with nothing.
-if ! keep_sessions "$container/sessions" "$keep/sessions"; then
-  echo "tehas plan: could not keep the sessions of $container/sessions" >&2
-fi
+rc=$?
+[ "$timed_out" = 0 ] || rc=124
+
+# The session, before the workspace goes: it is all a later turn has of this
+# one. A turn whose runner kept none replaces what an earlier turn kept.
+carry "$sessions" "$keep/plan-sessions" || echo "tehas plan: could not keep the session of $tree" >&2
+printf '%s\n' "$rc" >"$keep/exit" || echo "tehas plan: could not keep the exit status in $keep" >&2
 rm -rf "$tree" "$container" "$images_given" || echo "tehas plan: could not remove the workspace $tree" >&2
 
-# pick <text>: the lines of the log that hold the text, as JSON values. The
-# few lines wanted are found by what they say before anything parses them, so
-# no step loads the whole log. A line that is not JSON is skipped.
-pick() { grep -a -F -e "$1" "$log" 2>/dev/null | jq -c -R 'fromjson? | select(type == "object")' 2>/dev/null; }
-sid=$(pick '"command":"get_state"' | jq -rs 'map(select(.type == "response" and .command == "get_state")) | last | .data.sessionId // ""')
+answer_doc=$(jq -c 'objects' "$doc" 2>/dev/null | head -n 1)
+[ -n "$answer_doc" ] || answer_doc='{}'
+sid=$(jq -r '.session.id // "" | strings | select(test("^[A-Za-z0-9-]+$"))' <<<"$answer_doc")
 [ -n "$sid" ] || sid=$session
 
-# give_up <what happened>: the turn failed. The session, when it is known, is
-# all that is left for the caller.
-# With "lost" the outcome says the session is gone, so the caller ends it.
+# give_up <what happened> [lost]: the turn failed. The session, when it is
+# known, is all that is left for the caller. With "lost" the outcome says the
+# session is gone, so the caller ends it.
 give_up() {
   echo "tehas plan: issue=$issue $1, see $log"
   if [ -n "$sid" ]; then
@@ -610,61 +465,46 @@ give_up() {
   exit 2
 }
 
-case "$refused" in
-  lost) give_up "the session $session is gone: Pi opened it with no messages, so the answer was not sent" lost ;;
-  silent) give_up "Pi did not say what is in session $session, so the answer was not sent" ;;
+why=$(jq -r '[.error.code, .error.message, .failure.reason, .failure.detail] | map(strings) | join(": ")' <<<"$answer_doc")
+case "$rc" in
+  0 | 10 | 11 | 12) ;;
+  41) give_up "the session $session is gone: the runner has no record of it" lost ;;
+  124) give_up "the turn ran out of time" ;;
+  *) give_up "the runner exited $rc${why:+ ($why)}" ;;
 esac
-if [ "$timed_out" = 1 ] || ! settled; then
-  give_up "the turn did not settle"
-fi
+[ -n "$sid" ] || give_up "the session id is unknown"
 
-text=$(pick '"command":"get_last_assistant_text"' | jq -rs 'map(select(.type == "response" and .command == "get_last_assistant_text")) | last | .data.text // ""')
-# Every question the agent left open this turn. One keeps its options as
-# boxes. Two or more are posted as one numbered text with no option boxes:
-# a tick could answer only one of them, so the answer is a reply.
-asked=$(pick '"toolName":"question"' | jq -cs 'map(select(.type == "tool_execution_end" and .toolName == "question"
-                                   and .result.details.deferred == true)
-  | {question: (.result.details.question // ""),
-     options: [.result.details.optionDetails[]? | {label: (.label // ""), description: (.description // "")}]})')
-question=$(jq -c 'if length == 0 then null elif length == 1 then .[0] else
-    {question: ("The agent asked \(length) questions. Answer each by its number in a reply.\n\n"
-       + (to_entries | map("\(.key + 1). \(.value.question)"
-           + (.value.options | map("\n   - " + (.label | gsub("[\r\n]+"; " "))
-               + (if .description == "" then "" else ": " + (.description | gsub("[\r\n]+"; " ")) end)) | join("")))
-         | join("\n\n"))),
-     options: []}
-  end' <<<"${asked:-[]}" 2>/dev/null)
-[ -n "$question" ] || question=null
-n_asked=$(jq 'length' <<<"${asked:-[]}" 2>/dev/null) || n_asked=0
-[ "${n_asked:-0}" -le 1 ] ||
-  echo "tehas plan: WARN: the turn asked $n_asked questions; they are posted as one, to be answered by a reply"
-
-# What the turn filed. The stream holds gh's own output for the call, so the
-# addresses it printed are read from there: the whole of a line of what a
-# successful bash call wrote, never a number quoted in prose, in another
-# tool's output or in a failed call. A line is taken with its spaces around it
-# and cut to the address, because gh writes more than the address and jq's $ is
-# the end of the string, not of a line. With none the outcome carries no filed
-# key at all.
-filed=$(pick '"toolName":"bash"' | jq -cs '
-  "^[[:space:]]*https://github\\.com/[^/[:space:]]+/[^/[:space:]]+/issues/[0-9]+[[:space:]]*$" as $bare
-  | [.[] | select(.type == "tool_execution_end" and .toolName == "bash" and .isError != true)
-      | (.result.content // [])
-      | (if type == "string" then . else map(select(.type == "text") | .text) | join("\n") end)
-      | split("\n")[] | select(test($bare))]
-  | map(gsub("[[:space:]]+$"; "") | sub("^[[:space:]]+"; "")) | unique')
-[ "$(jq 'length' <<<"${filed:-[]}" 2>/dev/null)" != 0 ] || filed="[]"
-
-if [ -z "$sid" ]; then
-  give_up "the session id is unknown"
-fi
-if [ -z "$text" ] && [ "$question" = null ]; then
+# The comment holds the plan, so a spec too long for one GitHub comment is cut.
+outcome=$(jq -c --argjson rc "$rc" '
+  def clip: if length > 40000 then .[0:40000] + "\n\n(cut: the plan is longer than a comment holds)" else . end;
+  (.questions // [] | map(select(type == "object"))) as $qs
+  | ($qs | map("\(.question // "")" + (if (.resolution // "") == "" then "" else "\n   Proposed: \(.resolution)" end))) as $asked
+  | ($asked | to_entries | map("\(.key + 1). \(.value)") | join("\n\n")) as $numbered
+  | if $rc == 0 then
+      {text: ("Filed " + ((.url // .issueUrl // "") | tostring) + (if (.title // "") == "" then "" else ": \(.title)" end) + "."),
+       question: null,
+       filed: [(.url // .issueUrl) | strings | select(test("^https://github\\.com/[^/]+/[^/]+/issues/[0-9]+$"))]}
+    elif $rc == 12 then
+      {text: ((.text // "") + "\n\n### \(.title // "The plan")\n\n" + ((.spec // "") | tostring | clip)),
+       question: {question: ((if ($qs | length) == 0 then "" else "Open points, with the planner'"'"'s proposals:\n\n\($numbered)\n\n" end)
+                    + "Tick File this plan to file it as shown, proposals included, or reply to change it."),
+                  options: [{label: "File this plan", description: "file the plan above as one issue"}]}}
+    elif $rc == 11 and ($qs | length) == 1 then
+      {text: (.text // ""), question: {question: $asked[0], options: []}}
+    elif $rc == 11 and ($qs | length) > 1 then
+      {text: (.text // ""), question: {question: ("The planner asked \($qs | length) questions. Answer each by its number in a reply.\n\n" + $numbered), options: []}}
+    elif $rc == 10 then
+      {text: (.text // ""), question: {question: "pi-rukas thinks this plan duplicates open work. Reply to say why it does not, or end the session.", options: []}}
+    else {text: (.text // ""), question: null} end
+  | .filed = ((.filed // []) | unique)' <<<"$answer_doc" 2>/dev/null)
+[ -n "$outcome" ] || give_up "the runner's answer could not be read"
+if [ "$(jq -r '(.text | length > 0) or .question != null or (.filed | length > 0)' <<<"$outcome")" != true ]; then
   give_up "the turn said and asked nothing"
 fi
 
-if ! jq -n --arg session "$sid" --arg text "$text" --argjson question "$question" --argjson filed "$filed" \
-  '{session: $session, text: $text, question: $question} + (if $filed == [] then {} else {filed: $filed} end)' >"$out.new" || ! mv "$out.new" "$out"; then
+if ! jq --arg session "$sid" '{session: $session, text, question} + (if .filed == [] then {} else {filed} end)' <<<"$outcome" >"$out.new" ||
+  ! mv "$out.new" "$out"; then
   echo "tehas plan: could not write $out" >&2
   exit 2
 fi
-echo "tehas plan: issue=$issue session=$sid asked=$([ "$question" = null ] && echo no || echo yes) seconds=$(($(date +%s) - started))"
+echo "tehas plan: issue=$issue session=$sid runner_exit=$rc asked=$(jq -r 'if .question == null then "no" else "yes" end' <<<"$outcome") seconds=$(($(date +%s) - started))"
