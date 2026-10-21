@@ -265,8 +265,8 @@ home_marker=.tehas-home
 # for cargo but does not make. docs and fun are not among them: a home that has
 # them without the marker is not known to be tehas's, and this run would remove
 # the pages of someone else from them.
-home_dirs=(bin libexec lib live logs platform preview protolab repos sandbox state
-  tmp tools work target .cargo versions current)
+home_dirs=(bin libexec lib live logs mcp platform preview protolab repos sandbox
+  state tmp tools work target .cargo versions current)
 
 home_refusal() { # the reason $TEHAS_HOME is not provably tehas's, or nothing
   local path=${TEHAS_HOME:-} entry part rest
@@ -384,6 +384,7 @@ files=(
   "lib/live.sh|$TEHAS_HOME/lib/live.sh|644"
   "lib/limit.sh|$TEHAS_HOME/lib/limit.sh|644"
   "lib/models.sh|$TEHAS_HOME/lib/models.sh|644"
+  "lib/private.sh|$TEHAS_HOME/lib/private.sh|644"
   "lib/update-steps.sh|$TEHAS_HOME/lib/update-steps.sh|644"
   "lib/edge.sh|$TEHAS_HOME/lib/edge.sh|644"
   "lib/headless.sh|$TEHAS_HOME/lib/headless.sh|644"
@@ -614,15 +615,15 @@ else
   }
   # The console's source is all of console/ but its tests, analytics/ and mcp/,
   # so a change to either alone does not build the console again. analytics reads
-  # its own directory, the workspace's manifest and lock, and the console's mask;
-  # the MCP server its own directory and the manifest and lock.
+  # its own directory, the workspace's manifest and lock, and the console's mask,
+  # and so does the MCP server.
   console_source=$(source_sum ! -path './tests/*' ! -path './analytics/*' ! -path './mcp/*') ||
     { echo "tehas: could not read the console's source in $root/console" >&2; exit 1; }
   analytics_source=$(source_sum \( \( -path './analytics/*' ! -path './analytics/tests/*' \) \
     -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path ./src/mask.rs \)) ||
     { echo "tehas: could not read the analytics program's source in $root/console" >&2; exit 1; }
   mcp_source=$(source_sum \( \( -path './mcp/*' ! -path './mcp/tests/*' ! -path './mcp/target/*' \) \
-    -o -path ./Cargo.toml -o -path ./Cargo.lock \)) ||
+    -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path ./src/mask.rs \)) ||
     { echo "tehas: could not read the MCP server's source in $root/console" >&2; exit 1; }
   program_sum() { sha256sum <"$1" | cut -d' ' -f1; }
   # program_label <name>: how a message names it.

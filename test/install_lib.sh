@@ -99,6 +99,7 @@ files="./.bashrc
 ./tehas/lib/models.sh
 ./tehas/lib/paths.sh
 ./tehas/lib/planning.sh
+./tehas/lib/private.sh
 ./tehas/lib/questions.sh
 ./tehas/lib/refine-brief.md
 ./tehas/lib/refresh.sh
