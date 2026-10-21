@@ -7,6 +7,7 @@
 //! `MCP-Protocol-Version: 2025-11-25`. No session is kept for either.
 
 use crate::keys::Keys;
+use crate::logs::LogGuard;
 use crate::tools::{self, Dirs, Output, ToolError};
 use serde_json::{json, Value};
 
@@ -38,6 +39,8 @@ pub struct Response {
     pub body: Vec<u8>,
     /// The fingerprint of the key that was used, for the access log.
     pub key: Option<String>,
+    /// The place of a log being sent, freed when the answer is dropped.
+    pub hold: Option<LogGuard>,
 }
 
 impl Response {
@@ -47,6 +50,7 @@ impl Response {
             headers: vec![],
             body: vec![],
             key: None,
+            hold: None,
         }
     }
 
@@ -56,6 +60,7 @@ impl Response {
             headers: vec![("Content-Type".into(), "application/json".into())],
             body: v.to_string().into_bytes(),
             key: None,
+            hold: None,
         }
     }
 }
@@ -154,6 +159,7 @@ pub fn answer(req: &Request, dirs: &Dirs, server_version: &str) -> Response {
         return Response::empty(202);
     }
     let info = json!({"name": "tehas", "version": server_version});
+    let mut hold = None;
     let mut result = match (method, modern) {
         ("server/discover", _) => json!({
             "resultType": "complete",
@@ -184,7 +190,10 @@ pub fn answer(req: &Request, dirs: &Dirs, server_version: &str) -> Response {
         ("tools/call", _) => {
             let name = params["name"].as_str().unwrap_or("");
             let args = params.get("arguments").cloned().unwrap_or(json!({}));
-            match tools::call(dirs, name, &args) {
+            match tools::call_held(dirs, name, &args).map(|(out, place)| {
+                hold = place;
+                out
+            }) {
                 Ok(Output::Json(v)) => json!({
                     "resultType": "complete",
                     "content": [{"type": "text", "text": v.to_string()}],
@@ -215,7 +224,9 @@ pub fn answer(req: &Request, dirs: &Dirs, server_version: &str) -> Response {
     if modern {
         result["_meta"] = json!({SERVER_INFO_KEY: info});
     }
-    Response::json(200, json!({"jsonrpc": "2.0", "id": id, "result": result}))
+    let mut r = Response::json(200, json!({"jsonrpc": "2.0", "id": id, "result": result}));
+    r.hold = hold;
+    r
 }
 
 fn tool_error(text: &str) -> Value {

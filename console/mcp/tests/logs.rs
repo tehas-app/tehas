@@ -505,4 +505,12 @@ fn blob_shape() {
     assert_eq!(gunzip(resource["blob"].as_str().unwrap()), "t\n");
     assert!(res["structuredContent"].get("blob").is_none());
     assert_eq!(res["structuredContent"]["file"], "transcript");
+
+    // The answer holds its place until it is dropped, after it is written.
+    let other = acquire().expect("one place left");
+    assert!(acquire().is_none(), "the answer gave up its place");
+    drop(other);
+    drop(r);
+    let (a, b) = (acquire(), acquire());
+    assert!(a.is_some() && b.is_some(), "the place was not freed");
 }

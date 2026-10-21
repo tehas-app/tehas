@@ -47,7 +47,9 @@ const PLAN: [&str; 3] = ["progress", "result", "dispatch"];
 
 static LOGS: AtomicUsize = AtomicUsize::new(0);
 
-/// One of the logs being sent. Dropping it frees the place.
+/// One of the logs being sent. Dropping it frees the place, so it is held
+/// until the answer is written.
+#[derive(Debug)]
 pub struct LogGuard(());
 
 impl Drop for LogGuard {
@@ -199,7 +201,7 @@ pub fn tool() -> Value {
     })
 }
 
-pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<Output, ToolError> {
+pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<(Output, LogGuard), ToolError> {
     let id = args["id"]
         .as_str()
         .ok_or_else(|| bad("id is a string like work-12-1792485967"))?;
@@ -229,7 +231,7 @@ pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<Output, ToolError> {
             .ok_or_else(|| bad(&format!("bytes is from 1 to {PLAIN_MAX}")))?,
     };
 
-    let _place =
+    let place =
         acquire().ok_or_else(|| bad("two logs are being sent; try again in a few seconds"))?;
     let snap = Snapshot::open(&dirs.sessions, tools::now())?;
     let s = sessions::find(&snap, id)?;
@@ -286,12 +288,13 @@ pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<Output, ToolError> {
             .finish()
             .map_err(|_| file_error(word, "could not be compressed"))?;
         out.insert("gzipBytes".into(), json!(z.len()));
-        return Ok(Output::Blob {
+        let blob = Output::Blob {
             meta: Value::Object(out),
             uri: format!("tehas://sessions/{id}/{word}.gz"),
             mime: "application/gzip",
             blob: base64(&z),
-        });
+        };
+        return Ok((blob, place));
     }
     if offset > size {
         return Err(bad(&format!("offset is past the end; the size is {size}")));
@@ -302,7 +305,7 @@ pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<Output, ToolError> {
         out.insert("next".into(), json!(end));
     }
     out.insert("text".into(), json!(&text[start..end]));
-    Ok(Output::Json(Value::Object(out)))
+    Ok((Output::Json(Value::Object(out)), place))
 }
 
 /// From `offset` moved on to a character, at most `n` bytes cut back to one,

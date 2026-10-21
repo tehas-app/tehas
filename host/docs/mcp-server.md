@@ -194,13 +194,15 @@ Limits:
 - A plain read returns at most 1 MiB. Read a larger file in pieces: pass the
   `next` of one answer as the `offset` of the next. A piece starts and ends
   on a whole character.
-- Two logs are sent at a time. A third call meanwhile gets a tool error that
-  asks to try again in a few seconds.
+- Two logs are sent at a time. A log holds its place until its answer has
+  been sent, however slowly the client reads. A third call meanwhile gets a
+  tool error that asks to try again in a few seconds.
 
 Every line is masked before it is sent, so `size`, `offset` and `next` count
 bytes of the masked text, not of the file on the host. The size
-`factory_session` gives is the file's. Two gzip answers of a 9 MB transcript
-at once kept the server under 40 MB of memory.
+`factory_session` gives is the file's. Two gzip answers at once of a
+generated 9 MB file, not a real transcript, kept the server under 40 MB of
+memory.
 
 The mask takes out the tokens, keys, passwords and private addresses it
 knows. It is a net for accidents, not a wall: a log can hold a secret in a
