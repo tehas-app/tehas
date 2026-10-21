@@ -205,6 +205,9 @@ pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<(Output, LogGuard), Tool
     let id = args["id"]
         .as_str()
         .ok_or_else(|| bad("id is a string like work-12-1792485967"))?;
+    if !sessions::ID.is_match(id) {
+        return Err(bad("id is like work-12-1792485967"));
+    }
     let word = match args["file"].as_str() {
         Some(w) if WORDS.contains(&w) => w,
         _ => return Err(bad(&format!("file is one of {}", WORDS.join(", ")))),
@@ -242,6 +245,15 @@ pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<(Output, LogGuard), Tool
         _ => return Err(bad("the session has no kind and issue to find its logs by")),
     };
     let listed: Vec<&Value> = s["logs"].as_array().into_iter().flatten().collect();
+    // Two files under one word would be two runs' logs: neither is served.
+    let mut seen: Vec<&str> = listed.iter().filter_map(|l| l["word"].as_str()).collect();
+    seen.sort_unstable();
+    if let Some(w) = seen.windows(2).find(|p| p[0] == p[1]).map(|p| p[0]) {
+        return Err(file_error(
+            crate::snapshot::FILE,
+            &format!("lists the {w} log of {id} twice"),
+        ));
+    }
     let has: Vec<&str> = words
         .iter()
         .copied()
