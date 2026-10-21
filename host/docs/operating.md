@@ -942,6 +942,51 @@ To turn the loop off, remove `TEHAS_IMPROVE_REPO` from `instance.env`: cycles
 stop leaving records and a run does nothing. Or stop the timer with
 `systemctl --user disable --now tehas-improve.timer`.
 
+## The cleaner
+
+A full disk stops previews and fails clones, and most of what fills it is
+something the next build makes again. `tehasbot clean`, from
+`tehas-clean.timer` once an hour (the first time 15 minutes after boot),
+removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
+
+- the build output of a kept workspace: every directory anywhere under
+  `~/tehas/work/<name>-<issue>` whose name is one of `TEHAS_CLEAN_DIRS`, the
+  toolchain names listed in [Commands](/tools), and `<name>-<issue>.state/cache`,
+  the cycle's copy of the code index. A kept workspace is never built in again -
+  every cycle clones fresh - and the dispatcher's 7-day sweep takes the whole of
+  it later. The issue's lock is held while they go, so no cycle starts in it,
+  and a workspace touched within the age is left alone. Nothing is removed
+  under a lock that is not there: an issue whose lock file is gone is left
+  alone, because the cleaner cannot tell a finished cycle from a removed lock.
+  `.git`, the sources, uncommitted changes, `memory` and `sessions` stay for a
+  person to read, and no dot-name is entered.
+- Docker's build cache of that age, with `docker builder prune`. This is the
+  build cache of the whole host's Docker daemon: tehas is one project on one
+  host, and the cache of anything else on it is made again too. No image and no
+  volume is removed.
+- the host's scratch: old files under `~/tehas/tmp/dl` and
+  `~/tehas/tmp/node-compile-cache`, and old `~/tehas/tmp/tehas-test.*`
+  directories. Nothing elsewhere under `~/tehas`, and nothing outside it.
+
+One line per removal and a closing line with the bytes freed go to
+`~/tehas/logs/clean.log`. The command starts no work, so the pause label does
+not hold it. A step that fails is logged as a warning, the other steps still
+run, and the exit status is non-zero.
+
+**To turn it on**, enable the timer, which `install.sh` and `tehas update`
+install but do not start:
+
+```
+systemctl --user enable --now tehas-clean.timer
+tail ~/tehas/logs/clean.log
+```
+
+Run it once by hand with `tehasbot clean`, or with `tehasbot clean --dry-run`
+to see what it would remove. **To turn it off**,
+`systemctl --user disable --now tehas-clean.timer`; a toolchain the cleaner does
+not know about is added to `TEHAS_CLEAN_DIRS` in `instance.env` rather than left
+unmanaged.
+
 ## The fixer's grant
 
 Optional. The fixer is an account that decides on parked issues from outside

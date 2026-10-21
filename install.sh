@@ -352,6 +352,8 @@ files=(
   "edge/router.Caddyfile|$TEHAS_HOME/edge/router.Caddyfile|644"
   "edge/router.compose.yaml|$TEHAS_HOME/edge/router.compose.yaml|644"
   "systemd/tehas-cycle@.service|$units/tehas-cycle@.service|644"
+  "systemd/tehas-clean.service|$units/tehas-clean.service|644"
+  "systemd/tehas-clean.timer|$units/tehas-clean.timer|644"
   "systemd/tehas-dispatch.service|$units/tehas-dispatch.service|644"
   "systemd/tehas-dispatch.path|$units/tehas-dispatch.path|644"
   "systemd/tehas-dispatch.timer|$units/tehas-dispatch.timer|644"
@@ -375,7 +377,7 @@ files=(
 for f in tehas tehasbot; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
-for f in analytics-cmd api cycle dev dev-login dispatch drain energy export health history improve index labels limit mcp pause plan preview protolab refresh resume status stop summary tidy top top-publish update work; do
+for f in analytics-cmd api clean cycle dev dev-login dispatch drain energy export health history improve index labels limit mcp pause plan preview protolab refresh resume status stop summary tidy top top-publish update work; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
 # Pi's own settings: the instance may bring its own (default provider and
