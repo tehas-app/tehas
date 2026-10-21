@@ -88,8 +88,12 @@ t_case "the manual and the front page are installed"
 t_eq "$(cd "$th/docs" && find . -type f ! -name version.txt | wc -l)" "$(find "$T_ROOT/host/docs" -type f | wc -l)"
 t_eq "$(cd "$th/fun" && find . -type f ! -name version.txt | wc -l)" "$(find "$T_ROOT/host/fun" -type f | wc -l)"
 
-t_case "the instance's model list is what Pi gets"
-t_eq "$(cat "$home/.pi/agent/models.json")" "$(cat "$TEHAS_INSTANCE_DIR/models.json")"
+t_case "the instance's model list is what Pi gets, with the keys it left out filled"
+# By parts, so key order is no part of the answer.
+t_eq "$(jq -c '[.providers[].models[].id]' "$home/.pi/agent/models.json")" \
+  "$(jq -c '[.providers[].models[].id]' "$TEHAS_INSTANCE_DIR/models.json")"
+t_eq "$(jq -c '[.providers[].models[] | .name == .id] | unique' "$home/.pi/agent/models.json")" '[true]'
+t_eq "$(jq -c '[.providers[].models[] | .input, .reasoning] | unique' "$home/.pi/agent/models.json")" '[false,["text"]]'
 
 t_case "nothing installed names a file that is absent"
 missing=""
