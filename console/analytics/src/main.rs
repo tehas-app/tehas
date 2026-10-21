@@ -1,4 +1,4 @@
-//! Ten days of factory data in SQLite: what each run did and with which
+//! A year of factory data in SQLite: what each run did and with which
 //! versions, for the dashboard's report and for a program that fetches the
 //! database. All of tehas's SQL is here; the bash commands only call this.
 //!
@@ -39,6 +39,11 @@
 //!     (report.rs says what is in it): as plain text for a person, or with
 //!     --json as one JSON object, which libexec/status writes to
 //!     live/analytics.json.
+//!   analytics sessions
+//!     Prints the runs of the last 30 days as JSON Lines, for the MCP server
+//!     (sessions.rs lists the keys): a header line, then one session per
+//!     line, newest first, each with its steps, roles and log file names.
+//!     It writes nothing; a failure cause is as the run stored it, masked.
 //!   analytics export <file> [--json]
 //!     Writes a consistent copy of the database to <file>, mode 0600, with
 //!     VACUUM INTO. <file> must not exist. With --json it then prints what
@@ -68,6 +73,7 @@ mod plan;
 mod report;
 mod run;
 mod sample;
+mod sessions;
 
 #[cfg(test)]
 mod tests;
@@ -76,7 +82,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const USAGE: &str = "usage: analytics run <issue> [--image <id>] [--rukas-image <commit>] [--oom <n>] [--forks <n>] | plan <issue> --rc <rc> [--rukas-image <commit>] | event <issue> <event> [--at <epoch seconds>] | sample | prune | report [--json] | export <file> [--json]";
+const USAGE: &str = "usage: analytics run <issue> [--image <id>] [--rukas-image <commit>] [--oom <n>] [--forks <n>] | plan <issue> --rc <rc> [--rukas-image <commit>] | event <issue> <event> [--at <epoch seconds>] | sample | prune | report [--json] | sessions | export <file> [--json]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -109,6 +115,7 @@ pub enum Cmd {
     Prune,
     Report,
     ReportText,
+    Sessions,
     Export(PathBuf, bool),
 }
 
@@ -133,6 +140,7 @@ fn parse(args: &[String]) -> Option<Cmd> {
         [c] if c == "prune" => Some(Cmd::Prune),
         [c, f] if c == "report" && f == "--json" => Some(Cmd::Report),
         [c] if c == "report" => Some(Cmd::ReportText),
+        [c] if c == "sessions" => Some(Cmd::Sessions),
         [c, f, rest @ ..] if c == "export" && !f.is_empty() && !f.starts_with('-') => {
             let json = match rest {
                 [] => false,
@@ -288,6 +296,12 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
             } else {
                 print!("{}", report::text(&report));
             }
+            Ok(())
+        }
+        Cmd::Sessions => {
+            let lines = sessions::lines(&conn, home, now)
+                .map_err(|e| (70, format!("the sessions could not be read: {e}")))?;
+            println!("{}", lines.join("\n"));
             Ok(())
         }
         Cmd::Export(to, json) => {

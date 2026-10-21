@@ -2426,3 +2426,186 @@ fn a_factory_whose_cycles_run_is_available_whatever_holds_the_next_start() {
         json!({"n": 5, "seconds": 3000, "share": 0.4})
     );
 }
+
+fn add_run(conn: &Connection, id: &str, issue: i64, started: i64) {
+    conn.execute(
+        "INSERT INTO runs (id, kind, issue, started, ended, outcome) VALUES (?1, 'work', ?2, ?3, ?3 + 600, 'pr')",
+        rusqlite::params![id, issue, started],
+    )
+    .unwrap();
+}
+
+fn sessions_output(home: &Path, now: i64) -> Vec<Value> {
+    let conn = Connection::open(db::path(home)).unwrap();
+    crate::sessions::lines(&conn, home, now)
+        .unwrap()
+        .iter()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect()
+}
+
+#[test]
+fn sessions_lists_thirty_days_newest_first() {
+    let home = scratch("sessions-days");
+    let now = 1_792_000_000;
+    let (conn, _) = db::open(&db::path(&home), now).unwrap();
+    for (id, days) in [("work-1-a", 1), ("work-2-b", 29), ("work-3-c", 31)] {
+        add_run(&conn, id, 1, now - days * DAY);
+    }
+    let out = sessions_output(&home, now);
+    assert_eq!(out.len(), 3);
+    assert_eq!(out[0]["days"], 30);
+    assert_eq!(out[0]["api"], 1);
+    assert_eq!(out[0]["generatedAt"], iso(now));
+    assert_eq!(out[1]["id"], "work-1-a");
+    assert_eq!(out[2]["id"], "work-2-b");
+}
+
+#[test]
+fn sessions_break_ties_by_id_descending() {
+    let home = scratch("sessions-ties");
+    let now = 1_792_000_000;
+    let (conn, _) = db::open(&db::path(&home), now).unwrap();
+    add_run(&conn, "work-1-a", 1, now - 100);
+    add_run(&conn, "work-2-a", 2, now - 100);
+    let out = sessions_output(&home, now);
+    assert_eq!(out[1]["id"], "work-2-a");
+}
+
+#[test]
+fn sessions_carry_steps_roles_and_camel_case() {
+    let home = scratch("sessions-fields");
+    let now = 1_792_000_000;
+    let (conn, _) = db::open(&db::path(&home), now).unwrap();
+    add_run(&conn, "work-7-x", 7, now - 3600);
+    conn.execute(
+        "UPDATE runs SET failure_kind = 'cap', rukas_version = 'v0.14.0', review_held = 0, provider_outage = 1, cost = 1.5 WHERE id = 'work-7-x'",
+        [],
+    )
+    .unwrap();
+    for (step, round) in [("plan", 1), ("build", 1)] {
+        conn.execute(
+            "INSERT INTO run_steps (run_id, step, round, started) VALUES ('work-7-x', ?1, ?2, ?3)",
+            rusqlite::params![step, round, now - 3500],
+        )
+        .unwrap();
+    }
+    conn.execute(
+        "INSERT INTO run_roles (run_id, role, model, turns) VALUES ('work-7-x', 'dev', 'm', 4)",
+        [],
+    )
+    .unwrap();
+    let line = &sessions_output(&home, now)[1];
+    assert_eq!(line["failureKind"], "cap");
+    assert_eq!(line["rukasVersion"], "v0.14.0");
+    assert_eq!(line["reviewHeld"], false);
+    assert_eq!(line["providerOutage"], true);
+    assert_eq!(line["started"], iso(now - 3600));
+    assert_eq!(line["steps"].as_array().unwrap().len(), 2);
+    assert_eq!(line["roles"].as_array().unwrap().len(), 1);
+    assert_eq!(line["roles"][0]["turns"], 4);
+    assert_eq!(line["logs"], json!([]));
+    assert!(!line.to_string().contains("null"));
+}
+
+fn logs_dir(name: &str, files: &[&str]) -> PathBuf {
+    let home = scratch(name);
+    for f in files {
+        fs::write(home.join("logs").join(f), "abc").unwrap();
+    }
+    home.join("logs")
+}
+
+#[test]
+fn log_files_match_the_stamp_window() {
+    let logs = logs_dir(
+        "logs-window",
+        &[
+            "work-7-261020-100000.jsonl",
+            "work-7-261020-100000.jsonl.err",
+            "work-7-261021-100000.jsonl",
+        ],
+    );
+    let started = secs("2026-10-20T10:00:30Z");
+    let ended = Some(secs("2026-10-20T11:00:00Z"));
+    let got = crate::sessions::log_files(&logs, "work", 7, started, ended, 0);
+    let want = |w: &str, n: &str| (w.to_string(), n.to_string(), 3);
+    assert_eq!(
+        got,
+        vec![
+            want("transcript", "work-7-261020-100000.jsonl"),
+            want("err", "work-7-261020-100000.jsonl.err"),
+        ]
+    );
+}
+
+#[test]
+fn log_files_skip_links_and_other_issues() {
+    let logs = logs_dir("logs-links", &["work-77-261020-100000.jsonl", "target"]);
+    std::os::unix::fs::symlink("target", logs.join("work-7-261020-100000.jsonl")).unwrap();
+    let started = secs("2026-10-20T10:00:30Z");
+    let got = crate::sessions::log_files(&logs, "work", 7, started, None, started + 3600);
+    assert!(got.is_empty());
+}
+
+#[test]
+fn plan_log_words() {
+    let logs = logs_dir(
+        "logs-plan",
+        &["plan-5-261020-100000.jsonl", "plan-5-261020-100000.json"],
+    );
+    let started = secs("2026-10-20T10:00:10Z");
+    let words = |logs: &Path| -> Vec<String> {
+        crate::sessions::log_files(logs, "plan", 5, started, Some(started + 60), 0)
+            .into_iter()
+            .map(|l| l.0)
+            .collect()
+    };
+    assert_eq!(words(&logs), ["progress", "result"]);
+    fs::write(logs.join("dispatch-plan-5.log"), "x").unwrap();
+    assert_eq!(words(&logs), ["progress", "result", "dispatch"]);
+}
+
+#[test]
+fn sessions_is_a_command_without_arguments() {
+    assert_eq!(parse(&["sessions".to_string()]), Some(Cmd::Sessions));
+    assert_eq!(parse(&["sessions".to_string(), "x".to_string()]), None);
+}
+
+#[test]
+fn plan_sessions_carry_filed() {
+    let home = scratch("sessions-filed");
+    let now = 1_792_000_000;
+    let (conn, _) = db::open(&db::path(&home), now).unwrap();
+    let started = now - 3600;
+    conn.execute(
+        "INSERT INTO runs (id, kind, issue, how, started, ended) VALUES ('plan-5-x', 'plan', 5, 'refine', ?1, ?2)",
+        rusqlite::params![started, started + 600],
+    )
+    .unwrap();
+    let line = |at: i64, source: i64, filed: i64| {
+        json!({"at": iso(at), "source": source, "filed": filed, "url": format!("https://example.com/i/{filed}")})
+            .to_string()
+    };
+    let ledger = [
+        line(started + 100, 5, 11),
+        line(started + 100, 6, 12),
+        line(started + 700, 5, 13),
+        line(started + 721, 5, 14),
+        "not json".to_string(),
+        line(started - 1, 5, 15),
+    ]
+    .join("\n");
+    put(&home, "state/refined.jsonl", &ledger);
+    let session = &sessions_output(&home, now)[1];
+    assert_eq!(session["how"], "refine");
+    assert_eq!(
+        session["filed"],
+        json!([
+            {"issue": 11, "url": "https://example.com/i/11"},
+            {"issue": 13, "url": "https://example.com/i/13"},
+        ])
+    );
+    fs::remove_file(home.join("state/refined.jsonl")).unwrap();
+    assert!(sessions_output(&home, now)[1].get("filed").is_none());
+}
