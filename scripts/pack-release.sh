@@ -20,12 +20,17 @@
 # down when the script ends.
 #
 # Usage: scripts/pack-release.sh <tag> <out dir> --console <path>
+#                               [--analytics <path>] [--mcp <path>]
 #                               [--rukas-commit <40 hex>]
 #                               [--rukas-digest sha256:<64 hex>]
 #   <tag>        the release tag, in the form vX.Y.Z that tag-release.sh makes
 #   <out dir>    where the tarball and its .sha256 go; it is created
 #   --console    the built console binary, copied to libexec/console; a
 #                workflow builds it and gives its path
+#   --analytics  the built analytics program, copied to libexec/analytics
+#   --mcp        the built MCP server, copied to libexec/tehas-mcp; the two are
+#                the other programs install.sh puts in libexec, and a release
+#                packed without them installs without them
 #   --rukas-commit   the pi-rukas commit this release's sandbox is built from,
 #                    40 hex digits (upper case is accepted and written lower case)
 #   --rukas-digest   the base image's digest, as sha256: and 64 hex digits, the
@@ -44,7 +49,8 @@
 #
 # Exit: 0 the tarball and its .sha256 are written, their paths on two lines;
 #       64 a bad argument (the tag is not vX.Y.Z, --console is missing, is not
-#       a file or is the tree's own build, only one of the two pins is given,
+#       a file or is the tree's own build, --analytics or --mcp names no
+#       program, only one of the two pins is given,
 #       the tree does not answer to TEHAS_PACK_ROOT, or an out dir cannot be
 #       made or already holds that tarball); 1 the tree is missing something
 #       install.sh reads, a pin's value has the wrong shape, or staging, tar or
@@ -54,6 +60,8 @@ set -uo pipefail
 tag=""
 out_dir=""
 console=""
+analytics=""
+mcp=""
 rukas_commit=""
 rukas_digest=""
 usage() { sed -n '2,/^[^#]/s/^# \{0,1\}//p' "$0"; }
@@ -62,6 +70,11 @@ while [ "$#" -gt 0 ]; do
     --console)
       [ "$#" -ge 2 ] || { echo "pack-release: --console needs a path" >&2; exit 64; }
       console=$2
+      shift
+      ;;
+    --analytics | --mcp)
+      [ "$#" -ge 2 ] || { echo "pack-release: $1 needs a path" >&2; exit 64; }
+      if [ "$1" = --mcp ]; then mcp=$2; else analytics=$2; fi
       shift
       ;;
     --rukas-commit)
@@ -103,6 +116,13 @@ if [ ! -x "$console" ]; then
   echo "pack-release: the console is not executable: $console" >&2
   exit 64
 fi
+for program in "$analytics" "$mcp"; do
+  [ -n "$program" ] || continue
+  if [ ! -f "$program" ] || [ ! -x "$program" ]; then
+    echo "pack-release: not a program the pack can run: $program" >&2
+    exit 64
+  fi
+done
 # A pin is only useful when it names one thing exactly, so both halves are
 # refused before anything is written rather than packed and released wrong. Git
 # and a registry answer in either case, so the value is brought to lower case
@@ -235,6 +255,13 @@ chmod 755 "$stage_dir/libexec/console" || {
   echo "pack-release: cannot make the console executable" >&2
   exit 1
 }
+for pair in "analytics:$analytics" "tehas-mcp:$mcp"; do
+  [ -n "${pair#*:}" ] || continue
+  if ! cp "${pair#*:}" "$stage_dir/libexec/${pair%%:*}" || ! chmod 755 "$stage_dir/libexec/${pair%%:*}"; then
+    echo "pack-release: cannot copy ${pair#*:}" >&2
+    exit 1
+  fi
+done
 
 pin_env() { # pin_env <key> <value>: one line, the release's, at the end
   local key=$1 value=$2 file=$stage_dir/host/versions.env
