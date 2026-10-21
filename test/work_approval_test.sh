@@ -33,6 +33,77 @@ t_eq "$(find "$imgs" -maxdepth 0 2>/dev/null | wc -l)" 0
 t_contains "$t_out" "tehas work: the issue's text is not the text that was approved: it changed after the approval, not starting a cycle"
 t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body Tehas started no cycle: the issue's text is not the text that was approved: it changed after the approval. To retry, apply \`tehas:ready\`."
 
+# --- The size of what the cycle starts with ----------------------------------
+# A start that had an approval to measure records the measure of the approved
+# body in state/sizes.jsonl, one line, from the read it already made: the
+# ledger asks GitHub nothing more. A run by hand has no approved body and
+# records nothing, and a ledger that cannot be written is one line said and no
+# cycle stopped.
+sizes=$T/home/tehas/state/sizes.jsonl
+
+# sizes_off: the ledger of the cases before is no evidence for this one.
+sizes_off() { rm -f "$sizes"; }
+
+# A body that names two files, one of them a test, under the two headings the
+# measure reads.
+size_body='Give `lib/sizing.sh` one function.
+
+## The change
+
+1. `lib/sizing.sh` holds tehas_issue_size.
+2. the gate lints it.
+
+## Done when
+
+- `test/sizing_test.sh` has a case for it.
+'
+
+t_case "with a record, an approved body that names two files writes one line to state/sizes.jsonl, and asks GitHub nothing more"
+images_off
+sizes_off
+issue_is "$size_body" NONE
+record_is alice "$size_body"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(t_calls gh)" "api repos/acme/widget/issues/7"
+t_eq "$(wc -l <"$sizes" | tr -d ' ')" "1"
+t_eq "$(jq -c 'del(.at)' "$sizes")" '{"issue":7,"files":2,"tests":1,"deliverables":2,"done_when":1}'
+t_eq "$(jq -r '.at | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")' "$sizes")" "true"
+
+t_case "with a record, a title renamed after the approval records nothing: only the text that was approved is measured"
+images_off
+sizes_off
+record_is alice "$size_body"
+record_binds_title "Faster search"
+issue_is "$size_body" NONE "Renamed after the label"
+t_run "$work 7"
+t_eq "$t_rc" 4
+t_eq "$(find "$sizes" 2>/dev/null | wc -l)" "0"
+
+t_case "with no record, a run by hand records no size, and the cycle still starts"
+images_off
+sizes_off
+issue_is "$size_body" NONE
+rm -f "$sizes"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(find "$sizes" 2>/dev/null | wc -l)" "0"
+t_contains "$t_out" "a run by hand is its own approval"
+
+t_case "a state directory that cannot be written still starts the cycle, and says the size was not recorded"
+images_off
+sizes_off
+issue_is "$size_body" NONE
+record_is alice "$size_body"
+rm -f "$sizes"
+mkdir -p "$(dirname "$sizes")"
+chmod a-w "$(dirname "$sizes")"
+t_run "$work 7"
+chmod u+w "$(dirname "$sizes")"
+t_eq "$t_rc" 2
+t_eq "$(find "$sizes" 2>/dev/null | wc -l)" "0"
+t_contains "$t_out" "no size of #7 in $sizes"
+
 # --- The title of the issue -------------------------------------------------
 # The approval binds the title as it binds the body: the dispatcher records its
 # hash, tehas work recomputes it from the same read, and a rename after the
