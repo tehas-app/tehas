@@ -166,6 +166,72 @@ for f in libexec/console bin/tehas host/sandbox/build.sh; do
 done
 t_eq "$(stat -c '%a' "$T/tehas-v9.9.9/libexec/console")" 755
 
+t_case "the analytics program and the MCP server are packed when given, executable"
+t_pack_reset
+printf 'analytics of this release\n' >"$build/analytics"
+printf 'mcp of this release\n' >"$build/tehas-mcp"
+chmod 755 "$build/analytics" "$build/tehas-mcp"
+t_pack --analytics "'$build/analytics'" --mcp "'$build/tehas-mcp'"
+t_eq "$t_rc" 0
+rm -rf "$T/tehas-v9.9.9"
+tar -xzf "$dist/$tar_gz" -C "$T"
+t_eq "$(cat "$T/tehas-v9.9.9/libexec/analytics")" "analytics of this release"
+t_eq "$(cat "$T/tehas-v9.9.9/libexec/tehas-mcp")" "mcp of this release"
+t_eq "$(stat -c '%a' "$T/tehas-v9.9.9/libexec/analytics" "$T/tehas-v9.9.9/libexec/tehas-mcp" | tr '\n' ' ')" "755 755 "
+
+t_case "an --analytics or --mcp that is not a program is a bad argument, and writes nothing"
+t_pack_reset
+chmod 644 "$build/analytics"
+t_pack --analytics "'$build/analytics'"
+t_eq "$t_rc" 64
+t_contains "$t_out" "not a program the pack can run"
+t_pack --mcp "'$build/missing'"
+t_eq "$t_rc" 64
+t_run "\"$pack\" v9.9.9 '$dist' --console '$stub' --mcp"
+t_eq "$t_rc" 64
+t_contains "$t_out" "--mcp needs a path"
+t_eq "$(find "$dist" -maxdepth 1 -type f 2>/dev/null | wc -l)" 0
+
+t_case "the tarball holds CHANGELOG.md, the checkout's own"
+t_pack_reset
+t_pack
+t_eq "$t_rc" 0
+t_eq "$(tar -xzf "$dist/$tar_gz" -O tehas-v9.9.9/CHANGELOG.md)" "$(cat "$T_ROOT/CHANGELOG.md")"
+
+notes=$T_ROOT/scripts/release-notes.sh
+changelog=$T/CHANGELOG.md
+printf '%s\n' '# Changelog' '' '## Unreleased' '' '### Adopter action' '' 'None.' '' \
+  '## v1.2.3 (2026-10-21)' '' '### Changes' '' '- v1.2.30 is not this' '' \
+  '### Adopter action' '' 'Set TEHAS_X.' '' '## v1.2.30 (2026-10-22)' '' 'later' >"$changelog"
+
+t_case "release-notes prints the tag's section without its heading or the next one"
+t_run "'$notes' v1.2.3 '$changelog'"
+t_eq "$t_rc" 0
+t_eq "$t_out" "$(printf '%s\n' '### Changes' '' '- v1.2.30 is not this' '' '### Adopter action' '' 'Set TEHAS_X.')"
+
+t_case "release-notes matches the version exactly, and reads Unreleased and standard input"
+t_run "'$notes' v1.2.30 '$changelog'"
+t_eq "$t_out" later
+t_run "'$notes' Unreleased - <'$changelog'"
+t_eq "$t_rc" 0
+t_eq "$t_out" "$(printf '%s\n' '### Adopter action' '' 'None.')"
+
+t_case "release-notes exits 1 for a tag with no section, and 64 for a bad argument"
+t_run "'$notes' v1.2.4 '$changelog'"
+t_eq "$t_rc" 1
+t_contains "$t_out" "no section for v1.2.4"
+t_run "'$notes' v1.2 '$changelog'"
+t_eq "$t_rc" 64
+t_run "'$notes'"
+t_eq "$t_rc" 64
+t_run "'$notes' v1.2.3 '$T/no-such-file'"
+t_eq "$t_rc" 1
+
+t_case "the checkout's CHANGELOG.md has an Unreleased section with an Adopter action"
+t_run "'$notes' Unreleased"
+t_eq "$t_rc" 0
+t_contains "$t_out" "### Adopter action"
+
 t_case "VERSION holds the tag"
 t_pack_reset
 t_pack
@@ -460,7 +526,7 @@ cp "$T_ROOT/bootstrap.sh" "$tree/bootstrap.sh"
 TEHAS_PACK_ROOT=$tree t_pack
 t_eq "$t_rc" 0
 t_eq "$(tar -tzf "$dist/$tar_gz" | cut -d/ -f2 | grep -v '^$' | LC_ALL=C sort -u | tr '\n' ' ')" \
-  "AGENTS.md LICENSE NOTICE VERSION bin bootstrap.sh host install.sh lib libexec "
+  "AGENTS.md CHANGELOG.md LICENSE NOTICE VERSION bin bootstrap.sh host install.sh lib libexec "
 
 t_case "the tree's own build of the console is refused, by path and by content"
 t_pack_reset

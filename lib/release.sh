@@ -5,7 +5,9 @@
 #   tehas_release_dirs      the directories of the checkout that install.sh
 #                           copies from: its own bin/, libexec/ and lib/ and
 #                           the host/ files it installs beside them
-#   tehas_release_plain     the top-level files an adopter needs to install
+#   tehas_release_plain     the top-level files an adopter needs to install,
+#                           and CHANGELOG.md, which says what an adopter does
+#                           after updating to the release
 #
 # The console/ directory is in neither: the console comes from pack-release.sh's
 # --console, and an adopter has no toolchain to build its source with. If
@@ -18,5 +20,5 @@ tehas_release_dirs() {
 }
 
 tehas_release_plain() {
-  printf '%s\n' install.sh bootstrap.sh LICENSE NOTICE AGENTS.md
+  printf '%s\n' install.sh bootstrap.sh LICENSE NOTICE AGENTS.md CHANGELOG.md
 }
