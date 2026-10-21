@@ -95,6 +95,7 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/lib/planning.sh
 ./tehas/lib/questions.sh
 ./tehas/lib/refresh.sh
+./tehas/lib/release.sh
 ./tehas/lib/rukas.sh
 ./tehas/lib/sandbox.sh
 ./tehas/lib/status.sh
@@ -138,6 +139,7 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/libexec/top-publish
 ./tehas/libexec/update
 ./tehas/libexec/work
+./tehas/release/minisign.pub
 ./tehas/sandbox/Dockerfile
 ./tehas/sandbox/build.sh
 ./tehas/sandbox/npm/playwright/package-lock.json
