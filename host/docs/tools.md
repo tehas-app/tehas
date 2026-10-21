@@ -2839,6 +2839,24 @@ tampered pair says nothing about where they came from. When releases are
 published, the digest of the `.sha256` is named on the release's own page as
 well as in the file, so the two can be compared.
 
+### Release notes and the Adopter action
+
+`CHANGELOG.md` at the top of the repository has one section per release,
+newest first: `## vX.Y.Z (YYYY-MM-DD)`, then `### Changes` and
+`### Adopter action`, the steps an adopter takes after updating: settings added
+or renamed, root steps, anything by hand. "None." is a valid action. Work in
+progress goes under `## Unreleased`, and a person renames it to the version in
+the release's pull request.
+
+`scripts/tag-release.sh` reads `CHANGELOG.md` from the commit it is about to
+tag, `--dry-run` too, and refuses with exit 1 when the section for the new tag,
+or else `Unreleased`, has no `### Adopter action` heading with a line under it.
+It does not edit the file.
+
+`scripts/release-notes.sh <tag>` prints a section without its heading, and
+exits 1 when the file has none for that tag. The workflow makes the release's
+page from it, from the `Unreleased` section when the tag has none of its own.
+
 ### What the gate covers, and what a person adds
 
 The pack script is in the fast gate, with `test/pack_release_test.sh`: it packs
