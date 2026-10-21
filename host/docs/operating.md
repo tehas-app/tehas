@@ -489,8 +489,8 @@ and apply it again; for a retry tick, untick the box and tick it again.
 
 ## Planning on an issue
 
-A planning session is a conversation with a planning agent that ends in filed
-issues. It runs on the issue, so you can steer it from a phone. The agent is
+A planning session is a conversation with pi-rukas's planner that ends in a
+filed issue. It runs on the issue, so you can steer it from a phone. The agent is
 not asked to build code, and the awaiting-merge limit does not hold a planning
 turn back. Its container has the same access as a work cycle's, token
 included, so treat `tehas:plan` as you treat `tehas:ready`.
@@ -504,10 +504,9 @@ dispatcher's log says so.
    allowed account counts, and it approves the text as it was when you
    applied it. From any other account it is taken off the issue with a
    comment, as `tehas:ready` is.
-3. The bot comments that the session has started. Each turn of the agent ends
-   in a comment with what it found. A turn is over when the agent has stopped
-   and every subagent it sent out has reported back, so one turn can take
-   many minutes. When it needs a decision, the comment
+3. The bot comments that the session has started. Each turn ends in a comment
+   with what the planner found. A turn is one run of pi-rukas's headless
+   planner and can take many minutes. When it needs a decision, the comment
    ends in a question with one checkbox per choice, a last box `End this
    planning session`, and the label `tehas:question` is on the issue. When
    the agent offers more than 20 choices, the first 20 get a box and a line
@@ -532,26 +531,21 @@ dispatcher's log says so.
    running work cycle does not hold an answer back. A poll also handles one
    answer or one planning start and then stops, and it does nothing while the
    model endpoint does not list the model.
-5. The agent shows you a plan before it files it, and files it when you
-   confirm. Every turn of a session works on the commit the session started
-   on. Whether what is filed is what you saw depends on pi-rukas. The release
-   the host follows keeps no record of the plans it showed (see [the queue
-   and dispatch](/features#queue-and-dispatch)), so read
-   the issues it files. A later release keeps one, and a confirmed plan is
-   then filed as it was shown when it is found there: with no time limit
-   from a release that reads `PI_ENSEMBLE_PLAN_CACHE_TTL_MS`, within two
-   hours from one that does not. A plan that is not found is drafted again.
-   The agent files the issues it plans with the bot's token. To finish, tick
+5. The planner shows you a drafted plan before anything is filed: the comment
+   holds its title and spec, lists its open points with the planner's
+   proposals, and offers one box, **File this plan**. Tick it to file the
+   plan exactly as shown, proposals included, as one issue; reply to change
+   it, and the next turn drafts it again. A session files once. Every turn of
+   a session works on the commit the session started on. The plan is filed
+   with the bot's token. To finish, tick
    `End this planning session`. Filed issues are never started on their own:
-   apply `tehas:ready` to the ones you want built. The agent is told to add
-   and remove no `tehas:*` label and no `needs-human-attention` on any issue.
-   A `tehas:ready` it applies anyway is taken off, as one from any account
-   outside the list is.
+   apply `tehas:ready` to the ones you want built. A `tehas:ready` from any
+   account outside the list, the bot's included, is taken off.
 
-The conversation of a session is kept by Pi on the host, in
-`~/.pi/agent/sessions`. If it is gone, for example after the host was rebuilt,
-the session cannot go on: the bot ends it, says so, and your answer is not
-sent. Apply `tehas:plan` again to start a new session.
+pi-rukas's record of a session is kept on the host, in
+`~/tehas/state/plan-<issue>.json.keep/plan-sessions`, and carried into each
+turn. If it is gone, for example after the host was rebuilt, the session cannot
+go on: the bot ends it and says so. Apply `tehas:plan` again to start a new session.
 
 Only answers from allowed labellers count, and the fixer's within its grant
 (see [The fixer's grant](#the-fixers-grant)). A box ticked by anyone else, or
