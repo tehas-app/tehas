@@ -88,8 +88,8 @@ the user in the same run, so no logout is needed. The release ends up in
 `--version vX.Y.Z` installs another release. [Bootstrap a host](/bootstrap)
 has what the machine needs.
 
-While the repository is private, the public address answers nothing. Download a
-release with an account that can read it, and pass its directory:
+To install from files you downloaded yourself, for example on a host that
+cannot reach GitHub, pass their directory:
 
 ```
 gh release download v0.9.0 -R tehas-app/tehas --pattern 'tehas-*' --pattern install -D /tmp/tehas-release
