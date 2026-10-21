@@ -28,6 +28,7 @@ t_contains "$t_out" "stale: $th/bin/tehas-dispatch"
 t_eq "$([ -e "$th/bin/tehas-dispatch" ] && echo there)" "there"
 
 t_case "a real run removes them, and nothing else in bin"
+rm -f "$T/calls/systemctl"
 t_run "$install"
 t_eq "$t_rc" 0
 t_contains "$t_out" "removed: $th/bin/tehas-dispatch"

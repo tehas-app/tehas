@@ -31,11 +31,13 @@ are on; pi-rukas reads the rest of it.
 | `.pi/smoke-cmd`                                          | Proves the built product starts, same format                                                                                                                                                                     | Recommended                             |
 | `.pi/worktree-setup`                                     | Shell script run in each new worktree with no arguments and no environment: install dependencies. Must exit 0                                                                                                    | If a bare checkout cannot run the gates |
 | `.pi/settings.json`                                      | Provider and model of the session, when they are not the instance's                                                                                                                                              | Optional                                |
-| `.gitignore` entries                                     | `.pi/work-state/`, `.pi/permissions.json`, `.pi/decisions.json`                                                                                                                                                  | Yes                                     |
 | `.agents/skills/`                                        | Project skills: short instructions plus scripts for things agents get wrong                                                                                                                                      | Optional                                |
 
-This repository is a product too, so its own `AGENTS.md`, `.pi/` and
-`.gitignore` are a small working example to copy from. Make the gates print one
+This repository is a product too, so its own `AGENTS.md` and `.pi/` are a
+small working example to copy from. pi-rukas's own state files in a cycle's
+clone (`.pi/work-state/`, `.pi/permissions.json`, `.pi/decisions.json`) are
+kept out of git by `tehas work`, so the product needs no `.gitignore` lines for
+them. Make the gates print one
 line per step and exit non-zero on failure. Before going further, prove them by
 hand in a clean checkout.
 
@@ -215,12 +217,23 @@ All settings are on the [commands page](/tools).
 cd ~/tehas/platform
 ./install.sh --check
 ./install.sh
-sed -i '1i [ -f ~/tehas/env.sh ] \&\& . ~/tehas/env.sh' ~/.bashrc
 ```
 
-The last line puts `env.sh` first in `~/.bashrc`. It has to come before the
-check many distributions have there that returns early for non-interactive
-shells, or `ssh host '<command>'` would run without the tehas environment.
+`install.sh` puts the line that reads `env.sh` first in `~/.bashrc`, once. It
+has to come before the check many distributions have there that returns early
+for non-interactive shells, or `ssh host '<command>'` would run without the
+tehas environment. A `~/.bashrc` that reads `env.sh` already is left alone;
+`--check` says whether it does on its `Shell:` line.
+
+On a first install it also makes the labels in the product repository
+(`tehas labels`) and enables the core units, `tehas-dispatch.timer` and
+`tehas-dispatch.path`. The optional ones are enabled with them only when their
+setting is on: `tehas-improve.timer` with `TEHAS_IMPROVE_REPO`,
+`tehas-protolab.timer` with `TEHAS_DOMAIN`, the two preview timers with
+`TEHAS_PREVIEWS=1`, and `tehas-energy.service` when `TEHAS_ENERGY` is set and not
+`off`. When the labels cannot be made, for example because `gh` is not signed
+in yet, the run says so on a `later:` line, `--check` reports
+`First install: NOT DONE`, and the next `./install.sh` tries again.
 
 `--check` first tells you what is missing or malformed in the instance, what
 tools the host lacks, and what would be installed. A real run with invalid
@@ -303,31 +316,26 @@ counts its memory while it is there.
 
 `install.sh` ends with one `next:` line per follow-up its changed files call for,
 named by id (`units`, `sandbox`, `docs`, `edge`) rather than as a command, and
-records those steps as owed in `~/tehas/state/update-pending` while it copies. It
-starts nothing itself. On a first start the units are not enabled yet, and no
-update enables them, so:
+records those steps as owed in `~/tehas/state/update-pending` while it copies.
+The first install enabled the core units (step 5), so what is left is:
 
 ```
 docker compose -f ~/tehas/edge/docs.compose.yaml up -d --force-recreate  # this site and the dashboard
-tehas labels
 tehas dispatch --dry-run
-systemctl --user daemon-reload
-systemctl --user enable --now tehas-dispatch.timer tehas-dispatch.path tehas-protolab.timer
 tehas update        # runs the follow-ups install.sh recorded, and clears them
 ```
 
-`install.sh` names `tehas-improve.timer` too. It belongs to the improvement
-loop, which reads the cycles that ended and files what could be better as
-issues. It is optional: set `TEHAS_IMPROVE_REPO` in `instance.env` to the
-repository those issues go to, give the bot account write access there, and
-enable the timer with `systemctl --user enable --now tehas-improve.timer`.
-The logs of the cycles it files about are published in that repository. See
-[Operating](/operating).
+The improvement loop reads the cycles that ended and files what could be
+better as issues. It is optional: set `TEHAS_IMPROVE_REPO` in `instance.env` to
+the repository those issues go to and give the bot account write access there.
+A host installed before you set it enables the timer by hand with
+`systemctl --user enable --now tehas-improve.timer`. The logs of the cycles it
+files about are published in that repository. See [Operating](/operating).
 
-`install.sh` names `tehas-energy.service` in its `units` step too. That service is
-optional: enable it only when your model endpoint is a [viiwork](https://github.com/janit/viiwork) mesh, as the
-example's `fleet` provider is. With any other endpoint leave it disabled: an
-update restarts a unit only where it already runs. See [the energy sampler](/tools).
+`tehas-energy.service` is optional too: set `TEHAS_ENERGY` only when your model
+endpoint is a [viiwork](https://github.com/janit/viiwork) mesh, as the example's
+`fleet` provider is. With any other endpoint leave it unset: an update restarts
+a unit only where it already runs. See [the energy sampler](/tools).
 
 Then label one small, well-specified issue with `tehas:ready` and watch it on
 the dashboard. [Operating tehas](/operating) takes it from there.
