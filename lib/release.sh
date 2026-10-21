@@ -8,6 +8,9 @@
 #   tehas_release_plain     the top-level files an adopter needs to install,
 #                           and CHANGELOG.md, which says what an adopter does
 #                           after updating to the release
+#   tehas_release_extra     directories below the top that an adopter reads:
+#                           the example instance, whose values tehas update
+#                           names when a release asks for a setting
 #
 # The console/ directory is in neither: the console comes from pack-release.sh's
 # --console, and an adopter has no toolchain to build its source with. If
@@ -21,4 +24,8 @@ tehas_release_dirs() {
 
 tehas_release_plain() {
   printf '%s\n' install.sh bootstrap.sh LICENSE NOTICE AGENTS.md CHANGELOG.md
+}
+
+tehas_release_extra() {
+  printf '%s\n' instances/example
 }

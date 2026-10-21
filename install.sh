@@ -258,7 +258,7 @@ home_marker=.tehas-home
 # them without the marker is not known to be tehas's, and this run would remove
 # the pages of someone else from them.
 home_dirs=(bin libexec lib live logs platform preview protolab repos sandbox state
-  tmp tools work target .cargo)
+  tmp tools work target .cargo versions current)
 
 home_refusal() { # the reason $TEHAS_HOME is not provably tehas's, or nothing
   local path=${TEHAS_HOME:-} entry part rest
@@ -369,6 +369,7 @@ files=(
   "release/minisign.pub|$TEHAS_HOME/release/minisign.pub|644"
   # What a release packs, so the list is on a host as it is in a checkout.
   "lib/release.sh|$TEHAS_HOME/lib/release.sh|644"
+  "lib/update-release.sh|$TEHAS_HOME/lib/update-release.sh|644"
   "versions.env|$TEHAS_HOME/versions.env|644"
   "sandbox/Dockerfile|$TEHAS_HOME/sandbox/Dockerfile|644"
   "sandbox/build.sh|$TEHAS_HOME/sandbox/build.sh|755"
@@ -534,114 +535,140 @@ fi
 # so every program that is due is built before any is installed. What is
 # installed is judged without building: by the checksum of every file the
 # program's build reads, and by the checksum of the program that was installed.
-[ -d "$root/console" ] || { echo "tehas: $root/console is missing from this checkout" >&2; exit 1; }
-# source_sum <find tests>: one checksum of the files under console/ that the
-# tests select, the build's own output left out.
-source_sum() {
-  (cd "$root/console" && find . -type f ! -path './target/*' ! -path './analytics/target/*' "$@" -print0 |
-    LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
-}
-# The console's source is all of console/ but its tests, analytics/ and mcp/,
-# so a change to either alone does not build the console again. analytics reads
-# its own directory, the workspace's manifest and lock, and the console's mask;
-# the MCP server its own directory and the manifest and lock.
-console_source=$(source_sum ! -path './tests/*' ! -path './analytics/*' ! -path './mcp/*') ||
-  { echo "tehas: could not read the console's source in $root/console" >&2; exit 1; }
-analytics_source=$(source_sum \( \( -path './analytics/*' ! -path './analytics/tests/*' \) \
-  -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path ./src/mask.rs \)) ||
-  { echo "tehas: could not read the analytics program's source in $root/console" >&2; exit 1; }
-mcp_source=$(source_sum \( \( -path './mcp/*' ! -path './mcp/tests/*' ! -path './mcp/target/*' \) \
-  -o -path ./Cargo.toml -o -path ./Cargo.lock \)) ||
-  { echo "tehas: could not read the MCP server's source in $root/console" >&2; exit 1; }
-program_sum() { sha256sum <"$1" | cut -d' ' -f1; }
-# program_label <name>: how a message names it.
-program_label() {
-  case $1 in
-    console) echo "the console" ;;
-    tehas-mcp) echo "the MCP server" ;;
-    *) echo "the $1 program" ;;
-  esac
-}
-# program_triple <name>: the target a program is built for, empty for the host's.
-program_triple() { [ "$1" != tehas-mcp ] || echo x86_64-unknown-linux-musl; }
-# unsafe_tool_dir: a tool directory this run would take its compiler from that
-# is not the running user's own, or nothing. tehas_tool_paths puts those
-# directories first on PATH and the programs cargo builds here are installed in
-# libexec, where every cycle and the dispatcher run them. Only a directory that is there is judged, by the rule instance_findings
-# applies to the settings files.
-unsafe_tool_dir() {
-  local dir mode owner group
-  for dir in "$TEHAS_HOME/bin" "$TEHAS_HOME/tools/node/bin" "$NPM_CONFIG_PREFIX/bin" \
-    "$BUN_INSTALL/bin" "$CARGO_HOME/bin"; do
-    [ -d "$dir" ] || continue
-    mode=$(stat -L -c %a "$dir" 2>/dev/null) || mode=0
-    owner=$(stat -L -c %u "$dir" 2>/dev/null) || owner=-1
-    group=$(stat -L -c %g "$dir" 2>/dev/null) || group=-1
-    if [ "$owner" != "$(id -u)" ]; then
-      echo "$dir is not owned by $(id -un)"
-      return 0
-    elif [ $((8#$mode & 2)) != 0 ]; then
-      echo "$dir is writable by everyone (chmod o-w)"
-      return 0
-    elif [ $((8#$mode & 16)) != 0 ] && [ "$group" != "$(id -g)" ]; then
-      echo "$dir is writable by another group (chmod g-w)"
-      return 0
+# A tree unpacked from a release has no console/ to build from: it carries the
+# programs built, in its own libexec/, and they are installed as they are. Each
+# one's stamp is then "release" and the program's checksum, so a later build
+# from a checkout is not mistaken for this one.
+if [ ! -d "$root/console" ] && [ -f "$root/VERSION" ]; then
+  [ -x "$root/libexec/console" ] || { echo "tehas: this release has no libexec/console; nothing was installed" >&2; exit 1; }
+  program_sum() { sha256sum <"$1" | cut -d' ' -f1; }
+  for prog in console analytics tehas-mcp; do
+    from=$root/libexec/$prog
+    to=$TEHAS_HOME/libexec/$prog
+    if [ ! -x "$from" ]; then
+      note "this release carries no libexec/$prog; the one installed stays"
+      continue
+    fi
+    sum="release $(program_sum "$from")"
+    [ ! -x "$to" ] || [ "$(cat "$to.stamp" 2>/dev/null)" != "$sum" ] || continue
+    if [ "$check" = 1 ]; then
+      changed+=("libexec/$prog")
+      if [ -f "$to" ]; then note "differs: $to"; else note "missing: $to"; fi
+    else
+      put "$from|$to|755"
+      echo "$sum" | write_file "$to.stamp"
     fi
   done
-  return 1
-}
-
-due=()
-for entry in "console $console_source" "analytics $analytics_source" "tehas-mcp $mcp_source"; do
-  read -r prog sum <<<"$entry"
-  to=$TEHAS_HOME/libexec/$prog
-  [ ! -x "$to" ] || [ "$(cat "$to.stamp" 2>/dev/null)" != "$sum $(program_sum "$to")" ] || continue
-  if [ "$check" = 1 ]; then
-    changed+=("libexec/$prog")
-    if [ -f "$to" ]; then note "differs: $to"; else note "missing: $to"; fi
-  else
-    due+=("$entry")
-  fi
-done
-if [ "${#due[@]}" != 0 ]; then
-  # Before a build, because this run is about to run a program found under one
-  # of the tool directories and install what it makes.
-  if tool_finding=$(unsafe_tool_dir) && [ -n "$tool_finding" ]; then
-    echo "tehas: $tool_finding, so the tools there are not run; nothing was installed" >&2
-    exit 1
-  fi
-  # The target directory is named, so a program is where this looks for it
-  # whatever cargo's own configuration says, and the old one is removed first,
-  # so what is installed is what this build made. The build scripts of the
-  # crates run here: they are given no variable that is named like a secret,
-  # the bot's token among them.
-  target=${CARGO_TARGET_DIR:-$root/console/target}
-  hidden=()
-  while IFS= read -r name; do hidden+=(-u "$name"); done < <(compgen -e | grep -E 'TOKEN|SECRET|PASSWORD|API_KEY')
-  for entry in "${due[@]}"; do
-    read -r prog _ <<<"$entry"
-    triple=$(program_triple "$prog")
-    built=$target/${triple:+$triple/}release/$prog
-    rm -f "$built"
-    out=$(env "${hidden[@]}" cargo build --release --locked --quiet \
-      --manifest-path "$root/console/Cargo.toml" --target-dir "$target" ${triple:+--target "$triple"} -p "$prog" 2>&1) && rc=0 || rc=$?
-    if [ "$rc" != 0 ] || [ ! -f "$built" ]; then
-      printf '%s\n' "$out" | tail -n 20 >&2
-      if [ "$rc" = 127 ]; then
-        echo "tehas: cargo is not installed, so $(program_label "$prog") cannot be built (bootstrap.sh installs it); nothing was installed" >&2
-      else
-        echo "tehas: $(program_label "$prog") did not build (cargo build --release --locked -p $prog in $root/console); nothing was installed" >&2
+else
+  [ -d "$root/console" ] || { echo "tehas: $root/console is missing from this checkout" >&2; exit 1; }
+  # source_sum <find tests>: one checksum of the files under console/ that the
+  # tests select, the build's own output left out.
+  source_sum() {
+    (cd "$root/console" && find . -type f ! -path './target/*' ! -path './analytics/target/*' "$@" -print0 |
+      LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+  }
+  # The console's source is all of console/ but its tests, analytics/ and mcp/,
+  # so a change to either alone does not build the console again. analytics reads
+  # its own directory, the workspace's manifest and lock, and the console's mask;
+  # the MCP server its own directory and the manifest and lock.
+  console_source=$(source_sum ! -path './tests/*' ! -path './analytics/*' ! -path './mcp/*') ||
+    { echo "tehas: could not read the console's source in $root/console" >&2; exit 1; }
+  analytics_source=$(source_sum \( \( -path './analytics/*' ! -path './analytics/tests/*' \) \
+    -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path ./src/mask.rs \)) ||
+    { echo "tehas: could not read the analytics program's source in $root/console" >&2; exit 1; }
+  mcp_source=$(source_sum \( \( -path './mcp/*' ! -path './mcp/tests/*' ! -path './mcp/target/*' \) \
+    -o -path ./Cargo.toml -o -path ./Cargo.lock \)) ||
+    { echo "tehas: could not read the MCP server's source in $root/console" >&2; exit 1; }
+  program_sum() { sha256sum <"$1" | cut -d' ' -f1; }
+  # program_label <name>: how a message names it.
+  program_label() {
+    case $1 in
+      console) echo "the console" ;;
+      tehas-mcp) echo "the MCP server" ;;
+      *) echo "the $1 program" ;;
+    esac
+  }
+  # program_triple <name>: the target a program is built for, empty for the host's.
+  program_triple() { [ "$1" != tehas-mcp ] || echo x86_64-unknown-linux-musl; }
+  # unsafe_tool_dir: a tool directory this run would take its compiler from that
+  # is not the running user's own, or nothing. tehas_tool_paths puts those
+  # directories first on PATH and the programs cargo builds here are installed in
+  # libexec, where every cycle and the dispatcher run them. Only a directory that is there is judged, by the rule instance_findings
+  # applies to the settings files.
+  unsafe_tool_dir() {
+    local dir mode owner group
+    for dir in "$TEHAS_HOME/bin" "$TEHAS_HOME/tools/node/bin" "$NPM_CONFIG_PREFIX/bin" \
+      "$BUN_INSTALL/bin" "$CARGO_HOME/bin"; do
+      [ -d "$dir" ] || continue
+      mode=$(stat -L -c %a "$dir" 2>/dev/null) || mode=0
+      owner=$(stat -L -c %u "$dir" 2>/dev/null) || owner=-1
+      group=$(stat -L -c %g "$dir" 2>/dev/null) || group=-1
+      if [ "$owner" != "$(id -u)" ]; then
+        echo "$dir is not owned by $(id -un)"
+        return 0
+      elif [ $((8#$mode & 2)) != 0 ]; then
+        echo "$dir is writable by everyone (chmod o-w)"
+        return 0
+      elif [ $((8#$mode & 16)) != 0 ] && [ "$group" != "$(id -g)" ]; then
+        echo "$dir is writable by another group (chmod g-w)"
+        return 0
       fi
-      exit 1
-    fi
-  done
-  for entry in "${due[@]}"; do
+    done
+    return 1
+  }
+
+  due=()
+  for entry in "console $console_source" "analytics $analytics_source" "tehas-mcp $mcp_source"; do
     read -r prog sum <<<"$entry"
     to=$TEHAS_HOME/libexec/$prog
-    triple=$(program_triple "$prog")
-    put "$target/${triple:+$triple/}release/$prog|$to|755"
-    echo "$sum $(program_sum "$to")" | write_file "$to.stamp"
+    [ ! -x "$to" ] || [ "$(cat "$to.stamp" 2>/dev/null)" != "$sum $(program_sum "$to")" ] || continue
+    if [ "$check" = 1 ]; then
+      changed+=("libexec/$prog")
+      if [ -f "$to" ]; then note "differs: $to"; else note "missing: $to"; fi
+    else
+      due+=("$entry")
+    fi
   done
+  if [ "${#due[@]}" != 0 ]; then
+    # Before a build, because this run is about to run a program found under one
+    # of the tool directories and install what it makes.
+    if tool_finding=$(unsafe_tool_dir) && [ -n "$tool_finding" ]; then
+      echo "tehas: $tool_finding, so the tools there are not run; nothing was installed" >&2
+      exit 1
+    fi
+    # The target directory is named, so a program is where this looks for it
+    # whatever cargo's own configuration says, and the old one is removed first,
+    # so what is installed is what this build made. The build scripts of the
+    # crates run here: they are given no variable that is named like a secret,
+    # the bot's token among them.
+    target=${CARGO_TARGET_DIR:-$root/console/target}
+    hidden=()
+    while IFS= read -r name; do hidden+=(-u "$name"); done < <(compgen -e | grep -E 'TOKEN|SECRET|PASSWORD|API_KEY')
+    for entry in "${due[@]}"; do
+      read -r prog _ <<<"$entry"
+      triple=$(program_triple "$prog")
+      built=$target/${triple:+$triple/}release/$prog
+      rm -f "$built"
+      out=$(env "${hidden[@]}" cargo build --release --locked --quiet \
+        --manifest-path "$root/console/Cargo.toml" --target-dir "$target" ${triple:+--target "$triple"} -p "$prog" 2>&1) && rc=0 || rc=$?
+      if [ "$rc" != 0 ] || [ ! -f "$built" ]; then
+        printf '%s\n' "$out" | tail -n 20 >&2
+        if [ "$rc" = 127 ]; then
+          echo "tehas: cargo is not installed, so $(program_label "$prog") cannot be built (bootstrap.sh installs it); nothing was installed" >&2
+        else
+          echo "tehas: $(program_label "$prog") did not build (cargo build --release --locked -p $prog in $root/console); nothing was installed" >&2
+        fi
+        exit 1
+      fi
+    done
+    for entry in "${due[@]}"; do
+      read -r prog sum <<<"$entry"
+      to=$TEHAS_HOME/libexec/$prog
+      triple=$(program_triple "$prog")
+      put "$target/${triple:+$triple/}release/$prog|$to|755"
+      echo "$sum $(program_sum "$to")" | write_file "$to.stamp"
+    done
+  fi
 fi
 
 # A host has its tools from bootstrap.sh before its first install, so only a

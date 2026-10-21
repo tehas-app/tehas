@@ -414,13 +414,40 @@ One thing it does besides copying, on a real run only: the product checkout's
 asking the network. To pin another branch, set `TEHAS_BRANCH`. If the
 repository's default branch changes later, run `install.sh` again.
 
+### Updating tehas
+
+A host installed from a release updates from releases: `tehas update --check`
+says which version is installed, which is newest and what each release between
+asks the adopter to do, and `tehas update` moves to the newest. Each version is
+unpacked beside the others in `~/tehas/versions/<version>`, and
+`~/tehas/current` points at the one in use. A host that develops tehas sets
+`TEHAS_UPDATE_FROM=git` and updates from its platform checkout. See
+[tehas update](/tools#tehas-update).
+
+To move a host from its checkout to releases: install `minisign`
+(`sudo apt-get install minisign`), check that `~/tehas/release/minisign.pub` is
+there (`install.sh` has put it there since the key was added), set
+`TEHAS_UPDATE_FROM=release` in `instance.env`, run `tehas update --check`, then
+`tehas update`. The checkout stays where it is and is no longer read.
+
 ### Rolling back tehas
+
+On a host that updates from releases, go back with
+`tehas update --to <version>`. A version still in `~/tehas/versions` is not
+downloaded again, and its sandbox image is put back if it still has its tag. To
+stay there, hold the host, or the next `tehas update` moves it to the newest
+again:
+
+```
+touch ~/tehas/state/update-hold     # tehas update refuses while this exists
+tehas update --to v0.8.0            # --to runs with the hold there
+```
 
 `install.sh` keeps one `<name>.prev` beside each file it replaces, and only
 one: a second install that changes the file replaces it. Copying a `.prev`
-back shows as drift, and the next install undoes it. The way back is the
-checkout. Hold it first, or the next `tehas update` fast-forwards it to the
-release you left:
+back shows as drift, and the next install undoes it. On a host that updates
+from its checkout, the way back is the checkout. Hold it first, or the next
+`tehas update` fast-forwards it to the release you left:
 
 ```
 touch ~/tehas/state/update-hold     # tehas update refuses while this exists
