@@ -1110,12 +1110,14 @@ commit a host follows:
   sandbox it was tested with while upstream moves on. A commit that is not 40
   lower-case hex digits is refused with 78.
 
-Either line may go in the instance's `instance.env`, where it wins over the one in
-`versions.env`: a host installed from a release can follow another commit than the
-release names, and one that sets nothing follows what it was shipped with. The same
-is true of `PI_RUKAS_IMAGE_DIGEST` below. `lib/config.sh` checks the value when the
-settings load and stops the command with 78 naming the setting, as it does for any
-other malformed setting.
+For the sandbox build, either line may go in the instance's `instance.env`, where
+it wins over the one in `versions.env`: a host installed from a release can follow
+another commit than the release names, and one that sets nothing follows what it
+was shipped with. The same is true of `PI_RUKAS_IMAGE_DIGEST` below. An instance
+that follows another commit and names no digest of its own builds on that commit's
+tag, not on the release's digest. `lib/config.sh` checks `PI_RUKAS_FOLLOW` when the
+settings load and stops the command with 78 naming it. `bootstrap.sh` reads only
+`versions.env`.
 
 What follows from it:
 

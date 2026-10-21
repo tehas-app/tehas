@@ -77,12 +77,7 @@ reset() {
   rm -f "$T"/calls/* "$fx"/*
   echo "$head" >"$fx/head"
   cp "$caps" "$fx/caps.json"
-  # The pins a case put in versions.env belong to that case alone: the file is the
-  # checkout's copy, put back here so a build with no pin is the ordinary build and
-  # no case depends on the one before it leaving its line behind. The instance's
-  # file is put back with it: a host's own settings belong to its case in the same
-  # way, and a digest or a commit left in that directory would be read as the next
-  # host's answer - or, when it names no commit at all, stop the next build first.
+  # Each case starts with the checkout's versions.env and no instance files.
   cp "$T_ROOT/host/versions.env" "$home/versions.env"
   sed -i 's#^PI_RUKAS_REPO=.*#PI_RUKAS_REPO=https://github.com/Up-Owner/pi-rukas.git#' "$home/versions.env"
   rm -f "$T/instance/instance.env" "$T/instance/sandbox.Dockerfile"
@@ -236,29 +231,15 @@ t_contains "$t_out" "no pi-rukas commit for PI_RUKAS_FOLLOW=main"
 t_eq "$(t_calls git)$(t_calls docker)" ""
 sed -i 's/^PI_RUKAS_FOLLOW=.*/PI_RUKAS_FOLLOW=release/' "$home/versions.env"
 
-# The two pins a release tarball writes into its versions.env (pack-release.sh)
-# or that the instance sets of its own. The digest names the base image, so the
-# build pulls and builds on one image rather than on whatever a tag now points at.
+# The two pins a release tarball writes into its versions.env (pack-release.sh).
 commit40=$(printf 'e%.0s' {1..40})
 digest64=sha256:$(printf 'f%.0s' {1..64})
-# The instance directory, named the way every command names it. reset() removes
-# both of the instance's files, so a case that calls it and then this one starts
-# with a directory that holds nothing; a case writes what it wants after calling
-# this, and a case that gives the host a layer names its file before any settings.
 t_env_instance() {
   export TEHAS_INSTANCE_DIR=$T/instance
   mkdir -p "$TEHAS_INSTANCE_DIR"
 }
-# Append a line to the case's versions.env, which reset() puts back.
 pin_versions() { # <key> <value>
   printf '%s=%s\n' "$1" "$2" >>"$home/versions.env"
-}
-# The two pins of the host's own file, written as an operator would write them.
-# The quote is what a long value gets; '' leaves the line unquoted.
-instance_pins() { # <follow> <digest> [quote]
-  local q=${3-}
-  printf 'TEHAS_REPO=acme/widget\nPI_RUKAS_FOLLOW=%s%s%s\nPI_RUKAS_IMAGE_DIGEST=%s%s%s\n' \
-    "$q" "$1" "$q" "$q" "$2" "$q" >"$TEHAS_INSTANCE_DIR/instance.env"
 }
 
 t_case "commit:<sha> builds that commit with no lookup upstream, on the image of its tag"
@@ -298,11 +279,7 @@ t_contains "$t_out" "with pi-rukas $commit40 (pinned)"
 sed -i '/^PI_RUKAS_FOLLOW=commit:/d; /^PI_RUKAS_IMAGE_DIGEST=/d' "$home/versions.env"
 
 t_case "a malformed digest stops the build with 78 and asks docker nothing"
-# Each value is a line of the shell file versions.env is, so the shapes that are
-# shell syntax are quoted: the build reads the file the way the person wrote it,
-# and a value with a space or a quote in it is refused, not run. The quote a
-# value arrives in is stripped by the shell that sources the file, so what reaches
-# the check is the word between the quotes, and none of these is 64 hex digits.
+# versions.env is sourced, so values with a space are quoted.
 for bad in "\"sha256:$(printf 'f%.0s' {1..63})\"" "sha256:$(printf 'f%.0s' {1..65})" \
   "'sha512:$(printf 'f%.0s' {1..64})'" "$(printf 'f%.0s' {1..64})" "sha256:$(printf 'g%.0s' {1..64})" \
   "sha256:$(printf 'F%.0s' {1..64})" "'sha256:'" "'sha256: $(printf 'f%.0s' {1..64})'"; do
@@ -321,156 +298,61 @@ t_eq "$t_rc" 0
 t_contains "$(t_calls docker)" "pull -q ghcr.io/up-owner/pi-rukas:sha-aaaaaaaaaaaa"
 t_lacks "$(t_calls docker)" "@sha256:"
 
-t_case "the instance's PI_RUKAS_FOLLOW wins over the one versions.env names"
-# The release's own pin is a different commit, so the answer can only have come
-# from the instance's line: it is a commit, which is no lookup, and none was asked.
+t_case "the instance's PI_RUKAS_FOLLOW wins, and the release's digest goes with the release's commit"
 reset
 pin_versions PI_RUKAS_FOLLOW "commit:$(printf '1%.0s' {1..40})"
-t_env_instance
-printf 'TEHAS_REPO=acme/widget\nPI_RUKAS_FOLLOW=commit:%s\n' "$commit40" >"$TEHAS_INSTANCE_DIR/instance.env"
+pin_versions PI_RUKAS_IMAGE_DIGEST "$digest64"
+t_instance "${T_MINIMAL[@]}" "PI_RUKAS_FOLLOW=commit:$commit40"
 t_run "$build"
 t_eq "$t_rc" 0
 t_eq "$(t_calls git)" ""
 t_contains "$(t_calls docker)" "--build-arg PI_RUKAS_COMMIT=$commit40"
-t_lacks "$(t_calls docker)" "PI_RUKAS_COMMIT=$(printf '1%.0s' {1..40})"
+# The release's digest is the image of the release's commit, not of this one.
+t_contains "$(t_calls docker)" "pull -q ghcr.io/up-owner/pi-rukas:sha-eeeeeeeeeeee"
+t_lacks "$(t_calls docker)" "@sha256:"
 t_contains "$t_out" "with pi-rukas $commit40 (pinned)"
 
-t_case "the instance's digest is the base, over the one the release named"
-# The release names a digest of its own, so the base can only have come from the
-# host's file: neither the release's digest nor the tag of the followed commit
-# was pulled.
+t_case "an instance that follows another commit and names its digest builds on that digest"
 reset
+pin_versions PI_RUKAS_FOLLOW "commit:$(printf '1%.0s' {1..40})"
 pin_versions PI_RUKAS_IMAGE_DIGEST "sha256:$(printf '2%.0s' {1..64})"
-t_env_instance
-printf 'TEHAS_REPO=acme/widget\nPI_RUKAS_IMAGE_DIGEST=%s\n' "$digest64" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_instance "${T_MINIMAL[@]}" "PI_RUKAS_FOLLOW=commit:$commit40" "PI_RUKAS_IMAGE_DIGEST=$digest64"
 t_run "$build"
 t_eq "$t_rc" 0
 t_contains "$(t_calls docker)" "pull -q ghcr.io/up-owner/pi-rukas@$digest64"
 t_lacks "$(t_calls docker)" "sha256:222222"
-t_lacks "$(t_calls docker)" "sha-aaaaaaaaaaaa"
 
-t_case "an instance that sets neither pin leaves the release's alone, quoted or not"
-# The release names commit $commit40 and digest $digest64; the host's file says
-# nothing about either, so the build follows both, and asking upstream for a
-# commit would have been the sign it did not.
+t_case "an instance that sets no pin builds on the release's commit and digest"
 reset
 pin_versions PI_RUKAS_FOLLOW "commit:$commit40"
 pin_versions PI_RUKAS_IMAGE_DIGEST "$digest64"
-t_env_instance
-printf 'TEHAS_REPO=acme/widget\nTEHAS_TOP=0\n' >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$build"
-t_eq "$t_rc" 0
-t_eq "$(t_calls git)" ""
-t_contains "$(t_calls docker)" "pull -q ghcr.io/up-owner/pi-rukas@$digest64"
-# The same two lines of the release's file with the values quoted, which is how a
-# person writes them when the value is long: the quotes are not part of the pin.
-pin_versions PI_RUKAS_FOLLOW "\"commit:$commit40\""
-pin_versions PI_RUKAS_IMAGE_DIGEST "'$digest64'"
-rm -f "$TEHAS_INSTANCE_DIR/instance.env"
+t_instance "${T_MINIMAL[@]}"
 t_run "$build"
 t_eq "$t_rc" 0
 t_eq "$(t_calls git)" ""
 t_contains "$(t_calls docker)" "pull -q ghcr.io/up-owner/pi-rukas@$digest64"
 t_contains "$(t_calls docker)" "--build-arg PI_RUKAS_COMMIT=$commit40"
 
-t_case "the instance's pins win over the release's, quoted"
-# The release's two lines name another build; the host's own, quoted as a person
-# writes a long value, decide what this one pulls and labels, and nothing is looked
-# up for either of them. The release's file is pinned first, so the host's own
-# answer is the only thing that can make these two calls.
-reset
-pin_versions PI_RUKAS_FOLLOW "commit:$(printf '4%.0s' {1..40})"
-pin_versions PI_RUKAS_IMAGE_DIGEST "sha256:$(printf '5%.0s' {1..64})"
-t_env_instance
-{ printf 'TEHAS_REPO=acme/widget\n'
-  printf 'export PI_RUKAS_FOLLOW="commit:%s"\n' "$commit40"
-  printf '  %s\n' "PI_RUKAS_IMAGE_DIGEST='$digest64'"
-} >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$build"
-t_eq "$t_rc" 0
-t_eq "$(t_calls git)" ""
-t_contains "$(t_calls docker)" "pull -q ghcr.io/up-owner/pi-rukas@$digest64"
-t_contains "$(t_calls docker)" "--build-arg PI_RUKAS_COMMIT=$commit40"
-t_lacks "$(t_calls docker)" "PI_RUKAS_COMMIT=$(printf '4%.0s' {1..40})"
-t_lacks "$(t_calls docker)" "sha256:555555"
-
-t_case "an unquoted instance pin is the pin, read line by line as a quoted one is"
-reset
-# The release's two lines name another commit and another base, so this build can
-# only have taken both pins from the host's own file, written without quotes.
-pin_versions PI_RUKAS_FOLLOW "commit:$(printf '6%.0s' {1..40})"
-pin_versions PI_RUKAS_IMAGE_DIGEST "sha256:$(printf '7%.0s' {1..64})"
-t_env_instance
-instance_pins "commit:$commit40" "$digest64"
-t_run "$build"
-t_eq "$t_rc" 0
-t_eq "$(t_calls git)" ""
-t_contains "$(t_calls docker)" "pull -q ghcr.io/up-owner/pi-rukas@$digest64"
-t_contains "$(t_calls docker)" "--build-arg PI_RUKAS_COMMIT=$commit40"
-t_lacks "$(t_calls docker)" "sha256:777777"
-
-t_case "a pin the instance gave that is not one word, or has a quote open, stops the build with 78"
-# The shapes tehas_read_pin will not hand back, each one on the line the instance
-# wrote: a value of two words, quoted and unquoted, and a quote at one end only.
-# Each is a broken pin rather than an absent one, so the release's value is not
-# followed behind it and the file is named.
-bad_follow=$(printf 'a%.0s' {1..40})
-bad_digest=$(printf 'b%.0s' {1..64})
-for line in "PI_RUKAS_IMAGE_DIGEST=\"sha256:$bad_digest extra\"" "PI_RUKAS_FOLLOW=commit:$bad_follow extra" \
-  "PI_RUKAS_FOLLOW=\"commit:$bad_follow" "PI_RUKAS_IMAGE_DIGEST=sha256:$bad_digest'"; do
+t_case "an instance whose PI_RUKAS_FOLLOW is not valid builds nothing, with 78"
+for bad in main "commit:${commit40:0:39}" ""; do
   reset
-  t_env_instance
-  printf 'TEHAS_REPO=acme/widget\n%s\n' "$line" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_instance "${T_MINIMAL[@]}" "PI_RUKAS_FOLLOW=$bad"
   t_run "$build"
   t_eq "$t_rc" 78
-  t_contains "$t_out" "on a line that is not one assignment"
-  case "$line" in
-    PI_RUKAS_FOLLOW*) t_contains "$t_out" "sets PI_RUKAS_FOLLOW" ;;
-    *) t_contains "$t_out" "sets PI_RUKAS_IMAGE_DIGEST" ;;
-  esac
+  t_contains "$t_out" "PI_RUKAS_FOLLOW is not valid"
   t_eq "$(t_calls git)$(t_calls docker)" ""
 done
 
-t_case "an instance whose file cannot be read says so and follows the release's pins"
+t_case "an instance whose settings do not load (a token in instance.env) builds nothing, with 78"
 reset
-# Both names go in the host's file and in versions.env, so each half of this case
-# can only be answered from the file it came out of: the release's commit and the
-# release's digest, and neither of the host's own.
-pin_versions PI_RUKAS_FOLLOW "commit:$commit40"
-pin_versions PI_RUKAS_IMAGE_DIGEST "$digest64"
-t_env_instance
-instance_pins "commit:$(printf '8%.0s' {1..40})" "sha256:$(printf '9%.0s' {1..64})"
-chmod 000 "$TEHAS_INSTANCE_DIR/instance.env"
+t_instance "${T_MINIMAL[@]}" TEHAS_MODEL_KEY_MAIN=not-here
 t_run "$build"
-t_eq "$t_rc" 0
-t_contains "$t_out" "cannot be read, so this build follows the pins of versions.env"
-# Nothing looked up, so the commit is the release's; and the base is the release's
-# digest, not the tag and not the host's own.
-t_eq "$(t_calls git)" ""
-t_contains "$(t_calls docker)" "--build-arg PI_RUKAS_COMMIT=$commit40"
-t_contains "$(t_calls docker)" "pull -q ghcr.io/up-owner/pi-rukas@$digest64"
-t_lacks "$(t_calls docker)" "sha256:999999"
-chmod 644 "$TEHAS_INSTANCE_DIR/instance.env"
-
-t_case "an instance pin of nothing is no pin, and the release's stands"
-# The release names the digest and nothing about the commit; the host sets both
-# names to nothing, so the digest of the release is the base and the commit is
-# the one looked up upstream, which is what a host with no pin of its own gets.
-reset
-t_env_instance
-printf 'TEHAS_REPO=acme/widget\nPI_RUKAS_FOLLOW=\nPI_RUKAS_IMAGE_DIGEST=\n' >"$TEHAS_INSTANCE_DIR/instance.env"
-pin_versions PI_RUKAS_IMAGE_DIGEST "$digest64"
-t_run "$build"
-t_eq "$t_rc" 0
-t_contains "$(t_calls docker)" "pull -q ghcr.io/up-owner/pi-rukas@$digest64"
-t_contains "$(t_calls git)" "ls-remote --tags https://github.com/Up-Owner/pi-rukas.git"
+t_eq "$t_rc" 78
+t_eq "$(t_calls git)$(t_calls docker)" ""
 
 t_case "a malformed digest in the instance's file is 78 before docker is asked anything"
-# The host's file holds the malformed digest and nothing else: a commit in
-# versions.env would be refused first, for a reason that is right but not this one.
 reset
-t_env_instance
-printf 'TEHAS_REPO=acme/widget\nPI_RUKAS_IMAGE_DIGEST=sha256:%s\n' "$(printf 'f%.0s' {1..63})" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_instance "${T_MINIMAL[@]}" "PI_RUKAS_IMAGE_DIGEST=sha256:$(printf 'f%.0s' {1..63})"
 t_run "$build"
 t_eq "$t_rc" 78
 t_contains "$t_out" "is not sha256: and 64 hex digits"

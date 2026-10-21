@@ -6,9 +6,6 @@
 . "$(dirname "$0")/lib.sh" || exit 1
 
 t_stub git '[ -e "$T/refs" ] || exit 2; cat "$T/refs"'
-# The file build.sh sources before the instance's value, for the case that
-# checks which of the two a caller sees.
-printf 'PI_RUKAS_REPO=https://github.com/pinned/pi-rukas.git\nPI_RUKAS_FOLLOW=release\n' >"$T/versions.env"
 a=$(printf 'a%.0s' {1..40})
 b=$(printf 'b%.0s' {1..40})
 c=$(printf 'c%.0s' {1..40})
