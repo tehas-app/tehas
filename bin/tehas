@@ -9,6 +9,8 @@
 #   tehas index                      build the code index the agents search
 #   tehas update [--check]           bring this host up to date with the platform
 #   tehas labels                     create the tehas labels in the repository
+#   tehas check-product [--sandbox]  check the product against the contract
+#   tehas init-product [--dry-run]   propose the missing contract files
 #   tehas status [--json]            print the state of the factory
 #   tehas api [--json]               what this factory speaks, for a program
 #   tehas limit [set ...|clear]      an outside cap on what this factory starts
@@ -43,7 +45,7 @@ usage_of() {
 # script <command>: the file behind a command, or nothing.
 script() {
   case "$1" in
-    dispatch | work | plan | dev | index | update | labels | top | pause | resume | stop | api | limit | drain | history | export | mcp) echo "$libexec/$1" ;;
+    dispatch | work | plan | dev | index | update | labels | top | pause | resume | stop | api | limit | drain | history | export | mcp | check-product | init-product) echo "$libexec/$1" ;;
     status) echo "$libexec/summary" ;;
     analytics) echo "$libexec/analytics-cmd" ;;
   esac
