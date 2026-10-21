@@ -614,15 +614,15 @@ else
   }
   # The console's source is all of console/ but its tests, analytics/ and mcp/,
   # so a change to either alone does not build the console again. analytics reads
-  # its own directory, the workspace's manifest and lock, and the console's mask;
-  # the MCP server its own directory and the manifest and lock.
+  # its own directory, the workspace's manifest and lock, and the console's mask,
+  # and so does the MCP server.
   console_source=$(source_sum ! -path './tests/*' ! -path './analytics/*' ! -path './mcp/*') ||
     { echo "tehas: could not read the console's source in $root/console" >&2; exit 1; }
   analytics_source=$(source_sum \( \( -path './analytics/*' ! -path './analytics/tests/*' \) \
     -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path ./src/mask.rs \)) ||
     { echo "tehas: could not read the analytics program's source in $root/console" >&2; exit 1; }
   mcp_source=$(source_sum \( \( -path './mcp/*' ! -path './mcp/tests/*' ! -path './mcp/target/*' \) \
-    -o -path ./Cargo.toml -o -path ./Cargo.lock \)) ||
+    -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path ./src/mask.rs \)) ||
     { echo "tehas: could not read the MCP server's source in $root/console" >&2; exit 1; }
   program_sum() { sha256sum <"$1" | cut -d' ' -f1; }
   # program_label <name>: how a message names it.
