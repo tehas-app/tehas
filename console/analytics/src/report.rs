@@ -12,10 +12,16 @@
 //! such as a share of nothing, is left out, never null. Work runs (kind
 //! work) that ended in the window make the run figures; planning turns are
 //! only counted, in planningTurns. Durations are seconds.
+//!
+//! `refine` follows the issues a refining session filed (tehas:refine), read
+//! from state/refined.jsonl beside the database, next to the other issues
+//! that were made ready in the window: how many started and shipped, and the
+//! lead time of the refined ones. Counts only, no issue number.
 
 use rusqlite::{params, Connection};
 use serde_json::{json, Map, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 
 pub const REPORT_VERSION: i64 = 1;
 pub const DAYS: i64 = 10;
@@ -253,6 +259,118 @@ pub fn build(conn: &Connection, to: i64) -> rusqlite::Result<Value> {
     report.insert("stations".into(), stations(conn, &runs, from, to)?);
     report.insert("versions".into(), versions(&runs));
     Ok(Value::Object(report))
+}
+
+/// One line of state/refined.jsonl (lib/planning.sh): when a refining session
+/// filed an issue, and that issue's number.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Refined {
+    pub at: i64,
+    pub filed: i64,
+}
+
+/// The ledger of refined issues. A line that is not an object with a time and
+/// a positive number is skipped; no file is no refined issue.
+pub fn read_refined(home: &Path) -> Vec<Refined> {
+    let Ok(text) = std::fs::read_to_string(home.join("state").join("refined.jsonl")) else {
+        return Vec::new();
+    };
+    text.lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .filter_map(|v| {
+            let at = v
+                .get("at")
+                .and_then(Value::as_str)
+                .and_then(crate::run::iso_ms)?
+                / 1000;
+            let filed = v.get("filed").and_then(Value::as_i64).filter(|n| *n > 0)?;
+            Some(Refined { at, filed })
+        })
+        .collect()
+}
+
+/// The refine figures of the window that ends at `to`: refining sessions
+/// started (first turns with how `refine`), issues they filed, of those how
+/// many started a cycle and how many shipped, with the lead time of the
+/// shipped ones from their ready event; and, to compare, the other issues
+/// made ready in the window, how many started and shipped.
+pub fn refine(conn: &Connection, refined: &[Refined], to: i64) -> rusqlite::Result<Value> {
+    let from = (to.div_euclid(DAY) - (DAYS - 1)) * DAY;
+    let sessions: i64 = conn.query_row(
+        "SELECT count(*) FROM runs WHERE kind = 'plan' AND how = 'refine' AND started >= ?1 AND started <= ?2",
+        params![from, to],
+        |r| r.get(0),
+    )?;
+    let filed: BTreeSet<i64> = refined
+        .iter()
+        .filter(|r| r.at >= from && r.at <= to)
+        .map(|r| r.filed)
+        .collect();
+    let has_event = |issue: i64, event: &str| -> rusqlite::Result<bool> {
+        conn.query_row(
+            "SELECT count(*) FROM issue_events WHERE issue = ?1 AND event = ?2",
+            params![issue, event],
+            |r| r.get::<_, i64>(0),
+        )
+        .map(|n| n > 0)
+    };
+    let lead_of = |issue: i64| -> rusqlite::Result<Option<i64>> {
+        let mut st = conn.prepare("SELECT lead_seconds FROM v_lead WHERE issue = ?1")?;
+        let mut rows = st.query(params![issue])?;
+        Ok(match rows.next()? {
+            Some(row) => Some(row.get::<_, Option<i64>>(0)?.unwrap_or(-1)),
+            None => None,
+        })
+    };
+    let (mut started, mut shipped, mut lead) = (0usize, 0usize, Vec::new());
+    for &issue in &filed {
+        if has_event(issue, "started")? {
+            started += 1;
+        }
+        if let Some(l) = lead_of(issue)? {
+            shipped += 1;
+            if l >= 0 {
+                lead.push(l);
+            }
+        }
+    }
+    lead.sort_unstable();
+    let mut st = conn.prepare(
+        "SELECT issue FROM issue_events WHERE event = 'ready' AND at >= ?1 AND at <= ?2",
+    )?;
+    let ready: Vec<i64> = st
+        .query_map(params![from, to], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    let others: Vec<i64> = ready.into_iter().filter(|i| !filed.contains(i)).collect();
+    let (mut o_started, mut o_shipped) = (0usize, 0usize);
+    for &issue in &others {
+        if has_event(issue, "started")? {
+            o_started += 1;
+        }
+        if lead_of(issue)?.is_some() {
+            o_shipped += 1;
+        }
+    }
+    Ok(obj(vec![
+        ("sessions", Some(json!(sessions))),
+        ("n", Some(json!(filed.len()))),
+        ("started", Some(json!(started))),
+        ("shipped", Some(json!(shipped))),
+        ("shippedShare", share(shipped, filed.len()).map(Value::from)),
+        ("leadTime", Some(spread(&lead))),
+        (
+            "others",
+            Some(obj(vec![
+                ("n", Some(json!(others.len()))),
+                ("started", Some(json!(o_started))),
+                ("shipped", Some(json!(o_shipped))),
+                (
+                    "shippedShare",
+                    share(o_shipped, others.len()).map(Value::from),
+                ),
+            ])),
+        ),
+    ]))
 }
 
 fn spread(sorted: &[i64]) -> Value {
@@ -661,6 +779,24 @@ pub fn text(report: &Value) -> String {
         num(&at(&["planningTurns", "n"])),
         String::new(),
     );
+    let refine = &report["refine"];
+    if refine.is_object() {
+        row(
+            "Refine",
+            format!(
+                "{} sessions, {} issues filed: {} started, {} shipped ({}), lead median {}; other issues {} shipped (n={})",
+                num(&refine["sessions"]),
+                num(&refine["n"]),
+                num(&refine["started"]),
+                num(&refine["shipped"]),
+                pct(&refine["shippedShare"]),
+                dur(&refine["leadTime"]["median"]),
+                pct(&refine["others"]["shippedShare"]),
+                num(&refine["others"]["n"]),
+            ),
+            String::new(),
+        );
+    }
     row(
         "Handoff rate",
         pct(&at(&["handoffRate", "share"])),

@@ -244,7 +244,8 @@ tehas history [--json] [--after CURSOR] [--issue N]
     "provider": false, "parked": true, "by": "alice", "how": "label"},
    {"cursor": "1760700300-7", "kind": "plan", "issue": 7,
     "started": "2026-10-17T13:20:00Z", "ended": "2026-10-17T13:25:00Z",
-    "status": 0, "outcome": "finished", "turn": 3, "by": "alice"}],
+    "status": 0, "outcome": "finished", "turn": 3, "by": "alice",
+    "label": "tehas:refine", "filed": ["https://github.com/acme/widget/issues/41"]}],
  "next": "1760700300-7"}
 ```
 
@@ -267,8 +268,10 @@ takes one issue's lines, from its cycle and its planning turns together.
 status, `outcome` what it reported, and the rest are the fields of the line:
 the step and cap it stopped at, why it was parked, the failure the fixer named,
 whether its provider was asked, the pull request, and who asked for it and how.
-A planning turn has `turn`, its number in the issue. A field the line does not
-have is left out, never null.
+A planning turn has `turn`, its number in the issue, `label`, the label that
+started its session (`tehas:plan` or `tehas:refine`), and `filed`, the issues
+the turn filed, when it filed any. A field the line does not have is left out,
+never null.
 
 Without `--json`, one line each, oldest first.
 
