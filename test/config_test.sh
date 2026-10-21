@@ -114,6 +114,15 @@ t_case "the poll's unit has a finite limit, twice the lock's age at which a poll
 t_eq "$(sed -n 's/^TimeoutStartSec=//p' "$T_ROOT/host/systemd/tehas-dispatch.service")" "1h"
 t_contains "$(cat "$T_ROOT/libexec/dispatch")" "bound=1800"
 
+# A poll that exits non-zero leaves its unit failed, and a timer armed only
+# from the unit's inactivity does not fire again from that state: on 2026-10-20
+# one failed poll stopped the queue for 15 minutes. The two arms are pinned
+# together so neither is dropped alone.
+t_case "the poll's timer is armed from the last end and from the last start"
+t_eq "$(sed -n 's/^OnBootSec=//p' "$T_ROOT/host/systemd/tehas-dispatch.timer")" "2min"
+t_eq "$(sed -n 's/^OnUnitInactiveSec=//p' "$T_ROOT/host/systemd/tehas-dispatch.timer")" "2min"
+t_eq "$(sed -n 's/^OnUnitActiveSec=//p' "$T_ROOT/host/systemd/tehas-dispatch.timer")" "2min"
+
 t_case "one cycle at a time may run several workstreams, and pi-rukas is told the same number"
 t_instance "${T_MINIMAL[@]}" TEHAS_CONCURRENCY=4 TEHAS_TICKET_CONCURRENCY=1
 t_run "$load && echo \"\$TEHAS_CONCURRENCY \$TEHAS_TICKET_CONCURRENCY \$PI_ENSEMBLE_MAX_WORKSTREAMS\""

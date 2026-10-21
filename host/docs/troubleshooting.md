@@ -279,6 +279,13 @@ tail ~/tehas/logs/dispatch.log
 `systemctl --user disable --now tehas-dispatch.timer` turns polling off without
 touching a running cycle.
 
+A poll that fails does not stop the polling. `tehas-dispatch.timer` counts two
+minutes from the last end of the poll's unit and from its last start, so a poll
+that exits non-zero - a disk that filled, a GitHub call that failed - is
+followed by the next poll two minutes later. What a failed poll cost is the
+work it did not do, not the queue. Read `~/tehas/logs/dispatch.log` for the
+error and `systemctl --user status tehas-dispatch.service` for its exit status.
+
 ## The dispatcher holds on the slice
 
 `tehas status` says `warn` and its `slice` line starts with `holding:`. No

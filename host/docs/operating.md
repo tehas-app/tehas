@@ -296,7 +296,10 @@ shows one cycle at a time. When several are running, or one is running and an
 earlier one can still be read, a row of tabs above it names each by its issue
 number.
 
-A timer polls every two minutes, and a cycle that ends starts a poll at once. To see the factory's state, or to see or force
+A timer polls every two minutes, and a cycle that ends starts a poll at once. A
+poll that fails does not stop the polling: the timer counts from the last start
+as well as the last end, so the next poll comes two minutes later whatever this
+one exited with. To see the factory's state, or to see or force
 a poll by hand on the host:
 
 ```
