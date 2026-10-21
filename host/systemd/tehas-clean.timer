@@ -1,0 +1,9 @@
+[Unit]
+Description=Tehas: free what the host can make again every hour
+
+[Timer]
+OnBootSec=15min
+OnUnitInactiveSec=1h
+
+[Install]
+WantedBy=timers.target
