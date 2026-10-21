@@ -118,7 +118,7 @@ fn args(name: &str) -> Value {
 }
 
 #[test]
-fn the_five_tools_are_listed_in_order_with_their_schemas() {
+fn the_tools_are_listed_in_order_with_their_schemas() {
     let tools = list();
     let names: Vec<&str> = tools
         .as_array()
@@ -126,7 +126,9 @@ fn the_five_tools_are_listed_in_order_with_their_schemas() {
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names, NAMES);
+    let mut want = NAMES.to_vec();
+    want.extend(["factory_sessions", "factory_session"]);
+    assert_eq!(names, want);
     for t in tools.as_array().unwrap() {
         assert_eq!(t["inputSchema"]["type"], "object", "{}", t["name"]);
         assert_eq!(t["outputSchema"]["type"], "object", "{}", t["name"]);

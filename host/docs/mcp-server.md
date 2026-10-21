@@ -149,7 +149,15 @@ the same JSON as text.
 | `factory_issues` | `stage`, optional: `queued`, `planning`, `running`, `awaiting`, `stopped` or `completed` | Per stage, the issues the dashboard lists: number, title, url, updatedAt, and closedAt when closed. `planning` is a count and issue numbers, without titles |
 | `factory_endings` | none | `endings`, the cycles that ended last (issue, status, step, startedAt, updatedAt), and `failed`, the failed ones among them (issue, status, step, startedAt, time) |
 | `factory_console` | `issue`, and `bytes` from 1 to 65536 | One running cycle's issue, step, status, statusText, startedAt, updatedAt, and the last `bytes` of its console, 64 KB without it. Only those bytes are read, however large the console |
-| `factory_stats` | none | The ten-day report the dashboard shows. See [Analytics](/analytics) for what each figure means |
+| `factory_stats` | none | The ten-day report the dashboard shows, See [Analytics](/analytics) for what each figure means |
+| `factory_sessions` | all optional: `outcome` (`pr`, `merged`, `handoff`, `parked`, `failed`, `refused`, `stopped`), `failureKind`, `tehasVersion`, `rukasVersion` (also matches the commit), `kind` (`work`, `plan`), `how` (`label`, `retry-tick`, `outage-retry`, `fixer`, `answer`, `refine`), `issue`, `limit` from 1 to 200 (50 without it), `before` | The runs of the last 30 days, newest first, filters combined: id, kind, issue, attempt, how, started, ended, seconds, outcome, failedStep, failureKind, failureCause, parkReason, tehasVersion, rukasVersion, and links to the issue and pull request (`issueUrl`, `prUrl`). `next` is the last id when more remain: pass it as `before`. A version or failure kind is matched exactly |
+| `factory_session` | `id`, like `work-12-1792485967` | One run of the last 30 days: every figure of the session, its `steps`, its `roles` (model, provider, tokens), its `logs` as a word and a size in bytes (never a file name), `filed` for a planning session, and `issueUrl` and `prUrl` |
+
+The links are built from the `repo` the dashboard publishes, and only when it
+is `owner/name`. Without a valid repo a session has no links and a cause has no
+issues. The session tools read `sessions.jsonl`, which `tehasbot status`
+rewrites on each poll; `stale` is true when it is more than ten minutes old. A
+session older than 30 days, or an id that is not in it, is a tool error.
 
 A file that is missing or half written gives a tool error that names it, and
 the server keeps answering. `factory_stats` with analytics off says that
