@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Tests for install.sh: a console build that is given no secret or fails,
-# a host without cargo, the footers' version, a checkout without the
-# console's source, and the analytics program built beside the console.
+# a host without cargo, cargo found in ~/.cargo/bin when PATH does not name it,
+# a tool directory another account can write, the footers' version, a checkout
+# without the console's source or without lib/paths.sh, and the analytics
+# program built beside the console.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -47,6 +49,45 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "cargo is not installed"
 t_lacks "$t_out" "the console did not build"
 t_eq "$(host_files | wc -l)" 0
+t_env
+
+# bootstrap.sh installs Rust with --no-modify-path, so cargo is only where it
+# was put. A run that is not a login shell has no env.sh yet to name it.
+t_case "cargo in ~/.cargo/bin is found when PATH does not name that directory"
+fresh
+instance
+mkdir -p "$home/.cargo/bin"
+mv "$T/bin/cargo" "$home/.cargo/bin/cargo"
+t_env PATH="$T/bin:/usr/bin:/bin"
+t_run "$install"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "cargo is not installed"
+t_eq "$(t_calls cargo | wc -l)" 3
+t_eq "$(cat "$th/libexec/console")" "a console built from source"
+t_eq "$(cat "$th/libexec/analytics")" "an analytics built from source"
+t_eq "$(cat "$th/libexec/tehas-mcp")" "a tehas-mcp built from source"
+t_stub_cargo
+t_env
+
+# The tool directories are first on PATH for a real run, and what is built from
+# them is installed as the console every cycle runs. One another account can
+# write is refused before a build.
+t_case "a tool directory another account can write stops the run before the build"
+fresh
+instance
+mkdir -p "$home/.cargo/bin"
+mv "$T/bin/cargo" "$home/.cargo/bin/cargo"
+chmod 777 "$home/.cargo/bin"
+t_env PATH="$T/bin:/usr/bin:/bin"
+t_run "$install"
+t_eq "$t_rc" 1
+t_contains "$t_out" "$home/.cargo/bin is writable by everyone (chmod o-w)"
+t_contains "$t_out" "nothing was installed"
+t_eq "$(find "$th" -type f ! -path "$th/state/*" 2>/dev/null | wc -l)" 0
+chmod 755 "$home/.cargo/bin"
+t_run "$install"
+t_eq "$t_rc" 0
+t_stub_cargo
 t_env
 
 t_case "the footers are given the checkout's newest tag and its commit"
@@ -157,6 +198,16 @@ echo "// changed" >>"$part/console/src/mask.rs"
 rm -f "$T/calls/cargo"
 t_run "$part/install.sh"
 t_eq "$(t_calls cargo | wc -l)" 2
+
+t_case "a checkout without lib/paths.sh names the missing file"
+fresh
+instance
+checkout
+rm -f "$part/lib/paths.sh"
+t_run "$part/install.sh"
+t_eq "$t_rc" 1
+t_contains "$t_out" "$part/lib/paths.sh is missing from this checkout"
+t_eq "$(host_files | wc -l)" 0
 
 t_case "an analytics that does not build installs nothing, the console's build included"
 fresh

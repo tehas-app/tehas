@@ -103,6 +103,18 @@ before=$(find "$T/home" | sort)
 t_run "$bootstrap check"
 t_eq "$(find "$T/home" | sort)" "$before"
 
+# The PATH a run of bootstrap.sh gets is the one lib/paths.sh names, the same
+# list install.sh uses: a tool under one of those directories is found.
+t_case "check looks in the tool directories lib/paths.sh names"
+all_present
+t_stub rustc "printf '%s\n' \"\$PATH\" >\"\$T/rustc-path\"
+printf '%s\n' \"\$TEHAS_HOME \$NPM_CONFIG_PREFIX \$CARGO_HOME \$RUSTUP_HOME\" >\"\$T/rustc-homes\"
+echo 'rustc $RUST_VERSION'"
+t_run "$bootstrap check"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/rustc-path")" "$T/home/tehas/bin:$T/home/tehas/tools/node/bin:$T/home/.local/bin:$T/home/.bun/bin:$T/home/.cargo/bin:$T_PATH"
+t_eq "$(cat "$T/rustc-homes")" "$T/home/tehas $T/home/.local $T/home/.cargo $T/home/.rustup"
+
 t_case "check reports a tool at another version and exits 1"
 t_stub gh 'echo "gh version 2.0.0 (2022-01-01)"'
 t_run "$bootstrap check"
@@ -217,6 +229,7 @@ pin_checkout() { # -> the directory holding the copy
   mkdir -p "$dir/host" "$dir/lib"
   cp "$bootstrap" "$dir/bootstrap.sh"
   cp "$T_ROOT/lib/rukas.sh" "$dir/lib/rukas.sh"
+  cp "$T_ROOT/lib/paths.sh" "$dir/lib/paths.sh"
   cp "$T_ROOT/host/versions.env" "$dir/host/versions.env"
   cp -R "$T_ROOT/host/npm" "$dir/host/npm"
   echo "$dir"
@@ -276,6 +289,17 @@ t_run "$dir/bootstrap.sh user"
 t_eq "$t_rc" 1
 t_contains "$t_out" "host/npm/parallel-web-cli is missing from this checkout: cannot install parallel-web-cli $PARALLEL_CLI_VERSION"
 t_eq "$(t_calls npm)$(t_calls curl)" ""
+
+# The tool directories come from lib/paths.sh. A copy without it names the file
+# that is gone, rather than reporting the host's tools as missing ones.
+t_case "a checkout without lib/paths.sh names the missing file"
+all_present
+dir=$(pin_checkout)
+rm -f "$dir/lib/paths.sh"
+t_run "$dir/bootstrap.sh check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "bootstrap: lib/paths.sh is missing from this checkout"
+t_lacks "$t_out" "MISSING"
 
 t_case "an npm tool is installed from the pinned tree, not from a registry range"
 all_present
