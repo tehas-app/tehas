@@ -306,14 +306,12 @@ t_eq "$t_rc" 64
 t_contains "$t_out" "tehas update: unknown argument: --dryrun"
 t_eq "$(t_calls install)" ""
 
-t_case "more than one argument is refused, naming what it was given"
+t_case "--help with another argument is refused, naming what it was given"
 instance
 platform 0
 t_run "$update --check --help"
 t_eq "$t_rc" 64
-t_contains "$t_out" "tehas update: takes at most one argument, got --check --help"
-# The same mistake answered the same way as in the dispatcher: the count is
-# refused before any of the arguments is read as a mode.
+t_contains "$t_out" "tehas update: --help takes no other argument, got --check --help"
 t_eq "$(t_calls install)" ""
 
 t_case "--help prints the usage with no instance and no checkout"

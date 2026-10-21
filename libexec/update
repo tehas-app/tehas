@@ -1,9 +1,34 @@
 #!/usr/bin/env bash
-# Bring this host up to date with the platform repository in one step.
+# Bring this host up to date in one step, from a release or from the platform
+# checkout.
 #
-# The three things an update takes today - fast-forward the platform checkout,
-# run install.sh, then finish each follow-up it asks for - in order, one line
-# per step, stopping at the first failure. It changes nothing when the checkout
+# The three things an update takes - move to the new code, run install.sh, then
+# finish each follow-up it asks for - in order, one line per step, stopping at
+# the first failure.
+#
+# Where the new code comes from is TEHAS_UPDATE_FROM in instance.env. Without
+# it, a host with ~/tehas/current updates from releases and one with a platform
+# checkout from that checkout, so a host installed before the setting existed
+# goes on as it did.
+#
+# From a release (TEHAS_UPDATE_FROM=release): the releases are read from
+# TEHAS_RELEASE_REPO (versions.env carries the platform's own; the instance may
+# name another), with gh when it is signed in, which reaches a private
+# repository with the bot's token, and with curl from the public address
+# otherwise. The tarball is checked against its .sha256 and its minisign
+# signature with the key install.sh put in ~/tehas/release/minisign.pub, never a
+# key from the download, and unpacked into ~/tehas/versions/<version>. The
+# instance is checked against that version's own lib/config.sh, with the
+# example value of any setting it is missing, and a TEHAS_ key that version
+# never names is warned about. Only then is ~/tehas/current pointed at it, and
+# install.sh runs from current, so the commands and the units are the copies it
+# makes from that version. The sandbox image each version ran with keeps a tag,
+# tehas/pi-rukas:release-<version>, so going back to it reuses the image. The
+# version current names and the two switched to before it stay on disk, the
+# rest are removed with their image tags.
+#
+# From the checkout (TEHAS_UPDATE_FROM=git), for a host that develops tehas: it
+# fast-forwards the platform checkout. It changes nothing when the checkout
 # has local changes or cannot be fast-forwarded.
 #
 # What it does not do: enable or start a systemd unit or a container that is
@@ -67,9 +92,17 @@
 # While $TEHAS_HOME/state/update-hold exists an update refuses to run, with
 # exit 1, and --check says the hold is there. A person who rolled the platform
 # back makes that file, so the next update does not move it forward again.
+# --to names its version and is not held.
 #
 # Usage:
-#   tehas update             pull, install, run the follow-ups that apply
+#   tehas update             move to the newest release, or pull the checkout;
+#                            install, run the follow-ups that apply
+#   tehas update --to vX.Y.Z install that release, older ones included
+#   tehas update --check [--to vX.Y.Z]
+#                            from a release: the installed version, the newest,
+#                            and the notes of the releases between them with
+#                            their Adopter action; then install.sh --check of
+#                            the version installed. It downloads nothing.
 #   tehas update --check     report what would change and change no file of the
 #                            checkout or of the host - including the follow-ups
 #                            an earlier run left undone, which it reports and
@@ -103,9 +136,17 @@
 #         in place; install.sh keeps each replaced file as <name>.prev. What was
 #         asked for and did not run stays recorded for the next run, and so does
 #         a step line this command does not know.
-#       64 more than one argument, or an argument this command does not know
-#       78 the instance settings are missing or malformed, or there is no
-#         platform checkout
+#         From a release, 1 also when the releases cannot be listed, the version
+#         asked for is not published, or a download is missing a file, does
+#         not match its .sha256 or is not signed by the installed key; nothing is
+#         switched then.
+#       64 --help with another argument, --to without a version or with one not
+#         shaped vX.Y.Z, --to on a host that updates from its checkout, or an
+#         argument this command does not know
+#       78 the instance settings are missing or malformed, there is no
+#         platform checkout, the host has neither one nor ~/tehas/current and
+#         no TEHAS_UPDATE_FROM, or the release to switch to asks for a setting
+#         the instance does not have (nothing is switched)
 set -uo pipefail
 
 # Timeouts for the calls outside this command. Each is generous next to the work
@@ -134,22 +175,36 @@ unknown_argument() {
 
 # Arguments first, as in the dispatcher: --help answers on a host with no
 # instance settings yet, and an argument this command does not know reaches
-# neither git nor Docker. At most one argument, decided before anything is run.
+# neither git nor Docker. Decided before anything is run.
 mode=update
 pending=0
-if [ "$#" -gt 1 ]; then
-  printf 'tehas update: takes at most one argument, got %s\n' "$*" >&2
-  show_usage >&2
-  exit 64
-fi
-if [ "$#" = 1 ]; then
+to=""
+case " $* " in
+  *" -h "* | *" --help "*)
+    if [ "$#" != 1 ]; then
+      printf 'tehas update: --help takes no other argument, got %s\n' "$*" >&2
+      show_usage >&2
+      exit 64
+    fi
+    ;;
+esac
+while [ "$#" -gt 0 ]; do
   case "$1" in
     --check) mode=check ;;
-    -h | --help) mode=help ;;
+    -h | --help) show_usage; exit 0 ;;
+    --to)
+      [ "$#" -ge 2 ] || { echo "tehas update: --to needs a version" >&2; exit 64; }
+      to=$2
+      shift
+      ;;
     *) unknown_argument "$1" ;;
   esac
+  shift
+done
+if [ -n "$to" ] && [[ ! $to =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "tehas update: --to takes a version vX.Y.Z, got: $to" >&2
+  exit 64
 fi
-if [ "$mode" = help ]; then show_usage; exit 0; fi
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/config.sh
@@ -163,8 +218,18 @@ tehas_load || exit 78
 # checkout moves, not after install.sh has installed from the new code.
 tehas_require_instance_settings
 
+# shellcheck source=lib/update-release.sh
+. "$here/../lib/update-release.sh"
+from=$(tehas_update_source) || exit 78
+if [ -n "$to" ] && [ "$from" != release ]; then
+  echo "tehas update: --to installs a release, and this host updates from its platform checkout (TEHAS_UPDATE_FROM=git); nothing was changed" >&2
+  exit 64
+fi
+
+# --to names its version, so it is not held: the hold keeps a plain update from
+# moving the host on after a person moved it.
 hold=$TEHAS_HOME/state/update-hold
-if [ -e "$hold" ]; then
+if [ -e "$hold" ] && [ -z "$to" ]; then
   if [ "$mode" = update ]; then
     echo "tehas update: $hold exists, the platform is held where it is; nothing was changed. Remove the file to update." >&2
     exit 1
@@ -174,7 +239,7 @@ fi
 
 checkout=$TEHAS_HOME/platform
 # .git is a directory in a clone and a file in a worktree or a submodule.
-if [ ! -e "$checkout/.git" ] || [ ! -f "$checkout/install.sh" ]; then
+if [ "$from" = git ] && { [ ! -e "$checkout/.git" ] || [ ! -f "$checkout/install.sh" ]; }; then
   echo "tehas update: no platform checkout at $checkout. Clone the platform repository there, or run ./install.sh from wherever you keep it." >&2
   exit 78
 fi
@@ -230,120 +295,218 @@ warn_unknown() {
   return 0
 }
 
-# --- 1. The checkout ---------------------------------------------------------
-# A branch, and nothing uncommitted: an update that carried on past either one
-# would merge into a tree somebody is editing.
-branch=$(git -C "$checkout" symbolic-ref --quiet --short HEAD 2>/dev/null) || branch=""
-if [ -z "$branch" ]; then
-  echo "checkout: $checkout is not on a branch (detached HEAD); nothing was changed" >&2
-  exit 1
-fi
-
-# A branch with no commit yet - a clone taken before the repository had one -
-# has no HEAD to compare with origin, and saying that is truer than the
-# fast-forward complaint an empty value would otherwise end in. Full commit ids,
-# not the short ones git abbreviates to whatever length suits the object count:
-# two calls either side of a fetch can abbreviate the same commit differently, and
-# a comparison of those would be a comparison of two different strings.
-head_sha=$(git -C "$checkout" rev-parse --quiet --verify HEAD 2>/dev/null) || head_sha=""
-if [ -z "$head_sha" ]; then
-  echo "checkout: $checkout is on branch $branch with no commit yet; nothing was changed" >&2
-  exit 1
-fi
-
-# A clone records the remote's default branch in refs/remotes/origin/HEAD. A
-# checkout left on another branch updates and installs that branch, which is
-# usually not what a person means, so it is said out loud before anything runs.
-default=$(git -C "$checkout" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null) || default=""
-default=${default#origin/}
-if [ -n "$default" ] && [ "$default" != "$branch" ]; then
-  printf 'checkout: %s is on branch %s; the default branch of origin is %s. This update uses %s.\n' \
-    "$checkout" "$branch" "$default" "$branch" >&2
-fi
-
-# stdout only: a git warning is not a changed path, and git's own error text
-# reaches the operator on stderr either way.
-changes=$(git -C "$checkout" status --porcelain) || {
-  echo "checkout: git status failed in $checkout; nothing was changed" >&2
-  exit 1
-}
-if [ -n "$changes" ]; then
-  printf 'checkout: %s has local changes; nothing was changed\n' "$checkout" >&2
-  printf '%s\n' "$changes" | sed 's/^/  /' >&2
-  exit 1
-fi
-
-out=$(timeout "$fetch_limit" git -C "$checkout" fetch --prune origin 2>&1)
-rc=$?
-if [ "$rc" != 0 ]; then
-  printf 'checkout: could not fetch from origin; nothing was changed\n' >&2
-  [ "$rc" = 124 ] && echo "  the fetch gave no answer in ${fetch_limit}s" >&2
-  [ -n "$out" ] && printf '%s\n' "$out" | sed 's/^/  /' >&2
-  exit 1
-fi
-
-remote_sha=$(git -C "$checkout" rev-parse --quiet --verify "refs/remotes/origin/$branch" 2>/dev/null) || remote_sha=""
-if [ -z "$remote_sha" ]; then
-  echo "checkout: origin has no branch $branch in $checkout; nothing was changed" >&2
-  exit 1
-fi
-
-# Twelve of each for the lines an operator reads: long enough to tell two commits
-# apart, short enough to fit the message.
-head_short=${head_sha:0:12}
-remote_short=${remote_sha:0:12}
-
-if [ "$head_sha" = "$remote_sha" ]; then
-  echo "checkout: $branch is up to date at $head_short"
-else
-  # Fast-forward only. Local commits of its own, or a branch that was rewritten
-  # on the remote, are a question for a person, not for an update.
-  if ! git -C "$checkout" merge-base --is-ancestor HEAD "refs/remotes/origin/$branch" 2>/dev/null; then
-    printf 'checkout: %s cannot fast-forward to origin/%s (%s); nothing was changed\n' \
-      "$checkout" "$branch" "$remote_short" >&2
-    echo "  the checkout has commits of its own, or origin/$branch was rewritten. Reconcile it by hand." >&2
+if [ "$from" = git ]; then
+  # --- 1. The checkout ---------------------------------------------------------
+  # A branch, and nothing uncommitted: an update that carried on past either one
+  # would merge into a tree somebody is editing.
+  branch=$(git -C "$checkout" symbolic-ref --quiet --short HEAD 2>/dev/null) || branch=""
+  if [ -z "$branch" ]; then
+    echo "checkout: $checkout is not on a branch (detached HEAD); nothing was changed" >&2
     exit 1
   fi
-  behind=$(git -C "$checkout" rev-list --count "HEAD..refs/remotes/origin/$branch")
-  if [ "$mode" = check ]; then
-    echo "checkout: would fast-forward $head_short -> $remote_short ($behind commits)"
-    pending=1
-  elif ! out=$(git -C "$checkout" merge --ff-only "refs/remotes/origin/$branch" 2>&1); then
-    printf 'checkout: the fast-forward failed; nothing was installed\n' >&2
+
+  # A branch with no commit yet - a clone taken before the repository had one -
+  # has no HEAD to compare with origin, and saying that is truer than the
+  # fast-forward complaint an empty value would otherwise end in. Full commit ids,
+  # not the short ones git abbreviates to whatever length suits the object count:
+  # two calls either side of a fetch can abbreviate the same commit differently, and
+  # a comparison of those would be a comparison of two different strings.
+  head_sha=$(git -C "$checkout" rev-parse --quiet --verify HEAD 2>/dev/null) || head_sha=""
+  if [ -z "$head_sha" ]; then
+    echo "checkout: $checkout is on branch $branch with no commit yet; nothing was changed" >&2
+    exit 1
+  fi
+
+  # A clone records the remote's default branch in refs/remotes/origin/HEAD. A
+  # checkout left on another branch updates and installs that branch, which is
+  # usually not what a person means, so it is said out loud before anything runs.
+  default=$(git -C "$checkout" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null) || default=""
+  default=${default#origin/}
+  if [ -n "$default" ] && [ "$default" != "$branch" ]; then
+    printf 'checkout: %s is on branch %s; the default branch of origin is %s. This update uses %s.\n' \
+      "$checkout" "$branch" "$default" "$branch" >&2
+  fi
+
+  # stdout only: a git warning is not a changed path, and git's own error text
+  # reaches the operator on stderr either way.
+  changes=$(git -C "$checkout" status --porcelain) || {
+    echo "checkout: git status failed in $checkout; nothing was changed" >&2
+    exit 1
+  }
+  if [ -n "$changes" ]; then
+    printf 'checkout: %s has local changes; nothing was changed\n' "$checkout" >&2
+    printf '%s\n' "$changes" | sed 's/^/  /' >&2
+    exit 1
+  fi
+
+  out=$(timeout "$fetch_limit" git -C "$checkout" fetch --prune origin 2>&1)
+  rc=$?
+  if [ "$rc" != 0 ]; then
+    printf 'checkout: could not fetch from origin; nothing was changed\n' >&2
+    [ "$rc" = 124 ] && echo "  the fetch gave no answer in ${fetch_limit}s" >&2
     [ -n "$out" ] && printf '%s\n' "$out" | sed 's/^/  /' >&2
     exit 1
+  fi
+
+  remote_sha=$(git -C "$checkout" rev-parse --quiet --verify "refs/remotes/origin/$branch" 2>/dev/null) || remote_sha=""
+  if [ -z "$remote_sha" ]; then
+    echo "checkout: origin has no branch $branch in $checkout; nothing was changed" >&2
+    exit 1
+  fi
+
+  # Twelve of each for the lines an operator reads: long enough to tell two commits
+  # apart, short enough to fit the message.
+  head_short=${head_sha:0:12}
+  remote_short=${remote_sha:0:12}
+
+  if [ "$head_sha" = "$remote_sha" ]; then
+    echo "checkout: $branch is up to date at $head_short"
   else
-    echo "checkout: fast-forwarded $head_short -> $remote_short ($behind commits)"
-    # The rules install.sh is about to use are the ones in the checkout it just
-    # pulled, not the ones this command loaded from the installed copy. A change
-    # that adds a required setting, or tightens what a setting may be, has to be
-    # answered before anything of the host is touched - which is now, since the
-    # merge moved only the checkout. Nothing here writes: it reads instance.env
-    # and checks it against the pulled library.
-    out=$(bash -c '
-      if [ ! -r "$1/lib/config.sh" ]; then
-        echo "this checkout has no lib/config.sh; install.sh will report it"
-        exit 0
-      fi
-      . "$1/lib/config.sh"
-      if [ "$(type -t tehas_load 2>/dev/null)" != function ]; then
-        echo "this checkout does not define tehas_load; install.sh will check the settings itself"
-        exit 0
-      fi
-      if [ "$(type -t tehas_require_instance_settings 2>/dev/null)" != function ]; then
-        echo "this checkout does not define tehas_require_instance_settings; install.sh will check the settings itself"
-        exit 0
-      fi
-      tehas_load && tehas_require_instance_settings
-    ' _ "$checkout" 2>&1)
-    rc=$?
-    if [ "$rc" != 0 ]; then
-      printf 'settings: the checkout this update pulled asks for settings this instance does not have; nothing was installed\n' >&2
+    # Fast-forward only. Local commits of its own, or a branch that was rewritten
+    # on the remote, are a question for a person, not for an update.
+    if ! git -C "$checkout" merge-base --is-ancestor HEAD "refs/remotes/origin/$branch" 2>/dev/null; then
+      printf 'checkout: %s cannot fast-forward to origin/%s (%s); nothing was changed\n' \
+        "$checkout" "$branch" "$remote_short" >&2
+      echo "  the checkout has commits of its own, or origin/$branch was rewritten. Reconcile it by hand." >&2
+      exit 1
+    fi
+    behind=$(git -C "$checkout" rev-list --count "HEAD..refs/remotes/origin/$branch")
+    if [ "$mode" = check ]; then
+      echo "checkout: would fast-forward $head_short -> $remote_short ($behind commits)"
+      pending=1
+    elif ! out=$(git -C "$checkout" merge --ff-only "refs/remotes/origin/$branch" 2>&1); then
+      printf 'checkout: the fast-forward failed; nothing was installed\n' >&2
       [ -n "$out" ] && printf '%s\n' "$out" | sed 's/^/  /' >&2
-      echo "  $checkout is at the new code; fix the instance settings, or reset the checkout to what was installed before." >&2
+      exit 1
+    else
+      echo "checkout: fast-forwarded $head_short -> $remote_short ($behind commits)"
+      # The rules install.sh is about to use are the ones in the checkout it just
+      # pulled, not the ones this command loaded from the installed copy. A change
+      # that adds a required setting, or tightens what a setting may be, has to be
+      # answered before anything of the host is touched - which is now, since the
+      # merge moved only the checkout. Nothing here writes: it reads instance.env
+      # and checks it against the pulled library.
+      out=$(bash -c '
+        if [ ! -r "$1/lib/config.sh" ]; then
+          echo "this checkout has no lib/config.sh; install.sh will report it"
+          exit 0
+        fi
+        . "$1/lib/config.sh"
+        if [ "$(type -t tehas_load 2>/dev/null)" != function ]; then
+          echo "this checkout does not define tehas_load; install.sh will check the settings itself"
+          exit 0
+        fi
+        if [ "$(type -t tehas_require_instance_settings 2>/dev/null)" != function ]; then
+          echo "this checkout does not define tehas_require_instance_settings; install.sh will check the settings itself"
+          exit 0
+        fi
+        tehas_load && tehas_require_instance_settings
+      ' _ "$checkout" 2>&1)
+      rc=$?
+      if [ "$rc" != 0 ]; then
+        printf 'settings: the checkout this update pulled asks for settings this instance does not have; nothing was installed\n' >&2
+        [ -n "$out" ] && printf '%s\n' "$out" | sed 's/^/  /' >&2
+        echo "  $checkout is at the new code; fix the instance settings, or reset the checkout to what was installed before." >&2
+        exit 78
+      fi
+      [ -n "$out" ] && printf 'settings: %s\n' "$out"
+    fi
+  fi
+else
+  # --- 1. The release ----------------------------------------------------------
+  # The version to run is unpacked beside the others and checked before current
+  # is moved to it, so a download that fails a check, or a release that asks for
+  # a setting this instance lacks, leaves the host on the version it runs.
+  installed=$(tehas_release_installed)
+  list=$(tehas_release_list) || exit $?
+  tags=$(jq -r .tag <<<"$list")
+  newest=$(head -n 1 <<<"$tags")
+  if [ -z "$newest" ]; then
+    echo "release: $(tehas_release_repo) has no published release; nothing was changed" >&2
+    exit 1
+  fi
+  if [ -n "$to" ] && ! grep -qxF -- "$to" <<<"$tags"; then
+    echo "release: there is no published release $to; nothing was changed" >&2
+    exit 1
+  fi
+  target=${to:-$newest}
+  echo "release: installed ${installed:-none, this host ran from its platform checkout}, newest $newest"
+  if [ -z "$to" ] && [ -n "$installed" ] && tehas_release_older "$newest" "$installed"; then
+    echo "release: $installed is newer than the newest release; tehas update --to moves it back"
+    target=$installed
+  fi
+
+  # The notes a person reads before moving: each release's own section of the
+  # changelog, its Adopter action among them. Going back, the ones undone.
+  if [ "$target" != "$installed" ]; then
+    if [ -n "$installed" ] && tehas_release_older "$target" "$installed"; then
+      echo "release: going back to $target undoes these releases:"
+      notes=$(tehas_release_between "$target" "$installed" "$list")
+    else
+      echo "release: the notes up to $target:"
+      notes=$(tehas_release_between "$installed" "$target" "$list")
+    fi
+    while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      printf '\n== %s\n' "$(jq -r .tag <<<"$line")"
+      jq -r .body <<<"$line" | sed 's/^/  /'
+    done <<<"$notes"
+    echo
+  fi
+
+  if [ "$mode" = check ]; then
+    if [ "$target" != "$installed" ]; then
+      echo "release: would switch to $target"
+      pending=1
+    fi
+    # What is installed is checked by the install.sh it came from.
+    if [ -L "$TEHAS_HOME/current" ]; then
+      checkout=$TEHAS_HOME/current
+    elif [ ! -f "$checkout/install.sh" ]; then
+      exit "$pending"
+    fi
+  elif [ "$target" = "$installed" ]; then
+    echo "release: $installed is the version installed"
+    checkout=$TEHAS_HOME/current
+  else
+    tree=$TEHAS_HOME/versions/$target
+    if [ "$(head -n 1 "$tree/VERSION" 2>/dev/null)" = "$target" ]; then
+      echo "release: $target is on this host from before; it is not downloaded again"
+    else
+      mkdir -p "$TEHAS_HOME/tmp"
+      download=$(mktemp -d "$TEHAS_HOME/tmp/release.XXXXXX") || {
+        echo "release: cannot make a directory to download into; nothing was changed" >&2
+        exit 1
+      }
+      if ! tehas_release_fetch "$target" "$download" || ! tehas_release_verify "$target" "$download" ||
+        ! tehas_release_unpack "$target" "$download"; then
+        rm -rf "$download"
+        echo "release: $target was not installed; nothing was changed" >&2
+        exit 1
+      fi
+      rm -rf "$download"
+      echo "release: $target downloaded, checked against its .sha256 and its signature, unpacked in $tree"
+    fi
+    if ! tehas_release_settings "$tree"; then
+      echo "settings: $target asks for settings this instance does not have; nothing was switched" >&2
       exit 78
     fi
-    [ -n "$out" ] && printf 'settings: %s\n' "$out"
+    while IFS= read -r key; do
+      [ -n "$key" ] && echo "WARN: $TEHAS_INSTANCE_DIR/instance.env sets $key, which $target does not know" >&2
+    done < <(tehas_release_unknown_keys "$tree")
+    if ! tehas_release_switch "$target"; then
+      echo "release: current could not be pointed at $target; nothing was installed" >&2
+      exit 1
+    fi
+    echo "release: current is $target, was ${installed:-the platform checkout}"
+    checkout=$TEHAS_HOME/current
+    # A version that ran here before has its sandbox image still tagged, so going
+    # back to it is a tag and not a build.
+    if timeout "$compose_limit" docker image inspect "tehas/pi-rukas:release-$target" >/dev/null 2>&1 &&
+      timeout "$compose_limit" docker tag "tehas/pi-rukas:release-$target" "$PI_ENSEMBLE_IMAGE"; then
+      echo "sandbox: the image $target ran with is in use again"
+      reused=1
+    fi
   fi
 fi
 
@@ -754,6 +917,14 @@ while IFS= read -r line; do steps+=("$line"); done < <(tehas_sort_steps "${asked
 
 status=0
 built=0
+if [ "${reused:-0}" = 1 ]; then
+  kept=()
+  for step in "${steps[@]}"; do
+    [ "$(tehas_step_id "${step%% *}")" = sandbox ] || kept+=("$step")
+  done
+  steps=("${kept[@]}")
+  built=1
+fi
 if [ "${#unknown[@]}" != 0 ]; then status=1; fi
 if ! write_pending "${steps[@]}"; then exit 1; fi
 
@@ -781,6 +952,17 @@ fi
 if [ "$status" = 0 ] && [ "$built" = 0 ] && follows_rukas && ! rukas_step --if-moved; then
   echo "pi-rukas: the image was not moved to the commit versions.env follows; tehas update tries again" >&2
   status=1
+fi
+
+# The image this version runs with keeps a tag of its own, so going back to the
+# version later is a tag and not a build; prune drops the tags of versions it
+# removes.
+if [ "$status" = 0 ] && [ "$from" = release ]; then
+  version=$(tehas_release_installed)
+  if [ -n "$version" ] && ! timeout "$compose_limit" docker tag "$PI_ENSEMBLE_IMAGE" "tehas/pi-rukas:release-$version" >/dev/null 2>&1; then
+    echo "sandbox: $PI_ENSEMBLE_IMAGE could not be tagged for $version; going back to it builds the image again"
+  fi
+  tehas_release_prune
 fi
 
 exit "$status"
