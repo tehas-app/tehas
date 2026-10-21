@@ -267,6 +267,20 @@ t_contains "$t_out" "queue     2 in line, 0 building, 1 in review, 1 stopped"
 t_contains "$t_out" "cycle     none yet"
 t_contains "$t_out" "slice     unknown: no poll has reported in 10 min"
 
+t_case "summary: the last tehas check-product, when one ran"
+reset
+t_run "$status && $summary"
+t_lacks "$t_out" "product"
+mkdir -p "$T/home/tehas/state"
+at=$(date -u -d @$(($(date +%s) - 300)) +%Y-%m-%dT%H:%M:%SZ)
+printf '{"v":1,"at":"%s","ok":true,"failures":[],"sandbox":null}\n' "$at" >"$T/home/tehas/state/check-product.json"
+t_run "$summary"
+t_contains "$t_out" "product   keeps the contract, checked 5 min ago"
+printf '{"v":1,"at":"%s","ok":false,"failures":["no AGENTS.md","no gate"],"sandbox":null}\n' "$at" >"$T/home/tehas/state/check-product.json"
+t_run "$summary"
+t_eq "$t_rc" 0
+t_contains "$t_out" "product   2 to fix: no AGENTS.md; no gate, checked 5 min ago"
+
 t_case "summary: a running cycle"
 reset
 cycle true running develop
