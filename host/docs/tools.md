@@ -2344,8 +2344,8 @@ tail ~/tehas/logs/clean.log
 ```
 
 Removes what the host can make again, of anything untouched for
-`TEHAS_CLEAN_AFTER` hours (24 by default). Three steps, and a step that fails
-is logged as a warning while the other two still run:
+`TEHAS_CLEAN_AFTER` hours (24 by default). Five steps, and a step that fails
+is logged as a warning while the others still run:
 
 1. **Build output in kept workspaces.** For each issue with a kept workspace
    (`<name>-<n>` and `<name>-<n>.before-retry`) that no cycle is running, and
@@ -2371,11 +2371,24 @@ is logged as a warning while the other two still run:
 3. **Host scratch.** Files under `~/tehas/tmp/dl` and
    `~/tehas/tmp/node-compile-cache`, and `~/tehas/tmp/tehas-test.*` directories,
    of that age. Nothing else under `~/tehas`, and nothing outside it.
+4. **Old sandbox images.** The dated tags of the sandbox image whose image was
+   made before the age, taken one `docker rmi` at a time. The newest dated tag
+   stays whatever its age, and so does any tag a container or a `uid` tag was
+   made from: `tehasbot work` runs cycles from those images, so one in use is
+   never old. The build keeps its own newest three date tags
+   (see [the sandbox build](#the-sandbox-build)); what is older than the age
+   besides the newest is this step's.
+5. **The pulled base image.** The image the sandbox build starts from, which
+   upstream publishes for the commit `versions.env` follows, pruned with
+   `docker image prune -f --filter until=<N>h` naming its own ids, so nothing
+   but it and the images left with no tag are offered. Of that age, and made no
+   container.
 
-Sandbox images and the pulled base image are not this command's: the build keeps
-its newest three date tags, and previews go with `tehasbot preview`. Docker
+Preview images are `tehasbot preview`'s and no step here touches them. Docker
 volumes are never touched (see [the host](/host#what-a-container-may-not-do),
-where they are a person's call).
+where they are a person's call). A docker that answers no image list, or nothing
+about the containers on the host, leaves every image where it is: an unknown is
+never a reason to take an image away.
 
 `tehas-clean.timer` runs it once an hour, the first time 15 minutes after boot.
 It starts no work, so the pause label does not hold it. One run at a time: a

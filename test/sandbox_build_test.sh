@@ -11,7 +11,8 @@
 home=$T/home/tehas
 mkdir -p "$home/sandbox" "$home/lib"
 cp "$T_ROOT/host/sandbox/build.sh" "$home/sandbox/"
-cp "$T_ROOT/lib/headless.sh" "$T_ROOT/lib/rukas.sh" "$T_ROOT/lib/config.sh" "$home/lib/"
+cp "$T_ROOT/lib/headless.sh" "$T_ROOT/lib/rukas.sh" "$T_ROOT/lib/config.sh" \
+  "$T_ROOT/lib/sandbox.sh" "$T_ROOT/lib/models.sh" "$home/lib/"
 cp "$T_ROOT/host/versions.env" "$home/"
 sed -i 's#^PI_RUKAS_REPO=.*#PI_RUKAS_REPO=https://github.com/Up-Owner/pi-rukas.git#' "$home/versions.env"
 build=$home/sandbox/build.sh

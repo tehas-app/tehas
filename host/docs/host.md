@@ -69,9 +69,20 @@ itself.
 The same run prunes Docker's build cache of that age with `docker builder prune`.
 That is the build cache of the whole host's Docker daemon, not only tehas's:
 tehas is one project on one host, and the cache of anything else on it is made
-again too. It removes no image and no volume. Images go with the sandbox build,
-which keeps its newest three date tags, and with `tehasbot preview`; volumes are
-a person's call.
+again too.
+
+It removes images in two steps, and no volume. The first takes the dated tags of
+the sandbox image whose image is older than `TEHAS_CLEAN_AFTER` hours, keeping
+the newest dated tag and any tag a container or a `uid` tag was made from. The
+build keeps its newest three date tags (see [Commands](/tools)); what is older
+than the age besides the newest is this step's. The second prunes the base image
+the build pulls from upstream, and the images left with no tag, of that age and
+made no container: `docker image prune`. A container is what keeps an image
+here: `tehasbot work` runs its cycles from the sandbox image, so one an existing
+container was made from stays whatever its age. Preview images are
+`tehasbot preview`'s and no step here touches them; a docker that answers no
+image list, or nothing about the containers on the host, removes nothing, since
+an unknown is never a reason to take an image away. Volumes are a person's call.
 
 The third step is the host's scratch: old files under `~/tehas/tmp/dl`, where
 `bootstrap.sh` keeps what it downloads, and under `~/tehas/tmp/node-compile-cache`,
@@ -1108,7 +1119,11 @@ instance's `<date>-product` counted as one of them), and
 removes older ones. It keeps an older tag whose image a container, running or
 stopped, was made from, or that a `uid` tag names. On a host that builds
 often the images then take about three times the size of one, plus those
-still in use.
+still in use. `tehasbot clean` is what takes the rest: the dated tags past
+`TEHAS_CLEAN_AFTER` hours, keeping the newest, and then the pulled base image
+and the images left with no tag of that age (see [tehasbot
+clean](/tools#tehasbot-clean)). The base is upstream's image for the commit
+`versions.env` follows, and the puller names it one way only, by that commit.
 
 A build first asks the base image's runner what it supports,
 `pi-rukas-headless --capabilities`. A base that does not speak the contract
@@ -1247,7 +1262,7 @@ that cycle ran.
 | Host snapshot publisher, optional | systemd user service `tehas-top.service`, every 5 s. It writes nothing unless `TEHAS_TOP=1` | `jq '.host.cpus, .host.load' ~/tehas/live/top.json` |
 | Protolab pages | systemd user timer `tehas-protolab.timer`, every 5 minutes | `tail ~/tehas/logs/protolab.log` |
 | Improvement loop, optional | systemd user timer `tehas-improve.timer`, every 3 hours. It does nothing unless `TEHAS_IMPROVE_REPO` is set | `tail ~/tehas/logs/improve.log` |
-| Cleaner | systemd user timer `tehas-clean.timer`, every hour, the first time 15 minutes after boot. It removes build output, Docker's build cache and host scratch older than `TEHAS_CLEAN_AFTER` hours. `install.sh` copies the unit; a person enables it | `tail ~/tehas/logs/clean.log` |
+| Cleaner | systemd user timer `tehas-clean.timer`, every hour, the first time 15 minutes after boot. It removes build output, Docker's build cache, host scratch, the sandbox image's old dated tags and the pulled base image and untagged images older than `TEHAS_CLEAN_AFTER` hours. `install.sh` copies the unit; a person enables it | `tail ~/tehas/logs/clean.log` |
 | Edge router | `docker compose -f ~/tehas/edge/router.compose.yaml up -d` | `curl -i http://tehas-tehas:8081/` |
 | Previews | systemd user timer `tehas-preview.timer`, every 5 minutes | `tail ~/tehas/logs/preview.log`, `jq . ~/tehas/live/previews.json` |
 | Preview sweep | systemd user timer `tehas-preview-sweep.timer`, every 3 hours | `jq .lastSweep ~/tehas/live/previews.json` |

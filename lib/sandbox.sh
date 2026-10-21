@@ -21,6 +21,15 @@
 #   tehas_sandbox_security                    the options that take privileges
 #                                             away from a container
 #   tehas_sandbox_clone <src> <tree> <branch> make <tree>, a clone of <src>
+#   images_held <the image's tags, "<tag> <id>" per line>
+#                                             the images of those tags that
+#                                             something holds: a container's
+#                                             image ids and the ids of the uid
+#                                             tags
+#   tehas_base_image                          the pulled base image of the
+#                                             sandbox build, as its tag or its
+#                                             digest: the one name that image
+#                                             is known by
 #
 # env, mounts, hosts and the security options print docker options separated
 # by NUL bytes. Read them with
@@ -250,4 +259,68 @@ tehas_sandbox_clone() { # <src> <tree> <branch>
     git -C "$tree" symbolic-ref refs/remotes/origin/HEAD "refs/remotes/origin/$branch" &&
     git -C "$tree" checkout -q -B "$branch" "$base" &&
     git -C "$tree" branch -q --set-upstream-to="origin/$branch" "$branch"
+}
+
+# The images that something holds, out of the tags it is given: the id of every
+# image a container -- running or stopped -- was made from, and the id of every
+# image a uid tag names. Asked with one docker call per side; a docker that
+# answers neither is a docker that holds nothing, and its caller removes
+# nothing. Given the tags as "<tag> <id>" per line, as `docker image ls
+# --no-trunc --format '{{.Tag}} {{.ID}}'` lists them; the uid tags of another
+# uid count with the host's own. Both the sandbox build and the cleaner ask
+# here, so the two cannot drift apart on what is safe to remove.
+#
+# A nonzero status means docker answered nothing, and stdout then says
+# nothing either: the inspect's ids are printed only once every container is
+# named, so a docker that fails partway prints no half a held-set for a caller
+# to act on. The status is the whole of the proof, which is why both sides end
+# on `|| return 1` and neither prints what it did not finish asking for.
+images_held() { # <the image's tags, "<tag> <id>" per line>
+  local ids
+  ids=$(docker ps -aq --no-trunc) || return 1
+  if [ -n "$ids" ]; then
+    # shellcheck disable=SC2086  # one argument per container id
+    # `|| return 1` only, never `&& ... || return 1`: a host with no container
+    # holds nothing, which is not a docker that answered nothing, and the `&&`
+    # of a command already known to have succeeded runs nothing, so the
+    # failure of the inspect would go unseen.
+    docker inspect --format '{{.Image}}' $ids || return 1
+  fi
+  awk '$1 ~ /^uid/ { print $2 }' <<<"$1"
+}
+
+# The base image of the sandbox build, as one name: the image upstream
+# publishes for the pi-rukas commit the host follows, under ghcr.io, tagged by
+# the twelve leading characters of that commit -- or the digest
+# PI_RUKAS_IMAGE_DIGEST names, which is what a release pins its base to. The
+# repository is a line of versions.env, and the commit and the digest are
+# settings, so the name is read the way the build reads them rather than
+# guessed from a tag on the host. host/sandbox/build.sh builds on this name and
+# tehasbot clean removes it once nothing uses it; both work it out here so the
+# two cannot name different images. Needs the settings loaded, which is what
+# gives versions.env to the release and the instance's line to the checkout.
+tehas_base_image() {
+  local envs follow head digest repo
+  [ -n "${TEHAS_HOME:-}" ] || return 1
+  for envs in "$TEHAS_HOME/versions.env" "$(tehas_instance_dir)/instance.env"; do
+    [ -r "$envs" ] || continue
+    # shellcheck source=host/versions.env
+    . "$envs"
+  done
+  follow=${PI_RUKAS_FOLLOW:-}
+  digest=${PI_RUKAS_IMAGE_DIGEST:-}
+  if [ -z "$follow" ] && [ -z "$digest" ]; then return 1; fi
+  if [ -z "$digest" ]; then
+    # lib/rukas.sh answers which commit is followed, and is sourced after this
+    # file by every command that asks -- the cleaner and the sandbox build both.
+    head=$(tehas_rukas_target) || return 1
+    head=${head%% *}
+  fi
+  repo=${PI_RUKAS_REPO#https://github.com/}
+  repo=${repo%.git}
+  if [ -n "$digest" ]; then
+    printf 'ghcr.io/%s@%s\n' "$(tr '[:upper:]' '[:lower:]' <<<"$repo")" "$digest"
+  else
+    printf 'ghcr.io/%s:sha-%s\n' "$(tr '[:upper:]' '[:lower:]' <<<"$repo")" "${head:0:12}"
+  fi
 }

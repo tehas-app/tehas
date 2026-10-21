@@ -991,10 +991,21 @@ removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
 - Docker's build cache of that age, with `docker builder prune`. This is the
   build cache of the whole host's Docker daemon: tehas is one project on one
   host, and the cache of anything else on it is made again too. No image and no
-  volume is removed.
+  volume is removed by this step.
 - the host's scratch: old files under `~/tehas/tmp/dl` and
   `~/tehas/tmp/node-compile-cache`, and old `~/tehas/tmp/tehas-test.*`
   directories. Nothing elsewhere under `~/tehas`, and nothing outside it.
+- the sandbox image's dated tags whose image is of that age, each with its own
+  `docker rmi`. The newest dated tag stays, and so does any tag a container or
+  a `uid` tag was made from: a cycle or a preview still running from an image
+  keeps it whatever its age. The build's own sweep keeps the newest three dated
+  tags; this step is what takes those past the age besides the newest.
+- the base image the sandbox build pulls from upstream, and the images left with
+  no tag, both of that age, with `docker image prune` naming the base's own ids
+  so nothing else is offered. Preview images are `tehasbot preview`'s and stay;
+  volumes are a person's call. A docker that answers no image list, or nothing
+  about the host's containers, removes no image: an unknown is never a reason
+  to take one away.
 
 One line per removal and a closing line with the bytes freed go to
 `~/tehas/logs/clean.log`. The command starts no work, so the pause label does
