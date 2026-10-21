@@ -2859,7 +2859,8 @@ Prepares a fresh host with everything tehas and pi-rukas need, at the versions
 in `host/versions.env`. See [Bootstrap a host](/bootstrap).
 
 ```
-sudo ./bootstrap.sh root boss   # system packages, Docker, docker group, lingering, the slice
+sudo ./bootstrap.sh root boss   # the user if missing, system packages, Docker on the systemd driver, docker group, lingering, the slice, then user as boss
+sudo ./bootstrap.sh root boss --root-only   # the same, without the user part
 sudo ./bootstrap.sh slice       # the slice alone, /etc/systemd/system/tehas.slice
 ./bootstrap.sh user             # the rest, under the user's home
 sudo ./bootstrap.sh dev boss    # let other accounts start a session with tehas dev

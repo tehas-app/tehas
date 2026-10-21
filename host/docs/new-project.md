@@ -67,9 +67,8 @@ One Linux machine, reachable over a private network, that can reach GitHub and
 an OpenAI-compatible model endpoint. [Bootstrap a host](/bootstrap) prepares it:
 
 ```
-sudo ./bootstrap.sh root boss
-./bootstrap.sh user
-./bootstrap.sh check
+sudo ./bootstrap.sh root boss     # runs the user part as boss too, no logout
+./bootstrap.sh check              # as boss
 ```
 
 The tehas user ends up in the `docker` group, which makes it root-equivalent on
