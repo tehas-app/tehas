@@ -7,9 +7,11 @@ description: "A read-only MCP server for agents outside the host: what it shows,
 
 Agents outside this host, such as Hermes or OpenClaw agents, can ask a factory
 how it is doing over MCP: whether it is working, what is in line, what ended,
-a running cycle's console, and the last ten days. The server is read only. No
-tool changes anything; pause, limit, drain, labels and retries stay with a
-person on the host, through [the factory API](/api).
+a running cycle's console and the last ten days, as the dashboard shows them,
+plus the sessions of the last 30 days and their logs, masked. See
+[what it shows](#what-it-shows). The server is read only. No tool changes
+anything; pause, limit, drain, labels and retries stay with a person on the
+host, through [the factory API](/api).
 
 It is off until you switch it on, and it answers only a request that carries
 one of your keys.
