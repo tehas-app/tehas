@@ -118,6 +118,57 @@ t_contains "$t_out" "cannot read the follow-up record"
 chmod 644 "$th/state/update-pending"
 t_eq "$(cat "$th/state/update-pending")" "sandbox"
 
+# The instance's own sandbox.Dockerfile is not copied anywhere: the build reads it
+# from the instance directory. A change to it owes the sandbox step the same way a
+# change to the tracked Dockerfile does, and a host that has not changed it since
+# the last install owes nothing for it.
+t_case "an instance sandbox.Dockerfile that changed since the last install owes the sandbox step"
+fresh
+instance
+sandbox_file=$TEHAS_INSTANCE_DIR/sandbox.Dockerfile
+printf 'ARG TEHAS_BASE\nFROM $TEHAS_BASE\n' >"$sandbox_file"
+t_run "$install"
+t_eq "$t_rc" 0
+# The first install has never seen the file, so it owes the build.
+t_contains "$t_out" "next: sandbox"
+t_eq "$(printf '%s\n' "$t_out" | sed -n 's/^next: //p' | grep -c '^sandbox$')" 1
+t_eq "$(cat "$th/state/update-pending")" "$(next_steps)"
+t_eq "$([ -f "$th/state/sandbox.Dockerfile.sha256" ] && echo there)" "there"
+# Nothing more to do, and the build is not owed a second time.
+t_run "$install"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "next: sandbox"
+t_lacks "$t_out" "sandbox.Dockerfile"
+# The same content written again is no change either: what is compared is the
+# file, not its mtime.
+printf 'ARG TEHAS_BASE\nFROM $TEHAS_BASE\n' >"$sandbox_file"
+t_run "$install"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "next: sandbox"
+# A line added is a change the host has to build.
+printf 'ARG TEHAS_BASE\nFROM $TEHAS_BASE\nRUN true\n' >"$sandbox_file"
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "next: sandbox"
+t_contains "$(cat "$th/state/update-pending")" "sandbox"
+# --check says the change too: the file is the instance's to keep, so an install
+# cannot bring it current and only seeing the same content again clears the drift.
+# The build step stays owed after that, which is what the earlier cases of this
+# file already prove for every step, so the record is cleared here to let the
+# check answer about the files alone.
+printf 'ARG TEHAS_BASE\nFROM $TEHAS_BASE\nRUN false\n' >"$sandbox_file"
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "changed: $sandbox_file since the last install"
+t_run "$install"
+t_eq "$t_rc" 0
+rm -f "$th/state/update-pending"
+t_run "$install --check"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "sandbox.Dockerfile"
+# The file is not copied onto the host: the build reads it from here.
+t_eq "$([ -e "$th/sandbox/sandbox.Dockerfile" ] && echo copied)" ""
+
 # Installing a factory unattended: `bootstrap.sh` then `install.sh` run on a
 # machine nobody has prepared by hand, with nothing to answer, and again
 # afterwards. `--check` exits 0 on a machine installed as the instance says.
