@@ -86,5 +86,10 @@ done < <(jq -c 'if ((.checks.cycles // []) | length) > 1 then .checks.cycles[] e
 tehas_plan_lines "$health" "$now" || exit 1
 tehas_slice_line "$health" "$now" || exit 1
 tehas_platform_line "$health" "$now" || exit 1
+# The last tehas check-product, when one ran.
+product=$TEHAS_HOME/state/check-product.json
+[ ! -r "$product" ] || jq -r --argjson now "$now" "$tehas_state_defs"'
+  "product   " + (if .ok then "keeps the contract" else "\(.failures | length) to fix: \(.failures | join("; "))" end)
+  + ", checked \(.at | age($now))"' "$product" 2>/dev/null || true
 
 [ "$stale" = false ] && [ "$(jq -r .status "$file")" != fail ]
