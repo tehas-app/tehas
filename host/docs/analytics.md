@@ -91,7 +91,7 @@ its times. A planning turn reads its record `state/plan-<n>.json`.
 | `kind` | `work` or `plan` | 1 |
 | `issue` | The issue number | 1 |
 | `attempt` | The run's number for this issue: its line in the history, counting from 1. The history keeps 50 lines, so it is at most 50. Work runs only | 1 |
-| `how` | What started it: `label`, `retry-tick`, `outage-retry` or `fixer`, from `approved.json`, else the history line. A planning turn: `label` for the first turn, `answer` or `fixer` for a later one | 1 |
+| `how` | What started it: `label`, `retry-tick`, `outage-retry` or `fixer`, from `approved.json`, else the history line. A planning turn: `label` for the first turn, `refine` for the first turn of a session `tehas:refine` started, `answer` or `fixer` for a later one | 1 |
 | `started`, `ended`, `seconds` | The run's start, its end and the wall time between: the history line's `started` and `at`. A planning turn ends when the poll collects it | 1 |
 | `queue_wait` | `started` less when `tehas:ready` was accepted (`approved.json`) | 1 |
 | `outcome` | `pr`, `merged`, `handoff`, `parked`, `failed`, `refused` or `stopped`, below | 1 |
@@ -216,6 +216,19 @@ tehas analytics report
 ```
 
 See [tehas analytics](/tools#tehas-analytics).
+
+### Refine
+
+The report has a `refine` key, and the terminal a `Refine` line, that say how
+much `tehas:refine` is used and whether its issues get built. It counts the
+refining sessions started in the window (planning runs with `how` `refine`) and
+follows the issues they filed: how many started a cycle and how many shipped,
+and the lead time of those that shipped, from their `ready` event. Beside them
+are the other issues made ready in the window, how many started and shipped,
+to compare. The issues a refining session filed are listed in
+`~/tehas/state/refined.jsonl`, one line each, `{at, source, filed, url}`,
+written when the confirm files them. Like the rest of the report it holds
+counts only.
 
 ## Fetching it
 

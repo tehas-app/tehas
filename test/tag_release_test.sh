@@ -24,13 +24,14 @@ fresh() {
   mkdir -p "$T/up/scripts"
   printf '#!/usr/bin/env bash\necho ran >>"%s/calls/verify"\nexit "$(cat "%s/verify_rc" 2>/dev/null || echo 0)"\n' "$T" "$T" >"$T/up/scripts/verify.sh"
   chmod +x "$T/up/scripts/verify.sh"
-  g -C "$T/up" add scripts/verify.sh
+  printf '# Changelog\n\n## Unreleased\n\n### Changes\n\n- first\n\n### Adopter action\n\nNone.\n' >"$T/up/CHANGELOG.md"
+  g -C "$T/up" add scripts/verify.sh CHANGELOG.md
   commit first
   g -C "$T/up" tag v0.1.0
   g -C "$T/up" push --quiet origin v0.1.0
   g clone --quiet "$origin" "$work"
   mkdir -p "$work/scripts"
-  cp "$T_ROOT/scripts/tag-release.sh" "$T_ROOT/scripts/tag-deploy.sh" "$work/scripts/"
+  cp "$T_ROOT/scripts/tag-release.sh" "$T_ROOT/scripts/tag-deploy.sh" "$T_ROOT/scripts/release-notes.sh" "$work/scripts/"
 }
 tags() { git -C "$origin" tag --list | sort -V | tr '\n' ' '; }
 
@@ -117,6 +118,55 @@ t_run "$work/scripts/tag-release.sh"
 t_eq "$t_rc" 1
 t_contains "$t_out" "pushing v0.1.1 to origin failed"
 t_eq "$(git -C "$work" tag --list v0.1.1)" ""
+
+# changelog <text>: the remote's CHANGELOG.md becomes <text>, in a new commit.
+changelog() {
+  printf '%b' "$1" >"$T/up/CHANGELOG.md"
+  g -C "$T/up" add CHANGELOG.md
+  g -C "$T/up" commit --quiet -m changelog && g -C "$T/up" push --quiet origin main
+}
+
+t_case "no Adopter action under Unreleased makes no tag and says what is missing"
+fresh
+changelog '# Changelog\n\n## Unreleased\n\n### Changes\n\n- a change\n'
+t_run "$work/scripts/tag-release.sh --no-verify"
+t_eq "$t_rc" 1
+t_contains "$t_out" '"### Adopter action" heading'
+t_eq "$(tags)" "v0.1.0 "
+
+t_case "an Adopter action heading with nothing under it is not one"
+changelog '# Changelog\n\n## Unreleased\n\n### Adopter action\n\n## v0.1.0 (2026-01-01)\n\n### Adopter action\n\nNone.\n'
+t_run "$work/scripts/tag-release.sh --no-verify"
+t_eq "$t_rc" 1
+t_contains "$t_out" "Unreleased section of CHANGELOG.md needs"
+t_eq "$(tags)" "v0.1.0 "
+
+t_case "--dry-run checks CHANGELOG.md too"
+t_run "$work/scripts/tag-release.sh --dry-run"
+t_eq "$t_rc" 1
+t_lacks "$t_out" "would tag"
+
+t_case "a changelog with no section for the release makes no tag"
+changelog '# Changelog\n\n## v0.1.0 (2026-01-01)\n\n### Adopter action\n\nNone.\n'
+t_run "$work/scripts/tag-release.sh --no-verify"
+t_eq "$t_rc" 1
+t_contains "$t_out" "no section for v0.1.1 or Unreleased"
+t_eq "$(tags)" "v0.1.0 "
+
+t_case "a head with no CHANGELOG.md makes no tag"
+g -C "$T/up" rm --quiet CHANGELOG.md
+commit "no changelog"
+t_run "$work/scripts/tag-release.sh --no-verify"
+t_eq "$t_rc" 1
+t_contains "$t_out" "has no CHANGELOG.md"
+t_eq "$(tags)" "v0.1.0 "
+
+t_case "the section already renamed to the release's tag counts, and is what tags"
+changelog '# Changelog\n\n## Unreleased\n\n## v0.1.1 (2026-10-21)\n\n### Changes\n\n- a\n\n### Adopter action\n\nSet TEHAS_X.\n'
+t_run "$work/scripts/tag-release.sh --no-verify 2>/dev/null"
+t_eq "$t_rc" 0
+t_eq "$t_out" v0.1.1
+t_eq "$(tags)" "v0.1.0 v0.1.1 "
 
 t_case "an unknown argument is refused before git runs"
 t_run "$work/scripts/tag-release.sh --bogus"

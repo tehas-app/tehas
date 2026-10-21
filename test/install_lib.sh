@@ -28,6 +28,8 @@ net_inspect='version --format {{.Server.Version}}
 network inspect --format {{.Internal}} {{.Driver}} {{.EnableIPv6}} {{index .Options "com.docker.network.bridge.gateway_mode_ipv4"}} tehas-previews'
 t_stub docker "$net_good"
 t_stub systemctl
+# A first install makes the labels in the product repository.
+t_stub gh
 t_stub_cargo
 
 # An instance directory with settings and a model list that matches them.
@@ -51,7 +53,10 @@ fresh() {
   mkdir -p "$home"
 }
 
-files="./.config/systemd/user/tehas-cycle@.service
+files="./.bashrc
+./.config/systemd/user/tehas-cycle@.service
+./.config/systemd/user/tehas-clean.service
+./.config/systemd/user/tehas-clean.timer
 ./.config/systemd/user/tehas-dispatch.path
 ./.config/systemd/user/tehas-dispatch.service
 ./.config/systemd/user/tehas-dispatch.timer
@@ -92,6 +97,7 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/lib/limit.sh
 ./tehas/lib/live.sh
 ./tehas/lib/models.sh
+./tehas/lib/paths.sh
 ./tehas/lib/planning.sh
 ./tehas/lib/questions.sh
 ./tehas/lib/refine-brief.md
@@ -99,15 +105,19 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/lib/release.sh
 ./tehas/lib/rukas.sh
 ./tehas/lib/sandbox.sh
+./tehas/lib/sizing.sh
 ./tehas/lib/status.sh
 ./tehas/lib/top.sh
 ./tehas/lib/slice.sh
 ./tehas/lib/unzip.sh
+./tehas/lib/update-release.sh
 ./tehas/lib/update-steps.sh
 ./tehas/libexec/analytics
 ./tehas/libexec/analytics.stamp
 ./tehas/libexec/analytics-cmd
 ./tehas/libexec/api
+./tehas/libexec/check-product
+./tehas/libexec/clean
 ./tehas/libexec/console
 ./tehas/libexec/console.stamp
 ./tehas/libexec/cycle
@@ -121,6 +131,7 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/libexec/history
 ./tehas/libexec/improve
 ./tehas/libexec/index
+./tehas/libexec/init-product
 ./tehas/libexec/labels
 ./tehas/libexec/limit
 ./tehas/libexec/mcp
@@ -130,6 +141,7 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/libexec/protolab
 ./tehas/libexec/refresh
 ./tehas/libexec/resume
+./tehas/libexec/setup
 ./tehas/libexec/status
 ./tehas/libexec/stop
 ./tehas/libexec/summary
@@ -166,7 +178,8 @@ host_files() { find "$home" -type f ! -path "$th/state/update.lock"; }
 # The follow-ups a fresh install of this repository asks for, taken from the one
 # place that names them and the sources a fresh host has none of.
 next_steps() {
-  tehas_steps_for systemd/tehas-cycle@.service systemd/tehas-dispatch.path systemd/tehas-dispatch.service systemd/tehas-dispatch.timer \
+  tehas_steps_for systemd/tehas-cycle@.service systemd/tehas-clean.service systemd/tehas-clean.timer \
+    systemd/tehas-dispatch.path systemd/tehas-dispatch.service systemd/tehas-dispatch.timer \
     systemd/tehas-energy.service systemd/tehas-improve.service systemd/tehas-improve.timer \
     systemd/tehas-preview.service \
     systemd/tehas-preview.timer systemd/tehas-preview-sweep.service systemd/tehas-preview-sweep.timer systemd/tehas-protolab.service systemd/tehas-protolab.timer systemd/tehas-refresh.service systemd/tehas-refresh.timer systemd/tehas-top.service sandbox/Dockerfile sandbox/build.sh \

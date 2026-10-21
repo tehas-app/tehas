@@ -41,3 +41,9 @@ be high level; your job is to turn it into precise work grounded in the code.
 5. Write decisions, not options: "Use X, not Y, because Z". The cycle cannot
    ask. When a decision is the operator's, ask it as a question in this session
    before you draft.
+
+6. Classify the part in its title, as a conventional-commit type and a short
+   summary: `feat: ...` for new behaviour, `fix: ...` for a bug, `chore: ...`
+   for housekeeping, or `docs:`, `test:`, `refactor:` when that is all it is. A
+   scope may follow the type, as in `fix(dispatch): ...`. Keep a type the
+   request's title already has. The pull request takes its title from this one.
