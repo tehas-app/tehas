@@ -1,8 +1,10 @@
 //! tehas-mcp: the binary of the read-only MCP server (lib.rs).
 //!
 //!   tehas-mcp --live <dir> --sessions <dir> --logs <dir> --listen <addr:port>
-//!             --server-version <v>
+//!             --server-version <v> [--private <name>]...
 //!
+//! A log is masked as the console masks it, the names given with --private
+//! included. A name is not a secret.
 //! The keys come from TEHAS_MCP_KEYS in the environment, never from an
 //! argument. One line per request on stderr names the key by fingerprint.
 //! Exit 78 when the keys or the arguments are wrong, 1 when it cannot listen.
@@ -21,7 +23,7 @@ const MAX_CONNECTIONS: usize = 32;
 fn usage(why: &str) -> ! {
     eprintln!("tehas-mcp: {why}");
     eprintln!(
-        "usage: tehas-mcp --live <dir> --sessions <dir> --logs <dir> --listen <addr:port> --server-version <v>"
+        "usage: tehas-mcp --live <dir> --sessions <dir> --logs <dir> --listen <addr:port> --server-version <v> [--private <name>]..."
     );
     std::process::exit(78);
 }
@@ -40,7 +42,15 @@ fn main() {
     let mut args = std::env::args().skip(1);
     let (mut live, mut sessions, mut logs) = (None, None, None);
     let (mut listen, mut version) = (None, None);
+    let mut private = Vec::new();
     while let Some(a) = args.next() {
+        if a == "--private" {
+            private.push(
+                args.next()
+                    .unwrap_or_else(|| usage("--private needs a name")),
+            );
+            continue;
+        }
         let slot = match a.as_str() {
             "--live" => &mut live,
             "--sessions" => &mut sessions,
@@ -64,6 +74,9 @@ fn main() {
     };
     let listen = listen.unwrap_or_else(|| usage("--listen is missing"));
     let version = version.unwrap_or_else(|| usage("--server-version is missing"));
+    if let Err(why) = mcp::mask::set_private(&private) {
+        usage(&why);
+    }
     let keys = match parse_keys(&std::env::var("TEHAS_MCP_KEYS").unwrap_or_default()) {
         Ok(k) => k,
         Err(why) => usage(&why),

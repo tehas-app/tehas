@@ -384,6 +384,7 @@ files=(
   "lib/live.sh|$TEHAS_HOME/lib/live.sh|644"
   "lib/limit.sh|$TEHAS_HOME/lib/limit.sh|644"
   "lib/models.sh|$TEHAS_HOME/lib/models.sh|644"
+  "lib/private.sh|$TEHAS_HOME/lib/private.sh|644"
   "lib/update-steps.sh|$TEHAS_HOME/lib/update-steps.sh|644"
   "lib/edge.sh|$TEHAS_HOME/lib/edge.sh|644"
   "lib/headless.sh|$TEHAS_HOME/lib/headless.sh|644"

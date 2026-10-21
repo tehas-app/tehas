@@ -5,8 +5,8 @@
 # publishes under live/, and the sessions of the last 30 days and their logs,
 # behind the keys in TEHAS_MCP_KEYS. It is the binary install.sh builds as
 # libexec/tehas-mcp, run in a container that is given live/, mcp/ (the
-# sessions snapshot) and logs/ read-only, the binary, its port and the keys,
-# and nothing else: no
+# sessions snapshot) and logs/ read-only, the binary, its port, the keys and
+# the host's private names to mask, and nothing else: no
 # other part of the home, no settings, no token, no Docker socket, no
 # capability, not root. Its network, tehas-mcp, has no masquerade, so the
 # container reaches nothing beyond the host. That container is a security
@@ -42,6 +42,10 @@ key() {
 serve() {
   # shellcheck source=lib/config.sh
   . "$here/../lib/config.sh"
+  # shellcheck source=lib/models.sh
+  . "$here/../lib/models.sh"
+  # shellcheck source=lib/private.sh
+  . "$here/../lib/private.sh"
   tehas_load || exit 78
 
   case "${TEHAS_MCP:-0}" in
@@ -85,6 +89,12 @@ serve() {
     tehas_err "could not make $TEHAS_HOME/mcp"; exit 1
   fi
 
+  # The logs are masked with the names the console hides (lib/private.sh).
+  local private=() private_name
+  while IFS= read -r private_name; do
+    private+=(--private "$private_name")
+  done < <(tehas_private_names "$(tehas_models_file)" "$(git config --global user.email || true)")
+
   docker rm -f tehas-mcp >/dev/null 2>&1
   export TEHAS_MCP_KEYS
   exec docker run --rm --init --name tehas-mcp --user "$(id -u):$(id -g)" --network tehas-mcp --read-only --cap-drop ALL \
@@ -93,7 +103,8 @@ serve() {
     -v "$TEHAS_HOME/live:/live:ro" -v "$TEHAS_HOME/mcp:/sessions:ro" -v "$TEHAS_HOME/logs:/logs:ro" \
     -v "$bin:/tehas-mcp:ro" \
     -e TEHAS_MCP_KEYS --entrypoint /tehas-mcp "caddy@$digest" \
-    --live /live --sessions /sessions --logs /logs --listen 0.0.0.0:8082 --server-version "${version:-unknown}"
+    --live /live --sessions /sessions --logs /logs --listen 0.0.0.0:8082 --server-version "${version:-unknown}" \
+    "${private[@]}"
 }
 
 case "${1-}" in

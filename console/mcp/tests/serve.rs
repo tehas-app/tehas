@@ -41,19 +41,29 @@ impl Server {
     // Port 0: the server says which port it was given, so tests that run
     // side by side never race for one.
     fn start() -> Self {
+        Self::start_with(
+            &fixture("live"),
+            &fixture("sessions"),
+            &fixture("logs"),
+            &[],
+        )
+    }
+
+    fn start_with(live: &str, sessions: &str, logs: &str, extra: &[&str]) -> Self {
         let mut child = Command::new(BIN)
             .args([
                 "--live",
-                &fixture("live"),
+                live,
                 "--sessions",
-                &fixture("sessions"),
+                sessions,
                 "--logs",
-                &fixture("logs"),
+                logs,
                 "--listen",
                 "127.0.0.1:0",
                 "--server-version",
                 "v1.2.3",
             ])
+            .args(extra)
             .env("TEHAS_MCP_KEYS", K1)
             .stderr(Stdio::piped())
             .spawn()
@@ -455,4 +465,110 @@ fn every_method_and_tool_needs_a_key() {
     let (_, out) = s.raw(&post_raw("POST", "/other", None, &[], "{}"), wait);
     assert_refused(&out, "POST /other");
     s.stop();
+}
+
+fn iso(t: i64) -> String {
+    let (days, s) = (t.div_euclid(86400), t.rem_euclid(86400));
+    let z = days + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!(
+        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
+        s / 3600,
+        s / 60 % 60,
+        s % 60
+    )
+}
+
+// The text factory_log serves of a transcript that names a host, from a
+// server given `extra` arguments.
+fn served_transcript(name: &str, extra: &[&str]) -> String {
+    let root = std::env::temp_dir().join(format!("mcp-serve-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let (live, snap, logs) = (root.join("live"), root.join("mcp"), root.join("logs"));
+    for d in [&live, &snap, &logs] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    let file = "work-7-261021-100000.jsonl";
+    std::fs::write(logs.join(file), "asked MODELS.lan:8086 for a model\n").unwrap();
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+        - 100;
+    let id = format!("work-7-{t}");
+    let session = serde_json::json!({"id": id, "kind": "work", "issue": 7,
+        "started": iso(t), "ended": iso(t + 60),
+        "logs": [{"word": "transcript", "name": file, "bytes": 1}]});
+    let head = serde_json::json!({"api": 1, "days": 30, "generatedAt": iso(t + 100), "sessions": 1});
+    std::fs::write(snap.join("sessions.jsonl"), format!("{head}\n{session}\n")).unwrap();
+    let path = |p: &Path| p.display().to_string();
+    let s = Server::start_with(&path(&live), &path(&snap), &path(&logs), extra);
+    let body = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+        "name": "factory_log", "arguments": {"id": id, "file": "transcript"},
+        "_meta": {"io.modelcontextprotocol/protocolVersion": "2026-07-28"}}})
+    .to_string();
+    let auth = format!("Bearer {K1}");
+    let h = [
+        ("MCP-Protocol-Version", "2026-07-28"),
+        ("Mcp-Method", "tools/call"),
+        ("Mcp-Name", "factory_log"),
+        ("Connection", "close"),
+    ];
+    let mut c = TcpStream::connect(("127.0.0.1", s.port)).unwrap();
+    c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    c.write_all(&post_raw("POST", "/mcp", Some(&auth), &h, &body))
+        .unwrap();
+    let mut out = String::new();
+    let _ = c.read_to_string(&mut out);
+    let status = out.split_whitespace().nth(1).unwrap_or_default();
+    s.stop();
+    let _ = std::fs::remove_dir_all(&root);
+    assert_eq!(status, "200", "{out}");
+    let (_, body) = out.split_once("\r\n\r\n").unwrap();
+    let v: serde_json::Value = serde_json::from_str(body).unwrap();
+    v["result"]["structuredContent"]["text"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no text: {v}"))
+        .to_string()
+}
+
+#[test]
+fn a_served_log_masks_the_private_names_given() {
+    assert_eq!(
+        served_transcript("plain", &[]),
+        "asked MODELS.lan:8086 for a model\n"
+    );
+    assert_eq!(
+        served_transcript("private", &["--private", "gb", "--private", "models.lan"]),
+        "asked [private name]:8086 for a model\n"
+    );
+}
+
+#[test]
+fn private_needs_a_name() {
+    let (rc, err) = run_once(
+        Some(K1),
+        &[
+            "--live",
+            "/x",
+            "--sessions",
+            "/x",
+            "--logs",
+            "/x",
+            "--listen",
+            "127.0.0.1:0",
+            "--server-version",
+            "v",
+            "--private",
+        ],
+    );
+    assert_eq!(rc, 78);
+    assert!(err.contains("--private needs a name"), "{err}");
 }
