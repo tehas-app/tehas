@@ -129,6 +129,35 @@ t_eq "$(jq -r .cap "$state/7.park")" stall
 t_contains "$(t_calls gh)" 'cap `stall`'
 t_eq "$(find "$state/7.stalled" 2>/dev/null | wc -l)" 0
 
+# The two cases below are the shape of the two cycles of tehas-org/tehas#110:
+# a container that ended with nothing in its record, no step and no cap. The
+# note tehas work leaves for that end is on record as tehas's own cap, and the
+# step of such a cycle says no step started rather than being a dash.
+t_case "a container that ended before the driver wrote an event is on record as runner-never-started, with its exit status, and no step"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+rm -f "$fx/result.json"
+nostart 1
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; cat "$T/fx/nostart" >"$TEHAS_HOME/state/cycles/7.nostart"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$(jq -c '[.status, .step, .cap, .capReason]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
+  '["unknown","not-started","runner-never-started","the container ended with the exit status 1 and wrote no line of its stream, so the driver wrote no event and no step started"]'
+t_eq "$(jq -r .cap "$state/7.park")" runner-never-started
+t_contains "$(t_calls gh)" 'tehas stopped the cycle: the cap `runner-never-started`.'
+t_contains "$(t_calls gh)" "no step started, the container of the cycle ended before the driver wrote an event"
+t_eq "$(find "$state/7.nostart" 2>/dev/null | wc -l)" 0
+
+t_case "the note of a runner that never started is read for nothing when the cycle wrote a result, and one of an earlier cycle is not this cycle's"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+ended handoff commit-pr feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+nostart 1
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; cat "$T/fx/nostart" >"$TEHAS_HOME/state/cycles/7.nostart"; exit 10' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$(jq -c '[.status, .step, .cap]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
+  '["handoff","commit-pr","awaiting-human-merge"]'
+t_eq "$(find "$state/7.nostart" 2>/dev/null | wc -l)" 0
 t_case "a cycle tehas stopped at its time limit with no cap from the runner is on record as wall-clock"
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory

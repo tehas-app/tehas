@@ -329,6 +329,7 @@ The common ones:
 | review round cap                    | The review kept finding problems                    | Read the review on the pull request                      |
 | developer timeout                   | An agent ran out of time                            | Usually model endpoint capacity; retry later             |
 | `wall-clock`, `stall`               | tehas ended the cycle: its time limit `TEHAS_WORK_TIMEOUT`, or no log moved for `TEHAS_WORK_STALL` | Read the run log the comment names; see [a cycle stops at a cap](#a-cycle-stops-at-a-cap) |
+| `runner-never-started`              | The container ended before the driver wrote its first event: no step ran and the record would hold nothing but an exit status | Look for a host-side fault: the image, the slice, the model endpoint. See [`runner-never-started`](#runner-never-started) below |
 
 The caps this factory has posted are explained one by one in the next
 section.
@@ -386,6 +387,10 @@ before the stop, such as a handoff, is kept. Both say the step the cycle was
 in, from the runner's progress where its result names none. A cycle stopped this way has usually done less
 than its comment claims; read the run log named there before you retry, and
 retry when the cause of the stall is gone.
+
+The third cap tehas sets for itself is `runner-never-started`, for the
+container that ended before the driver wrote its first event. See
+[`runner-never-started`](#runner-never-started) below.
 
 These are the caps the factory posted on its own issues from 10 to 14 October
 2026, most frequent first.
@@ -465,6 +470,43 @@ split the issue.
 Until result schema 4 (pi-rukas, 18 October 2026) pi-rukas used the name
 `wall-clock` for its review loop's budget. An older comment on a pull request
 that names `wall-clock` is the cap below.
+
+### `runner-never-started`
+
+The container started, ran its preflight, and ended before the driver of
+pi-rukas wrote its first event. Nothing of the issue was read, no step began,
+no branch was made, and no model time was spent. This cap is tehas's, not
+pi-rukas's: `tehas work` watched the container to its end, found no result and
+not one line in the cycle's stream, and left the account of it in
+`state/cycles/<N>.nostart`. The comment says `no step started`, the record's
+`step` is `not-started`, and its `capReason` names the container's own exit
+status (`the container ended with the exit status 1 and wrote no line of its
+stream, so the driver wrote no event and no step started`), so a run of this
+kind can be counted and grouped with the others of it.
+
+The cycle's own files hold nothing for it: `console.txt` has only the two lines
+of a console that waited and detached, `stream.jsonl` is empty, and what
+`err.txt` holds is the one line `tehas work` wrote for this end, which names
+the preflight file. The last line of `preflight.txt` is the provider-retry
+echo, and it says nothing about the failure: the cycles that ran for hours
+have the same last line.
+
+So this cap says the host stopped the cycle, not the model or the change. What
+it cannot tell you is which part of the host did: an image that died on its
+way in, the slice refusing the container, a socket that closed, or the poll
+state of the cgroup. Look at those, in this order:
+
+```
+jq . ~/tehas/state/cycles/<N>.result.json    # empty: the runner wrote no result
+tail -n 5 ~/tehas/logs/work-<N>-*.preflight  # what the preflight reached
+docker ps -a --filter name=tehas-work-<N>    # the container, if it is still there
+systemctl --user status tehas.slice          # the slice the container ran in
+```
+
+Nothing of the issue needs to change, and there is no workspace to read: the
+retry starts from the first step again. When the same issue ends this way twice
+with nothing between them changed, the cause is on the host and repeating the
+start will not fix it.
 
 ### `lens-review-timeout`
 
@@ -604,6 +646,10 @@ log and asked GitHub for the bot's pull request of the branch that
   of that kind: the log has the line naming `.pi/verify-cmd`, and the issue has
   no comment, because a cycle that never began has nothing to hand off. See
   [A new project](/new-project) for what the product has to hold.
+- A cycle whose container started and then ended before the driver wrote its
+  first event is not of this kind, and is not read from its run log at all: it
+  is on record as [`runner-never-started`](#runner-never-started), with the
+  step `not-started`.
 
 ```
 jq . ~/tehas/state/cycles/<N>.result.json      # empty, or missing: no result

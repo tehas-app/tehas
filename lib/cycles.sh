@@ -74,8 +74,8 @@ tehas_cycle_note_files() {
   return 0
 }
 
-# The three files of a cycle's end, and what each one is proof of. tehas work
-# writes them and tehasbot cycle reads and removes them, and a cycle that was
+# The files of a cycle's end, and what each one is proof of. tehas work writes
+# them and tehasbot cycle reads and removes them, and a cycle that was
 # killed outright leaves them for the next cycle of the issue: both commands
 # clear them before they start. What each says is not interchangeable, so it is
 # written here rather than only where the tests set the files up.
@@ -95,6 +95,15 @@ tehas_cycle_note_files() {
 #                         ended, so a file no older than the cycle's own start
 #                         was written by this cycle. An older one is a cycle
 #                         that never reported, and its log is read for nothing.
+#   <issue>.nostart       the container's own exit status and, on the same
+#                         line, how many processes its cgroup killed for
+#                         memory. Left only when the container was watched to
+#                         its end and wrote neither a result nor one line of
+#                         its stream: no step of the driver was ever seen. The
+#                         one thing that says a cycle of this issue started no
+#                         runner, as opposed to one that died part way through;
+#                         tehasbot cycle makes tehas's cap runner-never-started
+#                         of it, and reads no run log for the step of it.
 
 # An agent in a container holds the bot's token: it can post a comment with a
 # marker, edit the bot's comments and apply labels. It cannot write here, so
