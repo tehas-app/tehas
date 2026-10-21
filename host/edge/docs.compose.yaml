@@ -6,7 +6,10 @@
 # the loopback address, reachable from the host only. TEHAS_INDEXING=1 lets
 # search engines index the pages; without it every page says noindex.
 # TEHAS_ANALYTICS_SRC and TEHAS_ANALYTICS_SITE put a visitor analytics script
-# in every page; without them there is none.
+# in every page; without them there is none. TEHAS_THEME names the look of
+# every page, fun/theme-<name>.css; without it the pages are pixel.
+# TEHAS_LAYOUT names the front page: floor (the game view) or business;
+# without it the floor.
 name: tehas-docs
 services:
   docs:
@@ -18,6 +21,8 @@ services:
       TEHAS_ANALYTICS_SRC: "${TEHAS_ANALYTICS_SRC:-}"
       TEHAS_ANALYTICS_SITE: "${TEHAS_ANALYTICS_SITE:-}"
       TEHAS_ANALYTICS_COOKIE: "${TEHAS_ANALYTICS_COOKIE:-0}"
+      TEHAS_THEME: "${TEHAS_THEME:-pixel}"
+      TEHAS_LAYOUT: "${TEHAS_LAYOUT:-floor}"
     volumes:
       - "./docs.Caddyfile:/etc/caddy/Caddyfile:ro"
       - "../docs:/srv/docs:ro"

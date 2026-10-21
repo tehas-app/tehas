@@ -179,6 +179,47 @@ jq -n --arg b "$(park_body ' ' ' ')" '{data: {repository: {issue: {comments: {no
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 
+t_case "a retry tick on an issue whose cycle was an epic starts nothing, and the tick stays"
+parked
+comments 7 "$(park_body x ' ')" alice
+jq -cn '{number: 7, state: "open", title: "Faster search", body: "Make it fast.",
+  labels: [{name: "needs-human-attention"}, {name: "tehas:question"}],
+  sub_issues_summary: {total: 13, completed: 0}}' >"$fx/work-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "skip #7: it is an epic with 13 sub-issues open, and an epic is never started"
+# Nothing of the issue is changed: no label of tehas's on it is theirs to take,
+# and the tick stays for a person to deal with.
+t_lacks "$(t_calls gh)" "issue edit 7"
+t_lacks "$(t_calls gh)" "issue comment 7"
+t_lacks "$(t_calls gh)" "api -X PATCH"
+t_eq "$(cat "$park_id")" 4001
+
+t_case "and a dry run of that tick says the same and changes nothing"
+parked
+comments 7 "$(park_body x ' ')" alice
+jq -cn '{number: 7, state: "open", title: "Faster search", body: "Make it fast.",
+  labels: [{name: "needs-human-attention"}, {name: "tehas:question"}],
+  sub_issues_summary: {total: 13, completed: 0}}' >"$fx/work-7.json"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "skip #7: it is an epic with 13 sub-issues open, and an epic is never started"
+t_lacks "$t_out" "would run a cycle"
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "api -X"
+t_eq "$(cat "$park_id")" 4001
+
+t_case "a retry tick on an issue whose sub-issues are all closed starts the cycle"
+parked
+comments 7 "$(park_body x ' ')" alice
+jq -cn '{number: 7, state: "open", title: "Faster search", body: "Make it fast.",
+  labels: [{name: "needs-human-attention"}, {name: "tehas:question"}],
+  sub_issues_summary: {total: 13, completed: 13}}' >"$fx/work-7.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$t_out" "it is an epic"
+
 t_case "a retry tick is used up once the issue is marked"
 parked
 comments 7 "$(park_body x ' ')" alice

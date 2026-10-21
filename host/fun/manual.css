@@ -22,26 +22,26 @@
 .contents {
   position: sticky;
   top: calc(var(--header) + 24px);
-  background: var(--bone-shade);
-  border: 4px solid var(--outline);
+  background: var(--surface-quiet);
+  border: var(--frame);
   box-shadow: var(--shadow-card);
 }
 .contents h2 {
   padding: 8px 16px;
   font-size: 16px;
   line-height: 24px;
-  background: var(--steel);
-  border-bottom: 4px solid var(--outline);
+  background: var(--surface-head);
+  border-bottom: var(--frame);
 }
 .contents a { display: block; padding: 8px 16px; text-decoration: none; }
-.contents a:hover { background: var(--steel); }
-.contents a[aria-current="page"] { background: var(--brass); }
+.contents a:hover { background: var(--surface-head); }
+.contents a[aria-current="page"] { background: var(--accent); }
 
 .page {
   min-width: 0;
   padding: 0 32px 40px;
-  background: var(--bone);
-  border: 4px solid var(--outline);
+  background: var(--surface);
+  border: var(--frame);
   box-shadow: var(--shadow-sign);
 }
 
@@ -49,21 +49,21 @@
 .page h1 {
   margin: 0 -32px 32px;
   padding: 16px 32px;
-  background: var(--steel);
-  border-bottom: 4px solid var(--outline);
+  background: var(--surface-head);
+  border-bottom: var(--frame);
   text-transform: uppercase;
   overflow-wrap: anywhere;
 }
 .page h2 {
   margin: 48px 0 16px;
   padding-bottom: 8px;
-  border-bottom: 4px solid var(--outline);
+  border-bottom: var(--frame);
   scroll-margin-top: calc(var(--header) + 16px);
 }
 .page h3 {
   margin: 32px 0 8px;
   padding-left: 16px;
-  border-left: 8px solid var(--brass);
+  border-left: calc(2 * var(--edge)) solid var(--accent);
   text-transform: uppercase;
   scroll-margin-top: calc(var(--header) + 16px);
 }
@@ -75,43 +75,44 @@
 .page li { margin-top: 8px; }
 .page li > ul, .page li > ol { margin-top: 0; }
 .page a { text-underline-offset: 4px; }
-.page a:hover { background: var(--brass); }
-/* Topaz has one weight and no italic: emphasis is colour and a rule. */
-.page strong { font-weight: 400; color: var(--rust); }
+.page a:hover { background: var(--accent); }
+/* Emphasis is colour and a rule, as Topaz has one weight and no italic. */
+.page strong { font-weight: 400; color: var(--text-warm); }
 .page em { font-style: normal; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 4px; }
-.page code { padding: 0 4px; background: var(--bone-shade); font: inherit; overflow-wrap: anywhere; }
+.page code { padding: 0 4px; background: var(--surface-quiet); font: inherit; font-family: var(--font-code); overflow-wrap: anywhere; }
 .page pre {
   padding: 16px;
   overflow-x: auto;
-  background: var(--crt-black);
-  border: 4px solid var(--outline);
-  color: var(--crt-amber);
+  background: var(--screen);
+  border: var(--frame);
+  color: var(--screen-text);
   font: inherit;
+  font-family: var(--font-code);
 }
 .page pre code { padding: 0; background: none; overflow-wrap: normal; }
-.page blockquote { padding-left: 16px; border-left: 8px solid var(--steel); color: var(--slate); }
-.page hr { margin: 32px 0 0; border: 0; border-top: 4px solid var(--outline); }
+.page blockquote { padding-left: 16px; border-left: calc(2 * var(--edge)) solid var(--surface-head); color: var(--text-quiet); }
+.page hr { margin: 32px 0 0; border: 0; border-top: var(--frame); }
 .page img { max-width: 100%; height: auto; }
 
 .page .tablewrap { overflow-x: auto; }
 .page table { border-collapse: collapse; }
 .page th, .page td { padding: 8px 16px 8px 0; font-weight: 400; text-align: left; vertical-align: top; }
 .page th:last-child, .page td:last-child { padding-right: 0; }
-.page thead th { color: var(--slate); text-transform: uppercase; }
-.page tbody tr { border-top: 1px solid var(--hairline); }
+.page thead th { color: var(--text-quiet); text-transform: uppercase; }
+.page tbody tr { border-top: 1px solid var(--rule); }
 
 .footer-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 24px; max-width: 1440px; margin: 0 auto; }
 .footer-links a { text-underline-offset: 4px; }
 
 /* The plain dashboard (dashboard.frag). */
 .dash-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
-.pill { padding: 0 8px; background: var(--bone-shade); border: 4px solid var(--outline); text-transform: uppercase; }
-.pill.run { background: var(--go); }
-.pill.pause { background: var(--brass); }
-.muted, .page .when, .page .num, .page .empty, .page .n { color: var(--slate); }
-.now { margin-top: 24px; padding: 16px; background: var(--bone-shade); border: 4px solid var(--outline); }
+.pill { padding: 0 8px; background: var(--surface-quiet); border: var(--frame); text-transform: uppercase; }
+.pill.run { background: var(--good); color: var(--text-on-good); }
+.pill.pause { background: var(--accent); }
+.muted, .page .when, .page .num, .page .empty, .page .n { color: var(--text-quiet); }
+.now { margin-top: 24px; padding: 16px; background: var(--surface-quiet); border: var(--frame); }
 .page .now h2 { margin: 0; padding: 0; border: 0; overflow-wrap: anywhere; }
-.now .step { margin-top: 8px; color: var(--slate); }
+.now .step { margin-top: 8px; color: var(--text-quiet); }
 .page #console { height: 400px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 /* One tab per cycle, shown when there is more than one to choose from. */
 .page .console-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
@@ -119,14 +120,14 @@
 .page .console-tabs button {
   min-height: 48px; padding: 0 16px;
   font: inherit; color: inherit; text-transform: uppercase;
-  background: var(--bone-shade); border: 4px solid var(--outline); cursor: pointer;
+  background: var(--surface-quiet); border: var(--frame); cursor: pointer;
 }
-.page .console-tabs button[aria-selected="true"] { background: var(--brass); }
+.page .console-tabs button[aria-selected="true"] { background: var(--accent); }
 .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(288px, 1fr)); gap: 0 32px; }
 .page .cols h2, .page #previews h2 { margin-top: 32px; font-size: 16px; line-height: 24px; text-transform: uppercase; }
 .page .num { margin-right: 8px; }
 .page ul.issues { padding: 0; list-style: none; }
-.page ul.issues li { max-width: none; margin: 0; padding: 8px 0; border-top: 1px solid var(--hairline); overflow-wrap: anywhere; }
+.page ul.issues li { max-width: none; margin: 0; padding: 8px 0; border-top: 1px solid var(--rule); overflow-wrap: anywhere; }
 .page ul.issues li:first-child { border-top: 0; }
 .page .when { white-space: nowrap; }
 /* A preview that is not serving has no link: its title is plain text, and the
@@ -135,27 +136,27 @@
 
 /* Last 10 days: the factory's report (live/analytics.json). */
 .page .an-figures { display: grid; grid-template-columns: repeat(auto-fill, minmax(144px, 1fr)); gap: 16px; margin-top: 16px; }
-.an-figure { padding: 8px 16px; background: var(--bone-shade); border: 4px solid var(--outline); }
-.an-label { color: var(--slate); text-transform: uppercase; }
+.an-figure { padding: 8px 16px; background: var(--surface-quiet); border: var(--frame); }
+.an-label { color: var(--text-quiet); text-transform: uppercase; }
 .an-value { font-size: 32px; line-height: 40px; }
-.an-note { color: var(--slate); overflow-wrap: anywhere; }
+.an-note { color: var(--text-quiet); overflow-wrap: anywhere; }
 .an-spark { display: flex; align-items: flex-end; gap: 2px; height: 24px; margin-top: 8px; }
-.an-spark span { flex: 1; min-height: 2px; background: var(--verdigris); }
-.page .an-chart { position: relative; display: flex; gap: 4px; height: 176px; margin-top: 16px; padding: 8px; background: var(--bone-shade); border: 4px solid var(--outline); }
+.an-spark span { flex: 1; min-height: 2px; background: var(--text-cool); }
+.page .an-chart { position: relative; display: flex; gap: 4px; height: 176px; margin-top: 16px; padding: 8px; background: var(--surface-quiet); border: var(--frame); }
 .an-day { display: flex; flex: 1; flex-direction: column; min-width: 0; }
 .an-bars { display: flex; flex: 1; align-items: flex-end; gap: 2px; }
-.an-bars span { flex: 1; min-height: 2px; overflow: hidden; color: var(--bone); font-size: 12px; line-height: 16px; text-align: center; }
-.an-bars .shipped, .an-key.shipped { background: var(--go); }
-.an-bars .failed, .an-key.failed { background: var(--fail); }
-.an-date { color: var(--slate); font-size: 12px; line-height: 16px; text-align: center; white-space: nowrap; overflow: hidden; }
+.an-bars span { flex: 1; min-height: 2px; overflow: hidden; color: var(--surface); font-size: 12px; line-height: 16px; text-align: center; }
+.an-bars .shipped, .an-key.shipped { background: var(--good); }
+.an-bars .failed, .an-key.failed { background: var(--bad); }
+.an-date { color: var(--text-quiet); font-size: 12px; line-height: 16px; text-align: center; white-space: nowrap; overflow: hidden; }
 /* The line spans the bars' area: the chart's padding above, the dates below. */
 .an-line { position: absolute; top: 8px; left: 8px; width: calc(100% - 16px); height: calc(100% - 32px); overflow: visible; pointer-events: none; }
-.an-line polyline { fill: none; stroke: var(--brass); stroke-width: 3; }
-.an-key { display: inline-block; width: 16px; height: 12px; margin-left: 8px; border: 2px solid var(--outline); }
-.an-key.minutes { height: 4px; background: var(--brass); border-color: var(--brass); }
+.an-line polyline { fill: none; stroke: var(--accent); stroke-width: 3; }
+.an-key { display: inline-block; width: 16px; height: 12px; margin-left: 8px; border: 2px solid var(--line); }
+.an-key.minutes { height: 4px; background: var(--accent); border-color: var(--accent); }
 .page ul.issues li.an-step { display: grid; grid-template-columns: minmax(0, 10ch) minmax(64px, 1fr) auto; align-items: center; gap: 8px; }
-.an-yield { display: block; height: 12px; background: var(--bone-shade); border: 2px solid var(--outline); }
-.an-yield span { display: block; height: 100%; background: var(--go); }
+.an-yield { display: block; height: 12px; background: var(--surface-quiet); border: 2px solid var(--line); }
+.an-yield span { display: block; height: 100%; background: var(--good); }
 
 @media (max-width: 899px) {
   .manual { grid-template-columns: minmax(0, 1fr); }

@@ -155,6 +155,21 @@ Run `tehas dispatch --dry-run` and read what it prints.
   the reader, or set `TEHAS_WORK_IMAGES=0` and run `install.sh`. An image put
   back from before 2026-10-14 is what starts the hold: see
   [Rolling back pi-rukas](/host#rolling-back-pi-rukas).
+- `hold #N: its text says <the words> and links no attachment, so the cycle
+  would be given none; attach the file or write out what it shows, before
+  applying tehas:ready`: the issue was written around a file nobody attached.
+  Its text says `SCREENSHOT GOES HERE`, `IMAGE_GOES_HERE`, `the image goes
+  here` or the like, and no text of the issue links a file at all. The
+  dispatcher started no container: the cycle would have been given no image and
+  no word of the gap, and would have parked after a full explore with the park
+  looking like a problem with the issue's premise. Nothing on the issue changed
+  and no label was touched, so the queue is as it was. Attach the file, or write
+  out in words what it shows and remove the line, and the next poll starts the
+  cycle. `TEHAS_WORK_IMAGES` makes no difference: with the setting off the
+  instance gives a cycle no attachments at all, which is the same gap. The
+  words of prose are no reason to hold: "the value goes here in the code" starts
+  as any other issue does, because the name of a file is what stands before
+  `goes here`. See [Attachments](/operating#attachments).
 - `nothing to do`: the issue is closed, or does not carry `tehas:ready`.
 - `wait #N: its cycle is still running`: `tehas:ready` was applied while the
   issue's cycle runs. A fresh cycle starts when that one has ended.
@@ -171,7 +186,8 @@ Run `tehas dispatch --dry-run` and read what it prints.
   through: the poll asks again, at most once every 10 minutes, and after 6
   asks it says the episode needs a person. Either way the unit's own
   `TimeoutStopSec` (300s) is what ends a unit that ignores the stop job. To
-  stop it now: `systemctl --user stop tehas-cycle@N.service`, and read
+  stop it now: `tehas stop N`, which clears what the cycle left on the host as
+  well, or `systemctl --user stop tehas-cycle@N.service` on its own, and read
   `journalctl --user -u tehas-cycle@N`.
 - `N cycles running, room for M more`, then `would run a cycle for #N ...`:
   the issues the next poll starts. In the log you may also see `the code index
@@ -380,7 +396,7 @@ cap means" say which check. Four kinds were seen:
   sheets (`host/fun/*.css`), and in one cycle scripts as well. Tests and
   manual pages are what the repository's rules require a change to touch, so
   the plan's fence and the rules disagree
-  (tehas-org/tehas#159, trail-openers/pi-rukas#1250). Name in the issue every file
+  (tehas-app/tehas#159, trail-openers/pi-rukas#1250). Name in the issue every file
   the change will touch, the test file and the manual page included, as
   step 1 of [Operating](/operating) says.
 - `verify command ... failed on the CONSOLIDATED tree`, or `exceeded its
@@ -459,11 +475,23 @@ pull request, then merge it, finish it by hand, or close it. Nothing in the issu
 the pull request before you retry: while it is open, a new cycle stops at
 `existing-pr-detected`.
 
+### `child-timeout:<step>` and `spawn-backstop`
+
+`child-timeout:develop` or `child-timeout:explore`: one child of that step ran
+past its own run bound. pi-rukas told it to wrap up at the bound and ended it
+10 minutes later. Read the run log for what the child was doing. When it was
+progressing, split the issue; when it was stuck, find out why.
+
+`spawn-backstop`: a child ran past pi-rukas's 2-hour backstop,
+`PI_ENSEMBLE_SPAWN_TIMEOUT_MS`, which only catches a child nothing else ended.
+Until result schema 5 (pi-rukas v0.14.0) this cap was named
+`developer-timeout`.
+
 ### `step-failed:adversarial`
 
 The adversarial review could not run: its dispatch failed twice. It says
 nothing about the code. All three times it was seen here, on 14 October, the
-model endpoint was timing out (tehas-org/tehas#147,
+model endpoint was timing out (tehas-app/tehas#147,
 trail-openers/pi-rukas#1243). The work is committed on a local branch in the
 workspace and was not pushed. There is no pull request. Check the endpoint,
 as in "The model endpoint does not answer" below, and retry once it answers.
@@ -543,6 +571,37 @@ In the review stage, at least one of the six review passes failed every
 retry, so the review did not finish. That is not a rejection. The comment is
 on the pull request, which is open with the work pushed. Review the change
 yourself, then merge or close it.
+
+### The runner died and wrote no result
+
+The bot's comment says `Tehas cycle handed off with its pull request open and
+its review unfinished`, or `Tehas cycle stopped without a pull request`, with
+`last step` followed by `read from its run log` and a `runner exit` that is not
+one of the ends of the contract (10, 11, 20, 21). The runner of that cycle died
+before it could write its result, so tehas read the step it was in from its run
+log and asked GitHub for the bot's pull request of the branch that
+`commit-pr` pushed.
+
+- The comment names the pull request when GitHub lists one. Read it: the change
+  is up for review, and a clean retry redoes what it already holds. That
+  comment has no retry boxes, and the issue carries `needs-human-attention`.
+- The comment says no pull request was found when GitHub lists none. The
+  change is then either unpushed or pushed without a pull request. The
+  commits are in the cycle's workspace, on the local branch
+  `feature/issue-<N>-...` there: `git -C ~/tehas/work/<product>-<N> log
+  feature/issue-<N>-...`, then push it and open the pull request by
+  hand, or retry for a fresh cycle.
+- The step is `-` when the run log has no step for this cycle at all, which is
+  what says `tehas work` stopped before it started the container. Read
+  `~/tehas/logs/dispatch-work-<N>.log`.
+
+```
+jq . ~/tehas/state/cycles/<N>.result.json      # empty, or missing: no result
+tail -n 40 ~/tehas/logs/work-<N>-*.jsonl        # the steps the runner reached
+```
+
+The log of the run says what the runner was doing; the comment says what tehas
+made of it, and the two are read in that order.
 
 ## A provider error about context length
 

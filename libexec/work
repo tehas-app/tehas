@@ -9,7 +9,7 @@
 #
 # Before anything is moved or fetched, the image is asked what it supports
 # (`pi-rukas-headless --capabilities`). The cycle starts only when the image
-# speaks the contract versions read here (exit codes 1, result schema 4, stable
+# speaks the contract versions read here (exit codes 1, result schema 5, stable
 # NDJSON 1), takes the flags passed, lists every PI_ENSEMBLE_* variable the
 # container is given as an input a host may set, and has the features this
 # command relies on: the host handoff channel, the cycle deadline when one is
@@ -63,12 +63,23 @@
 #              That file holds the limit in seconds, who stopped the cycle
 #              (tehas or runner) and the step it was in.
 #              3 the sandbox cannot push to the repository; no cycle was started.
-#              4 the instance gives a cycle the issue's images or files and one
-#                could not be fetched, the issue could not be read for them, or
-#                its text or a file is not what was approved; no cycle was
-#                started.
+#              4 no cycle was started. Where the dispatcher left its approval
+#                record: the issue's text is not the text that record approved,
+#                the record could not be read, or the issue could not be read
+#                for its text. Where the instance gives a cycle the issue's
+#                images or files: one could not be fetched, the issue could not
+#                be read for them, or a file is not the one first fetched for
+#                that approval. In both cases the issue is told which, with no
+#                host path in what it is told.
 #              5 a cycle for this issue is running already; nothing was
 #                touched.
+#
+#              It leaves state/cycles/<issue>.runner_exit beside the result:
+#              the runner's own exit status, whatever this command exits with.
+#              tehasbot cycle names that in its comment, not this status. A
+#              container it saw killed leaves state/cycles/<issue>.status with
+#              the word `killed`, which is the only account of the end when the
+#              runner wrote no result at all.
 #
 #             64 no bot token or no git identity; no cycle was started.
 #             78 the instance settings are invalid, tehas.slice is not
@@ -97,8 +108,10 @@
 # From the environment, for tests: TEHAS_PREFLIGHT_WAIT (seconds the push check
 # may take [300]), TEHAS_WORK_GRACE (seconds past the time limit [300]),
 # TEHAS_STOP_WAIT (seconds a docker stop may take before
-# the container is killed [60]) and TEHAS_CONSOLE_WAIT (seconds the console
-# may take to stop before it is killed [30]).
+# the container is killed [60]), TEHAS_CONSOLE_WAIT (seconds the console
+# may take to stop before it is killed [30]) and TEHAS_TEXT_WAIT (seconds the
+# read of the issue's text may take, and every comment that names why a start
+# stopped [60]).
 #
 # TEHAS_WORK_TIMEOUT bounds the watch loop. Every call to Docker or git
 # outside it is bounded too: a dockerd that stops answering, or a network
@@ -165,9 +178,14 @@
 # untrusted, every line quoted, cut at 32000 characters. No mount and no
 # variable more.
 #
-# With neither setting a cycle is given nothing, and GitHub is asked for
-# nothing: no directory is mounted and no PI_ENSEMBLE_EXTRA_IMAGE_DIRS is
-# passed on, whatever the instance file says. When the dispatcher's approval
+# With neither setting a cycle is given nothing: no directory is mounted and
+# no PI_ENSEMBLE_EXTRA_IMAGE_DIRS is passed on, whatever the instance file
+# says. The issue is still read once, for its text, and held to the
+# dispatcher's record (exit 4). That one read is the one the images and the
+# files are fetched from too, so a start asks GitHub for the issue once
+# whatever it is given. By hand, where this host holds no record, the run is
+# its own approval and GitHub is asked for nothing.
+# When the dispatcher's approval
 # record lists attachment links, the gap is said rather than left for an agent
 # to find from a file that is not there: one line naming how many links and
 # which approval it read, on this command's error stream and in $log.err,
@@ -321,6 +339,11 @@ record=$TEHAS_HOME/state/cycles/$issue.approved.json
 kept=$TEHAS_HOME/state/cycles/$issue.manifest.json
 result_file=$TEHAS_HOME/state/cycles/$issue.result.json
 progress_file=$TEHAS_HOME/state/cycles/$issue.progress.json
+# The runner's own exit status, written below for tehasbot cycle to report, and
+# the word of the end this command saw of the container: `killed` for one it saw
+# killed. Both are read and removed by tehasbot cycle.
+runner_exit_file=$TEHAS_HOME/state/cycles/$issue.runner_exit
+status_file=$TEHAS_HOME/state/cycles/$issue.status
 image_file=$TEHAS_HOME/state/cycles/$issue.image
 settings_file=$TEHAS_HOME/state/cycles/$issue.settings
 stall=$TEHAS_WORK_STALL
@@ -332,6 +355,8 @@ caps_wait=${TEHAS_CAPS_WAIT:-120}
 stop_wait=${TEHAS_STOP_WAIT:-60}
 console_wait=${TEHAS_CONSOLE_WAIT:-30}
 [[ $console_wait =~ ^[1-9][0-9]{0,3}$ ]] || console_wait=30
+text_wait=${TEHAS_TEXT_WAIT:-60}
+[[ $text_wait =~ ^[1-9][0-9]{0,3}$ ]] || text_wait=60
 
 [ -n "${GH_TOKEN:-}" ] || { echo "tehas work: GH_TOKEN is not set (source ~/tehas/env.sh)" >&2; exit 64; }
 mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state/cycles"
@@ -423,7 +448,7 @@ if [ -e "$works" ] && [ ! -f "$works/.tehas-workspaces" ]; then
 fi
 run_flags=(--timeout "$(((limit + 59) / 60))" --json)
 [ -z "$flags" ] || { run_flags+=(--restart); features+=" restartClearsAttention"; }
-if [ -f "$record" ] && [ ! -L "$record" ] && [ "$(jq -r '.how // "" | strings' "$record" 2>/dev/null)" = refresh ]; then
+if tehas_record_is_file "$record" && [ "$(jq -r '.how // "" | strings' "$record" 2>/dev/null)" = refresh ]; then
   run_flags+=(--continue-pr)
 fi
 # What the image supports, against what this cycle is given.
@@ -451,6 +476,59 @@ if [ -n "$expired" ]; then
   exit 78
 fi
 
+# The words a cycle works on are the words somebody approved. The dispatcher
+# wrote what it approved into its record; read the issue once here, before
+# anything of this cycle is written, and hold it to that, so a body or a title
+# edited after the label starts no cycle. This is the last place on the host that
+# can still compare them, and it compares as it starts: what the container reads
+# afterwards is the issue as it is then. The title is bound here as well as by
+# the dispatcher's read of the label events: the record carries its hash, and a
+# record that carries none is checked on the body alone.
+# Where this host holds no record the run is by hand, and the person who ran
+# this command is the approval.
+text_why="" # why this start stops, empty when the text is the approved one
+text_path="" # the record that could not be read, when that is the reason
+issue_now="" # the issue as GitHub answers for it now, read once for all of it
+if tehas_record_is_file "$record"; then
+  # Bounded like every other call before the container: a network that swallows
+  # this read must not hold the issue's lock and its slot for ever. gh's own
+  # words go to $log.err, where a person can see which failure it was.
+  issue_now=$(timeout -k 10 "$text_wait" gh api "repos/$TEHAS_REPO/issues/$issue" 2>>"$log.err")
+  issue_rc=$?
+  case $issue_rc in
+    0) ;;
+    124 | 137) text_why="the issue could not be read for its text: no answer within ${text_wait}s" ;;
+    *) text_why="the issue could not be read for its text: GitHub refused the read" ;;
+  esac
+  if [ -z "$text_why" ]; then
+    # An answer that is a pull request, or an issue nobody can start a cycle
+    # on, is refused before its text is hashed or anything is said on it.
+    case $(jq -r 'if type != "object" or (.body != null and (.body | type) != "string") then "unread"
+        elif .pull_request != null or ((.state // "") != "open") then "wrong" else "ok" end' \
+      <<<"$issue_now" 2>/dev/null) in
+      ok) tehas_approval_text "$record" "$issue_now" ;;
+      wrong) text_why="#${issue} is not an open issue, as GitHub answers for it" ;;
+      *) text_why="the issue could not be read for its text" ;;
+    esac
+  fi
+else
+  # No record, or something at that path that is not a plain file: a link or a
+  # directory. Both are read as no record, which is how the images below read
+  # them too, but it would be wrong to say nothing is here when something is.
+  said="tehas work: no approval is recorded on this host for #$issue; a run by hand is its own approval"
+  [ ! -e "$record" ] || said+=" ($record is not a record this command can read)"
+  echo "$said" >&2
+fi
+if [ -n "$text_why" ]; then
+  # The path of the record stays on the host. What the issue is told names which
+  # rule stopped the start, and nothing of where this instance keeps its state.
+  echo "tehas work: $text_why${text_path:+ ($text_path)}, not starting a cycle" >&2
+  timeout -k 10 "$text_wait" gh issue comment "$issue" --repo "$TEHAS_REPO" \
+    --body "Tehas started no cycle: $text_why. To retry, apply \`tehas:ready\`." >/dev/null 2>&1 ||
+    echo "tehas work: the comment on #$issue failed" >&2
+  exit 4
+fi
+
 # The issue's images, where the instance gives a cycle any. Before the
 # workspace: a start that fails here must not move aside what the last cycle
 # left.
@@ -461,7 +539,7 @@ fi
 image_opts=()
 if [ "$give" = 1 ]; then
   approved=""
-  if [ -f "$record" ] && [ ! -L "$record" ]; then
+  if tehas_record_is_file "$record"; then
     # The dispatcher's record of the start: who approved and which links.
     from=$record
     # A start of the fixer's counts on the person's approval it rests on.
@@ -479,11 +557,11 @@ if [ "$give" = 1 ]; then
     esac
   fi
   image_why="the issue's label events could not be read for its images"
-  if [ "$approved" = unread ] || ! tehas_issue_images "$issue" "$images" "$approved" "$from" ||
+  if [ "$approved" = unread ] || ! tehas_issue_images "$issue" "$images" "$approved" "$from" "$issue_now" ||
     ! tehas_issue_images_changed "$kept" "$images"; then
     rm -rf "$images"
     echo "tehas work: $image_why, not starting a cycle" >&2
-    gh issue comment "$issue" --repo "$TEHAS_REPO" --body "Tehas started no cycle: $image_why. This instance gives a cycle the $kinds an issue links, and a cycle that works without one of them may build the wrong thing. To retry, apply \`tehas:ready\`." >/dev/null 2>&1 ||
+    timeout -k 10 "$text_wait" gh issue comment "$issue" --repo "$TEHAS_REPO" --body "Tehas started no cycle: $image_why. This instance gives a cycle the $kinds an issue links, and a cycle that works without one of them may build the wrong thing. To retry, apply \`tehas:ready\`." >/dev/null 2>&1 ||
       echo "tehas work: the comment on #$issue failed" >&2
     exit 4
   fi
@@ -565,8 +643,10 @@ if [ "$give" != 1 ]; then
 fi
 
 # Docker refuses a cid file that is already there. One is left only by a cycle
-# that was killed outright, and so is a count of kills.
-rm -f "$cid_file" "$oom_file" "$forks_file" "$stall_file" "$timed_file" "$image_file" "$settings_file" "$result_file" "$progress_file"
+# that was killed outright, and so is a count of kills, and so is the name a
+# write of one of these files was made beside before it was moved into place.
+rm -f "$cid_file" "$oom_file" "$forks_file" "$stall_file" "$timed_file" "$image_file" "$settings_file" "$result_file" "$progress_file" "$runner_exit_file" "$status_file" \
+  "$runner_exit_file.new" "$status_file.new"
 # A container under this name outlived the client that started it: this
 # command holds the issue's lock, so no cycle owns it. It would work on with
 # the bot's token, and Docker would refuse the name below.
@@ -655,10 +735,10 @@ add_private "$bot_email"
 cpid=$!
 now_file() { # running? status
   local step="" text=""
-  # The step and the driver's last notice, from the stable progress lines.
-  # The notice is the driver's words and the file is served by the dashboard:
-  # it goes through the console's mask, and without a console it is not
-  # published at all.
+  # The step and the driver's last notice, from the stable progress lines, in
+  # one pass over the log. The notice is the driver's words and the file is
+  # served by the dashboard: it goes through the console's mask, and without a
+  # console it is not published at all.
   { read -r step; read -r text; } < <(tehas_headless_now "$log")
   [ -n "$step" ] || step=starting
   text=$(printf '%s' "$text" | "$here/console" --mask "${private[@]}" 2>/dev/null)
@@ -747,6 +827,27 @@ rm -f "$cid_file"
 have=0 error_only=0
 outcome=$(tehas_headless_outcome "$result_file" "$issue") && have=1 || outcome='{}'
 [ "$have" = 1 ] || ! tehas_headless_error_only "$result_file" || error_only=1
+# What the runner ended with, whatever this command goes on to exit with. Said
+# in the cycle's comment, which otherwise names only this command's status.
+# Written once, as soon as the runner has ended: what the report makes of the
+# run after this point may fail, and this word must not go with it. Written by
+# a name beside it and moved into place, so tehasbot cycle sees either the word
+# whole or no file at all: a file of the protocol that is there says this
+# command watched the run, and one that a write lost is said of on the unit's
+# error stream, where a person reads it, as much as in the cycle's own log.
+write_note() { # <file> <text>: one file of the protocol, whole or not at all
+  if ! printf '%s\n' "$2" >"$1.new" 2>/dev/null; then
+    rm -f "$1.new" 2>/dev/null
+  elif ! mv "$1.new" "$1" 2>/dev/null; then
+    rm -f "$1.new" 2>/dev/null
+    echo "tehas work: could not write $1" >&2
+    printf '%s\n' "tehas work: could not write $1" >>"$log.err" 2>/dev/null ||
+      echo "tehas work: could not say of $log.err that $1 was lost" >&2
+    return 1
+  fi
+  return 0
+}
+write_note "$runner_exit_file" "${rc:-2}"
 if [ "$have" = 1 ]; then
   status=$(jq -r .status <<<"$outcome")
   status=${status:-unknown}
@@ -767,7 +868,9 @@ if [ "$timed" = 0 ] && [ "$stalled" = 0 ] && [ "$interrupted" = 0 ] && [ "$rc" !
   case "$status" in running | unknown | interrupted) ran_out=1 status=timeout ;; esac
 fi
 inflight=$(jq -r '[.failedStep, .lastStep] | map(strings | select(. != "")) | first // ""' <<<"$outcome" 2>/dev/null)
-[ -n "$inflight" ] || inflight=$(tehas_headless_now "$log" | head -n 1)
+# A result that names no step leaves the log to say which step the runner was
+# in: one pass over it gives the last step it says it started.
+[ -n "$inflight" ] || { read -r inflight; } < <(tehas_headless_now "$log")
 inflight=$(printf '%s' "$inflight" | tr -cd 'A-Za-z0-9_.:-' | head -c 40)
 inflight=${inflight:--}
 if [ "$timed" = 1 ] || [ "$ran_out" = 1 ]; then
@@ -782,6 +885,13 @@ fi
 if [ "$rc" = 137 ] && [ "$have" = 0 ] && [ "$error_only" = 0 ] && [ "$interrupted" = 0 ] && [ "$stopped" = 0 ]; then
   status=killed
   killed=1
+  # Said with the summary, for the report of tehasbot cycle: a cycle that
+  # writes no result has no word of its own for how it ended, and this is the
+  # word of the one that watched the container. Lost with no other account of
+  # the kill left behind, so it is said of twice: once to a person reading the
+  # unit, once to the cycle's own record.
+  write_note "$status_file" killed ||
+    echo "tehas work: the account of the killed container is lost with it"
   echo "tehas work: the container was killed (137) while the cycle was running: out of memory, or stopped from outside"
 fi
 if [ "$ooms" -gt 0 ]; then

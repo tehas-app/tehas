@@ -1,0 +1,8 @@
+{"generatedAt":"2026-10-20T08:46:04Z","repo":"example/demo","paused":false,"pause":{"flag":null,"label":false,"lifted":false},"allHands":false,"noResources":false,"secretKey":"SECRET",
+"running":[{"number":7,"title":"Running issue","url":"https://github.com/example/demo/issues/7","updatedAt":"2026-10-20T08:10:09Z","closedAt":null,"labels":["tehas:running"]}],
+"queued":[{"number":8,"title":"Queued issue","url":"https://github.com/example/demo/issues/8","updatedAt":"2026-10-20T06:23:35Z","closedAt":null,"body":"SECRET-BODY"},{"number":9,"title":"Another queued","url":"https://github.com/example/demo/issues/9","updatedAt":"2026-10-20T06:23:38Z","closedAt":null}],
+"planning":1,
+"awaiting":[{"number":5,"title":"Awaiting review","url":"https://github.com/example/demo/pull/5","updatedAt":"2026-10-19T20:00:00Z","closedAt":null}],
+"stopped":[{"number":4,"title":"Stopped issue","url":"https://github.com/example/demo/issues/4","updatedAt":"2026-10-19T19:00:00Z","closedAt":null}],
+"completed":[{"number":3,"title":"Done issue","url":"https://github.com/example/demo/issues/3","updatedAt":"2026-10-19T18:00:00Z","closedAt":"2026-10-19T18:00:00Z"}],
+"buzzwords":[{"word":"cycle","count":3}],"links":{"all":"https://github.com/example/demo/issues"}}

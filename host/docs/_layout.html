@@ -48,9 +48,8 @@
     <meta property="og:image:height" content="630">
     <meta property="og:image:alt" content="A pixel art factory with a wind turbine beside the word TEHAS">
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="theme-color" content="#694">
     <link rel="icon" type="image/svg+xml" href="/fun/favicon.svg">
-    <link rel="preload" href="/fun/TopazPlus_a1200_v1.0.ttf" as="font" type="font/ttf" crossorigin>
+    <link rel="stylesheet" href="/fun/theme.css">
     <link rel="stylesheet" href="/fun/game-view.css">
     <link rel="stylesheet" href="/fun/manual.css">
     {{- /* Visitor analytics, only on an instance that names a script and a site. */}}
@@ -70,7 +69,7 @@
         <a href="/">FACTORY FLOOR</a>
         <a href="/dashboard">DASHBOARD</a>
         <a href="/overview">MANUAL</a>
-        <a class="repo" href="https://github.com/tehas-org/tehas" target="_blank" rel="noopener noreferrer">GITHUB</a>
+        <a class="repo" href="https://github.com/tehas-app/tehas" target="_blank" rel="noopener noreferrer">GITHUB</a>
       </nav>
     </header>
 
@@ -93,6 +92,8 @@
           {{ end }}>FACTORY API</a>
         <a href="/analytics" {{ if eq $path "analytics" }} aria-current="page"
           {{ end }}>ANALYTICS</a>
+        <a href="/mcp-server" {{ if eq $path "mcp-server" }} aria-current="page"
+          {{ end }}>MCP</a>
         <a href="/host" {{ if eq $path "host" }} aria-current="page"
           {{ end }}>THE HOST</a>
         <a href="/edge" {{ if eq $path "edge" }} aria-current="page"

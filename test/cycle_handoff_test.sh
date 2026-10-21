@@ -38,6 +38,32 @@ t_contains "$(t_calls gh)" "Tehas started no cycle: an image or file the issue l
 t_lacks "$(t_calls gh)" "stopped without a pull request"
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention"
 
+t_case "a cycle that never ran is reported from the approval record, and the record goes with the report"
+reset
+mkdir -p "$state"
+jq -n '{at: "2026-01-01T00:00:00Z", by: "alice", how: "label", body_sha256: "0", links: []}' >"$state/7.approved.json"
+echo 'exit 4' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "alice approved this start at 2026-01-01T00:00:00Z"
+t_contains "$(t_calls gh)" "Nothing of it ran: no workspace, no container, no step, no usage."
+t_lacks "$(t_calls gh)" "last step"
+t_lacks "$(t_calls gh)" "min,"
+t_lacks "$(t_calls gh)" "total, all dispatches"
+t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+t_eq "$([ -e "$state/7.approved.json" ] && echo left)" ""
+t_eq "$(jq -c '[.provider, .retry]' "$state/7.park")" '[false,false]'
+t_contains "$(t_calls gh)" "--add-label tehas:question"
+# The line of history still names how the start was authorised.
+t_eq "$(jq -r '[.rc, .status, .step, .how] | @csv' "$state/7.history.jsonl")" '4,"unknown","-","label"'
+
+t_case "a cycle that never ran and holds no approval record says that, and asks for a fresh one"
+reset
+echo 'exit 4' >"$fx/work.sh"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "No approval of this start is recorded on this host: a fresh \`tehas:ready\` is needed."
+t_contains "$(t_calls gh)" "runner exit 4"
+
 t_case "the issue's images are gone when the cycle is over, however it ended"
 for end in "handoff commit-pr" "aborted develop"; do
   reset

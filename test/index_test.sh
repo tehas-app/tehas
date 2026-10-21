@@ -26,14 +26,19 @@ commit() { git -C "$upstream" -c user.name=t -c user.email=t@example.com commit 
 commit first
 git clone -q "$upstream" "$checkout"
 
-# The stub answers `image inspect` by $IMAGE_RC and `run` by $RUN_RC. For a
-# run it also notes the commit of the tree mounted read-only, which is gone
-# by the time the command returns. Only a run that succeeded writes a database
-# into the directory it is mounted read-write, under the name of the tree, as
-# the indexer would.
+# The two sandbox images: the id the stub answers with, and another one a case
+# puts in its place with $IMAGE_ID.
+image_id=sha256:1111111111111111111111111111111111111111111111111111111111111111
+other_id=sha256:2222222222222222222222222222222222222222222222222222222222222222
+# The stub answers `image inspect` with $IMAGE_ID and by $IMAGE_RC, and `run`
+# by $RUN_RC. For a run it also notes the commit of the tree mounted read-only,
+# which is gone by the time the command returns, and what the directory it is
+# given read-write held when the run started. Only a run that succeeded writes a
+# database into that directory, under the name of the tree, as the indexer
+# would.
 stub='if [ "$1" = info ]; then cat "$T/docker.info"; exit; fi
 printf "%s\n" "$@" >"$T/calls/docker.args.$$"
-[ "$1" = image ] && exit "${IMAGE_RC:-0}"
+[ "$1" = image ] && { printf "%s\n" "${IMAGE_ID:-'"$image_id"'}"; exit "${IMAGE_RC:-0}"; }
 [ "$1" = rm ] && exit 0
 written=""
 for a in "$@"; do
@@ -42,6 +47,7 @@ for a in "$@"; do
     *:/home/vscode/.tehas-cache) written=${a%%:*} ;;
   esac
 done
+[ -z "$written" ] || find "$written" -mindepth 1 -maxdepth 1 -printf "%f\n" | LC_ALL=C sort | tr "\n" " " >"$T/calls/index.at.run"
 [ -z "${RUN_SLEEP:-}" ] || exec sleep "$RUN_SLEEP"
 [ "${RUN_RC:-0}" = 0 ] || exit "$RUN_RC"
 echo index >"$written/widget.db"
@@ -483,5 +489,230 @@ t_eq "$t_rc" 0
 t_eq "$(runs)" 1
 t_eq "$(jq -r .commit "$marker")" "$(git -C "$upstream" rev-parse main)"
 t_eq "$(find "$failed" 2>/dev/null | wc -l)" 0
+
+# --- The sandbox image the index was built with -------------------------------
+# The record names the image that ran. An index written by another image, or by
+# one that recorded nothing, is removed and built from nothing; the same image
+# leaves what it wrote for the indexer to update. What the directory given
+# read-write held when the run started ($T/calls/index.at.run) tells them apart.
+t_case "the record names the sandbox image that built the index"
+reset
+rm -rf "$indexdir"
+mkdir -p "$indexdir/logs"
+echo old >"$indexdir/other-tree.db"
+commit recorded
+git -C "$checkout" fetch -q
+t_run "$index"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .indexer_image "$marker")" "$image_id"
+t_lacks "$t_out" "from scratch"
+t_eq "$(cat "$T/calls/index.at.run")" "logs other-tree.db "
+
+t_case "an index built by another sandbox image is built from scratch"
+reset
+rm -rf "$indexdir"
+mkdir -p "$indexdir/logs"
+echo cfg >"$indexdir/_config.db"
+echo old >"$indexdir/other-tree.db"
+echo left >"$indexdir/widget.db.stage.abc123.tmp.945328.0x200002bc000"
+T_ENV=(IMAGE_ID="$other_id" "$root" "$wait")
+t_run "$index"
+t_eq "$t_rc" 0
+t_contains "$t_out" "the index was built by sandbox image $image_id, this run uses $other_id: 2 file(s) it wrote are set aside and the index is built from scratch"
+t_eq "$(cat "$T/calls/index.at.run")" "_config.db logs "
+t_eq "$(find "$indexdir" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" "_config.db logs widget.db "
+t_eq "$(jq -r .indexer_image "$marker")" "$other_id"
+t_eq "$(find "$T/home/tehas/tmp" -mindepth 1 2>/dev/null | wc -l)" 0
+
+t_case "the same sandbox image updates the index it built"
+reset
+echo keep >"$indexdir/other-tree.db"
+commit updated
+git -C "$checkout" fetch -q
+t_run "$index"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "sandbox image"
+t_eq "$(cat "$T/calls/index.at.run")" "_config.db logs other-tree.db widget.db "
+t_eq "$(jq -r .indexer_image "$marker")" "$other_id"
+T_ENV=("$root" "$wait")
+
+t_case "before a cycle, a moved branch is built from scratch when the image changed"
+reset
+rm -rf "$indexdir"
+mkdir -p "$indexdir"
+echo old >"$indexdir/widget.db"
+T_ENV=(IMAGE_ID="$image_id" "$root" "$wait")
+commit moved
+git -C "$checkout" fetch -q
+t_run "$index --before-cycle"
+t_eq "$t_rc" 0
+t_contains "$t_out" "the index was built by sandbox image $other_id, this run uses $image_id"
+t_eq "$(cat "$T/calls/index.at.run")" ""
+t_eq "$(jq -r .indexer_image "$marker")" "$image_id"
+
+t_case "an index with no recorded image is built from scratch"
+reset
+rm -rf "$indexdir"
+mkdir -p "$indexdir"
+echo old >"$indexdir/widget.db"
+jq 'del(.indexer_image)' "$marker" >"$marker.new" && mv "$marker.new" "$marker"
+commit unrecorded
+git -C "$checkout" fetch -q
+t_run "$index"
+t_eq "$t_rc" 0
+t_contains "$t_out" "the index was built by sandbox image unknown, this run uses $image_id"
+t_eq "$(cat "$T/calls/index.at.run")" ""
+t_eq "$(jq -r .indexer_image "$marker")" "$image_id"
+
+t_case "a host that has never been indexed says nothing about images"
+reset
+rm -rf "$indexdir"
+rm -f "$marker"
+commit fresh
+git -C "$checkout" fetch -q
+t_run "$index"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "sandbox image"
+t_eq "$(cat "$T/calls/index.at.run")" ""
+t_eq "$(jq -r .indexer_image "$marker")" "$image_id"
+
+t_case "what the indexer wrote for itself is not what a rebuild removes"
+reset
+rm -rf "$indexdir"
+mkdir -p "$indexdir/logs"
+echo cfg >"$indexdir/_config.db"
+T_ENV=(IMAGE_ID="$other_id" "$root" "$wait")
+commit nothing
+git -C "$checkout" fetch -q
+t_run "$index"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "sandbox image"
+t_eq "$(cat "$T/calls/index.at.run")" "_config.db logs "
+t_eq "$(find "$indexdir" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" "_config.db logs widget.db "
+T_ENV=("$root" "$wait")
+
+# The record now names $other_id and the stub answers with $image_id, so this
+# run rebuilds. It is the dispatcher's own case: the rebuild is what the run
+# that fails has to put back, because the cycles get whatever is in the index
+# directory until a run succeeds.
+t_case "a rebuild that fails before a cycle leaves the cycles the index they had"
+reset
+rm -rf "$indexdir"
+mkdir -p "$indexdir/logs"
+echo cfg >"$indexdir/_config.db"
+echo old >"$indexdir/other-tree.db"
+kept=$(cat "$marker")
+commit broken
+git -C "$checkout" fetch -q
+T_ENV=(IMAGE_ID="$image_id" RUN_RC=1 "$root" "$wait")
+t_run "$index --before-cycle"
+t_eq "$t_rc" 1
+t_contains "$t_out" "the index was built by sandbox image $other_id, this run uses $image_id: 1 file(s) it wrote are set aside and the index is built from scratch"
+t_eq "$(cat "$T/calls/index.at.run")" "_config.db logs "
+t_eq "$(cat "$failed")" "$(git -C "$upstream" rev-parse main)"
+t_eq "$(cat "$marker")" "$kept"
+t_eq "$(find "$indexdir" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" \
+  "_config.db logs other-tree.db "
+t_eq "$(cat "$indexdir/other-tree.db")" old
+t_eq "$(find "$T/home/tehas/tmp" -mindepth 1 2>/dev/null | wc -l)" 0
+t_run "$index --before-cycle"
+t_eq "$t_rc" 1
+t_contains "$t_out" "not tried again before the branch moves"
+t_eq "$(find "$indexdir" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" \
+  "_config.db logs other-tree.db "
+T_ENV=("$root" "$wait")
+
+t_case "a rebuild that fails by hand puts the index back where the next run finds it"
+reset
+rm -rf "$indexdir"
+mkdir -p "$indexdir/logs"
+echo cfg >"$indexdir/_config.db"
+echo old >"$indexdir/other-tree.db"
+T_ENV=(IMAGE_ID="$image_id" RUN_RC=1 "$root" "$wait")
+t_run "$index"
+t_eq "$t_rc" 1
+t_contains "$t_out" "1 file(s) it wrote are set aside"
+t_eq "$(find "$indexdir" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" \
+  "_config.db logs other-tree.db "
+T_ENV=(IMAGE_ID="$image_id" "$root" "$wait")
+t_run "$index"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/index.at.run")" "_config.db logs "
+t_eq "$(find "$indexdir" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" \
+  "_config.db logs widget.db "
+t_eq "$(jq -r .indexer_image "$marker")" "$image_id"
+t_eq "$(find "$T/home/tehas/tmp" -mindepth 1 2>/dev/null | wc -l)" 0
+T_ENV=("$root" "$wait")
+
+# The set-aside goes back only for a run that wrote no index. An indexer that
+# wrote its database and then answered in a shape this command does not accept
+# is the case: what it wrote is the index the host keeps, and putting the other
+# image's files back over it would lose it and mix two images' data.
+t_case "a rebuild whose indexer wrote a database keeps it and drops what it set aside"
+reset
+rm -rf "$indexdir"
+mkdir -p "$indexdir/logs"
+echo cfg >"$indexdir/_config.db"
+echo old >"$indexdir/other-tree.db"
+jq --arg i "$other_id" '.indexer_image = $i' "$marker" >"$marker.new" && mv "$marker.new" "$marker"
+kept=$(cat "$marker")
+tip=$(git -C "$upstream" rev-parse main)
+T_ENV=('RUN_OUT={"error":"no such path"}' "$root" "$wait")
+t_run "$index"
+t_eq "$t_rc" 1
+t_contains "$t_out" "the index was built by sandbox image $other_id, this run uses $image_id: 1 file(s) it wrote are set aside and the index is built from scratch"
+t_contains "$t_out" "this run wrote index data, what the other sandbox image wrote was dropped"
+t_eq "$(find "$indexdir" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" \
+  "_config.db logs widget.db "
+t_eq "$(cat "$indexdir/widget.db")" index
+t_eq "$(cat "$failed")" "$tip"
+t_eq "$(cat "$marker")" "$kept"
+t_eq "$(find "$T/home/tehas/tmp" -mindepth 1 2>/dev/null | wc -l)" 0
+# The database the rejected run wrote is what the cycles are given, and before
+# a cycle that is what the record says is the branch's tip, so nothing runs.
+t_run "$index --before-cycle"
+t_eq "$t_rc" 0
+t_contains "$t_out" "already indexed"
+t_eq "$(cat "$indexdir/widget.db")" index
+T_ENV=("$root" "$wait")
+
+# A run that was killed never ran its trap, so what it set aside waits in
+# $TEHAS_HOME/tmp and the index directory holds nothing a cycle can search.
+t_case "what a killed run left set aside goes back where the next run can use it"
+reset
+rm -rf "$indexdir"
+mkdir -p "$indexdir/logs" "$T/home/tehas/tmp"
+orphan=$(mktemp -d "$T/home/tehas/tmp/index.stale.XXXXXX")
+echo old >"$orphan/other-tree.db"
+kept=$(cat "$marker")
+T_ENV=(RUN_RC=1 "$root" "$wait")
+t_run "$index"
+t_eq "$t_rc" 1
+t_contains "$t_out" "a run that was killed left index data set aside: 1 file(s) put back in $indexdir, 0 removed"
+t_contains "$t_out" "1 file(s) it wrote are set aside"
+t_eq "$(find "$indexdir" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" \
+  "logs other-tree.db "
+t_eq "$(cat "$indexdir/other-tree.db")" old
+t_eq "$(cat "$marker")" "$kept"
+t_eq "$(find "$T/home/tehas/tmp" -mindepth 1 2>/dev/null | wc -l)" 0
+T_ENV=("$root" "$wait")
+
+t_case "what a killed run left set aside is removed when the index holds a database"
+reset
+rm -rf "$indexdir"
+mkdir -p "$indexdir/logs" "$T/home/tehas/tmp"
+echo keep >"$indexdir/widget.db"
+touch -d "@$(( $(date +%s) - 120 ))" "$indexdir/widget.db"
+orphan=$(mktemp -d "$T/home/tehas/tmp/index.stale.XXXXXX")
+echo old >"$orphan/other-tree.db"
+T_ENV=(RUN_RC=1 "$root" "$wait")
+t_run "$index"
+t_eq "$t_rc" 1
+t_contains "$t_out" "a run that was killed left index data set aside: 0 file(s) put back in $indexdir, 1 removed"
+t_eq "$(find "$indexdir" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" \
+  "logs widget.db "
+t_eq "$(cat "$indexdir/widget.db")" keep
+t_eq "$(find "$T/home/tehas/tmp" -mindepth 1 2>/dev/null | wc -l)" 0
+T_ENV=("$root" "$wait")
 
 t_done
