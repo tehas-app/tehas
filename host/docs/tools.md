@@ -17,6 +17,7 @@ tehas work <issue> [--restart]   # one cycle for an issue, by hand
 tehas plan <issue> ...           # one turn of a planning session, by hand
 tehas dev [<name>]               # an interactive session on the host, by hand
 tehas index                      # build the code index the agents search
+tehas setup [options]            # write this host's instance and start the factory
 tehas update [--check]           # bring this host up to date with the platform
 tehas labels                     # create the tehas labels in the repository
 tehas status [--json]            # print the state of the factory
@@ -1110,6 +1111,65 @@ included, until the branch moves.
 Run by hand it does the work even when the record says the index is current, a
 failed tip too, and it holds the index's lock while it does, so no cycle starts
 in the middle. A cycle started by hand with `tehas work` refreshes nothing.
+
+## tehas setup
+
+```
+tehas setup --repo tehas-app/tehas --labellers janit --token-file - \
+  --endpoint http://gb1:8086/v1 <~/bot-token
+```
+
+The first setup of an instance, as the tehas user, after
+[bootstrap.sh](#bootstrapsh). Before the first install `tehas` is not on `PATH`
+yet: run it from the tree it came in, `~/tehas/current/bin/tehas setup` for a
+release or `~/tehas/platform/bin/tehas setup` for a checkout. What it is not
+given it asks for when there is a terminal; without one, a missing setting is
+exit 78.
+
+| Option | What it is |
+| --- | --- |
+| `--repo <owner/name>` | The product repository |
+| `--labellers "<a> <b>"` | The logins whose labels count. Never the bot |
+| `--token-file <file>` or `-` | The bot's token, from a file or standard input. There is no option that takes the token itself, so it is never on a command line or in the shell's history |
+| `--endpoint <url>` | The OpenAI-compatible model endpoint, with its `/v1`. Its models are read from `<url>/models` |
+| `--model <id>` | The model. Needed when the endpoint offers more than one and there is no terminal to pick on |
+| `--model-key-file <file>` or `-` | The endpoint's key, if it takes one. It goes in `~/.config/tehas/env` as `TEHAS_MODEL_KEY_<PROVIDER>`, and `models.json` names that variable. Curl gets it on standard input |
+| `--provider <name>` | The provider's name in `models.json`. Without it, `main` |
+| `--control-issue <n>` | The control issue. Without it one is made, titled "tehas control" |
+| `--no-build` | Leave out the sandbox image and the product's gates |
+| `--force` | Replace a setting that is there and differs |
+
+In order, stopping at the first step that fails:
+
+1. It checks that the token can push to the repository
+   (`gh api repos/<repo>` answers `push: true`) and that the endpoint offers
+   the model, then makes the control issue. Nothing is written before these.
+2. It writes the instance directory (`~/.config/tehas`, or the one
+   `~/.config/tehas/instance-dir` names): `instance.env` with the five required
+   settings and nothing else, and `models.json` with the provider's `api`,
+   `baseUrl`, `apiKey` and the model's `id`. The token goes in
+   `~/.config/tehas/env` as `GH_TOKEN`. The directory is mode 700, the files 600.
+3. It gives git the bot's login and noreply address (`<id>+<login>@users.noreply.github.com`)
+   from `gh api user`, unless git already has a name or an email, which it keeps.
+4. It clones the product to `~/tehas/repos/<name>` when there is no checkout.
+5. It runs `install.sh` from the same tree as the command, then
+   [tehas labels](#tehas-labels).
+6. Unless `--no-build`: it builds the sandbox image when there is none
+   (`~/tehas/sandbox/build.sh`), then runs the product's gates in it with
+   `tehas check-product --sandbox` where that command is installed. Where it is
+   not, it says the gates were not run.
+7. It enables `tehas-dispatch.timer` and `tehas-dispatch.path`, starts the docs
+   server and prints the dashboard's address.
+
+A second run changes nothing that is right: a value that is there is kept, the
+control issue is not made again and an image that is there is not rebuilt. A
+setting that is there and differs is never replaced without `--force`. The run
+names each one and stops with 78 before it calls GitHub or the endpoint and
+before it writes anything.
+
+Exit 0 when done, 1 when a check or a step failed (or the step's own status,
+such as 78 from `install.sh`), 64 on an unknown option, 78 for a setting that is
+missing, malformed or differs.
 
 ## tehas labels
 
