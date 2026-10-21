@@ -105,7 +105,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_PLAN_TIMEOUT`            | `7200`                                   | Seconds before one planning turn is given up. At most 7200, 2 hours: the unit of a turn runs to that limit plus a quarter of an hour (see [the host manual](/host#time-limits)) |
 | `PI_ENSEMBLE_HOST_ALIASES`      | empty                                    | `name:address` pairs the sandbox must resolve, comma separated  |
 | `PI_ENSEMBLE_REVIEW_THRESHOLD`  | unset                                    | Optional. The code-review severity that blocks a change in a cycle: `CRITICAL`, `HIGH`, `MEDIUM` or `LOW`. Read by pi-rukas, not by tehas, and it wins over the severity the product's doctrine (`AGENTS.md` or `CLAUDE.md`) states. Unset, or anything other than those four words: pi-rukas ignores it and uses the severity that doctrine states, and MEDIUM when it states none. tehas does not check this value and does not stop with 78 over it. A `CRITICAL` finding blocks whatever this says |
-| `PI_ENSEMBLE_IMAGE`             | `tehas/pi-rukas:uid<uid>`                | The sandbox image                                               |
+| `PI_ENSEMBLE_IMAGE`             | `tehas/pi-rukas:uid<uid>`                | The sandbox image. Only its tag is the instance's to change: `sandbox/build.sh` tags what it builds under the default repository, and `tehasbot clean` takes the dated tags of that name, so a setting with another repository leaves the build's dated tags uncleaned |
 
 A line named `PI_ENSEMBLE_*` reaches a cycle's container as it is, except for
 the names tehas owns. The same line reaches a planning session and a `tehas dev`
@@ -2379,10 +2379,10 @@ is logged as a warning while the others still run:
    (see [the sandbox build](#the-sandbox-build)); what is older than the age
    besides the newest is this step's.
 5. **The pulled base image.** The image the sandbox build starts from, which
-   upstream publishes for the commit `versions.env` follows, pruned with
-   `docker image prune -f --filter until=<N>h` naming its own ids, so nothing
-   but it and the images left with no tag are offered. Of that age, and made no
-   container.
+   upstream publishes for the commit `versions.env` follows, removed by name
+   with one `docker rmi` of its own once it is of that age and no container was
+   made from it. Nothing else is offered to docker: the step asks for that one
+   name, and never for the images that have lost their tag.
 
 Preview images are `tehasbot preview`'s and no step here touches them. Docker
 volumes are never touched (see [the host](/host#what-a-container-may-not-do),

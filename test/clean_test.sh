@@ -43,7 +43,9 @@ t_stub docker 'case "$1" in
     case "$2" in
     ls)
       [ -z "${IMAGE_LS_RC:-}" ] || exit "$IMAGE_LS_RC"
-      for a in "$@"; do case "$a" in -q) q=1 ;; esac; done
+      for a in "$@"; do
+        if [ "$a" = -q ]; then q=1; fi
+      done
       if [ "${q:-}" = 1 ]; then
         [ -z "${BASE_LS_RC:-}" ] || exit "$BASE_LS_RC"
         cat "$T/fx/base-ids" 2>/dev/null
@@ -55,16 +57,28 @@ t_stub docker 'case "$1" in
       # which. A docker that knows the image answers one of them; one that
       # knows it not is a tag whose image is gone, which the age rule leaves.
       what=""
-      for a in "$@"; do case "$a" in *Created*) what=created ;; *Size*) what=size ;; esac; done
+      for a in "$@"; do
+        if [[ $a == *Created* ]]; then what=created; fi
+        if [[ $a == *Size* ]]; then what=size; fi
+      done
       [ -n "$what" ] || exit 1
       id=${@: -1}
       [ -s "$T/fx/$what-$id" ] || exit 1
       cat "$T/fx/$what-$id" ;;
-    prune)
-      [ "${PRUNE_RC:-0}" = 0 ] || { echo "docker: prune refused" >&2; exit "$PRUNE_RC"; }
-      echo "Total: 1.1GB" ;;
+    # No step of the cleaner prunes images: only the build cache is pruned, and
+    # the base is removed by its ids with docker rmi. A run that asked for a
+    # prune of images would name the reach of the step wrongly, so the stub
+    # refuses the call.
+    prune) echo "docker: no image prune" >&2; exit 1 ;;
     *) exit 1 ;;
     esac ;;
+  # The base, taken by its ids, and a dated tag, taken by its name: RMI_FAILS
+  # is the one name the tag step cannot remove, and PRUNE_RC is the knob of the
+  # base removal, 1 for a docker that will not remove and 124 for the answer
+  # timeout leaves behind when it ran out.
+  rmi) [ "${2:-}" = "${RMI_FAILS:-}" ] && exit 1
+    [ "${PRUNE_RC:-0}" = 0 ] || { echo "docker: prune refused" >&2; exit "$PRUNE_RC"; }
+    echo "Untagged: $2" ;;
   ps) [ -z "${PS_RC:-}" ] || exit "$PS_RC"
     if [ -s "$T/fx/containers" ]; then cut -d" " -f1 "$T/fx/containers"; fi ;;
   # What those containers were made from: one image id per container, read from
@@ -74,7 +88,6 @@ t_stub docker 'case "$1" in
   inspect) [ -z "${INSPECT_RC:-}" ] || exit "$INSPECT_RC"
     [ ! -s "$T/fx/containers" ] && exit 0
     cut -d" " -f2 "$T/fx/containers" ;;
-  rmi) [ "${2:-}" != "${RMI_FAILS:-}" ] || exit 1 ;;
   *) exit 1 ;;
 esac'
 
@@ -126,13 +139,17 @@ age() { touch -d '3 days ago' "$@"; }
 rukas_pin=$(printf 'a%.0s' {1..40})
 base_image=ghcr.io/up-owner/pi-rukas:sha-aaaaaaaaaaaa
 image_name=tehas/pi-rukas
+# The ids docker answers for the base. --no-trunc is asked of that listing and
+# the cleaner trusts only a full digest, so the fixture answers the shape a real
+# daemon answers with rather than a short id a human would type.
+base1=sha256:$(printf '1%.0s' {1..64})
+base2=sha256:$(printf '2%.0s' {1..64})
+base9=sha256:$(printf '9%.0s' {1..64})
 pins=("PI_RUKAS_REPO=https://github.com/Up-Owner/pi-rukas.git" \
   "PI_RUKAS_FOLLOW=commit:$rukas_pin")
 # The hours a thing must have gone unused, which two cases change: what they
 # assert names them, so it is a variable and not 24.
 after_hours=24
-pin_repo=https://github.com/Up-Owner/pi-rukas.git
-pins=("PI_RUKAS_REPO=$pin_repo" "PI_RUKAS_FOLLOW=commit:$rukas_pin")
 
 # The sandbox image's dated tags, oldest first, as the argument to
 # `docker image ls`: "<tag> <id>" per line. Six builds, each its own image.
@@ -294,7 +311,7 @@ age "$tmp/dl/tool.tar.gz"
 six_tags
 all_old
 no_containers
-printf '%s\n' "sha256:1" >"$fx/base-ids"
+printf '%s\n' "$base1" >"$fx/base-ids"
 t_run "$clean --dry-run"
 t_eq "$t_rc" 0
 t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
@@ -304,8 +321,8 @@ t_eq "$([ -e "$tmp/dl/tool.tar.gz" ] && echo there)" "there"
 t_contains "$t_out" "would remove $workdir-7/target: build output of #7"
 t_contains "$t_out" "would remove $tmp/dl/tool.tar.gz: host scratch"
 t_contains "$t_out" "would remove $image_name:261009-1000: a sandbox image of that age"
-t_contains "$t_out" "would prune the base $base_image and the images with no tag of that age"
-t_lacks "$t_out" "image prune -f"
+t_contains "$t_out" "would remove the base $base_image: an image of that age"
+t_lacks "$t_out" "image prune"
 t_lacks "$t_out" "rmi $image_name"
 t_contains "$t_out" "freed 0 bytes"
 t_lacks "$t_out" "clean: removed"
@@ -339,17 +356,19 @@ t_contains "$t_out" "freed 3000000000 bytes"
 t_case "the newest dated tag stays whatever its age"
 reset
 old_tags
-# The one case the age rule answers: the newest tag is old, and stays.
+# The newest tag is old, and stays on the newest rule alone: it is not asked
+# whether docker dates it past the age, so no image of any later tag could
+# remove it by being the newest instead.
 printf '%s\n' "$old_time" >"$fx/created-sha256:6"
 t_run "$clean"
 t_eq "$t_rc" 0
 t_lacks "$(t_calls docker)" "rmi $image_name:261014-1000"
+t_contains "$t_out" "kept $image_name:261014-1000: the newest dated tag"
 
 t_case "a tag a container was made from stays, an old one though it is"
 reset
 old_tags
 printf '%s\n' "c1 sha256:1" >"$fx/containers"
-rm -f "$fx/no-containers"
 t_run "$clean"
 t_eq "$t_rc" 0
 t_lacks "$(t_calls docker)" "rmi $image_name:261009-1000"
@@ -365,6 +384,8 @@ t_lacks "$(t_calls docker)" "rmi $image_name:261009-1000"
 t_contains "$t_out" "kept $image_name:261009-1000: a container or a uid tag uses it"
 
 t_case "an image younger than the age stays, and so does one docker cannot date"
+# Both stay, and the log says the same reason for both: the cleaner takes what
+# it dated, and an image it could not date is not one it proved old.
 reset
 old_tags
 young=$(date -u +%Y-%m-%dT%H:%M:%S.000000000Z)
@@ -374,8 +395,21 @@ t_run "$clean"
 t_eq "$t_rc" 0
 t_lacks "$(t_calls docker)" "rmi $image_name:261009-1000"
 t_lacks "$(t_calls docker)" "rmi $image_name:261010-1000"
-t_contains "$t_out" "kept $image_name:261009-1000: the image is younger than $after_hours hours"
-t_contains "$t_out" "kept $image_name:261010-1000: the image is younger than $after_hours hours"
+t_contains "$t_out" "kept $image_name:261009-1000: docker did not date its image past $after_hours hours"
+t_contains "$t_out" "kept $image_name:261010-1000: docker did not date its image past $after_hours hours"
+t_contains "$t_out" "docker gave no date past $after_hours hours for 2 image(s), none of them removed"
+
+t_case "a stamp docker answers that cannot be read is a keep, not a date"
+reset
+old_tags
+# A stamp that is there and is not a time: docker answered, and what it answered
+# is not a date this parse can read. The image stays, and the run says it dated
+# nothing rather than that the image was young.
+printf '%s\n' 'not a time' >"$fx/created-sha256:1"
+t_run "$clean"
+t_eq "$t_rc" 0
+t_lacks "$(t_calls docker)" "rmi $image_name:261009-1000"
+t_contains "$t_out" "kept $image_name:261009-1000: docker did not date its image past $after_hours hours"
 
 t_case "the instance's age is the age of the images too"
 reset
@@ -456,26 +490,45 @@ t_contains "$(t_calls docker)" "rmi $image_name:261013-1000"
 
 # --- 5. the base image -------------------------------------------------------
 
-t_case "the base image is pruned of the instance's age, and of no other name"
-reset
-printf '%s\n' "sha256:1" "sha256:2" >"$fx/base-ids"
-t_instance "${T_MINIMAL[@]}" TEHAS_CLEAN_AFTER=6
-t_run "$clean"
-t_eq "$t_rc" 0
-t_contains "$(t_calls docker)" "image ls --no-trunc -q $base_image"
-t_contains "$(t_calls docker)" "image prune -f --filter until=6h sha256:1 sha256:2"
-t_contains "$t_out" "docker image prune of that age: Total: 1.1GB"
-
-t_case "a base no image on the host has is no prune, and no untagged sweep"
+t_case "a base no image on the host has is no removal, and no sweep of the untagged"
 reset
 t_run "$clean"
 t_eq "$t_rc" 0
 t_lacks "$(t_calls docker)" "image prune"
+t_lacks "$(t_calls docker)" "rmi sha256:"
 t_contains "$t_out" "kept the base $base_image: no image of that name is on the host"
+
+t_case "the base is removed by its ids, and no other image is named to docker"
+reset
+printf '%s\n' "$base1" "$base2" >"$fx/base-ids"
+printf '%s\n' 4000000000 >"$fx/size-$base1"
+printf '%s\n' 1000000000 >"$fx/size-$base2"
+# A foreign container was made from one of the base's ids, which is the proof
+# that keeps the base where it is; the case below removes it to let the base go.
+printf '%s\n' "c9 $base2" >"$fx/containers"
+t_instance "${T_MINIMAL[@]}" TEHAS_CLEAN_AFTER=6
+t_run "$clean"
+t_eq "$t_rc" 0
+t_contains "$(t_calls docker)" "image ls --no-trunc -q $base_image"
+t_lacks "$(t_calls docker)" "image prune"
+t_contains "$t_out" "kept the base $base_image: a container was made from it"
+# The same host with no container at all: the base goes by its ids, its bytes
+# reach the total the run closes with, and no name but the base's own ids is
+# handed to docker. Nothing here is an untagged image of another program's.
+reset
+printf '%s\n' "$base1" "$base2" >"$fx/base-ids"
+printf '%s\n' 4000000000 >"$fx/size-$base1"
+printf '%s\n' 1000000000 >"$fx/size-$base2"
+t_instance "${T_MINIMAL[@]}" TEHAS_CLEAN_AFTER=6
+t_run "$clean"
+t_eq "$t_rc" 0
+t_contains "$(t_calls docker)" "rmi $base1 $base2"
+t_contains "$t_out" "removed the base $base_image: an image of that age, 5000000000 bytes"
+t_contains "$t_out" "freed 5000000000 bytes"
 
 t_case "a docker that lists no base ids removes nothing, and is not a base that is absent"
 reset
-printf '%s\n' "sha256:1" >"$fx/base-ids"
+printf '%s\n' "$base1" >"$fx/base-ids"
 # The listing itself failed: there may be a base on the host and the cleaner
 # cannot tell. It removes nothing, and says docker would not answer rather
 # than that the image was never pulled, which is the other case and reads the
@@ -495,37 +548,59 @@ t_run "$clean"
 t_eq "$t_rc" 0
 t_lacks "$(t_calls docker)" "image ls --no-trunc -q"
 t_lacks "$(t_calls docker)" "image prune"
-t_contains "$t_out" "kept the base: the commit this host follows names no base"
+t_contains "$t_out" "WARN: clean: kept the base: the host's pins name no base to prune"
 
-t_case "a base named by its digest is the name the prune is asked with"
+t_case "a malformed repository line names no base, and is a warning"
+reset
+# Not a host that follows nothing: a line this function cannot turn into a
+# ghcr.io name. It reads as a disabled step in the log unless it is said as a
+# warning, and the cleaner removes nothing on it.
+printf '%s\n' "PI_RUKAS_REPO=https://example.org/Up-Owner/pi-rukas.git" \
+  "PI_RUKAS_FOLLOW=commit:$rukas_pin" >"$th/versions.env"
+t_run "$clean"
+t_eq "$t_rc" 0
+t_lacks "$(t_calls docker)" "image ls --no-trunc -q"
+t_contains "$t_out" "WARN: clean: kept the base: the host's pins name no base to prune"
+
+t_case "a base id docker names that is not an id removes nothing, and is a warning"
+reset
+# An answer of a shape this step cannot name to docker: the whole step is an
+# unknown, and nothing is removed on a part of it.
+printf '%s\n' "$base1" "not-an-id" >"$fx/base-ids"
+t_run "$clean"
+t_eq "$t_rc" 1
+t_lacks "$(t_calls docker)" "rmi "
+t_contains "$t_out" "WARN: clean: docker named not-an-id as an image of $base_image, which is not an id"
+
+t_case "a base named by its digest is the name the ids are listed for"
 reset
 printf '%s\n' "PI_RUKAS_REPO=https://github.com/Up-Owner/pi-rukas.git" \
   "PI_RUKAS_IMAGE_DIGEST=sha256:$(printf 'f%.0s' {1..64})" >"$th/versions.env"
 base_digest=ghcr.io/up-owner/pi-rukas@sha256:$(printf 'f%.0s' {1..64})
-printf '%s\n' "sha256:9" >"$fx/base-ids"
+printf '%s\n' "$base9" >"$fx/base-ids"
 t_run "$clean"
 t_eq "$t_rc" 0
 t_contains "$(t_calls docker)" "image ls --no-trunc -q $base_digest"
-t_contains "$(t_calls docker)" "image prune -f --filter until=24h sha256:9"
+t_contains "$(t_calls docker)" "rmi $base9"
 
-t_case "a prune that fails or does not finish is a warning, the exit is 1 and the other steps ran"
+t_case "a base that cannot be removed is a warning naming docker's reason, the exit is 1 and the other steps ran"
 reset
 workspace
 echo old >"$tmp/dl/tool.tar.gz"
 age "$tmp/dl/tool.tar.gz"
-printf '%s\n' "sha256:1" >"$fx/base-ids"
+printf '%s\n' "$base1" >"$fx/base-ids"
 T_ENV=(PRUNE_RC=1)
 t_run "$clean"
 T_ENV=()
 t_eq "$t_rc" 1
-t_contains "$t_out" "WARN: clean: docker image prune failed (1)"
+t_contains "$t_out" "WARN: clean: docker could not remove the base $base_image (1): docker: prune refused"
 t_eq "$([ -e "$workdir-7/target" ] && echo there)" ""
 t_eq "$([ -e "$tmp/dl/tool.tar.gz" ] && echo there)" ""
 T_ENV=(PRUNE_RC=124)
 t_run "$clean"
 T_ENV=()
 t_eq "$t_rc" 1
-t_contains "$t_out" "WARN: clean: docker image prune did not finish in 600 seconds"
+t_contains "$t_out" "WARN: clean: docker rmi of the base did not finish in 600 seconds"
 t_case "a failing docker is a warning, the other steps still run, and the exit is 1"
 reset
 workspace

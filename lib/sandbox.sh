@@ -21,6 +21,9 @@
 #   tehas_sandbox_security                    the options that take privileges
 #                                             away from a container
 #   tehas_sandbox_clone <src> <tree> <branch> make <tree>, a clone of <src>
+#   tehas_sandbox_image_repo                  the sandbox image without its tag,
+#                                             the name the build tags and the
+#                                             cleaner lists dated tags under
 #   images_held <the image's tags, "<tag> <id>" per line>
 #                                             the images of those tags that
 #                                             something holds: a container's
@@ -29,7 +32,10 @@
 #   tehas_base_image                          the pulled base image of the
 #                                             sandbox build, as its tag or its
 #                                             digest: the one name that image
-#                                             is known by
+#                                             is known by. Needs lib/rukas.sh
+#                                             sourced beside this file, which
+#                                             answers which commit the host
+#                                             follows
 #
 # env, mounts, hosts and the security options print docker options separated
 # by NUL bytes. Read them with
@@ -262,65 +268,129 @@ tehas_sandbox_clone() { # <src> <tree> <branch>
 }
 
 # The images that something holds, out of the tags it is given: the id of every
-# image a container -- running or stopped -- was made from, and the id of every
-# image a uid tag names. Asked with one docker call per side; a docker that
-# answers neither is a docker that holds nothing, and its caller removes
-# nothing. Given the tags as "<tag> <id>" per line, as `docker image ls
+# image a container on this host -- running or stopped -- was made from, and
+# the id of every image a uid tag names. Asked with one docker call per side;
+# a docker that answers neither is a docker that holds nothing, and its caller
+# removes nothing. Given the tags as "<tag> <id>" per line, as `docker image ls
 # --no-trunc --format '{{.Tag}} {{.ID}}'` lists them; the uid tags of another
 # uid count with the host's own. Both the sandbox build and the cleaner ask
-# here, so the two cannot drift apart on what is safe to remove.
+# here, so the two cannot drift apart on what is safe to remove. The listing is
+# host-wide on purpose: an image a container of any other program on this host
+# was made from is as held as one a cycle's was, and the step that takes tags
+# away is not the place to guess which account started a container.
 #
-# A nonzero status means docker answered nothing, and stdout then says
-# nothing either: the inspect's ids are printed only once every container is
-# named, so a docker that fails partway prints no half a held-set for a caller
-# to act on. The status is the whole of the proof, which is why both sides end
-# on `|| return 1` and neither prints what it did not finish asking for.
+# A nonzero status is the whole of the proof: docker answered nothing, stdout
+# says nothing, and the caller removes nothing.
 images_held() { # <the image's tags, "<tag> <id>" per line>
-  local ids
+  local ids held
   ids=$(docker ps -aq --no-trunc) || return 1
   if [ -n "$ids" ]; then
     # shellcheck disable=SC2086  # one argument per container id
-    # `|| return 1` only, never `&& ... || return 1`: a host with no container
-    # holds nothing, which is not a docker that answered nothing, and the `&&`
-    # of a command already known to have succeeded runs nothing, so the
-    # failure of the inspect would go unseen.
-    docker inspect --format '{{.Image}}' $ids || return 1
+    # Buffer, then print: an inspect that answered some ids and failed would
+    # otherwise leave a half a held-set on stdout beside a nonzero status.
+    held=$(docker inspect --format '{{.Image}}' $ids) || return 1
+    [ -n "$held" ] && printf '%s\n' "$held"
   fi
   awk '$1 ~ /^uid/ { print $2 }' <<<"$1"
+}
+
+# The name of the image a cycle runs in, without its tag: the name
+# host/sandbox/build.sh tags what it builds with and the name `tehasbot clean`
+# lists the dated tags under. The build tags this name, so it is the one name
+# the cleaner can look dated tags up under; an instance that points
+# PI_ENSEMBLE_IMAGE at another repository keeps the build's tag for itself and
+# the dated tags of the build's name go uncleaned. The tag of the image cycles
+# run (uid<uid>, or what PI_ENSEMBLE_IMAGE names) is cut from the last slash
+# on, so a repository that carries a registry and its port keeps it: only the
+# part after the last slash may hold a tag.
+tehas_sandbox_image_repo() {
+  local name tail repo
+  name=${PI_ENSEMBLE_IMAGE:-tehas/pi-rukas:uid$(id -u)}
+  tail=${name##*/}
+  [[ $tail =~ ^[A-Za-z0-9][A-Za-z0-9._-]*(:[A-Za-z0-9][A-Za-z0-9._-]*)?$ ]] ||
+    { tehas_err "PI_ENSEMBLE_IMAGE=$name names no image docker can list"; return 1; }
+  # The name before the last slash, plus the last part with its tag off. A name
+  # with no slash is one part, so the prefix is empty and the cut is the whole
+  # answer; a name with one has its prefix ending in the slash, which must stay.
+  repo=${name%/*}
+  [ "$repo" = "$name" ] && repo= || repo=$repo/
+  printf '%s\n' "$repo${tail%:*}"
 }
 
 # The base image of the sandbox build, as one name: the image upstream
 # publishes for the pi-rukas commit the host follows, under ghcr.io, tagged by
 # the twelve leading characters of that commit -- or the digest
 # PI_RUKAS_IMAGE_DIGEST names, which is what a release pins its base to. The
-# repository is a line of versions.env, and the commit and the digest are
-# settings, so the name is read the way the build reads them rather than
-# guessed from a tag on the host. host/sandbox/build.sh builds on this name and
-# tehasbot clean removes it once nothing uses it; both work it out here so the
-# two cannot name different images. Needs the settings loaded, which is what
-# gives versions.env to the release and the instance's line to the checkout.
+# three pins are the settings host/sandbox/build.sh builds on, read the same
+# way: the instance's line over the line of versions.env, which is the one file
+# the settings library does not read and so the one file read here as text. The
+# cleaner removes the base by this name and the build pulls it by it, so the two
+# cannot name different images. Needs the settings loaded, and lib/rukas.sh
+# sourced beside this file, which answers which commit is followed.
+#
+# A followed release or branch asks GitHub, and that call is bounded: the
+# cleaner runs unattended on a timer and may not wait on a network that does
+# not answer. timeout runs its command outside this shell, where a sourced
+# function cannot be found, so the bounded lookup is asked of a child shell that
+# sources the library itself and takes its pins from the environment.
+#
+# Returns 1 when the host's pins name no base, or the lookup failed: the caller
+# says what that means for it.
 tehas_base_image() {
-  local envs follow head digest repo
+  local envs follow digest repo commit
   [ -n "${TEHAS_HOME:-}" ] || return 1
-  for envs in "$TEHAS_HOME/versions.env" "$(tehas_instance_dir)/instance.env"; do
-    [ -r "$envs" ] || continue
-    # shellcheck source=host/versions.env
-    . "$envs"
-  done
-  follow=${PI_RUKAS_FOLLOW:-}
-  digest=${PI_RUKAS_IMAGE_DIGEST:-}
+  envs=$TEHAS_HOME/versions.env
+  [ -r "$envs" ] || return 1
+  # Read as text, the way lib/update-release.sh reads a pin from this file: a
+  # value of another shape names an image that cannot exist, and is refused.
+  # Each falls back to the environment only when the file has no line for it,
+  # so a line of the file is never hidden by an unrelated name in the run's
+  # environment.
+  local line
+  line=$(sed -n 's/^PI_RUKAS_FOLLOW=\([A-Za-z0-9:.\/-]*\)$/\1/p' "$envs" | tail -n 1)
+  follow=${line-${PI_RUKAS_FOLLOW:-}}
+  line=$(sed -n 's/^PI_RUKAS_IMAGE_DIGEST=\([a-z0-9:]\{71\}\)$/\1/p' "$envs" | tail -n 1)
+  digest=${line-${PI_RUKAS_IMAGE_DIGEST:-}}
+  line=$(sed -n 's/^PI_RUKAS_REPO=\([A-Za-z0-9:.\/-]*\)$/\1/p' "$envs" | tail -n 1)
+  repo=${line-${PI_RUKAS_REPO:-}}
+  [[ $repo == https://github.com/*/* ]] || return 1
+  [[ $digest == '' || $digest == sha256:* ]] || return 1
   if [ -z "$follow" ] && [ -z "$digest" ]; then return 1; fi
   if [ -z "$digest" ]; then
-    # lib/rukas.sh answers which commit is followed, and is sourced after this
-    # file by every command that asks -- the cleaner and the sandbox build both.
-    head=$(tehas_rukas_target) || return 1
-    head=${head%% *}
+    # lib/rukas.sh answers which commit is followed. The commands that ask this
+    # function source it beside this file; one that forgot gets the named error
+    # rather than a base it was never given.
+    if ! declare -f tehas_rukas_target >/dev/null; then
+      tehas_err "tehas_base_image needs lib/rukas.sh sourced beside lib/sandbox.sh"
+      return 1
+    fi
+    if [[ $follow == commit:* ]]; then
+      # Answered from the setting alone: asking upstream again could only move
+      # the commit a release pinned.
+      commit=$(PI_RUKAS_FOLLOW=$follow PI_RUKAS_REPO=$repo tehas_rukas_target) || return 1
+    else
+      # Bounded: the cleaner runs unattended on a timer and may not wait on a
+      # network that does not answer. The name given to timeout is run outside
+      # this shell, where a sourced function cannot be found, so bash is the
+      # command and it reads the library and asks the lookup under the bound.
+      # A host with no library beside the cleaner answers nothing here, which is
+      # an unknown and not a base to remove.
+      commit=$(timeout -k 5 30 bash -c \
+        ". \"\${TEHAS_LIB_DIR:-$(dirname "${BASH_SOURCE[0]}")}/rukas.sh\"; PI_RUKAS_FOLLOW='$follow' PI_RUKAS_REPO='$repo' tehas_rukas_target") ||
+        return 1
+    fi
+    commit=${commit%% *}
+    # A lookup that answered no commit names no image: a name built from
+    # nothing would read in the log as an image that was never pulled, which is
+    # the answer an operator must never be given for an unknown.
+    [[ $commit =~ ^[0-9a-f]{40}$ ]] || return 1
   fi
-  repo=${PI_RUKAS_REPO#https://github.com/}
+  repo=${repo#https://github.com/}
   repo=${repo%.git}
+  repo=$(tr '[:upper:]' '[:lower:]' <<<"$repo")
   if [ -n "$digest" ]; then
-    printf 'ghcr.io/%s@%s\n' "$(tr '[:upper:]' '[:lower:]' <<<"$repo")" "$digest"
+    printf 'ghcr.io/%s@%s\n' "$repo" "$digest"
   else
-    printf 'ghcr.io/%s:sha-%s\n' "$(tr '[:upper:]' '[:lower:]' <<<"$repo")" "${head:0:12}"
+    printf 'ghcr.io/%s:sha-%s\n' "$repo" "${commit:0:12}"
   fi
 }

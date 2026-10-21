@@ -1000,10 +1000,12 @@ removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
   a `uid` tag was made from: a cycle or a preview still running from an image
   keeps it whatever its age. The build's own sweep keeps the newest three dated
   tags; this step is what takes those past the age besides the newest.
-- the base image the sandbox build pulls from upstream, and the images left with
-  no tag, both of that age, with `docker image prune` naming the base's own ids
-  so nothing else is offered. Preview images are `tehasbot preview`'s and stay;
-  volumes are a person's call. A docker that answers no image list, or nothing
+- the base image the sandbox build pulls from upstream, of that age and made no
+  container, removed by its own name with `docker rmi`. Nothing else is offered
+  to docker: the step never asks for the images that have lost their tag, which
+  is how a preview image of `tehasbot preview` and the rollback tag of an update
+  stay untouched. Volumes are a person's call. A docker that answers no image
+  list, or nothing
   about the host's containers, removes no image: an unknown is never a reason
   to take one away.
 
