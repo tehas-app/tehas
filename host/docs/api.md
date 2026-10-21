@@ -328,7 +328,7 @@ tehas analytics export <file> [--json]
 ```
 
 Writes a consistent copy of the factory's analytics database to `<file>`, mode
-600: ten days of runs, their steps and roles, issue events and poll samples.
+600: 365 days of runs, their steps and roles, issue events and poll samples.
 The schema, every column and how a reader keeps up with it are on
 [Analytics](/analytics). The copy is masked: it holds no token, no URL with a
 host and no address. A program runs the command, then copies the file, over

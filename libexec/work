@@ -83,8 +83,12 @@
 #
 #             64 no bot token or no git identity; no cycle was started.
 #             78 the instance settings are invalid, tehas.slice is not
-#                usable on this host, or the image does not support what the
-#                cycle is given; no cycle was started.
+#                usable on this host, the image does not support what the
+#                cycle is given, or the product names no gate in
+#                .pi/verify-cmd and holds neither package.json nor Cargo.toml
+#                at the commit the cycle's clone was made at; no cycle was
+#                started, nothing was pushed, and the workspace made for the
+#                cycle is left where it is.
 #            137 the container was killed while the cycle was running: out of
 #                memory, or stopped from outside. Not by this command's own
 #                stop, and not once the runner wrote its result.
@@ -594,6 +598,31 @@ aside() {
 if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces" && aside &&
   rm -rf "$container" && tehas_sandbox_clone "$src" "$tree" "$branch"; }; then
   echo "tehas work: could not make the workspace $tree, not starting a cycle" >&2
+  exit 78
+fi
+# The product names its gate in .pi/verify-cmd: the first line that is not
+# empty and not a comment. pi-rukas reads that file; nothing here read it, so a
+# product on a stack it cannot guess - neither package.json nor Cargo.toml -
+# ran cycles that verified nothing and still opened a pull request. Read the
+# clone on the host: the tree is a container's to write, not to run, and one
+# that has not started has written nothing.
+#
+# Only the commit the clone was made at is read, and only through git: origin
+# was fetched from the checkout, so the checkout's own worktree is not read at
+# all. A file that is not in the commit is not read either, so what a person
+# leaves uncommitted or untracked in the tree they work in cannot park a cycle
+# or start one. With no gate tehas still runs a cycle when the stack is one
+# pi-rukas can guess a gate for, so only a product with none of the three
+# parks. The check is one of presence: pi-rukas takes any file at those paths
+# for a gate, so a stub satisfies it. It is a start-cost guard, not proof that
+# a real gate exists.
+gate=$(timeout -k 10 60 git -C "$tree" show "origin/$branch:.pi/verify-cmd" 2>/dev/null |
+  sed -n '/^[[:space:]]*[#]/d; /^[[:space:]]*$/d; p; q')
+stack=$(timeout -k 10 60 git -C "$tree" ls-tree --name-only "origin/$branch" -- \
+  package.json Cargo.toml 2>/dev/null | head -n 1)
+if [ -z "$gate" ] && [ -z "$stack" ]; then
+  echo "tehas work: $TEHAS_REPO has no .pi/verify-cmd and no package.json or Cargo.toml in origin/$branch, so a cycle could verify nothing" >&2
+  echo "tehas work: $tree is left in place with what it holds, and $tree.before-retry holds what the last cycle left, if any" >&2
   exit 78
 fi
 # Before spending an hour of model time: can the sandbox push at all? A dry

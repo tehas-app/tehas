@@ -265,6 +265,7 @@ An epic is never started: an issue with open sub-issues is a plan broken into is
 | `tehas:shipped`         | A merged pull request closed it   | Nothing; the bot gives it                |
 | `needs-human-attention` | The cycle stopped                 | Read the comment; see below              |
 | `tehas:plan`            | A planning session is asked for   | Wait for the first comment               |
+| `tehas:refine`          | A refining session is asked for: planning with the refine brief | Wait for the first comment |
 | `tehas:planning`        | A planning turn is running        | Wait                                     |
 | `tehas:question`        | The factory asked something       | Tick a box; in a planning session you may reply instead |
 | `tehas:improvement`     | Filed by the improvement loop     | Read it; apply `tehas:ready` if it should be built |
@@ -489,8 +490,8 @@ and apply it again; for a retry tick, untick the box and tick it again.
 
 ## Planning on an issue
 
-A planning session is a conversation with a planning agent that ends in filed
-issues. It runs on the issue, so you can steer it from a phone. The agent is
+A planning session is a conversation with pi-rukas's planner that ends in a
+filed issue. It runs on the issue, so you can steer it from a phone. The agent is
 not asked to build code, and the awaiting-merge limit does not hold a planning
 turn back. Its container has the same access as a work cycle's, token
 included, so treat `tehas:plan` as you treat `tehas:ready`.
@@ -504,10 +505,9 @@ dispatcher's log says so.
    allowed account counts, and it approves the text as it was when you
    applied it. From any other account it is taken off the issue with a
    comment, as `tehas:ready` is.
-3. The bot comments that the session has started. Each turn of the agent ends
-   in a comment with what it found. A turn is over when the agent has stopped
-   and every subagent it sent out has reported back, so one turn can take
-   many minutes. When it needs a decision, the comment
+3. The bot comments that the session has started. Each turn ends in a comment
+   with what the planner found. A turn is one run of pi-rukas's headless
+   planner and can take many minutes. When it needs a decision, the comment
    ends in a question with one checkbox per choice, a last box `End this
    planning session`, and the label `tehas:question` is on the issue. When
    the agent offers more than 20 choices, the first 20 get a box and a line
@@ -532,26 +532,21 @@ dispatcher's log says so.
    running work cycle does not hold an answer back. A poll also handles one
    answer or one planning start and then stops, and it does nothing while the
    model endpoint does not list the model.
-5. The agent shows you a plan before it files it, and files it when you
-   confirm. Every turn of a session works on the commit the session started
-   on. Whether what is filed is what you saw depends on pi-rukas. The release
-   the host follows keeps no record of the plans it showed (see [the queue
-   and dispatch](/features#queue-and-dispatch)), so read
-   the issues it files. A later release keeps one, and a confirmed plan is
-   then filed as it was shown when it is found there: with no time limit
-   from a release that reads `PI_ENSEMBLE_PLAN_CACHE_TTL_MS`, within two
-   hours from one that does not. A plan that is not found is drafted again.
-   The agent files the issues it plans with the bot's token. To finish, tick
+5. The planner shows you a drafted plan before anything is filed: the comment
+   holds its title and spec, lists its open points with the planner's
+   proposals, and offers one box, **File this plan**. Tick it to file the
+   plan exactly as shown, proposals included, as one issue; reply to change
+   it, and the next turn drafts it again. A session files once. Every turn of
+   a session works on the commit the session started on. The plan is filed
+   with the bot's token. To finish, tick
    `End this planning session`. Filed issues are never started on their own:
-   apply `tehas:ready` to the ones you want built. The agent is told to add
-   and remove no `tehas:*` label and no `needs-human-attention` on any issue.
-   A `tehas:ready` it applies anyway is taken off, as one from any account
-   outside the list is.
+   apply `tehas:ready` to the ones you want built. A `tehas:ready` from any
+   account outside the list, the bot's included, is taken off.
 
-The conversation of a session is kept by Pi on the host, in
-`~/.pi/agent/sessions`. If it is gone, for example after the host was rebuilt,
-the session cannot go on: the bot ends it, says so, and your answer is not
-sent. Apply `tehas:plan` again to start a new session.
+pi-rukas's record of a session is kept on the host, in
+`~/tehas/state/plan-<issue>.json.keep/plan-sessions`, and carried into each
+turn. If it is gone, for example after the host was rebuilt, the session cannot
+go on: the bot ends it and says so. Apply `tehas:plan` again to start a new session.
 
 Only answers from allowed labellers count, and the fixer's within its grant
 (see [The fixer's grant](#the-fixers-grant)). A box ticked by anyone else, or
@@ -609,6 +604,22 @@ the bot approve its own work: every poll reads its own login first, before it
 reads a label or changes one. The Protolab refuses the same list, with an error
 before it reads, builds or removes a page. A poll or a pass that cannot read
 its own login stops there and does nothing else.
+
+### Refining a request
+
+`tehas:refine` starts the same planning session with one difference: after the
+issue's approved text, the planner is given the refine brief,
+`~/tehas/lib/refine-brief.md`. It tells the planner to read the code first and
+to plan the request into one issue that a single `/work` cycle finishes: one
+behaviour change, its files by exact path, a named test file for each
+acceptance criterion, what is out of scope, and nothing under `.github/` or
+`.pi/`. A session files one issue, so for a larger request the planner files
+the first part and lists the rest under "Later parts". Apply `tehas:refine`
+again to the original issue to plan the next part. The label is checked like
+`tehas:plan`: only an allowed account's counts. An issue with both labels is
+planned, not refined. The filed part is never started on its own: read it and
+apply `tehas:ready`. Run `tehas labels` once after an update that brings this
+label.
 
 ## Pause and resume
 
@@ -715,10 +726,10 @@ reached a log does not reach the copy. An export is never written under
 everything: an export is still a copy of what a cycle wrote, so where it goes is
 still a decision.
 
-## The last ten days
+## The last 365 days
 
 The factory records every run it makes, with the tehas and pi-rukas versions
-it ran, and keeps ten days of them. Two commands read them:
+it ran, and keeps 365 days of them. Two commands read them:
 
 ```
 tehas analytics report                    # the ten-day report in the terminal
@@ -1054,7 +1065,11 @@ rests on (the approval record's `by`, or its `rests_on.by` after the fixer):
   the issue, at the head the request named, and GitHub still says
   `CONFLICTING`. A person who pushed to it since is handling it;
 - fewer than `TEHAS_REFRESH_MAX` refreshes of it since that approval (2 unless
-  the instance says otherwise), and none that parked.
+  the instance says otherwise), and none that parked. A start that failed
+  counts as none: where the mark of a refresh could not be put on the pull
+  request, or the cycle never ran, the dispatcher writes the record back as it
+  found it and asks again next hour. The count is what the bot itself saw
+  start.
 
 A request that fails a check goes, and the dispatcher's log says why. At the
 cap or after a parked refresh the bot says so on the issue, once: a person
@@ -1073,6 +1088,10 @@ push to it. The dispatcher applies it before it marks the issue, and a start
 whose label change fails starts nothing. `tehasbot cycle` takes it off when the
 cycle ends, whatever the outcome. The dispatcher takes it off a pull request
 whose issue has no cycle running, and one applied by any account but the bot.
+Both directions go through GitHub's REST issues endpoint, not `gh pr edit`,
+which asks GitHub a GraphQL question the bot's token may not answer
+(see [issue #120](https://github.com/tehas-ai/tehas/issues/120)); a 404 is
+read as a label that is not there, so a mark already gone needs no retry.
 
 **The record and the cycle.** The approval record has `how: "refresh"`, the
 person's `by` and `at`, `rests_on`, `refreshes` (the count since that
