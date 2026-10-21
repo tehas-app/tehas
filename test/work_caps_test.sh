@@ -20,57 +20,100 @@ caps_refused() {
 }
 caps_fresh() { rm -rf "$T"/calls/* "$ws" "$ws.state" "$ws.before-retry"; }
 
-# --- What the product's clone holds -------------------------------------------
-# The clone is read on the host before any container starts: its .pi/verify-cmd
-# is the gate pi-rukas runs, and pi-rukas guesses a gate from package.json or
-# Cargo.toml, so only a product with none of the three parks. The host's
-# checkout is read too, because a clone holds what a commit holds and the
-# checkout is the product's tree as the host last fetched it. These cases build
-# the product of their own files and remake the checkout at it, so they come
-# first: the last of them leaves the gate in place for the cases that follow,
-# which take the product as they find it.
-# The product of one commit that holds just these files, and the checkout remade
-# at it. A file is named, then holds the lines given for it: a case says what the
-# product holds in its own words, and the product is built from those words
-# alone, so rebuilding it for the next case loses nothing. The empty commit is
-# the first one, so a product of no files at all is the tree work_lib.sh makes.
+# --- What the product's commit holds ------------------------------------------
+# The clone is read on the host before any container starts, and only at the
+# commit it was made at: its .pi/verify-cmd is the gate pi-rukas runs, and
+# pi-rukas guesses a gate from package.json or Cargo.toml, so only a product
+# with none of the three parks. The host's checkout is not read: it is the tree
+# a person works in, so what it holds uncommitted or untracked decides nothing.
+# These cases build the product of their own files and fetch the checkout at it,
+# so they come first: the last of them leaves the gate in place for the cases
+# that follow, which take the product as they find it.
+# One commit holding just these files, put on the product's main, and the
+# checkout fetched at it. The file is named, then holds the lines given for it:
+# a case says what the product holds in its own words, and the product is the
+# one commit at its tip, so the case before loses nothing but its own file. The
+# empty commit is the first one, so a product of no files at all is the tree
+# work_lib.sh makes.
 product_commit() { # <name> <line>...
   local f=$1
   shift
-  rm -rf "$upstream" "$checkout" "$ws" "$ws.before-retry" "$ws.state" "$T"/calls/*
-  mkdir -p "$upstream"
-  git init -q -b main "$upstream"
-  if [ "$#" -gt 0 ]; then
-    case $f in
-      */*) mkdir -p "$upstream/$(dirname "$f")" ;;
-    esac
-    : >"$upstream/$f"
-    while [ "$#" -gt 0 ]; do
-      printf '%s\n' "$1" >>"$upstream/$f"
-      shift
-    done
+  # The workspace of this case goes; what the last cycle left does not, unless
+  # the case says it does. aside() in tehas work moves it to the name beside and
+  # takes that name with it, so a marker put there stays across a park.
+  rm -rf "$ws" "$ws.state" "$T"/calls/*
+  # The tracked tree is the file named and the product's gate: the gate is a
+  # tracked file of the product's branch (test/work_lib.sh), and a product of
+  # none of the three is what parks a cycle, which product_nothing makes.
+  [ "$(git -C "$upstream" ls-files | wc -l)" = 0 ] ||
+    git -C "$upstream" rm -rq --cached -- .
+  case $f in
+    */*) mkdir -p "$upstream/$(dirname "$f")" ;;
+  esac
+  : >"$upstream/$f"
+  while [ "$#" -gt 0 ]; do
+    printf '%s\n' "$1" >>"$upstream/$f"
+    shift
+  done
+  git -C "$upstream" add -f -- "$f"
+  git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m product
+  git -C "$checkout" fetch -q "$upstream" +refs/heads/main:refs/remotes/origin/main
+  git -C "$checkout" checkout -q main
+}
+
+# The product whose commit holds nothing at all, which is what parks a cycle.
+# work_lib.sh leaves the gate in the product's worktree too, so it goes from the
+# index and from that worktree alike.
+product_nothing() {
+  rm -rf "$ws" "$ws.state" "$T"/calls/*
+  rm -f "$upstream/.pi/verify-cmd"
+  [ "$(git -C "$upstream" ls-files | wc -l)" = 0 ] ||
+    git -C "$upstream" rm -rq --cached -- .
+  git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m nothing
+  # The product with no gate and no stack has an empty tree at its tip: the
+  # fixture's gate is tracked, so it goes from the worktree as well as the index.
+  if [ -n "$(git -C "$upstream" ls-tree -r --name-only main)" ]; then
+    echo "tehas work tests: the product of nothing still holds a file"
+    exit 1
   fi
-  # The files are added by name: .pi/ is ignored by the checkout these run in.
-  [ -f "$upstream/$f" ] && git -C "$upstream" add -f -- "$f"
-  git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m first
-  git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q -m product
-  git clone -q "$upstream" "$checkout"
+  git -C "$checkout" fetch -q "$upstream" +refs/heads/main:refs/remotes/origin/main
+  git -C "$checkout" checkout -q main
 }
 
 t_case "a product with no gate and no stack the runner can guess parks the cycle: 78, named, and no container"
-product_commit Makefile 'all:' 
+product_nothing
+rm -rf "$ws.before-retry"
 t_run "$work 7"
 t_eq "$t_rc" 78
 t_contains "$t_out" "acme/widget has no .pi/verify-cmd and no package.json or Cargo.toml"
 t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
-t_eq "$(find "$ws" -maxdepth 0 2>/dev/null | wc -l)" 0
+# The park keeps the clone it made, as the path that cannot make one does: only
+# a directory of the cycle before is ever moved, and never one that may hold
+# commits of its own.
+t_eq "$(git -C "$ws" rev-parse --verify origin/main 2>/dev/null | wc -l)" 1
+
+t_case "a park leaves the workspace it made and what the last cycle left, and says so"
+mkdir -p "$ws.before-retry"
+echo unrecoverable >"$ws.before-retry/left-over.txt"
+product_nothing
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_eq "$(cat "$ws.before-retry/left-over.txt")" unrecoverable
+t_contains "$t_out" "holds what the last cycle left"
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
 
 t_case "a gate of comments and blank lines only is no gate: the cycle parks"
-product_commit .pi/verify-cmd '# scripts/verify.sh' '' '   ' 
+product_commit .pi/verify-cmd '# scripts/verify.sh' '' '   '
 t_run "$work 7"
 t_eq "$t_rc" 78
 t_contains "$t_out" "has no .pi/verify-cmd and no package.json or Cargo.toml"
-t_eq "$(find "$ws" -maxdepth 0 2>/dev/null | wc -l)" 0
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+
+t_case "the checkout's own files decide nothing: a product with a gate in its commit runs"
+product_commit .pi/verify-cmd 'scripts/verify.sh'
+rm -rf "$checkout/.pi"
+t_run "$work 7"
+t_eq "$t_rc" 2
 
 t_case "a product whose gate names the script runs, and the clone of it holds the gate"
 product_commit .pi/verify-cmd 'scripts/verify.sh'
@@ -79,14 +122,22 @@ t_eq "$t_rc" 2
 t_eq "$(cat "$ws/.pi/verify-cmd")" "scripts/verify.sh"
 
 t_case "a product of package.json and no gate runs: pi-rukas guesses the stack"
-product_commit package.json '{"name":"widget"}' 
+product_commit package.json '{"name":"widget"}'
 t_run "$work 7"
 t_eq "$t_rc" 2
 
 t_case "a product of Cargo.toml and no gate runs"
-product_commit Cargo.toml '[package]' 'name = "widget"' 
+product_commit Cargo.toml '[package]' 'name = "widget"'
 t_run "$work 7"
 t_eq "$t_rc" 2
+
+t_case "a stack file only in the checkout's worktree is no stack: the cycle parks"
+product_nothing
+printf '{"name":"widget"}\n' >"$checkout/package.json"
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_contains "$t_out" "has no .pi/verify-cmd and no package.json or Cargo.toml"
+rm -f "$checkout/package.json"
 product_commit .pi/verify-cmd 'scripts/verify.sh'
 
 t_case "the image is asked what it supports, by the runner's path, before the workspace is made"
