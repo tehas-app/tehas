@@ -114,6 +114,15 @@ t_case "the poll's unit has a finite limit, twice the lock's age at which a poll
 t_eq "$(sed -n 's/^TimeoutStartSec=//p' "$T_ROOT/host/systemd/tehas-dispatch.service")" "1h"
 t_contains "$(cat "$T_ROOT/libexec/dispatch")" "bound=1800"
 
+# A poll that exits non-zero leaves its unit failed, and a timer armed only
+# from the unit's inactivity does not fire again from that state: on 2026-10-20
+# one failed poll stopped the queue for 15 minutes. The two arms are pinned
+# together so neither is dropped alone.
+t_case "the poll's timer is armed from the last end and from the last start"
+t_eq "$(sed -n 's/^OnBootSec=//p' "$T_ROOT/host/systemd/tehas-dispatch.timer")" "2min"
+t_eq "$(sed -n 's/^OnUnitInactiveSec=//p' "$T_ROOT/host/systemd/tehas-dispatch.timer")" "2min"
+t_eq "$(sed -n 's/^OnUnitActiveSec=//p' "$T_ROOT/host/systemd/tehas-dispatch.timer")" "2min"
+
 t_case "one cycle at a time may run several workstreams, and pi-rukas is told the same number"
 t_instance "${T_MINIMAL[@]}" TEHAS_CONCURRENCY=4 TEHAS_TICKET_CONCURRENCY=1
 t_run "$load && echo \"\$TEHAS_CONCURRENCY \$TEHAS_TICKET_CONCURRENCY \$PI_ENSEMBLE_MAX_WORKSTREAMS\""
@@ -894,178 +903,59 @@ t_eq "$t_rc" 78
 t_contains "$t_out" "TEHAS_MCP_KEYS"
 t_lacks "$t_out" "abcdefghijklmnopqrstuvwxyz012345"
 
-# The instance's pin of the pi-rukas commit the sandbox builds from. The name
-# survives tehas_load when every other PI_ENSEMBLE_/* pi-rukas name is dropped,
-# because host/sandbox/build.sh reads the instance's value over versions.env
-# (lib/rukas.sh).
-commit40=$(printf 'a%.0s' {1..40})
-
-t_case "the instance's PI_RUKAS_FOLLOW is kept where the other pi-rukas names are dropped"
-t_instance "${T_MINIMAL[@]}" "PI_RUKAS_FOLLOW=commit:$commit40"
-T_ENV=(PI_ENSEMBLE_DEBUG=1)
-t_run "$load && bash -c 'echo \$PI_RUKAS_FOLLOW \${PI_ENSEMBLE_DEBUG:-dropped}'"
-t_eq "$t_rc" 0
-t_eq "$t_out" "commit:$commit40 dropped"
-T_ENV=()
+# The cleaner's two settings: the hours of age a thing must have before it goes,
+# and the directory names that count as build output.
+t_case "the cleaner removes a day of build output unless the instance says otherwise"
 t_instance "${T_MINIMAL[@]}"
-
-t_case "an instance that sets no PI_RUKAS_FOLLOW leaves the name as the release set it"
-# The shape of a host installed from a release tarball: the line of versions.env
-# is in the environment, the instance has no say, and the load keeps it.
-t_instance "${T_MINIMAL[@]}"
-T_ENV=(PI_RUKAS_FOLLOW=release)
-t_run "$load && echo \$PI_RUKAS_FOLLOW"
+t_run "$load && set -u && echo \"[\$TEHAS_CLEAN_AFTER] [\$TEHAS_CLEAN_DIRS]\""
 t_eq "$t_rc" 0
-t_eq "$t_out" "release"
-T_ENV=()
+t_eq "$t_out" "[24] [target node_modules __pycache__ .venv .pytest_cache .mypy_cache .next .turbo .gradle]"
 
-t_case "tehas_read_pin hands back the word of a pin, and refuses a line that is not one assignment"
-# The one reader both tehas_load and host/sandbox/build.sh go through, so the
-# spelling a build follows and the spelling the settings load believes cannot drift
-# apart. The answers are three: the word, nothing for a name the file does not set,
-# and no word at all for a line no shell would run as this assignment.
-digest64=sha256:$(printf 'f%.0s' {1..64})
+t_case "the cleaner's age and its names can both be set in the instance"
+t_instance "${T_MINIMAL[@]}" "TEHAS_CLEAN_AFTER=6" "TEHAS_CLEAN_DIRS='target dist'"
+t_run "$load && echo \"[\$TEHAS_CLEAN_AFTER] [\$TEHAS_CLEAN_DIRS]\""
+t_eq "$t_rc" 0
+t_eq "$t_out" "[6] [target dist]"
 
-t_case "tehas_read_pin hands back a pin written plain, quoted or with export"
-for line in "PI_RUKAS_FOLLOW=commit:$commit40" "PI_RUKAS_FOLLOW=\"commit:$commit40\"" \
-  "PI_RUKAS_FOLLOW='commit:$commit40'" "export PI_RUKAS_FOLLOW=commit:$commit40" \
-  "PI_RUKAS_FOLLOW=commit:$commit40 # what the release pinned"; do
-  printf '%s\n' "$line" >"$T/instance/pin.env"
-  t_case "the line '$line' is the pin"
-  t_run ". \"\$T_ROOT/lib/config.sh\"; tehas_read_pin '$T/instance/pin.env' PI_RUKAS_FOLLOW"
-  t_eq "$t_rc" 0
-  t_eq "$t_out" "commit:$commit40"
+# The cleaner's two settings. The hours are asked of docker's `until` and of
+# find's `-newermt`, so a sign, a fraction or an exponent is no number of
+# hours; an empty value takes the default, as every other setting left empty
+# does.
+for bad in "soon" "0" "-5" "1.5" "24 " "1e3" "123456"; do
+  t_case "loading rejects a TEHAS_CLEAN_AFTER of '$bad'"
+  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_CLEAN_AFTER='$bad'" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "TEHAS_CLEAN_AFTER is not valid: expected a whole number of hours of at least 1"
 done
 
-t_case "tehas_read_pin reads a pin the same way sourcing the file would"
-# The reader exists so the spelling a build follows and the spelling the settings
-# load believes cannot drift apart: for each line an operator may write, the word
-# the reader hands back is the word the shell sets when the file is sourced.
-for line in "PI_RUKAS_IMAGE_DIGEST=$digest64" "PI_RUKAS_IMAGE_DIGEST=\"$digest64\"" \
-  "PI_RUKAS_IMAGE_DIGEST='$digest64'" "export PI_RUKAS_IMAGE_DIGEST=$digest64"; do
-  printf '%s\n' "$line" >"$T/instance/pin.env"
-  t_case "the word for '$line' is the word sourcing the file sets"
-  t_run ". \"\$T_ROOT/lib/config.sh\"
-. '$T/instance/pin.env'
-read=\$(tehas_read_pin '$T/instance/pin.env' PI_RUKAS_IMAGE_DIGEST)
-[ \"\$read\" = \"\$PI_RUKAS_IMAGE_DIGEST\" ] && echo same || echo \"differ: [\$read] [\$PI_RUKAS_IMAGE_DIGEST]\""
-  t_eq "$t_rc" 0
-  t_eq "$t_out" "same"
+# The names go to find -name, so a path, a bare dot, and the family of the two
+# dot-names a workspace keeps are all refused: they are not build output. The
+# family, not just the two names spelled, because a name close to one of them is
+# a name someone meant as one of them, and the cleaner's walk stops at a dot-name
+# it cannot name here.
+for bad in "." ".." ".git" ".pi" "a/target" "/target" "target;rm -rf" "target *"; do
+  t_case "loading rejects a TEHAS_CLEAN_DIRS of '$bad'"
+  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_CLEAN_DIRS='$bad'" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "TEHAS_CLEAN_DIRS is not valid"
 done
 
-t_case "tehas_read_pin refuses a pin that is not one word, and says so by its exit status"
-# rc=2 names a line the file does give the name on, which is the difference
-# build.sh needs: a pin it was handed and cannot read is broken, not absent, and
-# the release's value must not be built behind it without a word.
-for entry in "PI_RUKAS_FOLLOW:commit:$commit40 extra" \
-  "PI_RUKAS_FOLLOW:\"commit:$commit40 extra\"" \
-  "PI_RUKAS_FOLLOW:\"commit:$commit40" \
-  "PI_RUKAS_IMAGE_DIGEST:$digest64'"; do
-  name=${entry%%:*}
-  rest=${entry#*:}
-  printf '%s=%s\n' "$name" "$rest" >"$T/instance/pin.env"
-  t_case "the line '$name=$rest' is refused with 2"
-  t_run ". \"\$T_ROOT/lib/config.sh\"; tehas_read_pin '$T/instance/pin.env' $name"
-  t_eq "$t_rc" 2
-done
+t_case "a TEHAS_CLEAN_DIRS with .git among other names is refused whatever IFS is"
+t_run ". \"$T_ROOT/lib/config.sh\"; IFS=x; _tehas_valid TEHAS_CLEAN_DIRS 'target .git'; echo rc=\$?"
+t_contains "$t_out" "refuses .git: that is not build output"
+t_contains "$t_out" "rc=1"
 
-t_case "tehas_read_pin answers 1 for a name the file does not set"
-printf 'TEHAS_REPO=acme/widget\n' >"$T/instance/pin.env"
-t_run ". \"\$T_ROOT/lib/config.sh\"; tehas_read_pin '$T/instance/pin.env' PI_RUKAS_FOLLOW"
-t_eq "$t_rc" 1
-t_eq "$t_out" ""
-
-# tehas_load refuses a line that sets the name to nothing, so the reader must say
-# the host wrote it while giving no word to build on: the caller tests the word.
-for line in "PI_RUKAS_FOLLOW=" "PI_RUKAS_FOLLOW=\"\""; do
-  printf '%s\n' "$line" >"$T/instance/pin.env"
-  t_case "the line '$line' is an empty answer"
-  t_run ". \"\$T_ROOT/lib/config.sh\"; tehas_read_pin '$T/instance/pin.env' PI_RUKAS_FOLLOW"
-  t_eq "$t_rc" 0
-  t_eq "$t_out" ""
-done
-
-t_case "the last line of the file is the pin, as it is for the shell"
-printf 'PI_RUKAS_FOLLOW=commit:%s\nPI_RUKAS_FOLLOW=commit:%s\n' "$commit40" \
-  "$(printf 'b%.0s' {1..40})" >"$T/instance/pin.env"
-t_run ". \"\$T_ROOT/lib/config.sh\"; tehas_read_pin '$T/instance/pin.env' PI_RUKAS_FOLLOW"
-t_eq "$t_rc" 0
-t_eq "$t_out" "commit:$(printf 'b%.0s' {1..40})"
-
-t_case "a name set twice with a broken line last is refused, not read from the earlier one"
-printf 'PI_RUKAS_FOLLOW=commit:%s\nPI_RUKAS_FOLLOW=commit:%s extra\n' "$commit40" "$commit40" \
-  >"$T/instance/pin.env"
-t_run ". \"\$T_ROOT/lib/config.sh\"; tehas_read_pin '$T/instance/pin.env' PI_RUKAS_FOLLOW"
-t_eq "$t_rc" 2
-
-# Loading settings has no side effects, and this reader is part of it: a file
-# that holds a command line is looked at and never run.
-t_case "tehas_read_pin runs nothing the file holds"
-printf 'PI_RUKAS_FOLLOW=commit:%s\nrm -rf no-such-directory\n' "$commit40" >"$T/instance/pin.env"
-t_run ". \"\$T_ROOT/lib/config.sh\"; tehas_read_pin '$T/instance/pin.env' PI_RUKAS_FOLLOW"
-t_eq "$t_rc" 0
-t_eq "$t_out" "commit:$commit40"
-
-t_case "each form of PI_RUKAS_FOLLOW the instance may give is accepted"
-for good in release branch:main "branch:feature/one" "commit:$commit40"; do
-  t_instance "${T_MINIMAL[@]}" "PI_RUKAS_FOLLOW=$good"
-  t_run "$load; echo rc=\$?"
-  t_contains "$t_out" "rc=0"
-done
+# The default the example instance copies by hand is pinned against the
+# config's own list, so the two cannot drift apart.
+t_case "the example instance documents the defaults the cleaner runs with"
 t_instance "${T_MINIMAL[@]}"
-
-t_case "a PI_RUKAS_FOLLOW that is none of the forms is refused, and says which half is wrong"
-# One case per value, each naming the message its own arm of the check gives: a
-# bad commit says the commit, not the whole list of forms.
-bad_commit=$(printf 'c%.0s' {1..40})
-bad_commit_msg="PI_RUKAS_FOLLOW is not valid: expected commit: and 40 lower-case hex digits, the whole pi-rukas commit"
-bad_branch_msg="PI_RUKAS_FOLLOW is not valid: expected branch:<name>, a name of letters, digits and ._/-"
-for bad in main latest "release candidate" "commit:${bad_commit:0:39}" "commit:${bad_commit}0" \
-  "commit:$(printf 'A%.0s' {1..40})" "commit:$(printf 'g%.0s' {1..40})" "commit:" "commit:$bad_commit extra" \
-  "branch:" "branch:two words" "branch:main;rm"; do
-  t_case "the PI_RUKAS_FOLLOW '$bad' is refused"
-  t_instance "${T_MINIMAL[@]}" "PI_RUKAS_FOLLOW='$bad'"
-  t_run "$load; echo rc=\$?"
-  t_contains "$t_out" "rc=78"
-  case "$bad" in
-    commit:*) t_contains "$t_out" "$bad_commit_msg" ;;
-    branch:*) t_contains "$t_out" "$bad_branch_msg" ;;
-    *) t_contains "$t_out" "PI_RUKAS_FOLLOW is not valid: expected release, branch:<name> or commit:<40 hex>" ;;
-  esac
-done
-t_instance "${T_MINIMAL[@]}"
-
-t_case "an empty PI_RUKAS_FOLLOW is 78 rather than no commit at all"
-t_instance "${T_MINIMAL[@]}" PI_RUKAS_FOLLOW=
-t_run "$load; echo rc=\$?"
-t_contains "$t_out" "rc=78"
-t_contains "$t_out" "PI_RUKAS_FOLLOW is set and empty: remove the line to follow what versions.env names"
-t_instance "${T_MINIMAL[@]}"
-
-t_case "a bad PI_RUKAS_FOLLOW is refused by the load, and by a required check of its own"
-# tehas_load reports it and answers 78, so the command that asked for the
-# settings stops before it calls GitHub, Docker or git. The name is not one an
-# instance has to set, so tehas_require_instance_settings does not name it: an
-# instance that follows its release's line has no reason to write one.
-t_instance "${T_MINIMAL[@]}" PI_RUKAS_FOLLOW=main
-t_run "$load; echo load-rc=\$?"
+t_run "$load && echo \"\$TEHAS_CLEAN_DIRS\""
+default_dirs=$t_out
 t_eq "$t_rc" 0
-t_contains "$t_out" "load-rc=78"
-t_contains "$t_out" "PI_RUKAS_FOLLOW is not valid"
-t_instance "${T_MINIMAL[@]}"
-
-t_case "the pin the instance set is what a required check answers for"
-# tehas_require is the command that stops a unit with 78, and it checks the value
-# itself rather than resting on the load that usually precedes it.
-t_instance "${T_MINIMAL[@]}" "PI_RUKAS_FOLLOW=commit:$commit40"
-t_run "$load && tehas_require PI_RUKAS_FOLLOW && echo ok"
-t_eq "$t_rc" 0
-t_contains "$t_out" "ok"
-t_instance "${T_MINIMAL[@]}" PI_RUKAS_FOLLOW=main
-T_ENV=(PI_RUKAS_FOLLOW=main)
-t_run '. "$T_ROOT/lib/config.sh"; tehas_require PI_RUKAS_FOLLOW && echo ok'
-t_eq "$t_rc" 78
-t_contains "$t_out" "PI_RUKAS_FOLLOW is not valid"
+t_contains "$(grep '^#TEHAS_CLEAN_AFTER=' "$T_ROOT/instances/example/instance.env")" "=24"
+t_contains "$(grep '^#TEHAS_CLEAN_DIRS=' "$T_ROOT/instances/example/instance.env")" "$default_dirs"
 t_instance "${T_MINIMAL[@]}"
 
 t_done

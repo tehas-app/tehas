@@ -126,13 +126,11 @@ t_run "$work 7"
 t_eq "$(jq -r .last.statusText "$T/home/tehas/live/running.json")" "step 3 of the [masked]"
 t_eq "$(jq -r .last.step "$T/home/tehas/live/running.json")" develop
 
-# Once Pi has gone nobody reads the fifo, and a plain write to it ends the
-# command by SIGPIPE (exit 141) before it reports. The race cannot be timed in
-# a test, so the shape of the one write is pinned. tehas work has no fifo.
-t_case "every line to Pi goes through send, which ignores SIGPIPE in a subshell"
+# Neither command writes to a process through a fifo any more: both run the
+# headless runner as the container's command.
+t_case "no command writes to Pi through a fifo"
 t_eq "$(grep -c '>&4' "$T_ROOT/libexec/work")" 0
-t_eq "$(grep -c '>&4' "$T_ROOT/libexec/plan")" 1
-t_contains "$(grep '>&4' "$T_ROOT/libexec/plan")" "(trap '' PIPE;"
+t_eq "$(grep -c '>&4' "$T_ROOT/libexec/plan")" 0
 
 t_case "without a console the status line is not published"
 mv "$tree/libexec/console" "$T/console.kept"

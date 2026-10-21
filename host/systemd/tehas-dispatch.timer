@@ -4,6 +4,12 @@ Description=Tehas: poll the issue queue every two minutes
 [Timer]
 OnBootSec=2min
 OnUnitInactiveSec=2min
+# A poll that exits non-zero leaves its unit failed, not inactive, and
+# OnUnitInactiveSec alone does not arm the timer again from that state: one
+# failed poll would stop polling until the path unit started one. Counting from
+# the last start covers that. systemd never starts a unit that is still active,
+# so a long poll is not overlapped.
+OnUnitActiveSec=2min
 
 [Install]
 WantedBy=timers.target

@@ -14,6 +14,7 @@
 #   tehasbot preview [--sweep]    keep the previews of pull requests (the timers)
 #   tehasbot improve              one run of the improvement loop (the timer)
 #   tehasbot refresh              find the pull requests to refresh (the timer)
+#   tehasbot clean                remove what the host can make again (the timer)
 #   tehasbot mcp serve            the read-only MCP server (the service)
 #   tehasbot help                 this text
 #
@@ -37,7 +38,7 @@ case "${1-help}" in
     usage
     exit 0
     ;;
-  dispatch | cycle | status | health | energy | protolab | preview | improve | refresh | mcp)
+  dispatch | cycle | status | health | energy | protolab | preview | improve | refresh | clean | mcp)
     file=$libexec/$1
     shift
     exec "$file" "$@"

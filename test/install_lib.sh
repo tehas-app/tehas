@@ -52,6 +52,8 @@ fresh() {
 }
 
 files="./.config/systemd/user/tehas-cycle@.service
+./.config/systemd/user/tehas-clean.service
+./.config/systemd/user/tehas-clean.timer
 ./.config/systemd/user/tehas-dispatch.path
 ./.config/systemd/user/tehas-dispatch.service
 ./.config/systemd/user/tehas-dispatch.timer
@@ -92,12 +94,15 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/lib/limit.sh
 ./tehas/lib/live.sh
 ./tehas/lib/models.sh
+./tehas/lib/paths.sh
 ./tehas/lib/planning.sh
 ./tehas/lib/questions.sh
+./tehas/lib/refine-brief.md
 ./tehas/lib/refresh.sh
 ./tehas/lib/release.sh
 ./tehas/lib/rukas.sh
 ./tehas/lib/sandbox.sh
+./tehas/lib/sizing.sh
 ./tehas/lib/status.sh
 ./tehas/lib/top.sh
 ./tehas/lib/slice.sh
@@ -107,6 +112,7 @@ files="./.config/systemd/user/tehas-cycle@.service
 ./tehas/libexec/analytics.stamp
 ./tehas/libexec/analytics-cmd
 ./tehas/libexec/api
+./tehas/libexec/clean
 ./tehas/libexec/console
 ./tehas/libexec/console.stamp
 ./tehas/libexec/cycle
@@ -165,7 +171,8 @@ host_files() { find "$home" -type f ! -path "$th/state/update.lock"; }
 # The follow-ups a fresh install of this repository asks for, taken from the one
 # place that names them and the sources a fresh host has none of.
 next_steps() {
-  tehas_steps_for systemd/tehas-cycle@.service systemd/tehas-dispatch.path systemd/tehas-dispatch.service systemd/tehas-dispatch.timer \
+  tehas_steps_for systemd/tehas-cycle@.service systemd/tehas-clean.service systemd/tehas-clean.timer \
+    systemd/tehas-dispatch.path systemd/tehas-dispatch.service systemd/tehas-dispatch.timer \
     systemd/tehas-energy.service systemd/tehas-improve.service systemd/tehas-improve.timer \
     systemd/tehas-preview.service \
     systemd/tehas-preview.timer systemd/tehas-preview-sweep.service systemd/tehas-preview-sweep.timer systemd/tehas-protolab.service systemd/tehas-protolab.timer systemd/tehas-refresh.service systemd/tehas-refresh.timer systemd/tehas-top.service sandbox/Dockerfile sandbox/build.sh \

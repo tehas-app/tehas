@@ -141,6 +141,12 @@ fi
 . "$root/lib/cycles.sh"
 # shellcheck source=lib/models.sh
 . "$root/lib/models.sh"
+# A partial checkout is named as the missing file it is, as every other
+# checkout file this script needs is named: sourcing it under set -e would stop
+# the run with a bare bash error and a status this header does not document.
+[ -f "$root/lib/paths.sh" ] || { echo "tehas: $root/lib/paths.sh is missing from this checkout" >&2; exit 1; }
+# shellcheck source=lib/paths.sh
+. "$root/lib/paths.sh"
 
 # --- 1. Instance settings ---------------------------------------------------
 # Every finding is one line. Any finding stops a real run before it changes
@@ -218,6 +224,14 @@ if [ -n "$findings" ]; then
 fi
 tehas_load
 instance=$TEHAS_INSTANCE_DIR
+
+# --- 1a. The tool PATH ------------------------------------------------------
+# A run that is not a login shell has no env.sh yet - this script is what
+# installs it - so the tool directories bootstrap.sh put in the home are named
+# here, from the one list env.sh and bootstrap.sh use. Applied once, after the
+# settings have loaded and before the build and the copies below, so every step
+# that resolves a tool sees what a login shell would.
+tehas_tool_paths
 
 # --- 1b. The home is tehas's -------------------------------------------------
 # The loader takes TEHAS_HOME from the environment as it is (AGENTS.md rule 3
@@ -322,6 +336,7 @@ units=$HOME/.config/systemd/user
 files=(
   "env.sh|$TEHAS_HOME/env.sh|644"
   "lib/config.sh|$TEHAS_HOME/lib/config.sh|644"
+  "lib/paths.sh|$TEHAS_HOME/lib/paths.sh|644"
   "lib/analytics.sh|$TEHAS_HOME/lib/analytics.sh|644"
   "lib/attachments.sh|$TEHAS_HOME/lib/attachments.sh|644"
   "lib/unzip.sh|$TEHAS_HOME/lib/unzip.sh|644"
@@ -330,6 +345,7 @@ files=(
   "lib/labels.sh|$TEHAS_HOME/lib/labels.sh|644"
   "lib/improve.sh|$TEHAS_HOME/lib/improve.sh|644"
   "lib/improve-prompt.md|$TEHAS_HOME/lib/improve-prompt.md|644"
+  "lib/refine-brief.md|$TEHAS_HOME/lib/refine-brief.md|644"
   "lib/fixer.sh|$TEHAS_HOME/lib/fixer.sh|644"
   "lib/live.sh|$TEHAS_HOME/lib/live.sh|644"
   "lib/limit.sh|$TEHAS_HOME/lib/limit.sh|644"
@@ -340,6 +356,8 @@ files=(
   "lib/rukas.sh|$TEHAS_HOME/lib/rukas.sh|644"
   "lib/sandbox.sh|$TEHAS_HOME/lib/sandbox.sh|644"
   "lib/slice.sh|$TEHAS_HOME/lib/slice.sh|644"
+  # The measure of an issue body, read by the dispatcher and the analytics.
+  "lib/sizing.sh|$TEHAS_HOME/lib/sizing.sh|644"
   "lib/questions.sh|$TEHAS_HOME/lib/questions.sh|644"
   "lib/status.sh|$TEHAS_HOME/lib/status.sh|644"
   "lib/top.sh|$TEHAS_HOME/lib/top.sh|644"
@@ -361,6 +379,8 @@ files=(
   "edge/router.Caddyfile|$TEHAS_HOME/edge/router.Caddyfile|644"
   "edge/router.compose.yaml|$TEHAS_HOME/edge/router.compose.yaml|644"
   "systemd/tehas-cycle@.service|$units/tehas-cycle@.service|644"
+  "systemd/tehas-clean.service|$units/tehas-clean.service|644"
+  "systemd/tehas-clean.timer|$units/tehas-clean.timer|644"
   "systemd/tehas-dispatch.service|$units/tehas-dispatch.service|644"
   "systemd/tehas-dispatch.path|$units/tehas-dispatch.path|644"
   "systemd/tehas-dispatch.timer|$units/tehas-dispatch.timer|644"
@@ -384,7 +404,7 @@ files=(
 for f in tehas tehasbot; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
-for f in analytics-cmd api cycle dev dev-login dispatch drain energy export health history improve index labels limit mcp pause plan preview protolab refresh resume status stop summary tidy top top-publish update work; do
+for f in analytics-cmd api clean cycle dev dev-login dispatch drain energy export health history improve index labels limit mcp pause plan preview protolab refresh resume status stop summary tidy top top-publish update work; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
 # Pi's own settings: the instance may bring its own (default provider and
@@ -544,6 +564,33 @@ program_label() {
 }
 # program_triple <name>: the target a program is built for, empty for the host's.
 program_triple() { [ "$1" != tehas-mcp ] || echo x86_64-unknown-linux-musl; }
+# unsafe_tool_dir: a tool directory this run would take its compiler from that
+# is not the running user's own, or nothing. tehas_tool_paths puts those
+# directories first on PATH and the programs cargo builds here are installed in
+# libexec, where every cycle and the dispatcher run them. Only a directory that is there is judged, by the rule instance_findings
+# applies to the settings files.
+unsafe_tool_dir() {
+  local dir mode owner group
+  for dir in "$TEHAS_HOME/bin" "$TEHAS_HOME/tools/node/bin" "$NPM_CONFIG_PREFIX/bin" \
+    "$BUN_INSTALL/bin" "$CARGO_HOME/bin"; do
+    [ -d "$dir" ] || continue
+    mode=$(stat -L -c %a "$dir" 2>/dev/null) || mode=0
+    owner=$(stat -L -c %u "$dir" 2>/dev/null) || owner=-1
+    group=$(stat -L -c %g "$dir" 2>/dev/null) || group=-1
+    if [ "$owner" != "$(id -u)" ]; then
+      echo "$dir is not owned by $(id -un)"
+      return 0
+    elif [ $((8#$mode & 2)) != 0 ]; then
+      echo "$dir is writable by everyone (chmod o-w)"
+      return 0
+    elif [ $((8#$mode & 16)) != 0 ] && [ "$group" != "$(id -g)" ]; then
+      echo "$dir is writable by another group (chmod g-w)"
+      return 0
+    fi
+  done
+  return 1
+}
+
 due=()
 for entry in "console $console_source" "analytics $analytics_source" "tehas-mcp $mcp_source"; do
   read -r prog sum <<<"$entry"
@@ -557,6 +604,12 @@ for entry in "console $console_source" "analytics $analytics_source" "tehas-mcp 
   fi
 done
 if [ "${#due[@]}" != 0 ]; then
+  # Before a build, because this run is about to run a program found under one
+  # of the tool directories and install what it makes.
+  if tool_finding=$(unsafe_tool_dir) && [ -n "$tool_finding" ]; then
+    echo "tehas: $tool_finding, so the tools there are not run; nothing was installed" >&2
+    exit 1
+  fi
   # The target directory is named, so a program is where this looks for it
   # whatever cargo's own configuration says, and the old one is removed first,
   # so what is installed is what this build made. The build scripts of the

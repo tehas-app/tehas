@@ -16,17 +16,6 @@
 #                        checks it before changing anything has its own copy.
 #   tehas_checkout       check the product checkout is a clone of TEHAS_REPO;
 #                        returns 78 if not.
-#   tehas_read_pin FILE NAME
-#                        print the pin NAME is given by a `NAME=value` line of
-#                        FILE, and return 0; return 2 when FILE sets NAME on a
-#                        line that is not one assignment (two words, or a quote
-#                        at one end only), and 1 when no line of FILE sets it. The
-#                        one reader of the two pins a host may set
-#                        (PI_RUKAS_FOLLOW, PI_RUKAS_IMAGE_DIGEST), used by
-#                        host/sandbox/build.sh: it reads the line and never
-#                        sources the file, which is a script. A value quoted, or
-#                        written with `export `, or followed by a comment reads
-#                        here as the same pin it is to tehas_load.
 #   tehas_branch         print the branch work lands on; returns 78 if unknown.
 #   tehas_models         print "provider model" for every model the agents use.
 #
@@ -47,13 +36,8 @@
 #     TEHAS_CYCLE_RETRY_WAIT, TEHAS_CYCLE_STOP_GH_WAIT, TEHAS_TIDY_CMD,
 #     TEHAS_TIDY_WAIT and TEHAS_ANALYTICS_WAIT are kept, and from
 #     ~/.config/tehas/env TEHAS_ENERGY, TEHAS_ENERGY_URL and the model
-#     endpoints' tokens TEHAS_MODEL_KEY_*. PI_ENSEMBLE_* names are dropped, all
-#     but the two pins of the sandbox image: PI_RUKAS_FOLLOW, the pi-rukas commit
-#     it is built from, and PI_RUKAS_IMAGE_DIGEST, the base image it starts from.
-#     Both are kept because host/sandbox/build.sh reads them (lib/rukas.sh), and
-#     both are checked only when the instance sets them, as a checkout has neither
-#     and follows upstream. tehas_read_pin is the one reader of the line that names
-#     either. instance.env that sets a token is refused: it is in a repository.
+#     endpoints' tokens TEHAS_MODEL_KEY_*. instance.env that sets a token is
+#     refused: it is in a repository.
 #   - Loading runs no git command, makes no network call and writes nothing.
 #     TEHAS_PLAN_TIMEOUT_MAX, the ceiling of one planning turn, is local to
 #     tehas_load: nothing sources this file and reads it from the environment.
@@ -89,98 +73,6 @@ tehas_instance_dir() {
   printf '%s\n' "${dir:-$HOME/.config/tehas}"
 }
 
-# The pin one name is given by one file of `NAME=value` lines, printed without
-# the quotes or the comment a person may have written round it; return 1 when no
-# line of the file sets it. The one answer for a pin, so build.sh and tehas_load
-# cannot disagree about a spelling: what comes off here is the quote pair or the
-# comment a value survives when the file is sourced, so a value handed back and
-# the value the sourced file gives are the same word. A line that is no assignment
-# the file could run - a value of two words, or a quote at one end only - sets no
-# pin, so a caller that must not follow a pin it cannot read says so rather than
-# taking the release's value.
-tehas_read_pin() {
-  local _rp_file=$1 _rp_name=$2 _rp_line _rp_value _rp_pair _rp_word _rp_named
-  # The names above belong to this function alone: a caller's variable of the
-  # same word would be written over by the strips below.
-  _rp_word="" _rp_named=""
-  while IFS= read -r _rp_line || [ -n "$_rp_line" ]; do
-    _rp_line=${_rp_line#"${_rp_line%%[![:space:]]*}"}
-    _rp_line=${_rp_line#export }
-    _rp_line=${_rp_line#"${_rp_line%%[![:space:]]*}"}
-    case "$_rp_line" in
-      "$_rp_name"=*) _rp_named=yes ;;
-      *) continue ;;
-    esac
-    _rp_value=${_rp_line#*=}
-    # A value in one pair of quotes holds what the quotes round it: the pair comes
-    # off first, and a space inside it is then the value and not a second word. A
-    # quote at one end only is not a pair, and the value keeps it, which the word
-    # test below refuses. Each pattern is written quoted, so it is the characters it
-    # shows and not the name of something.
-    _rp_pair=""
-    case "$_rp_value" in
-      $'\42'*$'\42') _rp_pair=dq ;;
-    esac
-    case "$_rp_value" in
-      $'\47'*$'\47') _rp_pair=${_rp_pair:+no}sq ;;
-    esac
-    # A pair counts only when the other quote is nowhere in the value, so a line
-    # that opens with one kind and closes with the other is no pair at all. These
-    # tests may only refuse a pair, never undo one already recognised.
-    case "$_rp_pair" in
-      dq)
-        case "$_rp_value" in
-          *$'\47'*) _rp_pair=no ;;
-        esac
-        ;;
-      sq)
-        case "$_rp_value" in
-          *$'\42'*) _rp_pair=no ;;
-        esac
-        ;;
-    esac
-    case "$_rp_pair" in
-      dq | sq)
-        _rp_value=${_rp_value#?}
-        _rp_value=${_rp_value%?}
-        ;;
-      *)
-        # No pair to take off, so what stands is the value the shell would set: the
-        # word, and nothing a comment puts behind it.
-        case "$_rp_value" in
-          *" #"*) _rp_value=${_rp_value%% #*} ;;
-        esac
-        ;;
-    esac
-    _rp_value=${_rp_value#"${_rp_value%%[![:space:]]*}"}
-    _rp_value=${_rp_value%"${_rp_value##*[![:space:]]}"}
-    # A word, or nothing at all. A value that holds a space, or a quote the shell
-    # could not have matched, is not the one word a commit and a digest are, so it
-    # is no answer and the caller is told by the exit status. An empty value is an
-    # answer: tehas_load refuses that line, so the caller must see that the host
-    # wrote it and take no pin from it, which it does by testing the word itself.
-    _rp_word=yes
-    case $_rp_value in
-      *[[:space:]]*) _rp_word="" ;;
-    esac
-    case $_rp_value in
-      *$'\42'* | *$'\47'*) _rp_word="" ;;
-    esac
-  done <"$_rp_file"
-  # Three answers, not two: the name is nowhere in the file, the file gives it and
-  # the word is read, or the file gives it on a line no shell would run as this
-  # assignment. The last is a broken pin rather than an absent one, and a caller
-  # that must not build behind a pin it cannot read needs to tell the two apart.
-  # The last line of the file is the one the shell would honour, so it is that
-  # word which is printed, and the reason a value is refused is not passed over
-  # for an earlier line a person has since written over.
-  [ -n "$_rp_word" ] || {
-    [ -n "$_rp_named" ] && return 2
-    return 1
-  }
-  printf '%s\n' "$_rp_value"
-}
-
 _tehas_host_cpus() { nproc 2>/dev/null || echo 1; }
 
 # A Docker memory value (512m, 8g, a bare number of bytes) in MiB; fails on
@@ -202,9 +94,18 @@ _tehas_mem_mb() {
 
 _tehas_is_count() { case "$1" in '' | *[!0-9]* | 0*) return 1 ;; esac; }
 
+# The directory names tehasbot clean removes when the instance names none: the
+# build output of the toolchains tehas hosts, none of which a product keeps in
+# source. The one place they are written: instances/example and the manual
+# quote them, and test/config_test.sh pins the copies against this.
+_tehas_clean_dirs_default() {
+  printf '%s\n' 'target node_modules __pycache__ .venv .pytest_cache .mypy_cache .next .turbo .gradle'
+}
+
 # Print why a value is not acceptable for a setting; return 1 if it is not.
 _tehas_valid() {
-  local name=$1 v=$2 mb base
+  local name=$1 v=$2 mb base clean_dir
+  local -a clean_dirs
   case "$name" in
     TEHAS_REPO | TEHAS_IMPROVE_REPO | TEHAS_IMPROVE_RUKAS_REPO)
       [[ $v =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "expected owner/name"; return 1; }
@@ -296,32 +197,34 @@ _tehas_valid() {
       [[ $v =~ ^(PI_ENSEMBLE|TEHAS)_[A-Z0-9_]+@[0-9]{1,6}(\.[0-9]{1,6}){1,3}(\ (PI_ENSEMBLE|TEHAS)_[A-Z0-9_]+@[0-9]{1,6}(\.[0-9]{1,6}){1,3})*$ ]] ||
         { echo "expected NAME@VERSION entries separated by single spaces, such as PI_ENSEMBLE_COMMENT_RETENTION@0.12.80"; return 1; }
       ;;
-    # What pi-rukas commit the sandbox is built from, for a host that follows
-    # something other than what the release it installed names (lib/rukas.sh).
-    # Named like a pi-rukas setting because the container is given it. It is
-    # kept across tehas_load, unlike the other names of that family, because it
-    # is the instance's answer to a line of versions.env and build.sh has to see
-    # it: the instance value is what decides which commit the sandbox builds on. A commit is the whole 40 hex digits of one,
-    # so a host cannot follow an abbreviation that names another commit tomorrow.
-    # Nothing is valid: a host that names no pin follows what versions.env names,
-    # and tehas_load refuses an empty value of its own, with the line that says so.
-    PI_RUKAS_FOLLOW)
-      case "$v" in
-        '') ;;
-        # The pattern is exact: the arm is reached only for that one word.
-        release) ;;
-        branch:*)
-          [[ ${v#branch:} =~ ^[A-Za-z0-9._/-]+$ ]] ||
-            { echo "expected branch:<name>, a name of letters, digits and ._/-"; return 1; }
-          ;;
-        commit:*)
-          [[ ${v#commit:} =~ ^[0-9a-f]{40}$ ]] ||
-            { echo "expected commit: and 40 lower-case hex digits, the whole pi-rukas commit"; return 1; }
-          ;;
-        # `branch:` and `commit:` with nothing after them are shapeless: they
-        # name no branch and no commit, so the list of forms is the answer.
-        *) echo "expected release, branch:<name> or commit:<40 hex>"; return 1 ;;
-      esac
+    # What tehasbot clean removes, and when. The hours are docker's `until`
+    # and find's `-newermt`, and the names are each one directory name.
+    TEHAS_CLEAN_AFTER)
+      [[ $v =~ ^[1-9][0-9]{0,4}$ ]] || { echo "expected a whole number of hours of at least 1"; return 1; }
+      ;;
+    TEHAS_CLEAN_DIRS)
+      # Names, not paths: the cleaner matches them with find -name, and a name
+      # with a slash, a bare dot, or one of the two dot-names a workspace keeps
+      # -- in any spelling, since a name close to one of them is a name someone
+      # meant as one of them -- would be something the cleaner has no business
+      # removing.
+      [[ $v =~ ^[A-Za-z0-9._-]+(\ [A-Za-z0-9._-]+)*$ ]] ||
+        { echo "expected directory names of letters, digits and ._-, separated by single spaces"; return 1; }
+      # Split on the single spaces the pattern above allows, whatever IFS the
+      # instance file set.
+      IFS=' ' read -r -a clean_dirs <<<"$v"
+      for clean_dir in "${clean_dirs[@]}"; do
+        case "$clean_dir" in
+          */*)
+            echo "expected names and no path: $clean_dir has a slash"
+            return 1
+            ;;
+          . | .. | .[gG][iI][tT] | .[pP][iI] | .[pP][iI].*)
+            echo "refuses $clean_dir: that is not build output"
+            return 1
+            ;;
+        esac
+      done
       ;;
     TEHAS_BRANCH_CHECK)
       # A check run's name goes into a URL and into the log.
@@ -427,7 +330,7 @@ tehas_load() {
   # host choices in ~/.config/tehas/env, which env.sh reads before this.
   for v in $(compgen -v); do
     case "$v" in
-      TEHAS_HOME | TEHAS_INSTANCE_DIR | PI_RUKAS_FOLLOW | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_INDEX_CMD | TEHAS_PLAN_CMD | \
+      TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_INDEX_CMD | TEHAS_PLAN_CMD | \
         TEHAS_PLAN_START_CMD | TEHAS_INDEX_START_CMD | TEHAS_INDEX_LOCK_WAIT | TEHAS_CYCLE_START_CMD | TEHAS_CYCLE_STOP_CMD | TEHAS_CYCLE_START_WAIT | TEHAS_CGROUP_ROOT | TEHAS_SLICE_WAIT | \
         TEHAS_PREFLIGHT_WAIT | TEHAS_STOP_WAIT | TEHAS_FETCH_WAIT | TEHAS_CHECK_WAIT | TEHAS_CONSOLE_WAIT | TEHAS_WORK_GRACE | TEHAS_CAPS_WAIT | TEHAS_TEXT_WAIT | \
         TEHAS_CYCLE_RETRY_WAIT | TEHAS_CYCLE_STOP_GH_WAIT | TEHAS_TIDY_CMD | TEHAS_TIDY_WAIT | TEHAS_ANALYTICS_WAIT | TEHAS_ENERGY | TEHAS_ENERGY_URL | TEHAS_MODEL_KEY_* | TEHAS_MCP | TEHAS_MCP_KEYS) ;;
@@ -516,7 +419,12 @@ tehas_load() {
   export TEHAS_ANALYTICS_COOKIE=${TEHAS_ANALYTICS_COOKIE:-0}
   export TEHAS_THEME=${TEHAS_THEME:-pixel}
   export TEHAS_LAYOUT=${TEHAS_LAYOUT:-floor}
-  # The factory's own ten days of runs, events and samples in
+  # What tehasbot clean removes and when. The build output of common toolchains
+  # that no product keeps in source; an instance that builds something else adds
+  # its name to this list, it does not replace it.
+  export TEHAS_CLEAN_AFTER=${TEHAS_CLEAN_AFTER:-24}
+  export TEHAS_CLEAN_DIRS=${TEHAS_CLEAN_DIRS:-$(_tehas_clean_dirs_default)}
+  # The factory's own 365 days of runs, events and samples in
   # state/analytics.db (lib/analytics.sh), not the visitor analytics above.
   # On unless the instance says off, which stops every write.
   export TEHAS_ANALYTICS=${TEHAS_ANALYTICS:-on}
@@ -616,29 +524,14 @@ tehas_load() {
   export PI_ENSEMBLE_NO_DOCKER_SOCKET=1 PI_ENSEMBLE_NO_SSH=1
 
   for v in TEHAS_THEME TEHAS_LAYOUT TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_WORK_DESCRIBE TEHAS_WORK_FILES TEHAS_WORK_COMMENTS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_TOP TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
-    TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_LOW_GATE_WAIT; do
+    TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_LOW_GATE_WAIT TEHAS_CLEAN_AFTER; do
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
-  # A pin the instance set is what build.sh follows. An empty line is a setting
-  # the instance wrote and refused, not a setting nobody set: build.sh would stop
-  # with the message of the second. So the name is checked whenever instance.env
-  # gave it, where the names below are checked only when they hold something.
-  if [ -n "${PI_RUKAS_FOLLOW+x}" ] && [ -z "${PI_RUKAS_FOLLOW:-}" ]; then
-    tehas_err "PI_RUKAS_FOLLOW is set and empty: remove the line to follow what versions.env names (see $file)"
-    return 78
-  fi
-  # Its shape, as every other setting gets it: tehas_require's own check of a
-  # required name calls the validator directly, so it comes here too rather than
-  # resting on the load that usually precedes it.
-  reason=$(_tehas_valid PI_RUKAS_FOLLOW "${PI_RUKAS_FOLLOW:-}") || {
-    tehas_err "PI_RUKAS_FOLLOW is not valid: $reason (see $file)"
-    return 78
-  }
   for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL; do
     [ -n "${!v:-}" ] || continue
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
-  for v in TEHAS_ANALYTICS_SRC TEHAS_ANALYTICS_SITE TEHAS_IMPROVE_REPO TEHAS_IMPROVE_RUKAS_REPO TEHAS_IMPROVE_MAX_OPEN TEHAS_FIXER_LOGIN TEHAS_RUKAS_WORKAROUNDS TEHAS_BRANCH_CHECK TEHAS_LOW_GATE; do
+  for v in TEHAS_ANALYTICS_SRC TEHAS_ANALYTICS_SITE TEHAS_IMPROVE_REPO TEHAS_IMPROVE_RUKAS_REPO TEHAS_IMPROVE_MAX_OPEN TEHAS_FIXER_LOGIN TEHAS_RUKAS_WORKAROUNDS TEHAS_BRANCH_CHECK TEHAS_LOW_GATE TEHAS_CLEAN_DIRS; do
     [ -n "${!v}" ] || continue
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
