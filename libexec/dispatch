@@ -330,6 +330,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/attachments.sh"
 # shellcheck source=lib/models.sh
 . "$here/../lib/models.sh"
+# shellcheck source=lib/headless.sh
+. "$here/../lib/headless.sh"
 # shellcheck source=lib/refresh.sh
 . "$here/../lib/refresh.sh"
 # shellcheck source=lib/analytics.sh

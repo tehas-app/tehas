@@ -25,10 +25,11 @@
 #                                 0 when a refresh of the issue parked since
 #                                 the approval <base>, by its history lines
 #   tehas_refresh_continues       0 when the sandbox image's pi-rukas takes
-#                                 --continue-pr, by its --capabilities answer.
-#                                 Asked once per command
+#                                 --continue-pr: its --capabilities answer has
+#                                 features.continuePr. Asked once per command
 #
-# Needs TEHAS_HOME, and lib/fixer.sh for the history. Sourcing it does nothing.
+# Needs TEHAS_HOME, lib/fixer.sh for the history and lib/headless.sh for the
+# answer. Sourcing it does nothing.
 
 tehas_refresh_dir() { printf '%s/state/refresh\n' "$TEHAS_HOME"; }
 
@@ -91,7 +92,7 @@ tehas_refresh_continues() {
     tehas_refresh_asked=1
     caps=$(timeout -k 10 "${TEHAS_CAPS_WAIT:-120}" docker run --rm --init "${PI_ENSEMBLE_IMAGE:-}" \
       /opt/pi-rukas/bin/pi-rukas-headless --capabilities 2>/dev/null) || caps=""
-    jq -e '.verbs.work.flags // [] | index("--continue-pr") != null' >/dev/null 2>&1 <<<"$caps" && tehas_refresh_answer=0
+    [ "$(tehas_headless_mode "$caps" continuePr)" != native ] || tehas_refresh_answer=0
   fi
   return "$tehas_refresh_answer"
 }
