@@ -265,6 +265,7 @@ An epic is never started: an issue with open sub-issues is a plan broken into is
 | `tehas:shipped`         | A merged pull request closed it   | Nothing; the bot gives it                |
 | `needs-human-attention` | The cycle stopped                 | Read the comment; see below              |
 | `tehas:plan`            | A planning session is asked for   | Wait for the first comment               |
+| `tehas:refine`          | A refining session is asked for: planning with the refine brief | Wait for the first comment |
 | `tehas:planning`        | A planning turn is running        | Wait                                     |
 | `tehas:question`        | The factory asked something       | Tick a box; in a planning session you may reply instead |
 | `tehas:improvement`     | Filed by the improvement loop     | Read it; apply `tehas:ready` if it should be built |
@@ -295,7 +296,10 @@ shows one cycle at a time. When several are running, or one is running and an
 earlier one can still be read, a row of tabs above it names each by its issue
 number.
 
-A timer polls every two minutes, and a cycle that ends starts a poll at once. To see the factory's state, or to see or force
+A timer polls every two minutes, and a cycle that ends starts a poll at once. A
+poll that fails does not stop the polling: the timer counts from the last start
+as well as the last end, so the next poll comes two minutes later whatever this
+one exited with. To see the factory's state, or to see or force
 a poll by hand on the host:
 
 ```
@@ -489,8 +493,8 @@ and apply it again; for a retry tick, untick the box and tick it again.
 
 ## Planning on an issue
 
-A planning session is a conversation with a planning agent that ends in filed
-issues. It runs on the issue, so you can steer it from a phone. The agent is
+A planning session is a conversation with pi-rukas's planner that ends in a
+filed issue. It runs on the issue, so you can steer it from a phone. The agent is
 not asked to build code, and the awaiting-merge limit does not hold a planning
 turn back. Its container has the same access as a work cycle's, token
 included, so treat `tehas:plan` as you treat `tehas:ready`.
@@ -504,10 +508,9 @@ dispatcher's log says so.
    allowed account counts, and it approves the text as it was when you
    applied it. From any other account it is taken off the issue with a
    comment, as `tehas:ready` is.
-3. The bot comments that the session has started. Each turn of the agent ends
-   in a comment with what it found. A turn is over when the agent has stopped
-   and every subagent it sent out has reported back, so one turn can take
-   many minutes. When it needs a decision, the comment
+3. The bot comments that the session has started. Each turn ends in a comment
+   with what the planner found. A turn is one run of pi-rukas's headless
+   planner and can take many minutes. When it needs a decision, the comment
    ends in a question with one checkbox per choice, a last box `End this
    planning session`, and the label `tehas:question` is on the issue. When
    the agent offers more than 20 choices, the first 20 get a box and a line
@@ -532,26 +535,21 @@ dispatcher's log says so.
    running work cycle does not hold an answer back. A poll also handles one
    answer or one planning start and then stops, and it does nothing while the
    model endpoint does not list the model.
-5. The agent shows you a plan before it files it, and files it when you
-   confirm. Every turn of a session works on the commit the session started
-   on. Whether what is filed is what you saw depends on pi-rukas. The release
-   the host follows keeps no record of the plans it showed (see [the queue
-   and dispatch](/features#queue-and-dispatch)), so read
-   the issues it files. A later release keeps one, and a confirmed plan is
-   then filed as it was shown when it is found there: with no time limit
-   from a release that reads `PI_ENSEMBLE_PLAN_CACHE_TTL_MS`, within two
-   hours from one that does not. A plan that is not found is drafted again.
-   The agent files the issues it plans with the bot's token. To finish, tick
+5. The planner shows you a drafted plan before anything is filed: the comment
+   holds its title and spec, lists its open points with the planner's
+   proposals, and offers one box, **File this plan**. Tick it to file the
+   plan exactly as shown, proposals included, as one issue; reply to change
+   it, and the next turn drafts it again. A session files once. Every turn of
+   a session works on the commit the session started on. The plan is filed
+   with the bot's token. To finish, tick
    `End this planning session`. Filed issues are never started on their own:
-   apply `tehas:ready` to the ones you want built. The agent is told to add
-   and remove no `tehas:*` label and no `needs-human-attention` on any issue.
-   A `tehas:ready` it applies anyway is taken off, as one from any account
-   outside the list is.
+   apply `tehas:ready` to the ones you want built. A `tehas:ready` from any
+   account outside the list, the bot's included, is taken off.
 
-The conversation of a session is kept by Pi on the host, in
-`~/.pi/agent/sessions`. If it is gone, for example after the host was rebuilt,
-the session cannot go on: the bot ends it, says so, and your answer is not
-sent. Apply `tehas:plan` again to start a new session.
+pi-rukas's record of a session is kept on the host, in
+`~/tehas/state/plan-<issue>.json.keep/plan-sessions`, and carried into each
+turn. If it is gone, for example after the host was rebuilt, the session cannot
+go on: the bot ends it and says so. Apply `tehas:plan` again to start a new session.
 
 Only answers from allowed labellers count, and the fixer's within its grant
 (see [The fixer's grant](#the-fixers-grant)). A box ticked by anyone else, or
@@ -609,6 +607,22 @@ the bot approve its own work: every poll reads its own login first, before it
 reads a label or changes one. The Protolab refuses the same list, with an error
 before it reads, builds or removes a page. A poll or a pass that cannot read
 its own login stops there and does nothing else.
+
+### Refining a request
+
+`tehas:refine` starts the same planning session with one difference: after the
+issue's approved text, the planner is given the refine brief,
+`~/tehas/lib/refine-brief.md`. It tells the planner to read the code first and
+to plan the request into one issue that a single `/work` cycle finishes: one
+behaviour change, its files by exact path, a named test file for each
+acceptance criterion, what is out of scope, and nothing under `.github/` or
+`.pi/`. A session files one issue, so for a larger request the planner files
+the first part and lists the rest under "Later parts". Apply `tehas:refine`
+again to the original issue to plan the next part. The label is checked like
+`tehas:plan`: only an allowed account's counts. An issue with both labels is
+planned, not refined. The filed part is never started on its own: read it and
+apply `tehas:ready`. Run `tehas labels` once after an update that brings this
+label.
 
 ## Pause and resume
 
@@ -715,10 +729,10 @@ reached a log does not reach the copy. An export is never written under
 everything: an export is still a copy of what a cycle wrote, so where it goes is
 still a decision.
 
-## The last ten days
+## The last 365 days
 
 The factory records every run it makes, with the tehas and pi-rukas versions
-it ran, and keeps ten days of them. Two commands read them:
+it ran, and keeps 365 days of them. Two commands read them:
 
 ```
 tehas analytics report                    # the ten-day report in the terminal
@@ -941,6 +955,51 @@ was filed, and the two cycles it named nowhere wait for a later run.
 To turn the loop off, remove `TEHAS_IMPROVE_REPO` from `instance.env`: cycles
 stop leaving records and a run does nothing. Or stop the timer with
 `systemctl --user disable --now tehas-improve.timer`.
+
+## The cleaner
+
+A full disk stops previews and fails clones, and most of what fills it is
+something the next build makes again. `tehasbot clean`, from
+`tehas-clean.timer` once an hour (the first time 15 minutes after boot),
+removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
+
+- the build output of a kept workspace: every directory anywhere under
+  `~/tehas/work/<name>-<issue>` whose name is one of `TEHAS_CLEAN_DIRS`, the
+  toolchain names listed in [Commands](/tools), and `<name>-<issue>.state/cache`,
+  the cycle's copy of the code index. A kept workspace is never built in again -
+  every cycle clones fresh - and the dispatcher's 7-day sweep takes the whole of
+  it later. The issue's lock is held while they go, so no cycle starts in it,
+  and a workspace touched within the age is left alone. Nothing is removed
+  under a lock that is not there: an issue whose lock file is gone is left
+  alone, because the cleaner cannot tell a finished cycle from a removed lock.
+  `.git`, the sources, uncommitted changes, `memory` and `sessions` stay for a
+  person to read, and no dot-name is entered.
+- Docker's build cache of that age, with `docker builder prune`. This is the
+  build cache of the whole host's Docker daemon: tehas is one project on one
+  host, and the cache of anything else on it is made again too. No image and no
+  volume is removed.
+- the host's scratch: old files under `~/tehas/tmp/dl` and
+  `~/tehas/tmp/node-compile-cache`, and old `~/tehas/tmp/tehas-test.*`
+  directories. Nothing elsewhere under `~/tehas`, and nothing outside it.
+
+One line per removal and a closing line with the bytes freed go to
+`~/tehas/logs/clean.log`. The command starts no work, so the pause label does
+not hold it. A step that fails is logged as a warning, the other steps still
+run, and the exit status is non-zero.
+
+**To turn it on**, enable the timer, which `install.sh` and `tehas update`
+install but do not start:
+
+```
+systemctl --user enable --now tehas-clean.timer
+tail ~/tehas/logs/clean.log
+```
+
+Run it once by hand with `tehasbot clean`, or with `tehasbot clean --dry-run`
+to see what it would remove. **To turn it off**,
+`systemctl --user disable --now tehas-clean.timer`; a toolchain the cleaner does
+not know about is added to `TEHAS_CLEAN_DIRS` in `instance.env` rather than left
+unmanaged.
 
 ## The fixer's grant
 

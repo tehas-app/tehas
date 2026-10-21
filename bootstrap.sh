@@ -198,10 +198,10 @@ RULE
 
 # --- shared -------------------------------------------------------------------
 home_paths() {
-  : "${TEHAS_HOME:=$HOME/tehas}"
-  export TEHAS_HOME
-  export NPM_CONFIG_PREFIX=$HOME/.local CARGO_HOME=$HOME/.cargo RUSTUP_HOME=$HOME/.rustup
-  export PATH="$TEHAS_HOME/bin:$TEHAS_HOME/tools/node/bin:$HOME/.local/bin:$HOME/.bun/bin:$HOME/.cargo/bin:$PATH"
+  [ -f "$root/lib/paths.sh" ] || die "lib/paths.sh is missing from this checkout"
+  # shellcheck source=lib/paths.sh
+  . "$root/lib/paths.sh"
+  tehas_tool_paths
 }
 
 # First x.y.z in a command's output, or nothing.
