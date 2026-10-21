@@ -11,7 +11,7 @@
 home=$T/home/tehas
 mkdir -p "$home/sandbox" "$home/lib"
 cp "$T_ROOT/host/sandbox/build.sh" "$home/sandbox/"
-cp "$T_ROOT/lib/headless.sh" "$T_ROOT/lib/rukas.sh" "$home/lib/"
+cp "$T_ROOT/lib/headless.sh" "$T_ROOT/lib/rukas.sh" "$T_ROOT/lib/config.sh" "$home/lib/"
 cp "$T_ROOT/host/versions.env" "$home/"
 sed -i 's#^PI_RUKAS_REPO=.*#PI_RUKAS_REPO=https://github.com/Up-Owner/pi-rukas.git#' "$home/versions.env"
 build=$home/sandbox/build.sh
@@ -28,32 +28,55 @@ uid=$(id -u)
 # answers the label in $fx/label, a pull fails when $fx/pull-fails exists, and
 # asking the base for its capabilities prints $fx/caps.json and exits with
 # $fx/ask-rc, 0 when it is missing. A build given the file named in
-# $fx/build-fails - the instance's own, by its path - fails.
+# $fx/build-fails - the instance's own, by its path - fails. A case that builds
+# an instance layer calls fx_ids, which answers the inspects of that check.
 t_stub git '[ -e "$T/fx/head" ] || exit 2
 case "$*" in
   *--tags*) printf "%s\trefs/tags/v0.12.9\n%s\trefs/tags/v0.12.80\n" "$(printf "c%.0s" {1..40})" "$(cat "$T/fx/head")" ;;
   *) printf "%s\trefs/heads/main\n" "$(cat "$T/fx/head")" ;;
 esac'
 t_stub docker 'case "$1" in
-  image) [ -e "$T/fx/label" ] || exit 1; cat "$T/fx/label" ;;
+  image)
+    case "$2" in
+      ls) [ ! -s "$T/fx/images" ] || cat "$T/fx/images"; exit 0 ;;
+      inspect)
+        # What the label of an image says, which is how a run tells whether the
+        # image cycles run is already on the commit it follows, and the layers of
+        # an image, which is how the layer of the instance is checked against the
+        # image under it. The answer comes from the file named in fx/which-layers,
+        # or fx/which-product for the layer of the instance.
+        # fx/ask-fails is a docker that answers no inspect at all, the shape of
+        # an image that is not there.
+        [ ! -e "$T/fx/ask-fails" ] || exit 1
+        for a in "$@"; do case "$a" in *tehas.rukas*)
+          [ -e "$T/fx/label" ] || exit 1
+          cat "$T/fx/label"
+          exit 0 ;; esac; done
+        which=$(cat "$T/fx/which-layers" 2>/dev/null)
+        for a in "$@"; do case "$a" in *-product) which=$(cat "$T/fx/which-product" 2>/dev/null) ;; esac; done
+        [ -n "$which" ] && [ -s "$T/fx/$which" ] || exit 1
+        cat "$T/fx/$which"
+        exit 0 ;;
+    esac
+    # "docker image" on its own, which no command of build.sh asks for.
+    [ -e "$T/fx/label" ] || exit 1; cat "$T/fx/label" ;;
   pull) [ ! -e "$T/fx/pull-fails" ] || exit 1 ;;
   run) cat "$T/fx/caps.json" 2>/dev/null; exit "$(cat "$T/fx/ask-rc" 2>/dev/null || echo 0)" ;;
   build) found=0
     for a in "$@"; do [ "$a" = "$(cat "$T/fx/build-fails" 2>/dev/null)" ] && found=1; done
     [ "$found" = 0 ] || exit 1 ;;
+  ps) # "docker ps", which asks which containers exist: a case that wants none
+    # names them by touching fx/no-containers, and this docker then answers no id.
+    [ ! -e "$T/fx/no-containers" ] || exit 0 ;;
+  inspect)
+    # "docker inspect", which asks what those containers were made from.
+    [ ! -e "$T/fx/no-containers" ] || exit 0 ;;
 esac'
 caps=$T_ROOT/test/fixtures/headless-c5ddc0a/capabilities.json
 reset() {
   rm -f "$T"/calls/* "$fx"/*
   echo "$head" >"$fx/head"
   cp "$caps" "$fx/caps.json"
-}
-# The instance directory build.sh looks in for its own sandbox.Dockerfile. Made
-# once, below, because t_run carries TEHAS_INSTANCE_DIR over only when it is
-# already set in this file's environment.
-t_env_instance() {
-  export TEHAS_INSTANCE_DIR=$T/instance
-  mkdir -p "$TEHAS_INSTANCE_DIR"
 }
 
 t_case "a build takes upstream's image for the newest release and labels it with the commit"
@@ -129,13 +152,13 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "could not be run to be asked (docker said 125)"
 t_lacks "$(t_calls docker)" "build --build-arg"
 
-t_case "without lib/headless.sh or lib/rukas.sh beside it nothing is asked or built"
-for f in headless.sh rukas.sh; do
+t_case "without lib/headless.sh, lib/rukas.sh or lib/config.sh beside it nothing is asked or built"
+for f in headless.sh rukas.sh config.sh; do
   reset
   mv "$home/lib/$f" "$T/$f"
   t_run "$build"
   t_eq "$t_rc" 1
-  t_contains "$t_out" "no lib/headless.sh and lib/rukas.sh"
+  t_contains "$t_out" "no lib/headless.sh, lib/rukas.sh and lib/config.sh"
   t_eq "$(t_calls git)$(t_calls docker)" ""
   mv "$T/$f" "$home/lib/$f"
 done
@@ -224,9 +247,34 @@ t_lacks "$(cat "$T_ROOT/host/versions.env")" "PI_RUKAS_COMMIT"
 t_contains "$(cat "$T_ROOT/host/versions.env")" "PI_RUKAS_FOLLOW=release"
 
 # The instance's own sandbox.Dockerfile, when it has one, is built on the image
-# above and takes the tag cycles run. TEHAS_INSTANCE_DIR names the directory; the
-# cases that do not want a second build remove the file, and build.sh passes the
-# path of the file it builds as its last two arguments.
+# above and takes the tag cycles run. The directory is resolved as every command
+# resolves it, so a case can name it with TEHAS_INSTANCE_DIR or leave the
+# environment alone; the cases that do not want a second build remove the file.
+t_env_instance() {
+  export TEHAS_INSTANCE_DIR=$T/instance
+  mkdir -p "$TEHAS_INSTANCE_DIR"
+}
+# The instance layer is compared with the image this build made, so a case that
+# builds one calls fx_ids. It asks docker for the layers of both images, and the
+# answers are files under fx, which reset() clears: layers-platform is the chain
+# of the image the build made, layers-product the chain of the layer on top of it
+# (a chain that starts with the same layers), and layers-cached one that does not,
+# the shape of a build Docker served from its own cache - a case picks it by
+# copying it over layers-product. fx/ask-fails is a docker that answers nothing.
+fx_ids() {
+  printf 'sha256:aaaaaaaa\nsha256:bbbbbbbb\n' >"$fx/layers-platform"
+  printf 'sha256:aaaaaaaa\nsha256:bbbbbbbb\nsha256:cccccccc\n' >"$fx/layers-product"
+  printf 'sha256:aaaaaaaa\nsha256:dddddddd\nsha256:cccccccc\n' >"$fx/layers-cached"
+  printf 'layers-platform\n' >"$fx/which-layers"
+  printf 'layers-product\n' >"$fx/which-product"
+  # The one stub is written once, at the top of the file, so a case cannot lose
+  # the answers it needs by calling this after another installed a stub of its
+  # own; what a case chooses is which file the two inspects read.
+}
+
+# The instance layer, when the host has one: built on the image above, checked
+# against it, and the only thing allowed to move the tag cycles run. The cases
+# that do not want a second build remove the file.
 t_case "without an instance sandbox.Dockerfile there is one build and the uid tag is that image"
 reset
 rm -f "$T/instance/sandbox.Dockerfile"
@@ -241,6 +289,7 @@ reset
 t_env_instance
 instance_file=$TEHAS_INSTANCE_DIR/sandbox.Dockerfile
 printf 'ARG TEHAS_BASE\nFROM $TEHAS_BASE\n' >"$instance_file"
+fx_ids
 rm -f "$T/instance/instance.env"
 t_run "$build"
 t_eq "$t_rc" 0
@@ -254,21 +303,71 @@ second=$(t_calls docker | grep -e "^build -t ")
 t_contains "$second" "--build-arg=TEHAS_BASE=tehas/pi-rukas:"
 t_contains "$second" "-f $instance_file"
 product=$(sed -n 's/^build -t \([^ ]*\)-product .*/\1/p' <<<"$second")
-t_eq "$(t_calls docker | grep -e '^tag tehas/pi-rukas:[0-9]\{6\}-[0-9]\{4\}-product ')" "tag $product-product tehas/pi-rukas:uid$uid"
+# The tag cycles run moves once, and onto the layer rather than the image under
+# it: the last tag of the run names the -product image, and the one before it the
+# image that layer was built on, which the line above named for the host that has
+# no layer of its own.
+uidtag=$(t_calls docker | awk '$1 == "tag" && $3 ~ /^tehas\/pi-rukas:uid/ { print $2 }' | tail -n 1)
+t_eq "$uidtag" "$product-product"
 t_lacks "$(cat "$instance_file")" "tehas/pi-rukas"
 t_contains "$t_out" "from $instance_file, also tagged tehas/pi-rukas:uid$uid"
 
-t_case "an instance file that does not build fails the build and says which file"
+t_case "an instance file that does not build fails the build, says which file, and leaves the tag cycles run on this run's image"
 reset
 printf 'ARG TEHAS_BASE\nFROM $TEHAS_BASE\nRUN false\n' >"$T/instance/sandbox.Dockerfile"
 printf '%s\n' "$T/instance/sandbox.Dockerfile" >"$fx/build-fails"
+fx_ids
 t_run "$build"
 t_eq "$t_rc" 1
 t_contains "$t_out" "$T/instance/sandbox.Dockerfile did not build"
-# The tehas image and its uid tag are there as they were; only the layer that
-# did not build is missing.
-t_eq "$(t_calls docker | grep -c -e '^tag ')" 1
+# The tag cycles run is left on the image the host can run, the platform image
+# of this run and not the layer that failed to build: the last tag of the run is
+# that one, and no tag of the run names the layer at all.
+uidtag=$(t_calls docker | awk '$1 == "tag" && $3 ~ /^tehas\/pi-rukas:uid/ { print $2 }')
+t_eq "$uidtag" "$(t_calls docker | grep -e '^build ' | sed -n 's/^build .* -t \([^ ]*\) .*/\1/p' | head -n 1)"
+t_lacks "$uidtag" "-product"
+t_lacks "$(t_calls docker | grep -e '^tag ')" "-product "
 rm -f "$T/instance/sandbox.Dockerfile" "$fx/build-fails"
+
+t_case "a layer docker served from a cached base is refused, and the tag cycles run stays off it"
+reset
+printf 'ARG TEHAS_BASE\nFROM $TEHAS_BASE\n' >"$T/instance/sandbox.Dockerfile"
+fx_ids
+cp "$fx/layers-cached" "$fx/layers-product"
+t_run "$build"
+t_eq "$t_rc" 1
+t_contains "$t_out" "was not built on tehas/pi-rukas:"
+t_lacks "$(t_calls docker | grep -e '^tag ')" "-product "
+rm -f "$T/instance/sandbox.Dockerfile" "$fx/product-missing"
+
+t_case "a docker that answers no layers for the instance image stops the build"
+reset
+printf 'ARG TEHAS_BASE\nFROM $TEHAS_BASE\n' >"$T/instance/sandbox.Dockerfile"
+fx_ids
+: >"$fx/ask-fails"
+t_run "$build"
+t_eq "$t_rc" 1
+t_contains "$t_out" "docker gave no layers"
+t_lacks "$(t_calls docker | grep -e '^tag ')" "-product "
+rm -f "$T/instance/sandbox.Dockerfile"
+
+t_case "an instance layer that is already the newest image is not kept past the three dated tags"
+reset
+# A host that updates on a schedule must not accumulate one -product tag per
+# build: the dated sweep names the instance's tag too, so it is counted with the
+# date tags and removed with them. The docker here answers no containers, which
+# is the shape that makes the sweep say what it would have removed.
+printf 'ARG TEHAS_BASE\nFROM $TEHAS_BASE\n' >"$T/instance/sandbox.Dockerfile"
+fx_ids
+printf '%s\n' "uid$uid sha256:1" "261009-1000 sha256:1" "261009-1000-product sha256:2" \
+  "261010-1000 sha256:3" "261011-1000 sha256:4" >"$fx/images"
+# No container was made from any of these images, which is the only shape from
+# which the sweep may remove one.
+: >"$fx/no-containers"
+t_run "$build"
+t_eq "$t_rc" 0
+t_contains "$(t_calls docker)" "image ls --no-trunc --format {{.Tag}} {{.ID}} tehas/pi-rukas"
+rm -f "$T/instance/sandbox.Dockerfile"
 
 t_case "an instance directory with no sandbox.Dockerfile in it is no second build"
 reset
@@ -281,4 +380,30 @@ t_eq "$(t_calls docker | grep -c -e '^build ')" 1
 t_lacks "$(t_calls docker)" "TEHAS_BASE"
 t_contains "$t_out" "also tagged tehas/pi-rukas:uid$uid"
 
+t_case "the instance directory from the pointer file is used, and a build that saw no instance at all says the file it looked in"
+reset
+# The shape of a login shell that never sourced the settings: no
+# TEHAS_INSTANCE_DIR in the environment at all. build.sh resolves the directory
+# itself, so the layer is still built, and nothing about it is silent.
+mkdir -p "$T/home/.config/tehas"
+printf 'ARG TEHAS_BASE\nFROM $TEHAS_BASE\n' >"$T/home/.config/tehas/sandbox.Dockerfile"
+fx_ids
+# shellcheck disable=SC2034  # t_run reads T_ENV, which names what it carries over
+T_ENV=(T_ROOT="$T_ROOT")
+unset TEHAS_INSTANCE_DIR
+t_run "$build"
+t_eq "$t_rc" 0
+t_eq "$(t_calls docker | grep -c -e '^build ')" 2
+t_contains "$t_out" "$T/home/.config/tehas/sandbox.Dockerfile"
+rm -f "$T/home/.config/tehas/sandbox.Dockerfile"
+
+t_case "with no instance anywhere the build says the file it looked for and builds once"
+reset
+# shellcheck disable=SC2034  # t_run reads T_ENV, which names what it carries over
+T_ENV=(T_ROOT="$T_ROOT")
+unset TEHAS_INSTANCE_DIR
+t_run "$build"
+t_eq "$t_rc" 0
+t_eq "$(t_calls docker | grep -c -e '^build ')" 1
+t_lacks "$(t_calls docker)" "TEHAS_BASE"
 t_done
