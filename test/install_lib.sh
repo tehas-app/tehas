@@ -116,6 +116,7 @@ files="./.bashrc
 ./tehas/libexec/analytics.stamp
 ./tehas/libexec/analytics-cmd
 ./tehas/libexec/api
+./tehas/libexec/check-product
 ./tehas/libexec/clean
 ./tehas/libexec/console
 ./tehas/libexec/console.stamp
@@ -130,6 +131,7 @@ files="./.bashrc
 ./tehas/libexec/history
 ./tehas/libexec/improve
 ./tehas/libexec/index
+./tehas/libexec/init-product
 ./tehas/libexec/labels
 ./tehas/libexec/limit
 ./tehas/libexec/mcp

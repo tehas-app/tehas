@@ -440,7 +440,7 @@ files=(
 for f in tehas tehasbot; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
-for f in analytics-cmd api clean cycle dev dev-login dispatch drain energy export health history improve index labels limit mcp pause plan preview protolab refresh resume setup status stop summary tidy top top-publish update work; do
+for f in analytics-cmd api check-product clean cycle dev dev-login dispatch drain energy export health history improve index init-product labels limit mcp pause plan preview protolab refresh resume setup status stop summary tidy top top-publish update work; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
 
@@ -931,6 +931,15 @@ if [ "$check" = 1 ]; then
   esac
 
   images_say check
+
+  # The last tehas check-product, read and not run: the product is not this
+  # host's install, so it does not change the exit status.
+  product=$TEHAS_HOME/state/check-product.json
+  if [ -r "$product" ]; then
+    jq -r '"Product:      " + (if .ok then "OK" else "\(.failures | length) TO FIX" end)
+      + " (tehas check-product, \(.at))", (.failures[] | "  \(.)")' "$product" 2>/dev/null ||
+      echo "Product:      NOT READ ($product)"
+  fi
 
   if [ "${#changed[@]}" = 0 ] && [ "$sandbox_drift" = 0 ]; then
     echo "Installed:    OK"

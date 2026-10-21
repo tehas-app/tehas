@@ -20,6 +20,8 @@ tehas index                      # build the code index the agents search
 tehas setup [options]            # write this host's instance and start the factory
 tehas update [--check]           # bring this host up to date with the platform
 tehas labels                     # create the tehas labels in the repository
+tehas check-product [--sandbox]  # check the product against the contract
+tehas init-product [--dry-run]   # propose the missing contract files
 tehas status [--json]            # print the state of the factory
 tehas api [--json]               # what this factory speaks, for a program
 tehas limit [set ...|clear]      # an outside cap on what this factory starts
@@ -1186,6 +1188,65 @@ Run it once for a new product, and again after pulling a version that adds a
 label. Run again, it puts their colours and descriptions back. It needs `TEHAS_REPO` and no other
 setting. Exit 0 when every label is there, 1 when one could not be made, 64 on
 any argument, 78 when the repository is not set.
+
+## tehas check-product
+
+```
+tehas check-product             # one line per check
+tehas check-product --sandbox   # and run the product's gates in the image
+```
+
+Checks the product checkout against the [contract](/new-project#what-the-product-repository-must-provide),
+on the commit origin's default branch points at, since a cycle reads only what
+is committed there. One line per check, `ok` or `FAIL`:
+
+| Check     | Passes when                                                                                     |
+| --------- | ----------------------------------------------------------------------------------------------- |
+| `origin`  | `TEHAS_WORK_REPO` is a clone of `TEHAS_REPO`                                                    |
+| `default` | `origin/HEAD` is set, so the default branch is known without the network                        |
+| `agents`  | `AGENTS.md` is there                                                                            |
+| `gate`    | `.pi/verify-cmd` has a line that is not empty or a comment                                      |
+| `model`   | `.pi/settings.json`, when the product has one, names a model the instance's `models.json` lists |
+
+With `--sandbox` it then clones that commit into `~/tehas/tmp` and runs, in the
+sandbox image as this user and in the slice, `.pi/worktree-setup` when there is
+one, the first command of `.pi/verify-cmd-full` (else `.pi/verify-cmd`) and the
+first command of `.pi/smoke-cmd` when there is one. The clone is removed
+afterwards.
+
+It changes nothing in the product. The result goes to
+`~/tehas/state/check-product.json`, which `tehas status` prints as its
+`product` line and `./install.sh --check` as its `Product:` line; neither runs
+the check itself, and the `Product:` line does not change install.sh's exit
+status. Exit 0 when every check passed, 1 when the sandbox could not be run (no
+image, or the clone failed), 64 on a wrong argument, 78 when the settings are
+missing or malformed or a check failed.
+
+## tehas init-product
+
+```
+tehas init-product             # a branch and a pull request with the missing files
+tehas init-product --dry-run   # print the files, change nothing
+```
+
+Proposes the contract files the default branch does not have yet: `AGENTS.md`
+(a short template), `.pi/verify-cmd` and `.pi/worktree-setup`. A file that is
+there is never written. The gate and the install step are guessed from, in
+this order: a `test`, `check` or `verify` target in the `Makefile`;
+`package.json` (its `test`, `check` or `build` script, with npm, pnpm, yarn or
+bun by the lockfile); `Cargo.toml`; `go.mod`; `pyproject.toml` (with uv when
+there is a `uv.lock`); the `run:` steps of `.github/workflows` that mention
+test, check, verify or lint. Each guessed file says in a comment that a person
+should check it. With no guess, `.pi/verify-cmd` holds only a comment, and
+`tehas check-product` still fails its gate check.
+
+The work is done in a fresh clone under `~/tehas/tmp`. The files are committed
+to the branch `tehas/init-product`, pushed with gh's credentials, and the bot
+opens the pull request against the default branch. It never commits to the
+default branch. Exit 0 when the pull request is open or nothing is missing, 1
+when git or gh failed or `tehas/init-product` is already on origin, 64 on a
+wrong argument, 78 when the settings are missing or malformed or the checkout
+is not a clone of `TEHAS_REPO`.
 
 ## tehas limit
 
