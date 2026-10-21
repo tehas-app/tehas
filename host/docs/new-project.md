@@ -41,6 +41,12 @@ them. Make the gates print one
 line per step and exit non-zero on failure. Before going further, prove them by
 hand in a clean checkout.
 
+Once the checkout is on the host, `tehas check-product` says which of these
+files the default branch lacks, and `tehas init-product` proposes the missing
+`AGENTS.md`, `.pi/verify-cmd` and `.pi/worktree-setup` in a pull request, with
+the gate guessed from the stack. Check the guess before you merge it. See
+[tehas check-product](/tools#tehas-check-product).
+
 A repository with no gate is caught before any model time is spent. `tehas
 work` reads `.pi/verify-cmd` at the commit the cycle's clone was made at; when
 its first line that is not empty or a comment is missing, and that commit holds
@@ -300,8 +306,9 @@ A later `install.sh` would do it too, as long as there is no index yet. See
 
 ### 7. Prove the gates in the sandbox
 
-Before the first issue. This runs the product's own gates inside the image, as
-the unprivileged user, with nothing mounted but a clone:
+Before the first issue, `tehas check-product --sandbox` runs the product's own
+gates inside the image, as the unprivileged user, with nothing mounted but a
+clone, and checks the contract files first. By hand it is:
 
 ```
 T=~/tehas/tmp/contract-test
