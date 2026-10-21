@@ -400,6 +400,49 @@ fn bad_names_never_open() {
 }
 
 #[test]
+fn a_word_listed_twice_is_not_served() {
+    let _t = turn();
+    let env = Env::new(
+        "twice",
+        "work",
+        7,
+        &[
+            ("transcript", "work-7-261021-095900.jsonl", b"older\n"),
+            ("transcript", &transcript(7), b"newer\n"),
+            ("err", &format!("{}.err", transcript(7)), b"e\n"),
+        ],
+    );
+    for word in ["transcript", "err"] {
+        let e = env.error(json!({"file": word}));
+        assert!(
+            e.starts_with("sessions.jsonl lists the transcript log of work-7-"),
+            "{e}"
+        );
+        assert!(e.ends_with(" twice"), "{e}");
+    }
+}
+
+#[test]
+fn the_id_is_checked_before_a_place_and_the_snapshot() {
+    let _t = turn();
+    let dirs = Dirs {
+        live: "/nonexistent/live".into(),
+        sessions: "/nonexistent/mcp".into(),
+        logs: "/nonexistent/logs".into(),
+    };
+    let a = acquire().unwrap();
+    let b = acquire().unwrap();
+    for id in ["../x", "work-01-123456789", ""] {
+        match call(&dirs, "factory_log", &json!({"id": id, "file": "transcript"})) {
+            Err(ToolError::BadArgs(why)) => assert_eq!(why, "id is like work-12-1792485967"),
+            other => panic!("{id:?}: {other:?}"),
+        }
+    }
+    drop(a);
+    drop(b);
+}
+
+#[test]
 fn wrong_word_for_kind() {
     let _t = turn();
     let env = Env::new(
