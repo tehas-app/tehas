@@ -6,6 +6,9 @@
 . "$(dirname "$0")/lib.sh" || exit 1
 
 t_stub git '[ -e "$T/refs" ] || exit 2; cat "$T/refs"'
+# The file build.sh sources before the instance's value, for the case that
+# checks which of the two a caller sees.
+printf 'PI_RUKAS_REPO=https://github.com/pinned/pi-rukas.git\nPI_RUKAS_FOLLOW=release\n' >"$T/versions.env"
 a=$(printf 'a%.0s' {1..40})
 b=$(printf 'b%.0s' {1..40})
 c=$(printf 'c%.0s' {1..40})
@@ -63,5 +66,39 @@ for v in main branch: "" latest; do
   t_eq "$t_out" ""
   t_eq "$(t_calls git)" ""
 done
+
+t_case "commit:<sha> is that commit and asks upstream nothing"
+printf '%s\trefs/tags/v0.12.80\n%s\trefs/heads/main\n' "$a" "$b" >"$T/refs"
+for v in "$a" "$b" "$c"; do
+  target "commit:$v"
+  t_eq "$t_rc" 0
+  t_eq "$t_out" "$v pinned"
+  # No ls-remote, whatever refs the stub would have answered: the release that
+  # wrote the line chose the commit, and asking again could only move it.
+  t_eq "$(t_calls git)" ""
+done
+
+t_case "a commit that is not 40 lower-case hex digits is refused without asking upstream"
+printf '%s\trefs/heads/main\n' "$d" >"$T/refs"
+for v in "commit:$a-" "commit:${a:0:39}" "commit:" "commit:$(printf 'A%.0s' {1..40})" "commit:$(printf 'g%.0s' {1..40})"; do
+  target "$v"
+  t_eq "$t_rc" 1
+  t_eq "$t_out" ""
+  t_eq "$(t_calls git)" ""
+done
+
+t_case "the instance's PI_RUKAS_FOLLOW wins over the one versions.env names"
+# The shape build.sh reaches: versions.env sourced first, the instance's line
+# over it. What the function reads is the last answer, and it is the instance's.
+printf '%s\trefs/heads/main\n' "$d" >"$T/refs"
+T_ENV=(PI_RUKAS_REPO=https://github.com/Up-Owner/pi-rukas.git)
+rm -f "$T"/calls/*
+t_run 'PI_RUKAS_REPO= PI_RUKAS_FOLLOW=release
+. "$T/versions.env"
+PI_RUKAS_FOLLOW=commit:'"$a"'
+. "$T_ROOT/lib/rukas.sh"; tehas_rukas_target'
+t_eq "$t_rc" 0
+t_eq "$t_out" "$a pinned"
+t_eq "$(t_calls git)" ""
 
 t_done
