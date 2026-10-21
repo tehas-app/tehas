@@ -16,7 +16,7 @@
 #
 #   tehas_analytics_to <file> <subcommand> [<argument>...]
 #       The same call, with what the program prints written to <file>, for
-#       the subcommand that answers: report. The same time limit and the same
+#       the subcommands that answer: report and sessions. The same time limit and the same
 #       WARN line. Returns 0 when the program ended with 0, 1 when it failed
 #       (<file> then holds what it printed, if anything), and 2, writing
 #       nothing, where tehas_analytics would not call it: TEHAS_ANALYTICS is

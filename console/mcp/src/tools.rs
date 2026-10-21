@@ -4,13 +4,37 @@
 //! its spec below names. A key the dashboard's files gain later is not served
 //! until it is named here. Null values are left out.
 
+use crate::logs::{self, LogGuard};
+use crate::sessions;
 use serde_json::{json, Map, Value};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// The most of a console a call returns, and the default.
 pub const CONSOLE_MAX: u64 = 65536;
 /// A poll older than this is stale, as on the dashboard.
-const STALE_SECS: i64 = 600;
+pub(crate) const STALE_SECS: i64 = 600;
+
+/// The directories the server reads, each mounted read only.
+pub struct Dirs {
+    /// What the dashboard publishes.
+    pub live: PathBuf,
+    /// The sessions snapshot, never published.
+    pub sessions: PathBuf,
+    pub logs: PathBuf,
+}
+
+/// What a call returns: JSON, or JSON that describes a file sent with it.
+#[derive(Debug)]
+pub enum Output {
+    Json(Value),
+    Blob {
+        meta: Value,
+        uri: String,
+        mime: &'static str,
+        /// The file's bytes in base64.
+        blob: String,
+    },
+}
 
 #[derive(Debug)]
 pub enum ToolError {
@@ -33,7 +57,7 @@ pub fn list() -> Value {
     let none = json!({"type": "object", "properties": {}, "additionalProperties": false});
     let out =
         json!({"type": "object", "properties": {"api": {"type": "integer"}}, "required": ["api"]});
-    json!([
+    let mut tools = json!([
         {
             "name": "factory_status",
             "description": "Whether the factory is working, paused or failing, its queue counts, the running cycles and their steps, the demand waiting, and the platform commit. Stale is true when the dispatcher has not reported for ten minutes.",
@@ -72,25 +96,48 @@ pub fn list() -> Value {
         },
         {
             "name": "factory_stats",
-            "description": "The last ten days as the dashboard reports them: runs by outcome, cycle and lead time, first pass yield, handoff rate, availability, machine time, tokens, energy, stop reasons, versions and the daily rows.",
+            "description": "The last ten days as the dashboard reports them: runs by outcome, cycle and lead time, first pass yield, handoff rate, availability, machine time, tokens, energy, stop reasons, versions, the refine figures and the daily rows.",
             "inputSchema": none,
             "outputSchema": out,
         },
-    ])
+    ]);
+    if let Value::Array(a) = &mut tools {
+        a.extend(sessions::tools());
+        // factory_log goes before factory_failures.
+        a.insert(a.len() - 1, logs::tool());
+    }
+    tools
 }
 
 /// The structured content of one call, with "api": 1.
-pub fn call(live: &Path, name: &str, args: &Value) -> Result<Value, ToolError> {
+pub fn call(dirs: &Dirs, name: &str, args: &Value) -> Result<Output, ToolError> {
+    call_held(dirs, name, args).map(|(out, _)| out)
+}
+
+/// As `call`, with the place of a log being sent, to keep until the answer
+/// is written.
+pub fn call_held(
+    dirs: &Dirs,
+    name: &str,
+    args: &Value,
+) -> Result<(Output, Option<LogGuard>), ToolError> {
+    if name == "factory_log" {
+        return logs::call(dirs, args).map(|(out, place)| (out, Some(place)));
+    }
+    let live = dirs.live.as_path();
     let mut out = match name {
         "factory_status" => status(live)?,
         "factory_issues" => issues(live, args)?,
         "factory_endings" => endings(live)?,
         "factory_console" => console(live, args)?,
         "factory_stats" => stats(live)?,
+        "factory_sessions" => sessions::list(dirs, args)?,
+        "factory_session" => sessions::one(dirs, args)?,
+        "factory_failures" => sessions::failures(dirs)?,
         _ => return Err(ToolError::Unknown(name.to_string())),
     };
     out.insert("api".into(), json!(1));
-    Ok(Value::Object(out))
+    Ok((Output::Json(Value::Object(out)), None))
 }
 
 fn read(live: &Path, file: &str) -> Result<Value, ToolError> {
@@ -110,7 +157,7 @@ fn read(live: &Path, file: &str) -> Result<Value, ToolError> {
 
 /// The parts of `src` that `spec` names: `true` a scalar, an object its named
 /// keys, `[spec]` each element of an array. None for null or a missing value.
-fn pick(src: &Value, spec: &Value) -> Option<Value> {
+pub(crate) fn pick(src: &Value, spec: &Value) -> Option<Value> {
     match (spec, src) {
         (_, Value::Null) => None,
         (Value::Bool(true), Value::Object(_) | Value::Array(_)) => None,
@@ -346,6 +393,11 @@ fn stats(live: &Path) -> Result<Map<String, Value>, ToolError> {
         "planned": {"n": true, "inLine": true, "planning": true,
                     "trend": [{"day": true, "n": true}]},
         "planningTurns": {"n": true},
+        "refine": {"sessions": true, "n": true, "started": true, "shipped": true,
+                   "shippedShare": true,
+                   "leadTime": {"n": true, "median": true, "p90": true},
+                   "others": {"n": true, "started": true, "shipped": true,
+                              "shippedShare": true}},
         "stations": {"n": true, "steps": [{"step": true, "n": true, "passed": true, "share": true}]},
         "stopReasons": {"n": true, "top": [{"reason": true, "n": true}]},
         "versions": [{"tehas": true, "rukas": true, "n": true, "medianSeconds": true,
@@ -361,7 +413,7 @@ fn stats(live: &Path) -> Result<Map<String, Value>, ToolError> {
     }
 }
 
-fn now() -> i64 {
+pub(crate) fn now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
@@ -369,7 +421,7 @@ fn now() -> i64 {
 }
 
 /// Seconds since 1970 for "YYYY-MM-DDTHH:MM:SSZ", the form the live files use.
-fn epoch(t: &str) -> Option<i64> {
+pub(crate) fn epoch(t: &str) -> Option<i64> {
     let b = t.as_bytes();
     if b.len() != 20 || b[4] != b'-' || b[7] != b'-' || b[10] != b'T' || b[19] != b'Z' {
         return None;
