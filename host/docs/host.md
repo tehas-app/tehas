@@ -1319,6 +1319,7 @@ shadows, and the colours the canvases paint with. `TEHAS_THEME` in
 | `pixel`     | The default: the factory as a 16-bit game, in the Topaz bitmap typeface |
 | `paper`     | Plain type on a light page, thin rules and light screens                |
 | `beesknees` | A business application: near-black and muted green on white, thin rules, no motion. Dark where the viewer's system is |
+| `beesknees26` | The 2026 redraw of beesknees, which it will replace: ink and muted green on a near-white ground, white panels with soft shadows, IBM Plex, no motion. Light; the business page has a button for a dark set, kept in the viewer's browser |
 
 `TEHAS_LAYOUT` names what the front page is:
 
