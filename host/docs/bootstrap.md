@@ -27,10 +27,8 @@ checkouts and tehas itself come after it, on the [new project page](/new-project
 ```
 git clone <the platform repository> ~/tehas/platform
 cd ~/tehas/platform
-sudo ./bootstrap.sh root boss     # 1. as root, naming the tehas user; ends with the slice
-# log out and in again, so the docker group applies
-./bootstrap.sh user               # 2. as the tehas user
-./bootstrap.sh check              # 3. one line per tool, and one for the slice
+sudo ./bootstrap.sh root boss     # 1. as root, naming the tehas user; runs step 2 as boss too
+./bootstrap.sh check              # 3. as the tehas user: one line per tool, and one for the slice
 sudo ./bootstrap.sh slice         # only if step 1 could not install the slice, or it changed
 sudo ./bootstrap.sh dev boss alice   # optional: let the account alice type "tehas dev"
 ```
@@ -40,16 +38,30 @@ credentials section first; create that key by hand and come back.
 
 ### 1. `root <user>`
 
-Installs from Ubuntu's packages: Docker with compose and buildx, git, jq, curl,
-openssl, rsync, shellcheck, unzip and the build tools that compiling two of the
-tools needs. Adds the user to the `docker` group, enables lingering for it (so
+Makes the user when it is missing (`useradd -m`, bash as its shell). Installs
+from Ubuntu's packages: Docker with compose and buildx, git, jq, curl,
+openssl, rsync, minisign (`tehas update` checks release signatures with it),
+shellcheck, unzip and the build tools that compiling two of the tools needs. Adds the user to the `docker` group, enables lingering for it (so
 the dispatcher timer runs without a login) and enables the Docker service.
 
 System packages are not pinned. You get what the distribution offers.
 
-It ends with the `slice` step below. If Docker does not use the systemd cgroup
-driver yet, that step writes nothing, `root` still finishes, and it says to run
-`sudo ./bootstrap.sh slice` once Docker does.
+When Docker runs on cgroup v2 with the cgroupfs driver, it adds
+`"exec-opts": ["native.cgroupdriver=systemd"]` to `/etc/docker/daemon.json`,
+keeping every other setting and any other `exec-opts`, saves the file before as
+`daemon.json.prev` and restarts Docker. A `daemon.json` that is not JSON is
+left as it is, and `root` stops with exit 1 and says so.
+
+Then the `slice` step below. On cgroup v1 that step writes nothing, `root`
+still finishes, and it says to run `sudo ./bootstrap.sh slice` once Docker uses
+the systemd driver.
+
+Last, it runs step 2, `user`, as the tehas user, with `runuser -l`. That is a
+new login session, which reads the groups again, so it has the `docker` group
+and there is no logout in the middle. A shell of that user that was open before
+gets the group at its next login. The user must be able to read the directory
+`bootstrap.sh` is in: a checkout or a release unpacked under the user's home
+is. `--root-only` stops before step 2, for running it by hand later.
 
 ### `slice`
 
@@ -119,7 +131,8 @@ group. What a member can and cannot do is on [The host](/host).
 
 ### 2. `user`
 
-Installs under the user's home, each tool in its own place:
+`root` runs this for you. Run it by hand as the tehas user after
+`root --root-only`, or again later. Installs under the user's home, each tool in its own place:
 
 | Tool                              | Where                                  | From                          |
 | --------------------------------- | -------------------------------------- | ----------------------------- |
