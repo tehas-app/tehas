@@ -36,12 +36,18 @@ EOF
 keys="availability,cycleTime,daily,energy,firstPassYield,from,handoffRate,leadTime,machineTime,planned,planningTurns,report,runs,shipped,stations,stopReasons,to,tokens,versions"
 
 reset() {
-  rm -rf "$T"/calls/* "$live" "$T/home/tehas/libexec" "$T/github-down"
+  rm -rf "$T"/calls/* "$live" "$T/home/tehas/mcp" "$T/home/tehas/libexec" "$T/github-down"
   T_ENV=()
   t_instance "${T_MINIMAL[@]}"
-  t_stub_analytics '[ "$1" != report ] || cat "$T/report.json"'
+  t_stub_analytics '[ "$1" != report ] || cat "$T/report.json"
+    [ "$1" != sessions ] || cat "$T/sessions.jsonl"'
 }
 there() { [ -e "$file" ] && echo there || echo gone; }
+snap=$T/home/tehas/mcp/sessions.jsonl
+snap_there() { [ -e "$snap" ] && echo there || echo gone; }
+snap_aged() { touch -d "@$(($(date +%s) - $1))" "$snap"; } # <seconds>
+printf '%s\n%s\n' '{"api":1,"days":30,"generatedAt":"2026-10-21T00:00:00Z","sessions":1}' \
+  '{"id":"a"}' >"$T/sessions.jsonl"
 aged() { touch -d "@$(($(date +%s) - $1))" "$file"; } # <seconds>
 
 t_case "the report is written with the keys that may be published and no other"
@@ -49,7 +55,8 @@ reset
 t_run "$status"
 t_eq "$t_rc" 0
 t_eq "$t_out" ""
-t_eq "$(t_calls analytics)" "report --json"
+t_eq "$(t_calls analytics)" "report --json
+sessions"
 t_eq "$(jq -r 'keys | join(",")' "$file")" "$keys"
 t_lacks "$file" "may not be public"
 t_eq "$(jq -c .runs "$file")" "$(jq -c .runs "$T/report.json")"
@@ -85,7 +92,8 @@ esac'
 rm -f "$T/calls/analytics"
 t_run "$status"
 t_eq "$(t_calls analytics)" "event 5 awaiting
-report --json"
+report --json
+sessions"
 
 t_case "a run that ends early because GitHub does not answer still writes the report"
 reset
@@ -154,5 +162,71 @@ t_eq "$t_rc" 0
 t_eq "$(($(date +%s) - before < 5))" 1
 t_contains "$t_out" "WARN analytics report: exit 124"
 t_eq "$(there)" gone
+
+cat >"$T/report.json" <<'EOF2'
+{"report":1,"from":1,"to":2}
+EOF2
+
+t_case "the sessions snapshot is private: mode 600 in a 700 directory, never under live/"
+reset
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$(cat "$snap")" "$(cat "$T/sessions.jsonl")"
+t_eq "$(stat -c %a "$snap")" 600
+t_eq "$(stat -c %a "${snap%/*}")" 700
+t_eq "$(find "${snap%/*}" -name '*.new' | wc -l)" 0
+t_eq "$(find "$live" -iname '*session*' | wc -l)" 0
+
+t_case "the snapshot goes through names of this run"
+reset
+t_stub_analytics '[ "$1" != sessions ] || { readlink /proc/$$/fd/1 >"$T/sessions-to"; cat "$T/sessions.jsonl"; }'
+t_run "$status"
+to=$(cat "$T/sessions-to")
+[[ $to =~ ^${snap%/*}/sessions\.jsonl\.[0-9]+\.raw\.new$ ]] || t_bad "the snapshot went to $to"
+
+t_case "TEHAS_ANALYTICS=off removes the snapshot"
+reset
+t_run "$status"
+t_eq "$(snap_there)" there
+t_instance "${T_MINIMAL[@]}" TEHAS_ANALYTICS=off
+t_run "$status"
+t_eq "$(snap_there)" gone
+
+t_case "a failed sessions run keeps a snapshot younger than ten minutes and removes an older one"
+reset
+t_run "$status"
+keep=$(cat "$snap")
+t_stub_analytics '[ "$1" != sessions ] || { echo "{\"api\":1,\"half"; exit 70; }
+  [ "$1" != report ] || cat "$T/report.json"'
+snap_aged 540
+t_run "$status"
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN analytics sessions: exit 70"
+t_eq "$(cat "$snap")" "$keep"
+t_eq "$(find "${snap%/*}" -name '*.new' | wc -l)" 0
+snap_aged 600
+t_run "$status"
+t_eq "$(snap_there)" gone
+t_eq "$(there)" there
+
+t_case "a snapshot without the header is a warning and is not published"
+reset
+t_run "$status"
+for printed in 'not json' '{"api":2,"days":30}' '{"api":1,"days":"x"}' '[1]' ''; do
+  printf '%s\n{"id":"b"}\n' "$printed" >"$T/sessions.jsonl"
+  snap_aged 60
+  t_run "$status"
+  t_contains "$t_out" "WARN analytics sessions: not a snapshot"
+  t_eq "$(head -n 1 "$snap" | jq -r .api)" 1
+  t_eq "$(grep -c '"id":"b"' "$snap" || true)" 0
+done
+
+t_case "a failing sessions run does not stop analytics.json"
+reset
+t_stub_analytics '[ "$1" != sessions ] || exit 70
+  [ "$1" != report ] || cat "$T/report.json"'
+t_run "$status"
+t_eq "$(jq -r .report "$file")" 1
+t_eq "$(snap_there)" gone
 
 t_done

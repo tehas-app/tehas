@@ -106,9 +106,34 @@ analytics_report() {
   written=$(stat -c %Y "$file" 2>/dev/null) || return 0
   [ $(($(date +%s) - written)) -lt "$analytics_keep" ] || rm -f "$file"
 }
+# The private snapshot of the last thirty days of runs, mcp/sessions.jsonl,
+# for the MCP server. Never under live/, which is public. Kept, replaced and
+# removed as the report is. Only the header line is checked: the file can be
+# several megabytes.
+mcp=$TEHAS_HOME/mcp
+# shellcheck disable=SC2329  # the EXIT trap below calls it
+analytics_sessions() {
+  local file=$mcp/sessions.jsonl rc written
+  local raw=$file.$$.raw.new
+  mkdir -p "$mcp" && chmod 700 "$mcp" || return 0
+  (umask 077; tehas_analytics_to "$raw" sessions)
+  rc=$?
+  if [ "$rc" = 0 ] && head -n 1 "$raw" | jq -e 'type == "object" and .api == 1 and (.days | type == "number")' \
+      >/dev/null 2>&1 && chmod 600 "$raw" && mv -f "$raw" "$file"; then
+    return 0
+  fi
+  rm -f "$raw"
+  if [ "$rc" = 2 ]; then
+    rm -f "$file"
+    return 0
+  fi
+  [ "$rc" = 1 ] || log "WARN analytics sessions: not a snapshot"
+  written=$(stat -c %Y "$file" 2>/dev/null) || return 0
+  [ $(($(date +%s) - written)) -lt "$analytics_keep" ] || rm -f "$file"
+}
 # Whatever happens below, write the report, and refresh the health file
 # from what is on disk.
-trap 'analytics_report; "$here/health" 2>/dev/null || true' EXIT
+trap 'analytics_report; analytics_sessions; "$here/health" 2>/dev/null || true' EXIT
 
 fetch_every=3600
 fetch_limit=60

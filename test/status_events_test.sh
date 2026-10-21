@@ -38,11 +38,12 @@ reset() {
   t_instance "${T_MINIMAL[@]}"
   issues "$(issue 3 tehas:ready)" "$(issue 5 tehas:awaiting-merge)"
   shipped
-  t_stub_analytics '[ "$1" != report ] || echo "{\"report\":1}"'
+  t_stub_analytics '[ "$1" != report ] || echo "{\"report\":1}"
+    [ "$1" != sessions ] || echo "{\"api\":1,\"days\":30}"'
 }
-# The calls that record events: every run also asks for the report
+# The calls that record events: every run also asks for the report and sessions
 # (status_analytics_test.sh).
-events() { t_calls analytics | grep -v '^report --json$' || true; }
+events() { t_calls analytics | grep -Ev '^(report --json|sessions)$' || true; }
 # The snapshot of the run before, written by status itself, then the calls
 # of the next run only.
 again() { rm -f "$T/calls/analytics"; t_run "$status"; }
