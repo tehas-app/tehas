@@ -45,10 +45,14 @@ matter here.
 
 ## Decision
 
-1. **One SQLite database for the host's own records**: `$TEHAS_HOME/state/tehas.db`,
-   behind a Rust command with typed verbs. Bash never writes SQL. Each of the
-   13 groups of files that change together becomes one verb that writes in one
-   transaction.
+1. **One SQLite database for the host's own records**: the state store, at
+   `$TEHAS_HOME/state/tehas.db` — a path this decision names, not one the code
+   has yet created: nothing under `libexec/`, `lib/` or `test/` mentions it
+   today, and `state/analytics.db` is the file beside where it will sit
+   (`console/analytics/src/db.rs:20` names that one). Behind a Rust command with
+   typed verbs, bash never writes SQL.
+   Each of the 13 groups of files that change together becomes one verb that
+   writes in one transaction.
 2. **The dispatcher becomes a reconciler.** It reads a snapshot (GitHub, the
    database, held locks, the slice), computes actions with a pure function, and
    applies each through an action journal that records the intent before the
@@ -98,6 +102,22 @@ into the state store would make every dashboard read contend with every poll's
 write, and would tie a 365-day history to the lifetime of the current design.
 It keeps its own file, its own `PRAGMA user_version` and its own migrations.
 
+The state store borrows that program's **schema conventions** and none of its
+recovery. The two databases fail in opposite ways and must. The analytics
+program quarantines a database it cannot use: `open` moves it to
+`analytics.db.broken`, or to `analytics.db.schema-<v>` with its side files, and
+builds a fresh one (`console/analytics/src/db.rs:24-26`, `:38-45`), because its
+readers tolerate absence and the data is ten days deep. The state store is the
+opposite case: its rows are the host's only record of an approval, of a park
+question id (the F5 trust root) and of an unsettled journaled action, and
+quarantining any of that erases the record behind the two largest groups of the
+Context table above — 16 issues of local state written in pieces and 10 of the
+host and GitHub disagreeing. **The state store never moves a damaged database
+aside and carries on.** It stops with 78 and the word `corrupt` or `unreadable`
+(spec section 4), and the damaged file stays exactly where a person can read it.
+A future reader extending that code path inherits this rule, not the analytics
+one.
+
 **The `state/index/` tree, `state/plan-<n>.json.keep/`, and `~/.pi/agent/`**.
 Directories of other programs' making: the indexer's databases, the runner's
 per-turn payload, pi-rukas's runs and sessions. tehas moves them and does not
@@ -130,10 +150,12 @@ split inside that 611 — how many run a whole poll through stubbed `gh` and
 `docker` to ask a rule question, and how many are about a process (a lock, a
 systemd start, a hang) — is **not measured**, and #254 owns measuring it before
 anyone quotes a number. What is measured is the cost that motivates the
-separation: those 19 files cost **151 of the serial suite's 562 s** in this
-cycle's sandbox (the three slowest, `dispatch_queue` 40.6 s, `dispatch_plan`
-40.5 s and `dispatch_start` 39.1 s, are also the third, fourth and fifth
-slowest files in the whole suite), so a case that asks a rule question pays the
+separation, and the figures are the spec's to own: see *What is true today* in
+[the spec](../specs/2026-10-21-state-store.md) and its section 10 for the 611,
+the share of the serial suite the 19 files cost and the three slowest
+`dispatch_*` files with their seconds — all taken in this cycle's sandbox and
+all open for a tehas-tehas re-taking. Quoted here rather than copied, so one
+re-measurement moves one document. A case that asks a rule question pays the
 fork of a stubbed `gh`, a stubbed `docker` and a whole `libexec/dispatch`. A
 pure decide function takes a snapshot and returns a list of actions, and a test
 of it costs microseconds. The epic's target of 200 rule tests as Rust unit tests
@@ -150,7 +172,9 @@ spec, section 6). Requests are the easy half: at the 2-minute timer the host
 actually runs, about 30 polls an hour, the GraphQL budget of 5,000 points leaves
 about 165 points a poll, and that — not the request count — is what fixes the
 page size and the per-connection caps. The spec prices a full page of 100 issues
-at several times the whole hour, which is why the snapshot pages three issues at
+at several times the whole hour — a model of GitHub's node formula, not yet a
+measurement, and #253's first job is to record the measured delta against it
+(spec, section 6) — which is why the snapshot pages three issues at
 a time and stops on a window rather than reading the queue.
 
 ## Alternatives considered
@@ -184,7 +208,9 @@ the crate's and not the host's today.
 
 **Write the store in bash with a C or Python helper.** Refused: the repository's
 Rust standard (no `unsafe`, clippy clean, `--locked`, one workspace with the
-console) already applies to two programs, and the value here is a type that
+console) already applies to the console workspace's programs — the console, the
+analytics program and the MCP server, the three members *How this ADR reads ADR
+0001* counts — and the value here is a type that
 distinguishes a failed read from an empty one. In bash that distinction is a
 convention, and D2 exists because the convention failed.
 
@@ -242,16 +268,16 @@ Two consequences, so nobody has to guess:
   fast gate on the organisation's runner. Making cargo required is #246, which
   AGENTS.md rule 7 gives to a person.
 - `verify.sh --full` fails on main today, before any change of this cycle: three
-  lints under rustc 1.99, which the pinned `host/versions.env` toolchain
-  predates — `clippy::unnecessary_sort_by` at `console/mcp/src/sessions.rs:636`
-  and `:641`, and a deprecated `Atomic::fetch_update` at
-  `console/mcp/src/logs.rs:63`. `scripts/verify.sh:62` runs clippy with
-  `-D warnings`, so the step reports three errors. That is the lints step of
-  #246's workspace, not a consequence of this ADR, and it is recorded here so the
-  next reader does not attribute it to #245.
-- Vendoring: `cargo vendor --locked` of the console workspace today yields 62
-  crates, 101 MB and 3,444 files, of which `libsqlite3-sys` is 21 MB. The
-  recommendation and the size cost are in the spec, section 8.
+  lints under a rustc ahead of the `host/versions.env` pin. The full entry, with
+  the three lints, their file and line and the step of the gate that turns them
+  into errors, is in *What is true today* in
+  [the spec](../specs/2026-10-21-state-store.md). It is the lints step of #246's
+  workspace, not a consequence of this ADR, and it is named here so the next
+  reader does not attribute it to #245.
+- Vendoring: `cargo vendor --locked` of the console workspace yields 62 crates
+  and 21 MB for `libsqlite3-sys` alone; the counts, the byte figures and the
+  checkout comparison are the spec's section 8 measurement, and it is the source
+  for them. The recommendation and the size cost are there.
 - #248 (one cargo workspace) and #253 (dispatcher part 1) stay parked until this
   ADR is accepted and #246 is done. Starting them out of order is why both
   parked before.
