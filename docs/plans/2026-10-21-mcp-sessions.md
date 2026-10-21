@@ -233,7 +233,7 @@
 
 **Files:**
 - Modify: `host/docs/llms.txt`, `host/docs/agents.md`, `host/docs/features.md` (the MCP row), `host/docs/mcp-server.md` (an MCP client config example)
-- Test: whatever test already renders `llms.txt` or checks the docs' links (find it with `grep -rl llms test/`). Add a case that the rendered `llms.txt` has the MCP section and names no host but through `{{ $base }}`.
+- Create: `test/llms_test.sh` (no test covers `llms.txt` today). It checks that `host/docs/llms.txt` and `host/docs/agents.md` each have the heading `Ask this factory over MCP`, name all nine tools and `{{ $base }}/mcp`, and hold no `https://` address of this host. `scripts/check-generic.sh` covers the names.
 
 **Interfaces:**
 - Consumes: the tool names and arguments from Tasks 3 to 6.
