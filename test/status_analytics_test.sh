@@ -31,9 +31,11 @@ cat >"$T/report.json" <<'EOF'
  "tokens":{"n":4,"total":6650,"input":6100,"output":500,"cacheRead":50,"perShipped":2217},
  "availability":{"n":5,"seconds":734400,"share":0.002},"energy":{"n":4,"kwh":0.075,"perShipped":0.025},
  "daily":[],"stopReasons":{"n":0,"top":[]},"stations":{"n":0,"steps":[]},"versions":[],
+ "refine":{"sessions":2,"n":1,"started":1,"shipped":0,"shippedShare":0.0,
+  "leadTime":{"n":0},"others":{"n":3,"started":2,"shipped":1,"shippedShare":0.333}},
  "failureCause":"a cause that may not be public","issues":[12,13]}
 EOF
-keys="availability,cycleTime,daily,energy,firstPassYield,from,handoffRate,leadTime,machineTime,planned,planningTurns,report,runs,shipped,stations,stopReasons,to,tokens,versions"
+keys="availability,cycleTime,daily,energy,firstPassYield,from,handoffRate,leadTime,machineTime,planned,planningTurns,refine,report,runs,shipped,stations,stopReasons,to,tokens,versions"
 
 reset() {
   rm -rf "$T"/calls/* "$live" "$T/home/tehas/mcp" "$T/home/tehas/libexec" "$T/github-down"
@@ -60,6 +62,7 @@ sessions"
 t_eq "$(jq -r 'keys | join(",")' "$file")" "$keys"
 t_lacks "$file" "may not be public"
 t_eq "$(jq -c .runs "$file")" "$(jq -c .runs "$T/report.json")"
+t_eq "$(jq -c .refine "$file")" "$(jq -c .refine "$T/report.json")"
 t_eq "$(wc -l <"$file")" 1
 t_eq "$(find "$live" -name '*.new' | wc -l)" 0
 # Readable by the docs server, as status.json is.
