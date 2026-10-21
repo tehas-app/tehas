@@ -113,7 +113,7 @@ The manual is in [`host/docs/`](host/docs/). Every instance serves it on port
 | [Bootstrap a host](host/docs/bootstrap.md) | Preparing a fresh machine |
 | [The host](host/docs/host.md) | Files on the machine, settings, the sandbox image |
 | [Previews](host/docs/edge.md) | A preview of every pull request, and how the names were published |
-| [Analytics](host/docs/analytics.md) | The factory's ten days of runs: what is recorded, every column, fetching it, turning it off |
+| [Analytics](host/docs/analytics.md) | The factory's 365 days of runs: what is recorded, every column, fetching it, turning it off |
 | [Commands](host/docs/tools.md) | `tehas`, `tehasbot` and what each of their commands does |
 | [Troubleshooting](host/docs/troubleshooting.md) | What each kind of stop means |
 
