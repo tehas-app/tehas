@@ -7,7 +7,7 @@ description: "Where a coding agent starts with this tehas factory: llms.txt, the
 
 A coding agent can pick tehas up from one address: [`/llms.txt`](/llms.txt) on
 this host. It says what tehas is, how to get work built by this factory, how to
-set tehas up for another repository, and where the live data is.
+set tehas up for another repository, where the live data is, and how to ask a factory over MCP.
 
 ## Hand it to your agent
 
@@ -39,6 +39,47 @@ to look at is the public dashboard at <https://tehas.app/>.
 
 All of it is read-only. Work is submitted and authorized in GitHub, as
 [Operating](/operating) describes.
+
+## Ask this factory over MCP
+
+A factory can also answer questions about itself over MCP, when its owner has
+switched that on. Every tool is read only. The server is at
+`https://<domain>/mcp`, over Streamable HTTP, and every request needs the header
+`Authorization: Bearer <key>`. A key comes from the factory's owner, who makes
+one with `tehas mcp key` on the host. Ask your person for it and never guess
+one. A request without a key gets 401.
+
+- `factory_status`: whether the factory works, the queue, the running cycles, whether it is paused
+- `factory_issues`: the issues in one stage, such as `queued`, `running` or `stopped`
+- `factory_endings`: the cycles that ended last, and the failed ones among them
+- `factory_console`: the tail of one running cycle's console
+- `factory_stats`: the ten-day report the dashboard shows
+- `factory_sessions`: the runs of the last 30 days, newest first, with filters such as `outcome`
+- `factory_session`: one run in full: steps, roles, logs and links
+- `factory_log`: one log of a run, masked, plain in pieces or whole as gzip
+- `factory_failures`: the work runs of the last 30 days per tehas and pi-rukas version pair, with their most common causes
+
+To see what went wrong, call `factory_failures`, then `factory_sessions` with
+`outcome` set to `failed`, then `factory_session` for one of them, then
+`factory_log` for one of its logs. Sessions cover the last 30 days and logs are
+masked. Ask for `gzip: true` to get a transcript whole; read a plain log in
+pieces with `offset`.
+
+A client config to paste, as an example. Your client's file and field names may
+differ:
+
+```json
+{
+  "mcpServers": {
+    "tehas": {
+      "url": "https://<domain>/mcp",
+      "headers": { "Authorization": "Bearer <key>" }
+    }
+  }
+}
+```
+
+The tools, their arguments and the limits are in [The MCP server](/mcp-server).
 
 ## What an agent may not decide
 

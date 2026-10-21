@@ -8,9 +8,9 @@
 
 use crate::keys::Keys;
 use crate::rpc::{self, Request, Response, MAX_BODY};
+use crate::tools::Dirs;
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::path::Path;
 use std::time::{Duration, Instant};
 
 pub const MAX_HEAD: usize = 8192;
@@ -18,11 +18,11 @@ pub const IO_TIMEOUT: Duration = Duration::from_secs(10);
 const ENDPOINT: &str = "/mcp";
 
 /// Serves the one request on `stream` and returns its access-log line.
-pub fn serve(mut stream: TcpStream, keys: &Keys, live: &Path, version: &str) -> String {
+pub fn serve(mut stream: TcpStream, keys: &Keys, dirs: &Dirs, version: &str) -> String {
     let started = Instant::now();
     let _ = stream.set_write_timeout(Some(IO_TIMEOUT));
     let deadline = started + IO_TIMEOUT;
-    let (method, r) = exchange(&mut stream, deadline, keys, live, version);
+    let (method, r) = exchange(&mut stream, deadline, keys, dirs, version);
     write(&mut stream, &r);
     format!(
         "{method} {} {}ms key={}",
@@ -43,7 +43,7 @@ fn exchange(
     stream: &mut TcpStream,
     deadline: Instant,
     keys: &Keys,
-    live: &Path,
+    dirs: &Dirs,
     version: &str,
 ) -> (String, Response) {
     let (head, mut body) = match read_head(stream, deadline) {
@@ -95,7 +95,7 @@ fn exchange(
     }
     body.truncate(len);
     req.body = &body;
-    let mut r = rpc::answer(&req, live, version);
+    let mut r = rpc::answer(&req, dirs, version);
     r.key = Some(key);
     (method.clone(), r)
 }

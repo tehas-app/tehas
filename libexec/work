@@ -303,6 +303,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/improve.sh"
 # shellcheck source=lib/headless.sh
 . "$here/../lib/headless.sh"
+# shellcheck source=lib/private.sh
+. "$here/../lib/private.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
 tehas_sandbox_settings_ok || exit 78
@@ -739,31 +741,11 @@ console=$live/console-$issue.txt
 # The cycle does not depend on it: without a console it runs all the same,
 # and this says why the dashboard shows none.
 [ -x "$here/console" ] || echo "tehas work: no console at $here/console, so the dashboard shows none; run install.sh"
-# Names the host knows that an agent can print, for the console to mask: the
-# host aliases, the model host and the bot's email. They are names, not
-# secrets, so they may go on a command line; a token never does. A name under
-# 4 characters would mask ordinary text.
+# The names for the console to mask (lib/private.sh).
 private=()
-add_private() { if [ "${#1}" -ge 4 ]; then private+=(--private "$1"); fi; }
-IFS=',' read -ra pairs <<<"${PI_ENSEMBLE_HOST_ALIASES:-}"
-for pair in "${pairs[@]}"; do
-  add_private "${pair%%:*}"
-  [ "${pair#*:}" = "$pair" ] || add_private "${pair#*:}"
-done
-# Every endpoint of every provider the agents use, a role's own among them.
-while read -r model_host; do
-  model_host=${model_host#*://}
-  model_host=${model_host%%/*}
-  model_host=${model_host##*@}
-  case "$model_host" in
-    \[*) model_host=${model_host#[}; model_host=${model_host%%]*} ;;
-    *) model_host=${model_host%%:*} ;;
-  esac
-  add_private "$model_host"
-done < <(tehas_models | while read -r model_provider _; do
-  jq -r --arg p "$model_provider" '.providers[$p] | .baseUrl, .backupBaseUrl | strings' "$agent/models.json" 2>/dev/null
-done)
-add_private "$bot_email"
+while IFS= read -r private_name; do
+  private+=(--private "$private_name")
+done < <(tehas_private_names "$agent/models.json" "$bot_email")
 "$here/console" --progress "$log" \
   --runs "$runs" --out "$console" --since "$((started - 5))" "${private[@]}" >/dev/null 2>"$log.console" &
 cpid=$!
