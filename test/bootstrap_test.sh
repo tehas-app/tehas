@@ -42,7 +42,7 @@ all_present() {
   t_stub loginctl 'echo yes'
   t_stub curl 'echo "curl 8.0.0"'
   t_stub uname 'echo x86_64'
-  for tool in jq openssl flock shellcheck unzip; do t_stub "$tool" 'echo "1.2.3"'; done
+  for tool in jq openssl flock minisign shellcheck unzip; do t_stub "$tool" 'echo "1.2.3"'; done
   t_stub jq "exec $jq_real \"\$@\""
   mkdir -p "$T/home/.pi/agent/extensions"
   ln -sfn "$T" "$T/home/.pi/agent/extensions/pi-rukas"
@@ -753,27 +753,137 @@ for oomd in active inactive; do
 done
 t_lacks "$t_out" "systemd-oomd: active"
 
-t_case "root installs the slice too"
+# The root part's own stubs: apt-get, usermod and loginctl record, useradd
+# makes the account, runuser runs nothing and records how it was asked.
+root_stubs() {
+  for tool in apt-get usermod loginctl; do t_stub "$tool"; done
+  t_stub useradd ': >"$T/user-made"'
+  t_stub id "case \"\$*\" in -u) echo 0 ;; boss) ;; carol) [ -e \"\$T/user-made\" ] ;; *) exit 1 ;; esac"
+  t_stub runuser
+  t_stub uname 'echo x86_64'
+}
+
+t_case "root installs the slice, then runs the user part as the user in the same run"
 fresh_slice
 slice_stubs 0
-t_stub uname 'echo x86_64'
-for tool in apt-get usermod loginctl; do t_stub "$tool"; done
+root_stubs
 t_run "$bootstrap root boss"
 t_eq "$t_rc" 0
 t_eq "$(cmp -s "$slice" "$shipped" && echo same)" same
 t_contains "$(t_calls systemctl)" "start tehas.slice"
 t_contains "$t_out" "bootstrap: slice part done"
 t_contains "$t_out" "bootstrap: root part done"
+t_eq "$(t_calls runuser)" "-l boss -c $T_ROOT/bootstrap.sh user"
+t_contains "$(t_calls apt-get)" "minisign"
+t_eq "$(t_calls useradd)" ""
+t_lacks "$t_out" "must log in again"
 
-t_case "root with a cgroupfs driver finishes, writes no slice and says what to run"
+t_case "root with --root-only stops before the user part"
 fresh_slice
-slice_stubs 0 "cgroupfs 2"
+slice_stubs 0
+root_stubs
+t_run "$bootstrap root boss --root-only"
+t_eq "$t_rc" 0
+t_contains "$t_out" "bootstrap: root part done"
+t_eq "$(t_calls runuser)" ""
+t_contains "$t_out" "./bootstrap.sh user"
+
+t_case "root fails when the user part fails"
+fresh_slice
+slice_stubs 0
+root_stubs
+t_stub runuser 'exit 1'
+t_run "$bootstrap root boss"
+t_eq "$t_rc" 1
+t_contains "$t_out" "the user part failed"
+
+t_case "root makes a user that is missing"
+fresh_slice
+slice_stubs 0
+root_stubs
+t_run "$bootstrap root carol"
+t_eq "$t_rc" 0
+t_eq "$(t_calls useradd)" "-m -s /bin/bash carol"
+t_contains "$t_out" "made the user carol"
+t_contains "$(t_calls usermod)" "-aG docker carol"
+
+t_case "root refuses a name that is not a plain account name and changes nothing"
+fresh_slice
+slice_stubs 0
+root_stubs
+t_run "$bootstrap root 'bo ss'"
+t_eq "$t_rc" 1
+t_contains "$t_out" "not a plain account name"
+t_eq "$(t_calls apt-get)$(t_calls useradd)" ""
+
+# A Docker on cgroupfs answers systemd once daemon.json names the systemd
+# driver and it was restarted.
+docker_driver_stub() {
+  t_stub docker "case \"\$1\" in
+info) if grep -q native.cgroupdriver=systemd \"$etc/docker/daemon.json\" 2>/dev/null && [ -e \"\$T/docker-restarted\" ]; then echo 'systemd 2'; else echo 'cgroupfs 2'; fi ;;
+*) echo 'Docker version 29.1.3' ;;
+esac"
+  t_stub systemctl "case \"\$*\" in
+  'restart docker') : >\"\$T/docker-restarted\" ;;
+  'show tehas.slice -p FragmentPath -p MemoryMax -p NeedDaemonReload')
+    if [ -e \"\$T/slice-loaded\" ]; then printf 'MemoryMax=21990232555\nFragmentPath=/etc/systemd/system/tehas.slice\nNeedDaemonReload=no\n'
+    else printf 'MemoryMax=infinity\nFragmentPath=\nNeedDaemonReload=no\n'; fi ;;
+  'start tehas.slice') : >\"\$T/slice-loaded\" ;;
+esac"
+}
+
+t_case "root sets the systemd cgroup driver in a missing daemon.json, restarts Docker and installs the slice"
+fresh_slice
+rm -f "$T/docker-restarted"
+slice_stubs 0
+root_stubs
+docker_driver_stub
+t_run "$bootstrap root boss"
+t_eq "$t_rc" 0
+t_eq "$(jq -c . "$etc/docker/daemon.json")" '{"exec-opts":["native.cgroupdriver=systemd"]}'
+t_contains "$(t_calls systemctl)" "restart docker"
+t_eq "$(cmp -s "$slice" "$shipped" && echo same)" same
+t_contains "$t_out" "bootstrap: root part done"
+
+t_case "root merges the driver into a daemon.json that has other settings and keeps them"
+fresh_slice
+rm -f "$T/docker-restarted"
+mkdir -p "$etc/docker"
+printf '%s\n' '{"log-driver":"local","exec-opts":["native.cgroupdriver=cgroupfs","other=1"]}' >"$etc/docker/daemon.json"
+slice_stubs 0
+root_stubs
+docker_driver_stub
+t_run "$bootstrap root boss"
+t_eq "$t_rc" 0
+t_eq "$(jq -c . "$etc/docker/daemon.json")" '{"log-driver":"local","exec-opts":["other=1","native.cgroupdriver=systemd"]}'
+t_eq "$(jq -c . "$etc/docker/daemon.json.prev")" '{"log-driver":"local","exec-opts":["native.cgroupdriver=cgroupfs","other=1"]}'
+
+t_case "root leaves a daemon.json it cannot read as JSON, writes no slice and says so"
+fresh_slice
+rm -f "$T/docker-restarted"
+mkdir -p "$etc/docker"
+printf '{ not json\n' >"$etc/docker/daemon.json"
+slice_stubs 0
+root_stubs
+docker_driver_stub
+t_run "$bootstrap root boss"
+t_eq "$t_rc" 1
+t_eq "$(cat "$etc/docker/daemon.json")" "{ not json"
+t_contains "$t_out" "is not JSON"
+t_eq "$([ -e "$slice" ] && echo there)" ""
+t_eq "$(t_calls runuser)" ""
+
+t_case "root on cgroup v1 finishes, writes no slice and no daemon.json, and says what to run"
+fresh_slice
+slice_stubs 0 "systemd 1"
+root_stubs
 t_run "$bootstrap root boss"
 t_eq "$t_rc" 0
 t_eq "$([ -e "$slice" ] && echo there)" ""
+t_eq "$([ -e "$etc/docker/daemon.json" ] && echo there)" ""
 t_contains "$t_out" "run sudo ./bootstrap.sh slice once Docker uses the systemd driver"
 t_contains "$t_out" "bootstrap: root part done"
-rm -f "$T/bin/id" "$T/bin/apt-get" "$T/bin/usermod" "$T/bin/systemctl"
+rm -f "$T/bin/id" "$T/bin/apt-get" "$T/bin/usermod" "$T/bin/systemctl" "$T/bin/runuser" "$T/bin/useradd"
 
 t_case "check reports the slice and does not fail on it"
 all_present

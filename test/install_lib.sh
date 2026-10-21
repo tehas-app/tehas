@@ -139,6 +139,7 @@ files="./.bashrc
 ./tehas/libexec/protolab
 ./tehas/libexec/refresh
 ./tehas/libexec/resume
+./tehas/libexec/setup
 ./tehas/libexec/status
 ./tehas/libexec/stop
 ./tehas/libexec/summary

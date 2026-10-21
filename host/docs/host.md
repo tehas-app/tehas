@@ -113,8 +113,7 @@ changes. Neither asks a question, so a program can run them with nothing on
 standard input and nothing to answer:
 
 ```
-sudo ./bootstrap.sh root <user>   # packages, Docker, the docker group, linger, the slice
-./bootstrap.sh user               # the pinned tools, as the tehas user
+sudo ./bootstrap.sh root <user>   # packages, Docker, the docker group, linger, the slice, then the pinned tools as <user>
 ./bootstrap.sh check              # one line per tool, and one for the slice
 # the instance's instance.env and models.json are in place, and
 # ~/.config/tehas/instance-dir names the directory, or instance.env sits in
