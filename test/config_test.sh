@@ -903,4 +903,59 @@ t_eq "$t_rc" 78
 t_contains "$t_out" "TEHAS_MCP_KEYS"
 t_lacks "$t_out" "abcdefghijklmnopqrstuvwxyz012345"
 
+# The cleaner's two settings: the hours of age a thing must have before it goes,
+# and the directory names that count as build output.
+t_case "the cleaner removes a day of build output unless the instance says otherwise"
+t_instance "${T_MINIMAL[@]}"
+t_run "$load && set -u && echo \"[\$TEHAS_CLEAN_AFTER] [\$TEHAS_CLEAN_DIRS]\""
+t_eq "$t_rc" 0
+t_eq "$t_out" "[24] [target node_modules __pycache__ .venv .pytest_cache .mypy_cache .next .turbo .gradle]"
+
+t_case "the cleaner's age and its names can both be set in the instance"
+t_instance "${T_MINIMAL[@]}" "TEHAS_CLEAN_AFTER=6" "TEHAS_CLEAN_DIRS='target dist'"
+t_run "$load && echo \"[\$TEHAS_CLEAN_AFTER] [\$TEHAS_CLEAN_DIRS]\""
+t_eq "$t_rc" 0
+t_eq "$t_out" "[6] [target dist]"
+
+# The cleaner's two settings. The hours are asked of docker's `until` and of
+# find's `-newermt`, so a sign, a fraction or an exponent is no number of
+# hours; an empty value takes the default, as every other setting left empty
+# does.
+for bad in "soon" "0" "-5" "1.5" "24 " "1e3" "123456"; do
+  t_case "loading rejects a TEHAS_CLEAN_AFTER of '$bad'"
+  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_CLEAN_AFTER='$bad'" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "TEHAS_CLEAN_AFTER is not valid: expected a whole number of hours of at least 1"
+done
+
+# The names go to find -name, so a path, a bare dot, and the family of the two
+# dot-names a workspace keeps are all refused: they are not build output. The
+# family, not just the two names spelled, because a name close to one of them is
+# a name someone meant as one of them, and the cleaner's walk stops at a dot-name
+# it cannot name here.
+for bad in "." ".." ".git" ".pi" "a/target" "/target" "target;rm -rf" "target *"; do
+  t_case "loading rejects a TEHAS_CLEAN_DIRS of '$bad'"
+  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_CLEAN_DIRS='$bad'" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "TEHAS_CLEAN_DIRS is not valid"
+done
+
+t_case "a TEHAS_CLEAN_DIRS with .git among other names is refused whatever IFS is"
+t_run ". \"$T_ROOT/lib/config.sh\"; IFS=x; _tehas_valid TEHAS_CLEAN_DIRS 'target .git'; echo rc=\$?"
+t_contains "$t_out" "refuses .git: that is not build output"
+t_contains "$t_out" "rc=1"
+
+# The default the example instance copies by hand is pinned against the
+# config's own list, so the two cannot drift apart.
+t_case "the example instance documents the defaults the cleaner runs with"
+t_instance "${T_MINIMAL[@]}"
+t_run "$load && echo \"\$TEHAS_CLEAN_DIRS\""
+default_dirs=$t_out
+t_eq "$t_rc" 0
+t_contains "$(grep '^#TEHAS_CLEAN_AFTER=' "$T_ROOT/instances/example/instance.env")" "=24"
+t_contains "$(grep '^#TEHAS_CLEAN_DIRS=' "$T_ROOT/instances/example/instance.env")" "$default_dirs"
+t_instance "${T_MINIMAL[@]}"
+
 t_done

@@ -78,6 +78,8 @@ in the platform repository has every one with a comment.
 | `TEHAS_FIXER_MAX_PLAN_ANSWERS`  | `3`                                      | How many planning questions the fixer may answer in one session. It never answers two in a row (see [the fixer's grant](/operating#the-fixers-grant)) |
 | `TEHAS_REFRESH_CONFLICTS`      | `0`                                      | 1 has the factory resolve conflicts in its own pull requests that wait for a merge (see [refreshes](/operating#refreshes)). Anything but 0 or 1 stops every command with 78 |
 | `TEHAS_REFRESH_MAX`            | `2`                                      | Refreshes of one pull request since the person's approval its cycle rests on. A positive whole number |
+| `TEHAS_CLEAN_AFTER`            | `24`                                     | Hours a thing must have gone unused before `tehasbot clean` removes it: build output in a kept workspace, Docker's build cache and host scratch. A whole number of at least 1, else every command stops with 78 (see [tehasbot clean](#tehasbot-clean)) |
+| `TEHAS_CLEAN_DIRS`             | `target node_modules __pycache__ .venv .pytest_cache .mypy_cache .next .turbo .gradle` | The directory names `tehasbot clean` removes anywhere in a kept workspace, separated by single spaces. Names, not paths: one with a `/`, a bare `.` or `..`, or a dot-name in the family of the two a workspace keeps, stops every command with 78 (see [tehasbot clean](#tehasbot-clean)) |
 | `TEHAS_BRANCH_CHECK`           | empty                                    | Optional. The name of a check that runs on every push to `TEHAS_BRANCH`, as `verify`. While it failed on the branch's head commit no new cycle starts (see [Limits that hold work back](/operating#limits-that-hold-work-back)). Words of letters, digits and `._()/-` separated by single spaces, else every command stops with 78. Empty: the poll does not ask |
 | `TEHAS_LOW_GATE`               | empty                                    | Optional. A command the dispatcher asks before it starts an issue it puts on neither the urgent list nor the `tehas:next` list. An absolute path of `/`, letters, digits and `._-` with no empty or dot segment, and not under `~/tehas` or the instance directory, else every command stops with 78. Empty: there is no gate, and every ready issue is started as before (see [tehas dispatch](#tehas-dispatch)) |
 | `TEHAS_LOW_GATE_WAIT`          | `60`                                     | Optional. Seconds `TEHAS_LOW_GATE` gets before its answer is a closed gate. A whole number from 1 to 600, else every command stops with 78. The poll holds `~/tehas/state/dispatch.lock` while it waits, so a long value delays every later poll (see [tehas dispatch](#tehas-dispatch)) |
@@ -1494,13 +1496,15 @@ tehasbot preview              # keep the previews; what tehas-preview.timer runs
 tehasbot preview --sweep      # the second check; what tehas-preview-sweep.timer runs
 tehasbot improve              # one run of the improvement loop; what tehas-improve.timer runs
 tehasbot refresh              # ask for refreshes of conflicting pull requests; what tehas-refresh.timer runs
+tehasbot clean                # remove what the host can make again; what tehas-clean.timer runs
 ```
 
 The units are `tehas-dispatch.timer`, `tehas-dispatch.path` (a poll as soon
 as a cycle ends), `tehas-energy.service`, `tehas-top.service`,
 `tehas-protolab.timer`, the previews' `tehas-preview.timer` and
 `tehas-preview-sweep.timer`, the improvement loop's `tehas-improve.timer`, the refreshes'
-`tehas-refresh.timer`, and one `tehas-cycle@<issue>.service` per running
+`tehas-refresh.timer`, the cleaner's `tehas-clean.timer` (installed, and enabled
+by a person), and one `tehas-cycle@<issue>.service` per running
 cycle. A cycle's container is `tehas-work-<issue>`.
 
 ## tehasbot cycle
@@ -2183,6 +2187,57 @@ time 15 minutes after boot. With `TEHAS_REFRESH_CONFLICTS` other than 1 it
 exits 0 at once and calls nothing. Exit 1 when a call to GitHub fails: no
 request is written or removed, and the dispatcher checks the old ones again
 before it starts any.
+
+## tehasbot clean
+
+```
+tehasbot clean                # one run; one line per removal in ~/tehas/logs/clean.log
+tehasbot clean --dry-run      # log what it would remove and remove nothing
+systemctl --user enable --now tehas-clean.timer
+tail ~/tehas/logs/clean.log
+```
+
+Removes what the host can make again, of anything untouched for
+`TEHAS_CLEAN_AFTER` hours (24 by default). Three steps, and a step that fails
+is logged as a warning while the other two still run:
+
+1. **Build output in kept workspaces.** For each issue with a kept workspace
+   (`<name>-<n>` and `<name>-<n>.before-retry`) that no cycle is running, and
+   whose lock and directories have all gone untouched for that long: every
+   directory anywhere in the tree whose name is one of `TEHAS_CLEAN_DIRS`, and
+   `<name>-<n>.state/cache`, the cycle's copy of the code index. The issue's
+   lock is held while they go, as the 7-day sweep holds it, so no cycle starts
+   meanwhile. What stays is what a person reads: `.git`, the sources, what the
+   agents wrote there, uncommitted changes, `.state/memory` and
+   `.state/sessions`. It runs no git command in a workspace and follows no
+   symlink (a link named `target` stays a link and what it points at is not
+   touched). It enters no dot-name: every name `TEHAS_CLEAN_DIRS` can hold is
+   un-dotted, so this gives up no build output, and it is what keeps a
+   workspace's own trees, whatever a container called them, out of the removal.
+   A removal needs the issue's lock to be there and freeable: no lock file, or
+   one that is not a plain file, means nothing is removed. The lock is taken
+   for the instant of each removal.
+2. **Docker's build cache** of that age, with `docker builder prune -f --filter
+   until=<N>h`. This is the build cache of the whole host's Docker daemon: tehas
+   is one project on one host, and the cache of anything else on it is made
+   again too. The next sandbox build is slower after a prune. No image and no
+   volume is removed.
+3. **Host scratch.** Files under `~/tehas/tmp/dl` and
+   `~/tehas/tmp/node-compile-cache`, and `~/tehas/tmp/tehas-test.*` directories,
+   of that age. Nothing else under `~/tehas`, and nothing outside it.
+
+Sandbox images and the pulled base image are not this command's: the build keeps
+its newest three date tags, and previews go with `tehasbot preview`. Docker
+volumes are never touched (see [the host](/host#what-a-container-may-not-do),
+where they are a person's call).
+
+`tehas-clean.timer` runs it once an hour, the first time 15 minutes after boot.
+It starts no work, so the pause label does not hold it. One run at a time: a
+second one that finds the first working leaves it to that one and exits 3.
+Exit 0 when every step worked; 1 when a step failed (what could be removed was
+removed); 3 when another run holds the lock, which changes nothing; 64 on an
+argument this command does not know; 78 when the settings are missing or
+malformed, before any docker, find or rm call.
 
 ## tehasbot preview
 

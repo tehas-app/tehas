@@ -876,9 +876,13 @@ docker image prune      # removes images with no tag that nothing uses
 
 A sandbox build removes date tags beyond its newest three itself.
 
-The next run builds. tehas does not prune Docker's build cache;
-`docker builder prune` does, and the next build of the sandbox image is then
-slower.
+The cleaner prunes Docker's build cache every hour, of whatever has not been
+used for `TEHAS_CLEAN_AFTER` hours, and removes the build output of kept
+workspaces and old host scratch besides (see [the cleaner](/operating#the-cleaner)).
+`install.sh` copies `tehas-clean.timer`; check `systemctl --user list-timers
+tehas-clean.timer` when it is not running, and `tail ~/tehas/logs/clean.log`
+for what it freed. `docker builder prune` does the same at once, and the next
+build of the sandbox image is then slower.
 
 **`over-limit`.** More than `TEHAS_PREVIEW_MAX` pull requests are open, and
 the newest ones win. Close one, or raise the setting in `instance.env`.
