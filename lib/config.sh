@@ -232,6 +232,10 @@ _tehas_valid() {
     PI_RUKAS_FOLLOW)
       case "$v" in
         release) ;;
+        release:*)
+          [[ ${v#release:} =~ ^[0-9]{1,6}(\.[0-9]{1,6})?$ ]] ||
+            { echo "expected release:<line>, a major version or major.minor such as 0.14"; return 1; }
+          ;;
         branch:*)
           [[ ${v#branch:} =~ ^[A-Za-z0-9._/-]+$ ]] ||
             { echo "expected branch:<name>, a name of letters, digits and ._/-"; return 1; }
@@ -241,7 +245,7 @@ _tehas_valid() {
           [[ ${v#commit:} =~ ^[0-9a-f]{40}$ ]] ||
             { echo "expected commit: and 40 lower-case hex digits"; return 1; }
           ;;
-        *) echo "expected release, branch:<name> or commit:<40 hex>"; return 1 ;;
+        *) echo "expected release, release:<line>, branch:<name> or commit:<40 hex>"; return 1 ;;
       esac
       ;;
     TEHAS_BRANCH_CHECK)

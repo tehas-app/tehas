@@ -1101,21 +1101,22 @@ tehas takes pi-rukas from [upstream](https://github.com/trail-openers/pi-rukas).
 `PI_RUKAS_REPO` in `versions.env` names the repository and `PI_RUKAS_FOLLOW` the
 commit a host follows:
 
-- `release`, the default of a checkout: the commit of upstream's newest `vX.Y.Z`
-  tag, by version. A tag with a suffix, such as `v1.0.0-rc1`, does not count.
+- `release:<line>`, the default: the commit of the newest `vX.Y.Z` tag of that
+  line, by version. `release:0` takes the newest `v0.Y.Z`, `release:2` the
+  newest `v2.Y.Z`, `release:0.14` the newest `v0.14.Z`. `versions.env` names the
+  major version this tehas works with, `release:0` while pi-rukas is before 1.0,
+  so a new pi-rukas reaches a host at its next `tehas update`. A new major
+  version waits for a tehas release that moves the line.
+- `release`: the newest `vX.Y.Z` tag of any line.
+  A tag with a suffix, such as `v1.0.0-rc1`, does not count.
   Upstream marks its releases as pre-releases; tehas reads the tags, not that mark.
 - `branch:<name>`: the head of that branch, for example `branch:main`.
-- `commit:<40 hex>`: that commit, asked of no one. A release tarball writes this
-  line for the commit its build was made from, so a release keeps building the
-  sandbox it was tested with while upstream moves on. A commit that is not 40
-  lower-case hex digits is refused with 78.
+- `commit:<40 hex>`: that commit, asked of no one, for a host that must keep one
+  pi-rukas. A commit that is not 40 lower-case hex digits is refused with 78.
 
-For the sandbox build, either line may go in the instance's `instance.env`, where
-it wins over the one in `versions.env`: a host installed from a release can follow
-another commit than the release names, and one that sets nothing follows what it
-was shipped with. The same is true of `PI_RUKAS_IMAGE_DIGEST` below. An instance
-that follows another commit and names no digest of its own builds on that commit's
-tag, not on the release's digest. `lib/config.sh` checks `PI_RUKAS_FOLLOW` when the
+For the sandbox build, any of these may go in the instance's `instance.env`, where
+it wins over the line in `versions.env`, and so may `PI_RUKAS_IMAGE_DIGEST` below.
+An instance that sets neither follows the line its tehas was shipped with. `lib/config.sh` checks `PI_RUKAS_FOLLOW` when the
 settings load and stops the command with 78 naming it. `bootstrap.sh` reads only
 `versions.env`.
 
