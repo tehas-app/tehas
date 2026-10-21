@@ -8,6 +8,16 @@ release workflow takes the release's page from its section
 (`scripts/release-notes.sh`). Work in progress goes under `## Unreleased`; a
 person renames it to the version in the release's pull request.
 
+## Unreleased
+
+### Changes
+
+- None yet.
+
+### Adopter action
+
+- None.
+
 ## v0.9.0 (2026-10-21)
 
 ### Changes
