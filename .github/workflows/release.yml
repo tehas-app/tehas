@@ -1,4 +1,4 @@
-# The release of a tag: build the programs, pack the tarball with its pins,
+# The release of a tag: build the programs, pack the tarball,
 # sign it, check the signature, and publish it as the tag's GitHub Release.
 # Written by a person, not a work cycle: CI files are protected. The interface
 # it calls is scripts/pack-release.sh and scripts/release-notes.sh, both in the
@@ -67,39 +67,12 @@ jobs:
           for p in "$RUNNER_TEMP"/programs/*; do
             [ "$(od -An -tx1 -j18 -N2 "$p" | tr -d ' ')" = 3e00 ] || { echo "$p is not an x86_64 program" >&2; exit 1; }
           done
-      - name: the pins
-        id: pins
-        run: |
-          # Only a tree whose lib/rukas.sh reads commit:<sha> is pinned: a host
-          # given a pin it cannot read stops on the setting.
-          if ! grep -Eq '^[[:space:]]*commit:\*\)' lib/rukas.sh; then
-            echo "lib/rukas.sh of $TAG reads no commit pin; the release follows pi-rukas's newest tag"
-            exit 0
-          fi
-          set -a; . host/versions.env; set +a
-          . lib/rukas.sh
-          # What the tag's versions.env follows, resolved once, here.
-          target=$(tehas_rukas_target) || { echo "cannot resolve PI_RUKAS_FOLLOW=$PI_RUKAS_FOLLOW" >&2; exit 1; }
-          commit=${target%% *}
-          # The base image's name as host/sandbox/build.sh makes it.
-          repo=${PI_RUKAS_REPO#https://github.com/}
-          repo=$(tr '[:upper:]' '[:lower:]' <<<"${repo%.git}")
-          token=$(curl -fsS "https://ghcr.io/token?scope=repository:$repo:pull" | jq -r .token)
-          digest=$(curl -fsSI -H "Authorization: Bearer $token" \
-            -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
-            "https://ghcr.io/v2/$repo/manifests/sha-${commit:0:12}" |
-            tr -d '\r' | awk 'tolower($1) == "docker-content-digest:" { print $2 }')
-          [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "no digest for ghcr.io/$repo:sha-${commit:0:12}" >&2; exit 1; }
-          echo "pi-rukas $target, base image ghcr.io/$repo@$digest"
-          echo "args=--rukas-commit $commit --rukas-digest $digest" >> "$GITHUB_OUTPUT"
       - name: pack
-        env:
-          PIN_ARGS: ${{ steps.pins.outputs.args }}
         run: |
+          # No pi-rukas pin: a release follows the line its versions.env names.
           p=$RUNNER_TEMP/programs
-          read -ra pins <<<"$PIN_ARGS"
           TEHAS_PACK_ROOT=$PWD scripts/pack-release.sh "$TAG" "$DIST" --console "$p/console" \
-            --analytics "$p/analytics" --mcp "$p/tehas-mcp" "${pins[@]}"
+            --analytics "$p/analytics" --mcp "$p/tehas-mcp"
           (cd "$DIST" && sha256sum -c "tehas-$TAG-linux-x86_64.tar.gz.sha256")
           if [ -f host/release/install ]; then cp host/release/install "$DIST/install"; fi
       - name: sign, and check the signature with the key in the tree
