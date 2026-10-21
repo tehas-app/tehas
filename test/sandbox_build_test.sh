@@ -210,7 +210,7 @@ reset
 rm -f "$fx/head"
 t_run "$build"
 t_eq "$t_rc" 1
-t_contains "$t_out" "no pi-rukas commit for PI_RUKAS_FOLLOW=release in https://github.com/Up-Owner/pi-rukas.git"
+t_contains "$t_out" "no pi-rukas commit for PI_RUKAS_FOLLOW=release:0 in https://github.com/Up-Owner/pi-rukas.git"
 t_eq "$(t_calls docker)" ""
 
 t_case "branch:<name> builds on the head of that branch"

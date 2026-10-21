@@ -7,18 +7,25 @@
 #   tehas_rukas_target
 #       "<commit> <what it is>" on one line. PI_RUKAS_FOLLOW=release takes the
 #       newest vX.Y.Z tag; a tag with a suffix, such as v1.0.0-rc1, is not
-#       one. branch:<name> takes the head of that branch. commit:<40 hex> is
+#       one. release:<line> takes the newest tag of that line: release:0.14
+#       the newest v0.14.Z, release:2 the newest v2.Y.Z. branch:<name> takes
+#       the head of that branch. commit:<40 hex> is
 #       that commit, "pinned", with no call upstream. Prints nothing and
 #       returns 1 when upstream does not answer, has no such tag or branch, or
-#       PI_RUKAS_FOLLOW is none of the three.
+#       PI_RUKAS_FOLLOW is none of these.
 
 tehas_rukas_target() {
-  local refs name commit=""
+  local refs name commit="" line
   case "${PI_RUKAS_FOLLOW:-}" in
-    release)
+    release | release:*)
+      line=""
+      if [ "$PI_RUKAS_FOLLOW" != release ]; then
+        line=${PI_RUKAS_FOLLOW#release:}
+        [[ $line =~ ^[0-9]{1,6}(\.[0-9]{1,6})?$ ]] || return 1
+      fi
       refs=$(git ls-remote --tags "$PI_RUKAS_REPO" 2>/dev/null) || return 1
       name=$(awk '{ print $2 }' <<<"$refs" | sed -n -E 's#^refs/tags/(v[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6})$#\1#p' |
-        sort -V | tail -n 1)
+        awk -v p="v$line." 'p == "v." || index($0, p) == 1' | sort -V | tail -n 1)
       [ -n "$name" ] || return 1
       # An annotated tag is listed twice, and its ^{} line is the commit.
       commit=$(awk -v t="refs/tags/$name" '$2 == t "^{}" { print $1 }' <<<"$refs")
