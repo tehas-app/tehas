@@ -2953,7 +2953,10 @@ that release's `bootstrap.sh root <user>` (not with `--no-bootstrap`), then
 puts the release in `~<user>/tehas/versions/<version>`, points
 `~<user>/tehas/current` at it, gives both to the user and says to run
 `tehas setup` as that user. A failed check or a failed `bootstrap.sh` puts
-nothing in the user's home. While the repository is private the download needs
+nothing in the user's home. The script cannot check itself: to check it before
+running it, download `install` and `install.minisig` and run
+`minisign -Vm install -p host/release/minisign.pub` with the key from the
+repository. While the repository is private the download needs
 a token: download the three files with `gh release download <tag> --pattern
 'tehas-*'` and pass their directory with `--from <dir> --version <tag>`.
 

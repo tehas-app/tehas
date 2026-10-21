@@ -424,11 +424,24 @@ unpacked beside the others in `~/tehas/versions/<version>`, and
 `TEHAS_UPDATE_FROM=git` and updates from its platform checkout. See
 [tehas update](/tools#tehas-update).
 
-To move a host from its checkout to releases: install `minisign`
-(`sudo apt-get install minisign`), check that `~/tehas/release/minisign.pub` is
-there (`install.sh` has put it there since the key was added), set
-`TEHAS_UPDATE_FROM=release` in `instance.env`, run `tehas update --check`, then
-`tehas update`. The checkout stays where it is and is no longer read.
+### Move a checkout host to releases
+
+A host installed before releases has a platform checkout at `~/tehas/platform`
+and no `~/tehas/current`, so `tehas update` keeps pulling the checkout. To move
+it to releases, once a signed release is published:
+
+1. Install minisign, which checks the signature: `sudo apt-get install minisign`.
+2. Check that `~/tehas/release/minisign.pub` is there. `install.sh` has put it
+   there since the key was added; run `tehas update` once from the checkout if
+   it is missing.
+3. Set `TEHAS_UPDATE_FROM=release` in `instance.env`.
+4. Pause and let running cycles end (`tehas pause`), since an update that
+   changes a unit restarts the units that run.
+5. Run `tehas update --check`, read the Adopter action of each release it
+   lists, then run `tehas update`, then `tehas resume`.
+
+The checkout stays where it is and is no longer read. To go back to it, set
+`TEHAS_UPDATE_FROM=git` and run `./install.sh` from the checkout.
 
 ### Rolling back tehas
 
