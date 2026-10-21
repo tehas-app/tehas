@@ -24,6 +24,10 @@ internals=(
   'roles\.ts'
 )
 
+# Naming a path in .git/info/exclude keeps pi-rukas's files out of a commit; it
+# reads nothing, so such a line is not a hit.
+not_read='info/exclude'
+
 code() { # every tracked file that is installed or run
   git -C "$T_ROOT" ls-files -- bin libexec lib host console/src install.sh bootstrap.sh scripts ':!host/docs'
 }
@@ -32,7 +36,7 @@ t_case "no code reads pi-rukas internals"
 found=""
 while IFS= read -r f; do
   for re in "${internals[@]}"; do
-    hits=$(grep -nE -- "$re" "$T_ROOT/$f" 2>/dev/null) || continue
+    hits=$(grep -nE -- "$re" "$T_ROOT/$f" 2>/dev/null | grep -vF -- "$not_read") || continue
     found+="$f: $hits"$'\n'
   done
 done < <(code)

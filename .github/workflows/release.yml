@@ -1,0 +1,122 @@
+# The release of a tag: build the programs, pack the tarball,
+# sign it, check the signature, and publish it as the tag's GitHub Release.
+# Written by a person, not a work cycle: CI files are protected. The interface
+# it calls is scripts/pack-release.sh and scripts/release-notes.sh, both in the
+# gate; this file is not.
+#
+# Assets of a release vX.Y.Z:
+#   tehas-vX.Y.Z-linux-x86_64.tar.gz           the tarball
+#   tehas-vX.Y.Z-linux-x86_64.tar.gz.sha256    its hash, for sha256sum -c
+#   tehas-vX.Y.Z-linux-x86_64.tar.gz.minisig   its signature
+#   install, install.minisig                   the installer, when the tag
+#                                              has host/release/install
+#
+# Secrets: MINISIGN_SECRET_KEY, the whole secret key file; MINISIGN_PASSWORD,
+# its password, only when the key has one.
+name: release
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+permissions:
+  contents: write
+defaults:
+  run:
+    shell: bash
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+jobs:
+  release:
+    # tehas-runner, as in verify.yml: it holds cargo at RUST_VERSION, bash,
+    # git, jq and curl, and gives the job no sudo.
+    runs-on: [self-hosted, tehas]
+    timeout-minutes: 45
+    env:
+      TAG: ${{ github.ref_name }}
+      DIST: ${{ runner.temp }}/dist
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: the runner builds for linux x86_64
+        run: |
+          [ "$(uname -s) $(uname -m)" = "Linux x86_64" ] || { echo "not a linux x86_64 runner: $(uname -sm)" >&2; exit 1; }
+          [[ $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "not a release tag: $TAG" >&2; exit 1; }
+      - name: minisign at a pinned version
+        run: |
+          # 0.12, checked against its author's signature when it was pinned.
+          curl -fsSL -o "$RUNNER_TEMP/minisign.tar.gz" \
+            https://github.com/jedisct1/minisign/releases/download/0.12/minisign-0.12-linux.tar.gz
+          echo "9a599b48ba6eb7b1e80f12f36b94ceca7c00b7a5173c95c3efc88d9822957e73  $RUNNER_TEMP/minisign.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/minisign.tar.gz" -C "$RUNNER_TEMP" minisign-linux/x86_64/minisign 2>/dev/null
+          echo "$RUNNER_TEMP/minisign-linux/x86_64" >> "$GITHUB_PATH"
+      - name: build the console, the analytics program and the MCP server
+        run: |
+          . host/versions.env
+          cargo --version
+          # The MCP server is static, as install.sh builds it.
+          rustup target add x86_64-unknown-linux-musl
+          target=$RUNNER_TEMP/target
+          cargo build --release --locked --manifest-path console/Cargo.toml --target-dir "$target" -p console -p analytics
+          cargo build --release --locked --manifest-path console/Cargo.toml --target-dir "$target" \
+            --target x86_64-unknown-linux-musl -p tehas-mcp
+          mkdir -p "$RUNNER_TEMP/programs"
+          cp "$target/release/console" "$target/release/analytics" \
+            "$target/x86_64-unknown-linux-musl/release/tehas-mcp" "$RUNNER_TEMP/programs/"
+          # An ELF for x86_64 (e_machine 0x3e), whatever the runner's defaults.
+          for p in "$RUNNER_TEMP"/programs/*; do
+            [ "$(od -An -tx1 -j18 -N2 "$p" | tr -d ' ')" = 3e00 ] || { echo "$p is not an x86_64 program" >&2; exit 1; }
+          done
+      - name: pack
+        run: |
+          # No pi-rukas pin: a release follows the line its versions.env names.
+          p=$RUNNER_TEMP/programs
+          TEHAS_PACK_ROOT=$PWD scripts/pack-release.sh "$TAG" "$DIST" --console "$p/console" \
+            --analytics "$p/analytics" --mcp "$p/tehas-mcp"
+          (cd "$DIST" && sha256sum -c "tehas-$TAG-linux-x86_64.tar.gz.sha256")
+          if [ -f host/release/install ]; then cp host/release/install "$DIST/install"; fi
+      - name: sign, and check the signature with the key in the tree
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+          MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
+        run: |
+          [ -n "$MINISIGN_SECRET_KEY" ] || { echo "the secret MINISIGN_SECRET_KEY is not set" >&2; exit 1; }
+          umask 077
+          key=$(mktemp "$RUNNER_TEMP/key.XXXXXX")
+          trap 'rm -f "$key"' EXIT
+          printf '%s\n' "$MINISIGN_SECRET_KEY" >"$key"
+          for f in "$DIST/tehas-$TAG-linux-x86_64.tar.gz" "$DIST/install"; do
+            [ -f "$f" ] || continue
+            # A key with a password reads it from standard input; one without
+            # reads nothing.
+            printf '%s\n' "$MINISIGN_PASSWORD" |
+              minisign -S -s "$key" -m "$f" -t "tehas $TAG $(basename "$f")" >/dev/null
+            minisign -V -q -p host/release/minisign.pub -m "$f"
+          done
+      - name: publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          notes=$(scripts/release-notes.sh "$TAG" 2>/dev/null || scripts/release-notes.sh Unreleased) || {
+            echo "CHANGELOG.md of $TAG has no section for it" >&2
+            exit 1
+          }
+          api=https://api.github.com/repos/$REPO
+          auth=(-H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json")
+          body=$(jq -n --arg tag "$TAG" --arg notes "$notes" \
+            '{tag_name: $tag, name: $tag, body: $notes, draft: true}')
+          # Made a draft and published only once every asset is on it, so no
+          # one downloads a release that is missing its signature.
+          release=$(curl -fsS "${auth[@]}" -X POST "$api/releases" -d "$body") || {
+            echo "cannot create the release $TAG; is there one already?" >&2
+            exit 1
+          }
+          id=$(jq -r .id <<<"$release")
+          for f in "$DIST"/*; do
+            curl -fsS "${auth[@]}" -H "Content-Type: application/octet-stream" --data-binary "@$f" \
+              "https://uploads.github.com/repos/$REPO/releases/$id/assets?name=$(basename "$f")" >/dev/null
+            echo "uploaded $(basename "$f")"
+          done
+          curl -fsS "${auth[@]}" -X PATCH "$api/releases/$id" -d '{"draft": false, "make_latest": "true"}' |
+            jq -r .html_url

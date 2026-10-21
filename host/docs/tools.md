@@ -20,6 +20,8 @@ tehas index                      # build the code index the agents search
 tehas setup [options]            # write this host's instance and start the factory
 tehas update [--check]           # bring this host up to date with the platform
 tehas labels                     # create the tehas labels in the repository
+tehas check-product [--sandbox]  # check the product against the contract
+tehas init-product [--dry-run]   # propose the missing contract files
 tehas status [--json]            # print the state of the factory
 tehas api [--json]               # what this factory speaks, for a program
 tehas limit [set ...|clear]      # an outside cap on what this factory starts
@@ -1186,6 +1188,65 @@ Run it once for a new product, and again after pulling a version that adds a
 label. Run again, it puts their colours and descriptions back. It needs `TEHAS_REPO` and no other
 setting. Exit 0 when every label is there, 1 when one could not be made, 64 on
 any argument, 78 when the repository is not set.
+
+## tehas check-product
+
+```
+tehas check-product             # one line per check
+tehas check-product --sandbox   # and run the product's gates in the image
+```
+
+Checks the product checkout against the [contract](/new-project#what-the-product-repository-must-provide),
+on the commit origin's default branch points at, since a cycle reads only what
+is committed there. One line per check, `ok` or `FAIL`:
+
+| Check     | Passes when                                                                                     |
+| --------- | ----------------------------------------------------------------------------------------------- |
+| `origin`  | `TEHAS_WORK_REPO` is a clone of `TEHAS_REPO`                                                    |
+| `default` | `origin/HEAD` is set, so the default branch is known without the network                        |
+| `agents`  | `AGENTS.md` is there                                                                            |
+| `gate`    | `.pi/verify-cmd` has a line that is not empty or a comment                                      |
+| `model`   | `.pi/settings.json`, when the product has one, names a model the instance's `models.json` lists |
+
+With `--sandbox` it then clones that commit into `~/tehas/tmp` and runs, in the
+sandbox image as this user and in the slice, `.pi/worktree-setup` when there is
+one, the first command of `.pi/verify-cmd-full` (else `.pi/verify-cmd`) and the
+first command of `.pi/smoke-cmd` when there is one. The clone is removed
+afterwards.
+
+It changes nothing in the product. The result goes to
+`~/tehas/state/check-product.json`, which `tehas status` prints as its
+`product` line and `./install.sh --check` as its `Product:` line; neither runs
+the check itself, and the `Product:` line does not change install.sh's exit
+status. Exit 0 when every check passed, 1 when the sandbox could not be run (no
+image, or the clone failed), 64 on a wrong argument, 78 when the settings are
+missing or malformed or a check failed.
+
+## tehas init-product
+
+```
+tehas init-product             # a branch and a pull request with the missing files
+tehas init-product --dry-run   # print the files, change nothing
+```
+
+Proposes the contract files the default branch does not have yet: `AGENTS.md`
+(a short template), `.pi/verify-cmd` and `.pi/worktree-setup`. A file that is
+there is never written. The gate and the install step are guessed from, in
+this order: a `test`, `check` or `verify` target in the `Makefile`;
+`package.json` (its `test`, `check` or `build` script, with npm, pnpm, yarn or
+bun by the lockfile); `Cargo.toml`; `go.mod`; `pyproject.toml` (with uv when
+there is a `uv.lock`); the `run:` steps of `.github/workflows` that mention
+test, check, verify or lint. Each guessed file says in a comment that a person
+should check it. With no guess, `.pi/verify-cmd` holds only a comment, and
+`tehas check-product` still fails its gate check.
+
+The work is done in a fresh clone under `~/tehas/tmp`. The files are committed
+to the branch `tehas/init-product`, pushed with gh's credentials, and the bot
+opens the pull request against the default branch. It never commits to the
+default branch. Exit 0 when the pull request is open or nothing is missing, 1
+when git or gh failed or `tehas/init-product` is already on origin, 64 on a
+wrong argument, 78 when the settings are missing or malformed or the checkout
+is not a clone of `TEHAS_REPO`.
 
 ## tehas limit
 
@@ -2578,20 +2639,75 @@ one suppression it accepts are under
 
 ## tehas update
 
-Bring this host up to date with the platform repository in one command.
+Bring this host up to date in one command, from a release or from the platform
+checkout.
 
 ```
-tehas update             # pull, install, run the follow-ups that apply
-tehas update --check     # report what would change; changes no file of the
-                         # checkout or of the host (origin/ refs do move)
-tehas update --help      # print the usage of the command, touch nothing
+tehas update                  # the newest release, or pull the checkout;
+                              # install, run the follow-ups that apply
+tehas update --to v0.8.1      # that release, an older one too
+tehas update --check          # report what would change; change nothing
+tehas update --help           # print the usage of the command, touch nothing
 ```
+
+Where the new code comes from is `TEHAS_UPDATE_FROM` in `instance.env`:
+`release` or `git`. Without it, a host with `~/tehas/current` updates from
+releases and a host with a platform checkout from the checkout, so a host
+installed before the setting existed goes on as it did. A host with neither
+stops with 78 and names the setting. `--to` on a host that updates from its
+checkout is refused with 64.
+
+### From a release
+
+Releases are read from `TEHAS_RELEASE_REPO`, owner/name on GitHub. The
+platform's own is the line in `versions.env`; an instance may name another in
+`instance.env`. The list and the download use `gh` when it is signed in, which
+reaches a private repository with the bot's token, and `curl` from the public
+address otherwise.
+
+`tehas update --check` prints the version installed, the newest, and the notes
+of each release between them: its section of the changelog, with its
+`Adopter action`. Going back with `--to`, it prints the notes of the releases
+that would be undone. Then it runs `install.sh --check` of the version
+installed. It downloads nothing, changes nothing, and exits 1 when there is a
+version to move to.
+
+`tehas update` and `tehas update --to vX.Y.Z` then:
+
+1. download `tehas-<version>-linux-x86_64.tar.gz`, its `.sha256` and its
+   `.minisig`, unless that version is still on the host;
+2. check the tarball against the `.sha256` and the signature against
+   `~/tehas/release/minisign.pub`, the key `install.sh` installed, never a key
+   in the download. A download that fails either check is not unpacked. With
+   no `minisign` on the host it stops (`sudo apt-get install minisign`);
+3. unpack it into `~/tehas/versions/<version>`, refusing a tarball that holds
+   anything but files and directories under `tehas-<version>/`;
+4. check the instance against that version's own `lib/config.sh`. A setting it
+   requires and the instance lacks is named with the value of the release's
+   `instances/example/instance.env`, and the update stops with 78 with nothing
+   switched. A `TEHAS_` key in `instance.env` that the version never names is
+   warned about;
+5. point `~/tehas/current` at the version, and run `install.sh` and its
+   follow-ups from there, as an update from the checkout does. The commands and
+   units are the copies `install.sh` makes from that tree.
+
+The sandbox image a version ran with keeps the tag
+`tehas/pi-rukas:release-<version>`. Going back to a version that still has one
+puts that image back under the uid tag and builds nothing. The version
+`current` names and the two switched to before it stay in `~/tehas/versions`,
+in the order `~/tehas/state/release-history` records; older ones are removed
+with their image tags.
+
+`~/tehas/state/update-hold` stops a plain `tehas update`. `--to` names its
+version and runs with the hold there.
+
+### From the checkout
 
 It runs, in order and one line per step: a `git fetch` and a fast-forward of
 the platform checkout (`$TEHAS_HOME/platform`, in the example
 `~/tehas/platform`), then `install.sh`, then the follow-ups install.sh asks for.
-It takes at most one argument; anything else is refused with exit 64 before the
-settings are read. The settings are checked next against the required list in
+An argument it does not know, or `--help` with another one, is refused with
+exit 64 before the settings are read. The settings are checked next against the required list in
 `lib/config.sh` (`tehas_require_instance_settings`), the same one install.sh and
 the dispatcher check, so an instance with a required line still commented out
 stops with 78 before git runs. After a fast-forward it checks them again with
@@ -2807,8 +2923,12 @@ thin wrapper around the same arguments:
 
 ```
 TEHAS_PACK_ROOT='<checkout>' scripts/pack-release.sh <tag> <out dir> --console <path> \
-  --rukas-commit <40 hex> --rukas-digest <64 hex>
+  --analytics <path> --mcp <path> --rukas-commit <40 hex> --rukas-digest <64 hex>
 ```
+
+`--analytics` and `--mcp` are the other two programs `install.sh` puts in
+`libexec`, packed as `libexec/analytics` and `libexec/tehas-mcp`. Each is
+optional, and a tarball packed without one has none.
 
 The two pins are given together or not at all, so a release that does not pin
 pi-rukas leaves both off. The digest is written as `sha256:` and 64 hex digits.
@@ -2832,8 +2952,12 @@ beside it, and it writes neither before both are ready, so a run that fails
 leaves no tarball for the next one to be refused against. Unpacked, the tarball
 is a single `tehas-<tag>/` directory holding what `install.sh` reads: its
 `bin/`, `libexec/`, `lib/` and `host/`, the top-level files an install needs,
-the console as `libexec/console`, a `VERSION` file with the tag, and
-`host/versions.env`. The list is `lib/release.sh`, the one place it is written
+`instances/example/`, the console as `libexec/console` and the other two
+programs when they were given, a `VERSION` file with the tag, `CHANGELOG.md`,
+and `host/versions.env`. `install.sh` run from such a tree has no `console/` to
+build from: it installs the programs the release carries as they are, with
+`release <sha256>` as the stamp, asks cargo nothing, and keeps the installed
+copy of a program the release does not carry. The list is `lib/release.sh`, the one place it is written
 down, and the gate checks the script and the test against it. An adopter
 unpacks it and runs `./install.sh` from inside, as they would from a checkout.
 `console/`, the instance directories and the git record are not packed: there
@@ -2857,16 +2981,10 @@ PI_RUKAS_FOLLOW=commit:<sha>         the pi-rukas commit the sandbox builds from
 PI_RUKAS_IMAGE_DIGEST=sha256:<hex>   the base image that sandbox starts from
 ```
 
-The rest of the file is the checkout's own, so a release names one pi-rukas
-commit and one base image and keeps every other version where it is. A release
-packed without pins follows pi-rukas's newest tag, as a checkout does today.
-Neither key has a reader yet: `lib/rukas.sh` knows `release` and
-`branch:<name>` and refuses anything else, and `host/sandbox/build.sh` derives
-the base image from the commit it follows. The workflow that writes these two
-lines at tag time, and the work that teaches `lib/rukas.sh` `commit:<sha>` and
-gives the digest a reader (#463), are both still to come; until they do, a host
-given a pinned tarball stops on the setting, as it stops on any value it does
-not know.
+The rest of the file is the checkout's own. The release workflow packs no pins:
+a release follows the pi-rukas line its `versions.env` names, as a checkout
+does, so a new pi-rukas reaches a host at its next `tehas update`. The pins are
+for a person who packs a release that must keep one pi-rukas.
 
 ### Verifying a download
 
@@ -2890,14 +3008,74 @@ that fingerprint before `minisign` is asked anything:
 minisign -Vm tehas-v0.7.6-linux-x86_64.tar.gz -p ~/tehas/release/minisign.pub
 ```
 
-No release carries `.minisig` yet: nothing in this tree signs one, and no
-release has been published, so until the workflow that signs exists there is
-nothing for that command to check. Today `sha256sum -c` above is the only check,
-and it proves only that the file is the one published beside that hash: a
-download and its hash arrive together, so a `sha256sum -c` that passes on a
-tampered pair says nothing about where they came from. When releases are
-published, the digest of the `.sha256` is named on the release's own page as
-well as in the file, so the two can be compared.
+The release workflow signs the tarball and the installer, and checks each
+signature with the key in the tagged tree before it uploads anything. The
+`sha256sum -c` above proves only that the file is the one published beside that
+hash: a download and its hash arrive together, so a check that passes on a
+tampered pair says nothing about where they came from. The signature is the
+check that does.
+
+### Release notes and the Adopter action
+
+`CHANGELOG.md` at the top of the repository has one section per release,
+newest first: `## vX.Y.Z (YYYY-MM-DD)`, then `### Changes` and
+`### Adopter action`, the steps an adopter takes after updating: settings added
+or renamed, root steps, anything by hand. "None." is a valid action. Work in
+progress goes under `## Unreleased`, and a person renames it to the version in
+the release's pull request.
+
+`scripts/tag-release.sh` reads `CHANGELOG.md` from the commit it is about to
+tag, `--dry-run` too, and refuses with exit 1 when the section for the new tag,
+or else `Unreleased`, has no `### Adopter action` heading with a line under it.
+It does not edit the file.
+
+`scripts/release-notes.sh <tag>` prints a section without its heading, and
+exits 1 when the file has none for that tag. The workflow makes the release's
+page from it, from the `Unreleased` section when the tag has none of its own.
+
+### The release workflow
+
+`.github/workflows/release.yml` runs on the push of a `vX.Y.Z` tag, on the
+organisation's own runner as the gate does. It builds the console, the
+analytics program and the MCP server (static, musl) with `cargo build
+--release --locked`, checks each is an x86_64 program, resolves the pins, runs
+the pack command above, signs the tarball and `host/release/install` (when the
+tag has one) with minisign, checks both signatures against
+`host/release/minisign.pub`, and publishes the release with the tarball named
+above, its `.sha256` and `.minisig` beside it, and `install` with
+`install.minisig`.
+
+The release is made as a draft and published only when every file is on it.
+The signing key is the Actions secret `MINISIGN_SECRET_KEY`, the whole secret
+key file, and its password, if it has one, is `MINISIGN_PASSWORD`. A run that
+cannot sign, or whose signature the key in the tree does not check, publishes
+nothing.
+
+### The installer
+
+`host/release/install` is the first install of a host, a POSIX shell script
+run as root. A release publishes it as the asset `install`, beside the tarball,
+its `.sha256` and its `.minisig`, which are the three names `tehas update`
+downloads:
+
+```
+curl -fsSL https://github.com/tehas-app/tehas/releases/latest/download/install | sudo sh -s -- boss
+```
+
+It downloads the newest release (or `--version vX.Y.Z`), checks the `.sha256`
+and the signature with the key written into the script, which
+`test/release_install_test.sh` keeps equal to `host/release/minisign.pub`, and
+unpacks it. It installs `minisign` with apt-get when the host has none. It runs
+that release's `bootstrap.sh root <user>` (not with `--no-bootstrap`), then
+puts the release in `~<user>/tehas/versions/<version>`, points
+`~<user>/tehas/current` at it, gives both to the user and says to run
+`tehas setup` as that user. A failed check or a failed `bootstrap.sh` puts
+nothing in the user's home. The script cannot check itself: to check it before
+running it, download `install` and `install.minisig` and run
+`minisign -Vm install -p host/release/minisign.pub` with the key from the
+repository. While the repository is private the download needs
+a token: download the three files with `gh release download <tag> --pattern
+'tehas-*'` and pass their directory with `--from <dir> --version <tag>`.
 
 ### What the gate covers, and what a person adds
 
@@ -2906,12 +3084,10 @@ from the test's own tree with a stub console and checks the file list, `VERSION`
 the pin lines, that the `.sha256` passes `sha256sum -c`, what a bad argument
 costs, that a tree holding a symbolic link is refused, that the sources
 `install.sh` reads are covered by `lib/release.sh`, and that the command line
-above is a command that works. The release workflow that builds the console,
-resolves the pins and uploads the tarball and its `.sha256` named above to the
-tag is not run by the gate and is not written by a work cycle: CI files are
-protected, so a person adds it against the interface above, and the statuses
-above are the two it branches on. Until they do, the only releases are the ones
-made by hand with the command above.
+above is a command that works. `test/tag_release_test.sh` checks the Adopter
+action rule and `test/pack_release_test.sh` the release notes. The release
+workflow is not run by the gate and is not written by a work cycle: CI files are
+protected, so a person changes it against the interface above.
 
 ## bootstrap.sh
 
