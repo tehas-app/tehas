@@ -109,6 +109,9 @@
 #   TEHAS_WORK_DESCRIBE 1 has the model describe those images first [0]
 #   TEHAS_WORK_FILES    1 gives the cycle the text files its issue links [0]
 #   TEHAS_WORK_COMMENTS 1 takes those of the issue's comments too [0]
+#   TEHAS_WORK_ZIPS     1 unpacks a zip its issue links into the same
+#                       directory [0]; needs TEHAS_WORK_IMAGES or
+#                       TEHAS_WORK_FILES
 # From the environment, for tests: TEHAS_PREFLIGHT_WAIT (seconds the push check
 # may take [300]), TEHAS_WORK_GRACE (seconds past the time limit [300]),
 # TEHAS_STOP_WAIT (seconds a docker stop may take before
@@ -155,6 +158,23 @@
 # They are named file-1.md and so on and listed under "files" in the manifest
 # with their original name. The pi-rukas that tehas pins does not read them
 # yet.
+#
+# With TEHAS_WORK_ZIPS=1 the same directory also holds what a zip the issue
+# links contains, and this adds no mount and no variable more:
+#   which     A link whose first four bytes are those of a zip archive, not one
+#             named .zip that is something else: that is left out and said.
+#             At most 2 archives per issue, each downloaded at most 4 MB.
+#   what      Every file of the archive through the checks above: an image by
+#             its first bytes, a text file by its extension and its encoding.
+#             Anything else, an svg or a nested archive among them, is left
+#             out with its path in the archive and the reason.
+#   how much  The unpacked files count against the limits above, the images'
+#             and the files', as the ones the issue links do. The archive is
+#             unpacked on the room left of the files' 4 MB.
+# They are named on from the linked ones, image-1.png and file-1.md, and each
+# manifest entry says the zip it came from under "zip" and its path inside the
+# archive under "path". The archive itself is not kept, and the directory it
+# was unpacked into is removed whatever it held.
 # They go to $TEHAS_HOME/work/<name>-<issue>.images, beside the workspace and
 # not in it, so a patch cannot commit them, under names made here, with a
 # manifest.json that lists each file, the link it came from, its type, size
