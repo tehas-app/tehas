@@ -18,6 +18,9 @@ jobs:
     # tehas-runner, the organization's own runner: it holds cargo (the
     # RUST_VERSION of host/versions.env), bash, git, jq and Docker, and gives
     # the job no sudo. A passing run took 7 to 15 minutes on a hosted runner.
+    # A pull request from a fork does not run here: the repository is public,
+    # and the runner is a machine of ours.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, tehas]
     timeout-minutes: 30
     steps:
