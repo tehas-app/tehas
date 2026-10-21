@@ -4,7 +4,8 @@
 //! its spec below names. A key the dashboard's files gain later is not served
 //! until it is named here. Null values are left out.
 
-use crate::{logs, sessions};
+use crate::logs::{self, LogGuard};
+use crate::sessions;
 use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
 
@@ -110,8 +111,18 @@ pub fn list() -> Value {
 
 /// The structured content of one call, with "api": 1.
 pub fn call(dirs: &Dirs, name: &str, args: &Value) -> Result<Output, ToolError> {
+    call_held(dirs, name, args).map(|(out, _)| out)
+}
+
+/// As `call`, with the place of a log being sent, to keep until the answer
+/// is written.
+pub fn call_held(
+    dirs: &Dirs,
+    name: &str,
+    args: &Value,
+) -> Result<(Output, Option<LogGuard>), ToolError> {
     if name == "factory_log" {
-        return logs::call(dirs, args);
+        return logs::call(dirs, args).map(|(out, place)| (out, Some(place)));
     }
     let live = dirs.live.as_path();
     let mut out = match name {
@@ -126,7 +137,7 @@ pub fn call(dirs: &Dirs, name: &str, args: &Value) -> Result<Output, ToolError> 
         _ => return Err(ToolError::Unknown(name.to_string())),
     };
     out.insert("api".into(), json!(1));
-    Ok(Output::Json(Value::Object(out)))
+    Ok((Output::Json(Value::Object(out)), None))
 }
 
 fn read(live: &Path, file: &str) -> Result<Value, ToolError> {
