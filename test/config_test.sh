@@ -79,7 +79,7 @@ t_case "the plan unit's limit is the longest turn's limit accepted plus the grac
 t_eq "$plan_max" "7200"
 t_contains "$(cat "$T_ROOT/lib/planning.sh")" "TEHAS_PLAN_TIMEOUT + 900"
 t_contains "$(cat "$T_ROOT/host/docs/host.md")" "may be at most $plan_max, 2 hours"
-t_contains "$(grep 'at most' "$T_ROOT/instances/example/instance.env")" "at most $plan_max"
+t_contains "$(grep 'at most' "$T_ROOT/instances/example/optional.env")" "at most $plan_max"
 # Read from the config the same way tehas does: the largest value accepted, at
 # the ceiling, gets a unit bound that is the ceiling plus the grace.
 t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT="$plan_max"
@@ -682,7 +682,7 @@ t_eq "$t_out" "20 $plan_max"
 # example an operator copies, are pinned against the config.
 t_contains "$(grep 'TEHAS_PLAN_TIMEOUT  seconds' "$T_ROOT/libexec/plan")" "[$plan_max, the ceiling"
 t_contains "$(grep 'TEHAS_PLAN_TIMEOUT        seconds' "$T_ROOT/libexec/dispatch")" "[$plan_max]"
-t_contains "$(grep '^#TEHAS_PLAN_TIMEOUT=' "$T_ROOT/instances/example/instance.env")" "$plan_max"
+t_contains "$(grep '^#TEHAS_PLAN_TIMEOUT=' "$T_ROOT/instances/example/optional.env")" "$plan_max"
 
 t_case "a planning limit set empty takes its default"
 t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT= TEHAS_WORK_TIMEOUT= TEHAS_VERIFY_TIMEOUT=
@@ -954,8 +954,8 @@ t_instance "${T_MINIMAL[@]}"
 t_run "$load && echo \"\$TEHAS_CLEAN_DIRS\""
 default_dirs=$t_out
 t_eq "$t_rc" 0
-t_contains "$(grep '^#TEHAS_CLEAN_AFTER=' "$T_ROOT/instances/example/instance.env")" "=24"
-t_contains "$(grep '^#TEHAS_CLEAN_DIRS=' "$T_ROOT/instances/example/instance.env")" "$default_dirs"
+t_contains "$(grep '^#TEHAS_CLEAN_AFTER=' "$T_ROOT/instances/example/optional.env")" "=24"
+t_contains "$(grep '^#TEHAS_CLEAN_DIRS=' "$T_ROOT/instances/example/optional.env")" "$default_dirs"
 t_instance "${T_MINIMAL[@]}"
 
 t_case "the instance's PI_RUKAS_FOLLOW wins over the environment's"

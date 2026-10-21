@@ -30,7 +30,7 @@ The examples on this site come from the instance that works on tehas itself:
 | Product          | `tehas-app/tehas`, default branch `main`                     |
 | Product checkout | `~/tehas/repos/tehas`                                        |
 | Platform checkout | `~/tehas/platform`, pulled with a read-only deploy key |
-| Settings         | `instances/tehas-tehas/` in the platform checkout       |
+| Settings         | `instances/tehas-tehas/` in this repository             |
 | Dashboard        | <http://tehas-tehas:8080> on the private network, published as <https://tehas.app> |
 | Previews         | `https://uat-<pr>.tehas.app`, one for each open pull request. See [Previews](/edge) |
 | Control issue    | 1                                                       |

@@ -6,15 +6,14 @@ description: "Installing tehas for another repository: the contract in the produ
 # Installing tehas for a new project
 
 One install serves one project: one host, one Unix user, one product
-repository. Installing it for another repository means preparing a host and
-filling in an instance directory. No script is edited.
+repository. Installing it for another repository is a release, one setup
+command, a few files in the product, and a label. No script is edited and
+nothing of tehas is cloned.
 
 What you get is issue to pull request: the queue, cycles, gates, the dashboard
 and the live console. The effort is settings, plus your toolchain in the
 sandbox image. This page walks through it with the instance that works on
-tehas itself: host `tehas-tehas`, user `boss`, product
-`tehas-app/tehas`. Its settings are in `instances/tehas-tehas/` in this
-repository.
+tehas itself: host `tehas-tehas`, user `boss`, product `tehas-app/tehas`.
 
 ## What the product repository must provide
 
@@ -41,11 +40,8 @@ them. Make the gates print one
 line per step and exit non-zero on failure. Before going further, prove them by
 hand in a clean checkout.
 
-Once the checkout is on the host, `tehas check-product` says which of these
-files the default branch lacks, and `tehas init-product` proposes the missing
-`AGENTS.md`, `.pi/verify-cmd` and `.pi/worktree-setup` in a pull request, with
-the gate guessed from the stack. Check the guess before you merge it. See
-[tehas check-product](/tools#tehas-check-product).
+You do not have to write them first: [step 4](#4-the-products-files) checks
+them and proposes the missing ones in a pull request.
 
 A repository with no gate is caught before any model time is spent. `tehas
 work` reads `.pi/verify-cmd` at the commit the cycle's clone was made at; when
@@ -69,195 +65,98 @@ Set `TEHAS_BRANCH` only to use another one.
 
 ## The install
 
-### 1. A host
+The steps below install from a release, on one Linux machine that can reach
+GitHub and an OpenAI-compatible model endpoint. `bootstrap.sh` supports Ubuntu
+26.04 on x86_64 only.
 
-One Linux machine, reachable over a private network, that can reach GitHub and
-an OpenAI-compatible model endpoint. [Bootstrap a host](/bootstrap) prepares it:
+### 1. The release
+
+As root:
 
 ```
-sudo ./bootstrap.sh root boss     # runs the user part as boss too, no logout
-./bootstrap.sh check              # as boss
+curl -fsSL https://github.com/tehas-app/tehas/releases/latest/download/install | sudo sh -s -- boss
+```
+
+The installer downloads the newest release and checks the tarball against its
+`.sha256` and its minisign signature, with the key written in the installer,
+not one from the download. A download that fails either check is not unpacked.
+Then it runs that release's `bootstrap.sh root boss`: it makes the user when it
+is missing, installs the packages and Docker, adds the user to the `docker`
+group, turns lingering on, installs the slice, and installs the pinned tools as
+the user in the same run, so no logout is needed. The release ends up in
+`~boss/tehas/versions/<version>`, with `~boss/tehas/current` pointing at it.
+`--version vX.Y.Z` installs another release. [Bootstrap a host](/bootstrap)
+has what the machine needs.
+
+To install from files you downloaded yourself, for example on a host that
+cannot reach GitHub, pass their directory:
+
+```
+gh release download v0.9.0 -R tehas-app/tehas --pattern 'tehas-*' --pattern install -D /tmp/tehas-release
+sudo sh /tmp/tehas-release/install --version v0.9.0 --from /tmp/tehas-release boss
 ```
 
 The tehas user ends up in the `docker` group, which makes it root-equivalent on
 the host. The boundary that matters is the sandbox: agents never get the Docker
 socket.
 
-### 2. Credentials
+### 2. What setup asks for
 
 - A GitHub machine account that is a write collaborator on the product
-  repository. Its token goes in `~/.config/tehas/env`, mode 600, as
-  `GH_TOKEN=...`. Use one bot account per instance: the token enters the cycle's
-  container, so it should reach this product and nothing else.
-- A read-only deploy key on the platform repository, if it is private.
-- The bot's git identity for commits: `git config --global user.name` and
-  `user.email` for the tehas user.
+  repository, and a token for it. Use one bot account per instance: the token
+  enters the cycle's container, so it should reach this product and nothing
+  else. The [bootstrap page](/bootstrap) has the token trap to avoid.
+- The logins whose labels start work. Never the bot.
+- The model endpoint's address with its `/v1`, and its key if it takes one.
 
-The [bootstrap page](/bootstrap) has the details and the token trap to avoid.
+### 3. tehas setup
 
-### 3. Two clones
-
-The platform checkout is this repository at `~/tehas/platform`, where you ran
-`bootstrap.sh` from. Clone the product next to it, with the bot's token:
+As the tehas user. `tehas` is not on the `PATH` until the first install has
+put the `env.sh` line in `~/.bashrc`, so the first run names the release:
 
 ```
-git clone <the product repository> ~/tehas/repos/<name>
+~/tehas/current/bin/tehas setup --repo tehas-app/tehas --labellers "janit" \
+  --token-file - --endpoint http://gb1:8086/v1 <token.txt
 ```
 
-The product checkout is what cycles are cloned from. The platform checkout is where
-`install.sh` runs from. Keep them apart even when, as in the example, they are
-the same repository: the factory then changes only when a person pulls the
-platform checkout and installs.
+It asks for what it is not given when there is a terminal. The token is read
+from a file or standard input, never from the command line. In this order, and
+stopping at the first step that fails, it:
 
-### 4. An instance directory
+1. checks that the token can push to the repository and that the endpoint
+   offers the model, and makes the control issue;
+2. writes `~/.config/tehas/instance.env` with the required settings only,
+   `models.json`, and the token and the model key in `~/.config/tehas/env`,
+   mode 600;
+3. gives git the bot's name and noreply address, unless it has one;
+4. clones the product to `~/tehas/repos/<name>`;
+5. runs `install.sh` from the release, then `tehas labels`;
+6. builds the sandbox image and runs the product's gates in it with
+   `tehas check-product --sandbox`;
+7. enables the dispatch timer and path, starts the docs server and prints the
+   dashboard's address.
 
-`tehas setup` does steps 2 to 8 for a new instance in `~/.config/tehas`: it
-asks for the repository, the labellers, the bot token and the model endpoint,
-checks them, writes the instance and the secrets, sets the bot's git identity,
-clones the product, installs, makes the control issue and the labels, builds the
-sandbox and starts the dispatcher. See [tehas setup](/tools#tehas-setup). The
-steps below are what it does, for an instance set up by hand or kept elsewhere.
+A second run changes nothing that is right. A setting that is there and
+differs is not replaced without `--force`. See [tehas setup](/tools#tehas-setup).
 
-Copy `instances/example/` and fill it in. It can live anywhere the tehas user
-can read: next to the secrets in `~/.config/tehas` (the default place), in a
-private repository of your own, or, as the example does, in the platform
-checkout.
-
-```
-echo ~/tehas/platform/instances/tehas-tehas >~/.config/tehas/instance-dir
-```
-
-The start of the example's `instance.env`, without its comments. The rest of
-it turns on optional parts: previews, the improvement loop and limits of its
-own.
+### 4. The product's files
 
 ```
-TEHAS_REPO=tehas-app/tehas
-TEHAS_CONTROL_ISSUE=1
-TEHAS_ALLOWED_LABELERS="janit"
-
-PI_ENSEMBLE_SUBAGENT_MODEL=qwen3.8-flash-next
-PI_ENSEMBLE_SUBAGENT_PROVIDER=fleet
-TEHAS_INDEXING=1
-
-# from ~/.config/tehas/private.env on the host
-PI_ENSEMBLE_HOST_ALIASES=gb1:<the model host's private address>
-TEHAS_HOST_ADDR=<this host's private address>
-
-TEHAS_ANALYTICS_SRC=https://ea.trippi.app/ea.js
-TEHAS_ANALYTICS_SITE=tehas
-TEHAS_ANALYTICS_COOKIE=1
+tehas check-product
+tehas init-product
 ```
 
-The two addresses are not in the repository: the example's `instance.env` reads
-them from `~/.config/tehas/private.env` on the host, a file of the same
-`KEY=value` lines. Your own instance directory can simply hold them.
-`TEHAS_INDEXING=1` and the three analytics lines are there because this
-instance's dashboard is published on the internet, at <https://tehas.app>: it
-lets search engines in and counts visits. Leave them out for an instance that
-is not public.
+`tehas check-product` says which files of the contract above the default
+branch lacks, and exits 78 when one is missing. `tehas init-product` writes the
+missing `AGENTS.md`, `.pi/verify-cmd` and `.pi/worktree-setup` on a branch and
+opens a pull request with the bot. The gate is guessed from the stack: check
+it, then merge it. See [tehas check-product](/tools#tehas-check-product).
 
-| Setting                                | What to put there                                                                                   |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `TEHAS_REPO`                           | `owner/name` of the product repository                                                              |
-| `TEHAS_CONTROL_ISSUE`                  | Number of an issue you create for the pause label. Keep it open                                     |
-| `TEHAS_ALLOWED_LABELERS`               | Logins whose labels count, space separated: `tehas:ready`, `tehas:plan`, `tehas:urgent`, `tehas:prototype`. Never the bot |
-| `PI_ENSEMBLE_SUBAGENT_MODEL`, `_PROVIDER` | The model every agent role uses unless it has its own. Must be listed in `models.json`           |
-| `PI_ENSEMBLE_MODEL_<ROLE>`, `PI_ENSEMBLE_PROVIDER_<ROLE>` | Optional. A model for one role, such as the lens reviewers, so cycles do not all wait on one model. See [A model per role](/host#a-model-per-role) |
-| `PI_ENSEMBLE_HOST_ALIASES`             | `name:address` pairs the sandbox needs, such as a model host whose name only resolves privately     |
-| `TEHAS_HOST_ADDR`                      | The host's private address, to reach the dashboard from other devices. Without it: `127.0.0.1`      |
+### 5. The sandbox image
 
-`models.json` next to it names the provider's `baseUrl` and the models it
-serves. List the model you use first: an agent that loses its model setting
-falls back to the first entry. A model needs only its `id`: `install.sh` fills
-`name` (the id), `input` (`["text"]`), `reasoning` (false) and a cost of zero,
-and gives a provider with no `compat` today's (`supportsDeveloperRole` and
-`supportsReasoningEffort` false). A key you give is kept. The session model is
-`PI_ENSEMBLE_SUBAGENT_MODEL` under `_PROVIDER`, unless the product's
-`.pi/settings.json` names another; that one must be listed too. The example's,
-with one provider and one model and every key written out:
-
-```
-{
-  "providers": {
-    "fleet": {
-      "api": "openai-completions",
-      "baseUrl": "http://gb1:8086/v1",
-      "apiKey": "unused",
-      "compat": { "supportsDeveloperRole": false, "supportsReasoningEffort": false },
-      "models": [
-        {
-          "id": "qwen3.8-flash-next",
-          "name": "Qwen3.8 Flash Next (fleet)",
-          "reasoning": false,
-          "input": ["text", "image"],
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-          "contextWindow": 262144,
-          "maxTokens": 32768,
-          "compat": {
-            "supportsReasoningEffort": false,
-            "supportsDeveloperRole": false,
-            "maxTokensField": "max_tokens",
-            "thinkingFormat": "qwen-chat-template"
-          }
-        }
-      ]
-    }
-  }
-}
-```
-
-`gb1` is the model host's name on the private network. The endpoint takes no
-key, so `apiKey` is a placeholder. An endpoint that takes one gets
-`"apiKey": "$TEHAS_MODEL_KEY_MAIN"` and the token in `~/.config/tehas/env`,
-never in `models.json`. A second endpoint for the same models goes in
-`backupBaseUrl`: see [A backup model endpoint](/host#a-backup-model-endpoint). The example's endpoint is a
-[viiwork](https://github.com/janit/viiwork) mesh: a flexible meshed inference platform for both home and enterprise grade hardware.
-That is not required: any OpenAI-compatible endpoint that serves
-your model works, and only the optional Energy use section depends on viiwork.
-
-Everything else has a default. No setting describes the machine: every
-sandbox container runs in `tehas.slice`, which step 1 installed and which is
-limited to three quarters of the host's memory. The dispatcher starts a cycle
-only while the slice has room for one more `TEHAS_CYCLE_RESERVE`, 2g by
-default, and holds fewer than four containers. A host with less than about 11 GiB of memory needs a lower reserve.
-All settings are on the [commands page](/tools).
-
-### 5. Install
-
-```
-cd ~/tehas/platform
-./install.sh --check
-./install.sh
-```
-
-`install.sh` puts the line that reads `env.sh` first in `~/.bashrc`, once. It
-has to come before the check many distributions have there that returns early
-for non-interactive shells, or `ssh host '<command>'` would run without the
-tehas environment. A `~/.bashrc` that reads `env.sh` already is left alone;
-`--check` says whether it does on its `Shell:` line.
-
-On a first install it also makes the labels in the product repository
-(`tehas labels`) and enables the core units, `tehas-dispatch.timer` and
-`tehas-dispatch.path`. The optional ones are enabled with them only when their
-setting is on: `tehas-improve.timer` with `TEHAS_IMPROVE_REPO`,
-`tehas-protolab.timer` with `TEHAS_DOMAIN`, the two preview timers with
-`TEHAS_PREVIEWS=1`, and `tehas-energy.service` when `TEHAS_ENERGY` is set and not
-`off`. When the labels cannot be made, for example because `gh` is not signed
-in yet, the run says so on a `later:` line, `--check` reports
-`First install: NOT DONE`, and the next `./install.sh` tries again.
-
-`--check` first tells you what is missing or malformed in the instance, what
-tools the host lacks, and what would be installed. A real run with invalid
-settings installs nothing and exits 78.
-
-### 6. The sandbox image
-
-`host/sandbox/Dockerfile` in the platform checkout adds shellcheck and
-Playwright's Chromium to the pi-rukas image and remaps the user id. It is the
-platform's own file: `tehas update` compares it with the checkout and refuses
-with "has local changes" when it does not match, so your toolchain does not go
-there.
+The platform's `host/sandbox/Dockerfile` adds shellcheck and Playwright's
+Chromium to the pi-rukas image and remaps the user id. It is part of the
+release and is replaced by the next one, so your toolchain does not go there.
 
 Put it in `sandbox.Dockerfile` in your instance directory instead (the one
 directory `instance.env` and `models.json` live in, which you keep writable by
@@ -293,21 +192,21 @@ is left where it was, on the image the host had; a build that is killed partway
 leaves it on the platform image, without your layer, so re-run
 `~/tehas/sandbox/build.sh` after fixing the file.
 
-Then:
+After a change to the file, rebuild and check the gates again:
 
 ```
 ~/tehas/sandbox/build.sh
-tehas index
+tehas check-product --sandbox
 ```
 
 `tehas index` builds the code index the agents search, which needs the image.
-A later `install.sh` would do it too, as long as there is no index yet. See
+`install.sh` does it too, as long as there is no index yet. See
 [tehas index](/tools).
 
-### 7. Prove the gates in the sandbox
+### 6. Prove the gates in the sandbox
 
-Before the first issue, `tehas check-product --sandbox` runs the product's own
-gates inside the image, as the unprivileged user, with nothing mounted but a
+`tehas setup` runs `tehas check-product --sandbox` once. It runs the product's
+own gates inside the image, as the unprivileged user, with nothing mounted but a
 clone, and checks the contract files first. By hand it is:
 
 ```
@@ -325,33 +224,147 @@ rm -rf "$T"
 The container runs in the slice like the factory's own, so the dispatcher
 counts its memory while it is there.
 
-### 8. Start
+### 7. Start
 
-`install.sh` ends with one `next:` line per follow-up its changed files call for,
-named by id (`units`, `sandbox`, `docs`, `edge`) rather than as a command, and
-records those steps as owed in `~/tehas/state/update-pending` while it copies.
-The first install enabled the core units (step 5), so what is left is:
+Label one small, well-specified issue with `tehas:ready` and watch it on the
+dashboard. [Operating tehas](/operating) takes it from there, and
+[Updating tehas](/operating#updating-tehas) says how a host moves to a new
+release and back.
+
+## Settings by hand
+
+`tehas setup` writes the instance to `~/.config/tehas`, the default place. To
+write it by hand, or to keep it in a private repository of your own, copy
+`instances/example/` from the release (`~/tehas/current/instances/example/`)
+and fill it in. Keep the directory out of `~/tehas`: an update replaces what is
+there. When it is not `~/.config/tehas` itself, name it:
 
 ```
-docker compose -f ~/tehas/edge/docs.compose.yaml up -d --force-recreate  # this site and the dashboard
-tehas dispatch --dry-run
-tehas update        # runs the follow-ups install.sh recorded, and clears them
+echo ~/my-instance >~/.config/tehas/instance-dir
 ```
+
+`instance.env` holds the required settings. `optional.env` beside it lists the
+optional ones with their defaults and what each turns on; copy a line over to
+turn one on.
+
+| Setting                                | What to put there                                                                                   |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `TEHAS_REPO`                           | `owner/name` of the product repository                                                              |
+| `TEHAS_CONTROL_ISSUE`                  | Number of an issue you create for the pause label. Keep it open                                     |
+| `TEHAS_ALLOWED_LABELERS`               | Logins whose labels count, space separated: `tehas:ready`, `tehas:plan`, `tehas:urgent`, `tehas:prototype`. Never the bot |
+| `PI_ENSEMBLE_SUBAGENT_MODEL`, `_PROVIDER` | The model the session and every agent role use unless one has its own. Must be listed in `models.json` |
+| `PI_ENSEMBLE_MODEL_<ROLE>`, `PI_ENSEMBLE_PROVIDER_<ROLE>` | Optional. A model for one role, such as the lens reviewers, so cycles do not all wait on one model. See [A model per role](/host#a-model-per-role) |
+| `PI_ENSEMBLE_HOST_ALIASES`             | Optional. `name:address` pairs the sandbox needs, such as a model host whose name only resolves privately |
+| `TEHAS_HOST_ADDR`                      | Optional. The host's private address, to reach the dashboard from other devices. Without it: `127.0.0.1` |
+
+`models.json` next to it names the provider's `baseUrl` and the models it
+serves. List the model you use first: an agent that loses its model setting
+falls back to the first entry. A model needs only its `id`: `install.sh` fills
+`name` (the id), `input` (`["text"]`), `reasoning` (false) and a cost of zero,
+and gives a provider with no `compat` today's (`supportsDeveloperRole` and
+`supportsReasoningEffort` false). A key you give is kept. The session model is
+`PI_ENSEMBLE_SUBAGENT_MODEL` under `_PROVIDER`, unless the product's
+`.pi/settings.json` names another; that one must be listed too. An endpoint
+that takes a key gets `"apiKey": "$TEHAS_MODEL_KEY_MAIN"` and the token in
+`~/.config/tehas/env`, never in `models.json`. A second endpoint for the same
+models goes in `backupBaseUrl`: see
+[A backup model endpoint](/host#a-backup-model-endpoint).
+
+Everything else has a default. No setting describes the machine: every
+sandbox container runs in `tehas.slice`, which the installer set up and which is
+limited to three quarters of the host's memory. The dispatcher starts a cycle
+only while the slice has room for one more `TEHAS_CYCLE_RESERVE`, 2g by
+default, and holds fewer than four containers. A host with less than about 11 GiB of memory needs a lower reserve.
+All settings are on the [commands page](/tools).
+
+After a change to the instance, run `~/tehas/current/install.sh --check`, then
+`tehas update`, which runs `install.sh` and the follow-ups it asks for.
+
+## Optional parts
 
 The improvement loop reads the cycles that ended and files what could be
-better as issues. It is optional: set `TEHAS_IMPROVE_REPO` in `instance.env` to
-the repository those issues go to and give the bot account write access there.
-A host installed before you set it enables the timer by hand with
+better as issues. Set `TEHAS_IMPROVE_REPO` in `instance.env` to the repository
+those issues go to and give the bot account write access there. A host
+installed before you set it enables the timer by hand with
 `systemctl --user enable --now tehas-improve.timer`. The logs of the cycles it
 files about are published in that repository. See [Operating](/operating).
 
 `tehas-energy.service` is optional too: set `TEHAS_ENERGY` only when your model
-endpoint is a [viiwork](https://github.com/janit/viiwork) mesh, as the example's
-`fleet` provider is. With any other endpoint leave it unset: an update restarts
-a unit only where it already runs. See [the energy sampler](/tools).
+endpoint is a [viiwork](https://github.com/janit/viiwork) mesh. With any other
+endpoint leave it unset: an update restarts a unit only where it already runs.
+See [the energy sampler](/tools).
 
-Then label one small, well-specified issue with `tehas:ready` and watch it on
-the dashboard. [Operating tehas](/operating) takes it from there.
+## Aside: the tehas-tehas instance
+
+The instance that works on tehas itself has a few extras. Its settings are in
+`instances/tehas-tehas/` in this repository; the host keeps its own copy in
+`~/.config/tehas/instance`. The start of its `instance.env`, without its
+comments:
+
+```
+TEHAS_REPO=tehas-app/tehas
+TEHAS_CONTROL_ISSUE=1
+TEHAS_ALLOWED_LABELERS="janit"
+
+PI_ENSEMBLE_SUBAGENT_MODEL=qwen3.8-flash-next
+PI_ENSEMBLE_SUBAGENT_PROVIDER=fleet
+TEHAS_INDEXING=1
+
+# from ~/.config/tehas/private.env on the host
+PI_ENSEMBLE_HOST_ALIASES=gb1:<the model host's private address>
+TEHAS_HOST_ADDR=<this host's private address>
+
+TEHAS_ANALYTICS_SRC=https://ea.trippi.app/ea.js
+TEHAS_ANALYTICS_SITE=tehas
+TEHAS_ANALYTICS_COOKIE=1
+```
+
+- The two addresses are not in the repository: the `instance.env` reads them
+  from `~/.config/tehas/private.env` on the host, a file of the same
+  `KEY=value` lines. Your own instance directory can simply hold them.
+- `TEHAS_INDEXING=1` and the three analytics lines are there because this
+  instance's dashboard is published on the internet, at <https://tehas.app>: it
+  lets search engines in and counts visits. Leave them out for an instance that
+  is not public.
+- Its endpoint is a [viiwork](https://github.com/janit/viiwork) mesh, a meshed
+  inference platform for home and enterprise hardware, reached as `gb1` on the
+  private network. That is not required: any OpenAI-compatible endpoint that
+  serves your model works, and only the energy sampler depends on viiwork.
+- It was installed before releases, from a platform checkout at
+  `~/tehas/platform`, so `tehas update` pulls that checkout until it is moved
+  to releases.
+  See [Move a checkout host to releases](/host#move-a-checkout-host-to-releases).
+  `models.json` of the instance, with every key written out:
+
+```
+{
+  "providers": {
+    "fleet": {
+      "api": "openai-completions",
+      "baseUrl": "http://gb1:8086/v1",
+      "apiKey": "unused",
+      "compat": { "supportsDeveloperRole": false, "supportsReasoningEffort": false },
+      "models": [
+        {
+          "id": "qwen3.8-flash-next",
+          "name": "Qwen3.8 Flash Next (fleet)",
+          "reasoning": false,
+          "input": ["text", "image"],
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+          "contextWindow": 262144,
+          "maxTokens": 32768,
+          "compat": {
+            "supportsReasoningEffort": false,
+            "supportsDeveloperRole": false,
+            "maxTokensField": "max_tokens",
+            "thinkingFormat": "qwen-chat-template"
+          }
+        }
+      ]
+    }
+  }
+}
+```
 
 ## A preview of every pull request
 
@@ -404,4 +417,5 @@ has the other previews on it and leads nowhere else.
 - A private database copy per cycle or per preview.
 - More than one project per host. A second project needs its own Unix user, or
   better its own machine.
-- `bootstrap.sh` supports Ubuntu 26.04 on x86_64 only.
+- `bootstrap.sh` supports Ubuntu 26.04 on x86_64 only, and releases are built
+  for linux x86_64 only.

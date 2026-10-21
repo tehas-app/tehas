@@ -348,7 +348,7 @@ tehas_load() {
   export TEHAS_HOME
   dir=$(tehas_instance_dir)
   file=$dir/instance.env
-  [ -r "$file" ] || { tehas_err "no instance.env in $dir (copy instances/example and fill it in)"; return 78; }
+  [ -r "$file" ] || { tehas_err "no instance.env in $dir (run tehas setup, or copy instances/example and fill it in)"; return 78; }
 
   # TEHAS_ENERGY, TEHAS_ENERGY_URL, the model endpoints' tokens,
   # TEHAS_MODEL_KEY_*, and the MCP server's TEHAS_MCP and TEHAS_MCP_KEYS are
@@ -518,7 +518,7 @@ tehas_load() {
   # TEHAS_PLAN_TIMEOUT_MAX is the one place the ceiling of a turn is written:
   # the default below is that ceiling, the check further down refuses more, and
   # the tests pin the copies in libexec/plan, libexec/dispatch and
-  # instances/example/instance.env against it. The unit of a turn gets
+  # instances/example/optional.env against it. The unit of a turn gets
   # RuntimeMaxSec = the limit + 900 (lib/planning.sh).
   local TEHAS_PLAN_TIMEOUT_MAX=7200
   # The default is the ceiling: a turn gets the whole of it.
