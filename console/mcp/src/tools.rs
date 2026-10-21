@@ -4,6 +4,7 @@
 //! its spec below names. A key the dashboard's files gain later is not served
 //! until it is named here. Null values are left out.
 
+use crate::sessions;
 use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
 
@@ -55,7 +56,7 @@ pub fn list() -> Value {
     let none = json!({"type": "object", "properties": {}, "additionalProperties": false});
     let out =
         json!({"type": "object", "properties": {"api": {"type": "integer"}}, "required": ["api"]});
-    json!([
+    let mut tools = json!([
         {
             "name": "factory_status",
             "description": "Whether the factory is working, paused or failing, its queue counts, the running cycles and their steps, the demand waiting, and the platform commit. Stale is true when the dispatcher has not reported for ten minutes.",
@@ -98,7 +99,11 @@ pub fn list() -> Value {
             "inputSchema": none,
             "outputSchema": out,
         },
-    ])
+    ]);
+    if let Value::Array(a) = &mut tools {
+        a.extend(sessions::tools());
+    }
+    tools
 }
 
 /// The structured content of one call, with "api": 1.
@@ -110,6 +115,8 @@ pub fn call(dirs: &Dirs, name: &str, args: &Value) -> Result<Output, ToolError> 
         "factory_endings" => endings(live)?,
         "factory_console" => console(live, args)?,
         "factory_stats" => stats(live)?,
+        "factory_sessions" => sessions::list(dirs, args)?,
+        "factory_session" => sessions::one(dirs, args)?,
         _ => return Err(ToolError::Unknown(name.to_string())),
     };
     out.insert("api".into(), json!(1));
@@ -133,7 +140,7 @@ fn read(live: &Path, file: &str) -> Result<Value, ToolError> {
 
 /// The parts of `src` that `spec` names: `true` a scalar, an object its named
 /// keys, `[spec]` each element of an array. None for null or a missing value.
-fn pick(src: &Value, spec: &Value) -> Option<Value> {
+pub(crate) fn pick(src: &Value, spec: &Value) -> Option<Value> {
     match (spec, src) {
         (_, Value::Null) => None,
         (Value::Bool(true), Value::Object(_) | Value::Array(_)) => None,
@@ -384,7 +391,7 @@ fn stats(live: &Path) -> Result<Map<String, Value>, ToolError> {
     }
 }
 
-fn now() -> i64 {
+pub(crate) fn now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)

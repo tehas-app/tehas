@@ -7,5 +7,6 @@ pub mod keys;
 #[allow(dead_code)] // the console's mask; this crate uses mask() only
 pub mod mask;
 pub mod rpc;
+pub mod sessions;
 pub mod snapshot;
 pub mod tools;
