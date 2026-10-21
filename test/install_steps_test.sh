@@ -27,15 +27,18 @@ rm -f "$T/bin/nproc"
 t_case "a changed unit file asks for the units step, whatever systemd answers"
 fresh
 instance
-# install.sh asks systemd for nothing at all, so nothing here can report a changed
-# unit as applied while systemd still holds the old definition. The reload belongs
-# to the step that restarts the units, which is the only place that can tell
-# whether it happened.
+# Past a first install's enable, install.sh asks systemd for nothing, so nothing
+# here can report a changed unit as applied while systemd still holds the old
+# definition. The reload belongs to the step that restarts the units, which is
+# the only place that can tell whether it happened. This is a first install
+# whose enable fails: the units stay owed, and so does the first install.
 t_stub systemctl 'echo "Failed to connect to bus: No such file or directory" >&2; exit 1'
 t_run "$install"
 t_eq "$t_rc" 0
-t_contains "$t_out" "next: units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer"
-t_eq "$(t_calls systemctl)" ""
+t_contains "$t_out" "next: units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer tehas-clean.timer"
+t_eq "$(t_calls systemctl)" "--user daemon-reload"
+t_contains "$t_out" "the first install's labels or units are not done: systemctl --user enable failed"
+t_eq "$([ -e "$th/state/first-install" ] && echo owed)" owed
 t_contains "$(cat "$th/state/update-pending")" "units tehas-dispatch.timer"
 
 t_case "a run that dies partway leaves the copies it made owed"
@@ -56,7 +59,7 @@ t_run "$part/install.sh"
 t_eq "$t_rc" 1
 t_contains "$t_out" "is missing from this checkout"
 t_lacks "$t_out" "next: "
-t_eq "$(cat "$th/state/update-pending")" "units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer
+t_eq "$(cat "$th/state/update-pending")" "units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer tehas-clean.timer
 sandbox
 docs --force-recreate
 edge --force-recreate"

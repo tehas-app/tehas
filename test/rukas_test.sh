@@ -39,6 +39,28 @@ target release
 t_eq "$t_rc" 1
 t_eq "$t_out" ""
 
+t_case "release:<major.minor> takes the newest tag of that line, not a newer line"
+printf '%s\trefs/tags/v0.14.0\n%s\trefs/tags/v0.14.1\n%s\trefs/tags/v0.15.0\n%s\trefs/tags/v10.14.9\n' "$a" "$b" "$c" "$d" >"$T/refs"
+target release:0.14
+t_eq "$t_rc" 0
+t_eq "$t_out" "$b release v0.14.1"
+
+t_case "release:0 takes every minor version before 1.0, and not 1.0"
+printf '%s\trefs/tags/v0.14.1\n%s\trefs/tags/v0.16.0\n%s\trefs/tags/v1.0.0\n' "$a" "$b" "$c" >"$T/refs"
+target release:0
+t_eq "$t_out" "$b release v0.16.0"
+
+t_case "release:<major> takes the newest tag of that major version"
+printf '%s\trefs/tags/v2.3.0\n%s\trefs/tags/v2.45.12\n%s\trefs/tags/v3.0.0\n%s\trefs/tags/v12.0.0\n' "$a" "$b" "$c" "$d" >"$T/refs"
+target release:2
+t_eq "$t_out" "$b release v2.45.12"
+
+t_case "release:<line> with no tag on that line gives nothing"
+printf '%s\trefs/tags/v0.15.0\n' "$a" >"$T/refs"
+target release:0.14
+t_eq "$t_rc" 1
+t_eq "$t_out" ""
+
 t_case "branch:<name> takes the head of that branch"
 printf '%s\trefs/heads/main\n' "$d" >"$T/refs"
 target branch:main
@@ -57,7 +79,27 @@ t_eq "$t_out" ""
 
 t_case "a value that is neither release nor branch:<name> is refused without asking upstream"
 printf '%s\trefs/heads/main\n' "$d" >"$T/refs"
-for v in main branch: "" latest; do
+for v in main branch: "" latest release: release:x release:0.14.1 release:v0; do
+  target "$v"
+  t_eq "$t_rc" 1
+  t_eq "$t_out" ""
+  t_eq "$(t_calls git)" ""
+done
+
+t_case "commit:<sha> is that commit and asks upstream nothing"
+printf '%s\trefs/tags/v0.12.80\n%s\trefs/heads/main\n' "$a" "$b" >"$T/refs"
+for v in "$a" "$b" "$c"; do
+  target "commit:$v"
+  t_eq "$t_rc" 0
+  t_eq "$t_out" "$v pinned"
+  # No ls-remote, whatever refs the stub would have answered: the release that
+  # wrote the line chose the commit, and asking again could only move it.
+  t_eq "$(t_calls git)" ""
+done
+
+t_case "a commit that is not 40 lower-case hex digits is refused without asking upstream"
+printf '%s\trefs/heads/main\n' "$d" >"$T/refs"
+for v in "commit:$a-" "commit:${a:0:39}" "commit:" "commit:$(printf 'A%.0s' {1..40})" "commit:$(printf 'g%.0s' {1..40})"; do
   target "$v"
   t_eq "$t_rc" 1
   t_eq "$t_out" ""

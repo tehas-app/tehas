@@ -296,7 +296,10 @@ shows one cycle at a time. When several are running, or one is running and an
 earlier one can still be read, a row of tabs above it names each by its issue
 number.
 
-A timer polls every two minutes, and a cycle that ends starts a poll at once. To see the factory's state, or to see or force
+A timer polls every two minutes, and a cycle that ends starts a poll at once. A
+poll that fails does not stop the polling: the timer counts from the last start
+as well as the last end, so the next poll comes two minutes later whatever this
+one exited with. To see the factory's state, or to see or force
 a poll by hand on the host:
 
 ```
@@ -613,7 +616,10 @@ issue's approved text, the planner is given the refine brief,
 to plan the request into one issue that a single `/work` cycle finishes: one
 behaviour change, its files by exact path, a named test file for each
 acceptance criterion, what is out of scope, and nothing under `.github/` or
-`.pi/`. A session files one issue, so for a larger request the planner files
+`.pi/`. The part's title starts with its classification as a conventional-commit
+type, `feat:`, `fix:`, `chore:`, `docs:`, `test:` or `refactor:`, keeping one
+the request already has; pi-rukas gives the cycle's pull request the same
+type, where a title without one becomes `chore(work):`. A session files one issue, so for a larger request the planner files
 the first part and lists the rest under "Later parts". Apply `tehas:refine`
 again to the original issue to plan the next part. The label is checked like
 `tehas:plan`: only an allowed account's counts. An issue with both labels is
@@ -953,6 +959,51 @@ To turn the loop off, remove `TEHAS_IMPROVE_REPO` from `instance.env`: cycles
 stop leaving records and a run does nothing. Or stop the timer with
 `systemctl --user disable --now tehas-improve.timer`.
 
+## The cleaner
+
+A full disk stops previews and fails clones, and most of what fills it is
+something the next build makes again. `tehasbot clean`, from
+`tehas-clean.timer` once an hour (the first time 15 minutes after boot),
+removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
+
+- the build output of a kept workspace: every directory anywhere under
+  `~/tehas/work/<name>-<issue>` whose name is one of `TEHAS_CLEAN_DIRS`, the
+  toolchain names listed in [Commands](/tools), and `<name>-<issue>.state/cache`,
+  the cycle's copy of the code index. A kept workspace is never built in again -
+  every cycle clones fresh - and the dispatcher's 7-day sweep takes the whole of
+  it later. The issue's lock is held while they go, so no cycle starts in it,
+  and a workspace touched within the age is left alone. Nothing is removed
+  under a lock that is not there: an issue whose lock file is gone is left
+  alone, because the cleaner cannot tell a finished cycle from a removed lock.
+  `.git`, the sources, uncommitted changes, `memory` and `sessions` stay for a
+  person to read, and no dot-name is entered.
+- Docker's build cache of that age, with `docker builder prune`. This is the
+  build cache of the whole host's Docker daemon: tehas is one project on one
+  host, and the cache of anything else on it is made again too. No image and no
+  volume is removed.
+- the host's scratch: old files under `~/tehas/tmp/dl` and
+  `~/tehas/tmp/node-compile-cache`, and old `~/tehas/tmp/tehas-test.*`
+  directories. Nothing elsewhere under `~/tehas`, and nothing outside it.
+
+One line per removal and a closing line with the bytes freed go to
+`~/tehas/logs/clean.log`. The command starts no work, so the pause label does
+not hold it. A step that fails is logged as a warning, the other steps still
+run, and the exit status is non-zero.
+
+**To turn it on**, enable the timer, which `install.sh` and `tehas update`
+install but do not start:
+
+```
+systemctl --user enable --now tehas-clean.timer
+tail ~/tehas/logs/clean.log
+```
+
+Run it once by hand with `tehasbot clean`, or with `tehasbot clean --dry-run`
+to see what it would remove. **To turn it off**,
+`systemctl --user disable --now tehas-clean.timer`; a toolchain the cleaner does
+not know about is added to `TEHAS_CLEAN_DIRS` in `instance.env` rather than left
+unmanaged.
+
 ## The fixer's grant
 
 Optional. The fixer is an account that decides on parked issues from outside
@@ -1130,6 +1181,19 @@ The first run is at once. `~/tehas/logs/refresh.log` says what it found.
 `instance.env`: `tehasbot refresh` then exits at once and the dispatcher starts
 no refresh. `systemctl --user disable --now tehas-refresh.timer` stops the
 hourly run as well.
+
+## Updating tehas
+
+An update is a person's choice: nothing updates tehas on its own. Run
+`tehas update --check` to see the version installed, the newest release and
+the `Adopter action` of each release between, do what they ask, then run
+`tehas update`. `tehas update --to <version>` goes back (see
+[Rolling back tehas](/host#rolling-back-tehas)). An update that changes a unit
+restarts the units that run, and that can end a running cycle: pause and let
+the cycles finish first (see [Pause and resume](#pause-and-resume)). How it works is in
+[Updating tehas](/host#updating-tehas). A host installed from a checkout keeps
+pulling it until it is moved: see
+[Move a checkout host to releases](/host#move-a-checkout-host-to-releases).
 
 ## Run one issue by hand
 

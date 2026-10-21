@@ -38,6 +38,9 @@
 #     ~/.config/tehas/env TEHAS_ENERGY, TEHAS_ENERGY_URL and the model
 #     endpoints' tokens TEHAS_MODEL_KEY_*. instance.env that sets a token is
 #     refused: it is in a repository.
+#   - PI_RUKAS_FOLLOW may be set in instance.env, over the line of
+#     versions.env, and is checked whenever it is set: release, branch:<name>
+#     or commit:<40 hex>.
 #   - Loading runs no git command, makes no network call and writes nothing.
 #     TEHAS_PLAN_TIMEOUT_MAX, the ceiling of one planning turn, is local to
 #     tehas_load: nothing sources this file and reads it from the environment.
@@ -94,11 +97,20 @@ _tehas_mem_mb() {
 
 _tehas_is_count() { case "$1" in '' | *[!0-9]* | 0*) return 1 ;; esac; }
 
+# The directory names tehasbot clean removes when the instance names none: the
+# build output of the toolchains tehas hosts, none of which a product keeps in
+# source. The one place they are written: instances/example and the manual
+# quote them, and test/config_test.sh pins the copies against this.
+_tehas_clean_dirs_default() {
+  printf '%s\n' 'target node_modules __pycache__ .venv .pytest_cache .mypy_cache .next .turbo .gradle'
+}
+
 # Print why a value is not acceptable for a setting; return 1 if it is not.
 _tehas_valid() {
-  local name=$1 v=$2 mb base
+  local name=$1 v=$2 mb base clean_dir
+  local -a clean_dirs
   case "$name" in
-    TEHAS_REPO | TEHAS_IMPROVE_REPO | TEHAS_IMPROVE_RUKAS_REPO)
+    TEHAS_REPO | TEHAS_IMPROVE_REPO | TEHAS_IMPROVE_RUKAS_REPO | TEHAS_RELEASE_REPO)
       [[ $v =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "expected owner/name"; return 1; }
       ;;
     TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_IMPROVE_MAX_OPEN | TEHAS_FIXER_MAX_RETRIES | TEHAS_FIXER_MAX_PLAN_ANSWERS | TEHAS_REFRESH_MAX | TEHAS_WORK_TIMEOUT | TEHAS_WORK_STALL | TEHAS_CONCURRENCY | TEHAS_TICKET_CONCURRENCY | \
@@ -127,10 +139,13 @@ _tehas_valid() {
     TEHAS_ANALYTICS)
       case "$v" in on | off) ;; *) echo "expected on or off"; return 1 ;; esac
       ;;
+    TEHAS_UPDATE_FROM)
+      case "$v" in git | release) ;; *) echo "expected git or release"; return 1 ;; esac
+      ;;
     # The look of every page: host/fun/theme-<name>.css. The servers write the
     # name into a path, so only a theme that ships is let through.
     TEHAS_THEME)
-      case "$v" in pixel | paper | beesknees) ;; *) echo "expected pixel, paper or beesknees"; return 1 ;; esac
+      case "$v" in pixel | paper | beesknees | beesknees26) ;; *) echo "expected pixel, paper, beesknees or beesknees26"; return 1 ;; esac
       ;;
     # What the front page is: host/fun/index.html for the floor, host/fun/<name>.html
     # for another. The docs server picks the page by this name.
@@ -187,6 +202,54 @@ _tehas_valid() {
     TEHAS_RUKAS_WORKAROUNDS)
       [[ $v =~ ^(PI_ENSEMBLE|TEHAS)_[A-Z0-9_]+@[0-9]{1,6}(\.[0-9]{1,6}){1,3}(\ (PI_ENSEMBLE|TEHAS)_[A-Z0-9_]+@[0-9]{1,6}(\.[0-9]{1,6}){1,3})*$ ]] ||
         { echo "expected NAME@VERSION entries separated by single spaces, such as PI_ENSEMBLE_COMMENT_RETENTION@0.12.80"; return 1; }
+      ;;
+    # What tehasbot clean removes, and when. The hours are docker's `until`
+    # and find's `-newermt`, and the names are each one directory name.
+    TEHAS_CLEAN_AFTER)
+      [[ $v =~ ^[1-9][0-9]{0,4}$ ]] || { echo "expected a whole number of hours of at least 1"; return 1; }
+      ;;
+    TEHAS_CLEAN_DIRS)
+      # Names, not paths: the cleaner matches them with find -name, and a name
+      # with a slash, a bare dot, or one of the two dot-names a workspace keeps
+      # -- in any spelling, since a name close to one of them is a name someone
+      # meant as one of them -- would be something the cleaner has no business
+      # removing.
+      [[ $v =~ ^[A-Za-z0-9._-]+(\ [A-Za-z0-9._-]+)*$ ]] ||
+        { echo "expected directory names of letters, digits and ._-, separated by single spaces"; return 1; }
+      # Split on the single spaces the pattern above allows, whatever IFS the
+      # instance file set.
+      IFS=' ' read -r -a clean_dirs <<<"$v"
+      for clean_dir in "${clean_dirs[@]}"; do
+        case "$clean_dir" in
+          */*)
+            echo "expected names and no path: $clean_dir has a slash"
+            return 1
+            ;;
+          . | .. | .[gG][iI][tT] | .[pP][iI] | .[pP][iI].*)
+            echo "refuses $clean_dir: that is not build output"
+            return 1
+            ;;
+        esac
+      done
+      ;;
+    PI_RUKAS_FOLLOW)
+      case "$v" in
+        release) ;;
+        release:*)
+          [[ ${v#release:} =~ ^[0-9]{1,6}(\.[0-9]{1,6})?$ ]] ||
+            { echo "expected release:<line>, a major version or major.minor such as 0.14"; return 1; }
+          ;;
+        branch:*)
+          [[ ${v#branch:} =~ ^[A-Za-z0-9._/-]+$ ]] ||
+            { echo "expected branch:<name>, a name of letters, digits and ._/-"; return 1; }
+          ;;
+        commit:*)
+          # The whole commit: an abbreviation could name another one later.
+          [[ ${v#commit:} =~ ^[0-9a-f]{40}$ ]] ||
+            { echo "expected commit: and 40 lower-case hex digits"; return 1; }
+          ;;
+        *) echo "expected release, release:<line>, branch:<name> or commit:<40 hex>"; return 1 ;;
+      esac
       ;;
     TEHAS_BRANCH_CHECK)
       # A check run's name goes into a URL and into the log.
@@ -285,7 +348,7 @@ tehas_load() {
   export TEHAS_HOME
   dir=$(tehas_instance_dir)
   file=$dir/instance.env
-  [ -r "$file" ] || { tehas_err "no instance.env in $dir (copy instances/example and fill it in)"; return 78; }
+  [ -r "$file" ] || { tehas_err "no instance.env in $dir (run tehas setup, or copy instances/example and fill it in)"; return 78; }
 
   # TEHAS_ENERGY, TEHAS_ENERGY_URL, the model endpoints' tokens,
   # TEHAS_MODEL_KEY_*, and the MCP server's TEHAS_MCP and TEHAS_MCP_KEYS are
@@ -381,6 +444,11 @@ tehas_load() {
   export TEHAS_ANALYTICS_COOKIE=${TEHAS_ANALYTICS_COOKIE:-0}
   export TEHAS_THEME=${TEHAS_THEME:-pixel}
   export TEHAS_LAYOUT=${TEHAS_LAYOUT:-floor}
+  # What tehasbot clean removes and when. The build output of common toolchains
+  # that no product keeps in source; an instance that builds something else adds
+  # its name to this list, it does not replace it.
+  export TEHAS_CLEAN_AFTER=${TEHAS_CLEAN_AFTER:-24}
+  export TEHAS_CLEAN_DIRS=${TEHAS_CLEAN_DIRS:-$(_tehas_clean_dirs_default)}
   # The factory's own 365 days of runs, events and samples in
   # state/analytics.db (lib/analytics.sh), not the visitor analytics above.
   # On unless the instance says off, which stops every write.
@@ -450,7 +518,7 @@ tehas_load() {
   # TEHAS_PLAN_TIMEOUT_MAX is the one place the ceiling of a turn is written:
   # the default below is that ceiling, the check further down refuses more, and
   # the tests pin the copies in libexec/plan, libexec/dispatch and
-  # instances/example/instance.env against it. The unit of a turn gets
+  # instances/example/optional.env against it. The unit of a turn gets
   # RuntimeMaxSec = the limit + 900 (lib/planning.sh).
   local TEHAS_PLAN_TIMEOUT_MAX=7200
   # The default is the ceiling: a turn gets the whole of it.
@@ -481,14 +549,17 @@ tehas_load() {
   export PI_ENSEMBLE_NO_DOCKER_SOCKET=1 PI_ENSEMBLE_NO_SSH=1
 
   for v in TEHAS_THEME TEHAS_LAYOUT TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_WORK_DESCRIBE TEHAS_WORK_FILES TEHAS_WORK_COMMENTS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_TOP TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
-    TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_LOW_GATE_WAIT; do
+    TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_LOW_GATE_WAIT TEHAS_CLEAN_AFTER; do
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
-  for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL; do
+  if [ -n "${PI_RUKAS_FOLLOW+x}" ]; then
+    reason=$(_tehas_valid PI_RUKAS_FOLLOW "$PI_RUKAS_FOLLOW") || { tehas_err "PI_RUKAS_FOLLOW is not valid: $reason (see $file)"; return 78; }
+  fi
+  for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL TEHAS_UPDATE_FROM TEHAS_RELEASE_REPO; do
     [ -n "${!v:-}" ] || continue
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
-  for v in TEHAS_ANALYTICS_SRC TEHAS_ANALYTICS_SITE TEHAS_IMPROVE_REPO TEHAS_IMPROVE_RUKAS_REPO TEHAS_IMPROVE_MAX_OPEN TEHAS_FIXER_LOGIN TEHAS_RUKAS_WORKAROUNDS TEHAS_BRANCH_CHECK TEHAS_LOW_GATE; do
+  for v in TEHAS_ANALYTICS_SRC TEHAS_ANALYTICS_SITE TEHAS_IMPROVE_REPO TEHAS_IMPROVE_RUKAS_REPO TEHAS_IMPROVE_MAX_OPEN TEHAS_FIXER_LOGIN TEHAS_RUKAS_WORKAROUNDS TEHAS_BRANCH_CHECK TEHAS_LOW_GATE TEHAS_CLEAN_DIRS; do
     [ -n "${!v}" ] || continue
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done

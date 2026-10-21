@@ -19,7 +19,7 @@ t_contains "$(t_calls gh)" "authorized by @alice's \`tehas:plan\` label"
 t_contains "$(t_calls gh)" "- [ ] Adopt all"
 t_contains "$(t_calls gh)" "<!-- tehas:question kind=plan issue=7 turn=1 -->"
 t_contains "$(t_calls gh)" "--remove-label tehas:planning --add-label tehas:question"
-t_eq "$(jq -c . "$record")" '{"session":"abc-123","turns":1,"options":["Adopt all","Change some"],"pending":false,"failed":false,"running":false,"by":"alice","comment":4002}'
+t_eq "$(jq -c . "$record")" '{"session":"abc-123","turns":1,"options":["Adopt all","Change some"],"pending":false,"failed":false,"running":false,"by":"alice","label":"tehas:plan","comment":4002}'
 t_eq "$([ -e "$record.out" ] && echo left)" ""
 t_eq "$(t_calls fake-start)" ""
 
@@ -46,12 +46,34 @@ t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:pl
 t_lacks "$(t_calls gh)" "--remove-label tehas:plan "
 t_contains "$(t_calls gh)" "authorized by @alice's \`tehas:refine\` label"
 
+t_case "a refining session keeps its label on record, in each line of history, and in the analytics how"
+t_eq "$(jq -r .label "$record")" "tehas:refine"
+t_eq "$(jq -r '.label' "$T/home/tehas/state/cycles/plan-7.history.jsonl" | tail -n 1)" "tehas:refine"
+
+t_case "a refining turn that files an issue notes it in the ledger of refined issues; a planning one does not"
+to_refine
+plan_files https://github.com/acme/widget/issues/41
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[.source, .filed, .url]' "$T/home/tehas/state/refined.jsonl")" '[7,41,"https://github.com/acme/widget/issues/41"]'
+t_eq "$(jq -c '.filed' "$T/home/tehas/state/cycles/plan-7.history.jsonl" | tail -n 1)" '["https://github.com/acme/widget/issues/41"]'
+rm -f "$T/home/tehas/state/refined.jsonl"
+to_plan
+plan_files https://github.com/acme/widget/issues/42
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$T/home/tehas/state/refined.jsonl" ] && echo written)" ""
+t_eq "$(jq -r '.label' "$T/home/tehas/state/cycles/plan-7.history.jsonl" | tail -n 1)" "tehas:plan"
+
 t_case "the refine brief asks for one part sized for one cycle, grounded in the code, with exact paths"
 brief=$(cat "$T_ROOT/lib/refine-brief.md")
 t_contains "$brief" "Ground it in the code first"
 t_contains "$brief" "part only, the one the others build on"
 t_contains "$brief" "[paths: \`a\`, \`b\`]"
 t_contains "$brief" "\`.github/\` or \`.pi/\`"
+t_contains "$brief" "Classify the part in its title, as a conventional-commit type"
+t_contains "$brief" "Keep a type the
+   request's title already has."
 t_eq "$([ "$(wc -c <"$T_ROOT/lib/refine-brief.md")" -lt 4000 ] && echo short)" short
 
 t_case "a refine label from a stranger starts nothing and is taken off the issue"
@@ -145,7 +167,7 @@ rm -f "$fx/edit-fails"
 t_case "the turn is on record as running before the issue is marked"
 to_plan
 t_run "$dispatch"
-t_eq "$(jq -c 'del(.startedAt)' "$T/calls/record.at-mark")" '{"session":"","turns":0,"options":[],"pending":false,"failed":false,"running":true,"by":"alice"}'
+t_eq "$(jq -c 'del(.startedAt)' "$T/calls/record.at-mark")" '{"session":"","turns":0,"options":[],"pending":false,"failed":false,"running":true,"by":"alice","label":"tehas:plan"}'
 t_eq "$(jq -r '.startedAt | test("^[0-9-]+T[0-9:]+Z$")' "$T/calls/record.at-mark")" true
 
 t_case "a session does not start when its record cannot be written, and the issue is not marked"
@@ -266,7 +288,7 @@ t_contains "$(t_calls gh)" "This planning turn did not finish: it exited with st
 t_contains "$(t_calls gh)" "Reply in a comment to run the turn again"
 t_lacks "$(t_calls gh)" "could not start"
 t_contains "$(t_calls gh)" "--remove-label tehas:planning --add-label tehas:question --add-label needs-human-attention"
-t_eq "$(jq -c . "$record")" '{"session":"abc-123","turns":1,"options":[],"pending":false,"failed":true,"running":false,"by":"alice","comment":4002}'
+t_eq "$(jq -c . "$record")" '{"session":"abc-123","turns":1,"options":[],"pending":false,"failed":true,"running":false,"by":"alice","label":"tehas:plan","comment":4002}'
 
 t_case "and a reply runs the turn again in that session"
 rm -f "$T"/calls/* "$fx/plan-fails"
