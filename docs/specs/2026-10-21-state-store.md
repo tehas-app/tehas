@@ -182,10 +182,10 @@ table of section 3.
 | `state/dispatch.stuck` | `dispatch:380`, the `taken` value it last complained about | the poll (dedupes the WARN) | table: `polls.stuck_said_for` |
 | `state/pause.json` | `libexec/pause:52` (`{at, reason, by}`); `libexec/resume:50` removes it | `libexec/dispatch:1733`, `libexec/health:138`, `libexec/status:239` | table: `pause_flag` (3.10). A row that is absent means not paused; a row that cannot be read means paused (fail closed, as today) |
 | `state/limit.json` | `lib/limit.sh:26` (`{v:1, cycles, plan, until, reason}`) | `libexec/limit`, `libexec/status`, `libexec/dispatch` rule 3, `tehas api` | table: `limits` (3.10) |
-| `state/low-gate.held` | `dispatch:577` (touch), removed at `:587` | `dispatch:577` (`[ -e ]`), `host/docs/tools.md:251` | table: `poll_state.low_gate_held` |
+| `state/low-gate.held` | `dispatch:577` (touch), removed at `:587` | `dispatch:577` (`[ -e ]`), `host/docs/tools.md:251` | table: `polls.low_gate_held` (3.9) |
 | `state/branch-check.<something>` | `dispatch:657`, `:660` | `dispatch` (holds cycles when the branch is red) | table: `branch_checks` (3.10) |
 | `state/check-product.json` (+ `.new`) | `libexec/check-product:146` | `libexec/status`, `libexec/summary:90`, `install.sh:938` | table: `check_product`; file stays because `install.sh` reads it before the command is trusted on a fresh host |
-| `state/all-hands.ignored` | `libexec/status:219` | `libexec/status` (says it once) | table: `poll_state` |
+| `state/all-hands.ignored` | `libexec/status:219` | `libexec/status` (says it once) | table: `queue_snapshot.all_hands_ignored_at` (3.9) |
 | `state/platform-fetch` | `libexec/status:141`, the last fetch time | `libexec/status` (fetch at most once an hour) | table: `platform_state.last_fetch_at` |
 
 ### 1.7 Group F: refresh requests
@@ -214,8 +214,17 @@ table of section 3.
 | `state/index/` | **the indexing container** writes it (`lib/sandbox.sh:50`, `libexec/index:9`) | `lib/cycles.sh` `tehas_index_state` (`:190`, looks for `*.db` and `_config.db`) | **file**: a container writes it; no cycle may see it |
 | `state/index.json` | `libexec/index:105`, `{commit}` | `lib/cycles.sh:194`, `install.sh:1065` | table: `index_state`; **the file stays** because `install.sh` reads it on a host where the command may not exist yet |
 | `state/index.failed` | `libexec/index:108`, the commit it failed at | `lib/cycles.sh:199` (`head -c 64`; `tehas_index_state` begins at `lib/cycles.sh:190`) | table: `index_state.failed_commit` |
-| `state/index.rc` | the **index unit's own shell**, launched by `libexec/dispatch:1372` (`index_rc=$TEHAS_HOME/state/index.rc`) and written at `:1436` by a `mv` from `.rc.new`; `libexec/index` writes nothing to it | `libexec/dispatch` `index_report` (`:1410`: `[ -f "$index_rc" ] \|\| return 1`) and `index_busy` (`:1423`: `[ ! -f "$index_rc" ] || return 1`); both remove it
-after reading (`:1412`, `:1436`). `test/dispatch_checkout_test.sh:67,73,78` pin the read, the removal and both exit codes | **file**: its *existence* is the signal that a run has ended and has not yet been reported, and the unit that writes it is the only reader — a row cannot be the event that a poll looks for before it knows whether to look (the same shape as `state/dispatch.again` in group D, which differs in one way worth naming: the poll removes that file *before* it tries its lock, at `dispatch:365`, whereas `index.rc` is removed *after* the poll has read it) |
+| `state/index.rc` | the **index unit's own shell**, launched by `libexec/dispatch:1372` (`index_rc=$TEHAS_HOME/state/index.rc`) and written at `:1435` by the `mv` of `.rc.new` inside the unit's `bash -c`; `libexec/index` writes nothing to it | `libexec/dispatch` `index_report` (the function at `:1408`, its guard `[ -f "$index_rc" ] \|\| return 1` at `:1410`, its removal at `:1412`) and `index_busy` (the function at `:1420`, its guard `[ ! -f "$index_rc" ] \|\| return 1` at `:1424`); `index_launch` clears the file before it starts the unit, at `:1436`. `test/dispatch_checkout_test.sh:67,73,78` pin the read, the removal and both exit codes | **file**: see the note under this table |
+
+Three of `libexec/dispatch` touch this file and each of them removes it, so the
+row above names the three rather than folding them together: `index_report`
+removes it after it has read the exit status (`:1412`), `index_busy` refuses a
+cycle while it is there (`:1424`), and `index_launch` clears it *before* it
+starts the unit (`:1436`), so a stale status from a run that ended is never read
+as this one's. It is the same shape as `state/dispatch.again` in group D, and
+differs in one way worth naming: the poll removes that file *before* it tries
+its lock, at `dispatch:365`, whereas `index.rc` is removed *after* the poll has
+read it.
 
 ### 1.10 Group I: the release and install records
 
@@ -232,7 +241,7 @@ after reading (`:1412`, `:1436`). `test/dispatch_checkout_test.sh:67,73,78` pin 
 
 | Path | Writer | Readers | Fate |
 | --- | --- | --- | --- |
-| `state/improve.cap` | `libexec/improve:106` (a run that finishes in time doubles it) | `libexec/improve`, `host/docs/tools.md:2273` | table: `improve_cap` |
+| `state/improve.cap` | `libexec/improve:106`, the number `:278` writes back | `libexec/improve:214`, `host/docs/tools.md:2273` | table: `improve_cap` (3.12) |
 | `state/improve.lock` | group A | group A | file (A) |
 
 ### 1.12 Group K: the analytics database
@@ -287,8 +296,13 @@ inventory honest:
   already clears one such family (`state/cycles/<n>`, one empty file per issue,
   from a version that predates the extensions).
 - `undocumented` — names on disk that some command writes but no row of section 1
-  names, taken from a list of the paths the installed code touches. `state/index.rc`
-  and `dev/<name>.state/runs` are the two this spec found the slow way, by
+  names, taken from a list of the paths the installed code touches. It is a
+  static list, never a walk: `state-audit` does not recurse into a directory a
+  container can write. `dev/<name>.state/runs`, `state/memory`, `state/sessions`,
+  `state/index` and `state/cache` are checked for existence only and never
+  descended for names: a container owns what appears under them and a name it
+  made is not a name "some command writes" (F7). `state/index.rc` and
+  `dev/<name>.state/runs` are the two this spec found the slow way, by
   reading, after its first draft. #250 adds the check to the gate so the next
   one is found by a failing test.
 
@@ -309,18 +323,39 @@ column is the set that must not be observable half-changed.
 | 8 | A label decision | the label on GitHub, `cycles/<n>.approved.json`, `state/park-<n>.id`, the comment that explains it, the journal | `journal-record` + the host verb of the record the label belongs to (`cycle-start`, `park` or `refresh-request`): the joint write this spec calls `label-apply`, not a verb |
 | 9 | The limits | `state/limit.json`, `live/status.json`'s limit fields, `tehas api`'s answer | `limit-set` / `limit-clear` |
 | 10 | The endpoint | `state/endpoints`, `state/models.json`, `live/dispatch.json`'s `endpoint` | `endpoint-settle` |
-| 11 | The index | `state/index.json`, `state/index.failed`, `state/index.rc`, `state/index/`, `state/cache/` | `index-record` |
+| 11 | The index | `state/index.json`, `state/index.failed` | `index-record` |
 | 12 | The release | `state/release-history`, `state/update-pending`, `state/edge-takeover`, `state/sandbox.Dockerfile.sha256`, `state/check-product.json` | `release-record` |
 | 13 | The sweep | `live/endings.json`, `live/cycles/*.json`, the workspaces and their `.state`, `.before-retry`, `.images`, `state/cycles/<n>.quiet` | `sweep` |
 
+Three rows are named above with files that do not become rows, and the
+exception is a filesystem rule rather than a gap in the mapping. `state/index.rc`
+(section 1.9) is the event a poll looks for before it knows whether to look, so
+it stays a file and `index-record` writes only `index_state`. `state/index/` and
+`state/cache/` are classified **file** in section 1.9 for the same kind of
+reason: the first is written by the indexing container and must never be seen by
+a cycle, and the second is a mount whose per-issue age rule
+(`libexec/clean:245-269`) is a filesystem rule, so neither has a table and
+neither is part of any transaction. Where a removal decision has to be auditable
+it is `sweep_log` (group 13) that records it. Group 8 names no verb at all: see
+the note at the end of section 4.
+
 ## 3. Schema v1
 
-`$TEHAS_HOME/state/tehas.db`, mode 0600, owned by the tehas user. Never under
+`$TEHAS_HOME/state/tehas.db`, mode 0600, owned by the tehas user. The mode is
+set the way the analytics program sets it — the file created 0600 before SQLite
+opens it, so the `-wal` and `-shm` siblings it makes beside it take the same mode
+(`console/analytics/src/db.rs:116`). `state/` itself is created and kept mode
+**0700**: with WAL on, a readable `state/` is a readable copy of the store
+whatever the database file's own mode says, and today the directory is made by
+ordinary `mkdir -p` with the process umask (`libexec/update:253`,
+`lib/sandbox.sh:125`, `:169`). Never under
 `live/`, never under `state/index`, never in a path a container mounts: no
 container sees it (AGENTS.md rule 4).
 
 Conventions, taken from `console/analytics/src/schema.sql` so the two databases
-read alike:
+read alike. The borrowing is of **schema conventions only**: the analytics
+program's recovery is not a model for this one, and the difference is stated in
+ADR 0003 under *What stays a file*.
 
 - Times are **columns**, UTC Unix seconds, never file mtimes. A column named
   `*_at` is an instant; `*_seconds` is a duration.
@@ -329,6 +364,12 @@ read alike:
   `VACUUM INTO` backup.
 - WAL, `busy_timeout` 5000 ms, `synchronous=FULL`, `foreign_keys=ON`. Writes
   stay under one a second, so durability costs nothing worth saving.
+- **`PRAGMA foreign_keys` is per-connection, not stored in the file.** Every
+  program that opens this database sets it to `ON` on that connection, at the
+  same place it sets the journal mode and the busy timeout; the section-5 rule
+  that a `prune` cannot take a poll's unsettled actions with it depends on it
+  and is only as good as that line. A reader that forgets the pragma reads a
+  database whose keys are not enforced.
 - Booleans are `INTEGER` 0 or 1. Lists that are queried are child tables; lists
   that are only ever read whole are JSON text with a `_json` suffix.
 - Every table that a person would ask about has a `*` free-text column only if
@@ -396,12 +437,12 @@ CREATE TABLE cycles (
   attempt        INTEGER NOT NULL DEFAULT 1,
   started_at     INTEGER NOT NULL,        -- was: the mtime of cycles/<n>.taken
   started_by     TEXT NOT NULL,           -- was: cycles/<n>.by  (F6)
-  how            TEXT NOT NULL,           -- ready|requeued|retry|refresh|outage
+  how            TEXT NOT NULL CHECK (how IN ('label','refresh','retry-tick','outage-retry','fixer')),
   requeued       INTEGER NOT NULL DEFAULT 0,
   rukas_commit   TEXT,                    -- was: cycles/<n>.rukas (B7)
   image          TEXT,                    -- was: cycles/<n>.image (B7)
   branch         TEXT,                    -- was: cycles/<n>.branch
-  end_reason     TEXT CHECK (end_reason IN ('closed','merged','handoff','parked','failed','stopped','timeout','killed','lost')),
+  end_reason     TEXT CHECK (end_reason IN ('closed','merged','handoff','parked','failed','stopped','timeout','killed','lost','interrupted','stalled','unknown')),
   ended_at       INTEGER,
   oom_kills      INTEGER,                 -- was: .oom  (C13)
   forks_refused  INTEGER,                 -- was: .forks
@@ -414,6 +455,17 @@ CREATE TABLE cycles (
   stop_said_times INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX cycles_running ON cycles (ended_at, started_at);
+
+`end_reason` is the end of a cycle in the store's own words, and those words are
+the union of what the two writers today can say. `state/cycles/<n>.done` carries
+one of three (`closed`, `merged`, `handoff`, written at `dispatch:1960`); the
+runner's status carries the rest, and `libexec/work:889-896` and
+`libexec/cycle:414-427` can set it to `interrupted` (a run stopped here),
+`stalled`, `timeout`, `killed` or `unknown` (a result that names none), and
+`libexec/cycle` logs that same word (`cycle:1157`). The mapping is total: the
+three words of `.done` pass through, every word `work` can emit is a member of
+the set, and a value outside it is a verb error rather than a row SQLite refuses,
+so the end of a cycle is always committed.
 
 -- The cache of what the flocks say. NEVER the truth (C5): a cycle is running
 -- while its lock is held, and this table only records that a lock was found
@@ -478,6 +530,14 @@ One approval is one start: a `used_at` that is null is one start still owed
 (A3), and a retry tick counts only on a parked issue (A2). The label change and
 this row are written in one `label-apply` transaction with the journal row
 (section 5).
+
+`how` names the kind of approval, and the set is the words `libexec/dispatch`
+assigns to `given_how`: `label` (`:2855`), `refresh` (`:1646`), `retry-tick`
+(`:2479`), `outage-retry` (`:2716`) and `fixer` (`:2859`, compared at `:1186`).
+`approved_record` (`dispatch:1190`) passes exactly that value today. A verb
+given a word outside the set is a 64 with the word on stderr and nothing
+committed, the same rule as any other rejected argument: a start is never
+recorded with an approval this store cannot name.
 
 ### 3.5 `planning`
 
@@ -545,23 +605,30 @@ CREATE TABLE cycle_notes (                -- was: cycles/<n>.quiet
 -- not lose a field it does not yet parse (D3).
 CREATE TABLE cycle_results (
   issue INTEGER NOT NULL REFERENCES cycles (issue) ON DELETE CASCADE,
-  attempt INTEGER NOT NULL,
+  received_at INTEGER NOT NULL,           -- when the host read the runner's JSON
   schema_version INTEGER NOT NULL,        -- the runner's own version
   payload TEXT NOT NULL,                  -- the JSON, exactly as written
-  received_at INTEGER NOT NULL,
-  PRIMARY KEY (issue, attempt)
+  PRIMARY KEY (issue, received_at)
 );
 CREATE TABLE cycle_progress (
   issue INTEGER NOT NULL REFERENCES cycles (issue) ON DELETE CASCADE,
-  attempt INTEGER NOT NULL,
+  received_at INTEGER NOT NULL,
   reason TEXT,
   review_held INTEGER,
   steps_json TEXT,
   roles_json TEXT,
   written_at INTEGER NOT NULL,
-  PRIMARY KEY (issue, attempt)
+  PRIMARY KEY (issue, received_at)
 );
 ```
+
+Both are keyed by `received_at`, not by an attempt number, for one reason: no
+file on disk records an attempt. `libexec/work` and `libexec/cycle` never write
+an `attempt` and `state/cycles/<n>.result.json` is keyed by issue alone, so the
+import of section 7 could not recompute a natural key that includes one and the
+`--verify` step that gates removal would have no derivation for it. The attempt
+of a run stays where the host can see it, in `cycles.attempt` and
+`cycle_history.attempt`; the two tables reach it through `cycles (issue)`.
 
 ### 3.7 `parks`, `questions`
 
@@ -583,7 +650,7 @@ CREATE TABLE questions (
   id         INTEGER PRIMARY KEY,         -- GitHub's databaseId
   issue      INTEGER NOT NULL REFERENCES issues (issue) ON DELETE CASCADE,
   attempt    INTEGER NOT NULL,
-  kind       TEXT NOT NULL CHECK (kind IN ('park','plan','blocked','fixer')),
+  kind       TEXT NOT NULL CHECK (kind IN ('park','plan')),
   posted_at  INTEGER NOT NULL,
   body_sha256 TEXT,
   answered_at INTEGER,
@@ -594,6 +661,17 @@ CREATE INDEX questions_issue ON questions (issue, posted_at);
 
 `questions` is the only place a comment id is believed. A comment that is not
 in this table is not the factory's question, whatever markers it carries.
+
+The set is the two kinds this host can post, and no others: `q_render`
+(`lib/questions.sh:54-102`) ends with `case "$kind" in plan) … park) … *) return
+1`, and `dispatch:2354,2359` set `qkind` to one of those two, so no other word
+ever reaches a `<!-- tehas:question kind= -->` marker. The two markers that look
+like kinds are not questions and are not rows here: the blockers of an issue are
+a `<!-- tehas:blocked by=12,34 -->` marker the poll reads for `blocked_ok`
+(`dispatch:838-856`) and belong on `issues`, and a fixer's answer is a
+`<!-- tehas:fixer issue=N action=answer -->` first line (`lib/questions.sh:154`)
+that belongs with the fixer's rest-on relation. Neither is a question this host
+asked, so neither may hold a comment id the poll would honour a tick in.
 
 ### 3.8 `cycle_history`, `plan_history`, `refined`
 
@@ -625,7 +703,29 @@ CREATE TABLE refined (
 Replaces the writers of `live/dispatch.json`, `live/demand.json`,
 `live/status.json`, `live/health.json`, `live/energy.json`, `live/platform.json`,
 `state/dispatch.taken`, `state/dispatch.stuck`, `state/all-hands.ignored`,
-`state/platform-fetch`. The live files stay as published views (#252).
+`state/platform-fetch`. The live files stay as published views (#252), and the
+trigger that publishes them is named in section 4 with `publish`.
+
+The heartbeat is the reason the publisher has a clock of its own. Today
+`libexec/status` alone writes `live/status.json` and its EXIT trap calls
+`libexec/health` (`status:136`), while `lib/live.sh`'s `tehas_live_assemble` —
+called by `libexec/work:786` on the cycle's 10-second tick and by
+`libexec/health:53` — is what writes `live/running.json`, prunes `live/cycles/`
+and read-modify-writes `live/endings.json`. So the endings are written by a
+different process on a different clock than the status, and the rows cannot move
+without their triggers moving with them: the per-cycle 10-second write becomes
+`cycle-heartbeat` called by `work` on the same tick (`work:785` today), and the
+`publish` that turns the rows into `live/` is the one publisher of #252, run
+after `poll-commit` (as `status` runs today, on its EXIT trap at `status:136`),
+after `cycle-end`, and at the end of `libexec/health` — the three places the
+files are written from today. A `live/` file no longer has a writer of its own:
+anything that needs one re-reads the rows and calls `publish`. The per-cycle
+10-second file of `work:785` becomes `cycle-heartbeat`, called by `work` on the
+same tick, and `tehas_live_assemble`'s pruning of `live/cycles/` and its
+read-modify-write of `live/endings.json` both retire with it: the pruning is a
+`prune` of `heartbeats` and the endings are rows `cycle-end` writes in its own
+transaction. C6's 20-minute stuck rule reads `heartbeats`, so it is the
+heartbeat's own clock that decides it, not the publisher's.
 
 ```sql
 CREATE TABLE polls (
@@ -637,6 +737,7 @@ CREATE TABLE polls (
   slice_room INTEGER, slice_committed INTEGER, slice_max INTEGER, slice_why TEXT,
   endpoint      TEXT CHECK (endpoint IN ('main','backup')),
   paused        INTEGER NOT NULL DEFAULT 0,
+  low_gate_held  INTEGER NOT NULL DEFAULT 0,  -- was: state/low-gate.held
   cycles_running INTEGER, in_line INTEGER, awaiting INTEGER, planning INTEGER,
   exit_code     INTEGER,                  -- how the poll ended
   settled       INTEGER NOT NULL DEFAULT 0  -- 0 until its journal rows are settled
@@ -663,9 +764,17 @@ CREATE TABLE platform_state (
 );
 ```
 
+The two sample tables are append-only and unbounded unless `prune` bounds them,
+so they carry the window their sibling already documents: the analytics program
+keeps 365 days and measures some 263,000 sample rows over that window
+(`host/docs/analytics.md:27`, `console/analytics/src/db.rs:12`). `health_samples`
+and `energy_samples` are pruned to the same 365 days by the `prune` verb of
+section 4, named there with `heartbeats`, `polls`, `endings` and the settled
+`journal` rows.
+
 ### 3.10 `pause_flag`, `limits`, `branch_checks`, `check_product`
 
-Replaces `state/pause.json`, `state/limit.json`, `state/branch-check.*`,
+Replaces `state/pause.json`, `state/limit.json`, `state/branch-check`,
 `state/check-product.json` (the file stays for `install.sh`).
 
 ```sql
@@ -681,12 +790,23 @@ CREATE TABLE limits (
 CREATE TABLE branch_checks (
   name TEXT NOT NULL, head_sha TEXT NOT NULL, at INTEGER NOT NULL,
   state TEXT NOT NULL CHECK (state IN ('red','done','pending','none','unreadable')),
+  note TEXT,                              -- was: the one line of state/branch-check
   PRIMARY KEY (name, head_sha)
 );
 CREATE TABLE check_product (              -- the file stays: install.sh reads it
   at INTEGER PRIMARY KEY, ok INTEGER NOT NULL, failures_json TEXT
 );
 ```
+
+`state/branch-check` has no suffix at all: `branch_note` (`dispatch:659-669`) is
+given one free-text line and writes it with `printf '%s\n' "$1"` to the fixed
+path `$TEHAS_HOME/state/branch-check`, and the poll's section 1.6 reader holds
+cycles while that line is there. The line is `note`, and it is the only part of
+the file. `head_sha` does not come from the file: `branch_check` (`dispatch:630-
+644`) reads it from the check-runs answer, as the `\($sha)` of each `state` word,
+which is why the key is the pair the answer names rather than the path. The row
+is written by `branch-check-record` and read by `branch-check-show`; the file
+stays until #250 moves `red_hold`'s reader to the row.
 
 ### 3.11 `refresh_requests`, `refresh_hold`
 
@@ -695,7 +815,8 @@ Replaces `state/refresh/<n>.json` and `state/refresh/.held`.
 ```sql
 CREATE TABLE refresh_requests (
   issue INTEGER NOT NULL REFERENCES issues (issue) ON DELETE CASCADE,
-  at INTEGER NOT NULL, head_sha TEXT NOT NULL, pr INTEGER NOT NULL,
+  at INTEGER NOT NULL,                    -- Unix seconds; see the note below
+  head_sha TEXT NOT NULL, pr INTEGER NOT NULL,
   by_account TEXT NOT NULL,               -- whose approval it rests on (F6)
   settled_at INTEGER, outcome TEXT,       -- started | held:<reason> | failed:<reason>
   PRIMARY KEY (issue, at)
@@ -705,10 +826,20 @@ CREATE TABLE refresh_hold (
 );
 ```
 
-### 3.12 `endpoints`, `index_state`, `release_history`, `edge_takeover`
+`at` is a Unix second here and an ISO-8601 string in the file. The file's `at` is
+written `--arg at "$at"` from `date -u +%FT%TZ` and read back with `.at | strings`
+(`libexec/refresh:92-95`), so the import converts it rather than letting SQLite
+coerce text into an INTEGER column and decide the outcome for itself: `%FT%TZ`
+parsed to Unix seconds, and a value that does not parse is `held`, not coerced.
+The same rule covers every other `at` the files carry as text — `state/pause.json`'
+`at`, `plan-<n>.json`'s `startedAt`, the `$at` of the history JSONL — and section 7
+states it once for all of them.
+
+### 3.12 `endpoints`, `index_state`, `release_history`, `edge_takeover`, `improve_cap`
 
 Replaces `state/endpoints`, `state/index.json` + `state/index.failed` (both
-files stay for `install.sh`), `state/release-history`, `state/edge-takeover`.
+files stay for `install.sh`), `state/release-history`, `state/edge-takeover`,
+`state/improve.cap`.
 
 ```sql
 CREATE TABLE endpoints (
@@ -724,6 +855,11 @@ CREATE TABLE release_history (
 );
 CREATE TABLE edge_takeover (
   id INTEGER PRIMARY KEY CHECK (id = 1), made_at INTEGER NOT NULL, note TEXT
+);
+CREATE TABLE improve_cap (                -- was state/improve.cap
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  cap INTEGER NOT NULL CHECK (cap BETWEEN 1 AND 5),   -- libexec/improve's max_take
+  set_at INTEGER NOT NULL
 );
 ```
 
@@ -764,29 +900,72 @@ program's conventions (`TEHAS_HOME`, `--json`, a bounded call).
 
 Common rules:
 
-- It loads the instance settings from the same instance directory the shell's
-  `tehas_load` reads (`lib/config.sh:345`) and validates them the same way, so
-  a malformed setting stops it with 78 as it stops every other command. It does
-  not source `tehas_load` and it does not need to: the command is run, never
-  sourced. **`tehas_load` itself never opens the database** (AGENTS.md rule 3):
+- It reads the instance settings the shell's `tehas_load` reads, from the same
+  instance directory (`lib/config.sh:345`), and a malformed setting stops it with
+  78 as it stops every other command. **The rules of what a valid setting is are
+  written in exactly one place, `lib/config.sh`**, and the store does not
+  re-implement them in Rust: it takes the values the caller has already loaded.
+  A command that runs the store has itself sourced `tehas_load` and passes what
+  the verb needs (the instance directory, the repository, the control issue) as
+  arguments or in the environment `tehas_load` exports; the store checks that
+  every one arrived and is shaped as its verb states, and exits 78 when one did
+  not. `install.sh` passes them as arguments, because for it the store must work
+  before the new binary's own loader would. Two copies of the loader in two
+  languages drift silently, and D5 is what that drift looks like.
+  It does not source `tehas_load` and it does not need to: the command is run,
+  never sourced. **`tehas_load` itself never opens the database** (AGENTS.md rule 3):
   a login shell sources it, and a login must not fail or block on the store.
   Loading settings keeps no side effects, makes no network call and writes
   nothing.
-- **A missing database, or one whose `user_version` is newer than this binary
-  knows, exits 78 before any GitHub, Docker or git call** and before it writes
-  anything. A missing database is not "empty host"; only `store init` creates one.
+- The database has four failure classes and each has its own exit and its own
+  word on stderr, so a caller can tell "nothing there" from "could not look"
+  (D2, A14 — the distinction the store exists to close, since a row that is
+  absent means not paused):
+
+  | The database | Exit | stderr word |
+  | --- | --- | --- |
+  | missing (no file at all) | 78 | `missing` |
+  | not a database, or corrupt: SQLite's `file is not a database`, `database disk image is malformed`, a failed `quick_check`, a truncated file or a non-file at `state/tehas.db` | 78 | `corrupt` |
+  | there but cannot be opened: no permission, a directory, an unreadable or torn `-wal`/`-shm` pair | 78 | `unreadable` |
+  | `user_version` newer than this binary knows | 78 | `future` |
+
+  All four are 78, because all four mean the store cannot answer and nothing was
+  written; the word is what separates them for a reader, as `busy` does for a
+  lock. **A caller treats 78 with any of the four words as "could not look"** and
+  fails closed: it never reads 78 as "no rows", and only exit 0 with an empty set
+  means there was nothing there. The store never moves a damaged file aside to
+  carry on (ADR 0003).
 - `--json` on every verb. Output is one object on stdout, `"api": 1` first, as
   `tehas api` does (`host/docs/api.md`). Diagnostics go to stderr.
 - Every external call (`gh`, `docker`, `git`, `systemctl`) has a timeout and a
-  typed result: `ok`, `empty`, `read-failed`, `timed-out`. A failed read is
+  typed result: `ok`, `empty`, `read-failed`, `timed-out`. The same four are the
+  only spellings `journal-settle --result` accepts, so the value that carries the
+  distinction between "read failed" and "empty" — the one D2 exists for — can
+  actually be recorded. A failed read is
   never taken for an empty one (D2, A14).
+- **The lock probe is not one of those calls.** `tehas_cycle_running`
+  (`lib/cycles.sh:42`, a `flock -n` on the issue's lock file) is the liveness
+  primitive of the host: `tehas_cycle_running`, `tehas_cycle_lock_free` and
+  `tehas_cycles_running` are called from `libexec/dispatch`, `libexec/clean` and
+  `libexec/stop`, and `lib/live.sh:40` open-codes the same probe to decide
+  whether a quiet cycle file may be lost. The answer `cycle-show` returns is that
+  probe run live, never served from `cycle_locks`. `cycle_locks` is a cache of
+  what the probe said the last time something looked, with `seen_at` naming when;
+  its writer is the verb that looked (`cycle-show`, `poll-commit`, `sweep`) and a
+  row older than the current poll is not an answer. The probe's own result is
+  typed like any other: `free`, `held`, and `probe_rc=2` for **could not tell** —
+  no lock file, an unreadable directory, an `flock` that failed for a reason other
+  than contention. A caller must fail closed on `probe_rc=2`, exactly as on a
+  failed read: C5's rule is that a lock nobody holds is a cycle that ended, and
+  that rule may rest only on a probe that answered. The cache is never on the
+  liveness path.
 - Exit statuses, the same set the rest of tehas uses:
 
   | Exit | Meaning |
   | --- | --- |
   | 0 | the verb did its work, or there was nothing to do |
   | 64 | an argument this verb does not know; nothing was written |
-  | 78 | the instance settings, or the database: missing, malformed, unreadable, or newer than this command |
+  | 78 | the instance settings did not arrive or are malformed, or the database: `missing`, `corrupt`, `unreadable` or `future`, as the table above names. Nothing was written |
   | 1 | a call failed, an answer could not be read, or a precondition the verb states was not met. Nothing was committed |
   | 5 | (verbs of section 5 only) the action was journaled and not settled; the next poll settles it. State is consistent, so this is not a failure of the write |
 
@@ -811,7 +990,7 @@ only; every response also carries `{"api":1,"verb":"...","ok":true}`.
 | `issue-kind` | `<issue>` | `issues.kind`, `kind_at` | `{"kind":"issue"}` | 0, 78, 1 |
 | `cycle-start` | `<issue> --by <acct> --how <how> [--requeued] [--rukas <c>] [--image <i>] [--branch <b>] --lock <path>` | **group 1**: `cycles`, `approvals.used_at`, `cycle_settings`, the journal row | `{"issue":12,"attempt":2,"started_at":...}` | 0, 64, 78, 1, 5 |
 | `cycle-end` | `<issue> [--result <file>] [--progress <file>] [--oom N] [--forks N] [--stalled N] [--timed] [--host-saw killed] --status <s> [--step <s>]` | **group 2**: `cycles`, `cycle_results`, `cycle_progress`, `endings`, `heartbeats`, `cycle_history`, clears `approvals` | the end row | 0, 64, 78, 1 |
-| `cycle-show` | `<issue> \| --running` | | the running cycles with the lock probe's answer | 0, 64, 78 |
+| `cycle-show` | `<issue> \| --running` | | the running cycles with the lock probe run now, never from `cycle_locks`; `probe_rc=2` means could not tell and holds the caller (section 4, above) | 0, 64, 78 |
 | `cycle-heartbeat` | `<issue> --step <s> [--status <s>]` | `heartbeats` | `{"at":...}` | 0, 78 |
 | `cycle-note` | `<issue> --kind quiet --said-for <text>` | `cycle_notes` | `{"said":true}` | 0, 78 |
 | `cycle-stop-asked` | `<issue>` | `cycles.stop_asked_at`, `stop_said_times` | `{"times":2}` | 0, 78 |
@@ -835,37 +1014,47 @@ only; every response also carries `{"api":1,"verb":"...","ok":true}`.
 | `limit-set` | `[--cycles N] [--plan] [--until <iso>] --reason <r>` | **group 9**: `limits` | the row | 0, 64, 78 |
 | `limit-clear` | | | `{"state":"none"}` | 0, 78 |
 | `limit-show` | | | as `tehas api`'s `limit` object | 0, 78 |
-| `branch-check-record` | `--name <n> --head <sha> --state <s>` | **group 4** companion: `branch_checks` | the row | 0, 64, 78 |
+| `branch-check-record` | `--name <n> --head <sha> --state <s> [--note <text>]` | **group 4** companion: `branch_checks` | the row | 0, 64, 78 |
 | `branch-check-show` | `--name <n> --head <sha>` | | `{"state":"pending"}`; `unreadable` holds nothing (rule 3) | 0, 78 |
 | `endpoint-settle` | `--main <name> [--backup <name>] --source <s>` | **group 10**: `endpoints` | the row | 0, 64, 78 |
 | `index-record` | `--commit <c> --state current\|failed\|due` | **group 11**: `index_state` | the row | 0, 64, 78 |
 | `index-show` | `--commit <c>` | | `{"state":"due"}` | 0, 64, 78 |
 | `release-record` | `--tag <t>` `[--edge-takeover]` | **group 12**: `release_history`, `edge_takeover` | the row | 0, 64, 78 |
+| `improve-cap-set` | `--cap N` | `improve_cap` (the singleton; N outside 1..5 is 64) | `{"cap":3}` | 0, 64, 78 |
+| `improve-cap-show` | | | `{"cap":5}`; the `max_take` of `libexec/improve:215` when the row is absent | 0, 78 |
 | `refresh-request` | `<issue> --pr N --head <sha> --by <acct>` | **group 7**: `refresh_requests` | the row | 0, 64, 78, 1 |
 | `refresh-settle` | `<issue> --at <t> --outcome <o>` | `refresh_requests.settled_at`, `refresh_hold` | the row | 0, 64, 78 |
 | `refresh-pending` | | | the open requests | 0, 78 |
-| `snapshot-load` | `--from <file>` `[--budget-left N]` | `issues`, the label events, `questions` for the edits, closing pull requests: everything of section 6 that one query returned; refuses a page whose section-6 bound exceeds `--budget-left` | `{"issues":N,"stale":M,"requests":K,"points":P,"pages":G}` | 0, 64, 78, 1 |
 | `sweep` | `--removed <n>... \| --kept <n>... --reason <r> [--bytes N]` | **group 13**: `sweep_log`, `endings`, `heartbeats` | the counts | 0, 64, 78 |
+| `snapshot-cost` | `[--budget-left N]` | reads only: evaluates the per-poll bound of section 6 for the page and caps it would send, and refuses before the request when the bound exceeds `--budget-left` | `{"pages":G,"points":P,"fits":true}` | 0, 64, 78 |
+| `snapshot-load` | `--from <file>` `[--budget-left N]` | `issues`, the label events, `questions` for the edits, closing pull requests: everything of section 6 that one query returned; the budget check of section 6 is made by `snapshot-cost` before the call, and this verb refuses a response whose measured `points` exceed `--budget-left` rather than storing it | `{"issues":N,"stale":M,"requests":K,"points":P,"pages":G}` | 0, 64, 78, 1 |
 | `publish` | `--dir <live>` | nothing: reads the tables and writes the `live/*.json` views, each by unique-temp-and-rename | the files written | 0, 78, 1 |
-| `import` | `--home <dir> [--dry-run] [--from <t>]` | section 7, in its order, in one transaction per group | the report | 0, 64, 78, 1 |
+| `import` | `--home <dir> [--dry-run] [--verify] [--force]` | section 7, in its order, in one transaction per group | the report | 0, 64, 78, 1 |
 | `journal-open` | | the actions intended and not settled, oldest first | `{"actions":[...]}` | 0, 78 |
 | `journal-record` | `--kind <k> --issue <n> --args <json> --before <snapshot-id>` | `actions` + `journal` (the intent) | `{"action":N}` | 0, 64, 78 |
-| `journal-settle` | `--action N --result ok\|failed\|timed-out [--evidence <json>]` | `journal` (the result) | the row | 0, 64, 78 |
-| `prune` | `--days N` | old `heartbeats`, `polls`, `endings`, `journal` rows whose action settled; never a `polls` row an unsettled `actions` row points at (section 5) | the counts | 0, 78, 1 |
+| `journal-settle` | `--action N --result ok\|empty\|read-failed\|timed-out [--evidence <json>]` | `journal` (the result) | the row | 0, 64, 78 |
+| `prune` | `--days N` | `heartbeats` (7 days or 100 rows per issue), `endings` (the ten last), `polls`, `health_samples`, `energy_samples` and `journal` rows whose action settled, at `--days`; never a `polls` row an `actions` row points at, which it reports by count instead (section 5) | the counts | 0, 78, 1 |
 
 `journal-*` are the verbs the reconciler uses; nothing else calls them. The
-verbs above each group are the ones the shell commands call, and each group of
-section 2 names exactly one of them. The mapping is 13 to 13 with one kind of
-exception, and the exception is a name rather than a gap: **group 8, a label
-decision, has no verb of its own.** Its GitHub half goes through the journal
-(`journal-record`, then `journal-settle`), and its host half is written by the
-verb of the group whose rows the label carries: an approval is an `approvals`
-row, so the `label-apply` transaction of section 3.4 is a `cycle-start` that
-writes the approval and the journal row together; a park is `park`; a refresh is
-`refresh-request`. There is no `label-apply` verb and there must not be one — a
-verb that took a label name would let a caller change a label without saying
-which record it belongs to, which is the A5 failure this store exists to close.
-Where a section names `label-apply` it names that joint write, not a command.
+verbs above each group are the ones the shell commands call, and the mapping is
+stated honestly rather than rounded to 13 to 13: **eleven groups name one verb
+each, and one group names none.** Group 8, a label decision, has **no verb of its
+own** by design: its GitHub half goes through the journal (`journal-record`,
+then `journal-settle`), and its host half is written by the verb of the group
+whose rows the label carries — an approval is an `approvals` row, so the
+`label-apply` transaction of section 3.4 is a `cycle-start` that writes the
+approval and the journal row together; a park is `park`; a refresh is
+`refresh-request`. It is therefore two of another group's verbs plus a named
+joint write, and section 2 says so in its Verb column. There is no `label-apply`
+verb and there must not be one — a verb that took a label name would let a
+caller change a label without saying which record it belongs to, which is the A5
+failure this store exists to close. Where a section names `label-apply` it names
+that joint write, not a command.
+
+Group 11 names one verb, `index-record`, and that verb writes `index_state`
+alone: the three other names in group 11's file list stay files for the
+filesystem reasons stated under the section 1.9 table and after the section 2
+table, and are not part of the transaction.
 
 ## 5. The action journal
 
@@ -875,7 +1064,8 @@ every attempt at it, so a poll that died mid-action can be read afterwards.
 ```sql
 CREATE TABLE actions (
   id          INTEGER PRIMARY KEY,
-  poll_at     INTEGER NOT NULL REFERENCES polls (at),
+  poll_at     INTEGER NOT NULL REFERENCES polls (at),  -- the poll that intended
+                                         -- it; not the poll that settled it
   kind        TEXT NOT NULL,             -- label-add, label-remove, comment-post,
                                          -- comment-edit, container-start, unit-stop,
                                          -- label-remove-only, refresh-begin, refresh-end
@@ -944,10 +1134,26 @@ one still `intended` or `attempted`.
 
 One foreign key makes that rule load-bearing, and #256 states it in the verb
 rather than leaving it to the reader: `actions.poll_at` references `polls (at)`
-with no `ON DELETE`, and SQLite's default `foreign_keys` is off, so a `prune
---days N` that deletes a row of `polls` would silently take the unswept actions
-of that poll with it. Prune must delete no `polls` row while an action points at
-it, which is the same rule as the last sentence and is what its test pins.
+with no `ON DELETE`. `PRAGMA foreign_keys` is per-connection, so the store sets
+it to `ON` on every connection it opens (section 3), and the rule below is what
+that line buys: with the pragma off for one connection, a `prune --days N` that
+deletes a row of `polls` would silently take the unswept actions of that poll
+with it. Prune must delete no `polls` row while an action points at it, which is
+the same rule as the last sentence and is what its test pins.
+
+The delete path has to be stated with the rule, because the rule alone would
+stop history being pruned at all. `poll_at` names the poll that **intended** the
+action, and an action outlives that poll: it is settled by a later one. So
+prune's order is fixed — it deletes the settled `actions` rows and their
+`journal` rows first, and a `polls` row only once no `actions` row points at it
+— and a poll whose action stayed unsettled until `abandoned` is collectable as
+soon as that action is settled in its own right, since `abandoned` is one of the
+three states `prune` removes. What is never possible, and what the key enforces,
+is a `polls` row going while an `intended` or `attempted` action still names it:
+that row's poll is reported by count as not collectable rather than deleted
+cascade-style. `poll_at` stays an enforced key rather than an informational
+column for exactly that reason: a journal whose intent can outlive its poll's
+record is the A5 gap this table exists to close.
 
 ## 6. The GitHub snapshot
 
@@ -1057,6 +1263,18 @@ least**. The 5 is charged once per list, not once per returned node, and a list
 is billed for what came back rather than for its `first:` cap — so a cap prices
 the worst case while the poll pays the usual one.
 
+**That formula is the one premise of everything below and it is not yet
+verified here.** The source is the page above, read in October 2026; the only
+observation recorded in this repository is one `gh api rate_limit` response that
+reported `limit: 5000`. No `X-RateLimit-Used` delta of a query of this exact
+shape has been recorded. `125n + 7`, `29n + 7`, 478, 165, `first: 3` and
+`first: 5` are each one evaluation of that premise, so all of them are **pending
+#253's measurement** and are quoted as a model everywhere, in this section and
+in ADR 0003. If GitHub's per-list charge differs, the page size is wrong and
+`--budget-left` admits pages that get the host rate-limited. #253's first job is
+to record the fetched date of the formula and the measured delta of one real
+query, and to replace these figures with the `points` field it reads back.
+
 Two consequences decide the shape:
 
 - **A page costs 7 even when it returns nothing** (`5` for the list plus `1` for
@@ -1074,9 +1292,14 @@ Two consequences decide the shape:
 
 The budget is 5,000 points an hour and the cheapest possible query costs 1
 (measured with `gh api rate_limit`, whose `resources.graphql` carries
-`limit: 5000`). `host/systemd/tehas-dispatch.timer:6` is `OnUnitInactiveSec=2min`
-with `:13` `OnUnitActiveSec=2min`, so the host asks for about **30 polls an
-hour** and the whole hour's budget is about **165 points per poll**.
+`limit: 5000` — that is **github.com's value for the token read in October 2026**,
+not a constant the design may assume: a GHES host or a token with another limit
+reports another number). The snapshot program takes the limit from the response
+(`resources.graphql.limit`) and derives the poll's share from it, so the 165
+below follows the token's actual budget; `host/systemd/tehas-dispatch.timer:6`
+is `OnUnitInactiveSec=2min` with `:13` `OnUnitActiveSec=2min`, so the host asks
+for about **30 polls an hour** and the whole hour's budget is about **165 points
+per poll** at the limit above.
 
 That is the constraint that decides the design, and it rules out the obvious
 shape outright. Two numbers frame it: the worst a request of this shape **can**
@@ -1085,16 +1308,18 @@ of the shape can go under, which is what forces the page size. Call a page
 *saturated* when every issue fills every cap and *empty* when every connection
 comes back with nothing.
 
-Every figure below is one evaluation of the four lines after the table, so each
-can be re-derived by hand from the caps. Read those first: a connection costs
-**`2k + 6`** when it returns k nodes and 6 when it returns none; the four
-connections of one issue cost **120** at the caps (`26 + 66 + 16 + 12`); an
-issue costs **124** with them filled and **28** with nothing on it; a page of `n`
-issues is **`125n + 7`** saturated and **`29n + 7`** empty; `pullRequests` costs
-**96** with five open pull requests carrying five labels each and **6** with
-none.
+Every figure in the table is one evaluation of the lines after it, and those
+lines are the single definition: nothing else in this section restates them, and
+each cites them instead. Read those first: a connection costs **`2k + 6`** when
+it returns k nodes and 6 when it returns none; the four connections of one issue
+cost **120** at the caps (`26 + 66 + 16 + 12`); an issue costs **124** with them
+filled and **28** with nothing on it; a page of `n` issues is **`125n + 7`**
+saturated and **`29n + 7`** empty; `pullRequests` costs **96** with five open
+pull requests carrying five labels each and **6** with none. `pullRequests` is a
+sibling of `issues` inside the same `repository` selection, so **every page
+re-pays it**: the bound of the next list is per page for the pulls, not per poll.
 
-| Request | Cost, by the four lines after the table | Against 5,000/hr |
+| Request | Cost, by the lines after the table | Against 5,000/hr |
 | --- | --- | --- |
 | The same query with `first: 100` on the issues and today's caps — `labels` 30, `timelineItems` 100, `comments` 20, `closedByPullRequestsReferences` 10 — every issue saturated | `1 + (7 + 100 × 348) + 96 = 35,004`, where one issue is its own node and four scalars (4) plus four connections filled to those caps: `(6+2×30) + (6+2×100) + (6+2×20) + (6+2×10) = 344` | **7.0× the whole hour**: no second query of any kind for the rest of it, and one such request ends polling until the hour rolls over |
 | 100 issues, every connection empty — the whole open set read in one page, the shape a `first: 100` poll asks for on a quiet host | `(29 × 100 + 7) + 6 = 2,913` | **0.58×** the hour, and **17.7 polls' worth** of the 30 an hour: reading the whole open set at once is unaffordable even when there is nothing on it, so the page size is not a latency knob |
@@ -1136,15 +1361,17 @@ only what it did not have. Page 1 is always paid; every page after it is earned.
 - **The page is sized to the budget, not to 100, and a page of 100 cannot be
   sized into affordability.** At the caps below, a page of `n` issues costs
   `125n + 7` at worst and `29n + 7` when every connection is empty, and the pull
-  requests add a flat 96 when five are open with five labels each (the bound
-  after this list). So a saturated page of 25 costs 3,228 with its pull requests,
-  about twenty times the poll's share of the hour, and a saturated page of 100
-  12,603, seventy-six times it. `first:` on the issues is therefore **3**, not 25
-  and not 100 — a page
-  is sent only when what it can cost fits what the hour has left, and
-  `pages ≤ ceil(open issues / 3)` bounds the rest. (These are the saturated
-  worst cases; the same pages read empty are 738 and 2,913, and the second is the
-  second row of the table above.) For the queue the
+  requests add a flat 96 when five are open with five labels each (the lines
+  after the table price it, and the bound after them keeps it inside every page
+  rather than adding it once). So a saturated page of 25 costs 3,228 with its
+  pull requests, about twenty times the poll's share of the hour, and a
+  saturated page of 100 12,603, seventy-six times it. `first:` on the issues is
+  therefore **3**, not 25 and not 100 — a page is sent only when what it can
+  cost fits what the hour has left, and `pages ≤ ceil(open issues / 3)` bounds
+  the rest. (These are the saturated worst cases; the same pages read empty are
+  738 and 2,913, and the second is the second row of the table above. Each of
+  the four figures carries one page's pulls; a page after the first re-pays
+  them.) For the queue the
   epic counted — 132 issues across all states — that ceiling is 44 pages, which
   is why the stop rule above is not a performance hint but the thing that keeps a
   poll able to run at all: an idle poll pays one page of three issues (100 points)
@@ -1177,14 +1404,27 @@ points per poll ≤ pages × page + pulls
   i    = 4 (the issue's node + its four scalar fields)
        + (2l + 6) + (2t + 6) + (2c + 6) + (2r + 6)          // four connections
   pulls = (2·n_pr + 1) + n_pr × (1 + (2·lp + 6))             // pullRequests + each pull
-                                                             // + its labels
+                                                             // + its labels;
+                                                             // the 1 is the pull's
+                                                             // own node, as i's 4
+                                                             // counts the issue's
+
+points per poll ≤ pages × (page + pulls)
+
+  // `pullRequests` is a sibling of `issues` in the same `repository` selection,
+  // so each page of the query re-pays it: it is inside the parentheses, not
+  // added once per poll.
 
 with the caps of the list after this bound — l = 10, t = 30, c = 5, r = 3,
 n_pr = 5, lp = 5:
 
   i     = 4 + 26 + 66 + 16 + 12 = 124                // a saturated issue
   page  = 1 + (2n + 6) + 124n = 125n + 7             // 132 at n = 1, 382 at n = 3
-  pulls = 11 + 5 × 17 = 96                            // flat in n, so it is paid per page
+  pulls = 11 + 5 × 17 = 96                            // flat in n, and paid per page
+
+  the ceiling of the paging above at its worst: 44 pages × (382 + 96) = 21,032,
+  4.2× the whole hour. A figure that does not include the pulls on every page
+  after the first under-counts by 44 × 96 = 4,224
 
 with every connection empty (l = t = c = r = 0, and no pull request open):
 
@@ -1196,9 +1436,15 @@ with every connection empty (l = t = c = r = 0, and no pull request open):
   what make that ratio as small as it is
 ```
 
-and the poll is rejected before it is sent if that bound exceeds the budget left
-in the hour, which is what the `--budget-left` check of `snapshot-load` in
-section 4 is for. The two numbers that decide the size of a page are `t` (30, by
+and the poll is rejected **before the request is made** if that bound exceeds
+the budget left in the hour. That check is `snapshot-cost` (section 4), which
+evaluates the bound for the page and caps it would send and refuses: the
+`--from` verb cannot be the guard, because by the time it holds a response the
+request has been sent and paid for. `snapshot-load --budget-left` is the second
+half: it refuses to store a response whose measured `points` exceed what was
+left. Once #253 has recorded a page's actual cost, the pre-flight uses the
+**measured** cost per page rather than this formula — the model may set the first
+threshold, but it does not get to police itself after it has been observed. The two numbers that decide the size of a page are `t` (30, by
 far the largest term of a saturated issue) and `n` itself, and they pull in
 opposite directions:
 
@@ -1215,8 +1461,8 @@ opposite directions:
   closing pull requests at once. The realistic cases — page 1 of an idle queue at
   94 points, a page whose few issues carry a couple of labels and one label event
   in the window at roughly 150 to 300 — sit at or near the 165 points the timer's
-  interval allows, and the `--budget-left` check refuses a page whose bound says
-  it will not fit rather than sending it and finding out.
+  interval allows, and the pre-flight refuses a page whose bound says it will not
+  fit rather than sending it and finding out.
 
 #253 owns the resolution of that gap, and it is larger than "pick a number": it
 either lowers `t` and `l` until the saturated worst case itself fits 165 (at
@@ -1225,7 +1471,8 @@ either lowers `t` and `l` until the saturated worst case itself fits 165 (at
 issues and reads more pages instead, or lengthens the timer. What it may not do is
 keep a page size whose measured cost it has not recorded. The numbers in this
 section are a model with its terms shown; #253 replaces them with the `points`
-field `snapshot-load` reports.
+field `snapshot-load` reports, and once a measured cost exists the pre-flight
+reads that rather than the model.
 
 The caps are what keep a page's *usual* cost near the hour's share at 30 polls
 (what a page costs at all is the bound above, and the saturated worst case does
@@ -1244,40 +1491,48 @@ not fit there):
   `first: 3` (today's per-candidate read asks for 20, and one issue does not
   have twenty closing pull requests).
 - `pullRequests` is `first: 5`, not 100 as `dispatch:1241` asks per poll today:
-  the bot's own open pull requests are few, and the bound above prices the row at
+  the bot's own open pull requests are few, and the lines above price the row at
   96 points when full (`11 + 5 × 17`), against 6 when none is open.
 - A candidate's 3 per-issue queries of today become 1 because the edits the
-  approval binds to (`:1120`) is the only one of the three that a snapshot
-  cannot already answer. **And if even the page of three does not fit the hour,
-  the snapshot is narrowed before anything else is tried**, in this order:
-  `timelineItems` to 10 (the poll's window is two minutes, so no issue has more
-  than a handful of label events inside it), then `comments` to `last: 3`, then
-  the pull requests split into a second request of their own, then the page to
-  1. `first:` is never raised to buy coverage; coverage comes from paging.
+  approval binds to (`:1120`) is the only one of the three a snapshot cannot
+  already answer.
+- **And if even the page of three does not fit the hour, the snapshot is
+  narrowed before anything else is tried**, in this order: `timelineItems` to 10
+  (the poll's window is two minutes, so no issue has more than a handful of label
+  events inside it), then `comments` to `last: 3`, then the pull requests split
+  into a second request of their own, then the page to 1. `first:` is never raised
+  to buy coverage; coverage comes from paging. The order is a preference, not a
+  ladder that is known to reach: the model prices the empty-page floor of one
+  saturated issue with the pulls at 228, above 165, so the last three rungs end at
+  the same verdict as the first for a saturated page and none of them closes the
+  gap on its own. What does close it is the second rung (the pulls as their own
+  request, which takes `pulls` out of every page and makes the bound `pages × page
+  + pulls`) or a longer timer, and #253 decides between those with a measured cost
+  rather than walking the list.
 
-The idle poll's cost, named for what it is: **page 1 of a small queue is the
-fourth row above — 94 points with every connection empty, and on the order of
-150 to 300 once the few issues the poll can act on carry their labels and their
-last label event. A poll's worst case, three saturated issues with the pull
-requests, is 478** — `125 × 3 + 7` for the page and 96 for the pulls — **2.9×
-that share**, which the caps and the `--budget-left` check are there to catch
-rather than to hide, and which is the number #253 measures against. `requests ≤
-pages + 2 + candidates` is what the epic's target of 3 measures; node cost is the
-limit that target does not see, and it is the one this section decides on. A run
-against tehas-tehas must
-record the `X-RateLimit-Remaining` delta of the graphql resource across ten
-polls (section 10), name the page count and the `first:` value of each, and say
-what a page actually cost — because the rows above are a model, not a
-measurement. The sub-issue that builds the snapshot owns the answer: if the
-measured page cost does not fit 165 points at the timer's interval, it adjusts
-the page size and the caps, or lengthens the interval, before the reconciler
-takes over, not after. It is #253's acceptance line, and #253 does not end until
-it has a number.
+Two things this section states that no list above does. `requests ≤ pages + 2 +
+candidates` is what the epic's target of 3 measures; node cost is the limit that
+target does not see, and it is the one this section decides on. And a run against
+tehas-tehas must record the `X-RateLimit-Remaining` delta of the graphql resource
+across ten polls (section 10), name the page count and the `first:` value of each,
+and say what a page actually cost — because the rows above are a model, not a
+measurement. The idle case is the fourth row of the table and the saturated worst
+case the third; both are #253's numbers to measure, and it does not end until it
+has them.
 
 ## 7. The import of today's files
 
 One command, `tehasbot store import --home <dir>`, run once per host, from
 `install.sh` under `state/update.lock`, after a `VACUUM INTO` backup.
+
+**The root is proved before anything else.** `--home` is an operator-supplied
+directory that this command both writes into and deletes from, so before it
+reads, writes or removes a single file it requires `$HOME/.tehas-home` — the same
+marker `install.sh` requires as "the proof the directory is tehas's, read before
+anything else" (`install.sh:252-261`). Without it the import exits 78 with the
+word `unmarked` and touches nothing: B6's rule that removal happens only under a
+marker-owned root, with `TEHAS_HOME` checked first, is an invariant of every
+removal pass in the store, not only of the sweep's (#250).
 
 ### Order
 
@@ -1299,9 +1554,16 @@ Order matters because the groups reference each other.
    and skipped, never guessed at.
 6. `polls`, `poll_demand`, `queue_snapshot`, `branch_checks`, `pause_flag`,
    `limits`, `endpoints`, `index_state`, `release_history`, `edge_takeover`,
-   `refresh_requests`, `refresh_hold`, `check_product`, `platform_state`.
+   `improve_cap`, `refresh_requests`, `refresh_hold`, `check_product`,
+   `platform_state`.
 7. `sweep_log` from what is left on disk, as `kept` rows, so the sweep's rules
    have a starting point.
+
+Where a file's timestamp is text, step by step it is converted, not coerced:
+`%FT%TZ` parsed to Unix seconds for `state/refresh/<n>.json`'s `at` (section
+3.11), `state/pause.json`'s `at`, `plan-<n>.json`'s `startedAt` and the `$at` of
+the history JSONL. A value that does not parse makes its file `held`, never a
+row with a coerced time.
 
 Each step is one transaction, and the step that fails is reported by name with
 the file that broke it. The import does not run a second time on a host that has
@@ -1312,14 +1574,26 @@ already imported.
 The rule is that an import is a move, not a merge, and a move must be provably
 complete before anything is removed.
 
-- Every row is keyed by a natural key from the file it came from: `(issue, at)`
-  for history, parks, refresh requests and approvals; `(issue, attempt)` for
-  results; `(issue, started_at)` for endings; `id = 1` for the singletons. A
-  re-run inserts `OR IGNORE`, so running the import twice changes nothing.
+- Every row is keyed by a natural key recomputed from the file it came from:
+  `(issue, at)` for history, parks, refresh requests and approvals; `(issue,
+  received_at)` for results and progress, which is what the file carries (no
+  cycle-side file records an attempt — section 3.6); `(issue, started_at)` for
+  endings; `id = 1` for the singletons. A re-run inserts `OR IGNORE`, so running
+  the import twice changes nothing.
 - **A file is removed only by a later run of the same command, and only when
   its own row exists.** The check is per file: `import --verify` re-reads each
   candidate file, recomputes its natural key, and reports it as `moved` only when
   the row matches. Nothing is removed in the pass that wrote the rows.
+- **A candidate is a regular file, or it is not a candidate.** Before its content
+  is parsed or its key compared, a candidate must be a regular file, not a
+  symlink (`[ ! -L ]`, the guard the existing readers of these very files already
+  apply — `lib/improve.sh:88`, `lib/fixer.sh:152`, `install.sh:1013`), and within
+  a size bound of 1 MiB, read with `stat -c %s` as `lib/improve.sh:89` does. A
+  symlink, a directory, a device or an over-large file is reported `held` as
+  unreadable and stays where it is: it is never reported `moved`, so the next
+  run's removal pass cannot delete through it. A planted `state/cycles/<n>.json`
+  whose content parses and keys correctly would otherwise be removed by the
+  import and would have taken whatever it pointed at with it.
 - A file that cannot be read, parsed, or keyed is reported as `held` and stays
   where it is. The import exits 1 when anything is `held`, and the operator sees
   the list. It never invents a row to make a file disposable.
@@ -1540,24 +1814,41 @@ person taking it knows what "done" looks like.
 Run on tehas-tehas as the tehas user, with the instance's settings loaded. Each
 is one command; none writes outside a scratch directory the operator chooses.
 
-Ten consecutive idle polls, their wall time and their request count:
+Ten consecutive idle polls, their wall time and their request count. `--dry-run`
+is what makes this safe to run on a production host: it is honoured throughout
+`libexec/dispatch` and suppresses the label changes, comments and starts, but the
+poll still calls GitHub and still writes its own state, so the block below is
+preceded and followed by a check a person can read — if the queue labels or
+`live/status.json` differ afterwards, the ten polls were not idle and the
+baseline is void:
 
 ```bash
-# one poll, timed, with the request headers on either side
+# before: a record of what the queue looked like, so "nothing changed" is checkable
+gh issue list --repo "$TEHAS_REPO" --label tehas:running --json number >before.json
+cp ~/tehas/live/status.json before-status.json
+
 for i in $(seq 1 10); do
   a=$(gh api rate_limit --jq '[.resources.core.remaining, .resources.graphql.remaining] | @tsv')
   s=$(date +%s%N)
-  systemctl --user start tehas-dispatch.service --wait
+  ~/tehas/bin/tehasbot dispatch --dry-run
   e=$(date +%s%N)
   b=$(gh api rate_limit --jq '[.resources.core.remaining, .resources.graphql.remaining] | @tsv')
-  printf 'poll %s ms %s rest %s graphql %s\n' "$i" $(( (e - s) / 1000000 )) \
-    "$(jq -rn --arg a "$a" --arg b "$b" '$a|@tsv')" ""
+  read -r a_rest a_gql <<<"$a"
+  read -r b_rest b_gql <<<"$b"
+  printf 'poll %s ms %s rest %s->%s graphql %s->%s\n' "$i" $(( (e - s) / 1000000 )) \
+    "$a_rest" "$b_rest" "$a_gql" "$b_gql"
 done
+
+# after: the same two reads, and a diff against the first pair is the proof
+gh issue list --repo "$TEHAS_REPO" --label tehas:running --json number >after.json
+diff before.json <(jq -S . after.json)
+jq -S 'del(.at,.age_seconds)' before-status.json >/dev/null   # eyeball the two
 ```
 
 p50 and p95 of the ms column; the request count per poll is the difference of
-the two `remaining` readings. A poll that started a cycle is not idle: discard
-it and take ten more, and say how many were discarded.
+the two `remaining` readings of each line — rest from the `rest` pair, graphql
+from the `graphql` pair. A poll that started a cycle is not idle: discard it and
+take ten more, and say how many were discarded.
 
 The same numbers from the log, when the unit's own timing is enough:
 
@@ -1575,13 +1866,18 @@ taken on the host, not in a container:
 
 ```bash
 # sudo apt-get install -y strace   # once; bootstrap does not provide it
-strace -f -e trace=flock -c -o /tmp/probes.txt \
+# A private directory of the operator's own, made private: a trace of a real
+# poll at a predictable world-readable /tmp name is a file another local account
+# can pre-create and own what root writes. Never root, and never a fixed name.
+scratch=$(mktemp -d) || exit 1
+chmod 700 "$scratch"
+strace -f -e trace=flock -c -o "$scratch/probes.txt" \
   /bin/bash -c '. ~/tehas/env.sh && exec ~/tehas/bin/tehasbot dispatch --dry-run'
 ```
 
 The epic's "one probe per issue ever worked" is the count of `flock` calls in
-`/tmp/probes.txt` divided by the polls traced. A poll that started a cycle is not
-idle; discard it and trace another.
+`$scratch/probes.txt` divided by the polls traced. A poll that started a cycle is
+not idle; discard it and trace another.
 
 The gate and the serial suite, timed (the same commands the driver's gate
 runs):
@@ -1642,9 +1938,9 @@ with what is left.
 | It says how ADR 0001's "bash house style" point now reads | ADR 0003, *How this ADR reads ADR 0001's "bash house style"* (quotes point 4, corrects the count, states which of its reasons still carry weight) | done |
 | Schema v1: every table, column, key and index, with the file or files each replaces | section 3 (3.1-3.14), each table with its *Replaces* line | done |
 | Times as columns, not mtimes | the conventions under section 3, and `cycles.started_at` which replaces a file mtime | done |
-| The command's verbs, arguments, JSON output and exit statuses; each of the 13 groups maps to one verb that writes in one transaction | sections 2 and 4 (the group column of the verb table names the group of section 2) | done |
+| The command's verbs, arguments, JSON output and exit statuses; each of the 13 groups maps to one verb that writes in one transaction | sections 2 and 4 (the group column of the verb table names the group of section 2). The mapping is stated as eleven verbs and one group with none, and the reasons are named where they arise: after the section 2 table, and in the note at the end of section 4 | done |
 | The action journal: what a row holds, when it is written, how the next poll settles an action intended and not done | section 5 (schema, *When it is written*, the per-kind settlement table) | done |
-| One GraphQL query with pages for the labelled issues, their labels, `labeled` events with actor and time, edits, closing pull requests, the bot's question comments; request count per idle poll and per candidate | section 6 | done |
+| One GraphQL query with pages for the labelled issues, their labels, `labeled` events with actor and time, edits, closing pull requests, the bot's question comments; request count per idle poll and per candidate | section 6. The node formula it rests on is quoted, dated and **marked pending #253's measurement**, and the per-poll bound charges `pullRequests` on every page | done, with the cost model open on #253 |
 | The import: order, idempotence, what happens to the old files | section 7 | done |
 | Whether to vendor, with the size cost | section 8, with the 62 crates / 101 MB / 3,444 files measured at `5e2d5fa` | done |
 | The inventory re-checked after #234: every file under `$TEHAS_HOME` with writer, reader and fate; a file left out is a bug | section 1 (1.1-1.15), including the files that no longer exist and the ones added since the research | done, and **a file left out is a bug**: it is the reviewer's job, not the author's claim, that proves it complete |
