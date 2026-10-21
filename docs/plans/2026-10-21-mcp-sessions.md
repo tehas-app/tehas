@@ -56,7 +56,8 @@
   - `steps: [{step, round, started, ended, seconds}]` and `roles: [{role, model, provider, dispatches, turns, input, output, cacheRead, cacheWrite, cost, ms}]`
   - `logs: [{word, name, bytes}]`, only the files that exist as regular files
 
-  Exit 69 when analytics is off, 70 when the database cannot be read.
+  Exit 70 when the database cannot be read. Analytics off is the shell's concern: `tehas_analytics_to` returns 2 without calling the program.
+- Planning sessions also carry `filed: [{issue, url}]`, the issues that turn filed, from `state/refined.jsonl` (PR #494): a line belongs when `source` is the session's issue and `at` is in `[started, ended + 120]`.
 - Produces: `pub const SESSIONS_DAYS: i64 = 30;` and `pub fn log_files(logs: &Path, kind: &str, issue: i64, started: i64, ended: Option<i64>, now: i64) -> Vec<(String, String, u64)>`.
 - Log words. Work: `transcript` → `<base>.jsonl`, `err`, `preflight`, `console` → `<base>.jsonl.<word>`, `result` → `<base>.jsonl.result.json`, `dispatch` → `dispatch-work-<n>.log`. Plan: `progress` → `<base>.jsonl`, `result` → `<base>.json`, `dispatch` → `dispatch-plan-<n>.log`.
 
@@ -144,12 +145,13 @@
   - `outcome`: enum `pr, merged, handoff, parked, failed, refused, stopped`
   - `failureKind`, `tehasVersion`, `rukasVersion`: strings of `^[A-Za-z0-9._+-]{1,64}$`, matched exactly. `rukasVersion` also matches `rukasCommit`.
   - `kind`: enum `work, plan`
+  - `how`: enum `label, retry-tick, outage-retry, fixer, answer, refine`, so refining sessions can be listed alone
   - `issue`: integer of at least 1
   - `limit`: 1 to 200, default 50
   - `before`: a session id
 
-  Returns `{api, days, stale, sessions: [...], next?}`. Each session has `id, kind, issue, attempt, started, ended, seconds, outcome, failedStep, failureKind, failureCause, parkReason, tehasVersion, rukasVersion, issueUrl, prUrl`. `next` is the last id when more remain.
-- `factory_session`: `{id}` required. Returns `{api, stale, session}`, with every snapshot field from Task 1 copied by an allowlist, plus `issueUrl` and `prUrl`. `logs` becomes `[{file: word, bytes}]`, and `name` is never returned.
+  Returns `{api, days, stale, sessions: [...], next?}`. Each session has `id, kind, issue, attempt, how, started, ended, seconds, outcome, failedStep, failureKind, failureCause, parkReason, tehasVersion, rukasVersion, issueUrl, prUrl`. `next` is the last id when more remain.
+- `factory_session`: `{id}` required. Returns `{api, stale, session}`, with every snapshot field from Task 1 copied by an allowlist, plus `issueUrl` and `prUrl`, and `filed` for a planning session. `logs` becomes `[{file: word, bytes}]`, and `name` is never returned.
 - Both tools have a full `outputSchema` naming every field, and every input property has a `description`.
 
 - [ ] **Step 1: Write the failing tests** in `tests/sessions.rs`:
@@ -176,7 +178,7 @@
 
 **Interfaces:**
 - Consumes: `sessions::find` (Task 4), `Output::Blob` (Task 3), `mask::mask`.
-- Produces: `factory_log {id, file, gzip?, offset?, bytes?}`. `file` is an enum of all eight words. A word the session's kind lacks, or a file the session does not list, is a tool error that names the words the session has.
+- Produces: `factory_log {id, file, gzip?, offset?, bytes?}`. `file` is an enum of the seven words. A word the session's kind lacks, or a file the session does not list, is a tool error that names the words the session has.
   - **Plain:** `Output::Json({api, id, file, size, offset, next?, text})`, with `bytes` at most `PLAIN_MAX` and defaulting to it.
   - **Gzip:** `Output::Blob`. `meta` is `{api, id, file, size, gzipBytes}`, `uri` is `tehas://sessions/<id>/<file>.gz` and `mime` is `application/gzip`. The `blob` is the base64 of a gzip of the masked text, written by a small encoder in `logs.rs`, with no crate.
   - `offset` and `bytes` with `gzip: true` are a tool error.
@@ -185,7 +187,7 @@
 - Name check before opening: the snapshot's `name` must match, for a work session of issue `n`, `^work-<n>-[0-9]{6}-[0-9]{6}\.jsonl(\.err|\.preflight|\.console|\.result\.json)?$` or `^dispatch-work-<n>\.log$`, and the same with `plan` and `.json` for a plan session. It is joined to `dirs.logs` only after that.
 
 - [ ] **Step 1: Write the failing tests** in `tests/logs.rs`:
-  - `masks_plain_and_gzip`: a log holding `ghp_` plus 36 letters, `PASSWORD=hunter2`, `https://u:pw@example.com/` and `10.1.2.3`, read plain whole, and gzipped then decoded with `flate2`. None of the four comes out in either.
+  - `masks_plain_and_gzip`: a log holding `ghp_` plus 36 letters, `PASSWORD=hunter2`, `https://u:pw@example.com/` and a private IPv4 address built with an `ip([..])` helper as the tests in `console/src/mask.rs` do (a literal one fails `scripts/check-generic.sh`), read plain whole, and gzipped then decoded with `flate2`. None of the four comes out in either.
   - `offset_inside_a_token`: an `offset` that lands in the middle of the token returns text without any part of the token.
   - `last_line_without_newline`: a token on a final line with no `\n` is masked.
   - `pieces_join`: reading a 2.5 MiB fixture in plain pieces, following `next`, and joining them equals the masked whole. `size` is the same in every piece.
@@ -205,8 +207,8 @@
 ### Task 6: `factory_failures`
 
 **Files:**
-- Modify: `console/mcp/src/sessions.rs`, `console/mcp/src/tools.rs`
-- Test: `console/mcp/tests/sessions.rs`
+- Modify: `console/mcp/src/sessions.rs`, `console/mcp/src/tools.rs`, `libexec/status` (`analytics_keys`)
+- Test: `console/mcp/tests/sessions.rs`, `console/mcp/tests/tools.rs`, `test/status_analytics_test.sh`
 
 **Interfaces:**
 - Consumes: `Snapshot`, `links`.
@@ -217,12 +219,15 @@
   - `causes`: the top five as `{cause, kind, n, issues: [issueUrl…]}`, at most ten links each, unique, newest first
 
   Work sessions only. Full `outputSchema`.
+- Also in this task: `factory_stats` copies the report's `refine` key (PR #494), with the exact keys `report.rs` prints for it, and `libexec/status` adds `"refine"` to `analytics_keys` so `live/analytics.json` carries it. These are counts only, as the rest of the public report.
 
 - [ ] **Step 1: Write the failing tests.**
   - `failures_per_version_pair`: two pairs. The counts are right, and plan sessions are left out.
   - `top_causes_bounded`: seven causes give five entries. A cause that failed twelve issues gives ten links.
   - `failures_without_repo`: `causes[].issues` is empty and the counts stay.
   - Extend `schema_matches_output` to this tool.
+  - `stats_carry_refine` in `tests/tools.rs`: a fixture `analytics.json` with `refine` and a planted extra key inside it. The planted key does not come out.
+  - In `test/status_analytics_test.sh`, the report fixture's `refine` reaches `live/analytics.json`.
 - [ ] **Step 2: Run them and see them fail.**
 - [ ] **Step 3: Implement it** in one pass over `Snapshot::sessions()`, with a `BTreeMap` per pair.
 - [ ] **Step 4: Run them and see them pass,** then the fast gate.
