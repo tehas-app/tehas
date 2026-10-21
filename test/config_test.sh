@@ -388,9 +388,9 @@ t_case "the front page is the floor unless the instance names the business layou
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && echo \"[\$TEHAS_LAYOUT]\""
 t_eq "$t_out" "[floor]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_LAYOUT=business TEHAS_THEME=beesknees >"$TEHAS_INSTANCE_DIR/instance.env"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_LAYOUT=business TEHAS_THEME=beesknees26 >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && echo \"[\$TEHAS_LAYOUT][\$TEHAS_THEME]\""
-t_eq "$t_out" "[business][beesknees]"
+t_eq "$t_out" "[business][beesknees26]"
 
 t_case "every layout the settings accept has a page"
 layouts=$(sed -n '/TEHAS_LAYOUT)/{n;p}' "$T_ROOT/lib/config.sh" | sed 's/^ *case "\$v" in \(.*\)) ;; \*).*/\1/' | tr -d ' ' | tr '|' ' ')
