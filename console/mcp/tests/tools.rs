@@ -101,6 +101,68 @@ fn key_paths(v: &Value) -> BTreeSet<String> {
     out
 }
 
+// The paths an outputSchema names, in the same shape as the paths of an
+// answer. The five tools name no map, so their schema needs none of the
+// `*` normalisation the session tools need.
+fn schema_paths(s: &Value, prefix: &str, out: &mut BTreeSet<String>) {
+    if let Some(props) = s["properties"].as_object() {
+        for (k, v) in props {
+            let p = if prefix.is_empty() {
+                k.clone()
+            } else {
+                format!("{prefix}.{k}")
+            };
+            out.insert(p.clone());
+            schema_paths(v, &p, out);
+        }
+    }
+    if s["type"] == "array" {
+        schema_paths(&s["items"], &format!("{prefix}[]"), out);
+    }
+}
+
+// The paths of a pick spec, in the same shape: an object names its keys and
+// an array names those of its items.
+fn spec_paths(s: &Value, prefix: &str, out: &mut BTreeSet<String>) {
+    match s {
+        Value::Object(m) => {
+            for (k, sub) in m {
+                let p = if prefix.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{prefix}.{k}")
+                };
+                out.insert(p.clone());
+                spec_paths(sub, &p, out);
+            }
+        }
+        Value::Array(a) => {
+            if let Some(sub) = a.first() {
+                spec_paths(sub, &format!("{prefix}[]"), out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn spec_paths_of(name: &str) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    spec_paths(&mcp::tools::spec_of(name).unwrap(), "", &mut out);
+    // call_held adds it to every answer, so it is not in any tool's spec.
+    out.insert("api".into());
+    out
+}
+
+fn schema_of(name: &str) -> Value {
+    list()
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == name)
+        .unwrap()["outputSchema"]
+        .clone()
+}
+
 const NAMES: [&str; 5] = [
     "factory_status",
     "factory_issues",
@@ -502,6 +564,92 @@ fn every_key_is_listed() {
         let got = key_paths(&call(&live(), name, &args(name)).unwrap());
         let want: BTreeSet<String> = keys.iter().map(|s| s.to_string()).collect();
         assert_eq!(got, want, "{name}");
+    }
+}
+
+// The schema and what the tool copies are the same list of fields, checked
+// against `spec_of`, the allowlist the answer is built from: a field that is
+// in one and not the other fails here. The paths of a real answer must be a
+// subset of the schema, so a field the tool answers without describing it
+// fails too. A schema field the fixtures cannot show is allowed, because
+// pick() drops a null and an absent key alike.
+#[test]
+fn schema_matches_output() {
+    for name in NAMES {
+        let cases = if name == "factory_issues" {
+            vec![
+                json!({}),
+                json!({"stage": "queued"}),
+                json!({"stage": "planning"}),
+                json!({"stage": "running"}),
+                json!({"stage": "awaiting"}),
+                json!({"stage": "stopped"}),
+                json!({"stage": "completed"}),
+            ]
+        } else {
+            vec![args(name)]
+        };
+        let mut got = BTreeSet::new();
+        for a in cases {
+            got.extend(key_paths(&call(&live(), name, &a).unwrap()));
+        }
+        let mut want = BTreeSet::new();
+        schema_paths(&schema_of(name), "", &mut want);
+        assert_eq!(want, spec_paths_of(name), "{name}: schema and spec");
+        want.remove("api");
+        for p in &got {
+            assert!(
+                p == "api" || want.contains(p),
+                "{name}: {p} is not in its schema"
+            );
+        }
+        for p in want.difference(&got) {
+            // A closed issue has closedAt, so the fixtures cannot show it in
+            // every stage; the issues of a plan with no turn are none.
+            assert!(
+                name == "factory_issues" && (p.ends_with(".closedAt") || p == "planning.issues"),
+                "{name}: {p} is in its schema and never comes out"
+            );
+        }
+    }
+}
+
+// Every property of an input and of an output says what it is, and every
+// field of an answer is a property, so nothing comes out undescribed.
+#[test]
+fn inputs_and_outputs_are_described() {
+    for name in NAMES {
+        let tool = list()
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap()
+            .clone();
+        for (k, v) in tool["inputSchema"]["properties"]
+            .as_object()
+            .unwrap_or(&serde_json::Map::new())
+        {
+            assert!(
+                !v["description"].as_str().unwrap_or("").is_empty(),
+                "{name} input {k}"
+            );
+        }
+        fn described(s: &Value, at: &str) {
+            if let Some(p) = s["properties"].as_object() {
+                for (k, v) in p {
+                    assert!(
+                        !v["description"].as_str().unwrap_or("").is_empty(),
+                        "{at}.{k}"
+                    );
+                    described(v, &format!("{at}.{k}"));
+                }
+            }
+            if s["type"] == "array" {
+                described(&s["items"], &format!("{at}[]"));
+            }
+        }
+        described(&tool["outputSchema"], name);
     }
 }
 
