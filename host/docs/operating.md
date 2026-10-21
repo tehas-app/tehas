@@ -1183,10 +1183,13 @@ hourly run as well.
 An update is a person's choice: nothing updates tehas on its own. Run
 `tehas update --check` to see the version installed, the newest release and
 the `Adopter action` of each release between, do what they ask, then run
-`tehas update`. `tehas update --to <version>` goes back. An update that changes a unit
+`tehas update`. `tehas update --to <version>` goes back (see
+[Rolling back tehas](/host#rolling-back-tehas)). An update that changes a unit
 restarts the units that run, and that can end a running cycle: pause and let
 the cycles finish first (see [Pause and resume](#pause-and-resume)). How it works is in
-[Updating tehas](/host#updating-tehas).
+[Updating tehas](/host#updating-tehas). A host installed from a checkout keeps
+pulling it until it is moved: see
+[Move a checkout host to releases](/host#move-a-checkout-host-to-releases).
 
 ## Run one issue by hand
 
