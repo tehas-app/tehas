@@ -178,7 +178,8 @@ export function fillBand(ctx, band, x, y, w, h) {
   ctx.fillStyle = paint("screen");
   for (let dy = 0; dy < h; dy++) for (let dx = (x + y + dy) % 2; dx < w; dx += 2) ctx.fillRect(x + dx, y + dy, 1, 1);
 }
-if (typeof document !== "undefined") {
+// Only on a page with the section: the business page imports layout() alone.
+if (typeof document !== "undefined" && document.getElementById("energy")) {
   const $ = (id) => document.getElementById(id);
   const clock = (t) => new Date(t * 1000).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
   let data = null, serverAt = 0, localAt = 0, drawn = "";

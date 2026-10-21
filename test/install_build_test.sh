@@ -14,7 +14,9 @@ t_case "the build is given no variable named like a secret"
 fresh
 instance
 t_stub cargo 'env >>"$T/cargo.env"
-mkdir -p "$CARGO_TARGET_DIR/release" && echo built >"$CARGO_TARGET_DIR/release/${*: -1}"'
+dir=$CARGO_TARGET_DIR/release
+[[ " $* " != *" --target "* ]] || dir=$CARGO_TARGET_DIR/x86_64-unknown-linux-musl/release
+mkdir -p "$dir" && echo built >"$dir/${*: -1}"'
 t_env GH_TOKEN=hidden-token DEPLOY_SECRET=hidden-secret DB_PASSWORD=hidden-word SOME_API_KEY=hidden-key PLAIN=kept
 t_run "$install"
 t_eq "$t_rc" 0
@@ -60,9 +62,10 @@ t_env PATH="$T/bin:/usr/bin:/bin"
 t_run "$install"
 t_eq "$t_rc" 0
 t_lacks "$t_out" "cargo is not installed"
-t_eq "$(t_calls cargo | wc -l)" 2
+t_eq "$(t_calls cargo | wc -l)" 3
 t_eq "$(cat "$th/libexec/console")" "a console built from source"
 t_eq "$(cat "$th/libexec/analytics")" "an analytics built from source"
+t_eq "$(cat "$th/libexec/tehas-mcp")" "a tehas-mcp built from source"
 t_stub_cargo
 t_env
 
@@ -176,6 +179,19 @@ echo "// changed" >>"$part/console/src/main.rs"
 rm -f "$T/calls/cargo"
 t_run "$part/install.sh"
 t_eq "$(t_calls cargo)" "build --release --locked --quiet --manifest-path $part/console/Cargo.toml --target-dir $T/target -p console"
+
+t_case "the MCP server is built static and installed beside the console, with its own stamp"
+rm -f "$T/calls/cargo"
+echo "// changed" >>"$part/console/mcp/src/main.rs"
+t_run "$part/install.sh --check"
+t_contains "$t_out" "differs: $th/libexec/tehas-mcp"
+t_lacks "$t_out" "differs: $th/libexec/console"
+t_run "$part/install.sh"
+t_eq "$t_rc" 0
+t_eq "$(t_calls cargo)" "build --release --locked --quiet --manifest-path $part/console/Cargo.toml --target-dir $T/target --target x86_64-unknown-linux-musl -p tehas-mcp"
+t_eq "$(cat "$th/libexec/tehas-mcp")" "a tehas-mcp built from source"
+t_eq "$(stat -c %a "$th/libexec/tehas-mcp")" 755
+t_eq "$(cut -d' ' -f2 "$th/libexec/tehas-mcp.stamp")" "$(sha256sum <"$th/libexec/tehas-mcp" | cut -d' ' -f1)"
 
 t_case "the mask the two share builds both"
 echo "// changed" >>"$part/console/src/mask.rs"

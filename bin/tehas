@@ -17,6 +17,7 @@
 #   tehas export --after C <dir>     copy them elsewhere, masked
 #   tehas top [--once|--json]        one screen of what the factory is doing
 #   tehas analytics report|export    the factory's last ten days of runs
+#   tehas mcp key                    a new key for the read-only MCP server
 #   tehas pause [reason]             stop this host from starting new work
 #   tehas resume                     lift this host's pause flag
 #   tehas stop <issue> [--keep-workspace]  end a cycle by hand, clear what it left
@@ -42,7 +43,7 @@ usage_of() {
 # script <command>: the file behind a command, or nothing.
 script() {
   case "$1" in
-    dispatch | work | plan | dev | index | update | labels | top | pause | resume | stop | api | limit | drain | history | export) echo "$libexec/$1" ;;
+    dispatch | work | plan | dev | index | update | labels | top | pause | resume | stop | api | limit | drain | history | export | mcp) echo "$libexec/$1" ;;
     status) echo "$libexec/summary" ;;
     analytics) echo "$libexec/analytics-cmd" ;;
   esac

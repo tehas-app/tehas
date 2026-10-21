@@ -368,9 +368,14 @@ for (const drop of VIEW) {
   test(`a page with no ${drop} throws nothing and draws nothing`, async () => {
     const p = await page([drop], `no-${drop}`);
     assert.deepEqual(p.errors, []);
-    assert.equal(p.reads, 1); // the read happened; the guard stopped the draw
+    // Without the section nothing runs at all: a page that imports layout()
+    // alone, as the business page does, reads nothing. Without the menu link or
+    // the meter the read happens and the guard stops the draw.
+    assert.equal(p.reads, drop === "energy" ? 0 : 1);
     assert.equal(p.hidden[VIEW.indexOf(drop)], "absent"); // the element the page lacks
-    assert.deepEqual(p.hidden.filter((v, i) => VIEW[i] !== drop), [false, false]); // the rest untouched
+    // The rest untouched; without the section, not even looked up.
+    const rest = drop === "energy" ? ["absent", "absent"] : [false, false];
+    assert.deepEqual(p.hidden.filter((v, i) => VIEW[i] !== drop), rest);
     assert.deepEqual(p.drawn, {}); // not the chart, not a swatch
   });
 }

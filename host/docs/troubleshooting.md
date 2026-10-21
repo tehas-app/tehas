@@ -396,7 +396,7 @@ cap means" say which check. Four kinds were seen:
   sheets (`host/fun/*.css`), and in one cycle scripts as well. Tests and
   manual pages are what the repository's rules require a change to touch, so
   the plan's fence and the rules disagree
-  (tehas-org/tehas#159, trail-openers/pi-rukas#1250). Name in the issue every file
+  (tehas-app/tehas#159, trail-openers/pi-rukas#1250). Name in the issue every file
   the change will touch, the test file and the manual page included, as
   step 1 of [Operating](/operating) says.
 - `verify command ... failed on the CONSOLIDATED tree`, or `exceeded its
@@ -491,7 +491,7 @@ Until result schema 5 (pi-rukas v0.14.0) this cap was named
 
 The adversarial review could not run: its dispatch failed twice. It says
 nothing about the code. All three times it was seen here, on 14 October, the
-model endpoint was timing out (tehas-org/tehas#147,
+model endpoint was timing out (tehas-app/tehas#147,
 trail-openers/pi-rukas#1243). The work is committed on a local branch in the
 workspace and was not pushed. There is no pull request. Check the endpoint,
 as in "The model endpoint does not answer" below, and retry once it answers.

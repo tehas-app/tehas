@@ -1,0 +1,134 @@
+{
+  "availability": {
+    "n": 322,
+    "seconds": 55667,
+    "share": 0.874
+  },
+  "cycleTime": {
+    "median": 4583,
+    "n": 25,
+    "p90": 15276
+  },
+  "daily": [
+    {
+      "day": "2026-10-19",
+      "failed": 3,
+      "minutes": 566,
+      "runs": 7,
+      "shipped": 3
+    },
+    {
+      "day": "2026-10-20",
+      "failed": 6,
+      "minutes": 1795,
+      "runs": 18,
+      "shipped": 5
+    }
+  ],
+  "energy": {
+    "kwh": 0.628,
+    "n": 48,
+    "perShipped": 0.079
+  },
+  "firstPassYield": {
+    "n": 3,
+    "share": 0.0
+  },
+  "from": 1791676800,
+  "handoffRate": {
+    "n": 25,
+    "share": 0.48
+  },
+  "leadTime": {
+    "median": 40140,
+    "n": 4,
+    "p90": 40188
+  },
+  "machineTime": {
+    "n": 25,
+    "perShipped": 17709,
+    "seconds": 141673
+  },
+  "planned": {
+    "inLine": 4,
+    "n": 4,
+    "planning": 0,
+    "trend": [
+      {
+        "day": "2026-10-19",
+        "n": 10
+      },
+      {
+        "day": "2026-10-20",
+        "n": 4
+      }
+    ]
+  },
+  "planningTurns": {
+    "n": 0
+  },
+  "report": 1,
+  "runs": {
+    "failed": 9,
+    "handoff": 12,
+    "merged": 0,
+    "n": 25,
+    "parked": 0,
+    "pr": 1,
+    "refused": 0,
+    "stopped": 3
+  },
+  "shipped": {
+    "n": 8
+  },
+  "stations": {
+    "n": 19,
+    "steps": [
+      {
+        "n": 19,
+        "passed": 19,
+        "share": 1.0,
+        "step": "explore"
+      },
+      {
+        "n": 19,
+        "passed": 15,
+        "share": 0.789,
+        "step": "plan"
+      }
+    ]
+  },
+  "stopReasons": {
+    "n": 21,
+    "top": [
+      {
+        "n": 7,
+        "reason": "failed"
+      },
+      {
+        "n": 4,
+        "reason": "plan-spec-mismatch"
+      }
+    ]
+  },
+  "to": 1792485964,
+  "tokens": {
+    "cacheRead": 1883647177,
+    "input": 51931277,
+    "n": 18,
+    "output": 3082868,
+    "perShipped": 242332665,
+    "total": 1938661322
+  },
+  "versions": [
+    {
+      "medianSeconds": 8686,
+      "medianTokens": 0,
+      "n": 4,
+      "prShare": 0.0,
+      "rukas": "76bac4c8a8903abb55e93b1bdd80f12d13304be9",
+      "tehas": "v0.7.27"
+    }
+  ],
+  "secretKey": "SECRET"
+}

@@ -213,7 +213,12 @@ found_bun() { version_of bun --version; }
 found_pi() { version_of pi --version; }
 found_ctx7() { version_of ctx7 --version; }
 found_parallel() { version_of parallel-cli --version; }
-found_rust() { version_of rustc --version; }
+# The MCP server is built static, so a toolchain without the musl target is
+# not the one install.sh needs.
+found_rust() {
+  rustup target list --installed 2>/dev/null | grep -qx x86_64-unknown-linux-musl || return 0
+  version_of rustc --version
+}
 found_vipune() { version_of vipune version; }
 found_oo() { version_of oo --version; }
 found_cbm() { version_of codebase-memory-mcp --version; }
@@ -462,6 +467,7 @@ install_rust() {
     chmod +x "$dl/rustup-init"
     "$dl/rustup-init" -y --profile minimal --default-toolchain "$RUST_VERSION" --no-modify-path >/dev/null 2>&1
   fi
+  rustup target add x86_64-unknown-linux-musl --toolchain "$RUST_VERSION" >/dev/null
 }
 install_vipune() { cargo install vipune --version "$VIPUNE_VERSION" --locked --quiet; }
 install_oo() { cargo install double-o --version "$OO_VERSION" --locked --quiet; }
