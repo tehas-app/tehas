@@ -381,7 +381,7 @@ tehas_load() {
   export TEHAS_ANALYTICS_COOKIE=${TEHAS_ANALYTICS_COOKIE:-0}
   export TEHAS_THEME=${TEHAS_THEME:-pixel}
   export TEHAS_LAYOUT=${TEHAS_LAYOUT:-floor}
-  # The factory's own ten days of runs, events and samples in
+  # The factory's own 365 days of runs, events and samples in
   # state/analytics.db (lib/analytics.sh), not the visitor analytics above.
   # On unless the instance says off, which stops every write.
   export TEHAS_ANALYTICS=${TEHAS_ANALYTICS:-on}

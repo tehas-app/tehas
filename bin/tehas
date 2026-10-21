@@ -16,7 +16,7 @@
 #   tehas history [--json] [--after C] [--issue N]  the cycles that ended
 #   tehas export --after C <dir>     copy them elsewhere, masked
 #   tehas top [--once|--json]        one screen of what the factory is doing
-#   tehas analytics report|export    the factory's last ten days of runs
+#   tehas analytics report|export    the factory's last 365 days of runs
 #   tehas mcp key                    a new key for the read-only MCP server
 #   tehas pause [reason]             stop this host from starting new work
 #   tehas resume                     lift this host's pause flag
