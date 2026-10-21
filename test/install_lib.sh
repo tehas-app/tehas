@@ -28,6 +28,8 @@ net_inspect='version --format {{.Server.Version}}
 network inspect --format {{.Internal}} {{.Driver}} {{.EnableIPv6}} {{index .Options "com.docker.network.bridge.gateway_mode_ipv4"}} tehas-previews'
 t_stub docker "$net_good"
 t_stub systemctl
+# A first install makes the labels in the product repository.
+t_stub gh
 t_stub_cargo
 
 # An instance directory with settings and a model list that matches them.
@@ -51,7 +53,8 @@ fresh() {
   mkdir -p "$home"
 }
 
-files="./.config/systemd/user/tehas-cycle@.service
+files="./.bashrc
+./.config/systemd/user/tehas-cycle@.service
 ./.config/systemd/user/tehas-clean.service
 ./.config/systemd/user/tehas-clean.timer
 ./.config/systemd/user/tehas-dispatch.path
