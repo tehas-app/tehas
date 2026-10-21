@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Remove what the host can make again: build output in kept workspaces,
-# Docker's build cache, and old files under ~/tehas/tmp.
+# Docker's build cache, old sandbox and base images, and old files under
+# ~/tehas/tmp.
 #
 # A full disk stops previews and fails clones. Most of what fills it is
 # something the next build makes again, and a kept workspace is never built in
@@ -40,10 +41,24 @@
 #                                        directories, that old. Nothing
 #                                        elsewhere under $TEHAS_HOME, and
 #                                        nothing outside it.
+#   4. old sandbox images                dated tags of the sandbox image whose
+#                                        image is older than that, except the
+#                                        newest dated tag and any tag a
+#                                        container or a uid tag holds. What a
+#                                        build keeps is its newest three date
+#                                        tags (host/sandbox/build.sh); what is
+#                                        older than TEHAS_CLEAN_AFTER hours is
+#                                        this step's.
+#   5. the pulled base image             the base image of the sandbox build
+#                                        (the image upstream publishes for the
+#                                        commit versions.env follows), of that
+#                                        age and used by no container, and
+#                                        untagged images of that age: `docker
+#                                        image prune -f --filter until=<N>h`.
+#                                        Preview images are `tehasbot
+#                                        preview`'s and are not touched.
 #
-# Sandbox images and the pulled base image are not this command's: they go with
-# the build and with `tehasbot preview`. Docker volumes are never touched, a
-# person's call (see the host manual).
+# Docker volumes are never touched, a person's call (see the host manual).
 #
 # One line per removal, and a closing line with the bytes freed, go to
 # $TEHAS_HOME/logs/clean.log. A docker step that fails is logged as a warning
@@ -91,6 +106,14 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/config.sh"
 # shellcheck source=lib/cycles.sh
 . "$here/../lib/cycles.sh"
+# images_held, the one answer to what a container or a uid tag holds, and
+# tehas_base_image, the base of the sandbox build by the one name it is
+# known by. The sandbox build asks both for the same question. rukas.sh answers
+# which commit the host follows, which is the other half of that name.
+# shellcheck source=lib/rukas.sh
+. "$here/../lib/rukas.sh"
+# shellcheck source=lib/sandbox.sh
+. "$here/../lib/sandbox.sh"
 tehas_load || exit 78
 tehas_require_instance_settings
 
@@ -100,6 +123,12 @@ base=${TEHAS_WORK_DIR##*/}
 logs=$TEHAS_HOME/logs
 logfile=$logs/clean.log
 tmp=$TEHAS_HOME/tmp
+# The sandbox image, the dated tags of which step 4 takes: tehas gives a cycle
+# that name (lib/config.sh), and it is the name the build tags what it builds
+# with. The tag of the image cycles run is not a dated tag, and this step works
+# from the date tags alone, so the name is taken without it.
+sandbox_image=${PI_ENSEMBLE_IMAGE:-tehas/pi-rukas:uid$(id -u)}
+sandbox_image=${sandbox_image%:*}
 mkdir -p "$logs" "$TEHAS_HOME/state" ||
   { printf 'tehas clean: %s could not be made\n' "$TEHAS_HOME/state" >&2; exit 1; }
 
@@ -339,10 +368,129 @@ clean_scratch() {
   return "$failed"
 }
 
+# --- 4. old sandbox images ---------------------------------------------------
+# The dated tags of the sandbox image that have gone past the age, keeping the
+# newest of them: the build's own sweep counts the newest three date tags and
+# removes nothing younger than that, so what is older than TEHAS_CLEAN_AFTER
+# hours and past the newest is the part no build ever takes. A tag is kept
+# while a container -- running or stopped -- was made from its image, or a uid
+# tag names it, which is the proof host/sandbox/build.sh uses for its own
+# sweep, asked of images_held in lib/sandbox.sh. The age is the image's own
+# creation time, so an image a later container pulled up again is not old. A
+# docker that answers no image list, or nothing about what is held, removes
+# nothing: an unknown is never a reason to take an image away from a container.
+image_age() { # <image id> -> the image's creation time, or nothing
+  docker image inspect --format '{{.Created}}' "$1" 2>/dev/null | head -n 1
+}
+
+younger_than_hours() { # <a time docker answers> -> 0 when it is a parseable one and young
+  local t=$1 now age
+  [ -n "$t" ] || return 0
+  now=$(date +%s) || return 0
+  age=$(date -d "${t%.*}" +%s 2>/dev/null) || return 0
+  [ "$age" -ge $((now - after * 3600)) ]
+}
+
+clean_sandbox_images() {
+  local tags held tag id n=0 kb failed=0
+  tags=$(docker image ls --no-trunc --format '{{.Tag}} {{.ID}}' "$sandbox_image" 2>/dev/null) ||
+    { warn "docker gave no list of its $sandbox_image tags"; return 1; }
+  [ -n "$tags" ] || return 0
+  held=$(images_held "$tags") || { warn "docker said nothing about the containers on the host"; return 1; }
+  # Newest first, as the build's sweep sorts them: the first dated tag is the
+  # one that stays whatever else of its age goes.
+  while read -r tag id; do
+    n=$((n + 1))
+    [ "$n" = 1 ] && continue
+    younger_than_hours "$(image_age "$id")" && {
+      log "kept $sandbox_image:$tag: the image is younger than $after hours"
+      continue
+    }
+    if grep -qxF "$id" <<<"$held"; then
+      log "kept $sandbox_image:$tag: a container or a uid tag uses it"
+      continue
+    fi
+    [ "$dry" = 1 ] && { log "would remove $sandbox_image:$tag: a sandbox image of that age"; continue; }
+    kb=$(image_size "$id")
+    if docker rmi "$sandbox_image:$tag" >/dev/null 2>&1; then
+      freed=$((freed + kb))
+      log "removed $sandbox_image:$tag: a sandbox image of that age, $kb bytes"
+    else
+      warn "could not remove $sandbox_image:$tag"
+      failed=1
+    fi
+  done < <(grep -E '^[0-9]{6}-[0-9]{4}(-product)? ' <<<"$tags" | LC_ALL=C sort -r)
+  return "$failed"
+}
+
+# What one docker removal gave back, in bytes. A docker that answers no size
+# says nothing was freed, which is the truth of an image still there.
+image_size() { # <image id> -> the bytes of that image
+  local b
+  b=$(docker image inspect --format '{{.Size}}' "$1" 2>/dev/null | head -n 1)
+  [[ ${b:-} =~ ^[0-9]+$ ]] || b=0
+  printf '%s\n' "$b"
+}
+
+# --- 5. the pulled base image ------------------------------------------------
+# The image the sandbox build starts from: upstream's image for the pi-rukas
+# commit this host follows, which the build pulls and never removes. The name
+# is the one the build pulls it by (tehas_base_image in lib/sandbox.sh), so a
+# base no container was made from is docker's to take back once it is of that
+# age. Untagged images of that age go with it: what a build left nameless.
+# Preview images carry the label tehas.preview and are `tehasbot preview`'s:
+# `docker image prune` with no argument would take one that had lost its tag,
+# so this step names the base's own ids and asks nothing of any other image.
+clean_base_image() {
+  local pulled ids out rc2
+  pulled=$(tehas_base_image) || {
+    log "kept the base: the commit this host follows names no base"
+    return 0
+  }
+  # The ids docker holds for that one name, which is also the proof the image
+  # is on the host at all: a base never pulled has no id, and there is nothing
+  # to prune for it. Without an id the prune is not asked, because the prune
+  # without one takes every untagged image of that age on the daemon, preview
+  # images among them, and those are `tehasbot preview`'s.
+  # A docker that could not list is not a docker that listed nothing: the
+  # first is an unknown and the second is a fact, and only the fact is logged
+  # as one. An operator reading the log when the cleaner frees nothing must
+  # not be told the image was never pulled when docker would not say.
+  if ! ids=$(docker image ls --no-trunc -q "$pulled" 2>/dev/null); then
+    warn "docker gave no list of its base $pulled"
+    return 1
+  fi
+  if [ -z "$ids" ]; then
+    log "kept the base $pulled: no image of that name is on the host"
+    return 0
+  fi
+  if [ "$dry" = 1 ]; then
+    log "would prune the base $pulled and the images with no tag of that age"
+    return 0
+  fi
+  # Bounded, as the cache step is, so a slow prune ends this step and the run
+  # still closes. The ids name the base's own images, so the prune reaches no
+  # image of any other name; one a container was made from docker keeps.
+  rc2=0
+  # shellcheck disable=SC2086  # one argument per image id, as docker takes them
+  out=$(timeout -k 30 600 docker image prune -f --filter "until=${after}h" $ids 2>&1) || rc2=$?
+  if [ "$rc2" = 124 ]; then
+    warn "docker image prune did not finish in 600 seconds"
+    return 1
+  elif [ "$rc2" != 0 ]; then
+    warn "docker image prune failed ($rc2): $(head -n 1 <<<"${out:-docker gave no reason}")"
+    return 1
+  fi
+  log "docker image prune of that age: $(head -n 1 <<<"${out:-docker gave no answer}")"
+  return "$rc2"
+}
+
 # Every step runs, whatever the ones before it did.
 clean_workspaces || rc=1
 clean_build_cache || rc=1
 clean_scratch || rc=1
+clean_sandbox_images || rc=1
+clean_base_image || rc=1
 
 log "freed $freed bytes"
 exit "$rc"
