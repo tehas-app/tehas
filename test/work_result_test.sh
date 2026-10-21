@@ -65,13 +65,110 @@ t_eq "$(jq -r '.issues[0].cap' "$cycle_log.result.json")" verify-failed:develop
 t_contains "$t_out" "status=handoff step=develop cap=verify-failed:develop runner_exit=10"
 t_eq "$(jq -c '[.running, .status]' "$live/cycles/7.json")" '[false,"handoff"]'
 
-t_case "a cycle that ended at a cap with nothing in its error stream leaves a line naming the cap there"
+t_case "a cycle that ended at a cap with nothing in its error stream leaves the cap there, with the stream's name"
 fresh
 container 'says handoff verify-failed:develop; exit 10'
 t_run "$work 7"
 t_eq "$t_rc" 10
 cycle_log=$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p')
-t_eq "$(cat "$cycle_log.err")" "tehas work: issue 7 ended at the cap verify-failed:develop and $(basename "$cycle_log").err holds nothing: the driver wrote no diagnostic for the refusal, so the cap is all the record says about why the step was refused"
+t_eq "$(cat "$cycle_log.err")" "tehas work: issue 7 ended at the cap verify-failed:develop
+tehas work: the driver's diagnostics are in $(basename "$cycle_log")"
+t_lacks "$(cat "$cycle_log.err")" "holds nothing"
+t_lacks "$(cat "$cycle_log.err")" "the cap is all the record says"
+
+t_case "the reason the progress read for the cap is said with it"
+fresh
+container "progress '{\"v\":1,\"kind\":\"dispatch-failed-provider\",\"unstable\":true,\"event\":{\"providerMessage\":\"502 Bad Gateway\"}}'
+says handoff verify-failed:develop; exit 10"
+t_run "$work 7"
+t_eq "$t_rc" 10
+cycle_log=$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p')
+t_eq "$(cat "$cycle_log.err")" "tehas work: issue 7 ended at the cap verify-failed:develop: 502 Bad Gateway
+tehas work: the driver's diagnostics are in $(basename "$cycle_log")"
+
+t_case "the [pi-rukas] warn, kill and failure lines of the cycle's stream are copied into its error file"
+fresh
+container "progress '[pi-rukas] WARN work-driver: plan to-spec gate, halting before branch'
+progress '[pi-rukas] killed after 7200000ms timeout, after 71620 lines'
+progress '[pi-rukas] work-driver: exec error tail is unattributed, no FAILED marker found'
+progress '[pi-rukas] a line with none of the three words'
+progress 'WARN work-driver: not from the driver, so not copied'
+says handoff developer-timeout; exit 10"
+t_run "$work 7"
+t_eq "$t_rc" 10
+cycle_log=$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p')
+t_eq "$(cat "$cycle_log.err")" "tehas work: issue 7 ended at the cap developer-timeout
+[pi-rukas] WARN work-driver: plan to-spec gate, halting before branch
+[pi-rukas] killed after 7200000ms timeout, after 71620 lines
+[pi-rukas] work-driver: exec error tail is unattributed, no FAILED marker found
+tehas work: the driver's diagnostics are in $(basename "$cycle_log")"
+t_lacks "$(cat "$cycle_log.err")" "holds nothing"
+t_lacks "$(cat "$cycle_log.err")" "the cap is all the record says"
+
+t_case "only the last 20 [pi-rukas] lines of the stream are copied"
+fresh
+lines=""
+for n in $(seq 1 25); do
+  lines+="progress '[pi-rukas] WARN work-driver: repetition $n'"$'\n'
+done
+container "${lines}says handoff developer-timeout; exit 10"
+t_run "$work 7"
+t_eq "$t_rc" 10
+cycle_log=$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p')
+err=$(cat "$cycle_log.err")
+t_eq "$(printf '%s\n' "$err" | grep -c '^\[pi-rukas\]')" 20
+t_contains "$err" "repetition 25"
+t_lacks "$err" "repetition 4"
+t_lacks "$err" "repetition 5"
+
+t_case "a [pi-rukas] line of the stream is copied only as far as 1000 characters of it"
+fresh
+fat=$(printf 'e%.0s' $(seq 1 5000))
+container "progress '[pi-rukas] killed after 7200000ms timeout $fat ends here'
+says handoff developer-timeout; exit 10"
+t_run "$work 7"
+t_eq "$t_rc" 10
+cycle_log=$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p')
+err=$(cat "$cycle_log.err")
+t_eq "$(printf '%s\n' "$err" | sed -n '/^\[pi-rukas\]/p' | wc -L)" 1000
+t_lacks "$err" "ends here"
+# The line of the cap (51), the copied line (1000), the line of the stream's
+# name (47), each with its end of line.
+t_eq "$(wc -c <"$cycle_log.err")" 1127
+
+t_case "the copied lines of the stream together stay under 64 KiB of the record"
+fresh
+lines=""
+fat=$(printf 'e%.0s' $(seq 1 1000))
+for n in $(seq 1 100); do
+  lines+="progress '[pi-rukas] WARN work-driver: repetition $n $fat'"$'\n'
+done
+container "${lines}says handoff developer-timeout; exit 10"
+t_run "$work 7"
+t_eq "$t_rc" 10
+cycle_log=$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p')
+err=$(cat "$cycle_log.err")
+t_eq "$(printf '%s\n' "$err" | grep -c '^\[pi-rukas\]')" 20
+# 20 lines of 1000 characters, the line of the cap (52), the line of the
+# stream's name (47), each with its end of line: well under the 64 KiB.
+t_eq "$(wc -c <"$cycle_log.err")" 20146
+t_contains "$err" "repetition 100"
+
+t_case "the reason of the cap is kept to what the park comment can hold"
+fresh
+long=$(printf 'r%.0s' $(seq 1 900))
+container "progress '{\"v\":1,\"kind\":\"dispatch-failed-provider\",\"unstable\":true,\"event\":{\"providerMessage\":\"$long\"}}'
+says handoff plan-spec-mismatch; exit 10"
+t_run "$work 7"
+t_eq "$t_rc" 10
+cycle_log=$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p')
+err=$(cat "$cycle_log.err")
+# The reason is read the way tehasbot cycle reads it for the park comment: the
+# same reduction, the same 200 characters.
+t_eq "$(sed -n '1p' "$cycle_log.err" | wc -c)" 258
+t_eq "$(sed -n '1p' "$cycle_log.err")" \
+  "tehas work: issue 7 ended at the cap plan-spec-mismatch: $(printf 'r%.0s' $(seq 1 200))"
+t_eq "$(printf '%s\n' "$err" | wc -l)" 2
 
 t_case "a cycle that ended with no cap leaves its error stream as it is"
 fresh
