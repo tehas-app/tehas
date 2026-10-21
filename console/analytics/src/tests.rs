@@ -718,12 +718,13 @@ fn an_issue_without_history_records_nothing() {
 }
 
 #[test]
-fn prune_removes_rows_older_than_ten_days_and_keeps_a_running_run_s_events() {
+fn prune_removes_rows_older_than_365_days_and_keeps_a_running_run_s_events() {
     let home = scratch("prune");
     let now = 1_792_000_000;
-    let old = now - 11 * DAY;
+    let old = now - 366 * DAY;
+    let kept = now - 300 * DAY;
     let (conn, _) = db::open(&db::path(&home), now).unwrap();
-    for (id, issue, ended) in [("old", 1, old), ("new", 2, now - DAY)] {
+    for (id, issue, ended) in [("old", 1, old), ("new", 2, kept)] {
         conn.execute(
             "INSERT INTO runs (id, kind, issue, started, ended) VALUES (?1, 'work', ?2, ?3, ?3)",
             rusqlite::params![id, issue, ended],
@@ -740,7 +741,7 @@ fn prune_removes_rows_older_than_ten_days_and_keeps_a_running_run_s_events() {
         )
         .unwrap();
     }
-    // Issue 1 ended long ago; issue 3 started eleven days ago and runs still.
+    // Issue 1 ended long ago; issue 3 started a year and a day ago and runs still.
     for (issue, event, at) in [
         (1, "ready", old),
         (1, "started", old),
@@ -749,15 +750,15 @@ fn prune_removes_rows_older_than_ten_days_and_keeps_a_running_run_s_events() {
         (3, "started", old),
         // Started a day and more before the cutoff, never ended: no cycle
         // runs that long, so it goes like any other.
-        (6, "ready", now - 12 * DAY),
-        (6, "started", now - 11 * DAY - 1),
-        (2, "ready", now - DAY),
+        (6, "ready", now - 367 * DAY),
+        (6, "started", now - 366 * DAY - 1),
+        (2, "ready", kept),
     ] {
         db::event(&conn, issue, event, at).unwrap();
     }
     conn.execute(
         "INSERT INTO samples (at) VALUES (?1), (?2)",
-        [old, now - 60],
+        [old, kept],
     )
     .unwrap();
     execute(&home, &Cmd::Prune, now).unwrap();
@@ -784,6 +785,23 @@ fn prune_removes_rows_older_than_ten_days_and_keeps_a_running_run_s_events() {
             "SELECT group_concat(issue || ':' || event, ' ') FROM issue_events"
         ),
         "2:ready 3:ended"
+    );
+}
+
+#[test]
+fn prune_brings_the_retention_of_an_older_database_up_to_date() {
+    let home = scratch("meta-retention");
+    let now = 1_792_000_000;
+    let (conn, _) = db::open(&db::path(&home), now).unwrap();
+    conn.execute(
+        "UPDATE meta SET value = '10' WHERE key = 'retention_days'",
+        [],
+    )
+    .unwrap();
+    execute(&home, &Cmd::Prune, now).unwrap();
+    assert_eq!(
+        one::<String>(&conn, "SELECT value FROM meta WHERE key = 'retention_days'"),
+        "365"
     );
 }
 
@@ -864,7 +882,7 @@ fn a_database_that_cannot_be_written_is_an_error_and_stays() {
 fn a_write_prunes_too() {
     let home = scratch("writeprune");
     let now = 1_792_000_000;
-    execute(&home, &Cmd::Event(4, "ready".into(), None), now - 11 * DAY).unwrap();
+    execute(&home, &Cmd::Event(4, "ready".into(), None), now - 366 * DAY).unwrap();
     execute(&home, &Cmd::Event(5, "ready".into(), None), now).unwrap();
     let conn = Connection::open(db::path(&home)).unwrap();
     assert_eq!(
@@ -909,7 +927,7 @@ fn a_new_database_is_0600_in_wal_mode_with_its_schema_version() {
             &conn,
             "SELECT group_concat(key || '=' || value, ' ') FROM (SELECT * FROM meta ORDER BY key)"
         ),
-        "created=1792000000 retention_days=10 schema=1"
+        "created=1792000000 retention_days=365 schema=1"
     );
 }
 
@@ -978,17 +996,17 @@ fn a_database_of_another_schema_is_kept_aside_under_its_version() {
 }
 
 #[test]
-fn prune_deletes_a_kept_schema_ten_days_after_its_last_write() {
+fn prune_deletes_a_kept_schema_365_days_after_its_last_write() {
     let home = scratch("aside");
     let state = home.join("state");
     let now = 1_792_000_000;
     let at = |secs: i64| std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs as u64);
     for (name, written) in [
-        ("analytics.db.schema-7", now - 11 * 86_400),
-        ("analytics.db.schema-7-wal", now - 11 * 86_400),
-        ("analytics.db.schema-8", now - 9 * 86_400),
-        ("analytics.db.broken", now - 30 * 86_400),
-        ("other.schema-1", now - 30 * 86_400),
+        ("analytics.db.schema-7", now - 366 * 86_400),
+        ("analytics.db.schema-7-wal", now - 366 * 86_400),
+        ("analytics.db.schema-8", now - 300 * 86_400),
+        ("analytics.db.broken", now - 400 * 86_400),
+        ("other.schema-1", now - 400 * 86_400),
     ] {
         fs::create_dir_all(&state).unwrap();
         let f = fs::File::create(state.join(name)).unwrap();
@@ -1523,8 +1541,8 @@ fn planning_is_the_count_status_json_gives_and_null_without_one() {
 fn a_sample_prunes_too_and_two_in_one_second_keep_the_last() {
     let home = scratch("sample-prune");
     let now = 1_792_000_000;
-    execute(&home, &Cmd::Event(4, "ready".into(), None), now - 11 * DAY).unwrap();
-    execute(&home, &Cmd::Sample, now - 11 * DAY).unwrap();
+    execute(&home, &Cmd::Event(4, "ready".into(), None), now - 366 * DAY).unwrap();
+    execute(&home, &Cmd::Sample, now - 366 * DAY).unwrap();
     live(&home, now, "count", None);
     execute(&home, &Cmd::Sample, now).unwrap();
     live(&home, now, "", None);
