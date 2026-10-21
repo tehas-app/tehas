@@ -10,7 +10,5 @@
       "httpIdleTimeoutMs": 120000
     }
   },
-  "defaultProvider": "local",
-  "defaultModel": "example-model",
   "hideThinkingBlock": true
 }

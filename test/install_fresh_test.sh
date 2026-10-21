@@ -31,9 +31,14 @@ t_eq "$(printf '%s\n' "$t_out" | sed -n 's/^next: //p')" "$(next_steps)"
 t_eq "$(cat "$th/state/update-pending")" "$(next_steps)"
 # Every file in lib/ is installed: the commands source them from there.
 t_eq "$(cd "$T_ROOT" && git ls-files lib | while read -r f; do [ -f "$th/$f" ] || echo "$f"; done)" ""
-# install.sh asks systemd for nothing: a copied unit file is not in effect until
-# the step that restarts the units has reloaded it.
-t_eq "$(t_calls systemctl)" ""
+# A first install makes the labels and enables the core units, and asks systemd
+# nothing else: a copied unit file is not in effect until the step that
+# restarts the units has reloaded it.
+t_eq "$(t_calls systemctl)" "--user daemon-reload
+--user enable --now tehas-dispatch.timer tehas-dispatch.path"
+t_contains "$(t_calls gh)" "label create tehas:ready --repo acme/widget"
+t_contains "$t_out" "first install: labels made in acme/widget, enabled tehas-dispatch.timer tehas-dispatch.path"
+t_eq "$([ -e "$th/state/first-install" ] && echo owed)" ""
 # It makes the previews' network where there is none, and asks nothing else.
 t_eq "$(t_calls docker)" "$net_inspect"
 t_lacks "$t_out" "tehas-previews"
@@ -88,8 +93,12 @@ t_case "the manual and the front page are installed"
 t_eq "$(cd "$th/docs" && find . -type f ! -name version.txt | wc -l)" "$(find "$T_ROOT/host/docs" -type f | wc -l)"
 t_eq "$(cd "$th/fun" && find . -type f ! -name version.txt | wc -l)" "$(find "$T_ROOT/host/fun" -type f | wc -l)"
 
-t_case "the instance's model list is what Pi gets"
-t_eq "$(cat "$home/.pi/agent/models.json")" "$(cat "$TEHAS_INSTANCE_DIR/models.json")"
+t_case "the instance's model list is what Pi gets, with the keys it left out filled"
+# By parts, so key order is no part of the answer.
+t_eq "$(jq -c '[.providers[].models[].id]' "$home/.pi/agent/models.json")" \
+  "$(jq -c '[.providers[].models[].id]' "$TEHAS_INSTANCE_DIR/models.json")"
+t_eq "$(jq -c '[.providers[].models[] | .name == .id] | unique' "$home/.pi/agent/models.json")" '[true]'
+t_eq "$(jq -c '[.providers[].models[] | .input, .reasoning] | unique' "$home/.pi/agent/models.json")" '[false,["text"]]'
 
 t_case "nothing installed names a file that is absent"
 missing=""
@@ -110,7 +119,7 @@ t_case "a second run changes nothing"
 t_run "$install"
 t_contains "$t_out" "tehas is up to date"
 
-t_case "--check on a matching install reports five lines and exits 0"
+t_case "--check on a matching install reports six lines and exits 0"
 # The follow-ups of the install above are taken as done, which is what running
 # tehas update does to the record. A host that still owes one is another case.
 rm -f "$th/state/update-pending"
@@ -120,6 +129,7 @@ t_eq "$t_out" "Instance:     $T/instance OK
 Dependencies: not checked (running inside the tests)
 Slice:        not checked (running inside the tests)
 Installed:    OK
+Shell:        OK
 Tests:        not run (./install.sh --check --tests runs them)"
 
 t_case "--check --tests runs the suite and reports it"
@@ -152,5 +162,49 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "Tests:        not checked (running inside the tests)"
 t_eq "$([ -e "$T/suite-ran" ] && echo ran)" ""
 
+
+t_case "a second install makes no labels and enables nothing"
+rm -f "$T"/calls/*
+t_run "$install"
+t_eq "$t_rc" 0
+t_eq "$(t_calls gh)" ""
+t_eq "$(t_calls systemctl)" ""
+
+t_case "a host installed before needs no first install"
+t_run "$install"
+t_lacks "$t_out" "first install"
+
+t_case "the optional units are enabled on a first install only when their setting is on"
+fresh
+instance TEHAS_IMPROVE_REPO=acme/improve TEHAS_DOMAIN=widget.test TEHAS_PREVIEWS=1
+mkdir -p "$home/.config/tehas" && echo TEHAS_ENERGY=on >"$home/.config/tehas/env"
+t_run "$install"
+t_eq "$t_rc" 0
+t_eq "$(sed -n 2p "$T/calls/systemctl")" \
+  "--user enable --now tehas-dispatch.timer tehas-dispatch.path tehas-improve.timer tehas-protolab.timer tehas-preview.timer tehas-preview-sweep.timer tehas-energy.service"
+
+t_case "a domain without previews enables the Protolab and not the previews"
+fresh
+instance TEHAS_DOMAIN=widget.test
+t_run "$install"
+t_eq "$(sed -n 2p "$T/calls/systemctl")" "--user enable --now tehas-dispatch.timer tehas-dispatch.path tehas-protolab.timer"
+
+t_case "labels that cannot be made leave the first install owed, and the next run does it"
+fresh
+instance
+t_stub gh 'exit 1'
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "later: ./install.sh again   (the first install's labels or units are not done: tehas labels failed)"
+t_eq "$([ -e "$th/state/first-install" ] && echo owed)" "owed"
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "First install: NOT DONE (labels and core units; ./install.sh does them)"
+t_stub gh
+rm -f "$T"/calls/*
+t_run "$install"
+t_contains "$t_out" "first install: labels made in acme/widget"
+t_eq "$([ -e "$th/state/first-install" ] && echo owed)" ""
+t_contains "$(t_calls systemctl)" "--user enable --now tehas-dispatch.timer tehas-dispatch.path"
 
 t_done

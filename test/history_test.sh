@@ -140,6 +140,14 @@ run_json
 t_eq "$(jq -c '.cycles[0]' <<<"$t_out")" "{\"cursor\":\"1760700300-7\",\"kind\":\"plan\",\"issue\":7,\"ended\":\"$(iso "$((T0 + 300))")\",\"started\":\"$(iso 1760700000)\",\"status\":0,\"outcome\":\"finished\",\"turn\":3,\"by\":\"alice\"}"
 t_eq "$(jq -r .next <<<"$t_out")" 1760700300-7
 
+t_case "a refining turn names its label and the issues it filed, as JSON and as text"
+reset
+plan 7 "$((T0 + 300))" '{"kind":"plan","rc":0,"status":"finished","turn":2,"by":"alice","label":"tehas:refine","filed":["https://github.com/acme/widget/issues/41","not an issue"]}'
+run_json
+t_eq "$(jq -c '.cycles[0] | [.label, .filed]' <<<"$t_out")" '["tehas:refine",["https://github.com/acme/widget/issues/41"]]'
+t_run "$history"
+t_contains "$t_out" "plan  #7  finished  turn 2  refine  filed https://github.com/acme/widget/issues/41"
+
 t_case "both kinds together, and a turn whose unit left no readable status"
 reset
 work 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'

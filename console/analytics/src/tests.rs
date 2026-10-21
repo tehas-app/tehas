@@ -718,12 +718,13 @@ fn an_issue_without_history_records_nothing() {
 }
 
 #[test]
-fn prune_removes_rows_older_than_ten_days_and_keeps_a_running_run_s_events() {
+fn prune_removes_rows_older_than_365_days_and_keeps_a_running_run_s_events() {
     let home = scratch("prune");
     let now = 1_792_000_000;
-    let old = now - 11 * DAY;
+    let old = now - 366 * DAY;
+    let kept = now - 300 * DAY;
     let (conn, _) = db::open(&db::path(&home), now).unwrap();
-    for (id, issue, ended) in [("old", 1, old), ("new", 2, now - DAY)] {
+    for (id, issue, ended) in [("old", 1, old), ("new", 2, kept)] {
         conn.execute(
             "INSERT INTO runs (id, kind, issue, started, ended) VALUES (?1, 'work', ?2, ?3, ?3)",
             rusqlite::params![id, issue, ended],
@@ -740,7 +741,7 @@ fn prune_removes_rows_older_than_ten_days_and_keeps_a_running_run_s_events() {
         )
         .unwrap();
     }
-    // Issue 1 ended long ago; issue 3 started eleven days ago and runs still.
+    // Issue 1 ended long ago; issue 3 started a year and a day ago and runs still.
     for (issue, event, at) in [
         (1, "ready", old),
         (1, "started", old),
@@ -749,17 +750,14 @@ fn prune_removes_rows_older_than_ten_days_and_keeps_a_running_run_s_events() {
         (3, "started", old),
         // Started a day and more before the cutoff, never ended: no cycle
         // runs that long, so it goes like any other.
-        (6, "ready", now - 12 * DAY),
-        (6, "started", now - 11 * DAY - 1),
-        (2, "ready", now - DAY),
+        (6, "ready", now - 367 * DAY),
+        (6, "started", now - 366 * DAY - 1),
+        (2, "ready", kept),
     ] {
         db::event(&conn, issue, event, at).unwrap();
     }
-    conn.execute(
-        "INSERT INTO samples (at) VALUES (?1), (?2)",
-        [old, now - 60],
-    )
-    .unwrap();
+    conn.execute("INSERT INTO samples (at) VALUES (?1), (?2)", [old, kept])
+        .unwrap();
     execute(&home, &Cmd::Prune, now).unwrap();
     assert_eq!(
         one::<String>(&conn, "SELECT group_concat(id) FROM runs"),
@@ -784,6 +782,23 @@ fn prune_removes_rows_older_than_ten_days_and_keeps_a_running_run_s_events() {
             "SELECT group_concat(issue || ':' || event, ' ') FROM issue_events"
         ),
         "2:ready 3:ended"
+    );
+}
+
+#[test]
+fn prune_brings_the_retention_of_an_older_database_up_to_date() {
+    let home = scratch("meta-retention");
+    let now = 1_792_000_000;
+    let (conn, _) = db::open(&db::path(&home), now).unwrap();
+    conn.execute(
+        "UPDATE meta SET value = '10' WHERE key = 'retention_days'",
+        [],
+    )
+    .unwrap();
+    execute(&home, &Cmd::Prune, now).unwrap();
+    assert_eq!(
+        one::<String>(&conn, "SELECT value FROM meta WHERE key = 'retention_days'"),
+        "365"
     );
 }
 
@@ -864,7 +879,7 @@ fn a_database_that_cannot_be_written_is_an_error_and_stays() {
 fn a_write_prunes_too() {
     let home = scratch("writeprune");
     let now = 1_792_000_000;
-    execute(&home, &Cmd::Event(4, "ready".into(), None), now - 11 * DAY).unwrap();
+    execute(&home, &Cmd::Event(4, "ready".into(), None), now - 366 * DAY).unwrap();
     execute(&home, &Cmd::Event(5, "ready".into(), None), now).unwrap();
     let conn = Connection::open(db::path(&home)).unwrap();
     assert_eq!(
@@ -909,7 +924,7 @@ fn a_new_database_is_0600_in_wal_mode_with_its_schema_version() {
             &conn,
             "SELECT group_concat(key || '=' || value, ' ') FROM (SELECT * FROM meta ORDER BY key)"
         ),
-        "created=1792000000 retention_days=10 schema=1"
+        "created=1792000000 retention_days=365 schema=1"
     );
 }
 
@@ -978,17 +993,17 @@ fn a_database_of_another_schema_is_kept_aside_under_its_version() {
 }
 
 #[test]
-fn prune_deletes_a_kept_schema_ten_days_after_its_last_write() {
+fn prune_deletes_a_kept_schema_365_days_after_its_last_write() {
     let home = scratch("aside");
     let state = home.join("state");
     let now = 1_792_000_000;
     let at = |secs: i64| std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs as u64);
     for (name, written) in [
-        ("analytics.db.schema-7", now - 11 * 86_400),
-        ("analytics.db.schema-7-wal", now - 11 * 86_400),
-        ("analytics.db.schema-8", now - 9 * 86_400),
-        ("analytics.db.broken", now - 30 * 86_400),
-        ("other.schema-1", now - 30 * 86_400),
+        ("analytics.db.schema-7", now - 366 * 86_400),
+        ("analytics.db.schema-7-wal", now - 366 * 86_400),
+        ("analytics.db.schema-8", now - 300 * 86_400),
+        ("analytics.db.broken", now - 400 * 86_400),
+        ("other.schema-1", now - 400 * 86_400),
     ] {
         fs::create_dir_all(&state).unwrap();
         let f = fs::File::create(state.join(name)).unwrap();
@@ -1523,8 +1538,8 @@ fn planning_is_the_count_status_json_gives_and_null_without_one() {
 fn a_sample_prunes_too_and_two_in_one_second_keep_the_last() {
     let home = scratch("sample-prune");
     let now = 1_792_000_000;
-    execute(&home, &Cmd::Event(4, "ready".into(), None), now - 11 * DAY).unwrap();
-    execute(&home, &Cmd::Sample, now - 11 * DAY).unwrap();
+    execute(&home, &Cmd::Event(4, "ready".into(), None), now - 366 * DAY).unwrap();
+    execute(&home, &Cmd::Sample, now - 366 * DAY).unwrap();
     live(&home, now, "count", None);
     execute(&home, &Cmd::Sample, now).unwrap();
     live(&home, now, "", None);
@@ -1697,6 +1712,101 @@ fn plan_outcomes_follow_how_the_turn_ended_and_how_it_was_started() {
             "rc {rc}"
         );
     }
+}
+
+#[test]
+fn a_refining_session_s_first_turn_is_how_refine_and_its_later_turns_are_answers() {
+    let now = 1_792_000_000;
+    let at = iso(now - 60);
+    for (turns, label, how) in [
+        (0, Some("tehas:refine"), "refine"),
+        (0, Some("tehas:plan"), "label"),
+        (0, None, "label"),
+        (1, Some("tehas:refine"), "answer"),
+    ] {
+        let mut record = json!({"session": "s", "turns": turns, "running": true, "startedAt": at, "answers": []});
+        if let Some(l) = label {
+            record["label"] = json!(l);
+        }
+        let home = scratch("plan-refine");
+        turn(&home, record, Some(json!({"session": "s", "text": "t"})));
+        execute(&home, &plan_cmd("0"), now).unwrap();
+        let conn = Connection::open(db::path(&home)).unwrap();
+        assert_eq!(
+            one::<String>(&conn, "SELECT how FROM runs"),
+            how,
+            "{label:?} turn {}",
+            turns + 1
+        );
+    }
+}
+
+#[test]
+fn the_refine_figures_follow_the_refined_issues_and_compare_them_with_the_rest() {
+    let home = scratch("report-refine");
+    let day0 = 1_792_022_400; // 2026-10-15T00:00:00Z
+    let to = day0 + 9 * DAY + 43_200;
+    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+    // Two refining sessions in the window, one before it, and a plain plan.
+    for (issue, started, how) in [
+        (1, day0 + 100, "refine"),
+        (2, day0 + 200, "refine"),
+        (3, day0 - DAY, "refine"),
+        (4, day0 + 300, "label"),
+    ] {
+        conn.execute(
+            "INSERT INTO runs (id, kind, issue, how, started, ended) VALUES (?1, 'plan', ?2, ?3, ?4, ?4)",
+            rusqlite::params![format!("plan-{issue}-{started}"), issue, how, started],
+        )
+        .unwrap();
+    }
+    // Refined issues 10 (started and shipped after 2 h) and 11 (not started);
+    // other issues 20 (shipped) and 21 (started only).
+    let ev = |issue: i64, event: &str, at: i64| {
+        conn.execute(
+            "INSERT INTO issue_events (at, issue, event) VALUES (?1, ?2, ?3)",
+            rusqlite::params![at, issue, event],
+        )
+        .unwrap();
+    };
+    ev(10, "ready", day0 + 1000);
+    ev(10, "started", day0 + 1100);
+    ev(10, "merged", day0 + 1000 + 7200);
+    ev(11, "ready", day0 + 2000);
+    ev(20, "ready", day0 + 3000);
+    ev(20, "started", day0 + 3100);
+    ev(20, "merged", day0 + 9000);
+    ev(21, "ready", day0 + 4000);
+    ev(21, "started", day0 + 4100);
+    std::fs::create_dir_all(home.join("state")).unwrap();
+    std::fs::write(
+        home.join("state").join("refined.jsonl"),
+        format!(
+            "{}\n{}\nnot json\n{}\n",
+            json!({"at": iso(day0 + 900), "source": 1, "filed": 10, "url": "u"}),
+            json!({"at": iso(day0 + 1900), "source": 2, "filed": 11, "url": "u"}),
+            json!({"at": iso(day0 + 1950), "source": 2, "filed": 0, "url": "u"}),
+        ),
+    )
+    .unwrap();
+    let refined = crate::report::read_refined(&home);
+    assert_eq!(refined.len(), 2);
+    let got = crate::report::refine(&conn, &refined, to).unwrap();
+    assert_eq!(
+        got,
+        json!({"sessions": 2, "n": 2, "started": 1, "shipped": 1, "shippedShare": 0.5,
+               "leadTime": {"n": 1, "median": 7200, "p90": 7200},
+               "others": {"n": 2, "started": 2, "shipped": 1, "shippedShare": 0.5}})
+    );
+    let mut report = crate::report::build(&conn, to).unwrap();
+    report["refine"] = got;
+    let text = crate::report::text(&report);
+    assert!(
+        text.contains("Refine             2 sessions, 2 issues filed: 1 started, 1 shipped (50%), lead median 2h00m; other issues 50% shipped (n=2)"),
+        "{text}"
+    );
+    // No ledger: no refined issue, and the report says so in numbers.
+    assert!(crate::report::read_refined(&scratch("report-refine-none")).is_empty());
 }
 
 #[test]
