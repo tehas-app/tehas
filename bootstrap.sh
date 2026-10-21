@@ -5,9 +5,12 @@
 # another version is replaced. An npm tool counts as present only when its
 # pinned tree is installed too.
 #
-#   sudo ./bootstrap.sh root <user>   system packages, Docker, the docker
-#                                     group and lingering for <user>, and the
-#                                     slice
+#   sudo ./bootstrap.sh root <user> [--root-only]
+#                                     the user if missing, system packages,
+#                                     Docker on the systemd cgroup driver, the
+#                                     docker group and lingering for <user>,
+#                                     the slice, then the user part as <user>
+#                                     in the same run, unless --root-only
 #   sudo ./bootstrap.sh slice         the systemd slice the sandbox containers
 #                                     run in, /etc/systemd/system/tehas.slice
 #   ./bootstrap.sh user               the rest, as the tehas user, under that
@@ -58,17 +61,23 @@ supported() {
 
 # --- root ---------------------------------------------------------------------
 do_root() {
-  local user=${1:-} rc
-  [ -n "$user" ] || { echo "usage: sudo ./bootstrap.sh root <user>" >&2; exit 64; }
+  local user=${1:-} only=${2:-} rc
+  [ -n "$user" ] || { echo "usage: sudo ./bootstrap.sh root <user> [--root-only]" >&2; exit 64; }
+  case "$only" in "" | --root-only) ;; *) echo "usage: sudo ./bootstrap.sh root <user> [--root-only]" >&2; exit 64 ;; esac
   [ "$(id -u)" = 0 ] || die "the root part must run as root: sudo ./bootstrap.sh root $user"
-  id "$user" >/dev/null 2>&1 || die "no such user: $user"
+  [[ $user =~ ^[a-z_][a-z0-9_-]*$ ]] || die "not a plain account name: $user"
   supported
+  if ! id "$user" >/dev/null 2>&1; then
+    useradd -m -s /bin/bash "$user" || die "could not make the user $user"
+    echo "bootstrap: made the user $user"
+  fi
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq
   apt-get install -y -qq "${packages[@]}"
   usermod -aG docker "$user"
   loginctl enable-linger "$user"
   systemctl enable --now docker >/dev/null
+  docker_systemd_driver || exit 1
   # A Docker that is not on the systemd driver yet does not fail this part.
   rc=0
   slice_install || rc=$?
@@ -77,7 +86,46 @@ do_root() {
     3) echo "bootstrap: run sudo ./bootstrap.sh slice once Docker uses the systemd driver" ;;
     *) exit 1 ;;
   esac
-  echo "bootstrap: root part done. $user must log in again for the docker group to apply."
+  if [ "$only" = --root-only ]; then
+    echo "bootstrap: root part done. Next, as $user: ./bootstrap.sh user"
+    return 0
+  fi
+  echo "bootstrap: root part done. Running the user part as $user"
+  # A new login session reads the groups again, so the user part has the
+  # docker group now. A session of $user that was already open does not.
+  runuser -l "$user" -c "$(printf '%q' "$root/bootstrap.sh") user" ||
+    die "the user part failed; run it again as $user: $root/bootstrap.sh user"
+  echo "bootstrap: done. A shell $user already had open gets the docker group at its next login."
+}
+
+# Docker on cgroup v2 with the cgroupfs driver cannot put a container in a
+# slice. Name the systemd driver in daemon.json, keeping every other setting,
+# and restart Docker. cgroup v1 cannot be fixed here and is left to the slice
+# step to report. Returns 1 when daemon.json is not JSON or a step failed.
+daemon_json=${BOOTSTRAP_ETC:-/etc}/docker/daemon.json
+docker_systemd_driver() {
+  local answer driver version tmp kept
+  answer=$(docker info --format '{{.CgroupDriver}} {{.CgroupVersion}}' 2>/dev/null) || answer=""
+  read -r driver version _ <<<"$answer" || true
+  [ "$driver" != systemd ] && [ "$version" = 2 ] || return 0
+  if [ -e "$daemon_json" ] && ! jq -e . "$daemon_json" >/dev/null 2>&1; then
+    echo "bootstrap: $daemon_json is not JSON; it was left as it is. Add \"exec-opts\": [\"native.cgroupdriver=systemd\"] by hand and run this again" >&2
+    return 1
+  fi
+  tmp=$(mktemp)
+  { if [ -e "$daemon_json" ]; then cat "$daemon_json"; else echo '{}'; fi; } |
+    jq '.["exec-opts"] = ([(.["exec-opts"] // [])[] | select(startswith("native.cgroupdriver=") | not)] + ["native.cgroupdriver=systemd"])' >"$tmp" ||
+    { rm -f "$tmp"; echo "bootstrap: could not write the systemd driver into $daemon_json" >&2; return 1; }
+  install -d -m 755 "$(dirname "$daemon_json")"
+  kept=""
+  if [ -e "$daemon_json" ]; then
+    cp -p "$daemon_json" "$daemon_json.prev"
+    kept=", the file before is $daemon_json.prev"
+  fi
+  install -m 644 "$tmp" "$daemon_json"
+  rm -f "$tmp"
+  systemctl restart docker || { echo "bootstrap: systemctl restart docker failed" >&2; return 1; }
+  echo "bootstrap: Docker uses the systemd cgroup driver now ($daemon_json$kept)"
 }
 
 # --- slice --------------------------------------------------------------------
@@ -548,13 +596,13 @@ do_user() {
 }
 
 case "${1:-}" in
-  root) do_root "${2:-}" ;;
+  root) do_root "${2:-}" "${3:-}" ;;
   slice) shift; do_slice "$@" ;;
   user) do_user ;;
   dev) shift; do_dev "$@" ;;
   check) do_check ;;
   *)
-    sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
     exit 64
     ;;
 esac

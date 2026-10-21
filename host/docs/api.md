@@ -72,8 +72,7 @@ A program creates one by running the two installers a person runs, in this
 order, and asking one question afterwards:
 
 ```
-sudo ./bootstrap.sh root <user>   # packages, Docker, the docker group, linger, the slice
-./bootstrap.sh user               # the pinned tools, as the tehas user
+sudo ./bootstrap.sh root <user>   # packages, Docker, the docker group, linger, the slice, then the pinned tools as <user>
 ./install.sh --check              # must exit 0 once the instance is in place
 ```
 
