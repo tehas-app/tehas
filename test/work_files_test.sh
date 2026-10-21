@@ -385,4 +385,13 @@ t_eq "$(find "$ws" -maxdepth 0 2>/dev/null | wc -l)" 1
 t_eq "$(find "$state" -maxdepth 0 2>/dev/null | wc -l)" 0
 T_ENV=("${env_ok[@]}")
 
+# --- pi-rukas's own state in the clone ---------------------------------------
+t_case "the clone keeps pi-rukas's state files out of git, so the product needs no .gitignore lines"
+images_off
+issue_is "a plain issue" NONE
+t_run "$work 7"
+t_eq "$(grep -cxF -e /.pi/work-state/ -e /.pi/permissions.json -e /.pi/decisions.json "$ws/.git/info/exclude")" 3
+mkdir -p "$ws/.pi/work-state" && touch "$ws/.pi/work-state/7.json" "$ws/.pi/permissions.json" "$ws/.pi/decisions.json"
+t_eq "$(git -C "$ws" status --porcelain)" ""
+
 t_done

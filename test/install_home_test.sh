@@ -169,4 +169,42 @@ t_run "TEHAS_HOME='$legacy' '$install'"
 t_eq "$t_rc" 0
 t_lacks "$t_out" "$install_marker"
 
+t_case "a real run puts the env.sh line at the top of ~/.bashrc once"
+fresh
+instance
+# shellcheck disable=SC2016  # the line is the file's text, not to expand
+printf '%s\n' '# the distribution'"'"'s file' '[ -z "$PS1" ] && return' >"$home/.bashrc"
+t_run "$install"
+t_eq "$t_rc" 0
+t_eq "$(head -n 1 "$home/.bashrc")" "[ -f $th/env.sh ] && . $th/env.sh"
+t_eq "$(sed -n 2p "$home/.bashrc")" "# the distribution's file"
+t_contains "$t_out" "installed: the env.sh line at the top of $home/.bashrc"
+t_run "$install"
+t_eq "$(grep -c 'env.sh' "$home/.bashrc")" 1
+t_lacks "$t_out" ".bashrc"
+
+t_case "a ~/.bashrc that already sources env.sh, in the hand-written form, is left alone"
+fresh
+instance
+printf '%s\n' 'alias ll="ls -l"' '[ -f ~/tehas/env.sh ] && . ~/tehas/env.sh' >"$home/.bashrc"
+before=$(cat "$home/.bashrc")
+t_run "TEHAS_HOME='$home/tehas' '$install'"
+t_eq "$t_rc" 0
+t_eq "$(cat "$home/.bashrc")" "$before"
+
+t_case "a home with no ~/.bashrc gets one with the line"
+fresh
+instance
+t_run "$install"
+t_eq "$(cat "$home/.bashrc")" "[ -f $th/env.sh ] && . $th/env.sh"
+
+t_case "--check says whether ~/.bashrc sources env.sh, and changes nothing"
+t_run "$install --check"
+t_contains "$t_out" "Shell:        OK"
+echo 'alias ll="ls -l"' >"$home/.bashrc"
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "Shell:        MISSING ($home/.bashrc does not source $th/env.sh; ./install.sh puts the line at its top)"
+t_eq "$(cat "$home/.bashrc")" 'alias ll="ls -l"'
+
 t_done

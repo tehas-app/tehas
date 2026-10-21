@@ -15,7 +15,7 @@ cp "$T_ROOT/bin/tehas" "$T_ROOT/bin/tehasbot" "$tree/bin/"
 # The settings library is there to be read, so that not reading it means something.
 cp "$T_ROOT/lib/config.sh" "$tree/lib/config.sh"
 # One line per call: the name, then each argument after a "|".
-for name in dispatch cycle work plan dev index update labels summary status health energy protolab preview improve refresh top top-publish pause resume stop api limit drain analytics-cmd mcp; do
+for name in dispatch cycle work plan dev index setup update labels summary status health energy protolab preview improve refresh clean top top-publish pause resume stop api limit drain analytics-cmd mcp; do
   printf '%s\n' '#!/usr/bin/env bash' "# The text of $name." '#' "# Usage: $name" 'set -u' 'IFS="|"' \
     "printf '%s\\n' \"$name\${*:+|\$*}\" >>\"\$T/calls/libexec\"" 'exit "${RC:-0}"' >"$tree/libexec/$name"
   chmod +x "$tree/libexec/$name"
@@ -135,7 +135,7 @@ t_eq "$(ran)" ""
 
 t_case "tehas <command> --help and -h print the same text and run nothing"
 reset
-for name in dispatch work plan dev index update labels status api limit drain top analytics pause resume stop; do
+for name in dispatch work plan dev index setup update labels status api limit drain top analytics pause resume stop; do
   for flag in --help -h; do
     t_run "$tehas $name $flag 2>/dev/null"
     t_eq "$t_rc" 0
@@ -228,8 +228,8 @@ t_eq "$t_rc" 1
 # The real tree.
 t_case "every command in the usage of tehas has a script that says how to use it"
 reset
-names=$("$T_ROOT/bin/tehas" help | sed -n 's/^  tehas \([a-z]*\).*/\1/p' | grep -v -x help | tr '\n' ' ')
-t_eq "$names" "dispatch work plan dev index update labels status api limit drain history export top analytics mcp pause resume stop "
+names=$("$T_ROOT/bin/tehas" help | sed -n 's/^  tehas \([a-z-]*\).*/\1/p' | grep -v -x help | tr '\n' ' ')
+t_eq "$names" "dispatch work plan dev index setup update labels check-product init-product status api limit drain history export top analytics mcp pause resume stop "
 for name in $names; do
   t_run "$T_ROOT/bin/tehas help $name"
   t_eq "$t_rc" 0
@@ -238,7 +238,7 @@ done
 
 t_case "every command in the usage of tehasbot has an executable script"
 names=$("$T_ROOT/bin/tehasbot" help | sed -n 's/^  tehasbot \([a-z]*\).*/\1/p' | grep -v -x help | tr '\n' ' ')
-t_eq "$names" "dispatch cycle status health energy top protolab preview improve refresh mcp "
+t_eq "$names" "dispatch cycle status health energy top protolab preview improve refresh clean mcp "
 missing=""
 for name in $names; do
   # The command is `top`; its script is top-publish, because libexec/top is the

@@ -12,6 +12,7 @@
   <link rel="icon" type="image/svg+xml" href="/fun/favicon.svg">
   <link rel="stylesheet" href="/fun/theme.css">
   <link rel="stylesheet" href="/fun/business.css">
+  <script src="/fun/mode.js"></script>
   {{- /* Visitor analytics, only on an instance that names a script and a site. */}}
   {{- if and (env "TEHAS_ANALYTICS_SRC") (env "TEHAS_ANALYTICS_SITE") }}
   <script async src="{{ env "TEHAS_ANALYTICS_SRC" }}" data-site="{{ env "TEHAS_ANALYTICS_SITE" }}"{{ if eq (env "TEHAS_ANALYTICS_COOKIE") "1" }} data-cookie="true"{{ end }}></script>
@@ -21,66 +22,80 @@
   <a class="skip" href="#board">Skip to the issue board</a>
   <header class="topbar">
     <div class="wrap">
-      <a class="mark" href="#top" aria-label="Tehas dashboard, top of page">tehas<small>Factory</small></a>
+      <a class="mark" href="#top" aria-label="Tehas dashboard, top of page">
+        <svg width="26" height="26" viewBox="0 0 22 22" aria-hidden="true"><rect class="m-box" x="1" y="1" width="20" height="20" rx="3"/><path class="m-glyph" d="M6 15V9l4 3V9l4 3V7h2v8z"/><rect class="m-bar" x="6" y="16.5" width="10" height="1.5"/></svg>
+        tehas
+        <small>Factory</small>
+      </a>
       <nav aria-label="Sections">
-        <a href="#line">Line</a>
+        <a href="#top" aria-current="location">Overview</a>
+        <a href="#production">Production</a>
+        <a href="#period" id="nav-period" hidden>Activity</a>
         <a href="#board">Issues</a>
-        <a href="/floor">Floor</a>
-        <a href="/dashboard">Plain dashboard</a>
+        <a href="#live" id="nav-power" hidden>Power</a>
         <a id="nav-lab" href="#" target="_blank" rel="noopener" hidden>Protolab</a>
-        <a href="/overview">Manual</a>
-        <a href="/agents">Agents</a>
         <a id="nav-repo" href="#" target="_blank" rel="noopener noreferrer" hidden>GitHub</a>
       </nav>
       <div class="status">
-        <a class="meter" id="meter" href="#live" hidden><span id="meter-w">-- W</span></a>
+        <a class="meter" id="meter" href="#live" hidden><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M7 1L2 7h3.5L5 11l5-6H6.5z" fill="currentColor"/></svg><span id="meter-w">-- W</span></a>
         <span class="tag" id="source" hidden></span>
-        <span class="state" id="state" data-state="none">Reading</span>
+        <span class="state" id="state" data-state="none"><i></i><span id="state-text">Reading</span></span>
+        <button class="mode" type="button" id="mode" hidden>Dark mode</button>
       </div>
     </div>
   </header>
 
   <main class="wrap">
-    <h1 class="sr-only">Factory dashboard</h1>
+    <div class="head">
+      <div class="head-copy">
+        <p class="eyebrow"><span class="eyebrow-dot"></span> Factory <span class="eyebrow-divider">/</span> Overview</p>
+        <h1>Factory overview<span class="heading-period">.</span></h1>
+        <p class="lede">What is on the line, what needs a person, and how the factory has done lately.</p>
+      </div>
+      <div class="head-aside" aria-label="Factory status">
+        <span class="aside-kicker">Factory status</span>
+        <span class="aside-line"><span class="status-pulse"></span> <span id="aside-state">Reading</span></span>
+        <span class="aside-note" id="aside-note"></span>
+      </div>
+    </div>
 
-    <section class="panel live" id="live" aria-label="Live" hidden>
-      <div class="live-figs">
-        <span class="live-tag" id="live-tag">Live</span>
+    <section class="panel power" id="live" aria-label="Live" hidden>
+      <div class="power-figs">
+        <span class="power-tag" id="live-tag">Live</span>
         <div><small>Power now</small><b><span id="live-w">--</span><em>W</em></b></div>
-        <div id="live-tokens-box"><small>Tokens a minute</small><b id="live-tokens">--</b></div>
+        <div id="live-tokens-box"><small>Tokens now</small><b><span id="live-tokens">--</span><em>/min</em></b></div>
         <div><small>Last 24 h</small><b><span id="live-24">--</span><em>kWh</em></b></div>
         <div><small>Last 30 days</small><b><span id="live-30">--</span><em>kWh</em></b></div>
       </div>
-      <div class="live-chart">
-        <h2>Power, 30 minutes</h2>
+      <div class="power-chart">
+        <header><span><b>Power, 30 minutes</b> watts</span></header>
         <svg id="live-power" role="img" aria-label="Power drawn over the last 30 minutes"></svg>
       </div>
-      <div class="live-chart" id="live-tokens-chart">
-        <h2>Tokens a minute, 30 minutes</h2>
+      <div class="power-chart" id="live-tokens-chart">
+        <header><span><b>Tokens, 30 minutes</b> per minute</span></header>
         <svg id="live-token-bars" role="img" aria-label="Tokens a minute over the last 30 minutes"></svg>
       </div>
     </section>
 
-    <section class="panel" aria-labelledby="line-title">
-      <div class="panel-head"><h2 id="line-title">Production line</h2><span id="line-note"></span></div>
-      <div class="line" id="line"></div>
+    <section class="panel" id="production" aria-labelledby="line-title">
+      <div class="panel-head"><div><p class="section-kicker">Current work</p><h2 id="line-title">Production line</h2></div><span id="line-note"></span></div>
+      <div class="pipeline" id="line"></div>
     </section>
 
     <section class="panel period" id="period" aria-labelledby="period-title" hidden>
-      <div class="panel-head"><h2 id="period-title">Last 10 days</h2><span id="period-window"></span></div>
+      <div class="panel-head"><div><p class="section-kicker">Performance</p><h2 id="period-title">Last 10 days</h2></div><span id="period-window"></span></div>
       <div class="tiles" id="tiles"></div>
       <div class="period-body">
-        <div class="days">
+        <div class="chart">
           <div class="chart-head">
             <h3>Runs a day</h3>
-            <span class="legend"><i class="k-ship"></i>Shipped <i class="k-fail"></i>Failed</span>
+            <div class="legend"><span><i class="k-ship"></i>Shipped</span><span><i class="k-fail"></i>Failed</span></div>
           </div>
           <svg id="days" role="img" aria-label="Shipped and failed runs a day over the last ten days"></svg>
-          <h3 class="reasons-head">Why runs stopped</h3>
-          <ul class="reasons" id="reasons"></ul>
+          <div class="reasons"><span class="reasons-head">Why runs stopped</span><ul id="reasons"></ul></div>
           <p class="note" id="reasons-note"></p>
         </div>
-        <div class="steps">
+        <div class="stations">
           <h3>Station pass rate</h3>
           <ol id="steps"></ol>
           <p class="note" id="steps-note"></p>
@@ -89,18 +104,18 @@
     </section>
 
     <div class="section-break">
-      <div><p>Issues</p><h2>Issue board</h2></div>
+      <div><p>Work register</p><h2>Issue board</h2></div>
       <span id="board-count"></span>
     </div>
-    <section class="panel board" id="board" aria-label="Issue board">
+    <section class="panel register" id="board" aria-label="Issue board">
       <div class="panel-head">
         <h2>On the line</h2>
         <div class="filters" id="filters" role="group" aria-label="Filter by stage">
-          <button type="button" data-filter="all" aria-pressed="true">All</button>
-          <button type="button" data-filter="line" aria-pressed="false">In line</button>
-          <button type="button" data-filter="build" aria-pressed="false">Building</button>
-          <button type="button" data-filter="review" aria-pressed="false">Review</button>
-          <button type="button" data-filter="stop" aria-pressed="false">Stopped</button>
+          <button type="button" data-filter="all" aria-pressed="true">All <span></span></button>
+          <button type="button" data-filter="line" aria-pressed="false">In line <span></span></button>
+          <button type="button" data-filter="build" aria-pressed="false">Building <span></span></button>
+          <button type="button" data-filter="review" aria-pressed="false">Review <span></span></button>
+          <button type="button" data-filter="stop" aria-pressed="false">Stopped <span></span></button>
         </div>
       </div>
       <div class="table-wrap">
@@ -114,7 +129,7 @@
 
     <footer class="foot">
       <p>Tehas, a software factory. Powered by Pi and pi-rukas.</p>
-      <p><a href="/floor">The factory floor</a> · <a href="/llms.txt">llms.txt</a></p>
+      <p><a href="/floor">Factory floor</a> · <a href="/dashboard">Plain dashboard</a> · <a href="/overview">Manual</a> · <a href="/agents">Agents</a> · <a href="/llms.txt">llms.txt</a></p>
     </footer>
   </main>
 

@@ -31,6 +31,19 @@ t_run "$install --check"
 t_eq "$t_rc" 0
 t_contains "$t_out" "Slice:        OK"
 
+t_case "--check shows the last tehas check-product, which does not change its status"
+t_run "$install --check"
+t_lacks "$t_out" "Product:"
+printf '%s\n' '{"v":1,"at":"2026-10-21T09:00:00Z","ok":false,"failures":["no AGENTS.md"],"sandbox":null}' >"$th/state/check-product.json"
+t_run "$install --check"
+t_eq "$t_rc" 0
+t_contains "$t_out" "Product:      1 TO FIX (tehas check-product, 2026-10-21T09:00:00Z)
+  no AGENTS.md"
+printf '%s\n' '{"v":1,"at":"2026-10-21T09:00:00Z","ok":true,"failures":[],"sandbox":null}' >"$th/state/check-product.json"
+t_run "$install --check"
+t_contains "$t_out" "Product:      OK (tehas check-product"
+rm -f "$th/state/check-product.json"
+
 t_case "--check names a slice file that differs, and exits 1"
 echo "MemoryMax=10%" >>"$T/etc/systemd/system/tehas.slice"
 t_run "$install --check"

@@ -158,9 +158,15 @@ rest: the system typeface, 1px rules, light screens and soft shadows.
 Beesknees is a business look, drawn for the business page
 (`host/fun/business.html`, `TEHAS_LAYOUT=business`): near-black and muted
 green on white, thin rules, no motion, and a dark set where the viewer's
-system asks. The business page takes its sizes and corners from the theme too
-(`--type-*`, `--radius`) and its stage colours from `--stage-*`, so pixel
-draws it in Topaz at 16px with square corners. The rules below that are about pixels (Topaz, the
+system asks. Beesknees26 is its 2026 redraw and will replace it: the business
+page was rebuilt on that drawing, with IBM Plex (bundled, under the OFL), a
+light top bar, and a dark set only where the viewer picks it with the page's
+mode button (`--modes` names the sets a theme has). The business page takes
+its colours from the theme (`--text-faint` is the third text level, `--bar-*`
+the top bar, `--stage-*` the stages), and its sizes and corners too: the
+drawing's sizes raised to `--type-small` and `--type-big`, corners in
+multiples of `--radius`. So pixel draws it in Topaz at 16px and 32px with
+square corners. The rules below that are about pixels (Topaz, the
 Twelve Bit Rule, no blur, stepped lifts) bind the pixel theme only.
 
 The colours below by the role token that carries them:
@@ -168,12 +174,12 @@ The colours below by the role token that carries them:
 | Pixel colour | Token | Pixel colour | Token |
 | --- | --- | --- | --- |
 | Moss, its texture | `--field`, `--field-pattern` | Ink | `--text` |
-| Bone | `--surface` | Slate | `--text-quiet` |
+| Bone | `--surface` | Slate | `--text-quiet`, `--text-faint` |
 | Bone Shade | `--surface-quiet` | Verdigris | `--text-cool` |
 | Steel | `--surface-head` | Rust | `--text-warm` |
 | Brass | `--accent` | Outline | `--line` (outlines are `--frame`, `--edge` wide) |
 | Brass Light | `--accent-soft` | Hairline | `--rule` |
-| CRT Black, Amber, Dim | `--screen`, `--screen-text`, `--screen-quiet` | Green, red tag | `--good`, `--bad` |
+| CRT Black, Amber, Dim | `--screen`, `--screen-text`, `--screen-quiet`, and the business bar's `--bar-*` | Green, red tag | `--good`, `--bad` |
 
 The canvases cannot use `var()`: `host/fun/theme.js` reads their tokens
 (`--band-*`, `--piece-*`, `--game-*`) from the theme.

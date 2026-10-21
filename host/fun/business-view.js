@@ -192,7 +192,7 @@ if (typeof document !== "undefined" && document.getElementById("line")) {
   // ---- The live strip.
   function renderLive() {
     const v = liveView(data.energy, now());
-    $("live").hidden = $("meter").hidden = !v.present;
+    $("live").hidden = $("meter").hidden = $("nav-power").hidden = !v.present;
     if (!v.present) return;
     $("live").classList.toggle("is-stale", v.stale);
     $("live-tag").textContent = v.stale ? "Stale" : "Live";
@@ -230,8 +230,11 @@ if (typeof document !== "undefined" && document.getElementById("line")) {
     tag.hidden = v.source === "live";
     tag.textContent = v.source === "sample" ? "Sample data" : v.source === "stale" ? "Queue stale" : "No queue";
     const state = $("state");
-    state.textContent = v.source === "sample" || v.source === "none" ? "No factory" : v.paused ? "Paused" : "Running";
+    const said = v.source === "sample" || v.source === "none" ? "No factory" : v.paused ? "Paused" : "Running";
+    $("state-text").textContent = said;
     state.dataset.state = v.paused ? "paused" : v.source === "live" || v.source === "stale" ? "running" : "none";
+    $("aside-state").textContent = { Running: "Operations running", Paused: "Operations paused", "No factory": "No factory here" }[said];
+    $("aside-note").textContent = { live: "Live queue", stale: "Queue not written for ten minutes", sample: "Sample tickets", none: "No queue" }[v.source];
     for (const [id, href] of [["nav-repo", v.repo], ["nav-lab", v.lab]]) { $(id).hidden = !href; if (href) $(id).href = href; }
 
     const line = $("line");
@@ -297,7 +300,7 @@ if (typeof document !== "undefined" && document.getElementById("line")) {
   // ---- The last ten days.
   function renderPeriod() {
     const v = analyticsView(data.analytics);
-    $("period").hidden = !v.present;
+    $("period").hidden = $("nav-period").hidden = !v.present;
     if (!v.present) return;
     $("period-window").textContent = v.window;
     const keys = ["shipped", "fpy", "cycle", "machine", "tokens", "availability"];
@@ -309,7 +312,8 @@ if (typeof document !== "undefined" && document.getElementById("line")) {
     // Stacked: shipped from the base, failed above it.
     const svg = $("days");
     svg.replaceChildren();
-    const W = Math.round(svg.getBoundingClientRect().width) || 600, H = 96, base = H - 18;
+    const box = svg.getBoundingClientRect();
+    const W = Math.round(box.width) || 600, H = Math.round(box.height) || 96, base = H - 18;
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
     const max = Math.max(1, ...v.chart.map((d) => d.shipped + d.failed));
     const step = W / Math.max(1, v.chart.length), w = Math.max(2, step - 8);
@@ -345,8 +349,12 @@ if (typeof document !== "undefined" && document.getElementById("line")) {
   // ---- The issue board.
   let filter = "all";
   function renderBoard(v) {
-    const rows = boardRows(v).filter((r) => filter === "all" || r.stage === filter);
-    $("board-count").textContent = `${boardRows(v).length} on the line`;
+    const all = boardRows(v);
+    const rows = all.filter((r) => filter === "all" || r.stage === filter);
+    $("board-count").textContent = `${all.length} on the line`;
+    for (const b of document.querySelectorAll("#filters button")) {
+      b.querySelector("span").textContent = all.filter((r) => b.dataset.filter === "all" || r.stage === b.dataset.filter).length;
+    }
     $("board-rows").replaceChildren(...rows.map((r) => {
       const tr = el("tr");
       const num = el("td", "n");
@@ -371,6 +379,18 @@ if (typeof document !== "undefined" && document.getElementById("line")) {
       renderLine();
     });
   }
+
+  // ---- The menu marks the section the address names.
+  const navLinks = [...document.querySelectorAll(".topbar nav a[href^='#']")];
+  const markNav = () => {
+    const at = navLinks.some((a) => a.getAttribute("href") === location.hash) ? location.hash : "#top";
+    for (const a of navLinks) {
+      if (a.getAttribute("href") === at) a.setAttribute("aria-current", "location");
+      else a.removeAttribute("aria-current");
+    }
+  };
+  addEventListener("hashchange", markNav);
+  markNav();
 
   // ---- Polling, as the factory floor does: the queue every ten seconds, the
   // power every period, the Protolab and the report once a minute.
