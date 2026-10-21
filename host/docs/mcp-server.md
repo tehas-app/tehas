@@ -16,20 +16,28 @@ one of your keys.
 
 ## What it shows
 
-Nothing that the factory's public site does not already serve. Its only input
-is `~/tehas/live/`, the files the docs server publishes under `/live/` and at
-`/health`, given to it read only. It reads nothing else on the host and calls
-nothing: not GitHub, not Docker, not git, not a model.
+A key holder sees the public dashboard's data, plus the sessions of the last
+30 days and their logs, masked. A request without a key sees nothing.
 
-Each tool copies only the keys it names from those files. A key the files gain
-later is not served until a release names it. On a factory that works on a
-private repository, this means agents see the titles, numbers, links, stages,
-times and counts the dashboard shows, and the console as the dashboard shows
-it, masked the same way. No issue body, comment or code beyond that.
+The key is the boundary, not the dashboard. Its inputs are three directories,
+each given to it read only:
 
-Put it on the internet only where the dashboard is already on the internet. On
-a factory whose dashboard is on a private network only, keep the MCP server
-there too: it shows the same things.
+- `~/tehas/live/`, the files the docs server publishes under `/live/` and at
+  `/health`;
+- `~/tehas/mcp/`, the sessions snapshot `sessions.jsonl` that `tehasbot
+  status` writes on each poll. It is private to the tehas user and never
+  published;
+- `~/tehas/logs/`, where each cycle and planning turn leaves its logs.
+
+It reads nothing else on the host and calls nothing: not GitHub, not Docker,
+not git, not a model. Each tool copies only the keys it names from those
+files. A key the files gain later is not served until a release names it.
+
+On a factory that works on a private repository, a key gives its holder that
+repository's code, issue text and model output as the agents saw them, in the
+logs. Give a key only to someone who may read the repository. The mask takes
+out tokens, keys, passwords and private addresses it knows, but it is a net
+for accidents, not a wall.
 
 ## Switching it on
 
@@ -39,7 +47,8 @@ there too: it shows the same things.
    tehas mcp key
    ```
 
-   It prints a new key and writes nothing.
+   It prints a new key and writes nothing. A key reads the factory's logs: on
+   a private repository, give one only to someone who may read it.
 
 2. Put the switch and the keys in `~/.config/tehas/env`, beside the host's
    other secrets, never in the instance directory, which is in a repository:
@@ -89,16 +98,18 @@ tell which agent is calling.
 `tehasbot mcp serve`, run by `tehas-mcp.service`, checks the settings and runs
 the server, `~/tehas/libexec/tehas-mcp`, in a container of its own. The
 container runs as the tehas user, not root, with a read-only root, no
-capabilities, `no-new-privileges`, 64 MB of memory and 64 processes. It is
-given `~/tehas/live` read only, the binary, the keys as an environment variable
-and port 8082 on `TEHAS_HOST_ADDR` (the loopback address without it), and
-nothing else: no Docker socket, no SSH key, no token, nothing from
+capabilities, `no-new-privileges`, 256 MB of memory and 64 processes. It is
+given `~/tehas/live`, `~/tehas/mcp` and `~/tehas/logs` read only, the binary,
+the keys as an environment variable and port 8082 on `TEHAS_HOST_ADDR` (the
+loopback address without it), and nothing else: no Docker socket, no SSH key, no token, nothing from
 `~/.config/tehas` but the keys. It is on a network of its own, `tehas-mcp`,
 made without masquerade, so it cannot reach the internet; the host itself is
 still one hop away. The command makes the network, and refuses to start on a
 network of that name that lets the container out. Its image is the Caddy
 image the docs server runs, pinned by the same digest in `versions.env`; the
-binary is static and needs nothing from it.
+binary is static and needs nothing from it. The command makes `~/tehas/mcp`
+with mode 700 before it starts the container, so Docker never makes it as
+root.
 
 With `TEHAS_MCP` unset or `0` the command removes a container left running and
 exits 0, and the unit stays stopped.
@@ -112,8 +123,9 @@ exits 0, and the unit stays stopped.
 | Header | `Authorization: Bearer <key>` |
 | Versions | `2026-07-28`, and `2025-11-25` for clients that start with `initialize` |
 
-A request with no key, a wrong key or another scheme gets 401 and an empty
-body, before any of its body is read. A request with an `Origin` header gets
+Every request needs a key, whatever its method, path or tool. A request with
+no key, a wrong key or another scheme gets 401 and an empty body, before any
+of its body is read. A request with a key that is not a POST gets 405. A request with an `Origin` header gets
 403: no browser is a client of this server. A body needs a `Content-Length`
 (411 without one, or when chunked), and over 64 KB gets 413. A head over 8 KB
 gets 431. A request must arrive whole within 10 seconds, however slowly it

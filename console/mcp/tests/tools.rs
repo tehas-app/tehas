@@ -1,12 +1,54 @@
 // The tools against live files with planted keys that must never come out.
 
-use mcp::tools::{call, list, ToolError};
+use mcp::snapshot::Snapshot;
+use mcp::tools::{list, Dirs, Output, ToolError};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 fn live() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/live")
+}
+
+// A tool over the live files in `live`, for the tools that answer JSON.
+fn call(live: &Path, name: &str, args: &Value) -> Result<Value, ToolError> {
+    let dirs = Dirs {
+        live: live.to_path_buf(),
+        sessions: live.join("no-sessions"),
+        logs: live.join("no-logs"),
+    };
+    match mcp::tools::call(&dirs, name, args)? {
+        Output::Json(v) => Ok(v),
+        other => panic!("{name} gave {other:?}"),
+    }
+}
+
+fn now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+}
+
+/// "YYYY-MM-DDTHH:MM:SSZ" for seconds since 1970.
+fn iso(t: i64) -> String {
+    let (days, s) = (t.div_euclid(86400), t.rem_euclid(86400));
+    // Civil from days (Howard Hinnant's algorithm).
+    let z = days + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!(
+        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
+        s / 3600,
+        s / 60 % 60,
+        s % 60
+    )
 }
 
 // A copy of the fixtures to change, removed when dropped.
@@ -439,4 +481,94 @@ fn a_huge_console_is_read_from_its_end_only() {
     f.set_len(1 << 40).unwrap();
     let out = call(&c.0, "factory_console", &json!({"issue": 7, "bytes": 100})).unwrap();
     assert_eq!(out["console"].as_str().unwrap().len(), 100);
+}
+
+// A directory with sessions.jsonl of these lines, removed when dropped.
+fn snapshot_dir(name: &str, lines: &[String]) -> Copy {
+    let dir = std::env::temp_dir().join(format!("mcp-snap-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut text = lines.join("\n");
+    if !lines.is_empty() {
+        text.push('\n');
+    }
+    std::fs::write(dir.join("sessions.jsonl"), text).unwrap();
+    Copy(dir)
+}
+
+fn header(days: Value, generated: i64) -> String {
+    json!({"api": 1, "days": days, "generatedAt": iso(generated), "sessions": 1}).to_string()
+}
+
+#[test]
+fn iso_is_the_form_the_files_use() {
+    assert_eq!(iso(1792485967), "2026-10-20T08:46:07Z");
+}
+
+#[test]
+fn snapshot_missing_or_bad_is_a_tool_error() {
+    let t = now();
+    let missing = std::env::temp_dir().join(format!("mcp-snap-none-{}", std::process::id()));
+    let empty = snapshot_dir("empty", &[]);
+    let no_days = snapshot_dir(
+        "nodays",
+        &[json!({"api": 1, "generatedAt": iso(t), "sessions": 1}).to_string()],
+    );
+    let zero = snapshot_dir("zero", &[header(json!(0), t)]);
+    let other_api = snapshot_dir(
+        "api",
+        &[json!({"api": 2, "days": 30, "generatedAt": iso(t)}).to_string()],
+    );
+    let not_object = snapshot_dir("array", &["[1]".to_string()]);
+    for dir in [
+        &missing,
+        &empty.0,
+        &no_days.0,
+        &zero.0,
+        &other_api.0,
+        &not_object.0,
+    ] {
+        match Snapshot::open(dir, t) {
+            Err(ToolError::File { file, why }) => {
+                assert_eq!(file, "sessions.jsonl", "{dir:?}");
+                assert!(!why.is_empty());
+            }
+            Err(other) => panic!("{dir:?}: {other:?}"),
+            Ok(_) => panic!("{dir:?} opened"),
+        }
+    }
+}
+
+#[test]
+fn snapshot_old_is_stale() {
+    let t = now();
+    let old = snapshot_dir("old", &[header(json!(30), t - 11 * 60)]);
+    let s = Snapshot::open(&old.0, t).unwrap();
+    assert!(s.stale);
+    assert_eq!(s.days, 30);
+    assert_eq!(s.generated_at, iso(t - 11 * 60));
+    let fresh = snapshot_dir("fresh", &[header(json!(30), t - 5 * 60)]);
+    assert!(!Snapshot::open(&fresh.0, t).unwrap().stale);
+}
+
+#[test]
+fn snapshot_sessions_skip_bad_lines_and_the_old() {
+    let t = now();
+    let run = |id: i64, started: i64| json!({"id": id, "started": iso(started)}).to_string();
+    let lines = [
+        header(json!(30), t),
+        run(1, t - 60),
+        "not json".to_string(),
+        "[1, 2]".to_string(),
+        json!({"id": 2}).to_string(),
+        run(3, t - 29 * 86400),
+        run(4, t - 31 * 86400),
+    ];
+    let dir = snapshot_dir("lines", &lines);
+    let ids: Vec<i64> = Snapshot::open(&dir.0, t)
+        .unwrap()
+        .sessions()
+        .map(|v| v["id"].as_i64().unwrap())
+        .collect();
+    assert_eq!(ids, [1, 3]);
 }

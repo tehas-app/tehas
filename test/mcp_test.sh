@@ -64,7 +64,7 @@ t_eq "$(t_calls docker)" ""
 
 # The container is a security boundary: these are all the arguments it gets.
 # A change here widens or narrows what a caller on the internet can reach.
-t_case "on, it runs the binary in a locked-down container with live/ read-only and nothing else"
+t_case "on, it runs the binary in a locked-down container with live/, mcp/ and logs/ read-only and nothing else"
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_HOST_ADDR=192.0.2.9
 t_env TEHAS_MCP=1 TEHAS_MCP_KEYS="$key1	$key2"
@@ -72,9 +72,24 @@ t_run "$mcp serve"
 t_eq "$t_rc" 0
 t_eq "$(t_calls docker)" "network inspect --format {{index .Options \"com.docker.network.bridge.enable_ip_masquerade\"}} tehas-mcp
 rm -f tehas-mcp
-run --rm --init --name tehas-mcp --user $(id -u):$(id -g) --network tehas-mcp --read-only --cap-drop ALL --security-opt no-new-privileges:true --memory 64m --pids-limit 64 -p 192.0.2.9:8082:8082 -v $th/live:/live:ro -v $th/libexec/tehas-mcp:/tehas-mcp:ro -e TEHAS_MCP_KEYS --entrypoint /tehas-mcp caddy@$digest --live /live --listen 0.0.0.0:8082 --server-version v0.7.30+abc1234"
+run --rm --init --name tehas-mcp --user $(id -u):$(id -g) --network tehas-mcp --read-only --cap-drop ALL --security-opt no-new-privileges:true --memory 256m --pids-limit 64 -p 192.0.2.9:8082:8082 -v $th/live:/live:ro -v $th/mcp:/sessions:ro -v $th/logs:/logs:ro -v $th/libexec/tehas-mcp:/tehas-mcp:ro -e TEHAS_MCP_KEYS --entrypoint /tehas-mcp caddy@$digest --live /live --sessions /sessions --logs /logs --listen 0.0.0.0:8082 --server-version v0.7.30+abc1234"
 t_lacks "$(t_calls docker)" "$key1"
 t_lacks "$(t_calls docker)" "$key2"
+
+t_case "it makes the snapshot's directory private before the container runs, so Docker never makes it"
+reset
+t_stub docker 'case "$*" in "network inspect"*) echo false ;; esac
+[ "$1" != run ] || stat -c %a "$TEHAS_HOME/mcp" >"$T/mode.seen"'
+t_env TEHAS_MCP=1 TEHAS_MCP_KEYS="$key1"
+t_run "$mcp serve"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/mode.seen" 2>/dev/null)" 700
+t_eq "$(stat -c %a "$th/mcp")" 700
+reset
+mkdir -m 755 "$th/mcp"
+t_env TEHAS_MCP=1 TEHAS_MCP_KEYS="$key1"
+t_run "$mcp serve"
+t_eq "$(stat -c %a "$th/mcp")" 700
 
 t_case "without its network it makes one that has no way out"
 reset

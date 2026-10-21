@@ -5,12 +5,34 @@
 //! until it is named here. Null values are left out.
 
 use serde_json::{json, Map, Value};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// The most of a console a call returns, and the default.
 pub const CONSOLE_MAX: u64 = 65536;
 /// A poll older than this is stale, as on the dashboard.
-const STALE_SECS: i64 = 600;
+pub(crate) const STALE_SECS: i64 = 600;
+
+/// The directories the server reads, each mounted read only.
+pub struct Dirs {
+    /// What the dashboard publishes.
+    pub live: PathBuf,
+    /// The sessions snapshot, never published.
+    pub sessions: PathBuf,
+    pub logs: PathBuf,
+}
+
+/// What a call returns: JSON, or JSON that describes a file sent with it.
+#[derive(Debug)]
+pub enum Output {
+    Json(Value),
+    Blob {
+        meta: Value,
+        uri: String,
+        mime: &'static str,
+        /// The file's bytes in base64.
+        blob: String,
+    },
+}
 
 #[derive(Debug)]
 pub enum ToolError {
@@ -80,7 +102,8 @@ pub fn list() -> Value {
 }
 
 /// The structured content of one call, with "api": 1.
-pub fn call(live: &Path, name: &str, args: &Value) -> Result<Value, ToolError> {
+pub fn call(dirs: &Dirs, name: &str, args: &Value) -> Result<Output, ToolError> {
+    let live = dirs.live.as_path();
     let mut out = match name {
         "factory_status" => status(live)?,
         "factory_issues" => issues(live, args)?,
@@ -90,7 +113,7 @@ pub fn call(live: &Path, name: &str, args: &Value) -> Result<Value, ToolError> {
         _ => return Err(ToolError::Unknown(name.to_string())),
     };
     out.insert("api".into(), json!(1));
-    Ok(Value::Object(out))
+    Ok(Output::Json(Value::Object(out)))
 }
 
 fn read(live: &Path, file: &str) -> Result<Value, ToolError> {
@@ -369,7 +392,7 @@ fn now() -> i64 {
 }
 
 /// Seconds since 1970 for "YYYY-MM-DDTHH:MM:SSZ", the form the live files use.
-fn epoch(t: &str) -> Option<i64> {
+pub(crate) fn epoch(t: &str) -> Option<i64> {
     let b = t.as_bytes();
     if b.len() != 20 || b[4] != b'-' || b[7] != b'-' || b[10] != b'T' || b[19] != b'Z' {
         return None;
