@@ -170,8 +170,9 @@ Size limits, my calls:
 - Plain: 1 MB per call. A file larger than that is read in pieces with
   `offset` and `bytes`. The result says the file's total size and whether it
   was cut.
-- Gzip: the masked file, compressed, up to 16 MB of input. A larger file gets
-  a tool error saying to read it plain in pieces. The largest seen is 9.1 MB.
+- Gzip: the masked file, compressed, up to 16 MiB of input. A file over
+  16 MiB is not served in either mode, because the mask runs on whole lines.
+  The largest seen is 9.1 MB.
 - The 64 KB request body limit stays; only responses grow.
 - The server's 10 second limit (`IO_TIMEOUT` in `console/mcp/src/http.rs`)
   bounds each write and the reading of the request. A multi-MB answer through
