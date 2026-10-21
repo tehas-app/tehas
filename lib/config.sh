@@ -38,6 +38,9 @@
 #     ~/.config/tehas/env TEHAS_ENERGY, TEHAS_ENERGY_URL and the model
 #     endpoints' tokens TEHAS_MODEL_KEY_*. instance.env that sets a token is
 #     refused: it is in a repository.
+#   - PI_RUKAS_FOLLOW may be set in instance.env, over the line of
+#     versions.env, and is checked whenever it is set: release, branch:<name>
+#     or commit:<40 hex>.
 #   - Loading runs no git command, makes no network call and writes nothing.
 #     TEHAS_PLAN_TIMEOUT_MAX, the ceiling of one planning turn, is local to
 #     tehas_load: nothing sources this file and reads it from the environment.
@@ -225,6 +228,21 @@ _tehas_valid() {
             ;;
         esac
       done
+      ;;
+    PI_RUKAS_FOLLOW)
+      case "$v" in
+        release) ;;
+        branch:*)
+          [[ ${v#branch:} =~ ^[A-Za-z0-9._/-]+$ ]] ||
+            { echo "expected branch:<name>, a name of letters, digits and ._/-"; return 1; }
+          ;;
+        commit:*)
+          # The whole commit: an abbreviation could name another one later.
+          [[ ${v#commit:} =~ ^[0-9a-f]{40}$ ]] ||
+            { echo "expected commit: and 40 lower-case hex digits"; return 1; }
+          ;;
+        *) echo "expected release, branch:<name> or commit:<40 hex>"; return 1 ;;
+      esac
       ;;
     TEHAS_BRANCH_CHECK)
       # A check run's name goes into a URL and into the log.
@@ -527,6 +545,9 @@ tehas_load() {
     TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_LOW_GATE_WAIT TEHAS_CLEAN_AFTER; do
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
+  if [ -n "${PI_RUKAS_FOLLOW+x}" ]; then
+    reason=$(_tehas_valid PI_RUKAS_FOLLOW "$PI_RUKAS_FOLLOW") || { tehas_err "PI_RUKAS_FOLLOW is not valid: $reason (see $file)"; return 78; }
+  fi
   for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL; do
     [ -n "${!v:-}" ] || continue
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
