@@ -1054,7 +1054,11 @@ rests on (the approval record's `by`, or its `rests_on.by` after the fixer):
   the issue, at the head the request named, and GitHub still says
   `CONFLICTING`. A person who pushed to it since is handling it;
 - fewer than `TEHAS_REFRESH_MAX` refreshes of it since that approval (2 unless
-  the instance says otherwise), and none that parked.
+  the instance says otherwise), and none that parked. A start that failed
+  counts as none: where the mark of a refresh could not be put on the pull
+  request, or the cycle never ran, the dispatcher writes the record back as it
+  found it and asks again next hour. The count is what the bot itself saw
+  start.
 
 A request that fails a check goes, and the dispatcher's log says why. At the
 cap or after a parked refresh the bot says so on the issue, once: a person
@@ -1073,6 +1077,10 @@ push to it. The dispatcher applies it before it marks the issue, and a start
 whose label change fails starts nothing. `tehasbot cycle` takes it off when the
 cycle ends, whatever the outcome. The dispatcher takes it off a pull request
 whose issue has no cycle running, and one applied by any account but the bot.
+Both directions go through GitHub's REST issues endpoint, not `gh pr edit`,
+which asks GitHub a GraphQL question the bot's token may not answer
+(see [issue #120](https://github.com/tehas-ai/tehas/issues/120)); a 404 is
+read as a label that is not there, so a mark already gone needs no retry.
 
 **The record and the cycle.** The approval record has `how: "refresh"`, the
 person's `by` and `at`, `rests_on`, `refreshes` (the count since that
