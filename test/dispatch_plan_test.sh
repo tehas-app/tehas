@@ -52,6 +52,9 @@ t_contains "$brief" "Ground it in the code first"
 t_contains "$brief" "part only, the one the others build on"
 t_contains "$brief" "[paths: \`a\`, \`b\`]"
 t_contains "$brief" "\`.github/\` or \`.pi/\`"
+t_contains "$brief" "Classify the part in its title, as a conventional-commit type"
+t_contains "$brief" "Keep a type the
+   request's title already has."
 t_eq "$([ "$(wc -c <"$T_ROOT/lib/refine-brief.md")" -lt 4000 ] && echo short)" short
 
 t_case "a refine label from a stranger starts nothing and is taken off the issue"
