@@ -1,0 +1,348 @@
+#!/usr/bin/env bash
+# Remove what the host can make again: build output in kept workspaces,
+# Docker's build cache, and old files under ~/tehas/tmp.
+#
+# A full disk stops previews and fails clones. Most of what fills it is
+# something the next build makes again, and a kept workspace is never built in
+# again: every cycle clones fresh (libexec/work), so the build output of a kept
+# one is dead weight until the 7-day sweep takes the workspace itself
+# (sweep_workspaces in libexec/dispatch). The cleaner takes the weight first
+# and leaves the workspace for a person to read.
+#
+# It removes only these, and only what has not been used for
+# TEHAS_CLEAN_AFTER hours (24 by default):
+#
+#   1. build output in kept workspaces   every directory anywhere under an
+#                                        issue's kept workspace whose name is
+#                                        one of TEHAS_CLEAN_DIRS, and
+#                                        <name>-<n>.state/cache, the cycle's
+#                                        copy of the code index. The issue's
+#                                        lock is held while they go, as the
+#                                        sweep holds it, so no cycle starts
+#                                        meanwhile. .git, sources, what the
+#                                        agents wrote there, memory and
+#                                        sessions stay. It runs no git command
+#                                        in a workspace: a container has
+#                                        written in those trees, and a git
+#                                        config there can run commands on the
+#                                        host (see the header of libexec/work).
+#                                        It walks the tree with find -P and
+#                                        -xdev, follows no symlink, and does
+#                                        not go into .git.
+#   2. Docker's build cache              `docker builder prune -f --filter
+#                                        until=<N>h`. That is the build cache
+#                                        of the whole host's Docker daemon:
+#                                        tehas is one project on one host, so
+#                                        the manual says so.
+#   3. host scratch                      files under $TEHAS_HOME/tmp/dl and
+#                                        $TEHAS_HOME/tmp/node-compile-cache,
+#                                        and $TEHAS_HOME/tmp/tehas-test.*
+#                                        directories, that old. Nothing
+#                                        elsewhere under $TEHAS_HOME, and
+#                                        nothing outside it.
+#
+# Sandbox images and the pulled base image are not this command's: they go with
+# the build and with `tehasbot preview`. Docker volumes are never touched, a
+# person's call (see the host manual).
+#
+# One line per removal, and a closing line with the bytes freed, go to
+# $TEHAS_HOME/logs/clean.log. A docker step that fails is logged as a warning
+# and the other steps still run. `tehasbot clean` runs it by hand;
+# tehas-clean.timer runs it every hour. The pause label does not stop it: it
+# starts no work.
+#
+# Usage:
+#   tehasbot clean              one run
+#   tehasbot clean --dry-run    log what it would remove and remove nothing
+#   tehasbot clean -h|--help    print this text and exit 0
+#
+# Exit: 0 the run finished with every step working; 1 a step failed, or the log
+# could not be written (what could be removed was removed); 3 another run holds
+# its lock, which changes nothing; 64 an argument this command does not know;
+# 78 instance settings are missing or malformed, before any docker, find or rm
+# call.
+set -uo pipefail
+
+show_usage() {
+  sed -n '2,/^[^#]/p' "$0" | sed -n '/^#/s/^# \{0,1\}//p'
+}
+
+unknown() {
+  printf 'tehasbot clean: unknown argument: %s\n' "$1" >&2
+  show_usage >&2
+  exit 64
+}
+
+dry=0
+case "${1-}" in
+  -h | --help)
+    [ "$#" = 1 ] || unknown "${2-}"
+    show_usage
+    exit 0
+    ;;
+  --dry-run) dry=1 ;;
+  "") ;;
+  *) unknown "$1" ;;
+esac
+[ "$#" -le 1 ] || unknown "$2"
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/config.sh
+. "$here/../lib/config.sh"
+# shellcheck source=lib/cycles.sh
+. "$here/../lib/cycles.sh"
+tehas_load || exit 78
+tehas_require_instance_settings
+
+after=$TEHAS_CLEAN_AFTER
+works=${TEHAS_WORK_DIR%/*}
+base=${TEHAS_WORK_DIR##*/}
+logs=$TEHAS_HOME/logs
+logfile=$logs/clean.log
+tmp=$TEHAS_HOME/tmp
+mkdir -p "$logs" "$TEHAS_HOME/state" ||
+  { printf 'tehas clean: %s could not be made\n' "$TEHAS_HOME/state" >&2; exit 1; }
+
+# One run at a time. A run that found another working leaves it to that one.
+exec 9>>"$TEHAS_HOME/state/clean.lock"
+if ! flock -n 9; then
+  printf '%s clean: another run holds the lock, nothing was removed\n' "$(date -u +%FT%TZ)"
+  exit 3
+fi
+
+freed=0
+rc=0
+warn() { printf '%s WARN: clean: %s\n' "$(date -u +%FT%TZ)" "$1" | tee -a "$logfile" >&2; }
+log() {
+  printf '%s clean: %s\n' "$(date -u +%FT%TZ)" "$1" >>"$logfile" 2>/dev/null ||
+    { printf '%s clean: the log %s could not be written\n' "$(date -u +%FT%TZ)" "$logfile" >&2; rc=1; }
+  printf '%s clean: %s\n' "$(date -u +%FT%TZ)" "$1"
+}
+
+# What one removal gave back, in bytes, measured before it goes.
+bytes_of() { # <path> -> the bytes it holds
+  local b
+  if [ -d "$1" ]; then
+    b=$(du -sb -- "$1" 2>/dev/null | awk '{print $1}')
+  else
+    b=$(stat -c %s -- "$1" 2>/dev/null)
+  fi
+  [[ ${b:-} =~ ^[0-9]+$ ]] || b=0
+  printf '%s\n' "$b"
+}
+
+# find's -name tests for these directory names, each name quoted so one that
+# reads as a test or a bracket is matched as the characters it is.
+name_tests() { # -> -name <q> -o -name <q> ...
+  local first=1 d
+  for d in "$@"; do
+    if [ "$first" = 1 ]; then
+      first=0
+      printf -- '-name %q' "$d"
+    else
+      printf -- ' -o -name %q' "$d"
+    fi
+  done
+}
+
+# The build output of one tree: every directory under it that find names, one
+# path per line on standard output. Every dot-name is pruned, wherever it sits.
+# A workspace holds a clone and whatever a container wrote beside it, and the
+# trees that matter there -- the objects, the agent state, the memory -- are all
+# dot-names; every name an instance can put in TEHAS_CLEAN_DIRS is un-dotted,
+# so the rule gives up no build output. Pruning the whole class, rather than
+# naming the two trees lib/config.sh refuses, is also what keeps the protection
+# from drifting: a name close to one of them, in any spelling, is not removed
+# either. No symlink is followed, so a link named target stays a link and what
+# it points at is not touched. Nothing is removed here, so the dry run and the
+# run ask the same question the same way.
+find_build_output() { # <tree> <find's -name tests> -> paths, one per line
+  local p=$1 tests=$2
+  [ -d "$p" ] || return 0
+  while IFS= read -r -d '' d; do printf '%s\n' "$d"; done < <(
+    eval "find -P \"\$p\" -xdev \\( -name '.*' -prune \\) -o \\
+      \\( -type d ! -type l \\( $tests \\) -print0 \\)" 2>/dev/null
+  )
+}
+
+# The age rule of an issue: nothing of these paths, nor of the issue's own
+# lock, has been touched within TEHAS_CLEAN_AFTER hours. Returns 1 as soon as
+# one of them is younger than that, and also when find could not read one: a
+# tree the cleaner cannot date is a tree it does not touch. A path that is not
+# there has been touched as little as one that is, so it is skipped.
+untouched_for_hours() { # <issue> <paths...>
+  local n=$1 p young
+  shift
+  for p in "$@" "$TEHAS_HOME/state/cycles/$n.lock"; do
+    [ -e "$p" ] || continue
+    young=$(find "$p" -maxdepth 0 -newermt "-$after hours" 2>/dev/null) || return 1
+    [ -n "$young" ] && return 1
+  done
+  return 0
+}
+
+# The cycle's copy of the code index: a real directory of the issue's own state
+# tree, and only then. The tree sits beside the workspace, named <n>.state, and
+# is not walked for names: what its agents learned and Pi's sessions are not
+# build output.
+is_cache_dir() { # <the issue's .state directory>
+  [ -d "$1" ] && [ ! -L "$1" ] && [ -d "$1/cache" ] && [ ! -L "$1/cache" ]
+}
+
+# The issue's lock, held for the instant of one removal, as sweep_workspaces
+# holds it: no cycle can start in the workspace meanwhile. A lock a cycle holds
+# is not taken, the removal does not happen, and the caller says so.
+# tehas_cycle_lock_free is asked first, because flock on a lock that is not
+# there makes one: it would hold a lock no cycle takes and remove under a proof
+# that proves nothing. So when the poll cannot tell the lock is free, or the
+# lock is no plain file, nothing here is removed. A cycle that starts after the
+# probe is refused the removal by the lock itself.
+remove_under_lock() { # <issue> <path>
+  local lock=$TEHAS_HOME/state/cycles/$1.lock
+  tehas_cycle_lock_free "$1" || return 1
+  [ -f "$lock" ] && [ ! -L "$lock" ] || return 1
+  flock -n "$lock" rm -rf -- "$2" 8>&-
+}
+
+# --- 1. build output in kept workspaces --------------------------------------
+# Each issue's kept workspace, taken with the two directories beside it for the
+# age rule alone: the lock and the age belong to the issue, so they are asked
+# together, as the sweep of libexec/dispatch asks them. What goes is build
+# output by name, anywhere in the tree, and the cycle's copy of the code index.
+# What stays is .git, the sources, what the agents wrote there, memory and
+# sessions: for a person to read, until the 7-day sweep takes the workspace
+# itself.
+clean_workspaces() {
+  local -a dirs=()
+  local p n d kb tests paths state retry held failed=0
+  [ -d "$works" ] || return 0
+  read -r -a dirs <<<"$TEHAS_CLEAN_DIRS"
+  [ "${#dirs[@]}" -gt 0 ] || return 0
+  tests=$(name_tests "${dirs[@]}")
+  for p in "$works/$base"-*; do
+    [[ ${p##*/} =~ ^"$base"-([1-9][0-9]{0,9})$ ]] || continue
+    n=${BASH_REMATCH[1]}
+    state=$p.state
+    retry=$p.before-retry
+    # A lock a cycle holds means a cycle may be writing there now: left alone,
+    # as the sweep leaves it. The lock is the only proof read, so a lock held by
+    # anything else is left alone for the same reason and says so.
+    if tehas_cycle_running "$n"; then
+      log "kept the build output of #$n: its lock is held"
+      continue
+    fi
+    untouched_for_hours "$n" "$p" "$state" "$retry" || {
+      [ -e "$p" ] || continue
+      log "kept the build output of #$n: something of it is younger than $after hours"
+      continue
+    }
+    if [ "$dry" = 1 ]; then
+      paths=$(find_build_output "$p" "$tests")
+      while IFS= read -r d; do
+        [ -n "$d" ] && log "would remove $d: build output of #$n, untouched for $after hours"
+      done <<<"$paths"
+      is_cache_dir "$state" &&
+        log "would remove $state/cache: the code index copy of #$n, untouched for $after hours"
+      continue
+    fi
+    held=1
+    while IFS= read -r d; do
+      [ -n "$d" ] || continue
+      [ -d "$d" ] && [ ! -L "$d" ] || continue
+      kb=$(bytes_of "$d")
+      if remove_under_lock "$n" "$d"; then
+        held=0
+        freed=$((freed + kb))
+        log "removed $d: build output of #$n, $kb bytes"
+      elif [ -e "$d" ]; then
+        warn "could not remove $d"
+        failed=1
+      fi
+    done < <(find_build_output "$p" "$tests")
+    if is_cache_dir "$state"; then
+      kb=$(bytes_of "$state/cache")
+      if remove_under_lock "$n" "$state/cache"; then
+        held=0
+        freed=$((freed + kb))
+        log "removed $state/cache: the code index copy of #$n, $kb bytes"
+      elif [ -e "$state/cache" ]; then
+        warn "could not remove $state/cache"
+        failed=1
+      fi
+    fi
+    [ "$held" = 0 ] || log "kept the build output of #$n: its lock is held"
+  done
+  return "$failed"
+}
+
+# --- 2. Docker's build cache -------------------------------------------------
+# The whole host's build cache, filtered only by its age: tehas is one project
+# on one host, and the cache of anything else on it is made again too.
+clean_build_cache() {
+  local out rc2
+  # Bounded well inside the unit's own limit, so a slow prune ends this step
+  # and the scratch cleaning after it still runs.
+  out=$(timeout -k 30 600 docker builder prune -f --filter "until=${after}h" 2>&1)
+  rc2=$?
+  if [ "$rc2" = 124 ]; then
+    warn "docker builder prune did not finish in 600 seconds"
+    return 1
+  elif [ "$rc2" != 0 ]; then
+    warn "docker builder prune failed ($rc2): $(head -n 1 <<<"${out:-docker gave no reason}")"
+    return 1
+  fi
+  log "docker builder prune: $(head -n 1 <<<"${out:-docker gave no answer}")"
+  return 0
+}
+
+# --- 3. host scratch ---------------------------------------------------------
+# The downloads bootstrap.sh keeps, the compile cache node leaves behind, and
+# the scratch directories a test run left when its process died. Only these,
+# only files and directories directly under them, and nothing elsewhere in
+# $TEHAS_HOME or outside it.
+clean_scratch() {
+  local dir f kb failed=0
+  for dir in "$tmp/dl" "$tmp/node-compile-cache"; do
+    [ -d "$dir" ] || continue
+    while IFS= read -r -d '' f; do
+      [ -f "$f" ] && [ ! -L "$f" ] || continue
+      if [ "$dry" = 1 ]; then
+        log "would remove $f: host scratch untouched for $after hours"
+        continue
+      fi
+      kb=$(bytes_of "$f")
+      if rm -f -- "$f" 2>/dev/null; then
+        freed=$((freed + kb))
+        log "removed $f: host scratch, $kb bytes"
+      else
+        warn "could not remove $f"
+        failed=1
+      fi
+    done < <(find -P "$dir" -xdev -mindepth 1 -maxdepth 1 -type f \
+      ! -newermt "-$after hours" -print0 2>/dev/null)
+  done
+  for dir in "$tmp"/tehas-test.*; do
+    [ -d "$dir" ] && [ ! -L "$dir" ] || continue
+    if [ "$dry" = 1 ]; then
+      log "would remove $dir: a test's scratch directory of that age"
+      continue
+    fi
+    kb=$(bytes_of "$dir")
+    if rm -rf -- "$dir" 2>/dev/null; then
+      freed=$((freed + kb))
+      log "removed $dir: a test's scratch directory, $kb bytes"
+    else
+      warn "could not remove $dir"
+      failed=1
+    fi
+  done
+  return "$failed"
+}
+
+# Every step runs, whatever the ones before it did.
+clean_workspaces || rc=1
+clean_build_cache || rc=1
+clean_scratch || rc=1
+
+log "freed $freed bytes"
+exit "$rc"

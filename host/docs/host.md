@@ -17,8 +17,9 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 
 | Path                                 | Content                                                                 |
 | ------------------------------------ | ----------------------------------------------------------------------- |
-| `~/tehas/env.sh`                     | Environment for every tehas process; sourced from `~/.bashrc`           |
+| `~/tehas/env.sh`                     | Environment for every tehas process, its tool directories taken from `lib/paths.sh`; sourced from `~/.bashrc`           |
 | `~/tehas/lib/config.sh`              | Loads and checks the instance settings; sourced by every command        |
+| `~/tehas/lib/paths.sh`               | The home of each tool this host installs, and the `PATH` that finds them. `env.sh`, `bootstrap.sh` and `install.sh` all take the list from here |
 | `~/tehas/lib/sandbox.sh`             | What a sandbox container is given; sourced by the work, plan and dev scripts |
 | `~/tehas/lib/slice.sh`               | Reads the slice: whether it is usable, a container's limits, the room left. Every command that starts a sandbox container reads it |
 | `~/tehas/lib/headless.sh`            | What tehas reads of pi-rukas's headless runner: its `--capabilities` answer, its progress and its result. `tehas work` and `tehasbot cycle` use it |
@@ -28,10 +29,10 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/libexec/`                   | The scripts behind the two commands, one for each thing they do. Not on `PATH` |
 | `~/tehas/platform`                   | Checkout of this repository; `install.sh` runs from it and `tehas update` pulls it |
 | `~/tehas/repos/tehas`                | The product checkout, on the default branch. Cycles are cloned from it; no container is given it |
-| `~/tehas/work/tehas-<issue>`         | The cycle's workspace: a fresh clone made for each cycle. Removed after a cycle that merged or left a pull request, otherwise kept, and moved to `tehas-<issue>.before-retry` when that issue is retried. A kept workspace, its `.before-retry` and what else is left beside it go once no cycle has run on the issue for 7 days. `~/tehas/work/tehas` is only its path inside the container |
+| `~/tehas/work/tehas-<issue>`         | The cycle's workspace: a fresh clone made for each cycle. Removed after a cycle that merged or left a pull request, otherwise kept, and moved to `tehas-<issue>.before-retry` when that issue is retried. A start that stopped before the container ran keeps the clone it made, as does the one it moved aside. A kept workspace, its `.before-retry` and what else is left beside it go once no cycle has run on the issue for 7 days. Its build output goes sooner: `tehasbot clean` removes what it names as build output once nothing of the issue has been touched for `TEHAS_CLEAN_AFTER` hours, and the 7-day sweep still takes the rest. `~/tehas/work/tehas` is only its path inside the container |
+| `~/tehas/work/tehas-<issue>.state`   | The cycle's own: `cache`, a copy of the code index the host built; `memory`, what its agents learn; `sessions`, Pi's session files. Made fresh for each cycle, mounted in its container, removed with the workspace. `~/tehas/work/tehas-plan-<issue>.state` is a planning turn's, removed after the turn. Of these, only `cache` is build output: `tehasbot clean` removes it when the issue has been idle for `TEHAS_CLEAN_AFTER` hours, and `memory` and `sessions` stay |
 | `~/tehas/work/tehas-<issue>.images`  | With `TEHAS_WORK_IMAGES=1`, the images of the cycle's issue and their `manifest.json`, and with `TEHAS_WORK_DESCRIBE=1` the model's descriptions of them, `images.md`. With `TEHAS_WORK_FILES=1`, the issue's text files too, `file-<n>.<ext>`, with or without the images. Made for each cycle, read-only in its container at `~/tehas/work/tehas.images`, removed when the cycle is over |
 | `~/tehas/work/tehas-plan-<issue>.images` | With `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, a copy of a planning session's images and files for one turn, read-only in its container at `~/tehas/work/tehas.images`, removed after the turn |
-| `~/tehas/work/tehas-<issue>.state`   | The cycle's own: `cache`, a copy of the code index the host built; `memory`, what its agents learn; `sessions`, Pi's session files. Made fresh for each cycle, mounted in its container, removed with the workspace. `~/tehas/work/tehas-plan-<issue>.state` is a planning turn's, removed after the turn |
 | `~/tehas/dev/<name>`                 | A person's clone for working by hand, named after their account, made and used by `tehas dev`, never removed. `<name>.author` next to it holds whose name its commits carry, `<name>.state` its memory, sessions, transcripts and code index, and `<name>.images` the images and files of the issue named by `--issue`, read-only in the session's container |
 | `~/tehas/repos/pi-rukas`             | pi-rukas, at the commit `PI_RUKAS_FOLLOW` names                         |
 | `~/tehas/docs/`, `~/tehas/fun/`      | This site's pages and the front page, installed from `host/`            |
@@ -49,6 +50,36 @@ Where the improvement loop is on, each of its runs removes the per-cycle files
 in `~/tehas/logs/` that are older than seven days (`work-*`, `dispatch-work-*`,
 `index-*`), and the records that old under `~/tehas/tmp/improve/`. Nothing else
 removes logs.
+
+**The cleaner.** `tehasbot clean`, from `tehas-clean.timer` once an hour, removes
+what the host can make again once nothing has touched it for
+`TEHAS_CLEAN_AFTER` hours (24 unless the instance says otherwise): the build
+output of a kept workspace - every directory anywhere under it whose name is one
+of `TEHAS_CLEAN_DIRS`, the toolchain names listed in [Commands](/tools) - and the
+cycle's `cache`, its copy of the code index. What the workspace keeps is what a
+person reads: `.git`, the sources, what the agents wrote there, uncommitted
+changes, and the `memory` and `sessions` of its `.state`. The cleaner runs no git
+command in a workspace, follows no symlink, and enters no dot-name, which is what
+keeps those trees out of the removal. It holds the issue's lock while it removes,
+so no cycle starts under it, and it removes nothing for an issue whose lock file
+is not there to hold. The 7-day sweep of the dispatcher still takes the workspace
+itself.
+
+The same run prunes Docker's build cache of that age with `docker builder prune`.
+That is the build cache of the whole host's Docker daemon, not only tehas's:
+tehas is one project on one host, and the cache of anything else on it is made
+again too. It removes no image and no volume. Images go with the sandbox build,
+which keeps its newest three date tags, and with `tehasbot preview`; volumes are
+a person's call.
+
+The third step is the host's scratch: old files under `~/tehas/tmp/dl`, where
+`bootstrap.sh` keeps what it downloads, and under `~/tehas/tmp/node-compile-cache`,
+and old `~/tehas/tmp/tehas-test.*` directories a run left behind. Nothing else
+under `~/tehas` is touched, and nothing outside it: not `~/tehas/tmp/improve`,
+`state`, `logs`, `dev`, `repos`, `preview` or `protolab`. One line per removal and
+a closing line with the bytes freed go to `~/tehas/logs/clean.log`; `tehasbot
+clean --dry-run` logs what it would remove and removes nothing. The cleaner starts
+no work, so the pause label does not hold it.
 
 In the example the platform and the product are the same repository. They are
 still two clones. A merged pull request changes the running factory only when a
@@ -77,13 +108,19 @@ commands a person does.
 
 ## Installing a factory
 
-Two commands, run in this order, and run again as often as the platform
+A new host installs from a release: the installer, then `tehas setup`, as
+[A new project](/new-project#the-install) describes. The installer unpacks the
+release into `~/tehas/versions/<version>`, points `~/tehas/current` at it and
+runs that release's `bootstrap.sh root <user>`; `tehas setup` writes the
+instance and runs `~/tehas/current/install.sh`.
+
+Underneath are the two commands below, the same from a release and from a
+platform checkout, run in this order, and run again as often as the platform
 changes. Neither asks a question, so a program can run them with nothing on
 standard input and nothing to answer:
 
 ```
-sudo ./bootstrap.sh root <user>   # packages, Docker, the docker group, linger, the slice
-./bootstrap.sh user               # the pinned tools, as the tehas user
+sudo ./bootstrap.sh root <user>   # packages, Docker, the docker group, linger, the slice, then the pinned tools as <user>
 ./bootstrap.sh check              # one line per tool, and one for the slice
 # the instance's instance.env and models.json are in place, and
 # ~/.config/tehas/instance-dir names the directory, or instance.env sits in
@@ -108,8 +145,9 @@ What an unattended run refuses to get past, and what each one means:
 | The run stops with                             | What the machine is missing                                                      |
 | ---------------------------------------------- | -------------------------------------------------------------------------------- |
 | `tehas: <NAME> is not set (see …/instance.env)`, exit 78 | The instance directory, or a setting of it. Nothing is installed and nothing is written |
-| `tehas: cargo is not installed…`               | `bootstrap.sh root` has not run, so the build tools are not there                |
+| `tehas: cargo is not installed…`               | `./bootstrap.sh user` has not run, so the build tools are not there. `install.sh` puts the tool directories `bootstrap.sh user` used on `PATH` itself, so it finds them without a login shell |
 | `tehas: no slice file on this host`            | `sudo ./bootstrap.sh slice`, which is root's, and `--check` stays red until it has run |
+| a tool directory named as writable by everyone or not owned by the user | One of the directories the tools live in (`~/.cargo/bin` among them). The run builds nothing until its mode is fixed (`chmod o-w`), because what cargo builds there is installed where every cycle runs it |
 | a model key finding                            | `~/.config/tehas/env` does not hold a `TEHAS_MODEL_KEY_<NAME>` that `models.json` names |
 
 `--check` exits 0 only when the instance loads, the slice file is the one this
@@ -135,7 +173,12 @@ Everything that differs between instances is in the instance directory:
 <instance dir>/
   instance.env     settings, shell KEY=value lines, no secrets
   models.json      Pi provider and model list, installed to ~/.pi/agent/
+                   with the keys a model leaves out filled
   settings.json    optional: Pi's own settings, installed to ~/.pi/agent/
+                   with the session model filled in from instance.env
+  sandbox.Dockerfile  optional: a layer the sandbox image is built on top of,
+                      by sandbox/build.sh. See
+                      [the sandbox image](/new-project#5-the-sandbox-image)
 ```
 
 The directory is found in this order: `TEHAS_INSTANCE_DIR` in the environment,
@@ -160,7 +203,9 @@ Rules that hold for every command:
 - `instance.env` is shell, sourced as written. Keep it writable by the tehas
   user only. `./install.sh --check` reports it if it is not, and reads the
   file no further once it has a finding: the owner and mode of the instance
-  directory and of `instance.env` are checked before the settings are read.
+  directory, of `instance.env` and of `sandbox.Dockerfile` are checked before
+  the settings are read. The last is not sourced, but it is built into the
+  image every cycle runs, so its bytes carry the same trust.
 
 The settings and their defaults are listed on the [commands page](/tools) and,
 with comments, in `instances/example/instance.env`.
@@ -207,7 +252,10 @@ its lock to the `install.sh` it runs. `--check` takes no lock.
 From a checkout of tehas on another machine, two scripts release and deploy.
 `scripts/tag-release.sh` runs the gate on the head of the remote's default
 branch in a temporary worktree, tags that commit as the next `vX.Y.Z` with an
-annotated tag, and pushes the tag. `scripts/tag-deploy.sh tehas-tehas` refuses
+annotated tag, and pushes the tag. It refuses a commit whose `CHANGELOG.md`
+has no "Adopter action" for the release ([Releases](/tools#release-notes-and-the-adopter-action)).
+The pushed tag starts the release workflow, which publishes the signed tarball.
+`scripts/tag-deploy.sh tehas-tehas` refuses
 unless the newest tag is the head of that branch, runs
 `. ~/tehas/env.sh && tehas update` on the host over ssh, then checks that the
 host's checkout is at the tag. With `--check` it runs `tehas update --check`
@@ -333,7 +381,10 @@ Two installed files are compiled, not copied: the console of a running cycle
 and the analytics program, Rust programs in the Cargo workspace `console/`
 (analytics is in `console/analytics/`). A real run builds each with `cargo`
 in the checkout and installs them as `~/tehas/libexec/console` and
-`~/tehas/libexec/analytics`. Beside each, `<name>.stamp` holds two checksums:
+`~/tehas/libexec/analytics`. A host installed from a release tarball has neither
+`cargo` nor `console/`: its console, analytics program and MCP server are the
+ones the release packed
+([Releases](/tools#releases)). Beside each, `<name>.stamp` holds two checksums:
 of the source it was built from and of the program. A program is built again
 only when its source has changed or the program on the host is not the one
 that was installed. The console's source is `console/` without its tests and
@@ -371,13 +422,53 @@ One thing it does besides copying, on a real run only: the product checkout's
 asking the network. To pin another branch, set `TEHAS_BRANCH`. If the
 repository's default branch changes later, run `install.sh` again.
 
+### Updating tehas
+
+A host installed from a release updates from releases: `tehas update --check`
+says which version is installed, which is newest and what each release between
+asks the adopter to do, and `tehas update` moves to the newest. Each version is
+unpacked beside the others in `~/tehas/versions/<version>`, and
+`~/tehas/current` points at the one in use. A host that develops tehas sets
+`TEHAS_UPDATE_FROM=git` and updates from its platform checkout. See
+[tehas update](/tools#tehas-update).
+
+### Move a checkout host to releases
+
+A host installed before releases has a platform checkout at `~/tehas/platform`
+and no `~/tehas/current`, so `tehas update` keeps pulling the checkout. To move
+it to releases, once a signed release is published:
+
+1. Install minisign, which checks the signature: `sudo apt-get install minisign`.
+2. Check that `~/tehas/release/minisign.pub` is there. `install.sh` has put it
+   there since the key was added; run `tehas update` once from the checkout if
+   it is missing.
+3. Set `TEHAS_UPDATE_FROM=release` in `instance.env`.
+4. Pause and let running cycles end (`tehas pause`), since an update that
+   changes a unit restarts the units that run.
+5. Run `tehas update --check`, read the Adopter action of each release it
+   lists, then run `tehas update`, then `tehas resume`.
+
+The checkout stays where it is and is no longer read. To go back to it, set
+`TEHAS_UPDATE_FROM=git` and run `./install.sh` from the checkout.
+
 ### Rolling back tehas
+
+On a host that updates from releases, go back with
+`tehas update --to <version>`. A version still in `~/tehas/versions` is not
+downloaded again, and its sandbox image is put back if it still has its tag. To
+stay there, hold the host, or the next `tehas update` moves it to the newest
+again:
+
+```
+touch ~/tehas/state/update-hold     # tehas update refuses while this exists
+tehas update --to v0.8.0            # --to runs with the hold there
+```
 
 `install.sh` keeps one `<name>.prev` beside each file it replaces, and only
 one: a second install that changes the file replaces it. Copying a `.prev`
-back shows as drift, and the next install undoes it. The way back is the
-checkout. Hold it first, or the next `tehas update` fast-forwards it to the
-release you left:
+back shows as drift, and the next install undoes it. On a host that updates
+from its checkout, the way back is the checkout. Hold it first, or the next
+`tehas update` fast-forwards it to the release you left:
 
 ```
 touch ~/tehas/state/update-hold     # tehas update refuses while this exists
@@ -409,8 +500,8 @@ Three files name a model and they do different things:
 
 | Where                                                    | Controls                                                         |
 | -------------------------------------------------------- | ---------------------------------------------------------------- |
-| `.pi/settings.json` in the product repository            | Provider and model of the session, the agent driving the cycle   |
-| `PI_ENSEMBLE_SUBAGENT_MODEL`, `_PROVIDER` in `instance.env` | Every subagent role that has no model of its own              |
+| `PI_ENSEMBLE_SUBAGENT_MODEL`, `_PROVIDER` in `instance.env` | The session, the agent driving the cycle, and every subagent role that has no model of its own |
+| `.pi/settings.json` in the product repository, optional  | Provider and model of the session, over the instance's           |
 | `PI_ENSEMBLE_MODEL_<ROLE>`, `PI_ENSEMBLE_PROVIDER_<ROLE>` in `instance.env` | One role                                       |
 | `models.json` in the instance directory                  | What the provider is and which models it offers                  |
 
@@ -502,7 +593,9 @@ no meter, even when the backup is one: the section hides.
 Pi retries a failed model request only as its `settings.json` says. The sandbox
 image has no `settings.json`, so every container is given the one `install.sh`
 put in `~/.pi/agent`, read-only: the instance's, or the generic one in
-`host/pi/settings.json`. The generic one sets:
+`host/pi/settings.json`, with `defaultProvider` and `defaultModel` from
+`PI_ENSEMBLE_SUBAGENT_PROVIDER` and `_MODEL` when the file does not name them.
+The generic one sets:
 
 | Key                              | Value  | Without it (Pi 1.0)                          |
 | -------------------------------- | ------ | -------------------------------------------- |
@@ -938,7 +1031,10 @@ beside it (`sandbox/npm/playwright`, whose `package-lock.json` fixes every
 package in that tree by hash). `versions.env` holds the versions and the
 checksums, and the build stops when a pin there does not match the file beside
 the Dockerfile. A product whose gates need another toolchain adds it to the
-Dockerfile.
+instance's own `sandbox.Dockerfile`, which `build.sh` builds on top of this
+image and gives the tag cycles run: see
+[the sandbox image](/new-project#5-the-sandbox-image). The platform's file stays
+as this checkout has it, because a changed one makes `tehas update` refuse.
 
 Two things the base carries are changed on purpose.
 
@@ -1002,9 +1098,12 @@ that starts a container some other way is outside what it reads.
 ```
 
 Each build is also tagged with its date, so
-`docker tag tehas/pi-rukas:<date> tehas/pi-rukas:uid$(id -u)` rolls back.
+`docker tag tehas/pi-rukas:<date> tehas/pi-rukas:uid$(id -u)` rolls back (an
+instance with its own `sandbox.Dockerfile` tags back `<date>-product`, the layer
+the cycles run: see [Rolling back pi-rukas](#rolling-back-pi-rukas)).
 Each image is several gigabytes, with Chromium and Rust in it. After a build
-`build.sh` keeps the newest three date tags, the new one among them, and
+`build.sh` keeps the newest three dated tags, the new one among them (with the
+instance's `<date>-product` counted as one of them), and
 removes older ones. It keeps an older tag whose image a container, running or
 stopped, was made from, or that a `uid` tag names. On a host that builds
 often the images then take about three times the size of one, plus those
@@ -1052,23 +1151,41 @@ counts its memory while it is there.
 
 ## pi-rukas comes from upstream
 
-tehas takes pi-rukas from [upstream](https://github.com/trail-openers/pi-rukas)
-and does not pin it. `PI_RUKAS_REPO` in `versions.env` names the repository
-and `PI_RUKAS_FOLLOW` the commit a host follows:
+tehas takes pi-rukas from [upstream](https://github.com/trail-openers/pi-rukas).
+`PI_RUKAS_REPO` in `versions.env` names the repository and `PI_RUKAS_FOLLOW` the
+commit a host follows:
 
-- `release`, the default: the commit of upstream's newest `vX.Y.Z` tag, by
-  version. A tag with a suffix, such as `v1.0.0-rc1`, does not count. Upstream
-  marks its releases as pre-releases; tehas reads the tags, not that mark.
+- `release:<line>`, the default: the commit of the newest `vX.Y.Z` tag of that
+  line, by version. `release:0` takes the newest `v0.Y.Z`, `release:2` the
+  newest `v2.Y.Z`, `release:0.14` the newest `v0.14.Z`. `versions.env` names the
+  major version this tehas works with, `release:0` while pi-rukas is before 1.0,
+  so a new pi-rukas reaches a host at its next `tehas update`. A new major
+  version waits for a tehas release that moves the line.
+- `release`: the newest `vX.Y.Z` tag of any line.
+  A tag with a suffix, such as `v1.0.0-rc1`, does not count.
+  Upstream marks its releases as pre-releases; tehas reads the tags, not that mark.
 - `branch:<name>`: the head of that branch, for example `branch:main`.
+- `commit:<40 hex>`: that commit, asked of no one, for a host that must keep one
+  pi-rukas. A commit that is not 40 lower-case hex digits is refused with 78.
+
+For the sandbox build, any of these may go in the instance's `instance.env`, where
+it wins over the line in `versions.env`, and so may `PI_RUKAS_IMAGE_DIGEST` below.
+An instance that sets neither follows the line its tehas was shipped with. `lib/config.sh` checks `PI_RUKAS_FOLLOW` when the
+settings load and stops the command with 78 naming it. `bootstrap.sh` reads only
+`versions.env`.
 
 What follows from it:
 
 - `tehas update` moves the sandbox image to that commit whenever it is not
   the commit the image was built on, also when no file of tehas changed. The
-  base is the image upstream publishes for each commit, tagged
-  `sha-<first 12 characters>`. A commit whose image upstream has not published
-  yet fails the update with a message that says so; the next update tries
-  again. `tehas update --check` says whether the commit moved.
+  base is the image upstream publishes for each commit, named by its tag
+  `sha-<first 12 characters>`, or by its digest when `PI_RUKAS_IMAGE_DIGEST`
+  (`sha256:<64 hex>`) is set: a release then starts from the one image its packer
+  saw rather than from whatever that tag points at now. A digest of any other
+  shape stops the build with 78 before docker is asked anything. A commit whose
+  image upstream has not published yet fails the update with a message that says
+  so; the next update tries again. `tehas update --check` says whether the commit
+  moved.
 - `./bootstrap.sh user` moves the host's clone in `~/tehas/repos/pi-rukas` to
   that commit and runs its installer. That clone is what `tehas dev` and an
   interactive Pi session on the host load. Cycles run the pi-rukas inside the
@@ -1092,14 +1209,21 @@ docker image ls tehas/pi-rukas            # the builds, tagged by date
 docker tag tehas/pi-rukas:<date> tehas/pi-rukas:uid$(id -u)
 ```
 
+An instance with its own `sandbox.Dockerfile` has two tags per build, `<date>`
+for the platform image and `<date>-product` for the layer on top of it, and
+those are what cycles run. Tag back the `-product` one, or the rollback puts
+back an image without the product's toolchain.
+
 Each image carries the pi-rukas commit it was built with, as its label
 `tehas.rukas`, and the dispatcher and the improvement loop read the commit
 from there. The loop's record of a cycle has the commit and the image's id as
 the cycle's container started.
 
 That holds until the next `tehas update`, which builds the followed commit
-again. Hold off updates until upstream tags a fix, or set `PI_RUKAS_FOLLOW` to
-`branch:<name>` for a branch whose head is the commit you want.
+again. Hold off updates until upstream tags a fix, or set `PI_RUKAS_FOLLOW` in
+`instance.env`, where it wins over the release's line: `branch:<name>` for a
+branch whose head is the commit you want, or `commit:<sha>` for one commit, with
+`PI_RUKAS_IMAGE_DIGEST` beside it when the base image is to be pinned too.
 
 Where the instance sets `TEHAS_IMPROVE_RUKAS_REPO`, the
 [improvement loop](/operating#the-improvement-loop) files what it finds about
@@ -1122,6 +1246,7 @@ that cycle ran.
 | Host snapshot publisher, optional | systemd user service `tehas-top.service`, every 5 s. It writes nothing unless `TEHAS_TOP=1` | `jq '.host.cpus, .host.load' ~/tehas/live/top.json` |
 | Protolab pages | systemd user timer `tehas-protolab.timer`, every 5 minutes | `tail ~/tehas/logs/protolab.log` |
 | Improvement loop, optional | systemd user timer `tehas-improve.timer`, every 3 hours. It does nothing unless `TEHAS_IMPROVE_REPO` is set | `tail ~/tehas/logs/improve.log` |
+| Cleaner | systemd user timer `tehas-clean.timer`, every hour, the first time 15 minutes after boot. It removes build output, Docker's build cache and host scratch older than `TEHAS_CLEAN_AFTER` hours. `install.sh` copies the unit; a person enables it | `tail ~/tehas/logs/clean.log` |
 | Edge router | `docker compose -f ~/tehas/edge/router.compose.yaml up -d` | `curl -i http://tehas-tehas:8081/` |
 | Previews | systemd user timer `tehas-preview.timer`, every 5 minutes | `tail ~/tehas/logs/preview.log`, `jq . ~/tehas/live/previews.json` |
 | Preview sweep | systemd user timer `tehas-preview-sweep.timer`, every 3 hours | `jq .lastSweep ~/tehas/live/previews.json` |
@@ -1194,6 +1319,7 @@ shadows, and the colours the canvases paint with. `TEHAS_THEME` in
 | `pixel`     | The default: the factory as a 16-bit game, in the Topaz bitmap typeface |
 | `paper`     | Plain type on a light page, thin rules and light screens                |
 | `beesknees` | A business application: near-black and muted green on white, thin rules, no motion. Dark where the viewer's system is |
+| `beesknees26` | The 2026 redraw of beesknees, which it will replace: ink and muted green on a near-white ground, white panels with soft shadows, IBM Plex, no motion. Light; the business page has a button for a dark set, kept in the viewer's browser |
 
 `TEHAS_LAYOUT` names what the front page is:
 

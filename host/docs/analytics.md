@@ -1,12 +1,12 @@
 ---
 title: Analytics
-description: "The factory's own ten days of runs in SQLite: what is recorded, every column, how to fetch it and how to turn it off."
+description: "The factory's own 365 days of runs in SQLite: what is recorded, every column, how to fetch it and how to turn it off."
 ---
 
 # Analytics
 
 Every factory records each run it makes, with the tehas and pi-rukas versions
-it ran, in one SQLite file: `~/tehas/state/analytics.db`. It keeps ten days.
+it ran, in one SQLite file: `~/tehas/state/analytics.db`. It keeps 365 days.
 The question it answers first is "was the last release better than the one
 before". The plain dashboard shows a ten-day report from it; a program can
 fetch a copy and do deeper analysis elsewhere.
@@ -24,7 +24,7 @@ what changed in which file. It is not the visitor analytics of
 | The issue events `ready` and `started` | the dispatcher | `ready` with the time `tehas:ready` was accepted, `started` as a cycle starts |
 | The issue event `ended` | `tehasbot cycle` | As a cycle ends |
 | The issue events `awaiting`, `merged`, `closed` and `stopped` | `tehasbot status` | The first time a run of it sees the issue in that state, by comparing with its last snapshot |
-| A sample | the dispatcher | At the end of each poll: about every two minutes, and also when a cycle ends. Some 7200 rows in ten days |
+| A sample | the dispatcher | At the end of each poll: about every two minutes, and also when a cycle ends. Some 720 rows a day, 263000 in 365 days |
 | `meta` | the program | When it makes the file |
 
 Each event is stored once per issue, the first time. A second run of an issue
@@ -37,12 +37,14 @@ broken database costs a missing row, never a cycle. Analytics never changes a
 cycle's outcome, label or comment. It adds no mount and no variable to a
 cycle's container: it runs on the host after the container has gone.
 
-## Ten days
+## 365 days
 
-Rows older than ten days are deleted on every write and on every poll, and the
-file never holds more than ten days of runs. A run is as old as its end. The
+Rows older than 365 days are deleted on every write and on every poll, and the
+file never holds more than 365 days of runs. A run is as old as its end. The
 events of an issue that started and has not ended are kept at most a day
-longer. Ten days is fixed and is not a setting.
+longer. 365 days is fixed and is not a setting. A file made when it was ten
+days says 365 in `meta` after its next prune; what was deleted before stays
+deleted.
 
 ## The file
 
@@ -56,10 +58,10 @@ columns are only added. A change of a column's meaning raises the version.
 There are no migrations:
 
 - **A file that is not a database**, or fails SQLite's check, is moved to
-  `analytics.db.broken` and a new one is made. The data is only ten days deep.
+  `analytics.db.broken` and a new one is made. The data is at most 365 days deep.
 - **A database of another schema version** is moved, with its side files, to
   `analytics.db.schema-<version>`, where a reader can still fetch it, and a new
-  one is made. It is deleted ten days after its last write.
+  one is made. It is deleted 365 days after its last write.
 - Any other failure, a full disk or a lock held too long, leaves the file as
   it is.
 
@@ -89,7 +91,7 @@ its times. A planning turn reads its record `state/plan-<n>.json`.
 | `kind` | `work` or `plan` | 1 |
 | `issue` | The issue number | 1 |
 | `attempt` | The run's number for this issue: its line in the history, counting from 1. The history keeps 50 lines, so it is at most 50. Work runs only | 1 |
-| `how` | What started it: `label`, `retry-tick`, `outage-retry` or `fixer`, from `approved.json`, else the history line. A planning turn: `label` for the first turn, `answer` or `fixer` for a later one | 1 |
+| `how` | What started it: `label`, `retry-tick`, `outage-retry` or `fixer`, from `approved.json`, else the history line. A planning turn: `label` for the first turn, `refine` for the first turn of a session `tehas:refine` started, `answer` or `fixer` for a later one | 1 |
 | `started`, `ended`, `seconds` | The run's start, its end and the wall time between: the history line's `started` and `at`. A planning turn ends when the poll collects it | 1 |
 | `queue_wait` | `started` less when `tehas:ready` was accepted (`approved.json`) | 1 |
 | `outcome` | `pr`, `merged`, `handoff`, `parked`, `failed`, `refused` or `stopped`, below | 1 |
@@ -186,7 +188,7 @@ than its poll gives NULL.
 
 ### meta
 
-`key` and `value`: `schema`, `retention_days` (10) and `created`. No host
+`key` and `value`: `schema`, `retention_days` (365) and `created`. No host
 name, address or token. Since schema 1.
 
 ## The views
@@ -214,6 +216,19 @@ tehas analytics report
 ```
 
 See [tehas analytics](/tools#tehas-analytics).
+
+### Refine
+
+The report has a `refine` key, and the terminal a `Refine` line, that say how
+much `tehas:refine` is used and whether its issues get built. It counts the
+refining sessions started in the window (planning runs with `how` `refine`) and
+follows the issues they filed: how many started a cycle and how many shipped,
+and the lead time of those that shipped, from their `ready` event. Beside them
+are the other issues made ready in the window, how many started and shipped,
+to compare. The issues a refining session filed are listed in
+`~/tehas/state/refined.jsonl`, one line each, `{at, source, filed, url}`,
+written when the confirm files them. Like the rest of the report it holds
+counts only.
 
 ## Fetching it
 
@@ -255,9 +270,9 @@ What was agreed with tehas-industry (tehas #377, tehas-industry #26):
   `samples.at`. A fetch repeated is harmless, so there is no cursor.
 - It fetches the copy before it runs `tehas update --to` on a factory, so a
   release that raises the schema version loses nothing. The old file is kept
-  aside under its version for ten days as well.
+  aside under its version for 365 days as well.
 - Events stay once per issue. Industry's long-term copy keeps what is older
-  than ten days.
+  than 365 days.
 
 `tehas api` lists the feature `analytics` in a release that has the command.
 

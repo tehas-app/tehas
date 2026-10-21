@@ -633,6 +633,13 @@ _tehas_unpack() {
   # ceiling of one entry, which no file of an issue's links passes either.
   zleft=$((zlimit - fused))
   [ "$zbytes" -le "$zleft" ] || zleft=$zbytes
+  # The scratch directory is made anew, the user's alone: what a run that died
+  # left under this name is gone before anything is written into it.
+  if ! { rm -rf "$zdir" && mkdir -m 700 "$zdir"; }; then
+    rm -rf "$images/.part" "$zdir"
+    leave "$ref" "$notzip"
+    return 0
+  fi
   lines=$(tehas_unzip_into "$images/.part" "$zdir" "$zleft" "$zfiles")
   rc=$?
   rm -f "$images/.part"

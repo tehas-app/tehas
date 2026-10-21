@@ -83,8 +83,12 @@
 #
 #             64 no bot token or no git identity; no cycle was started.
 #             78 the instance settings are invalid, tehas.slice is not
-#                usable on this host, or the image does not support what the
-#                cycle is given; no cycle was started.
+#                usable on this host, the image does not support what the
+#                cycle is given, or the product names no gate in
+#                .pi/verify-cmd and holds neither package.json nor Cargo.toml
+#                at the commit the cycle's clone was made at; no cycle was
+#                started, nothing was pushed, and the workspace made for the
+#                cycle is left where it is.
 #            137 the container was killed while the cycle was running: out of
 #                memory, or stopped from outside. Not by this command's own
 #                stop, and not once the runner wrote its result.
@@ -213,9 +217,11 @@
 # state/cycles/<issue>.manifest.json. What the line and the manifest say, and
 # why, is tehas_issue_images_left_out.
 #
-# A cycle that ended at a cap with nothing in $log.err gets one line there
-# naming the cap and saying the driver wrote no reason, so its record does not
-# read as if nothing went wrong.
+# A cycle that ended at a cap with nothing in $log.err gets that account there:
+# the cap with the reason the progress read for it, the lines of the cycle's own
+# stream that carry the driver's own warning, kill or failure, and the name of
+# the file that holds them all. Never a claim that the record says nothing more
+# without looking at the stream first.
 #
 # With TEHAS_WORK_DESCRIBE=1 the model endpoint describes each image in words
 # first (lib/describe.sh), into images.md in the same directory, for the steps
@@ -610,8 +616,36 @@ aside() {
   rm -rf "$tree.before-retry" && mv "$tree" "$tree.before-retry"
 }
 if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces" && aside &&
-  rm -rf "$container" && tehas_sandbox_clone "$src" "$tree" "$branch"; }; then
+  rm -rf "$container" && tehas_sandbox_clone "$src" "$tree" "$branch" &&
+  # pi-rukas writes these into the tree; excluded here, a product needs no
+  # .gitignore lines for them and a cycle never commits them.
+  printf '%s\n' /.pi/work-state/ /.pi/permissions.json /.pi/decisions.json >>"$tree/.git/info/exclude"; }; then
   echo "tehas work: could not make the workspace $tree, not starting a cycle" >&2
+  exit 78
+fi
+# The product names its gate in .pi/verify-cmd: the first line that is not
+# empty and not a comment. pi-rukas reads that file; nothing here read it, so a
+# product on a stack it cannot guess - neither package.json nor Cargo.toml -
+# ran cycles that verified nothing and still opened a pull request. Read the
+# clone on the host: the tree is a container's to write, not to run, and one
+# that has not started has written nothing.
+#
+# Only the commit the clone was made at is read, and only through git: origin
+# was fetched from the checkout, so the checkout's own worktree is not read at
+# all. A file that is not in the commit is not read either, so what a person
+# leaves uncommitted or untracked in the tree they work in cannot park a cycle
+# or start one. With no gate tehas still runs a cycle when the stack is one
+# pi-rukas can guess a gate for, so only a product with none of the three
+# parks. The check is one of presence: pi-rukas takes any file at those paths
+# for a gate, so a stub satisfies it. It is a start-cost guard, not proof that
+# a real gate exists.
+gate=$(timeout -k 10 60 git -C "$tree" show "origin/$branch:.pi/verify-cmd" 2>/dev/null |
+  sed -n '/^[[:space:]]*[#]/d; /^[[:space:]]*$/d; p; q')
+stack=$(timeout -k 10 60 git -C "$tree" ls-tree --name-only "origin/$branch" -- \
+  package.json Cargo.toml 2>/dev/null | head -n 1)
+if [ -z "$gate" ] && [ -z "$stack" ]; then
+  echo "tehas work: $TEHAS_REPO has no .pi/verify-cmd and no package.json or Cargo.toml in origin/$branch, so a cycle could verify nothing" >&2
+  echo "tehas work: $tree is left in place with what it holds, and $tree.before-retry holds what the last cycle left, if any" >&2
   exit 78
 fi
 # Before spending an hour of model time: can the sandbox push at all? A dry
@@ -959,7 +993,27 @@ echo "tehas work: issue=$issue status=$status step=$step cap=${cap:--} runner_ex
 if [ "$have" = 1 ]; then
   # It reaches err.txt of the cycle's improvement record.
   if [ -n "$cap" ] && [ ! -s "$log.err" ]; then
-    printf '%s\n' "tehas work: issue $issue ended at the cap $cap and $(basename "$log").err holds nothing: the driver wrote no diagnostic for the refusal, so the cap is all the record says about why the step was refused" \
+    # Why the runner stopped, as tehasbot cycle reads it for the park comment:
+    # the reason of the last cap the progress holds, cut short as cycle cuts it.
+    reason=$(head -c 1000000 "$progress_file" 2>/dev/null |
+      jq -j '.reason // "" | strings' 2>/dev/null | tr '\n' ' ' |
+      tr -cd 'A-Za-z0-9 _.,:;/()=+-' | head -c 200)
+    printf '%s\n' "tehas work: issue $issue ended at the cap $cap${reason:+: $reason}" \
+      >>"$log.err" || echo "tehas work: could not write $log.err" >&2
+    # The driver's own words for the refusal, as they stand in the cycle's
+    # stream: the warning, kill and failure lines. The last 20 of them, because
+    # a stream that repeats one says it over and over, each line cut to 1000
+    # characters and the whole to 64 KiB: a line of a stream can carry an error
+    # tail of any size, and this file goes into the record the analyst reads.
+    # Each bound is applied twice, so no line of it is broken: the one that
+    # keeps the last 20 of a long stream, the one that cuts a line too long.
+    diag=$(grep -a '\[pi-rukas\]' "$log" 2>/dev/null | grep -a -E 'WARN|killed|FAILED' |
+      tail -n 20 | cut -c 1-1000 | tail -c 65536 | tail -n 20 | cut -c 1-1000)
+    [ -z "$diag" ] || printf '%s\n' "$diag" >>"$log.err" 2>/dev/null ||
+      echo "tehas work: could not write $log.err" >&2
+    # The stream is the file with the rest of it, whether or not a line of it
+    # came here: say where it is rather than what the record does not hold.
+    printf '%s\n' "tehas work: the driver's diagnostics are in $(basename "$log")" \
       >>"$log.err" || echo "tehas work: could not write $log.err" >&2
   fi
   # A result without an exit code of its own gives null here, which is none.

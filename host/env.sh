@@ -4,12 +4,16 @@
 # This file is the same on every host. What differs between instances is in
 # <instance dir>/instance.env, loaded at the end through lib/config.sh.
 export TEHAS_HOME="${TEHAS_HOME:-$HOME/tehas}"
-export BUN_INSTALL="$HOME/.bun"
-export CARGO_HOME="$HOME/.cargo"
-export RUSTUP_HOME="$HOME/.rustup"
-export NPM_CONFIG_PREFIX="$HOME/.local"
 export TMPDIR="$TEHAS_HOME/tmp"
-export PATH="$TEHAS_HOME/bin:$TEHAS_HOME/tools/node/bin:$HOME/.local/bin:$BUN_INSTALL/bin:$CARGO_HOME/bin:$PATH"
+# The tool homes and their bin directories come from lib/paths.sh, the same
+# list install.sh and bootstrap.sh use, installed beside this file. A home that
+# has this one without that one is an install that did not finish: --check says
+# so, and the rest of this file still leaves a usable shell.
+if [ -r "$TEHAS_HOME/lib/paths.sh" ]; then
+  # shellcheck source=lib/paths.sh
+  . "$TEHAS_HOME/lib/paths.sh"
+  tehas_tool_paths
+fi
 # Bot credentials (GH_TOKEN) and the model endpoints' tokens (TEHAS_MODEL_KEY_*,
 # named by models.json). File is chmod 600 and stays outside the tehas tree.
 # shellcheck disable=SC1091

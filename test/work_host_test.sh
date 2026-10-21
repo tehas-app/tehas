@@ -8,25 +8,30 @@
 # shellcheck source=test/work_lib.sh
 . "$(dirname "$0")/work_lib.sh" || exit 1
 
-# A workspace an earlier cycle of the issue made.
+# The workspace of an earlier cycle of the issue, which the case below moves
+# aside and compares against.
 t_run "$work 7"
 
 t_case "what an earlier cycle left in the workspace is gone, and the host runs none of it"
 # Everything an agent could leave to be run later: a hook, git configuration
-# that names a program, an untracked file, another issue's state file.
-mkdir -p "$ws/.git/hooks" "$ws/.pi/work-state"
+# that names a program, an untracked file, another issue's state file. The state
+# file is put under a directory of its own, because the product's gate is a file
+# of the cycle's clone: its .pi is the product's, not a leftover.
+mkdir -p "$ws/.git/hooks" "$ws/agent-state"
 printf '#!/bin/sh\ntouch "%s"\n' "$T/ran-hook" >"$ws/.git/hooks/post-checkout"
 cp "$ws/.git/hooks/post-checkout" "$ws/.git/hooks/reference-transaction"
 chmod +x "$ws/.git/hooks/post-checkout" "$ws/.git/hooks/reference-transaction"
 git -C "$ws" config core.fsmonitor "touch $T/ran-fsmonitor; false"
 git -C "$ws" config core.sshCommand "touch $T/ran-ssh"
 echo left >"$ws/left-over.txt"
-echo '{"pipelineState":{"status":"merged"}}' >"$ws/.pi/work-state/9.json"
+echo '{"pipelineState":{"status":"merged"}}' >"$ws/agent-state/9.json"
 rm -f "$T"/calls/*
 t_run "$work 7"
 t_eq "$t_rc" 2
 t_eq "$(find "$T" -maxdepth 1 -name 'ran-*' | wc -l)" 0
-t_eq "$(find "$ws/left-over.txt" "$ws/.pi" "$ws/.git/hooks/post-checkout" 2>/dev/null | wc -l)" 0
+t_eq "$(find "$ws/left-over.txt" "$ws/agent-state" "$ws/.git/hooks/post-checkout" 2>/dev/null | wc -l)" 0
+# The gate of the product is in the clone, as it is in the commit it was made at.
+t_eq "$(cat "$ws/.pi/verify-cmd")" "scripts/verify.sh"
 t_eq "$(git -C "$ws" config --get core.fsmonitor || echo unset)" unset
 t_eq "$(git -C "$ws" rev-parse HEAD)" "$(git -C "$upstream" rev-parse main)"
 
@@ -121,13 +126,11 @@ t_run "$work 7"
 t_eq "$(jq -r .last.statusText "$T/home/tehas/live/running.json")" "step 3 of the [masked]"
 t_eq "$(jq -r .last.step "$T/home/tehas/live/running.json")" develop
 
-# Once Pi has gone nobody reads the fifo, and a plain write to it ends the
-# command by SIGPIPE (exit 141) before it reports. The race cannot be timed in
-# a test, so the shape of the one write is pinned. tehas work has no fifo.
-t_case "every line to Pi goes through send, which ignores SIGPIPE in a subshell"
+# Neither command writes to a process through a fifo any more: both run the
+# headless runner as the container's command.
+t_case "no command writes to Pi through a fifo"
 t_eq "$(grep -c '>&4' "$T_ROOT/libexec/work")" 0
-t_eq "$(grep -c '>&4' "$T_ROOT/libexec/plan")" 1
-t_contains "$(grep '>&4' "$T_ROOT/libexec/plan")" "(trap '' PIPE;"
+t_eq "$(grep -c '>&4' "$T_ROOT/libexec/plan")" 0
 
 t_case "without a console the status line is not published"
 mv "$tree/libexec/console" "$T/console.kept"

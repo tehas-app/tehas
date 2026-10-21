@@ -95,6 +95,13 @@ t_eq "$(tehas_headless_reads_images "$(jq -c '(.inputs[] | select(.name == "PI_E
 t_eq "$(tehas_headless_reads_images "$(jq -c 'del(.inputs[] | select(.name == "PI_ENSEMBLE_ISSUE_IMAGES"))' <<<"$scaps")")" 0
 for bad in "" "not json" "[]"; do t_eq "$(tehas_headless_reads_images "$bad")" 0; done
 
+t_case "planning turns are known by features.planTurns: the v0.14.0 image has them, 0.12.80 does not"
+plans() { tehas_headless_plans "$1" && echo yes || echo no; }
+t_eq "$(plans "$(cat "$T_ROOT/test/fixtures/headless-c5ddc0a/capabilities.json")")" yes
+t_eq "$(plans "$(cat "$T_ROOT/test/fixtures/headless-0.12.80/capabilities.json")")" no
+t_eq "$(plans '{"features":{"planTurns":false}}')" no
+for bad in "" "not json" "[]"; do t_eq "$(plans "$bad")" no; done
+
 t_case "where the image says its result carries them, usage per role and the failure come from the result"
 jq '.issues[0].usage.byRole = {ops: {input: 0, output: 0, cacheRead: 0, turns: 0, dispatches: 1}}' "$sx/result.json" >"$T/r.json"
 p=$(tehas_headless_progress "$sx/progress.jsonl" "$scaps" "$T/r.json" 7)

@@ -1,15 +1,32 @@
 #!/usr/bin/env bash
 # Build the tehas sandbox image on this host, on the pi-rukas commit
-# versions.env follows: the newest release tag, or the head of a branch
-# (lib/rukas.sh).
+# PI_RUKAS_FOLLOW names: the newest release tag, the head of a branch, or one
+# commit (lib/rukas.sh). A value in the instance's instance.env wins over the
+# one in versions.env.
 #
 # Tags the result both as the name PI_ENSEMBLE_IMAGE points at by default
 # (tehas/pi-rukas:uid<your uid>) and with the build date, so the previous image
 # stays available for a rollback:
 #   docker tag tehas/pi-rukas:<date> tehas/pi-rukas:uid<uid>
 #
-# The base is the image upstream publishes for each commit,
-# tagged sha-<first 12 characters>. The commit becomes the label tehas.rukas.
+# When the instance directory has a sandbox.Dockerfile of its own, that file is
+# built FROM the image just built - the base is passed to it as TEHAS_BASE, so
+# the file names no tag - and the result takes the uid tag instead. A product
+# whose gates need a toolchain tehas does not ship adds it there, and not in
+# host/sandbox/Dockerfile, which is the platform's own file and would then
+# report local changes forever. The argument the instance file's base is passed
+# as is named below, where its layer is built.
+#
+# The uid tag names the image cycles run, so it is moved once this run has built
+# something worth running: onto the instance's layer when the host has one that
+# builds and stands on this build's image, and onto the image here otherwise. A
+# layer that does not build, or a build stopped partway, leaves the tag where it
+# was.
+#
+# The base is the image upstream publishes for each commit, tagged
+# sha-<first 12 characters>, or, when PI_RUKAS_IMAGE_DIGEST (sha256:<64 hex>)
+# is set, that digest: a release builds on the image it was packed with, not on
+# whatever the tag points at now. The commit becomes the label tehas.rukas.
 # Tool versions come from versions.env, one directory up, the code indexer
 # included: the image carries the same codebase-memory-mcp version bootstrap.sh
 # puts on the host, not the one the base image happened to install. The build
@@ -18,8 +35,11 @@
 # use. Whether its pi-rukas reads the images a cycle is given is recorded in the
 # image. See the header of host/sandbox/Dockerfile.
 #
-# Each image is several gigabytes. After a build only the newest 3 date
-# tags are kept. An older one is removed unless a container, running or
+# Each image is several gigabytes. After a build only the newest 3 dated
+# tags are kept, the instance's own layer among them: a build makes
+# <date>-product beside <date> when the instance has a sandbox.Dockerfile, and
+# that tag is counted with the date tags, so nothing accumulates.
+# An older one is removed unless a container, running or
 # stopped, was made from its image, or a uid tag names that image. A docker
 # that does not answer removes nothing; the build still counts.
 #
@@ -30,7 +50,8 @@
 #
 # Exit: 0 built, or nothing to do; 1 the commit moved (--check), or the commit,
 #       the base image or the build could not be had, or the base does not
-#       support what tehas work needs; 64 usage
+#       support what tehas work needs; 64 usage; 78 the instance's settings
+#       do not load, or PI_RUKAS_IMAGE_DIGEST is not sha256:<64 hex>
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -39,6 +60,12 @@ here=$(cd "$(dirname "$0")" && pwd)
 image=tehas/pi-rukas
 keep=3
 current=$image:uid$(id -u)
+# The instance's own addition to the image, beside the settings this host loads.
+# Written by a person, built by no one else: absent is normal. Resolved the way
+# every command resolves the instance directory (tehas_instance_dir in
+# lib/config.sh: the environment, then ~/.config/tehas/instance-dir, then
+# ~/.config/tehas), because this script is run by hand as often as by tehas
+# update, and a shell that never sourced the settings must still see the file.
 
 mode=build
 case "${1:-}" in
@@ -54,16 +81,42 @@ esac
 # lib/ is beside sandbox/ on a host, and two up in the checkout.
 lib=""
 for d in "$here/../lib" "$here/../../lib"; do
-  [ -f "$d/headless.sh" ] && [ -f "$d/rukas.sh" ] && { lib=$d; break; }
+  [ -f "$d/headless.sh" ] && [ -f "$d/rukas.sh" ] && [ -f "$d/config.sh" ] && { lib=$d; break; }
 done
 if [ -z "$lib" ]; then
-  echo "sandbox: no lib/headless.sh and lib/rukas.sh beside $here, the base cannot be checked" >&2
+  echo "sandbox: no lib/headless.sh, lib/rukas.sh and lib/config.sh beside $here, the base cannot be checked" >&2
   exit 1
 fi
 # shellcheck source=lib/rukas.sh
 . "$lib/rukas.sh"
 # shellcheck source=lib/headless.sh
 . "$lib/headless.sh"
+# The instance directory, resolved as every command resolves it: loading
+# settings has no side effects (AGENTS.md rule 3), so sourcing the library is
+# safe here and reaches the `instance-dir` pointer that only tehas_load would
+# otherwise read.
+# shellcheck source=lib/config.sh
+. "$lib/config.sh"
+instance_file=$(tehas_instance_dir)/sandbox.Dockerfile
+# A host with an instance may follow another pi-rukas than its release names
+# (PI_RUKAS_FOLLOW in instance.env). Its settings are loaded and checked as
+# every command loads them, and a broken instance builds nothing. The release's
+# base digest belongs to the release's commit, so it goes when the commit does,
+# unless the instance names a digest of its own.
+if [ -f "$(tehas_instance_dir)/instance.env" ]; then
+  release_follow=${PI_RUKAS_FOLLOW:-} release_digest=${PI_RUKAS_IMAGE_DIGEST:-}
+  tehas_load || exit 78
+  if [ "${PI_RUKAS_FOLLOW:-}" != "$release_follow" ] && [ "${PI_RUKAS_IMAGE_DIGEST:-}" = "$release_digest" ]; then
+    unset PI_RUKAS_IMAGE_DIGEST
+  fi
+fi
+
+# Checked before git or docker is asked anything.
+digest=${PI_RUKAS_IMAGE_DIGEST:-}
+if [ -n "$digest" ] && ! [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]]; then
+  echo "build: PI_RUKAS_IMAGE_DIGEST=$digest is not sha256: and 64 hex digits" >&2
+  exit 78
+fi
 
 if ! target=$(tehas_rukas_target); then
   echo "build: no pi-rukas commit for PI_RUKAS_FOLLOW=${PI_RUKAS_FOLLOW:-} in $PI_RUKAS_REPO" >&2
@@ -86,7 +139,12 @@ fi
 # ghcr.io/<owner>/<name> for https://github.com/<owner>/<name>.git, lowercased.
 repo=${PI_RUKAS_REPO#https://github.com/}
 repo=${repo%.git}
-base=ghcr.io/$(tr '[:upper:]' '[:lower:]' <<<"$repo"):sha-${head:0:12}
+repo=ghcr.io/$(tr '[:upper:]' '[:lower:]' <<<"$repo")
+if [ -n "$digest" ]; then
+  base=$repo@$digest
+else
+  base=$repo:sha-${head:0:12}
+fi
 if ! docker pull -q "$base" >/dev/null 2>&1; then
   echo "build: no image $base yet; upstream publishes one for each commit, try again when it has" >&2
   exit 1
@@ -141,7 +199,101 @@ docker build \
   --build-arg TEHAS_RUKAS_IMAGES="$reads" \
   -t "$image:$stamp" "$here"
 docker tag "$image:$stamp" "$current"
+# The uid tag names the image cycles run, so the instance's own layer above
+# moves it onto itself when there is one, and a layer that does not build or does
+# not stand on this build's image leaves the tag where this line put it: the host
+# keeps the toolchain it had rather than losing it to a file that will not build.
 echo "built $image:$stamp with pi-rukas $head ($what), issue images: $reads, also tagged $current"
+
+# The instance's layer, on top of the image above. The base goes in as an
+# argument rather than a tag, so the file does not have to name one and the
+# argument names this build's image. What the file then does is the person's:
+# it is a recipe Docker runs as root, and the result is the image every cycle
+# runs with the bot's token, so the instance directory stays writable by the
+# tehas user alone, as instance.env is.
+#
+# The uid tag names the image cycles run, so it is not moved onto this layer
+# until the layer has built and has been shown to stand on this run's image. A
+# layer that does not build, or a build stopped partway, leaves the tag on the
+# image above, so a host whose layer is broken keeps a working image rather
+# than losing its toolchain. The tehas image keeps only its date tag beside
+# that, so a rollback is one docker tag away either way.
+if [ -f "$instance_file" ]; then
+  # The argument is written with its value in front of it, its name not spelled
+  # out on a line of its own: test/build_test.sh counts the argument lines of the
+  # build above against the ARG lines of the tracked Dockerfile, and this one
+  # belongs to a file that checkout does not own, so it joins neither count.
+  if ! docker build -t "$image:$stamp-product" \
+    "--build-arg=TEHAS_BASE=$image:$stamp" \
+    -f "$instance_file" "$(dirname "$instance_file")"; then
+    echo "sandbox: $instance_file did not build on $image:$stamp; $current is left as it was" >&2
+    exit 1
+  fi
+  # The layer has to stand on the image this build made. Docker answers FROM from
+  # its own cache, so a stale same-named tag can satisfy it and the image built
+  # then stands on another image's layers. The layers of an image come back one
+  # per line, and the chain of a layer built on that image is its parent's lines
+  # with more after them, so the two answers are compared a line at a time: read
+  # whole, a list of ids could be cut inside one. A docker that answers neither
+  # is the case of an image that is not there at all. The image is not named until
+  # it passes, so a layer that fails leaves the tag where it was and the host runs
+  # the toolchain it had rather than a half-built one.
+  parent=$(docker image inspect --format '{{.RootFS.Layers}}' "$image:$stamp" 2>/dev/null) || parent=""
+  product=$(docker image inspect --format '{{.RootFS.Layers}}' \
+    "$image:$stamp-product" 2>/dev/null) || product=""
+  if [ -z "$parent" ] || [ -z "$product" ]; then
+    echo "sandbox: docker gave no layers for $image:$stamp or $image:$stamp-product, so the instance layer cannot be checked against this build" >&2
+    exit 1
+  fi
+  # Each line is taken on its own and stripped of what is not part of an id: the
+  # quotes a daemon of another version may put round them, the spaces it may pad
+  # them with, and the carriage return of a line ending it may not have trimmed.
+  # The set is held in a variable rather than written as a quoted word, because
+  # inside a substitution a quoted word keeps its quotes as text, and a quote that
+  # stands inside the set then stands for itself instead of quoting the set.
+  strip=$'\r\t" '
+  parent_line=()
+  product_line=()
+  line=""
+  on_base=""
+  i=0
+  n_parent=0
+  n_product=0
+  while IFS= read -r line; do
+    line=${line//[$strip]/}
+    [ -n "$line" ] || continue
+    n_parent=$((n_parent + 1))
+    parent_line[n_parent]=$line
+  done <<<"$parent"
+  n_product=0
+  while IFS= read -r line; do
+    line=${line//[$strip]/}
+    [ -n "$line" ] || continue
+    n_product=$((n_product + 1))
+    product_line[n_product]=$line
+  done <<<"$product"
+  if [ "$n_product" -le "$n_parent" ]; then
+    on_base=0
+  else
+    on_base=1
+    for ((i = 1; i <= n_parent; i++)); do
+      [ "${product_line[$i]}" = "${parent_line[$i]}" ] || on_base=0
+    done
+  fi
+  if [ "$on_base" = 0 ]; then
+    echo "sandbox: $instance_file was not built on $image:$stamp: docker answers a base of its own, so the layer came from a cached image" >&2
+    exit 1
+  fi
+  # The tag cycles run names the image cycles run, so it moves once and only onto
+  # something this run built and checked. The image the host ran before this build
+  # started is not one of those: leaving the tag on it would run a cycle on the
+  # toolchain of a build that failed, which is the state a rollback relies on and
+  # not a place to leave a host after a build that has just made a new image. The
+  # layer that passed the check above takes the tag, and the platform image keeps
+  # its own dated tag beside it, so a rollback is one docker tag away either way.
+  docker tag "$image:$stamp-product" "$current"
+  echo "built $image:$stamp-product from $instance_file, also tagged $current"
+fi
 
 # The ids of images a container was made from, or a uid tag names.
 images_held() { # <the image's tags, "<tag> <id>" per line>
@@ -168,6 +320,6 @@ prune_dated() {
     else
       echo "warning: could not remove $image:$tag" >&2
     fi
-  done < <(grep -E '^[0-9]{6}-[0-9]{4} ' <<<"$tags" | LC_ALL=C sort -r)
+  done < <(grep -E '^[0-9]{6}-[0-9]{4}(-product)? ' <<<"$tags" | LC_ALL=C sort -r)
 }
 prune_dated || echo "warning: docker did not list its images or containers, no old $image tag was removed" >&2

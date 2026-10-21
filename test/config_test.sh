@@ -79,7 +79,7 @@ t_case "the plan unit's limit is the longest turn's limit accepted plus the grac
 t_eq "$plan_max" "7200"
 t_contains "$(cat "$T_ROOT/lib/planning.sh")" "TEHAS_PLAN_TIMEOUT + 900"
 t_contains "$(cat "$T_ROOT/host/docs/host.md")" "may be at most $plan_max, 2 hours"
-t_contains "$(grep 'at most' "$T_ROOT/instances/example/instance.env")" "at most $plan_max"
+t_contains "$(grep 'at most' "$T_ROOT/instances/example/optional.env")" "at most $plan_max"
 # Read from the config the same way tehas does: the largest value accepted, at
 # the ceiling, gets a unit bound that is the ceiling plus the grace.
 t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT="$plan_max"
@@ -113,6 +113,15 @@ t_instance "${T_MINIMAL[@]}"
 t_case "the poll's unit has a finite limit, twice the lock's age at which a poll warns"
 t_eq "$(sed -n 's/^TimeoutStartSec=//p' "$T_ROOT/host/systemd/tehas-dispatch.service")" "1h"
 t_contains "$(cat "$T_ROOT/libexec/dispatch")" "bound=1800"
+
+# A poll that exits non-zero leaves its unit failed, and a timer armed only
+# from the unit's inactivity does not fire again from that state: on 2026-10-20
+# one failed poll stopped the queue for 15 minutes. The two arms are pinned
+# together so neither is dropped alone.
+t_case "the poll's timer is armed from the last end and from the last start"
+t_eq "$(sed -n 's/^OnBootSec=//p' "$T_ROOT/host/systemd/tehas-dispatch.timer")" "2min"
+t_eq "$(sed -n 's/^OnUnitInactiveSec=//p' "$T_ROOT/host/systemd/tehas-dispatch.timer")" "2min"
+t_eq "$(sed -n 's/^OnUnitActiveSec=//p' "$T_ROOT/host/systemd/tehas-dispatch.timer")" "2min"
 
 t_case "one cycle at a time may run several workstreams, and pi-rukas is told the same number"
 t_instance "${T_MINIMAL[@]}" TEHAS_CONCURRENCY=4 TEHAS_TICKET_CONCURRENCY=1
@@ -396,9 +405,9 @@ t_case "the front page is the floor unless the instance names the business layou
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && echo \"[\$TEHAS_LAYOUT]\""
 t_eq "$t_out" "[floor]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_LAYOUT=business TEHAS_THEME=beesknees >"$TEHAS_INSTANCE_DIR/instance.env"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_LAYOUT=business TEHAS_THEME=beesknees26 >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && echo \"[\$TEHAS_LAYOUT][\$TEHAS_THEME]\""
-t_eq "$t_out" "[business][beesknees]"
+t_eq "$t_out" "[business][beesknees26]"
 
 t_case "every layout the settings accept has a page"
 layouts=$(sed -n '/TEHAS_LAYOUT)/{n;p}' "$T_ROOT/lib/config.sh" | sed 's/^ *case "\$v" in \(.*\)) ;; \*).*/\1/' | tr -d ' ' | tr '|' ' ')
@@ -690,7 +699,7 @@ t_eq "$t_out" "20 $plan_max"
 # example an operator copies, are pinned against the config.
 t_contains "$(grep 'TEHAS_PLAN_TIMEOUT  seconds' "$T_ROOT/libexec/plan")" "[$plan_max, the ceiling"
 t_contains "$(grep 'TEHAS_PLAN_TIMEOUT        seconds' "$T_ROOT/libexec/dispatch")" "[$plan_max]"
-t_contains "$(grep '^#TEHAS_PLAN_TIMEOUT=' "$T_ROOT/instances/example/instance.env")" "$plan_max"
+t_contains "$(grep '^#TEHAS_PLAN_TIMEOUT=' "$T_ROOT/instances/example/optional.env")" "$plan_max"
 
 t_case "a planning limit set empty takes its default"
 t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT= TEHAS_WORK_TIMEOUT= TEHAS_VERIFY_TIMEOUT=
@@ -910,5 +919,85 @@ t_run "$load"
 t_eq "$t_rc" 78
 t_contains "$t_out" "TEHAS_MCP_KEYS"
 t_lacks "$t_out" "abcdefghijklmnopqrstuvwxyz012345"
+
+# The cleaner's two settings: the hours of age a thing must have before it goes,
+# and the directory names that count as build output.
+t_case "the cleaner removes a day of build output unless the instance says otherwise"
+t_instance "${T_MINIMAL[@]}"
+t_run "$load && set -u && echo \"[\$TEHAS_CLEAN_AFTER] [\$TEHAS_CLEAN_DIRS]\""
+t_eq "$t_rc" 0
+t_eq "$t_out" "[24] [target node_modules __pycache__ .venv .pytest_cache .mypy_cache .next .turbo .gradle]"
+
+t_case "the cleaner's age and its names can both be set in the instance"
+t_instance "${T_MINIMAL[@]}" "TEHAS_CLEAN_AFTER=6" "TEHAS_CLEAN_DIRS='target dist'"
+t_run "$load && echo \"[\$TEHAS_CLEAN_AFTER] [\$TEHAS_CLEAN_DIRS]\""
+t_eq "$t_rc" 0
+t_eq "$t_out" "[6] [target dist]"
+
+# The cleaner's two settings. The hours are asked of docker's `until` and of
+# find's `-newermt`, so a sign, a fraction or an exponent is no number of
+# hours; an empty value takes the default, as every other setting left empty
+# does.
+for bad in "soon" "0" "-5" "1.5" "24 " "1e3" "123456"; do
+  t_case "loading rejects a TEHAS_CLEAN_AFTER of '$bad'"
+  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_CLEAN_AFTER='$bad'" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "TEHAS_CLEAN_AFTER is not valid: expected a whole number of hours of at least 1"
+done
+
+# The names go to find -name, so a path, a bare dot, and the family of the two
+# dot-names a workspace keeps are all refused: they are not build output. The
+# family, not just the two names spelled, because a name close to one of them is
+# a name someone meant as one of them, and the cleaner's walk stops at a dot-name
+# it cannot name here.
+for bad in "." ".." ".git" ".pi" "a/target" "/target" "target;rm -rf" "target *"; do
+  t_case "loading rejects a TEHAS_CLEAN_DIRS of '$bad'"
+  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_CLEAN_DIRS='$bad'" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "TEHAS_CLEAN_DIRS is not valid"
+done
+
+t_case "a TEHAS_CLEAN_DIRS with .git among other names is refused whatever IFS is"
+t_run ". \"$T_ROOT/lib/config.sh\"; IFS=x; _tehas_valid TEHAS_CLEAN_DIRS 'target .git'; echo rc=\$?"
+t_contains "$t_out" "refuses .git: that is not build output"
+t_contains "$t_out" "rc=1"
+
+# The default the example instance copies by hand is pinned against the
+# config's own list, so the two cannot drift apart.
+t_case "the example instance documents the defaults the cleaner runs with"
+t_instance "${T_MINIMAL[@]}"
+t_run "$load && echo \"\$TEHAS_CLEAN_DIRS\""
+default_dirs=$t_out
+t_eq "$t_rc" 0
+t_contains "$(grep '^#TEHAS_CLEAN_AFTER=' "$T_ROOT/instances/example/optional.env")" "=24"
+t_contains "$(grep '^#TEHAS_CLEAN_DIRS=' "$T_ROOT/instances/example/optional.env")" "$default_dirs"
+t_instance "${T_MINIMAL[@]}"
+
+t_case "the instance's PI_RUKAS_FOLLOW wins over the environment's"
+commit40=$(printf 'a%.0s' {1..40})
+t_instance "${T_MINIMAL[@]}" "PI_RUKAS_FOLLOW=commit:$commit40"
+T_ENV=(PI_RUKAS_FOLLOW=release)
+t_run "$load && echo \$PI_RUKAS_FOLLOW"
+t_eq "$t_rc" 0
+t_eq "$t_out" "commit:$commit40"
+T_ENV=()
+
+t_case "each form of PI_RUKAS_FOLLOW loads"
+for good in release release:0.14 release:2 branch:main branch:feature/one "commit:$commit40"; do
+  t_instance "${T_MINIMAL[@]}" "PI_RUKAS_FOLLOW=$good"
+  t_run "$load && echo ok"
+  t_eq "$t_out" "ok"
+done
+
+t_case "a PI_RUKAS_FOLLOW of any other shape is 78"
+for bad in main latest release: release:0.14.1 release:v0 "commit:${commit40:0:39}" "commit:$(printf 'A%.0s' {1..40})" commit: branch: "branch:two words" ""; do
+  t_instance "${T_MINIMAL[@]}" "PI_RUKAS_FOLLOW='$bad'"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  t_contains "$t_out" "PI_RUKAS_FOLLOW is not valid"
+done
+t_instance "${T_MINIMAL[@]}"
 
 t_done

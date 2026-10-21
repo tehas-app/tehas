@@ -32,7 +32,7 @@ issue7() {
 }
 refresh_setup() { # [<approval record of the last start>]
   reset
-  rm -rf "$refresh_dir" "$fx"/pull-* "$fx"/refreshing.json "$fx"/caps.json "$fx"/pr-edit-fails
+  rm -rf "$refresh_dir" "$fx"/pull-* "$fx"/refreshing.json "$fx"/caps.json "$fx"/mark-fails "$fx"/mark-fails-times "$fx"/unmark-fails "$fx"/label-missing
   slots 2 TEHAS_REFRESH_CONFLICTS=1 "$@"
   echo '[]' >"$fx/ready.json"
   echo '[]' >"$fx/events-7.json"
@@ -60,6 +60,24 @@ refresh_dropped() { # <why in the log>
   t_contains "$t_out" "drop the refresh of #7: $1"
   t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 0
 }
+# The REST call of rule 4b that marks a pull request, and the one that takes
+# the mark off.
+mark_call="api -X POST repos/acme/widget/issues/50/labels -f labels[]=tehas:refreshing"
+unmark_call="api -X DELETE repos/acme/widget/issues/50/labels/tehas:refreshing"
+# The two calls of a start that change a label, the mark of the pull request
+# first and the mark of the issue second. What the poll reads before them is
+# nothing to a case about what comes after, so it is not counted.
+label_pair() { t_calls gh | sed -n '/^api -X POST/p;/^issue edit 7/p'; }
+# The reaper of rule 2: the pull requests marked tehas:refreshing.
+marked_refreshing() { echo '[{"number":50,"labels":[{"name":"tehas:refreshing"}]}]' >"$fx/refreshing.json"; }
+
+# What the poll counted as refreshes of #7 in the record it wrote: "none"
+# when it wrote none at all, which is what a start that never ran leaves.
+record_refreshes() {
+  local r
+  r=$(jq -r '.refreshes // "none"' "$approved_file" 2>/dev/null) || r=none
+  printf '%s\n' "$r"
+}
 
 t_case "a refresh starts: the pull request is marked first, then the issue, and the request goes"
 refresh_setup
@@ -67,9 +85,12 @@ t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(started)" "7 "
 t_contains "$t_out" "start #7 (refresh by alice)"
-edits=$(t_calls gh | grep -n -e '^pr edit' -e '^issue edit')
-t_contains "$edits" "1:pr edit 50 --repo acme/widget --add-label tehas:refreshing"
-t_contains "$edits" "2:issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:awaiting-merge"
+edits=$(label_pair)
+t_contains "$edits" "$mark_call"
+t_contains "$edits" "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:awaiting-merge"
+t_eq "$(head -n 1 <<<"$edits")" "$mark_call"
+t_eq "$(wc -l <<<"$edits")" 2
+t_lacks "$(t_calls gh)" "pr edit"
 t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 0
 
 t_case "the start comment says it is a refresh, names the pull request and whose approval it rests on"
@@ -85,8 +106,77 @@ t_eq "$(jq -c '[.retry_context[] | {source, by}]' "$approved_file")" '[{"source"
 t_eq "$(jq -r '.retry_context[0].text' "$approved_file")" \
   'This pull request conflicts with `main`. Merge `main` into its branch, resolve the conflicts so the change still does what the issue asks, run the gate, and push to the same branch. Do no other work.'
 
-t_case "the record was on disk before the issue was marked"
+t_case "the record was on disk before the issue was marked, and after the mark"
 t_eq "$(jq -r .how "$T/calls/approved.at-mark")" refresh
+# The mark of the pull request comes before the mark of the issue, so the
+# record that says refresh is on disk between them: no poll leaves one whose
+# record says refresh and whose issue is not marked.
+t_eq "$(head -n 1 <<<"$(label_pair)")" "$mark_call"
+t_contains "$(tail -n 1 <<<"$(label_pair)")" "--add-label tehas:running"
+
+t_case "a mark that fails starts nothing, marks no issue, and leaves no refresh in the count"
+refresh_setup
+: >"$fx/mark-fails"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_eq "$(started)" ""
+t_lacks "$(t_calls gh)" "issue edit 7"
+t_lacks "$(t_calls gh)" "pr edit"
+t_contains "$t_out" "could not mark pull request #50 as refreshing"
+t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
+t_eq "$(record_refreshes)" none
+
+t_case "the approval record of the last start is put back, so failed starts spend no refresh"
+refresh_setup
+refresh_record 1
+: >"$fx/mark-fails"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_eq "$(record_refreshes)" 1
+: >"$fx/edit-fails-on"
+printf '%s\n' "--add-label tehas:running" >"$fx/edit-fails-on"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_eq "$(started)" ""
+t_eq "$(record_refreshes)" 1
+rm -f "$fx/mark-fails" "$fx/edit-fails-on"
+t_run "$dispatch"
+t_eq "$(started)" "7 "
+t_eq "$(record_refreshes)" 2
+
+t_case "the first two marks fail and the third starts the refresh: the failures counted for nothing"
+refresh_setup
+echo 2 >"$fx/mark-fails-times"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_eq "$(started)" ""
+t_contains "$t_out" "could not mark pull request #50 as refreshing"
+t_eq "$(record_refreshes)" none
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_eq "$(started)" ""
+t_eq "$(record_refreshes)" none
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(started)" "7 "
+t_eq "$(record_refreshes)" 1
+# Three marks were asked for: the two that failed and the one that worked.
+t_eq "$(grep -c "^api -X POST" <<<"$(t_calls gh)")" 3
+t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 0
+
+t_case "the reaper clears a mark its cycle could not take off"
+refresh_setup
+rm -f "$refresh_dir/7.json"
+refresh_record 1
+marked_refreshing
+: >"$fx/unmark-fails"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN: label change on pull request #50 failed: --remove-label tehas:refreshing"
+: >"$fx/refreshing.json"
+rm -f "$fx/unmark-fails"
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "$unmark_call"
 
 t_case "a refresh after a refresh counts on from it"
 refresh_setup
@@ -105,11 +195,12 @@ t_eq "$(jq -c '[.by, .how, .rests_on.by, .fixer_starts, .refreshes]' "$approved_
 
 t_case "a start whose pull request label fails starts nothing and marks no issue"
 refresh_setup
-: >"$fx/pr-edit-fails"
+: >"$fx/mark-fails"
 t_run "$dispatch"
 t_eq "$t_rc" 1
 t_eq "$(started)" ""
 t_lacks "$(t_calls gh)" "issue edit 7"
+t_lacks "$(t_calls gh)" "pr edit"
 t_contains "$t_out" "could not mark pull request #50 as refreshing"
 t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
 
@@ -347,7 +438,7 @@ refresh_record 1
 marked_refreshing
 t_run "$dispatch"
 t_eq "$t_rc" 0
-t_contains "$(t_calls gh)" "pr edit 50 --repo acme/widget --remove-label tehas:refreshing"
+t_contains "$(t_calls gh)" "$unmark_call"
 t_contains "$t_out" "clear pull request #50: tehas:refreshing off, no cycle runs on #7"
 
 t_case "the leftover is cleared while the factory is paused"
@@ -357,7 +448,7 @@ refresh_record 1
 marked_refreshing
 pause_flag '{"by":"alice","at":"2026-10-17T00:00:00Z","reason":""}'
 t_run "$dispatch"
-t_contains "$(t_calls gh)" "pr edit 50 --repo acme/widget --remove-label tehas:refreshing"
+t_contains "$(t_calls gh)" "$unmark_call"
 
 t_case "the mark of a running refresh stays when the bot applied it"
 refresh_setup
@@ -379,7 +470,7 @@ echo '[{"event":"labeled","label":{"name":"tehas:refreshing"},"actor":{"login":"
 hold 7
 t_run "$dispatch"
 release
-t_contains "$(t_calls gh)" "pr edit 50 --repo acme/widget --remove-label tehas:refreshing"
+t_contains "$(t_calls gh)" "$unmark_call"
 t_contains "$t_out" "it was applied by 'alice', not by tehas"
 
 t_case "a tehas:refreshing on a pull request no refresh of this host names is taken off"

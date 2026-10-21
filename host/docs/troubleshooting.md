@@ -14,7 +14,7 @@ description: "What each stop in a tehas cycle means, and what to do about it."
 | What did the dispatcher decide?  | `tehas dispatch --dry-run`, `~/tehas/logs/dispatch.log`                 |
 | What did a cycle's runner print? | `~/tehas/logs/dispatch-work-<issue>.log`                                |
 | What did the driver say?         | The runner's NDJSON progress, `~/tehas/logs/work-<issue>-<time>.jsonl`, and its result beside it, `.jsonl.result.json` |
-| Where is the cycle now?          | While it runs, its step on the [dashboard](/dashboard), from `~/tehas/live/cycles/<issue>.json`; once it ended, `jq . ~/tehas/state/cycles/<issue>.result.json`. The workspace of a cycle that left a pull request is removed; one that stopped is kept, and a retry moves it to `tehas-<issue>.before-retry`. |
+| Where is the cycle now?          | While it runs, its step on the [dashboard](/dashboard), from `~/tehas/live/cycles/<issue>.json`; once it ended, `jq . ~/tehas/state/cycles/<issue>.result.json`. The workspace of a cycle that left a pull request is removed; one that stopped is kept, and a retry moves it to `tehas-<issue>.before-retry`. A start that parked before the container ran keeps the clone it made and the one before it: neither is removed. |
 | What did one agent do?           | Transcripts under `~/.pi/agent/ensemble-runs/issue-<issue>/<date>/`     |
 | What did the improvement loop do? | `~/tehas/logs/improve.log`, one line per run                           |
 | Is a cycle running?              | `systemctl --user status 'tehas-cycle@*'`, or `docker ps --filter name=tehas-work` |
@@ -278,6 +278,13 @@ tail ~/tehas/logs/dispatch.log
 `systemctl --user enable --now tehas-dispatch.timer` turns it on;
 `systemctl --user disable --now tehas-dispatch.timer` turns polling off without
 touching a running cycle.
+
+A poll that fails does not stop the polling. `tehas-dispatch.timer` counts two
+minutes from the last end of the poll's unit and from its last start, so a poll
+that exits non-zero - a disk that filled, a GitHub call that failed - is
+followed by the next poll two minutes later. What a failed poll cost is the
+work it did not do, not the queue. Read `~/tehas/logs/dispatch.log` for the
+error and `systemctl --user status tehas-dispatch.service` for its exit status.
 
 ## The dispatcher holds on the slice
 
@@ -593,7 +600,10 @@ log and asked GitHub for the bot's pull request of the branch that
   hand, or retry for a fresh cycle.
 - The step is `-` when the run log has no step for this cycle at all, which is
   what says `tehas work` stopped before it started the container. Read
-  `~/tehas/logs/dispatch-work-<N>.log`.
+  `~/tehas/logs/dispatch-work-<N>.log`. A run that stopped for want of a gate is
+  of that kind: the log has the line naming `.pi/verify-cmd`, and the issue has
+  no comment, because a cycle that never began has nothing to hand off. See
+  [A new project](/new-project) for what the product has to hold.
 
 ```
 jq . ~/tehas/state/cycles/<N>.result.json      # empty, or missing: no result
@@ -866,9 +876,13 @@ docker image prune      # removes images with no tag that nothing uses
 
 A sandbox build removes date tags beyond its newest three itself.
 
-The next run builds. tehas does not prune Docker's build cache;
-`docker builder prune` does, and the next build of the sandbox image is then
-slower.
+The cleaner prunes Docker's build cache every hour, of whatever has not been
+used for `TEHAS_CLEAN_AFTER` hours, and removes the build output of kept
+workspaces and old host scratch besides (see [the cleaner](/operating#the-cleaner)).
+`install.sh` copies `tehas-clean.timer`; check `systemctl --user list-timers
+tehas-clean.timer` when it is not running, and `tail ~/tehas/logs/clean.log`
+for what it freed. `docker builder prune` does the same at once, and the next
+build of the sandbox image is then slower.
 
 **`over-limit`.** More than `TEHAS_PREVIEW_MAX` pull requests are open, and
 the newest ones win. Close one, or raise the setting in `instance.env`.
