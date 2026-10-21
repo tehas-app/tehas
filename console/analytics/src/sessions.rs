@@ -12,10 +12,10 @@ use std::path::Path;
 
 pub const SESSIONS_DAYS: i64 = 30;
 const DAY: i64 = 86_400;
-/// How long before a run's start its log's stamp may be: the stamp is taken
-/// as the cycle begins, the run's start a little before or after.
 /// How long after a planning turn ended a ledger line may still be its.
 const FILED_AFTER: i64 = 120;
+/// How long before a run's start its log's stamp may be: the stamp is taken
+/// as the cycle begins, the run's start a little before or after.
 const STAMP_BEFORE: i64 = 120;
 
 #[derive(Clone, Copy)]
@@ -176,6 +176,8 @@ pub fn lines(conn: &Connection, home: &Path, now: i64) -> rusqlite::Result<Vec<S
         .query_map(params![now - SESSIONS_DAYS * DAY], |r| object(r, &run_cols))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let ledger = ledger(home);
+    let logs_dir = home.join("logs");
+    let names = log_names(&logs_dir);
     for mut run in found {
         let id = run["id"].as_str().unwrap_or_default().to_string();
         let child = |stmt: &mut rusqlite::Statement, cols: &[(&str, &str, Kind)]| {
@@ -188,7 +190,8 @@ pub fn lines(conn: &Connection, home: &Path, now: i64) -> rusqlite::Result<Vec<S
         let issue = run["issue"].as_i64().unwrap_or_default();
         let started = secs(&run, "started").unwrap_or_default();
         let logs = log_files(
-            &home.join("logs"),
+            &logs_dir,
+            &names,
             &kind,
             issue,
             started,
@@ -279,12 +282,25 @@ fn regular_size(p: &Path) -> Option<u64> {
         .map(|m| m.len())
 }
 
+/// The names in the logs directory, read once for all runs.
+pub fn log_names(logs: &Path) -> Vec<String> {
+    fs::read_dir(logs)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter_map(|e| e.file_name().into_string().ok())
+        .collect()
+}
+
 /// The log files of a run that exist as regular files: (word, file name,
 /// bytes). A log belongs to the run when the stamp in its name, taken when
 /// the cycle began, is no more than STAMP_BEFORE seconds before the run's
-/// start and not after its end (now for a run that has not ended).
+/// start and not after its end (now for a run that has not ended). When
+/// several stamps fall in that window only the latest is the run's: an
+/// earlier one is a short run of the same issue that ended just before.
 pub fn log_files(
     logs: &Path,
+    names: &[String],
     kind: &str,
     issue: i64,
     started: i64,
@@ -307,23 +323,23 @@ pub fn log_files(
     };
     let prefix = format!("{own}-{issue}-");
     let upto = ended.unwrap_or(now);
-    let mut stamps: Vec<String> = fs::read_dir(logs)
-        .into_iter()
-        .flatten()
-        .filter_map(Result::ok)
-        .filter_map(|e| e.file_name().into_string().ok())
-        .filter_map(|n| Some(n.strip_prefix(&prefix)?.get(..13)?.to_string()))
+    let mut stamps: Vec<&str> = names
+        .iter()
+        .filter_map(|n| n.strip_prefix(&prefix)?.get(..13))
         .filter(|s| stamp_secs(s).is_some_and(|t| t >= started - STAMP_BEFORE && t <= upto))
         .collect();
-    stamps.sort();
+    stamps.sort_unstable();
     stamps.dedup();
     let mut found = Vec::new();
-    for stamp in stamps {
+    for stamp in stamps.iter().rev() {
         for (word, tail) in tails {
             let name = format!("{prefix}{stamp}{tail}");
             if let Some(bytes) = regular_size(&logs.join(&name)) {
                 found.push(((*word).to_string(), name, bytes));
             }
+        }
+        if !found.is_empty() {
+            break;
         }
     }
     let dispatch = format!("dispatch-{own}-{issue}.log");

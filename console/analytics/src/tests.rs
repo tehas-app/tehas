@@ -2516,6 +2516,18 @@ fn logs_dir(name: &str, files: &[&str]) -> PathBuf {
     home.join("logs")
 }
 
+fn run_logs(
+    logs: &Path,
+    kind: &str,
+    issue: i64,
+    started: i64,
+    ended: Option<i64>,
+    now: i64,
+) -> Vec<(String, String, u64)> {
+    let names = crate::sessions::log_names(logs);
+    crate::sessions::log_files(logs, &names, kind, issue, started, ended, now)
+}
+
 #[test]
 fn log_files_match_the_stamp_window() {
     let logs = logs_dir(
@@ -2528,7 +2540,7 @@ fn log_files_match_the_stamp_window() {
     );
     let started = secs("2026-10-20T10:00:30Z");
     let ended = Some(secs("2026-10-20T11:00:00Z"));
-    let got = crate::sessions::log_files(&logs, "work", 7, started, ended, 0);
+    let got = run_logs(&logs, "work", 7, started, ended, 0);
     let want = |w: &str, n: &str| (w.to_string(), n.to_string(), 3);
     assert_eq!(
         got,
@@ -2540,11 +2552,35 @@ fn log_files_match_the_stamp_window() {
 }
 
 #[test]
+fn log_files_take_only_the_latest_stamp_in_the_window() {
+    let logs = logs_dir(
+        "logs-two-stamps",
+        &[
+            "work-7-261020-095900.jsonl",
+            "work-7-261020-095900.jsonl.result.json",
+            "work-7-261020-100000.jsonl",
+            "dispatch-work-7.log",
+        ],
+    );
+    let started = secs("2026-10-20T10:00:30Z");
+    let ended = Some(secs("2026-10-20T11:00:00Z"));
+    let got = run_logs(&logs, "work", 7, started, ended, 0);
+    let want = |w: &str, n: &str| (w.to_string(), n.to_string(), 3);
+    assert_eq!(
+        got,
+        vec![
+            want("transcript", "work-7-261020-100000.jsonl"),
+            want("dispatch", "dispatch-work-7.log"),
+        ]
+    );
+}
+
+#[test]
 fn log_files_skip_links_and_other_issues() {
     let logs = logs_dir("logs-links", &["work-77-261020-100000.jsonl", "target"]);
     std::os::unix::fs::symlink("target", logs.join("work-7-261020-100000.jsonl")).unwrap();
     let started = secs("2026-10-20T10:00:30Z");
-    let got = crate::sessions::log_files(&logs, "work", 7, started, None, started + 3600);
+    let got = run_logs(&logs, "work", 7, started, None, started + 3600);
     assert!(got.is_empty());
 }
 
@@ -2556,7 +2592,7 @@ fn plan_log_words() {
     );
     let started = secs("2026-10-20T10:00:10Z");
     let words = |logs: &Path| -> Vec<String> {
-        crate::sessions::log_files(logs, "plan", 5, started, Some(started + 60), 0)
+        run_logs(logs, "plan", 5, started, Some(started + 60), 0)
             .into_iter()
             .map(|l| l.0)
             .collect()
