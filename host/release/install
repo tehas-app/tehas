@@ -1,0 +1,136 @@
+#!/bin/sh
+# Install tehas on this host from a release, as root:
+#
+#   curl -fsSL https://github.com/tehas-app/tehas/releases/latest/download/install | sudo sh -s -- <user>
+#
+# It downloads the newest release (or the one --version names), checks the
+# tarball against its .sha256 and its minisign signature with the key written
+# below, never one from the download, and unpacks it. Then it prepares the host
+# with that release's `bootstrap.sh root <user>`, which makes the user when it
+# is missing, puts the release in ~<user>/tehas/versions/<version>, points
+# ~<user>/tehas/current at it and gives both to the user. What is left is
+# `tehas setup`, as that user.
+#
+# Until the repository is public, a download needs a token, so download the
+# three files of a release by hand (gh release download <tag> --pattern
+# 'tehas-*') and pass their directory with --from.
+#
+# Usage: install [--version vX.Y.Z] [--from <dir>] [--repo owner/name]
+#                [--no-bootstrap] <user>
+#   --version       a release other than the newest
+#   --from <dir>    the tarball, its .sha256 and its .minisig are in <dir>;
+#                   nothing is downloaded. Needs --version
+#   --repo          where the releases are, owner/name on GitHub
+#   --no-bootstrap  the host is prepared already; only place the release
+#
+# Exit: 0 installed; 1 a download, a check, the unpack or bootstrap.sh failed,
+#       and nothing was put in the user's home; 64 usage, or not run as root.
+set -eu
+
+repo=tehas-app/tehas
+version=""
+from=""
+bootstrap=1
+user=""
+
+# The key every release is signed with, the same as host/release/minisign.pub;
+# test/release_install_test.sh fails when the two differ.
+pubkey='untrusted comment: minisign public key FE1F47199BDF1A8A
+RWSKGt+bGUcf/pFFK6N3AH4IsoKXMavxd+h5Es5pIZiM9H87h949SG12'
+
+say() { printf 'install: %s\n' "$*"; }
+die() { printf 'install: %s\n' "$*" >&2; exit 1; }
+usage() { sed -n '2,/^[^#]/s/^# \{0,1\}//p' "$0" >&2; exit 64; }
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --version) [ "$#" -ge 2 ] || usage; version=$2; shift ;;
+    --from) [ "$#" -ge 2 ] || usage; from=$2; shift ;;
+    --repo) [ "$#" -ge 2 ] || usage; repo=$2; shift ;;
+    --no-bootstrap) bootstrap=0 ;;
+    -h | --help) usage ;;
+    -*) printf 'install: unknown argument: %s\n' "$1" >&2; exit 64 ;;
+    *) [ -z "$user" ] || usage; user=$1 ;;
+  esac
+  shift
+done
+[ -n "$user" ] || { echo "install: name the user tehas runs as" >&2; exit 64; }
+case "$user" in root | -* | *[!a-z0-9_-]*) echo "install: not a user name for tehas: $user" >&2; exit 64 ;; esac
+case "$repo" in */*) ;; *) echo "install: --repo is owner/name: $repo" >&2; exit 64 ;; esac
+if [ -n "$version" ]; then
+  printf '%s\n' "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "install: --version is vX.Y.Z: $version" >&2; exit 64; }
+fi
+[ -z "$from" ] || [ -n "$version" ] || { echo "install: --from needs --version" >&2; exit 64; }
+[ "$(id -u)" = 0 ] || { echo "install: run this as root (sudo sh -s -- $user)" >&2; exit 64; }
+
+for tool in tar sha256sum; do
+  command -v "$tool" >/dev/null 2>&1 || die "$tool is not installed"
+done
+if ! command -v minisign >/dev/null 2>&1; then
+  command -v apt-get >/dev/null 2>&1 || die "minisign is not installed, and this host has no apt-get to install it with"
+  say "installing minisign to check the signature"
+  apt-get install -y minisign >/dev/null || die "apt-get could not install minisign"
+fi
+
+work=$(mktemp -d "${TMPDIR:-/tmp}/tehas-install.XXXXXX")
+trap 'rm -rf "$work"' EXIT
+
+if [ -z "$version" ]; then
+  # The latest release's page redirects to its tag.
+  url=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$repo/releases/latest") ||
+    die "could not ask GitHub for the newest release of $repo (a private repository needs --from)"
+  version=${url##*/}
+  printf '%s\n' "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || die "$repo has no release to install"
+fi
+tarball=tehas-$version-linux-x86_64.tar.gz
+
+mkdir "$work/dl"
+for f in "$tarball" "$tarball.sha256" "$tarball.minisig"; do
+  if [ -n "$from" ]; then
+    cp "$from/$f" "$work/dl/$f" || die "$f is not in $from"
+  else
+    curl -fsSL -o "$work/dl/$f" "https://github.com/$repo/releases/download/$version/$f" || die "could not download $f"
+  fi
+done
+
+[ "$(awk '{print $2}' "$work/dl/$tarball.sha256")" = "$tarball" ] || die "$tarball.sha256 does not name $tarball"
+(cd "$work/dl" && sha256sum -c --status "$tarball.sha256") || die "$tarball does not match its .sha256"
+printf '%s\n' "$pubkey" >"$work/minisign.pub"
+minisign -q -V -p "$work/minisign.pub" -m "$work/dl/$tarball" -x "$work/dl/$tarball.minisig" >/dev/null 2>&1 ||
+  die "$tarball is not signed by the tehas release key"
+say "$tarball matches its .sha256 and its signature"
+
+# Files and directories under tehas-<version>/ only.
+bad=$(tar -tvzf "$work/dl/$tarball" | awk -v top="tehas-$version/" '
+  { type = substr($1, 1, 1); name = $6 }
+  (type != "-" && type != "d") || index(name, top) != 1 || name ~ /(^|\/)\.\.(\/|$)/ { print name }')
+[ -z "$bad" ] || die "$tarball holds what a release does not: $bad"
+mkdir "$work/tree"
+tar -xzf "$work/dl/$tarball" -C "$work/tree" --no-same-owner || die "could not unpack $tarball"
+tree=$work/tree/tehas-$version
+[ "$(head -n 1 "$tree/VERSION" 2>/dev/null)" = "$version" ] || die "$tarball does not say it is $version"
+# bootstrap.sh runs the user's part as the user, from this tree.
+chmod 755 "$work" "$work/tree"
+
+if [ "$bootstrap" = 1 ]; then
+  say "preparing the host: bootstrap.sh root $user"
+  "$tree/bootstrap.sh" root "$user" || die "bootstrap.sh root $user failed; nothing was put in the home of $user"
+fi
+
+home=$(getent passwd "$user" | cut -d: -f6)
+[ -n "$home" ] && [ -d "$home" ] || die "$user has no home directory"
+group=$(id -gn "$user") || die "cannot read the group of $user"
+mkdir -p "$home/tehas/versions"
+rm -rf "$home/tehas/versions/$version"
+mv "$tree" "$home/tehas/versions/$version"
+ln -sfn "versions/$version" "$home/tehas/current.new"
+mv -Tf "$home/tehas/current.new" "$home/tehas/current"
+# What tehas update reads to keep the last three versions.
+mkdir -p "$home/tehas/state"
+printf '%s\n' "$version" >>"$home/tehas/state/release-history"
+chown -R "$user:$group" "$home/tehas/versions/$version" "$home/tehas/state"
+chown -h "$user:$group" "$home/tehas/current"
+chown "$user:$group" "$home/tehas" "$home/tehas/versions"
+
+say "tehas $version is in $home/tehas/versions/$version, and $home/tehas/current points at it"
+say "now run, as $user: ~/tehas/current/bin/tehas setup"

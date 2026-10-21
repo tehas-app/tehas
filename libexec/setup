@@ -1,0 +1,312 @@
+#!/usr/bin/env bash
+# tehas setup: write this host's instance and start the factory, once.
+#
+# Asks for what it is not given, when there is a terminal to ask on:
+#
+#   --repo <owner/name>        the product repository
+#   --labellers "<a> <b>"      the logins whose labels count; never the bot
+#   --token-file <file>|-      the bot's GitHub token, read from a file or
+#                              from standard input. Never on the command line
+#   --endpoint <url>           the model endpoint, OpenAI-compatible, with its
+#                              /v1: its models are read from <url>/models
+#   --model <id>               the model to use; needed when the endpoint
+#                              offers more than one and there is no terminal
+#   --model-key-file <file>|-  the endpoint's key, if it takes one
+#   --provider <name>          the provider's name in models.json (main)
+#   --control-issue <n>        the control issue; without it one is made
+#   --no-build                 leave out the sandbox image and the gates
+#   --force                    replace a setting that is there and differs
+#
+# Then, in this order, stopping at the first step that fails:
+#   1. checks the token can push to the repository and the endpoint offers
+#      the model, and makes the control issue
+#   2. writes ~/.config/tehas (or the directory instance-dir names):
+#      instance.env with the required settings only, models.json, and the
+#      token and the model key in env, mode 600
+#   3. gives git the bot's name and noreply address, unless it has one
+#   4. clones the product to ~/tehas/repos/<name> when it is not there
+#   5. runs install.sh beside this command, then tehas labels
+#   6. builds the sandbox image unless it is there, and runs the product's
+#      gates in it with tehas check-product --sandbox where that is installed
+#   7. enables the dispatch timer and path, starts the docs server and
+#      prints the dashboard's address
+#
+# A second run changes nothing that is right. A setting that is there and
+# differs is never replaced without --force: the run stops with 78 before it
+# calls anything or writes anything.
+#
+# Usage:
+#   tehas setup [options]
+#
+# Exit: 0 done; 1 a check or a step failed (a step's own status when it has
+# one); 64 an unknown option; 78 a setting is missing, malformed, or differs
+# from the one there without --force.
+set -uo pipefail
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/config.sh
+. "$here/../lib/config.sh"
+
+die() { echo "tehas setup: $*" >&2; exit "${2:-1}"; }
+bad() { die "$1" 78; }
+usage() { echo "usage: tehas setup [--repo owner/name] [--labellers \"a b\"] [--token-file f|-] [--endpoint url] [--model id] [--model-key-file f|-] [--provider name] [--control-issue n] [--no-build] [--force]" >&2; exit 64; }
+
+repo="" labellers="" token_file="" endpoint="" model="" key_file="" provider="" control="" build=1 force=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --repo | --labellers | --token-file | --endpoint | --model | --model-key-file | --provider | --control-issue)
+      [ "$#" -ge 2 ] || usage
+      case "$1" in
+        --repo) repo=$2 ;;
+        --labellers) labellers=$2 ;;
+        --token-file) token_file=$2 ;;
+        --endpoint) endpoint=$2 ;;
+        --model) model=$2 ;;
+        --model-key-file) key_file=$2 ;;
+        --provider) provider=$2 ;;
+        --control-issue) control=$2 ;;
+      esac
+      shift 2
+      ;;
+    --no-build) build=0; shift ;;
+    --force) force=1; shift ;;
+    *) usage ;;
+  esac
+done
+
+dir=$(tehas_instance_dir)
+env_file=$HOME/.config/tehas/env
+inst=$dir/instance.env
+models=$dir/models.json
+
+# The value a KEY=value file has for a key, quotes taken off; nothing when
+# the key is not there.
+value_in() { # <file> <key>
+  [ -r "$1" ] || return 0
+  sed -n "s/^\(export \)\{0,1\}$2=//p" "$1" | tail -n 1 | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/"
+}
+tty=0
+[ -t 0 ] && tty=1
+ask() { # <variable> <prompt> [-s]
+  local answer
+  if [ "${3:-}" = -s ]; then read -r -s -p "$2: " answer; echo >&2; else read -r -p "$2: " answer; fi
+  printf -v "$1" '%s' "$answer"
+}
+read_secret() { # <file or -> <what>
+  local s
+  if [ "$1" = - ]; then IFS= read -r s || true; else
+    [ -r "$1" ] || bad "cannot read $2 from $1"
+    IFS= read -r s <"$1" || true
+  fi
+  [ -n "$s" ] || bad "$2 in ${1/#-/standard input} is empty"
+  printf '%s' "$s"
+}
+
+# --- what is asked for, from the flags, then the files, then the terminal ----
+[ -n "$repo" ] || repo=$(value_in "$inst" TEHAS_REPO)
+[ -n "$labellers" ] || labellers=$(value_in "$inst" TEHAS_ALLOWED_LABELERS)
+[ -n "$control" ] || control=$(value_in "$inst" TEHAS_CONTROL_ISSUE)
+[ -n "$provider" ] || provider=$(value_in "$inst" PI_ENSEMBLE_SUBAGENT_PROVIDER)
+[ -n "$provider" ] || provider=main
+[ -n "$model" ] || model=$(value_in "$inst" PI_ENSEMBLE_SUBAGENT_MODEL)
+[ -n "$endpoint" ] || [ ! -r "$models" ] ||
+  endpoint=$(jq -r --arg p "$provider" '.providers[$p].baseUrl // empty' "$models" 2>/dev/null)
+stdin_used=0
+[ "$token_file" != - ] || stdin_used=1
+[ "$key_file" != - ] || stdin_used=$((stdin_used + 1))
+[ "$stdin_used" -le 1 ] || bad "only one of --token-file and --model-key-file can read standard input"
+[ "$stdin_used" = 0 ] || tty=0
+
+if [ "$tty" = 1 ]; then
+  [ -n "$repo" ] || ask repo "Product repository (owner/name)"
+  [ -n "$labellers" ] || ask labellers "Logins whose labels count, space separated"
+  [ -n "$endpoint" ] || ask endpoint "Model endpoint, with its /v1"
+fi
+[ -n "$repo" ] || bad "no repository: give --repo owner/name"
+[ -n "$labellers" ] || bad "no labellers: give --labellers \"<login> ...\""
+[ -n "$endpoint" ] || bad "no model endpoint: give --endpoint <url>"
+
+[[ $repo =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || bad "the repository is owner/name, not: $repo"
+[[ $labellers =~ ^[A-Za-z0-9-]+( [A-Za-z0-9-]+)*$ ]] || bad "the labellers are GitHub logins separated by spaces, not: $labellers"
+[[ $endpoint =~ ^https?://[^[:space:]]+$ ]] || bad "the endpoint is an http or https address, not: $endpoint"
+endpoint=${endpoint%/}
+[[ $provider =~ ^[a-z][a-z0-9_-]*$ ]] || bad "the provider is a lowercase name, not: $provider"
+[ -z "$control" ] || [[ $control =~ ^[1-9][0-9]*$ ]] || bad "the control issue is a number, not: $control"
+[ -z "$model" ] || [[ $model =~ ^[A-Za-z0-9._:/-]+$ ]] || bad "not a model id: $model"
+
+token="" key=""
+if [ -n "$token_file" ]; then token=$(read_secret "$token_file" "the token") || exit 78
+else token=$(value_in "$env_file" GH_TOKEN); fi
+[ -n "$token" ] || [ "$tty" = 0 ] || ask token "The bot's GitHub token" -s
+[ -n "$token" ] || bad "no token: give --token-file <file> or --token-file - and the token on standard input"
+key_name=TEHAS_MODEL_KEY_$(tr '[:lower:]-' '[:upper:]_' <<<"$provider")
+if [ -n "$key_file" ]; then key=$(read_secret "$key_file" "the model key") || exit 78
+else key=$(value_in "$env_file" "$key_name"); fi
+
+# --- nothing that is there is replaced without --force -----------------------
+conflicts=()
+differs() { # <file> <key> <new value>
+  local old
+  old=$(value_in "$1" "$2")
+  [ -z "$old" ] || [ "$old" = "$3" ] || conflicts+=("$2 in $1")
+}
+differs "$inst" TEHAS_REPO "$repo"
+differs "$inst" TEHAS_ALLOWED_LABELERS "$labellers"
+[ -z "$control" ] || differs "$inst" TEHAS_CONTROL_ISSUE "$control"
+differs "$inst" PI_ENSEMBLE_SUBAGENT_PROVIDER "$provider"
+[ -z "$model" ] || differs "$inst" PI_ENSEMBLE_SUBAGENT_MODEL "$model"
+differs "$env_file" GH_TOKEN "$token"
+[ -z "$key" ] || differs "$env_file" "$key_name" "$key"
+if [ -r "$models" ]; then
+  jq -e . "$models" >/dev/null 2>&1 || bad "$models is not JSON"
+  old=$(jq -r --arg p "$provider" '.providers[$p].baseUrl // empty' "$models")
+  [ -z "$old" ] || [ "$old" = "$endpoint" ] || conflicts+=("the baseUrl of $provider in $models")
+fi
+if [ "${#conflicts[@]}" -gt 0 ] && [ "$force" = 0 ]; then
+  printf 'tehas setup: differs from what is there: %s\n' "${conflicts[@]}" >&2
+  bad "nothing was changed; run again with --force to replace it"
+fi
+
+# --- GitHub and the endpoint --------------------------------------------------
+export GH_TOKEN=$token
+push=$(gh api "repos/$repo" --jq .permissions.push 2>/dev/null) || push=""
+[ "$push" = true ] || die "the token cannot push to $repo (permissions.push is ${push:-unknown}); nothing was written"
+echo "tehas setup: the token can push to $repo"
+
+ids=$( {
+  echo 'silent'
+  echo 'show-error'
+  echo 'fail'
+  echo 'max-time = 30'
+  [ -z "$key" ] || printf 'header = "Authorization: Bearer %s"\n' "$key"
+} | curl -K - "$endpoint/models" | jq -r '.data[]?.id' 2>/dev/null) || ids=""
+[ -n "$ids" ] || die "$endpoint/models answered with no models; nothing was written"
+if [ -z "$model" ]; then
+  if [ "$(grep -c '' <<<"$ids")" = 1 ]; then
+    model=$ids
+  elif [ "$tty" = 1 ]; then
+    echo "The endpoint offers:" >&2
+    nl -w2 -s'. ' <<<"$ids" >&2
+    ask pick "Which one (number)"
+    [[ ${pick:-} =~ ^[1-9][0-9]*$ ]] || bad "not a number from the list: ${pick:-}"
+    model=$(sed -n "${pick}p" <<<"$ids")
+    [ -n "$model" ] || bad "no model picked"
+  else
+    bad "the endpoint offers several models, give --model with one of: $(tr '\n' ' ' <<<"$ids" | sed 's/ $//')"
+  fi
+fi
+grep -qxF -- "$model" <<<"$ids" || die "$endpoint does not offer $model; it offers: $(tr '\n' ' ' <<<"$ids")"
+echo "tehas setup: the endpoint offers $model"
+
+if [ -z "$control" ]; then
+  url=$(gh issue create --repo "$repo" --title "tehas control" \
+    --body "The control issue of this repository's tehas factory. The label tehas:pause here stops it starting work. Keep this issue open; it is never worked on.") ||
+    die "could not make the control issue in $repo; nothing was written"
+  control=${url##*/}
+  [[ $control =~ ^[1-9][0-9]*$ ]] || die "gh answered $url for the new control issue; nothing was written"
+  echo "tehas setup: made the control issue #$control"
+fi
+
+# --- the files ----------------------------------------------------------------
+umask 077
+mkdir -p "$dir" "$(dirname "$env_file")" || die "could not make $dir"
+chmod 700 "$dir" "$(dirname "$env_file")"
+
+# Set KEY=value in a file: a new key is added, one with that value is left,
+# another value is replaced (the conflicts were refused above without --force).
+put() { # <file> <key> <value> [quoted]
+  local line=$2=$3 tmp
+  [ "${4:-}" != quoted ] || line="$2=\"$3\""
+  if [ "$(value_in "$1" "$2")" = "$3" ]; then return 0; fi
+  if [ -f "$1" ] && grep -q -E "^(export )?$2=" "$1"; then
+    tmp=$(mktemp "$1.XXXXXX")
+    if ! awk -v k="$2" -v l="$line" 'index($0, k "=") == 1 || index($0, "export " k "=") == 1 { if (!done) print l; done = 1; next } { print }' "$1" >"$tmp" ||
+      ! chmod 600 "$tmp" || ! mv "$tmp" "$1"; then
+      die "could not write $1"
+    fi
+  else
+    printf '%s\n' "$line" >>"$1" || die "could not write $1"
+  fi
+  # A secret is named, never printed.
+  if [ "$1" = "$env_file" ]; then echo "tehas setup: $2 written to $1"; else echo "tehas setup: $line written to $1"; fi
+}
+[ -f "$inst" ] || printf '%s\n' "# Written by tehas setup: the settings this instance must have. The" \
+  "# optional ones are in instances/example/optional.env of the release." "" >"$inst"
+put "$inst" TEHAS_REPO "$repo"
+put "$inst" TEHAS_CONTROL_ISSUE "$control"
+put "$inst" TEHAS_ALLOWED_LABELERS "$labellers" quoted
+put "$inst" PI_ENSEMBLE_SUBAGENT_PROVIDER "$provider"
+put "$inst" PI_ENSEMBLE_SUBAGENT_MODEL "$model"
+chmod 600 "$inst"
+put "$env_file" GH_TOKEN "$token"
+[ -z "$key" ] || put "$env_file" "$key_name" "$key"
+chmod 600 "$env_file"
+
+# The provider with the four keys install.sh needs; it fills the rest.
+api_key=unused
+[ -z "$key" ] || api_key="\$$key_name"
+new=$( { if [ -r "$models" ]; then cat "$models"; else echo '{}'; fi; } |
+  jq --arg p "$provider" --arg u "$endpoint" --arg k "$api_key" --arg m "$model" '
+    .providers[$p] = ((.providers[$p] // {api: "openai-completions"}) + {baseUrl: $u, apiKey: (.providers[$p].apiKey // $k)})
+    | if $k != "unused" then .providers[$p].apiKey = $k else . end
+    | .providers[$p].models = ((.providers[$p].models // []) | if any(.[]; .id == $m) then . else . + [{id: $m}] end)') ||
+  die "could not write $models"
+if [ ! -r "$models" ] || [ "$(jq -S . "$models")" != "$(jq -S . <<<"$new")" ]; then
+  printf '%s\n' "$new" >"$models" || die "could not write $models"
+  echo "tehas setup: $models names $provider at $endpoint with $model"
+fi
+umask 022
+
+# --- git, the product, the install --------------------------------------------
+read -r login uid < <(gh api user --jq '[.login,.id]|@tsv' 2>/dev/null) || true
+[ -n "${login:-}" ] || die "gh api user did not say who the bot is"
+if [ -z "$(git config --global user.name)" ] && [ -z "$(git config --global user.email)" ]; then
+  if ! git config --global user.name "$login" || ! git config --global user.email "$uid+$login@users.noreply.github.com"; then
+    die "could not set git's identity"
+  fi
+  echo "tehas setup: git commits as $login <$uid+$login@users.noreply.github.com>"
+else
+  echo "tehas setup: git's identity is kept: $(git config --global user.name) <$(git config --global user.email)>"
+fi
+
+tehas_load || exit 78
+tehas_require_instance_settings
+if [ ! -d "$TEHAS_WORK_REPO/.git" ]; then
+  mkdir -p "$(dirname "$TEHAS_WORK_REPO")"
+  gh repo clone "$repo" "$TEHAS_WORK_REPO" -- -q || die "could not clone $repo to $TEHAS_WORK_REPO"
+  echo "tehas setup: cloned $repo to $TEHAS_WORK_REPO"
+fi
+
+step() { # <name> <command...>
+  local name=$1 rc
+  shift
+  "$@"
+  rc=$?
+  [ "$rc" = 0 ] || die "$name failed (exit $rc); fix it and run tehas setup again" "$rc"
+}
+if [ -x "$here/../install.sh" ]; then
+  step install.sh "$here/../install.sh"
+else
+  echo "tehas setup: no install.sh beside this command; run the platform's install.sh yourself"
+fi
+step "tehas labels" "$here/labels"
+
+if [ "$build" = 1 ]; then
+  if docker image inspect "$PI_ENSEMBLE_IMAGE" >/dev/null 2>&1; then
+    echo "tehas setup: the sandbox image is there ($PI_ENSEMBLE_IMAGE)"
+  else
+    step "the sandbox build" "$TEHAS_HOME/sandbox/build.sh"
+  fi
+  if [ -x "$here/check-product" ]; then
+    step "tehas check-product --sandbox" "$here/check-product" --sandbox
+  else
+    echo "tehas setup: check-product is not installed, so the product's gates were not run in the sandbox"
+  fi
+fi
+
+step "systemctl --user daemon-reload" systemctl --user daemon-reload
+step "enabling the dispatcher" systemctl --user enable --now tehas-dispatch.timer tehas-dispatch.path
+docs=$TEHAS_HOME/edge/docs.compose.yaml
+[ ! -r "$docs" ] || step "the docs server" docker compose -f "$docs" up -d
+echo "tehas setup: done. The dashboard is at http://${TEHAS_HOST_ADDR:-127.0.0.1}:8080/"
+echo "tehas setup: label a small issue in $repo with tehas:ready to start the first cycle"

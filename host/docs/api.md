@@ -72,8 +72,7 @@ A program creates one by running the two installers a person runs, in this
 order, and asking one question afterwards:
 
 ```
-sudo ./bootstrap.sh root <user>   # packages, Docker, the docker group, linger, the slice
-./bootstrap.sh user               # the pinned tools, as the tehas user
+sudo ./bootstrap.sh root <user>   # packages, Docker, the docker group, linger, the slice, then the pinned tools as <user>
 ./install.sh --check              # must exit 0 once the instance is in place
 ```
 
@@ -245,7 +244,8 @@ tehas history [--json] [--after CURSOR] [--issue N]
     "provider": false, "parked": true, "by": "alice", "how": "label"},
    {"cursor": "1760700300-7", "kind": "plan", "issue": 7,
     "started": "2026-10-17T13:20:00Z", "ended": "2026-10-17T13:25:00Z",
-    "status": 0, "outcome": "finished", "turn": 3, "by": "alice"}],
+    "status": 0, "outcome": "finished", "turn": 3, "by": "alice",
+    "label": "tehas:refine", "filed": ["https://github.com/acme/widget/issues/41"]}],
  "next": "1760700300-7"}
 ```
 
@@ -268,8 +268,10 @@ takes one issue's lines, from its cycle and its planning turns together.
 status, `outcome` what it reported, and the rest are the fields of the line:
 the step and cap it stopped at, why it was parked, the failure the fixer named,
 whether its provider was asked, the pull request, and who asked for it and how.
-A planning turn has `turn`, its number in the issue. A field the line does not
-have is left out, never null.
+A planning turn has `turn`, its number in the issue, `label`, the label that
+started its session (`tehas:plan` or `tehas:refine`), and `filed`, the issues
+the turn filed, when it filed any. A field the line does not have is left out,
+never null.
 
 Without `--json`, one line each, oldest first.
 
@@ -328,7 +330,7 @@ tehas analytics export <file> [--json]
 ```
 
 Writes a consistent copy of the factory's analytics database to `<file>`, mode
-600: ten days of runs, their steps and roles, issue events and poll samples.
+600: 365 days of runs, their steps and roles, issue events and poll samples.
 The schema, every column and how a reader keeps up with it are on
 [Analytics](/analytics). The copy is masked: it holds no token, no URL with a
 host and no address. A program runs the command, then copies the file, over

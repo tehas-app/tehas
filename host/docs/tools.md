@@ -17,8 +17,11 @@ tehas work <issue> [--restart]   # one cycle for an issue, by hand
 tehas plan <issue> ...           # one turn of a planning session, by hand
 tehas dev [<name>]               # an interactive session on the host, by hand
 tehas index                      # build the code index the agents search
+tehas setup [options]            # write this host's instance and start the factory
 tehas update [--check]           # bring this host up to date with the platform
 tehas labels                     # create the tehas labels in the repository
+tehas check-product [--sandbox]  # check the product against the contract
+tehas init-product [--dry-run]   # propose the missing contract files
 tehas status [--json]            # print the state of the factory
 tehas api [--json]               # what this factory speaks, for a program
 tehas limit [set ...|clear]      # an outside cap on what this factory starts
@@ -26,7 +29,7 @@ tehas drain [--wait S] [--json]  # start nothing new, wait for running cycles
 tehas history [--json] [--after C] [--issue N]  # what ended, oldest first
 tehas export [--json] --after C <dir>  # copy a cycle's records, masked
 tehas top [--once|--json]        # one screen of what the factory is doing
-tehas analytics report|export    # the factory's last ten days of runs
+tehas analytics report|export    # the factory's last 365 days of runs
 tehas pause [reason]             # stop this host from starting new work
 tehas resume                     # lift this host's pause flag
 tehas stop <issue> [--keep-workspace]  # end a cycle by hand, clear what it left
@@ -62,9 +65,9 @@ in the platform repository has every one with a comment.
 | `TEHAS_INDEXING`                | `0`                                      | `1` lets search engines index the dashboard and the manual      |
 | `TEHAS_ANALYTICS_SRC`, `_SITE`  | empty                                    | Optional. The https address of a visitor analytics script and the site name it reports under. Both set: every page loads it |
 | `TEHAS_ANALYTICS_COOKIE`        | `0`                                      | `1` adds `data-cookie="true"` to that script tag                |
-| `TEHAS_THEME`                   | `pixel`                                  | The look of every page: `pixel`, `paper` or `beesknees`. Another name stops every command with 78. See [The host](/host#themes-and-layouts) |
+| `TEHAS_THEME`                   | `pixel`                                  | The look of every page: `pixel`, `paper`, `beesknees` or `beesknees26`. Another name stops every command with 78. See [The host](/host#themes-and-layouts) |
 | `TEHAS_LAYOUT`                  | `floor`                                  | The front page: `floor`, the game view, or `business`. Both are always at `/floor` and `/business`. Another name stops every command with 78. See [The host](/host#themes-and-layouts) |
-| `TEHAS_ANALYTICS`               | `on`                                     | The factory's own analytics, not the visitor analytics above: ten days of runs, issue events and poll samples in `~/tehas/state/analytics.db`. `off` stops every write and leaves the file as it is. Anything but `on` or `off` stops every command with 78 |
+| `TEHAS_ANALYTICS`               | `on`                                     | The factory's own analytics, not the visitor analytics above: 365 days of runs, issue events and poll samples in `~/tehas/state/analytics.db`. `off` stops every write and leaves the file as it is. Anything but `on` or `off` stops every command with 78 |
 | `TEHAS_PROTOLAB_URL`            | `https://lab.<domain>`, or port 8081     | Address people reach the Protolab at, when it is published elsewhere, as `https://lab.example`. The dashboard links to it. Without it: `https://lab.<domain>` when `TEHAS_DOMAIN` is set, else port 8081 of the dashboard's host |
 | `TEHAS_DOMAIN`                  | none                                     | The domain the edge's names are made under, as `tehas.app`: `uat-<pr>.` for a preview, `lab-<issue>.` for a ticket of the Protolab, `lab.` for its list |
 | `TEHAS_PREVIEWS`                | `0`                                      | `1` builds a preview of every open pull request whose branch is in the product repository and that an owner, member or collaborator opened. Needs `TEHAS_DOMAIN` |
@@ -78,6 +81,8 @@ in the platform repository has every one with a comment.
 | `TEHAS_FIXER_MAX_PLAN_ANSWERS`  | `3`                                      | How many planning questions the fixer may answer in one session. It never answers two in a row (see [the fixer's grant](/operating#the-fixers-grant)) |
 | `TEHAS_REFRESH_CONFLICTS`      | `0`                                      | 1 has the factory resolve conflicts in its own pull requests that wait for a merge (see [refreshes](/operating#refreshes)). Anything but 0 or 1 stops every command with 78 |
 | `TEHAS_REFRESH_MAX`            | `2`                                      | Refreshes of one pull request since the person's approval its cycle rests on. A positive whole number |
+| `TEHAS_CLEAN_AFTER`            | `24`                                     | Hours a thing must have gone unused before `tehasbot clean` removes it: build output in a kept workspace, Docker's build cache and host scratch. A whole number of at least 1, else every command stops with 78 (see [tehasbot clean](#tehasbot-clean)) |
+| `TEHAS_CLEAN_DIRS`             | `target node_modules __pycache__ .venv .pytest_cache .mypy_cache .next .turbo .gradle` | The directory names `tehasbot clean` removes anywhere in a kept workspace, separated by single spaces. Names, not paths: one with a `/`, a bare `.` or `..`, or a dot-name in the family of the two a workspace keeps, stops every command with 78 (see [tehasbot clean](#tehasbot-clean)) |
 | `TEHAS_BRANCH_CHECK`           | empty                                    | Optional. The name of a check that runs on every push to `TEHAS_BRANCH`, as `verify`. While it failed on the branch's head commit no new cycle starts (see [Limits that hold work back](/operating#limits-that-hold-work-back)). Words of letters, digits and `._()/-` separated by single spaces, else every command stops with 78. Empty: the poll does not ask |
 | `TEHAS_LOW_GATE`               | empty                                    | Optional. A command the dispatcher asks before it starts an issue it puts on neither the urgent list nor the `tehas:next` list. An absolute path of `/`, letters, digits and `._-` with no empty or dot segment, and not under `~/tehas` or the instance directory, else every command stops with 78. Empty: there is no gate, and every ready issue is started as before (see [tehas dispatch](#tehas-dispatch)) |
 | `TEHAS_LOW_GATE_WAIT`          | `60`                                     | Optional. Seconds `TEHAS_LOW_GATE` gets before its answer is a closed gate. A whole number from 1 to 600, else every command stops with 78. The poll holds `~/tehas/state/dispatch.lock` while it waits, so a long value delays every later poll (see [tehas dispatch](#tehas-dispatch)) |
@@ -279,7 +284,7 @@ issues in line, running, awaiting a merge, stopped and in planning from
 `~/tehas/live/dispatch.json`, and the mesh's draw from
 `~/tehas/live/energy.json`. A file older than ten minutes gives no value, and a
 `dispatch.json` older than two and a half, an earlier poll's, neither. Then
-`analytics prune` removes what is older than ten days. A start records the
+`analytics prune` removes what is older than 365 days. A start records the
 events `ready`, as its approval record is written and at the time that record
 says `tehas:ready` was accepted (`at`), and `started`, once its cycle came up,
 the first time for each issue. Each call may take 5 seconds.
@@ -594,7 +599,7 @@ account before it starts a cycle.
 | 4    | No cycle was started. On every start that finds the dispatcher's approval record, whatever the settings: the issue's body is not the body that record approved, its title is not the title it approved, the record cannot be read or is not of the shape tehas reads, the answer is a pull request or a closed issue, or the issue cannot be read for its text (within `TEHAS_TEXT_WAIT`); the issue is told which and that a fresh `tehas:ready` is needed. With `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, also: an image or file the issue links could not be fetched, the issue could not be read for them, or a file is not the one first fetched for the approval |
 | 5    | A cycle for this issue is running already: its lock `~/tehas/state/cycles/<issue>.lock` is held. Nothing was moved and no container started |
 | 64   | The issue is not a number, or no bot token or no git identity; no cycle was started |
-| 78   | The instance settings are invalid, `tehas.slice` is missing, has no memory limit, or cannot be used (the message names `sudo ./bootstrap.sh slice` or the reason), the image does not support what the cycle is given, or a workaround in `TEHAS_RUKAS_WORKAROUNDS` has expired; no cycle was started |
+| 78   | The instance settings are invalid, `tehas.slice` is missing, has no memory limit, or cannot be used (the message names `sudo ./bootstrap.sh slice` or the reason), the image does not support what the cycle is given, a workaround in `TEHAS_RUKAS_WORKAROUNDS` has expired, or the product names no gate in `.pi/verify-cmd` and its commit holds neither `package.json` nor `Cargo.toml`; no cycle was started, nothing was pushed, and the clone made for the cycle is left in place. A refusal for the gate is said on the command's error stream only, which under the unit is `~/tehas/logs/dispatch-work-<issue>.log`: the issue gets no comment for it, because no cycle of that issue ever began |
 | 137  | The container was killed while the cycle was running, and the runner wrote no result: out of memory, or stopped from outside. The cycle is `killed` |
 
 The runner's codes are its own only when it wrote a result for the issue, or a
@@ -862,40 +867,34 @@ tehas plan 12 --out /tmp/turn.json --keep /tmp/turn.keep --session <id> --answer
 ```
 
 The first form starts a session from a file with the issue's title and body.
-The second reopens the session and sends the file's content as the operator's
-answer. A turn ends when the agent has settled and every subagent it sent out
-in the background has reported back, so it ends when the agent has asked. A
-subagent that never reports holds the turn until `TEHAS_PLAN_TIMEOUT`.
+The second goes on with the session and gives the file's content as the
+operator's answer. Each turn is one run of pi-rukas's headless runner,
+`pi-rukas-headless plan`, as the container's command. It exits when the
+planner has questions (11), has drafted a plan to confirm (12), or thinks the
+plan duplicates open work (10). After a drafted plan, an answer that ticked
+**File this plan** runs `plan --resume <id> --confirm`, which files the plan
+as it was shown and nothing else; any other answer runs `--answer`. The first
+turn runs `plan "Plan issue #<n>: <title>" --start --context <brief>`. The
+image must say `features.planTurns` in its `--capabilities`, or no turn
+starts: exit 78. pi-rukas v0.14.0 is the first release that does.
 
 `--keep` names a directory the session carries from one turn to the next. The
 first form makes it anew. It holds the approved title and body, which every
 turn's workspace gets as `.tehas/brief.md`, so a later turn never plans from
-the issue as it is now, the commit the first turn's workspace was
-at, pi-rukas's record of the plans the agent showed (its plain `.json` files
-and its `.filed` and `.claim` markers, at most 1 MB each), `sessions/`, the Pi
-sessions of the last turn, and with `TEHAS_WORK_IMAGES=1` the issue's images.
-Every later turn's workspace is at that commit and gets that record back. A
-later turn whose commit is missing or gone starts at the tip of the branch and
-says so.
+the issue as it is now; the commit the first turn's workspace was at;
+`plan-sessions/`, pi-rukas's record of the session, which it keeps in the
+clone's git directory (plain files only, at most 1 MB each); `exit`, the
+runner's exit status of the last turn; and with `TEHAS_WORK_IMAGES=1` the
+issue's images. Every later turn's workspace is at that commit and gets the
+record back. A later turn whose commit is missing or gone starts at the tip of
+the branch and says so. The answer reaches the runner as
+`.tehas/answer.md` in the workspace, which git ignores. The dispatcher keeps
+the directory at `~/tehas/state/plan-<issue>.json.keep` and removes it when
+the session ends.
 
-The issues a turn files are read from its stream: the addresses `gh issue
-create` printed in a bash call that succeeded. The turn's comment names them in
-one line, `Filed in this turn: <address>, ...`, and the session's record keeps
-them. Every later turn's answer then begins with `Already filed in this session:
-<address>, ...`, so a filing whose result never reached the agent is not made
-again.
-
-pi-rukas keys that record on `origin/<branch>` after a fetch of its own, and
-on what the agent asks for. In a turn's workspace `origin/<branch>` is the
-session's commit, and the clone has no fetch refspec, so a fetch inside the
-container writes only `FETCH_HEAD` and the key stays put. Pushing works as
-before. The container is given `PI_ENSEMBLE_PLAN_CACHE_TTL_MS=0`, whatever
-the instance sets, so the record does not expire; a pi-rukas without that
-setting expires it after two hours. A plan the operator confirms is filed as
-it was shown only when pi-rukas finds it in the record: otherwise the agent
-drafts it again, and the draft may differ. The dispatcher keeps the
-directory at `~/tehas/state/plan-<issue>.json.keep` and removes it when the
-session ends.
+The issue a confirm files is in the runner's answer. The turn's comment names
+it in one line, `Filed in this turn: <address>`, and the session's record keeps
+it. pi-rukas files a session once: a second confirm files nothing more.
 
 With `TEHAS_WORK_IMAGES=1` the first turn fetches the images the issue links,
 by the rules of `tehas work`, with `tehas:plan` in place of `tehas:ready`,
@@ -926,47 +925,38 @@ from an allowed account, so its links are approved as the label approves the
 body's. The answer sent to the agent ends with the names of the new files. A
 link left out is said on the issue. A link that cannot be fetched runs no
 turn: exit 4, said on the issue, and the directory stays as it was; a reply
-runs the turn again. On exit 0 the `--out` file holds the session id, the agent's last
-message and the question it asked, if any. When it asked more than one, they
-are put together as one numbered question with no options, so the operator
-answers them in a reply, and the log has a warning. On exit 2 it holds the session id
-alone when that is known, so the dispatcher can run the turn again in the
-same session, and it is not written when no session is known.
-
-A later turn first asks Pi what is in the session it opened. Pi makes a
-session anew when its file under `~/.pi/agent/sessions` is gone, and an agent
-with no memory of the session would take the answer as a new request. So when
-Pi says the session has no messages, the answer is not sent: the turn exits 2
-and the `--out` file holds the session id and `"lost": true`. The dispatcher
-then ends the session and says on the issue to apply `tehas:plan` again. A
-turn whose container never says what is in the session sends no answer
-either, and exits 2 as a turn that can be run again.
+runs the turn again. On exit 0 the `--out` file holds the session id, what the
+turn says and what it asks. For a drafted plan the text holds the plan's title
+and spec, cut at 40000 characters, and the question lists its open points with
+the planner's proposals and offers one option, **File this plan**. Two or more
+questions are put together as one numbered question with no options, answered
+by a reply. On exit 2 it holds the session id alone when that is known, so the
+dispatcher can run the turn again in the same session, and it is not written
+when no session is known. When the runner says the session is gone (its exit
+41), it holds the session id and `"lost": true`; the dispatcher then ends the
+session and says on the issue to apply `tehas:plan` again.
 
 | Exit | Meaning                                                              |
 | ---- | -------------------------------------------------------------------- |
-| 0    | The turn settled and said or asked something                         |
-| 2    | The turn did not settle, timed out, said and asked nothing, its session is gone, or its session or outcome could not be written down |
+| 0    | The turn asked something, drafted a plan, or filed it                |
+| 2    | The runner failed, refused the turn or ran out of time, the turn said and asked nothing, its session is gone, or its outcome could not be written down |
 | 4    | With `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`: a first turn where an image or file the issue links could not be fetched, or the issue could not be read for them, or a later turn where one its reply links could not be fetched; nothing ran |
 | 64   | A usage error, no bot token or no git identity; nothing ran          |
-| 78   | The instance settings are invalid, or `tehas.slice` cannot be used; nothing ran |
+| 78   | The instance settings are invalid, `tehas.slice` cannot be used, or the image runs no planning turns; nothing ran |
 
 The container is the one `tehas work` starts, under the name
 `tehas-plan-<issue>`: the same image, the same limits in `tehas.slice`, the
 same mounts, token and settings, from `lib/sandbox.sh`, and no Docker socket,
 SSH keys or `~/.config/tehas`. It works in a workspace of its own,
 `~/tehas/work/<name>-plan-<issue>`, made fresh for the turn and removed after
-it, its cache, memory and sessions go in `<name>-plan-<issue>.state` beside it
-and are removed with it, except the sessions, which are copied into
-`<keep>/sessions` when the turn ends and copied back into the next turn's state
-directory before it starts: that copy is what lets `--session <id>` find a real
-session. Its transcripts go to
-`~/.pi/agent/ensemble-runs/plan-<issue>`. There is no dry-run push
-before a turn. The agent files issues with the token. The RPC stream is
-kept in `~/tehas/logs/plan-<issue>-<time>.jsonl`. The limit is
-`TEHAS_PLAN_TIMEOUT`, and the session record is
-`~/tehas/state/plan-<issue>.json`. Once the outcome is read the session is
-ended by closing Pi's input, and only a Pi that has not gone two seconds later
-is stopped with `docker stop`. A container left under the turn's name, by
+it, and its cache and memory go in `<name>-plan-<issue>.state` beside it and
+are removed with it. Its transcripts go to
+`~/.pi/agent/ensemble-runs/plan-<issue>`. There is no dry-run push before a
+turn. A confirm files the issue with the token. The runner's progress is kept
+in `~/tehas/logs/plan-<issue>-<time>.jsonl` and its answer beside it as
+`.json`. The limit is `TEHAS_PLAN_TIMEOUT`: past it the container is stopped
+with `docker stop` and the turn exits 2. The session record is
+`~/tehas/state/plan-<issue>.json`. A container left under the turn's name, by
 a turn whose client died, is removed before the turn starts.
 
 ## tehas dev
@@ -1149,21 +1139,139 @@ Run by hand it does the work even when the record says the index is current, a
 failed tip too, and it holds the index's lock while it does, so no cycle starts
 in the middle. A cycle started by hand with `tehas work` refreshes nothing.
 
+## tehas setup
+
+```
+tehas setup --repo tehas-app/tehas --labellers janit --token-file - \
+  --endpoint http://gb1:8086/v1 <~/bot-token
+```
+
+The first setup of an instance, as the tehas user, after
+[bootstrap.sh](#bootstrapsh). Before the first install `tehas` is not on `PATH`
+yet: run it from the tree it came in, `~/tehas/current/bin/tehas setup` for a
+release or `~/tehas/platform/bin/tehas setup` for a checkout. What it is not
+given it asks for when there is a terminal; without one, a missing setting is
+exit 78.
+
+| Option | What it is |
+| --- | --- |
+| `--repo <owner/name>` | The product repository |
+| `--labellers "<a> <b>"` | The logins whose labels count. Never the bot |
+| `--token-file <file>` or `-` | The bot's token, from a file or standard input. There is no option that takes the token itself, so it is never on a command line or in the shell's history |
+| `--endpoint <url>` | The OpenAI-compatible model endpoint, with its `/v1`. Its models are read from `<url>/models` |
+| `--model <id>` | The model. Needed when the endpoint offers more than one and there is no terminal to pick on |
+| `--model-key-file <file>` or `-` | The endpoint's key, if it takes one. It goes in `~/.config/tehas/env` as `TEHAS_MODEL_KEY_<PROVIDER>`, and `models.json` names that variable. Curl gets it on standard input |
+| `--provider <name>` | The provider's name in `models.json`. Without it, `main` |
+| `--control-issue <n>` | The control issue. Without it one is made, titled "tehas control" |
+| `--no-build` | Leave out the sandbox image and the product's gates |
+| `--force` | Replace a setting that is there and differs |
+
+In order, stopping at the first step that fails:
+
+1. It checks that the token can push to the repository
+   (`gh api repos/<repo>` answers `push: true`) and that the endpoint offers
+   the model, then makes the control issue. Nothing is written before these.
+2. It writes the instance directory (`~/.config/tehas`, or the one
+   `~/.config/tehas/instance-dir` names): `instance.env` with the five required
+   settings and nothing else, and `models.json` with the provider's `api`,
+   `baseUrl`, `apiKey` and the model's `id`. The token goes in
+   `~/.config/tehas/env` as `GH_TOKEN`. The directory is mode 700, the files 600.
+3. It gives git the bot's login and noreply address (`<id>+<login>@users.noreply.github.com`)
+   from `gh api user`, unless git already has a name or an email, which it keeps.
+4. It clones the product to `~/tehas/repos/<name>` when there is no checkout.
+5. It runs `install.sh` from the same tree as the command, then
+   [tehas labels](#tehas-labels).
+6. Unless `--no-build`: it builds the sandbox image when there is none
+   (`~/tehas/sandbox/build.sh`), then runs the product's gates in it with
+   `tehas check-product --sandbox` where that command is installed. Where it is
+   not, it says the gates were not run.
+7. It enables `tehas-dispatch.timer` and `tehas-dispatch.path`, starts the docs
+   server and prints the dashboard's address.
+
+A second run changes nothing that is right: a value that is there is kept, the
+control issue is not made again and an image that is there is not rebuilt. A
+setting that is there and differs is never replaced without `--force`. The run
+names each one and stops with 78 before it calls GitHub or the endpoint and
+before it writes anything.
+
+Exit 0 when done, 1 when a check or a step failed (or the step's own status,
+such as 78 from `install.sh`), 64 on an unknown option, 78 for a setting that is
+missing, malformed or differs.
+
 ## tehas labels
 
 ```
 tehas labels        # one line per label
 ```
 
-Creates the fifteen labels tehas uses in the product repository: `tehas:ready`,
+Creates the sixteen labels tehas uses in the product repository: `tehas:ready`,
 `tehas:urgent`, `tehas:running`, `tehas:awaiting-merge`, `tehas:shipped`, `tehas:pause`,
-`needs-human-attention`, `tehas:question`, `tehas:plan`, `tehas:planning`,
+`needs-human-attention`, `tehas:question`, `tehas:plan`, `tehas:refine`, `tehas:planning`,
 `tehas:fixer-escalated`, `tehas:next`, `tehas:blocked`, `tehas:refreshing` (on a
 pull request a [refresh](/operating#refreshes) works on) and `tehas:all-hands`.
 Run it once for a new product, and again after pulling a version that adds a
 label. Run again, it puts their colours and descriptions back. It needs `TEHAS_REPO` and no other
 setting. Exit 0 when every label is there, 1 when one could not be made, 64 on
 any argument, 78 when the repository is not set.
+
+## tehas check-product
+
+```
+tehas check-product             # one line per check
+tehas check-product --sandbox   # and run the product's gates in the image
+```
+
+Checks the product checkout against the [contract](/new-project#what-the-product-repository-must-provide),
+on the commit origin's default branch points at, since a cycle reads only what
+is committed there. One line per check, `ok` or `FAIL`:
+
+| Check     | Passes when                                                                                     |
+| --------- | ----------------------------------------------------------------------------------------------- |
+| `origin`  | `TEHAS_WORK_REPO` is a clone of `TEHAS_REPO`                                                    |
+| `default` | `origin/HEAD` is set, so the default branch is known without the network                        |
+| `agents`  | `AGENTS.md` is there                                                                            |
+| `gate`    | `.pi/verify-cmd` has a line that is not empty or a comment                                      |
+| `model`   | `.pi/settings.json`, when the product has one, names a model the instance's `models.json` lists |
+
+With `--sandbox` it then clones that commit into `~/tehas/tmp` and runs, in the
+sandbox image as this user and in the slice, `.pi/worktree-setup` when there is
+one, the first command of `.pi/verify-cmd-full` (else `.pi/verify-cmd`) and the
+first command of `.pi/smoke-cmd` when there is one. The clone is removed
+afterwards.
+
+It changes nothing in the product. The result goes to
+`~/tehas/state/check-product.json`, which `tehas status` prints as its
+`product` line and `./install.sh --check` as its `Product:` line; neither runs
+the check itself, and the `Product:` line does not change install.sh's exit
+status. Exit 0 when every check passed, 1 when the sandbox could not be run (no
+image, or the clone failed), 64 on a wrong argument, 78 when the settings are
+missing or malformed or a check failed.
+
+## tehas init-product
+
+```
+tehas init-product             # a branch and a pull request with the missing files
+tehas init-product --dry-run   # print the files, change nothing
+```
+
+Proposes the contract files the default branch does not have yet: `AGENTS.md`
+(a short template), `.pi/verify-cmd` and `.pi/worktree-setup`. A file that is
+there is never written. The gate and the install step are guessed from, in
+this order: a `test`, `check` or `verify` target in the `Makefile`;
+`package.json` (its `test`, `check` or `build` script, with npm, pnpm, yarn or
+bun by the lockfile); `Cargo.toml`; `go.mod`; `pyproject.toml` (with uv when
+there is a `uv.lock`); the `run:` steps of `.github/workflows` that mention
+test, check, verify or lint. Each guessed file says in a comment that a person
+should check it. With no guess, `.pi/verify-cmd` holds only a comment, and
+`tehas check-product` still fails its gate check.
+
+The work is done in a fresh clone under `~/tehas/tmp`. The files are committed
+to the branch `tehas/init-product`, pushed with gh's credentials, and the bot
+opens the pull request against the default branch. It never commits to the
+default branch. Exit 0 when the pull request is open or nothing is missing, 1
+when git or gh failed or `tehas/init-product` is already on origin, 64 on a
+wrong argument, 78 when the settings are missing or malformed or the checkout
+is not a clone of `TEHAS_REPO`.
 
 ## tehas limit
 
@@ -1479,7 +1587,7 @@ tehas analytics report                    # the ten-day report, for a person
 tehas analytics export <file> [--json]    # a copy of the database
 ```
 
-The factory's own record of its last ten days: runs, their steps and roles,
+The factory's own record of its last 365 days: runs, their steps and roles,
 issue events and poll samples, in `~/tehas/state/analytics.db`. Both read it
 through `~/tehas/libexec/analytics`, which holds all of its SQL.
 
@@ -1534,13 +1642,15 @@ tehasbot preview              # keep the previews; what tehas-preview.timer runs
 tehasbot preview --sweep      # the second check; what tehas-preview-sweep.timer runs
 tehasbot improve              # one run of the improvement loop; what tehas-improve.timer runs
 tehasbot refresh              # ask for refreshes of conflicting pull requests; what tehas-refresh.timer runs
+tehasbot clean                # remove what the host can make again; what tehas-clean.timer runs
 ```
 
 The units are `tehas-dispatch.timer`, `tehas-dispatch.path` (a poll as soon
 as a cycle ends), `tehas-energy.service`, `tehas-top.service`,
 `tehas-protolab.timer`, the previews' `tehas-preview.timer` and
 `tehas-preview-sweep.timer`, the improvement loop's `tehas-improve.timer`, the refreshes'
-`tehas-refresh.timer`, and one `tehas-cycle@<issue>.service` per running
+`tehas-refresh.timer`, the cleaner's `tehas-clean.timer` (installed, and enabled
+by a person), and one `tehas-cycle@<issue>.service` per running
 cycle. A cycle's container is `tehas-work-<issue>`.
 
 ## tehasbot cycle
@@ -2224,6 +2334,57 @@ exits 0 at once and calls nothing. Exit 1 when a call to GitHub fails: no
 request is written or removed, and the dispatcher checks the old ones again
 before it starts any.
 
+## tehasbot clean
+
+```
+tehasbot clean                # one run; one line per removal in ~/tehas/logs/clean.log
+tehasbot clean --dry-run      # log what it would remove and remove nothing
+systemctl --user enable --now tehas-clean.timer
+tail ~/tehas/logs/clean.log
+```
+
+Removes what the host can make again, of anything untouched for
+`TEHAS_CLEAN_AFTER` hours (24 by default). Three steps, and a step that fails
+is logged as a warning while the other two still run:
+
+1. **Build output in kept workspaces.** For each issue with a kept workspace
+   (`<name>-<n>` and `<name>-<n>.before-retry`) that no cycle is running, and
+   whose lock and directories have all gone untouched for that long: every
+   directory anywhere in the tree whose name is one of `TEHAS_CLEAN_DIRS`, and
+   `<name>-<n>.state/cache`, the cycle's copy of the code index. The issue's
+   lock is held while they go, as the 7-day sweep holds it, so no cycle starts
+   meanwhile. What stays is what a person reads: `.git`, the sources, what the
+   agents wrote there, uncommitted changes, `.state/memory` and
+   `.state/sessions`. It runs no git command in a workspace and follows no
+   symlink (a link named `target` stays a link and what it points at is not
+   touched). It enters no dot-name: every name `TEHAS_CLEAN_DIRS` can hold is
+   un-dotted, so this gives up no build output, and it is what keeps a
+   workspace's own trees, whatever a container called them, out of the removal.
+   A removal needs the issue's lock to be there and freeable: no lock file, or
+   one that is not a plain file, means nothing is removed. The lock is taken
+   for the instant of each removal.
+2. **Docker's build cache** of that age, with `docker builder prune -f --filter
+   until=<N>h`. This is the build cache of the whole host's Docker daemon: tehas
+   is one project on one host, and the cache of anything else on it is made
+   again too. The next sandbox build is slower after a prune. No image and no
+   volume is removed.
+3. **Host scratch.** Files under `~/tehas/tmp/dl` and
+   `~/tehas/tmp/node-compile-cache`, and `~/tehas/tmp/tehas-test.*` directories,
+   of that age. Nothing else under `~/tehas`, and nothing outside it.
+
+Sandbox images and the pulled base image are not this command's: the build keeps
+its newest three date tags, and previews go with `tehasbot preview`. Docker
+volumes are never touched (see [the host](/host#what-a-container-may-not-do),
+where they are a person's call).
+
+`tehas-clean.timer` runs it once an hour, the first time 15 minutes after boot.
+It starts no work, so the pause label does not hold it. One run at a time: a
+second one that finds the first working leaves it to that one and exits 3.
+Exit 0 when every step worked; 1 when a step failed (what could be removed was
+removed); 3 when another run holds the lock, which changes nothing; 64 on an
+argument this command does not know; 78 when the settings are missing or
+malformed, before any docker, find or rm call.
+
 ## tehasbot preview
 
 ```
@@ -2503,20 +2664,75 @@ one suppression it accepts are under
 
 ## tehas update
 
-Bring this host up to date with the platform repository in one command.
+Bring this host up to date in one command, from a release or from the platform
+checkout.
 
 ```
-tehas update             # pull, install, run the follow-ups that apply
-tehas update --check     # report what would change; changes no file of the
-                         # checkout or of the host (origin/ refs do move)
-tehas update --help      # print the usage of the command, touch nothing
+tehas update                  # the newest release, or pull the checkout;
+                              # install, run the follow-ups that apply
+tehas update --to v0.8.1      # that release, an older one too
+tehas update --check          # report what would change; change nothing
+tehas update --help           # print the usage of the command, touch nothing
 ```
+
+Where the new code comes from is `TEHAS_UPDATE_FROM` in `instance.env`:
+`release` or `git`. Without it, a host with `~/tehas/current` updates from
+releases and a host with a platform checkout from the checkout, so a host
+installed before the setting existed goes on as it did. A host with neither
+stops with 78 and names the setting. `--to` on a host that updates from its
+checkout is refused with 64.
+
+### From a release
+
+Releases are read from `TEHAS_RELEASE_REPO`, owner/name on GitHub. The
+platform's own is the line in `versions.env`; an instance may name another in
+`instance.env`. The list and the download use `gh` when it is signed in, which
+reaches a private repository with the bot's token, and `curl` from the public
+address otherwise.
+
+`tehas update --check` prints the version installed, the newest, and the notes
+of each release between them: its section of the changelog, with its
+`Adopter action`. Going back with `--to`, it prints the notes of the releases
+that would be undone. Then it runs `install.sh --check` of the version
+installed. It downloads nothing, changes nothing, and exits 1 when there is a
+version to move to.
+
+`tehas update` and `tehas update --to vX.Y.Z` then:
+
+1. download `tehas-<version>-linux-x86_64.tar.gz`, its `.sha256` and its
+   `.minisig`, unless that version is still on the host;
+2. check the tarball against the `.sha256` and the signature against
+   `~/tehas/release/minisign.pub`, the key `install.sh` installed, never a key
+   in the download. A download that fails either check is not unpacked. With
+   no `minisign` on the host it stops (`sudo apt-get install minisign`);
+3. unpack it into `~/tehas/versions/<version>`, refusing a tarball that holds
+   anything but files and directories under `tehas-<version>/`;
+4. check the instance against that version's own `lib/config.sh`. A setting it
+   requires and the instance lacks is named with the value of the release's
+   `instances/example/instance.env`, and the update stops with 78 with nothing
+   switched. A `TEHAS_` key in `instance.env` that the version never names is
+   warned about;
+5. point `~/tehas/current` at the version, and run `install.sh` and its
+   follow-ups from there, as an update from the checkout does. The commands and
+   units are the copies `install.sh` makes from that tree.
+
+The sandbox image a version ran with keeps the tag
+`tehas/pi-rukas:release-<version>`. Going back to a version that still has one
+puts that image back under the uid tag and builds nothing. The version
+`current` names and the two switched to before it stay in `~/tehas/versions`,
+in the order `~/tehas/state/release-history` records; older ones are removed
+with their image tags.
+
+`~/tehas/state/update-hold` stops a plain `tehas update`. `--to` names its
+version and runs with the hold there.
+
+### From the checkout
 
 It runs, in order and one line per step: a `git fetch` and a fast-forward of
 the platform checkout (`$TEHAS_HOME/platform`, in the example
 `~/tehas/platform`), then `install.sh`, then the follow-ups install.sh asks for.
-It takes at most one argument; anything else is refused with exit 64 before the
-settings are read. The settings are checked next against the required list in
+An argument it does not know, or `--help` with another one, is refused with
+exit 64 before the settings are read. The settings are checked next against the required list in
 `lib/config.sh` (`tehas_require_instance_settings`), the same one install.sh and
 the dispatcher check, so an instance with a required line still commented out
 stops with 78 before git runs. After a fast-forward it checks them again with
@@ -2721,13 +2937,191 @@ in that command is the marker's; a marker holding something other than an accoun
 name leaves `<tehas user>` for the person to fill in. A host where
 `bootstrap.sh dev` never ran reports nothing. See [The host](/host).
 
+## Releases
+
+A release of tehas is one tarball an adopter can install without git and
+without a Rust toolchain. GitHub publishes it for each `vX.Y.Z` tag; a person
+gets it from the release's list of files.
+
+`scripts/pack-release.sh` makes it, and the release workflow for a tag is a
+thin wrapper around the same arguments:
+
+```
+TEHAS_PACK_ROOT='<checkout>' scripts/pack-release.sh <tag> <out dir> --console <path> \
+  --analytics <path> --mcp <path> --rukas-commit <40 hex> --rukas-digest <64 hex>
+```
+
+`--analytics` and `--mcp` are the other two programs `install.sh` puts in
+`libexec`, packed as `libexec/analytics` and `libexec/tehas-mcp`. Each is
+optional, and a tarball packed without one has none.
+
+The two pins are given together or not at all, so a release that does not pin
+pi-rukas leaves both off. The digest is written as `sha256:` and 64 hex digits.
+
+The tree it packs is the working directory, or `TEHAS_PACK_ROOT` when that names
+one, so a workflow that checks a tag out into its own workspace points the
+script at the checkout rather than at the runner's copy of the script. It reads
+that tree and its arguments and nothing else: no network, no git, no cargo. It
+builds no console of its own; the workflow compiles it for linux x86_64 and
+hands the binary over, which is why the pack script needs no toolchain.
+
+Usage, the list of what is packed and the exit statuses are the script's: run
+`scripts/pack-release.sh --help`. Two of them matter to the workflow that calls
+this one: half a pin is a bad argument (64), a pin whose value has the wrong
+shape is a failure (1), and the two are gated differently. A pin of either shape
+is written to `versions.env` in lower case, so a value `git rev-parse` or a
+registry gave in upper case is accepted.
+
+What it writes is `tehas-<tag>-linux-x86_64.tar.gz` and one `.sha256` file
+beside it, and it writes neither before both are ready, so a run that fails
+leaves no tarball for the next one to be refused against. Unpacked, the tarball
+is a single `tehas-<tag>/` directory holding what `install.sh` reads: its
+`bin/`, `libexec/`, `lib/` and `host/`, the top-level files an install needs,
+`instances/example/`, the console as `libexec/console` and the other two
+programs when they were given, a `VERSION` file with the tag, `CHANGELOG.md`,
+and `host/versions.env`. `install.sh` run from such a tree has no `console/` to
+build from: it installs the programs the release carries as they are, with
+`release <sha256>` as the stamp, asks cargo nothing, and keeps the installed
+copy of a program the release does not carry. The list is `lib/release.sh`, the one place it is written
+down, and the gate checks the script and the test against it. An adopter
+unpacks it and runs `./install.sh` from inside, as they would from a checkout.
+`console/`, the instance directories and the git record are not packed: there
+is nothing in the tarball to build from and nothing to check out, and
+[The host](/host#configuration-comes-from-git) tells how a checkout installs the
+console by building it instead. The `VERSION` file is what makes that install
+say which release it is: the version `tehas api` and the footer of every page
+read is the `version.txt` that `install.sh` writes beside the pages, and a tree
+with no git has no commit to write, so it writes the tag from `VERSION`.
+
+A tree with a symbolic link under any packed directory is refused: a link is
+kept by the copy and followed by `tar`, so its target's content would reach the
+release from outside the tree. That is why the tree is a checkout of this
+repository and the command makes no other claim about where it came from.
+
+The two pins, the last two lines of the copy of `versions.env` inside the
+tarball, replace rather than repeat a key the tree already carried:
+
+```
+PI_RUKAS_FOLLOW=commit:<sha>         the pi-rukas commit the sandbox builds from
+PI_RUKAS_IMAGE_DIGEST=sha256:<hex>   the base image that sandbox starts from
+```
+
+The rest of the file is the checkout's own. The release workflow packs no pins:
+a release follows the pi-rukas line its `versions.env` names, as a checkout
+does, so a new pi-rukas reaches a host at its next `tehas update`. The pins are
+for a person who packs a release that must keep one pi-rukas.
+
+### Verifying a download
+
+The `.sha256` beside the tarball is in the format `sha256sum -c` reads, and
+names the tarball alone, so the check runs in the directory the two files are
+in:
+
+```
+sha256sum -c tehas-v0.7.6-linux-x86_64.tar.gz.sha256
+```
+
+The public key for a signature is `host/release/minisign.pub`, and its
+fingerprint is `FE1F47199BDF1A8A`, named in the key's own first line. It is not
+the tarball that holds the copy to check with: whoever packs the release signs
+it, and a key that arrives inside the download it authenticates is the
+attacker's, not the project's. The key is read from the repository, or from
+`~/tehas/release/minisign.pub`, where `install.sh` puts it, and compared with
+that fingerprint before `minisign` is asked anything:
+
+```
+minisign -Vm tehas-v0.7.6-linux-x86_64.tar.gz -p ~/tehas/release/minisign.pub
+```
+
+The release workflow signs the tarball and the installer, and checks each
+signature with the key in the tagged tree before it uploads anything. The
+`sha256sum -c` above proves only that the file is the one published beside that
+hash: a download and its hash arrive together, so a check that passes on a
+tampered pair says nothing about where they came from. The signature is the
+check that does.
+
+### Release notes and the Adopter action
+
+`CHANGELOG.md` at the top of the repository has one section per release,
+newest first: `## vX.Y.Z (YYYY-MM-DD)`, then `### Changes` and
+`### Adopter action`, the steps an adopter takes after updating: settings added
+or renamed, root steps, anything by hand. "None." is a valid action. Work in
+progress goes under `## Unreleased`, and a person renames it to the version in
+the release's pull request.
+
+`scripts/tag-release.sh` reads `CHANGELOG.md` from the commit it is about to
+tag, `--dry-run` too, and refuses with exit 1 when the section for the new tag,
+or else `Unreleased`, has no `### Adopter action` heading with a line under it.
+It does not edit the file.
+
+`scripts/release-notes.sh <tag>` prints a section without its heading, and
+exits 1 when the file has none for that tag. The workflow makes the release's
+page from it, from the `Unreleased` section when the tag has none of its own.
+
+### The release workflow
+
+`.github/workflows/release.yml` runs on the push of a `vX.Y.Z` tag, on the
+organisation's own runner as the gate does. It builds the console, the
+analytics program and the MCP server (static, musl) with `cargo build
+--release --locked`, checks each is an x86_64 program, resolves the pins, runs
+the pack command above, signs the tarball and `host/release/install` (when the
+tag has one) with minisign, checks both signatures against
+`host/release/minisign.pub`, and publishes the release with the tarball named
+above, its `.sha256` and `.minisig` beside it, and `install` with
+`install.minisig`.
+
+The release is made as a draft and published only when every file is on it.
+The signing key is the Actions secret `MINISIGN_SECRET_KEY`, the whole secret
+key file, and its password, if it has one, is `MINISIGN_PASSWORD`. A run that
+cannot sign, or whose signature the key in the tree does not check, publishes
+nothing.
+
+### The installer
+
+`host/release/install` is the first install of a host, a POSIX shell script
+run as root. A release publishes it as the asset `install`, beside the tarball,
+its `.sha256` and its `.minisig`, which are the three names `tehas update`
+downloads:
+
+```
+curl -fsSL https://github.com/tehas-app/tehas/releases/latest/download/install | sudo sh -s -- boss
+```
+
+It downloads the newest release (or `--version vX.Y.Z`), checks the `.sha256`
+and the signature with the key written into the script, which
+`test/release_install_test.sh` keeps equal to `host/release/minisign.pub`, and
+unpacks it. It installs `minisign` with apt-get when the host has none. It runs
+that release's `bootstrap.sh root <user>` (not with `--no-bootstrap`), then
+puts the release in `~<user>/tehas/versions/<version>`, points
+`~<user>/tehas/current` at it, gives both to the user and says to run
+`tehas setup` as that user. A failed check or a failed `bootstrap.sh` puts
+nothing in the user's home. The script cannot check itself: to check it before
+running it, download `install` and `install.minisig` and run
+`minisign -Vm install -p host/release/minisign.pub` with the key from the
+repository. While the repository is private the download needs
+a token: download the three files with `gh release download <tag> --pattern
+'tehas-*'` and pass their directory with `--from <dir> --version <tag>`.
+
+### What the gate covers, and what a person adds
+
+The pack script is in the fast gate, with `test/pack_release_test.sh`: it packs
+from the test's own tree with a stub console and checks the file list, `VERSION`,
+the pin lines, that the `.sha256` passes `sha256sum -c`, what a bad argument
+costs, that a tree holding a symbolic link is refused, that the sources
+`install.sh` reads are covered by `lib/release.sh`, and that the command line
+above is a command that works. `test/tag_release_test.sh` checks the Adopter
+action rule and `test/pack_release_test.sh` the release notes. The release
+workflow is not run by the gate and is not written by a work cycle: CI files are
+protected, so a person changes it against the interface above.
+
 ## bootstrap.sh
 
 Prepares a fresh host with everything tehas and pi-rukas need, at the versions
 in `host/versions.env`. See [Bootstrap a host](/bootstrap).
 
 ```
-sudo ./bootstrap.sh root boss   # system packages, Docker, docker group, lingering, the slice
+sudo ./bootstrap.sh root boss   # the user if missing, system packages, Docker on the systemd driver, docker group, lingering, the slice, then user as boss
+sudo ./bootstrap.sh root boss --root-only   # the same, without the user part
 sudo ./bootstrap.sh slice       # the slice alone, /etc/systemd/system/tehas.slice
 ./bootstrap.sh user             # the rest, under the user's home
 sudo ./bootstrap.sh dev boss    # let other accounts start a session with tehas dev

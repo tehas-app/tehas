@@ -432,6 +432,25 @@ t_eq "$(ls_imgs "$zipdir")" "./file-1.md ./manifest.json "
 t_eq "$(jq -c '[.leftOut[] | [.path, .reason]]' "$zipdir/manifest.json")" \
   '[["../escape.md","A path outside the archive."],["link","A link or a special file."]]'
 
+t_case "an entry whose path runs through a link already in the directory writes nothing through it"
+# A directory left with a link in it, as a run that died could leave one: the
+# entry img/b.png would land under the link's target. It is left out instead,
+# and the target is untouched.
+rm -rf "$T/unz" "$T/outside"
+mkdir -p "$T/unz" "$T/outside"
+ln -s "$T/outside" "$T/unz/img"
+t_run "$lib; tehas_unzip_into '$zips/good.zip' '$T/unz' 1048576 16"
+t_eq "$(find "$T/outside" -type f | wc -l)" 0
+t_contains "$t_out" '"skip":"img/b.png","reason":"A path outside the archive."'
+t_contains "$t_out" "A path outside the archive."
+t_eq "$(cat "$T/unz/a.md")" "$(unzip -p "$zips/good.zip" a.md)"
+# The directory given is a link: nothing is written at all.
+rm -rf "$T/unz"
+ln -s "$T/outside" "$T/unz"
+t_run "$lib; tehas_unzip_into '$zips/good.zip' '$T/unz' 1048576 16"
+t_eq "$(find "$T/outside" -type f | wc -l)" 0
+rm -f "$T/unz"
+
 t_case "what of an archive runs over the 1 MB of one file is left out, the files before it kept"
 NET_ZIP=$zips/big.zip NET_FILE=$T/ok.txt zip_case "$zipdir" "$big_body" TEHAS_WORK_IMAGES=0
 t_eq "$t_out" ""

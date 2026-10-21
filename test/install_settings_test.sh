@@ -153,12 +153,56 @@ t_lacks "$t_out" "INVALID"
 t_contains "$t_out" "Instance:     $T/instance OK"
 rm "$TEHAS_INSTANCE_DIR/instance.env"
 
-t_case "an instance's own Pi settings are used when it has them"
+t_case "an instance's own Pi settings are used when it has them, and the session model it leaves out comes from the instance"
 fresh
 instance
-echo '{"defaultProvider":"test-provider"}' >"$TEHAS_INSTANCE_DIR/settings.json"
+echo '{"defaultProvider":"other-provider","hideThinkingBlock":false}' >"$TEHAS_INSTANCE_DIR/settings.json"
 t_run "$install"
-t_eq "$(cat "$home/.pi/agent/settings.json")" '{"defaultProvider":"test-provider"}'
+t_eq "$t_rc" 0
+t_eq "$(jq -cS . "$home/.pi/agent/settings.json")" \
+  '{"defaultModel":"test-model","defaultProvider":"other-provider","hideThinkingBlock":false}'
+
+t_case "with no settings.json in the instance, Pi gets the generic settings and the instance's session model"
+fresh
+instance
+rm -f "$TEHAS_INSTANCE_DIR/settings.json"
+t_run "$install"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[.defaultProvider, .defaultModel]' "$home/.pi/agent/settings.json")" '["test-provider","test-model"]'
+t_eq "$(jq -c 'del(.defaultProvider, .defaultModel)' "$home/.pi/agent/settings.json")" "$(jq -c . "$T_ROOT/host/pi/settings.json")"
+
+t_case "a second install changes nothing in Pi's files"
+t_run "$install"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "installed: $home/.pi/agent/"
+
+t_case "a model list with only id, baseUrl, api and apiKey gets the other keys filled"
+fresh
+instance
+cat >"$TEHAS_INSTANCE_DIR/models.json" <<'JSON'
+{"providers": {"test-provider": {"baseUrl": "http://m.test/v1", "api": "openai-completions", "apiKey": "unused",
+  "models": [{"id": "test-model"}, {"id": "session-model", "name": "Named", "input": ["text", "image"], "reasoning": true}]}}}
+JSON
+t_run "$install"
+t_eq "$t_rc" 0
+m=$home/.pi/agent/models.json
+t_eq "$(jq -c '.providers["test-provider"] | [.baseUrl, .api, .apiKey]' "$m")" '["http://m.test/v1","openai-completions","unused"]'
+t_eq "$(jq -c '.providers["test-provider"].compat' "$m")" '{"supportsDeveloperRole":false,"supportsReasoningEffort":false}'
+t_eq "$(jq -c '.providers["test-provider"].models[0] | [.name, .input, .reasoning]' "$m")" '["test-model",["text"],false]'
+t_eq "$(jq -c '.providers["test-provider"].models[0].cost' "$m")" '{"input":0,"output":0,"cacheRead":0,"cacheWrite":0}'
+t_case "a key the model list gives is kept"
+t_eq "$(jq -c '.providers["test-provider"].models[1] | [.name, .input, .reasoning]' "$m")" '["Named",["text","image"],true]'
+
+t_case "a product's .pi/settings.json is not required, and one that names a listed model still installs"
+fresh
+instance
+t_run "$install"
+t_eq "$t_rc" 0
+mkdir -p "$th/repos/widget/.pi"
+echo '{"defaultProvider":"test-provider","defaultModel":"session-model"}' >"$th/repos/widget/.pi/settings.json"
+t_run "$install"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .defaultModel "$home/.pi/agent/settings.json")" test-model
 
 
 t_done

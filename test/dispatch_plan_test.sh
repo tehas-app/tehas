@@ -19,7 +19,7 @@ t_contains "$(t_calls gh)" "authorized by @alice's \`tehas:plan\` label"
 t_contains "$(t_calls gh)" "- [ ] Adopt all"
 t_contains "$(t_calls gh)" "<!-- tehas:question kind=plan issue=7 turn=1 -->"
 t_contains "$(t_calls gh)" "--remove-label tehas:planning --add-label tehas:question"
-t_eq "$(jq -c . "$record")" '{"session":"abc-123","turns":1,"options":["Adopt all","Change some"],"pending":false,"failed":false,"running":false,"by":"alice","comment":4002}'
+t_eq "$(jq -c . "$record")" '{"session":"abc-123","turns":1,"options":["Adopt all","Change some"],"pending":false,"failed":false,"running":false,"by":"alice","label":"tehas:plan","comment":4002}'
 t_eq "$([ -e "$record.out" ] && echo left)" ""
 t_eq "$(t_calls fake-start)" ""
 
@@ -29,6 +29,81 @@ echo '{"title":"Faster search","body":null}' >"$fx/issue-7.json"
 t_run "$dispatch"
 t_contains "$(plan_calls)" "--brief"
 t_eq "$(head -n 1 "$record.brief")" "# Faster search"
+
+t_case "a refine label from an allowed account starts a session with the refine brief after the issue's text"
+to_refine
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --brief $record.brief"
+t_eq "$(head -n 3 "$record.brief")" '# Faster search
+
+Make it fast.'
+t_contains "$(cat "$record.brief")" "---
+
+$(cat "$T_ROOT/lib/refine-brief.md")"
+t_contains "$t_out" "start planning #7 (labelled by alice, to refine it)"
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:planning --remove-label tehas:refine"
+t_lacks "$(t_calls gh)" "--remove-label tehas:plan "
+t_contains "$(t_calls gh)" "authorized by @alice's \`tehas:refine\` label"
+
+t_case "a refining session keeps its label on record, in each line of history, and in the analytics how"
+t_eq "$(jq -r .label "$record")" "tehas:refine"
+t_eq "$(jq -r '.label' "$T/home/tehas/state/cycles/plan-7.history.jsonl" | tail -n 1)" "tehas:refine"
+
+t_case "a refining turn that files an issue notes it in the ledger of refined issues; a planning one does not"
+to_refine
+plan_files https://github.com/acme/widget/issues/41
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[.source, .filed, .url]' "$T/home/tehas/state/refined.jsonl")" '[7,41,"https://github.com/acme/widget/issues/41"]'
+t_eq "$(jq -c '.filed' "$T/home/tehas/state/cycles/plan-7.history.jsonl" | tail -n 1)" '["https://github.com/acme/widget/issues/41"]'
+rm -f "$T/home/tehas/state/refined.jsonl"
+to_plan
+plan_files https://github.com/acme/widget/issues/42
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$T/home/tehas/state/refined.jsonl" ] && echo written)" ""
+t_eq "$(jq -r '.label' "$T/home/tehas/state/cycles/plan-7.history.jsonl" | tail -n 1)" "tehas:plan"
+
+t_case "the refine brief asks for one part sized for one cycle, grounded in the code, with exact paths"
+brief=$(cat "$T_ROOT/lib/refine-brief.md")
+t_contains "$brief" "Ground it in the code first"
+t_contains "$brief" "part only, the one the others build on"
+t_contains "$brief" "[paths: \`a\`, \`b\`]"
+t_contains "$brief" "\`.github/\` or \`.pi/\`"
+t_contains "$brief" "Classify the part in its title, as a conventional-commit type"
+t_contains "$brief" "Keep a type the
+   request's title already has."
+t_eq "$([ "$(wc -c <"$T_ROOT/lib/refine-brief.md")" -lt 4000 ] && echo short)" short
+
+t_case "a refine label from a stranger starts nothing and is taken off the issue"
+to_refine
+echo '[{"event":"labeled","label":{"name":"tehas:refine"},"actor":{"login":"mallory"}}]' >"$fx/events-7.json"
+t_run "$dispatch"
+t_eq "$(plan_calls)" ""
+t_contains "$t_out" "skip #7: tehas:refine was applied by 'mallory', not an allowed account"
+t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --remove-label tehas:refine')" 1
+
+t_case "an issue with both labels is planned, not refined"
+to_refine
+echo '[{"number":7,"labels":[{"name":"tehas:plan"},{"name":"tehas:refine"}]}]' >"$fx/plans.json"
+echo '[{"number":7,"labels":[{"name":"tehas:plan"},{"name":"tehas:refine"}]}]' >"$fx/refines.json"
+echo '[{"event":"labeled","label":{"name":"tehas:plan"},"actor":{"login":"alice"}},{"event":"labeled","label":{"name":"tehas:refine"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
+t_run "$dispatch"
+t_eq "$(plan_calls | grep -c -e '--brief')" 1
+t_lacks "$(cat "$record.brief")" "tehas refine"
+t_contains "$(t_calls gh)" "--remove-label tehas:plan"
+
+t_case "without the refine brief on the host no session starts, and it is logged"
+to_refine
+short=$T/norefine
+rm -rf "$short"
+mkdir -p "$short/libexec" "$short/lib"
+cp "$T_ROOT"/lib/*.sh "$short/lib/"
+cp "$T_ROOT"/libexec/* "$short/libexec/"
+t_run "$short/libexec/dispatch"
+t_eq "$(plan_calls)" ""
+t_contains "$t_out" "ERROR: no refine brief at $short/libexec/../lib/refine-brief.md, not refining #7"
 
 t_case "a plan label from the bot or a stranger starts nothing and is taken off the issue"
 for other in tehas-bot mallory; do
@@ -92,7 +167,7 @@ rm -f "$fx/edit-fails"
 t_case "the turn is on record as running before the issue is marked"
 to_plan
 t_run "$dispatch"
-t_eq "$(jq -c 'del(.startedAt)' "$T/calls/record.at-mark")" '{"session":"","turns":0,"options":[],"pending":false,"failed":false,"running":true,"by":"alice"}'
+t_eq "$(jq -c 'del(.startedAt)' "$T/calls/record.at-mark")" '{"session":"","turns":0,"options":[],"pending":false,"failed":false,"running":true,"by":"alice","label":"tehas:plan"}'
 t_eq "$(jq -r '.startedAt | test("^[0-9-]+T[0-9:]+Z$")' "$T/calls/record.at-mark")" true
 
 t_case "a session does not start when its record cannot be written, and the issue is not marked"
@@ -213,7 +288,7 @@ t_contains "$(t_calls gh)" "This planning turn did not finish: it exited with st
 t_contains "$(t_calls gh)" "Reply in a comment to run the turn again"
 t_lacks "$(t_calls gh)" "could not start"
 t_contains "$(t_calls gh)" "--remove-label tehas:planning --add-label tehas:question --add-label needs-human-attention"
-t_eq "$(jq -c . "$record")" '{"session":"abc-123","turns":1,"options":[],"pending":false,"failed":true,"running":false,"by":"alice","comment":4002}'
+t_eq "$(jq -c . "$record")" '{"session":"abc-123","turns":1,"options":[],"pending":false,"failed":true,"running":false,"by":"alice","label":"tehas:plan","comment":4002}'
 
 t_case "and a reply runs the turn again in that session"
 rm -f "$T"/calls/* "$fx/plan-fails"
@@ -407,7 +482,7 @@ t_contains "$(t_calls gh)" "This planning turn did not finish"
 t_contains "$(t_calls gh)" "--add-label tehas:question --add-label needs-human-attention"
 t_eq "$(jq -r '[.session, .turns, .failed] | @tsv' "$record")" "abc-123	2	true"
 
-t_case "a later turn whose Pi session is gone ends the session and says to start again"
+t_case "a later turn whose session pi-rukas no longer has ends the session and says to start again"
 planning
 mkdir -p "$record.keep"
 comments 7 "$(plan_body x ' ' ' ')" alice
@@ -416,7 +491,7 @@ t_run "$dispatch"
 t_contains "$(plan_calls)" "--session abc-123"
 t_contains "$t_out" "planning #7: Pi no longer has session abc-123"
 t_contains "$(t_calls gh)" "--remove-label tehas:question --remove-label tehas:planning --remove-label tehas:plan --remove-label needs-human-attention"
-t_contains "$(t_calls gh)" "its conversation is no longer on"
+t_contains "$(t_calls gh)" "pi-rukas has no record of it on"
 t_contains "$(t_calls gh)" "Apply \`tehas:plan\` again to start a new session."
 t_lacks "$(t_calls gh)" "This planning turn did not finish"
 t_lacks "$(t_calls gh)" "tehas:question kind=plan issue=7 turn=2"
@@ -429,11 +504,11 @@ echo '{"session":"abc-123","lost":true}' >"$fx/plan-fails"
 echo "--remove-label tehas:question --remove-label tehas:planning" >"$fx/edit-fails-on"
 t_run "$dispatch"
 t_eq "$(jq -c '[.lost, .running]' "$record")" '[true,true]'
-t_lacks "$(t_calls gh)" "its conversation is no longer on"
+t_lacks "$(t_calls gh)" "pi-rukas has no record of it on"
 rm -f "$T"/calls/* "$fx/edit-fails-on" "$fx/plan-fails"
 t_run "$dispatch"
 t_eq "$(plan_calls)" ""
-t_contains "$(t_calls gh)" "its conversation is no longer on"
+t_contains "$(t_calls gh)" "pi-rukas has no record of it on"
 t_eq "$([ -e "$record" ] && echo kept)" ""
 
 t_case "an outcome that could not be posted is posted by the next poll, before anything else"
