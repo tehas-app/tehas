@@ -87,11 +87,15 @@ pub fn read(home: &Path, issue: i64, given: &Given, now: i64) -> Result<Run, Str
     Ok(run)
 }
 
-/// Who started the turn: tehas:plan the first, an answer each later one, or
-/// the fixer's answer (answers on record name it).
+/// Who started the turn: the label the first (`refine` when tehas:refine
+/// started the session, else `label`), an answer each later one, or the
+/// fixer's answer (answers on record name it).
 fn how(rec: &serde_json::Map<String, Value>, turn: i64) -> &'static str {
     if turn == 1 {
-        return "label";
+        return match rec.get("label").and_then(Value::as_str) {
+            Some("tehas:refine") => "refine",
+            _ => "label",
+        };
     }
     let fixer = rec
         .get("answers")
