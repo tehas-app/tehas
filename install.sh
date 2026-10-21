@@ -154,8 +154,11 @@ instance_findings() {
   dir=$(tehas_instance_dir)
   # Only a file that exists has permissions to check: a missing directory or a
   # missing instance.env is tehas_load's to name. A file that is there is
-  # judged here, before anything is sourced.
-  for file in "$dir" "$dir/instance.env"; do
+  # judged here, before anything is sourced. The instance's own
+  # sandbox.Dockerfile is among them: its bytes are built into the image every
+  # cycle runs, so they are as trusted as the platform's Dockerfile and only
+  # the tehas user may write them.
+  for file in "$dir" "$dir/instance.env" "$dir/sandbox.Dockerfile"; do
     [ -e "$file" ] || [ -L "$file" ] || continue
     # -L: a symlink is judged by the file it points at.
     mode=$(stat -L -c %a "$file" 2>/dev/null) || mode=0
@@ -386,6 +389,24 @@ else
   files+=("pi/settings.json|$agent/settings.json|644")
 fi
 
+# What the instance's own sandbox file was at the last install, or nothing when
+# the host has never had one, or has one no install has seen yet. Read before the
+# record of follow-ups below, so a host that changed the file is not called
+# current and its build step is owed before any copy is made. A file that cannot
+# be read is said and stops the run: recording it as seen would owe the build
+# once and then never again for a file nobody has read.
+sandbox_changed=0
+sandbox_drift=0
+sandboxunread=""
+sandbox_at_file=$TEHAS_HOME/state/sandbox.Dockerfile.sha256
+if [ -f "$instance/sandbox.Dockerfile" ]; then
+  if ! hash=$(sha256sum "$instance/sandbox.Dockerfile" 2>/dev/null); then
+    sandboxunread="$instance/sandbox.Dockerfile cannot be read (check its permissions)"
+  else
+    [ "${hash:0:64}" != "$(cat "$sandbox_at_file" 2>/dev/null)" ] && sandbox_changed=1
+  fi
+fi
+
 changed=()
 report=()
 note() { if [ "$check" = 1 ]; then report+=("$1"); else echo "$1"; fi; }
@@ -581,6 +602,45 @@ if [ "$check" != 1 ]; then
     printf 'tehas\n' | write_file "$TEHAS_HOME/$home_marker"
   fi
 fi
+# The instance's own sandbox file is not copied anywhere: the build reads it from
+# the instance directory, so a copy would never see the change. What it owes is the
+# same follow-up a change to the tracked Dockerfile owes, recorded here before any
+# copy is made and printed with the rest below. In --check it is drift: the file is
+# the instance's to keep, so nothing here can bring it current, and a run says so
+# until the copy that saw the same content recorded it below. It is counted with
+# the files below, in its own line, and not in changed[], which holds only source
+# paths of the file table.
+if [ -n "$sandboxunread" ]; then
+  if [ "$check" = 1 ]; then
+    note "unreadable: $instance/sandbox.Dockerfile (check its permissions)"
+  else
+    echo "tehas: $sandboxunread" >&2
+    echo "tehas: nothing was installed" >&2
+    exit 78
+  fi
+fi
+if [ "$sandbox_changed" = 1 ]; then
+  sandbox_drift=1
+  if [ "$check" = 1 ]; then
+    note "changed: $instance/sandbox.Dockerfile since the last install"
+  else
+    record_step "sandbox/Dockerfile"
+    # What this install saw, so a later run owes the build only when the file
+    # changed again. Written where the step is taken, and not after the copies:
+    # a run that had nothing else to do prints "tehas is up to date" and ends
+    # before then. A run that died with the step still in the record leaves the
+    # file unseen, so tehas update owes the build and the next install sees it.
+    mkdir -p "$TEHAS_HOME/state"
+    if hash=$(sha256sum "$instance/sandbox.Dockerfile" 2>/dev/null); then
+      printf '%s\n' "${hash:0:64}" | write_file "$sandbox_at_file"
+    else
+      # Between the read above and this one the file became unreadable. The
+      # step stays owed and nothing is recorded, so the next run asks again.
+      echo "note: $instance/sandbox.Dockerfile cannot be read (check its permissions); the sandbox build stays owed" >&2
+    fi
+  fi
+fi
+
 for e in "${files[@]}"; do put "$e"; done
 
 # The operating manual and the front page are directories; pages come and go.
@@ -727,10 +787,10 @@ if [ "$check" = 1 ]; then
 
   images_say check
 
-  if [ "${#changed[@]}" = 0 ]; then
+  if [ "${#changed[@]}" = 0 ] && [ "$sandbox_drift" = 0 ]; then
     echo "Installed:    OK"
   else
-    echo "Installed:    DRIFT (${#changed[@]} files)"
+    echo "Installed:    DRIFT ($((${#changed[@]} + sandbox_drift)) files)"
     printf '%s\n' "${report[@]}" | sed 's/^/  /'
     rc=1
   fi
@@ -853,19 +913,32 @@ report_login() {
   fi
 }
 
-if [ "${#changed[@]}" = 0 ]; then
+if [ "${#changed[@]}" = 0 ] && [ "$sandbox_changed" != 1 ]; then
   echo "tehas is up to date"
   report_login
   first_index
   exit 0
 fi
 # The follow-ups, by the ids lib/update-steps.sh defines: one line per step these
-# changed files call for, in the order they run. They are already in the record of
-# steps owed, recorded file by file above, and `tehas update` is what runs them:
-# it reloads the unit files before restarting any unit, and a step that cannot be
-# performed leaves the run red and the step owed. A person who ran install.sh by
-# hand reads the same lines, and the record stays until `tehas update` clears it.
-while IFS= read -r step; do echo "next: $step"; done < <(tehas_steps_for "${changed[@]}")
+# changed files call for, in the order they run, and one for the instance's own
+# sandbox file when it changed - the file is no source of this checkout, so it is
+# in no list here and calls for the build under its own name. The steps are
+# already in the record of steps owed, recorded file by file above, and
+# `tehas update` is what runs them: it reloads the unit files before restarting
+# any unit, and a step that cannot be performed leaves the run red and the step
+# owed. A person who ran install.sh by hand reads the same lines, and the record
+# stays until `tehas update` clears it.
+seen_steps=$(while IFS= read -r step; do echo "next: $step"; done < <(tehas_steps_for "${changed[@]}"))
+if [ "$sandbox_changed" = 1 ]; then
+  # Once, whatever the file's bytes also happened to call for: the build the
+  # instance's file owes is the same build the platform's Dockerfile does, and a
+  # run that named it twice would read as two builds.
+  case $seen_steps in
+    *"next: sandbox"*) ;;
+    *) seen_steps=${seen_steps}"$(printf 'next: sandbox')" ;;
+  esac
+fi
+printf '%s\n' "$seen_steps"
 
 # The pins moved, and the tools on the host follow them only when bootstrap.sh
 # user runs. Not a step: it fetches from the network and may take long.
