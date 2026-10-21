@@ -48,6 +48,7 @@ case "$1 $2" in
       *tehas:running*) cat "$T/fx/marked.json" || exit 1 ;;
       *tehas:question*) cat "$T/fx/asking.json" || exit 1 ;;
       *tehas:plan*) cat "$T/fx/plans.json" || exit 1 ;;
+      *tehas:refine*) cat "$T/fx/refines.json" 2>/dev/null || echo "[]" ;;
       *) echo "[]" ;;
     esac ;;
   "api user") cat "$T/fx/user.json" || exit 1 ;;
@@ -223,6 +224,7 @@ reset() {
   slice_state 0.00
   echo '[]' >"$fx/asking.json"
   echo '[]' >"$fx/plans.json"
+  echo '[]' >"$fx/refines.json"
   echo '{"login":"tehas-bot"}' >"$fx/user.json"
   echo '{"data":{"repository":{"issue":{"lastEditedAt":null,"editor":null}}}}' >"$fx/edit.json"
   echo '{"data":{"repository":{"issue":{"closedByPullRequestsReferences":{"nodes":[]}}}}}' >"$fx/prs.json"
@@ -321,6 +323,13 @@ to_plan() {
   echo '[{"number":7,"labels":[{"name":"tehas:plan"}]}]' >"$fx/plans.json"
   echo '[{"event":"labeled","label":{"name":"tehas:plan"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
   echo '{"title":"Faster search","body":"Make it fast."}' >"$fx/issue-7.json"
+}
+# Issue 7 carries tehas:refine from an allowed account.
+to_refine() {
+  to_plan
+  echo '[]' >"$fx/plans.json"
+  echo '[{"number":7,"labels":[{"name":"tehas:refine"}]}]' >"$fx/refines.json"
+  echo '[{"event":"labeled","label":{"name":"tehas:refine"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
 }
 # Issue 7 has a planning question open after one turn.
 planning() {

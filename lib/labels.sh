@@ -2,9 +2,10 @@
 # Who applied a label. Authorisation is the account behind the label event, not
 # that the label is present (AGENTS.md rule 5), so every command that lets a
 # label decide something reads the same events the same way. Sourced by
-# libexec/dispatch (tehas:ready, tehas:plan, tehas:urgent, tehas:next,
-# tehas:blocked), by tehasbot protolab (tehas:prototype), and by tehas work and
-# tehas plan (whether the label that started them approved an issue's images).
+# libexec/dispatch (tehas:ready, tehas:plan, tehas:refine, tehas:urgent,
+# tehas:next, tehas:blocked), by tehasbot protolab (tehas:prototype), and by
+# tehas work and tehas plan (whether the label that started them approved an
+# issue's images).
 #
 #   tehas_label_actor <label>       stdin: one issue's events, as
 #                                   gh api repos/<repo>/issues/<n>/events?per_page=100
