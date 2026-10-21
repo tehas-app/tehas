@@ -286,7 +286,7 @@ done
 # a merge is not closed: the search for completed work lags, and its merged
 # comes when it catches up. A run with no snapshot before it records only the
 # merged and closed, which carry their own time. Nothing older than ten days,
-# which the program would prune. No call starts after three calls' time
+# the report's window. No call starts after three calls' time
 # limits, so a database that hangs delays the run by four at most (about 21
 # seconds). An event whose call fails or runs out of time is lost: the next
 # run compares with this snapshot and does not try it again.
