@@ -341,6 +341,8 @@ files=(
   "lib/rukas.sh|$TEHAS_HOME/lib/rukas.sh|644"
   "lib/sandbox.sh|$TEHAS_HOME/lib/sandbox.sh|644"
   "lib/slice.sh|$TEHAS_HOME/lib/slice.sh|644"
+  # The measure of an issue body, read by the dispatcher and the analytics.
+  "lib/sizing.sh|$TEHAS_HOME/lib/sizing.sh|644"
   "lib/questions.sh|$TEHAS_HOME/lib/questions.sh|644"
   "lib/status.sh|$TEHAS_HOME/lib/status.sh|644"
   "lib/top.sh|$TEHAS_HOME/lib/top.sh|644"
