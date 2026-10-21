@@ -8,7 +8,7 @@ release workflow takes the release's page from its section
 (`scripts/release-notes.sh`). Work in progress goes under `## Unreleased`; a
 person renames it to the version in the release's pull request.
 
-## Unreleased
+## v0.9.0 (2026-10-21)
 
 ### Changes
 
@@ -23,6 +23,19 @@ person renames it to the version in the release's pull request.
 - One root command prepares a host, `tehas setup` writes the instance, and
   `tehas check-product` and `tehas init-product` check and scaffold the
   product's files.
+- The instance names the session model once, in `instance.env`. Its
+  `settings.json` is optional, and a `models.json` entry needs only `id`,
+  `baseUrl`, `api` and `apiKey`. A product's `.pi/settings.json` is optional.
+- A first install puts the `env.sh` line in `~/.bashrc`, makes the labels and
+  enables the core units. A cycle's clone keeps pi-rukas's state files out of
+  git by `.git/info/exclude`.
+- The MCP server shows a key holder the sessions of the last 30 days, why they
+  failed and their masked logs (`factory_failures`, `factory_sessions`,
+  `factory_session`, `factory_log`), and its handshake says which tools to call.
+- `tehas:refine` is counted: how much it is used and what became of its issues.
+  A refined issue's title starts with its conventional-commit type.
+- A beesknees26 theme for the front page.
+- The gate does not run a fork's pull request on the self-hosted runner.
 
 ### Adopter action
 
@@ -32,3 +45,6 @@ person renames it to the version in the release's pull request.
   before.
 - Read the new settings in `instances/example/` and compare your instance
   with them; `install.sh --check` names any that are missing.
+- An MCP key now reads 30 days of sessions and their logs, not only what the
+  dashboard shows. On a factory that works on a private repository that
+  includes code, issue text and model output: check who holds a key.
