@@ -958,4 +958,29 @@ t_contains "$(grep '^#TEHAS_CLEAN_AFTER=' "$T_ROOT/instances/example/instance.en
 t_contains "$(grep '^#TEHAS_CLEAN_DIRS=' "$T_ROOT/instances/example/instance.env")" "$default_dirs"
 t_instance "${T_MINIMAL[@]}"
 
+t_case "the instance's PI_RUKAS_FOLLOW wins over the environment's"
+commit40=$(printf 'a%.0s' {1..40})
+t_instance "${T_MINIMAL[@]}" "PI_RUKAS_FOLLOW=commit:$commit40"
+T_ENV=(PI_RUKAS_FOLLOW=release)
+t_run "$load && echo \$PI_RUKAS_FOLLOW"
+t_eq "$t_rc" 0
+t_eq "$t_out" "commit:$commit40"
+T_ENV=()
+
+t_case "each form of PI_RUKAS_FOLLOW loads"
+for good in release release:0.14 release:2 branch:main branch:feature/one "commit:$commit40"; do
+  t_instance "${T_MINIMAL[@]}" "PI_RUKAS_FOLLOW=$good"
+  t_run "$load && echo ok"
+  t_eq "$t_out" "ok"
+done
+
+t_case "a PI_RUKAS_FOLLOW of any other shape is 78"
+for bad in main latest release: release:0.14.1 release:v0 "commit:${commit40:0:39}" "commit:$(printf 'A%.0s' {1..40})" commit: branch: "branch:two words" ""; do
+  t_instance "${T_MINIMAL[@]}" "PI_RUKAS_FOLLOW='$bad'"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  t_contains "$t_out" "PI_RUKAS_FOLLOW is not valid"
+done
+t_instance "${T_MINIMAL[@]}"
+
 t_done

@@ -16,7 +16,8 @@
 #
 # What is installed: the commands and units (issue to pull request), the
 # sandbox files, the docs server, the edge router, the Protolab, the
-# improvement loop and the manual, plus the instance's own models.json and, if it has one, settings.json.
+# improvement loop and the manual, plus Pi's model list and settings, made from
+# the instance's models.json and settings.json (see section 2).
 #
 # It copies files, and compiles three: the console of a running cycle, the
 # analytics program and the MCP server, Rust programs in the Cargo workspace
@@ -333,6 +334,32 @@ fi
 agent=$HOME/.pi/agent
 units=$HOME/.config/systemd/user
 
+# Pi's settings and model list are made from the instance, not copied as they
+# are. The session model is named once, by PI_ENSEMBLE_SUBAGENT_PROVIDER and
+# PI_ENSEMBLE_SUBAGENT_MODEL; a settings.json that names its own keeps it. A
+# model entry needs only its id; the keys Pi also wants get today's defaults,
+# and a key the instance gives is kept. A product's .pi/settings.json, when it
+# has one, still wins: Pi reads it over these.
+made=$(mktemp -d) || { echo "tehas: could not make a scratch directory" >&2; exit 1; }
+trap 'rm -rf "$made"' EXIT
+pi_settings=$host/pi/settings.json
+[ -r "$instance/settings.json" ] && pi_settings=$instance/settings.json
+jq --arg p "$PI_ENSEMBLE_SUBAGENT_PROVIDER" --arg m "$PI_ENSEMBLE_SUBAGENT_MODEL" '
+  .defaultProvider //= $p | .defaultModel //= $m
+' "$pi_settings" >"$made/settings.json" ||
+  { echo "tehas: $pi_settings is not valid JSON; nothing was installed" >&2; exit 78; }
+jq '
+  {supportsDeveloperRole: false, supportsReasoningEffort: false} as $compat |
+  .providers[] |= (
+    .compat //= $compat |
+    .models[]? |= (
+      .name //= .id | .input //= ["text"] | .reasoning //= false |
+      .cost //= {input: 0, output: 0, cacheRead: 0, cacheWrite: 0}
+    )
+  )
+' "$instance/models.json" >"$made/models.json" ||
+  { echo "tehas: $instance/models.json is not valid JSON; nothing was installed" >&2; exit 78; }
+
 files=(
   "env.sh|$TEHAS_HOME/env.sh|644"
   "lib/config.sh|$TEHAS_HOME/lib/config.sh|644"
@@ -399,7 +426,8 @@ files=(
   "systemd/tehas-refresh.timer|$units/tehas-refresh.timer|644"
   "systemd/tehas-top.service|$units/tehas-top.service|644"
   "pi/mcp.json|$agent/mcp.json|644"
-  "$instance/models.json|$agent/models.json|644"
+  "$made/models.json|$agent/models.json|644"
+  "$made/settings.json|$agent/settings.json|644"
 )
 # The two commands on PATH, and the scripts behind them.
 for f in tehas tehasbot; do
@@ -408,13 +436,6 @@ done
 for f in analytics-cmd api clean cycle dev dev-login dispatch drain energy export health history improve index labels limit mcp pause plan preview protolab refresh resume status stop summary tidy top top-publish update work; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
-# Pi's own settings: the instance may bring its own (default provider and
-# model for interactive use on the host), otherwise the generic ones.
-if [ -r "$instance/settings.json" ]; then
-  files+=("$instance/settings.json|$agent/settings.json|644")
-else
-  files+=("pi/settings.json|$agent/settings.json|644")
-fi
 
 # What the instance's own sandbox file was at the last install, or nothing when
 # the host has never had one, or has one no install has seen yet. Read before the

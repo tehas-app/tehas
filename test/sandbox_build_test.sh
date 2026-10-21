@@ -77,6 +77,10 @@ reset() {
   rm -f "$T"/calls/* "$fx"/*
   echo "$head" >"$fx/head"
   cp "$caps" "$fx/caps.json"
+  # Each case starts with the checkout's versions.env and no instance files.
+  cp "$T_ROOT/host/versions.env" "$home/versions.env"
+  sed -i 's#^PI_RUKAS_REPO=.*#PI_RUKAS_REPO=https://github.com/Up-Owner/pi-rukas.git#' "$home/versions.env"
+  rm -f "$T/instance/instance.env" "$T/instance/sandbox.Dockerfile"
 }
 
 t_case "a build takes upstream's image for the newest release and labels it with the commit"
@@ -206,7 +210,7 @@ reset
 rm -f "$fx/head"
 t_run "$build"
 t_eq "$t_rc" 1
-t_contains "$t_out" "no pi-rukas commit for PI_RUKAS_FOLLOW=release in https://github.com/Up-Owner/pi-rukas.git"
+t_contains "$t_out" "no pi-rukas commit for PI_RUKAS_FOLLOW=release:0 in https://github.com/Up-Owner/pi-rukas.git"
 t_eq "$(t_calls docker)" ""
 
 t_case "branch:<name> builds on the head of that branch"
@@ -218,7 +222,7 @@ t_contains "$(t_calls git)" "ls-remote https://github.com/Up-Owner/pi-rukas.git 
 t_contains "$t_out" "with pi-rukas $head (the head of main)"
 sed -i 's/^PI_RUKAS_FOLLOW=.*/PI_RUKAS_FOLLOW=release/' "$home/versions.env"
 
-t_case "a PI_RUKAS_FOLLOW that is neither release nor branch:<name> builds nothing"
+t_case "a PI_RUKAS_FOLLOW that is neither release nor branch:<name> nor commit:<sha> builds nothing"
 reset
 sed -i 's/^PI_RUKAS_FOLLOW=.*/PI_RUKAS_FOLLOW=main/' "$home/versions.env"
 t_run "$build"
@@ -226,6 +230,144 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "no pi-rukas commit for PI_RUKAS_FOLLOW=main"
 t_eq "$(t_calls git)$(t_calls docker)" ""
 sed -i 's/^PI_RUKAS_FOLLOW=.*/PI_RUKAS_FOLLOW=release/' "$home/versions.env"
+
+# The two pins a release tarball writes into its versions.env (pack-release.sh).
+commit40=$(printf 'e%.0s' {1..40})
+digest64=sha256:$(printf 'f%.0s' {1..64})
+t_env_instance() {
+  export TEHAS_INSTANCE_DIR=$T/instance
+  mkdir -p "$TEHAS_INSTANCE_DIR"
+}
+pin_versions() { # <key> <value>
+  printf '%s=%s\n' "$1" "$2" >>"$home/versions.env"
+}
+
+t_case "commit:<sha> builds that commit with no lookup upstream, on the image of its tag"
+reset
+pin_versions PI_RUKAS_FOLLOW "commit:$commit40"
+t_run "$build"
+t_eq "$t_rc" 0
+# Nothing asked of git: the release named the commit, so asking again could only
+# move it. The base is still the tag of those twelve characters.
+t_eq "$(t_calls git)" ""
+t_contains "$(t_calls docker)" "pull -q ghcr.io/up-owner/pi-rukas:sha-eeeeeeeeeeee"
+t_contains "$(t_calls docker)" "--build-arg PI_RUKAS_COMMIT=$commit40"
+t_contains "$t_out" "with pi-rukas $commit40 (pinned), issue images: 1"
+sed -i '/^PI_RUKAS_FOLLOW=commit:/d' "$home/versions.env"
+
+t_case "a digest in versions.env is the base, pulled by digest rather than by tag"
+reset
+pin_versions PI_RUKAS_IMAGE_DIGEST "$digest64"
+t_run "$build"
+t_eq "$t_rc" 0
+t_contains "$(t_calls docker)" "pull -q ghcr.io/up-owner/pi-rukas@$digest64"
+t_contains "$(t_calls docker)" "run --rm --init ghcr.io/up-owner/pi-rukas@$digest64"
+t_contains "$(t_calls docker)" "--build-arg PI_RUKAS_IMAGE=ghcr.io/up-owner/pi-rukas@$digest64"
+t_lacks "$(t_calls docker)" "sha-aaaaaaaaaaaa"
+sed -i '/^PI_RUKAS_IMAGE_DIGEST=/d' "$home/versions.env"
+
+t_case "the commit and the digest of a release go together, the commit labelled and the base pinned"
+reset
+pin_versions PI_RUKAS_FOLLOW "commit:$commit40"
+printf 'PI_RUKAS_IMAGE_DIGEST=%s\n' "$digest64" >>"$home/versions.env"
+t_run "$build"
+t_eq "$t_rc" 0
+t_eq "$(t_calls git)" ""
+t_contains "$(t_calls docker)" "pull -q ghcr.io/up-owner/pi-rukas@$digest64"
+t_contains "$(t_calls docker)" "--build-arg PI_RUKAS_IMAGE=ghcr.io/up-owner/pi-rukas@$digest64 --build-arg PI_RUKAS_COMMIT=$commit40"
+t_contains "$t_out" "with pi-rukas $commit40 (pinned)"
+sed -i '/^PI_RUKAS_FOLLOW=commit:/d; /^PI_RUKAS_IMAGE_DIGEST=/d' "$home/versions.env"
+
+t_case "a malformed digest stops the build with 78 and asks docker nothing"
+# versions.env is sourced, so values with a space are quoted.
+for bad in "\"sha256:$(printf 'f%.0s' {1..63})\"" "sha256:$(printf 'f%.0s' {1..65})" \
+  "'sha512:$(printf 'f%.0s' {1..64})'" "$(printf 'f%.0s' {1..64})" "sha256:$(printf 'g%.0s' {1..64})" \
+  "sha256:$(printf 'F%.0s' {1..64})" "'sha256:'" "'sha256: $(printf 'f%.0s' {1..64})'"; do
+  reset
+  pin_versions PI_RUKAS_IMAGE_DIGEST "$bad"
+  t_run "$build"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "is not sha256: and 64 hex digits"
+  t_eq "$(t_calls git)$(t_calls docker)" ""
+done
+
+t_case "no digest line leaves the base the tag it has always been"
+reset
+t_run "$build"
+t_eq "$t_rc" 0
+t_contains "$(t_calls docker)" "pull -q ghcr.io/up-owner/pi-rukas:sha-aaaaaaaaaaaa"
+t_lacks "$(t_calls docker)" "@sha256:"
+
+t_case "the instance's PI_RUKAS_FOLLOW wins, and the release's digest goes with the release's commit"
+reset
+pin_versions PI_RUKAS_FOLLOW "commit:$(printf '1%.0s' {1..40})"
+pin_versions PI_RUKAS_IMAGE_DIGEST "$digest64"
+t_instance "${T_MINIMAL[@]}" "PI_RUKAS_FOLLOW=commit:$commit40"
+t_run "$build"
+t_eq "$t_rc" 0
+t_eq "$(t_calls git)" ""
+t_contains "$(t_calls docker)" "--build-arg PI_RUKAS_COMMIT=$commit40"
+# The release's digest is the image of the release's commit, not of this one.
+t_contains "$(t_calls docker)" "pull -q ghcr.io/up-owner/pi-rukas:sha-eeeeeeeeeeee"
+t_lacks "$(t_calls docker)" "@sha256:"
+t_contains "$t_out" "with pi-rukas $commit40 (pinned)"
+
+t_case "an instance that follows another commit and names its digest builds on that digest"
+reset
+pin_versions PI_RUKAS_FOLLOW "commit:$(printf '1%.0s' {1..40})"
+pin_versions PI_RUKAS_IMAGE_DIGEST "sha256:$(printf '2%.0s' {1..64})"
+t_instance "${T_MINIMAL[@]}" "PI_RUKAS_FOLLOW=commit:$commit40" "PI_RUKAS_IMAGE_DIGEST=$digest64"
+t_run "$build"
+t_eq "$t_rc" 0
+t_contains "$(t_calls docker)" "pull -q ghcr.io/up-owner/pi-rukas@$digest64"
+t_lacks "$(t_calls docker)" "sha256:222222"
+
+t_case "an instance that sets no pin builds on the release's commit and digest"
+reset
+pin_versions PI_RUKAS_FOLLOW "commit:$commit40"
+pin_versions PI_RUKAS_IMAGE_DIGEST "$digest64"
+t_instance "${T_MINIMAL[@]}"
+t_run "$build"
+t_eq "$t_rc" 0
+t_eq "$(t_calls git)" ""
+t_contains "$(t_calls docker)" "pull -q ghcr.io/up-owner/pi-rukas@$digest64"
+t_contains "$(t_calls docker)" "--build-arg PI_RUKAS_COMMIT=$commit40"
+
+t_case "an instance whose PI_RUKAS_FOLLOW is not valid builds nothing, with 78"
+for bad in main "commit:${commit40:0:39}" ""; do
+  reset
+  t_instance "${T_MINIMAL[@]}" "PI_RUKAS_FOLLOW=$bad"
+  t_run "$build"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "PI_RUKAS_FOLLOW is not valid"
+  t_eq "$(t_calls git)$(t_calls docker)" ""
+done
+
+t_case "an instance whose settings do not load (a token in instance.env) builds nothing, with 78"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_MODEL_KEY_MAIN=not-here
+t_run "$build"
+t_eq "$t_rc" 78
+t_eq "$(t_calls git)$(t_calls docker)" ""
+
+t_case "a malformed digest in the instance's file is 78 before docker is asked anything"
+reset
+t_instance "${T_MINIMAL[@]}" "PI_RUKAS_IMAGE_DIGEST=sha256:$(printf 'f%.0s' {1..63})"
+t_run "$build"
+t_eq "$t_rc" 78
+t_contains "$t_out" "is not sha256: and 64 hex digits"
+t_eq "$(t_calls git)$(t_calls docker)" ""
+
+t_case "with --check a pinned commit is compared with the image like any other"
+reset
+pin_versions PI_RUKAS_FOLLOW "commit:$commit40"
+echo "$old" >"$fx/label"
+t_run "$build --check"
+t_eq "$t_rc" 1
+t_eq "$(t_calls git)" ""
+t_contains "$t_out" "is on $old, pinned is $commit40"
+t_eq "$(t_calls docker | grep -c -e '^build' -e '^pull')" 0
+sed -i '/^PI_RUKAS_FOLLOW=commit:/d' "$home/versions.env"
 
 t_case "a commit whose image is not published yet builds nothing"
 reset
@@ -246,14 +388,9 @@ t_contains "$(cat "$T_ROOT/host/sandbox/Dockerfile")" 'FROM ${PI_RUKAS_IMAGE}'
 t_lacks "$(cat "$T_ROOT/host/versions.env")" "PI_RUKAS_COMMIT"
 t_contains "$(cat "$T_ROOT/host/versions.env")" "PI_RUKAS_FOLLOW=release"
 
-# The instance's own sandbox.Dockerfile, when it has one, is built on the image
-# above and takes the tag cycles run. The directory is resolved as every command
-# resolves it, so a case can name it with TEHAS_INSTANCE_DIR or leave the
-# environment alone; the cases that do not want a second build remove the file.
-t_env_instance() {
-  export TEHAS_INSTANCE_DIR=$T/instance
-  mkdir -p "$TEHAS_INSTANCE_DIR"
-}
+# The instance layer, on top of the image above: built on it, checked against it,
+# and the only thing allowed to move the tag cycles run. t_env_instance above names
+# the directory the same way every command names it.
 # The instance layer is compared with the image this build made, so a case that
 # builds one calls fx_ids. It asks docker for the layers of both images, and the
 # answers are files under fx, which reset() clears: layers-platform is the chain
@@ -290,7 +427,6 @@ t_env_instance
 instance_file=$TEHAS_INSTANCE_DIR/sandbox.Dockerfile
 printf 'ARG TEHAS_BASE\nFROM $TEHAS_BASE\n' >"$instance_file"
 fx_ids
-rm -f "$T/instance/instance.env"
 t_run "$build"
 t_eq "$t_rc" 0
 # Two builds, the tehas image first and the instance's on top of it. The second
