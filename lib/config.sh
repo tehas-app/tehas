@@ -145,7 +145,7 @@ _tehas_valid() {
     # The look of every page: host/fun/theme-<name>.css. The servers write the
     # name into a path, so only a theme that ships is let through.
     TEHAS_THEME)
-      case "$v" in pixel | paper | beesknees) ;; *) echo "expected pixel, paper or beesknees"; return 1 ;; esac
+      case "$v" in pixel | paper | beesknees | beesknees26) ;; *) echo "expected pixel, paper, beesknees or beesknees26"; return 1 ;; esac
       ;;
     # What the front page is: host/fun/index.html for the floor, host/fun/<name>.html
     # for another. The docs server picks the page by this name.

@@ -24,6 +24,9 @@
   --type-body: 16px;
   --type-big: 32px;
   --radius: 0;
+  /* light, or "light dark" where the theme has a dark set the business page's
+     mode button can switch to. */
+  --modes: light;
 
   /* The ground everything stands on. */
   --field: #694;
@@ -39,6 +42,7 @@
   /* Text. */
   --text: #222;
   --text-quiet: #445;
+  --text-faint: var(--text-quiet);
   --text-cool: #276;
   --text-warm: #712;
   --text-on-good: #222;
@@ -56,6 +60,10 @@
   --screen: #111;
   --screen-text: #fc6;
   --screen-quiet: #aab;
+  /* The business page's top bar. Pixel draws it as a screen. */
+  --bar: var(--screen);
+  --bar-text: var(--screen-text);
+  --bar-quiet: var(--screen-quiet);
 
   /* State, used only by the factory state tag and the analytics bars. */
   --good: #8a5;

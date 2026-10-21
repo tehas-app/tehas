@@ -1,0 +1,154 @@
+/* Beesknees26: the business look as redrawn in 2026. Ink and one muted green
+   on a near-white ground, white panels with faint edges and soft shadows,
+   IBM Plex, and no motion. Light; dark only when the viewer picks it with the
+   business page's mode button, never from the system setting. The palette is
+   the drawing's own: text and quiet text are at least 4.5:1 on their grounds,
+   the faint labels about 3.4:1.
+
+   Sets the same tokens as pixel.css, which says what each one is for. It will
+   replace beesknees. IBM Plex is under the SIL Open Font License, in
+   IBMPlex-OFL.txt beside this file. */
+
+@font-face { font-family: "IBM Plex Sans"; font-weight: 400; font-display: swap; src: url("/fun/IBMPlexSans-400.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 500; font-display: swap; src: url("/fun/IBMPlexSans-500.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 600; font-display: swap; src: url("/fun/IBMPlexSans-600.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 700; font-display: swap; src: url("/fun/IBMPlexSans-700.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-weight: 400; font-display: swap; src: url("/fun/IBMPlexMono-400.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-weight: 500; font-display: swap; src: url("/fun/IBMPlexMono-500.woff2") format("woff2"); }
+
+:root {
+  color-scheme: light;
+  --font: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-code: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  --font-smoothing: antialiased;
+  --type-small: 10px;
+  --type-body: 14px;
+  --type-big: 28px;
+  --radius: 6px;
+  --modes: light dark;
+
+  --field: #f7f8f5;
+  --field-pattern: none;
+
+  --surface: #fff;
+  --surface-quiet: #f7f8f5;
+  --surface-head: #fff;
+  --accent: #eaf4ec;
+  --accent-soft: #edf6ef;
+
+  --text: #20231f;
+  --text-quiet: #515850;
+  --text-faint: #858c83;
+  --text-cool: #286544;
+  --text-warm: #c45342;
+  --text-on-good: #fff;
+  --text-on-bad: #fff;
+
+  --line: #e2e5dd;
+  --rule: #e9ebe6;
+
+  --edge: 1px;
+  --frame: var(--edge) solid var(--line);
+  --focus: 2px solid var(--good);
+
+  --screen: #0f1512;
+  --screen-text: #e4eae6;
+  --screen-quiet: #9aa59f;
+  --bar: #fff;
+  --bar-text: #20231f;
+  --bar-quiet: #636c62;
+
+  --good: #387953;
+  --bad: #c45342;
+
+  --shadow-card: 0 4px 20px rgb(27 45 30 / 0.035), 0 1px 3px rgb(27 45 30 / 0.025);
+  --shadow-card-up: 0 1px 0 rgb(27 45 30 / 0.04), 0 8px 24px rgb(27 45 30 / 0.08);
+  --shadow-sign: 0 1px 3px rgb(0 0 0 / 0.06);
+  --shadow-sign-up: 0 3px 12px rgb(15 35 22 / 0.05);
+  --ring: 0 0 0 3px color-mix(in srgb, var(--good) 18%, transparent);
+  --stripe: 0 1px 0 var(--rule);
+
+  --lift: none;
+  --press: none;
+  --press-sign: none;
+
+  --stage-proto: #7566a8;
+  --stage-proto-soft: #f3f0fa;
+  --stage-line: #526a87;
+  --stage-line-soft: #f0f4fa;
+  --stage-build: #348260;
+  --stage-build-soft: #edf7f0;
+  --stage-review: #a56b2c;
+  --stage-review-soft: #fff6e9;
+  --stage-stop: #bd5b4b;
+  --stage-stop-soft: #fff1ed;
+  --stage-ship: #5573aa;
+  --stage-ship-soft: #eef3fb;
+
+  --prototype-ground: #fff;
+
+  /* The canvases draw on the dark screen: light, muted marks. */
+  --band-1: #77ba8d;
+  --band-2: #a9bce4;
+  --band-3: #e4b777;
+  --band-4: #c0b1ea;
+  --band-5: #a0b6d4;
+  --band-6: #eb9b8c;
+  --band-7: #a3d7b0;
+  --band-8: #c9d6ee;
+  --piece-1: #eaf4ec;
+  --piece-2: #77ba8d;
+  --piece-3: #e4b777;
+  --piece-4: #a0b6d4;
+  --piece-text: #20231f;
+  --game-ground: #0f1512;
+  --game-floor: #1b211c;
+  --game-shadow: #060908;
+  --game-ball: #e9ebe6;
+  --game-paddle: #77ba8d;
+  --game-flash: #e9ebe6;
+}
+
+/* The dark set, only where the viewer picked it. */
+:root[data-mode="dark"] {
+  color-scheme: dark;
+  --field: #141915;
+  --surface: #1b211c;
+  --surface-quiet: #141915;
+  --surface-head: #1b211c;
+  --accent: #213829;
+  --accent-soft: #213829;
+  --text: #e9ebe6;
+  --text-quiet: #bbc2b8;
+  --text-faint: #919a90;
+  --text-cool: #a3d7b0;
+  --text-warm: #ea8b78;
+  --text-on-good: #141915;
+  --text-on-bad: #141915;
+  --line: #394139;
+  --rule: #2b332d;
+  --screen: #060908;
+  --bar: #1b211c;
+  --bar-text: #e9ebe6;
+  --bar-quiet: #bbc2b8;
+  --good: #77ba8d;
+  --bad: #ea8b78;
+  --stage-proto: #c0b1ea;
+  --stage-proto-soft: #302a42;
+  --stage-line: #a0b6d4;
+  --stage-line-soft: #25303c;
+  --stage-build: #83c9a1;
+  --stage-build-soft: #20382b;
+  --stage-review: #e4b777;
+  --stage-review-soft: #3a2e21;
+  --stage-stop: #eb9b8c;
+  --stage-stop-soft: #3b2926;
+  --stage-ship: #a9bce4;
+  --stage-ship-soft: #273247;
+}
+
+/* No motion: nothing pops in, blinks or lifts. */
+*, *::before, *::after {
+  animation: none !important;
+  transition: none !important;
+}
