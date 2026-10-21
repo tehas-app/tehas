@@ -16,7 +16,7 @@ works=$th/work
 runs=$T/home/.pi/agent/ensemble-runs
 # What a stop takes away, and what it leaves as the cycle's record. The two
 # lists are here so a case can pin both sides of the line.
-GO=(lock taken cid park requeued "done" stalled timed quiet oom forks branch image progress.json result.json)
+GO=(lock taken cid park requeued "done" stalled timed quiet oom forks branch image nostart progress.json result.json)
 KEEP=(json history.jsonl by settings manifest.json approved.json rukas runner_exit status)
 
 # systemctl: what the unit is doing ($UNIT_STATE), and the stop itself, which
@@ -112,6 +112,10 @@ leftovers() { # <issue>
   done
   printf '%s\n' "${out# }"
 }
+# How many of those one issue leaves, so a case can say that a stop took none
+# of them. The count of the list above, not of GO: that is what says a stop took
+# everything a cycle left, whatever the list holds today.
+leftover_count() { leftovers "${1:-5}" | wc -w; }
 # The record files of this issue that a stop keeps, still on the host.
 record() { # <issue>
   local n=$1 out="" ext
@@ -162,8 +166,8 @@ gh_labels tehas:running
 t_run "$stop_cmd 5"
 t_eq "$t_rc" 0
 t_eq "$(leftovers 5)" ""
-t_eq "$(wc -w <<<"$(leftovers 51)")" 22
-t_eq "$(wc -w <<<"$(leftovers 55)")" 22
+t_eq "$(wc -w <<<"$(leftovers 51)")" "$(leftover_count 51)"
+t_eq "$(wc -w <<<"$(leftovers 55)")" "$(leftover_count 55)"
 t_eq "$(removed_containers)" "tehas-work-5 "
 t_eq "$(gh_edits)" "issue edit 5 --repo acme/widget --remove-label tehas:running"
 t_lacks "$(t_calls gh)" "51"
@@ -225,7 +229,7 @@ began=$(date +%s)
 t_run "$stop_cmd 5"
 t_eq "$t_rc" 1
 kill "$(cat "$T/holder-keep" 2>/dev/null)" 2>/dev/null
-t_eq "$(leftovers 5 | wc -w)" 22
+t_eq "$(leftovers 5 | wc -w)" "$(leftover_count 5)"
 t_contains "$t_out" "still holds its lock"
 t_eq "$(removed_containers)" ""
 t_eq "$([ -e "$works/widget-5" ] && echo kept)" "kept"
@@ -242,7 +246,7 @@ T_ENV=(CONTAINERS=)
 t_run "$stop_cmd 5"
 t_eq "$t_rc" 1
 kill "$(cat "$T/holder" 2>/dev/null)" 2>/dev/null
-t_eq "$(leftovers 5 | wc -w)" 22
+t_eq "$(leftovers 5 | wc -w)" "$(leftover_count 5)"
 t_contains "$t_out" "still holds its lock"
 t_eq "$(t_calls gh)" ""
 
@@ -285,7 +289,7 @@ cycle_files 5
 t_run "$stop_cmd 5"
 t_eq "$t_rc" 78
 t_contains "$t_out" "no instance.env"
-t_eq "$(leftovers 5 | wc -w)" 22
+t_eq "$(leftovers 5 | wc -w)" "$(leftover_count 5)"
 t_eq "$(t_calls systemctl)" ""
 t_eq "$(t_calls docker)" ""
 t_eq "$(t_calls gh)" ""
@@ -298,7 +302,7 @@ docker_stub
 for arg in 0 5a -5 12345678901 "" "''"; do
   t_run "$stop_cmd $arg"
   t_eq "$t_rc" 64
-  t_eq "$(leftovers 5 | wc -w)" 22
+  t_eq "$(leftovers 5 | wc -w)" "$(leftover_count 5)"
 done
 t_eq "$(t_calls systemctl)" ""
 t_eq "$(t_calls docker)" ""
@@ -325,7 +329,7 @@ done
 t_run "$T_ROOT/bin/tehas help stop"
 t_eq "$t_rc" 0
 t_contains "$t_out" "tehas stop <issue>"
-t_eq "$(leftovers 5 | wc -w)" 22
+t_eq "$(leftovers 5 | wc -w)" "$(leftover_count 5)"
 t_eq "$(t_calls systemctl)" ""
 
 t_case "it names only the paths of the issue it was given, never a glob"

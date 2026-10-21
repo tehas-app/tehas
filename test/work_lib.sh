@@ -81,7 +81,9 @@ for a in "$@"; do
   prev=$a
 done
 case " $* " in
-  *"pi-rukas-headless work "*) [ ! -e "$T/container.sh" ] || . "$T/container.sh" ;;
+  *"pi-rukas-headless work "*)
+    [ -e "$T/container.sh" ] || cp "$T/container-default" "$T/container.sh"
+    . "$T/container.sh" ;;
   *" push --dry-run "*)
     [ ! -e "$T/push-hangs" ] || exec "$(command -pv sleep)" 30
     [ "${PUSH_RC:-0}" = 0 ] || { echo "docker: could not read from remote repository" >&2; exit "$PUSH_RC"; } ;;
@@ -90,6 +92,18 @@ case " $* " in
     kill "$(cat "$T/sleeper.pid" 2>/dev/null)" 2>/dev/null ;;
   " kill "*) kill "$(cat "$T/sleeper.pid" 2>/dev/null)" 2>/dev/null ;;
 esac'
+# The container of a cycle that named none: it says one line of progress and
+# ends at once, so that the cycle's stream is not the empty one tehas work takes
+# for a container that never came up and writes nothing for (libexec/work, the
+# note of a runner that never started). A case that means that end names its own
+# container and says nothing; a case that reads nothing of the cycle names none
+# and should not find one.
+container_default='nap=$(command -pv sleep)
+progress() { printf "%s\n" "$1" >&2; }
+progress cycle
+exit 0'
+
+printf '%s\n' "$container_default" >"$T/container-default"
 printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitconfig"
 # What a runner on result schema 4 answers to --capabilities, cut to what the
 # tests use.
@@ -221,12 +235,26 @@ live=$T/home/tehas/live
 result_file=$T/home/tehas/state/cycles/7.result.json
 progress_file=$T/home/tehas/state/cycles/7.progress.json
 # container <what it does>: the runner. "says <status> [cap]" writes its result
-# to standard output, "progress <line>" one line of its NDJSON.
+# to standard output, "progress <line>" one line of its NDJSON. With no
+# argument the case means a container that does nothing of note: one that says
+# one line of progress and ends at once, so that the cycle's stream is not the
+# empty one tehas work takes for a container that never came up and writes
+# nothing for. A case of that end names its own container and says nothing.
 container() {
+  # What the container of this case does. The error file of its log goes first,
+  # so that a case reads only what its own run wrote there: a log is named to the
+  # second, so a case can be given the name a neighbour used, and the file of
+  # that name would read as this cycle's own. The path is held in three words of
+  # its own, because this body is a string of the stub of docker and a glob of
+  # the whole path would be answered too early to name the cycle's log.
+  # shellcheck disable=SC2016  # the log name is known only when the run starts
+  local body=${1:-}
+  [ -n "$body" ] || body='progress cycle; exit 0'
   printf '%s\n' 'nap=$(command -pv sleep)' \
+    'c=$T/home/tehas/logs; b=7; rm -f "$c"/work-$b-*.jsonl.err' \
     'says() { echo "{\"schemaVersion\":5,\"buildCommit\":null,\"exitCode\":10,\"issues\":[{\"issue\":7,\"status\":\"$1\",\"cap\":\"${2:-}\",\"failedStep\":\"develop\",\"branch\":\"feature/issue-7-x\",\"steps\":[{\"step\":\"explore\"},{\"step\":\"develop\"}],\"usage\":{\"input\":5,\"output\":2,\"cacheRead\":1,\"turns\":3,\"dispatches\":2},\"exitCode\":10}]}"; }' \
     'progress() { printf "%s\n" "$1" >&2; }' \
-    "$1" >"$T/container.sh"
+    "$body" >"$T/container.sh"
 }
 # Alive until docker stop is called, then gone with 137, as a container is.
 hold='"$nap" 60 >/dev/null 2>&1 & echo $! >"$T/sleeper.pid"'
@@ -295,6 +323,12 @@ issue_is() {
 }
 images_on() {
   rm -rf "$fx" "$T"/calls/* "$T/home/tehas/work" "$T/home/tehas/state/cycles/7.manifest.json" "$T/home/tehas/state/cycles/7.approved.json"
+  # A case of an empty stream names its container by hand and nothing removes
+  # it: without this the next case would run that one and read its end as its
+  # own, and a container named by no case at all writes a line of progress so
+  # that the stream is not the empty one (container).
+  # The container file of the case before, if it named one: see images_off.
+  rm -f "$T/container.sh"
   mkdir -p "$fx/net"
   slice_good
   reads_image 1
@@ -306,6 +340,11 @@ images_on() {
 images_off() {
   rm -rf "$fx" "$T"/calls/* "$T/home/tehas/work" "$T/home/tehas/logs" \
     "$T/home/tehas/state/cycles/7.manifest.json" "$T/home/tehas/state/cycles/7.approved.json"
+  # What the container of this cycle does is a file a case writes. A case of the
+  # empty stream names one by hand and nothing removes it, so the next case of
+  # the file that does not name one would run that container and report its end
+  # as its own: the file goes with the rest of the host here.
+  rm -f "$T/container.sh"
   mkdir -p "$fx/net"
   slice_good
   reads_image 1

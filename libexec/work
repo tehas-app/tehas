@@ -79,7 +79,12 @@
 #              tehasbot cycle names that in its comment, not this status. A
 #              container it saw killed leaves state/cycles/<issue>.status with
 #              the word `killed`, which is the only account of the end when the
-#              runner wrote no result at all.
+#              runner wrote no result at all. A container it watched to its end
+#              that wrote no result and not one line of its stream leaves
+#              state/cycles/<issue>.nostart with the container's own exit
+#              status: tehasbot cycle names that as tehas's own cap
+#              `runner-never-started`. One this command stopped, killed outright
+#              with no result, or ended at the time limit leaves no such note.
 #
 #             64 no bot token or no git identity; no cycle was started.
 #             78 the instance settings are invalid, tehas.slice is not
@@ -372,6 +377,9 @@ progress_file=$TEHAS_HOME/state/cycles/$issue.progress.json
 # killed. Both are read and removed by tehasbot cycle.
 runner_exit_file=$TEHAS_HOME/state/cycles/$issue.runner_exit
 status_file=$TEHAS_HOME/state/cycles/$issue.status
+# The word of the end for a container that wrote no result and no line of its
+# stream. Read and removed by tehasbot cycle.
+nostart_file=$TEHAS_HOME/state/cycles/$issue.nostart
 image_file=$TEHAS_HOME/state/cycles/$issue.image
 settings_file=$TEHAS_HOME/state/cycles/$issue.settings
 stall=$TEHAS_WORK_STALL
@@ -702,6 +710,7 @@ fi
 # that was killed outright, and so is a count of kills, and so is the name a
 # write of one of these files was made beside before it was moved into place.
 rm -f "$cid_file" "$oom_file" "$forks_file" "$stall_file" "$timed_file" "$image_file" "$settings_file" "$result_file" "$progress_file" "$runner_exit_file" "$status_file" \
+  "$nostart_file" "$nostart_file.new" \
   "$runner_exit_file.new" "$status_file.new"
 # A container under this name outlived the client that started it: this
 # command holds the issue's lock, so no cycle owns it. It would work on with
@@ -929,6 +938,25 @@ if [ "$rc" = 137 ] && [ "$have" = 0 ] && [ "$error_only" = 0 ] && [ "$interrupte
   write_note "$status_file" killed ||
     echo "tehas work: the account of the killed container is lost with it"
   echo "tehas work: the container was killed (137) while the cycle was running: out of memory, or stopped from outside"
+fi
+# A container that wrote no result and not one line of its stream never got as
+# far as the driver's first event, so the record would say nothing but the
+# status this command exits with. Named here, where the container's own end, its
+# cgroup and the fact that its stream stayed empty are all still in scope;
+# tehasbot cycle makes the cap of it. Not for one this command stopped, nor for
+# a killed container or one that reached the time limit, each of which has an
+# account of its own.
+if [ "$have" = 0 ] && [ "$error_only" = 0 ] && [ "$interrupted" = 0 ] && [ "$stopped" = 0 ] &&
+  [ "$killed" = 0 ] && [ "$timed" = 0 ] && [ "$ran_out" = 0 ] && [ "$stalled" = 0 ] &&
+  [ ! -s "$log" ]; then
+  write_note "$nostart_file" "$rc $ooms" ||
+    echo "tehas work: the account of the container that never started is lost with it"
+  # One line for the cycle's record, where a person reads the end of a failed
+  # cycle. The preflight file is named because it is the only file of the cycle
+  # that holds anything for a run whose stream stayed empty, and what it holds
+  # there is the provider-retry echo, which says nothing about this end.
+  printf '%s\n' "tehas work: issue $issue ended with the container's exit $rc and no line of its stream: the runner wrote no event, so no step started. Its preflight is $(basename "$log").preflight." \
+    >>"$log.err" || echo "tehas work: could not write $log.err" >&2
 fi
 if [ "$ooms" -gt 0 ]; then
   echo "tehas work: $ooms processes in this cycle's container were killed for memory"

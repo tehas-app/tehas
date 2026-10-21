@@ -23,6 +23,45 @@ t_run "$work 7"
 t_eq "$t_rc" 2
 t_contains "$t_out" "status=running"
 
+# The two cases below are the shape of the two cycles of tehas-org/tehas#110:
+# the container ran its preflight and ended 22 seconds later with nothing in the
+# record and an empty err.txt. tehas work now leaves the one account of that end
+# it can observe, and tehasbot cycle makes tehas's cap of it (cycle_record_test).
+t_case "a container that ends with no result and no line of its stream leaves the note of a runner that never started, and one line in the error file"
+fresh
+container 'exit 1'
+t_run "$work 7"
+t_eq "$t_rc" 2
+cycle_log=$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p')
+t_eq "$(cat "$T/home/tehas/state/cycles/7.nostart")" "1 0"
+t_eq "$(cat "$cycle_log.err")" \
+  "tehas work: issue 7 ended with the container's exit 1 and no line of its stream: the runner wrote no event, so no step started. Its preflight is $(basename "$cycle_log").preflight."
+
+t_case "a container that wrote one line of its stream is not a runner that never started"
+for line in "progress '{\"v\":1,\"kind\":\"step-started\",\"event\":{\"step\":\"explore\"}}'" \
+  "progress 'not json at all, but the stream is no longer empty'"; do
+  fresh
+  container "$line; exit 1"
+  t_run "$work 7"
+  t_eq "$t_rc" 2
+  t_eq "$(find "$T/home/tehas/state/cycles/7.nostart" 2>/dev/null | wc -l)" 0
+  # Only the note makes the line: a stream that holds a line of its own needs
+  # no account of a runner that never came up.
+  t_eq "$(cat "$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p').err" 2>/dev/null)" ""
+done
+
+t_case "a killed container, one tehas stopped, and one that wrote its result leave no note of a runner that never started"
+fresh
+container 'exit 137'
+t_run "$work 7"
+t_eq "$t_rc" 137
+t_eq "$(find "$T/home/tehas/state/cycles/7.nostart" 2>/dev/null | wc -l)" 0
+fresh
+container 'says handoff; exit 10'
+t_run "$work 7"
+t_eq "$t_rc" 10
+t_eq "$(find "$T/home/tehas/state/cycles/7.nostart" 2>/dev/null | wc -l)" 0
+
 t_case "a result without an exit code of its own is no success: exit 2"
 for code in 1 137; do
   fresh
