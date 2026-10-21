@@ -74,10 +74,15 @@
 # So is a runner that stopped itself at the time limit and named no cap. Both
 # go on record with tehas's own cap wall-clock and the step the cycle was in.
 #
-# A runner that exits 4 started no cycle: the instance gives a cycle the
-# images or files its issue links (TEHAS_WORK_IMAGES, TEHAS_WORK_FILES) and one
-# could not be given. The issue is parked and the comment says that, not that
-# a cycle stopped. The
+# A runner that exits 4 started no cycle: tehas work refused the start, over
+# text that is not the text the dispatcher approved (its body or its title), a
+# record it could not read, an issue it could not read, or an image or file the
+# instance gives a cycle (TEHAS_WORK_IMAGES, TEHAS_WORK_FILES) that could not be
+# given. Nothing ran, so the comment names no status, step, duration or usage as
+# this cycle's: it names the exit status, who approved the start and when from
+# the dispatcher's record, and where the log is. The record itself is removed
+# with the report: an approval that started nothing is no approval a later start
+# can rest on. The issue is parked, not reported as a cycle that stopped. The
 # images of a cycle that ran are removed here when it is over: only the
 # container read them. So is the cycle's own state directory, the copy of the
 # code index, the memory and the sessions its agents wrote: no later cycle
@@ -926,6 +931,10 @@ rm -f "$cycles/$issue.done"
 # outage on a cycle that was not itself the dispatcher's retry of one.
 retry=false
 parked_now=false
+# A runner that refused to start (tehas work exit 4): no clone, no container,
+# no step. Its report names only what the dispatcher recorded, and its approval
+# record is removed below with the report.
+never_ran=0
 # A runner that wrote no result, whose branch GitHub says carries the bot's
 # open pull request: commit-pr got that far and the review after it did not.
 # Said with the pull request rather than as a cycle that left nothing. The one
@@ -1089,7 +1098,24 @@ elif [ "$died_with_open_pr" = 1 ]; then
 else
   parked="Tehas cycle stopped without a pull request: $summary (runner exit $runner_rc).$why${handoff:+ The handoff of pi-rukas follows.} $kept; $log_where.$killed${pr:+ Its branch has an open pull request: $pr}$foreign"
   if [ "$rc" = 4 ]; then
-    parked="Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit $runner_rc). The comment before this one names it; $log_where."
+    # A cycle that never ran has no status, no step, no duration and no usage of
+    # its own to report: none of those are this issue's to name. What is known
+    # is the dispatcher's record of the start it authorised, and the log tehas
+    # work wrote its reason into.
+    never_ran=1
+    approved_by=$(jq -r 'select((.by | type) == "string" and (.by | test("^[A-Za-z0-9-]+$"))) | .by' \
+      "$cycles/$issue.approved.json" 2>/dev/null) || approved_by=""
+    approved_at=$(jq -r 'select((.at | type) == "string" and (.at | test("^[0-9T:.Z-]+$"))) | .at' \
+      "$cycles/$issue.approved.json" 2>/dev/null) || approved_at=""
+    never_ran_said=""
+    if [ -n "$approved_by" ] && [ -n "$approved_at" ]; then
+      never_ran_said=" @${approved_by} approved this start at ${approved_at}; tehas keeps no record of an approval that started nothing, so a fresh \`tehas:ready\` asks for another start."
+    elif [ -n "$approved_by" ]; then
+      never_ran_said=" @${approved_by} approved this start; tehas keeps no record of an approval that started nothing, so a fresh \`tehas:ready\` asks for another start."
+    else
+      never_ran_said=" No approval of this start is recorded on this host: a fresh \`tehas:ready\` is needed."
+    fi
+    parked="Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit $runner_rc). Nothing of it ran: no workspace, no container, no step, no usage.$never_ran_said The comment before this one names it; $log_where."
   elif [ "$provider" = 1 ]; then
     parked="Tehas cycle parked by a provider outage: $summary (runner exit $runner_rc), cap \`$cap\`${reason:+: $reason}; $log_where.$killed${pr:+ Its branch has an open pull request: $pr}$foreign"
     if [ "$requeued" = 0 ]; then
@@ -1127,6 +1153,13 @@ tehas_cycle_history_add "$issue" "$(jq -n -c --arg at "$(date -u +%FT%TZ)" --arg
   --arg how "$(jq -r '.how // "" | strings' "$cycles/$issue.approved.json" 2>/dev/null | tr -cd 'a-z-')" \
   '{$at, $started, $rc, $status, $step, $cap, $park_reason, $failure_kind, $failure_cause, $provider, $parked, $pr, $by, $how}
    | with_entries(select(.value != ""))')" || log "WARN: no line of history of #$issue"
+# The record of a start that never ran goes with its report: the fixer, a
+# refresh and a run by hand each read a record as one whose cycle happened. Its
+# `how` is already in the line of history above, and its time is not read for a
+# run that never started.
+if [ "$never_ran" = 1 ]; then
+  rm -f "$cycles/$issue.approved.json"
+fi
 # The run and its end in the factory's analytics, from the history line and
 # what the cycle left in state/cycles; the image and the counts were read and
 # removed above, so they are passed. A failure is a warning (lib/analytics.sh).

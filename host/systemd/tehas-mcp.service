@@ -1,0 +1,15 @@
+[Unit]
+Description=Tehas: the read-only MCP server for agents outside this host
+
+[Service]
+# Off unless ~/.config/tehas/env says TEHAS_MCP=1: then the command exits 0 and
+# the unit stays stopped. A setting that is malformed ends it with 78, and
+# that is not restarted: the journal says which setting once, not every 5
+# seconds. Stopping the unit stops the container, which removes itself.
+ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot mcp serve"
+Restart=on-failure
+RestartSec=5
+RestartPreventExitStatus=78
+
+[Install]
+WantedBy=default.target

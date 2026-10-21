@@ -1,0 +1,19 @@
+# The read-only MCP server: install.sh builds it static (musl) and installs the
+# binary as ~/tehas/libexec/tehas-mcp. A member of the workspace in ../Cargo.toml.
+[package]
+name = "tehas-mcp"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "mcp"
+path = "src/lib.rs"
+
+[[bin]]
+name = "tehas-mcp"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = "1"
+sha2 = "0.10"

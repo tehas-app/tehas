@@ -18,16 +18,18 @@
 # sandbox files, the docs server, the edge router, the Protolab, the
 # improvement loop and the manual, plus the instance's own models.json and, if it has one, settings.json.
 #
-# It copies files, and compiles two: the console of a running cycle and the
-# analytics program, Rust programs in the Cargo workspace console/ (analytics
-# in console/analytics). A real run builds each with cargo in this checkout
-# (console/target, which git ignores) and installs them as libexec/console
-# and libexec/analytics. Beside each, <name>.stamp holds two checksums: of the
+# It copies files, and compiles three: the console of a running cycle, the
+# analytics program and the MCP server, Rust programs in the Cargo workspace
+# console/ (the other two in console/analytics and console/mcp). A real run
+# builds each with cargo in this checkout (console/target, which git ignores)
+# and installs them as libexec/console, libexec/analytics and
+# libexec/tehas-mcp; the MCP server is built static (musl), because it runs in
+# a container that has none of the host's libraries. Beside each, <name>.stamp holds two checksums: of the
 # source it was built from and of the program itself. A program is built
 # again only when its source has changed or it is not the one that was
 # installed, and the first build fetches the crates from the network. The
-# console's source leaves out console/analytics, so a change there builds
-# analytics alone. --check compares the checksums and builds nothing. A
+# console's source leaves out console/analytics and console/mcp, so a change
+# there builds that program alone. --check compares the checksums and builds nothing. A
 # program that does not build stops a real run before it changes anything.
 #
 # It does not start the dispatcher or the docs server, rebuild the sandbox
@@ -371,6 +373,7 @@ files=(
   "systemd/tehas-energy.service|$units/tehas-energy.service|644"
   "systemd/tehas-improve.service|$units/tehas-improve.service|644"
   "systemd/tehas-improve.timer|$units/tehas-improve.timer|644"
+  "systemd/tehas-mcp.service|$units/tehas-mcp.service|644"
   "systemd/tehas-protolab.service|$units/tehas-protolab.service|644"
   "systemd/tehas-protolab.timer|$units/tehas-protolab.timer|644"
   "systemd/tehas-preview.service|$units/tehas-preview.service|644"
@@ -387,7 +390,7 @@ files=(
 for f in tehas tehasbot; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
-for f in analytics-cmd api cycle dev dev-login dispatch drain energy export health history improve index labels limit pause plan preview protolab refresh resume status stop summary tidy top top-publish update work; do
+for f in analytics-cmd api cycle dev dev-login dispatch drain energy export health history improve index labels limit mcp pause plan preview protolab refresh resume status stop summary tidy top top-publish update work; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
 # Pi's own settings: the instance may bring its own (default provider and
@@ -494,8 +497,8 @@ if [ -r "$login_manager" ]; then
 fi
 
 # --- 3. Install ---------------------------------------------------------------
-# The compiled programs first, the console and analytics, the two members of the
-# Cargo workspace in console/: a build that fails must leave the host as it was,
+# The compiled programs first, the console, analytics and the MCP server, the
+# members of the Cargo workspace in console/: a build that fails must leave the host as it was,
 # so every program that is due is built before any is installed. What is
 # installed is judged without building: by the checksum of every file the
 # program's build reads, and by the checksum of the program that was installed.
@@ -506,22 +509,33 @@ source_sum() {
   (cd "$root/console" && find . -type f ! -path './target/*' ! -path './analytics/target/*' "$@" -print0 |
     LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
 }
-# The console's source is all of console/ but its tests and analytics/, so a
-# change to analytics alone does not build the console again. analytics reads
-# its own directory, the workspace's manifest and lock, and the console's mask.
-console_source=$(source_sum ! -path './tests/*' ! -path './analytics/*') ||
+# The console's source is all of console/ but its tests, analytics/ and mcp/,
+# so a change to either alone does not build the console again. analytics reads
+# its own directory, the workspace's manifest and lock, and the console's mask;
+# the MCP server its own directory and the manifest and lock.
+console_source=$(source_sum ! -path './tests/*' ! -path './analytics/*' ! -path './mcp/*') ||
   { echo "tehas: could not read the console's source in $root/console" >&2; exit 1; }
 analytics_source=$(source_sum \( \( -path './analytics/*' ! -path './analytics/tests/*' \) \
   -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path ./src/mask.rs \)) ||
   { echo "tehas: could not read the analytics program's source in $root/console" >&2; exit 1; }
+mcp_source=$(source_sum \( \( -path './mcp/*' ! -path './mcp/tests/*' ! -path './mcp/target/*' \) \
+  -o -path ./Cargo.toml -o -path ./Cargo.lock \)) ||
+  { echo "tehas: could not read the MCP server's source in $root/console" >&2; exit 1; }
 program_sum() { sha256sum <"$1" | cut -d' ' -f1; }
 # program_label <name>: how a message names it.
-program_label() { if [ "$1" = console ]; then echo "the console"; else echo "the $1 program"; fi; }
+program_label() {
+  case $1 in
+    console) echo "the console" ;;
+    tehas-mcp) echo "the MCP server" ;;
+    *) echo "the $1 program" ;;
+  esac
+}
+# program_triple <name>: the target a program is built for, empty for the host's.
+program_triple() { [ "$1" != tehas-mcp ] || echo x86_64-unknown-linux-musl; }
 # unsafe_tool_dir: a tool directory this run would take its compiler from that
 # is not the running user's own, or nothing. tehas_tool_paths puts those
-# directories first on PATH and the program cargo prints here is installed as
-# libexec/console and libexec/analytics, which every cycle and the dispatcher
-# run. Only a directory that is there is judged, by the rule instance_findings
+# directories first on PATH and the programs cargo builds here are installed in
+# libexec, where every cycle and the dispatcher run them. Only a directory that is there is judged, by the rule instance_findings
 # applies to the settings files.
 unsafe_tool_dir() {
   local dir mode owner group
@@ -546,7 +560,7 @@ unsafe_tool_dir() {
 }
 
 due=()
-for entry in "console $console_source" "analytics $analytics_source"; do
+for entry in "console $console_source" "analytics $analytics_source" "tehas-mcp $mcp_source"; do
   read -r prog sum <<<"$entry"
   to=$TEHAS_HOME/libexec/$prog
   [ ! -x "$to" ] || [ "$(cat "$to.stamp" 2>/dev/null)" != "$sum $(program_sum "$to")" ] || continue
@@ -574,10 +588,11 @@ if [ "${#due[@]}" != 0 ]; then
   while IFS= read -r name; do hidden+=(-u "$name"); done < <(compgen -e | grep -E 'TOKEN|SECRET|PASSWORD|API_KEY')
   for entry in "${due[@]}"; do
     read -r prog _ <<<"$entry"
-    built=$target/release/$prog
+    triple=$(program_triple "$prog")
+    built=$target/${triple:+$triple/}release/$prog
     rm -f "$built"
     out=$(env "${hidden[@]}" cargo build --release --locked --quiet \
-      --manifest-path "$root/console/Cargo.toml" --target-dir "$target" -p "$prog" 2>&1) && rc=0 || rc=$?
+      --manifest-path "$root/console/Cargo.toml" --target-dir "$target" ${triple:+--target "$triple"} -p "$prog" 2>&1) && rc=0 || rc=$?
     if [ "$rc" != 0 ] || [ ! -f "$built" ]; then
       printf '%s\n' "$out" | tail -n 20 >&2
       if [ "$rc" = 127 ]; then
@@ -591,7 +606,8 @@ if [ "${#due[@]}" != 0 ]; then
   for entry in "${due[@]}"; do
     read -r prog sum <<<"$entry"
     to=$TEHAS_HOME/libexec/$prog
-    put "$target/release/$prog|$to|755"
+    triple=$(program_triple "$prog")
+    put "$target/${triple:+$triple/}release/$prog|$to|755"
     echo "$sum $(program_sum "$to")" | write_file "$to.stamp"
   done
 fi

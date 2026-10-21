@@ -11,10 +11,17 @@
 t_case "the changed sources ask for the steps, systemd first"
 t_eq "$(tehas_steps_for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env \
   edge/docs.compose.yaml edge/router.compose.yaml libexec/dispatch)" \
-  "units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer
+  "units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer
 sandbox
 docs --force-recreate
 edge --force-recreate"
+
+t_case "a new MCP server or its command restarts its unit, and only it"
+t_eq "$(tehas_steps_for libexec/mcp)" "units tehas-mcp.service"
+t_eq "$(tehas_steps_for /src/console/target/x86_64-unknown-linux-musl/release/tehas-mcp)" "units tehas-mcp.service"
+t_eq "$(tehas_steps_for libexec/tehas-mcp)" "units tehas-mcp.service"
+t_eq "$(tehas_steps_for systemd/tehas-top.service libexec/mcp | grep -c '^units ')" 1
+t_eq "$(tehas_steps_for libexec/dispatch)" ""
 
 t_case "a change to one server asks for that server only"
 t_eq "$(tehas_steps_for edge/docs.Caddyfile)" "docs --force-recreate"
@@ -189,6 +196,23 @@ t_eq "$t_rc" 0
 t_eq "$t_out" "units tehas-dispatch.timer
 sandbox
 docs --force-recreate"
+
+t_case "a units step another one covers is not recorded twice"
+T_ENV=("TEHAS_HOME=$T/home/record-units")
+t_run '. "$T_ROOT/lib/update-steps.sh"
+tehas_record_steps "units tehas-mcp.service"
+tehas_record_steps "units tehas-dispatch.timer tehas-mcp.service" sandbox
+tehas_record_steps "units tehas-mcp.service"
+tehas_read_steps'
+t_eq "$t_rc" 0
+t_eq "$t_out" "units tehas-dispatch.timer tehas-mcp.service
+sandbox"
+T_ENV=("TEHAS_HOME=$T/home/record-units-2")
+t_run '. "$T_ROOT/lib/update-steps.sh"
+tehas_record_steps "units tehas-mcp.service" "units tehas-top.service"
+tehas_read_steps'
+t_eq "$t_out" "units tehas-mcp.service
+units tehas-top.service"
 
 t_case "a recorded step no version here knows stays recorded, at the end"
 T_ENV=("TEHAS_HOME=$T/home/record2")

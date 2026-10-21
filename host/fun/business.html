@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {{- if ne (env "TEHAS_INDEXING") "1" }}
+  <meta name="robots" content="noindex, nofollow">
+  {{- end }}
+  <link rel="alternate" type="text/plain" href="/llms.txt" title="For agents: llms.txt">
+  <title>Tehas: factory dashboard</title>
+  <meta name="description" content="Tehas is a software factory powered by the Pi coding agent and pi-rukas. GitHub issues go in, reviewed pull requests come out, built in a sandbox on self-hosted models. This is its dashboard, live.">
+  <link rel="icon" type="image/svg+xml" href="/fun/favicon.svg">
+  <link rel="stylesheet" href="/fun/theme.css">
+  <link rel="stylesheet" href="/fun/business.css">
+  {{- /* Visitor analytics, only on an instance that names a script and a site. */}}
+  {{- if and (env "TEHAS_ANALYTICS_SRC") (env "TEHAS_ANALYTICS_SITE") }}
+  <script async src="{{ env "TEHAS_ANALYTICS_SRC" }}" data-site="{{ env "TEHAS_ANALYTICS_SITE" }}"{{ if eq (env "TEHAS_ANALYTICS_COOKIE") "1" }} data-cookie="true"{{ end }}></script>
+  {{- end }}
+</head>
+<body id="top">
+  <a class="skip" href="#board">Skip to the issue board</a>
+  <header class="topbar">
+    <div class="wrap">
+      <a class="mark" href="#top" aria-label="Tehas dashboard, top of page">tehas<small>Factory</small></a>
+      <nav aria-label="Sections">
+        <a href="#line">Line</a>
+        <a href="#board">Issues</a>
+        <a href="/floor">Floor</a>
+        <a href="/dashboard">Plain dashboard</a>
+        <a id="nav-lab" href="#" target="_blank" rel="noopener" hidden>Protolab</a>
+        <a href="/overview">Manual</a>
+        <a href="/agents">Agents</a>
+        <a id="nav-repo" href="#" target="_blank" rel="noopener noreferrer" hidden>GitHub</a>
+      </nav>
+      <div class="status">
+        <a class="meter" id="meter" href="#live" hidden><span id="meter-w">-- W</span></a>
+        <span class="tag" id="source" hidden></span>
+        <span class="state" id="state" data-state="none">Reading</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <h1 class="sr-only">Factory dashboard</h1>
+
+    <section class="panel live" id="live" aria-label="Live" hidden>
+      <div class="live-figs">
+        <span class="live-tag" id="live-tag">Live</span>
+        <div><small>Power now</small><b><span id="live-w">--</span><em>W</em></b></div>
+        <div id="live-tokens-box"><small>Tokens a minute</small><b id="live-tokens">--</b></div>
+        <div><small>Last 24 h</small><b><span id="live-24">--</span><em>kWh</em></b></div>
+        <div><small>Last 30 days</small><b><span id="live-30">--</span><em>kWh</em></b></div>
+      </div>
+      <div class="live-chart">
+        <h2>Power, 30 minutes</h2>
+        <svg id="live-power" role="img" aria-label="Power drawn over the last 30 minutes"></svg>
+      </div>
+      <div class="live-chart" id="live-tokens-chart">
+        <h2>Tokens a minute, 30 minutes</h2>
+        <svg id="live-token-bars" role="img" aria-label="Tokens a minute over the last 30 minutes"></svg>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="line-title">
+      <div class="panel-head"><h2 id="line-title">Production line</h2><span id="line-note"></span></div>
+      <div class="line" id="line"></div>
+    </section>
+
+    <section class="panel period" id="period" aria-labelledby="period-title" hidden>
+      <div class="panel-head"><h2 id="period-title">Last 10 days</h2><span id="period-window"></span></div>
+      <div class="tiles" id="tiles"></div>
+      <div class="period-body">
+        <div class="days">
+          <div class="chart-head">
+            <h3>Runs a day</h3>
+            <span class="legend"><i class="k-ship"></i>Shipped <i class="k-fail"></i>Failed</span>
+          </div>
+          <svg id="days" role="img" aria-label="Shipped and failed runs a day over the last ten days"></svg>
+          <h3 class="reasons-head">Why runs stopped</h3>
+          <ul class="reasons" id="reasons"></ul>
+          <p class="note" id="reasons-note"></p>
+        </div>
+        <div class="steps">
+          <h3>Station pass rate</h3>
+          <ol id="steps"></ol>
+          <p class="note" id="steps-note"></p>
+        </div>
+      </div>
+    </section>
+
+    <div class="section-break">
+      <div><p>Issues</p><h2>Issue board</h2></div>
+      <span id="board-count"></span>
+    </div>
+    <section class="panel board" id="board" aria-label="Issue board">
+      <div class="panel-head">
+        <h2>On the line</h2>
+        <div class="filters" id="filters" role="group" aria-label="Filter by stage">
+          <button type="button" data-filter="all" aria-pressed="true">All</button>
+          <button type="button" data-filter="line" aria-pressed="false">In line</button>
+          <button type="button" data-filter="build" aria-pressed="false">Building</button>
+          <button type="button" data-filter="review" aria-pressed="false">Review</button>
+          <button type="button" data-filter="stop" aria-pressed="false">Stopped</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Issue</th><th>Title</th><th>Stage</th></tr></thead>
+          <tbody id="board-rows"></tbody>
+        </table>
+      </div>
+      <p class="note board-empty" id="board-empty" hidden>Nothing here.</p>
+    </section>
+
+    <footer class="foot">
+      <p>Tehas, a software factory. Powered by Pi and pi-rukas.</p>
+      <p><a href="/floor">The factory floor</a> · <a href="/llms.txt">llms.txt</a></p>
+    </footer>
+  </main>
+
+  <script src="/fun/sample-issues.js"></script>
+  <script type="module" src="/fun/business-view.js"></script>
+</body>
+</html>

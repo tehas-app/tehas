@@ -271,7 +271,7 @@ done
 for bad in "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=two" "TEHAS_MAX_AWAITING=-1" "TEHAS_WORK_TIMEOUT=soon" "TEHAS_WORK_STALL=0" "TEHAS_WORK_STALL=1h" "TEHAS_HOST_ADDR=not an address" \
   "TEHAS_BRANCH=two words" "TEHAS_INDEXING=yes" "TEHAS_WORK_IMAGES=yes" "TEHAS_WORK_IMAGES=2" "TEHAS_WORK_DESCRIBE=yes" "TEHAS_WORK_FILES=yes" "TEHAS_WORK_FILES=2" "TEHAS_WORK_COMMENTS=yes" "TEHAS_TOP=yes" "TEHAS_TOP=2" "TEHAS_ANALYTICS_SRC=http://plain.example/ea.js" \
   "TEHAS_ANALYTICS_SRC=https://a.example/x.js\" onload=\"x" "TEHAS_ANALYTICS_SITE=two words" \
-  "TEHAS_ANALYTICS_COOKIE=yes" "TEHAS_THEME=neon" "TEHAS_THEME=../pixel" "TEHAS_PROTOLAB_URL=https://lab.example/" "TEHAS_PROTOLAB_URL=lab.example" \
+  "TEHAS_ANALYTICS_COOKIE=yes" "TEHAS_THEME=neon" "TEHAS_THEME=../pixel" "TEHAS_LAYOUT=game" "TEHAS_LAYOUT=../business" "TEHAS_PROTOLAB_URL=https://lab.example/" "TEHAS_PROTOLAB_URL=lab.example" \
   "TEHAS_PLAN_MAX_TURNS=0" "TEHAS_PLAN_TIMEOUT=1h" "TEHAS_VERIFY_TIMEOUT=30m" "TEHAS_VERIFY_TIMEOUT=0" \
   "TEHAS_DOMAIN=https://example.org" "TEHAS_DOMAIN=example.org/" "TEHAS_DOMAIN=Example.org" \
   "TEHAS_DOMAIN=localhost" "TEHAS_DOMAIN=-a.example.org" "TEHAS_PREVIEWS=yes" \
@@ -374,6 +374,23 @@ t_eq "$t_out" "[pixel]"
 printf '%s\n' "${T_MINIMAL[@]}" TEHAS_THEME=paper >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && echo \"[\$TEHAS_THEME]\""
 t_eq "$t_out" "[paper]"
+
+t_case "the front page is the floor unless the instance names the business layout"
+printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_LAYOUT]\""
+t_eq "$t_out" "[floor]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_LAYOUT=business TEHAS_THEME=beesknees >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_LAYOUT][\$TEHAS_THEME]\""
+t_eq "$t_out" "[business][beesknees]"
+
+t_case "every layout the settings accept has a page"
+layouts=$(sed -n '/TEHAS_LAYOUT)/{n;p}' "$T_ROOT/lib/config.sh" | sed 's/^ *case "\$v" in \(.*\)) ;; \*).*/\1/' | tr -d ' ' | tr '|' ' ')
+t_contains "$layouts" floor
+t_contains "$layouts" business
+for l in $layouts; do
+  case "$l" in floor) page=index.html ;; *) page=$l.html ;; esac
+  [ -f "$T_ROOT/host/fun/$page" ] || t_bad "layout $l has no host/fun/$page"
+done
 
 t_case "every theme the settings accept ships, and every theme that ships is accepted"
 t_eq "$(sed -n '/TEHAS_THEME)/{n;p}' "$T_ROOT/lib/config.sh" | sed 's/^ *case "\$v" in \(.*\)) ;; \*).*/\1/' | tr -d ' ' | tr '|' '\n' | sort | xargs)" \
@@ -862,5 +879,19 @@ t_case "a role model in the environment is dropped, like every setting"
 t_run "PI_ENSEMBLE_MODEL_NOPE=x PI_ENSEMBLE_MODEL_DEVELOPER=x; export PI_ENSEMBLE_MODEL_NOPE PI_ENSEMBLE_MODEL_DEVELOPER; $load && echo \"[\${PI_ENSEMBLE_MODEL_DEVELOPER:-}]\""
 t_eq "$t_rc" 0
 t_eq "$t_out" "[]"
+
+t_case "the MCP server's settings come from the host's environment and are kept"
+t_instance "${T_MINIMAL[@]}"
+T_ENV=(TEHAS_MCP=1 TEHAS_MCP_KEYS="abcdefghijklmnopqrstuvwxyz012345 second")
+t_run "$load && echo \"\$TEHAS_MCP [\$TEHAS_MCP_KEYS]\""
+t_eq "$t_out" "1 [abcdefghijklmnopqrstuvwxyz012345 second]"
+T_ENV=()
+
+t_case "keys for the MCP server in the instance directory are refused"
+t_instance "${T_MINIMAL[@]}" TEHAS_MCP_KEYS=abcdefghijklmnopqrstuvwxyz012345
+t_run "$load"
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_MCP_KEYS"
+t_lacks "$t_out" "abcdefghijklmnopqrstuvwxyz012345"
 
 t_done

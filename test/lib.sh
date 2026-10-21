@@ -13,7 +13,8 @@
 #                                    commands look for it, in the scratch
 #                                    TEHAS_HOME; t_calls analytics
 #   t_stub_cargo                     a cargo that compiles nothing and leaves the
-#                                    package it was asked for (-p)
+#                                    package it was asked for (-p), under its
+#                                    target's directory when given --target
 #   t_console_source DIR             copy the source of the console and of
 #                                    analytics into a scratch checkout
 #   slice_state / slice_child / slice_id   a scratch cgroup tree for lib/slice.sh
@@ -87,21 +88,22 @@ t_stub_analytics() {
 # another, and NO_CONSOLE is a build that succeeds and leaves nothing.
 t_stub_cargo() {
   # shellcheck disable=SC2016  # the stub's body is expanded when the stub runs
-  t_stub cargo 'pkg=console prev=""
-for a in "$@"; do [ "$prev" != -p ] || pkg=$a; prev=$a; done
+  t_stub cargo 'pkg=console triple="" prev=""
+for a in "$@"; do [ "$prev" != -p ] || pkg=$a; [ "$prev" != --target ] || triple=$a/; prev=$a; done
 if [ "${CARGO_RC:-0}" != 0 ]; then echo "error: could not compile $pkg" >&2; exit "$CARGO_RC"; fi
 if [ "${CARGO_FAIL:-}" = "$pkg" ]; then echo "error: could not compile $pkg" >&2; exit 101; fi
 [ -z "${NO_CONSOLE:-}" ] || exit 0
-mkdir -p "${CARGO_TARGET_DIR:?}/release"
+mkdir -p "${CARGO_TARGET_DIR:?}/${triple}release"
 case $pkg in analytics) art=an ;; *) art=a ;; esac
-echo "$art $pkg built from ${CONSOLE_BUILD:-source}" >"$CARGO_TARGET_DIR/release/$pkg"'
+echo "$art $pkg built from ${CONSOLE_BUILD:-source}" >"$CARGO_TARGET_DIR/${triple}release/$pkg"'
 }
 # The source of the console and of analytics without what a build here left
 # beside it.
 t_console_source() {
-  mkdir -p "$1/console/analytics"
+  mkdir -p "$1/console/analytics" "$1/console/mcp"
   cp -R "$T_ROOT/console/Cargo.toml" "$T_ROOT/console/Cargo.lock" "$T_ROOT/console/src" "$1/console/"
   cp -R "$T_ROOT/console/analytics/Cargo.toml" "$T_ROOT/console/analytics/src" "$1/console/analytics/"
+  cp -R "$T_ROOT/console/mcp/Cargo.toml" "$T_ROOT/console/mcp/src" "$1/console/mcp/"
 }
 
 # A scratch cgroup tree for lib/slice.sh, under $T_CGROUP. A test that uses
