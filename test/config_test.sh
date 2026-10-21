@@ -919,6 +919,93 @@ t_eq "$t_rc" 0
 t_eq "$t_out" "release"
 T_ENV=()
 
+t_case "tehas_read_pin hands back the word of a pin, and refuses a line that is not one assignment"
+# The one reader both tehas_load and host/sandbox/build.sh go through, so the
+# spelling a build follows and the spelling the settings load believes cannot drift
+# apart. The answers are three: the word, nothing for a name the file does not set,
+# and no word at all for a line no shell would run as this assignment.
+digest64=sha256:$(printf 'f%.0s' {1..64})
+
+t_case "tehas_read_pin hands back a pin written plain, quoted or with export"
+for line in "PI_RUKAS_FOLLOW=commit:$commit40" "PI_RUKAS_FOLLOW=\"commit:$commit40\"" \
+  "PI_RUKAS_FOLLOW='commit:$commit40'" "export PI_RUKAS_FOLLOW=commit:$commit40" \
+  "PI_RUKAS_FOLLOW=commit:$commit40 # what the release pinned"; do
+  printf '%s\n' "$line" >"$T/instance/pin.env"
+  t_case "the line '$line' is the pin"
+  t_run ". \"\$T_ROOT/lib/config.sh\"; tehas_read_pin '$T/instance/pin.env' PI_RUKAS_FOLLOW"
+  t_eq "$t_rc" 0
+  t_eq "$t_out" "commit:$commit40"
+done
+
+t_case "tehas_read_pin reads a pin the same way sourcing the file would"
+# The reader exists so the spelling a build follows and the spelling the settings
+# load believes cannot drift apart: for each line an operator may write, the word
+# the reader hands back is the word the shell sets when the file is sourced.
+for line in "PI_RUKAS_IMAGE_DIGEST=$digest64" "PI_RUKAS_IMAGE_DIGEST=\"$digest64\"" \
+  "PI_RUKAS_IMAGE_DIGEST='$digest64'" "export PI_RUKAS_IMAGE_DIGEST=$digest64"; do
+  printf '%s\n' "$line" >"$T/instance/pin.env"
+  t_case "the word for '$line' is the word sourcing the file sets"
+  t_run ". \"\$T_ROOT/lib/config.sh\"
+. '$T/instance/pin.env'
+read=\$(tehas_read_pin '$T/instance/pin.env' PI_RUKAS_IMAGE_DIGEST)
+[ \"\$read\" = \"\$PI_RUKAS_IMAGE_DIGEST\" ] && echo same || echo \"differ: [\$read] [\$PI_RUKAS_IMAGE_DIGEST]\""
+  t_eq "$t_rc" 0
+  t_eq "$t_out" "same"
+done
+
+t_case "tehas_read_pin refuses a pin that is not one word, and says so by its exit status"
+# rc=2 names a line the file does give the name on, which is the difference
+# build.sh needs: a pin it was handed and cannot read is broken, not absent, and
+# the release's value must not be built behind it without a word.
+for entry in "PI_RUKAS_FOLLOW:commit:$commit40 extra" \
+  "PI_RUKAS_FOLLOW:\"commit:$commit40 extra\"" \
+  "PI_RUKAS_FOLLOW:\"commit:$commit40" \
+  "PI_RUKAS_IMAGE_DIGEST:$digest64'"; do
+  name=${entry%%:*}
+  rest=${entry#*:}
+  printf '%s=%s\n' "$name" "$rest" >"$T/instance/pin.env"
+  t_case "the line '$name=$rest' is refused with 2"
+  t_run ". \"\$T_ROOT/lib/config.sh\"; tehas_read_pin '$T/instance/pin.env' $name"
+  t_eq "$t_rc" 2
+done
+
+t_case "tehas_read_pin answers 1 for a name the file does not set"
+printf 'TEHAS_REPO=acme/widget\n' >"$T/instance/pin.env"
+t_run ". \"\$T_ROOT/lib/config.sh\"; tehas_read_pin '$T/instance/pin.env' PI_RUKAS_FOLLOW"
+t_eq "$t_rc" 1
+t_eq "$t_out" ""
+
+# tehas_load refuses a line that sets the name to nothing, so the reader must say
+# the host wrote it while giving no word to build on: the caller tests the word.
+for line in "PI_RUKAS_FOLLOW=" "PI_RUKAS_FOLLOW=\"\""; do
+  printf '%s\n' "$line" >"$T/instance/pin.env"
+  t_case "the line '$line' is an empty answer"
+  t_run ". \"\$T_ROOT/lib/config.sh\"; tehas_read_pin '$T/instance/pin.env' PI_RUKAS_FOLLOW"
+  t_eq "$t_rc" 0
+  t_eq "$t_out" ""
+done
+
+t_case "the last line of the file is the pin, as it is for the shell"
+printf 'PI_RUKAS_FOLLOW=commit:%s\nPI_RUKAS_FOLLOW=commit:%s\n' "$commit40" \
+  "$(printf 'b%.0s' {1..40})" >"$T/instance/pin.env"
+t_run ". \"\$T_ROOT/lib/config.sh\"; tehas_read_pin '$T/instance/pin.env' PI_RUKAS_FOLLOW"
+t_eq "$t_rc" 0
+t_eq "$t_out" "commit:$(printf 'b%.0s' {1..40})"
+
+t_case "a name set twice with a broken line last is refused, not read from the earlier one"
+printf 'PI_RUKAS_FOLLOW=commit:%s\nPI_RUKAS_FOLLOW=commit:%s extra\n' "$commit40" "$commit40" \
+  >"$T/instance/pin.env"
+t_run ". \"\$T_ROOT/lib/config.sh\"; tehas_read_pin '$T/instance/pin.env' PI_RUKAS_FOLLOW"
+t_eq "$t_rc" 2
+
+# Loading settings has no side effects, and this reader is part of it: a file
+# that holds a command line is looked at and never run.
+t_case "tehas_read_pin runs nothing the file holds"
+printf 'PI_RUKAS_FOLLOW=commit:%s\nrm -rf no-such-directory\n' "$commit40" >"$T/instance/pin.env"
+t_run ". \"\$T_ROOT/lib/config.sh\"; tehas_read_pin '$T/instance/pin.env' PI_RUKAS_FOLLOW"
+t_eq "$t_rc" 0
+t_eq "$t_out" "commit:$commit40"
+
 t_case "each form of PI_RUKAS_FOLLOW the instance may give is accepted"
 for good in release branch:main "branch:feature/one" "commit:$commit40"; do
   t_instance "${T_MINIMAL[@]}" "PI_RUKAS_FOLLOW=$good"
@@ -927,9 +1014,9 @@ for good in release branch:main "branch:feature/one" "commit:$commit40"; do
 done
 t_instance "${T_MINIMAL[@]}"
 
-t_case "a PI_RUKAS_FOLLOW that is none of the three forms is 78, and says which half is wrong"
-# One case per value, each naming the message its own arm of the check gives:
-# a bad commit says the commit, not the whole list of forms.
+t_case "a PI_RUKAS_FOLLOW that is none of the forms is refused, and says which half is wrong"
+# One case per value, each naming the message its own arm of the check gives: a
+# bad commit says the commit, not the whole list of forms.
 bad_commit=$(printf 'c%.0s' {1..40})
 bad_commit_msg="PI_RUKAS_FOLLOW is not valid: expected commit: and 40 lower-case hex digits, the whole pi-rukas commit"
 bad_branch_msg="PI_RUKAS_FOLLOW is not valid: expected branch:<name>, a name of letters, digits and ._/-"
@@ -955,13 +1042,7 @@ t_contains "$t_out" "rc=78"
 t_contains "$t_out" "PI_RUKAS_FOLLOW is set and empty: remove the line to follow what versions.env names"
 t_instance "${T_MINIMAL[@]}"
 
-t_case "a bad PI_RUKAS_FOLLOW is refused by the load, the way every bad setting is"
-# tehas_require is the command that stops a unit with 78, and it is reached only
-# after tehas_load, so the load's own refusal is what keeps a bad pin from
-# reaching the build; the name is not one an instance has to set, so requiring
-# it would stop every instance that follows its release.
-t_instance "${T_MINIMAL[@]}" PI_RUKAS_FOLLOW=main
-t_case "a bad PI_RUKAS_FOLLOW stops the load with 78, as every bad setting does"
+t_case "a bad PI_RUKAS_FOLLOW is refused by the load, and by a required check of its own"
 # tehas_load reports it and answers 78, so the command that asked for the
 # settings stops before it calls GitHub, Docker or git. The name is not one an
 # instance has to set, so tehas_require_instance_settings does not name it: an
@@ -974,10 +1055,17 @@ t_contains "$t_out" "PI_RUKAS_FOLLOW is not valid"
 t_instance "${T_MINIMAL[@]}"
 
 t_case "the pin the instance set is what a required check answers for"
+# tehas_require is the command that stops a unit with 78, and it checks the value
+# itself rather than resting on the load that usually precedes it.
 t_instance "${T_MINIMAL[@]}" "PI_RUKAS_FOLLOW=commit:$commit40"
 t_run "$load && tehas_require PI_RUKAS_FOLLOW && echo ok"
 t_eq "$t_rc" 0
 t_contains "$t_out" "ok"
+t_instance "${T_MINIMAL[@]}" PI_RUKAS_FOLLOW=main
+T_ENV=(PI_RUKAS_FOLLOW=main)
+t_run '. "$T_ROOT/lib/config.sh"; tehas_require PI_RUKAS_FOLLOW && echo ok'
+t_eq "$t_rc" 78
+t_contains "$t_out" "PI_RUKAS_FOLLOW is not valid"
 t_instance "${T_MINIMAL[@]}"
 
 t_done

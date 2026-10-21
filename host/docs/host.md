@@ -1080,9 +1080,10 @@ commit a host follows:
 
 Either line may go in the instance's `instance.env`, where it wins over the one in
 `versions.env`: a host installed from a release can follow another commit than the
-release names, and one that sets nothing follows what it was shipped with.
-`lib/config.sh` checks the value when the settings load and stops the command with
-78 naming the setting, as it does for any other malformed setting.
+release names, and one that sets nothing follows what it was shipped with. The same
+is true of `PI_RUKAS_IMAGE_DIGEST` below. `lib/config.sh` checks the value when the
+settings load and stops the command with 78 naming the setting, as it does for any
+other malformed setting.
 
 What follows from it:
 
@@ -1090,12 +1091,12 @@ What follows from it:
   the commit the image was built on, also when no file of tehas changed. The
   base is the image upstream publishes for each commit, named by its tag
   `sha-<first 12 characters>`, or by its digest when `PI_RUKAS_IMAGE_DIGEST`
-  (`sha256:<64 hex>`, from the release's `versions.env` or from `instance.env`) is
-  set: a release then starts from the one image its packer saw rather than from
-  whatever that tag points at now. A digest of any other shape stops the build with
-  78 before docker is asked anything. A commit whose image upstream has not
-  published yet fails the update with a message that says so; the next update tries
-  again. `tehas update --check` says whether the commit moved.
+  (`sha256:<64 hex>`) is set: a release then starts from the one image its packer
+  saw rather than from whatever that tag points at now. A digest of any other
+  shape stops the build with 78 before docker is asked anything. A commit whose
+  image upstream has not published yet fails the update with a message that says
+  so; the next update tries again. `tehas update --check` says whether the commit
+  moved.
 - `./bootstrap.sh user` moves the host's clone in `~/tehas/repos/pi-rukas` to
   that commit and runs its installer. That clone is what `tehas dev` and an
   interactive Pi session on the host load. Cycles run the pi-rukas inside the
@@ -1131,9 +1132,9 @@ the cycle's container started.
 
 That holds until the next `tehas update`, which builds the followed commit
 again. Hold off updates until upstream tags a fix, or set `PI_RUKAS_FOLLOW` in
-`instance.env` to `branch:<name>` for a branch whose head is the commit you want,
-or to `commit:<sha>` for one commit, with `PI_RUKAS_IMAGE_DIGEST` beside it when
-the base image is to be pinned too.
+`instance.env`, where it wins over the release's line: `branch:<name>` for a
+branch whose head is the commit you want, or `commit:<sha>` for one commit, with
+`PI_RUKAS_IMAGE_DIGEST` beside it when the base image is to be pinned too.
 
 Where the instance sets `TEHAS_IMPROVE_RUKAS_REPO`, the
 [improvement loop](/operating#the-improvement-loop) files what it finds about
