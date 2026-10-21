@@ -2723,7 +2723,9 @@ hands the binary over, which is why the pack script needs no toolchain.
 Usage, the list of what is packed and the exit statuses are the script's: run
 `scripts/pack-release.sh --help`. Two of them matter to the workflow that calls
 this one: half a pin is a bad argument (64), a pin whose value has the wrong
-shape is a failure (1), and the two are gated differently.
+shape is a failure (1), and the two are gated differently. A pin of either shape
+is written to `versions.env` in lower case, so a value `git rev-parse` or a
+registry gave in upper case is accepted.
 
 What it writes is `tehas-<tag>-linux-x86_64.tar.gz` and one `.sha256` file
 beside it, and it writes neither before both are ready, so a run that fails
@@ -2736,11 +2738,16 @@ down, and the gate checks the script and the test against it. An adopter
 unpacks it and runs `./install.sh` from inside, as they would from a checkout.
 `console/`, the instance directories and the git record are not packed: there
 is nothing in the tarball to build from and nothing to check out, and
-[The host](/host#what-install-sh-copies) tells how a checkout installs the
-console by building it instead. The `VERSION` file is not the version a host
-reports: `tehas api` and the footer of every page read the `version.txt` that
-`install.sh` writes from git, and a host installed from a tarball has no git and
-so reports no version.
+[The host](/host#configuration-comes-from-git) tells how a checkout installs the
+console by building it instead. The `VERSION` file is what makes that install
+say which release it is: the version `tehas api` and the footer of every page
+read is the `version.txt` that `install.sh` writes beside the pages, and a tree
+with no git has no commit to write, so it writes the tag from `VERSION`.
+
+A tree with a symbolic link under any packed directory is refused: a link is
+kept by the copy and followed by `tar`, so its target's content would reach the
+release from outside the tree. That is why the tree is a checkout of this
+repository and the command makes no other claim about where it came from.
 
 The two pins, the last two lines of the copy of `versions.env` inside the
 tarball, replace rather than repeat a key the tree already carried:
@@ -2771,30 +2778,40 @@ in:
 sha256sum -c tehas-v0.7.6-linux-x86_64.tar.gz.sha256
 ```
 
-The public key for the signature is `host/release/minisign.pub`, in this
-repository and in the tarball, so an adopter checks against the copy that came
-with the source rather than one taken from the same download:
+The public key for a signature is `host/release/minisign.pub`, and its
+fingerprint is `FE1F47199BDF1A8A`, named in the key's own first line. It is not
+the tarball that holds the copy to check with: whoever packs the release signs
+it, and a key that arrives inside the download it authenticates is the
+attacker's, not the project's. The key is read from the repository, or from
+`~/tehas/release/minisign.pub`, where `install.sh` puts it, and compared with
+that fingerprint before `minisign` is asked anything:
 
 ```
-tar -xzf tehas-v0.7.6-linux-x86_64.tar.gz tehas-v0.7.6/host/release/minisign.pub
-minisign -Vm tehas-v0.7.6-linux-x86_64.tar.gz \
-  -p tehas-v0.7.6/host/release/minisign.pub
+minisign -Vm tehas-v0.7.6-linux-x86_64.tar.gz -p ~/tehas/release/minisign.pub
 ```
 
-No release carries `.minisig` yet: nothing in this tree signs one, so until the
-workflow that does exists, `sha256sum -c` above is the only check, and it proves
-only that the file is the one published beside that hash.
+No release carries `.minisig` yet: nothing in this tree signs one, and no
+release has been published, so until the workflow that signs exists there is
+nothing for that command to check. Today `sha256sum -c` above is the only check,
+and it proves only that the file is the one published beside that hash: a
+download and its hash arrive together, so a `sha256sum -c` that passes on a
+tampered pair says nothing about where they came from. When releases are
+published, the digest of the `.sha256` is named on the release's own page as
+well as in the file, so the two can be compared.
 
 ### What the gate covers, and what a person adds
 
 The pack script is in the fast gate, with `test/pack_release_test.sh`: it packs
 from the test's own tree with a stub console and checks the file list, `VERSION`,
 the pin lines, that the `.sha256` passes `sha256sum -c`, what a bad argument
-costs, and that the command line above is a command that works. The release
-workflow that builds the console, resolves the pins and uploads the two files to
-the tag is not run by the gate and is not written by a work cycle: CI files are
-protected, so a person adds it against the interface above. Until they do, the
-only releases are the ones made by hand with the command above.
+costs, that a tree holding a symbolic link is refused, that the sources
+`install.sh` reads are covered by `lib/release.sh`, and that the command line
+above is a command that works. The release workflow that builds the console,
+resolves the pins and uploads the tarball and its `.sha256` named above to the
+tag is not run by the gate and is not written by a work cycle: CI files are
+protected, so a person adds it against the interface above, and the statuses
+above are the two it branches on. Until they do, the only releases are the ones
+made by hand with the command above.
 
 ## bootstrap.sh
 
