@@ -2,7 +2,8 @@
 # What tehas reads of pi-rukas's headless runner: its --capabilities answer,
 # its NDJSON progress and its --json result. Only the contract the runner
 # publishes is read here (docs/headless.md in pi-rukas), never its state file.
-# Sourced by tehas work (libexec/work) and tehasbot cycle (libexec/cycle).
+# Sourced by tehas work (libexec/work), tehas plan (libexec/plan) and tehasbot
+# cycle (libexec/cycle).
 #
 #   tehas_headless_unsupported <caps> <flags> <names> [features]
 #       what the image's --capabilities answer <caps> does not support, one
@@ -14,6 +15,9 @@
 #       the answer is not an object.
 #       A family such as PI_ENSEMBLE_MODEL_<ROLE> takes the members the
 #       answer lists for it, and any name characters when it lists none.
+#   tehas_headless_plans <caps>
+#       0 when the answer's features set planTurns to true: the image runs a
+#       planning session as headless turns. 1 otherwise.
 #   tehas_headless_reads_images <caps>
 #       1 when the answer lists PI_ENSEMBLE_ISSUE_IMAGES for the manifest
 #       format tehas writes (manifestVersion 1), else 0.
@@ -105,6 +109,12 @@ tehas_headless_expired() { # <caps> <workarounds>
     [ "$(printf '%s\n%s\n' "$want" "$have" | sort -V | head -n 1)" = "$want" ] || continue
     printf '%s\n' "$name works around a pi-rukas defect fixed in $want, and the image's pi-rukas is $have"
   done
+}
+
+# 0 when the image runs planning sessions as headless turns (`plan --start`,
+# `--resume`), 1 otherwise or when the answer is not JSON.
+tehas_headless_plans() { # <caps>
+  jq -e 'type == "object" and .features.planTurns == true' <<<"$1" >/dev/null 2>&1
 }
 
 tehas_headless_reads_images() { # <caps>

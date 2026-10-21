@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# tehas analytics: the factory's ten days of runs, for a person or a program.
+# tehas analytics: the factory's 365 days of runs, for a person or a program.
 #
 # The factory records its runs, their steps and roles, issue events and poll
-# samples in ~/tehas/state/analytics.db, and keeps ten days of them. This
+# samples in ~/tehas/state/analytics.db, and keeps 365 days of them. This
 # command reads them through ~/tehas/libexec/analytics, the program that holds
 # all of their SQL.
 #

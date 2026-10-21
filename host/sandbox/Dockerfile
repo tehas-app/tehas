@@ -15,7 +15,10 @@
 #   - the embedding model vipune searches with, which a cycle cannot download,
 #   - no wigolo: the base ships one that fails on every call.
 #
-# A product whose gates need another toolchain adds it here.
+# A product whose gates need another toolchain does not add it here: it adds it
+# to <instance dir>/sandbox.Dockerfile, which sandbox/build.sh builds on top of
+# this image when the instance has one (host/docs/new-project.md). Editing this
+# file makes `tehas update` refuse with "has local changes" for good.
 #
 # Build with sandbox/build.sh, which passes the user id, the versions from
 # versions.env and the base: upstream's image for the pi-rukas commit
