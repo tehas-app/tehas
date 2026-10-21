@@ -127,7 +127,12 @@ fn the_tools_are_listed_in_order_with_their_schemas() {
         .map(|t| t["name"].as_str().unwrap())
         .collect();
     let mut want = NAMES.to_vec();
-    want.extend(["factory_sessions", "factory_session", "factory_failures"]);
+    want.extend([
+        "factory_sessions",
+        "factory_session",
+        "factory_log",
+        "factory_failures",
+    ]);
     assert_eq!(names, want);
     for t in tools.as_array().unwrap() {
         assert_eq!(t["inputSchema"]["type"], "object", "{}", t["name"]);

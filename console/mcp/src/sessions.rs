@@ -27,7 +27,7 @@ const MAX_LIMIT: u64 = 200;
 const TOP_CAUSES: usize = 5;
 const CAUSE_ISSUES: usize = 10;
 
-static ID: LazyLock<Regex> =
+pub(crate) static ID: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(work|plan)-[1-9][0-9]{0,8}-[0-9]{9,11}$").unwrap());
 static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Za-z0-9._+-]{1,64}$").unwrap());
 static REPO: LazyLock<Regex> =

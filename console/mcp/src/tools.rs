@@ -4,7 +4,7 @@
 //! its spec below names. A key the dashboard's files gain later is not served
 //! until it is named here. Null values are left out.
 
-use crate::sessions;
+use crate::{logs, sessions};
 use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
 
@@ -102,12 +102,17 @@ pub fn list() -> Value {
     ]);
     if let Value::Array(a) = &mut tools {
         a.extend(sessions::tools());
+        // factory_log goes before factory_failures.
+        a.insert(a.len() - 1, logs::tool());
     }
     tools
 }
 
 /// The structured content of one call, with "api": 1.
 pub fn call(dirs: &Dirs, name: &str, args: &Value) -> Result<Output, ToolError> {
+    if name == "factory_log" {
+        return logs::call(dirs, args);
+    }
     let live = dirs.live.as_path();
     let mut out = match name {
         "factory_status" => status(live)?,
