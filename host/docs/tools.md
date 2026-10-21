@@ -2860,14 +2860,10 @@ PI_RUKAS_FOLLOW=commit:<sha>         the pi-rukas commit the sandbox builds from
 PI_RUKAS_IMAGE_DIGEST=sha256:<hex>   the base image that sandbox starts from
 ```
 
-The rest of the file is the checkout's own, so a release names one pi-rukas
-commit and one base image and keeps every other version where it is. A release
-packed without pins follows pi-rukas's newest tag, as a checkout does today.
-The release workflow pins a tag only when that tag's `lib/rukas.sh` reads
-`commit:<sha>` (#463): a host given a pin it cannot read stops on the setting,
-as it stops on any value it does not know. It resolves the commit from the
-tag's own `PI_RUKAS_FOLLOW`, and the digest from the registry for the base
-image `host/sandbox/build.sh` would pull for that commit.
+The rest of the file is the checkout's own. The release workflow packs no pins:
+a release follows the pi-rukas line its `versions.env` names, as a checkout
+does, so a new pi-rukas reaches a host at its next `tehas update`. The pins are
+for a person who packs a release that must keep one pi-rukas.
 
 ### Verifying a download
 

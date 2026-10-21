@@ -17,9 +17,9 @@ person renames it to the version in the release's pull request.
   `~/tehas/versions/<version>` with `~/tehas/current` pointing at one.
 - `tehas update` installs releases: `--check` shows the installed and newest
   version and the notes between them, `--to vX.Y.Z` pins or rolls back.
-- Each release pins the pi-rukas commit (`PI_RUKAS_FOLLOW=commit:<sha>`) and
-  the base image digest it builds the sandbox from, so one version builds the
-  same image on every day. An instance may set `PI_RUKAS_FOLLOW` itself.
+- pi-rukas follows the newest tag of a major version, `PI_RUKAS_FOLLOW=release:0`
+  before 1.0, so a new pi-rukas arrives with `tehas update`. An instance may set
+  `PI_RUKAS_FOLLOW` itself, down to one commit.
 - One root command prepares a host, `tehas setup` writes the instance, and
   `tehas check-product` and `tehas init-product` check and scaffold the
   product's files.
