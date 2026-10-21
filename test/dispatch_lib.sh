@@ -10,7 +10,34 @@ mkdir -p "$fx"
 checkout=$T/home/tehas/repos/widget
 
 # gh answers from fixture files; every call is recorded by t_stub.
+#
+# t_stub writes this body through printf, so the shell expands it as it is
+# written: every $ and every backslash in it is consumed then, not when the
+# stub runs. So a case pattern matches what $1, $2 and $* hold at run time but
+# may not name them itself, and the arguments past those are read through the
+# names assigned here.
 t_stub gh '
+# rest_verb, rest_path: the verb and the path of a call of the form
+# gh api -X <verb> <path> ... The words of the call reach this body only
+# through a name given here: the plain positional parameters of the body are
+# filled in when t_stub writes the stub, so only $1, $2 and $* can be read
+# directly.
+rest_verb=$3
+rest_path=$4
+# fails <fixture> [<fixture of a countdown>]: exit 1 when the first names an
+# outage, or while the second holds a count above 0, which it lowers.
+fails() {
+  local left
+  if [ -s "$T/fx/${2:-none}" ]; then
+    left=$(cat "$T/fx/$2")
+    [ "$left" -gt 0 ] || return 0
+    echo $((left - 1)) >"$T/fx/$2"
+    exit 1
+  fi
+  [ ! -e "$T/fx/$1" ] || exit 1
+}
+# not_found: say what GitHub says for a path it does not have, and fail.
+not_found() { echo "message: Not Found" >&2; exit 1; }
 case "$1 $2" in
   "repo view") cat "$T/fx/repo.json" || exit 1 ;;
   "issue view") cat "$T/fx/issue-$3.json" 2>/dev/null || cat "$T/fx/control.json" || exit 1 ;;
@@ -24,7 +51,31 @@ case "$1 $2" in
       *) echo "[]" ;;
     esac ;;
   "api user") cat "$T/fx/user.json" || exit 1 ;;
-  "api -X") [ ! -e "$T/fx/patch-fails" ] || exit 1 ;;
+  # The label of a pull request, through the REST issues endpoint: a mark adds
+  # it, an unmark takes it off. A mark fails while $fx/mark-fails-times counts
+  # down, or at once when the file is there but holds nothing, so a case can
+  # say the first two marks fail and the third works. An unmark fails on
+  # $fx/unmark-fails. $fx/label-missing makes either answer 404, as GitHub
+  # does for a label the repository has not got.
+  # A call of gh api -X. The path of a label call is the fourth argument and
+  # the verb the third, both read through the names assigned above: $1 and $2
+  # of the case hold only "api" and "-X", and a pattern may not name them.
+  # A mark adds tehas:refreshing to a pull request and an unmark takes it off,
+  # both through the REST issues endpoint. A mark fails while
+  # $fx/mark-fails-times counts down, or at once when that file is there but
+  # holds nothing, so a case can say the first two marks fail and the third
+  # works. An unmark fails on $fx/unmark-fails. $fx/label-missing makes either
+  # answer 404, as GitHub does for a label the repository has not got.
+  "api -X")
+    case "$rest_verb ${rest_path%%:*}" in
+      "POST repos/acme/widget/issues/"*/labels)
+        [ ! -e "$T/fx/label-missing" ] || not_found
+        fails mark-fails mark-fails-times ;;
+      "DELETE repos/acme/widget/issues/"*/labels/*)
+        [ ! -e "$T/fx/label-missing" ] || not_found
+        fails unmark-fails ;;
+      *) fails patch-fails ;;
+    esac ;;
   "api repos/acme/widget/issues/"*"/comments") [ ! -e "$T/fx/post-fails" ] || exit 1; echo 4002 ;;
   "api repos/acme/widget/issues/"*"/comments?per_page=100")
     n=${2#repos/acme/widget/issues/}
@@ -74,7 +125,6 @@ case "$1 $2" in
     if [ -s "$T/fx/edit-fails-on" ]; then
       case "$*" in *"$(cat "$T/fx/edit-fails-on")"*) exit 1 ;; esac
     fi ;;
-  "pr edit") [ ! -e "$T/fx/pr-edit-fails" ] || exit 1 ;;
   "pr list") [ ! -e "$T/fx/pr-fails" ] || exit 1
     # The pull requests marked tehas:refreshing.
     case "$*" in *tehas:refreshing*) cat "$T/fx/refreshing.json" 2>/dev/null || echo "[]"; exit 0 ;; esac
@@ -164,7 +214,7 @@ cid() { # <issue> <hex digit> <bytes in use>
 dispatch_json=$T/home/tehas/live/dispatch.json
 
 reset() {
-  rm -f "$T"/calls/* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/icomments-* "$fx"/prs.json "$fx"/prlist.json "$fx"/pr-fails "$fx"/issue-* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/plan-runs "$fx"/slice-* "$fx"/orphan-* "$fx"/prs-* "$fx"/blockers* "$fx"/checks*
+  rm -f "$T"/calls/* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/icomments-* "$fx"/prs.json "$fx"/prlist.json "$fx"/pr-fails "$fx"/issue-* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/plan-runs "$fx"/slice-* "$fx"/orphan-* "$fx"/prs-* "$fx"/blockers* "$fx"/checks* "$fx"/mark-fails "$fx"/mark-fails-times "$fx"/unmark-fails "$fx"/label-missing
   rm -rf "$T/home/tehas/libexec" "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-* "$T"/home/tehas/state/park-* "$T/home/tehas/live" "$T/home/tehas/state/pause.json" "$T/home/tehas/state/limit.json" "$T/home/tehas/state/branch-check"
   # A slice of 20 GiB with nothing in it: room for ten cycles of the default
   # reserve, so the slots and the review cap decide unless a case says more.

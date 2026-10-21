@@ -15,9 +15,64 @@ state=$T/home/tehas/state/cycles
 park_id=$T/home/tehas/state/park-7.id
 
 t_stub gh '
-# A GitHub that does not answer, once a case writes gh-hangs.
-[ ! -e "$T/fx/gh-hangs" ] || exec "$(command -pv sleep)" 30
+# nap names the real sleep: found before the words of a call are named, so
+# that the substitution is answered when t_stub writes the stub and not in the
+# middle of the case below.
+# gh-hangs stands for a GitHub that does not answer. The word sleep is asked
+# for once here, in a plain assignment, where its substitution is harmless.
+nap=$(command -pv sleep)
+[ ! -e "$T/fx/gh-hangs" ] || exec "$nap" 30
+# rest_verb, rest_path: the verb and the path of a call of the form
+# gh api -X verb path ... Their values reach this body only through these two
+# names, and no case pattern below may name them: the case reads $1 and $2,
+# which hold the two words of the call that t_stub fills in itself.
+rest_verb=$3
+rest_path=$4
+# fails <fixture> [<fixture of a countdown>]: exit 1 when the first names an
+# outage, or while the second holds a count above 0, which it lowers.
+fails() {
+  local left
+  if [ -s "$T/fx/${2:-none}" ]; then
+    left=$(cat "$T/fx/$2")
+    [ "$left" -gt 0 ] || return 0
+    echo $((left - 1)) >"$T/fx/$2"
+    exit 1
+  fi
+  [ ! -e "$T/fx/$1" ] || exit 1
+}
+# not_found: say what GitHub says for a path it does not have, and fail.
+not_found() { echo "message: Not Found" >&2; exit 1; }
+# api_rest <verb> <path-glob>: a call of gh api -X that changes one label of a
+# pull request, answered as GitHub answers it. Called with the two words, so
+# that no pattern of the case below has to name them.
+api_rest() {
+  [ "$rest_verb" = "$1" ] || return 1
+  case "$rest_path" in
+    repos/acme/widget/issues/"$2") return 0 ;;
+    *) return 1 ;;
+  esac
+}
 case "$1 $2" in
+  # The label of a pull request, through the REST issues endpoint: a mark adds
+  # it and an unmark takes it off. The verb and the path are compared by
+  # api_rest above, because a pattern of this case may name only $1 and $2,
+  # which hold just "api" and "-X". A mark fails while $fx/mark-fails-times
+  # counts down, or at once when that file is there but holds nothing, so a
+  # case can say the first two marks fail and the third works. An unmark fails
+  # while $fx/unmark-fails-times counts down, or at once when
+  # $fx/unmark-fails is there, which is what the three tries of the cycle use.
+  # $fx/label-missing makes either answer 404, as GitHub does for a label the
+  # repository has not got.
+  "api -X")
+    if api_rest POST "*/labels"; then
+      [ ! -e "$T/fx/label-missing" ] || not_found
+      fails mark-fails mark-fails-times
+    elif api_rest DELETE "*/labels/*"; then
+      [ ! -e "$T/fx/label-missing" ] || not_found
+      fails unmark-fails unmark-fails-times
+    else
+      exit 1
+    fi ;;
   "pr list")
     # The first lists fail, as many as pr-fails-times says.
     if [ -s "$T/fx/pr-fails-times" ]; then
@@ -45,7 +100,6 @@ case "$1 $2" in
     if [ -s "$T/fx/edit-fails-on" ]; then
       case "$*" in *"$(cat "$T/fx/edit-fails-on")"*) exit 1 ;; esac
     fi ;;
-  "pr edit") [ ! -e "$T/fx/pr-edit-fails" ] || exit 1 ;;
   # The park question, posted through the API so that its id comes back.
   "api repos/acme/widget/issues/"*"/comments") [ ! -e "$T/fx/post-fails" ] || exit 1; echo 4002 ;;
   # What the number is. An open issue, unless a case writes the fixture.
