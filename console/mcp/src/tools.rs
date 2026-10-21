@@ -95,7 +95,7 @@ pub fn list() -> Value {
         },
         {
             "name": "factory_stats",
-            "description": "The last ten days as the dashboard reports them: runs by outcome, cycle and lead time, first pass yield, handoff rate, availability, machine time, tokens, energy, stop reasons, versions and the daily rows.",
+            "description": "The last ten days as the dashboard reports them: runs by outcome, cycle and lead time, first pass yield, handoff rate, availability, machine time, tokens, energy, stop reasons, versions, the refine figures and the daily rows.",
             "inputSchema": none,
             "outputSchema": out,
         },
@@ -117,6 +117,7 @@ pub fn call(dirs: &Dirs, name: &str, args: &Value) -> Result<Output, ToolError> 
         "factory_stats" => stats(live)?,
         "factory_sessions" => sessions::list(dirs, args)?,
         "factory_session" => sessions::one(dirs, args)?,
+        "factory_failures" => sessions::failures(dirs)?,
         _ => return Err(ToolError::Unknown(name.to_string())),
     };
     out.insert("api".into(), json!(1));
@@ -376,6 +377,11 @@ fn stats(live: &Path) -> Result<Map<String, Value>, ToolError> {
         "planned": {"n": true, "inLine": true, "planning": true,
                     "trend": [{"day": true, "n": true}]},
         "planningTurns": {"n": true},
+        "refine": {"sessions": true, "n": true, "started": true, "shipped": true,
+                   "shippedShare": true,
+                   "leadTime": {"n": true, "median": true, "p90": true},
+                   "others": {"n": true, "started": true, "shipped": true,
+                              "shippedShare": true}},
         "stations": {"n": true, "steps": [{"step": true, "n": true, "passed": true, "share": true}]},
         "stopReasons": {"n": true, "top": [{"reason": true, "n": true}]},
         "versions": [{"tehas": true, "rukas": true, "n": true, "medianSeconds": true,

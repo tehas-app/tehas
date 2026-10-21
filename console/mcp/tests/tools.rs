@@ -127,7 +127,7 @@ fn the_tools_are_listed_in_order_with_their_schemas() {
         .map(|t| t["name"].as_str().unwrap())
         .collect();
     let mut want = NAMES.to_vec();
-    want.extend(["factory_sessions", "factory_session"]);
+    want.extend(["factory_sessions", "factory_session", "factory_failures"]);
     assert_eq!(names, want);
     for t in tools.as_array().unwrap() {
         assert_eq!(t["inputSchema"]["type"], "object", "{}", t["name"]);
@@ -146,6 +146,20 @@ fn no_tool_returns_a_planted_key() {
         }
         assert_eq!(out["api"], 1, "{name}");
     }
+}
+
+#[test]
+fn stats_carry_refine() {
+    let out = call(&live(), "factory_stats", &json!({})).unwrap();
+    assert_eq!(out["refine"]["sessions"], 4);
+    assert_eq!(out["refine"]["shippedShare"], 0.333);
+    assert_eq!(out["refine"]["leadTime"]["median"], 43400);
+    assert_eq!(out["refine"]["others"]["shipped"], 2);
+    let text = out["refine"].to_string();
+    for bad in ["buzzwords", "issues", "filedIssues"] {
+        assert!(!text.contains(bad), "{text}");
+    }
+    assert!(out.get("filedIssues").is_none());
 }
 
 #[test]
@@ -436,6 +450,21 @@ fn every_key_is_listed() {
                 "planned.trend[].n",
                 "planningTurns",
                 "planningTurns.n",
+                "refine",
+                "refine.sessions",
+                "refine.n",
+                "refine.started",
+                "refine.shipped",
+                "refine.shippedShare",
+                "refine.leadTime",
+                "refine.leadTime.n",
+                "refine.leadTime.median",
+                "refine.leadTime.p90",
+                "refine.others",
+                "refine.others.n",
+                "refine.others.started",
+                "refine.others.shipped",
+                "refine.others.shippedShare",
                 "stations",
                 "stations.n",
                 "stations.steps",

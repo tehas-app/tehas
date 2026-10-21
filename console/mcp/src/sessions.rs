@@ -1,5 +1,5 @@
-//! The session tools: `factory_sessions` and
-//! `factory_session`, over the sessions snapshot. They read it one line at a
+//! The session tools: `factory_sessions`, `factory_session` and
+//! `factory_failures`, over the sessions snapshot. They read it one line at a
 //! time and copy only the fields named here. A log's file name is never
 //! returned.
 
@@ -7,6 +7,7 @@ use crate::snapshot::Snapshot;
 use crate::tools::{self, Dirs, ToolError};
 use regex::Regex;
 use serde_json::{json, Map, Value};
+use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 const OUTCOMES: [&str; 7] = [
@@ -23,6 +24,8 @@ const HOWS: [&str; 6] = [
 ];
 const DEFAULT_LIMIT: u64 = 50;
 const MAX_LIMIT: u64 = 200;
+const TOP_CAUSES: usize = 5;
+const CAUSE_ISSUES: usize = 10;
 
 static ID: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(work|plan)-[1-9][0-9]{0,8}-[0-9]{9,11}$").unwrap());
@@ -226,6 +229,40 @@ fn session_schema() -> Value {
     item
 }
 
+fn outcome_counts(desc: &str) -> Value {
+    json!({"type": "object", "description": desc,
+           "additionalProperties": {"type": "integer"}})
+}
+
+fn failures_schema() -> Value {
+    let cause = json!({"type": "object", "properties": {
+        "cause": text("The failure cause."),
+        "kind": text("Its failure kind. Left out when none was recorded."),
+        "n": count("Work sessions with this cause."),
+        "issues": array_of(text("An issue link."), "Up to ten issues, newest first. Empty without a valid repo."),
+    }});
+    let pair = json!({"type": "object", "properties": {
+        "tehasVersion": text("The tehas version. Left out when unknown."),
+        "rukasVersion": text("The pi-rukas version, or its commit. Left out when unknown."),
+        "runs": count("Work sessions on this pair."),
+        "outcomes": outcome_counts("Sessions per outcome."),
+        "failureKinds": outcome_counts("Sessions per failure kind."),
+        "causes": array_of(cause, "The five most common failure causes."),
+    }});
+    schema(vec![
+        ("api", count("The API version, 1.")),
+        ("days", count("The days the snapshot covers.")),
+        (
+            "stale",
+            json!({"type": "boolean", "description": "True when the snapshot is more than ten minutes old."}),
+        ),
+        (
+            "versions",
+            array_of(pair, "One entry per version pair, the most runs first."),
+        ),
+    ])
+}
+
 fn arg(name: &str, ty: &str, desc: &str) -> (String, Value) {
     (name.to_string(), json!({"type": ty, "description": desc}))
 }
@@ -337,6 +374,12 @@ pub fn tools() -> Vec<Value> {
                 "id": {"type": "string", "pattern": ID.as_str(), "description": "The session id from factory_sessions."},
             }, "required": ["id"], "additionalProperties": false},
             "outputSchema": one_out,
+        }),
+        json!({
+            "name": "factory_failures",
+            "description": "Work runs of the last 30 days per tehas and pi-rukas version pair: runs, outcomes, failure kinds and the five most common causes with links to the issues. Most runs first.",
+            "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
+            "outputSchema": failures_schema(),
         }),
     ]
 }
@@ -541,4 +584,92 @@ pub(crate) fn one(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, ToolE
 
 fn spec_of(fields: &[(&str, &str, &str)]) -> Value {
     spec(&fields.iter().map(|f| f.0).collect::<Vec<_>>())
+}
+
+#[derive(Default)]
+struct Pair {
+    runs: u64,
+    outcomes: BTreeMap<String, u64>,
+    kinds: BTreeMap<String, u64>,
+    causes: BTreeMap<(String, Option<String>), Cause>,
+}
+
+#[derive(Default)]
+struct Cause {
+    n: u64,
+    issues: Vec<i64>,
+}
+
+pub(crate) fn failures(dirs: &Dirs) -> Result<Map<String, Value>, ToolError> {
+    let snap = open(dirs)?;
+    let repo = repo(dirs);
+    let mut pairs: BTreeMap<(String, String), Pair> = BTreeMap::new();
+    for s in snap.sessions().filter(|s| s["kind"] == "work") {
+        let text = |k: &str| s[k].as_str().map(str::to_string);
+        let tehas = text("tehasVersion").unwrap_or_default();
+        let rukas = text("rukasVersion")
+            .or_else(|| text("rukasCommit"))
+            .unwrap_or_default();
+        let p = pairs.entry((tehas, rukas)).or_default();
+        p.runs += 1;
+        *p.outcomes
+            .entry(text("outcome").unwrap_or_else(|| "unknown".into()))
+            .or_default() += 1;
+        let kind = text("failureKind");
+        if let Some(k) = &kind {
+            *p.kinds.entry(k.clone()).or_default() += 1;
+        }
+        if let Some(cause) = text("failureCause") {
+            let c = p.causes.entry((cause, kind)).or_default();
+            c.n += 1;
+            if let Some(i) = s["issue"].as_i64() {
+                if c.issues.len() < CAUSE_ISSUES && !c.issues.contains(&i) {
+                    c.issues.push(i);
+                }
+            }
+        }
+    }
+    let mut ordered: Vec<_> = pairs.into_iter().collect();
+    ordered.sort_by(|a, b| b.1.runs.cmp(&a.1.runs));
+    let versions: Vec<Value> = ordered
+        .into_iter()
+        .map(|((tehas, rukas), p)| {
+            let mut causes: Vec<_> = p.causes.into_iter().collect();
+            causes.sort_by(|a, b| b.1.n.cmp(&a.1.n));
+            let causes: Vec<Value> = causes
+                .into_iter()
+                .take(TOP_CAUSES)
+                .map(|((cause, kind), c)| {
+                    let issues: Vec<String> = c
+                        .issues
+                        .iter()
+                        .filter_map(|i| links(repo.as_deref(), *i, None).0)
+                        .collect();
+                    let mut o = Map::new();
+                    o.insert("cause".into(), json!(cause));
+                    insert_opt(&mut o, "kind", kind);
+                    o.insert("n".into(), json!(c.n));
+                    o.insert("issues".into(), json!(issues));
+                    Value::Object(o)
+                })
+                .collect();
+            let mut o = Map::new();
+            if !tehas.is_empty() {
+                o.insert("tehasVersion".into(), json!(tehas));
+            }
+            if !rukas.is_empty() {
+                o.insert("rukasVersion".into(), json!(rukas));
+            }
+            o.insert("runs".into(), json!(p.runs));
+            o.insert("outcomes".into(), json!(p.outcomes));
+            o.insert("failureKinds".into(), json!(p.kinds));
+            o.insert("causes".into(), Value::Array(causes));
+            Value::Object(o)
+        })
+        .collect();
+    let mut out = Map::new();
+    out.insert("days".into(), json!(snap.days));
+    out.insert("stale".into(), json!(snap.stale));
+    out.insert("versions".into(), Value::Array(versions));
+    Ok(out)
 }

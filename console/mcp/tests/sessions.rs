@@ -464,6 +464,7 @@ fn schema_matches_output() {
     let cases = [
         ("factory_sessions", json!({"limit": 1})),
         ("factory_session", json!({"id": a["id"]})),
+        ("factory_failures", json!({})),
     ];
     for (name, args) in cases {
         let out = env.call(name, args).unwrap();
@@ -475,7 +476,7 @@ fn schema_matches_output() {
 
 #[test]
 fn inputs_described() {
-    for name in ["factory_sessions", "factory_session"] {
+    for name in ["factory_sessions", "factory_session", "factory_failures"] {
         let tool = list()
             .as_array()
             .unwrap()
@@ -515,10 +516,136 @@ fn no_snapshot_is_a_tool_error() {
     for (name, args) in [
         ("factory_sessions", json!({})),
         ("factory_session", json!({"id": "work-1-1234567890"})),
+        ("factory_failures", json!({})),
     ] {
         match env.call(name, args) {
             Err(ToolError::File { file, .. }) => assert_eq!(file, "sessions.jsonl"),
             other => panic!("{name}: {other:?}"),
         }
+    }
+}
+
+#[test]
+fn failures_per_version_pair() {
+    let s = |kind, issue, ago, extra| sess(kind, issue, ago, extra);
+    let rows = [
+        s(
+            "work",
+            1,
+            10,
+            json!({"outcome": "failed", "failureKind": "model", "failureCause": "c1"}),
+        ),
+        s("work", 2, 20, json!({"outcome": "merged"})),
+        s(
+            "work",
+            3,
+            30,
+            json!({"outcome": "failed", "failureKind": "model", "failureCause": "c1"}),
+        ),
+        s(
+            "work",
+            4,
+            40,
+            json!({"outcome": "failed", "failureKind": "git", "failureCause": "c2",
+                              "tehasVersion": "v0.7.30", "rukasVersion": null, "rukasCommit": "abc"}),
+        ),
+        s(
+            "work",
+            5,
+            50,
+            json!({"outcome": "pr", "tehasVersion": "v0.7.30", "rukasVersion": null, "rukasCommit": "abc"}),
+        ),
+        s(
+            "plan",
+            6,
+            60,
+            json!({"outcome": "failed", "failureKind": "model", "failureCause": "c1"}),
+        ),
+    ];
+    let env = Env::new("pairs", Some("tehas-app/tehas"), &rows);
+    let out = env.call("factory_failures", json!({})).unwrap();
+    assert_eq!(out["days"], 30);
+    assert_eq!(out["stale"], false);
+    let v = out["versions"].as_array().unwrap();
+    assert_eq!(v.len(), 2);
+    assert_eq!(v[0]["tehasVersion"], "v0.7.31");
+    assert_eq!(v[0]["rukasVersion"], "v0.14.0");
+    assert_eq!(v[0]["runs"], 3);
+    assert_eq!(v[0]["outcomes"], json!({"failed": 2, "merged": 1}));
+    assert_eq!(v[0]["failureKinds"], json!({"model": 2}));
+    assert_eq!(v[0]["causes"][0]["cause"], "c1");
+    assert_eq!(v[0]["causes"][0]["kind"], "model");
+    assert_eq!(v[0]["causes"][0]["n"], 2);
+    assert_eq!(
+        v[0]["causes"][0]["issues"],
+        json!([
+            "https://github.com/tehas-app/tehas/issues/1",
+            "https://github.com/tehas-app/tehas/issues/3"
+        ])
+    );
+    assert_eq!(v[1]["tehasVersion"], "v0.7.30");
+    assert_eq!(v[1]["rukasVersion"], "abc");
+    assert_eq!(v[1]["runs"], 2);
+    assert_eq!(v[1]["outcomes"], json!({"failed": 1, "pr": 1}));
+}
+
+#[test]
+fn top_causes_bounded() {
+    let mut rows = Vec::new();
+    // Seven causes; c0 failed twelve issues, c1..c6 one each.
+    for i in 0..12 {
+        rows.push(sess(
+            "work",
+            100 + i,
+            10 + i,
+            json!({"outcome": "failed", "failureCause": "c0", "failureKind": "k"}),
+        ));
+    }
+    // The same issue again does not add a second link.
+    rows.push(sess(
+        "work",
+        100,
+        500,
+        json!({"outcome": "failed", "failureCause": "c0", "failureKind": "k"}),
+    ));
+    for i in 1..7 {
+        rows.push(sess(
+            "work",
+            200 + i,
+            600 + i,
+            json!({"outcome": "failed", "failureCause": format!("c{i}")}),
+        ));
+    }
+    let env = Env::new("causes", Some("a/b"), &rows);
+    let out = env.call("factory_failures", json!({})).unwrap();
+    let causes = out["versions"][0]["causes"].as_array().unwrap();
+    assert_eq!(causes.len(), 5);
+    assert_eq!(causes[0]["cause"], "c0");
+    assert_eq!(causes[0]["n"], 13);
+    let issues = causes[0]["issues"].as_array().unwrap();
+    assert_eq!(issues.len(), 10);
+    assert_eq!(issues[0], "https://github.com/a/b/issues/100");
+    let unique: BTreeSet<&str> = issues.iter().map(|i| i.as_str().unwrap()).collect();
+    assert_eq!(unique.len(), 10);
+}
+
+#[test]
+fn failures_without_repo() {
+    let rows = [
+        sess(
+            "work",
+            1,
+            10,
+            json!({"outcome": "failed", "failureCause": "c", "failureKind": "k"}),
+        ),
+        sess("work", 2, 20, json!({"outcome": "merged"})),
+    ];
+    for repo in [None, Some("a/b/c")] {
+        let env = Env::new("norepo", repo, &rows);
+        let out = env.call("factory_failures", json!({})).unwrap();
+        let v = &out["versions"][0];
+        assert_eq!(v["runs"], 2);
+        assert_eq!(v["causes"][0]["issues"], json!([]));
+        assert_eq!(v["causes"][0]["n"], 1);
     }
 }

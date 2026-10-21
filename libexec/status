@@ -82,7 +82,7 @@ log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*" >&2; }
 analytics_keep=600
 analytics_keys='["report","from","to","shipped","planned","runs","planningTurns","handoffRate",
   "firstPassYield","leadTime","cycleTime","machineTime","tokens","availability","energy","daily",
-  "stopReasons","stations","versions"]'
+  "stopReasons","stations","versions","refine"]'
 # shellcheck disable=SC2329  # the EXIT trap below calls it
 analytics_report() {
   # Names of this run: a cycle's end and a poll may run status at once. The
