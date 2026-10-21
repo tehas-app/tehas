@@ -16,8 +16,9 @@
 #   running   true while a turn is in flight
 #   startedAt when the turn in flight started, UTC
 #   comment   the id of the open question comment, once it is posted
-#   lost      true when Pi no longer has the session; it is then ended
+#   lost      true when pi-rukas no longer has the session; it is then ended
 #   by        the account whose tehas:plan or tehas:refine started the session
+#   label     the label that started it: tehas:plan or tehas:refine
 #   answers   one {turn, by, fixer} per answer that ran a turn: the turn it
 #             started, who gave it, and whether that was the fixer
 #   filed     the issues the session's turns filed, oldest first: the addresses
@@ -161,9 +162,10 @@ plan_post() {
 # written is the archive's loss only, and says so. <record> is the session
 # record as the turn left it, taken by the caller before it rewrites or removes
 # that file: the line has to say what the turn was, whatever becomes of the
-# record afterwards.
+# record afterwards. label is the label that started the session (tehas:plan
+# or tehas:refine), and filed the issues this turn filed, when it filed any.
 plan_history() {
-  local n=$1 rc=$2 turn=$3 kept=$4 rec started outcome
+  local n=$1 rc=$2 turn=$3 kept=$4 rec started outcome label filed
   rec=${5:-$(plan_state "$n")}
   # The turn's start as an epoch number, as a cycle's line has it. The record
   # of a session written before startedAt was kept has none, and so has no
@@ -177,15 +179,37 @@ plan_history() {
     "not readable") outcome=not-readable ;;
     *) outcome=failed ;;
   esac
+  label=$(jq -r 'if (.label | type) == "string" then .label else "" end' <<<"$kept" 2>/dev/null) || label=""
+  filed=$(jq -c '[(.filed // []) | if type == "array" then .[] else empty end | strings
+      | select(test("^https://github\\.com/[^/]+/[^/]+/issues/[0-9]+$"))]' "$(plan_state "$n").out" 2>/dev/null) || filed="[]"
+  [ -n "$filed" ] || filed="[]"
   tehas_cycle_history_add "plan-$n" "$(jq -n -c --arg at "$(date -u +%FT%TZ)" \
     --arg started "$started" --arg rc "$rc" --arg status "$outcome" \
     --argjson turn "$turn" --arg by "$(jq -r 'if (.by | type) == "string" then .by else "" end' <<<"$kept" 2>/dev/null)" \
-    '{kind: "plan", $at, $started, $rc, $status, $turn, $by}
-     | with_entries(select(.value != ""))')" ||
+    --arg label "$label" --argjson filed "$filed" \
+    '{kind: "plan", $at, $started, $rc, $status, $turn, $by, $label}
+     | with_entries(select(.value != "")) + (if $filed == [] then {} else {$filed} end)')" ||
     log "WARN: no line of history of the planning turn of #$n"
 }
 
 # A session Pi no longer has cannot go on: what was said in it is gone.
+# plan_refined <issue> <kept> <outcome>: one line in state/refined.jsonl for
+# each issue a refining session filed, {at, source, filed, url}, so the
+# analytics report can follow what became of refined issues. Only a session
+# tehas:refine started counts. A line that cannot be written is the report's
+# loss only, and says so.
+plan_refined() {
+  local n=$1 kept=$2 out=$3 lines
+  [ "$(jq -r '.label // ""' <<<"$kept" 2>/dev/null)" = tehas:refine ] || return 0
+  lines=$(jq -c --arg at "$(date -u +%FT%TZ)" --argjson n "$n" '
+      (.filed // []) | if type == "array" then .[] else empty end | strings
+      | select(test("^https://github\\.com/[^/]+/[^/]+/issues/[0-9]+$"))
+      | {at: $at, source: $n, filed: (capture("/issues/(?<k>[0-9]+)$").k | tonumber), url: .}' "$out" 2>/dev/null) || lines=""
+  [ -n "$lines" ] || return 0
+  printf '%s\n' "$lines" >>"$TEHAS_HOME/state/refined.jsonl" ||
+    log "WARN: could not note in state/refined.jsonl what refining #$n filed"
+}
+
 plan_lost() {
   plan_end "$1" "Tehas ended this planning session: pi-rukas has no record of it on \`$(hostname)\` any more, so the last answer was not given to the planner. Apply \`tehas:plan\` again to start a new session."
 }
@@ -195,7 +219,7 @@ plan_finish() {
   st=$(plan_state "$n")
   out=$st.out
   # Rewritten below from the outcome, so the session's own fields are carried.
-  kept=$(jq -c '{by, answers} | with_entries(select(.value != null))' "$st" 2>/dev/null) || kept=""
+  kept=$(jq -c '{by, answers, label} | with_entries(select(.value != null))' "$st" 2>/dev/null) || kept=""
   [ -n "$kept" ] || kept='{}'
   # The record as the turn left it, copied before anything below rewrites it or
   # removes it, so both the line of history and the copy tehas export takes of
@@ -259,6 +283,7 @@ plan_finish() {
     # filed before are noted too: the record is rewritten from the outcome
     # alone, and the next turn's answer is made from what is left on record
     # once the outcome file is posted and removed.
+    plan_refined "$n" "$kept" "$out"
     before=$(plan_filed "$st") || before=""
     jq -c --argjson turns "$turns" --argjson max "${Q_MAX_OPTIONS:?}" --argjson kept "$kept" \
       --arg before "$before" \
@@ -331,8 +356,8 @@ plan_turn() {
   written=1
   if [ "$mode" = first ]; then
     was=""
-    jq -cn --arg by "${who:?}" --arg at "$(date -u +%FT%TZ)" \
-      '{session: "", turns: 0, options: [], pending: false, failed: false, running: true, startedAt: $at, by: $by}' >"$st.new" || written=0
+    jq -cn --arg by "${who:?}" --arg at "$(date -u +%FT%TZ)" --arg label "${plabel:-tehas:plan}" \
+      '{session: "", turns: 0, options: [], pending: false, failed: false, running: true, startedAt: $at, by: $by, label: $label}' >"$st.new" || written=0
   else
     was=$(cat "$st" 2>/dev/null) || was=""
     ! tehas_fixer_is "$by" || fixer=true
