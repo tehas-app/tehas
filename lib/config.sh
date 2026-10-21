@@ -38,6 +38,9 @@
 #     ~/.config/tehas/env TEHAS_ENERGY, TEHAS_ENERGY_URL and the model
 #     endpoints' tokens TEHAS_MODEL_KEY_*. instance.env that sets a token is
 #     refused: it is in a repository.
+#   - PI_RUKAS_FOLLOW may be set in instance.env, over the line of
+#     versions.env, and is checked whenever it is set: release, branch:<name>
+#     or commit:<40 hex>.
 #   - Loading runs no git command, makes no network call and writes nothing.
 #     TEHAS_PLAN_TIMEOUT_MAX, the ceiling of one planning turn, is local to
 #     tehas_load: nothing sources this file and reads it from the environment.
@@ -107,7 +110,7 @@ _tehas_valid() {
   local name=$1 v=$2 mb base clean_dir
   local -a clean_dirs
   case "$name" in
-    TEHAS_REPO | TEHAS_IMPROVE_REPO | TEHAS_IMPROVE_RUKAS_REPO)
+    TEHAS_REPO | TEHAS_IMPROVE_REPO | TEHAS_IMPROVE_RUKAS_REPO | TEHAS_RELEASE_REPO)
       [[ $v =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "expected owner/name"; return 1; }
       ;;
     TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_IMPROVE_MAX_OPEN | TEHAS_FIXER_MAX_RETRIES | TEHAS_FIXER_MAX_PLAN_ANSWERS | TEHAS_REFRESH_MAX | TEHAS_WORK_TIMEOUT | TEHAS_WORK_STALL | TEHAS_CONCURRENCY | TEHAS_TICKET_CONCURRENCY | \
@@ -135,6 +138,9 @@ _tehas_valid() {
       ;;
     TEHAS_ANALYTICS)
       case "$v" in on | off) ;; *) echo "expected on or off"; return 1 ;; esac
+      ;;
+    TEHAS_UPDATE_FROM)
+      case "$v" in git | release) ;; *) echo "expected git or release"; return 1 ;; esac
       ;;
     # The look of every page: host/fun/theme-<name>.css. The servers write the
     # name into a path, so only a theme that ships is let through.
@@ -225,6 +231,25 @@ _tehas_valid() {
             ;;
         esac
       done
+      ;;
+    PI_RUKAS_FOLLOW)
+      case "$v" in
+        release) ;;
+        release:*)
+          [[ ${v#release:} =~ ^[0-9]{1,6}(\.[0-9]{1,6})?$ ]] ||
+            { echo "expected release:<line>, a major version or major.minor such as 0.14"; return 1; }
+          ;;
+        branch:*)
+          [[ ${v#branch:} =~ ^[A-Za-z0-9._/-]+$ ]] ||
+            { echo "expected branch:<name>, a name of letters, digits and ._/-"; return 1; }
+          ;;
+        commit:*)
+          # The whole commit: an abbreviation could name another one later.
+          [[ ${v#commit:} =~ ^[0-9a-f]{40}$ ]] ||
+            { echo "expected commit: and 40 lower-case hex digits"; return 1; }
+          ;;
+        *) echo "expected release, release:<line>, branch:<name> or commit:<40 hex>"; return 1 ;;
+      esac
       ;;
     TEHAS_BRANCH_CHECK)
       # A check run's name goes into a URL and into the log.
@@ -527,7 +552,10 @@ tehas_load() {
     TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_LOW_GATE_WAIT TEHAS_CLEAN_AFTER; do
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
-  for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL; do
+  if [ -n "${PI_RUKAS_FOLLOW+x}" ]; then
+    reason=$(_tehas_valid PI_RUKAS_FOLLOW "$PI_RUKAS_FOLLOW") || { tehas_err "PI_RUKAS_FOLLOW is not valid: $reason (see $file)"; return 78; }
+  fi
+  for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL TEHAS_UPDATE_FROM TEHAS_RELEASE_REPO; do
     [ -n "${!v:-}" ] || continue
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done

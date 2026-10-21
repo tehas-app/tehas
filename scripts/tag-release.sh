@@ -7,6 +7,11 @@
 # remote's commit, not this checkout's HEAD, so it can run from any branch or
 # worktree: the gate runs in a temporary worktree at that commit.
 #
+# The commit it tags must have a CHANGELOG.md whose section for the new tag,
+# or else its Unreleased section, has an "### Adopter action" heading with at
+# least one line under it. It does not edit CHANGELOG.md: a person renames
+# Unreleased to the version in the release's pull request, or leaves it.
+#
 # The tag is annotated: "Release <tag> - <message>", the message being the
 # subject of the head commit unless --message gives one.
 #
@@ -20,12 +25,13 @@
 #   --major      v0.7.6 becomes v1.0.0
 #   --message    the tag's message instead of the head's subject
 #   --no-verify  skip scripts/verify.sh
-#   --dry-run    print the tag it would make, make none and run no gate
+#   --dry-run    check CHANGELOG.md and print the tag it would make; make none
+#                and run no gate
 #   --remote     the remote to read and push to, default origin
 #
 # Exit: 0 tagged, or the head already carries the newest tag; 1 git or the
-#       remote failed, the newest tag is not on the branch, or the gate
-#       failed; 64 a bad argument
+#       remote failed, the newest tag is not on the branch, CHANGELOG.md has
+#       no Adopter action for the release, or the gate failed; 64 a bad argument
 set -uo pipefail
 
 part="patch"
@@ -96,6 +102,33 @@ case "$part" in
   minor) next=v$major.$((minor + 1)).0 ;;
   patch) next=v$major.$minor.$((patch + 1)) ;;
 esac
+
+# An adopter reads what to do after an update from the release's section of
+# CHANGELOG.md, so a release is not tagged without one. The section is the
+# tag's own when a person has already renamed it, else Unreleased; it is read
+# from the commit that is tagged, not from this checkout.
+if ! changelog=$(git show "$head:CHANGELOG.md" 2>/dev/null); then
+  echo "tag-release: ${head:0:7} has no CHANGELOG.md; nothing was tagged" >&2
+  exit 1
+fi
+section=""
+for name in "$next" Unreleased; do
+  section=$(scripts/release-notes.sh "$name" - <<<"$changelog" 2>/dev/null) && break
+  section=""
+done
+if [ -z "$section" ]; then
+  echo "tag-release: CHANGELOG.md has no section for $next or Unreleased; nothing was tagged" >&2
+  exit 1
+fi
+if ! awk '
+  /^### Adopter action[[:space:]]*$/ { inside = 1; next }
+  /^##/ { inside = 0 }
+  inside && NF { found = 1 }
+  END { exit !found }
+' <<<"$section"; then
+  echo "tag-release: the $name section of CHANGELOG.md needs an \"### Adopter action\" heading with a line under it (\"None.\" will do); nothing was tagged" >&2
+  exit 1
+fi
 
 count=$(git rev-list --count "${latest:+$latest..}$head")
 if [ -n "$dry" ]; then
