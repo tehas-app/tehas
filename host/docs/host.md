@@ -167,7 +167,9 @@ Everything that differs between instances is in the instance directory:
 <instance dir>/
   instance.env     settings, shell KEY=value lines, no secrets
   models.json      Pi provider and model list, installed to ~/.pi/agent/
+                   with the keys a model leaves out filled
   settings.json    optional: Pi's own settings, installed to ~/.pi/agent/
+                   with the session model filled in from instance.env
   sandbox.Dockerfile  optional: a layer the sandbox image is built on top of,
                       by sandbox/build.sh. See
                       [the sandbox image](/new-project#6-the-sandbox-image)
@@ -448,8 +450,8 @@ Three files name a model and they do different things:
 
 | Where                                                    | Controls                                                         |
 | -------------------------------------------------------- | ---------------------------------------------------------------- |
-| `.pi/settings.json` in the product repository            | Provider and model of the session, the agent driving the cycle   |
-| `PI_ENSEMBLE_SUBAGENT_MODEL`, `_PROVIDER` in `instance.env` | Every subagent role that has no model of its own              |
+| `PI_ENSEMBLE_SUBAGENT_MODEL`, `_PROVIDER` in `instance.env` | The session, the agent driving the cycle, and every subagent role that has no model of its own |
+| `.pi/settings.json` in the product repository, optional  | Provider and model of the session, over the instance's           |
 | `PI_ENSEMBLE_MODEL_<ROLE>`, `PI_ENSEMBLE_PROVIDER_<ROLE>` in `instance.env` | One role                                       |
 | `models.json` in the instance directory                  | What the provider is and which models it offers                  |
 
@@ -541,7 +543,9 @@ no meter, even when the backup is one: the section hides.
 Pi retries a failed model request only as its `settings.json` says. The sandbox
 image has no `settings.json`, so every container is given the one `install.sh`
 put in `~/.pi/agent`, read-only: the instance's, or the generic one in
-`host/pi/settings.json`. The generic one sets:
+`host/pi/settings.json`, with `defaultProvider` and `defaultModel` from
+`PI_ENSEMBLE_SUBAGENT_PROVIDER` and `_MODEL` when the file does not name them.
+The generic one sets:
 
 | Key                              | Value  | Without it (Pi 1.0)                          |
 | -------------------------------- | ------ | -------------------------------------------- |
