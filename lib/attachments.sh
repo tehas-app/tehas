@@ -618,13 +618,14 @@ _tehas_take() {
 
 # _tehas_unpack: the archive in $images/.part, into a scratch directory beside
 # it, then one file at a time through the checks of a fetched one: an image by
-# its first bytes, a text file by its extension and tehas_text_ok. Named on
-# from what the directory holds. The archive itself is never kept and the
-# scratch directory is removed whatever it held. The caller's locals are read
-# and set as _tehas_take's are; <link> is the link the archive came from.
+# its first bytes and its extension, a text file by its extension and
+# tehas_text_ok. Named on from what the directory holds. The archive itself is
+# never kept and the scratch directory is removed whatever it held. The caller's
+# locals are read and set as _tehas_take's are; <link> is the link the archive
+# came from.
 # shellcheck disable=SC2154  # the caller's locals
 _tehas_unpack() {
-  local ref=$1 zdir lines rc f rel reason kind type name size sum got zleft
+  local ref=$1 zdir lines rc f rel reason kind="" type name size sum got zleft
   n=2
   zdir=$images/.unzip-$zcount
   # The archive is read to the room its own download took: an archive of
@@ -674,8 +675,17 @@ _tehas_unpack() {
     ext=""
     case "$f" in *.*) ext=${f##*.} ;; esac
     ext=${ext,,}
-    if [ -n "$ext" ] && type=$(tehas_image_type "$zdir/$f"); then
-      kind=image
+    # Both say an image: the bytes are those of one and the extension is one of
+    # the five a cycle is given as an image. An entry whose bytes look like a
+    # png under another extension is the file its extension says, as a link of
+    # the issue is: only a pasted attachment, which has no name, is an image on
+    # its bytes alone.
+    kind=""
+    type=""
+    case "$ext" in
+      png | jpg | jpeg | gif | webp) tehas_image_type "$zdir/$f" >/dev/null && kind=image ;;
+    esac
+    if [ "$kind" = image ]; then
       type=image/${ext/jpg/jpeg}
       name=image-$((count + 1)).${ext/jpeg/jpg}
     elif [ -n "$ext" ] && type=$(tehas_text_type "$ext") && tehas_text_ok "$zdir/$f"; then
@@ -740,7 +750,10 @@ _tehas_unpack() {
 # _tehas_left_reason <lines> <path>: why this file of an archive was not given
 # to the cycle. tehas_unzip_into's own words when it left it out, and the
 # reason of the caller when the file was written and is still not a type a
-# cycle is given: an svg, a nested archive, a binary.
+# cycle is given: an svg, a nested archive, a binary, or bytes that do not
+# answer the extension of an image or an app name. The last two say the kinds a
+# cycle is given, as the reason of a link that is neither does, because a name
+# of either is a name the instance can hand out as neither.
 _tehas_left_reason() {
   local lines=$1 f=$2 reason ext kind
   reason=$(jq -r --arg n "$f" 'select(.skip == $n) | .reason' <<<"$lines" | head -n 1)
@@ -749,7 +762,7 @@ _tehas_left_reason() {
   case "$f" in *.*) ext=${f##*.} ;; esac
   kind=$(tehas_attachment_kind "${ext,,}") || kind=""
   case "$kind" in
-    image) printf '%s\n' "$other" ;;
+    image | app) printf '%s\n' "$other" ;;
     *) printf 'Not a text file a cycle is given, and not an image.\n' ;;
   esac
 }
