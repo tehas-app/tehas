@@ -268,6 +268,30 @@ t_eq "$t_rc" 2
 t_run "$lint --names-only --bogus"
 t_eq "$t_rc" 2
 
+t_case "a path with non-ASCII bytes or a newline is still checked, path and content"
+fresh
+echo "$nm" >"$repo/scripts/check-generic.names"
+echo clean >"$repo/docs/caf$(printf '\303\251')-$nm.md"
+t_run "$lint"
+t_eq "$t_rc" 1
+t_contains "$t_out" "path names a listed name"
+fresh
+echo "$nm" >"$repo/scripts/check-generic.names"
+echo clean >"$repo/docs/a"$'\n'"$nm"
+t_run "$lint"
+t_eq "$t_rc" 1
+t_contains "$t_out" "docs/a\\n$nm: path names a listed name"
+fresh
+echo "$nm" >"$repo/scripts/check-generic.names"
+echo "see $nm" >"$repo/docs/caf$(printf '\303\251').md"
+t_run "$lint"
+t_eq "$t_rc" 1
+t_contains "$t_out" ":1:see $nm"
+fresh
+echo "ADDR=$addr" >"$repo/docs/caf$(printf '\303\251').md"
+t_run "$lint"
+t_eq "$t_rc" 1
+
 t_case "the list of names is ignored by git in this repository"
 t_eq "$(git -C "$T_ROOT" check-ignore -q scripts/check-generic.names && echo ignored)" ignored
 
