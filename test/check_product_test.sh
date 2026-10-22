@@ -112,8 +112,8 @@ t_contains "$(cat "$T/calls/tree")" "verify-cmd-full"
 t_eq "$(find "$T/home/tehas/tmp" -mindepth 1 | wc -l)" 0
 t_eq "$(jq .sandbox "$result")" true
 
-t_case "--sandbox: the clone has the default branch as a cycle's workspace does"
-product "${good[@]}" ".pi/verify-cmd-full=git rev-parse --verify origin/main && git merge-base origin/main HEAD && git rev-parse --verify origin/HEAD"
+t_case "--sandbox: the clone is a work branch one empty commit past the default branch, as a cycle's is"
+product "${good[@]}" ".pi/verify-cmd-full=git rev-parse --verify origin/main && git rev-parse --verify origin/HEAD && test \"\$(git merge-base origin/main HEAD)\" != \"\$(git rev-parse HEAD)\" && test -z \"\$(git diff --name-only origin/main)\""
 t_stub docker 'case $1 in image) exit 0 ;; run) w=""; prev=""; for a in "$@"; do [ "$prev" != -w ] || w=$a; prev=$a; done; cd "$w" && bash -c "${@: -4:1}" "${@: -3}" ;; esac'
 t_run "$check --sandbox"
 t_eq "$t_rc" 0
