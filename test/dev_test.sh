@@ -43,14 +43,18 @@ slice_good() {
 }
 slice_good
 limits="--cgroup-parent --memory --memory-swap --memory-reservation --cpus --pids-limit --cpu-shares"
-# The security options of lib/sandbox.sh, the same eight words a cycle is given
+# The security options of lib/sandbox.sh, the same ten words a cycle is given
 # (test/work_lib.sh holds the same pair for the cycle's tests).
-security_opts="--cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true"
+security_opts="--cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true --tmpfs /tmp:rw,exec,nosuid,nodev,size=8g,mode=1777"
 # The words after one option, read the way docker reads them.
 security_of() { # <flag> (reads the arguments on standard input)
   awk -v flag="$1" 'prev == flag { print } { prev = $0 }'
 }
-# The same eight words, in order, as one line; empty when given another way.
+# How many times an option is given on a docker line.
+count_of() { # <flag> (reads the arguments on standard input)
+  awk -v flag="$1" '$0 == flag { n++ } END { print n + 0 }'
+}
+# The same ten words, in order, as one line; empty when given another way.
 security_line() {
   awk '
     { arg[NR] = $0 }
@@ -59,13 +63,14 @@ security_line() {
       want[3] = "--cap-add"; want[4] = "CHOWN"
       want[5] = "--cap-add"; want[6] = "FOWNER"
       want[7] = "--security-opt"; want[8] = "no-new-privileges:true"
+      want[9] = "--tmpfs"; want[10] = "/tmp:rw,exec,nosuid,nodev,size=8g,mode=1777"
       for (i = 1; i <= NR; i++) {
-        if (seen >= 8) break
+        if (seen >= 10) break
         if (arg[i] != want[seen + 1]) continue
-        for (j = 1; j <= 8; j++) if (arg[i + j - 1] != want[j]) break
-        if (j > 8) { seen = 8; start = i }
+        for (j = 1; j <= 10; j++) if (arg[i + j - 1] != want[j]) break
+        if (j > 10) { seen = 10; start = i }
       }
-      if (seen == 8) for (i = start; i < start + 8; i++) printf "%s ", arg[i]
+      if (seen == 10) for (i = start; i < start + 10; i++) printf "%s ", arg[i]
     }'
 }
 root="TEHAS_CGROUP_ROOT=$T_CGROUP"
@@ -191,6 +196,9 @@ t_eq "$(session_args | security_line)" "$security_opts "
 t_eq "$(session_args | security_of --cap-add | LC_ALL=C sort)" "CHOWN
 FOWNER"
 t_eq "$(session_args | security_of --security-opt)" "no-new-privileges:true"
+# One bounded /tmp, as a cycle's container has: see test/work_test.sh.
+t_eq "$(session_args | security_of --tmpfs)" "/tmp:rw,exec,nosuid,nodev,size=8g,mode=1777"
+t_eq "$(session_args | count_of --tmpfs)" "1"
 # The image's entrypoint drops from root with setpriv, which the dropped
 # SETUID and SETGID refuse: the container starts as the host's user instead.
 t_eq "$(after --user)" "$(id -u):$(id -g)"
@@ -253,7 +261,7 @@ t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC
 t_eq "$(passed PI_ENSEMBLE_WORKSPACE_ROOT)" "$clone"
 
 t_case "the session's container gets no option beyond the documented ones"
-t_eq "$(session_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt --user -w -v -e" "--rm -it --init")" ""
+t_eq "$(session_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt --tmpfs --user -w -v -e" "--rm -it --init")" ""
 t_eq "$(session_args | grep -c -x -e --init)" 1
 t_contains "$(session_args)" "--add-host=models:192.0.2.9"
 
@@ -534,7 +542,7 @@ t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$mounts_base" "$imgs:$imgs:
 t_eq "$(after -e | grep -c '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" 1
 t_eq "$(passed PI_ENSEMBLE_EXTRA_IMAGE_DIRS)" "$imgs"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_ENSEMBLE_EXTRA_IMAGE_DIRS | LC_ALL=C sort)"
-t_eq "$(session_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt --user -w -v -e" "--rm -it --init")" ""
+t_eq "$(session_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt --tmpfs --user -w -v -e" "--rm -it --init")" ""
 t_eq "$(cd "$imgs" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" "./image-1.png ./manifest.json "
 t_contains "$t_out" "tehas dev: Tehas gave this session 1 image from the issue text."
 rm -f "$T/image.label"

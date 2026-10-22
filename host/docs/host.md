@@ -773,7 +773,7 @@ edge router are outside the slice too.
 ### What a container may not do
 
 A cycle, a planning turn, a `tehas dev` session and the push check before a
-cycle all get these eight words, from `tehas_sandbox_security` in
+cycle all get these ten words, from `tehas_sandbox_security` in
 `lib/sandbox.sh`, beside the mounts and the variables. The indexer and the
 analyst are not given them yet (issue #54 leaves them to a follow-up).
 
@@ -789,6 +789,7 @@ as that user it skips the drop. The image is built with the tehas user's uid
 | `--cap-add` | `CHOWN` | `npm install` drops a package to its owner with `chown(2)`, and Playwright's install of Chromium copies a cache tree that way. Both run in a gate of the product. Without it the gate fails with `EPERM` |
 | `--cap-add` | `FOWNER` | `npm` moves its staging directory onto its destination with `rename`, which is refused for a file one does not own even when the directory is writable. `tar`'s unpack, `cargo install` of a built crate and a gate's own `mv` do the same |
 | `--security-opt` | `no-new-privileges:true` | No process in the container gains rights through its mode bits or file capabilities, whatever it runs |
+| `--tmpfs` | `/tmp:rw,exec,nosuid,nodev,size=8g,mode=1777` | A `/tmp` of at most 8 GiB, charged to the container's memory ceiling: a runaway log there ends the container, where the writable layer it replaces sits on the host's root disk with no limit. It stays `exec` because Docker's own default for a tmpfs is `noexec` and a container runs stubs and scripts from under `/tmp` |
 
 What is left off the list on purpose: `SETUID` and `SETGID`, because nothing a
 cycle runs becomes another user (the image has no `sudo`, the container runs as
@@ -802,8 +803,9 @@ nothing in `host/sandbox/Dockerfile` installs it or relies on it.
 
 The root filesystem stays writable, unlike a preview's: a cycle's gate installs
 into its own tree and its caches, and a read-only root would need one `--tmpfs`
-for every directory a tool writes in. The process table is bounded by
-`--pids-limit`, in the table above.
+for every directory a tool writes in. The one `--tmpfs` above is given all the
+same, so that the directory a tool writes the most into is the bounded one.
+The process table is bounded by `--pids-limit`, in the table above.
 
 `test/work_test.sh`, `test/plan_test.sh` and `test/dev_test.sh` pin each of
 these words on the `docker run` line of their own container, and
