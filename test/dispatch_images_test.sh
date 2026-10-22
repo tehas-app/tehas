@@ -267,7 +267,7 @@ mesh '{"data":[{"id":"test-model"}]}'
 declares '["text","image"]'
 : >"$fx/reads-images"
 # The image's pi-rukas takes --continue-pr, so a refresh is asked for at all.
-jq -nc '{verbs: {work: {flags: ["--json", "--timeout", "--restart", "--continue-pr"]}}}' >"$fx/caps.json"
+jq -nc '{verbs: {work: {flags: ["--json", "--timeout", "--restart", "--continue-pr"]}}, features: {continuePr: true}}' >"$fx/caps.json"
 jq -n '{data: {repository: {issue: {lastEditedAt: null, editor: null, body: "The screenshot is the place. SCREENSHOT GOES HERE."}}}}' >"$fx/edit-7.json"
 mkdir -p "$T/home/tehas/state/refresh" "$T/home/tehas/state/cycles"
 jq -nc '{at: "2026-10-17T09:00:00Z", pr: 50,

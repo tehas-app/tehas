@@ -15,9 +15,13 @@
 #       the answer is not an object.
 #       A family such as PI_ENSEMBLE_MODEL_<ROLE> takes the members the
 #       answer lists for it, and any name characters when it lists none.
-#   tehas_headless_plans <caps>
-#       0 when the answer's features set planTurns to true: the image runs a
-#       planning session as headless turns. 1 otherwise.
+#   tehas_headless_mode <caps> <feature>
+#       how tehas gets <feature>, a key of the answer's features: `native` when
+#       the answer sets it to true, `polyfill` when tehas carries
+#       lib/polyfill-<feature>.sh, `off` otherwise. Every check of a pi-rukas
+#       feature asks this, so a polyfill is used only until the image has the
+#       feature, and scripts/polyfills.sh can tell when to remove it. Returns 1
+#       and says `off` when <feature> is not a feature name.
 #   tehas_headless_reads_images <caps>
 #       1 when the answer lists PI_ENSEMBLE_ISSUE_IMAGES for the manifest
 #       format tehas writes (manifestVersion 1), else 0.
@@ -111,10 +115,19 @@ tehas_headless_expired() { # <caps> <workarounds>
   done
 }
 
-# 0 when the image runs planning sessions as headless turns (`plan --start`,
-# `--resume`), 1 otherwise or when the answer is not JSON.
-tehas_headless_plans() { # <caps>
-  jq -e 'type == "object" and .features.planTurns == true' <<<"$1" >/dev/null 2>&1
+# Where the polyfills are: beside this file, on a host as in a checkout.
+tehas_headless_lib=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+
+tehas_headless_mode() { # <caps> <feature>
+  [[ $2 =~ ^[a-z][A-Za-z0-9]{0,63}$ ]] || { echo off; return 1; }
+  if jq -e --arg f "$2" 'type == "object" and (.features | type) == "object" and .features[$f] == true' \
+    >/dev/null 2>&1 <<<"$1"; then
+    echo native
+  elif [ -f "$tehas_headless_lib/polyfill-$2.sh" ]; then
+    echo polyfill
+  else
+    echo off
+  fi
 }
 
 tehas_headless_reads_images() { # <caps>

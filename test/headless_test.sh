@@ -95,12 +95,31 @@ t_eq "$(tehas_headless_reads_images "$(jq -c '(.inputs[] | select(.name == "PI_E
 t_eq "$(tehas_headless_reads_images "$(jq -c 'del(.inputs[] | select(.name == "PI_ENSEMBLE_ISSUE_IMAGES"))' <<<"$scaps")")" 0
 for bad in "" "not json" "[]"; do t_eq "$(tehas_headless_reads_images "$bad")" 0; done
 
-t_case "planning turns are known by features.planTurns: the v0.14.0 image has them, 0.12.80 does not"
-plans() { tehas_headless_plans "$1" && echo yes || echo no; }
-t_eq "$(plans "$(cat "$T_ROOT/test/fixtures/headless-c5ddc0a/capabilities.json")")" yes
-t_eq "$(plans "$(cat "$T_ROOT/test/fixtures/headless-0.12.80/capabilities.json")")" no
-t_eq "$(plans '{"features":{"planTurns":false}}')" no
-for bad in "" "not json" "[]"; do t_eq "$(plans "$bad")" no; done
+t_case "a feature is native where the answer sets it to true: planTurns in v0.14.0, not in 0.12.80"
+t_eq "$(tehas_headless_mode "$scaps" planTurns)" native
+t_eq "$(tehas_headless_mode "$caps" planTurns)" off
+t_eq "$(tehas_headless_mode '{"features":{"planTurns":false}}' planTurns)" off
+t_eq "$(tehas_headless_mode '{"features":{"planTurns":"true"}}' planTurns)" off
+for bad in "" "not json" "[]" '{"features":[]}'; do t_eq "$(tehas_headless_mode "$bad" planTurns)" off; done
+
+t_case "a feature the answer lacks is a polyfill where tehas carries one, and native wins over it"
+mkdir -p "$T/lib"
+cp "$T_ROOT/lib/headless.sh" "$T/lib/"
+: >"$T/lib/polyfill-someFeature.sh"
+t_run ". '$T/lib/headless.sh'; tehas_headless_mode '{\"features\":{}}' someFeature
+  tehas_headless_mode '{\"features\":{\"someFeature\":true}}' someFeature
+  tehas_headless_mode '{}' otherFeature"
+t_eq "$t_out" "polyfill
+native
+off"
+
+t_case "a name that is no feature name is off, with status 1, and names no file"
+: >"$T/lib/polyfill-.sh"
+for bad in "" "../x" "Plan" "a-b" "a b"; do
+  t_run ". '$T/lib/headless.sh'; tehas_headless_mode '{}' '$bad'"
+  t_eq "$t_out" off
+  t_eq "$t_rc" 1
+done
 
 t_case "where the image says its result carries them, usage per role and the failure come from the result"
 jq '.issues[0].usage.byRole = {ops: {input: 0, output: 0, cacheRead: 0, turns: 0, dispatches: 1}}' "$sx/result.json" >"$T/r.json"

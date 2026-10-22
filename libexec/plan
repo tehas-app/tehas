@@ -237,7 +237,7 @@ mapfile -d '' -t sec < <(tehas_sandbox_security)
 caps_wait=${TEHAS_CAPS_WAIT:-120}
 [[ $caps_wait =~ ^[1-9][0-9]{0,3}$ ]] || caps_wait=120
 caps=$(timeout -k 10 "$caps_wait" docker run --rm --init "$image" "$runner" --capabilities 2>/dev/null) || caps=""
-if ! tehas_headless_plans "$caps"; then
+if [ "$(tehas_headless_mode "$caps" planTurns)" != native ]; then
   echo "tehas plan: $image runs no planning turns (its --capabilities has no features.planTurns), not starting a turn" >&2
   exit 78
 fi

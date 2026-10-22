@@ -106,4 +106,24 @@ for v in "commit:$a-" "commit:${a:0:39}" "commit:" "commit:$(printf 'A%.0s' {1..
   t_eq "$(t_calls git)" ""
 done
 
+t_case "the image of a commit is upstream's, by the first 12 digits, lower case"
+image() { # <PI_RUKAS_REPO> <commit>
+  T_ENV=("PI_RUKAS_REPO=$1")
+  t_run ". \"\$T_ROOT/lib/rukas.sh\"; tehas_rukas_image '$2'"
+}
+image https://github.com/Up-Owner/pi-rukas.git "$a"
+t_eq "$t_rc" 0
+t_eq "$t_out" "ghcr.io/up-owner/pi-rukas:sha-aaaaaaaaaaaa"
+image https://github.com/up-owner/pi-rukas "$b"
+t_eq "$t_out" "ghcr.io/up-owner/pi-rukas:sha-bbbbbbbbbbbb"
+
+t_case "no image is named for a repository off GitHub or a commit that is not 40 hex digits"
+for args in "https://example.com/up-owner/pi-rukas.git $a" "git@github.com:up-owner/pi-rukas.git $a" \
+  "https://github.com/up-owner/pi-rukas.git abc" "https://github.com/up-owner/pi-rukas.git ${a^^}"; do
+  # shellcheck disable=SC2086  # two words
+  image $args
+  t_eq "$t_rc" 1
+  t_eq "$t_out" ""
+done
+
 t_done

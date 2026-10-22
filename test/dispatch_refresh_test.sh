@@ -10,7 +10,8 @@
 # --- Refreshes (rule 4b) -------------------------------------------------------
 # Issue 7 waits for a merge of pull request 50, which conflicts with main. Its
 # body is "Words.", which alice approved when she labelled its last cycle, and
-# tehasbot refresh asked for a refresh. The image takes --continue-pr.
+# tehasbot refresh asked for a refresh. The image takes --continue-pr
+# (features.continuePr).
 refresh_dir=$T/home/tehas/state/refresh
 rhead=$(printf 'a%.0s' {1..40})
 rbase=$(printf 'c%.0s' {1..40})
@@ -41,7 +42,7 @@ refresh_setup() { # [<approval record of the last start>]
   echo '[]' >"$fx/icomments-7.json"
   issue7
   pull
-  echo '{"verbs":{"work":{"flags":["--json","--timeout","--restart","--continue-pr"]}}}' >"$fx/caps.json"
+  echo '{"verbs":{"work":{"flags":["--json","--timeout","--restart","--continue-pr"]}},"features":{"continuePr":true}}' >"$fx/caps.json"
   mkdir -p "$refresh_dir" "$T/home/tehas/state/cycles"
   jq -n --arg h "$rhead" --arg b "$rbase" '{at: "2026-10-17T09:00:00Z", pr: 50, head_sha: $h, base_sha: $b}' >"$refresh_dir/7.json"
   printf '%s\n' "$ALICE_RECORD" >"$approved_file"
@@ -224,6 +225,13 @@ t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
 t_run "$dispatch"
 t_lacks "$t_out" "hold refreshes"
 t_contains "$(jq -r .refreshHold "$demand_file")" "does not take --continue-pr"
+
+t_case "the flag alone is not enough: an answer without features.continuePr holds refreshes"
+refresh_setup
+echo '{"verbs":{"work":{"flags":["--json","--timeout","--restart","--continue-pr"]}}}' >"$fx/caps.json"
+t_run "$dispatch"
+t_eq "$(started)" ""
+t_contains "$t_out" "hold refreshes: the pi-rukas in the sandbox image"
 
 t_case "an image that cannot be asked holds refreshes too"
 refresh_setup

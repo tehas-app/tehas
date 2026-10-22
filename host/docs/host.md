@@ -267,6 +267,9 @@ branch in a temporary worktree, tags that commit as the next `vX.Y.Z` with an
 annotated tag, and pushes the tag. It refuses a commit whose `CHANGELOG.md`
 has no "Adopter action" for the release ([Releases](/tools#release-notes-and-the-adopter-action)).
 The pushed tag starts the release workflow, which publishes the signed tarball.
+When the head carries a polyfill that the newest pi-rukas no longer needs, it
+opens a pull request that removes it and tags nothing until that is merged
+([Polyfills](/tools#polyfills-of-pi-rukas-features)).
 `scripts/tag-deploy.sh tehas-tehas` refuses
 unless the newest tag is the head of that branch, runs
 `. ~/tehas/env.sh && tehas update` on the host over ssh, then checks that the
