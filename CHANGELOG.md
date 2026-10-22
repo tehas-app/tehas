@@ -13,14 +13,34 @@ empty one above it.
 
 ### Changes
 
-- `tehas check-product --sandbox` runs the gates on a work branch one empty
-  commit past the default branch, as a cycle's gate runs on its own branch. A
-  gate that refuses to certify a diff of HEAD against itself, such as a
-  file-size ratchet, no longer fails `tehas setup` at the default branch's tip.
+- None yet.
 
 ### Adopter action
 
 - None.
+
+## v0.10.2 (2026-10-22)
+
+### Changes
+
+- `tehas check-product --sandbox` runs the gates on a work branch one empty
+  commit past the default branch, as a cycle's gate runs on its own branch. A
+  gate that refuses to certify a diff of HEAD against itself, such as a
+  file-size ratchet, no longer fails `tehas setup` at the default branch's tip.
+- An entry of a zip linked in an issue reaches a cycle as an image only when
+  both its bytes and its extension say it is one. A file named `x.html` that
+  holds PNG bytes is given as the HTML file it is named.
+- `tehas:refine` and `tehas:plan` start a planning session on a parked issue,
+  one that carries `tehas:question`, as `tehas:ready` starts a cycle on one.
+  The planning queue dropped such an issue without a word.
+- The MCP server's tests wait for the log lines they check, so they no longer
+  fail now and then on a loaded machine.
+
+### Adopter action
+
+- Run `tehas update` on a host whose `tehas setup` stopped at the sandbox step
+  with "compared nothing" or another complaint of a gate about its base, then
+  `tehas setup` again.
 
 ## v0.10.1 (2026-10-22)
 
