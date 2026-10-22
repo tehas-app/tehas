@@ -230,6 +230,22 @@ to compare. The issues a refining session filed are listed in
 written when the confirm files them. Like the rest of the report it holds
 counts only.
 
+### Size
+
+The report has a `sizes` key, and the terminal a `Size` line, that say how
+issues of each size fare, so the threshold of the dispatcher's hold
+(`TEHAS_SIZE_MAX_FILES`, see [Instance settings](/host#instance-settings)) can
+be set from outcomes rather than guesswork. It reads what each approved start
+measured of its issue's body from `~/tehas/state/sizes.jsonl` (see the layout
+table of [The host](/host#layout)): one line per start, `{at, issue, files,
+tests, deliverables, done_when}`, the last line of an issue winning and a line
+that does not parse being skipped. For the starts measured in the window it
+gives three buckets of the `files` count -- 1-2, 3-4 and 5+, and `none` for the
+bodies that named no file at all -- and for each of them how many issues there
+were, how many shipped, and the median lead time of those that shipped. No
+ledger is four buckets of nothing. Like the rest of the report it holds counts
+only: no issue number, and nothing of what the issue asked for.
+
 ## Sessions
 
 ```

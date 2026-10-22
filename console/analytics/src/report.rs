@@ -17,6 +17,12 @@
 //! from state/refined.jsonl beside the database, next to the other issues
 //! that were made ready in the window: how many started and shipped, and the
 //! lead time of the refined ones. Counts only, no issue number.
+//!
+//! `sizes` says how issues of each size fare, read from state/sizes.jsonl
+//! (lib/sizing.sh) beside the database: the issues measured in the window in
+//! three buckets of the file count, how many of them shipped and the median
+//! lead time of those. Counts only, no issue number: the sizes are coarse and
+//! say nothing of what the issue asked for.
 
 use rusqlite::{params, Connection};
 use serde_json::{json, Map, Value};
@@ -371,6 +377,108 @@ pub fn refine(conn: &Connection, refined: &[Refined], to: i64) -> rusqlite::Resu
             ])),
         ),
     ]))
+}
+
+/// One line of state/sizes.jsonl (lib/sizing.sh): what an approved start
+/// measured of its issue's body, keyed with the time and the issue number.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Size {
+    pub at: i64,
+    pub issue: i64,
+    pub files: i64,
+}
+
+/// The ledger of measured starts. The last line of an issue wins; a line that
+/// is not an object with a time, a positive number and a `files` count that is
+/// a number is skipped; no file is no measured issue.
+pub fn read_sizes(home: &Path) -> Vec<Size> {
+    let Ok(text) = std::fs::read_to_string(home.join("state").join("sizes.jsonl")) else {
+        return Vec::new();
+    };
+    let mut latest: BTreeMap<i64, Size> = BTreeMap::new();
+    for l in text.lines() {
+        let Ok(v) = serde_json::from_str::<Value>(l) else {
+            continue;
+        };
+        let Some(at) = v
+            .get("at")
+            .and_then(Value::as_str)
+            .and_then(crate::run::iso_ms)
+        else {
+            continue;
+        };
+        let Some(issue) = v.get("issue").and_then(Value::as_i64).filter(|n| *n > 0) else {
+            continue;
+        };
+        let Some(files) = v.get("files").and_then(Value::as_i64).filter(|n| *n >= 0) else {
+            continue;
+        };
+        latest.insert(
+            issue,
+            Size {
+                at: at / 1000,
+                issue,
+                files,
+            },
+        );
+    }
+    latest.into_values().collect()
+}
+
+/// The size of one issue as a bucket: the file counts 1-2, 3-4 and 5+, or
+/// "none" for the bodies that named no file at all.
+fn size_bucket(files: i64) -> &'static str {
+    match files {
+        ..=0 => "none",
+        1..=2 => "1-2",
+        3..=4 => "3-4",
+        _ => "5+",
+    }
+}
+
+/// The `sizes` figures of the window that ends at `to`: of the issues whose
+/// start was measured in it, by the bucket of its `files` count, how many
+/// there were, how many shipped (`v_lead`) and the median lead time of those.
+/// Counts only, so the threshold of the dispatcher's hold (`TEHAS_SIZE_MAX_FILES`)
+/// can be set from what the outcomes say.
+pub fn sizes(conn: &Connection, ledger: &[Size], to: i64) -> rusqlite::Result<Value> {
+    let from = (to.div_euclid(DAY) - (DAYS - 1)) * DAY;
+    let mut buckets: BTreeMap<&'static str, usize> = BTreeMap::new();
+    let mut shipped: BTreeMap<&'static str, usize> = BTreeMap::new();
+    let mut lead: BTreeMap<&'static str, Vec<i64>> = BTreeMap::new();
+    for s in ledger.iter().filter(|s| s.at >= from && s.at <= to) {
+        let b = size_bucket(s.files);
+        *buckets.entry(b).or_default() += 1;
+        let mut st = conn.prepare("SELECT lead_seconds FROM v_lead WHERE issue = ?1")?;
+        let mut rows = st.query(params![s.issue])?;
+        if let Some(row) = rows.next()? {
+            *shipped.entry(b).or_default() += 1;
+            let l = row.get::<_, Option<i64>>(0)?.unwrap_or(-1);
+            if l >= 0 {
+                lead.entry(b).or_default().push(l);
+            }
+        }
+    }
+    let row = |b: &'static str| {
+        let mut l = lead.get(b).cloned().unwrap_or_default();
+        l.sort_unstable();
+        obj(vec![
+            (
+                "n",
+                Some(json!(buckets.get(b).copied().unwrap_or_default())),
+            ),
+            (
+                "shipped",
+                Some(json!(shipped.get(b).copied().unwrap_or_default())),
+            ),
+            ("leadTime", Some(spread(&l))),
+        ])
+    };
+    let mut out = Map::new();
+    for b in ["none", "1-2", "3-4", "5+"] {
+        out.insert(b.to_string(), row(b));
+    }
+    Ok(Value::Object(out))
 }
 
 fn spread(sorted: &[i64]) -> Value {
@@ -794,6 +902,27 @@ pub fn text(report: &Value) -> String {
                 pct(&refine["others"]["shippedShare"]),
                 num(&refine["others"]["n"]),
             ),
+            String::new(),
+        );
+    }
+    let sizes = &report["sizes"];
+    if sizes.is_object() {
+        let bucket = |b: &str| {
+            let e = &sizes[b];
+            format!(
+                "{b}: {} shipped {}, lead {}",
+                num(&e["n"]),
+                num(&e["shipped"]),
+                dur(&e["leadTime"]["median"]),
+            )
+        };
+        row(
+            "Size",
+            ["none", "1-2", "3-4", "5+"]
+                .iter()
+                .map(|b| bucket(b))
+                .collect::<Vec<_>>()
+                .join(" | "),
             String::new(),
         );
     }

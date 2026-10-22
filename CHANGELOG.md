@@ -19,7 +19,10 @@ release workflow takes the release's page from its section
 
 ### Changes
 
-- None yet.
+- `tehas analytics report` says how issues of each size fare: the starts
+  measured in the window from `state/sizes.jsonl`, in the buckets 1-2, 3-4 and
+  5+ named files, with how many of each shipped and their median lead time, so
+  the threshold of `TEHAS_SIZE_MAX_FILES` can be set from outcomes.
 
 ### Adopter action
 
