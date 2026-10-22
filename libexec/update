@@ -60,7 +60,10 @@
 # for it, the sandbox image is moved to that branch's head when the head is not
 # the commit the image was built on, also when no file of tehas changed. A run
 # that built the image already, or whose steps failed, skips this. --check only
-# says whether the head moved.
+# says whether the head moved. The host's clone of pi-rukas follows only when
+# bootstrap.sh user runs, so a run that left the image on a commit the clone is
+# not on prints the follow-up: one later: line naming that command, whether or
+# not versions.env changed, and with no change to the exit status.
 #
 # A step line recorded as "protolab <flag>" by an earlier version is the edge
 # step: lib/update-steps.sh answers that for every reader of a step line, so no
@@ -560,6 +563,30 @@ rukas_step() { # --if-moved | --check
   return "$rc"
 }
 
+# The host's clone of pi-rukas lags the sandbox image whenever the followed
+# commit moved, and the only thing that moves it is bootstrap.sh user. install.sh
+# prints that follow-up for a changed versions.env; a followed commit can move
+# with no file of tehas changing, so the line is printed here too. It is called
+# where a run left the image on the commit it follows, so what is compared is the
+# pair install.sh --check will report on.
+# Not a step: bootstrap.sh user fetches from the network and replaces the tools
+# and the checkout, so this command never runs it. Nothing is decided on a
+# missing answer - no image, no label, no clone - because that is not evidence
+# the clone is behind. The answer of docker is read before the clone is asked
+# anything: a host with an image already on the followed commit prints nothing,
+# whether or not it has a clone.
+rukas_later() {
+  local image clone
+  image=$(timeout "$compose_limit" docker image inspect \
+    --format '{{index .Config.Labels "tehas.rukas"}}' "$PI_ENSEMBLE_IMAGE" 7>&- 2>/dev/null) || image=""
+  # Docker's own words for "no such image" are not an answer about a commit.
+  case "$image" in '' | *"No such image"*) return 0 ;; esac
+  clone=$(git -C "$TEHAS_HOME/repos/pi-rukas" rev-parse HEAD 2>/dev/null) || clone=""
+  [ -n "$clone" ] || return 0
+  [ "$image" != "$clone" ] || return 0
+  echo "later: $checkout/bootstrap.sh user   (pi-rukas moved to ${image:0:7}; until it runs, --check says Dependencies: NOT OK)"
+}
+
 # --- 2. install.sh -----------------------------------------------------------
 # Its stdout is printed as it is; its stderr goes on this command's stderr, where
 # a diagnostic belongs, so what happened to be written as an error can never be
@@ -987,6 +1014,17 @@ fi
 if [ "$status" = 0 ] && [ "$built" = 0 ] && follows_rukas && ! rukas_step --if-moved; then
   echo "pi-rukas: the image was not moved to the commit versions.env follows; tehas update tries again" >&2
   status=1
+fi
+
+# Whether the clone came along. A build this run made, or one it moved onto, is
+# on the followed commit, and only bootstrap.sh user moves the clone to it; the
+# answer of install.sh says whether that run already printed the line, so a
+# person reads the follow-up once. --check changes nothing and asks for nothing.
+if [ "$status" = 0 ] && [ "$mode" = update ] && follows_rukas; then
+  case $out in
+    *"later: "*"bootstrap.sh user"*) ;;
+    *) rukas_later ;;
+  esac
 fi
 
 # The image this version runs with keeps a tag of its own, so going back to the
