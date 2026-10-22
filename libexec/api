@@ -4,9 +4,10 @@
 # fixer's login. A program asks this first, before it relies on a feature.
 #
 # The release and commit are those install.sh wrote to
-# $TEHAS_HOME/docs/version.txt; either is null when the install did not come
-# from a git checkout, or from one with no tag. No network and no git, and it
-# writes nothing.
+# $TEHAS_HOME/docs/version.txt: "v0.8.0+cb6912a" from a checkout, the bare tag
+# "v0.10.2" from a release, or the bare commit from a checkout with no tag.
+# Either is null when the install recorded only the other, and both when it
+# recorded nothing. No network and no git, and it writes nothing.
 #
 # Usage: tehas api [--json]
 #
@@ -43,16 +44,18 @@ tehas_require TEHAS_REPO
 # brings it, and never taken out within api 1.
 features='["status", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics"]'
 
-# "v0.8.0+cb6912a", or "cb6912a" from a checkout with no tag.
+# "v0.8.0+cb6912a" from a checkout, "v0.10.2" from a release, or "cb6912a"
+# from a checkout with no tag.
 # Read without a pipe: under pipefail the first head can die of SIGPIPE when
 # the second has its line, and the version would be lost.
 version=$(head -c 200 "$TEHAS_HOME/docs/version.txt" 2>/dev/null) || version=""
 version=${version%%$'\n'*}
 object=$(jq -nc --arg v "$version" --arg repo "$TEHAS_REPO" --arg fixer "${TEHAS_FIXER_LOGIN:-}" --argjson features "$features" '
   ($v | split("+")) as $p
+  | (if ($p | length) == 1 and ($v | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$")) then $v else null end) as $tag
   | {api: 1,
-     tehas: (if ($p | length) == 2 then $p[0] else null end),
-     commit: (if $v == "" then null else $p[-1] end),
+     tehas: (if $tag != null then $tag elif ($p | length) == 2 then $p[0] else null end),
+     commit: (if $v == "" then null elif $tag != null then null else $p[-1] end),
      repo: $repo,
      features: $features,
      fixer: (if $fixer == "" then null else $fixer end)}') || exit 1
