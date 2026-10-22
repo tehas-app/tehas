@@ -6,12 +6,14 @@
 #   - private network addresses, in every file: the private IPv4 ranges, the
 #     tailnet range, link-local, IPv6 unique local addresses and tailnet names
 #   - the names listed in scripts/check-generic.names, when that file is there,
-#     in the files every instance installs. The list holds names that belong
-#     to particular installations. It is never committed: .gitignore names it.
+#     in every file, docs/ included: the record is public too. The list holds
+#     names that belong to particular installations. It is never committed:
+#     .gitignore names it. Without it the lint says so and checks addresses
+#     only.
 #
 # The list of names is read as data, never run. One entry a line:
 #     name                  a word to refuse (an extended regular expression)
-#     allow <path prefix>   files that may use the names
+#     allow <path prefix>   files that may use the names; none by default
 #     # comment
 # It cannot change the address rule or exempt a file from it.
 #
@@ -19,12 +21,34 @@
 # that evidence is an instance completing a cycle for another product. It
 # reads text; an address inside an image or an archive is not seen.
 #
+# With --messages <rev-range> it also checks the names (not the addresses) in
+# the commit messages of the range and in the branch name, taken from
+# GITHUB_HEAD_REF or else the current branch. Run it on a pull request with
+# the range from the base branch to HEAD.
+#
 # Examples in the manual and in command help use the instance that works on
 # tehas itself (host tehas-tehas); those names are allowed. Addresses in
 # examples come from the documentation ranges (192.0.2.0/24 and the like).
 #
-# Usage: scripts/check-generic.sh      exit 0 clean, 1 with the offending lines
+# Usage: scripts/check-generic.sh [--messages <rev-range>]
+# Exit 0 clean, 1 with the offending lines, 2 on a bad argument.
 set -uo pipefail
+
+range=""
+case "${1:-}" in
+  '') ;;
+  --messages)
+    range=${2:-}
+    if [ -z "$range" ] || [ $# -gt 2 ]; then
+      echo "usage: scripts/check-generic.sh [--messages <rev-range>]" >&2
+      exit 2
+    fi
+    ;;
+  *)
+    echo "usage: scripts/check-generic.sh [--messages <rev-range>]" >&2
+    exit 2
+    ;;
+esac
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root" || exit 1
@@ -36,15 +60,15 @@ addresses="(^|[^0-9.])$v4([^0-9]|\$)|(^|[^0-9a-f:])f[cd][0-9a-f]{2}(:[0-9a-f]{0,
 
 # Names, and the files that may use them. Prefixes of repository paths.
 names=""
-exceptions=(
-  "docs/" # plans, specs, decisions and logs: the record of what happened
-)
+exceptions=()
+have_list=0
 if [ -r scripts/check-generic.names ]; then
+  have_list=1
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
       '' | '#'*) ;;
       'allow '*) exceptions+=("${line#allow }") ;;
-      *[[:space:]=\"\'\$\`\;]*)
+      *[[:space:]=\"\'\`\;]*)
         echo "check-generic: scripts/check-generic.names: not a name or an allow line: $line" >&2
         exit 1
         ;;
@@ -61,6 +85,8 @@ excluded() {
   done
   return 1
 }
+
+[ "$have_list" -eq 1 ] || echo "check-generic: no names list, names not checked"
 
 hits=0
 report() { # <path> <matching lines>
@@ -80,6 +106,21 @@ while IFS= read -r path; do
     [ "$rc" -le 1 ] || { echo "check-generic: invalid name expression in scripts/check-generic.names" >&2; exit 1; }
   fi
 done < <(git ls-files --cached --others --exclude-standard)
+
+if [ -n "$range" ] && [ -n "$names" ]; then
+  if ! log=$(git log --format=%B "$range"); then
+    echo "check-generic: cannot read the commits in $range" >&2
+    exit 2
+  fi
+  if out=$(printf '%s\n' "$log" | grep -n -i -E "$names"); then
+    report "commit messages" "$out"
+  fi
+  branch=${GITHUB_HEAD_REF:-$(git symbolic-ref -q --short HEAD)}
+  if printf '%s\n' "$branch" | grep -q -i -E "$names"; then
+    echo "branch: $branch"
+    hits=$((hits + 1))
+  fi
+fi
 
 if [ "$hits" -gt 0 ]; then
   echo "check-generic: $hits lines name a particular installation or a private address (see $0)" >&2
