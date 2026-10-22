@@ -18,7 +18,9 @@ when a person pulls and runs `install.sh` there.
 | --- | --- |
 | `bin/` | The two commands: `tehas` for a person, `tehasbot` for the units. Installed to `~/tehas/bin` |
 | `libexec/` | The scripts behind them, all bash. Installed to `~/tehas/libexec` |
-| `console/` | The console of a running cycle, a Rust program. `install.sh` builds it and installs it as `~/tehas/libexec/console` |
+| `console/` | The cargo workspace; its `Cargo.toml` is the root. The package at the root is the console of a running cycle, installed as `~/tehas/libexec/console` |
+| `console/analytics/` | The analytics program: the factory's runs in `state/analytics.db` |
+| `console/mcp/` | The read-only MCP server for outside agents |
 | `lib/config.sh` | Loads and validates instance settings. Every command sources it |
 | `host/` | Everything else that is installed: units, the docs server, the sandbox image, the manual in `host/docs/` |
 | `install.sh`, `bootstrap.sh` | Install tehas on a host; prepare a host's dependencies |
@@ -47,11 +49,12 @@ when a person pulls and runs `install.sh` there.
 5. **Authorisation is who applied the label.** The dispatcher reads the label
    events and compares the account with the allowed list. Do not replace that
    with a check that the label is present.
-6. **Tests first.** Every behaviour change comes with a case in `test/`. Tests
-   need bash, git, jq and shellcheck only: no network, no sandbox image, no
-   product checkout. Stub the outside world with `t_stub`. The console's tests
-   are Rust, beside its source in `console/`, and run in the gate wherever
-   `cargo` is installed.
+6. **Tests first.** Every behaviour change comes with a case in `test/`, or
+   in the Rust tests beside the source for Rust code. The gate needs bash,
+   git, jq, shellcheck and cargo: no network, no sandbox image, no product
+   checkout. Stub the outside world with `t_stub`. A shell test may call a
+   program of the workspace; build it once per run in `test/lib.sh`, not once
+   per case.
 7. **Do not edit your own gates.** `.pi/`, `AGENTS.md`, `scripts/verify.sh` and
    `scripts/check-generic.sh` are changed by people, not by a work cycle. If a
    gate is wrong, say so in your handoff.
@@ -69,8 +72,11 @@ when a person pulls and runs `install.sh` there.
 - Bash: `set -uo pipefail` (or `-euo` where the script already has it), two
   spaces, `shellcheck -x` clean with no blanket disables. A header comment says
   what the command does, its usage and its exit statuses. Comments explain why.
+- Which language: the state store, the dispatcher and the cycle supervisor
+  are Rust, in the workspace under `console/`. Install, update, bootstrap, the
+  units and the glue between commands stay bash. Bash never writes SQL.
 - Rust: as `cargo fmt` leaves it, and `cargo clippy` clean with no blanket
-  allows. No `unsafe`.
+  allows. No `unsafe`. Builds and tests use `--locked`.
 - Prose in comments, the manual and commit messages: plain and direct, short
   sentences, no em dashes, no hype.
 - Replies, handoffs and pull request text: simple and to the point. No
@@ -85,8 +91,8 @@ when a person pulls and runs `install.sh` there.
 ## Verify
 
 ```
-scripts/verify.sh          # fast gate: lint, shellcheck, shell tests, the console's tests where cargo is
-scripts/verify.sh --full   # plus the console's format and lints (rustfmt, clippy) and the front page's tests (node)
+scripts/verify.sh          # fast gate: lint, shellcheck, shell tests, the workspace's tests, the front page's tests where node is
+scripts/verify.sh --full   # plus the workspace's format and lints (rustfmt, clippy); a missing node fails
 ```
 
 Both print one line per step and exit non-zero on failure. Run the fast gate
