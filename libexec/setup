@@ -23,7 +23,10 @@
 #   2. writes ~/.config/tehas (or the directory instance-dir names):
 #      instance.env with the required settings only, models.json, and the
 #      token and the model key in env, mode 600
-#   3. gives git the bot's name and noreply address, unless it has one
+#   3. gives git gh's credential helper for github.com, unless git has one, and
+#      gives it the bot's name and noreply address, unless it has one. The
+#      helper is checked first: the identity is of no use on a host whose git
+#      cannot authenticate, and the two are read from two different programs
 #   4. clones the product to ~/tehas/repos/<name> when it is not there
 #   5. runs install.sh beside this command, then tehas labels
 #   6. builds the sandbox image unless it is there, and runs the product's
@@ -40,7 +43,7 @@
 #
 # Exit: 0 done; 1 a check or a step failed (a step's own status when it has
 # one); 64 an unknown option; 78 a setting is missing, malformed, or differs
-# from the one there without --force.
+# from the one there without --force, or a git config file git could not open.
 set -uo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -258,6 +261,55 @@ fi
 umask 022
 
 # --- git, the product, the install --------------------------------------------
+# shellcheck source=lib/sandbox.sh
+. "$here/../lib/sandbox.sh"
+
+# git's own read of the helper key: its standard output is the value and its
+# standard error is what git says about a file it could not open. The two are
+# read apart, because neither is printed: the value is a command an operator
+# wrote and may hold a token in its arguments, and git's words name the file
+# and can quote a value in it. The read covers the scopes git reads from this
+# directory - system, global and the environment's own entries; the product's
+# checkout is not one of them, because it is not made until below.
+git_helper_values() { git config --get-all "$(tehas_git_credential_helper_key)"; }
+git_helper_errors() { git config --get-all "$(tehas_git_credential_helper_key)"; }
+
+# The credential helper before the clone and before the identity: a host with
+# no helper for github.com cannot read a private product's remote with plain
+# git, so this is a prerequisite of the run and not of the clone alone. The
+# clone here, and the fetches of tehas dispatch, update, status and preview,
+# are the git runs that stop at a prompt without it.
+give_git_the_helper() {
+  local helpers="" err="" host rc=0
+  host=$(tehas_git_github_host)
+  # git exits 1 and writes nothing when the key is simply not set, so a value
+  # read from a run that said something on standard error is not a helper and
+  # nothing is written over it: that is a settings problem rather than a step
+  # failure, because gh writes the global file and the run must not ask it to
+  # write over one git refused. Only git's status is named, never its words,
+  # and never the value.
+  err=$(git_helper_errors 2>&1 >/dev/null)
+  helpers=$(git_helper_values 2>/dev/null)
+  rc=$?
+  if [ -n "${err//[[:space:]]/}" ]; then
+    die "could not read git's credential helper for $host (git exit $rc); fix git's config and run tehas setup again" 78
+  fi
+  # gitcredentials ends a helper list at an empty value, so a chain of nothing
+  # but empty entries is no helper and the run asks gh for its own, the entry
+  # gh itself writes first.
+  if [ -n "${helpers//[[:space:]]/}" ]; then
+    echo "tehas setup: git's helper for $host is kept ($(printf '%s\n' "$helpers" | grep -c '') in git's config)"
+    return 0
+  fi
+  # gh is run without a terminal to prompt on: setup may be run from a unit.
+  GIT_TERMINAL_PROMPT=0 gh auth setup-git --hostname "$host" 2>/dev/null
+  rc=$?
+  [ "$rc" = 0 ] ||
+    die "gh auth setup-git failed for $host (exit $rc); it cannot give git a credential helper"
+  echo "tehas setup: git uses gh's credential helper for $host"
+}
+give_git_the_helper
+
 read -r login uid < <(gh api user --jq '[.login,.id]|@tsv' 2>/dev/null) || true
 [ -n "${login:-}" ] || die "gh api user did not say who the bot is"
 if [ -z "$(git config --global user.name)" ] && [ -z "$(git config --global user.email)" ]; then

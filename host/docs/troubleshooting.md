@@ -551,6 +551,9 @@ helper and every push ended in
 `could not read Username for
 'https://github.com'`. `tehas work` now passes the
 helper and the bot's identity, and checks with a dry-run push before starting.
+The host's own git is covered the other way round: `tehas setup` gives it gh's
+helper for `github.com` and keeps one that is there (see
+[tehas setup](/tools#tehas-setup)).
 
 Check the push by hand:
 
