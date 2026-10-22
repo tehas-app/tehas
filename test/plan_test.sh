@@ -81,18 +81,20 @@ slice_good() {
   slice_state 0.00
 }
 limits="--cgroup-parent --memory --memory-swap --memory-reservation --cpus --pids-limit --cpu-shares"
-# The security options of lib/sandbox.sh, the same ten words a cycle is given
-# (test/work_lib.sh holds the same pair for the cycle's tests).
+# The security options of lib/sandbox.sh, the same options a cycle is given
+# (test/work_lib.sh holds the copy for the cycle's tests).
 security_opts="--cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true --tmpfs /tmp:rw,exec,nosuid,nodev,size=8g,mode=1777"
 # The words after one option, read the way docker reads them.
 security_of() { # <flag> (reads the arguments on standard input)
   awk -v flag="$1" 'prev == flag { print } { prev = $0 }'
 }
-# How many times an option is given on a docker line.
+# How many times an option stands on a docker line, counted as a whole word
+# with its value as a word of its own, so the pair of --tmpfs is one and
+# --tmpfs=<value> counts as none. See test/work_lib.sh.
 count_of() { # <flag> (reads the arguments on standard input)
   awk -v flag="$1" '$0 == flag { n++ } END { print n + 0 }'
 }
-# The same ten words, in order, as one line; empty when given another way.
+# The same options, in order, as one line; empty when given another way.
 security_line() {
   awk '
     { arg[NR] = $0 }
@@ -332,9 +334,12 @@ t_eq "$(turn_args | security_line)" "$security_opts "
 t_eq "$(turn_args | security_of --cap-add | LC_ALL=C sort)" "CHOWN
 FOWNER"
 t_eq "$(turn_args | security_of --security-opt)" "no-new-privileges:true"
-# One bounded /tmp, as a cycle's container has: see test/work_test.sh.
+# One bounded /tmp, as a cycle's container has: see test/work_test.sh. The
+# fixtures are written one argument per line, as the docker stub records them.
 t_eq "$(turn_args | security_of --tmpfs)" "/tmp:rw,exec,nosuid,nodev,size=8g,mode=1777"
 t_eq "$(turn_args | count_of --tmpfs)" "1"
+t_eq "$(printf 'run\n--tmpfs=/tmp\n' | count_of --tmpfs)" "0"
+t_eq "$(printf 'run\n--tmpfs\n/tmp:rw\n--tmpfs\n/dev/shm\n' | count_of --tmpfs)" "2"
 # The image's entrypoint drops from root with setpriv, which the dropped
 # SETUID and SETGID refuse: the container starts as the host's user instead.
 t_eq "$(after --user)" "$(id -u):$(id -g)"

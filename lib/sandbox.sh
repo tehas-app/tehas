@@ -221,7 +221,8 @@ tehas_sandbox_seed() { # <state> [<index dir>]
 # default is taken away, and a program cannot gain rights through its mode or
 # file capabilities. The same options for the four containers tehas starts an
 # agent in: a cycle, a planning turn, a manual session and the push check
-# before a cycle. They print ten words.
+# before a cycle. The count is pinned by the callers and by the tests; the
+# words themselves are what is documented, so adding one is one edit here.
 #
 # Only CHOWN and FOWNER are given back:
 #
@@ -262,8 +263,18 @@ tehas_sandbox_seed() { # <state> [<index dir>]
 # command that printed one line in a loop until its log under /tmp held 32 GB
 # and the host's disk was full: four cycles died with it. A tmpfs is charged to
 # the container's memory ceiling instead, so a runaway write ends that container
-# and not the host. It says exec because Docker's own default for a tmpfs is
-# noexec, and a container runs stubs and scripts from under /tmp.
+# and not the host. Nothing of tehas's own is written under /tmp: the host
+# keeps its scratch under $TEHAS_HOME/tmp and exports TMPDIR there. The bit is
+# kept because the container runs the product's own gate, whose tools (npm,
+# cargo, Playwright) write and run helpers in /tmp, and tehas does not
+# enumerate them; no-new-privileges, nosuid and nodev blunt what a file there
+# can reach. No host of ours has been seen to need the bit, so that reason is
+# an expectation, not an observation. The size is an upper bound only: the
+# container's --memory is a quarter of the slice, which is 75% of the host, so
+# below a host of about 43 GiB the kernel reaches that ceiling first and the
+# tmpfs limit never binds. The size is also a total, not a high water mark: a
+# cache left under /tmp stays until the container ends, which is what a long
+# cycle runs out of.
 # The process table is bounded by --pids-limit, which comes from lib/slice.sh.
 tehas_sandbox_security() {
   printf '%s\0' --cap-drop ALL --cap-add CHOWN --cap-add FOWNER \

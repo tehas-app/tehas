@@ -437,7 +437,7 @@ mapfile -d '' -t envs < <(tehas_sandbox_env "$repo" "$bot_name" "$bot_email")
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
 mapfile -d '' -t sec < <(tehas_sandbox_security)
 [ "${#sec[@]}" -eq 10 ] ||
-  { echo "tehas work: could not prepare the sandbox, not starting a cycle" >&2; exit 78; }
+  { echo "tehas work: tehas_sandbox_security gave ${#sec[@]} words, wants 10: not starting a cycle" >&2; exit 78; }
 [ "${#envs[@]}" -gt 0 ] ||
   { echo "tehas work: could not prepare the sandbox, not starting a cycle" >&2; exit 78; }
 verify_at_once=$(tehas_slice_verify) ||

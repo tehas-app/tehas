@@ -49,11 +49,21 @@ t_eq "$(cycle_args | security_of --cap-drop | LC_ALL=C sort)" "ALL"
 t_eq "$(cycle_args | security_of --cap-add | LC_ALL=C sort)" "CHOWN
 FOWNER"
 t_eq "$(cycle_args | security_of --security-opt)" "no-new-privileges:true"
-# One /tmp of its own, bounded: the tmpfs counts against the container's memory
-# ceiling, so a log written in a loop ends the cycle instead of filling the
-# host's disk. It must stay exec: a container runs stubs from under it.
+# One /tmp of its own, bounded and given once: the tmpfs counts against the
+# container's memory, so a log written in a loop ends the cycle instead of
+# filling the host's disk. It stays exec for the product's own gate; see
+# tehas_sandbox_security. The fixtures below are written the way the docker
+# stub records a call: one argument per line.
 t_eq "$(cycle_args | security_of --tmpfs)" "/tmp:rw,exec,nosuid,nodev,size=8g,mode=1777"
 t_eq "$(cycle_args | count_of --tmpfs)" "1"
+# The equals form docker also accepts, and which the word count cannot see: a
+# guard that counted values too would read this line as one mount and pass a
+# second, an unbounded or a noexec one written that way.
+t_eq "$(printf 'run\n--tmpfs=/tmp\n' | count_of --tmpfs)" "0"
+# A second mount of another path is a second flag, wherever it stands: the one
+# drift security_line's contiguous match cannot see, so the whole line must
+# hold exactly one.
+t_eq "$(printf 'run\n--tmpfs\n/tmp:rw\n--tmpfs\n/dev/shm\n' | count_of --tmpfs)" "2"
 # The image's entrypoint drops from root with setpriv, which the dropped
 # SETUID and SETGID refuse: the container starts as the host's user instead.
 t_eq "$(after --user)" "$(id -u):$(id -g)"

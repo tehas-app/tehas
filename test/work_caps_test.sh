@@ -410,6 +410,10 @@ t_eq "$(preflight_args | unknown_options "$image" "--user -e -w -v --entrypoint 
 t_eq "$(preflight_args | security_line)" "$security_opts "
 t_eq "$(preflight_args | security_of --cap-add | LC_ALL=C sort)" "CHOWN
 FOWNER"
+# The push check gets the same one bounded /tmp, counted over the whole line:
+# security_line alone cannot see a second mount outside the block it matches.
+t_eq "$(preflight_args | security_of --tmpfs)" "/tmp:rw,exec,nosuid,nodev,size=8g,mode=1777"
+t_eq "$(preflight_args | count_of --tmpfs)" "1"
 t_eq "$(preflight_args | awk 'prev == "-v" { print } { prev = $0 }')" "$ws:$inside"
 t_eq "$(preflight_args | awk 'prev == "-e" { print } { prev = $0 }' | sed 's/=.*//' | LC_ALL=C sort)" \
   "$(printf '%s\n' "$want" HOME | LC_ALL=C sort)"
