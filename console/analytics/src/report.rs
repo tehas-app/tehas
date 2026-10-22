@@ -27,7 +27,6 @@
 use rusqlite::{params, Connection};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::Read;
 use std::path::Path;
 
 pub const REPORT_VERSION: i64 = 1;
@@ -42,22 +41,52 @@ pub const VERSION_FLOOR: usize = 3;
 const STOP_REASONS: usize = 5;
 const STEPS: usize = 12;
 const VERSIONS: usize = 10;
-/// The size buckets, in the order the report lists them: `size_bucket` returns
-/// one, and `sizes` and `text` both iterate this list.
-const SIZE_BUCKETS: [&str; 4] = ["none", "1-2", "3-4", "5+"];
-/// Bytes of a jsonl ledger the report reads. The writers keep 500 lines of a
-/// few small counts, so no ledger of their own making comes near this.
-const LEDGER_MAX_BYTES: u64 = 1 << 20;
+/// The size buckets, in the order the report lists them. `size_bucket` returns
+/// one and `name` gives the word of it, so no bucket the report prints is one
+/// the counting does not know.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Bucket {
+    None,
+    Small,
+    Medium,
+    Large,
+}
+
+impl Bucket {
+    /// The word of the bucket, the one the report and the manual name it by.
+    fn name(self) -> &'static str {
+        match self {
+            Bucket::None => "none",
+            Bucket::Small => "1-2",
+            Bucket::Medium => "3-4",
+            Bucket::Large => "5+",
+        }
+    }
+}
+
+const SIZE_BUCKETS: [Bucket; 4] = [Bucket::None, Bucket::Small, Bucket::Medium, Bucket::Large];
+/// Bytes of a jsonl ledger the report reads: `LEDGER_MAX_BYTES` of the crate's
+/// root, which `sessions` reads the ledgers under too.
+const LEDGER_MAX_BYTES: u64 = crate::LEDGER_MAX_BYTES;
 /// A ledger line of this many bytes or more is a paste, not a record: it is
 /// skipped rather than parsed, so one pathological line costs the read that
-/// line and not the file.
-const LEDGER_MAX_LINE: usize = 100_000;
+/// line and not the file. `LEDGER_MAX_LINE` of the crate's root.
+const LEDGER_MAX_LINE: usize = crate::LEDGER_MAX_LINE;
 /// The bounds a ledger timestamp may fall inside, as what `iso_ms` turns them
-/// into: one epoch year back and one forward, as milliseconds. A stamp outside
-/// them is rejected on the number itself, before any date arithmetic is asked
-/// to hold it: a year of sixteen digits overflows the conversion.
+/// into: one epoch year back and one forward, as milliseconds. The parse bounds
+/// the year it will hold, and this bounds what the report will answer for: a
+/// stamp outside them is a date no window of the report holds.
 const LEDGER_AT_MIN: i64 = 1_735_689_600_000; // 2025-01-01T00:00:00Z
 const LEDGER_AT_MAX: i64 = 4_102_444_800_000; // 2100-01-01T00:00:00Z
+/// The greatest `files` count a ledger line may hold. Above it the bucket is
+/// "5+" whatever the number, and `config.sh` refuses a `TEHAS_SIZE_MAX_FILES`
+/// of more than nine digits, so a count of more holds no figure the buckets
+/// can answer for.
+const SIZE_MAX_FILES: i64 = 999_999_999;
+/// The two ledgers beside the database, named once: `sessions` reads
+/// `refined.jsonl` too, and both readers must mean the same file.
+const SIZES_LEDGER: &str = "sizes.jsonl";
+pub(crate) const REFINED_LEDGER: &str = "refined.jsonl";
 
 /// A word of a published vocabulary, or "other": a value of any other shape
 /// is never published as it is.
@@ -199,7 +228,7 @@ pub fn build(conn: &Connection, to: i64) -> rusqlite::Result<Value> {
     report.insert("to".into(), json!(to));
     report.insert("shipped".into(), json!({"n": n_shipped}));
     if let Some(p) = planned(&samples, from) {
-        report.insert("planned".into(), p);
+        report.insert(PLANNED.into(), p);
     }
 
     let count = |o: &str| runs.iter().filter(|r| r.outcome == o).count();
@@ -275,13 +304,47 @@ pub fn build(conn: &Connection, to: i64) -> rusqlite::Result<Value> {
 
     report.insert("availability".into(), availability(&samples, to));
     if let Some(e) = energy(&samples, to, n_shipped) {
-        report.insert("energy".into(), e);
+        report.insert(ENERGY.into(), e);
     }
     report.insert("daily".into(), daily(&runs, &shipped, from));
     report.insert("stopReasons".into(), stop_reasons(&runs));
     report.insert("stations".into(), stations(conn, &runs, from, to)?);
     report.insert("versions".into(), versions(&runs));
     Ok(Value::Object(report))
+}
+
+/// Each entry is one section whose whole row `text` prints only when the key
+/// is there: its name in the report and the label of its row. `text` names its
+/// four rows from this list and a test holds the list against the keys the
+/// report actually publishes, so a section that gains a key without a row, or a
+/// row without a producer, fails a test rather than going unprinted. The rows
+/// that stand whatever the report holds -- `Shipped`, `Runs`, the times -- come
+/// from `build`, which always publishes them, and are not listed here.
+pub const SECTIONS: [(&str, &str); 4] = [
+    (PLANNED, "Planned"),
+    (ENERGY, "Energy"),
+    (REFINE, "Refine"),
+    (SIZES, "Size"),
+];
+
+/// The keys of the four sections of `SECTIONS`, named once so `text` and the
+/// report's own writers cannot spell them apart.
+const PLANNED: &str = "planned";
+const ENERGY: &str = "energy";
+pub(crate) const REFINE: &str = "refine";
+pub(crate) const SIZES: &str = "sizes";
+
+/// The label of one section's row, the word `text` prints it by. The four
+/// labels live in `SECTIONS` alone, so the renderer and the test of the
+/// contract read one list. A key of no section has no row, and prints none:
+/// this is called only for the four, and the empty word renders a row of a
+/// screen the test then finds has no label, which is the failure it is.
+pub(crate) fn label(key: &str) -> &'static str {
+    SECTIONS
+        .iter()
+        .find(|(k, _)| *k == key)
+        .map(|(_, l)| *l)
+        .unwrap_or_default()
 }
 
 /// One line of state/refined.jsonl (lib/planning.sh): when a refining session
@@ -292,60 +355,49 @@ pub struct Refined {
     pub filed: i64,
 }
 
-/// A ledger read through as plain text: never through a link, never a device
-/// or a fifo, and none past `LEDGER_MAX_BYTES`, so one host file costs the
-/// report a bounded read or nothing at all. An unreadable ledger is no ledger,
-/// exactly as no file is: the figures of the ledgers are counts of what was
-/// measured, and a ledger the report cannot read measured nothing.
 fn read_ledger(home: &Path, name: &str) -> Option<String> {
-    let mut file = crate::run::plain_file(&home.join("state").join(name))?;
-    let mut text = String::new();
-    if file
-        .by_ref()
-        .take(LEDGER_MAX_BYTES + 1)
-        .read_to_string(&mut text)
-        .is_err()
-        || text.len() as u64 > LEDGER_MAX_BYTES
-    {
-        return None;
-    }
-    Some(text)
+    crate::run::read_ledger(home, name, LEDGER_MAX_BYTES)
 }
 
 /// A ledger line's `at` in Unix seconds, or nothing: an ISO time as the writers
-/// print it. The bound is put on the milliseconds, where they are already a
-/// number; a stamp outside them is corrupt or hostile and is skipped before
-/// any further arithmetic is asked to hold it.
-fn ledger_at(v: &Value) -> Option<i64> {
-    let ms = ledger_ms(v)?;
+/// print it, and only a time the report can answer for. The bound is on the
+/// milliseconds, where they are already a number; `iso_ms` itself refuses a
+/// year it cannot hold, so a stamp that reaches here is a date and this only
+/// asks whether the report keeps that year.
+pub(crate) fn ledger_at(v: &Value) -> Option<i64> {
+    let ms = v
+        .get("at")
+        .and_then(Value::as_str)
+        .and_then(crate::run::iso_ms)?;
     (LEDGER_AT_MIN..=LEDGER_AT_MAX)
         .contains(&ms)
         .then_some(ms / 1000)
-}
-
-/// A ledger line's `at` as the milliseconds `iso_ms` gives, with no bound on
-/// them: the shape a date has, not yet a date anyone trusts.
-fn ledger_ms(v: &Value) -> Option<i64> {
-    v.get("at")
-        .and_then(Value::as_str)
-        .and_then(crate::run::iso_ms)
 }
 
 /// The ledger of refined issues. A line that is not an object with a whole time
 /// and a positive number is skipped, and so is a line of `LEDGER_MAX_LINE`
 /// bytes or more; no file is no refined issue.
 pub fn read_refined(home: &Path) -> Vec<Refined> {
-    let Some(text) = read_ledger(home, "refined.jsonl") else {
-        return Vec::new();
-    };
-    text.lines()
-        .filter(|l| l.len() < LEDGER_MAX_LINE)
-        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+    ledger_lines(home, REFINED_LEDGER)
+        .into_iter()
         .filter_map(|v| {
             let at = ledger_at(&v)?;
             let filed = v.get("filed").and_then(Value::as_i64).filter(|n| *n > 0)?;
             Some(Refined { at, filed })
         })
+        .collect()
+}
+
+/// The lines of one ledger beside the database, each parsed as a JSON value and
+/// none of a shape it cannot be: what the file is not (no file, a link, a
+/// device, too long, not text) is no lines at all.
+fn ledger_lines(home: &Path, name: &str) -> Vec<Value> {
+    let Some(text) = read_ledger(home, name) else {
+        return Vec::new();
+    };
+    text.lines()
+        .filter(|l| l.len() < LEDGER_MAX_LINE)
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
         .collect()
 }
 
@@ -447,31 +499,22 @@ pub struct Size {
 /// one; returned in issue order. Of what the line holds only `at`, `issue`
 /// and `files` are read, so nothing of the body's own words can reach the
 /// report. A line that is not an object with a whole `at` inside the year the
-/// report keeps, a positive whole-numbered `issue` and a whole `files` count
-/// is skipped, and a line of a hundred thousand bytes or more is skipped with
-/// it, so one pathological line costs the read that line and not the file. A
-/// ledger that is a directory, a link or a device, one of another shape than
-/// text, or one past `LEDGER_MAX_BYTES`, is no measured issue at all, as no
-/// file is.
+/// report keeps, a positive whole-numbered `issue` and a whole `files` count of
+/// no more than `SIZE_MAX_FILES` is skipped, and a line of a hundred thousand
+/// bytes or more is skipped with it, so one pathological line costs the read
+/// that line and not the file. A ledger that is a directory, a link or a device,
+/// one of another shape than text, or one past `LEDGER_MAX_BYTES`, is no
+/// measured issue at all, as no file is.
 pub fn read_sizes(home: &Path) -> Vec<Size> {
-    let Some(text) = read_ledger(home, "sizes.jsonl") else {
-        return Vec::new();
-    };
     let mut latest: BTreeMap<i64, Size> = BTreeMap::new();
-    for l in text.lines() {
-        if l.len() >= LEDGER_MAX_LINE {
-            continue;
-        }
-        let Ok(v) = serde_json::from_str::<Value>(l) else {
-            continue;
-        };
+    for v in ledger_lines(home, SIZES_LEDGER) {
         let Some(at) = ledger_at(&v) else {
             continue;
         };
         let Some(issue) = whole(&v, "issue").filter(|n| *n > 0) else {
             continue;
         };
-        let Some(files) = whole(&v, "files").filter(|n| *n >= 0) else {
+        let Some(files) = whole(&v, "files").filter(|n| *n >= 0 && *n <= SIZE_MAX_FILES) else {
             continue;
         };
         match latest.get(&issue) {
@@ -492,24 +535,38 @@ fn whole(v: &Value, key: &str) -> Option<i64> {
 
 /// The size of one issue as a bucket: the file counts 1-2, 3-4 and 5+, or
 /// "none" for the bodies that named no file at all. "5+" is the catch-all for
-/// every count above 4, however large: the ledger keeps any whole number, and
-/// the bucket says where the threshold pays, not how wide an issue was.
-fn size_bucket(files: i64) -> &'static str {
+/// every count above 4, however large: the reader admits any whole count up to
+/// what `TEHAS_SIZE_MAX_FILES` may be set to, and the bucket says where the
+/// threshold pays, not how wide an issue was.
+fn size_bucket(files: i64) -> Bucket {
     match files {
-        ..=0 => "none",
-        1..=2 => "1-2",
-        3..=4 => "3-4",
-        _ => "5+",
+        ..=0 => Bucket::None,
+        1..=2 => Bucket::Small,
+        3..=4 => Bucket::Medium,
+        _ => Bucket::Large,
     }
 }
 
-/// The shipped issues of the ledger, read once: the number to its merge and
-/// its lead time. `v_lead` holds one row per shipped issue, keyed by the
-/// number alone, which is the earliest merge the issue ever had, matched with
-/// its first accepted ready event. `refine` reads the same view per issue.
-fn leads(conn: &Connection) -> rusqlite::Result<BTreeMap<i64, (i64, Option<i64>)>> {
-    let mut q = conn.prepare("SELECT issue, merged, lead_seconds FROM v_lead")?;
-    let rows = q.query_map([], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?))))?;
+/// What one bucket counted: the starts measured in the window, the ships among
+/// them, and the lead times of the ships that had one.
+#[derive(Default)]
+struct BucketCount {
+    n: usize,
+    shipped: usize,
+    leads: Vec<i64>,
+}
+
+/// The shipped issues of the ledger, read once: the number to its merge and its
+/// lead time. `v_lead` holds one row per shipped issue, keyed by the number
+/// alone, which is the earliest merge the issue ever had, matched with its first
+/// accepted ready event. The merge is bounded by `from`, the first day of the
+/// window, because `sizes` credits only a merge at or after a measured start and
+/// a start of the window cannot predate it. The lead is what the row's own
+/// window gives, which is why `leadTime.n` can fall short of `shipped`.
+fn leads(conn: &Connection, from: i64) -> rusqlite::Result<BTreeMap<i64, (i64, Option<i64>)>> {
+    let mut q =
+        conn.prepare("SELECT issue, merged, lead_seconds FROM v_lead WHERE merged >= ?1")?;
+    let rows = q.query_map(params![from], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?))))?;
     rows.collect()
 }
 
@@ -523,54 +580,53 @@ fn leads(conn: &Connection) -> rusqlite::Result<BTreeMap<i64, (i64, Option<i64>)
 /// and an issue whose first ready lies before the window ships without a lead
 /// time. `leadTime.n` is that smaller count: where it falls short of
 /// `shipped`, a ship brought no lead. The view is read once for the whole
-/// ledger, as the shipped figures read it once for the window.
+/// ledger, bounded by the window's own first day.
 /// Counts only, so the threshold of the dispatcher's hold (`TEHAS_SIZE_MAX_FILES`)
 /// can be set from what the outcomes say.
 pub fn sizes(conn: &Connection, ledger: &[Size], to: i64) -> rusqlite::Result<Value> {
     let from = (to.div_euclid(DAY) - (DAYS - 1)) * DAY;
-    let leads = leads(conn)?;
-    // One accumulator per bucket, so an empty bucket is the loop's own
-    // nothing and not a lookup that missed.
-    let mut acc: BTreeMap<&'static str, (usize, usize, Vec<i64>)> = SIZE_BUCKETS
+    let leads = leads(conn, from)?;
+    let mut acc: BTreeMap<Bucket, BucketCount> = SIZE_BUCKETS
         .iter()
-        .map(|b| (*b, (0usize, 0usize, Vec::new())))
+        .map(|b| (*b, BucketCount::default()))
         .collect();
     for s in ledger.iter().filter(|s| s.at >= from && s.at <= to) {
         let b = size_bucket(s.files);
-        let a = acc.entry(b).or_default();
-        a.0 += 1;
+        let a = acc
+            .get_mut(&b)
+            .expect("a bucket of SIZE_BUCKETS, which the map was seeded from");
+        a.n += 1;
         if let Some((merged, lead)) = leads.get(&s.issue) {
             // The view's merge is the earliest the issue ever had, so a merge
             // before this measured start belongs to an earlier cycle of it:
             // the window shipped nothing.
             if *merged >= s.at {
-                a.1 += 1;
+                a.shipped += 1;
+                // The view's lead is its own `merged - ready`, so it is never
+                // negative; a row with no ready behind it holds none at all.
                 if let Some(l) = lead {
-                    if *l >= 0 {
-                        a.2.push(*l);
-                    }
+                    a.leads.push(*l);
                 }
             }
         }
     }
     for a in acc.values_mut() {
-        a.2.sort_unstable();
+        a.leads.sort_unstable();
     }
-    let row = |b: &'static str| {
+    let row = |b: Bucket| {
         // The leads of each bucket were sorted once, before the rows.
-        let (n, shipped, lead) = acc
-            .get(b)
-            .map(|a| (a.0, a.1, a.2.as_slice()))
-            .unwrap_or_default();
+        let a = acc
+            .get(&b)
+            .expect("a bucket of SIZE_BUCKETS, which the map was seeded from");
         obj(vec![
-            ("n", Some(json!(n))),
-            ("shipped", Some(json!(shipped))),
-            ("leadTime", Some(spread(lead))),
+            ("n", Some(json!(a.n))),
+            ("shipped", Some(json!(a.shipped))),
+            ("leadTime", Some(spread(&a.leads))),
         ])
     };
     let mut out = Map::new();
     for b in SIZE_BUCKETS {
-        out.insert(b.to_string(), row(b));
+        out.insert(b.name().to_string(), row(b));
     }
     Ok(Value::Object(out))
 }
@@ -580,15 +636,20 @@ pub fn sizes(conn: &Connection, ledger: &[Size], to: i64) -> rusqlite::Result<Va
 /// keys of one section are its own; a section that fails is the error, named
 /// for itself, so a defect in one ledger says which.
 pub fn complete(conn: &Connection, home: &Path, now: i64) -> Result<Value, (u8, String)> {
-    let mut report = build(conn, now).map_err(|e| (70, format!("the report failed: {e}")))?;
+    let report = build(conn, now).map_err(|e| (70, format!("the report failed: {e}")))?;
     let refine = refine(conn, &read_refined(home), now)
         .map_err(|e| (70, format!("the refine figures failed: {e}")))?;
     let sizes = sizes(conn, &read_sizes(home), now)
         .map_err(|e| (70, format!("the size figures failed: {e}")))?;
-    let o = report.as_object_mut().expect("build returns an object");
-    o.insert("refine".into(), refine);
-    o.insert("sizes".into(), sizes);
-    Ok(report)
+    // `build` returns an object on every path; a report that is not one is
+    // published as it is rather than ending the command over its shape.
+    let Some(o) = report.as_object() else {
+        return Ok(report);
+    };
+    let mut o = o.clone();
+    o.insert(REFINE.into(), refine);
+    o.insert(SIZES.into(), sizes);
+    Ok(Value::Object(o))
 }
 
 fn spread(sorted: &[i64]) -> Value {
@@ -965,9 +1026,12 @@ pub fn text(report: &Value) -> String {
         format!("{} issues", num(&at(&["shipped", "n"]))),
         String::new(),
     );
-    let planned = &report["planned"];
+    // The four conditional rows take their labels from `SECTIONS`, so the
+    // renderer and the test of the contract read one list: a section that gains
+    // a key without a row, or a row without a section, fails a test.
+    let planned = &report[PLANNED];
     row(
-        "Planned",
+        label(PLANNED),
         if planned.is_object() {
             format!(
                 "{} now: {} in line, {} in planning",
@@ -997,10 +1061,10 @@ pub fn text(report: &Value) -> String {
         num(&at(&["planningTurns", "n"])),
         String::new(),
     );
-    let refine = &report["refine"];
-    if refine.is_object() {
+    let refine = &report[REFINE];
+    if refine.as_object().is_some() {
         row(
-            "Refine",
+            label(REFINE),
             format!(
                 "{} sessions, {} issues filed: {} started, {} shipped ({}), lead median {}; other issues {} shipped (n={})",
                 num(&refine["sessions"]),
@@ -1015,22 +1079,26 @@ pub fn text(report: &Value) -> String {
             String::new(),
         );
     }
-    let sizes = &report["sizes"];
-    if sizes.is_object() {
-        let bucket = |b: &str| {
-            let e = &sizes[b];
+    let sizes = &report[SIZES];
+    if let Some(s) = sizes.as_object() {
+        // Each bucket is read as the three counts `sizes` publishes; a bucket
+        // that is not an object of them prints as nothing rather than a row of
+        // dashes, so producer and consumer cannot drift unseen.
+        let bucket = |b: Bucket| {
+            let e = &s[b.name()];
             format!(
-                "{b}: {} shipped {}, lead {}",
+                "{}: {} shipped {}, lead {}",
+                b.name(),
                 num(&e["n"]),
                 num(&e["shipped"]),
                 dur(&e["leadTime"]["median"]),
             )
         };
         row(
-            "Size",
+            label(SIZES),
             SIZE_BUCKETS
                 .iter()
-                .map(|b| bucket(b))
+                .map(|b| bucket(*b))
                 .collect::<Vec<_>>()
                 .join(" | "),
             String::new(),
@@ -1093,17 +1161,17 @@ pub fn text(report: &Value) -> String {
         },
         n("availability"),
     );
-    let energy = &report["energy"];
+    let energy = &report[ENERGY];
     if energy.is_object() {
         let kwh = |v: &Value| v.as_f64().map_or("-".to_string(), |k| format!("{k} kWh"));
         row(
-            "Energy",
+            label(ENERGY),
             format!(
                 "{}{}",
                 kwh(&energy["kwh"]),
                 per(&energy["perShipped"], &kwh)
             ),
-            n("energy"),
+            n(ENERGY),
         );
     }
 

@@ -12,6 +12,11 @@ use std::path::Path;
 
 pub const SESSIONS_DAYS: i64 = 30;
 const DAY: i64 = 86_400;
+/// Bytes of a jsonl ledger the sessions read, and the width one line may
+/// have: the same bounds the report's ledger reader works within, from the
+/// crate's root.
+const LEDGER_MAX_BYTES: u64 = crate::LEDGER_MAX_BYTES;
+const LEDGER_MAX_LINE: usize = crate::LEDGER_MAX_LINE;
 /// How long after a planning turn ended a ledger line may still be its.
 const FILED_AFTER: i64 = 120;
 /// How long before a run's start its log's stamp may be: the stamp is taken
@@ -226,22 +231,19 @@ struct Filed {
     url: String,
 }
 
-// state/refined.jsonl, as lib/planning.sh writes it. Anything unreadable, a
+// state/refined.jsonl, as lib/planning.sh writes it, read by the same bounded
+// plain-file rule the report's own ledger reader uses: anything unreadable, a
 // link, or a line of another shape is no filed issue.
 fn ledger(home: &Path) -> Vec<Filed> {
-    let path = home.join("state").join("refined.jsonl");
-    if regular_size(&path).is_none() {
-        return Vec::new();
-    }
-    let Ok(text) = fs::read_to_string(&path) else {
-        return Vec::new();
-    };
+    let text = crate::run::read_ledger(home, crate::report::REFINED_LEDGER, LEDGER_MAX_BYTES)
+        .unwrap_or_default();
     text.lines()
+        .filter(|l| l.len() < LEDGER_MAX_LINE)
         .filter_map(|l| serde_json::from_str::<Value>(l).ok())
         .filter_map(|v| {
             let url = v.get("url")?.as_str()?;
             Some(Filed {
-                at: iso_ms(v.get("at")?.as_str()?)? / 1000,
+                at: crate::report::ledger_at(&v)?,
                 source: v.get("source")?.as_i64()?,
                 filed: v.get("filed")?.as_i64().filter(|n| *n >= 1)?,
                 url: url.starts_with("https://").then(|| url.to_string())?,

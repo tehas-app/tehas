@@ -54,6 +54,18 @@ fn put(home: &Path, name: &str, text: &str) {
     fs::write(&p, text).unwrap();
 }
 
+/// These records, one per line: how a jsonl ledger is written.
+fn ledger(records: &[Value]) -> String {
+    records.iter().map(|l| format!("{l}\n")).collect()
+}
+
+/// The four buckets of nothing, the shape the manual names: the report of a
+/// ledger that holds nothing, or that the report will not read.
+fn empty_buckets() -> Value {
+    let nothing = || json!({"n": 0, "shipped": 0, "leadTime": {"n": 0}});
+    json!({"none": nothing(), "1-2": nothing(), "3-4": nothing(), "5+": nothing()})
+}
+
 fn history(home: &Path, issue: i64, lines: &[Value]) {
     let text: String = lines.iter().map(|l| format!("{l}\n")).collect();
     put(home, &format!("state/cycles/{issue}.history.jsonl"), &text);
@@ -1221,13 +1233,15 @@ fn iso_times_are_read_as_utc() {
     assert_eq!(iso_ms("2000-03-01T00:00:01.5Z"), Some(951_868_801_500));
     assert_eq!(iso_ms("2026-10-15 18:38:44"), None);
     assert_eq!(iso_ms("2026-13-15T18:38:44Z"), None);
-    // A year of any length is read, however far its day stands from now: a
-    // ledger's stamp is bounded by its reader, not here. The date arithmetic
-    // itself holds years that run well past the i64 milliseconds they turn
-    // into (see run::iso_ms), so the reader bounds the number it was given
-    // rather than trust a stamp of any size (report::ledger_at).
-    assert_eq!(iso_ms("2262-01-01T00:00:00Z"), Some(9_214_646_400_000));
-    assert_eq!(iso_ms("9999-12-31T23:59:59Z"), Some(253_402_300_799_000));
+    // The year is bounded here, before the arithmetic that would overflow on a
+    // large one: a ledger's stamp is read only within these two years, and
+    // `report::ledger_at` asks only whether the report keeps that year.
+    assert_eq!(iso_ms("1969-12-31T23:59:59Z"), None);
+    assert_eq!(iso_ms("2101-01-01T00:00:00Z"), None);
+    assert_eq!(iso_ms("71167994112-01-01T00:00:00Z"), None);
+    assert_eq!(iso_ms("2262-01-01T00:00:00Z"), None);
+    assert_eq!(iso_ms("9999-12-31T23:59:59Z"), None);
+    assert_eq!(iso_ms("2100-12-31T23:59:59Z"), Some(4_133_980_799_000));
 }
 
 #[test]
@@ -1867,7 +1881,7 @@ fn the_size_figures_follow_the_measured_starts_of_the_window() {
     put(
         &home,
         "state/sizes.jsonl",
-        &[
+        &ledger(&[
             json!({"at": iso(day0 + 1000), "issue": 1, "files": 2, "tests": 1,
                   "deliverables": 1, "done_when": 2}),
             json!({"at": iso(day0 + 900), "issue": 1, "files": 5, "tests": 0,
@@ -1903,10 +1917,7 @@ fn the_size_figures_follow_the_measured_starts_of_the_window() {
             json!({"at": "2263-01-01T00:00:00Z", "issue": 13, "files": 2}),
             json!({"at": "1990-01-01T00:00:00Z", "issue": 13, "files": 2}),
             json!({"at": iso(day0 + 8000), "issue": 13, "files": 2}),
-        ]
-        .iter()
-        .map(|l| format!("{l}\n"))
-        .collect::<String>(),
+        ]),
     );
     let ledger = crate::report::read_sizes(&home);
     // In issue order, the order the map's key gives it.
@@ -1928,6 +1939,7 @@ fn the_size_figures_follow_the_measured_starts_of_the_window() {
         ]
     );
     let empty = json!({"n": 0, "shipped": 0, "leadTime": {"n": 0}});
+    assert_eq!(empty_buckets()["3-4"], empty);
     let got = crate::report::sizes(&conn, &ledger, to).unwrap();
     assert_eq!(
         got,
@@ -1960,7 +1972,7 @@ fn the_size_figures_follow_the_measured_starts_of_the_window() {
             to
         )
         .unwrap(),
-        json!({"none": empty, "1-2": empty, "3-4": empty, "5+": empty})
+        empty_buckets()
     );
     let text = crate::report::text(&crate::report::complete(&conn, &home, to).unwrap());
     // The Size line names each bucket by name, not by column width.
@@ -1987,10 +1999,7 @@ fn the_report_command_adds_the_refine_and_size_figures() {
     put(
         &home,
         "state/sizes.jsonl",
-        &format!(
-            "{}\n",
-            json!({"at": iso(day0 + 1000), "issue": 1, "files": 2})
-        ),
+        &ledger(&[json!({"at": iso(day0 + 1000), "issue": 1, "files": 2})]),
     );
     let got = crate::report::complete(&conn, &home, to).unwrap();
     assert_eq!(
@@ -2013,13 +2022,7 @@ fn the_report_command_adds_the_refine_and_size_figures() {
     std::os::unix::fs::symlink(&moved, home.join("state").join("sizes.jsonl")).unwrap();
     assert!(crate::report::read_sizes(&home).is_empty());
     let got = crate::report::complete(&conn, &home, to).unwrap();
-    assert_eq!(
-        got["sizes"],
-        json!({"none": {"n": 0, "shipped": 0, "leadTime": {"n": 0}},
-               "1-2": {"n": 0, "shipped": 0, "leadTime": {"n": 0}},
-               "3-4": {"n": 0, "shipped": 0, "leadTime": {"n": 0}},
-               "5+": {"n": 0, "shipped": 0, "leadTime": {"n": 0}}})
-    );
+    assert_eq!(got["sizes"], empty_buckets());
     // The Size line says the buckets by name.
     assert!(
         crate::report::text(&got).contains("none: 0 shipped 0, lead - | 1-2: 0 shipped 0, lead - | 3-4: 0 shipped 0, lead - | 5+: 0 shipped 0, lead -"),
@@ -2039,11 +2042,10 @@ fn the_size_figures_hold_no_keys_but_their_own() {
     put(
         &home,
         "state/sizes.jsonl",
-        &format!(
-            "{}\n",
+        &ledger(&[
             json!({"at": iso(day0 + 1000), "issue": 1, "files": 2, "tests": 1,
-                   "deliverables": 3, "done_when": 4, "title": "what the issue asked for"})
-        ),
+                   "deliverables": 3, "done_when": 4, "title": "what the issue asked for"}),
+        ]),
     );
     let got = crate::report::sizes(&conn, &crate::report::read_sizes(&home), to).unwrap();
     assert_eq!(
@@ -2057,6 +2059,196 @@ fn the_size_figures_hold_no_keys_but_their_own() {
         );
     }
     assert!(!got.to_string().contains("asked for"));
+}
+
+// The two whole-file bounds of a ledger, pinned in both directions: the reader
+// takes a file of the writer's own making and refuses one that is a byte too
+// long, and the size of a `files` count is bounded too.
+#[test]
+fn a_ledger_past_the_whole_file_bound_is_no_ledger_at_all() {
+    let home = scratch("report-sizes-bounds");
+    let day0 = 1_792_022_400;
+    let to = day0 + 9 * DAY + 43_200;
+    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+    std::fs::create_dir_all(home.join("state")).unwrap();
+    // The 500 lines the writers keep: read whole, and of one issue each.
+    let starts: Vec<Value> = (1..=500)
+        .map(|i| json!({"at": iso(day0 + 1000 + i), "issue": i, "files": 2}))
+        .collect();
+    put(&home, "state/sizes.jsonl", &ledger(&starts));
+    assert_eq!(crate::report::read_sizes(&home).len(), 500);
+    // A line one byte short of the width bound is a record; one at it is a
+    // paste. Both sit beside a good line, so the wide one costs only itself.
+    // The width is measured on the printed line, so the filler is solved for.
+    let at = iso(day0 + 1000);
+    let prefix_of = |issue: i64| {
+        format!(
+            "{},{}",
+            json!({"at": at.clone(), "issue": issue, "files": 2}),
+            "\"filler\":"
+        )
+    };
+    let wide_of = |issue: i64, len: usize| {
+        let mut w = json!({"at": at.clone(), "issue": issue, "files": 2});
+        w["filler"] = json!("x".repeat(len - prefix_of(issue).len() - 2));
+        assert_eq!(w.to_string().len(), len);
+        w
+    };
+    // The printed line of a two-file start with a one-digit issue is 49
+    // bytes; the filler is solved for below, and this pins it against that.
+    assert_eq!(
+        json!({"at": at, "issue": 900, "files": 2})
+            .to_string()
+            .len(),
+        51
+    );
+    put(
+        &home,
+        "state/sizes.jsonl",
+        &ledger(&[
+            json!({"at": at.clone(), "issue": 900, "files": 2}),
+            wide_of(901, 99_999),
+        ]),
+    );
+    assert_eq!(crate::report::read_sizes(&home).len(), 2);
+    put(
+        &home,
+        "state/sizes.jsonl",
+        &ledger(&[
+            json!({"at": at.clone(), "issue": 900, "files": 2}),
+            wide_of(902, 100_000),
+        ]),
+    );
+    assert_eq!(crate::report::read_sizes(&home).len(), 1);
+    // One byte past the whole-file bound is no ledger: the figures are four
+    // buckets of nothing, as they are for no file at all.
+    let one_mib = 1usize << 20;
+    let mut big = ledger(&starts);
+    big.push_str(&"y".repeat(one_mib - big.len() + 1));
+    assert_eq!(big.len(), one_mib + 1);
+    put(&home, "state/sizes.jsonl", &big);
+    assert!(crate::report::read_sizes(&home).is_empty());
+    assert_eq!(
+        crate::report::sizes(&conn, &crate::report::read_sizes(&home), to).unwrap(),
+        empty_buckets()
+    );
+    // The last byte within the bound is read: the same file one byte shorter
+    // answers for all 500 starts.
+    put(&home, "state/sizes.jsonl", &big[..one_mib]);
+    assert_eq!(crate::report::read_sizes(&home).len(), 500);
+    // A `files` count of more than the nine digits the setting may hold is no
+    // measure, whatever bucket it would have fallen in.
+    put(
+        &home,
+        "state/sizes.jsonl",
+        &ledger(&[
+            json!({"at": iso(day0 + 1000), "issue": 903, "files": 999_999_999}),
+            json!({"at": iso(day0 + 1000), "issue": 904, "files": 1_000_000_000}),
+            json!({"at": iso(day0 + 1000), "issue": 905, "files": -1}),
+        ]),
+    );
+    assert_eq!(
+        crate::report::read_sizes(&home)
+            .iter()
+            .map(|s| s.issue)
+            .collect::<Vec<_>>(),
+        [903]
+    );
+    // A stamp of an eleven-digit year is refused at the parse, so neither
+    // ledger can panic the report with one.
+    for name in ["sizes.jsonl", "refined.jsonl"] {
+        put(
+            &home,
+            &format!("state/{name}"),
+            &ledger(&[
+                json!({"at": "71167994112-01-01T00:00:00Z", "issue": 1, "files": 2,
+                            "source": 1, "filed": 1, "url": "https://x/y/issues/1"}),
+            ]),
+        );
+        assert!(crate::report::read_sizes(&home).is_empty(), "{name}");
+        assert!(crate::report::read_refined(&home).is_empty(), "{name}");
+    }
+}
+
+// The rows the terminal knows are exactly the sections the report command
+// The rows the terminal prints conditionally are exactly the sections that
+// carry them: `text` renders one row per entry of `SECTIONS`, and no row for a
+// section the report does not hold.
+#[test]
+fn the_text_report_prints_one_row_for_every_section_of_the_report() {
+    let home = scratch("report-text-sections");
+    let day0 = 1_792_022_400;
+    let to = day0 + 9 * DAY + 43_200;
+    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+    report_data(&conn, day0, to);
+    let built = crate::report::build(&conn, to).unwrap();
+    let full = crate::report::complete(&conn, &home, to).unwrap();
+    let keys = |v: &Value| {
+        v.as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect::<Vec<String>>()
+    };
+    // The four sections of the contract: each holds an object of its own and
+    // prints the row `SECTIONS` names, so a section without a row and a row
+    // without a section both fail here. The two of the ledgers come with
+    // `complete`, the two of the database with `build`.
+    let full_text = crate::report::text(&full);
+    let built_text = crate::report::text(&built);
+    let added = keys(&full)
+        .into_iter()
+        .filter(|k| !keys(&built).contains(k))
+        .collect::<Vec<_>>();
+    assert_eq!(added, [crate::report::REFINE, crate::report::SIZES]);
+    for (key, label) in crate::report::SECTIONS {
+        let from_ledger = key == crate::report::REFINE || key == crate::report::SIZES;
+        let (report, text) = if from_ledger {
+            (&full, &full_text)
+        } else {
+            (&built, &built_text)
+        };
+        assert!(report[key].is_object(), "{key} is a section of the report");
+        let line = text
+            .lines()
+            .find(|l| l.starts_with(label))
+            .unwrap_or_else(|| panic!("{label} is the row of the {key} section:\n{text}"));
+        assert!(line.len() > label.len() + 1, "{key} prints a value: {line}");
+        // And no row without its section.
+        if from_ledger {
+            assert!(!keys(&built).contains(&key.to_string()));
+            assert!(
+                !built_text.contains(label),
+                "{label} prints without its section"
+            );
+        }
+    }
+}
+
+// The size figures are read within the time the caller gives the report, the
+// ledger path included: `leads` reads the view once for the whole ledger.
+#[test]
+fn the_size_figures_of_a_full_ledger_come_in_inside_the_time_limit() {
+    let home = scratch("report-sizes-load");
+    let to = 1_792_022_400 + 10 * DAY;
+    let (mut conn, _) = db::open(&db::path(&home), to).unwrap();
+    let tx = conn.transaction().unwrap();
+    // Four hundred shipped issues, and a measured start for each of them.
+    for i in 0..400_i64 {
+        let started = to - 10 * DAY + i * 60;
+        db::event(&tx, i, "ready", started).unwrap();
+        db::event(&tx, i, "merged", started + 3600).unwrap();
+    }
+    tx.commit().unwrap();
+    let starts: Vec<Value> = (0..400)
+        .map(|i| json!({"at": iso(to - 3600), "issue": i, "files": i % 7}))
+        .collect();
+    put(&home, "state/sizes.jsonl", &ledger(&starts));
+    let t = std::time::Instant::now();
+    assert_eq!(execute(&home, &Cmd::Report, to), Ok(()));
+    let took = t.elapsed();
+    // The limit is 5 s; the ledger's join is one view read, not one per line.
+    assert!(took.as_secs_f64() < 2.0, "the report took {took:?}");
 }
 
 #[test]
