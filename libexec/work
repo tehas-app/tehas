@@ -79,7 +79,13 @@
 #              tehasbot cycle names that in its comment, not this status. A
 #              container it saw killed leaves state/cycles/<issue>.status with
 #              the word `killed`, which is the only account of the end when the
-#              runner wrote no result at all.
+#              runner wrote no result at all. A container it watched to its end
+#              that wrote no result and not one line of its stream leaves
+#              state/cycles/<issue>.nostart with the container's own exit
+#              status: one line, plain digits, 1 to 999, no sign and no leading
+#              zero. tehasbot cycle makes that as tehas's own cap
+#              `runner-never-started`. One this command stopped, killed outright
+#              with no result, or ended at the time limit leaves no such note.
 #
 #             64 no bot token or no git identity; no cycle was started.
 #             78 the instance settings are invalid, tehas.slice is not
@@ -109,6 +115,9 @@
 #   TEHAS_WORK_DESCRIBE 1 has the model describe those images first [0]
 #   TEHAS_WORK_FILES    1 gives the cycle the text files its issue links [0]
 #   TEHAS_WORK_COMMENTS 1 takes those of the issue's comments too [0]
+#   TEHAS_WORK_ZIPS     1 unpacks a zip its issue links into the same
+#                       directory [0]; needs TEHAS_WORK_IMAGES or
+#                       TEHAS_WORK_FILES
 # From the environment, for tests: TEHAS_PREFLIGHT_WAIT (seconds the push check
 # may take [300]), TEHAS_WORK_GRACE (seconds past the time limit [300]),
 # TEHAS_STOP_WAIT (seconds a docker stop may take before
@@ -155,6 +164,23 @@
 # They are named file-1.md and so on and listed under "files" in the manifest
 # with their original name. The pi-rukas that tehas pins does not read them
 # yet.
+#
+# With TEHAS_WORK_ZIPS=1 the same directory also holds what a zip the issue
+# links contains, and this adds no mount and no variable more:
+#   which     A link whose first four bytes are those of a zip archive, not one
+#             named .zip that is something else: that is left out and said.
+#             At most 2 archives per issue, each downloaded at most 4 MB.
+#   what      Every file of the archive through the checks above: an image by
+#             its first bytes, a text file by its extension and its encoding.
+#             Anything else, an svg or a nested archive among them, is left
+#             out with its path in the archive and the reason.
+#   how much  The unpacked files count against the limits above, the images'
+#             and the files', as the ones the issue links do. The archive is
+#             unpacked on the room left of the files' 4 MB.
+# They are named on from the linked ones, image-1.png and file-1.md, and each
+# manifest entry says the zip it came from under "zip" and its path inside the
+# archive under "path". The archive itself is not kept, and the directory it
+# was unpacked into is removed whatever it held.
 # They go to $TEHAS_HOME/work/<name>-<issue>.images, beside the workspace and
 # not in it, so a patch cannot commit them, under names made here, with a
 # manifest.json that lists each file, the link it came from, its type, size
@@ -305,6 +331,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/headless.sh"
 # shellcheck source=lib/private.sh
 . "$here/../lib/private.sh"
+# shellcheck source=lib/sizing.sh
+. "$here/../lib/sizing.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
 tehas_sandbox_settings_ok || exit 78
@@ -342,6 +370,9 @@ oom_file=$TEHAS_HOME/state/cycles/$issue.oom
 forks_file=$TEHAS_HOME/state/cycles/$issue.forks
 stall_file=$TEHAS_HOME/state/cycles/$issue.stalled
 timed_file=$TEHAS_HOME/state/cycles/$issue.timed
+# The ledger of the sizes tehas work records at an approved start, kept by
+# tehas_size_record (lib/sizing.sh), which says what it holds and how long.
+sizes_file=$TEHAS_HOME/state/sizes.jsonl
 # What the dispatcher approved, and the manifest of the last fetch, kept.
 record=$TEHAS_HOME/state/cycles/$issue.approved.json
 kept=$TEHAS_HOME/state/cycles/$issue.manifest.json
@@ -352,6 +383,10 @@ progress_file=$TEHAS_HOME/state/cycles/$issue.progress.json
 # killed. Both are read and removed by tehasbot cycle.
 runner_exit_file=$TEHAS_HOME/state/cycles/$issue.runner_exit
 status_file=$TEHAS_HOME/state/cycles/$issue.status
+# The word of the end for a container that wrote no result and no line of its
+# stream: its own exit status, one line of plain digits. Read and removed by
+# tehasbot cycle.
+nostart_file=$TEHAS_HOME/state/cycles/$issue.nostart
 image_file=$TEHAS_HOME/state/cycles/$issue.image
 settings_file=$TEHAS_HOME/state/cycles/$issue.settings
 stall=$TEHAS_WORK_STALL
@@ -497,7 +532,9 @@ fi
 text_why="" # why this start stops, empty when the text is the approved one
 text_path="" # the record that could not be read, when that is the reason
 issue_now="" # the issue as GitHub answers for it now, read once for all of it
+measured=0 # 1 when this start had an approval record, and so a body to measure
 if tehas_record_is_file "$record"; then
+  measured=1
   # Bounded like every other call before the container: a network that swallows
   # this read must not hold the issue's lock and its slot for ever. gh's own
   # words go to $log.err, where a person can see which failure it was.
@@ -535,6 +572,21 @@ if [ -n "$text_why" ]; then
     --body "Tehas started no cycle: $text_why. To retry, apply \`tehas:ready\`." >/dev/null 2>&1 ||
     echo "tehas work: the comment on #$issue failed" >&2
   exit 4
+fi
+
+# What the cycle starts with, measured. Only a start that had the approval
+# record to check is measured: the body is the one in $issue_now, already read
+# above, so this asks GitHub nothing more, and a run by hand, which has no
+# approved body, records nothing. lib/sizing.sh says what the ledger is and
+# keeps it bounded. A line that cannot be written is one word on this command's
+# error stream: the measure is a record of the start, never a reason to stop
+# one.
+if [ "$measured" = 1 ]; then
+  mkdir -p "$(dirname "$sizes_file")" 2>/dev/null || true
+  size_body=$(jq -r 'if (.body | type) == "string" then .body else "" end' <<<"$issue_now" 2>/dev/null) || size_body=""
+  if ! tehas_size_record "$issue" "$size_body" "$sizes_file"; then
+    echo "tehas work: could not record the size of #$issue in $sizes_file ($tehas_size_why), starting the cycle all the same" >&2
+  fi
 fi
 
 # The issue's images, where the instance gives a cycle any. Before the
@@ -682,6 +734,7 @@ fi
 # that was killed outright, and so is a count of kills, and so is the name a
 # write of one of these files was made beside before it was moved into place.
 rm -f "$cid_file" "$oom_file" "$forks_file" "$stall_file" "$timed_file" "$image_file" "$settings_file" "$result_file" "$progress_file" "$runner_exit_file" "$status_file" \
+  "$nostart_file" "$nostart_file.new" \
   "$runner_exit_file.new" "$status_file.new"
 # A container under this name outlived the client that started it: this
 # command holds the issue's lock, so no cycle owns it. It would work on with
@@ -719,6 +772,18 @@ interrupted=0
 cpid=""
 # The live file says running only once the trap can say interrupted.
 live_on=0
+# A log is named to the second, so a cycle of this issue can be given the name a
+# cycle before it used: the side file of its stream goes with the rest of the
+# cycle's files, so what the improvement record copies as err.txt is only what
+# this command writes into it. The name is known only here, where the log is
+# named, which is after the gap of the attachments has been said into it: that
+# line is one of the two that ever reach the file, so it is said again below.
+rm -f "${log:?}.err"
+if [ -n "${gap_said:-}" ]; then
+  printf '%s\n' "$gap_said" >>"$log.err" ||
+    echo "tehas work: could not write $log.err" >&2
+fi
+
 # The runner is the container's command, so a docker stop reaches it: it ends
 # the cycle as interrupted and still writes its result.
 trap 'interrupted=1; [ -z "$cpid" ] || kill "$cpid" 2>/dev/null; stop_container 10
@@ -854,6 +919,10 @@ outcome=$(tehas_headless_outcome "$result_file" "$issue") && have=1 || outcome='
 write_note() { # <file> <text>: one file of the protocol, whole or not at all
   if ! printf '%s\n' "$2" >"$1.new" 2>/dev/null; then
     rm -f "$1.new" 2>/dev/null
+    echo "tehas work: could not write $1" >&2
+    printf '%s\n' "tehas work: could not write $1" >>"$log.err" 2>/dev/null ||
+      echo "tehas work: could not say of $log.err that $1 was lost" >&2
+    return 1
   elif ! mv "$1.new" "$1" 2>/dev/null; then
     rm -f "$1.new" 2>/dev/null
     echo "tehas work: could not write $1" >&2
@@ -909,6 +978,32 @@ if [ "$rc" = 137 ] && [ "$have" = 0 ] && [ "$error_only" = 0 ] && [ "$interrupte
   write_note "$status_file" killed ||
     echo "tehas work: the account of the killed container is lost with it"
   echo "tehas work: the container was killed (137) while the cycle was running: out of memory, or stopped from outside"
+fi
+# A container that wrote no result and not one line of its stream never got as
+# far as the driver's first event, so the record would say nothing but the
+# status this command exits with. Named here, where the container's own end,
+# its cgroup and the fact that its stream stayed empty are all still in scope;
+# tehasbot cycle makes the cap of it. Not for one this command stopped, nor for
+# a killed container or one that reached the time limit, each of which has an
+# account of its own, and not for a container ended by SIGKILL, which is the end
+# this command documents as leaving no note: the count of memory kills is
+# carried by the oom file, as for every other end. The exit status is written in
+# the shape the reader accepts, so the two cannot disagree about a note.
+if [ "$have" = 0 ] && [ "$error_only" = 0 ] && [ "$interrupted" = 0 ] && [ "$stopped" = 0 ] &&
+  [ "$killed" = 0 ] && [ "$timed" = 0 ] && [ "$ran_out" = 0 ] && [ "$stalled" = 0 ] &&
+  [ "$rc" != 137 ] && [[ $rc =~ ^[1-9][0-9]{0,2}$ ]] && [ ! -s "$log" ]; then
+  write_note "$nostart_file" "$rc" ||
+    echo "tehas work: the account of the container that never started is lost with it"
+  # One line for the cycle's record, where a person reads the end of a failed
+  # cycle. The preflight file is named because it is the only file of the cycle
+  # that holds anything for a run whose stream stayed empty, and what it holds
+  # there is the provider-retry echo, which says nothing about this end. The two
+  # words of the line are this command's own, reduced to what a record that is
+  # filed in public can carry.
+  nostart_rc=${rc//[^0-9]/}
+  nostart_log=$(printf '%s' "${log##*/}" | tr -cd 'A-Za-z0-9._-')
+  printf '%s\n' "tehas work: issue $issue ended with the container's exit $nostart_rc and no line of its stream: the runner wrote no event, so no step started. Its preflight is $nostart_log.preflight." \
+    >>"$log.err" || echo "tehas work: could not write $log.err" >&2
 fi
 if [ "$ooms" -gt 0 ]; then
   echo "tehas work: $ooms processes in this cycle's container were killed for memory"

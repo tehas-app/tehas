@@ -15,8 +15,10 @@
 #   tehas_plan_lines <health json> <now>     a line for each planning turn in
 #                                            flight; nothing without one
 #   tehas_slice_line <health json> <now>     the last poll's slice check
-#   tehas_platform_line <health json> <now>  the platform checkout against
-#                                            origin; nothing without one
+#   tehas_platform_line <health json> <now>  the platform the host runs (its
+#                                            release, or its checkout against
+#                                            origin) as one line; nothing
+#                                            without either
 #   tehas_status_json <health json> <now> <stale>
 #                                            the object of tehas status --json
 #
@@ -157,14 +159,28 @@ tehas_slice_line() { # <health json> <now epoch seconds>
   ' <<<"$1"
 }
 
-# The platform checkout as tehasbot status last read it.
+# The platform the host runs, as tehasbot status last read it: the release of
+# the tree under ~/tehas/current, or the checkout under ~/tehas/platform
+# against origin.
+# platform() in libexec/status writes it: {commit, upstream, behind,
+# behindSince, fetchedAt} for the checkout, or {release, newest, behind: 0,
+# upstream: "releases", fetchedAt} for the release a host runs through
+# ~/tehas/current.
 tehas_platform_line() { # <health json> <now epoch seconds>
   jq -r --argjson now "$2" "$tehas_state_defs"'
     .checks.platform // empty
-    | "platform  \((.commit // "unknown")[:7]), "
-      + (if .behind > 0 then "\(.behind) commits behind \(.upstream) since \(.behindSince // "" | .[:10])"
-         else "up to date with \(.upstream)" end)
-      + (if .fetchedAt == null then ", never fetched" else ", fetched \(.fetchedAt | age($now))" end)
+    | if .release != null then
+        "platform  \(.release), "
+        + (if .newest == null then "newest unknown"
+           elif .newest == .release then "newest \(.newest)"
+           else "\(.newest) is out" end)
+        + (if .fetchedAt == null then ", never fetched" else ", fetched \(.fetchedAt | age($now))" end)
+      else
+        "platform  \((.commit // "unknown")[:7]), "
+        + (if .behind > 0 then "\(.behind) commits behind \(.upstream) since \(.behindSince // "" | .[:10])"
+           else "up to date with \(.upstream)" end)
+        + (if .fetchedAt == null then ", never fetched" else ", fetched \(.fetchedAt | age($now))" end)
+      end
   ' <<<"$1"
 }
 

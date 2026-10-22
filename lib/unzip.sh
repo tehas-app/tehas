@@ -26,6 +26,8 @@
 #   6. at most <most bytes> in all, counted on what unzip writes and not on
 #      what the zip says; after the first file over it, nothing more is
 #      unpacked and the rest are left out for the same reason
+#   7. nothing written through a link: not when <dest dir> is one, nor when a
+#      part of the entry's path that already stands under it is one
 # Files are written by this function alone, with unzip -p into a pipe, so
 # nothing outside <dest dir> is touched and no link is ever made, whatever
 # type an entry claims. Mode 644.
@@ -39,7 +41,7 @@ _tehas_unzip_skip() { jq -n -c --arg n "${1:0:200}" --arg r "$2" '{skip: $n, rea
 
 tehas_unzip_into() {
   local zip=$1 dest=$2 left=$3 files=$4 listing line mode tx name rel part clean
-  local kind ext depth size n=0 pattern full=0
+  local kind ext depth size n=0 pattern full=0 link probe
   local -a parts st
   local re='^([^ ]+) +[^ ]+ +[^ ]+ +[0-9]+ +([^ ]+) +[0-9]+ +[^ ]+ +[^ ]+ +[0-9]+:[0-9]+ (.*)$'
   # zipinfo's own lines before and after the entries.
@@ -97,6 +99,17 @@ tehas_unzip_into() {
     fi
     if [ "$files" -le 0 ]; then _tehas_unzip_skip "$name" "More than $4 files."; continue; fi
     if [ "$full" = 1 ]; then _tehas_unzip_skip "$name" "Over the 10 MB limit of a ticket."; continue; fi
+    # Nothing is written through a link: the directory given is checked, and so is
+    # every part of the path that already exists under it, before mkdir -p or the
+    # write could follow one out of it.
+    link=""
+    [ ! -L "$dest" ] || link=1
+    probe=$dest
+    for part in ${rel//\// }; do
+      probe=$probe/$part
+      [ ! -L "$probe" ] || link=1
+    done
+    if [ -n "$link" ]; then _tehas_unzip_skip "$name" "A path outside the archive."; continue; fi
     if [ -e "$dest/$rel" ]; then _tehas_unzip_skip "$name" "A second file of that name."; continue; fi
     # A file of the zip may already stand where this one needs a folder.
     if [[ $rel == */* ]] && ! mkdir -p "$dest/${rel%/*}" 2>/dev/null; then

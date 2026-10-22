@@ -156,9 +156,9 @@ t_lacks "$t_out" "bootstrap.sh user"
 cmp -s "$th/versions.env" "$T/versions.env.kept" || t_bad "versions.env was not put back"
 
 t_case "the console, analytics and the MCP server are built once each, from the lock file, and installed as programs"
-t_eq "$(t_calls cargo)" "build --release --locked --quiet --manifest-path $T_ROOT/console/Cargo.toml --target-dir $T/target -p console
-build --release --locked --quiet --manifest-path $T_ROOT/console/Cargo.toml --target-dir $T/target -p analytics
-build --release --locked --quiet --manifest-path $T_ROOT/console/Cargo.toml --target-dir $T/target --target x86_64-unknown-linux-musl -p tehas-mcp"
+t_eq "$(t_calls cargo)" "build --release --locked --offline --quiet --manifest-path $T_ROOT/console/Cargo.toml --target-dir $T/target -p console
+build --release --locked --offline --quiet --manifest-path $T_ROOT/console/Cargo.toml --target-dir $T/target -p analytics
+build --release --locked --offline --quiet --manifest-path $T_ROOT/console/Cargo.toml --target-dir $T/target --target x86_64-unknown-linux-musl -p tehas-mcp"
 t_eq "$(stat -c %a "$th/libexec/tehas-mcp")" 755
 t_eq "$(stat -c %a "$th/libexec/console")" 755
 t_eq "$(cat "$th/libexec/console")" "a console built from source"
@@ -181,7 +181,7 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "installed: $th/libexec/console"
 t_eq "$(cat "$th/libexec/console")" "a console built from new source"
 t_eq "$(cat "$th/libexec/console.prev")" "a console built from source"
-t_eq "$(t_calls cargo)" "build --release --locked --quiet --manifest-path $T_ROOT/console/Cargo.toml --target-dir $T/target -p console"
+t_eq "$(t_calls cargo)" "build --release --locked --offline --quiet --manifest-path $T_ROOT/console/Cargo.toml --target-dir $T/target -p console"
 t_eq "$(cat "$th/libexec/analytics")" "an analytics built from source"
 t_run "$install --check"
 t_contains "$t_out" "Installed:    OK"

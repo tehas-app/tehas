@@ -101,6 +101,68 @@ fn key_paths(v: &Value) -> BTreeSet<String> {
     out
 }
 
+// The paths an outputSchema names, in the same shape as the paths of an
+// answer. The five tools name no map, so their schema needs none of the
+// `*` normalisation the session tools need.
+fn schema_paths(s: &Value, prefix: &str, out: &mut BTreeSet<String>) {
+    if let Some(props) = s["properties"].as_object() {
+        for (k, v) in props {
+            let p = if prefix.is_empty() {
+                k.clone()
+            } else {
+                format!("{prefix}.{k}")
+            };
+            out.insert(p.clone());
+            schema_paths(v, &p, out);
+        }
+    }
+    if s["type"] == "array" {
+        schema_paths(&s["items"], &format!("{prefix}[]"), out);
+    }
+}
+
+// The paths of a pick spec, in the same shape: an object names its keys and
+// an array names those of its items.
+fn spec_paths(s: &Value, prefix: &str, out: &mut BTreeSet<String>) {
+    match s {
+        Value::Object(m) => {
+            for (k, sub) in m {
+                let p = if prefix.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{prefix}.{k}")
+                };
+                out.insert(p.clone());
+                spec_paths(sub, &p, out);
+            }
+        }
+        Value::Array(a) => {
+            if let Some(sub) = a.first() {
+                spec_paths(sub, &format!("{prefix}[]"), out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn spec_paths_of(name: &str) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    spec_paths(&mcp::tools::spec_of(name).unwrap(), "", &mut out);
+    // call_held adds it to every answer, so it is not in any tool's spec.
+    out.insert("api".into());
+    out
+}
+
+fn schema_of(name: &str) -> Value {
+    list()
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == name)
+        .unwrap()["outputSchema"]
+        .clone()
+}
+
 const NAMES: [&str; 5] = [
     "factory_status",
     "factory_issues",
@@ -175,6 +237,30 @@ fn status_says_the_queue_and_that_an_old_poll_is_stale() {
     assert_eq!(out["stale"], true);
     assert_eq!(out["cycles"][0]["issue"], 7);
     assert_eq!(out["platform"]["behind"], 0);
+    assert_eq!(
+        out["platform"]["commit"],
+        "9b1b7dc11b73b93f7296b5f3131fcc6ef6b964e9"
+    );
+}
+
+// A host that runs a release names it instead of a commit: pick drops the
+// keys of the checkout it does not have.
+#[test]
+fn status_names_the_release_of_a_release_host() {
+    let dir = Copy::new("release-platform");
+    let file = dir.0.join("health.json");
+    let mut health = std::fs::read_to_string(&file).unwrap();
+    health = health.replace(
+        "\"platform\":{\"commit\":\"9b1b7dc11b73b93f7296b5f3131fcc6ef6b964e9\",\"upstream\":\"origin/main\",\"behind\":0,",
+        "\"platform\":{\"release\":\"v0.9.1\",\"newest\":\"v0.9.2\",\"upstream\":\"releases\",\"behind\":0,",
+    );
+    std::fs::write(&file, health).unwrap();
+    let out = call(&dir.0, "factory_status", &json!({})).unwrap();
+    assert_eq!(out["platform"]["release"], "v0.9.1");
+    assert_eq!(out["platform"]["newest"], "v0.9.2");
+    assert_eq!(out["platform"]["upstream"], "releases");
+    assert!(out["platform"].get("commit").is_none());
+    assert_eq!(out["platform"]["fetchedAt"], "2026-10-20T08:36:59Z");
 }
 
 #[test]
@@ -323,6 +409,8 @@ fn every_key_is_listed() {
                 "demand.time",
                 "platform",
                 "platform.commit",
+                "platform.release",
+                "platform.newest",
                 "platform.behind",
                 "platform.upstream",
                 "platform.fetchedAt",
@@ -499,9 +587,122 @@ fn every_key_is_listed() {
         ),
     ];
     for (name, keys) in expected {
-        let got = key_paths(&call(&live(), name, &args(name)).unwrap());
+        let mut got = key_paths(&call(&live(), name, &args(name)).unwrap());
+        // The fixtures' health.json is a checkout host, so it has no release
+        // and no newest: the answer of a release host adds those two, and the
+        // commit it cannot show is in the answer above.
+        if name == "factory_status" {
+            let c = Copy::new("status-keys-release");
+            let file = c.0.join("health.json");
+            let health = std::fs::read_to_string(&file).unwrap().replace(
+                "\"commit\":\"9b1b7dc11b73b93f7296b5f3131fcc6ef6b964e9\",\"upstream\":\"origin/main\"",
+                "\"release\":\"v0.9.1\",\"newest\":\"v0.9.2\",\"upstream\":\"releases\"",
+            );
+            std::fs::write(&file, health).unwrap();
+            got.extend(key_paths(&call(&c.0, name, &args(name)).unwrap()));
+        }
         let want: BTreeSet<String> = keys.iter().map(|s| s.to_string()).collect();
         assert_eq!(got, want, "{name}");
+    }
+}
+
+// The schema and what the tool copies are the same list of fields, checked
+// against `spec_of`, the allowlist the answer is built from: a field that is
+// in one and not the other fails here. The paths of a real answer must be a
+// subset of the schema, so a field the tool answers without describing it
+// fails too. A schema field the fixtures cannot show is allowed, because
+// pick() drops a null and an absent key alike.
+#[test]
+fn schema_matches_output() {
+    for name in NAMES {
+        let cases = if name == "factory_issues" {
+            vec![
+                json!({}),
+                json!({"stage": "queued"}),
+                json!({"stage": "planning"}),
+                json!({"stage": "running"}),
+                json!({"stage": "awaiting"}),
+                json!({"stage": "stopped"}),
+                json!({"stage": "completed"}),
+            ]
+        } else {
+            vec![args(name)]
+        };
+        let mut got = BTreeSet::new();
+        for a in cases {
+            got.extend(key_paths(&call(&live(), name, &a).unwrap()));
+        }
+        // A field the one fixture of health.json cannot show: a host that runs
+        // a release names its version and the newest there is instead of a
+        // commit, so those two are answered here from a health file of that
+        // shape.
+        if name == "factory_status" {
+            let c = Copy::new("status-release");
+            let file = c.0.join("health.json");
+            let health = std::fs::read_to_string(&file).unwrap().replace(
+                "\"commit\":\"9b1b7dc11b73b93f7296b5f3131fcc6ef6b964e9\",\"upstream\":\"origin/main\"",
+                "\"release\":\"v0.9.1\",\"newest\":\"v0.9.2\",\"upstream\":\"releases\"",
+            );
+            std::fs::write(&file, health).unwrap();
+            got.extend(key_paths(&call(&c.0, name, &args(name)).unwrap()));
+        }
+        let mut want = BTreeSet::new();
+        schema_paths(&schema_of(name), "", &mut want);
+        assert_eq!(want, spec_paths_of(name), "{name}: schema and spec");
+        want.remove("api");
+        for p in &got {
+            assert!(
+                p == "api" || want.contains(p),
+                "{name}: {p} is not in its schema"
+            );
+        }
+        for p in want.difference(&got) {
+            // A closed issue has closedAt, so the fixtures cannot show it in
+            // every stage; the issues of a plan with no turn are none.
+            assert!(
+                name == "factory_issues" && (p.ends_with(".closedAt") || p == "planning.issues"),
+                "{name}: {p} is in its schema and never comes out"
+            );
+        }
+    }
+}
+
+// Every property of an input and of an output says what it is, and every
+// field of an answer is a property, so nothing comes out undescribed.
+#[test]
+fn inputs_and_outputs_are_described() {
+    for name in NAMES {
+        let tool = list()
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap()
+            .clone();
+        for (k, v) in tool["inputSchema"]["properties"]
+            .as_object()
+            .unwrap_or(&serde_json::Map::new())
+        {
+            assert!(
+                !v["description"].as_str().unwrap_or("").is_empty(),
+                "{name} input {k}"
+            );
+        }
+        fn described(s: &Value, at: &str) {
+            if let Some(p) = s["properties"].as_object() {
+                for (k, v) in p {
+                    assert!(
+                        !v["description"].as_str().unwrap_or("").is_empty(),
+                        "{at}.{k}"
+                    );
+                    described(v, &format!("{at}.{k}"));
+                }
+            }
+            if s["type"] == "array" {
+                described(&s["items"], &format!("{at}[]"));
+            }
+        }
+        described(&tool["outputSchema"], name);
     }
 }
 

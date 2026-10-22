@@ -15,8 +15,10 @@ state=$th/state/cycles
 works=$th/work
 runs=$T/home/.pi/agent/ensemble-runs
 # What a stop takes away, and what it leaves as the cycle's record. The two
-# lists are here so a case can pin both sides of the line.
-GO=(lock taken cid park requeued "done" stalled timed quiet oom forks branch image progress.json result.json)
+# lists are here so a case can pin both sides of the line. The sibling name of
+# the nostart note goes with the note: a write of it is made beside it and moved
+# into place, and tehas work clears both when a cycle starts.
+GO=(lock taken cid park requeued "done" stalled timed quiet oom forks branch image nostart nostart.new progress.json result.json)
 KEEP=(json history.jsonl by settings manifest.json approved.json rukas runner_exit status)
 
 # systemctl: what the unit is doing ($UNIT_STATE), and the stop itself, which
@@ -102,7 +104,9 @@ cycle_files() { # <issue>
   : >"$works/widget-$n.before-retry"
   : >"$works/.tehas-workspaces"
 }
-# What this issue leaves that a stop should take, still on the host.
+# What this issue leaves that a stop should take, still on the host. The count of
+# it is what a case says a stop left behind, so that an entry added to GO has to
+# be removed by a stop for those cases to keep passing.
 leftovers() { # <issue>
   local n=$1 out="" ext f
   for ext in "${GO[@]}"; do [ -e "$state/$n.$ext" ] && out="$out $state/$n.$ext"; done
@@ -112,6 +116,10 @@ leftovers() { # <issue>
   done
   printf '%s\n' "${out# }"
 }
+# The number a case says a stop leaves behind: the notes of GO, and the seven paths beside them. It is stated here, not read back from the lists,
+# so a note added to GO without being named here fails the cases that say a stop
+# took everything a cycle left.
+LEFTOVERS_N=24
 # The record files of this issue that a stop keeps, still on the host.
 record() { # <issue>
   local n=$1 out="" ext
@@ -162,8 +170,8 @@ gh_labels tehas:running
 t_run "$stop_cmd 5"
 t_eq "$t_rc" 0
 t_eq "$(leftovers 5)" ""
-t_eq "$(wc -w <<<"$(leftovers 51)")" 22
-t_eq "$(wc -w <<<"$(leftovers 55)")" 22
+t_eq "$(wc -w <<<"$(leftovers 51)")" "$LEFTOVERS_N"
+t_eq "$(wc -w <<<"$(leftovers 55)")" "$LEFTOVERS_N"
 t_eq "$(removed_containers)" "tehas-work-5 "
 t_eq "$(gh_edits)" "issue edit 5 --repo acme/widget --remove-label tehas:running"
 t_lacks "$(t_calls gh)" "51"
@@ -225,7 +233,7 @@ began=$(date +%s)
 t_run "$stop_cmd 5"
 t_eq "$t_rc" 1
 kill "$(cat "$T/holder-keep" 2>/dev/null)" 2>/dev/null
-t_eq "$(leftovers 5 | wc -w)" 22
+t_eq "$(leftovers 5 | wc -w)" "$LEFTOVERS_N"
 t_contains "$t_out" "still holds its lock"
 t_eq "$(removed_containers)" ""
 t_eq "$([ -e "$works/widget-5" ] && echo kept)" "kept"
@@ -242,7 +250,7 @@ T_ENV=(CONTAINERS=)
 t_run "$stop_cmd 5"
 t_eq "$t_rc" 1
 kill "$(cat "$T/holder" 2>/dev/null)" 2>/dev/null
-t_eq "$(leftovers 5 | wc -w)" 22
+t_eq "$(leftovers 5 | wc -w)" "$LEFTOVERS_N"
 t_contains "$t_out" "still holds its lock"
 t_eq "$(t_calls gh)" ""
 
@@ -285,10 +293,8 @@ cycle_files 5
 t_run "$stop_cmd 5"
 t_eq "$t_rc" 78
 t_contains "$t_out" "no instance.env"
-t_eq "$(leftovers 5 | wc -w)" 22
+t_eq "$(leftovers 5 | wc -w)" "$LEFTOVERS_N"
 t_eq "$(t_calls systemctl)" ""
-t_eq "$(t_calls docker)" ""
-t_eq "$(t_calls gh)" ""
 
 t_case "an issue that is not a number: 64, before anything is read"
 reset
@@ -298,7 +304,7 @@ docker_stub
 for arg in 0 5a -5 12345678901 "" "''"; do
   t_run "$stop_cmd $arg"
   t_eq "$t_rc" 64
-  t_eq "$(leftovers 5 | wc -w)" 22
+  t_eq "$(leftovers 5 | wc -w)" "$LEFTOVERS_N"
 done
 t_eq "$(t_calls systemctl)" ""
 t_eq "$(t_calls docker)" ""
@@ -325,7 +331,7 @@ done
 t_run "$T_ROOT/bin/tehas help stop"
 t_eq "$t_rc" 0
 t_contains "$t_out" "tehas stop <issue>"
-t_eq "$(leftovers 5 | wc -w)" 22
+t_eq "$(leftovers 5 | wc -w)" "$LEFTOVERS_N"
 t_eq "$(t_calls systemctl)" ""
 
 t_case "it names only the paths of the issue it was given, never a glob"

@@ -201,14 +201,31 @@ t_instance "${T_MINIMAL[@]}" TEHAS_WORK_FILES=1
 t_run "$load && echo \"\$TEHAS_WORK_FILES \$TEHAS_WORK_IMAGES\""
 t_eq "$t_out" "1 0"
 
+t_case "a zip is not unpacked unless the instance says so, and only where it gives images or files"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
+T_ENV=(TEHAS_WORK_ZIPS=1)
+t_run "$load && echo \"\$TEHAS_WORK_ZIPS\""
+t_eq "$t_out" "0"
+T_ENV=()
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1 TEHAS_WORK_ZIPS=1
+t_run "$load && echo \"\$TEHAS_WORK_ZIPS\""
+t_eq "$t_out" "1"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_FILES=1 TEHAS_WORK_ZIPS=1
+t_run "$load && echo \"\$TEHAS_WORK_ZIPS\""
+t_eq "$t_out" "1"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_ZIPS=1
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "tehas: TEHAS_WORK_ZIPS is 1 and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is"
+
 t_case "the test hooks survive from the environment"
 t_instance "${T_MINIMAL[@]}"
 T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index
   TEHAS_CYCLE_START_CMD=fake-start TEHAS_CYCLE_START_WAIT=2 TEHAS_PREFLIGHT_WAIT=3 TEHAS_STOP_WAIT=4 TEHAS_FETCH_WAIT=5
   TEHAS_CYCLE_RETRY_WAIT=6 TEHAS_CYCLE_STOP_GH_WAIT=7 TEHAS_CONSOLE_WAIT=8 TEHAS_CYCLE_STOP_CMD=fake-stop
-  TEHAS_TIDY_CMD=fake-tidy TEHAS_TIDY_WAIT=9 TEHAS_ANALYTICS_WAIT=1)
-t_run "$load && echo \"\$TEHAS_WORK_CMD \$TEHAS_STATUS_CMD \$TEHAS_INDEX_CMD \$TEHAS_CYCLE_START_CMD \$TEHAS_CYCLE_START_WAIT \$TEHAS_PREFLIGHT_WAIT \$TEHAS_STOP_WAIT \$TEHAS_FETCH_WAIT \$TEHAS_CYCLE_RETRY_WAIT \$TEHAS_CYCLE_STOP_GH_WAIT \$TEHAS_CONSOLE_WAIT \$TEHAS_CYCLE_STOP_CMD \$TEHAS_TIDY_CMD \$TEHAS_TIDY_WAIT \$TEHAS_ANALYTICS_WAIT\""
-t_eq "$t_out" "fake-work fake-status fake-index fake-start 2 3 4 5 6 7 8 fake-stop fake-tidy 9 1"
+  TEHAS_TIDY_CMD=fake-tidy TEHAS_TIDY_WAIT=9 TEHAS_ANALYTICS_WAIT=1 TEHAS_BUILD_TIMEOUT=600)
+t_run "$load && echo \"\$TEHAS_WORK_CMD \$TEHAS_STATUS_CMD \$TEHAS_INDEX_CMD \$TEHAS_CYCLE_START_CMD \$TEHAS_CYCLE_START_WAIT \$TEHAS_PREFLIGHT_WAIT \$TEHAS_STOP_WAIT \$TEHAS_FETCH_WAIT \$TEHAS_CYCLE_RETRY_WAIT \$TEHAS_CYCLE_STOP_GH_WAIT \$TEHAS_CONSOLE_WAIT \$TEHAS_CYCLE_STOP_CMD \$TEHAS_TIDY_CMD \$TEHAS_TIDY_WAIT \$TEHAS_ANALYTICS_WAIT \$TEHAS_BUILD_TIMEOUT\""
+t_eq "$t_out" "fake-work fake-status fake-index fake-start 2 3 4 5 6 7 8 fake-stop fake-tidy 9 1 600"
 T_ENV=()
 
 t_case "a missing instance.env returns 78 and names the directory"
@@ -278,10 +295,11 @@ for bad in "TEHAS_REPO=widget" "TEHAS_REPO=a/b/c" "TEHAS_CONTROL_ISSUE=abc" "TEH
 done
 
 for bad in "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=two" "TEHAS_MAX_AWAITING=-1" "TEHAS_WORK_TIMEOUT=soon" "TEHAS_WORK_STALL=0" "TEHAS_WORK_STALL=1h" "TEHAS_HOST_ADDR=not an address" \
-  "TEHAS_BRANCH=two words" "TEHAS_INDEXING=yes" "TEHAS_WORK_IMAGES=yes" "TEHAS_WORK_IMAGES=2" "TEHAS_WORK_DESCRIBE=yes" "TEHAS_WORK_FILES=yes" "TEHAS_WORK_FILES=2" "TEHAS_WORK_COMMENTS=yes" "TEHAS_TOP=yes" "TEHAS_TOP=2" "TEHAS_ANALYTICS_SRC=http://plain.example/ea.js" \
+  "TEHAS_BRANCH=two words" "TEHAS_INDEXING=yes" "TEHAS_WORK_IMAGES=yes" "TEHAS_WORK_IMAGES=2" "TEHAS_WORK_ZIPS=yes" "TEHAS_WORK_ZIPS=2" "TEHAS_WORK_DESCRIBE=yes" "TEHAS_WORK_FILES=yes" "TEHAS_WORK_FILES=2" "TEHAS_WORK_COMMENTS=yes" "TEHAS_TOP=yes" "TEHAS_TOP=2" "TEHAS_ANALYTICS_SRC=http://plain.example/ea.js" \
   "TEHAS_ANALYTICS_SRC=https://a.example/x.js\" onload=\"x" "TEHAS_ANALYTICS_SITE=two words" \
   "TEHAS_ANALYTICS_COOKIE=yes" "TEHAS_THEME=neon" "TEHAS_THEME=../pixel" "TEHAS_LAYOUT=game" "TEHAS_LAYOUT=../business" "TEHAS_PROTOLAB_URL=https://lab.example/" "TEHAS_PROTOLAB_URL=lab.example" \
   "TEHAS_PLAN_MAX_TURNS=0" "TEHAS_PLAN_TIMEOUT=1h" "TEHAS_VERIFY_TIMEOUT=30m" "TEHAS_VERIFY_TIMEOUT=0" \
+  "TEHAS_BUILD_TIMEOUT=30m" "TEHAS_BUILD_TIMEOUT=0" \
   "TEHAS_DOMAIN=https://example.org" "TEHAS_DOMAIN=example.org/" "TEHAS_DOMAIN=Example.org" \
   "TEHAS_DOMAIN=localhost" "TEHAS_DOMAIN=-a.example.org" "TEHAS_PREVIEWS=yes" \
   "TEHAS_PREVIEW_MAX=0" "TEHAS_PREVIEW_MAX=100" "TEHAS_PREVIEW_MIN_FREE=lots" \
@@ -349,6 +367,40 @@ for bad in "TEHAS_REFRESH_CONFLICTS=yes" "TEHAS_REFRESH_CONFLICTS=2" "TEHAS_REFR
   t_run "$load; echo rc=\$?"
   t_contains "$t_out" "rc=78"
 done
+
+# The hold of rule 6: unset, the dispatcher never asks the measure, so nothing
+# changes. Set, it is a whole number of at least 1.
+t_case "the size hold is off unless the instance names a number of files"
+printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && set -u && echo \"[\$TEHAS_SIZE_MAX_FILES]\""
+t_eq "$t_out" "[]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_SIZE_MAX_FILES=3 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_SIZE_MAX_FILES]\""
+t_eq "$t_out" "[3]"
+
+for bad in "TEHAS_SIZE_MAX_FILES=0" "TEHAS_SIZE_MAX_FILES=-1" "TEHAS_SIZE_MAX_FILES=x"; do
+  t_case "loading rejects $bad"
+  printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  t_contains "$t_out" "tehas: TEHAS_SIZE_MAX_FILES is not valid"
+done
+
+# The dispatcher compares the setting with the files of a body, so a digit
+# string no comparison can hold must stop loading rather than reach that
+# comparison. Its length is refused first, with no complaint from the
+# comparison itself.
+for bad in "1000000000" "99999999999999999999"; do
+  t_case "loading rejects a TEHAS_SIZE_MAX_FILES of '$bad'"
+  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_SIZE_MAX_FILES='$bad'" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  t_contains "$t_out" "TEHAS_SIZE_MAX_FILES is not valid: expected at most 9 digits"
+  t_lacks "$t_out" "integer expression"
+done
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_SIZE_MAX_FILES=999999999 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_SIZE_MAX_FILES]\""
+t_eq "$t_out" "[999999999]"
 
 for bad in "TEHAS_FIXER_LOGIN=two words" "TEHAS_FIXER_LOGIN=-x" "TEHAS_FIXER_MAX_RETRIES=0" "TEHAS_FIXER_MAX_RETRIES=many" \
   "TEHAS_FIXER_MAX_PLAN_ANSWERS=0" "TEHAS_FIXER_MAX_PLAN_ANSWERS=-1" "TEHAS_FIXER_MAX_PLAN_ANSWERS=lots"; do
@@ -916,6 +968,35 @@ t_instance "${T_MINIMAL[@]}" "TEHAS_CLEAN_AFTER=6" "TEHAS_CLEAN_DIRS='target dis
 t_run "$load && echo \"[\$TEHAS_CLEAN_AFTER] [\$TEHAS_CLEAN_DIRS]\""
 t_eq "$t_rc" 0
 t_eq "$t_out" "[6] [target dist]"
+
+# The two bounds of the measure tehas work makes of an approved body. Each is
+# asked of head -c and head -n, so a sign, a fraction or an exponent is no
+# bound; a body of many short lines is held by the bound on lines alone and a
+# body of one huge line by the bound on bytes alone, so both are settings.
+t_case "the bounds of the measure of a body take the defaults"
+t_instance "${T_MINIMAL[@]}"
+t_run "$load && set -u && echo \"[\$TEHAS_SIZE_MAX_BYTES] [\$TEHAS_SIZE_MAX_LINES]\""
+t_eq "$t_rc" 0
+t_eq "$t_out" "[131072] [1000]"
+
+t_case "the bounds of the measure can both be set in the instance"
+t_instance "${T_MINIMAL[@]}" "TEHAS_SIZE_MAX_BYTES=4096" "TEHAS_SIZE_MAX_LINES=50"
+t_run "$load && echo \"[\$TEHAS_SIZE_MAX_BYTES] [\$TEHAS_SIZE_MAX_LINES]\""
+t_eq "$t_rc" 0
+t_eq "$t_out" "[4096] [50]"
+
+for bad in "soon" "0" "-1" "1.5" "1000 " "1e3"; do
+  t_case "loading rejects a TEHAS_SIZE_MAX_BYTES of '$bad'"
+  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_SIZE_MAX_BYTES='$bad'" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "TEHAS_SIZE_MAX_BYTES is not valid: expected a whole number of at least 1"
+  t_case "loading rejects a TEHAS_SIZE_MAX_LINES of '$bad'"
+  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_SIZE_MAX_LINES='$bad'" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "TEHAS_SIZE_MAX_LINES is not valid: expected a whole number of at least 1"
+done
 
 # The cleaner's two settings. The hours are asked of docker's `until` and of
 # find's `-newermt`, so a sign, a fraction or an exponent is no number of

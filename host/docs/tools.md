@@ -98,13 +98,17 @@ in the platform repository has every one with a comment.
 | `TEHAS_WORK_DESCRIBE`           | `0`                                      | `1` has the model describe each of those images in words before the cycle or planning session starts, into `images.md` beside them: see [tehas work](#tehas-work). Needs `TEHAS_WORK_IMAGES=1`, else the command stops with 78 |
 | `TEHAS_WORK_FILES`              | `0`                                      | `1` gives a cycle and a planning session the text files its issue text links: md, txt, csv, json, yaml, log, html, css and js, at most 16, 1 MB each and 4 MB together. Needs no model that reads images. See [tehas work](#tehas-work) |
 | `TEHAS_WORK_COMMENTS`           | `0`                                      | `1` takes the images and files of the issue's comments too: those an allowed account wrote and nobody edited after the approval. Needs `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, else the command stops with 78. See [tehas work](#tehas-work) |
+| `TEHAS_WORK_ZIPS`               | `0`                                      | `1` unpacks a zip the issue's text links into the same read-only directory, at most 2 archives and 4 MB each. A zip is taken by its first bytes, not its name; every file in it goes through the checks of a linked one and counts against the same limits, and the archive is not kept. Needs `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, else the command stops with 78. See [tehas work](#tehas-work) |
 | `TEHAS_VERIFY_TIMEOUT`          | `1800`                                   | Seconds one run of the product's gate may take inside a cycle. A gate that takes longer is stopped and the cycle parks with the cap `verify-timeout:<step>`. Passed to pi-rukas as `PI_ENSEMBLE_VERIFY_TIMEOUT_MS` and `PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS`; pi-rukas alone allows ten minutes. The bound is for one run under the container's CPU quota: a run that waits for another to end does not count its wait. With a `.pi/verify-cmd-fast`, the fast and the full command share it. The cycle's deadline leaves at least this much and the handoff allowance, 8 minutes, before `TEHAS_WORK_TIMEOUT` |
+| `TEHAS_BUILD_TIMEOUT`           | `1800`                                   | Seconds one `cargo build` of `install.sh` may take, the offline attempt and the online one each on its own. A build that runs past it is cut off, the install stops with the build's own words, and the message says the build was cut off and names the command of the attempt that was. Both programs due are built before anything is installed, so the worst case is four attempts in all: a value set with `tehas update` in mind must stay well under the 1800 s that `tehas update` gives the whole of `install.sh`, or that outer bound is the one that fires. A build cut off at the default is a host that has never fetched: run `./bootstrap.sh user` so cargo and its crate cache are there, or raise this bound. See [the host manual](/host) |
 | `TEHAS_RUKAS_WORKAROUNDS`       | empty                                    | Optional. The settings of this instance that only work around a pi-rukas defect, as `NAME@VERSION` separated by single spaces, `VERSION` being the pi-rukas release that fixes it. `tehas work` stops a cycle with 78 once the image's pi-rukas is that release or later, naming the setting: remove it and its entry. An entry for a setting the instance does not set stops every command with 78. Write the pi-rukas issue in a comment beside the setting |
+| `TEHAS_SIZE_MAX_BYTES`          | `131072`                                 | Bytes of an issue body `tehas work` measures when it records the size of an approved start in `state/sizes.jsonl`. The measure's pass is not free and a body may be a paste of anything, so a body past the bound is measured from its front. A whole number of at least 1 |
+| `TEHAS_SIZE_MAX_LINES`          | `1000`                                   | Lines of an issue body the same measure reads. The pass costs more the more lines it holds, whatever their bytes, so the bound on bytes alone leaves a body of many short lines unbounded and this one leaves a body of one huge line unbounded: a start needs both. A whole number of at least 1 |
 | `TEHAS_PLAN_MAX_TURNS`          | `20`                                     | Turns a planning session may take before it is ended            |
 | `TEHAS_PLAN_TIMEOUT`            | `7200`                                   | Seconds before one planning turn is given up. At most 7200, 2 hours: the unit of a turn runs to that limit plus a quarter of an hour (see [the host manual](/host#time-limits)) |
 | `PI_ENSEMBLE_HOST_ALIASES`      | empty                                    | `name:address` pairs the sandbox must resolve, comma separated  |
 | `PI_ENSEMBLE_REVIEW_THRESHOLD`  | unset                                    | Optional. The code-review severity that blocks a change in a cycle: `CRITICAL`, `HIGH`, `MEDIUM` or `LOW`. Read by pi-rukas, not by tehas, and it wins over the severity the product's doctrine (`AGENTS.md` or `CLAUDE.md`) states. Unset, or anything other than those four words: pi-rukas ignores it and uses the severity that doctrine states, and MEDIUM when it states none. tehas does not check this value and does not stop with 78 over it. A `CRITICAL` finding blocks whatever this says |
-| `PI_ENSEMBLE_IMAGE`             | `tehas/pi-rukas:uid<uid>`                | The sandbox image                                               |
+| `PI_ENSEMBLE_IMAGE`             | `tehas/pi-rukas:uid<uid>`                | The sandbox image. Only its tag is the instance's to change: `sandbox/build.sh` tags what it builds under the default repository, and `tehasbot clean` takes the dated tags of that name, so a setting with another repository leaves the build's dated tags uncleaned |
 
 A line named `PI_ENSEMBLE_*` reaches a cycle's container as it is, except for
 the names tehas owns. The same line reaches a planning session and a `tehas dev`
@@ -673,12 +677,17 @@ which `tehasbot cycle` names in its comment: this command exits 2 for a runner
 that died however it died, and 137 only for a container it saw killed. A
 container it saw killed leaves the word `killed` in
 `~/tehas/state/cycles/<issue>.status`, which is the only account of the end when
-the runner wrote no result at all. The three files `tehasbot cycle` reads and
-removes for a cycle say three things: `runner_exit` is there when this command
-watched the run and holds the runner's own exit, `status` carries the one word
-`killed` when it saw the container killed, and `progress.json`, the summary this
-command made of the run, is what says the log of the run is this cycle's own and
-may be read for its steps. Each is written by a name beside it and moved into
+the runner wrote no result at all. A container it watched to its end that wrote
+no result and not one line of its stream leaves its own exit status, one line of
+digits, in `~/tehas/state/cycles/<issue>.nostart`, which is what says this issue
+started no runner rather than one that died part way through. The four files
+`tehasbot cycle` reads and removes for a cycle say four things: `runner_exit` is
+there when this command watched the run and holds the runner's own exit,
+`status` carries the one word `killed` when it saw the container killed,
+`progress.json`, the summary this command made of the run, is what says the log
+of the run is this cycle's own and may be read for its steps, and `nostart` says
+no step of the driver was ever seen, which is the one end whose step is not read
+from a log. Each is written by a name beside it and moved into
 place, so the cycle sees a file whole or does not see it.
 
 The bot's git identity is the tehas user's global `user.name` and `user.email`
@@ -771,7 +780,8 @@ approval are those of the images. A file is taken by its name's extension,
 md, txt, csv, json, yaml, yml, log, html, css or js, and then checked: valid
 UTF-8 and no NUL byte, else it is left out with the reason. html is text here;
 rendering it is the [Protolab](#tehasbot-protolab)'s job. svg, pdf and
-archives are left out. At most 16 files, 1 MB each and 4 MB together, apart
+archives are left out, unless the instance takes archives: see below. At most
+16 files, 1 MB each and 4 MB together, apart
 from the images' limits. They are named `file-1.md`, `file-2.csv` and so on,
 and `manifest.json` lists them under `files`, each with its link, its original
 name, its type, its size and its sha256; `images` is as before. With images
@@ -779,6 +789,29 @@ off, an image the issue links is left out and said. The comment on the issue
 says how many files were fetched, with each hash, and that the pi-rukas that
 tehas pins does not read them yet: the manifest is ready for a release that
 does.
+
+With `TEHAS_WORK_ZIPS=1` a zip the issue links is unpacked into the same
+directory, which adds no mount and no variable more, and the setting needs
+`TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, else the command stops with 78:
+what comes out of an archive goes into the directory of one of those kinds.
+Which links, whose approval and what is fetched are as above. A link is an
+archive only when its first four bytes are those of a zip, never because its
+name ends in `.zip`: a link named `.zip` that holds something else is left out
+with `Not a zip archive.` At most 2 archives per issue, each downloaded at most
+4 MB, and the download is refused over that with a reason. The archive is
+unpacked into a scratch directory beside the others, with `tehas_unzip_into`,
+the Protolab's own unpacker, which reads the listing first and refuses an
+absolute path, a `..` part, a backslash, a link, a locked file and more than
+200 entries. Every file it writes then goes through the checks of a file the
+issue links: an image by its first bytes, a text file by its extension and by
+being valid UTF-8 with no NUL byte. Anything else, an svg, a nested archive or
+a binary, is left out with its path inside the archive under `path` and the
+reason. The unpacked files count against the limits above, the images' and the
+files', as the linked ones do; a file over what is left of them is left out and
+the ones before it are kept. They are named on from the linked ones,
+`image-1.png`, `file-1.md`, and each entry carries `"zip": "<the link>"` and
+`"path": "<its path in the archive>"`. The archive itself is not kept, and the
+scratch directory is removed whatever the archive held.
 
 With `TEHAS_WORK_COMMENTS=1` the links in the issue's comments are taken as
 well, by an approval record only: a comment is taken when an allowed account
@@ -809,8 +842,10 @@ attachment links, that gap is said rather than left for an agent to find from a
 file that is not there: `tehas work` prints a line naming how many links and
 which approval it read (the record's `at` and `by`), writes the same line to
 `~/tehas/logs/work-<issue>-<stamp>.jsonl.err`, which the improvement loop
-copies into the record as `err.txt` (only this line and a failure to write it
-ever reach that file), and keeps a manifest at
+copies into the record as `err.txt` (this line, the line of a container that
+never came up and a failure to write either one ever reach that file; the file
+is removed when `tehas work` clears the cycle's other files, so what it holds is
+this command's own), and keeps a manifest at
 `~/tehas/state/cycles/<issue>.manifest.json` with no image, that approval, and
 each link left out with that reason. The links are the approved text's: the
 line counts what the record lists, not what the issue links, and it says which
@@ -1153,6 +1188,19 @@ In order, stopping at the first step that fails:
    `~/.config/tehas/env` as `GH_TOKEN`. The directory is mode 700, the files 600.
 3. It gives git the bot's login and noreply address (`<id>+<login>@users.noreply.github.com`)
    from `gh api user`, unless git already has a name or an email, which it keeps.
+   It gives git `gh`'s credential helper for `github.com`
+   (`gh auth setup-git --hostname github.com`) when git has none, which is what
+   lets plain git read a private product's remote: the clone in step 4 and the
+   fetches of [tehas dispatch](/operating), [tehas update](/operating) and
+   [tehas status](/tools#tehas-status). The check is what git itself would use,
+   every scope it reads, and `gh auth setup-git` also writes the same key for
+   `gist.github.com`. A helper that is there is kept and named by its count:
+   the value is a command an operator wrote and can hold a token, so it is
+   named, never printed, and an entry whose value is empty is not a helper
+   because gitcredentials ends the list there. A container's git is given its
+   helper by environment-level configuration instead, whatever the host's
+   files say. If `gh auth setup-git` fails, the run stops with 1 before the
+   identity is checked.
 4. It clones the product to `~/tehas/repos/<name>` when there is no checkout.
 5. It runs `install.sh` from the same tree as the command, then
    [tehas labels](#tehas-labels).
@@ -1428,8 +1476,9 @@ platform  cb6912a, 19 commits behind origin/main since 2026-10-13, fetched 20 mi
 ```
 
 Prints the state of the factory from the [health file](#tehasbot-health): is
-it taking work, what is in the queue and how old that snapshot is, how far
-the platform checkout is behind origin (on a host that has one), the current or last cycle, each
+it taking work, what is in the queue and how old that snapshot is, which
+platform the host runs (the release `~/tehas/current` points at, or how far
+the platform checkout is behind origin), the current or last cycle, each
 planning turn in flight, and what the dispatcher's last poll read of `tehas.slice`. The `slice` line reads
 `holding: ...` when that poll held cycles back, and `unknown: no poll has
 reported in 10 min` when no poll read the slice in that time. While the factory
@@ -1452,6 +1501,15 @@ And while [`tehas:all-hands`](/operating#all-hands) holds:
 
 ```
 all-hands tehas:all-hands is on the control issue, applied by an allowed account
+```
+
+On a host that runs a release (`~/tehas/current`), the `platform` line names
+that release and the newest there is, instead of a commit:
+
+```
+platform  v0.9.0, newest v0.9.0, fetched 20 min ago
+platform  v0.9.0, v0.9.1 is out, fetched 20 min ago
+platform  v0.9.0, newest unknown, never fetched
 ```
 
 It reads
@@ -1762,8 +1820,9 @@ A parked cycle's cap, from the result, goes into
 `tehas work` wrote to the progress file), and into the
 record for the improvement loop as `cap` and `capReason`, reduced to plain
 characters. A cycle that ended at tehas's own bound gets tehas's cap:
-`wall-clock` for the time limit, `stall` for the stall, and a `capReason`
-that names the bound and the step. A cap the runner named mid-step goes into
+`wall-clock` for the time limit, `stall` for the stall, `runner-never-started`
+for the container that ended before the driver wrote its first event, and a
+`capReason` that names the bound and the step. A cap the runner named mid-step goes into
 the reason; a cap of an end it reached before the stop is kept. Where the result gives a failure of another kind than `cap`, the
 park comment names its kind, role, cause and message. The record also holds `buildCommit`, the pi-rukas commit the
 result says the cycle ran; the improvement loop checks a fix against it. A
@@ -1866,14 +1925,22 @@ turns are only counted.
 | `stations` | `steps`: per step, in the order runs reach it, the `n` runs that reached it, how many `passed` and the `share`. A run that reached a pull request passed every step it ran; one handed off, parked or failed stopped in its failed step, else its last. `n` is the runs counted: refused and stopped runs are not |
 | `versions` | One `{tehas, rukas, n}` per version pair, the pair that ran last first, at most ten. With three runs or more also `prShare` (reached a pull request), `medianSeconds` and `medianTokens` (input, output and cache read). A version that is not known is left out |
 
-`tehasbot status` also writes `~/tehas/live/platform.json`: the commit the
-platform checkout `~/tehas/platform` is at, `upstream` (origin's default
+`tehasbot status` also writes `~/tehas/live/platform.json`: what platform the
+host runs. On a host with the platform checkout `~/tehas/platform` that is the
+commit it is at, `upstream` (origin's default
 branch), how many commits it is `behind`, `behindSince` (when the oldest of
 those landed on that branch) and `fetchedAt`. It fetches the checkout at most
 once an hour, with a limit of 60 seconds; the time of the last try is in
 `~/tehas/state/platform-fetch`. A fetch that fails is no error and is tried
 again an hour later. Nothing else in the checkout changes: `tehas update`
-does that. A host with no checkout there has no file.
+does that. On a host that runs a release, where `~/tehas/current` is a link
+to a version with a `VERSION`, the file names the release instead: `release`
+(that version), `newest` (the newest published release, or null when it could
+not be read), `behind: 0` and `upstream: "releases"`. The list of releases is
+read at most once an hour, under the same limit and the same stamp, and the
+last answer is kept in `~/tehas/state/platform-newest`, so a poll between
+reads and a read that fails say the newest it had. A host with neither has no
+file.
 
 `~/tehas/libexec/console` is started by the work
 script and follows the cycle's agents into `~/tehas/live/console-<issue>.txt`, masking
@@ -1960,8 +2027,8 @@ minutes and whose issue's lock (`state/cycles/<issue>.lock`) nobody holds is
 recorded as ended with the status `lost`, which is a failure. While
 `tehasbot cycle` still holds the lock, the cycle stays running.
 
-`checks.platform` is `live/platform.json`, or `null` on a host without a
-platform checkout.
+`checks.platform` is `live/platform.json`: the release a host runs, or the
+checkout of a host that has one. It is `null` on a host with neither.
 
 `checks.allHands` is the snapshot's `allHands`: true while
 [`tehas:all-hands`](/operating#all-hands) holds, false when it does not, and
@@ -2319,8 +2386,8 @@ tail ~/tehas/logs/clean.log
 ```
 
 Removes what the host can make again, of anything untouched for
-`TEHAS_CLEAN_AFTER` hours (24 by default). Three steps, and a step that fails
-is logged as a warning while the other two still run:
+`TEHAS_CLEAN_AFTER` hours (24 by default). Five steps, and a step that fails
+is logged as a warning while the others still run:
 
 1. **Build output in kept workspaces.** For each issue with a kept workspace
    (`<name>-<n>` and `<name>-<n>.before-retry`) that no cycle is running, and
@@ -2346,11 +2413,24 @@ is logged as a warning while the other two still run:
 3. **Host scratch.** Files under `~/tehas/tmp/dl` and
    `~/tehas/tmp/node-compile-cache`, and `~/tehas/tmp/tehas-test.*` directories,
    of that age. Nothing else under `~/tehas`, and nothing outside it.
+4. **Old sandbox images.** The dated tags of the sandbox image whose image was
+   made before the age, taken one `docker rmi` at a time. The newest dated tag
+   stays whatever its age, and so does any tag a container or a `uid` tag was
+   made from: `tehasbot work` runs cycles from those images, so one in use is
+   never old. The build keeps its own newest three date tags
+   (see [the sandbox build](#the-sandbox-build)); what is older than the age
+   besides the newest is this step's.
+5. **The pulled base image.** The image the sandbox build starts from, which
+   upstream publishes for the commit `versions.env` follows, removed by name
+   with one `docker rmi` of its own once it is of that age and no container was
+   made from it. Nothing else is offered to docker: the step asks for that one
+   name, and never for the images that have lost their tag.
 
-Sandbox images and the pulled base image are not this command's: the build keeps
-its newest three date tags, and previews go with `tehasbot preview`. Docker
+Preview images are `tehasbot preview`'s and no step here touches them. Docker
 volumes are never touched (see [the host](/host#what-a-container-may-not-do),
-where they are a person's call).
+where they are a person's call). A docker that answers no image list, or nothing
+about the containers on the host, leaves every image where it is: an unknown is
+never a reason to take an image away.
 
 `tehas-clean.timer` runs it once an hour, the first time 15 minutes after boot.
 It starts no work, so the pause label does not hold it. One run at a time: a
