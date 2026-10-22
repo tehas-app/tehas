@@ -874,11 +874,22 @@ docker system df
 docker image prune      # removes images with no tag that nothing uses
 ```
 
-A sandbox build removes date tags beyond its newest three itself.
-
-The cleaner prunes Docker's build cache every hour, of whatever has not been
+A sandbox build removes date tags beyond its newest three itself. The cleaner
+prunes Docker's build cache every hour, of whatever has not been
 used for `TEHAS_CLEAN_AFTER` hours, and removes the build output of kept
-workspaces and old host scratch besides (see [the cleaner](/operating#the-cleaner)).
+workspaces, old host scratch, the sandbox image's dated tags past that age
+except the newest, and the pulled base image of that age
+besides (see [the cleaner](/operating#the-cleaner)). Nothing a container was
+made from is taken: `docker ps -a` shows what holds an image, and an image in
+use is kept whatever its age. The cleaner removes the base by its own name and
+never asks docker for the images that have lost their tag, so a preview image or
+a rollback image of that kind is left where it is. To free the space by hand,
+name what you mean:
+`docker rmi tehas/pi-rukas:<date>` for one dated tag, or
+`docker rmi <id>` for the base. A bare
+`docker image prune` would take any image on the daemon that had lost its tag,
+and an `--all` of it any image no container names, which is wider than the
+cleaner ever goes. A preview that lost its tag is among what a bare prune takes.
 `install.sh` copies `tehas-clean.timer`; check `systemctl --user list-timers
 tehas-clean.timer` when it is not running, and `tail ~/tehas/logs/clean.log`
 for what it freed. `docker builder prune` does the same at once, and the next
