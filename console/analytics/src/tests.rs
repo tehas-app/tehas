@@ -821,28 +821,32 @@ fn a_database_another_program_made_meanwhile_is_not_moved_aside() {
 
 #[test]
 fn programs_that_open_a_new_database_at_once_all_get_it() {
-    let home = scratch("concurrent");
-    let file = db::path(&home);
-    let openers: Vec<_> = (0..8)
-        .map(|i| {
-            let file = file.clone();
-            std::thread::spawn(move || {
-                let (conn, moved) = db::open(&file, 1_792_000_000).unwrap();
-                db::event(&conn, i, "ready", 1_792_000_000).unwrap();
-                moved
+    // The journal switch is where the openers contend, so the eight-opener
+    // run is repeated rather than run once: one pass can miss the lock race.
+    for round in 0..20 {
+        let home = scratch(&format!("concurrent-{round}"));
+        let file = db::path(&home);
+        let openers: Vec<_> = (0..8)
+            .map(|i| {
+                let file = file.clone();
+                std::thread::spawn(move || {
+                    let (conn, moved) = db::open(&file, 1_792_000_000).unwrap();
+                    db::event(&conn, i, "ready", 1_792_000_000).unwrap();
+                    moved
+                })
             })
-        })
-        .collect();
-    for o in openers {
-        assert!(
-            o.join().unwrap().is_none(),
-            "a valid database was moved aside"
-        );
+            .collect();
+        for o in openers {
+            assert!(
+                o.join().unwrap().is_none(),
+                "a valid database was moved aside"
+            );
+        }
+        assert!(!home.join("state/analytics.db.broken").exists());
+        let conn = Connection::open(&file).unwrap();
+        assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 8);
+        assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM meta"), 3);
     }
-    assert!(!home.join("state/analytics.db.broken").exists());
-    let conn = Connection::open(&file).unwrap();
-    assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 8);
-    assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM meta"), 3);
 }
 
 #[test]
