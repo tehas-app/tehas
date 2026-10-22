@@ -456,7 +456,7 @@ clean_sandbox_images() {
 # nameless -- a preview of `tehasbot preview` among them, and a rollback tag
 # whose tag a later update moved. Nothing outside the base is offered.
 clean_base_image() {
-  local pulled ids id out rc2 kb failed=0
+  local pulled ids id out rc2 kb held failed=0
   pulled=$(tehas_base_image) || {
     warn "kept the base: the host's pins name no base to prune (PI_RUKAS_REPO, PI_RUKAS_FOLLOW or PI_RUKAS_IMAGE_DIGEST in $TEHAS_HOME/versions.env or the instance's instance.env, or lib/rukas.sh is not sourced beside lib/sandbox.sh)"
     return 0
@@ -488,13 +488,29 @@ clean_base_image() {
     fi
   done <<<"$ids"
   [ "$failed" = 0 ] || return 1
+  # The age is each id's own creation time, read as step 4 reads its tags: a
+  # base a later build pulled up again is not old, and one docker will not
+  # date stays.
+  local old=""
+  while IFS= read -r id; do
+    [ -n "$id" ] || continue
+    if image_old_enough "$(timeout -k 30 600 docker image inspect --format '{{.Created}}' "$id" 2>/dev/null | head -n 1)"; then
+      old+="$id"$'\n'
+    else
+      log "kept the base $pulled: docker did not date its image past $after hours"
+    fi
+  done <<<"$ids"
+  ids=${old%$'\n'}
+  [ -n "$ids" ] || return 0
   if [ "$dry" = 1 ]; then
     log "would remove the base $pulled: an image of that age"
     return 0
   fi
   # Held by a container, running or stopped, the base stays, on the same proof
-  # step 4 asks for its dated tags.
-  if images_held "" | grep -qxF -e "$ids"; then
+  # step 4 asks for its dated tags; and as there, a docker that says nothing
+  # about the containers is an unknown, which removes nothing.
+  held=$(images_held "") || { warn "docker said nothing about the containers on the host"; return 1; }
+  if grep -qxF -e "$ids" <<<"$held"; then
     log "kept the base $pulled: a container was made from it"
     return 0
   fi
