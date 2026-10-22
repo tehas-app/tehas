@@ -230,8 +230,15 @@ unset PI_ENSEMBLE_PLAN_SESSION_DIR PI_ENSEMBLE_PLAN_CACHE_TTL_MS
 mapfile -d '' -t envs < <(tehas_sandbox_env "$repo" "$bot_name" "$bot_email")
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
 mapfile -d '' -t sec < <(tehas_sandbox_security)
-[ "${#envs[@]}" -gt 0 ] && [ "${#sec[@]}" -eq 8 ] ||
+[ "${#envs[@]}" -gt 0 ] ||
   { echo "tehas plan: could not prepare the sandbox, not starting a turn" >&2; exit 78; }
+if ! { [ "${#sec[@]}" -gt 0 ] && [ "${#sec[@]}" -eq "$(tehas_sandbox_security_count)" ] &&
+      tehas_sandbox_security_ok; }; then
+  echo "tehas plan: tehas_sandbox_security gave ${#sec[@]} words, wants $(tehas_sandbox_security_count): not starting a turn" >&2
+  exit 78
+fi
+# The mounts of the turn are checked where they are made, after the clone: they
+# name directories that do not exist until then.
 # An image whose runner does not take planning turns runs none, before anything
 # is fetched or cloned.
 caps_wait=${TEHAS_CAPS_WAIT:-120}

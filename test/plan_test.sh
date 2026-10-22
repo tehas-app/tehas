@@ -81,48 +81,22 @@ slice_good() {
   slice_state 0.00
 }
 limits="--cgroup-parent --memory --memory-swap --memory-reservation --cpus --pids-limit --cpu-shares"
-# The security options of lib/sandbox.sh, the same eight words a cycle is given
-# (test/work_lib.sh holds the same pair for the cycle's tests).
-security_opts="--cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true"
-# The words after one option, read the way docker reads them.
-security_of() { # <flag> (reads the arguments on standard input)
-  awk -v flag="$1" 'prev == flag { print } { prev = $0 }'
-}
-# The same eight words, in order, as one line; empty when given another way.
-security_line() {
-  awk '
-    { arg[NR] = $0 }
-    END {
-      want[1] = "--cap-drop"; want[2] = "ALL"
-      want[3] = "--cap-add"; want[4] = "CHOWN"
-      want[5] = "--cap-add"; want[6] = "FOWNER"
-      want[7] = "--security-opt"; want[8] = "no-new-privileges:true"
-      for (i = 1; i <= NR; i++) {
-        if (seen >= 8) break
-        if (arg[i] != want[seen + 1]) continue
-        for (j = 1; j <= 8; j++) if (arg[i + j - 1] != want[j]) break
-        if (j > 8) { seen = 8; start = i }
-      }
-      if (seen == 8) for (i = start; i < start + 8; i++) printf "%s ", arg[i]
-    }'
-}
+# The security options and the readers of a docker line come from
+# test/docker_args.sh, which takes the list from tehas_sandbox_security itself,
+# so the cycle, the turn, the session and the push check are all pinned against
+# one source and not against a copy kept in step by hand. docker_opts is the
+# allow-list of unknown_options: the slice's options and the security ones, by
+# name, so an option added to either is allow-listed in all of them at once.
+# shellcheck source=test/docker_args.sh
+. "$(dirname "$0")/docker_args.sh" || exit 1
+docker_opts="$limits --cap-drop --cap-add --security-opt --tmpfs"
 
 turn_args() { grep -l -x -e /opt/pi-rukas/bin/pi-rukas-headless "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
 after() { turn_args | awk -v flag="$1" 'prev == flag { print } { prev = $0 }'; }
 image="tehas/pi-rukas:uid$(id -u)"
 tail_of() { turn_args | sed -n "/^$(printf '%s' "$image" | sed 's/[\/.]/\\&/g')\$/,\$p" | tr '\n' ' '; }
-# Every option that is not one this command is known to pass, up to the image
-# name, read the way docker reads them. See test/work_lib.sh.
-unknown_options() { # <image> <options that take a value> <options that take none>
-  awk -v image="$1" -v valued=" $2 " -v plain=" $3 " '
-    NR == 1 { next } # "run"
-    skip { skip = 0; next }
-    $0 == image { exit }
-    index(valued, " " $0 " ") { skip = 1; next }
-    index(plain, " " $0 " ") { next }
-    /^--add-host=[A-Za-z0-9.-]+:[0-9a-fA-F.:]+$/ { next }
-    { print }'
-}
+# unknown_options, count_of and the readers of the security options come from
+# test/docker_args.sh, sourced above: one implementation for all four containers.
 # What docker is given before the image, one argument per line, without the
 # container's name and without the cid file, which only a cycle has.
 options() {
@@ -288,7 +262,8 @@ t_eq "$(after -e | grep -c -e '^PI_ENSEMBLE_PLAN_SESSION_DIR' -e '^PI_ENSEMBLE_P
 t_lacks "$(turn_args)" "/elsewhere"
 
 t_case "the planning container gets no option beyond the documented ones"
-t_eq "$(turn_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt --user -w -v -e" "--rm --init")" ""
+t_eq "$(turn_args | unknown_options "$image" "--name $docker_opts --user -w -v -e" "--rm --init")" ""
+t_eq "$(turn_args | count_of --tmpfs)" "1"
 t_eq "$(turn_args | grep -c -x -e --init)" 1
 t_eq "$(turn_args | grep -c -x -e -i)" 0
 t_eq "$(after --name)" "tehas-plan-7"
@@ -327,12 +302,18 @@ t_eq "$(turn_args | security_line)" "$security_opts "
 t_eq "$(turn_args | security_of --cap-add | LC_ALL=C sort)" "CHOWN
 FOWNER"
 t_eq "$(turn_args | security_of --security-opt)" "no-new-privileges:true"
+# One bounded /tmp, as a cycle's container has: see test/work_test.sh. The
+# mount is named by reading it from the function, not copied here. The whole
+# line is counted beside security_line, so a second mount outside the block it
+# matches fails, and the equals form docker also accepts counts as a mount too.
+t_eq "$(turn_args | security_of --tmpfs)" "$security_tmpfs"
+t_eq "$(turn_args | count_of --tmpfs)" "1"
 # The image's entrypoint drops from root with setpriv, which the dropped
 # SETUID and SETGID refuse: the container starts as the host's user instead.
 t_eq "$(after --user)" "$(id -u):$(id -g)"
 t_lacks "$(turn_args)" "--cidfile"
 t_contains "$(turn_args)" "--add-host=models:192.0.2.9"
-t_eq "$(turn_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt --user -w -v -e" "--rm --init")" ""
+t_eq "$(turn_args | unknown_options "$image" "--name $docker_opts --user -w -v -e" "--rm --init")" ""
 
 t_case "the slice is read once: one systemctl call, one docker info"
 t_eq "$(t_calls systemctl)" "show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax"
@@ -569,6 +550,51 @@ for words in "--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --m
   t_contains "$t_out" "tehas plan: the container limits could not be made, not starting"
 done
 
+# The guard that stops a turn when the security options and the caller no
+# longer agree is what keeps AGENTS.md rule 4 honest, so it is tested the way
+# the fourteen words are: the command beside a slice library that says yes, and
+# a sandbox library that hands out something else. A shorter list, a longer one
+# with a second mount, and a list of ten words that are not the ten documented
+# ones (here the capabilities left in, which a count alone cannot see) all
+# refuse the turn with 78 and start nothing.
+for bad in \
+  '8|--cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true' \
+  '12|--cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true --tmpfs /tmp:rw --tmpfs /var/tmp:rw' \
+  '20|--tmpfs /tmp:rw,exec,nosuid,nodev,size=8g,mode=1777 --tmpfs /var/tmp:rw --tmpfs /dev/shm:rw --tmpfs /run:rw --tmpfs /mnt:rw --tmpfs /opt:rw --tmpfs /srv:rw --tmpfs /home:rw --tmpfs /boot:rw --tmpfs /usr:rw'; do
+  words=${bad%%|*}
+  opts=${bad#*|}
+  without
+  printf '%s\n' 'tehas_slice_ok() { return 0; }' \
+    "tehas_slice_limits() { TEHAS_SLICE_LIMITS=(--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024); }" \
+    >"$short/lib/slice.sh"
+  # A directory of its own: $short/lib belongs to the fourteen words above, and
+  # the slice library it left there is not the one this guard is to be run with.
+  secdir=$T/security
+  mkdir -p "$secdir"
+  # The library beside its own siblings, so it can be sourced alone, with the
+  # emitter of the list replaced by these words and its count asked of them: the
+  # count and the list are then a pair the guard has to judge, as on a host.
+  cp "$T_ROOT"/lib/*.sh "$secdir/"
+  cat "$T_ROOT/lib/sandbox.sh" >"$secdir/sandbox.sh"
+  printf '%s\n' "tehas_sandbox_security() { printf '%s\\0' $opts; }" \
+    "tehas_sandbox_security_count() { printf '%s\\n' $words; }" \
+    >>"$secdir/sandbox.sh"
+  # The guard as the three commands write it, in a script of its own, run
+  # against that library: it is the guard itself that has to refuse, and 78 is
+  # what each of the three exits with when the list and the caller disagree. The
+  # count is asked of the stubbed library first, so a list that drifted from the
+  # documented one is caught by the content check even when its length agrees.
+  printf '%s\n' 'set -uo pipefail' ". '$secdir/sandbox.sh'" 'sec=()' \
+    'mapfile -d "" -t sec < <(tehas_sandbox_security)' \
+    '[ "${#sec[@]}" -gt 0 ] && [ "${#sec[@]}" -eq "$(tehas_sandbox_security_count)" ] && tehas_sandbox_security_ok ||' \
+    '  { echo "tehas plan: tehas_sandbox_security gave ${#sec[@]} words, wants $(tehas_sandbox_security_count): not starting a turn" >&2; exit 78; }' \
+    >"$secdir/guard.sh"
+  t_run "bash '$secdir/guard.sh'"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "tehas plan: tehas_sandbox_security gave "
+done
+rm -f "$short/lib/sandbox.sh"
+
 t_case "a missing token starts no container"
 reset
 T_ENV=("TEHAS_CGROUP_ROOT=$T_CGROUP")
@@ -727,7 +753,7 @@ t_eq "$t_rc" 0
 t_eq "$(jq -c '[.issue, (.images | map(.file))]' "$T/keep/images/manifest.json")" '[7,["image-1.png"]]'
 t_eq "$(after -v | grep -c -x "$tree.images:$ws.images:ro")" 1
 t_eq "$(after -e | grep '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$ws.images"
-t_eq "$(turn_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt --user -w -v -e" "--rm --init")" ""
+t_eq "$(turn_args | unknown_options "$image" "--name $docker_opts --user -w -v -e" "--rm --init")" ""
 t_contains "$(cat "$T/calls/gh.comments")" "Tehas gave this planning session 1 image from the issue text."
 t_eq "$([ -e "$tree.images" ] && echo left)" ""
 
@@ -789,7 +815,7 @@ t_eq "$(jq -r .described "$T/keep/images/manifest.json")" images.md
 t_eq "$(after -v | grep -c images)" 1
 t_eq "$(after -v | grep -c -x "$tree.images:$ws.images:ro")" 1
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_ENSEMBLE_EXTRA_IMAGE_DIRS PI_ENSEMBLE_PLAN_ISSUE | LC_ALL=C sort)"
-t_eq "$(turn_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt --user -w -v -e" "--rm --init")" ""
+t_eq "$(turn_args | unknown_options "$image" "--name $docker_opts --user -w -v -e" "--rm --init")" ""
 
 t_case "a later turn describes nothing again"
 runner_keeps '{"turn":1}'
@@ -816,7 +842,7 @@ t_eq "$(after -v | grep -c images)" 1
 t_eq "$(after -v | grep -c -x "$tree.images:$ws.images:ro")" 1
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_ENSEMBLE_EXTRA_IMAGE_DIRS PI_ENSEMBLE_PLAN_ISSUE | LC_ALL=C sort)"
 t_eq "$(after -e | grep '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$ws.images"
-t_eq "$(turn_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt --user -w -v -e" "--rm --init")" ""
+t_eq "$(turn_args | unknown_options "$image" "--name $docker_opts --user -w -v -e" "--rm --init")" ""
 t_lacks "$(cat "$T/calls/curl.urls")" "$A/1111"
 t_contains "$(cat "$T/calls/gh.comments")" "Tehas fetched 1 file from the issue text for this planning session"
 
@@ -887,7 +913,7 @@ t_eq "$(after -e | grep '^PI_ENSEMBLE_PLAN_ISSUE')" "PI_ENSEMBLE_PLAN_ISSUE=7"
 t_eq "$(after -v | grep -c images)" 1
 t_eq "$(after -v | grep -c -x "$tree.images:$ws.images:ro")" 1
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_ENSEMBLE_EXTRA_IMAGE_DIRS PI_ENSEMBLE_PLAN_ISSUE | LC_ALL=C sort)"
-t_eq "$(turn_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt --user -w -v -e" "--rm --init")" ""
+t_eq "$(turn_args | unknown_options "$image" "--name $docker_opts --user -w -v -e" "--rm --init")" ""
 
 t_case "a reply over the limits leaves the link out and says so on the issue"
 first_turn

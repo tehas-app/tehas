@@ -406,10 +406,13 @@ caps_fresh
 t_run "$work 7"
 
 t_case "the push check's container gets the workspace, the same variables and the security options, no more"
-t_eq "$(preflight_args | unknown_options "$image" "--user -e -w -v --entrypoint --cap-drop --cap-add --security-opt" "--rm")" ""
+t_eq "$(preflight_args | unknown_options "$image" "--user -e -w -v --entrypoint --cap-drop --cap-add --security-opt --tmpfs" "--rm")" ""
 t_eq "$(preflight_args | security_line)" "$security_opts "
 t_eq "$(preflight_args | security_of --cap-add | LC_ALL=C sort)" "CHOWN
 FOWNER"
+# The whole line is counted, not just the block security_line matches: a second
+# mount stands outside it and is the one drift the contiguous match cannot see.
+t_eq "$(preflight_args | count_of --tmpfs)" "1"
 t_eq "$(preflight_args | awk 'prev == "-v" { print } { prev = $0 }')" "$ws:$inside"
 t_eq "$(preflight_args | awk 'prev == "-e" { print } { prev = $0 }' | sed 's/=.*//' | LC_ALL=C sort)" \
   "$(printf '%s\n' "$want" HOME | LC_ALL=C sort)"
@@ -479,9 +482,32 @@ t_case "the security options drop every capability and take privileges away"
 t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; tehas_sandbox_security | tr '\0' '\n'"
 t_eq "$t_rc" 0
 t_eq "$(printf '%s\n' "$t_out" | tr '\n' ' ')" "$security_opts "
+# The library's own two guards, which the four commands ask before Docker is
+# called: they are asked here of the function, so a guard that drifted from the
+# list is a failure in this file and not a cycle that stops on a host.
+t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; tehas_sandbox_security_count"
+t_eq "$t_out" "$(printf '%s\n' "$security_opts" | wc -w)"
+t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; tehas_sandbox_security_ok"
+t_eq "$t_rc" 0
 # No capability is left in the default list by name, and nothing is added
 # beyond the two a gate needs: a wider list here is a change of the contract.
 t_eq "$(printf '%s\n' "$t_out" | sed -n 's/^--cap-add=//p')" ""
+
+# The manual's table of "What a container may not do" is the same list as the
+# function's, option by option and value by value: the page and the container
+# are pinned to one another, so a row edited on its own fails here.
+t_case "the manual's table names the options the container is given"
+t_eq "$(awk '
+    /^### What a container may not do$/ { inside = 1; next }
+    inside && /^##/ { inside = 0 }
+    inside && substr($0, 1, 3) == "| `" {
+      row = substr($0, 4)
+      opt = row; sub(/`.*$/, "", opt)
+      val = row; sub(/^[^|]*\|[ `]*/, "", val); sub(/`.*$/, "", val)
+      if (opt != "" && val != "") out[++n] = opt "|" val
+    }
+    END { for (i = 1; i <= n; i++) print out[i] }
+  ' "$T_ROOT/host/docs/host.md")" "$(security_doc_rows)"
 
 t_case "no container of a cycle, a turn, a session or the push check is started privileged or with the host's network"
 t_lacks "$(cat "$T"/calls/docker.args.*)" "--privileged"
