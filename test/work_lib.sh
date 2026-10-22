@@ -152,14 +152,15 @@ cycle_args() { grep -l -x -e 'pi-rukas-headless' -e "$runner" "$T"/calls/docker.
 # The arguments of the docker call that checks the push before the cycle.
 preflight_args() { grep -l -x -e '--entrypoint' "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
 # The security options of a container, as lib/sandbox.sh prints them: the same
-# eight words for a cycle, a planning turn, a session and the push check.
-security_opts="--cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true"
+# ten words for a cycle, a planning turn, a session and the push check. The
+# tmpfs is one word: docker takes its mount options after a colon.
+security_opts="--cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true --tmpfs /tmp:rw,exec,nosuid,nodev,size=8g,mode=1777"
 # How many times an option is given, and with what value: the words after it,
 # read the way docker reads them. <flag> is one word, as it stands on the line.
 security_of() { # <flag> (reads the arguments on standard input)
   awk -v flag="$1" 'prev == flag { print } { prev = $0 }'
 }
-# The same eight words, in order, as one line. Empty when a container is given
+# The same ten words, in order, as one line. Empty when a container is given
 # them another way or not at all. Reads the arguments on standard input.
 security_line() {
   awk '
@@ -169,14 +170,20 @@ security_line() {
       want[3] = "--cap-add"; want[4] = "CHOWN"
       want[5] = "--cap-add"; want[6] = "FOWNER"
       want[7] = "--security-opt"; want[8] = "no-new-privileges:true"
+      want[9] = "--tmpfs"; want[10] = "/tmp:rw,exec,nosuid,nodev,size=8g,mode=1777"
       for (i = 1; i <= NR; i++) {
-        if (seen >= 8) break
+        if (seen >= 10) break
         if (arg[i] != want[seen + 1]) continue
-        for (j = 1; j <= 8; j++) if (arg[i + j - 1] != want[j]) break
-        if (j > 8) { seen = 8; start = i }
+        for (j = 1; j <= 10; j++) if (arg[i + j - 1] != want[j]) break
+        if (j > 10) { seen = 10; start = i }
       }
-      if (seen == 8) for (i = start; i < start + 8; i++) printf "%s ", arg[i]
+      if (seen == 10) for (i = start; i < start + 10; i++) printf "%s ", arg[i]
     }'
+}
+# How many times an option is given on a docker line. An option of this list
+# that takes a value counts its value too, so the pair of --tmpfs is one.
+count_of() { # <flag> (reads the arguments on standard input)
+  awk -v flag="$1" '$0 == flag { n++ } END { print n + 0 }'
 }
 # Values that follow a flag, e.g. every -v or every -e.
 after() { cycle_args | awk -v flag="$1" 'prev == flag { print } { prev = $0 }'; }

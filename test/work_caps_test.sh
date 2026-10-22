@@ -406,7 +406,7 @@ caps_fresh
 t_run "$work 7"
 
 t_case "the push check's container gets the workspace, the same variables and the security options, no more"
-t_eq "$(preflight_args | unknown_options "$image" "--user -e -w -v --entrypoint --cap-drop --cap-add --security-opt" "--rm")" ""
+t_eq "$(preflight_args | unknown_options "$image" "--user -e -w -v --entrypoint --cap-drop --cap-add --security-opt --tmpfs" "--rm")" ""
 t_eq "$(preflight_args | security_line)" "$security_opts "
 t_eq "$(preflight_args | security_of --cap-add | LC_ALL=C sort)" "CHOWN
 FOWNER"

@@ -249,7 +249,7 @@ mapfile -d '' -t envs < <(tehas_sandbox_env "$tree" "$git_name" "$git_email")
 mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$tree" "$tree" "$state" "$runs")
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
 mapfile -d '' -t sec < <(tehas_sandbox_security)
-[ "${#envs[@]}" -gt 0 ] && [ "${#mounts[@]}" -gt 0 ] && [ "${#sec[@]}" -eq 8 ] ||
+[ "${#envs[@]}" -gt 0 ] && [ "${#mounts[@]}" -gt 0 ] && [ "${#sec[@]}" -eq 10 ] ||
   { echo "tehas dev: could not prepare the sandbox, not starting a session" >&2; exit 78; }
 
 echo "tehas dev: $tree, commits as $who"

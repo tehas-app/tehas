@@ -221,7 +221,7 @@ tehas_sandbox_seed() { # <state> [<index dir>]
 # default is taken away, and a program cannot gain rights through its mode or
 # file capabilities. The same options for the four containers tehas starts an
 # agent in: a cycle, a planning turn, a manual session and the push check
-# before a cycle. They print eight words.
+# before a cycle. They print ten words.
 #
 # Only CHOWN and FOWNER are given back:
 #
@@ -256,10 +256,19 @@ tehas_sandbox_seed() { # <state> [<index dir>]
 # The root filesystem stays writable, unlike a preview's: a cycle's gate
 # installs into its own tree and its caches, and a read-only root would need
 # one --tmpfs per directory a tool writes in, which is a list nobody can pin.
+# One --tmpfs is given all the same, for /tmp, and it is not there to hide the
+# root: it is there to bound it. A container's writable layer sits on the
+# host's root disk with no limit of its own, and on 2026-10-20 one cycle ran a
+# command that printed one line in a loop until its log under /tmp held 32 GB
+# and the host's disk was full: four cycles died with it. A tmpfs is charged to
+# the container's memory ceiling instead, so a runaway write ends that container
+# and not the host. It says exec because Docker's own default for a tmpfs is
+# noexec, and a container runs stubs and scripts from under /tmp.
 # The process table is bounded by --pids-limit, which comes from lib/slice.sh.
 tehas_sandbox_security() {
   printf '%s\0' --cap-drop ALL --cap-add CHOWN --cap-add FOWNER \
-    --security-opt no-new-privileges:true
+    --security-opt no-new-privileges:true \
+    --tmpfs /tmp:rw,exec,nosuid,nodev,size=8g,mode=1777
 }
 
 # Names the sandbox cannot resolve by itself, from PI_ENSEMBLE_HOST_ALIASES.
