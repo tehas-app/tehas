@@ -15,7 +15,7 @@ release workflow takes the release's page from its section
 
 - None.
 
-## Unreleased
+## v0.10.1 (2026-10-22)
 
 ### Changes
 
@@ -38,6 +38,14 @@ release workflow takes the release's page from its section
   made: the default branch checked out, with `origin/<default branch>` and
   `origin/HEAD` set. A gate that diffs against `origin/main` no longer fails
   `tehas setup` for want of a base.
+- `tehas status` says a release is out only when the newest is greater than
+  the one installed. A cached newest older than the host's release is dropped,
+  and the next poll asks GitHub again.
+- Every sandbox container (a cycle, a planning turn, a dev session, the push
+  check) has a `/tmp` that is a size-bounded tmpfs, so a runaway log ends that
+  container at its memory ceiling instead of filling the host's disk.
+- The gate, `scripts/verify.sh`, needs cargo and runs the tests of the whole
+  workspace. The front page's node tests run where node is installed.
 
 ### Adopter action
 
