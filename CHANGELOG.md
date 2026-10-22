@@ -34,11 +34,16 @@ release workflow takes the release's page from its section
   no snapshot. The lists now go in as files, and a snapshot that cannot be
   written says why on standard error. The health file reads a big snapshot,
   and the protolab long comment threads and many tickets, the same way.
+- `tehas check-product --sandbox` clones the product as a cycle's workspace is
+  made: the default branch checked out, with `origin/<default branch>` and
+  `origin/HEAD` set. A gate that diffs against `origin/main` no longer fails
+  `tehas setup` for want of a base.
 
 ### Adopter action
 
 - Run `tehas update` on a host that shows "No queue snapshot yet" with a long
-  issue list.
+  issue list, or whose `tehas setup` failed at the sandbox step on a base
+  branch.
 
 ## v0.10.0 (2026-10-22)
 

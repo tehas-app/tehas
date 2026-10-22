@@ -19,7 +19,10 @@
 # --sandbox clones the checkout's origin/HEAD into $TEHAS_HOME/tmp and runs, in
 # the image as this user, .pi/worktree-setup when there is one, the first
 # command of .pi/verify-cmd-full (else .pi/verify-cmd) and, when there is one,
-# of .pi/smoke-cmd. The clone is removed afterwards.
+# of .pi/smoke-cmd. The clone is made as a cycle's workspace is
+# (tehas_sandbox_clone): the default branch checked out at origin's tip, with
+# origin/<default branch> and origin/HEAD set, so a gate that diffs against
+# origin/main finds its base. It is removed afterwards.
 #
 # It changes nothing in the product. The result is written to
 # $TEHAS_HOME/state/check-product.json, which tehas status reads.
@@ -42,11 +45,13 @@ esac
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/config.sh
 . "$here/../lib/config.sh"
+# shellcheck source=lib/sandbox.sh
+. "$here/../lib/sandbox.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO
 
 repo=$TEHAS_WORK_REPO
-models=$(tehas_instance_dir)/models.json
+models_file=$(tehas_instance_dir)/models.json
 failures=()
 fail() {
   failures+=("$1")
@@ -93,10 +98,10 @@ if [ -n "$ref" ]; then
       fail ".pi/settings.json is not valid JSON" model
     elif [ "$pm" = / ]; then
       pass model ".pi/settings.json names no model, the instance's is used"
-    elif jq -e --arg p "${pm%%/*}" --arg m "${pm#*/}" '.providers[$p].models // [] | any(.id == $m)' "$models" >/dev/null 2>&1; then
+    elif jq -e --arg p "${pm%%/*}" --arg m "${pm#*/}" '.providers[$p].models // [] | any(.id == $m)' "$models_file" >/dev/null 2>&1; then
       pass model ".pi/settings.json names $pm"
     else
-      fail ".pi/settings.json names $pm, which $models does not list" model
+      fail ".pi/settings.json names $pm, which $models_file does not list" model
     fi
   else
     pass model "no .pi/settings.json, the instance's model is used"
@@ -119,8 +124,8 @@ if [ "$sandbox" = 1 ] && [ -n "$ref" ]; then
     mkdir -p "$TEHAS_HOME/tmp" || exit 1
     tree=$(mktemp -d "$TEHAS_HOME/tmp/check-product.XXXXXX") || exit 1
     trap 'rm -rf "$tree"' EXIT
-    if ! { git -C "$tree" init -q && git -C "$tree" fetch -q --no-tags "$repo" "$ref" &&
-      git -C "$tree" checkout -q --detach FETCH_HEAD; }; then
+    branch=$(git -C "$repo" symbolic-ref -q --short refs/remotes/origin/HEAD)
+    if ! tehas_sandbox_clone "$repo" "$tree" "${branch#origin/}"; then
       echo "tehas check-product: could not clone $repo into $tree" >&2
       exit 1
     fi
