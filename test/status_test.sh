@@ -771,6 +771,72 @@ t_eq "$t_rc" 0
 t_eq "$(jq -r .newest "$live/platform.json")" v0.9.1
 t_contains "$t_out" "platform  v0.9.0, v0.9.1 is out, fetched "
 
+# A cached newest is an answer from an earlier read, so it is only believed
+# while it is not behind what the host runs.
+t_case "platform: a cached newest older than the installed release is not said"
+reset
+release_setup v0.10.0 v0.9.0
+releases v0.9.0
+# The read of an hour ago, before the host moved to v0.10.0.
+mkdir -p "$T/home/tehas/state"
+now=$(date +%s)
+echo "$((now - 7200)) $((now - 7200))" >"$T/home/tehas/state/platform-fetch"
+echo v0.9.0 >"$T/home/tehas/state/platform-newest"
+T_ENV=(GH_AUTH=1 CURL_RC=22)
+t_run "$status && $summary"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .newest "$live/platform.json")" null
+t_lacks "$t_out" "is out"
+t_contains "$t_out" "platform  v0.10.0, newest unknown, fetched "
+
+t_case "platform: a cached newest older than the installed release is read again"
+reset
+release_setup v0.10.0 v0.9.0
+releases v0.10.0
+mkdir -p "$T/home/tehas/state"
+now=$(date +%s)
+echo "$((now - 7200)) $((now - 7200))" >"$T/home/tehas/state/platform-fetch"
+echo v0.9.0 >"$T/home/tehas/state/platform-newest"
+t_run "$status && $summary"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .newest "$live/platform.json")" v0.10.0
+t_eq "$(cat "$T/home/tehas/state/platform-newest")" v0.10.0
+t_eq "$(t_calls gh | grep -c 'api repos/.*/releases')" 1
+t_lacks "$t_out" "is out"
+t_contains "$t_out" "platform  v0.10.0, newest v0.10.0, fetched "
+
+# The words of the line, whatever the two versions are: only a newest greater
+# than the installed release is out.
+t_case "platform: the same release installed and newest says no 'is out'"
+reset
+release_setup v0.10.0
+releases v0.10.0
+t_run "$status && $summary"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "is out"
+t_contains "$t_out" "platform  v0.10.0, newest v0.10.0, fetched "
+
+t_case "platform: a newest published behind the installed release says no 'is out'"
+reset
+release_setup v0.10.0
+releases v0.9.0
+t_run "$status && $summary"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .newest "$live/platform.json")" v0.9.0
+t_lacks "$t_out" "is out"
+t_contains "$t_out" "platform  v0.10.0, newest v0.9.0, fetched "
+
+# A VERSION the host wrote without the v is shown as it is: it is no triple
+# beside v0.10.0, so it is never said to be out.
+t_case "platform: an installed version with no v is shown as it is, never as one that is out"
+reset
+release_setup 0.10.0
+releases v0.10.0
+t_run "$status && $summary"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "is out"
+t_contains "$t_out" "platform  0.10.0, newest v0.10.0, fetched "
+
 t_case "platform: a checkout host with a current that is not a release stays on the checkout"
 reset
 platform_setup
