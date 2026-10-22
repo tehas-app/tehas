@@ -132,9 +132,21 @@ impl Server {
         self.child.try_wait().unwrap().is_none()
     }
 
-    fn stop(mut self) -> String {
-        self.child.kill().unwrap();
+    fn stop(self) -> String {
+        self.stop_after(0)
+    }
+
+    // A request's log line is written after its answer is sent, so a client
+    // can see the answer before the line exists. Read the `lines` the test
+    // needs before the kill, which would lose them.
+    fn stop_after(mut self, lines: usize) -> String {
         let mut err = std::mem::take(&mut self.first);
+        for _ in 0..lines {
+            if self.log.read_line(&mut err).unwrap() == 0 {
+                break;
+            }
+        }
+        self.child.kill().unwrap();
         self.log.read_to_string(&mut err).unwrap();
         let _ = self.child.wait();
         err
@@ -219,7 +231,7 @@ fn it_serves_and_logs_by_fingerprint() {
         s.post(Some(&format!("Bearer {K1}")), &vec![b' '; 70000]).0,
         413
     );
-    let log = s.stop();
+    let log = s.stop_after(3);
     assert!(!log.contains(K1), "{log}");
     assert!(
         log.lines()
@@ -371,7 +383,7 @@ fn a_method_cannot_write_into_the_log() {
         Duration::from_secs(3),
     );
     assert_eq!(status, 400);
-    let log = s.stop();
+    let log = s.stop_after(1);
     assert!(!log.contains("FORGED"), "{log}");
     assert!(!log.contains('\x1b'), "{log}");
 }
