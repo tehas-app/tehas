@@ -33,6 +33,10 @@ cat >"$T/report.json" <<'EOF'
  "daily":[],"stopReasons":{"n":0,"top":[]},"stations":{"n":0,"steps":[]},"versions":[],
  "refine":{"sessions":2,"n":1,"started":1,"shipped":0,"shippedShare":0.0,
   "leadTime":{"n":0},"others":{"n":3,"started":2,"shipped":1,"shippedShare":0.333}},
+ "sizes":{"none":{"n":0,"shipped":0,"leadTime":{"n":0}},
+  "1-2":{"n":2,"shipped":1,"leadTime":{"n":1,"median":7200}},
+  "3-4":{"n":0,"shipped":0,"leadTime":{"n":0}},
+  "5+":{"n":1,"shipped":0,"leadTime":{"n":0}}},
  "failureCause":"a cause that may not be public","issues":[12,13]}
 EOF
 keys="availability,cycleTime,daily,energy,firstPassYield,from,handoffRate,leadTime,machineTime,planned,planningTurns,refine,report,runs,shipped,stations,stopReasons,to,tokens,versions"
@@ -60,6 +64,11 @@ t_eq "$t_out" ""
 t_eq "$(t_calls analytics)" "report --json
 sessions"
 t_eq "$(jq -r 'keys | join(",")' "$file")" "$keys"
+# The size figures belong to the terminal, not the page: the report has the
+# key, and the publisher's allowlist drops it. The manual says so; this holds
+# it true.
+t_eq "$(jq -e 'has("sizes")' "$T/report.json")" "true"
+t_eq "$(jq -e 'has("sizes")' "$file")" "false"
 t_lacks "$file" "may not be public"
 t_eq "$(jq -c .runs "$file")" "$(jq -c .runs "$T/report.json")"
 t_eq "$(jq -c .refine "$file")" "$(jq -c .refine "$T/report.json")"

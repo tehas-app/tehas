@@ -82,6 +82,15 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// The rule one state ledger is read under, held once for both readers: bytes
+/// of the whole file, and bytes of one line. `report` and `sessions` read the
+/// ledgers beside the database, and a file one of them reads is the same file
+/// the other does. Both writers keep 500 lines of a few small counts --
+/// `tehas_size_record` trims `sizes.jsonl` and `plan_refined` trims
+/// `refined.jsonl` -- so no ledger of their own making comes near the bound.
+pub const LEDGER_MAX_BYTES: u64 = 1 << 20;
+pub const LEDGER_MAX_LINE: usize = 100_000;
+
 const USAGE: &str = "usage: analytics run <issue> [--image <id>] [--rukas-image <commit>] [--oom <n>] [--forks <n>] | plan <issue> --rc <rc> [--rukas-image <commit>] | event <issue> <event> [--at <epoch seconds>] | sample | prune | report [--json] | sessions | export <file> [--json]";
 
 fn main() -> ExitCode {

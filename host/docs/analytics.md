@@ -227,8 +227,8 @@ and the lead time of those that shipped, from their `ready` event. Beside them
 are the other issues made ready in the window, how many started and shipped,
 to compare. The issues a refining session filed are listed in
 `~/tehas/state/refined.jsonl`, one line each, `{at, source, filed, url}`,
-written when the confirm files them. Like the rest of the report it holds
-counts only.
+written when the confirm files them. The file keeps its last 500 lines, as
+`sizes.jsonl` does. Like the rest of the report it holds counts only.
 
 ### Size
 
@@ -239,14 +239,20 @@ be set from outcomes rather than guesswork. It reads what each approved start
 measured of its issue's body from `~/tehas/state/sizes.jsonl` (see the layout
 table of [The host](/host#layout)): one line per start, `{at, issue, files,
 tests, deliverables, done_when}`, the line of an issue with the later `at`
-winning and a line that does not parse being skipped. For the starts measured in
+winning and a line that does not parse being skipped, the file keeping its last
+500 lines. For the starts measured in
 the window it gives three buckets of the `files` count -- 1-2, 3-4 and 5+, and
 `none` for the bodies that named no file at all -- and for each of them how many
 issues there were, how many shipped, and the median lead time of those that
 shipped. No ledger is four buckets of nothing. Of what a line holds only `at`,
 `issue` and `files` are read, so the other counts and anything a hand-written
-line might carry stay in the ledger. Like the rest of the report it holds counts
-only: no issue number, and nothing of what the issue asked for.
+line might carry stay in the ledger. A line the reader will not take is no line:
+one of a hundred thousand bytes or more, one whose `at` falls outside 2025 or
+2100, or one whose `files` is not a whole number of at most nine digits, the
+bound `TEHAS_SIZE_MAX_FILES` itself may not pass. A ledger that is not a plain
+file, or one past a MiB, is no ledger, and `sizes.jsonl` keeps only its last 500
+lines so a long-lived host does not reach that. Like the rest of the report it
+holds counts only: no issue number, and nothing of what the issue asked for.
 
 Two windows meet in one bucket. `n` counts the starts the ledger measured in
 the window. A ship is the issue's `v_lead` row, and only a merge at or after
