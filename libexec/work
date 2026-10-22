@@ -82,7 +82,8 @@
 #              runner wrote no result at all. A container it watched to its end
 #              that wrote no result and not one line of its stream leaves
 #              state/cycles/<issue>.nostart with the container's own exit
-#              status: tehasbot cycle names that as tehas's own cap
+#              status: one line, plain digits, 1 to 999, no sign and no leading
+#              zero. tehasbot cycle makes that as tehas's own cap
 #              `runner-never-started`. One this command stopped, killed outright
 #              with no result, or ended at the time limit leaves no such note.
 #
@@ -378,7 +379,8 @@ progress_file=$TEHAS_HOME/state/cycles/$issue.progress.json
 runner_exit_file=$TEHAS_HOME/state/cycles/$issue.runner_exit
 status_file=$TEHAS_HOME/state/cycles/$issue.status
 # The word of the end for a container that wrote no result and no line of its
-# stream. Read and removed by tehasbot cycle.
+# stream: its own exit status, one line of plain digits. Read and removed by
+# tehasbot cycle.
 nostart_file=$TEHAS_HOME/state/cycles/$issue.nostart
 image_file=$TEHAS_HOME/state/cycles/$issue.image
 settings_file=$TEHAS_HOME/state/cycles/$issue.settings
@@ -748,6 +750,18 @@ interrupted=0
 cpid=""
 # The live file says running only once the trap can say interrupted.
 live_on=0
+# A log is named to the second, so a cycle of this issue can be given the name a
+# cycle before it used: the side file of its stream goes with the rest of the
+# cycle's files, so what the improvement record copies as err.txt is only what
+# this command writes into it. The name is known only here, where the log is
+# named, which is after the gap of the attachments has been said into it: that
+# line is one of the two that ever reach the file, so it is said again below.
+rm -f "${log:?}.err"
+if [ -n "${gap_said:-}" ]; then
+  printf '%s\n' "$gap_said" >>"$log.err" ||
+    echo "tehas work: could not write $log.err" >&2
+fi
+
 # The runner is the container's command, so a docker stop reaches it: it ends
 # the cycle as interrupted and still writes its result.
 trap 'interrupted=1; [ -z "$cpid" ] || kill "$cpid" 2>/dev/null; stop_container 10
@@ -883,6 +897,10 @@ outcome=$(tehas_headless_outcome "$result_file" "$issue") && have=1 || outcome='
 write_note() { # <file> <text>: one file of the protocol, whole or not at all
   if ! printf '%s\n' "$2" >"$1.new" 2>/dev/null; then
     rm -f "$1.new" 2>/dev/null
+    echo "tehas work: could not write $1" >&2
+    printf '%s\n' "tehas work: could not write $1" >>"$log.err" 2>/dev/null ||
+      echo "tehas work: could not say of $log.err that $1 was lost" >&2
+    return 1
   elif ! mv "$1.new" "$1" 2>/dev/null; then
     rm -f "$1.new" 2>/dev/null
     echo "tehas work: could not write $1" >&2
@@ -941,21 +959,28 @@ if [ "$rc" = 137 ] && [ "$have" = 0 ] && [ "$error_only" = 0 ] && [ "$interrupte
 fi
 # A container that wrote no result and not one line of its stream never got as
 # far as the driver's first event, so the record would say nothing but the
-# status this command exits with. Named here, where the container's own end, its
-# cgroup and the fact that its stream stayed empty are all still in scope;
+# status this command exits with. Named here, where the container's own end,
+# its cgroup and the fact that its stream stayed empty are all still in scope;
 # tehasbot cycle makes the cap of it. Not for one this command stopped, nor for
 # a killed container or one that reached the time limit, each of which has an
-# account of its own.
+# account of its own, and not for a container ended by SIGKILL, which is the end
+# this command documents as leaving no note: the count of memory kills is
+# carried by the oom file, as for every other end. The exit status is written in
+# the shape the reader accepts, so the two cannot disagree about a note.
 if [ "$have" = 0 ] && [ "$error_only" = 0 ] && [ "$interrupted" = 0 ] && [ "$stopped" = 0 ] &&
   [ "$killed" = 0 ] && [ "$timed" = 0 ] && [ "$ran_out" = 0 ] && [ "$stalled" = 0 ] &&
-  [ ! -s "$log" ]; then
-  write_note "$nostart_file" "$rc $ooms" ||
+  [ "$rc" != 137 ] && [[ $rc =~ ^[1-9][0-9]{0,2}$ ]] && [ ! -s "$log" ]; then
+  write_note "$nostart_file" "$rc" ||
     echo "tehas work: the account of the container that never started is lost with it"
   # One line for the cycle's record, where a person reads the end of a failed
   # cycle. The preflight file is named because it is the only file of the cycle
   # that holds anything for a run whose stream stayed empty, and what it holds
-  # there is the provider-retry echo, which says nothing about this end.
-  printf '%s\n' "tehas work: issue $issue ended with the container's exit $rc and no line of its stream: the runner wrote no event, so no step started. Its preflight is $(basename "$log").preflight." \
+  # there is the provider-retry echo, which says nothing about this end. The two
+  # words of the line are this command's own, reduced to what a record that is
+  # filed in public can carry.
+  nostart_rc=${rc//[^0-9]/}
+  nostart_log=$(printf '%s' "${log##*/}" | tr -cd 'A-Za-z0-9._-')
+  printf '%s\n' "tehas work: issue $issue ended with the container's exit $nostart_rc and no line of its stream: the runner wrote no event, so no step started. Its preflight is $nostart_log.preflight." \
     >>"$log.err" || echo "tehas work: could not write $log.err" >&2
 fi
 if [ "$ooms" -gt 0 ]; then

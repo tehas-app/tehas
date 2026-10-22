@@ -95,15 +95,32 @@ tehas_cycle_note_files() {
 #                         ended, so a file no older than the cycle's own start
 #                         was written by this cycle. An older one is a cycle
 #                         that never reported, and its log is read for nothing.
-#   <issue>.nostart       the container's own exit status and, on the same
-#                         line, how many processes its cgroup killed for
-#                         memory. Left only when the container was watched to
-#                         its end and wrote neither a result nor one line of
-#                         its stream: no step of the driver was ever seen. The
-#                         one thing that says a cycle of this issue started no
-#                         runner, as opposed to one that died part way through;
-#                         tehasbot cycle makes tehas's cap runner-never-started
-#                         of it, and reads no run log for the step of it.
+#   <issue>.nostart       one line: the container's own exit status, plain
+#                         digits, 1 to 999, no sign and no leading zero. A
+#                         file that holds anything else is no note. Left only
+#                         when the container was watched to its end and wrote
+#                         neither a result nor one line of its stream, and only
+#                         for a container nobody stopped: no step of the driver
+#                         was ever seen. The one thing that says a cycle of
+#                         this issue started no runner, as opposed to one that
+#                         died part way through; tehasbot cycle makes tehas's
+#                         cap runner-never-started of it, and reads no run log
+#                         for the step of it. It is this cycle's own because
+#                         tehas work removes it before the container starts.
+#                         The count of memory kills is not in it: that is the
+#                         account of <issue>.oom, as for every other end.
+
+# The caps tehas sets for a stop of its own making, and no other command does.
+# The one list: libexec/cycle both makes them and says who made them from it, so
+# a cap named here is a cap whose comment reads "tehas stopped the cycle", and
+# adding one to the list is the whole of adding it.
+tehas_own_caps="wall-clock stall runner-never-started"
+
+tehas_cycle_own_cap() { # <cap>: 0 when tehas itself set that cap
+  local c
+  for c in $tehas_own_caps; do [ "$c" = "$1" ] && return 0; done
+  return 1
+}
 
 # An agent in a container holds the bot's token: it can post a comment with a
 # marker, edit the bot's comments and apply labels. It cannot write here, so

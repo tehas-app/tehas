@@ -93,16 +93,16 @@ case " $* " in
   " kill "*) kill "$(cat "$T/sleeper.pid" 2>/dev/null)" 2>/dev/null ;;
 esac'
 # The container of a cycle that named none: it says one line of progress and
-# ends at once, so that the cycle's stream is not the empty one tehas work takes
-# for a container that never came up and writes nothing for (libexec/work, the
-# note of a runner that never started). A case that means that end names its own
-# container and says nothing; a case that reads nothing of the cycle names none
-# and should not find one.
+# ends at once, purely to keep the cycle's stream from being the empty one tehas
+# work takes for a container that never came up and writes nothing for
+# (libexec/work, the note of a runner that never started). It is put where a case
+# that names no container finds it, and taken away again by fresh. A case that
+# means that end names its own container and says nothing; a case that reads
+# nothing of the cycle names none and should not find one.
 container_default='nap=$(command -pv sleep)
 progress() { printf "%s\n" "$1" >&2; }
 progress cycle
 exit 0'
-
 printf '%s\n' "$container_default" >"$T/container-default"
 printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitconfig"
 # What a runner on result schema 4 answers to --capabilities, cut to what the
@@ -237,9 +237,11 @@ progress_file=$T/home/tehas/state/cycles/7.progress.json
 # container <what it does>: the runner. "says <status> [cap]" writes its result
 # to standard output, "progress <line>" one line of its NDJSON. With no
 # argument the case means a container that does nothing of note: one that says
-# one line of progress and ends at once, so that the cycle's stream is not the
-# empty one tehas work takes for a container that never came up and writes
-# nothing for. A case of that end names its own container and says nothing.
+# one line of progress and ends at once, purely to keep the cycle's stream from
+# being the empty one tehas work takes for a container that never came up and
+# writes nothing for. A case of that end names its own container and says nothing.
+# The file of what the container does is this case's own: fresh puts the default
+# back, so a body never outlives the case that wrote it.
 container() {
   # What the container of this case does. The error file of its log goes first,
   # so that a case reads only what its own run wrote there: a log is named to the
@@ -260,8 +262,10 @@ container() {
 hold='"$nap" 60 >/dev/null 2>&1 & echo $! >"$T/sleeper.pid"'
 gone='wait; exit 137'
 # A log is named to the second, so a cycle of the case before can share this
-# case's name: its files go first.
-fresh() { rm -rf "$T"/calls/* "$live/cycles" "$T/sleeper.pid" "$T"/home/tehas/logs/work-7-*; }
+# case's name: its files go first, the body of the container the case before
+# named among them (container puts the default back, and the file beside it,
+# container-default, holds that default for every case that names none).
+fresh() { rm -rf "$T"/calls/* "$live/cycles" "$T/sleeper.pid" "$T/container.sh" "$T"/home/tehas/logs/work-7-*; }
 
 # stub_github: gh answers for the issue and its events from files, no events
 # file is an issue nobody labelled. curl hands out $T/fx/net/<address, with _
@@ -323,11 +327,8 @@ issue_is() {
 }
 images_on() {
   rm -rf "$fx" "$T"/calls/* "$T/home/tehas/work" "$T/home/tehas/state/cycles/7.manifest.json" "$T/home/tehas/state/cycles/7.approved.json"
-  # A case of an empty stream names its container by hand and nothing removes
-  # it: without this the next case would run that one and read its end as its
-  # own, and a container named by no case at all writes a line of progress so
-  # that the stream is not the empty one (container).
-  # The container file of the case before, if it named one: see images_off.
+  # The body of the container of the case before, if it named one: fresh clears
+  # it too, and the two helpers clear the rest of the host in their own way.
   rm -f "$T/container.sh"
   mkdir -p "$fx/net"
   slice_good
@@ -340,10 +341,8 @@ images_on() {
 images_off() {
   rm -rf "$fx" "$T"/calls/* "$T/home/tehas/work" "$T/home/tehas/logs" \
     "$T/home/tehas/state/cycles/7.manifest.json" "$T/home/tehas/state/cycles/7.approved.json"
-  # What the container of this cycle does is a file a case writes. A case of the
-  # empty stream names one by hand and nothing removes it, so the next case of
-  # the file that does not name one would run that container and report its end
-  # as its own: the file goes with the rest of the host here.
+  # What the container of this cycle does is a file a case writes; it goes with
+  # the rest of the host here, as fresh does for the cases that use it.
   rm -f "$T/container.sh"
   mkdir -p "$fx/net"
   slice_good

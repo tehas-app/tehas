@@ -120,20 +120,22 @@ t_stub docker '[ -e "$T/fx/image.label" ] || exit 1; cat "$T/fx/image.label"'
 # What the runner does is a file a case writes; without one it ends at once.
 # A result and a progress summary a case wrote are put where tehas work leaves
 # them, and so is the note of a container that never started, which a case names
-# with nostart <exit> <oom-kills>. The runner exits as the result says unless
-# work.sh exits first.
+# with nostart <bytes>. The runner exits as the result says unless work.sh exits
+# first.
 # Without a progress of its own a case gets one with nothing in it, as tehas
 # work writes for a log that has no stable line.
-nostart() { # <exit> <oom-kills>: the note tehas work leaves for a container
-# that wrote no result and no line of its stream.
-  printf '%s %s\n' "$1" "${2:-0}" >"$fx/nostart"
+nostart() { # <bytes>: the note tehas work leaves for a container that wrote no
+# result and no line of its stream. The bytes of the file are what the case says,
+# so a case can name a note the reader must not believe: nothing in it is
+# checked, bounded or completed here, and an empty argument leaves an empty file.
+  printf '%s\n' "${1:-}" >"$fx/nostart"
 }
 t_stub fake-work 'for f in result progress; do
   [ ! -e "$T/fx/$f.json" ] || cp "$T/fx/$f.json" "$TEHAS_HOME/state/cycles/7.$f.json"
 done
 [ -e "$T/fx/progress.json" ] || [ -e "$T/fx/no-progress" ] ||
   echo "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}" >"$TEHAS_HOME/state/cycles/7.progress.json"
-[ ! -s "$T/fx/nostart" ] || cat "$T/fx/nostart" >"$TEHAS_HOME/state/cycles/7.nostart"
+[ -e "$T/fx/nostart" ] && cat "$T/fx/nostart" >"$TEHAS_HOME/state/cycles/7.nostart"
 [ ! -e "$T/fx/work.sh" ] || . "$T/fx/work.sh"
 # The body of a case may name the exit of tehas work itself, which is not
 # that of the runner inside it: it writes the file of that exit instead.

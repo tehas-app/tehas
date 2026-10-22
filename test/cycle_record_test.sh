@@ -129,35 +129,115 @@ t_eq "$(jq -r .cap "$state/7.park")" stall
 t_contains "$(t_calls gh)" 'cap `stall`'
 t_eq "$(find "$state/7.stalled" 2>/dev/null | wc -l)" 0
 
-# The two cases below are the shape of the two cycles of tehas-org/tehas#110:
+# The three cases below are the shape of the two cycles of tehas-org/tehas#110:
 # a container that ended with nothing in its record, no step and no cap. The
 # note tehas work leaves for that end is on record as tehas's own cap, and the
-# step of such a cycle says no step started rather than being a dash.
+# step of such a cycle names no step of the runner. The word is the one below,
+# and it is not a word of the runner's vocabulary, nor one the analytics reader
+# reads a planning turn's rc for.
 t_case "a container that ended before the driver wrote an event is on record as runner-never-started, with its exit status, and no step"
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
 rm -f "$fx/result.json"
 nostart 1
-echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; cat "$T/fx/nostart" >"$TEHAS_HOME/state/cycles/7.nostart"; exit 2' >"$fx/work.sh"
+echo 'mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/logs"; echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; cat "$T/fx/nostart" >"$TEHAS_HOME/state/cycles/7.nostart"; exit 2' >"$fx/work.sh"
 t_run "$cycle 7"
 t_eq "$(jq -c '[.status, .step, .cap, .capReason]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
-  '["unknown","not-started","runner-never-started","the container ended with the exit status 1 and wrote no line of its stream, so the driver wrote no event and no step started"]'
+  '["unknown","no-step","runner-never-started","the container ended with the exit status 1 and wrote no line of its stream, so the driver wrote no event and no step started"]'
 t_eq "$(jq -r .cap "$state/7.park")" runner-never-started
 t_contains "$(t_calls gh)" 'tehas stopped the cycle: the cap `runner-never-started`.'
 t_contains "$(t_calls gh)" "no step started, the container of the cycle ended before the driver wrote an event"
 t_eq "$(find "$state/7.nostart" 2>/dev/null | wc -l)" 0
+
+# The memory kills of such a cycle are told once, from the oom file, as for every
+# other end: the note holds no count of them, so one number has one home. The oom
+# file is one the cycle removes when it takes its lock, so the runner of the case
+# is the one that leaves it, as tehas work does.
+t_case "the memory kills of a runner that never started are said once, from the oom file"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+rm -f "$fx/result.json"
+nostart 1
+echo 'mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/logs"; echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; cat "$T/fx/nostart" >"$TEHAS_HOME/state/cycles/7.nostart"; echo 3 >"$TEHAS_HOME/state/cycles/7.oom"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$(jq -r '.capReason' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
+  "the container ended with the exit status 1 and wrote no line of its stream, so the driver wrote no event and no step started"
+t_contains "$(t_calls gh)" "3 processes were killed for memory in its container."
+t_lacks "$(t_calls gh)" "processes in its container were killed for memory"
+t_eq "$(find "$state/7.nostart" "$state/7.oom" 2>/dev/null | wc -l)" 0
 
 t_case "the note of a runner that never started is read for nothing when the cycle wrote a result, and one of an earlier cycle is not this cycle's"
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
 ended handoff commit-pr feature/x
 echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+# The note of an earlier cycle, when tehas work of this one died mid-cycle and
+# wrote none of its own: it is gone before the report reads anything, and the
+# result this cycle wrote has the last word for the step and the cap.
+mkdir -p "$state"
 nostart 1
-echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; cat "$T/fx/nostart" >"$TEHAS_HOME/state/cycles/7.nostart"; exit 10' >"$fx/work.sh"
+cp "$fx/nostart" "$state/7.nostart"
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; exit 10' >"$fx/work.sh"
 t_run "$cycle 7"
 t_eq "$(jq -c '[.status, .step, .cap]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
   '["handoff","commit-pr","awaiting-human-merge"]'
 t_eq "$(find "$state/7.nostart" 2>/dev/null | wc -l)" 0
+
+# A note the reader cannot believe is no note: the cycle is reported the way it
+# was before the note existed, with the step read from its run log, and no word
+# of the cap. Each shape below is one a truncated or misplaced write can leave.
+for note in "" "x" "0" "-1" "1000" "01"; do
+  t_case "a note that holds '$note' is no note: the cycle is reported as one that died part way through"
+  reset
+  t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+  rm -f "$fx/result.json"
+  nostart "$note"
+  # A watched run that wrote no result, made the way the helper makes one: the
+  # runner_exit file says the run was watched, the progress summary says the log
+  # beside it belongs to this cycle, and the log names the steps it reached.
+  # Without those the step is read from no log at all, which is the other half
+  # of what this case must not be mistaken for.
+  died explore
+  echo 'mkdir -p "$TEHAS_HOME/state/cycles"; cat "$T/fx/nostart" >"$TEHAS_HOME/state/cycles/7.nostart"; exit 2' >>"$fx/work.sh"
+  t_run "$cycle 7"
+  # The log the report reads is named for the second of the cycle's start, which
+  # is the moment the case takes it: the helper names it so, and the record of
+  # the cycle carries that same name. A fixed stamp would look for a record of a
+  # run that never was.
+  t_eq "$(jq -c '[.step, .cap]' "$T/home/tehas/tmp/improve/window/$(ls "$T/home/tehas/tmp/improve/window")/cycle.json")" '["explore",null]'
+  t_lacks "$(t_calls gh)" 'runner-never-started'
+  t_eq "$(find "$state/7.nostart" 2>/dev/null | wc -l)" 0
+done
+
+# The second field is read for nothing: the oom file is the one account of the
+# memory kills, so a note whose count the reader would not believe is still the
+# note of a runner that never came up. Its digits are reduced where they are
+# used, not read for what they say.
+t_case "a second field of the note is read for nothing: the cap stands and the count of the oom file is the one said"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+rm -f "$fx/result.json"
+nostart "1 007"
+echo 'mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/logs"; echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; cat "$T/fx/nostart" >"$TEHAS_HOME/state/cycles/7.nostart"; echo 3 >"$TEHAS_HOME/state/cycles/7.oom"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$(jq -c '[.step, .cap]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" '["no-step","runner-never-started"]'
+t_contains "$(t_calls gh)" "3 processes were killed for memory in its container."
+
+# A note that is a link is no note, as every other file of the cycle's: the
+# report reads nothing through it.
+t_case "a note that is a link is not read"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+rm -f "$fx/result.json"
+echo 1 >"$T/elsewhere"
+mkdir -p "$state"
+ln -sf "$T/elsewhere" "$state/7.nostart"
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$(jq -c '[.step, .cap]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" '["-",null]'
+t_lacks "$(t_calls gh)" "runner-never-started"
+t_eq "$(cat "$T/elsewhere")" 1
+
 t_case "a cycle tehas stopped at its time limit with no cap from the runner is on record as wall-clock"
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
