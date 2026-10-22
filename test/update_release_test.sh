@@ -52,6 +52,27 @@ host_at() { # <tag>
   echo "$1" >"$th/state/release-history"
 }
 
+# A checkout that has no release of its own: no current, so the host is taken to
+# run from $TEHAS_HOME/platform. With <tag> the checkout is a git repository
+# whose HEAD carries that tag.
+checkout_host() { # [tag]
+  host_at v1.0.0
+  rm -f "$th/current"
+  [ -z "${1:-}" ] || tag_checkout "$1"
+}
+
+# The platform checkout as a git repository: an empty install.sh, one commit, and
+# <tag> on it.
+tag_checkout() { # <tag>
+  git init -q --initial-branch=main "$th/platform"
+  git -C "$th/platform" config user.name test
+  git -C "$th/platform" config user.email test@example.com
+  : >"$th/platform/install.sh"
+  git -C "$th/platform" add -A
+  git -C "$th/platform" commit -qm first
+  git -C "$th/platform" tag "$1"
+}
+
 instance() { t_instance "${T_MINIMAL[@]}" TEHAS_UPDATE_FROM=release "$@"; }
 
 stubs() {
@@ -286,6 +307,67 @@ instance TEHAS_RELEASE_REPO=someone/fork
 host_at v1.0.0
 t_run "$update --check"
 t_contains "$(t_calls gh)" "api repos/someone/fork/releases"
+
+t_case "a checkout tagged v1.0.0 is shown only the notes after its own tag, and still would switch"
+stubs
+instance
+checkout_host v1.0.0
+t_run "$update --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "release: installed none, this host ran from its platform checkout at v1.0.0, newest v1.2.0"
+t_contains "$t_out" "== v1.1.0"
+t_contains "$t_out" "Set TEHAS_EXAMPLE_KNOB in instance.env."
+t_contains "$t_out" "== v1.2.0"
+t_lacks "$t_out" "== v1.0.0"
+t_contains "$t_out" "release: would switch to v1.2.0"
+
+t_case "a checkout at the newest tag is shown no notes and still would switch"
+stubs
+make_release v1.3.0
+instance
+checkout_host v1.3.0
+t_run "$update --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "release: installed none, this host ran from its platform checkout at v1.3.0, newest v1.3.0"
+t_lacks "$t_out" "== v1"
+t_contains "$t_out" "release: would switch to v1.3.0"
+rm -rf "$rel/v1.3.0" && jq -s '.' "$rel"/*/release.json >"$rel/list.json"
+
+t_case "a checkout with no tag is shown every release, as before"
+stubs
+instance
+checkout_host
+t_run "$update --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "release: installed none, this host ran from its platform checkout, newest v1.2.0"
+t_contains "$t_out" "== v1.0.0"
+t_contains "$t_out" "== v1.1.0"
+t_contains "$t_out" "== v1.2.0"
+t_contains "$t_out" "release: would switch to v1.2.0"
+
+t_case "no checkout on the host is shown every release, as before"
+stubs
+instance
+host_at v1.0.0
+rm -f "$th/current"
+t_run "$update --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "release: installed none, this host ran from its platform checkout, newest v1.2.0"
+t_contains "$t_out" "== v1.0.0"
+t_contains "$t_out" "release: would switch to v1.2.0"
+
+t_case "an update from a tagged checkout at the newest release still downloads and switches"
+stubs
+instance
+checkout_host v1.2.0
+t_run "$update"
+t_eq "$t_rc" 0
+t_contains "$t_out" "this host ran from its platform checkout at v1.2.0"
+t_lacks "$t_out" "== v1"
+t_contains "$t_out" "release: current is v1.2.0, was the platform checkout"
+t_eq "$(readlink "$th/current")" versions/v1.2.0
+t_contains "$(t_calls gh)" "release download v1.2.0"
+t_eq "$(t_calls install)" "install v1.2.0 "
 
 t_case "the version current names and the two switched to before it stay; older ones go"
 stubs

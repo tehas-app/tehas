@@ -9,6 +9,8 @@
 #   tehas_update_source              git or release, or 78 with the reason
 #   tehas_release_repo               owner/name the releases are read from
 #   tehas_release_installed          the version current points at, or nothing
+#   tehas_release_checkout_tag <dir> the newest vX.Y.Z tag at or before the
+#                                    checkout's HEAD, or nothing
 #   tehas_release_list               the published releases, newest first, as
 #                                    JSON lines {tag, body}
 #   tehas_release_between <from> <to> <list>
@@ -70,6 +72,20 @@ tehas_release_installed() {
   local link=$TEHAS_HOME/current
   [ -L "$link" ] && [ -f "$link/VERSION" ] || return 0
   head -n 1 "$link/VERSION"
+}
+
+# The tag a platform checkout was taken from: the newest vX.Y.Z tag that is an
+# ancestor of its HEAD. describe reads only what the repository already has, so
+# this asks nothing of a remote; --tags takes lightweight tags too, which is
+# what a release made of a commit is. A directory that is not a checkout, or a
+# checkout with no such tag, answers nothing: the caller keeps what it had.
+tehas_release_checkout_tag() { # <checkout>
+  local dir=$1 tag
+  [ -e "$dir/.git" ] || return 0
+  tag=$(timeout "$tehas_release_api_limit" git -C "$dir" describe --tags --abbrev=0 \
+    --match 'v[0-9]*' HEAD 2>/dev/null) || return 0
+  tehas_release_tag_ok "$tag" || return 0
+  printf '%s\n' "$tag"
 }
 
 # gh when it is signed in, which reaches a private repository with the bot's
