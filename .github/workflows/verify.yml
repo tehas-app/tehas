@@ -2,7 +2,8 @@
 # shell tests and the console's tests. It makes scripts/verify.sh something a
 # ruleset can require. It only reads the repository. The one secret it may use
 # is GENERIC_NAMES, the private list of names for scripts/check-generic.sh; a
-# run without it (a fork never gets it) checks addresses only and says so.
+# run without it checks addresses only and says so. A pull request from a fork
+# does not run this job at all.
 name: verify
 on:
   pull_request:
@@ -52,3 +53,6 @@ jobs:
         run: scripts/check-generic.sh --messages "origin/$GITHUB_BASE_REF..HEAD"
       - name: scripts/verify.sh
         run: scripts/verify.sh
+      - name: remove the names list
+        if: always()
+        run: rm -f scripts/check-generic.names
