@@ -184,6 +184,13 @@ old_tags() {
 # A date three days ago, in the shape docker answers a creation time with.
 old_time=$(date -u -d '3 days ago' +%Y-%m-%dT%H:%M:%S.000000000Z)
 
+# The base was pulled three days ago, which is what lets step 5 take it: a
+# case that writes base-ids and wants the base gone dates its ids with this.
+old_base() {
+  local id
+  for id in "$@"; do printf '%s\n' "$old_time" >"$fx/created-$id"; done
+}
+
 t_case "an idle kept workspace loses its build output and keeps the rest"
 reset
 workspace
@@ -312,6 +319,7 @@ six_tags
 all_old
 no_containers
 printf '%s\n' "$base1" >"$fx/base-ids"
+old_base "$base1"
 t_run "$clean --dry-run"
 t_eq "$t_rc" 0
 t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
@@ -501,6 +509,7 @@ t_contains "$t_out" "kept the base $base_image: no image of that name is on the 
 t_case "the base is removed by its ids, and no other image is named to docker"
 reset
 printf '%s\n' "$base1" "$base2" >"$fx/base-ids"
+old_base "$base1" "$base2"
 printf '%s\n' 4000000000 >"$fx/size-$base1"
 printf '%s\n' 1000000000 >"$fx/size-$base2"
 # A foreign container was made from one of the base's ids, which is the proof
@@ -517,6 +526,7 @@ t_contains "$t_out" "kept the base $base_image: a container was made from it"
 # handed to docker. Nothing here is an untagged image of another program's.
 reset
 printf '%s\n' "$base1" "$base2" >"$fx/base-ids"
+old_base "$base1" "$base2"
 printf '%s\n' 4000000000 >"$fx/size-$base1"
 printf '%s\n' 1000000000 >"$fx/size-$base2"
 t_instance "${T_MINIMAL[@]}" TEHAS_CLEAN_AFTER=6
@@ -525,6 +535,44 @@ t_eq "$t_rc" 0
 t_contains "$(t_calls docker)" "rmi $base1 $base2"
 t_contains "$t_out" "removed the base $base_image: an image of that age, 5000000000 bytes"
 t_contains "$t_out" "freed 5000000000 bytes"
+
+t_case "a base younger than the age is kept, and docker is asked to remove nothing"
+reset
+printf '%s\n' "$base1" >"$fx/base-ids"
+date -u +%Y-%m-%dT%H:%M:%S.000000000Z >"$fx/created-$base1"
+t_instance "${T_MINIMAL[@]}" TEHAS_CLEAN_AFTER=6
+t_run "$clean"
+t_eq "$t_rc" 0
+t_contains "$(t_calls docker)" "image inspect --format {{.Created}} $base1"
+t_lacks "$(t_calls docker)" "rmi"
+t_contains "$t_out" "kept the base $base_image: docker did not date its image past 6 hours"
+# A base docker will not date is kept the same way: an unknown age is not an old one.
+reset
+printf '%s\n' "$base1" >"$fx/base-ids"
+t_run "$clean"
+t_eq "$t_rc" 0
+t_lacks "$(t_calls docker)" "rmi"
+t_contains "$t_out" "kept the base $base_image: docker did not date its image past 24 hours"
+# Two ids, one of them young: only the old one is offered to docker.
+reset
+printf '%s\n' "$base1" "$base2" >"$fx/base-ids"
+old_base "$base1"
+date -u +%Y-%m-%dT%H:%M:%S.000000000Z >"$fx/created-$base2"
+t_run "$clean"
+t_eq "$t_rc" 0
+t_contains "$(t_calls docker)" "rmi $base1"
+t_lacks "$(t_calls docker)" "rmi $base1 $base2"
+
+t_case "a docker that says nothing about the containers keeps the base, and is a warning"
+reset
+printf '%s\n' "$base1" >"$fx/base-ids"
+old_base "$base1"
+T_ENV=(PS_RC=1)
+t_run "$clean"
+T_ENV=()
+t_eq "$t_rc" 1
+t_lacks "$(t_calls docker)" "rmi"
+t_contains "$t_out" "WARN: clean: docker said nothing about the containers on the host"
 
 t_case "a docker that lists no base ids removes nothing, and is not a base that is absent"
 reset
@@ -578,6 +626,7 @@ printf '%s\n' "PI_RUKAS_REPO=https://github.com/Up-Owner/pi-rukas.git" \
   "PI_RUKAS_IMAGE_DIGEST=sha256:$(printf 'f%.0s' {1..64})" >"$th/versions.env"
 base_digest=ghcr.io/up-owner/pi-rukas@sha256:$(printf 'f%.0s' {1..64})
 printf '%s\n' "$base9" >"$fx/base-ids"
+old_base "$base9"
 t_run "$clean"
 t_eq "$t_rc" 0
 t_contains "$(t_calls docker)" "image ls --no-trunc -q $base_digest"
@@ -589,6 +638,7 @@ workspace
 echo old >"$tmp/dl/tool.tar.gz"
 age "$tmp/dl/tool.tar.gz"
 printf '%s\n' "$base1" >"$fx/base-ids"
+old_base "$base1"
 T_ENV=(PRUNE_RC=1)
 t_run "$clean"
 T_ENV=()
