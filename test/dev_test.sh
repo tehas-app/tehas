@@ -43,31 +43,15 @@ slice_good() {
 }
 slice_good
 limits="--cgroup-parent --memory --memory-swap --memory-reservation --cpus --pids-limit --cpu-shares"
-# The security options of lib/sandbox.sh, the same eight words a cycle is given
-# (test/work_lib.sh holds the same pair for the cycle's tests).
-security_opts="--cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true"
-# The words after one option, read the way docker reads them.
-security_of() { # <flag> (reads the arguments on standard input)
-  awk -v flag="$1" 'prev == flag { print } { prev = $0 }'
-}
-# The same eight words, in order, as one line; empty when given another way.
-security_line() {
-  awk '
-    { arg[NR] = $0 }
-    END {
-      want[1] = "--cap-drop"; want[2] = "ALL"
-      want[3] = "--cap-add"; want[4] = "CHOWN"
-      want[5] = "--cap-add"; want[6] = "FOWNER"
-      want[7] = "--security-opt"; want[8] = "no-new-privileges:true"
-      for (i = 1; i <= NR; i++) {
-        if (seen >= 8) break
-        if (arg[i] != want[seen + 1]) continue
-        for (j = 1; j <= 8; j++) if (arg[i + j - 1] != want[j]) break
-        if (j > 8) { seen = 8; start = i }
-      }
-      if (seen == 8) for (i = start; i < start + 8; i++) printf "%s ", arg[i]
-    }'
-}
+# The security options and the readers of a docker line come from
+# test/docker_args.sh, which takes the list from tehas_sandbox_security itself,
+# so the cycle, the turn, the session and the push check are all pinned against
+# one source and not against a copy kept in step by hand. docker_opts is the
+# allow-list of unknown_options: the slice's options and the security ones, by
+# name, so an option added to either is allow-listed in all of them at once.
+# shellcheck source=test/docker_args.sh
+. "$(dirname "$0")/docker_args.sh" || exit 1
+docker_opts="$limits --cap-drop --cap-add --security-opt --tmpfs"
 root="TEHAS_CGROUP_ROOT=$T_CGROUP"
 
 # The arguments of the docker call that starts the session.
@@ -77,18 +61,8 @@ containers() { find "$T/calls" -name 'docker.args.*' | wc -l; }
 after() { session_args | awk -v flag="$1" 'prev == flag { print } { prev = $0 }'; }
 # The value of one variable passed as NAME=value.
 passed() { after -e | sed -n "s/^$1=//p"; }
-# Every option that is not one this command is known to pass, up to the image
-# name, read the way docker reads them. See test/work_lib.sh.
-unknown_options() { # <image> <options that take a value> <options that take none>
-  awk -v image="$1" -v valued=" $2 " -v plain=" $3 " '
-    NR == 1 { next } # "run"
-    skip { skip = 0; next }
-    $0 == image { exit }
-    index(valued, " " $0 " ") { skip = 1; next }
-    index(plain, " " $0 " ") { next }
-    /^--add-host=[A-Za-z0-9.-]+:[0-9a-fA-F.:]+$/ { next }
-    { print }'
-}
+# unknown_options, count_of and the readers of the security options come from
+# test/docker_args.sh, sourced above: one implementation for all four containers.
 again() { rm -f "$T"/calls/*; }
 
 t_case "--help prints the usage with no instance and starts nothing"
@@ -191,6 +165,12 @@ t_eq "$(session_args | security_line)" "$security_opts "
 t_eq "$(session_args | security_of --cap-add | LC_ALL=C sort)" "CHOWN
 FOWNER"
 t_eq "$(session_args | security_of --security-opt)" "no-new-privileges:true"
+# One bounded /tmp, as a cycle's container has: see test/work_test.sh. The
+# mount is named by reading it from the function, not copied here. The whole
+# line is counted beside security_line, so a second mount outside the block it
+# matches fails, and the equals form docker also accepts counts as a mount too.
+t_eq "$(session_args | security_of --tmpfs)" "$security_tmpfs"
+t_eq "$(session_args | count_of --tmpfs)" "1"
 # The image's entrypoint drops from root with setpriv, which the dropped
 # SETUID and SETGID refuse: the container starts as the host's user instead.
 t_eq "$(after --user)" "$(id -u):$(id -g)"
@@ -253,7 +233,8 @@ t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC
 t_eq "$(passed PI_ENSEMBLE_WORKSPACE_ROOT)" "$clone"
 
 t_case "the session's container gets no option beyond the documented ones"
-t_eq "$(session_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt --user -w -v -e" "--rm -it --init")" ""
+t_eq "$(session_args | unknown_options "$image" "--name $docker_opts --user -w -v -e" "--rm -it --init")" ""
+t_eq "$(session_args | count_of --tmpfs)" "1"
 t_eq "$(session_args | grep -c -x -e --init)" 1
 t_contains "$(session_args)" "--add-host=models:192.0.2.9"
 
@@ -534,7 +515,7 @@ t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$mounts_base" "$imgs:$imgs:
 t_eq "$(after -e | grep -c '^PI_ENSEMBLE_EXTRA_IMAGE_DIRS')" 1
 t_eq "$(passed PI_ENSEMBLE_EXTRA_IMAGE_DIRS)" "$imgs"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_ENSEMBLE_EXTRA_IMAGE_DIRS | LC_ALL=C sort)"
-t_eq "$(session_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt --user -w -v -e" "--rm -it --init")" ""
+t_eq "$(session_args | unknown_options "$image" "--name $docker_opts --user -w -v -e" "--rm -it --init")" ""
 t_eq "$(cd "$imgs" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" "./image-1.png ./manifest.json "
 t_contains "$t_out" "tehas dev: Tehas gave this session 1 image from the issue text."
 rm -f "$T/image.label"

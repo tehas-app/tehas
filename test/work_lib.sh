@@ -151,50 +151,20 @@ runner=/opt/pi-rukas/bin/pi-rukas-headless
 cycle_args() { grep -l -x -e 'pi-rukas-headless' -e "$runner" "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
 # The arguments of the docker call that checks the push before the cycle.
 preflight_args() { grep -l -x -e '--entrypoint' "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
-# The security options of a container, as lib/sandbox.sh prints them: the same
-# eight words for a cycle, a planning turn, a session and the push check.
-security_opts="--cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true"
-# How many times an option is given, and with what value: the words after it,
-# read the way docker reads them. <flag> is one word, as it stands on the line.
-security_of() { # <flag> (reads the arguments on standard input)
-  awk -v flag="$1" 'prev == flag { print } { prev = $0 }'
-}
-# The same eight words, in order, as one line. Empty when a container is given
-# them another way or not at all. Reads the arguments on standard input.
-security_line() {
-  awk '
-    { arg[NR] = $0 }
-    END {
-      want[1] = "--cap-drop"; want[2] = "ALL"
-      want[3] = "--cap-add"; want[4] = "CHOWN"
-      want[5] = "--cap-add"; want[6] = "FOWNER"
-      want[7] = "--security-opt"; want[8] = "no-new-privileges:true"
-      for (i = 1; i <= NR; i++) {
-        if (seen >= 8) break
-        if (arg[i] != want[seen + 1]) continue
-        for (j = 1; j <= 8; j++) if (arg[i + j - 1] != want[j]) break
-        if (j > 8) { seen = 8; start = i }
-      }
-      if (seen == 8) for (i = start; i < start + 8; i++) printf "%s ", arg[i]
-    }'
-}
+# The security options and the readers of a docker line come from
+# test/docker_args.sh, which takes the list from tehas_sandbox_security itself,
+# so the cycle, the turn, the session and the push check are all pinned against
+# one source and not against a copy kept in step by hand.
+# shellcheck source=test/docker_args.sh
+. "$(dirname "$0")/docker_args.sh" || exit 1
+# The options of lib/slice.sh and of tehas_sandbox_security, by name, for the
+# allow-list of unknown_options: one pair of strings for every suite of a
+# cycle's container, so an option added to either is allow-listed in all of them
+# at once, and one taken away from the function is refused by every test.
+limits="--cgroup-parent --memory --memory-swap --memory-reservation --cpus --pids-limit --cpu-shares"
+docker_opts="$limits --cap-drop --cap-add --security-opt --tmpfs"
 # Values that follow a flag, e.g. every -v or every -e.
 after() { cycle_args | awk -v flag="$1" 'prev == flag { print } { prev = $0 }'; }
-# Every option of a docker call that is not one this command is known to
-# pass, up to the image name. Options are read the way docker reads them: the
-# ones that take a value consume the next argument. A mount or a variable
-# spelled another way (--volume, --mount, --env, -eNAME), or any other option
-# (--network, --cap-add, --user 0:0), shows up here.
-unknown_options() { # <image> <options that take a value> <options that take none>
-  awk -v image="$1" -v valued=" $2 " -v plain=" $3 " '
-    NR == 1 { next } # "run"
-    skip { skip = 0; next }
-    $0 == image { exit }
-    index(valued, " " $0 " ") { skip = 1; next }
-    index(plain, " " $0 " ") { next }
-    /^--add-host=[A-Za-z0-9.-]+:[0-9a-fA-F.:]+$/ { next }
-    { print }'
-}
 
 # What the cycle's container is given (AGENTS.md rule 4): the variables, by
 # name, and the mounts when it is given nothing of the issue.
