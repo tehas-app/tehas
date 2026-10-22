@@ -135,6 +135,13 @@ session.
   tehas' to set: `tehas work`, `tehas plan` and `tehas dev` drop an instance
   line for it whether or not that container is given attachments, so one never
   names a directory tehas did not mount (see [tehas work](#tehas-work)).
+- `CARGO_TARGET_DIR` is tehas' to set, and only for a `tehas dev` session: the
+  command gives it after the shared list, so an inherited value or one a gate
+  exports is replaced by tehas' path with no message. The name is not read from
+  `instance.env` and there is no `TEHAS_*` name for it: the path is named once,
+  by `tehas_sandbox_target_dir` in `lib/sandbox.sh`. A product's gate must honour
+  it rather than build into the clone, because the host runs no git in a kept
+  clone to tell a person what an agent left there.
 - `PI_ENSEMBLE_HANDOFF_CHANNEL`, `PI_ENSEMBLE_HANDOFF_TIMEOUT_MS`,
   `PI_ENSEMBLE_CYCLE_DEADLINE` and `PI_ENSEMBLE_VERIFY_CONCURRENCY` are
   `tehas work`'s to set for a cycle, and
@@ -1004,14 +1011,14 @@ given and left out is printed; nothing is said on the issue. Without
 | any  | The session's own exit status, as Docker reports it                                       |
 | 4    | With `--issue`: an image or file the issue links could not be fetched, or the issue or its label events could not be read; no container |
 | 64   | A wrong argument, a malformed author, no bot token or no git identity; no container       |
-| 78   | The instance settings are invalid, the clone's directory is not a clone, `tehas.slice` cannot be used, or `--issue` was given and the instance gives no images or files; no container |
+| 78   | The instance settings are invalid, the clone's directory is not a clone, the clone's cargo target directory cannot be made or is not a directory of the user the session runs as, `tehas.slice` cannot be used, or `--issue` was given and the instance gives no images or files; no container |
 
 Arguments are checked before the settings are read, so `--help` works on a
 host with no instance and a mistyped argument makes no clone.
 
 The container is the one `tehas work` starts, with a terminal: the same image,
-the same limits in `tehas.slice`, mounts, token and settings, and its own cargo
-target directory besides (see below). It is named
+the same limits in `tehas.slice`, mounts, token and settings, and a cargo target
+directory of its own besides (see below). It is named
 `tehas-dev-<name>`, so a clone has one session at a time. Before it starts, the
 command prints how many more cycles the slice has room for, because the session
 takes room from them. The command does not take the dispatcher's lock and
@@ -1021,25 +1028,40 @@ start it without one.
 After the clone is made the host runs no git command in it, because agents
 have written there since.
 
-The session's own memory, Pi sessions, transcripts, code index and cargo
-build output are in
-`~/tehas/dev/<name>.state`, beside the clone and kept with it: a person
-resumes their sessions and keeps the index their session built, and no cycle
-shares either. The host's index of the product is not copied there, because it
-is keyed to the path a cycle works at, which is not the path of this clone. A
-session that ran before the state directory existed has its history in
+The session's own memory, Pi sessions, transcripts, code index and cargo build
+output are in `~/tehas/dev/<name>.state`, beside the clone and kept with it: a
+person resumes their sessions and keeps the index their session built, and no
+cycle shares either. The host's index of the product is not copied there,
+because it is keyed to the path a cycle works at, which is not the path of this
+clone. A session that ran before the state directory existed has its history in
 `~/.pi/agent/sessions`, which no container is given now: the next session
 begins a new history in `<name>.state/sessions`.
 
 `<name>.state/target` is the session's cargo target directory: the container is
-given it read-write at `/home/vscode/.tehas-target` and `CARGO_TARGET_DIR` names
-that path. A cycle's build output is in its own container's layer and is gone
-with the container, so a cycle's gate builds the workspace from nothing; a
-session's is kept, so the gate of the next session of that clone builds on what
-the last one built. The path inside the container is derived by the command, not
-a setting, as the path of the code index's copy is. `tehasbot clean` removes
-nothing under `<name>.state`, so clearing the build is a person's call: remove
-`~/tehas/dev/<name>.state/target`.
+given it read-write at the path `tehas_sandbox_target_dir` names in
+`lib/sandbox.sh`, and `CARGO_TARGET_DIR` names that path. Only the build output
+is kept for a session. A cycle's is in its own container's layer and is gone
+with the container, and so is cargo's crate registry, which stays in the image's
+layer on purpose: a registry kept between cycles would be code one cycle leaves
+for the next one's gate (see `host/sandbox/Dockerfile`). A cycle's gate therefore
+builds from nothing and fetches the locked crates again; the gate of the next
+session of a clone builds on what the last one built. The path inside the
+container is named by that function, not a setting, as the path of the code
+index's copy is.
+
+The command makes the directory before the container starts and refuses to start
+a session when it is not a directory of the user the session runs as. The
+cleaner walks no directory under `<name>.state` for build-output names, so this
+build output is the one on the host with no automated reclaim, and clearing it
+is a person's call:
+
+```
+du -sh ~/tehas/dev/*.state/target               # what the sessions have built
+rm -rf ~/tehas/dev/<name>.state/target          # clear one clone's build
+```
+
+No `tehasbot clean --dry-run` line and no `tehas status` line reports it, so
+the first command is how an operator learns the size before the disk fills.
 
 ### From another account
 
@@ -2417,7 +2439,10 @@ is logged as a warning while the others still run:
    workspace's own trees, whatever a container called them, out of the removal.
    A removal needs the issue's lock to be there and freeable: no lock file, or
    one that is not a plain file, means nothing is removed. The lock is taken
-   for the instant of each removal.
+   for the instant of each removal. A manual session's build output,
+   `~/tehas/dev/<name>.state/target`, is not in this step: the cleaner walks no
+   directory under `~/tehas/dev` for build-output names, and that tree is a
+   person's call (see [tehas dev](#tehas-dev)).
 2. **Docker's build cache** of that age, with `docker builder prune -f --filter
    until=<N>h`. This is the build cache of the whole host's Docker daemon: tehas
    is one project on one host, and the cache of anything else on it is made
@@ -2425,7 +2450,8 @@ is logged as a warning while the others still run:
    volume is removed.
 3. **Host scratch.** Files under `~/tehas/tmp/dl` and
    `~/tehas/tmp/node-compile-cache`, and `~/tehas/tmp/tehas-test.*` directories,
-   of that age. Nothing else under `~/tehas`, and nothing outside it.
+   of that age. Nothing else under `~/tehas`, and nothing outside it: not
+   `~/tehas/dev`, so nothing under a manual session's `<name>.state` is walked.
 4. **Old sandbox images.** The dated tags of the sandbox image whose image was
    made before the age, taken one `docker rmi` at a time. The newest dated tag
    stays whatever its age, and so does any tag a container or a `uid` tag was

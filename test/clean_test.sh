@@ -357,6 +357,25 @@ t_eq "$t_rc" 0
 t_eq "$([ -e "$tmp/dl/tool.tar.gz" ] && echo there)" "there"
 t_eq "$([ -e "$tmp/dl/old.tar.gz" ] && echo there)" ""
 
+t_case "a session's kept build output is not walked for build-output names"
+# The claim the manual makes of the cleaner, pinned the way is_cache_dir pins
+# the cycle's cache: a directory named target under a manual session's
+# <name>.state, of an age that takes a workspace's build output, stays. The
+# cleaner enters no directory under $TEHAS_HOME/dev at all.
+reset
+workspace
+devs=$th/dev
+mkdir -p "$devs/alice.state/target/debug" "$devs/alice.state/memory"
+echo big >"$devs/alice.state/target/debug/console"
+echo m >"$devs/alice.state/memory/learned"
+age "$devs" "$devs/alice.state" "$devs/alice.state/target" \
+  "$devs/alice.state/target/debug"
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$devs/alice.state/target/debug/console" ] && echo there)" "there"
+t_eq "$([ -e "$devs/alice.state/memory/learned" ] && echo there)" "there"
+t_lacks "$t_out" "$devs/alice.state/target"
+
 t_case "--dry-run removes nothing and logs what it would remove"
 reset
 workspace

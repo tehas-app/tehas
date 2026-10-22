@@ -16,6 +16,9 @@
 #                                             Pi runs with, as one line
 #   tehas_sandbox_seed <state> [<index dir>]  give <state> the host's code index
 #   tehas_sandbox_cache_dir                   where a container has that copy
+#   tehas_sandbox_target_dir                  where a manual session has its
+#                                             cargo build output; only tehas dev
+#                                             gives a container one
 #   tehas_index_dir                           where the host keeps the index
 #   tehas_git_github_host                     the github.com host git authenticates to
 #   tehas_git_credential_helper_key           the config key of that host's helper
@@ -61,6 +64,17 @@
 # belongs to one container and goes with it, so nothing one container writes
 # there is what a later container reads.
 tehas_sandbox_cache_dir() { printf '%s\n' /home/vscode/.tehas-cache; }
+
+# Where a manual session has its cargo build output: the path inside the
+# container CARGO_TARGET_DIR names. It is not mounted or named here, because
+# only tehas dev gives a container a build output of its own: a cycle's and a
+# planning turn's stay in the container's own layer and go with it. libexec/dev
+# makes the host directory beside <state> and prints the -v and -e pair from
+# this function, so the mount, the variable, the manual and the tests name one
+# path. A container path that did not match the image's home directory would
+# send the build into the container's layer and the session would exit 0 with
+# the cache discarded, so it is named once, as the code index's path is.
+tehas_sandbox_target_dir() { printf '%s\n' /home/vscode/.tehas-target; }
 
 # Where the host keeps the code index it gives to containers: the one directory
 # the indexer writes and every container is given a copy of. No container is

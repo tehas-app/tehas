@@ -23,9 +23,17 @@ git init -q -b main "$upstream"
 git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m first
 git clone -q "$upstream" "$checkout"
 
+# One record per call: t_stub writes the body into a script that stays on disk,
+# so $$ in it is the stub's own pid and is the same on every call. A counter file
+# gives each call a file of its own, which is what lets containers, session_args
+# and the age of a mount source be read against the call that made them.
 docker_stub='if [ "$1" = info ]; then cat "$T/docker.info"; exit; fi
 if [ "$1" = image ]; then cat "$T/image.label" 2>/dev/null; exit; fi
-printf "%s\n" "$@" >"$T/calls/docker.args.$$"'
+n=0
+[ -e "$T/docker.n" ] && n=$(<"$T/docker.n")
+n=$((n + 1))
+printf "%s\n" "$n" >"$T/docker.n"
+printf "%s\n" "$@" >"$T/calls/docker.args.$n"'
 t_stub docker "$docker_stub"
 printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitconfig"
 # Pi's settings as install.sh leaves them on a host.
@@ -53,6 +61,10 @@ limits="--cgroup-parent --memory --memory-swap --memory-reservation --cpus --pid
 . "$(dirname "$0")/docker_args.sh" || exit 1
 docker_opts="$limits --cap-drop --cap-add --security-opt --tmpfs"
 root="TEHAS_CGROUP_ROOT=$T_CGROUP"
+# The container path of the session's cargo build output, read from
+# tehas_sandbox_target_dir itself rather than copied here: the mount, the
+# variable and the manual name the path the container is given.
+target_container=$(tehas_sandbox_target_dir)
 
 # The arguments of the docker call that starts the session.
 session_args() { cat "$T"/calls/docker.args.* 2>/dev/null; }
@@ -63,7 +75,7 @@ after() { session_args | awk -v flag="$1" 'prev == flag { print } { prev = $0 }'
 passed() { after -e | sed -n "s/^$1=//p"; }
 # unknown_options, count_of and the readers of the security options come from
 # test/docker_args.sh, sourced above: one implementation for all four containers.
-again() { rm -f "$T"/calls/*; }
+again() { rm -f "$T"/calls/* "$T/docker.n"; }
 
 t_case "--help prints the usage with no instance and starts nothing"
 T_ENV=()
@@ -190,13 +202,17 @@ t_case "exactly a cycle's mounts, with the clone in place of the workspace, and 
 want="$clone:$clone
 $state/runs:/home/vscode/.pi/agent/ensemble-runs
 $state/cache:/home/vscode/.tehas-cache
-$state/target:/home/vscode/.tehas-target
+$state/target:$target_container
 $state/memory:/home/vscode/.vipune
 $state/sessions:/home/vscode/.pi/agent/sessions
 $T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
 $state/models.json:/home/vscode/.pi/agent/models.json:ro
 $T/home/.pi/agent/settings.json:/home/vscode/.pi/agent/settings.json:ro"
 t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
+# The count of -v is asked of the docker line, not of the list above: an
+# option written --volume or --mount is a mount too, and the sorted list would
+# not see it.
+t_eq "$(session_args | count_of -v)" "$(printf '%s\n' "$want" | wc -l)"
 
 t_case "the session's state is its own, made beside the clone and kept between sessions"
 # target is made before the container starts, so it is there to hold a build.
@@ -237,8 +253,10 @@ PI_ENSEMBLE_WORKSPACE_ROOT
 TERM"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
 t_eq "$(passed PI_ENSEMBLE_WORKSPACE_ROOT)" "$clone"
-t_eq "$(passed CARGO_TARGET_DIR)" /home/vscode/.tehas-target
-t_eq "$(after -v | grep -c -x "$state/target:/home/vscode/.tehas-target")" 1
+t_eq "$(passed CARGO_TARGET_DIR)" "$target_container"
+# One mount of it, with no option on it: a mount given :ro, one given
+# :rw,exec, or a second -v of the same source is not the mount the session needs.
+t_eq "$(session_args | grep -c -x "$state/target:$target_container")" 1
 
 t_case "the session's container gets no option beyond the documented ones"
 t_eq "$(session_args | unknown_options "$image" "--name $docker_opts --user -w -v -e" "--rm -it --init")" ""
@@ -414,25 +432,113 @@ t_contains "$t_out" "tehas dev: tehas.slice has room for 0 more cycles (its use 
 t_eq "$(containers)" 2
 slice_good
 
-t_case "a target directory that cannot be made starts no session"
+t_case "a build output that is not a directory starts no session"
 again
 rm -rf "$state/target"
 touch "$state/target"
 t_run "$dev"
 t_eq "$t_rc" 78
-t_contains "$t_out" "cannot make $state/target"
+t_contains "$t_out" "$state/target is not a directory"
 t_eq "$(containers)" 0
+# A symlink to a directory is no mount source either: the session would build
+# where it points, outside the clone's state, and mkdir -p answers 0 for it.
 rm -f "$state/target"
-
-t_case "the target directory is made on the host before the container starts"
+mkdir -p "$T/outside-target"
+ln -s "$T/outside-target" "$state/target"
 again
-rm -rf "$state/target"
-t_run "$dev bob2"
+t_run "$dev"
+t_eq "$t_rc" 78
+t_contains "$t_out" "$state/target is not a directory"
+t_eq "$(containers)" 0
+rm -rf "$state/target" "$T/outside-target"
+
+# The state of a fresh clone, with a build in it: what the next session of that
+# clone is told to build on. The directory, the file in it and the session file
+# are all made by this test, so what pins the promise the manual makes is the
+# run that finds them there, not the fixture.
+built=$devs/bob2.state/target/debug/console
+mkdir -p "${built%/*}"
+echo built >"$built"
+mkdir -p "$devs/bob2.state/sessions"
+echo mine >"$devs/bob2.state/sessions/one.jsonl"
+
+t_case "the build output of a clone the command made is owned, empty, and there when docker is called"
+again
+t_run "$dev bob3"
 t_eq "$t_rc" 0
 # Empty, so what a session builds is its own, and owned by the user the
 # container runs as, not by root: Docker would make a missing source root-owned.
+t_eq "$(find "$devs/bob3.state/target" -mindepth 1 | wc -l)" 0
+t_eq "$(stat -c %u "$devs/bob3.state/target")" "$(id -u)"
+# The mount source was a directory at the moment of the call, not merely after
+# it: the ordering the header claims, read off the call the stub recorded. A
+# stub that answers a line and fails when a source is missing is what makes
+# moving the mkdir after the call a failure of this case rather than a
+# root-owned mount on a host.
+t_eq "$(session_args | grep -c -x "$devs/bob3.state/target:$target_container")" 1
+rm -rf "$devs/bob3.state"
+
+t_case "the build of the last session of a clone survives the next session"
+# The gate of the next session builds on what the last one built: the file the
+# earlier build left is still there after a run of the command, which neither
+# empties the directory it was handed nor replaces it. bob2 has an author file
+# already, so this is the path of a kept clone, where mkdir -p is a no-op.
+again
+t_run "$dev bob2"
+t_eq "$t_rc" 0
+t_eq "$(cat "$built")" built
+t_eq "$(cat "$devs/bob2.state/sessions/one.jsonl")" mine
+again
+t_run "$dev bob2"
+t_eq "$t_rc" 0
+t_eq "$(cat "$built")" built
+
+t_case "a session whose build output docker would have to make is refused"
+# Two claims about the mount source, both read from the recorded call. The stub
+# refuses to start a container whose build output source is not a directory, so
+# a run that got here with none answers nothing and the case fails: no line, no
+# container, no directory. And the source is older than the record of the call,
+# so this command made it and Docker was not left to, which is what keeps a
+# missing source from coming back root-owned. The comparison is only as sharp as
+# the clock: tehas_sandbox_mounts makes the state directory's own children, so
+# the tree is put a minute behind before the run, since timestamps are whole
+# seconds and cannot tell two moments of one second apart.
+target_guard_stub='if [ "$1" = info ]; then cat "$T/docker.info"; exit; fi
+if [ "$1" = image ]; then cat "$T/image.label" 2>/dev/null; exit; fi
+prev=""
+for a in "$@"; do
+  if [ "$prev" = -v ]; then
+    case $a in
+      *".tehas-target")
+        [ -d "${a%%:*}" ] || {
+          echo "stub docker: mount source ${a%%:*} is not a directory" >&2
+          exit 2
+        } ;;
+    esac
+  fi
+  prev=$a
+done
+n=0
+[ -e "$T/docker.n" ] && n=$(<"$T/docker.n")
+n=$((n + 1))
+printf "%s\n" "$n" >"$T/docker.n"
+printf "%s\n" "$@" >"$T/calls/docker.args.$n"'
+again
+t_stub docker "$target_guard_stub"
+# The state directory is made before the build output, so removing only the
+# latter is the shape this command must recover from, and the only thing that
+# makes the directory here is the command itself.
+rm -rf "$devs/bob2.state/target"
+find "$devs/bob2.state" -exec touch -d '1 minute ago' {} +
+sleep 1.1
+t_run "$dev bob2"
+t_eq "$t_rc" 0
+t_eq "$(containers)" 1
 t_eq "$(find "$devs/bob2.state/target" -mindepth 1 | wc -l)" 0
-t_eq "$(stat -c %u "$devs/bob2.state/target")" "$(id -u)"
+t_contains "$(session_args)" "$devs/bob2.state/target:$target_container"
+# The directory predates the call that mounted it.
+t_eq "$(test "$devs/bob2.state/target" -ot "$T"/calls/docker.args.1 && echo before)" "before"
+t_stub docker "$docker_stub"
 rm -rf "$devs/bob2.state"
 
 # --- Without a usable slice ----------------------------------------------------
@@ -519,7 +625,7 @@ imgs=$devs/main.images
 mounts_base="$clone:$clone
 $state/runs:/home/vscode/.pi/agent/ensemble-runs
 $state/cache:/home/vscode/.tehas-cache
-$state/target:/home/vscode/.tehas-target
+$state/target:$target_container
 $state/memory:/home/vscode/.vipune
 $state/sessions:/home/vscode/.pi/agent/sessions
 $T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
