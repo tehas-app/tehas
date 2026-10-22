@@ -385,6 +385,24 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "the lock is ours"
 t_contains "$t_out" "held against others"
 
+# A child that outlives the update must not keep the lock: the next update would
+# read it as another one running. systemctl stands for every such child here.
+t_case "a child the update starts and that outlives it does not keep the lock"
+instance
+platform 0 'echo "next: units tehas-dispatch.timer"'
+t_stub systemctl 'if [ "$2" = is-active ]; then echo active; fi
+sleep 30 >/dev/null 2>&1 &
+echo $! >>"'"$T"'/calls/sleepers"'
+t_run "$update"
+t_eq "$t_rc" 0
+t_contains "$t_out" "systemd: restarted tehas-dispatch.timer"
+if ! (exec 6>>"$th/state/update.lock" && flock -n 6); then
+  t_bad "a child of the update still holds $th/state/update.lock"
+fi
+while read -r pid; do kill "$pid" 2>/dev/null; done <"$T/calls/sleepers"
+rm -f "$T/calls/sleepers"
+systemctl_active
+
 t_case "a unit the pulled step library adds is restarted by the update that pulled it"
 instance
 platform 0 'echo "next: units tehas-dispatch.timer tehas-new.timer"'
