@@ -3114,6 +3114,11 @@ It does not edit the file.
 exits 1 when the file has none for that tag. The workflow makes the release's
 page from it, from the `Unreleased` section when the tag has none of its own.
 
+A host moving from its platform checkout has no version installed, so its notes
+start at the newest `vX.Y.Z` tag at or before the checkout's HEAD, which
+`tehas update` reads with `git describe` from what the repository already has;
+with no such tag it is shown every release.
+
 ### The release workflow
 
 `.github/workflows/release.yml` runs on the push of a `vX.Y.Z` tag, on the
