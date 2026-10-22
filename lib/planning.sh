@@ -196,18 +196,29 @@ plan_history() {
 # plan_refined <issue> <kept> <outcome>: one line in state/refined.jsonl for
 # each issue a refining session filed, {at, source, filed, url}, so the
 # analytics report can follow what became of refined issues. Only a session
-# tehas:refine started counts. A line that cannot be written is the report's
-# loss only, and says so.
+# tehas:refine started counts. The ledger keeps the last 500 lines, as
+# tehas_size_record keeps sizes.jsonl: the report reads the file whole within a
+# bound, so a writer that never trims it eventually writes past what the report
+# can read. A line that cannot be written is the report's loss only, and says so.
 plan_refined() {
-  local n=$1 kept=$2 out=$3 lines
+  local n=$1 kept=$2 out=$3 lines ledger=$TEHAS_HOME/state/refined.jsonl
   [ "$(jq -r '.label // ""' <<<"$kept" 2>/dev/null)" = tehas:refine ] || return 0
   lines=$(jq -c --arg at "$(date -u +%FT%TZ)" --argjson n "$n" '
       (.filed // []) | if type == "array" then .[] else empty end | strings
       | select(test("^https://github\\.com/[^/]+/[^/]+/issues/[0-9]+$"))
       | {at: $at, source: $n, filed: (capture("/issues/(?<k>[0-9]+)$").k | tonumber), url: .}' "$out" 2>/dev/null) || lines=""
   [ -n "$lines" ] || return 0
-  printf '%s\n' "$lines" >>"$TEHAS_HOME/state/refined.jsonl" ||
-    log "WARN: could not note in state/refined.jsonl what refining #$n filed"
+  printf '%s\n' "$lines" >>"$ledger" ||
+    log "WARN: could not note in $ledger what refining #$n filed"
+  # The trim of the other ledger: a trim that cannot be made leaves the file
+  # longer, which is no loss of a filed issue.
+  [ "$(wc -l <"$ledger" 2>/dev/null)" -gt 500 ] || return 0
+  if tail -n 500 "$ledger" >"$ledger.new" 2>/dev/null; then
+    mv "$ledger.new" "$ledger" 2>/dev/null ||
+      log "WARN: could not trim $ledger to its last 500 lines"
+  else
+    rm -f "$ledger.new" 2>/dev/null
+  fi
 }
 
 plan_lost() {

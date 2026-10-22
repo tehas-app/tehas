@@ -82,6 +82,15 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// The rule one state ledger is read under, held once for both readers: bytes
+/// of the whole file, and bytes of one line. `report` and `sessions` read the
+/// ledgers beside the database, and a file one of them reads is the same file
+/// the other does. Both writers keep 500 lines of a few small counts --
+/// `tehas_size_record` trims `sizes.jsonl` and `plan_refined` trims
+/// `refined.jsonl` -- so no ledger of their own making comes near the bound.
+pub const LEDGER_MAX_BYTES: u64 = 1 << 20;
+pub const LEDGER_MAX_LINE: usize = 100_000;
+
 const USAGE: &str = "usage: analytics run <issue> [--image <id>] [--rukas-image <commit>] [--oom <n>] [--forks <n>] | plan <issue> --rc <rc> [--rukas-image <commit>] | event <issue> <event> [--at <epoch seconds>] | sample | prune | report [--json] | sessions | export <file> [--json]";
 
 fn main() -> ExitCode {
@@ -284,13 +293,7 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
             conn.execute_batch("PRAGMA optimize").map_err(db_err)
         }
         Cmd::Report | Cmd::ReportText => {
-            let mut report =
-                report::build(&conn, now).map_err(|e| (70, format!("the report failed: {e}")))?;
-            let refine = report::refine(&conn, &report::read_refined(home), now)
-                .map_err(|e| (70, format!("the report failed: {e}")))?;
-            if let Some(o) = report.as_object_mut() {
-                o.insert("refine".into(), refine);
-            }
+            let report = report::complete(&conn, home, now)?;
             if matches!(cmd, Cmd::Report) {
                 println!("{report}");
             } else {

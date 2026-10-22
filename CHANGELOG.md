@@ -19,7 +19,15 @@ release workflow takes the release's page from its section
 
 ### Changes
 
-- None yet.
+- `tehas analytics report` says how issues of each size fare: the starts
+  measured in the window from `state/sizes.jsonl`, in the buckets 1-2, 3-4 and
+  5+ named files, with how many of each shipped and their median lead time, so
+  the threshold of `TEHAS_SIZE_MAX_FILES` can be set from outcomes.
+- Both state ledgers the report reads are now bounded the same way, and both
+  writers trim: `state/refined.jsonl` keeps its last 500 lines as
+  `state/sizes.jsonl` does, the readers take a plain file of at most 1 MiB, and
+  a stamp of a year past 2100 is refused before it can overflow the date
+  arithmetic.
 
 ### Adopter action
 

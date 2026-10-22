@@ -629,7 +629,16 @@ fn plain_file(p: &Path) -> Option<File> {
     File::open(p).ok()
 }
 
-/// A plain file's text, never through a link, and none over `limit` bytes.
+/// A ledger beside the database: `state/<name>`, read by the one rule this
+/// program has for a host file it did not write -- never through a link, never
+/// a device or a fifo, and none over `limit` bytes. Both state ledgers are read
+/// here, so "a ledger is a bounded plain file" is held in one place.
+pub(crate) fn read_ledger(home: &Path, name: &str, limit: u64) -> Option<String> {
+    read_plain(&home.join("state").join(name), limit)
+}
+
+/// A plain file's text, never through a link, and none over `limit` bytes. The
+/// one way this program reads a host file it did not write.
 fn read_plain(p: &Path, limit: u64) -> Option<String> {
     let file = plain_file(p)?;
     if file.metadata().ok()?.len() > limit {
@@ -803,7 +812,16 @@ pub fn iso_ms(s: &str) -> Option<i64> {
     };
     let mut t = hms.splitn(3, ':').map(|p| p.parse::<i64>().ok());
     let (h, mi, se) = (t.next()??, t.next()??, t.next()??);
-    if !(1..=12).contains(&mo) || !(1..=31).contains(&da) || h > 23 || mi > 59 || se > 60 {
+    // The year is bounded before the arithmetic is asked to hold it: an
+    // unbounded one overflows the days-to-milliseconds below, and no host file
+    // of tehas' own making carries a stamp outside these two.
+    if !(1970..=2100).contains(&y)
+        || !(1..=12).contains(&mo)
+        || !(1..=31).contains(&da)
+        || h > 23
+        || mi > 59
+        || se > 60
+    {
         return None;
     }
     if !frac.bytes().all(|b| b.is_ascii_digit()) {
