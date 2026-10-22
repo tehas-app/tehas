@@ -226,4 +226,61 @@ t_eq "$(jq -r '[.files, .tests, .deliverables, .done_when] | map(type) | join(",
   "number,number,number,number"
 t_eq "$(jq -r '[.files, .tests, .deliverables, .done_when] | all(. >= 0 and (. | floor) == .)' <<<"$t_out")" true
 
+# --- The two bounds of the measure -------------------------------------------
+# A pass over the body costs more the more lines it reads and, on a line of its
+# own, the more bytes: the byte bound alone leaves a body of many short lines
+# unbounded, and the line bound alone a body of one huge line. A person who
+# pastes a dump into an issue body must not delay the start of that cycle.
+# Bodies still come in through the environment, so a tick is never run by the
+# shell that carries it.
+
+# sized <lines> [ENV=VALUE...]: the measure of a body of <lines> lines, each
+# naming one path, with any settings given. The worst case for the bound on
+# lines is what a dump of a build log looks like to the measure. The body is
+# written to a file and read from it: past a few thousand lines it is too big
+# for the environment of one command, and a tick in it is never run.
+sized() {
+  local n=$1 f=$T/sized.txt
+  shift
+  seq 1 "$n" | sed 's|.*|test/f&.sh|; s|^|`|; s|$|`|' >"$f"
+  t_out=$(env -i PATH="$PATH" "$@" bash -c ". '$sizing'; tehas_issue_size <'$f'" 2>&1)
+  t_rc=$?
+}
+
+t_case "a body of forty thousand lines is measured, and in the time one start can wait for"
+start=$(date +%s%N)
+sized 40000
+elapsed=$(( ($(date +%s%N) - start) / 1000000 ))
+t_eq "$t_rc" 0
+t_eq "$t_out" '{"files":1000,"tests":1000,"deliverables":0,"done_when":0}'
+t_eq "$([ "$elapsed" -lt 5000 ] && echo fast || echo "slow: ${elapsed}ms")" fast
+
+t_case "TEHAS_SIZE_MAX_LINES is the bound on lines: a body past it is measured from its front"
+sized 300 TEHAS_SIZE_MAX_LINES=100
+t_eq "$t_rc" 0
+t_eq "$t_out" '{"files":100,"tests":100,"deliverables":0,"done_when":0}'
+sized 300 TEHAS_SIZE_MAX_LINES=400
+t_eq "$t_rc" 0
+t_eq "$t_out" '{"files":300,"tests":300,"deliverables":0,"done_when":0}'
+
+t_case "TEHAS_SIZE_MAX_BYTES is the bound on bytes: a body of one long line is cut"
+# One line that names a path at its front and another past the bound. Only the
+# first is inside what the measure reads.
+b=$T/oneline.txt
+printf '%s `lib/a.sh` %s `lib/b.sh`\n' "$(printf 'x%.0s' {1..400})" "$(printf 'y%.0s' {1..400})" >"$b"
+t_run ". '$sizing'; TEHAS_SIZE_MAX_BYTES=500 tehas_issue_size <'$b'"
+t_eq "$t_rc" 0
+t_eq "$t_out" '{"files":1,"tests":0,"deliverables":0,"done_when":0}'
+t_run ". '$sizing'; TEHAS_SIZE_MAX_BYTES=1200 tehas_issue_size <'$b'"
+t_eq "$t_rc" 0
+t_eq "$t_out" '{"files":2,"tests":0,"deliverables":0,"done_when":0}'
+
+t_case "the bounds are the instance's to set, and a body of nothing is still four zeros"
+sized 0
+t_eq "$t_rc" 0
+t_eq "$t_out" '{"files":0,"tests":0,"deliverables":0,"done_when":0}'
+t_run ". '$sizing'; tehas_issue_size </dev/null 2>&1"
+t_eq "$t_rc" 0
+t_eq "$t_out" '{"files":0,"tests":0,"deliverables":0,"done_when":0}'
+
 t_done

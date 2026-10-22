@@ -364,8 +364,8 @@ oom_file=$TEHAS_HOME/state/cycles/$issue.oom
 forks_file=$TEHAS_HOME/state/cycles/$issue.forks
 stall_file=$TEHAS_HOME/state/cycles/$issue.stalled
 timed_file=$TEHAS_HOME/state/cycles/$issue.timed
-# The ledger of what each approved issue measures, one line per start that had
-# an approval to measure. Below is the only writer of it.
+# The ledger of the sizes tehas work records at an approved start, kept by
+# tehas_size_record (lib/sizing.sh), which says what it holds and how long.
 sizes_file=$TEHAS_HOME/state/sizes.jsonl
 # What the dispatcher approved, and the manifest of the last fetch, kept.
 record=$TEHAS_HOME/state/cycles/$issue.approved.json
@@ -522,7 +522,9 @@ fi
 text_why="" # why this start stops, empty when the text is the approved one
 text_path="" # the record that could not be read, when that is the reason
 issue_now="" # the issue as GitHub answers for it now, read once for all of it
+measured=0 # 1 when this start had an approval record, and so a body to measure
 if tehas_record_is_file "$record"; then
+  measured=1
   # Bounded like every other call before the container: a network that swallows
   # this read must not hold the issue's lock and its slot for ever. gh's own
   # words go to $log.err, where a person can see which failure it was.
@@ -562,29 +564,18 @@ if [ -n "$text_why" ]; then
   exit 4
 fi
 
-# What the cycle starts with, measured. The approved body is the one in
-# $issue_now, already read for the check above: this asks GitHub nothing. The
-# ledger is what later tells the dispatcher's size threshold from what finished
-# and what did not, so a run by hand, which has no approved body, records
-# nothing. A line that cannot be written is one word on this command's error
-# stream: the measure is a record of the start, never a reason to stop one.
-if [ -n "$issue_now" ]; then
-  size_body=$(jq -r '.body // ""' <<<"$issue_now" 2>/dev/null) || size_body=""
-  size=$(tehas_issue_size <<<"$size_body" 2>/dev/null) || size=""
-  # The measure's line, keyed with the time and the issue. Only the keys of the
-  # measure and these two reach the ledger, and only when they hold numbers, so
-  # a measure that answered nothing is no line rather than a line of two keys.
-  line=""
-  case $size in '{'*'}')
-    line=$(jq -cn --arg at "$(date -u +%FT%TZ)" --argjson issue "$issue" --argjson size "$size" \
-      '$size | with_entries(select(.value | type == "number")) as $s
-       | select(($s | length) > 0) | {at: $at, issue: $issue} + $s' 2>/dev/null) || line=""
-  esac
-  if ! printf '%s\n' "$line" >>"$sizes_file" 2>/dev/null || [ ! -s "$sizes_file" ]; then
-    # An empty line is a measure that answered nothing, and a write that left
-    # the ledger empty is no ledger: neither leaves a file of one blank line.
-    [ -s "$sizes_file" ] || rm -f "$sizes_file"
-    echo "tehas work: no size of #$issue in $sizes_file, starting the cycle all the same" >&2
+# What the cycle starts with, measured. Only a start that had the approval
+# record to check is measured: the body is the one in $issue_now, already read
+# above, so this asks GitHub nothing more, and a run by hand, which has no
+# approved body, records nothing. lib/sizing.sh says what the ledger is and
+# keeps it bounded. A line that cannot be written is one word on this command's
+# error stream: the measure is a record of the start, never a reason to stop
+# one.
+if [ "$measured" = 1 ]; then
+  mkdir -p "$(dirname "$sizes_file")" 2>/dev/null || true
+  size_body=$(jq -r 'if (.body | type) == "string" then .body else "" end' <<<"$issue_now" 2>/dev/null) || size_body=""
+  if ! tehas_size_record "$issue" "$size_body" "$sizes_file"; then
+    echo "tehas work: could not record the size of #$issue in $sizes_file ($tehas_size_why), starting the cycle all the same" >&2
   fi
 fi
 
