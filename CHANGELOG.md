@@ -13,7 +13,10 @@ empty one above it.
 
 ### Changes
 
-- None yet.
+- `tehasbot clean` lists the base image's repository and the sandbox image in
+  two calls of `docker image ls`, which takes at most one name. In v0.10.3 it
+  asked both in one call, docker refused, and the clean ended with exit 1
+  having removed no old base image.
 
 ### Adopter action
 
