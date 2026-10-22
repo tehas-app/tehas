@@ -5,7 +5,11 @@ updating to it. Newest first. A release's section is `## vX.Y.Z (YYYY-MM-DD)`
 with `### Changes` and `### Adopter action`; "None." is a valid action.
 `scripts/tag-release.sh` refuses to tag without an Adopter action, and the
 release workflow takes the release's page from its section
-(`scripts/release-notes.sh`). Work in progress goes under `## Unreleased
+(`scripts/release-notes.sh`). Work in progress goes under `## Unreleased`; a
+person renames it to the version in the release's pull request and starts a new
+empty one above it.
+
+## Unreleased
 
 ### Changes
 
