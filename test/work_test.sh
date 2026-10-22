@@ -49,20 +49,18 @@ t_eq "$(cycle_args | security_of --cap-drop | LC_ALL=C sort)" "ALL"
 t_eq "$(cycle_args | security_of --cap-add | LC_ALL=C sort)" "CHOWN
 FOWNER"
 t_eq "$(cycle_args | security_of --security-opt)" "no-new-privileges:true"
-# One /tmp of its own, bounded and given once: the tmpfs counts against the
-# container's memory, so a log written in a loop ends the cycle instead of
-# filling the host's disk. It stays exec for the product's own gate; see
-# tehas_sandbox_security. The fixtures below are written the way the docker
-# stub records a call: one argument per line.
-t_eq "$(cycle_args | security_of --tmpfs)" "/tmp:rw,exec,nosuid,nodev,size=8g,mode=1777"
+# One bounded /tmp of its own: the tmpfs counts against the container's memory,
+# so a log written in a loop ends the cycle instead of filling the host's disk.
+# It stays exec for the product's own gate; see tehas_sandbox_security. The two
+# fixtures below are written the way the docker stub records a call: one
+# argument per line. The equals form docker also accepts counts as a mount too,
+# so an unbounded, a noexec or a second mount written that way fails the count
+# instead of passing it unseen; and a second mount of another path is a second
+# flag wherever it stands, the one drift security_line's contiguous match
+# cannot see, so the whole line must hold exactly one.
+t_eq "$(cycle_args | security_of --tmpfs)" "$security_tmpfs"
 t_eq "$(cycle_args | count_of --tmpfs)" "1"
-# The equals form docker also accepts, and which the word count cannot see: a
-# guard that counted values too would read this line as one mount and pass a
-# second, an unbounded or a noexec one written that way.
-t_eq "$(printf 'run\n--tmpfs=/tmp\n' | count_of --tmpfs)" "0"
-# A second mount of another path is a second flag, wherever it stands: the one
-# drift security_line's contiguous match cannot see, so the whole line must
-# hold exactly one.
+t_eq "$(printf 'run\n--tmpfs=/tmp\n' | count_of --tmpfs)" "1"
 t_eq "$(printf 'run\n--tmpfs\n/tmp:rw\n--tmpfs\n/dev/shm\n' | count_of --tmpfs)" "2"
 # The image's entrypoint drops from root with setpriv, which the dropped
 # SETUID and SETGID refuse: the container starts as the host's user instead.
@@ -281,7 +279,7 @@ t_run "$work 7"
 t_case "the cycle's container gets no option beyond the documented ones"
 image="tehas/pi-rukas:uid$(id -u)"
 t_eq "$(cycle_args | unknown_options "$image" \
-  "--name --cgroup-parent --memory --memory-swap --memory-reservation --cpus --pids-limit --cpu-shares --cap-drop --cap-add --security-opt --tmpfs --user --cidfile -w -v -e" "--rm --init")" ""
+  "--name $docker_opts --user --cidfile -w -v -e" "--rm --init")" ""
 t_eq "$(cycle_args | sed -n "/^$(printf '%s' "$image" | sed 's/[\/.]/\\&/g')\$/,\$p" | tr '\n' ' ')" "$image $runner work 7 --timeout 360 --json "
 
 # The runner is no init: without one, a process that outlives its parent is never
