@@ -1179,10 +1179,18 @@ In order, stopping at the first step that fails:
 3. It gives git the bot's login and noreply address (`<id>+<login>@users.noreply.github.com`)
    from `gh api user`, unless git already has a name or an email, which it keeps.
    It gives git `gh`'s credential helper for `github.com`
-   (`gh auth setup-git --hostname github.com`) when `git config --global` has
-   none, which is what lets plain git read a private product's remote; a helper
-   that is there is kept and named. If `gh auth setup-git` fails, the run stops
-   with 1.
+   (`gh auth setup-git --hostname github.com`) when git has none, which is what
+   lets plain git read a private product's remote: the clone in step 4 and the
+   fetches of [tehas dispatch](/operating), [tehas update](/operating) and
+   [tehas status](/tools#tehas-status). The check is what git itself would use,
+   every scope it reads, and `gh auth setup-git` also writes the same key for
+   `gist.github.com`. A helper that is there is kept and named by its count:
+   the value is a command an operator wrote and can hold a token, so it is
+   named, never printed, and an entry whose value is empty is not a helper
+   because gitcredentials ends the list there. A container's git is given its
+   helper by environment-level configuration instead, whatever the host's
+   files say. If `gh auth setup-git` fails, the run stops with 1 before the
+   identity is checked.
 4. It clones the product to `~/tehas/repos/<name>` when there is no checkout.
 5. It runs `install.sh` from the same tree as the command, then
    [tehas labels](#tehas-labels).
