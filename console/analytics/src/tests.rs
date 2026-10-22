@@ -1221,6 +1221,13 @@ fn iso_times_are_read_as_utc() {
     assert_eq!(iso_ms("2000-03-01T00:00:01.5Z"), Some(951_868_801_500));
     assert_eq!(iso_ms("2026-10-15 18:38:44"), None);
     assert_eq!(iso_ms("2026-13-15T18:38:44Z"), None);
+    // A year of any length is read, however far its day stands from now: a
+    // ledger's stamp is bounded by its reader, not here. The date arithmetic
+    // itself holds years that run well past the i64 milliseconds they turn
+    // into (see run::iso_ms), so the reader bounds the number it was given
+    // rather than trust a stamp of any size (report::ledger_at).
+    assert_eq!(iso_ms("2262-01-01T00:00:00Z"), Some(9_214_646_400_000));
+    assert_eq!(iso_ms("9999-12-31T23:59:59Z"), Some(253_402_300_799_000));
 }
 
 #[test]
@@ -1826,32 +1833,45 @@ fn the_size_figures_follow_the_measured_starts_of_the_window() {
         )
         .unwrap();
     };
-    // 1: two files, shipped after 2 h, and measured twice -- the last line wins.
+    // 1: two files, shipped after 2 h, and measured twice -- the later line wins.
     // 2: two files, measured before the window, and shipped.
     // 3: three files, shipped after 1 h. 4: five files, never shipped.
     // 5: no file, shipped after 3 h. 6: no file, started only.
-    // 7: measured in the window, no line for it at all in the ledger.
+    // 7: two files, merged before its measured start: an old merge, no ship.
+    // 8: one file, merged with no ready event at all: shipped, no lead.
+    // 9: four files, shipped after 4 h. 10: four files, never shipped.
+    // 11: measured in the window, no line for it at all in the ledger.
     for (issue, ready, merged) in [
         (1, day0 + 1000, day0 + 8200),
         (2, day0 + 2000, day0 + 9_200),
         (3, day0 + 3000, day0 + 6600),
         (5, day0 + 4000, day0 + 14_800),
+        (9, day0 + 7000, day0 + 21_400),
     ] {
         ev(issue, "ready", ready);
         ev(issue, "merged", merged);
     }
-    for issue in [4, 6] {
+    // An issue of a previous cycle that merged long before this measurement.
+    ev(7, "ready", day0 - 40 * DAY);
+    ev(7, "merged", day0 - 39 * DAY);
+    // A merge the view knows of with no ready event behind it.
+    ev(8, "merged", day0 + 7200);
+    for issue in [4, 6, 10] {
         ev(issue, "ready", day0 + 5000);
     }
     ev(6, "started", day0 + 5100);
+    // The last line of an issue wins by its `at`, not by its place in the
+    // file: issue 1's later measure stands first here and still answers.
+    let mut wide = json!({"at": iso(day0 + 6100), "issue": 12, "files": 3});
+    wide["filler"] = json!("x".repeat(100_000));
     put(
         &home,
         "state/sizes.jsonl",
         &[
-            json!({"at": iso(day0 + 900), "issue": 1, "files": 5, "tests": 0,
-                   "deliverables": 1, "done_when": 0}),
             json!({"at": iso(day0 + 1000), "issue": 1, "files": 2, "tests": 1,
                   "deliverables": 1, "done_when": 2}),
+            json!({"at": iso(day0 + 900), "issue": 1, "files": 5, "tests": 0,
+                   "deliverables": 1, "done_when": 0}),
             json!({"at": iso(day0 - DAY), "issue": 2, "files": 2}),
             json!({"at": iso(day0 + 2000), "issue": 3, "files": 3}),
             json!({"at": iso(day0 + 3000), "issue": 4, "files": 9}),
@@ -1860,45 +1880,51 @@ fn the_size_figures_follow_the_measured_starts_of_the_window() {
             json!({"at": "not a time", "issue": 5, "files": 0}),
             json!({"at": iso(day0 + 4000), "issue": 5, "files": 0}),
             json!({"at": iso(day0 + 5000), "issue": 6, "files": 0}),
+            // A merge of an earlier cycle, before this start: no ship.
+            json!({"at": iso(day0 + 6000), "issue": 7, "files": 2}),
+            // A merge with no ready behind it: a ship of no lead.
+            json!({"at": iso(day0 + 6200), "issue": 8, "files": 1}),
+            json!({"at": iso(day0 + 7000), "issue": 9, "files": 4}),
+            json!({"at": iso(day0 + 7100), "issue": 10, "files": 4}),
+            // Of the four counts of a line only `files` is read; the rest of
+            // what the ledger holds cannot reach the report.
+            json!({"at": iso(day0 + 7200), "issue": 10, "files": 4, "tests": 9,
+                   "deliverables": "words", "done_when": ["a", "b"]}),
+            // Of another shape than a record: no line.
+            json!({"at": iso(day0 + 7300), "issue": 11, "files": null}),
+            json!({"at": iso(day0 + 7400), "issue": 11, "files": 1.5}),
+            json!(42),
+            json!([{"at": iso(day0 + 7500), "issue": 11, "files": 1}]),
+            // A line too wide to be a measure, and a stamp outside the years
+            // the report keeps.
+            wide,
+            // A stamp outside the years the report keeps: a corrupt or hostile line,
+            // and the year's own size is no reason to answer for it.
+            json!({"at": "2263-01-01T00:00:00Z", "issue": 13, "files": 2}),
+            json!({"at": "1990-01-01T00:00:00Z", "issue": 13, "files": 2}),
+            json!({"at": iso(day0 + 8000), "issue": 13, "files": 2}),
         ]
         .iter()
         .map(|l| format!("{l}\n"))
         .collect::<String>(),
     );
     let ledger = crate::report::read_sizes(&home);
+    // In issue order, the order the map's key gives it.
+    let seen: Vec<(i64, i64, i64)> = ledger.iter().map(|s| (s.issue, s.files, s.at)).collect();
     assert_eq!(
-        ledger,
+        seen,
         [
-            crate::report::Size {
-                at: day0 + 1000,
-                issue: 1,
-                files: 2
-            },
-            crate::report::Size {
-                at: day0 - DAY,
-                issue: 2,
-                files: 2
-            },
-            crate::report::Size {
-                at: day0 + 2000,
-                issue: 3,
-                files: 3
-            },
-            crate::report::Size {
-                at: day0 + 3000,
-                issue: 4,
-                files: 9
-            },
-            crate::report::Size {
-                at: day0 + 4000,
-                issue: 5,
-                files: 0
-            },
-            crate::report::Size {
-                at: day0 + 5000,
-                issue: 6,
-                files: 0
-            },
+            (1, 2, day0 + 1000),
+            (2, 2, day0 - DAY),
+            (3, 3, day0 + 2000),
+            (4, 9, day0 + 3000),
+            (5, 0, day0 + 4000),
+            (6, 0, day0 + 5000),
+            (7, 2, day0 + 6000),
+            (8, 1, day0 + 6200),
+            (9, 4, day0 + 7000),
+            (10, 4, day0 + 7200),
+            (13, 2, day0 + 8000),
         ]
     );
     let empty = json!({"n": 0, "shipped": 0, "leadTime": {"n": 0}});
@@ -1907,15 +1933,23 @@ fn the_size_figures_follow_the_measured_starts_of_the_window() {
         got,
         json!({
             "none": {"n": 2, "shipped": 1, "leadTime": {"n": 1, "median": 10800, "p90": 10800}},
-            "1-2": {"n": 1, "shipped": 1, "leadTime": {"n": 1, "median": 7200, "p90": 7200}},
-            "3-4": {"n": 1, "shipped": 1, "leadTime": {"n": 1, "median": 3600, "p90": 3600}},
+            "1-2": {"n": 4, "shipped": 2, "leadTime": {"n": 1, "median": 7200, "p90": 7200}},
+            "3-4": {"n": 3, "shipped": 2, "leadTime": {"n": 2, "median": 9000, "p90": 14400}},
             "5+": {"n": 1, "shipped": 0, "leadTime": {"n": 0}},
         })
     );
     // The window holds the starts measured in it: issue 2, measured nine days
     // before, is in none of the buckets although it shipped.
-    assert_eq!(got["1-2"]["n"], json!(1));
-    assert_eq!(got["1-2"]["shipped"], json!(1));
+    assert_eq!(got["1-2"]["n"], json!(4));
+    assert_eq!(got["1-2"]["shipped"], json!(2));
+    // Issue 7 merged before its measured start, so the window shipped nothing
+    // of it; issue 8 shipped with no ready event, so it counts as shipped and
+    // brings no lead: where shipped outruns leadTime.n, a ship had no lead.
+    assert_eq!(got["1-2"]["leadTime"]["n"], json!(1));
+    // The boundaries of the buckets: one file is "1-2", four is "3-4", and
+    // "5+" holds every count above them together.
+    assert_eq!(got["3-4"]["n"], json!(3));
+    assert_eq!(got["5+"]["n"], json!(1));
     // The same ledger with no work in the window: no bucket but "none".
     assert_eq!(crate::report::sizes(&conn, &[], to).unwrap()["3-4"], empty);
     // No ledger at all: empty buckets, not a missing key.
@@ -1928,13 +1962,101 @@ fn the_size_figures_follow_the_measured_starts_of_the_window() {
         .unwrap(),
         json!({"none": empty, "1-2": empty, "3-4": empty, "5+": empty})
     );
-    let mut report = crate::report::build(&conn, to).unwrap();
-    report["sizes"] = got;
-    let text = crate::report::text(&report);
+    let text = crate::report::text(&crate::report::complete(&conn, &home, to).unwrap());
+    // The Size line names each bucket by name, not by column width.
     assert!(
-        text.contains("Size               none: 2 shipped 1, lead 3h00m | 1-2: 1 shipped 1, lead 2h00m | 3-4: 1 shipped 1, lead 1h00m | 5+: 1 shipped 0, lead -\n"),
+        text.contains("none: 2 shipped 1, lead 3h00m | 1-2: 4 shipped 2, lead 2h00m | 3-4: 3 shipped 2, lead 2h30m | 5+: 1 shipped 0, lead -"),
         "{text}"
     );
+}
+
+// The report command, not build(), adds the ledger figures: the same database
+// and ledger reach the printed report through the command that reads them.
+#[test]
+fn the_report_command_adds_the_refine_and_size_figures() {
+    let home = scratch("report-complete");
+    let day0 = 1_792_022_400; // 2026-10-15T00:00:00Z
+    let to = day0 + 9 * DAY + 43_200;
+    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+    conn.execute(
+        "INSERT INTO issue_events (at, issue, event) VALUES (?1, ?2, 'ready'), (?1, ?2, 'started'), (?3, ?2, 'merged')",
+        rusqlite::params![day0 + 1000, 1, day0 + 4600],
+    )
+    .unwrap();
+    std::fs::create_dir_all(home.join("state")).unwrap();
+    put(
+        &home,
+        "state/sizes.jsonl",
+        &format!(
+            "{}\n",
+            json!({"at": iso(day0 + 1000), "issue": 1, "files": 2})
+        ),
+    );
+    let got = crate::report::complete(&conn, &home, to).unwrap();
+    assert_eq!(
+        got["sizes"]["1-2"],
+        json!({"n": 1, "shipped": 1,
+                   "leadTime": {"n": 1, "median": 3600, "p90": 3600}})
+    );
+    assert_eq!(
+        got["sizes"]["none"],
+        json!({"n": 0, "shipped": 0, "leadTime": {"n": 0}})
+    );
+    assert!(got["refine"].is_object());
+    // build() alone holds neither: the keys belong to the command.
+    let bare = crate::report::build(&conn, to).unwrap();
+    assert!(bare.get("sizes").is_none() && bare.get("refine").is_none());
+    // A ledger that is a link is read no more than a ledger that is no file:
+    // the figures are four buckets of nothing.
+    let moved = home.join("elsewhere.jsonl");
+    fs::rename(home.join("state").join("sizes.jsonl"), &moved).unwrap();
+    std::os::unix::fs::symlink(&moved, home.join("state").join("sizes.jsonl")).unwrap();
+    assert!(crate::report::read_sizes(&home).is_empty());
+    let got = crate::report::complete(&conn, &home, to).unwrap();
+    assert_eq!(
+        got["sizes"],
+        json!({"none": {"n": 0, "shipped": 0, "leadTime": {"n": 0}},
+               "1-2": {"n": 0, "shipped": 0, "leadTime": {"n": 0}},
+               "3-4": {"n": 0, "shipped": 0, "leadTime": {"n": 0}},
+               "5+": {"n": 0, "shipped": 0, "leadTime": {"n": 0}}})
+    );
+    // The Size line says the buckets by name.
+    assert!(
+        crate::report::text(&got).contains("none: 0 shipped 0, lead - | 1-2: 0 shipped 0, lead - | 3-4: 0 shipped 0, lead - | 5+: 0 shipped 0, lead -"),
+    );
+}
+
+// The published privacy claim of the size figures, held where it is made:
+// one bucket is three counts and nothing else, whatever the ledger's own lines
+// hold beside them.
+#[test]
+fn the_size_figures_hold_no_keys_but_their_own() {
+    let home = scratch("report-sizes-keys");
+    let day0 = 1_792_022_400;
+    let to = day0 + 9 * DAY + 43_200;
+    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+    std::fs::create_dir_all(home.join("state")).unwrap();
+    put(
+        &home,
+        "state/sizes.jsonl",
+        &format!(
+            "{}\n",
+            json!({"at": iso(day0 + 1000), "issue": 1, "files": 2, "tests": 1,
+                   "deliverables": 3, "done_when": 4, "title": "what the issue asked for"})
+        ),
+    );
+    let got = crate::report::sizes(&conn, &crate::report::read_sizes(&home), to).unwrap();
+    assert_eq!(
+        got.as_object().unwrap().keys().collect::<Vec<_>>(),
+        ["1-2", "3-4", "5+", "none"]
+    );
+    for b in got.as_object().unwrap().values() {
+        assert_eq!(
+            b.as_object().unwrap().keys().collect::<Vec<_>>(),
+            ["leadTime", "n", "shipped"]
+        );
+    }
+    assert!(!got.to_string().contains("asked for"));
 }
 
 #[test]
@@ -2363,6 +2485,10 @@ fn an_empty_database_reports_counts_of_nothing_and_leaves_out_what_has_no_value(
     // report command adds them, not build().
     assert!(got.get("refine").is_none());
     assert!(got.get("sizes").is_none());
+    // The command's own report carries both keys, as `text` needs them.
+    let full = crate::report::complete(&conn, &home, to).unwrap();
+    assert!(full["sizes"].is_object() && full["refine"].is_object());
+    assert_eq!(full["sizes"]["none"]["n"], json!(0));
     assert_eq!(execute(&home, &Cmd::Report, to), Ok(()));
     assert_eq!(got["availability"], json!({"n": 0}));
     assert_eq!(got["firstPassYield"], json!({"n": 0}));

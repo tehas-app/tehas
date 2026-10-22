@@ -621,7 +621,7 @@ fn written_since(p: &Path, started: i64) -> bool {
         .is_some_and(|d| d.as_secs() as i64 >= started - 5)
 }
 
-fn plain_file(p: &Path) -> Option<File> {
+pub(crate) fn plain_file(p: &Path) -> Option<File> {
     let meta = fs::symlink_metadata(p).ok()?;
     if !meta.is_file() {
         return None;

@@ -232,19 +232,35 @@ counts only.
 
 ### Size
 
-The report has a `sizes` key, and the terminal a `Size` line, that say how
-issues of each size fare, so the threshold of the dispatcher's hold
+`tehas analytics report` has a `sizes` key, and the terminal a `Size` line,
+that say how issues of each size fare, so the threshold of the dispatcher's hold
 (`TEHAS_SIZE_MAX_FILES`, see [Instance settings](/host#instance-settings)) can
 be set from outcomes rather than guesswork. It reads what each approved start
 measured of its issue's body from `~/tehas/state/sizes.jsonl` (see the layout
 table of [The host](/host#layout)): one line per start, `{at, issue, files,
-tests, deliverables, done_when}`, the last line of an issue winning and a line
-that does not parse being skipped. For the starts measured in the window it
-gives three buckets of the `files` count -- 1-2, 3-4 and 5+, and `none` for the
-bodies that named no file at all -- and for each of them how many issues there
-were, how many shipped, and the median lead time of those that shipped. No
-ledger is four buckets of nothing. Like the rest of the report it holds counts
+tests, deliverables, done_when}`, the line of an issue with the later `at`
+winning and a line that does not parse being skipped. For the starts measured in
+the window it gives three buckets of the `files` count -- 1-2, 3-4 and 5+, and
+`none` for the bodies that named no file at all -- and for each of them how many
+issues there were, how many shipped, and the median lead time of those that
+shipped. No ledger is four buckets of nothing. Of what a line holds only `at`,
+`issue` and `files` are read, so the other counts and anything a hand-written
+line might carry stay in the ledger. Like the rest of the report it holds counts
 only: no issue number, and nothing of what the issue asked for.
+
+Two windows meet in one bucket. `n` counts the starts the ledger measured in
+the window. A ship is the issue's `v_lead` row, and only a merge at or after
+the measured start counts as one, so an issue reopened and measured again after
+an earlier cycle of it merged is not a ship of this window. The view's own
+window is the wider one, so an issue whose first accepted `ready` lies before
+these ten days ships without a lead time: where a bucket's `leadTime.n` falls
+short of its `shipped`, that many ships brought no lead. Read the median only
+where the two counts agree.
+
+The key belongs to the report a person reads, not to the file the dashboard
+shows: `tehasbot status` publishes only the top-level keys it names, and
+`sizes` is not one of them (see [the keys of the published
+report](/tools#tehasbot-status-and-the-console)).
 
 ## Sessions
 
