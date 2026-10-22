@@ -119,7 +119,9 @@ run() {
 for t in "${tests[@]}"; do
   ran=1
   # One record per test file, under the same identity the block reports: the
-  # path relative to the checkout, so no two files share a record.
+  # path relative to the checkout, so no two files share a record. The block
+  # reads the log back by that same path, so one file cannot borrow another's
+  # FAIL: line.
   run "$out/${t#"$root"/}" bash "$t"
 done
 if [ "$lint" = 1 ]; then
@@ -225,10 +227,26 @@ if [ "$failed" -gt 0 ] || [ "${#skipped[@]}" -gt 0 ]; then
   shown=$nf
   [ "$shown" -le "$cap" ] || shown=$cap
   for ((i = nf - shown; i < nf; i++)); do
-    # A file name is data from the filesystem: control bytes become ? so one
-    # entry cannot print escapes or split into two lines. The reason beside it
-    # is this script's own words, so only the name is rewritten.
+    # One line per file, so the size of the block and the cap above it do not
+    # change with the form of the entry.
     entry=${bad[i]//[[:cntrl:]]/?}
+    # The file's own first FAIL: line names the case that did not pass, so the
+    # tail scripts/verify.sh keeps says which case it was and not only which
+    # file. The marker starts the line and the entry is not indented, so a
+    # caller looking for FAILED: finds it in column 1, and the file is still
+    # named on the line, so a reader that looks for paths finds it too. The
+    # text after the marker is data from the log, not this script's words: it is cut to 200
+    # characters and its control bytes become ?, as the name already is, so
+    # one case cannot print escapes or take the block's lines with it.
+    read -r first < <(sed -n 's/^FAIL: //p' "$out/${bad[i]}.log" 2>/dev/null)
+    if [ -n "$first" ]; then
+      first=${first:0:200}
+      printf 'FAILED: %s: %s\n' "$entry" "${first//[[:cntrl:]]/?}"
+      continue
+    fi
+    # A file with a reason and no FAIL: line of its own keeps the indented
+    # path. The reason is this script's own words, so only the name is
+    # rewritten.
     [ -z "${why[i]}" ] || entry=$entry': '${why[i]}
     printf '    %s\n' "$entry"
   done
