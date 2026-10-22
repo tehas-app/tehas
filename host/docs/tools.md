@@ -1453,8 +1453,9 @@ platform  cb6912a, 19 commits behind origin/main since 2026-10-13, fetched 20 mi
 ```
 
 Prints the state of the factory from the [health file](#tehasbot-health): is
-it taking work, what is in the queue and how old that snapshot is, how far
-the platform checkout is behind origin (on a host that has one), the current or last cycle, each
+it taking work, what is in the queue and how old that snapshot is, which
+platform the host runs (the release `~/tehas/current` points at, or how far
+the platform checkout is behind origin), the current or last cycle, each
 planning turn in flight, and what the dispatcher's last poll read of `tehas.slice`. The `slice` line reads
 `holding: ...` when that poll held cycles back, and `unknown: no poll has
 reported in 10 min` when no poll read the slice in that time. While the factory
@@ -1477,6 +1478,15 @@ And while [`tehas:all-hands`](/operating#all-hands) holds:
 
 ```
 all-hands tehas:all-hands is on the control issue, applied by an allowed account
+```
+
+On a host that runs a release (`~/tehas/current`), the `platform` line names
+that release and the newest there is, instead of a commit:
+
+```
+platform  v0.9.0, newest v0.9.0, fetched 20 min ago
+platform  v0.9.0, v0.9.1 is out, fetched 20 min ago
+platform  v0.9.0, newest unknown, never fetched
 ```
 
 It reads
@@ -1891,14 +1901,22 @@ turns are only counted.
 | `stations` | `steps`: per step, in the order runs reach it, the `n` runs that reached it, how many `passed` and the `share`. A run that reached a pull request passed every step it ran; one handed off, parked or failed stopped in its failed step, else its last. `n` is the runs counted: refused and stopped runs are not |
 | `versions` | One `{tehas, rukas, n}` per version pair, the pair that ran last first, at most ten. With three runs or more also `prShare` (reached a pull request), `medianSeconds` and `medianTokens` (input, output and cache read). A version that is not known is left out |
 
-`tehasbot status` also writes `~/tehas/live/platform.json`: the commit the
-platform checkout `~/tehas/platform` is at, `upstream` (origin's default
+`tehasbot status` also writes `~/tehas/live/platform.json`: what platform the
+host runs. On a host with the platform checkout `~/tehas/platform` that is the
+commit it is at, `upstream` (origin's default
 branch), how many commits it is `behind`, `behindSince` (when the oldest of
 those landed on that branch) and `fetchedAt`. It fetches the checkout at most
 once an hour, with a limit of 60 seconds; the time of the last try is in
 `~/tehas/state/platform-fetch`. A fetch that fails is no error and is tried
 again an hour later. Nothing else in the checkout changes: `tehas update`
-does that. A host with no checkout there has no file.
+does that. On a host that runs a release, where `~/tehas/current` is a link
+to a version with a `VERSION`, the file names the release instead: `release`
+(that version), `newest` (the newest published release, or null when it could
+not be read), `behind: 0` and `upstream: "releases"`. The list of releases is
+read at most once an hour, under the same limit and the same stamp, and the
+last answer is kept in `~/tehas/state/platform-newest`, so a poll between
+reads and a read that fails say the newest it had. A host with neither has no
+file.
 
 `~/tehas/libexec/console` is started by the work
 script and follows the cycle's agents into `~/tehas/live/console-<issue>.txt`, masking
@@ -1985,8 +2003,8 @@ minutes and whose issue's lock (`state/cycles/<issue>.lock`) nobody holds is
 recorded as ended with the status `lost`, which is a failure. While
 `tehasbot cycle` still holds the lock, the cycle stays running.
 
-`checks.platform` is `live/platform.json`, or `null` on a host without a
-platform checkout.
+`checks.platform` is `live/platform.json`: the release a host runs, or the
+checkout of a host that has one. It is `null` on a host with neither.
 
 `checks.allHands` is the snapshot's `allHands`: true while
 [`tehas:all-hands`](/operating#all-hands) holds, false when it does not, and

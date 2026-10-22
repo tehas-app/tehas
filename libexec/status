@@ -13,12 +13,17 @@
 # title and no issue number. Without an answer to that call the snapshot is
 # written with no words, and the page counts the tickets it does list.
 #
-# It also writes live/platform.json: the commit the platform checkout
-# ($TEHAS_HOME/platform) is at and how many commits it is behind origin's
-# default branch, so a host that needs tehas update says so. The checkout is
-# fetched at most once an hour, under a time limit; a fetch that fails is
-# tried again an hour later and changes nothing else. A host with no such
-# checkout has no file.
+# It also writes live/platform.json: what platform the host runs, so a host
+# that needs tehas update says so. On a host with the platform checkout
+# ($TEHAS_HOME/platform) that is the commit it is at and how many commits it
+# is behind origin's default branch; the checkout is fetched at most once an
+# hour, under a time limit, and a fetch that fails is tried again an hour
+# later and changes nothing else. On a host that runs a release
+# ($TEHAS_HOME/current) it is the installed version and the newest published
+# one: {release, newest, behind: 0, upstream: "releases"}. The list of
+# releases is read at most once an hour, under the same limit, and the last
+# answer is kept in state/platform-newest, so a poll between reads and a read
+# that fails keep the newest it had. A host with neither has no file.
 #
 # The snapshot says whether the factory is paused, and which of the two
 # switches holds it: `paused: true` when either is set, and `pause: {flag,
@@ -64,6 +69,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/status.sh"
 # shellcheck source=lib/analytics.sh
 . "$here/../lib/analytics.sh"
+# shellcheck source=lib/update-release.sh
+. "$here/../lib/update-release.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS
 repo=$TEHAS_REPO
@@ -137,7 +144,72 @@ trap 'analytics_report; analytics_sessions; "$here/health" 2>/dev/null || true' 
 
 fetch_every=3600
 fetch_limit=60
+# What the host runs, in live/platform.json: the release when it runs one
+# (platform_release), the checkout when it has one, and nothing when it has
+# neither. Both halves read the outside world at most once an hour: the
+# checkout is fetched, the releases are listed, and state/platform-fetch says
+# when either was last tried.
 platform() {
+  local installed
+  installed=$(tehas_release_installed) || return 0
+  if [ -n "$installed" ]; then
+    platform_release "$installed"
+    return 0
+  fi
+  platform_checkout
+}
+
+# The newest published release, as tehas_release_list answers it: its tag, or
+# nothing when GitHub does not answer, answers no release, or answers a tag
+# that is no version. The list is newest first, so the first line is what the
+# host should move to. Called only by the substitution below, so the tehas_err
+# of a list that failed stays on standard error of this script instead of
+# becoming the newest.
+platform_newest_read() {
+  local line tag
+  line=$(tehas_release_list 2>/dev/null | head -n 1)
+  [ -n "$line" ] || return 0
+  tag=$(jq -r '.tag // ""' <<<"$line" 2>/dev/null) || return 0
+  tehas_release_tag_ok "$tag" && printf '%s\n' "$tag"
+}
+
+# A host that runs a release: the version current points at, the newest there
+# is, and nothing of a checkout it may still hold. The list is read once an
+# hour under fetch_limit; the answer is kept in state/platform-newest and a
+# poll between reads, or one whose read fails, says the newest it last had.
+platform_release() { # <installed version>
+  local installed=$1 stamp=$TEHAS_HOME/state/platform-fetch newestfile=$TEHAS_HOME/state/platform-newest
+  local last=0 now fetched="" newest=""
+  now=$(date +%s)
+  read -r last fetched 2>/dev/null <"$stamp" || true
+  [[ $last =~ ^[0-9]+$ ]] || last=0
+  [[ $fetched =~ ^[0-9]+$ ]] || fetched=""
+  newest=$(head -n 1 "$newestfile" 2>/dev/null) || newest=""
+  if [ $((now - last)) -ge "$fetch_every" ]; then
+    # The attempt is remembered first, so a read that hangs or fails is not
+    # tried at every poll.
+    mkdir -p "${stamp%/*}"
+    echo "$now $fetched" >"$stamp"
+    local got
+    got=$(platform_newest_read)
+    if [ -n "$got" ]; then
+      newest=$got
+      fetched=$now
+      printf '%s\n' "$newest" >"$newestfile"
+      echo "$now $fetched" >"$stamp"
+    fi
+  fi
+  [[ $newest =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || newest=""
+  jq -n --arg now "$(date -u +%FT%TZ)" --arg release "$installed" --arg newest "$newest" \
+    --arg fetched "$fetched" '
+    def num: if test("^[0-9]+$") then tonumber else null end;
+    {generatedAt: $now, release: $release, newest: (if $newest == "" then null else $newest end),
+     behind: 0, upstream: "releases",
+     fetchedAt: ($fetched | num | if . == null then null else todate end)}' \
+    >"$live/platform.json.new" 2>/dev/null && mv "$live/platform.json.new" "$live/platform.json"
+}
+
+platform_checkout() {
   local co=$TEHAS_HOME/platform stamp=$TEHAS_HOME/state/platform-fetch last=0 now upstream head behind since fetched=""
   [ -e "$co/.git" ] || { rm -f "$live/platform.json"; return 0; }
   now=$(date +%s)
