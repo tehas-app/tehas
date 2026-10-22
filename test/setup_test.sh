@@ -27,26 +27,43 @@ chmod +x "$plat/install.sh" "$plat/libexec/labels" "$build"
 printf 'ghp_secret_token\n' >"$T/token"
 printf 'sk_model_key\n' >"$T/model-key"
 
+# The github.com host, the key of its credential helper, and the helper command
+# gh writes, all read from lib/sandbox.sh. The container's git, the probe of
+# tehas setup and the gh stub below read one contract, so a change to its
+# spelling moves the three together and a drift fails here, not on a host.
+# shellcheck source=lib/sandbox.sh
+. "$T_ROOT/lib/sandbox.sh"
+HK=$(tehas_git_credential_helper_key)
+HG=$(tehas_git_github_host)
+HB=$(tehas_sandbox_helper_command)
+
 # gh: the token can push (PUSH=false: it cannot), the bot is tehas-bot, a new
 # issue is number 7, a clone makes the checkout. setup-git writes what gh writes
-# on a host it is logged into (GH_TOKEN): the helper key twice, an empty entry
-# that ends any list before it and gh's command after it. No GH_TOKEN and
-# SETUP_GIT_RC=1 both stand for the gh of a host that is not logged in.
+# on a host it is logged into: the helper key twice, an empty entry that ends
+# any list before it and gh's command after it. GH_TOKEN is the knob of a host
+# gh is not logged into, SETUP_GIT_RC of a gh that cannot write the config. The
+# key and the command come from lib/sandbox.sh, so the stub writes what the
+# container is given and cannot drift from it.
 stub_gh() {
-  t_stub gh 'case "$*" in
+  # The body is written with @HK@, @HG@ and @HB@ in place of the key, the host
+  # and the command, and the stubs of the other commands are written with @T@
+  # in place of the scratch directory: t_stub echoes its body unquoted, so the
+  # three names and the path are substituted here, before it does.
+  t_stub gh "$(printf '%s' 'case "$*" in
   "api repos/acme/widget --jq .permissions.push") echo "${PUSH:-true}" ;;
   "api user --jq [.login,.id]|@tsv") printf "tehas-bot\t4242\n" ;;
   "issue create --repo acme/widget"*) echo "https://github.com/acme/widget/issues/7" ;;
   "repo clone acme/widget "*) mkdir -p "${4}/.git" ;;
-  "auth setup-git --hostname github.com")
-    [ -n "${GH_TOKEN:-}" ] || { echo "not logged into github.com" >&2; exit 1; }
-    [ "${SETUP_GIT_RC:-0}" = 0 ] || exit 1
-    git config --global --replace-all credential.https://github.com.helper ""
-    git config --global --add credential.https://github.com.helper "!/usr/bin/gh auth git-credential" ;;
+  "auth setup-git --hostname @HG@")
+    [ -n "${GH_TOKEN:-}" ] || { echo "not logged into @HG@" >&2; exit 1; }
+    [ "${SETUP_GIT_RC:-0}" = 0 ] || exit "${SETUP_GIT_RC}"
+    git config --global --replace-all @HK@ "" || exit 1
+    git config --global --add @HK@ @HB@ || exit 1 ;;
   *) exit 1 ;;
 esac
-[ -z "${GH_TOKEN:-}" ] || printf "%s\n" "$GH_TOKEN" >"$T/gh-token"'
+[ -z "${GH_TOKEN:-}" ] || printf "%s\n" "$GH_TOKEN" >"@T@/gh-token"' | sed -e "s|@HK@|$HK|g" -e "s|@HG@|$HG|g" -e "s|@HB@|\"$HB\"|g" -e "s|@T@|$T|g")"
 }
+
 # curl: the endpoint's model list (MODELS, space separated). The config it was
 # given on stdin is kept, to see the key went there and not on the line.
 stub_curl() {
@@ -69,18 +86,12 @@ fresh() {
 }
 
 args=(--repo acme/widget --labellers "alice bob" --token-file "$T/token" --endpoint http://gb1:8086/v1)
+# Every run of setup reads the host's git config as the host has it: t_run
+# starts from an empty environment and carries over only what T_ENV names, so
+# git's environment-level config - the scope that outranks every file - is not
+# there unless a case puts those entries in T_ENV itself. One entry per value,
+# quoted, because t_run hands T_ENV to env as separate words.
 run_setup() { t_run "$setup $(printf '%q ' "$@") </dev/null"; }
-# A run that sees the host's git config as the host has it. t_run inherits the
-# environment-level git entries of lib/sandbox.sh, the helper among them, and
-# that config outranks every file, so leaving it in would hand the probe a
-# helper no host has. git counts those entries with GIT_CONFIG_COUNT, so an
-# empty count is all it needs to read none of them.
-run_setup_git() {
-  local saved=("${T_ENV[@]}")
-  T_ENV=(${saved[@]+"${saved[@]}"} GIT_CONFIG_COUNT=)
-  run_setup "$@"
-  T_ENV=(${saved[@]+"${saved[@]}"})
-}
 
 t_case "a first run writes the required settings, the model list and the token, and starts the factory"
 fresh
@@ -212,64 +223,77 @@ t_contains "$t_out" "kept"
 
 t_case "with no helper for github.com, gh sets one before the clone"
 fresh
-run_setup_git "${args[@]}" --no-build
+run_setup "${args[@]}" --no-build
 t_eq "$t_rc" 0
-t_contains "$t_out" "gh's credential helper for github.com"
+t_contains "$t_out" "git uses gh's credential helper for github.com"
 t_eq "$(t_calls gh | grep -n 'auth setup-git --hostname github.com' | sed 's/:.*//')" 3
 t_contains "$(t_calls gh | tail -n 2)" "repo clone acme/widget"
+# What gh wrote is the entry the container's git is given, read back from the
+# file with git's own read: the value is there and the step printed no value.
+t_eq "$(git config -f "$T/home/.gitconfig" --get-all "$HK" | tr '\n' ' ')" " $HB "
 
-# The run above left gh's own two entries, the empty one and the command: the
-# next run reads them back, so the helper step is proven round-trip through
-# git's config and not only by the stub's status. The read takes an empty
-# GIT_CONFIG_COUNT so it sees only the file, not the entries of this shell's
-# environment, which are git's highest scope.
+# The run above left gh's own two entries, the empty one and the command, so
+# the next run reads a helper out of git's config and asks gh for none.
 t_case "the helper gh wrote is kept on the next run, which asks for none"
-t_contains "$(env GIT_CONFIG_COUNT= git config -f "$T/home/.gitconfig" --get-all credential.https://github.com.helper | tr '\n' ' ')" "!/usr/bin/gh auth git-credential"
 stub_all
-run_setup_git "${args[@]}" --no-build
+run_setup "${args[@]}" --no-build
 t_eq "$t_rc" 0
-t_contains "$t_out" "git's helper for github.com is kept"
-t_lacks "$t_out" "gh's credential helper for github.com"
+t_contains "$t_out" "git's helper for github.com is kept (2 in git's config)"
+t_lacks "$t_out" "git uses gh's credential helper"
 t_lacks "$(t_calls gh)" "auth setup-git"
 
 # The value of the key is a command an operator wrote and can hold a token in
-# its arguments, so it is named, never printed.
+# its arguments, so the step names the key and counts its entries, and prints
+# neither the value nor git's words about the file it read.
 t_case "a helper whose value holds a secret is named, not printed"
 fresh
-git config -f "$T/home/.gitconfig" credential.https://github.com.helper '!store --file ~/.token-cache'
+git config -f "$T/home/.gitconfig" "$HK" '!store --file ~/.token-cache'
 mkdir -p "$T/home/tehas/repos/widget/.git"
-run_setup_git "${args[@]}" --no-build
+run_setup "${args[@]}" --no-build
 t_eq "$t_rc" 0
-t_contains "$t_out" "git's helper for github.com is kept"
+t_contains "$t_out" "git's helper for github.com is kept (1 in git's config)"
 t_lacks "$t_out" "token-cache"
+t_lacks "$t_out" "store"
 t_lacks "$(t_calls gh)" "auth setup-git"
 t_lacks "$(t_calls gh)" "repo clone"
 
 # gitcredentials ends the helper list at an empty value, so a key whose only
-# entry is empty is no helper at all, whatever the file says. gh's own write
-# begins with that entry, so the test of the kept helper above starts here.
+# entry is empty is no helper at all, whatever the file says: the run asks gh
+# for its own. The same holds for the operator's deliberate off switch.
 t_case "a helper with only an empty value is no helper, so gh is asked for one"
 fresh
-printf '[credential "https://github.com"]\n\thelper = \n' >>"$T/home/.gitconfig"
-run_setup_git "${args[@]}" --no-build
+printf '[credential "https://github.com"]\n\thelper =\n' >>"$T/home/.gitconfig"
+run_setup "${args[@]}" --no-build
 t_eq "$t_rc" 0
 t_contains "$t_out" "git uses gh's credential helper for github.com"
 t_contains "$(t_calls gh)" "auth setup-git --hostname github.com"
 
-# A host whose gh cannot configure git stops here: the identity check has not
-# run yet, so this names one of the two problems, not both.
+# The state a factory made by bootstrap.sh and install.sh alone is in: no
+# identity and no helper. The helper is asked for first, so this names one of
+# the two problems, not both. gh's own words are not inherited into the line.
 t_case "gh auth setup-git failing is exit 1, names the helper and clones nothing"
 fresh
-# The state a factory made by bootstrap.sh and install.sh alone is in: no
-# identity and no helper.
-T_ENV=(SETUP_GIT_RC=1)
-run_setup_git "${args[@]}" --no-build
+T_ENV=(SETUP_GIT_RC=3)
+run_setup "${args[@]}" --no-build
 T_ENV=()
 t_eq "$t_rc" 1
-t_contains "$t_out" "gh auth setup-git failed"
+t_contains "$t_out" "gh auth setup-git failed for github.com (exit 3)"
 t_lacks "$t_out" "git's identity"
 t_lacks "$(t_calls gh)" "repo clone"
 t_eq "$([ -e "$T/home/tehas/repos/widget" ] && echo cloned)" ""
+
+# A config git will not open is a settings problem, not a step failure: the
+# run stops with 78, says which key it could not read, and neither asks gh for
+# a helper nor clones, so nothing is written over a file git refused to read.
+t_case "a git config git cannot open is exit 78 before the helper is set"
+fresh
+mkdir -p "$T/home/.gitconfig"
+run_setup "${args[@]}" --no-build
+t_eq "$t_rc" 78
+t_contains "$t_out" "could not read git's credential helper for github.com"
+t_lacks "$t_out" "Is a directory"
+t_lacks "$(t_calls gh)" "auth setup-git"
+t_lacks "$(t_calls gh)" "repo clone"
 
 t_case "the product's gates run in the sandbox when check-product is there; --no-build skips both"
 fresh
