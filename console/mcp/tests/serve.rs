@@ -506,7 +506,8 @@ fn served_transcript(name: &str, extra: &[&str]) -> String {
     let session = serde_json::json!({"id": id, "kind": "work", "issue": 7,
         "started": iso(t), "ended": iso(t + 60),
         "logs": [{"word": "transcript", "name": file, "bytes": 1}]});
-    let head = serde_json::json!({"api": 1, "days": 30, "generatedAt": iso(t + 100), "sessions": 1});
+    let head =
+        serde_json::json!({"api": 1, "days": 30, "generatedAt": iso(t + 100), "sessions": 1});
     std::fs::write(snap.join("sessions.jsonl"), format!("{head}\n{session}\n")).unwrap();
     let path = |p: &Path| p.display().to_string();
     let s = Server::start_with(&path(&live), &path(&snap), &path(&logs), extra);
