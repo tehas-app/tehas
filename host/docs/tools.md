@@ -677,12 +677,17 @@ which `tehasbot cycle` names in its comment: this command exits 2 for a runner
 that died however it died, and 137 only for a container it saw killed. A
 container it saw killed leaves the word `killed` in
 `~/tehas/state/cycles/<issue>.status`, which is the only account of the end when
-the runner wrote no result at all. The three files `tehasbot cycle` reads and
-removes for a cycle say three things: `runner_exit` is there when this command
-watched the run and holds the runner's own exit, `status` carries the one word
-`killed` when it saw the container killed, and `progress.json`, the summary this
-command made of the run, is what says the log of the run is this cycle's own and
-may be read for its steps. Each is written by a name beside it and moved into
+the runner wrote no result at all. A container it watched to its end that wrote
+no result and not one line of its stream leaves its own exit status, one line of
+digits, in `~/tehas/state/cycles/<issue>.nostart`, which is what says this issue
+started no runner rather than one that died part way through. The four files
+`tehasbot cycle` reads and removes for a cycle say four things: `runner_exit` is
+there when this command watched the run and holds the runner's own exit,
+`status` carries the one word `killed` when it saw the container killed,
+`progress.json`, the summary this command made of the run, is what says the log
+of the run is this cycle's own and may be read for its steps, and `nostart` says
+no step of the driver was ever seen, which is the one end whose step is not read
+from a log. Each is written by a name beside it and moved into
 place, so the cycle sees a file whole or does not see it.
 
 The bot's git identity is the tehas user's global `user.name` and `user.email`
@@ -837,8 +842,10 @@ attachment links, that gap is said rather than left for an agent to find from a
 file that is not there: `tehas work` prints a line naming how many links and
 which approval it read (the record's `at` and `by`), writes the same line to
 `~/tehas/logs/work-<issue>-<stamp>.jsonl.err`, which the improvement loop
-copies into the record as `err.txt` (only this line and a failure to write it
-ever reach that file), and keeps a manifest at
+copies into the record as `err.txt` (this line, the line of a container that
+never came up and a failure to write either one ever reach that file; the file
+is removed when `tehas work` clears the cycle's other files, so what it holds is
+this command's own), and keeps a manifest at
 `~/tehas/state/cycles/<issue>.manifest.json` with no image, that approval, and
 each link left out with that reason. The links are the approved text's: the
 line counts what the record lists, not what the issue links, and it says which
@@ -1813,8 +1820,9 @@ A parked cycle's cap, from the result, goes into
 `tehas work` wrote to the progress file), and into the
 record for the improvement loop as `cap` and `capReason`, reduced to plain
 characters. A cycle that ended at tehas's own bound gets tehas's cap:
-`wall-clock` for the time limit, `stall` for the stall, and a `capReason`
-that names the bound and the step. A cap the runner named mid-step goes into
+`wall-clock` for the time limit, `stall` for the stall, `runner-never-started`
+for the container that ended before the driver wrote its first event, and a
+`capReason` that names the bound and the step. A cap the runner named mid-step goes into
 the reason; a cap of an end it reached before the stop is kept. Where the result gives a failure of another kind than `cap`, the
 park comment names its kind, role, cause and message. The record also holds `buildCommit`, the pi-rukas commit the
 result says the cycle ran; the improvement loop checks a fix against it. A
