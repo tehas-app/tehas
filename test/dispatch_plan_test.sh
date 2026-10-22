@@ -50,6 +50,81 @@ t_case "a refining session keeps its label on record, in each line of history, a
 t_eq "$(jq -r .label "$record")" "tehas:refine"
 t_eq "$(jq -r '.label' "$T/home/tehas/state/cycles/plan-7.history.jsonl" | tail -n 1)" "tehas:refine"
 
+# A person who applies the label to a parked issue asks for a session, as
+# tehas:ready there starts a cycle. tehas:question is no bar to the ask, and
+# the start takes it off, so the park's boxes answer for nothing after it.
+t_case "tehas:refine on a parked issue starts a session with the refine brief and takes tehas:question off"
+parked_plan refine
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --brief $record.brief"
+t_contains "$(cat "$record.brief")" "---
+
+$(cat "$T_ROOT/lib/refine-brief.md")"
+t_contains "$t_out" "start planning #7 (labelled by alice, to refine it)"
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:planning --remove-label tehas:refine --remove-label tehas:question --remove-label needs-human-attention"
+# A retry that was not ticked answers for nothing, and the park's id goes with
+# the label: the boxes of the old park must not answer for the new session.
+t_eq "$([ -e "$park_id" ] && echo kept)" ""
+t_eq "$(jq -r '.label' "$T/home/tehas/state/cycles/plan-7.history.jsonl" | tail -n 1)" "tehas:refine"
+
+t_case "tehas:plan on a parked issue starts a session from the issue's text, and needs-human-attention is the cycle's to clear"
+parked_plan plan
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --brief $record.brief"
+t_eq "$(head -n 3 "$record.brief")" '# Faster search
+
+Make it fast.'
+t_lacks "$(cat "$record.brief")" "$(head -c 40 "$T_ROOT/lib/refine-brief.md")"
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:planning --remove-label tehas:plan --remove-label tehas:question --remove-label needs-human-attention"
+t_contains "$(t_calls gh)" "authorized by @alice's \`tehas:plan\` label"
+t_eq "$([ -e "$park_id" ] && echo kept)" ""
+
+t_case "a dry run of a session asked for on a parked issue says so and changes nothing"
+parked_plan refine
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would start a planning session for #7 (labelled by alice, to refine it)"
+t_eq "$(plan_calls)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "api -X"
+t_eq "$([ -e "$park_id" ] && echo kept)" kept
+
+# tehas:running stands for a cycle this poll has no part in stopping; a session
+# of its own is what tehas:planning holds off.
+for bar in tehas:running tehas:planning; do
+  t_case "an issue that carries $bar is not planned, and nothing of it is changed"
+  parked_plan refine
+  jq -n --arg l "$bar" '[{number: 7, labels: [{name: "needs-human-attention"}, {name: "tehas:question"},
+    {name: "tehas:refine"}, {name: $l}]}]' >"$fx/asking.json"
+  jq -n --arg l "$bar" '[{number: 7, labels: [{name: "tehas:refine"}, {name: $l}]}]' >"$fx/refines.json"
+  t_run "$dispatch"
+  t_eq "$(plan_calls)" ""
+  t_lacks "$(t_calls gh)" "issue edit"
+  t_lacks "$(t_calls gh)" "issue comment"
+  t_eq "$(cat "$park_id")" 4001
+done
+
+# tehas:question excludes none of them; the park's boxes are read by rule 4
+# alone, which runs first and ends the poll, so a ticked retry still gets its
+# cycle and its tick is undone with the start. The ask for a session is left for
+# the poll after the cycle, as tehas:ready is.
+t_case "a ticked retry of a parked issue starts its cycle, whatever planning label it carries"
+parked_plan refine
+comments 7 "$(park_body x ' ')" alice
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" 7
+t_eq "$(plan_calls)" ""
+t_eq "$([ -e "$park_id" ] && echo kept)" ""
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:question"
+t_lacks "$(t_calls gh)" "--remove-label tehas:refine"
+# The tick is undone with the start, so it cannot fire again later.
+t_contains "$(t_calls gh)" "api -X PATCH repos/acme/widget/issues/comments/4001"
+t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+# The ask for a session waits for the poll after the cycle, as tehas:ready does
+# behind a running cycle: its label stays, and with it the question.
+t_lacks "$(t_calls gh)" "--remove-label tehas:refine"
+
 t_case "a refining turn that files an issue notes it in the ledger of refined issues; a planning one does not"
 to_refine
 plan_files https://github.com/acme/widget/issues/41
