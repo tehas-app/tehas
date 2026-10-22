@@ -221,8 +221,13 @@ tehas_sandbox_seed() { # <state> [<index dir>]
 # default is taken away, and a program cannot gain rights through its mode or
 # file capabilities. The same options for the four containers tehas starts an
 # agent in: a cycle, a planning turn, a manual session and the push check
-# before a cycle. The count is pinned by the callers and by the tests; the
-# words themselves are what is documented, so adding one is one edit here.
+# before a cycle. The contract is one array: tehas_sandbox_security_count
+# prints how many words it prints, and tehas_sandbox_security_ok says whether
+# the words are the documented ones in order. Each command asks that before it
+# calls Docker, so a guard names what drifted instead of counting somewhere
+# else. host/docs/host.md documents the same options in a table, and
+# test/work_caps_test.sh compares that table with what is printed here, so
+# adding one option is an edit here, a row there, and nothing else.
 #
 # Only CHOWN and FOWNER are given back:
 #
@@ -257,29 +262,58 @@ tehas_sandbox_seed() { # <state> [<index dir>]
 # The root filesystem stays writable, unlike a preview's: a cycle's gate
 # installs into its own tree and its caches, and a read-only root would need
 # one --tmpfs per directory a tool writes in, which is a list nobody can pin.
-# One --tmpfs is given all the same, for /tmp, and it is not there to hide the
-# root: it is there to bound it. A container's writable layer sits on the
-# host's root disk with no limit of its own, and on 2026-10-20 one cycle ran a
-# command that printed one line in a loop until its log under /tmp held 32 GB
-# and the host's disk was full: four cycles died with it. A tmpfs is charged to
-# the container's memory ceiling instead, so a runaway write ends that container
-# and not the host. Nothing of tehas's own is written under /tmp: the host
-# keeps its scratch under $TEHAS_HOME/tmp and exports TMPDIR there. The bit is
-# kept because the container runs the product's own gate, whose tools (npm,
-# cargo, Playwright) write and run helpers in /tmp, and tehas does not
-# enumerate them; no-new-privileges, nosuid and nodev blunt what a file there
-# can reach. No host of ours has been seen to need the bit, so that reason is
-# an expectation, not an observation. The size is an upper bound only: the
-# container's --memory is a quarter of the slice, which is 75% of the host, so
-# below a host of about 43 GiB the kernel reaches that ceiling first and the
-# tmpfs limit never binds. The size is also a total, not a high water mark: a
-# cache left under /tmp stays until the container ends, which is what a long
-# cycle runs out of.
+# One --tmpfs is given all the same, for /tmp: not to hide the root but to
+# bound it. The writable layer it replaces sits on the host's root disk with no
+# limit of its own; on 2026-10-20 one cycle filled the host's disk with a log
+# under /tmp and four others died with it. Why the bit stays exec, what the
+# container's own TMPDIR is, and what the size means are in the manual, at
+# "What a container may not do" in host/docs/host.md. Two of those facts belong
+# here because they decide the number:
+#
+#   size= is an upper bound, not the bound in use. Nothing prunes /tmp during a
+#   cycle, so what accumulates there is what the cycle runs out of, at the size
+#   below or at the container's --memory, whichever it reaches first.
+#   The size is a total, not a high water mark: tehasbot clean reclaims the
+#   host's scratch under $TEHAS_HOME/tmp and reclaims nothing of a live
+#   container's /tmp.
+#
 # The process table is bounded by --pids-limit, which comes from lib/slice.sh.
 tehas_sandbox_security() {
   printf '%s\0' --cap-drop ALL --cap-add CHOWN --cap-add FOWNER \
     --security-opt no-new-privileges:true \
     --tmpfs /tmp:rw,exec,nosuid,nodev,size=8g,mode=1777
+}
+
+# How many words the function above prints, in the caller's own words. It is
+# asked of the function, so the number stands in one place.
+tehas_sandbox_security_count() {
+  local sec=()
+  mapfile -d '' -t sec < <(tehas_sandbox_security)
+  printf '%s\n' "${#sec[@]}"
+}
+
+# True when what tehas_sandbox_security prints is the documented list: the
+# words below, in this order, as separate arguments (docker also accepts
+# --tmpfs=<value>, which is not what is printed and would be a shorter list).
+# A caller that cannot ask this has only a length to go on; the tests ask it of
+# the function itself (test/work_caps_test.sh).
+tehas_sandbox_security_ok() {
+  local documented
+  documented=(
+    --cap-drop ALL
+    --cap-add CHOWN
+    --cap-add FOWNER
+    --security-opt no-new-privileges:true
+    --tmpfs "/tmp:rw,exec,nosuid,nodev,size=8g,mode=1777"
+  )
+  local sec
+  sec=()
+  mapfile -d '' -t sec < <(tehas_sandbox_security)
+  [ "${#sec[@]}" -eq "${#documented[@]}" ] || return 1
+  local i
+  for i in "${!documented[@]}"; do
+    [ "${sec[i]}" = "${documented[i]}" ] || return 1
+  done
 }
 
 # Names the sandbox cannot resolve by itself, from PI_ENSEMBLE_HOST_ALIASES.
