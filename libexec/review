@@ -1,0 +1,315 @@
+#!/usr/bin/env bash
+# Review what the default branch gained since the last reviewed commit, with
+# pi-rukas's lens reviewer running headless in the sandbox image.
+#
+# Part of the review loop. This command runs the review and records what it
+# read; it files nothing. Filing the findings is #508, and the unit that runs
+# it on a timer is #509.
+#
+# Each run is one turn of pi-rukas's headless runner,
+# `pi-rukas-headless lens-review --since <commit> --json`, over a clone of the
+# default branch made fresh for the run and removed when it is over. Where to
+# start from is read from $TEHAS_HOME/state/review.json: the commit the last
+# review read. With none there - a host that never reviewed anything, or one
+# whose record is gone - the run starts at the commit 7 days back on the
+# branch, or at the root when the branch is younger than that.
+#
+# What a review is for is the whole range, so a run that failed records
+# nothing: the next one reads the same commits again. Only the exits that mean
+# the reviewer answered (0, 10 and 20 below) move the record on.
+#
+# Usage:
+#   tehasbot review             one review
+#   tehasbot review -h|--help   print this text and exit 0
+#
+# The runner's exit status decides what is recorded:
+#    0 APPROVED, or nothing to review   the commit is recorded
+#   10 ISSUES_FOUND                     the commit is recorded
+#   20 CRITICAL                         the commit is recorded
+#   30 REVIEW_INCOMPLETE                nothing is recorded, the range is read
+#                                       again next run
+#   40 ROUND_CAP_REACHED                the same
+#  any other                            the same, and the command exits 2
+#
+# On exit 0, 10 or 20 the record is
+#   {"commit": "<the head that was reviewed>", "at": "<UTC time>", "exit": <code>}
+# and it replaces what was there. With any other status the file stays exactly
+# as it was, and is not made when the host had none.
+#
+# Exit status: 0 the review answered with no findings, 10, or 20 - the status
+#              the runner gave,
+#             2 the runner failed, ran out of time, or its record could not be
+#               written down,
+#            64 an argument this command does not know, or no git identity for
+#              the clone; nothing ran,
+#            78 the instance settings are invalid, tehas.slice is not usable
+#               on this host, or the image's runner has no lens-review verb
+#               (its --capabilities answer has no verbs["lens-review"]); nothing
+#               was cloned and nothing ran.
+#
+# Instance settings (lib/config.sh; defaults in brackets):
+#   TEHAS_PLAN_TIMEOUT  seconds before a review is given up [7200, the ceiling
+#                       TEHAS_PLAN_TIMEOUT_MAX in lib/config.sh]: the bound of
+#                       one headless turn, which is what this is too
+#   and those of tehas work for the checkout and the container's limits.
+#
+# The container is the one a planning turn is given: the same image, limits,
+# mounts and variables, assembled by lib/sandbox.sh and lib/slice.sh and pinned
+# by test/plan_test.sh, minus GH_TOKEN - a review reads code and writes nothing
+# to GitHub, so it is given no token to write with. It differs in its name, in
+# its command and in having no cid file. Not the Docker socket, SSH keys or
+# ~/.config/tehas. It runs in tehas.slice with a cycle's limits. Without a
+# usable slice nothing is cloned and nothing starts.
+#
+# The workspace is $TEHAS_HOME/work/<name>-review, a clone made for every run
+# and removed when the run is over; inside the container it is at the path
+# every cycle has its own, $TEHAS_HOME/work/<name>. Beside it is
+# <name>-review.state, the run's own copy of the code index and its own memory,
+# removed with the workspace. The transcripts go to
+# ~/.pi/agent/ensemble-runs/review. The runner's one JSON document goes to
+# logs/review-<time>.json and its NDJSON progress beside it as .jsonl.
+set -uo pipefail
+
+show_usage() {
+  sed -n '2,/^[^#]/p' "$0" | sed -n '/^#/s/^# \{0,1\}//p'
+}
+
+unknown_argument() {
+  printf 'tehasbot review: unknown argument: %s\n' "$1" >&2
+  show_usage >&2
+  exit 64
+}
+
+case "${1-}" in
+  -h | --help)
+    [ "$#" = 1 ] || unknown_argument "$2"
+    show_usage
+    exit 0
+    ;;
+  "") ;;
+  *) unknown_argument "$1" ;;
+esac
+[ "$#" -le 1 ] || unknown_argument "$2"
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/config.sh
+. "$here/../lib/config.sh"
+# shellcheck source=lib/sandbox.sh
+. "$here/../lib/sandbox.sh"
+# shellcheck source=lib/slice.sh
+. "$here/../lib/slice.sh"
+# shellcheck source=lib/headless.sh
+. "$here/../lib/headless.sh"
+tehas_load || exit 78
+tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
+tehas_sandbox_settings_ok || exit 78
+# Docker would create a missing mount source as a root-owned directory.
+tehas_checkout || exit 78
+branch=$(tehas_branch) || exit 78
+# No container starts outside the slice, and none with half its limits.
+TEHAS_SLICE_LIMITS=()
+tehas_slice_ok || { echo "tehas review: $TEHAS_SLICE_WHY" >&2; exit 78; }
+tehas_slice_limits || true
+if [ "${#TEHAS_SLICE_LIMITS[@]}" != 14 ] || [ "${TEHAS_SLICE_LIMITS[1]}" != tehas.slice ]; then
+  echo "tehas review: the container limits could not be made, not starting" >&2
+  exit 78
+fi
+src=$TEHAS_WORK_REPO
+# The workspace inside the container, and the directory on the host behind it.
+repo=$TEHAS_WORK_DIR
+tree=$TEHAS_WORK_DIR-review
+image=$PI_ENSEMBLE_IMAGE
+limit=$TEHAS_PLAN_TIMEOUT
+# How far back a host that never reviewed anything reads.
+days=7
+log=$TEHAS_HOME/logs/review-$(date -u +%y%m%d-%H%M%S).jsonl
+# The runner's one JSON document, beside its NDJSON progress.
+doc=${log%.jsonl}.json
+runner=/opt/pi-rukas/bin/pi-rukas-headless
+name=tehas-review
+runs=$HOME/.pi/agent/ensemble-runs/review
+# The run's own state on the host, beside the workspace and not in it.
+container=$tree.state
+index=$(tehas_index_dir)
+record=$TEHAS_HOME/state/review.json
+
+# A review is read-only on the tracker, so the bot's token is not asked for
+# and not given. So is where a planning session lives, and the attachments of
+# an issue: this run has neither a session nor an issue.
+unset GH_TOKEN PI_ENSEMBLE_EXTRA_IMAGE_DIRS PI_ENSEMBLE_PLAN_ISSUE \
+  PI_ENSEMBLE_PLAN_SESSION_DIR PI_ENSEMBLE_PLAN_CACHE_TTL_MS
+# Neither directory is made here. The log's is made by the run that writes a
+# log, the record's by the run that writes a record: a command that refused an
+# argument, or found the settings wrong, or never reached the point of
+# starting, leaves nothing behind under the home.
+
+# The committer of the clone. The runner commits nothing, but git needs an
+# identity for the branch it checks out, and tehas_sandbox_env hands one to the
+# container. The bot's identity is the tehas user's own.
+bot_name=$(git config --global user.name || true)
+bot_email=$(git config --global user.email || true)
+[ -n "$bot_name" ] && [ -n "$bot_email" ] ||
+  { echo "tehas review: git user.name and user.email are not set for $(id -un)" >&2; exit 64; }
+
+# A review reads the code and writes nothing to the tracker, so the container
+# is given no token: the name is dropped from the list the sandbox library
+# assembles, and with it the -e that carries it. So are the names of a
+# planning turn - the issue, the session and its attachments - which this run
+# has none of. The list is made first and filtered after, so the order of the
+# two does not decide what the container is given.
+mapfile -d '' -t envs < <(tehas_sandbox_env "$repo" "$bot_name" "$bot_email")
+# The names of everything the container is not to be given, one per line.
+env_drop=$'GH_TOKEN\nPI_ENSEMBLE_PLAN_ISSUE\nPI_ENSEMBLE_PLAN_SESSION_DIR\nPI_ENSEMBLE_PLAN_CACHE_TTL_MS\nPI_ENSEMBLE_EXTRA_IMAGE_DIRS\n'
+# Read the list as the arguments come: "-e" then a name, which is either a
+# bare name or a NAME=value. Both are dropped together with their "-e".
+env_keep=()
+prev_dash_e=0
+for e in "${envs[@]}"; do
+  if [ "$prev_dash_e" = 1 ]; then
+    prev_dash_e=0
+    if [ "$e" != "-e" ] &&
+      printf '%s' "$env_drop" | grep -q -x -F -- "${e%%=*}"; then
+      # The "-e" kept last carried this name: it goes too.
+      [ "${#env_keep[@]}" = 0 ] || unset 'env_keep[-1]'
+      continue
+    fi
+    env_keep+=("$e")
+    continue
+  fi
+  if [ "$e" = "-e" ]; then
+    prev_dash_e=1
+    env_keep+=("$e")
+    continue
+  fi
+  env_keep+=("$e")
+done
+envs=("${env_keep[@]}")
+unset env_keep env_drop prev_dash_e
+
+mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
+mapfile -d '' -t sec < <(tehas_sandbox_security)
+[ "${#envs[@]}" -gt 0 ] && [ "${#sec[@]}" -eq 8 ] ||
+  { echo "tehas review: could not prepare the sandbox, not starting a review" >&2; exit 78; }
+
+# An image whose runner has no lens-review verb reviews nothing, before
+# anything is cloned. Read from the answer itself: lib/headless.sh asks it
+# about features, and the verbs of the runner are a different key.
+caps_wait=${TEHAS_CAPS_WAIT:-120}
+[[ $caps_wait =~ ^[1-9][0-9]{0,3}$ ]] || caps_wait=120
+caps=$(timeout -k 10 "$caps_wait" docker run --rm --init "$image" "$runner" --capabilities 2>/dev/null) || caps=""
+if ! jq -re 'type == "object" and (.verbs["lens-review"] | type) == "object" and
+  ((.verbs["lens-review"].flags // []) | type) == "array" and
+  any(.verbs["lens-review"].flags[]?; . == "--since") and
+  any(.verbs["lens-review"].flags[]?; . == "--json")' >/dev/null 2>&2 <<<"$caps"; then
+  echo "tehas review: $image runs no review (its --capabilities has no verbs lens-review), not starting" >&2
+  exit 78
+fi
+
+# What to read from: the commit the last review recorded, else the one 7 days
+# back on the branch, else the root of the branch. Read from the checkout the
+# run clones from, which is where tehas_sandbox_clone takes its commits from
+# too; one that has no commit of that branch starts nothing rather than
+# reviewing from nothing.
+since=$(jq -r '.commit // "" | strings | select(test("^[0-9a-f]{4,40}$"))' "$record" 2>/dev/null) || since=""
+from=record
+[ -n "$since" ] || {
+  since=$(git -C "$src" rev-parse -q --verify "refs/remotes/origin/$branch^{commit}" 2>/dev/null) || since=""
+  [ -n "$since" ] ||
+    { echo "tehas review: $src has no origin/$branch, nothing was reviewed" >&2; exit 2; }
+  # The commit 7 days back on the branch, or its root when every commit of it
+  # is younger than that: rev-list reads the branch newest first and answers
+  # the first commit older than the date, and the root when there is none.
+  older=$(git -C "$src" rev-list -1 --before="$days.days ago" "$since" 2>/dev/null) || older=""
+  [ -n "$older" ] || older=$(git -C "$src" rev-list --max-parents=0 "$since" 2>/dev/null | tail -n 1)
+  if [ -n "$older" ] && [ "$older" != "$since" ]; then
+    since=$older
+    from="$days days"
+  else
+    from=root
+  fi
+}
+# The head the record gets: the tip of the branch the clone is made at.
+head=$(git -C "$src" rev-parse -q --verify "refs/remotes/origin/$branch^{commit}") ||
+  { echo "tehas review: $src has no origin/$branch, nothing was reviewed" >&2; exit 2; }
+
+# A fresh workspace for this run, as a cycle's turn gets one. Only a directory
+# tehas made is ever removed.
+works=$(dirname "$tree")
+if [ -e "$works" ] && [ ! -f "$works/.tehas-workspaces" ]; then
+  echo "tehas review: $works exists and was not made by tehas, not touching it" >&2
+  exit 78
+fi
+if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces" && rm -rf "$tree" "$container" &&
+  tehas_sandbox_clone "$src" "$tree" "$branch"; }; then
+  echo "tehas review: could not make the workspace $tree, not starting a review" >&2
+  exit 78
+fi
+
+# The run's own copy of the host's code index, asked for only once this run
+# will start: a run that never began leaves no copy behind.
+tehas_sandbox_seed "$container" "$index" ||
+  echo "tehas review: the code index could not be copied into $container/cache, this run searches without one"
+# The mounts name directories that only exist now.
+mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$repo" "$tree" "$container" "$runs")
+[ "${#mounts[@]}" -gt 0 ] ||
+  { echo "tehas review: could not prepare the sandbox, not starting a review" >&2; exit 78; }
+
+# A container under this name outlived the client that started it. The timer
+# runs one review at a time, so it is no review's: left, it idles for ever and
+# Docker would refuse the name.
+docker rm -f "$name" >/dev/null 2>&1
+user="$(id -u):$(id -g)"
+# The log's directory is made by the run that writes a log.
+mkdir -p "$(dirname "$log")" ||
+  { echo "tehas review: could not make $(dirname "$log"), not starting a review" >&2; exit 78; }
+echo "tehas review: $branch from ${since:0:12} ($from), log $log"
+docker run --rm --init --name "$name" \
+  "${TEHAS_SLICE_LIMITS[@]}" "${sec[@]}" --user "$user" \
+  -w "$repo" "${mounts[@]}" \
+  "${envs[@]}" "${hosts[@]}" \
+  "$image" "$runner" lens-review --since "$since" --json </dev/null >"$doc" 2>"$log" &
+pid=$!
+started=$(date +%s)
+trap 'docker stop -t 10 "$name" >/dev/null 2>&1' TERM INT
+
+timed_out=0
+while kill -0 "$pid" 2>/dev/null; do
+  if [ $(($(date +%s) - started)) -ge "$limit" ]; then
+    echo "tehas review: time limit of ${limit}s passed"
+    timed_out=1
+    docker stop -t 20 "$name" >/dev/null 2>&1
+    break
+  fi
+  sleep 1
+done
+wait "$pid" 2>/dev/null
+rc=$?
+[ "$timed_out" = 0 ] || rc=124
+
+rm -rf "$tree" "$container" || echo "tehas review: could not remove the workspace $tree" >&2
+if [ "$rc" = 124 ]; then
+  echo "tehas review: the run ran out of time, see $log"
+  exit 2
+fi
+
+# The record moves on only for the exits that mean the reviewer answered.
+# Anything else leaves the file exactly as it was, so the same range is read
+# again.
+case "$rc" in
+  0 | 10 | 20) ;;
+  *)
+    echo "tehas review: branch=$branch runner_exit=$rc recorded=no, see $log"
+    [ "$rc" = 0 ] || exit 2
+    ;;
+esac
+mkdir -p "$(dirname "$record")" ||
+  { echo "tehas review: could not make $(dirname "$record"), the record of what was reviewed is unchanged" >&2; exit 2; }
+if ! jq -n --arg commit "$head" --arg at "$(date -u +%FT%TZ)" --argjson rc "$rc" \
+  '{commit: $commit, at: $at, exit: $rc}' >"$record.new" ||
+  ! mv "$record.new" "$record"; then
+  rm -f "$record.new"
+  echo "tehas review: could not write $record, the record of what was reviewed is unchanged" >&2
+  exit 2
+fi
+echo "tehas review: branch=$branch from=${since:0:12} to=${head:0:12} runner_exit=$rc recorded=yes seconds=$(($(date +%s) - started))"
+exit "$rc"
