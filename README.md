@@ -134,13 +134,14 @@ more than one repository from one host.
 ## Working on tehas
 
 ```
-scripts/verify.sh          # lint, shellcheck, the shell tests, the console's tests where cargo is
-scripts/verify.sh --full   # plus the console's format and lints (rustfmt, clippy) and the front page's tests (node)
+scripts/verify.sh          # the lint, shellcheck, the shell tests, the workspace's tests, the front page's tests where node is
+scripts/verify.sh --full   # plus the workspace's format and lints (rustfmt, clippy); a missing node fails
 ```
 
-The tests need bash, git, jq and shellcheck. They use no network and no sandbox
-image. The full gate also needs cargo and node, and cargo fetches the console's
-crates the first time. The rules for changes are in [`AGENTS.md`](AGENTS.md).
+The gate needs bash, git, jq, shellcheck and cargo; the full gate also needs
+node. It uses no network and no sandbox image, except that cargo fetches the
+workspace's crates the first time. The rules for changes are in
+[`AGENTS.md`](AGENTS.md).
 
 GitHub Actions runs the fast gate, `scripts/verify.sh`, on every pull request
 and on every push to main: the `verify` check, from

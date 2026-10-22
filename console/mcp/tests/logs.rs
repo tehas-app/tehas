@@ -433,7 +433,11 @@ fn the_id_is_checked_before_a_place_and_the_snapshot() {
     let a = acquire().unwrap();
     let b = acquire().unwrap();
     for id in ["../x", "work-01-123456789", ""] {
-        match call(&dirs, "factory_log", &json!({"id": id, "file": "transcript"})) {
+        match call(
+            &dirs,
+            "factory_log",
+            &json!({"id": id, "file": "transcript"}),
+        ) {
             Err(ToolError::BadArgs(why)) => assert_eq!(why, "id is like work-12-1792485967"),
             other => panic!("{id:?}: {other:?}"),
         }

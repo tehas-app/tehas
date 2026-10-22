@@ -2710,8 +2710,8 @@ Run them by hand from the root of a clone of the product. For the example
 product:
 
 ```
-scripts/verify.sh          # fast: the lint, shellcheck, the shell tests, the console's tests where cargo is
-scripts/verify.sh --full   # plus the console's format and lints (rustfmt, clippy) and the front page's tests (node)
+scripts/verify.sh          # fast: the lint, shellcheck, the shell tests, the workspace's tests, the front page's tests where node is
+scripts/verify.sh --full   # plus the workspace's format and lints (rustfmt, clippy); a missing node fails
 ```
 
 When the shellcheck step refuses a file, the severity floor it runs at and the
