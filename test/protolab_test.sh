@@ -588,4 +588,15 @@ t_run "$protolab"
 t_contains "$(cat "$site/48/index.html")" '<iframe src="files/solo.html"'
 t_contains "$(cat "$site/48/index.html")" 'href="files/solo.css"'
 
+t_case "comments past the limit of one argument are read"
+reset
+net "$F/21/proto.html" "<h1>proto</h1>"
+issues "$(issue 8 'Long thread' 'no files' OWNER 100)"
+# 100 comments of 2 KB: over 128 KiB, which no one argument can hold.
+jq -n --arg pad "$(head -c 2000 /dev/zero | tr '\0' x)" --arg link "$F/21/proto.html" \
+  '[range(100) | {author_association: "OWNER", body: (if . == 99 then "[proto.html](\($link))" else $pad end)}]' >"$fx/comments-8.json"
+t_run "$protolab"
+t_eq "$t_rc" 0
+t_eq "$(files_of 8)" "./proto.html "
+
 t_done

@@ -28,10 +28,17 @@ release workflow takes the release's page from its section
   `state/sizes.jsonl` does, the readers take a plain file of at most 1 MiB, and
   a stamp of a year past 2100 is refused before it can overflow the date
   arithmetic.
+- `tehas status` writes `live/status.json` on a repository with many issues.
+  The list of every issue went to `jq` as one argument, which Linux caps at
+  128 KiB, so `jq` failed unseen and the status said the dispatcher had written
+  no snapshot. The lists now go in as files, and a snapshot that cannot be
+  written says why on standard error. The health file reads a big snapshot,
+  and the protolab long comment threads and many tickets, the same way.
 
 ### Adopter action
 
-- None.
+- Run `tehas update` on a host that shows "No queue snapshot yet" with a long
+  issue list.
 
 ## v0.10.0 (2026-10-22)
 
