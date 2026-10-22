@@ -1,6 +1,6 @@
 # ADR: the host's state in SQLite, the dispatcher as a reconciler
 
-**Status**: Proposed, 2026-10-21. A person accepts it before #246 starts.
+**Status**: Accepted, 2026-10-22.
 
 Design record for epic #244. The companion document, with the inventory, the
 schema, the verbs, the journal, the snapshot, the import and the baselines, is
