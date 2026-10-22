@@ -445,6 +445,18 @@ done
 for f in analytics-cmd api check-product clean cycle dev dev-login dispatch drain energy export health history improve index init-product labels limit mcp pause plan preview protolab refresh resume setup status stop summary tidy top top-publish update work; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
+# The polyfills of pi-rukas features (scripts/polyfills.sh) are a glob, not a
+# list: which ones the tree carries changes when upstream releases one, and a
+# name in a list is one more thing an install can be missing.
+# tehas_headless_mode (lib/headless.sh) reads a polyfill beside the
+# headless.sh it was sourced from, so a host that never got the file answers
+# `off` for a feature this checkout answers `polyfill` for. nullglob: a tree
+# with none adds nothing.
+shopt -s nullglob
+for f in "$root"/lib/polyfill-*.sh; do
+  files+=("lib/${f##*/}|$TEHAS_HOME/lib/${f##*/}|644")
+done
+shopt -u nullglob
 
 # What the instance's own sandbox file was at the last install, or nothing when
 # the host has never had one, or has one no install has seen yet. Read before the
