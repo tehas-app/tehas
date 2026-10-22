@@ -3499,8 +3499,12 @@ of every file, and the names of particular installations out of every file,
 `docs/` included. The names come from `scripts/check-generic.names`, a list
 each working machine keeps for itself: git ignores it and it is read as data.
 An `allow <path prefix>` line in the list exempts paths from the names, not
-from the address rule. Without the list the lint says `check-generic: no names
-list, names not checked` and checks addresses only. With `--messages
+from the address rule. The names are matched against file paths too, and a
+match is reported as `<path>: path names a listed name`. Without the list the
+lint says `check-generic: no names list, names not checked` and checks
+addresses only. With `--names-only` the address rule is skipped, for an
+infrastructure repository that must hold addresses; names are still checked,
+and without a list it exits 0 after saying so. With `--messages
 <rev-range>` it also checks the commit messages of the range and the branch
 name (`GITHUB_HEAD_REF`, else the current branch) against the names. The
 verify workflow writes the list from the `GENERIC_NAMES` secret when it has
