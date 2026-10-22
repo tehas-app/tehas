@@ -325,6 +325,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/headless.sh"
 # shellcheck source=lib/private.sh
 . "$here/../lib/private.sh"
+# shellcheck source=lib/sizing.sh
+. "$here/../lib/sizing.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
 tehas_sandbox_settings_ok || exit 78
@@ -362,6 +364,9 @@ oom_file=$TEHAS_HOME/state/cycles/$issue.oom
 forks_file=$TEHAS_HOME/state/cycles/$issue.forks
 stall_file=$TEHAS_HOME/state/cycles/$issue.stalled
 timed_file=$TEHAS_HOME/state/cycles/$issue.timed
+# The ledger of the sizes tehas work records at an approved start, kept by
+# tehas_size_record (lib/sizing.sh), which says what it holds and how long.
+sizes_file=$TEHAS_HOME/state/sizes.jsonl
 # What the dispatcher approved, and the manifest of the last fetch, kept.
 record=$TEHAS_HOME/state/cycles/$issue.approved.json
 kept=$TEHAS_HOME/state/cycles/$issue.manifest.json
@@ -517,7 +522,9 @@ fi
 text_why="" # why this start stops, empty when the text is the approved one
 text_path="" # the record that could not be read, when that is the reason
 issue_now="" # the issue as GitHub answers for it now, read once for all of it
+measured=0 # 1 when this start had an approval record, and so a body to measure
 if tehas_record_is_file "$record"; then
+  measured=1
   # Bounded like every other call before the container: a network that swallows
   # this read must not hold the issue's lock and its slot for ever. gh's own
   # words go to $log.err, where a person can see which failure it was.
@@ -555,6 +562,21 @@ if [ -n "$text_why" ]; then
     --body "Tehas started no cycle: $text_why. To retry, apply \`tehas:ready\`." >/dev/null 2>&1 ||
     echo "tehas work: the comment on #$issue failed" >&2
   exit 4
+fi
+
+# What the cycle starts with, measured. Only a start that had the approval
+# record to check is measured: the body is the one in $issue_now, already read
+# above, so this asks GitHub nothing more, and a run by hand, which has no
+# approved body, records nothing. lib/sizing.sh says what the ledger is and
+# keeps it bounded. A line that cannot be written is one word on this command's
+# error stream: the measure is a record of the start, never a reason to stop
+# one.
+if [ "$measured" = 1 ]; then
+  mkdir -p "$(dirname "$sizes_file")" 2>/dev/null || true
+  size_body=$(jq -r 'if (.body | type) == "string" then .body else "" end' <<<"$issue_now" 2>/dev/null) || size_body=""
+  if ! tehas_size_record "$issue" "$size_body" "$sizes_file"; then
+    echo "tehas work: could not record the size of #$issue in $sizes_file ($tehas_size_why), starting the cycle all the same" >&2
+  fi
 fi
 
 # The issue's images, where the instance gives a cycle any. Before the

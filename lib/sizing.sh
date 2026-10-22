@@ -1,8 +1,8 @@
 # shellcheck shell=bash
 # The measure of one issue body: four counts, read off its own text. Sourced,
 # not run: the measure is one jq program over the body and asks nothing outside
-# it. Nothing consumes it yet; the dispatcher's hold and the analytics read it
-# later.
+# it. tehas work measures the body of an approved start and keeps the answer in
+# state/sizes.jsonl; nothing reads that ledger yet.
 #
 #   tehas_issue_size    stdin: one issue body as text. stdout: one compact
 #                       JSON object, one line, keys always in this order:
@@ -40,7 +40,8 @@
 #
 # Pure: no network, no git, no file opened but standard input, nothing written,
 # no setting read. It takes no argument and prints one line whatever it is
-# given: a body of nothing is a body of four zeros.
+# given: a body of nothing is a body of four zeros. It is bounded by the two
+# settings above, because the pass it makes is not free.
 #
 # Three cautions on the program below, all bash rather than jq. It is one
 # single-quoted argument, so no backtick may appear in it: the tick and the
@@ -53,8 +54,22 @@
 tehas_tick=$(printf "\140")
 tehas_fence=$(printf "\140\140\140")
 
+# The measure is bounded by two settings, an instance's to set, because the one
+# pass it makes costs more the more lines it reads and, on a line of its own,
+# the more bytes: TEHAS_SIZE_MAX_BYTES (131072) and TEHAS_SIZE_MAX_LINES
+# (1000). Neither bound alone holds the other's worst case, a body of one huge
+# line and a body of many short ones. The four counts are coarse, so a body
+# past either is measured from its front, and a truncation is no reason to stop
+# a start: the answer is still four numbers. Both bounds are set well below what
+# an issue's text holds in practice.
+#
+# One body, cut to its front on both bounds before jq reads a line of it. The
+# byte cut falls at a byte and so can split one character; jq replaces what it
+# then cannot decode, and no path, list item or heading spans a multi-byte
+# character.
 tehas_issue_size() {
-  jq -Rrs --arg tick "$tehas_tick" --arg fence "$tehas_fence" '
+  head -c "${TEHAS_SIZE_MAX_BYTES:-131072}" | head -n "${TEHAS_SIZE_MAX_LINES:-1000}" | \
+    jq -Rrs --arg tick "$tehas_tick" --arg fence "$tehas_fence" '
     def head: test("^#{1,6}[ \t]*[^ \t]");
     def under($re): test("^#{1,6}[ \t]*(?i)" + $re + "[ \t]*$");
     # What stands between two ticks on one line. Built from the argument: the
@@ -105,4 +120,74 @@ tehas_issue_size() {
     # order, and none of the body text in it.
     | tojson
   '
+}
+
+# The ledger of what an approved start measured: state/sizes.jsonl, one line
+# per start that had an approval to measure,
+# {at, issue, files, tests, deliverables, done_when}. tehas work is the only
+# writer; nothing reads it yet, so a line is kept for the reader that comes.
+#
+# tehas_size_record <issue> <body> <file>: the measure of <body>, keyed with
+# the time and the issue number, appended to <file>. The line is built in one
+# jq pass over the measure, and kept only when all four counts are there and
+# are numbers, so a measure that answered other than the four is no line rather
+# than a line of two keys. <file> is opened owner-only, whatever the umask, and
+# is written only when it is a plain file and no link there, the way
+# tehas_record_is_file reads the approval record. The ledger keeps the last 500
+# lines, as the cycle's history keeps 50: the file is one per instance, not one
+# per issue.
+#
+# Needs tehas_record_is_file, which lib/attachments.sh gives.
+#
+# A line that cannot be written is one word on this command's error stream and
+# 1: the measure is a record of the start, never a reason to stop one.
+# $tehas_size_why then says which step gave up, in one word.
+tehas_size_why=""
+# shellcheck disable=SC2034  # the caller reads what this sets
+tehas_size_record() { # <issue> <body> <ledger>
+  local size line wrote=0 trimmed=0 before
+  tehas_size_why=""
+  # The measure, then the line it becomes: the four counts and the two keys
+  # that say when and of which issue.
+  size=$(tehas_issue_size <<<"${2:-}" 2>/dev/null) || size=""
+  line=$(jq -cn --arg at "$(date -u +%FT%TZ)" --argjson issue "$1" --argjson s "$size" \
+    '$s | {at: $at, issue: $issue} + {
+      files: (.files | select(type == "number")),
+      tests: (.tests | select(type == "number")),
+      deliverables: (.deliverables | select(type == "number")),
+      done_when: (.done_when | select(type == "number"))}' 2>/dev/null) || line=""
+  if [ -z "$line" ]; then tehas_size_why=measure; return 1; fi
+  # What may be written to: a plain file and no link, the rule
+  # tehas_record_is_file gives for the approval record. A path that is nothing
+  # yet is the ledger's first line, and is made here, owner-only.
+  if [ -e "$3" ] || [ -L "$3" ]; then
+    tehas_record_is_file "$3" || { tehas_size_why=ledger; return 1; }
+  else
+    wrote=1
+    (umask 077; : >>"$3") 2>/dev/null || { tehas_size_why=ledger; return 1; }
+  fi
+  # The write is judged by what the file ends with and by how many lines it
+  # holds, not by what the redirect reported: a shell swallows a redirect's own
+  # error, and the line already there is one fewer than the file holds once
+  # this one is on it.
+  before=$(wc -l <"$3" 2>/dev/null)
+  (umask 077; printf '%s\n' "$line" >>"$3") 2>/dev/null
+  if [ "$(tail -n 1 "$3" 2>/dev/null)" != "$line" ] ||
+    [ "$(wc -l <"$3" 2>/dev/null)" != "$(( ${before:-0} + 1 ))" ]; then
+    # Only a file this call made is removed: a ledger it could not add to keeps
+    # what it holds.
+    if [ "$wrote" = 1 ]; then rm -f "$3" 2>/dev/null; fi
+    tehas_size_why=ledger
+    return 1
+  fi
+  # The ledger keeps the last 500 lines, as the cycle's history keeps 50: the
+  # file is one per instance, not one per issue. A trim that cannot be made
+  # leaves the ledger a line longer, which is no loss of a start.
+  if [ "$(wc -l <"$3" 2>/dev/null)" -gt 500 ]; then
+    tail -n 500 "$3" >"$3.new" 2>/dev/null && mv "$3.new" "$3" 2>/dev/null || trimmed=1
+  fi
+  if [ "$trimmed" = 1 ]; then
+    tehas_size_why=ledger
+    return 1
+  fi
 }

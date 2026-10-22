@@ -215,6 +215,13 @@ _tehas_valid() {
     TEHAS_CLEAN_AFTER)
       [[ $v =~ ^[1-9][0-9]{0,4}$ ]] || { echo "expected a whole number of hours of at least 1"; return 1; }
       ;;
+    # What tehas work measures of an approved body, and no further: the two
+    # bounds of lib/sizing.sh. Each holds what the other leaves unbounded, a
+    # body of one huge line and a body of many short ones, so both are settings
+    # and both must be usable numbers.
+    TEHAS_SIZE_MAX_BYTES | TEHAS_SIZE_MAX_LINES)
+      [[ $v =~ ^[1-9][0-9]{0,7}$ ]] || { echo "expected a whole number of at least 1"; return 1; }
+      ;;
     TEHAS_CLEAN_DIRS)
       # Names, not paths: the cleaner matches them with find -name, and a name
       # with a slash, a bare dot, or one of the two dot-names a workspace keeps
@@ -456,6 +463,10 @@ tehas_load() {
   # its name to this list, it does not replace it.
   export TEHAS_CLEAN_AFTER=${TEHAS_CLEAN_AFTER:-24}
   export TEHAS_CLEAN_DIRS=${TEHAS_CLEAN_DIRS:-$(_tehas_clean_dirs_default)}
+  # The two bounds of the measure tehas work makes of an approved body, in
+  # bytes and in lines (lib/sizing.sh).
+  export TEHAS_SIZE_MAX_BYTES=${TEHAS_SIZE_MAX_BYTES:-131072}
+  export TEHAS_SIZE_MAX_LINES=${TEHAS_SIZE_MAX_LINES:-1000}
   # The factory's own 365 days of runs, events and samples in
   # state/analytics.db (lib/analytics.sh), not the visitor analytics above.
   # On unless the instance says off, which stops every write.
@@ -568,7 +579,7 @@ tehas_load() {
   # optional one an instance left out is checked only when it is there, as
   # TEHAS_BUILD_TIMEOUT is: its default belongs to the command that reads it.
   for v in TEHAS_THEME TEHAS_LAYOUT TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_WORK_DESCRIBE TEHAS_WORK_FILES TEHAS_WORK_COMMENTS TEHAS_WORK_ZIPS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_TOP TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
-    TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_LOW_GATE_WAIT TEHAS_CLEAN_AFTER; do
+    TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_LOW_GATE_WAIT TEHAS_CLEAN_AFTER TEHAS_SIZE_MAX_BYTES TEHAS_SIZE_MAX_LINES; do
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
   # The bound install.sh puts on one cargo build. Its default belongs to
