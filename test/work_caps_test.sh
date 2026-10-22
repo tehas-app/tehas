@@ -488,6 +488,29 @@ t_lacks "$(cat "$T"/calls/docker.args.*)" "--privileged"
 t_lacks "$(cat "$T"/calls/docker.args.*)" "--net=host"
 t_lacks "$(cat "$T"/calls/docker.args.*)" "--network host"
 
+# The credential helper git is given, by name and by value: the container's
+# entry, the key tehas setup asks the host's git about, and the command the gh
+# stub of test/setup_test.sh writes are one contract in lib/sandbox.sh, so a
+# change to its spelling that only one of the three follows fails here. The
+# value is not a secret: it is a command on PATH, and the host's operator's own
+# helper is the only value that is withheld, in libexec/setup.
+t_case "the helper a container's git runs is the one key and the one command"
+t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; printf '%s\n' \"\$(tehas_git_github_host)\" \"\$(tehas_git_credential_helper_key)\" \"\$(tehas_sandbox_helper_command)\""
+t_eq "$t_rc" 0
+t_eq "$(printf '%s\n' "$t_out")" "github.com
+credential.https://github.com.helper
+!gh auth git-credential"
+
+# The container's own entries, read off the docker options of the cycle the
+# cases above started: the name on one line and its value on the next, the way
+# docker reads them. The first value is empty on purpose - the entry that ends
+# any list an operator's file left before it - so the empty line is matched
+# against the name itself rather than read back as nothing.
+t_eq "$(after -e | sed -n 's/^GIT_CONFIG_KEY_0=//p')" "credential.https://github.com.helper"
+t_eq "$(after -e | sed -n 's/^GIT_CONFIG_KEY_1=//p')" "credential.https://github.com.helper"
+t_eq "$(after -e | sed -n 's/^GIT_CONFIG_VALUE_1=//p')" "!gh auth git-credential"
+t_eq "$(after -e | grep -c '^GIT_CONFIG_VALUE_0=$')" 1
+
 t_case "host aliases become --add-host entries"
 t_contains "$(cycle_args)" "--add-host=models:192.0.2.9"
 
