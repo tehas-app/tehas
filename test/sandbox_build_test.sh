@@ -11,7 +11,8 @@
 home=$T/home/tehas
 mkdir -p "$home/sandbox" "$home/lib"
 cp "$T_ROOT/host/sandbox/build.sh" "$home/sandbox/"
-cp "$T_ROOT/lib/headless.sh" "$T_ROOT/lib/rukas.sh" "$T_ROOT/lib/config.sh" "$home/lib/"
+cp "$T_ROOT/lib/headless.sh" "$T_ROOT/lib/rukas.sh" "$T_ROOT/lib/config.sh" \
+  "$T_ROOT/lib/sandbox.sh" "$T_ROOT/lib/models.sh" "$home/lib/"
 cp "$T_ROOT/host/versions.env" "$home/"
 sed -i 's#^PI_RUKAS_REPO=.*#PI_RUKAS_REPO=https://github.com/Up-Owner/pi-rukas.git#' "$home/versions.env"
 build=$home/sandbox/build.sh
@@ -504,6 +505,20 @@ t_run "$build"
 t_eq "$t_rc" 0
 t_contains "$(t_calls docker)" "image ls --no-trunc --format {{.Tag}} {{.ID}} tehas/pi-rukas"
 rm -f "$T/instance/sandbox.Dockerfile"
+
+t_case "a dated tag a container was made from is kept, and the count says so"
+reset
+# The same sweep, with a container in the way: the uid tag names an image the
+# unit ran, so that image stays even though three older builds sit behind it,
+# and the line says what kept it. It is the held set, not the count, that saves
+# the newest-used image, and this is where the sweep says so.
+fx_ids
+printf '%s\n' "uid$uid sha256:1" "261009-1000 sha256:1" "261009-1000-product sha256:2" \
+  "261010-1000 sha256:3" "261011-1000 sha256:4" >"$fx/images"
+printf '%s\n' "uid$uid sha256:1" >"$fx/containers"
+t_run "$build"
+t_eq "$t_rc" 0
+t_contains "$t_out" "kept tehas/pi-rukas:261009-1000: a container or a uid tag uses it"
 
 t_case "an instance directory with no sandbox.Dockerfile in it is no second build"
 reset
