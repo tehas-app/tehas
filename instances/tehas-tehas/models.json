@@ -2,9 +2,9 @@
   "providers": {
     "fleet": {
       "api": "openai-completions",
-      "baseUrl": "https://b200-1.trailopeners.com/v1",
+      "baseUrl": "https://models.example.org/v1",
       "apiKey": "$TEHAS_MODEL_KEY_MAIN",
-      "backupBaseUrl": "https://fleet.256.fi/v1",
+      "backupBaseUrl": "https://backup.models.example.org/v1",
       "backupApiKey": "$TEHAS_MODEL_KEY_FLEET",
       "compat": {
         "supportsDeveloperRole": false,
