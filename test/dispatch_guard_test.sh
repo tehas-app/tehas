@@ -459,7 +459,7 @@ refresh_request() {
     closingIssuesReferences: {totalCount: 1, nodes: [{number: 7, state: "OPEN",
       labels: {nodes: [{name: "tehas:awaiting-merge"}]},
       closedByPullRequestsReferences: {nodes: [{number: 50, state: "OPEN"}]}}]}}}}}' >"$fx/pull-50.json"
-  echo '{"verbs":{"work":{"flags":["--json","--timeout","--restart","--continue-pr"]}}}' >"$fx/caps.json"
+  echo '{"verbs":{"work":{"flags":["--json","--timeout","--restart","--continue-pr"]}},"features":{"continuePr":true}}' >"$fx/caps.json"
   jq -nc --arg sum "$WSUM" '{at: "2026-10-01T00:00:00Z", by: "alice", how: "label",
     body_sha256: $sum, links: []}' >"$approved_file"
 }
