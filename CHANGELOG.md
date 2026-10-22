@@ -13,7 +13,10 @@ empty one above it.
 
 ### Changes
 
-- None yet.
+- `tehas check-product --sandbox` runs the gates on a work branch one empty
+  commit past the default branch, as a cycle's gate runs on its own branch. A
+  gate that refuses to certify a diff of HEAD against itself, such as a
+  file-size ratchet, no longer fails `tehas setup` at the default branch's tip.
 
 ### Adopter action
 
