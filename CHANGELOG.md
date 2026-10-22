@@ -19,6 +19,25 @@ empty one above it.
 
 - None.
 
+## v0.10.3 (2026-10-22)
+
+### Changes
+
+- `tehasbot clean` removes every old `sha-` tag of the base image's
+  repository, not only the one the pin names, so each `tehas update` no longer
+  leaves another base image behind. The current base, a base a container was
+  made from and a base a kept sandbox tag stands on are kept.
+- A `tehas:refine` planning turn is told that the issue it discusses is the
+  one its plan replaces, so it no longer parks itself at its first turn as a
+  duplicate.
+- `tehas update` gives its lock only to `install.sh`. A child that outlived the
+  update kept the lock, and the next update said another update was running.
+
+### Adopter action
+
+- None. The first `tehasbot clean` after the update removes the old base
+  images that earlier updates left behind, several GB each.
+
 ## v0.10.2 (2026-10-22)
 
 ### Changes
