@@ -5,10 +5,7 @@ updating to it. Newest first. A release's section is `## vX.Y.Z (YYYY-MM-DD)`
 with `### Changes` and `### Adopter action`; "None." is a valid action.
 `scripts/tag-release.sh` refuses to tag without an Adopter action, and the
 release workflow takes the release's page from its section
-(`scripts/release-notes.sh`). Work in progress goes under `## Unreleased`; a
-person renames it to the version in the release's pull request.
-
-## Unreleased
+(`scripts/release-notes.sh`). Work in progress goes under `## Unreleased
 
 ### Changes
 
@@ -17,6 +14,46 @@ person renames it to the version in the release's pull request.
 ### Adopter action
 
 - None.
+
+## v0.10.0 (2026-10-22)
+
+### Changes
+
+- The cleaner removes images too: the sandbox image's dated tags older than
+  `TEHAS_CLEAN_AFTER` hours, keeping the newest and any a container or the
+  `uid` tag holds, and the pulled base image of that age, by its own name. No
+  volume is removed, no image a container was made from, and no preview image.
+- A zip linked in an issue reaches the cycle with `TEHAS_WORK_ZIPS=1`, which
+  needs `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`: at most 2 archives of
+  4 MB each, every file in them checked as a linked file is.
+- With `TEHAS_SIZE_MAX_FILES` set, the dispatcher holds a `tehas:ready` issue
+  whose approved body names more files than that: the label comes off,
+  `needs-human-attention` goes on, one comment says why. Unset, nothing changes.
+- A cycle's start records the size of its approved body in
+  `~/tehas/state/sizes.jsonl`; `TEHAS_SIZE_MAX_BYTES` and
+  `TEHAS_SIZE_MAX_LINES` bound the measure. Nothing reads the ledger yet.
+- `tehas setup` gives the host's git the gh credential helper for github.com,
+  so a private product is reachable by plain git.
+- `install.sh` builds the programs with cargo `--offline` first and fetches
+  only when a crate is missing from the cache.
+- The MCP server's live-file tools (`factory_status`, `factory_issues`,
+  `factory_endings`, `factory_console`, `factory_stats`) describe their output
+  and every input in `tools/list`.
+- The analytics program opens a new database safely from several processes at
+  once.
+- The console, the analytics program and the MCP server are one cargo
+  workspace.
+
+### Adopter action
+
+- The cleaner now removes old sandbox tags and the pulled base image. A host
+  that disabled `tehas-clean.timer` while waiting for this can enable it
+  again: `systemctl --user enable --now tehas-clean.timer`. A dated tag older
+  than `TEHAS_CLEAN_AFTER` hours (24 by default) is no longer there to roll
+  back to; the `release-<version>` tags stay.
+- `TEHAS_WORK_ZIPS`, `TEHAS_SIZE_MAX_FILES`, `TEHAS_SIZE_MAX_BYTES` and
+  `TEHAS_SIZE_MAX_LINES` are new optional settings; see
+  `instances/example/optional.env` and the manual. Nothing changes until set.
 
 ## v0.9.0 (2026-10-21)
 
