@@ -129,7 +129,7 @@ case " $* " in
   # written here: this body reaches t_stub single-quoted and the escape would
   # reach printf as a letter.
   seen=""
-  for prev in "$@"; do case " $seen " in *" --since "*) printf '%s' "$prev" >"$T/calls/since.seen" ;; esac; seen=$prev; done
+  for prev in "$@"; do case " $seen " in *" --since "*) printf "%s" "$prev" >"$T/calls/since.seen" ;; esac; seen=$prev; done
   ws='"$T"'/home/tehas/work/widget-review
   # The status this stub answers: recorded so a case can tell a command that
   # read the exit of the container from one that answered the number of its
@@ -137,7 +137,7 @@ case " $* " in
   # which drops the trailing line, so no escape of a newline is written here -
   # this body is carried to t_stub single-quoted, and an escape would reach
   # printf as a letter.
-  printf '%s' "$(cat "$T/fx/doc.rc" 2>/dev/null || echo 0)" >"$T/calls/runner.rc"
+  printf "%s" "$(cat "$T/fx/doc.rc" 2>/dev/null || echo 0)" >"$T/calls/runner.rc"
   git -C "$ws" rev-parse HEAD >"$T/calls/head.seen" 2>&1
   git -C "$ws" status --porcelain >"$T/calls/tree.status" 2>&1
   cat "$T/fx/doc.json" 2>/dev/null
