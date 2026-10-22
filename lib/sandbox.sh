@@ -17,6 +17,9 @@
 #   tehas_sandbox_seed <state> [<index dir>]  give <state> the host's code index
 #   tehas_sandbox_cache_dir                   where a container has that copy
 #   tehas_index_dir                           where the host keeps the index
+#   tehas_git_github_host                     the github.com host git authenticates to
+#   tehas_git_credential_helper_key           the config key of that host's helper
+#   tehas_sandbox_helper_command              the helper command a container's git runs
 #   tehas_sandbox_hosts                       the --add-host options
 #   tehas_sandbox_security                    the options that take privileges
 #                                             away from a container
@@ -64,6 +67,24 @@ tehas_sandbox_cache_dir() { printf '%s\n' /home/vscode/.tehas-cache; }
 # given it itself. Derived from TEHAS_HOME, not a setting.
 tehas_index_dir() { printf '%s\n' "$TEHAS_HOME/state/index"; }
 
+# The github.com host, and the git config key that names its credential
+# helper. Two things read that key: the probe of tehas setup, which asks the
+# host's git whether it has a helper, and the environment-level config below,
+# which is what a container's git is given. A change here (another host,
+# another subsection spelling) moves both; no other github.com of the platform
+# is named by these.
+tehas_git_github_host() { printf '%s\n' github.com; }
+tehas_git_credential_helper_key() {
+  local h
+  h=$(tehas_git_github_host)
+  printf '%s\n' "credential.https://$h.helper"
+}
+
+# The command a container's git runs to ask gh for a credential, read out of
+# GH_TOKEN. The host's gh is asked to write the same one; the test of that
+# write and the container's entry read it here.
+tehas_sandbox_helper_command() { printf '%s\n' '!gh auth git-credential'; }
+
 # The same variables as the pi-rukas wrapper sets, without the host's whole
 # environment: the bot token by name, the PI_ENSEMBLE_* settings, and git's
 # configuration. And the model endpoints' tokens models.json names, by name:
@@ -76,12 +97,13 @@ tehas_index_dir() { printf '%s\n' "$TEHAS_HOME/state/index"; }
 # outranks any file, reaches every agent process, and writes nothing into the
 # tree.
 tehas_sandbox_env() { # <tree> <git name> <git email>
-  local tree=$1 name=$2 email=$3 var
+  local tree=$1 name=$2 email=$3 var key
+  key=$(tehas_git_credential_helper_key)
   local envs=(-e GH_TOKEN -e PI_ENSEMBLE_SANDBOX_MODE=1 -e "PI_ENSEMBLE_WORKSPACE_ROOT=$tree"
     -e "CBM_CACHE_DIR=$(tehas_sandbox_cache_dir)")
   envs+=(-e GIT_CONFIG_COUNT=4
-    -e "GIT_CONFIG_KEY_0=credential.https://github.com.helper" -e "GIT_CONFIG_VALUE_0="
-    -e "GIT_CONFIG_KEY_1=credential.https://github.com.helper" -e "GIT_CONFIG_VALUE_1=!gh auth git-credential"
+    -e "GIT_CONFIG_KEY_0=$key" -e "GIT_CONFIG_VALUE_0="
+    -e "GIT_CONFIG_KEY_1=$key" -e "GIT_CONFIG_VALUE_1=$(tehas_sandbox_helper_command)"
     -e "GIT_CONFIG_KEY_2=user.name" -e "GIT_CONFIG_VALUE_2=$name"
     -e "GIT_CONFIG_KEY_3=user.email" -e "GIT_CONFIG_VALUE_3=$email"
     -e GIT_TERMINAL_PROMPT=0)
