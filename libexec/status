@@ -54,7 +54,8 @@
 # waiting for a human or waiting to be merged.
 #
 # Usage: tehasbot status          (prints nothing but an ignored all-hands label,
-#                                 once, and analytics warnings, on standard
+#                                 once, analytics warnings and a WARN line when
+#                                 the snapshot cannot be written, on standard
 #                                 error; exit 0 even when GitHub is down,
 #                                 the previous file is then left in place;
 #                                 exit 78 when the instance settings are invalid)
@@ -342,13 +343,17 @@ if [ "$TEHAS_ANALYTICS" = on ]; then
   [ -n "$before" ] || before=null
 fi
 
+# GitHub's lists go in as files: one argument is at most 128 KiB on Linux, and
+# the list of every issue is more than that on a big repository.
 written=0
-jq -n --argjson issues "$issues" --argjson shipped "$shipped" --argjson paused "$paused" --argjson everything "$everything" \
+jq -n --slurpfile issues <(printf '%s' "$issues") --slurpfile shipped <(printf '%s' "$shipped") \
+  --slurpfile everything <(printf '%s' "$everything") --argjson paused "$paused" \
   --argjson noResources "${no_resources:-false}" --argjson pauseFlag "$pause_flag" --argjson flagPaused "$flag_paused" \
   --argjson lifted "$lifted" --argjson allHands "$all_hands" \
   --arg control "$control" \
   --arg repo "$repo" --arg now "$(date -u +%FT%TZ)" '
-  def has($l): (.labels | map(.name) | index($l)) != null;
+  $issues[0] as $issues | $shipped[0] as $shipped | $everything[0] as $everything
+  | def has($l): (.labels | map(.name) | index($l)) != null;
   def slim: {number, title, url, updatedAt, closedAt};
   def listurl($q): "https://github.com/\($repo)/issues?q=" + ($q | @uri);
   # The control issue holds the pause label and no outcome. It is not work, so
@@ -382,7 +387,12 @@ jq -n --argjson issues "$issues" --argjson shipped "$shipped" --argjson paused "
                    | scan("[a-z][a-z0-9-]{2,}")]
                   | group_by(.) | map({word: .[0], count: length})
                   | sort_by(-.count, .word) | .[:100])
-    } end)' >"$live/status.json.new" 2>/dev/null && mv "$live/status.json.new" "$live/status.json" && written=1
+    } end)' >"$live/status.json.new" 2>"$live/status.json.err" && mv "$live/status.json.new" "$live/status.json" && written=1
+if [ "$written" = 0 ]; then
+  log "WARN status.json not written: $(head -n 1 "$live/status.json.err")"
+  rm -f "$live/status.json.new"
+fi
+rm -f "$live/status.json.err"
 
 for n in $(jq -r '.[] | select(.labels | index("tehas:shipped") | not) | .number' <<<"$shipped"); do
   gh issue edit "$n" --repo "$repo" --add-label tehas:shipped >/dev/null 2>&1 || true
@@ -401,8 +411,10 @@ done
 # run compares with this snapshot and does not try it again.
 record_events() {
   local list n event at stop
-  list=$(jq -r --argjson before "$before" --argjson issues "$issues" --arg control "$control" '
-    def nums($k): [.[$k] | arrays | .[] | objects | .number | numbers];
+  list=$(jq -r --slurpfile before <(printf '%s' "$before") --slurpfile issues <(printf '%s' "$issues") \
+    --arg control "$control" '
+    $before[0] as $before | $issues[0] as $issues
+    | def nums($k): [.[$k] | arrays | .[] | objects | .number | numbers];
     def recent: .closedAt | strings | (try fromdateiso8601 catch null) | numbers
       | select(. >= now - 864000) | floor;
     def new($k; $s): ($s | nums($k)) - ($before | nums($k)) | .[] | "\(.) \($k)";

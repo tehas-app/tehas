@@ -161,6 +161,27 @@ t_run "$status"
 t_eq "$(jq -r '.buzzwords | length' "$live/status.json")" 100
 t_eq "$(jq -c '.buzzwords[0]' "$live/status.json")" '{"word":"word0","count":150}'
 
+t_case "a list of every issue past the limit of one argument still gives a snapshot"
+reset
+# 1500 titles of 100 characters: over 128 KiB, which no one argument can hold.
+jq -n '[range(1500) | {title: ("word\(.) " + ("x" * 100)), labels: [{name: "bug"}]}]' >"$T/all.json"
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$(jq -r '.buzzwords | length' "$live/status.json")" 100
+t_eq "$(jq -r '.queued | length' "$live/status.json")" 2
+
+t_case "a queue snapshot past the limit of one argument still gives a health file"
+reset
+# 800 issues in line with titles of 200 characters: a status.json over 128 KiB.
+jq -n '[range(800) | {number: (. + 100), title: ("t\(.) " + ("x" * 200)), state: "OPEN",
+  url: "https://github.com/acme/widget/issues/\(. + 100)", updatedAt: "2026-10-22T00:00:00Z",
+  closedAt: null, labels: [{name: "tehas:ready"}]}]' >"$T/issues.json"
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$(( $(wc -c <"$live/status.json") > 131072 ))" 1
+t_eq "$(jq -r .status "$live/health.json")" pass
+t_eq "$(jq -r .checks.queue.inLine "$live/health.json")" 800
+
 t_case "without the list of every issue the snapshot is written with no words"
 reset
 : >"$T/all-down"
