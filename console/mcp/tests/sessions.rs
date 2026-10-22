@@ -228,7 +228,11 @@ fn paging() {
 
 #[test]
 fn a_missing_before_names_the_snapshot_days() {
-    let env = Env::new("before-days", Some("a/b"), &[sess("work", 1, 60, json!({}))]);
+    let env = Env::new(
+        "before-days",
+        Some("a/b"),
+        &[sess("work", 1, 60, json!({}))],
+    );
     let path = env.dirs.sessions.join("sessions.jsonl");
     let text = std::fs::read_to_string(&path).unwrap();
     std::fs::write(&path, text.replacen("\"days\":30", "\"days\":7", 1)).unwrap();
