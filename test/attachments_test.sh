@@ -286,15 +286,22 @@ zips=$T_ROOT/test/fixtures/work-zips
 # here rather than committed, as the committed fixtures hold the archives of #431
 # and are not touched by these cases. The bytes of an entry are those of the png
 # every other link of these cases is answered with, so the one printf serves for
-# all three. The name is one no other case of this file uses.
+# all three. The name is one no other case of this file uses. python3 writes
+# it, as test/fixtures/protolab/make-zips.sh writes the archives zip cannot, so
+# these cases still ask no zip tool.
 fakezip=$T/pngbytes.zip
 fake_archive() { # the two entries, one of png bytes and one of the same bytes named .html
-  rm -rf "$T/mkzip" "$fakezip"
-  mkdir -p "$T/mkzip"
-  printf '\x89PNG\r\n\x1a\nPNGDATA' >"$T/mkzip/x.png"
-  cp "$T/mkzip/x.png" "$T/mkzip/x.html"
-  TZ=UTC touch -d '2026-10-22 00:00:00' "$T/mkzip/x.png" "$T/mkzip/x.html"
-  (cd "$T/mkzip" && TZ=UTC zip -q -X "$fakezip" x.png x.html)
+  rm -f "$fakezip"
+  python3 -I - "$fakezip" <<'PY'
+import sys, zipfile
+png = b"\x89PNG\r\n\x1a\nPNGDATA"
+with zipfile.ZipFile(sys.argv[1], "w") as z:
+    for name in ("x.png", "x.html"):
+        info = zipfile.ZipInfo(name, (2026, 10, 22, 0, 0, 0))
+        info.create_system = 3
+        info.external_attr = 0o100644 << 16
+        z.writestr(info, png)
+PY
 }
 anyzip=https://github.com/user-attachments/files/9/any.zip
 bzip=https://github.com/user-attachments/files/8/b.zip
