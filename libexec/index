@@ -268,11 +268,10 @@ fi
 # has no container to start.
 TEHAS_SLICE_LIMITS=()
 tehas_slice_ok || { echo "tehas index: $TEHAS_SLICE_WHY" >&2; exit 78; }
-tehas_slice_limits || true
-if [ "${#TEHAS_SLICE_LIMITS[@]}" != 14 ] || [ "${TEHAS_SLICE_LIMITS[1]}" != tehas.slice ]; then
+tehas_slice_limits_ok || {
   echo "tehas index: the container limits could not be made, not starting" >&2
   exit 78
-fi
+}
 
 # One call answers both questions: is the image there, and which image is it.
 image_id=$(docker image inspect "$image" -f '{{.Id}}' 2>/dev/null) || {

@@ -49,8 +49,8 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 
 Where the improvement loop is on, each of its runs removes the per-cycle files
 in `~/tehas/logs/` that are older than seven days (`work-*`, `dispatch-work-*`,
-`index-*`), and the records that old under `~/tehas/tmp/improve/`. Nothing else
-removes logs.
+`index-*`, `review-*`), and the records that old under `~/tehas/tmp/improve/`.
+Nothing else removes logs.
 
 **The cleaner.** `tehasbot clean`, from `tehas-clean.timer` once an hour, removes
 what the host can make again once nothing has touched it for
