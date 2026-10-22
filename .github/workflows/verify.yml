@@ -1,6 +1,8 @@
 # The gate, run on every pull request and on main: the lint, shellcheck, the
 # shell tests and the console's tests. It makes scripts/verify.sh something a
-# ruleset can require. It uses no secret and only reads the repository.
+# ruleset can require. It only reads the repository. The one secret it may use
+# is GENERIC_NAMES, the private list of names for scripts/check-generic.sh; a
+# run without it (a fork never gets it) checks addresses only and says so.
 name: verify
 on:
   pull_request:
@@ -27,6 +29,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+          fetch-depth: 0
       - name: shellcheck at the pinned version
         run: |
           . host/versions.env
@@ -37,5 +40,15 @@ jobs:
           # On the job's PATH, not in /usr/local/bin: the runner gives no sudo.
           echo "$RUNNER_TEMP/shellcheck-v$SHELLCHECK_VERSION" >> "$GITHUB_PATH"
           "$RUNNER_TEMP/shellcheck-v$SHELLCHECK_VERSION/shellcheck" --version
+      - name: names list for scripts/check-generic.sh
+        env:
+          GENERIC_NAMES: ${{ secrets.GENERIC_NAMES }}
+        run: |
+          if [ -n "$GENERIC_NAMES" ]; then
+            printf '%s\n' "$GENERIC_NAMES" > scripts/check-generic.names
+          fi
+      - name: names in commit messages and the branch
+        if: github.event_name == 'pull_request'
+        run: scripts/check-generic.sh --messages "origin/$GITHUB_BASE_REF..HEAD"
       - name: scripts/verify.sh
         run: scripts/verify.sh

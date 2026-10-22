@@ -3349,7 +3349,14 @@ failed, so a run that ends with checks not run shows them in the gate only when
 something else failed too.
 
 `scripts/check-generic.sh` is the lint that keeps private network addresses out
-of every file, and product and host names out of platform files. The names
-come from `scripts/check-generic.names`, a list each working machine keeps for
-itself: git ignores it and it is read as data. `scripts/verify.sh` runs the
+of every file, and the names of particular installations out of every file,
+`docs/` included. The names come from `scripts/check-generic.names`, a list
+each working machine keeps for itself: git ignores it and it is read as data.
+An `allow <path prefix>` line in the list exempts paths from the names, not
+from the address rule. Without the list the lint says `check-generic: no names
+list, names not checked` and checks addresses only. With `--messages
+<rev-range>` it also checks the commit messages of the range and the branch
+name (`GITHUB_HEAD_REF`, else the current branch) against the names. The
+verify workflow writes the list from the `GENERIC_NAMES` secret when it has
+one, and runs `--messages` on a pull request. `scripts/verify.sh` runs the
 lint and `scripts/test.sh` together.

@@ -74,19 +74,20 @@ echo "# for the widgetshop product" >"$repo/bin/tool"
 t_run "$lint"
 t_eq "$t_rc" 0
 
-t_case "a list of names adds words, and docs/ may use them"
+t_case "a list of names adds words, and a path it allows may use them"
 printf '%s\n' "# names of one installation" "widgetshop" "gizmo-[0-9]+" >"$repo/scripts/check-generic.names"
-echo "widgetshop went live" >"$repo/docs/log.md"
+mkdir -p "$repo/notes"
+echo "widgetshop went live" >"$repo/notes/log.md"
 echo "gizmo-7" >"$repo/bin/other"
 t_run "$lint"
 t_eq "$t_rc" 1
 t_contains "$t_out" "bin/tool:1:# for the widgetshop product"
 t_contains "$t_out" "bin/other:1:gizmo-7"
 t_lacks "$t_out" "check-generic.names:"
-t_lacks "$t_out" "docs/log.md"
+t_contains "$t_out" "notes/log.md:1:"
 
 t_case "the list can allow a path for names"
-printf '%s\n' "widgetshop" "allow bin/tool" >"$repo/scripts/check-generic.names"
+printf '%s\n' "widgetshop" "allow bin/tool" "allow notes/" >"$repo/scripts/check-generic.names"
 rm "$repo/bin/other"
 t_run "$lint"
 t_eq "$t_rc" 0
@@ -107,6 +108,77 @@ for line in 'exceptions+=("")' "words='x'" 'touch "$T/ran-names"' 'a;b'; do
   t_contains "$t_out" "not a name or an allow line"
 done
 t_eq "$(find "$T" -maxdepth 1 -name 'ran-names' | wc -l)" 0
+
+# Built so this file passes the lint it tests.
+nm="acme"
+
+t_case "a name in docs/ is reported"
+fresh
+echo $nm >"$repo/scripts/check-generic.names"
+echo "$nm" >"$repo/docs/note.md"
+t_run "$lint"
+t_eq "$t_rc" 1
+t_contains "$t_out" "docs/note.md:1:"
+
+t_case "an allow line still exempts a path"
+fresh
+printf '%s\n' "$nm" "allow docs/" >"$repo/scripts/check-generic.names"
+echo "$nm" >"$repo/docs/note.md"
+t_run "$lint"
+t_eq "$t_rc" 0
+
+t_case "without a names list the lint says so"
+fresh
+t_run "$lint"
+t_eq "$t_rc" 0
+t_contains "$t_out" "check-generic: no names list, names not checked"
+
+t_case "a name list may hold anchors and groups"
+fresh
+printf '%s\n' '(^|[^a-z])zed([^m]|$)' >"$repo/scripts/check-generic.names"
+echo "see zed here" >"$repo/bin/tool"
+t_run "$lint"
+t_eq "$t_rc" 1
+t_contains "$t_out" "bin/tool:1:see zed here"
+
+# A repository with a base commit and two commits on top of it.
+msgs() { # <subject of the second commit>
+  fresh
+  printf '%s\n' "$nm" >"$repo/scripts/check-generic.names"
+  git -C "$repo" add -A
+  git -C "$repo" -c user.name=t -c user.email=t@example.org commit -q -m base
+  git -C "$repo" tag base
+  echo one >"$repo/bin/one"
+  git -C "$repo" add -A
+  git -C "$repo" -c user.name=t -c user.email=t@example.org commit -q -m "first change"
+  echo two >"$repo/bin/two"
+  git -C "$repo" add -A
+  git -C "$repo" -c user.name=t -c user.email=t@example.org commit -q -m "$1"
+}
+messages="cd '$repo' && "
+msgcmd="scripts/check-generic.sh --messages base..HEAD"
+
+t_case "--messages reports a name in a commit message"
+msgs "fix $nm thing"
+t_run "$messages$msgcmd"
+t_eq "$t_rc" 1
+t_contains "$t_out" "fix $nm thing"
+
+t_case "--messages reports a name in the branch"
+msgs "fix a thing"
+t_run "${messages}GITHUB_HEAD_REF=feature/$nm-x $msgcmd"
+t_eq "$t_rc" 1
+t_contains "$t_out" "branch: feature/$nm-x"
+
+t_case "--messages passes clean commits"
+msgs "fix a thing"
+t_run "${messages}GITHUB_HEAD_REF=feature/x $msgcmd"
+t_eq "$t_rc" 0
+
+t_case "--messages without a range is refused"
+fresh
+t_run "cd '$repo' && scripts/check-generic.sh --messages"
+t_eq "$t_rc" 2
 
 t_case "the list of names is ignored by git in this repository"
 t_eq "$(git -C "$T_ROOT" check-ignore -q scripts/check-generic.names && echo ignored)" ignored
