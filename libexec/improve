@@ -139,7 +139,7 @@ done
 find "$window" -mindepth 1 -maxdepth 1 -mmin "+$old" -exec rm -rf {} +
 find "$base" -mindepth 1 -maxdepth 1 -name '.new.*' -mmin "+$old" -exec rm -rf {} +
 find "$logs" -maxdepth 1 -type f \( -name 'work-*' -o -name 'dispatch-work-*' -o -name 'index-*' \
-  -o -name 'review-*' -o -name 'improve-analyst*.log' \) \
+  -o -name 'improve-analyst*.log' \) \
   -mmin "+$old" -delete
 
 # --- Look --------------------------------------------------------------------
