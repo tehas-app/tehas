@@ -969,6 +969,35 @@ t_run "$load && echo \"[\$TEHAS_CLEAN_AFTER] [\$TEHAS_CLEAN_DIRS]\""
 t_eq "$t_rc" 0
 t_eq "$t_out" "[6] [target dist]"
 
+# The two bounds of the measure tehas work makes of an approved body. Each is
+# asked of head -c and head -n, so a sign, a fraction or an exponent is no
+# bound; a body of many short lines is held by the bound on lines alone and a
+# body of one huge line by the bound on bytes alone, so both are settings.
+t_case "the bounds of the measure of a body take the defaults"
+t_instance "${T_MINIMAL[@]}"
+t_run "$load && set -u && echo \"[\$TEHAS_SIZE_MAX_BYTES] [\$TEHAS_SIZE_MAX_LINES]\""
+t_eq "$t_rc" 0
+t_eq "$t_out" "[131072] [1000]"
+
+t_case "the bounds of the measure can both be set in the instance"
+t_instance "${T_MINIMAL[@]}" "TEHAS_SIZE_MAX_BYTES=4096" "TEHAS_SIZE_MAX_LINES=50"
+t_run "$load && echo \"[\$TEHAS_SIZE_MAX_BYTES] [\$TEHAS_SIZE_MAX_LINES]\""
+t_eq "$t_rc" 0
+t_eq "$t_out" "[4096] [50]"
+
+for bad in "soon" "0" "-1" "1.5" "1000 " "1e3"; do
+  t_case "loading rejects a TEHAS_SIZE_MAX_BYTES of '$bad'"
+  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_SIZE_MAX_BYTES='$bad'" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "TEHAS_SIZE_MAX_BYTES is not valid: expected a whole number of at least 1"
+  t_case "loading rejects a TEHAS_SIZE_MAX_LINES of '$bad'"
+  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_SIZE_MAX_LINES='$bad'" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "TEHAS_SIZE_MAX_LINES is not valid: expected a whole number of at least 1"
+done
+
 # The cleaner's two settings. The hours are asked of docker's `until` and of
 # find's `-newermt`, so a sign, a fraction or an exponent is no number of
 # hours; an empty value takes the default, as every other setting left empty
