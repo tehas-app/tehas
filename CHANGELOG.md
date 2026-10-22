@@ -15,6 +15,16 @@ release workflow takes the release's page from its section
 
 - None.
 
+## Unreleased
+
+### Changes
+
+- None yet.
+
+### Adopter action
+
+- None.
+
 ## v0.10.0 (2026-10-22)
 
 ### Changes
