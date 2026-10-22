@@ -13,6 +13,7 @@ instance, written so that another instance can follow it.
 | Name | What answers |
 | --- | --- |
 | `uat-<pr>.tehas.app` | The preview of that pull request |
+| `uat-main.tehas.app` | The preview of the default branch's head |
 | `lab-<issue>.tehas.app` | That ticket's page in the Protolab |
 | `lab.tehas.app` | The Protolab's list |
 
@@ -123,7 +124,7 @@ address in place of `<address>`:
 ```
 *.tehas.app {
     tls /etc/caddy/certs/origin.pem /etc/caddy/certs/origin.key
-    @edge header_regexp Host ^(lab|lab-[0-9]+|uat-[0-9]+)\.tehas\.app$
+    @edge header_regexp Host ^(lab|lab-[0-9]+|uat-[0-9]+|uat-main)\.tehas\.app$
     handle @edge {
         reverse_proxy <address>:8081
     }
@@ -251,6 +252,18 @@ is done:
   `https://uat-<pr>.tehas.app/`,
 - the dashboard lists it under Previews,
 - `tail ~/tehas/logs/preview.log` has a line `#<pr>: serving`.
+
+The default branch has a preview too, at `https://uat-main.tehas.app/`: the
+head commit of the repository's default branch, built from that commit's
+`preview/Dockerfile` under the same rules and limits as a pull request's. Each
+run reads the head, and a new commit is built while the old container keeps
+serving. It is listed first under Previews as `main`, its log line starts
+`main:`, and its state is in `~/tehas/preview/main/state.json`. It does not count
+against `TEHAS_PREVIEW_MAX`, a full disk stops its builds like the others, no
+notice is written anywhere for it, and nothing removes it: the branch is never
+closed. A commit without a recipe has no main preview and the state says
+`no-recipe`. If GitHub does not answer, what runs keeps running. A proxy in
+front of the router has to pass the name `uat-main` as well as `uat-<pr>`.
 
 Merge or close it, and at the next run the log has
 `#<pr>: pull request no longer open, removed`, and the name answers 404. The

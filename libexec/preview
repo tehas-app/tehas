@@ -21,6 +21,17 @@
 #                   keeps to two files of 10 MB. /tmp, /config and /data are
 #                   in memory. A recipe that declares a volume anywhere else
 #                   is not run: Docker would put that volume on the disk.
+#   the default     The head of the repository's default branch has a preview
+#   branch          of its own, beside those of the pull requests, at
+#                   uat-main.<TEHAS_DOMAIN>: container tehas-preview-main,
+#                   image tehas-preview:main, state in preview/main/, log
+#                   preview-main.log. It is built under the same rules and
+#                   limits as a pull request's, from the commit's own recipe,
+#                   and a new commit is built while the old container serves.
+#                   It does not count against TEHAS_PREVIEW_MAX, a full disk
+#                   stops its builds too, it has no notice, and neither the
+#                   run nor the sweep removes it: the branch is never closed.
+#                   A GitHub call that fails leaves what runs.
 #   how many        The newest TEHAS_PREVIEW_MAX. The rest say "over-limit".
 #                   All the open pull requests are read, in pages of 100; a
 #                   run that cannot finish reading them builds and removes
@@ -47,11 +58,11 @@
 #                   figures are in previews.json at every run, and tehasbot
 #                   health reads them.
 #
-# Each pull request has a state in $TEHAS_HOME/preview/<number>/state.json:
-# serving, building, no-recipe, build-failed, no-space or over-limit. Serving
+# Each pull request has a state in $TEHAS_HOME/preview/<number>/state.json,
+# and the default branch one in preview/main/state.json: serving, building, no-recipe, build-failed, no-space or over-limit. Serving
 # is a container that was still running a few seconds after its start. The list
-# for the dashboard is $TEHAS_HOME/live/previews.json. A build's output is in
-# $TEHAS_HOME/logs/preview-<number>.log. Deterministic, no model.
+# for the dashboard is $TEHAS_HOME/live/previews.json, the default branch first.
+# A build's output is in $TEHAS_HOME/logs/preview-<number>.log. Deterministic, no model.
 #
 # Usage: tehasbot preview            bring the previews in step with the pull requests
 #        tehasbot preview --sweep    the three hour check of what is left on the host
@@ -104,6 +115,12 @@ net=tehas-previews
 # A pull request's number, wherever one is matched here: one to nine digits,
 # no zero in front. tehas_edge_name and the jq program of the run have the same.
 number='^[1-9][0-9]{0,8}$'
+# The default branch's preview is named by this word where a pull request's is
+# named by its number. It is not a number, so everything that matches $number
+# passes it by; where it is meant, it is asked for by name.
+main=main
+# The default branch of the repository, as GitHub gave it in this run.
+main_branch=""
 recipe=preview/Dockerfile
 build_limit=900
 # The open pull requests are read in pages, newest first, and 100 is what
@@ -169,16 +186,18 @@ field() { jq -r --arg k "$2" '.[$k] // ""' "$root/$1/state.json" 2>/dev/null; }
 # mark <number> <commit> <state> [reason]: written only when it differs, so
 # "time" is when the state began.
 mark() {
-  local n=$1 sha=$2 state=$3 reason=${4:-} pull=$root/$1/pull.json
+  local n=$1 sha=$2 state=$3 reason=${4:-} pull=$root/$1/pull.json who="#$1"
+  [ "$n" != "$main" ] || who=$main
   if [ "$(field "$n" sha)" = "$sha" ] && [ "$(field "$n" state)" = "$state" ]; then return 0; fi
   mkdir -p "$root/$n" || return 1
   [ -f "$pull" ] || echo '{}' >"$pull"
   # shellcheck disable=SC2016  # a jq program: the variables are jq's
-  edge_put "$root/$n/state.json" jq -n --argjson n "$n" --arg sha "$sha" --arg state "$state" \
+  edge_put "$root/$n/state.json" jq -n --arg n "$n" --arg sha "$sha" --arg state "$state" \
     --arg reason "$reason" --arg now "$(date -u +%FT%TZ)" --slurpfile pull "$pull" '
-    {number: $n, sha: $sha, state: $state, reason: $reason, time: $now,
-     title: ($pull[0].title // ""), url: ($pull[0].url // null)}' || return 1
-  echo "#$n: $state${reason:+ ($reason)}"
+    {number: ($n | tonumber? // null), sha: $sha, state: $state, reason: $reason, time: $now,
+     title: ($pull[0].title // ""), url: ($pull[0].url // null)}
+    + (if $n | test("^[0-9]+$") then {} else {name: $n} end)' || return 1
+  echo "$who: $state${reason:+ ($reason)}"
 }
 # retitle <number>: a pull request that got a new title has it in its state,
 # whatever the state is. Nothing else of the state changes: no state began, so
@@ -593,10 +612,11 @@ volume_fault() {
   return 1
 }
 
-# build <number>: fetch the pull request's head, build its recipe, replace the
+# build <number>|main: fetch the pull request's head (or the default branch's), build its recipe, replace the
 # container. The commit is the one fetched, which is the one built.
 build() {
-  local n=$1 sha log=$logs/preview-$1.log old retry=$root/$1/.retry tries=0 mark_sha mark_n fault url
+  local n=$1 sha log=$logs/preview-$1.log old retry=$root/$1/.retry tries=0 mark_sha mark_n fault url from who="#$1"
+  [ "$1" != "$main" ] || who=$main
   # The product checkout knows the address and how to sign in to it. Read on
   # every build, so a repository that moved is followed here too.
   url=$(git -C "${TEHAS_WORK_REPO:-/nonexistent}" config --get remote.origin.url 2>/dev/null) ||
@@ -611,9 +631,11 @@ build() {
   # Close the lock's descriptor on every command that can outlive the run: a
   # descriptor they inherit would hold the lock after the run has ended (a
   # detached gc, a daemon).
-  if ! git -C "$bare" fetch --quiet --no-tags origin "+refs/pull/$n/head:refs/preview/$n" >>"$log" 2>&1 {edge_lock_fd}>&-; then
+  from=refs/pull/$n/head
+  [ "$n" != "$main" ] || from=refs/heads/$main_branch
+  if ! git -C "$bare" fetch --quiet --no-tags origin "+$from:refs/preview/$n" >>"$log" 2>&1 {edge_lock_fd}>&-; then
     # No state: a fetch that failed says nothing about the commit.
-    echo "#$n: the commit could not be fetched, tried again at the next run"
+    echo "${who}: the commit could not be fetched, tried again at the next run"
     return 1
   fi
   sha=$(git -C "$bare" rev-parse --verify --quiet "refs/preview/$n^{commit}") || return 1
@@ -694,8 +716,11 @@ write_list() {
      disk: {freeBytes: (if $free == "" then null else ($free | tonumber) * 1024 end),
             minFreeBytes: ($min * 1024), low: $low},
      lastSweep: ($sweep[0] // null),
-     previews: (sort_by(-.number) | map(. + {address:
-       (if .state == "serving" then "https://uat-\(.number).\($domain)/" else null end)}))}' \
+     previews: ((map(select(.name == "main")) + (map(select(.name != "main")) | sort_by(-.number)))
+       | map(. + {address:
+         (if .state != "serving" then null
+          elif .name == "main" then "https://uat-main.\($domain)/"
+          else "https://uat-\(.number).\($domain)/" end)}))}' \
     "${files[@]}" </dev/null
 }
 
@@ -737,6 +762,39 @@ pull_verdict() { # <number> <file>
   echo "${verdict:-unclear}"
 }
 
+# bring <number>|main <commit>: make the preview serve that commit, unless it
+# already does or the commit was tried and failed.
+bring() {
+  local n=$1 sha=$2
+  if serving "$n" "$sha"; then
+    mark "$n" "$sha" serving
+  elif [ "$(field "$n" sha)" = "$sha" ] && case "$(field "$n" state)" in build-failed | no-recipe) [ ! -e "$root/$n/.retry" ] ;; *) false ;; esac; then
+    : # that commit was tried; a new one is tried again
+  elif [ "$low" = true ]; then
+    no_space "$n" "$sha"
+  else
+    build "$n" "$sha"
+  fi
+}
+
+# main_preview: the head of the default branch. Asked of GitHub at every run.
+# An answer that is missing or not clear changes nothing: what runs keeps
+# running. The branch name goes into a git refspec, so it is checked.
+main_preview() {
+  local info head
+  # shellcheck disable=SC2016  # a jq program
+  if ! info=$(gh api "repos/$repo" 2>/dev/null) ||
+    ! main_branch=$(jq -er '.default_branch | select(type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._/-]*$"))' <<<"$info" 2>/dev/null) ||
+    ! info=$(gh api "repos/$repo/branches/$main_branch" 2>/dev/null) ||
+    ! head=$(jq -er '.commit.sha | select(type == "string")' <<<"$info" 2>/dev/null) ||
+    [[ ! $head =~ ^[0-9a-f]{40}$ ]]; then
+    echo "$main: GitHub did not say what the default branch is at, left as it is"
+    return 0
+  fi
+  mkdir -p "$root/$main" || return 0
+  bring "$main" "$head"
+}
+
 # --- The five minute run -----------------------------------------------------
 run() {
   local page pr n sha seen i=0 open=" " wanted=() elsewhere=0 outside=0 have item fault
@@ -768,6 +826,10 @@ run() {
     write_list
     return 0
   fi
+
+  # Before the pull requests, so that a list that cannot be read does not keep
+  # the default branch from being served.
+  main_preview
 
   # All the open pull requests, in pages of 100, newest first. Only the newest
   # page was asked for at first, which is a limit with teeth: a hundred newer
@@ -928,15 +990,7 @@ run() {
   for item in "${wanted[@]+"${wanted[@]}"}"; do
     n=${item%% *}
     sha=${item#* }
-    if serving "$n" "$sha"; then
-      mark "$n" "$sha" serving
-    elif [ "$(field "$n" sha)" = "$sha" ] && case "$(field "$n" state)" in build-failed | no-recipe) [ ! -e "$root/$n/.retry" ] ;; *) false ;; esac; then
-      : # that commit was tried; a new one is tried again
-    elif [ "$low" = true ]; then
-      no_space "$n" "$sha"
-    else
-      build "$n" "$sha"
-    fi
+    bring "$n" "$sha"
     tell "$n" "$seen"
   done
   write_list
@@ -973,7 +1027,7 @@ sweep() {
   # preview another repository's.
   while read -r id n owner name; do
     [ -n "$id" ] || continue
-    if [[ $n =~ $number ]] && [ "${owner,,}" = "${repo,,}" ]; then continue; fi
+    if { [[ $n =~ $number ]] || [ "$n" = "$main" ]; } && [ "${owner,,}" = "${repo,,}" ]; then continue; fi
     is_id "$id" || { echo "an id that is not one, skipped"; continue; }
     if docker rm -f -v "$id" >/dev/null 2>&1; then
       echo "container $id: swept, it belongs to no pull request of $repo"
@@ -981,13 +1035,15 @@ sweep() {
     fi
   done < <(docker ps -a --filter label=tehas.preview --format "$fmt" 2>/dev/null)
 
-  # Images: one that is not tagged for a number is what a rebuild left, and
+  # The default branch's container and image are no pull request's and are
+  # never swept. Images: one that is not tagged for a number or for main is
+  # what a rebuild left, and
   # one of another repository is not ours. Docker refuses to remove an image a
   # container runs, which is the wanted answer.
   while read -r id tag; do
     [ -n "$id" ] || continue
     owner=$(docker image inspect --format '{{index .Config.Labels "tehas.repo"}}' "$id" 2>/dev/null)
-    if [[ $tag =~ ^tehas-preview:[1-9][0-9]{0,8}$ ]] && { [ -z "$owner" ] || [ "${owner,,}" = "${repo,,}" ]; }; then continue; fi
+    if [[ $tag =~ ^tehas-preview:([1-9][0-9]{0,8}|$main)$ ]] && { [ -z "$owner" ] || [ "${owner,,}" = "${repo,,}" ]; }; then continue; fi
     if docker image rm "$id" >/dev/null 2>&1; then
       echo "image $id: swept, it belongs to no preview"
       removed=$((removed + 1))

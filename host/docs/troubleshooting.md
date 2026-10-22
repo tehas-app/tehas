@@ -956,6 +956,15 @@ tehas-clean.timer` when it is not running, and `tail ~/tehas/logs/clean.log`
 for what it freed. `docker builder prune` does the same at once, and the next
 build of the sandbox image is then slower.
 
+**The default branch's preview** (`main` in the list, `uat-main.<domain>`)
+has the same states and the same fixes, with `~/tehas/preview/main/state.json`
+and `~/tehas/logs/preview-main.log`. It is never `over-limit` and is not
+removed by the run or the sweep. A log line `main: GitHub did not say what the
+default branch is at, left as it is` is one call that failed; the preview that
+runs stays. To start it afresh: `rm -r ~/tehas/preview/main`. A name that
+answers 404 "No such address" is a router from before this existed, or a proxy
+that does not pass `uat-main`.
+
 **`over-limit`.** More than `TEHAS_PREVIEW_MAX` pull requests are open, and
 the newest ones win. Close one, or raise the setting in `instance.env`.
 

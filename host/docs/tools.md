@@ -2457,6 +2457,22 @@ answers with at `uat-<pr>.<domain>`. Deterministic, no model. It needs
 `TEHAS_PREVIEWS=1` and `TEHAS_DOMAIN`. Setting it up, and what a preview can
 and cannot reach, is on [Previews](/edge).
 
+The head of the repository's default branch has a preview too: a container
+`tehas-preview-main` at `uat-main.<domain>`, image `tehas-preview:main`, state
+in `~/tehas/preview/main/state.json`, log `~/tehas/logs/preview-main.log`. Every
+run asks GitHub for the default branch and its head (`gh api repos/<repo>` and
+the branch under it), fetches it into the same clone and builds it as a pull
+request's commit is built, with the same options and the same free-space floor.
+A new commit is built while the old container keeps serving; a commit without
+`preview/Dockerfile` has no main preview and the state is `no-recipe`. It does
+not count against `TEHAS_PREVIEW_MAX`, there is no notice for it, and neither
+the run nor `--sweep` removes it. A call to GitHub that fails or answers
+nothing clear leaves what runs: `main: GitHub did not say what the default
+branch is at, left as it is`. `previews.json` carries it as the first entry,
+with `name` set to `main` and no `number`. Its log lines start `main:` where a
+pull request's start `#<pr>:`. It is looked at before the pull requests, so a
+list of them that cannot be read does not stop it.
+
 The two timers are enabled by the operator, with the line above. `tehas update`
 restarts only a unit that is already active, so on a host that was installed
 before previews existed the timers are installed and do not run until they

@@ -87,6 +87,10 @@ compose=$T_ROOT/host/edge/router.compose.yaml
 t_case "the router's file names no domain and takes numbers only"
 t_eq "$(grep -c -E 'tehas\.app|example\.' "$caddyfile")" 0
 t_contains "$(cat "$caddyfile")" '@preview header_regexp preview Host ^uat-([1-9][0-9]{0,8})\.'
+t_contains "$(cat "$caddyfile")" '@main header_regexp main Host ^uat-main\.'
+t_contains "$(cat "$caddyfile")" 'reverse_proxy tehas-preview-main:8080'
+t_eq "$(awk '/handle @main \{/ {a = NR} /handle @odd \{/ {b = NR} END {print (a && a < b) ? "before" : "after"}' "$caddyfile")" before
+t_contains "$(cat "$T_ROOT/host/docs/dashboard.frag")" 'const isMain = !!it && it.name === "main";'
 t_contains "$(cat "$caddyfile")" '@ticket header_regexp ticket Host ^lab-([1-9][0-9]{0,8})\.'
 t_contains "$(cat "$caddyfile")" 'reverse_proxy tehas-preview-{re.preview.1}:8080'
 t_contains "$(cat "$caddyfile")" 'root * /srv/protolab/{re.ticket.1}'
@@ -196,7 +200,7 @@ t_contains "$frag" 'el("span", "when", previewWhy(it))'
 t_eq "$(grep -c -F 'el("span", "when", PREVIEW_STATES[it.state]' "$T_ROOT/host/docs/dashboard.frag")" 0
 
 t_case "the pages take an address only with a number of one to nine digits and no leading zero"
-t_eq "$(grep -c -F '/^https:\/\/uat-[1-9][0-9]{0,8}\.[a-z0-9.-]+\/$/.test(it.address)' "$T_ROOT/host/docs/dashboard.frag")" 1
+t_eq "$(grep -c -F '/^https:\/\/uat-([1-9][0-9]{0,8}|main)\.[a-z0-9.-]+\/$/.test(it.address)' "$T_ROOT/host/docs/dashboard.frag")" 1
 t_eq "$(grep -c -F '/^https:\/\/lab-[1-9][0-9]{0,8}\.[a-z0-9.-]+\/$/.test(t.address)' "$T_ROOT/host/fun/game-view.js")" 1
 t_eq "$(grep -c -e 'uat-\[0-9\]+' -e 'lab-\[0-9\]+' "$T_ROOT/host/docs/dashboard.frag" "$T_ROOT/host/fun/game-view.js" | grep -c -v ':0$')" 0
 
