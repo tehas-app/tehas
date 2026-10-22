@@ -49,13 +49,16 @@
 #                                        tags (host/sandbox/build.sh); what is
 #                                        older than TEHAS_CLEAN_AFTER hours is
 #                                        this step's.
-#   5. the pulled base image             the base image of the sandbox build
-#                                        (the image upstream publishes for the
-#                                        commit versions.env follows), of that
-#                                        age and used by no container: one
-#                                        `docker rmi` of its own. No other
-#                                        image is named, and nothing without a
-#                                        tag of its own is offered to docker.
+#   5. the old base images               every `sha-` tag of the repository the
+#                                        base image names (the part before its
+#                                        tag), of that age, made no container
+#                                        and standing under no `release-` tag
+#                                        the host still holds. Each goes with
+#                                        a `docker rmi` of its own name. No
+#                                        other repository is named, no tag of
+#                                        any other shape is offered, and
+#                                        nothing without a tag of its own is
+#                                        given to docker: no `image prune`.
 #
 # Docker volumes are never touched, a person's call (see the host manual).
 #
@@ -445,99 +448,192 @@ clean_sandbox_images() {
   return "$failed"
 }
 
-# --- 5. the pulled base image ------------------------------------------------
-# The image the sandbox build starts from: upstream's image for the pi-rukas
-# commit this host follows, which the build pulls and never removes. The name
-# is the one the build pulls it by (tehas_base_image in lib/sandbox.sh), so a
-# base no container was made from is this step's to take back once it is of
-# that age. It is removed by name with one `docker rmi`, which is what bounds
-# this step to the one image: `docker image prune` would offer every image on
-# the daemon that has lost its tag and passed the age, whatever left it
-# nameless -- a preview of `tehasbot preview` among them, and a rollback tag
-# whose tag a later update moved. Nothing outside the base is offered.
+# --- 5. the pulled base images -----------------------------------------------
+# The images the sandbox build starts from: upstream's images for pi-rukas
+# commits, each named <repository>:sha-<twelve characters of its commit>. The
+# one the build pulls today is answered by tehas_base_image in lib/sandbox.sh,
+# and its repository -- the name before the tag, or before the @ of a pinned
+# digest -- is the whole reach of this step: every `sha-` tag of it, and nothing
+# of any other repository.
+#
+# A base no pin names is the trouble here. Each release pins the sandbox to the
+# commit it shipped with, so an update leaves the base of the release before it
+# on the host under a `sha-` tag no pin names, of several gigabytes, and the
+# step used to offer docker only the one name the pin answers. It lists the
+# repository's tags now and removes each old one by name, keeping three proofs:
+#
+#   age       the image's own creation time, past TEHAS_CLEAN_AFTER, read as
+#             step 4 reads its dated tags: a base a later build pulled up again
+#             is not old, and one docker will not date stays;
+#   container no container on the host, running or stopped, was made from it --
+#             images_held, the same proof step 4 and the build's sweep ask;
+#   kept tag  no tag of the sandbox image that something still keeps names it.
+#             A kept tag is a dated tag or a `uid` tag a container holds, or a
+#             `release-<version>` tag of the build's own name: libexec/update
+#             tags the image a release ran with so that going back to the
+#             release is a tag and not a build, and lib/update-release.sh
+#             removes that tag only when it removes the release. The kept
+#             releases are the `release-` lines of this step's own listing, so no
+#             version is ever assumed and none is left out. Each of those lines
+#             is read as an id of its own and matched as one line of the kept
+#             set, so a host that holds two releases keeps the base of each of
+#             them rather than that of neither. The sandbox image is listed once
+#             beside the bases and asked of images_held with them, so the tags
+#             step 4 leaves standing are never taken from under here. A base a
+#             cycle built on stands under one of those, so a sandbox image
+#             still in use keeps its base.
+#
+# Each removal is one `docker rmi` of one `<repository>:<tag>`: no pattern, and
+# never `docker image prune`, which would offer every image on the daemon that
+# has lost its tag and passed the age, whatever left it nameless -- a preview of
+# `tehasbot preview` among them, and a rollback tag whose tag a later update
+# moved. A docker that lists nothing removes nothing, as it did with the one
+# name.
 clean_base_image() {
-  local pulled ids id out rc2 kb held failed=0
+  local pulled repo tags base_lines held_lines line name keep_ids out kb total failed=0
   pulled=$(tehas_base_image) || {
     warn "kept the base: the host's pins name no base to prune (PI_RUKAS_REPO, PI_RUKAS_FOLLOW or PI_RUKAS_IMAGE_DIGEST in $TEHAS_HOME/versions.env or the instance's instance.env, or lib/rukas.sh is not sourced beside lib/sandbox.sh)"
     return 0
   }
-  # The ids docker holds for that one name, which is also the proof the image
-  # is on the host at all: a base never pulled has no id, and there is nothing
-  # to take.
-  # A docker that could not list is not a docker that listed nothing: the
-  # first is an unknown and the second is a fact, and only the fact is logged
-  # as one. An operator reading the log when the cleaner frees nothing must
-  # not be told the image was never pulled when docker would not say.
-  if ! ids=$(timeout -k 30 600 docker image ls --no-trunc -q "$pulled" 2>/dev/null); then
-    warn "docker gave no list of its base $pulled"
+  # The repository of the base: everything up to the tag, or up to the @ of a
+  # pinned digest, which leaves ghcr.io/<owner>/<repo> and no tag at all. It is
+  # cut from the name the puller uses, so this step lists exactly what that one
+  # name is a tag of, and no repository that is not the base's is ever named.
+  repo=${pulled%%@*}
+  repo=${repo%:*}
+  # The bases and the sandbox image in one listing: the `sha-` tags of the
+  # base's repository are what this step may take, and the tags of the sandbox
+  # image are the proof of what a container holds and what a kept release stands
+  # on. One listing asks both names, so the answer carries both repositories and
+  # each line says which of them it belongs to; nothing of a repository the pins
+  # do not name is ever read from it. A docker that could not list is not a
+  # docker that listed nothing: the first is an unknown and the second is a fact,
+  # and only the fact is logged as one. An operator reading the log when the
+  # cleaner frees nothing must not be told no base was pulled when docker would
+  # not say.
+  if ! tags=$(timeout -k 30 600 docker image ls --no-trunc --format '{{.Repository}} {{.Tag}} {{.ID}}' "$repo" "$sandbox_image" 2>/dev/null); then
+    warn "docker gave no list of its base tags of $repo"
     return 1
   fi
-  if [ -z "$ids" ]; then
-    log "kept the base $pulled: no image of that name is on the host"
+  # Only the lines of the repository this step may take, which is what a
+  # listing asked for one name answers. A line of another repository is not
+  # this step's to remove, and one that carries no tag docker can name is an
+  # unknown rather than an argument: both are a warning and no removal.
+  tags=$(awk -v r="$repo" -v s="$sandbox_image" '
+    $1 == r { print "base", $2, $3 }
+    $1 == s { print "held", $2, $3 }' <<<"$tags") || tags=""
+  local base_lines held_lines
+  base_lines=$(awk '$1 == "base" { print $2, $3 }' <<<"$tags")
+  held_lines=$(awk '$1 == "held" { print $2, $3 }' <<<"$tags")
+  if [ -z "${base_lines//$'\n'/}" ]; then
+    log "kept the base: no image of $repo is on the host"
     return 0
   fi
-  # Each line names one id of the base, and is the name this step removes. An
-  # answer that is not an id is an unknown rather than an argument: nothing is
-  # removed on it. --no-trunc is asked of the listing, so an id is the full
-  # digest; a short one is not trusted as a name to remove.
-  while IFS= read -r id; do
-    [ -n "$id" ] || continue
-    if ! [[ $id =~ ^(sha256:)?[0-9a-f]{64}$ ]]; then
-      warn "docker named $id as an image of $pulled, which is not an id"
+  # What the sandbox image's tags stand on, out of the same listing. Two proofs
+  # keep a base. `images_held` is the one step 4 and the build's sweep ask: the
+  # image each container was made from, and the id of every uid tag, which is
+  # the tag under which the host's own build runs. The other is a `release-`
+  # tag: it names the image its release ran with, and only the pruning of that
+  # release takes it (lib/update-release.sh), so a tag docker still answers for
+  # keeps the base that image was built on. No other tag of the build's name is
+  # a proof: a dated tag is step 4's to take, and the newest of those is kept
+  # only for being the newest, so a base under it is not kept by it here.
+  keep_ids=$(images_held "$held_lines") ||
+    { warn "docker said nothing about the containers on the host"; return 1; }
+  # The `release-` tags read out of that same listing, not out of a list of
+  # names: the release a host keeps is whatever `tehas update` last ran, and
+  # versions are not bounded, so an enumeration of names would be a ceiling the
+  # day the platform reaches v0.10.0 or v1.0.0 -- a kept release whose name was
+  # never asked would keep nothing, and the base it was built on would go. The
+  # daemon already answered for every tag of the sandbox image, so its answer is
+  # the set of kept releases, and a host that holds none is a listing with no
+  # `release-` line in it. Their ids keep a base beside the ids images_held
+  # answers, and one id to a line: both proofs are matched whole-line below, so
+  # ids joined by a space read as one name that is no id at all and keep nothing.
+  # Two releases on the host are two lines, and the base of each of them stays.
+  # The accumulator starts empty and is appended with `+=`: under `set -u` a bare
+  # `name+=` of a name never assigned dies here rather than starting the list.
+  local rid kept_ids_nl=""
+  while read -r _ rid; do
+    [ -n "$rid" ] || continue
+    # An id of a shape docker does not answer is not something this step can
+    # name to `docker rmi`, so the whole step is an unknown and nothing goes on
+    # a part of it. The bases are checked the same way below, before any removal.
+    [[ $rid =~ ^(sha256:)?[0-9a-f]{64}$ ]] || {
+      warn "docker named $rid as a release tag of $sandbox_image, which is not an id"
+      return 1
+    }
+    kept_ids_nl+="$rid"$'\n'
+  done < <(awk '$1 == "held" && $2 ~ /^release-/ { print $2, $3 }' <<<"$tags")
+  [ -z "${keep_ids:-}" ] || kept_ids_nl+="$keep_ids"$'\n'
+  kept=${kept_ids_nl%$'\n'}
+  # The candidates: one line per `sha-` tag of the base's repository that is
+  # old, made no container and stands under no kept tag, as
+  # "<name> <id> <bytes>". The shapes are checked before anything is asked of
+  # docker: an answer this step cannot name to `docker rmi` is an unknown
+  # rather than an argument, and nothing is removed on a part of it. A tag of
+  # any other shape -- a dated build, a uid tag, a release tag, a preview's, a
+  # `latest` -- is not a base and is never named. The names come from the
+  # repository of the pins and the tag docker answered, never from the line
+  # itself, so a listing of another repository could not be handed back as one.
+  local cands="" ltag lid
+  while read -r ltag lid; do
+    if ! [[ $lid =~ ^(sha256:)?[0-9a-f]{64}$ ]]; then
+      warn "docker named $lid as an image of $repo, which is not an id"
+      failed=1
+      continue
+    fi
+    [[ $ltag =~ ^sha-[0-9a-f]{12}$ ]] || {
+      log "kept $repo:$ltag: not a base tag of sha- and twelve characters"
+      continue
+    }
+    # Both proofs are read before the age: a base something on the host still
+    # stands on stays whatever docker says of its age, and is never asked for,
+    # which is what lets a case with a held base name no date for it at all.
+    # Whole-line, fixed-string, on both proofs: an id is a line of its own in
+    # each of them, and a substring of one line is not an id docker answered.
+    if [ -n "$keep_ids" ] && grep -qxF "$lid" <<<"$keep_ids"; then
+      log "kept $repo:$ltag: a container was made from it"
+      continue
+    fi
+    if [ -n "$kept" ] && grep -qxF "$lid" <<<"$kept"; then
+      log "kept $repo:$ltag: a kept sandbox tag was built on it"
+      continue
+    fi
+    if ! image_old_enough "$(timeout -k 30 600 docker image inspect --format '{{.Created}}' "$lid" 2>/dev/null | head -n 1)"; then
+      log "kept $repo:$ltag: docker did not date its image past $after hours"
+      continue
+    fi
+    kb=$(image_size "$lid")
+    cands+="$repo:$ltag $lid $kb"$'\n'
+  done <<<"$base_lines"
+  [ "$failed" = 0 ] || return 1
+  cands=${cands%$'\n'}
+  [ -n "$cands" ] || return 0
+  if [ "$dry" = 1 ]; then
+    while read -r line; do
+      [ -n "$line" ] && log "would remove ${line%% *}: a base image of that age"
+    done <<<"$cands"
+    return 0
+  fi
+  # Bounded, as the cache step is, so a slow removal ends this step and the run
+  # still closes. The candidate line is "<name> <id> <bytes>", three fields and
+  # no more: the name holds no space, so the fields split the other way round
+  # and the whole of what this asks docker to take is what the name says.
+  total=0
+  while read -r name _ kb; do
+    [ -n "$name" ] || continue
+    [[ $kb =~ ^[0-9]+$ ]] || kb=0
+    if out=$(timeout -k 30 600 docker rmi "$name" 2>&1); then
+      total=$((total + kb))
+      log "removed $name: a base image of that age, $kb bytes"
+    else
+      warn "could not remove $name: $(head -n 1 <<<"${out:-docker gave no reason}")"
       failed=1
     fi
-  done <<<"$ids"
-  [ "$failed" = 0 ] || return 1
-  # The age is each id's own creation time, read as step 4 reads its tags: a
-  # base a later build pulled up again is not old, and one docker will not
-  # date stays.
-  local old=""
-  while IFS= read -r id; do
-    [ -n "$id" ] || continue
-    if image_old_enough "$(timeout -k 30 600 docker image inspect --format '{{.Created}}' "$id" 2>/dev/null | head -n 1)"; then
-      old+="$id"$'\n'
-    else
-      log "kept the base $pulled: docker did not date its image past $after hours"
-    fi
-  done <<<"$ids"
-  ids=${old%$'\n'}
-  [ -n "$ids" ] || return 0
-  if [ "$dry" = 1 ]; then
-    log "would remove the base $pulled: an image of that age"
-    return 0
-  fi
-  # Held by a container, running or stopped, the base stays, on the same proof
-  # step 4 asks for its dated tags; and as there, a docker that says nothing
-  # about the containers is an unknown, which removes nothing.
-  held=$(images_held "") || { warn "docker said nothing about the containers on the host"; return 1; }
-  if grep -qxF -e "$ids" <<<"$held"; then
-    log "kept the base $pulled: a container was made from it"
-    return 0
-  fi
-  # The bytes of the base are the sum of its ids' bytes: the sum is asked once,
-  # before the removal, because a docker that says nothing about an image says
-  # nothing was freed, which is the truth of an image still there.
-  kb=0
-  while IFS= read -r id; do
-    [ -n "$id" ] || continue
-    kb=$((kb + $(image_size "$id")))
-  done <<<"$ids"
-  # Bounded, as the cache step is, so a slow removal ends this step and the run
-  # still closes. One name, and no pattern: the ids above are the whole of what
-  # this asks docker to take, so no image of any other name is offered.
-  rc2=0
-  # shellcheck disable=SC2086  # one argument per id of this one image
-  out=$(timeout -k 30 600 docker rmi $ids 2>&1) || rc2=$?
-  if [ "$rc2" = 124 ]; then
-    warn "docker rmi of the base did not finish in 600 seconds"
-    return 1
-  elif [ "$rc2" != 0 ]; then
-    warn "docker could not remove the base $pulled ($rc2): $(head -n 1 <<<"${out:-docker gave no reason}")"
-    return 1
-  fi
-  freed=$((freed + kb))
-  log "removed the base $pulled: an image of that age, $kb bytes"
-  return 0
+  done <<<"$cands"
+  freed=$((freed + total))
+  return "$failed"
 }
 
 # Every step runs, whatever the ones before it did.
