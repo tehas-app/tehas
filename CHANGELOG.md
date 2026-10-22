@@ -43,6 +43,15 @@ release workflow takes the release's page from its section
   once.
 - The console, the analytics program and the MCP server are one cargo
   workspace.
+- tehas can carry a pi-rukas feature that has no release yet as a polyfill,
+  `lib/polyfill-<feature>.sh`, used only while the sandbox image's
+  `--capabilities` lacks the feature. The tag script removes a polyfill the
+  release's pi-rukas no longer needs, in a pull request of its own. None is
+  carried yet.
+- A cycle whose runner never came up ends with its own cap,
+  `runner-never-started`, naming the container's exit status.
+- On a host that runs a release, `tehas status` names the installed release
+  and whether a newer one is published, instead of the platform checkout.
 
 ### Adopter action
 
