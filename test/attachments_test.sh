@@ -281,10 +281,33 @@ t_eq "$t_out" "L3 gave other bytes than when this approval was first fetched"
 # hand and committed under test/fixtures/work-zips, so these cases ask no zip
 # tool, as the Protolab's do.
 zips=$T_ROOT/test/fixtures/work-zips
+# A zip the test writes: x.png of png bytes and x.html of the same bytes, so the
+# two say what an entry of an archive says and nothing else does. It is written
+# here rather than committed, as the committed fixtures hold the archives of #431
+# and are not touched by these cases. The bytes of an entry are those of the png
+# every other link of these cases is answered with, so the one printf serves for
+# all three. The name is one no other case of this file uses.
+fakezip=$T/pngbytes.zip
+fake_archive() { # the two entries, one of png bytes and one of the same bytes named .html
+  rm -rf "$T/mkzip" "$fakezip"
+  mkdir -p "$T/mkzip"
+  printf '\x89PNG\r\n\x1a\nPNGDATA' >"$T/mkzip/x.png"
+  cp "$T/mkzip/x.png" "$T/mkzip/x.html"
+  TZ=UTC touch -d '2026-10-22 00:00:00' "$T/mkzip/x.png" "$T/mkzip/x.html"
+  (cd "$T/mkzip" && TZ=UTC zip -q -X "$fakezip" x.png x.html)
+}
 anyzip=https://github.com/user-attachments/files/9/any.zip
 bzip=https://github.com/user-attachments/files/8/b.zip
 czip=https://github.com/user-attachments/files/7/c.zip
 pnglink=https://github.com/user-attachments/assets/1111
+datlink=https://github.com/user-attachments/files/31/x.dat
+htmlzip=https://github.com/user-attachments/files/12/x.html
+fake_body="[x.html]($htmlzip) [any.zip]($anyzip) [x.dat]($datlink)"
+# The reason of a link that is neither an image by its name nor a text file by
+# it, and the reason of bytes that are no text: three cases of one body compare
+# their left-out entries with them.
+notzip_text="Not valid UTF-8 text, or it holds a NUL byte."
+nokind="Not a png, jpg, webp or gif image, nor a md, txt, csv, json, yaml, log, html, css or js file."
 evilzip=https://github.com/user-attachments/files/13/evil.zip
 evil_body="[evil.zip]($evilzip)"
 bigzip=https://github.com/user-attachments/files/11/big.zip
@@ -292,8 +315,10 @@ zipdir=$T/zipdir
 
 # zip_case <dir> <body> [setting=VALUE]...: that issue, and its images in a
 # clean shell, with the instance's settings and the case's own after them. The
-# stub answers the .zip link with NET_ZIP's bytes and every other link with the
-# png, so a case says what the archive is and nothing else about the issue.
+# stub answers the .zip link with NET_ZIP's bytes, a link whose name the case
+# named in NET_ENTRY with the bytes of the archive entry of that name, and every
+# other link with the png, so a case says what the archive is, what one file of
+# it is where the issue links that file too, and nothing else about the issue.
 zip_case() {
   local dir=$1 body=$2 nm key
   shift 2
@@ -334,7 +359,18 @@ zip_case() {
   # than the 1 MB of one file is answered only at the room of the fetch that can
   # hold it, so the cycle reading one link twice - once as the kind its name
   # says and once as the kind its bytes turn out to be - is answered both times.
-  local zip_bytes=${NET_ZIP:-} file_bytes=${NET_FILE:-} nm key
+  local zip_bytes=${NET_ZIP:-} file_bytes=${NET_FILE:-} entry=${NET_ENTRY:-} nm key
+  # The name of the entry the case gave, and the bytes of it: the cycle reads
+  # one link twice, once for the file its name says and once for the archive, so
+  # the bytes of one link must be those of one entry alone and not those of the
+  # whole archive, which is what NET_FILE does for a file of an archive the case
+  # named. The archive is never listed, so the case that names an entry names
+  # one of the archive it gave.
+  local entry_bytes="" entry_name=$entry
+  if [ -n "$entry" ] && [ -n "$zip_bytes" ] && [ "$entry" != none ]; then
+    unzip -p "$zip_bytes" "$entry" >"$T/entry.$entry" 2>/dev/null &&
+      entry_bytes=$T/entry.$entry
+  fi
   # The bytes of a link answer that link alone: an archive under the name it is
   # linked by, and one text file of an archive under the name the issue links
   # it by. A link no case filled stays the png below. The names are read into a
@@ -344,6 +380,13 @@ zip_case() {
   links=$(jq -r .body "$T/issue.json" | grep -o -e 'https://[^ )]*' || true)
   for nm in $links; do
     key=$(printf %s "${nm##*/}" | tr -c 'A-Za-z0-9' _)
+    # The link whose name is an entry of the archive is answered with that
+    # entry, not with the whole archive: the cycle reads one link twice for one
+    # kind, so it is read as the file its name says and as the archive is.
+    if [ -n "$entry_bytes" ] && [ "${nm##*/}" = "$entry_name" ]; then
+      cp "$entry_bytes" "$fx/net/$key"
+      continue
+    fi
     case "${nm##*/}" in
       *.zip)
         [ -n "$zip_bytes" ] || continue
@@ -418,6 +461,7 @@ t_eq "$(jq -r '.files[0].bytes' "$zipdir/manifest.json")" 4
 t_eq "$(find "$zipdir" -name '.unzip-*' -o -name '.part' | wc -l)" 0
 
 t_case "a file named .zip that is not one is left out with the reason, and nothing of it is kept"
+printf 'not a zip at all\n' >"$T/fake.zip"
 NET_ZIP=$T/fake.zip zip_case "$zipdir" "$zip_body"
 t_eq "$t_out" ""
 t_eq "$(ls_imgs "$zipdir")" "./image-1.png ./manifest.json "
@@ -480,6 +524,39 @@ t_eq "$(jq -r '[.leftOut[] | select(.path) | .link] | unique | .[]' "$zipdir/man
   "$(printf '%s\n' "$anyzip" "$bzip" | LC_ALL=C sort | tr '\n' ' ')"
 t_eq "$(jq -c '[.files[] | .file]' "$zipdir/manifest.json")" '["file-1.md","file-2.md"]'
 t_eq "$(jq -c '[.images[] | .file]' "$zipdir/manifest.json")" '["image-1.png","image-2.png","image-3.png"]'
+
+t_case "an entry of png bytes is given as an image only when its extension says so"
+# The archive holds x.png and x.html of the same png bytes, and the issue links
+# an x.dat of them too. The entry of a name a cycle is given as an image is the
+# one it takes; an entry of png bytes under another extension is the file that
+# extension says, and where the extension is not one of a text file the cycle is
+# given, it is left out with the reason that names both kinds. The issue's own
+# link of those bytes goes the same way: its name says .dat, so its bytes make
+# it no image. None of the three is the image its bytes alone would have made
+# it, which is what an entry of png bytes named .html used to become, with the
+# type of its extension hung on image/ and read as image/html.
+fake_archive
+NET_ZIP=$fakezip NET_ENTRY=x.dat zip_case "$zipdir" "$fake_body"
+t_eq "$t_out" ""
+t_eq "$(ls_imgs "$zipdir")" "./image-1.png ./manifest.json "
+t_eq "$(jq -c '[.images[] | [.file, .type, .zip, .path]]' "$zipdir/manifest.json")" \
+  "[[\"image-1.png\",\"image/png\",\"$anyzip\",\"x.png\"]]"
+t_eq "$(jq -c '[.files[] | .file]' "$zipdir/manifest.json")" '[]'
+t_eq "$(jq -c '[.leftOut[] | [.link, .path, .reason]]' "$zipdir/manifest.json")" \
+  "[[\"$htmlzip\",null,\"$notzip_text\"],[\"$anyzip\",\"x.html\",\"$nokind\"],[\"$datlink\",null,\"$nokind\"]]"
+t_eq "$(find "$zipdir" -name '.unzip-*' -o -name '.part' | wc -l)" 0
+
+t_case "a png of the archive is given as image/png under the name the archive gave it"
+# The same archive read whole: the entry of a name an image is given by is
+# taken, and its type and its path say what the archive said it was. The entry
+# of the same bytes named .html is not there with it.
+fake_archive
+NET_ZIP=$fakezip NET_ENTRY=none zip_case "$zipdir" "[any.zip]($anyzip)"
+t_eq "$t_out" ""
+t_eq "$(ls_imgs "$zipdir")" "./image-1.png ./manifest.json "
+t_eq "$(jq -c '[.images[] | [.file, .type, .zip, .path]]' "$zipdir/manifest.json")" \
+  "[[\"image-1.png\",\"image/png\",\"$anyzip\",\"x.png\"]]"
+t_eq "$(find "$zipdir" -name '.unzip-*' -o -name '.part' | wc -l)" 0
 
 # --- What the issue's text promises -------------------------------------------
 # A body written around a file that was never attached: the dispatcher holds the
