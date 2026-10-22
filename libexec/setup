@@ -23,7 +23,8 @@
 #   2. writes ~/.config/tehas (or the directory instance-dir names):
 #      instance.env with the required settings only, models.json, and the
 #      token and the model key in env, mode 600
-#   3. gives git the bot's name and noreply address, unless it has one
+#   3. gives git the bot's name and noreply address, unless it has one, and
+#      gh's credential helper for github.com, unless git has one
 #   4. clones the product to ~/tehas/repos/<name> when it is not there
 #   5. runs install.sh beside this command, then tehas labels
 #   6. builds the sandbox image unless it is there, and runs the product's
@@ -258,6 +259,17 @@ fi
 umask 022
 
 # --- git, the product, the install --------------------------------------------
+# The helper first: without it the clone below cannot read a private product's
+# remote, and gh hands git the GH_TOKEN this command already exported.
+helper=$(git config --global --get-regexp '^credential\.https://github\.com\.helper$' 2>/dev/null)
+if [ -n "$helper" ]; then
+  echo "tehas setup: git's helper for github.com is kept: $helper"
+elif ! gh auth setup-git --hostname github.com; then
+  die "gh auth setup-git failed for github.com; cannot give git a credential helper"
+else
+  echo "tehas setup: git uses gh's credential helper for github.com"
+fi
+
 read -r login uid < <(gh api user --jq '[.login,.id]|@tsv' 2>/dev/null) || true
 [ -n "${login:-}" ] || die "gh api user did not say who the bot is"
 if [ -z "$(git config --global user.name)" ] && [ -z "$(git config --global user.email)" ]; then

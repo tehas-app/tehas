@@ -35,6 +35,7 @@ stub_gh() {
   "api user --jq [.login,.id]|@tsv") printf "tehas-bot\t4242\n" ;;
   "issue create --repo acme/widget"*) echo "https://github.com/acme/widget/issues/7" ;;
   "repo clone acme/widget "*) mkdir -p "${4}/.git" ;;
+  "auth setup-git --hostname github.com") [ "${SETUP_GIT_RC:-0}" = 0 ] || exit 1 ;;
   *) exit 1 ;;
 esac
 [ -z "${GH_TOKEN:-}" ] || printf "%s\n" "$GH_TOKEN" >"$T/gh-token"'
@@ -62,6 +63,13 @@ fresh() {
 
 args=(--repo acme/widget --labellers "alice bob" --token-file "$T/token" --endpoint http://gb1:8086/v1)
 run_setup() { t_run "$setup $(printf '%q ' "$@") </dev/null"; }
+# One where the steps before it are laid by a snippet: a second $setup inside
+# the quotes survives t_run's word splitting.
+run_setup_after() { # <snippet> <args...>
+  local snip=$1
+  shift
+  t_run "$snip; \"$setup\" $(printf '%q ' "$@") </dev/null"
+}
 
 t_case "a first run writes the required settings, the model list and the token, and starts the factory"
 fresh
@@ -190,6 +198,56 @@ run_setup "${args[@]}" --no-build
 t_eq "$t_rc" 0
 t_eq "$(git config -f "$T/home/.gitconfig" user.name)" "Someone"
 t_contains "$t_out" "kept"
+
+t_case "with no helper for github.com, gh sets one before the clone"
+fresh
+run_setup "${args[@]}" --no-build
+t_eq "$t_rc" 0
+t_contains "$t_out" "gh's credential helper for github.com"
+t_eq "$(t_calls gh | grep -n 'auth setup-git --hostname github.com' | sed 's/:.*//')" 3
+t_contains "$(t_calls gh | tail -n 2)" "repo clone acme/widget"
+
+t_case "a helper for github.com that is there is kept and named"
+fresh
+# The state tehas-tehas is in: a helper set by hand at some point with
+# gh auth setup-git. The checkout is put in place by hand too, so the run
+# clones nothing and the case is about the helper alone.
+printf '[credential "https://github.com"]\n\thelper = !/usr/bin/gh auth git-credential\n' >>"$T/home/.gitconfig"
+mkdir -p "$T/home/tehas/repos/widget/.git"
+run_setup_after 'git config --global user.name Someone; git config --global user.email someone@example.org' "${args[@]}" --no-build
+t_eq "$t_rc" 0
+t_contains "$t_out" "kept: credential.https://github.com.helper !/usr/bin/gh auth git-credential"
+t_lacks "$(t_calls gh)" "auth setup-git"
+t_lacks "$(t_calls gh)" "repo clone"
+
+t_case "a host with no git identity is not stopped by the helper failing"
+fresh
+# The state a factory made by bootstrap.sh and install.sh alone is in: no
+# identity and no helper. The helper is asked for first, so this reports the
+# helper and never reaches the identity.
+T_ENV=(SETUP_GIT_RC=1)
+run_setup "${args[@]}" --no-build
+T_ENV=()
+t_eq "$t_rc" 1
+t_contains "$t_out" "gh auth setup-git failed"
+t_lacks "$t_out" "git's identity"
+
+t_case "gh auth setup-git failing is exit 1 and clones nothing"
+fresh
+T_ENV=(SETUP_GIT_RC=1)
+run_setup "${args[@]}" --no-build
+T_ENV=()
+t_eq "$t_rc" 1
+t_contains "$t_out" "gh auth setup-git failed"
+t_lacks "$(t_calls gh)" "repo clone"
+t_eq "$([ -e "$T/home/tehas/repos/widget" ] && echo cloned)" ""
+
+# The next cases reuse the checkout and the settings the case above wrote, so
+# the earlier ones run again first.
+stub_all
+: >"$T/image-there"
+run_setup "${args[@]}" --no-build
+t_eq "$t_rc" 0
 
 t_case "the product's gates run in the sandbox when check-product is there; --no-build skips both"
 fresh
