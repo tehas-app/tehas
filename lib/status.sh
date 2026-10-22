@@ -61,6 +61,14 @@ tehas_state_defs='
   def ago($now): ($now - .) | if . < 0 then 0 else . end
     | if . < 120 then "\(.) s ago" elif . < 7200 then "\(. / 60 | floor) min ago" else "\(. / 3600 | floor) h ago" end;
   def age($now): (try (fromdateiso8601 | ago($now)) catch "at an unknown time");
+  # The triple of vX.Y.Z, or null for anything else: a version that cannot be
+  # read as a triple is never said to be newer than another.
+  def triple: (try (ltrimstr("v") | split(".") | map(tonumber)) catch null);
+  # 0 when the version string $a is newer than the version string $b; either
+  # one that is no triple is never newer than the other.
+  def newer($a; $b): ([$a, $b] | map(triple) | all(. != null))
+    and (($a | triple) as $x | ($b | triple) as $y | ($x | length) as $n
+      | [range($n)] | map($x[.] > $y[.]) | any(.));
   # What holds the factory paused, one line for each switch that is set:
   # {flag: {at, reason} or null, label: true|false, lifted: true|false}, as
   # health.json writes it. lifted names the case where the label is off and no
@@ -172,8 +180,8 @@ tehas_platform_line() { # <health json> <now epoch seconds>
     | if .release != null then
         "platform  \(.release), "
         + (if .newest == null then "newest unknown"
-           elif .newest == .release then "newest \(.newest)"
-           else "\(.newest) is out" end)
+           elif newer(.newest; .release) then "\(.newest) is out"
+           else "newest \(.newest)" end)
         + (if .fetchedAt == null then ", never fetched" else ", fetched \(.fetchedAt | age($now))" end)
       else
         "platform  \((.commit // "unknown")[:7]), "
