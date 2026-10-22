@@ -49,6 +49,20 @@ installed cb6912a
 t_run "$api --json"
 t_eq "$(jq -c '[.tehas, .commit]' <<<"$t_out")" '[null,"cb6912a"]'
 
+t_case "api --json: a release install has the tag and no commit"
+reset
+installed v0.10.2
+t_run "$api --json"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[.tehas, .commit]' <<<"$t_out")" '["v0.10.2",null]'
+
+t_case "api without --json: a release install prints the tag with no commit"
+reset
+installed v0.10.2
+t_run "$api"
+t_contains "$t_out" "tehas     v0.10.2"
+t_lacks "$t_out" "("
+
 t_case "api --json: an install with no version file has neither"
 reset
 t_run "$api --json"
