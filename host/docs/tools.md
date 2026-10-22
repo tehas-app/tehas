@@ -1178,6 +1178,11 @@ In order, stopping at the first step that fails:
    `~/.config/tehas/env` as `GH_TOKEN`. The directory is mode 700, the files 600.
 3. It gives git the bot's login and noreply address (`<id>+<login>@users.noreply.github.com`)
    from `gh api user`, unless git already has a name or an email, which it keeps.
+   It gives git `gh`'s credential helper for `github.com`
+   (`gh auth setup-git --hostname github.com`) when `git config --global` has
+   none, which is what lets plain git read a private product's remote; a helper
+   that is there is kept and named. If `gh auth setup-git` fails, the run stops
+   with 1.
 4. It clones the product to `~/tehas/repos/<name>` when there is no checkout.
 5. It runs `install.sh` from the same tree as the command, then
    [tehas labels](#tehas-labels).
