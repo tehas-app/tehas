@@ -33,7 +33,7 @@ container 'exit 1'
 t_run "$work 7"
 t_eq "$t_rc" 2
 cycle_log=$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p')
-t_eq "$(cat "$T/home/tehas/state/cycles/7.nostart")" "1 0"
+t_eq "$(cat "$T/home/tehas/state/cycles/7.nostart")" "1"
 t_eq "$(cat "$cycle_log.err")" \
   "tehas work: issue 7 ended with the container's exit 1 and no line of its stream: the runner wrote no event, so no step started. Its preflight is $(basename "$cycle_log").preflight."
 
@@ -61,6 +61,26 @@ container 'says handoff; exit 10'
 t_run "$work 7"
 t_eq "$t_rc" 10
 t_eq "$(find "$T/home/tehas/state/cycles/7.nostart" 2>/dev/null | wc -l)" 0
+# A container tehas itself stopped, at the time limit or as stalled: it wrote no
+# result and no line of its stream, and the account of its end is its stop file,
+# so no note goes beside it. The report of tehasbot cycle reads the note first,
+# and a note that coexisted with a timed file would take the cap of that stop.
+fresh
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=1
+T_ENV=("${env_ok[@]}" TEHAS_WORK_GRACE=0)
+container "$hold; $gone"
+t_run "$work 7"
+t_contains "$t_out" "time limit of 1s passed"
+t_eq "$(find "$T/home/tehas/state/cycles/7.nostart" 2>/dev/null | wc -l)" 0
+fresh
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_STALL=2 TEHAS_VERIFY_TIMEOUT=1
+T_ENV=("${env_ok[@]}")
+container "$hold; $gone"
+t_run "$work 7"
+t_contains "$t_out" "stopping it as stalled"
+t_eq "$(find "$T/home/tehas/state/cycles/7.nostart" 2>/dev/null | wc -l)" 0
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+T_ENV=("${env_ok[@]}")
 
 t_case "a result without an exit code of its own is no success: exit 2"
 for code in 1 137; do

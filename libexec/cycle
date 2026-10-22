@@ -78,8 +78,8 @@
 # the driver's first event. tehas work leaves state/cycles/<issue>.nostart with
 # the container's own exit status for that, and this command reports the cycle
 # under tehas's own cap runner-never-started, with capReason naming that status
-# and that no event was seen, and a step that says no step started rather than
-# one read from a log. The run log of such a cycle is not read.
+# and that no event was seen, and a step of no-step rather than one read from a
+# log. Its run log is still opened for a branch, but no step is taken from it.
 #
 # A runner that exits 4 started no cycle: tehas work refused the start, over
 # text that is not the text the dispatcher approved (its body or its title), a
@@ -447,16 +447,28 @@ fi
 progress_seen=0
 [ -e "$progress" ] && [ ! -L "$progress" ] && progress_seen=1
 # The note tehas work leaves for the container it watched to its end that wrote
-# no result and not one line of its stream: the container's own exit status, and
-# how many processes its cgroup killed for memory. Digits, read as every other
-# file of the cycle's is: anything else is no note.
+# no result and not one line of its stream: the container's own exit status, on
+# a line of its own. Digits, read as every other file of the cycle's is: anything
+# else is no note, and a cycle whose note reads as no note is reported the way it
+# was before the note existed. The file's presence is the marker that says this
+# cycle started no runner, as the presence of the runner's exit file says the run
+# was watched; the digits only fill in the words of the comment. A note whose
+# status is 0 is no note: 0 is the end of a container that finished cleanly.
+nostart_seen=0
 nostart_rc=""
-nostart_ooms=0
-if [ -f "${cycles:?}/${issue:?}.nostart" ] && [ ! -L "${cycles:?}/${issue:?}.nostart" ]; then
-  read -r nostart_rc nostart_ooms _ < <(head -c 100 "${cycles:?}/${issue:?}.nostart" 2>/dev/null | head -n 1)
-  [[ $nostart_rc =~ ^(0|[1-9][0-9]{0,2})$ ]] || nostart_rc=""
-  [[ $nostart_ooms =~ ^(0|[1-9][0-9]{0,8})$ ]] || nostart_ooms=0
+# The word this command puts on record for a cycle whose container never came
+# up. Not a step of the runner's vocabulary: no step of pi-rukas is named here,
+# and the word is kept clear of the three the analytics reader reads a planning
+# turn's rc for (`interrupted`, `not-started`, `not-readable`), so a cycle that
+# never began is never mistaken for a start that was refused at exit 4.
+nostart_step=no-step
+nostart_file=${cycles:?}/${issue:?}.nostart
+[ -f "$nostart_file" ] && [ ! -L "$nostart_file" ] || nostart_file=
+if [ -n "$nostart_file" ]; then
+  read -r nostart_rc _ < <(head -c 100 "$nostart_file" 2>/dev/null | head -n 1)
+  [[ $nostart_rc =~ ^[1-9][0-9]{0,2}$ ]] || nostart_rc=""
 fi
+[ -n "$nostart_rc" ] && nostart_seen=1
 rm -f "${cycles:?}/${issue:?}.nostart"
 # The branch tehas work wrote for this cycle, if it wrote one. Read before the
 # files of the cycle are cleared of the protocol's own, and never later: it is
@@ -486,9 +498,6 @@ host_branch_pattern=$(tehas_branch_pattern "$issue") || host_branch_pattern='^$'
 # it could report left behind, and a log of that run is no log of this one.
 read_log_steps=$no_result
 [ "$watched" = 1 ] && [ "$progress_seen" = 1 ] || read_log_steps=0
-# The cycle tehas work says never started has no step to read for: its log held
-# no line, so reading it would name a step of some other run of the issue.
-[ -z "$nostart_rc" ] || read_log_steps=0
 if [ "$read_log_steps" = 1 ] && [ ! "$progress" -nt "$lock_taken" ] &&
   [ "$(stat -c %Y "$progress" 2>/dev/null)" != "$lock_taken" ]; then
   read_log_steps=0
@@ -527,6 +536,13 @@ fi
 # stop below and this answer cannot disagree about what the files say.
 step_wanted=1
 [ "$step" = - ] || step_wanted=0
+# A cycle the note says never started has no step to read for: its log held no
+# line. Only the step goes: the branch of a nostart cycle is still asked about
+# as for any other cycle that wrote no result, so the one pass that names it
+# stays open. The word is the same one tehas work's stop files use for the same
+# answer, and it sits with them because a nostart cycle whose stop files name no
+# step is the only kind that reaches the pass at all.
+[ -z "$nostart_rc" ] || step_wanted=0
 [[ $stall_secs =~ ^(0|[1-9][0-9]{0,8})$ ]] || stall_step=""
 [[ $timed_secs =~ ^(0|[1-9][0-9]{0,8})$ ]] || timed_step_file=""
 [ -z "$stall_step" ] && [ -z "$timed_step_file" ] || step_wanted=0
@@ -630,7 +646,7 @@ step_from=$log_from
 # name read out of a log that held nothing. Held to a cycle that wrote no result
 # at all, as the note is: a result that names an end has the last word, and the
 # step of a result is never replaced.
-[ -z "$nostart_rc" ] || [ "$no_result" = 0 ] || { step=not-started; step_from=nostart; }
+[ -z "$nostart_rc" ] || [ "$no_result" = 0 ] || { step=$nostart_step; step_from=nostart; }
 step=${step:--}
 # The step of tehas work's stall file stands in where the result and the log
 # name none, as the one its timed file names does: each was written by tehas
@@ -791,7 +807,7 @@ fi
 # the park record, the comment's marker, the history line and the improvement
 # record.
 own=""
-if [ -n "$nostart_rc" ] && [ "$no_result" = 1 ]; then
+if [ "$nostart_seen" = 1 ] && [ "$no_result" = 1 ]; then
   own=runner-never-started
   stop_why="the container ended with the exit status $nostart_rc and wrote no line of its stream, so the driver wrote no event and no step started"
 elif [ "$timed" != 0 ] && { [ -z "$cap" ] || [ "$status" = timeout ]; }; then
@@ -809,7 +825,6 @@ if [ -n "$own" ]; then
   [ "$own" = wall-clock ] && [ "$timed_by" = runner ] ||
     [ "$own" = runner-never-started ] || stop_why="$stop_why, step $step in flight"
   [ -z "$cap" ] || stop_why="$stop_why; the runner had named the cap $cap"
-  [ "$nostart_ooms" = 0 ] || stop_why="$stop_why, $nostart_ooms processes in its container were killed for memory"
   reason=$(printf '%s' "$stop_why${reason:+; $reason}" | head -c 200)
   cap=$own
 fi
@@ -948,14 +963,13 @@ summary="status \`$status\`, last step \`$step\`, $mins min"
   summary="status \`$status\`, last step \`$step\` tehas work saw in flight, $mins min"
 [ "$step_from" = timed ] && [ "$step" != - ] &&
   summary="status \`$status\`, last step \`$step\` tehas work saw in flight, $mins min"
-[ "$step_from" = nostart ] &&
+[ "$step_from" = nostart ] && [ "$step" != - ] &&
   summary="status \`$status\`, no step started, the container of the cycle ended before the driver wrote an event, $mins min"
 # Why the cycle stopped, for a comment: its cap and, for an intent park, the
 # reason. A cap is a word of the runner's published vocabulary, or one of
-# `wall-clock` / `stall` / `runner-never-started` that tehas sets for a stop at
-# its own bound.
+# tehas_cycle_own_cap, the caps tehas sets for a stop at its own bound.
 why=""
-if [ "$cap" = wall-clock ] || [ "$cap" = stall ] || [ "$cap" = runner-never-started ]; then
+if tehas_cycle_own_cap "${cap:-}"; then
   why=" tehas stopped the cycle: the cap \`$cap\`."
 else
   [ -z "$cap" ] || why=" pi-rukas stopped on the cap \`$cap\`${park_reason:+ (\`$park_reason\`)}."

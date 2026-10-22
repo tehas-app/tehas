@@ -15,7 +15,7 @@
 #
 #   state/cycles/<issue>.lock .taken .cid .park .requeued .done .stalled
 #                  .timed .quiet .oom .forks .branch .image .nostart
-#                  .progress.json .result.json
+#                  .nostart.new .progress.json .result.json
 #   state/park-<issue>.id
 #   live/console-<issue>.txt
 #   ~/.pi/agent/ensemble-runs/issue-<issue>
@@ -102,7 +102,10 @@ lock=$state/$n.lock
 ws=$TEHAS_WORK_DIR-$n
 runs=$HOME/.pi/agent/ensemble-runs/issue-$n
 # The markers that say this issue's cycle runs, owes something, or is parked.
-notes=(lock taken cid park requeued "done" stalled timed quiet oom forks branch image nostart progress.json result.json)
+# The one sibling name belongs here too: a write of a note is made beside it and
+# moved into place, and a stop that takes the note takes the name of a write
+# that never finished, as libexec/work's own clear of these files does.
+notes=(lock taken cid park requeued "done" stalled timed quiet oom forks branch image nostart nostart.new progress.json result.json)
 
 # said <path>: one line for a thing that went, in the shape a person types.
 said() {

@@ -479,17 +479,20 @@ no branch was made, and no model time was spent. This cap is tehas's, not
 pi-rukas's: `tehas work` watched the container to its end, found no result and
 not one line in the cycle's stream, and left the account of it in
 `state/cycles/<N>.nostart`. The comment says `no step started`, the record's
-`step` is `not-started`, and its `capReason` names the container's own exit
-status (`the container ended with the exit status 1 and wrote no line of its
-stream, so the driver wrote no event and no step started`), so a run of this
-kind can be counted and grouped with the others of it.
+`step` is `no-step`, and its `capReason` names the container's own exit status
+(`the container ended with the exit status 1 and wrote no line of its stream, so
+the driver wrote no event and no step started`), so a run of this kind can be
+counted and grouped with the others of it. The word of the step is tehas's own:
+no step of pi-rukas is named there, and it is kept clear of the word
+`not-started`, which names a start `tehas work` refused at exit 4.
 
 The cycle's own files hold nothing for it: `console.txt` has only the two lines
 of a console that waited and detached, `stream.jsonl` is empty, and what
 `err.txt` holds is the one line `tehas work` wrote for this end, which names
-the preflight file. The last line of `preflight.txt` is the provider-retry
-echo, and it says nothing about the failure: the cycles that ran for hours
-have the same last line.
+the preflight file: nothing of the container's own text is in it, because
+`tehas work` removes that file when it clears the cycle's other files. The last
+line of `preflight.txt` is the provider-retry echo, and it says nothing about
+the failure: the cycles that ran for hours have the same last line.
 
 So this cap says the host stopped the cycle, not the model or the change. What
 it cannot tell you is which part of the host did: an image that died on its
@@ -500,13 +503,22 @@ state of the cgroup. Look at those, in this order:
 jq . ~/tehas/state/cycles/<N>.result.json    # empty: the runner wrote no result
 tail -n 5 ~/tehas/logs/work-<N>-*.preflight  # what the preflight reached
 docker ps -a --filter name=tehas-work-<N>    # the container, if it is still there
-systemctl --user status tehas.slice          # the slice the container ran in
+systemctl --user show tehas.slice -p MemoryMax -p ActiveState   # the slice's ceiling and state
 ```
 
+Read those on the host, and do not paste their output into the issue: a
+preflight file carries the provider's own words and the remote of the product,
+and a container list names this host. The last command is asked for two
+properties rather than the unit's status because a status prints the host's
+name, which the rest of these files keep out of anything a cycle publishes.
+
 Nothing of the issue needs to change, and there is no workspace to read: the
-retry starts from the first step again. When the same issue ends this way twice
-with nothing between them changed, the cause is on the host and repeating the
-start will not fix it.
+retry starts from the first step again. Each such end is posted on the issue as
+it happens, so the comments of the issue say how many times it has ended this
+way. Read that count before you start it again: when the same issue has ended
+twice this way with nothing between them changed, the cause is on the host and
+repeating the start will not fix it. Where the count is not visible on the
+issue, `tehasbot status` names the cycles of an issue and their caps.
 
 ### `lens-review-timeout`
 
@@ -647,9 +659,9 @@ log and asked GitHub for the bot's pull request of the branch that
   no comment, because a cycle that never began has nothing to hand off. See
   [A new project](/new-project) for what the product has to hold.
 - A cycle whose container started and then ended before the driver wrote its
-  first event is not of this kind, and is not read from its run log at all: it
-  is on record as [`runner-never-started`](#runner-never-started), with the
-  step `not-started`.
+  first event is not of this kind, and its step is not read from its run log at
+  all: it is on record as
+  [`runner-never-started`](#runner-never-started), with the step `no-step`.
 
 ```
 jq . ~/tehas/state/cycles/<N>.result.json      # empty, or missing: no result
