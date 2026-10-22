@@ -173,6 +173,26 @@ t_run "$pre"'tehas_slice_ok && tehas_slice_limits; echo "rc=$? n=${#TEHAS_SLICE_
 t_eq "$t_out" "rc=0 n=14
 --cgroup-parent tehas.slice --memory 5120m --memory-swap 5120m --memory-reservation 2g --cpus 1.75 --pids-limit 2048 --cpu-shares 1024"
 
+t_case "limits ok makes the same fourteen words and says yes"
+good
+t_run "$pre"'tehas_slice_ok && tehas_slice_limits_ok; echo "rc=$? n=${#TEHAS_SLICE_LIMITS[@]} words=$tehas_slice_limit_words"'
+t_eq "$t_out" "rc=0 n=14 words=14"
+
+t_case "limits ok hands back nothing when the words of the list are not all there"
+# The reason the count is said by the library and not by each command: one
+# that started its container with half the list would give it most of its
+# limits and pass a test of its own.
+for words in "--cgroup-parent tehas.slice --memory 2048m" ""; do
+  good
+  t_run "$pre"'tehas_slice_ok; tehas_slice_limits() { TEHAS_SLICE_LIMITS=('"$words"'); }; tehas_slice_limits_ok; echo "rc=$? n=${#TEHAS_SLICE_LIMITS[@]}"'
+  t_eq "$t_out" "rc=1 n=0"
+done
+
+t_case "limits ok refuses a list whose parent is not tehas.slice"
+good
+t_run "$pre"'tehas_slice_ok; tehas_slice_limits() { TEHAS_SLICE_LIMITS=(--cgroup-parent other.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024); }; tehas_slice_limits_ok; echo "rc=$? n=${#TEHAS_SLICE_LIMITS[@]}"'
+t_eq "$t_out" "rc=1 n=0"
+
 # --- tehas_slice_cpus -------------------------------------------------------
 # <host CPUs> <TEHAS_TICKET_CONCURRENCY> <quota and pids limit>
 t_case "the quota is the host's CPUs less one over the cycles side by side, at most four"

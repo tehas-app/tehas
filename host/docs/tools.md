@@ -984,9 +984,12 @@ tehasbot review
 One run is one turn of `pi-rukas-headless lens-review --since <commit>
 --json`, over a clone made fresh for the run and removed when it is over. The
 commit to start from is read from `~/tehas/state/review.json`: the commit the
-last review read. With no record there, or one whose commit is gone from the
-branch, the run starts at the commit 7 days back, or at the root when the
-branch is younger than that.
+last review read. A record is trusted only when it holds a whole commit and
+that commit is one the branch still reaches; with no record there, or one that
+is unreadable, names no commit, or names a commit the branch no longer has, the
+run starts at the commit 7 days back, or at the root when the branch is younger
+than that, and says which of the two happened. When the record already names
+the tip, the run says there is nothing new and starts no container.
 
 What a review is for is the whole range, so a run that failed records nothing
 and the next run reads the same commits again. Only the exits that mean the
@@ -1004,7 +1007,11 @@ reviewer answered move the record on.
 On exit 0, 10 or 20 the record is
 `{"commit": "<the head that was reviewed>", "at": "<UTC time>", "exit": <code>}`
 and it replaces what was there. With any other status the file stays exactly as
-it was, and is not made when the host had none.
+it was, and is not made when the host had none. Before anything is recorded the
+runner's document is read, as a cycle's result and a planning turn's answer are
+read: its `exitCode` and the exit status of the container must say the same
+thing about the range. Two answers that disagree record nothing, and both are
+named in the line that says so.
 
 | Exit | Meaning |
 | ---- | ------- |
@@ -1027,14 +1034,29 @@ The workspace is `~/tehas/work/<name>-review`, a clone made for every run and
 removed when the run is over; inside the container it is at the path every
 cycle has its own, `~/tehas/work/<name>`. Beside it is `<name>-review.state`,
 the run's own copy of the code index and its own memory, removed with the
-workspace. Its transcripts go to `~/.pi/agent/ensemble-runs/review`. The
+workspace. A run that fails after making the two removes them too. Its
+transcripts go to `~/.pi/agent/ensemble-runs/review`. The
 runner's one JSON document goes to `~/tehas/logs/review-<time>.json` and its
-NDJSON progress beside it as `.jsonl`.
+NDJSON progress beside it as `.jsonl`. Both are masked on the way there, as
+every other log an agent can see is masked before a reader gets it: no other
+reader reaches a file named `review-<time>`. The mask is the console beside
+this command; a host without it keeps the two files as the run wrote them and
+says so.
+
+One review at a time: the run holds `~/tehas/state/review.lock` for as long as
+it goes, and a second one started beside it says so and starts nothing. A
+container left under the run's name by a client that died is removed before the
+run starts; the `docker rm`, `docker stop` and `docker kill` of these are each
+bounded, so a dockerd that stops answering is reported rather than being the
+last thing the run does.
 
 The limit is `TEHAS_PLAN_TIMEOUT`, the bound of one headless turn: past it the
 container is stopped with `docker stop` and the run exits 2. An image whose
 runner has no `lens-review` verb reviews nothing, and that is said before
-anything is cloned.
+anything is cloned. A `PI_ENSEMBLE_*` name that the environment would carry
+into the container is given only when the image's `--capabilities` says a host
+may set it; one it does not name stops the run before anything is cloned, as it
+does for a cycle.
 
 ## tehas dev
 
