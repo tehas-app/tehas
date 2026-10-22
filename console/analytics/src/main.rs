@@ -284,16 +284,7 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
             conn.execute_batch("PRAGMA optimize").map_err(db_err)
         }
         Cmd::Report | Cmd::ReportText => {
-            let mut report =
-                report::build(&conn, now).map_err(|e| (70, format!("the report failed: {e}")))?;
-            let refine = report::refine(&conn, &report::read_refined(home), now)
-                .map_err(|e| (70, format!("the report failed: {e}")))?;
-            let sizes = report::sizes(&conn, &report::read_sizes(home), now)
-                .map_err(|e| (70, format!("the report failed: {e}")))?;
-            if let Some(o) = report.as_object_mut() {
-                o.insert("refine".into(), refine);
-                o.insert("sizes".into(), sizes);
-            }
+            let report = report::complete(&conn, home, now)?;
             if matches!(cmd, Cmd::Report) {
                 println!("{report}");
             } else {
