@@ -208,7 +208,8 @@ tehas check-product --sandbox
 
 `tehas setup` runs `tehas check-product --sandbox` once. It runs the product's
 own gates inside the image, as the unprivileged user, with nothing mounted but a
-clone, and checks the contract files first. By hand it is:
+clone made as a cycle's is, with `origin/main` and `origin/HEAD`, and checks the
+contract files first. By hand it is:
 
 ```
 T=~/tehas/tmp/contract-test
