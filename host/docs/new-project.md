@@ -128,7 +128,8 @@ stopping at the first step that fails, it:
 2. writes `~/.config/tehas/instance.env` with the required settings only,
    `models.json`, and the token and the model key in `~/.config/tehas/env`,
    mode 600;
-3. gives git the bot's name and noreply address, unless it has one;
+3. gives git gh's credential helper for github.com, unless git has one, and
+   gives it the bot's name and noreply address, unless it has one;
 4. clones the product to `~/tehas/repos/<name>`;
 5. runs `install.sh` from the release, then `tehas labels`;
 6. builds the sandbox image and runs the product's gates in it with

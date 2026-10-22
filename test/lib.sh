@@ -14,7 +14,9 @@
 #                                    TEHAS_HOME; t_calls analytics
 #   t_stub_cargo                     a cargo that compiles nothing and leaves the
 #                                    package it was asked for (-p), under its
-#                                    target's directory when given --target
+#                                    target's directory when given --target;
+#                                    CARGO_OFFLINE is what a build that asked
+#                                    for --offline answers: miss, noise or fail
 #   t_console_source DIR             copy the source of the console and of
 #                                    analytics into a scratch checkout
 #   slice_state / slice_child / slice_id   a scratch cgroup tree for lib/slice.sh
@@ -85,13 +87,60 @@ t_stub_analytics() {
 # $CARGO_TARGET_DIR, which t_run points into the scratch directory, so no test
 # builds into this checkout. CARGO_RC makes the build fail, CARGO_FAIL names
 # the one package whose build fails, CONSOLE_BUILD tells one build from
-# another, and NO_CONSOLE is a build that succeeds and leaves nothing.
+# another, and NO_CONSOLE is a build that succeeds and leaves nothing. A build
+# that asks for --offline is a build from the cache alone: CARGO_OFFLINE names
+# what such a build answers, in cargo's own words, and the build without it is
+# The answer is one of miss, fetch_miss, noise or fail, and no other word is
+# accepted: an unknown one stops the stub at once rather than answering as a
+# cache miss. The knobs compose, so CARGO_RC, CARGO_FAIL and NO_CONSOLE still
+# answer the build that goes online.
+#   miss  a crate that is not in the cache. The words are what cargo prints for
+#         it, captured from a real run against console/Cargo.lock with an empty
+#         CARGO_HOME: "error: no matching package named ... found" with its
+#         note that offline mode caused it. install.sh retries on this
+#   fetch_miss the same miss in cargo's other wording, the one a locked build
+#         prints when the fetch itself is refused: "error: ... attempting to
+#         make an HTTP request, but --offline was specified". install.sh
+#         retries on this too
+#   noise words that quote --offline but are no cache miss: a build script that
+#         echoes its own command line, as cargo's own usage dump does. install.sh
+#         is not to take these for a miss
+#   fail a cache miss the fetch does not fix: the offline attempt misses and the
+#         retry fails for its own reason, so both are reported. The retry's own
+#         words are invented here, not captured from a real cargo: they only
+#         exercise the report of both attempts
+# Any other build is an ordinary build.
 t_stub_cargo() {
   # shellcheck disable=SC2016  # the stub's body is expanded when the stub runs
-  t_stub cargo 'pkg=console triple="" prev=""
-for a in "$@"; do [ "$prev" != -p ] || pkg=$a; [ "$prev" != --target ] || triple=$a/; prev=$a; done
+  t_stub cargo 'pkg=console triple="" prev="" offline=""
+for a in "$@"; do
+  [ "$prev" != -p ] || pkg=$a
+  [ "$prev" != --target ] || triple=$a/
+  prev=$a
+  [ "$a" != --offline ] || offline=1
+done
+if [ -n "$offline" ] && [ -n "${CARGO_OFFLINE:-}" ]; then
+  # The cache miss in the words cargo uses, one line each. The second line of
+  # the miss names offline mode without being an error, so a line that does not
+  # open with error: is no miss. The words install.sh matches for a miss are
+  # these, named once there in cargo_miss_words and copied here.
+  case $CARGO_OFFLINE in
+    miss) echo "error: no matching package named \"$pkg\" found" >&2
+      echo "note: offline mode (via --offline) can sometimes cause surprising resolution failures" >&2 ;;
+    fetch_miss) echo "error: failed to get \"$pkg\": attempting to make an HTTP request, but --offline was specified" >&2 ;;
+    noise) echo "error: failed to run custom build command for $pkg" >&2
+      echo "  process did not exit successfully: build-script-build --offline" >&2 ;;
+    fail) echo "error: no matching package named \"$pkg\" found" >&2 ;;
+    *)
+      echo "test stub: unknown CARGO_OFFLINE=$CARGO_OFFLINE" >&2
+      exit 99
+      ;;
+  esac
+  exit 101
+fi
 if [ "${CARGO_RC:-0}" != 0 ]; then echo "error: could not compile $pkg" >&2; exit "$CARGO_RC"; fi
 if [ "${CARGO_FAIL:-}" = "$pkg" ]; then echo "error: could not compile $pkg" >&2; exit 101; fi
+if [ "${CARGO_OFFLINE:-}" = fail ]; then echo "error: could not compile $pkg after fetching" >&2; exit 101; fi
 [ -z "${NO_CONSOLE:-}" ] || exit 0
 mkdir -p "${CARGO_TARGET_DIR:?}/${triple}release"
 case $pkg in analytics) art=an ;; *) art=a ;; esac

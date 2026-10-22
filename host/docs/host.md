@@ -20,7 +20,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/env.sh`                     | Environment for every tehas process, its tool directories taken from `lib/paths.sh`; sourced from `~/.bashrc`           |
 | `~/tehas/lib/config.sh`              | Loads and checks the instance settings; sourced by every command        |
 | `~/tehas/lib/paths.sh`               | The home of each tool this host installs, and the `PATH` that finds them. `env.sh`, `bootstrap.sh` and `install.sh` all take the list from here |
-| `~/tehas/lib/sandbox.sh`             | What a sandbox container is given; sourced by the work, plan and dev scripts |
+| `~/tehas/lib/sandbox.sh`             | What a sandbox container is given, and the one name of the sandbox and base images; sourced by the work, plan and dev scripts, and beside `lib/rukas.sh` by `tehasbot clean` |
 | `~/tehas/lib/slice.sh`               | Reads the slice: whether it is usable, a container's limits, the room left. Every command that starts a sandbox container reads it |
 | `~/tehas/lib/headless.sh`            | What tehas reads of pi-rukas's headless runner: its `--capabilities` answer, its progress and its result. `tehas work` and `tehasbot cycle` use it |
 | `~/tehas/lib/attachments.sh`         | Which links of an issue are attached files and how one is fetched. The Protolab and `tehas work` use it |
@@ -40,7 +40,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/edge/`                      | The docs server (`docs.compose.yaml`) and the edge router (`router.compose.yaml`) |
 | `~/tehas/protolab/`                  | The Protolab's pages and the files of each prototype, written by `tehasbot protolab` |
 | `~/tehas/preview/`                   | The state of each preview, and a bare clone the pull requests' commits are fetched into, written by `tehasbot preview` |
-| `~/tehas/logs/`, `state/`, `live/`, `tmp/` | Logs, state, dashboard data, scratch. `state/` holds the dispatch lock, status files, the record of each planning session (`plan-<issue>.json`, with what it carries between turns in `plan-<issue>.json.keep/`) and the id of each parked cycle's question (`park-<issue>.id`), and what each start rests on and the manifest of its images (`cycles/<issue>.approved.json`, `cycles/<issue>.manifest.json`, with `cycles/<issue>.images.md` and `cycles/<issue>.retry-context.md` when the cycle had them). No cycle, planning or manual container is given it; the indexing container is given `state/index` to write |
+| `~/tehas/logs/`, `state/`, `live/`, `tmp/` | Logs, state, dashboard data, scratch. `state/` holds the dispatch lock, status files, the record of each planning session (`plan-<issue>.json`, with what it carries between turns in `plan-<issue>.json.keep/`) and the id of each parked cycle's question (`park-<issue>.id`), and what each start rests on and the manifest of its images (`cycles/<issue>.approved.json`, `cycles/<issue>.manifest.json`, with `cycles/<issue>.images.md` and `cycles/<issue>.retry-context.md` when the cycle had them). What each approved start measured is kept in `state/sizes.jsonl`, one line per start, mode 600: when, which issue, and the four counts of its approved body. Nothing reads it yet. No cycle, planning or manual container is given it; the indexing container is given `state/index` to write |
 | `~/tehas/mcp/`                       | The sessions snapshot for the MCP server, `sessions.jsonl`, written by `tehasbot status`. Mode 700: it holds what the agents saw, and is never published |
 | `~/tehas/tmp/improve/`, `~/tehas/state/improve.lock` | Where the improvement loop is on: the record of each cycle that ended, until a run has read it, and the lock of a run |
 | `~/tehas/state/index`                | The code index `tehas index` builds, under the name of the tree it was made from. The indexing container is given it to write; no cycle, planning or manual container is given it, and a cycle is given a copy of it in its own state directory |
@@ -69,9 +69,20 @@ itself.
 The same run prunes Docker's build cache of that age with `docker builder prune`.
 That is the build cache of the whole host's Docker daemon, not only tehas's:
 tehas is one project on one host, and the cache of anything else on it is made
-again too. It removes no image and no volume. Images go with the sandbox build,
-which keeps its newest three date tags, and with `tehasbot preview`; volumes are
-a person's call.
+again too.
+
+It removes images in two steps, and no volume. The first takes the dated tags of
+the sandbox image whose image is older than `TEHAS_CLEAN_AFTER` hours, keeping
+the newest dated tag and any tag a container or a `uid` tag was made from. The
+build keeps its newest three date tags (see [Commands](/tools)); what is older
+than the age besides the newest is this step's. The second prunes the base image
+the build pulls from upstream, and the images left with no tag, of that age and
+made no container: `docker image prune`. A container is what keeps an image
+here: `tehasbot work` runs its cycles from the sandbox image, so one an existing
+container was made from stays whatever its age. Preview images are
+`tehasbot preview`'s and no step here touches them; a docker that answers no
+image list, or nothing about the containers on the host, removes nothing, since
+an unknown is never a reason to take an image away. Volumes are a person's call.
 
 The third step is the host's scratch: old files under `~/tehas/tmp/dl`, where
 `bootstrap.sh` keeps what it downloads, and under `~/tehas/tmp/node-compile-cache`,
@@ -395,12 +406,20 @@ that was installed. The console's source is `console/` without its tests and
 without `console/analytics/`, so a change to analytics alone builds analytics
 alone. The analytics source is `console/analytics/` without its tests, the
 workspace's `Cargo.toml` and `Cargo.lock`, and the console's mask
-(`console/src/mask.rs`), which it shares. The first build fetches the crates
-from the network and takes a minute or two: analytics compiles SQLite. `--check`
-compares the checksums and builds nothing, so a program replaced on the host
-shows up as drift like any other file. Every program that is due is built
-before any is installed, so one that does not build stops the install before
-it has changed anything, and so does a host without `cargo`. The build is
+(`console/src/mask.rs`), which it shares. Each build asks `cargo` for
+`--offline` first, so a host that has fetched once installs with no network.
+The build that fetches is the slow one and takes a minute or two: analytics
+compiles SQLite. When cargo says a crate is missing from its cache the build
+is run once more without `--offline`, with a line that says so; a build that
+fails again is reported from both attempts. A build that fails for any other
+reason, a compile error among it, is reported as it is and not tried again.
+One build that outlives `TEHAS_BUILD_TIMEOUT` is cut off and named as cut off;
+the remedy is `./bootstrap.sh user`, which installs cargo and its crate cache,
+or a longer `TEHAS_BUILD_TIMEOUT`. `--check` compares the checksums and builds
+nothing, so a program replaced on the host shows up as drift like any other
+file. Every program that is due is built before any is installed, so one that
+does not build stops the install before it has changed anything, and so does a
+host without `cargo`. The build is
 given no environment variable whose name holds TOKEN, SECRET, PASSWORD or
 API_KEY. The cycle and the dispatcher call `~/tehas/libexec/analytics`
 ([tehasbot cycle](/tools#tehasbot-cycle), [tehas dispatch](/tools#tehas-dispatch)). The Deno
@@ -1111,7 +1130,11 @@ instance's `<date>-product` counted as one of them), and
 removes older ones. It keeps an older tag whose image a container, running or
 stopped, was made from, or that a `uid` tag names. On a host that builds
 often the images then take about three times the size of one, plus those
-still in use.
+still in use. `tehasbot clean` is what takes the rest: the dated tags past
+`TEHAS_CLEAN_AFTER` hours, keeping the newest, and then the pulled base image
+of that age, removed by its own name (see [tehasbot
+clean](/tools#tehasbot-clean)). The base is upstream's image for the commit
+`versions.env` follows, and the puller names it one way only, by that commit.
 
 A build first asks the base image's runner what it supports,
 `pi-rukas-headless --capabilities`. A base that does not speak the contract
@@ -1250,7 +1273,7 @@ that cycle ran.
 | Host snapshot publisher, optional | systemd user service `tehas-top.service`, every 5 s. It writes nothing unless `TEHAS_TOP=1` | `jq '.host.cpus, .host.load' ~/tehas/live/top.json` |
 | Protolab pages | systemd user timer `tehas-protolab.timer`, every 5 minutes | `tail ~/tehas/logs/protolab.log` |
 | Improvement loop, optional | systemd user timer `tehas-improve.timer`, every 3 hours. It does nothing unless `TEHAS_IMPROVE_REPO` is set | `tail ~/tehas/logs/improve.log` |
-| Cleaner | systemd user timer `tehas-clean.timer`, every hour, the first time 15 minutes after boot. It removes build output, Docker's build cache and host scratch older than `TEHAS_CLEAN_AFTER` hours. `install.sh` copies the unit; a person enables it | `tail ~/tehas/logs/clean.log` |
+| Cleaner | systemd user timer `tehas-clean.timer`, every hour, the first time 15 minutes after boot. It removes build output, Docker's build cache, host scratch, the sandbox image's old dated tags and the pulled base image of that age, removed by its own name. `install.sh` copies the unit; a person enables it | `tail ~/tehas/logs/clean.log` |
 | Edge router | `docker compose -f ~/tehas/edge/router.compose.yaml up -d` | `curl -i http://tehas-tehas:8081/` |
 | Previews | systemd user timer `tehas-preview.timer`, every 5 minutes | `tail ~/tehas/logs/preview.log`, `jq . ~/tehas/live/previews.json` |
 | Preview sweep | systemd user timer `tehas-preview-sweep.timer`, every 3 hours | `jq .lastSweep ~/tehas/live/previews.json` |

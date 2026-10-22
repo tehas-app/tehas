@@ -103,7 +103,7 @@ issue text.
 | The same image linked in a comment          | With `TEHAS_WORK_COMMENTS=1`, when an allowed account wrote it before the label or the retry tick and nobody edited it since | When a reply to its question links it | Shown |
 | md, txt, csv, json, yaml, log, html, css or js linked in the body | Fetched and mounted with `TEHAS_WORK_FILES=1`; pi-rukas does not read them yet | The same | html, css, js, json and txt shown, html in a frame |
 | svg, avif, a video                          | Not given | Not given | Shown |
-| A zip                                       | Not given | Not given | Unpacked, its files shown as above |
+| A zip                                       | Unpacked with `TEHAS_WORK_ZIPS=1`, its files given as above | The same | Unpacked, its files shown as above |
 | Any other file, such as a pdf               | Not given | Not given | Left out |
 
 The rules behind each column:
@@ -125,6 +125,17 @@ The rules behind each column:
   them; with `TEHAS_WORK_FILES=1` the text files come too. pi-rukas reads
   neither yet. `TEHAS_WORK_COMMENTS=1` adds the attachments of comments, by
   the rule in the table.
+- **A zip** reaches a cycle with `TEHAS_WORK_ZIPS=1`, and needs
+  `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`: what comes out of an archive
+  goes into the directory of one of those. It is taken by its first bytes, not
+  by a name ending in `.zip`: a link named `.zip` that holds something else is
+  left out and said. At most 2 archives per issue, each downloaded at most
+  4 MB. Every file inside one then goes through the same checks as a file the
+  issue links, an image by its first bytes and a text file by its extension
+  and its encoding, and counts against the same limits. An svg, a nested
+  archive or any other binary is left out with its path in the archive and the
+  reason. The files are named on from the linked ones, and the archive is not
+  kept. See [tehas work](/tools#tehas-work).
 - **A planning session** is given the same images and files by the same
   rules, once at its start, and is shown the images when the same label says
   so. A reply to its question can carry more. See
@@ -256,6 +267,8 @@ Blocked by #12 and #34.
 Up to 20 numbers, separated by commas and no spaces. The newest such comment among the last 100 counts; one by anyone else is ignored. The issue also waits, and the log says why, when the label counts and no such comment is there, when the newest one does not hold a marker that reads, when it was last edited by another account, or when GitHub does not give the state of a number it names. Once every blocker is closed the issue may start. The dispatcher leaves the label on; take it off when it no longer applies. To start a blocked issue anyway, take the label off.
 
 An epic is never started: an issue with open sub-issues is a plan broken into issues, not a change one cycle can make, and a cycle on it spends a slot and its tokens before it parks as too large. When `tehas:ready` is applied to such an issue, the dispatcher takes the label off, says so in one comment and starts nothing; a retry ticked on one starts nothing and the log says why. The count comes from the issue GitHub already answers for, so a GitHub without sub-issues is unaffected. Read the plan and apply `tehas:ready` to one of its sub-issues instead; a sub-issue with no open sub-issues of its own is started as any other issue. A `tehas:plan` session on an epic is allowed: planning an epic is what it is for.
+
+With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names more files than that number is not started either. The dispatcher reads the count off the approved text itself: a path is what stands between two ticks and holds a `/` or ends in `.sh`, `.rs`, `.md`, `.json`, `.toml` or `.yml`, and one path counts once however often it is written. Such an issue is a stack of changes wearing the shape of one issue, and a cycle on it spends its explore and its plan before it parks. The dispatcher takes `tehas:ready` off, puts `needs-human-attention` on, and says the count, the setting and the way out in one comment: narrow the issue to the part one cycle can make, or split it into issues of that size, then apply `tehas:ready` to one of them. The hold belongs to `tehas:ready` alone, so it holds nothing else back: a ticked retry, a refresh of the bot's own pull request and a `tehas:plan` session start as they did. Unset, the dispatcher never asks, and a wide issue starts as any other.
 
 | Label on the issue      | Meaning                           | Your move                                |
 | ----------------------- | --------------------------------- | ---------------------------------------- |
@@ -980,10 +993,23 @@ removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
 - Docker's build cache of that age, with `docker builder prune`. This is the
   build cache of the whole host's Docker daemon: tehas is one project on one
   host, and the cache of anything else on it is made again too. No image and no
-  volume is removed.
+  volume is removed by this step.
 - the host's scratch: old files under `~/tehas/tmp/dl` and
   `~/tehas/tmp/node-compile-cache`, and old `~/tehas/tmp/tehas-test.*`
   directories. Nothing elsewhere under `~/tehas`, and nothing outside it.
+- the sandbox image's dated tags whose image is of that age, each with its own
+  `docker rmi`. The newest dated tag stays, and so does any tag a container or
+  a `uid` tag was made from: a cycle or a preview still running from an image
+  keeps it whatever its age. The build's own sweep keeps the newest three dated
+  tags; this step is what takes those past the age besides the newest.
+- the base image the sandbox build pulls from upstream, of that age and made no
+  container, removed by its own name with `docker rmi`. Nothing else is offered
+  to docker: the step never asks for the images that have lost their tag, which
+  is how a preview image of `tehasbot preview` and the rollback tag of an update
+  stay untouched. Volumes are a person's call. A docker that answers no image
+  list, or nothing
+  about the host's containers, removes no image: an unknown is never a reason
+  to take one away.
 
 One line per removal and a closing line with the bytes freed go to
 `~/tehas/logs/clean.log`. The command starts no work, so the pause label does

@@ -33,6 +33,180 @@ t_eq "$(find "$imgs" -maxdepth 0 2>/dev/null | wc -l)" 0
 t_contains "$t_out" "tehas work: the issue's text is not the text that was approved: it changed after the approval, not starting a cycle"
 t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body Tehas started no cycle: the issue's text is not the text that was approved: it changed after the approval. To retry, apply \`tehas:ready\`."
 
+# --- The size of what the cycle starts with ----------------------------------
+# A start that had an approval to measure records the measure of the approved
+# body in state/sizes.jsonl, one line, from the read it already made: the
+# ledger asks GitHub nothing more. A run by hand has no approved body and
+# records nothing, and a ledger that cannot be written is one word said, with
+# the step that gave up named, and no cycle stopped.
+sizes=$T/home/tehas/state/sizes.jsonl
+
+# sizes_off: the ledger of the cases before is no evidence for this one. A case
+# that puts a directory at the path leaves one, so this clears both kinds.
+sizes_off() { rm -rf "$sizes"; }
+
+# A body that names two files, one of them a test, under the two headings the
+# measure reads.
+size_body='Give `lib/sizing.sh` one function.
+
+## The change
+
+1. `lib/sizing.sh` holds tehas_issue_size.
+2. the gate lints it.
+
+## Done when
+
+- `test/sizing_test.sh` has a case for it.
+'
+
+# size_case <body>: the instance and the record of a start that measures <body>,
+# with the ledger of the case before gone and nothing given to the cycle.
+size_case() {
+  images_off
+  sizes_off
+  issue_is "$1" NONE
+  record_is alice "$1"
+}
+
+# size_lines: how many lines the ledger holds, 0 when it is not there.
+size_lines() { [ -f "$sizes" ] && wc -l <"$sizes" | tr -d ' ' || echo 0; }
+
+t_case "with a record, an approved body that names two files writes one line to state/sizes.jsonl, and asks GitHub nothing more"
+size_case "$size_body"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(t_calls gh)" "api repos/acme/widget/issues/7"
+t_eq "$(size_lines)" "1"
+t_eq "$(jq -c 'del(.at)' "$sizes")" '{"issue":7,"files":2,"tests":1,"deliverables":2,"done_when":1}'
+t_eq "$(jq -r '.at | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")' "$sizes")" "true"
+t_eq "$(jq -r 'keys_unsorted | join(",")' "$sizes")" "at,issue,files,tests,deliverables,done_when"
+# "the cycle still starts" is proven by the container's own call, not by 2.
+t_contains "$(cycle_args)" "pi-rukas-headless"
+
+t_case "the ledger is written owner-only, whatever the umask of the unit"
+size_case "$size_body"
+t_run "$work 7"
+t_eq "$(stat -c %a "$sizes")" "600"
+
+t_case "a start of an empty body records the four counts of nothing, and no blank line"
+size_case ""
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(size_lines)" "1"
+t_eq "$(jq -c 'del(.at)' "$sizes")" '{"issue":7,"files":0,"tests":0,"deliverables":0,"done_when":0}'
+t_eq "$(grep -c '^$' "$sizes" || true)" "0"
+
+t_case "two starts of one issue are two lines, and a second start of the ledger keeps both"
+size_case "$size_body"
+t_run "$work 7"
+t_run "$work 7"
+t_eq "$(size_lines)" "2"
+t_eq "$(jq -s '[.[].issue]' -c "$sizes")" "[7,7]"
+
+t_case "the ledger keeps the last 500 lines of starts"
+size_case "$size_body"
+# What a host of long standing has: a ledger of 500 lines already written.
+mkdir -p "$(dirname "$sizes")"
+for i in $(seq 1 500); do printf '{"at":"2026-01-01T00:00:00Z","issue":%d,"files":0,"tests":0,"deliverables":0,"done_when":0}\n' "$i" >>"$sizes"; done
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(size_lines)" "500"
+t_eq "$(jq -s '.[-1].issue' "$sizes")" "7"
+t_eq "$(jq -s '.[0].issue' "$sizes")" "2"
+
+t_case "with a record, a title renamed after the approval records nothing: only the text that was approved is measured"
+size_case "$size_body"
+record_binds_title "Faster search"
+issue_is "$size_body" NONE "Renamed after the label"
+t_run "$work 7"
+t_eq "$t_rc" 4
+t_eq "$(size_lines)" "0"
+
+t_case "with no record, a run by hand records no size, and the cycle still starts"
+images_off
+sizes_off
+issue_is "$size_body" NONE
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(size_lines)" "0"
+t_contains "$t_out" "a run by hand is its own approval"
+t_contains "$(cycle_args)" "pi-rukas-headless"
+
+t_case "a state directory that cannot be written still starts the cycle, and says the size was not recorded"
+size_case "$size_body"
+chmod a-w "$(dirname "$sizes")"
+t_run "$work 7"
+chmod u+w "$(dirname "$sizes")"
+t_eq "$t_rc" 2
+t_eq "$(size_lines)" "0"
+t_contains "$t_out" "could not record the size of #7 in $sizes (ledger)"
+t_contains "$(cycle_args)" "pi-rukas-headless"
+
+t_case "a ledger already written that has stopped taking lines is said, and its lines stay"
+size_case "$size_body"
+# The realistic failure: the ledger exists, holds what earlier starts wrote,
+# and can no longer be added to. The guard that judged the file's emptiness
+# was silent here.
+mkdir -p "$(dirname "$sizes")"
+printf '{"at":"2026-01-01T00:00:00Z","issue":6,"files":1,"tests":0,"deliverables":0,"done_when":0}\n' >"$sizes"
+chmod a-w "$sizes"
+t_run "$work 7"
+chmod u+w "$sizes"
+t_eq "$t_rc" 2
+t_contains "$t_out" "could not record the size of #7 in $sizes (ledger)"
+t_eq "$(jq -s 'length' "$sizes")" "1"
+t_eq "$(jq -s '.[0].issue' "$sizes")" "6"
+
+t_case "a ledger that is a link is not written through, and the cycle starts"
+size_case "$size_body"
+mkdir -p "$(dirname "$sizes")"
+printf 'kept\n' >"$T/ledger.target"
+ln -s "$T/ledger.target" "$sizes"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "could not record the size of #7 in $sizes (ledger)"
+t_eq "$(cat "$T/ledger.target")" "kept"
+t_contains "$(cycle_args)" "pi-rukas-headless"
+
+t_case "a ledger that is a directory is not written to, and the cycle starts"
+size_case "$size_body"
+sizes_off
+mkdir -p "$sizes"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "could not record the size of #7 in $sizes (ledger)"
+t_contains "$(cycle_args)" "pi-rukas-headless"
+
+t_case "a body whose text is not a string measures nothing, and is said as the measure giving up"
+size_case "$size_body"
+record_is alice "$size_body"
+jq '.body = 123' "$fx/issue.json" >"$fx/issue.json.new" && mv "$fx/issue.json.new" "$fx/issue.json"
+t_run "$work 7"
+t_eq "$t_rc" 4
+
+# A measure that answers other than the four counts is no line: the ledger
+# holds rows a reader can count on, or none. $tree/lib is the checkout's lib
+# through a link, so the case works from its own tree: a directory of its own
+# holding its own lib, with the broken measure beside the rest of it, and the
+# work of the same tree. Nothing of the checkout is written.
+t_case "a measure that answers junk records no line, and says the measure gave up"
+size_case "$size_body"
+# The ledger of the start before, held on disk: what a broken measure must not
+# disturb. mkdir comes first, because size_case took the state directory away.
+mkdir -p "$(dirname "$sizes")"
+printf '{"at":"2026-01-01T00:00:00Z","issue":6,"files":1,"tests":0,"deliverables":0,"done_when":0}\n' >"$sizes"
+t_eq "$(size_lines)" "1"
+broken=$T/tree-broken
+mkdir -p "$broken/libexec"
+cp -R "$T_ROOT/lib" "$broken/lib"
+ln -s "$T_ROOT/libexec/work" "$broken/libexec/work"
+printf '%s\n' 'tehas_issue_size() { printf "%s\n" '"'"'{oops}'"'"'; }' >>"$broken/lib/sizing.sh"
+t_run "$broken/libexec/work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "could not record the size of #7 in $sizes (measure)"
+t_eq "$(jq -s 'length' "$sizes")" "1"
+t_eq "$(jq -s '.[0].issue' "$sizes")" "6"
+
 # --- The title of the issue -------------------------------------------------
 # The approval binds the title as it binds the body: the dispatcher records its
 # hash, tehas work recomputes it from the same read, and a rename after the

@@ -23,6 +23,65 @@ t_run "$work 7"
 t_eq "$t_rc" 2
 t_contains "$t_out" "status=running"
 
+# The two cases below are the shape of the two cycles of tehas-org/tehas#110:
+# the container ran its preflight and ended 22 seconds later with nothing in the
+# record and an empty err.txt. tehas work now leaves the one account of that end
+# it can observe, and tehasbot cycle makes tehas's cap of it (cycle_record_test).
+t_case "a container that ends with no result and no line of its stream leaves the note of a runner that never started, and one line in the error file"
+fresh
+container 'exit 1'
+t_run "$work 7"
+t_eq "$t_rc" 2
+cycle_log=$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p')
+t_eq "$(cat "$T/home/tehas/state/cycles/7.nostart")" "1"
+t_eq "$(cat "$cycle_log.err")" \
+  "tehas work: issue 7 ended with the container's exit 1 and no line of its stream: the runner wrote no event, so no step started. Its preflight is $(basename "$cycle_log").preflight."
+
+t_case "a container that wrote one line of its stream is not a runner that never started"
+for line in "progress '{\"v\":1,\"kind\":\"step-started\",\"event\":{\"step\":\"explore\"}}'" \
+  "progress 'not json at all, but the stream is no longer empty'"; do
+  fresh
+  container "$line; exit 1"
+  t_run "$work 7"
+  t_eq "$t_rc" 2
+  t_eq "$(find "$T/home/tehas/state/cycles/7.nostart" 2>/dev/null | wc -l)" 0
+  # Only the note makes the line: a stream that holds a line of its own needs
+  # no account of a runner that never came up.
+  t_eq "$(cat "$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p').err" 2>/dev/null)" ""
+done
+
+t_case "a killed container, one tehas stopped, and one that wrote its result leave no note of a runner that never started"
+fresh
+container 'exit 137'
+t_run "$work 7"
+t_eq "$t_rc" 137
+t_eq "$(find "$T/home/tehas/state/cycles/7.nostart" 2>/dev/null | wc -l)" 0
+fresh
+container 'says handoff; exit 10'
+t_run "$work 7"
+t_eq "$t_rc" 10
+t_eq "$(find "$T/home/tehas/state/cycles/7.nostart" 2>/dev/null | wc -l)" 0
+# A container tehas itself stopped, at the time limit or as stalled: it wrote no
+# result and no line of its stream, and the account of its end is its stop file,
+# so no note goes beside it. The report of tehasbot cycle reads the note first,
+# and a note that coexisted with a timed file would take the cap of that stop.
+fresh
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=1
+T_ENV=("${env_ok[@]}" TEHAS_WORK_GRACE=0)
+container "$hold; $gone"
+t_run "$work 7"
+t_contains "$t_out" "time limit of 1s passed"
+t_eq "$(find "$T/home/tehas/state/cycles/7.nostart" 2>/dev/null | wc -l)" 0
+fresh
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_STALL=2 TEHAS_VERIFY_TIMEOUT=1
+T_ENV=("${env_ok[@]}")
+container "$hold; $gone"
+t_run "$work 7"
+t_contains "$t_out" "stopping it as stalled"
+t_eq "$(find "$T/home/tehas/state/cycles/7.nostart" 2>/dev/null | wc -l)" 0
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+T_ENV=("${env_ok[@]}")
+
 t_case "a result without an exit code of its own is no success: exit 2"
 for code in 1 137; do
   fresh

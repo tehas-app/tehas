@@ -52,33 +52,573 @@ const STAGES: [&str; 6] = [
     "completed",
 ];
 
+/// A status word a cycle can carry. The runner's own words, tehas's own for a
+/// cycle it stopped, and `unknown` when nothing was reported.
+const CYCLE_STATUSES: [&str; 13] = [
+    "running",
+    "merged",
+    "handoff",
+    "aborted",
+    "interrupted",
+    "refused",
+    "killed",
+    "stalled",
+    "timeout",
+    "lost",
+    "closed",
+    "completed",
+    "unknown",
+];
+/// The overall state of a health check.
+const CHECK_STATES: [&str; 3] = ["pass", "warn", "fail"];
+/// The state of the limit, as `tehas limit` reports it.
+const LIMIT_STATES: [&str; 4] = ["none", "ok", "expired", "unreadable"];
+
+/// One described property of a known JSON type.
+fn prop(ty: &str, desc: &str) -> Value {
+    json!({"type": ty, "description": desc})
+}
+
+/// The API version every answer carries.
+fn api() -> Value {
+    prop("integer", "The API version, 1.")
+}
+
+/// A property whose value the dashboard's file gives as it is: a time, a count
+/// or a flag, whose type the server does not check.
+fn given(desc: &str) -> Value {
+    json!({"description": desc})
+}
+
+fn one_of(values: &[&str], desc: &str) -> Value {
+    json!({"type": "string", "enum": values, "description": desc})
+}
+
+fn arr(item: Value, desc: &str) -> Value {
+    json!({"type": "array", "description": desc, "items": item})
+}
+
+fn obj(props: Vec<(&str, Value)>, desc: &str) -> Value {
+    let props: Map<String, Value> = props.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+    json!({"type": "object", "description": desc, "properties": props})
+}
+
+/// The top level of an answer. Every schema names "api" with the rest of its
+/// fields, so the schema test can compare the two sets without a special case.
+fn output(props: Vec<(&str, Value)>) -> Value {
+    let props: Map<String, Value> = props.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+    json!({"type": "object", "properties": props, "required": ["api"]})
+}
+
+/// One issue as the dashboard lists it.
+fn issue_row() -> Value {
+    obj(
+        vec![
+            ("number", prop("integer", "The issue number.")),
+            ("title", prop("string", "The issue title.")),
+            ("url", prop("string", "Its link on GitHub.")),
+            ("updatedAt", given("When it last changed, UTC.")),
+            (
+                "closedAt",
+                given("When it closed, UTC. Left out while it is open."),
+            ),
+        ],
+        "One issue as the dashboard lists it.",
+    )
+}
+
+fn status_schema() -> Value {
+    output(vec![
+        ("api", api()),
+        (
+            "status",
+            one_of(&CHECK_STATES, "The factory: pass, warn or fail."),
+        ),
+        (
+            "output",
+            prop("string", "One line saying why the state is what it is."),
+        ),
+        ("time", given("When the dispatcher last reported, UTC.")),
+        (
+            "stale",
+            prop(
+                "boolean",
+                "True when it has not reported for ten minutes. Left out without a readable time.",
+            ),
+        ),
+        (
+            "generatedAt",
+            given("When the queue snapshot was written, UTC."),
+        ),
+        ("repo", given("The product repository as owner/name.")),
+        ("paused", given("True while the factory is paused.")),
+        ("planning", given("Issues being planned.")),
+        (
+            "limit",
+            obj(
+                vec![(
+                    "state",
+                    one_of(&LIMIT_STATES, "The limit: none, ok, expired or unreadable."),
+                )],
+                "The limit on what the factory starts.",
+            ),
+        ),
+        (
+            "queue",
+            obj(
+                vec![
+                    ("inLine", given("Issues in line for a cycle.")),
+                    ("building", given("Issues whose cycle owns them.")),
+                    ("review", given("Issues waiting for a person.")),
+                    ("stopped", given("Stopped issues.")),
+                    ("time", given("When the snapshot was written, UTC.")),
+                ],
+                "The queue counts.",
+            ),
+        ),
+        (
+            "cycles",
+            arr(
+                obj(
+                    vec![
+                        ("issue", prop("integer", "The issue number.")),
+                        ("running", prop("boolean", "True while the cycle runs.")),
+                        (
+                            "status",
+                            one_of(&CYCLE_STATUSES, "What the cycle is doing."),
+                        ),
+                        ("step", prop("string", "The step it is in.")),
+                        ("startedAt", given("When it started, UTC.")),
+                        ("time", given("When it last reported, UTC.")),
+                    ],
+                    "One running cycle.",
+                ),
+                "The cycles running now.",
+            ),
+        ),
+        (
+            "demand",
+            obj(
+                vec![
+                    ("waiting", given("Issues ready and waiting for a cycle.")),
+                    ("oldest", given("When the oldest became ready, UTC.")),
+                    ("time", given("When the dispatcher counted them, UTC.")),
+                ],
+                "The work waiting for a slot. Left out when the last poll wrote nothing.",
+            ),
+        ),
+        (
+            "platform",
+            obj(
+                vec![
+                    (
+                        "commit",
+                        prop("string", "The platform commit the host runs."),
+                    ),
+                    (
+                        "release",
+                        given(
+                            "The release the host runs, such as v0.9.0. On a release host instead of commit.",
+                        ),
+                    ),
+                    (
+                        "newest",
+                        given("The newest published release, or null when it is unknown."),
+                    ),
+                    ("behind", given("Commits behind upstream.")),
+                    (
+                        "upstream",
+                        prop(
+                            "string",
+                            "The upstream branch it is compared with, or releases for a release host.",
+                        ),
+                    ),
+                    ("fetchedAt", given("When it was fetched, UTC.")),
+                ],
+                "The platform the host runs: its release, or its checkout against origin.",
+            ),
+        ),
+    ])
+}
+
+fn issues_schema() -> Value {
+    let mut props = vec![
+        ("api", api()),
+        ("generatedAt", given("When the snapshot was written, UTC.")),
+    ];
+    for stage in STAGES {
+        let row = if stage == "planning" {
+            obj(
+                vec![
+                    ("count", given("Issues being planned.")),
+                    (
+                        "issues",
+                        arr(
+                            prop("integer", "An issue number."),
+                            "Their numbers, without titles.",
+                        ),
+                    ),
+                ],
+                "The issues being planned.",
+            )
+        } else {
+            arr(issue_row(), &format!("The issues in stage {stage}."))
+        };
+        props.push((stage, row));
+    }
+    output(props)
+}
+
+/// One cycle that ended: the same keys in endings.json and in the failed list.
+fn ending_row(time: &str, time_desc: &str) -> Value {
+    obj(
+        vec![
+            ("issue", prop("integer", "The issue number.")),
+            ("status", one_of(&CYCLE_STATUSES, "How it ended.")),
+            ("step", prop("string", "The step it ended in.")),
+            ("startedAt", given("When it started, UTC.")),
+            (time, given(time_desc)),
+        ],
+        "One cycle that ended.",
+    )
+}
+
+fn endings_schema() -> Value {
+    output(vec![
+        ("api", api()),
+        (
+            "endings",
+            arr(
+                ending_row("updatedAt", "When it was last seen, UTC."),
+                "The ten cycles that ended last, oldest first.",
+            ),
+        ),
+        (
+            "failed",
+            arr(
+                ending_row("time", "When the entry was made, UTC."),
+                "The failed ones among them, newest first.",
+            ),
+        ),
+    ])
+}
+
+fn console_schema() -> Value {
+    output(vec![
+        ("api", api()),
+        ("issue", prop("integer", "The issue number.")),
+        ("step", prop("string", "The step it is in.")),
+        (
+            "status",
+            one_of(&CYCLE_STATUSES, "What the cycle is doing."),
+        ),
+        (
+            "statusText",
+            prop("string", "The status line as the dashboard shows it."),
+        ),
+        (
+            "startedAt",
+            given("When it started, seconds since 1970, as the running file gives it."),
+        ),
+        (
+            "updatedAt",
+            given("When it last reported, seconds since 1970, as the running file gives it."),
+        ),
+        (
+            "console",
+            prop(
+                "string",
+                "The last bytes of its console. Left out when the running file does not name this file.",
+            ),
+        ),
+    ])
+}
+
+/// An n, a median and a p90, all in seconds.
+fn quartiles(desc: &str) -> Value {
+    obj(
+        vec![
+            ("n", given("How many it counts.")),
+            ("median", given("The median, seconds.")),
+            ("p90", given("The 90th percentile, seconds.")),
+        ],
+        desc,
+    )
+}
+
+/// An n and a share of 0 to 1.
+fn share(desc: &str) -> Value {
+    obj(
+        vec![
+            ("n", given("How many it counts.")),
+            ("share", given("The share of them, 0 to 1.")),
+        ],
+        desc,
+    )
+}
+
+fn stats_schema() -> Value {
+    output(vec![
+        ("api", api()),
+        (
+            "from",
+            given("The first day of the window, seconds since 1970."),
+        ),
+        (
+            "to",
+            given("The last day of the window, seconds since 1970."),
+        ),
+        ("report", given("The version of the report.")),
+        (
+            "runs",
+            obj(
+                vec![
+                    ("n", given("Runs in the window.")),
+                    ("merged", given("Runs whose pull request merged.")),
+                    ("pr", given("Runs that left a pull request.")),
+                    ("handoff", given("Runs handed to a person.")),
+                    ("parked", given("Runs parked for a person.")),
+                    ("failed", given("Runs that failed.")),
+                    ("refused", given("Runs that refused to start.")),
+                    ("stopped", given("Runs stopped here.")),
+                ],
+                "Runs by outcome.",
+            ),
+        ),
+        (
+            "shipped",
+            obj(vec![("n", given("Runs that shipped."))], "Shipped runs."),
+        ),
+        ("cycleTime", quartiles("Time from start to end of a run.")),
+        ("leadTime", quartiles("Time from ready to shipped.")),
+        (
+            "firstPassYield",
+            share("Runs that passed review first time."),
+        ),
+        ("handoffRate", share("Runs handed to a person.")),
+        (
+            "availability",
+            obj(
+                vec![
+                    ("n", given("How many it counts.")),
+                    ("seconds", given("Seconds the factory was taking work.")),
+                    ("share", given("The share of the window, 0 to 1.")),
+                ],
+                "Availability.",
+            ),
+        ),
+        (
+            "machineTime",
+            obj(
+                vec![
+                    ("n", given("How many it counts.")),
+                    ("seconds", given("Machine seconds in all.")),
+                    ("perShipped", given("Machine seconds per shipped run.")),
+                ],
+                "Machine time.",
+            ),
+        ),
+        (
+            "energy",
+            obj(
+                vec![
+                    ("n", given("How many it counts.")),
+                    ("kwh", given("Kilowatt hours.")),
+                    ("perShipped", given("Kilowatt hours per shipped run.")),
+                ],
+                "Energy.",
+            ),
+        ),
+        (
+            "tokens",
+            obj(
+                vec![
+                    ("n", given("How many it counts.")),
+                    ("input", given("Input tokens.")),
+                    ("output", given("Output tokens.")),
+                    ("cacheRead", given("Tokens read from the cache.")),
+                    ("total", given("Tokens in all.")),
+                    ("perShipped", given("Tokens per shipped run.")),
+                ],
+                "Token use.",
+            ),
+        ),
+        (
+            "planned",
+            obj(
+                vec![
+                    ("n", given("Issues made ready.")),
+                    ("inLine", given("Of those, the ones in line for a cycle.")),
+                    ("planning", given("Of those, the ones still being planned.")),
+                    (
+                        "trend",
+                        arr(
+                            obj(
+                                vec![
+                                    ("day", prop("string", "The day, YYYY-MM-DD.")),
+                                    ("n", given("Issues made ready that day.")),
+                                ],
+                                "One day.",
+                            ),
+                            "Issues made ready per day.",
+                        ),
+                    ),
+                ],
+                "The demand made ready.",
+            ),
+        ),
+        (
+            "planningTurns",
+            obj(
+                vec![("n", given("Model turns of planning."))],
+                "Planning turns.",
+            ),
+        ),
+        (
+            "refine",
+            obj(
+                vec![
+                    ("sessions", given("Refining sessions.")),
+                    ("n", given("Issues they made ready.")),
+                    ("started", given("Of those, the ones that started a cycle.")),
+                    ("shipped", given("Of those, the ones that shipped.")),
+                    ("shippedShare", given("The share that shipped, 0 to 1.")),
+                    (
+                        "leadTime",
+                        quartiles("Ready to shipped, for the shipped ones."),
+                    ),
+                    (
+                        "others",
+                        obj(
+                            vec![
+                                ("n", given("Issues made ready the other way.")),
+                                ("started", given("Of those, the ones that started a cycle.")),
+                                ("shipped", given("Of those, the ones that shipped.")),
+                                ("shippedShare", given("The share that shipped, 0 to 1.")),
+                            ],
+                            "The issues made ready without refining, to compare.",
+                        ),
+                    ),
+                ],
+                "The refine loop.",
+            ),
+        ),
+        (
+            "stations",
+            obj(
+                vec![
+                    ("n", given("Steps run.")),
+                    (
+                        "steps",
+                        arr(
+                            obj(
+                                vec![
+                                    ("step", prop("string", "The step name.")),
+                                    ("n", given("Times it ran.")),
+                                    ("passed", given("Times it passed.")),
+                                    ("share", given("The share that passed, 0 to 1.")),
+                                ],
+                                "One step.",
+                            ),
+                            "The steps by outcome.",
+                        ),
+                    ),
+                ],
+                "The steps of a cycle.",
+            ),
+        ),
+        (
+            "stopReasons",
+            obj(
+                vec![
+                    ("n", given("Runs that stopped.")),
+                    (
+                        "top",
+                        arr(
+                            obj(
+                                vec![
+                                    ("reason", prop("string", "The reason.")),
+                                    ("n", given("Runs with it.")),
+                                ],
+                                "One reason.",
+                            ),
+                            "The reasons, most first.",
+                        ),
+                    ),
+                ],
+                "Why runs stopped.",
+            ),
+        ),
+        (
+            "versions",
+            arr(
+                obj(
+                    vec![
+                        ("tehas", prop("string", "The tehas version.")),
+                        ("rukas", prop("string", "The pi-rukas version or commit.")),
+                        ("n", given("Runs on this pair.")),
+                        ("medianSeconds", given("Median run seconds.")),
+                        ("medianTokens", given("Median tokens.")),
+                        (
+                            "prShare",
+                            given("The share that left a pull request, 0 to 1."),
+                        ),
+                    ],
+                    "One version pair.",
+                ),
+                "Runs per tehas and pi-rukas pair.",
+            ),
+        ),
+        (
+            "daily",
+            arr(
+                obj(
+                    vec![
+                        ("day", prop("string", "The day, YYYY-MM-DD.")),
+                        ("runs", given("Runs that day.")),
+                        ("shipped", given("Runs shipped that day.")),
+                        ("failed", given("Runs that failed that day.")),
+                        ("minutes", given("Machine minutes that day.")),
+                    ],
+                    "One day.",
+                ),
+                "The daily rows.",
+            ),
+        ),
+    ])
+}
+
 /// The tools, in a fixed order.
 pub fn list() -> Value {
     let none = json!({"type": "object", "properties": {}, "additionalProperties": false});
-    let out =
-        json!({"type": "object", "properties": {"api": {"type": "integer"}}, "required": ["api"]});
     let mut tools = json!([
         {
             "name": "factory_status",
-            "description": "Whether the factory is working, paused or failing, its queue counts, the running cycles and their steps, the demand waiting, and the platform commit. Stale is true when the dispatcher has not reported for ten minutes.",
+            "description": "Whether the factory is working, paused or failing, its queue counts, the running cycles and their steps, the demand waiting, and the platform it runs: the release, or the checkout's commit. Stale is true when the dispatcher has not reported for ten minutes.",
             "inputSchema": none,
-            "outputSchema": out,
+            "outputSchema": status_schema(),
         },
         {
             "name": "factory_issues",
             "description": "The issues the dashboard lists, by stage: queued, planning, running, awaiting review, stopped and completed, each with number, title, link and times. Planning gives a count and issue numbers only.",
             "inputSchema": {
                 "type": "object",
-                "properties": {"stage": {"type": "string", "enum": STAGES}},
+                "properties": {
+                    "stage": {
+                        "type": "string",
+                        "enum": STAGES,
+                        "description": "Only this stage. All of them without it.",
+                    },
+                },
                 "additionalProperties": false,
             },
-            "outputSchema": out,
+            "outputSchema": issues_schema(),
         },
         {
             "name": "factory_endings",
             "description": "The cycles that ended last, with their status and the step they ended in, and which of them failed.",
             "inputSchema": none,
-            "outputSchema": out,
+            "outputSchema": endings_schema(),
         },
         {
             "name": "factory_console",
@@ -86,19 +626,28 @@ pub fn list() -> Value {
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "issue": {"type": "integer", "minimum": 1},
-                    "bytes": {"type": "integer", "minimum": 1, "maximum": CONSOLE_MAX},
+                    "issue": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "The issue of the running cycle.",
+                    },
+                    "bytes": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": CONSOLE_MAX,
+                        "description": "How many bytes of its console, from the end. 64 KB without it.",
+                    },
                 },
                 "required": ["issue"],
                 "additionalProperties": false,
             },
-            "outputSchema": out,
+            "outputSchema": console_schema(),
         },
         {
             "name": "factory_stats",
             "description": "The last ten days as the dashboard reports them: runs by outcome, cycle and lead time, first pass yield, handoff rate, availability, machine time, tokens, energy, stop reasons, versions, the refine figures and the daily rows.",
             "inputSchema": none,
-            "outputSchema": out,
+            "outputSchema": stats_schema(),
         },
     ]);
     if let Value::Array(a) = &mut tools {
@@ -155,6 +704,128 @@ fn read(live: &Path, file: &str) -> Result<Value, ToolError> {
     serde_json::from_slice(&bytes).map_err(|_| err("is not complete JSON"))
 }
 
+/// The tool's own allowlist: the spec its answer is copied with, by the name
+/// the answer gives it. `status`, `issues`, `endings`, `console` and `stats`
+/// pick with these very values, so the schema test compares the schema with
+/// the allowlist a call is actually built from. Three fields are written
+/// rather than picked and so are absent here: `api`, which `call_held` adds,
+/// `stale`, which `status` computes, and `console`, whose text comes from the
+/// console file of the cycle.
+pub fn spec_of(name: &str) -> Option<Value> {
+    let issues = json!([{
+        "number": true, "title": true, "url": true, "updatedAt": true, "closedAt": true
+    }]);
+    let cycles = json!([{
+        "issue": true, "running": true, "status": true, "step": true,
+        "startedAt": true, "time": true
+    }]);
+    let ended = |time: &str| {
+        json!([{
+            "issue": true, "status": true, "step": true, "startedAt": true, time: true
+        }])
+    };
+    Some(match name {
+        "factory_status" => json!({
+            "status": true, "output": true, "time": true, "generatedAt": true,
+            "repo": true, "paused": true, "planning": true, "stale": true,
+            "limit": {"state": true},
+            "queue": {"inLine": true, "building": true, "review": true,
+                      "stopped": true, "time": true},
+            "cycles": cycles,
+            "demand": {"waiting": true, "oldest": true, "time": true},
+            "platform": {"commit": true, "release": true, "newest": true, "behind": true,
+                         "upstream": true, "fetchedAt": true},
+        }),
+        "factory_issues" => {
+            let mut s = Map::new();
+            s.insert("generatedAt".into(), json!(true));
+            for stage in ["queued", "running", "awaiting", "stopped", "completed"] {
+                s.insert(stage.into(), issues.clone());
+            }
+            s.insert("planning".into(), json!({"count": true, "issues": [true]}));
+            Value::Object(s)
+        }
+        "factory_endings" => json!({
+            "endings": ended("updatedAt"),
+            "failed": ended("time"),
+        }),
+        "factory_console" => json!({
+            "issue": true, "step": true, "status": true, "statusText": true,
+            "startedAt": true, "updatedAt": true, "console": true,
+        }),
+        "factory_stats" => {
+            let counts = [
+                (
+                    "runs",
+                    vec![
+                        "n", "merged", "pr", "handoff", "parked", "failed", "refused", "stopped",
+                    ],
+                ),
+                ("shipped", vec!["n"]),
+                ("cycleTime", vec!["n", "median", "p90"]),
+                ("leadTime", vec!["n", "median", "p90"]),
+                ("firstPassYield", vec!["n", "share"]),
+                ("handoffRate", vec!["n", "share"]),
+                ("availability", vec!["n", "seconds", "share"]),
+                ("machineTime", vec!["n", "seconds", "perShipped"]),
+                ("energy", vec!["n", "kwh", "perShipped"]),
+                (
+                    "tokens",
+                    vec!["n", "input", "output", "cacheRead", "total", "perShipped"],
+                ),
+                ("planningTurns", vec!["n"]),
+            ];
+            let mut s = Map::new();
+            for k in ["from", "to", "report"] {
+                s.insert(k.into(), json!(true));
+            }
+            for (k, keys) in counts {
+                s.insert(k.into(), spec_of_keys(&keys));
+            }
+            s.insert(
+                "planned".into(),
+                json!({"n": true, "inLine": true, "planning": true,
+                       "trend": [{"day": true, "n": true}]}),
+            );
+            s.insert(
+                "refine".into(),
+                json!({
+                    "sessions": true, "n": true, "started": true, "shipped": true,
+                    "shippedShare": true,
+                    "leadTime": {"n": true, "median": true, "p90": true},
+                    "others": {"n": true, "started": true, "shipped": true,
+                               "shippedShare": true},
+                }),
+            );
+            s.insert(
+                "stations".into(),
+                json!({"n": true, "steps": [{"step": true, "n": true,
+                                             "passed": true, "share": true}]}),
+            );
+            s.insert(
+                "stopReasons".into(),
+                json!({"n": true, "top": [{"reason": true, "n": true}]}),
+            );
+            s.insert(
+                "versions".into(),
+                json!([{"tehas": true, "rukas": true, "n": true,
+                        "medianSeconds": true, "medianTokens": true, "prShare": true}]),
+            );
+            s.insert(
+                "daily".into(),
+                json!([{"day": true, "runs": true, "shipped": true,
+                        "failed": true, "minutes": true}]),
+            );
+            Value::Object(s)
+        }
+        _ => return None,
+    })
+}
+
+fn spec_of_keys(keys: &[&str]) -> Value {
+    Value::Object(keys.iter().map(|k| (k.to_string(), json!(true))).collect())
+}
+
 /// The parts of `src` that `spec` names: `true` a scalar, an object its named
 /// keys, `[spec]` each element of an array. None for null or a missing value.
 pub(crate) fn pick(src: &Value, spec: &Value) -> Option<Value> {
@@ -197,60 +868,30 @@ fn status(live: &Path) -> Result<Map<String, Value>, ToolError> {
     let health = read(live, "health.json")?;
     let st = read(live, "status.json")?;
     let checks = &health["checks"];
+    let spec = spec_of("factory_status").expect("a known tool");
     let mut out = Map::new();
     merge(
         &mut out,
-        pick(
-            &health,
-            &json!({"status": true, "output": true, "time": true}),
-        ),
+        pick(&health, &spec_of_keys(&["status", "output", "time"])),
     );
     merge(
         &mut out,
         pick(
             &st,
-            &json!({"generatedAt": true, "repo": true, "paused": true, "planning": true}),
+            &spec_of_keys(&["generatedAt", "repo", "paused", "planning"]),
         ),
     );
     if let Some(t) = health["time"].as_str().and_then(epoch) {
         out.insert("stale".into(), json!(now() - t > STALE_SECS));
     }
-    put(
-        &mut out,
-        "limit",
-        pick(&checks["limit"], &json!({"state": true})),
-    );
-    put(
-        &mut out,
-        "queue",
-        pick(
-            &checks["queue"],
-            &json!({"inLine": true, "building": true, "review": true, "stopped": true, "time": true}),
-        ),
-    );
-    put(
-        &mut out,
-        "cycles",
-        pick(
-            &checks["cycles"],
-            &json!([{"issue": true, "running": true, "status": true, "step": true, "startedAt": true, "time": true}]),
-        ),
-    );
-    put(
-        &mut out,
-        "demand",
-        pick(
-            &checks["demand"],
-            &json!({"waiting": true, "oldest": true, "time": true}),
-        ),
-    );
+    put(&mut out, "limit", pick(&checks["limit"], &spec["limit"]));
+    put(&mut out, "queue", pick(&checks["queue"], &spec["queue"]));
+    put(&mut out, "cycles", pick(&checks["cycles"], &spec["cycles"]));
+    put(&mut out, "demand", pick(&checks["demand"], &spec["demand"]));
     put(
         &mut out,
         "platform",
-        pick(
-            &checks["platform"],
-            &json!({"commit": true, "behind": true, "upstream": true, "fetchedAt": true}),
-        ),
+        pick(&checks["platform"], &spec["platform"]),
     );
     Ok(out)
 }
@@ -267,15 +908,22 @@ fn issues(live: &Path, args: &Value) -> Result<Map<String, Value>, ToolError> {
         }
     };
     let st = read(live, "status.json")?;
-    let item =
-        json!([{"number": true, "title": true, "url": true, "updatedAt": true, "closedAt": true}]);
+    let spec = spec_of("factory_issues").expect("a known tool");
     let mut out = Map::new();
     put(
         &mut out,
         "generatedAt",
         pick(&st["generatedAt"], &json!(true)),
     );
-    for stage in STAGES {
+    let stages = spec
+        .as_object()
+        .expect("an object spec")
+        .iter()
+        .filter(|(k, _)| STAGES.contains(&k.as_str()))
+        .map(|(k, v)| (k.as_str(), v.clone()))
+        .collect::<Vec<_>>();
+    for (stage, item) in &stages {
+        let stage = *stage;
         if want.is_some_and(|w| w != stage) {
             continue;
         }
@@ -292,7 +940,7 @@ fn issues(live: &Path, args: &Value) -> Result<Map<String, Value>, ToolError> {
             p.insert("issues".into(), Value::Array(numbers));
             out.insert("planning".into(), Value::Object(p));
         } else {
-            put(&mut out, stage, pick(&st[stage], &item));
+            put(&mut out, stage, pick(&st[stage], item));
         }
     }
     Ok(out)
@@ -301,22 +949,13 @@ fn issues(live: &Path, args: &Value) -> Result<Map<String, Value>, ToolError> {
 fn endings(live: &Path) -> Result<Map<String, Value>, ToolError> {
     let ends = read(live, "endings.json")?;
     let health = read(live, "health.json")?;
+    let spec = spec_of("factory_endings").expect("a known tool");
     let mut out = Map::new();
-    put(
-        &mut out,
-        "endings",
-        pick(
-            &ends,
-            &json!([{"issue": true, "status": true, "step": true, "startedAt": true, "updatedAt": true}]),
-        ),
-    );
+    put(&mut out, "endings", pick(&ends, &spec["endings"]));
     put(
         &mut out,
         "failed",
-        pick(
-            &health["checks"]["failed"],
-            &json!([{"issue": true, "status": true, "step": true, "startedAt": true, "time": true}]),
-        ),
+        pick(&health["checks"]["failed"], &spec["failed"]),
     );
     Ok(out)
 }
@@ -343,9 +982,17 @@ fn console(live: &Path, args: &Value) -> Result<Map<String, Value>, ToolError> {
     let mut out = Map::new();
     merge(
         &mut out,
+        // "console" is not in the spec: it comes from the file below.
         pick(
             cycle,
-            &json!({"issue": true, "step": true, "status": true, "statusText": true, "startedAt": true, "updatedAt": true}),
+            &spec_of_keys(&[
+                "issue",
+                "step",
+                "status",
+                "statusText",
+                "startedAt",
+                "updatedAt",
+            ]),
         ),
     );
     // The only file name this opens, and only when running.json gives it.
@@ -376,34 +1023,7 @@ fn read_tail(path: &Path, n: u64) -> Option<String> {
 
 fn stats(live: &Path) -> Result<Map<String, Value>, ToolError> {
     let a = read(live, "analytics.json")?;
-    let spec = json!({
-        "from": true, "to": true, "report": true,
-        "runs": {"n": true, "merged": true, "pr": true, "handoff": true, "parked": true,
-                 "failed": true, "refused": true, "stopped": true},
-        "shipped": {"n": true},
-        "cycleTime": {"n": true, "median": true, "p90": true},
-        "leadTime": {"n": true, "median": true, "p90": true},
-        "firstPassYield": {"n": true, "share": true},
-        "handoffRate": {"n": true, "share": true},
-        "availability": {"n": true, "seconds": true, "share": true},
-        "machineTime": {"n": true, "seconds": true, "perShipped": true},
-        "energy": {"n": true, "kwh": true, "perShipped": true},
-        "tokens": {"n": true, "input": true, "output": true, "cacheRead": true, "total": true,
-                   "perShipped": true},
-        "planned": {"n": true, "inLine": true, "planning": true,
-                    "trend": [{"day": true, "n": true}]},
-        "planningTurns": {"n": true},
-        "refine": {"sessions": true, "n": true, "started": true, "shipped": true,
-                   "shippedShare": true,
-                   "leadTime": {"n": true, "median": true, "p90": true},
-                   "others": {"n": true, "started": true, "shipped": true,
-                              "shippedShare": true}},
-        "stations": {"n": true, "steps": [{"step": true, "n": true, "passed": true, "share": true}]},
-        "stopReasons": {"n": true, "top": [{"reason": true, "n": true}]},
-        "versions": [{"tehas": true, "rukas": true, "n": true, "medianSeconds": true,
-                      "medianTokens": true, "prShare": true}],
-        "daily": [{"day": true, "runs": true, "shipped": true, "failed": true, "minutes": true}],
-    });
+    let spec = spec_of("factory_stats").expect("a known tool");
     match pick(&a, &spec) {
         Some(Value::Object(m)) => Ok(m),
         _ => Err(ToolError::File {

@@ -20,9 +20,17 @@ case "$*" in
   "issue view"*) [ ! -e "$T/control-down" ] || exit 1
     { [ "$(cat "$T/paused")" != true ] || echo tehas:pause; [ ! -e "$T/allhands" ] || echo tehas:all-hands; } | paste -sd " " ;;
   "issue edit"*) [ -z "${GH_EDIT_FAILS:-}" ] || exit 1 ;;
+  # gh is signed in, which is how the releases of a private repository are read.
+  "auth status") exit "${GH_AUTH:-0}" ;;
   "api repos/acme/widget/issues/"*"/events"*) cat "$T/events.json" 2>/dev/null || exit 1 ;;
   "api graphql"*) [ ! -e "$T/shipped-down" ] || exit 1; cat "$T/shipped.json" ;;
+  # The published releases of the platform, for the platform line of a release
+  # host; nothing until a case puts the answer there.
+  "api repos/"*"/releases"*) [ ! -e "$T/rel.json" ] || cat "$T/rel.json" ;;
 esac'
+# A release host reads the list with gh when it is signed in and with curl
+# otherwise; CURL_RC is what curl answers with, and 22 is no answer at all.
+t_stub curl '[ ! -e "${CURL_RC:-}" ] && exit "${CURL_RC:-0}"; exit 0'
 closed() { # number closedAt closer [label]: a closed issue as the search for shipped work returns it
   local label=""
   [ -z "${4:-}" ] || label="{\"name\":\"$4\"}"
@@ -37,7 +45,8 @@ issue() { # number label state
   printf '{"number":%s,"title":"t","url":"u","state":"%s","labels":[{"name":"%s"}],"updatedAt":"2026-01-01T00:00:00Z","closedAt":null}' "$1" "${3:-OPEN}" "$2"
 }
 reset() {
-  rm -rf "$T"/calls/* "$T/gh-down" "$T/all-down" "$T/shipped-down" "$T/control-down" "$T/allhands" "$live" "$T/home/tehas/state"
+  rm -rf "$T"/calls/* "$T/gh-down" "$T/all-down" "$T/shipped-down" "$T/control-down" "$T/allhands" "$live" \
+    "$T/home/tehas/state" "$T/home/tehas/current" "$T/home/tehas/versions" "$T/home/tehas/versions.env" "$T/rel.json"
   echo "[]" >"$T/all.json"
   shipped
   T_ENV=()
@@ -660,6 +669,120 @@ t_eq "$([ -e "$live/platform.json" ] && echo there)" ""
 t_lacks "$t_out" "platform"
 t_eq "$(jq -r .checks.platform "$live/health.json")" null
 
+# A host that runs a release: ~/tehas/current is a link to a version with a
+# VERSION, and the releases are what the gh stub answers from $T/rel.json.
+# The releases of the platform come from the gh stub, which answers the list
+# with nothing until a case puts it in $T/rel.json.
+release_setup() { # <installed> [<installed> ...]
+  rm -rf "$T/home/tehas/current" "$T/home/tehas/versions" "$T/home/tehas/platform" \
+    "$T/home/tehas/state" "$T/home/tehas/versions.env" "$T/rel.json"
+  mkdir -p "$T/home/tehas/versions" "$T/home/tehas/state"
+  # The release repository, as the host's versions.env gives it.
+  cp "$T_ROOT/host/versions.env" "$T/home/tehas/versions.env"
+  local v
+  for v in "$@"; do
+    mkdir -p "$T/home/tehas/versions/$v"
+    echo "$v" >"$T/home/tehas/versions/$v/VERSION"
+  done
+  ln -s "versions/$1" "$T/home/tehas/current"
+}
+# The published releases, newest first, as GitHub answers the list.
+releases() { # <tag> [...]
+  local line="" v
+  for v in "$@"; do
+    [ -n "$line" ] && line=$line,
+    line=$line"{\"tag_name\":\"$v\",\"draft\":false,\"prerelease\":false}"
+  done
+  printf '[%s]\n' "$line" >"$T/rel.json"
+}
+# A release host runs from current and names the release, not a checkout.
+t_case "platform: a release host names the release and the newest, and passes"
+reset
+release_setup v0.9.0
+releases v0.9.0
+t_run "$status && $summary"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .status "$live/health.json")" pass
+t_eq "$(jq -c 'del(.generatedAt, .fetchedAt)' "$live/platform.json")" \
+  '{"release":"v0.9.0","newest":"v0.9.0","behind":0,"upstream":"releases"}'
+t_contains "$t_out" "platform  v0.9.0, newest v0.9.0, fetched "
+t_eq "$(jq -r .checks.platform.release "$live/health.json")" v0.9.0
+t_eq "$(jq -r .checks.platform.commit "$live/health.json")" null
+
+t_case "platform: a newer release is said as one that is out"
+reset
+release_setup v0.9.0
+releases v0.9.1 v0.9.0
+t_run "$status && $summary"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .status "$live/health.json")" pass
+t_contains "$t_out" "platform  v0.9.0, v0.9.1 is out, fetched "
+t_eq "$(jq -r .checks.platform.newest "$live/health.json")" v0.9.1
+
+t_case "platform: releases that cannot be read leave the newest unknown, and nothing else changes"
+reset
+release_setup v0.9.0
+# Neither gh nor curl answers: the list has no newest.
+T_ENV=(GH_AUTH=1 CURL_RC=22)
+t_run "$status && $summary"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .status "$live/health.json")" pass
+t_eq "$(jq -c 'del(.generatedAt, .fetchedAt)' "$live/platform.json")" \
+  '{"release":"v0.9.0","newest":null,"behind":0,"upstream":"releases"}'
+t_contains "$t_out" "platform  v0.9.0, newest unknown, never fetched"
+
+t_case "platform: the releases are read at most once an hour"
+reset
+release_setup v0.9.0
+releases v0.9.0
+t_run "$status"
+t_eq "$(t_calls gh | grep -c 'api repos/.*/releases')" 1
+releases v0.9.1 v0.9.0
+t_run "$status"
+t_eq "$(t_calls gh | grep -c 'api repos/.*/releases')" 1
+t_eq "$(jq -r .newest "$live/platform.json")" v0.9.0
+t_eq "$(cat "$T/home/tehas/state/platform-newest")" v0.9.0
+read -r last _ <"$T/home/tehas/state/platform-fetch"
+echo "$((last - 3601)) $((last - 3601))" >"$T/home/tehas/state/platform-fetch"
+t_run "$status && $summary"
+t_eq "$(t_calls gh | grep -c 'api repos/.*/releases')" 2
+t_eq "$(jq -r .newest "$live/platform.json")" v0.9.1
+t_contains "$t_out" "platform  v0.9.0, v0.9.1 is out, fetched "
+
+t_case "platform: a release host with no record of a read says it was never fetched"
+reset
+release_setup v0.9.0
+t_run "$status && $summary"
+t_contains "$t_out" "platform  v0.9.0, newest unknown, never fetched"
+t_eq "$(jq -r .fetchedAt "$live/platform.json")" null
+
+t_case "platform: a release host keeps the newest of the last read when GitHub goes down"
+reset
+release_setup v0.9.0 v0.9.1
+releases v0.9.1 v0.9.0
+t_run "$status"
+t_eq "$(jq -r .newest "$live/platform.json")" v0.9.1
+read -r last _ <"$T/home/tehas/state/platform-fetch"
+echo "$((last - 3601)) $((last - 3601))" >"$T/home/tehas/state/platform-fetch"
+T_ENV=(GH_AUTH=1)
+rm -f "$T/rel.json"
+t_run "$status && $summary"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .newest "$live/platform.json")" v0.9.1
+t_contains "$t_out" "platform  v0.9.0, v0.9.1 is out, fetched "
+
+t_case "platform: a checkout host with a current that is not a release stays on the checkout"
+reset
+platform_setup
+# tehas_release_installed reads a link with a VERSION and nothing else, which
+# is what keeps a host whose current is not such a link on its checkout.
+mkdir -p "$T/home/tehas/versions/v0.9.0"
+echo v0.9.0 >"$T/home/tehas/versions/v0.9.0/VERSION"
+touch "$T/home/tehas/current"
+t_run "$status && $summary"
+t_contains "$t_out" "platform  $(git -C "$T/home/tehas/platform" rev-parse --short=7 HEAD), up to date with origin/main, fetched "
+t_eq "$(jq -r .checks.platform.release "$live/health.json")" null
+
 t_case "summary: a health file older than ten minutes is not believed, exit 1"
 reset
 t_run "$status"
@@ -1184,6 +1307,9 @@ done
 
 t_case "summary: the slice line says the room, what is promised, the reserve and its age"
 reset
+# No checkout on this host, so the platform line stays out and the slice line
+# is the last of the four.
+rm -rf "$T/home/tehas/platform"
 poll "" ""
 t_run "$status && $summary"
 t_eq "$t_rc" 0

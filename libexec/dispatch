@@ -151,6 +151,12 @@
 #      <!-- tehas:blocked by=12,34 --> by an allowed account or the fixer, one
 #      nobody else edited. A label with no such comment, a malformed marker or
 #      a state GitHub does not give holds it too, and the log says why.
+#      With TEHAS_SIZE_MAX_FILES set, the body the label approved is measured
+#      (lib/sizing.sh), and an issue whose body names more files than the
+#      setting is not started either: its tehas:ready comes off,
+#      needs-human-attention goes on, and the issue says the counts, the
+#      setting and the way out once. Unset, nothing here changes, and a refresh
+#      is never held by it.
 #   7. tehas:urgent first, then refreshes, then tehas:next, then the lowest
 #      issue number. An issue the poll puts on neither the urgent list nor the
 #      tehas:next list is of the lowest kind, so one whose tehas:next came from
@@ -208,6 +214,8 @@
 #                             commit holds new cycles back, none when unset
 #   TEHAS_REFRESH_MAX         refreshes of one pull request since the
 #                             person's approval [2]
+#   TEHAS_SIZE_MAX_FILES      the most files an issue's body may name before
+#                             the poll holds it back, none when unset
 #   TEHAS_LOW_GATE            a command the poll asks before it starts the
 #                             issues of the lowest kind, an absolute path, none
 #                             when unset
@@ -337,6 +345,11 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/analytics.sh
 . "$here/../lib/analytics.sh"
 tehas_load || exit 78
+# Sourced after tehas_load, as lib/questions.sh is below: the measure builds
+# the tick of markdown into a jq program with a `file` of its own, and a
+# command that sources a file before tehas_load would lose its own to it.
+# shellcheck source=lib/sizing.sh
+. "$here/../lib/sizing.sh"
 # shellcheck source=lib/questions.sh
 . "$here/../lib/questions.sh"
 
@@ -989,6 +1002,54 @@ epic_ok() {
     log "WARN: label change on #$n failed: --remove-label tehas:ready"
   fi
   return 1
+}
+
+# size_ok <issue> <its labels>: is that number small enough for one cycle? With
+# TEHAS_SIZE_MAX_FILES set on the instance, the body the label approved is
+# measured (lib/sizing.sh) and a body naming more files than the setting names
+# is not started: it is a stack of changes wearing the shape of one issue, and
+# the cycle would spend its explore and its plan before it parked. As for an
+# epic, the label that asked for the cycle comes off, needs-human-attention
+# goes on for the person to read, and the issue says the counts, the setting
+# and the way out once: narrow the body or split the issue, then apply
+# \`tehas:ready\` again. The comment follows the label changes, so a poll whose
+# label change failed finds the same label next time and says nothing on the
+# issue again. A body GitHub does not give as text ends the poll rather than
+# starting a cycle on a count nobody read, as every other unreadable answer of
+# GitHub's here does: the four zeros the measure gives an empty body are not a
+# guess about a body it was never given. Unset, this asks nothing and nothing
+# changes. The labels are the caller's second argument, as work_ok's answer
+# holds the body and not the labels, and a refresh takes no path through here: a
+# refresh is never held (rule 4b), and the label this path would take off is not
+# one a refresh carries. Returns 1 when the issue is held.
+size_ok() {
+  local n=$1 have=$2 files
+  [ -n "$TEHAS_SIZE_MAX_FILES" ] || return 0
+  files=$(jq -r 'if ((.body // "") | type) == "string" then (.body // "") else "@@" end' <<<"${work_answer[$n]:-}") || files=""
+  [ "$files" = "@@" ] || files=$(tehas_issue_size <<<"$files" | jq -r .files 2>/dev/null) || files=""
+  [[ $files =~ ^[0-9]+$ ]] || {
+    log "ERROR: the size of #$n could not be read"
+    exit 1
+  }
+  [ "$files" -le "$TEHAS_SIZE_MAX_FILES" ] || {
+    log "skip #$n: its body names $files files, more than TEHAS_SIZE_MAX_FILES ($TEHAS_SIZE_MAX_FILES), and one cycle does not make that many changes"
+    # The label of this issue that asked for the cycle, as the poll read it when
+    # it put the issue on the list: work_ok's answer holds the body, not the
+    # labels, and the script's $have is written by the park and the refresh
+    # paths for the issue each of them is deciding, so this guard takes the
+    # labels from its caller instead of reading that global.
+    [[ $have == *" tehas:ready "* ]] || return 1
+    if [ "$dry" = 1 ]; then
+      log "would take tehas:ready off #$n and add needs-human-attention: its body names $files files, more than TEHAS_SIZE_MAX_FILES ($TEHAS_SIZE_MAX_FILES)"
+      return 1
+    fi
+    if gh issue edit "$n" --repo "$repo" --remove-label tehas:ready --add-label needs-human-attention >/dev/null 2>&1; then
+      say "$n" "Tehas took \`tehas:ready\` off this issue, put \`needs-human-attention\` on it and started nothing. Its body names $files files, more than the $TEHAS_SIZE_MAX_FILES of \`TEHAS_SIZE_MAX_FILES\`, so one cycle would be asked for too many changes at once. Narrow this issue to the part of it one cycle can make, or split it into issues of that size, and apply \`tehas:ready\` again to start one of them."
+    else
+      log "WARN: label change on #$n failed: --remove-label tehas:ready --add-label needs-human-attention"
+    fi
+    return 1
+  }
 }
 
 # open_pr <issue>: the url of an open pull request that GitHub says closes
@@ -2835,6 +2896,9 @@ while read -r kind n; do
   work_ok "$n" || continue
   # An epic is a plan, not a change: it never starts a cycle.
   epic_ok "$n" || continue
+  # With TEHAS_SIZE_MAX_FILES, a body that names too many files is held too.
+  # The labels are the ones the poll read from the ready list above.
+  size_ok "$n" "$have" || continue
   open_pr "$n"
   if [ -n "$pr_url" ]; then
     clear_pr_open "$n"

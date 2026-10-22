@@ -329,6 +329,7 @@ The common ones:
 | review round cap                    | The review kept finding problems                    | Read the review on the pull request                      |
 | developer timeout                   | An agent ran out of time                            | Usually model endpoint capacity; retry later             |
 | `wall-clock`, `stall`               | tehas ended the cycle: its time limit `TEHAS_WORK_TIMEOUT`, or no log moved for `TEHAS_WORK_STALL` | Read the run log the comment names; see [a cycle stops at a cap](#a-cycle-stops-at-a-cap) |
+| `runner-never-started`              | The container ended before the driver wrote its first event: no step ran and the record would hold nothing but an exit status | Look for a host-side fault: the image, the slice, the model endpoint. See [`runner-never-started`](#runner-never-started) below |
 
 The caps this factory has posted are explained one by one in the next
 section.
@@ -386,6 +387,10 @@ before the stop, such as a handoff, is kept. Both say the step the cycle was
 in, from the runner's progress where its result names none. A cycle stopped this way has usually done less
 than its comment claims; read the run log named there before you retry, and
 retry when the cause of the stall is gone.
+
+The third cap tehas sets for itself is `runner-never-started`, for the
+container that ended before the driver wrote its first event. See
+[`runner-never-started`](#runner-never-started) below.
 
 These are the caps the factory posted on its own issues from 10 to 14 October
 2026, most frequent first.
@@ -465,6 +470,55 @@ split the issue.
 Until result schema 4 (pi-rukas, 18 October 2026) pi-rukas used the name
 `wall-clock` for its review loop's budget. An older comment on a pull request
 that names `wall-clock` is the cap below.
+
+### `runner-never-started`
+
+The container started, ran its preflight, and ended before the driver of
+pi-rukas wrote its first event. Nothing of the issue was read, no step began,
+no branch was made, and no model time was spent. This cap is tehas's, not
+pi-rukas's: `tehas work` watched the container to its end, found no result and
+not one line in the cycle's stream, and left the account of it in
+`state/cycles/<N>.nostart`. The comment says `no step started`, the record's
+`step` is `no-step`, and its `capReason` names the container's own exit status
+(`the container ended with the exit status 1 and wrote no line of its stream, so
+the driver wrote no event and no step started`), so a run of this kind can be
+counted and grouped with the others of it. The word of the step is tehas's own:
+no step of pi-rukas is named there, and it is kept clear of the word
+`not-started`, which names a start `tehas work` refused at exit 4.
+
+The cycle's own files hold nothing for it: `console.txt` has only the two lines
+of a console that waited and detached, `stream.jsonl` is empty, and what
+`err.txt` holds is the one line `tehas work` wrote for this end, which names
+the preflight file: nothing of the container's own text is in it, because
+`tehas work` removes that file when it clears the cycle's other files. The last
+line of `preflight.txt` is the provider-retry echo, and it says nothing about
+the failure: the cycles that ran for hours have the same last line.
+
+So this cap says the host stopped the cycle, not the model or the change. What
+it cannot tell you is which part of the host did: an image that died on its
+way in, the slice refusing the container, a socket that closed, or the poll
+state of the cgroup. Look at those, in this order:
+
+```
+jq . ~/tehas/state/cycles/<N>.result.json    # empty: the runner wrote no result
+tail -n 5 ~/tehas/logs/work-<N>-*.preflight  # what the preflight reached
+docker ps -a --filter name=tehas-work-<N>    # the container, if it is still there
+systemctl --user show tehas.slice -p MemoryMax -p ActiveState   # the slice's ceiling and state
+```
+
+Read those on the host, and do not paste their output into the issue: a
+preflight file carries the provider's own words and the remote of the product,
+and a container list names this host. The last command is asked for two
+properties rather than the unit's status because a status prints the host's
+name, which the rest of these files keep out of anything a cycle publishes.
+
+Nothing of the issue needs to change, and there is no workspace to read: the
+retry starts from the first step again. Each such end is posted on the issue as
+it happens, so the comments of the issue say how many times it has ended this
+way. Read that count before you start it again: when the same issue has ended
+twice this way with nothing between them changed, the cause is on the host and
+repeating the start will not fix it. Where the count is not visible on the
+issue, `tehasbot status` names the cycles of an issue and their caps.
 
 ### `lens-review-timeout`
 
@@ -551,6 +605,9 @@ helper and every push ended in
 `could not read Username for
 'https://github.com'`. `tehas work` now passes the
 helper and the bot's identity, and checks with a dry-run push before starting.
+The host's own git is covered the other way round: `tehas setup` gives it gh's
+helper for `github.com` and keeps one that is there (see
+[tehas setup](/tools#tehas-setup)).
 
 Check the push by hand:
 
@@ -604,6 +661,10 @@ log and asked GitHub for the bot's pull request of the branch that
   of that kind: the log has the line naming `.pi/verify-cmd`, and the issue has
   no comment, because a cycle that never began has nothing to hand off. See
   [A new project](/new-project) for what the product has to hold.
+- A cycle whose container started and then ended before the driver wrote its
+  first event is not of this kind, and its step is not read from its run log at
+  all: it is on record as
+  [`runner-never-started`](#runner-never-started), with the step `no-step`.
 
 ```
 jq . ~/tehas/state/cycles/<N>.result.json      # empty, or missing: no result
@@ -874,11 +935,22 @@ docker system df
 docker image prune      # removes images with no tag that nothing uses
 ```
 
-A sandbox build removes date tags beyond its newest three itself.
-
-The cleaner prunes Docker's build cache every hour, of whatever has not been
+A sandbox build removes date tags beyond its newest three itself. The cleaner
+prunes Docker's build cache every hour, of whatever has not been
 used for `TEHAS_CLEAN_AFTER` hours, and removes the build output of kept
-workspaces and old host scratch besides (see [the cleaner](/operating#the-cleaner)).
+workspaces, old host scratch, the sandbox image's dated tags past that age
+except the newest, and the pulled base image of that age
+besides (see [the cleaner](/operating#the-cleaner)). Nothing a container was
+made from is taken: `docker ps -a` shows what holds an image, and an image in
+use is kept whatever its age. The cleaner removes the base by its own name and
+never asks docker for the images that have lost their tag, so a preview image or
+a rollback image of that kind is left where it is. To free the space by hand,
+name what you mean:
+`docker rmi tehas/pi-rukas:<date>` for one dated tag, or
+`docker rmi <id>` for the base. A bare
+`docker image prune` would take any image on the daemon that had lost its tag,
+and an `--all` of it any image no container names, which is wider than the
+cleaner ever goes. A preview that lost its tag is among what a bare prune takes.
 `install.sh` copies `tehas-clean.timer`; check `systemctl --user list-timers
 tehas-clean.timer` when it is not running, and `tail ~/tehas/logs/clean.log`
 for what it freed. `docker builder prune` does the same at once, and the next

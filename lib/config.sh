@@ -33,7 +33,7 @@
 #     TEHAS_CYCLE_START_CMD, TEHAS_CYCLE_STOP_CMD, TEHAS_CYCLE_START_WAIT,
 #     TEHAS_CGROUP_ROOT, TEHAS_SLICE_WAIT, TEHAS_PREFLIGHT_WAIT, TEHAS_STOP_WAIT, TEHAS_FETCH_WAIT, TEHAS_CHECK_WAIT,
 #     TEHAS_CONSOLE_WAIT, TEHAS_WORK_GRACE, TEHAS_CAPS_WAIT, TEHAS_TEXT_WAIT,
-#     TEHAS_CYCLE_RETRY_WAIT, TEHAS_CYCLE_STOP_GH_WAIT, TEHAS_TIDY_CMD,
+#     TEHAS_BUILD_TIMEOUT, TEHAS_CYCLE_RETRY_WAIT, TEHAS_CYCLE_STOP_GH_WAIT, TEHAS_TIDY_CMD,
 #     TEHAS_TIDY_WAIT and TEHAS_ANALYTICS_WAIT are kept, and from
 #     ~/.config/tehas/env TEHAS_ENERGY, TEHAS_ENERGY_URL and the model
 #     endpoints' tokens TEHAS_MODEL_KEY_*. instance.env that sets a token is
@@ -114,8 +114,15 @@ _tehas_valid() {
       [[ $v =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "expected owner/name"; return 1; }
       ;;
     TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_IMPROVE_MAX_OPEN | TEHAS_FIXER_MAX_RETRIES | TEHAS_FIXER_MAX_PLAN_ANSWERS | TEHAS_REFRESH_MAX | TEHAS_WORK_TIMEOUT | TEHAS_WORK_STALL | TEHAS_CONCURRENCY | TEHAS_TICKET_CONCURRENCY | \
-      TEHAS_PLAN_MAX_TURNS | TEHAS_PLAN_TIMEOUT | TEHAS_VERIFY_TIMEOUT)
+      TEHAS_PLAN_MAX_TURNS | TEHAS_PLAN_TIMEOUT | TEHAS_VERIFY_TIMEOUT | TEHAS_BUILD_TIMEOUT)
       _tehas_is_count "$v" || { echo "expected a positive whole number"; return 1; }
+      ;;
+    TEHAS_SIZE_MAX_FILES)
+      # libexec/dispatch compares this count with the files of a body, so its
+      # length is checked before its value: a number no comparison can hold is
+      # refused by the length instead of by a failing comparison.
+      _tehas_is_count "$v" || { echo "expected a positive whole number"; return 1; }
+      [ "${#v}" -le 9 ] || { echo "expected at most 9 digits"; return 1; }
       ;;
     TEHAS_LOW_GATE_WAIT)
       # The dispatcher waits for the gate while it holds state/dispatch.lock, so
@@ -152,7 +159,7 @@ _tehas_valid() {
     TEHAS_LAYOUT)
       case "$v" in floor | business) ;; *) echo "expected floor or business"; return 1 ;; esac
       ;;
-    TEHAS_INDEXING | TEHAS_ANALYTICS_COOKIE | TEHAS_WORK_IMAGES | TEHAS_WORK_DESCRIBE | TEHAS_WORK_FILES | TEHAS_WORK_COMMENTS | TEHAS_TOP | TEHAS_REFRESH_CONFLICTS)
+    TEHAS_INDEXING | TEHAS_ANALYTICS_COOKIE | TEHAS_WORK_IMAGES | TEHAS_WORK_DESCRIBE | TEHAS_WORK_FILES | TEHAS_WORK_COMMENTS | TEHAS_WORK_ZIPS | TEHAS_TOP | TEHAS_REFRESH_CONFLICTS)
       case "$v" in 0 | 1) ;; *) echo "expected 0 or 1"; return 1 ;; esac
       ;;
     # Both end up in an HTML attribute of every page, so no quote, space or
@@ -207,6 +214,13 @@ _tehas_valid() {
     # and find's `-newermt`, and the names are each one directory name.
     TEHAS_CLEAN_AFTER)
       [[ $v =~ ^[1-9][0-9]{0,4}$ ]] || { echo "expected a whole number of hours of at least 1"; return 1; }
+      ;;
+    # What tehas work measures of an approved body, and no further: the two
+    # bounds of lib/sizing.sh. Each holds what the other leaves unbounded, a
+    # body of one huge line and a body of many short ones, so both are settings
+    # and both must be usable numbers.
+    TEHAS_SIZE_MAX_BYTES | TEHAS_SIZE_MAX_LINES)
+      [[ $v =~ ^[1-9][0-9]{0,7}$ ]] || { echo "expected a whole number of at least 1"; return 1; }
       ;;
     TEHAS_CLEAN_DIRS)
       # Names, not paths: the cleaner matches them with find -name, and a name
@@ -357,7 +371,7 @@ tehas_load() {
     case "$v" in
       TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_INDEX_CMD | TEHAS_PLAN_CMD | \
         TEHAS_PLAN_START_CMD | TEHAS_INDEX_START_CMD | TEHAS_INDEX_LOCK_WAIT | TEHAS_CYCLE_START_CMD | TEHAS_CYCLE_STOP_CMD | TEHAS_CYCLE_START_WAIT | TEHAS_CGROUP_ROOT | TEHAS_SLICE_WAIT | \
-        TEHAS_PREFLIGHT_WAIT | TEHAS_STOP_WAIT | TEHAS_FETCH_WAIT | TEHAS_CHECK_WAIT | TEHAS_CONSOLE_WAIT | TEHAS_WORK_GRACE | TEHAS_CAPS_WAIT | TEHAS_TEXT_WAIT | \
+        TEHAS_PREFLIGHT_WAIT | TEHAS_STOP_WAIT | TEHAS_FETCH_WAIT | TEHAS_CHECK_WAIT | TEHAS_CONSOLE_WAIT | TEHAS_WORK_GRACE | TEHAS_CAPS_WAIT | TEHAS_TEXT_WAIT | TEHAS_BUILD_TIMEOUT | \
         TEHAS_CYCLE_RETRY_WAIT | TEHAS_CYCLE_STOP_GH_WAIT | TEHAS_TIDY_CMD | TEHAS_TIDY_WAIT | TEHAS_ANALYTICS_WAIT | TEHAS_ENERGY | TEHAS_ENERGY_URL | TEHAS_MODEL_KEY_* | TEHAS_MCP | TEHAS_MCP_KEYS) ;;
       TEHAS_* | PI_ENSEMBLE_*) unset "$v" ;;
     esac
@@ -449,6 +463,10 @@ tehas_load() {
   # its name to this list, it does not replace it.
   export TEHAS_CLEAN_AFTER=${TEHAS_CLEAN_AFTER:-24}
   export TEHAS_CLEAN_DIRS=${TEHAS_CLEAN_DIRS:-$(_tehas_clean_dirs_default)}
+  # The two bounds of the measure tehas work makes of an approved body, in
+  # bytes and in lines (lib/sizing.sh).
+  export TEHAS_SIZE_MAX_BYTES=${TEHAS_SIZE_MAX_BYTES:-131072}
+  export TEHAS_SIZE_MAX_LINES=${TEHAS_SIZE_MAX_LINES:-1000}
   # The factory's own 365 days of runs, events and samples in
   # state/analytics.db (lib/analytics.sh), not the visitor analytics above.
   # On unless the instance says off, which stops every write.
@@ -514,6 +532,9 @@ tehas_load() {
   # Whether the links in comments by allowed accounts, written before the
   # approval, are taken too. Off unless the instance says so.
   export TEHAS_WORK_COMMENTS=${TEHAS_WORK_COMMENTS:-0}
+  # Whether a zip the issue links is unpacked into the same directory. An
+  # archive holds anything, so it is opt-in on top of the images or the files.
+  export TEHAS_WORK_ZIPS=${TEHAS_WORK_ZIPS:-0}
   # A planning session: how many turns it may take, and how long one turn may.
   # TEHAS_PLAN_TIMEOUT_MAX is the one place the ceiling of a turn is written:
   # the default below is that ceiling, the check further down refuses more, and
@@ -545,17 +566,33 @@ tehas_load() {
     export PI_ENSEMBLE_VERIFY_TIMEOUT_MS=$((TEHAS_VERIFY_TIMEOUT * 1000))
     export PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS=$PI_ENSEMBLE_VERIFY_TIMEOUT_MS
   fi
+  # The most files an issue's own body may name before the dispatcher holds it
+  # back instead of starting a cycle on it (libexec/dispatch, lib/sizing.sh).
+  # Unset: the dispatcher never asks the measure and nothing changes. Read from
+  # the instance file alone: the loader has already dropped TEHAS_* from the
+  # environment, and an empty value stays empty rather than become a ceiling.
+  export TEHAS_SIZE_MAX_FILES="${TEHAS_SIZE_MAX_FILES-}"
   # Agents get neither the host Docker socket nor SSH keys. Not a setting.
   export PI_ENSEMBLE_NO_DOCKER_SOCKET=1 PI_ENSEMBLE_NO_SSH=1
 
-  for v in TEHAS_THEME TEHAS_LAYOUT TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_WORK_DESCRIBE TEHAS_WORK_FILES TEHAS_WORK_COMMENTS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_TOP TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
-    TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_LOW_GATE_WAIT TEHAS_CLEAN_AFTER; do
+  # The settings an instance may write, each with the rule for its value. An
+  # optional one an instance left out is checked only when it is there, as
+  # TEHAS_BUILD_TIMEOUT is: its default belongs to the command that reads it.
+  for v in TEHAS_THEME TEHAS_LAYOUT TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_WORK_DESCRIBE TEHAS_WORK_FILES TEHAS_WORK_COMMENTS TEHAS_WORK_ZIPS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_TOP TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
+    TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_LOW_GATE_WAIT TEHAS_CLEAN_AFTER TEHAS_SIZE_MAX_BYTES TEHAS_SIZE_MAX_LINES; do
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
+  # The bound install.sh puts on one cargo build. Its default belongs to
+  # install.sh, so an instance that leaves it out is checked only when it wrote
+  # one.
+  if [ -n "${TEHAS_BUILD_TIMEOUT:-}" ]; then
+    reason=$(_tehas_valid TEHAS_BUILD_TIMEOUT "$TEHAS_BUILD_TIMEOUT") ||
+      { tehas_err "TEHAS_BUILD_TIMEOUT is not valid: $reason (see $file)"; return 78; }
+  fi
   if [ -n "${PI_RUKAS_FOLLOW+x}" ]; then
     reason=$(_tehas_valid PI_RUKAS_FOLLOW "$PI_RUKAS_FOLLOW") || { tehas_err "PI_RUKAS_FOLLOW is not valid: $reason (see $file)"; return 78; }
   fi
-  for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL TEHAS_UPDATE_FROM TEHAS_RELEASE_REPO; do
+  for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL TEHAS_UPDATE_FROM TEHAS_RELEASE_REPO TEHAS_SIZE_MAX_FILES; do
     [ -n "${!v:-}" ] || continue
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
@@ -593,6 +630,10 @@ tehas_load() {
   fi
   if [ "$TEHAS_WORK_COMMENTS" = 1 ] && [ "$TEHAS_WORK_IMAGES" != 1 ] && [ "$TEHAS_WORK_FILES" != 1 ]; then
     tehas_err "TEHAS_WORK_COMMENTS is 1 and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is: nothing is taken from comments (see $file)"
+    return 78
+  fi
+  if [ "$TEHAS_WORK_ZIPS" = 1 ] && [ "$TEHAS_WORK_IMAGES" != 1 ] && [ "$TEHAS_WORK_FILES" != 1 ]; then
+    tehas_err "TEHAS_WORK_ZIPS is 1 and neither TEHAS_WORK_IMAGES nor TEHAS_WORK_FILES is: an unpacked file goes to the directory of one of them (see $file)"
     return 78
   fi
   # One axis of parallelism: several cycles of one workstream, or one cycle of

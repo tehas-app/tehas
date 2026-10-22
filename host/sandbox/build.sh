@@ -97,6 +97,10 @@ fi
 # otherwise read.
 # shellcheck source=lib/config.sh
 . "$lib/config.sh"
+# images_held, which the date sweep below asks: what a container or a uid tag
+# holds. tehasbot clean asks the same function for the same question.
+# shellcheck source=lib/sandbox.sh
+. "$lib/sandbox.sh"
 instance_file=$(tehas_instance_dir)/sandbox.Dockerfile
 # A host with an instance may follow another pi-rukas than its release names
 # (PI_RUKAS_FOLLOW in instance.env). Its settings are loaded and checked as
@@ -295,16 +299,8 @@ if [ -f "$instance_file" ]; then
   echo "built $image:$stamp-product from $instance_file, also tagged $current"
 fi
 
-# The ids of images a container was made from, or a uid tag names.
-images_held() { # <the image's tags, "<tag> <id>" per line>
-  local ids
-  ids=$(docker ps -aq --no-trunc) || return 1
-  if [ -n "$ids" ]; then
-    # shellcheck disable=SC2086  # one argument per container id
-    docker inspect --format '{{.Image}}' $ids || return 1
-  fi
-  awk '$1 ~ /^uid/ { print $2 }' <<<"$1"
-}
+# The ids of images a container was made from, or a uid tag names, are
+# images_held in lib/sandbox.sh, which the cleaner asks too.
 
 prune_dated() {
   local tags held tag id n=0
