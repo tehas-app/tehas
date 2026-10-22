@@ -1113,8 +1113,9 @@ merges, and it may start to conflict with the branch. A refresh is a cycle that
 merges the branch into that pull request, resolves the conflicts and pushes to
 the same branch: the same pull request, its review kept. Never a rebase, a
 force-push or a second pull request. It needs a sandbox image whose pi-rukas
-takes `--continue-pr` (pi-rukas#1468); until then a refresh starts nothing and
-the dispatcher says so.
+takes `--continue-pr` and says so with `features.continuePr` in its
+`--capabilities` (pi-rukas#1468, in v0.14.0); until then a refresh starts
+nothing and the dispatcher says so.
 
 **What it reads.** `tehasbot refresh`, from `tehas-refresh.timer` once an hour,
 lists the open pull requests of the repository. It keeps the bot's that close

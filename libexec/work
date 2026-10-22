@@ -464,7 +464,7 @@ caps_rc=$?
 # the margin holds the longest step there is room for and then the handoff:
 # a quarter of the limit, and never less than one run of the gate and the
 # handoff allowance.
-if [ "$(jq -r '.features.cycleDeadlineHandoffAllowance == true' <<<"$caps" 2>/dev/null)" = true ]; then
+if [ "$(tehas_headless_mode "$caps" cycleDeadlineHandoffAllowance)" = native ]; then
   margin=$handoff
 else
   margin=$((limit / 4))
