@@ -215,14 +215,27 @@ fn status_schema() -> Value {
                         "commit",
                         prop("string", "The platform commit the host runs."),
                     ),
+                    (
+                        "release",
+                        given(
+                            "The release the host runs, such as v0.9.0. On a release host instead of commit.",
+                        ),
+                    ),
+                    (
+                        "newest",
+                        given("The newest published release, or null when it is unknown."),
+                    ),
                     ("behind", given("Commits behind upstream.")),
                     (
                         "upstream",
-                        prop("string", "The upstream branch it is compared with."),
+                        prop(
+                            "string",
+                            "The upstream branch it is compared with, or releases for a release host.",
+                        ),
                     ),
                     ("fetchedAt", given("When it was fetched, UTC.")),
                 ],
-                "The platform checkout as the last poll read it.",
+                "The platform the host runs: its release, or its checkout against origin.",
             ),
         ),
     ])
@@ -581,7 +594,7 @@ pub fn list() -> Value {
     let mut tools = json!([
         {
             "name": "factory_status",
-            "description": "Whether the factory is working, paused or failing, its queue counts, the running cycles and their steps, the demand waiting, and the platform commit. Stale is true when the dispatcher has not reported for ten minutes.",
+            "description": "Whether the factory is working, paused or failing, its queue counts, the running cycles and their steps, the demand waiting, and the platform it runs: the release, or the checkout's commit. Stale is true when the dispatcher has not reported for ten minutes.",
             "inputSchema": none,
             "outputSchema": status_schema(),
         },
@@ -720,8 +733,8 @@ pub fn spec_of(name: &str) -> Option<Value> {
                       "stopped": true, "time": true},
             "cycles": cycles,
             "demand": {"waiting": true, "oldest": true, "time": true},
-            "platform": {"commit": true, "behind": true, "upstream": true,
-                         "fetchedAt": true},
+            "platform": {"commit": true, "release": true, "newest": true, "behind": true,
+                         "upstream": true, "fetchedAt": true},
         }),
         "factory_issues" => {
             let mut s = Map::new();

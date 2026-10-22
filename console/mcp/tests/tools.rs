@@ -237,6 +237,30 @@ fn status_says_the_queue_and_that_an_old_poll_is_stale() {
     assert_eq!(out["stale"], true);
     assert_eq!(out["cycles"][0]["issue"], 7);
     assert_eq!(out["platform"]["behind"], 0);
+    assert_eq!(
+        out["platform"]["commit"],
+        "9b1b7dc11b73b93f7296b5f3131fcc6ef6b964e9"
+    );
+}
+
+// A host that runs a release names it instead of a commit: pick drops the
+// keys of the checkout it does not have.
+#[test]
+fn status_names_the_release_of_a_release_host() {
+    let dir = Copy::new("release-platform");
+    let file = dir.0.join("health.json");
+    let mut health = std::fs::read_to_string(&file).unwrap();
+    health = health.replace(
+        "\"platform\":{\"commit\":\"9b1b7dc11b73b93f7296b5f3131fcc6ef6b964e9\",\"upstream\":\"origin/main\",\"behind\":0,",
+        "\"platform\":{\"release\":\"v0.9.1\",\"newest\":\"v0.9.2\",\"upstream\":\"releases\",\"behind\":0,",
+    );
+    std::fs::write(&file, health).unwrap();
+    let out = call(&dir.0, "factory_status", &json!({})).unwrap();
+    assert_eq!(out["platform"]["release"], "v0.9.1");
+    assert_eq!(out["platform"]["newest"], "v0.9.2");
+    assert_eq!(out["platform"]["upstream"], "releases");
+    assert!(out["platform"].get("commit").is_none());
+    assert_eq!(out["platform"]["fetchedAt"], "2026-10-20T08:36:59Z");
 }
 
 #[test]
@@ -385,6 +409,8 @@ fn every_key_is_listed() {
                 "demand.time",
                 "platform",
                 "platform.commit",
+                "platform.release",
+                "platform.newest",
                 "platform.behind",
                 "platform.upstream",
                 "platform.fetchedAt",
@@ -561,7 +587,20 @@ fn every_key_is_listed() {
         ),
     ];
     for (name, keys) in expected {
-        let got = key_paths(&call(&live(), name, &args(name)).unwrap());
+        let mut got = key_paths(&call(&live(), name, &args(name)).unwrap());
+        // The fixtures' health.json is a checkout host, so it has no release
+        // and no newest: the answer of a release host adds those two, and the
+        // commit it cannot show is in the answer above.
+        if name == "factory_status" {
+            let c = Copy::new("status-keys-release");
+            let file = c.0.join("health.json");
+            let health = std::fs::read_to_string(&file).unwrap().replace(
+                "\"commit\":\"9b1b7dc11b73b93f7296b5f3131fcc6ef6b964e9\",\"upstream\":\"origin/main\"",
+                "\"release\":\"v0.9.1\",\"newest\":\"v0.9.2\",\"upstream\":\"releases\"",
+            );
+            std::fs::write(&file, health).unwrap();
+            got.extend(key_paths(&call(&c.0, name, &args(name)).unwrap()));
+        }
         let want: BTreeSet<String> = keys.iter().map(|s| s.to_string()).collect();
         assert_eq!(got, want, "{name}");
     }
@@ -592,6 +631,20 @@ fn schema_matches_output() {
         let mut got = BTreeSet::new();
         for a in cases {
             got.extend(key_paths(&call(&live(), name, &a).unwrap()));
+        }
+        // A field the one fixture of health.json cannot show: a host that runs
+        // a release names its version and the newest there is instead of a
+        // commit, so those two are answered here from a health file of that
+        // shape.
+        if name == "factory_status" {
+            let c = Copy::new("status-release");
+            let file = c.0.join("health.json");
+            let health = std::fs::read_to_string(&file).unwrap().replace(
+                "\"commit\":\"9b1b7dc11b73b93f7296b5f3131fcc6ef6b964e9\",\"upstream\":\"origin/main\"",
+                "\"release\":\"v0.9.1\",\"newest\":\"v0.9.2\",\"upstream\":\"releases\"",
+            );
+            std::fs::write(&file, health).unwrap();
+            got.extend(key_paths(&call(&c.0, name, &args(name)).unwrap()));
         }
         let mut want = BTreeSet::new();
         schema_paths(&schema_of(name), "", &mut want);
