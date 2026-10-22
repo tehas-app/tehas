@@ -152,15 +152,17 @@ cycle_args() { grep -l -x -e 'pi-rukas-headless' -e "$runner" "$T"/calls/docker.
 # The arguments of the docker call that checks the push before the cycle.
 preflight_args() { grep -l -x -e '--entrypoint' "$T"/calls/docker.args.* 2>/dev/null | head -n 1 | xargs -r cat; }
 # The security options of a container, as lib/sandbox.sh prints them: the same
-# ten words for a cycle, a planning turn, a session and the push check. The
-# tmpfs is one word: docker takes its mount options after a colon.
+# options for a cycle, a planning turn, a session and the push check. The
+# mount and its options are one argument, so the tmpfs is the ninth and tenth
+# word. dev_test.sh and plan_test.sh hold a copy of these four helpers and of
+# this string, kept in step by hand.
 security_opts="--cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true --tmpfs /tmp:rw,exec,nosuid,nodev,size=8g,mode=1777"
 # How many times an option is given, and with what value: the words after it,
 # read the way docker reads them. <flag> is one word, as it stands on the line.
 security_of() { # <flag> (reads the arguments on standard input)
   awk -v flag="$1" 'prev == flag { print } { prev = $0 }'
 }
-# The same ten words, in order, as one line. Empty when a container is given
+# The same options, in order, as one line. Empty when a container is given
 # them another way or not at all. Reads the arguments on standard input.
 security_line() {
   awk '
@@ -180,8 +182,11 @@ security_line() {
       if (seen == 10) for (i = start; i < start + 10; i++) printf "%s ", arg[i]
     }'
 }
-# How many times an option is given on a docker line. An option of this list
-# that takes a value counts its value too, so the pair of --tmpfs is one.
+# How many times an option stands on a docker line, counted as a whole word
+# with its value as a word of its own: the pair of --tmpfs is one, and
+# --tmpfs=<value> counts as none, which is the spelling no container is given
+# (test/work_test.sh pins that). The three copies of these four helpers (here,
+# dev_test.sh and plan_test.sh) are kept in step by hand.
 count_of() { # <flag> (reads the arguments on standard input)
   awk -v flag="$1" '$0 == flag { n++ } END { print n + 0 }'
 }

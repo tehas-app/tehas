@@ -232,6 +232,8 @@ mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
 mapfile -d '' -t sec < <(tehas_sandbox_security)
 [ "${#envs[@]}" -gt 0 ] && [ "${#sec[@]}" -eq 10 ] ||
   { echo "tehas plan: could not prepare the sandbox, not starting a turn" >&2; exit 78; }
+# The mounts of the turn are checked where they are made, after the clone: they
+# name directories that do not exist until then.
 # An image whose runner does not take planning turns runs none, before anything
 # is fetched or cloned.
 caps_wait=${TEHAS_CAPS_WAIT:-120}
