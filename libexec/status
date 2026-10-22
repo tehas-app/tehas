@@ -176,7 +176,9 @@ platform_newest_read() {
 # A host that runs a release: the version current points at, the newest there
 # is, and nothing of a checkout it may still hold. The list is read once an
 # hour under fetch_limit; the answer is kept in state/platform-newest and a
-# poll between reads, or one whose read fails, says the newest it last had.
+# poll between reads, or one whose read fails, says the newest it last had -
+# unless the installed version is no version, or the cached answer is older
+# than it: then the cache goes and the next read asks again.
 platform_release() { # <installed version>
   local installed=$1 stamp=$TEHAS_HOME/state/platform-fetch newestfile=$TEHAS_HOME/state/platform-newest
   local last=0 now fetched="" newest=""
@@ -185,6 +187,16 @@ platform_release() { # <installed version>
   [[ $last =~ ^[0-9]+$ ]] || last=0
   [[ $fetched =~ ^[0-9]+$ ]] || fetched=""
   newest=$(head -n 1 "$newestfile" 2>/dev/null) || newest=""
+  # What the cache may be said at all: a tag that is no version says nothing,
+  # nor does one older than the version the host runs, which no published
+  # release list of that repository holds.
+  if [ -n "$newest" ]; then
+    if ! tehas_release_tag_ok "$newest" || ! tehas_release_tag_ok "$installed" ||
+      tehas_release_older "$newest" "$installed"; then
+      rm -f "$newestfile"
+      newest=""
+    fi
+  fi
   if [ $((now - last)) -ge "$fetch_every" ]; then
     # The attempt is remembered first, so a read that hangs or fails is not
     # tried at every poll.
