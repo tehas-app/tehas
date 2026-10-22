@@ -154,7 +154,11 @@ set -uo pipefail
 # a failure that says so, rather than an update that hangs after install.sh has
 # already copied files.
 fetch_limit=120    # git fetch from origin
-install_limit=1800 # install.sh: the copies, the dependency check and the tests
+install_limit=1800 # install.sh: the copies, the dependency check and the tests.
+                   # install.sh bounds one cargo build with TEHAS_BUILD_TIMEOUT
+                   # (1800s by default), so keep this the larger of the two:
+                   # otherwise a build that is cut off is reported as this
+                   # timeout, not as install.sh's own message
 compose_limit=180  # docker ps and docker compose up
 systemd_limit=60   # systemctl daemon-reload, is-active and restart
 build_limit=1800   # sandbox image build
