@@ -41,6 +41,7 @@ Make it fast.'
 t_contains "$(cat "$record.brief")" "---
 
 $(cat "$T_ROOT/lib/refine-brief.md")"
+t_eq "$(tail -n 1 "$record.brief")" "This request is issue #7 itself. The issue you file replaces #7: #7 is not a duplicate of this plan."
 t_contains "$t_out" "start planning #7 (labelled by alice, to refine it)"
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:planning --remove-label tehas:refine"
 t_lacks "$(t_calls gh)" "--remove-label tehas:plan "
@@ -77,6 +78,7 @@ t_eq "$(head -n 3 "$record.brief")" '# Faster search
 
 Make it fast.'
 t_lacks "$(cat "$record.brief")" "$(head -c 40 "$T_ROOT/lib/refine-brief.md")"
+t_lacks "$(cat "$record.brief")" "is not a duplicate of this plan"
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:planning --remove-label tehas:plan --remove-label tehas:question --remove-label needs-human-attention"
 t_contains "$(t_calls gh)" "authorized by @alice's \`tehas:plan\` label"
 t_eq "$([ -e "$park_id" ] && echo kept)" ""
@@ -181,6 +183,7 @@ echo '[{"event":"labeled","label":{"name":"tehas:plan"},"actor":{"login":"alice"
 t_run "$dispatch"
 t_eq "$(plan_calls | grep -c -e '--brief')" 1
 t_lacks "$(cat "$record.brief")" "tehas refine"
+t_lacks "$(cat "$record.brief")" "is not a duplicate of this plan"
 t_contains "$(t_calls gh)" "--remove-label tehas:plan"
 
 t_case "without the refine brief on the host no session starts, and it is logged"

@@ -2736,8 +2736,10 @@ for entry in $plans; do
   jq -r '"# \(.title // "")\n\n\(.body // "")"' <<<"$brief" >"$st.brief" ||
     { log "ERROR: unreadable text of #$n"; exit 1; }
   # The brief goes after the issue's text, so the first line is still the title
-  # the planner is asked to plan.
-  if [ -n "$refine" ] && ! printf '\n\n---\n\n%s\n' "$(cat "$refine")" >>"$st.brief"; then
+  # the planner is asked to plan. The last line names the issue under discussion:
+  # without it the planner matches its own issue as the duplicate of the plan and
+  # stops at turn 1 (issue 542).
+  if [ -n "$refine" ] && ! printf '\n\n---\n\n%s\n\nThis request is issue #%s itself. The issue you file replaces #%s: #%s is not a duplicate of this plan.\n' "$(cat "$refine")" "$n" "$n" "$n" >>"$st.brief"; then
     log "ERROR: could not write the brief of #$n"
     exit 1
   fi
