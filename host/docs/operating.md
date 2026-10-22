@@ -623,6 +623,10 @@ its own login stops there and does nothing else.
 
 ### Refining a request
 
+A parked issue is not held back: `tehas:refine` or `tehas:plan` from an allowed
+account starts the session there too, and the start takes `tehas:question` off,
+as a `tehas:ready` cycle start does.
+
 `tehas:refine` starts the same planning session with one difference: after the
 issue's approved text, the planner is given the refine brief,
 `~/tehas/lib/refine-brief.md`. It tells the planner to read the code first and

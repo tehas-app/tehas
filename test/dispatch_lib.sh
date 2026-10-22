@@ -331,6 +331,30 @@ to_refine() {
   echo '[{"number":7,"labels":[{"name":"tehas:refine"}]}]' >"$fx/refines.json"
   echo '[{"event":"labeled","label":{"name":"tehas:refine"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
 }
+# Issue 7 is parked by a stopped cycle, and carries the ask for a planning
+# session on top: what a person does when the cycle's outcome was not what they
+# wanted. Its park question is on record with its boxes unticked, and it is the
+# one issue with a question on it.
+parked_plan() { # <plan|refine> [<login, alice by default>]
+  local ask=$1 by=${2:-alice} l
+  case "$ask" in plan) l=tehas:plan ;; *) l=tehas:refine ;; esac
+  parked
+  jq -n --arg l "$l" '[{number: 7,
+    labels: [{name: "needs-human-attention"}, {name: "tehas:question"}, {name: $l}]}]' >"$fx/asking.json"
+  jq -n --arg l "$l" --arg e "$by" \
+    '[{event: "labeled", label: {name: $l}, actor: {login: $e}}]' >"$fx/events-7.json"
+  echo '[]' >"$fx/ready.json"
+  echo '[]' >"$fx/plans.json"
+  echo '[]' >"$fx/refines.json"
+  # As gh lists them: an issue asked to plan carries the ask beside its
+  # question, and the filter of step 5 reads both from one list.
+  case "$ask" in
+    plan) echo '[{"number":7,"labels":[{"name":"tehas:plan"},{"name":"needs-human-attention"},{"name":"tehas:question"}]}]' >"$fx/plans.json" ;;
+    *) echo '[{"number":7,"labels":[{"name":"tehas:refine"},{"name":"needs-human-attention"},{"name":"tehas:question"}]}]' >"$fx/refines.json" ;;
+  esac
+  echo '{"title":"Faster search","body":"Make it fast."}' >"$fx/issue-7.json"
+  comments 7 "$(park_body ' ' ' ')" ""
+}
 # Issue 7 has a planning question open after one turn.
 planning() {
   reset
