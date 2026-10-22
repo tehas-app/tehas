@@ -20,9 +20,10 @@
 # the image as this user, .pi/worktree-setup when there is one, the first
 # command of .pi/verify-cmd-full (else .pi/verify-cmd) and, when there is one,
 # of .pi/smoke-cmd. The clone is made as a cycle's workspace is
-# (tehas_sandbox_clone): the default branch checked out at origin's tip, with
-# origin/<default branch> and origin/HEAD set, so a gate that diffs against
-# origin/main finds its base. It is removed afterwards.
+# (tehas_sandbox_clone): the default branch at origin's tip, with
+# origin/<default branch> and origin/HEAD set, then a work branch with one
+# empty commit, so a gate that diffs against origin/main finds its base and
+# a change of nothing. It is removed afterwards.
 #
 # It changes nothing in the product. The result is written to
 # $TEHAS_HOME/state/check-product.json, which tehas status reads.
@@ -125,7 +126,13 @@ if [ "$sandbox" = 1 ] && [ -n "$ref" ]; then
     tree=$(mktemp -d "$TEHAS_HOME/tmp/check-product.XXXXXX") || exit 1
     trap 'rm -rf "$tree"' EXIT
     branch=$(git -C "$repo" symbolic-ref -q --short refs/remotes/origin/HEAD)
-    if ! tehas_sandbox_clone "$repo" "$tree" "${branch#origin/}"; then
+    # A cycle's gate runs on its work branch, ahead of the default branch. An
+    # empty commit puts the clone there too, so a gate that diffs against
+    # origin/main compares a proper ancestor and finds no change.
+    if ! { tehas_sandbox_clone "$repo" "$tree" "${branch#origin/}" &&
+      git -C "$tree" checkout -q -b tehas/check-product &&
+      git -C "$tree" -c user.name=tehas -c user.email=tehas@localhost \
+        commit -q --allow-empty --no-verify -m "tehas check-product: no change"; }; then
       echo "tehas check-product: could not clone $repo into $tree" >&2
       exit 1
     fi
