@@ -61,11 +61,18 @@
 # there again, not even to read it.
 #
 # Beside the clone is <name>.state, this clone's own: its memory, its Pi
-# sessions, its transcripts and its own code index. It is kept with the clone,
-# so a person resumes their sessions and keeps the index their session built,
-# and no cycle shares either. The host's index of the product is not copied
+# sessions, its transcripts, its own code index and its cargo build output, a
+# directory this command makes and mounts as the session's CARGO_TARGET_DIR. It
+# is kept with the clone, so a person resumes their sessions, keeps the index
+# their session built and does not build the workspace again from nothing,
+# and no cycle shares any of it. The host's index of the product is not copied
 # here: it is keyed to the path a cycle works at, which is not the path of this
 # clone.
+#
+# The two paths of that build output are derived here, as the container's path
+# of the code index is derived in lib/sandbox.sh: no setting names either. The
+# cleaner removes nothing under <name>.state, so clearing a clone's build is a
+# person's call, by removing its target directory.
 #
 # A session shares the model endpoint with a running cycle and does not hold
 # the queue, beyond the room its memory takes in the slice. One session per clone: docker refuses a second container of the
@@ -167,6 +174,14 @@ images=$devs/$name.images
 # cycle wrote. Kept with the clone.
 state=$devs/$name.state
 runs=$state/runs
+# Where the session's cargo build output lives, on the host and in the
+# container. Derived here, not a setting: the same way the container's copy of
+# the code index is derived in lib/sandbox.sh. Unlike that copy, this directory
+# is kept between sessions of this clone: a session's gate builds on what the
+# last one built instead of from nothing. It is made before the container
+# starts, because Docker would make a missing mount source as root-owned.
+target_host=$state/target
+target_container=/home/vscode/.tehas-target
 
 [ -n "${GH_TOKEN:-}" ] || { echo "tehas dev: GH_TOKEN is not set (source ~/tehas/env.sh)" >&2; exit 64; }
 if [ -n "$issue" ] && [ "$TEHAS_WORK_IMAGES" != 1 ] && [ "$TEHAS_WORK_FILES" != 1 ]; then
@@ -247,6 +262,12 @@ fi
 
 mapfile -d '' -t envs < <(tehas_sandbox_env "$tree" "$git_name" "$git_email")
 mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$tree" "$tree" "$state" "$runs")
+# Made here, not by Docker: a missing mount source would come back root-owned.
+mkdir -p "$target_host" ||
+  { echo "tehas dev: cannot make $target_host, not starting a session" >&2; exit 78; }
+mounts+=(-v "$target_host:$target_container")
+# Given after the shared list, so this is the one CARGO_TARGET_DIR the container has.
+envs+=(-e "CARGO_TARGET_DIR=$target_container")
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
 mapfile -d '' -t sec < <(tehas_sandbox_security)
 [ "${#envs[@]}" -gt 0 ] && [ "${#mounts[@]}" -gt 0 ] ||

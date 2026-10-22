@@ -186,10 +186,11 @@ t_eq "$(after -w)" "$clone"
 t_eq "$(after --name)" "tehas-dev-main"
 t_eq "$(session_args | sed -n "/^$(printf '%s' "$image" | sed 's/[\/.]/\\&/g')\$/,\$p" | tr '\n' ' ')" "$image pi "
 
-t_case "exactly a cycle's mounts, with the clone in place of the workspace"
+t_case "exactly a cycle's mounts, with the clone in place of the workspace, and the clone's own cargo target directory"
 want="$clone:$clone
 $state/runs:/home/vscode/.pi/agent/ensemble-runs
 $state/cache:/home/vscode/.tehas-cache
+$state/target:/home/vscode/.tehas-target
 $state/memory:/home/vscode/.vipune
 $state/sessions:/home/vscode/.pi/agent/sessions
 $T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
@@ -198,17 +199,22 @@ $T/home/.pi/agent/settings.json:/home/vscode/.pi/agent/settings.json:ro"
 t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
 
 t_case "the session's state is its own, made beside the clone and kept between sessions"
-t_eq "$(find "$state" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" "cache memory runs sessions "
+# target is made before the container starts, so it is there to hold a build.
+mkdir -p "$state/target/debug"
+t_eq "$(find "$state" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" "cache memory runs sessions target "
 t_lacks "$(after -v)" "pi-ensemble"
 t_lacks "$(after -v)" "$T/home/.pi/agent/sessions"
 t_lacks "$(after -v)" "$T/home/.vipune"
 echo mine >"$state/sessions/one.jsonl"
+echo built >"$state/target/debug/console"
 again
 t_run "$dev"
 t_eq "$(cat "$state/sessions/one.jsonl")" mine
+t_eq "$(cat "$state/target/debug/console")" built
 
 t_case "exactly a cycle's variables, plus the terminal's two"
-want="COLORTERM
+want="CARGO_TARGET_DIR
+COLORTERM
 GH_TOKEN
 GIT_CONFIG_COUNT
 GIT_CONFIG_KEY_0
@@ -231,6 +237,8 @@ PI_ENSEMBLE_WORKSPACE_ROOT
 TERM"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
 t_eq "$(passed PI_ENSEMBLE_WORKSPACE_ROOT)" "$clone"
+t_eq "$(passed CARGO_TARGET_DIR)" /home/vscode/.tehas-target
+t_eq "$(after -v | grep -c -x "$state/target:/home/vscode/.tehas-target")" 1
 
 t_case "the session's container gets no option beyond the documented ones"
 t_eq "$(session_args | unknown_options "$image" "--name $docker_opts --user -w -v -e" "--rm -it --init")" ""
@@ -406,6 +414,27 @@ t_contains "$t_out" "tehas dev: tehas.slice has room for 0 more cycles (its use 
 t_eq "$(containers)" 2
 slice_good
 
+t_case "a target directory that cannot be made starts no session"
+again
+rm -rf "$state/target"
+touch "$state/target"
+t_run "$dev"
+t_eq "$t_rc" 78
+t_contains "$t_out" "cannot make $state/target"
+t_eq "$(containers)" 0
+rm -f "$state/target"
+
+t_case "the target directory is made on the host before the container starts"
+again
+rm -rf "$state/target"
+t_run "$dev bob2"
+t_eq "$t_rc" 0
+# Empty, so what a session builds is its own, and owned by the user the
+# container runs as, not by root: Docker would make a missing source root-owned.
+t_eq "$(find "$devs/bob2.state/target" -mindepth 1 | wc -l)" 0
+t_eq "$(stat -c %u "$devs/bob2.state/target")" "$(id -u)"
+rm -rf "$devs/bob2.state"
+
 # --- Without a usable slice ----------------------------------------------------
 # refused: 78, and neither a clone nor a container was made.
 refused() {
@@ -490,6 +519,7 @@ imgs=$devs/main.images
 mounts_base="$clone:$clone
 $state/runs:/home/vscode/.pi/agent/ensemble-runs
 $state/cache:/home/vscode/.tehas-cache
+$state/target:/home/vscode/.tehas-target
 $state/memory:/home/vscode/.vipune
 $state/sessions:/home/vscode/.pi/agent/sessions
 $T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro

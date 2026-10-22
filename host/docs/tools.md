@@ -1010,7 +1010,8 @@ Arguments are checked before the settings are read, so `--help` works on a
 host with no instance and a mistyped argument makes no clone.
 
 The container is the one `tehas work` starts, with a terminal: the same image,
-the same limits in `tehas.slice`, mounts, token and settings. It is named
+the same limits in `tehas.slice`, mounts, token and settings, and its own cargo
+target directory besides (see below). It is named
 `tehas-dev-<name>`, so a clone has one session at a time. Before it starts, the
 command prints how many more cycles the slice has room for, because the session
 takes room from them. The command does not take the dispatcher's lock and
@@ -1020,7 +1021,8 @@ start it without one.
 After the clone is made the host runs no git command in it, because agents
 have written there since.
 
-The session's own memory, Pi sessions, transcripts and code index are in
+The session's own memory, Pi sessions, transcripts, code index and cargo
+build output are in
 `~/tehas/dev/<name>.state`, beside the clone and kept with it: a person
 resumes their sessions and keeps the index their session built, and no cycle
 shares either. The host's index of the product is not copied there, because it
@@ -1028,6 +1030,16 @@ is keyed to the path a cycle works at, which is not the path of this clone. A
 session that ran before the state directory existed has its history in
 `~/.pi/agent/sessions`, which no container is given now: the next session
 begins a new history in `<name>.state/sessions`.
+
+`<name>.state/target` is the session's cargo target directory: the container is
+given it read-write at `/home/vscode/.tehas-target` and `CARGO_TARGET_DIR` names
+that path. A cycle's build output is in its own container's layer and is gone
+with the container, so a cycle's gate builds the workspace from nothing; a
+session's is kept, so the gate of the next session of that clone builds on what
+the last one built. The path inside the container is derived by the command, not
+a setting, as the path of the code index's copy is. `tehasbot clean` removes
+nothing under `<name>.state`, so clearing the build is a person's call: remove
+`~/tehas/dev/<name>.state/target`.
 
 ### From another account
 
