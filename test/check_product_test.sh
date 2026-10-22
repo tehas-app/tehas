@@ -112,6 +112,13 @@ t_contains "$(cat "$T/calls/tree")" "verify-cmd-full"
 t_eq "$(find "$T/home/tehas/tmp" -mindepth 1 | wc -l)" 0
 t_eq "$(jq .sandbox "$result")" true
 
+t_case "--sandbox: the clone has the default branch as a cycle's workspace does"
+product "${good[@]}" ".pi/verify-cmd-full=git rev-parse --verify origin/main && git merge-base origin/main HEAD && git rev-parse --verify origin/HEAD"
+t_stub docker 'case $1 in image) exit 0 ;; run) w=""; prev=""; for a in "$@"; do [ "$prev" != -w ] || w=$a; prev=$a; done; cd "$w" && bash -c "${@: -4:1}" "${@: -3}" ;; esac'
+t_run "$check --sandbox"
+t_eq "$t_rc" 0
+t_contains "$t_out" "ok    sandbox  the gates passed"
+
 t_case "--sandbox: failing gates are a failure; no image is exit 1"
 product "${good[@]}"
 T_ENV=(RUN_RC=2)
