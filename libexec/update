@@ -265,6 +265,19 @@ if [ "$mode" = update ]; then
   export TEHAS_UPDATE_LOCK_FD=7
 fi
 
+# Descriptor 7 is the lock, and bash hands an open descriptor to every child, so a
+# child that outlives this run - a build.sh that ends in a git that reads a remote,
+# an install.sh that runs tehas labels - keeps the lock after the run itself has
+# ended, and the next update reads that as another update running. install.sh is
+# the one child meant to inherit it: it is named the descriptor in
+# TEHAS_UPDATE_LOCK_FD and takes the lock on it rather than refusing its parent,
+# which is what test/update_test.sh checks. For every other child the descriptor is
+# closed for that child alone, written on the call that starts it as 7>&-, as the
+# dispatcher does for the children of its own lock (libexec/dispatch: 8>&-). The
+# lock stays held here; nothing a child starts can hold it after the child is gone.
+# A redirection cannot be kept in a variable and expanded into place, so it is
+# written on each of those lines.
+
 # Steps an earlier run was asked for and did not finish are still owed, and this
 # command finishes them: install.sh's report of what changed is spent by the run
 # that made the copies, so a run that stopped partway would otherwise look green
@@ -343,7 +356,7 @@ if [ "$from" = git ]; then
     exit 1
   fi
 
-  out=$(timeout "$fetch_limit" git -C "$checkout" fetch --prune origin 2>&1)
+  out=$(timeout "$fetch_limit" git -C "$checkout" fetch --prune origin 7>&- 2>&1)
   rc=$?
   if [ "$rc" != 0 ]; then
     printf 'checkout: could not fetch from origin; nothing was changed\n' >&2
@@ -506,8 +519,8 @@ else
     checkout=$TEHAS_HOME/current
     # A version that ran here before has its sandbox image still tagged, so going
     # back to it is a tag and not a build.
-    if timeout "$compose_limit" docker image inspect "tehas/pi-rukas:release-$target" >/dev/null 2>&1 &&
-      timeout "$compose_limit" docker tag "tehas/pi-rukas:release-$target" "$PI_ENSEMBLE_IMAGE"; then
+    if timeout "$compose_limit" docker image inspect "tehas/pi-rukas:release-$target" 7>&- >/dev/null 2>&1 &&
+      timeout "$compose_limit" docker tag "tehas/pi-rukas:release-$target" "$PI_ENSEMBLE_IMAGE" 7>&- >/dev/null 2>&1; then
       echo "sandbox: the image $target ran with is in use again"
       reused=1
     fi
@@ -523,7 +536,7 @@ follows_rukas() {
 }
 rukas_step() { # --if-moved | --check
   local out rc
-  out=$(timeout "$build_limit" "$TEHAS_HOME/sandbox/build.sh" "$1" 2>&1)
+  out=$(timeout "$build_limit" "$TEHAS_HOME/sandbox/build.sh" "$1" 7>&- 2>&1)
   rc=$?
   [ -n "$out" ] && printf '%s\n' "$out"
   if [ "$rc" = 124 ]; then
@@ -550,6 +563,9 @@ err_file=$(mktemp "$scratch/tehas-update.XXXXXX") || {
   exit 1
 }
 trap 'rm -f "$err_file"' EXIT
+# install.sh is the one child that keeps the descriptor: it is named there in
+# TEHAS_UPDATE_LOCK_FD and takes the lock on it rather than refusing its parent,
+# which is what test/update_test.sh checks.
 out=$(timeout "$install_limit" "${run[@]}" 2>"$err_file")
 rc=$?
 # Print what install.sh reported, but not a follow-up line: this command runs
@@ -678,7 +694,7 @@ compose_up() { # name project file [argument...]
   # running. A query that fails (no daemon, no docker, a bad filter) is not an
   # answer of "none", and this command cannot tell "not running" from it.
   running=$(timeout "$compose_limit" docker ps --quiet \
-    --filter "label=com.docker.compose.project=$project" 2>&1)
+    --filter "label=com.docker.compose.project=$project" 7>&- 2>&1)
   rc=$?
   if [ "$rc" != 0 ]; then
     echo "$name: docker ps failed; the step is not done" >&2
@@ -691,7 +707,7 @@ compose_up() { # name project file [argument...]
     return 0
   fi
   echo "$name: updating the container"
-  out=$(timeout "$compose_limit" docker compose -f "$file" up -d "$@" 2>&1)
+  out=$(timeout "$compose_limit" docker compose -f "$file" up -d "$@" 7>&- 2>&1)
   rc=$?
   [ -n "$out" ] && printf '%s\n' "$out"
   if [ "$rc" = 124 ]; then
@@ -749,7 +765,7 @@ edge_up() { # argument...
     fi
   else
     old=$(timeout "$compose_limit" docker ps --quiet \
-      --filter "label=com.docker.compose.project=tehas-protolab" 2>&1)
+      --filter "label=com.docker.compose.project=tehas-protolab" 7>&- 2>&1)
     rc=$?
     if [ "$rc" != 0 ]; then
       echo "edge: docker ps failed; the step is not done" >&2
@@ -762,7 +778,7 @@ edge_up() { # argument...
       return
     fi
     echo "edge: taking over from the Protolab's server (tehas-protolab)"
-    out=$(timeout "$compose_limit" docker compose -p tehas-protolab down 2>&1)
+    out=$(timeout "$compose_limit" docker compose -p tehas-protolab down 7>&- 2>&1)
     rc=$?
     [ -n "$out" ] && printf '%s\n' "$out"
     if [ "$rc" != 0 ]; then
@@ -775,7 +791,7 @@ edge_up() { # argument...
       echo "edge: $mark could not be written" >&2
     fi
   fi
-  out=$(timeout "$compose_limit" docker compose -f "$file" up -d "$@" 2>&1)
+  out=$(timeout "$compose_limit" docker compose -f "$file" up -d "$@" 7>&- 2>&1)
   rc=$?
   [ -n "$out" ] && printf '%s\n' "$out"
   if [ "$rc" != 0 ]; then
@@ -797,7 +813,7 @@ restart_units() { # unit names install.sh asked for (checked by tehas_valid_step
   # a host with no systemd prints an error and still answers 0. A reload that did
   # not happen stops the step, so the units stay owed and the run stays red rather
   # than report changed unit files as applied.
-  out=$(timeout "$systemd_limit" systemctl --user daemon-reload 2>&1)
+  out=$(timeout "$systemd_limit" systemctl --user daemon-reload 7>&- 2>&1)
   rc=$?
   if [ "$rc" = 124 ]; then
     echo "systemd: systemctl --user daemon-reload gave no answer in ${systemd_limit}s; no unit was restarted, and the step is not done" >&2
@@ -820,7 +836,7 @@ restart_units() { # unit names install.sh asked for (checked by tehas_valid_step
     # "systemd is not running" while it exits 0 - says nothing about this unit,
     # so nothing is restarted and the step is not done. Exit status alone would
     # read that last one as active.
-    answer=$(timeout "$systemd_limit" systemctl --user is-active "$unit" 2>&1)
+    answer=$(timeout "$systemd_limit" systemctl --user is-active "$unit" 7>&- 2>&1)
     rc=$?
     if [ "$rc" = 124 ]; then
       echo "systemd: systemctl is-active gave no answer for $unit in ${systemd_limit}s; no unit was restarted" >&2
@@ -841,7 +857,7 @@ restart_units() { # unit names install.sh asked for (checked by tehas_valid_step
     return 0
   fi
   echo "systemd: restarted ${active[*]}"
-  out=$(timeout "$systemd_limit" systemctl --user restart "${active[@]}" 2>&1)
+  out=$(timeout "$systemd_limit" systemctl --user restart "${active[@]}" 7>&- 2>&1)
   rc=$?
   if [ "$rc" = 124 ]; then
     echo "systemd: systemctl gave no answer in ${systemd_limit}s; the step is not done" >&2
@@ -864,7 +880,7 @@ build_sandbox() {
   fi
   echo "sandbox: building the image"
   built=1
-  out=$(timeout "$build_limit" "$TEHAS_HOME/sandbox/build.sh" 2>&1)
+  out=$(timeout "$build_limit" "$TEHAS_HOME/sandbox/build.sh" 7>&- 2>&1)
   rc=$?
   [ -n "$out" ] && printf '%s\n' "$out"
   if [ "$rc" = 124 ]; then
@@ -963,7 +979,7 @@ fi
 # removes.
 if [ "$status" = 0 ] && [ "$from" = release ]; then
   version=$(tehas_release_installed)
-  if [ -n "$version" ] && ! timeout "$compose_limit" docker tag "$PI_ENSEMBLE_IMAGE" "tehas/pi-rukas:release-$version" >/dev/null 2>&1; then
+  if [ -n "$version" ] && ! timeout "$compose_limit" docker tag "$PI_ENSEMBLE_IMAGE" "tehas/pi-rukas:release-$version" 7>&- >/dev/null 2>&1; then
     echo "sandbox: $PI_ENSEMBLE_IMAGE could not be tagged for $version; going back to it builds the image again"
   fi
   tehas_release_prune
