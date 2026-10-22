@@ -23,8 +23,8 @@
 #   2. writes ~/.config/tehas (or the directory instance-dir names):
 #      instance.env with the required settings only, models.json, and the
 #      token and the model key in env, mode 600
-#   3. gives git the bot's name and noreply address, unless it has one, and
-#      gh's credential helper for github.com, unless git has one
+#   3. gives git gh's credential helper for github.com, unless git has one, and
+#      gives it the bot's name and noreply address, unless it has one
 #   4. clones the product to ~/tehas/repos/<name> when it is not there
 #   5. runs install.sh beside this command, then tehas labels
 #   6. builds the sandbox image unless it is there, and runs the product's
@@ -259,15 +259,42 @@ fi
 umask 022
 
 # --- git, the product, the install --------------------------------------------
-# The helper first: without it the clone below cannot read a private product's
-# remote, and gh hands git the GH_TOKEN this command already exported.
-helper=$(git config --global --get-regexp '^credential\.https://github\.com\.helper$' 2>/dev/null)
-if [ -n "$helper" ]; then
-  echo "tehas setup: git's helper for github.com is kept: $helper"
-elif ! gh auth setup-git --hostname github.com; then
-  die "gh auth setup-git failed for github.com; cannot give git a credential helper"
-else
+# shellcheck source=lib/sandbox.sh
+. "$here/../lib/sandbox.sh"
+
+# --- git, the product, the install --------------------------------------------
+# The helper first. Plain git on the host reads the product's remote: this
+# clone and the fetches of tehas dispatch, update, status and preview. Without
+# a helper for github.com those stop at an authentication prompt, so this is a
+# prerequisite of the run and not of the clone alone.
+#
+# What is read is what git would use: the scopes it reads in order, system and
+# global and the checkout's own, and its environment-level config last. The
+# clone and the fetches run in the checkout, so its config counts. And
+# gitcredentials ends the helper list at an empty value, so a key whose values
+# are all empty leaves git with no helper at all, which is how gh's own write
+# begins: the empty entry and the command after it. An all-empty chain is
+# therefore no helper.
+key=$(tehas_git_credential_helper_key)
+if ! helpers=$(git config --get-all "$key" 2>&1); then
+  case $helpers in
+    # git says nothing when the key is simply not set: that is no helper.
+    # Anything it did say is a config it could not read, and a run must not
+    # write over a file git refused to open without saying so.
+    "") helpers= ;;
+    *) die "could not read git's credential helper for github.com: $helpers" ;;
+  esac
+fi
+if [ -z "$helpers" ]; then
+  if ! GIT_TERMINAL_PROMPT=0 gh auth setup-git --hostname "$(tehas_git_github_host)"; then
+    die "gh auth setup-git failed for github.com; cannot give git a credential helper"
+  fi
   echo "tehas setup: git uses gh's credential helper for github.com"
+else
+  # The value is a command an operator wrote, and may hold a token in its
+  # arguments. It is named by its count, never printed, as a secret is elsewhere
+  # in this command.
+  echo "tehas setup: git's helper for github.com is kept ($(printf '%s\n' "$helpers" | grep -c ''))"
 fi
 
 read -r login uid < <(gh api user --jq '[.login,.id]|@tsv' 2>/dev/null) || true
