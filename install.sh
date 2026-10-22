@@ -544,10 +544,61 @@ bashrc_ok() {
 # until both are done, so a run that stops partway still owes them.
 first_owed=$TEHAS_HOME/state/first-install
 
+# Do the lines the sandbox image reads differ between this checkout and the copy
+# the host holds? The build reads only the lines named SHELLCHECK_, PLAYWRIGHT_,
+# CBM_, PI_RUKAS_ or VIPUNE_ (host/sandbox/build.sh, host/sandbox/Dockerfile);
+# the rest of versions.env is bootstrap.sh's, so a change to one of those asks
+# for nothing but the copy. 0 when equal, 1 otherwise.
+#
+# The host's copy is read before the copies begin and the answer kept, so the
+# record and the next: lines are made from one reading of the file the host held:
+# that file is what the image now on the host was built from, so a pin moved on
+# the host owes the build whether or not this run overwrites it, and a pin only
+# the checkout moves owes it because the copy this run makes hands the host pins
+# the image has never been built from. A host with no installed copy has never
+# had a build made from these pins, which is a change too. Read once, before any
+# copy: the reading after the copies would answer about the file this run writes
+# and say nothing about the one it replaced.
+versions_build_changed() {
+  local host_file current kept line
+  host_file=$TEHAS_HOME/versions.env
+  [ -f "$host_file" ] || { echo 1; return 0; }
+  current=$(grep -E '^(SHELLCHECK|PLAYWRIGHT|CBM|PI_RUKAS|VIPUNE)_' "$host/versions.env") || current=""
+  # A file that names none of them cannot be compared with: the build reads what
+  # it reads, so the build is owed rather than assumed already done.
+  [ -n "$current" ] || { echo 1; return 0; }
+  kept=$(grep -E '^(SHELLCHECK|PLAYWRIGHT|CBM|PI_RUKAS|VIPUNE)_' "$host_file") || kept=""
+  # A copy that holds none of them is a difference and not an agreement, for the
+  # same reason.
+  [ -n "$kept" ] || { echo 1; return 0; }
+  # One line among them is the change a person makes on a host: one pin moved,
+  # the rest as some checkout wrote it. Then that line alone is compared, read
+  # out of each file, so neither the other lines nor the order of the host's
+  # copy can change the answer. A release's pins are more than one line - the
+  # version and its checksum, a model with its revision and its hashes - so a
+  # whole block still reads as a whole block, position and all.
+  if [ "${kept//$'\n'}" = "$kept" ]; then
+    line=$kept
+    current=$(printf '%s\n' "$current" | grep -Fx "$line") || current=""
+  fi
+  [ "$kept" = "$current" ] && { echo 0; return 0; }
+  echo 1
+}
+# Whether this run owes the sandbox build because of versions.env: 1 when the
+# lines the image reads are not the ones the image the host holds was built
+# from. Read once, before any copy is made, so the record and the next: lines
+# below give one answer to one question.
+versions_owed=0
+if [ "$(versions_build_changed)" = 1 ]; then versions_owed=1; fi
+
 # The step this source calls for, added to the record of steps owed. One call per
 # copied file, so the record is never behind what the host has already been given.
 record_step() { # one source path from the file table
   local step steps=()
+  # versions.env calls for the build only for the lines the image reads; a change
+  # to the host's own pins calls for nothing here. The file is still copied, and
+  # still counted as drift for --check and for its later: line below.
+  if [ "$1" = versions.env ] && [ "$versions_owed" != 1 ]; then return 0; fi
   while IFS= read -r step; do steps+=("$step"); done < <(tehas_steps_for "$1")
   if [ "${#steps[@]}" != 0 ]; then tehas_record_steps "${steps[@]}" || exit 1; fi
 }
@@ -1189,7 +1240,15 @@ fi
 # any unit, and a step that cannot be performed leaves the run red and the step
 # owed. A person who ran install.sh by hand reads the same lines, and the record
 # stays until `tehas update` clears it.
-seen_steps=$(while IFS= read -r step; do echo "next: $step"; done < <(tehas_steps_for "${changed[@]}"))
+# versions.env counts among these sources only for the lines the image reads:
+# the same answer the record was made from, read before any copy was made.
+step_sources=()
+for src in "${changed[@]-}"; do
+  [ -n "$src" ] || continue
+  if [ "$src" = versions.env ] && [ "$versions_owed" != 1 ]; then continue; fi
+  step_sources+=("$src")
+done
+seen_steps=$(while IFS= read -r step; do echo "next: $step"; done < <(tehas_steps_for "${step_sources[@]}"))
 if [ "$sandbox_changed" = 1 ]; then
   # Once, whatever the file's bytes also happened to call for: the build the
   # instance's file owes is the same build the platform's Dockerfile does, and a
