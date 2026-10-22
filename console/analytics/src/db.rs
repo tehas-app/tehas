@@ -4,13 +4,18 @@ use rusqlite::{params, Connection, OpenFlags, Transaction, TransactionBehavior};
 use std::fs::{self, OpenOptions};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// PRAGMA user_version of the schema in schema.sql.
 pub const SCHEMA_VERSION: i64 = 1;
 pub const SCHEMA: &str = include_str!("schema.sql");
 pub const RETENTION_DAYS: i64 = 365;
 const DAY: i64 = 86_400;
+
+/// How long to keep trying the journal switch, and how often, when another
+/// opener holds the lock it needs.
+const WAL_WAIT: Duration = Duration::from_secs(5);
+const WAL_RETRY: Duration = Duration::from_millis(50);
 
 pub const EVENTS: [&str; 7] = [
     "ready", "started", "ended", "awaiting", "merged", "closed", "stopped",
@@ -141,11 +146,46 @@ fn try_open(file: &Path, now: i64) -> Result<Connection, Unusable> {
         .map_err(classify)?;
     settle(&mut conn, version, now)?;
     // Only now: a file that is moved aside is moved as it was found.
-    conn.pragma_update(None, "journal_mode", "WAL")
-        .map_err(classify)?;
+    set_wal(&mut conn)?;
     conn.pragma_update(None, "foreign_keys", "ON")
         .map_err(classify)?;
     Ok(conn)
+}
+
+/// Puts the database in WAL mode. Reading it first matters when several
+/// programs open the same new file at once: the switch needs an exclusive
+/// lock and SQLite can answer SQLITE_BUSY or SQLITE_LOCKED at once there
+/// instead of waiting out the busy timeout, so a switch that is refused is
+/// tried again until the one that holds the lock has made it.
+fn set_wal(conn: &mut Connection) -> Result<(), Unusable> {
+    let mut deadline = None;
+    loop {
+        let mode: String = conn
+            .query_row("PRAGMA journal_mode", [], |r| r.get(0))
+            .map_err(classify)?;
+        if mode.eq_ignore_ascii_case("wal") {
+            return Ok(());
+        }
+        match conn.pragma_update(None, "journal_mode", "WAL") {
+            Ok(()) => return Ok(()),
+            Err(e) if is_busy(&e) => {
+                let now = Instant::now();
+                let until = *deadline.get_or_insert(now + WAL_WAIT);
+                if now >= until {
+                    return Err(classify(e));
+                }
+                std::thread::sleep(WAL_RETRY);
+            }
+            Err(e) => return Err(classify(e)),
+        }
+    }
+}
+
+fn is_busy(e: &rusqlite::Error) -> bool {
+    matches!(
+        e.sqlite_error_code(),
+        Some(rusqlite::ErrorCode::DatabaseBusy) | Some(rusqlite::ErrorCode::DatabaseLocked)
+    )
 }
 
 /// Makes the schema of a database whose user_version read `seen`. The
