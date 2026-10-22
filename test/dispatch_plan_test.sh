@@ -65,6 +65,20 @@ t_eq "$t_rc" 0
 t_eq "$([ -e "$T/home/tehas/state/refined.jsonl" ] && echo written)" ""
 t_eq "$(jq -r '.label' "$T/home/tehas/state/cycles/plan-7.history.jsonl" | tail -n 1)" "tehas:plan"
 
+t_case "the ledger of refined issues keeps its last 500 lines, as the ledger of sizes does"
+to_refine
+ledger=$T/home/tehas/state/refined.jsonl
+rm -f "$ledger"
+for i in $(seq 1 500); do printf '{"at":"x","source":0,"filed":%s,"url":"u"}\n' "$i" >>"$ledger"; done
+t_eq "$(wc -l <"$ledger")" 500
+plan_files https://github.com/acme/widget/issues/41
+t_run "$dispatch"
+t_eq "$t_rc" 0
+# The new line is on it, and the file is no longer than the 500 it keeps.
+t_eq "$(wc -l <"$ledger")" 500
+t_eq "$(jq -sc '[.[].filed] | [first, last]' "$ledger")" "[2,41]"
+rm -f "$ledger"
+
 t_case "the refine brief asks for one part sized for one cycle, grounded in the code, with exact paths"
 brief=$(cat "$T_ROOT/lib/refine-brief.md")
 t_contains "$brief" "Ground it in the code first"
