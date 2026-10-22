@@ -114,7 +114,7 @@ nm="acme"
 
 t_case "a name in docs/ is reported"
 fresh
-echo $nm >"$repo/scripts/check-generic.names"
+echo "$nm" >"$repo/scripts/check-generic.names"
 echo "$nm" >"$repo/docs/note.md"
 t_run "$lint"
 t_eq "$t_rc" 1
@@ -174,6 +174,17 @@ t_case "--messages passes clean commits"
 msgs "fix a thing"
 t_run "${messages}GITHUB_HEAD_REF=feature/x $msgcmd"
 t_eq "$t_rc" 0
+
+t_case "--messages with a bad range exits 2, even without a names list"
+fresh
+t_run "cd '$repo' && scripts/check-generic.sh --messages bogus..HEAD"
+t_eq "$t_rc" 2
+
+t_case "--messages with a range that is an option is refused and not run"
+fresh
+t_run "cd '$repo' && scripts/check-generic.sh --messages --output=x"
+t_eq "$t_rc" 2
+t_eq "$(find "$repo" -maxdepth 1 -name x | wc -l)" 0
 
 t_case "--messages without a range is refused"
 fresh

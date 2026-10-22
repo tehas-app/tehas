@@ -39,7 +39,7 @@ case "${1:-}" in
   '') ;;
   --messages)
     range=${2:-}
-    if [ -z "$range" ] || [ $# -gt 2 ]; then
+    if [ -z "$range" ] || [ $# -gt 2 ] || [ "${range#-}" != "$range" ]; then
       echo "usage: scripts/check-generic.sh [--messages <rev-range>]" >&2
       exit 2
     fi
@@ -52,6 +52,11 @@ esac
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root" || exit 1
+
+if [ -n "$range" ] && ! git rev-list --end-of-options "$range" >/dev/null 2>&1; then
+  echo "check-generic: cannot read the commits in $range" >&2
+  exit 2
+fi
 
 # A private address or name. An IPv4 address counts only when it does not
 # continue a longer number.
@@ -108,7 +113,7 @@ while IFS= read -r path; do
 done < <(git ls-files --cached --others --exclude-standard)
 
 if [ -n "$range" ] && [ -n "$names" ]; then
-  if ! log=$(git log --format=%B "$range"); then
+  if ! log=$(git log --format=%B --end-of-options "$range"); then
     echo "check-generic: cannot read the commits in $range" >&2
     exit 2
   fi
