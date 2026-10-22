@@ -147,7 +147,9 @@ lifted=$(jq -rc 'if (.pause.lifted | type) == "boolean" then .pause.lifted else 
 pause=$(jq -nc --argjson flag "$pause_flag" --argjson label "$label_paused" --argjson lifted "$lifted" \
   '{flag: $flag, label: $label, lifted: $lifted}')
 
-jq -n --argjson queue "$queue" --argjson view "$view" --argjson disk "$disk" --argjson slice "$slice" --argjson demand "$demand" --argjson limit "$limit" --argjson plans "$plans" --arg now "$(date -u +%FT%TZ)" \
+# The snapshots go in as files: one argument is at most 128 KiB on Linux, and
+# status.json lists every open issue the factory was given.
+jq -n --slurpfile queue <(printf '%s' "$queue") --slurpfile view <(printf '%s' "$view") --argjson disk "$disk" --argjson slice "$slice" --argjson demand "$demand" --argjson limit "$limit" --argjson plans "$plans" --arg now "$(date -u +%FT%TZ)" \
   --argjson queueMaxAge "$queue_max_age" --argjson endings "$endings" --argjson platform "$platform" --argjson pause "$pause" '
   def iso: if type == "number" then todate else null end;
   def ago: if . < 120 then "\(.) s" elif . < 7200 then "\(. / 60 | floor) min" else "\(. / 3600 | floor) h" end;
@@ -155,8 +157,9 @@ jq -n --argjson queue "$queue" --argjson view "$view" --argjson disk "$disk" --a
     issue, running: (.running // false), status, step,
     startedAt: (.startedAt | iso), time: (.updatedAt | iso)
   };
+  $queue[0] as $queue | $view[0] as $view
   # The view tehas work writes, or the one object an earlier version wrote.
-  (if ($view | type) != "object" then {cycles: [], last: null}
+  | (if ($view | type) != "object" then {cycles: [], last: null}
    elif ($view | has("cycles")) then $view
    elif $view.running == true then {cycles: [$view], last: null}
    else {cycles: [], last: $view} end) as $v

@@ -100,7 +100,7 @@ find_refs=$(tehas_attachment_links)'
   def uniq: reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end);
   def ours: IN("OWNER", "MEMBER", "COLLABORATOR");
   ([{who: $t.association, text: $t.body}]
-    + [$c[] | {who: .author_association, text: (.body // "")}]) as $texts
+    + [$c[0][] | {who: .author_association, text: (.body // "")}]) as $texts
   | {refs: ([$texts[] | select(.who | ours) | .text | links[]] | uniq),
      outside: ([$texts[] | select(.who | ours | not) | .text | links[]] | uniq | length)}'
 
@@ -291,7 +291,7 @@ build() {
     comments=$(gh api "repos/$repo/issues/$n/comments?per_page=100" 2>/dev/null) || return 1
     jq -e 'type == "array"' <<<"$comments" >/dev/null 2>&1 || return 1
   fi
-  found=$(jq -n -c --argjson t "$ticket" --argjson c "$comments" "$find_refs") || return 1
+  found=$(jq -n -c --argjson t "$ticket" --slurpfile c <(printf '%s' "$comments") "$find_refs") || return 1
 
   while IFS= read -r ref; do
     [ -n "$ref" ] || continue
@@ -429,9 +429,9 @@ done
 all=$(jq -s -c 'sort_by(-.number)' "${metas[@]}" </dev/null) || exit 1
 edge_put "$site/index.html" jq -r --arg mode index --arg domain "$domain" --arg home "$home" --argjson limit "$limit" "$render" <<<"$all" || exit 1
 # shellcheck disable=SC2016  # a jq program: the variables are jq's
-edge_put "$live/protolab.json" jq -n --argjson all "$all" --arg now "$(date -u +%FT%TZ)" \
+edge_put "$live/protolab.json" jq -n --slurpfile all <(printf '%s' "$all") --arg now "$(date -u +%FT%TZ)" \
   --arg url "${TEHAS_PROTOLAB_URL:-}" --arg domain "$domain" --argjson limit "$limit" '
   {generatedAt: $now, url: $url, limitBytes: $limit,
-   tickets: ($all | map({number, title, url, files: (.files | length), bytes,
+   tickets: ($all[0] | map({number, title, url, files: (.files | length), bytes,
      address: (if $domain == "" then null else "https://lab-\(.number).\($domain)/" end)}))}' || exit 1
 exit 0
