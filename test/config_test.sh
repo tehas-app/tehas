@@ -368,6 +368,40 @@ for bad in "TEHAS_REFRESH_CONFLICTS=yes" "TEHAS_REFRESH_CONFLICTS=2" "TEHAS_REFR
   t_contains "$t_out" "rc=78"
 done
 
+# The hold of rule 6: unset, the dispatcher never asks the measure, so nothing
+# changes. Set, it is a whole number of at least 1.
+t_case "the size hold is off unless the instance names a number of files"
+printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && set -u && echo \"[\$TEHAS_SIZE_MAX_FILES]\""
+t_eq "$t_out" "[]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_SIZE_MAX_FILES=3 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_SIZE_MAX_FILES]\""
+t_eq "$t_out" "[3]"
+
+for bad in "TEHAS_SIZE_MAX_FILES=0" "TEHAS_SIZE_MAX_FILES=-1" "TEHAS_SIZE_MAX_FILES=x"; do
+  t_case "loading rejects $bad"
+  printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  t_contains "$t_out" "tehas: TEHAS_SIZE_MAX_FILES is not valid"
+done
+
+# The dispatcher compares the setting with the files of a body, so a digit
+# string no comparison can hold must stop loading rather than reach that
+# comparison. Its length is refused first, with no complaint from the
+# comparison itself.
+for bad in "1000000000" "99999999999999999999"; do
+  t_case "loading rejects a TEHAS_SIZE_MAX_FILES of '$bad'"
+  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_SIZE_MAX_FILES='$bad'" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  t_contains "$t_out" "TEHAS_SIZE_MAX_FILES is not valid: expected at most 9 digits"
+  t_lacks "$t_out" "integer expression"
+done
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_SIZE_MAX_FILES=999999999 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_SIZE_MAX_FILES]\""
+t_eq "$t_out" "[999999999]"
+
 for bad in "TEHAS_FIXER_LOGIN=two words" "TEHAS_FIXER_LOGIN=-x" "TEHAS_FIXER_MAX_RETRIES=0" "TEHAS_FIXER_MAX_RETRIES=many" \
   "TEHAS_FIXER_MAX_PLAN_ANSWERS=0" "TEHAS_FIXER_MAX_PLAN_ANSWERS=-1" "TEHAS_FIXER_MAX_PLAN_ANSWERS=lots"; do
   t_case "loading rejects $bad"
