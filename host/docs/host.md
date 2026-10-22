@@ -75,9 +75,15 @@ It removes images in two steps, and no volume. The first takes the dated tags of
 the sandbox image whose image is older than `TEHAS_CLEAN_AFTER` hours, keeping
 the newest dated tag and any tag a container or a `uid` tag was made from. The
 build keeps its newest three date tags (see [Commands](/tools)); what is older
-than the age besides the newest is this step's. The second prunes the base image
-the build pulls from upstream, and the images left with no tag, of that age and
-made no container: `docker image prune`. A container is what keeps an image
+than the age besides the newest is this step's. The second lists the `sha-` tags
+of the base repository, the repository of the image the build pulls from
+upstream, and removes those of that age with one `docker rmi` each: the current
+commit's base, a base a container was made from, and a base a kept `release-`
+tag of the sandbox image stands on all stay: the kept releases are the
+`release-` tags of that image in docker's own list, so no version is assumed,
+none is left out, and a host that holds two of them keeps the base of each. Nothing else is offered to docker:
+every name it is handed is a tag of that one repository, and the step never
+removes the images that have lost their tag. A container is what keeps an image
 here: `tehasbot work` runs its cycles from the sandbox image, so one an existing
 container was made from stays whatever its age. Preview images are
 `tehasbot preview`'s and no step here touches them; a docker that answers no
@@ -1138,10 +1144,13 @@ removes older ones. It keeps an older tag whose image a container, running or
 stopped, was made from, or that a `uid` tag names. On a host that builds
 often the images then take about three times the size of one, plus those
 still in use. `tehasbot clean` is what takes the rest: the dated tags past
-`TEHAS_CLEAN_AFTER` hours, keeping the newest, and then the pulled base image
-of that age, removed by its own name (see [tehasbot
+`TEHAS_CLEAN_AFTER` hours, keeping the newest, and then the old `sha-` tags of
+the base repository, the repository of the image the build pulls from upstream,
+each removed by its own name (see [tehasbot
 clean](/tools#tehasbot-clean)). The base is upstream's image for the commit
-`versions.env` follows, and the puller names it one way only, by that commit.
+`versions.env` follows, and the puller names it one way only, by that commit;
+the bases of the commits before it are what the cleaner takes, and the base of
+the commit followed today stays.
 
 A build first asks the base image's runner what it supports,
 `pi-rukas-headless --capabilities`. A base that does not speak the contract
@@ -1280,7 +1289,7 @@ that cycle ran.
 | Host snapshot publisher, optional | systemd user service `tehas-top.service`, every 5 s. It writes nothing unless `TEHAS_TOP=1` | `jq '.host.cpus, .host.load' ~/tehas/live/top.json` |
 | Protolab pages | systemd user timer `tehas-protolab.timer`, every 5 minutes | `tail ~/tehas/logs/protolab.log` |
 | Improvement loop, optional | systemd user timer `tehas-improve.timer`, every 3 hours. It does nothing unless `TEHAS_IMPROVE_REPO` is set | `tail ~/tehas/logs/improve.log` |
-| Cleaner | systemd user timer `tehas-clean.timer`, every hour, the first time 15 minutes after boot. It removes build output, Docker's build cache, host scratch, the sandbox image's old dated tags and the pulled base image of that age, removed by its own name. `install.sh` copies the unit; a person enables it | `tail ~/tehas/logs/clean.log` |
+| Cleaner | systemd user timer `tehas-clean.timer`, every hour, the first time 15 minutes after boot. It removes build output, Docker's build cache, host scratch, the sandbox image's old dated tags and the old `sha-` tags of the base repository, each removed by its own name. `install.sh` copies the unit; a person enables it | `tail ~/tehas/logs/clean.log` |
 | Edge router | `docker compose -f ~/tehas/edge/router.compose.yaml up -d` | `curl -i http://tehas-tehas:8081/` |
 | Previews | systemd user timer `tehas-preview.timer`, every 5 minutes | `tail ~/tehas/logs/preview.log`, `jq . ~/tehas/live/previews.json` |
 | Preview sweep | systemd user timer `tehas-preview-sweep.timer`, every 3 hours | `jq .lastSweep ~/tehas/live/previews.json` |

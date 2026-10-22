@@ -25,13 +25,17 @@ mkdir -p "$fx"
 # way into the run's environment: DOCKER_RC makes the pruning of the build
 # cache fail, IMAGE_LS_RC the listing of the sandbox image's tags, PS_RC the
 # listing of containers, INSPECT_RC what those containers were made from,
-# BASE_LS_RC the listing of the base image's ids, PRUNE_RC the prune of the
-# base, RMI_FAILS the removal of one tag by name. The image steps answer four
-# more things from files under
-# $fx that a case writes: the tags themselves ($fx/images, "<tag> <id>" per
-# line, as docker lists them), the containers and what they were made from
-# ($fx/containers, "<id> <image>" per line), the age of one image
-# ($fx/created-<id>) and the base image's own ids ($fx/base-ids). A host with
+# BASE_LS_RC the listing of the base image's tags, PRUNE_RC the removal of a
+# base, RMI_FAILS the removal of one name. The image steps answer five more
+# things from files under
+# $fx that a case writes: the tags of the sandbox image ($fx/images, "<tag>
+# <id>" per line, as docker lists them), the containers and what they were made
+# from ($fx/containers, "<id> <image>" per line), the age of one image
+# ($fx/created-<id>) and the tags on the host ($fx/base-images and $fx/images,
+# each "<repository> <tag> <id>" per line, as `docker image ls --no-trunc
+# --format '{{.Repository}} {{.Tag}} {{.ID}}'` lists them). The base tags live
+# in the one file and the sandbox image's tags, dated builds and `release-`
+# tags alike, in the other. A host with
 # no container is no file at all: `ps` answers an empty list and succeeds, as
 # docker does, and `inspect` answers nothing and succeeds too -- the status of
 # those two calls is what the cleaner reads as "docker answered", so neither
@@ -43,15 +47,23 @@ t_stub docker 'case "$1" in
     case "$2" in
     ls)
       [ -z "${IMAGE_LS_RC:-}" ] || exit "$IMAGE_LS_RC"
+      # Two listings, told apart by the names they ask for. Step 4 asks the
+      # sandbox image by its own name and is answered by $fx/images. Step 5 asks
+      # the repository of the base and that image in one call, and is answered
+      # by both fixtures together, so its answer carries both repositories. No
+      # listing is asked with -q: the step names to docker only the names the
+      # listings gave it, so a run that asked for the untagged of a name would
+      # reach here with no answer at all. BASE_LS_RC is the docker that will not
+      # answer for the base at all.
+      want=$T/fx/images
       for a in "$@"; do
-        if [ "$a" = -q ]; then q=1; fi
+        if [ "$a" = "${BASE_NAME:-none}" ]; then want="$T/fx/base-images $T/fx/images"; fi
       done
-      if [ "${q:-}" = 1 ]; then
+      if [ "${want#"$T/fx/base-images"}" != "$want" ]; then
         [ -z "${BASE_LS_RC:-}" ] || exit "$BASE_LS_RC"
-        cat "$T/fx/base-ids" 2>/dev/null
-        exit 0
       fi
-      cat "$T/fx/images" 2>/dev/null; exit 0 ;;
+      for f in $want; do cat "$f" 2>/dev/null; done
+      exit 0 ;;
     inspect)
       # One image, asked for its age or its size, the format string naming
       # which. A docker that knows the image answers one of them; one that
@@ -66,16 +78,16 @@ t_stub docker 'case "$1" in
       [ -s "$T/fx/$what-$id" ] || exit 1
       cat "$T/fx/$what-$id" ;;
     # No step of the cleaner prunes images: only the build cache is pruned, and
-    # the base is removed by its ids with docker rmi. A run that asked for a
+    # every image goes by the name the cleaner knows. A run that asked for a
     # prune of images would name the reach of the step wrongly, so the stub
     # refuses the call.
     prune) echo "docker: no image prune" >&2; exit 1 ;;
     *) exit 1 ;;
     esac ;;
-  # The base, taken by its ids, and a dated tag, taken by its name: RMI_FAILS
-  # is the one name the tag step cannot remove, and PRUNE_RC is the knob of the
-  # base removal, 1 for a docker that will not remove and 124 for the answer
-  # timeout leaves behind when it ran out.
+  # Each removal is one name, so RMI_FAILS is the name a run cannot take and
+  # PRUNE_RC is the docker that will not take any of them: 1 for a refusal, 124
+  # for the answer timeout(1) leaves behind when it ran out. The second argument
+  # is the whole name, a dated tag of the sandbox image or a tag of the base.
   rmi) [ "${2:-}" = "${RMI_FAILS:-}" ] && exit 1
     [ "${PRUNE_RC:-0}" = 0 ] || { echo "docker: prune refused" >&2; exit "$PRUNE_RC"; }
     echo "Untagged: $2" ;;
@@ -98,6 +110,9 @@ reset() {
   printf '%s\n' "${pins[@]}" >"$th/versions.env"
   t_instance "${T_MINIMAL[@]}"
   after_hours=24
+  # The knob is turned by a case that leaves the names reset set, and adds to
+  # them: PS_RC, INSPECT_RC, BASE_LS_RC, PRUNE_RC, RMI_FAILS, DOCKER_RC.
+  T_ENV=("BASE_NAME=$base_repo")
 }
 
 # An issue's kept workspace and the two directories beside it, all three days
@@ -145,6 +160,35 @@ image_name=tehas/pi-rukas
 base1=sha256:$(printf '1%.0s' {1..64})
 base2=sha256:$(printf '2%.0s' {1..64})
 base9=sha256:$(printf '9%.0s' {1..64})
+# The sha- tags of the base's repository, oldest first, as `docker image ls
+# --no-trunc --format '{{.Repository}} {{.Tag}} {{.ID}}'` lists them: three
+# pulls, the commit the host follows now and the two the releases before it
+# shipped with, which no pin names any more. They sit in their own fixture, for
+# the base is asked for by its repository and the sandbox image by its own name,
+# and the stub tells the two listings apart by the shape of the name.
+sha_old1=sha256:$(printf 'b%.0s' {1..64})
+sha_old2=sha256:$(printf 'c%.0s' {1..64})
+sha_now=sha256:$(printf 'd%.0s' {1..64})
+base_repo=ghcr.io/up-owner/pi-rukas
+base_tags() {
+  printf '%s\n' \
+    "$base_repo sha-bbbbbbbbbbbb $sha_old1" \
+    "$base_repo sha-cccccccccccc $sha_old2" \
+    "$base_repo sha-aaaaaaaaaaaa $sha_now" >"$fx/base-images"
+}
+# The image a kept release ran with, which is the proof that keeps the base it
+# was built on. libexec/update tags the image a release ran with, so a case says
+# which version the host keeps and which image it names, and the fixture carries
+# the line the way the listing answers it. A release tag is a tag of the sandbox
+# image like any other, so it sits in the sandbox listing beside the dated
+# builds: step 5 reads its proof from the tags it already listed, so a release
+# of any version keeps its base and a tag no listing carries is not on the host
+# at all. The versions here are two digits and one patch beyond v0.9.0 on
+# purpose: the step asks no name of docker, so a host that stands on v0.10 or
+# v1.0 is proven the same way as one that stands on v0.1.
+kept_release() { # <version> <id>
+  printf '%s\n' "$image_name release-v$1 $2" >>"$fx/images"
+}
 pins=("PI_RUKAS_REPO=https://github.com/Up-Owner/pi-rukas.git" \
   "PI_RUKAS_FOLLOW=commit:$rukas_pin")
 # The hours a thing must have gone unused, which two cases change: what they
@@ -183,9 +227,12 @@ old_tags() {
 
 # A date three days ago, in the shape docker answers a creation time with.
 old_time=$(date -u -d '3 days ago' +%Y-%m-%dT%H:%M:%S.000000000Z)
+# The same shape for an image docker dates now, which is what keeps a tag out of
+# the age rule's way.
+young_time=$(date -u +%Y-%m-%dT%H:%M:%S.000000000Z)
 
 # The base was pulled three days ago, which is what lets step 5 take it: a
-# case that writes base-ids and wants the base gone dates its ids with this.
+# case that names a base and wants it gone dates its id with this.
 old_base() {
   local id
   for id in "$@"; do printf '%s\n' "$old_time" >"$fx/created-$id"; done
@@ -318,10 +365,10 @@ age "$tmp/dl/tool.tar.gz"
 six_tags
 all_old
 no_containers
-printf '%s\n' "$base1" >"$fx/base-ids"
+printf '%s\n' "$base_repo sha-aaaaaaaaaaaa $base1" >"$fx/base-images"
 old_base "$base1"
 t_run "$clean --dry-run"
-t_eq "$t_rc" 0
+T_ENV=()
 t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
 t_eq "$([ -e "$workdir-7/node_modules" ] && echo there)" "there"
 t_eq "$([ -e "$workdir-7.state/cache" ] && echo there)" "there"
@@ -329,7 +376,9 @@ t_eq "$([ -e "$tmp/dl/tool.tar.gz" ] && echo there)" "there"
 t_contains "$t_out" "would remove $workdir-7/target: build output of #7"
 t_contains "$t_out" "would remove $tmp/dl/tool.tar.gz: host scratch"
 t_contains "$t_out" "would remove $image_name:261009-1000: a sandbox image of that age"
-t_contains "$t_out" "would remove the base $base_image: an image of that age"
+printf '%s\n' "$base_repo sha-aaaaaaaaaaaa $base1" >"$fx/base-images"
+old_base "$base1"
+t_contains "$t_out" "would remove $base_image: a base image of that age"
 t_lacks "$t_out" "image prune"
 t_lacks "$t_out" "rmi $image_name"
 t_contains "$t_out" "freed 0 bytes"
@@ -450,7 +499,7 @@ reset
 old_tags
 # The shape of a docker that cannot answer about containers at all: the step
 # takes that as an unknown and leaves every image where it is.
-T_ENV=(PS_RC=1)
+T_ENV=("BASE_NAME=$base_repo" PS_RC=1)
 t_run "$clean"
 T_ENV=()
 t_eq "$t_rc" 1
@@ -466,7 +515,7 @@ old_tags
 # must be in the fixture: with none, `ps` answers an empty list, the inspect
 # is never asked, and the knob would prove nothing.
 printf '%s\n' "c1 sha256:1" >"$fx/containers"
-T_ENV=(INSPECT_RC=1)
+T_ENV=("BASE_NAME=$base_repo" INSPECT_RC=1)
 t_run "$clean"
 T_ENV=()
 t_eq "$t_rc" 1
@@ -504,89 +553,212 @@ t_run "$clean"
 t_eq "$t_rc" 0
 t_lacks "$(t_calls docker)" "image prune"
 t_lacks "$(t_calls docker)" "rmi sha256:"
-t_contains "$t_out" "kept the base $base_image: no image of that name is on the host"
+t_contains "$t_out" "kept the base: no image of $base_repo is on the host"
 
-t_case "the base is removed by its ids, and no other image is named to docker"
+t_case "the old sha- tags of the followed repository go and the current one stays"
 reset
-printf '%s\n' "$base1" "$base2" >"$fx/base-ids"
-old_base "$base1" "$base2"
-printf '%s\n' 4000000000 >"$fx/size-$base1"
-printf '%s\n' 1000000000 >"$fx/size-$base2"
-# A foreign container was made from one of the base's ids, which is the proof
-# that keeps the base where it is; the case below removes it to let the base go.
-printf '%s\n' "c9 $base2" >"$fx/containers"
+base_tags
+old_base "$sha_old1" "$sha_old2"
+printf '%s\n' 4000000000 >"$fx/size-$sha_old1"
+printf '%s\n' 1000000000 >"$fx/size-$sha_old2"
+# The base of the commit the host follows is young, so the age alone keeps it:
+# an update leaves the bases of the releases before it behind, and this is the
+# step that takes them. The image of the running container is young too, which
+# is what keeps the uid tag of step 4 where it is and the host's own build
+# running.
+date -u +%Y-%m-%dT%H:%M:%S.000000000Z >"$fx/created-$sha_now"
+date -u +%Y-%m-%dT%H:%M:%S.000000000Z >"$fx/created-sha256:6"
 t_instance "${T_MINIMAL[@]}" TEHAS_CLEAN_AFTER=6
 t_run "$clean"
 t_eq "$t_rc" 0
-t_contains "$(t_calls docker)" "image ls --no-trunc -q $base_image"
+t_contains "$(t_calls docker)" "image ls --no-trunc --format {{.Repository}} {{.Tag}} {{.ID}} $base_repo $image_name"
+t_contains "$(t_calls docker)" "rmi $base_repo:sha-bbbbbbbbbbbb"
+t_contains "$(t_calls docker)" "rmi $base_repo:sha-cccccccccccc"
+t_lacks "$(t_calls docker)" "rmi $base_repo:sha-aaaaaaaaaaaa"
 t_lacks "$(t_calls docker)" "image prune"
-t_contains "$t_out" "kept the base $base_image: a container was made from it"
-# The same host with no container at all: the base goes by its ids, its bytes
-# reach the total the run closes with, and no name but the base's own ids is
-# handed to docker. Nothing here is an untagged image of another program's.
+t_contains "$t_out" "removed $base_repo:sha-bbbbbbbbbbbb: a base image of that age, 4000000000 bytes"
+t_contains "$t_out" "removed $base_repo:sha-cccccccccccc: a base image of that age, 1000000000 bytes"
+t_contains "$t_out" "kept $base_repo:sha-aaaaaaaaaaaa: docker did not date its image past 6 hours"
+t_contains "$t_out" "freed 5000000000 bytes"
+# Each removal names one tag of the followed repository: no ids, no pattern, and
+# no image of any other name is handed to docker.
+t_eq "$(t_calls docker | grep -c '^rmi ')" "2"
+
+t_case "a base a kept sandbox tag was built on stays, and one a container holds stays"
 reset
-printf '%s\n' "$base1" "$base2" >"$fx/base-ids"
-old_base "$base1" "$base2"
-printf '%s\n' 4000000000 >"$fx/size-$base1"
-printf '%s\n' 1000000000 >"$fx/size-$base2"
-t_instance "${T_MINIMAL[@]}" TEHAS_CLEAN_AFTER=6
+base_tags
+old_base "$sha_old1" "$sha_old2" "$sha_now"
+# The image an earlier release ran with stands on the first base and the image
+# the last release ran with on the second: two `release-` lines of the sandbox
+# image, each an id of its own. Matched as one name the two proofs fail together
+# and both bases go, so the case reads as two proofs and not as the shape of
+# one. A container was made from the third, the current base of the pins.
+kept_release 0.10.1 "$sha_old1"
+kept_release 1.0.0 "$sha_old2"
+# A container of any program on the host was made from the base of the pins:
+# images_held is the proof, the same one the dated tags of step 4 are asked
+# with. One container is not enough to prove the call was made at all: with a
+# single id docker answers the inspect of one argument, and a step that never
+# asked it reads the same in the log as one that asked and was answered, so the
+# host of this case has a second container whose image is no base.
+printf '%s\n' "c9 $sha_now" "c1 sha256:6" >"$fx/containers"
+# The current base of the pins is young, which is what keeps it. A host that
+# runs a cycle has a dated build of the sandbox image beside its containers too,
+# and the case says which image that build stands on and how old it is, so step
+# 4 takes the older tags and leaves the one this host runs.
+printf '%s\n' "$young_time" >"$fx/created-sha256:6"
+date -u +%Y-%m-%dT%H:%M:%S.000000000Z >"$fx/created-$sha_now"
 t_run "$clean"
 t_eq "$t_rc" 0
-t_contains "$(t_calls docker)" "rmi $base1 $base2"
-t_contains "$t_out" "removed the base $base_image: an image of that age, 5000000000 bytes"
-t_contains "$t_out" "freed 5000000000 bytes"
+t_lacks "$(t_calls docker)" "rmi"
+t_contains "$t_out" "kept $base_repo:sha-bbbbbbbbbbbb: a kept sandbox tag was built on it"
+t_contains "$t_out" "kept $base_repo:sha-cccccccccccc: a kept sandbox tag was built on it"
+t_contains "$t_out" "kept $base_repo:sha-aaaaaaaaaaaa: a container was made from it"
+# Both proofs taken away -- no container anywhere, and the release tag gone with
+# the release it was made for -- and the same two bases go.
+reset
+base_tags
+old_base "$sha_old1" "$sha_old2" "$sha_now"
+# No container anywhere and no release tag on the host: both bases are this
+# step's to take.
+no_containers
+t_run "$clean"
+t_eq "$t_rc" 0
+t_contains "$(t_calls docker)" "rmi $base_repo:sha-bbbbbbbbbbbb"
+t_contains "$(t_calls docker)" "rmi $base_repo:sha-cccccccccccc"
+
+# Two kept releases, each built on its own base: both tags are read out of the
+# same listing and both ids are proofs, so neither base is this step's to take.
+# A host updated twice holds two of them, and the set of kept tags is one line
+# per release -- joined any other way the two ids read as one name that is no
+# id, both whole-line matches fail, and the two bases go.
+reset
+base_tags
+old_base "$sha_old1" "$sha_old2" "$sha_now"
+kept_release 0.10.1 "$sha_old1"
+kept_release 1.0.0 "$sha_old2"
+no_containers
+date -u +%Y-%m-%dT%H:%M:%S.000000000Z >"$fx/created-$sha_now"
+t_run "$clean"
+t_eq "$t_rc" 0
+t_lacks "$(t_calls docker)" "rmi"
+t_contains "$t_out" "kept $base_repo:sha-bbbbbbbbbbbb: a kept sandbox tag was built on it"
+t_contains "$t_out" "kept $base_repo:sha-cccccccccccc: a kept sandbox tag was built on it"
+# One of the two releases pruned, and its base is the only one this step may take.
+reset
+base_tags
+old_base "$sha_old1" "$sha_old2" "$sha_now"
+kept_release 1.0.0 "$sha_old2"
+no_containers
+date -u +%Y-%m-%dT%H:%M:%S.000000000Z >"$fx/created-$sha_now"
+t_run "$clean"
+t_eq "$t_rc" 0
+t_contains "$(t_calls docker)" "rmi $base_repo:sha-bbbbbbbbbbbb"
+t_lacks "$(t_calls docker)" "rmi $base_repo:sha-cccccccccccc"
+t_contains "$t_out" "kept $base_repo:sha-cccccccccccc: a kept sandbox tag was built on it"
+
+t_case "a sha- tag of another repository is never named to docker"
+reset
+base_tags
+old_base "$sha_old1" "$sha_old2"
+# Another account on the same registry, whose tag reads exactly like a base's:
+# the listing is asked of the repository tehas_base_image names, so docker
+# answers this fixture for it and the cleaner never sees the line.
+printf '%s\n' "ghcr.io/other-owner/pi-rukas sha-eeeeeeeeeeee sha256:$(printf 'e%.0s' {1..64})" \
+  >>"$fx/base-images"
+printf '%s\n' "$old_time" >"$fx/created-sha256:$(printf 'e%.0s' {1..64})"
+no_containers
+t_run "$clean"
+t_eq "$t_rc" 0
+t_lacks "$(t_calls docker)" "other-owner"
+t_lacks "$(t_calls docker)" "rmi ghcr.io/other-owner/pi-rukas:sha-eeeeeeeeeeee"
+t_contains "$(t_calls docker)" "rmi $base_repo:sha-bbbbbbbbbbbb"
+
+t_case "no step prunes the images: every removal is a name the cleaner knows"
+reset
+base_tags
+old_base "$sha_old1" "$sha_old2"
+no_containers
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$(t_calls docker | grep -c 'image prune')" "0"
+t_eq "$(t_calls docker | grep -c '^rmi ')" "2"
 
 t_case "a base younger than the age is kept, and docker is asked to remove nothing"
 reset
-printf '%s\n' "$base1" >"$fx/base-ids"
+printf '%s\n' "$base_repo sha-aaaaaaaaaaaa $base1" >"$fx/base-images"
 date -u +%Y-%m-%dT%H:%M:%S.000000000Z >"$fx/created-$base1"
 t_instance "${T_MINIMAL[@]}" TEHAS_CLEAN_AFTER=6
 t_run "$clean"
 t_eq "$t_rc" 0
 t_contains "$(t_calls docker)" "image inspect --format {{.Created}} $base1"
 t_lacks "$(t_calls docker)" "rmi"
-t_contains "$t_out" "kept the base $base_image: docker did not date its image past 6 hours"
+t_contains "$t_out" "kept $base_repo:sha-aaaaaaaaaaaa: docker did not date its image past 6 hours"
 # A base docker will not date is kept the same way: an unknown age is not an old one.
 reset
-printf '%s\n' "$base1" >"$fx/base-ids"
+printf '%s\n' "$base_repo sha-aaaaaaaaaaaa $base1" >"$fx/base-images"
 t_run "$clean"
 t_eq "$t_rc" 0
 t_lacks "$(t_calls docker)" "rmi"
-t_contains "$t_out" "kept the base $base_image: docker did not date its image past 24 hours"
-# Two ids, one of them young: only the old one is offered to docker.
+t_contains "$t_out" "kept $base_repo:sha-aaaaaaaaaaaa: docker did not date its image past 24 hours"
+# Two bases, one of them young: only the old one is offered to docker.
 reset
-printf '%s\n' "$base1" "$base2" >"$fx/base-ids"
-old_base "$base1"
-date -u +%Y-%m-%dT%H:%M:%S.000000000Z >"$fx/created-$base2"
+base_tags
+old_base "$sha_old1"
+date -u +%Y-%m-%dT%H:%M:%S.000000000Z >"$fx/created-$sha_old2"
 t_run "$clean"
 t_eq "$t_rc" 0
-t_contains "$(t_calls docker)" "rmi $base1"
-t_lacks "$(t_calls docker)" "rmi $base1 $base2"
+t_contains "$(t_calls docker)" "rmi $base_repo:sha-bbbbbbbbbbbb"
+t_lacks "$(t_calls docker)" "rmi $base_repo:sha-cccccccccccc"
+
+t_case "a tag of any other shape is no base, and is never named to docker"
+reset
+# A preview's tag, a uid tag, a latest and a tag whose sha- part is not twelve
+# hex characters: all of them old, none of them a base.
+printf '%s\n' \
+  "$base_repo preview-123 $base1" \
+  "$base_repo uid1000 $base2" \
+  "$base_repo latest $base9" \
+  "$base_repo sha-zzzzzzzzzzzz $sha_old1" >"$fx/base-images"
+old_base "$base1" "$base2" "$base9" "$sha_old1"
+no_containers
+t_run "$clean"
+t_eq "$t_rc" 0
+t_lacks "$(t_calls docker)" "rmi"
+t_contains "$t_out" "kept $base_repo:preview-123: not a base tag of sha- and twelve characters"
+t_contains "$t_out" "kept $base_repo:uid1000: not a base tag of sha- and twelve characters"
+t_contains "$t_out" "kept $base_repo:latest: not a base tag of sha- and twelve characters"
+t_contains "$t_out" "kept $base_repo:sha-zzzzzzzzzzzz: not a base tag of sha- and twelve characters"
 
 t_case "a docker that says nothing about the containers keeps the base, and is a warning"
 reset
-printf '%s\n' "$base1" >"$fx/base-ids"
-old_base "$base1"
-T_ENV=(PS_RC=1)
+base_tags
+old_base "$sha_old1"
+# A container made from the cleaner's own image is the thing the step must ask
+# about: docker will not say what any of them were made from, so the step is an
+# unknown that removes nothing, whatever the age of the bases.
+printf '%s\n' "c1 sha256:6" >"$fx/containers"
+T_ENV=("BASE_NAME=$base_repo" PS_RC=1)
 t_run "$clean"
 T_ENV=()
 t_eq "$t_rc" 1
 t_lacks "$(t_calls docker)" "rmi"
 t_contains "$t_out" "WARN: clean: docker said nothing about the containers on the host"
 
-t_case "a docker that lists no base ids removes nothing, and is not a base that is absent"
+t_case "a docker that lists no base tags removes nothing, and is not a base that is absent"
 reset
-printf '%s\n' "$base1" >"$fx/base-ids"
-# The listing itself failed: there may be a base on the host and the cleaner
+base_tags
+old_base "$sha_old1"
+# The listing itself failed: there may be bases on the host and the cleaner
 # cannot tell. It removes nothing, and says docker would not answer rather
-# than that the image was never pulled, which is the other case and reads the
+# than that no base was ever pulled, which is the other case and reads the
 # same in the log to anyone wondering why nothing was freed.
-T_ENV=(BASE_LS_RC=1)
+T_ENV=("BASE_NAME=$base_repo" BASE_LS_RC=1)
 t_run "$clean"
-T_ENV=()
+T_ENV=("BASE_NAME=$base_repo")
 t_eq "$t_rc" 1
-t_contains "$t_out" "WARN: clean: docker gave no list of its base $base_image"
-t_lacks "$t_out" "no image of that name is on the host"
+t_contains "$t_out" "WARN: clean: docker gave no list of its base tags of $base_repo"
+t_lacks "$t_out" "no image of $base_repo is on the host"
 t_lacks "$(t_calls docker)" "image prune"
 
 t_case "a host that follows no commit names no base, and asks docker nothing of it"
@@ -594,7 +766,7 @@ reset
 rm -f "$th/versions.env"
 t_run "$clean"
 t_eq "$t_rc" 0
-t_lacks "$(t_calls docker)" "image ls --no-trunc -q"
+t_lacks "$(t_calls docker)" "image ls --no-trunc --format {{.Repository}} {{.Tag}} {{.ID}} $base_repo $image_name"
 t_lacks "$(t_calls docker)" "image prune"
 t_contains "$t_out" "WARN: clean: kept the base: the host's pins name no base to prune"
 
@@ -607,50 +779,68 @@ printf '%s\n' "PI_RUKAS_REPO=https://example.org/Up-Owner/pi-rukas.git" \
   "PI_RUKAS_FOLLOW=commit:$rukas_pin" >"$th/versions.env"
 t_run "$clean"
 t_eq "$t_rc" 0
-t_lacks "$(t_calls docker)" "image ls --no-trunc -q"
+t_lacks "$(t_calls docker)" "image ls --no-trunc --format {{.Repository}}"
 t_contains "$t_out" "WARN: clean: kept the base: the host's pins name no base to prune"
 
 t_case "a base id docker names that is not an id removes nothing, and is a warning"
 reset
 # An answer of a shape this step cannot name to docker: the whole step is an
 # unknown, and nothing is removed on a part of it.
-printf '%s\n' "$base1" "not-an-id" >"$fx/base-ids"
+printf '%s\n' "$base_repo sha-bbbbbbbbbbbb $sha_old1" "$base_repo sha-cccccccccccc not-an-id" \
+  >"$fx/base-images"
+old_base "$sha_old1"
 t_run "$clean"
 t_eq "$t_rc" 1
 t_lacks "$(t_calls docker)" "rmi "
-t_contains "$t_out" "WARN: clean: docker named not-an-id as an image of $base_image, which is not an id"
+t_contains "$t_out" "WARN: clean: docker named not-an-id as an image of $base_repo, which is not an id"
 
-t_case "a base named by its digest is the name the ids are listed for"
+t_case "a base pinned by its digest lists the tags of its repository all the same"
 reset
 printf '%s\n' "PI_RUKAS_REPO=https://github.com/Up-Owner/pi-rukas.git" \
   "PI_RUKAS_IMAGE_DIGEST=sha256:$(printf 'f%.0s' {1..64})" >"$th/versions.env"
-base_digest=ghcr.io/up-owner/pi-rukas@sha256:$(printf 'f%.0s' {1..64})
-printf '%s\n' "$base9" >"$fx/base-ids"
-old_base "$base9"
+base_tags
+old_base "$sha_old1" "$sha_old2"
+no_containers
 t_run "$clean"
-t_eq "$t_rc" 0
-t_contains "$(t_calls docker)" "image ls --no-trunc -q $base_digest"
-t_contains "$(t_calls docker)" "rmi $base9"
+t_contains "$(t_calls docker)" "image ls --no-trunc --format {{.Repository}} {{.Tag}} {{.ID}} $base_repo $image_name"
+t_contains "$(t_calls docker)" "rmi $base_repo:sha-bbbbbbbbbbbb"
+t_contains "$(t_calls docker)" "rmi $base_repo:sha-cccccccccccc"
 
 t_case "a base that cannot be removed is a warning naming docker's reason, the exit is 1 and the other steps ran"
 reset
 workspace
 echo old >"$tmp/dl/tool.tar.gz"
 age "$tmp/dl/tool.tar.gz"
-printf '%s\n' "$base1" >"$fx/base-ids"
-old_base "$base1"
-T_ENV=(PRUNE_RC=1)
+base_tags
+old_base "$sha_old1" "$sha_old2"
+T_ENV=("BASE_NAME=$base_repo" PRUNE_RC=1)
 t_run "$clean"
 T_ENV=()
 t_eq "$t_rc" 1
-t_contains "$t_out" "WARN: clean: docker could not remove the base $base_image (1): docker: prune refused"
+t_contains "$t_out" "WARN: clean: could not remove $base_repo:sha-bbbbbbbbbbbb: docker: prune refused"
 t_eq "$([ -e "$workdir-7/target" ] && echo there)" ""
 t_eq "$([ -e "$tmp/dl/tool.tar.gz" ] && echo there)" ""
-T_ENV=(PRUNE_RC=124)
+# The other name of the run still goes, so one docker that will not remove one
+# base does not hold the rest of the step where it is.
+t_contains "$(t_calls docker)" "rmi $base_repo:sha-cccccccccccc"
+
+T_ENV=("BASE_NAME=$base_repo" RMI_FAILS="$base_repo:sha-cccccccccccc")
 t_run "$clean"
 T_ENV=()
 t_eq "$t_rc" 1
-t_contains "$t_out" "WARN: clean: docker rmi of the base did not finish in 600 seconds"
+t_contains "$t_out" "WARN: clean: could not remove $base_repo:sha-cccccccccccc"
+t_contains "$(t_calls docker)" "rmi $base_repo:sha-bbbbbbbbbbbb"
+
+t_case "a base removal that does not finish in time is a warning naming its name"
+reset
+base_tags
+old_base "$sha_old1"
+T_ENV=("BASE_NAME=$base_repo" PRUNE_RC=124)
+t_run "$clean"
+T_ENV=()
+t_eq "$t_rc" 1
+t_contains "$t_out" "WARN: clean: could not remove $base_repo:sha-bbbbbbbbbbbb: docker: prune refused"
+
 t_case "a failing docker is a warning, the other steps still run, and the exit is 1"
 reset
 workspace
