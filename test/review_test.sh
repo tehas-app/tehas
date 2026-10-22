@@ -6,11 +6,28 @@
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
+# The one account of what lib/sandbox.sh gives a container: the mounts, the
+# variables and the security options, read by the tests of every command that
+# starts one. AGENTS.md rule 4. The lists are the same for a cycle, a planning
+# turn, a session and a review, so the review's container is pinned against
+# them and not against a copy of what test/plan_test.sh asserts.
+# shellcheck source=test/sandbox_lib.sh
+. "$(dirname "$0")/sandbox_lib.sh" || exit 1
 # The CPU quota and the ticket ceiling follow the host's CPUs: the same on
 # every test machine.
 t_stub nproc 'echo 16'
 
-review="$T_ROOT/libexec/review"
+# The command as a host has it: beside the console, which is a compiled program
+# a checkout does not hold. The two are put in one directory of the case, the
+# library beside them as test/work_lib.sh does for a cycle, so the mask is asked
+# of a stub the case owns and not of whatever stands beside the checkout. The
+# tests of the mask itself are the console's own (console/src/mask.rs); the
+# question here is that the command asks, and what it does when it is not there.
+shim=$T/tree
+mkdir -p "$shim/libexec"
+ln -s "$T_ROOT/libexec/review" "$shim/libexec/review"
+ln -s "$T_ROOT/lib" "$shim/lib"
+review=$shim/libexec/review
 fx=$T/fx
 mkdir -p "$fx"
 checkout=$T/home/tehas/repos/widget
@@ -19,6 +36,8 @@ ws=$T/home/tehas/work/widget
 tree=$ws-review
 state=$tree.state
 record=$T/home/tehas/state/review.json
+# The directory the record lives in, and the lock of a run beside it.
+state_dir=$T/home/tehas/state
 upstream=$T/git/acme/widget
 mkdir -p "$upstream"
 git init -q -b main "$upstream"
@@ -104,7 +123,21 @@ case " $* " in
   # A container a case means to be still working reads its body from the
   # file; every other one notes what it was handed and answers at once.
   if [ -s "$T/container.sh" ]; then . "$T/container.sh"; exit $?; fi
+  # The commit it was asked to read from, so that a case can say the range the
+  # command computed is the range the runner was given. The line it writes is
+  # read back with $( ), which drops its end, so the escape of one is not
+  # written here: this body reaches t_stub single-quoted and the escape would
+  # reach printf as a letter.
+  seen=""
+  for prev in "$@"; do case " $seen " in *" --since "*) printf '%s' "$prev" >"$T/calls/since.seen" ;; esac; seen=$prev; done
   ws='"$T"'/home/tehas/work/widget-review
+  # The status this stub answers: recorded so a case can tell a command that
+  # read the exit of the container from one that answered the number of its
+  # fixture whatever the container said. The number is read back with $( ),
+  # which drops the trailing line, so no escape of a newline is written here -
+  # this body is carried to t_stub single-quoted, and an escape would reach
+  # printf as a letter.
+  printf '%s' "$(cat "$T/fx/doc.rc" 2>/dev/null || echo 0)" >"$T/calls/runner.rc"
   git -C "$ws" rev-parse HEAD >"$T/calls/head.seen" 2>&1
   git -C "$ws" status --porcelain >"$T/calls/tree.status" 2>&1
   cat "$T/fx/doc.json" 2>/dev/null
@@ -157,13 +190,50 @@ caps_review() {
 # review reads doc and the planning turn reads doc_plan, since the two
 # documents differ.
 runner_says() { # <exit status> [document]
-  printf '%s' "${2:-{\}}" >"$fx/doc.json"
+  # With no document given, one that carries the status it answers with: the
+  # command reads that field now, so a case that names no document agrees with
+  # itself by default, and one that means a contradiction names both.
+  local doc=${2-}
+  [ -n "$doc" ] || doc='{"exitCode":'"$1"'}'
+  printf '%s' "$doc" >"$fx/doc.json"
   printf '%s\n' "$1" >"$fx/doc.rc"
 }
 turn_says() { # <exit status> [document]
   printf '%s' "${2:-{\}}" >"$fx/doc_plan.json"
   printf '%s\n' "$1" >"$fx/doc_plan.rc"
 }
+# The console of a host, for the two files of a run that are masked before they
+# are kept. It masks one token-shaped string, which is what the tests of the
+# mask itself exist for (console/src/mask.rs); here the question is that the
+# command asks for the mask at all, and what it does when there is none. As in
+# test/export_test.sh, a file with no printable byte is answered with nothing,
+# which is what tehas review then keeps as it was.
+# The two are read inside the body of the stub, which shellcheck cannot follow.
+# shellcheck disable=SC2034
+token=ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+masked=ghp_'***'
+console_mask_on() {
+  # The stub beside the command, which is where a host has it and where the
+  # command looks: t_stub puts it on PATH only, and the command does not look
+  # there. Written by hand rather than copied from $T/bin: the file t_stub
+  # makes logs every argument before its body runs, and the mask reads the
+  # document it is given from stdin, so that log would be masked into the file
+  # as if the runner had written it.
+  printf '#!/usr/bin/env bash\n%s\n' "$(console_mask_body)" >"$shim/libexec/console"
+  chmod +x "$shim/libexec/console"
+}
+# The body of the mask, one function so that the same words stand in the file
+# and in the test of the file. It replaces one token-shaped string and answers
+# nothing for a file with no printable byte, as test/export_test.sh's does.
+console_mask_body() {
+  printf '%s\n' "if [ \"\${1-}\" != --mask ]; then exit 64; fi"
+  printf '%s\n' 'bytes=$(cat)'
+  printf '%s\n' '[ -n "$bytes" ] || exit 0'
+  printf '%s\n' 'printf "%s\n" "${bytes//ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/ghp_***}"'
+}
+# A host with no console beside its commands: the files are kept as the run
+# wrote them, and that is said.
+console_absent() { rm -f "$shim/libexec/console"; }
 # The document of a planning turn that drafted a plan to be confirmed.
 turn_doc='{"subcommand":"plan","mode":"turn","exitCode":12,"status":"draft",
   "session":{"id":"abc-123","turn":1},"text":"Drafted.","title":"Faster search",
@@ -174,14 +244,25 @@ reset() {
   # process that made it.
   rm -rf "$T"/calls/* "$T/home/tehas" "$fx/doc.json" "$fx/doc.rc" \
     "$fx/doc_plan.json" "$fx/doc_plan.rc" "$fx/session" \
-    "$T/caps.plan" "$T/container.sh" "$T"/caps.call.* "$T/caps.n"
+    "$T/caps.plan" "$T/container.sh" "$T"/caps.call.* "$T/caps.n" \
+    "$shim/libexec/console"
   checkout_host
   docker_run
   caps_review
+  rm -f "$T/bin/jq"
+  # A jq that will not make the record, installed by the one case that asks
+  # what the command does then. The rest of the file needs a jq that works.
+  jq_refuses() {
+    printf '%s\n' '#!/usr/bin/env bash' \
+      'for a in "$@"; do case "$a" in *commit*) exit 1 ;; esac; done' \
+      'exec '"$(command -v jq)"' "$@"' >"$T/bin/jq"
+    chmod +x "$T/bin/jq"
+  }
   t_instance "${T_MINIMAL[@]}"
   T_ENV=(GH_TOKEN=test-token "TEHAS_CGROUP_ROOT=$T_CGROUP")
   slice_good
-  runner_says 0 '{"verdict":"APPROVED"}'
+  console_mask_on
+  runner_says 0 '{"verdict":"APPROVED","exitCode":0}'
 }
 
 # The arguments of the review's container: the call of the run named for it,
@@ -191,19 +272,9 @@ run_args() { cat "$T/calls/docker.args.review"; }
 after() { run_args | awk -v flag="$1" 'prev == flag { print } { prev = $0 }'; }
 tail_of() { run_args | sed -n "/^$(printf '%s' "$image" | sed 's/[\/.]/\\&/g')\$/,\$p" | tr '\n' ' '; }
 # Every option that is not one this command is known to pass, up to the image
-# name, read the way docker reads them. See test/work_lib.sh.
-unknown_options() { # <image> <options that take a value> <options that take none>
-  awk -v image="$1" -v valued=" $2 " -v plain=" $3 " '
-    NR == 1 { next } # "run"
-    skip { skip = 0; next }
-    $0 == image { exit }
-    index(valued, " " $0 " ") { skip = 1; next }
-    index(plain, " " $0 " ") { next }
-    /^--add-host=[A-Za-z0-9.-]+:[0-9a-fA-F.:]+$/ { next }
-    /^PI_ENSEMBLE_[A-Z0-9_]*(=.*)?$/ { next }
-    /^GIT_CONFIG_[A-Z0-9_]*=.*$/ { next }
-    { print }'
-}
+# name: the shared account in test/sandbox_lib.sh, which the tests of work,
+# plan and dev read too.
+unknown_options() { sandbox_unknown_options "$1"; }
 # What docker is given before the image, one argument per line, with the
 # container's name replaced and the cid file dropped: what a planning turn is
 # given, and what this command must be given, modulo the names the two cannot
@@ -212,6 +283,14 @@ options() {
   awk -v image="$image" '$0 == image { exit } $0 == "--cidfile" { skip = 1; next } skip { skip = 0; next }
     prev == "--name" { $0 = "<name>" } { print; prev = $0 }'
 }
+# The files of a run's own under the home, of one kind, named by this test
+# alone: the lock of a run is the home's too, and is not what these cases ask
+# about. records_held <directory>: the files of that directory that are not a
+# lock.
+records_held() {
+  find "$1" -type f -not -name '*.lock' 2>/dev/null | LC_ALL=C sort | tr '\n' ' '
+}
+
 logs_named() { find "$T/home/tehas/logs" -type f 2>/dev/null | LC_ALL=C sort; }
 
 # --- Usage and the gates before anything runs ------------------------------------
@@ -289,6 +368,48 @@ for caps in '{"contract":"0.12.80","verbs":{"work":{"flags":["--json"]}}}' \
   t_eq "$(find "$T/home/tehas/work" "$T/home/tehas/logs" "$record" 2>/dev/null | wc -l)" 0
 done
 
+# A docker that will not answer the probe is not an image that runs no review:
+# an operator told to rebuild an image that is fine is worse off than one told
+# the truth. The two answers are said apart, and both refuse the run.
+t_case "a --capabilities probe that fails is named as a probe that failed, not as a missing verb"
+for answer in 1 125 127; do
+  t_case "docker answered $answer"
+  reset
+  t_run "CAPS_RC=$answer '$review'"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "gave no --capabilities answer (exit $answer)"
+  t_lacks "$t_out" "runs no review"
+  t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+  t_eq "$(find "$T/home/tehas/work" "$T/home/tehas/logs" "$record" 2>/dev/null | wc -l)" 0
+done
+
+# A name of the PI_ENSEMBLE_* family that the image does not list as an input a
+# host may set is a lever of the runner this run was never vetted for, and it
+# arrives by the environment of whoever started the review. The run is refused
+# rather than started with it.
+t_case "a PI_ENSEMBLE_* lever the image does not list stops the run before anything is cloned"
+reset
+# An instance line, which is how a PI_ENSEMBLE_* reaches a container: settings
+# of the environment are dropped by tehas_load, so the line of the instance is
+# the adversary here - the same file a host edits to point at its model.
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_PROTECTED_PATHS= PI_ENSEMBLE_POLICY_JUDGE=off
+t_run "$review"
+t_eq "$t_rc" 78
+t_contains "$t_out" "does not take what this review would be given"
+t_contains "$t_out" "PI_ENSEMBLE_PROTECTED_PATHS"
+t_contains "$t_out" "PI_ENSEMBLE_POLICY_JUDGE"
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+t_eq "$(find "$T/home/tehas/work" "$T/home/tehas/logs" "$record" 2>/dev/null | wc -l)" 0
+
+t_case "a PI_ENSEMBLE_* the image does list as an input a host may set reaches the container"
+reset
+jq '.inputs += [{name: "PI_ENSEMBLE_LENS_NOTE", scope: "cycle"}]' "$T/caps.json" >"$T/caps.new" &&
+  mv "$T/caps.new" "$T/caps.json"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_LENS_NOTE=short
+t_run "$review"
+t_eq "$t_rc" 0
+t_contains "$(after -e)" "PI_ENSEMBLE_LENS_NOTE"
+
 t_case "without the git identity of the tehas user nothing runs"
 reset
 mv "$T/home/.gitconfig" "$T/gitconfig.kept"
@@ -334,7 +455,8 @@ t_eq "$t_rc" 0
 t_eq "$(tail_of)" "$image $runner lens-review --since $c2 --json "
 
 t_case "a record that is unreadable or names no commit reads from 7 days back"
-for keep in 'not json' '{"commit":null}' '{"commit":"zzzz"}' '{"exit":10}'; do
+for keep in 'not json' '{"commit":null}' '{"commit":"zzzz"}' '{"exit":10}' \
+  '{"commit":"abc1"}' '{"commit":"0123456789abcdef0123456789abcdef01234567"}'; do
   t_case "a record of '$keep'"
   reset
   mkdir -p "$T/home/tehas/state"
@@ -343,6 +465,46 @@ for keep in 'not json' '{"commit":null}' '{"commit":"zzzz"}' '{"exit":10}'; do
   t_eq "$t_rc" 0
   t_eq "$(tail_of)" "$image $runner lens-review --since $c1 --json "
 done
+
+# The two shapes that would otherwise review a range nobody asked for and then
+# record the tip as read: a prefix of a commit that resolves to something else,
+# and a whole commit the branch no longer reaches - a force-push, a reset, or a
+# hand that wrote the file. Both fall back to the window, and say so.
+t_case "a record whose commit the branch no longer reaches reads from 7 days back, and says the record was refused"
+reset
+mkdir -p "$T/home/tehas/state"
+# A commit of another branch of the same object database: it resolves, and is
+# no ancestor of the tip.
+up_other=$T/git/acme/other
+rm -rf "$up_other"
+git init -q -b main "$up_other"
+GIT_COMMITTER_DATE="$old" GIT_AUTHOR_DATE="$old" git -C "$up_other" \
+  -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m other
+other=$(git -C "$up_other" rev-parse HEAD)
+git -C "$checkout" fetch -q "$up_other" '+refs/heads/main:refs/remotes/origin/other'
+jq -n --arg c "$other" '{commit: $c, at: "2026-10-01T00:00:00Z", exit: 0}' >"$record"
+t_run "$review"
+t_eq "$t_rc" 0
+t_contains "$t_out" "which origin/main no longer reaches"
+t_eq "$(tail_of)" "$image $runner lens-review --since $c1 --json "
+
+t_case "a record naming an abbreviation of a real commit is refused, not resolved"
+reset
+mkdir -p "$T/home/tehas/state"
+jq -n --arg c "${c2:0:12}" '{commit: $c, at: "2026-10-01T00:00:00Z", exit: 0}' >"$record"
+t_run "$review"
+t_eq "$t_rc" 0
+t_eq "$(tail_of)" "$image $runner lens-review --since $c1 --json "
+
+t_case "a run whose record already names the tip says there is nothing new and starts nothing"
+reset
+mkdir -p "$T/home/tehas/state"
+jq -n --arg c "$head" '{commit: $c, at: "2026-10-01T00:00:00Z", exit: 0}' >"$record"
+t_run "$review"
+t_eq "$t_rc" 0
+t_contains "$t_out" "nothing new since ${head:0:12}"
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+t_eq "$(find "$T/home/tehas/work" "$T/home/tehas/logs" 2>/dev/null | wc -l)" 0
 
 t_case "the checkout's own worktree decides nothing: the review is at the fetched tip"
 reset
@@ -359,14 +521,52 @@ t_case "the runner's 0, 10 and 20 all record the head that was reviewed, and the
 for rc in 0 10 20; do
   t_case "a review that exited $rc"
   reset
-  runner_says "$rc" '{"verdict":"x"}'
+  # The document carries its own exitCode, and the stub answers with the
+  # status it was told to: a case of 10 or 20 therefore only passes when the
+  # command read the status the container actually returned, which is what the
+  # case of the file before this one could not tell from a no-op.
+  runner_says "$rc" "{\"verdict\":\"x\",\"exitCode\":$rc}"
   t_run "$review"
   t_eq "$t_rc" "$rc"
+  t_eq "$(cat "$T/calls/runner.rc")" "$rc"
   t_eq "$(jq -c 'keys | sort' "$record")" '["at","commit","exit"]'
   t_eq "$(jq -r .commit "$record")" "$head"
   t_eq "$(jq -r .exit "$record")" "$rc"
   t_contains "$(jq -r .at "$record")" "T"
 done
+
+# The document and the process have to agree before either is believed, as
+# libexec/work reads its result and libexec/plan reads its answer before it
+# decides. A container that exits 0 while its own document says the review was
+# incomplete has not read the range, and the record does not move on.
+t_case "a document that contradicts the container's exit records nothing and says which two disagreed"
+reset
+mkdir -p "$T/home/tehas/state"
+jq -n --arg c "$c2" '{commit: $c, at: "2026-10-01T00:00:00Z", exit: 10}' >"$record"
+cp "$record" "$T/record.before"
+runner_says 0 '{"verdict":"REVIEW_INCOMPLETE","exitCode":30}'
+t_run "$review"
+t_eq "$t_rc" 2
+t_contains "$t_out" "runner_exit=0 document_exit=30 recorded=no"
+t_contains "$t_out" "the two disagree"
+t_eq "$(cmp "$T/record.before" "$record" && echo same)" same
+
+t_case "a container that exits 30 with a document that says 0 records nothing"
+reset
+runner_says 30 '{"verdict":"APPROVED","exitCode":0}'
+t_run "$review"
+t_eq "$t_rc" 2
+t_contains "$t_out" "runner_exit=30 document_exit=0 recorded=no"
+t_eq "$([ -e "$record" ] && echo made)" ""
+
+# A document with no exitCode of its own is no contradiction: the container's
+# status is all there is, and it is what every tehas caller trusts then.
+t_case "a document with no exitCode leaves the container's status as the only answer"
+reset
+runner_says 10 '{"verdict":"ISSUES_FOUND"}'
+t_run "$review"
+t_eq "$t_rc" 10
+t_eq "$(jq -r .exit "$record")" 10
 
 t_case "any other exit leaves the record exactly as it was, and the command exits 2"
 for rc in 30 40 70 1; do
@@ -380,7 +580,7 @@ for rc in 30 40 70 1; do
   t_eq "$t_rc" 2
   t_contains "$t_out" "runner_exit=$rc recorded=no"
   t_eq "$(cmp "$T/record.before" "$record" && echo same)" same
-  t_eq "$(find "$T/home/tehas/state" -type f | LC_ALL=C sort | tr '\n' ' ')" "$record "
+  t_eq "$(records_held "$T/home/tehas/state")" "$record "
 done
 
 t_case "a run that failed on a host with no record makes none"
@@ -389,7 +589,10 @@ runner_says 30 '{}'
 t_run "$review"
 t_eq "$t_rc" 2
 t_eq "$([ -e "$record" ] && echo made)" ""
-t_eq "$(find "$T/home/tehas/state" 2>/dev/null | wc -l)" 0
+# Nothing but the lock, which the run opens to make sure it is the only one
+# going and leaves behind as every lock of tehas does.
+t_eq "$(find "$T/home/tehas/state" -type f 2>/dev/null | LC_ALL=C sort | tr '\n' ' ')" \
+  "$state_dir/review.lock "
 
 t_case "the record of the review replaces the one before, whole"
 reset
@@ -398,15 +601,18 @@ jq -n --arg c "$c2" '{commit: $c, at: "2026-10-01T00:00:00Z", exit: 10, extra: "
 t_run "$review"
 t_eq "$t_rc" 0
 t_eq "$(jq -c 'keys | sort' "$record")" '["at","commit","exit"]'
-t_eq "$(find "$T/home/tehas/state" -type f | LC_ALL=C sort | tr '\n' ' ')" "$record "
+t_eq "$(records_held "$T/home/tehas/state")" "$record "
 
 t_case "a record that cannot be written is exit 2 and leaves the old one"
 reset
 mkdir -p "$T/home/tehas/state"
 jq -n --arg c "$c2" '{commit: $c, at: "2026-10-01T00:00:00Z", exit: 10}' >"$record"
-chmod 500 "$T/home/tehas/state"
+# The making of the record is what fails here, so a jq that will not write it.
+# The old record is a file the run reads and never touches again, so it stays
+# exactly as it was, and the range is read again next run. The stub is put
+# back by reset(): every other case of this file needs a jq that works.
+jq_refuses
 t_run "$review"
-chmod 700 "$T/home/tehas/state"
 t_eq "$t_rc" 2
 t_contains "$t_out" "could not write $record"
 t_eq "$(jq -r .commit "$record")" "$c2"
@@ -417,15 +623,11 @@ t_case "the review container gets the mounts of a planning turn, no more"
 reset
 t_run "$review"
 t_eq "$t_rc" 0
-want="$tree:$ws
-$T/home/.pi/agent/ensemble-runs/review:/home/vscode/.pi/agent/ensemble-runs
-$state/cache:/home/vscode/.tehas-cache
-$state/memory:/home/vscode/.vipune
-$state/sessions:/home/vscode/.pi/agent/sessions
-$T/home/.pi/agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro
-$state/models.json:/home/vscode/.pi/agent/models.json:ro
-$T/home/.pi/agent/settings.json:/home/vscode/.pi/agent/settings.json:ro"
-t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
+# The eight mounts of lib/sandbox.sh, from the shared account, with this run's
+# four paths in them. A mount the library adds now fails this case as it fails
+# the case of every other command that starts a container.
+t_eq "$(after -v | LC_ALL=C sort)" "$(sandbox_mounts "$T/home" "$tree" "$ws" "$state" \
+  "$T/home/.pi/agent/ensemble-runs/review" | LC_ALL=C sort)"
 
 t_case "the review gets no token: GH_TOKEN is not among its variables"
 reset
@@ -433,32 +635,16 @@ t_run "$review"
 t_eq "$t_rc" 0
 t_eq "$(after -e | grep -c -x -e GH_TOKEN)" 0
 t_lacks "$(run_args)" "test-token"
-# The names the sandbox library always gives: the code index, the git
-# credential helper and identity, and the prompt that must not be asked; plus
-# the two of its own, and every PI_ENSEMBLE_* of the environment the run was
-# given. The token is the name the review is given no value for, and so no
-# variable at all, which is what the two lines above check.
-want="$(printf '%s\n' CBM_CACHE_DIR GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 \
-  GIT_CONFIG_KEY_1 GIT_CONFIG_KEY_2 GIT_CONFIG_KEY_3 GIT_CONFIG_VALUE_0 \
-  GIT_CONFIG_VALUE_1 GIT_CONFIG_VALUE_2 GIT_CONFIG_VALUE_3 GIT_TERMINAL_PROMPT \
-  PI_ENSEMBLE_SANDBOX_MODE PI_ENSEMBLE_WORKSPACE_ROOT \
-  PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS PI_ENSEMBLE_MAX_WORKSTREAMS \
-  PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER \
-  PI_ENSEMBLE_VERIFY_TIMEOUT_MS | LC_ALL=C sort)"
+# What the sandbox library gives every container (test/sandbox_lib.sh), less
+# the token it keeps back and the cycle's two settings of its own, which no
+# run that writes no code and runs no gate is given. A name the library adds,
+# or one the environment carries that the image does not list as an input a
+# host may set, fails this case: the run is then refused before it starts.
+want="$(printf '%s\n' "${sandbox_env_shared[@]}" PI_ENSEMBLE_SUBAGENT_MODEL \
+  PI_ENSEMBLE_SUBAGENT_PROVIDER | LC_ALL=C sort)"
 # The arguments after each -e, read from the call itself: two -e in a row is
 # how a name with no value is passed, and the second of the two is the name.
-env_names() {
-  run_args | awk -v image="$image" '
-    $0 == image { last = NR }
-    { line[NR] = $0 }
-    END {
-      for (i = 1; i <= last; i++) {
-        if (line[i] != "-e") continue
-        v = line[i + 1]; sub(/=.*/, "", v)
-        if (v != "-e") print v
-      }
-    }' | LC_ALL=C sort | uniq
-}
+env_names() { run_args | sandbox_all_env_names; }
 t_eq "$(env_names)" "$want"
 
 t_case "with a token in the environment and instance lines for a plan, the container gets neither"
@@ -485,9 +671,12 @@ t_eq "$(after --cpus)" "3.75"
 t_eq "$(after --user)" "$(id -u):$(id -g)"
 t_eq "$(after --name)" "tehas-review"
 t_eq "$(after -w)" "$ws"
+# The eight words that take privileges away, in order, from the shared account:
+# the same as a cycle's, a turn's and a session's container is given.
+t_eq "$(run_args | sandbox_security_line)" "${sandbox_security_words[*]} "
 t_lacks "$(run_args)" "--cidfile"
 t_contains "$(run_args)" "--add-host=models:192.0.2.9"
-t_eq "$(run_args | unknown_options "$image" "--name $limits --cap-drop --cap-add --security-opt --user -w -v -e" "--rm --init")" ""
+t_eq "$(run_args | unknown_options "$image")" ""
 t_eq "$(run_args | grep -c -x -e --init)" 1
 
 t_case "nothing that controls the host is reachable, and the capabilities were asked before the run"
@@ -551,12 +740,17 @@ read_options() { # <the file of the run>
     name { name = ""; printf "env %s\n", $0; next }
     { print }' <"$1"
 }
-# What the review is not given: the token. What the planning turn is not
-# given: nothing. Everything else docker is handed is the same.
+# What the review is not given: the token, and the three settings of its own
+# that lib/sandbox.sh gives a cycle, which no run that writes no code and runs
+# no gate asks for. What the planning turn is not given: nothing. Everything
+# else docker is handed is the same, which is the point of the case: the two
+# containers are one container, and a fourth copy of what a sandbox is given
+# would not be caught by anything else.
 t_eq "$(comm -23 <(read_options "$T/review.options" | LC_ALL=C sort) \
   <(read_options "$T/plan.options" | LC_ALL=C sort) | tr '\n' ' ')" ""
 t_eq "$(comm -13 <(read_options "$T/review.options" | LC_ALL=C sort) \
-  <(read_options "$T/plan.options" | LC_ALL=C sort) | tr '\n' ' ')" "env GH_TOKEN "
+  <(read_options "$T/plan.options" | LC_ALL=C sort) | tr '\n' ' ')" \
+  "env GH_TOKEN env PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS env PI_ENSEMBLE_MAX_WORKSTREAMS env PI_ENSEMBLE_VERIFY_TIMEOUT_MS "
 # One file per case: the review's run and the planning turn's each have their
 # own, so neither is read for the other.
 t_eq "$(grep -l -x -e GH_TOKEN "$T"/calls/docker.args.review \
@@ -575,7 +769,34 @@ t_eq "$t_rc" 0
 t_eq "$(logs_named | wc -l)" 2
 t_eq "$(logs_named | grep -c -x "$T/home/tehas/logs/review-[0-9][0-9]*-[0-9][0-9]*\.json")" 1
 t_eq "$(logs_named | grep -c -x "$T/home/tehas/logs/review-[0-9][0-9]*-[0-9][0-9]*\.jsonl")" 1
-t_eq "$(cat "$T/home/tehas/logs"/review-*.json)" '{"verdict":"APPROVED"}'
+t_eq "$(cat "$T/home/tehas/logs"/review-*.json)" '{"verdict":"APPROVED","exitCode":0}'
+
+# What the mask is for: the token of the host in a file an agent can read.
+# The mask itself is tested in the console (console/src/mask.rs); what is
+# tested here is that the command asks for it, and what it does when there is
+# none to ask.
+t_case "the run's files are masked: what the mask knows does not reach them"
+reset
+# The mask of a host replaces the names of the models file and the bot's
+# address (lib/private.sh). It is stubbed here to replace one token-shaped
+# string, as test/export_test.sh stubs it, so what is tested is that the
+# command asks for the mask and keeps what it returns.
+runner_says 0 "{\"verdict\":\"x\",\"exitCode\":0,\"note\":\"$token\"}"
+t_run "$review"
+t_eq "$t_rc" 0
+t_lacks "$(cat "$T/home/tehas/logs"/review-*.json)" "$token"
+t_eq "$(cat "$T/home/tehas/logs"/review-*.json | grep -c -o 'ghp_\*\*\*')" 1
+
+t_case "a host with no console keeps the files as the run wrote them, and says so"
+reset
+runner_says 0 "{\"verdict\":\"x\",\"exitCode\":0,\"note\":\"$token\"}"
+console_absent
+t_run "$review"
+t_eq "$t_rc" 0
+t_contains "$t_out" "no console to mask the run's logs with"
+# Kept, not lost: the account of a run that happened is worth more than a
+# file that cannot be read at all.
+t_contains "$(cat "$T/home/tehas/logs"/review-*.json)" "$token"
 
 t_case "a run that ran out of time is stopped, exits 2 and records nothing"
 reset
@@ -601,6 +822,65 @@ t_contains "$t_out" "ran out of time"
 t_eq "$(cmp "$T/record.before" "$record" && echo same)" same
 t_eq "$(grep -l -x stop "$T"/calls/docker.args.* | wc -l)" 1
 t_eq "$([ -e "$tree" ] && echo left)" ""
+
+# A docker that does not answer must not be the last thing a run does. The two
+# stops of the timeout path and the sweep of a name left behind are all
+# bounded, as libexec/work bounds its own: a wedged dockerd is then reported
+# and the run ends, which is what "it ran out of time" has to mean.
+t_case "a docker stop that never ends is bounded, and the run still ends with 2"
+reset
+mkdir -p "$T/home/tehas/state"
+jq -n --arg c "$c2" '{commit: $c, at: "2026-10-01T00:00:00Z", exit: 10}' >"$record"
+t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=1 TEHAS_STOP_WAIT=1
+cat >"$T/container.sh" <<'EOF'
+nap=$(command -pv sleep)
+"$nap" 60 >/dev/null 2>&1 &
+sleeper=$!
+# A container that ignores the stop entirely: the stop's own bound has to end
+# the wait, and then docker kill is asked, also bounded.
+"$nap" 60
+exit 137
+EOF
+printf '%s\n' 'if [ "$1" = stop ] || [ "$1" = kill ]; then "$(command -pv sleep)" 60; exit 0; fi' >>"$T/bin/docker"
+t_run "$review"
+t_eq "$t_rc" 2
+t_contains "$t_out" "did not end within 1s, killing it"
+t_eq "$([ -e "$tree" ] && echo left)" ""
+
+# --- One review at a time ---------------------------------------------------------
+
+# The container, the workspace and the record are each one per host, so a
+# second run must not start beside the first: it would remove the other's
+# container and both would rm -rf the same workspace, and the record would then
+# move on for a range neither finished.
+t_case "a second review while one holds the lock says so, exits 0, and starts no container"
+reset
+mkdir -p "$T/home/tehas/state"
+# The lock of a run still going: held by another process, as the flock of the
+# command holds it, so the case holds it with a child that will not let go.
+flock "$T/home/tehas/state/review.lock" -c '"$(command -pv sleep)" 30' &
+holder=$!
+sleep 0.3
+t_run "$review"
+t_eq "$t_rc" 0
+t_contains "$t_out" "another review is going, nothing was reviewed"
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+kill "$holder" 2>/dev/null
+wait "$holder" 2>/dev/null
+
+# The two directories a run that never started made are removed by the trap the
+# command sets once it owns them, as libexec/index cleans its tree.
+t_case "a run that could not clone leaves no workspace and no state behind"
+reset
+mkdir -p "$T/bin"
+real_git=$(command -v git)
+printf '%s\n' 'for a in "$@"; do' '  [ "$a" = fetch ] && { echo "git: cannot clone" >&2; exit 128; }' 'done' \
+  'exec '"$real_git"' "$@"' >"$T/bin/git"
+chmod +x "$T/bin/git"
+t_run "$review"
+t_eq "$t_rc" 78
+t_eq "$([ -e "$tree" ] && echo left)" ""
+t_eq "$([ -e "$state" ] && echo left)" ""
 
 # --- Without a usable slice -------------------------------------------------------
 

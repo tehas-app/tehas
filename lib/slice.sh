@@ -21,14 +21,27 @@
 #                          tehas_slice_ok || { echo "tehas x: $TEHAS_SLICE_WHY" >&2; exit 78; }
 #   tehas_slice_limits   after tehas_slice_ok. No call, only arithmetic. Fills
 #                        the array TEHAS_SLICE_LIMITS with exactly fourteen
-#                        words for docker run:
+#                        words for docker run (tehas_slice_limit_words, the
+#                        one place the count is written):
 #                          --cgroup-parent tehas.slice --memory <n>m
 #                          --memory-swap <n>m --memory-reservation <reserve>
 #                          --cpus <c> --pids-limit <p> --cpu-shares 1024
 #                        and returns 0, or leaves it empty and returns 1. The
-#                        caller checks for fourteen words and "tehas.slice" as
-#                        the second before it starts anything. <c> and <p>
-#                        are what tehas_slice_cpus prints.
+#                        caller asks tehas_slice_limits_ok, which makes that
+#                        array and checks it, before it starts anything. <c>
+#                        and <p> are what tehas_slice_cpus prints.
+#   tehas_slice_limits_ok after tehas_slice_ok. No call. Makes the limits and
+#                        says whether they are whole: it calls
+#                        tehas_slice_limits, then requires the whole list -
+#                        tehas_slice_limit_words of them - and tehas.slice as
+#                        the parent. Returns 1 and leaves the array empty on
+#                        either, so a command that starts no container with
+#                        half a list reads:
+#                          tehas_slice_limits_ok || {
+#                            echo "tehas x: the container limits could not be made, not starting" >&2
+#                            exit 78; }
+#                        Every command that starts a container asks this, so
+#                        the count of the list is written here and nowhere else.
 #   tehas_slice_cpus     after tehas_slice_ok. No call. Prints the CPU quota
 #                        and the pids limit of one container: "<c> <p>".
 #                        <c> is the host's CPUs less one, shared by the
@@ -206,6 +219,12 @@ tehas_slice_cpus() {
   printf '%d.%02d %d\n' $((quota / 100)) $((quota % 100)) "$pids"
 }
 
+# The length of one tehas_slice_limits answer. The one place it is written:
+# the list below is what makes it, and tehas_slice_limits_ok is what checks
+# it, so adding a docker option here is one edit and no command has to be
+# chased for a copy of the number. Lower case: tehas_load unsets TEHAS_*.
+tehas_slice_limit_words=14
+
 # shellcheck disable=SC2034  # the caller reads the array
 tehas_slice_limits() {
   local mb=${TEHAS_SLICE_CEILING_MB:-} cpu quota pids
@@ -216,6 +235,19 @@ tehas_slice_limits() {
   read -r quota pids <<<"$cpu"
   TEHAS_SLICE_LIMITS=(--cgroup-parent tehas.slice --memory "${mb}m" --memory-swap "${mb}m"
     --memory-reservation "$TEHAS_CYCLE_RESERVE" --cpus "$quota" --pids-limit "$pids" --cpu-shares 1024)
+}
+
+# The limits a container is started with, or nothing. A command that starts a
+# container never inspects the list itself: one that did had to remember the
+# count of it, and five of them did, each with its own copy of the number.
+# shellcheck disable=SC2034  # the caller reads the array
+tehas_slice_limits_ok() {
+  tehas_slice_limits || return 1
+  if [ "${#TEHAS_SLICE_LIMITS[@]}" != "$tehas_slice_limit_words" ] ||
+    [ "${TEHAS_SLICE_LIMITS[1]}" != tehas.slice ]; then
+    TEHAS_SLICE_LIMITS=()
+    return 1
+  fi
 }
 
 tehas_slice_verify() {

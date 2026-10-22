@@ -172,11 +172,10 @@ branch=$(tehas_branch) || exit 78
 # No container starts outside the slice, and none with half its limits.
 TEHAS_SLICE_LIMITS=()
 tehas_slice_ok || { echo "tehas plan: $TEHAS_SLICE_WHY" >&2; exit 78; }
-tehas_slice_limits || true
-if [ "${#TEHAS_SLICE_LIMITS[@]}" != 14 ] || [ "${TEHAS_SLICE_LIMITS[1]}" != tehas.slice ]; then
+tehas_slice_limits_ok || {
   echo "tehas plan: the container limits could not be made, not starting" >&2
   exit 78
-fi
+}
 src=$TEHAS_WORK_REPO
 # The workspace inside the container, and the directory on the host behind it.
 repo=$TEHAS_WORK_DIR
