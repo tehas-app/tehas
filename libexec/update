@@ -447,7 +447,22 @@ else
     exit 1
   fi
   target=${to:-$newest}
-  echo "release: installed ${installed:-none, this host ran from its platform checkout}, newest $newest"
+  # The notes a person reads start at the version the host came from: what is
+  # installed, or, for a host that ran from its platform checkout, the tag of
+  # that checkout. It has no installed version, so it still has to switch to a
+  # release even when the tag names the newest one. Without a tag the notes are
+  # every release, as they were before.
+  from_note=$installed
+  checkout_tag=""
+  if [ -z "$installed" ]; then
+    checkout_tag=$(tehas_release_checkout_tag "$checkout")
+  fi
+  if [ -n "$checkout_tag" ]; then
+    echo "release: installed none, this host ran from its platform checkout at $checkout_tag, newest $newest"
+    from_note=$checkout_tag
+  else
+    echo "release: installed ${installed:-none, this host ran from its platform checkout}, newest $newest"
+  fi
   if [ -z "$to" ] && [ -n "$installed" ] && tehas_release_older "$newest" "$installed"; then
     echo "release: $installed is newer than the newest release; tehas update --to moves it back"
     target=$installed
@@ -456,12 +471,12 @@ else
   # The notes a person reads before moving: each release's own section of the
   # changelog, its Adopter action among them. Going back, the ones undone.
   if [ "$target" != "$installed" ]; then
-    if [ -n "$installed" ] && tehas_release_older "$target" "$installed"; then
+    if [ -n "$from_note" ] && tehas_release_older "$target" "$from_note"; then
       echo "release: going back to $target undoes these releases:"
-      notes=$(tehas_release_between "$target" "$installed" "$list")
+      notes=$(tehas_release_between "$target" "$from_note" "$list")
     else
       echo "release: the notes up to $target:"
-      notes=$(tehas_release_between "$installed" "$target" "$list")
+      notes=$(tehas_release_between "$from_note" "$target" "$list")
     fi
     while IFS= read -r line; do
       [ -n "$line" ] || continue
