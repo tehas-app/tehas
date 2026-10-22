@@ -1,0 +1,19 @@
+# The store program: install.sh builds it and installs the binary as
+# ~/tehas/libexec/store. It is the only writer of state/tehas.db. A member of
+# the workspace in ../Cargo.toml. The crates are the ones the analytics
+# program already resolves: rusqlite with the bundled SQLite.
+[package]
+name = "store"
+version = "0.1.0"
+edition = "2021"
+# The oldest compiler that knows what the source uses.
+rust-version = "1.80"
+publish = false
+
+[[bin]]
+name = "store"
+path = "src/main.rs"
+
+[dependencies]
+rusqlite = { version = "0.38", features = ["bundled"] }
+serde_json = "1"
