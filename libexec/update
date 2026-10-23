@@ -95,7 +95,8 @@
 # While $TEHAS_HOME/state/update-hold exists an update refuses to run, with
 # exit 1, and --check says the hold is there. A person who rolled the platform
 # back makes that file, so the next update does not move it forward again.
-# --to names its version and is not held.
+# --to names its version and is not held, and neither is --pending: it moves
+# nothing, so the hold keeps no step of its own from running.
 #
 # Usage:
 #   tehas update             move to the newest release, or pull the checkout;
@@ -117,6 +118,15 @@
 #                            It asks upstream which pi-rukas commit to follow.
 #                            Nothing is merged, installed, built or started, and
 #                            it exits 1 when there is something to update.
+#   tehas update --pending   run only the follow-ups $TEHAS_HOME/state/
+#                            update-pending lists, in the order
+#                            lib/update-steps.sh gives them, and clear the
+#                            record. It runs no git command and no install.sh,
+#                            so it finishes an install on a checkout that is not
+#                            on a branch, or whose remote is not reachable.
+#                            Nothing is pulled, installed, built by install.sh
+#                            or fetched, and a record with nothing in it is not
+#                            a failure.
 #   tehas update -h|--help   print this text and exit 0
 #
 # Exit: 0 updated, or already up to date,
@@ -144,13 +154,17 @@
 #         asked for is not published, or a download is missing a file, does
 #         not match its .sha256 or is not signed by the installed key; nothing is
 #         switched then.
+#         --pending reads no checkout and no remote, so of these it answers 1
+#         only for a step that failed or timed out, for a step line this command
+#         does not know, and for a record it cannot read.
 #       64 --help with another argument, --to without a version or with one not
-#         shaped vX.Y.Z, --to on a host that updates from its checkout, or an
-#         argument this command does not know
+#         shaped vX.Y.Z, --to on a host that updates from its checkout, --pending
+#         with --check or with --to, or an argument this command does not know
 #       78 the instance settings are missing or malformed, there is no
 #         platform checkout, the host has neither one nor ~/tehas/current and
 #         no TEHAS_UPDATE_FROM, or the release to switch to asks for a setting
-#         the instance does not have (nothing is switched)
+#         the instance does not have (nothing is switched). --pending asks for
+#         the settings only: a host with no checkout and no current runs it.
 set -uo pipefail
 
 # How long to wait for state/update.lock before saying another update is
@@ -202,6 +216,7 @@ unknown_argument() {
 # instance settings yet, and an argument this command does not know reaches
 # neither git nor Docker. Decided before anything is run.
 mode=update
+checked=0
 pending=0
 to=""
 case " $* " in
@@ -215,7 +230,14 @@ case " $* " in
 esac
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --check) mode=check ;;
+    --check)
+      mode=check
+      checked=1
+      ;;
+    --pending)
+      mode=pending
+      pending=1
+      ;;
     -h | --help) show_usage; exit 0 ;;
     --to)
       [ "$#" -ge 2 ] || { echo "tehas update: --to needs a version" >&2; exit 64; }
@@ -226,10 +248,25 @@ while [ "$#" -gt 0 ]; do
   esac
   shift
 done
+# Both names are read before anything is refused, so the pair is refused
+# whichever way round it was written and before the settings are read: a program
+# that asks for two modes at once gets 64, not the answer of the mode that
+# happened to be read last.
+if [ "$pending" = 1 ] && { [ "$checked" != 0 ] || [ -n "$to" ]; }; then
+  other=
+  [ "$checked" = 0 ] || other="$other --check"
+  [ -z "$to" ] || other="$other --to"
+  printf 'tehas update: --pending runs the recorded follow-ups, and does not go with %s\n' \
+    "${other# }" >&2
+  echo "  it takes neither --check nor --to" >&2
+  exit 64
+fi
 if [ -n "$to" ] && [[ ! $to =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "tehas update: --to takes a version vX.Y.Z, got: $to" >&2
   exit 64
 fi
+# --pending runs what the record lists and nothing else, so --check and --to are
+# refused with it, above, with the other argument refusals.
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/config.sh
@@ -245,16 +282,28 @@ tehas_require_instance_settings
 
 # shellcheck source=lib/update-release.sh
 . "$here/../lib/update-release.sh"
-from=$(tehas_update_source) || exit 78
+# --pending runs no git command and no install.sh, so it asks of the host only
+# that its settings read. A host whose platform checkout is at a release tag
+# (detached HEAD), or whose remote is a local path that no longer answers, is
+# the host this form is for: install.sh has already copied the files, and the
+# steps it recorded are all that is left.
+# Where the new code comes from: git or release. --pending reads none, so it
+# asks no question of the host's checkout or of a remote and leaves this unset.
+from=""
+if [ "$mode" != pending ]; then
+  from=$(tehas_update_source) || exit 78
+fi
 if [ -n "$to" ] && [ "$from" != release ]; then
   echo "tehas update: --to installs a release, and this host updates from its platform checkout (TEHAS_UPDATE_FROM=git); nothing was changed" >&2
   exit 64
 fi
 
 # --to names its version, so it is not held: the hold keeps a plain update from
-# moving the host on after a person moved it.
+# moving the host on after a person moved it. --pending moves nothing either, so
+# the steps it runs are not what the hold was made against: a host rolled back by
+# hand still finishes the follow-ups install.sh recorded for it.
 hold=$TEHAS_HOME/state/update-hold
-if [ -e "$hold" ] && [ -z "$to" ]; then
+if [ -e "$hold" ] && [ -z "$to" ] && [ "$mode" != pending ]; then
   if [ "$mode" = update ]; then
     echo "tehas update: $hold exists, the platform is held where it is; nothing was changed. Remove the file to update." >&2
     exit 1
@@ -264,7 +313,8 @@ fi
 
 checkout=$TEHAS_HOME/platform
 # .git is a directory in a clone and a file in a worktree or a submodule.
-if [ "$from" = git ] && { [ ! -e "$checkout/.git" ] || [ ! -f "$checkout/install.sh" ]; }; then
+if [ "$mode" != pending ] && [ "$from" = git ] &&
+  { [ ! -e "$checkout/.git" ] || [ ! -f "$checkout/install.sh" ]; }; then
   echo "tehas update: no platform checkout at $checkout. Clone the platform repository there, or run ./install.sh from wherever you keep it." >&2
   exit 78
 fi
@@ -273,7 +323,7 @@ fi
 # the record of steps owed with its own view. install.sh takes the same lock;
 # the descriptor this one holds it on is handed to it, so it does not refuse its
 # own parent. --check changes nothing on the host and takes no lock.
-if [ "$mode" = update ]; then
+if [ "$mode" = update ] || [ "$mode" = pending ]; then
   update_lock=$TEHAS_HOME/state/update.lock
   if ! mkdir -p "$TEHAS_HOME/state" || ! exec 7>>"$update_lock"; then
     echo "tehas update: cannot open $update_lock; nothing was changed" >&2
@@ -321,6 +371,17 @@ if [ "${#leftover[@]}" != 0 ]; then
     "${#leftover[@]}" "$pending_file" >&2
   printf '  next: %s\n' "${leftover[@]}" >&2
 fi
+if [ "$mode" = pending ] && [ "${#leftover[@]}" = 0 ]; then
+  # The record is the whole of the work this form was asked for. A line no step
+  # here knows is not owed work this command can do, so once those are named
+  # below, the record holds nothing more for it and the run has nothing to do.
+  # install.sh --check reports the unknown line on its own, as it does for any
+  # other run.
+  [ "${#unknown[@]}" != 0 ] || {
+    echo "update: nothing is owed"
+    exit 0
+  }
+fi
 
 # The step lines this run was given that no step here knows. They are named, and
 # they stay in the record: a producer that has moved ahead of this consumer is a
@@ -333,7 +394,15 @@ warn_unknown() {
   return 0
 }
 
-if [ "$from" = git ]; then
+if [ "$mode" = pending ]; then
+  # --- 1. Nothing: no git, no remote, no install.sh ---------------------------
+  # The record read above is the whole of what this run was asked for. The
+  # checkout is not asked whether it is on a branch, the remote is not fetched,
+  # no version is chosen and install.sh is not run, so a host whose checkout is
+  # at a release tag finishes the install install.sh started. Section 2 below
+  # runs no command here: install.sh is the only thing it has ever run.
+  :
+elif [ "$from" = git ]; then
   # --- 1. The checkout ---------------------------------------------------------
   # A branch, and nothing uncommitted: an update that carried on past either one
   # would merge into a tree somebody is editing.
@@ -610,6 +679,18 @@ rukas_later() {
 # a diagnostic belongs, so what happened to be written as an error can never be
 # taken for a step to run. Its follow-ups are read twice: from the lines it
 # printed, and from the record it wrote as it copied.
+# --pending runs no install.sh: the record of section 1 is what it was asked to
+# finish, so it carries that record forward as the report of this run and skips
+# the copies, the dependency check and the tests install.sh would run.
+if [ "$mode" = pending ]; then
+  # The lines of the record, in the form install.sh prints them, so section 3
+  # below reads one list for both kinds of run. Nothing here asks install.sh:
+  # its copies, its dependency check and its tests are not what this form was
+  # called for.
+  out=""
+  [ "${#leftover[@]}" = 0 ] || out=$(printf 'next: %s\n' "${leftover[@]}")
+  rc=0
+else
 run=("$checkout/install.sh")
 [ "$mode" = check ] && run+=(--check)
 # install.sh is the step that does the real work on the host - copies, a
@@ -687,6 +768,7 @@ if [ "$mode" = update ] && [ -r "$checkout/lib/update-steps.sh" ]; then
     echo "update: $checkout/lib/update-steps.sh could not be read; no follow-up was run" >&2
     exit 1
   }
+fi
 fi
 
 # --- 3. The follow-ups -------------------------------------------------------
@@ -1028,8 +1110,11 @@ if [ "${#steps[@]}" != 0 ] && [ "$ran" -lt "${#steps[@]}" ]; then
     $((${#steps[@]} - ran)) "${#steps[@]}" "$pending_file" >&2
 fi
 
-# A build this run made is already on the commit followed.
-if [ "$status" = 0 ] && [ "$built" = 0 ] && follows_rukas && ! rukas_step --if-moved; then
+# A build this run made is already on the commit followed. --pending moves
+# nothing: it asked no remote anything, so a head it did not ask about is not
+# something it can be said to have missed.
+if [ "$mode" != pending ] && [ "$status" = 0 ] && [ "$built" = 0 ] && follows_rukas &&
+  ! rukas_step --if-moved; then
   echo "pi-rukas: the image was not moved to the commit versions.env follows; tehas update tries again" >&2
   status=1
 fi

@@ -2828,6 +2828,7 @@ tehas update                  # the newest release, or pull the checkout;
                               # install, run the follow-ups that apply
 tehas update --to v0.8.1      # that release, an older one too
 tehas update --check          # report what would change; change nothing
+tehas update --pending        # run the follow-ups the record lists, no git
 tehas update --help           # print the usage of the command, touch nothing
 ```
 
@@ -3003,6 +3004,22 @@ what its files changed: when they all match it says `tehas is up to date` even w
 steps still in the record, so `install.sh --check`, or `tehas update --check`, is
 what names them. There is no command that marks a follow-up done by hand; running
 `tehas update` runs it again and clears it.
+
+**`--pending`.** `tehas update --pending` runs the lines that record holds and
+nothing else: it takes the update lock, reads `$TEHAS_HOME/state/update-pending`,
+runs each step in the order `lib/update-steps.sh` gives them, drops each line as
+it runs, and calls no git command and no `install.sh`. That is the half of an
+install a program can finish on a host the other three forms refuse: a checkout
+at a release tag has no branch to fast-forward, and a remote that is a local path
+can stop answering, while the copies `install.sh` made are already in place. It
+asks nothing of the checkout or of a remote, so it needs neither: a host with no
+`~/tehas/platform` and no `~/tehas/current` runs it, where a plain update would
+stop with 78 naming `TEHAS_UPDATE_FROM`. A hold does not stop it, because it
+moves nothing. An empty record prints `update: nothing is owed` and exits 0; a
+step that fails leaves its line in the record and the run exits 1, so the next
+run has the same work list; a line no version here knows is named in a `WARN:`,
+stays recorded, and exits 1. `--pending` with `--check` or with `--to` is refused
+with 64, before the settings are read.
 
 Every call outside the command has a limit, and hitting it fails saying how long:
 120s for the fetch, 1800s for install.sh (copies, dependency check and its one
