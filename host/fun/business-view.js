@@ -92,11 +92,17 @@ export function lineView({ status = null, lab = null, sample = null, nowMs = Dat
   }
   const stages = STAGES.map((st) => {
     const these = items[st.key];
+    // Shipped is the label's total, not the list's length: status.json counts
+    // every closed issue that carries tehas:shipped, and the list holds only
+    // the latest fifty. Without the count, as on an older host, the length of
+    // the list is the best answer there is.
+    const shipped = st.from === "completed" && s && Number.isSafeInteger(s.completedCount) && s.completedCount > 0;
+    const count = shipped ? s.completedCount : these.length;
     const href = st.key === "proto" ? base
       : repo ? `https://github.com/${repo}/issues?q=${encodeURIComponent(st.search)}` : null;
-    const text = st.key === "stop" ? "See what stopped" : `All ${these.length} ${MORE[st.key]}`;
-    return { key: st.key, label: st.label, count: these.length, items: these, first: st.first, later: st.later, none: st.none,
-      more: these.length && href ? { text, href } : null };
+    const text = st.key === "stop" ? "See what stopped" : `All ${count} ${MORE[st.key]}`;
+    return { key: st.key, label: st.label, count, items: these, first: st.first, later: st.later, none: st.none,
+      more: (shipped || these.length) && href ? { text, href } : null };
   });
   return {
     source,

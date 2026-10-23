@@ -39,6 +39,11 @@
 # `planning` is how many open issues carry tehas:plan or tehas:planning: the
 # work being planned, a count only. The same search as the lists finds them.
 #
+# `completedCount` is how many closed issues carry tehas:shipped, which is the
+# set the page's "all shipped" link opens: a count from its own search, so it
+# keeps rising past the fifty the `completed` list holds. Without an answer to
+# that call the snapshot is written with no count, as the words are.
+#
 # It writes live/analytics.json, the ten-day report of the factory's
 # analytics (analytics_report below), at every run, the runs that end early
 # when GitHub does not answer too. TEHAS_ANALYTICS=off removes it.
@@ -270,6 +275,14 @@ shipped=$(gh api graphql -f q="repo:$repo is:issue is:closed linked:pr sort:upda
       closer { ... on PullRequest { merged } } } } } } } } }' 2>/dev/null) || exit 0
 shipped=$(jq -ce '.data.search.nodes | map(select(.number != null and .timelineItems.nodes[0].closer.merged == true)
   | {number, title, url, updatedAt, closedAt, labels: [.labels.nodes[].name]})' <<<"$shipped" 2>/dev/null) || exit 0
+# The count the page shows: every closed issue with the label, not the fifty
+# this script reads. A count of the same set as the list's "all" link, so the
+# figure and the link agree. first: 0 asks for the total and no nodes.
+# shellcheck disable=SC2016  # $q is a GraphQL variable
+shipped_count=$(gh api graphql -f q="repo:$repo is:issue is:closed label:tehas:shipped" -f query='
+  query($q: String!) { search(type: ISSUE, query: $q, first: 0) { issueCount } }' 2>/dev/null) || shipped_count=""
+shipped_count=$(jq -ce '.data.search.issueCount | select(type == "number")' <<<"$shipped_count" 2>/dev/null) || shipped_count=""
+completed_count=$shipped_count
 # The control issue's labels, read once for both of its switches.
 control_read=true
 control_labels=" $(gh issue view "$control" --repo "$repo" --json labels \
@@ -350,12 +363,15 @@ jq -n --slurpfile issues <(printf '%s' "$issues") --slurpfile shipped <(printf '
   --slurpfile everything <(printf '%s' "$everything") --argjson paused "$paused" \
   --argjson noResources "${no_resources:-false}" --argjson pauseFlag "$pause_flag" --argjson flagPaused "$flag_paused" \
   --argjson lifted "$lifted" --argjson allHands "$all_hands" \
-  --arg control "$control" \
+  --arg completedCount "$completed_count" --arg control "$control" \
   --arg repo "$repo" --arg now "$(date -u +%FT%TZ)" '
   $issues[0] as $issues | $shipped[0] as $shipped | $everything[0] as $everything
   | def has($l): (.labels | map(.name) | index($l)) != null;
   def slim: {number, title, url, updatedAt, closedAt};
   def listurl($q): "https://github.com/\($repo)/issues?q=" + ($q | @uri);
+  # The count of everything labelled tehas:shipped, from its own search. No
+  # number from that search, no key: the page falls back to the length of the
+  # list below, as it does for a host that has no field at all.
   # The control issue holds the pause label and no outcome. It is not work, so
   # it is never counted in line, being worked on, waiting for a human or waiting
   # to be merged, whatever label someone gives it. The dispatcher starts nothing
@@ -373,6 +389,7 @@ jq -n --slurpfile issues <(printf '%s' "$issues") --slurpfile shipped <(printf '
       stopped: ($open | map(select(has("needs-human-attention") and (has("tehas:running") | not)) | slim)),
       planning: ($open | map(select(has("tehas:plan") or has("tehas:planning"))) | length),
       completed: ($shipped | map(slim) | sort_by(.closedAt) | reverse),
+      completedCount: (if $completedCount == "" then null else ($completedCount | tonumber) end),
       links: {
         queued: listurl("is:issue is:open label:tehas:ready"),
         awaiting: listurl("is:issue is:open label:tehas:awaiting-merge"),
@@ -381,6 +398,7 @@ jq -n --slurpfile issues <(printf '%s' "$issues") --slurpfile shipped <(printf '
         all: "https://github.com/\($repo)/issues"
       }
     }
+  | with_entries(select(.value != null))
   + (if $everything == null then {} else {
       buzzwords: ([$everything[] | objects
                    | ([.title | strings] + [.labels[]?.name? | strings] | join(" ") | ascii_downcase)

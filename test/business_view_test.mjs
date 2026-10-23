@@ -94,6 +94,35 @@ test("a ticket the queue lists twice stands at one place: stopped first, then re
   assert.deepEqual(v.stages.map((s) => s.items.map((t) => t.number)), [[], [13], [], [18], [2], [83]]);
 });
 
+// The shipped figure is the label's total, so it keeps rising past the fifty
+// items the list holds; its "all" link says the same number.
+test("shipped counts what the label says, not the fifty the list holds", () => {
+  const fifty = Array.from({ length: 50 }, (_, i) => issue(i + 100));
+  const v = lineView({ status: status({ completed: fifty, completedCount: 138 }), nowMs: NOW });
+  const ship = v.stages.find((s) => s.key === "ship");
+  assert.equal(ship.count, 138);
+  assert.equal(ship.items.length, 50);
+  assert.deepEqual(ship.more, { text: "All 138 shipped",
+    href: "https://github.com/acme/widget/issues?q=" + encodeURIComponent("is:closed") });
+  // The other stages keep counting their own list.
+  assert.equal(v.stages.find((s) => s.key === "line").count, 2);
+});
+
+test("without the count the shipped figure is the length of the list, as on an older host", () => {
+  const shipOf = (extra) => lineView({ status: status(extra), nowMs: NOW }).stages.find((s) => s.key === "ship");
+  for (const missing of [{}, { completedCount: null }, { completedCount: "138" },
+    { completedCount: 1.5 }, { completedCount: -3 }, { completedCount: NaN }]) {
+    const ship = shipOf({ completed: [issue(83)], ...missing });
+    assert.equal(ship.count, 1, JSON.stringify(missing));
+    assert.deepEqual(ship.more, { text: "All 1 shipped",
+      href: "https://github.com/acme/widget/issues?q=" + encodeURIComponent("is:closed") });
+  }
+  // Nothing listed and the count says none: an empty stage keeps no link.
+  assert.equal(shipOf({ completed: [], completedCount: 0 }).more, null);
+  // Nothing listed and no count: as it was before the field.
+  assert.equal(shipOf({ completed: [] }).more, null);
+});
+
 test("the board lists the open tickets on the line, in the line's order", () => {
   const rows = boardRows(lineView({ status: status(), nowMs: NOW }));
   assert.deepEqual(rows.map((r) => [r.number, r.stage]), [[13, "line"], [14, "line"], [23, "build"], [18, "review"], [2, "stop"]]);
