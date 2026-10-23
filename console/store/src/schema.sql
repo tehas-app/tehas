@@ -3,7 +3,8 @@
 -- SCHEMA_VERSION in db.rs, kept in PRAGMA user_version. Within one version
 -- columns are only added; a change of meaning raises the version. Times are
 -- UTC Unix seconds and durations are seconds, as integers: a column named
--- *_at is an instant and *_seconds is a duration, never a file mtime.
+-- *_at is an instant and *_seconds is a duration, never a file mtime
+-- (cycle_progress.written_at is the one exception).
 -- Booleans are INTEGER 0 or 1; a list that is only ever read whole is JSON
 -- text with a _json suffix. Nothing here holds a token, an address or a key,
 -- and nothing a container wrote is kept as a fact (section 3.14).
@@ -42,14 +43,15 @@ CREATE INDEX issues_checked ON issues (checked_at);
 -- 3.3 cycles: the start and the end of one run. Was the .taken, .by,
 -- .requeued, .done, .rukas, .image, .branch, .oom, .forks, .stalled, .timed,
 -- .runner_exit and .status files, whose start time was an mtime.
--- end_reason is the union of what the two writers can say; a word outside it
--- is a verb error rather than a row SQLite refuses.
+-- end_reason is the union of what the two writers can say; cycle-end stores
+-- a word outside it as 'unknown'. An ended row with end_reason NULL is a start
+-- the cycle refused. A run by hand has how 'hand' and no started_by.
 CREATE TABLE cycles (
   issue          INTEGER PRIMARY KEY REFERENCES issues (issue) ON DELETE CASCADE,
   attempt        INTEGER NOT NULL DEFAULT 1,
   started_at     INTEGER NOT NULL,
-  started_by     TEXT NOT NULL,
-  how            TEXT NOT NULL CHECK (how IN ('label','refresh','retry-tick','outage-retry','fixer')),
+  started_by     TEXT,
+  how            TEXT NOT NULL CHECK (how IN ('label','refresh','retry-tick','outage-retry','fixer','hand')),
   requeued       INTEGER NOT NULL DEFAULT 0,
   rukas_commit   TEXT,
   image          TEXT,
@@ -150,11 +152,13 @@ CREATE TABLE planning_answers (
   fixer      INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (issue, turn)
 );
+-- url is the filed issue's whole URL: it may be in another repository.
 CREATE TABLE planning_filed (
   issue INTEGER NOT NULL REFERENCES planning (issue) ON DELETE CASCADE,
+  url TEXT NOT NULL,
   filed_issue INTEGER NOT NULL,
   at INTEGER NOT NULL,
-  PRIMARY KEY (issue, filed_issue)
+  PRIMARY KEY (issue, url)
 );
 
 -- 3.6 the settings, the notes said once, and what the runner answered. Both
@@ -181,6 +185,8 @@ CREATE TABLE cycle_results (
   payload TEXT NOT NULL,
   PRIMARY KEY (issue, received_at)
 );
+-- written_at is the progress file's mtime, the one *_at taken from a file:
+-- the file has no time inside it.
 CREATE TABLE cycle_progress (
   issue INTEGER NOT NULL REFERENCES cycles (issue) ON DELETE CASCADE,
   received_at INTEGER NOT NULL,
@@ -194,6 +200,7 @@ CREATE TABLE cycle_progress (
 
 -- 3.7 parks and questions. questions is the only place a comment id is
 -- believed: a comment that is not in this table is not the factory's question.
+-- A question the host withdrew is deleted.
 CREATE TABLE parks (
   issue    INTEGER NOT NULL REFERENCES issues (issue) ON DELETE CASCADE,
   attempt  INTEGER NOT NULL,
@@ -216,18 +223,24 @@ CREATE TABLE questions (
 );
 CREATE INDEX questions_issue ON questions (issue, posted_at);
 
--- 3.8 the histories, append-only, one row per end. Were the three JSONL
--- ledgers the shell commands parsed.
+-- 3.8 the histories, one row per end, the 50 newest per issue kept. Were the
+-- three JSONL ledgers the shell commands parsed. The runner's words (cap,
+-- park_reason, failure_kind, failure_cause) are claims, stored only cleaned to
+-- a fixed set and bound.
 CREATE TABLE cycle_history (
   id INTEGER PRIMARY KEY,
   issue INTEGER NOT NULL, attempt INTEGER NOT NULL, at INTEGER NOT NULL,
-  status TEXT NOT NULL, step TEXT, by_account TEXT, how TEXT, pr INTEGER
+  status TEXT NOT NULL, step TEXT, by_account TEXT, how TEXT, pr INTEGER,
+  started_at INTEGER, rc INTEGER, cap TEXT, park_reason TEXT,
+  failure_kind TEXT, failure_cause TEXT,
+  provider INTEGER NOT NULL DEFAULT 0, parked INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX cycle_history_issue ON cycle_history (issue, at);
 CREATE TABLE plan_history (
   id INTEGER PRIMARY KEY,
   issue INTEGER NOT NULL, turn INTEGER NOT NULL, at INTEGER NOT NULL,
-  outcome TEXT NOT NULL, session TEXT
+  outcome TEXT NOT NULL, session TEXT,
+  started_at INTEGER, rc INTEGER, by_account TEXT, label TEXT, filed_json TEXT
 );
 CREATE INDEX plan_history_issue ON plan_history (issue, at);
 CREATE TABLE refined (

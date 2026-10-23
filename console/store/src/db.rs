@@ -302,7 +302,12 @@ pub mod pages {
 pub enum Purpose {
     Read,
     Write,
+    /// A data verb that only reads: it waits up to `LOOK_TIMEOUT`, because in
+    /// WAL mode the last connection to close locks the file to checkpoint.
+    Look,
 }
+
+pub const LOOK_TIMEOUT: Duration = Duration::from_millis(1000);
 
 /// Opens the store for reading and writing: the path is guarded, the file must
 /// already be there, and every connection carries the pragmas of section 3.
@@ -378,12 +383,26 @@ pub fn open_read_only(file: &Path) -> Result<Connection, DbError> {
     if !file.exists() {
         return Err(DbError::Missing);
     }
+    read_only(file, Purpose::Read)
+}
+
+/// `open_read_only` with a busy timeout of `LOOK_TIMEOUT`, for the data verbs
+/// that only read.
+pub fn open_look(file: &Path) -> Result<Connection, DbError> {
+    guard_result(file)?;
+    if !file.exists() {
+        return Err(DbError::Missing);
+    }
+    read_only(file, Purpose::Look)
+}
+
+fn read_only(file: &Path, purpose: Purpose) -> Result<Connection, DbError> {
     let conn = Connection::open_with_flags(
         file,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
     .map_err(classify)?;
-    prepare(&conn, Purpose::Read)?;
+    prepare(&conn, purpose)?;
     Ok(conn)
 }
 
@@ -445,6 +464,7 @@ fn prepare(conn: &Connection, purpose: Purpose) -> Result<(), DbError> {
     conn.busy_timeout(match purpose {
         Purpose::Write => BUSY_TIMEOUT,
         Purpose::Read => Duration::ZERO,
+        Purpose::Look => LOOK_TIMEOUT,
     })
     .map_err(classify)?;
     let mode: String = conn
