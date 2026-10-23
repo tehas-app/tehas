@@ -2424,6 +2424,7 @@ tehasbot clean                # one run; one line per removal in ~/tehas/logs/cl
 tehasbot clean --dry-run      # log what it would remove and remove nothing
 systemctl --user enable --now tehas-clean.timer
 tail ~/tehas/logs/clean.log
+journalctl --user -u tehas-clean
 ```
 
 Removes what the host can make again, of anything untouched for
@@ -2484,6 +2485,12 @@ Exit 0 when every step worked; 1 when a step failed (what could be removed was
 removed); 3 when another run holds the lock, which changes nothing; 64 on an
 argument this command does not know; 78 when the settings are missing or
 malformed, before any docker, find or rm call.
+
+Each line that goes to `clean.log` is printed as well, and the unit adds no
+redirect of its own, so a timer run's output is in the journal. The exits that
+happen before the log can be opened - 78, 1 and the 3 of a held lock - are said
+on stderr only: `journalctl --user -u tehas-clean` is where a timer run that
+left nothing in `clean.log` explains itself.
 
 ## tehasbot preview
 
