@@ -292,6 +292,42 @@ echo "ADDR=$addr" >"$repo/docs/caf$(printf '\303\251').md"
 t_run "$lint"
 t_eq "$t_rc" 1
 
+t_case "a name that starts with a dash is a name, not a grep option"
+fresh
+printf '%s\n' "-$nm" >"$repo/scripts/check-generic.names"
+echo "see x-$nm" >"$repo/docs/a.md"
+t_run "$lint"
+t_eq "$t_rc" 1
+t_contains "$t_out" "docs/a.md:1:see x-$nm"
+t_lacks "$t_out" "invalid name expression"
+
+t_case "a path that starts with a dash is a file, not a grep option"
+fresh
+echo clean >"$repo/-v"
+echo clean >"$repo/-r"
+echo "ADDR=$addr" >"$repo/zz"
+t_run "$lint"
+t_eq "$t_rc" 1
+t_contains "$t_out" "zz:1:ADDR=$addr"
+t_lacks "$t_out" "-v:"
+t_lacks "$t_out" "-r:"
+
+t_case "a hit is shown with its path as written, whatever characters it has"
+for p in 'a|b.md' 'a&b.md' 'a\b.md' 'a#b.md'; do
+  fresh
+  echo "$nm" >"$repo/scripts/check-generic.names"
+  echo "see $nm" >"$repo/docs/$p"
+  t_run "$lint"
+  t_eq "$t_rc" 1
+  t_contains "$t_out" "docs/$p:1:see $nm"
+done
+fresh
+echo "$nm" >"$repo/scripts/check-generic.names"
+echo "see $nm" >"$repo/docs/a"$'\n'"b"
+t_run "$lint"
+t_eq "$t_rc" 1
+t_contains "$t_out" "docs/a\\nb:1:see $nm"
+
 t_case "the list of names is ignored by git in this repository"
 t_eq "$(git -C "$T_ROOT" check-ignore -q scripts/check-generic.names && echo ignored)" ignored
 
