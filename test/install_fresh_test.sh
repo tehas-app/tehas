@@ -53,7 +53,9 @@ fresh
 instance
 mkdir -p "$th/state"
 lock=$th/state/update.lock
-t_run "exec 8>>'$lock'; flock -n 8 || exit 9; '$install'"
+# The case below that asks for the same refusal is timed; this one does the
+# steps that cost seconds before it gets to the lock, so it is not.
+t_run "$no_wait exec 8>>'$lock'; flock -n 8 || exit 9; '$install'"
 t_eq "$t_rc" 1
 t_contains "$t_out" "tehas: another update is running ($lock); nothing was installed"
 t_eq "$(core_files)" ""
@@ -68,11 +70,17 @@ t_case "a descriptor on the lock file that does not hold the lock is not taken f
 fresh
 instance
 mkdir -p "$th/state"
-t_run "( exec 6>>'$lock'; flock -n 6 && : >'$T/held' && exec sleep 20 ) &
+# Timed with the same bound as the case in test/update_test.sh: the refusal is
+# meant to come at once and the default wait is 10 seconds, so a knob that does
+# not reach install.sh is red here. See test/install_lib.sh for what no_wait is.
+start=$(date +%s%N)
+t_run "$no_wait ( exec 6>>'$lock'; flock -n 6 && : >'$T/held' && exec sleep 20 ) &
 while [ ! -e '$T/held' ]; do sleep 0.1; done
 exec 8>>'$lock'; TEHAS_UPDATE_LOCK_FD=8 '$install'; rc=\$?; kill \$!; wait; exit \$rc"
+elapsed=$(( ($(date +%s%N) - start) / 1000000 ))
 rm -f "$T/held"
 t_eq "$t_rc" 1
+t_eq "$([ "$elapsed" -lt 5000 ] && echo fast || echo "slow: ${elapsed}ms")" fast
 t_contains "$t_out" "another update is running"
 t_eq "$(core_files)" ""
 
