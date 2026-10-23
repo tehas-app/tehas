@@ -13,14 +13,53 @@ empty one above it.
 
 ### Changes
 
-- `tehasbot clean` lists the base image's repository and the sandbox image in
-  two calls of `docker image ls`, which takes at most one name. In v0.10.3 it
-  asked both in one call, docker refused, and the clean ended with exit 1
-  having removed no old base image.
+- None yet.
 
 ### Adopter action
 
 - None.
+
+## v0.10.4 (2026-10-23)
+
+### Changes
+
+- `tehasbot clean` lists the base image's repository and the sandbox image in
+  two calls of `docker image ls`, which takes at most one name. In v0.10.3 it
+  asked both in one call, docker refused, and the clean ended with exit 1
+  having removed no old base image.
+- The head of the default branch has a preview of its own at
+  `uat-main.<domain>`, built from its `preview/Dockerfile` like a pull
+  request's and listed first under Previews as `main`. It does not count
+  against `TEHAS_PREVIEW_MAX` and nothing removes it.
+- `tehas dev` keeps a session's cargo build output in
+  `~/tehas/dev/<name>.state/target`, so a later session of the same clone does
+  not rebuild from scratch. The cleaner does not touch it.
+- `install.sh` installs every `lib/polyfill-*.sh` into `~/tehas/lib/`.
+- A sandbox rebuild is asked for only when `versions.env` changes in a line
+  the image build reads, not for any change to the file.
+- `tehas update --check` on a host installed from a checkout lists the
+  releases since the newest tag at or before the checkout's HEAD.
+- `tehas api` reports the release tag of a release install, where it said no
+  release.
+- The console's state store has its first schema and migrations. Nothing reads
+  it yet.
+- `tehas update` prints `later: <checkout>/bootstrap.sh user` when the sandbox
+  image was built on a pi-rukas commit the host's clone is not on, even when
+  `versions.env` did not change. Until then `install.sh --check` fails on
+  pi-rukas.
+- When a test file fails, the gate's summary line names the first failing case
+  as well as the file.
+
+### Adopter action
+
+- If `tehas update` prints the `bootstrap.sh user` line, run it as the tehas
+  user. A host that followed pi-rukas to a new release since its last
+  bootstrap needs it once.
+- A proxy in front of the edge router has to pass the name `uat-main` as well
+  as `uat-<pr>`. Without a `preview/Dockerfile` on the default branch nothing
+  is built.
+- After `tehas update`, the first clean removes the old base images v0.10.3
+  left behind.
 
 ## v0.10.3 (2026-10-22)
 
