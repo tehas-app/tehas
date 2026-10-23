@@ -19,7 +19,7 @@ bare_tree() {
   rm -rf "$tree"
   mkdir -p "$tree/libexec" "$tree/lib"
   cp "$dispatch" "$tree/libexec/dispatch"
-  cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/cycles.sh" "$T_ROOT/lib/labels.sh" "$T_ROOT/lib/questions.sh" "$T_ROOT/lib/planning.sh" "$T_ROOT/lib/slice.sh" "$T_ROOT/lib/attachments.sh" "$tree/lib/"
+  cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/cycles.sh" "$T_ROOT/lib/labels.sh" "$T_ROOT/lib/questions.sh" "$T_ROOT/lib/planning.sh" "$T_ROOT/lib/slice.sh" "$T_ROOT/lib/disk.sh" "$T_ROOT/lib/attachments.sh" "$tree/lib/"
   for name in status index plan; do cp "$T/bin/fake-$name" "$tree/libexec/$name"; done
   for name in tehas tehasbot tehas-work tehas-status tehas-index tehas-plan; do t_stub "$name"; done
   # Runs the unit's command at once, after its own options.

@@ -776,7 +776,9 @@ recording, and both commands then say so and exit 69.
   both with `df`; space it cannot read is held on as well, and the log says
   `holding: <n> GiB free on the disk, under TEHAS_CYCLE_MIN_FREE=<value>: no
   cycle starts` or `holding: the free disk space could not be read: no cycle
-  starts`. Running cycles are not touched, and a planning turn is not held, so
+  starts`. Neither figure is ever taken for the other: when `df` answers
+  nothing for one of the two file systems, the poll holds rather than guess.
+  Running cycles are not touched, and a planning turn is not held, so
   what the host already works on finishes; only new cycles wait. On 2026-10-20
   a host's disk filled and every running cycle died, which is why the check is
   there. Previews have their own, lower, bound in `TEHAS_PREVIEW_MIN_FREE`.

@@ -85,6 +85,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/config.sh"
 # shellcheck source=lib/edge.sh
 . "$here/../lib/edge.sh"
+# shellcheck source=lib/disk.sh
+. "$here/../lib/disk.sh"
 
 mode=run
 case "${1:-}" in
@@ -235,22 +237,15 @@ purge() { # <number>: everything of one pull request
 }
 
 # --- Free space --------------------------------------------------------------
-# free_kb: the free kilobytes of the host, the smaller of the file system of
-# $TEHAS_HOME and the one Docker keeps its images on. Fails when the first
-# cannot be read: no figure is not the same as plenty.
-free_kb() {
-  local a b dir
-  a=$(df -Pk "$TEHAS_HOME" 2>/dev/null | awk 'NR == 2 {print $4}')
-  [[ $a =~ ^[0-9]+$ ]] || return 1
-  dir=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null)
-  b=$(df -Pk "${dir:-/var/lib/docker}" 2>/dev/null | awk 'NR == 2 {print $4}')
-  [[ $b =~ ^[0-9]+$ ]] || b=$a
-  echo $((a < b ? a : b))
-}
+# The reading itself is tehas_free_kb in lib/disk.sh, which the dispatcher
+# shares. min_kb is the bound this command holds builds to, in the same
+# kilobytes.
+min_kb=$((TEHAS_PREVIEW_MIN_FREE_MB * 1024))
 # measure: set "free" and "low" for this run. Space that cannot be read is
-# low: nothing is built on a guess.
+# low: nothing is built on a guess. The bound TEHAS_PREVIEW_MIN_FREE is this
+# command's; the reading of the two file systems is lib/disk.sh's.
 measure() {
-  if free=$(free_kb); then
+  if free=$(tehas_free_kb "$TEHAS_HOME"); then
     [ "$free" -ge "$min_kb" ] || low=true
   else
     free=""

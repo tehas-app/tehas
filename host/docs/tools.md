@@ -2101,8 +2101,12 @@ it: `time`, `why`, `hold`, `count`, `room`, `committed`, `max` and `reserve`.
 `hold` is the line the dispatcher logged; with `unreadable` it names the file
 and what was missing in it. `resources` is a model endpoint that does not
 answer or does not offer the configured model, or, with `TEHAS_WORK_IMAGES=1`,
-a model or sandbox image that cannot take the images. `disk` is less than
-`TEHAS_CYCLE_MIN_FREE` free, or free space that could not be read. `red` is the check
+a model or sandbox image that cannot take the images. `disk` is less than `TEHAS_CYCLE_MIN_FREE` free on the file system of `~/tehas`
+or on the one Docker keeps its images on, or free space that could not be read.
+Both warn, as a full disk and an unreadable one hold every start: `output` is
+the line the poll logged. A host whose `df` or Docker is broken is told of by
+the same word as a host that needs space, and the line says which of the two it
+is. `red` is the check
 `TEHAS_BRANCH_CHECK` names, failed on the branch's head commit. `awaiting` and `room`
 are also given, with cycles starting, when the awaiting-merge limit or the
 slice's room let fewer start than there are free slots and issues waiting;

@@ -1314,6 +1314,24 @@ for why in slice unreadable; do
   t_contains "$t_out" "slice     holding: no slice file on this host (sudo ./bootstrap.sh slice) (4"
 done
 
+t_case "health: a hold on the disk is a warning with the hold as output"
+# A full disk, and a disk whose figure cannot be read, both hold every start,
+# so /health warns and tehas status carries the line the poll logged. The two
+# share the word: neither names a number a person can fix.
+for hold in "holding: 1.0 GiB free on the disk, under TEHAS_CYCLE_MIN_FREE=10g: no cycle starts" "holding: the free disk space could not be read: no cycle starts"; do
+  t_case "health: the disk hold '$hold' is a warning"
+  reset
+  poll disk "$hold"
+  t_run "$status; $summary"
+  t_eq "$t_rc" 0
+  t_eq "$(jq -r .status "$live/health.json")" warn
+  t_eq "$(jq -r .output "$live/health.json")" "$hold"
+  t_eq "$(jq -r .checks.slice.why "$live/health.json")" disk
+  t_eq "$(find "$live" -name health.down | wc -l)" 0
+  t_contains "$t_out" "factory   warn: $hold"
+  t_contains "$t_out" "slice     $hold (4"
+done
+
 for why in count awaiting pressure room; do
   t_case "health: a hold for '$why' is not a warning, and tehas status still says it"
   reset

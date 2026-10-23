@@ -93,6 +93,16 @@ Run `tehas dispatch --dry-run` and read what it prints.
 - Any other `holding:` line that names the slice, Docker, `systemctl` or
   `TEHAS_CYCLE_RESERVE`: the slice cannot be used. See "The dispatcher holds
   on the slice" below.
+- `holding: <n> GiB free on the disk, under TEHAS_CYCLE_MIN_FREE=<value>: no
+  cycle starts`: less than `TEHAS_CYCLE_MIN_FREE` is free on the file system of
+  `~/tehas` or on the one Docker keeps its images on. Make room, or set the
+  bound lower. Running cycles and planning turns go on.
+- `holding: the free disk space could not be read: no cycle starts`: `df`, or
+  the `df` of the directory Docker names for its images, gave no figure. The
+  hold is the same as a full disk's, so a host whose `df` or Docker is broken
+  starts nothing either. Run `df -Pk ~/tehas`, `docker info --format
+  '{{.DockerRootDir}}'` and `df -Pk` of that directory as the tehas user: the
+  one that answers nothing is the one to fix.
 - `holding: N issues await merge (limit N)`: review and merge, or raise
   `TEHAS_MAX_AWAITING`.
 - `holding: N issues await merge and M cycles are running (limit N)`: running

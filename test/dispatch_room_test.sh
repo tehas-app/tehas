@@ -290,9 +290,19 @@ t_eq "$(t_calls fake-start)" ""
 # Docker keeps its images on have less free space than TEHAS_CYCLE_MIN_FREE.
 # The host of reset has 40 GB free on both, above the default minimum of 10g,
 # and Docker's own file system is one of the same size, so a case that wants
-# the two apart writes them with df_free_of.
+# the two apart writes them with df_free_of. The model endpoint is the hold
+# that sits above the disk's, so every case here brings its own answer for it:
+# a host that gets none from the stub holds on no resources before it ever
+# asks df.
+
+# asked <answer>: the endpoint of the host this case builds, and no more.
+asked() {
+  mesh_curl
+  mesh "$1"
+}
 
 t_case "a full disk: nothing starts, no label is edited, the dry run says the figure"
+asked '{"data":[{"id":"test-model"}]}'
 reset
 slots 2
 ready 7 8
@@ -310,6 +320,7 @@ t_contains "$t_out" "holding: 1.0 GiB free on the disk, under TEHAS_CYCLE_MIN_FR
 t_lacks "$t_out" "would run a cycle"
 
 t_case "at the minimum a ready issue starts, and the figure is not said"
+asked '{"data":[{"id":"test-model"}]}'
 reset
 slots 2
 ready 7 8
@@ -321,17 +332,18 @@ t_lacks "$t_out" "free on the disk"
 t_eq "$(jq -r .why "$dispatch_json")" ""
 
 t_case "one kilobyte under the minimum holds"
+asked '{"data":[{"id":"test-model"}]}'
 reset
 slots 2
 ready 7 8
 df_free 10
-kb_free=$((10 * 1048576 - 1))
-echo $kb_free >"$fx/free"
+printf '%s\n' "$(($(kb 10) - 1))" >"$fx/free"
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
 t_contains "$t_out" "holding: 9.9 GiB free on the disk, under TEHAS_CYCLE_MIN_FREE=10g: no cycle starts"
 
 t_case "the instance's minimum is the one that is asked of"
+asked '{"data":[{"id":"test-model"}]}'
 reset
 slots 2
 ready 7
@@ -342,6 +354,7 @@ t_eq "$(t_calls fake-start)" ""
 t_contains "$t_out" "holding: 30.0 GiB free on the disk, under TEHAS_CYCLE_MIN_FREE=40g: no cycle starts"
 
 t_case "the lesser of the two file systems decides"
+asked '{"data":[{"id":"test-model"}]}'
 reset
 slots 2
 ready 7 8
@@ -358,6 +371,7 @@ t_eq "$(t_calls fake-start)" ""
 t_contains "$t_out" "holding: 1.0 GiB free on the disk, under TEHAS_CYCLE_MIN_FREE=10g: no cycle starts"
 
 t_case "a disk whose free space cannot be read holds: no df, no docker info, and no number"
+asked '{"data":[{"id":"test-model"}]}'
 reset
 slots 2
 ready 7
@@ -397,6 +411,18 @@ t_eq "$(t_calls fake-start)" ""
 t_contains "$t_out" "holding: the free disk space could not be read: no cycle starts"
 t_run "$dispatch --dry-run"
 t_contains "$t_out" "holding: the free disk space could not be read: no cycle starts"
+reset
+slots 2
+ready 7
+# Docker is not there to name the file system of its images, so df is pointed
+# at the default, and that one cannot be read: the figure of ~/tehas is no
+# answer for it.
+df_free 40
+echo /var/lib/docker >"$fx/df-fails-of"
+: >"$fx/docker-down"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "holding: the free disk space could not be read: no cycle starts"
 
 sha=0123456789abcdef0123456789abcdef01234567
 # The one run of the check on the head commit, failed.
@@ -406,6 +432,7 @@ checks() {
 }
 
 t_case "the disk hold comes before the count, the limit and a red branch"
+asked '{"data":[{"id":"test-model"}]}'
 reset
 slots 1
 ready 7 8
@@ -422,7 +449,40 @@ t_run "$dispatch"
 t_eq "$(jq -r .why "$dispatch_json")" "disk"
 t_lacks "$t_out" "is red at"
 
+t_case "the slice and the model endpoint are told of before a full disk"
+# The three holds above the disk's keep their place: each of them holds a
+# planning turn too, and the disk does not, so a poll that said disk first
+# would hold work it must not. The last of the three is a poll whose endpoint
+# offers no model of ours: that answer, and only that one, lets the disk be
+# read at all, because the endpoint is asked first.
+mesh_curl
+reset
+slots 2
+ready 7
+df_free 1
+no_slice
+t_run "$dispatch"
+t_eq "$(jq -r .why "$dispatch_json")" "slice"
+t_contains "$t_out" "holding: no slice file on this host"
+reset
+slots 2
+ready 7
+df_free 1
+rm "$T_CGROUP/tehas.slice/memory.pressure"
+t_run "$dispatch"
+t_eq "$(jq -r .why "$dispatch_json")" "unreadable"
+reset
+slots 2
+ready 7
+df_free 1
+mesh
+t_run "$dispatch"
+t_eq "$(jq -r .why "$dispatch_json")" "resources"
+t_contains "$t_out" "holding: no resources: the model endpoint does not answer"
+t_lacks "$t_out" "free on the disk"
+
 t_case "a full disk does not hold a planning turn"
+asked '{"data":[{"id":"test-model"}]}'
 to_plan
 df_free 1
 t_run "$dispatch"
@@ -430,6 +490,7 @@ t_contains "$(plan_calls)" "--brief"
 t_lacks "$t_out" "would start a planning session"
 
 t_case "a full disk leaves a running cycle alone"
+asked '{"data":[{"id":"test-model"}]}'
 reset
 slots 2
 ready 7 8
@@ -443,6 +504,7 @@ t_contains "$t_out" "holding: 1.0 GiB free on the disk"
 release
 
 t_case "a full disk leaves the sweep of kept workspaces and the orphan labels alone"
+asked '{"data":[{"id":"test-model"}]}'
 reset
 no_slice
 df_free 1
