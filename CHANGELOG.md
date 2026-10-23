@@ -13,7 +13,9 @@ empty one above it.
 
 ### Changes
 
-- None yet.
+- `tehasbot top --every` reads the clock from bash instead of starting
+  `date` between snapshots. A `date` stopped mid-write printed "Broken pipe"
+  into the unit's log, and made a test fail now and then.
 
 ### Adopter action
 
