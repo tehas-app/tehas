@@ -100,7 +100,11 @@ t_eq "$(tehas_headless_mode "$scaps" planTurns)" native
 t_eq "$(tehas_headless_mode "$caps" planTurns)" off
 t_eq "$(tehas_headless_mode '{"features":{"planTurns":false}}' planTurns)" off
 t_eq "$(tehas_headless_mode '{"features":{"planTurns":"true"}}' planTurns)" off
-for bad in "" "not json" "[]" '{"features":[]}'; do t_eq "$(tehas_headless_mode "$bad" planTurns)" off; done
+for bad in "" "not json" "[]" '{"features":[]}'; do
+  t_run ". '$T_ROOT/lib/headless.sh'; tehas_headless_mode '$bad' planTurns"
+  t_eq "$t_out" error
+  t_eq "$t_rc" 1
+done
 
 t_case "a feature the answer lacks is a polyfill where tehas carries one, and native wins over it"
 mkdir -p "$T/lib"
@@ -112,6 +116,13 @@ t_run ". '$T/lib/headless.sh'; tehas_headless_mode '{\"features\":{}}' someFeatu
 t_eq "$t_out" "polyfill
 native
 off"
+
+t_case "an answer that cannot be read is error where tehas carries a polyfill, not polyfill"
+for bad in "" "not json" "[]" '{"features":[]}'; do
+  t_run ". '$T/lib/headless.sh'; tehas_headless_mode '$bad' someFeature"
+  t_eq "$t_out" error
+  t_eq "$t_rc" 1
+done
 
 t_case "a name that is no feature name is off, with status 1, and names no file"
 : >"$T/lib/polyfill-.sh"
