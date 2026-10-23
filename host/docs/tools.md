@@ -3358,7 +3358,7 @@ test.sh: the slowest files:
       6.1 s  test/dispatch_queue_test.sh
 test.sh: failed checks (2), not run (0)
     shellcheck
-    test/plan_test.sh
+FAILED: test/plan_test.sh: a case that did not pass
 ```
 
 The case total is the number to compare between runs: it does not go down
@@ -3394,6 +3394,15 @@ recorded result could not be read` for a record that is
 not a number, `its output could not be read` for a log the run cannot show.
 Control bytes in a file name become `?`. A line starting `skipped:` gives a
 check that did not run, with its reason.
+
+A failing test file whose own log carries a `FAIL:` line is named differently:
+the line starts with `FAILED:` in column 1, with no indent, and carries the
+first of those `FAIL:` lines after the path, so a gate that keeps only the end
+of the output says which case did not pass and not only which file. The text is
+cut to 200 characters and its control bytes become `?`, as they do in a name, so
+one case cannot print escapes or take the block's lines with it. A file with a
+reason and no `FAIL:` line of its own keeps the indented path, and one line per
+file is kept either way, so the size of the block does not change.
 
 The block is the last thing the run prints, and its size is derived from the
 lines `scripts/verify.sh` keeps at the end of this step, so it fits inside them

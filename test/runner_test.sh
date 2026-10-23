@@ -7,6 +7,21 @@
 # checkout with fake test files of its own and a stub lint, so what the block
 # says does not depend on whether this host has shellcheck installed.
 # shellcheck disable=SC2016  # fake files and stubs are expanded when they run
+# says does not depend on whether this host has shellcheck installed.
+#
+# Two spellings of the block's entries, so a case says which one it means: the
+# FAILED: line that names a test file's own first failing case, and the
+# indented path for a file with nothing of its own to show.
+fail_line() { # name [text]
+  printf 'FAILED: test/%s: %s\n' "$1" "${2:-$1 has a case that failed}"
+}
+bad_line() { # name [reason]
+  local e="    test/$1"
+  [ -n "${2:-}" ] && e=$e': '$2
+  printf '%s\n' "$e"
+}
+
+# shellcheck disable=SC2016  # fake files and stubs are expanded when they run
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
@@ -126,6 +141,40 @@ lint_refused() {
 exit 1'
 }
 
+# A fake test file whose own output carries FAIL: lines: one for rc >= 1 and a
+# second one for rc > 1, the first naming <case>. The runner reads the first
+# one for the block. The line reaches the file's command line through %q, so a
+# case name with a byte the shell would take is printed as that byte.
+fake_case() { # name rc case [lines]
+  local n=$1 rc=$2 case=$3 lines=${4:-1} i q lf
+  lf=$(printf 'x\nx')
+  lf=${lf/x/}
+  if ! [[ $rc =~ ^[0-9]+$ && $lines =~ ^[0-9]+$ ]] || [ "$rc" -gt 255 ] || [ "$lines" -gt 100 ]; then
+    broken="fake_case: $n needs an exit status of 0 to 255 and up to 100 lines, got $rc and $lines"
+    return 1
+  fi
+  case "$case" in
+    *"$lf"*)
+      broken="fake_case: $n needs a case name with no newline"
+      return 1
+      ;;
+  esac
+  {
+    echo '#!/usr/bin/env bash'
+    for ((i = 1; i <= lines; i++)); do
+      echo "echo ran $n line $i"
+    done
+    q=$(printf '%q' "$(printf 'FAIL: %s' "$case")")
+    printf 'echo %s\n' "$q"
+    if [ "$rc" -gt 1 ]; then
+      q=$(printf '%q' "$(printf 'FAIL: %s, and another' "$case")")
+      printf 'echo %s\n' "$q"
+    fi
+    echo "exit $rc"
+  } >"$repo/test/$n"
+  chmod +x "$repo/test/$n"
+}
+
 # The block that names what did not pass, the end of the run just made. The
 # lines above it name every file, among the slowest.
 block() { printf '%s\n' "$t_out" | sed -n '/^test\.sh: failed checks/,$p'; }
@@ -185,8 +234,8 @@ fake a_test.sh 1 20
 for n in b c d e f; do fake "${n}_test.sh" 0 20; done
 run
 t_eq "$t_rc" 1
-# Its own log is the first of six; the name is repeated at the end of the run.
-t_eq "$(tail_of 1)" "    test/a_test.sh"
+# Its own log is the first of six; the block names it with its failing case.
+t_eq "$(tail_of 1)" "$(fail_line a_test.sh)"
 # Names are relative to the checkout, so they are paths a person can open.
 t_lacks "$t_out" "$repo"
 
@@ -199,8 +248,8 @@ fake d_test.sh 0 2
 run
 t_eq "$t_rc" 1
 t_eq "$(tail_of 3)" "test.sh: failed checks (2), not run (0)
-    test/a_test.sh
-    test/c_test.sh"
+$(fail_line a_test.sh)
+$(fail_line c_test.sh)"
 t_lacks "$(block)" "test/b_test.sh"
 t_lacks "$(block)" "test/d_test.sh"
 
@@ -212,7 +261,7 @@ run
 t_eq "$t_rc" 1
 t_eq "$(tail_of 3)" "test.sh: failed checks (2), not run (0)
     shellcheck
-    test/a_test.sh"
+$(fail_line a_test.sh)"
 
 t_case "a shellcheck failure alone is named, and the test files are not"
 fresh
@@ -257,7 +306,7 @@ no_shellcheck
 t_eq "$t_rc" 1
 t_contains "$t_out" "WARN: shellcheck is not installed, skipping it"
 t_eq "$(tail_of 3)" "test.sh: failed checks (1), not run (1)
-    test/a_test.sh
+$(fail_line a_test.sh)
     skipped: shellcheck is not installed"
 
 t_case "a test file that never finished is named as one"
@@ -267,7 +316,7 @@ killed b_test.sh
 run
 t_eq "$t_rc" 1
 t_eq "$(tail_of 2)" "test.sh: failed checks (1), not run (0)
-    test/b_test.sh: it did not finish, no result recorded"
+$(bad_line b_test.sh 'it did not finish, no result recorded')"
 
 t_case "a test file whose record cannot be read is named as one"
 fresh
@@ -276,7 +325,7 @@ rc_gone b_test.sh
 run
 t_eq "$t_rc" 1
 t_eq "$(tail_of 2)" "test.sh: failed checks (1), not run (0)
-    test/b_test.sh: its recorded result could not be read"
+$(bad_line b_test.sh 'its recorded result could not be read')"
 
 t_case "a test file whose output cannot be read is a failed check"
 fresh
@@ -286,14 +335,80 @@ run
 t_eq "$t_rc" 1
 t_contains "$t_out" "test/b_test.sh: its output could not be read"
 t_eq "$(tail_of 2)" "test.sh: failed checks (1), not run (0)
-    test/b_test.sh: its output could not be read"
+$(bad_line b_test.sh 'its output could not be read')"
 
 t_case "a file name cannot forge a line of the block"
 fresh
 fake $'weird\tname_test.sh' 1 1
 run
 t_eq "$t_rc" 1
-t_eq "$(tail_of 1)" "    test/weird?name_test.sh"
+# The name is cleaned, and so is the case line: the fake file's own output
+# repeats the name it was given with the byte in it, and the byte is a ? here
+# too. (The shell that runs the file collapses that byte to a space on the way
+# through the fake, which is not the runner's doing.)
+t_eq "$(tail_of 1)" "FAILED: test/weird?name_test.sh: weird name_test.sh has a case that failed"
+
+# The name of the case comes from the file's own log, so it is data too.
+t_case "the block names the first failing case of a failing file"
+fresh
+fake_case a_test.sh 1 "a case that failed early"
+fake b_test.sh 0 2
+run
+t_eq "$t_rc" 1
+t_eq "$(block)" "test.sh: failed checks (1), not run (0)
+$(fail_line a_test.sh 'a case that failed early')"
+
+t_case "of two failing cases in a file the block names only the first"
+fresh
+fake_case a_test.sh 2 "the first one"
+run
+t_eq "$t_rc" 1
+# The second FAIL: line is still there, in the file's own output above the
+# block; the block itself says the first one once.
+t_contains "$t_out" "FAIL: the first one, and another"
+t_eq "$(tail_of 1)" "$(fail_line a_test.sh 'the first one')"
+t_eq "$(block)" "test.sh: failed checks (1), not run (0)
+$(fail_line a_test.sh 'the first one')"
+
+t_case "a case name with a control byte prints ?, like a file name does"
+fresh
+fake_case a_test.sh 1 $'a case\ttabbed'
+run
+t_eq "$t_rc" 1
+t_eq "$(tail_of 1)" "$(fail_line a_test.sh 'a case?tabbed')"
+
+t_case "a failing file whose log has no FAIL: line keeps its indented path"
+fresh
+# A file that fails by its exit status alone, with a line that only looks like
+# the marker from a distance: the runner reads a FAIL: line, not a word.
+printf '#!/usr/bin/env bash\necho ran a_test.sh\necho NOFAIL: not the marker\nexit 1\n' >"$repo/test/a_test.sh"
+chmod +x "$repo/test/a_test.sh"
+run
+t_eq "$t_rc" 1
+t_eq "$(tail_of 1)" "$(bad_line a_test.sh)"
+
+t_case "a failing file with a FAIL: line gives the tail scripts/verify.sh keeps a FAILED: marker"
+fresh
+fake_case a_test.sh 1 "a case that failed"
+for n in b c d e f; do fake "${n}_test.sh" 0 20; done
+for n in g h i j k; do fake "${n}_test.sh" 1 20; done
+run
+t_eq "$t_rc" 1
+# The whole point of the form: the marker is in column 1 of the last $keep
+# lines, where a caller that keeps only the end of the log can look for it.
+t_contains "$(tail_of "$keep")" "FAILED: test/a_test.sh: a case that failed"
+
+t_case "a case name is cut to 200 characters, so one line cannot grow past the block"
+fresh
+long=$(printf 'x%.0s' {1..300})
+fake_case a_test.sh 1 "a long case $long"
+run
+t_eq "$t_rc" 1
+line=$(tail_of 1)
+# 'FAILED: ', the path, ': ', then 200 characters of the case: 'a long case '
+# is 12 of them, so 188 x survive the cut.
+t_eq "${#line}" 224
+t_eq "${line##*case }" "$(printf 'x%.0s' {1..188})"
 
 t_case "the block fits the tail scripts/verify.sh keeps, even when every check fails"
 if ! [[ $keep =~ ^[1-9][0-9]*$ ]]; then
@@ -312,13 +427,18 @@ else
   many=$((keep + 4))
   last=$(printf 'f%02d_test.sh' "$many")
   for ((i = 1; i <= many; i++)); do
-    fake "$(printf 'f%02d' "$i")_test.sh" 1 1
+    # No FAIL: line: these entries keep the indented form the cap is measured
+    # with, and the block's size is what is at issue here, not its form.
+    printf '#!/usr/bin/env bash\necho ran f%02d_test.sh\nexit 1\n' "$i" >"$repo/test/$(printf 'f%02d' "$i")_test.sh"
+    chmod +x "$repo/test/$(printf 'f%02d' "$i")_test.sh"
   done
   run
   t_eq "$t_rc" 1
   # The count line and the last names survive the cut; the earliest ones do not.
+  # The failing files print no FAIL: line, so their entries keep the indented
+  # form this case measures the cap with.
   t_contains "$(tail_of "$keep")" "test.sh: failed checks ($many), not run (0)"
-  t_contains "$(tail_of "$keep")" "    test/$last"
+  t_contains "$(tail_of "$keep")" "$(bad_line "$last")"
   t_lacks "$(block)" "test/f01_test.sh"
   t_contains "$(tail_of 1)" "more, in the full log"
   t_fits
@@ -361,7 +481,7 @@ run
 T_ENV=(TEHAS_TEST_JOBS=1 TMPDIR="$recs")
 t_eq "$t_rc" 1
 t_eq "$(tail_of 2)" "test.sh: failed checks (1), not run (0)
-    test/b_test.sh: timed out after 1s"
+$(bad_line b_test.sh 'timed out after 1s')"
 t_eq "$((SECONDS - began < 15))" 1
 
 t_case "the run counts the cases of every file and names the slowest"
