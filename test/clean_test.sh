@@ -130,68 +130,85 @@ reset() {
 
 # An issue's kept workspace and the two directories beside it, all three days
 # old: what a cycle left, plus what a person would still want to read.
-# 7 is the issue; <issue> defaults to 7 and the suffix to nothing. A case that
-# wants one part of the tree young says which with the last argument: the rule
-# reads the age of the workspace, its state, its before-retry and the issue's
-# lock, so those are the paths worth naming.
-workspace() { # [issue] [suffix] [young paths...]
-  local n=${1:-7} suffix=${2-}
-  # The suffix names a tree of the issue only when it is one: `.before-retry`
-  # for the tree a retry moved aside, or nothing for the workspace itself. Any
-  # other word is a young path of the third kind, so a case that gives none
-  # cannot have the tree it did not mean.
-  case $suffix in
-    .*) shift 2 ;;
-    *) suffix=""; shift ;;
-  esac
+# 7 is the issue. `--retry` makes the tree a retry moved aside instead of the
+# workspace, and `--no-build-output` leaves out every name the cleaner would
+# take, for a case that wants a tree a person would still read and nothing a
+# toolchain made. Everything after those two is a young path: the rule reads the
+# age of the workspace, its state, its before-retry and the issue's lock, so
+# those are the paths worth naming. A young path of an issue whose tree is
+# missing is made first, so a case that dates what the cleaner reads never has
+# to know which trees it built.
+workspace() { # [issue] [--retry] [--no-build-output] [young paths...]
+  local n=${1:-7} suffix="" no_output=0
+  shift
+  while true; do
+    case "${1-}" in
+    --retry) suffix=.before-retry ;;
+    --no-build-output) no_output=1 ;;
+    *) break ;;
+    esac
+    shift
+  done
   local d=$workdir-$n$suffix s=$workdir-$n.state p
   # The issue's state tree belongs to the plain workspace alone: a retry moved
   # the workspace aside and left the state beside it, so the tree under the
   # suffix holds no cache, no memory and no sessions. The workspace itself holds
   # no dot-name of its own beyond its clone and what a container wrote in it.
-  if [ -z "$suffix" ]; then
+  if [ "$no_output" = 0 ]; then
     mkdir -p "$d/target/sub" "$d/node_modules/pkg" "$d/src" "$d/sub/target" \
       "$d/nested/target" "$d/.git" "$d/keep"
-    mkdir -p "$s/cache" "$s/memory" "$s/sessions"
-    echo idx >"$s/cache/index.db"
+  else
+    mkdir -p "$d/src" "$d/.git" "$d/keep"
+  fi
+  if [ -z "$suffix" ]; then
+    mkdir -p "$s/memory" "$s/sessions"
     echo m >"$s/memory/learned"
     echo p >"$s/sessions/one.jsonl"
-  else
-    mkdir -p "$d/target/sub" "$d/node_modules/pkg" "$d/src" "$d/sub/target" \
-      "$d/nested/target" "$d/.git" "$d/keep"
+    [ "$no_output" = 1 ] || {
+      mkdir -p "$s/cache"
+      echo idx >"$s/cache/index.db"
+    }
   fi
   echo keep >"$d/src/main.sh"
   echo keep >"$d/uncommitted"
   echo obj >"$d/.git/HEAD"
   echo keep >"$d/keep/notes"
-  echo big >"$d/target/sub/app"
-  echo big >"$d/node_modules/pkg/index.js"
-  echo big >"$d/sub/target/app"
-  echo big >"$d/nested/target/app"
+  if [ "$no_output" = 0 ]; then
+    echo big >"$d/target/sub/app"
+    echo big >"$d/node_modules/pkg/index.js"
+    echo big >"$d/sub/target/app"
+    echo big >"$d/nested/target/app"
+  fi
   # Every name written, the tree is dated last: the age rule reads the root of
   # the tree itself, so a root dated before these writes reads as young and the
   # whole of it is left alone. The lock the cycle of the issue made is dated
   # beside it, since a run removes under that lock and removes nothing at all
   # when it is not there to hold.
   : >"$cycles/$n.lock"
-  # The issue's state tree belongs to the age rule beside the two workspaces, so
-  # it is dated with them and after its own names are written: a second call for
-  # the suffix of a retry must not leave the state of the issue reading as young.
-  age "$d" "$d/target" "$d/node_modules" "$d/sub" "$d/sub/target" "$d/nested" \
-    "$d/nested/target" "$s" "$s/cache" "$cycles/$n.lock"
+  # Only the names this helper made are dated: a tree that was never written has
+  # nothing to date, and a touch that fails on it is an error on the fixture's
+  # own path, which the gate would never see.
+  local -a aged=("$d" "$cycles/$n.lock")
+  [ -e "$s" ] && aged+=("$s")
+  [ -e "$s/cache" ] && aged+=("$s/cache")
+  if [ "$no_output" = 0 ]; then
+    aged+=("$d/target" "$d/node_modules" "$d/sub" "$d/sub/target" "$d/nested"
+      "$d/nested/target")
+  fi
+  age "${aged[@]}"
   for p in "$@"; do
     # An empty word is a case that named no young path, not a path of its own.
-    [ -n "$p" ] && touch "$p"
+    [ -n "$p" ] || continue
+    [ -e "$p" ] || mkdir -p "${p%/*}"
+    touch "$p"
   done
 }
 age() { touch -d '3 days ago' "$@"; }
 
 # The clone of a worktree's own commit, read as a person would to ask whether
-# the tree is still there to read: through git, since git's own entry under a
-# worktree is not a directory of the tree but a file naming the gitdir of the
-# repository, written and pruned by git and no one else.
-is_worktree_head_kept() { # <worktree> -> there when its commit is still there
-  [ -n "$(git -C "$1" rev-parse HEAD 2>/dev/null)" ] && echo there
+# the tree is still there to read: through git.
+worktree_head() { # <worktree> -> the commit of the tree, nothing when git cannot name one
+  git -C "$1" rev-parse HEAD 2>/dev/null
 }
 
 # A worktree of a cycle under one root of an issue, three days old, the way the
@@ -203,18 +220,23 @@ is_worktree_head_kept() { # <worktree> -> there when its commit is still there
 # case, not by the cleaner.
 #
 # A real `git worktree add` makes the tree, so the fixture holds what git itself
-# writes: a `.git` file naming a gitdir, which is the one thing the cleaner reads
-# to know a worktree. The gitdir, which git keeps under the clone beside the
-# tree, is dated with the rest.
-worktree() { # <suffix> [name]
+# writes: a `.git` file naming a gitdir, which is what lets the cleaner ask git
+# of the tree. The gitdir, which git keeps under the clone beside the tree, is
+# dated with the rest. The helper answers with the tree it made on both streams:
+# standard output carries the value a case reads, and standard error the line a
+# case that wants no path lets go with it, so a case names the layout once rather
+# than spelling the directory and the default name out again.
+worktree() { # <suffix> [name] -> the path of the tree it made
   local n=7 suffix=${1-} name=${2-}
   [ -n "$name" ] || name=issue-$n-default
   local t=$workdir-$n$suffix/"$worktrees_dir"/$name
   # The clone the tree is made from, once under each root of the issue: what
   # makes the fixture's tree a worktree is that it is a worktree of something.
-  # The dot-name is what keeps it out of the walk of build output, which enters
-  # none; it is the fixture's own name and no part of what is run.
-  local from=$workdir-$n$suffix/.clean-fixture
+  # It lives in a directory of its own, outside the tree the cleaner is asked
+  # about, because the dot-name of a real worktree is a link into a `.git`
+  # directory and the cleaner refuses a candidate reached through a link. The
+  # clone is no part of what is run.
+  local from=$th/work/.clean-fixture-$n$suffix
   if [ ! -e "$from" ]; then
     mkdir -p "$from"
     git -C "$from" init -q
@@ -242,6 +264,8 @@ worktree() { # <suffix> [name]
     "$t" "$t/console" "$t/console/target" "$t/console/target/debug" \
     "$t/src" "$t/.git" "$t/.pi" "$t/.pi/agent" \
     "$(git -C "$t" rev-parse --absolute-git-dir)"
+  printf '%s\n' "$t"
+  printf '%s\n' "$t" >&2
 }
 
 # The directory the test's fixture makes its worktrees in. The cleaner names no
@@ -380,7 +404,7 @@ t_eq "$([ -e "$workdir-7/pkg/ext/target" ] && echo there)" ""
 
 t_case "a workspace touched within the age is left alone"
 reset
-workspace 7 "" "$workdir-7"
+workspace 7 "$workdir-7"
 t_run "$clean"
 t_eq "$t_rc" 0
 t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
@@ -517,33 +541,33 @@ t_lacks "$t_out" "clean: removed"
 t_case "the build output under a worktree of a cycle goes, and its dot-names stay"
 reset
 workspace
-worktree
+wt=$(worktree 2>/dev/null)
 # A worktree is a write in the workspace, which is one of the paths the age rule
 # reads: a case that adds a root ages the workspace for it.
 age "$workdir-7"
 t_run "$clean"
 t_eq "$t_rc" 0
-t_eq "$([ -e "$workdir-7/$worktrees_dir/issue-7-default/console/target" ] && echo there)" ""
-t_eq "$([ -e "$workdir-7/$worktrees_dir/issue-7-default/src/main.sh" ] && echo there)" "there"
-t_eq "$(is_worktree_head_kept "$workdir-7/$worktrees_dir/issue-7-default")" "there"
-t_eq "$([ -e "$workdir-7/$worktrees_dir/issue-7-default/.pi/agent/state.json" ] && echo there)" "there"
-t_contains "$t_out" "removed $workdir-7/$worktrees_dir/issue-7-default/console/target: build output of #7"
+t_eq "$([ -e "$wt/console/target" ] && echo there)" ""
+t_eq "$([ -e "$wt/src/main.sh" ] && echo there)" "there"
+t_eq "$([ -n "$(worktree_head "$wt")" ] && echo there)" "there"
+t_eq "$([ -e "$wt/.pi/agent/state.json" ] && echo there)" "there"
+t_contains "$t_out" "removed $wt/console/target: build output of #7"
 
 t_case "the build output under a second worktree of the same issue goes too"
 reset
 workspace
-worktree
+worktree >/dev/null 2>&1
 age "$workdir-7"
 # A second worktree of the same issue is a second root of the same run: the
 # clean-up of an idle issue takes all of them, not the first find names.
-worktree "" issue-7-alpha
-worktree "" issue-7-beta
+alpha=$(worktree "" issue-7-alpha 2>/dev/null)
+beta=$(worktree "" issue-7-beta 2>/dev/null)
 age "$workdir-7"
 t_run "$clean"
 t_eq "$t_rc" 0
-t_eq "$([ -e "$workdir-7/$worktrees_dir/issue-7-alpha/console/target" ] && echo there)" ""
-t_eq "$([ -e "$workdir-7/$worktrees_dir/issue-7-beta/console/target" ] && echo there)" ""
-t_contains "$t_out" "removed $workdir-7/$worktrees_dir/issue-7-beta/console/target: build output of #7"
+t_eq "$([ -e "$alpha/console/target" ] && echo there)" ""
+t_eq "$([ -e "$beta/console/target" ] && echo there)" ""
+t_contains "$t_out" "removed $beta/console/target: build output of #7"
 
 t_case "the build output of the tree a retry moved aside goes, and what it holds stays"
 reset
@@ -555,7 +579,9 @@ reset
 # to read - which is the state of a host this step was written for. The suffix
 # is the fixture's second argument, the first being the issue, so both are
 # named: one word alone would be read as the issue and would age nothing.
-workspace 7 .before-retry ""
+workspace 7 --retry
+# The retry's tree is there for its own sake here, so the state of the issue is
+# not made a second time by this call.
 t_run "$clean"
 t_eq "$t_rc" 0
 for gone in target node_modules sub/target nested/target; do
@@ -575,7 +601,7 @@ reset
 # workspace left the whole of the retry behind, at a gigabyte a tree on the host
 # this was written for.
 workspace
-workspace 7 .before-retry ""
+workspace 7 --retry
 age "$workdir-7" "$workdir-7.before-retry"
 t_run "$clean"
 t_eq "$t_rc" 0
@@ -589,17 +615,17 @@ t_contains "$t_out" "removed $workdir-7/target: build output of #7"
 t_case "a worktree under the tree a retry moved aside is a root of its own"
 reset
 workspace
-worktree .before-retry
+wt=$(worktree .before-retry 2>/dev/null)
 t_run "$clean"
 t_eq "$t_rc" 0
-t_eq "$([ -e "$workdir-7.before-retry/$worktrees_dir/issue-7-default/console/target" ] && echo there)" ""
-t_eq "$(is_worktree_head_kept "$workdir-7.before-retry/$worktrees_dir/issue-7-default")" "there"
-t_contains "$t_out" "removed $workdir-7.before-retry/$worktrees_dir/issue-7-default/console/target: build output of #7"
+t_eq "$([ -e "$wt/console/target" ] && echo there)" ""
+t_eq "$([ -n "$(worktree_head "$wt")" ] && echo there)" "there"
+t_contains "$t_out" "removed $wt/console/target: build output of #7"
 
 t_case "a link among the worktrees is not walked, and what it holds stays"
 reset
 workspace
-worktree "" issue-7-default
+wt=$(worktree "" issue-7-default 2>/dev/null)
 # A worktree that is a link: it stands outside the workspace and can hold
 # anything on the host, so step 1 walks none of it and removes none of it. The
 # roots beside it still go.
@@ -616,7 +642,7 @@ t_eq "$t_rc" 0
 t_eq "$([ -e "$T/outside/console/target/app" ] && echo there)" "there"
 t_eq "$([ -e "$T/outside/src/main.sh" ] && echo there)" "there"
 t_eq "$([ -L "$workdir-7/$worktrees_dir/linked" ] && echo link)" "link"
-t_eq "$([ -e "$workdir-7/$worktrees_dir/issue-7-default/console/target" ] && echo there)" ""
+t_eq "$([ -e "$wt/console/target" ] && echo there)" ""
 t_lacks "$t_out" "removed $T/outside/console/target"
 
 t_case "an empty worktrees directory is no root, and says nothing of its own"
@@ -636,46 +662,35 @@ t_lacks "$t_out" "$worktrees_dir: build output of #7"
 t_case "a worktree of an issue touched within the age is left with the rest"
 reset
 workspace
-worktree
+wt=$(worktree 2>/dev/null)
 # The age belongs to the issue, so the worktree of a young issue stays whatever
 # its own age: the tree of a retry is one of the paths the rule reads.
 touch "$workdir-7.before-retry"
 t_run "$clean"
 t_eq "$t_rc" 0
-t_eq "$([ -e "$workdir-7/$worktrees_dir/issue-7-default/console/target" ] && echo there)" "there"
+t_eq "$([ -e "$wt/console/target" ] && echo there)" "there"
 t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
-t_lacks "$t_out" "removed $workdir-7/$worktrees_dir/issue-7-default/console/target"
+t_lacks "$t_out" "removed $wt/console/target"
 
 t_case "a worktree of an issue whose cycle runs is left alone"
 reset
 workspace
-worktree
+wt=$(worktree 2>/dev/null)
 flock -n "$cycles/7.lock" sleep 5 &
 sleep 0.3
 t_run "$clean"
 t_eq "$t_rc" 0
-t_eq "$([ -e "$workdir-7/$worktrees_dir/issue-7-default/console/target" ] && echo there)" "there"
+t_eq "$([ -e "$wt/console/target" ] && echo there)" "there"
 t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
 wait
 
 t_case "an idle issue with no build output at all says so, and not that a lock is held"
 reset
-# The tree a person would still read, and nothing a toolchain made: no name of
-# TEHAS_CLEAN_DIRS anywhere, and no cache to take. The run of an earlier cleaner
+# The tree a person would still read, and nothing a toolchain made: the
+# fixture's own `--no-build-output`, which leaves out every name of
+# TEHAS_CLEAN_DIRS and the cycle's cache besides. The run of an earlier cleaner
 # said a lock was held for an issue like this one, which was not true of it.
-mkdir -p "$workdir-7/src" "$workdir-7/.git" "$workdir-7/keep" \
-  "$workdir-7.state/memory" "$workdir-7.state/sessions"
-echo keep >"$workdir-7/src/main.sh"
-echo obj >"$workdir-7/.git/HEAD"
-echo keep >"$workdir-7/keep/notes"
-echo m >"$workdir-7.state/memory/learned"
-echo p >"$workdir-7.state/sessions/one.jsonl"
-: >"$cycles/7.lock"
-age "$workdir-7" "$workdir-7/src" "$workdir-7/.git" "$workdir-7/.git/HEAD" \
-  "$workdir-7/keep" "$workdir-7/keep/notes" "$workdir-7.state" \
-  "$workdir-7.state/memory" "$workdir-7.state/memory/learned" \
-  "$workdir-7.state/sessions" "$workdir-7.state/sessions/one.jsonl" \
-  "$cycles/7.lock"
+workspace 7 --no-build-output
 t_run "$clean"
 t_eq "$t_rc" 0
 t_contains "$t_out" "nothing to remove in #7"
@@ -686,9 +701,10 @@ done
 
 t_case "an issue with nothing to remove in the dry run says nothing of a removal"
 reset
-mkdir -p "$workdir-7/src" "$cycles"
-echo keep >"$workdir-7/src/main.sh"
-age "$workdir-7" "$workdir-7/src"
+# No lock file of the issue either: what a preview says of an issue with nothing
+# to take is no line about a removal and no line about a lock.
+workspace 7 --no-build-output
+rm -f "$cycles/7.lock"
 t_run "$clean --dry-run"
 t_eq "$t_rc" 0
 t_lacks "$t_out" "would remove $workdir-7"
@@ -701,14 +717,7 @@ reset
 # there was nothing to take. The answer of the first belongs to its own turn, so
 # it neither lends a removal to the second nor borrows the lack of one.
 workspace
-mkdir -p "$workdir-8/src" "$workdir-8/.git" "$workdir-8.state/memory"
-echo keep >"$workdir-8/src/main.sh"
-echo obj >"$workdir-8/.git/HEAD"
-echo m >"$workdir-8.state/memory/learned"
-: >"$cycles/8.lock"
-age "$workdir-8" "$workdir-8/src" "$workdir-8/.git" "$workdir-8/.git/HEAD" \
-  "$workdir-8.state" "$workdir-8.state/memory" \
-  "$workdir-8.state/memory/learned" "$cycles/8.lock"
+workspace 8 --no-build-output
 t_run "$clean"
 t_eq "$t_rc" 0
 t_contains "$t_out" "removed $workdir-7/target: build output of #7"
@@ -718,23 +727,71 @@ t_lacks "$t_out" "kept the build output of #8: its lock is held"
 t_eq "$([ -e "$workdir-7/target" ] && echo there)" ""
 t_eq "$([ -e "$workdir-8/src/main.sh" ] && echo there)" "there"
 
+t_case "a worktree whose git record is touched within the age is left with its build output"
+reset
+workspace
+wt=$(worktree 2>/dev/null)
+# The tree of the worktree is old and so is the workspace that holds it: the one
+# thing that makes this issue young is the record git keeps of the worktree under
+# the clone beside it, which is not a name of the tree the walk sees. A cleaner
+# that dated only the trees of the issue would take the build output of a worktree
+# a cycle is at work in, which is the case this rule exists for.
+touch "$(git -C "$wt" rev-parse --absolute-git-dir)"
+age "$workdir-7"
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$wt/console/target" ] && echo there)" "there"
+t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
+t_lacks "$t_out" "removed $wt/console/target"
+t_contains "$t_out" "younger than $after_hours hours"
+
+t_case "a directory whose .git file only claims a gitdir is no root, and git is not asked of it"
+reset
+# The bytes of a .git file are container-writable, so a plain directory that
+# carries one of them is not a worktree of anything: git is asked of the tree,
+# gets no gitdir, and the run leaves the whole issue rather than walk a tree it
+# cannot date. Nothing of the issue is taken, which is what keeping it whole
+# means: the forged tree and the tree the forged gitdir names both stay.
+workspace
+mkdir -p "$workdir-7/$worktrees_dir/forged/target"
+printf 'gitdir: %s\n' "$th/dev/someone.state" >"$workdir-7/$worktrees_dir/forged/.git"
+mkdir -p "$th/dev/someone.state/target"
+echo big >"$workdir-7/$worktrees_dir/forged/target/app"
+echo big >"$th/dev/someone.state/target/app"
+age "$workdir-7/$worktrees_dir" "$workdir-7/$worktrees_dir/forged" \
+  "$workdir-7/$worktrees_dir/forged/target" "$workdir-7/$worktrees_dir/forged/.git" \
+  "$th/dev" "$th/dev/someone.state" "$th/dev/someone.state/target" \
+  "$th/dev/someone.state/target/app"
+age "$workdir-7"
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$workdir-7/$worktrees_dir/forged/target" ] && echo there)" "there"
+t_eq "$([ -e "$th/dev/someone.state/target/app" ] && echo there)" "there"
+# The forged tree is a root the age rule could not date, so the issue is left
+# whole: no removal is asked of any of its trees, which is the shape a young issue
+# already has and the line that reports it.
+t_contains "$t_out" "younger than"
+t_lacks "$t_out" "clean: removed"
+
 t_case "the dry run names the new roots it would take and removes none of them"
 reset
 # The issue has all four roots of this step: its workspace, the tree a retry
-# moved aside, and a worktree under each. `worktree` makes the tree it hangs a
-# worktree from only when the case made it first, so the two workspaces are built
-# here and the worktrees added under them.
+# moved aside, and a worktree under each. The worktrees hang from a clone of
+# their own, so each of the two trees is made before the worktree under it.
 workspace
-workspace 7 .before-retry
-worktree
-worktree .before-retry
-worktree .before-retry issue-7-beta
+workspace 7 --retry
+age "$workdir-7" "$workdir-7.before-retry"
+wt=$(worktree 2>/dev/null)
+retry_wt=$(worktree .before-retry 2>/dev/null)
+worktree .before-retry issue-7-beta >/dev/null 2>&1
 t_run "$clean --dry-run"
 t_eq "$t_rc" 0
-t_eq "$([ -e "$workdir-7/$worktrees_dir/issue-7-default/console/target" ] && echo there)" "there"
+t_eq "$([ -e "$wt/console/target" ] && echo there)" "there"
+t_eq "$([ -e "$retry_wt/console/target" ] && echo there)" "there"
 t_eq "$([ -e "$workdir-7.before-retry/target" ] && echo there)" "there"
 t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
-t_contains "$t_out" "would remove $workdir-7/$worktrees_dir/issue-7-default/console/target: build output of #7"
+t_contains "$t_out" "would remove $wt/console/target: build output of #7"
+t_contains "$t_out" "would remove $retry_wt/console/target: build output of #7"
 t_contains "$t_out" "would remove $workdir-7.before-retry/target: build output of #7"
 t_contains "$t_out" "would remove $workdir-7/target: build output of #7"
 t_lacks "$t_out" "clean: removed"

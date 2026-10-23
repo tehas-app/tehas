@@ -63,17 +63,23 @@ the workspace a retry moved aside, and each worktree under `.worktrees` of
 either, which a cycle makes in the workspace it was given and leaves where it
 stands with a clone of its own and that clone's build output under it. A worktree
 sits under a dot-name, so the walk of the workspace never reaches it: each is
-asked as a root of its own. An issue with no workspace left, only the tree a
+asked as a root of its own, and one that is a symlink is not walked at all. An
+issue with no workspace left, only the tree a
 retry moved aside, is asked too, since that is all of it the disk still holds.
 What the workspace keeps is what a person reads: `.git`, the sources, what the
-agents wrote there, uncommitted
-changes, and the `memory` and `sessions` of its `.state`. The cleaner runs no git
-command in a workspace, follows no symlink, and enters no dot-name, which is what
+agents wrote there, uncommitted changes, and the `memory` and `sessions` of its
+`.state`. The cleaner runs no git command in a workspace except to name the
+gitdir of a worktree, which is the one call it makes in a tree a cycle wrote:
+that call reads no system config, no config of the tree and no fsmonitor helper,
+and the issue is left whole when git cannot answer. It follows no symlink, and
+enters no dot-name, which is what
 keeps those trees out of the removal. It holds the issue's lock while it removes,
 so no cycle starts under it, and it removes nothing for an issue whose lock file
-is not there to hold. An issue with no build output in any of its trees says so
-in the log, in the same line as one whose lock was not there: the two are told
-apart. The 7-day sweep of the dispatcher still takes the workspace
+is not there to hold. An issue left alone is left alone for one of two reasons,
+and the log line names which: `kept the build output of #<issue>: no lock to
+hold, so nothing of it was removed` when its trees held build output and no lock
+could be taken, and `nothing to remove in #<issue>` when none of its trees held
+build output at all. The 7-day sweep of the dispatcher still takes the workspace
 itself. The build output of a manual session, `~/tehas/dev/<name>.state/target`,
 is the one build output the cleaner never takes: it walks no directory under
 `~/tehas/dev` for build-output names, and that tree is a person's call (see

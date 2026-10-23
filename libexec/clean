@@ -22,14 +22,16 @@
 #                                        sweep holds it, so no cycle starts
 #                                        meanwhile. .git, sources, what the
 #                                        agents wrote there, memory and
-#                                        sessions stay. It runs no git command
-#                                        in a workspace: a container has
-#                                        written in those trees, and a git
-#                                        config there can run commands on the
-#                                        host (see the header of libexec/work).
-#                                        It walks the tree with find -P and
-#                                        -xdev, follows no symlink, and does
-#                                        not go into .git.
+#                                        sessions stay. It asks git of those
+#                                        trees only to name the gitdir of a
+#                                        worktree: a container has written in
+#                                        them, so that one call reads no system
+#                                        config, no config of the tree and no
+#                                        fsmonitor helper, and fails closed
+#                                        when git cannot answer (see the header
+#                                        of libexec/work). It walks the tree
+#                                        with find -P and -xdev, follows no
+#                                        symlink, and does not go into .git.
 #                                        Nothing under $TEHAS_HOME/dev is in
 #                                        this step: the build output of a
 #                                        manual session, <name>.state/target,
@@ -185,8 +187,13 @@ name_tests() { # -> -name <q> -o -name <q> ...
 }
 
 # The build output of one tree: every directory under it that find names, one
-# path per line on standard output. Every dot-name is pruned, wherever it sits.
-# A workspace holds a clone and whatever a container wrote beside it, and the
+# path per record on standard output, each record ended by NUL. The tree arrives
+# as an argument rather than a line of a listing because a directory name can
+# hold a newline, and then a newline-separated listing cannot tell one tree from
+# two. Nothing is removed here, so the dry run and the run ask the same question
+# the same way.
+#
+# Every dot-name is pruned, wherever it sits. A workspace holds a clone and whatever a container wrote beside it, and the
 # trees that matter there -- the objects, the agent state, the memory -- are all
 # dot-names; every name an instance can put in TEHAS_CLEAN_DIRS is un-dotted,
 # so the rule gives up no build output. Pruning the whole class, rather than
@@ -199,67 +206,79 @@ name_tests() { # -> -name <q> -o -name <q> ...
 # The prune of every dot-name is also why the worktrees of a cycle are asked
 # from their own roots: a cycle makes them under a dot-name of the workspace,
 # which this walk never enters. roots_of names the roots step 1 asks instead.
-find_build_output() { # <tree> <find's -name tests> -> paths, one per line
+find_build_output() { # <tree as one argument> <find's -name tests> -> paths, NUL-terminated
   local p=$1 tests=$2
   [ -d "$p" ] || return 0
-  while IFS= read -r -d '' d; do printf '%s\n' "$d"; done < <(
-    eval "find -P \"\$p\" -xdev \\( -name '.*' -prune \\) -o \\
-      \\( -type d ! -type l \\( $tests \\) -print0 \\)" 2>/dev/null
-  )
+  eval "find -P \"\$p\" -xdev \\( -name '.*' -prune \\) -o \\
+    \\( -type d ! -type l \\( $tests \\) -print0 \\)" 2>/dev/null
 }
 
-# The roots of one issue that step 1 walks, one path per line: the workspace,
-# what a retry moved aside, and each git worktree made inside either. A cycle
-# makes its worktrees inside the workspace it was given, under a dot-name, where
-# the walk above never goes, and each holds a checkout of its own with the build
-# output of that checkout under it. A retry leaves both trees where they are
+# The roots of one issue that step 1 walks, one NUL-terminated path per record:
+# the workspace, what a retry moved aside, and each git worktree made inside
+# either. A cycle makes its worktrees inside the workspace it was given, under a
+# dot-name, where the walk above never goes, and each holds a checkout of its own
+# with the build output of that checkout under it. A retry leaves both trees where
+# they are
 # until the 7-day sweep takes them, so an idle week keeps the build output of
 # all of them unless they are named here.
 #
-# A worktree is known by what git makes of it and nothing else: its .git is a
-# file naming the gitdir of the tree, where a clone's .git is a directory, and
-# only git writes that file. So the tree is found by asking each directory
-# under the root one level deep, without naming the directory a cycle chose to
-# make them in, and without reading any state of the run.
+# A worktree is known by what its own tree says: its .git is a file naming the
+# gitdir of the tree, where a clone's .git is a directory. Those bytes are
+# container-writable, so the test is a heuristic that chooses which trees git is
+# asked about, and never the answer to whether one is a worktree: git answers
+# that for each candidate that passes, and a tree git cannot name a gitdir of is
+# no root and no removal.
 #
-# Only a real directory is a root, and only one directly under the tree: a link
-# stands outside the workspace, can hold anything on the host, and is the run's
-# to make, so it is not walked and stays while the roots beside it are taken.
-# An ordinary directory of the checkout is not a root either, since its .git is
-# not a file: what it holds belongs to the product and is the walk of the
-# workspace's own, which takes what it names. Nothing outside the issue's own
-# trees is named, so no path under $TEHAS_HOME/dev is ever reached by this.
-is_worktree() { # <dir> -> 0 when git made the dir a worktree of another tree
-  local d=$1
+# Only a real directory is a root, and only one of the depth the listing below
+# answers for: a link stands outside the workspace, can hold anything on the
+# host, and is the run's to make, so it is not walked and stays while the roots
+# beside it are taken. A directory on another device is refused too, as find's
+# -xdev refuses a descent across one. An ordinary directory of the checkout is
+# not a root either, since its .git is not a file: what it holds belongs to the
+# product and is the walk of the workspace's own, which takes what it names.
+# Nothing outside the issue's own trees is named, so no path under
+# $TEHAS_HOME/dev is ever reached by this.
+is_worktree() { # <dir> <device of the root that holds it> -> 0 when git may be asked of the dir
+  local d=$1 dev=$2
   [ -d "$d" ] || return 1
   [ ! -L "$d" ] || return 1
   [ -f "$d/.git" ] || return 1
-  grep -q '^gitdir:' "$d/.git" 2>/dev/null
+  grep -q '^gitdir:' "$d/.git" 2>/dev/null || return 1
+  [ "$(stat -c %d -- "$d" 2>/dev/null)" = "$dev" ]
 }
 
-roots_of() { # <the issue's workspace> -> roots, one per line
-  local p=$1 t w
+# The depth a cycle's worktrees sit at under the root that holds them. The
+# runner of this host puts its worktrees one directory below the workspace, so
+# a worktree answers at two; a runner that moves them off this depth finds none,
+# which costs build output left behind and not more, since what is not named as
+# a root is never walked. It is an assumption about the runner, not a fact of
+# git: git makes a worktree at any depth a person asks for.
+worktree_depth=2
+
+roots_of() { # <the issue's workspace> -> roots, one NUL-terminated path per record
+  local p=$1 t w dev
   # The workspace and the tree a retry moved aside are roots wherever they
   # stand, and no candidate of the listing below can stand in for them: the
-  # listing looks only one level under each, and asks of every one of them
-  # whether git made it a worktree.
-  [ -d "$p" ] && printf '%s\n' "$p"
-  [ -d "$p.before-retry" ] && printf '%s\n' "$p.before-retry"
+  # listing looks only one level under each, which is one level short of the
+  # depth a worktree of the runner sits at, and asks of every candidate at that
+  # depth whether git may be asked about it.
+  [ -d "$p" ] && printf '%s\0' "$p"
+  [ -d "$p.before-retry" ] && printf '%s\0' "$p.before-retry"
   for t in "$p" "$p.before-retry"; do
     [ -d "$t" ] || continue
-    # A cycle makes its worktrees in a directory of its own inside the workspace,
-    # so a worktree sits two levels under the root: every directory at that depth
-    # is a candidate, and the test of each is made on the path rather than on what
-    # find answers. The walk is the logical one, -L: git's own record of a worktree
-    # sits under a name of the repository that is a symlink, and the physical walk
-    # never enters a link, so it answers no worktree at all. -L is asked of these
-    # two levels only, and every candidate is tried before it is named: a link is
-    # turned down as it always was, so nothing outside the issue's trees is walked
-    # and no path is reached through a link. The depth is git's own and bounds the
-    # walk of a large clone: a worktree of a worktree is not what a cycle makes.
-    while IFS= read -r w; do
-      [ -n "$w" ] && is_worktree "$w" && printf '%s\n' "$w"
-    done < <(find -L "$t" -mindepth 2 -maxdepth 2 -type d -print 2>/dev/null)
+    # The candidates are the directories one level under the root, listed
+    # physically, and the worktree of each is the directory one level under that,
+    # tested on its own path. A `-L` walk of the two levels is not asked of find:
+    # it dereferences every directory of the first, so one link in a tree a
+    # container wrote would make the traversal as large as whatever it points at
+    # on the host, and the only reader of that walk refuses a link anyway.
+    dev=$(stat -c %d -- "$t" 2>/dev/null) || continue
+    [ -n "$dev" ] || continue
+    while IFS= read -r -d '' w; do
+      is_worktree "$w" "$dev" &&
+        printf '%s\0' "$w"
+    done < <(find "$t" -mindepth "$worktree_depth" -maxdepth "$worktree_depth" \
+      -type d -print0 2>/dev/null)
   done
   return 0
 }
@@ -270,11 +289,18 @@ roots_of() { # <the issue's workspace> -> roots, one per line
 # tree the cleaner cannot date is a tree it does not touch. A path that is not
 # there has been touched as little as one that is, so it is skipped.
 #
-# Each path that git made a worktree brings its gitdir with it, read through git
-# itself: the tree a worktree holds can be old while the record git keeps of it
-# under the repository beside it is new, and a cycle that is at work in a
-# worktree is at work in the issue. One git cannot answer for is a git it cannot
-# date, and the issue is left whole.
+# Each path that a .git file of its own calls a worktree brings its gitdir with
+# it, read through git itself: the tree a worktree holds can be old while the
+# record git keeps of it under the repository beside it is new, and a cycle that
+# is at work in a worktree is at work in the issue. One git cannot answer for is
+# a git it cannot date, and the issue is left whole.
+#
+# Those bytes are container-writable, so this is the one git call the cleaner
+# makes in a tree a cycle wrote, and it is pinned three ways: bounded, since a
+# git that wedges must not wedge the timer with it; no system config and none of
+# the tree's own, since a config there can name a helper to run on the host; and
+# its answer checked for the shape of a path before find is asked of it, as
+# bytes_of checks what du gave it.
 untouched_for_hours() { # <issue> <paths...>
   local n=$1 p young gitdir
   shift
@@ -283,8 +309,11 @@ untouched_for_hours() { # <issue> <paths...>
     young=$(find "$p" -maxdepth 0 -newermt "-$after hours" 2>/dev/null) || return 1
     [ -n "$young" ] && return 1
     if [ -f "$p/.git" ]; then
-      gitdir=$(git -C "$p" rev-parse --absolute-git-dir 2>/dev/null) || return 1
-      [ -n "$gitdir" ] || return 1
+      gitdir=$(timeout -k 5 30 env GIT_CONFIG_NOSYSTEM=1 HOME=/nonexistent \
+        git -C "$p" -c core.fsmonitor=false rev-parse --absolute-git-dir \
+        2>/dev/null) || return 1
+      [[ ${gitdir:-} =~ ^/ ]] || return 1
+      [ -d "$gitdir" ] || return 1
       young=$(find "$gitdir" -maxdepth 0 -newermt "-$after hours" 2>/dev/null) ||
         return 1
       [ -n "$young" ] && return 1
@@ -326,8 +355,13 @@ remove_under_lock() { # <issue> <path>
 # person to read, until the 7-day sweep takes the workspace itself.
 clean_workspaces() {
   local -a dirs=()
-  local p n d kb tests paths roots state retry held wrote issue_failed seen failed=0
+  local p n kb tests state retry wrote found_output lock_missing failed=0
   local -a root_list=()
+  local -A seen=()
+  # The flag of the whole command, checked here rather than trusted: a value that
+  # is neither of the two makes the preview print removals it did not make, or the
+  # run print `would remove` lines while it removes.
+  [ "$dry" = 1 ] || dry=0
   [ -d "$works" ] || return 0
   read -r -a dirs <<<"$TEHAS_CLEAN_DIRS"
   [ "${#dirs[@]}" -gt 0 ] || return 0
@@ -337,13 +371,15 @@ clean_workspaces() {
   # the tree of a retry is met too, which is the shape of a host this step was
   # written for: the workspace of the cycle that merged is gone and the retry's
   # tree is all the issue has beside its state. `seen` is what asks of an issue
-  # once, so one run neither logs an issue twice nor walks a root twice.
-  seen=""
+  # once, so one run neither logs an issue twice nor walks a root twice. The two
+  # listings of the loop are sorted each on its own, so the same issue can be met
+  # twice with another between the two turns: membership of a set, not the last
+  # name seen, is what makes it once.
   for p in "$works/$base"-* "$works/$base"-*.before-retry; do
     [[ ${p##*/} =~ ^"$base"-([1-9][0-9]{0,9})(\.before-retry)?$ ]] || continue
     n=${BASH_REMATCH[1]}
-    [ "$seen" != "$n" ] || continue
-    seen=$n
+    [ -z "${seen[$n]+set}" ] || continue
+    seen[$n]=1
     # The workspace of the issue is the root the others hang from, whichever of
     # the two names this listing reached: the sweep of libexec/dispatch keeps the
     # trees of an issue together, so naming one names the issue.
@@ -364,72 +400,86 @@ clean_workspaces() {
     # answered before any of them is walked: a tree made a minute ago is a write
     # in the workspace that holds it, and its build output is the youngest thing
     # in it, so an issue with a young worktree is left whole.
-    roots=$(roots_of "$p")
-    # Words, not one string: a path of the workspace can hold a space, and the
-    # age rule is asked of each root as one path.
-    mapfile -t root_list <<<"$roots"
+    #
+    # The one listing is what the age rule is answered for and what the walk
+    # removes: a root the run never dated is not a root it takes away. NUL is the
+    # separator end to end, so a path with a newline in it is one root rather than
+    # two, and an issue with no root at all is asked of nothing rather than of one
+    # path that is not a root.
+    mapfile -t -d '' root_list < <(roots_of "$p")
     untouched_for_hours "$n" "$p" "$state" "$retry" "${root_list[@]}" || {
       [ -e "$p" ] || continue
       log "kept the build output of #$n: something of it is younger than $after hours"
       continue
     }
-    roots=$(roots_of "$p")
-    if [ "$dry" = 1 ]; then
-      while IFS= read -r d; do
-        [ -n "$d" ] || continue
-        paths=$(find_build_output "$d" "$tests")
-        while IFS= read -r found; do
-          [ -n "$found" ] &&
-            log "would remove $found: build output of #$n, untouched for $after hours"
-        done <<<"$paths"
-      done <<<"$roots"
-      is_cache_dir "$state" &&
-        log "would remove $state/cache: the code index copy of #$n, untouched for $after hours"
-      continue
-    fi
-    # The two answers a run gives back when it removed nothing, told apart
-    # here: a lock that was not there to hold, and a tree with no build output
-    # in it. held records that at least one removal of this issue was taken under
-    # the lock; wrote that this issue's log line is already there. Both belong to
-    # one issue, so both start again at the top of each turn: an earlier issue
-    # that removed under its lock says nothing of this one.
-    held=0
+    # The answers a run gives back when it removed nothing of an issue, told
+    # apart here: build output it could not take because the lock was not there
+    # to hold, and trees that hold no build output at all. wrote records that a
+    # removal of this issue was taken; found_output that build output of the
+    # issue was met, whether it went or not; lock_missing that a met removal was
+    # refused by a lock the run could not take. A run that met nothing says
+    # nothing of a lock, and a run that met something and took none of it does
+    # not report that as a tree with nothing in it. All three belong to one
+    # issue, so all start again at the top of each turn: an earlier issue that
+    # removed under its lock says nothing of this one.
     wrote=0
-    issue_failed=0
-    while IFS= read -r d; do
-      [ -n "$d" ] || continue
-      paths=$(find_build_output "$d" "$tests")
-      while IFS= read -r found; do
+    found_output=0
+    lock_missing=0
+    for root in "${root_list[@]}"; do
+      [ -n "$root" ] || continue
+      while IFS= read -r -d '' found; do
         [ -n "$found" ] || continue
         [ -d "$found" ] && [ ! -L "$found" ] || continue
+        found_output=1
+        # The dry run answers the same question the removal asks and prints what
+        # it would take: one walk, so a preview can never name a path the run
+        # then leaves, nor leave one it names.
+        if [ "$dry" = 1 ]; then
+          log "would remove $found: build output of #$n, untouched for $after hours"
+          continue
+        fi
         kb=$(bytes_of "$found")
         if remove_under_lock "$n" "$found"; then
-          held=1
           wrote=1
           freed=$((freed + kb))
           log "removed $found: build output of #$n, $kb bytes"
         elif [ -e "$found" ]; then
+          # The lock could not be taken for this path: either a cycle holds it,
+          # or there is no lock file to take. The run cannot tell those apart
+          # from here, and reports the second, which is what dispatch says of the
+          # same refusal (libexec/dispatch, sweep_workspaces). A lock held by a
+          # cycle never reaches here: this turn ended at the running check, so a
+          # lock that is held now was taken between the two, and the age rule that
+          # passed a moment before keeps this issue whole for the next run.
           warn "could not remove $found"
+          lock_missing=1
           failed=1
-          issue_failed=1
         fi
-      done <<<"$paths"
-    done <<<"$roots"
+      done < <(find_build_output "$root" "$tests")
+    done
     if is_cache_dir "$state"; then
-      kb=$(bytes_of "$state/cache")
-      if remove_under_lock "$n" "$state/cache"; then
-        wrote=1
-        freed=$((freed + kb))
-        log "removed $state/cache: the code index copy of #$n, $kb bytes"
-      elif [ -e "$state/cache" ]; then
-        warn "could not remove $state/cache"
-        failed=1
-        issue_failed=1
+      found_output=1
+      if [ "$dry" = 1 ]; then
+        log "would remove $state/cache: the code index copy of #$n, untouched for $after hours"
+      else
+        kb=$(bytes_of "$state/cache")
+        if remove_under_lock "$n" "$state/cache"; then
+          wrote=1
+          freed=$((freed + kb))
+          log "removed $state/cache: the code index copy of #$n, $kb bytes"
+        elif [ -e "$state/cache" ]; then
+          warn "could not remove $state/cache"
+          lock_missing=1
+          failed=1
+        fi
       fi
     fi
-    if [ "$wrote" = 1 ]; then
-      [ "$held" = 1 ] || log "kept the build output of #$n: its lock is held"
-    elif [ "$issue_failed" = 0 ]; then
+    [ "$wrote" = 1 ] && continue
+    [ "$dry" = 0 ] || continue
+    if [ "$found_output" = 1 ]; then
+      [ "$lock_missing" = 1 ] &&
+        log "kept the build output of #$n: no lock to hold, so nothing of it was removed"
+    elif [ "$lock_missing" = 0 ]; then
       log "nothing to remove in #$n"
     fi
   done

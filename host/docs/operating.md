@@ -1063,8 +1063,9 @@ removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
 One line per removal and a closing line with the bytes freed go to
 `~/tehas/logs/clean.log`, and the same lines are printed, so a run by hand
 shows them in the terminal. An issue is left alone for one of two reasons, and
-the line says which: `kept the build output of #<issue>: its lock is held` when
-something was there to remove and the lock was not, and `nothing to remove in
+the line says which: `kept the build output of #<issue>: no lock to hold, so
+nothing of it was removed` when something was there to remove and the lock was
+not, and `nothing to remove in
 #<issue>` when none of its trees held build output at all. A timer run prints to
 the journal: what it refuses
 to do before it can open the log - settings it will not accept, another run

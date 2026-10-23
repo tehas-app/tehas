@@ -2472,13 +2472,20 @@ is logged as a warning while the others still run:
    lock is held while they go, as the 7-day sweep holds it, so no cycle starts
    meanwhile. What stays is what a person reads: `.git`, the sources, what the
    agents wrote there, uncommitted changes, `.state/memory` and
-   `.state/sessions`. It runs no git command in a workspace and follows no
+   `.state/sessions`. It runs no git command in a workspace except one:
+   to name the gitdir of a worktree for the age rule, in a tree a cycle wrote.
+   That call is bounded, reads no system config, none of the tree's own config
+   and no fsmonitor helper, and the issue is left whole when git cannot answer
+   for it. It follows no
    symlink (a link named `target` stays a link and what it points at is not
    touched). It enters no dot-name: every name `TEHAS_CLEAN_DIRS` can hold is
    un-dotted, so this gives up no build output, and it is what keeps a
    workspace's own trees, whatever a container called them, out of the removal.
    A removal needs the issue's lock to be there and freeable: no lock file, or
-   one that is not a plain file, means nothing is removed. The lock is taken
+   one that is not a plain file, means nothing is removed, and the log says so
+   with `kept the build output of #<issue>: no lock to hold, so nothing of it was
+   removed` - the line an issue with no build output in any of its trees does not
+   get, since it is reported as `nothing to remove in #<issue>`. The lock is taken
    for the instant of each removal. A manual session's build output,
    `~/tehas/dev/<name>.state/target`, is not in this step: the cleaner walks no
    directory under `~/tehas/dev` for build-output names, and that tree is a
